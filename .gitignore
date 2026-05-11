@@ -1,0 +1,84 @@
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+*~
+
+# Logs
+logs/
+*.log
+log/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Java
+target/
+*.class
+*.jar
+*.war
+*.ear
+*.zip
+*.tar.gz
+*.rar
+*.bak
+
+# Node
+node_modules/
+pnpm-lock.yaml
+yarn.lock
+package-lock.json
+dist/
+build/
+*.tsbuildinfo
+
+# UniApp/HBuilderX
+unpackage/
+
+# Environment
+.env.local
+.env.*.local
+
+#编译中间产物
+*.d.ts
+*.d.cts
+*.d.mts
+*.js.map
+
+# Test
+coverage/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+env/
+.venv/
+
+# Maven
+.mvn/
+mvnw
+mvnw.cmd
+
+# Docker
+.docker/
+
+# Database
+*.db
+*.sqlite
+*.db-journal
+
+# Archives
+*.zip
+*.tar
+*.gz

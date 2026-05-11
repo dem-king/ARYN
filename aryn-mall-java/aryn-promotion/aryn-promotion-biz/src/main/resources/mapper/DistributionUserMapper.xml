@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aryn.cloud.promotion.mapper.DistributionUserMapper">
+
+    <sql id="distributionUserSql">
+        distribution_user.id,
+        distribution_user.user_id,
+        distribution_user.nickname,
+        distribution_user.avatar,
+        distribution_user.inviter_user_id,
+        distribution_user.total_commission,
+        distribution_user.available_commission,
+        distribution_user.withdrawn_commission,
+        distribution_user.frozen_commission,
+        distribution_user.subordinate_count,
+        distribution_user.status,
+        distribution_user.create_time,
+        distribution_user.update_time,
+        distribution_user.del_flag,
+        distribution_user.create_by,
+        distribution_user.update_by,
+        distribution_user.version,
+        distribution_user.tenant_id
+    </sql>
+
+    <select id="selectAdminPage" resultType="com.aryn.cloud.promotion.api.entity.DistributionUser">
+        SELECT
+        <include refid="distributionUserSql"/>
+        FROM distribution_user AS distribution_user
+        <where>
+            AND distribution_user.del_flag = '0'
+            <if test="query.userId != null and query.userId != ''">
+                AND distribution_user.user_id = #{query.userId}
+            </if>
+            <if test="query.inviterUserId != null and query.inviterUserId != ''">
+                AND distribution_user.inviter_user_id = #{query.inviterUserId}
+            </if>
+            <if test="query.status != null and query.status != ''">
+                AND distribution_user.status = #{query.status}
+            </if>
+        </where>
+        ORDER BY distribution_user.create_time DESC
+    </select>
+
+</mapper>

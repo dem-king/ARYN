@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aryn.cloud.user.mapper.UserStatisticsMapper">
+
+    <select id="getUserOverview" resultType="com.aryn.cloud.user.api.vo.UserOverviewVO">
+        SELECT
+        COUNT(1) AS totalUserCount,
+        COUNT(CASE WHEN TO_DAYS(create_time) = TO_DAYS(NOW()) THEN 1 END) AS todayNewUserCount,
+        COUNT(CASE WHEN TO_DAYS(NOW()) - TO_DAYS(create_time) = 1 THEN 1 END) AS yesterdayNewUserCount,
+        COUNT(CASE WHEN DATE_FORMAT(create_time, '%Y%m') = DATE_FORMAT(CURDATE(), '%Y%m') THEN 1 END) AS monthNewUserCount,
+        COUNT(CASE WHEN TO_DAYS(NOW()) - TO_DAYS(create_time) &lt; 7 THEN 1 END) AS sevenDayNewUserCount,
+        COUNT(CASE WHEN TO_DAYS(NOW()) - TO_DAYS(create_time) &lt; 30 THEN 1 END) AS thirtyDayNewUserCount
+        FROM user_info
+        WHERE del_flag = '0'
+    </select>
+
+    <select id="getUserTrend" resultType="com.aryn.cloud.user.api.vo.UserTrendVO">
+        SELECT
+        DATE_FORMAT(create_time, #{format}) AS timePoint,
+        COUNT(id) AS newUserCount
+        FROM user_info
+        WHERE del_flag = '0'
+        AND create_time BETWEEN #{dto.startTime} AND #{dto.endTime}
+        GROUP BY timePoint
+        ORDER BY timePoint
+    </select>
+</mapper>

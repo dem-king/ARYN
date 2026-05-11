@@ -1,0 +1,351 @@
+services:
+  # ==================== 基础设施 ====================
+  aryn-mysql:
+    image: mysql:8.0
+    container_name: aryn-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: 123456
+      TZ: Asia/Shanghai
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./db/cloud:/docker-entrypoint-initdb.d
+    command:
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_general_ci
+      --lower-case-table-names=1
+      --max-connections=1024
+    networks:
+      - aryn-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p123456"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  aryn-redis:
+    image: redis:7-alpine
+    container_name: aryn-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --requirepass redis
+    networks:
+      - aryn-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redis", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  aryn-nacos:
+    image: nacos/nacos-server:v3.1.1
+    container_name: aryn-nacos
+    restart: always
+    environment:
+      MODE: standalone
+      SPRING_DATASOURCE_PLATFORM: mysql
+      MYSQL_SERVICE_HOST: aryn-mysql
+      MYSQL_SERVICE_PORT: 3306
+      MYSQL_SERVICE_DB_NAME: aryn_nacos
+      MYSQL_SERVICE_USER: root
+      MYSQL_SERVICE_PASSWORD: 123456
+      MYSQL_SERVICE_DB_PARAM: characterEncoding=utf8&connectTimeout=10000&socketTimeout=30000&autoReconnect=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+      JVM_XMS: 256m
+      JVM_XMX: 512m
+      JVM_XMN: 128m
+      NACOS_AUTH_ENABLE: "true"
+      NACOS_AUTH_TOKEN: SecretKey012345678901234567890123456789012345678901234567890123456789
+      NACOS_AUTH_IDENTITY_KEY: serverIdentity
+      NACOS_AUTH_IDENTITY_VALUE: security
+    ports:
+      - "8848:8848"
+      - "9848:9848"
+      - "9849:9849"
+    networks:
+      - aryn-net
+    depends_on:
+      aryn-mysql:
+        condition: service_healthy
+
+  aryn-rocketmq-namesrv:
+    image: apache/rocketmq:5.4.0
+    container_name: aryn-rocketmq-namesrv
+    restart: always
+    ports:
+      - "9876:9876"
+    environment:
+      JAVA_OPT_EXT: "-Xms256m -Xmx512m"
+    command: sh mqnamesrv
+    networks:
+      - aryn-net
+    healthcheck:
+      test: ["CMD-SHELL", "echo 'health check' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  aryn-rocketmq-broker:
+    image: apache/rocketmq:5.4.0
+    container_name: aryn-rocketmq-broker
+    restart: always
+    ports:
+      - "10911:10911"
+      - "10909:10909"
+    environment:
+      NAMESRV_ADDR: aryn-rocketmq-namesrv:9876
+      JAVA_OPT_EXT: "-Xms256m -Xmx512m"
+    command: sh mqbroker -n aryn-rocketmq-namesrv:9876 -c /home/rocketmq/rocketmq-5.4.0/conf/broker.conf
+    networks:
+      - aryn-net
+    depends_on:
+      aryn-rocketmq-namesrv:
+        condition: service_healthy
+
+  aryn-seata:
+    image: apache/seata-server:2.6.0
+    container_name: aryn-seata
+    restart: always
+    ports:
+      - "8091:8091"
+      - "7091:7091"
+    environment:
+      SEATA_PORT: 8091
+      STORE_MODE: file
+      SEATA_IP: aryn-seata
+    networks:
+      - aryn-net
+
+  # ==================== 业务服务 ====================
+  aryn-gateway:
+    build:
+      context: ./aryn-gateway
+      dockerfile: Dockerfile
+    pull_policy: never
+    container_name: aryn-gateway
+    restart: always
+    ports:
+      - "9999:9999"
+    environment:
+      SPRING_PROFILES_ACTIVE: cloud
+    networks:
+      - aryn-net
+    depends_on:
+      aryn-nacos:
+        condition: service_started
+      aryn-redis:
+        condition: service_healthy
+      aryn-upms-biz:
+        condition: service_healthy
+
+  aryn-auth:
+    build:
+      context: ./aryn-auth
+      dockerfile: Dockerfile
+    pull_policy: never
+    container_name: aryn-auth
+    restart: always
+    ports:
+      - "5227:5227"
+    environment:
+      SPRING_PROFILES_ACTIVE: cloud
+    networks:
+      - aryn-net
+    depends_on:
+      aryn-nacos:
+        condition: service_started
+      aryn-redis:
+        condition: service_healthy
+      aryn-upms-biz:
+        condition: service_healthy
+
+  aryn-upms-biz:
+    build:
+      context: ./aryn-upms/aryn-upms-biz
+      dockerfile: Dockerfile
+    pull_policy: never
+    container_name: aryn-upms-biz
+    restart: always
+    ports:
+      - "5327:5327"
+    environment:
+      SPRING_PROFILES_ACTIVE: cloud
+    networks:
+      - aryn-net
+    depends_on:
+      aryn-nacos:
+        condition: service_started
+      aryn-mysql:
+        condition: service_healthy
+      aryn-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/5327'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
+
+  aryn-user-biz:
+    build:
+      context: ./aryn-user/aryn-user-biz
+      dockerfile: Dockerfile
+    pull_policy: never
+    container_name: aryn-user-biz
+    restart: always
+    ports:
+      - "7527:7527"
+    environment:
+      SPRING_PROFILES_ACTIVE: cloud
+    networks:
+      - aryn-net
+    depends_on:
+      aryn-nacos:
+        condition: service_started
+      aryn-mysql:
+        condition: service_healthy
+      aryn-redis:
+        condition: service_healthy
+      aryn-upms-biz:
+        condition: service_healthy
+
+  aryn-order-biz:
+    build:
+      context: ./aryn-order/aryn-order-biz
+      dockerfile: Dockerfile
+    pull_policy: never
+    container_name: aryn-order-biz
+    restart: always
+    ports:
+      - "6400:6400"
+    environment:
+      SPRING_PROFILES_ACTIVE: cloud
+    networks:
+      - aryn-net
+    depends_on:
+      aryn-nacos:
+        condition: service_started
+      aryn-mysql:
+        condition: service_healthy
+      aryn-redis:
+        condition: service_healthy
+      aryn-rocketmq-namesrv:
+        condition: service_healthy
+      aryn-upms-biz:
+        condition: service_healthy
+
+  aryn-pay-biz:
+    build:
+      context: ./aryn-pay/aryn-pay-biz
+      dockerfile: Dockerfile
+    pull_policy: never
+    container_name: aryn-pay-biz
+    restart: always
+    ports:
+      - "6900:6900"
+    environment:
+      SPRING_PROFILES_ACTIVE: cloud
+    networks:
+      - aryn-net
+    depends_on:
+      aryn-nacos:
+        condition: service_started
+      aryn-mysql:
+        condition: service_healthy
+      aryn-redis:
+        condition: service_healthy
+      aryn-upms-biz:
+        condition: service_healthy
+
+  aryn-product-biz:
+    build:
+      context: ./aryn-product/aryn-product-biz
+      dockerfile: Dockerfile
+    pull_policy: never
+    container_name: aryn-product-biz
+    restart: always
+    ports:
+      - "6300:6300"
+    environment:
+      SPRING_PROFILES_ACTIVE: cloud
+    networks:
+      - aryn-net
+    depends_on:
+      aryn-nacos:
+        condition: service_started
+      aryn-mysql:
+        condition: service_healthy
+      aryn-redis:
+        condition: service_healthy
+      aryn-upms-biz:
+        condition: service_healthy
+
+  aryn-promotion-biz:
+    build:
+      context: ./aryn-promotion/aryn-promotion-biz
+      dockerfile: Dockerfile
+    pull_policy: never
+    container_name: aryn-promotion-biz
+    restart: always
+    ports:
+      - "6500:6500"
+    environment:
+      SPRING_PROFILES_ACTIVE: cloud
+    networks:
+      - aryn-net
+    depends_on:
+      aryn-nacos:
+        condition: service_started
+      aryn-mysql:
+        condition: service_healthy
+      aryn-redis:
+        condition: service_healthy
+      aryn-upms-biz:
+        condition: service_healthy
+
+#  aryn-monitor:
+#    build:
+#      context: ./aryn-visual/aryn-monitor
+#      dockerfile: Dockerfile
+#    image: aryn/aryn-monitor:2.1.1
+#    container_name: aryn-monitor
+#    restart: always
+#    ports:
+#      - "7001:7001"
+#    environment:
+#      SPRING_PROFILES_ACTIVE: cloud
+#    networks:
+#      - aryn-net
+#    depends_on:
+#      - aryn-nacos
+#
+#  aryn-generator:
+#    build:
+#      context: ./aryn-visual/aryn-generator
+#      dockerfile: Dockerfile
+#    image: aryn/aryn-generator:2.1.1
+#    container_name: aryn-generator
+#    restart: always
+#    ports:
+#      - "7003:7003"
+#    environment:
+#      SPRING_PROFILES_ACTIVE: cloud
+#    networks:
+#      - aryn-net
+#    depends_on:
+#      - aryn-nacos
+#      - aryn-mysql
+
+networks:
+  aryn-net:
+    name: aryn-net
+    driver: bridge
+
+
+volumes:
+  mysql-data:
+  redis-data:

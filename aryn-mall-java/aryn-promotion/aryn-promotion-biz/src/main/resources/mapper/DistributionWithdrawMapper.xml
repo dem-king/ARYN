@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aryn.cloud.promotion.mapper.DistributionWithdrawMapper">
+
+    <sql id="distributionWithdrawSql">
+        distribution_withdraw.id,
+        distribution_withdraw.withdraw_no,
+        distribution_withdraw.user_id,
+        distribution_withdraw.amount,
+        distribution_withdraw.account_type,
+        distribution_withdraw.account_no,
+        distribution_withdraw.account_name,
+        distribution_withdraw.status,
+        distribution_withdraw.audit_by,
+        distribution_withdraw.audit_time,
+        distribution_withdraw.reject_reason,
+        distribution_withdraw.remark,
+        distribution_withdraw.create_time,
+        distribution_withdraw.update_time,
+        distribution_withdraw.del_flag,
+        distribution_withdraw.version,
+        distribution_withdraw.tenant_id
+    </sql>
+
+    <select id="selectAdminPage" resultType="com.aryn.cloud.promotion.api.entity.DistributionWithdraw">
+        SELECT
+        <include refid="distributionWithdrawSql"/>
+        FROM distribution_withdraw AS distribution_withdraw
+        <where>
+            AND distribution_withdraw.del_flag = '0'
+            <if test="query.userId != null and query.userId != ''">
+                AND distribution_withdraw.user_id = #{query.userId}
+            </if>
+            <if test="query.status != null and query.status != ''">
+                AND distribution_withdraw.status = #{query.status}
+            </if>
+        </where>
+        ORDER BY distribution_withdraw.create_time DESC
+    </select>
+
+</mapper>

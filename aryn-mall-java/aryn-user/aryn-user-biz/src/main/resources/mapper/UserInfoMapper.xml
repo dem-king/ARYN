@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- 
+  Copyright (c) 2025 天启雨数科技有限公司 
+  All rights reserved. 
+  注意： 
+  本项目源代码由天启雨数科技有限公司原创开发，版权所有。 
+ -->
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aryn.cloud.user.mapper.UserInfoMapper">
+
+    <sql id="userInfoSql">
+        user_info
+        .
+        id
+        ,
+        user_info.nickname,
+        user_info.phone,
+        user_info.`password`,
+        user_info.sex,
+        user_info.avatar_url,
+        user_info.city,
+        user_info.province,
+        user_info.del_flag,
+        user_info.create_time,
+        user_info.update_time,
+        user_info.user_source,
+        user_info.member_level_id,
+        user_info.point,
+        user_info.balance,
+        user_info.total_consume
+    </sql>
+    <select id="selectAdminPage" resultType="com.aryn.cloud.user.api.vo.UserRespVO">
+        SELECT
+        <include refid="userInfoSql"/>,
+        member_level.level_name AS levelName
+        FROM
+        user_info AS user_info
+        LEFT JOIN member_level ON user_info.member_level_id = member_level.id AND member_level.del_flag = '0'
+        <where>
+            user_info.del_flag = '0'
+            <if test="query.phone !=null and query.phone !=''">
+                AND user_info.`phone` = #{query.phone}
+            </if>
+            <if test="query.sex !=null and query.sex !=''">
+                AND user_info.`sex` = #{query.sex}
+            </if>
+            <if test="query.userSource !=null and query.userSource !=''">
+                AND user_info.`user_source` = #{query.userSource}
+            </if>
+            <if test="query.memberLevelId !=null and query.memberLevelId !=''">
+                AND user_info.`member_level_id` = #{query.memberLevelId}
+            </if>
+        </where>
+        ORDER BY user_info.create_time DESC
+    </select>
+    <select id="selectUserById" resultType="com.aryn.cloud.user.api.vo.UserInfoVO">
+        SELECT user_info.nickname,
+               user_info.phone,
+               user_info.avatar_url
+        FROM user_info AS user_info
+        WHERE user_info.`id` = #{id}
+    </select>
+    <select id="sourceStatistics" resultType="com.aryn.cloud.user.api.vo.UserStatisticsVO">
+        SELECT
+            '微信小程序' AS title,
+            count( 1 ) AS count
+        FROM
+            user_info AS user_info
+        WHERE
+            user_info.del_flag = '0'
+          AND user_info.user_source = '0' UNION ALL
+        SELECT
+            'H5' AS title,
+            count( 1 ) AS count
+        FROM
+            user_info AS user_info
+        WHERE
+            user_info.del_flag = '0'
+          AND user_info.user_source = '1' UNION ALL
+        SELECT
+            'APP' AS title,
+            count( 1 ) AS count
+        FROM
+            user_info AS user_info
+        WHERE
+            user_info.del_flag = '0'
+          AND user_info.user_source = '2'
+    </select>
+</mapper>

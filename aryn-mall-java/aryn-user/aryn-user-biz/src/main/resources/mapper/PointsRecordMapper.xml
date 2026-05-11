@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aryn.cloud.user.mapper.PointsRecordMapper">
+
+    <select id="selectRecordPage" resultType="com.aryn.cloud.user.api.vo.PointsRecordVO">
+        SELECT
+            pr.id,
+            pr.user_id,
+            u.nickname,
+            pr.change_type,
+            pr.change_point,
+            pr.balance_after,
+            pr.trigger_scene,
+            pr.remark,
+            pr.create_time
+        FROM points_record pr
+        LEFT JOIN user_info u ON pr.user_id = u.id AND u.del_flag = '0'
+        <where>
+            <if test="nickname != null and nickname != ''">
+                AND u.nickname LIKE CONCAT('%', #{nickname}, '%')
+            </if>
+            <if test="changeType != null and changeType != ''">
+                AND pr.change_type = #{changeType}
+            </if>
+            <if test="beginTime != null and beginTime != ''">
+                AND pr.create_time &gt;= #{beginTime}
+            </if>
+            <if test="endTime != null and endTime != ''">
+                AND pr.create_time &lt;= #{endTime}
+            </if>
+        </where>
+        ORDER BY pr.create_time DESC
+    </select>
+
+    <select id="selectUserRecordPage" resultType="com.aryn.cloud.user.api.vo.PointsRecordVO">
+        SELECT
+            pr.id,
+            pr.user_id,
+            u.nickname,
+            pr.change_type,
+            pr.change_point,
+            pr.balance_after,
+            pr.trigger_scene,
+            pr.remark,
+            pr.create_time
+        FROM points_record pr
+        LEFT JOIN user_info u ON pr.user_id = u.id AND u.del_flag = '0'
+        WHERE pr.user_id = #{userId}
+        ORDER BY pr.create_time DESC
+    </select>
+
+</mapper>

@@ -1,0 +1,17 @@
+{
+  "id": "2026-05-08T10-05-30_lint-deps_SysLogListener",
+  "timestamp": "2026-05-08T10:05:30.511919",
+  "task_id": "",
+  "check_type": "lint-deps",
+  "severity": "error",
+  "source_module": "aryn-common-log",
+  "source_layer": 1,
+  "target_module": "aryn-upms-api",
+  "target_layer": 3,
+  "issue_type": "",
+  "file": "aryn-common/aryn-common-log/src/main/java/.../event/SysLogListener.java",
+  "line": 8,
+  "message": "Layer 1 packages (aryn-common-log) CANNOT import Layer 3 packages (aryn-upms-api).",
+  "resolution": "not_fixed",
+  "resolution_time": null
+}

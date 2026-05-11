@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aryn.cloud.promotion.mapper.GroupBuyRecordMapper">
+
+    <sql id="groupBuyRecordSql">
+        group_buy_record.id,
+        group_buy_record.activity_id,
+        group_buy_record.spu_id,
+        group_buy_record.sku_id,
+        group_buy_record.group_price,
+        group_buy_record.group_num,
+        group_buy_record.current_num,
+        group_buy_record.leader_user_id,
+        group_buy_record.group_status,
+        group_buy_record.expire_at,
+        group_buy_record.success_at,
+        group_buy_record.create_by,
+        group_buy_record.create_time,
+        group_buy_record.update_by,
+        group_buy_record.update_time,
+        group_buy_record.del_flag,
+        group_buy_record.version,
+        group_buy_record.tenant_id
+    </sql>
+
+    <select id="selectPageByActivityId" resultType="com.aryn.cloud.promotion.api.entity.GroupBuyRecord">
+        SELECT
+        <include refid="groupBuyRecordSql"/>
+        FROM group_buy_record
+        WHERE group_buy_record.del_flag = '0'
+        AND group_buy_record.activity_id = #{activityId}
+        ORDER BY group_buy_record.create_time DESC
+    </select>
+
+    <select id="selectExpiredGroup" resultType="com.aryn.cloud.promotion.api.entity.GroupBuyRecord">
+        SELECT
+        <include refid="groupBuyRecordSql"/>
+        FROM group_buy_record
+        WHERE group_buy_record.del_flag = '0'
+        AND group_buy_record.group_status = '0'
+        AND group_buy_record.expire_at &lt; NOW()
+    </select>
+
+</mapper>

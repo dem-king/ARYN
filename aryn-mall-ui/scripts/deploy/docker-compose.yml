@@ -1,0 +1,15 @@
+services:
+  aryn-ui-pro:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aryn-ui-pro
+    ports:
+      - "80:80"
+    restart: unless-stopped
+    networks:
+      - aryn-pro-net
+
+networks:
+  aryn-pro-net:
+    external: true

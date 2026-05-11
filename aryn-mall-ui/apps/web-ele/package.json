@@ -1,0 +1,61 @@
+{
+  "name": "@vben/web-ele",
+  "version": "3.2.1",
+  "homepage": "https://www.aryn.co",
+  "bugs": "https://gitee.com/aetheryn/aryn-mall/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://gitee.com/aetheryn/aryn-mall.git",
+    "directory": "apps/web-ele"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "aryn",
+    "email": "aryntech@163.com",
+    "url": "https://gitee.com/aetheryn/aryn-mall"
+  },
+  "type": "module",
+  "scripts": {
+    "build": "pnpm vite build --mode production",
+    "build:analyze": "pnpm vite build --mode analyze",
+    "dev": "pnpm vite --mode development",
+    "preview": "vite preview",
+    "typecheck": "vue-tsc --noEmit --skipLibCheck"
+  },
+  "imports": {
+    "#/*": "./src/*"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.1",
+    "@vben/access": "workspace:*",
+    "@vben/common-ui": "workspace:*",
+    "@vben/constants": "workspace:*",
+    "@vben/hooks": "workspace:*",
+    "@vben/icons": "workspace:*",
+    "@vben/layouts": "workspace:*",
+    "@vben/locales": "workspace:*",
+    "@vben/plugins": "workspace:*",
+    "@vben/preferences": "workspace:*",
+    "@vben/request": "workspace:*",
+    "@vben/stores": "workspace:*",
+    "@vben/styles": "workspace:*",
+    "@vben/types": "workspace:*",
+    "@vben/utils": "workspace:*",
+    "@vueuse/core": "catalog:",
+    "@vueuse/integrations": "catalog:",
+    "@wangeditor/editor": "^5.1.23",
+    "@wangeditor/editor-for-vue": "^5.1.12",
+    "crypto-js": "^4.2.0",
+    "dayjs": "catalog:",
+    "element-plus": "catalog:",
+    "nanoid": "^5.1.5",
+    "pinia": "catalog:",
+    "vue": "catalog:",
+    "vue-clipboard3": "^2.0.0",
+    "vue-router": "catalog:",
+    "vuedraggable": "^4.1.0"
+  },
+  "devDependencies": {
+    "unplugin-element-plus": "catalog:"
+  }
+}

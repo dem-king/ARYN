@@ -1,0 +1,4 @@
+com.aryn.cloud.common.security.handler.ArynGlobalExceptionHandlerResolver
+com.aryn.cloud.common.security.config.SaTokenConfigure
+com.aryn.cloud.common.security.service.impl.ArynPermissionsImpl
+com.aryn.cloud.common.security.aspect.ArynInnerAopAspect

@@ -1,0 +1,17 @@
+{
+  "id": "2026-05-08T10-05-31_lint-quality_UserOrderController",
+  "timestamp": "2026-05-08T10:05:31.041653",
+  "task_id": "",
+  "check_type": "lint-quality",
+  "severity": "error",
+  "source_module": "",
+  "source_layer": -1,
+  "target_module": "",
+  "target_layer": -1,
+  "issue_type": "forbidden_output",
+  "file": "aryn-user/aryn-user-biz/src/main/java/.../UserOrderController.java",
+  "line": 23,
+  "message": "System.out.println - use @Slf4j + log.info()",
+  "resolution": "not_fixed",
+  "resolution_time": null
+}

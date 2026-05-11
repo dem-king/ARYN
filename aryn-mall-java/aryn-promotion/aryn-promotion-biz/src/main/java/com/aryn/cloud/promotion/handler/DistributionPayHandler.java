@@ -1,0 +1,45 @@
+
+package com.aryn.cloud.promotion.handler;
+
+import com.aryn.cloud.common.core.entity.OrderPaySuccessEvent;
+import com.aryn.cloud.promotion.api.dto.DistributionSettleDTO;
+import com.aryn.cloud.promotion.service.IDistributionSettlementService;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+
+/**
+ * 分销-订单支付成功事件处理
+ * <p>
+ * 订单支付成功后自动触发分销归因结算
+ *
+ * @author 雨滴kian
+ * @date 2025/4/8
+ */
+@Slf4j
+@Component
+@RequiredArgsConstructor
+public class DistributionPayHandler implements PromotionPayEventHandler {
+
+	private final IDistributionSettlementService distributionSettlementService;
+
+	@Override
+	public void handle(OrderPaySuccessEvent event) {
+		log.info("分销支付事件处理开始 orderId={}, userId={}, paymentPrice={}",
+			event.getOrderId(), event.getUserId(), event.getPaymentPrice());
+
+		try {
+			DistributionSettleDTO dto = new DistributionSettleDTO();
+			dto.setOrderId(event.getOrderId());
+			dto.setBuyerUserId(event.getUserId());
+			dto.setOrderAmount(event.getPaymentPrice());
+
+			Boolean settled = distributionSettlementService.settleOrder(dto);
+			log.info("分销支付事件处理完成 orderId={}, settled={}", event.getOrderId(), settled);
+		}
+		catch (Exception e) {
+			log.error("分销支付事件处理异常 orderId={}", event.getOrderId(), e);
+		}
+	}
+
+}

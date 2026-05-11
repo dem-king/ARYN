@@ -1,0 +1,112 @@
+services:
+  aryn-boot-mysql:
+    image: mysql:8.0
+    container_name: aryn-boot-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: wqy123456
+      TZ: Asia/Shanghai
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./db/boot:/docker-entrypoint-initdb.d
+    command:
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_general_ci
+      --lower-case-table-names=1
+      --max-connections=1024
+    networks:
+      - aryn-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  aryn-boot-redis:
+    image: redis:7-alpine
+    container_name: aryn-boot-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --requirepass redis
+    networks:
+      - aryn-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redis", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  aryn-boot-rocketmq-namesrv:
+    image: apache/rocketmq:5.4.0
+    container_name: aryn-boot-rocketmq-namesrv
+    restart: always
+    ports:
+      - "9876:9876"
+    environment:
+      JAVA_OPT_EXT: "-Xms256m -Xmx512m"
+    command: sh mqnamesrv
+    networks:
+      - aryn-net
+    healthcheck:
+      test: ["CMD-SHELL", "echo 'health check' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  aryn-boot-rocketmq-broker:
+    image: apache/rocketmq:5.4.0
+    container_name: aryn-boot-rocketmq-broker
+    restart: always
+    ports:
+      - "10911:10911"
+      - "10909:10909"
+    environment:
+      NAMESRV_ADDR: aryn-boot-rocketmq-namesrv:9876
+      JAVA_OPT_EXT: "-Xms256m -Xmx512m"
+    command: sh mqbroker -n aryn-boot-rocketmq-namesrv:9876 -c /home/rocketmq/rocketmq-5.4.0/conf/broker.conf
+    networks:
+      - aryn-net
+    depends_on:
+      aryn-boot-rocketmq-namesrv:
+        condition: service_healthy
+
+  aryn-boot:
+    build:
+      context: ./aryn-boot
+      dockerfile: Dockerfile
+    pull_policy: never
+    container_name: aryn-boot
+    restart: always
+    ports:
+      - "9999:9999"
+    environment:
+      SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_URL: jdbc:mysql://aryn-boot-mysql:3306/aryn_boot_pro?characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=false&useJDBCCompliantTimezoneShift=true&useLegacyDatetimeCode=false&serverTimezone=GMT%2B8&allowMultiQueries=true&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_USERNAME: root
+      SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_PASSWORD: 123456
+      SPRING_DATA_REDIS_HOST: aryn-boot-redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_DATA_REDIS_PASSWORD: redis
+      ROCKETMQ_NAME_SERVER: aryn-boot-rocketmq-namesrv:9876
+    networks:
+      - aryn-net
+    depends_on:
+      aryn-boot-mysql:
+        condition: service_healthy
+      aryn-boot-redis:
+        condition: service_healthy
+      aryn-boot-rocketmq-namesrv:
+        condition: service_healthy
+
+networks:
+  aryn-net:
+    name: aryn-net
+    driver: bridge
+
+volumes:
+  mysql-data:
+  redis-data:

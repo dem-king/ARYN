@@ -1,0 +1,20 @@
+{
+    "configurations": [
+        {
+            "request": "launch",
+            "type": "javadbg",
+            "name": "ArynBootApplication",
+            "__internal_id": "837c0ab9-c3ff-4ed8-9fcc-dc017f10adfa",
+            "__internal_used": 1778036157762,
+            "temporary": true,
+            "verbose": false,
+            "allowMany": false,
+            "mainClass": {
+                "name": "com.aryn.cloud.ArynBootApplication",
+                "sourcePath": "${workspaceFolder}/aryn-mall-java/aryn-boot/src/main/java/com/aryn/cloud/ArynBootApplication.java",
+                "shell": "internal-console",
+                "skipBuild": false
+            }
+        }
+    ]
+}

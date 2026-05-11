@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aryn.cloud.user.mapper.MemberLevelRecordMapper">
+
+    <select id="selectRecordPage" resultType="com.aryn.cloud.user.api.vo.MemberLevelRecordVO">
+        SELECT
+            mlr.id,
+            mlr.user_id,
+            u.nickname,
+            mlr.old_level_id,
+            mlr.new_level_id,
+            old_ml.level_name AS oldLevelName,
+            new_ml.level_name AS newLevelName,
+            mlr.change_reason,
+            mlr.create_time
+        FROM member_level_record mlr
+        LEFT JOIN user_info u ON mlr.user_id = u.id AND u.del_flag = '0'
+        LEFT JOIN member_level old_ml ON mlr.old_level_id = old_ml.id AND old_ml.del_flag = '0'
+        LEFT JOIN member_level new_ml ON mlr.new_level_id = new_ml.id AND new_ml.del_flag = '0'
+        <where>
+            <if test="userId != null and userId != ''">
+                AND mlr.user_id = #{userId}
+            </if>
+        </where>
+        ORDER BY mlr.create_time DESC
+    </select>
+
+</mapper>

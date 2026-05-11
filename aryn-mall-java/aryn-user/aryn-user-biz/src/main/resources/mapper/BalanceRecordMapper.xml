@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aryn.cloud.user.mapper.BalanceRecordMapper">
+
+    <select id="selectRecordPage" resultType="com.aryn.cloud.user.api.vo.BalanceRecordVO">
+        SELECT
+            br.id,
+            br.user_id,
+            u.nickname,
+            br.change_type,
+            br.change_amount,
+            br.balance_after,
+            br.trigger_scene,
+            br.remark,
+            br.create_time
+        FROM balance_record br
+        LEFT JOIN user_info u ON br.user_id = u.id AND u.del_flag = '0'
+        <where>
+            <if test="nickname != null and nickname != ''">
+                AND u.nickname LIKE CONCAT('%', #{nickname}, '%')
+            </if>
+            <if test="changeType != null and changeType != ''">
+                AND br.change_type = #{changeType}
+            </if>
+            <if test="beginTime != null and beginTime != ''">
+                AND br.create_time &gt;= #{beginTime}
+            </if>
+            <if test="endTime != null and endTime != ''">
+                AND br.create_time &lt;= #{endTime}
+            </if>
+        </where>
+        ORDER BY br.create_time DESC
+    </select>
+
+    <select id="selectUserRecordPage" resultType="com.aryn.cloud.user.api.vo.BalanceRecordVO">
+        SELECT
+            br.id,
+            br.user_id,
+            u.nickname,
+            br.change_type,
+            br.change_amount,
+            br.balance_after,
+            br.trigger_scene,
+            br.remark,
+            br.create_time
+        FROM balance_record br
+        LEFT JOIN user_info u ON br.user_id = u.id AND u.del_flag = '0'
+        WHERE br.user_id = #{userId}
+        ORDER BY br.create_time DESC
+    </select>
+
+</mapper>

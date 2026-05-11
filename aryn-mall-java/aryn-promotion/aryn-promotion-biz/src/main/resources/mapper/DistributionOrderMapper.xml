@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aryn.cloud.promotion.mapper.DistributionOrderMapper">
+
+    <sql id="distributionOrderSql">
+        distribution_order.id,
+        distribution_order.biz_order_id,
+        distribution_order.buyer_user_id,
+        distribution_order.distributor_user_id,
+        distribution_order.order_amount,
+        distribution_order.commission_amount,
+        distribution_order.commission_level,
+        distribution_order.status,
+        distribution_order.settle_time,
+        distribution_order.create_time,
+        distribution_order.update_time,
+        distribution_order.del_flag,
+        distribution_order.create_by,
+        distribution_order.update_by,
+        distribution_order.version,
+        distribution_order.tenant_id
+    </sql>
+
+    <select id="selectAdminPage" resultType="com.aryn.cloud.promotion.api.entity.DistributionOrder">
+        SELECT
+        <include refid="distributionOrderSql"/>
+        FROM distribution_order AS distribution_order
+        <where>
+            AND distribution_order.del_flag = '0'
+            <if test="query.bizOrderId != null and query.bizOrderId != ''">
+                AND distribution_order.biz_order_id = #{query.bizOrderId}
+            </if>
+            <if test="query.buyerUserId != null and query.buyerUserId != ''">
+                AND distribution_order.buyer_user_id = #{query.buyerUserId}
+            </if>
+            <if test="query.distributorUserId != null and query.distributorUserId != ''">
+                AND distribution_order.distributor_user_id = #{query.distributorUserId}
+            </if>
+            <if test="query.status != null and query.status != ''">
+                AND distribution_order.status = #{query.status}
+            </if>
+        </where>
+        ORDER BY distribution_order.create_time DESC
+    </select>
+
+</mapper>

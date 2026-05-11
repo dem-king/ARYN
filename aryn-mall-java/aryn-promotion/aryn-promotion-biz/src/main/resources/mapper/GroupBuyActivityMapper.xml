@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aryn.cloud.promotion.mapper.GroupBuyActivityMapper">
+
+    <sql id="groupBuyActivitySql">
+        group_buy_activity.id,
+        group_buy_activity.activity_name,
+        group_buy_activity.spu_id,
+        group_buy_activity.sku_id,
+        group_buy_activity.original_price,
+        group_buy_activity.group_price,
+        group_buy_activity.group_num,
+        group_buy_activity.limit_num,
+        group_buy_activity.virtual_num,
+        group_buy_activity.activity_status,
+        group_buy_activity.started_at,
+        group_buy_activity.ended_at,
+        group_buy_activity.group_expire_hours,
+        group_buy_activity.create_by,
+        group_buy_activity.create_time,
+        group_buy_activity.update_by,
+        group_buy_activity.update_time,
+        group_buy_activity.del_flag,
+        group_buy_activity.version,
+        group_buy_activity.tenant_id
+    </sql>
+
+    <select id="selectAdminPage" resultType="com.aryn.cloud.promotion.api.entity.GroupBuyActivity">
+        SELECT
+        <include refid="groupBuyActivitySql"/>
+        FROM group_buy_activity
+        <where>
+            AND group_buy_activity.del_flag = '0'
+            <if test="query.activityName != null and query.activityName != ''">
+                AND group_buy_activity.activity_name LIKE CONCAT('%', #{query.activityName}, '%')
+            </if>
+            <if test="query.activityStatus != null and query.activityStatus != ''">
+                AND group_buy_activity.activity_status = #{query.activityStatus}
+            </if>
+            <if test="query.spuId != null and query.spuId != ''">
+                AND group_buy_activity.spu_id = #{query.spuId}
+            </if>
+        </where>
+        ORDER BY group_buy_activity.create_time DESC
+    </select>
+
+    <select id="selectAppPage" resultType="com.aryn.cloud.promotion.api.entity.GroupBuyActivity">
+        SELECT
+        <include refid="groupBuyActivitySql"/>
+        FROM group_buy_activity
+        <where>
+            AND group_buy_activity.del_flag = '0'
+            AND group_buy_activity.activity_status = '1'
+            AND group_buy_activity.started_at &lt;= NOW()
+            AND group_buy_activity.ended_at &gt;= NOW()
+        </where>
+        ORDER BY group_buy_activity.create_time DESC
+    </select>
+
+</mapper>

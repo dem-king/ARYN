@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aryn.cloud.product.mapper.ProductStatisticsMapper">
+
+    <select id="getProductSalesTop10" resultType="com.aryn.cloud.product.api.vo.ProductSalesRankVO">
+        SELECT
+        id,
+        name,
+        SUBSTRING_INDEX(spu_urls, ',', 1) AS picUrl,
+        sales_volume AS salesVolume
+        FROM goods_spu
+        WHERE del_flag = '0'
+        ORDER BY sales_volume DESC
+        LIMIT 10
+    </select>
+
+    <select id="getProductOverview" resultType="com.aryn.cloud.product.api.vo.ProductOverviewVO">
+        SELECT
+        COUNT(CASE WHEN status = '1' THEN 1 END) AS onSaleCount,
+        COUNT(CASE WHEN status = '0' THEN 1 END) AS offShelfCount,
+        COUNT(CASE WHEN stock &lt; 10 THEN 1 END) AS lowStockCount,
+        IFNULL(SUM(stock), 0) AS totalStock
+        FROM goods_spu
+        WHERE del_flag = '0'
+    </select>
+
+    <select id="getProductVisitTrend" resultType="com.aryn.cloud.product.api.vo.ProductVisitTrendVO">
+        SELECT
+        DATE_FORMAT(create_time, #{format}) AS timePoint,
+        COUNT(id) AS pv,
+        COUNT(DISTINCT user_id) AS uv
+        FROM goods_footprint
+        WHERE del_flag = '0'
+        AND create_time BETWEEN #{dto.startTime} AND #{dto.endTime}
+        GROUP BY timePoint
+        ORDER BY timePoint
+    </select>
+
+    <select id="getLowStockTop10" resultType="com.aryn.cloud.product.api.vo.ProductLowStockVO">
+        SELECT
+        id,
+        name,
+        SUBSTRING_INDEX(spu_urls, ',', 1) AS picUrl,
+        stock
+        FROM goods_spu
+        WHERE del_flag = '0'
+        AND stock &lt; 10
+        ORDER BY stock ASC
+        LIMIT 10
+    </select>
+
+    <select id="getProductVisitTop10" resultType="com.aryn.cloud.product.api.vo.ProductVisitRankVO">
+        SELECT
+        g.name AS spuName,
+        SUBSTRING_INDEX(g.spu_urls, ',', 1) AS picUrl,
+        COUNT(f.id) AS pv,
+        COUNT(DISTINCT f.user_id) AS uv
+        FROM goods_footprint f
+        LEFT JOIN goods_spu g ON f.spu_id = g.id
+        WHERE f.del_flag = '0'
+        AND f.create_time BETWEEN #{dto.startTime} AND #{dto.endTime}
+        GROUP BY f.spu_id
+        ORDER BY pv DESC
+        LIMIT 10
+    </select>
+
+    <select id="getProductPraiseTop10" resultType="com.aryn.cloud.product.api.vo.ProductPraiseRankVO">
+        SELECT
+        g.name AS spuName,
+        SUBSTRING_INDEX(g.spu_urls, ',', 1) AS picUrl,
+        COUNT(CASE WHEN a.goods_score >= 4 THEN 1 END) AS goodAppraiseCount,
+        IFNULL(COUNT(CASE WHEN a.goods_score >= 4 THEN 1 END) / NULLIF(COUNT(a.id), 0), 0) AS goodAppraiseRate
+        FROM goods_appraise a
+        LEFT JOIN goods_spu g ON a.spu_id = g.id
+        WHERE a.del_flag = '0'
+        AND a.create_time BETWEEN #{dto.startTime} AND #{dto.endTime}
+        GROUP BY a.spu_id, g.name, g.spu_urls
+        ORDER BY goodAppraiseRate DESC, goodAppraiseCount DESC
+        LIMIT 10
+    </select>
+</mapper>

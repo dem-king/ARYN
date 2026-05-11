@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aryn.cloud.order.mapper.OrderStatisticsMapper">
+
+    <select id="getOrderTradeStatistics" resultType="com.aryn.cloud.order.api.vo.OrderTradeStatisticsVO">
+        SELECT
+        IFNULL(o.gmv,0) gmv,
+        IFNULL(o.payOrderCount,0) payOrderCount,
+        IFNULL(o.payBuyerCount,0) payBuyerCount,
+        IFNULL(r.afterSalesOrderCount,0) afterSalesOrderCount,
+        IFNULL(r.refundAmount,0) refundAmount,
+        CASE
+        WHEN o.payBuyerCount > 0 THEN o.gmv / o.payBuyerCount
+        ELSE 0
+        END AS averageTicketSize
+        FROM
+        (
+        SELECT
+        SUM(payment_price) AS gmv,
+        COUNT(id) AS payOrderCount,
+        COUNT(DISTINCT user_id) AS payBuyerCount
+        FROM order_info
+        WHERE del_flag = '0'
+        AND pay_status = '1'
+        AND payment_time BETWEEN #{dto.startTime} AND #{dto.endTime}
+        ) o
+        LEFT JOIN
+        (
+        SELECT
+        COUNT(DISTINCT order_id) AS afterSalesOrderCount,
+        SUM(CASE
+        WHEN arrival_status = '2' THEN refund_amount
+        ELSE 0
+        END) AS refundAmount
+        FROM order_refund
+        WHERE del_flag = '0'
+        AND create_time BETWEEN #{dto.startTime} AND #{dto.endTime}
+        ) r ON 1=1
+    </select>
+
+    <select id="getOrderTradeTrend" resultType="com.aryn.cloud.order.api.vo.OrderTrendVO">
+        SELECT
+        DATE_FORMAT(payment_time, #{format}) AS timePoint,
+        IFNULL(SUM(payment_price), 0) AS gmv,
+        COUNT(id) AS payOrderCount,
+        COUNT(DISTINCT user_id) AS payBuyerCount
+        FROM order_info
+        WHERE del_flag = '0'
+        AND pay_status = '1'
+        AND payment_time BETWEEN #{dto.startTime} AND #{dto.endTime}
+        GROUP BY timePoint
+        ORDER BY timePoint
+    </select>
+
+    <select id="getRefundRateTop10" resultType="com.aryn.cloud.order.api.vo.OrderRefundRateVO">
+        SELECT
+        oi.spu_name AS spuName,
+        oi.pic_url AS picUrl,
+        IFNULL(SUM(oi.payment_price), 0) AS salesAmount,
+        IFNULL(SUM(r.refund_amount), 0) AS refundAmount,
+        CASE
+            WHEN IFNULL(SUM(oi.payment_price), 0) > 0 THEN
+                IFNULL(SUM(r.refund_amount), 0) / SUM(oi.payment_price)
+            ELSE 0
+        END AS refundRate
+        FROM order_item oi
+        INNER JOIN order_info o ON oi.order_id = o.id
+        INNER JOIN order_refund r ON oi.id = r.order_item_id AND r.del_flag = '0' AND r.arrival_status = '2'
+        WHERE o.del_flag = '0'
+        AND o.pay_status = '1'
+        AND o.payment_time BETWEEN #{dto.startTime} AND #{dto.endTime}
+        GROUP BY oi.spu_id, oi.spu_name, oi.pic_url
+        ORDER BY refundRate DESC
+        LIMIT 10
+    </select>
+
+    <select id="getRepurchaseUserCount" resultType="java.lang.Integer">
+        SELECT COUNT(1) FROM (
+        SELECT user_id FROM order_info
+        WHERE del_flag = '0' AND pay_status = '1'
+        AND payment_time BETWEEN #{dto.startTime} AND #{dto.endTime}
+        GROUP BY user_id
+        HAVING COUNT(id) >= 2
+        ) t
+    </select>
+
+    <select id="getOldCustomerGmv" resultType="java.math.BigDecimal">
+        SELECT IFNULL(SUM(payment_price), 0)
+        FROM order_info t1
+        WHERE t1.del_flag = '0' AND t1.pay_status = '1'
+        AND t1.payment_time BETWEEN #{dto.startTime} AND #{dto.endTime}
+
+        AND EXISTS (
+        SELECT 1 FROM order_info t2
+        WHERE t2.user_id = t1.user_id
+        AND t2.pay_status = '1'
+        AND t2.del_flag = '0'
+        AND t2.payment_time &lt; #{dto.startTime}
+        )
+    </select>
+
+    <select id="getOrderOverview" resultType="com.aryn.cloud.order.api.vo.OrderOverviewVO">
+        SELECT
+            (SELECT COUNT(1) FROM order_refund WHERE del_flag = '0' AND create_time BETWEEN #{dto.startTime} AND #{dto.endTime}) AS afterSalesCount,
+            (SELECT COUNT(1) FROM order_refund WHERE del_flag = '0' AND arrival_status = '2' AND update_time BETWEEN #{dto.startTime} AND #{dto.endTime} ) AS refundCompletedCount,
+            (SELECT COUNT(1) FROM order_info WHERE del_flag = '0' AND status = '2' AND payment_time &lt; DATE_SUB(NOW(), INTERVAL 24 HOUR) AND payment_time BETWEEN #{dto.startTime} AND #{dto.endTime} ) AS unshippedTimeoutCount
+    </select>
+
+    <select id="getProductSalesTop10" resultType="com.aryn.cloud.order.api.vo.OrderProductSalesRankVO">
+        SELECT
+        oi.spu_name AS spuName,
+        oi.pic_url AS picUrl,
+        IFNULL(SUM(oi.buy_quantity), 0) AS salesCount,
+        IFNULL(SUM(oi.payment_price), 0) AS salesAmount
+        FROM order_item oi
+        INNER JOIN order_info o ON oi.order_id = o.id
+        WHERE o.del_flag = '0'
+        AND o.pay_status = '1'
+        AND o.payment_time BETWEEN #{dto.startTime} AND #{dto.endTime}
+        GROUP BY oi.spu_id, oi.spu_name, oi.pic_url
+        ORDER BY salesCount DESC
+        LIMIT 10
+    </select>
+
+    <select id="getOrderStatusOverview" resultType="com.aryn.cloud.order.api.vo.OrderStatusOverviewVO">
+        SELECT
+        (SELECT COUNT(1) FROM order_info WHERE del_flag = '0' AND status = '1' AND create_time BETWEEN #{dto.startTime} AND #{dto.endTime} ) AS waitingForPaymentCount,
+        (SELECT COUNT(1) FROM order_info WHERE del_flag = '0' AND status = '2' AND create_time BETWEEN #{dto.startTime} AND #{dto.endTime} ) AS waitingForDeliveryCount,
+        (SELECT COUNT(1) FROM order_info WHERE del_flag = '0' AND status = '3' AND create_time BETWEEN #{dto.startTime} AND #{dto.endTime} ) AS shippedCount,
+        (SELECT COUNT(1) FROM order_info WHERE del_flag = '0' AND status = '4' AND create_time BETWEEN #{dto.startTime} AND #{dto.endTime} ) AS completedCount,
+        (SELECT COUNT(1) FROM order_refund WHERE del_flag = '0' AND status = '1' AND create_time BETWEEN #{dto.startTime} AND #{dto.endTime} ) AS afterSalesCount,
+        (SELECT COUNT(1) FROM order_refund WHERE del_flag = '0' AND arrival_status = '2' AND create_time BETWEEN #{dto.startTime} AND #{dto.endTime}) AS refundedCount
+    </select>
+
+    <select id="getUserConsumptionFrequency" resultType="com.aryn.cloud.order.api.vo.UserConsumptionFrequencyVO">
+        SELECT
+        SUM(CASE WHEN orderCount = 1 THEN 1 ELSE 0 END) AS oneTimeCount,
+        SUM(CASE WHEN orderCount BETWEEN 2 AND 3 THEN 1 ELSE 0 END) AS twoToThreeTimesCount,
+        SUM(CASE WHEN orderCount BETWEEN 4 AND 5 THEN 1 ELSE 0 END) AS fourToFiveTimesCount,
+        SUM(CASE WHEN orderCount >= 6 THEN 1 ELSE 0 END) AS sixPlusTimesCount
+        FROM (
+        SELECT
+        user_id,
+        COUNT(id) AS orderCount
+        FROM order_info
+        WHERE del_flag = '0'
+        AND pay_status = '1'
+        AND payment_time BETWEEN #{dto.startTime} AND #{dto.endTime}
+        GROUP BY user_id
+        ) t
+    </select>
+
+    <select id="getUserConsumptionAmount" resultType="com.aryn.cloud.order.api.vo.UserConsumptionAmountVO">
+        SELECT
+        SUM(CASE WHEN totalAmount BETWEEN 0 AND 100 THEN 1 ELSE 0 END) AS amount0To100Count,
+        SUM(CASE WHEN totalAmount > 100 AND totalAmount &lt;= 500 THEN 1 ELSE 0 END) AS amount100To500Count,
+        SUM(CASE WHEN totalAmount > 500 AND totalAmount &lt;= 2000 THEN 1 ELSE 0 END) AS amount500To2000Count,
+        SUM(CASE WHEN totalAmount > 2000 THEN 1 ELSE 0 END) AS amount2000PlusCount
+        FROM (
+        SELECT
+        user_id,
+        SUM(payment_price) AS totalAmount
+        FROM order_info
+        WHERE del_flag = '0'
+        AND pay_status = '1'
+        AND payment_time BETWEEN #{dto.startTime} AND #{dto.endTime}
+        GROUP BY user_id
+        ) t
+    </select>
+
+    <select id="getAccumulatedTransactionUserCount" resultType="java.lang.Long">
+        SELECT COUNT(DISTINCT user_id)
+        FROM order_info
+        WHERE del_flag = '0'
+        AND pay_status = '1'
+        <if test="dto.startTime != null">
+            AND payment_time &gt;= #{dto.startTime}
+        </if>
+        <if test="dto.endTime != null">
+            AND payment_time &lt;= #{dto.endTime}
+        </if>
+    </select>
+
+    <select id="getProductSalesAnalysis" resultType="com.aryn.cloud.order.api.vo.ProductSalesAnalysisVO">
+        SELECT
+        COUNT(DISTINCT oi.spu_id) AS activeProductCount,
+        IFNULL(SUM(oi.buy_quantity), 0) AS salesCount,
+        IFNULL(SUM(oi.payment_price), 0) AS salesAmount,
+        COUNT(DISTINCT o.id) AS orderCount
+        FROM order_item oi
+        INNER JOIN order_info o ON oi.order_id = o.id
+        WHERE o.del_flag = '0'
+        AND o.pay_status = '1'
+        <if test="dto.startTime != null">
+            AND o.payment_time &gt;= #{dto.startTime}
+        </if>
+        <if test="dto.endTime != null">
+            AND o.payment_time &lt;= #{dto.endTime}
+        </if>
+    </select>
+</mapper>
