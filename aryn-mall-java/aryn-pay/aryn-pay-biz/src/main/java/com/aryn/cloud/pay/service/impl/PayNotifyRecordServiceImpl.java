@@ -37,6 +37,7 @@ import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.messaging.support.GenericMessage;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -70,6 +71,7 @@ public class PayNotifyRecordServiceImpl extends ServiceImpl<PayNotifyRecordMappe
 	private final IPayConfigService payConfigService;
 
 	@Override
+	@Transactional(rollbackFor = Exception.class)
 	public String wxPayNotify(String tenantId, String terminalType, String notifyData) {
 		// 解密微信支付回调
 		WxPayNotifyV3Result wxPayOrderNotifyV3Result = null;
@@ -128,6 +130,7 @@ public class PayNotifyRecordServiceImpl extends ServiceImpl<PayNotifyRecordMappe
 	}
 
 	@Override
+	@Transactional(rollbackFor = Exception.class)
 	public String aliPayNotify(String tenantId, String terminalType, HttpServletRequest request) {
 		PayConfigVO payConfig = payConfigService.getConfig(PayConstants.PAY_TYPE_2, terminalType);
 
@@ -214,6 +217,7 @@ public class PayNotifyRecordServiceImpl extends ServiceImpl<PayNotifyRecordMappe
 	}
 
 	@Override
+	@Transactional(rollbackFor = Exception.class)
 	public String wxPayRefundNotify(String tenantId, String terminalType, String params) {
 		WxPayRefundNotifyV3Result wxPayRefundNotifyV3Result = null;
 		try {
@@ -263,9 +267,9 @@ public class PayNotifyRecordServiceImpl extends ServiceImpl<PayNotifyRecordMappe
 		return WxPayNotifyV3Response.success("成功");
 	}
 
-	// 去重
+	// 去重（微信/支付宝回调可能重试数小时，窗口延长至 24 小时）
 	private Boolean isDuplicate(String key) {
-		return redisTemplate.opsForValue().setIfAbsent(key, key, Duration.ofSeconds(10L));
+		return redisTemplate.opsForValue().setIfAbsent(key, key, Duration.ofHours(24L));
 	}
 
 	private SignatureHeader buildSignatureHeader() {

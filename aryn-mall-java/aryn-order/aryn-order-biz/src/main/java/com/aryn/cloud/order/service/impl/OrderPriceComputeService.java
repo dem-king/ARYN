@@ -23,6 +23,8 @@ import com.aryn.cloud.promotion.api.remote.RemoteCouponUserService;
 import com.aryn.cloud.promotion.api.vo.CouponUserRespVO;
 import lombok.RequiredArgsConstructor;
 import org.apache.dubbo.config.annotation.DubboReference;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -30,6 +32,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
@@ -42,6 +45,17 @@ public class OrderPriceComputeService {
 
 	@DubboReference
 	private final RemoteCouponUserService remoteCouponUserService;
+
+	private final RedissonClient redissonClient;
+
+	/** 库存锁 key 前缀 */
+	private static final String STOCK_LOCK_PREFIX = "stock:lock:";
+
+	/** 锁等待时间（秒） */
+	private static final long LOCK_WAIT_SECONDS = 5L;
+
+	/** 锁自动释放时间（秒） */
+	private static final long LOCK_LEASE_SECONDS = 30L;
 
 	public void orderFreightHandler(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
 			List<GoodsSku> goodsSkuList) {
@@ -65,27 +79,55 @@ public class OrderPriceComputeService {
 
 	public void orderStockHandler(List<GoodsSku> goodsSkuList, List<OrderItemEntity> orderItemEntityList) {
 
-		List<GoodsSku> skuList = goodsSkuList.stream()
-			.filter(goodsSku -> goodsSku.getStock() >= orderItemEntityList.stream()
-				.filter(skuReq -> skuReq.getSkuId().equals(goodsSku.getId()))
-				.findFirst()
-				.get()
-				.getBuyQuantity())
-			.toList();
-		if (CollUtil.isEmpty(skuList) || skuList.size() < orderItemEntityList.size()) {
+		// 对所有涉及的 SKU 加分布式锁，防止高并发超卖
+		List<RLock> locks = new ArrayList<>();
+		for (OrderItemEntity orderItem : orderItemEntityList) {
+			locks.add(redissonClient.getLock(STOCK_LOCK_PREFIX + orderItem.getSkuId()));
+		}
+		RLock multiLock = redissonClient.getMultiLock(locks.toArray(new RLock[0]));
+		boolean locked = false;
+		try {
+			locked = multiLock.tryLock(LOCK_WAIT_SECONDS, LOCK_LEASE_SECONDS, TimeUnit.SECONDS);
+			if (!locked) {
+				throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60008.getCode(),
+						MallErrorCodeEnum.ERROR_60008.getMsg());
+			}
+
+			// 在锁内校验库存是否充足
+			List<GoodsSku> skuList = goodsSkuList.stream()
+				.filter(goodsSku -> goodsSku.getStock() >= orderItemEntityList.stream()
+					.filter(skuReq -> skuReq.getSkuId().equals(goodsSku.getId()))
+					.findFirst()
+					.get()
+					.getBuyQuantity())
+				.toList();
+			if (CollUtil.isEmpty(skuList) || skuList.size() < orderItemEntityList.size()) {
+				throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60008.getCode(),
+						MallErrorCodeEnum.ERROR_60008.getMsg());
+			}
+
+			// 扣减库存（远程服务内部应使用乐观锁 UPDATE ... WHERE stock >= ?）
+			boolean result = remoteGoodsSkuService.reduceStock(orderItemEntityList.stream().map(v -> {
+				GoodsSkuStockReqDTO goodsSkuStockReqDTO = new GoodsSkuStockReqDTO();
+				goodsSkuStockReqDTO.setSkuId(v.getSkuId());
+				goodsSkuStockReqDTO.setStockNum(v.getBuyQuantity());
+				goodsSkuStockReqDTO.setSpuId(v.getSpuId());
+				return goodsSkuStockReqDTO;
+			}).toList());
+			if (!result) {
+				throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60008.getCode(),
+						MallErrorCodeEnum.ERROR_60008.getMsg());
+			}
+		}
+		catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
 			throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60008.getCode(),
 					MallErrorCodeEnum.ERROR_60008.getMsg());
 		}
-		boolean result = remoteGoodsSkuService.reduceStock(orderItemEntityList.stream().map(v -> {
-			GoodsSkuStockReqDTO goodsSkuStockReqDTO = new GoodsSkuStockReqDTO();
-			goodsSkuStockReqDTO.setSkuId(v.getSkuId());
-			goodsSkuStockReqDTO.setStockNum(v.getBuyQuantity());
-			goodsSkuStockReqDTO.setSpuId(v.getSpuId());
-			return goodsSkuStockReqDTO;
-		}).toList());
-		if (!result) {
-			throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60008.getCode(),
-					MallErrorCodeEnum.ERROR_60008.getMsg());
+		finally {
+			if (locked && multiLock.isHeldByCurrentThread()) {
+				multiLock.unlock();
+			}
 		}
 
 	}

@@ -16,6 +16,9 @@ public class OrderRefundSuccessEvent {
 	@Schema(description = "订单主键")
 	private String orderId;
 
+	@Schema(description = "订单编号")
+	private String orderNo;
+
 	@Schema(description = "订单项主键")
 	private String orderItemId;
 

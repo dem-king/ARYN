@@ -63,6 +63,12 @@
             <artifactId>aryn-user-biz</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!--        站内信模块-->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-notify-biz</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>com.aryn</groupId>
             <artifactId>aryn-generator</artifactId>

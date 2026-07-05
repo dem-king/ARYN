@@ -29,8 +29,7 @@ const formSchema = computed((): VbenFormSchema[] => {
 });
 
 function handleSubmit(value: Recordable<any>) {
-  // eslint-disable-next-line no-console
-  console.log('reset email:', value);
+  // TODO: 实现重置密码逻辑
 }
 </script>
 

@@ -57,6 +57,7 @@ import org.apache.dubbo.config.annotation.DubboReference;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.apache.seata.spring.annotation.GlobalTransactional;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.messaging.support.GenericMessage;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -64,6 +65,7 @@ import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -118,6 +120,14 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 	private final RocketMQTemplate rocketMQTemplate;
 
 	private final CallbackPrefixProperties callbackPrefixProperties;
+
+	private final RedisTemplate redisTemplate;
+
+	/** 订单创建幂等 key 前缀 */
+	private static final String ORDER_CREATE_IDEMPOTENT_PREFIX = "order:create:";
+
+	/** 幂等 key 过期时间（30 分钟） */
+	private static final long IDEMPOTENT_EXPIRE_MINUTES = 30L;
 
 	@Override
 	public IPage<OrderInfo> adminPage(Page page, OrderInfo orderInfo) {
@@ -201,7 +211,7 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 	}
 
 	@Override
-	@Transactional(rollbackFor = Exception.class)
+	@GlobalTransactional(rollbackFor = Exception.class)
 	public String cancelOrder(OrderInfo orderInfo) {
 		if (OrderStatusEnum.WAITING_FOR_PAYMENT.getCode().equals(orderInfo.getStatus())) {
 			orderInfo.setStatus(OrderStatusEnum.CANCELED.getCode());
@@ -244,6 +254,17 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 	@Override
 	@GlobalTransactional
 	public OrderInfo createOrder(CreateOrderDTO createOrderDTO) {
+		// 幂等校验：前端传入 requestId，同一 requestId 30 分钟内只允许创建一次订单
+		String requestId = createOrderDTO.getRequestId();
+		if (StringUtils.hasText(requestId)) {
+			String idempotentKey = ORDER_CREATE_IDEMPOTENT_PREFIX + createOrderDTO.getUserId() + ":" + requestId;
+			Boolean absent = redisTemplate.opsForValue()
+				.setIfAbsent(idempotentKey, "1", Duration.ofMinutes(IDEMPOTENT_EXPIRE_MINUTES));
+			if (Boolean.FALSE.equals(absent)) {
+				throw new ArynBusinessException("请勿重复下单");
+			}
+		}
+
 		List<OrderInfo> orderInfoList = new ArrayList<>();
 
 		// 查询用户信息

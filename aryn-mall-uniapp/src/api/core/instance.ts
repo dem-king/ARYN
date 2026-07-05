@@ -21,8 +21,10 @@ export const alovaInstance = createAlova({
     if (authStore.getToken && !method.config.headers.skipToken) {
       method.config.headers.satoken = authStore.getToken
     }
-    if (import.meta.env.VITE_OPEN_BOOT === 'true') {
-      method.url = `/boot/${method.url?.split('/').splice(2).join('/')}`
+    // 单体模式 URL 重写：将 /xxx/yyy 重写为 /boot/yyy
+    // 使用 slice 而非 splice，避免修改原数组
+    if (import.meta.env.VITE_OPEN_BOOT === 'true' && method.url) {
+      method.url = `/boot/${method.url.split('/').slice(2).join('/')}`
     }
     // Add platform-specific headers
     // #ifdef MP

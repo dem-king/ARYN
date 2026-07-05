@@ -58,10 +58,25 @@ public class Result<T> implements Serializable {
 		return restResult(CommonConstants.FAIL, null, null);
 	}
 
+	/**
+	 * 失败返回（带错误信息）
+	 */
 	public static <T> Result<T> fail(String msg) {
 		return restResult(CommonConstants.FAIL, msg, null);
 	}
 
+	/**
+	 * 失败返回（带数据，避免与 fail(String) 歧义）
+	 * 当 T 为 String 类型时，应使用此方法而非 fail(String)
+	 */
+	public static <T> Result<T> failWithData(T data) {
+		return restResult(CommonConstants.FAIL, null, data);
+	}
+
+	/**
+	 * @deprecated 使用 {@link #failWithData(T)} 替代，避免当 T=String 时与 fail(String) 产生歧义
+	 */
+	@Deprecated
 	public static <T> Result<T> fail(T data) {
 		return restResult(CommonConstants.FAIL, null, data);
 	}

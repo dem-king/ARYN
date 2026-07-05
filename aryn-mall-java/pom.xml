@@ -19,6 +19,7 @@
         <module>aryn-order</module>
         <module>aryn-promotion</module>
         <module>aryn-user</module>
+        <module>aryn-notify</module>
         <module>aryn-boot</module>
     </modules>
 
@@ -107,6 +108,11 @@
             <dependency>
                 <groupId>com.aryn</groupId>
                 <artifactId>aryn-order-api</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.aryn</groupId>
+                <artifactId>aryn-notify-api</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <!--           支付公共模块-->

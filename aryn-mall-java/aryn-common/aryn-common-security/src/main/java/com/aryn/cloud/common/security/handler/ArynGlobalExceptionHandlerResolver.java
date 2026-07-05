@@ -36,7 +36,8 @@ public class ArynGlobalExceptionHandlerResolver {
 	@ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
 	public Result handleGlobalException(Exception e) {
 		log.error("全局异常信息 ex={}", e.getMessage(), e);
-		return Result.fail(e.getLocalizedMessage());
+		// 屏蔽内部敏感信息（如表名、SQL片段等），仅返回通用提示
+		return Result.fail("系统繁忙，请稍后重试");
 	}
 
 	/**

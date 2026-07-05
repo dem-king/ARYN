@@ -41,6 +41,13 @@ public interface CommonConstants {
 	String LOGIN_LOG_STATUS_1 = "1";
 
 	/**
+	 * 操作日志状态：0.失败；1.成功；
+	 */
+	String LOG_OPERATION_STATUS_0 = "0";
+
+	String LOG_OPERATION_STATUS_1 = "1";
+
+	/**
 	 * 公共状态：1.是；0.否；
 	 */
 	String YES = "1";

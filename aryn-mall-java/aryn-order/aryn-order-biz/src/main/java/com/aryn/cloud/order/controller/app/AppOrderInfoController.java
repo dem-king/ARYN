@@ -26,6 +26,7 @@ import com.aryn.cloud.order.service.IOrderRefundService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
@@ -62,7 +63,11 @@ public class AppOrderInfoController {
 	@Operation(summary = "通过订单id查询")
 	@GetMapping("/{id}")
 	public Result<OrderInfo> getById(@PathVariable String id) {
-		return Result.success(orderInfoService.getOrderById(id));
+		OrderInfo orderInfo = orderInfoService.getOrderById(id);
+		if (ObjectUtil.isNull(orderInfo) || !orderInfo.getUserId().equals(SecurityUtils.getUser().getUserId())) {
+			return Result.fail(MallErrorCodeEnum.ERROR_60003.getCode(), MallErrorCodeEnum.ERROR_60003.getMsg());
+		}
+		return Result.success(orderInfo);
 	}
 
 	@Operation(summary = "结算订单")
@@ -74,7 +79,7 @@ public class AppOrderInfoController {
 
 	@Operation(summary = "创建订单")
 	@PostMapping("/create")
-	public Result<OrderInfo> createOrder(HttpServletRequest request, @RequestBody CreateOrderDTO createOrderDTO) {
+	public Result<OrderInfo> createOrder(HttpServletRequest request, @Valid @RequestBody CreateOrderDTO createOrderDTO) {
 		createOrderDTO.setUserId(SecurityUtils.getUser().getUserId());
 		createOrderDTO.setOpenId(SecurityUtils.getOpenId());
 		createOrderDTO.setAppId(request.getHeader(MallCommonConstants.HEADER_APP_ID));
@@ -88,20 +93,20 @@ public class AppOrderInfoController {
 	}
 
 	@Operation(summary = "订单取消")
-	@GetMapping("/cancel/{id}")
+	@PutMapping("/cancel/{id}")
 	public Result<String> cancelOrder(@PathVariable String id) {
 		OrderInfo orderInfo = orderInfoService.getById(id);
-		if (ObjectUtil.isNull(orderInfo)) {
+		if (ObjectUtil.isNull(orderInfo) || !orderInfo.getUserId().equals(SecurityUtils.getUser().getUserId())) {
 			return Result.fail(MallErrorCodeEnum.ERROR_60003.getCode(), MallErrorCodeEnum.ERROR_60003.getMsg());
 		}
 		return Result.success(orderInfoService.cancelOrder(orderInfo));
 	}
 
 	@Operation(summary = "订单删除")
-	@GetMapping("/del/{id}")
+	@DeleteMapping("/{id}")
 	public Result<Boolean> delOrder(@PathVariable String id) {
 		OrderInfo orderInfo = orderInfoService.getById(id);
-		if (ObjectUtil.isNull(orderInfo)) {
+		if (ObjectUtil.isNull(orderInfo) || !orderInfo.getUserId().equals(SecurityUtils.getUser().getUserId())) {
 			return Result.fail(MallErrorCodeEnum.ERROR_60003.getCode(), MallErrorCodeEnum.ERROR_60003.getMsg());
 		}
 		if (CommonConstants.YES.equals(orderInfo.getPayStatus())
@@ -113,10 +118,10 @@ public class AppOrderInfoController {
 	}
 
 	@Operation(summary = "订单确认收货")
-	@GetMapping("/receiver/{id}")
+	@PutMapping("/receiver/{id}")
 	public Result<Boolean> receiverOrder(@PathVariable String id) {
 		OrderInfo orderInfo = orderInfoService.getById(id);
-		if (ObjectUtil.isNull(orderInfo)) {
+		if (ObjectUtil.isNull(orderInfo) || !orderInfo.getUserId().equals(SecurityUtils.getUser().getUserId())) {
 			return Result.fail(MallErrorCodeEnum.ERROR_60003.getCode(), MallErrorCodeEnum.ERROR_60003.getMsg());
 		}
 		// 处理确认收货
@@ -130,6 +135,10 @@ public class AppOrderInfoController {
 	@PostMapping("/appraise/{id}")
 	public Result<Boolean> appraiseOrder(@PathVariable String id,
 			@RequestBody List<OrderAppraiseDTO> orderAppraiseList) {
+		OrderInfo orderInfo = orderInfoService.getById(id);
+		if (ObjectUtil.isNull(orderInfo) || !orderInfo.getUserId().equals(SecurityUtils.getUser().getUserId())) {
+			return Result.fail(MallErrorCodeEnum.ERROR_60003.getCode(), MallErrorCodeEnum.ERROR_60003.getMsg());
+		}
 		return Result.success(orderInfoService.appraiseOrder(id, orderAppraiseList));
 
 	}
@@ -168,8 +177,12 @@ public class AppOrderInfoController {
 	@Operation(summary = "通过订单编号查询")
 	@GetMapping("/getByOrderNo/{orderNo}")
 	public Result<OrderInfo> getOrderByOrderNo(@PathVariable String orderNo) {
-		return Result
-			.success(orderInfoService.getOne(Wrappers.<OrderInfo>lambdaQuery().eq(OrderInfo::getOrderNo, orderNo)));
+		OrderInfo orderInfo = orderInfoService
+			.getOne(Wrappers.<OrderInfo>lambdaQuery().eq(OrderInfo::getOrderNo, orderNo));
+		if (ObjectUtil.isNull(orderInfo) || !orderInfo.getUserId().equals(SecurityUtils.getUser().getUserId())) {
+			return Result.fail(MallErrorCodeEnum.ERROR_60003.getCode(), MallErrorCodeEnum.ERROR_60003.getMsg());
+		}
+		return Result.success(orderInfo);
 	}
 
 }

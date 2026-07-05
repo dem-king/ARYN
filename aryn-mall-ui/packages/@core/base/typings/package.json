@@ -26,7 +26,9 @@
       "default": "./dist/index.mjs"
     },
     "./vue-router": {
-      "types": "./vue-router.d.ts"
+      "types": "./src/vue-router.ts",
+      "development": "./src/vue-router.ts",
+      "default": "./dist/vue-router.mjs"
     }
   },
   "publishConfig": {

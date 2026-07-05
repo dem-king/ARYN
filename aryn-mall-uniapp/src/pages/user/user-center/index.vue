@@ -90,6 +90,11 @@ const myService = ref<MyService[]>([
     name: '分销中心',
     url: '/sub-pages/user/distribution/index',
   },
+  {
+    icon: 'i-carbon:notification',
+    name: '消息通知',
+    url: '/sub-pages/notify/notify-list/index',
+  },
 
 ])
 

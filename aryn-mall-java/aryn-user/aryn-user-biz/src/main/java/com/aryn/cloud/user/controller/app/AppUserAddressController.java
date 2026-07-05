@@ -1,6 +1,7 @@
 
 package com.aryn.cloud.user.controller.app;
 
+import cn.hutool.core.util.ObjectUtil;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.common.core.constant.CommonConstants;
@@ -59,17 +60,27 @@ public class AppUserAddressController {
 	 */
 	@GetMapping("/{id}")
 	public Result<UserAddress> getById(@PathVariable("id") String id) {
-		return Result.success(userAddressService.getById(id));
+		UserAddress userAddress = userAddressService.getById(id);
+		if (ObjectUtil.isNull(userAddress)
+				|| !userAddress.getUserId().equals(SecurityUtils.getUser().getUserId())) {
+			return Result.fail("无权操作该地址");
+		}
+		return Result.success(userAddress);
 
 	}
 
 	/**
-	 * 通过id查询
+	 * 通过id删除
 	 * @param id 主键
 	 * @return UserAddress
 	 */
 	@DeleteMapping("/{id}")
 	public Result<Boolean> deleteById(@PathVariable("id") String id) {
+		UserAddress userAddress = userAddressService.getById(id);
+		if (ObjectUtil.isNull(userAddress)
+				|| !userAddress.getUserId().equals(SecurityUtils.getUser().getUserId())) {
+			return Result.fail("无权操作该地址");
+		}
 		return Result.success(userAddressService.removeById(id));
 
 	}

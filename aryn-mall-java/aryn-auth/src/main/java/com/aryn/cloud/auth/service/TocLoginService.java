@@ -14,6 +14,7 @@ import com.aryn.cloud.common.core.enums.DeviceTypeEnum;
 import com.aryn.cloud.common.core.enums.OpenPlatformTypeEnum;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.entity.ArynUser;
+import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.user.api.dto.SocialUserBindDTO;
 import com.aryn.cloud.user.api.dto.SocialUserUnbindDTO;
@@ -97,14 +98,15 @@ public class TocLoginService {
 	public SaTokenInfo passwordLogin(UserLoginReqDTO userLoginReqDTO) {
 		// 通过手机号查询商城用户
 		UserInfoVO userInfo = remoteMallUserService.getUserByPhone(userLoginReqDTO.getPhone());
+		// 统一返回"账号或密码错误"，不区分用户是否存在，防止手机号探测
 		if (Objects.isNull(userInfo)) {
-			throw new IllegalArgumentException("请先注册");
+			throw new ArynBusinessException("账号或密码错误");
 		}
 		if (!StringUtils.hasText(userInfo.getPassword())) {
-			throw new RuntimeException("账号或密码错误");
+			throw new ArynBusinessException("账号或密码错误");
 		}
 		if (!BCrypt.checkpw(userLoginReqDTO.getPassword(), userInfo.getPassword())) {
-			throw new RuntimeException("账号或密码错误");
+			throw new ArynBusinessException("账号或密码错误");
 		}
 		ArynUser hxUser = new ArynUser();
 		if (userLoginReqDTO.getPlatformType().equals(OpenPlatformTypeEnum.WX_MA.getCode())) {

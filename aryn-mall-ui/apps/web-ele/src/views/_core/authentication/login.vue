@@ -14,13 +14,17 @@ import { useAuthStore } from '#/store';
 defineOptions({ name: 'Login' });
 const verifyRef = ref();
 const captchaType = ref('blockPuzzle'); // 1）滑动拼图 blockPuzzle 2）文字点选 clickWord
-ElNotification({
-  title: '登录账号',
-  dangerouslyUseHTMLString: true,
-  message:
-    '<p>平台管理员账号：system/123456</p><p>租户1管理员账号：admin/123456</p>',
-  duration: 0,
-});
+
+// 仅在开发环境显示测试账号提示（生产环境严禁暴露凭据）
+if (import.meta.env.DEV) {
+  ElNotification({
+    title: '测试账号（仅开发环境）',
+    dangerouslyUseHTMLString: true,
+    message: '<p>测试账号请在 .env.development 中配置，请勿在生产环境使用默认密码</p>',
+    duration: 5000,
+  });
+}
+
 const authStore = useAuthStore();
 const loginUser = ref({
   username: '',
@@ -35,15 +39,6 @@ const formSchema = computed((): VbenFormSchema[] => {
       component: 'VbenInput',
       componentProps: {
         placeholder: $t('authentication.usernameTip'),
-      },
-      dependencies: {
-        trigger(values, form) {
-          form.setValues({
-            password: '123456',
-            username: 'system',
-          });
-        },
-        triggerFields: ['selectAccount'],
       },
       fieldName: 'username',
       label: $t('authentication.username'),

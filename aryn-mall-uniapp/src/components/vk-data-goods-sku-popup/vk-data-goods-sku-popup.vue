@@ -335,13 +335,7 @@ export default {
   // 计算属性
   computed: {
     valueCom() {
-      // #ifndef VUE3
-      return this.value
-      // #endif
-
-      // #ifdef VUE3
       return this.modelValue
-      // #endif
     },
     // 最大购买数量
     maxBuyNumCom() {

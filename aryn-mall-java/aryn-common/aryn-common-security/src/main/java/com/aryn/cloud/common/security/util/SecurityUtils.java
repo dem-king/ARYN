@@ -2,6 +2,7 @@
 package com.aryn.cloud.common.security.util;
 
 import cn.dev33.satoken.context.SaHolder;
+import cn.dev33.satoken.exception.NotLoginException;
 import cn.dev33.satoken.stp.StpUtil;
 import com.aryn.cloud.common.core.constant.CacheConstants;
 import com.aryn.cloud.common.core.enums.DeviceTypeEnum;
@@ -36,15 +37,15 @@ public class SecurityUtils {
 	private boolean isWebRequest() {
 		ServletRequestAttributes servletRequestAttributes = (ServletRequestAttributes) RequestContextHolder
 			.getRequestAttributes();
-		return Objects.isNull(servletRequestAttributes);
+		return !Objects.isNull(servletRequestAttributes);
 	}
 
 	/**
 	 * 获取用户信息
-	 * @return
+	 * @return 未登录或非 Web 请求时返回 null
 	 */
 	public ArynUser getUser() {
-		if (isWebRequest()) {
+		if (!isWebRequest()) {
 			return null;
 		}
 		// 未登录直接返回
@@ -55,11 +56,19 @@ public class SecurityUtils {
 	}
 
 	public String getUserId() {
-		return getUser().getUserId();
+		ArynUser user = getUser();
+		if (user == null) {
+			throw new NotLoginException("未登录", null, null);
+		}
+		return user.getUserId();
 	}
 
 	public String getOpenId() {
-		return getUser().getOpenId();
+		ArynUser user = getUser();
+		if (user == null) {
+			throw new NotLoginException("未登录", null, null);
+		}
+		return user.getOpenId();
 	}
 
 }

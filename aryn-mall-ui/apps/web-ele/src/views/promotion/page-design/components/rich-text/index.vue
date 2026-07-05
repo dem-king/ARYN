@@ -3,6 +3,8 @@ import type { DiyCommonStyle } from '@vben/types';
 
 import { computed } from 'vue';
 
+import { sanitizeHtml } from '#/utils/sanitize';
+
 interface ShowData {
   commonStyle?: DiyCommonStyle | null;
   content: string;
@@ -56,11 +58,14 @@ const dynamicStyles = computed(() => {
     }),
   };
 });
+
+// XSS 过滤：对富文本内容进行清洗，移除脚本和事件处理器
+const sanitizedContent = computed(() => sanitizeHtml(props.showData.content));
 </script>
 
 <template>
   <div class="rich-text-base" :style="dynamicStyles">
-    <div v-html="showData.content"></div>
+    <div v-html="sanitizedContent"></div>
   </div>
 </template>
 

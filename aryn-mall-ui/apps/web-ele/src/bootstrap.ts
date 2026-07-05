@@ -32,6 +32,23 @@ async function bootstrap(namespace: string) {
   //   zIndex: 2000,
   // });
   const app = createApp(App);
+
+  // 全局错误处理器：统一捕获未处理的异常
+  app.config.errorHandler = (err, _instance, info) => {
+    // 仅在开发环境输出详细错误信息，生产环境可接入错误上报
+    if (import.meta.env.DEV) {
+      console.error('[Vue Error]', info, err);
+    }
+    // TODO: 生产环境接入错误上报平台（如 Sentry）
+  };
+
+  // 捕获未处理的 Promise rejection
+  window.addEventListener('unhandledrejection', (event) => {
+    if (import.meta.env.DEV) {
+      console.error('[Unhandled Promise]', event.reason);
+    }
+  });
+
   // 注册Element Plus提供的v-loading指令
   app.directive('loading', ElLoading.directive);
 

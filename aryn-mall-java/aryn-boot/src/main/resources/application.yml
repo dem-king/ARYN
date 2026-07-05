@@ -25,7 +25,7 @@ sa-token:
   timeout: 2592000
   active-timeout: -1
   is-concurrent: true
-  is-share: false
+  is-share: true          # 多端登录共享 token，避免 token 泛滥
   is-read-cookie: false
   token-style: uuid
   is-log: true
@@ -60,14 +60,16 @@ springdoc:
 
 logging:
   level:
-    com.aryn.cloud.upms.mapper: DEBUG
-    com.aryn.cloud.user.mapper: DEBUG
-    com.aryn.cloud.distribution.mapper: DEBUG
-    com.aryn.cloud.order.mapper: DEBUG
-    com.aryn.cloud.pay.mapper: DEBUG
-    com.aryn.cloud.product.mapper: DEBUG
-    com.aryn.cloud.promotion.mapper: DEBUG
-    org.mybatis.spring.SqlSessionFactoryBean: DEBUG
+    # 生产环境 Mapper 日志应为 INFO/WARN，DEBUG 仅用于开发排查
+    com.aryn.cloud.upms.mapper: ${MAPPER_LOG_LEVEL:INFO}
+    com.aryn.cloud.user.mapper: ${MAPPER_LOG_LEVEL:INFO}
+    com.aryn.cloud.distribution.mapper: ${MAPPER_LOG_LEVEL:INFO}
+    com.aryn.cloud.order.mapper: ${MAPPER_LOG_LEVEL:INFO}
+    com.aryn.cloud.pay.mapper: ${MAPPER_LOG_LEVEL:INFO}
+    com.aryn.cloud.product.mapper: ${MAPPER_LOG_LEVEL:INFO}
+    com.aryn.cloud.promotion.mapper: ${MAPPER_LOG_LEVEL:INFO}
+    com.aryn.cloud.notify.mapper: ${MAPPER_LOG_LEVEL:INFO}
+    org.mybatis.spring.SqlSessionFactoryBean: ${MAPPER_LOG_LEVEL:INFO}
 
 callback:
   prefix:
@@ -120,6 +122,7 @@ secure:
       - /app/goodsspu/**
       - /app/goodsspuspecs/**
       - /file/local/**
+      - /ws/**
 
 hx:
   cloud:
@@ -168,6 +171,9 @@ hx:
       - shopping_cart
       - social_account
       - social_user
+      - notify_template
+      - notify_message
+      - notify_broadcast
 
   swagger:
     enabled: true

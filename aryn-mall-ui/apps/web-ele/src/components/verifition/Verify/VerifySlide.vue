@@ -3,6 +3,7 @@ import {
   computed,
   getCurrentInstance,
   nextTick,
+  onBeforeUnmount,
   onMounted,
   reactive,
   ref,
@@ -117,6 +118,14 @@ export default {
     const barArea = computed(() => {
       return proxy.$el.querySelector('.verify-bar-area');
     });
+
+    // 使用具名函数引用，确保 removeEventListener 能正确移除
+    const onTouchMove = (e) => move(e);
+    const onMouseMove = (e) => move(e);
+    const onTouchEnd = () => end();
+    const onMouseUp = () => end();
+    const onSelectStart = () => false;
+
     function init() {
       text.value = explain.value;
       getPictrue();
@@ -129,45 +138,35 @@ export default {
         proxy.$parent.$emit('ready', proxy);
       });
 
-      window.removeEventListener('touchmove', (e) => {
-        move(e);
-      });
-      window.removeEventListener('mousemove', (e) => {
-        move(e);
-      });
+      // 先移除旧监听器（使用具名函数引用，确保能正确移除）
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('touchend', onTouchEnd);
+      window.removeEventListener('mouseup', onMouseUp);
 
-      // 鼠标松开
-      window.removeEventListener('touchend', () => {
-        end();
-      });
-      window.removeEventListener('mouseup', () => {
-        end();
-      });
-
-      window.addEventListener('touchmove', (e) => {
-        move(e);
-      });
-      window.addEventListener('mousemove', (e) => {
-        move(e);
-      });
-
-      // 鼠标松开
-      window.addEventListener('touchend', () => {
-        end();
-      });
-      window.addEventListener('mouseup', () => {
-        end();
-      });
+      // 重新注册
+      window.addEventListener('touchmove', onTouchMove);
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('touchend', onTouchEnd);
+      window.addEventListener('mouseup', onMouseUp);
     }
+
+    // 组件卸载时清理所有事件监听器，防止内存泄漏
+    onBeforeUnmount(() => {
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('touchend', onTouchEnd);
+      window.removeEventListener('mouseup', onMouseUp);
+      proxy.$el.removeEventListener('selectstart', onSelectStart);
+    });
+
     watch(type, () => {
       init();
     });
     onMounted(() => {
       // 禁止拖拽
       init();
-      proxy.$el.addEventListener('selectstart', () => {
-        return false;
-      });
+      proxy.$el.addEventListener('selectstart', onSelectStart);
     });
     // 鼠标按下
     function start(e) {
@@ -179,7 +178,6 @@ export default {
         // 兼容PC端
         var x = e.clientX;
       }
-      console.log(barArea);
       startLeft.value = Math.floor(
         x - barArea.value.getBoundingClientRect().left,
       );

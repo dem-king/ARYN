@@ -73,6 +73,7 @@ public class ArynOrderRefundEventListener {
 		OrderRefundSuccessEvent orderRefundSuccessEvent = new OrderRefundSuccessEvent();
 		BeanUtils.copyProperties(orderRefund, orderRefundSuccessEvent);
 		orderRefundSuccessEvent.setPaymentType(orderInfo.getPaymentType());
+		orderRefundSuccessEvent.setOrderNo(orderInfo.getOrderNo());
 
 		OrderItemRefundSuccessEvent orderItemRefundSuccessEvent = new OrderItemRefundSuccessEvent();
 		BeanUtils.copyProperties(orderItemEntity, orderItemRefundSuccessEvent);

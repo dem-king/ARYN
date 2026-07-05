@@ -84,6 +84,8 @@ public class ArynOrderCreateAfterEventListener {
 		OrderConsumerDTO orderConsumerDTO = new OrderConsumerDTO();
 		orderConsumerDTO.setOrderId(orderInfo.getId());
 		orderConsumerDTO.setTenantId(ArynTenantContextHolder.getTenantId());
+		orderConsumerDTO.setOrderNo(orderInfo.getOrderNo());
+		orderConsumerDTO.setUserId(orderInfo.getUserId());
 		rocketMQTemplate.syncSend(RocketMqConstants.ORDER_CANCEL_TOPIC, new GenericMessage<>(orderConsumerDTO),
 				RocketMqConstants.TIME_OUT, level);
 	}

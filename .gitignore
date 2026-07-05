@@ -78,6 +78,9 @@ mvnw.cmd
 *.sqlite
 *.db-journal
 
+# pnpm
+.pnpm-store/
+
 # Archives
 *.zip
 *.tar

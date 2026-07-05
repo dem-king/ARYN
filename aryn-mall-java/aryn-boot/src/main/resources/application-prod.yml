@@ -7,17 +7,17 @@ spring:
     type: redis # 缓存类型 Redis
   data:
     redis:
-      host: 127.0.0.1
-#      password: 123456
-      port: 6379
+      host: ${REDIS_HOST}
+#      password: ${REDIS_PASSWORD}
+      port: ${REDIS_PORT:6379}
 
   # 数据库相关配置
   datasource:
     type: com.alibaba.druid.pool.DruidDataSource
     driver-class-name: com.mysql.cj.jdbc.Driver
-    username: root
-    password: 123456
-    url: jdbc:mysql://127.0.0.1:3306/Aetheryn_boot?characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=false&useJDBCCompliantTimezoneShift=true&useLegacyDatetimeCode=false&serverTimezone=GMT%2B8&allowMultiQueries=true&allowPublicKeyRetrieval=true
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    url: jdbc:mysql://${DB_HOST}:${DB_PORT:3306}/${DB_NAME:Aetheryn_boot}?characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=false&useJDBCCompliantTimezoneShift=true&useLegacyDatetimeCode=false&serverTimezone=GMT%2B8
 
 rocketmq:
   name-server: 127.0.0.1:9876
@@ -32,19 +32,21 @@ aj:
     water-mark: aryn
 
 encode:
-  key: VyBcekSelErhMYN4
+  key: ${ENCODE_KEY}
+  # CBC 模式 IV，须与前端 apps/web-ele/src/utils/aes.ts 的 DEFAULT_IV 一致
+  iv: ${ENCODE_IV:aryn_iv_key_2025}
 
 sms:
   ali:
-    accessKeyId: xxxxxxxxx
-    accessKeySecret: xxxxxxxxxxxxxx
-    loginTemplateCode: SMS_xxxxxxxxxx
-    loginSignName: 悦航购
+    accessKeyId: ${SMS_ALI_ACCESS_KEY_ID}
+    accessKeySecret: ${SMS_ALI_ACCESS_KEY_SECRET}
+    loginTemplateCode: ${SMS_ALI_LOGIN_TEMPLATE_CODE}
+    loginSignName: ${SMS_ALI_LOGIN_SIGN_NAME:悦航购}
 
 xxl:
   job:
-    adminAddresses: http://localhost:8081/xxl-job-admin
-    accessToken: hxsadadasdasdasda
+    adminAddresses: ${XXL_JOB_ADMIN_ADDRESSES}
+    accessToken: ${XXL_JOB_ACCESS_TOKEN}
 
 demo:
   enabled: true

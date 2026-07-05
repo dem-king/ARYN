@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  Copyright (c) 2025 天启雨数科技有限公司
+  All rights reserved.
+  注意：
+  本项目源代码由天启雨数科技有限公司原创开发，版权所有。
+ -->
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aryn.cloud.notify.mapper.NotifyTemplateMapper">
+
+    <!-- 根据模板编码查询启用的模板（带租户隔离由 MyBatis-Plus 拦截器自动注入） -->
+    <select id="selectByCode" resultType="com.aryn.cloud.notify.api.entity.NotifyTemplate">
+        SELECT id, template_code, template_name, notify_type, title, content,
+               jump_type, jump_url, status, remark,
+               create_time, update_time, tenant_id
+        FROM notify_template
+        WHERE template_code = #{templateCode}
+          AND status = '1'
+          AND del_flag = '0'
+        LIMIT 1
+    </select>
+
+</mapper>

@@ -33,10 +33,16 @@ public class TobTokenController {
 	@Value("${encode.key}")
 	private String encodeKey;
 
+	/**
+	 * CBC 模式初始化向量，须与前端 {@code apps/web-ele/src/utils/aes.ts} 中的 DEFAULT_IV 保持一致。
+	 */
+	@Value("${encode.iv:aryn_iv_key_2025}")
+	private String encodeIv;
+
 	@Operation(summary = "系统用户账号登录")
 	@RequestMapping("/login")
 	public Result<SaTokenInfo> login(String username, String password) {
-		return Result.success(loginService.login(username, AesUtils.decrypt(encodeKey, password)));
+		return Result.success(loginService.login(username, AesUtils.decryptCBC(encodeKey, password, encodeIv)));
 	}
 
 	@Operation(summary = "系统用户手机号短信登录")

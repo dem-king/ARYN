@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch, type Component } from 'vue'
 import DiyNotice from '@/components/diy/diy-notice/index.vue'
 import DiyGoods from '@/components/diy/diy-goods/index.vue'
 import DiyImage from '@/components/diy/diy-image/index.vue'
@@ -15,6 +15,22 @@ const props = defineProps<{
 
 const components = ref<any[]>([])
 const title = ref()
+
+/** DIY 组件类型 → 组件映射表（替代 v-if 链，提升性能和可扩展性） */
+const componentMap: Record<string, Component> = {
+  'notice': DiyNotice,
+  'goods': DiyGoods,
+  'image-ad': DiyImage,
+  'title-text': DiyTitleText,
+  'rich-text': DiyRichText,
+  'gap': DiyGap,
+  'tab-nav': DiyTabnav,
+}
+
+/** 根据类型获取对应组件 */
+function getComponent(type: string): Component | undefined {
+  return componentMap[type]
+}
 
 watch(
   () => props.pageContentData,
@@ -43,27 +59,11 @@ watch(
     <!-- 动态组件渲染 -->
     <view v-if="components">
       <view v-for="(item, index) in components" :key="index">
-        <template v-if="item.type === 'notice'">
-          <diy-notice :show-data="item.formData" />
-        </template>
-        <template v-if="item.type === 'goods'">
-          <diy-goods :show-data="item.formData" />
-        </template>
-        <template v-if="item.type === 'image-ad'">
-          <diy-image :show-data="item.formData" />
-        </template>
-        <template v-if="item.type === 'title-text'">
-          <diy-title-text :show-data="item.formData" />
-        </template>
-        <template v-if="item.type === 'rich-text'">
-          <diy-rich-text :show-data="item.formData" />
-        </template>
-        <template v-if="item.type === 'gap'">
-          <diy-gap :show-data="item.formData" />
-        </template>
-        <template v-if="item.type === 'tab-nav'">
-          <diy-tabnav :show-data="item.formData" />
-        </template>
+        <component
+          :is="getComponent(item.type)"
+          v-if="getComponent(item.type)"
+          :show-data="item.formData"
+        />
       </view>
     </view>
     <slot />

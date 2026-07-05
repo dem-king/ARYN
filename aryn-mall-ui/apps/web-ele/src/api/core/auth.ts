@@ -62,9 +62,5 @@ export async function logoutApi() {
   });
 }
 
-/**
- * 获取用户菜单
- */
-export async function getAccessCodesApi() {
-  return requestClient.get<any>('/upms/menu');
-}
+// 注：getAccessCodesApi 已移除，与 getAllMenusApi (api/core/menu.ts) 功能重复
+// 用户权限码在 fetchUserInfo 中通过 getUserInfoApi 返回的 permissions 设置

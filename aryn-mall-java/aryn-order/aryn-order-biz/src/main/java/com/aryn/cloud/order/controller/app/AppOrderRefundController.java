@@ -1,6 +1,7 @@
 
 package com.aryn.cloud.order.controller.app;
 
+import cn.hutool.core.util.ObjectUtil;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.common.core.util.Result;
@@ -38,7 +39,12 @@ public class AppOrderRefundController {
 	@Operation(summary = "退款单详情")
 	@GetMapping("/{id}")
 	public Result<OrderRefund> getById(@PathVariable String id) {
-		return Result.success(orderRefundService.getRefundById(id));
+		OrderRefund orderRefund = orderRefundService.getRefundById(id);
+		if (ObjectUtil.isNull(orderRefund)
+				|| !orderRefund.getUserId().equals(SecurityUtils.getUser().getUserId())) {
+			return Result.fail("无权操作该退款单");
+		}
+		return Result.success(orderRefund);
 	}
 
 	@Operation(summary = "申请退货退款")

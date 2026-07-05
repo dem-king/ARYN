@@ -4,7 +4,8 @@ export default uni(
   {
     unocss: true,
     rules: {
-      'no-console': 'off',
+      // 允许 warn/error 级别日志，但提示移除 log/debug
+      'no-console': ['warn', { allow: ['warn', 'error'] }],
       'eslint-comments/no-unlimited-disable': 'off',
     },
   },

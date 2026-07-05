@@ -54,8 +54,9 @@ export interface MPLoginParams {
 }
 /**
  * 微信小程序登录（静默登录获取openid）
+ * @param data 包含 jsCode 的登录参数
  */
-export function wxLogin(data: PhoneLoginParams) {
+export function wxLogin(data: MPLoginParams) {
   return alovaInstance.Post('/auth/toc-token/ma/login', data, {
     headers: {
       skipToken: true,
@@ -64,9 +65,10 @@ export function wxLogin(data: PhoneLoginParams) {
 }
 /**
  * 手机验证码登录
+ * 注意：手机号和验证码仅通过 request body 传递，不放入 URL query 防止泄露
  */
 export function phoneLogin(data: PhoneLoginParams) {
-  return alovaInstance.Post(`/auth/toc-token/sms/login?code=${data.code}&phone=${data.phone}`, data, {
+  return alovaInstance.Post('/auth/toc-token/sms/login', data, {
     headers: {
       skipToken: true,
     },

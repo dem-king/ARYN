@@ -88,7 +88,7 @@ function toGoodsList(categoryId: string) {
       @scroll="onScroll"
     >
       <view v-for="(item, index) in state.category" :key="index" class="m-20rpx">
-        <image v-if="item.categoryPic" class="category-box h-180rpx w-100% rounded-[18rpx]" :src="item.categoryPic" mode="widthFix" />
+        <image v-if="item.categoryPic" class="category-box h-180rpx w-100% rounded-[18rpx]" :src="item.categoryPic" mode="widthFix" lazy-load />
         <view class="category mt-20rpx bg-white">
           <view class="item-title">
             <wd-text size="26rpx" color="inherit" :text="item.name" />
@@ -98,7 +98,7 @@ function toGoodsList(categoryId: string) {
               v-for="(childItem, childIndex) in item.children" :key="childIndex" class="thumb-box"
               @click="toGoodsList(childItem.id)"
             >
-              <image v-if="childItem.categoryPic" class="item-menu-image" :src="childItem.categoryPic" mode="widthFix" />
+              <image v-if="childItem.categoryPic" class="item-menu-image" :src="childItem.categoryPic" mode="widthFix" lazy-load />
               <view class="mt-10rpx text-center text-22rpx">
                 {{ childItem.name }}
               </view>

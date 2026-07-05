@@ -40,6 +40,21 @@
         </where>
     </select>
 
+    <!-- 批量查询：根据多个 orderId 一次性查询所有订单项，解决 N+1 问题 -->
+    <select id="selectByOrderIds" resultType="com.aryn.cloud.order.api.entity.OrderItemEntity">
+        SELECT
+        <include refid="orderItemSql"/>
+        FROM
+        order_item AS order_item
+        <where>
+            AND order_item.`del_flag` = '0'
+            AND order_item.`order_id` IN
+            <foreach collection="orderIds" item="orderId" open="(" separator="," close=")">
+                #{orderId}
+            </foreach>
+        </where>
+    </select>
+
 	<select id="selectOrderItemById" resultType="com.aryn.cloud.order.api.entity.OrderItemEntity">
 		SELECT
 		<include refid="orderItemSql"/>

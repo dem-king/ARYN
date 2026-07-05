@@ -73,9 +73,11 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
       config.headers.satoken = formatToken(accessStore.accessToken);
       config.headers['Accept-Language'] = preferences.app.locale;
 
-      if (JSON.parse(import.meta.env.VITE_OPEN_BOOT)) {
-        config.url =
-          config.url = `/boot/${config.url?.split('/').splice(2).join('/')}`;
+      // 单体模式 URL 重写：将 /xxx/yyy 重写为 /boot/yyy
+      // 使用 === 'true' 判断避免 JSON.parse 在 undefined 时抛异常
+      if (import.meta.env.VITE_OPEN_BOOT === 'true' && config.url) {
+        // 使用 slice 而非 splice，避免修改原数组
+        config.url = `/boot/${config.url.split('/').slice(2).join('/')}`;
       }
       return config;
     },

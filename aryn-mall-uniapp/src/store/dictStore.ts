@@ -1,56 +1,45 @@
 import { defineStore } from 'pinia'
 
+/**
+ * 字典 Store
+ *
+ * 改进点：
+ * 1. 使用 Record<string, any> 替代数组，O(1) 查找
+ * 2. 修复空值检查逻辑（原 && 应为 ||）
+ * 3. 规范化代码风格
+ */
 export const useDictStore = defineStore('dict', {
   state: () => ({
-    dict: [] as any[],
+    dict: {} as Record<string, any>,
   }),
   actions: {
-    // 获取字典
-    getDict(_key: string) {
-      if (_key == null && _key === '') {
+    /** 获取字典 */
+    getDict(key: string) {
+      if (!key) {
         return null
       }
-      try {
-        for (let i = 0; i < this.dict.length; i++) {
-          if (this.dict[i].key === _key) {
-            return this.dict[i].value
-          }
-        }
-      }
-      catch (e) {
-        console.log(e)
-        return null
+      return this.dict[key] ?? null
+    },
+
+    /** 设置字典 */
+    setDict(key: string, value: any) {
+      if (key) {
+        this.dict[key] = value
       }
     },
-    // 设置字典
-    setDict(_key: string, value: any) {
-      if (_key !== null && _key !== '') {
-        this.dict.push({
-          key: _key,
-          value,
-        })
+
+    /** 删除字典 */
+    removeDict(key: string) {
+      if (key && key in this.dict) {
+        delete this.dict[key]
+        return true
       }
+      return false
     },
-    // 删除字典
-    removeDict(_key: string) {
-      let bln = false
-      try {
-        for (let i = 0; i < this.dict.length; i++) {
-          if (this.dict[i].key === _key) {
-            this.dict.splice(i, 1)
-            return true
-          }
-        }
-      }
-      catch (e) {
-        console.log(e)
-        bln = false
-      }
-      return bln
-    },
-    // 清空字典
+
+    /** 清空字典 */
     cleanDict() {
-      this.dict = []
+      this.dict = {}
     },
   },
 })

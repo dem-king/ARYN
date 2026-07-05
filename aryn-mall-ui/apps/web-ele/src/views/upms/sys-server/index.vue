@@ -69,8 +69,6 @@ const initPage = () => {
   loading.value = true;
   getServer()
     .then((response) => {
-      console.log(response.sysFiles);
-
       // const { cpu, mem, jvm, sys, sysFiles } = response;
       state.sysFiles = response.sysFiles;
       state.jvm = response.jvm;

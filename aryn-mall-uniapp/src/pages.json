@@ -317,6 +317,15 @@
           }
         },
         {
+          "path": "notify/notify-list/index",
+          "type": "page",
+          "name": "notify-list",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "消息通知"
+          }
+        },
+        {
           "path": "promotion/coupon/coupon-list/index",
           "type": "page",
           "name": "coupon-list",
@@ -408,5 +417,15 @@
         "selectedIconPath": "static/tabbar/user-selected.png"
       }
     ]
+  },
+  "preloadRule": {
+    "pages/home/index": {
+      "network": "all",
+      "packages": ["sub-pages"]
+    },
+    "pages/user/user-center/index": {
+      "network": "all",
+      "packages": ["sub-pages"]
+    }
   }
 }

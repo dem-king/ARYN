@@ -2,6 +2,8 @@
 package com.aryn.cloud.order.api.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
 import lombok.Data;
 
 import java.util.List;
@@ -20,9 +22,11 @@ public class CreateOrderDTO {
 	private String userId;
 
 	@Schema(description = "配送方式：1.普通快递；2.上门自提")
+	@NotBlank(message = "配送方式不能为空")
 	private String deliveryWay;
 
 	@Schema(description = "支付类型：1.微信支付；2.支付宝支付")
+	@NotBlank(message = "支付类型不能为空")
 	private String paymentType;
 
 	@Schema(description = "交易类型")
@@ -32,9 +36,11 @@ public class CreateOrderDTO {
 	private String userAddressId;
 
 	@Schema(description = "订单创建方式：1.购物车下单；2.普通购买下单")
+	@NotBlank(message = "订单创建方式不能为空")
 	private String createWay;
 
 	@Schema(description = "订单商品sku集合")
+	@NotEmpty(message = "商品SKU集合不能为空")
 	private List<CreateOrderSkuReqDTO> skuReqList;
 
 	@Schema(description = "应用ID")
@@ -45,5 +51,8 @@ public class CreateOrderDTO {
 
 	@Schema(description = "用户优惠券id")
 	private String couponUserId;
+
+	@Schema(description = "幂等请求ID（前端生成的UUID，防止重复下单）")
+	private String requestId;
 
 }

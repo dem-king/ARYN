@@ -20,4 +20,7 @@ public class OrderConsumerDTO {
 	@Schema(description = "订单单号")
 	private String orderNo;
 
+	@Schema(description = "用户ID")
+	private String userId;
+
 }
