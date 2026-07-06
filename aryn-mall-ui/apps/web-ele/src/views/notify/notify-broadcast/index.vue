@@ -18,8 +18,7 @@ import {
   ElTag,
 } from 'element-plus';
 
-import { getPage } from '#/api/notify/notify-broadcast';
-import { sendBroadcast } from '#/api/notify/notify-broadcast';
+import { getPage, sendBroadcast } from '#/api/notify/notify-broadcast';
 
 const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
@@ -49,7 +48,7 @@ const statusOptions = [
 const state = reactive({
   queryParams: {
     title: '',
-    notifyType: '' as string | number,
+    notifyType: '' as number | string,
     status: '',
   },
   page: {
@@ -79,10 +78,16 @@ const sendForm = reactive({
 const sendRules = {
   title: [{ required: true, message: '请输入群发标题', trigger: 'change' }],
   content: [{ required: true, message: '请输入群发内容', trigger: 'change' }],
-  notifyType: [{ required: true, message: '请选择消息类型', trigger: 'change' }],
+  notifyType: [
+    { required: true, message: '请选择消息类型', trigger: 'change' },
+  ],
   targetType: [{ required: true, message: '请选择目标', trigger: 'change' }],
   targetIds: [
-    { required: true, message: '请输入目标用户ID（逗号分隔）', trigger: 'change' },
+    {
+      required: true,
+      message: '请输入目标用户ID（逗号分隔）',
+      trigger: 'change',
+    },
   ],
 };
 const sendLoading = ref(false);
@@ -172,11 +177,7 @@ initPage();
 <template>
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
-      <ElForm
-        :model="state.queryParams"
-        :inline="true"
-        v-show="showSearch"
-      >
+      <ElForm :model="state.queryParams" :inline="true" v-show="showSearch">
         <ElFormItem label="标题" prop="title">
           <ElInput
             v-model="state.queryParams.title"
@@ -253,7 +254,12 @@ initPage();
             {{ notifyTypeText(scope.row.notifyType) }}
           </template>
         </ElTableColumn>
-        <ElTableColumn prop="totalCount" label="总数" align="center" width="80" />
+        <ElTableColumn
+          prop="totalCount"
+          label="总数"
+          align="center"
+          width="80"
+        />
         <ElTableColumn
           prop="successCount"
           label="成功"
@@ -279,11 +285,7 @@ initPage();
     </div>
 
     <!-- 群发对话框 -->
-    <ElDialog
-      v-model="sendDialog"
-      title="发起群发消息"
-      width="600px"
-    >
+    <ElDialog v-model="sendDialog" title="发起群发消息" width="600px">
       <ElForm
         ref="sendFormRef"
         :model="sendForm"

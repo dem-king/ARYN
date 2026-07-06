@@ -74,17 +74,49 @@ export default defineManifestConfig({
     // themeLocation: 'theme.json',
   },
   'mp-alipay': {
+    appid: 'YOUR_ALIPAY_APPID',
     usingComponents: true,
     compileOptions: {
       globalObjectMode: 'enable',
       treeShaking: true,
     },
+    component2: true,
+    enableAppxNg: true,
   },
   'mp-baidu': {
+    appid: 'YOUR_BAIDU_APPID',
     usingComponents: true,
+    setting: {
+      urlCheck: false,
+    },
   },
   'mp-toutiao': {
+    appid: 'YOUR_TOUTIAO_APPID',
     usingComponents: true,
+    setting: {
+      urlCheck: false,
+    },
+  },
+  'mp-qq': {
+    appid: 'YOUR_QQ_APPID',
+    usingComponents: true,
+    setting: {
+      urlCheck: false,
+    },
+  },
+  'mp-kuaishou': {
+    appid: 'YOUR_KUAISHOU_APPID',
+    usingComponents: true,
+    setting: {
+      urlCheck: false,
+    },
+  },
+  'mp-lark': {
+    appid: 'YOUR_LARK_APPID',
+    usingComponents: true,
+    setting: {
+      urlCheck: false,
+    },
   },
   'h5': {
     // darkmode: true,

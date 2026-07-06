@@ -361,7 +361,7 @@ defineExpose({
           <span style="width: 120px; padding: 0 8px">可以使用</span>
         </div>
         <div>
-          <p style="color: #f56c6c">0元表示无门槛</p>
+          <p style="color: var(--el-color-danger)">0元表示无门槛</p>
         </div>
       </ElFormItem>
       <ElFormItem label="发行数量" prop="totalNum">

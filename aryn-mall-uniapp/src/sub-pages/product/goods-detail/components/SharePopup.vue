@@ -41,6 +41,30 @@ function onShare() {
         </view>
       </view>
       <!-- #endif -->
+      <!-- #ifdef MP-TOUTIAO -->
+      <view class="show-content-item">
+        <view class="share-icon-warp">
+          <wd-button type="icon" open-type="share" icon="share" custom-style="color:#fff" />
+        </view>
+        <view>
+          <wd-button type="text" open-type="share" custom-style="color:#333333">
+            分享好友
+          </wd-button>
+        </view>
+      </view>
+      <!-- #endif -->
+      <!-- #ifdef MP-ALIPAY -->
+      <view class="show-content-item" @click="onShare">
+        <view class="share-icon-warp">
+          <wd-button type="icon" icon="share" custom-style="color:#fff" />
+        </view>
+        <view>
+          <wd-button type="text" custom-style="color:#333333">
+            分享好友
+          </wd-button>
+        </view>
+      </view>
+      <!-- #endif -->
       <!-- #ifdef H5 -->
       <view class="show-content-item" @click="onShare">
         <view class="share-icon-warp">

@@ -4,10 +4,12 @@
  */
 import { defineStore } from 'pinia'
 import {
+  aliLogin as aliLoginApi,
   logout,
   passwordLogin as passwordLoginApi,
   phoneLogin as phoneLoginApi,
   quickLogin as quickLoginApi,
+  ttLogin as ttLoginApi,
   wxLogin as wxLoginApi,
 } from '@/api/auth'
 import { useUserStore } from '@/store/userStore'
@@ -126,6 +128,16 @@ export const useAuthStore = defineStore('auth', {
       return this.executeLogin(wxLoginApi, data, false)
     },
 
+    /** 支付宝小程序登录 */
+    async aliLogin(data: { authCode: string }): Promise<any> {
+      return this.executeLogin(aliLoginApi, data, false)
+    },
+
+    /** 抖音小程序登录 */
+    async ttLogin(data: MPLoginParams): Promise<any> {
+      return this.executeLogin(ttLoginApi, data, false)
+    },
+
     /** 手机验证码登录 */
     async phoneLogin(data: PhoneLoginParams): Promise<any> {
       return this.executeLogin(phoneLoginApi, data, true)
@@ -167,7 +179,7 @@ export const useAuthStore = defineStore('auth', {
       }
     },
 
-    /** 账号登录前获取微信 code */
+    /** 账号登录前获取小程序 code（各平台通用） */
     async ensureWxIdentityForAccountLogin(): Promise<string> {
       // #ifdef MP
       const mpLoginRes = await new Promise<UniApp.LoginRes>((resolve, reject) => {
@@ -178,7 +190,7 @@ export const useAuthStore = defineStore('auth', {
       })
       const jsCode = mpLoginRes.code
       if (!jsCode) {
-        throw new Error('获取微信登录凭证失败')
+        throw new Error('获取登录凭证失败')
       }
       return jsCode
       // #endif

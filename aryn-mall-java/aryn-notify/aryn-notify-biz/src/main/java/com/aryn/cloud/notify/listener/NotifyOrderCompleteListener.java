@@ -4,6 +4,7 @@ package com.aryn.cloud.notify.listener;
 import cn.hutool.core.util.StrUtil;
 import com.aryn.cloud.common.core.constant.RocketMqConstants;
 import com.aryn.cloud.common.core.entity.OrderCompleteEvent;
+import com.aryn.cloud.common.core.util.RocketMqConsumerHelper;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.notify.api.dto.NotifySendDTO;
 import com.aryn.cloud.notify.service.INotifyMessageService;
@@ -26,15 +27,19 @@ import java.util.Map;
 @Component
 @RequiredArgsConstructor
 @RocketMQMessageListener(topic = RocketMqConstants.ORDER_COMPLETE_NOTIFY_TOPIC,
-		consumerGroup = "notify-order-complete-consumer-group")
+		consumerGroup = "notify-order-complete-consumer-group",
+		maxReconsumeTimes = RocketMqConstants.DEFAULT_MAX_RECONSUME_TIMES)
 public class NotifyOrderCompleteListener implements RocketMQListener<OrderCompleteEvent> {
 
 	private final INotifyMessageService notifyMessageService;
 
 	@Override
 	public void onMessage(OrderCompleteEvent event) {
-		log.info("收到订单完成事件，发送站内信: orderNo={}", event.getOrderNo());
+		RocketMqConsumerHelper.safeConsume(log, RocketMqConstants.ORDER_COMPLETE_NOTIFY_TOPIC,
+				"notify-order-complete-consumer-group", event, () -> doConsume(event));
+	}
 
+	private void doConsume(OrderCompleteEvent event) {
 		if (StrUtil.isNotBlank(event.getTenantId())) {
 			ArynTenantContextHolder.setTenantId(event.getTenantId());
 		}

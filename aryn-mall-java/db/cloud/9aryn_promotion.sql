@@ -387,4 +387,54 @@ CREATE TABLE IF NOT EXISTS `group_buy_member` (
   UNIQUE KEY `uk_record_user` (`record_id`, `user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='拼团参与记录';
 
+-- ----------------------------
+-- Table structure for points_goods
+-- ----------------------------
+DROP TABLE IF EXISTS `points_goods`;
+CREATE TABLE `points_goods`  (
+    `id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '主键',
+    `name` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '商品名称',
+    `cover` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '封面图',
+    `type` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '商品类型：goods-实物商品；coupon-优惠券；gift-赠品；',
+    `target_id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '目标ID（优惠券ID或商品SPU ID）',
+    `points_price` int NOT NULL COMMENT '所需积分',
+    `stock` int NOT NULL COMMENT '库存',
+    `limit_per_user` int NULL DEFAULT 0 COMMENT '每人限购数量，0表示不限购',
+    `start_time` datetime NULL DEFAULT NULL COMMENT '活动开始时间',
+    `end_time` datetime NULL DEFAULT NULL COMMENT '活动结束时间',
+    `create_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '创建人',
+    `update_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '修改人',
+    `create_time` datetime NULL DEFAULT NULL COMMENT '创建时间',
+    `update_time` datetime NULL DEFAULT NULL COMMENT '修改时间',
+    `del_flag` char(2) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+    `tenant_id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '租户id',
+    `version` int NULL DEFAULT 0 COMMENT '版本号',
+    PRIMARY KEY (`id`) USING BTREE,
+    KEY `idx_type` (`type`),
+    KEY `idx_tenant_id` (`tenant_id`)
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '积分商品' ROW_FORMAT = DYNAMIC;
+
+-- ----------------------------
+-- Table structure for points_exchange_record
+-- ----------------------------
+DROP TABLE IF EXISTS `points_exchange_record`;
+CREATE TABLE `points_exchange_record`  (
+    `id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '主键',
+    `user_id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '用户ID',
+    `points_goods_id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '积分商品ID',
+    `points_cost` int NOT NULL COMMENT '消耗积分',
+    `type` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '商品类型：goods-实物商品；coupon-优惠券；gift-赠品；',
+    `status` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT 'pending' COMMENT '状态：pending-待处理；success-成功；failed-失败；',
+    `create_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '创建人',
+    `update_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '修改人',
+    `create_time` datetime NULL DEFAULT NULL COMMENT '创建时间',
+    `update_time` datetime NULL DEFAULT NULL COMMENT '修改时间',
+    `del_flag` char(2) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+    `tenant_id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '租户id',
+    PRIMARY KEY (`id`) USING BTREE,
+    KEY `idx_user_id` (`user_id`),
+    KEY `idx_points_goods_id` (`points_goods_id`),
+    KEY `idx_tenant_id` (`tenant_id`)
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '积分兑换记录' ROW_FORMAT = DYNAMIC;
+
 SET FOREIGN_KEY_CHECKS = 1;

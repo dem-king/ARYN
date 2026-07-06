@@ -14,14 +14,17 @@ import {
   ElInputNumber,
   ElMessage,
   ElMessageBox,
+  ElOption,
   ElRadio,
   ElRadioGroup,
   ElRow,
+  ElSelect,
   ElSwitch,
   ElTabPane,
   ElTabs,
 } from 'element-plus';
 
+import { getList as getBrandList } from '#/api/product/brand';
 import { getPage as getCategoryTree } from '#/api/product/goods-category';
 import { getList as getSpecsList } from '#/api/product/goods-specs';
 import { addObj, editObj, getById } from '#/api/product/goods-spu';
@@ -37,6 +40,7 @@ const Sku = defineAsyncComponent(() => import('#/components/sku/index.vue'));
 
 interface DataState {
   form: {
+    brandId: string;
     categoryFirstId: string;
     categoryIds: Array<string>;
     categorySecondId: string;
@@ -66,6 +70,7 @@ interface DataState {
   categoryTreeList: Array<any>;
   specsList: Array<any>;
   goodsSpuSpecs: Array<any>;
+  brandList: Array<any>;
 }
 const { freight_type } = useDict('freight_type');
 
@@ -84,6 +89,7 @@ const state = reactive<DataState>({
     goodsSpuSpecs: [],
     categoryFirstId: '',
     categorySecondId: '',
+    brandId: '',
     sku: {
       originalPrice: 0,
       costPrice: 0,
@@ -187,6 +193,7 @@ const state = reactive<DataState>({
   categoryTreeList: [],
   specsList: [],
   goodsSpuSpecs: [],
+  brandList: [],
 });
 const $route = useRouter();
 const $useRoute = useRoute();
@@ -229,6 +236,7 @@ const resetForm = (formEl: FormInstance | undefined) => {
     goodsSpuSpecs: [],
     categoryFirstId: '',
     categorySecondId: '',
+    brandId: '',
     sku: {
       originalPrice: 0,
       costPrice: 0,
@@ -320,6 +328,15 @@ const edit = () => {
 const getCategory = () => {
   getCategoryTree().then((response) => {
     state.categoryTreeList = response;
+  });
+};
+
+/**
+ * 查询品牌列表
+ */
+const getBrand = () => {
+  getBrandList().then((response) => {
+    state.brandList = response;
   });
 };
 
@@ -416,6 +433,7 @@ const initForm = () => {
   const { id }: any = $useRoute.query;
   state.goodsSpuSpecs = [];
   getCategory();
+  getBrand();
   if (id) {
     loading.value = true;
     // 修改
@@ -493,6 +511,22 @@ initForm();
                       :props="defaultProps"
                       @change="changeCategory"
                     />
+                  </ElFormItem>
+
+                  <ElFormItem label="品牌" prop="brandId">
+                    <ElSelect
+                      v-model="state.form.brandId"
+                      clearable
+                      placeholder="请选择品牌"
+                      style="width: 100%"
+                    >
+                      <ElOption
+                        v-for="item in state.brandList"
+                        :key="item.id"
+                        :label="item.name"
+                        :value="item.id"
+                      />
+                    </ElSelect>
                   </ElFormItem>
 
                   <ElFormItem label="运费配置" prop="freightType">

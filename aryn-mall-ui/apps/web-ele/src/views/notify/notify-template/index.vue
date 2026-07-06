@@ -48,7 +48,7 @@ const state = reactive({
   queryParams: {
     templateCode: '',
     templateName: '',
-    notifyType: '' as string | number,
+    notifyType: '' as number | string,
     status: '',
   },
   page: {

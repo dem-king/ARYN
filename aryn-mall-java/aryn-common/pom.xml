@@ -31,5 +31,7 @@
         <module>aryn-common-seata</module>
         <module>aryn-common-swagger</module>
         <module>aryn-common-datasource</module>
+        <module>aryn-common-excel</module>
+        <module>aryn-common-search</module>
     </modules>
 </project>

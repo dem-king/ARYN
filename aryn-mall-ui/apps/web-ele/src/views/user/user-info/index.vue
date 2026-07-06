@@ -1,7 +1,16 @@
 <script lang="ts" setup>
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
-import { Edit, Plus, Refresh, Search, View } from '@element-plus/icons-vue';
+import { downloadExcel } from '@vben/utils';
+
+import {
+  Download,
+  Edit,
+  Plus,
+  Refresh,
+  Search,
+  View,
+} from '@element-plus/icons-vue';
 import {
   ElAvatar,
   ElButton,
@@ -15,8 +24,8 @@ import {
   ElTableColumn,
 } from 'element-plus';
 
-import { getPage } from '#/api/user/user-info';
 import { getList as getLevelList } from '#/api/user/member-level';
+import { getPage } from '#/api/user/user-info';
 import { useDict } from '#/utils/dict';
 
 const RightToolbar = defineAsyncComponent(
@@ -47,6 +56,7 @@ const state = reactive({
 });
 const showSearch = ref(true);
 const loading = ref(false);
+const exportLoading = ref(false);
 const detailRef = ref();
 const queryRef = ref();
 const formRef = ref();
@@ -115,6 +125,22 @@ const doEdit = (row: any) => {
   formRef.value.initForm(row);
 };
 
+/**
+ * 导出会员
+ */
+const exportData = async () => {
+  exportLoading.value = true;
+  try {
+    await downloadExcel(
+      '/mall-user/userinfo/export',
+      '会员列表.xlsx',
+      state.queryParams,
+    );
+  } finally {
+    exportLoading.value = false;
+  }
+};
+
 initPage();
 
 // 加载会员等级选项
@@ -122,7 +148,7 @@ const loadLevelOptions = async () => {
   try {
     const res = await getLevelList();
     levelOptions.value = res || [];
-  } catch (_e) {
+  } catch {
     levelOptions.value = [];
   }
 };
@@ -194,6 +220,15 @@ loadLevelOptions();
             :icon="Plus"
           >
             新增
+          </ElButton>
+          <ElButton
+            type="success"
+            v-access:code="'user:userinfo:export'"
+            :loading="exportLoading"
+            @click="exportData"
+            :icon="Download"
+          >
+            导出
           </ElButton>
         </div>
         <RightToolbar

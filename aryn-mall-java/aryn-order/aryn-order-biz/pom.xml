@@ -102,6 +102,11 @@
                 </exclusion>
             </exclusions>
         </dependency>
+        <!--           Excel导入导出模块-->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-common-excel</artifactId>
+        </dependency>
     </dependencies>
     <profiles>
         <profile>

@@ -3,7 +3,12 @@ import type { FormInstance } from 'element-plus';
 
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
-import { CircleCheck, CircleClose, Refresh, Search } from '@element-plus/icons-vue';
+import {
+  CircleCheck,
+  CircleClose,
+  Refresh,
+  Search,
+} from '@element-plus/icons-vue';
 import {
   ElButton,
   ElForm,
@@ -31,7 +36,9 @@ const DictTag = defineAsyncComponent(
 );
 
 const queryRef = ref<FormInstance>();
-const { distribution_withdraw_status } = useDict('distribution_withdraw_status');
+const { distribution_withdraw_status } = useDict(
+  'distribution_withdraw_status',
+);
 const loading = ref(false);
 const showSearch = ref(true);
 const state = reactive({
@@ -143,7 +150,7 @@ initPage();
 
       <!-- 工具栏 -->
       <div class="hx-table-toolbar">
-        <div />
+        <div></div>
         <RightToolbar
           :search-btn="true"
           :refresh-btn="true"
@@ -168,10 +175,18 @@ initPage();
         />
         <ElTableColumn prop="amount" label="提现金额" align="center" />
         <ElTableColumn prop="accountType" label="收款方式" align="center" />
-        <ElTableColumn prop="accountNo" label="收款账号" align="center" show-overflow-tooltip />
+        <ElTableColumn
+          prop="accountNo"
+          label="收款账号"
+          align="center"
+          show-overflow-tooltip
+        />
         <ElTableColumn prop="status" label="状态" align="center">
           <template #default="scope">
-            <DictTag :options="distribution_withdraw_status" :value="scope.row.status" />
+            <DictTag
+              :options="distribution_withdraw_status"
+              :value="scope.row.status"
+            />
           </template>
         </ElTableColumn>
         <ElTableColumn prop="auditBy" label="审核人" align="center" />

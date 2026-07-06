@@ -16,6 +16,7 @@ import {
 
 import { addObj, editObj, getById } from '#/api/user/member-tag';
 
+const emit = defineEmits(['init-page']);
 const visible = ref(false);
 const loading = ref(false);
 const title = ref('');
@@ -33,8 +34,6 @@ const state = reactive({
 const rules = reactive({
   tagName: [{ required: true, message: '请输入标签名称', trigger: 'blur' }],
 });
-
-const emit = defineEmits(['init-page']);
 
 const initForm = async (row?: any) => {
   visible.value = true;
@@ -76,7 +75,12 @@ defineExpose({ initForm });
 </script>
 <template>
   <ElDialog v-model="visible" :title="title" width="500px" draggable>
-    <ElForm ref="formRef" :model="state.form" :rules="rules" label-width="120px">
+    <ElForm
+      ref="formRef"
+      :model="state.form"
+      :rules="rules"
+      label-width="120px"
+    >
       <ElFormItem label="标签名称" prop="tagName">
         <ElInput v-model="state.form.tagName" placeholder="请输入标签名称" />
       </ElFormItem>

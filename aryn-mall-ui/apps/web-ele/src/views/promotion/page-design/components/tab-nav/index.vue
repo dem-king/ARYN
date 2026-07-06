@@ -132,7 +132,7 @@ const dynamicStyles = computed(() => {
       position: relative;
       flex: 1;
       vertical-align: top;
-      color: #666;
+      color: var(--el-text-color-secondary);
       text-align: center;
     }
   }
@@ -165,7 +165,7 @@ const dynamicStyles = computed(() => {
       p {
         margin-top: 5px;
         font-size: 12px;
-        color: #fff;
+        color: hsl(var(--foreground));
         text-align: center;
       }
     }

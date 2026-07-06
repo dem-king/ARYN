@@ -21,6 +21,7 @@
     <modules>
         <module>aryn-monitor</module>
         <module>aryn-generator</module>
+        <module>aryn-statistics-biz</module>
     </modules>
 
 </project>

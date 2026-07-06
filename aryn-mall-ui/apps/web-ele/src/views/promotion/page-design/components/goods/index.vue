@@ -316,7 +316,7 @@ const dynamicGoodsStyles = computed(() => {
         .goods-item {
           position: relative;
           padding: 10px;
-          background-color: #fff;
+          background-color: hsl(var(--card));
 
           .goods-img-one {
             width: 100%;
@@ -353,7 +353,7 @@ const dynamicGoodsStyles = computed(() => {
               overflow: hidden;
               text-overflow: ellipsis;
               font-size: 12px;
-              color: #999;
+              color: var(--el-text-color-placeholder);
               white-space: nowrap;
             }
 
@@ -370,7 +370,7 @@ const dynamicGoodsStyles = computed(() => {
                 overflow: hidden;
                 text-overflow: ellipsis;
                 font-size: 14px;
-                color: #f44;
+                color: var(--el-color-danger);
                 white-space: nowrap;
               }
 

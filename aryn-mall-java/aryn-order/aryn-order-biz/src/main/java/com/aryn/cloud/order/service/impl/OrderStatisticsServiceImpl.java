@@ -1,6 +1,7 @@
 package com.aryn.cloud.order.service.impl;
 
 import com.aryn.cloud.order.api.dto.OrderStatisticsDTO;
+import com.aryn.cloud.order.api.vo.CategoryRankVO;
 import com.aryn.cloud.order.api.vo.*;
 import com.aryn.cloud.order.mapper.OrderStatisticsMapper;
 import com.aryn.cloud.order.service.IOrderStatisticsService;
@@ -310,6 +311,17 @@ public class OrderStatisticsServiceImpl implements IOrderStatisticsService {
 		}
 
 		return vo;
+	}
+
+	@Override
+	public List<CategoryRankVO> getCategoryRank(OrderStatisticsDTO dto) {
+		return orderStatisticsMapper.getCategoryRank(dto);
+	}
+
+	@Override
+	public Integer getRepurchaseUserCount(OrderStatisticsDTO dto) {
+		Integer count = orderStatisticsMapper.getRepurchaseUserCount(dto);
+		return count != null ? count : 0;
 	}
 
 }

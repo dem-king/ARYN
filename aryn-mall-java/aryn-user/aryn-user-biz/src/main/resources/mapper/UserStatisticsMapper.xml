@@ -24,4 +24,26 @@
         GROUP BY timePoint
         ORDER BY timePoint
     </select>
+
+    <select id="getUserFunnel" resultType="com.aryn.cloud.user.api.vo.UserFunnelVO">
+        SELECT
+        COUNT(1) AS registerCount,
+        0 AS orderCount,
+        0 AS repurchaseCount
+        FROM user_info
+        WHERE del_flag = '0'
+        <if test="dto.startTime != null">
+            AND create_time &gt;= #{dto.startTime}
+        </if>
+        <if test="dto.endTime != null">
+            AND create_time &lt;= #{dto.endTime}
+        </if>
+    </select>
+
+    <select id="getOnlineUserCount" resultType="java.lang.Long">
+        SELECT COUNT(1)
+        FROM user_info
+        WHERE del_flag = '0'
+        AND last_login_time &gt;= DATE_SUB(NOW(), INTERVAL 30 MINUTE)
+    </select>
 </mapper>

@@ -21,6 +21,7 @@ interface State {
   queryParams: {
     name: string
     categorySecondId: string
+    brandId: string
   }
   goodsList: any[]
   page: {
@@ -47,16 +48,18 @@ const state = reactive<State>({
   queryParams: {
     name: '',
     categorySecondId: '',
+    brandId: '',
   },
   goodsList: [],
   page: {
     desc: '',
     asc: '',
   },
-})
+}))
 onLoad(async (options) => {
   state.queryParams.name = options?.keyword
   state.queryParams.categorySecondId = options?.categoryId
+  state.queryParams.brandId = options?.brandId
   nextTick(() => {
     pagingRef.value?.reload()
   })

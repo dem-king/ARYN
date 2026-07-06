@@ -88,6 +88,16 @@
                 </exclusion>
             </exclusions>
         </dependency>
+        <!--           Excel导入导出模块-->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-common-excel</artifactId>
+        </dependency>
+        <!--           Meilisearch搜索模块-->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-common-search</artifactId>
+        </dependency>
     </dependencies>
     <profiles>
         <profile>

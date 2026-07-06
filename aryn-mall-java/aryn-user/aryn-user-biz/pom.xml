@@ -81,6 +81,21 @@
                 </exclusion>
             </exclusions>
         </dependency>
+        <!--           Excel导入导出模块-->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-common-excel</artifactId>
+        </dependency>
+        <!--           定时任务模块-->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-common-job</artifactId>
+        </dependency>
+        <!--           UPMS API（租户服务）-->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-upms-api</artifactId>
+        </dependency>
     </dependencies>
     <profiles>
         <profile>

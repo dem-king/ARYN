@@ -5,11 +5,11 @@ import { ElTable, ElTableColumn, ElTag } from 'element-plus';
 
 import { getUserPage } from '#/api/user/balance-record';
 
+const props = defineProps<{ userId: string }>();
+
 const Pagination = defineAsyncComponent(
   () => import('#/components/pagination/index.vue'),
 );
-
-const props = defineProps<{ userId: string }>();
 
 const state = reactive({
   page: {

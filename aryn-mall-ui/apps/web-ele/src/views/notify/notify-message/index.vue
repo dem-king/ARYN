@@ -44,7 +44,7 @@ const state = reactive({
   queryParams: {
     userId: '',
     title: '',
-    notifyType: '' as string | number,
+    notifyType: '' as number | string,
     readStatus: '',
   },
   page: {
@@ -171,7 +171,12 @@ initPage();
           width="180"
           show-overflow-tooltip
         />
-        <ElTableColumn prop="notifyType" label="消息类型" align="center" width="100">
+        <ElTableColumn
+          prop="notifyType"
+          label="消息类型"
+          align="center"
+          width="100"
+        >
           <template #default="scope">
             {{ notifyTypeText(scope.row.notifyType) }}
           </template>
@@ -188,7 +193,12 @@ initPage();
           align="center"
           show-overflow-tooltip
         />
-        <ElTableColumn prop="bizType" label="业务类型" align="center" width="100" />
+        <ElTableColumn
+          prop="bizType"
+          label="业务类型"
+          align="center"
+          width="100"
+        />
         <ElTableColumn prop="readStatus" label="已读" align="center" width="80">
           <template #default="scope">
             <ElTag v-if="scope.row.readStatus === '1'" type="success">

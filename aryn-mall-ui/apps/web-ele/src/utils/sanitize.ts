@@ -25,7 +25,14 @@ const DANGEROUS_TAGS = [
 const DANGEROUS_ATTR_PREFIX = 'on';
 
 /** 需要过滤的属性（可能包含 javascript: 协议） */
-const DANGEROUS_ATTRS = ['href', 'src', 'action', 'formaction', 'data', 'codebase'];
+const DANGEROUS_ATTRS = [
+  'href',
+  'src',
+  'action',
+  'formaction',
+  'data',
+  'codebase',
+];
 
 /**
  * 过滤 HTML 内容中的 XSS 攻击向量
@@ -49,7 +56,7 @@ export function sanitizeHtml(html: string): string {
   }
 
   // 2. 移除所有 on* 事件属性（onclick, onload, onerror 等）
-  result = result.replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+  result = result.replaceAll(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
 
   // 3. 过滤 javascript: 协议
   for (const attr of DANGEROUS_ATTRS) {
@@ -61,7 +68,7 @@ export function sanitizeHtml(html: string): string {
   }
 
   // 4. 移除 data: 协议中的潜在恶意内容（非图片的 data URI）
-  result = result.replace(
+  result = result.replaceAll(
     /src\s*=\s*("data:(?!image\/)[^"]*"|'data:(?!image\/)[^']*')/gi,
     '',
   );

@@ -191,8 +191,8 @@ const dynamicImageStyles = computed(() => {
     align-items: center;
     justify-content: center;
     min-height: 200px;
-    color: #909399;
-    background-color: #f5f7fa;
+    color: var(--el-text-color-secondary);
+    background-color: var(--el-fill-color-lighter);
 
     .el-icon {
       margin-bottom: 8px;

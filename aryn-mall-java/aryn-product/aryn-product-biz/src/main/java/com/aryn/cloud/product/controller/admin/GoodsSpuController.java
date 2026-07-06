@@ -7,15 +7,24 @@ import cn.hutool.core.util.ObjectUtil;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.common.core.util.Result;
+import com.aryn.cloud.common.excel.ExcelUtils;
 import com.aryn.cloud.common.log.annotation.SysLog;
 import com.aryn.cloud.product.api.dto.GoodsSpuShelfDTO;
 import com.aryn.cloud.product.api.entity.GoodsSpu;
+import com.aryn.cloud.product.excel.GoodsSpuExportVO;
+import com.aryn.cloud.product.excel.GoodsSpuImportDTO;
+import com.aryn.cloud.product.excel.GoodsSpuImportListener;
+import com.aryn.cloud.product.service.IBrandService;
+import com.aryn.cloud.product.service.IGoodsCategoryService;
+import com.aryn.cloud.product.service.IGoodsSkuService;
 import com.aryn.cloud.product.service.IGoodsSpuService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -36,6 +45,12 @@ import java.util.Map;
 public class GoodsSpuController {
 
 	private final IGoodsSpuService goodsSpuService;
+
+	private final IGoodsCategoryService goodsCategoryService;
+
+	private final IBrandService brandService;
+
+	private final IGoodsSkuService goodsSkuService;
 
 	@Operation(summary = "商品列表")
 	@SaCheckPermission("product:goodsspu:page")
@@ -129,6 +144,64 @@ public class GoodsSpuController {
 		// 全部数量
 		rt.put("allCount", allCount);
 		return Result.success(rt);
+	}
+
+	@SysLog("商品导出")
+	@Operation(summary = "商品导出")
+	@SaCheckPermission("product:goodsspu:export")
+	@GetMapping("/export")
+	public void export(GoodsSpu goodsSpu, HttpServletResponse response) {
+		List<GoodsSpu> list = goodsSpuService.list(Wrappers.lambdaQuery(goodsSpu));
+		List<GoodsSpuExportVO> exportList = list.stream().map(this::toGoodsSpuExportVO).toList();
+		ExcelUtils.export(response, "商品列表", GoodsSpuExportVO.class, exportList);
+	}
+
+	@SysLog("商品批量导入")
+	@Operation(summary = "商品批量导入")
+	@SaCheckPermission("product:goodsspu:import")
+	@PostMapping("/import")
+	public Result<Map<String, Object>> importExcel(@RequestParam("file") MultipartFile file) {
+		GoodsSpuImportListener listener = new GoodsSpuImportListener(goodsSpuService, goodsCategoryService,
+				brandService, goodsSkuService);
+		ExcelUtils.importExcel(file, listener);
+		Map<String, Object> result = new HashMap<>();
+		result.put("successCount", listener.getSuccessCount());
+		result.put("errorMessages", listener.getErrorMessages());
+		return Result.success(result);
+	}
+
+	@Operation(summary = "商品导入模板下载")
+	@SaCheckPermission("product:goodsspu:import")
+	@GetMapping("/import-template")
+	public void importTemplate(HttpServletResponse response) {
+		ExcelUtils.downloadTemplate(response, "商品导入模板", GoodsSpuImportDTO.class);
+	}
+
+	@SysLog("全量重建搜索索引")
+	@Operation(summary = "全量重建搜索索引")
+	@SaCheckPermission("product:goodsspu:search-rebuild")
+	@PostMapping("/search/rebuild")
+	public Result<Long> rebuildSearchIndex() {
+		long count = goodsSpuService.rebuildSearchIndex();
+		return Result.success(count);
+	}
+
+	private GoodsSpuExportVO toGoodsSpuExportVO(GoodsSpu spu) {
+		GoodsSpuExportVO vo = new GoodsSpuExportVO();
+		vo.setName(spu.getName());
+		vo.setSubTitle(spu.getSubTitle());
+		vo.setCategoryName(spu.getCategoryName());
+		vo.setBrandName(spu.getBrandName());
+		vo.setSalesPrice(spu.getSalesPrice());
+		vo.setOriginalPrice(spu.getOriginalPrice());
+		vo.setCostPrice(spu.getCostPrice());
+		vo.setStock(spu.getStock());
+		vo.setSalesVolume(spu.getSalesVolume());
+		vo.setStatus(spu.getStatus());
+		vo.setFreightType(spu.getFreightType());
+		vo.setFixedFreightPrice(spu.getFixedFreightPrice());
+		vo.setCreateTime(spu.getCreateTime() != null ? spu.getCreateTime().toString() : null);
+		return vo;
 	}
 
 }

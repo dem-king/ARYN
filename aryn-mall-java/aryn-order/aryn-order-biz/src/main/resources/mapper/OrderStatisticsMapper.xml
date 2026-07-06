@@ -198,4 +198,19 @@
             AND o.payment_time &lt;= #{dto.endTime}
         </if>
     </select>
+
+    <select id="getCategoryRank" resultType="com.aryn.cloud.order.api.vo.CategoryRankVO">
+        SELECT
+        oi.category_name AS categoryName,
+        IFNULL(SUM(oi.buy_quantity), 0) AS salesCount,
+        IFNULL(SUM(oi.payment_price), 0) AS salesAmount
+        FROM order_item oi
+        INNER JOIN order_info o ON oi.order_id = o.id
+        WHERE o.del_flag = '0'
+        AND o.pay_status = '1'
+        AND o.payment_time BETWEEN #{dto.startTime} AND #{dto.endTime}
+        GROUP BY oi.category_id, oi.category_name
+        ORDER BY salesCount DESC
+        LIMIT 10
+    </select>
 </mapper>

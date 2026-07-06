@@ -37,11 +37,12 @@ export function prepay(data: any, paymentPrice: any, JumpUrl: string, paymentTyp
       },
     })
     // #endif
+
     // #ifdef MP-ALIPAY
     uni.requestPayment({
       provider: 'alipay',
       orderInfo: data.tradeNo,
-      success(res) {
+      success(res: any) {
         if (res.resultCode !== '9000') {
           uni.showModal({
             title: '提示',
@@ -51,6 +52,36 @@ export function prepay(data: any, paymentPrice: any, JumpUrl: string, paymentTyp
         else {
           uni.reLaunch({
             url: JumpUrl,
+          })
+        }
+      },
+      fail() {
+        uni.showModal({
+          title: '提示',
+          content: '取消支付',
+        })
+      },
+    })
+    // #endif
+
+    // #ifdef MP-TOUTIAO
+    // 抖音小程序支付：通过 tt.pay 调起，UniApp 封装为 uni.requestPayment
+    uni.requestPayment({
+      provider: 'wxpay',
+      orderInfo: {
+        order_id: data.orderId,
+        order_token: data.orderToken,
+      },
+      success(res: any) {
+        if (res.code === 0) {
+          uni.reLaunch({
+            url: JumpUrl,
+          })
+        }
+        else {
+          uni.showModal({
+            title: '提示',
+            content: res.msg || '支付失败',
           })
         }
       },

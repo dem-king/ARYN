@@ -340,6 +340,19 @@ services:
 #      - aryn-nacos
 #      - aryn-mysql
 
+  aryn-meilisearch:
+    image: getmeili/meilisearch:v1.6
+    container_name: aryn-meilisearch
+    restart: unless-stopped
+    ports:
+      - "7700:7700"
+    environment:
+      - MEILI_MASTER_KEY=aryn_dev_key_2026
+    volumes:
+      - meilisearch_data:/meili_data
+    networks:
+      - aryn-net
+
 networks:
   aryn-net:
     name: aryn-net
@@ -349,3 +362,4 @@ networks:
 volumes:
   mysql-data:
   redis-data:
+  meilisearch_data:

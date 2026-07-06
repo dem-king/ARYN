@@ -63,6 +63,7 @@ export const useUserStore = defineStore('user', {
     getPoint: state => state.pointsInfo?.point ?? 0,
     getBalance: state => state.pointsInfo?.balance ?? 0,
     getLevelName: state => state.pointsInfo?.levelName ?? '',
+    getGrowthValue: state => state.pointsInfo?.growthValue ?? 0,
   },
 
   actions: {

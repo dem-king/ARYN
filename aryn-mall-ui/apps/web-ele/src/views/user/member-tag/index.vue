@@ -1,15 +1,8 @@
 <script lang="ts" setup>
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
-import { Delete, Edit, Plus, Refresh, Search } from '@element-plus/icons-vue';
-import {
-  ElButton,
-  ElForm,
-  ElFormItem,
-  ElTable,
-  ElTableColumn,
-  ElTag,
-} from 'element-plus';
+import { Delete, Edit, Plus } from '@element-plus/icons-vue';
+import { ElButton, ElTable, ElTableColumn, ElTag } from 'element-plus';
 
 import { delObj, getPage } from '#/api/user/member-tag';
 import { useDict } from '#/utils/dict';
@@ -110,7 +103,7 @@ initPage();
             <ElTag
               v-if="scope.row.tagColor"
               :color="scope.row.tagColor"
-              style="color: #fff; border: none"
+              style="color: hsl(var(--foreground)); border: none"
             >
               {{ scope.row.tagName }}
             </ElTag>

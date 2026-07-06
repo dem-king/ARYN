@@ -20,7 +20,8 @@ if (import.meta.env.DEV) {
   ElNotification({
     title: '测试账号（仅开发环境）',
     dangerouslyUseHTMLString: true,
-    message: '<p>测试账号请在 .env.development 中配置，请勿在生产环境使用默认密码</p>',
+    message:
+      '<p>测试账号请在 .env.development 中配置，请勿在生产环境使用默认密码</p>',
     duration: 5000,
   });
 }

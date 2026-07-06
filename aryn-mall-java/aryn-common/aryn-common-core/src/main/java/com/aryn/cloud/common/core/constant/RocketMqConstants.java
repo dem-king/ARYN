@@ -27,10 +27,19 @@ public interface RocketMqConstants {
 	/** 退款通知topic */
 	String PAY_REFUND_NOTIFY_TOPIC = "pay-refund-notify-topic";
 
+	/** 死信队列监控 topic（用于统一监控各消费者组的DLQ消息） */
+	String DLQ_MONITOR_TOPIC = "dlq-monitor-topic";
+
+	/** 商品索引同步 topic */
+	String PRODUCT_INDEX_SYNC_TOPIC = "product-index-sync-topic";
+
 	/** 发送消息超时时间 */
 	long TIME_OUT = 3000;
 
 	/** 订单超时取消等级 30分钟 */
 	int ORDER_CANCEL_LEVEL = 16;
+
+	/** 消费者默认最大重试次数 */
+	int DEFAULT_MAX_RECONSUME_TIMES = 3;
 
 }

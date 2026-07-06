@@ -113,7 +113,8 @@ if (userStore.userInfo?.tenantId === ARYN_PLATFORM_TENANT_ID) {
       <Transition name="tenant">
         <ElSelect
           v-if="
-            userStore.userInfo?.tenantId === ARYN_PLATFORM_TENANT_ID && tenantList
+            userStore.userInfo?.tenantId === ARYN_PLATFORM_TENANT_ID &&
+            tenantList
           "
           ref="tenantRef"
           v-model="switchTenantId"

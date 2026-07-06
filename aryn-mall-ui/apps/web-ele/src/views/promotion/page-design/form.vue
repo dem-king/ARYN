@@ -487,7 +487,10 @@ initForm();
                         >
                           <div class="btn-item">
                             <ElLink
-                              style="font-size: 16px; color: #fff"
+                              style="
+                                font-size: 16px;
+                                color: hsl(var(--foreground));
+                              "
                               @click="delComponent(index)"
                             >
                               <ElIcon>
@@ -497,7 +500,10 @@ initForm();
                           </div>
                           <div class="btn-item">
                             <ElLink
-                              style="font-size: 16px; color: #fff"
+                              style="
+                                font-size: 16px;
+                                color: hsl(var(--foreground));
+                              "
                               :disabled="index <= 0"
                               @click="upComponent(index)"
                             >
@@ -508,7 +514,10 @@ initForm();
                           </div>
                           <div class="btn-item">
                             <ElLink
-                              style="font-size: 16px; color: #fff"
+                              style="
+                                font-size: 16px;
+                                color: hsl(var(--foreground));
+                              "
                               :disabled="index === components.length - 1"
                               @click="downComponent(index)"
                             >
@@ -619,7 +628,7 @@ initForm();
     }
 
     .group-item:hover {
-      background-color: #e5e5e5;
+      background-color: var(--el-fill-color-light);
     }
   }
 }
@@ -633,7 +642,7 @@ initForm();
   .title {
     padding: 10px;
     font-weight: bold;
-    border-bottom: 1px solid #e5e5e5;
+    border-bottom: 1px solid var(--el-border-color-lighter);
   }
 
   .selected-item {
@@ -662,7 +671,7 @@ initForm();
   }
 
   .selected-item:hover {
-    background-color: #e5e5e5;
+    background-color: var(--el-fill-color-light);
 
     .selected-del {
       opacity: 1;
@@ -670,7 +679,7 @@ initForm();
   }
 
   .selected-active {
-    background-color: #e5e5e5;
+    background-color: var(--el-fill-color-light);
 
     .selected-del {
       opacity: 1;
@@ -720,7 +729,7 @@ initForm();
 }
 
 .component-item:hover {
-  background: #f9fafb;
+  background: var(--el-fill-color-lighter);
 }
 
 .right-panel {
@@ -750,7 +759,7 @@ initForm();
 }
 
 .empty-text {
-  color: #9ca3af;
+  color: var(--el-text-color-placeholder);
 }
 
 :deep(.el-collapse) {
@@ -774,14 +783,14 @@ initForm();
     max-width: 375px;
     min-height: 667px;
     margin: 60px auto;
-    background-color: var(--color-white);
-    box-shadow: 0 0 28px 0 var(--color-white);
+    background-color: hsl(var(--card));
+    box-shadow: 0 0 28px 0 hsl(var(--card));
 
     .content-warp {
       width: 100%;
       min-height: 667px;
       padding-bottom: 30px;
-      background-color: #fff;
+      background-color: hsl(var(--card));
       background-repeat: no-repeat;
       background-position: center;
       background-size: 100% 100%;
@@ -874,7 +883,7 @@ initForm();
           inset: 0;
           z-index: 1;
           content: '';
-          border: 2px solid #155bd4;
+          border: 2px solid var(--el-color-primary);
         }
       }
 
@@ -883,7 +892,7 @@ initForm();
         inset: 0;
         z-index: 1;
         content: '';
-        border: 2px solid #155bd4;
+        border: 2px solid var(--el-color-primary);
       }
 
       .footer {

@@ -14,7 +14,7 @@ definePage({
 })
 type PaymentType = '1' | '2' | '3' // 1: 微信, 2: 支付宝, 3: 余额
 
-type TradeType = 'WX_JSAPI_PAY' | 'WX_H5_PAY' | 'WX_APP_PAY' | 'ALI_JSAPI_PAY' | 'ALI_H5_PAY' | 'ALI_APP_PAY'
+type TradeType = 'WX_JSAPI_PAY' | 'WX_H5_PAY' | 'WX_APP_PAY' | 'ALI_JSAPI_PAY' | 'ALI_H5_PAY' | 'ALI_APP_PAY' | 'TT_JSAPI_PAY'
 
 interface PrepayParams {
   orderNo: string
@@ -107,6 +107,11 @@ function buildPrepayParams(orderNo: string, paymentType: PaymentType): PrepayPar
       throw new Error('Unsupported payment type')
   }
 
+  // #ifdef MP-TOUTIAO
+  // 抖音小程序强制使用抖音支付
+  params.tradeType = 'TT_JSAPI_PAY'
+  // #endif
+
   return params
 }
 </script>
@@ -133,7 +138,7 @@ function buildPrepayParams(orderNo: string, paymentType: PaymentType): PrepayPar
         选择支付方式
       </view>
       <wd-radio-group v-model="paymentType" shape="dot" size="large" cell>
-        <!-- #ifndef MP-ALIPAY -->
+        <!-- #ifdef MP-WEIXIN || MP-BAIDU || MP-QQ || MP-KUAISHOU || MP-LARK -->
         <wd-radio value="1">
           <view style="display: flex; align-items: center">
             <image
@@ -148,7 +153,7 @@ function buildPrepayParams(orderNo: string, paymentType: PaymentType): PrepayPar
         </wd-radio>
         <wd-divider color="#e0e0e0" custom-class="m-0!" />
         <!-- #endif -->
-        <!-- #ifndef MP-WEIXIN -->
+        <!-- #ifdef MP-ALIPAY -->
         <wd-radio value="2">
           <view style="display: flex; align-items: center">
             <image
@@ -158,6 +163,21 @@ function buildPrepayParams(orderNo: string, paymentType: PaymentType): PrepayPar
             />
             <text class="pl-1 text-xs">
               支付宝支付
+            </text>
+          </view>
+        </wd-radio>
+        <wd-divider color="#e0e0e0" custom-class="m-0!" />
+        <!-- #endif -->
+        <!-- #ifdef MP-TOUTIAO -->
+        <wd-radio value="1">
+          <view style="display: flex; align-items: center">
+            <image
+              src="/static/pay/wxpay.svg"
+              mode="scaleToFill"
+              class="h-22px w-22px"
+            />
+            <text class="pl-1 text-xs">
+              抖音支付
             </text>
           </view>
         </wd-radio>

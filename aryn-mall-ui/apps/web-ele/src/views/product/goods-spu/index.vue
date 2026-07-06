@@ -2,37 +2,47 @@
 import { defineAsyncComponent, reactive, ref, toRefs } from 'vue';
 import { useRouter } from 'vue-router';
 
+import { downloadExcel, downloadFile } from '@vben/utils';
+
 import {
   Bottom,
   Delete,
+  Download,
   Edit,
   Plus,
   Refresh,
   Search,
   Top,
+  Upload,
 } from '@element-plus/icons-vue';
 import {
   ElButton,
   ElCascader,
   ElCol,
+  ElDialog,
   ElForm,
   ElFormItem,
   ElImage,
   ElInput,
+  ElLink,
   ElMessage,
   ElMessageBox,
   ElOption,
+  ElProgress,
   ElRow,
   ElSelect,
   ElTable,
   ElTableColumn,
+  ElUpload,
 } from 'element-plus';
 
 import { getPage as getCategoryTree } from '#/api/product/goods-category';
 import {
   delObj,
+  downloadImportTemplate,
   getPage,
   goodsShelf as goodsShelfOpt,
+  importGoods,
 } from '#/api/product/goods-spu';
 import { useDict } from '#/utils/dict';
 
@@ -74,6 +84,10 @@ const defaultProps = {
 
 const multipleSelection = ref<any>([]);
 const showSearch = ref(true);
+const exportLoading = ref(false);
+const importDialogVisible = ref(false);
+const importLoading = ref(false);
+const importProgress = ref(0);
 const $route = useRouter();
 const loading = ref(false);
 const queryRef = ref();
@@ -172,6 +186,63 @@ const handleActive = (event: string) => {
   state.active = event;
   initPage();
 };
+
+/**
+ * 导出商品
+ */
+const exportData = async () => {
+  exportLoading.value = true;
+  try {
+    await downloadExcel(
+      '/product/goodsspu/export',
+      '商品列表.xlsx',
+      queryParams.value,
+    );
+  } finally {
+    exportLoading.value = false;
+  }
+};
+
+/**
+ * 打开导入弹窗
+ */
+const openImportDialog = () => {
+  importProgress.value = 0;
+  importDialogVisible.value = true;
+};
+
+/**
+ * 下载导入模板
+ */
+const handleDownloadTemplate = async () => {
+  try {
+    const blob = await downloadImportTemplate();
+    downloadFile(blob, '商品导入模板.xlsx');
+  } catch {
+    ElMessage.error('模板下载失败');
+  }
+};
+
+/**
+ * 处理文件上传
+ */
+const handleImportUpload = async (options: any) => {
+  importLoading.value = true;
+  importProgress.value = 30;
+  try {
+    await importGoods(options.file);
+    importProgress.value = 100;
+    ElMessage.success('导入成功');
+    importDialogVisible.value = false;
+    initPage();
+  } catch {
+    importProgress.value = 0;
+    ElMessage.error('导入失败');
+  } finally {
+    importLoading.value = false;
+  }
+};
+
 getCategory();
 initPage();
 </script>
@@ -268,6 +339,23 @@ initPage();
           >
             下架
           </ElButton>
+          <ElButton
+            type="success"
+            v-access:code="'product:goodsspu:export'"
+            :loading="exportLoading"
+            @click="exportData"
+            :icon="Download"
+          >
+            导出
+          </ElButton>
+          <ElButton
+            type="warning"
+            v-access:code="'product:goodsspu:import'"
+            @click="openImportDialog"
+            :icon="Upload"
+          >
+            导入
+          </ElButton>
         </div>
         <RightToolbar
           :search-btn="true"
@@ -276,6 +364,37 @@ initPage();
           @refresh="initPage"
         />
       </div>
+      <!-- 导入弹窗 -->
+      <ElDialog
+        v-model="importDialogVisible"
+        title="商品批量导入"
+        width="500px"
+        :close-on-click-modal="false"
+      >
+        <ElUpload
+          action="#"
+          :auto-upload="false"
+          :limit="1"
+          accept=".xlsx,.xls"
+          :on-change="handleImportUpload"
+          :show-file-list="false"
+        >
+          <ElButton type="primary" :loading="importLoading" :icon="Upload">
+            选择文件
+          </ElButton>
+        </ElUpload>
+        <ElProgress
+          v-if="importLoading || importProgress > 0"
+          :percentage="importProgress"
+          :stroke-width="10"
+          style="margin-top: 16px"
+        />
+        <div style="margin-top: 16px">
+          <ElLink type="primary" @click="handleDownloadTemplate">
+            下载导入模板
+          </ElLink>
+        </div>
+      </ElDialog>
       <!-- 列表 -->
       <ElTable
         v-loading="loading"
@@ -302,7 +421,7 @@ initPage();
                 <span class="line-clamp-2">{{ scope.row.name }}</span>
                 <div
                   class="line-clamp-2"
-                  style="font-size: 13px; color: #909399"
+                  style="font-size: 13px; color: var(--el-text-color-secondary)"
                 >
                   {{ scope.row.subTitle }}
                 </div>

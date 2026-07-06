@@ -17,7 +17,7 @@ const themeVars = ref({
     <global-loading />
     <global-toast />
     <global-message />
-    <!-- #ifdef MP-WEIXIN -->
+    <!-- #ifdef MP-WEIXIN || MP-TOUTIAO -->
     <privacy-popup />
     <!-- #endif -->
   </wd-config-provider>

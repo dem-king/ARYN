@@ -4,6 +4,7 @@ package com.aryn.cloud.order.listener;
 import cn.hutool.core.util.ObjectUtil;
 import com.aryn.cloud.common.core.constant.CommonConstants;
 import com.aryn.cloud.common.core.constant.RocketMqConstants;
+import com.aryn.cloud.common.core.util.RocketMqConsumerHelper;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.order.api.dto.OrderConsumerDTO;
 import com.aryn.cloud.order.api.entity.OrderInfo;
@@ -24,15 +25,19 @@ import org.springframework.stereotype.Component;
 @AllArgsConstructor
 @Component
 @RocketMQMessageListener(topic = RocketMqConstants.ORDER_CANCEL_TOPIC,
-		consumerGroup = RocketMqConstants.ORDER_CANCEL_TOPIC)
+		consumerGroup = RocketMqConstants.ORDER_CANCEL_TOPIC,
+		maxReconsumeTimes = RocketMqConstants.DEFAULT_MAX_RECONSUME_TIMES)
 public class OrderCancelListener implements RocketMQListener<OrderConsumerDTO> {
 
 	private final IOrderInfoService orderInfoService;
 
 	@Override
 	public void onMessage(OrderConsumerDTO orderConsumerDTO) {
-		log.info("开始消费消息，消费信息为:{} ", orderConsumerDTO);
+		RocketMqConsumerHelper.safeConsume(log, RocketMqConstants.ORDER_CANCEL_TOPIC,
+				RocketMqConstants.ORDER_CANCEL_TOPIC, orderConsumerDTO, () -> doConsume(orderConsumerDTO));
+	}
 
+	private void doConsume(OrderConsumerDTO orderConsumerDTO) {
 		ArynTenantContextHolder.setTenantId(orderConsumerDTO.getTenantId());
 		OrderInfo orderInfo = orderInfoService.getById(orderConsumerDTO.getOrderId());
 		// 只有待支付的订单能取消

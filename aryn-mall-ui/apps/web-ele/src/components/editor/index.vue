@@ -145,7 +145,7 @@ watch(
 <template>
   <div class="editor-container">
     <Toolbar
-      style="border-bottom: 1px solid #ccc"
+      style="border-bottom: 1px solid var(--el-border-color-lighter)"
       :editor="editorRef"
       :mode="mode"
     />
@@ -167,6 +167,6 @@ watch(
 <style lang="scss" scoped>
 .editor-container {
   z-index: 100;
-  border: 1px solid #ccc;
+  border: 1px solid var(--el-border-color);
 }
 </style>

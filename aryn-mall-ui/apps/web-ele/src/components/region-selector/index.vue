@@ -193,7 +193,7 @@ watch(
   .province-item {
     padding-bottom: 15px;
     margin-bottom: 20px;
-    border-bottom: 1px solid #ebeef5;
+    border-bottom: 1px solid var(--el-border-color-lighter);
 
     &:last-child {
       border-bottom: none;

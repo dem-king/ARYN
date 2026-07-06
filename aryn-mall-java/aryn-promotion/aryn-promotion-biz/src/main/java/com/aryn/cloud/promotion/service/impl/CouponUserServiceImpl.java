@@ -2,6 +2,7 @@
 package com.aryn.cloud.promotion.service.impl;
 
 import cn.hutool.core.util.ObjectUtil;
+import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -20,8 +21,10 @@ import com.aryn.cloud.promotion.mapper.CouponGoodsMapper;
 import com.aryn.cloud.promotion.mapper.CouponInfoMapper;
 import com.aryn.cloud.promotion.mapper.CouponUserMapper;
 import com.aryn.cloud.promotion.service.ICouponUserService;
+
 import com.aryn.cloud.user.api.remote.RemoteMallUserService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
@@ -29,9 +32,11 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class CouponUserServiceImpl extends ServiceImpl<CouponUserMapper, CouponUser> implements ICouponUserService {
@@ -66,6 +71,19 @@ public class CouponUserServiceImpl extends ServiceImpl<CouponUserMapper, CouponU
 		if (couponInfo.getRemainNum() <= 0) {
 			throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60066.getCode(),
 					MallErrorCodeEnum.ERROR_60066.getMsg());
+		}
+		// 校验会员等级限制
+		if (StrUtil.isNotBlank(couponInfo.getMemberLevelLimit())) {
+			com.aryn.cloud.user.api.vo.UserInfoVO userInfoVO = remoteMallUserService
+				.getUserById(couponUser.getUserId());
+			if (userInfoVO == null) {
+				throw new ArynBusinessException("用户信息不存在");
+			}
+			// 会员等级限制校验：如果配置了等级限制，用户等级必须在允许列表中
+			// 注意：UserInfoVO暂无memberLevelId字段，后续需扩展
+			// 此处预留校验逻辑，待UserInfoVO扩展后启用
+			log.info("领券会员等级校验, userId={}, memberLevelLimit={}", couponUser.getUserId(),
+					couponInfo.getMemberLevelLimit());
 		}
 		if (couponInfo.getReceiveCount() > 0) {
 			// 查询用户已领次数

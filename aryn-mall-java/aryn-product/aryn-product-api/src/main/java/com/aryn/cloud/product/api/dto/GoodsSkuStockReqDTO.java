@@ -18,4 +18,7 @@ public class GoodsSkuStockReqDTO implements Serializable {
 
 	private String spuId;
 
+	/** 乐观锁版本号，扣减库存时用于并发控制 */
+	private Integer version;
+
 }

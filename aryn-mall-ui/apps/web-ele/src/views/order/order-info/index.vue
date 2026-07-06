@@ -4,10 +4,13 @@ import type { FormInstance } from 'element-plus';
 import { defineAsyncComponent, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
+import { downloadExcel } from '@vben/utils';
+
 import {
   ArrowRightBold,
   Box,
   Delete,
+  Download,
   Refresh,
   Search,
   Van,
@@ -139,6 +142,7 @@ const shortcuts = [
 const $route = useRouter();
 const showSearch = ref(true);
 const loading = ref(false);
+const exportLoading = ref(false);
 const deliverRef = ref();
 const printRef = ref();
 const activeType = ref('');
@@ -240,6 +244,21 @@ const selffetchOrder = (row: any) => {
       .catch(() => {});
   });
 };
+/**
+ * 导出订单
+ */
+const exportData = async () => {
+  exportLoading.value = true;
+  try {
+    await downloadExcel(
+      '/mall-order/orderinfo/export',
+      '订单列表.xlsx',
+      state.queryParams,
+    );
+  } finally {
+    exportLoading.value = false;
+  }
+};
 initPage();
 </script>
 <template>
@@ -326,11 +345,22 @@ initPage();
       </ElForm>
       <!-- 工具栏 -->
       <div class="hx-table-toolbar">
-        <ElSegmented
-          v-model="activeType"
-          :options="activeTypeOptions"
-          @change="tabHandle"
-        />
+        <div>
+          <ElSegmented
+            v-model="activeType"
+            :options="activeTypeOptions"
+            @change="tabHandle"
+          />
+          <ElButton
+            type="success"
+            v-access:code="'order:orderinfo:export'"
+            :loading="exportLoading"
+            @click="exportData"
+            :icon="Download"
+          >
+            导出
+          </ElButton>
+        </div>
         <RightToolbar
           :search-btn="true"
           :refresh-btn="true"
@@ -367,17 +397,22 @@ initPage();
                 <span class="name line-clamp-2">
                   {{ item.spuName }}
                 </span>
-                <p style="font-size: 12px; color: #a8abb2">
+                <p
+                  style="font-size: 12px; color: var(--el-text-color-secondary)"
+                >
                   {{ item.specsInfo }}
                 </p>
                 <p>
-                  <span style="color: red" v-if="item.couponPrice > 0">
+                  <span
+                    style="color: var(--el-color-danger)"
+                    v-if="item.couponPrice > 0"
+                  >
                     优惠券减免：-{{ item.couponPrice }}元
                   </span>
                 </p>
               </ElCol>
               <ElCol :span="5" style="padding-left: 20px">
-                <span style="color: #f56c6c">￥{{ item.paymentPrice }}</span>
+                <span class="text-red-500">￥{{ item.paymentPrice }}</span>
                 <p>x{{ item.buyQuantity }}</p>
                 <DictTag
                   v-if="item.status === '3' || item.status === '6'"
@@ -431,22 +466,24 @@ initPage();
             <ElPopover placement="right" :width="400" trigger="click">
               <template #reference>
                 <div style="display: flex; align-items: center">
-                  <span style="color: red">
+                  <span style="color: var(--el-color-danger)">
                     实付金额：￥{{ scope.row.paymentPrice }}
                   </span>
-                  <ElIcon style="font-size: 12px; color: red">
+                  <ElIcon
+                    style="font-size: 12px; color: var(--el-color-danger)"
+                  >
                     <ArrowRightBold />
                   </ElIcon>
                 </div>
               </template>
               <div>订单金额：￥{{ scope.row.totalPrice }}</div>
               <div>运费金额：￥{{ scope.row.freightPrice }}</div>
-              <div style="color: red">
+              <div style="color: var(--el-color-danger)">
                 优惠券：-￥{{
                   scope.row.couponPrice ? scope.row.couponPrice : 0
                 }}
               </div>
-              <div style="color: red">
+              <div style="color: var(--el-color-danger)">
                 实付金额：￥{{ scope.row.paymentPrice }}
               </div>
             </ElPopover>
@@ -529,7 +566,7 @@ initPage();
   margin-left: 0 !important;
 
   .name {
-    color: #409eff;
+    color: var(--el-color-primary);
   }
 }
 </style>

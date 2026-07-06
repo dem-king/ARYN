@@ -25,8 +25,7 @@ type Breakpoints = '2xl:' | '3xl:' | '' | 'lg:' | 'md:' | 'sm:' | 'xl:';
 type GridCols = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13;
 
 export type WrapperClassType =
-  | `${Breakpoints}grid-cols-${GridCols}`
-  | (Record<never, never> & string);
+  `${Breakpoints}grid-cols-${GridCols}` | (Record<never, never> & string);
 
 export type FormItemClassType =
   | `${Breakpoints}cols-end-${'auto' | GridCols}`
@@ -225,10 +224,7 @@ export type FieldMappingTime = [
   string,
   [string, string],
   (
-    | ((value: any, fieldName: string) => any)
-    | [string, string]
-    | null
-    | string
+    ((value: any, fieldName: string) => any) | [string, string] | null | string
   )?,
 ][];
 
@@ -347,9 +343,9 @@ export interface ActionButtonOptions extends VbenButtonProps {
 export interface VbenFormProps<
   T extends BaseFormComponentType = BaseFormComponentType,
 > extends Omit<
-    FormRenderProps<T>,
-    'componentBindEventMap' | 'componentMap' | 'form'
-  > {
+  FormRenderProps<T>,
+  'componentBindEventMap' | 'componentMap' | 'form'
+> {
   /**
    * 操作按钮是否反转（提交按钮前置）
    */

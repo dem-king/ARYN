@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 
+  Copyright (c) 2025 天启雨数科技有限公司 
+  All rights reserved. 
+  注意： 
+  本项目源代码由天启雨数科技有限公司原创开发，版权所有。 
+  仅供购买并获得正式授权的客户使用，侵权必究。
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <artifactId>aryn-visual</artifactId>
+        <groupId>com.aryn</groupId>
+        <version>3.2.1</version>
+    </parent>
+    <artifactId>aryn-statistics-biz</artifactId>
+    <description>数据大屏统计模块</description>
+
+    <dependencies>
+        <!--注册中心客户端-->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
+        </dependency>
+        <!--配置中心客户端-->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-nacos-config</artifactId>
+        </dependency>
+        <!--web 模块-->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-undertow</artifactId>
+        </dependency>
+        <!--核心模块-->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-common-core</artifactId>
+        </dependency>
+        <!--redis 缓存-->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-common-redis</artifactId>
+        </dependency>
+        <!--日志模块-->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-common-log</artifactId>
+        </dependency>
+        <!--安全模块-->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-common-security</artifactId>
+        </dependency>
+        <!--swagger-->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-common-swagger</artifactId>
+        </dependency>
+        <!--dubbo-->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-common-dubbo</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.aryn</groupId>
+                    <artifactId>aryn-common-mybatis</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <!--定时任务-->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-common-job</artifactId>
+        </dependency>
+        <!--订单API (Dubbo RPC)-->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-order-api</artifactId>
+        </dependency>
+        <!--用户API (Dubbo RPC)-->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-user-api</artifactId>
+        </dependency>
+    </dependencies>
+    <profiles>
+        <profile>
+            <id>cloud</id>
+            <activation>
+                <activeByDefault>false</activeByDefault>
+            </activation>
+            <build>
+                <finalName>${project.artifactId}</finalName>
+                <plugins>
+                    <plugin>
+                        <groupId>org.springframework.boot</groupId>
+                        <artifactId>spring-boot-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <goals>
+                                    <goal>repackage</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <id>boot</id>
+        </profile>
+    </profiles>
+
+</project>

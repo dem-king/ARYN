@@ -31,4 +31,19 @@ public interface IMemberLevelService extends IService<MemberLevel> {
 	 */
 	void recalculateLevel(String userId);
 
+	/**
+	 * 成长值变动
+	 * @param userId 用户ID
+	 * @param value 变动值(正加负减)
+	 * @param source 来源(order/sign_in/review/refund/admin)
+	 * @param bizId 业务ID
+	 */
+	void addGrowthValue(String userId, Integer value, String source, String bizId);
+
+	/**
+	 * 根据成长值自动升降级
+	 * @param userId 用户ID
+	 */
+	void recalculateLevelByGrowth(String userId);
+
 }

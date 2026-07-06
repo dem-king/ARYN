@@ -152,8 +152,7 @@ initPage();
           <template #default="scope">
             <span
               :style="{
-                color:
-                  scope.row.changeType === '2' ? '#f56c6c' : '#67c23a',
+                color: scope.row.changeType === '2' ? '#f56c6c' : '#67c23a',
               }"
             >
               {{ scope.row.changeType === '2' ? '-' : '+'

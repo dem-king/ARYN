@@ -17,16 +17,19 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.common.core.constant.CommonConstants;
 import com.aryn.cloud.common.core.enums.MallErrorCodeEnum;
 import com.aryn.cloud.common.core.util.Result;
+import com.aryn.cloud.common.excel.ExcelUtils;
 import com.aryn.cloud.common.log.annotation.SysLog;
 import com.aryn.cloud.order.api.dto.OrderDeliveryDTO;
 import com.aryn.cloud.order.api.dto.OrderStatisticsDTO;
 import com.aryn.cloud.order.api.entity.OrderInfo;
 import com.aryn.cloud.order.api.entity.OrderItemEntity;
 import com.aryn.cloud.order.api.enums.OrderStatusEnum;
+import com.aryn.cloud.order.excel.OrderExportVO;
 import com.aryn.cloud.order.service.IOrderInfoService;
 import com.aryn.cloud.order.service.IOrderItemService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -155,6 +158,36 @@ public class OrderInfoController {
 	@GetMapping("/channel-type/statistics")
 	public Result channelTypeStatistics(OrderStatisticsDTO orderStatisticsDTO) {
 		return Result.success(orderInfoService.channelTypeStatistics(orderStatisticsDTO));
+	}
+
+	@SysLog("订单导出")
+	@Operation(summary = "订单导出")
+	@SaCheckPermission("order:orderinfo:export")
+	@GetMapping("/export")
+	public void export(OrderInfo orderInfo, HttpServletResponse response) {
+		List<OrderInfo> list = orderInfoService.list(Wrappers.lambdaQuery(orderInfo));
+		List<OrderExportVO> exportList = list.stream().map(this::toOrderExportVO).toList();
+		ExcelUtils.export(response, "订单列表", OrderExportVO.class, exportList);
+	}
+
+	private OrderExportVO toOrderExportVO(OrderInfo order) {
+		OrderExportVO vo = new OrderExportVO();
+		vo.setOrderNo(order.getOrderNo());
+		vo.setRecipientName(order.getRecipientName());
+		vo.setRecipientPhone(order.getRecipientPhone());
+		vo.setRecipientAddress(order.getRecipientAddress());
+		vo.setDeliveryWay(order.getDeliveryWay());
+		vo.setPaymentType(order.getPaymentType());
+		vo.setPayStatus(order.getPayStatus());
+		vo.setStatus(order.getStatus());
+		vo.setTotalPrice(order.getTotalPrice());
+		vo.setFreightPrice(order.getFreightPrice());
+		vo.setCouponPrice(order.getCouponPrice());
+		vo.setPaymentPrice(order.getPaymentPrice());
+		vo.setRemark(order.getRemark());
+		vo.setCreateTime(order.getCreateTime() != null ? order.getCreateTime().toString() : null);
+		vo.setPaymentTime(order.getPaymentTime() != null ? order.getPaymentTime().toString() : null);
+		return vo;
 	}
 
 }

@@ -104,7 +104,7 @@ defineExpose({
   height: 500px;
   padding: 4px;
   overflow-y: auto;
-  border: 1px solid #dcdee0;
+  border: 1px solid var(--el-border-color-lighter);
   border-radius: 4px;
 }
 </style>

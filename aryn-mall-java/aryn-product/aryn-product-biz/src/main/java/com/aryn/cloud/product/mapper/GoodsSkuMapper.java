@@ -41,4 +41,17 @@ public interface GoodsSkuMapper extends BaseMapper<GoodsSku> {
 	 */
 	List<GoodsSku> selectSkuByIds(@Param("ids") List<String> ids);
 
+	/**
+	 * 乐观锁扣减库存
+	 * UPDATE goods_sku SET stock = stock - #{stockNum}, version = version + 1
+	 * WHERE id = #{skuId} AND stock >= #{stockNum} AND version = #{version}
+	 *
+	 * @param skuId    SKU主键
+	 * @param stockNum 扣减数量
+	 * @param version  当前版本号
+	 * @return 影响行数，0表示库存不足或版本冲突
+	 */
+	int reduceStockWithOptimisticLock(@Param("skuId") String skuId,
+			@Param("stockNum") Integer stockNum, @Param("version") Integer version);
+
 }

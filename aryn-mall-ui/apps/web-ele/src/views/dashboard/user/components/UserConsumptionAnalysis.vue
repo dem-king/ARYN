@@ -80,7 +80,7 @@ const updateCharts = () => {
           avoidLabelOverlap: false,
           itemStyle: {
             borderRadius: 10,
-            borderColor: '#fff',
+            borderColor: 'var(--el-bg-color)',
             borderWidth: 2,
           },
           label: {

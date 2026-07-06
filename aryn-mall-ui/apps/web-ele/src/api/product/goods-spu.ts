@@ -57,3 +57,21 @@ export async function delObj(id: string) {
 export async function goodsShelf(data: any) {
   return requestClient.post('/product/goodsspu/goods-shelf', data);
 }
+
+/**
+ * 商品批量导入
+ */
+export async function importGoods(file: File) {
+  const formData = new FormData();
+  formData.append('file', file);
+  return requestClient.post('/product/goodsspu/import', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+}
+
+/**
+ * 商品导入模板下载
+ */
+export async function downloadImportTemplate() {
+  return requestClient.download<Blob>('/product/goodsspu/import-template');
+}

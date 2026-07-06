@@ -108,7 +108,7 @@ const handleUrl = (item: { name: string; url: string }) => {
   }
 
   .link-url-active {
-    color: #fff;
+    color: hsl(var(--foreground));
     background: var(--el-color-primary);
   }
 

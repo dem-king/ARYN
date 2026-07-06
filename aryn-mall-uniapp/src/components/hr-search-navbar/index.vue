@@ -74,7 +74,28 @@ onMounted(() => {
   const capsuleCenter = rect.top + barHeight / 2
   capsuleCenterOffset.value = capsuleCenter - (statusBarHeight.value + navBarHeight.value / 2)
   // #endif
-  // #ifndef MP-WEIXIN
+  // #ifdef MP-ALIPAY
+  // 支付宝小程序无右上角胶囊按钮，使用固定右侧间距
+  capsulePaddingRight.value = 16
+  navBarHeight.value = 44
+  capsuleCenterOffset.value = 0
+  // #endif
+  // #ifdef MP-TOUTIAO
+  // 抖音小程序有右上角胶囊按钮
+  const ttRect = uni.getMenuButtonBoundingClientRect()
+  const ttRightSpace = sys.windowWidth - ttRect.right
+  capsulePaddingRight.value = ttRightSpace + ttRect.width
+  navBarHeight.value = 44
+  const ttBarHeight = ttRect.bottom - ttRect.top
+  const ttCapsuleCenter = ttRect.top + ttBarHeight / 2
+  capsuleCenterOffset.value = ttCapsuleCenter - (statusBarHeight.value + navBarHeight.value / 2)
+  // #endif
+  // #ifdef MP-BAIDU
+  capsulePaddingRight.value = 16
+  navBarHeight.value = 44
+  capsuleCenterOffset.value = 0
+  // #endif
+  // #ifdef H5
   navBarHeight.value = 44
   capsuleCenterOffset.value = 0
   // #endif

@@ -82,6 +82,9 @@ public class CouponInfo extends Model<CouponInfo> {
 	@Schema(description = "使用说明")
 	private String useDescription;
 
+	@Schema(description = "会员等级限制(逗号分隔的等级ID)")
+	private String memberLevelLimit;
+
 	@Schema(description = "状态：0.正常；1.禁用；")
 	@NotBlank(message = "状态为空")
 	private String status;

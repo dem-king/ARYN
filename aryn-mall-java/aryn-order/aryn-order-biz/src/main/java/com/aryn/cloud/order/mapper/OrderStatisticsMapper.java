@@ -1,6 +1,7 @@
 package com.aryn.cloud.order.mapper;
 
 import com.aryn.cloud.order.api.dto.OrderStatisticsDTO;
+import com.aryn.cloud.order.api.vo.CategoryRankVO;
 import com.aryn.cloud.order.api.vo.*;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -98,5 +99,12 @@ public interface OrderStatisticsMapper {
 	 * @return ProductSalesAnalysisVO
 	 */
 	ProductSalesAnalysisVO getProductSalesAnalysis(@Param("dto") OrderStatisticsDTO dto);
+
+	/**
+	 * 品类销售排行 Top10
+	 * @param dto 统计参数
+	 * @return List<CategoryRankVO>
+	 */
+	List<CategoryRankVO> getCategoryRank(@Param("dto") OrderStatisticsDTO dto);
 
 }

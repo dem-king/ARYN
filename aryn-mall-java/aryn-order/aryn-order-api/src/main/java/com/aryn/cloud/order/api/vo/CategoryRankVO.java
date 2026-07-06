@@ -1,0 +1,24 @@
+package com.aryn.cloud.order.api.vo;
+
+import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.Data;
+
+import java.math.BigDecimal;
+
+/**
+ * 品类销售排行 VO
+ */
+@Data
+@Schema(description = "品类销售排行数据")
+public class CategoryRankVO {
+
+	@Schema(description = "品类名称")
+	private String categoryName;
+
+	@Schema(description = "销量")
+	private Integer salesCount;
+
+	@Schema(description = "销售金额")
+	private BigDecimal salesAmount;
+
+}

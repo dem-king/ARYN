@@ -38,16 +38,16 @@ const jumpTypeOptions = [
 
 interface FormState {
   form: {
-    id: string | undefined;
-    templateCode: string;
-    templateName: string;
-    notifyType: number | undefined;
-    title: string;
     content: string;
+    id: string | undefined;
     jumpType: number;
     jumpUrl: string;
-    status: string;
+    notifyType: number | undefined;
     remark: string;
+    status: string;
+    templateCode: string;
+    templateName: string;
+    title: string;
   };
   rules: any;
 }
@@ -183,7 +183,10 @@ defineExpose({ initForm });
         />
       </ElFormItem>
       <ElFormItem label="模板名称" prop="templateName">
-        <ElInput v-model="state.form.templateName" placeholder="请输入模板名称" />
+        <ElInput
+          v-model="state.form.templateName"
+          placeholder="请输入模板名称"
+        />
       </ElFormItem>
       <ElFormItem label="消息类型" prop="notifyType">
         <ElSelect

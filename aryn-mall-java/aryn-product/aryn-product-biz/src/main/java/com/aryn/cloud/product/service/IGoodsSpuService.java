@@ -104,4 +104,10 @@ public interface IGoodsSpuService extends IService<GoodsSpu> {
 	 */
 	List<GoodsSpu> getTop10HotSearchGoods();
 
+	/**
+	 * 全量重建 SPU 搜索索引
+	 * @return 重建的文档数量
+	 */
+	long rebuildSearchIndex();
+
 }

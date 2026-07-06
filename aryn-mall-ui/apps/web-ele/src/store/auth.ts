@@ -25,7 +25,10 @@ export const useAuthStore = defineStore('auth', () => {
   /**
    * 登录成功后的公共处理逻辑（消除 authLogin/authMobileLogin 重复代码）
    */
-  async function handleLoginSuccess(tokenValue: string, onSuccess?: () => Promise<void> | void) {
+  async function handleLoginSuccess(
+    tokenValue: string,
+    onSuccess?: () => Promise<void> | void,
+  ) {
     if (!tokenValue) {
       return null;
     }

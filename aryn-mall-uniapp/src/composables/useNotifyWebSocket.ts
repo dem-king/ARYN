@@ -100,7 +100,8 @@ export function connectNotifyWebSocket() {
       // 触发未读数刷新
       uni.$emit('notify:unread-refresh')
       // 震动提醒
-      // #ifdef MP-WEIXIN || APP-PLUS
+      // 震动提醒（微信、支付宝、抖音、APP 支持）
+      // #ifdef MP-WEIXIN || MP-ALIPAY || MP-TOUTIAO || APP-PLUS
       uni.vibrateShort({ type: 'light' })
       // #endif
     }

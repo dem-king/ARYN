@@ -36,21 +36,49 @@ onLoad(async () => {
   state.loginType = '3'
   // #endif
 })
-// 小程序登录处理
+// 小程序登录处理（各平台通用）
 async function handleMpLogin() {
   globalLoading.loading('加载中...')
   try {
+    // #ifdef MP-WEIXIN
     const res = await new Promise<UniApp.LoginRes>((resolve, reject) => {
       uni.login({
+        provider: 'weixin',
         success: resolve,
         fail: reject,
       })
     })
-
     if (!res.code)
       throw new Error('登录失败: code 未获取')
-
     const response = await authStore.wxLogin({ jsCode: res.code })
+    // #endif
+
+    // #ifdef MP-ALIPAY
+    const aliRes = await new Promise<any>((resolve, reject) => {
+      uni.login({
+        provider: 'alipay',
+        success: resolve,
+        fail: reject,
+      })
+    })
+    if (!aliRes.authCode)
+      throw new Error('登录失败: authCode 未获取')
+    const response = await authStore.aliLogin({ authCode: aliRes.authCode })
+    // #endif
+
+    // #ifdef MP-TOUTIAO
+    const ttRes = await new Promise<UniApp.LoginRes>((resolve, reject) => {
+      uni.login({
+        provider: 'toutiao',
+        success: resolve,
+        fail: reject,
+      })
+    })
+    if (!ttRes.code)
+      throw new Error('登录失败: code 未获取')
+    const response = await authStore.ttLogin({ code: ttRes.code })
+    // #endif
+
     globalLoading.close()
 
     if (response.tokenValue) {
@@ -125,9 +153,19 @@ function loginSuccess() {
           <view class="divider-line" />
         </view>
         <view class="loginType-warp">
-          <!-- #ifdef MP -->
+          <!-- #ifdef MP-WEIXIN -->
           <view class="item" :class="{ hidden: state.loginType === '1' }" @click="state.loginType = '1'">
             <image src="/static/wx.svg" style="width: 100%;height: 100%;" mode="scaleToFill" />
+          </view>
+          <!-- #endif -->
+          <!-- #ifdef MP-ALIPAY -->
+          <view class="item" :class="{ hidden: state.loginType === '1' }" @click="state.loginType = '1'">
+            <image src="/static/alipay.svg" style="width: 100%;height: 100%;" mode="scaleToFill" />
+          </view>
+          <!-- #endif -->
+          <!-- #ifdef MP-TOUTIAO -->
+          <view class="item" :class="{ hidden: state.loginType === '1' }" @click="state.loginType = '1'">
+            <image src="/static/toutiao.svg" style="width: 100%;height: 100%;" mode="scaleToFill" />
           </view>
           <!-- #endif -->
           <view class="item" :class="{ hidden: state.loginType === '2' }" @click="state.loginType = '2'">

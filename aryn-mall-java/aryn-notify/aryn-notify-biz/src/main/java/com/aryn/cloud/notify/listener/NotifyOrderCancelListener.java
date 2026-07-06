@@ -3,6 +3,7 @@ package com.aryn.cloud.notify.listener;
 
 import cn.hutool.core.util.StrUtil;
 import com.aryn.cloud.common.core.constant.RocketMqConstants;
+import com.aryn.cloud.common.core.util.RocketMqConsumerHelper;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.notify.api.dto.NotifySendDTO;
 import com.aryn.cloud.notify.service.INotifyMessageService;
@@ -26,15 +27,19 @@ import java.util.Map;
 @Component
 @RequiredArgsConstructor
 @RocketMQMessageListener(topic = RocketMqConstants.ORDER_CANCEL_TOPIC,
-		consumerGroup = "notify-order-cancel-consumer-group")
+		consumerGroup = "notify-order-cancel-consumer-group",
+		maxReconsumeTimes = RocketMqConstants.DEFAULT_MAX_RECONSUME_TIMES)
 public class NotifyOrderCancelListener implements RocketMQListener<OrderConsumerDTO> {
 
 	private final INotifyMessageService notifyMessageService;
 
 	@Override
 	public void onMessage(OrderConsumerDTO orderConsumerDTO) {
-		log.info("收到订单取消事件，发送站内信: orderId={}", orderConsumerDTO.getOrderId());
+		RocketMqConsumerHelper.safeConsume(log, RocketMqConstants.ORDER_CANCEL_TOPIC,
+				"notify-order-cancel-consumer-group", orderConsumerDTO, () -> doConsume(orderConsumerDTO));
+	}
 
+	private void doConsume(OrderConsumerDTO orderConsumerDTO) {
 		// 设置租户上下文（MQ 消费侧无 HTTP 请求上下文）
 		if (StrUtil.isNotBlank(orderConsumerDTO.getTenantId())) {
 			ArynTenantContextHolder.setTenantId(orderConsumerDTO.getTenantId());

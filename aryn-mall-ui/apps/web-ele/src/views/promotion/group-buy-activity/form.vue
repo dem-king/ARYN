@@ -226,9 +226,12 @@ defineExpose({
           >
             选择商品
           </ElButton>
-          <span v-if="state.form.spuName" style="color: #409eff">{{
-            state.form.spuName
-          }}</span>
+          <span
+            v-if="state.form.spuName"
+            style="color: var(--el-color-primary)"
+          >
+            {{ state.form.spuName }}
+          </span>
           <ElImage
             v-if="state.form.spuUrls && state.form.spuUrls.length > 0"
             style="width: 40px; height: 40px"
@@ -279,7 +282,7 @@ defineExpose({
             :precision="0"
             :controls="false"
           />
-          <span style="color: #909399">0表示不限购</span>
+          <span style="color: var(--el-text-color-secondary)">0表示不限购</span>
         </div>
       </ElFormItem>
       <ElFormItem label="虚拟成团人数" prop="virtualNum">
@@ -290,7 +293,9 @@ defineExpose({
             :precision="0"
             :controls="false"
           />
-          <span style="color: #909399">展示用，0表示不虚增</span>
+          <span style="color: var(--el-text-color-secondary)">
+            展示用，0表示不虚增
+          </span>
         </div>
       </ElFormItem>
       <ElFormItem label="活动时间" prop="datatimes">

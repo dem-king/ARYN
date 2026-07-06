@@ -40,7 +40,7 @@ const updateChart = () => {
           },
         },
         itemStyle: {
-          borderColor: '#fff',
+          borderColor: 'var(--el-bg-color)',
           borderRadius: 10,
           borderWidth: 2,
         },

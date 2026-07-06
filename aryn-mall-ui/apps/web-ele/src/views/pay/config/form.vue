@@ -583,13 +583,13 @@ defineExpose({
   margin: 0 0 8px;
   font-size: 16px;
   font-weight: 600;
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 
 .section-header p {
   margin: 0;
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .pay-form {
@@ -690,7 +690,7 @@ defineExpose({
   padding-right: 16px;
   font-weight: 500;
   line-height: 1.4;
-  color: #606266;
+  color: var(--el-text-color-regular);
   text-align: right;
 }
 

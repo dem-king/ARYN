@@ -34,6 +34,18 @@ export const alovaInstance = createAlova({
     // #ifdef MP-WEIXIN
     method.config.headers['platform-type'] = 'WX_MA' // 客户端微信小程序
     // #endif
+    // #ifdef MP-ALIPAY
+    method.config.headers['platform-type'] = 'ALI_MA' // 客户端支付宝小程序
+    // #endif
+    // #ifdef MP-TOUTIAO
+    method.config.headers['platform-type'] = 'TT_MA' // 客户端抖音小程序
+    // #endif
+    // #ifdef MP-BAIDU
+    method.config.headers['platform-type'] = 'BD_MA' // 客户端百度小程序
+    // #endif
+    // #ifdef MP-QQ
+    method.config.headers['platform-type'] = 'QQ_MA' // 客户端QQ小程序
+    // #endif
 
     // #ifdef APP-PLUS
     method.config.headers['platform-type'] = 'APP' // 客户端APP

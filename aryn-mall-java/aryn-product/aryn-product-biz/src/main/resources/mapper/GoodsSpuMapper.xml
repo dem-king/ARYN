@@ -33,6 +33,7 @@
         goods_spu.sales_volume,
         goods_spu.category_first_id,
         goods_spu.category_second_id,
+        goods_spu.brand_id,
         goods_spu.create_time,
         goods_spu.update_time,
         goods_spu.del_flag,
@@ -48,10 +49,12 @@
     <select id="selectPageByAdmin" resultType="com.aryn.cloud.product.api.entity.GoodsSpu">
         SELECT
         <include refid="goodsSpuSql"/>,
-        goods_category.name AS categoryName
+        goods_category.name AS categoryName,
+        pms_brand.name AS brandName
         FROM
         goods_spu AS goods_spu
         LEFT JOIN goods_category AS goods_category ON goods_spu.category_second_id = goods_category.id
+        LEFT JOIN pms_brand ON goods_spu.brand_id = pms_brand.id
         <where>
             AND goods_spu.`del_flag` = '0'
             <if test="query.name != null and query.name != ''">
@@ -68,10 +71,12 @@
     <select id="selectPageWarehouse" resultType="com.aryn.cloud.product.api.entity.GoodsSpu">
         SELECT
         <include refid="goodsSpuSql"/>,
-        goods_category.name AS categoryName
+        goods_category.name AS categoryName,
+        pms_brand.name AS brandName
         FROM
         goods_spu AS goods_spu
         LEFT JOIN goods_category AS goods_category ON goods_spu.category_second_id = goods_category.id
+        LEFT JOIN pms_brand ON goods_spu.brand_id = pms_brand.id
         <where>
             AND goods_spu.`del_flag` = '0'
             <if test="query.name != null and query.name != ''">
@@ -94,10 +99,12 @@
     <select id="selectApiPage" resultType="com.aryn.cloud.product.api.entity.GoodsSpu">
         SELECT
         <include refid="goodsSpuSql"/>,
-        goods_category.name AS categoryName
+        goods_category.name AS categoryName,
+        pms_brand.name AS brandName
         FROM
         goods_spu AS goods_spu
         LEFT JOIN goods_category AS goods_category ON goods_spu.category_second_id = goods_category.id
+        LEFT JOIN pms_brand ON goods_spu.brand_id = pms_brand.id
         <where>
             AND goods_spu.`del_flag` = '0'
             AND goods_category.`del_flag` = '0'

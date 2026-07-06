@@ -47,29 +47,28 @@ public class PointsRecordServiceImpl extends ServiceImpl<PointsRecordMapper, Poi
 	@Transactional(rollbackFor = Exception.class)
 	public void recordPointsChange(String userId, String changeType, Integer changePoint, String triggerScene,
 			String remark) {
-		UserInfo userInfo = userInfoMapper.selectById(userId);
-		if (userInfo == null) {
-			throw new ArynBusinessException("用户不存在");
-		}
-
-		int currentPoint = userInfo.getPoint() != null ? userInfo.getPoint() : 0;
-		int balanceAfter;
-
+		int affected;
 		if ("1".equals(changeType)) {
-			// 获取积分
-			balanceAfter = currentPoint + changePoint;
+			// 获取积分 — CAS 原子增加
+			affected = userInfoMapper.addPointsCas(userId, changePoint);
 		}
 		else {
-			// 消耗积分
-			balanceAfter = currentPoint - changePoint;
-			if (balanceAfter < 0) {
+			// 消耗积分 — CAS 原子扣减，SQL 层面保证余额充足
+			affected = userInfoMapper.deductPointsCas(userId, changePoint);
+		}
+
+		if (affected == 0) {
+			if ("1".equals(changeType)) {
+				throw new ArynBusinessException("用户不存在");
+			}
+			else {
 				throw new ArynBusinessException("积分余额不足");
 			}
 		}
 
-		// 更新用户积分
-		userInfo.setPoint(balanceAfter);
-		userInfoMapper.updateById(userInfo);
+		// 查询变动后余额
+		UserInfo userInfo = userInfoMapper.selectById(userId);
+		int balanceAfter = userInfo.getPoint() != null ? userInfo.getPoint() : 0;
 
 		// 插入积分记录
 		PointsRecord record = new PointsRecord();

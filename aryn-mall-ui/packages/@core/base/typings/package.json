@@ -1,6 +1,6 @@
 {
   "name": "@vben-core/typings",
-   "version": "3.2.1",
+  "version": "3.2.1",
   "homepage": "https://github.com/vbenjs/vue-vben-admin",
   "bugs": "https://github.com/vbenjs/vue-vben-admin/issues",
   "repository": {
@@ -23,11 +23,13 @@
     ".": {
       "types": "./src/index.ts",
       "development": "./src/index.ts",
+      "production": "./src/index.ts",
       "default": "./dist/index.mjs"
     },
     "./vue-router": {
       "types": "./src/vue-router.ts",
       "development": "./src/vue-router.ts",
+      "production": "./src/vue-router.ts",
       "default": "./dist/vue-router.mjs"
     }
   },

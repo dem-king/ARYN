@@ -365,7 +365,7 @@ const deleteGoods = (index: number) => {
   justify-content: space-between;
   padding: 10px;
   margin-bottom: 10px;
-  border: 1px dashed #dcdfe6;
+  border: 1px dashed var(--el-border-color);
   border-radius: 4px;
 
   :hover {

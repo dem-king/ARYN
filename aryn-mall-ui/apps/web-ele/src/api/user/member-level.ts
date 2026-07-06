@@ -50,3 +50,12 @@ export async function getRecordPage(query: any) {
     params: query,
   });
 }
+
+/**
+ * 获取付费会员订单分页
+ */
+export async function getPaidOrderPage(query: any) {
+  return requestClient.get('/mall-user/member-paid-order/page', {
+    params: query,
+  });
+}

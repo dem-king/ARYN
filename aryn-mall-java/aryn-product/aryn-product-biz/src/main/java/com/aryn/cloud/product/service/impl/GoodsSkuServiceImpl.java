@@ -11,6 +11,7 @@ import com.aryn.cloud.product.mapper.GoodsSkuMapper;
 import com.aryn.cloud.product.service.IGoodsSkuService;
 import com.aryn.cloud.product.service.IGoodsSpuService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,11 +25,15 @@ import java.util.stream.Collectors;
  * @author 雨滴kian
  * @since 2022/2/26 16:37
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class GoodsSkuServiceImpl extends ServiceImpl<GoodsSkuMapper, GoodsSku> implements IGoodsSkuService {
 
 	private final IGoodsSpuService goodsSpuService;
+
+	/** 乐观锁重试最大次数 */
+	private static final int MAX_RETRY_TIMES = 3;
 
 	@Override
 	public List<GoodsSku> getListByIds(List<String> ids) {
@@ -53,11 +58,27 @@ public class GoodsSkuServiceImpl extends ServiceImpl<GoodsSkuMapper, GoodsSku> i
 	@Transactional(rollbackFor = Exception.class)
 	public Boolean reduceStock(List<GoodsSkuStockReqDTO> goodsSkuStockRqDTO) {
 		for (GoodsSkuStockReqDTO goodsSkuStockReqDTO : goodsSkuStockRqDTO) {
-			if (baseMapper.update(new GoodsSku(),
-					Wrappers.<GoodsSku>lambdaUpdate()
-						.eq(GoodsSku::getId, goodsSkuStockReqDTO.getSkuId())
-						.gt(GoodsSku::getStock, 0)
-						.setSql(" stock = stock - " + goodsSkuStockReqDTO.getStockNum())) <= 0) {
+			boolean success = false;
+			for (int retry = 0; retry < MAX_RETRY_TIMES; retry++) {
+				// 查询当前SKU获取版本号
+				GoodsSku currentSku = baseMapper.selectById(goodsSkuStockReqDTO.getSkuId());
+				if (currentSku == null) {
+					throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60008.getCode(),
+							MallErrorCodeEnum.ERROR_60008.getMsg());
+				}
+				// 乐观锁扣减：stock >= 扣减数量 且 version 匹配
+				int rows = baseMapper.reduceStockWithOptimisticLock(
+						goodsSkuStockReqDTO.getSkuId(),
+						goodsSkuStockReqDTO.getStockNum(),
+						currentSku.getVersion());
+				if (rows > 0) {
+					success = true;
+					break;
+				}
+				log.warn("库存扣减乐观锁冲突，skuId={}，重试第{}次", goodsSkuStockReqDTO.getSkuId(), retry + 1);
+			}
+			if (!success) {
+				log.error("库存扣减失败，skuId={}，重试{}次后仍冲突或库存不足", goodsSkuStockReqDTO.getSkuId(), MAX_RETRY_TIMES);
 				throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60008.getCode(),
 						MallErrorCodeEnum.ERROR_60008.getMsg());
 			}

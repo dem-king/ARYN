@@ -74,6 +74,12 @@
             <artifactId>aryn-generator</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!--        数据大屏统计模块-->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-statistics-biz</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-undertow</artifactId>

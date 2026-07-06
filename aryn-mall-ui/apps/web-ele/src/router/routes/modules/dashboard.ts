@@ -71,6 +71,16 @@ const routes: RouteRecordRaw[] = [
           hideInMenu: true,
         },
       },
+      {
+        name: '搜索配置',
+        path: '/product/search-config',
+        component: () => import('#/views/product/search-config/index.vue'),
+        meta: {
+          icon: 'lucide:search',
+          title: '搜索配置',
+          hideInMenu: true,
+        },
+      },
     ],
   },
   {

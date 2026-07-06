@@ -1,6 +1,7 @@
 package com.aryn.cloud.order.service;
 
 import com.aryn.cloud.order.api.dto.OrderStatisticsDTO;
+import com.aryn.cloud.order.api.vo.CategoryRankVO;
 import com.aryn.cloud.order.api.vo.*;
 
 import java.util.List;
@@ -97,5 +98,19 @@ public interface IOrderStatisticsService {
 	 * @return ProductSalesAnalysisVO
 	 */
 	ProductSalesAnalysisVO getProductSalesAnalysis(OrderStatisticsDTO dto);
+
+	/**
+	 * 品类销售排行 Top10
+	 * @param dto 统计参数
+	 * @return List<CategoryRankVO>
+	 */
+	List<CategoryRankVO> getCategoryRank(OrderStatisticsDTO dto);
+
+	/**
+	 * 获取复购用户数 (购买2次及以上)
+	 * @param dto 统计参数
+	 * @return Integer
+	 */
+	Integer getRepurchaseUserCount(OrderStatisticsDTO dto);
 
 }

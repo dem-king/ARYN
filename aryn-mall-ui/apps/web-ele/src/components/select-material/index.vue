@@ -136,7 +136,7 @@ watch(
   margin-right: 12px; // 新增：图片间距
   text-align: center;
   cursor: pointer;
-  border: 1px solid #efefef;
+  border: 1px solid var(--el-border-color-lighter);
   border-radius: 5px;
   transition: all 0.3s;
 }
@@ -168,7 +168,7 @@ watch(
 .icon-btn {
   padding: 6px;
   font-size: 26px;
-  color: #333;
+  color: var(--el-text-color-primary);
   cursor: pointer;
   background: rgb(255 255 255 / 80%);
   border-radius: 50%;
@@ -197,7 +197,7 @@ watch(
     width: 240px;
     margin-right: -1px;
     overflow: hidden;
-    border: 1px solid #dcdee0;
+    border: 1px solid var(--el-border-color-lighter);
 
     .category-tree {
       padding: 20px;
@@ -220,13 +220,13 @@ watch(
     flex: auto;
     padding: 12px;
     overflow-y: auto;
-    border: 1px solid #dcdee0;
+    border: 1px solid var(--el-border-color-lighter);
 
     .title {
       font-size: 16px;
       font-weight: 700;
       line-height: 24px;
-      color: #323233;
+      color: var(--el-text-color-primary);
     }
   }
 }
@@ -249,7 +249,7 @@ watch(
       padding-bottom: 100%;
       overflow: hidden;
       cursor: pointer;
-      background-color: #f7f8fa;
+      background-color: var(--el-fill-color-lighter);
       background-repeat: no-repeat;
       background-position: 50%;
       background-size: cover;
@@ -290,7 +290,7 @@ watch(
   width: 100%;
   height: 100%;
   cursor: pointer;
-  border: 2px solid #07d;
+  border: 2px solid var(--el-color-primary);
   opacity: 0;
 
   &:hover,
@@ -304,7 +304,7 @@ watch(
     right: 1px;
     z-index: 7;
     font-size: 12px;
-    color: #fff;
+    color: hsl(var(--foreground));
   }
 
   span.after {
@@ -314,7 +314,7 @@ watch(
     z-index: 1;
     display: block;
     content: ' ';
-    border: 14px solid #07d;
+    border: 14px solid var(--el-color-primary);
     border-bottom-color: transparent;
     border-left-color: transparent;
   }

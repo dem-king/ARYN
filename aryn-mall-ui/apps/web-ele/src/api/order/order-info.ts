@@ -1,4 +1,5 @@
 import { createCrudApi } from '#/api/crud-factory';
+import { requestClient } from '#/api/request';
 
 /** 订单分页查询参数 */
 export interface OrderPageQuery {
@@ -99,5 +100,3 @@ export async function selffetchObj(data: OrderDTO) {
 export const addObj = add;
 export const editObj = edit;
 export const delObj = del;
-
-import { requestClient } from '#/api/request';

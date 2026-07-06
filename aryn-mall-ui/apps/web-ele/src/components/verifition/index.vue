@@ -159,8 +159,8 @@ export default {
   top: 50%;
   left: 50%;
   box-sizing: border-box;
-  background-color: #fff;
-  border: 1px solid #e4e7eb;
+  background-color: var(--el-bg-color);
+  border: 1px solid var(--el-border-color-lighter);
   border-radius: 2px;
   box-shadow: 0 0 10px rgb(0 0 0 / 30%);
   transform: translate(-50%, -50%);
@@ -172,9 +172,9 @@ export default {
   padding: 0 15px;
   font-size: 16px;
   line-height: 50px;
-  color: #45494c;
+  color: var(--el-text-color-primary);
   text-align: left;
-  border-bottom: 1px solid #e4e7eb;
+  border-bottom: 1px solid var(--el-border-color-lighter);
 }
 
 .verifybox-bottom {
@@ -243,7 +243,7 @@ export default {
   font-size: 20px;
   text-align: center;
   cursor: pointer;
-  border: 1px solid #ddd;
+  border: 1px solid var(--el-border-color-lighter);
 }
 
 .cerify-code-panel {
@@ -273,7 +273,7 @@ export default {
 }
 
 .verify-change-code {
-  color: #337ab7;
+  color: var(--el-color-primary);
   cursor: pointer;
 }
 
@@ -281,8 +281,8 @@ export default {
   width: 200px;
   height: 30px;
   margin-top: 10px;
-  color: #fff;
-  background-color: #337ab7;
+  color: hsl(var(--foreground));
+  background-color: var(--el-color-primary);
   border: none;
 }
 
@@ -291,8 +291,8 @@ export default {
   position: relative;
   box-sizing: content-box;
   text-align: center;
-  background: #fff;
-  border: 1px solid #ddd;
+  background: var(--el-bg-color);
+  border: 1px solid var(--el-border-color-lighter);
   border-radius: 4px;
 }
 
@@ -302,14 +302,14 @@ export default {
   left: 0;
   box-sizing: content-box;
   cursor: pointer;
-  background: #fff;
+  background: var(--el-bg-color);
   border-radius: 1px;
   box-shadow: 0 0 2px #888;
 }
 
 .verify-bar-area .verify-move-block:hover {
-  color: #fff;
-  background-color: #337ab7;
+  color: hsl(var(--foreground));
+  background-color: var(--el-color-primary);
 }
 
 .verify-bar-area .verify-left-bar {
@@ -318,16 +318,16 @@ export default {
   left: -1px;
   box-sizing: content-box;
   cursor: pointer;
-  background: #f0fff0;
-  border: 1px solid #ddd;
+  background: var(--el-fill-color-lighter);
+  border: 1px solid var(--el-border-color-lighter);
 }
 
 .verify-img-panel {
   position: relative;
   box-sizing: content-box;
   margin: 0;
-  border-top: 1px solid #ddd;
-  border-bottom: 1px solid #ddd;
+  border-top: 1px solid var(--el-border-color-lighter);
+  border-bottom: 1px solid var(--el-border-color-lighter);
   border-radius: 3px;
 }
 
@@ -351,8 +351,8 @@ export default {
 .verify-img-panel .verify-gap {
   position: relative;
   z-index: 2;
-  background-color: #fff;
-  border: 1px solid #fff;
+  background-color: var(--el-bg-color);
+  border: 1px solid var(--el-bg-color);
 }
 
 .verify-bar-area .verify-move-block .verify-sub-block {

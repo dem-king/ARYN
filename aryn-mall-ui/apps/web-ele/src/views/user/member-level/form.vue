@@ -4,6 +4,7 @@ import { defineAsyncComponent, reactive, ref } from 'vue';
 import {
   ElButton,
   ElDialog,
+  ElDivider,
   ElForm,
   ElFormItem,
   ElInput,
@@ -14,6 +15,8 @@ import {
 } from 'element-plus';
 
 import { addObj, editObj, getById } from '#/api/user/member-level';
+
+const emit = defineEmits(['initPage']);
 
 const SelectMaterial = defineAsyncComponent(
   () => import('#/components/select-material/index.vue'),
@@ -30,6 +33,12 @@ const state = reactive({
     levelIcon: '',
     conditionType: '1',
     conditionValue: 0,
+    growthValue: 0,
+    isPaid: '0',
+    price: 0,
+    duration: 0,
+    exclusiveDiscount: 100,
+    birthdayGiftPoints: 0,
     sortOrder: 0,
     status: '0',
   },
@@ -43,9 +52,10 @@ const rules = reactive({
   conditionValue: [
     { required: true, message: '请输入升级条件值', trigger: 'blur' },
   ],
+  growthValue: [
+    { required: true, message: '请输入成长值阈值', trigger: 'blur' },
+  ],
 });
-
-const emit = defineEmits(['init-page']);
 
 const initForm = async (row?: any) => {
   visible.value = true;
@@ -61,6 +71,12 @@ const initForm = async (row?: any) => {
       levelIcon: '',
       conditionType: '1',
       conditionValue: 0,
+      growthValue: 0,
+      isPaid: '0',
+      price: 0,
+      duration: 0,
+      exclusiveDiscount: 100,
+      birthdayGiftPoints: 0,
       sortOrder: 0,
       status: '0',
     };
@@ -79,7 +95,7 @@ const submitForm = async () => {
       ElMessage.success('新增成功');
     }
     visible.value = false;
-    emit('init-page');
+    emit('initPage');
   } finally {
     loading.value = false;
   }
@@ -88,8 +104,13 @@ const submitForm = async () => {
 defineExpose({ initForm });
 </script>
 <template>
-  <ElDialog v-model="visible" :title="title" width="500px" draggable>
-    <ElForm ref="formRef" :model="state.form" :rules="rules" label-width="120px">
+  <ElDialog v-model="visible" :title="title" width="560px" draggable>
+    <ElForm
+      ref="formRef"
+      :model="state.form"
+      :rules="rules"
+      label-width="120px"
+    >
       <ElFormItem label="等级名称" prop="levelName">
         <ElInput v-model="state.form.levelName" placeholder="请输入等级名称" />
       </ElFormItem>
@@ -111,6 +132,80 @@ defineExpose({ initForm });
           style="width: 100%"
         />
       </ElFormItem>
+      <ElFormItem label="成长值阈值" prop="growthValue">
+        <ElInputNumber
+          v-model="state.form.growthValue"
+          :min="0"
+          :precision="0"
+          :step="100"
+          style="width: 100%"
+          placeholder="达到此成长值可升级"
+        />
+      </ElFormItem>
+
+      <ElDivider content-position="left">付费会员配置</ElDivider>
+
+      <ElFormItem label="是否付费" prop="isPaid">
+        <ElRadioGroup v-model="state.form.isPaid">
+          <ElRadio value="0">否</ElRadio>
+          <ElRadio value="1">是</ElRadio>
+        </ElRadioGroup>
+      </ElFormItem>
+      <ElFormItem
+        v-if="state.form.isPaid === '1'"
+        label="开通价格"
+        prop="price"
+      >
+        <ElInputNumber
+          v-model="state.form.price"
+          :min="0.01"
+          :precision="2"
+          :step="1"
+          style="width: 100%"
+          placeholder="付费开通价格（元）"
+        />
+      </ElFormItem>
+      <ElFormItem
+        v-if="state.form.isPaid === '1'"
+        label="有效期(月)"
+        prop="duration"
+      >
+        <ElInputNumber
+          v-model="state.form.duration"
+          :min="1"
+          :precision="0"
+          :step="1"
+          style="width: 100%"
+          placeholder="付费会员有效期月数"
+        />
+      </ElFormItem>
+
+      <ElDivider content-position="left">等级权益配置</ElDivider>
+
+      <ElFormItem label="专属折扣(%)" prop="exclusiveDiscount">
+        <ElInputNumber
+          v-model="state.form.exclusiveDiscount"
+          :min="1"
+          :max="100"
+          :precision="0"
+          :step="1"
+          style="width: 100%"
+          placeholder="1-100，如95表示9.5折"
+        />
+      </ElFormItem>
+      <ElFormItem label="生日礼包积分" prop="birthdayGiftPoints">
+        <ElInputNumber
+          v-model="state.form.birthdayGiftPoints"
+          :min="0"
+          :precision="0"
+          :step="10"
+          style="width: 100%"
+          placeholder="生日当月赠送积分"
+        />
+      </ElFormItem>
+
+      <ElDivider content-position="left">基础配置</ElDivider>
+
       <ElFormItem label="排序号" prop="sortOrder">
         <ElInputNumber
           v-model="state.form.sortOrder"

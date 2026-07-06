@@ -6,11 +6,14 @@ import cn.hutool.core.date.LocalDateTimeUtil;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.common.core.util.Result;
+import com.aryn.cloud.common.excel.ExcelUtils;
 import com.aryn.cloud.common.log.annotation.SysLog;
 import com.aryn.cloud.user.api.entity.UserInfo;
+import com.aryn.cloud.user.excel.UserExportVO;
 import com.aryn.cloud.user.service.IUserInfoService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
@@ -18,6 +21,7 @@ import org.springframework.web.bind.annotation.*;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -144,6 +148,31 @@ public class UserInfoController {
 	@GetMapping("/team-page")
 	public Result teamPage(Page page, @RequestParam String userId) {
 		return Result.success(userInfoService.getTeamPage(page, userId));
+	}
+
+	@SysLog("会员导出")
+	@Operation(summary = "会员导出")
+	@SaCheckPermission("user:userinfo:export")
+	@GetMapping("/export")
+	public void export(UserInfo userInfo, HttpServletResponse response) {
+		List<UserInfo> list = userInfoService.list(Wrappers.lambdaQuery(userInfo));
+		List<UserExportVO> exportList = list.stream().map(this::toUserExportVO).toList();
+		ExcelUtils.export(response, "会员列表", UserExportVO.class, exportList);
+	}
+
+	private UserExportVO toUserExportVO(UserInfo user) {
+		UserExportVO vo = new UserExportVO();
+		vo.setNickname(user.getNickname());
+		vo.setPhone(user.getPhone());
+		vo.setSex(user.getSex());
+		vo.setCity(user.getCity());
+		vo.setProvince(user.getProvince());
+		vo.setUserSource(user.getUserSource());
+		vo.setPoint(user.getPoint());
+		vo.setBalance(user.getBalance());
+		vo.setTotalConsume(user.getTotalConsume());
+		vo.setCreateTime(user.getCreateTime() != null ? user.getCreateTime().toString() : null);
+		return vo;
 	}
 
 }

@@ -6,6 +6,7 @@ import com.alibaba.fastjson2.JSONObject;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.aryn.cloud.common.core.constant.CommonConstants;
 import com.aryn.cloud.common.core.constant.RocketMqConstants;
+import com.aryn.cloud.common.core.util.RocketMqConsumerHelper;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.order.api.entity.OrderInfo;
 import com.aryn.cloud.order.api.entity.OrderItemEntity;
@@ -28,7 +29,9 @@ import java.util.List;
 @Slf4j
 @RequiredArgsConstructor
 @Component
-@RocketMQMessageListener(topic = RocketMqConstants.PAY_NOTIFY_TOPIC, consumerGroup = RocketMqConstants.PAY_NOTIFY_TOPIC)
+@RocketMQMessageListener(topic = RocketMqConstants.PAY_NOTIFY_TOPIC,
+		consumerGroup = RocketMqConstants.PAY_NOTIFY_TOPIC,
+		maxReconsumeTimes = RocketMqConstants.DEFAULT_MAX_RECONSUME_TIMES)
 public class ArynPayListener implements RocketMQListener<String> {
 
 	private final IOrderInfoService orderInfoService;
@@ -39,6 +42,11 @@ public class ArynPayListener implements RocketMQListener<String> {
 
 	@Override
 	public void onMessage(String message) {
+		RocketMqConsumerHelper.safeConsume(log, RocketMqConstants.PAY_NOTIFY_TOPIC,
+				RocketMqConstants.PAY_NOTIFY_TOPIC, message, () -> doConsume(message));
+	}
+
+	private void doConsume(String message) {
 		final JSONObject msg = JSONObject.parseObject(message);
 		final String tenantId = msg.getString(PayConstants.TENANT_ID);
 		if (!StringUtils.hasText(tenantId)) {
@@ -64,7 +72,7 @@ public class ArynPayListener implements RocketMQListener<String> {
 		}
 		final String payType = extraParams.getString(PayConstants.EXTRA_PARAMS_PAY_TYPE);
 		if (!StringUtils.hasText(payType)) {
-			log.warn("payType empty! orderNo: " + orderNo);
+			log.warn("payType empty! orderNo: {}", orderNo);
 			return;
 		}
 
@@ -75,7 +83,7 @@ public class ArynPayListener implements RocketMQListener<String> {
 		List<OrderItemEntity> orderItemEntityList = orderItemService
 			.list(Wrappers.<OrderItemEntity>lambdaQuery().eq(OrderItemEntity::getOrderId, orderInfo.getId()));
 		if (CollectionUtils.isEmpty(orderItemEntityList)) {
-			log.warn("order items not found! orderNo: " + orderNo);
+			log.warn("order items not found! orderNo: {}", orderNo);
 			return;
 		}
 
@@ -85,7 +93,7 @@ public class ArynPayListener implements RocketMQListener<String> {
 			orderInfo.setTransactionId(transactionId);
 			applicationEventPublisher.publishEvent(new ArynOrderPayEvent(this, orderInfo, orderItemEntityList));
 		}
-
 	}
 
 }
+

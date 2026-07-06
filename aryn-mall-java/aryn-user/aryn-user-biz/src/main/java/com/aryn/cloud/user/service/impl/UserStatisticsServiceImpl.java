@@ -1,11 +1,13 @@
 package com.aryn.cloud.user.service.impl;
 
 import com.aryn.cloud.user.api.dto.UserStatisticsDTO;
+import com.aryn.cloud.user.api.vo.UserFunnelVO;
 import com.aryn.cloud.user.api.vo.UserOverviewVO;
 import com.aryn.cloud.user.api.vo.UserTrendVO;
 import com.aryn.cloud.user.mapper.UserStatisticsMapper;
 import com.aryn.cloud.user.service.IUserStatisticsService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -15,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class UserStatisticsServiceImpl implements IUserStatisticsService {
@@ -70,6 +73,17 @@ public class UserStatisticsServiceImpl implements IUserStatisticsService {
 			result.add(vo);
 		}
 		return result;
+	}
+
+	@Override
+	public UserFunnelVO getUserFunnel(UserStatisticsDTO dto) {
+		return userStatisticsMapper.getUserFunnel(dto);
+	}
+
+	@Override
+	public Long getOnlineUserCount() {
+		Long count = userStatisticsMapper.getOnlineUserCount();
+		return count != null ? count : 0L;
 	}
 
 }

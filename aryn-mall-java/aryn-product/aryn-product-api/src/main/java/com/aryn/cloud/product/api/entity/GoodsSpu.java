@@ -52,6 +52,9 @@ public class GoodsSpu extends Model<GoodsSpu> {
 	@Schema(description = "二级类目主键")
 	private String categorySecondId;
 
+	@Schema(description = "品牌ID")
+	private String brandId;
+
 	@Schema(description = "描述")
 	private String description;
 
@@ -86,6 +89,10 @@ public class GoodsSpu extends Model<GoodsSpu> {
 	@TableField(exist = false)
 	private String categoryName;
 
+	@Schema(description = "品牌名称")
+	@TableField(exist = false)
+	private String brandName;
+
 	@Schema(description = "商品sku")
 	@TableField(exist = false)
 	private List<GoodsSku> goodsSkus;
@@ -110,5 +117,8 @@ public class GoodsSpu extends Model<GoodsSpu> {
 
 	@Schema(description = "商品成本价 sku最低成本价")
 	private BigDecimal costPrice;
+
+	@Schema(description = "会员价配置(JSON结构:[{levelId,price}])")
+	private String memberPrice;
 
 }

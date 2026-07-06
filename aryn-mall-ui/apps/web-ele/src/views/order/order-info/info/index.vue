@@ -310,7 +310,7 @@ getDetail();
           <div class="content">
             <p>
               <span>实付金额:</span>
-              <span style="color: red">
+              <span style="color: var(--el-color-danger)">
                 ￥{{ state.orderInfo.paymentPrice }}
               </span>
             </p>
@@ -485,13 +485,15 @@ getDetail();
           </p>
           <p>
             <span>运费：</span>
-            <span style="color: red">
+            <span style="color: var(--el-color-danger)">
               +￥{{ state.orderInfo.freightPrice }}
             </span>
           </p>
           <p>
             <span>优惠券：</span>
-            <span style="color: red">-￥{{ state.orderInfo.couponPrice }}</span>
+            <span class="text-red-500">
+              -￥{{ state.orderInfo.couponPrice }}
+            </span>
           </p>
           <p v-if="state.orderInfo.payStatus === '1'" class="pay-type">
             <span>支付方式：</span>
@@ -517,14 +519,14 @@ getDetail();
   display: flex;
   padding: 30px;
   margin-top: 20px;
-  border: 1px solid #ebedf0;
+  border: 1px solid var(--el-border-color-lighter);
 
   .title {
     margin-bottom: 20px;
     font-size: 20px;
     font-weight: 700;
     line-height: 28px;
-    color: #323233;
+    color: var(--el-text-color-primary);
   }
 }
 
@@ -539,7 +541,7 @@ getDetail();
   flex: 1;
   align-items: center;
   justify-content: center;
-  border-left: 1px solid #ebedf0;
+  border-left: 1px solid var(--el-border-color-lighter);
 }
 
 .order-item {
@@ -548,14 +550,14 @@ getDetail();
   padding: 5px;
 
   .name {
-    color: #409eff;
+    color: var(--el-color-primary);
   }
 }
 
 .logistics-title {
   margin-bottom: 16px;
   font-weight: 700;
-  color: #323233;
+  color: var(--el-text-color-primary);
 }
 
 .top-order-info {
@@ -570,20 +572,20 @@ getDetail();
 .order-info {
   display: flex;
   margin-bottom: 16px;
-  background-color: #f7f8fa;
-  border: 1px solid #fefef0;
+  background-color: var(--el-fill-color-lighter);
+  border: 1px solid var(--el-border-color-lighter);
 
   .item {
     flex: 1;
     padding: 16px 12px;
     font-size: 14px;
-    color: #646566;
+    color: var(--el-text-color-regular);
   }
 
   .title {
     margin-bottom: 16px;
     font-weight: 700;
-    color: #323233;
+    color: var(--el-text-color-primary);
   }
 
   .content {
@@ -591,7 +593,7 @@ getDetail();
       display: flex;
       margin-bottom: 8px;
       font-size: 12px;
-      color: #646566;
+      color: var(--el-text-color-regular);
 
       span {
         &:first-child {
@@ -611,25 +613,25 @@ getDetail();
   -ms-flex-pack: end;
   justify-content: flex-end;
   padding: 16px 32px 16px 0;
-  color: #646566;
+  color: var(--el-text-color-regular);
 
   p {
     display: flex;
     margin-bottom: 8px;
     font-size: 12px;
-    color: #646566;
+    color: var(--el-text-color-regular);
 
     &.pay-price {
       margin-top: 20px;
       font-size: 14px;
       font-weight: 600;
-      color: #323233;
+      color: var(--el-text-color-primary);
 
       span {
         &:last-child {
           font-size: 18px;
           font-weight: bold;
-          color: #d40000;
+          color: var(--el-color-danger);
         }
       }
     }
@@ -638,7 +640,7 @@ getDetail();
       margin-top: 20px;
       font-size: 14px;
       font-weight: 600;
-      color: #323233;
+      color: var(--el-text-color-primary);
 
       span {
         &:last-child {
@@ -666,7 +668,7 @@ getDetail();
       .item {
         padding-bottom: 20px;
         margin-bottom: 20px;
-        border-bottom: 1px solid #ebedf0;
+        border-bottom: 1px solid var(--el-border-color-lighter);
 
         &:last-child {
           margin-bottom: 0;
@@ -689,7 +691,7 @@ getDetail();
           .logistics-track {
             flex: 1;
             padding-left: 40px;
-            border-left: 1px solid #ebedf0;
+            border-left: 1px solid var(--el-border-color-lighter);
 
             .title {
               margin-bottom: 15px;

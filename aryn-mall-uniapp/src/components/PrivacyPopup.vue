@@ -26,7 +26,8 @@ function privacyHandler(resolve: any) {
 }
 
 onBeforeMount(() => {
-  // 注册监听
+  // 注册监听（微信小程序和抖音小程序支持隐私协议）
+  // #ifdef MP-WEIXIN
   if (wx.onNeedPrivacyAuthorization) {
     wx.onNeedPrivacyAuthorization((resolve: any) => {
       if (typeof privacyHandler === 'function') {
@@ -34,6 +35,16 @@ onBeforeMount(() => {
       }
     })
   }
+  // #endif
+  // #ifdef MP-TOUTIAO
+  if (tt.onNeedPrivacyAuthorization) {
+    tt.onNeedPrivacyAuthorization((resolve: any) => {
+      if (typeof privacyHandler === 'function') {
+        privacyHandler(resolve)
+      }
+    })
+  }
+  // #endif
 })
 
 /**
@@ -68,7 +79,12 @@ function handleDisagree() {
  * 打开隐私协议
  */
 function openPrivacyContract() {
+  // #ifdef MP-WEIXIN
   wx.openPrivacyContract({})
+  // #endif
+  // #ifdef MP-TOUTIAO
+  tt.openPrivacyContract({})
+  // #endif
 }
 
 /**

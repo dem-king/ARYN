@@ -55,6 +55,7 @@
         <mysql.connector.version>9.2.0</mysql.connector.version>
         <dynamic-datasource.version>4.3.1</dynamic-datasource.version>
         <spring-javaformat.version>0.0.47</spring-javaformat.version>
+        <meilisearch.version>0.11.0</meilisearch.version>
         <spring-boot.version>3.5.8</spring-boot.version>
         <spring-boot-admin.version>3.5.6</spring-boot-admin.version>
         <spring-cloud.version>2025.0.0</spring-cloud.version>
@@ -208,6 +209,24 @@
                 <groupId>com.aryn</groupId>
                 <artifactId>aryn-common-datasource</artifactId>
                 <version>${project.version}</version>
+            </dependency>
+            <!--           Excel导入导出模块-->
+            <dependency>
+                <groupId>com.aryn</groupId>
+                <artifactId>aryn-common-excel</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <!--           Meilisearch 搜索模块-->
+            <dependency>
+                <groupId>com.aryn</groupId>
+                <artifactId>aryn-common-search</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <!--           Meilisearch Java SDK-->
+            <dependency>
+                <groupId>com.meilisearch.sdk</groupId>
+                <artifactId>meilisearch-java</artifactId>
+                <version>${meilisearch.version}</version>
             </dependency>
             <!--滑块验证码-->
             <dependency>

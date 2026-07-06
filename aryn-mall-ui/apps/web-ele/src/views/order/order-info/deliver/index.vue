@@ -191,7 +191,12 @@ defineExpose({
                   <span class="overflow-line-clamp-2 name">
                     {{ scope.row.spuName }}
                   </span>
-                  <p style="font-size: 12px; color: #a8abb2">
+                  <p
+                    style="
+                      font-size: 12px;
+                      color: var(--el-text-color-secondary);
+                    "
+                  >
                     {{ scope.row.specsInfo }}
                   </p>
                 </ElCol>

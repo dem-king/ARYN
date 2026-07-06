@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.aryn.cloud.common.core.constant.RocketMqConstants;
 import com.aryn.cloud.common.core.entity.OrderItemRefundSuccessEvent;
 import com.aryn.cloud.common.core.entity.OrderRefundSuccessEvent;
+import com.aryn.cloud.common.core.util.RocketMqConsumerHelper;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.order.api.entity.OrderInfo;
 import com.aryn.cloud.order.api.entity.OrderItemEntity;
@@ -35,7 +36,8 @@ import java.util.Objects;
 @RequiredArgsConstructor
 @Component
 @RocketMQMessageListener(topic = RocketMqConstants.PAY_REFUND_NOTIFY_TOPIC,
-		consumerGroup = RocketMqConstants.PAY_REFUND_NOTIFY_TOPIC)
+		consumerGroup = RocketMqConstants.PAY_REFUND_NOTIFY_TOPIC,
+		maxReconsumeTimes = RocketMqConstants.DEFAULT_MAX_RECONSUME_TIMES)
 public class ArynRefundListener implements RocketMQListener<String> {
 
 	private final IOrderRefundService orderRefundService;
@@ -48,6 +50,11 @@ public class ArynRefundListener implements RocketMQListener<String> {
 
 	@Override
 	public void onMessage(String message) {
+		RocketMqConsumerHelper.safeConsume(log, RocketMqConstants.PAY_REFUND_NOTIFY_TOPIC,
+				RocketMqConstants.PAY_REFUND_NOTIFY_TOPIC, message, () -> doConsume(message));
+	}
+
+	private void doConsume(String message) {
 		final JSONObject msg = JSONObject.parseObject(message);
 		final String tenantId = msg.getString(PayConstants.TENANT_ID);
 		if (!StringUtils.hasText(tenantId)) {
@@ -63,18 +70,18 @@ public class ArynRefundListener implements RocketMQListener<String> {
 		OrderRefund orderRefund = orderRefundService
 			.getOne(Wrappers.<OrderRefund>lambdaQuery().eq(OrderRefund::getRefundTradeNo, refundTradeMo));
 		if (null == orderRefund) {
-			log.warn("order not found! orderNo: " + refundTradeMo);
+			log.warn("order not found! orderNo: {}", refundTradeMo);
 			return;
 		}
 		OrderItemEntity orderItemEntity = orderItemService.getById(orderRefund.getOrderItemId());
 		if (null == orderItemEntity) {
-			log.warn("order item not found! orderItemId: " + orderRefund.getOrderItemId());
+			log.warn("order item not found! orderItemId: {}", orderRefund.getOrderItemId());
 			return;
 		}
 		// 查询订单
 		OrderInfo orderInfo = orderInfoService.getById(orderRefund.getOrderId());
 		if (Objects.isNull(orderInfo)) {
-			log.warn("order  not found! orderId: " + orderRefund.getOrderId());
+			log.warn("order not found! orderId: {}", orderRefund.getOrderId());
 			return;
 		}
 		if (OrderArrivalStatusEnum.REFUNDING.getCode().equals(orderRefund.getArrivalStatus())) {

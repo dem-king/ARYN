@@ -484,7 +484,7 @@ initPage();
     width: 240px;
     margin-right: -1px;
     overflow: hidden;
-    border: 1px solid #dcdee0;
+    border: 1px solid var(--el-border-color-lighter);
 
     .category-tree {
       padding: 20px;
@@ -507,13 +507,13 @@ initPage();
     flex: auto;
     padding: 12px;
     overflow-y: auto;
-    border: 1px solid #dcdee0;
+    border: 1px solid var(--el-border-color-lighter);
 
     .title {
       font-size: 16px;
       font-weight: 700;
       line-height: 24px;
-      color: #323233;
+      color: var(--el-text-color-primary);
     }
   }
 }
@@ -577,7 +577,7 @@ initPage();
         .selected-icon {
           font-size: 32px;
           font-weight: bold;
-          color: #fff;
+          color: hsl(var(--foreground));
         }
       }
     }
@@ -590,7 +590,7 @@ initPage();
       text-overflow: ellipsis;
       font-size: 14px;
       line-height: 20px;
-      color: #333;
+      color: var(--el-text-color-primary);
       text-align: center;
       white-space: nowrap;
     }

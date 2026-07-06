@@ -69,4 +69,14 @@
                     ofType="com.aryn.cloud.product.api.entity.GoodsSpu"
                     select="com.aryn.cloud.product.mapper.GoodsSpuMapper.selectById"></collection>
     </resultMap>
+
+    <update id="reduceStockWithOptimisticLock">
+        UPDATE goods_sku
+        SET stock = stock - #{stockNum},
+            version = version + 1
+        WHERE id = #{skuId}
+          AND stock >= #{stockNum}
+          AND version = #{version}
+          AND del_flag = '0'
+    </update>
 </mapper>

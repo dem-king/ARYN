@@ -52,12 +52,37 @@ export interface UserInfoResponse {
 export interface MPLoginParams {
   code: string
 }
+
 /**
  * 微信小程序登录（静默登录获取openid）
  * @param data 包含 jsCode 的登录参数
  */
 export function wxLogin(data: MPLoginParams) {
   return alovaInstance.Post('/auth/toc-token/ma/login', data, {
+    headers: {
+      skipToken: true,
+    },
+  })
+}
+
+/**
+ * 支付宝小程序登录
+ * @param data 包含 authCode 的登录参数
+ */
+export function aliLogin(data: { authCode: string }) {
+  return alovaInstance.Post('/auth/toc-token/ma/ali/login', data, {
+    headers: {
+      skipToken: true,
+    },
+  })
+}
+
+/**
+ * 抖音小程序登录
+ * @param data 包含 code 的登录参数
+ */
+export function ttLogin(data: MPLoginParams) {
+  return alovaInstance.Post('/auth/toc-token/ma/tt/login', data, {
     headers: {
       skipToken: true,
     },

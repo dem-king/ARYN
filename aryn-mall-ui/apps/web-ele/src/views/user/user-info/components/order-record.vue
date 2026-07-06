@@ -171,7 +171,7 @@ initPage();
               <span class="overflow-line-clamp-2 name">
                 {{ item.spuName }}
               </span>
-              <p style="font-size: 12px; color: #a8abb2">
+              <p style="font-size: 12px; color: var(--el-text-color-secondary)">
                 {{ item.specsInfo }}
               </p>
               <p>
@@ -181,7 +181,9 @@ initPage();
               </p>
             </ElCol>
             <ElCol :span="5">
-              <span style="color: #f56c6c">{{ item.paymentPrice }}元</span>
+              <span style="color: var(--el-color-danger)"
+                >{{ item.paymentPrice }}元</span
+              >
               <p>x{{ item.buyQuantity }}</p>
               <DictTag
                 v-if="

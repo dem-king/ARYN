@@ -170,6 +170,15 @@ function submit() {
         导入微信地址
       </wd-button>
       <!-- #endif -->
+      <!-- #ifdef MP-ALIPAY -->
+      <wd-button
+        v-if="!state.form.id"
+        custom-class="mt-2!" block type="primary"
+        @click="chooseAddress"
+      >
+        导入支付宝地址
+      </wd-button>
+      <!-- #endif -->
     </view>
   </view>
 </template>

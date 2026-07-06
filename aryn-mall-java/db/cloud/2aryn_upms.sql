@@ -2522,4 +2522,14 @@ CREATE TABLE `undo_log`  (
 -- Records of undo_log
 -- ----------------------------
 
+-- ----------------------------
+-- 品牌管理菜单（父菜单：商品管理 1779386487675092994）
+-- ----------------------------
+INSERT INTO `sys_menu` VALUES ('2060000000000000001', '品牌管理', NULL, '/product/brand', NULL, '1779386487675092994', 'carbon:star', 'product/brand/index', 20, '0', '2026-07-05 00:00:00', '2026-07-05 00:00:00', '0', '0', 'app_base', NULL, 'system');
+INSERT INTO `sys_menu` VALUES ('2060000000000000002', '品牌列表', 'product:brand:page', NULL, NULL, '2060000000000000001', NULL, NULL, 1, '1', '2026-07-05 00:00:00', '2026-07-05 00:00:00', '0', '0', 'app_base', NULL, NULL);
+INSERT INTO `sys_menu` VALUES ('2060000000000000003', '品牌查询', 'product:brand:get', NULL, NULL, '2060000000000000001', NULL, NULL, 2, '1', '2026-07-05 00:00:00', '2026-07-05 00:00:00', '0', '0', 'app_base', NULL, NULL);
+INSERT INTO `sys_menu` VALUES ('2060000000000000004', '品牌新增', 'product:brand:add', NULL, NULL, '2060000000000000001', NULL, NULL, 3, '1', '2026-07-05 00:00:00', '2026-07-05 00:00:00', '0', '0', 'app_base', NULL, NULL);
+INSERT INTO `sys_menu` VALUES ('2060000000000000005', '品牌编辑', 'product:brand:edit', NULL, NULL, '2060000000000000001', NULL, NULL, 4, '1', '2026-07-05 00:00:00', '2026-07-05 00:00:00', '0', '0', 'app_base', NULL, NULL);
+INSERT INTO `sys_menu` VALUES ('2060000000000000006', '品牌删除', 'product:brand:del', NULL, NULL, '2060000000000000001', NULL, NULL, 5, '1', '2026-07-05 00:00:00', '2026-07-05 00:00:00', '0', '0', 'app_base', NULL, NULL);
+
 SET FOREIGN_KEY_CHECKS = 1;

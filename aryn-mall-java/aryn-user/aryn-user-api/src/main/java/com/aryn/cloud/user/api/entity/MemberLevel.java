@@ -44,6 +44,24 @@ public class MemberLevel extends Model<MemberLevel> {
 	@Schema(description = "状态：0-启用；1-禁用")
 	private String status;
 
+	@Schema(description = "成长值阈值")
+	private Integer growthValue;
+
+	@Schema(description = "是否付费会员：0-否；1-是")
+	private String isPaid;
+
+	@Schema(description = "开通价格")
+	private BigDecimal price;
+
+	@Schema(description = "有效期(月)")
+	private Integer duration;
+
+	@Schema(description = "专属折扣(0.80=8折)")
+	private BigDecimal exclusiveDiscount;
+
+	@Schema(description = "生日礼包积分")
+	private Integer birthdayGiftPoints;
+
 	@TableField(fill = FieldFill.INSERT)
 	@Schema(description = "创建人")
 	private String createBy;

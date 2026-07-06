@@ -215,6 +215,6 @@ watch(
 <style lang="scss" scoped>
 .common-item {
   padding: 10px;
-  border-bottom: 1px solid #e5e5e5;
+  border-bottom: 1px solid var(--el-border-color-lighter);
 }
 </style>
