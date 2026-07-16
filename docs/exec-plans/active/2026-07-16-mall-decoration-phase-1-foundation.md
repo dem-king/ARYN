@@ -101,4 +101,3 @@ expect(migratePageContent({
 ## Gate 1
 
 Run promotion tests, entity/tenant Graphify follow-up, SQL parity review, and `git diff --check`. Do not start Phase 2 until draft isolation, stale-write rejection, immutable history, published-only reads, tenant isolation, and preview expiry are proven.
-

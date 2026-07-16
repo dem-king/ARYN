@@ -89,4 +89,3 @@ cd aryn-mall-ui && pnpm check:type && pnpm test:unit && pnpm lint && pnpm build:
 ```
 
 Visually verify both desktop sizes, 50-component outline/canvas performance, autosave states, stale revision handling, all legacy fixtures, template cloning, preview QR, and blocked/valid publishing. Do not start new components until changed-file failures are zero.
-

@@ -67,4 +67,3 @@
 ## Gate 3
 
 Release only when admin/H5/WeChat fixtures agree, legacy migration retains order/content/links, invalid data never whitescreens, tenant artifacts cannot cross boundaries, 50-component pages remain usable, E2E passes, and migration rollback has been rehearsed.
-

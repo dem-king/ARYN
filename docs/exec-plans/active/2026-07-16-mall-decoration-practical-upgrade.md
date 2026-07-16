@@ -56,4 +56,3 @@ git diff --check
 ```
 
 Task-owned checks must pass. Existing baseline blockers must be reported with command output and cannot be represented as passing. After all gates pass, update `docs/20-业务与数据/`, `docs/40-接口与风险/`, and `docs/90-记录归档/需求记录.md`, then move all four plan files from `active/` to `completed/`.
-
