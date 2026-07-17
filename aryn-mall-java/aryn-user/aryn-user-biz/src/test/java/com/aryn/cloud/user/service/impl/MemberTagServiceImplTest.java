@@ -9,11 +9,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 
@@ -33,13 +33,12 @@ class MemberTagServiceImplTest {
 	@Mock
 	private MemberTagMapper memberTagMapper;
 
-	@InjectMocks
 	private MemberTagServiceImpl memberTagService;
 
 	@BeforeEach
 	void setUp() {
 		// 设置 baseMapper
-		memberTagService.baseMapper = memberTagMapper;
+		memberTagService = new TestMemberTagService(userTagRelMapper, memberTagMapper);
 	}
 
 	@Test
@@ -72,7 +71,7 @@ class MemberTagServiceImplTest {
 				memberTagService.saveTag(tag));
 
 		assertEquals("标签名称已存在", exception.getMsg());
-		verify(memberTagMapper, never()).insert(any());
+		verify(memberTagMapper, never()).insert(any(MemberTag.class));
 	}
 
 	@Test
@@ -107,7 +106,7 @@ class MemberTagServiceImplTest {
 				memberTagService.updateTag(tag));
 
 		assertEquals("标签名称已存在", exception.getMsg());
-		verify(memberTagMapper, never()).updateById(any());
+		verify(memberTagMapper, never()).updateById(any(MemberTag.class));
 	}
 
 	@Test
@@ -137,15 +136,13 @@ class MemberTagServiceImplTest {
 
 		// 无已存在的关联
 		when(userTagRelMapper.selectList(any())).thenReturn(Collections.emptyList());
-		when(userTagRelMapper.insert(anyList())).thenReturn(2);
+		when(userTagRelMapper.insert(anyList())).thenReturn(Collections.emptyList());
 
 		// when
 		memberTagService.tagUser(userId, tagIds);
 
 		// then
-		verify(userTagRelMapper).insert(argThat(list -> {
-			@SuppressWarnings("unchecked")
-			List<UserTagRel> rels = (List<UserTagRel>) list;
+		verify(userTagRelMapper).insert(argThat((Collection<UserTagRel> rels) -> {
 			return rels.size() == 2
 					&& rels.stream().allMatch(r -> userId.equals(r.getUserId()))
 					&& rels.stream().map(UserTagRel::getTagId).collect(java.util.stream.Collectors.toList())
@@ -165,18 +162,16 @@ class MemberTagServiceImplTest {
 		existRel.setUserId(userId);
 		existRel.setTagId("tag001");
 		when(userTagRelMapper.selectList(any())).thenReturn(Collections.singletonList(existRel));
-		when(userTagRelMapper.insert(anyList())).thenReturn(1);
+		when(userTagRelMapper.insert(anyList())).thenReturn(Collections.emptyList());
 
 		// when
 		memberTagService.tagUser(userId, tagIds);
 
 		// then - 只插入tag002
-		verify(userTagRelMapper).insert(argThat(list -> {
-			@SuppressWarnings("unchecked")
-			List<UserTagRel> rels = (List<UserTagRel>) list;
+		verify(userTagRelMapper).insert(argThat((Collection<UserTagRel> rels) -> {
 			return rels.size() == 1
-					&& "tag002".equals(rels.get(0).getTagId())
-					&& userId.equals(rels.get(0).getUserId());
+					&& rels.stream().anyMatch(rel -> "tag002".equals(rel.getTagId())
+							&& userId.equals(rel.getUserId()));
 		}));
 	}
 
@@ -235,7 +230,7 @@ class MemberTagServiceImplTest {
 		MemberTag tag2 = new MemberTag();
 		tag2.setId("tag002");
 		tag2.setTagName("活跃");
-		when(memberTagMapper.selectBatchIds(anyCollection())).thenReturn(Arrays.asList(tag1, tag2));
+		when(memberTagMapper.selectByIds(anyCollection())).thenReturn(Arrays.asList(tag1, tag2));
 
 		// when
 		List<MemberTag> result = memberTagService.getUserTags(userId);
@@ -256,7 +251,15 @@ class MemberTagServiceImplTest {
 
 		// then
 		assertTrue(result.isEmpty());
-		verify(memberTagMapper, never()).selectBatchIds(anyCollection());
+		verify(memberTagMapper, never()).selectByIds(anyCollection());
+	}
+
+	private static final class TestMemberTagService extends MemberTagServiceImpl {
+
+		private TestMemberTagService(UserTagRelMapper userTagRelMapper, MemberTagMapper memberTagMapper) {
+			super(userTagRelMapper);
+			this.baseMapper = memberTagMapper;
+		}
 	}
 
 }

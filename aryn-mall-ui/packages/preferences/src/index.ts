@@ -18,7 +18,7 @@ function defineOverridesPreferences(preferences: DeepPartial<Preferences>) {
   };
   preferences.logo = {
     enable: true,
-    source: '/static/logo.svg',
+    source: '/static/logo.png',
   };
   preferences.copyright = {
     companyName: 'Aryn Mall',

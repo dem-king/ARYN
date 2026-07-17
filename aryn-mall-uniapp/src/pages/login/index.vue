@@ -22,7 +22,7 @@ const { show } = useGlobalToast()
 // 定义变量
 const copyright = ref<any>({
   logoUrl: '/static/logo.png',
-  name: '悦航购',
+  name: '',
   copyrightDesc: '天启雨数版权所有',
 })
 const router = useRouter()

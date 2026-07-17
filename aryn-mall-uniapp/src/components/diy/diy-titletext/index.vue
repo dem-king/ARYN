@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+
+import { followDecorationLink } from '@/components/diy/link-resolver'
 import { useDiyStyle } from '@/composables/useDiyStyle'
 
 const props = defineProps({
@@ -28,7 +30,7 @@ const dynamicStyles = useDiyStyle(computed(() => props.showData.commonStyle))
       >
         <view>{{ showData.title }}</view>
       </view>
-      <view class="more-btn" @click="toJumpUrl(showData.link.url)">
+      <view class="more-btn" @click="followDecorationLink(showData.link)">
         <text
           v-if="showData.moreBtn && showData.moreBtnStyle !== '3'"
           :style="{ 'color': showData.moreBtnColor, 'font-weight': `${showData.moreBtnWeight === '1' ? '700' : ''}`, 'font-size': `${showData.moreBtnSize}px` }"

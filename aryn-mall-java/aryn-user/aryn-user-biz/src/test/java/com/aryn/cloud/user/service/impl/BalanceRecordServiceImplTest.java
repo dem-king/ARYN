@@ -10,7 +10,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -35,7 +34,6 @@ class BalanceRecordServiceImplTest {
 	@Mock
 	private BalanceRecordMapper balanceRecordMapper;
 
-	@InjectMocks
 	private BalanceRecordServiceImpl balanceRecordService;
 
 	private UserInfo testUser;
@@ -49,7 +47,7 @@ class BalanceRecordServiceImplTest {
 		testUser.setTotalConsume(BigDecimal.ZERO);
 
 		// 设置 baseMapper
-		balanceRecordService.baseMapper = balanceRecordMapper;
+		balanceRecordService = new TestBalanceRecordService(userInfoMapper, memberLevelService, balanceRecordMapper);
 	}
 
 	@Test
@@ -63,9 +61,9 @@ class BalanceRecordServiceImplTest {
 		balanceRecordService.recordBalanceChange("user001", "1", new BigDecimal("50.00"), "RECHARGE", "充值");
 
 		// then
-		verify(userInfoMapper).updateById(argThat(user ->
+		verify(userInfoMapper).updateById(argThat((UserInfo user) ->
 				user.getBalance().compareTo(new BigDecimal("150.00")) == 0));
-		verify(balanceRecordMapper).insert(argThat(record ->
+		verify(balanceRecordMapper).insert(argThat((BalanceRecord record) ->
 				"user001".equals(record.getUserId())
 						&& "1".equals(record.getChangeType())
 						&& record.getChangeAmount().compareTo(new BigDecimal("50.00")) == 0
@@ -86,9 +84,9 @@ class BalanceRecordServiceImplTest {
 		balanceRecordService.recordBalanceChange("user001", "2", new BigDecimal("30.00"), "ORDER_PAY", "订单支付");
 
 		// then
-		verify(userInfoMapper).updateById(argThat(user ->
+		verify(userInfoMapper).updateById(argThat((UserInfo user) ->
 				user.getBalance().compareTo(new BigDecimal("70.00")) == 0));
-		verify(balanceRecordMapper).insert(argThat(record ->
+		verify(balanceRecordMapper).insert(argThat((BalanceRecord record) ->
 				"2".equals(record.getChangeType())
 						&& record.getBalanceAfter().compareTo(new BigDecimal("70.00")) == 0));
 		// 消费不触发等级重算
@@ -106,8 +104,8 @@ class BalanceRecordServiceImplTest {
 				balanceRecordService.recordBalanceChange("user001", "2", new BigDecimal("200.00"), "ORDER_PAY", "订单支付"));
 
 		assertEquals("余额不足", exception.getMsg());
-		verify(userInfoMapper, never()).updateById(any());
-		verify(balanceRecordMapper, never()).insert(any());
+		verify(userInfoMapper, never()).updateById(any(UserInfo.class));
+		verify(balanceRecordMapper, never()).insert(any(BalanceRecord.class));
 	}
 
 	@Test
@@ -121,9 +119,9 @@ class BalanceRecordServiceImplTest {
 		balanceRecordService.recordBalanceChange("user001", "3", new BigDecimal("20.00"), "ADMIN_ADJUST", "管理员调整");
 
 		// then
-		verify(userInfoMapper).updateById(argThat(user ->
+		verify(userInfoMapper).updateById(argThat((UserInfo user) ->
 				user.getBalance().compareTo(new BigDecimal("120.00")) == 0));
-		verify(balanceRecordMapper).insert(argThat(record ->
+		verify(balanceRecordMapper).insert(argThat((BalanceRecord record) ->
 				"3".equals(record.getChangeType())
 						&& record.getBalanceAfter().compareTo(new BigDecimal("120.00")) == 0));
 	}
@@ -139,7 +137,7 @@ class BalanceRecordServiceImplTest {
 		balanceRecordService.recordBalanceChange("user001", "3", new BigDecimal("-30.00"), "ADMIN_ADJUST", "管理员扣减");
 
 		// then
-		verify(userInfoMapper).updateById(argThat(user ->
+		verify(userInfoMapper).updateById(argThat((UserInfo user) ->
 				user.getBalance().compareTo(new BigDecimal("70.00")) == 0));
 	}
 
@@ -154,7 +152,7 @@ class BalanceRecordServiceImplTest {
 				balanceRecordService.recordBalanceChange("user001", "3", new BigDecimal("-200.00"), "ADMIN_ADJUST", "管理员扣减"));
 
 		assertEquals("调整后余额不能为负数", exception.getMsg());
-		verify(userInfoMapper, never()).updateById(any());
+		verify(userInfoMapper, never()).updateById(any(UserInfo.class));
 	}
 
 	@Test
@@ -182,7 +180,7 @@ class BalanceRecordServiceImplTest {
 		balanceRecordService.recordBalanceChange("user001", "1", new BigDecimal("50.00"), "RECHARGE", "充值");
 
 		// then
-		verify(userInfoMapper).updateById(argThat(user ->
+		verify(userInfoMapper).updateById(argThat((UserInfo user) ->
 				user.getBalance().compareTo(new BigDecimal("50.00")) == 0));
 	}
 
@@ -197,7 +195,7 @@ class BalanceRecordServiceImplTest {
 		balanceRecordService.recordBalanceChange("user001", "2", new BigDecimal("100.00"), "ORDER_PAY", "订单支付");
 
 		// then
-		verify(userInfoMapper).updateById(argThat(user ->
+		verify(userInfoMapper).updateById(argThat((UserInfo user) ->
 				user.getBalance().compareTo(BigDecimal.ZERO) == 0));
 	}
 
@@ -213,8 +211,17 @@ class BalanceRecordServiceImplTest {
 		assertDoesNotThrow(() ->
 				balanceRecordService.recordBalanceChange("user001", "1", new BigDecimal("50.00"), "RECHARGE", "充值"));
 
-		verify(userInfoMapper).updateById(any());
-		verify(balanceRecordMapper).insert(any());
+		verify(userInfoMapper).updateById(any(UserInfo.class));
+		verify(balanceRecordMapper).insert(any(BalanceRecord.class));
+	}
+
+	private static final class TestBalanceRecordService extends BalanceRecordServiceImpl {
+
+		private TestBalanceRecordService(UserInfoMapper userInfoMapper, IMemberLevelService memberLevelService,
+				BalanceRecordMapper balanceRecordMapper) {
+			super(userInfoMapper, memberLevelService);
+			this.baseMapper = balanceRecordMapper;
+		}
 	}
 
 }

@@ -74,16 +74,28 @@ const routes: RouteRecordRaw[] = [
     ],
   },
   {
-    name: '页面装修',
-    path: '/pagedesign/form',
-    component: () => import('#/views/promotion/page-design/form.vue'),
+    name: 'PageDesigner',
+    path: '/page-designer/:id?',
+    component: () => import('#/views/promotion/page-designer/index.vue'),
     meta: {
-      icon: 'lucide:area-chart',
-      title: '页面装修',
+      icon: 'lucide:panel-top-open',
+      title: '商城装修',
       hideInMenu: true,
       noBasicLayout: true,
       openInNewWindow: true,
     },
+  },
+  {
+    name: 'LegacyPageDesigner',
+    path: '/pagedesign/form',
+    redirect: (to) => ({ path: '/page-designer', query: to.query }),
+    meta: { hideInMenu: true, title: '旧版页面装修入口' },
+  },
+  {
+    name: 'LegacyHomeDesigner',
+    path: '/home-decoration/form',
+    redirect: '/page-designer',
+    meta: { hideInMenu: true, title: '旧版首页装修入口' },
   },
 ];
 

@@ -6,15 +6,15 @@
 import { alovaInstance } from '@/api/core/instance'
 
 export interface PageDesign {
-  id?: string
+  id: string
   /** 页面名称 */
-  pageName?: string
+  pageName: string
   /** 页面内容 */
-  pageContent?: any
-  /** 状态：0.正常；1.停用； */
-  status?: string
-  /** 首页页面：0.否；1.是； */
-  homeStatus?: string
+  pageContent: unknown
+  pageType: string
+  schemaVersion: number
+  publishedVersionId?: string
+  publishedVersionNo?: number
 }
 
 /**

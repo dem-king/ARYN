@@ -77,6 +77,7 @@ public class SysTenantController {
 	}
 
 	@GetMapping("/list")
+	@SaCheckPermission("upms:systenant:page")
 	public Result getList() {
 		return Result.success(sysTenantService
 			.list(Wrappers.<SysTenant>lambdaQuery().eq(SysTenant::getStatus, CommonConstants.NORMAL_STATUS)));

@@ -132,7 +132,10 @@ const getDetail = (id: any) => {
   getById(id).then((response) => {
     loading.value = false;
     const data = response;
-    const pageContent = JSON.parse(data.pageContent);
+    const pageContent =
+      typeof data.pageContent === 'string'
+        ? JSON.parse(data.pageContent)
+        : (data.pageContent ?? { components: [] });
     if (pageContent.components && pageContent.components !== '{}') {
       components.value = pageContent.components;
     }

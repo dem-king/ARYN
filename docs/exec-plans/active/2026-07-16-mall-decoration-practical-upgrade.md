@@ -56,3 +56,7 @@ git diff --check
 ```
 
 Task-owned checks must pass. Existing baseline blockers must be reported with command output and cannot be represented as passing. After all gates pass, update `docs/20-业务与数据/`, `docs/40-接口与风险/`, and `docs/90-记录归档/需求记录.md`, then move all four plan files from `active/` to `completed/`.
+
+## Current Status (2026-07-17)
+
+The implementation and task-scoped automated checks are substantially complete. Fresh verification includes 406 admin unit tests, a successful admin production build, 31 Promotion tests, 3 UPMS tests, 1 Product test, task-scoped ESLint, and `git diff --check`. Gate 3 is still open because there is no repository E2E convention, no disposable MySQL 8 environment for migration/rollback rehearsal, and both UniApp builds stop at the existing `unconfig` CJS/ESM incompatibility. Keep this plan and all phase plans in `active/` until those release checks pass.

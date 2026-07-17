@@ -27,7 +27,8 @@ CREATE TABLE `pay_config`  (
                                `terminal_type` char(2) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '支付端类型',
                                `public_key_path` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '微信支付公钥',
                                `public_key_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '微信支付公钥ID',
-                               PRIMARY KEY (`id`) USING BTREE
+                               PRIMARY KEY (`id`) USING BTREE,
+                               UNIQUE KEY `uk_pay_config_app_id` ((IF(`del_flag` = '0', CONCAT('active:', `app_id`), CONCAT('deleted:', `id`))))
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '支付配置' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------

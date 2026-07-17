@@ -67,3 +67,10 @@
 ## Gate 3
 
 Release only when admin/H5/WeChat fixtures agree, legacy migration retains order/content/links, invalid data never whitescreens, tenant artifacts cannot cross boundaries, 50-component pages remain usable, E2E passes, and migration rollback has been rehearsed.
+
+## Execution Status (2026-07-17)
+
+- Tasks 12-14 are implemented: six retail components exist in admin and UniApp, the mobile renderer uses the typed registry, live data has stable loading/empty/error states, and links use one guarded resolver with legacy path migration.
+- Public retail reads are narrowed and aligned: current-tenant shop data uses `/app/tenant/shop-info`, batch goods exclude offline SPUs, and Boot/Cloud anonymous rules cover page design, shop information, group-buy activities, and public group records.
+- Fresh verification passed: 406 admin unit tests, admin production build, task-scoped ESLint, 31 Promotion tests, 3 UPMS tests, 1 Product test, and `git diff --check`.
+- Gate 3 remains open: the repository has no E2E convention, no MySQL/Docker migration rehearsal environment is available, and H5/WeChat builds fail in the existing `unconfig` CJS/ESM toolchain. Project-wide typecheck/lint and Boot tests also retain unrelated baseline failures.

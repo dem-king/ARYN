@@ -11,12 +11,15 @@
 | [aryn-mall-java/](aryn-mall-java/) | Spring Boot 3 + Spring Cloud Alibaba + Dubbo | 后端服务 |
 | [aryn-mall-ui/](aryn-mall-ui/) | Vue 3 + Vite + TypeScript (monorepo) | 管理后台 |
 | [aryn-mall-uniapp/](aryn-mall-uniapp/) | UniApp + Vue 3 + TypeScript | C 端移动商城 |
+| [xxl-job-3.2.0/](xxl-job-3.2.0/) | XXL-JOB 3.2.0 + Spring Boot | 独立上游调度源码，不随 `aryn-boot` 构建 |
 
 ## 快速链接
 
-- [架构总览](docs/ARCHITECTURE.md) — 分层规则、模块依赖、数据流
-- [开发指南](docs/DEVELOPMENT.md) — 构建/测试/lint 命令与环境配置
-- [业务上下文](docs/PRODUCT_SENSE.md) — 电商领域术语、业务流程
+- [项目知识库](docs/README.md) — 固定阅读顺序和常用入口
+- [项目总览](docs/00-项目总览/项目总览.md) — 系统边界、部署形态和主要风险
+- [开发工作流](docs/10-开发指南/开发工作流.md) — 定位、修改、验证和知识回写
+- [功能到代码索引](docs/20-业务与数据/功能到代码索引.md) — 从业务语言定位三端代码
+- [接口与风险](docs/40-接口与风险/README.md) — 路径映射、缺失模块和风险台账
 
 ## 构建命令速查
 
@@ -27,18 +30,18 @@ cd aryn-mall-java && mvn clean test -pl aryn-boot -am        # 运行测试
 cd aryn-mall-java && mvn clean install -DskipTests           # 全量打包
 
 # === 管理后台 ===
-cd aryn-mall-ui && pnpm install && pnpm dev                   # 启动开发服务器
-cd aryn-mall-ui && pnpm build                                  # 构建
+cd aryn-mall-ui && pnpm install && pnpm dev:ele               # 启动管理后台
+cd aryn-mall-ui && pnpm build:ele                              # 构建管理后台
 cd aryn-mall-ui && pnpm lint                                   # ESLint + Prettier
 
 # === 移动端 ===
-cd aryn-mall-uniapp && pnpm install && pnpm dev:mp-weixin     # 微信小程序
-cd aryn-mall-uniapp && pnpm lint                               # ESLint
+cd aryn-mall-uniapp && pnpm install && pnpm dev:mp-weixin     # 微信小程序（需 Node >= 22）
+cd aryn-mall-uniapp && pnpm type-check                         # 当前无 lint/test 脚本
 
-# === Harness 验证 ===
-python3 scripts/validate.py --backend                           # 后端全量验证
-python3 scripts/validate.py --frontend                          # 前端全量验证
-python3 scripts/verify_action.py --action "<操作描述>"           # 操作前预验证
+# === 当前可靠验证 ===
+cd aryn-mall-java && mvn test -pl aryn-boot -am
+cd aryn-mall-ui && pnpm check:type && pnpm test:unit && pnpm lint
+cd aryn-mall-uniapp && pnpm type-check
 ```
 
 ## 分层规则
@@ -79,7 +82,6 @@ python3 scripts/verify_action.py --action "<操作描述>"           # 操作前
 
 ## 质量标准 (三项目通用)
 
-- 单文件不超过 **500 行**
 - Java: `@Slf4j` 结构化日志，**禁止** `System.out.println()` / `printStacktrace()`
 - TypeScript/Vue: 通过 ESLint + Prettier 格式化
 - Java 命名: PascalCase(类) / camelCase(方法/变量)，lombok 简化 getter/setter
@@ -87,7 +89,9 @@ python3 scripts/verify_action.py --action "<操作描述>"           # 操作前
 - 所有逻辑删除用 `del_flag` 字段，禁止物理删除
 - 涉及多表操作需保证事务一致性
 
-## Harness 自动化
+## Harness 自动化（历史基线）
+
+> 当前工作树中 `scripts/` 与 `harness/` 处于删除状态。以下表格用于说明原设计，恢复前不得执行或声称通过；当前验证使用上面的 Maven/pnpm 原生命令。
 
 ### 静态验证
 
@@ -112,6 +116,17 @@ python3 scripts/verify_action.py --action "<操作描述>"           # 操作前
 **工作流**: Agent 执行 → validate → 失败自动 record_failure → 定期跑 critic 分析 → refiner 修复规则 → 下一代 Agent 受益。
 
 > 执行计划文件存放在 `docs/exec-plans/`，任务状态存放在 `harness/tasks/`。
+
+## Git 与知识维护
+
+- 当前主开发分支为 `dev`，远端为 `origin`；新分支默认使用 `codex/<topic>`，除非用户指定其他约定。
+- Git 提交信息的标题和正文必须使用中文；禁止使用英文提交标题或英文正文。
+- 禁止创建、使用或切换 Git worktree；所有操作必须在当前工作目录完成。
+- 工作区可能包含用户未提交修改；不得回退、覆盖或顺带格式化无关文件。
+- 先读 [docs/README.md](docs/README.md)，再按目标业务读取对应层文档；不要每次从头扫描全仓。
+- 稳定结论回写 `docs/`；重大需求放入 `docs/50-需求文档/YYYY-MM-DD-需求名/`，完成结果登记到 `docs/90-记录归档/需求记录.md`。
+- 修改实体、租户、认证、菜单、公共请求层或共享工具时使用 Graphify 检查影响范围；UA 用于陌生模块和跨域全景分析。
+- `graphify-out/`、`.ua/`、`.understand-anything/`、`.codex/hooks.json` 是本地生成物，保持 Git 忽略。
 
 ## 架构决策记录
 

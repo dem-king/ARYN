@@ -11,7 +11,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -34,7 +33,6 @@ class PointsRecordServiceImplTest {
 	@Mock
 	private PointsRecordMapper pointsRecordMapper;
 
-	@InjectMocks
 	private PointsRecordServiceImpl pointsRecordService;
 
 	private UserInfo testUser;
@@ -48,7 +46,7 @@ class PointsRecordServiceImplTest {
 		testUser.setTotalConsume(java.math.BigDecimal.ZERO);
 
 		// 设置 baseMapper，使 this.save() 等基类方法可用
-		pointsRecordService.baseMapper = pointsRecordMapper;
+		pointsRecordService = new TestPointsRecordService(userInfoMapper, memberLevelService, pointsRecordMapper);
 	}
 
 	@Test
@@ -62,8 +60,8 @@ class PointsRecordServiceImplTest {
 		pointsRecordService.recordPointsChange("user001", "1", 50, "ORDER_REWARD", "下单奖励");
 
 		// then
-		verify(userInfoMapper).updateById(argThat(user -> user.getPoint() == 150));
-		verify(pointsRecordMapper).insert(argThat(record ->
+		verify(userInfoMapper).updateById(argThat((UserInfo user) -> user.getPoint() == 150));
+		verify(pointsRecordMapper).insert(argThat((PointsRecord record) ->
 				"user001".equals(record.getUserId())
 						&& "1".equals(record.getChangeType())
 						&& record.getChangePoint() == 50
@@ -84,8 +82,8 @@ class PointsRecordServiceImplTest {
 		pointsRecordService.recordPointsChange("user001", "2", 30, "EXCHANGE", "积分兑换");
 
 		// then
-		verify(userInfoMapper).updateById(argThat(user -> user.getPoint() == 70));
-		verify(pointsRecordMapper).insert(argThat(record ->
+		verify(userInfoMapper).updateById(argThat((UserInfo user) -> user.getPoint() == 70));
+		verify(pointsRecordMapper).insert(argThat((PointsRecord record) ->
 				"2".equals(record.getChangeType())
 						&& record.getChangePoint() == 30
 						&& record.getBalanceAfter() == 70));
@@ -103,8 +101,8 @@ class PointsRecordServiceImplTest {
 				pointsRecordService.recordPointsChange("user001", "2", 200, "EXCHANGE", "积分兑换"));
 
 		assertEquals("积分余额不足", exception.getMsg());
-		verify(userInfoMapper, never()).updateById(any());
-		verify(pointsRecordMapper, never()).insert(any());
+		verify(userInfoMapper, never()).updateById(any(UserInfo.class));
+		verify(pointsRecordMapper, never()).insert(any(PointsRecord.class));
 	}
 
 	@Test
@@ -118,7 +116,7 @@ class PointsRecordServiceImplTest {
 				pointsRecordService.recordPointsChange("user999", "1", 50, "ORDER_REWARD", "下单奖励"));
 
 		assertEquals("用户不存在", exception.getMsg());
-		verify(userInfoMapper, never()).updateById(any());
+		verify(userInfoMapper, never()).updateById(any(UserInfo.class));
 	}
 
 	@Test
@@ -133,8 +131,8 @@ class PointsRecordServiceImplTest {
 		pointsRecordService.recordPointsChange("user001", "1", 50, "MANUAL", "手动增加");
 
 		// then
-		verify(userInfoMapper).updateById(argThat(user -> user.getPoint() == 50));
-		verify(pointsRecordMapper).insert(argThat(record -> record.getBalanceAfter() == 50));
+		verify(userInfoMapper).updateById(argThat((UserInfo user) -> user.getPoint() == 50));
+		verify(pointsRecordMapper).insert(argThat((PointsRecord record) -> record.getBalanceAfter() == 50));
 	}
 
 	@Test
@@ -149,8 +147,8 @@ class PointsRecordServiceImplTest {
 		pointsRecordService.recordPointsChange("user001", "2", 50, "EXCHANGE", "积分兑换");
 
 		// then
-		verify(userInfoMapper).updateById(argThat(user -> user.getPoint() == 0));
-		verify(pointsRecordMapper).insert(argThat(record -> record.getBalanceAfter() == 0));
+		verify(userInfoMapper).updateById(argThat((UserInfo user) -> user.getPoint() == 0));
+		verify(pointsRecordMapper).insert(argThat((PointsRecord record) -> record.getBalanceAfter() == 0));
 	}
 
 	@Test
@@ -166,8 +164,17 @@ class PointsRecordServiceImplTest {
 				pointsRecordService.recordPointsChange("user001", "1", 50, "ORDER_REWARD", "下单奖励"));
 
 		// 积分变动仍然生效
-		verify(userInfoMapper).updateById(any());
-		verify(pointsRecordMapper).insert(any());
+		verify(userInfoMapper).updateById(any(UserInfo.class));
+		verify(pointsRecordMapper).insert(any(PointsRecord.class));
+	}
+
+	private static final class TestPointsRecordService extends PointsRecordServiceImpl {
+
+		private TestPointsRecordService(UserInfoMapper userInfoMapper, IMemberLevelService memberLevelService,
+				PointsRecordMapper pointsRecordMapper) {
+			super(userInfoMapper, memberLevelService);
+			this.baseMapper = pointsRecordMapper;
+		}
 	}
 
 }

@@ -279,7 +279,7 @@ const dynamicGoodsStyles = computed(() => {
                   <ElButton
                     v-if="showData.buyBtnStyle === '3'"
                     color="#ff4444"
-                    size="mini"
+                    size="small"
                   >
                     {{ showData.buyBtnText }}
                   </ElButton>

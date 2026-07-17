@@ -8,9 +8,15 @@ import com.baomidou.mybatisplus.extension.plugins.inner.OptimisticLockerInnerInt
 import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.TenantLineInnerInterceptor;
 import com.aryn.cloud.common.myabtis.handler.MyMetaObjectHandler;
+import com.aryn.cloud.common.myabtis.properties.TenantConfigProperties;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantLineHandler;
+import com.aryn.cloud.common.myabtis.tenant.TenantSchemaValidator;
+import org.springframework.boot.ApplicationRunner;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+
+import javax.sql.DataSource;
 
 /**
  * mybatis plus 统一配置
@@ -33,6 +39,12 @@ public class MybatisPlusConfig {
 	@Bean
 	public MyMetaObjectHandler metaObjectHandler() {
 		return new MyMetaObjectHandler();
+	}
+
+	@Bean
+	@ConditionalOnProperty(prefix = "hx.tenant", name = "validate-schema", havingValue = "true", matchIfMissing = true)
+	public ApplicationRunner tenantSchemaValidationRunner(DataSource dataSource, TenantConfigProperties properties) {
+		return args -> new TenantSchemaValidator(dataSource, properties).validate();
 	}
 
 	/**

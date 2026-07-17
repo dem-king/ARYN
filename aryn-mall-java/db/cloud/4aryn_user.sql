@@ -102,7 +102,8 @@ CREATE TABLE `social_account`  (
                                    `create_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '创建人',
                                    `update_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '修改人',
                                    `tenant_id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '租户id',
-                                   PRIMARY KEY (`id`) USING BTREE
+                                   PRIMARY KEY (`id`) USING BTREE,
+                                   UNIQUE KEY `uk_social_account_app_id` ((IF(`del_flag` = '0', CONCAT('active:', `app_id`), CONCAT('deleted:', `id`))))
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '三方账号表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------

@@ -2,8 +2,8 @@
 package com.aryn.cloud.promotion.controller.app;
 
 import com.aryn.cloud.common.core.util.Result;
-import com.aryn.cloud.promotion.api.entity.PageDesign;
-import com.aryn.cloud.promotion.service.IPageDesignService;
+import com.aryn.cloud.promotion.api.vo.AppPageDesignVO;
+import com.aryn.cloud.promotion.service.PageDesignPreviewService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.AllArgsConstructor;
@@ -26,18 +26,24 @@ import org.springframework.web.bind.annotation.RestController;
 @Tag(description = "app-pagedesign", name = "页面设计-API")
 public class AppPageDesignController {
 
-	private final IPageDesignService pageDesignService;
+	private final PageDesignPreviewService pageDesignPreviewService;
 
 	@Operation(summary = "页面设计查询")
 	@GetMapping
-	public Result<PageDesign> getHomePage(PageDesign request) {
-		return Result.success(pageDesignService.getHomePage(request));
+	public Result<AppPageDesignVO> getHomePage() {
+		return Result.success(pageDesignPreviewService.getPublishedHome());
 	}
 
 	@Operation(summary = "通过id查询")
 	@GetMapping("/{id}")
-	public Result<PageDesign> getById(@PathVariable("id") String id) {
-		return Result.success(pageDesignService.getById(id));
+	public Result<AppPageDesignVO> getById(@PathVariable("id") String id) {
+		return Result.success(pageDesignPreviewService.getPublished(id));
+	}
+
+	@Operation(summary = "Preview a page draft with a short-lived token")
+	@GetMapping("/preview/{token}")
+	public Result<AppPageDesignVO> preview(@PathVariable String token) {
+		return Result.success(pageDesignPreviewService.getPreview(token));
 	}
 
 }

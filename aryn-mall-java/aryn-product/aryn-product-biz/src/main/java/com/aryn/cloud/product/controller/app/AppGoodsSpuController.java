@@ -1,6 +1,7 @@
 
 package com.aryn.cloud.product.controller.app;
 
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.product.api.entity.GoodsSpu;
@@ -46,7 +47,8 @@ public class AppGoodsSpuController {
 	@Operation(summary = "通过ids查询商品")
 	@GetMapping("/list/{ids}")
 	public Result<List<GoodsSpu>> getById(@PathVariable List<String> ids) {
-		return Result.success(goodsSpuService.listByIds(ids));
+		return Result.success(goodsSpuService
+			.list(Wrappers.<GoodsSpu>lambdaQuery().in(GoodsSpu::getId, ids).eq(GoodsSpu::getStatus, "1")));
 	}
 
 	@Operation(summary = "获取热搜商品 Top10")

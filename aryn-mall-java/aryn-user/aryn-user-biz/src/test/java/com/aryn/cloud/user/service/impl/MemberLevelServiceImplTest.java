@@ -12,7 +12,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -39,7 +38,6 @@ class MemberLevelServiceImplTest {
 	@Mock
 	private MemberLevelMapper memberLevelMapper;
 
-	@InjectMocks
 	private MemberLevelServiceImpl memberLevelService;
 
 	private UserInfo testUser;
@@ -79,7 +77,7 @@ class MemberLevelServiceImplTest {
 		goldLevel.setStatus("0");
 
 		// 设置 baseMapper
-		memberLevelService.baseMapper = memberLevelMapper;
+		memberLevelService = new TestMemberLevelService(memberLevelRecordMapper, userInfoMapper, memberLevelMapper);
 	}
 
 	@Test
@@ -94,8 +92,8 @@ class MemberLevelServiceImplTest {
 		memberLevelService.recalculateLevel("user001");
 
 		// then - 用户消费1000，满足青铜(100)和白银(500)，取最高白银
-		verify(userInfoMapper).updateById(argThat(user -> "level-silver".equals(user.getMemberLevelId())));
-		verify(memberLevelRecordMapper).insert(argThat(record ->
+		verify(userInfoMapper).updateById(argThat((UserInfo user) -> "level-silver".equals(user.getMemberLevelId())));
+		verify(memberLevelRecordMapper).insert(argThat((MemberLevelRecord record) ->
 				"user001".equals(record.getUserId())
 						&& record.getOldLevelId() == null
 						&& "level-silver".equals(record.getNewLevelId())
@@ -115,8 +113,8 @@ class MemberLevelServiceImplTest {
 		memberLevelService.recalculateLevel("user001");
 
 		// then - 积分1500满足黄金(1000)，消费50不满足青铜(100)和白银(500)
-		verify(userInfoMapper).updateById(argThat(user -> "level-gold".equals(user.getMemberLevelId())));
-		verify(memberLevelRecordMapper).insert(argThat(record ->
+		verify(userInfoMapper).updateById(argThat((UserInfo user) -> "level-gold".equals(user.getMemberLevelId())));
+		verify(memberLevelRecordMapper).insert(argThat((MemberLevelRecord record) ->
 				"level-gold".equals(record.getNewLevelId())));
 	}
 
@@ -130,8 +128,8 @@ class MemberLevelServiceImplTest {
 		memberLevelService.recalculateLevel("user999");
 
 		// then - 不做任何操作
-		verify(userInfoMapper, never()).updateById(any());
-		verify(memberLevelRecordMapper, never()).insert(any());
+		verify(userInfoMapper, never()).updateById(any(UserInfo.class));
+		verify(memberLevelRecordMapper, never()).insert(any(MemberLevelRecord.class));
 	}
 
 	@Test
@@ -145,8 +143,8 @@ class MemberLevelServiceImplTest {
 		memberLevelService.recalculateLevel("user001");
 
 		// then
-		verify(userInfoMapper, never()).updateById(any());
-		verify(memberLevelRecordMapper, never()).insert(any());
+		verify(userInfoMapper, never()).updateById(any(UserInfo.class));
+		verify(memberLevelRecordMapper, never()).insert(any(MemberLevelRecord.class));
 	}
 
 	@Test
@@ -161,8 +159,8 @@ class MemberLevelServiceImplTest {
 		memberLevelService.recalculateLevel("user001");
 
 		// then - 等级没变，不更新
-		verify(userInfoMapper, never()).updateById(any());
-		verify(memberLevelRecordMapper, never()).insert(any());
+		verify(userInfoMapper, never()).updateById(any(UserInfo.class));
+		verify(memberLevelRecordMapper, never()).insert(any(MemberLevelRecord.class));
 	}
 
 	@Test
@@ -177,8 +175,8 @@ class MemberLevelServiceImplTest {
 		memberLevelService.recalculateLevel("user001");
 
 		// then - 升级到白银
-		verify(userInfoMapper).updateById(argThat(user -> "level-silver".equals(user.getMemberLevelId())));
-		verify(memberLevelRecordMapper).insert(argThat(record ->
+		verify(userInfoMapper).updateById(argThat((UserInfo user) -> "level-silver".equals(user.getMemberLevelId())));
+		verify(memberLevelRecordMapper).insert(argThat((MemberLevelRecord record) ->
 				"level-bronze".equals(record.getOldLevelId())
 						&& "level-silver".equals(record.getNewLevelId())));
 	}
@@ -197,8 +195,8 @@ class MemberLevelServiceImplTest {
 		memberLevelService.recalculateLevel("user001");
 
 		// then - 等级降为null
-		verify(userInfoMapper).updateById(argThat(user -> user.getMemberLevelId() == null));
-		verify(memberLevelRecordMapper).insert(argThat(record ->
+		verify(userInfoMapper).updateById(argThat((UserInfo user) -> user.getMemberLevelId() == null));
+		verify(memberLevelRecordMapper).insert(argThat((MemberLevelRecord record) ->
 				"level-bronze".equals(record.getOldLevelId())
 						&& record.getNewLevelId() == null));
 	}
@@ -215,8 +213,8 @@ class MemberLevelServiceImplTest {
 		memberLevelService.recalculateLevel("user001");
 
 		// then
-		verify(userInfoMapper).updateById(argThat(user -> "level-silver".equals(user.getMemberLevelId())));
-		verify(memberLevelRecordMapper).insert(argThat(record ->
+		verify(userInfoMapper).updateById(argThat((UserInfo user) -> "level-silver".equals(user.getMemberLevelId())));
+		verify(memberLevelRecordMapper).insert(argThat((MemberLevelRecord record) ->
 				record.getOldLevelId() == null
 						&& "level-silver".equals(record.getNewLevelId())));
 	}
@@ -282,6 +280,15 @@ class MemberLevelServiceImplTest {
 		// then
 		assertTrue(result);
 		verify(memberLevelMapper).insert(newLevel);
+	}
+
+	private static final class TestMemberLevelService extends MemberLevelServiceImpl {
+
+		private TestMemberLevelService(MemberLevelRecordMapper memberLevelRecordMapper, UserInfoMapper userInfoMapper,
+				MemberLevelMapper memberLevelMapper) {
+			super(memberLevelRecordMapper, userInfoMapper);
+			this.baseMapper = memberLevelMapper;
+		}
 	}
 
 }

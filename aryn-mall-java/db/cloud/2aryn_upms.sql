@@ -478,6 +478,9 @@ INSERT INTO `sys_menu` VALUES ('1600478336006647809', '页面设计新增', 'pro
 INSERT INTO `sys_menu` VALUES ('1600478397226708994', '页面设计修改', 'promotion:pagedesign:edit', '', NULL, '1600477837933047810', '', '', 1, '1', '2022-12-07 21:12:39', '2024-10-15 11:55:15', '', '0', 'app_base', NULL, 'admin');
 INSERT INTO `sys_menu` VALUES ('1600478467569381377', '页面设计删除', 'promotion:pagedesign:del', '', NULL, '1600477837933047810', '', '', 1, '1', '2022-12-07 21:12:56', '2024-10-15 11:55:22', '', '0', 'app_base', NULL, 'admin');
 INSERT INTO `sys_menu` VALUES ('1600785452746854401', '页面设计查询', 'promotion:pagedesign:get', '', NULL, '1600477837933047810', '', '', 1, '1', '2022-12-08 17:32:48', '2024-10-15 11:55:28', '', '0', 'app_base', NULL, 'admin');
+INSERT INTO `sys_menu` VALUES ('2026071709000000001', '页面装修发布', 'promotion:pagedesign:publish', '', NULL, '1600477837933047810', '', '', 1, '1', '2026-07-17 09:00:00', '2026-07-17 09:00:00', '', '0', 'app_base', NULL, 'admin');
+INSERT INTO `sys_menu` VALUES ('2026071709000000002', '页面装修回滚', 'promotion:pagedesign:rollback', '', NULL, '1600477837933047810', '', '', 1, '1', '2026-07-17 09:00:00', '2026-07-17 09:00:00', '', '0', 'app_base', NULL, 'admin');
+INSERT INTO `sys_menu` VALUES ('2026071709000000003', '页面装修模板管理', 'promotion:pagedesign:template', '', NULL, '1600477837933047810', '', '', 1, '1', '2026-07-17 09:00:00', '2026-07-17 09:00:00', '', '0', 'app_base', NULL, 'admin');
 INSERT INTO `sys_menu` VALUES ('1605129651156598786', '在线用户', '', '/system/online-user', NULL, '10001', 'carbon:user', 'upms/online-user/index', 9, '0', '2022-12-20 17:15:05', '2025-05-20 22:56:08', '0', '0', 'app_base', NULL, 'system');
 INSERT INTO `sys_menu` VALUES ('1605129783281369089', '在线用户查询', 'upms:onlineuser:get', '', NULL, '1605129651156598786', '', '', 1, '1', '2022-12-20 17:15:36', '2022-12-20 17:15:36', '', '0', 'app_base', NULL, NULL);
 INSERT INTO `sys_menu` VALUES ('1605130091042619393', '在线用户强退', 'upms:onlineuser:forced', '', NULL, '1605129651156598786', '', '', 1, '1', '2022-12-20 17:15:05', '2022-12-20 17:15:05', '', '0', 'app_base', NULL, NULL);
@@ -2472,7 +2475,9 @@ CREATE TABLE `sys_user`  (
                              `create_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '创建人',
                              `update_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '修改人',
                              `type` char(1) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '账号类型：0.系统主账户（管理全部店铺）；',
-                             PRIMARY KEY (`id`) USING BTREE
+                             PRIMARY KEY (`id`) USING BTREE,
+                             UNIQUE KEY `uk_sys_user_username` ((IF(`del_flag` = '0', CONCAT('active:', `username`), CONCAT('deleted:', `id`)))),
+                             UNIQUE KEY `uk_sys_user_phone` ((IF(`del_flag` = '0', CONCAT('active:', `phone`), CONCAT('deleted:', `id`))))
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '系统用户表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
@@ -2521,5 +2526,22 @@ CREATE TABLE `undo_log`  (
 -- ----------------------------
 -- Records of undo_log
 -- ----------------------------
+
+-- 页面装修发布、回滚、模板权限沿用现有页面设计角色和租户授权范围
+INSERT INTO `sys_role_menu` VALUES ('2026071709100000001', '1881232177484574722', '2026071709000000001', '2026-07-17 09:10:00', '1590229800633634816');
+INSERT INTO `sys_role_menu` VALUES ('2026071709100000002', '1881232177484574722', '2026071709000000002', '2026-07-17 09:10:00', '1590229800633634816');
+INSERT INTO `sys_role_menu` VALUES ('2026071709100000003', '1881232177484574722', '2026071709000000003', '2026-07-17 09:10:00', '1590229800633634816');
+INSERT INTO `sys_role_menu` VALUES ('2026071709100000004', '1881232177484574722', '2026071709000000001', '2026-07-17 09:10:00', '1881232176465358849');
+INSERT INTO `sys_role_menu` VALUES ('2026071709100000005', '1881232177484574722', '2026071709000000002', '2026-07-17 09:10:00', '1881232176465358849');
+INSERT INTO `sys_role_menu` VALUES ('2026071709100000006', '1881232177484574722', '2026071709000000003', '2026-07-17 09:10:00', '1881232176465358849');
+INSERT INTO `sys_role_menu` VALUES ('2026071709100000007', '1', '2026071709000000001', '2026-07-17 09:10:00', '1590229800633634816');
+INSERT INTO `sys_role_menu` VALUES ('2026071709100000008', '1', '2026071709000000002', '2026-07-17 09:10:00', '1590229800633634816');
+INSERT INTO `sys_role_menu` VALUES ('2026071709100000009', '1', '2026071709000000003', '2026-07-17 09:10:00', '1590229800633634816');
+INSERT INTO `sys_tenant_menu` VALUES ('2026071709110000001', '1931893888604180482', '2026071709000000001', '2026-07-17 09:10:00', 'system');
+INSERT INTO `sys_tenant_menu` VALUES ('2026071709110000002', '1931893888604180482', '2026071709000000002', '2026-07-17 09:10:00', 'system');
+INSERT INTO `sys_tenant_menu` VALUES ('2026071709110000003', '1931893888604180482', '2026071709000000003', '2026-07-17 09:10:00', 'system');
+INSERT INTO `sys_tenant_menu` VALUES ('2026071709110000004', '1590229800633634816', '2026071709000000001', '2026-07-17 09:10:00', 'system');
+INSERT INTO `sys_tenant_menu` VALUES ('2026071709110000005', '1590229800633634816', '2026071709000000002', '2026-07-17 09:10:00', 'system');
+INSERT INTO `sys_tenant_menu` VALUES ('2026071709110000006', '1590229800633634816', '2026071709000000003', '2026-07-17 09:10:00', 'system');
 
 SET FOREIGN_KEY_CHECKS = 1;

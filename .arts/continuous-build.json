@@ -1,9 +1,0 @@
-{
-  "watching" : [ {
-    "include" : [ "**/src/**/*.java" ],
-    "action" : "compile-java"
-  }, {
-    "include" : [ "**/src/*/resources/**" ],
-    "action" : "process-resources"
-  } ]
-}

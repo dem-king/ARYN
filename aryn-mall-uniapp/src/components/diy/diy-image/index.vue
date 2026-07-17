@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { toJumpUrl } from '@/utils/index'
+
+import { followDecorationLink } from '@/components/diy/link-resolver'
 import { useDiyStyle } from '@/composables/useDiyStyle'
 
 const props = defineProps({
@@ -30,7 +31,7 @@ const dynamicImageStyles = computed(() => {
   }
 })
 function handleSwiper(obj: any) {
-  toJumpUrl(obj.link.url)
+  followDecorationLink(obj.link)
 }
 </script>
 
@@ -42,7 +43,7 @@ function handleSwiper(obj: any) {
           <view v-for="(item, index) in showData.imageList" :key="index" :style="dynamicImageStyles">
             <image
               style="width: 100%; height: 100%; display: block;" :src="item.url"
-              :style="{ borderRadius: `${showData.imgRadius}px` }" @click="toJumpUrl(item.link.url)"
+              :style="{ borderRadius: `${showData.imgRadius}px` }" @click="followDecorationLink(item.link)"
             />
           </view>
         </view>

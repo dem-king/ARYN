@@ -110,9 +110,12 @@ secure:
       - /user/check/phone
       - /tenant/register
       - /tenantpackage/list
+      - /app/tenant/shop-info
       - /notify/**
       - /app/couponinfo/page
       - /app/pagedesign/**
+      - /app/groupbuy/activity/**
+      - /app/groupbuy/record/page
       - /app/goodscategory/tree
       - /app/goodsappraise/**
       - /app/goodscategory/**
@@ -128,6 +131,21 @@ hx:
     tables:
       - user_address
       - user_info
+      - member_level
+      - member_level_record
+      - points_config
+      - points_record
+      - sign_in_config
+      - sign_in_record
+      - recharge_config
+      - balance_record
+      - recharge_order
+      - member_tag
+      - user_tag_rel
+      - member_benefit
+      - member_benefit_level_rel
+      - social_account
+      - social_user
       - sys_user
       - sys_user_role
       - sys_storage_config
@@ -141,33 +159,37 @@ hx:
       - sys_material_group
       - goods_appraise
       - goods_category
+      - goods_collect
+      - goods_footprint
       - goods_sku
-      - goods_sku_specs_value
       - goods_specs
       - goods_specs_value
       - goods_spu
-      - goods_spu_specs
-      - goods_shop_category
-      - goods_collect
-      - goods_footprint
       - coupon_goods
       - coupon_info
       - coupon_user
+      - distribution_config
+      - distribution_user
+      - distribution_order
+      - distribution_commission_flow
+      - distribution_withdraw
+      - group_buy_activity
+      - group_buy_record
+      - group_buy_member
+      - page_design
+      - page_design_version
+      - page_design_template
       - pay_config
       - pay_trade_order
       - pay_notify_record
       - pay_refund_order
-      - page_design
       - order_info
       - order_item
       - order_delivery
-      - order_delivery_item
       - order_delivery_logistics
       - order_refund
       - order_config
       - shopping_cart
-      - social_account
-      - social_user
 
   swagger:
     enabled: true

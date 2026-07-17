@@ -94,10 +94,10 @@ async function handleOpenGroup() {
     return
   globalLoading.loading('开团中...')
   try {
-    const record = await openGroup({ activityId: state.activity.id })
+    await openGroup({ activityId: state.activity.id })
     uni.showToast({ title: '开团成功，请尽快支付', icon: 'success' })
     await loadRecords(state.activity.id)
-    navigateToOrder(record.orderId)
+    navigateToOrder()
   }
   catch {
     uni.showToast({ title: '开团失败', icon: 'none' })
@@ -112,10 +112,10 @@ async function handleJoinGroup(recordId: string) {
     return
   globalLoading.loading('参团中...')
   try {
-    const record = await joinGroup({ activityId: state.activity.id, recordId })
+    await joinGroup({ activityId: state.activity.id, recordId })
     uni.showToast({ title: '参团成功，请尽快支付', icon: 'success' })
     await loadRecords(state.activity.id)
-    navigateToOrder(record.orderId)
+    navigateToOrder()
   }
   catch {
     uni.showToast({ title: '参团失败', icon: 'none' })

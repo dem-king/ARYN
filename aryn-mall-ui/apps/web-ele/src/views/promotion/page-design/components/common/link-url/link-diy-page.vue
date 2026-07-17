@@ -1,6 +1,8 @@
 <script lang="ts" setup>
 import type { TableInstance } from 'element-plus';
 
+import type { PageDesignRecord } from '#/api/promotion/page-design';
+
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
 import { ElRadio, ElTable, ElTableColumn, ElTag } from 'element-plus';
@@ -26,7 +28,14 @@ const DictTag = defineAsyncComponent(
 );
 const selectedRow = ref<number>();
 const tableRef = ref<TableInstance>();
-const state = reactive({
+const state = reactive<{
+  currentList: PageDesignRecord[];
+  dialog: boolean;
+  loading: boolean;
+  page: { currentPage: number; pageSize: number; total: number };
+  queryParams: { groupId: string };
+  tableData: PageDesignRecord[];
+}>({
   dialog: false,
   loading: false,
   page: {

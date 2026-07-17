@@ -33,6 +33,27 @@ public class PageDesign extends Model<PageDesign> {
 	@Schema(description = "页面内容")
 	private String pageContent;
 
+	@Schema(description = "草稿修订号")
+	private Long draftRevision;
+
+	@Schema(description = "装修协议版本")
+	private Integer schemaVersion;
+
+	@Schema(description = "当前发布版本ID")
+	private String publishedVersionId;
+
+	@Schema(description = "发布状态：0.未发布；1.已发布；")
+	private String publishedStatus;
+
+	@Schema(description = "发布时间")
+	private LocalDateTime publishedAt;
+
+	@Schema(description = "旧版装修内容备份")
+	private String legacyContentBackup;
+
+	@Schema(description = "页面类型：0.微页面；1.首页；")
+	private String pageType;
+
 	@Schema(description = "状态：0.正常；1.停用；")
 	private String status;
 

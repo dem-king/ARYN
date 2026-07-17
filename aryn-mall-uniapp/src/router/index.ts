@@ -1,11 +1,12 @@
 /// <reference types="@uni-helper/vite-plugin-uni-pages/client" />
+import type { DistributionPermissionPoint } from '@/api/distribution/entity'
+
 import { pages, subPackages } from 'virtual:uni-pages'
-import { Local } from '@/utils/storage'
 import {
   DISTRIBUTION_CENTER_PATH,
   DISTRIBUTION_PERMISSION_POINTS,
-  type DistributionPermissionPoint,
 } from '@/api/distribution/entity'
+import { Local } from '@/utils/storage'
 // 定义路由白名单，这些页面不需要登录即可访问
 const WHITE_LIST = [
   '/pages/login/index', // 登录页
@@ -20,7 +21,7 @@ const WHITE_LIST = [
   '/sub-pages/promotion/coupon/coupon-list/index', // 优惠券列表页
   '/sub-pages/promotion/group-buy/group-buy-list/index', // 拼团活动列表页
   '/sub-pages/promotion/group-buy/group-buy-detail/index', // 拼团活动详情页
-  '/sub-pages/shop/diy-page/index', // diy页面
+  '/sub-pages/promotion/diy-page/index', // diy页面
   // 可以根据需要添加其他不需要登录的页面
 ]
 

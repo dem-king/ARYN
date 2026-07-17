@@ -11,7 +11,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -38,7 +37,6 @@ class SignInRecordServiceImplTest {
 	@Mock
 	private SignInRecordMapper signInRecordMapper;
 
-	@InjectMocks
 	private SignInRecordServiceImpl signInRecordService;
 
 	private SignInConfig day1Config;
@@ -48,7 +46,7 @@ class SignInRecordServiceImplTest {
 	@BeforeEach
 	void setUp() {
 		// 设置 baseMapper
-		signInRecordService.baseMapper = signInRecordMapper;
+		signInRecordService = new TestSignInRecordService(signInConfigMapper, pointsRecordService, signInRecordMapper);
 
 		day1Config = new SignInConfig();
 		day1Config.setId("config-day1");
@@ -77,7 +75,7 @@ class SignInRecordServiceImplTest {
 		// 今日未签到
 		when(signInRecordMapper.selectCount(any())).thenReturn(0L);
 		// 昨日无签到记录
-		when(signInRecordMapper.selectOne(any())).thenReturn(null);
+		when(signInRecordMapper.selectOne(any(), eq(true))).thenReturn(null);
 		// 签到配置：连续1天奖励5积分
 		when(signInConfigMapper.selectList(any())).thenReturn(Collections.singletonList(day1Config));
 		when(signInRecordMapper.insert(any(SignInRecord.class))).thenReturn(1);
@@ -88,7 +86,7 @@ class SignInRecordServiceImplTest {
 		// then
 		assertEquals(1, result.getConsecutiveDay());
 		assertEquals(5, result.getRewardPoint());
-		verify(signInRecordMapper).insert(argThat(record ->
+		verify(signInRecordMapper).insert(argThat((SignInRecord record) ->
 				userId.equals(record.getUserId())
 						&& record.getConsecutiveDay() == 1
 						&& record.getRewardPoint() == 5
@@ -108,7 +106,7 @@ class SignInRecordServiceImplTest {
 		yesterdayRecord.setUserId(userId);
 		yesterdayRecord.setSignDate(LocalDate.now().minusDays(1));
 		yesterdayRecord.setConsecutiveDay(3);
-		when(signInRecordMapper.selectOne(any())).thenReturn(yesterdayRecord);
+		when(signInRecordMapper.selectOne(any(), eq(true))).thenReturn(yesterdayRecord);
 
 		// 连续4天匹配day3配置(连续3天奖励15积分，因为4天>3天，取最大匹配)
 		when(signInConfigMapper.selectList(any())).thenReturn(Arrays.asList(day3Config, day1Config));
@@ -120,7 +118,7 @@ class SignInRecordServiceImplTest {
 		// then
 		assertEquals(4, result.getConsecutiveDay());
 		assertEquals(15, result.getRewardPoint());
-		verify(signInRecordMapper).insert(argThat(record -> record.getConsecutiveDay() == 4));
+		verify(signInRecordMapper).insert(argThat((SignInRecord record) -> record.getConsecutiveDay() == 4));
 		verify(pointsRecordService).recordPointsChange(userId, "1", 15, "SIGN_IN", "签到奖励");
 	}
 
@@ -145,7 +143,7 @@ class SignInRecordServiceImplTest {
 		// given
 		String userId = "user001";
 		when(signInRecordMapper.selectCount(any())).thenReturn(0L);
-		when(signInRecordMapper.selectOne(any())).thenReturn(null);
+		when(signInRecordMapper.selectOne(any(), eq(true))).thenReturn(null);
 		when(signInConfigMapper.selectList(any())).thenReturn(Collections.emptyList());
 		when(signInRecordMapper.insert(any(SignInRecord.class))).thenReturn(1);
 
@@ -167,7 +165,7 @@ class SignInRecordServiceImplTest {
 
 		SignInRecord yesterdayRecord = new SignInRecord();
 		yesterdayRecord.setConsecutiveDay(6);
-		when(signInRecordMapper.selectOne(any())).thenReturn(yesterdayRecord);
+		when(signInRecordMapper.selectOne(any(), eq(true))).thenReturn(yesterdayRecord);
 
 		// 连续7天，匹配day7配置(50积分)
 		when(signInConfigMapper.selectList(any())).thenReturn(Arrays.asList(day7Config, day3Config, day1Config));
@@ -188,7 +186,7 @@ class SignInRecordServiceImplTest {
 		// given
 		String userId = "user001";
 		when(signInRecordMapper.selectCount(any())).thenReturn(0L);
-		when(signInRecordMapper.selectOne(any())).thenReturn(null);
+		when(signInRecordMapper.selectOne(any(), eq(true))).thenReturn(null);
 		when(signInConfigMapper.selectList(any())).thenReturn(Collections.singletonList(day1Config));
 		when(signInRecordMapper.insert(any(SignInRecord.class))).thenReturn(1);
 
@@ -196,7 +194,7 @@ class SignInRecordServiceImplTest {
 		signInRecordService.signIn(userId);
 
 		// then
-		verify(signInRecordMapper).insert(argThat(record ->
+		verify(signInRecordMapper).insert(argThat((SignInRecord record) ->
 				userId.equals(record.getUserId())
 						&& record.getSignDate().equals(LocalDate.now())
 						&& record.getConsecutiveDay() == 1
@@ -210,7 +208,7 @@ class SignInRecordServiceImplTest {
 		String userId = "user001";
 		when(signInRecordMapper.selectCount(any())).thenReturn(0L);
 		// 昨日无签到记录（中断了）
-		when(signInRecordMapper.selectOne(any())).thenReturn(null);
+		when(signInRecordMapper.selectOne(any(), eq(true))).thenReturn(null);
 		when(signInConfigMapper.selectList(any())).thenReturn(Collections.singletonList(day1Config));
 		when(signInRecordMapper.insert(any(SignInRecord.class))).thenReturn(1);
 
@@ -219,6 +217,15 @@ class SignInRecordServiceImplTest {
 
 		// then
 		assertEquals(1, result.getConsecutiveDay());
+	}
+
+	private static final class TestSignInRecordService extends SignInRecordServiceImpl {
+
+		private TestSignInRecordService(SignInConfigMapper signInConfigMapper, IPointsRecordService pointsRecordService,
+				SignInRecordMapper signInRecordMapper) {
+			super(signInConfigMapper, pointsRecordService);
+			this.baseMapper = signInRecordMapper;
+		}
 	}
 
 }

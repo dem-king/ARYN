@@ -13,6 +13,7 @@ interface ShowData {
   type: string; // 1.一行一个图片 2.轮播海报
   height: number;
   interval: number; // 轮播间隔时间
+  indicatorDots?: boolean;
   swiperType: string; // 轮播图类型 1.横向滚动；2.卡片式轮播图；3.两个两个轮播
   imgRadius: number; // 图片圆角
 }
@@ -143,7 +144,7 @@ const dynamicImageStyles = computed(() => {
         :height="`${showData?.height}px`"
         :interval="showData.interval * 1000"
         :type="showData.swiperType === '2' ? 'card' : ''"
-        indicator-position="inside"
+        :indicator-position="showData.indicatorDots ? '' : 'none'"
       >
         <ElCarouselItem
           v-for="(item, index) in showData.imageList"

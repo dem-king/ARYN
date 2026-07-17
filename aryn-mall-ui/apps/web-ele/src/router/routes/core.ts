@@ -92,6 +92,19 @@ const coreRoutes: RouteRecordRaw[] = [
       },
     ],
   },
+  {
+    name: 'PagePreview',
+    path: '/page-preview/:token',
+    component: () => import('#/views/promotion/page-preview/index.vue'),
+    meta: {
+      hideInBreadcrumb: true,
+      hideInMenu: true,
+      hideInTab: true,
+      ignoreAccess: true,
+      noBasicLayout: true,
+      title: '商城装修预览',
+    },
+  },
 ];
 
 export { coreRoutes, fallbackNotFoundRoute };

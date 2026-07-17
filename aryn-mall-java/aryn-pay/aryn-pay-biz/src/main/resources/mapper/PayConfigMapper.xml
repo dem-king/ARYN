@@ -36,6 +36,7 @@
         FROM
         pay_config AS pay_config
         WHERE pay_config.`app_id` = #{appId}
+        AND pay_config.del_flag = '0'
     </select>
     <select id="selectConfig" resultType="com.aryn.cloud.pay.api.vo.PayConfigVO">
         SELECT

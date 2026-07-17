@@ -8,11 +8,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 
@@ -32,13 +32,12 @@ class MemberBenefitServiceImplTest {
 	@Mock
 	private MemberBenefitMapper memberBenefitMapper;
 
-	@InjectMocks
 	private MemberBenefitServiceImpl memberBenefitService;
 
 	@BeforeEach
 	void setUp() {
 		// 设置 baseMapper
-		memberBenefitService.baseMapper = memberBenefitMapper;
+		memberBenefitService = new TestMemberBenefitService(memberBenefitLevelRelMapper, memberBenefitMapper);
 	}
 
 	@Test
@@ -103,7 +102,7 @@ class MemberBenefitServiceImplTest {
 		List<String> levelIds = Arrays.asList("level001", "level002");
 
 		when(memberBenefitLevelRelMapper.delete(any())).thenReturn(1);
-		when(memberBenefitLevelRelMapper.insert(anyList())).thenReturn(2);
+		when(memberBenefitLevelRelMapper.insert(anyList())).thenReturn(Collections.emptyList());
 
 		// when
 		memberBenefitService.bindLevels(benefitId, levelIds);
@@ -112,9 +111,7 @@ class MemberBenefitServiceImplTest {
 		// 先删除旧关联
 		verify(memberBenefitLevelRelMapper).delete(any());
 		// 再插入新关联
-		verify(memberBenefitLevelRelMapper).insert(argThat(list -> {
-			@SuppressWarnings("unchecked")
-			List<MemberBenefitLevelRel> rels = (List<MemberBenefitLevelRel>) list;
+		verify(memberBenefitLevelRelMapper).insert(argThat((Collection<MemberBenefitLevelRel> rels) -> {
 			return rels.size() == 2
 					&& rels.stream().allMatch(r -> benefitId.equals(r.getBenefitId()))
 					&& rels.stream().map(MemberBenefitLevelRel::getLevelId)
@@ -149,16 +146,14 @@ class MemberBenefitServiceImplTest {
 		List<String> newLevelIds = Arrays.asList("level002", "level003");
 
 		when(memberBenefitLevelRelMapper.delete(any())).thenReturn(1);
-		when(memberBenefitLevelRelMapper.insert(anyList())).thenReturn(2);
+		when(memberBenefitLevelRelMapper.insert(anyList())).thenReturn(Collections.emptyList());
 
 		// when
 		memberBenefitService.bindLevels(benefitId, newLevelIds);
 
 		// then
 		verify(memberBenefitLevelRelMapper).delete(any());
-		verify(memberBenefitLevelRelMapper).insert(argThat(list -> {
-			@SuppressWarnings("unchecked")
-			List<MemberBenefitLevelRel> rels = (List<MemberBenefitLevelRel>) list;
+		verify(memberBenefitLevelRelMapper).insert(argThat((Collection<MemberBenefitLevelRel> rels) -> {
 			return rels.size() == 2;
 		}));
 	}
@@ -183,7 +178,7 @@ class MemberBenefitServiceImplTest {
 		MemberBenefit benefit2 = new MemberBenefit();
 		benefit2.setId("benefit002");
 		benefit2.setBenefitName("免运费");
-		when(memberBenefitMapper.selectBatchIds(anyCollection())).thenReturn(Arrays.asList(benefit1, benefit2));
+		when(memberBenefitMapper.selectByIds(anyCollection())).thenReturn(Arrays.asList(benefit1, benefit2));
 
 		// when
 		List<MemberBenefit> result = memberBenefitService.getLevelBenefits(levelId);
@@ -204,7 +199,7 @@ class MemberBenefitServiceImplTest {
 
 		// then
 		assertTrue(result.isEmpty());
-		verify(memberBenefitMapper, never()).selectBatchIds(anyCollection());
+		verify(memberBenefitMapper, never()).selectByIds(anyCollection());
 	}
 
 	@Test
@@ -220,6 +215,15 @@ class MemberBenefitServiceImplTest {
 		// then - 验证调用顺序
 		inOrder(memberBenefitLevelRelMapper, memberBenefitMapper).verify(memberBenefitLevelRelMapper).delete(any());
 		inOrder(memberBenefitLevelRelMapper, memberBenefitMapper).verify(memberBenefitMapper).deleteById("benefit001");
+	}
+
+	private static final class TestMemberBenefitService extends MemberBenefitServiceImpl {
+
+		private TestMemberBenefitService(MemberBenefitLevelRelMapper memberBenefitLevelRelMapper,
+				MemberBenefitMapper memberBenefitMapper) {
+			super(memberBenefitLevelRelMapper);
+			this.baseMapper = memberBenefitMapper;
+		}
 	}
 
 }

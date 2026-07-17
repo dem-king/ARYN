@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { ref } from 'vue'
 import { onLoad, onPullDownRefresh } from '@dcloudio/uni-app'
+import { shallowRef } from 'vue'
 
-import DiyPage from '@/components/diy/index.vue'
 import { getById } from '@/api/promotion/pageDesign'
+import DiyPage from '@/components/diy/index.vue'
+import { useDecorationPage } from '@/composables/useDecorationPage'
+import { createLatestRequestRunner } from '@/composables/useLatestRequest'
 
 definePage({
   name: 'diy-page',
@@ -12,21 +14,38 @@ definePage({
   },
 })
 
-const loading = ref(true)
-const pageContent = ref<any>()
-const pageName = ref()
-const diyId = ref()
+const loading = shallowRef(true)
+const errorMessage = shallowRef('')
+const pageContent = shallowRef<unknown>()
+const pageName = shallowRef<string>()
+const diyId = shallowRef('')
+const { canPullDownRefresh, title } = useDecorationPage({
+  fallbackTitle: pageName,
+  pageContent,
+})
+const requestRunner = createLatestRequestRunner()
 
-function initPageDesign() {
-  getById(diyId.value).then((response) => {
-    pageContent.value = JSON.parse(response.pageContent)
-    pageName.value = response.pageName
-    if (pageName.value) {
-      uni.setNavigationBarTitle({
-        title: pageName.value,
-      })
-    }
-  })
+async function initPageDesign() {
+  errorMessage.value = ''
+  if (!pageContent.value)
+    loading.value = true
+  await requestRunner.run(
+    () => getById(diyId.value),
+    {
+      onError: () => {
+        if (!pageContent.value)
+          errorMessage.value = '页面加载失败，请稍后重试'
+      },
+      onSettled: () => {
+        loading.value = false
+        uni.stopPullDownRefresh()
+      },
+      onSuccess: (response) => {
+        pageContent.value = response.pageContent
+        pageName.value = response.pageName
+      },
+    },
+  )
 }
 onLoad(async (options) => {
   if (options?.scene) {
@@ -38,22 +57,48 @@ onLoad(async (options) => {
     }
   }
   else {
-    diyId.value = options?.id
+    diyId.value = options?.id || ''
   }
   loading.value = true
-  initPageDesign()
+  void initPageDesign()
 })
 
 onPullDownRefresh(() => {
-  initPageDesign()
+  if (canPullDownRefresh.value) {
+    void initPageDesign()
+  }
+  else {
+    uni.stopPullDownRefresh()
+  }
 })
 </script>
 
 <template>
-  <view>
+  <view v-if="loading" class="decoration-state">
+    加载中...
+  </view>
+  <view v-else-if="errorMessage" class="decoration-state decoration-state-error">
+    {{ errorMessage }}
+  </view>
+  <view v-else>
     <diy-page
       :page-content-data="pageContent"
-      :page-name="pageName"
+      :page-name="title"
     />
   </view>
 </template>
+
+<style scoped>
+.decoration-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 240px;
+  font-size: 14px;
+  color: #666;
+}
+
+.decoration-state-error {
+  color: #c0362c;
+}
+</style>

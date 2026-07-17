@@ -23,10 +23,13 @@ export interface GroupBuyActivityPageResponse {
 
 export function getActivityPage(params: object) {
   return alovaInstance.Get<GroupBuyActivityPageResponse>('/promotion/app/groupbuy/activity/page', {
+    headers: { skipToken: true },
     params,
   })
 }
 
 export function getActivityById(id: string) {
-  return alovaInstance.Get<GroupBuyActivity>(`/promotion/app/groupbuy/activity/${id}`)
+  return alovaInstance.Get<GroupBuyActivity>(`/promotion/app/groupbuy/activity/${id}`, {
+    headers: { skipToken: true },
+  })
 }

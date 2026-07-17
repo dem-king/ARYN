@@ -15,13 +15,23 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.common.core.constant.CommonConstants;
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.log.annotation.SysLog;
+import com.aryn.cloud.promotion.api.dto.PageDesignDraftDTO;
 import com.aryn.cloud.promotion.api.entity.PageDesign;
+import com.aryn.cloud.promotion.api.vo.PageDesignEditorVO;
+import com.aryn.cloud.promotion.api.dto.PageDesignPublishDTO;
+import com.aryn.cloud.promotion.api.entity.PageDesignVersion;
+import com.aryn.cloud.promotion.api.vo.PageDesignVersionVO;
 import com.aryn.cloud.promotion.service.IPageDesignService;
+import com.aryn.cloud.promotion.service.IPageDesignVersionService;
+import com.aryn.cloud.promotion.service.PageDesignPreviewService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 /**
  * 页面设计
@@ -37,6 +47,10 @@ import org.springframework.web.bind.annotation.*;
 public class PageDesignController {
 
 	private final IPageDesignService pageDesignService;
+
+	private final IPageDesignVersionService pageDesignVersionService;
+
+	private final PageDesignPreviewService pageDesignPreviewService;
 
 	@Operation(summary = "页面设计列表")
 	@SaCheckPermission("promotion:pagedesign:page")
@@ -67,15 +81,73 @@ public class PageDesignController {
 	@SaCheckPermission("promotion:pagedesign:edit")
 	@PutMapping
 	public Result<Boolean> edit(@RequestBody PageDesign pageDesign) {
-		if (CommonConstants.YES.equals(pageDesign.getHomeStatus())) {
-			PageDesign pageDesign1 = new PageDesign();
-			pageDesign1.setHomeStatus(CommonConstants.NO);
-			pageDesignService.update(pageDesign1,
-					Wrappers.<PageDesign>lambdaQuery()
-						.ne(PageDesign::getId, pageDesign.getId())
-						.eq(PageDesign::getHomeStatus, CommonConstants.YES));
-		}
 		return Result.success(pageDesignService.updatePageDesignById(pageDesign));
+	}
+
+	@SysLog("保存页面装修草稿")
+	@Operation(summary = "保存页面装修草稿")
+	@SaCheckPermission("promotion:pagedesign:edit")
+	@PutMapping("/{id}/draft")
+	public Result<Long> saveDraft(@PathVariable String id, @Valid @RequestBody PageDesignDraftDTO draft) {
+		draft.setId(id);
+		return Result.success(pageDesignService.saveDraft(draft));
+	}
+
+	@Operation(summary = "获取页面装修编辑数据")
+	@SaCheckPermission("promotion:pagedesign:edit")
+	@GetMapping("/{id}/editor")
+	public Result<PageDesignEditorVO> getEditor(@PathVariable String id) {
+		return Result.success(pageDesignService.getEditor(id));
+	}
+
+	@Operation(summary = "Create a short-lived page preview token")
+	@SaCheckPermission("promotion:pagedesign:edit")
+	@PostMapping("/{id}/preview-token")
+	public Result<String> createPreviewToken(@PathVariable String id, @RequestParam Long draftRevision) {
+		return Result.success(pageDesignPreviewService.createPreviewToken(id, draftRevision));
+	}
+
+	@SysLog("复制页面装修")
+	@Operation(summary = "复制页面装修")
+	@SaCheckPermission("promotion:pagedesign:add")
+	@PostMapping("/{id}/copy")
+	public Result<PageDesign> copy(@PathVariable String id) {
+		return Result.success(pageDesignService.copyPage(id));
+	}
+
+	@SysLog("发布页面装修")
+	@Operation(summary = "发布页面装修")
+	@SaCheckPermission("promotion:pagedesign:publish")
+	@PostMapping("/{id}/publish")
+	public Result<PageDesignVersion> publish(@PathVariable String id,
+			@Valid @RequestBody PageDesignPublishDTO request) {
+		request.setId(id);
+		return Result.success(pageDesignVersionService.publish(request));
+	}
+
+	@SysLog("下线页面装修")
+	@Operation(summary = "下线页面装修")
+	@SaCheckPermission("promotion:pagedesign:publish")
+	@PostMapping("/{id}/unpublish")
+	public Result<Boolean> unpublish(@PathVariable String id) {
+		return Result.success(pageDesignVersionService.unpublish(id));
+	}
+
+	@Operation(summary = "页面装修历史版本")
+	@SaCheckPermission("promotion:pagedesign:get")
+	@GetMapping("/{id}/versions")
+	public Result<List<PageDesignVersionVO>> versions(@PathVariable String id) {
+		return Result.success(pageDesignVersionService.listVersions(id));
+	}
+
+	@SysLog("回滚页面装修")
+	@Operation(summary = "回滚页面装修")
+	@SaCheckPermission("promotion:pagedesign:rollback")
+	@PostMapping("/{id}/versions/{versionId}/rollback")
+	public Result<PageDesignVersion> rollback(@PathVariable String id, @PathVariable String versionId,
+			@RequestBody(required = false) PageDesignPublishDTO request) {
+		String remark = request == null ? null : request.getPublishRemark();
+		return Result.success(pageDesignVersionService.rollback(id, versionId, remark));
 	}
 
 	@SysLog("删除页面设计")
@@ -86,7 +158,15 @@ public class PageDesignController {
 		return Result.success(pageDesignService.removeById(id));
 	}
 
+	@Operation(summary = "获取首页装修数据")
+	@SaCheckPermission("promotion:pagedesign:edit")
+	@GetMapping("/home-edit")
+	public Result<PageDesign> getHomeEdit() {
+		return Result.success(pageDesignService.getOrCreateHomePage());
+	}
+
 	@Operation(summary = "页面设计查询")
+	@SaCheckPermission("promotion:pagedesign:get")
 	@GetMapping("/home")
 	public Result<PageDesign> getHomePage(PageDesign request) {
 		return Result.success(pageDesignService.getOne(

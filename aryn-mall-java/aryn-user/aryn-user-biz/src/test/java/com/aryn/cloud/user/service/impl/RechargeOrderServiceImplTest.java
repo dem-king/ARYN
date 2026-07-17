@@ -11,7 +11,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -39,7 +38,6 @@ class RechargeOrderServiceImplTest {
 	@Mock
 	private RechargeOrderMapper rechargeOrderMapper;
 
-	@InjectMocks
 	private RechargeOrderServiceImpl rechargeOrderService;
 
 	private RechargeConfig activeConfig;
@@ -48,7 +46,8 @@ class RechargeOrderServiceImplTest {
 	@BeforeEach
 	void setUp() {
 		// 设置 baseMapper
-		rechargeOrderService.baseMapper = rechargeOrderMapper;
+		rechargeOrderService = new TestRechargeOrderService(rechargeConfigService, balanceRecordService,
+				pointsRecordService, rechargeOrderMapper);
 
 		activeConfig = new RechargeConfig();
 		activeConfig.setId("config001");
@@ -99,7 +98,7 @@ class RechargeOrderServiceImplTest {
 				rechargeOrderService.createOrder("user001", "config999"));
 
 		assertEquals("充值配置不存在", exception.getMsg());
-		verify(rechargeOrderMapper, never()).insert(any());
+		verify(rechargeOrderMapper, never()).insert(any(RechargeOrder.class));
 	}
 
 	@Test
@@ -113,7 +112,7 @@ class RechargeOrderServiceImplTest {
 				rechargeOrderService.createOrder("user001", "config002"));
 
 		assertEquals("充值配置已禁用", exception.getMsg());
-		verify(rechargeOrderMapper, never()).insert(any());
+		verify(rechargeOrderMapper, never()).insert(any(RechargeOrder.class));
 	}
 
 	@Test
@@ -129,7 +128,7 @@ class RechargeOrderServiceImplTest {
 		order.setGiftPoint(50);
 		order.setPayStatus("0");
 
-		when(rechargeOrderMapper.selectOne(any())).thenReturn(order);
+		when(rechargeOrderMapper.selectOne(any(), eq(true))).thenReturn(order);
 		when(rechargeOrderMapper.updateById(any(RechargeOrder.class))).thenReturn(1);
 
 		// when
@@ -137,7 +136,7 @@ class RechargeOrderServiceImplTest {
 
 		// then
 		// 验证订单状态更新为已支付
-		verify(rechargeOrderMapper).updateById(argThat(o ->
+		verify(rechargeOrderMapper).updateById(argThat((RechargeOrder o) ->
 				"1".equals(o.getPayStatus())
 						&& "payOrder123".equals(o.getPayOrderNo())
 						&& o.getPayTime() != null));
@@ -159,7 +158,7 @@ class RechargeOrderServiceImplTest {
 	@DisplayName("支付成功 - 订单不存在时抛出异常")
 	void paySuccess_orderNotFound() {
 		// given
-		when(rechargeOrderMapper.selectOne(any())).thenReturn(null);
+		when(rechargeOrderMapper.selectOne(any(), eq(true))).thenReturn(null);
 
 		// when & then
 		ArynBusinessException exception = assertThrows(ArynBusinessException.class, () ->
@@ -175,7 +174,7 @@ class RechargeOrderServiceImplTest {
 		// given
 		RechargeOrder order = new RechargeOrder();
 		order.setPayStatus("1"); // 已支付
-		when(rechargeOrderMapper.selectOne(any())).thenReturn(order);
+		when(rechargeOrderMapper.selectOne(any(), eq(true))).thenReturn(order);
 
 		// when & then
 		ArynBusinessException exception = assertThrows(ArynBusinessException.class, () ->
@@ -197,7 +196,7 @@ class RechargeOrderServiceImplTest {
 		order.setGiftPoint(0); // 无赠送积分
 		order.setPayStatus("0");
 
-		when(rechargeOrderMapper.selectOne(any())).thenReturn(order);
+		when(rechargeOrderMapper.selectOne(any(), eq(true))).thenReturn(order);
 		when(rechargeOrderMapper.updateById(any(RechargeOrder.class))).thenReturn(1);
 
 		// when
@@ -221,7 +220,7 @@ class RechargeOrderServiceImplTest {
 		order.setGiftPoint(null); // 赠送积分为null
 		order.setPayStatus("0");
 
-		when(rechargeOrderMapper.selectOne(any())).thenReturn(order);
+		when(rechargeOrderMapper.selectOne(any(), eq(true))).thenReturn(order);
 		when(rechargeOrderMapper.updateById(any(RechargeOrder.class))).thenReturn(1);
 
 		// when
@@ -240,21 +239,21 @@ class RechargeOrderServiceImplTest {
 		order.setOrderNo("orderNo001");
 		order.setPayStatus("0"); // 待支付
 
-		when(rechargeOrderMapper.selectOne(any())).thenReturn(order);
+		when(rechargeOrderMapper.selectOne(any(), eq(true))).thenReturn(order);
 		when(rechargeOrderMapper.updateById(any(RechargeOrder.class))).thenReturn(1);
 
 		// when
 		rechargeOrderService.cancelOrder("orderNo001");
 
 		// then
-		verify(rechargeOrderMapper).updateById(argThat(o -> "2".equals(o.getPayStatus())));
+		verify(rechargeOrderMapper).updateById(argThat((RechargeOrder o) -> "2".equals(o.getPayStatus())));
 	}
 
 	@Test
 	@DisplayName("取消订单 - 订单不存在时抛出异常")
 	void cancelOrder_orderNotFound() {
 		// given
-		when(rechargeOrderMapper.selectOne(any())).thenReturn(null);
+		when(rechargeOrderMapper.selectOne(any(), eq(true))).thenReturn(null);
 
 		// when & then
 		ArynBusinessException exception = assertThrows(ArynBusinessException.class, () ->
@@ -270,14 +269,24 @@ class RechargeOrderServiceImplTest {
 		RechargeOrder order = new RechargeOrder();
 		order.setPayStatus("1"); // 已支付
 
-		when(rechargeOrderMapper.selectOne(any())).thenReturn(order);
+		when(rechargeOrderMapper.selectOne(any(), eq(true))).thenReturn(order);
 
 		// when & then
 		ArynBusinessException exception = assertThrows(ArynBusinessException.class, () ->
 				rechargeOrderService.cancelOrder("orderNo001"));
 
 		assertEquals("只能取消待支付订单", exception.getMsg());
-		verify(rechargeOrderMapper, never()).updateById(any());
+		verify(rechargeOrderMapper, never()).updateById(any(RechargeOrder.class));
+	}
+
+	private static final class TestRechargeOrderService extends RechargeOrderServiceImpl {
+
+		private TestRechargeOrderService(IRechargeConfigService rechargeConfigService,
+				IBalanceRecordService balanceRecordService, IPointsRecordService pointsRecordService,
+				RechargeOrderMapper rechargeOrderMapper) {
+			super(rechargeConfigService, balanceRecordService, pointsRecordService);
+			this.baseMapper = rechargeOrderMapper;
+		}
 	}
 
 }

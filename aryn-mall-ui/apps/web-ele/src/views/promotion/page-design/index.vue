@@ -1,9 +1,29 @@
-<script lang="ts" setup>
+<script setup lang="ts">
 import type { FormInstance } from 'element-plus';
 
-import { defineAsyncComponent, reactive, ref } from 'vue';
+import type {
+  PageDesignQuery,
+  PageDesignRecord,
+  PageDesignType,
+  PublishStatus,
+} from '#/api/promotion/page-design';
 
-import { Delete, Edit, Plus, Refresh, Search } from '@element-plus/icons-vue';
+import { defineAsyncComponent, onMounted, reactive, ref } from 'vue';
+import { useRouter } from 'vue-router';
+
+import {
+  Clock,
+  CopyDocument,
+  Delete,
+  EditPen,
+  Plus,
+  Refresh,
+  Search,
+  Upload,
+  VideoPause,
+  View,
+} from '@element-plus/icons-vue';
+import dayjs from 'dayjs';
 import {
   ElButton,
   ElForm,
@@ -13,13 +33,25 @@ import {
   ElMessageBox,
   ElOption,
   ElSelect,
+  ElSpace,
   ElTable,
   ElTableColumn,
   ElTag,
+  ElTooltip,
 } from 'element-plus';
 
-import { delObj, editObj, getPage } from '#/api/promotion/page-design';
-import { useDict } from '#/utils/dict';
+import {
+  copyPage,
+  createPreviewToken,
+  delObj,
+  getPage,
+  publishPage,
+  unpublishPage,
+} from '#/api/promotion/page-design';
+
+import PreviewDialog from './components/preview-dialog.vue';
+import { PREVIEW_TTL_MS } from './components/preview-utils';
+import VersionDialog from './components/version-dialog.vue';
 
 const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
@@ -27,210 +59,365 @@ const RightToolbar = defineAsyncComponent(
 const Pagination = defineAsyncComponent(
   () => import('#/components/pagination/index.vue'),
 );
-const DictTag = defineAsyncComponent(
-  () => import('#/components/dict-tag/index.vue'),
-);
-// 字典
-const { status } = useDict('status');
-const state = reactive({
-  queryParams: {
-    status: '',
-    pageName: '',
-  },
-  page: {
-    total: 0,
-    currentPage: 1,
-    pageSize: 10,
-  },
-  tableData: [],
-});
-const showSearch = ref(true);
+
+const router = useRouter();
+const queryRef = ref<FormInstance>();
 const loading = ref(false);
-const queryRef = ref();
-const initPage = async () => {
+const showSearch = ref(true);
+const tableData = ref<PageDesignRecord[]>([]);
+const page = reactive({ currentPage: 1, pageSize: 10, total: 0 });
+const query = reactive<{
+  pageName: string;
+  pageType: '' | PageDesignType;
+  publishedStatus: '' | PublishStatus;
+}>({ pageName: '', pageType: '', publishedStatus: '' });
+
+const preview = reactive({
+  expiresAt: 0,
+  pageName: '',
+  token: '',
+  visible: false,
+});
+const versions = reactive({ pageId: '', pageName: '', visible: false });
+
+async function initPage() {
   loading.value = true;
-  const params = {
-    current: state.page.currentPage,
-    size: state.page.pageSize,
+  const params: PageDesignQuery = {
+    current: page.currentPage,
+    pageName: query.pageName || undefined,
+    pageType: query.pageType,
+    publishedStatus: query.publishedStatus,
+    size: page.pageSize,
   };
-  await getPage(Object.assign(params, state.queryParams))
-    .then((response) => {
-      state.tableData = response.records;
-      state.page.total = response.total;
-      loading.value = false;
-    })
-    .catch(() => {
-      loading.value = false;
-    });
-};
-/**
- * 重置搜索表单
- */
-const resetQuery = (formEl: FormInstance | undefined) => {
-  if (!formEl) return;
-  formEl.resetFields();
-};
-/**
- * 新增按钮
- */
-const add = () => {
-  window.open(`/#/pagedesign/form`, '_blank');
-};
-/**
- * 修改按钮
- */
-const edit = (row: any) => {
-  window.open(`/#/pagedesign/form?id=${row.id}`, '_blank');
-};
-/**
- * 删除按钮
- */
-const del = (id: string) => {
-  ElMessageBox.confirm('此操作将删除该微页面，是否继续?', '提示', {
-    confirmButtonText: '确认',
+  try {
+    const response = await getPage(params);
+    tableData.value = response.records;
+    page.total = response.total;
+  } finally {
+    loading.value = false;
+  }
+}
+
+function resetQuery() {
+  queryRef.value?.resetFields();
+  page.currentPage = 1;
+  void initPage();
+}
+
+function openDesigner(id?: string) {
+  const target = router.resolve({
+    name: 'PageDesigner',
+    params: id ? { id } : {},
+  });
+  window.open(target.href, '_blank', 'noopener,noreferrer');
+}
+
+async function handleCopy(row: PageDesignRecord) {
+  const copied = await copyPage(row.id);
+  ElMessage.success(`已复制为“${copied.pageName}”`);
+  await initPage();
+}
+
+async function handlePreview(row: PageDesignRecord) {
+  preview.token = await createPreviewToken(row.id, row.draftRevision);
+  preview.expiresAt = Date.now() + PREVIEW_TTL_MS;
+  preview.pageName = row.pageName;
+  preview.visible = true;
+}
+
+async function handlePublish(row: PageDesignRecord) {
+  await ElMessageBox.confirm(
+    `发布后将更新“${row.pageName}”的线上版本，是否继续？`,
+    '发布页面',
+    { confirmButtonText: '发布', cancelButtonText: '取消', type: 'warning' },
+  );
+  await publishPage(row.id, { draftRevision: row.draftRevision });
+  ElMessage.success('发布成功');
+  await initPage();
+}
+
+async function handleUnpublish(row: PageDesignRecord) {
+  await ElMessageBox.confirm(
+    `下线后用户将无法访问“${row.pageName}”，历史版本仍会保留。`,
+    '下线页面',
+    { confirmButtonText: '下线', cancelButtonText: '取消', type: 'warning' },
+  );
+  await unpublishPage(row.id);
+  ElMessage.success('页面已下线');
+  await initPage();
+}
+
+function openVersions(row: PageDesignRecord) {
+  versions.pageId = row.id;
+  versions.pageName = row.pageName;
+  versions.visible = true;
+}
+
+async function handleDelete(row: PageDesignRecord) {
+  await ElMessageBox.confirm(`确认删除微页面“${row.pageName}”？`, '删除页面', {
+    confirmButtonText: '删除',
     cancelButtonText: '取消',
     type: 'warning',
-  }).then(() => {
-    delObj(id)
-      .then(() => {
-        ElMessage.success('删除成功');
-        initPage();
-      })
-      .catch(() => {});
   });
-};
-/**
- * 修改首页状态
- */
-const updateHomeStatus = (row: any) => {
-  ElMessageBox.confirm('此操作将该微页面设置成首页，是否继续?', '提示', {
-    confirmButtonText: '确认',
-    cancelButtonText: '取消',
-    type: 'warning',
-  }).then(() => {
-    editObj({ id: row.id, homeStatus: '1' })
-      .then(() => {
-        ElMessage.success('设置成功');
-        initPage();
-      })
-      .catch(() => {});
-  });
-};
-initPage();
+  await delObj(row.id);
+  ElMessage.success('删除成功');
+  await initPage();
+}
+
+function formatTime(value?: string) {
+  return value ? dayjs(value).format('YYYY-MM-DD HH:mm') : '-';
+}
+
+function draftLabel(row: PageDesignRecord) {
+  if (row.publishedStatus !== '1') return '待发布';
+  if (!row.publishedAt || !row.updateTime) return '已发布';
+  return dayjs(row.updateTime).isAfter(dayjs(row.publishedAt))
+    ? '有未发布修改'
+    : '已同步';
+}
+
+function draftTagType(row: PageDesignRecord) {
+  if (row.publishedStatus !== '1') return 'info';
+  return draftLabel(row) === '有未发布修改' ? 'warning' : 'success';
+}
+
+onMounted(initPage);
 </script>
+
 <template>
-  <div class="hx-layout-container">
+  <div class="hx-layout-container page-design-list">
     <div class="hx-layout-container-auto hx-layout-container-view">
-      <!-- 搜索 -->
       <ElForm
-        :model="state.queryParams"
+        v-show="showSearch"
         ref="queryRef"
         :inline="true"
-        v-show="showSearch"
+        :model="query"
+        class="filter-bar"
       >
-        <ElFormItem label="名称" prop="pageName">
+        <ElFormItem label="页面名称" prop="pageName">
           <ElInput
-            v-model="state.queryParams.pageName"
+            v-model="query.pageName"
             clearable
-            placeholder="请输入页面名称"
+            placeholder="输入页面名称"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
-        <ElFormItem label="状态" prop="status">
+        <ElFormItem label="页面类型" prop="pageType">
+          <ElSelect v-model="query.pageType" clearable placeholder="全部类型">
+            <ElOption label="首页" value="1" />
+            <ElOption label="微页面" value="0" />
+          </ElSelect>
+        </ElFormItem>
+        <ElFormItem label="发布状态" prop="publishedStatus">
           <ElSelect
-            v-model="state.queryParams.status"
+            v-model="query.publishedStatus"
             clearable
-            style="width: 200px"
-            placeholder="请选择状态"
+            placeholder="全部状态"
           >
-            <ElOption
-              v-for="item in status"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"
-            />
+            <ElOption label="已发布" value="1" />
+            <ElOption label="未发布" value="0" />
           </ElSelect>
         </ElFormItem>
         <ElFormItem>
-          <ElButton type="primary" @click="initPage" :icon="Search">
-            搜索
+          <ElButton :icon="Search" type="primary" @click="initPage">
+            查询
           </ElButton>
-          <ElButton @click="resetQuery(queryRef)" :icon="Refresh">
-            重置
-          </ElButton>
+          <ElButton :icon="Refresh" @click="resetQuery">重置</ElButton>
         </ElFormItem>
       </ElForm>
-      <!-- 工具栏 -->
+
       <div class="hx-table-toolbar">
-        <div>
-          <ElButton type="primary" @click="add" :icon="Plus"> 新增 </ElButton>
-        </div>
+        <ElButton
+          v-access:code="'promotion:pagedesign:add'"
+          :icon="Plus"
+          type="primary"
+          @click="openDesigner()"
+        >
+          新建页面
+        </ElButton>
         <RightToolbar
-          :search-btn="true"
           :refresh-btn="true"
-          @search="showSearch = !showSearch"
+          :search-btn="true"
           @refresh="initPage"
+          @search="showSearch = !showSearch"
         />
       </div>
-      <!-- 列表 -->
-      <ElTable v-loading="loading" :data="state.tableData" border>
-        <ElTableColumn prop="pageName" label="名称" align="center" />
-        <ElTableColumn prop="homeStatus" label="首页状态" align="center">
-          <template #default="scope">
-            <ElTag v-if="scope.row.homeStatus === '0'" type="danger">
-              否
-            </ElTag>
-            <ElTag v-if="scope.row.homeStatus === '1'" type="success">
-              是
+
+      <ElTable v-loading="loading" :data="tableData" border row-key="id">
+        <ElTableColumn label="页面" min-width="220">
+          <template #default="{ row }">
+            <div class="page-cell">
+              <strong>{{ row.pageName }}</strong>
+              <span>{{ row.pageType === '1' ? '商城首页' : '微页面' }}</span>
+            </div>
+          </template>
+        </ElTableColumn>
+        <ElTableColumn label="草稿状态" width="130" align="center">
+          <template #default="{ row }">
+            <ElTag :type="draftTagType(row)" effect="plain">
+              {{ draftLabel(row) }}
             </ElTag>
           </template>
         </ElTableColumn>
-        <ElTableColumn prop="status" label="状态" align="center">
-          <template #default="scope">
-            <DictTag :options="status" :value="scope.row.status" />
+        <ElTableColumn label="线上版本" min-width="160">
+          <template #default="{ row }">
+            <ElTooltip
+              v-if="row.publishedVersionId"
+              :content="row.publishedVersionId"
+            >
+              <span class="version-id">{{ row.publishedVersionId }}</span>
+            </ElTooltip>
+            <span v-else class="muted">尚未发布</span>
           </template>
         </ElTableColumn>
-        <ElTableColumn prop="createTime" label="创建时间" align="center" />
-        <ElTableColumn label="操作" width="200" align="center">
-          <template #default="scope">
-            <ElButton
-              link
-              type="primary"
-              v-access:code="'promotion:pagedesign:edit'"
-              @click="edit(scope.row)"
-              :icon="Edit"
-            >
-              修改
-            </ElButton>
-            <ElButton
-              link
-              type="danger"
-              v-if="scope.row.pageType === '1'"
-              v-access:code="'promotion:pagedesign:del'"
-              @click="del(scope.row.id)"
-              :icon="Delete"
-            >
-              删除
-            </ElButton>
-            <ElButton
-              v-if="scope.row.homeStatus === '0' && scope.row.pageType === '1'"
-              link
-              type="primary"
-              v-access:code="'promotion:pagedesign:edit'"
-              @click="updateHomeStatus(scope.row)"
-              :icon="Edit"
-            >
-              设置首页
-            </ElButton>
+        <ElTableColumn label="最近编辑" width="160">
+          <template #default="{ row }">
+            {{ formatTime(row.updateTime) }}
+          </template>
+        </ElTableColumn>
+        <ElTableColumn label="最近发布" width="160">
+          <template #default="{ row }">
+            {{ formatTime(row.publishedAt) }}
+          </template>
+        </ElTableColumn>
+        <ElTableColumn fixed="right" label="操作" width="300" align="center">
+          <template #default="{ row }">
+            <ElSpace :size="4">
+              <ElTooltip content="编辑">
+                <ElButton
+                  v-access:code="'promotion:pagedesign:edit'"
+                  :icon="EditPen"
+                  aria-label="编辑"
+                  circle
+                  text
+                  type="primary"
+                  @click="openDesigner(row.id)"
+                />
+              </ElTooltip>
+              <ElTooltip content="复制">
+                <ElButton
+                  v-access:code="'promotion:pagedesign:add'"
+                  :icon="CopyDocument"
+                  aria-label="复制"
+                  circle
+                  text
+                  @click="handleCopy(row)"
+                />
+              </ElTooltip>
+              <ElTooltip content="预览">
+                <ElButton
+                  v-access:code="'promotion:pagedesign:edit'"
+                  :icon="View"
+                  aria-label="预览"
+                  circle
+                  text
+                  @click="handlePreview(row)"
+                />
+              </ElTooltip>
+              <ElTooltip content="发布">
+                <ElButton
+                  v-if="
+                    row.publishedStatus !== '1' ||
+                    draftLabel(row) === '有未发布修改'
+                  "
+                  v-access:code="'promotion:pagedesign:publish'"
+                  :icon="Upload"
+                  aria-label="发布"
+                  circle
+                  text
+                  type="success"
+                  @click="handlePublish(row)"
+                />
+              </ElTooltip>
+              <ElTooltip content="下线">
+                <ElButton
+                  v-if="row.publishedStatus === '1'"
+                  v-access:code="'promotion:pagedesign:publish'"
+                  :icon="VideoPause"
+                  aria-label="下线"
+                  circle
+                  text
+                  type="warning"
+                  @click="handleUnpublish(row)"
+                />
+              </ElTooltip>
+              <ElTooltip content="版本历史">
+                <ElButton
+                  v-access:code="'promotion:pagedesign:get'"
+                  :icon="Clock"
+                  aria-label="版本历史"
+                  circle
+                  text
+                  @click="openVersions(row)"
+                />
+              </ElTooltip>
+              <ElTooltip v-if="row.pageType === '0'" content="删除">
+                <ElButton
+                  v-access:code="'promotion:pagedesign:del'"
+                  :icon="Delete"
+                  aria-label="删除"
+                  circle
+                  text
+                  type="danger"
+                  @click="handleDelete(row)"
+                />
+              </ElTooltip>
+            </ElSpace>
           </template>
         </ElTableColumn>
       </ElTable>
-      <!-- 分页 -->
+
       <Pagination
-        :total="state.page.total"
-        v-model:current="state.page.currentPage"
-        v-model:size="state.page.pageSize"
+        v-model:current="page.currentPage"
+        v-model:size="page.pageSize"
+        :total="page.total"
         @change="initPage"
       />
     </div>
+
+    <VersionDialog
+      v-model="versions.visible"
+      :page-id="versions.pageId"
+      :page-name="versions.pageName"
+      @restored="initPage"
+    />
+    <PreviewDialog
+      v-model="preview.visible"
+      :expires-at="preview.expiresAt"
+      :page-name="preview.pageName"
+      :token="preview.token"
+    />
   </div>
 </template>
+
+<style scoped>
+.filter-bar :deep(.el-select) {
+  width: 160px;
+}
+
+.page-cell {
+  display: grid;
+  gap: 4px;
+}
+
+.page-cell strong {
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.page-cell span,
+.muted {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+.version-id {
+  display: block;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--el-text-color-regular);
+  white-space: nowrap;
+}
+</style>

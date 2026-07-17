@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { toJumpUrl } from '@/utils/index'
+import { computed, shallowRef } from 'vue'
+
+import { followDecorationLink } from '@/components/diy/link-resolver'
 import { useDiyStyle } from '@/composables/useDiyStyle'
 
 const props = defineProps({
@@ -10,7 +11,7 @@ const props = defineProps({
   },
 })
 
-const current = ref(0)
+const current = shallowRef(0)
 
 const baseStyle = useDiyStyle(computed(() => props.showData.commonStyle))
 const dynamicStyles = computed(() => {
@@ -45,7 +46,7 @@ const imageStyle = computed(() => ({
         <view class="scroll-content">
           <view
             v-for="(item, index) in showData.navList" :key="index" class="scroll-item" :style="dynamicTabNavStyles"
-            @click="toJumpUrl(item.link.url)"
+            @click="followDecorationLink(item.link)"
           >
             <view class="grid-item-inner" :class="[showData.showType === '1' ? 'row-direction' : 'column-direction']">
               <image :src="item.url" :style="imageStyle" />
@@ -61,7 +62,7 @@ const imageStyle = computed(() => ({
       <view v-else class="hx-grid-list">
         <view
           v-for="(item, index) in showData.navList" :key="index" class="hx-grid-item"
-          :style="{ width: `${100 / showData.showNum}%` }" @click="toJumpUrl(item.link.url)"
+          :style="{ width: `${100 / showData.showNum}%` }" @click="followDecorationLink(item.link)"
         >
           <view
             :style="dynamicTabNavStyles" class="grid-item-inner"

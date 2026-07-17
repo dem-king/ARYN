@@ -9,6 +9,8 @@ import net.sf.jsqlparser.expression.NullValue;
 import net.sf.jsqlparser.expression.StringValue;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import java.util.Locale;
+
 @Slf4j
 public class ArynTenantLineHandler implements TenantLineHandler {
 
@@ -27,7 +29,10 @@ public class ArynTenantLineHandler implements TenantLineHandler {
 
 	@Override
 	public boolean ignoreTable(String tableName) {
-		return !tenantConfigProperties.getTables().contains(tableName);
+		if (tableName == null) {
+			return true;
+		}
+		return !tenantConfigProperties.getNormalizedTables().contains(tableName.trim().toLowerCase(Locale.ROOT));
 	}
 
 }

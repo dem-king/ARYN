@@ -374,6 +374,37 @@
             "navigationStyle": "custom",
             "navigationBarTitleText": "充值"
           }
+        },
+        // #endif
+        {
+          "path": "promotion/group-buy/group-buy-detail/index",
+          "type": "page",
+          "name": "group-buy-detail",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "拼团详情"
+          }
+        },
+        // #ifdef H5
+        {
+          "path": "promotion/group-buy/group-buy-list/index",
+          "type": "page",
+          "name": "group-buy-list",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "拼团活动"
+          }
+        },
+        // #endif
+        // #ifdef H5
+        {
+          "path": "promotion/group-buy/group-buy-record/index",
+          "type": "page",
+          "name": "group-buy-record",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "我的拼团"
+          }
         }
         // #endif
       ]
