@@ -8,6 +8,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
+
 /**
  * 分销-订单支付成功事件处理
  * <p>
@@ -28,18 +30,18 @@ public class DistributionPayHandler implements PromotionPayEventHandler {
 		log.info("分销支付事件处理开始 orderId={}, userId={}, paymentPrice={}",
 			event.getOrderId(), event.getUserId(), event.getPaymentPrice());
 
-		try {
-			DistributionSettleDTO dto = new DistributionSettleDTO();
-			dto.setOrderId(event.getOrderId());
-			dto.setBuyerUserId(event.getUserId());
-			dto.setOrderAmount(event.getPaymentPrice());
+		BigDecimal paymentAmount = event.getPaymentPrice() == null ? BigDecimal.ZERO : event.getPaymentPrice();
+		BigDecimal freightAmount = event.getFreightPrice() == null ? BigDecimal.ZERO : event.getFreightPrice();
+		BigDecimal commissionBaseAmount = paymentAmount.subtract(freightAmount).max(BigDecimal.ZERO);
+		DistributionSettleDTO dto = new DistributionSettleDTO();
+		dto.setOrderId(event.getOrderId());
+		dto.setBuyerUserId(event.getUserId());
+		dto.setOrderAmount(commissionBaseAmount);
+		dto.setPaymentAmount(paymentAmount);
+		dto.setFreightAmount(freightAmount);
 
-			Boolean settled = distributionSettlementService.settleOrder(dto);
-			log.info("分销支付事件处理完成 orderId={}, settled={}", event.getOrderId(), settled);
-		}
-		catch (Exception e) {
-			log.error("分销支付事件处理异常 orderId={}", event.getOrderId(), e);
-		}
+		Boolean settled = distributionSettlementService.settleOrder(dto);
+		log.info("分销支付事件处理完成 orderId={}, settled={}", event.getOrderId(), settled);
 	}
 
 }

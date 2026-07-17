@@ -1,6 +1,11 @@
 <script lang="ts" setup>
 import type { FormInstance } from 'element-plus';
 
+import type {
+  DistributionConfigPayload,
+  DistributionConfigRecord,
+} from '#/api/promotion/distribution-config';
+
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
 import { Delete, Edit, Plus, Refresh, Search } from '@element-plus/icons-vue';
@@ -52,14 +57,16 @@ const state = reactive({
     pageSize: 10,
     desc: 'create_time',
   },
-  tableData: [] as any[],
+  tableData: [] as DistributionConfigRecord[],
   formData: {
     id: '',
     configName: '',
     commissionRate: 0.1,
+    commissionRateLevel2: 0,
     minWithdrawAmount: 100,
+    settleCycleDays: 7,
     status: '0',
-  },
+  } as DistributionConfigPayload,
 });
 
 const initPage = async () => {
@@ -90,18 +97,22 @@ const openAdd = () => {
     id: '',
     configName: '',
     commissionRate: 0.1,
+    commissionRateLevel2: 0,
     minWithdrawAmount: 100,
+    settleCycleDays: 7,
     status: '0',
   };
   showForm.value = true;
 };
 
-const openEdit = (row: any) => {
+const openEdit = (row: DistributionConfigRecord) => {
   state.formData = {
     id: row.id,
     configName: row.configName,
     commissionRate: row.commissionRate ?? 0.1,
+    commissionRateLevel2: row.commissionRateLevel2 ?? 0,
     minWithdrawAmount: row.minWithdrawAmount ?? 100,
+    settleCycleDays: row.settleCycleDays ?? 7,
     status: row.status ?? '0',
   };
   showForm.value = true;
@@ -109,6 +120,10 @@ const openEdit = (row: any) => {
 
 const submitForm = async () => {
   await formRef.value?.validate();
+  if (state.formData.commissionRate + state.formData.commissionRateLevel2 > 1) {
+    ElMessage.error('一级与二级佣金比例合计不能超过100%');
+    return;
+  }
   if (state.formData.id) {
     await editObj(state.formData);
     ElMessage.success('修改成功');
@@ -205,8 +220,24 @@ initPage();
             </template>
           </ElTableColumn>
           <ElTableColumn
+            prop="commissionRateLevel2"
+            label="二级佣金比例"
+            align="center"
+          >
+            <template #default="scope">
+              {{
+                `${(Number(scope.row.commissionRateLevel2 || 0) * 100).toFixed(2)}%`
+              }}
+            </template>
+          </ElTableColumn>
+          <ElTableColumn
             prop="minWithdrawAmount"
             label="最低提现金额"
+            align="center"
+          />
+          <ElTableColumn
+            prop="settleCycleDays"
+            label="结算周期(天)"
             align="center"
           />
           <ElTableColumn prop="status" label="状态" align="center">
@@ -275,6 +306,15 @@ initPage();
             如0.10表示10%
           </span>
         </ElFormItem>
+        <ElFormItem label="二级佣金比例" prop="commissionRateLevel2" required>
+          <ElInputNumber
+            v-model="state.formData.commissionRateLevel2"
+            :max="1"
+            :min="0"
+            :step="0.01"
+            :precision="4"
+          />
+        </ElFormItem>
         <ElFormItem label="最低提现金额" prop="minWithdrawAmount" required>
           <ElInputNumber
             v-model="state.formData.minWithdrawAmount"
@@ -283,6 +323,17 @@ initPage();
           />
           <span style="margin-left: 8px; font-size: 12px; color: #909399">
             元
+          </span>
+        </ElFormItem>
+        <ElFormItem label="结算周期" prop="settleCycleDays" required>
+          <ElInputNumber
+            v-model="state.formData.settleCycleDays"
+            :max="365"
+            :min="0"
+            :precision="0"
+          />
+          <span style="margin-left: 8px; font-size: 12px; color: #909399">
+            天
           </span>
         </ElFormItem>
         <ElFormItem label="启用状态">

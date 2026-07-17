@@ -70,7 +70,7 @@ public class DistributionUserController {
 	@SaCheckPermission("promotion:distributionuser:del")
 	@DeleteMapping("/{id}")
 	public Result<Boolean> del(@PathVariable String id) {
-		return Result.success(distributionUserService.removeById(id));
+		return Result.success(distributionUserService.removeSafely(id));
 	}
 
 }

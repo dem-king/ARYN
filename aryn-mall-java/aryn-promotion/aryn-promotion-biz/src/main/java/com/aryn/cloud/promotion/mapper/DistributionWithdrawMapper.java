@@ -7,6 +7,8 @@ import com.aryn.cloud.promotion.api.entity.DistributionWithdraw;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
+import java.util.List;
+
 @Mapper
 public interface DistributionWithdrawMapper extends BaseMapper<DistributionWithdraw> {
 
@@ -17,4 +19,6 @@ public interface DistributionWithdrawMapper extends BaseMapper<DistributionWithd
 	 * @return 分页结果
 	 */
 	IPage<DistributionWithdraw> selectAdminPage(Page<DistributionWithdraw> page, @Param("query") DistributionWithdraw query);
+
+	List<DistributionWithdraw> selectLegacyAccounts(@Param("limit") int limit);
 }

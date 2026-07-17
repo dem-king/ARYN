@@ -3,6 +3,7 @@ package com.aryn.cloud.promotion.api.dto;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 import java.io.Serial;
@@ -32,5 +33,9 @@ public class DistributionWithdrawAuditDTO implements Serializable {
 
 	@Schema(description = "拒绝原因")
 	private String rejectReason;
+
+	@Schema(description = "线下打款流水号，审核通过时必填")
+	@Size(max = 64, message = "打款流水号不能超过64个字符")
+	private String payoutNo;
 
 }

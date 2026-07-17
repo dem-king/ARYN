@@ -1,6 +1,8 @@
 <script lang="ts" setup>
 import type { FormInstance } from 'element-plus';
 
+import type { DistributionOrderRecord } from '#/api/promotion/distribution-order';
+
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
 import { Coin, Refresh, Search } from '@element-plus/icons-vue';
@@ -43,7 +45,7 @@ const state = reactive({
     pageSize: 10,
     desc: 'create_time',
   },
-  tableData: [] as any[],
+  tableData: [] as DistributionOrderRecord[],
 });
 
 const initPage = async () => {
@@ -69,20 +71,14 @@ const resetQuery = (formEl: FormInstance | undefined) => {
   formEl.resetFields();
 };
 
-async function doSettle(row: any) {
-  const amountText = await ElMessageBox.prompt('请输入订单金额', '手动结算', {
-    inputPattern: /^(0|[1-9]\d*)(\.\d{1,2})?$/,
-    inputErrorMessage: '请输入合法金额',
-  }).catch(() => null);
-  if (!amountText?.value) {
-    return;
-  }
-  await settleOrder({
-    orderId: row.bizOrderId,
-    buyerUserId: row.buyerUserId,
-    orderAmount: Number(amountText.value),
+async function doSettle(row: DistributionOrderRecord) {
+  await ElMessageBox.confirm('确认释放该笔待结算佣金？', '手动结算', {
+    confirmButtonText: '确认结算',
+    cancelButtonText: '取消',
+    type: 'warning',
   });
-  ElMessage.success('结算触发成功');
+  await settleOrder(row.id);
+  ElMessage.success('结算成功');
   initPage();
 }
 
@@ -157,9 +153,22 @@ initPage();
           show-overflow-tooltip
         />
         <ElTableColumn prop="orderAmount" label="订单金额" align="center" />
+        <ElTableColumn prop="freightAmount" label="运费" align="center" />
+        <ElTableColumn
+          prop="commissionBaseAmount"
+          label="佣金基数(不含运费)"
+          align="center"
+          min-width="150"
+        />
+        <ElTableColumn prop="commissionLevel" label="佣金层级" align="center" />
         <ElTableColumn
           prop="commissionAmount"
           label="佣金金额"
+          align="center"
+        />
+        <ElTableColumn
+          prop="refundedCommissionAmount"
+          label="已退佣金"
           align="center"
         />
         <ElTableColumn prop="status" label="结算状态" align="center">
@@ -170,7 +179,8 @@ initPage();
             />
           </template>
         </ElTableColumn>
-        <ElTableColumn prop="settleTime" label="结算时间" width="180" />
+        <ElTableColumn prop="settleAt" label="计划结算时间" width="180" />
+        <ElTableColumn prop="settleTime" label="实际结算时间" width="180" />
         <ElTableColumn prop="createTime" label="创建时间" width="180" />
         <ElTableColumn label="操作" width="140" align="center" fixed="right">
           <template #default="scope">

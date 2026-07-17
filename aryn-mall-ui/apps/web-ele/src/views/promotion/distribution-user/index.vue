@@ -1,11 +1,14 @@
 <script lang="ts" setup>
 import type { FormInstance } from 'element-plus';
 
+import type { DistributionUserRecord } from '#/api/promotion/distribution-user';
+
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
 import {
   CircleCheck,
   CircleClose,
+  Delete,
   Refresh,
   Search,
 } from '@element-plus/icons-vue';
@@ -20,7 +23,12 @@ import {
   ElTableColumn,
 } from 'element-plus';
 
-import { disable, enable, getPage } from '#/api/promotion/distribution-user';
+import {
+  delObj,
+  disable,
+  enable,
+  getPage,
+} from '#/api/promotion/distribution-user';
 import { useDict } from '#/utils/dict';
 
 const RightToolbar = defineAsyncComponent(
@@ -48,7 +56,7 @@ const state = reactive({
     pageSize: 10,
     desc: 'create_time',
   },
-  tableData: [] as any[],
+  tableData: [] as DistributionUserRecord[],
 });
 
 const initPage = async () => {
@@ -74,7 +82,7 @@ const resetQuery = (formEl: FormInstance | undefined) => {
   formEl.resetFields();
 };
 
-async function doEnable(row: any) {
+async function doEnable(row: DistributionUserRecord) {
   await ElMessageBox.confirm('确认启用该分销用户？', '启用', {
     confirmButtonText: '确认',
     cancelButtonText: '取消',
@@ -85,7 +93,7 @@ async function doEnable(row: any) {
   initPage();
 }
 
-async function doDisable(row: any) {
+async function doDisable(row: DistributionUserRecord) {
   await ElMessageBox.confirm('确认禁用该分销用户？', '禁用', {
     confirmButtonText: '确认',
     cancelButtonText: '取消',
@@ -93,6 +101,21 @@ async function doDisable(row: any) {
   });
   await disable(row.userId);
   ElMessage.success('已禁用');
+  initPage();
+}
+
+async function doDelete(row: DistributionUserRecord) {
+  await ElMessageBox.confirm(
+    '仅无余额、无待结算佣金、无欠款且无待审核提现的分销员可删除。确认继续？',
+    '删除分销员',
+    {
+      confirmButtonText: '确认删除',
+      cancelButtonText: '取消',
+      type: 'warning',
+    },
+  );
+  await delObj(row.id);
+  ElMessage.success('删除成功');
   initPage();
 }
 
@@ -177,6 +200,17 @@ initPage();
           label="冻结佣金"
           align="center"
         />
+        <ElTableColumn
+          prop="pendingCommission"
+          label="待结算佣金"
+          align="center"
+        />
+        <ElTableColumn prop="commissionDebt" label="佣金欠款" align="center" />
+        <ElTableColumn
+          prop="subordinateCount"
+          label="邀请人数"
+          align="center"
+        />
         <ElTableColumn prop="status" label="状态" align="center">
           <template #default="scope">
             <DictTag
@@ -186,7 +220,7 @@ initPage();
           </template>
         </ElTableColumn>
         <ElTableColumn prop="createTime" label="创建时间" width="180" />
-        <ElTableColumn label="操作" width="160" align="center" fixed="right">
+        <ElTableColumn label="操作" width="220" align="center" fixed="right">
           <template #default="scope">
             <ElButton
               v-if="scope.row.status === '1'"
@@ -197,6 +231,15 @@ initPage();
               @click="doEnable(scope.row)"
             >
               启用
+            </ElButton>
+            <ElButton
+              v-access:code="'promotion:distributionuser:del'"
+              :icon="Delete"
+              link
+              type="danger"
+              @click="doDelete(scope.row)"
+            >
+              删除
             </ElButton>
             <ElButton
               v-if="scope.row.status === '0'"

@@ -10,8 +10,10 @@
         distribution_user.inviter_user_id,
         distribution_user.total_commission,
         distribution_user.available_commission,
+        distribution_user.pending_commission,
         distribution_user.withdrawn_commission,
         distribution_user.frozen_commission,
+        distribution_user.commission_debt,
         distribution_user.subordinate_count,
         distribution_user.status,
         distribution_user.create_time,
@@ -41,5 +43,28 @@
         </where>
         ORDER BY distribution_user.create_time DESC
     </select>
+
+	<select id="selectByIdForUpdate" resultType="com.aryn.cloud.promotion.api.entity.DistributionUser">
+		SELECT <include refid="distributionUserSql"/>
+		FROM distribution_user AS distribution_user
+		WHERE distribution_user.id = #{id}
+		  AND distribution_user.del_flag = '0'
+		FOR UPDATE
+	</select>
+
+	<select id="selectByUserIdForUpdate" resultType="com.aryn.cloud.promotion.api.entity.DistributionUser">
+		SELECT <include refid="distributionUserSql"/>
+		FROM distribution_user AS distribution_user
+		WHERE distribution_user.user_id = #{userId}
+		  AND distribution_user.del_flag = '0'
+		LIMIT 1 FOR UPDATE
+	</select>
+
+	<select id="countRefundableOrders" resultType="java.lang.Long">
+		SELECT COUNT(*)
+		FROM distribution_order
+		WHERE distributor_user_id = #{userId}
+		  AND status IN ('0', '1')
+	</select>
 
 </mapper>

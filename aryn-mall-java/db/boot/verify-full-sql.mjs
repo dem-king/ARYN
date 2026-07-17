@@ -55,8 +55,8 @@ const missingDrops = createTables.filter((table) => !dropTables.has(table));
 if (missingDrops.length > 0) {
   throw new Error(`全量脚本缺少 DROP TABLE: ${missingDrops.join(', ')}`);
 }
-if (createTables.length !== 79) {
-  throw new Error(`建表数量异常，期望 79，实际 ${createTables.length}`);
+if (createTables.length !== 80) {
+  throw new Error(`建表数量异常，期望 80，实际 ${createTables.length}`);
 }
 if (!sql.trimEnd().endsWith('SET FOREIGN_KEY_CHECKS = 1;')) {
   throw new Error('脚本末尾未恢复 FOREIGN_KEY_CHECKS');

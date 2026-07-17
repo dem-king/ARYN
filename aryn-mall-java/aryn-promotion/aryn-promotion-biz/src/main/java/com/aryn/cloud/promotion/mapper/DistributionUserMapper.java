@@ -17,4 +17,10 @@ public interface DistributionUserMapper extends BaseMapper<DistributionUser> {
 	 * @return 分页结果
 	 */
 	IPage<DistributionUser> selectAdminPage(Page<DistributionUser> page, @Param("query") DistributionUser query);
+
+	DistributionUser selectByIdForUpdate(@Param("id") String id);
+
+	DistributionUser selectByUserIdForUpdate(@Param("userId") String userId);
+
+	Long countRefundableOrders(@Param("userId") String userId);
 }

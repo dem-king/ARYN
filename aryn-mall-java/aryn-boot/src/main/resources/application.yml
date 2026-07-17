@@ -173,6 +173,7 @@ hx:
       - distribution_order
       - distribution_commission_flow
       - distribution_withdraw
+      - distribution_refund_record
       - group_buy_activity
       - group_buy_record
       - group_buy_member
@@ -213,3 +214,7 @@ gen:
   tablePrefix: sys_
   # 是否允许生成文件覆盖到本地（自定义路径），默认不允许
   allowOverwrite: false
+
+distribution:
+  withdraw:
+    account-key: ${DISTRIBUTION_WITHDRAW_ACCOUNT_KEY:}

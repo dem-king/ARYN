@@ -27,16 +27,16 @@ public class PromotionRefundListener implements RocketMQListener<OrderRefundSucc
 
 	@Override
 	public void onMessage(OrderRefundSuccessEvent event) {
-		ArynTenantContextHolder.setTenantId(event.getTenantId());
-		log.info("退款成功事件监听器-营销服务收到消息：{}", event);
-		handlers.forEach(handler -> {
-			try {
+		try {
+			ArynTenantContextHolder.setTenantId(event.getTenantId());
+			log.info("退款成功事件监听器-营销服务收到消息：{}", event);
+			for (PromotionRefundEventHandler handler : handlers) {
 				handler.handle(event);
 			}
-			catch (Exception e) {
-				log.error("退款事件处理失败", e);
-			}
-		});
+		}
+		finally {
+			ArynTenantContextHolder.removeTenantId();
+		}
 	}
 
 }

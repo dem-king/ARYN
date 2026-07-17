@@ -5,13 +5,11 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.log.annotation.SysLog;
-import com.aryn.cloud.promotion.api.dto.DistributionSettleDTO;
 import com.aryn.cloud.promotion.api.entity.DistributionOrder;
 import com.aryn.cloud.promotion.service.IDistributionOrderService;
 import com.aryn.cloud.promotion.service.IDistributionSettlementService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
@@ -44,9 +42,9 @@ public class DistributionOrderController {
 	@SysLog("手工触发结算")
 	@Operation(summary = "手工触发结算")
 	@SaCheckPermission("promotion:distributionorder:settle")
-	@PostMapping("/settle")
-	public Result<Boolean> settle(@Valid @RequestBody DistributionSettleDTO dto) {
-		return Result.success(distributionSettlementService.settleOrder(dto));
+	@PostMapping("/settle/{id}")
+	public Result<Boolean> settle(@PathVariable String id) {
+		return Result.success(distributionSettlementService.settlePendingOrder(id));
 	}
 
 }

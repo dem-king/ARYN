@@ -40,4 +40,9 @@ public interface IDistributionUserService extends IService<DistributionUser> {
 	 */
 	DistributionUser getByUserId(String userId);
 
+	/**
+	 * 在确认没有未清资金和待审核提现后逻辑删除分销用户。
+	 */
+	Boolean removeSafely(String id);
+
 }

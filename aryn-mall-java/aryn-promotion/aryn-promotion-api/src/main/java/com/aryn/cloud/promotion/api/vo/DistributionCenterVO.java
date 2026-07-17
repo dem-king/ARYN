@@ -32,6 +32,15 @@ public class DistributionCenterVO implements Serializable {
 	@Schema(description = "冻结佣金（提现申请中）")
 	private BigDecimal frozenCommission;
 
+	@Schema(description = "待结算佣金")
+	private BigDecimal pendingCommission;
+
+	@Schema(description = "退款产生的佣金欠款")
+	private BigDecimal commissionDebt;
+
+	@Schema(description = "已邀请分销用户数")
+	private Integer inviteUserCount;
+
 	@Schema(description = "待审核提现笔数")
 	private Long pendingWithdrawCount;
 

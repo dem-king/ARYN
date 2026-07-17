@@ -45,9 +45,21 @@ public class DistributionOrder extends Model<DistributionOrder> {
 	@NotNull(message = "订单金额不能为空")
 	private BigDecimal orderAmount;
 
+	@Schema(description = "运费金额")
+	private BigDecimal freightAmount;
+
+	@Schema(description = "佣金计算基数（不含运费）")
+	private BigDecimal commissionBaseAmount;
+
 	@Schema(description = "佣金金额")
 	@NotNull(message = "佣金金额不能为空")
 	private BigDecimal commissionAmount;
+
+	@Schema(description = "累计退款佣金基数")
+	private BigDecimal refundedBaseAmount;
+
+	@Schema(description = "累计回退佣金")
+	private BigDecimal refundedCommissionAmount;
 
 	@Schema(description = "佣金层级：1一级 2二级")
 	private Integer commissionLevel;
@@ -57,6 +69,9 @@ public class DistributionOrder extends Model<DistributionOrder> {
 
 	@Schema(description = "结算时间")
 	private LocalDateTime settleTime;
+
+	@Schema(description = "计划结算时间")
+	private LocalDateTime settleAt;
 
 	@TableField(fill = FieldFill.INSERT)
 	@Schema(description = "创建人")

@@ -1,6 +1,11 @@
 <script lang="ts" setup>
 import type { FormInstance } from 'element-plus';
 
+import type {
+  DistributionWithdrawRecord,
+  DistributionWithdrawStatus,
+} from '#/api/promotion/distribution-withdraw';
+
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
 import {
@@ -43,7 +48,7 @@ const loading = ref(false);
 const showSearch = ref(true);
 const state = reactive({
   queryParams: {
-    status: '',
+    status: '' as '' | DistributionWithdrawStatus,
     userId: '',
   },
   page: {
@@ -52,7 +57,7 @@ const state = reactive({
     pageSize: 10,
     desc: 'create_time',
   },
-  tableData: [] as any[],
+  tableData: [] as DistributionWithdrawRecord[],
 });
 
 const initPage = async () => {
@@ -78,18 +83,25 @@ const resetQuery = (formEl: FormInstance | undefined) => {
   formEl.resetFields();
 };
 
-async function doApprove(row: any) {
-  await ElMessageBox.confirm('确认通过该提现申请？', '审核通过', {
-    confirmButtonText: '确认',
-    cancelButtonText: '取消',
-    type: 'warning',
-  });
-  await audit({ id: row.id, status: '1' });
+async function doApprove(row: DistributionWithdrawRecord) {
+  const payout = await ElMessageBox.prompt(
+    '请输入线下打款流水号',
+    '确认打款并通过',
+    {
+      confirmButtonText: '确认已打款',
+      cancelButtonText: '取消',
+      inputPattern: /^\S{1,64}$/,
+      inputErrorMessage: '流水号不能为空且不能超过64字符',
+      type: 'warning',
+    },
+  ).catch(() => null);
+  if (!payout?.value) return;
+  await audit({ id: row.id, payoutNo: payout.value.trim(), status: '1' });
   ElMessage.success('审核通过');
   initPage();
 }
 
-async function doReject(row: any) {
+async function doReject(row: DistributionWithdrawRecord) {
   const reason = await ElMessageBox.prompt('请输入驳回原因', '审核驳回', {
     inputPattern: /^.{2,100}$/,
     inputErrorMessage: '驳回原因长度需在2-100字符',
@@ -175,6 +187,7 @@ initPage();
         />
         <ElTableColumn prop="amount" label="提现金额" align="center" />
         <ElTableColumn prop="accountType" label="收款方式" align="center" />
+        <ElTableColumn prop="accountName" label="收款人" align="center" />
         <ElTableColumn
           prop="accountNo"
           label="收款账号"
@@ -190,6 +203,14 @@ initPage();
           </template>
         </ElTableColumn>
         <ElTableColumn prop="auditBy" label="审核人" align="center" />
+        <ElTableColumn
+          prop="payoutNo"
+          label="打款流水号"
+          align="center"
+          show-overflow-tooltip
+        />
+        <ElTableColumn prop="payoutBy" label="打款确认人" align="center" />
+        <ElTableColumn prop="payoutTime" label="打款时间" width="180" />
         <ElTableColumn prop="createTime" label="申请时间" width="180" />
         <ElTableColumn label="操作" width="160" align="center" fixed="right">
           <template #default="scope">

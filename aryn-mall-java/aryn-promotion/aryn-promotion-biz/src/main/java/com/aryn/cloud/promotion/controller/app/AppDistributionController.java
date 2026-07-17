@@ -10,7 +10,9 @@ import com.aryn.cloud.promotion.api.dto.DistributionWithdrawApplyDTO;
 import com.aryn.cloud.promotion.api.entity.DistributionCommissionFlow;
 import com.aryn.cloud.promotion.api.entity.DistributionConfig;
 import com.aryn.cloud.promotion.api.entity.DistributionUser;
+import com.aryn.cloud.promotion.api.entity.DistributionWithdraw;
 import com.aryn.cloud.promotion.api.vo.DistributionCenterVO;
+import com.aryn.cloud.promotion.api.vo.DistributionWithdrawVO;
 import com.aryn.cloud.promotion.service.IDistributionCommissionFlowService;
 import com.aryn.cloud.promotion.service.IDistributionConfigService;
 import com.aryn.cloud.promotion.service.IDistributionUserService;
@@ -78,7 +80,7 @@ public class AppDistributionController {
 
 	@Operation(summary = "提现进度分页")
 	@GetMapping("/withdraw/page")
-	public Result<IPage> withdrawPage(Page page) {
+	public Result<IPage<DistributionWithdrawVO>> withdrawPage(Page<DistributionWithdraw> page) {
 		StpUtil.isLogin();
 		String userId = SecurityUtils.getUser().getUserId();
 		return Result.success(distributionWithdrawService.getUserPage(page, userId));
@@ -90,11 +92,7 @@ public class AppDistributionController {
 		StpUtil.isLogin();
 		// 确保userId为当前登录用户
 		dto.setUserId(SecurityUtils.getUser().getUserId());
-		// 如果用户还不是分销用户，自动注册并绑定邀请关系
-		DistributionUser existing = distributionUserService.getByUserId(dto.getUserId());
-		if (existing == null) {
-			distributionUserService.register(dto);
-		}
+		distributionUserService.register(dto);
 		return Result.success(Boolean.TRUE);
 	}
 

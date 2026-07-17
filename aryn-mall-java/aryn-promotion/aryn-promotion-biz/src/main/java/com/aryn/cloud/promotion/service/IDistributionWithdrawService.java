@@ -7,6 +7,7 @@ import com.aryn.cloud.promotion.api.dto.DistributionWithdrawApplyDTO;
 import com.aryn.cloud.promotion.api.dto.DistributionWithdrawAuditDTO;
 import com.aryn.cloud.promotion.api.entity.DistributionWithdraw;
 import com.aryn.cloud.promotion.api.vo.DistributionCenterVO;
+import com.aryn.cloud.promotion.api.vo.DistributionWithdrawVO;
 
 public interface IDistributionWithdrawService extends IService<DistributionWithdraw> {
 
@@ -16,5 +17,11 @@ public interface IDistributionWithdrawService extends IService<DistributionWithd
 
     DistributionCenterVO getCenter(String userId);
 
-    IPage<DistributionWithdraw> getUserPage(Page page, String userId);
+	IPage<DistributionWithdrawVO> getAdminPage(Page<DistributionWithdraw> page, DistributionWithdraw query);
+
+	DistributionWithdrawVO getDetail(String id);
+
+	IPage<DistributionWithdrawVO> getUserPage(Page<DistributionWithdraw> page, String userId);
+
+	int reencryptLegacyAccounts();
 }

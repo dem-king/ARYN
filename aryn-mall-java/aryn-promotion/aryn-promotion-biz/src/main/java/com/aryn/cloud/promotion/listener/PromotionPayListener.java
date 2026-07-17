@@ -27,16 +27,16 @@ public class PromotionPayListener implements RocketMQListener<OrderPaySuccessEve
 
 	@Override
 	public void onMessage(OrderPaySuccessEvent orderPaySuccessEvent) {
-		ArynTenantContextHolder.setTenantId(orderPaySuccessEvent.getTenantId());
-		log.info("支付成功事件监听器-营销服务收到消息：{}", orderPaySuccessEvent);
-		handlers.forEach(handler -> {
-			try {
+		try {
+			ArynTenantContextHolder.setTenantId(orderPaySuccessEvent.getTenantId());
+			log.info("支付成功事件监听器-营销服务收到消息：{}", orderPaySuccessEvent);
+			for (PromotionPayEventHandler handler : handlers) {
 				handler.handle(orderPaySuccessEvent);
 			}
-			catch (Exception e) {
-				log.error("支付事件处理失败", e);
-			}
-		});
+		}
+		finally {
+			ArynTenantContextHolder.removeTenantId();
+		}
 	}
 
 }

@@ -13,6 +13,9 @@
         distribution_withdraw.status,
         distribution_withdraw.audit_by,
         distribution_withdraw.audit_time,
+        distribution_withdraw.payout_no,
+        distribution_withdraw.payout_time,
+        distribution_withdraw.payout_by,
         distribution_withdraw.reject_reason,
         distribution_withdraw.remark,
         distribution_withdraw.create_time,
@@ -37,5 +40,16 @@
         </where>
         ORDER BY distribution_withdraw.create_time DESC
     </select>
+
+	<select id="selectLegacyAccounts" resultType="com.aryn.cloud.promotion.api.entity.DistributionWithdraw">
+		SELECT <include refid="distributionWithdrawSql"/>
+		FROM distribution_withdraw AS distribution_withdraw
+		WHERE distribution_withdraw.del_flag = '0'
+		  AND distribution_withdraw.account_no IS NOT NULL
+		  AND distribution_withdraw.account_no != ''
+		  AND distribution_withdraw.account_no NOT LIKE 'v1:%'
+		ORDER BY distribution_withdraw.id
+		LIMIT #{limit}
+	</select>
 
 </mapper>

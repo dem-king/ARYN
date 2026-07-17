@@ -28,6 +28,12 @@ public class OrderRefundSuccessEvent {
 	@Schema(description = "退款金额")
 	private BigDecimal refundAmount;
 
+	@Schema(description = "稳定退款业务号")
+	private String refundNo;
+
+	@Schema(description = "退款佣金基数（不含运费）")
+	private BigDecimal refundBaseAmount;
+
 	@Schema(description = "退款流水号")
 	private String refundTradeNo;
 

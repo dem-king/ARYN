@@ -31,7 +31,13 @@ public class DistributionSettleDTO implements Serializable {
 	private String buyerUserId;
 
 	@NotNull(message = "订单金额不能为空")
-	@Schema(description = "订单金额")
+	@Schema(description = "佣金计算基数（不含运费）")
 	private BigDecimal orderAmount;
+
+	@Schema(description = "订单实付金额")
+	private BigDecimal paymentAmount;
+
+	@Schema(description = "运费金额")
+	private BigDecimal freightAmount;
 
 }

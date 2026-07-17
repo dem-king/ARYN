@@ -2,9 +2,8 @@
 package com.aryn.cloud.order.event.listener;
 
 import com.aryn.cloud.common.core.constant.CommonConstants;
-import com.aryn.cloud.common.core.constant.RocketMqConstants;
-import com.aryn.cloud.common.core.entity.OrderItemPaySuccessEvent;
-import com.aryn.cloud.common.core.entity.OrderPaySuccessEvent;
+import com.aryn.cloud.common.security.handler.ArynBusinessException;
+import com.aryn.cloud.pay.api.utils.TransactionalMqUtils;
 import com.aryn.cloud.order.api.constant.MallOrderConstants;
 import com.aryn.cloud.order.api.entity.OrderInfo;
 import com.aryn.cloud.order.api.entity.OrderItemEntity;
@@ -15,14 +14,11 @@ import com.aryn.cloud.order.service.IOrderInfoService;
 import com.aryn.cloud.order.service.IOrderItemService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.rocketmq.spring.core.RocketMQTemplate;
-import org.springframework.beans.BeanUtils;
 import org.springframework.context.event.EventListener;
-import org.springframework.messaging.support.GenericMessage;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * 支付成功事件监听
@@ -37,15 +33,16 @@ public class ArynOrderPayEventListener {
 
 	private final IOrderInfoService orderInfoService;
 
-	private final RocketMQTemplate rocketMQTemplate;
-
 	private final IOrderItemService orderItemService;
+
+	private final OrderPaySuccessNotifier orderPaySuccessNotifier;
 
 	/**
 	 * 订单状态修改
 	 * @param event
 	 */
 	@EventListener(ArynOrderPayEvent.class)
+	@Transactional(rollbackFor = Exception.class)
 	public void hxPayEventListener(ArynOrderPayEvent event) {
 		// 获取订单信息
 		OrderInfo orderInfo = event.getOrder();
@@ -61,7 +58,9 @@ public class ArynOrderPayEventListener {
 			orderInfo.setStatus(OrderStatusEnum.WAITING_FOR_DELIVERY.getCode());
 		}
 		orderInfo.setPayStatus(CommonConstants.YES);
-		orderInfoService.updateById(orderInfo);
+		if (!orderInfoService.updateById(orderInfo)) {
+			throw new ArynBusinessException("订单支付状态更新失败，请重试");
+		}
 
 		List<OrderItemEntity> orderItemEntityList = event.getOrderItemEntityList();
 		orderItemEntityList.forEach(orderItem -> {
@@ -72,23 +71,12 @@ public class ArynOrderPayEventListener {
 				orderItem.setStatus(OrderItemStatusEnum.PAID.getCode());
 			}
 		});
-		orderItemService.updateBatchById(orderItemEntityList);
-
-		OrderPaySuccessEvent orderPaySuccessEvent = new OrderPaySuccessEvent();
-		BeanUtils.copyProperties(orderInfo, orderPaySuccessEvent);
-		orderPaySuccessEvent.setOrderId(orderInfo.getId());
-
-		List<OrderItemPaySuccessEvent> orderItemPaySuccessEventList = orderItemEntityList.stream().map(item -> {
-			OrderItemPaySuccessEvent orderItemPaySuccessEvent = new OrderItemPaySuccessEvent();
-			BeanUtils.copyProperties(item, orderItemPaySuccessEvent);
-			orderItemPaySuccessEvent.setOrderId(orderInfo.getId());
-			return orderItemPaySuccessEvent;
-		}).collect(Collectors.toList());
-		orderPaySuccessEvent.setItemList(orderItemPaySuccessEventList);
+		if (!orderItemService.updateBatchById(orderItemEntityList)) {
+			throw new ArynBusinessException("订单商品支付状态更新失败，请重试");
+		}
 
 		// 通知销量增加、优惠券更改状态
-		rocketMQTemplate.syncSend(RocketMqConstants.ORDER_PAY_SUCCESS_NOTIFY_TOPIC,
-				new GenericMessage<>(orderPaySuccessEvent), RocketMqConstants.TIME_OUT);
+		TransactionalMqUtils.sendAfterCommit(() -> orderPaySuccessNotifier.notify(orderInfo, orderItemEntityList));
 	}
 
 }

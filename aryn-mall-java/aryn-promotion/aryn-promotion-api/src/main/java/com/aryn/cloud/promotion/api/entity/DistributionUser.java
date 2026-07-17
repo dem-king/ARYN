@@ -47,11 +47,17 @@ public class DistributionUser extends Model<DistributionUser> {
 	@Schema(description = "可提现佣金")
 	private BigDecimal availableCommission;
 
+	@Schema(description = "待结算佣金")
+	private BigDecimal pendingCommission;
+
 	@Schema(description = "已提现佣金")
 	private BigDecimal withdrawnCommission;
 
 	@Schema(description = "冻结佣金（提现申请中）")
 	private BigDecimal frozenCommission;
+
+	@Schema(description = "退款产生的佣金欠款")
+	private BigDecimal commissionDebt;
 
 	@Schema(description = "下级人数")
 	private Integer subordinateCount;

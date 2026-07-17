@@ -10,6 +10,7 @@ import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.order.api.entity.OrderInfo;
 import com.aryn.cloud.order.api.entity.OrderItemEntity;
 import com.aryn.cloud.order.event.ArynOrderPayEvent;
+import com.aryn.cloud.order.event.listener.OrderPaySuccessNotifier;
 import com.aryn.cloud.order.service.IOrderInfoService;
 import com.aryn.cloud.order.service.IOrderItemService;
 import com.aryn.cloud.pay.api.constants.PayConstants;
@@ -37,8 +38,11 @@ public class ArynPayListener implements RocketMQListener<String> {
 
 	private final ApplicationEventPublisher applicationEventPublisher;
 
+	private final OrderPaySuccessNotifier orderPaySuccessNotifier;
+
 	@Override
 	public void onMessage(String message) {
+		ArynTenantContextHolder.removeTenantId();
 		final JSONObject msg = JSONObject.parseObject(message);
 		final String tenantId = msg.getString(PayConstants.TENANT_ID);
 		if (!StringUtils.hasText(tenantId)) {
@@ -46,46 +50,57 @@ public class ArynPayListener implements RocketMQListener<String> {
 			return;
 		}
 		ArynTenantContextHolder.setTenantId(tenantId);
-		final String orderNo = msg.getString(PayConstants.OUT_TRADE_NO);
-		if (!StringUtils.hasText(orderNo)) {
-			log.warn("orderNo empty! ");
-			return;
-		}
+		try {
+			final String orderNo = msg.getString(PayConstants.OUT_TRADE_NO);
+			if (!StringUtils.hasText(orderNo)) {
+				log.warn("orderNo empty! ");
+				return;
+			}
 
-		final LocalDateTime paySuccessTime = msg.getLocalDateTime(PayConstants.PAY_SUCCESS_TIME);
-		if (paySuccessTime == null) {
-			log.warn("paySuccessTime 为空，忽略消息");
-			return;
-		}
-		final JSONObject extraParams = JSON.parseObject(msg.getString(PayConstants.EXTRA_PARAMS));
-		if (extraParams == null || extraParams.isEmpty()) {
-			log.warn("extraParams 为空，orderNo: {}", orderNo);
-			return;
-		}
-		final String payType = extraParams.getString(PayConstants.EXTRA_PARAMS_PAY_TYPE);
-		if (!StringUtils.hasText(payType)) {
-			log.warn("payType empty! orderNo: " + orderNo);
-			return;
-		}
+			final LocalDateTime paySuccessTime = msg.getLocalDateTime(PayConstants.PAY_SUCCESS_TIME);
+			if (paySuccessTime == null) {
+				log.warn("paySuccessTime 为空，忽略消息");
+				return;
+			}
+			final JSONObject extraParams = JSON.parseObject(msg.getString(PayConstants.EXTRA_PARAMS));
+			if (extraParams == null || extraParams.isEmpty()) {
+				log.warn("extraParams 为空，orderNo: {}", orderNo);
+				return;
+			}
+			final String payType = extraParams.getString(PayConstants.EXTRA_PARAMS_PAY_TYPE);
+			if (!StringUtils.hasText(payType)) {
+				log.warn("payType empty! orderNo: " + orderNo);
+				return;
+			}
 
-		final String transactionId = msg.getString(PayConstants.CHANNEL_ORDER_NO);
-		OrderInfo orderInfo = orderInfoService
-			.getOne(Wrappers.<OrderInfo>lambdaQuery().eq(OrderInfo::getOrderNo, orderNo));
+			final String transactionId = msg.getString(PayConstants.CHANNEL_ORDER_NO);
+			OrderInfo orderInfo = orderInfoService
+				.getOne(Wrappers.<OrderInfo>lambdaQuery().eq(OrderInfo::getOrderNo, orderNo));
+			if (orderInfo == null) {
+				log.warn("order not found! orderNo: {}", orderNo);
+				return;
+			}
 
-		List<OrderItemEntity> orderItemEntityList = orderItemService
-			.list(Wrappers.<OrderItemEntity>lambdaQuery().eq(OrderItemEntity::getOrderId, orderInfo.getId()));
-		if (CollectionUtils.isEmpty(orderItemEntityList)) {
-			log.warn("order items not found! orderNo: " + orderNo);
-			return;
+			List<OrderItemEntity> orderItemEntityList = orderItemService
+				.list(Wrappers.<OrderItemEntity>lambdaQuery().eq(OrderItemEntity::getOrderId, orderInfo.getId()));
+			if (CollectionUtils.isEmpty(orderItemEntityList)) {
+				log.warn("order items not found! orderNo: " + orderNo);
+				return;
+			}
+
+			if (CommonConstants.NO.equals(orderInfo.getPayStatus())) {
+				orderInfo.setPaymentTime(paySuccessTime);
+				orderInfo.setPaymentType(payType);
+				orderInfo.setTransactionId(transactionId);
+				applicationEventPublisher.publishEvent(new ArynOrderPayEvent(this, orderInfo, orderItemEntityList));
+			}
+			else {
+				orderPaySuccessNotifier.notify(orderInfo, orderItemEntityList);
+			}
 		}
-
-		if (CommonConstants.NO.equals(orderInfo.getPayStatus())) {
-			orderInfo.setPaymentTime(paySuccessTime);
-			orderInfo.setPaymentType(payType);
-			orderInfo.setTransactionId(transactionId);
-			applicationEventPublisher.publishEvent(new ArynOrderPayEvent(this, orderInfo, orderItemEntityList));
+		finally {
+			ArynTenantContextHolder.removeTenantId();
 		}
-
 	}
 
 }

@@ -6,7 +6,8 @@ export const DISTRIBUTION_PERMISSION_POINTS = {
   ENTITY_PAGE: 'distribution:center:page',
 } as const
 
-export type DistributionPermissionPoint = typeof DISTRIBUTION_PERMISSION_POINTS[keyof typeof DISTRIBUTION_PERMISSION_POINTS]
+export type DistributionPermissionPoint =
+  (typeof DISTRIBUTION_PERMISSION_POINTS)[keyof typeof DISTRIBUTION_PERMISSION_POINTS]
 
 /**
  * 分销中心概览
@@ -16,8 +17,11 @@ export interface DistributionCenterSummary {
   inviteUserCount: number
   totalCommission: number
   availableCommission: number
+  pendingCommission: number
   frozenCommission: number
   withdrawnCommission: number
+  commissionDebt: number
+  pendingWithdrawCount: number
 }
 
 /**
@@ -61,6 +65,10 @@ export interface DistributionWithdrawProgress {
   amount: number
   status: string
   rejectReason?: string
+  accountNo?: string
+  payoutNo?: string
+  payoutTime?: string
+  payoutBy?: string
   createTime: string
   updateTime?: string
 }
@@ -96,14 +104,20 @@ export interface DistributionShareBindPayload {
  * 分销中心概览
  */
 export function getDistributionCenterSummary() {
-  return alovaInstance.Get<DistributionCenterSummary>('/promotion/app/distribution/center')
+  return alovaInstance.Get<DistributionCenterSummary>(
+    '/promotion/app/distribution/center',
+  )
 }
 
 /**
  * 佣金记录分页
  */
-export function getDistributionCommissionRecordPage(params: DistributionCommissionRecordPageQuery = {}) {
-  return alovaInstance.Get<DistributionPageResult<DistributionCommissionRecord>>('/promotion/app/distribution/commission/page', {
+export function getDistributionCommissionRecordPage(
+  params: DistributionCommissionRecordPageQuery = {},
+) {
+  return alovaInstance.Get<
+    DistributionPageResult<DistributionCommissionRecord>
+  >('/promotion/app/distribution/commission/page', {
     params,
   })
 }
@@ -111,15 +125,24 @@ export function getDistributionCommissionRecordPage(params: DistributionCommissi
 /**
  * 提现申请
  */
-export function submitDistributionWithdrawApply(data: DistributionWithdrawApplyPayload) {
-  return alovaInstance.Post<boolean>('/promotion/app/distribution/withdraw/apply', data)
+export function submitDistributionWithdrawApply(
+  data: DistributionWithdrawApplyPayload,
+) {
+  return alovaInstance.Post<boolean>(
+    '/promotion/app/distribution/withdraw/apply',
+    data,
+  )
 }
 
 /**
  * 提现进度分页
  */
-export function getDistributionWithdrawProgressPage(params: DistributionWithdrawProgressPageQuery = {}) {
-  return alovaInstance.Get<DistributionPageResult<DistributionWithdrawProgress>>('/promotion/app/distribution/withdraw/page', {
+export function getDistributionWithdrawProgressPage(
+  params: DistributionWithdrawProgressPageQuery = {},
+) {
+  return alovaInstance.Get<
+    DistributionPageResult<DistributionWithdrawProgress>
+  >('/promotion/app/distribution/withdraw/page', {
     params,
   })
 }
@@ -127,8 +150,13 @@ export function getDistributionWithdrawProgressPage(params: DistributionWithdraw
 /**
  * 分享参数绑定
  */
-export function bindDistributionShareParams(data: DistributionShareBindPayload) {
-  return alovaInstance.Post<boolean>('/promotion/app/distribution/share/bind', data)
+export function bindDistributionShareParams(
+  data: DistributionShareBindPayload,
+) {
+  return alovaInstance.Post<boolean>(
+    '/promotion/app/distribution/share/bind',
+    data,
+  )
 }
 
 /**
@@ -141,7 +169,10 @@ export interface DistributionRegisterPayload {
 }
 
 export function registerDistributionUser(data: DistributionRegisterPayload) {
-  return alovaInstance.Post<boolean>('/promotion/app/distribution/register', data)
+  return alovaInstance.Post<boolean>(
+    '/promotion/app/distribution/register',
+    data,
+  )
 }
 
 /**
@@ -158,5 +189,7 @@ export interface DistributionConfigInfo {
 }
 
 export function getDistributionConfig() {
-  return alovaInstance.Get<DistributionConfigInfo>('/promotion/app/distribution/config')
+  return alovaInstance.Get<DistributionConfigInfo>(
+    '/promotion/app/distribution/config',
+  )
 }

@@ -24,16 +24,12 @@ public class DistributionRefundHandler implements PromotionRefundEventHandler {
 
 	@Override
 	public void handle(OrderRefundSuccessEvent event) {
-		log.info("分销退款事件处理开始 orderId={}, refundAmount={}",
-			event.getOrderId(), event.getRefundAmount());
+		log.info("分销退款事件处理开始 orderId={}, refundNo={}, refundBaseAmount={}",
+			event.getOrderId(), event.getRefundNo(), event.getRefundBaseAmount());
 
-		try {
-			distributionSettlementService.refundCommission(event.getOrderId(), event.getRefundAmount());
-			log.info("分销退款事件处理完成 orderId={}", event.getOrderId());
-		}
-		catch (Exception e) {
-			log.error("分销退款事件处理异常 orderId={}", event.getOrderId(), e);
-		}
+		distributionSettlementService.refundCommission(
+			event.getOrderId(), event.getRefundNo(), event.getRefundAmount(), event.getRefundBaseAmount());
+		log.info("分销退款事件处理完成 orderId={}", event.getOrderId());
 	}
 
 }

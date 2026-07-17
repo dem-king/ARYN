@@ -64,6 +64,15 @@ public class DistributionWithdraw extends Model<DistributionWithdraw> {
 	@Schema(description = "审核人")
 	private String auditBy;
 
+	@Schema(description = "线下打款流水号")
+	private String payoutNo;
+
+	@Schema(description = "线下打款时间")
+	private LocalDateTime payoutTime;
+
+	@Schema(description = "线下打款确认人")
+	private String payoutBy;
+
 	@TableField(fill = FieldFill.INSERT)
 	@Schema(description = "创建人")
 	private String createBy;

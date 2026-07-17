@@ -2413,11 +2413,13 @@ CREATE TABLE `distribution_config` (
   `create_time` datetime DEFAULT NULL COMMENT '创建时间',
   `update_time` datetime DEFAULT NULL COMMENT '更新时间',
   `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0显示 1隐藏',
+  `active_config_key` char(1) GENERATED ALWAYS AS (CASE WHEN status = '0' AND del_flag = '0' THEN '1' ELSE NULL END) STORED COMMENT '单租户启用配置唯一键',
   `tenant_id` varchar(32) NOT NULL COMMENT '租户id',
   `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
   `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
   `version` int DEFAULT 0 COMMENT '版本号',
   PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_distribution_config_active` (`tenant_id`, `active_config_key`),
   KEY `idx_status` (`status`),
   KEY `idx_tenant_id` (`tenant_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='分销配置表';
@@ -2434,8 +2436,10 @@ CREATE TABLE `distribution_user` (
   `inviter_user_id` varchar(32) DEFAULT NULL COMMENT '邀请人ID',
   `total_commission` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '累计佣金',
   `available_commission` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '可提现佣金',
+  `pending_commission` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '待结算佣金',
   `withdrawn_commission` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '已提现佣金',
   `frozen_commission` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '冻结佣金（提现申请中）',
+  `commission_debt` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '退款产生的佣金欠款',
   `subordinate_count` int DEFAULT 0 COMMENT '下级人数',
   `status` char(2) NOT NULL DEFAULT '0' COMMENT '状态：0启用 1禁用',
   `create_time` datetime DEFAULT NULL COMMENT '创建时间',
@@ -2445,8 +2449,9 @@ CREATE TABLE `distribution_user` (
   `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
   `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
   `version` int DEFAULT 0 COMMENT '版本号',
+  `active_user_id` varchar(32) GENERATED ALWAYS AS (CASE WHEN `del_flag` = '0' THEN `user_id` ELSE NULL END) STORED COMMENT '有效分销用户唯一键',
   PRIMARY KEY (`id`) USING BTREE,
-  UNIQUE KEY `uk_distribution_user_user_id` (`user_id`),
+  UNIQUE KEY `uk_distribution_user_active` (`tenant_id`, `active_user_id`),
   KEY `idx_inviter_user_id` (`inviter_user_id`),
   KEY `idx_status` (`status`),
   KEY `idx_tenant_id` (`tenant_id`)
@@ -2462,9 +2467,14 @@ CREATE TABLE `distribution_order` (
   `buyer_user_id` varchar(32) NOT NULL COMMENT '买家用户ID',
   `distributor_user_id` varchar(32) NOT NULL COMMENT '分销员用户ID',
   `order_amount` decimal(10,2) NOT NULL COMMENT '订单金额',
+  `freight_amount` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '运费金额',
+  `commission_base_amount` decimal(10,2) NOT NULL COMMENT '佣金计算基数（不含运费）',
   `commission_amount` decimal(10,2) NOT NULL COMMENT '佣金金额',
+  `refunded_base_amount` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '累计退款佣金基数',
+  `refunded_commission_amount` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '累计回退佣金',
   `commission_level` int DEFAULT 1 COMMENT '佣金层级：1一级 2二级',
   `status` char(2) NOT NULL DEFAULT '0' COMMENT '状态：0待结算 1已结算 2已退款',
+  `settle_at` datetime DEFAULT NULL COMMENT '计划结算时间',
   `settle_time` datetime DEFAULT NULL COMMENT '结算时间',
   `create_time` datetime DEFAULT NULL COMMENT '创建时间',
   `update_time` datetime DEFAULT NULL COMMENT '更新时间',
@@ -2474,7 +2484,7 @@ CREATE TABLE `distribution_order` (
   `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
   `version` int DEFAULT 0 COMMENT '版本号',
   PRIMARY KEY (`id`) USING BTREE,
-  UNIQUE KEY `uk_distribution_order_biz_order` (`biz_order_id`),
+  UNIQUE KEY `uk_distribution_order_level` (`tenant_id`, `biz_order_id`, `commission_level`),
   KEY `idx_distributor_user_id` (`distributor_user_id`),
   KEY `idx_buyer_user_id` (`buyer_user_id`),
   KEY `idx_status` (`status`),
@@ -2518,11 +2528,14 @@ CREATE TABLE `distribution_withdraw` (
   `status` char(2) NOT NULL DEFAULT '0' COMMENT '状态：0待审核 1已通过 2已拒绝',
   `account_type` varchar(16) DEFAULT NULL COMMENT '收款类型',
   `account_name` varchar(64) DEFAULT NULL COMMENT '收款人',
-  `account_no` varchar(128) DEFAULT NULL COMMENT '收款账号',
+  `account_no` varchar(512) DEFAULT NULL COMMENT '加密收款账号',
   `reject_reason` varchar(255) DEFAULT NULL COMMENT '拒绝原因',
   `remark` varchar(255) DEFAULT NULL COMMENT '备注',
   `audit_time` datetime DEFAULT NULL COMMENT '审核时间',
   `audit_by` varchar(60) DEFAULT NULL COMMENT '审核人',
+  `payout_no` varchar(64) DEFAULT NULL COMMENT '线下打款流水号',
+  `payout_time` datetime DEFAULT NULL COMMENT '线下打款时间',
+  `payout_by` varchar(60) DEFAULT NULL COMMENT '线下打款确认人',
   `create_time` datetime DEFAULT NULL COMMENT '创建时间',
   `update_time` datetime DEFAULT NULL COMMENT '更新时间',
   `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0显示 1隐藏',
@@ -2531,10 +2544,31 @@ CREATE TABLE `distribution_withdraw` (
   `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
   `version` int DEFAULT 0 COMMENT '版本号',
   PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_distribution_withdraw_payout` (`tenant_id`, `payout_no`),
   KEY `idx_user_id` (`user_id`),
   KEY `idx_status` (`status`),
   KEY `idx_tenant_id` (`tenant_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='分销提现表';
+
+-- ----------------------------
+-- Table structure for distribution_refund_record
+-- ----------------------------
+DROP TABLE IF EXISTS `distribution_refund_record`;
+CREATE TABLE `distribution_refund_record` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `refund_no` varchar(64) NOT NULL COMMENT '退款业务号',
+  `biz_order_id` varchar(32) NOT NULL COMMENT '业务订单ID',
+  `refund_amount` decimal(10,2) NOT NULL COMMENT '退款总额（含运费）',
+  `refund_base_amount` decimal(10,2) NOT NULL COMMENT '退款佣金基数（不含运费）',
+  `applied` char(1) NOT NULL DEFAULT '0' COMMENT '是否已回退佣金：0否 1是',
+  `applied_time` datetime DEFAULT NULL COMMENT '佣金回退完成时间',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户id',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_distribution_refund_no` (`tenant_id`, `refund_no`),
+  KEY `idx_distribution_refund_order` (`tenant_id`, `biz_order_id`),
+  KEY `idx_distribution_refund_pending` (`tenant_id`, `applied`, `create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='分销退款幂等记录';
 
 -- ----------------------------
 -- 分销相关字典项
