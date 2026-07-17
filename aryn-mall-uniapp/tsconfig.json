@@ -11,8 +11,7 @@
       "@mini-types/alipay",
       "miniprogram-api-typings",
       "@uni-helper/uni-types",
-      "wot-design-uni/global",
-      "uni-echarts/global"
+      "wot-design-uni/global"
     ],
     "sourceMap": true
   },

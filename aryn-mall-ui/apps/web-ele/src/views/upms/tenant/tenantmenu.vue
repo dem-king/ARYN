@@ -107,27 +107,22 @@ defineExpose({
 });
 </script>
 <template>
-  <ElDialog
-    v-model="dialog"
-    title="分配菜单"
-    width="50%"
-    destroy-on-close
-  >
+  <ElDialog v-model="dialog" title="分配菜单" width="50%" destroy-on-close>
     <div v-loading="loading">
-    <ElTree
-      ref="menuRef"
-      :data="state.menuList"
-      :props="defaultProps"
-      node-key="id"
-      show-checkbox
-      @check="handleChange"
-    >
-      <template #default="{ node }">
-        <span class="custom-tree-node">
-          <span>{{ $t(node.label) }}</span>
-        </span>
-      </template>
-    </ElTree>
+      <ElTree
+        ref="menuRef"
+        :data="state.menuList"
+        :props="defaultProps"
+        node-key="id"
+        show-checkbox
+        @check="handleChange"
+      >
+        <template #default="{ node }">
+          <span class="custom-tree-node">
+            <span>{{ $t(node.label) }}</span>
+          </span>
+        </template>
+      </ElTree>
     </div>
     <template #footer>
       <span class="dialog-footer">

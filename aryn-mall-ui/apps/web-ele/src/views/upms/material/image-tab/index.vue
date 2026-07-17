@@ -29,7 +29,7 @@ const props = defineProps({
   showShop: { type: Boolean, default: true },
 });
 
-const emit = defineEmits(['select-change']);
+const emit = defineEmits(['selectChange']);
 const Pagination = defineAsyncComponent(
   () => import('#/components/pagination/index.vue'),
 );
@@ -113,7 +113,7 @@ const handleSelect = (item: MaterialObj) => {
   }
 
   const urlList = selectedList.value.map((i) => i.url);
-  emit('select-change', urlList); // 返回 url 数组
+  emit('selectChange', urlList); // 返回 url 数组
 };
 
 // 判断图片是否被选中

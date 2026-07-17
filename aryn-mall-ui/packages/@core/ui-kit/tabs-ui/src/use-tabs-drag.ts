@@ -15,7 +15,10 @@ function findParentElement(element: HTMLElement) {
     : element.closest(`.${parentCls}`);
 }
 
-export function useTabsDrag(props: TabsProps, emit: EmitType) {
+export function useTabsDrag(
+  props: TabsProps,
+  emit: EmitType<'sortTabs', [number, number]>,
+) {
   const sortableInstance = ref<null | Sortable>(null);
 
   async function initTabsSortable() {

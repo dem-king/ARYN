@@ -42,17 +42,19 @@ export const arrEquals = (arr1: any, arr2: any) => {
  */
 export const descartes = (array: any) => {
   if (array.length < 2) return array[0] || [];
-  return Array.prototype.reduce.call(array, (col: any, set: any) => {
+  let product = array[0];
+  for (const set of array.slice(1)) {
     const res: any = [];
-    col.forEach((c: any) => {
+    product.forEach((c: any) => {
       set.forEach((s: any) => {
         const t = [Array.isArray(c) ? c : [c]].flat();
         t.push(s);
         res.push(t);
       });
     });
-    return res;
-  });
+    product = res;
+  }
+  return product;
 };
 
 export const findArray = (array: any, value: string) => {
@@ -63,13 +65,12 @@ export const findArray = (array: any, value: string) => {
 
 export function downloadBlobFile(url: string, query: any, fileName: string) {
   return requestClient
-    .download(url, { params: query, responseReturn: 'raw' })
+    .download(url, { params: query })
     .then((response) => {
-      // 如果 data 不是 Blob，则转换为 Blob
       const blob =
-        response.data instanceof Blob
-          ? response.data
-          : new Blob([response.data], { type: 'application/octet-stream' });
+        response instanceof Blob
+          ? response
+          : new Blob([response], { type: 'application/octet-stream' });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;

@@ -23,9 +23,9 @@ const dynamicStyles = useDiyStyle(computed(() => props.showData.commonStyle))
     >
       <view
         class="diy-title dark:text-white!" :style="{
-          'font-size': `${showData.titleSize}px`,
-          'color': `${showData.titleColor}`,
-          'font-weight': `${showData.titleWeight === '1' ? '700' : ''}`,
+          fontSize: `${showData.titleSize}px`,
+          color: `${showData.titleColor}`,
+          fontWeight: showData.titleWeight === '1' ? '700' : undefined,
         }"
       >
         <view>{{ showData.title }}</view>
@@ -33,7 +33,7 @@ const dynamicStyles = useDiyStyle(computed(() => props.showData.commonStyle))
       <view class="more-btn" @click="followDecorationLink(showData.link)">
         <text
           v-if="showData.moreBtn && showData.moreBtnStyle !== '3'"
-          :style="{ 'color': showData.moreBtnColor, 'font-weight': `${showData.moreBtnWeight === '1' ? '700' : ''}`, 'font-size': `${showData.moreBtnSize}px` }"
+          :style="{ color: showData.moreBtnColor, fontWeight: showData.moreBtnWeight === '1' ? '700' : undefined, fontSize: `${showData.moreBtnSize}px` }"
         >
           {{ showData.moreBtnText }}
         </text>
@@ -45,10 +45,10 @@ const dynamicStyles = useDiyStyle(computed(() => props.showData.commonStyle))
     </view>
     <view
       v-if="showData.showDesc" class="diy-desc" :style="{
-        'font-size': `${showData.descSize}px`,
-        'color': `${showData.descColor}`,
-        'font-weight': `${showData.descWeight === '1' ? '700' : ''}`,
-        'text-align': `${showData.descCenter ? 'center' : ''}`,
+        fontSize: `${showData.descSize}px`,
+        color: `${showData.descColor}`,
+        fontWeight: showData.descWeight === '1' ? '700' : undefined,
+        textAlign: showData.descCenter ? 'center' : undefined,
       }"
     >
       <view>{{ showData.desc }}</view>

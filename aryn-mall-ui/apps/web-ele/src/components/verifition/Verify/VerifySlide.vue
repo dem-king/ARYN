@@ -3,6 +3,7 @@ import {
   computed,
   getCurrentInstance,
   nextTick,
+  onBeforeUnmount,
   onMounted,
   reactive,
   ref,
@@ -23,6 +24,7 @@ export default {
   props: {
     captchaType: {
       type: String,
+      default: 'blockPuzzle',
     },
     type: {
       type: String,
@@ -33,7 +35,7 @@ export default {
       type: String,
       default: 'fixed',
     },
-    vSpace: {
+    space: {
       type: Number,
       default: 5,
     },
@@ -69,17 +71,8 @@ export default {
       },
     },
   },
-  setup(props, context) {
-    const {
-      mode,
-      captchaType,
-      vSpace,
-      imgSize,
-      barSize,
-      type,
-      blockSize,
-      explain,
-    } = toRefs(props);
+  setup(props) {
+    const { mode, captchaType, type, blockSize, explain } = toRefs(props);
     const { proxy } = getCurrentInstance();
     const backImgBase = ref(''); // 验证码背景图片
     const backToken = ref(''); // 后端返回的唯一token值
@@ -114,6 +107,10 @@ export default {
     const transitionLeft = ref('');
     const transitionWidth = ref('');
 
+    const handleMove = (event) => move(event);
+    const handleEnd = () => end();
+    const preventSelection = (event) => event.preventDefault();
+
     const barArea = computed(() => {
       return proxy.$el.querySelector('.verify-bar-area');
     });
@@ -129,35 +126,19 @@ export default {
         proxy.$parent.$emit('ready', proxy);
       });
 
-      window.removeEventListener('touchmove', (e) => {
-        move(e);
-      });
-      window.removeEventListener('mousemove', (e) => {
-        move(e);
-      });
+      window.removeEventListener('touchmove', handleMove);
+      window.removeEventListener('mousemove', handleMove);
 
       // 鼠标松开
-      window.removeEventListener('touchend', () => {
-        end();
-      });
-      window.removeEventListener('mouseup', () => {
-        end();
-      });
+      window.removeEventListener('touchend', handleEnd);
+      window.removeEventListener('mouseup', handleEnd);
 
-      window.addEventListener('touchmove', (e) => {
-        move(e);
-      });
-      window.addEventListener('mousemove', (e) => {
-        move(e);
-      });
+      window.addEventListener('touchmove', handleMove);
+      window.addEventListener('mousemove', handleMove);
 
       // 鼠标松开
-      window.addEventListener('touchend', () => {
-        end();
-      });
-      window.addEventListener('mouseup', () => {
-        end();
-      });
+      window.addEventListener('touchend', handleEnd);
+      window.addEventListener('mouseup', handleEnd);
     }
     watch(type, () => {
       init();
@@ -165,26 +146,24 @@ export default {
     onMounted(() => {
       // 禁止拖拽
       init();
-      proxy.$el.addEventListener('selectstart', () => {
-        return false;
-      });
+      proxy.$el.addEventListener('selectstart', preventSelection);
+    });
+    onBeforeUnmount(() => {
+      window.removeEventListener('touchmove', handleMove);
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('touchend', handleEnd);
+      window.removeEventListener('mouseup', handleEnd);
+      proxy.$el?.removeEventListener('selectstart', preventSelection);
     });
     // 鼠标按下
     function start(e) {
       e = e || window.event;
-      if (e.touches) {
-        // 兼容移动端
-        var x = e.touches[0].pageX;
-      } else {
-        // 兼容PC端
-        var x = e.clientX;
-      }
-      console.log(barArea);
+      const x = e.touches ? e.touches[0].pageX : e.clientX;
       startLeft.value = Math.floor(
         x - barArea.value.getBoundingClientRect().left,
       );
       startMoveTime.value = Date.now(); // 开始滑动的时间
-      if (isEnd.value == false) {
+      if (!isEnd.value) {
         text.value = '';
         moveBlockBackgroundColor.value = '#337ab7';
         leftBarBorderColor.value = '#337AB7';
@@ -196,14 +175,8 @@ export default {
     // 鼠标移动
     function move(e) {
       e = e || window.event;
-      if (status.value && isEnd.value == false) {
-        if (e.touches) {
-          // 兼容移动端
-          var x = e.touches[0].pageX;
-        } else {
-          // 兼容PC端
-          var x = e.clientX;
-        }
+      if (status.value && !isEnd.value) {
+        const x = e.touches ? e.touches[0].pageX : e.clientX;
         const bar_area_left = barArea.value.getBoundingClientRect().left;
         let move_block_left = x - bar_area_left; // 小方块相对于父元素的left值
         if (
@@ -232,7 +205,7 @@ export default {
     function end() {
       endMovetime.value = Date.now();
       // 判断是否重合
-      if (status.value && isEnd.value == false) {
+      if (status.value && !isEnd.value) {
         let moveLeftDistance = Number.parseInt(
           (moveBlockLeft.value || '').replace('px', ''),
         );
@@ -383,7 +356,7 @@ export default {
     <div
       v-if="type === '2'"
       class="verify-img-out"
-      :style="{ height: `${parseInt(setSize.imgHeight) + vSpace}px` }"
+      :style="{ height: `${parseInt(setSize.imgHeight) + space}px` }"
     >
       <div
         class="verify-img-panel"
@@ -450,7 +423,7 @@ export default {
             :style="{
               width: `${Math.floor((parseInt(setSize.imgWidth) * 47) / 310)}px`,
               height: setSize.imgHeight,
-              top: `-${parseInt(setSize.imgHeight) + vSpace}px`,
+              top: `-${parseInt(setSize.imgHeight) + space}px`,
               'background-size': `${setSize.imgWidth} ${setSize.imgHeight}`,
             }"
           >

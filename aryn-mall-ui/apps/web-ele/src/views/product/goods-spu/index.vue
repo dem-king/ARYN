@@ -77,7 +77,6 @@ const showSearch = ref(true);
 const $route = useRouter();
 const loading = ref(false);
 const queryRef = ref();
-const verifyDialogFormRef = ref();
 const { tableData, queryParams, page } = toRefs(state);
 
 /**
@@ -168,10 +167,6 @@ const handleSelectionChange = (val: any) => {
   multipleSelection.value = val;
 };
 
-const handleActive = (event: string) => {
-  state.active = event;
-  initPage();
-};
 getCategory();
 initPage();
 </script>

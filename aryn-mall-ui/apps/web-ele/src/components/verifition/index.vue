@@ -21,9 +21,11 @@ export default {
     },
     figure: {
       type: Number,
+      default: 0,
     },
     arith: {
       type: Number,
+      default: 0,
     },
     mode: {
       type: String,
@@ -31,9 +33,11 @@ export default {
     },
     vSpace: {
       type: Number,
+      default: 5,
     },
     explain: {
       type: String,
+      default: '向右滑动完成验证',
     },
     imgSize: {
       type: Object,
@@ -46,23 +50,19 @@ export default {
     },
     blockSize: {
       type: Object,
+      default() {
+        return { height: '50px', width: '50px' };
+      },
     },
     barSize: {
       type: Object,
+      default() {
+        return { height: '40px', width: '310px' };
+      },
     },
   },
   setup(props) {
-    const {
-      captchaType,
-      figure,
-      arith,
-      mode,
-      vSpace,
-      explain,
-      imgSize,
-      blockSize,
-      barSize,
-    } = toRefs(props);
+    const { captchaType, mode } = toRefs(props);
     const clickShow = ref(false);
     const verifyType = ref(undefined);
     const componentType = ref(undefined);
@@ -142,7 +142,7 @@ export default {
           :figure="figure"
           :arith="arith"
           :mode="mode"
-          :v-space="vSpace"
+          :space="vSpace"
           :explain="explain"
           :img-size="imgSize"
           :block-size="blockSize"

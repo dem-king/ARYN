@@ -1,7 +1,6 @@
 # 主题与布局配置系统集成指南
 
-> 本指南介绍如何将 `aryn-mall-ui` 中的主题切换与布局配置功能集成到另一个 Vue 3 项目中。
-> 目标技术栈：Vue 3 + Vite + TypeScript（可选 Tailwind CSS）
+> 本指南介绍如何将 `aryn-mall-ui` 中的主题切换与布局配置功能集成到另一个 Vue 3 项目中。目标技术栈：Vue 3 + Vite + TypeScript（可选 Tailwind CSS）
 
 ---
 
@@ -69,14 +68,14 @@
 
 ```typescript
 interface Preferences {
-  app: AppPreferences;        // 应用级：布局模式、语言、紧凑模式
-  theme: ThemePreferences;    // 主题级：模式、主色、圆角、内置主题
-  sidebar: SidebarPreferences;// 侧边栏：宽度、折叠、悬停展开
-  header: HeaderPreferences;  // 顶栏：高度、隐藏、模式
-  footer: FooterPreferences;  // 底栏：启用、固定、高度
-  tabbar: TabbarPreferences;  // 标签栏：启用、样式、缓存
+  app: AppPreferences; // 应用级：布局模式、语言、紧凑模式
+  theme: ThemePreferences; // 主题级：模式、主色、圆角、内置主题
+  sidebar: SidebarPreferences; // 侧边栏：宽度、折叠、悬停展开
+  header: HeaderPreferences; // 顶栏：高度、隐藏、模式
+  footer: FooterPreferences; // 底栏：启用、固定、高度
+  tabbar: TabbarPreferences; // 标签栏：启用、样式、缓存
   transition: TransitionPreferences; // 动画：页面切换、进度条
-  widget: WidgetPreferences;  // 功能部件：搜索、全屏、主题切换
+  widget: WidgetPreferences; // 功能部件：搜索、全屏、主题切换
 }
 ```
 
@@ -507,7 +506,10 @@ import { defu } from 'defu';
 
 export const merge = defu;
 
-export function diff<T extends Record<string, any>>(obj1: T, obj2: T): Partial<T> {
+export function diff<T extends Record<string, any>>(
+  obj1: T,
+  obj2: T,
+): Partial<T> {
   function findDifferences(o1: any, o2: any): any {
     if (Array.isArray(o1) && Array.isArray(o2)) {
       if (JSON.stringify(o1) !== JSON.stringify(o2)) {
@@ -706,14 +708,34 @@ export const BUILT_IN_THEME_PRESETS: BuiltinThemePreset[] = [
   { color: 'hsl(42 84% 61%)', type: 'yellow' },
   { color: 'hsl(231 98% 65%)', type: 'sky-blue' },
   { color: 'hsl(161 90% 43%)', type: 'green' },
-  { color: 'hsl(240 5% 26%)', darkPrimaryColor: 'hsl(0 0% 98%)', primaryColor: 'hsl(240 5.9% 10%)', type: 'zinc' },
+  {
+    color: 'hsl(240 5% 26%)',
+    darkPrimaryColor: 'hsl(0 0% 98%)',
+    primaryColor: 'hsl(240 5.9% 10%)',
+    type: 'zinc',
+  },
   { color: 'hsl(181 84% 32%)', type: 'deep-green' },
   { color: 'hsl(211 91% 39%)', type: 'deep-blue' },
   { color: 'hsl(18 89% 40%)', type: 'orange' },
   { color: 'hsl(0 75% 42%)', type: 'rose' },
-  { color: 'hsl(0 0% 25%)', darkPrimaryColor: 'hsl(0 0% 98%)', primaryColor: 'hsl(240 5.9% 10%)', type: 'neutral' },
-  { color: 'hsl(215 25% 27%)', darkPrimaryColor: 'hsl(0 0% 98%)', primaryColor: 'hsl(240 5.9% 10%)', type: 'slate' },
-  { color: 'hsl(217 19% 27%)', darkPrimaryColor: 'hsl(0 0% 98%)', primaryColor: 'hsl(240 5.9% 10%)', type: 'gray' },
+  {
+    color: 'hsl(0 0% 25%)',
+    darkPrimaryColor: 'hsl(0 0% 98%)',
+    primaryColor: 'hsl(240 5.9% 10%)',
+    type: 'neutral',
+  },
+  {
+    color: 'hsl(215 25% 27%)',
+    darkPrimaryColor: 'hsl(0 0% 98%)',
+    primaryColor: 'hsl(240 5.9% 10%)',
+    type: 'slate',
+  },
+  {
+    color: 'hsl(217 19% 27%)',
+    darkPrimaryColor: 'hsl(0 0% 98%)',
+    primaryColor: 'hsl(240 5.9% 10%)',
+    type: 'gray',
+  },
   { color: '', type: 'custom' },
 ];
 
@@ -732,7 +754,10 @@ export const COLOR_PRESETS = BUILT_IN_THEME_PRESETS.slice(0, 7);
 import type { Preferences } from '@/types/preferences';
 
 import { BUILT_IN_THEME_PRESETS } from '@/config/theme-presets';
-import { generatorColorVariables, updateCSSVariables as executeUpdateCSSVariables } from '@/utils/color';
+import {
+  generatorColorVariables,
+  updateCSSVariables as executeUpdateCSSVariables,
+} from '@/utils/color';
 
 export function isDarkTheme(theme: string) {
   let dark = theme === 'dark';
@@ -831,7 +856,11 @@ function updateMainColorVariables(preference: Preferences) {
 **文件：`src/composables/preference-manager.ts`**
 
 ```typescript
-import type { DeepPartial, InitialOptions, Preferences } from '@/types/preferences';
+import type {
+  DeepPartial,
+  InitialOptions,
+  Preferences,
+} from '@/types/preferences';
 
 import { markRaw, reactive, readonly, watch } from 'vue';
 import { useBreakpoints, useDebounceFn } from '@vueuse/core';
@@ -1027,15 +1056,28 @@ export function usePreferences() {
   );
 
   const isShowHeaderNav = computed(() => preferences.header.enable);
-  const isFullContent = computed(() => appPreferences.value.layout === 'full-content');
-  const isSideNav = computed(() => appPreferences.value.layout === 'sidebar-nav');
-  const isHeaderNav = computed(() => appPreferences.value.layout === 'header-nav');
-  const isMixedNav = computed(() => appPreferences.value.layout === 'mixed-nav');
-  const isSideMode = computed(() =>
-    isMixedNav.value || isSideNav.value || appPreferences.value.layout === 'sidebar-mixed-nav',
+  const isFullContent = computed(
+    () => appPreferences.value.layout === 'full-content',
+  );
+  const isSideNav = computed(
+    () => appPreferences.value.layout === 'sidebar-nav',
+  );
+  const isHeaderNav = computed(
+    () => appPreferences.value.layout === 'header-nav',
+  );
+  const isMixedNav = computed(
+    () => appPreferences.value.layout === 'mixed-nav',
+  );
+  const isSideMode = computed(
+    () =>
+      isMixedNav.value ||
+      isSideNav.value ||
+      appPreferences.value.layout === 'sidebar-mixed-nav',
   );
   const sidebarCollapsed = computed(() => preferences.sidebar.collapsed);
-  const keepAlive = computed(() => preferences.tabbar.enable && preferences.tabbar.keepAlive);
+  const keepAlive = computed(
+    () => preferences.tabbar.enable && preferences.tabbar.keepAlive,
+  );
 
   return {
     diffPreference,
@@ -1065,10 +1107,14 @@ export function usePreferences() {
 import { preferencesManager } from './preference-manager';
 
 export const preferences = preferencesManager.getPreferences();
-export const updatePreferences = preferencesManager.updatePreferences.bind(preferencesManager);
-export const resetPreferences = preferencesManager.resetPreferences.bind(preferencesManager);
-export const clearPreferencesCache = preferencesManager.clearCache.bind(preferencesManager);
-export const initPreferences = preferencesManager.initPreferences.bind(preferencesManager);
+export const updatePreferences =
+  preferencesManager.updatePreferences.bind(preferencesManager);
+export const resetPreferences =
+  preferencesManager.resetPreferences.bind(preferencesManager);
+export const clearPreferencesCache =
+  preferencesManager.clearCache.bind(preferencesManager);
+export const initPreferences =
+  preferencesManager.initPreferences.bind(preferencesManager);
 export { preferencesManager };
 export * from './use-preferences';
 ```
@@ -1222,7 +1268,11 @@ export * from './use-preferences';
 ```vue
 <script setup lang="ts">
 import { computed } from 'vue';
-import { preferences, updatePreferences, usePreferences } from '@/composables/preferences';
+import {
+  preferences,
+  updatePreferences,
+  usePreferences,
+} from '@/composables/preferences';
 
 const { isDark } = usePreferences();
 
@@ -1242,10 +1292,7 @@ const PRESETS = [
 <template>
   <div class="theme-toggle">
     <!-- 简化版：切换按钮 -->
-    <button
-      class="toggle-btn"
-      @click="handleChange"
-    >
+    <button class="toggle-btn" @click="handleChange">
       <span v-if="isDark">🌙</span>
       <span v-else>☀️</span>
     </button>
@@ -1328,7 +1375,10 @@ const LAYOUTS = [
       @click="updatePreferences({ app: { layout: item.name as any } })"
     >
       <div class="layout-preview" :class="item.name">
-        <div class="preview-sidebar" v-if="item.name !== 'header-nav' && item.name !== 'full-content'"></div>
+        <div
+          class="preview-sidebar"
+          v-if="item.name !== 'header-nav' && item.name !== 'full-content'"
+        ></div>
         <div class="preview-header" v-if="item.name !== 'full-content'"></div>
         <div class="preview-content"></div>
       </div>
@@ -1413,7 +1463,12 @@ const LAYOUTS = [
 ```vue
 <script setup lang="ts">
 import { ref } from 'vue';
-import { preferences, resetPreferences, updatePreferences, usePreferences } from '@/composables/preferences';
+import {
+  preferences,
+  resetPreferences,
+  updatePreferences,
+  usePreferences,
+} from '@/composables/preferences';
 import ThemeToggle from './ThemeToggle.vue';
 import LayoutToggle from './LayoutToggle.vue';
 
@@ -1476,7 +1531,13 @@ function handleReset() {
                     max="1"
                     step="0.1"
                     :value="preferences.theme.radius"
-                    @input="updatePreferences({ theme: { radius: ($event.target as HTMLInputElement).value } })"
+                    @input="
+                      updatePreferences({
+                        theme: {
+                          radius: ($event.target as HTMLInputElement).value,
+                        },
+                      })
+                    "
                   />
                   <span>{{ preferences.theme.radius }}rem</span>
                 </div>
@@ -1487,7 +1548,14 @@ function handleReset() {
                     <input
                       type="checkbox"
                       :checked="preferences.app.colorGrayMode"
-                      @change="updatePreferences({ app: { colorGrayMode: ($event.target as HTMLInputElement).checked } })"
+                      @change="
+                        updatePreferences({
+                          app: {
+                            colorGrayMode: ($event.target as HTMLInputElement)
+                              .checked,
+                          },
+                        })
+                      "
                     />
                     灰色模式
                   </label>
@@ -1495,7 +1563,14 @@ function handleReset() {
                     <input
                       type="checkbox"
                       :checked="preferences.app.colorWeakMode"
-                      @change="updatePreferences({ app: { colorWeakMode: ($event.target as HTMLInputElement).checked } })"
+                      @change="
+                        updatePreferences({
+                          app: {
+                            colorWeakMode: ($event.target as HTMLInputElement)
+                              .checked,
+                          },
+                        })
+                      "
                     />
                     色弱模式
                   </label>
@@ -1515,7 +1590,14 @@ function handleReset() {
                     <input
                       type="checkbox"
                       :checked="preferences.sidebar.collapsed"
-                      @change="updatePreferences({ sidebar: { collapsed: ($event.target as HTMLInputElement).checked } })"
+                      @change="
+                        updatePreferences({
+                          sidebar: {
+                            collapsed: ($event.target as HTMLInputElement)
+                              .checked,
+                          },
+                        })
+                      "
                     />
                     折叠侧边栏
                   </label>
@@ -1523,7 +1605,14 @@ function handleReset() {
                     <input
                       type="checkbox"
                       :checked="preferences.sidebar.expandOnHover"
-                      @change="updatePreferences({ sidebar: { expandOnHover: ($event.target as HTMLInputElement).checked } })"
+                      @change="
+                        updatePreferences({
+                          sidebar: {
+                            expandOnHover: ($event.target as HTMLInputElement)
+                              .checked,
+                          },
+                        })
+                      "
                     />
                     悬停展开
                   </label>
@@ -1535,7 +1624,14 @@ function handleReset() {
                     <input
                       type="checkbox"
                       :checked="preferences.widget.themeToggle"
-                      @change="updatePreferences({ widget: { themeToggle: ($event.target as HTMLInputElement).checked } })"
+                      @change="
+                        updatePreferences({
+                          widget: {
+                            themeToggle: ($event.target as HTMLInputElement)
+                              .checked,
+                          },
+                        })
+                      "
                     />
                     显示主题切换
                   </label>
@@ -1543,7 +1639,14 @@ function handleReset() {
                     <input
                       type="checkbox"
                       :checked="preferences.widget.fullscreen"
-                      @change="updatePreferences({ widget: { fullscreen: ($event.target as HTMLInputElement).checked } })"
+                      @change="
+                        updatePreferences({
+                          widget: {
+                            fullscreen: ($event.target as HTMLInputElement)
+                              .checked,
+                          },
+                        })
+                      "
                     />
                     显示全屏按钮
                   </label>
@@ -1558,7 +1661,13 @@ function handleReset() {
                     <input
                       type="checkbox"
                       :checked="preferences.transition.enable"
-                      @change="updatePreferences({ transition: { enable: ($event.target as HTMLInputElement).checked } })"
+                      @change="
+                        updatePreferences({
+                          transition: {
+                            enable: ($event.target as HTMLInputElement).checked,
+                          },
+                        })
+                      "
                     />
                     启用页面切换动画
                   </label>
@@ -1789,7 +1898,10 @@ const { theme, layout, isSideMode, sidebarCollapsed } = usePreferences();
         <!-- 顶部栏 -->
         <header class="header">
           <div class="header-left">
-            <button v-if="isSideMode" @click="sidebarCollapsed = !sidebarCollapsed">
+            <button
+              v-if="isSideMode"
+              @click="sidebarCollapsed = !sidebarCollapsed"
+            >
               ☰
             </button>
             <span>面包屑 / 路径</span>
@@ -1926,9 +2038,7 @@ const { isDark, layout, sidebarCollapsed, theme } = usePreferences();
 </script>
 
 <template>
-  <div :class="{ 'dark-mode': isDark }">
-    当前布局: {{ layout }}
-  </div>
+  <div :class="{ 'dark-mode': isDark }">当前布局: {{ layout }}</div>
 </template>
 ```
 
@@ -2031,9 +2141,7 @@ module.exports = {
 然后组件中可以直接使用 Tailwind 类：
 
 ```html
-<div class="bg-background text-foreground border-border">
-  内容
-</div>
+<div class="bg-background text-foreground border-border">内容</div>
 ```
 
 ### 6.4 服务端渲染 (SSR) 支持
@@ -2116,16 +2224,16 @@ export const usePreferenceStore = defineStore('preferences', () => {
 
 ## 附录：核心 API 速查
 
-| API | 类型 | 说明 |
-|-----|------|------|
-| `initPreferences(options)` | Function | 初始化偏好设置 |
-| `preferences` | Reactive | 全局响应式配置对象 |
-| `updatePreferences(updates)` | Function | 更新配置（支持部分更新） |
-| `resetPreferences()` | Function | 重置为默认值 |
-| `usePreferences()` | Composable | 获取计算属性 |
-| `isDark` | Computed | 是否为暗黑模式 |
-| `layout` | Computed | 当前布局模式 |
-| `theme` | Computed | 当前主题 'dark' \| 'light' |
+| API                          | 类型       | 说明                       |
+| ---------------------------- | ---------- | -------------------------- |
+| `initPreferences(options)`   | Function   | 初始化偏好设置             |
+| `preferences`                | Reactive   | 全局响应式配置对象         |
+| `updatePreferences(updates)` | Function   | 更新配置（支持部分更新）   |
+| `resetPreferences()`         | Function   | 重置为默认值               |
+| `usePreferences()`           | Composable | 获取计算属性               |
+| `isDark`                     | Computed   | 是否为暗黑模式             |
+| `layout`                     | Computed   | 当前布局模式               |
+| `theme`                      | Computed   | 当前主题 'dark' \| 'light' |
 
 ---
 

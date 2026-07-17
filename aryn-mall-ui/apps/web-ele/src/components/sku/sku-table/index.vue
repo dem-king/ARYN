@@ -22,6 +22,22 @@ export interface SpecItem {
   specsValueName: string;
 }
 
+interface SkuItem {
+  costPrice: number;
+  distributionFirstValue: number;
+  distributionSecondValue: number;
+  id?: string;
+  ids: string[];
+  originalPrice: number;
+  picUrl: string;
+  salesPrice: number;
+  specsArr: SpecItem[];
+  status: string;
+  stock: number;
+  volume: number;
+  weight: number;
+}
+
 const props = withDefaults(
   defineProps<{
     goodsSpuSpecs: any[];
@@ -38,7 +54,7 @@ const props = withDefaults(
 const emit = defineEmits(['getGoodsSkus']);
 
 const state = reactive({
-  skusList: [] as any[],
+  skusList: [] as SkuItem[],
   form: {
     salesPrice: 0,
     originalPrice: 0,
@@ -89,7 +105,7 @@ watch(
     const combinations = descartes(array);
 
     // Map to SKU list
-    const newSkus = combinations.map((combo: any) => {
+    const newSkus: SkuItem[] = combinations.map((combo: any) => {
       // Handle single spec vs multiple specs result from descartes
       const specsArrRaw = Array.isArray(combo) ? combo : [combo];
 
@@ -175,10 +191,10 @@ const batchAdd = () => {
     'volume',
   ] as const;
 
-  state.skusList.forEach((item: any) => {
+  state.skusList.forEach((item) => {
     fields.forEach((field) => {
       const value = state.form[field];
-      if (value !== undefined && value !== null && value !== '') {
+      if (value !== undefined && value !== null) {
         item[field] = value;
       }
     });

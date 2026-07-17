@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
+import type { FormInstance } from 'wot-design-uni/components/wd-form/types'
 import { getById, saveOrUpdateAddress } from '@/api/user/address'
 // @ts-expect-error: region-picker type declaration issue
 import RegionPicker from '@/components/region-picker/region-picker.vue'
@@ -28,7 +29,7 @@ interface State {
     detailAddress: string
   }
 }
-const formRef = ref()
+const formRef = ref<FormInstance>()
 const state = reactive<State>({
   form: {
     id: '',
@@ -95,8 +96,7 @@ async function getDetail(id: string) {
 }
 
 function submit() {
-  formRef.value
-    .validate()
+  formRef.value?.validate()
     .then(({ valid, errors }) => {
       if (valid) {
         // 验证手机号是否正确

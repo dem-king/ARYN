@@ -3,6 +3,7 @@ dev-dist
 .local
 .output.js
 node_modules
+.turbo
 .nvmrc
 coverage
 CODEOWNERS

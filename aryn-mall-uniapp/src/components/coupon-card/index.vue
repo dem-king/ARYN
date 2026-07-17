@@ -11,6 +11,7 @@ interface Props {
    * received: 已领取
    */
   status?: 'available' | 'received'
+  selectable?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -22,6 +23,12 @@ const router = useRouter()
 const globalLoading = useGlobalLoading()
 const userStore = useUserStore()
 const { show } = useGlobalToast()
+
+function handleClick() {
+  if (!props.selectable) {
+    handleReceive()
+  }
+}
 
 // 优惠券金额显示
 const amountDisplay = computed(() => {

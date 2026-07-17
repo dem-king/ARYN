@@ -2,20 +2,23 @@
 import { computed } from 'vue'
 import { useDiyStyle } from '@/composables/useDiyStyle'
 
-interface ShowData {
-  commonStyle?: any
-  height: number// 高度
-  gapBgColorDirection: string
-  gapBgStartColor: string
-  gapBgEndColor: string
-}
 const props = defineProps<{
-  showData: ShowData
+  showData: Record<string, unknown>
 }>()
 const getGapStyle = computed(() => {
+  const height = Number(props.showData.height) || 0
+  const direction = typeof props.showData.gapBgColorDirection === 'string'
+    ? props.showData.gapBgColorDirection
+    : 'to right'
+  const startColor = typeof props.showData.gapBgStartColor === 'string'
+    ? props.showData.gapBgStartColor
+    : ''
+  const endColor = typeof props.showData.gapBgEndColor === 'string'
+    ? props.showData.gapBgEndColor
+    : startColor
   return {
-    height: `${props.showData.height}px`,
-    background: `linear-gradient(${props.showData.gapBgColorDirection || 'to right'},${props.showData.gapBgStartColor || ''},${props.showData.gapBgEndColor || props.showData.gapBgStartColor || ''})`,
+    height: `${height}px`,
+    background: `linear-gradient(${direction},${startColor},${endColor})`,
   }
 })
 const dynamicStyles = useDiyStyle(computed(() => props.showData.commonStyle))

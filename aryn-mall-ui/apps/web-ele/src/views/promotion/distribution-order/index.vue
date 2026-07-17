@@ -127,7 +127,7 @@ initPage();
 
       <!-- 工具栏 -->
       <div class="hx-table-toolbar">
-        <div />
+        <div></div>
         <RightToolbar
           :search-btn="true"
           :refresh-btn="true"
@@ -164,7 +164,10 @@ initPage();
         />
         <ElTableColumn prop="status" label="结算状态" align="center">
           <template #default="scope">
-            <DictTag :options="distribution_order_status" :value="scope.row.status" />
+            <DictTag
+              :options="distribution_order_status"
+              :value="scope.row.status"
+            />
           </template>
         </ElTableColumn>
         <ElTableColumn prop="settleTime" label="结算时间" width="180" />

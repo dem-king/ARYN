@@ -65,7 +65,7 @@ function getCouponUnavailableInfo(item: any) {
 
   // ② 判断是否部分商品可用
   if (useRange === '2') {
-    const couponSpuIds = (item.couponGoodsList || []).map(i => i.spuId)
+    const couponSpuIds = (item.couponGoodsList || []).map((i: { spuId: string }) => i.spuId)
     const hasMatched = orderSpuIds.some(spuId => couponSpuIds.includes(spuId))
     if (!hasMatched) {
       result.unavailable = true

@@ -1,5 +1,5 @@
 <script setup lang="ts" name="wngEditor">
-import type { IDomEditor } from '@wangeditor/editor';
+import type { IDomEditor, IEditorConfig } from '@wangeditor/editor';
 
 import { onBeforeUnmount, reactive, ref, shallowRef, watch } from 'vue';
 
@@ -57,14 +57,17 @@ const emit = defineEmits(['update:getHtml', 'update:getText']);
 // 定义变量内容
 const editorRef = shallowRef();
 const imgDialogRef = ref();
-const state = reactive({
+const state = reactive<{
+  editorConfig: Partial<IEditorConfig>;
+  editorVal: string;
+}>({
   editorConfig: {
     placeholder: props.placeholder,
-    MENU_CONF: [],
+    MENU_CONF: {},
   },
   editorVal: props.getHtml,
 });
-state.editorConfig.MENU_CONF.uploadImage = {
+state.editorConfig.MENU_CONF!.uploadImage = {
   // 自定义选择图片
   customBrowseAndUpload(insertFn: InsertFnType) {
     imgDialogRef.value.openDialog();

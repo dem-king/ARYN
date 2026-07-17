@@ -94,10 +94,7 @@ export async function flushPendingDistributionShareBinding() {
 
   try {
     const payload: DistributionShareBindPayload = {
-      shareUserId: cache.shareUserId,
-      referralCode: cache.referralCode,
-      scene: cache.scene,
-      sourcePath: cache.sourcePath,
+      inviterUserId: cache.shareUserId,
     }
     await bindDistributionShareParams(payload)
     Local.remove(DISTRIBUTION_SHARE_CACHE_KEY)

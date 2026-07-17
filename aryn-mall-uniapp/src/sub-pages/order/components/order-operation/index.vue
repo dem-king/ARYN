@@ -1,5 +1,6 @@
 <script setup lang="ts" name="orderOperation">
 import { computed } from 'vue'
+import type { MessageResult } from 'wot-design-uni/components/wd-message-box/types'
 import { orderCancel, orderDel, orderReceiver } from '@/api/order/orderInfo'
 
 const props = defineProps({
@@ -21,7 +22,7 @@ const showQRCodePopup = ref(false)
 
 /** 通用 confirm */
 async function useConfirm(title: string, msg: string) {
-  return new Promise((resolve) => {
+  return new Promise<MessageResult>((resolve) => {
     confirm({
       title,
       msg,

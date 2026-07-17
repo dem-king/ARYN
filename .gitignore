@@ -44,6 +44,12 @@ unpackage/
 
 #编译中间产物
 *.d.ts
+!aryn-mall-ui/apps/web-ele/src/typings/*.d.ts
+!aryn-mall-ui/internal/tailwind-config/src/*.d.ts
+!aryn-mall-ui/packages/@core/base/typings/*.d.ts
+!aryn-mall-ui/packages/@core/base/typings/src/*.d.ts
+!aryn-mall-ui/packages/stores/*.d.ts
+!aryn-mall-ui/packages/types/*.d.ts
 *.d.cts
 *.d.mts
 *.js.map
@@ -93,3 +99,4 @@ graphify-out/
 # Turborepo local build cache
 .turbo/
 .eslintcache
+.stylelintcache

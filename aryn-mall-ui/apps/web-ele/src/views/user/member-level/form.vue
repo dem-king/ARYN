@@ -15,6 +15,8 @@ import {
 
 import { addObj, editObj, getById } from '#/api/user/member-level';
 
+const emit = defineEmits(['initPage']);
+
 const SelectMaterial = defineAsyncComponent(
   () => import('#/components/select-material/index.vue'),
 );
@@ -44,8 +46,6 @@ const rules = reactive({
     { required: true, message: '请输入升级条件值', trigger: 'blur' },
   ],
 });
-
-const emit = defineEmits(['init-page']);
 
 const initForm = async (row?: any) => {
   visible.value = true;
@@ -79,7 +79,7 @@ const submitForm = async () => {
       ElMessage.success('新增成功');
     }
     visible.value = false;
-    emit('init-page');
+    emit('initPage');
   } finally {
     loading.value = false;
   }
@@ -89,7 +89,12 @@ defineExpose({ initForm });
 </script>
 <template>
   <ElDialog v-model="visible" :title="title" width="500px" draggable>
-    <ElForm ref="formRef" :model="state.form" :rules="rules" label-width="120px">
+    <ElForm
+      ref="formRef"
+      :model="state.form"
+      :rules="rules"
+      label-width="120px"
+    >
       <ElFormItem label="等级名称" prop="levelName">
         <ElInput v-model="state.form.levelName" placeholder="请输入等级名称" />
       </ElFormItem>

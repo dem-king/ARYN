@@ -1,6 +1,8 @@
 <script lang="ts" setup>
 import { reactive, ref, watch } from 'vue';
 
+import { cloneDeep } from '@vben/utils';
+
 import { CloseBold } from '@element-plus/icons-vue';
 import { ElButton, ElOption, ElSelect, ElTag } from 'element-plus';
 
@@ -49,7 +51,7 @@ const getGoodsSkus = (skus: any) => {
 watch(
   () => props.goodsSpuSpecs,
   (val) => {
-    spuSpecs.value = val ? JSON.parse(JSON.stringify(val)) : [];
+    spuSpecs.value = val ? cloneDeep(val) : [];
   },
   { deep: true, immediate: true },
 );

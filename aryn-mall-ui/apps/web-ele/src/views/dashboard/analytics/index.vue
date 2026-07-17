@@ -24,6 +24,23 @@ import AnalyticsTraffic from './components/AnalyticsTraffic.vue';
 import AnalyticsTrends from './components/AnalyticsTrends.vue';
 import AnalyticsUser from './components/AnalyticsUser.vue';
 
+interface RankingItem {
+  name: string;
+  value: number;
+}
+
+interface TrendsData {
+  dates: string[];
+  gmv: number[];
+  orders: number[];
+  paidBuyers: number[];
+}
+
+interface UserSourceItem {
+  count?: number;
+  title: string;
+}
+
 const timeRange = ref<string>('30d');
 const loading = ref(false);
 
@@ -37,7 +54,7 @@ const cardsData = ref({
   refundAmount: 0,
 });
 
-const trendsData = ref({
+const trendsData = ref<TrendsData>({
   dates: [],
   gmv: [],
   orders: [],
@@ -53,7 +70,11 @@ const orderStatusData = ref({
   refunded: 0,
 });
 
-const productRankingData = ref({
+const productRankingData = ref<{
+  refundTop10: RankingItem[];
+  salesTop10: RankingItem[];
+  zeroSales: number;
+}>({
   salesTop10: [],
   refundTop10: [],
   zeroSales: 0,
@@ -179,6 +200,7 @@ const fetchData = useDebounceFn(async () => {
               value: item.refundRate,
             }))
           : [],
+      zeroSales: 0,
     };
 
     // 更新用户统计
@@ -231,7 +253,7 @@ const fetchData = useDebounceFn(async () => {
         };
 
     trafficData.value = userSourceStats
-      ? userSourceStats.map((item) => ({
+      ? (userSourceStats as UserSourceItem[]).map((item) => ({
           name: item.title,
           value: item.count || 0,
         }))

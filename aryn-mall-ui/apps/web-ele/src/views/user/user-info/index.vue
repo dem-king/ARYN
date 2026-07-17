@@ -15,8 +15,8 @@ import {
   ElTableColumn,
 } from 'element-plus';
 
-import { getPage } from '#/api/user/user-info';
 import { getList as getLevelList } from '#/api/user/member-level';
+import { getPage } from '#/api/user/user-info';
 import { useDict } from '#/utils/dict';
 
 const RightToolbar = defineAsyncComponent(
@@ -122,7 +122,7 @@ const loadLevelOptions = async () => {
   try {
     const res = await getLevelList();
     levelOptions.value = res || [];
-  } catch (_e) {
+  } catch {
     levelOptions.value = [];
   }
 };

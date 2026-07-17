@@ -8,14 +8,14 @@
 
 ### 1.1 风格定位
 
-| 维度 | 特征 |
-|------|------|
-| **设计语言** | 现代极简 + 企业级管理后台 |
+| 维度         | 特征                                              |
+| ------------ | ------------------------------------------------- |
+| **设计语言** | 现代极简 + 企业级管理后台                         |
 | **组件体系** | Shadcn UI (Radix Vue) + Tailwind CSS + 自定义扩展 |
-| **色彩模式** | HSL CSS 变量驱动，支持亮色/暗色/自动切换 |
-| **圆角风格** | 中等圆角 (0.5rem 默认)，可通过配置调整 |
-| **阴影风格** | 极轻微阴影，以边框分隔为主 |
-| **布局密度** | 中等密度，留白适中 |
+| **色彩模式** | HSL CSS 变量驱动，支持亮色/暗色/自动切换          |
+| **圆角风格** | 中等圆角 (0.5rem 默认)，可通过配置调整            |
+| **阴影风格** | 极轻微阴影，以边框分隔为主                        |
+| **布局密度** | 中等密度，留白适中                                |
 
 ### 1.2 视觉特征关键词
 
@@ -48,7 +48,7 @@
 ### 2.2 架构特点
 
 | 层级 | 技术 | 说明 |
-|------|------|------|
+| --- | --- | --- |
 | **基础样式** | Tailwind CSS + 自定义 CSS 变量 | 原子化 CSS + HSL 变量 |
 | **组件基座** | Radix Vue | 无样式、可访问性优先的 headless 组件 |
 | **组件样式** | CVA (class-variance-authority) | 类型安全的变体样式管理 |
@@ -67,9 +67,9 @@
 ```css
 :root {
   /* 基础表面色 */
-  --background: 0 0% 100%;           /* 页面背景 */
+  --background: 0 0% 100%; /* 页面背景 */
   --background-deep: 216 20.11% 95.47%; /* 深层背景 */
-  --foreground: 210 6% 21%;          /* 主文本 */
+  --foreground: 210 6% 21%; /* 主文本 */
 
   /* 卡片/容器 */
   --card: 0 0% 100%;
@@ -131,15 +131,15 @@
 ```html
 <!-- 背景色 -->
 <div class="bg-background text-foreground">
-
-<!-- 主按钮 -->
-<button class="bg-primary text-primary-foreground hover:bg-primary/90">
-
-<!-- 卡片 -->
-<div class="bg-card text-card-foreground border border-border rounded-lg">
-
-<!-- 输入框 -->
-<input class="bg-background border border-input rounded-md">
+  <!-- 主按钮 -->
+  <button class="bg-primary text-primary-foreground hover:bg-primary/90">
+    <!-- 卡片 -->
+    <div class="bg-card text-card-foreground border-border rounded-lg border">
+      <!-- 输入框 -->
+      <input class="bg-background border-input rounded-md border" />
+    </div>
+  </button>
+</div>
 ```
 
 ---
@@ -225,16 +225,37 @@ const shadcnUiColors = {
 };
 
 const customColors = {
-  green: { ...createColorsPalette('green'), foreground: 'hsl(var(--success-foreground))' },
+  green: {
+    ...createColorsPalette('green'),
+    foreground: 'hsl(var(--success-foreground))',
+  },
   header: { DEFAULT: 'hsl(var(--header))' },
-  heavy: { DEFAULT: 'hsl(var(--heavy))', foreground: 'hsl(var(--heavy-foreground))' },
+  heavy: {
+    DEFAULT: 'hsl(var(--heavy))',
+    foreground: 'hsl(var(--heavy-foreground))',
+  },
   main: { DEFAULT: 'hsl(var(--main))' },
-  overlay: { content: 'hsl(var(--overlay-content))', DEFAULT: 'hsl(var(--overlay))' },
-  red: { ...createColorsPalette('red'), foreground: 'hsl(var(--destructive-foreground))' },
+  overlay: {
+    content: 'hsl(var(--overlay-content))',
+    DEFAULT: 'hsl(var(--overlay))',
+  },
+  red: {
+    ...createColorsPalette('red'),
+    foreground: 'hsl(var(--destructive-foreground))',
+  },
   sidebar: { deep: 'hsl(var(--sidebar-deep))', DEFAULT: 'hsl(var(--sidebar))' },
-  success: { ...createColorsPalette('success'), DEFAULT: 'hsl(var(--success))' },
-  warning: { ...createColorsPalette('warning'), DEFAULT: 'hsl(var(--warning))' },
-  yellow: { ...createColorsPalette('yellow'), foreground: 'hsl(var(--warning-foreground))' },
+  success: {
+    ...createColorsPalette('success'),
+    DEFAULT: 'hsl(var(--success))',
+  },
+  warning: {
+    ...createColorsPalette('warning'),
+    DEFAULT: 'hsl(var(--warning))',
+  },
+  yellow: {
+    ...createColorsPalette('yellow'),
+    foreground: 'hsl(var(--warning-foreground))',
+  },
 };
 
 export default {
@@ -293,13 +314,13 @@ export default {
 
 ### 4.2 关键配置说明
 
-| 配置项 | 值 | 说明 |
-|--------|-----|------|
-| `darkMode` | `'selector'` | 通过 `.dark` 类切换暗色模式 |
-| `colors` | HSL 变量 | 所有颜色引用 CSS 变量 |
-| `borderRadius` | `var(--radius)` | 圆角通过 CSS 变量控制 |
-| `fontFamily` | `var(--font-family)` | 字体通过 CSS 变量控制 |
-| `safelist` | `['dark']` | 确保 dark 类不被 tree-shake |
+| 配置项         | 值                   | 说明                        |
+| -------------- | -------------------- | --------------------------- |
+| `darkMode`     | `'selector'`         | 通过 `.dark` 类切换暗色模式 |
+| `colors`       | HSL 变量             | 所有颜色引用 CSS 变量       |
+| `borderRadius` | `var(--radius)`      | 圆角通过 CSS 变量控制       |
+| `fontFamily`   | `var(--font-family)` | 字体通过 CSS 变量控制       |
+| `safelist`     | `['dark']`           | 确保 dark 类不被 tree-shake |
 
 ---
 
@@ -319,23 +340,32 @@ export const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: 'bg-primary text-primary-foreground shadow hover:bg-primary/90',
-        destructive: 'bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90',
-        outline: 'border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground',
-        secondary: 'bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80',
+        default:
+          'bg-primary text-primary-foreground shadow hover:bg-primary/90',
+        destructive:
+          'bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90',
+        outline:
+          'border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground',
+        secondary:
+          'bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80',
         ghost: 'hover:bg-accent hover:text-accent-foreground',
         link: 'text-primary underline-offset-4 hover:underline',
         dashed: 'border border-dashed hover:border-solid',
         icon: 'rounded-full',
         // 扩展变体
-        'destructive-ghost': 'text-destructive hover:bg-destructive/10 hover:text-destructive',
-        'destructive-outline': 'border border-destructive text-destructive hover:bg-destructive/10 hover:text-destructive',
+        'destructive-ghost':
+          'text-destructive hover:bg-destructive/10 hover:text-destructive',
+        'destructive-outline':
+          'border border-destructive text-destructive hover:bg-destructive/10 hover:text-destructive',
         'primary-ghost': 'text-primary hover:bg-primary/10 hover:text-primary',
-        'primary-outline': 'border border-primary text-primary hover:bg-primary/10 hover:text-primary',
+        'primary-outline':
+          'border border-primary text-primary hover:bg-primary/10 hover:text-primary',
         'success-ghost': 'text-success hover:bg-success/10 hover:text-success',
-        'success-outline': 'border border-success text-success hover:bg-success/10 hover:text-success',
+        'success-outline':
+          'border border-success text-success hover:bg-success/10 hover:text-success',
         'warning-ghost': 'text-warning hover:bg-warning/10 hover:text-warning',
-        'warning-outline': 'border border-warning text-warning hover:bg-warning/10 hover:text-warning',
+        'warning-outline':
+          'border border-warning text-warning hover:bg-warning/10 hover:text-warning',
       },
       size: {
         default: 'h-9 px-4 py-2',
@@ -359,9 +389,7 @@ export const buttonVariants = cva(
   <button :class="cn(buttonVariants({ variant: 'default', size: 'sm' }))">
     默认按钮
   </button>
-  <button :class="cn(buttonVariants({ variant: 'outline' }))">
-    边框按钮
-  </button>
+  <button :class="cn(buttonVariants({ variant: 'outline' }))">边框按钮</button>
   <button :class="cn(buttonVariants({ variant: 'ghost', size: 'icon' }))">
     <Icon icon="lucide:plus" />
   </button>
@@ -379,10 +407,13 @@ export const badgeVariants = cva(
   {
     variants: {
       variant: {
-        default: 'border-transparent bg-accent hover:bg-accent text-primary-foreground shadow',
-        destructive: 'border-transparent bg-destructive text-destructive-foreground shadow hover:bg-destructive-hover',
+        default:
+          'border-transparent bg-accent hover:bg-accent text-primary-foreground shadow',
+        destructive:
+          'border-transparent bg-destructive text-destructive-foreground shadow hover:bg-destructive-hover',
         outline: 'text-foreground',
-        secondary: 'border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80',
+        secondary:
+          'border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80',
       },
     },
     defaultVariants: { variant: 'default' },
@@ -395,15 +426,18 @@ export const badgeVariants = cva(
 ```vue
 <template>
   <input
-    :class="cn(
-      'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50',
-      props.class,
-    )"
+    :class="
+      cn(
+        'border-input placeholder:text-muted-foreground focus-visible:ring-ring flex h-9 w-full rounded-md border bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium focus-visible:outline-none focus-visible:ring-1 disabled:cursor-not-allowed disabled:opacity-50',
+        props.class,
+      )
+    "
   />
 </template>
 ```
 
 **特征**：
+
 - 高度 `h-9` (36px)
 - 圆角 `rounded-md`
 - 边框 `border-input`
@@ -415,16 +449,17 @@ export const badgeVariants = cva(
 ```vue
 <template>
   <SwitchRoot
-    class="peer inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=unchecked]:bg-input"
+    class="focus-visible:ring-ring data-[state=checked]:bg-primary data-[state=unchecked]:bg-input peer inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
   >
     <SwitchThumb
-      class="pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform data-[state=checked]:translate-x-4 data-[state=unchecked]:translate-x-0"
+      class="bg-background pointer-events-none block h-4 w-4 rounded-full shadow-lg ring-0 transition-transform data-[state=checked]:translate-x-4 data-[state=unchecked]:translate-x-0"
     />
   </SwitchRoot>
 </template>
 ```
 
 **特征**：
+
 - 尺寸：w-9 × h-5 (36×20px)
 - 滑块：w-4 × h-4 (16×16px)
 - 动画：translate-x 过渡
@@ -434,7 +469,7 @@ export const badgeVariants = cva(
 
 ```vue
 <template>
-  <div class="rounded-xl border bg-card text-card-foreground shadow">
+  <div class="bg-card text-card-foreground rounded-xl border shadow">
     <div v-if="$slots.header" class="flex flex-col space-y-1.5 p-6">
       <slot name="header" />
     </div>
@@ -446,6 +481,7 @@ export const badgeVariants = cva(
 ```
 
 **特征**：
+
 - 圆角：`rounded-xl`
 - 背景：`bg-card`
 - 边框：`border` (默认 border-border)
@@ -458,14 +494,20 @@ export const badgeVariants = cva(
   <div class="relative w-full overflow-auto">
     <table class="w-full caption-bottom text-sm">
       <thead class="[&_tr]:border-b">
-        <tr class="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
-          <th class="h-10 px-2 text-left align-middle font-medium text-muted-foreground">
+        <tr
+          class="hover:bg-muted/50 data-[state=selected]:bg-muted border-b transition-colors"
+        >
+          <th
+            class="text-muted-foreground h-10 px-2 text-left align-middle font-medium"
+          >
             表头
           </th>
         </tr>
       </thead>
       <tbody class="[&_tr:last-child]:border-0">
-        <tr class="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
+        <tr
+          class="hover:bg-muted/50 data-[state=selected]:bg-muted border-b transition-colors"
+        >
           <td class="p-2 align-middle">单元格</td>
         </tr>
       </tbody>
@@ -475,6 +517,7 @@ export const badgeVariants = cva(
 ```
 
 **特征**：
+
 - 表头：`text-muted-foreground` 灰色文字
 - 行悬停：`hover:bg-muted/50`
 - 边框：`border-b` 底部边框分隔
@@ -529,14 +572,14 @@ export const avatarVariant = cva(
 
 ### 6.2 布局特征
 
-| 元素 | 尺寸/样式 |
-|------|----------|
-| 侧边栏宽度 | 224px (展开) / 60px (折叠) |
-| 顶部栏高度 | 50px |
-| 内容区内边距 | 16px |
-| 侧边栏背景 | `bg-sidebar` (白色或暗色) |
-| 顶部栏背景 | `bg-header` (白色或暗色) |
-| 内容区背景 | `bg-background-deep` (浅灰) |
+| 元素         | 尺寸/样式                   |
+| ------------ | --------------------------- |
+| 侧边栏宽度   | 224px (展开) / 60px (折叠)  |
+| 顶部栏高度   | 50px                        |
+| 内容区内边距 | 16px                        |
+| 侧边栏背景   | `bg-sidebar` (白色或暗色)   |
+| 顶部栏背景   | `bg-header` (白色或暗色)    |
+| 内容区背景   | `bg-background-deep` (浅灰) |
 
 ### 6.3 菜单样式
 
@@ -560,6 +603,7 @@ export const avatarVariant = cva(
 ```
 
 **特征**：
+
 - 高度：`py-[9px]` (约 36px 总高)
 - 内边距：`px-5`
 - 文字：`text-sm`
@@ -653,6 +697,7 @@ export function cn(...inputs: ClassValue[]) {
 ```
 
 **作用**：
+
 - `clsx`：条件类名合并
 - `twMerge`：解决 Tailwind 类名冲突（如 `px-2 px-4` → `px-4`）
 
@@ -666,9 +711,7 @@ const props = defineProps<{ class?: string }>();
 </script>
 
 <template>
-  <div :class="cn('bg-primary text-primary-foreground', props.class)">
-    内容
-  </div>
+  <div :class="cn('bg-primary text-primary-foreground', props.class)">内容</div>
 </template>
 ```
 
@@ -729,16 +772,28 @@ npx tailwindcss init -p
     -moz-osx-font-smoothing: grayscale;
   }
 
-  *, ::before, ::after {
+  *,
+  ::before,
+  ::after {
     border-color: hsl(var(--border));
   }
 }
 
 /* 滚动条样式 */
-::-webkit-scrollbar { height: 6px; width: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.3); }
+::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.3);
+}
 ```
 
 ### 9.6 步骤 6：创建工具函数
@@ -775,20 +830,20 @@ createApp(App).mount('#app');
 
 在新项目中实现时，对照以下清单确保风格一致：
 
-| 检查项 | 标准 | ✅ |
-|--------|------|-----|
-| 颜色格式 | 使用 HSL CSS 变量 | ☐ |
-| 圆角 | 默认 0.5rem，组件统一使用 `rounded-md`/`rounded-lg` | ☐ |
-| 边框 | 使用 `border-border` 变量，1px 实线 | ☐ |
-| 阴影 | 极轻微或无边框阴影为主 | ☐ |
-| 字体 | 系统字体栈，16px 基准 | ☐ |
-| 按钮高度 | 默认 h-9 (36px)，小尺寸 h-8 (32px) | ☐ |
-| 输入框高度 | h-9 (36px)，与按钮一致 | ☐ |
-| 间距 | 4px 基准（Tailwind 默认） | ☐ |
-| 过渡 | 所有交互元素使用 `transition-colors` | ☐ |
-| 聚焦环 | `focus-visible:ring-1 focus-visible:ring-ring` | ☐ |
-| 暗色模式 | 通过 `.dark` 类切换，使用 `darkMode: 'selector'` | ☐ |
-| 禁用态 | `disabled:opacity-50 disabled:pointer-events-none` | ☐ |
+| 检查项     | 标准                                                | ✅  |
+| ---------- | --------------------------------------------------- | --- |
+| 颜色格式   | 使用 HSL CSS 变量                                   | ☐   |
+| 圆角       | 默认 0.5rem，组件统一使用 `rounded-md`/`rounded-lg` | ☐   |
+| 边框       | 使用 `border-border` 变量，1px 实线                 | ☐   |
+| 阴影       | 极轻微或无边框阴影为主                              | ☐   |
+| 字体       | 系统字体栈，16px 基准                               | ☐   |
+| 按钮高度   | 默认 h-9 (36px)，小尺寸 h-8 (32px)                  | ☐   |
+| 输入框高度 | h-9 (36px)，与按钮一致                              | ☐   |
+| 间距       | 4px 基准（Tailwind 默认）                           | ☐   |
+| 过渡       | 所有交互元素使用 `transition-colors`                | ☐   |
+| 聚焦环     | `focus-visible:ring-1 focus-visible:ring-ring`      | ☐   |
+| 暗色模式   | 通过 `.dark` 类切换，使用 `darkMode: 'selector'`    | ☐   |
+| 禁用态     | `disabled:opacity-50 disabled:pointer-events-none`  | ☐   |
 
 ---
 

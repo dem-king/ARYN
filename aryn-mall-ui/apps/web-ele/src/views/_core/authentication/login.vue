@@ -37,7 +37,7 @@ const formSchema = computed((): VbenFormSchema[] => {
         placeholder: $t('authentication.usernameTip'),
       },
       dependencies: {
-        trigger(values, form) {
+        trigger(_values, form) {
           form.setValues({
             password: '123456',
             username: 'system',

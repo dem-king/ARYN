@@ -48,15 +48,10 @@ const state = reactive({
     userSource: '',
     province: '',
     city: '',
-    accountBalance: '',
     parentUserInfo: { avatarUrl: '', nickname: '' },
-    userBalance: {
-      accountBalance: 0,
-    },
+    levelName: '',
     point: 0,
-    userLevel: {
-      name: '',
-    },
+    balance: 0,
   },
 });
 const initPage = (userInfo: any) => {

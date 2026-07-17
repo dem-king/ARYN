@@ -1,6 +1,6 @@
-import { acceptHMRUpdate, defineStore } from 'pinia';
-
 import type { BasicUserInfo } from '@vben-core/typings';
+
+import { acceptHMRUpdate, defineStore } from 'pinia';
 
 interface AccessState {
   /**

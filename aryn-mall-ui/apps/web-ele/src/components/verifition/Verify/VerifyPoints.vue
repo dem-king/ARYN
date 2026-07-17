@@ -26,9 +26,10 @@ export default {
     },
     captchaType: {
       type: String,
+      default: 'clickWord',
     },
     // 间隔
-    vSpace: {
+    space: {
       type: Number,
       default: 5,
     },
@@ -51,8 +52,8 @@ export default {
       },
     },
   },
-  setup(props, context) {
-    const { mode, captchaType, vSpace, imgSize, barSize } = toRefs(props);
+  setup(props) {
+    const { mode, captchaType } = toRefs(props);
     const { proxy } = getCurrentInstance();
     const backToken = ref(''); // 后端返回的token值
     const barAreaBorderColor = ref(undefined);
@@ -100,7 +101,7 @@ export default {
     const canvas = ref(null);
     const canvasClick = (e) => {
       checkPosArr.push(getMousePos(canvas, e));
-      if (num.value == checkNum.value) {
+      if (num.value === checkNum.value) {
         num.value = createPoint(getMousePos(canvas, e));
         // 按比例转换坐标值
         const arr = pointTransfrom(checkPosArr, setSize);
@@ -125,12 +126,12 @@ export default {
           };
           reqCheck(data).then((response) => {
             const res = response.data.data;
-            if (res.repCode == '0000') {
+            if (res.repCode === '0000') {
               barAreaColor.value = '#4cae4c';
               barAreaBorderColor.value = '#5cb85c';
               text.value = '验证成功';
               bindingClick.value = false;
-              if (mode.value == 'pop') {
+              if (mode.value === 'pop') {
                 setTimeout(() => {
                   proxy.$parent.clickShow = false;
                   refresh();
@@ -184,7 +185,7 @@ export default {
       };
       reqGet(data).then((reponse) => {
         const res = reponse.data.data;
-        if (res.repCode == '0000') {
+        if (res.repCode === '0000') {
           pointBackImgBase.value = res.repData.originalImageBase64;
           backToken.value = res.repData.token;
           secretKey.value = res.repData.secretKey;
@@ -241,7 +242,7 @@ export default {
           width: setSize.imgWidth,
           height: setSize.imgHeight,
           'background-size': `${setSize.imgWidth} ${setSize.imgHeight}`,
-          'margin-bottom': `${vSpace}px`,
+          'margin-bottom': `${space}px`,
         }"
       >
         <div

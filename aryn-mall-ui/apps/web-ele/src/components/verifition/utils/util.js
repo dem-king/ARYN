@@ -1,21 +1,19 @@
 export function resetSize(vm) {
-  let bar_height, bar_width, img_height, img_width; // 图片的宽度、高度，移动条的宽度、高度
-
   const parentWidth = vm.$el.parentNode.offsetWidth || window.offsetWidth;
   const parentHeight = vm.$el.parentNode.offsetHeight || window.offsetHeight;
-  img_width = vm.imgSize.width.includes('%')
+  const img_width = vm.imgSize.width.includes('%')
     ? `${(Number.parseInt(vm.imgSize.width) / 100) * parentWidth}px`
     : vm.imgSize.width;
 
-  img_height = vm.imgSize.height.includes('%')
+  const img_height = vm.imgSize.height.includes('%')
     ? `${(Number.parseInt(vm.imgSize.height) / 100) * parentHeight}px`
     : vm.imgSize.height;
 
-  bar_width = vm.barSize.width.includes('%')
+  const bar_width = vm.barSize.width.includes('%')
     ? `${(Number.parseInt(vm.barSize.width) / 100) * parentWidth}px`
     : vm.barSize.width;
 
-  bar_height = vm.barSize.height.includes('%')
+  const bar_height = vm.barSize.height.includes('%')
     ? `${(Number.parseInt(vm.barSize.height) / 100) * parentHeight}px`
     : vm.barSize.height;
 

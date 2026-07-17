@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { reactive } from 'vue'
-import useZPaging from 'z-paging/components/z-paging/js/hooks/useZPaging.js'
 import { getPage } from '@/api/product/spu'
 
 // 定义变量
@@ -10,7 +9,6 @@ const state = reactive<any>({
 
 const router = useRouter()
 const pagingRef = ref()
-useZPaging(pagingRef)
 function queryList(pageNo: number, pageSize: number) {
   getPage(
     Object.assign({

@@ -28,12 +28,10 @@ import { editObj, genTabledDetail } from '#/api/gen/table';
 import { downloadBlobFile } from '#/utils/util';
 
 type Column = { columnComment: string; columnName: string };
-type Table = { columns: Column[]; tableComment: string; tableName: string };
 type MenuNode = { children?: MenuNode[]; menuId: string; menuName: string };
 
-const props = defineProps<{
+defineProps<{
   menus: MenuNode[];
-  tables: Table[];
 }>();
 
 const state = reactive({
@@ -42,8 +40,13 @@ const state = reactive({
     packageName: '',
     moduleName: '',
     businessName: '',
+    className: '',
+    columns: [] as Column[],
+    functionAuthor: '',
     functionName: '',
+    parentMenuId: '' as number | string,
     tableName: '',
+    tableComment: '',
     subTableName: '',
     subTableFkName: '',
     treeCode: '',
@@ -51,7 +54,6 @@ const state = reactive({
     genType: '0',
   },
 });
-const subColumns = ref<Column[]>([]);
 const rules = ref({
   packageName: [
     { required: true, message: '请输入生成包路径', trigger: 'blur' },
@@ -103,14 +105,13 @@ getTableInfo();
   <div class="aryn-layout-container">
     <div class="aryn-layout-container-auto aryn-layout-container-view">
       <ElForm
-        ref="genInfoForm"
         :model="state.form"
         :rules="rules"
         label-width="150px"
         class="m-2"
         v-loading="loading"
       >
-        <ElTabs v-model="activeName" @tab-click="handleClick">
+        <ElTabs v-model="activeName">
           <ElTabPane label="基本信息" name="info">
             <ElRow>
               <ElCol :span="12">
@@ -137,7 +138,6 @@ getTableInfo();
           </ElTabPane>
           <ElTabPane label="字段信息" name="column">
             <ElTable
-              ref="dragTable"
               :data="state.form.columns"
               row-key="columnId"
               :max-height="tableHeight"

@@ -2,7 +2,7 @@
 import { reactive, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { editObj } from '@/api/user/user'
-import { uploadFile } from '@/api/upms/file'
+import { uploadFile, uploadImg } from '@/api/upms/file'
 
 definePage({
   name: 'user-setting',
@@ -13,12 +13,12 @@ definePage({
 })
 
 interface Form {
-  id: string | undefined
-  avatarUrl: string | undefined
-  nickname: string | undefined
-  sex: string | undefined
-  phone: string | undefined
-  password: string | undefined
+  id: string
+  avatarUrl: string
+  nickname: string
+  sex: string
+  phone: string
+  password: string
 }
 
 const userStore = useUserStore()
@@ -40,9 +40,9 @@ onLoad(() => {
   state.form.id = userStore.getUserId
   state.form.avatarUrl = userStore.getUserAvatar
   state.form.nickname = userStore.getUserNickname
-  state.form.sex = userStore.getUserInfo?.sex
+  state.form.sex = userStore.getUserInfo?.sex ?? ''
   state.form.phone = userStore.getUserPhone
-  state.form.password = userStore.getUserInfo?.password
+  state.form.password = userStore.getUserInfo?.password ?? ''
 })
 const sexColumns = ref<any>([
   {
@@ -62,7 +62,7 @@ function chooseImage() {
     success(res) {
       globalLoading.loading('上传中...')
       uploadFile(res.tempFilePaths[0]).then((response) => {
-        state.form.avatarUrl = (response as any).data
+        state.form.avatarUrl = response.data
       }).finally(() => {
         globalLoading.close()
       })

@@ -7,7 +7,6 @@ import {
   ElForm,
   ElFormItem,
   ElInput,
-  ElInputNumber,
   ElMessage,
   ElOption,
   ElRadio,
@@ -23,6 +22,7 @@ import {
 } from '#/api/user/member-benefit';
 import { getList as getLevelList } from '#/api/user/member-level';
 
+const emit = defineEmits(['initPage']);
 const visible = ref(false);
 const loading = ref(false);
 const title = ref('');
@@ -41,18 +41,12 @@ const state = reactive({
 });
 
 const rules = reactive({
-  benefitName: [
-    { required: true, message: '请输入权益名称', trigger: 'blur' },
-  ],
+  benefitName: [{ required: true, message: '请输入权益名称', trigger: 'blur' }],
   benefitType: [
     { required: true, message: '请选择权益类型', trigger: 'change' },
   ],
-  benefitValue: [
-    { required: true, message: '请输入权益值', trigger: 'blur' },
-  ],
+  benefitValue: [{ required: true, message: '请输入权益值', trigger: 'blur' }],
 });
-
-const emit = defineEmits(['init-page']);
 
 const loadLevelList = async () => {
   try {
@@ -109,7 +103,7 @@ const submitForm = async () => {
       });
     }
     visible.value = false;
-    emit('init-page');
+    emit('initPage');
   } finally {
     loading.value = false;
   }
@@ -119,7 +113,12 @@ defineExpose({ initForm });
 </script>
 <template>
   <ElDialog v-model="visible" :title="title" width="500px" draggable>
-    <ElForm ref="formRef" :model="state.form" :rules="rules" label-width="120px">
+    <ElForm
+      ref="formRef"
+      :model="state.form"
+      :rules="rules"
+      label-width="120px"
+    >
       <ElFormItem label="权益名称" prop="benefitName">
         <ElInput
           v-model="state.form.benefitName"
@@ -135,10 +134,7 @@ defineExpose({ initForm });
         </ElRadioGroup>
       </ElFormItem>
       <ElFormItem label="权益值" prop="benefitValue">
-        <ElInput
-          v-model="state.form.benefitValue"
-          placeholder="请输入权益值"
-        />
+        <ElInput v-model="state.form.benefitValue" placeholder="请输入权益值" />
       </ElFormItem>
       <ElFormItem label="描述" prop="description">
         <ElInput

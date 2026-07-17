@@ -368,7 +368,7 @@ const changeEnableSpecs = (status: any) => {
 /**
  * 查询spu绑定的规格
  */
-const getGoodsSpuSpecsList = (id: string) => {
+const getGoodsSpuSpecsList = () => {
   const skus = state.form.goodsSkus || [];
   const specsMap = new Map<string, any>();
 
@@ -440,7 +440,7 @@ const initForm = () => {
         } else {
           state.form.sku = response.goodsSkus[0];
         }
-        getGoodsSpuSpecsList(response.id);
+        getGoodsSpuSpecsList();
       })
       .catch(() => {
         loading.value = false;

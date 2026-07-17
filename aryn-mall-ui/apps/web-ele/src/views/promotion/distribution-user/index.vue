@@ -3,7 +3,12 @@ import type { FormInstance } from 'element-plus';
 
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
-import { CircleCheck, CircleClose, Refresh, Search } from '@element-plus/icons-vue';
+import {
+  CircleCheck,
+  CircleClose,
+  Refresh,
+  Search,
+} from '@element-plus/icons-vue';
 import {
   ElButton,
   ElForm,
@@ -132,7 +137,7 @@ initPage();
 
       <!-- 工具栏 -->
       <div class="hx-table-toolbar">
-        <div />
+        <div></div>
         <RightToolbar
           :search-btn="true"
           :refresh-btn="true"
@@ -161,11 +166,7 @@ initPage();
           align="center"
           show-overflow-tooltip
         />
-        <ElTableColumn
-          prop="totalCommission"
-          label="累计佣金"
-          align="center"
-        />
+        <ElTableColumn prop="totalCommission" label="累计佣金" align="center" />
         <ElTableColumn
           prop="availableCommission"
           label="可提现佣金"
@@ -178,7 +179,10 @@ initPage();
         />
         <ElTableColumn prop="status" label="状态" align="center">
           <template #default="scope">
-            <DictTag :options="distribution_user_status" :value="scope.row.status" />
+            <DictTag
+              :options="distribution_user_status"
+              :value="scope.row.status"
+            />
           </template>
         </ElTableColumn>
         <ElTableColumn prop="createTime" label="创建时间" width="180" />

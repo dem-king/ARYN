@@ -217,7 +217,7 @@ defineExpose({
         />
       </ElFormItem>
       <ElFormItem label="拼团商品" prop="spuId">
-        <div style="display: flex; align-items: center; gap: 8px">
+        <div style="display: flex; gap: 8px; align-items: center">
           <ElButton
             type="success"
             v-if="!state.form.id"
@@ -272,7 +272,7 @@ defineExpose({
         />
       </ElFormItem>
       <ElFormItem label="限购数量" prop="limitNum">
-        <div style="display: flex; align-items: center; gap: 8px">
+        <div style="display: flex; gap: 8px; align-items: center">
           <ElInputNumber
             v-model="state.form.limitNum"
             :min="0"
@@ -283,7 +283,7 @@ defineExpose({
         </div>
       </ElFormItem>
       <ElFormItem label="虚拟成团人数" prop="virtualNum">
-        <div style="display: flex; align-items: center; gap: 8px">
+        <div style="display: flex; gap: 8px; align-items: center">
           <ElInputNumber
             v-model="state.form.virtualNum"
             :min="0"

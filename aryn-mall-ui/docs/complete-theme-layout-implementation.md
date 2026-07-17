@@ -201,7 +201,11 @@ interface Preferences {
 这是整个系统的**核心中枢**，采用单例模式实现：
 
 ```typescript
-import type { DeepPartial, InitialOptions, Preferences } from '@vben-core/typings';
+import type {
+  DeepPartial,
+  InitialOptions,
+  Preferences,
+} from '@vben-core/typings';
 
 import { markRaw, reactive, readonly, watch } from 'vue';
 import { useBreakpoints, useDebounceFn } from '@vueuse/core';
@@ -399,15 +403,28 @@ export function usePreferences() {
   );
 
   const isShowHeaderNav = computed(() => preferences.header.enable);
-  const isFullContent = computed(() => appPreferences.value.layout === 'full-content');
-  const isSideNav = computed(() => appPreferences.value.layout === 'sidebar-nav');
-  const isHeaderNav = computed(() => appPreferences.value.layout === 'header-nav');
-  const isMixedNav = computed(() => appPreferences.value.layout === 'mixed-nav');
-  const isSideMode = computed(() =>
-    isMixedNav.value || isSideNav.value || appPreferences.value.layout === 'sidebar-mixed-nav',
+  const isFullContent = computed(
+    () => appPreferences.value.layout === 'full-content',
+  );
+  const isSideNav = computed(
+    () => appPreferences.value.layout === 'sidebar-nav',
+  );
+  const isHeaderNav = computed(
+    () => appPreferences.value.layout === 'header-nav',
+  );
+  const isMixedNav = computed(
+    () => appPreferences.value.layout === 'mixed-nav',
+  );
+  const isSideMode = computed(
+    () =>
+      isMixedNav.value ||
+      isSideNav.value ||
+      appPreferences.value.layout === 'sidebar-mixed-nav',
   );
   const sidebarCollapsed = computed(() => preferences.sidebar.collapsed);
-  const keepAlive = computed(() => preferences.tabbar.enable && preferences.tabbar.keepAlive);
+  const keepAlive = computed(
+    () => preferences.tabbar.enable && preferences.tabbar.keepAlive,
+  );
 
   return {
     diffPreference,
@@ -437,10 +454,14 @@ export function usePreferences() {
 import { preferencesManager } from './preferences';
 
 export const preferences = preferencesManager.getPreferences();
-export const updatePreferences = preferencesManager.updatePreferences.bind(preferencesManager);
-export const resetPreferences = preferencesManager.resetPreferences.bind(preferencesManager);
-export const clearPreferencesCache = preferencesManager.clearCache.bind(preferencesManager);
-export const initPreferences = preferencesManager.initPreferences.bind(preferencesManager);
+export const updatePreferences =
+  preferencesManager.updatePreferences.bind(preferencesManager);
+export const resetPreferences =
+  preferencesManager.resetPreferences.bind(preferencesManager);
+export const clearPreferencesCache =
+  preferencesManager.clearCache.bind(preferencesManager);
+export const initPreferences =
+  preferencesManager.initPreferences.bind(preferencesManager);
 export { preferencesManager };
 export * from './use-preferences';
 export * from './config';
@@ -604,14 +625,34 @@ export const BUILT_IN_THEME_PRESETS: BuiltinThemePreset[] = [
   { color: 'hsl(42 84% 61%)', type: 'yellow' },
   { color: 'hsl(231 98% 65%)', type: 'sky-blue' },
   { color: 'hsl(161 90% 43%)', type: 'green' },
-  { color: 'hsl(240 5% 26%)', darkPrimaryColor: 'hsl(0 0% 98%)', primaryColor: 'hsl(240 5.9% 10%)', type: 'zinc' },
+  {
+    color: 'hsl(240 5% 26%)',
+    darkPrimaryColor: 'hsl(0 0% 98%)',
+    primaryColor: 'hsl(240 5.9% 10%)',
+    type: 'zinc',
+  },
   { color: 'hsl(181 84% 32%)', type: 'deep-green' },
   { color: 'hsl(211 91% 39%)', type: 'deep-blue' },
   { color: 'hsl(18 89% 40%)', type: 'orange' },
   { color: 'hsl(0 75% 42%)', type: 'rose' },
-  { color: 'hsl(0 0% 25%)', darkPrimaryColor: 'hsl(0 0% 98%)', primaryColor: 'hsl(240 5.9% 10%)', type: 'neutral' },
-  { color: 'hsl(215 25% 27%)', darkPrimaryColor: 'hsl(0 0% 98%)', primaryColor: 'hsl(240 5.9% 10%)', type: 'slate' },
-  { color: 'hsl(217 19% 27%)', darkPrimaryColor: 'hsl(0 0% 98%)', primaryColor: 'hsl(240 5.9% 10%)', type: 'gray' },
+  {
+    color: 'hsl(0 0% 25%)',
+    darkPrimaryColor: 'hsl(0 0% 98%)',
+    primaryColor: 'hsl(240 5.9% 10%)',
+    type: 'neutral',
+  },
+  {
+    color: 'hsl(215 25% 27%)',
+    darkPrimaryColor: 'hsl(0 0% 98%)',
+    primaryColor: 'hsl(240 5.9% 10%)',
+    type: 'slate',
+  },
+  {
+    color: 'hsl(217 19% 27%)',
+    darkPrimaryColor: 'hsl(0 0% 98%)',
+    primaryColor: 'hsl(240 5.9% 10%)',
+    type: 'gray',
+  },
   { color: '', type: 'custom' },
 ];
 
@@ -739,7 +780,10 @@ export const COLOR_PRESETS = BUILT_IN_THEME_PRESETS.slice(0, 7);
 import type { Preferences } from '@vben-core/typings';
 
 import { BUILT_IN_THEME_PRESETS } from './constants';
-import { generatorColorVariables, updateCSSVariables as executeUpdateCSSVariables } from '@vben-core/shared';
+import {
+  generatorColorVariables,
+  updateCSSVariables as executeUpdateCSSVariables,
+} from '@vben-core/shared';
 
 export function isDarkTheme(theme: string) {
   let dark = theme === 'dark';
@@ -949,7 +993,10 @@ export const merge = defu;
 **文件：`packages/@core/base/shared/src/utils/diff.ts`**
 
 ```typescript
-export function diff<T extends Record<string, any>>(obj1: T, obj2: T): Partial<T> {
+export function diff<T extends Record<string, any>>(
+  obj1: T,
+  obj2: T,
+): Partial<T> {
   function findDifferences(o1: any, o2: any): any {
     if (Array.isArray(o1) && Array.isArray(o2)) {
       if (JSON.stringify(o1) !== JSON.stringify(o2)) {
@@ -1219,7 +1266,14 @@ const props = withDefaults(defineProps<Props>(), {
   zIndex: 100,
 });
 
-const { currentLayout, isFullContent, isHeaderMixedNav, isHeaderNav, isMixedNav, isSidebarMixedNav } = useLayout(props);
+const {
+  currentLayout,
+  isFullContent,
+  isHeaderMixedNav,
+  isHeaderNav,
+  isMixedNav,
+  isSidebarMixedNav,
+} = useLayout(props);
 
 const collapse = defineModel<boolean>('collapse');
 const expandOnHovering = defineModel<boolean>('expandOnHovering');
@@ -1232,11 +1286,20 @@ const sidebarCollapseState = computed(() => {
 });
 
 const mainStyle = computed((): CSSProperties => {
-  const { sidebarCollapse, sidebarEnable, sidebarHidden, sidebarWidth, sideCollapseWidth } = props;
+  const {
+    sidebarCollapse,
+    sidebarEnable,
+    sidebarHidden,
+    sidebarWidth,
+    sideCollapseWidth,
+  } = props;
 
-  const width = sidebarEnable && !sidebarHidden
-    ? sidebarCollapse ? sideCollapseWidth : sidebarWidth
-    : 0;
+  const width =
+    sidebarEnable && !sidebarHidden
+      ? sidebarCollapse
+        ? sideCollapseWidth
+        : sidebarWidth
+      : 0;
 
   return {
     paddingLeft: `${width}px`,
@@ -1245,7 +1308,13 @@ const mainStyle = computed((): CSSProperties => {
 });
 
 const contentStyle = computed((): CSSProperties => {
-  const { contentPadding, contentPaddingBottom, contentPaddingLeft, contentPaddingRight, contentPaddingTop } = props;
+  const {
+    contentPadding,
+    contentPaddingBottom,
+    contentPaddingLeft,
+    contentPaddingRight,
+    contentPaddingTop,
+  } = props;
 
   return {
     padding: `${contentPaddingTop}px ${contentPaddingRight}px ${contentPaddingBottom}px ${contentPaddingLeft}px`,
@@ -1253,11 +1322,22 @@ const contentStyle = computed((): CSSProperties => {
 });
 
 const footerStyle = computed((): CSSProperties => {
-  const { footerEnable, footerFixed, footerHeight, sidebarEnable, sidebarHidden, sidebarWidth, sideCollapseWidth } = props;
+  const {
+    footerEnable,
+    footerFixed,
+    footerHeight,
+    sidebarEnable,
+    sidebarHidden,
+    sidebarWidth,
+    sideCollapseWidth,
+  } = props;
 
-  const width = sidebarEnable && !sidebarHidden
-    ? collapse.value ? sideCollapseWidth : sidebarWidth
-    : 0;
+  const width =
+    sidebarEnable && !sidebarHidden
+      ? collapse.value
+        ? sideCollapseWidth
+        : sidebarWidth
+      : 0;
 
   return {
     height: `${footerHeight}px`,
@@ -1307,7 +1387,11 @@ const footerStyle = computed((): CSSProperties => {
         :show="!headerHidden"
         :sidebar-width="sidebarWidth"
         :theme="headerTheme"
-        :width="isHeaderNav || isMixedNav || isHeaderMixedNav ? '100%' : `calc(100% - ${sidebarWidth}px)`"
+        :width="
+          isHeaderNav || isMixedNav || isHeaderMixedNav
+            ? '100%'
+            : `calc(100% - ${sidebarWidth}px)`
+        "
         :zIndex="zIndex"
       >
         <template #logo><slot name="logo"></slot></template>
@@ -1318,7 +1402,10 @@ const footerStyle = computed((): CSSProperties => {
       </LayoutHeader>
 
       <!-- Tab 栏 -->
-      <div v-if="tabbarEnable && !isFullContent" :style="{ height: `${tabbarHeight}px` }">
+      <div
+        v-if="tabbarEnable && !isFullContent"
+        :style="{ height: `${tabbarHeight}px` }"
+      >
         <slot name="tabbar"></slot>
       </div>
 
@@ -1519,7 +1606,12 @@ function handleMouseleave() {
     <div v-if="slots.logo" :style="{ height: `${headerHeight - 1}px` }">
       <slot name="logo"></slot>
     </div>
-    <div :style="{ height: `calc(100% - ${headerHeight + collapseHeight}px)`, paddingTop: '8px' }">
+    <div
+      :style="{
+        height: `calc(100% - ${headerHeight + collapseHeight}px)`,
+        paddingTop: '8px',
+      }"
+    >
       <slot></slot>
     </div>
     <div :style="{ height: `${collapseHeight}px` }"></div>
@@ -1531,10 +1623,17 @@ function handleMouseleave() {
       :style="extraStyle"
       class="border-border bg-sidebar fixed top-0 h-full overflow-hidden border-r transition-all duration-200"
     >
-      <div v-if="!extraCollapse" :style="{ height: `${headerHeight - 1}px` }" class="pl-2">
+      <div
+        v-if="!extraCollapse"
+        :style="{ height: `${headerHeight - 1}px` }"
+        class="pl-2"
+      >
         <slot name="extra-title"></slot>
       </div>
-      <div :style="{ height: `calc(100% - ${headerHeight + collapseHeight}px)` }" class="border-border py-2">
+      <div
+        :style="{ height: `calc(100% - ${headerHeight + collapseHeight}px)` }"
+        class="border-border py-2"
+      >
         <slot name="extra"></slot>
       </div>
     </div>
@@ -1622,7 +1721,14 @@ interface Props {
 const props = withDefaults(defineProps<Props>(), {});
 
 const style = computed((): CSSProperties => {
-  const { contentCompact, padding, paddingBottom, paddingLeft, paddingRight, paddingTop } = props;
+  const {
+    contentCompact,
+    padding,
+    paddingBottom,
+    paddingLeft,
+    paddingRight,
+    paddingTop,
+  } = props;
 
   const compactStyle: CSSProperties =
     contentCompact === 'compact'
@@ -1705,7 +1811,11 @@ const style = computed((): CSSProperties => {
 import { computed, watch } from 'vue';
 
 import { useWatermark } from '@vben/hooks';
-import { preferences, updatePreferences, usePreferences } from '@vben/preferences';
+import {
+  preferences,
+  updatePreferences,
+  usePreferences,
+} from '@vben/preferences';
 
 import { VbenAdminLayout, VbenBackTop } from '@vben-core/layout-ui';
 
@@ -1715,7 +1825,11 @@ import { LayoutContent, LayoutContentSpinner } from '../content';
 import { LayoutFooter } from '../footer';
 import { LayoutHeader } from '../header';
 import { LayoutTabbar } from '../tabbar';
-import { AuthenticationModalLogin, CheckUpdates, PreferencesDrawer } from '../widgets';
+import {
+  AuthenticationModalLogin,
+  CheckUpdates,
+  PreferencesDrawer,
+} from '../widgets';
 
 defineOptions({ name: 'BasicLayout' });
 
@@ -1744,7 +1858,9 @@ const showMixedNav = computed(() => layout.value === 'mixed-nav');
 
 const showHeaderMixedNav = computed(() => layout.value === 'header-mixed-nav');
 
-const showSidebarMixedNav = computed(() => layout.value === 'sidebar-mixed-nav');
+const showSidebarMixedNav = computed(
+  () => layout.value === 'sidebar-mixed-nav',
+);
 
 const contentIsPadding = computed(() => {
   return layout.value === 'header-nav' || layout.value === 'mixed-nav';
@@ -1755,15 +1871,22 @@ const contentPadding = computed(() => {
 });
 
 const logoClass = computed(() => {
-  return layout.value === 'sidebar-mixed-nav' ? 'mr-4 flex-none' : 'flex-center flex-none';
+  return layout.value === 'sidebar-mixed-nav'
+    ? 'mr-4 flex-none'
+    : 'flex-center flex-none';
 });
 
 const isAuthenticationModalLogin = computed(() => {
-  return authStore.isLoginExpired && preferences.app.loginExpiredMode === 'modal';
+  return (
+    authStore.isLoginExpired && preferences.app.loginExpiredMode === 'modal'
+  );
 });
 
 const showBreadcrumb = computed(() => {
-  return preferences.navigation.styleType === 'rounded' && layout.value !== 'header-nav';
+  return (
+    preferences.navigation.styleType === 'rounded' &&
+    layout.value !== 'header-nav'
+  );
 });
 
 watch(
@@ -2069,7 +2192,12 @@ const modelValue = computed({
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 
-import { preferences, resetPreferences, updatePreferences, usePreferences } from '@vben/preferences';
+import {
+  preferences,
+  resetPreferences,
+  updatePreferences,
+  usePreferences,
+} from '@vben/preferences';
 
 import { VbenButton, VbenDrawer } from '@vben-core/shadcn-ui';
 
@@ -2077,7 +2205,21 @@ import { RotateCcw } from '@vben/icons';
 
 import { useAccessStore } from '#/store';
 
-import { PreferenceBreadcrumb, PreferenceContent, PreferenceFooter, PreferenceGeneral, PreferenceHeader, PreferenceLayout, PreferenceNavigation, PreferenceShortcutKeys, PreferenceSidebar, PreferenceTabbar, PreferenceTheme, PreferenceTransition, PreferenceWidget } from './blocks';
+import {
+  PreferenceBreadcrumb,
+  PreferenceContent,
+  PreferenceFooter,
+  PreferenceGeneral,
+  PreferenceHeader,
+  PreferenceLayout,
+  PreferenceNavigation,
+  PreferenceShortcutKeys,
+  PreferenceSidebar,
+  PreferenceTabbar,
+  PreferenceTheme,
+  PreferenceTransition,
+  PreferenceWidget,
+} from './blocks';
 
 const emit = defineEmits<{ clearPreferencesAndLogout: [] }>;
 
@@ -2157,30 +2299,26 @@ function handleReset() {
           v-model:theme-color-primary="preferences.theme.colorPrimary"
           :is-dark="isDark"
         />
-        <PreferenceRadius
-          v-model="preferences.theme.radius"
-        />
-        <PreferenceGrayMode
-          v-model="preferences.app.colorGrayMode"
-        />
-        <PreferenceColorWeakMode
-          v-model="preferences.app.colorWeakMode"
-        />
+        <PreferenceRadius v-model="preferences.theme.radius" />
+        <PreferenceGrayMode v-model="preferences.app.colorGrayMode" />
+        <PreferenceColorWeakMode v-model="preferences.app.colorWeakMode" />
       </template>
 
       <template #layout>
-        <PreferenceLayout
-          v-model="preferences.app.layout"
-        />
+        <PreferenceLayout v-model="preferences.app.layout" />
         <PreferenceContentCompact
           v-model="preferences.app.contentCompact"
           v-model:content-compact-width="preferences.app.contentCompactWidth"
         />
         <PreferenceSidebar
-          v-model:sidebar-auto-activate-child="preferences.sidebar.autoActivateChild"
+          v-model:sidebar-auto-activate-child="
+            preferences.sidebar.autoActivateChild
+          "
           v-model:sidebar-collapsed="preferences.sidebar.collapsed"
           v-model:sidebar-collapsed-button="preferences.sidebar.collapsedButton"
-          v-model:sidebar-collapsed-show-title="preferences.sidebar.collapsedShowTitle"
+          v-model:sidebar-collapsed-show-title="
+            preferences.sidebar.collapsedShowTitle
+          "
           v-model:sidebar-enable="preferences.sidebar.enable"
           v-model:sidebar-expand-on-hover="preferences.sidebar.expandOnHover"
           v-model:sidebar-fixed-button="preferences.sidebar.fixedButton"
@@ -2228,10 +2366,18 @@ function handleReset() {
       <template #shortcutKeys>
         <PreferenceShortcutKeys
           v-model:shortcut-keys-enable="preferences.shortcutKeys.enable"
-          v-model:shortcut-keys-global-lock-screen="preferences.shortcutKeys.globalLockScreen"
-          v-model:shortcut-keys-global-logout="preferences.shortcutKeys.globalLogout"
-          v-model:shortcut-keys-global-preferences="preferences.shortcutKeys.globalPreferences"
-          v-model:shortcut-keys-global-search="preferences.shortcutKeys.globalSearch"
+          v-model:shortcut-keys-global-lock-screen="
+            preferences.shortcutKeys.globalLockScreen
+          "
+          v-model:shortcut-keys-global-logout="
+            preferences.shortcutKeys.globalLogout
+          "
+          v-model:shortcut-keys-global-preferences="
+            preferences.shortcutKeys.globalPreferences
+          "
+          v-model:shortcut-keys-global-search="
+            preferences.shortcutKeys.globalSearch
+          "
         />
       </template>
 
@@ -2256,7 +2402,9 @@ function handleReset() {
           v-model:dynamic-title="preferences.app.dynamicTitle"
           v-model:enable-check-updates="preferences.app.enableCheckUpdates"
           v-model:locale="preferences.app.locale"
-          v-model:preferences-button-position="preferences.app.preferencesButtonPosition"
+          v-model:preferences-button-position="
+            preferences.app.preferencesButtonPosition
+          "
           v-model:watermark="preferences.app.watermark"
         />
       </template>
@@ -2303,9 +2451,12 @@ function activeClass(theme: string): string[] {
 
 function nameView(name: string) {
   switch (name) {
-    case 'auto': return '跟随系统';
-    case 'dark': return '暗黑';
-    case 'light': return '亮色';
+    case 'auto':
+      return '跟随系统';
+    case 'dark':
+      return '暗黑';
+    case 'light':
+      return '亮色';
   }
 }
 </script>
@@ -2502,7 +2653,9 @@ function activeClass(theme: string): string[] {
         <div :class="activeClass(theme.type)" class="outline-box flex-center">
           <component :is="components[theme.type]" />
         </div>
-        <div class="text-muted-foreground flex-center hover:text-foreground mt-2 text-center text-xs">
+        <div
+          class="text-muted-foreground flex-center hover:text-foreground mt-2 text-center text-xs"
+        >
           {{ theme.name }}
         </div>
       </div>
@@ -2525,8 +2678,12 @@ defineProps<{ currentLayout?: LayoutType; disabled: boolean }>();
 
 const sidebarEnable = defineModel<boolean>('sidebarEnable');
 const sidebarWidth = defineModel<number>('sidebarWidth');
-const sidebarCollapsedShowTitle = defineModel<boolean>('sidebarCollapsedShowTitle');
-const sidebarAutoActivateChild = defineModel<boolean>('sidebarAutoActivateChild');
+const sidebarCollapsedShowTitle = defineModel<boolean>(
+  'sidebarCollapsedShowTitle',
+);
+const sidebarAutoActivateChild = defineModel<boolean>(
+  'sidebarAutoActivateChild',
+);
 const sidebarCollapsed = defineModel<boolean>('sidebarCollapsed');
 const sidebarExpandOnHover = defineModel<boolean>('sidebarExpandOnHover');
 
@@ -2535,7 +2692,10 @@ const sidebarCollapsedButton = defineModel<boolean>('sidebarCollapsedButton');
 const sidebarFixedButton = defineModel<boolean>('sidebarFixedButton');
 
 onMounted(() => {
-  if (sidebarCollapsedButton.value && !sidebarButtons.value.includes('collapsed')) {
+  if (
+    sidebarCollapsedButton.value &&
+    !sidebarButtons.value.includes('collapsed')
+  ) {
     sidebarButtons.value.push('collapsed');
   }
   if (sidebarFixedButton.value && !sidebarButtons.value.includes('fixed')) {
@@ -2637,7 +2797,11 @@ app.mount('#app');
 
 ```vue
 <script setup lang="ts">
-import { preferences, updatePreferences, usePreferences } from '@vben/preferences';
+import {
+  preferences,
+  updatePreferences,
+  usePreferences,
+} from '@vben/preferences';
 
 const { isDark, layout, sidebarCollapsed } = usePreferences();
 
@@ -2661,20 +2825,20 @@ function changeLayout(newLayout: string) {
 
 ### 9.1 核心包文件
 
-| 文件路径 | 说明 |
-|----------|------|
-| `packages/@core/preferences/src/index.ts` | 导出入口 |
-| `packages/@core/preferences/src/types.ts` | 类型定义 |
-| `packages/@core/preferences/src/config.ts` | 默认配置 |
-| `packages/@core/preferences/src/constants.ts` | 主题预设常量 |
-| `packages/@core/preferences/src/preferences.ts` | 核心状态管理器 |
-| `packages/@core/preferences/src/use-preferences.ts` | 组合式函数 |
-| `packages/@core/preferences/src/update-css-variables.ts` | CSS 变量更新 |
+| 文件路径                                                 | 说明           |
+| -------------------------------------------------------- | -------------- |
+| `packages/@core/preferences/src/index.ts`                | 导出入口       |
+| `packages/@core/preferences/src/types.ts`                | 类型定义       |
+| `packages/@core/preferences/src/config.ts`               | 默认配置       |
+| `packages/@core/preferences/src/constants.ts`            | 主题预设常量   |
+| `packages/@core/preferences/src/preferences.ts`          | 核心状态管理器 |
+| `packages/@core/preferences/src/use-preferences.ts`      | 组合式函数     |
+| `packages/@core/preferences/src/update-css-variables.ts` | CSS 变量更新   |
 
 ### 9.2 基础工具包
 
 | 文件路径 | 说明 |
-|----------|------|
+| --- | --- |
 | `packages/@core/base/shared/src/cache/storage-manager.ts` | 存储管理器 |
 | `packages/@core/base/shared/src/color/index.ts` | 颜色工具导出口 |
 | `packages/@core/base/shared/src/color/convert.ts` | 颜色转换 |
@@ -2685,16 +2849,16 @@ function changeLayout(newLayout: string) {
 
 ### 9.3 设计令牌
 
-| 文件路径 | 说明 |
-|----------|------|
+| 文件路径                                                   | 说明         |
+| ---------------------------------------------------------- | ------------ |
 | `packages/@core/base/design/src/design-tokens/default.css` | 亮色主题变量 |
-| `packages/@core/base/design/src/design-tokens/dark.css` | 暗色主题变量 |
-| `packages/@core/base/design/src/design-tokens/index.ts` | 导出入口 |
+| `packages/@core/base/design/src/design-tokens/dark.css`    | 暗色主题变量 |
+| `packages/@core/base/design/src/design-tokens/index.ts`    | 导出入口     |
 
 ### 9.4 布局 UI 组件
 
 | 文件路径 | 说明 |
-|----------|------|
+| --- | --- |
 | `packages/@core/ui-kit/layout-ui/src/vben-layout.ts` | Props 类型定义 |
 | `packages/@core/ui-kit/layout-ui/src/vben-layout.vue` | 布局容器组件 |
 | `packages/@core/ui-kit/layout-ui/src/hooks/use-layout.ts` | 布局逻辑 Hook |
@@ -2706,7 +2870,7 @@ function changeLayout(newLayout: string) {
 ### 9.5 布局效果组件
 
 | 文件路径 | 说明 |
-|----------|------|
+| --- | --- |
 | `packages/effects/layouts/src/basic/layout.vue` | 布局总装 |
 | `packages/effects/layouts/src/basic/header/header.vue` | 头部组装 |
 | `packages/effects/layouts/src/basic/menu/menu.vue` | 菜单组件 |

@@ -59,7 +59,7 @@ function submit() {
           v-model="state.form.password"
           label="新密码"
           label-width="100px"
-          type="password"
+          show-password
           prop="password"
           clearable
           placeholder="请输入新密码"
@@ -69,7 +69,7 @@ function submit() {
           v-model="state.form.confirmPassword"
           label="确认密码"
           label-width="100px"
-          type="password"
+          show-password
           prop="confirmPassword"
           clearable
           placeholder="请再次输入密码"

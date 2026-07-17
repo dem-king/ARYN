@@ -31,11 +31,18 @@ describe('mobile decoration renderer contract', () => {
     }
   });
 
-  it('migrates legacy content and renders component props through the registry', () => {
+  it('migrates legacy content and renders every component through static branches', () => {
     const renderer = readMobileFile('index.vue');
+    const expectedTypes = [...legacyComponentTypes, ...retailComponentTypes];
 
     expect(renderer).toContain('migratePageContent');
-    expect(renderer).toContain('getDiyComponent');
+    for (const type of expectedTypes) {
+      expect(renderer, `missing static mobile renderer: ${type}`).toContain(
+        `item.type === '${type}'`,
+      );
+    }
+    expect(renderer).not.toContain('<component');
+    expect(renderer).not.toContain('getDiyComponent');
     expect(renderer).toContain(':show-data="item.props"');
     expect(renderer).not.toContain('item.formData');
   });
