@@ -12,6 +12,10 @@ interface UnknownRecord {
   [key: string]: unknown;
 }
 
+const LEGACY_COMPONENT_TYPE_ALIASES: Record<string, string> = {
+  imageAd: 'image-ad',
+};
+
 function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -29,7 +33,7 @@ function migrateComponent(value: unknown): DecorationComponent | null {
   return {
     id: value.id,
     props: cloneRecord(props),
-    type: value.type,
+    type: LEGACY_COMPONENT_TYPE_ALIASES[value.type] ?? value.type,
     version:
       typeof value.version === 'number' && value.version > 0
         ? value.version

@@ -1,5 +1,6 @@
 package com.aryn.cloud.promotion.service.impl;
 
+import com.alibaba.fastjson2.JSON;
 import com.aryn.cloud.promotion.api.entity.PageDesign;
 import com.aryn.cloud.promotion.api.dto.PageDesignDraftDTO;
 import com.aryn.cloud.promotion.api.vo.PageDesignEditorVO;
@@ -7,6 +8,7 @@ import com.aryn.cloud.promotion.mapper.PageDesignMapper;
 import com.aryn.cloud.common.core.constant.CacheConstants;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -20,6 +22,7 @@ import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -217,12 +220,28 @@ class PageDesignServiceImplTest {
 	}
 
 	@Test
+	void draftRequestAcceptsStructuredPageContent() throws Exception {
+		PageDesignDraftDTO draft = new ObjectMapper().readValue("""
+				{
+				  "pageName": "首页",
+				  "pageContent": {"schemaVersion": 2, "components": []},
+				  "schemaVersion": 2,
+				  "draftRevision": 3
+				}
+				""", PageDesignDraftDTO.class);
+
+		Object pageContent = draft.getPageContent();
+		assertTrue(pageContent instanceof Map);
+		assertEquals(2, ((Map<?, ?>) pageContent).get("schemaVersion"));
+	}
+
+	@Test
 	void saveDraftAtomicallyIncrementsMatchingRevision() {
 		when(pageDesignMapper.update(any(PageDesign.class), any())).thenReturn(1);
 		PageDesignDraftDTO draft = new PageDesignDraftDTO();
 		draft.setId("page-1");
 		draft.setPageName("夏日首页");
-		draft.setPageContent("{\"schemaVersion\":2,\"components\":[]}");
+		draft.setPageContent(JSON.parseObject("{\"schemaVersion\":2,\"components\":[]}"));
 		draft.setSchemaVersion(2);
 		draft.setDraftRevision(3L);
 
@@ -241,7 +260,7 @@ class PageDesignServiceImplTest {
 		when(pageDesignMapper.update(any(PageDesign.class), any())).thenReturn(0);
 		PageDesignDraftDTO draft = new PageDesignDraftDTO();
 		draft.setId("page-1");
-		draft.setPageContent("{\"components\":[]}");
+		draft.setPageContent(JSON.parseObject("{\"components\":[]}"));
 		draft.setSchemaVersion(2);
 		draft.setDraftRevision(3L);
 

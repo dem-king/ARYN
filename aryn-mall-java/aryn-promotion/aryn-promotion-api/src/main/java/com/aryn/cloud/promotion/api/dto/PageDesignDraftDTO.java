@@ -1,7 +1,7 @@
 package com.aryn.cloud.promotion.api.dto;
 
+import com.alibaba.fastjson2.JSONObject;
 import io.swagger.v3.oas.annotations.media.Schema;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
@@ -21,9 +21,9 @@ public class PageDesignDraftDTO implements Serializable {
 	@Schema(description = "页面名称")
 	private String pageName;
 
-	@NotBlank(message = "页面内容不能为空")
+	@NotNull(message = "页面内容不能为空")
 	@Schema(description = "v2装修内容")
-	private String pageContent;
+	private JSONObject pageContent;
 
 	@NotNull(message = "装修协议版本不能为空")
 	@Schema(description = "装修协议版本")

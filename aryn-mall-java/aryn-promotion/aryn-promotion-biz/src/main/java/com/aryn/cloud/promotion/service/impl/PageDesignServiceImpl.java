@@ -175,7 +175,7 @@ public class PageDesignServiceImpl extends ServiceImpl<PageDesignMapper, PageDes
 	public long saveDraft(PageDesignDraftDTO draft) {
 		PageDesign update = new PageDesign();
 		update.setPageName(draft.getPageName());
-		update.setPageContent(draft.getPageContent());
+		update.setPageContent(JSON.toJSONString(draft.getPageContent()));
 		update.setSchemaVersion(draft.getSchemaVersion());
 		int updated = baseMapper.update(update, Wrappers.<PageDesign>lambdaUpdate()
 			.eq(PageDesign::getId, draft.getId())

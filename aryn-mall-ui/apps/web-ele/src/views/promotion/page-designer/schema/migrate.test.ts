@@ -38,6 +38,25 @@ describe('migratePageContent', () => {
     });
   });
 
+  it('normalizes legacy camel-case component type aliases', () => {
+    const result = migratePageContent({
+      components: [
+        {
+          formData: { imageList: [] },
+          id: 'image-ad-1',
+          type: 'imageAd',
+        },
+      ],
+    });
+
+    expect(result.components[0]).toEqual({
+      id: 'image-ad-1',
+      props: { imageList: [] },
+      type: 'image-ad',
+      version: 1,
+    });
+  });
+
   it('does not mutate an existing v2 document', () => {
     const source = {
       components: [
