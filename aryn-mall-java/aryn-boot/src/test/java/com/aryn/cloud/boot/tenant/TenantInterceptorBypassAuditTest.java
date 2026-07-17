@@ -65,6 +65,15 @@ class TenantInterceptorBypassAuditTest {
 	}
 
 	@Test
+	void userInfoAdminPageUsesExplicitAliasForTenantJoin() throws IOException {
+		String mapper = Files.readString(projectRoot
+				.resolve("aryn-user/aryn-user-biz/src/main/resources/mapper/UserInfoMapper.xml"));
+		String statement = selectStatement(mapper, "selectAdminPage");
+
+		assertThat(statement).contains("LEFT JOIN member_level AS member_level");
+	}
+
+	@Test
 	void payConfigBypassExcludesLogicallyDeletedCredentials() throws IOException {
 		String mapper = Files.readString(
 				projectRoot.resolve("aryn-pay/aryn-pay-biz/src/main/resources/mapper/PayConfigMapper.xml"));

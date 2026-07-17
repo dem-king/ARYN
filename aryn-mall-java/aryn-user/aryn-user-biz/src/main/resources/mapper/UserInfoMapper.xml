@@ -35,7 +35,7 @@
         member_level.level_name AS levelName
         FROM
         user_info AS user_info
-        LEFT JOIN member_level ON user_info.member_level_id = member_level.id AND member_level.del_flag = '0'
+        LEFT JOIN member_level AS member_level ON user_info.member_level_id = member_level.id AND member_level.del_flag = '0'
         <where>
             user_info.del_flag = '0'
             <if test="query.phone !=null and query.phone !=''">
