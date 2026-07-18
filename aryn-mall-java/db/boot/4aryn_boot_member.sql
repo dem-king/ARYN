@@ -8,7 +8,8 @@
 -- ----------------------------
 ALTER TABLE `user_info` ADD COLUMN `member_level_id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '会员等级ID' AFTER `open_id`;
 ALTER TABLE `user_info` ADD COLUMN `point` int NOT NULL DEFAULT 0 COMMENT '积分余额' AFTER `member_level_id`;
-ALTER TABLE `user_info` ADD COLUMN `balance` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '储值余额' AFTER `point`;
+ALTER TABLE `user_info` ADD COLUMN `total_point` int NOT NULL DEFAULT 0 COMMENT '累计获得积分' AFTER `point`;
+ALTER TABLE `user_info` ADD COLUMN `balance` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '储值余额' AFTER `total_point`;
 ALTER TABLE `user_info` ADD COLUMN `total_consume` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '累计消费金额' AFTER `balance`;
 
 -- ----------------------------
@@ -280,6 +281,7 @@ CREATE TABLE `user_tag_rel`  (
     `create_time` datetime    NULL DEFAULT NULL COMMENT '创建时间',
     `tenant_id`   varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '1' COMMENT '租户ID',
     PRIMARY KEY (`id`) USING BTREE,
+    UNIQUE INDEX `uk_user_tag_tenant` (`tenant_id`, `user_id`, `tag_id`) USING BTREE,
     INDEX `idx_user_id` (`user_id`) USING BTREE,
     INDEX `idx_tag_id` (`tag_id`) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '用户标签关联表' ROW_FORMAT = DYNAMIC;
@@ -316,9 +318,20 @@ CREATE TABLE `member_benefit_level_rel`  (
     `create_time` datetime    NULL DEFAULT NULL COMMENT '创建时间',
     `tenant_id`   varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '1' COMMENT '租户ID',
     PRIMARY KEY (`id`) USING BTREE,
+    UNIQUE INDEX `uk_benefit_level_tenant` (`tenant_id`, `benefit_id`, `level_id`) USING BTREE,
     INDEX `idx_benefit_id` (`benefit_id`) USING BTREE,
     INDEX `idx_level_id` (`level_id`) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '权益等级关联表' ROW_FORMAT = DYNAMIC;
+
+DROP TABLE IF EXISTS `member_order_growth`;
+CREATE TABLE `member_order_growth` (
+    `id` varchar(32) NOT NULL COMMENT '主键', `order_id` varchar(32) NOT NULL COMMENT '订单ID',
+    `order_no` varchar(32) DEFAULT NULL COMMENT '订单编号', `user_id` varchar(32) NOT NULL COMMENT '用户ID',
+    `goods_payment_amount` decimal(10,2) NOT NULL COMMENT '实付商品金额',
+    `points_awarded` int NOT NULL DEFAULT 0 COMMENT '本次发放积分', `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+    `create_time` datetime NOT NULL COMMENT '创建时间', PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_member_growth_order` (`tenant_id`, `order_id`), KEY `idx_member_growth_user` (`tenant_id`, `user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='会员订单成长幂等记录';
 
 -- ----------------------------
 -- 余额记录菜单

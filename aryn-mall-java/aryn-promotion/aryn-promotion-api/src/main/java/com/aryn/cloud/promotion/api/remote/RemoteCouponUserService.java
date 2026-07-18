@@ -21,6 +21,8 @@ public interface RemoteCouponUserService {
 	 * @param id
 	 * @return
 	 */
-	CouponUserRespVO getById(String id);
+	CouponUserRespVO getById(String id, String userId);
+
+	boolean grantMemberBenefitCoupon(String couponTemplateId, String userId, String sourceId);
 
 }

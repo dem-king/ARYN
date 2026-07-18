@@ -7,10 +7,13 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.log.annotation.SysLog;
+import com.aryn.cloud.user.api.dto.UserAdminUpdateDTO;
+import com.aryn.cloud.user.api.dto.UserCreateDTO;
 import com.aryn.cloud.user.api.entity.UserInfo;
 import com.aryn.cloud.user.service.IUserInfoService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
@@ -43,12 +46,14 @@ public class UserInfoController {
 	}
 
 	@Operation(summary = "商城用户查询")
+	@SaCheckPermission("user:userinfo:get")
 	@GetMapping("/{id}")
 	public Result page(@PathVariable("id") String id) {
 		return Result.success(userInfoService.getUserById(id));
 	}
 
 	@Operation(summary = "商城用户数量查询")
+	@SaCheckPermission("user:userinfo:page")
 	@GetMapping("/count")
 	public Result count(UserInfo userInfo) {
 		return Result.success(userInfoService.count(Wrappers.lambdaQuery(userInfo)));
@@ -58,19 +63,20 @@ public class UserInfoController {
 	@Operation(summary = "用户新增")
 	@SaCheckPermission("user:userinfo:add")
 	@PostMapping
-	public Result<Boolean> add(@RequestBody UserInfo userInfo) {
-		return Result.success(userInfoService.saveUser(userInfo));
+	public Result<Boolean> add(@RequestBody @Valid UserCreateDTO request) {
+		return Result.success(userInfoService.saveUser(request, null));
 	}
 
 	@SysLog("修改用户")
 	@Operation(summary = "用户修改")
 	@SaCheckPermission("user:userinfo:edit")
 	@PutMapping
-	public Result<Boolean> edit(@RequestBody UserInfo userInfo) {
-		return Result.success(userInfoService.updateUserById(userInfo));
+	public Result<Boolean> edit(@RequestBody @Valid UserAdminUpdateDTO request) {
+		return Result.success(userInfoService.updateUserById(request));
 	}
 
 	@Operation(summary = "商城用户统计数量查询")
+	@SaCheckPermission("user:userinfo:page")
 	@GetMapping("/statistics")
 	public Result statistics() {
 		long allCount = userInfoService.count(Wrappers.lambdaQuery());
@@ -87,6 +93,7 @@ public class UserInfoController {
 	}
 
 	@Operation(summary = "用户来源统计")
+	@SaCheckPermission("user:userinfo:page")
 	@GetMapping("/source/statistics")
 	public Result sourceStatistics(UserInfo userInfo) {
 		return Result.success(userInfoService.sourceStatistics(userInfo));
@@ -97,7 +104,7 @@ public class UserInfoController {
 	@SaCheckPermission("user:userinfo:del")
 	@DeleteMapping("/{id}")
 	public Result<Boolean> del(@PathVariable("id") String id) {
-		return Result.success(userInfoService.removeById(id));
+		return Result.success(userInfoService.deleteUser(id));
 	}
 
 	@SysLog("调整积分")

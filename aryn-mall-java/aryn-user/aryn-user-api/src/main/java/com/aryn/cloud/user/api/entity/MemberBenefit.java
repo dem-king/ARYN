@@ -8,6 +8,7 @@ import lombok.EqualsAndHashCode;
 import lombok.experimental.Accessors;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 会员权益
@@ -63,5 +64,9 @@ public class MemberBenefit extends Model<MemberBenefit> {
 
 	@Schema(description = "租户ID")
 	private String tenantId;
+
+	@TableField(exist = false)
+	@Schema(description = "关联等级ID")
+	private List<String> levelIds;
 
 }

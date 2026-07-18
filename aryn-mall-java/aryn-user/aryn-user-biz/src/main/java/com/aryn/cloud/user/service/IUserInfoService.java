@@ -4,6 +4,10 @@ package com.aryn.cloud.user.service;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.IService;
+import com.aryn.cloud.user.api.dto.UserAdminUpdateDTO;
+import com.aryn.cloud.user.api.dto.UserCreateDTO;
+import com.aryn.cloud.user.api.dto.UserPasswordUpdateDTO;
+import com.aryn.cloud.user.api.dto.UserProfileUpdateDTO;
 import com.aryn.cloud.user.api.entity.UserInfo;
 import com.aryn.cloud.user.api.vo.UserRespVO;
 import com.aryn.cloud.user.api.vo.UserStatisticsVO;
@@ -58,14 +62,20 @@ public interface IUserInfoService extends IService<UserInfo> {
 	 * @param userInfo
 	 * @return
 	 */
-	boolean saveUser(UserInfo userInfo);
+	boolean saveUser(UserCreateDTO request, String clientType);
 
 	/**
 	 * 修改用户
 	 * @param userInfo
 	 * @return
 	 */
-	boolean updateUserById(UserInfo userInfo);
+	boolean updateUserById(UserAdminUpdateDTO request);
+
+	boolean updateProfile(String userId, UserProfileUpdateDTO request);
+
+	boolean updatePassword(String userId, UserPasswordUpdateDTO request);
+
+	boolean deleteUser(String userId);
 
 	List<UserStatisticsVO> sourceStatistics(UserInfo userInfo);
 

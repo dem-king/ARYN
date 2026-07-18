@@ -77,9 +77,12 @@ CREATE TABLE `coupon_user`  (
                                 `update_time` datetime NULL DEFAULT NULL COMMENT '更新时间',
                                 `del_flag` char(2) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
                                 `tenant_id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '租户id',
+                                `source_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '发放来源类型',
+                                `source_id` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '发放来源ID',
                                 `create_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '创建人',
                                 `update_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '修改人',
-                                PRIMARY KEY (`id`) USING BTREE
+                                PRIMARY KEY (`id`) USING BTREE,
+                                UNIQUE INDEX `uk_coupon_user_source` (`tenant_id`, `user_id`, `source_type`, `source_id`) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '用户领券记录表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
@@ -308,37 +311,55 @@ CREATE TABLE `distribution_refund_record` (
 -- 分销相关字典项
 -- ----------------------------
 -- 分销订单状态
-INSERT INTO `sys_dict` VALUES ('1992000000000000001', 'distribution_order_status', '分销订单状态', '0', '分销订单结算状态', '0', NOW(), NULL, 'admin', NULL);
-INSERT INTO `sys_dict_item` VALUES ('1992000000000011', '1992000000000000001', '0', '待结算', '0', NOW(), NULL, 'admin', NULL);
-INSERT INTO `sys_dict_item` VALUES ('1992000000000000012', '1992000000000000001', '1', '已结算', '1', NOW(), NULL, 'admin', NULL);
-INSERT INTO `sys_dict_item` VALUES ('1992000000000000013', '1992000000000000001', '2', '已退款', '2', NOW(), NULL, 'admin', NULL);
+INSERT INTO `aryn_upms`.`sys_dict` VALUES ('1992000000000000001', 'distribution_order_status', '分销订单状态', '0', '分销订单结算状态', '0', NOW(), NULL, 'admin', NULL);
+INSERT INTO `aryn_upms`.`sys_dict_value`
+  (`id`, `dict_id`, `dict_label`, `dict_value`, `dict_type`, `status`, `remarks`, `sort`, `del_flag`, `create_time`, `update_time`, `create_by`, `update_by`, `show_class`)
+VALUES
+  ('1992000000000011', '1992000000000000001', '待结算', '0', 'distribution_order_status', '0', NULL, 0, '0', NOW(), NULL, 'admin', NULL, NULL),
+  ('1992000000000000012', '1992000000000000001', '已结算', '1', 'distribution_order_status', '0', NULL, 1, '0', NOW(), NULL, 'admin', NULL, NULL),
+  ('1992000000000000013', '1992000000000000001', '已退款', '2', 'distribution_order_status', '0', NULL, 2, '0', NOW(), NULL, 'admin', NULL, NULL);
 
 -- 提现审核状态
-INSERT INTO `sys_dict` VALUES ('1992000000000000002', 'distribution_withdraw_status', '提现审核状态', '0', '分销提现审核状态', '0', NOW(), NULL, 'admin', NULL);
-INSERT INTO `sys_dict_item` VALUES ('1992000000000000021', '1992000000000000002', '0', '待审核', '0', NOW(), NULL, 'admin', NULL);
-INSERT INTO `sys_dict_item` VALUES ('1992000000000000022', '1992000000000000002', '1', '已通过', '1', NOW(), NULL, 'admin', NULL);
-INSERT INTO `sys_dict_item` VALUES ('1992000000000000023', '1992000000000000002', '2', '已拒绝', '2', NOW(), NULL, 'admin', NULL);
+INSERT INTO `aryn_upms`.`sys_dict` VALUES ('1992000000000000002', 'distribution_withdraw_status', '提现审核状态', '0', '分销提现审核状态', '0', NOW(), NULL, 'admin', NULL);
+INSERT INTO `aryn_upms`.`sys_dict_value`
+  (`id`, `dict_id`, `dict_label`, `dict_value`, `dict_type`, `status`, `remarks`, `sort`, `del_flag`, `create_time`, `update_time`, `create_by`, `update_by`, `show_class`)
+VALUES
+  ('1992000000000000021', '1992000000000000002', '待审核', '0', 'distribution_withdraw_status', '0', NULL, 0, '0', NOW(), NULL, 'admin', NULL, NULL),
+  ('1992000000000000022', '1992000000000000002', '已通过', '1', 'distribution_withdraw_status', '0', NULL, 1, '0', NOW(), NULL, 'admin', NULL, NULL),
+  ('1992000000000000023', '1992000000000000002', '已拒绝', '2', 'distribution_withdraw_status', '0', NULL, 2, '0', NOW(), NULL, 'admin', NULL, NULL);
 
 -- 分销用户状态
-INSERT INTO `sys_dict` VALUES ('1992000000000000003', 'distribution_user_status', '分销用户状态', '0', '分销用户启用/禁用状态', '0', NOW(), NULL, 'admin', NULL);
-INSERT INTO `sys_dict_item` VALUES ('1992000000000000031', '1992000000000000003', '0', '启用', '0', NOW(), NULL, 'admin', NULL);
-INSERT INTO `sys_dict_item` VALUES ('1992000000000000032', '1992000000000000003', '1', '禁用', '1', NOW(), NULL, 'admin', NULL);
+INSERT INTO `aryn_upms`.`sys_dict` VALUES ('1992000000000000003', 'distribution_user_status', '分销用户状态', '0', '分销用户启用/禁用状态', '0', NOW(), NULL, 'admin', NULL);
+INSERT INTO `aryn_upms`.`sys_dict_value`
+  (`id`, `dict_id`, `dict_label`, `dict_value`, `dict_type`, `status`, `remarks`, `sort`, `del_flag`, `create_time`, `update_time`, `create_by`, `update_by`, `show_class`)
+VALUES
+  ('1992000000000000031', '1992000000000000003', '启用', '0', 'distribution_user_status', '0', NULL, 0, '0', NOW(), NULL, 'admin', NULL, NULL),
+  ('1992000000000000032', '1992000000000000003', '禁用', '1', 'distribution_user_status', '0', NULL, 1, '0', NOW(), NULL, 'admin', NULL, NULL);
 
 -- 分销配置状态
-INSERT INTO `sys_dict` VALUES ('1992000000000000004', 'distribution_config_status', '分销配置状态', '0', '分销配置启用/禁用状态', '0', NOW(), NULL, 'admin', NULL);
-INSERT INTO `sys_dict_item` VALUES ('1992000000000000041', '1992000000000000004', '0', '启用', '0', NOW(), NULL, 'admin', NULL);
-INSERT INTO `sys_dict_item` VALUES ('1992000000000000042', '1992000000000000004', '1', '禁用', '1', NOW(), NULL, 'admin', NULL);
+INSERT INTO `aryn_upms`.`sys_dict` VALUES ('1992000000000000004', 'distribution_config_status', '分销配置状态', '0', '分销配置启用/禁用状态', '0', NOW(), NULL, 'admin', NULL);
+INSERT INTO `aryn_upms`.`sys_dict_value`
+  (`id`, `dict_id`, `dict_label`, `dict_value`, `dict_type`, `status`, `remarks`, `sort`, `del_flag`, `create_time`, `update_time`, `create_by`, `update_by`, `show_class`)
+VALUES
+  ('1992000000000000041', '1992000000000000004', '启用', '0', 'distribution_config_status', '0', NULL, 0, '0', NOW(), NULL, 'admin', NULL, NULL),
+  ('1992000000000000042', '1992000000000000004', '禁用', '1', 'distribution_config_status', '0', NULL, 1, '0', NOW(), NULL, 'admin', NULL, NULL);
 
 -- 佣金流水类型
-INSERT INTO `sys_dict` VALUES ('1992000000000000005', 'commission_flow_type', '佣金流水类型', '0', '佣金收支类型', '0', NOW(), NULL, 'admin', NULL);
-INSERT INTO `sys_dict_item` VALUES ('1992000000000000051', '1992000000000000005', 'INCOME', '收入', '0', NOW(), NULL, 'admin', NULL);
-INSERT INTO `sys_dict_item` VALUES ('1992000000000000052', '1992000000000000005', 'EXPENSE', '支出', '1', NOW(), NULL, 'admin', NULL);
+INSERT INTO `aryn_upms`.`sys_dict` VALUES ('1992000000000000005', 'commission_flow_type', '佣金流水类型', '0', '佣金收支类型', '0', NOW(), NULL, 'admin', NULL);
+INSERT INTO `aryn_upms`.`sys_dict_value`
+  (`id`, `dict_id`, `dict_label`, `dict_value`, `dict_type`, `status`, `remarks`, `sort`, `del_flag`, `create_time`, `update_time`, `create_by`, `update_by`, `show_class`)
+VALUES
+  ('1992000000000000051', '1992000000000000005', '收入', 'INCOME', 'commission_flow_type', '0', NULL, 0, '0', NOW(), NULL, 'admin', NULL, NULL),
+  ('1992000000000000052', '1992000000000000005', '支出', 'EXPENSE', 'commission_flow_type', '0', NULL, 1, '0', NOW(), NULL, 'admin', NULL, NULL);
 
 -- 提现收款类型
-INSERT INTO `sys_dict` VALUES ('1992000000000000006', 'withdraw_account_type', '提现收款类型', '0', '提现收款账户类型', '0', NOW(), NULL, 'admin', NULL);
-INSERT INTO `sys_dict_item` VALUES ('1992000000000000061', '1992000000000000006', 'WECHAT', '微信', '0', NOW(), NULL, 'admin', NULL);
-INSERT INTO `sys_dict_item` VALUES ('1992000000000000062', '1992000000000000006', 'ALIPAY', '支付宝', '1', NOW(), NULL, 'admin', NULL);
-INSERT INTO `sys_dict_item` VALUES ('1992000000000000063', '1992000000000000006', 'BANK', '银行卡', '2', NOW(), NULL, 'admin', NULL);
+INSERT INTO `aryn_upms`.`sys_dict` VALUES ('1992000000000000006', 'withdraw_account_type', '提现收款类型', '0', '提现收款账户类型', '0', NOW(), NULL, 'admin', NULL);
+INSERT INTO `aryn_upms`.`sys_dict_value`
+  (`id`, `dict_id`, `dict_label`, `dict_value`, `dict_type`, `status`, `remarks`, `sort`, `del_flag`, `create_time`, `update_time`, `create_by`, `update_by`, `show_class`)
+VALUES
+  ('1992000000000000061', '1992000000000000006', '微信', 'WECHAT', 'withdraw_account_type', '0', NULL, 0, '0', NOW(), NULL, 'admin', NULL, NULL),
+  ('1992000000000000062', '1992000000000000006', '支付宝', 'ALIPAY', 'withdraw_account_type', '0', NULL, 1, '0', NOW(), NULL, 'admin', NULL, NULL),
+  ('1992000000000000063', '1992000000000000006', '银行卡', 'BANK', 'withdraw_account_type', '0', NULL, 2, '0', NOW(), NULL, 'admin', NULL, NULL);
 
 -- ----------------------------
 -- 拼团活动表

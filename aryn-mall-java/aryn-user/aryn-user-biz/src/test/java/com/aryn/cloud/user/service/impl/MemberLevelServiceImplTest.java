@@ -7,7 +7,11 @@ import com.aryn.cloud.user.api.entity.MemberLevelRecord;
 import com.aryn.cloud.user.api.entity.UserInfo;
 import com.aryn.cloud.user.mapper.MemberLevelMapper;
 import com.aryn.cloud.user.mapper.MemberLevelRecordMapper;
+import com.aryn.cloud.user.mapper.MemberBenefitLevelRelMapper;
 import com.aryn.cloud.user.mapper.UserInfoMapper;
+import com.aryn.cloud.user.service.IMemberBenefitService;
+import com.aryn.cloud.promotion.api.remote.RemoteCouponUserService;
+import com.aryn.cloud.user.api.entity.MemberBenefit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,6 +22,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -38,6 +43,12 @@ class MemberLevelServiceImplTest {
 	@Mock
 	private MemberLevelMapper memberLevelMapper;
 
+	@Mock
+	private MemberBenefitLevelRelMapper memberBenefitLevelRelMapper;
+
+	@Mock private IMemberBenefitService memberBenefitService;
+	@Mock private RemoteCouponUserService remoteCouponUserService;
+
 	private MemberLevelServiceImpl memberLevelService;
 
 	private UserInfo testUser;
@@ -51,6 +62,7 @@ class MemberLevelServiceImplTest {
 		testUser = new UserInfo();
 		testUser.setId("user001");
 		testUser.setPoint(500);
+		testUser.setTotalPoint(500);
 		testUser.setBalance(BigDecimal.ZERO);
 		testUser.setTotalConsume(new BigDecimal("1000.00"));
 		testUser.setMemberLevelId(null);
@@ -61,6 +73,7 @@ class MemberLevelServiceImplTest {
 		bronzeLevel.setConditionType("1"); // 累计消费金额
 		bronzeLevel.setConditionValue(new BigDecimal("100.00"));
 		bronzeLevel.setStatus("0");
+		bronzeLevel.setSortOrder(1);
 
 		silverLevel = new MemberLevel();
 		silverLevel.setId("level-silver");
@@ -68,6 +81,7 @@ class MemberLevelServiceImplTest {
 		silverLevel.setConditionType("1");
 		silverLevel.setConditionValue(new BigDecimal("500.00"));
 		silverLevel.setStatus("0");
+		silverLevel.setSortOrder(2);
 
 		goldLevel = new MemberLevel();
 		goldLevel.setId("level-gold");
@@ -75,9 +89,12 @@ class MemberLevelServiceImplTest {
 		goldLevel.setConditionType("2"); // 累计积分
 		goldLevel.setConditionValue(new BigDecimal("1000"));
 		goldLevel.setStatus("0");
+		goldLevel.setSortOrder(3);
 
 		// 设置 baseMapper
-		memberLevelService = new TestMemberLevelService(memberLevelRecordMapper, userInfoMapper, memberLevelMapper);
+		memberLevelService = new TestMemberLevelService(memberLevelRecordMapper, userInfoMapper,
+				memberBenefitLevelRelMapper, memberBenefitService, remoteCouponUserService, memberLevelMapper);
+		lenient().when(userInfoMapper.updateMemberLevel(anyString(), nullable(String.class))).thenReturn(1);
 	}
 
 	@Test
@@ -92,7 +109,7 @@ class MemberLevelServiceImplTest {
 		memberLevelService.recalculateLevel("user001");
 
 		// then - 用户消费1000，满足青铜(100)和白银(500)，取最高白银
-		verify(userInfoMapper).updateById(argThat((UserInfo user) -> "level-silver".equals(user.getMemberLevelId())));
+		verify(userInfoMapper).updateMemberLevel("user001", "level-silver");
 		verify(memberLevelRecordMapper).insert(argThat((MemberLevelRecord record) ->
 				"user001".equals(record.getUserId())
 						&& record.getOldLevelId() == null
@@ -105,7 +122,8 @@ class MemberLevelServiceImplTest {
 	void recalculateLevel_matchByPoints() {
 		// given
 		testUser.setTotalConsume(new BigDecimal("50.00")); // 消费不满足任何等级
-		testUser.setPoint(1500); // 积分满足黄金等级
+		testUser.setPoint(10); // 可用积分不参与等级成长
+		testUser.setTotalPoint(1500); // 累计积分满足黄金等级
 		when(userInfoMapper.selectById("user001")).thenReturn(testUser);
 		when(memberLevelMapper.selectList(any())).thenReturn(Arrays.asList(bronzeLevel, silverLevel, goldLevel));
 
@@ -113,7 +131,7 @@ class MemberLevelServiceImplTest {
 		memberLevelService.recalculateLevel("user001");
 
 		// then - 积分1500满足黄金(1000)，消费50不满足青铜(100)和白银(500)
-		verify(userInfoMapper).updateById(argThat((UserInfo user) -> "level-gold".equals(user.getMemberLevelId())));
+		verify(userInfoMapper).updateMemberLevel("user001", "level-gold");
 		verify(memberLevelRecordMapper).insert(argThat((MemberLevelRecord record) ->
 				"level-gold".equals(record.getNewLevelId())));
 	}
@@ -128,7 +146,7 @@ class MemberLevelServiceImplTest {
 		memberLevelService.recalculateLevel("user999");
 
 		// then - 不做任何操作
-		verify(userInfoMapper, never()).updateById(any(UserInfo.class));
+		verify(userInfoMapper, never()).updateMemberLevel(anyString(), any());
 		verify(memberLevelRecordMapper, never()).insert(any(MemberLevelRecord.class));
 	}
 
@@ -143,7 +161,7 @@ class MemberLevelServiceImplTest {
 		memberLevelService.recalculateLevel("user001");
 
 		// then
-		verify(userInfoMapper, never()).updateById(any(UserInfo.class));
+		verify(userInfoMapper, never()).updateMemberLevel(anyString(), any());
 		verify(memberLevelRecordMapper, never()).insert(any(MemberLevelRecord.class));
 	}
 
@@ -159,7 +177,7 @@ class MemberLevelServiceImplTest {
 		memberLevelService.recalculateLevel("user001");
 
 		// then - 等级没变，不更新
-		verify(userInfoMapper, never()).updateById(any(UserInfo.class));
+		verify(userInfoMapper, never()).updateMemberLevel(anyString(), any());
 		verify(memberLevelRecordMapper, never()).insert(any(MemberLevelRecord.class));
 	}
 
@@ -175,7 +193,7 @@ class MemberLevelServiceImplTest {
 		memberLevelService.recalculateLevel("user001");
 
 		// then - 升级到白银
-		verify(userInfoMapper).updateById(argThat((UserInfo user) -> "level-silver".equals(user.getMemberLevelId())));
+		verify(userInfoMapper).updateMemberLevel("user001", "level-silver");
 		verify(memberLevelRecordMapper).insert(argThat((MemberLevelRecord record) ->
 				"level-bronze".equals(record.getOldLevelId())
 						&& "level-silver".equals(record.getNewLevelId())));
@@ -187,6 +205,7 @@ class MemberLevelServiceImplTest {
 		// given
 		testUser.setTotalConsume(new BigDecimal("50.00")); // 不满足青铜(100)
 		testUser.setPoint(10); // 不满足黄金(1000)
+		testUser.setTotalPoint(10);
 		testUser.setMemberLevelId("level-bronze"); // 当前有等级
 		when(userInfoMapper.selectById("user001")).thenReturn(testUser);
 		when(memberLevelMapper.selectList(any())).thenReturn(Arrays.asList(bronzeLevel, silverLevel, goldLevel));
@@ -195,7 +214,7 @@ class MemberLevelServiceImplTest {
 		memberLevelService.recalculateLevel("user001");
 
 		// then - 等级降为null
-		verify(userInfoMapper).updateById(argThat((UserInfo user) -> user.getMemberLevelId() == null));
+		verify(userInfoMapper).updateMemberLevel("user001", null);
 		verify(memberLevelRecordMapper).insert(argThat((MemberLevelRecord record) ->
 				"level-bronze".equals(record.getOldLevelId())
 						&& record.getNewLevelId() == null));
@@ -208,15 +227,19 @@ class MemberLevelServiceImplTest {
 		testUser.setMemberLevelId(null);
 		when(userInfoMapper.selectById("user001")).thenReturn(testUser);
 		when(memberLevelMapper.selectList(any())).thenReturn(Arrays.asList(bronzeLevel, silverLevel));
+		MemberBenefit coupon = new MemberBenefit().setId("benefit-1").setBenefitType("3").setBenefitValue("template-1");
+		when(memberBenefitService.getLevelBenefits("level-silver")).thenReturn(List.of(coupon));
 
 		// when
 		memberLevelService.recalculateLevel("user001");
 
 		// then
-		verify(userInfoMapper).updateById(argThat((UserInfo user) -> "level-silver".equals(user.getMemberLevelId())));
+		verify(userInfoMapper).updateMemberLevel("user001", "level-silver");
 		verify(memberLevelRecordMapper).insert(argThat((MemberLevelRecord record) ->
 				record.getOldLevelId() == null
 						&& "level-silver".equals(record.getNewLevelId())));
+		verify(remoteCouponUserService).grantMemberBenefitCoupon(
+				"template-1", "user001", "level-silver:benefit-1");
 	}
 
 	@Test
@@ -246,6 +269,7 @@ class MemberLevelServiceImplTest {
 		// then
 		assertTrue(result);
 		verify(memberLevelMapper).deleteById("level-bronze");
+		verify(memberBenefitLevelRelMapper).delete(any());
 	}
 
 	@Test
@@ -253,8 +277,10 @@ class MemberLevelServiceImplTest {
 	void saveLevel_duplicateConditionValue() {
 		// given
 		MemberLevel newLevel = new MemberLevel();
+		newLevel.setLevelName("重复等级");
 		newLevel.setConditionType("1");
 		newLevel.setConditionValue(new BigDecimal("100.00"));
+		newLevel.setSortOrder(4);
 		when(memberLevelMapper.selectCount(any())).thenReturn(1L);
 
 		// when & then
@@ -269,8 +295,10 @@ class MemberLevelServiceImplTest {
 	void saveLevel_success() {
 		// given
 		MemberLevel newLevel = new MemberLevel();
+		newLevel.setLevelName("新等级");
 		newLevel.setConditionType("1");
 		newLevel.setConditionValue(new BigDecimal("200.00"));
+		newLevel.setSortOrder(4);
 		when(memberLevelMapper.selectCount(any())).thenReturn(0L);
 		when(memberLevelMapper.insert(any(MemberLevel.class))).thenReturn(1);
 
@@ -285,8 +313,10 @@ class MemberLevelServiceImplTest {
 	private static final class TestMemberLevelService extends MemberLevelServiceImpl {
 
 		private TestMemberLevelService(MemberLevelRecordMapper memberLevelRecordMapper, UserInfoMapper userInfoMapper,
-				MemberLevelMapper memberLevelMapper) {
-			super(memberLevelRecordMapper, userInfoMapper);
+				MemberBenefitLevelRelMapper memberBenefitLevelRelMapper, IMemberBenefitService memberBenefitService,
+				RemoteCouponUserService remoteCouponUserService, MemberLevelMapper memberLevelMapper) {
+			super(memberLevelRecordMapper, userInfoMapper, memberBenefitLevelRelMapper, memberBenefitService,
+					remoteCouponUserService);
 			this.baseMapper = memberLevelMapper;
 		}
 	}

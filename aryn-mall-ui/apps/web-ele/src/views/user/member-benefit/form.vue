@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 
 import {
   ElButton,
@@ -7,6 +7,7 @@ import {
   ElForm,
   ElFormItem,
   ElInput,
+  ElInputNumber,
   ElMessage,
   ElOption,
   ElRadio,
@@ -14,12 +15,7 @@ import {
   ElSelect,
 } from 'element-plus';
 
-import {
-  addObj,
-  bindLevels,
-  editObj,
-  getById,
-} from '#/api/user/member-benefit';
+import { addObj, editObj, getById } from '#/api/user/member-benefit';
 import { getList as getLevelList } from '#/api/user/member-level';
 
 const emit = defineEmits(['initPage']);
@@ -33,10 +29,17 @@ const state = reactive({
     id: '',
     benefitName: '',
     benefitType: '1',
-    benefitValue: '',
+    benefitValue: '1',
     description: '',
     status: '0',
     levelIds: [] as string[],
+  },
+});
+
+const numericBenefitValue = computed({
+  get: () => Number(state.form.benefitValue || 1),
+  set: (value: number | undefined) => {
+    state.form.benefitValue = value === undefined ? '' : String(value);
   },
 });
 
@@ -61,6 +64,16 @@ onMounted(() => {
   loadLevelList();
 });
 
+watch(
+  () => state.form.benefitType,
+  (type) => {
+    if (type === '2') state.form.benefitValue = '1';
+    else if (type === '1') state.form.benefitValue = '1';
+    else if (type === '4') state.form.benefitValue = '1';
+    else state.form.benefitValue = '';
+  },
+);
+
 const initForm = async (row?: any) => {
   visible.value = true;
   if (row?.id) {
@@ -76,7 +89,7 @@ const initForm = async (row?: any) => {
       id: '',
       benefitName: '',
       benefitType: '1',
-      benefitValue: '',
+      benefitValue: '1',
       description: '',
       status: '0',
       levelIds: [],
@@ -88,19 +101,16 @@ const submitForm = async () => {
   await formRef.value.validate();
   loading.value = true;
   try {
+    const payload = {
+      ...state.form,
+      benefitValue: String(state.form.benefitValue),
+    };
     if (state.form.id) {
-      await editObj(state.form);
+      await editObj(payload);
       ElMessage.success('修改成功');
     } else {
-      await addObj(state.form);
+      await addObj(payload);
       ElMessage.success('新增成功');
-    }
-    // 绑定等级
-    if (state.form.levelIds?.length > 0) {
-      await bindLevels({
-        benefitId: state.form.id,
-        levelIds: state.form.levelIds,
-      });
     }
     visible.value = false;
     emit('initPage');
@@ -134,7 +144,31 @@ defineExpose({ initForm });
         </ElRadioGroup>
       </ElFormItem>
       <ElFormItem label="权益值" prop="benefitValue">
-        <ElInput v-model="state.form.benefitValue" placeholder="请输入权益值" />
+        <ElInputNumber
+          v-if="state.form.benefitType === '1'"
+          v-model="numericBenefitValue"
+          :min="0.01"
+          :max="1"
+          :step="0.01"
+          :precision="2"
+        />
+        <ElInput
+          v-else-if="state.form.benefitType === '2'"
+          model-value="1"
+          disabled
+        />
+        <ElInput
+          v-else-if="state.form.benefitType === '3'"
+          v-model="state.form.benefitValue"
+          placeholder="请输入优惠券模板ID"
+        />
+        <ElInputNumber
+          v-else
+          v-model="numericBenefitValue"
+          :min="1"
+          :step="0.1"
+          :precision="2"
+        />
       </ElFormItem>
       <ElFormItem label="描述" prop="description">
         <ElInput

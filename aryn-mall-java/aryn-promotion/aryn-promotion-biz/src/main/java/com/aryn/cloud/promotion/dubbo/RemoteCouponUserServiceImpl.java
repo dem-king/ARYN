@@ -27,8 +27,13 @@ public class RemoteCouponUserServiceImpl implements RemoteCouponUserService {
 	}
 
 	@Override
-	public CouponUserRespVO getById(String id) {
-		return couponUserService.getCouponUserById(id);
+	public CouponUserRespVO getById(String id, String userId) {
+		return couponUserService.getCouponUserById(id, userId);
+	}
+
+	@Override
+	public boolean grantMemberBenefitCoupon(String couponTemplateId, String userId, String sourceId) {
+		return couponUserService.grantMemberBenefitCoupon(couponTemplateId, userId, sourceId);
 	}
 
 }

@@ -144,6 +144,7 @@ hx:
       - user_tag_rel
       - member_benefit
       - member_benefit_level_rel
+      - member_order_growth
       - social_account
       - social_user
       - sys_user

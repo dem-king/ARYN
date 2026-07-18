@@ -1,6 +1,5 @@
 package com.aryn.cloud.user.service.impl;
 
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.user.api.entity.PointsRecord;
 import com.aryn.cloud.user.api.entity.UserInfo;
@@ -8,19 +7,19 @@ import com.aryn.cloud.user.mapper.PointsRecordMapper;
 import com.aryn.cloud.user.mapper.UserInfoMapper;
 import com.aryn.cloud.user.service.IMemberLevelService;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
-/**
- * PointsRecordServiceImpl 单元测试
- */
 @ExtendWith(MockitoExtension.class)
 class PointsRecordServiceImplTest {
 
@@ -33,139 +32,85 @@ class PointsRecordServiceImplTest {
 	@Mock
 	private PointsRecordMapper pointsRecordMapper;
 
-	private PointsRecordServiceImpl pointsRecordService;
-
-	private UserInfo testUser;
+	private PointsRecordServiceImpl service;
 
 	@BeforeEach
 	void setUp() {
-		testUser = new UserInfo();
-		testUser.setId("user001");
-		testUser.setPoint(100);
-		testUser.setBalance(java.math.BigDecimal.ZERO);
-		testUser.setTotalConsume(java.math.BigDecimal.ZERO);
-
-		// 设置 baseMapper，使 this.save() 等基类方法可用
-		pointsRecordService = new TestPointsRecordService(userInfoMapper, memberLevelService, pointsRecordMapper);
+		service = new TestPointsRecordService(userInfoMapper, memberLevelService, pointsRecordMapper);
 	}
 
 	@Test
-	@DisplayName("获取积分 - 正常增加积分余额")
-	void recordPointsChange_acquirePoints_success() {
-		// given
-		when(userInfoMapper.selectById("user001")).thenReturn(testUser);
+	void acquirePointsUsesAtomicUpdateAndIncreasesTotalPoint() {
+		UserInfo before = user(100, 500);
+		UserInfo after = user(150, 550);
+		when(userInfoMapper.selectById("user001")).thenReturn(before, after);
+		when(userInfoMapper.acquirePoints("user001", 50)).thenReturn(1);
 		when(pointsRecordMapper.insert(any(PointsRecord.class))).thenReturn(1);
 
-		// when
-		pointsRecordService.recordPointsChange("user001", "1", 50, "ORDER_REWARD", "下单奖励");
+		service.recordPointsChange("user001", "1", 50, "ORDER_REWARD", "下单奖励");
 
-		// then
-		verify(userInfoMapper).updateById(argThat((UserInfo user) -> user.getPoint() == 150));
-		verify(pointsRecordMapper).insert(argThat((PointsRecord record) ->
-				"user001".equals(record.getUserId())
-						&& "1".equals(record.getChangeType())
-						&& record.getChangePoint() == 50
-						&& record.getBalanceAfter() == 150
-						&& "ORDER_REWARD".equals(record.getTriggerScene())
-						&& "下单奖励".equals(record.getRemark())));
+		verify(userInfoMapper).acquirePoints("user001", 50);
+		verify(pointsRecordMapper).insert(org.mockito.ArgumentMatchers.<PointsRecord>argThat(record ->
+				record.getBalanceAfter() == 150 && record.getChangePoint() == 50));
 		verify(memberLevelService).recalculateLevel("user001");
 	}
 
 	@Test
-	@DisplayName("消耗积分 - 正常减少积分余额")
-	void recordPointsChange_consumePoints_success() {
-		// given
-		when(userInfoMapper.selectById("user001")).thenReturn(testUser);
+	void consumePointsUsesGuardedAtomicUpdateWithoutReducingTotalPoint() {
+		UserInfo before = user(100, 500);
+		UserInfo after = user(70, 500);
+		when(userInfoMapper.selectById("user001")).thenReturn(before, after);
+		when(userInfoMapper.consumePoints("user001", 30)).thenReturn(1);
 		when(pointsRecordMapper.insert(any(PointsRecord.class))).thenReturn(1);
 
-		// when
-		pointsRecordService.recordPointsChange("user001", "2", 30, "EXCHANGE", "积分兑换");
+		service.recordPointsChange("user001", "2", 30, "EXCHANGE", "积分兑换");
 
-		// then
-		verify(userInfoMapper).updateById(argThat((UserInfo user) -> user.getPoint() == 70));
-		verify(pointsRecordMapper).insert(argThat((PointsRecord record) ->
-				"2".equals(record.getChangeType())
-						&& record.getChangePoint() == 30
-						&& record.getBalanceAfter() == 70));
-		verify(memberLevelService).recalculateLevel("user001");
+		verify(userInfoMapper).consumePoints("user001", 30);
+		verify(memberLevelService, never()).recalculateLevel("user001");
 	}
 
 	@Test
-	@DisplayName("消耗积分 - 余额不足时抛出异常")
-	void recordPointsChange_consumePoints_insufficientBalance() {
-		// given
-		when(userInfoMapper.selectById("user001")).thenReturn(testUser);
+	void consumePointsRejectsConcurrentInsufficientBalance() {
+		when(userInfoMapper.selectById("user001")).thenReturn(user(100, 500));
+		when(userInfoMapper.consumePoints("user001", 100)).thenReturn(0);
 
-		// when & then
-		ArynBusinessException exception = assertThrows(ArynBusinessException.class, () ->
-				pointsRecordService.recordPointsChange("user001", "2", 200, "EXCHANGE", "积分兑换"));
+		ArynBusinessException exception = assertThrows(ArynBusinessException.class,
+				() -> service.recordPointsChange("user001", "2", 100, "EXCHANGE", "积分兑换"));
 
 		assertEquals("积分余额不足", exception.getMsg());
-		verify(userInfoMapper, never()).updateById(any(UserInfo.class));
 		verify(pointsRecordMapper, never()).insert(any(PointsRecord.class));
 	}
 
 	@Test
-	@DisplayName("获取积分 - 用户不存在时抛出异常")
-	void recordPointsChange_userNotFound() {
-		// given
-		when(userInfoMapper.selectById("user999")).thenReturn(null);
-
-		// when & then
-		ArynBusinessException exception = assertThrows(ArynBusinessException.class, () ->
-				pointsRecordService.recordPointsChange("user999", "1", 50, "ORDER_REWARD", "下单奖励"));
-
-		assertEquals("用户不存在", exception.getMsg());
-		verify(userInfoMapper, never()).updateById(any(UserInfo.class));
+	void rejectsUnknownChangeTypeAndNonPositiveAmount() {
+		assertEquals("积分变动类型不合法", assertThrows(ArynBusinessException.class,
+				() -> service.recordPointsChange("user001", "3", 10, "MANUAL", "调整")).getMsg());
+		assertEquals("积分变动值必须大于0", assertThrows(ArynBusinessException.class,
+				() -> service.recordPointsChange("user001", "1", 0, "MANUAL", "调整")).getMsg());
+		verify(userInfoMapper, never()).selectById(any());
 	}
 
 	@Test
-	@DisplayName("获取积分 - 用户积分为null时默认为0")
-	void recordPointsChange_acquirePoints_nullPointDefaultsToZero() {
-		// given
-		testUser.setPoint(null);
-		when(userInfoMapper.selectById("user001")).thenReturn(testUser);
-		when(pointsRecordMapper.insert(any(PointsRecord.class))).thenReturn(1);
+	void missingUserIsRejected() {
+		when(userInfoMapper.selectById("user001")).thenReturn(null);
 
-		// when
-		pointsRecordService.recordPointsChange("user001", "1", 50, "MANUAL", "手动增加");
-
-		// then
-		verify(userInfoMapper).updateById(argThat((UserInfo user) -> user.getPoint() == 50));
-		verify(pointsRecordMapper).insert(argThat((PointsRecord record) -> record.getBalanceAfter() == 50));
+		assertEquals("用户不存在", assertThrows(ArynBusinessException.class,
+				() -> service.recordPointsChange("user001", "1", 10, "MANUAL", "调整")).getMsg());
 	}
 
 	@Test
-	@DisplayName("消耗积分 - 积分刚好等于消耗值时成功")
-	void recordPointsChange_consumePoints_exactBalance() {
-		// given
-		testUser.setPoint(50);
-		when(userInfoMapper.selectById("user001")).thenReturn(testUser);
+	void levelFailurePropagatesSoTransactionCanRollback() {
+		when(userInfoMapper.selectById("user001")).thenReturn(user(100, 500), user(150, 550));
+		when(userInfoMapper.acquirePoints("user001", 50)).thenReturn(1);
 		when(pointsRecordMapper.insert(any(PointsRecord.class))).thenReturn(1);
+		doThrow(new IllegalStateException("等级服务异常")).when(memberLevelService).recalculateLevel("user001");
 
-		// when
-		pointsRecordService.recordPointsChange("user001", "2", 50, "EXCHANGE", "积分兑换");
-
-		// then
-		verify(userInfoMapper).updateById(argThat((UserInfo user) -> user.getPoint() == 0));
-		verify(pointsRecordMapper).insert(argThat((PointsRecord record) -> record.getBalanceAfter() == 0));
+		assertThrows(IllegalStateException.class,
+				() -> service.recordPointsChange("user001", "1", 50, "ORDER_REWARD", "下单奖励"));
 	}
 
-	@Test
-	@DisplayName("等级重算失败时不影响积分变动主流程")
-	void recordPointsChange_levelRecalculateFail_doesNotAffectMainFlow() {
-		// given
-		when(userInfoMapper.selectById("user001")).thenReturn(testUser);
-		when(pointsRecordMapper.insert(any(PointsRecord.class))).thenReturn(1);
-		doThrow(new RuntimeException("等级服务异常")).when(memberLevelService).recalculateLevel("user001");
-
-		// when & then - 不应抛出异常，主流程正常完成
-		assertDoesNotThrow(() ->
-				pointsRecordService.recordPointsChange("user001", "1", 50, "ORDER_REWARD", "下单奖励"));
-
-		// 积分变动仍然生效
-		verify(userInfoMapper).updateById(any(UserInfo.class));
-		verify(pointsRecordMapper).insert(any(PointsRecord.class));
+	private UserInfo user(int point, int totalPoint) {
+		return new UserInfo().setId("user001").setPoint(point).setTotalPoint(totalPoint);
 	}
 
 	private static final class TestPointsRecordService extends PointsRecordServiceImpl {

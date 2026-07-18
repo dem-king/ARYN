@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.aryn.cloud.user.api.entity.MemberBenefit;
+import com.aryn.cloud.user.api.entity.MemberLevel;
+import com.aryn.cloud.user.api.vo.MemberBenefitsVO;
 
 import java.util.List;
 
@@ -35,5 +37,13 @@ public interface IMemberBenefitService extends IService<MemberBenefit> {
 	 * @return 权益列表
 	 */
 	List<MemberBenefit> getLevelBenefits(String levelId);
+
+	List<MemberBenefit> getEnabledLevelBenefits(String levelId);
+
+	List<MemberLevel> getEnabledLevels();
+
+	MemberBenefitsVO getUserBenefits(String userId);
+
+	MemberBenefit getBenefitDetail(String id);
 
 }

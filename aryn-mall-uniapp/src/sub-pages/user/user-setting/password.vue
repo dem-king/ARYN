@@ -15,9 +15,9 @@ const formRef = ref()
 const globalLoading = useGlobalLoading()
 const { warning, success } = useGlobalToast()
 
-const state = reactive<{ form: { password: string, confirmPassword: string } }>(
+const state = reactive<{ form: { currentPassword: string, password: string, confirmPassword: string } }>(
   {
-    form: { password: '', confirmPassword: '' },
+    form: { currentPassword: '', password: '', confirmPassword: '' },
   },
 )
 
@@ -55,6 +55,16 @@ function submit() {
     <hr-navbar title="修改密码" />
     <wd-form ref="formRef" :model="state.form">
       <wd-cell-group border>
+        <wd-input
+          v-model="state.form.currentPassword"
+          label="当前密码"
+          label-width="100px"
+          show-password
+          prop="currentPassword"
+          clearable
+          placeholder="请输入当前密码"
+          :rules="[{ required: true, message: '请填写当前密码' }]"
+        />
         <wd-input
           v-model="state.form.password"
           label="新密码"

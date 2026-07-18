@@ -88,6 +88,9 @@ public class UserInfo extends Model<UserInfo> {
 	@Schema(description = "积分余额")
 	private Integer point = 0;
 
+	@Schema(description = "累计获得积分")
+	private Integer totalPoint = 0;
+
 	@Schema(description = "储值余额")
 	private BigDecimal balance = BigDecimal.ZERO;
 

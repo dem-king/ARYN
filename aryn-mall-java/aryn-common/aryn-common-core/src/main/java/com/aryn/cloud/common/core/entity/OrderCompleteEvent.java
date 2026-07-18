@@ -11,6 +11,8 @@ package com.aryn.cloud.common.core.entity;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
+import java.math.BigDecimal;
+
 /**
  * 订单完成内部事件实体
  *
@@ -34,5 +36,11 @@ public class OrderCompleteEvent {
 
 	@Schema(description = "用户ID")
 	private String userId;
+
+	@Schema(description = "实付商品金额，不含运费")
+	private BigDecimal goodsPaymentAmount;
+
+	@Schema(description = "下单时会员积分倍率")
+	private BigDecimal pointsMultiplier;
 
 }

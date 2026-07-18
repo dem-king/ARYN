@@ -16,12 +16,18 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.aryn.cloud.common.core.desensitization.MobilePhoneDesensitization;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
+import com.aryn.cloud.user.api.dto.UserAdminUpdateDTO;
+import com.aryn.cloud.user.api.dto.UserCreateDTO;
+import com.aryn.cloud.user.api.dto.UserPasswordUpdateDTO;
+import com.aryn.cloud.user.api.dto.UserProfileUpdateDTO;
 import com.aryn.cloud.user.api.entity.SocialUser;
 import com.aryn.cloud.user.api.entity.UserInfo;
+import com.aryn.cloud.user.api.entity.UserTagRel;
 import com.aryn.cloud.user.api.vo.UserRespVO;
 import com.aryn.cloud.user.api.vo.UserStatisticsVO;
 import com.aryn.cloud.user.mapper.SocialUserMapper;
 import com.aryn.cloud.user.mapper.UserInfoMapper;
+import com.aryn.cloud.user.mapper.UserTagRelMapper;
 import com.aryn.cloud.user.service.IBalanceRecordService;
 import com.aryn.cloud.user.service.IPointsRecordService;
 import com.aryn.cloud.user.service.IUserInfoService;
@@ -55,6 +61,8 @@ public class UserInfoServiceImpl extends ServiceImpl<UserInfoMapper, UserInfo> i
 
 	private final SocialUserMapper socialUserMapper;
 
+	private final UserTagRelMapper userTagRelMapper;
+
 	@Override
 	public IPage<UserRespVO> getPage(Page page, UserInfo userInfo) {
 		return baseMapper.selectAdminPage(page, userInfo);
@@ -81,6 +89,13 @@ public class UserInfoServiceImpl extends ServiceImpl<UserInfoMapper, UserInfo> i
 
 	@Override
 	@Transactional(rollbackFor = Exception.class)
+	public boolean deleteUser(String userId) {
+		userTagRelMapper.delete(Wrappers.<UserTagRel>lambdaQuery().eq(UserTagRel::getUserId, userId));
+		return this.removeById(userId);
+	}
+
+	@Override
+	@Transactional(rollbackFor = Exception.class)
 	public UserInfo createUser(String phone, String clientType) {
 		UserInfo userInfo = new UserInfo();
 		userInfo.setPhone(phone);
@@ -93,10 +108,13 @@ public class UserInfoServiceImpl extends ServiceImpl<UserInfoMapper, UserInfo> i
 
 	@Override
 	@Transactional(rollbackFor = Exception.class)
-	public boolean saveUser(UserInfo userInfo) {
-		if (this.checkPhone(userInfo.getPhone())) {
+	public boolean saveUser(UserCreateDTO request, String clientType) {
+		if (this.checkPhone(request.getPhone())) {
 			throw new RuntimeException("手机号已存在");
 		}
+		UserInfo userInfo = new UserInfo();
+		BeanUtils.copyProperties(request, userInfo);
+		userInfo.setUserSource(clientType);
 		if (StringUtils.hasText(userInfo.getPassword())) {
 			userInfo.setPassword(BCrypt.hashpw(userInfo.getPassword()));
 		}
@@ -105,15 +123,37 @@ public class UserInfoServiceImpl extends ServiceImpl<UserInfoMapper, UserInfo> i
 
 	@Override
 	@Transactional(rollbackFor = Exception.class)
-	public boolean updateUserById(UserInfo userInfo) {
-		UserInfo target = this.getById(userInfo.getId());
-		userInfo.setPhone(null);
-		userInfo.setPassword(null);
-		BeanUtils.copyProperties(userInfo, target);
+	public boolean updateUserById(UserAdminUpdateDTO request) {
+		UserInfo target = requireUser(request.getId());
+		copyProfile(request.getNickname(), request.getSex(), request.getAvatarUrl(), request.getCity(),
+				request.getProvince(), target);
+		return this.updateById(target);
+	}
 
-		this.updateById(target);
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public boolean updateProfile(String userId, UserProfileUpdateDTO request) {
+		UserInfo target = requireUser(userId);
+		copyProfile(request.getNickname(), request.getSex(), request.getAvatarUrl(), request.getCity(),
+				request.getProvince(), target);
+		return this.updateById(target);
+	}
 
-		return true;
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public boolean updatePassword(String userId, UserPasswordUpdateDTO request) {
+		if (!request.getPassword().equals(request.getConfirmPassword())) {
+			throw new ArynBusinessException("两次输入的密码不一致");
+		}
+		UserInfo target = requireUser(userId);
+		if (StringUtils.hasText(target.getPassword())) {
+			if (!StringUtils.hasText(request.getCurrentPassword())
+						|| !BCrypt.checkpw(request.getCurrentPassword(), target.getPassword())) {
+				throw new ArynBusinessException("当前密码不正确");
+			}
+		}
+		target.setPassword(BCrypt.hashpw(request.getPassword()));
+		return this.updateById(target);
 	}
 
 	@Override
@@ -164,6 +204,23 @@ public class UserInfoServiceImpl extends ServiceImpl<UserInfoMapper, UserInfo> i
 		UserInfo query = new UserInfo();
 		query.setOpenId(userId);
 		return baseMapper.selectAdminPage(page, query);
+	}
+
+	private UserInfo requireUser(String userId) {
+		UserInfo userInfo = this.getById(userId);
+		if (userInfo == null) {
+			throw new ArynBusinessException("用户不存在");
+		}
+		return userInfo;
+	}
+
+	private void copyProfile(String nickname, String sex, String avatarUrl, String city, String province,
+			UserInfo target) {
+		target.setNickname(nickname);
+		target.setSex(sex);
+		target.setAvatarUrl(avatarUrl);
+		target.setCity(city);
+		target.setProvince(province);
 	}
 
 }

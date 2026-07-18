@@ -106,9 +106,12 @@ CREATE TABLE `coupon_user`  (
                                 `update_time` datetime NULL DEFAULT NULL COMMENT '更新时间',
                                 `del_flag` char(2) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
                                 `tenant_id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '租户id',
+                                `source_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '发放来源类型',
+                                `source_id` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '发放来源ID',
                                 `create_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '创建人',
                                 `update_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '修改人',
-                                PRIMARY KEY (`id`) USING BTREE
+                                PRIMARY KEY (`id`) USING BTREE,
+                                UNIQUE INDEX `uk_coupon_user_source` (`tenant_id`, `user_id`, `source_type`, `source_id`) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '用户领券记录表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
@@ -2731,6 +2734,19 @@ INSERT INTO `sys_tenant_menu` VALUES ('2026071709110000001', '159022980063363481
 INSERT INTO `sys_tenant_menu` VALUES ('2026071709110000002', '1590229800633634816', '2026071709000000002', NULL, NULL);
 INSERT INTO `sys_tenant_menu` VALUES ('2026071709110000003', '1590229800633634816', '2026071709000000003', NULL, NULL);
 
+ALTER TABLE `order_info`
+  ADD COLUMN `member_discount_price` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '会员折扣优惠金额' AFTER `coupon_price`,
+  ADD COLUMN `points_multiplier` decimal(10,2) NOT NULL DEFAULT 1.00 COMMENT '下单时会员积分倍率' AFTER `member_discount_price`;
+ALTER TABLE `order_item`
+  ADD COLUMN `member_discount_price` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '会员折扣优惠金额' AFTER `coupon_price`;
+CREATE TABLE `member_order_growth` (
+  `id` varchar(32) NOT NULL, `order_id` varchar(32) NOT NULL, `order_no` varchar(32) DEFAULT NULL,
+  `user_id` varchar(32) NOT NULL, `goods_payment_amount` decimal(10,2) NOT NULL,
+  `points_awarded` int NOT NULL DEFAULT 0, `tenant_id` varchar(32) NOT NULL, `create_time` datetime NOT NULL,
+  PRIMARY KEY (`id`), UNIQUE KEY `uk_member_growth_order` (`tenant_id`, `order_id`),
+  KEY `idx_member_growth_user` (`tenant_id`, `user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='会员订单成长幂等记录';
+
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ============================================================================
@@ -2747,7 +2763,9 @@ SET FOREIGN_KEY_CHECKS = 1;
 -- ----------------------------
 ALTER TABLE `user_info` ADD COLUMN `member_level_id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '会员等级ID' AFTER `open_id`;
 ALTER TABLE `user_info` ADD COLUMN `point` int NOT NULL DEFAULT 0 COMMENT '积分余额' AFTER `member_level_id`;
-ALTER TABLE `user_info` ADD COLUMN `balance` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '储值余额' AFTER `point`;
+ALTER TABLE `user_info` ADD COLUMN `total_point` int NOT NULL DEFAULT 0 COMMENT '累计获得积分' AFTER `point`;
+UPDATE `user_info` SET `total_point` = GREATEST(COALESCE(`point`, 0), 0);
+ALTER TABLE `user_info` ADD COLUMN `balance` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '储值余额' AFTER `total_point`;
 ALTER TABLE `user_info` ADD COLUMN `total_consume` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '累计消费金额' AFTER `balance`;
 
 -- ----------------------------
@@ -3019,6 +3037,7 @@ CREATE TABLE `user_tag_rel`  (
     `create_time` datetime    NULL DEFAULT NULL COMMENT '创建时间',
     `tenant_id`   varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '1' COMMENT '租户ID',
     PRIMARY KEY (`id`) USING BTREE,
+    UNIQUE INDEX `uk_user_tag_tenant` (`tenant_id`, `user_id`, `tag_id`) USING BTREE,
     INDEX `idx_user_id` (`user_id`) USING BTREE,
     INDEX `idx_tag_id` (`tag_id`) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '用户标签关联表' ROW_FORMAT = DYNAMIC;
@@ -3055,6 +3074,7 @@ CREATE TABLE `member_benefit_level_rel`  (
     `create_time` datetime    NULL DEFAULT NULL COMMENT '创建时间',
     `tenant_id`   varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '1' COMMENT '租户ID',
     PRIMARY KEY (`id`) USING BTREE,
+    UNIQUE INDEX `uk_benefit_level_tenant` (`tenant_id`, `benefit_id`, `level_id`) USING BTREE,
     INDEX `idx_benefit_id` (`benefit_id`) USING BTREE,
     INDEX `idx_level_id` (`level_id`) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '权益等级关联表' ROW_FORMAT = DYNAMIC;

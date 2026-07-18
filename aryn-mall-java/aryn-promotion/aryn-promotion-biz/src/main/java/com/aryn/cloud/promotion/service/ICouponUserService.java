@@ -23,7 +23,9 @@ public interface ICouponUserService extends IService<CouponUser> {
 
 	Boolean updateCouponUserStatus(CouponUserReqDTO request);
 
-	CouponUserRespVO getCouponUserById(String id);
+	CouponUserRespVO getCouponUserById(String id, String userId);
+
+	boolean grantMemberBenefitCoupon(String couponTemplateId, String userId, String sourceId);
 
 	List<CouponUser> getExpireCouponList();
 

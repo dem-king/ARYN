@@ -4,6 +4,11 @@ import com.aryn.cloud.user.api.entity.MemberBenefit;
 import com.aryn.cloud.user.api.entity.MemberBenefitLevelRel;
 import com.aryn.cloud.user.mapper.MemberBenefitLevelRelMapper;
 import com.aryn.cloud.user.mapper.MemberBenefitMapper;
+import com.aryn.cloud.user.mapper.MemberLevelMapper;
+import com.aryn.cloud.user.mapper.UserInfoMapper;
+import com.aryn.cloud.user.api.entity.MemberLevel;
+import com.aryn.cloud.user.api.entity.UserInfo;
+import com.aryn.cloud.user.api.vo.MemberBenefitsVO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -11,6 +16,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
@@ -32,12 +38,20 @@ class MemberBenefitServiceImplTest {
 	@Mock
 	private MemberBenefitMapper memberBenefitMapper;
 
+	@Mock private MemberLevelMapper memberLevelMapper;
+	@Mock private UserInfoMapper userInfoMapper;
+
 	private MemberBenefitServiceImpl memberBenefitService;
 
 	@BeforeEach
 	void setUp() {
 		// 设置 baseMapper
-		memberBenefitService = new TestMemberBenefitService(memberBenefitLevelRelMapper, memberBenefitMapper);
+		memberBenefitService = new TestMemberBenefitService(memberBenefitLevelRelMapper, memberLevelMapper,
+				userInfoMapper, memberBenefitMapper);
+		lenient().when(memberBenefitMapper.selectById(any())).thenReturn(new MemberBenefit().setId("benefit001"));
+		lenient().when(memberLevelMapper.selectById(any())).thenReturn(new MemberLevel().setId("level001"));
+		lenient().when(memberLevelMapper.selectByIds(anyCollection())).thenAnswer(invocation ->
+				((Collection<?>) invocation.getArgument(0)).stream().map(id -> new MemberLevel().setId(id.toString())).toList());
 	}
 
 	@Test
@@ -48,6 +62,7 @@ class MemberBenefitServiceImplTest {
 		benefit.setBenefitName("9折优惠");
 		benefit.setBenefitType("1");
 		benefit.setBenefitValue("0.9");
+		benefit.setId("benefit001");
 		when(memberBenefitMapper.insert(any(MemberBenefit.class))).thenReturn(1);
 
 		// when
@@ -65,6 +80,7 @@ class MemberBenefitServiceImplTest {
 		MemberBenefit benefit = new MemberBenefit();
 		benefit.setId("benefit001");
 		benefit.setBenefitName("8折优惠");
+		benefit.setBenefitType("1");
 		benefit.setBenefitValue("0.8");
 		when(memberBenefitMapper.updateById(any(MemberBenefit.class))).thenReturn(1);
 
@@ -74,6 +90,16 @@ class MemberBenefitServiceImplTest {
 		// then
 		assertTrue(result);
 		verify(memberBenefitMapper).updateById(benefit);
+	}
+
+	@Test
+	@DisplayName("保存专属优惠券权益 - 模板ID允许使用非数字字符串")
+	void saveExclusiveCouponBenefit_acceptsStringTemplateId() {
+		MemberBenefit benefit = new MemberBenefit().setId("benefit001").setBenefitName("专属优惠券")
+				.setBenefitType("3").setBenefitValue("coupon-template-uuid");
+		when(memberBenefitMapper.insert(any(MemberBenefit.class))).thenReturn(1);
+
+		assertTrue(memberBenefitService.saveBenefit(benefit));
 	}
 
 	@Test
@@ -178,7 +204,7 @@ class MemberBenefitServiceImplTest {
 		MemberBenefit benefit2 = new MemberBenefit();
 		benefit2.setId("benefit002");
 		benefit2.setBenefitName("免运费");
-		when(memberBenefitMapper.selectByIds(anyCollection())).thenReturn(Arrays.asList(benefit1, benefit2));
+		when(memberBenefitMapper.selectList(any())).thenReturn(Arrays.asList(benefit1, benefit2));
 
 		// when
 		List<MemberBenefit> result = memberBenefitService.getLevelBenefits(levelId);
@@ -203,6 +229,44 @@ class MemberBenefitServiceImplTest {
 	}
 
 	@Test
+	@DisplayName("C端获取等级权益 - 禁用等级不返回权益")
+	void getEnabledLevelBenefits_disabledLevelReturnsEmpty() {
+		when(memberLevelMapper.selectById("level-disabled"))
+				.thenReturn(new MemberLevel().setId("level-disabled").setStatus("1"));
+
+		assertTrue(memberBenefitService.getEnabledLevelBenefits("level-disabled").isEmpty());
+		verify(memberBenefitLevelRelMapper, never()).selectList(any());
+	}
+
+	@Test
+	@DisplayName("聚合用户权益 - 折扣和积分倍率取最优值且免邮和专属券生效")
+	void getUserBenefits_aggregatesBestBenefits() {
+		String levelId = "level001";
+		when(userInfoMapper.selectById("user001"))
+				.thenReturn(new UserInfo().setId("user001").setMemberLevelId(levelId));
+		when(memberLevelMapper.selectById(levelId))
+				.thenReturn(new MemberLevel().setId(levelId).setLevelName("银卡").setStatus("0"));
+		List<MemberBenefit> benefits = List.of(
+				benefit("discount-1", "1", "0.9"),
+				benefit("discount-2", "1", "0.8"),
+				benefit("shipping", "2", "1"),
+				benefit("coupon", "3", "coupon-template-uuid"),
+				benefit("points-1", "4", "2"),
+				benefit("points-2", "4", "3"));
+		when(memberBenefitLevelRelMapper.selectList(any())).thenReturn(benefits.stream()
+				.map(benefit -> new MemberBenefitLevelRel().setBenefitId(benefit.getId()).setLevelId(levelId))
+				.toList());
+		when(memberBenefitMapper.selectList(any())).thenReturn(benefits);
+
+		MemberBenefitsVO result = memberBenefitService.getUserBenefits("user001");
+
+		assertEquals(new BigDecimal("0.8"), result.getDiscountRate());
+		assertTrue(result.isFreeShipping());
+		assertEquals(new BigDecimal("3"), result.getPointsMultiplier());
+		assertEquals(List.of("coupon-template-uuid"), result.getExclusiveCouponTemplateIds());
+	}
+
+	@Test
 	@DisplayName("删除权益 - 确保删除顺序：先删关联再删权益")
 	void deleteBenefit_deleteOrder() {
 		// given
@@ -217,11 +281,16 @@ class MemberBenefitServiceImplTest {
 		inOrder(memberBenefitLevelRelMapper, memberBenefitMapper).verify(memberBenefitMapper).deleteById("benefit001");
 	}
 
+	private static MemberBenefit benefit(String id, String type, String value) {
+		return new MemberBenefit().setId(id).setBenefitName(id)
+				.setBenefitType(type).setBenefitValue(value).setStatus("0");
+	}
+
 	private static final class TestMemberBenefitService extends MemberBenefitServiceImpl {
 
 		private TestMemberBenefitService(MemberBenefitLevelRelMapper memberBenefitLevelRelMapper,
-				MemberBenefitMapper memberBenefitMapper) {
-			super(memberBenefitLevelRelMapper);
+				MemberLevelMapper memberLevelMapper, UserInfoMapper userInfoMapper, MemberBenefitMapper memberBenefitMapper) {
+			super(memberBenefitLevelRelMapper, memberLevelMapper, userInfoMapper);
 			this.baseMapper = memberBenefitMapper;
 		}
 	}

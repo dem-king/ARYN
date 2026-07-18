@@ -7,6 +7,8 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.aryn.cloud.user.api.entity.UserInfo;
 import com.aryn.cloud.user.api.remote.RemoteMallUserService;
 import com.aryn.cloud.user.api.vo.UserInfoVO;
+import com.aryn.cloud.user.api.vo.MemberBenefitsVO;
+import com.aryn.cloud.user.service.IMemberBenefitService;
 import com.aryn.cloud.user.service.IUserInfoService;
 import lombok.RequiredArgsConstructor;
 import org.apache.dubbo.config.annotation.DubboService;
@@ -28,6 +30,8 @@ import java.util.stream.Collectors;
 public class RemoteMallUserServiceImpl implements RemoteMallUserService {
 
 	private final IUserInfoService userInfoService;
+
+	private final IMemberBenefitService memberBenefitService;
 
 	@Override
 	public UserInfo getInfoByPhone(String phone, String clientType) {
@@ -68,6 +72,11 @@ public class RemoteMallUserServiceImpl implements RemoteMallUserService {
 			}).collect(Collectors.toList());
 		}
 		return null;
+	}
+
+	@Override
+	public MemberBenefitsVO getMemberBenefits(String userId) {
+		return memberBenefitService.getUserBenefits(userId);
 	}
 
 	@Override

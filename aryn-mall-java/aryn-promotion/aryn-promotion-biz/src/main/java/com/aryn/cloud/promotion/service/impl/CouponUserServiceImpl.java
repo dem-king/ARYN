@@ -8,6 +8,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.aryn.cloud.common.core.enums.MallErrorCodeEnum;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
+import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.promotion.api.constant.MallEventConstants;
 import com.aryn.cloud.promotion.api.dto.CouponUserReqDTO;
 import com.aryn.cloud.promotion.api.entity.CouponGoods;
@@ -27,10 +28,12 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
+import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 
 @Service
 @RequiredArgsConstructor
@@ -84,9 +87,7 @@ public class CouponUserServiceImpl extends ServiceImpl<CouponUserMapper, CouponU
 			throw new ArynBusinessException(MallErrorCodeEnum.ERROR_41000.getCode(),
 					MallErrorCodeEnum.ERROR_41000.getMsg());
 		}
-		couponInfo.setRemainNum(couponInfo.getRemainNum() - 1);
-		couponInfo.setAssignCount(couponInfo.getAssignCount() + 1);
-		if (couponInfoMapper.updateById(couponInfo) <= 0) {
+		if (couponInfoMapper.allocateOne(couponInfo.getId()) <= 0) {
 			throw new ArynBusinessException(MallErrorCodeEnum.ERROR_41000.getCode(),
 					MallErrorCodeEnum.ERROR_41000.getMsg());
 		}
@@ -145,8 +146,9 @@ public class CouponUserServiceImpl extends ServiceImpl<CouponUserMapper, CouponU
 	}
 
 	@Override
-	public CouponUserRespVO getCouponUserById(String id) {
-		CouponUser couponUser = this.getById(id);
+	public CouponUserRespVO getCouponUserById(String id, String userId) {
+		CouponUser couponUser = this.getOne(Wrappers.<CouponUser>lambdaQuery()
+				.eq(CouponUser::getId, id).eq(CouponUser::getUserId, userId));
 		if (Objects.isNull(couponUser)) {
 			return null;
 		}
@@ -162,6 +164,45 @@ public class CouponUserServiceImpl extends ServiceImpl<CouponUserMapper, CouponU
 				.selectList(Wrappers.<CouponGoods>lambdaQuery().eq(CouponGoods::getCouponId, couponInfo.getId())));
 		}
 		return couponUserRespVO;
+	}
+
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public boolean grantMemberBenefitCoupon(String couponTemplateId, String userId, String sourceId) {
+		String sourceType = "MEMBER_BENEFIT";
+		String tenantId = ArynTenantContextHolder.getTenantId();
+		if (!StringUtils.hasText(couponTemplateId) || !StringUtils.hasText(userId)
+				|| !StringUtils.hasText(sourceId) || !StringUtils.hasText(tenantId)) {
+			throw new ArynBusinessException("会员专属优惠券发放参数不完整");
+		}
+		long existing = this.count(Wrappers.<CouponUser>lambdaQuery()
+				.eq(CouponUser::getUserId, userId)
+				.eq(CouponUser::getSourceType, sourceType)
+				.eq(CouponUser::getSourceId, sourceId));
+		if (existing > 0) {
+			return true;
+		}
+		CouponInfo couponInfo = couponInfoMapper.selectCouponById(couponTemplateId);
+		if (couponInfo == null) {
+			throw new ArynBusinessException("会员专属优惠券模板不存在");
+		}
+		CouponUser couponUser = new CouponUser()
+				.setId(IdWorker.getIdStr())
+				.setCouponId(couponTemplateId)
+				.setUserId(userId)
+				.setStatus(CouponUserStatusEnum.STATUS_0.getCode())
+				.setReceivedTime(LocalDateTime.now())
+				.setValidatTime(couponInfo.getReceiveEndedAt())
+				.setTenantId(tenantId)
+				.setSourceType(sourceType)
+				.setSourceId(sourceId);
+		if (baseMapper.insertSourceIfAbsent(couponUser) == 0) {
+			return true;
+		}
+		if (couponInfoMapper.allocateOne(couponTemplateId) == 0) {
+			throw new ArynBusinessException("会员专属优惠券库存不足");
+		}
+		return true;
 	}
 
 	@Override

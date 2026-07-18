@@ -10,9 +10,7 @@ import com.aryn.cloud.user.api.vo.BalanceRecordVO;
 import com.aryn.cloud.user.mapper.BalanceRecordMapper;
 import com.aryn.cloud.user.mapper.UserInfoMapper;
 import com.aryn.cloud.user.service.IBalanceRecordService;
-import com.aryn.cloud.user.service.IMemberLevelService;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,15 +21,12 @@ import java.math.BigDecimal;
  *
  * @author 雨滴kian
  */
-@Slf4j
 @Service
 @RequiredArgsConstructor
 public class BalanceRecordServiceImpl extends ServiceImpl<BalanceRecordMapper, BalanceRecord>
 		implements IBalanceRecordService {
 
 	private final UserInfoMapper userInfoMapper;
-
-	private final IMemberLevelService memberLevelService;
 
 	@Override
 	public IPage<BalanceRecordVO> getPage(Page page, String nickname, String changeType, String beginTime,
@@ -48,56 +43,43 @@ public class BalanceRecordServiceImpl extends ServiceImpl<BalanceRecordMapper, B
 	@Transactional(rollbackFor = Exception.class)
 	public void recordBalanceChange(String userId, String changeType, BigDecimal changeAmount, String triggerScene,
 			String remark) {
+		if (!"1".equals(changeType) && !"2".equals(changeType) && !"3".equals(changeType)) {
+			throw new ArynBusinessException("余额变动类型不合法");
+		}
+		if (changeAmount == null) {
+			throw new ArynBusinessException("余额变动值不能为空");
+		}
+		if (("1".equals(changeType) || "2".equals(changeType))
+				&& changeAmount.compareTo(BigDecimal.ZERO) <= 0) {
+			throw new ArynBusinessException("余额变动值必须大于0");
+		}
+		if ("3".equals(changeType) && changeAmount.compareTo(BigDecimal.ZERO) == 0) {
+			throw new ArynBusinessException("余额调整值不能为0");
+		}
+
 		UserInfo userInfo = userInfoMapper.selectById(userId);
 		if (userInfo == null) {
 			throw new ArynBusinessException("用户不存在");
 		}
 
-		BigDecimal currentBalance = userInfo.getBalance() != null ? userInfo.getBalance() : BigDecimal.ZERO;
-		BigDecimal balanceAfter;
-
-		if ("1".equals(changeType)) {
-			// 充值
-			balanceAfter = currentBalance.add(changeAmount);
-		}
-		else if ("2".equals(changeType)) {
-			// 消费
-			balanceAfter = currentBalance.subtract(changeAmount);
-			if (balanceAfter.compareTo(BigDecimal.ZERO) < 0) {
-				throw new ArynBusinessException("余额不足");
-			}
-		}
-		else {
-			// 调整（可正可负）
-			balanceAfter = currentBalance.add(changeAmount);
-			if (balanceAfter.compareTo(BigDecimal.ZERO) < 0) {
-				throw new ArynBusinessException("调整后余额不能为负数");
-			}
+		BigDecimal delta = "2".equals(changeType) ? changeAmount.negate() : changeAmount;
+		if (userInfoMapper.changeBalance(userId, delta) == 0) {
+			throw new ArynBusinessException("2".equals(changeType) ? "余额不足" : "调整后余额不能为负数");
 		}
 
-		// 更新用户余额
-		userInfo.setBalance(balanceAfter);
-		userInfoMapper.updateById(userInfo);
+		UserInfo updatedUser = userInfoMapper.selectById(userId);
+		if (updatedUser == null) {
+			throw new ArynBusinessException("用户不存在");
+		}
 
-		// 插入余额记录
 		BalanceRecord record = new BalanceRecord();
 		record.setUserId(userId);
 		record.setChangeType(changeType);
 		record.setChangeAmount(changeAmount);
-		record.setBalanceAfter(balanceAfter);
+		record.setBalanceAfter(updatedUser.getBalance());
 		record.setTriggerScene(triggerScene);
 		record.setRemark(remark);
 		this.save(record);
-
-		// 如果是充值，触发等级重算
-		if ("1".equals(changeType)) {
-			try {
-				memberLevelService.recalculateLevel(userId);
-			}
-			catch (Exception e) {
-				log.warn("等级重新计算失败, userId={}", userId, e);
-			}
-		}
 	}
 
 }

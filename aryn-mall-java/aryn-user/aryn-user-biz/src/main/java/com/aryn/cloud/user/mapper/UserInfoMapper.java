@@ -10,8 +10,10 @@ import com.aryn.cloud.user.api.vo.UserRespVO;
 import com.aryn.cloud.user.api.vo.UserStatisticsVO;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Update;
 
 import java.io.Serializable;
+import java.math.BigDecimal;
 import java.util.List;
 
 /**
@@ -36,5 +38,43 @@ public interface UserInfoMapper extends BaseMapper<UserInfo> {
 	UserInfoVO selectUserById(Serializable id);
 
 	List<UserStatisticsVO> sourceStatistics(@Param("query") UserInfo userInfo);
+
+	@Update("""
+			UPDATE user_info
+			SET point = COALESCE(point, 0) + #{changePoint},
+				total_point = COALESCE(total_point, 0) + #{changePoint}
+			WHERE id = #{userId} AND del_flag = '0'
+			""")
+	int acquirePoints(@Param("userId") String userId, @Param("changePoint") Integer changePoint);
+
+	@Update("""
+			UPDATE user_info
+			SET point = COALESCE(point, 0) - #{changePoint}
+			WHERE id = #{userId} AND del_flag = '0'
+				AND COALESCE(point, 0) >= #{changePoint}
+			""")
+	int consumePoints(@Param("userId") String userId, @Param("changePoint") Integer changePoint);
+
+	@Update("""
+			UPDATE user_info
+			SET balance = COALESCE(balance, 0) + #{changeAmount}
+			WHERE id = #{userId} AND del_flag = '0'
+				AND COALESCE(balance, 0) + #{changeAmount} >= 0
+			""")
+	int changeBalance(@Param("userId") String userId, @Param("changeAmount") BigDecimal changeAmount);
+
+	@Update("""
+			UPDATE user_info
+			SET total_consume = COALESCE(total_consume, 0) + #{consumeAmount}
+			WHERE id = #{userId} AND del_flag = '0' AND #{consumeAmount} >= 0
+			""")
+	int increaseTotalConsume(@Param("userId") String userId, @Param("consumeAmount") BigDecimal consumeAmount);
+
+	@Update("""
+			UPDATE user_info
+			SET member_level_id = #{levelId}
+			WHERE id = #{userId} AND del_flag = '0'
+			""")
+	int updateMemberLevel(@Param("userId") String userId, @Param("levelId") String levelId);
 
 }

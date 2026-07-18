@@ -21,6 +21,7 @@ import com.aryn.cloud.promotion.api.entity.CouponInfo;
 import com.aryn.cloud.promotion.api.enums.CouponUserStatusEnum;
 import com.aryn.cloud.promotion.api.remote.RemoteCouponUserService;
 import com.aryn.cloud.promotion.api.vo.CouponUserRespVO;
+import com.aryn.cloud.user.api.vo.MemberBenefitsVO;
 import lombok.RequiredArgsConstructor;
 import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.stereotype.Service;
@@ -30,7 +31,6 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 @Service
@@ -44,7 +44,7 @@ public class OrderPriceComputeService {
 	private final RemoteCouponUserService remoteCouponUserService;
 
 	public void orderFreightHandler(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
-			List<GoodsSku> goodsSkuList) {
+			List<GoodsSku> goodsSkuList, boolean freeShipping) {
 		Map<String, GoodsSku> skuMap = goodsSkuList.stream().collect(Collectors.toMap(GoodsSku::getId, v -> v));
 
 		for (OrderItemEntity orderItemEntity : orderItemEntityList) {
@@ -56,6 +56,9 @@ public class OrderPriceComputeService {
 				freightPrice = goodsSpu.getFixedFreightPrice()
 					.multiply(BigDecimal.valueOf(orderItemEntity.getBuyQuantity()));
 				orderItemEntity.setFreightPrice(freightPrice);
+			}
+			if (freeShipping) {
+				orderItemEntity.setFreightPrice(BigDecimal.ZERO);
 			}
 			computeItemPayPrice(orderItemEntity);
 
@@ -95,23 +98,28 @@ public class OrderPriceComputeService {
 		BigDecimal paymentPrice = BigDecimal.ZERO;
 		BigDecimal freightPrice = BigDecimal.ZERO;
 		BigDecimal couponPrice = BigDecimal.ZERO;
+		BigDecimal memberDiscountPrice = BigDecimal.ZERO;
 
 		for (OrderItemEntity orderItemEntity : orderItemEntityList) {
 			totalPrice = totalPrice.add(orderItemEntity.getTotalPrice());
 			freightPrice = freightPrice.add(orderItemEntity.getFreightPrice());
 			couponPrice = couponPrice.add(orderItemEntity.getCouponPrice());
+			memberDiscountPrice = memberDiscountPrice.add(orderItemEntity.getMemberDiscountPrice());
 			paymentPrice = paymentPrice.add(orderItemEntity.getPaymentPrice());
 		}
 
 		orderInfo.setTotalPrice(totalPrice)
 			.setPaymentPrice(paymentPrice)
 			.setFreightPrice(freightPrice)
-			.setCouponPrice(couponPrice);
+			.setCouponPrice(couponPrice)
+			.setMemberDiscountPrice(memberDiscountPrice);
 
 	}
 
 	public void computeItemPayPrice(OrderItemEntity orderItemEntity) {
-		BigDecimal itemRealPrice = orderItemEntity.getTotalPrice().subtract(orderItemEntity.getCouponPrice());
+		BigDecimal itemRealPrice = orderItemEntity.getTotalPrice()
+			.subtract(orderItemEntity.getMemberDiscountPrice())
+			.subtract(orderItemEntity.getCouponPrice());
 
 		if (itemRealPrice.compareTo(BigDecimal.ZERO) < 0) {
 			itemRealPrice = BigDecimal.ZERO;
@@ -119,6 +127,28 @@ public class OrderPriceComputeService {
 
 		orderItemEntity.setPaymentPrice(itemRealPrice.add(orderItemEntity.getFreightPrice()));
 
+	}
+
+	public void orderMemberBenefitHandler(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
+			MemberBenefitsVO benefits) {
+		BigDecimal discountRate = benefits == null ? BigDecimal.ONE : benefits.getDiscountRate();
+		BigDecimal pointsMultiplier = benefits == null || benefits.getPointsMultiplier() == null
+				? BigDecimal.ONE : benefits.getPointsMultiplier();
+		if (discountRate == null || discountRate.compareTo(BigDecimal.ZERO) <= 0
+				|| discountRate.compareTo(BigDecimal.ONE) > 0) {
+			throw new ArynBusinessException("会员折扣配置不合法");
+		}
+		if (pointsMultiplier.compareTo(BigDecimal.ONE) < 0) {
+			throw new ArynBusinessException("会员积分倍率配置不合法");
+		}
+		orderInfo.setPointsMultiplier(pointsMultiplier);
+		for (OrderItemEntity item : orderItemEntityList) {
+			BigDecimal discountPrice = item.getTotalPrice().multiply(BigDecimal.ONE.subtract(discountRate))
+					.setScale(2, RoundingMode.HALF_UP);
+			item.setMemberDiscountPrice(discountPrice);
+			computeItemPayPrice(item);
+		}
+		computeOrderPrice(orderInfo, orderItemEntityList);
 	}
 
 	public void orderCouponHandler(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList) {
@@ -129,7 +159,7 @@ public class OrderPriceComputeService {
 		BigDecimal totalPrice = BigDecimal.ZERO;
 		List<OrderItemEntity> listCouponGoods = null;
 		String couponUseRange = MallEventConstants.USE_RANGE_1;
-		CouponUserRespVO couponUserRespVO = remoteCouponUserService.getById(orderInfo.getCouponUserId());
+		CouponUserRespVO couponUserRespVO = remoteCouponUserService.getById(orderInfo.getCouponUserId(), orderInfo.getUserId());
 		if (Objects.isNull(couponUserRespVO)) {
 			throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60060.getCode(),
 					MallErrorCodeEnum.ERROR_60060.getMsg());
@@ -157,7 +187,7 @@ public class OrderPriceComputeService {
 		else {
 			totalPrice = this.verifyCoupon(orderItemEntityList, couponUserRespVO);
 		}
-		couponTotalAmount = this.couponCompute(totalPrice, couponUserRespVO, couponInfo);
+		couponTotalAmount = this.couponCompute(totalPrice, couponUserRespVO, couponInfo).min(totalPrice);
 		for (OrderItemEntity orderItemEntity : orderItemEntityList) {
 			BigDecimal couponPrice = BigDecimal.ZERO;
 			if (couponTotalAmount.compareTo(BigDecimal.ZERO) > 0) {
@@ -167,14 +197,15 @@ public class OrderPriceComputeService {
 						.anyMatch(a -> a.getSkuId().equals(orderItemEntity.getSkuId()));
 				}
 				if (isComputeCoupon) {
-					BigDecimal oneMoneyScope = orderItemEntity.getTotalPrice()
+					BigDecimal discountedItemPrice = discountedGoodsPrice(orderItemEntity);
+					BigDecimal oneMoneyScope = discountedItemPrice
 						.divide(totalPrice, 2, RoundingMode.HALF_EVEN);
 					couponPrice = oneMoneyScope.multiply(couponTotalAmount).setScale(2, RoundingMode.HALF_EVEN);
-					if (couponPrice.compareTo(orderItemEntity.getTotalPrice()) > 0) {
-						couponPrice = orderItemEntity.getTotalPrice();
+					if (couponPrice.compareTo(discountedItemPrice) > 0) {
+						couponPrice = discountedItemPrice;
 					}
 					couponTotalAmount = couponTotalAmount.subtract(couponPrice);
-					totalPrice = totalPrice.subtract(orderItemEntity.getTotalPrice());
+					totalPrice = totalPrice.subtract(discountedItemPrice);
 				}
 			}
 			orderItemEntity.setCouponPrice(couponPrice);
@@ -194,17 +225,11 @@ public class OrderPriceComputeService {
 					MallErrorCodeEnum.ERROR_60060.getMsg());
 		}
 
-		AtomicReference<BigDecimal> atomicTotalPrice = new AtomicReference<>(BigDecimal.ZERO);
-		orderItemEntities.forEach(orderItem -> {
-			Integer quantity = listCouponGoods.stream()
-				.filter(tree -> tree.getSkuId().equals(orderItem.getSkuId()))
-				.toList()
-				.get(0)
-				.getBuyQuantity();
-			atomicTotalPrice.updateAndGet(
-					v -> atomicTotalPrice.get().add(orderItem.getSalesPrice().multiply(BigDecimal.valueOf(quantity))));
-		});
-		return atomicTotalPrice.get();
+		return orderItemEntities.stream().map(this::discountedGoodsPrice).reduce(BigDecimal.ZERO, BigDecimal::add);
+	}
+
+	private BigDecimal discountedGoodsPrice(OrderItemEntity item) {
+		return item.getTotalPrice().subtract(item.getMemberDiscountPrice());
 	}
 
 	public BigDecimal couponCompute(BigDecimal totalPrice, CouponUserRespVO couponUser, CouponInfo couponInfo) {
@@ -257,6 +282,7 @@ public class OrderPriceComputeService {
 					orderItemEntity.getSalesPrice().multiply(BigDecimal.valueOf(placeOrderSku.getQuantity())));
 			orderItemEntity.setFreightPrice(BigDecimal.ZERO);
 			orderItemEntity.setCouponPrice(BigDecimal.ZERO);
+			orderItemEntity.setMemberDiscountPrice(BigDecimal.ZERO);
 			orderItemEntity.setPaymentPrice(orderItemEntity.getTotalPrice());
 			orderItemEntity.setSpecsInfo(placeOrderSku.getSpecsInfo());
 			orderItemEntity.setPicUrl(placeOrderSku.getPicUrl());

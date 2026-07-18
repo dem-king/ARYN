@@ -73,6 +73,12 @@ public class CouponUser extends Model<CouponUser> {
 	@Schema(description = "租户id")
 	private String tenantId;
 
+	@Schema(description = "发放来源类型")
+	private String sourceType;
+
+	@Schema(description = "发放来源ID")
+	private String sourceId;
+
 	@Schema(description = "优惠券名称")
 	@TableField(exist = false)
 	private String couponName;

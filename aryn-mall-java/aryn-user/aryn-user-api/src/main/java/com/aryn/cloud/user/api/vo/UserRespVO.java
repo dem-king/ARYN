@@ -30,9 +30,6 @@ public class UserRespVO implements Serializable {
 	@Desensitization(MobilePhoneDesensitization.class)
 	private String phone;
 
-	@Schema(description = "密码")
-	private String password;
-
 	@Schema(description = "性别：1、男；2、女；0、未知；")
 	private String sex;
 

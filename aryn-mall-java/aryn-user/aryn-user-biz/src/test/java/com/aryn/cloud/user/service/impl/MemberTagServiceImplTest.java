@@ -5,6 +5,8 @@ import com.aryn.cloud.user.api.entity.MemberTag;
 import com.aryn.cloud.user.api.entity.UserTagRel;
 import com.aryn.cloud.user.mapper.MemberTagMapper;
 import com.aryn.cloud.user.mapper.UserTagRelMapper;
+import com.aryn.cloud.user.mapper.UserInfoMapper;
+import com.aryn.cloud.user.api.entity.UserInfo;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -33,12 +35,17 @@ class MemberTagServiceImplTest {
 	@Mock
 	private MemberTagMapper memberTagMapper;
 
+	@Mock private UserInfoMapper userInfoMapper;
+
 	private MemberTagServiceImpl memberTagService;
 
 	@BeforeEach
 	void setUp() {
 		// 设置 baseMapper
-		memberTagService = new TestMemberTagService(userTagRelMapper, memberTagMapper);
+		memberTagService = new TestMemberTagService(userTagRelMapper, userInfoMapper, memberTagMapper);
+		lenient().when(userInfoMapper.selectById(any())).thenReturn(new UserInfo().setId("user001"));
+		lenient().when(memberTagMapper.selectByIds(anyCollection())).thenAnswer(invocation ->
+				((Collection<?>) invocation.getArgument(0)).stream().map(id -> new MemberTag().setId(id.toString())).toList());
 	}
 
 	@Test
@@ -198,6 +205,16 @@ class MemberTagServiceImplTest {
 	}
 
 	@Test
+	@DisplayName("打标签 - 空标签ID返回业务错误")
+	void tagUser_nullTagId_rejected() {
+		ArynBusinessException exception = assertThrows(ArynBusinessException.class,
+				() -> memberTagService.tagUser("user001", Arrays.asList("tag001", null)));
+
+		assertEquals("标签ID不能为空", exception.getMsg());
+		verify(userTagRelMapper, never()).insert(anyList());
+	}
+
+	@Test
 	@DisplayName("去标签 - 正常删除用户标签关联")
 	void untagUser_success() {
 		// given
@@ -256,8 +273,9 @@ class MemberTagServiceImplTest {
 
 	private static final class TestMemberTagService extends MemberTagServiceImpl {
 
-		private TestMemberTagService(UserTagRelMapper userTagRelMapper, MemberTagMapper memberTagMapper) {
-			super(userTagRelMapper);
+		private TestMemberTagService(UserTagRelMapper userTagRelMapper, UserInfoMapper userInfoMapper,
+				MemberTagMapper memberTagMapper) {
+			super(userTagRelMapper, userInfoMapper);
 			this.baseMapper = memberTagMapper;
 		}
 	}

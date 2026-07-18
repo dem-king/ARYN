@@ -15,7 +15,6 @@
         ,
         user_info.nickname,
         user_info.phone,
-        user_info.`password`,
         user_info.sex,
         user_info.avatar_url,
         user_info.city,
@@ -26,6 +25,7 @@
         user_info.user_source,
         user_info.member_level_id,
         user_info.point,
+        user_info.total_point,
         user_info.balance,
         user_info.total_consume
     </sql>

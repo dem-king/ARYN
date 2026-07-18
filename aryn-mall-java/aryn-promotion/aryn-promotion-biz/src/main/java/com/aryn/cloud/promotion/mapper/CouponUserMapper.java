@@ -8,6 +8,7 @@ import com.aryn.cloud.promotion.api.entity.CouponUser;
 import com.aryn.cloud.promotion.api.vo.CouponUserVO;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Insert;
 
 import java.util.List;
 
@@ -26,5 +27,14 @@ public interface CouponUserMapper extends BaseMapper<CouponUser> {
 	 * @return
 	 */
 	List<CouponUserVO> selectCountByCouponIds(@Param("couponIds") String[] couponIds);
+
+	@Insert("""
+			INSERT INTO coupon_user
+			(id, coupon_id, user_id, status, received_time, validat_time, del_flag, tenant_id, source_type, source_id)
+			VALUES
+			(#{id}, #{couponId}, #{userId}, #{status}, #{receivedTime}, #{validatTime}, '0', #{tenantId}, #{sourceType}, #{sourceId})
+			ON DUPLICATE KEY UPDATE id = id
+			""")
+	int insertSourceIfAbsent(CouponUser couponUser);
 
 }

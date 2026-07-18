@@ -23,8 +23,10 @@ interface MemberLevel {
   id: string
   levelName: string
   levelIcon: string
+  conditionType: string
+  conditionValue: number
+  sortOrder: number
   upgradeCondition: string
-  level: number
   benefits: MemberBenefit[]
 }
 
@@ -42,6 +44,9 @@ async function loadLevelList() {
     const response = await getMemberLevelList()
     levelList.value = (response || []).map((level: any) => ({
       ...level,
+      upgradeCondition: level.conditionType === '1'
+        ? `累计消费 ¥${level.conditionValue}`
+        : `累计积分 ${level.conditionValue}`,
       benefits: [],
     }))
   }
@@ -75,24 +80,34 @@ async function toggleLevelBenefits(level: MemberLevel) {
 
 function getBenefitTypeTag(type: string): string {
   const typeMap: Record<string, string> = {
-    DISCOUNT: '折扣',
-    GIFT: '赠品',
-    POINT: '积分',
-    PRIVILEGE: '特权',
-    COUPON: '优惠券',
+    1: '折扣',
+    2: '免邮',
+    3: '专属券',
+    4: '积分倍率',
   }
   return typeMap[type] || type
 }
 
 function getBenefitTypeClass(type: string): string {
   const classMap: Record<string, string> = {
-    DISCOUNT: 'bg-blue-50 text-blue-500',
-    GIFT: 'bg-purple-50 text-purple-500',
-    POINT: 'bg-green-50 text-green-500',
-    PRIVILEGE: 'bg-orange-50 text-orange-500',
-    COUPON: 'bg-red-50 text-red-500',
+    1: 'bg-blue-50 text-blue-500',
+    2: 'bg-green-50 text-green-500',
+    3: 'bg-red-50 text-red-500',
+    4: 'bg-orange-50 text-orange-500',
   }
   return classMap[type] || 'bg-gray-50 text-gray-500'
+}
+
+function formatBenefitValue(benefit: MemberBenefit): string {
+  if (benefit.benefitType === '1')
+    return `${Number(benefit.benefitValue) * 10}折`
+  if (benefit.benefitType === '2')
+    return '免邮'
+  if (benefit.benefitType === '3')
+    return '专享'
+  if (benefit.benefitType === '4')
+    return `${benefit.benefitValue}倍`
+  return ''
 }
 </script>
 
@@ -110,7 +125,7 @@ function getBenefitTypeClass(type: string): string {
             mode="aspectFit"
           />
           <view v-else class="level-icon-placeholder">
-            Lv.{{ level.level }}
+            Lv.{{ level.sortOrder }}
           </view>
           <view class="ml-3">
             <view class="text-15px font-bold">{{ level.levelName }}</view>
@@ -148,7 +163,7 @@ function getBenefitTypeClass(type: string): string {
               </text>
             </view>
             <text v-if="benefit.benefitValue" class="text-13px color-primary font-bold">
-              {{ benefit.benefitValue }}
+              {{ formatBenefitValue(benefit) }}
             </text>
           </view>
           <view v-if="benefit.description" class="text-12px text-gray-400 mt-1">

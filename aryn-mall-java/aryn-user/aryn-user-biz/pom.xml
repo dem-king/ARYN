@@ -69,6 +69,10 @@
         </dependency>
         <dependency>
             <groupId>com.aryn</groupId>
+            <artifactId>aryn-promotion-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.aryn</groupId>
             <artifactId>aryn-common-sentinel</artifactId>
         </dependency>
         <dependency>

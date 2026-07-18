@@ -52,6 +52,7 @@ import com.aryn.cloud.user.api.entity.UserAddress;
 import com.aryn.cloud.user.api.remote.RemoteMallUserService;
 import com.aryn.cloud.user.api.remote.RemoteUserAddressService;
 import com.aryn.cloud.user.api.vo.UserInfoVO;
+import com.aryn.cloud.user.api.vo.MemberBenefitsVO;
 import lombok.RequiredArgsConstructor;
 import org.apache.dubbo.config.annotation.DubboReference;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
@@ -268,6 +269,8 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		List<OrderItemEntity> orderItemEntityList = orderPriceComputeService.generateOrderItems(goodsSkuList, createOrderDTO.getSkuReqList());
 
 		orderPriceComputeService.computeOrderPrice(orderInfo, orderItemEntityList);
+		MemberBenefitsVO memberBenefits = remoteMallUserService.getMemberBenefits(createOrderDTO.getUserId());
+		orderPriceComputeService.orderMemberBenefitHandler(orderInfo, orderItemEntityList, memberBenefits);
 		orderPriceComputeService.orderStockHandler(goodsSkuList, orderItemEntityList);
 		orderPriceComputeService.orderCouponHandler(orderInfo, orderItemEntityList);
 
@@ -288,7 +291,8 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 			orderInfo.setRecipientCityCode(userAddress.getCityCode());
 			orderInfo.setRecipientAreaCode(userAddress.getAreaCode());
 			orderInfo.setRecipientAddress(userAddress.getDetailAddress());
-			orderPriceComputeService.orderFreightHandler(orderInfo, orderItemEntityList, goodsSkuList);
+			orderPriceComputeService.orderFreightHandler(orderInfo, orderItemEntityList, goodsSkuList,
+					memberBenefits != null && memberBenefits.isFreeShipping());
 		}
 		// 创建订单
 		if (!super.save(orderInfo)) {
@@ -315,6 +319,8 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		orderInfo.setTotalPrice(BigDecimal.ZERO);
 		orderInfo.setFreightPrice(BigDecimal.ZERO);
 		orderInfo.setCouponPrice(BigDecimal.ZERO);
+		orderInfo.setMemberDiscountPrice(BigDecimal.ZERO);
+		orderInfo.setPointsMultiplier(BigDecimal.ONE);
 		orderInfo.setPayStatus(CommonConstants.NO);
 		orderInfo.setCouponUserId(createOrderDTO.getCouponUserId());
 		orderInfo.setOpenId(createOrderDTO.getOpenId());
@@ -340,6 +346,9 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		orderPaySuccessEvent.setTenantId(orderInfo.getTenantId());
 		orderPaySuccessEvent.setUserId(orderInfo.getUserId());
 		orderPaySuccessEvent.setOrderNo(orderInfo.getOrderNo());
+		orderPaySuccessEvent.setGoodsPaymentAmount(orderInfo.getPaymentPrice().subtract(orderInfo.getFreightPrice()));
+		orderPaySuccessEvent.setPointsMultiplier(orderInfo.getPointsMultiplier() == null
+				? BigDecimal.ONE : orderInfo.getPointsMultiplier());
 
 		orderWxDeliveryService.uploadDeliveryInfoOnReceive(orderInfo, orderItemEntityList);
 
@@ -449,6 +458,8 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 				settlementOrderDTO.getSkuReqList());
 
 		orderPriceComputeService.computeOrderPrice(orderInfo, orderItemEntityList);
+		MemberBenefitsVO memberBenefits = remoteMallUserService.getMemberBenefits(settlementOrderDTO.getUserId());
+		orderPriceComputeService.orderMemberBenefitHandler(orderInfo, orderItemEntityList, memberBenefits);
 		orderPriceComputeService.orderCouponHandler(orderInfo, orderItemEntityList);
 		// 5.计算运费
 		if (MallOrderConstants.DELIVERY_WAY_1.equals(orderInfo.getDeliveryWay())
@@ -469,7 +480,8 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 			orderInfo.setRecipientAreaCode(userAddress.getAreaCode());
 			orderInfo.setRecipientAddress(userAddress.getDetailAddress());
 
-			orderPriceComputeService.orderFreightHandler(orderInfo, orderItemEntityList, goodsSkuList);
+			orderPriceComputeService.orderFreightHandler(orderInfo, orderItemEntityList, goodsSkuList,
+					memberBenefits != null && memberBenefits.isFreeShipping());
 		}
 		orderInfo.setOrderItemList(orderItemEntityList);
 		return orderInfo;

@@ -3,6 +3,7 @@ package com.aryn.cloud.user.api.remote;
 
 import com.aryn.cloud.user.api.entity.UserInfo;
 import com.aryn.cloud.user.api.vo.UserInfoVO;
+import com.aryn.cloud.user.api.vo.MemberBenefitsVO;
 
 import java.util.List;
 
@@ -21,6 +22,8 @@ public interface RemoteMallUserService {
 	UserInfoVO getUserByPhone(String phone);
 
 	List<UserInfoVO> getUserByIds(List<String> userIds);
+
+	MemberBenefitsVO getMemberBenefits(String userId);
 
 	/**
 	 * 通过openid查询用户

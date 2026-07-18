@@ -39,7 +39,7 @@ public class MemberBenefitController {
 	@SaCheckPermission("user:memberbenefit:get")
 	@GetMapping("/{id}")
 	public Result getById(@PathVariable("id") String id) {
-		return Result.success(memberBenefitService.getById(id));
+		return Result.success(memberBenefitService.getBenefitDetail(id));
 	}
 
 	@SysLog("新增会员权益")

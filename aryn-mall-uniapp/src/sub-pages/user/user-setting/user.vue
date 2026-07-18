@@ -13,12 +13,9 @@ definePage({
 })
 
 interface Form {
-  id: string
   avatarUrl: string
   nickname: string
   sex: string
-  phone: string
-  password: string
 }
 
 const userStore = useUserStore()
@@ -28,21 +25,15 @@ const router = useRouter()
 const formRef = ref()
 const state = reactive<{ form: Form }>({
   form: {
-    id: '',
     avatarUrl: '',
     nickname: '',
     sex: '',
-    phone: '',
-    password: '',
   },
 })
 onLoad(() => {
-  state.form.id = userStore.getUserId
   state.form.avatarUrl = userStore.getUserAvatar
   state.form.nickname = userStore.getUserNickname
   state.form.sex = userStore.getUserInfo?.sex ?? ''
-  state.form.phone = userStore.getUserPhone
-  state.form.password = userStore.getUserInfo?.password ?? ''
 })
 const sexColumns = ref<any>([
   {
@@ -80,7 +71,6 @@ function edit() {
       if (valid) {
         globalLoading.loading('修改中...')
         editObj({
-          id: state.form.id,
           sex: state.form.sex,
           nickname: state.form.nickname,
           avatarUrl: state.form.avatarUrl,

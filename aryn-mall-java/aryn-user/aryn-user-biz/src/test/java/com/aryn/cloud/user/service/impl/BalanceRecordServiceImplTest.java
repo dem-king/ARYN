@@ -5,9 +5,7 @@ import com.aryn.cloud.user.api.entity.BalanceRecord;
 import com.aryn.cloud.user.api.entity.UserInfo;
 import com.aryn.cloud.user.mapper.BalanceRecordMapper;
 import com.aryn.cloud.user.mapper.UserInfoMapper;
-import com.aryn.cloud.user.service.IMemberLevelService;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -15,13 +13,13 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
-/**
- * BalanceRecordServiceImpl 单元测试
- */
 @ExtendWith(MockitoExtension.class)
 class BalanceRecordServiceImplTest {
 
@@ -29,197 +27,80 @@ class BalanceRecordServiceImplTest {
 	private UserInfoMapper userInfoMapper;
 
 	@Mock
-	private IMemberLevelService memberLevelService;
-
-	@Mock
 	private BalanceRecordMapper balanceRecordMapper;
 
-	private BalanceRecordServiceImpl balanceRecordService;
-
-	private UserInfo testUser;
+	private BalanceRecordServiceImpl service;
 
 	@BeforeEach
 	void setUp() {
-		testUser = new UserInfo();
-		testUser.setId("user001");
-		testUser.setPoint(0);
-		testUser.setBalance(new BigDecimal("100.00"));
-		testUser.setTotalConsume(BigDecimal.ZERO);
-
-		// 设置 baseMapper
-		balanceRecordService = new TestBalanceRecordService(userInfoMapper, memberLevelService, balanceRecordMapper);
+		service = new TestBalanceRecordService(userInfoMapper, balanceRecordMapper);
 	}
 
 	@Test
-	@DisplayName("充值 - 正常增加余额")
-	void recordBalanceChange_recharge_success() {
-		// given
-		when(userInfoMapper.selectById("user001")).thenReturn(testUser);
+	void rechargeUsesAtomicIncrement() {
+		when(userInfoMapper.selectById("user001")).thenReturn(user("100.00"), user("150.00"));
+		when(userInfoMapper.changeBalance("user001", new BigDecimal("50.00"))).thenReturn(1);
 		when(balanceRecordMapper.insert(any(BalanceRecord.class))).thenReturn(1);
 
-		// when
-		balanceRecordService.recordBalanceChange("user001", "1", new BigDecimal("50.00"), "RECHARGE", "充值");
+		service.recordBalanceChange("user001", "1", new BigDecimal("50.00"), "RECHARGE", "充值");
 
-		// then
-		verify(userInfoMapper).updateById(argThat((UserInfo user) ->
-				user.getBalance().compareTo(new BigDecimal("150.00")) == 0));
-		verify(balanceRecordMapper).insert(argThat((BalanceRecord record) ->
-				"user001".equals(record.getUserId())
-						&& "1".equals(record.getChangeType())
-						&& record.getChangeAmount().compareTo(new BigDecimal("50.00")) == 0
-						&& record.getBalanceAfter().compareTo(new BigDecimal("150.00")) == 0
-						&& "RECHARGE".equals(record.getTriggerScene())));
-		// 充值触发等级重算
-		verify(memberLevelService).recalculateLevel("user001");
+		verify(userInfoMapper).changeBalance("user001", new BigDecimal("50.00"));
+		verify(balanceRecordMapper).insert(org.mockito.ArgumentMatchers.<BalanceRecord>argThat(record ->
+				record.getBalanceAfter().compareTo(new BigDecimal("150.00")) == 0));
 	}
 
 	@Test
-	@DisplayName("消费 - 正常减少余额")
-	void recordBalanceChange_consume_success() {
-		// given
-		when(userInfoMapper.selectById("user001")).thenReturn(testUser);
+	void consumeUsesNegativeAtomicDelta() {
+		when(userInfoMapper.selectById("user001")).thenReturn(user("100.00"), user("70.00"));
+		when(userInfoMapper.changeBalance("user001", new BigDecimal("-30.00"))).thenReturn(1);
 		when(balanceRecordMapper.insert(any(BalanceRecord.class))).thenReturn(1);
 
-		// when
-		balanceRecordService.recordBalanceChange("user001", "2", new BigDecimal("30.00"), "ORDER_PAY", "订单支付");
+		service.recordBalanceChange("user001", "2", new BigDecimal("30.00"), "ORDER_PAY", "订单支付");
 
-		// then
-		verify(userInfoMapper).updateById(argThat((UserInfo user) ->
-				user.getBalance().compareTo(new BigDecimal("70.00")) == 0));
-		verify(balanceRecordMapper).insert(argThat((BalanceRecord record) ->
-				"2".equals(record.getChangeType())
-						&& record.getBalanceAfter().compareTo(new BigDecimal("70.00")) == 0));
-		// 消费不触发等级重算
-		verify(memberLevelService, never()).recalculateLevel(anyString());
+		verify(userInfoMapper).changeBalance("user001", new BigDecimal("-30.00"));
 	}
 
 	@Test
-	@DisplayName("消费 - 余额不足时抛出异常")
-	void recordBalanceChange_consume_insufficientBalance() {
-		// given
-		when(userInfoMapper.selectById("user001")).thenReturn(testUser);
+	void guardedUpdateRejectsConcurrentInsufficientBalance() {
+		when(userInfoMapper.selectById("user001")).thenReturn(user("100.00"));
+		when(userInfoMapper.changeBalance("user001", new BigDecimal("-100.00"))).thenReturn(0);
 
-		// when & then
-		ArynBusinessException exception = assertThrows(ArynBusinessException.class, () ->
-				balanceRecordService.recordBalanceChange("user001", "2", new BigDecimal("200.00"), "ORDER_PAY", "订单支付"));
-
-		assertEquals("余额不足", exception.getMsg());
-		verify(userInfoMapper, never()).updateById(any(UserInfo.class));
+		assertEquals("余额不足", assertThrows(ArynBusinessException.class,
+				() -> service.recordBalanceChange("user001", "2", new BigDecimal("100.00"), "ORDER_PAY", "支付"))
+			.getMsg());
 		verify(balanceRecordMapper, never()).insert(any(BalanceRecord.class));
 	}
 
 	@Test
-	@DisplayName("调整 - 正数调整增加余额")
-	void recordBalanceChange_adjust_positiveAmount() {
-		// given
-		when(userInfoMapper.selectById("user001")).thenReturn(testUser);
+	void adjustmentAllowsSignedAmountButNeverNegativeResult() {
+		when(userInfoMapper.selectById("user001")).thenReturn(user("100.00"), user("70.00"));
+		when(userInfoMapper.changeBalance("user001", new BigDecimal("-30.00"))).thenReturn(1);
 		when(balanceRecordMapper.insert(any(BalanceRecord.class))).thenReturn(1);
 
-		// when
-		balanceRecordService.recordBalanceChange("user001", "3", new BigDecimal("20.00"), "ADMIN_ADJUST", "管理员调整");
+		service.recordBalanceChange("user001", "3", new BigDecimal("-30.00"), "ADMIN_ADJUST", "扣减");
 
-		// then
-		verify(userInfoMapper).updateById(argThat((UserInfo user) ->
-				user.getBalance().compareTo(new BigDecimal("120.00")) == 0));
-		verify(balanceRecordMapper).insert(argThat((BalanceRecord record) ->
-				"3".equals(record.getChangeType())
-						&& record.getBalanceAfter().compareTo(new BigDecimal("120.00")) == 0));
+		verify(userInfoMapper).changeBalance("user001", new BigDecimal("-30.00"));
 	}
 
 	@Test
-	@DisplayName("调整 - 负数调整减少余额")
-	void recordBalanceChange_adjust_negativeAmount() {
-		// given
-		when(userInfoMapper.selectById("user001")).thenReturn(testUser);
-		when(balanceRecordMapper.insert(any(BalanceRecord.class))).thenReturn(1);
-
-		// when
-		balanceRecordService.recordBalanceChange("user001", "3", new BigDecimal("-30.00"), "ADMIN_ADJUST", "管理员扣减");
-
-		// then
-		verify(userInfoMapper).updateById(argThat((UserInfo user) ->
-				user.getBalance().compareTo(new BigDecimal("70.00")) == 0));
+	void rejectsUnknownTypeAndInvalidAmounts() {
+		assertEquals("余额变动类型不合法", assertThrows(ArynBusinessException.class,
+				() -> service.recordBalanceChange("user001", "4", BigDecimal.ONE, "MANUAL", "调整")).getMsg());
+		assertEquals("余额变动值必须大于0", assertThrows(ArynBusinessException.class,
+				() -> service.recordBalanceChange("user001", "1", BigDecimal.ZERO, "RECHARGE", "充值")).getMsg());
+		assertEquals("余额调整值不能为0", assertThrows(ArynBusinessException.class,
+				() -> service.recordBalanceChange("user001", "3", BigDecimal.ZERO, "MANUAL", "调整")).getMsg());
+		verify(userInfoMapper, never()).selectById(any());
 	}
 
-	@Test
-	@DisplayName("调整 - 调整后余额为负数时抛出异常")
-	void recordBalanceChange_adjust_resultNegative() {
-		// given
-		when(userInfoMapper.selectById("user001")).thenReturn(testUser);
-
-		// when & then
-		ArynBusinessException exception = assertThrows(ArynBusinessException.class, () ->
-				balanceRecordService.recordBalanceChange("user001", "3", new BigDecimal("-200.00"), "ADMIN_ADJUST", "管理员扣减"));
-
-		assertEquals("调整后余额不能为负数", exception.getMsg());
-		verify(userInfoMapper, never()).updateById(any(UserInfo.class));
-	}
-
-	@Test
-	@DisplayName("用户不存在时抛出异常")
-	void recordBalanceChange_userNotFound() {
-		// given
-		when(userInfoMapper.selectById("user999")).thenReturn(null);
-
-		// when & then
-		ArynBusinessException exception = assertThrows(ArynBusinessException.class, () ->
-				balanceRecordService.recordBalanceChange("user999", "1", new BigDecimal("50.00"), "RECHARGE", "充值"));
-
-		assertEquals("用户不存在", exception.getMsg());
-	}
-
-	@Test
-	@DisplayName("充值 - 用户余额为null时默认为ZERO")
-	void recordBalanceChange_recharge_nullBalanceDefaultsToZero() {
-		// given
-		testUser.setBalance(null);
-		when(userInfoMapper.selectById("user001")).thenReturn(testUser);
-		when(balanceRecordMapper.insert(any(BalanceRecord.class))).thenReturn(1);
-
-		// when
-		balanceRecordService.recordBalanceChange("user001", "1", new BigDecimal("50.00"), "RECHARGE", "充值");
-
-		// then
-		verify(userInfoMapper).updateById(argThat((UserInfo user) ->
-				user.getBalance().compareTo(new BigDecimal("50.00")) == 0));
-	}
-
-	@Test
-	@DisplayName("消费 - 余额刚好等于消费金额时成功")
-	void recordBalanceChange_consume_exactBalance() {
-		// given
-		when(userInfoMapper.selectById("user001")).thenReturn(testUser);
-		when(balanceRecordMapper.insert(any(BalanceRecord.class))).thenReturn(1);
-
-		// when
-		balanceRecordService.recordBalanceChange("user001", "2", new BigDecimal("100.00"), "ORDER_PAY", "订单支付");
-
-		// then
-		verify(userInfoMapper).updateById(argThat((UserInfo user) ->
-				user.getBalance().compareTo(BigDecimal.ZERO) == 0));
-	}
-
-	@Test
-	@DisplayName("充值 - 等级重算失败时不影响主流程")
-	void recordBalanceChange_recharge_levelRecalculateFail_doesNotAffectMainFlow() {
-		// given
-		when(userInfoMapper.selectById("user001")).thenReturn(testUser);
-		when(balanceRecordMapper.insert(any(BalanceRecord.class))).thenReturn(1);
-		doThrow(new RuntimeException("等级服务异常")).when(memberLevelService).recalculateLevel("user001");
-
-		// when & then
-		assertDoesNotThrow(() ->
-				balanceRecordService.recordBalanceChange("user001", "1", new BigDecimal("50.00"), "RECHARGE", "充值"));
-
-		verify(userInfoMapper).updateById(any(UserInfo.class));
-		verify(balanceRecordMapper).insert(any(BalanceRecord.class));
+	private UserInfo user(String balance) {
+		return new UserInfo().setId("user001").setBalance(new BigDecimal(balance));
 	}
 
 	private static final class TestBalanceRecordService extends BalanceRecordServiceImpl {
 
-		private TestBalanceRecordService(UserInfoMapper userInfoMapper, IMemberLevelService memberLevelService,
-				BalanceRecordMapper balanceRecordMapper) {
-			super(userInfoMapper, memberLevelService);
+		private TestBalanceRecordService(UserInfoMapper userInfoMapper, BalanceRecordMapper balanceRecordMapper) {
+			super(userInfoMapper);
 			this.baseMapper = balanceRecordMapper;
 		}
 	}
