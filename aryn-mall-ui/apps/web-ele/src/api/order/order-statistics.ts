@@ -1,5 +1,11 @@
 import { requestClient } from '#/api/request';
 
+export interface OrderStatisticsQuery {
+  endTime?: string;
+  shopId?: string;
+  startTime?: string;
+}
+
 /**
  * 订单交易数据 VO
  */
@@ -292,11 +298,7 @@ export interface ProductSalesAnalysisVO {
  * 获取订单交易数据
  * @param params
  */
-export function getOrderTradeStatistics(params: {
-  endTime?: string;
-  shopId?: string;
-  startTime?: string;
-}) {
+export function getOrderTradeStatistics(params: OrderStatisticsQuery) {
   return requestClient.get<OrderTradeStatisticsVO>(
     '/mall-order/order/statistics/trade',
     {
@@ -309,11 +311,7 @@ export function getOrderTradeStatistics(params: {
  * 获取交易趋势统计
  * @param params
  */
-export function getOrderTradeTrend(params: {
-  endTime?: string;
-  shopId?: string;
-  startTime?: string;
-}) {
+export function getOrderTradeTrend(params: OrderStatisticsQuery) {
   return requestClient.get<OrderTrendVO[]>(
     '/mall-order/order/statistics/trade/trend',
     {
@@ -326,11 +324,7 @@ export function getOrderTradeTrend(params: {
  * 获取退款率 Top10
  * @param params
  */
-export function getRefundRateTop10(params: {
-  endTime?: string;
-  shopId?: string;
-  startTime?: string;
-}) {
+export function getRefundRateTop10(params: OrderStatisticsQuery) {
   return requestClient.get<OrderRefundRateVO[]>(
     '/mall-order/order/statistics/refund/rate/top10',
     {
@@ -343,11 +337,7 @@ export function getRefundRateTop10(params: {
  * 获取订单用户统计 (成交用户数、复购率、老客成交占比)
  * @param params
  */
-export function getUserStatistics(params: {
-  endTime?: string;
-  shopId?: string;
-  startTime?: string;
-}) {
+export function getUserStatistics(params: OrderStatisticsQuery) {
   return requestClient.get<OrderUserStatisticsVO>(
     '/mall-order/order/statistics/user',
     {
@@ -360,11 +350,7 @@ export function getUserStatistics(params: {
  * 获取订单概览统计 (售后、退款、超时未发货、负面评价)
  * @param params
  */
-export function getOrderOverview(params: {
-  endTime?: string;
-  shopId?: string;
-  startTime?: string;
-}) {
+export function getOrderOverview(params: OrderStatisticsQuery) {
   return requestClient.get<OrderOverviewVO>(
     '/mall-order/order/statistics/overview',
     {
@@ -377,11 +363,7 @@ export function getOrderOverview(params: {
  * 获取商品销量TOP10
  * @param params
  */
-export function getProductSalesTop10(params: {
-  endTime?: string;
-  shopId?: string;
-  startTime?: string;
-}) {
+export function getProductSalesTop10(params: OrderStatisticsQuery) {
   return requestClient.get<OrderProductSalesRankVO[]>(
     '/mall-order/order/statistics/product/sales/top10',
     {
@@ -394,11 +376,7 @@ export function getProductSalesTop10(params: {
  * 获取订单状态总览 (待付款、待发货、已发货、已完成、售后中、已退款)
  * @param params
  */
-export function getOrderStatusOverview(params: {
-  endTime?: string;
-  shopId?: string;
-  startTime?: string;
-}) {
+export function getOrderStatusOverview(params: OrderStatisticsQuery) {
   return requestClient.get<OrderStatusOverviewVO>(
     '/mall-order/order/statistics/status/overview',
     {
@@ -411,11 +389,7 @@ export function getOrderStatusOverview(params: {
  * 获取用户增长趋势 (新增用户、成交用户)
  * @param params
  */
-export function getUserGrowthTrend(params: {
-  endTime?: string;
-  shopId?: string;
-  startTime?: string;
-}) {
+export function getUserGrowthTrend(params: OrderStatisticsQuery) {
   return requestClient.get<UserGrowthTrendVO[]>(
     '/mall-order/order/statistics/user/growth/trend',
     {
@@ -428,11 +402,7 @@ export function getUserGrowthTrend(params: {
  * 获取用户消费分析
  * @param params
  */
-export function getUserConsumptionAnalysis(params: {
-  endTime?: string;
-  shopId?: string;
-  startTime?: string;
-}) {
+export function getUserConsumptionAnalysis(params: OrderStatisticsQuery) {
   return requestClient.get<UserConsumptionAnalysisVO>(
     '/mall-order/order/statistics/user/consumption/analysis',
     {
@@ -445,11 +415,7 @@ export function getUserConsumptionAnalysis(params: {
  * 获取用户消费次数分布统计
  * @param params
  */
-export function getUserConsumptionFrequency(params: {
-  endTime?: string;
-  shopId?: string;
-  startTime?: string;
-}) {
+export function getUserConsumptionFrequency(params: OrderStatisticsQuery) {
   return requestClient.get<UserConsumptionFrequencyVO>(
     '/mall-order/order/statistics/user/consumption/frequency',
     {
@@ -462,11 +428,7 @@ export function getUserConsumptionFrequency(params: {
  * 获取用户消费金额分层统计
  * @param params
  */
-export function getUserConsumptionAmount(params: {
-  endTime?: string;
-  shopId?: string;
-  startTime?: string;
-}) {
+export function getUserConsumptionAmount(params: OrderStatisticsQuery) {
   return requestClient.get<UserConsumptionAmountVO>(
     '/mall-order/order/statistics/user/consumption/amount',
     {
@@ -479,11 +441,9 @@ export function getUserConsumptionAmount(params: {
  * 获取累计成交用户数
  * @param params
  */
-export function getAccumulatedTransactionUserCount(params: {
-  endTime?: string;
-  shopId?: string;
-  startTime?: string;
-}) {
+export function getAccumulatedTransactionUserCount(
+  params: OrderStatisticsQuery,
+) {
   return requestClient.get<number>(
     '/mall-order/order/statistics/user/transacting/count',
     {
@@ -496,11 +456,7 @@ export function getAccumulatedTransactionUserCount(params: {
  * 获取商品销售能力分析 (动销商品数、销售件数、销售额、客单价、动销率)
  * @param params
  */
-export function getProductSalesAnalysis(params: {
-  endTime?: string;
-  shopId?: string;
-  startTime?: string;
-}) {
+export function getProductSalesAnalysis(params: OrderStatisticsQuery) {
   return requestClient.get<ProductSalesAnalysisVO>(
     '/mall-order/order/statistics/product/sales/analysis',
     {

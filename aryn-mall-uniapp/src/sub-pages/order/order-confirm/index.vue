@@ -50,6 +50,7 @@ const router = useRouter()
 const { createGoodsList } = storeToRefs(goodsStore)
 const globalLoading = useGlobalLoading()
 const loading = ref(true)
+const submitting = ref(false)
 const selectedAddress = ref<Address>({
   id: '',
   detailAddress: '',
@@ -80,9 +81,14 @@ const state = reactive<State>({
   isAddressShow: false, // 是否显示收货地址
 })
 onLoad(async (options) => {
-  state.createWay = options?.createWay
+	state.createWay = options?.createWay || '2'
+  state.orderParams.requestId = createOrderRequestId()
   getDefaultAddress()
 })
+
+function createOrderRequestId() {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`
+}
 // 初始化订单
 function initData() {
   loading.value = true
@@ -162,16 +168,19 @@ async function toSettlement() {
 }
 // 去支付
 async function toPay() {
+  if (submitting.value)
+    return
   state.orderParams.createWay = state.createWay
   state.orderParams.userAddressId = selectedAddress.value ? selectedAddress.value.id : ''
   if (!state.orderParams.deliveryWay) {
     return useGlobalToast().warning('请选择配送方式')
   }
 
-  if (state.orderParams.deliveryWay === '1' && !selectedAddress.value) {
+  if (state.orderParams.deliveryWay === '1' && !selectedAddress.value?.id) {
     return useGlobalToast().warning('请选择收货地址')
   }
 
+  submitting.value = true
   globalLoading.loading('加载中...')
 
   try {
@@ -189,6 +198,7 @@ async function toPay() {
     }
   }
   finally {
+    submitting.value = false
     globalLoading.close()
   }
 }

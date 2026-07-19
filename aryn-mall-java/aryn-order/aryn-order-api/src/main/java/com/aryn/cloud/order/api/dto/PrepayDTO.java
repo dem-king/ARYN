@@ -4,6 +4,7 @@ package com.aryn.cloud.order.api.dto;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
 /**
@@ -27,12 +28,15 @@ public class PrepayDTO {
 	private String deliveryWay;
 
 	@Schema(description = "订单单号")
+	@NotBlank(message = "订单号不能为空")
 	private String orderNo;
 
 	@Schema(description = "支付类型：1.微信支付；2.支付宝支付")
+	@NotBlank(message = "支付类型不能为空")
 	private String paymentType;
 
 	@Schema(description = "交易类型")
+	@NotBlank(message = "交易类型不能为空")
 	private String tradeType;
 
 	@Schema(description = "同步跳转地址，仅支持http/https")

@@ -99,8 +99,7 @@ export class VxeGridApi {
 
   setState(
     stateOrFn:
-      | ((prev: VxeGridProps) => Partial<VxeGridProps>)
-      | Partial<VxeGridProps>,
+      ((prev: VxeGridProps) => Partial<VxeGridProps>) | Partial<VxeGridProps>,
   ) {
     if (isFunction(stateOrFn)) {
       this.store.setState((prev) => {

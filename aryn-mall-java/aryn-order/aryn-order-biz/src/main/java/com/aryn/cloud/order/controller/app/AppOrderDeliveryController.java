@@ -4,8 +4,10 @@ package com.aryn.cloud.order.controller.app;
 import cn.hutool.json.JSONUtil;
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
+import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.order.api.entity.OrderDelivery;
 import com.aryn.cloud.order.service.IOrderDeliveryService;
+import com.aryn.cloud.order.service.IOrderInfoService;
 import com.kuaidi100.sdk.response.SubscribePushParamResp;
 import com.kuaidi100.sdk.response.SubscribeResp;
 import com.kuaidi100.sdk.utils.SignUtils;
@@ -33,9 +35,15 @@ public class AppOrderDeliveryController {
 
 	private final IOrderDeliveryService orderDeliveryService;
 
+	private final IOrderInfoService orderInfoService;
+
 	@Operation(summary = "通过订单ID获取发货单信息")
 	@GetMapping("/{orderId}")
 	public Result<OrderDelivery> getDeliveryByOrderId(@PathVariable("orderId") String orderId) {
+		String userId = SecurityUtils.getUser().getUserId();
+		if (orderInfoService.getUserOrderById(orderId, userId) == null) {
+			return Result.success(null);
+		}
 		return Result.success(orderDeliveryService.getByOrderId(orderId));
 	}
 
@@ -64,9 +72,10 @@ public class AppOrderDeliveryController {
 		String param = request.getParameter("param");
 		SubscribePushParamResp subscribePushParamResp = JSONUtil.toBean(param, SubscribePushParamResp.class);
 		log.info("物流回调:{}", subscribePushParamResp);
-		ArynTenantContextHolder.setTenantId(tenantId);
+		ArynTenantContextHolder.removeTenantId();
 		SubscribeResp subscribeResp = new SubscribeResp();
 		try {
+			ArynTenantContextHolder.setTenantId(tenantId);
 			OrderDelivery orderDelivery = orderDeliveryService.getById(deliveryId);
 			if (Objects.isNull(orderDelivery)) {
 				throw new RuntimeException("订单不存在");
@@ -87,6 +96,9 @@ public class AppOrderDeliveryController {
 			subscribeResp.setResult(Boolean.FALSE);
 			subscribeResp.setReturnCode("500");
 			subscribeResp.setMessage(e.getMessage());
+		}
+		finally {
+			ArynTenantContextHolder.removeTenantId();
 		}
 
 		return subscribeResp;

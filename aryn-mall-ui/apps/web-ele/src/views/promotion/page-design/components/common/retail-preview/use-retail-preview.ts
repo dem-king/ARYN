@@ -1,12 +1,7 @@
 import { readonly, shallowReactive } from 'vue';
 
 export type RetailPreviewStatus =
-  | 'data'
-  | 'empty'
-  | 'error'
-  | 'invalid'
-  | 'loading'
-  | 'placeholder';
+  'data' | 'empty' | 'error' | 'invalid' | 'loading' | 'placeholder';
 
 export interface RetailPreviewState<T> {
   items: T[];

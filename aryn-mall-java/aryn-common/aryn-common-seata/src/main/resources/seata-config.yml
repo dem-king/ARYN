@@ -5,7 +5,7 @@ seata:
     vgroup-mapping:
       default_tx_group: default
     grouplist:
-      default: aryn-pro-seata:8091
+      default: aryn-seata:8091
   registry:
     file:
       name: file.conf

@@ -228,7 +228,7 @@ initPage();
               :icon="CircleCheck"
               link
               type="primary"
-              @click="doEnable(scope.row)"
+              @click="doEnable(scope.row as DistributionUserRecord)"
             >
               启用
             </ElButton>
@@ -237,7 +237,7 @@ initPage();
               :icon="Delete"
               link
               type="danger"
-              @click="doDelete(scope.row)"
+              @click="doDelete(scope.row as DistributionUserRecord)"
             >
               删除
             </ElButton>
@@ -247,7 +247,7 @@ initPage();
               :icon="CircleClose"
               link
               type="danger"
-              @click="doDisable(scope.row)"
+              @click="doDisable(scope.row as DistributionUserRecord)"
             >
               禁用
             </ElButton>

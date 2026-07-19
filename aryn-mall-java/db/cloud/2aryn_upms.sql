@@ -556,6 +556,19 @@ INSERT INTO `sys_menu` VALUES ('1991000000000000042', '分销提现查询', 'pro
 INSERT INTO `sys_menu` VALUES ('1991000000000000043', '分销提现审核', 'promotion:distributionwithdraw:audit', NULL, NULL, '1991000000000000040', NULL, NULL, 1, '1', '2026-04-22 10:00:00', NULL, '0', '0', 'app_market', 'system', NULL);
 
 -- ----------------------------
+-- 拼团管理菜单
+-- ----------------------------
+INSERT INTO `sys_menu` VALUES ('1991000000000000050', '拼团管理', NULL, '/promotion/groupbuy', '/promotion/groupbuy/activity', '1779386604402573314', 'carbon:group', '', 21, '0', '2026-04-22 10:00:00', NULL, '0', '0', 'app_market', 'system', 'system');
+INSERT INTO `sys_menu` VALUES ('1991000000000000051', '拼团活动', NULL, '/promotion/groupbuy/activity', NULL, '1991000000000000050', 'carbon:flash', 'promotion/group-buy-activity/index', 1, '0', '2026-04-22 10:00:00', NULL, '0', '0', 'app_market', 'system', 'system');
+INSERT INTO `sys_menu` VALUES ('1991000000000000052', '拼团活动分页', 'promotion:groupbuy:page', NULL, NULL, '1991000000000000051', NULL, NULL, 1, '1', '2026-04-22 10:00:00', NULL, '0', '0', 'app_market', 'system', NULL);
+INSERT INTO `sys_menu` VALUES ('1991000000000000053', '拼团活动查询', 'promotion:groupbuy:get', NULL, NULL, '1991000000000000051', NULL, NULL, 2, '1', '2026-04-22 10:00:00', NULL, '0', '0', 'app_market', 'system', NULL);
+INSERT INTO `sys_menu` VALUES ('1991000000000000054', '拼团活动新增', 'promotion:groupbuy:add', NULL, NULL, '1991000000000000051', NULL, NULL, 3, '1', '2026-04-22 10:00:00', NULL, '0', '0', 'app_market', 'system', NULL);
+INSERT INTO `sys_menu` VALUES ('1991000000000000055', '拼团活动修改', 'promotion:groupbuy:edit', NULL, NULL, '1991000000000000051', NULL, NULL, 4, '1', '2026-04-22 10:00:00', NULL, '0', '0', 'app_market', 'system', NULL);
+INSERT INTO `sys_menu` VALUES ('1991000000000000056', '拼团活动删除', 'promotion:groupbuy:del', NULL, NULL, '1991000000000000051', NULL, NULL, 5, '1', '2026-04-22 10:00:00', NULL, '0', '0', 'app_market', 'system', NULL);
+INSERT INTO `sys_menu` VALUES ('1991000000000000060', '拼团记录', NULL, '/promotion/groupbuy/record', NULL, '1991000000000000050', 'carbon:document', 'promotion/group-buy-record/index', 2, '0', '2026-04-22 10:00:00', NULL, '0', '0', 'app_market', 'system', 'system');
+INSERT INTO `sys_menu` VALUES ('1991000000000000061', '拼团记录分页', 'promotion:groupbuyrecord:page', NULL, NULL, '1991000000000000060', NULL, NULL, 1, '1', '2026-04-22 10:00:00', NULL, '0', '0', 'app_market', 'system', NULL);
+
+-- ----------------------------
 -- Table structure for sys_role
 -- ----------------------------
 DROP TABLE IF EXISTS `sys_role`;

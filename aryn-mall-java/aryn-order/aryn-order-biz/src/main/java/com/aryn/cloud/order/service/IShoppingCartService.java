@@ -3,6 +3,8 @@ package com.aryn.cloud.order.service;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.IService;
+import com.aryn.cloud.order.api.dto.ShoppingCartCreateDTO;
+import com.aryn.cloud.order.api.dto.ShoppingCartUpdateDTO;
 import com.aryn.cloud.order.api.entity.ShoppingCart;
 
 import java.util.List;
@@ -33,21 +35,24 @@ public interface IShoppingCartService extends IService<ShoppingCart> {
 	 * @param shoppingCart
 	 * @return: boolean
 	 */
-	boolean saveShoppingCart(ShoppingCart shoppingCart);
+	boolean saveShoppingCart(String userId, ShoppingCartCreateDTO request);
 
 	/**
 	 * 删除购物车
 	 * @param userId 用户id
-	 * @param spuIds 商品id列表
+	 * @param skuIds SKU ID列表
 	 * @return
 	 */
-	boolean clear(String userId, List<String> spuIds);
+	boolean clear(String userId, List<String> skuIds);
 
 	/**
 	 * 更新购物车
-	 * @param shoppingCart 购物车
+	 * @param userId 用户ID
+	 * @param request 修改请求
 	 * @return
 	 */
-	boolean updateShoppingCartById(ShoppingCart shoppingCart);
+	boolean updateShoppingCart(String userId, ShoppingCartUpdateDTO request);
+
+	boolean removeByUserId(String userId, List<String> ids);
 
 }

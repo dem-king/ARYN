@@ -9,7 +9,8 @@
 <mapper namespace="com.aryn.cloud.order.mapper.OrderRefundMapper">
 
     <sql id="orderRefundSql">
-        order_refund.id,
+		order_refund.id,
+		order_refund.user_id,
         order_refund.order_id,
         order_refund.order_item_id,
         order_refund.`status`,
@@ -54,6 +55,14 @@
         order_refund AS order_refund
         WHERE  order_refund.`id` = #{id}
     </select>
+	<select id="selectRefundByIdAndUser" resultMap="orderRefundMap">
+		SELECT
+		<include refid="orderRefundSql"/>
+		FROM order_refund AS order_refund
+		WHERE order_refund.`id` = #{id}
+		  AND order_refund.`user_id` = #{userId}
+		  AND order_refund.`del_flag` = '0'
+	</select>
 
     <select id="selectByOrderItemId" resultType="com.aryn.cloud.order.api.entity.OrderRefund">
         SELECT

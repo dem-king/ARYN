@@ -1,6 +1,8 @@
 <script lang="ts" setup>
 import type { VxeTableGridOptions } from '#/adapter/vxe-table';
 
+import { onMounted } from 'vue';
+
 import { Page, useVbenDrawer } from '@vben/common-ui';
 import { IconifyIcon, Plus } from '@vben/icons';
 import { $t } from '@vben/locales';
@@ -27,10 +29,14 @@ const [Grid, gridApi] = useVbenVxeGrid({
       enabled: false,
     },
     proxyConfig: {
+      autoLoad: false,
       ajax: {
         query: async (_params) => {
-          return await getMenuList();
+          return { list: await getMenuList() };
         },
+      },
+      response: {
+        list: 'list',
       },
     },
     rowConfig: {
@@ -46,6 +52,10 @@ const [Grid, gridApi] = useVbenVxeGrid({
       reserve: true,
     },
   } as VxeTableGridOptions,
+});
+
+onMounted(() => {
+  gridApi.query();
 });
 
 function onRefresh() {

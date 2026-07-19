@@ -12,6 +12,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
 /**
@@ -48,8 +49,14 @@ public class AppUserAddressController {
 	@Operation(summary = "新增/编辑用户收货地址")
 	@PostMapping
 	public Result saveOrUpdate(@RequestBody UserAddress userAddress) {
-		userAddress.setUserId(SecurityUtils.getUser().getUserId());
-		return Result.success(userAddressService.saveOrUpdate(userAddress));
+		String userId = SecurityUtils.getUser().getUserId();
+		userAddress.setUserId(userId);
+		if (!StringUtils.hasText(userAddress.getId())) {
+			return Result.success(userAddressService.save(userAddress));
+		}
+		return Result.success(userAddressService.update(userAddress, Wrappers.<UserAddress>lambdaUpdate()
+			.eq(UserAddress::getId, userAddress.getId())
+			.eq(UserAddress::getUserId, userId)));
 	}
 
 	/**
@@ -59,7 +66,10 @@ public class AppUserAddressController {
 	 */
 	@GetMapping("/{id}")
 	public Result<UserAddress> getById(@PathVariable("id") String id) {
-		return Result.success(userAddressService.getById(id));
+		String userId = SecurityUtils.getUser().getUserId();
+		return Result.success(userAddressService.getOne(Wrappers.<UserAddress>lambdaQuery()
+			.eq(UserAddress::getId, id)
+			.eq(UserAddress::getUserId, userId)));
 
 	}
 
@@ -70,7 +80,10 @@ public class AppUserAddressController {
 	 */
 	@DeleteMapping("/{id}")
 	public Result<Boolean> deleteById(@PathVariable("id") String id) {
-		return Result.success(userAddressService.removeById(id));
+		String userId = SecurityUtils.getUser().getUserId();
+		return Result.success(userAddressService.remove(Wrappers.<UserAddress>lambdaQuery()
+			.eq(UserAddress::getId, id)
+			.eq(UserAddress::getUserId, userId)));
 
 	}
 

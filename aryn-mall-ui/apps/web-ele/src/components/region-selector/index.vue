@@ -13,8 +13,8 @@ interface RegionItem {
 const props = withDefaults(
   defineProps<{
     disabledCities?: string[];
-    modelValue: string[];
-    options: RegionItem[];
+    modelValue?: string[];
+    options?: RegionItem[];
   }>(),
   {
     disabledCities: () => [],

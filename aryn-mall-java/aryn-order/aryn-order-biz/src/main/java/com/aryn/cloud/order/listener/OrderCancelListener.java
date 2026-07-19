@@ -7,6 +7,7 @@ import com.aryn.cloud.common.core.constant.RocketMqConstants;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.order.api.dto.OrderConsumerDTO;
 import com.aryn.cloud.order.api.entity.OrderInfo;
+import com.aryn.cloud.order.api.enums.OrderStatusEnum;
 import com.aryn.cloud.order.service.IOrderInfoService;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,12 +33,17 @@ public class OrderCancelListener implements RocketMQListener<OrderConsumerDTO> {
 	@Override
 	public void onMessage(OrderConsumerDTO orderConsumerDTO) {
 		log.info("开始消费消息，消费信息为:{} ", orderConsumerDTO);
-
-		ArynTenantContextHolder.setTenantId(orderConsumerDTO.getTenantId());
-		OrderInfo orderInfo = orderInfoService.getById(orderConsumerDTO.getOrderId());
-		// 只有待支付的订单能取消
-		if (ObjectUtil.isNotNull(orderInfo) && CommonConstants.NO.equals(orderInfo.getPayStatus())) {
-			orderInfoService.cancelOrder(orderInfo);
+		ArynTenantContextHolder.removeTenantId();
+		try {
+			ArynTenantContextHolder.setTenantId(orderConsumerDTO.getTenantId());
+			OrderInfo orderInfo = orderInfoService.getById(orderConsumerDTO.getOrderId());
+			if (ObjectUtil.isNotNull(orderInfo) && CommonConstants.NO.equals(orderInfo.getPayStatus())
+					&& OrderStatusEnum.WAITING_FOR_PAYMENT.getCode().equals(orderInfo.getStatus())) {
+				orderInfoService.cancelOrder(orderInfo);
+			}
+		}
+		finally {
+			ArynTenantContextHolder.removeTenantId();
 		}
 	}
 

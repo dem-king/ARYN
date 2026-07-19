@@ -220,7 +220,7 @@ initPage();
               :icon="CircleCheck"
               link
               type="primary"
-              @click="doApprove(scope.row)"
+              @click="doApprove(scope.row as DistributionWithdrawRecord)"
             >
               通过
             </ElButton>
@@ -230,7 +230,7 @@ initPage();
               :icon="CircleClose"
               link
               type="danger"
-              @click="doReject(scope.row)"
+              @click="doReject(scope.row as DistributionWithdrawRecord)"
             >
               驳回
             </ElButton>

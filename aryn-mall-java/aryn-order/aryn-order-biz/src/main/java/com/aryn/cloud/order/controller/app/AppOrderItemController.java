@@ -2,6 +2,7 @@
 package com.aryn.cloud.order.controller.app;
 
 import com.aryn.cloud.common.core.util.Result;
+import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.order.api.entity.OrderItemEntity;
 import com.aryn.cloud.order.service.IOrderItemService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -31,7 +32,8 @@ public class AppOrderItemController {
 	@Operation(summary = "通过订单id查询")
 	@GetMapping("/{id}")
 	public Result<OrderItemEntity> getById(@PathVariable String id) {
-		return Result.success(orderItemService.getOrderItemById(id));
+		String userId = SecurityUtils.getUser().getUserId();
+		return Result.success(orderItemService.getUserOrderItemById(id, userId));
 	}
 
 }

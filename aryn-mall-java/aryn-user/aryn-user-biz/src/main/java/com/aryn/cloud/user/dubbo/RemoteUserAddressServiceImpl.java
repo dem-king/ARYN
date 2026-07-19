@@ -1,6 +1,7 @@
 
 package com.aryn.cloud.user.dubbo;
 
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.aryn.cloud.user.api.entity.UserAddress;
 import com.aryn.cloud.user.api.remote.RemoteUserAddressService;
 import com.aryn.cloud.user.service.IUserAddressService;
@@ -21,8 +22,10 @@ public class RemoteUserAddressServiceImpl implements RemoteUserAddressService {
 	private final IUserAddressService userAddressService;
 
 	@Override
-	public UserAddress getById(String id) {
-		return userAddressService.getById(id);
+	public UserAddress getById(String id, String userId) {
+		return userAddressService.getOne(Wrappers.<UserAddress>lambdaQuery()
+			.eq(UserAddress::getId, id)
+			.eq(UserAddress::getUserId, userId));
 	}
 
 }

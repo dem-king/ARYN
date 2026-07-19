@@ -172,10 +172,13 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 		for (Map.Entry<String, Integer> entry : result.entrySet()) {
 			String spuId = entry.getKey();
 			int quantity = entry.getValue();
+			if (!StringUtils.hasText(spuId) || quantity <= 0) {
+				throw new ArynBusinessException("库存变更参数不合法");
+			}
 			if (baseMapper.update(new GoodsSpu(),
 					Wrappers.<GoodsSpu>lambdaUpdate()
 						.eq(GoodsSpu::getId, spuId)
-						.ge(GoodsSpu::getStock, 0)
+						.ge(GoodsSpu::getStock, quantity)
 						.setSql(" stock = stock - " + quantity)) <= 0) {
 				throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60008.getCode(),
 						MallErrorCodeEnum.ERROR_60008.getMsg());
@@ -190,6 +193,9 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 		for (Map.Entry<String, Integer> entry : result.entrySet()) {
 			String spuId = entry.getKey();
 			int quantity = entry.getValue();
+			if (!StringUtils.hasText(spuId) || quantity <= 0) {
+				throw new ArynBusinessException("库存变更参数不合法");
+			}
 			if (baseMapper.update(new GoodsSpu(),
 					Wrappers.<GoodsSpu>lambdaUpdate()
 						.eq(GoodsSpu::getId, spuId)

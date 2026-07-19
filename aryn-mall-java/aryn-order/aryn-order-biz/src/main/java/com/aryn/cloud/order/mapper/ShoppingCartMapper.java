@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.order.api.entity.ShoppingCart;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Update;
 
 /**
  * 购物车
@@ -26,5 +27,13 @@ public interface ShoppingCartMapper extends BaseMapper<ShoppingCart> {
 	 * @return: com.baomidou.mybatisplus.core.metadata.IPage<com.aryn.cloud.mall.common.entity.ShoppingCart>
 	 */
 	IPage<ShoppingCart> selectApiPage(Page page, @Param("query") ShoppingCart shoppingCart);
+
+	@Update("""
+		UPDATE shopping_cart
+		SET quantity = quantity + #{quantity}, update_time = NOW()
+		WHERE user_id = #{userId} AND sku_id = #{skuId} AND del_flag = '0'
+		""")
+	int incrementQuantity(@Param("userId") String userId, @Param("skuId") String skuId,
+			@Param("quantity") int quantity);
 
 }

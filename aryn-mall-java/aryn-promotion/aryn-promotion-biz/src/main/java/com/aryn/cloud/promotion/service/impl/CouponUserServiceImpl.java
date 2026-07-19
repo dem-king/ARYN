@@ -168,6 +168,34 @@ public class CouponUserServiceImpl extends ServiceImpl<CouponUserMapper, CouponU
 
 	@Override
 	@Transactional(rollbackFor = Exception.class)
+	public boolean reserveCoupon(String id, String userId, String orderId) {
+		if (!StringUtils.hasText(id) || !StringUtils.hasText(userId) || !StringUtils.hasText(orderId)) {
+			return false;
+		}
+		return baseMapper.update(null, Wrappers.<CouponUser>lambdaUpdate()
+			.eq(CouponUser::getId, id)
+			.eq(CouponUser::getUserId, userId)
+			.eq(CouponUser::getStatus, CouponUserStatusEnum.STATUS_0.getCode())
+			.gt(CouponUser::getValidatTime, LocalDateTime.now())
+			.set(CouponUser::getStatus, CouponUserStatusEnum.STATUS_3.getCode())
+			.set(CouponUser::getOrderId, orderId)) == 1;
+	}
+
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public boolean releaseCoupon(String id, String orderId) {
+		if (!StringUtils.hasText(id) || !StringUtils.hasText(orderId)) {
+			return false;
+		}
+		return baseMapper.update(null, Wrappers.<CouponUser>lambdaUpdate()
+			.eq(CouponUser::getId, id)
+			.eq(CouponUser::getOrderId, orderId)
+			.eq(CouponUser::getStatus, CouponUserStatusEnum.STATUS_3.getCode())
+			.setSql("status = CASE WHEN validat_time > NOW() THEN '0' ELSE '2' END, order_id = NULL")) == 1;
+	}
+
+	@Override
+	@Transactional(rollbackFor = Exception.class)
 	public boolean grantMemberBenefitCoupon(String couponTemplateId, String userId, String sourceId) {
 		String sourceType = "MEMBER_BENEFIT";
 		String tenantId = ArynTenantContextHolder.getTenantId();

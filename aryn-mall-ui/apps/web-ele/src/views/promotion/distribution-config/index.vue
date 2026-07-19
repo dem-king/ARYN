@@ -254,7 +254,7 @@ initPage();
               <ElButton
                 link
                 type="primary"
-                @click="openEdit(scope.row)"
+                @click="openEdit(scope.row as DistributionConfigRecord)"
                 v-access:code="'promotion:distributionconfig:edit'"
                 :icon="Edit"
               >

@@ -3,12 +3,7 @@ import type { Ref } from 'vue';
 import { computed, ref } from 'vue';
 
 export type DraftSaveStatus =
-  | 'conflict'
-  | 'dirty'
-  | 'error'
-  | 'idle'
-  | 'saved'
-  | 'saving';
+  'conflict' | 'dirty' | 'error' | 'idle' | 'saved' | 'saving';
 
 export interface BeforeUnloadEventLike {
   preventDefault: () => void;

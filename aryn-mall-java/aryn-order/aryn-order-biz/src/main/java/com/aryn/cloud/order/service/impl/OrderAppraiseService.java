@@ -1,13 +1,14 @@
 package com.aryn.cloud.order.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.aryn.cloud.common.core.constant.CommonConstants;
 import com.aryn.cloud.common.core.enums.MallErrorCodeEnum;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
-import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.order.api.dto.OrderAppraiseDTO;
 import com.aryn.cloud.order.api.entity.OrderInfo;
 import com.aryn.cloud.order.api.entity.OrderItemEntity;
+import com.aryn.cloud.order.api.enums.OrderStatusEnum;
 import com.aryn.cloud.order.mapper.OrderInfoMapper;
 import com.aryn.cloud.order.mapper.OrderItemMapper;
 import com.aryn.cloud.product.api.entity.GoodsAppraise;
@@ -19,7 +20,10 @@ import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -36,14 +40,31 @@ public class OrderAppraiseService {
 	@DubboReference
 	private final RemoteGoodsAppraiseService remoteGoodsAppraiseService;
 
-	public boolean appraiseOrder(String id, List<OrderAppraiseDTO> orderAppraiseList) {
-		String userId = SecurityUtils.getUser().getUserId();
+	public boolean appraiseOrder(String id, String userId, List<OrderAppraiseDTO> orderAppraiseList) {
 		OrderInfo orderInfo = orderInfoMapper.selectById(id);
-		if (Objects.isNull(orderInfo)) {
+		if (Objects.isNull(orderInfo) || !userId.equals(orderInfo.getUserId())) {
 			return false;
 		}
-		if (!orderInfo.getAppraiseStatus().equals(CommonConstants.NO)) {
+		if (!OrderStatusEnum.COMPLETED.getCode().equals(orderInfo.getStatus())) {
+			throw new ArynBusinessException("订单尚未完成，不能评价");
+		}
+		if (!CommonConstants.NO.equals(orderInfo.getAppraiseStatus())) {
 			throw new ArynBusinessException("订单已评价");
+		}
+		List<OrderItemEntity> orderItems = orderItemMapper.selectByOrderId(id);
+		if (orderAppraiseList == null || orderAppraiseList.isEmpty()
+				|| orderItems == null || orderItems.isEmpty()) {
+			throw new ArynBusinessException("评价内容不能为空");
+		}
+		Map<String, OrderItemEntity> orderItemMap = orderItems.stream()
+			.collect(Collectors.toMap(OrderItemEntity::getId, Function.identity()));
+		Set<String> requestedItemIds = orderAppraiseList.stream()
+			.map(OrderAppraiseDTO::getOrderItemId)
+			.filter(Objects::nonNull)
+			.collect(Collectors.toSet());
+		if (requestedItemIds.size() != orderAppraiseList.size()
+				|| !requestedItemIds.equals(orderItemMap.keySet())) {
+			throw new ArynBusinessException("评价商品与订单不匹配");
 		}
 		UserInfoVO userInfo = remoteMallUserService.getUserById(userId);
 		if (Objects.isNull(userInfo)) {
@@ -53,6 +74,10 @@ public class OrderAppraiseService {
 		List<GoodsAppraise> goodsAppraiseList = orderAppraiseList.stream().map(v -> {
 			GoodsAppraise goodsAppraise = new GoodsAppraise();
 			BeanUtil.copyProperties(v, goodsAppraise);
+			OrderItemEntity orderItem = orderItemMap.get(v.getOrderItemId());
+			goodsAppraise.setOrderId(orderInfo.getId());
+			goodsAppraise.setOrderItemId(orderItem.getId());
+			goodsAppraise.setSpuId(orderItem.getSpuId());
 			goodsAppraise.setUserId(userId);
 			goodsAppraise.setAvatarUrl(userInfo.getAvatarUrl());
 			goodsAppraise.setNickname(userInfo.getNickname());
@@ -63,8 +88,16 @@ public class OrderAppraiseService {
 			throw new ArynBusinessException("订单评价失败");
 		}
 
-		orderInfo.setAppraiseStatus(CommonConstants.YES);
-		return orderInfoMapper.updateById(orderInfo) > 0;
+		int updated = orderInfoMapper.update(null, Wrappers.<OrderInfo>lambdaUpdate()
+			.eq(OrderInfo::getId, id)
+			.eq(OrderInfo::getUserId, userId)
+			.eq(OrderInfo::getStatus, OrderStatusEnum.COMPLETED.getCode())
+			.eq(OrderInfo::getAppraiseStatus, CommonConstants.NO)
+			.set(OrderInfo::getAppraiseStatus, CommonConstants.YES));
+		if (updated == 0) {
+			throw new ArynBusinessException("订单状态已变化，无法评价");
+		}
+		return true;
 	}
 
 	public boolean autoAppraiseOrder(OrderInfo orderInfo) {

@@ -12,6 +12,7 @@ import com.aryn.cloud.common.myabtis.properties.TenantConfigProperties;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantLineHandler;
 import com.aryn.cloud.common.myabtis.tenant.TenantSchemaValidator;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -42,6 +43,7 @@ public class MybatisPlusConfig {
 	}
 
 	@Bean
+	@ConditionalOnBean(DataSource.class)
 	@ConditionalOnProperty(prefix = "hx.tenant", name = "validate-schema", havingValue = "true", matchIfMissing = true)
 	public ApplicationRunner tenantSchemaValidationRunner(DataSource dataSource, TenantConfigProperties properties) {
 		return args -> new TenantSchemaValidator(dataSource, properties).validate();

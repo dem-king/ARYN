@@ -187,6 +187,20 @@ CREATE TABLE `gen_table_column`  (
 -- ----------------------------
 
 -- ----------------------------
+-- Table structure for product_order_pay_record
+-- ----------------------------
+DROP TABLE IF EXISTS `product_order_pay_record`;
+CREATE TABLE `product_order_pay_record` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `order_id` varchar(32) NOT NULL COMMENT '订单主键',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户id',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.正常；1.删除',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_product_order_pay_record` (`tenant_id`, `order_id`) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '商品支付消息消费记录' ROW_FORMAT = DYNAMIC;
+
+-- ----------------------------
 -- Table structure for goods_appraise
 -- ----------------------------
 DROP TABLE IF EXISTS `goods_appraise`;
@@ -211,7 +225,9 @@ CREATE TABLE `goods_appraise`  (
                                    `tenant_id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '租户id',
                                    `create_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '创建人',
                                    `update_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '修改人',
-                                   PRIMARY KEY (`id`) USING BTREE
+                                   `active_order_item_id` varchar(32) GENERATED ALWAYS AS (CASE WHEN `del_flag` = '0' THEN `order_item_id` ELSE NULL END) STORED COMMENT '有效评价订单项唯一键',
+                                   PRIMARY KEY (`id`) USING BTREE,
+                                   UNIQUE KEY `uk_goods_appraise_active_item` (`tenant_id`, `active_order_item_id`) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '商品评价' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
@@ -534,7 +550,8 @@ CREATE TABLE `order_info`  (
                                `id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '主键',
                                `user_id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '用户主键',
                                `delivery_way` char(2) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '配送方式：1.普通快递；2.上门自提',
-                               `order_no` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '订单单号',
+								`order_no` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '订单单号',
+								`request_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '客户端请求幂等号',
                                `payment_type` char(2) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '支付类型：1.微信支付；2.支付宝支付',
                                `trade_type` varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '交易类型：（预留）',
                                `remark` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '备注',
@@ -568,13 +585,15 @@ CREATE TABLE `order_info`  (
                                `recipient_area_code` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '区/县编码',
                                `app_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '应用ID',
                                `open_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT 'openId',
-                               PRIMARY KEY (`id`) USING BTREE
+								PRIMARY KEY (`id`) USING BTREE,
+								UNIQUE KEY `uk_order_request` (`tenant_id`, `user_id`, `request_id`),
+								UNIQUE KEY `uk_order_no` (`tenant_id`, `order_no`)
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '订单信息' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Records of order_info
 -- ----------------------------
-INSERT INTO `order_info` VALUES ('2040656660950806529', '2040656345832747009', '2', '2040656659658969088', NULL, NULL, NULL, '0', '1', '0', 1.00, 0.00, 0.00, 1.00, '2026-04-05 13:03:56', NULL, '0', NULL, NULL, NULL, NULL, NULL, NULL, '1590229800633634816', 'ozexS3bXeBjIkrfIZoe07SWXBY4I', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'wxe150c73d0376f899', 'ozexS3bXeBjIkrfIZoe07SWXBY4I');
+INSERT INTO `order_info` VALUES ('2040656660950806529', '2040656345832747009', '2', '2040656659658969088', 'legacy-2040656660950806529', NULL, NULL, NULL, '0', '1', '0', 1.00, 0.00, 0.00, 1.00, '2026-04-05 13:03:56', NULL, '0', NULL, NULL, NULL, NULL, NULL, NULL, '1590229800633634816', 'ozexS3bXeBjIkrfIZoe07SWXBY4I', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'wxe150c73d0376f899', 'ozexS3bXeBjIkrfIZoe07SWXBY4I');
 
 -- ----------------------------
 -- Table structure for order_item
@@ -802,18 +821,20 @@ CREATE TABLE `shopping_cart`  (
                                   `pic_url` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '商品图',
                                   `create_time` datetime NULL DEFAULT NULL COMMENT '创建时间',
                                   `update_time` datetime NULL DEFAULT NULL COMMENT '更新时间',
-                                  `del_flag` char(2) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '0' COMMENT '逻辑删除：0、显示；1、隐藏',
+								  `del_flag` char(2) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '0' COMMENT '逻辑删除：0、显示；1、隐藏',
+								  `active_sku_id` varchar(32) GENERATED ALWAYS AS (CASE WHEN `del_flag` = '0' THEN `sku_id` ELSE NULL END) STORED COMMENT '有效购物车SKU唯一键',
                                   `specs_info` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '规格信息',
                                   `tenant_id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '租户id',
                                   `create_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '创建人',
                                   `update_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '修改人',
-                                  PRIMARY KEY (`id`) USING BTREE
+								  PRIMARY KEY (`id`) USING BTREE,
+								  UNIQUE KEY `uk_shopping_cart_active_sku` (`tenant_id`, `user_id`, `active_sku_id`)
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '购物车' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Records of shopping_cart
 -- ----------------------------
-INSERT INTO `shopping_cart` VALUES ('2040658253926494209', '2040656345832747009', '1912867577569386497', '2026667593272659970', 1, 'Apple/苹果 iPhone 16 Pro Max（A3297）', 9299.00, 'https://minio.aryn.co/aryn/file/e8e18e94-d352-45d9-acdd-f918a6f77f90.jpg', '2026-04-05 13:10:16', '2026-04-05 13:15:27', '0', '256GB', '1590229800633634816', 'ozexS3bXeBjIkrfIZoe07SWXBY4I', 'ozexS3bXeBjIkrfIZoe07SWXBY4I');
+INSERT INTO `shopping_cart` VALUES ('2040658253926494209', '2040656345832747009', '1912867577569386497', '2026667593272659970', 1, 'Apple/苹果 iPhone 16 Pro Max（A3297）', 9299.00, 'https://minio.aryn.co/aryn/file/e8e18e94-d352-45d9-acdd-f918a6f77f90.jpg', '2026-04-05 13:10:16', '2026-04-05 13:15:27', '0', DEFAULT, '256GB', '1590229800633634816', 'ozexS3bXeBjIkrfIZoe07SWXBY4I', 'ozexS3bXeBjIkrfIZoe07SWXBY4I');
 
 -- ----------------------------
 -- Table structure for social_account

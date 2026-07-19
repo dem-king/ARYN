@@ -13,10 +13,12 @@ import com.aryn.cloud.product.service.IGoodsSpuService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * 商品sku
@@ -38,34 +40,73 @@ public class GoodsSkuServiceImpl extends ServiceImpl<GoodsSkuMapper, GoodsSku> i
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public void rollbackStockList(List<GoodsSkuStockReqDTO> goodsSkuStockRqDTOList) {
-		goodsSkuStockRqDTOList.forEach(goodsSkuStockRqDTO -> {
-			baseMapper.update(new GoodsSku(),
+		List<GoodsSkuStockReqDTO> requests = normalizeRequests(goodsSkuStockRqDTOList);
+		requests.forEach(goodsSkuStockRqDTO -> {
+			if (baseMapper.update(new GoodsSku(),
 					Wrappers.<GoodsSku>lambdaUpdate()
 						.eq(GoodsSku::getId, goodsSkuStockRqDTO.getSkuId())
-						.setSql(" stock = stock + " + goodsSkuStockRqDTO.getStockNum()));
+						.setSql(" stock = stock + " + goodsSkuStockRqDTO.getStockNum())) <= 0) {
+				throw new ArynBusinessException("回滚SKU库存失败");
+			}
 		});
-		Map<String, Integer> result = goodsSkuStockRqDTOList.stream()
-			.collect(Collectors.toMap(GoodsSkuStockReqDTO::getSpuId, GoodsSkuStockReqDTO::getStockNum, Integer::sum)); // 如果遇到相同的key，则将count相加
+		Map<String, Integer> result = aggregateSpuQuantity(requests);
 		goodsSpuService.rollbackStock(result);
 	}
 
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public Boolean reduceStock(List<GoodsSkuStockReqDTO> goodsSkuStockRqDTO) {
-		for (GoodsSkuStockReqDTO goodsSkuStockReqDTO : goodsSkuStockRqDTO) {
+		List<GoodsSkuStockReqDTO> requests = normalizeRequests(goodsSkuStockRqDTO);
+		for (GoodsSkuStockReqDTO goodsSkuStockReqDTO : requests) {
 			if (baseMapper.update(new GoodsSku(),
 					Wrappers.<GoodsSku>lambdaUpdate()
 						.eq(GoodsSku::getId, goodsSkuStockReqDTO.getSkuId())
-						.gt(GoodsSku::getStock, 0)
+						.ge(GoodsSku::getStock, goodsSkuStockReqDTO.getStockNum())
 						.setSql(" stock = stock - " + goodsSkuStockReqDTO.getStockNum())) <= 0) {
 				throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60008.getCode(),
 						MallErrorCodeEnum.ERROR_60008.getMsg());
 			}
 		}
-		Map<String, Integer> result = goodsSkuStockRqDTO.stream()
-			.collect(Collectors.toMap(GoodsSkuStockReqDTO::getSpuId, GoodsSkuStockReqDTO::getStockNum, Integer::sum)); // 如果遇到相同的key，则将count相加
+		Map<String, Integer> result = aggregateSpuQuantity(requests);
 		goodsSpuService.reduceStock(result);
 		return Boolean.TRUE;
+	}
+
+	private List<GoodsSkuStockReqDTO> normalizeRequests(List<GoodsSkuStockReqDTO> requests) {
+		if (CollectionUtils.isEmpty(requests)) {
+			throw new ArynBusinessException("库存变更明细不能为空");
+		}
+		Map<String, GoodsSkuStockReqDTO> normalized = new LinkedHashMap<>();
+		for (GoodsSkuStockReqDTO request : requests) {
+			if (request == null || !StringUtils.hasText(request.getSkuId())
+					|| !StringUtils.hasText(request.getSpuId()) || request.getStockNum() == null
+					|| request.getStockNum() <= 0) {
+				throw new ArynBusinessException("库存变更参数不合法");
+			}
+			normalized.compute(request.getSkuId(), (skuId, existing) -> {
+				if (existing == null) {
+					GoodsSkuStockReqDTO target = new GoodsSkuStockReqDTO();
+					target.setSkuId(request.getSkuId());
+					target.setSpuId(request.getSpuId());
+					target.setStockNum(request.getStockNum());
+					return target;
+				}
+				if (!existing.getSpuId().equals(request.getSpuId())) {
+					throw new ArynBusinessException("SKU与SPU关系不一致");
+				}
+				existing.setStockNum(Math.addExact(existing.getStockNum(), request.getStockNum()));
+				return existing;
+			});
+		}
+		return List.copyOf(normalized.values());
+	}
+
+	private Map<String, Integer> aggregateSpuQuantity(List<GoodsSkuStockReqDTO> requests) {
+		Map<String, Integer> result = new LinkedHashMap<>();
+		for (GoodsSkuStockReqDTO request : requests) {
+			result.merge(request.getSpuId(), request.getStockNum(), Math::addExact);
+		}
+		return result;
 	}
 
 	@Override

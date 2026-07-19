@@ -1,14 +1,12 @@
 
 package com.aryn.cloud.order.controller.app;
 
-import cn.hutool.core.util.ObjectUtil;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.google.common.collect.Maps;
 import com.aryn.cloud.common.core.constant.CommonConstants;
 import com.aryn.cloud.common.core.constant.MallCommonConstants;
-import com.aryn.cloud.common.core.enums.MallErrorCodeEnum;
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.order.api.dto.CreateOrderDTO;
@@ -16,16 +14,15 @@ import com.aryn.cloud.order.api.dto.OrderAppraiseDTO;
 import com.aryn.cloud.order.api.dto.PrepayDTO;
 import com.aryn.cloud.order.api.dto.SettlementOrderDTO;
 import com.aryn.cloud.order.api.entity.OrderInfo;
-import com.aryn.cloud.order.api.entity.OrderItemEntity;
 import com.aryn.cloud.order.api.entity.OrderRefund;
 import com.aryn.cloud.order.api.enums.OrderRefundEnum;
 import com.aryn.cloud.order.api.enums.OrderStatusEnum;
 import com.aryn.cloud.order.service.IOrderInfoService;
-import com.aryn.cloud.order.service.IOrderItemService;
 import com.aryn.cloud.order.service.IOrderRefundService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
@@ -48,8 +45,6 @@ public class AppOrderInfoController {
 
 	private final IOrderInfoService orderInfoService;
 
-	private final IOrderItemService orderItemService;
-
 	private final IOrderRefundService orderRefundService;
 
 	@Operation(summary = "订单列表")
@@ -62,19 +57,20 @@ public class AppOrderInfoController {
 	@Operation(summary = "通过订单id查询")
 	@GetMapping("/{id}")
 	public Result<OrderInfo> getById(@PathVariable String id) {
-		return Result.success(orderInfoService.getOrderById(id));
+		String userId = SecurityUtils.getUser().getUserId();
+		return Result.success(orderInfoService.getUserOrderById(id, userId));
 	}
 
 	@Operation(summary = "结算订单")
 	@PostMapping("/settlement")
-	public Result<OrderInfo> settlementOrder(@RequestBody SettlementOrderDTO settlementOrderDTO) {
+	public Result<OrderInfo> settlementOrder(@Valid @RequestBody SettlementOrderDTO settlementOrderDTO) {
 		settlementOrderDTO.setUserId(SecurityUtils.getUser().getUserId());
 		return Result.success(orderInfoService.settlementOrder(settlementOrderDTO));
 	}
 
 	@Operation(summary = "创建订单")
 	@PostMapping("/create")
-	public Result<OrderInfo> createOrder(HttpServletRequest request, @RequestBody CreateOrderDTO createOrderDTO) {
+	public Result<OrderInfo> createOrder(HttpServletRequest request, @Valid @RequestBody CreateOrderDTO createOrderDTO) {
 		createOrderDTO.setUserId(SecurityUtils.getUser().getUserId());
 		createOrderDTO.setOpenId(SecurityUtils.getOpenId());
 		createOrderDTO.setAppId(request.getHeader(MallCommonConstants.HEADER_APP_ID));
@@ -83,54 +79,38 @@ public class AppOrderInfoController {
 
 	@Operation(summary = "预支付")
 	@PostMapping("/prepay")
-	public Result<Object> prepay(@RequestBody PrepayDTO prepayDTO) {
+	public Result<Object> prepay(@Valid @RequestBody PrepayDTO prepayDTO) {
+		prepayDTO.setUserId(SecurityUtils.getUser().getUserId());
 		return orderInfoService.prepay(prepayDTO);
 	}
 
 	@Operation(summary = "订单取消")
 	@GetMapping("/cancel/{id}")
 	public Result<String> cancelOrder(@PathVariable String id) {
-		OrderInfo orderInfo = orderInfoService.getById(id);
-		if (ObjectUtil.isNull(orderInfo)) {
-			return Result.fail(MallErrorCodeEnum.ERROR_60003.getCode(), MallErrorCodeEnum.ERROR_60003.getMsg());
-		}
-		return Result.success(orderInfoService.cancelOrder(orderInfo));
+		String userId = SecurityUtils.getUser().getUserId();
+		return Result.success(orderInfoService.cancelUserOrder(id, userId));
 	}
 
 	@Operation(summary = "订单删除")
 	@GetMapping("/del/{id}")
 	public Result<Boolean> delOrder(@PathVariable String id) {
-		OrderInfo orderInfo = orderInfoService.getById(id);
-		if (ObjectUtil.isNull(orderInfo)) {
-			return Result.fail(MallErrorCodeEnum.ERROR_60003.getCode(), MallErrorCodeEnum.ERROR_60003.getMsg());
-		}
-		if (CommonConstants.YES.equals(orderInfo.getPayStatus())
-				&& OrderStatusEnum.CANCELED.getCode().equals(orderInfo.getStatus())) {
-			return Result.fail(MallErrorCodeEnum.ERROR_60006.getCode(), MallErrorCodeEnum.ERROR_60006.getMsg());
-		}
-		orderItemService.remove(Wrappers.<OrderItemEntity>lambdaQuery().eq(OrderItemEntity::getOrderId, id));
-		return Result.success(orderInfoService.removeById(id));
+		String userId = SecurityUtils.getUser().getUserId();
+		return Result.success(orderInfoService.deleteUserOrder(id, userId));
 	}
 
 	@Operation(summary = "订单确认收货")
 	@GetMapping("/receiver/{id}")
 	public Result<Boolean> receiverOrder(@PathVariable String id) {
-		OrderInfo orderInfo = orderInfoService.getById(id);
-		if (ObjectUtil.isNull(orderInfo)) {
-			return Result.fail(MallErrorCodeEnum.ERROR_60003.getCode(), MallErrorCodeEnum.ERROR_60003.getMsg());
-		}
-		// 处理确认收货
-		if (!OrderStatusEnum.WAITING_FOR_RECEIPT.getCode().equals(orderInfo.getStatus())) {
-			return Result.fail(MallErrorCodeEnum.ERROR_60003.getCode(), MallErrorCodeEnum.ERROR_60003.getMsg());
-		}
-		return Result.success(orderInfoService.receiveOrder(orderInfo));
+		String userId = SecurityUtils.getUser().getUserId();
+		return Result.success(orderInfoService.receiveUserOrder(id, userId));
 	}
 
 	@Operation(summary = "订单评价")
 	@PostMapping("/appraise/{id}")
 	public Result<Boolean> appraiseOrder(@PathVariable String id,
-			@RequestBody List<OrderAppraiseDTO> orderAppraiseList) {
-		return Result.success(orderInfoService.appraiseOrder(id, orderAppraiseList));
+			@Valid @RequestBody List<@Valid OrderAppraiseDTO> orderAppraiseList) {
+		String userId = SecurityUtils.getUser().getUserId();
+		return Result.success(orderInfoService.appraiseOrder(id, userId, orderAppraiseList));
 
 	}
 
@@ -168,8 +148,8 @@ public class AppOrderInfoController {
 	@Operation(summary = "通过订单编号查询")
 	@GetMapping("/getByOrderNo/{orderNo}")
 	public Result<OrderInfo> getOrderByOrderNo(@PathVariable String orderNo) {
-		return Result
-			.success(orderInfoService.getOne(Wrappers.<OrderInfo>lambdaQuery().eq(OrderInfo::getOrderNo, orderNo)));
+		String userId = SecurityUtils.getUser().getUserId();
+		return Result.success(orderInfoService.getUserOrderByOrderNo(orderNo, userId));
 	}
 
 }

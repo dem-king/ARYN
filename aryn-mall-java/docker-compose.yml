@@ -73,7 +73,9 @@ services:
         condition: service_healthy
 
   aryn-rocketmq-namesrv:
-    image: apache/rocketmq:5.4.0
+    image: aryn/rocketmq:5.4.0-amd64
+    pull_policy: never
+    platform: linux/amd64
     container_name: aryn-rocketmq-namesrv
     restart: always
     ports:
@@ -90,7 +92,10 @@ services:
       retries: 5
 
   aryn-rocketmq-broker:
-    image: apache/rocketmq:5.4.0
+    image: aryn/rocketmq:5.4.0-amd64
+    pull_policy: never
+    # 5.4.0 ARM64 镜像缺少 librocksdbjni-linux-aarch64.so，Apple Silicon 使用 amd64 仿真。
+    platform: linux/amd64
     container_name: aryn-rocketmq-broker
     restart: always
     ports:
@@ -119,6 +124,26 @@ services:
       SEATA_IP: aryn-seata
     networks:
       - aryn-net
+
+  aryn-xxl-job-admin:
+    build:
+      context: ../xxl-job-3.2.0/xxl-job-admin
+      dockerfile: Dockerfile
+    pull_policy: never
+    container_name: aryn-xxl-job-admin
+    restart: always
+    ports:
+      - "7002:8081"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://aryn-mysql:3306/aryn_job?useUnicode=true&characterEncoding=UTF-8&autoReconnect=true&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: 123456
+      XXL_JOB_ACCESSTOKEN: hxsadadasdasdasda
+    networks:
+      - aryn-net
+    depends_on:
+      aryn-mysql:
+        condition: service_healthy
 
   # ==================== 业务服务 ====================
   aryn-gateway:
@@ -224,6 +249,7 @@ services:
       - "6400:6400"
     environment:
       SPRING_PROFILES_ACTIVE: cloud
+      XXL_JOB_ADMINADDRESSES: http://aryn-xxl-job-admin:8081/xxl-job-admin
     networks:
       - aryn-net
     depends_on:
@@ -237,6 +263,8 @@ services:
         condition: service_healthy
       aryn-upms-biz:
         condition: service_healthy
+      aryn-xxl-job-admin:
+        condition: service_started
 
   aryn-pay-biz:
     build:
@@ -295,6 +323,7 @@ services:
       - "6500:6500"
     environment:
       SPRING_PROFILES_ACTIVE: cloud
+      XXL_JOB_ADMINADDRESSES: http://aryn-xxl-job-admin:8081/xxl-job-admin
     networks:
       - aryn-net
     depends_on:
@@ -306,6 +335,8 @@ services:
         condition: service_healthy
       aryn-upms-biz:
         condition: service_healthy
+      aryn-xxl-job-admin:
+        condition: service_started
 
 #  aryn-monitor:
 #    build:

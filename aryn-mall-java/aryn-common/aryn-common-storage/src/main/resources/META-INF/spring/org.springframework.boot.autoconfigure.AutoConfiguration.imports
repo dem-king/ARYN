@@ -1,2 +1,3 @@
 com.aryn.cloud.common.storage.handler.impl.LocalUploadFileHandler
 com.aryn.cloud.common.storage.handler.impl.S3UploadFileHandler
+com.aryn.cloud.common.storage.handler.StorageFactory

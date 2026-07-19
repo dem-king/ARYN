@@ -3,6 +3,8 @@ import type { DiyCommonStyle } from '@vben/types';
 
 import { computed } from 'vue';
 
+import { sanitizeRichTextHtml } from './sanitize-rich-text';
+
 interface ShowData {
   commonStyle?: DiyCommonStyle | null;
   content: string;
@@ -56,11 +58,16 @@ const dynamicStyles = computed(() => {
     }),
   };
 });
+const sanitizedContent = computed(() =>
+  sanitizeRichTextHtml(props.showData.content),
+);
 </script>
 
 <template>
   <div class="rich-text-base" :style="dynamicStyles">
-    <div v-html="showData.content"></div>
+    <!-- Content is sanitized by sanitizeRichTextHtml before rendering. -->
+    <!-- eslint-disable-next-line vue/no-v-html -->
+    <div v-html="sanitizedContent"></div>
   </div>
 </template>
 

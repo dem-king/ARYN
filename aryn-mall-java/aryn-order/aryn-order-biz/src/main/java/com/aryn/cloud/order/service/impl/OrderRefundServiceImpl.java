@@ -65,6 +65,11 @@ public class OrderRefundServiceImpl extends ServiceImpl<OrderRefundMapper, Order
 	}
 
 	@Override
+	public OrderRefund getUserRefundById(String id, String userId) {
+		return baseMapper.selectRefundByIdAndUser(id, userId);
+	}
+
+	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public boolean refund(OrderRefund request) {
 		OrderConfig orderConfig = orderConfigService.getConfig();
@@ -147,6 +152,12 @@ public class OrderRefundServiceImpl extends ServiceImpl<OrderRefundMapper, Order
 	public OrderRefund saveRefund(OrderRefund orderRefund) {
 		OrderItemEntity orderItemEntity = orderItemMapper.selectById(orderRefund.getOrderItemId());
 		if (ObjectUtil.isNull(orderItemEntity)) {
+			throw new ArynBusinessException("子订单不存在");
+		}
+		OrderInfo ownerOrder = orderInfoMapper.selectOne(Wrappers.<OrderInfo>lambdaQuery()
+			.eq(OrderInfo::getId, orderItemEntity.getOrderId())
+			.eq(OrderInfo::getUserId, orderRefund.getUserId()));
+		if (ownerOrder == null) {
 			throw new ArynBusinessException("子订单不存在");
 		}
 		// 只有已支付订单可以退款

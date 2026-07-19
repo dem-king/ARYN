@@ -95,7 +95,7 @@ watch(() => [props.modelValue, props.pageId], loadVersions);
             :icon="RefreshLeft"
             link
             type="primary"
-            @click="restore(row)"
+            @click="restore(row as PageDesignVersion)"
           >
             回滚
           </ElButton>

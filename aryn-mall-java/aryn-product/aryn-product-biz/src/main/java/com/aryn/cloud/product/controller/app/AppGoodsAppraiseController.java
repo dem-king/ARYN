@@ -13,8 +13,6 @@ import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
-
 /**
  * 商品评价
  *
@@ -41,12 +39,6 @@ public class AppGoodsAppraiseController {
 	public Result getPageByUserId(Page page, GoodsAppraise goodsAppraise) {
 		goodsAppraise.setUserId(SecurityUtils.getUser().getUserId());
 		return Result.success(goodsAppraiseService.page(page, Wrappers.query(goodsAppraise)));
-	}
-
-	@Operation(summary = "发表评价")
-	@PostMapping
-	public Result add(@RequestBody List<GoodsAppraise> listGoodsAppraise) {
-		return Result.success(goodsAppraiseService.add(listGoodsAppraise));
 	}
 
 	@Operation(summary = "数量查询")

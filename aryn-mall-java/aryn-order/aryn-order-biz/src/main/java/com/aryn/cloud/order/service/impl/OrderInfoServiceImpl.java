@@ -38,14 +38,15 @@ import com.aryn.cloud.order.mapper.OrderRefundMapper;
 import com.aryn.cloud.order.service.IOrderConfigService;
 import com.aryn.cloud.order.service.IOrderInfoService;
 import com.aryn.cloud.order.service.IOrderItemService;
+import com.aryn.cloud.order.service.IShoppingCartService;
 import com.aryn.cloud.pay.api.constants.PayConstants;
 import com.aryn.cloud.pay.api.dto.CreateOrderReqDTO;
 import com.aryn.cloud.pay.api.enums.PayTradeTypeEnum;
 import com.aryn.cloud.pay.api.remote.RemotePayService;
+import com.aryn.cloud.pay.api.utils.TransactionalMqUtils;
 import com.aryn.cloud.product.api.entity.GoodsSku;
 import com.aryn.cloud.product.api.dto.GoodsSkuStockReqDTO;
 import com.aryn.cloud.product.api.remote.RemoteGoodsSkuService;
-import com.aryn.cloud.promotion.api.dto.CouponUserReqDTO;
 import com.aryn.cloud.promotion.api.enums.CouponUserStatusEnum;
 import com.aryn.cloud.promotion.api.remote.RemoteCouponUserService;
 import com.aryn.cloud.user.api.entity.UserAddress;
@@ -58,6 +59,7 @@ import org.apache.dubbo.config.annotation.DubboReference;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.apache.seata.spring.annotation.GlobalTransactional;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.messaging.support.GenericMessage;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -92,6 +94,8 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 	private final RemoteMallUserService remoteMallUserService;
 
 	private final IOrderItemService orderItemService;
+
+	private final IShoppingCartService shoppingCartService;
 
 	@DubboReference
 	private final RemotePayService remotePayService;
@@ -136,6 +140,34 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 				if (!OrderItemStatusEnum.SHIPPED.getCode().equals(orderItem.getStatus())
 						&& !OrderItemStatusEnum.PAID.getCode().equals(orderItem.getStatus())) {
 					// 查询最近一笔退款单
+					orderItem.setOrderRefund(orderRefundMapper.selectByOrderItemId(orderItem.getId()));
+				}
+			});
+		}
+		return orderInfo;
+	}
+
+	@Override
+	public OrderInfo getUserOrderById(String id, String userId) {
+		OrderInfo orderInfo = baseMapper.selectOrderByIdAndUser(id, userId);
+		return enrichOrderRefund(orderInfo);
+	}
+
+	@Override
+	public OrderInfo getUserOrderByOrderNo(String orderNo, String userId) {
+		return getOne(Wrappers.<OrderInfo>lambdaQuery()
+			.eq(OrderInfo::getOrderNo, orderNo)
+			.eq(OrderInfo::getUserId, userId));
+	}
+
+	private OrderInfo enrichOrderRefund(OrderInfo orderInfo) {
+		if (Objects.isNull(orderInfo)) {
+			return null;
+		}
+		if (!CollectionUtils.isEmpty(orderInfo.getOrderItemList())) {
+			orderInfo.getOrderItemList().forEach(orderItem -> {
+				if (!OrderItemStatusEnum.SHIPPED.getCode().equals(orderItem.getStatus())
+						&& !OrderItemStatusEnum.PAID.getCode().equals(orderItem.getStatus())) {
 					orderItem.setOrderRefund(orderRefundMapper.selectByOrderItemId(orderItem.getId()));
 				}
 			});
@@ -202,34 +234,72 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 	}
 
 	@Override
+	@GlobalTransactional(rollbackFor = Exception.class)
 	@Transactional(rollbackFor = Exception.class)
 	public String cancelOrder(OrderInfo orderInfo) {
-		if (OrderStatusEnum.WAITING_FOR_PAYMENT.getCode().equals(orderInfo.getStatus())) {
-			orderInfo.setStatus(OrderStatusEnum.CANCELED.getCode());
-			orderInfo.setCancelTime(LocalDateTime.now());
-			baseMapper.updateById(orderInfo);
-
-			// 回滚优惠券
-			if (StringUtils.hasText(orderInfo.getCouponUserId())) {
-				CouponUserReqDTO couponUserReqDTO = new CouponUserReqDTO();
-				couponUserReqDTO.setId(orderInfo.getCouponUserId());
-				couponUserReqDTO.setCouponUserStatusEnum(CouponUserStatusEnum.STATUS_0);
-				remoteCouponUserService.updateCouponUserStatus(couponUserReqDTO);
-			}
-			List<OrderItemEntity> orderItemEntityList = orderItemMapper
-				.selectList(Wrappers.<OrderItemEntity>lambdaQuery().eq(OrderItemEntity::getOrderId, orderInfo.getId()));
-
-			List<GoodsSkuStockReqDTO> goodsSkuStockReqDTOList = orderItemEntityList.stream().map(orderItem -> {
-				GoodsSkuStockReqDTO goodsSkuStockReqDTO = new GoodsSkuStockReqDTO();
-				goodsSkuStockReqDTO.setStockNum(orderItem.getBuyQuantity());
-				goodsSkuStockReqDTO.setSkuId(orderItem.getSkuId());
-				goodsSkuStockReqDTO.setSpuId(orderItem.getSpuId());
-				return goodsSkuStockReqDTO;
-			}).collect(Collectors.toList());
-			remoteGoodsSkuService.rollbackStock(goodsSkuStockReqDTOList);
-
+		int updated = baseMapper.update(null, Wrappers.<OrderInfo>lambdaUpdate()
+			.eq(OrderInfo::getId, orderInfo.getId())
+			.eq(OrderInfo::getStatus, OrderStatusEnum.WAITING_FOR_PAYMENT.getCode())
+			.eq(OrderInfo::getPayStatus, CommonConstants.NO)
+			.set(OrderInfo::getStatus, OrderStatusEnum.CANCELED.getCode())
+			.set(OrderInfo::getCancelTime, LocalDateTime.now()));
+		if (updated == 0) {
+			throw new ArynBusinessException("订单状态已变化，无法取消");
 		}
+
+		if (StringUtils.hasText(orderInfo.getCouponUserId())) {
+			if (!remoteCouponUserService.releaseCoupon(orderInfo.getCouponUserId(), orderInfo.getId())) {
+				throw new ArynBusinessException("订单优惠券释放失败");
+			}
+		}
+		List<OrderItemEntity> orderItemEntityList = orderItemMapper
+			.selectList(Wrappers.<OrderItemEntity>lambdaQuery().eq(OrderItemEntity::getOrderId, orderInfo.getId()));
+		List<GoodsSkuStockReqDTO> stockRequests = orderItemEntityList.stream().map(orderItem -> {
+			GoodsSkuStockReqDTO request = new GoodsSkuStockReqDTO();
+			request.setStockNum(orderItem.getBuyQuantity());
+			request.setSkuId(orderItem.getSkuId());
+			request.setSpuId(orderItem.getSpuId());
+			return request;
+		}).toList();
+		remoteGoodsSkuService.rollbackStock(stockRequests);
 		return orderInfo.getId();
+	}
+
+	@Override
+	@GlobalTransactional(rollbackFor = Exception.class)
+	@Transactional(rollbackFor = Exception.class)
+	public String cancelUserOrder(String id, String userId) {
+		OrderInfo orderInfo = getOne(Wrappers.<OrderInfo>lambdaQuery()
+			.eq(OrderInfo::getId, id)
+			.eq(OrderInfo::getUserId, userId));
+		if (orderInfo == null) {
+			throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60003.getCode(),
+					MallErrorCodeEnum.ERROR_60003.getMsg());
+		}
+		return cancelOrder(orderInfo);
+	}
+
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public boolean deleteUserOrder(String id, String userId) {
+		OrderInfo orderInfo = getOne(Wrappers.<OrderInfo>lambdaQuery()
+			.eq(OrderInfo::getId, id)
+			.eq(OrderInfo::getUserId, userId));
+		if (orderInfo == null) {
+			throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60003.getCode(),
+					MallErrorCodeEnum.ERROR_60003.getMsg());
+		}
+		if (!OrderStatusEnum.CANCELED.getCode().equals(orderInfo.getStatus())
+				|| !CommonConstants.NO.equals(orderInfo.getPayStatus())) {
+			throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60006.getCode(),
+					MallErrorCodeEnum.ERROR_60006.getMsg());
+		}
+		orderItemService.remove(Wrappers.<OrderItemEntity>lambdaQuery().eq(OrderItemEntity::getOrderId, id));
+		return remove(Wrappers.<OrderInfo>lambdaQuery()
+			.eq(OrderInfo::getId, id)
+			.eq(OrderInfo::getUserId, userId)
+			.eq(OrderInfo::getStatus, OrderStatusEnum.CANCELED.getCode())
+			.eq(OrderInfo::getPayStatus, CommonConstants.NO));
 	}
 
 	@Override
@@ -243,9 +313,18 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 	}
 
 	@Override
-	@GlobalTransactional
+	@GlobalTransactional(rollbackFor = Exception.class)
+	@Transactional(rollbackFor = Exception.class)
 	public OrderInfo createOrder(CreateOrderDTO createOrderDTO) {
-		List<OrderInfo> orderInfoList = new ArrayList<>();
+		if (!StringUtils.hasText(createOrderDTO.getRequestId())) {
+			createOrderDTO.setRequestId(UUID.randomUUID().toString());
+		}
+		OrderInfo existingOrder = getOne(Wrappers.<OrderInfo>lambdaQuery()
+			.eq(OrderInfo::getUserId, createOrderDTO.getUserId())
+			.eq(OrderInfo::getRequestId, createOrderDTO.getRequestId()));
+		if (existingOrder != null) {
+			return existingOrder;
+		}
 
 		// 查询用户信息
 		UserInfoVO userInfo = remoteMallUserService.getUserById(createOrderDTO.getUserId());
@@ -255,10 +334,14 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		List<String> skuIds = createOrderDTO.getSkuReqList()
 			.stream()
 			.map(CreateOrderSkuReqDTO::getSkuId)
-			.collect(Collectors.toList());
+			.distinct()
+			.toList();
+		if (skuIds.size() != createOrderDTO.getSkuReqList().size()) {
+			throw new ArynBusinessException("订单商品不能包含重复SKU");
+		}
 		// 查询购买商品
 		List<GoodsSku> goodsSkuList = remoteGoodsSkuService.getBySkuIds(skuIds);
-		if (CollectionUtils.isEmpty(goodsSkuList)) {
+		if (CollectionUtils.isEmpty(goodsSkuList) || goodsSkuList.size() != skuIds.size()) {
 			throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60008.getCode(),
 					MallErrorCodeEnum.ERROR_60008.getMsg());
 		}
@@ -271,13 +354,17 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		orderPriceComputeService.computeOrderPrice(orderInfo, orderItemEntityList);
 		MemberBenefitsVO memberBenefits = remoteMallUserService.getMemberBenefits(createOrderDTO.getUserId());
 		orderPriceComputeService.orderMemberBenefitHandler(orderInfo, orderItemEntityList, memberBenefits);
-		orderPriceComputeService.orderStockHandler(goodsSkuList, orderItemEntityList);
 		orderPriceComputeService.orderCouponHandler(orderInfo, orderItemEntityList);
 
 		// 5. 物流运费计算
 		if (MallOrderConstants.DELIVERY_WAY_1.equals(orderInfo.getDeliveryWay())) {
+			if (!StringUtils.hasText(createOrderDTO.getUserAddressId())) {
+				throw new ArynBusinessException(MallErrorCodeEnum.ERROR_50002.getCode(),
+						MallErrorCodeEnum.ERROR_50002.getMsg());
+			}
 			// 查询用户收货地址
-			UserAddress userAddress = remoteUserAddressService.getById(createOrderDTO.getUserAddressId());
+			UserAddress userAddress = remoteUserAddressService.getById(createOrderDTO.getUserAddressId(),
+					createOrderDTO.getUserId());
 			if (ObjectUtil.isNull(userAddress)) {
 				throw new ArynBusinessException(MallErrorCodeEnum.ERROR_50002.getCode(),
 						MallErrorCodeEnum.ERROR_50002.getMsg());
@@ -295,15 +382,38 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 					memberBenefits != null && memberBenefits.isFreeShipping());
 		}
 		// 创建订单
-		if (!super.save(orderInfo)) {
-			throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60007.getCode(),
-					MallErrorCodeEnum.ERROR_60007.getMsg());
+		try {
+			if (!super.save(orderInfo)) {
+				throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60007.getCode(),
+						MallErrorCodeEnum.ERROR_60007.getMsg());
+			}
 		}
-		orderInfoList.add(orderInfo);
+		catch (DuplicateKeyException exception) {
+			OrderInfo duplicateOrder = getOne(Wrappers.<OrderInfo>lambdaQuery()
+				.eq(OrderInfo::getUserId, createOrderDTO.getUserId())
+				.eq(OrderInfo::getRequestId, createOrderDTO.getRequestId()));
+			if (duplicateOrder != null) {
+				return duplicateOrder;
+			}
+			throw exception;
+		}
+		if (StringUtils.hasText(orderInfo.getCouponUserId())
+				&& !remoteCouponUserService.reserveCoupon(orderInfo.getCouponUserId(), orderInfo.getUserId(),
+						orderInfo.getId())) {
+			throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60061.getCode(),
+					MallErrorCodeEnum.ERROR_60061.getMsg());
+		}
+		orderPriceComputeService.orderStockHandler(goodsSkuList, orderItemEntityList);
 		orderItemEntityList.forEach(orderItem -> orderItem.setOrderId(orderInfo.getId()));
-		orderItemService.saveBatch(orderItemEntityList);
-		// 创建订单后
-		// 1. 清除购物车 2. 发送延迟取消订单mq消息 3. 发送微信小程序模板消息
+		if (!orderItemService.saveBatch(orderItemEntityList)) {
+			throw new ArynBusinessException("订单商品保存失败");
+		}
+		if (MallOrderConstants.ORDER_CREATE_WAY_1.equals(createOrderDTO.getCreateWay())) {
+			shoppingCartService.clear(orderInfo.getUserId(), orderItemEntityList.stream()
+				.map(OrderItemEntity::getSkuId)
+				.distinct()
+				.toList());
+		}
 		applicationEventPublisher.publishEvent(
 				new ArynOrderCreateAfterEvent(this, orderInfo, orderItemEntityList, createOrderDTO.getCreateWay()));
 		return orderInfo;
@@ -312,6 +422,7 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 	private OrderInfo generateOrder(CreateOrderDTO createOrderDTO) {
 		OrderInfo orderInfo = new OrderInfo();
 		BeanUtil.copyProperties(createOrderDTO, orderInfo);
+		orderInfo.setId(IdUtil.getSnowflakeNextIdStr());
 		orderInfo.setAppraiseStatus(CommonConstants.NO);
 		orderInfo.setOrderNo(SnowflakeIdUtils.orderNo());
 		orderInfo.setPaymentPrice(BigDecimal.ZERO);
@@ -324,21 +435,34 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		orderInfo.setPayStatus(CommonConstants.NO);
 		orderInfo.setCouponUserId(createOrderDTO.getCouponUserId());
 		orderInfo.setOpenId(createOrderDTO.getOpenId());
+		orderInfo.setRequestId(createOrderDTO.getRequestId());
 		return orderInfo;
 	}
 
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public boolean receiveOrder(OrderInfo orderInfo) {
-		orderInfo.setReceiverTime(LocalDateTime.now());
+		LocalDateTime receiverTime = LocalDateTime.now();
+		int updated = baseMapper.update(null, Wrappers.<OrderInfo>lambdaUpdate()
+			.eq(OrderInfo::getId, orderInfo.getId())
+			.eq(OrderInfo::getStatus, OrderStatusEnum.WAITING_FOR_RECEIPT.getCode())
+			.eq(OrderInfo::getPayStatus, CommonConstants.YES)
+			.set(OrderInfo::getReceiverTime, receiverTime)
+			.set(OrderInfo::getStatus, OrderStatusEnum.COMPLETED.getCode()));
+		if (updated == 0) {
+			throw new ArynBusinessException("订单状态已变化，无法确认收货");
+		}
+		orderInfo.setReceiverTime(receiverTime);
 		orderInfo.setStatus(OrderStatusEnum.COMPLETED.getCode());
-		baseMapper.updateById(orderInfo);
 		List<OrderItemEntity> orderItemEntityList = orderItemMapper.selectByOrderId(orderInfo.getId());
 		orderItemEntityList.forEach(orderItem -> {
 			if (orderItem.getStatus().equals(OrderItemStatusEnum.SHIPPED.getCode())) {
 				orderItem.setStatus(OrderItemStatusEnum.COMPLETED.getCode());
 			}
 		});
+		if (!orderItemService.updateBatchById(orderItemEntityList)) {
+			throw new ArynBusinessException("订单商品状态更新失败");
+		}
 
 		// 订单完成事件
 		OrderCompleteEvent orderPaySuccessEvent = new OrderCompleteEvent();
@@ -350,11 +474,25 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		orderPaySuccessEvent.setPointsMultiplier(orderInfo.getPointsMultiplier() == null
 				? BigDecimal.ONE : orderInfo.getPointsMultiplier());
 
-		orderWxDeliveryService.uploadDeliveryInfoOnReceive(orderInfo, orderItemEntityList);
-
-		rocketMQTemplate.syncSend(RocketMqConstants.ORDER_COMPLETE_NOTIFY_TOPIC,
-				new GenericMessage<>(orderPaySuccessEvent), RocketMqConstants.TIME_OUT);
+		TransactionalMqUtils.sendAfterCommit(() -> {
+			orderWxDeliveryService.uploadDeliveryInfoOnReceive(orderInfo, orderItemEntityList);
+			rocketMQTemplate.syncSend(RocketMqConstants.ORDER_COMPLETE_NOTIFY_TOPIC,
+					new GenericMessage<>(orderPaySuccessEvent), RocketMqConstants.TIME_OUT);
+		});
 		return Boolean.TRUE;
+	}
+
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public boolean receiveUserOrder(String id, String userId) {
+		OrderInfo orderInfo = getOne(Wrappers.<OrderInfo>lambdaQuery()
+			.eq(OrderInfo::getId, id)
+			.eq(OrderInfo::getUserId, userId));
+		if (orderInfo == null) {
+			throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60003.getCode(),
+					MallErrorCodeEnum.ERROR_60003.getMsg());
+		}
+		return receiveOrder(orderInfo);
 	}
 
 	@Override
@@ -378,14 +516,18 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 			return Result.fail(MallErrorCodeEnum.ERROR_90001.getCode(), MallErrorCodeEnum.ERROR_90001.getMsg());
 		}
 
-		OrderInfo orderInfo = this
-			.getOne(Wrappers.<OrderInfo>lambdaQuery().eq(OrderInfo::getOrderNo, prepayDTO.getOrderNo()));
+		OrderInfo orderInfo = this.getOne(Wrappers.<OrderInfo>lambdaQuery()
+			.eq(OrderInfo::getOrderNo, prepayDTO.getOrderNo())
+			.eq(OrderInfo::getUserId, prepayDTO.getUserId()));
 		if (orderInfo == null) {
 			return Result.fail(MallErrorCodeEnum.ERROR_60003.getCode(), MallErrorCodeEnum.ERROR_60003.getMsg());
 		}
 		// 只有未支付的详单能发起支付
 		if (CommonConstants.YES.equals(orderInfo.getPayStatus())) {
 			return Result.fail(MallErrorCodeEnum.ERROR_60004.getCode(), MallErrorCodeEnum.ERROR_60004.getMsg());
+		}
+		if (!OrderStatusEnum.WAITING_FOR_PAYMENT.getCode().equals(orderInfo.getStatus())) {
+			return Result.fail(MallErrorCodeEnum.ERROR_60003.getCode(), MallErrorCodeEnum.ERROR_60003.getMsg());
 		}
 		CreateOrderReqDTO payDTO = new CreateOrderReqDTO();
 		if (orderInfo.getPaymentPrice().compareTo(BigDecimal.ZERO) == 0) {
@@ -417,8 +559,10 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 	}
 
 	@Override
-	public boolean appraiseOrder(String id, List<OrderAppraiseDTO> orderAppraiseList) {
-		return orderAppraiseService.appraiseOrder(id, orderAppraiseList);
+	@GlobalTransactional(rollbackFor = Exception.class)
+	@Transactional(rollbackFor = Exception.class)
+	public boolean appraiseOrder(String id, String userId, List<OrderAppraiseDTO> orderAppraiseList) {
+		return orderAppraiseService.appraiseOrder(id, userId, orderAppraiseList);
 	}
 
 	@Override
@@ -436,10 +580,14 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		List<String> skuIds = settlementOrderDTO.getSkuReqList()
 			.stream()
 			.map(CreateOrderSkuReqDTO::getSkuId)
-			.collect(Collectors.toList());
+			.distinct()
+			.toList();
+		if (skuIds.size() != settlementOrderDTO.getSkuReqList().size()) {
+			throw new ArynBusinessException("订单商品不能包含重复SKU");
+		}
 		// 查询购买商品
 		List<GoodsSku> goodsSkuList = remoteGoodsSkuService.getBySkuIds(skuIds);
-		if (CollectionUtils.isEmpty(goodsSkuList)) {
+		if (CollectionUtils.isEmpty(goodsSkuList) || goodsSkuList.size() != skuIds.size()) {
 			throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60008.getCode(),
 					MallErrorCodeEnum.ERROR_60008.getMsg());
 		}
@@ -462,10 +610,14 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		orderPriceComputeService.orderMemberBenefitHandler(orderInfo, orderItemEntityList, memberBenefits);
 		orderPriceComputeService.orderCouponHandler(orderInfo, orderItemEntityList);
 		// 5.计算运费
-		if (MallOrderConstants.DELIVERY_WAY_1.equals(orderInfo.getDeliveryWay())
-				&& StringUtils.hasText(settlementOrderDTO.getUserAddressId())) {
+		if (MallOrderConstants.DELIVERY_WAY_1.equals(orderInfo.getDeliveryWay())) {
+			if (!StringUtils.hasText(settlementOrderDTO.getUserAddressId())) {
+				throw new ArynBusinessException(MallErrorCodeEnum.ERROR_50002.getCode(),
+						MallErrorCodeEnum.ERROR_50002.getMsg());
+			}
 			// 查询用户收货地址
-			UserAddress userAddress = remoteUserAddressService.getById(settlementOrderDTO.getUserAddressId());
+			UserAddress userAddress = remoteUserAddressService.getById(settlementOrderDTO.getUserAddressId(),
+					settlementOrderDTO.getUserId());
 			if (ObjectUtil.isNull(userAddress)) {
 				throw new ArynBusinessException(MallErrorCodeEnum.ERROR_50002.getCode(),
 						MallErrorCodeEnum.ERROR_50002.getMsg());

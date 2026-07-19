@@ -12,9 +12,10 @@
         .
         id
         ,
-	order_info.user_id,
-	order_info.delivery_way,
-	order_info.order_no,
+		order_info.user_id,
+		order_info.delivery_way,
+		order_info.order_no,
+		order_info.request_id,
 	order_info.payment_type,
 	order_info.trade_type,
 	order_info.remark,
@@ -88,6 +89,14 @@
         order_info AS order_info
         where order_info.`id` = #{id}
     </select>
+	<select id="selectOrderByIdAndUser" resultMap="resultMap">
+		SELECT
+		<include refid="orderSql"/>
+		FROM order_info AS order_info
+		WHERE order_info.`id` = #{id}
+		  AND order_info.`user_id` = #{userId}
+		  AND order_info.`del_flag` = '0'
+	</select>
     <select id="selectPaySumStatistics" resultType="java.math.BigDecimal">
         SELECT
         IFNULL( SUM( order_info.payment_price ), 0 )

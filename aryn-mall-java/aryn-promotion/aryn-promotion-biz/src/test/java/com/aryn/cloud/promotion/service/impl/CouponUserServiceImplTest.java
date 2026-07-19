@@ -1,5 +1,9 @@
 package com.aryn.cloud.promotion.service.impl;
 
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.conditions.AbstractWrapper;
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.promotion.api.entity.CouponInfo;
 import com.aryn.cloud.promotion.api.entity.CouponUser;
@@ -14,6 +18,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
 
 import java.time.LocalDateTime;
 
@@ -35,6 +40,7 @@ class CouponUserServiceImplTest {
 
 	@BeforeEach
 	void setUp() {
+		TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), CouponUser.class);
 		service = new TestCouponUserService(remoteMallUserService, couponInfoMapper, couponGoodsMapper,
 				couponUserMapper);
 		ArynTenantContextHolder.setTenantId("tenant-1");
@@ -73,6 +79,34 @@ class CouponUserServiceImplTest {
 				"template-1", "user-1", "level-1:benefit-1")).isTrue();
 
 		verify(couponInfoMapper, never()).allocateOne(any());
+	}
+
+	@Test
+	void reserveCouponRequiresUserAvailableStatusAndOrderBinding() {
+		when(couponUserMapper.update(any(), any(Wrapper.class))).thenReturn(1);
+
+		assertThat(service.reserveCoupon("coupon-1", "user-1", "order-1")).isTrue();
+
+		ArgumentCaptor<Wrapper<CouponUser>> captor = ArgumentCaptor.forClass(Wrapper.class);
+		verify(couponUserMapper).update(any(), captor.capture());
+		AbstractWrapper<?, ?, ?> wrapper = (AbstractWrapper<?, ?, ?>) captor.getValue();
+		assertThat(wrapper.getSqlSegment()).contains("id", "user_id", "status", "validat_time");
+		assertThat(wrapper.getParamNameValuePairs().values())
+			.contains("coupon-1", "user-1", "order-1", "0", "3");
+	}
+
+	@Test
+	void releaseCouponRequiresTheOrderThatReservedIt() {
+		when(couponUserMapper.update(any(), any(Wrapper.class))).thenReturn(1);
+
+		assertThat(service.releaseCoupon("coupon-1", "order-1")).isTrue();
+
+		ArgumentCaptor<Wrapper<CouponUser>> captor = ArgumentCaptor.forClass(Wrapper.class);
+		verify(couponUserMapper).update(any(), captor.capture());
+		AbstractWrapper<?, ?, ?> wrapper = (AbstractWrapper<?, ?, ?>) captor.getValue();
+		assertThat(wrapper.getSqlSegment()).contains("id", "order_id", "status");
+		assertThat(wrapper.getParamNameValuePairs().values()).contains("coupon-1", "order-1", "3");
+		assertThat(wrapper.getSqlSet()).contains("order_id = NULL");
 	}
 
 	private CouponInfo template() {

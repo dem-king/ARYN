@@ -9,7 +9,7 @@
  */
 import process from 'node:process'
 import { defineConfig, loadEnv } from 'vite'
-import Uni from '@dcloudio/vite-plugin-uni'
+import UniModule from '@dcloudio/vite-plugin-uni'
 import UniHelperManifest from '@uni-helper/vite-plugin-uni-manifest'
 import UniHelperPages from '@uni-helper/vite-plugin-uni-pages'
 import UniHelperLayouts from '@uni-helper/vite-plugin-uni-layouts'
@@ -18,6 +18,8 @@ import AutoImport from 'unplugin-auto-import/vite'
 import { WotResolver } from '@uni-helper/vite-plugin-uni-components/resolvers'
 import UniKuRoot from '@uni-ku/root'
 import Optimization from '@uni-ku/bundle-optimizer'
+
+const Uni = ((UniModule as unknown as { default?: typeof UniModule }).default ?? UniModule)
 // https://vitejs.dev/config/
 export default async (mode: ConfigEnv) => {
   const UnoCSS = (await import('unocss/vite')).default

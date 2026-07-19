@@ -9,7 +9,7 @@
 # Logs
 logs/
 *.log
-log/
+/log/
 
 # OS
 .DS_Store
@@ -28,7 +28,6 @@ target/
 
 # Node
 node_modules/
-pnpm-lock.yaml
 yarn.lock
 package-lock.json
 dist/

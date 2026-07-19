@@ -106,12 +106,9 @@ CREATE TABLE `coupon_user`  (
                                 `update_time` datetime NULL DEFAULT NULL COMMENT '更新时间',
                                 `del_flag` char(2) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
                                 `tenant_id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '租户id',
-                                `source_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '发放来源类型',
-                                `source_id` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '发放来源ID',
                                 `create_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '创建人',
                                 `update_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '修改人',
-                                PRIMARY KEY (`id`) USING BTREE,
-                                UNIQUE INDEX `uk_coupon_user_source` (`tenant_id`, `user_id`, `source_type`, `source_id`) USING BTREE
+                                PRIMARY KEY (`id`) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '用户领券记录表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
@@ -219,6 +216,20 @@ CREATE TABLE `gen_table_column`  (
 -- ----------------------------
 
 -- ----------------------------
+-- Table structure for product_order_pay_record
+-- ----------------------------
+DROP TABLE IF EXISTS `product_order_pay_record`;
+CREATE TABLE `product_order_pay_record` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `order_id` varchar(32) NOT NULL COMMENT '订单主键',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户id',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.正常；1.删除',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_product_order_pay_record` (`tenant_id`, `order_id`) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '商品支付消息消费记录' ROW_FORMAT = DYNAMIC;
+
+-- ----------------------------
 -- Table structure for goods_appraise
 -- ----------------------------
 DROP TABLE IF EXISTS `goods_appraise`;
@@ -243,7 +254,9 @@ CREATE TABLE `goods_appraise`  (
                                    `tenant_id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '租户id',
                                    `create_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '创建人',
                                    `update_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '修改人',
-                                   PRIMARY KEY (`id`) USING BTREE
+                                   `active_order_item_id` varchar(32) GENERATED ALWAYS AS (CASE WHEN `del_flag` = '0' THEN `order_item_id` ELSE NULL END) STORED COMMENT '有效评价订单项唯一键',
+                                   PRIMARY KEY (`id`) USING BTREE,
+                                   UNIQUE KEY `uk_goods_appraise_active_item` (`tenant_id`, `active_order_item_id`) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '商品评价' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
@@ -566,7 +579,8 @@ CREATE TABLE `order_info`  (
                                `id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '主键',
                                `user_id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '用户主键',
                                `delivery_way` char(2) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '配送方式：1.普通快递；2.上门自提',
-                               `order_no` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '订单单号',
+								`order_no` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '订单单号',
+								`request_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '客户端请求幂等号',
                                `payment_type` char(2) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '支付类型：1.微信支付；2.支付宝支付',
                                `trade_type` varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '交易类型：（预留）',
                                `remark` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '备注',
@@ -600,13 +614,15 @@ CREATE TABLE `order_info`  (
                                `recipient_area_code` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '区/县编码',
                                `app_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '应用ID',
                                `open_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT 'openId',
-                               PRIMARY KEY (`id`) USING BTREE
+								PRIMARY KEY (`id`) USING BTREE,
+								UNIQUE KEY `uk_order_request` (`tenant_id`, `user_id`, `request_id`),
+								UNIQUE KEY `uk_order_no` (`tenant_id`, `order_no`)
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '订单信息' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Records of order_info
 -- ----------------------------
-INSERT INTO `order_info` VALUES ('2040656660950806529', '2040656345832747009', '2', '2040656659658969088', NULL, NULL, NULL, '0', '1', '0', 1.00, 0.00, 0.00, 1.00, '2026-04-05 13:03:56', NULL, '0', NULL, NULL, NULL, NULL, NULL, NULL, '1590229800633634816', 'ozexS3bXeBjIkrfIZoe07SWXBY4I', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'wxe150c73d0376f899', 'ozexS3bXeBjIkrfIZoe07SWXBY4I');
+INSERT INTO `order_info` VALUES ('2040656660950806529', '2040656345832747009', '2', '2040656659658969088', 'legacy-2040656660950806529', NULL, NULL, NULL, '0', '1', '0', 1.00, 0.00, 0.00, 1.00, '2026-04-05 13:03:56', NULL, '0', NULL, NULL, NULL, NULL, NULL, NULL, '1590229800633634816', 'ozexS3bXeBjIkrfIZoe07SWXBY4I', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'wxe150c73d0376f899', 'ozexS3bXeBjIkrfIZoe07SWXBY4I');
 
 -- ----------------------------
 -- Table structure for order_item
@@ -834,18 +850,20 @@ CREATE TABLE `shopping_cart`  (
                                   `pic_url` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '商品图',
                                   `create_time` datetime NULL DEFAULT NULL COMMENT '创建时间',
                                   `update_time` datetime NULL DEFAULT NULL COMMENT '更新时间',
-                                  `del_flag` char(2) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '0' COMMENT '逻辑删除：0、显示；1、隐藏',
+								  `del_flag` char(2) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '0' COMMENT '逻辑删除：0、显示；1、隐藏',
+								  `active_sku_id` varchar(32) GENERATED ALWAYS AS (CASE WHEN `del_flag` = '0' THEN `sku_id` ELSE NULL END) STORED COMMENT '有效购物车SKU唯一键',
                                   `specs_info` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '规格信息',
                                   `tenant_id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '租户id',
                                   `create_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '创建人',
                                   `update_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '修改人',
-                                  PRIMARY KEY (`id`) USING BTREE
+								  PRIMARY KEY (`id`) USING BTREE,
+								  UNIQUE KEY `uk_shopping_cart_active_sku` (`tenant_id`, `user_id`, `active_sku_id`)
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '购物车' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Records of shopping_cart
 -- ----------------------------
-INSERT INTO `shopping_cart` VALUES ('2040658253926494209', '2040656345832747009', '1912867577569386497', '2026667593272659970', 1, 'Apple/苹果 iPhone 16 Pro Max（A3297）', 9299.00, 'https://minio.aryn.co/aryn/file/e8e18e94-d352-45d9-acdd-f918a6f77f90.jpg', '2026-04-05 13:10:16', '2026-04-05 13:15:27', '0', '256GB', '1590229800633634816', 'ozexS3bXeBjIkrfIZoe07SWXBY4I', 'ozexS3bXeBjIkrfIZoe07SWXBY4I');
+INSERT INTO `shopping_cart` VALUES ('2040658253926494209', '2040656345832747009', '1912867577569386497', '2026667593272659970', 1, 'Apple/苹果 iPhone 16 Pro Max（A3297）', 9299.00, 'https://minio.aryn.co/aryn/file/e8e18e94-d352-45d9-acdd-f918a6f77f90.jpg', '2026-04-05 13:10:16', '2026-04-05 13:15:27', '0', DEFAULT, '256GB', '1590229800633634816', 'ozexS3bXeBjIkrfIZoe07SWXBY4I', 'ozexS3bXeBjIkrfIZoe07SWXBY4I');
 
 -- ----------------------------
 -- Table structure for social_account
@@ -2734,19 +2752,6 @@ INSERT INTO `sys_tenant_menu` VALUES ('2026071709110000001', '159022980063363481
 INSERT INTO `sys_tenant_menu` VALUES ('2026071709110000002', '1590229800633634816', '2026071709000000002', NULL, NULL);
 INSERT INTO `sys_tenant_menu` VALUES ('2026071709110000003', '1590229800633634816', '2026071709000000003', NULL, NULL);
 
-ALTER TABLE `order_info`
-  ADD COLUMN `member_discount_price` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '会员折扣优惠金额' AFTER `coupon_price`,
-  ADD COLUMN `points_multiplier` decimal(10,2) NOT NULL DEFAULT 1.00 COMMENT '下单时会员积分倍率' AFTER `member_discount_price`;
-ALTER TABLE `order_item`
-  ADD COLUMN `member_discount_price` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '会员折扣优惠金额' AFTER `coupon_price`;
-CREATE TABLE `member_order_growth` (
-  `id` varchar(32) NOT NULL, `order_id` varchar(32) NOT NULL, `order_no` varchar(32) DEFAULT NULL,
-  `user_id` varchar(32) NOT NULL, `goods_payment_amount` decimal(10,2) NOT NULL,
-  `points_awarded` int NOT NULL DEFAULT 0, `tenant_id` varchar(32) NOT NULL, `create_time` datetime NOT NULL,
-  PRIMARY KEY (`id`), UNIQUE KEY `uk_member_growth_order` (`tenant_id`, `order_id`),
-  KEY `idx_member_growth_user` (`tenant_id`, `user_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='会员订单成长幂等记录';
-
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ============================================================================
@@ -2758,13 +2763,16 @@ SET FOREIGN_KEY_CHECKS = 1;
 -- 执行顺序：在 2aryn_boot.sql 之后执行
 -- =====================================================
 
+USE aryn_boot;
+
+SET NAMES utf8mb4;
+
 -- ----------------------------
 -- user_info表增加会员相关字段
 -- ----------------------------
 ALTER TABLE `user_info` ADD COLUMN `member_level_id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '会员等级ID' AFTER `open_id`;
 ALTER TABLE `user_info` ADD COLUMN `point` int NOT NULL DEFAULT 0 COMMENT '积分余额' AFTER `member_level_id`;
 ALTER TABLE `user_info` ADD COLUMN `total_point` int NOT NULL DEFAULT 0 COMMENT '累计获得积分' AFTER `point`;
-UPDATE `user_info` SET `total_point` = GREATEST(COALESCE(`point`, 0), 0);
 ALTER TABLE `user_info` ADD COLUMN `balance` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '储值余额' AFTER `total_point`;
 ALTER TABLE `user_info` ADD COLUMN `total_consume` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '累计消费金额' AFTER `balance`;
 
@@ -3079,6 +3087,16 @@ CREATE TABLE `member_benefit_level_rel`  (
     INDEX `idx_level_id` (`level_id`) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '权益等级关联表' ROW_FORMAT = DYNAMIC;
 
+DROP TABLE IF EXISTS `member_order_growth`;
+CREATE TABLE `member_order_growth` (
+    `id` varchar(32) NOT NULL COMMENT '主键', `order_id` varchar(32) NOT NULL COMMENT '订单ID',
+    `order_no` varchar(32) DEFAULT NULL COMMENT '订单编号', `user_id` varchar(32) NOT NULL COMMENT '用户ID',
+    `goods_payment_amount` decimal(10,2) NOT NULL COMMENT '实付商品金额',
+    `points_awarded` int NOT NULL DEFAULT 0 COMMENT '本次发放积分', `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+    `create_time` datetime NOT NULL COMMENT '创建时间', PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_member_growth_order` (`tenant_id`, `order_id`), KEY `idx_member_growth_user` (`tenant_id`, `user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='会员订单成长幂等记录';
+
 -- ----------------------------
 -- 余额记录菜单
 -- ----------------------------
@@ -3111,6 +3129,149 @@ INSERT INTO `sys_menu` VALUES ('2050000000000000132', '权益查询', 'user:memb
 INSERT INTO `sys_menu` VALUES ('2050000000000000133', '权益新增', 'user:memberbenefit:add', NULL, NULL, '2050000000000000130', NULL, NULL, 3, '1', '2026-04-22 00:00:00', '2026-04-22 00:00:00', '0', '0', 'app_base', NULL, NULL);
 INSERT INTO `sys_menu` VALUES ('2050000000000000134', '权益编辑', 'user:memberbenefit:edit', NULL, NULL, '2050000000000000130', NULL, NULL, 4, '1', '2026-04-22 00:00:00', '2026-04-22 00:00:00', '0', '0', 'app_base', NULL, NULL);
 INSERT INTO `sys_menu` VALUES ('2050000000000000135', '权益删除', 'user:memberbenefit:del', NULL, NULL, '2050000000000000130', NULL, NULL, 5, '1', '2026-04-22 00:00:00', '2026-04-22 00:00:00', '0', '0', 'app_base', NULL, NULL);
+
+-- ============================================================================
+-- 菜单种子修复
+-- Source: db/boot/15menu_seed_repair.sql
+-- ============================================================================
+USE aryn_boot;
+
+SET NAMES utf8mb4;
+
+START TRANSACTION;
+
+-- Boot 基础种子已包含拼团菜单；IGNORE 兼容早期或不完整的存量库。
+INSERT IGNORE INTO sys_menu
+  (id, name, permission, path, redirect, parent_id, icon, component, sort, type,
+   create_time, update_time, outer_status, del_flag, application_key, create_by, update_by)
+VALUES
+  ('1991000000000000050', '拼团管理', NULL, '/promotion/groupbuy', '/promotion/groupbuy/activity',
+   '1779386604402573314', 'carbon:group', '', 21, '0', '2026-04-22 10:00:00', NULL, '0', '0',
+   'app_market', 'system', 'system'),
+  ('1991000000000000051', '拼团活动', NULL, '/promotion/groupbuy/activity', NULL,
+   '1991000000000000050', 'carbon:flash', 'promotion/group-buy-activity/index', 1, '0',
+   '2026-04-22 10:00:00', NULL, '0', '0', 'app_market', 'system', 'system'),
+  ('1991000000000000052', '拼团活动分页', 'promotion:groupbuy:page', NULL, NULL,
+   '1991000000000000051', NULL, NULL, 1, '1', '2026-04-22 10:00:00', NULL, '0', '0',
+   'app_market', 'system', NULL),
+  ('1991000000000000053', '拼团活动查询', 'promotion:groupbuy:get', NULL, NULL,
+   '1991000000000000051', NULL, NULL, 2, '1', '2026-04-22 10:00:00', NULL, '0', '0',
+   'app_market', 'system', NULL),
+  ('1991000000000000054', '拼团活动新增', 'promotion:groupbuy:add', NULL, NULL,
+   '1991000000000000051', NULL, NULL, 3, '1', '2026-04-22 10:00:00', NULL, '0', '0',
+   'app_market', 'system', NULL),
+  ('1991000000000000055', '拼团活动修改', 'promotion:groupbuy:edit', NULL, NULL,
+   '1991000000000000051', NULL, NULL, 4, '1', '2026-04-22 10:00:00', NULL, '0', '0',
+   'app_market', 'system', NULL),
+  ('1991000000000000056', '拼团活动删除', 'promotion:groupbuy:del', NULL, NULL,
+   '1991000000000000051', NULL, NULL, 5, '1', '2026-04-22 10:00:00', NULL, '0', '0',
+   'app_market', 'system', NULL),
+  ('1991000000000000060', '拼团记录', NULL, '/promotion/groupbuy/record', NULL,
+   '1991000000000000050', 'carbon:document', 'promotion/group-buy-record/index', 2, '0',
+   '2026-04-22 10:00:00', NULL, '0', '0', 'app_market', 'system', 'system'),
+  ('1991000000000000061', '拼团记录分页', 'promotion:groupbuyrecord:page', NULL, NULL,
+   '1991000000000000060', NULL, NULL, 1, '1', '2026-04-22 10:00:00', NULL, '0', '0',
+   'app_market', 'system', NULL);
+
+CREATE TEMPORARY TABLE tmp_menu_seed_repair (
+  menu_id varchar(32) NOT NULL,
+  menu_name varchar(60) NOT NULL,
+  PRIMARY KEY (menu_id)
+) ENGINE = MEMORY DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_general_ci;
+
+INSERT INTO tmp_menu_seed_repair (menu_id, menu_name)
+VALUES
+  ('2050000000000000001', '会员等级'),
+  ('2050000000000000002', '等级列表'),
+  ('2050000000000000003', '等级查询'),
+  ('2050000000000000004', '等级新增'),
+  ('2050000000000000005', '等级编辑'),
+  ('2050000000000000006', '等级删除'),
+  ('2050000000000000010', '积分管理'),
+  ('2050000000000000011', '积分配置'),
+  ('2050000000000000012', '积分配置列表'),
+  ('2050000000000000013', '积分配置查询'),
+  ('2050000000000000014', '积分配置新增'),
+  ('2050000000000000015', '积分配置编辑'),
+  ('2050000000000000016', '积分配置删除'),
+  ('2050000000000000021', '积分记录'),
+  ('2050000000000000022', '积分记录查询'),
+  ('2050000000000000030', '签到管理'),
+  ('2050000000000000031', '签到配置'),
+  ('2050000000000000032', '签到配置列表'),
+  ('2050000000000000033', '签到配置查询'),
+  ('2050000000000000034', '签到配置新增'),
+  ('2050000000000000035', '签到配置编辑'),
+  ('2050000000000000036', '签到配置删除'),
+  ('2050000000000000041', '签到记录'),
+  ('2050000000000000042', '签到记录查询'),
+  ('2050000000000000051', '储值配置'),
+  ('2050000000000000052', '储值配置列表'),
+  ('2050000000000000053', '储值配置查询'),
+  ('2050000000000000054', '储值配置新增'),
+  ('2050000000000000055', '储值配置编辑'),
+  ('2050000000000000056', '储值配置删除'),
+  ('2050000000000000100', '余额记录'),
+  ('2050000000000000101', '余额记录查询'),
+  ('2050000000000000110', '充值订单'),
+  ('2050000000000000111', '充值订单列表'),
+  ('2050000000000000112', '充值订单查询'),
+  ('2050000000000000120', '会员标签'),
+  ('2050000000000000121', '标签列表'),
+  ('2050000000000000122', '标签查询'),
+  ('2050000000000000123', '标签新增'),
+  ('2050000000000000124', '标签编辑'),
+  ('2050000000000000125', '标签删除'),
+  ('2050000000000000130', '会员权益'),
+  ('2050000000000000131', '权益列表'),
+  ('2050000000000000132', '权益查询'),
+  ('2050000000000000133', '权益新增'),
+  ('2050000000000000134', '权益编辑'),
+  ('2050000000000000135', '权益删除'),
+  ('1991000000000000050', '拼团管理'),
+  ('1991000000000000051', '拼团活动'),
+  ('1991000000000000052', '拼团活动分页'),
+  ('1991000000000000053', '拼团活动查询'),
+  ('1991000000000000054', '拼团活动新增'),
+  ('1991000000000000055', '拼团活动修改'),
+  ('1991000000000000056', '拼团活动删除'),
+  ('1991000000000000060', '拼团记录'),
+  ('1991000000000000061', '拼团记录分页');
+
+UPDATE sys_menu AS menu
+JOIN tmp_menu_seed_repair AS seed ON seed.menu_id = menu.id
+SET menu.name = seed.menu_name;
+
+INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, tenant_id)
+SELECT REPLACE(UUID(), '-', ''), role.id, seed.menu_id, NOW(), role.tenant_id
+FROM sys_role AS role
+CROSS JOIN tmp_menu_seed_repair AS seed
+WHERE role.del_flag = '0'
+  AND role.role_code = 'ROLE_ADMIN'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM sys_role_menu AS role_menu
+    WHERE role_menu.role_id = role.id
+      AND role_menu.menu_id = seed.menu_id
+      AND role_menu.tenant_id = role.tenant_id
+  );
+
+INSERT INTO sys_tenant_menu (id, tenant_id, menu_id, create_time, create_by)
+SELECT REPLACE(UUID(), '-', ''), tenant.id, seed.menu_id, NOW(), 'system'
+FROM sys_tenant AS tenant
+CROSS JOIN tmp_menu_seed_repair AS seed
+WHERE tenant.del_flag = '0'
+  AND tenant.id <> '1881232176465358849'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM sys_tenant_menu AS tenant_menu
+    WHERE tenant_menu.tenant_id = tenant.id
+      AND tenant_menu.menu_id = seed.menu_id
+  );
+
+DROP TEMPORARY TABLE tmp_menu_seed_repair;
+
+COMMIT;
 
 -- ============================================================================
 -- 页面装修类型升级

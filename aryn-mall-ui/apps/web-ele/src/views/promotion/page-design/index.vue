@@ -254,8 +254,8 @@ onMounted(initPage);
         </ElTableColumn>
         <ElTableColumn label="草稿状态" width="130" align="center">
           <template #default="{ row }">
-            <ElTag :type="draftTagType(row)" effect="plain">
-              {{ draftLabel(row) }}
+            <ElTag :type="draftTagType(row as PageDesignRecord)" effect="plain">
+              {{ draftLabel(row as PageDesignRecord) }}
             </ElTag>
           </template>
         </ElTableColumn>
@@ -301,7 +301,7 @@ onMounted(initPage);
                   aria-label="复制"
                   circle
                   text
-                  @click="handleCopy(row)"
+                  @click="handleCopy(row as PageDesignRecord)"
                 />
               </ElTooltip>
               <ElTooltip content="预览">
@@ -311,14 +311,14 @@ onMounted(initPage);
                   aria-label="预览"
                   circle
                   text
-                  @click="handlePreview(row)"
+                  @click="handlePreview(row as PageDesignRecord)"
                 />
               </ElTooltip>
               <ElTooltip content="发布">
                 <ElButton
                   v-if="
                     row.publishedStatus !== '1' ||
-                    draftLabel(row) === '有未发布修改'
+                    draftLabel(row as PageDesignRecord) === '有未发布修改'
                   "
                   v-access:code="'promotion:pagedesign:publish'"
                   :icon="Upload"
@@ -326,7 +326,7 @@ onMounted(initPage);
                   circle
                   text
                   type="success"
-                  @click="handlePublish(row)"
+                  @click="handlePublish(row as PageDesignRecord)"
                 />
               </ElTooltip>
               <ElTooltip content="下线">
@@ -338,7 +338,7 @@ onMounted(initPage);
                   circle
                   text
                   type="warning"
-                  @click="handleUnpublish(row)"
+                  @click="handleUnpublish(row as PageDesignRecord)"
                 />
               </ElTooltip>
               <ElTooltip content="版本历史">
@@ -348,7 +348,7 @@ onMounted(initPage);
                   aria-label="版本历史"
                   circle
                   text
-                  @click="openVersions(row)"
+                  @click="openVersions(row as PageDesignRecord)"
                 />
               </ElTooltip>
               <ElTooltip v-if="row.pageType === '0'" content="删除">
@@ -359,7 +359,7 @@ onMounted(initPage);
                   circle
                   text
                   type="danger"
-                  @click="handleDelete(row)"
+                  @click="handleDelete(row as PageDesignRecord)"
                 />
               </ElTooltip>
             </ElSpace>

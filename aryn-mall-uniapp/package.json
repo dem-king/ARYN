@@ -2,6 +2,7 @@
   "name": "aryn-mall-uniapp",
   "version": "3.2.1",
   "private": true,
+  "type": "module",
   "packageManager": "pnpm@9.9.0",
   "license": "MIT",
   "engines": {

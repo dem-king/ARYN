@@ -40,9 +40,9 @@ interface SkuItem {
 
 const props = withDefaults(
   defineProps<{
-    goodsSpuSpecs: any[];
-    shopId: string;
-    skusData: any[];
+    goodsSpuSpecs?: any[];
+    shopId?: string;
+    skusData?: any[];
   }>(),
   {
     skusData: () => [],

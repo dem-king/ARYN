@@ -14,6 +14,7 @@ import com.kuaidi100.sdk.response.SubscribePushParamResp;
 import com.kuaidi100.sdk.response.SubscribePushResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 
 import java.time.LocalDateTime;
@@ -37,6 +38,7 @@ public class OrderDeliveryServiceImpl extends ServiceImpl<OrderDeliveryMapper, O
 	private final OrderDeliveryLogisticsMapper orderDeliveryLogisticsMapper;
 
 	@Override
+	@Transactional(rollbackFor = Exception.class)
 	public void notifyLogistics(OrderDelivery orderDelivery, SubscribePushParamResp subscribePushParamResp) {
 		if ("abort".equals(subscribePushParamResp.getStatus())) {
 			orderDelivery.setDeliveryStatus(OrderLogisticsStateEnum.STATUS_ERR.getCode());
@@ -46,7 +48,6 @@ public class OrderDeliveryServiceImpl extends ServiceImpl<OrderDeliveryMapper, O
 			DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 			SubscribePushResult subscribePushResult = subscribePushParamResp.getLastResult();
 			orderDelivery.setDeliveryStatus(subscribePushResult.getState());
-			orderDelivery.setOrderId(subscribePushResult.getIscheck());
 			orderDelivery.setIsCheck(subscribePushResult.getIscheck());
 			List<OrderDeliveryLogistics> orderDeliveryLogisticsList = orderDeliveryLogisticsMapper
 				.selectList(Wrappers.<OrderDeliveryLogistics>lambdaQuery()

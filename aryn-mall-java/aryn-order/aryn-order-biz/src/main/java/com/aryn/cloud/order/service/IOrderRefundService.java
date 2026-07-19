@@ -33,6 +33,8 @@ public interface IOrderRefundService extends IService<OrderRefund> {
 	 */
 	OrderRefund getRefundById(String id);
 
+	OrderRefund getUserRefundById(String id, String userId);
+
 	/**
 	 * 退款
 	 * @param orderRefund

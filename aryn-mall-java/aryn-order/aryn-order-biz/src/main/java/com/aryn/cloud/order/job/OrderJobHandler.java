@@ -2,6 +2,7 @@
 package com.aryn.cloud.order.job;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.aryn.cloud.common.core.constant.CommonConstants;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.order.api.entity.OrderConfig;
 import com.aryn.cloud.order.api.entity.OrderInfo;
@@ -51,13 +52,17 @@ public class OrderJobHandler {
 		List<SysTenant> listSysTenant = remoteTenantService.list();
 		if (!CollectionUtils.isEmpty(listSysTenant)) {
 			listSysTenant.forEach(sysTenant -> {
-				ArynTenantContextHolder.setTenantId(sysTenant.getId());
-				// 查询待支付状态并且已超时的订单
-				List<OrderInfo> orderList = orderInfoService.list(Wrappers.<OrderInfo>lambdaQuery()
-					.eq(OrderInfo::getStatus, OrderStatusEnum.WAITING_FOR_PAYMENT.getCode())
-					.lt(OrderInfo::getCreateTime, LocalDateTime.now().minusMinutes(30)));
-				orderList.forEach(orderInfoService::cancelOrder);
-				ArynTenantContextHolder.removeTenantId();
+				try {
+					ArynTenantContextHolder.setTenantId(sysTenant.getId());
+					List<OrderInfo> orderList = orderInfoService.list(Wrappers.<OrderInfo>lambdaQuery()
+						.eq(OrderInfo::getStatus, OrderStatusEnum.WAITING_FOR_PAYMENT.getCode())
+						.eq(OrderInfo::getPayStatus, CommonConstants.NO)
+						.lt(OrderInfo::getCreateTime, LocalDateTime.now().minusMinutes(30)));
+					orderList.forEach(orderInfoService::cancelOrder);
+				}
+				finally {
+					ArynTenantContextHolder.removeTenantId();
+				}
 			});
 		}
 		// default success
@@ -76,22 +81,21 @@ public class OrderJobHandler {
 		List<SysTenant> listSysTenant = remoteTenantService.list();
 		if (!CollectionUtils.isEmpty(listSysTenant)) {
 			listSysTenant.forEach(sysTenant -> {
-				ArynTenantContextHolder.setTenantId(sysTenant.getId());
-				// 查询订单配置
-				OrderConfig orderConfig = orderConfigService.getConfig();
-				if (Objects.isNull(orderConfig)) {
-					return;
+				try {
+					ArynTenantContextHolder.setTenantId(sysTenant.getId());
+					OrderConfig orderConfig = orderConfigService.getConfig();
+					if (Objects.isNull(orderConfig) || Objects.isNull(orderConfig.getOrderAutoConfirmDays())) {
+						return;
+					}
+					List<OrderInfo> orderList = orderInfoService.list(Wrappers.<OrderInfo>lambdaQuery()
+						.eq(OrderInfo::getStatus, OrderStatusEnum.WAITING_FOR_RECEIPT.getCode())
+						.lt(OrderInfo::getDeliverTime,
+								LocalDateTime.now().minusDays(orderConfig.getOrderAutoConfirmDays())));
+					orderList.forEach(orderInfoService::receiveOrder);
 				}
-				if (Objects.isNull(orderConfig.getOrderAutoConfirmDays())) {
-					return;
+				finally {
+					ArynTenantContextHolder.removeTenantId();
 				}
-				// 查询未确认收货订单
-				List<OrderInfo> orderList = orderInfoService.list(Wrappers.<OrderInfo>lambdaQuery()
-					.eq(OrderInfo::getStatus, OrderStatusEnum.WAITING_FOR_PAYMENT.getCode())
-					.lt(OrderInfo::getDeliverTime,
-							LocalDateTime.now().minusDays(orderConfig.getOrderAutoConfirmDays())));
-				orderList.forEach(orderInfoService::receiveOrder);
-				ArynTenantContextHolder.removeTenantId();
 			});
 		}
 	}
@@ -109,22 +113,22 @@ public class OrderJobHandler {
 		List<SysTenant> listSysTenant = remoteTenantService.list();
 		if (!CollectionUtils.isEmpty(listSysTenant)) {
 			listSysTenant.forEach(sysTenant -> {
-				ArynTenantContextHolder.setTenantId(sysTenant.getId());
-				// 查询订单配置
-				OrderConfig orderConfig = orderConfigService.getConfig();
-				if (Objects.isNull(orderConfig)) {
-					return;
+				try {
+					ArynTenantContextHolder.setTenantId(sysTenant.getId());
+					OrderConfig orderConfig = orderConfigService.getConfig();
+					if (Objects.isNull(orderConfig) || Objects.isNull(orderConfig.getOrderAutoCommentDays())) {
+						return;
+					}
+					List<OrderInfo> orderList = orderInfoService.list(Wrappers.<OrderInfo>lambdaQuery()
+						.eq(OrderInfo::getStatus, OrderStatusEnum.COMPLETED.getCode())
+						.eq(OrderInfo::getAppraiseStatus, CommonConstants.NO)
+						.lt(OrderInfo::getReceiverTime,
+								LocalDateTime.now().minusDays(orderConfig.getOrderAutoCommentDays())));
+					orderList.forEach(orderInfoService::autoAppraiseOrder);
 				}
-				if (Objects.isNull(orderConfig.getOrderAutoCommentDays())) {
-					return;
+				finally {
+					ArynTenantContextHolder.removeTenantId();
 				}
-				// 查询未确认收货订单
-				List<OrderInfo> orderList = orderInfoService.list(Wrappers.<OrderInfo>lambdaQuery()
-					.eq(OrderInfo::getStatus, OrderStatusEnum.WAITING_FOR_PAYMENT.getCode())
-					.lt(OrderInfo::getReceiverTime,
-							LocalDateTime.now().minusDays(orderConfig.getOrderAutoCommentDays())));
-				orderList.forEach(orderInfoService::autoAppraiseOrder);
-				ArynTenantContextHolder.removeTenantId();
 			});
 		}
 	}

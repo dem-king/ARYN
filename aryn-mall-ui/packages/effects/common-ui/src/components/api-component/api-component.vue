@@ -63,11 +63,7 @@ interface Props {
    * - false：不自动选择(默认)
    */
   autoSelect?:
-    | 'first'
-    | 'last'
-    | 'one'
-    | ((item: OptionsItem[]) => OptionsItem)
-    | false;
+    'first' | 'last' | 'one' | ((item: OptionsItem[]) => OptionsItem) | false;
 }
 
 defineOptions({ name: 'ApiComponent', inheritAttrs: false });

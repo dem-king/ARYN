@@ -33,6 +33,8 @@ public interface OrderRefundMapper extends BaseMapper<OrderRefund> {
 
 	OrderRefund selectRefundById(Serializable id);
 
+	OrderRefund selectRefundByIdAndUser(@Param("id") String id, @Param("userId") String userId);
+
 	/**
 	 * 通过子订单ID查询退款单
 	 * @param orderItemId

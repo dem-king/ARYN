@@ -43,6 +43,8 @@ public interface OrderInfoMapper extends BaseMapper<OrderInfo> {
 	 */
 	OrderInfo selectOrderById(Serializable id);
 
+	OrderInfo selectOrderByIdAndUser(@Param("id") String id, @Param("userId") String userId);
+
 	/**
 	 * 支付金额统计
 	 * @param orderInfoDTO

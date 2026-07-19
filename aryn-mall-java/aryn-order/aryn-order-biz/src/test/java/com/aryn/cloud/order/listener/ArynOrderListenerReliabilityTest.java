@@ -1,14 +1,18 @@
 package com.aryn.cloud.order.listener;
 
 import com.alibaba.fastjson2.JSONObject;
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.aryn.cloud.common.core.constant.CommonConstants;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.order.api.entity.OrderInfo;
 import com.aryn.cloud.order.api.entity.OrderItemEntity;
 import com.aryn.cloud.order.api.entity.OrderRefund;
+import com.aryn.cloud.order.api.dto.OrderConsumerDTO;
 import com.aryn.cloud.order.api.enums.OrderArrivalStatusEnum;
+import com.aryn.cloud.order.api.enums.OrderStatusEnum;
 import com.aryn.cloud.order.event.listener.OrderPaySuccessNotifier;
 import com.aryn.cloud.order.event.ArynOrderPayEvent;
 import com.aryn.cloud.order.event.listener.ArynOrderPayEventListener;
@@ -18,7 +22,9 @@ import com.aryn.cloud.order.service.IOrderRefundService;
 import com.aryn.cloud.pay.api.constants.PayConstants;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.springframework.messaging.Message;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -36,6 +42,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ArynOrderListenerReliabilityTest {
+
+	@BeforeAll
+	static void initMybatisMetadata() {
+		TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), OrderInfo.class);
+	}
 
 	@AfterEach
 	void clearTenant() {
@@ -143,6 +154,25 @@ class ArynOrderListenerReliabilityTest {
 
 		listener.onMessage("{}");
 
+		assertThat(ArynTenantContextHolder.getTenantId()).isNull();
+	}
+
+	@Test
+	void duplicateCancelMessageDoesNotCancelAnAlreadyCanceledOrder() {
+		IOrderInfoService orderService = mock(IOrderInfoService.class);
+		OrderInfo order = new OrderInfo();
+		order.setId("order-1");
+		order.setPayStatus(CommonConstants.NO);
+		order.setStatus(OrderStatusEnum.CANCELED.getCode());
+		when(orderService.getById("order-1")).thenReturn(order);
+		OrderCancelListener listener = new OrderCancelListener(orderService);
+		OrderConsumerDTO message = new OrderConsumerDTO();
+		message.setOrderId("order-1");
+		message.setTenantId("tenant-1");
+
+		listener.onMessage(message);
+
+		verify(orderService, never()).cancelOrder(any());
 		assertThat(ArynTenantContextHolder.getTenantId()).isNull();
 	}
 

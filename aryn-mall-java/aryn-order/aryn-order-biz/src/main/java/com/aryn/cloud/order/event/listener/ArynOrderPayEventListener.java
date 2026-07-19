@@ -3,6 +3,7 @@ package com.aryn.cloud.order.event.listener;
 
 import com.aryn.cloud.common.core.constant.CommonConstants;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.aryn.cloud.pay.api.utils.TransactionalMqUtils;
 import com.aryn.cloud.order.api.constant.MallOrderConstants;
 import com.aryn.cloud.order.api.entity.OrderInfo;
@@ -51,16 +52,21 @@ public class ArynOrderPayEventListener {
 			return;
 		}
 
-		if (orderInfo.getDeliveryWay().equals(MallOrderConstants.DELIVERY_WAY_2)) {
-			orderInfo.setStatus(OrderStatusEnum.WAITING_FOR_RECEIPT.getCode());
-		}
-		else {
-			orderInfo.setStatus(OrderStatusEnum.WAITING_FOR_DELIVERY.getCode());
-		}
-		orderInfo.setPayStatus(CommonConstants.YES);
-		if (!orderInfoService.updateById(orderInfo)) {
+		String targetStatus = orderInfo.getDeliveryWay().equals(MallOrderConstants.DELIVERY_WAY_2)
+				? OrderStatusEnum.WAITING_FOR_RECEIPT.getCode() : OrderStatusEnum.WAITING_FOR_DELIVERY.getCode();
+		if (!orderInfoService.update(Wrappers.<OrderInfo>lambdaUpdate()
+			.eq(OrderInfo::getId, orderInfo.getId())
+			.eq(OrderInfo::getPayStatus, CommonConstants.NO)
+			.eq(OrderInfo::getStatus, OrderStatusEnum.WAITING_FOR_PAYMENT.getCode())
+			.set(OrderInfo::getStatus, targetStatus)
+			.set(OrderInfo::getPayStatus, CommonConstants.YES)
+			.set(OrderInfo::getPaymentTime, orderInfo.getPaymentTime())
+			.set(OrderInfo::getPaymentType, orderInfo.getPaymentType())
+			.set(OrderInfo::getTransactionId, orderInfo.getTransactionId()))) {
 			throw new ArynBusinessException("订单支付状态更新失败，请重试");
 		}
+		orderInfo.setStatus(targetStatus);
+		orderInfo.setPayStatus(CommonConstants.YES);
 
 		List<OrderItemEntity> orderItemEntityList = event.getOrderItemEntityList();
 		orderItemEntityList.forEach(orderItem -> {

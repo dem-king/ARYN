@@ -22,4 +22,6 @@ public interface IOrderItemService extends IService<OrderItemEntity> {
 	 */
 	OrderItemEntity getOrderItemById(String id);
 
+	OrderItemEntity getUserOrderItemById(String id, String userId);
+
 }

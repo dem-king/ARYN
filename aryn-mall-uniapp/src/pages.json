@@ -343,39 +343,6 @@
             "navigationBarTitleText": "分销中心"
           }
         },
-        // #ifdef H5
-        {
-          "path": "user/member/balance-record",
-          "type": "page",
-          "name": "member-balance-record",
-          "style": {
-            "navigationStyle": "custom",
-            "navigationBarTitleText": "余额明细"
-          }
-        },
-        // #endif
-        // #ifdef H5
-        {
-          "path": "user/member/level-benefit",
-          "type": "page",
-          "name": "member-level-benefit",
-          "style": {
-            "navigationStyle": "custom",
-            "navigationBarTitleText": "等级权益"
-          }
-        },
-        // #endif
-        // #ifdef H5
-        {
-          "path": "user/member/recharge",
-          "type": "page",
-          "name": "member-recharge",
-          "style": {
-            "navigationStyle": "custom",
-            "navigationBarTitleText": "充值"
-          }
-        },
-        // #endif
         {
           "path": "promotion/group-buy/group-buy-detail/index",
           "type": "page",
@@ -385,7 +352,33 @@
             "navigationBarTitleText": "拼团详情"
           }
         },
-        // #ifdef H5
+        {
+          "path": "user/member/balance-record",
+          "type": "page",
+          "name": "member-balance-record",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "余额明细"
+          }
+        },
+        {
+          "path": "user/member/level-benefit",
+          "type": "page",
+          "name": "member-level-benefit",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "等级权益"
+          }
+        },
+        {
+          "path": "user/member/recharge",
+          "type": "page",
+          "name": "member-recharge",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "充值"
+          }
+        },
         {
           "path": "promotion/group-buy/group-buy-list/index",
           "type": "page",
@@ -395,8 +388,6 @@
             "navigationBarTitleText": "拼团活动"
           }
         },
-        // #endif
-        // #ifdef H5
         {
           "path": "promotion/group-buy/group-buy-record/index",
           "type": "page",
@@ -406,7 +397,6 @@
             "navigationBarTitleText": "我的拼团"
           }
         }
-        // #endif
       ]
     }
   ],

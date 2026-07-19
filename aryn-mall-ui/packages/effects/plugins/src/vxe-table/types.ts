@@ -7,7 +7,7 @@ import type {
 
 import type { Ref } from 'vue';
 
-import type { ClassType, DeepPartial } from '@vben/types';
+import type { ClassType } from '@vben/types';
 
 import type { VbenFormProps } from '@vben-core/form-ui';
 
@@ -55,11 +55,11 @@ export interface VxeGridProps {
   /**
    * vxe-grid 配置
    */
-  gridOptions?: DeepPartial<VxeTableGridOptions>;
+  gridOptions?: VxeTableGridOptions;
   /**
    * vxe-grid 事件
    */
-  gridEvents?: DeepPartial<VxeGridListeners>;
+  gridEvents?: VxeGridListeners;
   /**
    * 表单配置
    */

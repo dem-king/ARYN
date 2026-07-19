@@ -190,7 +190,7 @@ initPage();
               :icon="Coin"
               link
               type="primary"
-              @click="doSettle(scope.row)"
+              @click="doSettle(scope.row as DistributionOrderRecord)"
             >
               触发结算
             </ElButton>

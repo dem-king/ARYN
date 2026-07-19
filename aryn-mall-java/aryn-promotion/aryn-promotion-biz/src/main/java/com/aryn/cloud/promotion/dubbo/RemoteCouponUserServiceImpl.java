@@ -32,6 +32,16 @@ public class RemoteCouponUserServiceImpl implements RemoteCouponUserService {
 	}
 
 	@Override
+	public boolean reserveCoupon(String id, String userId, String orderId) {
+		return couponUserService.reserveCoupon(id, userId, orderId);
+	}
+
+	@Override
+	public boolean releaseCoupon(String id, String orderId) {
+		return couponUserService.releaseCoupon(id, orderId);
+	}
+
+	@Override
 	public boolean grantMemberBenefitCoupon(String couponTemplateId, String userId, String sourceId) {
 		return couponUserService.grantMemberBenefitCoupon(couponTemplateId, userId, sourceId);
 	}

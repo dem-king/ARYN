@@ -11,6 +11,6 @@ import com.aryn.cloud.user.api.entity.UserAddress;
  */
 public interface RemoteUserAddressService {
 
-	UserAddress getById(String id);
+	UserAddress getById(String id, String userId);
 
 }

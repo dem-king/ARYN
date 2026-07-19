@@ -40,6 +40,10 @@ public interface IOrderInfoService extends IService<OrderInfo> {
 	 */
 	OrderInfo getOrderById(String id);
 
+	OrderInfo getUserOrderById(String id, String userId);
+
+	OrderInfo getUserOrderByOrderNo(String orderNo, String userId);
+
 	/**
 	 * 订单发货
 	 * @param request
@@ -57,6 +61,10 @@ public interface IOrderInfoService extends IService<OrderInfo> {
 	 * @return: boolean
 	 */
 	String cancelOrder(OrderInfo orderInfo);
+
+	String cancelUserOrder(String id, String userId);
+
+	boolean deleteUserOrder(String id, String userId);
 
 	/**
 	 * 支付金额统计
@@ -93,6 +101,8 @@ public interface IOrderInfoService extends IService<OrderInfo> {
 	 */
 	boolean receiveOrder(OrderInfo orderInfo);
 
+	boolean receiveUserOrder(String id, String userId);
+
 	/**
 	 * 预支付(调用统一下单接口)
 	 * @param prepayDTO
@@ -108,7 +118,7 @@ public interface IOrderInfoService extends IService<OrderInfo> {
 	 * @param orderAppraiseList 订单评价列表
 	 * @return boolean
 	 */
-	boolean appraiseOrder(String id, List<OrderAppraiseDTO> orderAppraiseList);
+	boolean appraiseOrder(String id, String userId, List<OrderAppraiseDTO> orderAppraiseList);
 
 	/**
 	 * 订单统计

@@ -67,10 +67,7 @@ onMounted(() => {
 watch(
   () => state.form.benefitType,
   (type) => {
-    if (type === '2') state.form.benefitValue = '1';
-    else if (type === '1') state.form.benefitValue = '1';
-    else if (type === '4') state.form.benefitValue = '1';
-    else state.form.benefitValue = '';
+    state.form.benefitValue = ['1', '2', '4'].includes(type) ? '1' : '';
   },
 );
 

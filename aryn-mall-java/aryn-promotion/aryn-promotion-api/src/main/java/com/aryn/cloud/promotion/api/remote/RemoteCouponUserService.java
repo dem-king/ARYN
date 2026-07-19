@@ -23,6 +23,10 @@ public interface RemoteCouponUserService {
 	 */
 	CouponUserRespVO getById(String id, String userId);
 
+	boolean reserveCoupon(String id, String userId, String orderId);
+
+	boolean releaseCoupon(String id, String orderId);
+
 	boolean grantMemberBenefitCoupon(String couponTemplateId, String userId, String sourceId);
 
 }

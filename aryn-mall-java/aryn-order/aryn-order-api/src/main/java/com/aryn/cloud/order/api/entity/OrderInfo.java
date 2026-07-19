@@ -39,6 +39,9 @@ public class OrderInfo extends Model<OrderInfo> {
 	@Schema(description = "订单单号")
 	private String orderNo;
 
+	@Schema(description = "客户端请求幂等号")
+	private String requestId;
+
 	@Schema(description = "支付类型：1.微信支付；2.支付宝支付")
 	private String paymentType;
 

@@ -4,6 +4,20 @@ SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
 
 -- ----------------------------
+-- Table structure for product_order_pay_record
+-- ----------------------------
+DROP TABLE IF EXISTS `product_order_pay_record`;
+CREATE TABLE `product_order_pay_record` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `order_id` varchar(32) NOT NULL COMMENT '订单主键',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户id',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.正常；1.删除',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_product_order_pay_record` (`tenant_id`, `order_id`) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '商品支付消息消费记录' ROW_FORMAT = DYNAMIC;
+
+-- ----------------------------
 -- Table structure for goods_appraise
 -- ----------------------------
 DROP TABLE IF EXISTS `goods_appraise`;
@@ -28,7 +42,9 @@ CREATE TABLE `goods_appraise`  (
                                    `tenant_id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '租户id',
                                    `create_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '创建人',
                                    `update_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '修改人',
-                                   PRIMARY KEY (`id`) USING BTREE
+                                   `active_order_item_id` varchar(32) GENERATED ALWAYS AS (CASE WHEN `del_flag` = '0' THEN `order_item_id` ELSE NULL END) STORED COMMENT '有效评价订单项唯一键',
+                                   PRIMARY KEY (`id`) USING BTREE,
+                                   UNIQUE KEY `uk_goods_appraise_active_item` (`tenant_id`, `active_order_item_id`) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '商品评价' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
@@ -282,4 +298,3 @@ CREATE TABLE `undo_log`  (
 -- ----------------------------
 
 SET FOREIGN_KEY_CHECKS = 1;
-

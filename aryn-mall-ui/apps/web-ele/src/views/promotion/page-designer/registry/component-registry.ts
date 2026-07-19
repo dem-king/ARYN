@@ -58,8 +58,9 @@ export const retailComponentTypes = [
 export type RetailComponentType = (typeof retailComponentTypes)[number];
 export type RegisteredComponentType = LegacyComponentType | RetailComponentType;
 
-export interface RegisteredComponentDefinition
-  extends ComponentDefinition<Record<string, unknown>> {
+export interface RegisteredComponentDefinition extends ComponentDefinition<
+  Record<string, unknown>
+> {
   preview: Component;
   settings: Component;
   supportedTerminals: ['admin', 'uniapp'];

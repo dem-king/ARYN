@@ -38,7 +38,8 @@ public class AppOrderRefundController {
 	@Operation(summary = "退款单详情")
 	@GetMapping("/{id}")
 	public Result<OrderRefund> getById(@PathVariable String id) {
-		return Result.success(orderRefundService.getRefundById(id));
+		String userId = SecurityUtils.getUser().getUserId();
+		return Result.success(orderRefundService.getUserRefundById(id, userId));
 	}
 
 	@Operation(summary = "申请退货退款")

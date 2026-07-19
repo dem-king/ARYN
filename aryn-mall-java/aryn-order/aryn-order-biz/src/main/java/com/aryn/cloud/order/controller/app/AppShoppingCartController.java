@@ -6,12 +6,18 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.security.util.SecurityUtils;
+import com.aryn.cloud.order.api.dto.ShoppingCartCreateDTO;
+import com.aryn.cloud.order.api.dto.ShoppingCartUpdateDTO;
 import com.aryn.cloud.order.api.entity.ShoppingCart;
 import com.aryn.cloud.order.service.IShoppingCartService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -25,6 +31,7 @@ import java.util.List;
 @Slf4j
 @AllArgsConstructor
 @RestController
+@Validated
 @RequestMapping("/app/shopping-cart")
 @Tag(description = "shoppingcart", name = "购物车-API")
 public class AppShoppingCartController {
@@ -40,22 +47,23 @@ public class AppShoppingCartController {
 
 	@Operation(summary = "购物车添加")
 	@PostMapping
-	public Result add(@RequestBody ShoppingCart shoppingCart) {
-		shoppingCart.setUserId(SecurityUtils.getUser().getUserId());
-		return Result.success(shoppingCartService.saveShoppingCart(shoppingCart));
+	public Result<Boolean> add(@Valid @RequestBody ShoppingCartCreateDTO request) {
+		String userId = SecurityUtils.getUser().getUserId();
+		return Result.success(shoppingCartService.saveShoppingCart(userId, request));
 	}
 
 	@Operation(summary = "购物车修改")
 	@PutMapping
-	public Result edit(@RequestBody ShoppingCart shoppingCart) {
-		shoppingCart.setUserId(SecurityUtils.getUser().getUserId());
-		return Result.success(shoppingCartService.updateShoppingCartById(shoppingCart));
+	public Result<Boolean> edit(@Valid @RequestBody ShoppingCartUpdateDTO request) {
+		String userId = SecurityUtils.getUser().getUserId();
+		return Result.success(shoppingCartService.updateShoppingCart(userId, request));
 	}
 
 	@Operation(summary = "购物车删除")
 	@PostMapping("/del")
-	public Result del(@RequestBody List<String> ids) {
-		return Result.success(shoppingCartService.removeByIds(ids));
+	public Result<Boolean> del(@RequestBody @NotEmpty List<@NotBlank String> ids) {
+		String userId = SecurityUtils.getUser().getUserId();
+		return Result.success(shoppingCartService.removeByUserId(userId, ids));
 	}
 
 	@Operation(summary = "查询购物车数量")
