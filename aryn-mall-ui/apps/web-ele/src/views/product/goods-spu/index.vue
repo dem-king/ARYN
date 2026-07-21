@@ -28,6 +28,7 @@ import {
   ElTableColumn,
 } from 'element-plus';
 
+import { getList as getBrandList } from '#/api/product/goods-brand';
 import { getPage as getCategoryTree } from '#/api/product/goods-category';
 import {
   delObj,
@@ -53,6 +54,7 @@ const state = reactive({
     status: '',
     enableSpecs: '',
     categorySecondId: '',
+    brandId: '',
   },
   page: {
     total: 0,
@@ -65,6 +67,7 @@ const state = reactive({
 });
 // 商品类目
 const goodsCategoryList = ref([]);
+const goodsBrandList = ref<any[]>([]);
 const defaultProps = {
   label: 'name',
   value: 'id',
@@ -85,6 +88,11 @@ const { tableData, queryParams, page } = toRefs(state);
 const getCategory = () => {
   getCategoryTree().then((response) => {
     goodsCategoryList.value = response;
+  });
+};
+const getBrands = () => {
+  getBrandList().then((response) => {
+    goodsBrandList.value = response;
   });
 };
 const initPage = async () => {
@@ -168,6 +176,7 @@ const handleSelectionChange = (val: any) => {
 };
 
 getCategory();
+getBrands();
 initPage();
 </script>
 <template>
@@ -196,6 +205,22 @@ initPage();
             clearable
             :props="defaultProps"
           />
+        </ElFormItem>
+        <ElFormItem label="商品品牌" prop="brandId">
+          <ElSelect
+            v-model="queryParams.brandId"
+            clearable
+            filterable
+            placeholder="请选择商品品牌"
+            style="width: 200px"
+          >
+            <ElOption
+              v-for="item in goodsBrandList"
+              :key="item.id"
+              :label="item.name"
+              :value="item.id"
+            />
+          </ElSelect>
         </ElFormItem>
         <ElFormItem label="商品规格" prop="enableSpecs">
           <ElSelect
@@ -310,6 +335,12 @@ initPage();
           label="商品类目"
           align="center"
           width="180"
+        />
+        <ElTableColumn
+          prop="brandName"
+          label="商品品牌"
+          align="center"
+          width="140"
         />
         <ElTableColumn
           prop="salesPrice"

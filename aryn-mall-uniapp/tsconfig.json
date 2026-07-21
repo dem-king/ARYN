@@ -11,6 +11,7 @@
       "@mini-types/alipay",
       "miniprogram-api-typings",
       "@uni-helper/uni-types",
+      "vite/client",
       "wot-design-uni/global"
     ],
     "sourceMap": true

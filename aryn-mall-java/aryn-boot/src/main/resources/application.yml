@@ -160,6 +160,7 @@ hx:
       - sys_material_group
       - goods_appraise
       - goods_category
+      - goods_brand
       - goods_collect
       - goods_footprint
       - goods_sku

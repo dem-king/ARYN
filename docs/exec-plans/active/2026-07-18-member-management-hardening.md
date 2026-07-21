@@ -84,5 +84,5 @@
 
 - 后端 `mvn test -pl aryn-boot -am` 全部通过，38 个 Reactor 模块成功；会员域 69 个、订单域 11 个、营销域 90 个、Boot 租户门禁 10 个测试通过。
 - 管理端单元测试 51 个文件、411 个用例通过，会员权益表单通过 Prettier 且不在类型错误列表中；全量 typecheck/lint 仍被既有分销、页面装修、公共 UI 类型和历史格式问题阻断。
-- UniApp 会员相关文件不在现有 type-check/build 错误列表中；全量命令仍被既有全局类型、商品详情页和 UnoCSS 构建冲突阻断。
+- UniApp 已恢复 Alova 全局声明并引入 Vite 客户端类型，全量 `pnpm type-check` 后续已通过；H5/微信构建仍受既有 UnoCSS 工具链冲突阻断。
 - Boot/Cloud SQL 一致性静态检查与 `git diff --check` 通过；真实 MySQL 8 存量迁移演练仍是部署前置条件。

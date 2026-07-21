@@ -3,13 +3,16 @@ import { presetUni } from '@uni-helper/unocss-preset-uni'
 import {
   defineConfig,
   presetIcons,
-  transformerDirectives,
-  transformerVariantGroup,
 } from 'unocss'
 
 export default defineConfig({
+  content: {
+    pipeline: {
+      exclude: [/node_modules/],
+    },
+  },
   presets: [
-    presetUni(),
+    presetUni({ attributify: false }),
     presetIcons({
       scale: 1.2,
       warn: true,
@@ -22,10 +25,6 @@ export default defineConfig({
       //   carbon: () => import('@iconify-json/carbon/icons.json').then(i => i.default),
       // },
     }),
-  ],
-  transformers: [
-    transformerDirectives(),
-    transformerVariantGroup(),
   ],
   theme: {
     colors: {

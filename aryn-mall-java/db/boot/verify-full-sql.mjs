@@ -12,6 +12,9 @@ const required = [
   'USE aryn_boot_job;',
   'CREATE TABLE `member_level`',
   'CREATE TABLE `product_refund_stock_record`',
+  'CREATE TABLE IF NOT EXISTS goods_brand',
+  'ADD COLUMN brand_id',
+  "'product:goodsbrand:page'",
   'ADD COLUMN `member_level_id`',
   'ADD COLUMN page_type',
   'CREATE TABLE page_design_version',
@@ -30,6 +33,7 @@ for (const token of required) {
 const sourceFiles = [
   '1schema.sql',
   '2aryn_boot.sql',
+  '19product_brand.sql',
   '4aryn_boot_member.sql',
   '15menu_seed_repair.sql',
   '10page_design_alter.sql',
@@ -57,8 +61,8 @@ const missingDrops = createTables.filter((table) => !dropTables.has(table));
 if (missingDrops.length > 0) {
   throw new Error(`全量脚本缺少 DROP TABLE: ${missingDrops.join(', ')}`);
 }
-if (createTables.length !== 83) {
-	throw new Error(`建表数量异常，期望 83，实际 ${createTables.length}`);
+if (createTables.length !== 84) {
+	throw new Error(`建表数量异常，期望 84，实际 ${createTables.length}`);
 }
 if (!sql.trimEnd().endsWith('SET FOREIGN_KEY_CHECKS = 1;')) {
   throw new Error('脚本末尾未恢复 FOREIGN_KEY_CHECKS');

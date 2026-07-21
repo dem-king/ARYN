@@ -97,10 +97,8 @@ defineExpose({
         <view class="flex-shrink-0">
           <view class="flex flex-row">
             <view class="flex flex-col items-center" @click="handleCollect">
-              <text
-                :class="goodsSpu?.collectId ? 'i-flowbite:heart-solid text-red-5' : 'i-flowbite:heart-outline'"
-                class="text-18px text-white!"
-              />
+              <text v-if="goodsSpu?.collectId" class="i-flowbite:heart-solid text-18px text-red-5 text-white!" />
+              <text v-else class="i-flowbite:heart-outline text-18px text-white!" />
               <text class="text-12px text-white!">
                 {{ goodsSpu?.collectId ? '已收藏' : '收藏' }}
               </text>

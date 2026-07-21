@@ -17,7 +17,6 @@ import UniHelperComponents from '@uni-helper/vite-plugin-uni-components'
 import AutoImport from 'unplugin-auto-import/vite'
 import { WotResolver } from '@uni-helper/vite-plugin-uni-components/resolvers'
 import UniKuRoot from '@uni-ku/root'
-import Optimization from '@uni-ku/bundle-optimizer'
 
 const Uni = ((UniModule as unknown as { default?: typeof UniModule }).default ?? UniModule)
 // https://vitejs.dev/config/
@@ -66,10 +65,7 @@ export default async (mode: ConfigEnv) => {
       // https://github.com/uni-ku/root
       UniKuRoot(),
       Uni(),
-      // https://github.com/uni-ku/bundle-optimizer
-      Optimization({
-        logger: true,
-      }),
+      UnoCSS({ mode: 'vue-scoped' }),
       // https://github.com/antfu/unplugin-auto-import
       AutoImport({
         imports: ['vue', '@vueuse/core', 'pinia', 'uni-app', {
@@ -86,9 +82,6 @@ export default async (mode: ConfigEnv) => {
         dirs: ['src/composables', 'src/store', 'src/utils', 'src/api'],
         vueTemplate: true,
       }),
-      // https://github.com/antfu/unocss
-      // see unocss.config.ts for config
-      UnoCSS(),
     ],
   })
 }

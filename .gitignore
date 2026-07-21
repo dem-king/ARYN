@@ -43,6 +43,7 @@ unpackage/
 
 #编译中间产物
 *.d.ts
+!aryn-mall-uniapp/src/api/globals.d.ts
 !aryn-mall-ui/apps/web-ele/src/typings/*.d.ts
 !aryn-mall-ui/internal/tailwind-config/src/*.d.ts
 !aryn-mall-ui/packages/@core/base/typings/*.d.ts
@@ -55,6 +56,7 @@ unpackage/
 
 # Test
 coverage/
+aryn-mall-ui/apps/web-ele/test-results/
 
 # Temporary files
 *.tmp

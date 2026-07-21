@@ -48,5 +48,5 @@
 - `mvn test -pl aryn-boot -am` 通过，38 个 Reactor 模块全部成功。
 - 新增购物车、库存、优惠券、请求校验、评价防伪、消息幂等、监听器和物流回调测试；订单模块 22 个、商品模块 7 个测试通过。
 - Boot 全量 SQL 静态校验通过，共 3550 行、82 张表；Cloud/Boot 的 16、17、18 号迁移分别除目标数据库名外一致，`git diff --check` 通过。
-- UniApp `pnpm type-check` 仍被 22 条既有生成 API 类型和 `ImportMeta.env` 声明错误阻断，错误列表不包含本次订单确认页。
+- UniApp 已恢复 Alova 全局类型生成物并引入 Vite 客户端类型，`pnpm type-check` 全量通过。
 - 本机未执行真实 MySQL 8 存量迁移和 RocketMQ/Seata 多进程联调；Cloud 部署执行 18 号迁移后还需将 `product_order_pay_record` 加入商品服务 Nacos 租户表配置并重启，上线前必须在备份克隆库和集成环境演练。

@@ -6,6 +6,7 @@ const root = dirname(fileURLToPath(import.meta.url));
 const sections = [
   ['创建数据库', '1schema.sql'],
   ['Boot 商城基础库', '2aryn_boot.sql'],
+  ['商品品牌', '19product_brand.sql'],
   ['会员管理模块', '4aryn_boot_member.sql'],
   ['菜单种子修复', '15menu_seed_repair.sql'],
   ['页面装修类型升级', '10page_design_alter.sql'],
@@ -43,6 +44,7 @@ DROP TABLE IF EXISTS \`page_design_template\`;
 DROP TABLE IF EXISTS \`group_buy_member\`;
 DROP TABLE IF EXISTS \`group_buy_record\`;
 DROP TABLE IF EXISTS \`group_buy_activity\`;
+DROP TABLE IF EXISTS \`goods_brand\`;
 `;
 
 const output = sections.reduce((sql, [title, file]) => {

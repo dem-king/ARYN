@@ -42,7 +42,12 @@ public class ArynTenantContextFilter extends GenericFilterBean {
 		else {
 			ArynTenantContextHolder.setTenantId(tenantId);
 		}
-		filterChain.doFilter(request, response);
+		try {
+			filterChain.doFilter(request, response);
+		}
+		finally {
+			ArynTenantContextHolder.removeTenantId();
+		}
 	}
 
 }

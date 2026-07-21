@@ -1,5 +1,6 @@
 import type { MessageOptions, MessageResult } from 'wot-design-uni/components/wd-message-box/types'
 import { defineStore } from 'pinia'
+import { getCurrentPath } from '@/utils/current-page'
 
 export type GlobalMessageOptions = MessageOptions & {
   success?: (res: MessageResult) => void

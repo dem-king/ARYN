@@ -7,10 +7,26 @@
  * @FilePath: /aryn-uniapp-pro/src/api/core/handlers.ts
  */
 import type { Method } from 'alova'
-import router from '@/router'
 
 // 添加一个状态变量来防止重复跳转
 let isRedirectingToLogin = false
+
+function redirectToLogin() {
+  const timer = setTimeout(() => {
+    clearTimeout(timer)
+    uni.reLaunch({
+      url: '/pages/login/index',
+      complete: () => {
+        isRedirectingToLogin = false
+      },
+    })
+  }, 1000)
+}
+
+function expireAuthentication() {
+  uni.removeStorageSync('auth')
+  uni.$emit('auth-expired')
+}
 
 // Custom error class for API errors
 export class ApiError extends Error {
@@ -44,20 +60,12 @@ export async function handleAlovaResponse(
 
   // 处理401/403错误（如果不是在handleAlovaResponse中处理的）
   if ((statusCode === 401 || statusCode === 403 || (data as ApiResponse).code === 401)) {
-    const authStore = useAuthStore()
     // 检查是否已经在跳转中，避免重复跳转
     if (!isRedirectingToLogin) {
-      if (authStore.isLoggedIn) {
-        authStore.clearAuthData()
-      }
+      expireAuthentication()
       isRedirectingToLogin = true
       globalToast.error({ msg: '登录已过期，请重新登录！', duration: 500 })
-      const timer = setTimeout(() => {
-        clearTimeout(timer)
-        router.replaceAll({ name: 'login' })
-        // 跳转完成后重置状态
-        isRedirectingToLogin = false
-      }, 1000)
+      redirectToLogin()
     }
 
     throw new ApiError('登录已过期，请重新登录！', statusCode, data)
@@ -96,14 +104,10 @@ export function handleAlovaError(error: any, method: Method) {
     // 如果是未授权错误，清除用户信息并跳转到登录页
     // 检查是否已经在跳转中，避免重复跳转
     if (!isRedirectingToLogin) {
+      expireAuthentication()
       isRedirectingToLogin = true
       globalToast.error({ msg: '登录已过期，请重新登录！', duration: 500 })
-      const timer = setTimeout(() => {
-        clearTimeout(timer)
-        router.replaceAll({ name: 'login' })
-        // 跳转完成后重置状态
-        isRedirectingToLogin = false
-      }, 1000)
+      redirectToLogin()
     }
     throw new ApiError('登录已过期，请重新登录！', error.code, error.data)
   }

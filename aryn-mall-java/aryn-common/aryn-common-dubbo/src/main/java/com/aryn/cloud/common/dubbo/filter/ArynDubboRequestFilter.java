@@ -24,6 +24,12 @@ public class ArynDubboRequestFilter implements Filter {
 		}
 		else {
 			ArynTenantContextHolder.setTenantId(invocation.getAttachment("tenantId"));
+			try {
+				return invoker.invoke(invocation);
+			}
+			finally {
+				ArynTenantContextHolder.removeTenantId();
+			}
 		}
 		return invoker.invoke(invocation);
 	}
