@@ -167,6 +167,7 @@ hx:
       - goods_specs_value
       - goods_spu
       - product_order_pay_record
+      - product_refund_stock_record
       - coupon_goods
       - coupon_info
       - coupon_user

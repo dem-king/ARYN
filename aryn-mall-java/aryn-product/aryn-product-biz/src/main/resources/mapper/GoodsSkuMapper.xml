@@ -18,6 +18,7 @@
         goods_sku.create_time,
         goods_sku.update_time,
         goods_sku.del_flag,
+        goods_sku.version,
         goods_sku.specs_arr,
         goods_sku.pic_url
     </sql>
@@ -25,6 +26,7 @@
         <id column="id" property="id"/>
         <result column="spu_id" property="spuId"/>
         <result column="sales_price" property="salesPrice"/>
+        <result column="version" property="version"/>
         <result
                 column="specs_arr"
                 property="specsArr"
@@ -76,6 +78,14 @@
             #{item}
         </foreach>
     </select>
+    <update id="restoreDeletedStock">
+        UPDATE goods_sku
+        SET stock = stock + #{stockNum},
+            version = version + 1
+        WHERE id = #{skuId}
+          AND spu_id = #{spuId}
+          AND del_flag = '1'
+    </update>
     <resultMap id="placeOrderSkuResultMap" type="com.aryn.cloud.product.api.entity.GoodsSku">
         <collection property="goodsSpu" column="{id=spu_id}"
                     ofType="com.aryn.cloud.product.api.entity.GoodsSpu"

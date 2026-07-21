@@ -34,6 +34,7 @@ interface SkuItem {
   specsArr: SpecItem[];
   status: string;
   stock: number;
+  version?: number;
   volume: number;
   weight: number;
 }
@@ -160,6 +161,7 @@ watch(
         sku.weight = match.weight || 0;
         sku.volume = match.volume || 0;
         sku.status = match.status || '0';
+        sku.version = match.version;
         sku.distributionFirstValue = match.distributionFirstValue || 0;
         sku.distributionSecondValue = match.distributionSecondValue || 0;
         sku.picUrl = match.picUrl || '';

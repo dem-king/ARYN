@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,16 +42,27 @@ public class GoodsSkuServiceImpl extends ServiceImpl<GoodsSkuMapper, GoodsSku> i
 	@Transactional(rollbackFor = Exception.class)
 	public void rollbackStockList(List<GoodsSkuStockReqDTO> goodsSkuStockRqDTOList) {
 		List<GoodsSkuStockReqDTO> requests = normalizeRequests(goodsSkuStockRqDTOList);
+		List<GoodsSkuStockReqDTO> activeRequests = new ArrayList<>();
 		requests.forEach(goodsSkuStockRqDTO -> {
-			if (baseMapper.update(new GoodsSku(),
+			int affectedRows = baseMapper.update(new GoodsSku(),
 					Wrappers.<GoodsSku>lambdaUpdate()
 						.eq(GoodsSku::getId, goodsSkuStockRqDTO.getSkuId())
-						.setSql(" stock = stock + " + goodsSkuStockRqDTO.getStockNum())) <= 0) {
+						.eq(GoodsSku::getSpuId, goodsSkuStockRqDTO.getSpuId())
+						.setSql("stock = stock + " + goodsSkuStockRqDTO.getStockNum())
+						.setSql("version = version + 1"));
+			if (affectedRows > 0) {
+				activeRequests.add(goodsSkuStockRqDTO);
+				return;
+			}
+			if (baseMapper.restoreDeletedStock(goodsSkuStockRqDTO.getSkuId(), goodsSkuStockRqDTO.getSpuId(),
+					goodsSkuStockRqDTO.getStockNum()) <= 0) {
 				throw new ArynBusinessException("回滚SKU库存失败");
 			}
 		});
-		Map<String, Integer> result = aggregateSpuQuantity(requests);
-		goodsSpuService.rollbackStock(result);
+		if (!activeRequests.isEmpty()) {
+			Map<String, Integer> result = aggregateSpuQuantity(activeRequests);
+			goodsSpuService.rollbackStock(result);
+		}
 	}
 
 	@Override
@@ -61,8 +73,10 @@ public class GoodsSkuServiceImpl extends ServiceImpl<GoodsSkuMapper, GoodsSku> i
 			if (baseMapper.update(new GoodsSku(),
 					Wrappers.<GoodsSku>lambdaUpdate()
 						.eq(GoodsSku::getId, goodsSkuStockReqDTO.getSkuId())
+						.eq(GoodsSku::getSpuId, goodsSkuStockReqDTO.getSpuId())
 						.ge(GoodsSku::getStock, goodsSkuStockReqDTO.getStockNum())
-						.setSql(" stock = stock - " + goodsSkuStockReqDTO.getStockNum())) <= 0) {
+						.setSql("stock = stock - " + goodsSkuStockReqDTO.getStockNum())
+						.setSql("version = version + 1")) <= 0) {
 				throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60008.getCode(),
 						MallErrorCodeEnum.ERROR_60008.getMsg());
 			}
@@ -78,9 +92,8 @@ public class GoodsSkuServiceImpl extends ServiceImpl<GoodsSkuMapper, GoodsSku> i
 		}
 		Map<String, GoodsSkuStockReqDTO> normalized = new LinkedHashMap<>();
 		for (GoodsSkuStockReqDTO request : requests) {
-			if (request == null || !StringUtils.hasText(request.getSkuId())
-					|| !StringUtils.hasText(request.getSpuId()) || request.getStockNum() == null
-					|| request.getStockNum() <= 0) {
+			if (request == null || !StringUtils.hasText(request.getSkuId()) || !StringUtils.hasText(request.getSpuId())
+					|| request.getStockNum() == null || request.getStockNum() <= 0) {
 				throw new ArynBusinessException("库存变更参数不合法");
 			}
 			normalized.compute(request.getSkuId(), (skuId, existing) -> {

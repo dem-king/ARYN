@@ -27,6 +27,8 @@ import { getList as getSpecsList } from '#/api/product/goods-specs';
 import { addObj, editObj, getById } from '#/api/product/goods-spu';
 import { useDict } from '#/utils/dict';
 
+import { validateGoodsSkus } from './goods-spu-form-validation';
+
 const Editor = defineAsyncComponent(
   () => import('#/components/editor/index.vue'),
 );
@@ -255,6 +257,14 @@ const submitForm = async (formEl: FormInstance | undefined) => {
       // 单规格sku 处理
       if (state.form.enableSpecs === '0') {
         state.form.goodsSkus = [state.form.sku];
+      }
+      const skuValidationMessage = validateGoodsSkus(
+        state.form.enableSpecs,
+        state.form.goodsSkus,
+      );
+      if (skuValidationMessage) {
+        ElMessage.warning(skuValidationMessage);
+        return;
       }
       loading.value = true;
       if (state.form.id) {

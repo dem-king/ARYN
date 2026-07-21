@@ -53,6 +53,7 @@ public class GoodsSpecsValueController {
 
 	@SysLog("新增商品规格值")
 	@Operation(summary = "商品规格值新增")
+	@SaCheckPermission("product:goodsspecsvalue:add")
 	@PostMapping
 	public Result add(@RequestBody GoodsSpecsValue goodsSpecsValue) {
 		if (goodsSpecsValueService.count(Wrappers.<GoodsSpecsValue>lambdaQuery()

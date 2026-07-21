@@ -18,6 +18,20 @@ CREATE TABLE `product_order_pay_record` (
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '商品支付消息消费记录' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
+-- Table structure for product_refund_stock_record
+-- ----------------------------
+DROP TABLE IF EXISTS `product_refund_stock_record`;
+CREATE TABLE `product_refund_stock_record` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `refund_no` varchar(64) NOT NULL COMMENT '稳定退款业务号',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户id',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.正常；1.删除',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_product_refund_stock_record` (`tenant_id`, `refund_no`) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '商品退款库存恢复消费记录' ROW_FORMAT = DYNAMIC;
+
+-- ----------------------------
 -- Table structure for goods_appraise
 -- ----------------------------
 DROP TABLE IF EXISTS `goods_appraise`;
@@ -145,7 +159,7 @@ CREATE TABLE `goods_sku`  (
                               `create_time` datetime NULL DEFAULT NULL COMMENT '创建时间',
                               `update_time` datetime NULL DEFAULT NULL COMMENT '更新时间',
                               `del_flag` char(2) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
-                              `version` int NULL DEFAULT 0 COMMENT '版本号',
+                              `version` int NOT NULL DEFAULT 0 COMMENT '版本号',
                               `tenant_id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '租户id',
                               `create_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '创建人',
                               `update_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '修改人',

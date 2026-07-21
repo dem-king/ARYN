@@ -70,64 +70,211 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public boolean updateGoods(GoodsSpu goodsSpu) {
-
-		List<GoodsSku> goodsSkuList = goodsSpu.getGoodsSkus();
-		// 获取sku最低销售价
-		goodsSpu.setSalesPrice(
-				goodsSkuList.stream().min(Comparator.comparing(GoodsSku::getSalesPrice)).get().getSalesPrice());
-		// 获取sku最低原价
-		goodsSpu.setOriginalPrice(
-				goodsSkuList.stream().min(Comparator.comparing(GoodsSku::getOriginalPrice)).get().getSalesPrice());
-		// 获取sku最低成本价
-		goodsSpu.setCostPrice(
-				goodsSkuList.stream().min(Comparator.comparing(GoodsSku::getCostPrice)).get().getSalesPrice());
-		// 累加sku库存
-		goodsSpu.setStock(goodsSkuList.stream().mapToInt(GoodsSku::getStock).sum());
-		List<String> notDelSkuIds = new ArrayList<>();
-		// 保存sku
-		goodsSkuList.forEach(goodsSku -> {
-			goodsSku.setSpuId(goodsSpu.getId());
+		if (goodsSpu == null || !StringUtils.hasText(goodsSpu.getId())) {
+			throw new ArynBusinessException("商品标识不能为空");
+		}
+		GoodsSpu storedSpu = baseMapper.selectById(goodsSpu.getId());
+		if (storedSpu == null) {
+			throw new ArynBusinessException("商品不存在或无权操作");
+		}
+		List<GoodsSku> goodsSkuList = validateGoodsSkus(goodsSpu);
+		Map<String, GoodsSku> storedSkuMap = Optional.ofNullable(goodsSkuMapper.selectBySpuId(goodsSpu.getId()))
+			.orElseGet(Collections::emptyList)
+			.stream()
+			.collect(LinkedHashMap::new, (map, sku) -> map.put(sku.getId(), sku), Map::putAll);
+		int stockDelta = 0;
+		for (GoodsSku goodsSku : goodsSkuList) {
 			if (StringUtils.hasText(goodsSku.getId())) {
-				goodsSkuMapper.updateById(goodsSku);
+				GoodsSku storedSku = storedSkuMap.remove(goodsSku.getId());
+				if (storedSku == null) {
+					throw new ArynBusinessException("SKU不属于当前商品");
+				}
+				int storedVersion = Objects.requireNonNullElse(storedSku.getVersion(), 0);
+				if (goodsSku.getVersion() == null || goodsSku.getVersion() != storedVersion) {
+					throw new ArynBusinessException("商品库存已变化，请刷新后重试");
+				}
+				stockDelta = Math.addExact(stockDelta, goodsSku.getStock() - storedSku.getStock());
+				prepareSkuForUpdate(goodsSku, goodsSpu.getId());
+				if (goodsSkuMapper.updateById(goodsSku) <= 0) {
+					throw new ArynBusinessException("商品库存已变化，请刷新后重试");
+				}
 			}
 			else {
-				goodsSkuMapper.insert(goodsSku);
+				stockDelta = Math.addExact(stockDelta, goodsSku.getStock());
+				prepareSkuForInsert(goodsSku, goodsSpu.getId());
+				if (goodsSkuMapper.insert(goodsSku) <= 0) {
+					throw new ArynBusinessException("新增SKU失败");
+				}
 			}
-			notDelSkuIds.add(goodsSku.getId());
-		});
-		// sku处理
-		goodsSkuMapper.delete(Wrappers.<GoodsSku>lambdaQuery()
-			.eq(GoodsSku::getSpuId, goodsSpu.getId())
-			.notIn(!CollectionUtils.isEmpty(notDelSkuIds), GoodsSku::getId, notDelSkuIds.toArray()));
-
-		super.updateById(goodsSpu);
+		}
+		for (GoodsSku removedSku : storedSkuMap.values()) {
+			int version = Objects.requireNonNullElse(removedSku.getVersion(), 0);
+			if (goodsSkuMapper.delete(Wrappers.<GoodsSku>lambdaQuery()
+				.eq(GoodsSku::getId, removedSku.getId())
+				.eq(GoodsSku::getSpuId, goodsSpu.getId())
+				.eq(GoodsSku::getVersion, version)) <= 0) {
+				throw new ArynBusinessException("商品库存已变化，请刷新后重试");
+			}
+			stockDelta = Math.subtractExact(stockDelta, removedSku.getStock());
+		}
+		applyAggregatePrices(goodsSpu, goodsSkuList);
+		prepareSpuForUpdate(goodsSpu);
+		if (super.updateById(goodsSpu) == false) {
+			throw new ArynBusinessException("商品修改失败");
+		}
+		adjustSpuStock(goodsSpu.getId(), stockDelta);
 		return Boolean.TRUE;
 	}
 
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public boolean saveGoods(GoodsSpu goodsSpu) {
-		List<GoodsSku> goodsSkuList = goodsSpu.getGoodsSkus();
-
-		goodsSpu.setSalesPrice(
-				goodsSkuList.stream().min(Comparator.comparing(GoodsSku::getSalesPrice)).get().getSalesPrice());
-
-		goodsSpu.setOriginalPrice(
-				goodsSkuList.stream().min(Comparator.comparing(GoodsSku::getOriginalPrice)).get().getSalesPrice());
-
-		goodsSpu.setCostPrice(
-				goodsSkuList.stream().min(Comparator.comparing(GoodsSku::getCostPrice)).get().getSalesPrice());
-
-		goodsSpu.setStock(goodsSkuList.stream().mapToInt(GoodsSku::getStock).sum());
-		super.save(goodsSpu);
-		// 保存sku
-		goodsSkuList.forEach(goodsSku -> {
-			goodsSku.setId(null);
-			goodsSku.setSpuId(goodsSpu.getId());
-			goodsSkuMapper.insert(goodsSku);
-		});
-
+		List<GoodsSku> goodsSkuList = validateGoodsSkus(goodsSpu);
+		applyAggregatePrices(goodsSpu, goodsSkuList);
+		goodsSpu.setStock(calculateTotalStock(goodsSkuList));
+		prepareSpuForInsert(goodsSpu);
+		if (super.save(goodsSpu) == false) {
+			throw new ArynBusinessException("新增商品失败");
+		}
+		for (GoodsSku goodsSku : goodsSkuList) {
+			prepareSkuForInsert(goodsSku, goodsSpu.getId());
+			if (goodsSkuMapper.insert(goodsSku) <= 0) {
+				throw new ArynBusinessException("新增SKU失败");
+			}
+		}
 		return Boolean.TRUE;
+	}
+
+	private List<GoodsSku> validateGoodsSkus(GoodsSpu goodsSpu) {
+		if (goodsSpu == null || CollectionUtils.isEmpty(goodsSpu.getGoodsSkus())) {
+			throw new ArynBusinessException("商品SKU不能为空");
+		}
+		List<GoodsSku> goodsSkuList = goodsSpu.getGoodsSkus();
+		if ("0".equals(goodsSpu.getEnableSpecs()) && goodsSkuList.size() != 1) {
+			throw new ArynBusinessException("单规格商品只能包含一个SKU");
+		}
+		Set<String> specsKeys = new HashSet<>();
+		for (GoodsSku goodsSku : goodsSkuList) {
+			if (goodsSku == null || goodsSku.getSalesPrice() == null || goodsSku.getOriginalPrice() == null
+					|| goodsSku.getCostPrice() == null || goodsSku.getStock() == null || goodsSku.getStock() < 0
+					|| goodsSku.getSalesPrice().signum() < 0 || goodsSku.getOriginalPrice().signum() < 0
+					|| goodsSku.getCostPrice().signum() < 0) {
+				throw new ArynBusinessException("SKU价格或库存不合法");
+			}
+			String specsKey = buildSpecsKey(goodsSku);
+			if ("1".equals(goodsSpu.getEnableSpecs()) && !StringUtils.hasText(specsKey)) {
+				throw new ArynBusinessException("多规格商品的SKU规格不能为空");
+			}
+			if (!specsKeys.add(specsKey)) {
+				throw new ArynBusinessException("SKU规格组合重复");
+			}
+		}
+		return goodsSkuList;
+	}
+
+	private int calculateTotalStock(List<GoodsSku> goodsSkuList) {
+		long totalStock = 0;
+		for (GoodsSku goodsSku : goodsSkuList) {
+			totalStock += goodsSku.getStock();
+			if (totalStock > Integer.MAX_VALUE) {
+				throw new ArynBusinessException("商品库存总量超出上限");
+			}
+		}
+		return (int) totalStock;
+	}
+
+	private String buildSpecsKey(GoodsSku goodsSku) {
+		if (CollectionUtils.isEmpty(goodsSku.getSpecsArr())) {
+			return "";
+		}
+		List<String> keys = new ArrayList<>();
+		for (GoodsSku.Specs specs : goodsSku.getSpecsArr()) {
+			if (specs == null || !StringUtils.hasText(specs.getSpecsId())
+					|| !StringUtils.hasText(specs.getSpecsValueId())) {
+				throw new ArynBusinessException("SKU规格信息不完整");
+			}
+			keys.add(specs.getSpecsId() + ":" + specs.getSpecsValueId());
+		}
+		Collections.sort(keys);
+		return String.join("|", keys);
+	}
+
+	private void applyAggregatePrices(GoodsSpu goodsSpu, List<GoodsSku> goodsSkuList) {
+		goodsSpu.setSalesPrice(
+				goodsSkuList.stream().map(GoodsSku::getSalesPrice).min(Comparator.naturalOrder()).orElseThrow());
+		goodsSpu.setOriginalPrice(
+				goodsSkuList.stream().map(GoodsSku::getOriginalPrice).min(Comparator.naturalOrder()).orElseThrow());
+		goodsSpu.setCostPrice(
+				goodsSkuList.stream().map(GoodsSku::getCostPrice).min(Comparator.naturalOrder()).orElseThrow());
+	}
+
+	private void prepareSpuForInsert(GoodsSpu goodsSpu) {
+		goodsSpu.setId(null);
+		goodsSpu.setTenantId(null);
+		goodsSpu.setSalesVolume(0);
+		goodsSpu.setCreateBy(null);
+		goodsSpu.setUpdateBy(null);
+		goodsSpu.setCreateTime(null);
+		goodsSpu.setUpdateTime(null);
+		goodsSpu.setDelFlag(null);
+	}
+
+	private void prepareSpuForUpdate(GoodsSpu goodsSpu) {
+		goodsSpu.setTenantId(null);
+		goodsSpu.setSalesVolume(null);
+		goodsSpu.setStock(null);
+		goodsSpu.setCreateBy(null);
+		goodsSpu.setUpdateBy(null);
+		goodsSpu.setCreateTime(null);
+		goodsSpu.setUpdateTime(null);
+		goodsSpu.setDelFlag(null);
+	}
+
+	private void prepareSkuForInsert(GoodsSku goodsSku, String spuId) {
+		goodsSku.setId(null);
+		goodsSku.setSpuId(spuId);
+		goodsSku.setTenantId(null);
+		goodsSku.setVersion(null);
+		goodsSku.setCreateBy(null);
+		goodsSku.setUpdateBy(null);
+		goodsSku.setCreateTime(null);
+		goodsSku.setUpdateTime(null);
+		goodsSku.setDelFlag(null);
+		goodsSku.setGoodsSpu(null);
+	}
+
+	private void prepareSkuForUpdate(GoodsSku goodsSku, String spuId) {
+		goodsSku.setSpuId(spuId);
+		goodsSku.setTenantId(null);
+		goodsSku.setCreateBy(null);
+		goodsSku.setUpdateBy(null);
+		goodsSku.setCreateTime(null);
+		goodsSku.setUpdateTime(null);
+		goodsSku.setDelFlag(null);
+		goodsSku.setGoodsSpu(null);
+	}
+
+	private void adjustSpuStock(String spuId, int stockDelta) {
+		if (stockDelta == 0) {
+			return;
+		}
+		if (stockDelta > 0) {
+			if (baseMapper.update(new GoodsSpu(),
+					Wrappers.<GoodsSpu>lambdaUpdate()
+						.eq(GoodsSpu::getId, spuId)
+						.setSql("stock = stock + " + stockDelta)) <= 0) {
+				throw new ArynBusinessException("商品库存汇总更新失败");
+			}
+			return;
+		}
+		int quantity = Math.negateExact(stockDelta);
+		if (baseMapper.update(new GoodsSpu(),
+				Wrappers.<GoodsSpu>lambdaUpdate()
+					.eq(GoodsSpu::getId, spuId)
+					.ge(GoodsSpu::getStock, quantity)
+					.setSql("stock = stock - " + quantity)) <= 0) {
+			throw new ArynBusinessException("商品库存汇总更新失败");
+		}
 	}
 
 	@Override

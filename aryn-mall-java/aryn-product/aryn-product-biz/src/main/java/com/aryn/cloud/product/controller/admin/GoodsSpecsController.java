@@ -53,6 +53,7 @@ public class GoodsSpecsController {
 
 	@SysLog("新增商品规格")
 	@Operation(summary = "商品规格新增")
+	@SaCheckPermission("product:goodsspecs:add")
 	@PostMapping
 	public Result add(@RequestBody GoodsSpecs goodsSpecs) {
 		if (goodsSpecsService

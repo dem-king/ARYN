@@ -91,7 +91,7 @@ public class GoodsSpuController {
 
 	@SysLog("修改商品状态")
 	@Operation(summary = "商品状态修改")
-	@SaCheckPermission("product:goodsspu:add")
+	@SaCheckPermission("product:goodsspu:edit")
 	@PostMapping("/update/status")
 	public Result updateStatus(@RequestBody GoodsSpu goodsSpu) {
 		GoodsSpu goodsSpu1 = goodsSpuService.getById(goodsSpu.getId());
@@ -116,6 +116,7 @@ public class GoodsSpuController {
 	}
 
 	@Operation(summary = "商品数量统计查询")
+	@SaCheckPermission("product:goodsspu:page")
 	@GetMapping("/count")
 	public Result count() {
 		long allCount = goodsSpuService.count(Wrappers.lambdaQuery());

@@ -28,7 +28,9 @@ import static org.mockito.Mockito.when;
 class GoodsSkuServiceImplTest {
 
 	private GoodsSkuMapper mapper;
+
 	private IGoodsSpuService goodsSpuService;
+
 	private GoodsSkuServiceImpl service;
 
 	@BeforeEach
@@ -44,15 +46,41 @@ class GoodsSkuServiceImplTest {
 		when(mapper.update(any(GoodsSku.class), any(Wrapper.class))).thenReturn(1);
 		when(goodsSpuService.reduceStock(any())).thenReturn(true);
 
-		assertThat(service.reduceStock(List.of(stock("sku-1", "spu-1", 2), stock("sku-1", "spu-1", 3))))
-			.isTrue();
+		assertThat(service.reduceStock(List.of(stock("sku-1", "spu-1", 2), stock("sku-1", "spu-1", 3)))).isTrue();
 
 		ArgumentCaptor<Wrapper<GoodsSku>> wrapperCaptor = ArgumentCaptor.forClass(Wrapper.class);
 		verify(mapper).update(any(GoodsSku.class), wrapperCaptor.capture());
 		AbstractWrapper<?, ?, ?> wrapper = (AbstractWrapper<?, ?, ?>) wrapperCaptor.getValue();
-		assertThat(wrapper.getSqlSegment()).contains("stock");
-		assertThat(wrapper.getParamNameValuePairs()).containsValue(5);
+		assertThat(wrapper.getSqlSegment()).contains("stock", "spu_id");
+		assertThat(wrapper.getSqlSet()).contains("version = version + 1");
+		assertThat(wrapper.getParamNameValuePairs()).containsValue("spu-1").containsValue(5);
 		verify(goodsSpuService).reduceStock(Map.of("spu-1", 5));
+	}
+
+	@Test
+	void rollbackStockIncrementsSkuVersion() {
+		when(mapper.update(any(GoodsSku.class), any(Wrapper.class))).thenReturn(1);
+		when(goodsSpuService.rollbackStock(any())).thenReturn(true);
+
+		service.rollbackStockList(List.of(stock("sku-1", "spu-1", 2)));
+
+		ArgumentCaptor<Wrapper<GoodsSku>> wrapperCaptor = ArgumentCaptor.forClass(Wrapper.class);
+		verify(mapper).update(any(GoodsSku.class), wrapperCaptor.capture());
+		AbstractWrapper<?, ?, ?> wrapper = (AbstractWrapper<?, ?, ?>) wrapperCaptor.getValue();
+		assertThat(wrapper.getSqlSegment()).contains("spu_id");
+		assertThat(wrapper.getParamNameValuePairs()).containsValue("spu-1");
+		assertThat(wrapper.getSqlSet()).contains("version = version + 1");
+	}
+
+	@Test
+	void rollbackStockRestoresDeletedSkuWithoutIncreasingCurrentSpuStock() {
+		when(mapper.update(any(GoodsSku.class), any(Wrapper.class))).thenReturn(0);
+		when(mapper.restoreDeletedStock("sku-1", "spu-1", 2)).thenReturn(1);
+
+		service.rollbackStockList(List.of(stock("sku-1", "spu-1", 2)));
+
+		verify(mapper).restoreDeletedStock("sku-1", "spu-1", 2);
+		verify(goodsSpuService, never()).rollbackStock(any());
 	}
 
 	@Test
@@ -66,11 +94,22 @@ class GoodsSkuServiceImplTest {
 	@Test
 	void rollbackDoesNotIncreaseSpuWhenSkuDoesNotExist() {
 		when(mapper.update(any(GoodsSku.class), any(Wrapper.class))).thenReturn(0);
+		when(mapper.restoreDeletedStock("missing", "spu-1", 2)).thenReturn(0);
 
 		assertThatThrownBy(() -> service.rollbackStockList(List.of(stock("missing", "spu-1", 2))))
 			.isInstanceOf(ArynBusinessException.class)
-			.satisfies(exception -> assertThat(((ArynBusinessException) exception).getMsg())
-				.isEqualTo("回滚SKU库存失败"));
+			.satisfies(exception -> assertThat(((ArynBusinessException) exception).getMsg()).isEqualTo("回滚SKU库存失败"));
+		verify(goodsSpuService, never()).rollbackStock(any());
+	}
+
+	@Test
+	void rollbackRejectsSkuThatDoesNotBelongToRequestedSpu() {
+		when(mapper.update(any(GoodsSku.class), any(Wrapper.class))).thenReturn(0);
+		when(mapper.restoreDeletedStock("sku-1", "wrong-spu", 2)).thenReturn(0);
+
+		assertThatThrownBy(() -> service.rollbackStockList(List.of(stock("sku-1", "wrong-spu", 2))))
+			.isInstanceOf(ArynBusinessException.class);
+
 		verify(goodsSpuService, never()).rollbackStock(any());
 	}
 
@@ -88,5 +127,7 @@ class GoodsSkuServiceImplTest {
 			super(goodsSpuService);
 			this.baseMapper = mapper;
 		}
+
 	}
+
 }

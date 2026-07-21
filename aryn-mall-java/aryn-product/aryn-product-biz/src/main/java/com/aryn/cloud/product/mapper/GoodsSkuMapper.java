@@ -41,4 +41,15 @@ public interface GoodsSkuMapper extends BaseMapper<GoodsSku> {
 	 */
 	List<GoodsSku> selectSkuByIds(@Param("ids") List<String> ids);
 
+	/**
+	 * Restore inventory to a logically deleted historical SKU. The SPU relation is part
+	 * of the predicate so a forged request cannot restore a different product's SKU.
+	 * @param skuId SKU identifier
+	 * @param spuId owning SPU identifier
+	 * @param stockNum quantity to restore
+	 * @return affected row count
+	 */
+	int restoreDeletedStock(@Param("skuId") String skuId, @Param("spuId") String spuId,
+			@Param("stockNum") Integer stockNum);
+
 }
