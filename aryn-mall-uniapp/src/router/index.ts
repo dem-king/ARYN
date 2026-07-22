@@ -63,12 +63,9 @@ const router = createRouter({
   routes: generateRoutes(),
 })
 router.beforeEach(async (to, from, next) => {
-  console.log('🚀 beforeEach 守卫触发:', { to, from })
-
   // 检查目标页面是否在白名单中
   if (to.path && WHITE_LIST.includes(to.path)) {
     // 在白名单中的页面直接放行
-    console.log(`✅ 页面 ${to.path} 在白名单中，直接放行`)
     next()
     return
   }
@@ -79,7 +76,6 @@ router.beforeEach(async (to, from, next) => {
 
   // 检查用户是否已登录
   if (!authStore.isLoggedIn) {
-    console.log(`🔒 用户未登录，跳转至登录页${to.path}`)
     // 缓存当前页面路径，登录后跳转回此页面
     Local.set('redirectPath', from.fullPath)
     next({ path: '/pages/login/index' })
@@ -88,13 +84,10 @@ router.beforeEach(async (to, from, next) => {
 
   // 检查token并获取用户信息
   if (authStore.getToken && !userStore.getUserInfo) {
-    console.log('👤 检测到token但用户信息不存在，开始获取用户信息...')
     try {
       await userStore.fetchUserInfo()
-      console.log('👤 用户信息获取成功:', userStore.getUserInfo)
     }
-    catch (error) {
-      console.warn('👤 用户信息获取失败:', error)
+    catch {
       // 清除认证信息并跳转到登录页
       authStore.clearAuthData()
       next({ path: '/pages/login/index' })
@@ -120,19 +113,7 @@ router.beforeEach(async (to, from, next) => {
     }
   }
 
-  // 演示：基本的导航日志记录
-  if (to.path && from.path) {
-    console.log(`📍 导航: ${from.path} → ${to.path}`)
-  }
   next()
-})
-
-router.afterEach((to, from) => {
-  console.log('🎯 afterEach 钩子触发:', { to, from })
-
-  if (to.path) {
-    console.log(`📄 页面切换完成: ${to.path}`)
-  }
 })
 
 export default router

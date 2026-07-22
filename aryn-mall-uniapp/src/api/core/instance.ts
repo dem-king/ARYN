@@ -1,7 +1,10 @@
 import { uniappRequestAdapter } from '@alova/adapter-uniapp'
 import { createAlova } from 'alova'
 import vueHook from 'alova/vue'
+import { parseOpenBoot, rewriteBootUrl } from './boot-url'
 import { handleAlovaError, handleAlovaResponse } from './handlers'
+
+const openBoot = parseOpenBoot(import.meta.env.VITE_OPEN_BOOT)
 
 export const alovaInstance = createAlova({
   baseURL: import.meta.env.VITE_API_BASE_URL,
@@ -17,12 +20,12 @@ export const alovaInstance = createAlova({
     method.config.headers['tenant-id'] = import.meta.env.VITE_TENANT_ID
     // Add satoken to request headers
     const authState = uni.getStorageSync('auth') as { token?: string } | undefined
-    if (authState?.token && !method.config.headers.skipToken) {
+    const skipToken = method.config.headers.skipToken === true
+    delete method.config.headers.skipToken
+    if (authState?.token && !skipToken) {
       method.config.headers.satoken = authState.token
     }
-    if (import.meta.env.VITE_OPEN_BOOT === 'true') {
-      method.url = `/boot/${method.url?.split('/').splice(2).join('/')}`
-    }
+    method.url = rewriteBootUrl(method.url, openBoot) ?? method.url
     // Add platform-specific headers
     // #ifdef MP
     method.config.headers['app-id'] = uni.getAccountInfoSync().miniProgram.appId

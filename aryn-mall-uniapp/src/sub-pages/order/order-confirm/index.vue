@@ -1,14 +1,14 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
+import { onLoad, onUnload } from '@dcloudio/uni-app'
 import { storeToRefs } from 'pinia'
-import AddressSelector from './components/AddressSelector.vue'
-import ShopOrderItem from './components/ShopOrderItem.vue'
-import PaymentFooter from './components/PaymentFooter.vue'
-import CouponSelector from './components/CouponSelector.vue'
-import { getDefault } from '@/api/user/address'
-import { getPage as getCouponList } from '@/api/promotion/couponUser'
+import { reactive, ref } from 'vue'
 import { orderCreate, orderSettlement } from '@/api/order/orderInfo'
+import { getPage as getCouponList } from '@/api/promotion/couponUser'
+import { getDefault } from '@/api/user/address'
+import AddressSelector from './components/AddressSelector.vue'
+import CouponSelector from './components/CouponSelector.vue'
+import PaymentFooter from './components/PaymentFooter.vue'
+import ShopOrderItem from './components/ShopOrderItem.vue'
 
 definePage({
   name: 'order-confirm',
@@ -81,7 +81,7 @@ const state = reactive<State>({
   isAddressShow: false, // 是否显示收货地址
 })
 onLoad(async (options) => {
-	state.createWay = options?.createWay || '2'
+  state.createWay = options?.createWay || '2'
   state.orderParams.requestId = createOrderRequestId()
   getDefaultAddress()
 })
@@ -212,14 +212,14 @@ function toAddress() {
     },
   })
 }
-// 监听页面返回事件，并接收参数
-uni.$on('update:selectedAddress', (newAddress) => {
+function handleSelectedAddressUpdate(newAddress: Address) {
   selectedAddress.value = newAddress
-})
+}
 
-// 在页面卸载时移除事件监听
-uni.$once('beforeUnload', () => {
-  uni.$off('update:selectedAddress')
+uni.$on('update:selectedAddress', handleSelectedAddressUpdate)
+
+onUnload(() => {
+  uni.$off('update:selectedAddress', handleSelectedAddressUpdate)
 })
 </script>
 

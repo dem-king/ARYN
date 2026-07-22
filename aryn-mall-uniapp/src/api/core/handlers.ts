@@ -31,9 +31,9 @@ function expireAuthentication() {
 // Custom error class for API errors
 export class ApiError extends Error {
   code: number
-  data?: any
+  data?: unknown
 
-  constructor(message: string, code: number, data?: any) {
+  constructor(message: string, code: number, data?: unknown) {
     super(message)
     this.name = 'ApiError'
     this.code = code
@@ -42,10 +42,33 @@ export class ApiError extends Error {
 }
 
 // Define a type for the expected API response structure
-interface ApiResponse {
-  code: number
+export interface ApiResponse {
+  code?: number
   msg?: string
-  data?: any | string
+  data?: unknown
+}
+
+export function parseApiResponse(data: unknown): ApiResponse {
+  if (typeof data === 'string') {
+    try {
+      const parsed = JSON.parse(data)
+      if (parsed && typeof parsed === 'object') {
+        return parsed as ApiResponse
+      }
+    }
+    catch {
+      return { data }
+    }
+    return { data }
+  }
+  if (data && typeof data === 'object') {
+    return data as ApiResponse
+  }
+  return { data }
+}
+
+export function isUnauthorizedResponse(statusCode: number, response: ApiResponse) {
+  return statusCode === 401 || statusCode === 403 || response.code === 401 || response.code === 403
 }
 
 // Handle successful responses
@@ -55,11 +78,11 @@ export async function handleAlovaResponse(
   const globalToast = useGlobalToast()
   // Extract status code and data from UniApp response
   const { statusCode, data } = response as UniNamespace.RequestSuccessCallbackResult
-  const resp = typeof data === 'string' ? JSON.parse(data) : data
-  const msg = resp?.msg?.trim() || ''
+  const resp = parseApiResponse(data)
+  const msg = typeof resp.msg === 'string' ? resp.msg.trim() : ''
 
   // 处理401/403错误（如果不是在handleAlovaResponse中处理的）
-  if ((statusCode === 401 || statusCode === 403 || (data as ApiResponse).code === 401)) {
+  if (isUnauthorizedResponse(statusCode, resp)) {
     // 检查是否已经在跳转中，避免重复跳转
     if (!isRedirectingToLogin) {
       expireAuthentication()
@@ -77,7 +100,7 @@ export async function handleAlovaResponse(
     throw new ApiError(msg || `Request failed with status: ${statusCode}`, statusCode, data)
   }
   // 处理业务层错误（例如 code != 0）
-  if (resp.code && resp.code !== 0) {
+  if (typeof resp.code === 'number' && resp.code !== 0) {
     globalToast.error(msg || '请求失败')
     throw new ApiError(msg || `Request failed with code: ${resp.code}`, resp.code, data)
   }
@@ -114,10 +137,10 @@ export function handleAlovaError(error: any, method: Method) {
 
   // Handle different types of errors
   const errMsg = typeof error === 'string' ? error : (error?.message || error?.errMsg || '')
-  if (error.name === 'NetworkError' || errMsg.includes('request:fail')) {
+  if (error?.name === 'NetworkError' || errMsg.includes('request:fail')) {
     globalToast.error('网络请求失败，请检查网络或接口域名配置')
   }
-  else if (error.name === 'TimeoutError' || errMsg.toLowerCase().includes('timeout')) {
+  else if (error?.name === 'TimeoutError' || errMsg.toLowerCase().includes('timeout')) {
     globalToast.error('请求超时，请重试')
   }
   else if (error instanceof ApiError) {

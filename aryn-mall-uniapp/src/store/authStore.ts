@@ -4,8 +4,9 @@
  */
 import { defineStore } from 'pinia'
 import { logout, passwordLogin as passwordLoginApi, phoneLogin as phoneLoginApi, quickLogin as quickLoginApi, wxLogin as wxLoginApi } from '@/api/auth'
-import { useUserStore } from '@/store/userStore'
 import { useShoppingCartStore } from '@/store/shoppingCartStore'
+import { useUserStore } from '@/store/userStore'
+import { requireTokenValue } from './auth-token'
 
 interface AuthState {
   token: string
@@ -120,7 +121,7 @@ export const useAuthStore = defineStore('auth', {
         const response: any = await phoneLoginApi(loginData).send()
 
         // 存储token信息
-        this.setLoginState(response.tokenValue)
+        this.setLoginState(requireTokenValue(response))
 
         // 登录成功后自动获取用户信息
         await this.fetchUserInfoAfterLogin()
@@ -153,7 +154,7 @@ export const useAuthStore = defineStore('auth', {
         const response: any = await passwordLoginApi(loginData).send()
 
         // 存储token信息
-        this.setLoginState(response.tokenValue)
+        this.setLoginState(requireTokenValue(response))
 
         // 登录成功后自动获取用户信息
         await this.fetchUserInfoAfterLogin()
@@ -187,7 +188,7 @@ export const useAuthStore = defineStore('auth', {
         const response: any = await quickLoginApi(loginData).send()
 
         // 存储token信息
-        this.setLoginState(response.tokenValue)
+        this.setLoginState(requireTokenValue(response))
 
         // 登录成功后自动获取用户信息
         await this.fetchUserInfoAfterLogin()

@@ -9,6 +9,18 @@
  */
 import type { PiniaPluginContext } from 'pinia'
 
+const EXCLUDED_STORE_IDS = new Set([
+  'temp',
+  'shoppingCart',
+  'global-loading',
+  'global-toast',
+  'global-message',
+])
+
+export function shouldPersistStore(storeId: string) {
+  return !EXCLUDED_STORE_IDS.has(storeId)
+}
+
 function persist({ store }: PiniaPluginContext, excludedIds: string[]) {
   // 检查当前store的id是否在排除列表中
   const isExcluded = excludedIds.includes(store.$id)
@@ -33,7 +45,8 @@ function persist({ store }: PiniaPluginContext, excludedIds: string[]) {
 }
 
 export function persistPlugin(context: PiniaPluginContext) {
-  // 调用persist函数，并传入排除列表
-  // 'temp' - 临时数据不持久化
-  persist(context, ['temp', 'shoppingCart'])
+  if (!shouldPersistStore(context.store.$id)) {
+    return
+  }
+  persist(context, [])
 }

@@ -1,6 +1,6 @@
 <script setup lang="ts">
+import { onLoad, onUnload } from '@dcloudio/uni-app'
 import { nextTick, reactive, ref } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
 import { getPage } from '@/api/order/orderInfo'
 import OrderOperation from '@/sub-pages/order/components/order-operation/index.vue'
 
@@ -156,14 +156,14 @@ function toRefunds(orderItemId: string, status: string) {
     router.push({ name: 'refunds-submit', params: { orderItemId } })
   }
 }
-// 监听页面返回事件，并接收参数
-uni.$on('refresh', () => {
+function handleRefresh() {
   pagingRef.value?.reload()
-})
+}
 
-// 在页面卸载时移除事件监听
-uni.$once('beforeUnload', () => {
-  uni.$off('refresh')
+uni.$on('refresh', handleRefresh)
+
+onUnload(() => {
+  uni.$off('refresh', handleRefresh)
 })
 </script>
 

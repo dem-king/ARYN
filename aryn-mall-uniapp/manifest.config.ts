@@ -67,7 +67,7 @@ export default defineManifestConfig({
     },
     appid: 'wxfe4026a3c5438744',
     setting: {
-      urlCheck: false,
+      urlCheck: true,
     },
     usingComponents: true,
     // darkmode: true,
