@@ -126,6 +126,9 @@ secure:
       - /file/local/**
 
 hx:
+  cors:
+    allowed-origins: ${HX_CORS_ALLOWED_ORIGINS:http://localhost:5777}
+    allowed-headers: ${HX_CORS_ALLOWED_HEADERS:Content-Type,satoken,tenant-id,Accept-Language,platform-type,app-id}
   cloud:
     enable: false
   tenant:

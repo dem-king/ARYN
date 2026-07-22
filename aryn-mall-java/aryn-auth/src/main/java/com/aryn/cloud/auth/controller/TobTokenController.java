@@ -4,13 +4,11 @@ package com.aryn.cloud.auth.controller;
 import cn.dev33.satoken.stp.SaTokenInfo;
 import cn.dev33.satoken.stp.StpUtil;
 import com.aryn.cloud.auth.service.LoginService;
-import com.aryn.cloud.common.core.util.AesUtils;
 import com.aryn.cloud.common.core.util.Result;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -30,13 +28,10 @@ public class TobTokenController {
 
 	private final LoginService loginService;
 
-	@Value("${encode.key}")
-	private String encodeKey;
-
 	@Operation(summary = "系统用户账号登录")
 	@RequestMapping("/login")
 	public Result<SaTokenInfo> login(String username, String password) {
-		return Result.success(loginService.login(username, AesUtils.decrypt(encodeKey, password)));
+		return Result.success(loginService.login(username, password));
 	}
 
 	@Operation(summary = "系统用户手机号短信登录")

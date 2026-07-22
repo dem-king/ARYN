@@ -31,9 +31,6 @@ aj:
     cache-type: redis
     water-mark: aryn
 
-encode:
-  key: VyBcekSelErhMYN4
-
 sms:
   ali:
     accessKeyId: xxxxxxxxx

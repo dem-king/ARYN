@@ -133,13 +133,13 @@ public class SysUserController {
 		if (ObjectUtil.isNull(sysUser)) {
 			return Result.fail("用户不存在或已删除");
 		}
-		if (!BCrypt.checkpw(sysUser.getPassword(), sysUserDTO.getPassword())) {
+		if (!BCrypt.checkpw(sysUserDTO.getPassword(), sysUser.getPassword())) {
 			return Result.fail("旧密码错误");
 		}
 		if (!sysUserDTO.getNewPassword().equals(sysUserDTO.getCheckPassword())) {
 			return Result.fail("新密码与确认密码不一致");
 		}
-		sysUser.setPassword(BCrypt.hashpw(sysUserDTO.getPassword()));
+		sysUser.setPassword(BCrypt.hashpw(sysUserDTO.getNewPassword()));
 		return Result.success(sysUserService.updateById(sysUser));
 	}
 

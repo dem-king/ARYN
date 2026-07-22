@@ -7,6 +7,7 @@ import cn.dev33.satoken.router.SaHttpMethod;
 import cn.dev33.satoken.router.SaRouter;
 import cn.dev33.satoken.stp.StpUtil;
 import cn.dev33.satoken.util.SaResult;
+import com.aryn.cloud.common.security.properties.CorsProperties;
 import com.aryn.cloud.gateway.properties.PermitAllUrlProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,6 +29,8 @@ import java.util.List;
 public class SaTokenConfigure {
 
 	private final PermitAllUrlProperties permitAllUrlProperties;
+
+	private final CorsProperties corsProperties;
 
 	/**
 	 * 注册 Sa-Token全局过滤器
@@ -54,19 +57,18 @@ public class SaTokenConfigure {
 				return SaResult.error(e.getMessage()).setCode(HttpStatus.UNAUTHORIZED.value());
 			}) // 前置函数：在每次认证函数之前执行
 			.setBeforeAuth(obj -> {
-				// ---------- 设置跨域响应头 ----------
-				SaHolder.getResponse()
-					// 允许指定域访问跨域资源
-					.setHeader("Access-Control-Allow-Origin", "*")
-					// 允许所有请求方式
-					.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS, DELETE, PUT")
-					// 有效时间
-					.setHeader("Access-Control-Max-Age", "3600")
-					// 允许的header参数
-					.setHeader("Access-Control-Allow-Headers", "*");
+				String origin = SaHolder.getRequest().getHeader("Origin");
+				if (corsProperties.isAllowedOrigin(origin)) {
+					SaHolder.getResponse()
+						.setHeader("Access-Control-Allow-Origin", origin)
+						.setHeader("Vary", "Origin")
+						.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
+						.setHeader("Access-Control-Allow-Headers", corsProperties.getAllowedHeadersValue())
+						.setHeader("Access-Control-Max-Age", "3600");
+				}
 
 				// 如果是预检请求，则立即返回到前端
-				SaRouter.match(SaHttpMethod.OPTIONS).free(r -> log.warn("--------OPTIONS预检请求，不做处理")).back();
+				SaRouter.match(SaHttpMethod.OPTIONS).free(r -> log.debug("OPTIONS预检请求，不做处理")).back();
 			});
 
 	}
