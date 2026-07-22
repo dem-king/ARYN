@@ -19,14 +19,18 @@ export const useMessageStore = defineStore('message', () => {
   const socketState = ref<'closed' | 'connecting' | 'open'>('closed');
   let socket: null | WebSocket = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+  let shouldReconnect = false;
+  let sessionGeneration = 0;
 
   const showDot = computed(() => unreadCount.value > 0);
 
   async function refreshNotifications() {
+    const requestGeneration = sessionGeneration;
     const [count, page] = await Promise.all([
       getStaffNoticeUnreadCount(),
       getStaffNoticeInbox({ limit: 6 }),
     ]);
+    if (requestGeneration !== sessionGeneration) return;
     unreadCount.value = count;
     notifications.value = page.records.map((item) => ({
       avatar: '/favicon.ico',
@@ -42,13 +46,17 @@ export const useMessageStore = defineStore('message', () => {
     const messageId = (item as NotificationItem & { messageId?: string })
       .messageId;
     if (!messageId || item.isRead) return;
+    const requestGeneration = sessionGeneration;
     await markStaffNoticeRead(messageId);
+    if (requestGeneration !== sessionGeneration) return;
     item.isRead = true;
     unreadCount.value = Math.max(0, unreadCount.value - 1);
   }
 
   async function markAllRead() {
+    const requestGeneration = sessionGeneration;
     await markAllStaffNoticesRead();
+    if (requestGeneration !== sessionGeneration) return;
     notifications.value.forEach((item) => (item.isRead = true));
     unreadCount.value = 0;
   }
@@ -72,31 +80,55 @@ export const useMessageStore = defineStore('message', () => {
       socketState.value === 'connecting'
     )
       return;
+    shouldReconnect = true;
     socketState.value = 'connecting';
-    socket = new WebSocket(websocketUrl());
-    socket.addEventListener('open', () => {
+    const currentSocket = new WebSocket(websocketUrl());
+    socket = currentSocket;
+    currentSocket.addEventListener('open', () => {
+      if (socket !== currentSocket) return;
       socketState.value = 'open';
     });
-    socket.addEventListener('message', () => {
+    currentSocket.addEventListener('message', () => {
+      if (socket !== currentSocket) return;
       void refreshNotifications();
     });
-    socket.addEventListener('close', () => {
+    currentSocket.addEventListener('close', () => {
+      if (socket !== currentSocket) return;
+      socket = null;
       socketState.value = 'closed';
-      reconnectTimer = setTimeout(connect, 3000);
+      if (shouldReconnect) {
+        reconnectTimer = setTimeout(() => {
+          reconnectTimer = undefined;
+          connect();
+        }, 3000);
+      }
     });
-    socket.addEventListener('error', () => socket?.close());
+    currentSocket.addEventListener('error', () => currentSocket.close());
   }
 
   function disconnect() {
-    if (reconnectTimer) clearTimeout(reconnectTimer);
-    socket?.close();
+    shouldReconnect = false;
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = undefined;
+    }
+    const currentSocket = socket;
     socket = null;
+    currentSocket?.close();
     socketState.value = 'closed';
+  }
+
+  function $reset() {
+    sessionGeneration += 1;
+    disconnect();
+    unreadCount.value = 0;
+    notifications.value = [];
   }
 
   onScopeDispose(disconnect);
 
   return {
+    $reset,
     connect,
     disconnect,
     markAllRead,

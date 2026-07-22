@@ -32,4 +32,12 @@ describe('dict store', () => {
     expect(store.getDict('status')).toEqual(['new']);
     expect(store.dict).toHaveLength(1);
   });
+
+  it('resets cached dictionaries during logout', () => {
+    const store = useDictStore();
+    store.setDict('status', ['enabled']);
+
+    expect(() => store.$reset()).not.toThrow();
+    expect(store.dict).toEqual([]);
+  });
 });

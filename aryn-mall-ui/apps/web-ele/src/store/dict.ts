@@ -44,5 +44,9 @@ export const useDictStore = defineStore('dict', () => {
     dict.value = [];
   }
 
-  return { cleanDict, dict, getDict, removeDict, setDict };
+  function $reset() {
+    cleanDict();
+  }
+
+  return { $reset, cleanDict, dict, getDict, removeDict, setDict };
 });
