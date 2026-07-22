@@ -205,7 +205,7 @@ export default {
   transition: all 0.5s;
 }
 
-.verify-tips {
+:deep(.verify-tips) {
   position: absolute;
   bottom: 0;
   left: 0;
@@ -215,30 +215,30 @@ export default {
   color: #fff;
 }
 
-.suc-bg {
+:deep(.suc-bg) {
   background-color: rgb(92 184 92 / 50%);
   filter: progid:DXImageTransform.Microsoft.gradient(startcolorstr=#7f5CB85C, endcolorstr=#7f5CB85C);
 }
 
-.err-bg {
+:deep(.err-bg) {
   background-color: rgb(217 83 79 / 50%);
   filter: progid:DXImageTransform.Microsoft.gradient(startcolorstr=#7fD9534F, endcolorstr=#7fD9534F);
 }
 
-.tips-enter,
-.tips-leave-to {
+:deep(.tips-enter),
+:deep(.tips-leave-to) {
   bottom: -30px;
 }
 
-.tips-enter-active,
-.tips-leave-active {
+:deep(.tips-enter-active),
+:deep(.tips-leave-active) {
   transition: bottom 0.5s;
 }
 
 /* ---------------------------- */
 
 /* 常规验证码 */
-.verify-code {
+:deep(.verify-code) {
   margin-bottom: 5px;
   font-size: 20px;
   text-align: center;
@@ -246,38 +246,38 @@ export default {
   border: 1px solid #ddd;
 }
 
-.cerify-code-panel {
+:deep(.cerify-code-panel) {
   height: 100%;
   overflow: hidden;
 }
 
-.verify-code-area {
+:deep(.verify-code-area) {
   float: left;
 }
 
-.verify-input-area {
+:deep(.verify-input-area) {
   float: left;
   width: 60%;
   padding-right: 10px;
 }
 
-.verify-change-area {
+:deep(.verify-change-area) {
   float: left;
   line-height: 30px;
 }
 
-.varify-input-code {
+:deep(.varify-input-code) {
   display: inline-block;
   width: 100%;
   height: 25px;
 }
 
-.verify-change-code {
+:deep(.verify-change-code) {
   color: #337ab7;
   cursor: pointer;
 }
 
-.verify-btn {
+:deep(.verify-btn) {
   width: 200px;
   height: 30px;
   margin-top: 10px;
@@ -287,7 +287,7 @@ export default {
 }
 
 /* 滑动验证码 */
-.verify-bar-area {
+:deep(.verify-bar-area) {
   position: relative;
   box-sizing: content-box;
   text-align: center;
@@ -296,7 +296,7 @@ export default {
   border-radius: 4px;
 }
 
-.verify-bar-area .verify-move-block {
+:deep(.verify-bar-area .verify-move-block) {
   position: absolute;
   top: 0;
   left: 0;
@@ -307,12 +307,12 @@ export default {
   box-shadow: 0 0 2px #888;
 }
 
-.verify-bar-area .verify-move-block:hover {
+:deep(.verify-bar-area .verify-move-block:hover) {
   color: #fff;
   background-color: #337ab7;
 }
 
-.verify-bar-area .verify-left-bar {
+:deep(.verify-bar-area .verify-left-bar) {
   position: absolute;
   top: -1px;
   left: -1px;
@@ -322,7 +322,7 @@ export default {
   border: 1px solid #ddd;
 }
 
-.verify-img-panel {
+:deep(.verify-img-panel) {
   position: relative;
   box-sizing: content-box;
   margin: 0;
@@ -331,7 +331,7 @@ export default {
   border-radius: 3px;
 }
 
-.verify-img-panel .verify-refresh {
+:deep(.verify-img-panel .verify-refresh) {
   position: absolute;
   top: 0;
   right: 0;
@@ -343,19 +343,19 @@ export default {
   cursor: pointer;
 }
 
-.verify-img-panel .icon-refresh {
+:deep(.verify-img-panel .icon-refresh) {
   font-size: 20px;
   color: #fff;
 }
 
-.verify-img-panel .verify-gap {
+:deep(.verify-img-panel .verify-gap) {
   position: relative;
   z-index: 2;
   background-color: #fff;
   border: 1px solid #fff;
 }
 
-.verify-bar-area .verify-move-block .verify-sub-block {
+:deep(.verify-bar-area .verify-move-block .verify-sub-block) {
   position: absolute;
   z-index: 3;
   text-align: center;
@@ -363,11 +363,11 @@ export default {
   /* border: 1px solid #fff; */
 }
 
-.verify-bar-area .verify-move-block .verify-icon {
+:deep(.verify-bar-area .verify-move-block .verify-icon) {
   font-size: 18px;
 }
 
-.verify-bar-area .verify-msg {
+:deep(.verify-bar-area .verify-msg) {
   z-index: 3;
 }
 
@@ -387,7 +387,7 @@ export default {
 
 /* } */
 
-.iconfont {
+:deep(.iconfont) {
   font-family: iconfont !important;
   font-size: 16px;
   font-style: normal;
@@ -395,7 +395,7 @@ export default {
   -moz-osx-font-smoothing: grayscale;
 }
 
-.icon-check::before {
+:deep(.icon-check::before) {
   position: absolute;
   inset: 0;
   z-index: 9999;
@@ -408,7 +408,7 @@ export default {
   background-size: contain;
 }
 
-.icon-close::before {
+:deep(.icon-close::before) {
   position: absolute;
   inset: 0;
   z-index: 9999;
@@ -421,7 +421,7 @@ export default {
   background-size: contain;
 }
 
-.icon-right::before {
+:deep(.icon-right::before) {
   position: absolute;
   inset: 0;
   z-index: 9999;
@@ -435,7 +435,7 @@ export default {
   background-size: contain;
 }
 
-.icon-refresh::before {
+:deep(.icon-refresh::before) {
   position: absolute;
   inset: 0;
   z-index: 9999;
