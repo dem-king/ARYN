@@ -118,7 +118,11 @@ useScrollLock();
         @keydown.enter.prevent="handleSubmit"
       >
         <div class="flex-col-center mb-10 w-[300px]">
-          <VbenAvatar :src="avatar" class="enter-x mb-6 size-20" />
+          <VbenAvatar
+            v-if="avatar"
+            :src="avatar"
+            class="enter-x mb-6 size-20"
+          />
 
           <div class="enter-x mb-2 w-full items-center">
             <Form />
