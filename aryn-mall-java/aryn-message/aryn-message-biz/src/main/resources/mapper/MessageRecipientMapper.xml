@@ -33,8 +33,8 @@
     </sql>
     <select id="selectInbox" resultType="com.aryn.cloud.message.api.vo.notice.NoticeInboxItemVO">
         SELECT <include refid="inboxColumns"/>
-        FROM message_recipient
-        INNER JOIN message_notice ON message_notice.tenant_id = #{tenantId}
+        FROM message_recipient AS message_recipient
+        INNER JOIN message_notice AS message_notice ON message_notice.tenant_id = #{tenantId}
             AND message_notice.id = message_recipient.message_id
             AND message_notice.del_flag = '0'
             AND message_notice.status = 'PUBLISHED'
@@ -52,8 +52,8 @@
     </select>
     <select id="selectInboxDetail" resultType="com.aryn.cloud.message.api.vo.notice.NoticeInboxItemVO">
         SELECT <include refid="inboxColumns"/>
-        FROM message_recipient
-        INNER JOIN message_notice ON message_notice.tenant_id = #{tenantId}
+        FROM message_recipient AS message_recipient
+        INNER JOIN message_notice AS message_notice ON message_notice.tenant_id = #{tenantId}
             AND message_notice.id = message_recipient.message_id
             AND message_notice.del_flag = '0'
         WHERE message_recipient.tenant_id = #{tenantId}
@@ -64,8 +64,8 @@
     </select>
     <select id="countUnread" resultType="java.lang.Long">
         SELECT COUNT(1)
-        FROM message_recipient
-        INNER JOIN message_notice ON message_notice.tenant_id = #{tenantId}
+        FROM message_recipient AS message_recipient
+        INNER JOIN message_notice AS message_notice ON message_notice.tenant_id = #{tenantId}
             AND message_notice.id = message_recipient.message_id
             AND message_notice.status = 'PUBLISHED'
             AND message_notice.del_flag = '0'
