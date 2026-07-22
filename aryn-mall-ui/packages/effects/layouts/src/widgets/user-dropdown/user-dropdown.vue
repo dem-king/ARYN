@@ -192,7 +192,16 @@ if (enableShortcutKey.value) {
     <DropdownMenuTrigger ref="refTrigger" :disabled="props.trigger === 'hover'">
       <div class="hover:bg-accent ml-1 mr-2 cursor-pointer rounded-full p-1.5">
         <div class="hover:text-accent-foreground flex-center">
-          <VbenAvatar :alt="text" :src="avatar" class="size-8" dot />
+          <VbenAvatar
+            v-if="avatar"
+            :alt="text"
+            :src="avatar"
+            class="size-8"
+            dot
+          />
+          <span v-else class="max-w-32 truncate px-2 text-sm font-medium">
+            {{ text }}
+          </span>
         </div>
       </div>
     </DropdownMenuTrigger>
@@ -200,13 +209,14 @@ if (enableShortcutKey.value) {
       <div ref="refContent">
         <DropdownMenuLabel class="flex items-center p-3">
           <VbenAvatar
+            v-if="avatar"
             :alt="text"
             :src="avatar"
             class="size-12"
             dot
             dot-class="bottom-0 right-1 border-2 size-4 bg-green-500"
           />
-          <div class="ml-2 w-full">
+          <div :class="{ 'ml-2': avatar }" class="w-full">
             <div
               v-if="tagText || text || $slots.tagText"
               class="text-foreground mb-1 flex items-center text-sm font-medium"
