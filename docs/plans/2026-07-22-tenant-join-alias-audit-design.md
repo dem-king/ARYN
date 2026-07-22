@@ -4,7 +4,7 @@
 
 管理后台登录成功后，基础布局会并行加载工作人员通知列表和未读数量。`MessageRecipientMapper.xml` 同时关联 `message_recipient` 与 `message_notice`，两张表都配置为多租户表，但 `FROM`、`JOIN` 没有声明别名。MyBatis-Plus 多租户拦截器因此为两张表注入未限定表名的 `tenant_id` 条件，MySQL 抛出 `Column 'tenant_id' in on clause is ambiguous`。
 
-全仓检查还发现订单统计和权限用户查询中存在同类联表写法。现有测试只检查了单个 `UserInfoMapper` 查询，无法阻止其他模块再次引入相同问题。
+全仓检查还发现权限用户查询中存在同类联表写法。现有测试只检查了单个 `UserInfoMapper` 查询，无法阻止其他模块再次引入相同问题。
 
 ## 目标
 
@@ -33,7 +33,6 @@ INNER JOIN message_notice AS message_notice
 修复当前扫描出的无别名多租户联表查询：
 
 - `MessageRecipientMapper.xml`：`selectInbox`、`selectInboxDetail`、`countUnread`
-- `OrderStatisticsMapper.xml`：`getOrderTradeStatistics`
 - `SysUserMapper.xml`：`selectMessageRecipients`、`countCustomerServiceStaff`
 
 新增 `aryn-boot` 测试，原因是单体启动模块聚合全部业务模块，并已有多租户配置一致性与绕过审计测试，适合作为跨模块规则的统一验证入口。
@@ -44,10 +43,11 @@ INNER JOIN message_notice AS message_notice
 
 对每个包含显式 `JOIN` 的 `<select>`：
 
-1. 提取 `FROM` 和 `JOIN` 后的表引用。
-2. 如果表属于多租户配置，则要求表名后存在显式别名，支持 `table alias` 和 `table AS alias` 两种形式。
-3. 将 `INNER`、`LEFT`、`RIGHT`、`WHERE`、`ON` 等 SQL 关键字排除，避免误判为别名。
-4. 失败信息输出相对文件路径、Mapper 方法 ID 和缺少别名的表名。
+1. 对 SQL 进行轻量词法分析，并按括号维护查询层级。
+2. 仅当同一查询层级存在显式 `JOIN` 时，检查该层级 `FROM` 和 `JOIN` 后的表引用；外层派生表联接不会误伤子查询中的单表读取。
+3. 如果表属于多租户配置，则要求表名后存在显式别名，支持 `table alias` 和 `table AS alias` 两种形式。
+4. 将 `INNER`、`LEFT`、`RIGHT`、`WHERE`、`ON` 等 SQL 关键字排除，避免误判为别名。
+5. 失败信息输出相对文件路径、Mapper 方法 ID 和缺少别名的表名。
 
 该规则聚焦本次根因，不解析完整动态 SQL，也不改变多租户拦截器的全局行为。
 
@@ -63,6 +63,6 @@ INNER JOIN message_notice AS message_notice
 
 ## 风险与边界
 
-- 审计只覆盖显式 `JOIN`，不尝试处理存储过程、运行时拼接表名或旧式逗号联表。
+- 审计只覆盖同一查询层级的显式 `JOIN`，不尝试处理存储过程、运行时拼接表名或旧式逗号联表。
 - 自别名不改变 SQL 业务语义，但能影响多租户插件生成的限定列名，这是预期行为。
 - 若未来需要支持复杂 CTE 或动态表名，应在测试中增加对应样例后再扩展解析规则。
