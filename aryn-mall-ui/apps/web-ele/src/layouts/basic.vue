@@ -17,7 +17,6 @@ import { useAccessStore, useUserStore } from '@vben/stores';
 import { ElOption, ElSelect, ElTour, ElTourStep } from 'element-plus';
 
 import { getList } from '#/api/upms/tenant';
-import { $t } from '#/locales';
 import { useAuthStore } from '#/store';
 import { useMessageStore } from '#/store/message';
 import LoginForm from '#/views/_core/authentication/login.vue';
