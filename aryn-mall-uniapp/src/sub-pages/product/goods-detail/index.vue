@@ -2,13 +2,28 @@
 import { onLoad, onPageScroll, onShareAppMessage } from '@dcloudio/uni-app'
 // @ts-expect-error: mp-html type declaration issue
 import mpHtml from 'mp-html/dist/uni-app/components/mp-html/mp-html'
-import { computed, getCurrentInstance, nextTick, onMounted, reactive, ref } from 'vue'
+import {
+  computed,
+  getCurrentInstance,
+  nextTick,
+  onMounted,
+  reactive,
+  ref,
+} from 'vue'
 import { addShoppingCart } from '@/api/order/shoppingCart'
-import { addObj as addCollect, deleteObj as deleteCollect } from '@/api/product/collect'
+import {
+  addObj as addCollect,
+  deleteObj as deleteCollect,
+} from '@/api/product/collect'
 import { getById as getSpuById } from '@/api/product/spu'
 import { getPage as getCouponPage } from '@/api/promotion/couponInfo'
 import { getDefault } from '@/api/user/address'
-import { buildDistributionSharePath, captureDistributionShareParams, flushPendingDistributionShareBinding } from '@/composables/useDistributionShare'
+import {
+  buildDistributionSharePath,
+  captureDistributionShareParams,
+  flushPendingDistributionShareBinding,
+} from '@/composables/useDistributionShare'
+import { customerServiceRoute } from '@/utils/message'
 import GoodsComment from './components/GoodsComment.vue'
 import GoodsFooter from './components/GoodsFooter.vue'
 import GoodsInfo from './components/GoodsInfo.vue'
@@ -149,7 +164,9 @@ onPageScroll((res) => {
   background.value = `rgba(255, 255, 255, ${opacity})`
   rootOpacity.value = opacity
   // 处理tabs切换
-  const index = tabList.value.findIndex(item => scrollTop < item.top + item.height - statusBarHeight - 60)
+  const index = tabList.value.findIndex(
+    item => scrollTop < item.top + item.height - statusBarHeight - 60,
+  )
   state.tabActive = index >= 0 ? index : tabList.value.length - 1
 })
 onMounted(async () => {
@@ -157,7 +174,10 @@ onMounted(async () => {
   /**
    * 判断是否能返回
    */
-  if (pages.length <= 1 || pages[pages.length - 1].route === 'pages/login/index') {
+  if (
+    pages.length <= 1
+    || pages[pages.length - 1].route === 'pages/login/index'
+  ) {
     state.isCanBack = false
   }
   else {
@@ -205,7 +225,9 @@ function onCurrentPage(item: any, index: number) {
   state.tabActive = index
 }
 onShareAppMessage(() => {
-  const path = buildDistributionSharePath(`/sub-pages/product/goods-detail/index?id=${state.goodsSpu.id}`)
+  const path = buildDistributionSharePath(
+    `/sub-pages/product/goods-detail/index?id=${state.goodsSpu.id}`,
+  )
   return {
     title: state.goodsSpu.name,
     path,
@@ -214,11 +236,13 @@ onShareAppMessage(() => {
 })
 // 商品分享
 function goodsShare() {
-  const path = buildDistributionSharePath(`/sub-pages/product/goods-detail/index?id=${state.goodsSpu.id}`)
+  const path = buildDistributionSharePath(
+    `/sub-pages/product/goods-detail/index?id=${state.goodsSpu.id}`,
+  )
   // #ifdef H5
   uni.setClipboardData({
     data: window.location.origin + path,
-    success() { },
+    success() {},
   })
   // #endif
 }
@@ -290,7 +314,9 @@ async function getSpu(id: string) {
 
         const goodsSpuSpecs: any[] = []
         specsMap.forEach((values, name) => {
-          const list = Array.from(values).map(value => ({ specsValueName: value }))
+          const list = Array.from(values).map(value => ({
+            specsValueName: value,
+          }))
           goodsSpuSpecs.push({
             specsName: name,
             list,
@@ -391,11 +417,7 @@ function addCart(data: any) {
 }
 // 立即购买
 function buyNow(data: any) {
-  goodsStore.setGoodsList(
-    [
-      data,
-    ],
-  )
+  goodsStore.setGoodsList([data])
   router.push({
     name: 'order-confirm',
   })
@@ -417,7 +439,10 @@ async function handleCollect() {
   }
   else {
     try {
-      const response = await addCollect({ spuId: state.goodsSpu.id, salesPrice: state.goodsSpu.salesPrice })
+      const response = await addCollect({
+        spuId: state.goodsSpu.id,
+        salesPrice: state.goodsSpu.salesPrice,
+      })
       state.moreShow = false
       state.goodsSpu.collectId = response.id
       userStore.updateUserCollectCount(userStore.getCollectCount + 1)
@@ -464,6 +489,18 @@ function toCart() {
   })
 }
 
+function toCustomerService() {
+  const payload = {
+    image: state.goodsSpu.spuUrls?.[0] || '',
+    productId: String(state.goodsSpu.id),
+    summary: state.goodsSpu.introduction || state.goodsSpu.name,
+    title: state.goodsSpu.name,
+  }
+  uni.navigateTo({
+    url: customerServiceRoute({ messageType: 'PRODUCT_CARD', payload }),
+  })
+}
+
 function handleSwiper(obj: any) {
   uni.previewImage({
     current: obj.index,
@@ -483,21 +520,40 @@ async function handleReceive(coupon: any) {
 <template>
   <!-- 顶部导航组件 -->
   <GoodsNavbar
-    :scroll-status="state.scrollStatus" :is-can-back="state.isCanBack" :tab-active="state.tabActive"
-    :tab-list="tabList" :background="background" :root-opacity="rootOpacity" :root-style="rootStyle" @go-back="goBack"
-    @current-page="onCurrentPage" @share="handleShare" @more="handleMore"
+    :scroll-status="state.scrollStatus"
+    :is-can-back="state.isCanBack"
+    :tab-active="state.tabActive"
+    :tab-list="tabList"
+    :background="background"
+    :root-opacity="rootOpacity"
+    :root-style="rootStyle"
+    @go-back="goBack"
+    @current-page="onCurrentPage"
+    @share="handleShare"
+    @more="handleMore"
   />
   <view v-if="!loading">
     <!-- 商品信息组件 -->
     <GoodsInfo
-      ref="goodsInfoRef" :goods-spu="state.goodsSpu" :coupon-list="state.couponList"
-      :select-arr="state.selectArr" :address="state.address" @swiper="handleSwiper" @show-coupon="showCoupon"
-      @open-sku-popup="openSkuPopup" @to-address="toAddress" @collect="handleCollect" @share="handleShare"
+      ref="goodsInfoRef"
+      :goods-spu="state.goodsSpu"
+      :coupon-list="state.couponList"
+      :select-arr="state.selectArr"
+      :address="state.address"
+      @swiper="handleSwiper"
+      @show-coupon="showCoupon"
+      @open-sku-popup="openSkuPopup"
+      @to-address="toAddress"
+      @collect="handleCollect"
+      @share="handleShare"
     />
     <!-- 评论组件 -->
     <GoodsComment ref="goodsCommentRef" :spu-id="state.goodsSpu.id" />
     <!-- 商品介绍 -->
-    <view id="scroll-description" class="m-2 rounded-xl bg-white p-2 dark:bg-[var(--wot-dark-background2)]">
+    <view
+      id="scroll-description"
+      class="m-2 rounded-xl bg-white p-2 dark:bg-[var(--wot-dark-background2)]"
+    >
       <wd-divider custom-class="px-26! text-[#333333]!">
         商品详情
       </wd-divider>
@@ -506,31 +562,53 @@ async function handleReceive(coupon: any) {
       </view>
     </view>
     <!-- 猜你喜欢 -->
-    <view id="scroll-like" class="my-2 flex items-center justify-center text-sm">
+    <view
+      id="scroll-like"
+      class="my-2 flex items-center justify-center text-sm"
+    >
       你可能还会喜欢
     </view>
     <WaterfallGoods />
     <wd-gap :height="40" />
     <GoodsFooter
-      :shopping-cart-count="shoppingCartStore.getCartCount" @to-home="toHome" @to-cart="toCart"
+      :shopping-cart-count="shoppingCartStore.getCartCount"
+      @to-home="toHome"
+      @to-cart="toCart"
+      @customer-service="toCustomerService"
       @open-sku-popup="openSkuPopup"
     />
   </view>
 
   <vk-data-goods-sku-popup
-    ref="skuPopup" v-model="skuKey" border-radius="20" :localdata="state.goodsSpu"
-    sku-arr-name="specsArr" sku-list-name="goodsSkus" spec-list-name="specList" :mode="skuMode"
-    @open="onOpenSkuPopup" @close="onCloseSkuPopup" @add-cart="addCart" @buy-now="buyNow"
+    ref="skuPopup"
+    v-model="skuKey"
+    border-radius="20"
+    :localdata="state.goodsSpu"
+    sku-arr-name="specsArr"
+    sku-list-name="goodsSkus"
+    spec-list-name="specList"
+    :mode="skuMode"
+    @open="onOpenSkuPopup"
+    @close="onCloseSkuPopup"
+    @add-cart="addCart"
+    @buy-now="buyNow"
   />
   <!-- 领券弹窗 -->
   <wd-action-sheet
-    v-model="state.couponState" title="优惠券" custom-class="coupon-action"
+    v-model="state.couponState"
+    title="优惠券"
+    custom-class="coupon-action"
     @close="state.couponState = false"
   >
     <scroll-view scroll-y class="mb-4 h-400px">
-      <view v-for="coupon in state.couponList" :key="coupon.id" class="px-4 py-1">
+      <view
+        v-for="coupon in state.couponList"
+        :key="coupon.id"
+        class="px-4 py-1"
+      >
         <CouponCard
-          :coupon="coupon" :status="coupon.userReceiveCount > 0 ? 'received' : 'available'"
+          :coupon="coupon"
+          :status="coupon.userReceiveCount > 0 ? 'received' : 'available'"
           @receive="handleReceive"
         />
       </view>
@@ -542,7 +620,9 @@ async function handleReceive(coupon: any) {
 
   <!-- 更多弹窗 -->
   <MorePopup
-    v-model="state.moreShow" :collect-id="state.goodsSpu?.collectId" @to-home="toHome"
+    v-model="state.moreShow"
+    :collect-id="state.goodsSpu?.collectId"
+    @to-home="toHome"
     @collect="handleCollect"
   />
 </template>

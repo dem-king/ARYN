@@ -20,6 +20,7 @@ import com.aryn.cloud.promotion.api.vo.CouponUserVO;
 import com.aryn.cloud.promotion.mapper.CouponGoodsMapper;
 import com.aryn.cloud.promotion.mapper.CouponInfoMapper;
 import com.aryn.cloud.promotion.mapper.CouponUserMapper;
+import com.aryn.cloud.promotion.event.PromotionMessageCommandPublisher;
 import com.aryn.cloud.promotion.service.ICouponUserService;
 import com.aryn.cloud.user.api.remote.RemoteMallUserService;
 import lombok.RequiredArgsConstructor;
@@ -46,6 +47,8 @@ public class CouponUserServiceImpl extends ServiceImpl<CouponUserMapper, CouponU
 
 	private final CouponGoodsMapper couponGoodsMapper;
 
+	private final PromotionMessageCommandPublisher messageCommandPublisher;
+
 	@Override
 	public IPage<CouponUser> getPage(Page page, CouponUser couponUser) {
 		IPage<CouponUser> iPage = baseMapper.selectAdminPage(page, couponUser);
@@ -60,6 +63,7 @@ public class CouponUserServiceImpl extends ServiceImpl<CouponUserMapper, CouponU
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public CouponUser receive(CouponUser couponUser) {
+		couponUser.setTenantId(ArynTenantContextHolder.getTenantId());
 		// 查询该优惠券是否限制领取数量
 		CouponInfo couponInfo = couponInfoMapper.selectCouponById(couponUser.getCouponId());
 		if (ObjectUtil.isNull(couponInfo)) {
@@ -91,6 +95,7 @@ public class CouponUserServiceImpl extends ServiceImpl<CouponUserMapper, CouponU
 			throw new ArynBusinessException(MallErrorCodeEnum.ERROR_41000.getCode(),
 					MallErrorCodeEnum.ERROR_41000.getMsg());
 		}
+		messageCommandPublisher.couponReceived(couponUser, couponInfo);
 		return couponUser;
 	}
 

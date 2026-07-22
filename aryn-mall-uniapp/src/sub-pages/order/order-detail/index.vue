@@ -2,8 +2,9 @@
 import { onLoad } from '@dcloudio/uni-app'
 import { reactive, ref } from 'vue'
 import { getById } from '@/api/order/orderInfo'
-import { useDict } from '@/utils/dict'
 import OrderOperation from '@/sub-pages/order/components/order-operation/index.vue'
+import { useDict } from '@/utils/dict'
+import { customerServiceRoute } from '@/utils/message'
 
 definePage({
   name: 'order-detail',
@@ -12,7 +13,10 @@ definePage({
     navigationBarTitleText: '订单详情',
   },
 })
-const { order_item_status, pay_type } = useDict('order_item_status', 'pay_type')
+const { order_item_status, pay_type } = useDict(
+  'order_item_status',
+  'pay_type',
+)
 const globalLoading = useGlobalLoading()
 
 // 定义变量
@@ -48,7 +52,9 @@ const navbarSubTitle = computed(() => {
     case '1':
       return '请在30分钟内付款，超时订单自动取消'
     case '2':
-      return way === '1' ? '订单已付款，等待商家发货' : '订单已付款，商家备货中'
+      return way === '1'
+        ? '订单已付款，等待商家发货'
+        : '订单已付款，商家备货中'
     case '3':
       return way === '1' ? '商家已发货，等待签收' : '商家已备货，等待提货中'
     default:
@@ -119,6 +125,21 @@ function handleRefundDetail(item: any) {
 function toggleMoreInfo() {
   showMoreInfo.value = !showMoreInfo.value
 }
+function toCustomerService() {
+  const firstItem = state.order.orderItemList?.[0]
+  uni.navigateTo({
+    url: customerServiceRoute({
+      messageType: 'ORDER_CARD',
+      payload: {
+        amount: state.order.paymentPrice ? `￥${state.order.paymentPrice}` : '',
+        image: firstItem?.picUrl || '',
+        orderId: String(state.order.id),
+        statusText: navbarTitle.value,
+        title: `订单 ${state.order.orderNo || state.order.id}`,
+      },
+    }),
+  })
+}
 </script>
 
 <template>
@@ -150,36 +171,74 @@ function toggleMoreInfo() {
             </text>
           </view>
           <view class="py-8px text-13px">
-            {{ state.order.recipientProvince }} {{ state.order.recipientCity }} {{ state.order.recipientArea }}
+            {{ state.order.recipientProvince }} {{ state.order.recipientCity }}
+            {{ state.order.recipientArea }}
             {{ state.order.recipientAddress }}
           </view>
         </view>
       </view>
     </view>
     <view class="m-2 rounded-xl bg-white p-2">
-      <view v-for="(item, index) in state.order.orderItemList" :key="index" class="flex pt-20rpx">
-        <image :src="item.picUrl" class="h-160rpx w-160rpx flex-none rounded-lg" />
+      <view
+        v-for="(item, index) in state.order.orderItemList"
+        :key="index"
+        class="flex pt-20rpx"
+      >
+        <image
+          :src="item.picUrl"
+          class="h-160rpx w-160rpx flex-none rounded-lg"
+        />
         <view class="ml-20rpx h-full flex flex-1 flex-col overflow-hidden">
           <view class="flex justify-between">
             <view class="mr-20rpx flex-1 overflow-hidden">
-              <wd-text :lines="2" size="26rpx" color="inherit" :text="item.spuName" />
+              <wd-text
+                :lines="2"
+                size="26rpx"
+                color="inherit"
+                :text="item.spuName"
+              />
               <view v-if="item.specsInfo" class="pt-10rpx">
-                <wd-text custom-class="pt-10rpx" size="24rpx" color="#909090" :text="item.specsInfo" />
+                <wd-text
+                  custom-class="pt-10rpx"
+                  size="24rpx"
+                  color="#909090"
+                  :text="item.specsInfo"
+                />
               </view>
             </view>
             <view class="flex flex-shrink-0 flex-col items-end">
-              <wd-text :text="item.paymentPrice" size="14px" color="red" mode="price" prefix=" ￥" />
+              <wd-text
+                :text="item.paymentPrice"
+                size="14px"
+                color="red"
+                mode="price"
+                prefix=" ￥"
+              />
               <wd-text size="13px" :text="`x${item.buyQuantity}`" />
             </view>
           </view>
-          <view v-if="state.order.payStatus === '1'" class="flex justify-end pt-10rpx">
+          <view
+            v-if="state.order.payStatus === '1'"
+            class="flex justify-end pt-10rpx"
+          >
             <wd-button
-              v-if="item.status === '1' || item.status === '2'" size="small" plain hairline type="info"
+              v-if="item.status === '1' || item.status === '2'"
+              size="small"
+              plain
+              hairline
+              type="info"
               @tap.stop="toRefunds(item.id, item.status)"
             >
               申请售后
             </wd-button>
-            <wd-button v-else type="info" size="small" plain hairline @click="handleRefundDetail(item)">
+            <wd-button
+              v-else
+              type="info"
+              size="small"
+              plain
+              hairline
+              @click="handleRefundDetail(item)"
+            >
               <dict-tag :options="order_item_status" :value="item.status" />
             </wd-button>
           </view>
@@ -191,27 +250,54 @@ function toggleMoreInfo() {
         <!-- 信息列表 -->
         <view>
           <!-- 商品金额（仅展开时显示） -->
-          <view v-if="showMoreInfo" class="flex items-center justify-between pb-20rpx">
+          <view
+            v-if="showMoreInfo"
+            class="flex items-center justify-between pb-20rpx"
+          >
             <text class="text-14px">
               商品金额
             </text>
-            <wd-text size="26rpx" color="inherit" :text="state.order.totalPrice" mode="price" prefix="￥" />
+            <wd-text
+              size="26rpx"
+              color="inherit"
+              :text="state.order.totalPrice"
+              mode="price"
+              prefix="￥"
+            />
           </view>
 
           <!-- 运费 -->
-          <view v-if="showMoreInfo" class="flex items-center justify-between pb-20rpx">
+          <view
+            v-if="showMoreInfo"
+            class="flex items-center justify-between pb-20rpx"
+          >
             <text class="text-14px">
               运费
             </text>
-            <wd-text size="26rpx" color="inherit" :text="state.order.freightPrice" mode="price" prefix="￥" />
+            <wd-text
+              size="26rpx"
+              color="inherit"
+              :text="state.order.freightPrice"
+              mode="price"
+              prefix="￥"
+            />
           </view>
 
           <!-- 优惠券 -->
-          <view v-if="showMoreInfo" class="flex items-center justify-between pb-20rpx">
+          <view
+            v-if="showMoreInfo"
+            class="flex items-center justify-between pb-20rpx"
+          >
             <text class="text-14px">
               优惠券
             </text>
-            <wd-text size="26rpx" :text="state.order.couponPrice" color="red" mode="price" prefix="-￥" />
+            <wd-text
+              size="26rpx"
+              :text="state.order.couponPrice"
+              color="red"
+              mode="price"
+              prefix="-￥"
+            />
           </view>
           <!-- 实付款 -->
           <view class="flex items-center justify-between pb-20rpx">
@@ -219,23 +305,33 @@ function toggleMoreInfo() {
               实付款
             </text>
             <wd-text
-              custom-class="pl-10rpx" size="28rpx" :text="state.order.paymentPrice" color="red" mode="price"
+              custom-class="pl-10rpx"
+              size="28rpx"
+              :text="state.order.paymentPrice"
+              color="red"
+              mode="price"
               prefix="￥"
             />
           </view>
           <wd-divider v-if="showMoreInfo" color="#E8E8E8" />
 
           <!-- 配送方式 -->
-          <view v-if="showMoreInfo" class="flex items-center justify-between pb-20rpx">
+          <view
+            v-if="showMoreInfo"
+            class="flex items-center justify-between pb-20rpx"
+          >
             <text class="text-14px">
               配送方式
             </text>
             <wd-text
-              size="26rpx" color="inherit" :text="state.order.deliveryWay === '1'
-                ? '普通快递'
-                : state.order.deliveryWay === '2'
-                  ? '上门自提'
-                  : '无需配送'
+              size="26rpx"
+              color="inherit"
+              :text="
+                state.order.deliveryWay === '1'
+                  ? '普通快递'
+                  : state.order.deliveryWay === '2'
+                    ? '上门自提'
+                    : '无需配送'
               "
             />
           </view>
@@ -245,12 +341,24 @@ function toggleMoreInfo() {
               订单编号
             </text>
             <view class="flex items-center">
-              <wd-text size="26rpx" color="inherit" :text="state.order.orderNo" />
-              <wd-icon name="file-copy" color="var(--wot-color-theme)" custom-class="ml-10rpx" @click="copyOrderNo" />
+              <wd-text
+                size="26rpx"
+                color="inherit"
+                :text="state.order.orderNo"
+              />
+              <wd-icon
+                name="file-copy"
+                color="var(--wot-color-theme)"
+                custom-class="ml-10rpx"
+                @click="copyOrderNo"
+              />
             </view>
           </view>
           <!-- 支付方式 -->
-          <view v-if="showMoreInfo && state.order.payStatus === '1'" class="flex items-center justify-between pb-20rpx">
+          <view
+            v-if="showMoreInfo && state.order.payStatus === '1'"
+            class="flex items-center justify-between pb-20rpx"
+          >
             <text class="text-14px">
               支付方式
             </text>
@@ -261,41 +369,76 @@ function toggleMoreInfo() {
             <text class="text-14px">
               创建时间
             </text>
-            <wd-text size="26rpx" color="inherit" :text="state.order.createTime" />
+            <wd-text
+              size="26rpx"
+              color="inherit"
+              :text="state.order.createTime"
+            />
           </view>
           <!-- 付款时间 -->
-          <view v-if="showMoreInfo && state.order.paymentTime" class="flex items-center justify-between pb-20rpx">
+          <view
+            v-if="showMoreInfo && state.order.paymentTime"
+            class="flex items-center justify-between pb-20rpx"
+          >
             <text class="text-14px">
               付款时间
             </text>
-            <wd-text size="26rpx" color="inherit" :text="state.order.paymentTime" />
+            <wd-text
+              size="26rpx"
+              color="inherit"
+              :text="state.order.paymentTime"
+            />
           </view>
 
           <!-- 发货时间 -->
-          <view v-if="showMoreInfo && state.order.deliverTime" class="flex items-center justify-between pb-20rpx">
+          <view
+            v-if="showMoreInfo && state.order.deliverTime"
+            class="flex items-center justify-between pb-20rpx"
+          >
             <text class="text-14px">
               发货时间
             </text>
-            <wd-text size="26rpx" color="inherit" :text="state.order.deliverTime" />
+            <wd-text
+              size="26rpx"
+              color="inherit"
+              :text="state.order.deliverTime"
+            />
           </view>
 
           <!-- 收货时间 -->
-          <view v-if="showMoreInfo && state.order.receiverTime" class="flex items-center justify-between pb-20rpx">
+          <view
+            v-if="showMoreInfo && state.order.receiverTime"
+            class="flex items-center justify-between pb-20rpx"
+          >
             <text class="text-14px">
               收货时间
             </text>
-            <wd-text size="26rpx" color="inherit" :text="state.order.receiverTime" />
+            <wd-text
+              size="26rpx"
+              color="inherit"
+              :text="state.order.receiverTime"
+            />
           </view>
 
           <!-- 取消时间 -->
-          <view v-if="showMoreInfo && state.order.cancelTime" class="flex items-center justify-between pb-20rpx">
+          <view
+            v-if="showMoreInfo && state.order.cancelTime"
+            class="flex items-center justify-between pb-20rpx"
+          >
             <text class="text-14px">
               取消时间
             </text>
-            <wd-text size="26rpx" color="inherit" :text="state.order.cancelTime" />
+            <wd-text
+              size="26rpx"
+              color="inherit"
+              :text="state.order.cancelTime"
+            />
           </view>
           <!-- 备注 -->
-          <view v-if="showMoreInfo && state.order.remark" class="flex items-center justify-between pb-20rpx">
+          <view
+            v-if="showMoreInfo && state.order.remark"
+            class="flex items-center justify-between pb-20rpx"
+          >
             <text class="text-14px">
               备注
             </text>
@@ -313,7 +456,7 @@ function toggleMoreInfo() {
           </text>
           <view>
             <text class="mr-10rpx text-14px">
-              {{ showMoreInfo ? '收起' : '展开' }}
+              {{ showMoreInfo ? "收起" : "展开" }}
             </text>
             <wd-icon :name="showMoreInfo ? 'arrow-up' : 'arrow-down'" />
           </view>
@@ -323,9 +466,16 @@ function toggleMoreInfo() {
     </view>
     <WaterfallGoods />
     <wd-gap :height="80" />
-    <view class="fixed bottom-0 left-0 right-0 bg-white p-20rpx pb-[max(env(safe-area-inset-bottom),16rpx)]">
+    <view
+      class="fixed bottom-0 left-0 right-0 flex gap-12rpx bg-white p-20rpx pb-[max(env(safe-area-inset-bottom),16rpx)]"
+    >
+      <wd-button plain type="info" icon="service" @click="toCustomerService">
+        联系客服
+      </wd-button>
       <order-operation
-        :order-info="state.order" @order-del="orderDel" @order-receiver="orderReceiver($event)"
+        :order-info="state.order"
+        @order-del="orderDel"
+        @order-receiver="orderReceiver($event)"
         @order-cancel="orderCancel($event)"
       />
     </view>

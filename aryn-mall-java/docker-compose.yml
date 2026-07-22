@@ -238,6 +238,34 @@ services:
       aryn-upms-biz:
         condition: service_healthy
 
+  aryn-message-biz:
+    build:
+      context: ./aryn-message/aryn-message-biz
+      dockerfile: Dockerfile
+    pull_policy: never
+    container_name: aryn-message-biz
+    restart: always
+    ports:
+      - "6600:6600"
+    environment:
+      SPRING_PROFILES_ACTIVE: cloud
+      XXL_JOB_ADMINADDRESSES: http://aryn-xxl-job-admin:8081/xxl-job-admin
+    networks:
+      - aryn-net
+    depends_on:
+      aryn-nacos:
+        condition: service_started
+      aryn-mysql:
+        condition: service_healthy
+      aryn-redis:
+        condition: service_healthy
+      aryn-rocketmq-namesrv:
+        condition: service_healthy
+      aryn-upms-biz:
+        condition: service_healthy
+      aryn-xxl-job-admin:
+        condition: service_started
+
   aryn-order-biz:
     build:
       context: ./aryn-order/aryn-order-biz

@@ -6,11 +6,14 @@ interface Props {
 interface Emits {
   (e: 'toHome'): void
   (e: 'toCart'): void
+  (e: 'customerService'): void
   (e: 'openSkuPopup', value: number): void
 }
 
 defineProps<Props>()
 const emit = defineEmits<Emits>()
+const useNativeContact
+  = import.meta.env.VITE_CUSTOMER_SERVICE_MODE === 'NATIVE'
 
 function toHome() {
   emit('toHome')
@@ -23,10 +26,17 @@ function toCart() {
 function openSkuPopup(value: number) {
   emit('openSkuPopup', value)
 }
+
+function customerService() {
+  if (!useNativeContact)
+    emit('customerService')
+}
 </script>
 
 <template>
-  <view class="fixed bottom-0 left-0 right-0 flex justify-between border-t border-t-[rgba(255,255,255,0.33)] bg-white p-20rpx pb-[max(env(safe-area-inset-bottom),16rpx)]">
+  <view
+    class="fixed bottom-0 left-0 right-0 flex justify-between border-t border-t-[rgba(255,255,255,0.33)] bg-white p-20rpx pb-[max(env(safe-area-inset-bottom),16rpx)]"
+  >
     <view class="flex text-center text-20rpx">
       <view class="ml-20rpx mr-30rpx" @click="toHome">
         <wd-icon name="home" size="40rpx" />
@@ -34,7 +44,11 @@ function openSkuPopup(value: number) {
           首页
         </view>
       </view>
-      <button class="kf-btn mx-30rpx" open-type="contact">
+      <button
+        class="kf-btn mx-30rpx"
+        :open-type="useNativeContact ? 'contact' : undefined"
+        @click="customerService"
+      >
         <wd-icon name="service" size="40rpx" />
         <view class="text">
           客服
@@ -51,10 +65,16 @@ function openSkuPopup(value: number) {
     </view>
     <view>
       <view class="box-border w-full flex items-center justify-between">
-        <view class="h-68rpx w-200rpx rounded-l-[38rpx] text-center text-28rpx text-white font-500 leading-[68rpx] bg-secondary!" @click="openSkuPopup(2)">
+        <view
+          class="h-68rpx w-200rpx rounded-l-[38rpx] text-center text-28rpx text-white font-500 leading-[68rpx] bg-secondary!"
+          @click="openSkuPopup(2)"
+        >
           加入购物车
         </view>
-        <view class="h-68rpx w-200rpx rounded-r-[38rpx] text-center text-28rpx text-white font-500 leading-[68rpx] bg-primary!" @click="openSkuPopup(3)">
+        <view
+          class="h-68rpx w-200rpx rounded-r-[38rpx] text-center text-28rpx text-white font-500 leading-[68rpx] bg-primary!"
+          @click="openSkuPopup(3)"
+        >
           立即购买
         </view>
       </view>

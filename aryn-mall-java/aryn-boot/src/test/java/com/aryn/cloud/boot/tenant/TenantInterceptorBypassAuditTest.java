@@ -23,6 +23,8 @@ class TenantInterceptorBypassAuditTest {
 			+ "\\s*\\((?=[^)]*tenantLine\\s*=\\s*\"true\")[^)]*\\)\\s+[\\w<>?,.\\s]+\\s+(\\w+)\\s*\\(");
 
 	private static final Set<String> ALLOWED_BYPASSES = Set.of(
+			"aryn-message/aryn-message-biz/src/main/java/com/aryn/cloud/message/mapper/MessageConversationMapper.java#selectInactiveConversations",
+			"aryn-message/aryn-message-biz/src/main/java/com/aryn/cloud/message/mapper/MessageDispatchTaskMapper.java#selectRecoveryTasks",
 			"aryn-pay/aryn-pay-biz/src/main/java/com/aryn/cloud/pay/mapper/PayConfigMapper.java#selectByAppId",
 			"aryn-upms/aryn-upms-biz/src/main/java/com/aryn/cloud/upms/mapper/SysMenuMapper.java#selectTenantMenuTree",
 			"aryn-upms/aryn-upms-biz/src/main/java/com/aryn/cloud/upms/mapper/SysUserMapper.java#selectCount",
@@ -62,6 +64,25 @@ class TenantInterceptorBypassAuditTest {
 		String statement = selectStatement(mapper, "selectTenantMenuTree");
 
 		assertThat(statement).contains("sys_tenant_menu.tenant_id = #{tenantId}");
+	}
+
+	@Test
+	void messageJobBypassesOnlyDiscoverTenantBoundRecordsBeforeRestoringContext() throws IOException {
+		String conversationMapper = Files.readString(projectRoot.resolve(
+				"aryn-message/aryn-message-biz/src/main/resources/mapper/MessageConversationMapper.xml"));
+		String dispatchMapper = Files.readString(projectRoot.resolve(
+				"aryn-message/aryn-message-biz/src/main/resources/mapper/MessageDispatchTaskMapper.xml"));
+		String conversationJob = Files.readString(projectRoot.resolve(
+				"aryn-message/aryn-message-biz/src/main/java/com/aryn/cloud/message/job/ConversationMaintenanceJob.java"));
+		String dispatchService = Files.readString(projectRoot.resolve(
+				"aryn-message/aryn-message-biz/src/main/java/com/aryn/cloud/message/service/impl/NoticeDispatchServiceImpl.java"));
+
+		assertThat(selectStatement(conversationMapper, "selectInactiveConversations"))
+				.contains("SELECT *", "del_flag = '0'");
+		assertThat(selectStatement(dispatchMapper, "selectRecoveryTasks"))
+				.contains("SELECT *", "del_flag = '0'");
+		assertThat(conversationJob).contains("setTenantId(conversation.getTenantId())", "removeTenantId()");
+		assertThat(dispatchService).contains("setTenantId(tenantId)", "removeTenantId()");
 	}
 
 	@Test

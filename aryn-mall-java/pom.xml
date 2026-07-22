@@ -19,6 +19,7 @@
         <module>aryn-order</module>
         <module>aryn-promotion</module>
         <module>aryn-user</module>
+        <module>aryn-message</module>
         <module>aryn-boot</module>
     </modules>
 
@@ -102,6 +103,11 @@
             <dependency>
                 <groupId>com.aryn</groupId>
                 <artifactId>aryn-user-api</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.aryn</groupId>
+                <artifactId>aryn-message-api</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

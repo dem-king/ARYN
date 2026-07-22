@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aryn.cloud.message.mapper.MessageConversationMapper">
+    <sql id="activeCustomerCondition">
+        tenant_id = #{tenantId}
+        AND conversation_type = 'CUSTOMER_SERVICE'
+        AND customer_id = #{customerId}
+        AND queue_code = #{queueCode}
+        AND status IN ('WAITING', 'ASSIGNED', 'ACTIVE')
+        AND del_flag = '0'
+    </sql>
+    <select id="selectActiveCustomerConversation" resultType="com.aryn.cloud.message.api.entity.MessageConversation">
+        SELECT *
+        FROM message_conversation
+        WHERE <include refid="activeCustomerCondition"/>
+        LIMIT 1
+    </select>
+    <select id="selectActiveStaffConversation" resultType="com.aryn.cloud.message.api.entity.MessageConversation">
+        SELECT *
+        FROM message_conversation
+        WHERE tenant_id = #{tenantId}
+          AND conversation_type = 'STAFF_DIRECT'
+          AND staff_pair_key = #{staffPairKey}
+          AND status IN ('WAITING', 'ASSIGNED', 'ACTIVE')
+          AND del_flag = '0'
+        LIMIT 1
+    </select>
+    <select id="selectRecentlyClosedCustomerConversation" resultType="com.aryn.cloud.message.api.entity.MessageConversation">
+        SELECT *
+        FROM message_conversation
+        WHERE tenant_id = #{tenantId}
+          AND conversation_type = 'CUSTOMER_SERVICE'
+          AND customer_id = #{customerId}
+          AND queue_code = #{queueCode}
+          AND status = 'CLOSED'
+          AND reopen_deadline &gt;= #{now}
+          AND del_flag = '0'
+        ORDER BY closed_time DESC
+        LIMIT 1
+    </select>
+    <select id="selectByIdForUpdate" resultType="com.aryn.cloud.message.api.entity.MessageConversation">
+        SELECT *
+        FROM message_conversation
+        WHERE tenant_id = #{tenantId}
+          AND id = #{id}
+          AND del_flag = '0'
+        FOR UPDATE
+    </select>
+    <sql id="conversationViewColumns">
+        c.id,
+        c.conversation_type,
+        c.queue_code,
+        c.customer_id,
+        c.assigned_staff_id,
+        c.status,
+        c.last_seq,
+        p.last_read_seq,
+        GREATEST(c.last_seq - p.last_read_seq, 0) AS unread_count,
+        c.last_message_summary,
+        c.last_message_time,
+        c.closed_time,
+        c.reopen_deadline,
+        c.context_payload
+    </sql>
+    <select id="selectForParticipant" resultType="com.aryn.cloud.message.api.vo.conversation.ConversationVO">
+        SELECT <include refid="conversationViewColumns"/>
+        FROM message_conversation c
+        INNER JOIN message_participant p ON p.tenant_id = #{tenantId}
+            AND p.conversation_id = c.id
+            AND p.participant_type = #{participantType}
+            AND p.participant_id = #{participantId}
+            AND p.participant_status = 'ACTIVE'
+            AND p.del_flag = '0'
+        WHERE c.tenant_id = #{tenantId}
+          AND c.id = #{conversationId}
+          AND c.del_flag = '0'
+    </select>
+    <select id="selectInbox" resultType="com.aryn.cloud.message.api.vo.conversation.ConversationVO">
+        SELECT <include refid="conversationViewColumns"/>
+        FROM message_conversation c
+        INNER JOIN message_participant p ON p.tenant_id = #{tenantId}
+            AND p.conversation_id = c.id
+            AND p.participant_type = #{participantType}
+            AND p.participant_id = #{participantId}
+            AND p.participant_status = 'ACTIVE'
+            AND p.del_flag = '0'
+        WHERE c.tenant_id = #{tenantId}
+          AND c.del_flag = '0'
+        <if test="cursor != null and cursor != ''">
+            AND c.id &lt; #{cursor}
+        </if>
+        ORDER BY c.id DESC
+        LIMIT #{fetchSize}
+    </select>
+    <update id="assignWaiting">
+        UPDATE message_conversation
+        SET assigned_staff_id = #{staffId}, status = 'ASSIGNED', update_time = NOW()
+        WHERE tenant_id = #{tenantId}
+          AND id = #{conversationId}
+          AND status = 'WAITING'
+          AND assigned_staff_id IS NULL
+          AND del_flag = '0'
+    </update>
+    <select id="selectWaiting" resultType="com.aryn.cloud.message.api.entity.MessageConversation">
+        SELECT *
+        FROM message_conversation
+        WHERE tenant_id = #{tenantId}
+          AND conversation_type = 'CUSTOMER_SERVICE'
+          AND queue_code = #{queueCode}
+          AND status = 'WAITING'
+          AND assigned_staff_id IS NULL
+          AND del_flag = '0'
+        ORDER BY create_time ASC
+        LIMIT #{limit}
+    </select>
+    <select id="selectInactiveConversations" resultType="com.aryn.cloud.message.api.entity.MessageConversation">
+        SELECT *
+        FROM message_conversation
+        WHERE conversation_type = 'CUSTOMER_SERVICE'
+          AND status IN ('WAITING', 'ASSIGNED', 'ACTIVE')
+          AND COALESCE(last_message_time, create_time) &lt; #{inactiveBefore}
+          AND del_flag = '0'
+        ORDER BY COALESCE(last_message_time, create_time) ASC
+        LIMIT #{limit}
+    </select>
+</mapper>

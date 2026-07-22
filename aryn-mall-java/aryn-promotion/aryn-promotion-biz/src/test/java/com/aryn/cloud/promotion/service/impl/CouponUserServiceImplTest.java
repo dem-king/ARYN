@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.promotion.api.entity.CouponInfo;
 import com.aryn.cloud.promotion.api.entity.CouponUser;
+import com.aryn.cloud.promotion.event.PromotionMessageCommandPublisher;
 import com.aryn.cloud.promotion.mapper.CouponGoodsMapper;
 import com.aryn.cloud.promotion.mapper.CouponInfoMapper;
 import com.aryn.cloud.promotion.mapper.CouponUserMapper;
@@ -35,6 +36,7 @@ class CouponUserServiceImplTest {
 	@Mock private CouponInfoMapper couponInfoMapper;
 	@Mock private CouponGoodsMapper couponGoodsMapper;
 	@Mock private CouponUserMapper couponUserMapper;
+	@Mock private PromotionMessageCommandPublisher messageCommandPublisher;
 
 	private CouponUserServiceImpl service;
 
@@ -42,13 +44,27 @@ class CouponUserServiceImplTest {
 	void setUp() {
 		TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), CouponUser.class);
 		service = new TestCouponUserService(remoteMallUserService, couponInfoMapper, couponGoodsMapper,
-				couponUserMapper);
+				couponUserMapper, messageCommandPublisher);
 		ArynTenantContextHolder.setTenantId("tenant-1");
 	}
 
 	@AfterEach
 	void tearDown() {
 		ArynTenantContextHolder.removeTenantId();
+	}
+
+	@Test
+	void receivePublishesCouponNotificationWithTenantSnapshot() {
+		CouponInfo couponInfo = template().setRemainNum(2).setReceiveCount(0).setCouponName("夏日优惠券");
+		when(couponInfoMapper.selectCouponById("template-1")).thenReturn(couponInfo);
+		when(couponUserMapper.insert(any(CouponUser.class))).thenReturn(1);
+		when(couponInfoMapper.allocateOne("template-1")).thenReturn(1);
+		CouponUser couponUser = new CouponUser().setCouponId("template-1").setUserId("user-1");
+
+		service.receive(couponUser);
+
+		assertThat(couponUser.getTenantId()).isEqualTo("tenant-1");
+		verify(messageCommandPublisher).couponReceived(couponUser, couponInfo);
 	}
 
 	@Test
@@ -117,8 +133,8 @@ class CouponUserServiceImplTest {
 
 		private TestCouponUserService(RemoteMallUserService remoteMallUserService,
 				CouponInfoMapper couponInfoMapper, CouponGoodsMapper couponGoodsMapper,
-				CouponUserMapper couponUserMapper) {
-			super(remoteMallUserService, couponInfoMapper, couponGoodsMapper);
+				CouponUserMapper couponUserMapper, PromotionMessageCommandPublisher messageCommandPublisher) {
+			super(remoteMallUserService, couponInfoMapper, couponGoodsMapper, messageCommandPublisher);
 			this.baseMapper = couponUserMapper;
 		}
 	}

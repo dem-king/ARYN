@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aryn.cloud.message.mapper.MessageDispatchTaskMapper">
+    <select id="selectByIdForUpdate" resultType="com.aryn.cloud.message.api.entity.MessageDispatchTask">
+        SELECT *
+        FROM message_dispatch_task
+        WHERE tenant_id = #{tenantId}
+          AND id = #{id}
+          AND del_flag = '0'
+        FOR UPDATE
+    </select>
+    <select id="selectRecoveryTasks" resultType="com.aryn.cloud.message.api.entity.MessageDispatchTask">
+        SELECT *
+        FROM message_dispatch_task
+        WHERE del_flag = '0'
+          AND status IN ('PENDING', 'RUNNING')
+          AND (last_heartbeat_time IS NULL OR last_heartbeat_time &lt; #{staleBefore})
+        ORDER BY create_time ASC
+        LIMIT #{limit}
+    </select>
+</mapper>

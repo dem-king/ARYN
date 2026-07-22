@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aryn.cloud.message.mapper.MessageNoticeMapper">
+    <select id="selectByIdForUpdate" resultType="com.aryn.cloud.message.api.entity.MessageNotice">
+        SELECT *
+        FROM message_notice
+        WHERE tenant_id = #{tenantId}
+          AND id = #{id}
+          AND del_flag = '0'
+        FOR UPDATE
+    </select>
+    <select id="selectBySource" resultType="com.aryn.cloud.message.api.entity.MessageNotice">
+        SELECT *
+        FROM message_notice
+        WHERE tenant_id = #{tenantId}
+          AND source_type = #{sourceType}
+          AND source_key = #{sourceKey}
+          AND del_flag = '0'
+        LIMIT 1
+    </select>
+    <insert id="insertIgnoreSource">
+        INSERT IGNORE INTO message_notice
+        (id, title, summary, content, category, priority, source_type, source_key, target_types,
+         audience_snapshot, sender_type, sender_id, sender_name, status, publish_time, expire_time,
+         card_payload, jump_type, jump_payload, tenant_id, create_by, create_time, del_flag)
+        VALUES
+        (#{id}, #{title}, #{summary}, #{content}, #{category}, #{priority}, #{sourceType}, #{sourceKey},
+         #{targetTypes}, #{audienceSnapshot}, #{senderType}, #{senderId}, #{senderName}, #{status},
+         #{publishTime}, #{expireTime}, #{cardPayload}, #{jumpType}, #{jumpPayload}, #{tenantId}, #{createBy},
+         #{createTime}, #{delFlag})
+    </insert>
+</mapper>

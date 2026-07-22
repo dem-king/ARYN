@@ -74,4 +74,70 @@
         where sys_user.phone = #{phone}
         AND sys_user.del_flag = '0'
     </select>
+    <select id="selectMessageRecipients" resultType="com.aryn.cloud.upms.api.vo.StaffMessageRecipientVO">
+        SELECT sys_user.id,
+               sys_user.nickname,
+               sys_user.avatar,
+               sys_user.dept_id
+        FROM sys_user
+        WHERE sys_user.tenant_id = #{query.tenantId}
+          AND sys_user.del_flag = '0'
+          AND sys_user.status = '0'
+        <if test="query.cursor != null and query.cursor != ''">
+            AND sys_user.id &gt; #{query.cursor}
+        </if>
+        <if test="query.userIds != null and query.userIds.size() > 0">
+            AND sys_user.id IN
+            <foreach collection="query.userIds" item="userId" open="(" separator="," close=")">
+                #{userId}
+            </foreach>
+        </if>
+        <if test="query.deptIds != null and query.deptIds.size() > 0">
+            AND sys_user.dept_id IN
+            <foreach collection="query.deptIds" item="deptId" open="(" separator="," close=")">
+                #{deptId}
+            </foreach>
+        </if>
+        <if test="query.roleIds != null and query.roleIds.size() > 0">
+            AND EXISTS (
+                SELECT 1 FROM sys_user_role
+                WHERE sys_user_role.tenant_id = #{query.tenantId}
+                  AND sys_user_role.user_id = sys_user.id
+                  AND sys_user_role.role_id IN
+                <foreach collection="query.roleIds" item="roleId" open="(" separator="," close=")">
+                    #{roleId}
+                </foreach>
+            )
+        </if>
+        <if test="query.customerServiceOnly != null and query.customerServiceOnly">
+            AND EXISTS (
+                SELECT 1
+                FROM sys_user_role
+                INNER JOIN sys_role_menu ON sys_role_menu.tenant_id = #{query.tenantId}
+                    AND sys_role_menu.role_id = sys_user_role.role_id
+                INNER JOIN sys_menu ON sys_menu.id = sys_role_menu.menu_id
+                    AND sys_menu.del_flag = '0'
+                WHERE sys_user_role.tenant_id = #{query.tenantId}
+                  AND sys_user_role.user_id = sys_user.id
+                  AND sys_menu.permission IN ('message:service:agent', 'message:service:supervisor')
+            )
+        </if>
+        ORDER BY sys_user.id ASC
+        LIMIT #{fetchSize}
+    </select>
+    <select id="countCustomerServiceStaff" resultType="java.lang.Integer">
+        SELECT COUNT(DISTINCT sys_user.id)
+        FROM sys_user
+        INNER JOIN sys_user_role ON sys_user_role.tenant_id = #{tenantId}
+            AND sys_user_role.user_id = sys_user.id
+        INNER JOIN sys_role_menu ON sys_role_menu.tenant_id = #{tenantId}
+            AND sys_role_menu.role_id = sys_user_role.role_id
+        INNER JOIN sys_menu ON sys_menu.id = sys_role_menu.menu_id
+            AND sys_menu.del_flag = '0'
+        WHERE sys_user.tenant_id = #{tenantId}
+          AND sys_user.id = #{staffId}
+          AND sys_user.del_flag = '0'
+          AND sys_user.status = '0'
+          AND sys_menu.permission IN ('message:service:agent', 'message:service:supervisor')
+    </select>
 </mapper>

@@ -24,6 +24,9 @@ public interface RocketMqConstants {
 	/** 订单完成通知topic */
 	String ORDER_COMPLETE_NOTIFY_TOPIC = "order-complete-notify-topic";
 
+	/** 统一站内业务通知命令 topic */
+	String MESSAGE_SEND_COMMAND_TOPIC = "message-send-command-topic";
+
 	/** 退款通知topic */
 	String PAY_REFUND_NOTIFY_TOPIC = "pay-refund-notify-topic";
 

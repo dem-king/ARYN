@@ -1,6 +1,7 @@
 
 package com.aryn.cloud.common.security.entity;
 
+import com.aryn.cloud.common.core.enums.DeviceTypeEnum;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -49,6 +50,9 @@ public class ArynUser implements Serializable {
 
 	@Schema(description = "账号类型：0.系统主账户")
 	private String type;
+
+	@Schema(description = "登录端类型：TOB 后台，TOC 商城")
+	private DeviceTypeEnum deviceType;
 
 	/** 权限标识 */
 	private List<String> permissions;

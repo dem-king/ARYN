@@ -34,6 +34,7 @@ class TenantConfigurationConsistencyTest {
 	private static final Map<String, String> CLOUD_SCHEMAS = Map.of(
 			"aryn-upms-biz-dev.yml", "aryn_upms",
 			"aryn-user-biz-dev.yml", "aryn_user",
+			"aryn-message-biz-dev.yml", "aryn_message",
 			"aryn-pay-biz-dev.yml", "aryn_pay",
 			"aryn-order-biz-dev.yml", "aryn_order",
 			"aryn-product-biz-dev.yml", "aryn_product",

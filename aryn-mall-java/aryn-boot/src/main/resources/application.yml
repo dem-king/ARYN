@@ -67,6 +67,7 @@ logging:
     com.aryn.cloud.pay.mapper: DEBUG
     com.aryn.cloud.product.mapper: DEBUG
     com.aryn.cloud.promotion.mapper: DEBUG
+    com.aryn.cloud.message.mapper: DEBUG
     org.mybatis.spring.SqlSessionFactoryBean: DEBUG
 
 callback:
@@ -195,6 +196,14 @@ hx:
       - order_refund
       - order_config
       - shopping_cart
+      - message_notice
+      - message_recipient
+      - message_dispatch_task
+      - message_conversation
+      - message_participant
+      - message_chat
+      - message_agent
+      - message_assignment_log
 
   swagger:
     enabled: true

@@ -13,6 +13,9 @@ create database `aryn_job` default character set utf8mb4 collate utf8mb4_general
 -- 商城用户相关库
 create database `aryn_user` default character set utf8mb4 collate utf8mb4_general_ci;
 
+-- 站内信与客服会话相关库
+create database `aryn_message` default character set utf8mb4 collate utf8mb4_general_ci;
+
 -- 商城订单相关库
 create database `aryn_order` default character set utf8mb4 collate utf8mb4_general_ci;
 
@@ -24,4 +27,3 @@ create database `aryn_promotion` default character set utf8mb4 collate utf8mb4_g
 
 -- 代码生成相关库
 create database `aryn_gen` default character set utf8mb4 collate utf8mb4_general_ci;
-

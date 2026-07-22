@@ -68,6 +68,10 @@
             <groupId>com.aryn</groupId>
             <artifactId>aryn-order-api</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-message-api</artifactId>
+        </dependency>
         <!--           日志模块-->
         <dependency>
             <groupId>com.aryn</groupId>

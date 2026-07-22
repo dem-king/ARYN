@@ -396,7 +396,41 @@
             "navigationStyle": "custom",
             "navigationBarTitleText": "我的拼团"
           }
+        },
+        // #ifdef MP-WEIXIN
+        {
+          "path": "message/chat/index",
+          "type": "page",
+          "name": "message-chat",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "在线客服"
+          }
+        },
+        // #endif
+        // #ifdef MP-WEIXIN
+        {
+          "path": "message/notice/detail",
+          "type": "page",
+          "name": "message-notice-detail",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "通知详情"
+          }
+        },
+        // #endif
+        // #ifdef MP-WEIXIN
+        {
+          "path": "message/notice/index",
+          "type": "page",
+          "name": "message-center",
+          "style": {
+            "enablePullDownRefresh": true,
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "消息中心"
+          }
         }
+        // #endif
       ]
     }
   ],

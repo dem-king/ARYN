@@ -6,8 +6,12 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.upms.api.entity.SysUser;
+import com.aryn.cloud.upms.api.dto.StaffMessageAudienceRequest;
+import com.aryn.cloud.upms.api.vo.StaffMessageRecipientVO;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+
+import java.util.List;
 
 /**
  * 系统用户
@@ -36,5 +40,10 @@ public interface SysUserMapper extends BaseMapper<SysUser> {
 
 	@InterceptorIgnore(tenantLine = "true")
 	SysUser selectUserByPhone(@Param("phone") String phone);
+
+	List<StaffMessageRecipientVO> selectMessageRecipients(@Param("query") StaffMessageAudienceRequest request,
+			@Param("fetchSize") int fetchSize);
+
+	int countCustomerServiceStaff(@Param("tenantId") String tenantId, @Param("staffId") String staffId);
 
 }

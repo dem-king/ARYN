@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
+import { ref } from 'vue'
 import { getCount as getOrderCount } from '@/api/order/orderInfo'
 // 引入组件
 import WaterfallGoods from '@/components/waterfall-goods/index.vue'
+import { useMessageStore } from '@/store/messageStore'
 
 definePage({
   name: 'user-center',
@@ -90,15 +91,23 @@ const myService = ref<MyService[]>([
     name: '分销中心',
     url: '/sub-pages/user/distribution/index',
   },
-
 ])
 
 const router = useRouter()
 const authStore = useAuthStore()
+const messageStore = useMessageStore()
+
+myService.value.unshift({
+  icon: 'i-carbon:notification-new',
+  name: '消息中心',
+  url: '/sub-pages/message/notice/index',
+})
 
 onShow(() => {
   if (authStore.isLoggedIn) {
     getUserOrderCount()
+    void messageStore.refreshUnread()
+    messageStore.connect()
   }
 })
 /**
@@ -151,25 +160,39 @@ function toLogin() {
 <template>
   <hr-navbar :left-arrow="false" title="个人中心" />
   <view class="user-info">
-    <wd-img :width="50" :height="50" round :src="userStore.getUserAvatar || '/static/default-avatar.png'" @click="toLogin" />
+    <wd-img
+      :width="50"
+      :height="50"
+      round
+      :src="userStore.getUserAvatar || '/static/default-avatar.png'"
+      @click="toLogin"
+    />
     <view style="display: flex; flex-direction: column; flex: 1">
       <view class="nick-name" @click="toLogin">
         <view>
-          {{ userStore.getUserNickname || '登录/注册' }}
+          {{ userStore.getUserNickname || "登录/注册" }}
         </view>
-        <view v-if="authStore.isLoggedIn && userStore.getLevelName" class="level-tag ml-2">
+        <view
+          v-if="authStore.isLoggedIn && userStore.getLevelName"
+          class="level-tag ml-2"
+        >
           {{ userStore.getLevelName }}
         </view>
       </view>
       <view class="pl-2 pt-2 text-12px">
-        <text class="user-tag ml-1" @click="toRoute('/sub-pages/promotion/coupon/coupon-user/index')">
-          优惠券{{ userStore.getCouponCount || 0
-          }}
+        <text
+          class="user-tag ml-1"
+          @click="toRoute('/sub-pages/promotion/coupon/coupon-user/index')"
+        >
+          优惠券{{ userStore.getCouponCount || 0 }}
         </text>
       </view>
     </view>
     <view class="user-setting">
-      <text class="i-carbon:settings text-xl" @click="toJumpUrl('/sub-pages/user/user-setting/index')" />
+      <text
+        class="i-carbon:settings text-xl"
+        @click="toJumpUrl('/sub-pages/user/user-setting/index')"
+      />
     </view>
   </view>
   <view class="grid-container">
@@ -183,10 +206,19 @@ function toLogin() {
         </view>
       </view>
       <view class="grid">
-        <view v-for="(item, index) in myOrder" :key="index" class="grid-item" @click="toOrder(item.status)">
+        <view
+          v-for="(item, index) in myOrder"
+          :key="index"
+          class="grid-item"
+          @click="toOrder(item.status)"
+        >
           <text :class="item.icon" class="text-xl" />
           <view
-            v-if="orderCountArray && orderCountArray[index + 1] && orderCountArray[index + 1] !== 0"
+            v-if="
+              orderCountArray
+                && orderCountArray[index + 1]
+                && orderCountArray[index + 1] !== 0
+            "
             class="grid-dot"
           >
             <view class="grid-dot-text">
@@ -208,8 +240,23 @@ function toLogin() {
         </view>
       </view>
       <view class="grid">
-        <view v-for="(item, index) in myService" :key="index" class="grid-item" @click="toRoute(item.url)">
+        <view
+          v-for="(item, index) in myService"
+          :key="index"
+          class="grid-item"
+          @click="toRoute(item.url)"
+        >
           <text :class="item.icon" class="text-24px" />
+          <view
+            v-if="item.name === '消息中心' && messageStore.totalUnread"
+            class="grid-dot"
+          >
+            <view class="grid-dot-text">
+              {{
+                messageStore.totalUnread > 99 ? "99+" : messageStore.totalUnread
+              }}
+            </view>
+          </view>
           <view class="grid-text">
             {{ item.name }}
           </view>

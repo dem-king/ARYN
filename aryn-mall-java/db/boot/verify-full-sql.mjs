@@ -11,6 +11,18 @@ const required = [
   'USE aryn_boot;',
   'USE aryn_boot_job;',
   'CREATE TABLE `member_level`',
+  'CREATE TABLE `message_notice`',
+  'CREATE TABLE `message_conversation`',
+  'CREATE TABLE `message_chat`',
+  "'message:notice:publish'",
+  "'message:service:agent'",
+  "'message:service:supervisor'",
+  "'message:conversation:initiate'",
+  "'message:staff:direct'",
+  "'message/inbox/index'",
+  "'message/notice/index'",
+  "'message/service/index'",
+  "'message/direct/index'",
   'CREATE TABLE `product_refund_stock_record`',
   'CREATE TABLE IF NOT EXISTS goods_brand',
   'ADD COLUMN brand_id',
@@ -35,6 +47,8 @@ const sourceFiles = [
   '2aryn_boot.sql',
   '19product_brand.sql',
   '4aryn_boot_member.sql',
+  '20message_center.sql',
+  '20message_menu.sql',
   '15menu_seed_repair.sql',
   '10page_design_alter.sql',
   '11page_design_publish.sql',
@@ -61,8 +75,8 @@ const missingDrops = createTables.filter((table) => !dropTables.has(table));
 if (missingDrops.length > 0) {
   throw new Error(`全量脚本缺少 DROP TABLE: ${missingDrops.join(', ')}`);
 }
-if (createTables.length !== 84) {
-	throw new Error(`建表数量异常，期望 84，实际 ${createTables.length}`);
+if (createTables.length !== 92) {
+  throw new Error(`建表数量异常，期望 92，实际 ${createTables.length}`);
 }
 if (!sql.trimEnd().endsWith('SET FOREIGN_KEY_CHECKS = 1;')) {
   throw new Error('脚本末尾未恢复 FOREIGN_KEY_CHECKS');

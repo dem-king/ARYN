@@ -5,6 +5,8 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.user.api.entity.UserInfo;
+import com.aryn.cloud.user.api.dto.UserMessageAudienceRequest;
+import com.aryn.cloud.user.api.vo.UserMessageRecipientVO;
 import com.aryn.cloud.user.api.vo.UserInfoVO;
 import com.aryn.cloud.user.api.vo.UserRespVO;
 import com.aryn.cloud.user.api.vo.UserStatisticsVO;
@@ -76,5 +78,8 @@ public interface UserInfoMapper extends BaseMapper<UserInfo> {
 			WHERE id = #{userId} AND del_flag = '0'
 			""")
 	int updateMemberLevel(@Param("userId") String userId, @Param("levelId") String levelId);
+
+	List<UserMessageRecipientVO> selectMessageRecipients(@Param("query") UserMessageAudienceRequest request,
+			@Param("fetchSize") int fetchSize);
 
 }

@@ -1,5 +1,6 @@
 <script lang="ts" setup>
-import { computed, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 
 import { AuthenticationLoginExpiredModal } from '@vben/common-ui';
 import {
@@ -9,7 +10,12 @@ import {
 } from '@vben/constants';
 import { useWatermark } from '@vben/hooks';
 import { BookOpenText, CircleHelp, MdiGithub } from '@vben/icons';
-import { BasicLayout, LockScreen, UserDropdown } from '@vben/layouts';
+import {
+  BasicLayout,
+  LockScreen,
+  Notification,
+  UserDropdown,
+} from '@vben/layouts';
 import { preferences } from '@vben/preferences';
 import { useAccessStore, useUserStore } from '@vben/stores';
 import { openWindow } from '@vben/utils';
@@ -19,11 +25,14 @@ import { ElOption, ElSelect, ElTour, ElTourStep } from 'element-plus';
 import { getList } from '#/api/upms/tenant';
 import { $t } from '#/locales';
 import { useAuthStore } from '#/store';
+import { useMessageStore } from '#/store/message';
 import LoginForm from '#/views/_core/authentication/login.vue';
 
 const userStore = useUserStore();
 const authStore = useAuthStore();
 const accessStore = useAccessStore();
+const messageStore = useMessageStore();
+const router = useRouter();
 const { destroyWatermark, updateWatermark } = useWatermark();
 
 const switchTenantId = ref(localStorage.getItem('switch-tenant-id') ?? '');
@@ -98,6 +107,19 @@ if (userStore.userInfo?.tenantId === ARYN_PLATFORM_TENANT_ID) {
     openTour.value = true;
   }
 }
+
+onMounted(() => {
+  void messageStore.refreshNotifications();
+  messageStore.connect();
+});
+
+function handleNoticeRead(item: any) {
+  void messageStore.markRead(item);
+}
+
+function handleViewAllNotices() {
+  void router.push('/message/inbox');
+}
 </script>
 
 <template>
@@ -141,14 +163,16 @@ if (userStore.userInfo?.tenantId === ARYN_PLATFORM_TENANT_ID) {
         @logout="handleLogout"
       />
     </template>
-    <!-- <template #notification>
+    <template #notification>
       <Notification
-        :dot="showDot"
-        :notifications="notifications"
-        @clear="handleNoticeClear"
-        @make-all="handleMakeAll"
+        :dot="messageStore.showDot"
+        :notifications="messageStore.notifications"
+        @clear="messageStore.markAllRead"
+        @make-all="messageStore.markAllRead"
+        @read="handleNoticeRead"
+        @view-all="handleViewAllNotices"
       />
-    </template> -->
+    </template>
     <template #extra>
       <AuthenticationLoginExpiredModal
         v-model:open="accessStore.loginExpired"

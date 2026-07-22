@@ -11,15 +11,14 @@ declare const uni: {
 }
 
 export type DecorationLinkAction
-  = | { kind: 'contact' }
-    | {
-      appId: string
-      envVersion: string
-      kind: 'mini-program'
-      path: string
-    }
-    | { kind: 'navigate', url: string }
-    | { kind: 'none' }
+  = | {
+    appId: string
+    envVersion: string
+    kind: 'mini-program'
+    path: string
+  }
+  | { kind: 'navigate', url: string }
+  | { kind: 'none' }
 
 interface LegacyDecorationLink {
   name?: string
@@ -32,7 +31,8 @@ function isSafeInternalPath(path: string) {
 
 function migrateLegacyPath(path: string) {
   const routeMap: Record<string, string> = {
-    '/pages/product/goods-detail/index': '/sub-pages/product/goods-detail/index',
+    '/pages/product/goods-detail/index':
+      '/sub-pages/product/goods-detail/index',
     '/pages/shop/diy-page/index': '/sub-pages/promotion/diy-page/index',
   }
   for (const [legacyPath, currentPath] of Object.entries(routeMap)) {
@@ -58,9 +58,10 @@ export function normalizeDecorationLink(link: unknown): DecorationLink | null {
 
   const record = link as Partial<DecorationLink> & LegacyDecorationLink
   if (record.type) {
-    const path = record.type === 'custom'
-      ? migrateLegacyPath(record.path || '')
-      : record.path || ''
+    const path
+      = record.type === 'custom'
+        ? migrateLegacyPath(record.path || '')
+        : record.path || ''
     return {
       params: record.params || {},
       path,
@@ -79,18 +80,23 @@ export function normalizeDecorationLink(link: unknown): DecorationLink | null {
 function appendParams(path: string, params: Record<string, string>) {
   const query = Object.entries(params)
     .filter(([, value]) => value !== '')
-    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+    .map(
+      ([key, value]) =>
+        `${encodeURIComponent(key)}=${encodeURIComponent(value)}`,
+    )
     .join('&')
   if (!query)
     return path
   return `${path}${path.includes('?') ? '&' : '?'}${query}`
 }
 
-export function createDecorationLinkAction(link?: DecorationLink | null): DecorationLinkAction {
+export function createDecorationLinkAction(
+  link?: DecorationLink | null,
+): DecorationLinkAction {
   if (!link)
     return { kind: 'none' }
   if (link.type === 'customer-service')
-    return { kind: 'contact' }
+    return { kind: 'navigate', url: '/sub-pages/message/chat/index' }
   if (link.type === 'mini-program') {
     return {
       appId: link.params.appId || '',
@@ -114,7 +120,9 @@ export function createDecorationLinkAction(link?: DecorationLink | null): Decora
     : { kind: 'none' }
 }
 
-export function followDecorationLink(link?: DecorationLink | LegacyDecorationLink | string | null) {
+export function followDecorationLink(
+  link?: DecorationLink | LegacyDecorationLink | string | null,
+) {
   const action = createDecorationLinkAction(normalizeDecorationLink(link))
   if (action.kind === 'navigate') {
     uni.navigateTo({

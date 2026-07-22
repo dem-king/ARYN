@@ -8,6 +8,8 @@ const sections = [
   ['Boot 商城基础库', '2aryn_boot.sql'],
   ['商品品牌', '19product_brand.sql'],
   ['会员管理模块', '4aryn_boot_member.sql'],
+  ['站内信与客服会话', '20message_center.sql'],
+  ['消息中心菜单与权限', '20message_menu.sql'],
   ['菜单种子修复', '15menu_seed_repair.sql'],
   ['页面装修类型升级', '10page_design_alter.sql'],
   ['页面装修发布与模板', '11page_design_publish.sql'],

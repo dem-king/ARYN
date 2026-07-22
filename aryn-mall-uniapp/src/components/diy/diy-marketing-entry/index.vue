@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import type { MarketingEntryProps } from '@/components/diy/retail-types'
 
-import { createDecorationLinkAction, followDecorationLink } from '@/components/diy/link-resolver'
+import { computed } from 'vue'
+import { followDecorationLink } from '@/components/diy/link-resolver'
 import { retailCommonStyle } from '@/components/diy/retail-types'
-import type { MarketingEntry, MarketingEntryProps } from '@/components/diy/retail-types'
 import { useDiyStyle } from '@/composables/useDiyStyle'
 
 const props = withDefaults(defineProps<{ showData?: Partial<MarketingEntryProps> }>(), {
@@ -21,29 +21,26 @@ const showData = computed<MarketingEntryProps>(() => ({
 const dynamicStyles = useDiyStyle(computed(() => showData.value.commonStyle))
 const itemStyle = computed(() => ({ width: `${100 / showData.value.columns}%` }))
 const shouldRender = computed(() => showData.value.entries.length > 0 || showData.value.emptyStrategy !== 'hide')
-
-function isContact(entry: MarketingEntry) {
-  return createDecorationLinkAction(entry.link).kind === 'contact'
-}
 </script>
 
 <template>
   <view v-if="shouldRender" class="marketing-entry" :style="dynamicStyles">
     <view v-if="showData.entries.length" class="entry-grid">
       <view v-for="entry in showData.entries" :key="entry.id" class="entry-cell" :style="itemStyle">
-        <button v-if="isContact(entry)" class="entry-button" open-type="contact">
+        <view class="entry-button" @click="followDecorationLink(entry.link)">
           <image v-if="entry.iconUrl" class="entry-icon" :src="entry.iconUrl" mode="aspectFill" />
-          <view v-else class="entry-icon entry-icon--empty">{{ entry.title.slice(0, 1) }}</view>
-          <text class="entry-title">{{ entry.title }}</text>
-        </button>
-        <view v-else class="entry-button" @click="followDecorationLink(entry.link)">
-          <image v-if="entry.iconUrl" class="entry-icon" :src="entry.iconUrl" mode="aspectFill" />
-          <view v-else class="entry-icon entry-icon--empty">{{ entry.title.slice(0, 1) }}</view>
-          <text class="entry-title">{{ entry.title }}</text>
+          <view v-else class="entry-icon entry-icon--empty">
+            {{ entry.title.slice(0, 1) }}
+          </view>
+          <text class="entry-title">
+            {{ entry.title }}
+          </text>
         </view>
       </view>
     </view>
-    <view v-else class="entry-empty">暂无入口</view>
+    <view v-else class="entry-empty">
+      暂无入口
+    </view>
   </view>
 </template>
 

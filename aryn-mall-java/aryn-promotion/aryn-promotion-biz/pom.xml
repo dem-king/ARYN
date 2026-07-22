@@ -21,6 +21,10 @@
             <groupId>com.aryn</groupId>
             <artifactId>aryn-promotion-api</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-message-api</artifactId>
+        </dependency>
         <!--            安全模块-->
         <dependency>
             <groupId>com.aryn</groupId>

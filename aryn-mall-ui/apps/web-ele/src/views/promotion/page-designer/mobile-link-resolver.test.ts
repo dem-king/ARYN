@@ -63,14 +63,14 @@ describe('mobile decoration link resolver', () => {
     ).toMatchObject({ envVersion: 'release', kind: 'mini-program' });
   });
 
-  it('keeps customer service as a render-time button action', () => {
+  it('routes customer service links to the in-app conversation page', () => {
     expect(
       createDecorationLinkAction({
         params: {},
         path: '',
         type: 'customer-service',
       }),
-    ).toEqual({ kind: 'contact' });
+    ).toEqual({ kind: 'navigate', url: '/sub-pages/message/chat/index' });
   });
 
   it.each([
