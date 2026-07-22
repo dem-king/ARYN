@@ -2791,7 +2791,10 @@ CREATE TABLE IF NOT EXISTS goods_brand (
   PRIMARY KEY (id),
   KEY idx_goods_brand_tenant_status (tenant_id, status, del_flag),
   KEY idx_goods_brand_tenant_name (tenant_id, name, del_flag)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='商品品牌';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='商品品牌';
+
+ALTER TABLE goods_brand
+  CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
 
 SET @brand_column_exists = (
   SELECT COUNT(*) FROM information_schema.columns
