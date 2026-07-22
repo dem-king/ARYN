@@ -15,7 +15,6 @@ import { defineStore } from 'pinia';
 import { getUserInfoApi, loginApi, logoutApi, mobileLoginApi } from '#/api';
 import { sendCode } from '#/api/upms/sms';
 import { $t } from '#/locales';
-import { encrypt } from '#/utils/aes';
 
 export const useAuthStore = defineStore('auth', () => {
   const accessStore = useAccessStore();
@@ -37,11 +36,7 @@ export const useAuthStore = defineStore('auth', () => {
     const userInfo: null | UserInfo = null;
     try {
       loginLoading.value = true;
-      params.password = encrypt(
-        params.password,
-        import.meta.env.VITE_PWD_PRIVICE_KEY,
-      );
-      const { tokenValue } = await loginApi(params);
+      const { tokenValue } = await loginApi({ ...params });
 
       // 如果成功获取到 accessToken
       if (tokenValue) {

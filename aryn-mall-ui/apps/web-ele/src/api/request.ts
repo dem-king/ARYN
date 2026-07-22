@@ -17,9 +17,11 @@ import { ElMessage } from 'element-plus';
 
 import { useAuthStore } from '#/store';
 
+import { parseOpenBoot, rewriteBootUrl } from './boot-url';
 import { refreshTokenApi } from './core';
 
 const { apiURL } = useAppConfig(import.meta.env, import.meta.env.PROD);
+const openBoot = parseOpenBoot(import.meta.env.VITE_OPEN_BOOT);
 
 function createRequestClient(baseURL: string, options?: RequestClientOptions) {
   const client = new RequestClient({
@@ -65,18 +67,21 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
     fulfilled: async (config) => {
       const accessStore = useAccessStore();
       // switchTenantId
-      const isSwitchTenant = (config.headers || {}).isSwitchTenant === false;
+      const isToken = config.headers.isToken !== false;
+      const isSwitchTenant = config.headers.isSwitchTenant === false;
+      delete config.headers.isToken;
+      delete config.headers.isSwitchTenant;
       const switchTenantId = localStorage.getItem('switch-tenant-id');
       if (switchTenantId && !isSwitchTenant) {
-        (<any>config.headers)['tenant-id'] = switchTenantId;
+        config.headers['tenant-id'] = switchTenantId;
       }
-      config.headers.satoken = formatToken(accessStore.accessToken);
+      if (isToken) {
+        config.headers.satoken = formatToken(accessStore.accessToken);
+      } else {
+        delete config.headers.satoken;
+      }
       config.headers['Accept-Language'] = preferences.app.locale;
-
-      if (JSON.parse(import.meta.env.VITE_OPEN_BOOT)) {
-        config.url =
-          config.url = `/boot/${config.url?.split('/').splice(2).join('/')}`;
-      }
+      config.url = rewriteBootUrl(config.url, openBoot);
       return config;
     },
   });

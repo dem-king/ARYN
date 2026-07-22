@@ -153,7 +153,7 @@ export default {
     </div>
   </div>
 </template>
-<style>
+<style scoped>
 .verifybox {
   position: relative;
   top: 50%;

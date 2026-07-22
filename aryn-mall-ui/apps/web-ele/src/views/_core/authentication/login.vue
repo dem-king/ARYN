@@ -6,21 +6,12 @@ import { computed, ref } from 'vue';
 import { AuthenticationLogin, z } from '@vben/common-ui';
 import { $t } from '@vben/locales';
 
-import { ElNotification } from 'element-plus';
-
 import Verify from '#/components/verifition/index.vue';
 import { useAuthStore } from '#/store';
 
 defineOptions({ name: 'Login' });
 const verifyRef = ref();
 const captchaType = ref('blockPuzzle'); // 1）滑动拼图 blockPuzzle 2）文字点选 clickWord
-ElNotification({
-  title: '登录账号',
-  dangerouslyUseHTMLString: true,
-  message:
-    '<p>平台管理员账号：system/123456</p><p>租户1管理员账号：admin/123456</p>',
-  duration: 0,
-});
 const authStore = useAuthStore();
 const loginUser = ref({
   username: '',
@@ -35,15 +26,6 @@ const formSchema = computed((): VbenFormSchema[] => {
       component: 'VbenInput',
       componentProps: {
         placeholder: $t('authentication.usernameTip'),
-      },
-      dependencies: {
-        trigger(_values, form) {
-          form.setValues({
-            password: '123456',
-            username: 'system',
-          });
-        },
-        triggerFields: ['selectAccount'],
       },
       fieldName: 'username',
       label: $t('authentication.username'),
