@@ -1,5 +1,7 @@
 package com.aryn.cloud.common.security.properties;
 
+import com.aryn.cloud.common.core.properties.CorsProperties;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

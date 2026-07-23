@@ -1,4 +1,4 @@
-package com.aryn.cloud.common.security.properties;
+package com.aryn.cloud.common.core.properties;
 
 import lombok.Getter;
 import org.springframework.boot.context.properties.ConfigurationProperties;

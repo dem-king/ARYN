@@ -1,13 +1,14 @@
 import { uniappRequestAdapter } from '@alova/adapter-uniapp'
 import { createAlova } from 'alova'
 import vueHook from 'alova/vue'
+import { apiBaseUrl } from './api-base-url'
 import { parseOpenBoot, rewriteBootUrl } from './boot-url'
 import { handleAlovaError, handleAlovaResponse } from './handlers'
 
 const openBoot = parseOpenBoot(import.meta.env.VITE_OPEN_BOOT)
 
 export const alovaInstance = createAlova({
-  baseURL: import.meta.env.VITE_API_BASE_URL,
+  baseURL: apiBaseUrl,
   requestAdapter: uniappRequestAdapter,
   statesHook: vueHook,
   beforeRequest: (method) => {
@@ -51,7 +52,7 @@ export const alovaInstance = createAlova({
     // Log request in development
     if (import.meta.env.MODE === 'development') {
       console.log(`[Alova Request] ${method.type} ${method.url}`, method.data || method.config.params)
-      console.log(`[API Base URL] ${import.meta.env.VITE_API_BASE_URL}`)
+      console.log(`[API Base URL] ${apiBaseUrl}`)
       console.log(`[Environment] ${import.meta.env.VITE_ENV_NAME}`)
     }
   },

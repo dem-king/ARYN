@@ -1,4 +1,6 @@
 import { defineStore } from 'pinia'
+import { buildWebSocketUrl, getPageOrigin } from '@/api/core/api-base-url'
+import { parseOpenBoot, rewriteBootUrl } from '@/api/core/boot-url'
 import { getConversationInbox } from '@/api/message/conversation'
 import { getNoticeUnreadCount } from '@/api/message/notice'
 
@@ -33,15 +35,12 @@ export const useMessageStore = defineStore('message', {
       if (!authStore.getToken)
         return
       this.socketState = 'connecting'
-      const apiBase = String(import.meta.env.VITE_API_BASE_URL || '')
-        .replace(/\/$/, '')
-        .replace(/^http/, 'ws')
-      const path
-        = import.meta.env.VITE_OPEN_BOOT === 'true'
-          ? '/boot/ws/app'
-          : '/message/ws/app'
+      const path = rewriteBootUrl(
+        '/message/ws/app',
+        parseOpenBoot(import.meta.env.VITE_OPEN_BOOT),
+      ) ?? '/message/ws/app'
       socketTask = uni.connectSocket({
-        url: `${apiBase}${path}?satoken=${encodeURIComponent(authStore.getToken)}`,
+        url: `${buildWebSocketUrl(path, getPageOrigin())}?satoken=${encodeURIComponent(authStore.getToken)}`,
         header: {
           'satoken': authStore.getToken,
           'tenant-id': import.meta.env.VITE_TENANT_ID,

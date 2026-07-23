@@ -9,11 +9,13 @@ import com.aryn.cloud.message.api.dto.agent.AgentConfigRequest;
 import com.aryn.cloud.message.api.dto.agent.AgentPresenceRequest;
 import com.aryn.cloud.message.api.vo.agent.AgentVO;
 import com.aryn.cloud.message.service.AgentService;
+import com.aryn.cloud.upms.api.vo.StaffMessageAudiencePageVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -35,6 +37,22 @@ public class AgentController {
 	public Result<AgentVO> saveConfig(@Valid @RequestBody AgentConfigRequest request) {
 		ArynUser user = currentUser();
 		return Result.success(agentService.saveConfig(user.getTenantId(), user.getUserId(), request));
+	}
+
+	@GetMapping("/config/{staffId}")
+	@Operation(summary = "查询指定工作人员的客服坐席配置")
+	@SaCheckPermission("message:service:agent")
+	public Result<AgentVO> config(@PathVariable String staffId) {
+		ArynUser user = currentUser();
+		return Result.success(agentService.findConfig(user.getTenantId(), staffId));
+	}
+
+	@GetMapping("/candidates")
+	@Operation(summary = "客服坐席候选工作人员")
+	@SaCheckPermission("message:service:agent")
+	public Result<StaffMessageAudiencePageVO> candidates() {
+		ArynUser user = currentUser();
+		return Result.success(agentService.listCandidates(user.getTenantId()));
 	}
 
 	@GetMapping("/self")

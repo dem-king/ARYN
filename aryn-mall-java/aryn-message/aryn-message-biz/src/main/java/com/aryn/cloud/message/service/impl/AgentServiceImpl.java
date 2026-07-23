@@ -8,7 +8,9 @@ import com.aryn.cloud.message.api.enums.AgentPresenceStatus;
 import com.aryn.cloud.message.api.vo.agent.AgentVO;
 import com.aryn.cloud.message.mapper.MessageAgentMapper;
 import com.aryn.cloud.message.service.AgentService;
+import com.aryn.cloud.upms.api.dto.StaffMessageAudienceRequest;
 import com.aryn.cloud.upms.api.remote.RemoteMessageStaffService;
+import com.aryn.cloud.upms.api.vo.StaffMessageAudiencePageVO;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -71,11 +73,26 @@ public class AgentServiceImpl implements AgentService {
 
 	@Override
 	public AgentVO get(String tenantId, String staffId) {
-		MessageAgent agent = agentMapper.selectByStaffId(tenantId, staffId);
+		AgentVO agent = findConfig(tenantId, staffId);
 		if (agent == null) {
 			throw new ArynBusinessException("客服坐席未配置");
 		}
-		return toVO(agent);
+		return agent;
+	}
+
+	@Override
+	public AgentVO findConfig(String tenantId, String staffId) {
+		MessageAgent agent = agentMapper.selectByStaffId(tenantId, staffId);
+		return agent == null ? null : toVO(agent);
+	}
+
+	@Override
+	public StaffMessageAudiencePageVO listCandidates(String tenantId) {
+		StaffMessageAudienceRequest request = new StaffMessageAudienceRequest();
+		request.setTenantId(tenantId);
+		request.setLimit(500);
+		request.setCustomerServiceOnly(true);
+		return staffService.queryRecipients(request);
 	}
 
 	@Override

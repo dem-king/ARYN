@@ -7,10 +7,11 @@ import cn.dev33.satoken.router.SaHttpMethod;
 import cn.dev33.satoken.router.SaRouter;
 import cn.dev33.satoken.stp.StpUtil;
 import cn.dev33.satoken.util.SaResult;
-import com.aryn.cloud.common.security.properties.CorsProperties;
+import com.aryn.cloud.common.core.properties.CorsProperties;
 import com.aryn.cloud.gateway.properties.PermitAllUrlProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
@@ -26,6 +27,7 @@ import java.util.List;
 @Slf4j
 @Configuration
 @RequiredArgsConstructor
+@EnableConfigurationProperties(CorsProperties.class)
 public class SaTokenConfigure {
 
 	private final PermitAllUrlProperties permitAllUrlProperties;

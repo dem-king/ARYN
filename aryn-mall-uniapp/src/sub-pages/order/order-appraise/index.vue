@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { onLoad } from '@dcloudio/uni-app'
 import { reactive, ref } from 'vue'
+import { buildApiUrl } from '@/api/core/api-base-url'
+import { parseOpenBoot, rewriteBootUrl } from '@/api/core/boot-url'
 import { getById, orderAppraise } from '@/api/order/orderInfo'
 
 definePage({
@@ -16,9 +18,14 @@ const router = useRouter()
 const globalLoading = useGlobalLoading()
 const authStore = useAuthStore()
 
-const action = ref(`${import.meta.env.VITE_API_BASE_URL + (import.meta.env.VITE_OPEN_BOOT === 'true' ? '/boot' : '/upms')}/file/app/upload`)
+const uploadPath = rewriteBootUrl(
+  '/upms/file/app/upload',
+  parseOpenBoot(import.meta.env.VITE_OPEN_BOOT),
+) ?? '/upms/file/app/upload'
+const action = ref(buildApiUrl(uploadPath))
 const headers = ref({
-  satoken: authStore.getToken,
+  'satoken': authStore.getToken,
+  'tenant-id': import.meta.env.VITE_TENANT_ID,
 })
 const state = reactive<{ list: Array<any> }>({
   list: [],

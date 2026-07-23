@@ -1,3 +1,5 @@
+import { buildApiUrl } from '@/api/core/api-base-url'
+import { parseOpenBoot, rewriteBootUrl } from '@/api/core/boot-url'
 import { alovaInstance } from '@/api/core/instance'
 
 interface UploadResponse {
@@ -20,10 +22,13 @@ export function uploadImg(filePath: string) {
 
 export function uploadFile(filePath: string) {
   const authStore = useAuthStore()
-  const baseURL = import.meta.env.VITE_OPEN_BOOT === 'true' ? '/boot' : 'upms'
+  const uploadPath = rewriteBootUrl(
+    '/upms/file/app/upload',
+    parseOpenBoot(import.meta.env.VITE_OPEN_BOOT),
+  ) ?? '/upms/file/app/upload'
   return new Promise<UploadResponse>((resolve, reject) => {
     uni.uploadFile({
-      url: `${import.meta.env.VITE_API_BASE_URL}${baseURL}/file/app/upload`,
+      url: buildApiUrl(uploadPath),
       filePath,
       name: 'file',
       header: {

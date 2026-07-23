@@ -97,6 +97,7 @@ backend_artifacts_exist() {
     aryn-auth/target/aryn-auth.jar \
     aryn-upms/aryn-upms-biz/target/aryn-upms-biz.jar \
     aryn-user/aryn-user-biz/target/aryn-user-biz.jar \
+    aryn-message/aryn-message-biz/target/aryn-message-biz.jar \
     aryn-product/aryn-product-biz/target/aryn-product-biz.jar \
     aryn-order/aryn-order-biz/target/aryn-order-biz.jar \
     aryn-promotion/aryn-promotion-biz/target/aryn-promotion-biz.jar \
@@ -111,7 +112,7 @@ build_backend() {
   (
     cd "${JAVA_DIR}"
     mvn -Pcloud -DskipTests package \
-      -pl aryn-gateway,aryn-auth,aryn-upms/aryn-upms-biz,aryn-user/aryn-user-biz,aryn-product/aryn-product-biz,aryn-order/aryn-order-biz,aryn-promotion/aryn-promotion-biz,aryn-pay/aryn-pay-biz \
+      -pl aryn-gateway,aryn-auth,aryn-upms/aryn-upms-biz,aryn-user/aryn-user-biz,aryn-message/aryn-message-biz,aryn-product/aryn-product-biz,aryn-order/aryn-order-biz,aryn-promotion/aryn-promotion-biz,aryn-pay/aryn-pay-biz \
       -am
   )
 }

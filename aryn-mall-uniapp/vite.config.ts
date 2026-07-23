@@ -31,6 +31,7 @@ export default async (mode: ConfigEnv) => {
         '/api': {
           target: 'http://localhost:9999',
           changeOrigin: true,
+          ws: true,
           rewrite: path => path.replace(/^\/api/, ''),
         },
       },

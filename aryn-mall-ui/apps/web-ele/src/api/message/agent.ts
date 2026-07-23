@@ -11,6 +11,42 @@ export interface AgentInfo {
   staffId: string;
 }
 
+export interface AgentCandidate {
+  avatar?: string;
+  deptId?: string;
+  id: string;
+  nickname?: string;
+}
+
+export interface AgentCandidatePage {
+  hasMore: boolean;
+  nextCursor?: string;
+  records: AgentCandidate[];
+}
+
+export interface AgentConfigRequest {
+  autoAccept: boolean;
+  enabled: boolean;
+  maxActiveCount: number;
+  staffId: string;
+}
+
+export function getAgentCandidates() {
+  return requestClient.get<AgentCandidatePage>(
+    '/message/staff/agent/candidates',
+  );
+}
+
+export function getAgentConfig(staffId: string) {
+  return requestClient.get<AgentInfo | null>(
+    `/message/staff/agent/config/${encodeURIComponent(staffId)}`,
+  );
+}
+
+export function saveAgentConfig(data: AgentConfigRequest) {
+  return requestClient.put<AgentInfo>('/message/staff/agent/config', data);
+}
+
 export function getSelfAgent() {
   return requestClient.get<AgentInfo>('/message/staff/agent/self');
 }

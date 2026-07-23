@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import type { ViewChatMessage } from '../message-state';
 
+import type { AgentInfo } from '#/api/message/agent';
 import type { Conversation } from '#/api/message/types';
 
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+
+import { useUserStore } from '@vben/stores';
 
 import {
   ElButton,
@@ -34,14 +37,17 @@ import {
 } from '#/api/message/conversation';
 
 import { markMessageFailed, mergeServerMessage } from '../message-state';
+import AgentConfigDialog from './agent-config-dialog.vue';
 
 const activeTab = ref<'mine' | 'waiting'>('mine');
+const userStore = useUserStore();
 const conversations = ref<Conversation[]>([]);
 const active = ref<Conversation>();
 const messages = ref<ViewChatMessage[]>([]);
 const draft = ref('');
 const presence = ref<'BUSY' | 'OFFLINE' | 'ONLINE' | 'PAUSED'>('OFFLINE');
 const timeline = ref<HTMLElement>();
+const agentConfigDialog = ref<InstanceType<typeof AgentConfigDialog>>();
 let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
 
 const title = computed(() =>
@@ -157,6 +163,11 @@ async function changePresence(value: typeof presence.value) {
   }
 }
 
+function handleAgentSaved(agent: AgentInfo) {
+  if (agent.staffId !== userStore.userInfo?.userId) return;
+  presence.value = agent.enabled === '1' ? agent.presenceStatus : 'OFFLINE';
+}
+
 function displayMessage(message: ViewChatMessage) {
   if (message.messageType === 'TEXT') return message.content;
   const labels: Record<string, string> = {
@@ -190,8 +201,20 @@ onBeforeUnmount(() => heartbeatTimer && clearInterval(heartbeatTimer));
   <div class="service-desk">
     <aside class="conversation-rail">
       <div class="desk-brand">
-        <span class="pulse"></span>
-        <div><strong>客服调度台</strong><small>SHARED SERVICE POOL</small></div>
+        <div class="desk-brand-copy">
+          <span class="pulse"></span>
+          <div>
+            <strong>客服调度台</strong><small>SHARED SERVICE POOL</small>
+          </div>
+        </div>
+        <ElButton
+          v-access:code="'message:service:agent'"
+          class="config-trigger"
+          size="small"
+          @click="agentConfigDialog?.open()"
+        >
+          坐席设置
+        </ElButton>
       </div>
       <div class="presence-row">
         <span>接待状态</span
@@ -319,6 +342,7 @@ onBeforeUnmount(() => heartbeatTimer && clearInterval(heartbeatTimer));
     <section v-else class="empty-stage">
       <ElEmpty description="选择一个会话开始处理" />
     </section>
+    <AgentConfigDialog ref="agentConfigDialog" @saved="handleAgentSaved" />
   </div>
 </template>
 
@@ -346,10 +370,18 @@ onBeforeUnmount(() => heartbeatTimer && clearInterval(heartbeatTimer));
 
 .desk-brand {
   display: flex;
-  gap: 13px;
   align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 24px;
   border-bottom: 1px solid rgb(125 211 252 / 10%);
+}
+
+.desk-brand-copy {
+  display: flex;
+  gap: 13px;
+  align-items: center;
+  min-width: 0;
 }
 
 .desk-brand strong {
@@ -361,6 +393,19 @@ onBeforeUnmount(() => heartbeatTimer && clearInterval(heartbeatTimer));
   font-size: 9px;
   color: #5f8198;
   letter-spacing: 0.18em;
+}
+
+.config-trigger {
+  flex: none;
+  color: #99f6e4;
+  background: rgb(20 184 166 / 9%);
+  border-color: rgb(45 212 191 / 24%);
+}
+
+.config-trigger:hover {
+  color: #ecfeff;
+  background: rgb(20 184 166 / 18%);
+  border-color: rgb(94 234 212 / 48%);
 }
 
 .pulse {
