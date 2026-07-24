@@ -5,6 +5,8 @@ import com.baomidou.mybatisplus.extension.service.IService;
 import com.aryn.cloud.common.core.dto.SysStorageConfigDTO;
 import com.aryn.cloud.upms.api.entity.SysStorageConfig;
 
+import java.util.List;
+
 /**
  * 文件存储配置
  *
@@ -21,6 +23,12 @@ public interface ISysStorageConfigService extends IService<SysStorageConfig> {
 	 * @return: com.aryn.cloud.common.core.dto.SysStorageConfigDTO
 	 */
 	SysStorageConfigDTO getConfig();
+
+	/**
+	 * 查询当前租户未删除的本地存储根目录
+	 * @return 本地存储根目录
+	 */
+	List<String> getLocalStorageRoots();
 
 	/**
 	 * 新增配置

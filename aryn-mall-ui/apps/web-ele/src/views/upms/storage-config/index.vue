@@ -92,7 +92,7 @@ const edit = (row: any) => {
  * 删除按钮
  */
 const del = (id: string) => {
-  ElMessageBox.confirm('此操作将删除该支付配置，是否继续?', '提示', {
+  ElMessageBox.confirm('此操作将删除该存储配置，是否继续?', '提示', {
     confirmButtonText: '确认',
     cancelButtonText: '取消',
     type: 'warning',
@@ -175,13 +175,17 @@ initPage();
             <DictTag :options="sys_storage_type" :value="scope.row.type" />
           </template>
         </ElTableColumn>
-        <ElTableColumn prop="type" label="状态" width="100">
+        <ElTableColumn prop="status" label="状态" width="100">
           <template #default="scope">
             <DictTag :options="status" :value="scope.row.status" />
           </template>
         </ElTableColumn>
         <ElTableColumn prop="endpoint" label="地域节点" min-width="200" />
-        <ElTableColumn prop="bucket" label="桶名称（bucket）" min-width="100" />
+        <ElTableColumn
+          prop="bucket"
+          label="Bucket / 本地根目录"
+          min-width="180"
+        />
         <ElTableColumn prop="createTime" label="创建时间" min-width="180" />
         <ElTableColumn label="操作" align="center" width="200">
           <template #default="scope">

@@ -9,21 +9,21 @@
 
 package com.aryn.cloud.common.storage.handler.impl;
 
-import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.io.IoUtil;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.storage.entity.StorageConfig;
 import lombok.SneakyThrows;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
-import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
-import java.net.InetAddress;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 /**
  * 本地上传文件处理器
@@ -31,53 +31,21 @@ import java.util.UUID;
  * @author 雨滴kian
  */
 @Component
+@RequiredArgsConstructor
 public class LocalUploadFileHandler extends AbstractUploadFileHandler {
 
-	@Autowired
-	private Environment environment;
+	private static final Pattern TENANT_ID_PATTERN = Pattern.compile("^[0-9]{1,32}$");
 
-	public String getActiveProfile() {
-		String[] profiles = environment.getActiveProfiles();
-		if (profiles.length > 0) {
-			return profiles[0];
-		}
-		return "default";
-	}
-
-	public int getServerPort() {
-		return Integer.parseInt(environment.getProperty("server.port"));
-	}
+	private final Environment environment;
 
 	@SneakyThrows
 	@Override
 	public String doUploadFile(StorageConfig storageConfig, InputStream inputStream, String fileName, long size) {
-		// 对于本地存储：
-		// endpoint 作为访问域名 (例如 https://file.example.com)
-		// bucket 作为本地存储根路径 (例如 /data/files)
-
-		String domain = storageConfig.getDomain();
 		String rootPath = storageConfig.getBucket();
-		String prefix = "upms";
-		if (getActiveProfile().equals("dev")) {
-			prefix = "boot";
-		}
-		// 如果 domain 为空，尝试自动获取
-		if (!StringUtils.hasText(domain)) {
-			try {
-				InetAddress inet = InetAddress.getLocalHost();
-				domain = "http://" + inet.getHostAddress() + ":" + getServerPort() + "/" + prefix;
-			}
-			catch (Exception ex) {
-				domain = "http://localhost:9900" + "/" + prefix;
-			}
-		}
-
-		// 自动补全协议头
-		if (!domain.startsWith("http")) {
-			domain = "https://" + domain;
-		}
-		if (domain.endsWith("/")) {
-			domain = domain.substring(0, domain.length() - 1);
+		String tenantId = ArynTenantContextHolder.getTenantId();
+		if (!StringUtils.hasText(rootPath) || !StringUtils.hasText(tenantId)
+				|| !TENANT_ID_PATTERN.matcher(tenantId).matches()) {
+			throw new IllegalArgumentException("本地文件存储配置不正确");
 		}
 
 		// 获取后缀
@@ -87,23 +55,31 @@ public class LocalUploadFileHandler extends AbstractUploadFileHandler {
 		}
 		String uuidFileName = UUID.randomUUID() + (StringUtils.hasText(suffix) ? "." + suffix : "");
 
-		// 相对路径： tenantId / dir / uuidFileName
-		String relativePath = ArynTenantContextHolder.getTenantId() + "/" + uuidFileName;
-
-		// 绝对路径
-		String absolutePath = rootPath + "/" + relativePath;
-
-		// 确保目录存在
-		File destFile = new File(absolutePath);
-		FileUtil.touch(destFile);
-
-		// 写入文件
-		try (FileOutputStream fos = new FileOutputStream(destFile)) {
+		Path root = Path.of(rootPath).toAbsolutePath().normalize();
+		Path tenantDirectory = root.resolve(tenantId).normalize();
+		Path destination = tenantDirectory.resolve(uuidFileName).normalize();
+		if (!destination.startsWith(root)) {
+			throw new IllegalArgumentException("本地文件存储路径不正确");
+		}
+		Files.createDirectories(tenantDirectory);
+		try (FileOutputStream fos = new FileOutputStream(destination.toFile())) {
 			IoUtil.copy(inputStream, fos);
 		}
 
-		// 返回访问 URL
-		return domain + "/file/local/" + relativePath;
+		return resolvePublicBaseUrl(storageConfig.getDomain()) + "/file/local/" + tenantId + "/" + uuidFileName;
+	}
+
+	String resolvePublicBaseUrl(String domain) {
+		if (!StringUtils.hasText(domain)) {
+			Boolean cloudEnabled = environment.getProperty("hx.cloud.enable", Boolean.class, true);
+			return Boolean.FALSE.equals(cloudEnabled) ? "/boot" : "/upms";
+		}
+		String normalizedDomain = domain.trim();
+		if (!normalizedDomain.startsWith("http://") && !normalizedDomain.startsWith("https://")) {
+			normalizedDomain = "https://" + normalizedDomain;
+		}
+		return normalizedDomain.endsWith("/") ? normalizedDomain.substring(0, normalizedDomain.length() - 1)
+				: normalizedDomain;
 	}
 
 	@Override

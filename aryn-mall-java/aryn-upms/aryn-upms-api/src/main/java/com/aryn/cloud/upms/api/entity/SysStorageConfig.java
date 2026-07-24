@@ -29,7 +29,7 @@ public class SysStorageConfig extends Model<SysStorageConfig> {
 	@TableId(type = IdType.ASSIGN_ID)
 	private String id;
 
-	@Schema(description = "存储类型1、阿里OSS；2、七牛云；3、腾讯云")
+	@Schema(description = "存储类型：local、aliyun、qiniu、tencent、minio")
 	private String type;
 
 	@Schema(description = "access_key")

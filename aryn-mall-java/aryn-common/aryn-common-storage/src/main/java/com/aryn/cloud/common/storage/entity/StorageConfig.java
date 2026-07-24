@@ -13,6 +13,8 @@ import lombok.Data;
 @Data
 public class StorageConfig {
 
+	private String type;
+
 	/** AccessKeyId */
 	private String accessKeyId;
 

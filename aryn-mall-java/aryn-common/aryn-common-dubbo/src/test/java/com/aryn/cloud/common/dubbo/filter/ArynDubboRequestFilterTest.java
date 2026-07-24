@@ -11,6 +11,10 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
@@ -73,6 +77,18 @@ class ArynDubboRequestFilterTest {
 		}
 
 		assertThat(ArynTenantContextHolder.getTenantId()).isNull();
+	}
+
+	@Test
+	void registersCurrentTenantFilterAsDubboExtension() throws IOException {
+		try (InputStream stream = getClass().getClassLoader()
+			.getResourceAsStream("META-INF/dubbo/org.apache.dubbo.rpc.Filter")) {
+			assertThat(stream).isNotNull();
+			String descriptor = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+			assertThat(descriptor)
+				.contains("arynDubboRequestFilter=com.aryn.cloud.common.dubbo.filter.ArynDubboRequestFilter")
+				.doesNotContain("HxDubboRequestFilter");
+		}
 	}
 
 	private Invocation providerInvocation(String tenantId) {

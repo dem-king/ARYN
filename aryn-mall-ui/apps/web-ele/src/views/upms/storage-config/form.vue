@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import type { FormInstance } from 'element-plus';
 
-import { reactive, ref } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 
 import {
   ElButton,
@@ -88,7 +88,7 @@ const state = reactive({
       {
         validator: (_rule: any, value: string, callback: any) => {
           const domainValue = value?.trim();
-          if (state.form.endpoint?.includes('qiniucs') && !domainValue) {
+          if (isQiniu.value && !domainValue) {
             callback(new Error('七牛云存储请填写自定义域名'));
             return;
           }
@@ -107,6 +107,36 @@ const state = reactive({
 const dialog = ref(false);
 const loading = ref(false);
 const formRef = ref();
+const normalizedType = computed(() => {
+  const legacyTypes: Record<string, string> = {
+    '1': 'aliyun',
+    '2': 'tencent',
+    '3': 'qiniu',
+    '4': 'minio',
+  };
+  return legacyTypes[state.form.type] ?? state.form.type;
+});
+const isObjectStorage = computed(
+  () => normalizedType.value !== '' && normalizedType.value !== 'local',
+);
+const isQiniu = computed(() => normalizedType.value === 'qiniu');
+const isMinio = computed(() => normalizedType.value === 'minio');
+const bucketLabel = computed(() =>
+  normalizedType.value === 'local' ? '本地存储根目录' : 'Bucket',
+);
+
+watch(
+  () => state.form.type,
+  () => {
+    if (normalizedType.value === 'local') {
+      state.form.styleAccessEnabled = '0';
+    } else if (isMinio.value) {
+      state.form.styleAccessEnabled = '1';
+    } else if (isObjectStorage.value) {
+      state.form.styleAccessEnabled = '0';
+    }
+  },
+);
 const initForm = (row: any) => {
   if (row && row.id) {
     getDetail(row.id);
@@ -216,49 +246,67 @@ defineExpose({
           </ElRadio>
         </ElRadioGroup>
       </ElFormItem>
-      <ElFormItem
-        label="AccessKey"
-        prop="accessKey"
-        v-if="state.form.type === 'oss'"
-      >
+      <ElFormItem label="AccessKey" prop="accessKey" v-if="isObjectStorage">
         <ElInput v-model="state.form.accessKey" />
       </ElFormItem>
       <ElFormItem
         label="AccessKeySecret"
         prop="accessSecret"
-        v-if="state.form.type === 'oss'"
+        v-if="isObjectStorage"
       >
-        <ElInput v-model="state.form.accessSecret" />
+        <ElInput
+          v-model="state.form.accessSecret"
+          type="password"
+          show-password
+        />
       </ElFormItem>
-      <ElFormItem
-        label="endpoint"
-        prop="endpoint"
-        v-if="state.form.type === 'oss'"
-      >
+      <ElFormItem label="endpoint" prop="endpoint" v-if="isObjectStorage">
         <ElInput v-model="state.form.endpoint" />
       </ElFormItem>
-      <ElFormItem label="bucket" prop="bucket">
-        <ElInput v-model="state.form.bucket" />
-        <div v-if="state.form.type === 'local'" class="form-tip">
-          地址示例：Windows：C:\upload；Linux：/home/upload
+      <ElFormItem :label="bucketLabel" prop="bucket">
+        <ElInput
+          v-model="state.form.bucket"
+          :placeholder="
+            normalizedType === 'local'
+              ? '例如 /data/aryn/uploads 或 C:\\upload'
+              : '请输入 Bucket 名称'
+          "
+        />
+        <div v-if="normalizedType === 'local'" class="form-tip">
+          Cloud Docker 推荐：/data/aryn/uploads；Boot 模式填写服务进程可写目录
         </div>
-        <div v-else-if="state.form.type === 'oss'" class="form-tip">
-          桶名称（Bucket Name）
-        </div>
+        <div v-else class="form-tip">对象存储桶名称（Bucket Name）</div>
       </ElFormItem>
-      <ElFormItem label="是否 path-style" prop="styleAccessEnabled">
+      <ElFormItem label="对象目录" prop="dir" v-if="isObjectStorage">
+        <ElInput v-model="state.form.dir" placeholder="例如 material，可留空" />
+        <div class="form-tip">文件在 Bucket 内的可选目录前缀</div>
+      </ElFormItem>
+      <ElFormItem
+        label="是否 path-style"
+        prop="styleAccessEnabled"
+        v-if="isObjectStorage"
+      >
         <ElRadioGroup v-model="state.form.styleAccessEnabled">
           <ElRadio value="0">否</ElRadio>
           <ElRadio value="1">是</ElRadio>
         </ElRadioGroup>
         <div class="form-tip path-style-tip">
-          <div>使用 path-style：</div>
-          <div>阿里云、腾讯云、七牛云必须选择“否”</div>
-          <div>MinIO、RustFS 必须选择“是”</div>
+          <div>阿里云、腾讯云、七牛云选择“否”</div>
+          <div>MinIO、RustFS 选择“是”</div>
         </div>
       </ElFormItem>
-      <ElFormItem label="自定义域名" prop="domain">
-        <ElInput v-model="state.form.domain" />
+      <ElFormItem label="访问域名" prop="domain">
+        <ElInput
+          v-model="state.form.domain"
+          :placeholder="
+            normalizedType === 'local'
+              ? '可留空，默认返回当前站点相对地址'
+              : '可选，例如 https://cdn.example.com'
+          "
+        />
+        <div v-if="isQiniu" class="form-tip">
+          七牛云必须配置已绑定的公开访问域名
+        </div>
       </ElFormItem>
       <ElFormItem label="状态" prop="status">
         <ElRadioGroup v-model="state.form.status">

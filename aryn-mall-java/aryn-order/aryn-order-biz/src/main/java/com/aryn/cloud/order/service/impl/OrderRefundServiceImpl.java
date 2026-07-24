@@ -118,6 +118,7 @@ public class OrderRefundServiceImpl extends ServiceImpl<OrderRefundMapper, Order
 			createRefundsReqDTO.setNotifyUrl(orderConfig.getNotifyUrl());
 			createRefundsReqDTO.setOutTradeNo(orderInfo.getOrderNo());
 			createRefundsReqDTO.setTotalAmount(orderInfo.getPaymentPrice());
+			createRefundsReqDTO.setUserId(orderInfo.getUserId());
 			JSONObject extraParams = new JSONObject();
 			extraParams.put("mqNotifyUrl", RocketMqConstants.PAY_REFUND_NOTIFY_TOPIC);
 			createRefundsReqDTO.setExtra(extraParams.toJSONString());

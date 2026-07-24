@@ -807,7 +807,8 @@ CREATE TABLE `pay_refund_order`  (
                                      `update_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '修改人',
                                      `refund_success_time` datetime NULL DEFAULT NULL COMMENT '退款成功时间',
                                      `user_id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '用户ID',
-                                     PRIMARY KEY (`id`) USING BTREE
+                                     PRIMARY KEY (`id`) USING BTREE,
+                                     UNIQUE KEY `uk_pay_refund_order_no` (`tenant_id`, `refund_trade_no`) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '退款订单' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
@@ -843,7 +844,8 @@ CREATE TABLE `pay_trade_order`  (
                                     `update_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '修改人',
                                     `terminal_type` char(2) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '支付端类型',
                                     `user_id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '用户ID',
-                                    PRIMARY KEY (`id`) USING BTREE
+                                    PRIMARY KEY (`id`) USING BTREE,
+                                    UNIQUE KEY `uk_pay_trade_order_no` (`tenant_id`, `out_trade_no`) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '支付订单' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------

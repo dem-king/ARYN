@@ -129,11 +129,7 @@ const handleHttpUpload = async (options: UploadRequestOptions) => {
   formData.append('type', '1');
   formData.append('groupId', state.queryParams.groupId);
 
-  await uploadFile(formData)
-    .then(() => {})
-    .catch((error) => {
-      options.onError(error as any);
-    });
+  await uploadFile(formData);
 };
 /**
  * 素材分页列表
@@ -195,22 +191,16 @@ const del = (id: string) => {
  * 上传素材前事件
  */
 const beforeAvatarUpload: UploadProps['beforeUpload'] = (rawFile) => {
-  const allowedTypes = [
-    'image/jpeg',
-    'image/png',
-    'image/gif',
-    'image/webp',
-    'image/svg+xml',
-  ];
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 
   if (!allowedTypes.includes(rawFile.type)) {
-    ElMessage.error('图片格式必须是 JPG、PNG、GIF、WEBP 或 SVG！');
+    ElMessage.error('图片格式必须是 JPG、PNG、GIF 或 WEBP！');
     return false;
   }
 
-  const isLt5M = rawFile.size / 1024 / 1024 <= 5;
-  if (!isLt5M) {
-    ElMessage.error('图片大小不能超过 5MB！');
+  const isLt10M = rawFile.size / 1024 / 1024 <= 10;
+  if (!isLt10M) {
+    ElMessage.error('图片大小不能超过 10MB！');
     return false;
   }
 
@@ -222,12 +212,6 @@ const beforeAvatarUpload: UploadProps['beforeUpload'] = (rawFile) => {
 const handleSuccess: UploadProps['onSuccess'] = () => {
   ElMessage.success('上传成功');
   initPage();
-};
-/**
- * 上传失败事件
- */
-const handleError: UploadProps['onError'] = (error) => {
-  ElMessage.error(`${error}`);
 };
 /**
  * 素材分组列表查询
@@ -316,7 +300,6 @@ initPage();
       :http-request="handleHttpUpload"
       :before-upload="beforeAvatarUpload"
       :on-success="handleSuccess"
-      :on-error="handleError"
     >
       <ElButton
         type="primary"

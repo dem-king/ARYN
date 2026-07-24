@@ -548,6 +548,7 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		createOrderReqDTO.setOutTradeNo(orderInfo.getOrderNo());
 		createOrderReqDTO.setQuitUrl(quitUrl);
 		createOrderReqDTO.setReturnUrl(returnUrl);
+		createOrderReqDTO.setUserId(orderInfo.getUserId());
 		JSONObject extraParams = new JSONObject();
 		extraParams.put(PayConstants.EXTRA_PARAMS_PAY_TYPE, payType);
 		extraParams.put("mqNotifyUrl", RocketMqConstants.PAY_NOTIFY_TOPIC);

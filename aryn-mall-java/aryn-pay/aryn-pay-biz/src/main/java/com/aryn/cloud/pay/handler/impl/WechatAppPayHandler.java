@@ -61,8 +61,7 @@ public class WechatAppPayHandler extends AbstractPayOrderHandler {
 	public PayTradeOrder createOrder(CreateOrderReqDTO createOrderReqDTO) {
 		// 先查询
 		PayTradeOrder payTradeOrder = payTradeOrderService.getOne(Wrappers.<PayTradeOrder>lambdaQuery()
-			.eq(PayTradeOrder::getOutTradeNo, createOrderReqDTO.getOutTradeNo())
-			.eq(PayTradeOrder::getTerminalType, PayTerminalTypeEnum.APP.getCode()));
+			.eq(PayTradeOrder::getOutTradeNo, createOrderReqDTO.getOutTradeNo()).last("LIMIT 1"));
 		if (null != payTradeOrder) {
 			return payTradeOrder;
 		}
@@ -73,8 +72,10 @@ public class WechatAppPayHandler extends AbstractPayOrderHandler {
 		payTradeOrder.setOutTradeNo(createOrderReqDTO.getOutTradeNo());
 		payTradeOrder.setTradeType(PayTradeTypeEnum.WX_APP_PAY.getName());
 		payTradeOrder.setAmount(new BigDecimal(createOrderReqDTO.getTotalAmount()));
+		payTradeOrder.setNotifyUrl(createOrderReqDTO.getNotifyUrl());
 		payTradeOrder.setExtra(createOrderReqDTO.getExtra());
 		payTradeOrder.setTerminalType(PayTerminalTypeEnum.APP.getCode());
+		payTradeOrder.setUserId(createOrderReqDTO.getUserId());
 		payTradeOrderService.save(payTradeOrder);
 
 		return payTradeOrder;

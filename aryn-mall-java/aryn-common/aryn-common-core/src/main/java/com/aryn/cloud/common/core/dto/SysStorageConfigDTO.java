@@ -13,7 +13,7 @@ public class SysStorageConfigDTO implements Serializable {
 	@Serial
 	private static final long serialVersionUID = 1L;
 
-	@Schema(description = "存储类型1、阿里OSS；2、七牛云；3、腾讯云")
+	@Schema(description = "存储类型：local、aliyun、qiniu、tencent、minio")
 	private String type;
 
 	@Schema(description = "access_key")

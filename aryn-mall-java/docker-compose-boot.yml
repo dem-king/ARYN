@@ -92,6 +92,8 @@ services:
       SPRING_DATA_REDIS_PORT: 6379
       SPRING_DATA_REDIS_PASSWORD: redis
       ROCKETMQ_NAME_SERVER: aryn-boot-rocketmq-namesrv:9876
+    volumes:
+      - boot-storage:/data/aryn/uploads
     networks:
       - aryn-net
     depends_on:
@@ -110,3 +112,4 @@ networks:
 volumes:
   mysql-data:
   redis-data:
+  boot-storage:

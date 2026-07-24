@@ -1,1 +1,1 @@
-hxDubboRequestFilter=filter.dubbo.common.com.haorong.cloud.HxDubboRequestFilter
+arynDubboRequestFilter=com.aryn.cloud.common.dubbo.filter.ArynDubboRequestFilter

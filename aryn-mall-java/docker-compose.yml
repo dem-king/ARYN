@@ -199,6 +199,8 @@ services:
       - "5327:5327"
     environment:
       SPRING_PROFILES_ACTIVE: cloud
+    volumes:
+      - upms-storage:/data/aryn/uploads
     networks:
       - aryn-net
     depends_on:
@@ -408,3 +410,4 @@ networks:
 volumes:
   mysql-data:
   redis-data:
+  upms-storage:

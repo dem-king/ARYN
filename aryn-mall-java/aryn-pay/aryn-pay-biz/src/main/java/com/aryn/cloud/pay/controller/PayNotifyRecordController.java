@@ -31,33 +31,51 @@ public class PayNotifyRecordController {
 	@PostMapping("/wx/{tenantId}/{terminalType}")
 	public String notifyOrderWx(@PathVariable("tenantId") String tenantId,
 			@PathVariable("terminalType") String terminalType, @RequestBody String notifyData) {
+		ArynTenantContextHolder.removeTenantId();
 		if (!StringUtils.hasText(tenantId)) {
 			return WxPayNotifyV3Response.fail("无效的tenantId");
 		}
 		ArynTenantContextHolder.setTenantId(tenantId);
-		return payNotifyRecordService.wxPayNotify(tenantId, terminalType, notifyData);
+		try {
+			return payNotifyRecordService.wxPayNotify(tenantId, terminalType, notifyData);
+		}
+		finally {
+			ArynTenantContextHolder.removeTenantId();
+		}
 	}
 
 	@Operation(summary = "支付宝支付回调")
 	@PostMapping("/alipay/{tenantId}/{terminalType}")
 	public String notifyOrderAli(@PathVariable("tenantId") String tenantId,
 			@PathVariable("terminalType") String terminalType, HttpServletRequest request) {
+		ArynTenantContextHolder.removeTenantId();
 		if (!StringUtils.hasText(tenantId)) {
 			return PayConstants.ALIPAY_FAIL;
 		}
 		ArynTenantContextHolder.setTenantId(tenantId);
-		return payNotifyRecordService.aliPayNotify(tenantId, terminalType, request);
+		try {
+			return payNotifyRecordService.aliPayNotify(tenantId, terminalType, request);
+		}
+		finally {
+			ArynTenantContextHolder.removeTenantId();
+		}
 	}
 
 	@Operation(summary = "微信退款回调通知")
 	@PostMapping("/refunds/wx/{tenantId}/{terminalType}")
 	public String notifyRefundOrderWx(@PathVariable("tenantId") String tenantId,
 			@PathVariable("terminalType") String terminalType, @RequestBody String notifyData) {
+		ArynTenantContextHolder.removeTenantId();
 		if (!StringUtils.hasText(tenantId)) {
 			return WxPayNotifyV3Response.fail("无效的tenantId");
 		}
 		ArynTenantContextHolder.setTenantId(tenantId);
-		return payNotifyRecordService.wxPayRefundNotify(tenantId, terminalType, notifyData);
+		try {
+			return payNotifyRecordService.wxPayRefundNotify(tenantId, terminalType, notifyData);
+		}
+		finally {
+			ArynTenantContextHolder.removeTenantId();
+		}
 	}
 
 	@Operation(summary = "通过id查询")

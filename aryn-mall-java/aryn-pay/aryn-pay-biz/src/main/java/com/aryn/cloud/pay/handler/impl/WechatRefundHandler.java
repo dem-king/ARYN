@@ -7,6 +7,7 @@ import com.github.binarywang.wxpay.exception.WxPayException;
 import com.aryn.cloud.common.core.entity.CallbackPrefixProperties;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
+import com.aryn.cloud.common.core.constant.CommonConstants;
 import com.aryn.cloud.pay.api.dto.CreateRefundsReqDTO;
 import com.aryn.cloud.pay.api.entity.PayRefundOrder;
 import com.aryn.cloud.pay.api.entity.PayTradeOrder;
@@ -34,7 +35,14 @@ public class WechatRefundHandler extends AbstractPayRefundOrderHandler {
 	public Object doRefund(PayRefundOrder payRefundOrder) {
 		// 查询支付单
 		PayTradeOrder payTradeOrder = tradeOrderService.getOne(
-				Wrappers.<PayTradeOrder>lambdaQuery().eq(PayTradeOrder::getOutTradeNo, payRefundOrder.getOutTradeNo()));
+				Wrappers.<PayTradeOrder>lambdaQuery().eq(PayTradeOrder::getOutTradeNo, payRefundOrder.getOutTradeNo())
+					.last("LIMIT 1"));
+		if (payTradeOrder == null || !CommonConstants.YES.equals(payTradeOrder.getPayStatus())
+				|| payTradeOrder.getAmount() == null || payRefundOrder.getPayAmount() == null
+				|| payTradeOrder.getAmount().compareTo(payRefundOrder.getPayAmount()) != 0
+				|| !payRefundOrder.getUserId().equals(payTradeOrder.getUserId())) {
+			throw new ArynBusinessException("原支付订单校验失败");
+		}
 
 		String notifyUrl = String.format("%s/%s/notify/refunds/wx/%s/%s", payRefundOrder.getNotifyUrl(),
 				callbackPrefixProperties.getPay(), ArynTenantContextHolder.getTenantId(),
@@ -60,7 +68,7 @@ public class WechatRefundHandler extends AbstractPayRefundOrderHandler {
 	@Override
 	public PayRefundOrder createRefundOrder(CreateRefundsReqDTO createRefundsReqDTO) {
 		PayRefundOrder payRefundOrder = payRefundOrderService.getOne(Wrappers.<PayRefundOrder>lambdaQuery()
-			.eq(PayRefundOrder::getChannelRefundNo, createRefundsReqDTO.getRefundTradeNo()));
+			.eq(PayRefundOrder::getRefundTradeNo, createRefundsReqDTO.getRefundTradeNo()).last("LIMIT 1"));
 		if (null != payRefundOrder) {
 			return payRefundOrder;
 		}
@@ -72,6 +80,7 @@ public class WechatRefundHandler extends AbstractPayRefundOrderHandler {
 		payRefundOrder.setNotifyUrl(createRefundsReqDTO.getNotifyUrl());
 		payRefundOrder.setOutTradeNo(createRefundsReqDTO.getOutTradeNo());
 		payRefundOrder.setExtra(createRefundsReqDTO.getExtra());
+		payRefundOrder.setUserId(createRefundsReqDTO.getUserId());
 		payRefundOrderService.save(payRefundOrder);
 		return payRefundOrder;
 	}

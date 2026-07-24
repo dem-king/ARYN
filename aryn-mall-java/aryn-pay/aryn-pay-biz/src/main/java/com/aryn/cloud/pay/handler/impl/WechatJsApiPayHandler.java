@@ -64,8 +64,7 @@ public class WechatJsApiPayHandler extends AbstractPayOrderHandler {
 	public PayTradeOrder createOrder(CreateOrderReqDTO createOrderReqDTO) {
 		// 先查询
 		PayTradeOrder payTradeOrder = payTradeOrderService.getOne(Wrappers.<PayTradeOrder>lambdaQuery()
-			.eq(PayTradeOrder::getOutTradeNo, createOrderReqDTO.getOutTradeNo())
-			.eq(PayTradeOrder::getTerminalType, PayTerminalTypeEnum.MINI_PROGRAM.getCode()));
+			.eq(PayTradeOrder::getOutTradeNo, createOrderReqDTO.getOutTradeNo()).last("LIMIT 1"));
 		if (null != payTradeOrder) {
 			return payTradeOrder;
 		}
@@ -79,6 +78,7 @@ public class WechatJsApiPayHandler extends AbstractPayOrderHandler {
 		payTradeOrder.setNotifyUrl(createOrderReqDTO.getNotifyUrl());
 		payTradeOrder.setExtra(createOrderReqDTO.getExtra());
 		payTradeOrder.setTerminalType(PayTerminalTypeEnum.MINI_PROGRAM.getCode());
+		payTradeOrder.setUserId(createOrderReqDTO.getUserId());
 		payTradeOrderService.save(payTradeOrder);
 		return payTradeOrder;
 	}

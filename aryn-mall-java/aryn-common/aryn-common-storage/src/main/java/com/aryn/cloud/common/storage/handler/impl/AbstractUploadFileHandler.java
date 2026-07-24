@@ -32,6 +32,7 @@ public abstract class AbstractUploadFileHandler implements ArynUploadFileHandler
 
 	private StorageConfig validateRequest(SysStorageConfigDTO sysStorageConfig, String contextType) {
 		StorageConfig storageConfig = new StorageConfig();
+		storageConfig.setType(sysStorageConfig.getType());
 		storageConfig.setAccessKeyId(sysStorageConfig.getAccessKey());
 		storageConfig.setAccessKeySecret(sysStorageConfig.getAccessSecret());
 		storageConfig.setBucket(sysStorageConfig.getBucket());

@@ -61,7 +61,7 @@ public class SysUploadController {
 		uploadFileValidator.validate(file);
 		SysStorageConfigDTO sysStorageConfig = sysStorageConfigService.getConfig();
 		if (ObjectUtil.isNull(sysStorageConfig)) {
-			throw new ArynBusinessException("文件存储配置为空");
+			throw new ArynBusinessException("当前租户未配置启用的文件存储，请前往系统设置-文件存储配置新增或启用配置");
 		}
 		String url = storageFactory.getStrategy(sysStorageConfig.getType())
 			.uploadFile(sysStorageConfig, file.getInputStream(), file.getOriginalFilename(), file.getContentType(),
@@ -82,7 +82,7 @@ public class SysUploadController {
 		uploadFileValidator.validate(file);
 		SysStorageConfigDTO sysStorageConfig = sysStorageConfigService.getConfig();
 		if (ObjectUtil.isNull(sysStorageConfig)) {
-			throw new ArynBusinessException("文件存储配置为空");
+			throw new ArynBusinessException("当前租户未配置启用的文件存储，请联系管理员完成配置");
 		}
 		String url = storageFactory.getStrategy(sysStorageConfig.getType())
 			.uploadFile(sysStorageConfig, file.getInputStream(), file.getOriginalFilename(), file.getContentType(),
@@ -96,13 +96,15 @@ public class SysUploadController {
 		String previousTenantId = ArynTenantContextHolder.getTenantId();
 		try {
 			ArynTenantContextHolder.setTenantId(tenantId);
-			SysStorageConfigDTO sysStorageConfig = sysStorageConfigService.getConfig();
-			if (ObjectUtil.isNull(sysStorageConfig)) {
-				throw new ArynBusinessException("文件存储配置为空");
+			Path file = null;
+			for (String rootPath : sysStorageConfigService.getLocalStorageRoots()) {
+				Path candidate = localFilePathResolver.resolve(rootPath, tenantId, url);
+				if (Files.isRegularFile(candidate)) {
+					file = candidate;
+					break;
+				}
 			}
-
-			Path file = localFilePathResolver.resolve(sysStorageConfig.getBucket(), tenantId, url);
-			if (!Files.isRegularFile(file)) {
+			if (file == null) {
 				response.setStatus(HttpServletResponse.SC_NOT_FOUND);
 				return;
 			}

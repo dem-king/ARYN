@@ -11,6 +11,8 @@ package com.aryn.cloud.common.storage.handler;
 
 import org.springframework.stereotype.Component;
 
+import com.aryn.cloud.common.core.constant.StorageTypeConstants;
+
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,6 +32,10 @@ public class StorageFactory {
 	public StorageFactory(List<ArynUploadFileHandler> strategies) {
 		for (ArynUploadFileHandler strategy : strategies) {
 			strategyMap.put(strategy.getType(), strategy);
+			if (StorageTypeConstants.LEGACY_OSS.equals(strategy.getType())) {
+				StorageTypeConstants.OBJECT_STORAGE_TYPES.forEach(type -> strategyMap.put(type, strategy));
+				StorageTypeConstants.LEGACY_TYPES.keySet().forEach(type -> strategyMap.put(type, strategy));
+			}
 		}
 	}
 
@@ -39,7 +45,11 @@ public class StorageFactory {
 	 * @return 对应的策略实现
 	 */
 	public ArynUploadFileHandler getStrategy(String type) {
-		return strategyMap.get(type);
+		ArynUploadFileHandler strategy = strategyMap.get(StorageTypeConstants.normalize(type));
+		if (strategy == null) {
+			throw new IllegalArgumentException("不支持的文件存储类型: " + type);
+		}
+		return strategy;
 	}
 
 }

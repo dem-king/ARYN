@@ -9,6 +9,7 @@
 
 package com.aryn.cloud.common.storage.handler.impl;
 
+import com.aryn.cloud.common.core.constant.StorageTypeConstants;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.storage.entity.StorageConfig;
 import lombok.SneakyThrows;
@@ -25,6 +26,8 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import java.io.InputStream;
 import java.net.URI;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * S3协议上传文件处理器
@@ -34,21 +37,26 @@ import java.util.UUID;
 @Component
 public class S3UploadFileHandler extends AbstractUploadFileHandler {
 
+	private static final Pattern ALIYUN_REGION_PATTERN = Pattern.compile("^oss-([^.]+)\\.");
+
+	private static final Pattern TENCENT_REGION_PATTERN = Pattern.compile("^cos\\.([^.]+)\\.");
+
+	private static final Pattern QINIU_REGION_PATTERN = Pattern.compile("^s3-([^.]+)\\.");
+
 	@SneakyThrows
 	@Override
 	public String doUploadFile(StorageConfig storageConfig, InputStream inputStream, String fileName, long size) {
-		String rawEndpoint = storageConfig.getEndpoint();
-
-		// 使用 AWS S3 SDK 构建客户端
-		// 为了最大的兼容性 (包括 MinIO, Ceph, RustFS 等)，默认启用 Path Style Access
+		URI endpoint = resolveEndpoint(storageConfig.getEndpoint());
+		boolean pathStyleAccessEnabled = Boolean.TRUE.equals(storageConfig.getStyleAccessEnabled())
+				|| StorageTypeConstants.MINIO.equals(StorageTypeConstants.normalize(storageConfig.getType()));
 		S3Client s3Client = S3Client.builder()
-			.endpointOverride(URI.create(getDomain(rawEndpoint)))
+			.endpointOverride(endpoint)
 			.credentialsProvider(StaticCredentialsProvider
 				.create(AwsBasicCredentials.create(storageConfig.getAccessKeyId(), storageConfig.getAccessKeySecret())))
-			.region(Region.US_EAST_1) // 大多数 S3 兼容服务忽略 Region，但 SDK 需要一个值
+			.region(resolveRegion(storageConfig.getType(), endpoint.getHost()))
 			.serviceConfiguration(S3Configuration.builder()
-				.pathStyleAccessEnabled(storageConfig.getStyleAccessEnabled())
-				.chunkedEncodingEnabled(false) // 一些 S3 兼容服务对 chunked 支持不完整
+				.pathStyleAccessEnabled(pathStyleAccessEnabled)
+				.chunkedEncodingEnabled(false)
 				.build())
 			.build();
 
@@ -74,30 +82,7 @@ public class S3UploadFileHandler extends AbstractUploadFileHandler {
 			// 使用流上传，并指定长度
 			s3Client.putObject(putObjectRequest, RequestBody.fromInputStream(inputStream, size));
 
-			// 拼接返回 URL
-			// 注意：有些服务可能返回的 URL 需要特殊处理，这里采用通用的 Endpoint + Bucket + ObjectKey 方式
-			// 如果 Endpoint 包含 bucket (Virtual Host 风格)，拼接方式会不同，但这里强制了 Path Style
-			// 如果 Endpoint 结尾带有 /，处理一下
-			String baseUrl = getDomain(rawEndpoint);
-			if (baseUrl.endsWith("/")) {
-				baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
-			}
-
-			// 配置了自定义域名时，优先使用自定义域名返回文件访问地址
-			String customDomain = storageConfig.getDomain();
-			if (StringUtils.hasText(customDomain)) {
-				String customBaseUrl = getDomain(customDomain);
-				if (customBaseUrl.endsWith("/")) {
-					customBaseUrl = customBaseUrl.substring(0, customBaseUrl.length() - 1);
-				}
-				return customBaseUrl + "/" + objectName;
-			}
-
-			String endpointLower = rawEndpoint.toLowerCase();
-			if (endpointLower.contains("oss") || endpointLower.contains("cos") || endpointLower.contains("qiniucs")) {
-				return "https://" + bucketName + "." + storageConfig.getEndpoint() + "/" + objectName;
-			}
-			return baseUrl + "/" + bucketName + "/" + objectName;
+			return buildPublicUrl(storageConfig, endpoint, objectName, pathStyleAccessEnabled);
 		}
 		finally {
 			// 确保资源释放
@@ -110,13 +95,48 @@ public class S3UploadFileHandler extends AbstractUploadFileHandler {
 		return "oss";
 	}
 
-	private String getDomain(String endpoint) {
-		// 自动补全协议头
-		if (!endpoint.startsWith("http")) {
-			// 默认使用 HTTPS，除非明确指定了 HTTP（对于本地测试或内部网络）
-			endpoint = "https://" + endpoint;
+	static URI resolveEndpoint(String endpoint) {
+		String normalizedEndpoint = endpoint.trim();
+		if (!normalizedEndpoint.startsWith("http://") && !normalizedEndpoint.startsWith("https://")) {
+			normalizedEndpoint = "https://" + normalizedEndpoint;
 		}
-		return endpoint;
+		return URI.create(normalizedEndpoint);
+	}
+
+	static Region resolveRegion(String type, String host) {
+		String normalizedType = StorageTypeConstants.normalize(type);
+		Pattern pattern = switch (normalizedType) {
+			case StorageTypeConstants.ALIYUN -> ALIYUN_REGION_PATTERN;
+			case StorageTypeConstants.TENCENT -> TENCENT_REGION_PATTERN;
+			case StorageTypeConstants.QINIU -> QINIU_REGION_PATTERN;
+			default -> null;
+		};
+		if (pattern != null && host != null) {
+			Matcher matcher = pattern.matcher(host.toLowerCase());
+			if (matcher.find()) {
+				return Region.of(matcher.group(1));
+			}
+		}
+		return Region.US_EAST_1;
+	}
+
+	static String buildPublicUrl(StorageConfig storageConfig, URI endpoint, String objectName,
+			boolean pathStyleAccessEnabled) {
+		if (StringUtils.hasText(storageConfig.getDomain())) {
+			return trimTrailingSlash(storageConfig.getDomain()) + "/" + objectName;
+		}
+		String endpointBase = trimTrailingSlash(endpoint.toString());
+		if (pathStyleAccessEnabled) {
+			return endpointBase + "/" + storageConfig.getBucket() + "/" + objectName;
+		}
+		String authority = storageConfig.getBucket() + "." + endpoint.getHost()
+				+ (endpoint.getPort() < 0 ? "" : ":" + endpoint.getPort());
+		return endpoint.getScheme() + "://" + authority + "/" + objectName;
+	}
+
+	private static String trimTrailingSlash(String value) {
+		String normalized = value.trim();
+		return normalized.endsWith("/") ? normalized.substring(0, normalized.length() - 1) : normalized;
 	}
 
 }

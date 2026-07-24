@@ -97,9 +97,9 @@ CREATE TABLE `sys_dict_value`  (
 -- ----------------------------
 -- Records of sys_dict_value
 -- ----------------------------
-INSERT INTO `sys_dict_value` VALUES ('1583358198555303938', '1583357541572108290', '阿里OSS', '1', 'sys_storage_type', '0', '阿里OSS', 1, '0', '2022-10-21 15:23:07', NULL, NULL, NULL, NULL);
-INSERT INTO `sys_dict_value` VALUES ('1583358231816134658', '1583357541572108290', '七牛云', '3', 'sys_storage_type', '0', '七牛云', 2, '0', '2022-10-21 15:23:15', '2022-10-21 15:25:30', NULL, NULL, NULL);
-INSERT INTO `sys_dict_value` VALUES ('1583364488060952577', '1583357541572108290', '腾讯云', '2', 'sys_storage_type', '0', '腾讯云', 3, '0', '2022-10-21 15:48:06', NULL, NULL, NULL, NULL);
+INSERT INTO `sys_dict_value` VALUES ('1583358198555303938', '1583357541572108290', '阿里OSS', 'aliyun', 'sys_storage_type', '0', '阿里云对象存储', 2, '0', '2022-10-21 15:23:07', NULL, NULL, NULL, NULL);
+INSERT INTO `sys_dict_value` VALUES ('1583358231816134658', '1583357541572108290', '七牛云', 'qiniu', 'sys_storage_type', '0', '七牛云对象存储', 3, '0', '2022-10-21 15:23:15', '2022-10-21 15:25:30', NULL, NULL, NULL);
+INSERT INTO `sys_dict_value` VALUES ('1583364488060952577', '1583357541572108290', '腾讯云', 'tencent', 'sys_storage_type', '0', '腾讯云对象存储', 4, '0', '2022-10-21 15:48:06', NULL, NULL, NULL, NULL);
 INSERT INTO `sys_dict_value` VALUES ('1585639417511575553', '1585639342383202305', '正常', '0', 'status', '0', '正常', 1, '0', '2022-10-27 22:27:51', NULL, NULL, NULL, NULL);
 INSERT INTO `sys_dict_value` VALUES ('1585639464043184129', '1585639342383202305', '停用', '1', 'status', '0', '停用', 2, '0', '2022-10-27 22:28:02', '2024-11-08 15:10:50', NULL, 'admin', NULL);
 INSERT INTO `sys_dict_value` VALUES ('1590901958058668034', '1590901687026937857', '基础应用', 'app_base', 'application_key', '0', '商城基础功能', 1, '0', '2022-11-11 10:59:19', '2022-11-11 16:05:37', NULL, NULL, NULL);
@@ -156,7 +156,8 @@ INSERT INTO `sys_dict_value` VALUES ('1917044210259734529', '1917043550726402050
 INSERT INTO `sys_dict_value` VALUES ('1927953289186484225', '1927953218776702978', '小程序', '0', 'pay_terminal_type', '0', '小程序', 0, '0', '2025-05-29 13:00:58', NULL, 'system', NULL, 'primary');
 INSERT INTO `sys_dict_value` VALUES ('1927953320081727490', '1927953218776702978', 'App', '1', 'pay_terminal_type', '0', 'App', 1, '0', '2025-05-29 13:01:06', NULL, 'system', NULL, 'primary');
 INSERT INTO `sys_dict_value` VALUES ('1928119897173438466', '1825786096614240258', '0元支付', '0', 'pay_type', '0', '0元支付', 0, '0', '2025-05-30 00:03:01', '2025-05-30 00:03:06', 'system', 'system', 'danger');
-INSERT INTO `sys_dict_value` VALUES ('1928797196747186177', '1583357541572108290', 'MinIO', '4', 'sys_storage_type', '0', 'MinIO', 4, '0', '2025-05-31 20:54:22', NULL, 'system', NULL, 'primary');
+INSERT INTO `sys_dict_value` VALUES ('1928797196747186177', '1583357541572108290', 'MinIO', 'minio', 'sys_storage_type', '0', 'S3兼容自建存储', 5, '0', '2025-05-31 20:54:22', NULL, 'system', NULL, 'primary');
+INSERT INTO `sys_dict_value` VALUES ('2040457078937530370', '1583357541572108290', '本机存储', 'local', 'sys_storage_type', '0', '服务器本地磁盘', 1, '0', '2026-04-04 23:50:52', NULL, 'system', NULL, 'primary');
 INSERT INTO `sys_dict_value` VALUES ('1929205321706921986', '1915049899597111298', '已完成', '8', 'order_item_status', '0', '已完成', 8, '0', '2025-06-01 23:56:06', NULL, 'system', NULL, 'success');
 INSERT INTO `sys_dict_value` VALUES ('1929206209452335106', '1929205944271659009', '5分钟', '9', 'mq_delay_time_level', '0', '5分钟', 9, '0', '2025-06-01 23:59:38', '2025-06-02 00:00:04', 'system', 'system', 'primary');
 INSERT INTO `sys_dict_value` VALUES ('1929206253555441666', '1929205944271659009', '10分钟', '14', 'mq_delay_time_level', '0', '10分钟', 14, '0', '2025-06-01 23:59:48', NULL, 'system', NULL, 'primary');
@@ -1718,9 +1719,9 @@ CREATE TABLE `sys_storage_config`  (
   `id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT 'PK',
   `access_key` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT 'access_key',
   `access_secret` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT 'access_secret',
-  `endpoint` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '地域节点',
-  `bucket` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '域名',
-  `type` char(2) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '存储类型1、阿里OSS；2、七牛云；3、腾讯云',
+  `endpoint` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '地域节点',
+  `bucket` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT 'Bucket或本地存储根目录',
+  `type` char(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '存储类型',
   `create_time` datetime NULL DEFAULT NULL COMMENT '新增时间',
   `update_time` datetime NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
   `dir` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT 'material' COMMENT '指定文件夹',
@@ -1730,13 +1731,15 @@ CREATE TABLE `sys_storage_config`  (
   `create_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '创建人',
   `update_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '修改人',
   `status` char(2) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '0' COMMENT '状态：0.正常；1.禁用；',
+  `style_access_enabled` tinyint(1) NULL DEFAULT 0 COMMENT '是否 path-style',
+  `domain` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT 'domain',
   PRIMARY KEY (`id`) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '文件存储配置' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
 -- Records of sys_storage_config
 -- ----------------------------
-INSERT INTO `sys_storage_config` VALUES ('1491967331820404738', 'xxxxx', 'xxxxxx', 'https://xxxxx.Aetheryn.cn', 'aryn', '4', '2022-02-11 10:48:25', '2025-05-31 21:15:07', 'file', NULL, '0', '1590229800633634816', NULL, 'system', '0');
+INSERT INTO `sys_storage_config` VALUES ('1491967331820404738', 'xxxxx', 'xxxxxx', 'https://xxxxx.Aetheryn.cn', 'aryn', 'minio', '2022-02-11 10:48:25', '2025-05-31 21:15:07', 'file', NULL, '0', '1590229800633634816', NULL, 'system', '0', 1, NULL);
 
 -- ----------------------------
 -- Table structure for sys_tenant

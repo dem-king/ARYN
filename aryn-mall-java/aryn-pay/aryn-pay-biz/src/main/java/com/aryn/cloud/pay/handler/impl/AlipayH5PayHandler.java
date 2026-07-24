@@ -67,8 +67,7 @@ public class AlipayH5PayHandler extends AbstractPayOrderHandler {
 	public PayTradeOrder createOrder(CreateOrderReqDTO createOrderReqDTO) {
 		// 先查询
 		PayTradeOrder payTradeOrder = payTradeOrderService.getOne(Wrappers.<PayTradeOrder>lambdaQuery()
-			.eq(PayTradeOrder::getOutTradeNo, createOrderReqDTO.getOutTradeNo())
-			.eq(PayTradeOrder::getTerminalType, PayTerminalTypeEnum.H5.getCode()));
+			.eq(PayTradeOrder::getOutTradeNo, createOrderReqDTO.getOutTradeNo()).last("LIMIT 1"));
 		if (null != payTradeOrder) {
 			return payTradeOrder;
 		}
@@ -79,8 +78,12 @@ public class AlipayH5PayHandler extends AbstractPayOrderHandler {
 		payTradeOrder.setOutTradeNo(createOrderReqDTO.getOutTradeNo());
 		payTradeOrder.setTradeType(PayTradeTypeEnum.ALI_H5_PAY.getName());
 		payTradeOrder.setAmount(new BigDecimal(createOrderReqDTO.getTotalAmount()));
+		payTradeOrder.setNotifyUrl(createOrderReqDTO.getNotifyUrl());
+		payTradeOrder.setReturnUrl(createOrderReqDTO.getReturnUrl());
+		payTradeOrder.setQuitUrl(createOrderReqDTO.getQuitUrl());
 		payTradeOrder.setExtra(createOrderReqDTO.getExtra());
 		payTradeOrder.setTerminalType(PayTerminalTypeEnum.H5.getCode());
+		payTradeOrder.setUserId(createOrderReqDTO.getUserId());
 		payTradeOrderService.save(payTradeOrder);
 		return payTradeOrder;
 	}
