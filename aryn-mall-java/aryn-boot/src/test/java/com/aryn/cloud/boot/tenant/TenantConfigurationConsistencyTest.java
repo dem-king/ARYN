@@ -56,6 +56,24 @@ class TenantConfigurationConsistencyTest {
 	}
 
 	@Test
+	void mallDeliveryTablesAreRegisteredInTenantIsolation() throws IOException {
+		Set<String> deliveryTables = Set.of(
+				"order_delivery_task", "order_delivery_task_item", "order_delivery_evidence",
+				"order_delivery_task_log", "order_delivery_area", "sys_user_wechat_binding",
+				"message_channel_task");
+		Set<String> bootTables = tenantTablesFromYaml(
+				Files.readString(projectRoot.resolve("aryn-boot/src/main/resources/application.yml")));
+		Map<String, NacosConfig> cloudConfigs = nacosConfigs();
+		Set<String> cloudTables = new TreeSet<>();
+		for (String dataId : List.of("aryn-order-biz-dev.yml", "aryn-upms-biz-dev.yml", "aryn-message-biz-dev.yml")) {
+			cloudTables.addAll(tenantTablesFromYaml(cloudConfigs.get(dataId).content()));
+		}
+
+		assertThat(bootTables).containsAll(deliveryTables);
+		assertThat(cloudTables).containsAll(deliveryTables);
+	}
+
+	@Test
 	void cloudTenantTablesMatchEachServiceSchema() throws IOException {
 		Map<String, NacosConfig> nacosConfigs = nacosConfigs();
 		Map<String, Set<String>> schemaTablesByDatabase = cloudTenantTablesByDatabase();

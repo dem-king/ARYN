@@ -196,12 +196,19 @@ hx:
       - order_item
       - order_delivery
       - order_delivery_logistics
+      - order_delivery_task
+      - order_delivery_task_item
+      - order_delivery_evidence
+      - order_delivery_task_log
+      - order_delivery_area
       - order_refund
       - order_config
       - shopping_cart
+      - sys_user_wechat_binding
       - message_notice
       - message_recipient
       - message_dispatch_task
+      - message_channel_task
       - message_conversation
       - message_participant
       - message_chat
