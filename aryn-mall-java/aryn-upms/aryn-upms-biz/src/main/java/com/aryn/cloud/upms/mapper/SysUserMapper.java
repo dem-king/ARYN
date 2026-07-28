@@ -7,6 +7,8 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.upms.api.entity.SysUser;
 import com.aryn.cloud.upms.api.dto.StaffMessageAudienceRequest;
+import com.aryn.cloud.upms.api.dto.DeliveryStaffQuery;
+import com.aryn.cloud.upms.api.vo.DeliveryStaffVO;
 import com.aryn.cloud.upms.api.vo.StaffMessageRecipientVO;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -45,5 +47,10 @@ public interface SysUserMapper extends BaseMapper<SysUser> {
 			@Param("fetchSize") int fetchSize);
 
 	int countCustomerServiceStaff(@Param("tenantId") String tenantId, @Param("staffId") String staffId);
+
+	List<DeliveryStaffVO> selectDeliveryStaff(@Param("query") DeliveryStaffQuery query,
+			@Param("fetchSize") int fetchSize);
+
+	int countEligibleDeliveryStaff(@Param("tenantId") String tenantId, @Param("staffId") String staffId);
 
 }
