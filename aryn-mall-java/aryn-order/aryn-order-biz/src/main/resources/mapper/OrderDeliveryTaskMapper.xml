@@ -123,4 +123,45 @@
           AND version = #{version}
           AND del_flag = '0'
     </update>
+    <update id="markReturnPendingForRefund">
+        UPDATE order_delivery_task
+        SET status = 'RETURN_PENDING',
+            return_pending_at = #{operateTime},
+            version = version + 1,
+            update_time = #{operateTime}
+        WHERE tenant_id = #{tenantId}
+          AND order_id = #{orderId}
+          AND picked_up_at IS NOT NULL
+          AND status IN ('DELIVERING', 'DELIVERED', 'EXCEPTION')
+          AND del_flag = '0'
+    </update>
+    <update id="closeBeforePickupAfterFullRefund">
+        UPDATE order_delivery_task
+        SET status = 'CLOSED',
+            closed_at = #{operateTime},
+            version = version + 1,
+            update_time = #{operateTime}
+        WHERE tenant_id = #{tenantId}
+          AND order_id = #{orderId}
+          AND picked_up_at IS NULL
+          AND status IN ('WAITING_ASSIGNMENT', 'ASSIGNED', 'PICKING', 'EXCEPTION')
+          AND del_flag = '0'
+    </update>
+    <select id="selectMallDeliveryAutoConfirmOrders"
+            resultType="com.aryn.cloud.order.api.entity.OrderInfo">
+        SELECT order_info.*
+        FROM order_info AS order_info
+        INNER JOIN order_delivery_task AS task
+                ON task.tenant_id = order_info.tenant_id
+               AND task.order_id = order_info.id
+               AND task.del_flag = '0'
+        WHERE order_info.tenant_id = #{tenantId}
+          AND task.tenant_id = #{tenantId}
+          AND order_info.delivery_way = '3'
+          AND order_info.status = '3'
+          AND order_info.pay_status = '1'
+          AND task.status = 'DELIVERED'
+          AND task.delivered_at &lt; #{deadline}
+          AND order_info.del_flag = '0'
+    </select>
 </mapper>

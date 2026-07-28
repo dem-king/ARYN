@@ -17,6 +17,7 @@ import com.aryn.cloud.order.api.entity.*;
 import com.aryn.cloud.order.api.enums.OrderArrivalStatusEnum;
 import com.aryn.cloud.order.api.enums.OrderItemStatusEnum;
 import com.aryn.cloud.order.api.enums.OrderRefundEnum;
+import com.aryn.cloud.order.delivery.service.DeliveryRefundBoundaryService;
 import com.aryn.cloud.order.mapper.OrderDeliveryMapper;
 import com.aryn.cloud.order.mapper.OrderInfoMapper;
 import com.aryn.cloud.order.mapper.OrderItemMapper;
@@ -53,6 +54,8 @@ public class OrderRefundServiceImpl extends ServiceImpl<OrderRefundMapper, Order
 	private final IOrderConfigService orderConfigService;
 
 	private final OrderDeliveryMapper orderDeliveryMapper;
+
+	private final DeliveryRefundBoundaryService deliveryRefundBoundaryService;
 
 	@Override
 	public IPage<OrderRefund> adminPage(Page page, OrderRefund orderRefund) {
@@ -112,6 +115,7 @@ public class OrderRefundServiceImpl extends ServiceImpl<OrderRefundMapper, Order
 		}
 		else if (MallOrderConstants.OPERATE_STATUS_REFUND.equals(operateStatus)) {
 			// 退款
+			deliveryRefundBoundaryService.requireRefundRelease(orderInfo);
 			CreateRefundsReqDTO createRefundsReqDTO = new CreateRefundsReqDTO();
 			createRefundsReqDTO.setRefundAmount(orderRefund.getRefundAmount());
 			createRefundsReqDTO.setRefundTradeNo(orderRefund.getRefundTradeNo());
@@ -164,6 +168,7 @@ public class OrderRefundServiceImpl extends ServiceImpl<OrderRefundMapper, Order
 		// 只有已支付订单可以退款
 		if (OrderItemStatusEnum.PAID.getCode().equals(orderItemEntity.getStatus())
 				|| OrderItemStatusEnum.SHIPPED.getCode().equals(orderItemEntity.getStatus())) {
+			deliveryRefundBoundaryService.onRefundRequested(ownerOrder);
 			orderItemEntity.setStatus(OrderItemStatusEnum.AFTER_SALE_PROCESSING.getCode());
 			orderItemMapper.updateById(orderItemEntity);
 			orderRefund.setRefundTradeNo(SnowflakeIdUtils.refundOrderNo());

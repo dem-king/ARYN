@@ -17,6 +17,7 @@ import com.aryn.cloud.order.event.listener.OrderPaySuccessNotifier;
 import com.aryn.cloud.order.event.ArynOrderPayEvent;
 import com.aryn.cloud.order.event.listener.ArynOrderPayEventListener;
 import com.aryn.cloud.order.delivery.service.DeliveryTaskCreationService;
+import com.aryn.cloud.order.delivery.service.DeliveryRefundBoundaryService;
 import com.aryn.cloud.order.service.IOrderInfoService;
 import com.aryn.cloud.order.service.IOrderItemService;
 import com.aryn.cloud.order.service.IOrderRefundService;
@@ -113,7 +114,8 @@ class ArynOrderListenerReliabilityTest {
 		when(itemService.updateById(any())).thenReturn(true);
 		when(itemService.list(any(Wrapper.class))).thenReturn(List.of(new OrderItemEntity()));
 		when(orderService.getById("order-1")).thenReturn(new OrderInfo());
-		ArynRefundListener listener = new ArynRefundListener(refundService, itemService, orderService, template);
+		ArynRefundListener listener = new ArynRefundListener(refundService, itemService, orderService, template,
+			mock(DeliveryRefundBoundaryService.class));
 
 		listener.onMessage(refundMessage());
 
@@ -125,7 +127,7 @@ class ArynOrderListenerReliabilityTest {
 	void refundEarlyReturnAlsoClearsTenant() {
 		ArynRefundListener listener = new ArynRefundListener(
 			mock(IOrderRefundService.class), mock(IOrderItemService.class),
-			mock(IOrderInfoService.class), mock(RocketMQTemplate.class));
+			mock(IOrderInfoService.class), mock(RocketMQTemplate.class), mock(DeliveryRefundBoundaryService.class));
 		JSONObject message = new JSONObject();
 		message.put(PayConstants.TENANT_ID, "tenant-1");
 
@@ -151,7 +153,7 @@ class ArynOrderListenerReliabilityTest {
 		ArynTenantContextHolder.setTenantId("stale-tenant");
 		ArynRefundListener listener = new ArynRefundListener(
 			mock(IOrderRefundService.class), mock(IOrderItemService.class),
-			mock(IOrderInfoService.class), mock(RocketMQTemplate.class));
+			mock(IOrderInfoService.class), mock(RocketMQTemplate.class), mock(DeliveryRefundBoundaryService.class));
 
 		listener.onMessage("{}");
 
@@ -232,7 +234,8 @@ class ArynOrderListenerReliabilityTest {
 		when(refundService.updateById(refund)).thenReturn(false);
 		when(itemService.getById("item-1")).thenReturn(new OrderItemEntity());
 		when(orderService.getById("order-1")).thenReturn(new OrderInfo());
-		ArynRefundListener listener = new ArynRefundListener(refundService, itemService, orderService, template);
+		ArynRefundListener listener = new ArynRefundListener(refundService, itemService, orderService, template,
+			mock(DeliveryRefundBoundaryService.class));
 
 		assertThatThrownBy(() -> listener.onMessage(refundMessage()))
 			.isInstanceOf(ArynBusinessException.class);
@@ -253,7 +256,8 @@ class ArynOrderListenerReliabilityTest {
 		when(itemService.updateById(any())).thenReturn(true);
 		when(itemService.list(any(Wrapper.class))).thenReturn(List.of(new OrderItemEntity()));
 		when(orderService.getById("order-1")).thenReturn(new OrderInfo());
-		ArynRefundListener listener = new ArynRefundListener(refundService, itemService, orderService, template);
+		ArynRefundListener listener = new ArynRefundListener(refundService, itemService, orderService, template,
+			mock(DeliveryRefundBoundaryService.class));
 
 		TransactionSynchronizationManager.initSynchronization();
 		try {

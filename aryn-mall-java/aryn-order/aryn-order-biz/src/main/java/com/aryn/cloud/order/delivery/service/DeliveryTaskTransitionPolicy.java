@@ -36,6 +36,7 @@ public class DeliveryTaskTransitionPolicy {
 		transitions.put(ASSIGNED, EnumSet.of(PICKING, EXCEPTION, CLOSED));
 		transitions.put(PICKING, EnumSet.of(DELIVERING, EXCEPTION, CLOSED));
 		transitions.put(DELIVERING, EnumSet.of(DELIVERED, EXCEPTION, RETURN_PENDING));
+		transitions.put(DELIVERED, EnumSet.of(RETURN_PENDING));
 		transitions.put(EXCEPTION, EnumSet.of(ASSIGNED, RETURN_PENDING, CLOSED));
 		transitions.put(RETURN_PENDING, EnumSet.of(CLOSED));
 		return Map.copyOf(transitions);

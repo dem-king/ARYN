@@ -150,7 +150,8 @@ public class DeliveryTaskAdminService {
 		return updateStatus(taskId, request.getVersion(), DeliveryTaskStatusEnum.RETURN_PENDING,
 			DeliveryTaskActionEnum.MARK_RETURN_PENDING, request.getReasonCode(), request.getDescription(),
 			request.getRequestId(), "returnPendingAt",
-			EnumSet.of(DeliveryTaskStatusEnum.DELIVERING, DeliveryTaskStatusEnum.EXCEPTION));
+			EnumSet.of(DeliveryTaskStatusEnum.DELIVERING, DeliveryTaskStatusEnum.DELIVERED,
+				DeliveryTaskStatusEnum.EXCEPTION));
 	}
 
 	@Transactional(rollbackFor = Exception.class)

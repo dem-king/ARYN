@@ -14,6 +14,7 @@ import com.aryn.cloud.order.api.entity.OrderRefund;
 import com.aryn.cloud.order.api.enums.OrderArrivalStatusEnum;
 import com.aryn.cloud.order.api.enums.OrderItemStatusEnum;
 import com.aryn.cloud.order.api.enums.OrderStatusEnum;
+import com.aryn.cloud.order.delivery.service.DeliveryRefundBoundaryService;
 import com.aryn.cloud.order.service.IOrderInfoService;
 import com.aryn.cloud.order.service.IOrderItemService;
 import com.aryn.cloud.order.service.IOrderRefundService;
@@ -49,6 +50,8 @@ public class ArynRefundListener implements RocketMQListener<String> {
 	private final IOrderInfoService orderInfoService;
 
 	private final RocketMQTemplate rocketMQTemplate;
+
+	private final DeliveryRefundBoundaryService deliveryRefundBoundaryService;
 
 	@Override
 	@Transactional(rollbackFor = Exception.class)
@@ -123,6 +126,7 @@ public class ArynRefundListener implements RocketMQListener<String> {
 					if (!orderInfoService.updateById(info)) {
 						throw new ArynBusinessException("订单退款完成状态更新失败，请重试");
 					}
+					deliveryRefundBoundaryService.closeBeforePickupAfterFullRefund(orderInfo);
 				}
 				orderRefundSuccessEvent.setCouponUserId(orderInfo.getCouponUserId());
 			}

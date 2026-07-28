@@ -1,6 +1,7 @@
 package com.aryn.cloud.order.delivery.mapper;
 
 import com.aryn.cloud.order.api.delivery.entity.OrderDeliveryTask;
+import com.aryn.cloud.order.api.entity.OrderInfo;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -8,6 +9,7 @@ import org.apache.ibatis.annotations.Param;
 import com.aryn.cloud.upms.api.vo.DeliveryStaffVO;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 商城配送任务 Mapper。
@@ -48,5 +50,14 @@ public interface OrderDeliveryTaskMapper extends BaseMapper<OrderDeliveryTask> {
 			@Param("id") String id, @Param("expectedStatus") String expectedStatus,
 			@Param("version") Integer version, @Param("reasonCode") String reasonCode,
 			@Param("description") String description, @Param("operateTime") LocalDateTime operateTime);
+
+	int markReturnPendingForRefund(@Param("tenantId") String tenantId, @Param("orderId") String orderId,
+			@Param("operateTime") LocalDateTime operateTime);
+
+	int closeBeforePickupAfterFullRefund(@Param("tenantId") String tenantId, @Param("orderId") String orderId,
+			@Param("operateTime") LocalDateTime operateTime);
+
+	List<OrderInfo> selectMallDeliveryAutoConfirmOrders(@Param("tenantId") String tenantId,
+			@Param("deadline") LocalDateTime deadline);
 
 }

@@ -30,6 +30,7 @@ class DeliveryTaskTransitionPolicyTest {
 		assertAllowed(DELIVERING, DELIVERED);
 		assertAllowed(DELIVERING, EXCEPTION);
 		assertAllowed(DELIVERING, RETURN_PENDING);
+		assertAllowed(DELIVERED, RETURN_PENDING);
 		assertAllowed(EXCEPTION, ASSIGNED);
 		assertAllowed(EXCEPTION, RETURN_PENDING);
 		assertAllowed(EXCEPTION, CLOSED);

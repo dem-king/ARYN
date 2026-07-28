@@ -10,10 +10,12 @@ import com.aryn.cloud.order.api.entity.OrderInfo;
 import com.aryn.cloud.order.api.vo.OrderStatisticsVO;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 import java.io.Serializable;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -89,5 +91,13 @@ public interface OrderInfoMapper extends BaseMapper<OrderInfo> {
 		""")
 	int markMallDeliveryPickedUp(@Param("tenantId") String tenantId, @Param("orderId") String orderId,
 			@Param("deliverTime") java.time.LocalDateTime deliverTime, @Param("staffId") String staffId);
+
+	@Select("""
+		SELECT * FROM order_info
+		WHERE tenant_id = #{tenantId} AND delivery_way = '1' AND status = '3' AND pay_status = '1'
+			AND deliver_time < #{deadline} AND del_flag = '0'
+		""")
+	List<OrderInfo> selectExpressAutoConfirmOrders(@Param("tenantId") String tenantId,
+			@Param("deadline") LocalDateTime deadline);
 
 }

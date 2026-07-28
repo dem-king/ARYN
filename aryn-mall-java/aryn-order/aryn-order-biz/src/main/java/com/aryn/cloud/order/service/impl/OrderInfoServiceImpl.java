@@ -53,6 +53,7 @@ import com.aryn.cloud.user.api.remote.RemoteMallUserService;
 import com.aryn.cloud.user.api.vo.UserInfoVO;
 import com.aryn.cloud.user.api.vo.MemberBenefitsVO;
 import com.aryn.cloud.order.delivery.service.DeliveryCheckoutService;
+import com.aryn.cloud.order.delivery.service.DeliveryRefundBoundaryService;
 import lombok.RequiredArgsConstructor;
 import org.apache.dubbo.config.annotation.DubboReference;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
@@ -110,6 +111,8 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 	private final OrderAppraiseService orderAppraiseService;
 
 	private final DeliveryCheckoutService deliveryCheckoutService;
+
+	private final DeliveryRefundBoundaryService deliveryRefundBoundaryService;
 
 	private final OrderDeliveryMapper orderDeliveryMapper;
 
@@ -419,6 +422,7 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public boolean receiveOrder(OrderInfo orderInfo) {
+		deliveryRefundBoundaryService.requireDeliveredForReceipt(orderInfo);
 		LocalDateTime receiverTime = LocalDateTime.now();
 		int updated = baseMapper.update(null, Wrappers.<OrderInfo>lambdaUpdate()
 			.eq(OrderInfo::getId, orderInfo.getId())

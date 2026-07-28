@@ -7,6 +7,8 @@ import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.order.api.entity.OrderConfig;
 import com.aryn.cloud.order.api.entity.OrderInfo;
 import com.aryn.cloud.order.api.enums.OrderStatusEnum;
+import com.aryn.cloud.order.delivery.mapper.OrderDeliveryTaskMapper;
+import com.aryn.cloud.order.mapper.OrderInfoMapper;
 import com.aryn.cloud.order.service.IOrderConfigService;
 import com.aryn.cloud.order.service.IOrderInfoService;
 import com.aryn.cloud.upms.api.entity.SysTenant;
@@ -38,6 +40,10 @@ public class OrderJobHandler {
 	private final RemoteTenantService remoteTenantService;
 
 	private final IOrderConfigService orderConfigService;
+
+	private final OrderInfoMapper orderInfoMapper;
+
+	private final OrderDeliveryTaskMapper deliveryTaskMapper;
 
 	/**
 	 * 扫描超时未支付订单
@@ -87,11 +93,17 @@ public class OrderJobHandler {
 					if (Objects.isNull(orderConfig) || Objects.isNull(orderConfig.getOrderAutoConfirmDays())) {
 						return;
 					}
-					List<OrderInfo> orderList = orderInfoService.list(Wrappers.<OrderInfo>lambdaQuery()
-						.eq(OrderInfo::getStatus, OrderStatusEnum.WAITING_FOR_RECEIPT.getCode())
-						.lt(OrderInfo::getDeliverTime,
-								LocalDateTime.now().minusDays(orderConfig.getOrderAutoConfirmDays())));
-					orderList.forEach(orderInfoService::receiveOrder);
+					LocalDateTime deadline = LocalDateTime.now().minusDays(orderConfig.getOrderAutoConfirmDays());
+					List<OrderInfo> expressOrders = orderInfoMapper
+						.selectExpressAutoConfirmOrders(sysTenant.getId(), deadline);
+					List<OrderInfo> mallDeliveryOrders = deliveryTaskMapper
+						.selectMallDeliveryAutoConfirmOrders(sysTenant.getId(), deadline);
+					if (!CollectionUtils.isEmpty(expressOrders)) {
+						expressOrders.forEach(orderInfoService::receiveOrder);
+					}
+					if (!CollectionUtils.isEmpty(mallDeliveryOrders)) {
+						mallDeliveryOrders.forEach(orderInfoService::receiveOrder);
+					}
 				}
 				finally {
 					ArynTenantContextHolder.removeTenantId();
