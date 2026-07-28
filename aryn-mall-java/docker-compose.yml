@@ -157,6 +157,7 @@ services:
       - "9999:9999"
     environment:
       SPRING_PROFILES_ACTIVE: cloud
+      TZ: Asia/Shanghai
     networks:
       - aryn-net
     depends_on:
@@ -178,6 +179,7 @@ services:
       - "5227:5227"
     environment:
       SPRING_PROFILES_ACTIVE: cloud
+      TZ: Asia/Shanghai
     networks:
       - aryn-net
     depends_on:
@@ -199,6 +201,7 @@ services:
       - "5327:5327"
     environment:
       SPRING_PROFILES_ACTIVE: cloud
+      TZ: Asia/Shanghai
     volumes:
       - upms-storage:/data/aryn/uploads
     networks:
@@ -228,6 +231,7 @@ services:
       - "7527:7527"
     environment:
       SPRING_PROFILES_ACTIVE: cloud
+      TZ: Asia/Shanghai
     networks:
       - aryn-net
     depends_on:
@@ -251,6 +255,7 @@ services:
       - "6600:6600"
     environment:
       SPRING_PROFILES_ACTIVE: cloud
+      TZ: Asia/Shanghai
       XXL_JOB_ADMINADDRESSES: http://aryn-xxl-job-admin:8081/xxl-job-admin
     networks:
       - aryn-net
@@ -279,6 +284,7 @@ services:
       - "6400:6400"
     environment:
       SPRING_PROFILES_ACTIVE: cloud
+      TZ: Asia/Shanghai
       XXL_JOB_ADMINADDRESSES: http://aryn-xxl-job-admin:8081/xxl-job-admin
     networks:
       - aryn-net
@@ -307,6 +313,7 @@ services:
       - "6900:6900"
     environment:
       SPRING_PROFILES_ACTIVE: cloud
+      TZ: Asia/Shanghai
     networks:
       - aryn-net
     depends_on:
@@ -330,6 +337,7 @@ services:
       - "6300:6300"
     environment:
       SPRING_PROFILES_ACTIVE: cloud
+      TZ: Asia/Shanghai
     networks:
       - aryn-net
     depends_on:
@@ -353,6 +361,7 @@ services:
       - "6500:6500"
     environment:
       SPRING_PROFILES_ACTIVE: cloud
+      TZ: Asia/Shanghai
       XXL_JOB_ADMINADDRESSES: http://aryn-xxl-job-admin:8081/xxl-job-admin
     networks:
       - aryn-net

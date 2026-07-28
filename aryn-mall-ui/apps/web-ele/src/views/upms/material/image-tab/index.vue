@@ -4,6 +4,8 @@ import type { UploadProps, UploadRequestOptions } from 'element-plus';
 import { defineAsyncComponent, nextTick, reactive, ref } from 'vue';
 import useClipboard from 'vue-clipboard3';
 
+import { useAppConfig } from '@vben/hooks';
+
 import { Plus, Upload } from '@element-plus/icons-vue';
 import {
   ElButton,
@@ -20,6 +22,7 @@ import {
 import { delObj, editObj, getPage } from '#/api/upms/material';
 import { addObj as addObjGroup, getList } from '#/api/upms/material-group';
 import { uploadFile } from '#/api/upms/upload';
+import { resolveResourceUrl } from '#/utils/resource-url';
 
 // 新增props和emits
 const props = defineProps({
@@ -30,6 +33,7 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['selectChange']);
+const { apiURL } = useAppConfig(import.meta.env, import.meta.env.PROD);
 const Pagination = defineAsyncComponent(
   () => import('#/components/pagination/index.vue'),
 );
@@ -120,6 +124,7 @@ const handleSelect = (item: MaterialObj) => {
 const isSelected = (item: MaterialObj) => {
   return selectedList.value.some((i) => i.id === item.id);
 };
+const getResourceUrl = (url: string) => resolveResourceUrl(url, apiURL);
 /**
  * 文件上传
  */
@@ -284,7 +289,7 @@ const copyText = (text: string) => {
 // 修改 preview 方法，调用 ElImage 的 showViewer
 const handlePreview = async (url: string) => {
   await nextTick();
-  previewUrls.value = [url];
+  previewUrls.value = [getResourceUrl(url)];
   previewShow.value = true;
 };
 getGroup();
@@ -374,7 +379,7 @@ initPage();
               <div class="image-box">
                 <ElImage
                   :preview-teleported="true"
-                  :src="item.url"
+                  :src="getResourceUrl(item.url)"
                   fit="cover"
                 />
                 <!-- 选中蒙层，仅mode为'dialog'时显示 -->

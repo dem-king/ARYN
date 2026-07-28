@@ -51,6 +51,11 @@ ON DUPLICATE KEY UPDATE
   parent_id = VALUES(parent_id), icon = VALUES(icon), component = VALUES(component),
   sort = VALUES(sort), type = VALUES(type), del_flag = '0';
 
+-- 修复早期通过错误客户端字符集导入后产生的存量菜单乱码。
+UPDATE sys_menu
+SET name = '商品品牌'
+WHERE id = '2060000000000000001';
+
 INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, tenant_id)
 SELECT REPLACE(UUID(), '-', ''), role.id, menu.id, NOW(), role.tenant_id
 FROM sys_role role

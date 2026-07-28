@@ -1,6 +1,7 @@
 package com.aryn.cloud.product.controller.admin;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.log.annotation.SysLog;
@@ -35,7 +36,7 @@ public class GoodsBrandController {
 	@SaCheckPermission("product:goodsbrand:page")
 	@GetMapping("/page")
 	public Result page(Page<GoodsBrand> page, GoodsBrand query) {
-		return Result.success(goodsBrandService.page(page, goodsBrandService.lambdaQuery()
+		return Result.success(goodsBrandService.page(page, Wrappers.<GoodsBrand>lambdaQuery()
 			.like(StringUtils.hasText(query.getName()), GoodsBrand::getName, query.getName())
 			.eq(StringUtils.hasText(query.getStatus()), GoodsBrand::getStatus, query.getStatus())
 			.orderByAsc(GoodsBrand::getSort)

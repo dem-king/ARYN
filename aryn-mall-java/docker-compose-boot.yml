@@ -85,6 +85,7 @@ services:
     ports:
       - "9999:9999"
     environment:
+      TZ: Asia/Shanghai
       SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_URL: jdbc:mysql://aryn-boot-mysql:3306/aryn_boot_pro?characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=false&useJDBCCompliantTimezoneShift=true&useLegacyDatetimeCode=false&serverTimezone=GMT%2B8&allowMultiQueries=true&allowPublicKeyRetrieval=true
       SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_USERNAME: root
       SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_PASSWORD: 123456

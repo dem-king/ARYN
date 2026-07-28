@@ -4,6 +4,10 @@ server:
 spring:
   application:
     name: @artifactId@
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 11MB
   cloud:
     nacos:
       username: @nacos.username@
@@ -16,4 +20,3 @@ spring:
     import:
       - optional:nacos:application-@profiles.active@.yml
       - optional:nacos:${spring.application.name}-@profiles.active@.yml
-

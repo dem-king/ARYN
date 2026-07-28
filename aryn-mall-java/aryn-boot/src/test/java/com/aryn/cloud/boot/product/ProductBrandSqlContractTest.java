@@ -20,6 +20,9 @@ class ProductBrandSqlContractTest {
 
 	private static final String BRAND_TABLE_END = "COMMENT='商品品牌';";
 
+	private static final String BRAND_MENU_REPAIR = "UPDATE sys_menu\nSET name = '商品品牌'\n"
+			+ "WHERE id = '2060000000000000001';";
+
 	private final Path projectRoot = findProjectRoot();
 
 	@Test
@@ -31,6 +34,9 @@ class ProductBrandSqlContractTest {
 		assertBrandSchema(boot);
 		assertBrandSchema(cloud);
 		assertBrandSchema(full);
+		assertThat(boot).contains(BRAND_MENU_REPAIR);
+		assertThat(cloud).contains(BRAND_MENU_REPAIR);
+		assertThat(full).contains(BRAND_MENU_REPAIR);
 	}
 
 	private static void assertBrandSchema(String sql) {

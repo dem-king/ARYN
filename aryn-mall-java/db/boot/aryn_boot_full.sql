@@ -1097,8 +1097,11 @@ INSERT INTO `sys_dict_value` VALUES ('1929206298094755842', '1929205944271659009
 INSERT INTO `sys_dict_value` VALUES ('1929206364058574849', '1929205944271659009', '30分钟', '16', 'mq_delay_time_level', '0', '30分钟', 16, '0', '2025-06-02 00:00:15', NULL, 'system', NULL, 'primary');
 INSERT INTO `sys_dict_value` VALUES ('1929206407276683265', '1929205944271659009', '1小时', '17', 'mq_delay_time_level', '0', '1小时', 17, '0', '2025-06-02 00:00:25', NULL, 'system', NULL, 'primary');
 INSERT INTO `sys_dict_value` VALUES ('1929206449693679617', '1929205944271659009', '2小时', '18', 'mq_delay_time_level', '0', '2小时', 18, '0', '2025-06-02 00:00:35', NULL, 'system', NULL, 'primary');
-INSERT INTO `sys_dict_value` VALUES ('2040457078937530370', '1583357541572108290', '本机', 'local', 'sys_storage_type', '0', NULL, 1, '0', '2026-04-04 23:50:52', NULL, 'system', NULL, 'primary');
-INSERT INTO `sys_dict_value` VALUES ('2040457134491086849', '1583357541572108290', 'OSS', 'oss', 'sys_storage_type', '0', NULL, 2, '0', '2026-04-04 23:51:05', NULL, 'system', NULL, 'primary');
+INSERT INTO `sys_dict_value` VALUES ('2040457078937530370', '1583357541572108290', '本机存储', 'local', 'sys_storage_type', '0', '服务器本地磁盘', 1, '0', '2026-04-04 23:50:52', NULL, 'system', NULL, 'primary');
+INSERT INTO `sys_dict_value` VALUES ('1583358198555303938', '1583357541572108290', '阿里OSS', 'aliyun', 'sys_storage_type', '0', '阿里云对象存储', 2, '0', '2022-10-21 15:23:07', NULL, NULL, NULL, NULL);
+INSERT INTO `sys_dict_value` VALUES ('1583358231816134658', '1583357541572108290', '七牛云', 'qiniu', 'sys_storage_type', '0', '七牛云对象存储', 3, '0', '2022-10-21 15:23:15', NULL, NULL, NULL, NULL);
+INSERT INTO `sys_dict_value` VALUES ('1583364488060952577', '1583357541572108290', '腾讯云', 'tencent', 'sys_storage_type', '0', '腾讯云对象存储', 4, '0', '2022-10-21 15:48:06', NULL, NULL, NULL, NULL);
+INSERT INTO `sys_dict_value` VALUES ('1928797196747186177', '1583357541572108290', 'MinIO', 'minio', 'sys_storage_type', '0', 'S3兼容自建存储', 5, '0', '2025-05-31 20:54:22', NULL, 'system', NULL, 'primary');
 
 -- ----------------------------
 -- Table structure for sys_log
@@ -2056,8 +2059,8 @@ CREATE TABLE `sys_storage_config`  (
                                        `id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '主键',
                                        `access_key` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT 'access_key',
                                        `access_secret` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT 'access_secret',
-                                       `endpoint` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '地域节点',
-                                       `bucket` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '域名',
+                                       `endpoint` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '地域节点',
+                                       `bucket` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT 'Bucket或本地存储根目录',
                                        `type` char(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '存储类型',
                                        `create_time` datetime NULL DEFAULT NULL COMMENT '新增时间',
                                        `update_time` datetime NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
@@ -2832,6 +2835,11 @@ ON DUPLICATE KEY UPDATE
   name = VALUES(name), permission = VALUES(permission), path = VALUES(path),
   parent_id = VALUES(parent_id), icon = VALUES(icon), component = VALUES(component),
   sort = VALUES(sort), type = VALUES(type), del_flag = '0';
+
+-- 修复早期通过错误客户端字符集导入后产生的存量菜单乱码。
+UPDATE sys_menu
+SET name = '商品品牌'
+WHERE id = '2060000000000000001';
 
 INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, tenant_id)
 SELECT REPLACE(UUID(), '-', ''), role.id, menu.id, NOW(), role.tenant_id
