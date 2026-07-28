@@ -48,6 +48,8 @@ class DeliveryTaskAdminServiceTest {
 
 		verify(fixture.remoteStaffService).getEligibleStaff("tenant-1", "staff-1");
 		verify(fixture.logMapper).insert(any(OrderDeliveryTaskLog.class));
+		verify(fixture.assignmentNotifier).notifyAssigned(any(OrderDeliveryTask.class), eq("staff-1"),
+			eq("配送员张三"), eq(0));
 	}
 
 	@Test
@@ -85,6 +87,8 @@ class DeliveryTaskAdminServiceTest {
 		withOperator(() -> assertThat(fixture.service.reassign("task-1", request)).isTrue());
 
 		verify(fixture.taskItemMapper).resetForAttempt("tenant-1", "task-1", 3);
+		verify(fixture.assignmentNotifier).notifyAssigned(any(OrderDeliveryTask.class), eq("staff-1"),
+			eq("配送员张三"), eq(3));
 	}
 
 	@Test
@@ -155,10 +159,11 @@ class DeliveryTaskAdminServiceTest {
 		OrderDeliveryTaskItemMapper taskItemMapper = mock(OrderDeliveryTaskItemMapper.class);
 		OrderDeliveryTaskLogMapper logMapper = mock(OrderDeliveryTaskLogMapper.class);
 		RemoteDeliveryStaffService remoteStaffService = mock(RemoteDeliveryStaffService.class);
+		DeliveryAssignmentNotifier assignmentNotifier = mock(DeliveryAssignmentNotifier.class);
 		when(taskMapper.selectByTenantAndId("tenant-1", "task-1")).thenReturn(task);
 		DeliveryTaskAdminService service = new DeliveryTaskAdminService(taskMapper, taskItemMapper, logMapper,
-			new DeliveryTaskTransitionPolicy(), remoteStaffService);
-		return new Fixture(service, taskMapper, taskItemMapper, logMapper, remoteStaffService);
+			new DeliveryTaskTransitionPolicy(), assignmentNotifier, remoteStaffService);
+		return new Fixture(service, taskMapper, taskItemMapper, logMapper, remoteStaffService, assignmentNotifier);
 	}
 
 	private OrderDeliveryTask task(DeliveryTaskStatusEnum status, int attemptNo, int version) {
@@ -190,7 +195,7 @@ class DeliveryTaskAdminServiceTest {
 
 	private record Fixture(DeliveryTaskAdminService service, OrderDeliveryTaskMapper taskMapper,
 			OrderDeliveryTaskItemMapper taskItemMapper, OrderDeliveryTaskLogMapper logMapper,
-			RemoteDeliveryStaffService remoteStaffService) {
+			RemoteDeliveryStaffService remoteStaffService, DeliveryAssignmentNotifier assignmentNotifier) {
 	}
 
 }

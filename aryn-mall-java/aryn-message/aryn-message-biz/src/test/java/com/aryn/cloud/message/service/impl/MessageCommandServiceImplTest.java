@@ -5,6 +5,7 @@ import com.aryn.cloud.message.api.entity.MessageNotice;
 import com.aryn.cloud.message.mapper.MessageNoticeMapper;
 import com.aryn.cloud.message.mapper.MessageRecipientMapper;
 import com.aryn.cloud.message.service.MessagePushService;
+import com.aryn.cloud.message.service.MessageChannelService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
@@ -27,9 +28,10 @@ class MessageCommandServiceImplTest {
 		MessageNoticeMapper noticeMapper = mock(MessageNoticeMapper.class);
 		MessageRecipientMapper recipientMapper = mock(MessageRecipientMapper.class);
 		MessagePushService pushService = mock(MessagePushService.class);
+		MessageChannelService channelService = mock(MessageChannelService.class);
 		Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
 		MessageCommandServiceImpl service = new MessageCommandServiceImpl(noticeMapper, recipientMapper, pushService,
-				new ObjectMapper(), validator);
+				channelService, new ObjectMapper(), validator);
 		AtomicReference<MessageNotice> stored = new AtomicReference<>();
 		when(noticeMapper.selectBySource(anyString(), anyString(), anyString())).thenAnswer(invocation -> stored.get());
 		when(noticeMapper.insertIgnoreSource(any(MessageNotice.class))).thenAnswer(invocation -> {
@@ -44,6 +46,7 @@ class MessageCommandServiceImplTest {
 
 		verify(noticeMapper, times(1)).insertIgnoreSource(any(MessageNotice.class));
 		verify(pushService, times(1)).pushNotice("tenant-1", "MALL_USER", "member-1", stored.get().getId());
+		verify(channelService, times(2)).createAndDispatch(command, stored.get().getId());
 		assertThat(stored.get().getCardPayload()).isEqualTo("{\"orderId\":\"order-1\"}");
 	}
 

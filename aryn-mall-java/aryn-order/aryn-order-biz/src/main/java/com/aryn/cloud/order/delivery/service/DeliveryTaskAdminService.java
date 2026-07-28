@@ -56,6 +56,8 @@ public class DeliveryTaskAdminService {
 
 	private final DeliveryTaskTransitionPolicy transitionPolicy;
 
+	private final DeliveryAssignmentNotifier assignmentNotifier;
+
 	@DubboReference
 	private final RemoteDeliveryStaffService remoteDeliveryStaffService;
 
@@ -103,6 +105,7 @@ public class DeliveryTaskAdminService {
 		requireUpdated(updated);
 		appendLog(task, DeliveryTaskActionEnum.ASSIGN, from, DeliveryTaskStatusEnum.ASSIGNED,
 			task.getAttemptNo(), operator, null, request.getRemark(), request.getRequestId(), now);
+		assignmentNotifier.notifyAssigned(task, staff.getId(), staff.getNickname(), task.getAttemptNo());
 		return true;
 	}
 
@@ -128,6 +131,7 @@ public class DeliveryTaskAdminService {
 		taskItemMapper.resetForAttempt(operator.getTenantId(), taskId, nextAttempt);
 		appendLog(task, DeliveryTaskActionEnum.REASSIGN, from, DeliveryTaskStatusEnum.ASSIGNED, nextAttempt,
 			operator, request.getReasonCode(), request.getDescription(), request.getRequestId(), now);
+		assignmentNotifier.notifyAssigned(task, staff.getId(), staff.getNickname(), nextAttempt);
 		return true;
 	}
 

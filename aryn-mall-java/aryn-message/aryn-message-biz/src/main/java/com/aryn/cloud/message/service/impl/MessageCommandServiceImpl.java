@@ -11,6 +11,7 @@ import com.aryn.cloud.message.api.enums.NoticeStatus;
 import com.aryn.cloud.message.mapper.MessageNoticeMapper;
 import com.aryn.cloud.message.mapper.MessageRecipientMapper;
 import com.aryn.cloud.message.service.MessageCommandService;
+import com.aryn.cloud.message.service.MessageChannelService;
 import com.aryn.cloud.message.service.MessagePushService;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -36,6 +37,7 @@ public class MessageCommandServiceImpl implements MessageCommandService {
 	private final MessageNoticeMapper noticeMapper;
 	private final MessageRecipientMapper recipientMapper;
 	private final MessagePushService pushService;
+	private final MessageChannelService channelService;
 	private final ObjectMapper objectMapper;
 	private final Validator validator;
 
@@ -56,11 +58,14 @@ public class MessageCommandServiceImpl implements MessageCommandService {
 			}
 		}
 		MessageRecipient recipient = recipient(command, notice.getId(), recipientType);
-		if (recipientMapper.insertIgnoreBatch(List.of(recipient)) > 0) {
-			String messageId = notice.getId();
-			runAfterCommit(() -> pushService.pushNotice(command.getTenantId(), recipientType.name(),
-					command.getRecipientId(), messageId));
-		}
+		boolean newRecipient = recipientMapper.insertIgnoreBatch(List.of(recipient)) > 0;
+		String messageId = notice.getId();
+		runAfterCommit(() -> {
+			if (newRecipient) {
+				pushService.pushNotice(command.getTenantId(), recipientType.name(), command.getRecipientId(), messageId);
+			}
+			channelService.createAndDispatch(command, messageId);
+		});
 	}
 
 	private MessageNotice notice(MessageSendCommand command, MessageIdentityType recipientType) {

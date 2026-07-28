@@ -5,6 +5,7 @@ import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 import java.io.Serializable;
+import java.util.Set;
 
 /** 跨业务域发送单收件人站内通知的最小命令。 */
 @Data
@@ -56,5 +57,14 @@ public class MessageSendCommand implements Serializable {
 
 	@Size(max = 2000)
 	private String jumpPayload;
+
+	/** 缺省仅站内信，保证历史发送方行为不变。 */
+	private Set<String> channels = Set.of("IN_APP");
+
+	@Size(max = 64)
+	private String miniAppId;
+
+	@Size(max = 64)
+	private String templateCode;
 
 }
