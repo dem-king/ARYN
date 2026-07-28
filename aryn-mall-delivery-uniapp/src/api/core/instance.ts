@@ -40,6 +40,16 @@ export function rewriteDeliveryBootUrl(url: string, openBoot = import.meta.env.V
   return url.replace(/^\/(auth|upms|mall-order|message)(?=\/)/, '') || '/'
 }
 
+export function buildDeliveryApiUrl(path: string) {
+  const base = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
+  const rewritten = rewriteDeliveryBootUrl(path)
+  return `${base}/${rewritten.replace(/^\/+/, '')}`
+}
+
+export function buildDeliveryWebSocketUrl(path: string) {
+  return buildDeliveryApiUrl(path).replace(/^http:/i, 'ws:').replace(/^https:/i, 'wss:')
+}
+
 function parseResponse<T>(data: unknown): ApiResponse<T> {
   if (typeof data !== 'string')
     return (data ?? {}) as ApiResponse<T>

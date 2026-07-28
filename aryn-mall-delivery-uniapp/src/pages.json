@@ -7,8 +7,43 @@
     {
       "path": "pages/workbench/index",
       "style": { "navigationBarTitleText": "配送工作台" }
+    },
+    {
+      "path": "pages/tasks/index",
+      "style": { "navigationBarTitleText": "配送任务" }
+    },
+    {
+      "path": "pages/tasks/detail",
+      "style": { "navigationBarTitleText": "任务详情" }
+    },
+    {
+      "path": "pages/tasks/picking",
+      "style": { "navigationBarTitleText": "配货核对" }
+    },
+    {
+      "path": "pages/tasks/delivered",
+      "style": { "navigationBarTitleText": "提交送达" }
+    },
+    {
+      "path": "pages/tasks/exception",
+      "style": { "navigationBarTitleText": "上报异常" }
+    },
+    {
+      "path": "pages/message/index",
+      "style": { "navigationBarTitleText": "员工消息" }
     }
   ],
+  "tabBar": {
+    "color": "#64748b",
+    "selectedColor": "#2563eb",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "white",
+    "list": [
+      { "pagePath": "pages/workbench/index", "text": "工作台" },
+      { "pagePath": "pages/tasks/index", "text": "任务" },
+      { "pagePath": "pages/message/index", "text": "消息" }
+    ]
+  },
   "globalStyle": {
     "navigationBarTextStyle": "black",
     "navigationBarTitleText": "悦航配送",
