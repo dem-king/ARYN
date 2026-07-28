@@ -16,6 +16,7 @@ import com.aryn.cloud.order.api.enums.OrderStatusEnum;
 import com.aryn.cloud.order.event.listener.OrderPaySuccessNotifier;
 import com.aryn.cloud.order.event.ArynOrderPayEvent;
 import com.aryn.cloud.order.event.listener.ArynOrderPayEventListener;
+import com.aryn.cloud.order.delivery.service.DeliveryTaskCreationService;
 import com.aryn.cloud.order.service.IOrderInfoService;
 import com.aryn.cloud.order.service.IOrderItemService;
 import com.aryn.cloud.order.service.IOrderRefundService;
@@ -185,11 +186,37 @@ class ArynOrderListenerReliabilityTest {
 		order.setId("order-1");
 		order.setDeliveryWay("1");
 		when(orderService.updateById(order)).thenReturn(false);
-		ArynOrderPayEventListener listener = new ArynOrderPayEventListener(orderService, itemService, notifier);
+		ArynOrderPayEventListener listener = new ArynOrderPayEventListener(
+			orderService, itemService, mock(DeliveryTaskCreationService.class), notifier);
 
 		assertThatThrownBy(() -> listener.hxPayEventListener(
 			new ArynOrderPayEvent(this, order, List.of(new OrderItemEntity()))))
 			.isInstanceOf(ArynBusinessException.class);
+
+		verify(notifier, never()).notify(any(), any());
+	}
+
+	@Test
+	void deliveryTaskCreationFailureDoesNotPublishSuccessNotification() {
+		IOrderInfoService orderService = mock(IOrderInfoService.class);
+		IOrderItemService itemService = mock(IOrderItemService.class);
+		DeliveryTaskCreationService creationService = mock(DeliveryTaskCreationService.class);
+		OrderPaySuccessNotifier notifier = mock(OrderPaySuccessNotifier.class);
+		OrderInfo order = new OrderInfo();
+		order.setId("order-1");
+		order.setDeliveryWay("3");
+		OrderItemEntity item = new OrderItemEntity().setId("item-1");
+		when(orderService.update(any(Wrapper.class))).thenReturn(true);
+		when(itemService.updateBatchById(List.of(item))).thenReturn(true);
+		when(creationService.createIfNeeded(order, List.of(item)))
+			.thenThrow(new IllegalStateException("task insert failed"));
+		ArynOrderPayEventListener listener = new ArynOrderPayEventListener(
+			orderService, itemService, creationService, notifier);
+
+		assertThatThrownBy(() -> listener.hxPayEventListener(
+			new ArynOrderPayEvent(this, order, List.of(item))))
+			.isInstanceOf(IllegalStateException.class)
+			.hasMessage("task insert failed");
 
 		verify(notifier, never()).notify(any(), any());
 	}

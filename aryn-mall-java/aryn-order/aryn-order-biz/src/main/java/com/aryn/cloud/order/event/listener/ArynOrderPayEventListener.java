@@ -11,6 +11,7 @@ import com.aryn.cloud.order.api.entity.OrderItemEntity;
 import com.aryn.cloud.order.api.enums.OrderItemStatusEnum;
 import com.aryn.cloud.order.api.enums.OrderStatusEnum;
 import com.aryn.cloud.order.event.ArynOrderPayEvent;
+import com.aryn.cloud.order.delivery.service.DeliveryTaskCreationService;
 import com.aryn.cloud.order.service.IOrderInfoService;
 import com.aryn.cloud.order.service.IOrderItemService;
 import lombok.RequiredArgsConstructor;
@@ -35,6 +36,8 @@ public class ArynOrderPayEventListener {
 	private final IOrderInfoService orderInfoService;
 
 	private final IOrderItemService orderItemService;
+
+	private final DeliveryTaskCreationService deliveryTaskCreationService;
 
 	private final OrderPaySuccessNotifier orderPaySuccessNotifier;
 
@@ -80,6 +83,7 @@ public class ArynOrderPayEventListener {
 		if (!orderItemService.updateBatchById(orderItemEntityList)) {
 			throw new ArynBusinessException("订单商品支付状态更新失败，请重试");
 		}
+		deliveryTaskCreationService.createIfNeeded(orderInfo, orderItemEntityList);
 
 		// 通知销量增加、优惠券更改状态
 		TransactionalMqUtils.sendAfterCommit(() -> orderPaySuccessNotifier.notify(orderInfo, orderItemEntityList));
