@@ -49,11 +49,10 @@ import com.aryn.cloud.product.api.dto.GoodsSkuStockReqDTO;
 import com.aryn.cloud.product.api.remote.RemoteGoodsSkuService;
 import com.aryn.cloud.promotion.api.enums.CouponUserStatusEnum;
 import com.aryn.cloud.promotion.api.remote.RemoteCouponUserService;
-import com.aryn.cloud.user.api.entity.UserAddress;
 import com.aryn.cloud.user.api.remote.RemoteMallUserService;
-import com.aryn.cloud.user.api.remote.RemoteUserAddressService;
 import com.aryn.cloud.user.api.vo.UserInfoVO;
 import com.aryn.cloud.user.api.vo.MemberBenefitsVO;
+import com.aryn.cloud.order.delivery.service.DeliveryCheckoutService;
 import lombok.RequiredArgsConstructor;
 import org.apache.dubbo.config.annotation.DubboReference;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
@@ -110,8 +109,7 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 
 	private final OrderAppraiseService orderAppraiseService;
 
-	@DubboReference
-	private final RemoteUserAddressService remoteUserAddressService;
+	private final DeliveryCheckoutService deliveryCheckoutService;
 
 	private final OrderDeliveryMapper orderDeliveryMapper;
 
@@ -356,31 +354,10 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		orderPriceComputeService.orderMemberBenefitHandler(orderInfo, orderItemEntityList, memberBenefits);
 		orderPriceComputeService.orderCouponHandler(orderInfo, orderItemEntityList);
 
-		// 5. 物流运费计算
-		if (MallOrderConstants.DELIVERY_WAY_1.equals(orderInfo.getDeliveryWay())) {
-			if (!StringUtils.hasText(createOrderDTO.getUserAddressId())) {
-				throw new ArynBusinessException(MallErrorCodeEnum.ERROR_50002.getCode(),
-						MallErrorCodeEnum.ERROR_50002.getMsg());
-			}
-			// 查询用户收货地址
-			UserAddress userAddress = remoteUserAddressService.getById(createOrderDTO.getUserAddressId(),
-					createOrderDTO.getUserId());
-			if (ObjectUtil.isNull(userAddress)) {
-				throw new ArynBusinessException(MallErrorCodeEnum.ERROR_50002.getCode(),
-						MallErrorCodeEnum.ERROR_50002.getMsg());
-			}
-			orderInfo.setRecipientName(userAddress.getRecipientName());
-			orderInfo.setRecipientPhone(userAddress.getTelephone());
-			orderInfo.setRecipientProvince(userAddress.getProvinceName());
-			orderInfo.setRecipientCity(userAddress.getCityName());
-			orderInfo.setRecipientArea(userAddress.getAreaName());
-			orderInfo.setRecipientProvinceCode(userAddress.getProvinceCode());
-			orderInfo.setRecipientCityCode(userAddress.getCityCode());
-			orderInfo.setRecipientAreaCode(userAddress.getAreaCode());
-			orderInfo.setRecipientAddress(userAddress.getDetailAddress());
-			orderPriceComputeService.orderFreightHandler(orderInfo, orderItemEntityList, goodsSkuList,
-					memberBenefits != null && memberBenefits.isFreeShipping());
-		}
+		// 5. 普通快递和商城配送共用地址快照与现有运费口径，商城配送额外校验服务范围。
+		deliveryCheckoutService.applyDeliveryAddressAndFreight(orderInfo.getDeliveryWay(),
+				createOrderDTO.getUserAddressId(), createOrderDTO.getUserId(), orderInfo, orderItemEntityList,
+				goodsSkuList, memberBenefits != null && memberBenefits.isFreeShipping());
 		// 创建订单
 		try {
 			if (!super.save(orderInfo)) {
@@ -610,32 +587,10 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		MemberBenefitsVO memberBenefits = remoteMallUserService.getMemberBenefits(settlementOrderDTO.getUserId());
 		orderPriceComputeService.orderMemberBenefitHandler(orderInfo, orderItemEntityList, memberBenefits);
 		orderPriceComputeService.orderCouponHandler(orderInfo, orderItemEntityList);
-		// 5.计算运费
-		if (MallOrderConstants.DELIVERY_WAY_1.equals(orderInfo.getDeliveryWay())) {
-			if (!StringUtils.hasText(settlementOrderDTO.getUserAddressId())) {
-				throw new ArynBusinessException(MallErrorCodeEnum.ERROR_50002.getCode(),
-						MallErrorCodeEnum.ERROR_50002.getMsg());
-			}
-			// 查询用户收货地址
-			UserAddress userAddress = remoteUserAddressService.getById(settlementOrderDTO.getUserAddressId(),
-					settlementOrderDTO.getUserId());
-			if (ObjectUtil.isNull(userAddress)) {
-				throw new ArynBusinessException(MallErrorCodeEnum.ERROR_50002.getCode(),
-						MallErrorCodeEnum.ERROR_50002.getMsg());
-			}
-			orderInfo.setRecipientName(userAddress.getRecipientName());
-			orderInfo.setRecipientPhone(userAddress.getTelephone());
-			orderInfo.setRecipientProvince(userAddress.getProvinceName());
-			orderInfo.setRecipientCity(userAddress.getCityName());
-			orderInfo.setRecipientArea(userAddress.getAreaName());
-			orderInfo.setRecipientProvinceCode(userAddress.getProvinceCode());
-			orderInfo.setRecipientCityCode(userAddress.getCityCode());
-			orderInfo.setRecipientAreaCode(userAddress.getAreaCode());
-			orderInfo.setRecipientAddress(userAddress.getDetailAddress());
-
-			orderPriceComputeService.orderFreightHandler(orderInfo, orderItemEntityList, goodsSkuList,
-					memberBenefits != null && memberBenefits.isFreeShipping());
-		}
+		// 5.计算运费；创建订单时会再次执行同一范围校验，不能只依赖结算结果。
+		deliveryCheckoutService.applyDeliveryAddressAndFreight(orderInfo.getDeliveryWay(),
+				settlementOrderDTO.getUserAddressId(), settlementOrderDTO.getUserId(), orderInfo, orderItemEntityList,
+				goodsSkuList, memberBenefits != null && memberBenefits.isFreeShipping());
 		orderInfo.setOrderItemList(orderItemEntityList);
 		return orderInfo;
 	}

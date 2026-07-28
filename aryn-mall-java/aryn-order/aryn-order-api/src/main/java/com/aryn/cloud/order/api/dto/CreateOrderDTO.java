@@ -24,9 +24,9 @@ public class CreateOrderDTO {
 	@Schema(description = "用户ID")
 	private String userId;
 
-	@Schema(description = "配送方式：1.普通快递；2.上门自提")
+	@Schema(description = "配送方式：1.普通快递；2.上门自提；3.商城配送")
 	@NotBlank(message = "配送方式不能为空")
-	@Pattern(regexp = "[12]", message = "配送方式不合法")
+	@Pattern(regexp = "[123]", message = "配送方式不合法")
 	private String deliveryWay;
 
 	@Schema(description = "支付类型：1.微信支付；2.支付宝支付")

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aryn.cloud.order.delivery.mapper.OrderDeliveryAreaMapper">
+
+    <select id="selectEnabledByScope" resultType="com.aryn.cloud.order.api.delivery.entity.OrderDeliveryArea">
+        SELECT area.*
+        FROM order_delivery_area AS area
+        WHERE area.scope_level = #{scopeLevel}
+          AND area.area_code = #{areaCode}
+          AND area.enabled = '1'
+          AND area.del_flag = '0'
+        LIMIT 1
+    </select>
+
+</mapper>
