@@ -49,6 +49,19 @@ class MenuSeedContractTest {
 		}
 	}
 
+	@Test
+	void mallDeliveryMenuSeedsGrantPackagesAndExistingTenants() throws IOException {
+		for (String relativePath : List.of("db/boot/21mall_delivery_menu.sql", "db/cloud/21mall_delivery_menu.sql")) {
+			String sql = Files.readString(projectRoot.resolve(relativePath));
+			assertTrue(sql.contains("order:delivery:execute"), () -> relativePath + " must expose staff permission");
+			assertTrue(sql.contains("role.role_code = 'ROLE_ADMIN'"), () -> relativePath + " must grant tenant admins");
+			assertTrue(sql.contains("INSERT INTO sys_tenant_menu"), () -> relativePath + " must grant tenant packages");
+			assertTrue(sql.contains("tenant.id <> '1881232176465358849'"),
+					() -> relativePath + " must follow existing platform-tenant exclusion");
+			assertTrue(sql.contains("NOT EXISTS"), () -> relativePath + " must remain idempotent");
+		}
+	}
+
 	private static Path findProjectRoot() {
 		Path current = Path.of(System.getProperty("user.dir")).toAbsolutePath();
 		while (current != null && !Files.isDirectory(current.resolve("db/cloud"))) {

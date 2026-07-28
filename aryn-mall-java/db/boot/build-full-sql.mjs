@@ -10,6 +10,8 @@ const sections = [
   ['会员管理模块', '4aryn_boot_member.sql'],
   ['站内信与客服会话', '20message_center.sql'],
   ['消息中心菜单与权限', '20message_menu.sql'],
+  ['商城配送数据模型', '21mall_delivery.sql'],
+  ['商城配送菜单与权限', '21mall_delivery_menu.sql'],
   ['菜单种子修复', '15menu_seed_repair.sql'],
   ['页面装修类型升级', '10page_design_alter.sql'],
   ['页面装修发布与模板', '11page_design_publish.sql'],
@@ -47,6 +49,13 @@ DROP TABLE IF EXISTS \`group_buy_member\`;
 DROP TABLE IF EXISTS \`group_buy_record\`;
 DROP TABLE IF EXISTS \`group_buy_activity\`;
 DROP TABLE IF EXISTS \`goods_brand\`;
+DROP TABLE IF EXISTS \`message_channel_task\`;
+DROP TABLE IF EXISTS \`sys_user_wechat_binding\`;
+DROP TABLE IF EXISTS \`order_delivery_area\`;
+DROP TABLE IF EXISTS \`order_delivery_task_log\`;
+DROP TABLE IF EXISTS \`order_delivery_evidence\`;
+DROP TABLE IF EXISTS \`order_delivery_task_item\`;
+DROP TABLE IF EXISTS \`order_delivery_task\`;
 `;
 
 const output = sections.reduce((sql, [title, file]) => {

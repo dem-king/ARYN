@@ -28,6 +28,13 @@ DROP TABLE IF EXISTS `group_buy_member`;
 DROP TABLE IF EXISTS `group_buy_record`;
 DROP TABLE IF EXISTS `group_buy_activity`;
 DROP TABLE IF EXISTS `goods_brand`;
+DROP TABLE IF EXISTS `message_channel_task`;
+DROP TABLE IF EXISTS `sys_user_wechat_binding`;
+DROP TABLE IF EXISTS `order_delivery_area`;
+DROP TABLE IF EXISTS `order_delivery_task_log`;
+DROP TABLE IF EXISTS `order_delivery_evidence`;
+DROP TABLE IF EXISTS `order_delivery_task_item`;
+DROP TABLE IF EXISTS `order_delivery_task`;
 USE aryn_boot;
 
 SET NAMES utf8mb4;
@@ -3459,6 +3466,261 @@ WHERE tenant.del_flag = '0'
   );
 
 DROP TEMPORARY TABLE tmp_message_common_menu;
+
+COMMIT;
+
+-- ============================================================================
+-- 商城配送数据模型
+-- Source: db/boot/21mall_delivery.sql
+-- ============================================================================
+-- 商城配送履约基础数据模型
+USE `aryn_boot`;
+
+CREATE TABLE `order_delivery_task` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `task_no` varchar(64) NOT NULL COMMENT '配送任务号',
+  `order_id` varchar(32) NOT NULL COMMENT '订单ID',
+  `order_no` varchar(64) NOT NULL COMMENT '订单号快照',
+  `status` varchar(32) NOT NULL COMMENT '配送任务状态',
+  `assignee_id` varchar(32) DEFAULT NULL COMMENT '当前配送员ID',
+  `assignee_name` varchar(100) DEFAULT NULL COMMENT '当前配送员姓名快照',
+  `assignee_mobile` varchar(32) DEFAULT NULL COMMENT '当前配送员手机号快照',
+  `assigned_by` varchar(32) DEFAULT NULL COMMENT '派单管理员ID',
+  `assigned_by_name` varchar(100) DEFAULT NULL COMMENT '派单管理员姓名快照',
+  `attempt_no` int NOT NULL DEFAULT 1 COMMENT '配送尝试号',
+  `version` int NOT NULL DEFAULT 0 COMMENT '乐观锁版本',
+  `picking_started_at` datetime DEFAULT NULL COMMENT '开始配货时间',
+  `picked_up_at` datetime DEFAULT NULL COMMENT '确认取货时间',
+  `delivered_at` datetime DEFAULT NULL COMMENT '送达时间',
+  `return_pending_at` datetime DEFAULT NULL COMMENT '进入待退回时间',
+  `returned_at` datetime DEFAULT NULL COMMENT '退回仓库时间',
+  `closed_at` datetime DEFAULT NULL COMMENT '关闭时间',
+  `exception_code` varchar(64) DEFAULT NULL COMMENT '当前异常原因编码',
+  `exception_summary` varchar(500) DEFAULT NULL COMMENT '当前异常摘要',
+  `remark` varchar(500) DEFAULT NULL COMMENT '备注',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_delivery_task_order` (`tenant_id`, `order_id`),
+  UNIQUE KEY `uk_delivery_task_no` (`tenant_id`, `task_no`),
+  KEY `idx_delivery_task_status` (`tenant_id`, `status`, `create_time`),
+  KEY `idx_delivery_task_assignee` (`tenant_id`, `assignee_id`, `status`, `update_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='商城配送任务';
+
+CREATE TABLE `order_delivery_task_item` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `task_id` varchar(32) NOT NULL COMMENT '配送任务ID',
+  `order_item_id` varchar(32) NOT NULL COMMENT '订单项ID',
+  `attempt_no` int NOT NULL DEFAULT 1 COMMENT '当前配送尝试号',
+  `checked` char(1) NOT NULL DEFAULT '0' COMMENT '是否已核对',
+  `checked_by` varchar(32) DEFAULT NULL COMMENT '核对配送员ID',
+  `checked_at` datetime DEFAULT NULL COMMENT '核对时间',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_delivery_task_item` (`tenant_id`, `task_id`, `order_item_id`),
+  KEY `idx_delivery_task_item_check` (`tenant_id`, `task_id`, `attempt_no`, `checked`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='商城配送配货明细';
+
+CREATE TABLE `order_delivery_evidence` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `task_id` varchar(32) NOT NULL COMMENT '配送任务ID',
+  `attempt_no` int NOT NULL COMMENT '配送尝试号',
+  `evidence_type` varchar(32) NOT NULL COMMENT '凭证类型',
+  `material_id` varchar(32) NOT NULL COMMENT 'UPMS素材ID',
+  `binding_status` varchar(16) NOT NULL DEFAULT 'BOUND' COMMENT '素材绑定状态',
+  `sort_no` int NOT NULL DEFAULT 0 COMMENT '展示顺序',
+  `uploaded_by` varchar(32) NOT NULL COMMENT '上传员工ID',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_delivery_evidence_material` (`tenant_id`, `material_id`),
+  KEY `idx_delivery_evidence_task` (`tenant_id`, `task_id`, `attempt_no`, `evidence_type`, `sort_no`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='商城配送履约凭证';
+
+CREATE TABLE `order_delivery_task_log` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `task_id` varchar(32) NOT NULL COMMENT '配送任务ID',
+  `action` varchar(32) NOT NULL COMMENT '操作类型',
+  `from_status` varchar(32) DEFAULT NULL COMMENT '原状态',
+  `to_status` varchar(32) DEFAULT NULL COMMENT '目标状态',
+  `attempt_no` int NOT NULL COMMENT '配送尝试号',
+  `operator_type` varchar(32) NOT NULL COMMENT '操作人类型',
+  `operator_id` varchar(32) NOT NULL COMMENT '操作人ID',
+  `operator_name` varchar(100) DEFAULT NULL COMMENT '操作人名称快照',
+  `reason_code` varchar(64) DEFAULT NULL COMMENT '原因编码',
+  `description` varchar(1000) DEFAULT NULL COMMENT '操作说明',
+  `request_id` varchar(64) NOT NULL COMMENT '请求幂等号',
+  `detail_payload` json DEFAULT NULL COMMENT '受控操作摘要',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_delivery_task_log_request` (`tenant_id`, `task_id`, `action`, `request_id`),
+  KEY `idx_delivery_task_log_task` (`tenant_id`, `task_id`, `create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='商城配送任务操作日志';
+
+CREATE TABLE `order_delivery_area` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `scope_level` varchar(16) NOT NULL COMMENT '范围层级：PROVINCE/CITY/DISTRICT',
+  `area_code` varchar(32) NOT NULL COMMENT '当前层级行政区编码',
+  `province_code` varchar(32) NOT NULL COMMENT '省编码',
+  `province_name` varchar(100) NOT NULL COMMENT '省名称快照',
+  `city_code` varchar(32) DEFAULT NULL COMMENT '市编码',
+  `city_name` varchar(100) DEFAULT NULL COMMENT '市名称快照',
+  `district_code` varchar(32) DEFAULT NULL COMMENT '区县编码',
+  `district_name` varchar(100) DEFAULT NULL COMMENT '区县名称快照',
+  `enabled` char(1) NOT NULL DEFAULT '1' COMMENT '是否启用',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_delivery_area_scope` (`tenant_id`, `scope_level`, `area_code`),
+  KEY `idx_delivery_area_match` (`tenant_id`, `enabled`, `province_code`, `city_code`, `district_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='商城配送范围';
+
+CREATE TABLE `sys_user_wechat_binding` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `user_id` varchar(32) NOT NULL COMMENT '员工ID',
+  `app_id` varchar(64) NOT NULL COMMENT '微信小程序AppID',
+  `openid` varchar(128) NOT NULL COMMENT '微信OpenID',
+  `status` varchar(16) NOT NULL DEFAULT 'BOUND' COMMENT '绑定状态',
+  `bound_at` datetime NOT NULL COMMENT '绑定时间',
+  `unbound_at` datetime DEFAULT NULL COMMENT '解绑时间',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_staff_wechat_user` (`tenant_id`, `user_id`, `app_id`),
+  UNIQUE KEY `uk_staff_wechat_openid` (`tenant_id`, `app_id`, `openid`),
+  KEY `idx_staff_wechat_status` (`tenant_id`, `status`, `update_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='员工微信绑定';
+
+CREATE TABLE `message_channel_task` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `message_id` varchar(32) NOT NULL COMMENT '站内通知ID',
+  `recipient_type` varchar(32) NOT NULL COMMENT '收件人类型',
+  `recipient_id` varchar(32) NOT NULL COMMENT '收件人ID',
+  `channel` varchar(32) NOT NULL COMMENT '消息通道',
+  `template_code` varchar(64) DEFAULT NULL COMMENT '模板编码',
+  `template_params` json DEFAULT NULL COMMENT '受控模板参数',
+  `source_type` varchar(64) NOT NULL COMMENT '来源类型',
+  `source_key` varchar(128) NOT NULL COMMENT '来源幂等键',
+  `status` varchar(32) NOT NULL DEFAULT 'PENDING' COMMENT '任务状态',
+  `retry_count` int NOT NULL DEFAULT 0 COMMENT '重试次数',
+  `next_retry_time` datetime DEFAULT NULL COMMENT '下次重试时间',
+  `last_attempt_time` datetime DEFAULT NULL COMMENT '最后尝试时间',
+  `error_summary` varchar(1000) DEFAULT NULL COMMENT '错误摘要',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_message_channel_source` (`tenant_id`, `source_type`, `source_key`, `recipient_type`, `recipient_id`, `channel`),
+  KEY `idx_message_channel_retry` (`tenant_id`, `status`, `next_retry_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='消息通道发送任务';
+
+ALTER TABLE `sys_material`
+  ADD COLUMN `object_key` varchar(1024) DEFAULT NULL COMMENT '存储对象键' AFTER `material_path`,
+  ADD COLUMN `business_type` varchar(64) DEFAULT NULL COMMENT '业务类型' AFTER `object_key`,
+  ADD COLUMN `business_id` varchar(64) DEFAULT NULL COMMENT '业务ID' AFTER `business_type`,
+  ADD COLUMN `binding_status` varchar(16) NOT NULL DEFAULT 'UNBOUND' COMMENT '绑定状态' AFTER `business_id`,
+  ADD COLUMN `reservation_id` varchar(64) DEFAULT NULL COMMENT '素材预占ID' AFTER `binding_status`,
+  ADD COLUMN `reservation_expire_time` datetime DEFAULT NULL COMMENT '预占过期时间' AFTER `reservation_id`,
+  ADD COLUMN `bound_time` datetime DEFAULT NULL COMMENT '绑定时间' AFTER `reservation_expire_time`,
+  ADD KEY `idx_sys_material_binding` (`tenant_id`, `business_type`, `binding_status`, `reservation_expire_time`);
+
+-- ============================================================================
+-- 商城配送菜单与权限
+-- Source: db/boot/21mall_delivery_menu.sql
+-- ============================================================================
+USE aryn_boot;
+
+SET NAMES utf8mb4;
+
+START TRANSACTION;
+
+INSERT IGNORE INTO sys_dict_value
+  (id, dict_id, dict_label, dict_value, dict_type, status, remarks, sort, del_flag,
+   create_time, update_time, create_by, update_by, show_class)
+VALUES
+  ('2080000000000000090', '1825787265549987842', '商城配送', '3', 'delivery_way', '0',
+   '商城员工配送', 3, '0', NOW(), NULL, 'system', NULL, 'primary');
+
+INSERT IGNORE INTO sys_menu
+  (id, name, permission, path, redirect, parent_id, icon, component, sort, type,
+   create_time, update_time, outer_status, del_flag, application_key, create_by, update_by)
+VALUES
+  ('2080000000000000000', '商城配送', NULL, '/order/delivery', '/order/delivery-task',
+   '1521496866882236418', 'carbon:delivery', '', 30, '0', NOW(), NULL, '0', '0', 'app_base', 'system', 'system'),
+  ('2080000000000000001', '配送任务', NULL, '/order/delivery-task', NULL,
+   '2080000000000000000', 'carbon:task', 'order/delivery-task/index', 1, '0', NOW(), NULL, '0', '0', 'app_base', 'system', 'system'),
+  ('2080000000000000002', '配送任务分页', 'order:delivery:page', NULL, NULL,
+   '2080000000000000001', NULL, NULL, 1, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+  ('2080000000000000003', '配送任务查询', 'order:delivery:get', NULL, NULL,
+   '2080000000000000001', NULL, NULL, 2, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+  ('2080000000000000004', '配送任务派单', 'order:delivery:assign', NULL, NULL,
+   '2080000000000000001', NULL, NULL, 3, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+  ('2080000000000000005', '配送任务改派', 'order:delivery:reassign', NULL, NULL,
+   '2080000000000000001', NULL, NULL, 4, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+  ('2080000000000000006', '配送异常处理', 'order:delivery:exception', NULL, NULL,
+   '2080000000000000001', NULL, NULL, 5, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+  ('2080000000000000007', '配送退回处理', 'order:delivery:return', NULL, NULL,
+   '2080000000000000001', NULL, NULL, 6, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+  ('2080000000000000008', '配送员履约', 'order:delivery:execute', NULL, NULL,
+   '2080000000000000001', NULL, NULL, 7, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+  ('2080000000000000020', '配送范围', NULL, '/order/delivery-area', NULL,
+   '2080000000000000000', 'carbon:map-boundary', 'order/delivery-area/index', 2, '0', NOW(), NULL, '0', '0', 'app_base', 'system', 'system'),
+  ('2080000000000000021', '配送范围管理', 'order:delivery:area', NULL, NULL,
+   '2080000000000000020', NULL, NULL, 1, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL);
+
+INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, tenant_id)
+SELECT REPLACE(UUID(), '-', ''), role.id, menu.id, NOW(), role.tenant_id
+FROM sys_role AS role
+JOIN sys_menu AS menu ON menu.id BETWEEN '2080000000000000000' AND '2080000000000000021'
+WHERE role.del_flag = '0'
+  AND role.role_code = 'ROLE_ADMIN'
+  AND NOT EXISTS (
+    SELECT 1 FROM sys_role_menu AS role_menu
+    WHERE role_menu.role_id = role.id
+      AND role_menu.menu_id = menu.id
+      AND role_menu.tenant_id = role.tenant_id
+  );
+
+INSERT INTO sys_tenant_menu (id, tenant_id, menu_id, create_time, create_by)
+SELECT REPLACE(UUID(), '-', ''), tenant.id, menu.id, NOW(), 'system'
+FROM sys_tenant AS tenant
+JOIN sys_menu AS menu ON menu.id BETWEEN '2080000000000000000' AND '2080000000000000021'
+WHERE tenant.del_flag = '0'
+  AND tenant.id <> '1881232176465358849'
+  AND NOT EXISTS (
+    SELECT 1 FROM sys_tenant_menu AS tenant_menu
+    WHERE tenant_menu.tenant_id = tenant.id
+      AND tenant_menu.menu_id = menu.id
+  );
 
 COMMIT;
 
