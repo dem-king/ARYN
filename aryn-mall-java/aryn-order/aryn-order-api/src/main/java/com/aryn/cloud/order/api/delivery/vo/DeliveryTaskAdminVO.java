@@ -1,6 +1,7 @@
 package com.aryn.cloud.order.api.delivery.vo;
 
 import com.aryn.cloud.order.api.delivery.entity.OrderDeliveryTaskLog;
+import com.aryn.cloud.order.api.delivery.entity.OrderDeliveryEvidence;
 import lombok.Data;
 
 import java.io.Serializable;
@@ -35,5 +36,6 @@ public class DeliveryTaskAdminVO implements Serializable {
 	private LocalDateTime createTime;
 	private LocalDateTime updateTime;
 	private List<OrderDeliveryTaskLog> logs;
+	private List<OrderDeliveryEvidence> evidences;
 
 }

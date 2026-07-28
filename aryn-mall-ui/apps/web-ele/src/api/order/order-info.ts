@@ -71,3 +71,10 @@ export async function cancelObj(id: string) {
 export async function selffetchObj(data: any) {
   return requestClient.post('/mall-order/orderinfo/selffetch', data);
 }
+
+/** 从订单上下文查询关联的商城配送任务。 */
+export async function getMallDeliveryTaskByOrderNo(orderNo: string) {
+  return requestClient.get('/mall-order/delivery/admin/tasks', {
+    params: { current: 1, orderNo, size: 1 },
+  });
+}

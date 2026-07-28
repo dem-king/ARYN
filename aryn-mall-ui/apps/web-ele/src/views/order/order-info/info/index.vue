@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { defineAsyncComponent, reactive, ref } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 
 import { Box } from '@element-plus/icons-vue';
 import {
@@ -22,6 +22,7 @@ import {
 } from 'element-plus';
 
 import { getById, selffetchObj } from '#/api/order/order-info';
+import { getOrderFulfillmentAction } from '#/api/order/delivery-task';
 import { getById as getUserById } from '#/api/user/user-info';
 import { useDict } from '#/utils/dict';
 
@@ -99,6 +100,7 @@ const state = reactive<DataState>({
 const loading = ref(false);
 const refDeliver = ref();
 const route = useRoute();
+const router = useRouter();
 const getDetail = () => {
   const { id }: any = route.query;
   if (id) {
@@ -128,6 +130,12 @@ const getUser = (userId: string) => {
  */
 const deliverOrder = (row: any) => {
   refDeliver.value.initPage(row.id, row.orderLogisticsId);
+};
+const assignDeliveryOrder = () => {
+  router.push({
+    path: '/order/delivery-task',
+    query: { openAssign: state.orderInfo.id, orderNo: state.orderInfo.orderNo },
+  });
 };
 /**
  * 自提
@@ -184,21 +192,35 @@ getDetail();
               <div v-if="state.orderInfo.deliveryWay === '2'">
                 买家已付款，请尽快备货
               </div>
+              <div v-if="state.orderInfo.deliveryWay === '3'">
+                买家已付款，等待派发商城配送任务
+              </div>
               <p style="font-size: 14px; color: rgb(150 151 153)">
                 买家已付款至待结算账户，{{
                   state.orderInfo.deliveryWay === '1'
                     ? '请尽快发货'
-                    : '请尽快备货'
+                    : state.orderInfo.deliveryWay === '2'
+                      ? '请尽快备货'
+                      : '请尽快派单'
                 }}，否则买家有权申请退款。
               </p>
             </div>
             <div>
               <ElButton
+                v-if="getOrderFulfillmentAction(state.orderInfo) === 'SHIP'"
                 type="primary"
                 v-access:code="'order:orderinfo:deliver'"
                 @click="deliverOrder(state.orderInfo)"
               >
                 发货
+              </ElButton>
+              <ElButton
+                v-if="getOrderFulfillmentAction(state.orderInfo) === 'ASSIGN'"
+                type="primary"
+                v-access:code="'order:delivery:assign'"
+                @click="assignDeliveryOrder"
+              >
+                派单
               </ElButton>
             </div>
           </div>
@@ -262,7 +284,11 @@ getDetail();
       <div class="order-info">
         <div
           class="item"
-          v-if="state.orderInfo && state.orderInfo.deliveryWay === '1'"
+          v-if="
+            state.orderInfo &&
+            (state.orderInfo.deliveryWay === '1' ||
+              state.orderInfo.deliveryWay === '3')
+          "
         >
           <div class="title">收货人信息</div>
           <div class="content">

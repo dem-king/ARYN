@@ -40,6 +40,7 @@ import {
   getPage,
   selffetchObj,
 } from '#/api/order/order-info';
+import { getOrderFulfillmentAction } from '#/api/order/delivery-task';
 import { useDict } from '#/utils/dict';
 
 const RightToolbar = defineAsyncComponent(
@@ -222,6 +223,12 @@ const tabHandle = (event: any) => {
  */
 const deliverOrder = (row: any) => {
   deliverRef.value.initPage(row.id);
+};
+const assignDeliveryOrder = (row: any) => {
+  $route.push({
+    path: '/order/delivery-task',
+    query: { orderNo: row.orderNo, openAssign: row.id },
+  });
 };
 /**
  * 自提
@@ -480,6 +487,16 @@ initPage();
               :icon="Van"
             >
               发货
+            </ElButton>
+            <ElButton
+              link
+              type="primary"
+              v-access:code="'order:delivery:assign'"
+              v-if="getOrderFulfillmentAction(scope.row) === 'ASSIGN'"
+              @click="assignDeliveryOrder(scope.row)"
+              :icon="Van"
+            >
+              派单
             </ElButton>
             <ElButton
               link

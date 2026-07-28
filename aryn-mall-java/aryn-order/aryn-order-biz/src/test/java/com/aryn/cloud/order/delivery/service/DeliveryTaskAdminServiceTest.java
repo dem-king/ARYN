@@ -7,13 +7,17 @@ import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.order.api.delivery.dto.DeliveryAssignRequest;
 import com.aryn.cloud.order.api.delivery.dto.DeliveryReassignRequest;
 import com.aryn.cloud.order.api.delivery.entity.OrderDeliveryTask;
+import com.aryn.cloud.order.api.delivery.entity.OrderDeliveryEvidence;
 import com.aryn.cloud.order.api.delivery.entity.OrderDeliveryTaskLog;
 import com.aryn.cloud.order.api.delivery.enums.DeliveryTaskStatusEnum;
 import com.aryn.cloud.order.delivery.mapper.OrderDeliveryTaskItemMapper;
 import com.aryn.cloud.order.delivery.mapper.OrderDeliveryTaskLogMapper;
 import com.aryn.cloud.order.delivery.mapper.OrderDeliveryTaskMapper;
+import com.aryn.cloud.order.delivery.mapper.OrderDeliveryEvidenceMapper;
 import com.aryn.cloud.upms.api.remote.RemoteDeliveryStaffService;
+import com.aryn.cloud.upms.api.remote.RemoteMaterialAccessService;
 import com.aryn.cloud.upms.api.vo.DeliveryStaffVO;
+import com.aryn.cloud.upms.api.vo.MaterialAccessVO;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 
@@ -29,6 +33,24 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class DeliveryTaskAdminServiceTest {
+
+	@Test
+	void evidenceAccessRequiresEvidenceOwnedByCurrentTaskAndTenant() {
+		Fixture fixture = fixture(task(DeliveryTaskStatusEnum.DELIVERED, 1, 2));
+		OrderDeliveryEvidence evidence = new OrderDeliveryEvidence().setId("evidence-1")
+			.setTaskId("task-1")
+			.setMaterialId("material-1")
+			.setTenantId("tenant-1");
+		when(fixture.evidenceMapper.selectOne(any())).thenReturn(evidence);
+		MaterialAccessVO access = new MaterialAccessVO();
+		access.setMaterialId("material-1");
+		when(fixture.materialAccessService.getTemporaryAccess("tenant-1", "material-1")).thenReturn(access);
+
+		withOperator(() -> assertThat(fixture.service.getEvidenceAccess("task-1", "evidence-1"))
+			.isSameAs(access));
+
+		verify(fixture.materialAccessService).getTemporaryAccess("tenant-1", "material-1");
+	}
 
 	@Test
 	void assignmentChecksEligibilityUsesVersionAndAppendsLog() {
@@ -158,12 +180,16 @@ class DeliveryTaskAdminServiceTest {
 		OrderDeliveryTaskMapper taskMapper = mock(OrderDeliveryTaskMapper.class);
 		OrderDeliveryTaskItemMapper taskItemMapper = mock(OrderDeliveryTaskItemMapper.class);
 		OrderDeliveryTaskLogMapper logMapper = mock(OrderDeliveryTaskLogMapper.class);
+		OrderDeliveryEvidenceMapper evidenceMapper = mock(OrderDeliveryEvidenceMapper.class);
 		RemoteDeliveryStaffService remoteStaffService = mock(RemoteDeliveryStaffService.class);
+		RemoteMaterialAccessService materialAccessService = mock(RemoteMaterialAccessService.class);
 		DeliveryAssignmentNotifier assignmentNotifier = mock(DeliveryAssignmentNotifier.class);
 		when(taskMapper.selectByTenantAndId("tenant-1", "task-1")).thenReturn(task);
 		DeliveryTaskAdminService service = new DeliveryTaskAdminService(taskMapper, taskItemMapper, logMapper,
-			new DeliveryTaskTransitionPolicy(), assignmentNotifier, remoteStaffService);
-		return new Fixture(service, taskMapper, taskItemMapper, logMapper, remoteStaffService, assignmentNotifier);
+			evidenceMapper, new DeliveryTaskTransitionPolicy(), assignmentNotifier, materialAccessService,
+			remoteStaffService);
+		return new Fixture(service, taskMapper, taskItemMapper, logMapper, remoteStaffService, assignmentNotifier,
+			evidenceMapper, materialAccessService);
 	}
 
 	private OrderDeliveryTask task(DeliveryTaskStatusEnum status, int attemptNo, int version) {
@@ -195,7 +221,8 @@ class DeliveryTaskAdminServiceTest {
 
 	private record Fixture(DeliveryTaskAdminService service, OrderDeliveryTaskMapper taskMapper,
 			OrderDeliveryTaskItemMapper taskItemMapper, OrderDeliveryTaskLogMapper logMapper,
-			RemoteDeliveryStaffService remoteStaffService, DeliveryAssignmentNotifier assignmentNotifier) {
+			RemoteDeliveryStaffService remoteStaffService, DeliveryAssignmentNotifier assignmentNotifier,
+			OrderDeliveryEvidenceMapper evidenceMapper, RemoteMaterialAccessService materialAccessService) {
 	}
 
 }

@@ -16,6 +16,7 @@ import com.aryn.cloud.order.delivery.service.DeliveryTaskAdminService;
 import com.aryn.cloud.upms.api.dto.DeliveryStaffQuery;
 import com.aryn.cloud.upms.api.remote.RemoteDeliveryStaffService;
 import com.aryn.cloud.upms.api.vo.DeliveryStaffPageVO;
+import com.aryn.cloud.upms.api.vo.MaterialAccessVO;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import io.swagger.v3.oas.annotations.Operation;
@@ -55,6 +56,15 @@ public class DeliveryTaskAdminController {
 	public Result<DeliveryTaskAdminVO> get(@PathVariable String id) {
 		SecurityUtils.requireUser(DeviceTypeEnum.TOB);
 		return Result.success(deliveryTaskAdminService.get(id));
+	}
+
+	@GetMapping("/tasks/{id}/evidences/{evidenceId}/access")
+	@SaCheckPermission("order:delivery:get")
+	@Operation(summary = "刷新配送凭证短期访问地址")
+	public Result<MaterialAccessVO> getEvidenceAccess(@PathVariable String id,
+			@PathVariable String evidenceId) {
+		SecurityUtils.requireUser(DeviceTypeEnum.TOB);
+		return Result.success(deliveryTaskAdminService.getEvidenceAccess(id, evidenceId));
 	}
 
 	@GetMapping("/staff/candidates")

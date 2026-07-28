@@ -9,16 +9,20 @@ import com.aryn.cloud.order.api.delivery.dto.DeliveryAssignRequest;
 import com.aryn.cloud.order.api.delivery.dto.DeliveryCloseRequest;
 import com.aryn.cloud.order.api.delivery.dto.DeliveryReassignRequest;
 import com.aryn.cloud.order.api.delivery.dto.DeliveryReturnRequest;
+import com.aryn.cloud.order.api.delivery.entity.OrderDeliveryEvidence;
 import com.aryn.cloud.order.api.delivery.entity.OrderDeliveryTask;
 import com.aryn.cloud.order.api.delivery.entity.OrderDeliveryTaskLog;
 import com.aryn.cloud.order.api.delivery.enums.DeliveryTaskActionEnum;
 import com.aryn.cloud.order.api.delivery.enums.DeliveryTaskStatusEnum;
 import com.aryn.cloud.order.api.delivery.vo.DeliveryTaskAdminVO;
+import com.aryn.cloud.order.delivery.mapper.OrderDeliveryEvidenceMapper;
 import com.aryn.cloud.order.delivery.mapper.OrderDeliveryTaskItemMapper;
 import com.aryn.cloud.order.delivery.mapper.OrderDeliveryTaskLogMapper;
 import com.aryn.cloud.order.delivery.mapper.OrderDeliveryTaskMapper;
 import com.aryn.cloud.upms.api.remote.RemoteDeliveryStaffService;
+import com.aryn.cloud.upms.api.remote.RemoteMaterialAccessService;
 import com.aryn.cloud.upms.api.vo.DeliveryStaffVO;
+import com.aryn.cloud.upms.api.vo.MaterialAccessVO;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -54,9 +58,14 @@ public class DeliveryTaskAdminService {
 
 	private final OrderDeliveryTaskLogMapper logMapper;
 
+	private final OrderDeliveryEvidenceMapper evidenceMapper;
+
 	private final DeliveryTaskTransitionPolicy transitionPolicy;
 
 	private final DeliveryAssignmentNotifier assignmentNotifier;
+
+	@DubboReference
+	private final RemoteMaterialAccessService materialAccessService;
 
 	@DubboReference
 	private final RemoteDeliveryStaffService remoteDeliveryStaffService;
@@ -84,7 +93,25 @@ public class DeliveryTaskAdminService {
 			.eq(OrderDeliveryTaskLog::getTenantId, operator.getTenantId())
 			.eq(OrderDeliveryTaskLog::getTaskId, taskId)
 			.orderByAsc(OrderDeliveryTaskLog::getCreateTime)));
+		view.setEvidences(evidenceMapper.selectList(Wrappers.<OrderDeliveryEvidence>lambdaQuery()
+			.eq(OrderDeliveryEvidence::getTenantId, operator.getTenantId())
+			.eq(OrderDeliveryEvidence::getTaskId, taskId)
+			.orderByAsc(OrderDeliveryEvidence::getAttemptNo)
+			.orderByAsc(OrderDeliveryEvidence::getSortNo)));
 		return view;
+	}
+
+	public MaterialAccessVO getEvidenceAccess(String taskId, String evidenceId) {
+		ArynUser operator = SecurityUtils.requireUser(DeviceTypeEnum.TOB);
+		requireTask(operator.getTenantId(), taskId);
+		var evidence = evidenceMapper.selectOne(Wrappers.<OrderDeliveryEvidence>lambdaQuery()
+			.eq(OrderDeliveryEvidence::getTenantId, operator.getTenantId())
+			.eq(OrderDeliveryEvidence::getTaskId, taskId)
+			.eq(OrderDeliveryEvidence::getId, evidenceId));
+		if (evidence == null) {
+			throw new ArynBusinessException("配送凭证不存在");
+		}
+		return materialAccessService.getTemporaryAccess(operator.getTenantId(), evidence.getMaterialId());
 	}
 
 	@Transactional(rollbackFor = Exception.class)
