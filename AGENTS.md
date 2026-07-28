@@ -4,13 +4,14 @@
 
 ## 项目概览
 
-悦航购是一套电商 SaaS 系统，支持单体/微服务双模式运行。三个独立子项目通过 API 通信：
+悦航购是一套电商 SaaS 系统，支持单体/微服务双模式运行。四个业务子项目通过 API 通信，另含一份独立调度源码：
 
 | 目录 | 技术栈 | 定位 |
 |------|--------|------|
 | [aryn-mall-java/](aryn-mall-java/) | Spring Boot 3 + Spring Cloud Alibaba + Dubbo | 后端服务 |
 | [aryn-mall-ui/](aryn-mall-ui/) | Vue 3 + Vite + TypeScript (monorepo) | 管理后台 |
 | [aryn-mall-uniapp/](aryn-mall-uniapp/) | UniApp + Vue 3 + TypeScript | C 端移动商城 |
+| [aryn-mall-delivery-uniapp/](aryn-mall-delivery-uniapp/) | UniApp + Vue 3 + TypeScript | TOB 配送员独立小程序 |
 | [xxl-job-3.2.0/](xxl-job-3.2.0/) | XXL-JOB 3.2.0 + Spring Boot | 独立上游调度源码，不随 `aryn-boot` 构建 |
 
 ## 快速链接
@@ -36,12 +37,17 @@ cd aryn-mall-ui && pnpm lint                                   # ESLint + Pretti
 
 # === 移动端 ===
 cd aryn-mall-uniapp && pnpm install && pnpm dev:mp-weixin     # 微信小程序（需 Node >= 22）
-cd aryn-mall-uniapp && pnpm type-check                         # 当前无 lint/test 脚本
+cd aryn-mall-uniapp && pnpm type-check && pnpm test:unit
+
+# === 配送员小程序 ===
+cd aryn-mall-delivery-uniapp && pnpm install && pnpm dev:mp-weixin
+cd aryn-mall-delivery-uniapp && pnpm type-check && pnpm test:unit
 
 # === 当前可靠验证 ===
 cd aryn-mall-java && mvn test -pl aryn-boot -am
 cd aryn-mall-ui && pnpm check:type && pnpm test:unit && pnpm lint
-cd aryn-mall-uniapp && pnpm type-check
+cd aryn-mall-uniapp && pnpm type-check && pnpm test:unit && pnpm build:mp-weixin
+cd aryn-mall-delivery-uniapp && pnpm type-check && pnpm test:unit && pnpm build:mp-weixin
 ```
 
 ## 分层规则

@@ -8,6 +8,8 @@
 
 **技术栈：** Spring Boot 3、MyBatis-Plus、Dubbo、RocketMQ、Redis、XXL-JOB、Sa-Token、MySQL 8、Vue 3、Vite、TypeScript、Element Plus、UniApp、Alova、Pinia、Vitest、微信小程序。
 
+**执行状态：** 任务 1 至 16 已于 2026-07-29 完成代码、文档和本地自动化验收；真实基础设施与微信运行态项目保留为集成环境验收项。
+
 ---
 
 ## 执行前约束
@@ -761,6 +763,8 @@ git commit -m "补齐商城配送菜单与全量SQL"
 ```
 
 ### 任务 16：执行完整回归、更新需求记录并交付
+
+**状态：已完成（2026-07-29）。** 后端 41 模块、Boot 全量 SQL、管理端、客户 UniApp 和配送 UniApp 门禁均通过；Boot/Cloud 运行态、真实对象存储和真实微信能力已登记为未验证，未作通过声明。
 
 **前置技能：** 使用 `verification-before-completion` 和 `requesting-code-review`。
 

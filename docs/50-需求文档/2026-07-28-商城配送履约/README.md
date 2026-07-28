@@ -39,6 +39,8 @@
 
 ## 当前状态
 
-- 状态：需求与技术设计已确认，尚未开始代码实现。
-- 设计日期：2026-07-28。
-- 未执行：数据库迁移、后端实现、三端页面、微信订阅消息、自动化测试和运行态联调。
+- 状态：代码、Boot/Cloud SQL、管理后台、客户商城和独立配送小程序均已完成，任务 1 至 16 已于 2026-07-29 完成。
+- 开发分支：`codex/2026-07-28-mall-delivery-fulfillment`。
+- 已通过：后端 41 模块 Maven Reactor、Boot 全量 SQL 构建与静态校验、管理端类型/单测/lint、客户 UniApp 类型/单测/微信构建、配送 UniApp 类型/单测/微信构建。
+- 自动化结果：管理端 63 个测试文件、455 个用例；客户 UniApp 10 个测试文件、30 个用例；配送 UniApp 2 个测试文件、8 个用例；后端 Boot 28、Order Biz 65、Promotion Biz 94、User Biz 75、Message Biz 49 个测试通过。
+- 仍需集成环境验证：Boot 完整业务流；Cloud Gateway、Dubbo、RocketMQ、Redis/WebSocket、XXL-JOB；真实对象存储上传与短期访问；真实配送小程序 AppID、openid 绑定和微信订阅消息。
