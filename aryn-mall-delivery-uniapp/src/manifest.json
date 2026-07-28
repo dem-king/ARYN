@@ -1,0 +1,13 @@
+{
+  "name": "悦航配送",
+  "appid": "__UNI__ARYN_DELIVERY",
+  "description": "悦航购商城配送员履约小程序",
+  "versionName": "0.1.0",
+  "versionCode": "100",
+  "transformPx": false,
+  "mp-weixin": {
+    "appid": "",
+    "setting": { "urlCheck": true },
+    "usingComponents": true
+  }
+}
