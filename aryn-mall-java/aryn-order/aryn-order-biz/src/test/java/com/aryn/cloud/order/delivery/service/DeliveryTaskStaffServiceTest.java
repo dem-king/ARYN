@@ -18,6 +18,7 @@ import com.aryn.cloud.order.delivery.mapper.OrderDeliveryTaskLogMapper;
 import com.aryn.cloud.order.delivery.mapper.OrderDeliveryTaskMapper;
 import com.aryn.cloud.order.mapper.OrderInfoMapper;
 import com.aryn.cloud.order.mapper.OrderItemMapper;
+import com.aryn.cloud.upms.api.remote.RemoteMaterialAccessService;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 
@@ -117,6 +118,25 @@ class DeliveryTaskStaffServiceTest {
 		verify(fixture.taskMapper, never()).updateStaffStatus(anyString(), anyString(), anyString(), anyString(),
 			anyString(), any(Integer.class), any(), anyString());
 		verify(fixture.evidenceMapper, never()).insert(any(OrderDeliveryEvidence.class));
+		verify(fixture.materialAccessService, never()).reserveForDelivery(anyString(), anyString(), any(), anyString());
+	}
+
+	@Test
+	void deliveredReservesMaterialsAndConfirmsPendingBindingAfterCommit() {
+		Fixture fixture = fixture(task(DeliveryTaskStatusEnum.DELIVERING));
+		when(fixture.taskMapper.updateStaffStatus(anyString(), anyString(), anyString(), anyString(), anyString(),
+			any(Integer.class), any(), anyString())).thenReturn(1);
+		when(fixture.evidenceMapper.insert(any(OrderDeliveryEvidence.class))).thenReturn(1);
+		when(fixture.logMapper.insert(any(OrderDeliveryTaskLog.class))).thenReturn(1);
+		DeliveryCompleteRequest request = completeRequest("delivered-1", List.of("material-1"));
+
+		withStaff(() -> assertThat(fixture.service.complete("task-1", request)).isTrue());
+
+		verify(fixture.materialAccessService).reserveForDelivery("tenant-1", "staff-1", List.of("material-1"),
+			"task-1:delivered-1");
+		verify(fixture.evidenceMapper).insert(org.mockito.ArgumentMatchers.<OrderDeliveryEvidence>argThat(
+			evidence -> "PENDING".equals(evidence.getBindingStatus())));
+		verify(fixture.bindingService).confirmBinding("tenant-1", "task-1:delivered-1", "task-1");
 	}
 
 	private Fixture fixture(OrderDeliveryTask task) {
@@ -126,11 +146,14 @@ class DeliveryTaskStaffServiceTest {
 		OrderDeliveryTaskLogMapper logMapper = mock(OrderDeliveryTaskLogMapper.class);
 		OrderInfoMapper orderInfoMapper = mock(OrderInfoMapper.class);
 		OrderItemMapper orderItemMapper = mock(OrderItemMapper.class);
+		RemoteMaterialAccessService materialAccessService = mock(RemoteMaterialAccessService.class);
+		DeliveryEvidenceBindingService bindingService = mock(DeliveryEvidenceBindingService.class);
 		when(taskMapper.selectByTenantAssigneeAndId("tenant-1", "staff-1", "task-1")).thenReturn(task);
 		DeliveryTaskStaffService service = new DeliveryTaskStaffService(taskMapper, taskItemMapper, evidenceMapper,
-			logMapper, orderInfoMapper, orderItemMapper, new DeliveryTaskTransitionPolicy());
+			logMapper, orderInfoMapper, orderItemMapper, new DeliveryTaskTransitionPolicy(), materialAccessService,
+			bindingService);
 		return new Fixture(service, taskMapper, taskItemMapper, evidenceMapper, logMapper,
-			orderInfoMapper, orderItemMapper);
+			orderInfoMapper, orderItemMapper, materialAccessService, bindingService);
 	}
 
 	private OrderDeliveryTask task(DeliveryTaskStatusEnum status) {
@@ -171,7 +194,8 @@ class DeliveryTaskStaffServiceTest {
 
 	private record Fixture(DeliveryTaskStaffService service, OrderDeliveryTaskMapper taskMapper,
 			OrderDeliveryTaskItemMapper taskItemMapper, OrderDeliveryEvidenceMapper evidenceMapper,
-			OrderDeliveryTaskLogMapper logMapper, OrderInfoMapper orderInfoMapper, OrderItemMapper orderItemMapper) {
+			OrderDeliveryTaskLogMapper logMapper, OrderInfoMapper orderInfoMapper, OrderItemMapper orderItemMapper,
+			RemoteMaterialAccessService materialAccessService, DeliveryEvidenceBindingService bindingService) {
 	}
 
 }

@@ -18,4 +18,14 @@ public interface OrderDeliveryTaskLogMapper extends BaseMapper<OrderDeliveryTask
 		""")
 	OrderDeliveryTaskLog selectByRequest(@Param("tenantId") String tenantId, @Param("taskId") String taskId,
 			@Param("action") String action, @Param("requestId") String requestId);
+
+	@Select("""
+		SELECT * FROM order_delivery_task_log
+		WHERE tenant_id = #{tenantId} AND task_id = #{taskId}
+			AND action IN ('DELIVER', 'REPORT_EXCEPTION') AND request_id IS NOT NULL AND del_flag = '0'
+		ORDER BY create_time DESC
+		LIMIT 1
+		""")
+	OrderDeliveryTaskLog selectLatestEvidenceAction(@Param("tenantId") String tenantId,
+			@Param("taskId") String taskId);
 }

@@ -1,9 +1,12 @@
 package com.aryn.cloud.upms.storage;
 
+import com.aryn.cloud.common.core.dto.SysStorageConfigDTO;
+import com.aryn.cloud.common.storage.entity.StoredObject;
 import com.aryn.cloud.common.storage.handler.ArynUploadFileHandler;
 import com.aryn.cloud.common.storage.handler.StorageFactory;
 import org.junit.jupiter.api.Test;
 
+import java.io.InputStream;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -12,6 +15,28 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class StorageFactoryCompatibilityTest {
+
+	@Test
+	void legacyUploadHandlerCanUseNewObjectResultWithoutModification() {
+		ArynUploadFileHandler legacyHandler = new ArynUploadFileHandler() {
+			@Override
+			public String uploadFile(SysStorageConfigDTO config, InputStream inputStream, String fileName,
+					String contextType, long size) {
+				return "https://files.example.com/legacy.png";
+			}
+
+			@Override
+			public String getType() {
+				return "legacy";
+			}
+		};
+
+		StoredObject storedObject = legacyHandler.uploadObject(new SysStorageConfigDTO(), InputStream.nullInputStream(),
+			"legacy.png", "image/png", 0);
+
+		assertThat(storedObject.getObjectKey()).isNull();
+		assertThat(storedObject.getUrl()).isEqualTo("https://files.example.com/legacy.png");
+	}
 
 	@Test
 	void canonicalAndLegacyCloudStorageTypesUseS3CompatibleHandler() {

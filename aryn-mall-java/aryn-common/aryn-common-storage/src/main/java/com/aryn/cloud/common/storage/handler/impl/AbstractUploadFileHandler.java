@@ -10,6 +10,7 @@
 package com.aryn.cloud.common.storage.handler.impl;
 
 import com.aryn.cloud.common.storage.entity.StorageConfig;
+import com.aryn.cloud.common.storage.entity.StoredObject;
 import com.aryn.cloud.common.storage.handler.ArynUploadFileHandler;
 import com.aryn.cloud.common.core.dto.SysStorageConfigDTO;
 
@@ -27,8 +28,21 @@ public abstract class AbstractUploadFileHandler implements ArynUploadFileHandler
 		return doUploadFile(storageConfig, inputStream, fileName, size);
 	}
 
-	public abstract String doUploadFile(StorageConfig storageConfig, InputStream inputStream, String fileName,
-			long size);
+	@Override
+	public StoredObject uploadObject(SysStorageConfigDTO sysStorageConfig, InputStream inputStream, String fileName,
+			String contextType, long size) {
+		StorageConfig storageConfig = validateRequest(sysStorageConfig, contextType);
+		return doUploadObject(storageConfig, inputStream, fileName, size);
+	}
+
+	public String doUploadFile(StorageConfig storageConfig, InputStream inputStream, String fileName, long size) {
+		return doUploadObject(storageConfig, inputStream, fileName, size).getUrl();
+	}
+
+	public StoredObject doUploadObject(StorageConfig storageConfig, InputStream inputStream, String fileName,
+			long size) {
+		return new StoredObject(null, doUploadFile(storageConfig, inputStream, fileName, size));
+	}
 
 	private StorageConfig validateRequest(SysStorageConfigDTO sysStorageConfig, String contextType) {
 		StorageConfig storageConfig = new StorageConfig();

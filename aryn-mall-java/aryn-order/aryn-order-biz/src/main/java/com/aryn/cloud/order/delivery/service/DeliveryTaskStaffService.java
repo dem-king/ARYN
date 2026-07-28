@@ -24,11 +24,15 @@ import com.aryn.cloud.order.delivery.mapper.OrderDeliveryTaskLogMapper;
 import com.aryn.cloud.order.delivery.mapper.OrderDeliveryTaskMapper;
 import com.aryn.cloud.order.mapper.OrderInfoMapper;
 import com.aryn.cloud.order.mapper.OrderItemMapper;
+import com.aryn.cloud.pay.api.utils.TransactionalMqUtils;
+import com.aryn.cloud.upms.api.remote.RemoteMaterialAccessService;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,6 +48,7 @@ import java.util.List;
 /** 配送员商城配送履约服务。 */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class DeliveryTaskStaffService {
 
 	private final OrderDeliveryTaskMapper taskMapper;
@@ -53,6 +58,11 @@ public class DeliveryTaskStaffService {
 	private final OrderInfoMapper orderInfoMapper;
 	private final OrderItemMapper orderItemMapper;
 	private final DeliveryTaskTransitionPolicy transitionPolicy;
+
+	@DubboReference
+	private final RemoteMaterialAccessService materialAccessService;
+
+	private final DeliveryEvidenceBindingService bindingService;
 
 	public IPage<DeliveryTaskStaffVO> page(Page<OrderDeliveryTask> page, String status) {
 		ArynUser staff = currentStaff();
@@ -154,12 +164,16 @@ public class DeliveryTaskStaffService {
 		}
 		DeliveryTaskStatusEnum from = statusOf(task);
 		requireTransition(from, DeliveryTaskStatusEnum.DELIVERED);
+		String reservationId = reservationId(taskId, request.getRequestId());
+		materialAccessService.reserveForDelivery(staff.getTenantId(), staff.getUserId(), request.getMaterialIds(),
+			reservationId);
 		LocalDateTime now = LocalDateTime.now();
 		requireUpdated(taskMapper.updateStaffStatus(staff.getTenantId(), staff.getUserId(), taskId, from.name(),
 			DeliveryTaskStatusEnum.DELIVERED.name(), request.getVersion(), now, "deliveredAt"));
 		saveEvidence(task, staff, request.getMaterialIds(), DeliveryEvidenceTypeEnum.DELIVERED, now);
 		appendLog(task, DeliveryTaskActionEnum.DELIVER, from, DeliveryTaskStatusEnum.DELIVERED,
 			staff, request.getRequestId(), null, now);
+		confirmBindingAfterCommit(staff.getTenantId(), reservationId, taskId);
 		return true;
 	}
 
@@ -181,12 +195,21 @@ public class DeliveryTaskStaffService {
 				|| !transitionPolicy.canTransit(from, DeliveryTaskStatusEnum.EXCEPTION)) {
 			throw new ArynBusinessException("当前配送任务状态不允许上报异常");
 		}
+		String reservationId = null;
+		if (!CollectionUtils.isEmpty(request.getMaterialIds())) {
+			reservationId = reservationId(taskId, request.getRequestId());
+			materialAccessService.reserveForDelivery(staff.getTenantId(), staff.getUserId(), request.getMaterialIds(),
+				reservationId);
+		}
 		LocalDateTime now = LocalDateTime.now();
 		requireUpdated(taskMapper.reportStaffException(staff.getTenantId(), staff.getUserId(), taskId, from.name(),
 			request.getVersion(), request.getReasonCode(), request.getDescription(), now));
 		saveEvidence(task, staff, request.getMaterialIds(), DeliveryEvidenceTypeEnum.EXCEPTION, now);
 		appendLog(task, DeliveryTaskActionEnum.REPORT_EXCEPTION, from, DeliveryTaskStatusEnum.EXCEPTION,
 			staff, request.getRequestId(), request.getDescription(), now);
+		if (reservationId != null) {
+			confirmBindingAfterCommit(staff.getTenantId(), reservationId, taskId);
+		}
 		return true;
 	}
 
@@ -255,7 +278,7 @@ public class DeliveryTaskStaffService {
 				.setAttemptNo(task.getAttemptNo())
 				.setEvidenceType(evidenceType.name())
 				.setMaterialId(materialIds.get(index))
-				.setBindingStatus("BOUND")
+				.setBindingStatus("PENDING")
 				.setSortNo(index)
 				.setUploadedBy(staff.getUserId())
 				.setTenantId(staff.getTenantId())
@@ -266,6 +289,22 @@ public class DeliveryTaskStaffService {
 				throw new ArynBusinessException("配送凭证保存失败，请重试");
 			}
 		}
+	}
+
+	private String reservationId(String taskId, String requestId) {
+		return taskId + ":" + requestId;
+	}
+
+	private void confirmBindingAfterCommit(String tenantId, String reservationId, String taskId) {
+		TransactionalMqUtils.sendAfterCommit(() -> {
+			try {
+				bindingService.confirmBinding(tenantId, reservationId, taskId);
+			}
+			catch (RuntimeException exception) {
+				log.error("配送凭证提交后绑定确认失败，将由恢复任务重试，tenantId={}, taskId={}, reservationId={}",
+					tenantId, taskId, reservationId, exception);
+			}
+		});
 	}
 
 	private void appendLog(OrderDeliveryTask task, DeliveryTaskActionEnum action, DeliveryTaskStatusEnum from,

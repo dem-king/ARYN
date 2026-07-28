@@ -2,6 +2,7 @@
 package com.aryn.cloud.common.storage.handler;
 
 import com.aryn.cloud.common.core.dto.SysStorageConfigDTO;
+import com.aryn.cloud.common.storage.entity.StoredObject;
 
 import java.io.File;
 import java.io.InputStream;
@@ -19,6 +20,11 @@ public interface ArynUploadFileHandler {
 	 */
 	String uploadFile(SysStorageConfigDTO sysStorageConfig, InputStream inputStream, String fileName,
 			String contextType, long size);
+
+	default StoredObject uploadObject(SysStorageConfigDTO sysStorageConfig, InputStream inputStream, String fileName,
+			String contextType, long size) {
+		return new StoredObject(null, uploadFile(sysStorageConfig, inputStream, fileName, contextType, size));
+	}
 
 	/**
 	 * 返回该策略支持的文件上传类型

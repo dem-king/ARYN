@@ -12,6 +12,7 @@ package com.aryn.cloud.common.storage.handler.impl;
 import com.aryn.cloud.common.core.constant.StorageTypeConstants;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.storage.entity.StorageConfig;
+import com.aryn.cloud.common.storage.entity.StoredObject;
 import lombok.SneakyThrows;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -45,7 +46,8 @@ public class S3UploadFileHandler extends AbstractUploadFileHandler {
 
 	@SneakyThrows
 	@Override
-	public String doUploadFile(StorageConfig storageConfig, InputStream inputStream, String fileName, long size) {
+	public StoredObject doUploadObject(StorageConfig storageConfig, InputStream inputStream, String fileName,
+			long size) {
 		URI endpoint = resolveEndpoint(storageConfig.getEndpoint());
 		boolean pathStyleAccessEnabled = Boolean.TRUE.equals(storageConfig.getStyleAccessEnabled())
 				|| StorageTypeConstants.MINIO.equals(StorageTypeConstants.normalize(storageConfig.getType()));
@@ -82,7 +84,8 @@ public class S3UploadFileHandler extends AbstractUploadFileHandler {
 			// 使用流上传，并指定长度
 			s3Client.putObject(putObjectRequest, RequestBody.fromInputStream(inputStream, size));
 
-			return buildPublicUrl(storageConfig, endpoint, objectName, pathStyleAccessEnabled);
+			return new StoredObject(objectName,
+				buildPublicUrl(storageConfig, endpoint, objectName, pathStyleAccessEnabled));
 		}
 		finally {
 			// 确保资源释放

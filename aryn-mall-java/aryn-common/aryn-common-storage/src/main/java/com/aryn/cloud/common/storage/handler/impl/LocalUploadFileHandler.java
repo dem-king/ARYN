@@ -12,6 +12,7 @@ package com.aryn.cloud.common.storage.handler.impl;
 import cn.hutool.core.io.IoUtil;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.storage.entity.StorageConfig;
+import com.aryn.cloud.common.storage.entity.StoredObject;
 import lombok.SneakyThrows;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.env.Environment;
@@ -40,7 +41,8 @@ public class LocalUploadFileHandler extends AbstractUploadFileHandler {
 
 	@SneakyThrows
 	@Override
-	public String doUploadFile(StorageConfig storageConfig, InputStream inputStream, String fileName, long size) {
+	public StoredObject doUploadObject(StorageConfig storageConfig, InputStream inputStream, String fileName,
+			long size) {
 		String rootPath = storageConfig.getBucket();
 		String tenantId = ArynTenantContextHolder.getTenantId();
 		if (!StringUtils.hasText(rootPath) || !StringUtils.hasText(tenantId)
@@ -66,7 +68,9 @@ public class LocalUploadFileHandler extends AbstractUploadFileHandler {
 			IoUtil.copy(inputStream, fos);
 		}
 
-		return resolvePublicBaseUrl(storageConfig.getDomain()) + "/file/local/" + tenantId + "/" + uuidFileName;
+		String objectKey = tenantId + "/" + uuidFileName;
+		String url = resolvePublicBaseUrl(storageConfig.getDomain()) + "/file/local/" + objectKey;
+		return new StoredObject(objectKey, url);
 	}
 
 	String resolvePublicBaseUrl(String domain) {

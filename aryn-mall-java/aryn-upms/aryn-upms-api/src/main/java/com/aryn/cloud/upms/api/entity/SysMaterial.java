@@ -64,4 +64,25 @@ public class SysMaterial extends Model<SysMaterial> {
 	@Schema(description = "素材大小")
 	private Long fileSize;
 
+	@Schema(description = "存储对象键")
+	private String objectKey;
+
+	@Schema(description = "业务类型")
+	private String businessType;
+
+	@Schema(description = "绑定业务ID")
+	private String businessId;
+
+	@Schema(description = "绑定状态")
+	private String bindingStatus;
+
+	@Schema(description = "预占幂等号")
+	private String reservationId;
+
+	@Schema(description = "预占过期时间")
+	private LocalDateTime reservationExpireTime;
+
+	@Schema(description = "绑定时间")
+	private LocalDateTime boundTime;
+
 }

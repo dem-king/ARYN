@@ -56,6 +56,11 @@
             <groupId>com.aryn</groupId>
             <artifactId>aryn-common-storage</artifactId>
         </dependency>
+        <!--定时任务：清理超时未绑定的配送凭证预占-->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-common-job</artifactId>
+        </dependency>
         <!--           日志模块-->
         <dependency>
             <groupId>com.aryn</groupId>

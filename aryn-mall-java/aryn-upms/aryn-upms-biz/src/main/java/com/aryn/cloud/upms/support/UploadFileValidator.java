@@ -19,7 +19,17 @@ public class UploadFileValidator {
 
 	private static final Set<String> ALLOWED_EXTENSIONS = Set.of("jpg", "jpeg", "png", "gif", "bmp", "webp");
 
+	private static final Set<String> DELIVERY_EVIDENCE_EXTENSIONS = Set.of("jpg", "jpeg", "png");
+
 	public void validate(MultipartFile file) {
+		validate(file, ALLOWED_EXTENSIONS, false);
+	}
+
+	public void validateDeliveryEvidence(MultipartFile file) {
+		validate(file, DELIVERY_EVIDENCE_EXTENSIONS, true);
+	}
+
+	private void validate(MultipartFile file, Set<String> allowedExtensions, boolean deliveryEvidence) {
 		if (file == null || file.isEmpty()) {
 			throw new ArynBusinessException("上传文件不能为空");
 		}
@@ -29,16 +39,16 @@ public class UploadFileValidator {
 
 		String extension = FileUtil.extName(file.getOriginalFilename()).toLowerCase(Locale.ROOT);
 		String contentType = file.getContentType();
-		if (!ALLOWED_EXTENSIONS.contains(extension)
+		if (!allowedExtensions.contains(extension)
 				|| (StringUtils.hasText(contentType) && !contentType.startsWith("image/")
 						&& !"application/octet-stream".equalsIgnoreCase(contentType))) {
-			throw unsupportedImage();
+			throw unsupportedImage(deliveryEvidence);
 		}
 
 		try (InputStream inputStream = file.getInputStream()) {
 			byte[] header = inputStream.readNBytes(12);
 			if (!matchesExtension(header, extension)) {
-				throw unsupportedImage();
+				throw unsupportedImage(deliveryEvidence);
 			}
 		}
 		catch (IOException exception) {
@@ -83,8 +93,9 @@ public class UploadFileValidator {
 		return true;
 	}
 
-	private ArynBusinessException unsupportedImage() {
-		return new ArynBusinessException("仅支持 JPG、PNG、GIF、BMP、WEBP 图片");
+	private ArynBusinessException unsupportedImage(boolean deliveryEvidence) {
+		String message = deliveryEvidence ? "仅支持真实的 JPG、PNG 图片" : "仅支持 JPG、PNG、GIF、BMP、WEBP 图片";
+		return new ArynBusinessException(message);
 	}
 
 }
