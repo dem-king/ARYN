@@ -1,4 +1,6 @@
 import { alovaInstance } from '@/api/core/instance'
+
+export { getMallDeliveryProgress as getOrderMallDeliveryProgress } from './mallDelivery'
 // 获取订单列表
 export function getPage(params: object) {
   return alovaInstance.Get<any>('/mall-order/app/orderinfo/page', {
@@ -17,7 +19,9 @@ export function getById(id: string) {
 }
 // 通过订单号查询
 export function getByOrderNo(orderNo: string) {
-  return alovaInstance.Get<any>(`/mall-order/app/orderinfo/getByOrderNo/${orderNo}`)
+  return alovaInstance.Get<any>(
+    `/mall-order/app/orderinfo/getByOrderNo/${orderNo}`,
+  )
 }
 
 // 取消订单
@@ -46,5 +50,8 @@ export function orderPrepay(data: object) {
 }
 // 订单评价
 export function orderAppraise(id: string, data: object) {
-  return alovaInstance.Post<any>(`/mall-order/app/orderinfo/appraise/${id}`, data)
+  return alovaInstance.Post<any>(
+    `/mall-order/app/orderinfo/appraise/${id}`,
+    data,
+  )
 }

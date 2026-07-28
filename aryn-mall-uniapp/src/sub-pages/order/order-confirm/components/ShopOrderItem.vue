@@ -1,5 +1,10 @@
 <script setup lang="ts">
+import type { MallDeliveryAvailability } from '@/api/order/mallDelivery'
 import { computed, ref, watch } from 'vue'
+import {
+  buildDeliveryMethods,
+  deliveryWayLabel,
+} from '@/api/order/mallDelivery'
 
 interface OrderItem {
   spuId: string
@@ -29,6 +34,7 @@ interface Props {
   order: Order
   deliveryWay: string
   couponUserList: any[]
+  mallDeliveryAvailability: MallDeliveryAvailability
 }
 
 const props = defineProps<Props>()
@@ -46,25 +52,38 @@ const localOrder = ref<Order>({ ...props.order })
 
 const hasSelectedCoupon = computed(() => !!localOrder.value.couponUserId)
 
-const hasAvailableCoupons = computed(() =>
-  Array.isArray(props.couponUserList)
-  && props.couponUserList.length > 0
-  && !localOrder.value.couponUserId,
+const hasAvailableCoupons = computed(
+  () =>
+    Array.isArray(props.couponUserList)
+    && props.couponUserList.length > 0
+    && !localOrder.value.couponUserId,
 )
 // 监听prop变化以保持同步
-watch(() => props.order, (newOrder) => {
-  localOrder.value = { ...newOrder }
-}, { deep: true })
+watch(
+  () => props.order,
+  (newOrder) => {
+    localOrder.value = { ...newOrder }
+  },
+  { deep: true },
+)
+watch(
+  () => props.deliveryWay,
+  (newDeliveryWay) => {
+    deliveryWay.value = newDeliveryWay
+    localOrder.value.deliveryWay = newDeliveryWay
+  },
+)
 
 // 将 deliveryMethod 转换为 wd-select-picker 需要的格式
 const deliveryMethodColumns = computed(() => {
-  return [
-    { value: '1', name: '普通快递' },
-    { value: '2', name: '上门自提' },
-  ]
+  return buildDeliveryMethods(props.mallDeliveryAvailability)
 })
 
 function handleDeliveryWayChange(item: any) {
+  if (item.disabled) {
+    useGlobalToast().warning(item.reason || '当前地址暂不支持商城配送')
+    return
+  }
   deliveryWay.value = item.value
 }
 function deliveryWayConfirm() {
@@ -96,25 +115,53 @@ function saveRemark() {
 </script>
 
 <template>
-  <view class="m-2 rounded-xl bg-white p-2 dark:bg-[var(--wot-dark-background2)]">
+  <view
+    class="m-2 rounded-xl bg-white p-2 dark:bg-[var(--wot-dark-background2)]"
+  >
     <!-- 订单商品内容 -->
     <view>
       <view
-        v-for="(goods, goodsIndex) in localOrder.orderItemList" :key="goodsIndex"
+        v-for="(goods, goodsIndex) in localOrder.orderItemList"
+        :key="goodsIndex"
         class="flex rounded-lg bg-white px-20rpx py-20rpx"
       >
-        <image :src="goods.picUrl" class="h-160rpx w-160rpx flex-none rounded-lg" />
+        <image
+          :src="goods.picUrl"
+          class="h-160rpx w-160rpx flex-none rounded-lg"
+        />
         <view class="ml-20rpx h-full flex flex-1 flex-col overflow-hidden">
           <view class="flex justify-between">
             <view class="mr-20rpx flex-1 overflow-hidden">
-              <wd-text :lines="2" size="26rpx" color="inherit" :text="goods.spuName" />
+              <wd-text
+                :lines="2"
+                size="26rpx"
+                color="inherit"
+                :text="goods.spuName"
+              />
               <view v-if="goods.specsInfo" class="pt-10rpx">
-                <wd-text custom-class="pt-10rpx" size="24rpx" color="#909090" :text="goods.specsInfo" />
+                <wd-text
+                  custom-class="pt-10rpx"
+                  size="24rpx"
+                  color="#909090"
+                  :text="goods.specsInfo"
+                />
               </view>
             </view>
             <view class="flex flex-shrink-0 flex-col items-end">
-              <wd-text :text="goods.paymentPrice" size="14px" color="red" mode="price" prefix=" ￥" />
-              <wd-text :text="goods.totalPrice" size="12px" mode="price" decoration="line-through" prefix=" ￥" />
+              <wd-text
+                :text="goods.paymentPrice"
+                size="14px"
+                color="red"
+                mode="price"
+                prefix=" ￥"
+              />
+              <wd-text
+                :text="goods.totalPrice"
+                size="12px"
+                mode="price"
+                decoration="line-through"
+                prefix=" ￥"
+              />
               <wd-text size="13px" :text="`x${goods.buyQuantity}`" />
             </view>
           </view>
@@ -127,13 +174,30 @@ function saveRemark() {
           <text class="text-14px">
             商品金额
           </text>
-          <wd-text size="26rpx" color="inherit" :text="localOrder.totalPrice" mode="price" prefix="￥" />
+          <wd-text
+            size="26rpx"
+            color="inherit"
+            :text="localOrder.totalPrice"
+            mode="price"
+            prefix="￥"
+          />
         </view>
-        <view v-if="localOrder.deliveryWay === '1'" class="flex items-center justify-between pb-20rpx">
+        <view
+          v-if="
+            localOrder.deliveryWay === '1' || localOrder.deliveryWay === '3'
+          "
+          class="flex items-center justify-between pb-20rpx"
+        >
           <text class="text-14px">
             运费
           </text>
-          <wd-text size="26rpx" color="inherit" :text="localOrder.freightPrice" mode="price" prefix="￥" />
+          <wd-text
+            size="26rpx"
+            color="inherit"
+            :text="localOrder.freightPrice"
+            mode="price"
+            prefix="￥"
+          />
         </view>
         <view class="flex items-center justify-between pb-20rpx">
           <text class="text-14px">
@@ -151,23 +215,34 @@ function saveRemark() {
             />
 
             <!-- 有可选优惠券但未选择 -->
-            <text v-else-if="hasAvailableCoupons" class="pr-4rpx text-26rpx" @click="showCoupon">
+            <text
+              v-else-if="hasAvailableCoupons"
+              class="pr-4rpx text-26rpx"
+              @click="showCoupon"
+            >
               选择优惠券
             </text>
 
             <!-- 无可用优惠券 -->
-            <wd-text
-              v-else
-              size="22rpx"
-              text="无可用优惠券"
+            <wd-text v-else size="22rpx" text="无可用优惠券" />
+            <text
+              v-if="hasSelectedCoupon || hasAvailableCoupons"
+              class="i-carbon:chevron-right text-14px"
             />
-            <text v-if="hasSelectedCoupon || hasAvailableCoupons" class="i-carbon:chevron-right text-14px" />
           </view>
         </view>
         <view class="flex items-center justify-end pb-20rpx">
-          <wd-text size="22rpx" color="#909090" :text="`共${localOrder.orderItemList.length}件`" />
           <wd-text
-            custom-class="pl-10rpx" size="28rpx" :text="localOrder.paymentPrice" color="red" mode="price"
+            size="22rpx"
+            color="#909090"
+            :text="`共${localOrder.orderItemList.length}件`"
+          />
+          <wd-text
+            custom-class="pl-10rpx"
+            size="28rpx"
+            :text="localOrder.paymentPrice"
+            color="red"
+            mode="price"
             prefix="￥"
           />
         </view>
@@ -177,14 +252,17 @@ function saveRemark() {
           </text>
           <view>
             <text class="pr-4rpx text-26rpx" @click="deliveryShow = true">
-              {{ localOrder.deliveryWay === '2' ? '上门自提' : '普通快递' }}
+              {{ deliveryWayLabel(localOrder.deliveryWay) }}
             </text>
             <text class="i-carbon:chevron-right text-14px" />
           </view>
         </view>
 
         <!-- 修改：备注展示为可点击行，弹出层内再输入 -->
-        <view class="flex items-center justify-between pb-20rpx" @click="openRemarkPopup">
+        <view
+          class="flex items-center justify-between pb-20rpx"
+          @click="openRemarkPopup"
+        >
           <view class="text-14px">
             备注
           </view>
@@ -194,7 +272,11 @@ function saveRemark() {
               color="inherit"
               :lines="1"
               custom-class="remark-ellipsis"
-              :text="localOrder.remark && localOrder.remark.length ? localOrder.remark : '请填写备注'"
+              :text="
+                localOrder.remark && localOrder.remark.length
+                  ? localOrder.remark
+                  : '请填写备注'
+              "
             />
             <text class="i-carbon:chevron-right text-14px" />
           </view>
@@ -203,7 +285,14 @@ function saveRemark() {
     </view>
 
     <!-- 新增：备注弹窗，底部保存按钮 -->
-    <wd-action-sheet v-model="remarkPopupShow" position="bottom" :safe-area-inset-bottom="true" custom-class="rounded-t-20rpx" title="订单备注" @cancel="remarkPopupShow = false">
+    <wd-action-sheet
+      v-model="remarkPopupShow"
+      position="bottom"
+      :safe-area-inset-bottom="true"
+      custom-class="rounded-t-20rpx"
+      title="订单备注"
+      @cancel="remarkPopupShow = false"
+    >
       <view class="px-24rpx pb-2">
         <wd-textarea
           v-model="remarkDraft"
@@ -222,15 +311,31 @@ function saveRemark() {
     </wd-action-sheet>
 
     <!-- 配送方式弹窗（替换原 wd-action-sheet） -->
-    <wd-action-sheet v-model="deliveryShow" position="bottom" :safe-area-inset-bottom="true" custom-class="rounded-t-20rpx" title="选择配送方式" @cancel="deliveryShow = false">
+    <wd-action-sheet
+      v-model="deliveryShow"
+      position="bottom"
+      :safe-area-inset-bottom="true"
+      custom-class="rounded-t-20rpx"
+      title="选择配送方式"
+      @cancel="deliveryShow = false"
+    >
       <view class="px-24rpx pb-2">
         <view
           v-for="item in deliveryMethodColumns"
           :key="item.value"
           class="flex items-center justify-between border-b border-[#f0f0f0] py-24rpx"
+          :class="{ 'opacity-50': item.disabled }"
           @click="handleDeliveryWayChange(item)"
         >
-          <wd-text size="26rpx" color="inherit" :text="item.name" />
+          <view>
+            <wd-text size="26rpx" color="inherit" :text="item.name" />
+            <view
+              v-if="item.disabled && item.reason"
+              class="mt-4rpx text-22rpx text-gray-400"
+            >
+              {{ item.reason }}
+            </view>
+          </view>
           <wd-icon
             v-if="deliveryWay === item.value"
             name="check"

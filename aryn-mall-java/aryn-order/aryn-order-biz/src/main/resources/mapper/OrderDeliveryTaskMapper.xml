@@ -16,6 +16,21 @@
           AND task.del_flag = '0'
         LIMIT 1
     </select>
+    <select id="selectCustomerTask"
+            resultType="com.aryn.cloud.order.api.delivery.entity.OrderDeliveryTask">
+        SELECT task.*
+        FROM order_delivery_task AS task
+        INNER JOIN order_info AS order_info
+                ON order_info.tenant_id = task.tenant_id
+               AND order_info.id = task.order_id
+               AND order_info.del_flag = '0'
+        WHERE task.tenant_id = #{tenantId}
+          AND order_info.tenant_id = #{tenantId}
+          AND order_info.user_id = #{userId}
+          AND task.order_id = #{orderId}
+          AND task.del_flag = '0'
+        LIMIT 1
+    </select>
     <select id="selectByTenantAndId" resultType="com.aryn.cloud.order.api.delivery.entity.OrderDeliveryTask">
         SELECT task.*
         FROM order_delivery_task AS task

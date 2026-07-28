@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import type { MallDeliveryAvailability } from '@/api/order/mallDelivery'
 import { onLoad, onUnload } from '@dcloudio/uni-app'
 import { storeToRefs } from 'pinia'
 import { reactive, ref } from 'vue'
+import { getMallDeliveryAvailability } from '@/api/order/mallDelivery'
 import { orderCreate, orderSettlement } from '@/api/order/orderInfo'
 import { getPage as getCouponList } from '@/api/promotion/couponUser'
 import { getDefault } from '@/api/user/address'
@@ -51,6 +53,10 @@ const { createGoodsList } = storeToRefs(goodsStore)
 const globalLoading = useGlobalLoading()
 const loading = ref(true)
 const submitting = ref(false)
+const mallDeliveryAvailability = ref<MallDeliveryAvailability>({
+  available: false,
+  reason: '请选择收货地址',
+})
 const selectedAddress = ref<Address>({
   id: '',
   detailAddress: '',
@@ -67,7 +73,6 @@ const couponState = reactive<CouponState>({
   couponPopup: false,
   couponUserId: '',
   orderItemList: [],
-
 })
 const state = reactive<State>({
   orderInfo: {},
@@ -111,8 +116,9 @@ function initData() {
  * 查询默认地址
  */
 function getDefaultAddress() {
-  getDefault().then((res) => {
+  getDefault().then(async (res) => {
     selectedAddress.value = res
+    await refreshMallDeliveryAvailability()
     initData()
   })
 }
@@ -120,6 +126,26 @@ function getDefaultAddress() {
 function deliveryWayChange(item: any) {
   state.orderParams.deliveryWay = item.deliveryWay
   toSettlement()
+}
+async function refreshMallDeliveryAvailability() {
+  if (!selectedAddress.value?.id) {
+    mallDeliveryAvailability.value = {
+      available: false,
+      reason: '请选择收货地址',
+    }
+    return
+  }
+  try {
+    mallDeliveryAvailability.value = await getMallDeliveryAvailability(
+      selectedAddress.value.id,
+    )
+  }
+  catch {
+    mallDeliveryAvailability.value = {
+      available: false,
+      reason: '配送范围查询失败，请稍后重试',
+    }
+  }
 }
 /**
  * 备注输入监听
@@ -150,7 +176,9 @@ function closeCouponPopup() {
 async function toSettlement() {
   globalLoading.loading('加载中...')
   state.orderParams.createWay = state.createWay
-  state.orderParams.userAddressId = selectedAddress.value ? selectedAddress.value.id : ''
+  state.orderParams.userAddressId = selectedAddress.value
+    ? selectedAddress.value.id
+    : ''
 
   // 结算订单
   try {
@@ -171,20 +199,33 @@ async function toPay() {
   if (submitting.value)
     return
   state.orderParams.createWay = state.createWay
-  state.orderParams.userAddressId = selectedAddress.value ? selectedAddress.value.id : ''
+  state.orderParams.userAddressId = selectedAddress.value
+    ? selectedAddress.value.id
+    : ''
   if (!state.orderParams.deliveryWay) {
     return useGlobalToast().warning('请选择配送方式')
   }
 
-  if (state.orderParams.deliveryWay === '1' && !selectedAddress.value?.id) {
+  if (
+    ['1', '3'].includes(state.orderParams.deliveryWay)
+    && !selectedAddress.value?.id
+  ) {
     return useGlobalToast().warning('请选择收货地址')
+  }
+  if (
+    state.orderParams.deliveryWay === '3'
+    && !mallDeliveryAvailability.value.available
+  ) {
+    return useGlobalToast().warning(
+      mallDeliveryAvailability.value.reason || '当前地址不支持商城配送',
+    )
   }
 
   submitting.value = true
   globalLoading.loading('加载中...')
 
   try {
-  // 创建订单
+    // 创建订单
     const response = await orderCreate(state.orderParams)
     router.replace({
       name: 'order-pay',
@@ -208,12 +249,24 @@ function toAddress() {
     name: 'address-list',
     params: {
       placeChooseFlag: 'true',
-      placeChooseId: selectedAddress.value && selectedAddress.value.id ? selectedAddress.value.id : '',
+      placeChooseId:
+        selectedAddress.value && selectedAddress.value.id
+          ? selectedAddress.value.id
+          : '',
     },
   })
 }
-function handleSelectedAddressUpdate(newAddress: Address) {
+async function handleSelectedAddressUpdate(newAddress: Address) {
   selectedAddress.value = newAddress
+  await refreshMallDeliveryAvailability()
+  if (
+    state.orderParams.deliveryWay === '3'
+    && !mallDeliveryAvailability.value.available
+  ) {
+    state.orderParams.deliveryWay = '1'
+    useGlobalToast().warning('新地址不支持商城配送，已切换为普通快递')
+  }
+  await toSettlement()
 }
 
 uni.$on('update:selectedAddress', handleSelectedAddressUpdate)
@@ -227,25 +280,36 @@ onUnload(() => {
   <hr-navbar title="订单确认" />
   <view v-if="!loading">
     <!-- 收货地址选择 -->
-    <AddressSelector :selected-address="selectedAddress" @to-address="toAddress" />
+    <AddressSelector
+      :selected-address="selectedAddress"
+      @to-address="toAddress"
+    />
 
     <!-- 订单列表 -->
     <ShopOrderItem
       :order="state.orderInfo"
       :coupon-user-list="state.couponUserList"
       :delivery-way="state.orderParams.deliveryWay"
-      @delivery-way-change="deliveryWayChange" @remark-change="remarkChange" @show-coupon="showCoupon"
+      :mall-delivery-availability="mallDeliveryAvailability"
+      @delivery-way-change="deliveryWayChange"
+      @remark-change="remarkChange"
+      @show-coupon="showCoupon"
     />
 
     <wd-gap :height="60" />
     <!-- 支付底部 -->
-    <PaymentFooter :payment-price="state.orderInfo.paymentPrice" @to-pay="toPay" />
+    <PaymentFooter
+      :payment-price="state.orderInfo.paymentPrice"
+      @to-pay="toPay"
+    />
     <!-- 优惠券选择 -->
     <CouponSelector
-      :coupon-popup="couponState.couponPopup" :coupon-user-list="state.couponUserList"
+      :coupon-popup="couponState.couponPopup"
+      :coupon-user-list="state.couponUserList"
       :order-price="couponState.orderPrice"
       :order-item-list="couponState.orderItemList"
-      @close-coupon-popup="closeCouponPopup" @coupon-confirm="couponConfirm"
+      @close-coupon-popup="closeCouponPopup"
+      @coupon-confirm="couponConfirm"
     />
   </view>
 </template>

@@ -20,6 +20,9 @@ public interface OrderDeliveryTaskMapper extends BaseMapper<OrderDeliveryTask> {
 	OrderDeliveryTask selectByTenantAndOrderId(@Param("tenantId") String tenantId,
 			@Param("orderId") String orderId);
 
+	OrderDeliveryTask selectCustomerTask(@Param("tenantId") String tenantId,
+			@Param("userId") String userId, @Param("orderId") String orderId);
+
 	OrderDeliveryTask selectByTenantAndId(@Param("tenantId") String tenantId, @Param("id") String id);
 
 	OrderDeliveryTask selectByTenantAssigneeAndId(@Param("tenantId") String tenantId,

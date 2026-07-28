@@ -33,7 +33,10 @@ const globalLoading = useGlobalLoading()
 const touchStartX = ref(0)
 const touchEndX = ref(0)
 // 字典
-const { order_item_status, order_status } = useDict('order_item_status', 'order_status')
+const { order_item_status, order_status } = useDict(
+  'order_item_status',
+  'order_status',
+)
 const orderStatusList = ref([
   {
     name: '全部订单',
@@ -128,7 +131,10 @@ function handleSwipe() {
     if (state.tabCurrent < orderStatusList.value.length - 1) {
       const newIndex = state.tabCurrent + 1
       state.tabCurrent = newIndex
-      changeTab({ index: newIndex, name: orderStatusList.value[newIndex].name })
+      changeTab({
+        index: newIndex,
+        name: orderStatusList.value[newIndex].name,
+      })
     }
   }
   // 向右滑动 - 切换到上一个tab
@@ -136,7 +142,10 @@ function handleSwipe() {
     if (state.tabCurrent > 0) {
       const newIndex = state.tabCurrent - 1
       state.tabCurrent = newIndex
-      changeTab({ index: newIndex, name: orderStatusList.value[newIndex].name })
+      changeTab({
+        index: newIndex,
+        name: orderStatusList.value[newIndex].name,
+      })
     }
   }
 }
@@ -169,7 +178,11 @@ onUnload(() => {
 
 <template>
   <z-paging
-    ref="pagingRef" v-model="state.orderList" :auto="false" @query="queryList" @touchstart="handleTouchStart"
+    ref="pagingRef"
+    v-model="state.orderList"
+    :auto="false"
+    @query="queryList"
+    @touchstart="handleTouchStart"
     @touchend="handleTouchEnd"
   >
     <template #top>
@@ -186,25 +199,52 @@ onUnload(() => {
       </wd-tabs>
     </template>
 
-    <view
-      class="px-20rpx"
-    >
-      <view v-for="(order, index) in state.orderList" :key="index" class="my-20rpx rounded-xl bg-white p-20rpx">
+    <view class="px-20rpx">
+      <view
+        v-for="(order, index) in state.orderList"
+        :key="index"
+        class="my-20rpx rounded-xl bg-white p-20rpx"
+      >
         <view @click.stop="toOrderDetail(order.id)">
           <view class="flex items-center justify-between">
-            <view v-if="order.orderNo" class="flex items-center text-12px text-gray">
+            <view
+              v-if="order.orderNo"
+              class="flex items-center text-12px text-gray"
+            >
               {{ order.orderNo }}
             </view>
             <view>
-              <view v-if="order.deliveryWay === '2' && order.status === '3'" class="text-22rpx">
+              <view
+                v-if="order.deliveryWay === '2' && order.status === '3'"
+                class="text-22rpx"
+              >
                 待自提
+              </view>
+              <view
+                v-else-if="order.deliveryWay === '3' && order.status === '2'"
+                class="text-theme text-22rpx"
+              >
+                待安排配送
+              </view>
+              <view
+                v-else-if="order.deliveryWay === '3' && order.status === '3'"
+                class="text-theme text-22rpx"
+              >
+                商城配送中
               </view>
               <dict-tag v-else :options="order_status" :value="order.status" />
             </view>
           </view>
-          <view v-for="(item, itemIndex) in order.orderItemList" :key="itemIndex" class="flex pt-10rpx">
+          <view
+            v-for="(item, itemIndex) in order.orderItemList"
+            :key="itemIndex"
+            class="flex pt-10rpx"
+          >
             <view class="flex flex-col items-center">
-              <image :src="item.picUrl" class="h-160rpx w-160rpx flex-none rounded-lg" />
+              <image
+                :src="item.picUrl"
+                class="h-160rpx w-160rpx flex-none rounded-lg"
+              />
             </view>
 
             <view class="ml-20rpx h-full flex flex-1 flex-col overflow-hidden">
@@ -213,31 +253,60 @@ onUnload(() => {
                 <!-- 左侧：商品名称和规格 -->
                 <view class="mr-10rpx flex-1">
                   <view>
-                    <wd-text :lines="2" size="14px" color="inherit" :text="item.spuName" />
+                    <wd-text
+                      :lines="2"
+                      size="14px"
+                      color="inherit"
+                      :text="item.spuName"
+                    />
                   </view>
                   <view v-if="item.specsInfo" class="pt-5rpx">
-                    <wd-text size="13px" color="#909090" :text="item.specsInfo" />
+                    <wd-text
+                      size="13px"
+                      color="#909090"
+                      :text="item.specsInfo"
+                    />
                   </view>
                 </view>
 
                 <!-- 右侧：价格和数量，居右对齐 -->
                 <view class="flex flex-col items-end">
-                  <wd-text :text="item.salesPrice" size="14px" mode="price" prefix="￥" />
-                  <wd-text class="pt-10rpx" size="12px" :text="`x${item.buyQuantity}`" />
+                  <wd-text
+                    :text="item.salesPrice"
+                    size="14px"
+                    mode="price"
+                    prefix="￥"
+                  />
+                  <wd-text
+                    class="pt-10rpx"
+                    size="12px"
+                    :text="`x${item.buyQuantity}`"
+                  />
                 </view>
               </view>
 
               <view v-if="order.payStatus === '1'" class="pt-1">
-                <view v-if="item.status === '1' || item.status === '2'" @click.stop="toRefunds(item.id, item.status)">
+                <view
+                  v-if="item.status === '1' || item.status === '2'"
+                  @click.stop="toRefunds(item.id, item.status)"
+                >
                   <wd-button
-                    custom-class="float-right" size="small" plain hairline
+                    custom-class="float-right"
+                    size="small"
+                    plain
+                    hairline
                     hover-stop-propagation
                     type="info"
                   >
                     申请售后
                   </wd-button>
                 </view>
-                <wd-button v-else type="text" custom-class="float-right" size="small">
+                <wd-button
+                  v-else
+                  type="text"
+                  custom-class="float-right"
+                  size="small"
+                >
                   <dict-tag :options="order_item_status" :value="item.status" />
                 </wd-button>
               </view>
@@ -250,12 +319,18 @@ onUnload(() => {
             共{{ order.orderItemList.length }}件商品， 合计
           </text>
           <wd-text
-            custom-class="pl-10rpx" size="28rpx" :text="order.paymentPrice" color="red" mode="price"
+            custom-class="pl-10rpx"
+            size="28rpx"
+            :text="order.paymentPrice"
+            color="red"
+            mode="price"
             prefix="￥"
           />
         </view>
         <order-operation
-          :order-info="order" @order-del="orderDel(index)" @order-receiver="orderReceiver"
+          :order-info="order"
+          @order-del="orderDel(index)"
+          @order-receiver="orderReceiver"
           @order-cancel="orderCancel"
         />
       </view>
