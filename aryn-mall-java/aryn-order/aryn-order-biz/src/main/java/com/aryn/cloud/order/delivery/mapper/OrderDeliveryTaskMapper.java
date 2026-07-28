@@ -20,6 +20,9 @@ public interface OrderDeliveryTaskMapper extends BaseMapper<OrderDeliveryTask> {
 
 	OrderDeliveryTask selectByTenantAndId(@Param("tenantId") String tenantId, @Param("id") String id);
 
+	OrderDeliveryTask selectByTenantAssigneeAndId(@Param("tenantId") String tenantId,
+			@Param("assigneeId") String assigneeId, @Param("id") String id);
+
 	int assign(@Param("tenantId") String tenantId, @Param("id") String id,
 			@Param("expectedStatus") String expectedStatus, @Param("version") int version,
 			@Param("staff") DeliveryStaffVO staff, @Param("operatorId") String operatorId,
@@ -35,5 +38,15 @@ public interface OrderDeliveryTaskMapper extends BaseMapper<OrderDeliveryTask> {
 			@Param("targetStatus") String targetStatus, @Param("reasonCode") String reasonCode,
 			@Param("description") String description, @Param("operateTime") LocalDateTime operateTime,
 			@Param("timeField") String timeField, @Param("operatorId") String operatorId);
+
+	int updateStaffStatus(@Param("tenantId") String tenantId, @Param("assigneeId") String assigneeId,
+			@Param("id") String id, @Param("expectedStatus") String expectedStatus,
+			@Param("targetStatus") String targetStatus, @Param("version") Integer version,
+			@Param("operateTime") LocalDateTime operateTime, @Param("timeField") String timeField);
+
+	int reportStaffException(@Param("tenantId") String tenantId, @Param("assigneeId") String assigneeId,
+			@Param("id") String id, @Param("expectedStatus") String expectedStatus,
+			@Param("version") Integer version, @Param("reasonCode") String reasonCode,
+			@Param("description") String description, @Param("operateTime") LocalDateTime operateTime);
 
 }

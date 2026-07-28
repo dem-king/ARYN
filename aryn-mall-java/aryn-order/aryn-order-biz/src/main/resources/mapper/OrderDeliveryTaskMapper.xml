@@ -24,6 +24,16 @@
           AND task.del_flag = '0'
         LIMIT 1
     </select>
+    <select id="selectByTenantAssigneeAndId"
+            resultType="com.aryn.cloud.order.api.delivery.entity.OrderDeliveryTask">
+        SELECT task.*
+        FROM order_delivery_task AS task
+        WHERE task.tenant_id = #{tenantId}
+          AND task.assignee_id = #{assigneeId}
+          AND task.id = #{id}
+          AND task.del_flag = '0'
+        LIMIT 1
+    </select>
     <update id="assign">
         UPDATE order_delivery_task
         SET status = 'ASSIGNED',
@@ -77,6 +87,37 @@
                 <otherwise>closed_at = #{operateTime}</otherwise>
             </choose>
         WHERE tenant_id = #{tenantId}
+          AND id = #{id}
+          AND status = #{expectedStatus}
+          AND version = #{version}
+          AND del_flag = '0'
+    </update>
+    <update id="updateStaffStatus">
+        UPDATE order_delivery_task
+        SET status = #{targetStatus},
+            version = version + 1,
+            update_by = #{assigneeId},
+            update_time = #{operateTime}
+            <if test="timeField == 'pickingStartedAt'">, picking_started_at = #{operateTime}</if>
+            <if test="timeField == 'pickedUpAt'">, picked_up_at = #{operateTime}</if>
+            <if test="timeField == 'deliveredAt'">, delivered_at = #{operateTime}</if>
+        WHERE tenant_id = #{tenantId}
+          AND assignee_id = #{assigneeId}
+          AND id = #{id}
+          AND status = #{expectedStatus}
+          AND version = #{version}
+          AND del_flag = '0'
+    </update>
+    <update id="reportStaffException">
+        UPDATE order_delivery_task
+        SET status = 'EXCEPTION',
+            exception_code = #{reasonCode},
+            exception_summary = #{description},
+            version = version + 1,
+            update_by = #{assigneeId},
+            update_time = #{operateTime}
+        WHERE tenant_id = #{tenantId}
+          AND assignee_id = #{assigneeId}
           AND id = #{id}
           AND status = #{expectedStatus}
           AND version = #{version}

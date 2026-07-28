@@ -10,6 +10,7 @@ import com.aryn.cloud.order.api.entity.OrderInfo;
 import com.aryn.cloud.order.api.vo.OrderStatisticsVO;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Update;
 
 import java.io.Serializable;
 import java.math.BigDecimal;
@@ -79,5 +80,14 @@ public interface OrderInfoMapper extends BaseMapper<OrderInfo> {
 	List<OrderStatisticsVO> payTypeStatistics(@Param("query") OrderStatisticsDTO orderStatisticsDTO);
 
 	List<OrderStatisticsVO> channelTypeStatistics(@Param("query") OrderStatisticsDTO orderStatisticsDTO);
+
+	@Update("""
+		UPDATE order_info
+		SET status = '3', deliver_time = #{deliverTime}, update_by = #{staffId}, update_time = NOW()
+		WHERE tenant_id = #{tenantId} AND id = #{orderId} AND delivery_way = '3'
+			AND status = '2' AND del_flag = '0'
+		""")
+	int markMallDeliveryPickedUp(@Param("tenantId") String tenantId, @Param("orderId") String orderId,
+			@Param("deliverTime") java.time.LocalDateTime deliverTime, @Param("staffId") String staffId);
 
 }
