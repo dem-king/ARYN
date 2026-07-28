@@ -45,6 +45,19 @@ public class RemoteDeliveryStaffServiceImpl implements RemoteDeliveryStaffServic
 	}
 
 	@Override
+	public DeliveryStaffVO getEligibleStaff(String tenantId, String staffId) {
+		requireTenant(tenantId);
+		if (staffId == null || staffId.isBlank()) {
+			return null;
+		}
+		DeliveryStaffQuery query = new DeliveryStaffQuery();
+		query.setTenantId(tenantId);
+		query.setStaffId(staffId);
+		List<DeliveryStaffVO> records = sysUserMapper.selectDeliveryStaff(query, 1);
+		return records == null || records.isEmpty() ? null : records.get(0);
+	}
+
+	@Override
 	public boolean isEligible(String tenantId, String staffId) {
 		requireTenant(tenantId);
 		if (staffId == null || staffId.isBlank()) {

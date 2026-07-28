@@ -86,6 +86,9 @@
         <if test="query.cursor != null and query.cursor != ''">
             AND sys_user.id &gt; #{query.cursor}
         </if>
+        <if test="query.staffId != null and query.staffId != ''">
+            AND sys_user.id = #{query.staffId}
+        </if>
         <if test="query.userIds != null and query.userIds.size() > 0">
             AND sys_user.id IN
             <foreach collection="query.userIds" item="userId" open="(" separator="," close=")">

@@ -16,4 +16,70 @@
           AND task.del_flag = '0'
         LIMIT 1
     </select>
+    <select id="selectByTenantAndId" resultType="com.aryn.cloud.order.api.delivery.entity.OrderDeliveryTask">
+        SELECT task.*
+        FROM order_delivery_task AS task
+        WHERE task.tenant_id = #{tenantId}
+          AND task.id = #{id}
+          AND task.del_flag = '0'
+        LIMIT 1
+    </select>
+    <update id="assign">
+        UPDATE order_delivery_task
+        SET status = 'ASSIGNED',
+            assignee_id = #{staff.id},
+            assignee_name = #{staff.nickname},
+            assignee_mobile = #{staff.phone},
+            assigned_by = #{operatorId},
+            assigned_by_name = #{operatorName},
+            version = version + 1,
+            update_by = #{operatorId},
+            update_time = #{operateTime}
+        WHERE tenant_id = #{tenantId}
+          AND id = #{id}
+          AND status = #{expectedStatus}
+          AND version = #{version}
+          AND del_flag = '0'
+    </update>
+    <update id="reassign">
+        UPDATE order_delivery_task
+        SET status = 'ASSIGNED',
+            assignee_id = #{staff.id},
+            assignee_name = #{staff.nickname},
+            assignee_mobile = #{staff.phone},
+            assigned_by = #{operatorId},
+            assigned_by_name = #{operatorName},
+            attempt_no = attempt_no + 1,
+            version = version + 1,
+            picking_started_at = NULL,
+            picked_up_at = NULL,
+            exception_code = NULL,
+            exception_summary = NULL,
+            update_by = #{operatorId},
+            update_time = #{operateTime}
+        WHERE tenant_id = #{tenantId}
+          AND id = #{id}
+          AND status = #{expectedStatus}
+          AND version = #{version}
+          AND del_flag = '0'
+    </update>
+    <update id="updateAdminStatus">
+        UPDATE order_delivery_task
+        SET status = #{targetStatus},
+            exception_code = COALESCE(#{reasonCode}, exception_code),
+            exception_summary = COALESCE(#{description}, exception_summary),
+            version = version + 1,
+            update_by = #{operatorId},
+            update_time = #{operateTime},
+            <choose>
+                <when test="timeField == 'returnPendingAt'">return_pending_at = #{operateTime}</when>
+                <when test="timeField == 'returnedAt'">returned_at = #{operateTime}, closed_at = #{operateTime}</when>
+                <otherwise>closed_at = #{operateTime}</otherwise>
+            </choose>
+        WHERE tenant_id = #{tenantId}
+          AND id = #{id}
+          AND status = #{expectedStatus}
+          AND version = #{version}
+          AND del_flag = '0'
+    </update>
 </mapper>

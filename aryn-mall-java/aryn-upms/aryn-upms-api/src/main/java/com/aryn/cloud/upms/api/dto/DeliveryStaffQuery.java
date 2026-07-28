@@ -12,6 +12,7 @@ public class DeliveryStaffQuery implements Serializable {
 
 	private String tenantId;
 	private String keyword;
+	private String staffId;
 	private String cursor;
 	private Integer limit;
 

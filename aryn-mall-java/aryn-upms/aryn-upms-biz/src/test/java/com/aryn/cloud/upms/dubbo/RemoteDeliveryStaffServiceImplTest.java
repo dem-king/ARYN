@@ -71,6 +71,20 @@ class RemoteDeliveryStaffServiceImplTest {
 	}
 
 	@Test
+	void returnsEligibleStaffSnapshotByExactId() {
+		ArynTenantContextHolder.setTenantId("tenant-1");
+		DeliveryStaffVO expected = staff("staff-1");
+		when(sysUserMapper.selectDeliveryStaff(org.mockito.ArgumentMatchers.argThat(query ->
+			"tenant-1".equals(query.getTenantId()) && "staff-1".equals(query.getStaffId())),
+			org.mockito.ArgumentMatchers.eq(1))).thenReturn(List.of(expected));
+
+		DeliveryStaffVO result = new RemoteDeliveryStaffServiceImpl(sysUserMapper)
+			.getEligibleStaff("tenant-1", "staff-1");
+
+		assertThat(result).isSameAs(expected);
+	}
+
+	@Test
 	void candidateViewContainsOnlyAssignmentSnapshotFields() {
 		assertThat(DeliveryStaffVO.class.getDeclaredFields()).extracting(java.lang.reflect.Field::getName)
 			.containsExactlyInAnyOrder("serialVersionUID", "id", "nickname", "phone", "avatar", "deptId")
