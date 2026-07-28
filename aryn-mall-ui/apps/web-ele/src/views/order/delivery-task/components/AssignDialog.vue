@@ -77,11 +77,9 @@ const submit = async () => {
   loading.value = true;
   try {
     const payload = buildAssignmentPayload(props.mode, form) as AssignmentForm;
-    if (props.mode === 'ASSIGN') {
-      await assignDeliveryTask(props.task.id, payload);
-    } else {
-      await reassignDeliveryTask(props.task.id, payload);
-    }
+    await (props.mode === 'ASSIGN'
+      ? assignDeliveryTask(props.task.id, payload)
+      : reassignDeliveryTask(props.task.id, payload));
     ElMessage.success(props.mode === 'ASSIGN' ? '派单成功' : '改派成功');
     close();
     emit('success');
@@ -150,9 +148,9 @@ const submit = async () => {
     </ElForm>
     <template #footer>
       <ElButton @click="close">取消</ElButton>
-      <ElButton type="primary" :loading="loading" @click="submit"
-        >确认{{ mode === 'ASSIGN' ? '派单' : '改派' }}</ElButton
-      >
+      <ElButton type="primary" :loading="loading" @click="submit">
+        确认{{ mode === 'ASSIGN' ? '派单' : '改派' }}
+      </ElButton>
     </template>
   </ElDialog>
 </template>

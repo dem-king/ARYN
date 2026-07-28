@@ -69,8 +69,9 @@ const save = async () => {
   form.areaCode = selectedCode;
   saving.value = true;
   try {
-    if (form.id) await updateDeliveryArea(form.id, form);
-    else await createDeliveryArea(form);
+    await (form.id
+      ? updateDeliveryArea(form.id, form)
+      : createDeliveryArea(form));
     ElMessage.success('保存成功');
     visible.value = false;
     await load();
@@ -106,52 +107,56 @@ load();
             :icon="Plus"
             v-access:code="'order:delivery:area'"
             @click="open()"
-            >新增范围</ElButton
           >
+            新增范围
+          </ElButton>
         </div>
       </div>
       <ElTable v-loading="loading" :data="records" row-key="id">
-        <ElTableColumn label="层级" width="100"
-          ><template #default="{ row }"
-            ><ElTag>{{
-              row.scopeLevel === 'CITY' ? '城市' : '区县'
-            }}</ElTag></template
-          ></ElTableColumn
-        >
+        <ElTableColumn label="层级" width="100">
+          <template #default="{ row }">
+            <ElTag>
+              {{ row.scopeLevel === 'CITY' ? '城市' : '区县' }}
+            </ElTag>
+          </template>
+        </ElTableColumn>
         <ElTableColumn label="省份" prop="provinceName" min-width="130" />
         <ElTableColumn label="城市" prop="cityName" min-width="130" />
-        <ElTableColumn label="区县" min-width="150"
-          ><template #default="{ row }">{{
-            row.districtName || '全市'
-          }}</template></ElTableColumn
-        >
+        <ElTableColumn label="区县" min-width="150">
+          <template #default="{ row }">
+            {{ row.districtName || '全市' }}
+          </template>
+        </ElTableColumn>
         <ElTableColumn label="范围编码" prop="areaCode" min-width="140" />
-        <ElTableColumn label="状态" width="100"
-          ><template #default="{ row }"
-            ><ElTag :type="row.enabled === '1' ? 'success' : 'info'">{{
-              row.enabled === '1' ? '启用' : '停用'
-            }}</ElTag></template
-          ></ElTableColumn
-        >
-        <ElTableColumn label="操作" width="150" fixed="right"
-          ><template #default="{ row }"
-            ><ElButton
+        <ElTableColumn label="状态" width="100">
+          <template #default="{ row }">
+            <ElTag :type="row.enabled === '1' ? 'success' : 'info'">
+              {{ row.enabled === '1' ? '启用' : '停用' }}
+            </ElTag>
+          </template>
+        </ElTableColumn>
+        <ElTableColumn label="操作" width="150" fixed="right">
+          <template #default="{ row }">
+            <ElButton
               link
               type="primary"
               :icon="Edit"
               v-access:code="'order:delivery:area'"
               @click="open(row)"
-              >编辑</ElButton
-            ><ElButton
+            >
+              编辑
+            </ElButton>
+            <ElButton
               link
               type="danger"
               :icon="Delete"
               v-access:code="'order:delivery:area'"
               @click="remove(row)"
-              >删除</ElButton
-            ></template
-          ></ElTableColumn
-        >
+            >
+              删除
+            </ElButton>
+          </template>
+        </ElTableColumn>
       </ElTable>
       <ElDialog
         v-model="visible"
@@ -159,43 +164,52 @@ load();
         width="560px"
       >
         <ElForm label-position="top" :model="form">
-          <ElFormItem label="规则层级"
-            ><ElSelect v-model="form.scopeLevel" class="w-full"
-              ><ElOption label="区县" value="DISTRICT" /><ElOption
+          <ElFormItem label="规则层级">
+            <ElSelect v-model="form.scopeLevel" class="w-full">
+              <ElOption label="区县" value="DISTRICT" /><ElOption
                 label="城市"
-                value="CITY" /></ElSelect
-          ></ElFormItem>
+                value="CITY"
+              />
+            </ElSelect>
+          </ElFormItem>
           <div class="form-grid">
-            <ElFormItem label="省份名称"
-              ><ElInput v-model="form.provinceName" /></ElFormItem
-            ><ElFormItem label="省份编码"
-              ><ElInput v-model="form.provinceCode" /></ElFormItem
-            ><ElFormItem label="城市名称"
-              ><ElInput v-model="form.cityName" /></ElFormItem
-            ><ElFormItem label="城市编码" required
-              ><ElInput v-model="form.cityCode" /></ElFormItem
-            ><ElFormItem v-if="form.scopeLevel === 'DISTRICT'" label="区县名称"
-              ><ElInput v-model="form.districtName" /></ElFormItem
-            ><ElFormItem
+            <ElFormItem label="省份名称">
+              <ElInput v-model="form.provinceName" />
+            </ElFormItem>
+            <ElFormItem label="省份编码">
+              <ElInput v-model="form.provinceCode" />
+            </ElFormItem>
+            <ElFormItem label="城市名称">
+              <ElInput v-model="form.cityName" />
+            </ElFormItem>
+            <ElFormItem label="城市编码" required>
+              <ElInput v-model="form.cityCode" />
+            </ElFormItem>
+            <ElFormItem v-if="form.scopeLevel === 'DISTRICT'" label="区县名称">
+              <ElInput v-model="form.districtName" />
+            </ElFormItem>
+            <ElFormItem
               v-if="form.scopeLevel === 'DISTRICT'"
               label="区县编码"
               required
-              ><ElInput v-model="form.districtCode"
-            /></ElFormItem>
+            >
+              <ElInput v-model="form.districtCode" />
+            </ElFormItem>
           </div>
-          <ElFormItem label="启用"
-            ><ElSwitch
+          <ElFormItem label="启用">
+            <ElSwitch
               v-model="form.enabled"
               active-value="1"
               inactive-value="0"
-          /></ElFormItem>
+            />
+          </ElFormItem>
         </ElForm>
-        <template #footer
-          ><ElButton @click="visible = false">取消</ElButton
-          ><ElButton type="primary" :loading="saving" @click="save"
-            >保存</ElButton
-          ></template
-        >
+        <template #footer>
+          <ElButton @click="visible = false">取消</ElButton
+          ><ElButton type="primary" :loading="saving" @click="save">
+            保存
+          </ElButton>
+        </template>
       </ElDialog>
     </div>
   </div>
@@ -205,20 +219,24 @@ load();
 .area-page {
   gap: 20px;
 }
+
 .heading {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
 }
+
 .heading h2 {
   margin: 0;
   font-size: 20px;
 }
+
 .heading p {
   margin: 6px 0 0;
-  color: var(--el-text-color-secondary);
   font-size: 13px;
+  color: var(--el-text-color-secondary);
 }
+
 .form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

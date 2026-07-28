@@ -82,12 +82,12 @@ public interface SysMaterialMapper extends BaseMapper<SysMaterial> {
 		""")
 	SysMaterial selectByTenantAndId(@Param("tenantId") String tenantId, @Param("id") String id);
 
-	@InterceptorIgnore(tenantLine = "true")
 	@Update("""
 		UPDATE sys_material
 		SET binding_status = 'UNBOUND', reservation_id = NULL, reservation_expire_time = NULL, update_time = NOW()
 		WHERE binding_status = 'RESERVED' AND reservation_expire_time < NOW() AND del_flag = '0'
 		""")
+	@InterceptorIgnore(tenantLine = "true")
 	int releaseExpiredDeliveryReservations();
 
 }

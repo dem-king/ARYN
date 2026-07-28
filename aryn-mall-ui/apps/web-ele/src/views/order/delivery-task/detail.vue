@@ -87,16 +87,16 @@ load();
     >
       <div class="detail-heading">
         <div class="heading-main">
-          <ElButton text :icon="ArrowLeft" @click="router.back()"
-            >返回</ElButton
-          >
+          <ElButton text :icon="ArrowLeft" @click="router.back()">
+            返回
+          </ElButton>
           <div>
             <div class="eyebrow">{{ task.taskNo }}</div>
             <h2>订单 {{ task.orderNo }} 的配送履约</h2>
           </div>
-          <ElTag size="large">{{
-            statusLabels[task.status] || task.status
-          }}</ElTag>
+          <ElTag size="large">
+            {{ statusLabels[task.status] || task.status }}
+          </ElTag>
         </div>
         <div class="actions">
           <ElButton :icon="Refresh" @click="load">刷新</ElButton>
@@ -106,30 +106,34 @@ load();
             :icon="UserFilled"
             v-access:code="'order:delivery:assign'"
             @click="openAssign('ASSIGN')"
-            >派单</ElButton
           >
+            派单
+          </ElButton>
           <ElButton
             v-if="['ASSIGNED', 'PICKING', 'EXCEPTION'].includes(task.status)"
             type="warning"
             v-access:code="'order:delivery:reassign'"
             @click="openAssign('REASSIGN')"
-            >改派</ElButton
           >
+            改派
+          </ElButton>
           <ElButton
             v-if="
               ['DELIVERING', 'DELIVERED', 'EXCEPTION'].includes(task.status)
             "
             v-access:code="'order:delivery:return'"
             @click="openException('RETURN_PENDING')"
-            >标记待退回</ElButton
           >
+            标记待退回
+          </ElButton>
           <ElButton
             v-if="task.status === 'RETURN_PENDING'"
             type="primary"
             v-access:code="'order:delivery:return'"
             @click="openException('CONFIRM_RETURN')"
-            >确认退回</ElButton
           >
+            确认退回
+          </ElButton>
           <ElButton
             v-if="
               [
@@ -143,35 +147,36 @@ load();
             plain
             v-access:code="'order:delivery:exception'"
             @click="openException('CLOSE')"
-            >关闭任务</ElButton
           >
+            关闭任务
+          </ElButton>
         </div>
       </div>
 
       <section class="section-block">
         <h3>履约概览</h3>
         <ElDescriptions :column="3" border>
-          <ElDescriptionsItem label="配送员">{{
-            task.assigneeName || '尚未派单'
-          }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="联系电话">{{
-            task.assigneeMobile || '—'
-          }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="配送尝试"
-            >第 {{ task.attemptNo }} 次</ElDescriptionsItem
-          >
-          <ElDescriptionsItem label="开始配货">{{
-            task.pickingStartedAt || '—'
-          }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="取货出发">{{
-            task.pickedUpAt || '—'
-          }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="送达时间">{{
-            task.deliveredAt || '—'
-          }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="异常说明" :span="3">{{
-            task.exceptionSummary || '无'
-          }}</ElDescriptionsItem>
+          <ElDescriptionsItem label="配送员">
+            {{ task.assigneeName || '尚未派单' }}
+          </ElDescriptionsItem>
+          <ElDescriptionsItem label="联系电话">
+            {{ task.assigneeMobile || '—' }}
+          </ElDescriptionsItem>
+          <ElDescriptionsItem label="配送尝试">
+            第 {{ task.attemptNo }} 次
+          </ElDescriptionsItem>
+          <ElDescriptionsItem label="开始配货">
+            {{ task.pickingStartedAt || '—' }}
+          </ElDescriptionsItem>
+          <ElDescriptionsItem label="取货出发">
+            {{ task.pickedUpAt || '—' }}
+          </ElDescriptionsItem>
+          <ElDescriptionsItem label="送达时间">
+            {{ task.deliveredAt || '—' }}
+          </ElDescriptionsItem>
+          <ElDescriptionsItem label="异常说明" :span="3">
+            {{ task.exceptionSummary || '无' }}
+          </ElDescriptionsItem>
         </ElDescriptions>
       </section>
 
@@ -214,8 +219,9 @@ load();
                 link
                 type="primary"
                 @click="loadEvidence(evidence.id, true)"
-                >刷新地址</ElButton
               >
+                刷新地址
+              </ElButton>
             </div>
           </article>
         </div>
@@ -265,6 +271,7 @@ load();
 .detail-page {
   gap: 24px;
 }
+
 .detail-heading,
 .heading-main,
 .actions,
@@ -273,64 +280,78 @@ load();
   display: flex;
   align-items: center;
 }
+
 .detail-heading {
-  justify-content: space-between;
   gap: 20px;
+  justify-content: space-between;
 }
+
 .heading-main {
   gap: 14px;
 }
+
 .heading-main h2 {
   margin: 2px 0 0;
   font-size: 20px;
 }
+
 .eyebrow,
 .muted,
 .section-heading span {
-  color: var(--el-text-color-secondary);
   font-size: 13px;
+  color: var(--el-text-color-secondary);
 }
+
 .actions {
-  justify-content: flex-end;
   flex-wrap: wrap;
   gap: 8px;
+  justify-content: flex-end;
 }
+
 .section-block {
   padding-top: 20px;
   border-top: 1px solid var(--el-border-color-lighter);
 }
+
 .section-block h3 {
   margin: 0 0 16px;
   font-size: 16px;
 }
+
 .section-heading {
   justify-content: space-between;
 }
+
 .evidence-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 14px;
 }
+
 .evidence-item {
   overflow: hidden;
   border: 1px solid var(--el-border-color);
   border-radius: 8px;
 }
+
 .evidence-image,
 .evidence-placeholder {
   width: 100%;
   height: 150px;
 }
+
 .evidence-placeholder {
-  border: 0;
   color: var(--el-color-primary);
-  background: var(--el-fill-color-light);
   cursor: pointer;
+  background: var(--el-fill-color-light);
+  border: 0;
 }
+
 .evidence-meta {
   justify-content: space-between;
   padding: 8px 12px;
 }
+
 .log-transition {
   margin-left: 10px;
   color: var(--el-text-color-secondary);

@@ -21,8 +21,8 @@ import {
   ElTimelineItem,
 } from 'element-plus';
 
-import { getById, selffetchObj } from '#/api/order/order-info';
 import { getOrderFulfillmentAction } from '#/api/order/delivery-task';
+import { getById, selffetchObj } from '#/api/order/order-info';
 import { getById as getUserById } from '#/api/user/user-info';
 import { useDict } from '#/utils/dict';
 

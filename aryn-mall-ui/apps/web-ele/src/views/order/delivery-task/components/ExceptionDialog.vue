@@ -95,9 +95,9 @@ const submit = async () => {
     </ElForm>
     <template #footer>
       <ElButton @click="close">取消</ElButton>
-      <ElButton type="primary" :loading="loading" @click="submit"
-        >确认</ElButton
-      >
+      <ElButton type="primary" :loading="loading" @click="submit">
+        确认
+      </ElButton>
     </template>
   </ElDialog>
 </template>

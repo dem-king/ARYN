@@ -25,8 +25,12 @@ class TenantInterceptorBypassAuditTest {
 	private static final Set<String> ALLOWED_BYPASSES = Set.of(
 			"aryn-message/aryn-message-biz/src/main/java/com/aryn/cloud/message/mapper/MessageConversationMapper.java#selectInactiveConversations",
 			"aryn-message/aryn-message-biz/src/main/java/com/aryn/cloud/message/mapper/MessageDispatchTaskMapper.java#selectRecoveryTasks",
+			"aryn-message/aryn-message-biz/src/main/java/com/aryn/cloud/message/mapper/MessageChannelTaskMapper.java#resetStaleSending",
+			"aryn-message/aryn-message-biz/src/main/java/com/aryn/cloud/message/mapper/MessageChannelTaskMapper.java#selectDueTasks",
+			"aryn-order/aryn-order-biz/src/main/java/com/aryn/cloud/order/delivery/mapper/OrderDeliveryEvidenceMapper.java#selectPendingBindings",
 			"aryn-pay/aryn-pay-biz/src/main/java/com/aryn/cloud/pay/mapper/PayConfigMapper.java#selectByAppId",
 			"aryn-upms/aryn-upms-biz/src/main/java/com/aryn/cloud/upms/mapper/SysMenuMapper.java#selectTenantMenuTree",
+			"aryn-upms/aryn-upms-biz/src/main/java/com/aryn/cloud/upms/mapper/SysMaterialMapper.java#releaseExpiredDeliveryReservations",
 			"aryn-upms/aryn-upms-biz/src/main/java/com/aryn/cloud/upms/mapper/SysUserMapper.java#selectCount",
 			"aryn-upms/aryn-upms-biz/src/main/java/com/aryn/cloud/upms/mapper/SysUserMapper.java#selectUserByName",
 			"aryn-upms/aryn-upms-biz/src/main/java/com/aryn/cloud/upms/mapper/SysUserMapper.java#selectUserByPhone",
@@ -83,6 +87,21 @@ class TenantInterceptorBypassAuditTest {
 				.contains("SELECT *", "del_flag = '0'");
 		assertThat(conversationJob).contains("setTenantId(conversation.getTenantId())", "removeTenantId()");
 		assertThat(dispatchService).contains("setTenantId(tenantId)", "removeTenantId()");
+	}
+
+	@Test
+	void deliveryRecoveryBypassesOnlyTenantDiscoveryAndGlobalExpiredReservationCleanup() throws IOException {
+		String evidenceMapper = Files.readString(projectRoot.resolve(
+				"aryn-order/aryn-order-biz/src/main/java/com/aryn/cloud/order/delivery/mapper/OrderDeliveryEvidenceMapper.java"));
+		String materialMapper = Files.readString(projectRoot.resolve(
+				"aryn-upms/aryn-upms-biz/src/main/java/com/aryn/cloud/upms/mapper/SysMaterialMapper.java"));
+		String recoveryJob = Files.readString(projectRoot.resolve(
+				"aryn-order/aryn-order-biz/src/main/java/com/aryn/cloud/order/delivery/job/DeliveryEvidenceBindingRecoveryJob.java"));
+
+		assertThat(evidenceMapper).contains("binding_status = 'PENDING'", "del_flag = '0'", "LIMIT #{limit}");
+		assertThat(materialMapper).contains("binding_status = 'RESERVED'", "reservation_expire_time < NOW()",
+				"del_flag = '0'");
+		assertThat(recoveryJob).contains("setTenantId(tenantId)", "removeTenantId()", "evidence.getTenantId()");
 	}
 
 	@Test

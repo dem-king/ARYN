@@ -5,13 +5,7 @@ import { ElTag } from 'element-plus';
 
 type DictPrimitive = number | string;
 type DictTagType =
-  | ''
-  | 'danger'
-  | 'default'
-  | 'info'
-  | 'primary'
-  | 'success'
-  | 'warning';
+  '' | 'danger' | 'default' | 'info' | 'primary' | 'success' | 'warning';
 
 interface DictOption {
   label?: string;

@@ -125,21 +125,27 @@ load();
       </div>
 
       <ElForm :inline="true" :model="state.query" class="filter-bar">
-        <ElFormItem label="任务号"
-          ><ElInput v-model="state.query.taskNo" clearable placeholder="任务号"
-        /></ElFormItem>
-        <ElFormItem label="订单号"
-          ><ElInput
+        <ElFormItem label="任务号">
+          <ElInput
+            v-model="state.query.taskNo"
+            clearable
+            placeholder="任务号"
+          />
+        </ElFormItem>
+        <ElFormItem label="订单号">
+          <ElInput
             v-model="state.query.orderNo"
             clearable
             placeholder="订单号"
-        /></ElFormItem>
-        <ElFormItem label="配送员ID"
-          ><ElInput
+          />
+        </ElFormItem>
+        <ElFormItem label="配送员ID">
+          <ElInput
             v-model="state.query.assigneeId"
             clearable
             placeholder="配送员ID"
-        /></ElFormItem>
+          />
+        </ElFormItem>
         <ElFormItem>
           <ElButton type="primary" :icon="Search" @click="load">查询</ElButton>
           <ElButton @click="reset">重置</ElButton>
@@ -164,9 +170,9 @@ load();
         </ElTableColumn>
         <ElTableColumn label="状态" width="120">
           <template #default="{ row }">
-            <ElTag :type="statusMeta[row.status]?.type">{{
-              statusMeta[row.status]?.label || row.status
-            }}</ElTag>
+            <ElTag :type="statusMeta[row.status]?.type">
+              {{ statusMeta[row.status]?.label || row.status }}
+            </ElTag>
           </template>
         </ElTableColumn>
         <ElTableColumn label="配送员" min-width="180">
@@ -193,8 +199,9 @@ load();
               :icon="View"
               v-access:code="'order:delivery:get'"
               @click="openDetail(row)"
-              >详情</ElButton
             >
+              详情
+            </ElButton>
             <ElButton
               v-if="row.status === 'WAITING_ASSIGNMENT'"
               link
@@ -202,8 +209,9 @@ load();
               :icon="UserFilled"
               v-access:code="'order:delivery:assign'"
               @click="openAssignment(row, 'ASSIGN')"
-              >派单</ElButton
             >
+              派单
+            </ElButton>
             <ElButton
               v-else-if="
                 ['ASSIGNED', 'PICKING', 'EXCEPTION'].includes(row.status)
@@ -212,8 +220,9 @@ load();
               type="warning"
               v-access:code="'order:delivery:reassign'"
               @click="openAssignment(row, 'REASSIGN')"
-              >改派</ElButton
             >
+              改派
+            </ElButton>
           </template>
         </ElTableColumn>
       </ElTable>
@@ -238,28 +247,33 @@ load();
 .delivery-page {
   gap: 18px;
 }
+
 .page-heading {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
 }
+
 .page-heading h2 {
   margin: 0;
   font-size: 20px;
 }
+
 .page-heading p,
 .muted {
   margin: 6px 0 0;
-  color: var(--el-text-color-secondary);
   font-size: 13px;
+  color: var(--el-text-color-secondary);
 }
+
 .filter-bar {
   padding: 16px 16px 0;
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 8px;
 }
+
 .status-strip {
-  overflow-x: auto;
   padding-bottom: 2px;
+  overflow-x: auto;
 }
 </style>

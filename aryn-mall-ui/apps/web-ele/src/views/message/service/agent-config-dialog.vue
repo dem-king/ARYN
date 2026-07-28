@@ -223,9 +223,9 @@ defineExpose({ open });
 
 .candidate-option {
   display: flex;
+  gap: 20px;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
 }
 
 .candidate-option strong {

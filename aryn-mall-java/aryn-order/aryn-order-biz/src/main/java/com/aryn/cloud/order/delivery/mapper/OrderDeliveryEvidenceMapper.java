@@ -22,12 +22,12 @@ public interface OrderDeliveryEvidenceMapper extends BaseMapper<OrderDeliveryEvi
 		""")
 	int markBoundByTask(@Param("tenantId") String tenantId, @Param("taskId") String taskId);
 
-	@InterceptorIgnore(tenantLine = "true")
 	@Select("""
 		SELECT * FROM order_delivery_evidence
 		WHERE binding_status = 'PENDING' AND del_flag = '0'
 		ORDER BY create_time ASC
 		LIMIT #{limit}
 		""")
+	@InterceptorIgnore(tenantLine = "true")
 	List<OrderDeliveryEvidence> selectPendingBindings(@Param("limit") int limit);
 }
