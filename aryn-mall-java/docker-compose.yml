@@ -1,3 +1,13 @@
+x-java-environment: &java-environment
+  NACOS_SERVER_ADDR: aryn-nacos:8848
+  MYSQL_HOST: aryn-mysql
+  REDIS_HOST: aryn-redis
+  ROCKETMQ_NAME_SERVER: aryn-rocketmq-namesrv:9876
+  SEATA_SERVER_ADDR: aryn-seata:8091
+  XXL_JOB_ADMINADDRESSES: http://aryn-xxl-job-admin:8081/xxl-job-admin
+  CERT_DIR: /root/aryn/cert
+  MULTIPART_LOCATION: /data/tmp
+
 services:
   # ==================== 基础设施 ====================
   aryn-mysql:
@@ -63,6 +73,7 @@ services:
       NACOS_AUTH_IDENTITY_KEY: serverIdentity
       NACOS_AUTH_IDENTITY_VALUE: security
     ports:
+      - "8080:8080"
       - "8848:8848"
       - "9848:9848"
       - "9849:9849"
@@ -156,6 +167,7 @@ services:
     ports:
       - "9999:9999"
     environment:
+      <<: *java-environment
       SPRING_PROFILES_ACTIVE: cloud
     networks:
       - aryn-net
@@ -177,6 +189,7 @@ services:
     ports:
       - "5227:5227"
     environment:
+      <<: *java-environment
       SPRING_PROFILES_ACTIVE: cloud
     networks:
       - aryn-net
@@ -198,6 +211,7 @@ services:
     ports:
       - "5327:5327"
     environment:
+      <<: *java-environment
       SPRING_PROFILES_ACTIVE: cloud
     volumes:
       - upms-storage:/data/aryn/uploads
@@ -227,6 +241,7 @@ services:
     ports:
       - "7527:7527"
     environment:
+      <<: *java-environment
       SPRING_PROFILES_ACTIVE: cloud
     networks:
       - aryn-net
@@ -250,8 +265,8 @@ services:
     ports:
       - "6600:6600"
     environment:
+      <<: *java-environment
       SPRING_PROFILES_ACTIVE: cloud
-      XXL_JOB_ADMINADDRESSES: http://aryn-xxl-job-admin:8081/xxl-job-admin
     networks:
       - aryn-net
     depends_on:
@@ -278,8 +293,8 @@ services:
     ports:
       - "6400:6400"
     environment:
+      <<: *java-environment
       SPRING_PROFILES_ACTIVE: cloud
-      XXL_JOB_ADMINADDRESSES: http://aryn-xxl-job-admin:8081/xxl-job-admin
     networks:
       - aryn-net
     depends_on:
@@ -306,6 +321,7 @@ services:
     ports:
       - "6900:6900"
     environment:
+      <<: *java-environment
       SPRING_PROFILES_ACTIVE: cloud
     networks:
       - aryn-net
@@ -329,6 +345,7 @@ services:
     ports:
       - "6300:6300"
     environment:
+      <<: *java-environment
       SPRING_PROFILES_ACTIVE: cloud
     networks:
       - aryn-net
@@ -352,8 +369,8 @@ services:
     ports:
       - "6500:6500"
     environment:
+      <<: *java-environment
       SPRING_PROFILES_ACTIVE: cloud
-      XXL_JOB_ADMINADDRESSES: http://aryn-xxl-job-admin:8081/xxl-job-admin
     networks:
       - aryn-net
     depends_on:
