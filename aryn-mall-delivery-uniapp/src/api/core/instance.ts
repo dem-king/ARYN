@@ -34,20 +34,49 @@ export function buildDeliveryHeaders(token?: string, tenantId?: string, appId?: 
   }
 }
 
-export function rewriteDeliveryBootUrl(url: string, openBoot = import.meta.env.VITE_OPEN_BOOT === 'true') {
-  if (!openBoot)
-    return url
-  return url.replace(/^\/(auth|upms|mall-order|message)(?=\/)/, '') || '/'
+export function encodeDeliveryForm(data: Record<string, number | string | undefined>) {
+  return Object.entries(data)
+    .filter((entry): entry is [string, number | string] => entry[1] !== undefined)
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`)
+    .join('&')
 }
 
-export function buildDeliveryApiUrl(path: string) {
-  const base = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
-  const rewritten = rewriteDeliveryBootUrl(path)
+export function rewriteDeliveryBootUrl(url: string, openBoot = import.meta.env.VITE_OPEN_BOOT === 'true') {
+  if (!openBoot || /^[a-z][a-z\d+.-]*:\/\//i.test(url))
+    return url
+
+  const suffixIndex = url.search(/[?#]/)
+  const pathname = suffixIndex < 0 ? url : url.slice(0, suffixIndex)
+  const suffix = suffixIndex < 0 ? '' : url.slice(suffixIndex)
+  const segments = pathname.split('/').filter(Boolean)
+  if (segments[0] === 'boot' || segments.length < 2)
+    return url
+
+  return `/boot/${segments.slice(1).join('/')}${suffix}`
+}
+
+export function normalizeDeliveryApiBaseUrl(baseUrl: string | undefined) {
+  return String(baseUrl || '').trim().replace(/\/+$/, '')
+}
+
+export const deliveryApiBaseUrl = normalizeDeliveryApiBaseUrl(import.meta.env.VITE_API_BASE_URL)
+
+export function buildDeliveryApiUrl(
+  path: string,
+  baseUrl = deliveryApiBaseUrl,
+  openBoot = import.meta.env.VITE_OPEN_BOOT === 'true',
+) {
+  const base = normalizeDeliveryApiBaseUrl(baseUrl)
+  const rewritten = rewriteDeliveryBootUrl(path, openBoot)
   return `${base}/${rewritten.replace(/^\/+/, '')}`
 }
 
-export function buildDeliveryWebSocketUrl(path: string) {
-  return buildDeliveryApiUrl(path).replace(/^http:/i, 'ws:').replace(/^https:/i, 'wss:')
+export function buildDeliveryWebSocketUrl(
+  path: string,
+  baseUrl = deliveryApiBaseUrl,
+  openBoot = import.meta.env.VITE_OPEN_BOOT === 'true',
+) {
+  return buildDeliveryApiUrl(path, baseUrl, openBoot).replace(/^http:/i, 'ws:').replace(/^https:/i, 'wss:')
 }
 
 function parseResponse<T>(data: unknown): ApiResponse<T> {
@@ -79,7 +108,7 @@ function expireDeliverySession(message = '登录已过期，请重新登录') {
 }
 
 export const alovaInstance = createAlova({
-  baseURL: import.meta.env.VITE_API_BASE_URL || '',
+  baseURL: deliveryApiBaseUrl,
   requestAdapter: uniappRequestAdapter,
   beforeRequest: (method) => {
     const stored = uni.getStorageSync(DELIVERY_AUTH_STORAGE_KEY) as DeliveryStoredSession | undefined

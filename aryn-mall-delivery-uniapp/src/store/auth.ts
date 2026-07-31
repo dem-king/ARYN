@@ -1,11 +1,9 @@
 import { defineStore } from 'pinia'
 import {
   bindWechat,
-  getStaffMenus,
   getStaffProfile,
   login,
   logout,
-  type DeliveryMenuNode,
   type DeliveryStaffProfile,
 } from '@/api/auth'
 
@@ -23,14 +21,8 @@ export interface DeliverySession {
   permissions?: string[]
 }
 
-function collectPermissions(nodes: DeliveryMenuNode[] | undefined, target = new Set<string>()) {
-  for (const node of nodes ?? []) {
-    const permission = node.extra?.permission || node.permission
-    if (permission)
-      target.add(permission)
-    collectPermissions(node.children, target)
-  }
-  return [...target]
+export function getDeliveryPermissions(profile: DeliveryStaffProfile) {
+  return [...new Set(profile.permissions ?? [])]
 }
 
 function normalizeUser(profile: DeliveryStaffProfile) {
@@ -88,8 +80,8 @@ export const useAuthStore = defineStore('delivery-auth', {
       this.saveSession(stored)
       return this.validateDeliveryPermission(stored.permissions ?? [])
     },
-    async loginAndVerify(username: string, password: string) {
-      const result = await login(username, password)
+    async loginAndVerify(username: string, password: string, captchaVerification: string) {
+      const result = await login(username, password, captchaVerification)
       const tenantId = import.meta.env.VITE_TENANT_ID
       this.saveSession({
         token: result.tokenValue,
@@ -97,8 +89,8 @@ export const useAuthStore = defineStore('delivery-auth', {
         user: { id: 'pending', nickname: username, username },
       })
       try {
-        const [profile, menus] = await Promise.all([getStaffProfile(), getStaffMenus()])
-        const permissions = collectPermissions(menus)
+        const profile = await getStaffProfile()
+        const permissions = getDeliveryPermissions(profile)
         if (!permissions.includes(DELIVERY_PERMISSION))
           throw new Error('当前账号没有商城配送权限')
         const session = {

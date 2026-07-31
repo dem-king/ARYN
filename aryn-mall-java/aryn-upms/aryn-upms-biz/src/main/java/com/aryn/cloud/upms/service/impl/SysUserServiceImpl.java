@@ -78,6 +78,9 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
 		if (Objects.nonNull(this.findUserByName(sysUser.getUsername()))) {
 			throw new ArynBusinessException("用户已存在");
 		}
+		if (Objects.nonNull(this.findUserByPhone(sysUser.getPhone()))) {
+			throw new ArynBusinessException("该手机号已存在");
+		}
 		baseMapper.insert(sysUser);
 		saveUserRole(sysUser);
 		return Boolean.TRUE;

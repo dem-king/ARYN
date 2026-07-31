@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { DELIVERY_AUTH_STORAGE_KEY, useAuthStore } from './auth'
+import { DELIVERY_AUTH_STORAGE_KEY, getDeliveryPermissions, useAuthStore } from './auth'
 import { buildDeliveryHeaders } from '@/api/core/instance'
 
 const storage = new Map<string, unknown>()
@@ -32,5 +32,12 @@ describe('配送员认证边界', () => {
     expect(store.validateDeliveryPermission(['order:delivery:page'])).toBe(false)
     expect(store.token).toBe('')
     expect(storage.has(DELIVERY_AUTH_STORAGE_KEY)).toBe(false)
+  })
+
+  it('从用户资料的完整按钮权限中识别配送员资格', () => {
+    expect(getDeliveryPermissions({
+      userId: 'staff-1',
+      permissions: ['order:delivery:page', 'order:delivery:execute'],
+    })).toContain('order:delivery:execute')
   })
 })

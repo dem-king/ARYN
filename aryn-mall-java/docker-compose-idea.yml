@@ -1,0 +1,5 @@
+services:
+  aryn-rocketmq-broker:
+    command: sh mqbroker -n aryn-rocketmq-namesrv:9876 -c /home/rocketmq/rocketmq-5.4.0/conf/broker-idea.conf
+    volumes:
+      - ./docker/rocketmq/broker-idea.conf:/home/rocketmq/rocketmq-5.4.0/conf/broker-idea.conf:ro

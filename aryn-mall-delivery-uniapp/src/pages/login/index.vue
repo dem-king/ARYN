@@ -1,19 +1,26 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
+import DeliverySliderCaptcha from '@/components/DeliverySliderCaptcha.vue'
 import { useAuthStore } from '@/store/auth'
 
 const authStore = useAuthStore()
 const submitting = ref(false)
+const captchaVisible = ref(false)
 const form = reactive({ username: '', password: '' })
 
-async function submit() {
+function submit() {
   if (!form.username.trim() || !form.password) {
     uni.showToast({ title: '请输入账号和密码', icon: 'none' })
     return
   }
+  captchaVisible.value = true
+}
+
+async function completeLogin(captchaVerification: string) {
+  captchaVisible.value = false
   submitting.value = true
   try {
-    await authStore.loginAndVerify(form.username.trim(), form.password)
+    await authStore.loginAndVerify(form.username.trim(), form.password, captchaVerification)
     uni.reLaunch({ url: '/pages/workbench/index' })
   }
   catch (error) {
@@ -41,6 +48,11 @@ async function submit() {
       </button>
       <text class="hint">仅拥有商城配送权限的员工可登录</text>
     </view>
+    <DeliverySliderCaptcha
+      :visible="captchaVisible"
+      @close="captchaVisible = false"
+      @success="completeLogin"
+    />
   </view>
 </template>
 
