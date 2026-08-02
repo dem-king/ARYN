@@ -37,6 +37,12 @@ public class SysMaterial extends Model<SysMaterial> {
 	@Schema(description = "素材链接")
 	private String url;
 
+	@Schema(description = "稳定对象键")
+	private String objectKey;
+
+	@Schema(description = "业务归属：delivery-evidence=配送凭证")
+	private String bizTag;
+
 	@TableField(fill = FieldFill.INSERT)
 	@Schema(description = "创建人")
 	private String createBy;

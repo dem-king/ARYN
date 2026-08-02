@@ -10,6 +10,8 @@ import com.aryn.cloud.promotion.api.constant.MallEventConstants;
 import com.aryn.cloud.promotion.api.entity.CouponInfo;
 import com.aryn.cloud.promotion.api.enums.CouponUserStatusEnum;
 import com.aryn.cloud.promotion.api.remote.RemoteCouponUserService;
+import com.aryn.cloud.promotion.api.remote.RemoteDiscountService;
+import com.aryn.cloud.promotion.api.remote.RemoteSeckillService;
 import com.aryn.cloud.promotion.api.vo.CouponUserRespVO;
 import com.aryn.cloud.user.api.vo.MemberBenefitsVO;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,11 +36,18 @@ class OrderPriceComputeServiceTest {
 	@Mock
 	private RemoteCouponUserService remoteCouponUserService;
 
+	@Mock
+	private RemoteDiscountService remoteDiscountService;
+
+	@Mock
+	private RemoteSeckillService remoteSeckillService;
+
 	private OrderPriceComputeService service;
 
 	@BeforeEach
 	void setUp() {
-		service = new OrderPriceComputeService(remoteGoodsSkuService, remoteCouponUserService);
+		service = new OrderPriceComputeService(remoteGoodsSkuService, remoteCouponUserService,
+				remoteDiscountService, remoteSeckillService);
 	}
 
 	@Test

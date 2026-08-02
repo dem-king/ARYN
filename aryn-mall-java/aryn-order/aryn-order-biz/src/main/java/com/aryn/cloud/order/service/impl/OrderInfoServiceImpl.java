@@ -124,6 +124,10 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 
 	private final CallbackPrefixProperties callbackPrefixProperties;
 
+	private final com.aryn.cloud.order.service.IDeliveryTaskService deliveryTaskService;
+
+	private final com.aryn.cloud.order.service.IDeliveryAreaService deliveryAreaService;
+
 	@Override
 	public IPage<OrderInfo> adminPage(Page page, OrderInfo orderInfo) {
 		return baseMapper.selectAdminPage(page, orderInfo);
@@ -356,8 +360,9 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		orderPriceComputeService.orderMemberBenefitHandler(orderInfo, orderItemEntityList, memberBenefits);
 		orderPriceComputeService.orderCouponHandler(orderInfo, orderItemEntityList);
 
-		// 5. 物流运费计算
-		if (MallOrderConstants.DELIVERY_WAY_1.equals(orderInfo.getDeliveryWay())) {
+		// 5. 物流运费计算（普通快递和商城配送均需收货地址与运费）
+		if (MallOrderConstants.DELIVERY_WAY_1.equals(orderInfo.getDeliveryWay())
+				|| MallOrderConstants.DELIVERY_WAY_3.equals(orderInfo.getDeliveryWay())) {
 			if (!StringUtils.hasText(createOrderDTO.getUserAddressId())) {
 				throw new ArynBusinessException(MallErrorCodeEnum.ERROR_50002.getCode(),
 						MallErrorCodeEnum.ERROR_50002.getMsg());
@@ -380,6 +385,11 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 			orderInfo.setRecipientAddress(userAddress.getDetailAddress());
 			orderPriceComputeService.orderFreightHandler(orderInfo, orderItemEntityList, goodsSkuList,
 					memberBenefits != null && memberBenefits.isFreeShipping());
+			if (MallOrderConstants.DELIVERY_WAY_3.equals(orderInfo.getDeliveryWay())
+					&& !deliveryAreaService.isAddressInDeliveryArea(userAddress.getProvinceCode(),
+							userAddress.getCityCode(), userAddress.getAreaCode())) {
+				throw new ArynBusinessException("当前收货地址不在商城配送范围内");
+			}
 		}
 		// 创建订单
 		try {
@@ -479,6 +489,14 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 			rocketMQTemplate.syncSend(RocketMqConstants.ORDER_COMPLETE_NOTIFY_TOPIC,
 					new GenericMessage<>(orderPaySuccessEvent), RocketMqConstants.TIME_OUT);
 		});
+
+		// 商城配送签收联动：更新对应配送任务为已签收
+		try {
+			deliveryTaskService.signOnReceive(orderInfo.getId());
+		}
+		catch (Exception e) {
+			log.error("订单签收联动失败: " + orderInfo.getId(), e);
+		}
 		return Boolean.TRUE;
 	}
 
@@ -610,8 +628,9 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		MemberBenefitsVO memberBenefits = remoteMallUserService.getMemberBenefits(settlementOrderDTO.getUserId());
 		orderPriceComputeService.orderMemberBenefitHandler(orderInfo, orderItemEntityList, memberBenefits);
 		orderPriceComputeService.orderCouponHandler(orderInfo, orderItemEntityList);
-		// 5.计算运费
-		if (MallOrderConstants.DELIVERY_WAY_1.equals(orderInfo.getDeliveryWay())) {
+		// 5.计算运费（普通快递和商城配送均需收货地址与运费）
+		if (MallOrderConstants.DELIVERY_WAY_1.equals(orderInfo.getDeliveryWay())
+				|| MallOrderConstants.DELIVERY_WAY_3.equals(orderInfo.getDeliveryWay())) {
 			if (!StringUtils.hasText(settlementOrderDTO.getUserAddressId())) {
 				throw new ArynBusinessException(MallErrorCodeEnum.ERROR_50002.getCode(),
 						MallErrorCodeEnum.ERROR_50002.getMsg());
@@ -635,6 +654,11 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 
 			orderPriceComputeService.orderFreightHandler(orderInfo, orderItemEntityList, goodsSkuList,
 					memberBenefits != null && memberBenefits.isFreeShipping());
+			if (MallOrderConstants.DELIVERY_WAY_3.equals(orderInfo.getDeliveryWay())
+					&& !deliveryAreaService.isAddressInDeliveryArea(userAddress.getProvinceCode(),
+							userAddress.getCityCode(), userAddress.getAreaCode())) {
+				throw new ArynBusinessException("当前收货地址不在商城配送范围内");
+			}
 		}
 		orderInfo.setOrderItemList(orderItemEntityList);
 		return orderInfo;

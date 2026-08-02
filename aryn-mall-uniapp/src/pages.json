@@ -67,7 +67,85 @@
         "navigationStyle": "custom",
         "navigationBarTitleText": "个人中心"
       }
+    },
+    {
+      "path": "pages/promotion/seckill",
+      "type": "page",
+      "name": "seckill",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "限时秒杀"
+      }
+    },
+    {
+      "path": "pages/promotion/discount",
+      "type": "page",
+      "name": "discount",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "限时折扣"
+      }
+    },
+    {
+      "path": "pages/delivery/index",
+      "type": "page",
+      "name": "delivery-index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "配送工作台"
+      }
+    },
+    {
+      "path": "pages/delivery/task-list",
+      "type": "page",
+      "name": "delivery-task-list",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "我的任务"
+      }
+    },
+    {
+      "path": "pages/delivery/trip-detail",
+      "type": "page",
+      "name": "delivery-trip-detail",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "出车单详情"
+      }
+    },
+    {
+      "path": "pages/delivery/task-detail",
+      "type": "page",
+      "name": "delivery-task-detail",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "任务详情"
+      }
+    },
+    {
+      "path": "pages/delivery/login",
+      "type": "page",
+      "name": "delivery-login",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "配送员登录"
+      }
+    },
+    {
+      "path": "pages/delivery/profile",
+      "type": "page",
+      "name": "delivery-profile",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "配送员中心"
+      }
+    },
+    // #ifdef MP-WEIXIN
+    {
+      "path": "pages/delivery/exception-report",
+      "type": "page"
     }
+    // #endif
   ],
   "subPackages": [
     {

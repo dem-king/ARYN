@@ -9,16 +9,18 @@ import { useAccessStore } from '@vben/stores';
 import { Upload } from '@element-plus/icons-vue';
 import { ElButton, ElIcon, ElMessage, ElUpload } from 'element-plus';
 
+import { parseOpenBoot, rewriteBootUrl } from '#/api/boot-url';
+
 const emit = defineEmits(['handleSuccess']);
 const accessStore = useAccessStore();
 const headers = ref({
   satoken: accessStore.accessToken,
 });
-const isOpenBoot = import.meta.env.VITE_OPEN_BOOT === 'true';
 
 const { apiURL } = useAppConfig(import.meta.env, import.meta.env.PROD);
+const openBoot = parseOpenBoot(import.meta.env.VITE_OPEN_BOOT);
 const action = ref(
-  `${apiURL}${isOpenBoot ? '/boot' : '/pay'}/payconfig/cert/upload`,
+  `${apiURL}${rewriteBootUrl('/pay/payconfig/cert/upload', openBoot) ?? '/pay/payconfig/cert/upload'}`,
 );
 /**
  * 上传素材前事件

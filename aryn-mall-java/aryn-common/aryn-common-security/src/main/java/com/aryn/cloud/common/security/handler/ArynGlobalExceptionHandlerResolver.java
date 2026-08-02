@@ -2,6 +2,8 @@
 package com.aryn.cloud.common.security.handler;
 
 import cn.dev33.satoken.exception.NotLoginException;
+import cn.dev33.satoken.exception.NotPermissionException;
+import cn.dev33.satoken.exception.NotRoleException;
 import cn.hutool.core.util.StrUtil;
 import com.aryn.cloud.common.core.util.Result;
 import lombok.extern.slf4j.Slf4j;
@@ -71,6 +73,34 @@ public class ArynGlobalExceptionHandlerResolver {
 	public Result error(ArynBusinessException e) {
 		log.error("自定义异常信息 ex={}", e.getMsg(), e);
 		return Result.fail(e.getCode(), e.getMsg());
+	}
+
+	/**
+	 * 权限校验异常（缺少所需权限）
+	 * @param e
+	 * @author aryn
+	 * @date 2025/8/1
+	 * @return: com.aryn.cloud.common.core.util.Result
+	 */
+	@ExceptionHandler(NotPermissionException.class)
+	@ResponseStatus(HttpStatus.FORBIDDEN)
+	public Result handleNotPermissionException(NotPermissionException e) {
+		log.warn("权限校验失败，缺少权限: {}", e.getMessage());
+		return Result.fail(403, "权限不足，缺少所需权限: " + e.getMessage());
+	}
+
+	/**
+	 * 角色校验异常（缺少所需角色）
+	 * @param e
+	 * @author aryn
+	 * @date 2025/8/1
+	 * @return: com.aryn.cloud.common.core.util.Result
+	 */
+	@ExceptionHandler(NotRoleException.class)
+	@ResponseStatus(HttpStatus.FORBIDDEN)
+	public Result handleNotRoleException(NotRoleException e) {
+		log.warn("角色校验失败，缺少角色: {}", e.getMessage());
+		return Result.fail(403, "权限不足，缺少所需角色: " + e.getMessage());
 	}
 
 	/**

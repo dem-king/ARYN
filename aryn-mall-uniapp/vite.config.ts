@@ -8,6 +8,8 @@
  * 记得注释
  */
 import process from 'node:process'
+import fs from 'node:fs'
+import path from 'node:path'
 import { defineConfig, loadEnv } from 'vite'
 import UniModule from '@dcloudio/vite-plugin-uni'
 import UniHelperManifest from '@uni-helper/vite-plugin-uni-manifest'
@@ -19,6 +21,34 @@ import { WotResolver } from '@uni-helper/vite-plugin-uni-components/resolvers'
 import UniKuRoot from '@uni-ku/root'
 
 const Uni = ((UniModule as unknown as { default?: typeof UniModule }).default ?? UniModule)
+
+function fixProjectConfig() {
+  const patch = () => {
+    const candidates = [
+      path.resolve('dist/dev/mp-weixin/project.config.json'),
+      path.resolve('dist/build/mp-weixin/project.config.json'),
+    ]
+    for (const file of candidates) {
+      if (fs.existsSync(file)) {
+        try {
+          const json = JSON.parse(fs.readFileSync(file, 'utf8'))
+          if (!json.miniprogramRoot) {
+            json.miniprogramRoot = './'
+            fs.writeFileSync(file, JSON.stringify(json, null, 4), 'utf8')
+          }
+        } catch { }
+      }
+    }
+  }
+  return {
+    name: 'fix-project-config',
+    writeBundle() { patch() },
+    configureServer(server: any) {
+      server.httpServer?.once?.('listening', () => setTimeout(patch, 1000))
+    },
+  }
+}
+
 // https://vitejs.dev/config/
 export default async (mode: ConfigEnv) => {
   const UnoCSS = (await import('unocss/vite')).default
@@ -83,6 +113,7 @@ export default async (mode: ConfigEnv) => {
         dirs: ['src/composables', 'src/store', 'src/utils', 'src/api'],
         vueTemplate: true,
       }),
+      fixProjectConfig(),
     ],
   })
 }

@@ -89,6 +89,30 @@ cd aryn-mall-uniapp && pnpm type-check
 - 所有逻辑删除用 `del_flag` 字段，禁止物理删除
 - 涉及多表操作需保证事务一致性
 
+## 双模式适配规则（强制）
+
+> 系统支持单体（boot）与微服务（cloud）双模式运行，**新增或修改任何前端、后端代码时，必须同时适配两种模式**，不得只对一种模式生效。
+
+**模式判定**
+- 前端：`VITE_OPEN_BOOT=true` 为 boot 单体模式，`false` 为 cloud 微服务模式（管理后台 `apps/web-ele/.env`、移动端 `.env`）
+- 后端：`aryn-boot` 聚合所有 biz 模块为 boot 模式（`context-path: /boot`）；各 biz 独立部署 + Gateway + Nacos + Dubbo 为 cloud 模式
+
+**前端规则**
+- API 路径第一个段必须是微服务域（如 `/upms/user/page`、`/order/xxx`），由 `parseOpenBoot(import.meta.env.VITE_OPEN_BOOT)` 解析、`rewriteBootUrl(url, openBoot)` 改写；boot 模式下自动改写为 `/boot/{去掉首段后的路径}`
+- **禁止**在页面/组件中硬编码 `VITE_OPEN_BOOT === 'true'` 或直接拼接 `/boot`，必须复用 `parseOpenBoot` / `rewriteBootUrl`
+- 新增 API、WebSocket、文件上传等请求路径时，确保 cloud 模式下首段为有效微服务域，boot 模式下改写后路径正确
+- 环境变量读取统一走 `import.meta.env.VITE_OPEN_BOOT` + `parseOpenBoot`，禁止 `JSON.parse` 等其它解析方式
+
+**后端规则**
+- biz 模块之间**禁止直接 import**，跨模块调用走 Dubbo RPC（`*-api` 定义接口 + DTO），保证 cloud 模式可拆分
+- Controller 路径首段为微服务域，boot 模式下由 `context-path: /boot` 统一加前缀，**禁止**在 Controller 上硬编码 `/boot`
+- 新增配置项需同时提供 boot（`aryn-boot/src/main/resources/application*.yml`）与 cloud（各 biz `application*.yml` + Nacos）两份配置
+- 使用 Dubbo `@DubboReference`/`@DubboService` 时确保接口定义在 `*-api` 模块，boot/cloud 均可注入
+
+**验证要求**
+- 修改前端后，分别在 `VITE_OPEN_BOOT=true` 与 `false` 下确认请求路径正确（至少检查 `rewriteBootUrl` 输出）
+- 修改后端后，确认 `aryn-boot` 可编译通过（`mvn clean compile -pl aryn-boot -am`）且无 biz 间直接 import
+
 ## Harness 自动化（历史基线）
 
 > 当前工作树中 `scripts/` 与 `harness/` 处于删除状态。以下表格用于说明原设计，恢复前不得执行或声称通过；当前验证使用上面的 Maven/pnpm 原生命令。

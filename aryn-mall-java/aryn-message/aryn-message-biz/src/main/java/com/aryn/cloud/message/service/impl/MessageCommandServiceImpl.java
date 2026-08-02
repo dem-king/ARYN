@@ -12,6 +12,7 @@ import com.aryn.cloud.message.mapper.MessageNoticeMapper;
 import com.aryn.cloud.message.mapper.MessageRecipientMapper;
 import com.aryn.cloud.message.service.MessageCommandService;
 import com.aryn.cloud.message.service.MessagePushService;
+import com.aryn.cloud.message.service.WechatSubscribeChannelService;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -33,9 +34,13 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class MessageCommandServiceImpl implements MessageCommandService {
 
+	private static final String CHANNEL_IN_APP = "IN_APP";
+	private static final String CHANNEL_WECHAT_SUBSCRIBE = "WECHAT_SUBSCRIBE";
+
 	private final MessageNoticeMapper noticeMapper;
 	private final MessageRecipientMapper recipientMapper;
 	private final MessagePushService pushService;
+	private final WechatSubscribeChannelService wechatSubscribeChannelService;
 	private final ObjectMapper objectMapper;
 	private final Validator validator;
 
@@ -43,23 +48,42 @@ public class MessageCommandServiceImpl implements MessageCommandService {
 	@Transactional(rollbackFor = Exception.class)
 	public void consume(MessageSendCommand command) {
 		validate(command);
+		List<String> channels = command.getChannels() != null && !command.getChannels().isEmpty()
+				? command.getChannels() : List.of(CHANNEL_IN_APP);
 		MessageIdentityType recipientType = parseRecipientType(command.getRecipientType());
-		MessageNotice notice = noticeMapper.selectBySource(command.getTenantId(), command.getBizType(),
-				command.getEventId());
-		if (notice == null) {
-			notice = notice(command, recipientType);
-			if (noticeMapper.insertIgnoreSource(notice) == 0) {
-				notice = noticeMapper.selectBySource(command.getTenantId(), command.getBizType(), command.getEventId());
-				if (notice == null) {
-					throw new ArynBusinessException("业务通知幂等记录读取失败");
+		boolean needInApp = channels.contains(CHANNEL_IN_APP);
+		boolean needWechat = channels.contains(CHANNEL_WECHAT_SUBSCRIBE);
+		MessageNotice notice = null;
+		if (needInApp) {
+			notice = noticeMapper.selectBySource(command.getTenantId(), command.getBizType(),
+					command.getEventId());
+			if (notice == null) {
+				notice = notice(command, recipientType);
+				if (noticeMapper.insertIgnoreSource(notice) == 0) {
+					notice = noticeMapper.selectBySource(command.getTenantId(), command.getBizType(),
+							command.getEventId());
+					if (notice == null) {
+						throw new ArynBusinessException("业务通知幂等记录读取失败");
+					}
 				}
 			}
+			MessageRecipient recipient = recipient(command, notice.getId(), recipientType);
+			if (recipientMapper.insertIgnoreBatch(List.of(recipient)) > 0) {
+				String messageId = notice.getId();
+				runAfterCommit(() -> pushService.pushNotice(command.getTenantId(), recipientType.name(),
+						command.getRecipientId(), messageId));
+			}
 		}
-		MessageRecipient recipient = recipient(command, notice.getId(), recipientType);
-		if (recipientMapper.insertIgnoreBatch(List.of(recipient)) > 0) {
-			String messageId = notice.getId();
-			runAfterCommit(() -> pushService.pushNotice(command.getTenantId(), recipientType.name(),
-					command.getRecipientId(), messageId));
+		if (needWechat) {
+			MessageSendCommand wechatCommand = command;
+			runAfterCommit(() -> {
+				try {
+					wechatSubscribeChannelService.send(wechatCommand);
+				}
+				catch (Exception e) {
+					org.slf4j.LoggerFactory.getLogger(getClass()).warn("微信订阅消息发送失败: {}", e.getMessage());
+				}
+			});
 		}
 	}
 

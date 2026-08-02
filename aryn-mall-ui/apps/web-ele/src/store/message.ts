@@ -6,6 +6,7 @@ import { useAccessStore } from '@vben/stores';
 
 import { defineStore } from 'pinia';
 
+import { parseOpenBoot, rewriteBootUrl } from '#/api/boot-url';
 import {
   getStaffNoticeInbox,
   getStaffNoticeUnreadCount,
@@ -67,8 +68,9 @@ export const useMessageStore = defineStore('message', () => {
       window.location.origin,
     );
     apiBase.protocol = apiBase.protocol === 'https:' ? 'wss:' : 'ws:';
-    const openBoot = JSON.parse(import.meta.env.VITE_OPEN_BOOT || 'false');
-    apiBase.pathname = openBoot ? '/boot/ws/staff' : '/message/ws/staff';
+    const openBoot = parseOpenBoot(import.meta.env.VITE_OPEN_BOOT);
+    apiBase.pathname =
+      rewriteBootUrl('/message/ws/staff', openBoot) ?? '/message/ws/staff';
     const token = useAccessStore().accessToken;
     if (token) apiBase.searchParams.set('satoken', token);
     return apiBase.toString();

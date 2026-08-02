@@ -65,6 +65,10 @@
             <groupId>com.aryn</groupId>
             <artifactId>aryn-upms-api</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-user-api</artifactId>
+        </dependency>
         <!--           短信公共模块-->
         <dependency>
             <groupId>com.aryn</groupId>

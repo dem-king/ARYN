@@ -207,6 +207,11 @@ hx:
       - message_chat
       - message_agent
       - message_assignment_log
+      - delivery_staff
+      - delivery_trip
+      - delivery_task
+      - delivery_task_item
+      - delivery_warehouse_config
 
   swagger:
     enabled: true

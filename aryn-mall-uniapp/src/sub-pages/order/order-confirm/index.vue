@@ -180,6 +180,11 @@ async function toPay() {
     return useGlobalToast().warning('请选择收货地址')
   }
 
+  // 商城配送（deliveryWay=3）同样需要收货地址
+  if (state.orderParams.deliveryWay === '3' && !selectedAddress.value?.id) {
+    return useGlobalToast().warning('请选择收货地址')
+  }
+
   submitting.value = true
   globalLoading.loading('加载中...')
 

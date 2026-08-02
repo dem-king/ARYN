@@ -12,15 +12,21 @@ export function getPage(params: object) {
 
 // 通过id查询商品
 export function getById(id: string) {
-  return alovaInstance.Get<any>(`/product/app/goodsspu/${id}`)
+  return alovaInstance.Get<any>(`/product/app/goodsspu/${id}`, {
+    headers: { skipToken: true },
+  })
 }
 
 // 通过ids查询商品列表
 export function getByIds(ids: string[]) {
-  return alovaInstance.Get<any>(`/product/app/goodsspu/list/${ids}`)
+  return alovaInstance.Get<any>(`/product/app/goodsspu/list/${ids}`, {
+    headers: { skipToken: true },
+  })
 }
 
 // 获取热搜商品 Top10
 export function getTop10HotSearchGoods() {
-  return alovaInstance.Get<any>('/product/app/goodsspu/hot-search/top10')
+  return alovaInstance.Get<any>('/product/app/goodsspu/hot-search/top10', {
+    headers: { skipToken: true },
+  })
 }

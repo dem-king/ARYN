@@ -127,7 +127,7 @@ function loginSuccess() {
         <view class="loginType-warp">
           <!-- #ifdef MP -->
           <view class="item" :class="{ hidden: state.loginType === '1' }" @click="state.loginType = '1'">
-            <image src="/static/wx.svg" style="width: 100%;height: 100%;" mode="scaleToFill" />
+            <image src="/static/wx2.svg" style="width: 100%;height: 100%;" mode="scaleToFill" />
           </view>
           <!-- #endif -->
           <view class="item" :class="{ hidden: state.loginType === '2' }" @click="state.loginType = '2'">

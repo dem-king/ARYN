@@ -50,6 +50,8 @@ public class ArynRefundListener implements RocketMQListener<String> {
 
 	private final RocketMQTemplate rocketMQTemplate;
 
+	private final com.aryn.cloud.order.service.IDeliveryTaskService deliveryTaskService;
+
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public void onMessage(String message) {
@@ -122,6 +124,13 @@ public class ArynRefundListener implements RocketMQListener<String> {
 					info.setStatus(OrderStatusEnum.CANCELED.getCode());
 					if (!orderInfoService.updateById(info)) {
 						throw new ArynBusinessException("订单退款完成状态更新失败，请重试");
+					}
+				}
+				if (com.aryn.cloud.order.api.constant.MallOrderConstants.DELIVERY_WAY_3.equals(orderInfo.getDeliveryWay())) {
+					try {
+						deliveryTaskService.cancelByOrderId(orderRefund.getOrderId());
+					} catch (Exception e) {
+						log.warn("退款完成关闭配送任务失败: {}", e.getMessage());
 					}
 				}
 				orderRefundSuccessEvent.setCouponUserId(orderInfo.getCouponUserId());

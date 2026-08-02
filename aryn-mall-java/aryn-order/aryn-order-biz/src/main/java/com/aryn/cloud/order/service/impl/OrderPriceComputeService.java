@@ -20,6 +20,8 @@ import com.aryn.cloud.promotion.api.entity.CouponGoods;
 import com.aryn.cloud.promotion.api.entity.CouponInfo;
 import com.aryn.cloud.promotion.api.enums.CouponUserStatusEnum;
 import com.aryn.cloud.promotion.api.remote.RemoteCouponUserService;
+import com.aryn.cloud.promotion.api.remote.RemoteDiscountService;
+import com.aryn.cloud.promotion.api.remote.RemoteSeckillService;
 import com.aryn.cloud.promotion.api.vo.CouponUserRespVO;
 import com.aryn.cloud.user.api.vo.MemberBenefitsVO;
 import lombok.RequiredArgsConstructor;
@@ -43,8 +45,53 @@ public class OrderPriceComputeService {
 	@DubboReference
 	private final RemoteCouponUserService remoteCouponUserService;
 
+	@DubboReference
+	private final RemoteDiscountService remoteDiscountService;
+
+	@DubboReference
+	private final RemoteSeckillService remoteSeckillService;
+
+	/**
+	 * 促销价格处理：秒杀价 > 限时折扣 > 原价
+	 * 在运费计算前应用，使后续会员折扣/优惠券基于促销后价格计算
+	 */
+	public void orderPromotionPriceHandler(List<OrderItemEntity> orderItemEntityList) {
+		for (OrderItemEntity item : orderItemEntityList) {
+			BigDecimal originalUnitPrice = item.getSalesPrice();
+			BigDecimal promotionUnitPrice = null;
+			// 优先秒杀价
+			try {
+				BigDecimal seckillPrice = remoteSeckillService.getSeckillPrice(item.getSkuId());
+				if (seckillPrice != null && seckillPrice.compareTo(BigDecimal.ZERO) > 0) {
+					promotionUnitPrice = seckillPrice;
+				}
+			} catch (Exception e) {
+				// Dubbo 调用失败不阻断下单，降级用折扣/原价
+			}
+			// 其次限时折扣
+			if (promotionUnitPrice == null) {
+				try {
+					promotionUnitPrice = remoteDiscountService.calculatePrice(item.getSkuId(), originalUnitPrice);
+				} catch (Exception e) {
+					promotionUnitPrice = originalUnitPrice;
+				}
+			}
+			if (promotionUnitPrice == null) {
+				promotionUnitPrice = originalUnitPrice;
+			}
+			// 促销价不能高于原价
+			if (promotionUnitPrice.compareTo(originalUnitPrice) > 0) {
+				promotionUnitPrice = originalUnitPrice;
+			}
+			item.setSalesPrice(promotionUnitPrice);
+			item.setTotalPrice(promotionUnitPrice.multiply(BigDecimal.valueOf(item.getBuyQuantity())));
+		}
+	}
+
 	public void orderFreightHandler(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
 			List<GoodsSku> goodsSkuList, boolean freeShipping) {
+		// 先应用促销价格（秒杀 > 限时折扣 > 原价）
+		orderPromotionPriceHandler(orderItemEntityList);
 		Map<String, GoodsSku> skuMap = goodsSkuList.stream().collect(Collectors.toMap(GoodsSku::getId, v -> v));
 
 		for (OrderItemEntity orderItemEntity : orderItemEntityList) {

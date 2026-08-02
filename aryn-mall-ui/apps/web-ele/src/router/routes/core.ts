@@ -105,6 +105,28 @@ const coreRoutes: RouteRecordRaw[] = [
       title: '商城装修预览',
     },
   },
+  {
+    name: 'SeckillActivityEdit',
+    path: '/promotion/seckill-activity/edit',
+    component: () => import('#/views/promotion/seckill-activity/edit.vue'),
+    meta: {
+      hideInBreadcrumb: true,
+      hideInMenu: true,
+      hideInTab: true,
+      title: '秒杀活动编辑',
+    },
+  },
+  {
+    name: 'DiscountActivityEdit',
+    path: '/promotion/discount-activity/edit',
+    component: () => import('#/views/promotion/discount-activity/edit.vue'),
+    meta: {
+      hideInBreadcrumb: true,
+      hideInMenu: true,
+      hideInTab: true,
+      title: '折扣活动编辑',
+    },
+  },
 ];
 
 export { coreRoutes, fallbackNotFoundRoute };

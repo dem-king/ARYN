@@ -18,3 +18,9 @@ spring:
       - optional:nacos:${spring.application.name}-@profiles.active@.yml
   profiles:
     active: @profiles.active@
+
+wechat:
+  subscribe:
+    app-id: ${WECHAT_SUBSCRIBE_APP_ID:}
+    template-map:
+      ORDER_DELIVERY_TASK: ${WECHAT_SUBSCRIBE_TEMPLATE_DELIVERY:}

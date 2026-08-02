@@ -3,6 +3,7 @@ import { onLoad } from '@dcloudio/uni-app'
 import { reactive, ref } from 'vue'
 import { getById } from '@/api/order/orderInfo'
 import OrderOperation from '@/sub-pages/order/components/order-operation/index.vue'
+import DeliveryProgress from '@/components/delivery/delivery-progress.vue'
 import { useDict } from '@/utils/dict'
 import { customerServiceRoute } from '@/utils/message'
 
@@ -33,9 +34,9 @@ const navbarTitle = computed(() => {
     case '1':
       return '等待付款'
     case '2':
-      return way === '1' ? '等待发货' : '商家备货中'
+      return way === '1' ? '等待发货' : way === '3' ? '商城备货中' : '商家备货中'
     case '3':
-      return way === '1' ? '等待签收' : '等待提货'
+      return way === '1' ? '等待签收' : way === '3' ? '配送中' : '等待提货'
     case '4':
       return '交易完成'
     case '5':
@@ -54,9 +55,15 @@ const navbarSubTitle = computed(() => {
     case '2':
       return way === '1'
         ? '订单已付款，等待商家发货'
-        : '订单已付款，商家备货中'
+        : way === '3'
+          ? '订单已付款，商城正在备货配货'
+          : '订单已付款，商家备货中'
     case '3':
-      return way === '1' ? '商家已发货，等待签收' : '商家已备货，等待提货中'
+      return way === '1'
+        ? '商家已发货，等待签收'
+        : way === '3'
+          ? '商城配送员正在为您配送'
+          : '商家已备货，等待提货中'
     default:
       return ''
   }
@@ -154,7 +161,7 @@ function toCustomerService() {
     </view>
     <!-- 收货地址 -->
     <view
-      v-if="state.order.deliveryWay === '1'"
+      v-if="state.order.deliveryWay === '1' || state.order.deliveryWay === '3'"
       class="m-2 rounded-xl bg-white p-2"
     >
       <view class="flex items-center">
@@ -245,6 +252,13 @@ function toCustomerService() {
         </view>
       </view>
     </view>
+    <!-- 商城配送进度时间线（deliveryWay=3 且已付款后展示） -->
+    <view
+      v-if="state.order.deliveryWay === '3' && state.order.payStatus === '1'"
+      class="m-2"
+    >
+      <DeliveryProgress :order-id="state.order.id" />
+    </view>
     <view class="m-2 rounded-xl bg-white p-2">
       <view class="p-20rpx">
         <!-- 信息列表 -->
@@ -331,7 +345,9 @@ function toCustomerService() {
                   ? '普通快递'
                   : state.order.deliveryWay === '2'
                     ? '上门自提'
-                    : '无需配送'
+                    : state.order.deliveryWay === '3'
+                      ? '商城配送'
+                      : '无需配送'
               "
             />
           </view>

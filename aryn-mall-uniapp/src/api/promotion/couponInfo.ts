@@ -32,5 +32,6 @@ export interface CouponInfoPageResponse {
 export function getPage(params: object) {
   return alovaInstance.Get<CouponInfoPageResponse>('/promotion/app/couponinfo/page', {
     params,
+    headers: { skipToken: true },
   })
 }

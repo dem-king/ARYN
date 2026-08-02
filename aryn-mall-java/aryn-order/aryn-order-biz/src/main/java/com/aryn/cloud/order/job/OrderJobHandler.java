@@ -39,6 +39,8 @@ public class OrderJobHandler {
 
 	private final IOrderConfigService orderConfigService;
 
+	private final com.aryn.cloud.order.service.IDeliveryTaskService deliveryTaskService;
+
 	/**
 	 * 扫描超时未支付订单
 	 *
@@ -87,11 +89,25 @@ public class OrderJobHandler {
 					if (Objects.isNull(orderConfig) || Objects.isNull(orderConfig.getOrderAutoConfirmDays())) {
 						return;
 					}
-					List<OrderInfo> orderList = orderInfoService.list(Wrappers.<OrderInfo>lambdaQuery()
+					LocalDateTime cutoff = LocalDateTime.now().minusDays(orderConfig.getOrderAutoConfirmDays());
+					// 非商城配送：按 deliver_time 起算
+					List<OrderInfo> normalList = orderInfoService.list(Wrappers.<OrderInfo>lambdaQuery()
 						.eq(OrderInfo::getStatus, OrderStatusEnum.WAITING_FOR_RECEIPT.getCode())
-						.lt(OrderInfo::getDeliverTime,
-								LocalDateTime.now().minusDays(orderConfig.getOrderAutoConfirmDays())));
-					orderList.forEach(orderInfoService::receiveOrder);
+						.ne(OrderInfo::getDeliveryWay, com.aryn.cloud.order.api.constant.MallOrderConstants.DELIVERY_WAY_3)
+						.lt(OrderInfo::getDeliverTime, cutoff));
+					normalList.forEach(orderInfoService::receiveOrder);
+					// 商城配送：按 delivery_task.arrive_time 起算
+					List<OrderInfo> deliveryList = orderInfoService.list(Wrappers.<OrderInfo>lambdaQuery()
+						.eq(OrderInfo::getStatus, OrderStatusEnum.WAITING_FOR_RECEIPT.getCode())
+						.eq(OrderInfo::getDeliveryWay, com.aryn.cloud.order.api.constant.MallOrderConstants.DELIVERY_WAY_3));
+					for (OrderInfo order : deliveryList) {
+						com.aryn.cloud.order.api.entity.DeliveryTask task = deliveryTaskService.getOne(
+								Wrappers.<com.aryn.cloud.order.api.entity.DeliveryTask>lambdaQuery()
+										.eq(com.aryn.cloud.order.api.entity.DeliveryTask::getOrderId, order.getId()));
+						if (task != null && task.getArriveTime() != null && task.getArriveTime().isBefore(cutoff)) {
+							orderInfoService.receiveOrder(order);
+						}
+					}
 				}
 				finally {
 					ArynTenantContextHolder.removeTenantId();

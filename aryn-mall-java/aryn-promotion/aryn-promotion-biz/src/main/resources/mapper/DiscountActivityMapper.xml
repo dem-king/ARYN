@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aryn.cloud.promotion.mapper.DiscountActivityMapper">
+
+    <sql id="discountActivitySql">
+        discount_activity.id,
+        discount_activity.tenant_id,
+        discount_activity.activity_name,
+        discount_activity.start_time,
+        discount_activity.end_time,
+        discount_activity.discount_type,
+        discount_activity.discount_value,
+        discount_activity.scope,
+        discount_activity.status,
+        discount_activity.description,
+        discount_activity.create_by,
+        discount_activity.update_by,
+        discount_activity.create_time,
+        discount_activity.update_time,
+        discount_activity.del_flag,
+        discount_activity.version
+    </sql>
+
+    <select id="selectAdminPage" resultType="com.aryn.cloud.promotion.api.entity.DiscountActivity">
+        SELECT
+        <include refid="discountActivitySql"/>
+        FROM discount_activity
+        <where>
+            AND discount_activity.del_flag = '0'
+            <if test="query.activityName != null and query.activityName != ''">
+                AND discount_activity.activity_name LIKE CONCAT('%', #{query.activityName}, '%')
+            </if>
+            <if test="query.status != null">
+                AND discount_activity.status = #{query.status}
+            </if>
+            <if test="query.discountType != null">
+                AND discount_activity.discount_type = #{query.discountType}
+            </if>
+        </where>
+        ORDER BY discount_activity.create_time DESC
+    </select>
+
+</mapper>

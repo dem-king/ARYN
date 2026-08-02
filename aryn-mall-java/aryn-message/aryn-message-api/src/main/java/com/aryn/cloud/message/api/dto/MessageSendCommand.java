@@ -5,6 +5,7 @@ import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 import java.io.Serializable;
+import java.util.List;
 
 /** 跨业务域发送单收件人站内通知的最小命令。 */
 @Data
@@ -24,6 +25,9 @@ public class MessageSendCommand implements Serializable {
 	private String recipientId;
 
 	private String recipientName;
+
+	/** 通知通道列表，缺省仅 IN_APP。可选值：IN_APP、WECHAT_SUBSCRIBE。 */
+	private List<String> channels;
 
 	@NotBlank
 	@Size(max = 64)

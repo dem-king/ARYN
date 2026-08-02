@@ -14,6 +14,11 @@ export default defineConfig(async () => {
             target: 'http://localhost:9999',
             ws: false,
           },
+          '/message': {
+            changeOrigin: true,
+            target: 'http://localhost:9999',
+            ws: true,
+          },
         },
       },
     },

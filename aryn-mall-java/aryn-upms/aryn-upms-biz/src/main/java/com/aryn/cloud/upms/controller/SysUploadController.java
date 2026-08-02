@@ -90,6 +90,32 @@ public class SysUploadController {
 		return Result.success(url);
 	}
 
+	@Operation(summary = "配送凭证图片上传（配送员专用）")
+	@PostMapping("/staff/delivery-evidence/upload")
+	public Result staffDeliveryEvidenceUpload(@RequestPart("file") MultipartFile file) throws Exception {
+		uploadFileValidator.validate(file);
+		SysStorageConfigDTO sysStorageConfig = sysStorageConfigService.getConfig();
+		if (ObjectUtil.isNull(sysStorageConfig)) {
+			throw new ArynBusinessException("当前租户未配置启用的文件存储，请联系管理员完成配置");
+		}
+		String originalFilename = file.getOriginalFilename();
+		String objectKey = "delivery-evidence/" + ArynTenantContextHolder.getTenantId() + "/"
+				+ cn.hutool.core.util.IdUtil.fastSimpleUUID() + "_"
+				+ (originalFilename != null ? originalFilename : "evidence");
+		String url = storageFactory.getStrategy(sysStorageConfig.getType())
+			.uploadFile(sysStorageConfig, file.getInputStream(), originalFilename, file.getContentType(),
+					file.getSize());
+		SysMaterial sysMaterial = new SysMaterial();
+		sysMaterial.setUrl(url);
+		sysMaterial.setObjectKey(objectKey);
+		sysMaterial.setBizTag("delivery-evidence");
+		sysMaterial.setFileSize(file.getSize());
+		sysMaterial.setType("1");
+		sysMaterial.setName(originalFilename);
+		sysMaterialService.save(sysMaterial);
+		return Result.success(sysMaterial.getId());
+	}
+
 	@Operation(summary = "本地文件预览/下载")
 	@GetMapping("/local/{tenantId}/{url}")
 	public void getLocalFile(@PathVariable String tenantId, @PathVariable String url, HttpServletResponse response) {

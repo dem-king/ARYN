@@ -6,6 +6,7 @@ import { defineAsyncComponent, reactive, ref } from 'vue';
 import {
   ElButton,
   ElDatePicker,
+  ElDialog,
   ElDrawer,
   ElForm,
   ElFormItem,
@@ -15,8 +16,11 @@ import {
   ElMessage,
   ElRadio,
   ElRadioGroup,
+  ElTable,
+  ElTableColumn,
 } from 'element-plus';
 
+import { getById as getSpuById } from '#/api/product/goods-spu';
 import { addObj, editObj, getById } from '#/api/promotion/group-buy-activity';
 
 const emit = defineEmits(['initPage']);
@@ -95,17 +99,54 @@ const formRef = ref();
 const dialog = ref(false);
 const selectGoods = ref();
 
+const skuDialog = ref(false);
+const skuList = ref<any[]>([]);
+const selectedSku = ref<any>(null);
+
 const selectSpu = () => {
   selectGoods.value.initPage();
 };
 
-const spuCurrent = (spuList: any) => {
-  if (spuList && spuList.length > 0) {
-    const item = spuList[0];
-    state.form.spuId = item.id;
-    state.form.spuName = item.name;
-    state.form.spuUrls = item.spuUrls;
+const spuCurrent = async (spuList: any) => {
+  if (!spuList || spuList.length === 0) return;
+  const item = spuList[0];
+  state.form.spuId = item.id;
+  state.form.spuName = item.name;
+  state.form.spuUrls = item.spuUrls;
+  state.form.skuId = '';
+  state.form.originalPrice = 0;
+  try {
+    const detail = await getSpuById(item.id);
+    const skus = detail?.goodsSkus ?? [];
+    if (skus.length === 0) {
+      ElMessage.warning('该商品暂无可用 SKU，请先维护商品规格');
+      return;
+    }
+    if (skus.length === 1) {
+      state.form.skuId = skus[0].id;
+      state.form.originalPrice = Number(skus[0].originalPrice) || 0;
+      return;
+    }
+    skuList.value = skus;
+    selectedSku.value = null;
+    skuDialog.value = true;
+  } catch {
+    ElMessage.error('获取商品 SKU 失败');
   }
+};
+
+const handleSkuCurrentChange = (val: any) => {
+  selectedSku.value = val;
+};
+
+const onSkuSelect = () => {
+  if (!selectedSku.value) {
+    ElMessage.warning('请选择一个商品规格');
+    return;
+  }
+  state.form.skuId = selectedSku.value.id;
+  state.form.originalPrice = Number(selectedSku.value.originalPrice) || 0;
+  skuDialog.value = false;
 };
 
 const handleClose = () => {
@@ -334,5 +375,33 @@ defineExpose({
       </span>
     </template>
   </ElDrawer>
+  <ElDialog v-model="skuDialog" title="选择商品规格" width="640px">
+    <ElTable
+      :data="skuList"
+      highlight-current-row
+      style="width: 100%"
+      @current-change="handleSkuCurrentChange"
+    >
+      <ElTableColumn label="规格" min-width="220">
+        <template #default="scope">
+          <span v-if="scope.row.specsArr && scope.row.specsArr.length > 0">
+            {{
+              scope.row.specsArr.map((s: any) => s.specsValueName).join(' / ')
+            }}
+          </span>
+          <span v-else>默认规格</span>
+        </template>
+      </ElTableColumn>
+      <ElTableColumn prop="salesPrice" label="销售价" width="120" />
+      <ElTableColumn prop="originalPrice" label="原价" width="120" />
+      <ElTableColumn prop="stock" label="库存" width="100" />
+    </ElTable>
+    <template #footer>
+      <span class="dialog-footer">
+        <ElButton @click="skuDialog = false">取 消</ElButton>
+        <ElButton type="primary" @click="onSkuSelect">确 认</ElButton>
+      </span>
+    </template>
+  </ElDialog>
 </template>
 <style lang="scss" scoped></style>

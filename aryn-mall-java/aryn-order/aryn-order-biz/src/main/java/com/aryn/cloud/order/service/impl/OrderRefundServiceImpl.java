@@ -54,6 +54,8 @@ public class OrderRefundServiceImpl extends ServiceImpl<OrderRefundMapper, Order
 
 	private final OrderDeliveryMapper orderDeliveryMapper;
 
+	private final com.aryn.cloud.order.service.IDeliveryTaskService deliveryTaskService;
+
 	@Override
 	public IPage<OrderRefund> adminPage(Page page, OrderRefund orderRefund) {
 		return baseMapper.selectAdminPage(page, orderRefund);
@@ -136,6 +138,22 @@ public class OrderRefundServiceImpl extends ServiceImpl<OrderRefundMapper, Order
 					createRefundsReqDTO.setRefundType(PayConstants.ALIPAY_REFUND);
 				}
 				default -> throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60005.getMsg());
+			}
+			if (MallOrderConstants.DELIVERY_WAY_3.equals(orderInfo.getDeliveryWay())) {
+				com.aryn.cloud.order.api.entity.DeliveryTask task = deliveryTaskService.getOne(
+						Wrappers.<com.aryn.cloud.order.api.entity.DeliveryTask>lambdaQuery()
+								.eq(com.aryn.cloud.order.api.entity.DeliveryTask::getOrderId, orderInfo.getId()));
+				if (task != null) {
+					String taskStatus = task.getStatus();
+					boolean picked = com.aryn.cloud.order.api.enums.DeliveryTaskStatusEnum.PICKING.getCode().equals(taskStatus)
+							|| com.aryn.cloud.order.api.enums.DeliveryTaskStatusEnum.WAITING_ARRIVE.getCode().equals(taskStatus)
+							|| com.aryn.cloud.order.api.enums.DeliveryTaskStatusEnum.ARRIVED.getCode().equals(taskStatus)
+							|| com.aryn.cloud.order.api.enums.DeliveryTaskStatusEnum.EXCEPTION.getCode().equals(taskStatus);
+					if (picked && !com.aryn.cloud.order.api.enums.DeliveryTaskStatusEnum.RETURN_PENDING.getCode().equals(taskStatus)
+							&& !com.aryn.cloud.order.api.enums.DeliveryTaskStatusEnum.CANCELED.getCode().equals(taskStatus)) {
+						throw new ArynBusinessException("配送任务已取货，请先在配送任务中确认商品退回仓库后再退款");
+					}
+				}
 			}
 			orderRefund.setStatus(OrderRefundEnum.REFUND_COMPLETED.getCode());
 			orderRefund.setArrivalStatus(OrderArrivalStatusEnum.REFUNDING.getCode());

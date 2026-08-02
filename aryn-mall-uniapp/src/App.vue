@@ -36,6 +36,9 @@ function updateManager() {
 </script>
 
 <style lang="scss">
+/*  #ifdef  MP  */
+@import '@/styles/wd-icon-font.scss';
+/*  #endif  */
 page, #page {
   background-color: #F8F8F8 !important;
 }

@@ -11,6 +11,7 @@ import com.aryn.cloud.order.api.entity.OrderItemEntity;
 import com.aryn.cloud.order.api.enums.OrderItemStatusEnum;
 import com.aryn.cloud.order.api.enums.OrderStatusEnum;
 import com.aryn.cloud.order.event.ArynOrderPayEvent;
+import com.aryn.cloud.order.service.IDeliveryTaskService;
 import com.aryn.cloud.order.service.IOrderInfoService;
 import com.aryn.cloud.order.service.IOrderItemService;
 import lombok.RequiredArgsConstructor;
@@ -38,6 +39,8 @@ public class ArynOrderPayEventListener {
 
 	private final OrderPaySuccessNotifier orderPaySuccessNotifier;
 
+	private final IDeliveryTaskService deliveryTaskService;
+
 	/**
 	 * 订单状态修改
 	 * @param event
@@ -52,8 +55,17 @@ public class ArynOrderPayEventListener {
 			return;
 		}
 
-		String targetStatus = orderInfo.getDeliveryWay().equals(MallOrderConstants.DELIVERY_WAY_2)
-				? OrderStatusEnum.WAITING_FOR_RECEIPT.getCode() : OrderStatusEnum.WAITING_FOR_DELIVERY.getCode();
+		// 商城配送方式：支付后即等待配送员派单，订单状态仍为待发货
+		String targetStatus;
+		if (MallOrderConstants.DELIVERY_WAY_2.equals(orderInfo.getDeliveryWay())) {
+			targetStatus = OrderStatusEnum.WAITING_FOR_RECEIPT.getCode();
+		}
+		else if (MallOrderConstants.DELIVERY_WAY_3.equals(orderInfo.getDeliveryWay())) {
+			targetStatus = OrderStatusEnum.WAITING_FOR_DELIVERY.getCode();
+		}
+		else {
+			targetStatus = OrderStatusEnum.WAITING_FOR_DELIVERY.getCode();
+		}
 		if (!orderInfoService.update(Wrappers.<OrderInfo>lambdaUpdate()
 			.eq(OrderInfo::getId, orderInfo.getId())
 			.eq(OrderInfo::getPayStatus, CommonConstants.NO)
@@ -79,6 +91,11 @@ public class ArynOrderPayEventListener {
 		});
 		if (!orderItemService.updateBatchById(orderItemEntityList)) {
 			throw new ArynBusinessException("订单商品支付状态更新失败，请重试");
+		}
+
+		// 商城配送：支付后自动创建配送任务
+		if (MallOrderConstants.DELIVERY_WAY_3.equals(orderInfo.getDeliveryWay())) {
+			deliveryTaskService.createTaskOnPay(orderInfo, orderItemEntityList);
 		}
 
 		// 通知销量增加、优惠券更改状态

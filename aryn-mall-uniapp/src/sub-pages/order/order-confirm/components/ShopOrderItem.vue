@@ -57,10 +57,12 @@ watch(() => props.order, (newOrder) => {
 }, { deep: true })
 
 // 将 deliveryMethod 转换为 wd-select-picker 需要的格式
+// deliveryWay: 1普通快递 2上门自提 3商城配送
 const deliveryMethodColumns = computed(() => {
   return [
     { value: '1', name: '普通快递' },
     { value: '2', name: '上门自提' },
+    { value: '3', name: '商城配送' },
   ]
 })
 
@@ -177,7 +179,7 @@ function saveRemark() {
           </text>
           <view>
             <text class="pr-4rpx text-26rpx" @click="deliveryShow = true">
-              {{ localOrder.deliveryWay === '2' ? '上门自提' : '普通快递' }}
+              {{ localOrder.deliveryWay === '2' ? '上门自提' : localOrder.deliveryWay === '3' ? '商城配送' : '普通快递' }}
             </text>
             <text class="i-carbon:chevron-right text-14px" />
           </view>

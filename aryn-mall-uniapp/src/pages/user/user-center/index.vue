@@ -264,6 +264,26 @@ function toLogin() {
       </view>
     </view>
   </view>
+  <!-- 配送员入口 -->
+  <view class="px-20rpx pb-20rpx">
+    <view
+      class="flex items-center justify-between rounded-20rpx bg-white p-30rpx"
+      @click="toRoute('/pages/delivery/login')"
+    >
+      <view class="flex items-center">
+        <text class="i-carbon:delivery-truck mr-20rpx text-40rpx text-primary" />
+        <view>
+          <text class="text-28rpx font-bold">
+            配送员入口
+          </text>
+          <view class="mt-4rpx text-24rpx text-gray-400">
+            配送员登录后进入工作台
+          </view>
+        </view>
+      </view>
+      <text class="i-carbon:chevron-right text-28rpx text-gray-400" />
+    </view>
+  </view>
   <view class="flex items-center p-1">
     猜你喜欢
   </view>
