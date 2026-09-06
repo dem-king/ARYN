@@ -3,13 +3,18 @@ package com.aryn.cloud.user.api.vo;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
+import java.io.Serial;
+import java.io.Serializable;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
 @Data
 @Schema(description = "会员当前等级权益")
-public class MemberBenefitsVO {
+public class MemberBenefitsVO implements Serializable {
+
+	@Serial
+	private static final long serialVersionUID = 1L;
 
 	private String levelId;
 

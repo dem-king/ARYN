@@ -9,6 +9,7 @@ import type {
 } from '#/api/delivery/staff';
 
 import { computed, reactive, ref } from 'vue';
+import { useRouter } from 'vue-router';
 
 import {
   ElAlert,
@@ -31,6 +32,15 @@ import {
 } from '#/api/delivery/staff';
 
 const emit = defineEmits(['initPage']);
+
+const router = useRouter();
+
+/**
+ * 跳转员工账号管理创建新账号；返回配送员管理后重新打开向导即可加载最新员工列表
+ */
+const goToCreateSysUser = () => {
+  router.push('/system/user?from=delivery-staff');
+};
 
 const statusOptions: { label: string; value: DeliveryStaffStatus }[] = [
   { value: '3', label: '离线（默认，确认后可切换在线）' },
@@ -166,10 +176,10 @@ const validateProfile = (formEl: FormInstance | undefined) => {
 };
 
 /**
- * 提交按钮文案：勾选开通资格时为"创建并开通"，否则为"仅创建配送员"
+ * 提交按钮文案：勾选开通资格时为"创建并开通配送资格"，否则为"仅创建配送资料"
  */
 const submitLabel = computed(() =>
-  state.grantQualification ? '创建并开通' : '仅创建配送员',
+  state.grantQualification ? '创建并开通配送资格' : '仅创建配送资料',
 );
 
 /**
@@ -228,8 +238,8 @@ const submit = async (formEl: FormInstance | undefined) => {
 <template>
   <ElDrawer v-model="drawer" title="新增配送员" size="620px">
     <ElSteps :active="state.active" finish-status="success" simple>
-      <ElStep title="员工账号" />
-      <ElStep title="绑定商城账号" />
+      <ElStep title="选择员工账号" />
+      <ElStep title="绑定商城账号（可选）" />
       <ElStep title="配送资料" />
     </ElSteps>
 
@@ -239,8 +249,16 @@ const submit = async (formEl: FormInstance | undefined) => {
         type="info"
         :closable="false"
         show-icon
-        title="选择已有员工账号作为配送员登录账号；新员工请先在「员工管理」中创建账号。"
+        title="请选择一个已有的后台员工账号作为配送端登录账号。新员工请先在【系统设置 > 员工账号】创建账号。"
       />
+      <div class="step-toolbar">
+        <ElButton type="primary" plain @click="goToCreateSysUser">
+          去创建员工账号
+        </ElButton>
+        <span class="step-toolbar-tip">
+          创建后返回本页重新搜索即可选择新账号
+        </span>
+      </div>
       <ElInput
         v-model="state.sysUserKeyword"
         clearable
@@ -458,6 +476,18 @@ const submit = async (formEl: FormInstance | undefined) => {
 <style scoped>
 .step-body {
   padding-top: 16px;
+}
+
+.step-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.step-toolbar-tip {
+  font-size: 12px;
+  color: #909399;
 }
 
 .step-search {

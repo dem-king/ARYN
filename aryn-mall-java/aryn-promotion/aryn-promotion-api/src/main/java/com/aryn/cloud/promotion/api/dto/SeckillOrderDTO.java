@@ -7,9 +7,15 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
+import java.io.Serial;
+import java.io.Serializable;
+
 @Data
 @Schema(description = "秒杀下单DTO")
-public class SeckillOrderDTO {
+public class SeckillOrderDTO implements Serializable {
+
+	@Serial
+	private static final long serialVersionUID = 1L;
 
 	@Schema(description = "活动ID")
 	@NotBlank(message = "活动ID不能为空")

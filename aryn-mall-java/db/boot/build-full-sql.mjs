@@ -7,6 +7,7 @@ const sections = [
   ['创建数据库', '1schema.sql'],
   ['Boot 商城基础库', '2aryn_boot.sql'],
   ['商品品牌', '19product_brand.sql'],
+  ['商超品类与商品种子数据', '41grocery_catalog_seed.sql'],
   ['会员管理模块', '4aryn_boot_member.sql'],
   ['站内信与客服会话', '20message_center.sql'],
   ['消息中心菜单与权限', '20message_menu.sql'],
@@ -24,6 +25,10 @@ const sections = [
   ['配送资格操作补偿记录', '34delivery_qualification_operation.sql'],
   ['配送员商城账号绑定结构升级', '35delivery_account_binding_schema_upgrade.sql'],
   ['用户角色关联逻辑删除改造', '36sys_user_role_logic_delete.sql'],
+  ['员工账号与配送员管理重构', '37employee_role_scope.sql'],
+  ['字典与菜单乱码数据修复', '38dict_charset_mojibake_repair.sql'],
+  ['配送模块按钮权限补齐', '39delivery_menu_button_patch.sql'],
+  ['配送员受保护角色修复与遗留角色下线', '40delivery_staff_role_repair.sql'],
   ['XXL-JOB 调度库', '3aryn_boot_job.sql'],
 ];
 

@@ -91,6 +91,7 @@ const sourceFiles = [
   '1schema.sql',
   '2aryn_boot.sql',
   '19product_brand.sql',
+  '41grocery_catalog_seed.sql',
   '4aryn_boot_member.sql',
   '20message_center.sql',
   '20message_menu.sql',

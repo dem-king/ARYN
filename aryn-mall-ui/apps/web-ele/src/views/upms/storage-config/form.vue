@@ -300,7 +300,7 @@ defineExpose({
           v-model="state.form.domain"
           :placeholder="
             normalizedType === 'local'
-              ? '可留空，默认返回当前站点相对地址'
+              ? '可留空；建议填源地址如 http://localhost:9999，系统按运行模式自动补 /upms 或 /boot'
               : '可选，例如 https://cdn.example.com'
           "
         />

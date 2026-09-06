@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import type { FormInstance } from 'element-plus';
 
-import { defineAsyncComponent, reactive, ref } from 'vue';
+import { computed, defineAsyncComponent, reactive, ref } from 'vue';
 
 import {
   ElButton,
@@ -16,6 +16,7 @@ import {
   ElRadio,
   ElRadioGroup,
   ElRow,
+  ElTag,
   ElTreeSelect,
 } from 'element-plus';
 
@@ -29,6 +30,11 @@ const emit = defineEmits(['initPage']);
 const SelectMaterial = defineAsyncComponent(
   () => import('#/components/select-material/index.vue'),
 );
+/**
+ * 受保护配送资格角色编码：只能由配送员管理开通/停用，
+ * 员工账号表单不展示复选框，编辑提交时由后端保留原有关联
+ */
+const PROTECTED_DELIVERY_ROLE_CODE = 'delivery_staff';
 interface UserSate {
   rules: object;
   form: {
@@ -128,6 +134,33 @@ const dialog = ref(false);
 const loading = ref(false);
 const formRef = ref();
 
+/**
+ * 受保护角色ID集合（存在重复编码角色时全部纳入保护）
+ */
+const protectedRoleIds = computed(() =>
+  (state.roleList || [])
+    .filter((item: any) => item.roleCode === PROTECTED_DELIVERY_ROLE_CODE)
+    .map((item: any) => item.id),
+);
+
+/**
+ * 是否已具备配送资格（后端返回受保护角色时只读展示）
+ */
+const hasDeliveryQualification = computed(() =>
+  (state.form.roles || []).some((roleId) =>
+    protectedRoleIds.value.includes(roleId),
+  ),
+);
+
+/**
+ * 后台角色复选框列表：过滤受保护的配送资格角色
+ */
+const editableRoleList = computed(() =>
+  (state.roleList || []).filter(
+    (item: any) => item.roleCode !== PROTECTED_DELIVERY_ROLE_CODE,
+  ),
+);
+
 const defaultProps = {
   children: 'children',
   label: 'name',
@@ -172,6 +205,10 @@ const submitForm = async (formEl: FormInstance | undefined) => {
   await formEl.validate((valid) => {
     if (valid) {
       loading.value = true;
+      // 受保护角色不在提交列表中：授予/回收只由配送员管理负责，后端编辑时会保留原有关联
+      state.form.roles = (state.form.roles || []).filter(
+        (roleId) => !protectedRoleIds.value.includes(roleId),
+      );
       if (state.form.id) {
         // 修改
         edit();
@@ -239,7 +276,7 @@ defineExpose({
   <div class="system-add-user-container">
     <ElDialog
       v-model="dialog"
-      :title="state.form.id ? '修改用户' : '新增用户'"
+      :title="state.form.id ? '修改员工账号' : '新增员工账号'"
       width="60%"
       :before-close="handleClose"
     >
@@ -251,7 +288,7 @@ defineExpose({
       >
         <ElRow>
           <ElCol :span="12" class="mb20">
-            <ElFormItem label="用户昵称" prop="nickname">
+            <ElFormItem label="员工昵称" prop="nickname">
               <ElInput v-model="state.form.nickname" />
             </ElFormItem>
           </ElCol>
@@ -268,7 +305,7 @@ defineExpose({
         </ElRow>
         <ElRow>
           <ElCol :span="12" class="mb20">
-            <ElFormItem label="用户名" prop="username">
+            <ElFormItem label="登录用户名" prop="username">
               <ElInput
                 v-model="state.form.username"
                 :disabled="!!state.form.id"
@@ -313,16 +350,24 @@ defineExpose({
             </ElFormItem>
           </ElCol>
         </ElRow>
-        <ElFormItem label="角色权限" prop="roles">
-          <ElCheckboxGroup v-model="state.form.roles">
-            <ElCheckbox
-              v-for="(item, index) in state.roleList"
-              :key="index"
-              :value="item.id"
-            >
-              {{ item.roleName }}
-            </ElCheckbox>
-          </ElCheckboxGroup>
+        <ElFormItem label="后台角色" prop="roles">
+          <div class="role-field">
+            <ElCheckboxGroup v-model="state.form.roles">
+              <ElCheckbox
+                v-for="item in editableRoleList"
+                :key="item.id"
+                :value="item.id"
+              >
+                {{ item.roleName }}
+              </ElCheckbox>
+            </ElCheckboxGroup>
+            <ElTag v-if="hasDeliveryQualification" type="success" size="small">
+              已具备配送资格（配送员角色，仅配送员管理可变更）
+            </ElTag>
+            <div class="role-tip">
+              配送资格请在 配送管理 &gt; 配送员管理 中开通，此处只管理后台角色
+            </div>
+          </div>
         </ElFormItem>
         <ElFormItem label="头像" prop="avatar">
           <SelectMaterial
@@ -351,5 +396,15 @@ defineExpose({
   display: block;
   width: 140px;
   height: 140px;
+}
+
+.role-field {
+  width: 100%;
+}
+
+.role-tip {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #909399;
 }
 </style>

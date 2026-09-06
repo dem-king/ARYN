@@ -125,7 +125,7 @@ PREPARE stmt FROM @add_material_biz_tag; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 INSERT IGNORE INTO `sys_dict_value`
 (`id`,`dict_id`,`dict_label`,`dict_value`,`dict_type`,`status`,`remarks`,`sort`,`del_flag`,`create_time`,`create_by`)
 SELECT '2103000000000000001', d.`id`, '商城配送', '3', 'delivery_way', '0', '商城配送', 3, '0', NOW(), 'system'
-FROM `sys_dict` d WHERE d.`dict_type` = 'delivery_way' LIMIT 1;
+FROM `sys_dict` d WHERE d.`type` = 'delivery_way' LIMIT 1;
 
 INSERT IGNORE INTO `sys_menu` (`id`,`name`,`permission`,`path`,`redirect`,`parent_id`,`icon`,`component`,`sort`,`type`,`create_time`,`outer_status`,`del_flag`,`application_key`,`create_by`) VALUES
 ('2100000000000000001','配送管理',NULL,'/delivery','/delivery/task','0','carbon:delivery-truck','',50,'0',NOW(),'0','0','app_base','system'),

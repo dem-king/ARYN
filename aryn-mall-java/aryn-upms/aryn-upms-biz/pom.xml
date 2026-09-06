@@ -69,6 +69,11 @@
             <groupId>com.aryn</groupId>
             <artifactId>aryn-user-api</artifactId>
         </dependency>
+        <!-- 订单域远程契约：删除员工账号前的配送资料关联检查（Dubbo，禁止直接依赖 order-biz 实现） -->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-order-api</artifactId>
+        </dependency>
         <!--           短信公共模块-->
         <dependency>
             <groupId>com.aryn</groupId>

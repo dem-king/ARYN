@@ -1,13 +1,16 @@
 
 package com.aryn.cloud.upms.service.impl;
 
+import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.aryn.cloud.common.core.constant.CommonConstants;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
+import com.aryn.cloud.upms.api.entity.SysRole;
 import com.aryn.cloud.upms.api.entity.SysUser;
 import com.aryn.cloud.upms.api.entity.SysUserRole;
 import com.aryn.cloud.upms.api.vo.MenuVO;
@@ -18,6 +21,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
@@ -81,6 +85,11 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
 		if (Objects.nonNull(this.findUserByName(sysUser.getUsername()))) {
 			throw new ArynBusinessException("用户已存在");
 		}
+		// 配送资格只能由配送员管理开通，通用用户新增不允许直接授予受保护角色
+		List<String> protectedRoleIds = findProtectedDeliveryRoleIds();
+		if (containsAny(sysUser.getRoles(), protectedRoleIds)) {
+			throw new ArynBusinessException("不能直接授予配送员角色，请在配送员管理中开通配送资格");
+		}
 		baseMapper.insert(sysUser);
 		saveUserRole(sysUser);
 		return Boolean.TRUE;
@@ -89,7 +98,34 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public boolean updateUser(SysUser sysUser) {
-		sysUserRoleMapper.delete(Wrappers.<SysUserRole>lambdaQuery().eq(SysUserRole::getUserId, sysUser.getId()));
+		// 请求列表可能不可变，拷贝后再做受保护角色剔除与合并
+		List<String> roles = new ArrayList<>(sysUser.getRoles() == null ? List.of() : sysUser.getRoles());
+		sysUser.setRoles(roles);
+		List<String> protectedRoleIds = findProtectedDeliveryRoleIds();
+		if (CollUtil.isNotEmpty(protectedRoleIds)) {
+			// 受保护配送角色不可经通用接口授予或回收：先从请求中剔除
+			roles.removeAll(protectedRoleIds);
+			// 编辑普通字段时保留已有配送资格，不因前端隐藏复选框而丢失
+			List<String> existingProtectedRoleIds = sysUserRoleMapper.selectList(Wrappers.<SysUserRole>lambdaQuery()
+					.eq(SysUserRole::getUserId, sysUser.getId())
+					.in(SysUserRole::getRoleId, protectedRoleIds))
+				.stream().map(SysUserRole::getRoleId).distinct().collect(Collectors.toList());
+			existingProtectedRoleIds.forEach(roleId -> {
+				if (!roles.contains(roleId)) {
+					roles.add(roleId);
+				}
+			});
+			// 仅重建非受保护关联，受保护关联交给 grantRole 幂等保持，避免误回收
+			sysUserRoleMapper.delete(Wrappers.<SysUserRole>lambdaQuery()
+				.eq(SysUserRole::getUserId, sysUser.getId())
+				.notIn(SysUserRole::getRoleId, protectedRoleIds));
+		}
+		else {
+			sysUserRoleMapper.delete(Wrappers.<SysUserRole>lambdaQuery().eq(SysUserRole::getUserId, sysUser.getId()));
+		}
+		if (CollUtil.isEmpty(roles)) {
+			throw new ArynBusinessException("角色不能为空");
+		}
 		baseMapper.updateById(sysUser);
 		saveUserRole(sysUser);
 		return Boolean.TRUE;
@@ -119,6 +155,19 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
 		for (String role : sysUser.getRoles()) {
 			sysUserRoleService.grantRole(sysUser.getId(), role);
 		}
+	}
+
+	/**
+	 * 查询当前租户受保护的配送资格角色ID列表（同一编码存在重复角色时全部纳入保护）
+	 */
+	private List<String> findProtectedDeliveryRoleIds() {
+		return sysRoleMapper.selectList(Wrappers.<SysRole>lambdaQuery()
+				.eq(SysRole::getRoleCode, CommonConstants.PROTECTED_DELIVERY_ROLE_CODE))
+			.stream().map(SysRole::getId).collect(Collectors.toList());
+	}
+
+	private boolean containsAny(List<String> roleIds, List<String> protectedRoleIds) {
+		return CollUtil.containsAny(roleIds == null ? new ArrayList<String>() : roleIds, protectedRoleIds);
 	}
 
 }

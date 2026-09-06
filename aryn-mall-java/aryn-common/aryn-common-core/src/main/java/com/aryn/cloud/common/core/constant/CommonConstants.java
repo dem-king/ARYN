@@ -58,6 +58,12 @@ public interface CommonConstants {
 	String ROLE_ADMIN_NAME = "系统管理员";
 
 	/**
+	 * 配送资格受保护角色编码：只能由配送员管理（资格接口/向导）授予或回收，
+	 * 通用用户新增/编辑接口必须拒绝直接修改，编辑时保留现有关联
+	 */
+	String PROTECTED_DELIVERY_ROLE_CODE = "delivery_staff";
+
+	/**
 	 * 请求头租户ID
 	 */
 	String TENANT_ID = "tenant-id";

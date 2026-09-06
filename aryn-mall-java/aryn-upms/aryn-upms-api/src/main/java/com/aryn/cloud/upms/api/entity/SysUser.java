@@ -91,4 +91,8 @@ public class SysUser extends Model<SysUser> {
 	@TableField(exist = false)
 	private List<String> roles;
 
+	/** 配送资格只读摘要：是否拥有受保护配送角色（delivery_staff），仅员工账号列表展示用 */
+	@TableField(exist = false)
+	private Boolean deliveryQualification;
+
 }

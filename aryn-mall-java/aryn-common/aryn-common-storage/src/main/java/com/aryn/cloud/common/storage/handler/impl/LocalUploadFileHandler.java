@@ -20,6 +20,7 @@ import org.springframework.util.StringUtils;
 
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.UUID;
@@ -78,8 +79,22 @@ public class LocalUploadFileHandler extends AbstractUploadFileHandler {
 		if (!normalizedDomain.startsWith("http://") && !normalizedDomain.startsWith("https://")) {
 			normalizedDomain = "https://" + normalizedDomain;
 		}
-		return normalizedDomain.endsWith("/") ? normalizedDomain.substring(0, normalizedDomain.length() - 1)
+		normalizedDomain = normalizedDomain.endsWith("/") ? normalizedDomain.substring(0, normalizedDomain.length() - 1)
 				: normalizedDomain;
+		return appendServicePath(normalizedDomain);
+	}
+
+	/**
+	 * 域名只填源地址时补上本模式的服务前缀（cloud 网关路由 /upms、boot context-path /boot），
+	 * 与不填域名时的相对路径行为保持一致；域名已带路径则视为调用方自行定义的回源地址，原样保留。
+	 */
+	private String appendServicePath(String base) {
+		String path = URI.create(base).getRawPath();
+		if (StringUtils.hasText(path)) {
+			return base;
+		}
+		Boolean cloudEnabled = environment.getProperty("hx.cloud.enable", Boolean.class, true);
+		return Boolean.FALSE.equals(cloudEnabled) ? base + "/boot" : base + "/upms";
 	}
 
 	@Override

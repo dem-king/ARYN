@@ -91,6 +91,12 @@ const del = (id: string) => {
       .catch(() => {});
   });
 };
+/**
+ * 受保护角色（超级管理员/配送员资格角色）由系统管理，
+ * 不提供修改与删除入口，配送资格在配送员管理中开通或停用
+ */
+const isProtectedRole = (roleCode: string) =>
+  roleCode === 'ROLE_ADMIN' || roleCode === 'delivery_staff';
 const onAuth = (row: any) => {
   roleMenuRef.value.initRoleMenu(row.id);
 };
@@ -161,7 +167,7 @@ initPage();
               link
               type="primary"
               v-access:code="'upms:sysrole:edit'"
-              v-if="scope.row.roleCode !== 'ROLE_ADMIN'"
+              v-if="!isProtectedRole(scope.row.roleCode)"
               @click="edit(scope.row)"
               :icon="Edit"
             >
@@ -171,7 +177,7 @@ initPage();
               link
               type="danger"
               v-access:code="'upms:sysrole:del'"
-              v-if="scope.row.roleCode !== 'ROLE_ADMIN'"
+              v-if="!isProtectedRole(scope.row.roleCode)"
               @click="del(scope.row.id)"
               :icon="Delete"
             >

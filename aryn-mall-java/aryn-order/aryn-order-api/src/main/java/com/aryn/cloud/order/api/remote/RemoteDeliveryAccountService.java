@@ -21,4 +21,13 @@ public interface RemoteDeliveryAccountService {
 	 */
 	DeliveryEligibilityDTO getEligibilityByMallUser(String mallUserId);
 
+	/**
+	 * 判断员工账号是否仍存在有效配送员资料（删除员工账号前的跨域保护检查）
+	 *
+	 * <p>租户隔离由调用链上下文保证；查询异常由调用方 fail-closed 处理。
+	 * @param sysUserId 员工账号ID
+	 * @return true 表示仍存在未删除的配送员资料，禁止直接删除员工账号
+	 */
+	boolean hasActiveDeliveryStaff(String sysUserId);
+
 }

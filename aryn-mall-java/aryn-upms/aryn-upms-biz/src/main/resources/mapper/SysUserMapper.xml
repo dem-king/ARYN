@@ -29,7 +29,18 @@
     <select id="adminPage" resultType="com.aryn.cloud.upms.api.entity.SysUser">
         SELECT
         <include refid="adminPageSql"/>,
-        sys_dept.dept_name AS deptName
+        sys_dept.dept_name AS deptName,
+        EXISTS (
+            SELECT 1
+            FROM sys_user_role AS delivery_user_role
+            INNER JOIN sys_role AS delivery_role ON delivery_role.id = delivery_user_role.role_id
+                AND delivery_role.del_flag = '0'
+                AND delivery_role.role_code = 'delivery_staff'
+            WHERE delivery_user_role.del_flag = '0'
+              AND delivery_user_role.user_id = sys_user.id
+              AND delivery_user_role.tenant_id = sys_user.tenant_id
+              AND delivery_role.tenant_id = sys_user.tenant_id
+        ) AS deliveryQualification
         FROM sys_user AS sys_user
         LEFT JOIN sys_dept AS sys_dept ON sys_user.dept_id = sys_dept.id
         <where>

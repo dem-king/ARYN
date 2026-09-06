@@ -1,6 +1,7 @@
 package com.aryn.cloud.upms.controller;
 
 import cn.hutool.crypto.digest.BCrypt;
+import com.aryn.cloud.order.api.remote.RemoteDeliveryAccountService;
 import com.aryn.cloud.upms.api.dto.SysUserDTO;
 import com.aryn.cloud.upms.api.entity.SysUser;
 import com.aryn.cloud.upms.service.ISysRoleService;
@@ -20,7 +21,7 @@ class SysUserControllerPasswordTest {
 	void editPasswordVerifiesOldPasswordAndStoresNewPasswordHash() {
 		ISysUserService userService = mock(ISysUserService.class);
 		SysUserController controller = new SysUserController(userService, mock(ISysRoleService.class),
-				mock(ISysUserRoleService.class));
+				mock(ISysUserRoleService.class), mock(RemoteDeliveryAccountService.class));
 		SysUser existing = new SysUser();
 		existing.setId("user-1");
 		existing.setPassword(BCrypt.hashpw("old-password"));

@@ -49,7 +49,33 @@ class LocalUploadFileHandlerTest {
 		LocalUploadFileHandler handler = new LocalUploadFileHandler(bootEnvironment);
 
 		assertThat(handler.resolvePublicBaseUrl(null)).isEqualTo("/boot");
-		assertThat(handler.resolvePublicBaseUrl("https://files.example.com/")).isEqualTo("https://files.example.com");
+		assertThat(handler.resolvePublicBaseUrl("https://files.example.com/")).isEqualTo("https://files.example.com/boot");
+	}
+
+	@Test
+	void appendsServicePathToOriginOnlyDomain() {
+		MockEnvironment cloudEnvironment = new MockEnvironment().withProperty("hx.cloud.enable", "true");
+		LocalUploadFileHandler handler = new LocalUploadFileHandler(cloudEnvironment);
+
+		assertThat(handler.resolvePublicBaseUrl("http://localhost:9999")).isEqualTo("http://localhost:9999/upms");
+		assertThat(handler.resolvePublicBaseUrl("http://localhost:9999/upms")).isEqualTo("http://localhost:9999/upms");
+		assertThat(handler.resolvePublicBaseUrl("https://cdn.example.com/files"))
+			.isEqualTo("https://cdn.example.com/files");
+	}
+
+	@Test
+	void appendsBootPathToOriginOnlyDomain() {
+		MockEnvironment bootEnvironment = new MockEnvironment().withProperty("hx.cloud.enable", "false");
+		LocalUploadFileHandler handler = new LocalUploadFileHandler(bootEnvironment);
+
+		assertThat(handler.resolvePublicBaseUrl("http://localhost:9999")).isEqualTo("http://localhost:9999/boot");
+	}
+
+	@Test
+	void defaultsToCloudPrefixWhenModeFlagMissing() {
+		LocalUploadFileHandler handler = new LocalUploadFileHandler(new MockEnvironment());
+
+		assertThat(handler.resolvePublicBaseUrl("http://localhost:9999")).isEqualTo("http://localhost:9999/upms");
 	}
 
 }

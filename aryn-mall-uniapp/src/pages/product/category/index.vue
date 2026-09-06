@@ -29,7 +29,7 @@ async function getCategory() {
   state.category = response
   await measureCategoryBoxes()
 }
-/** 分类列表渲染后再量高度：须先结束 loading，否则 v-else 里的 .category-box 尚未挂载 */
+/** 分类列表渲染后再量锚点高度：渲染完成前节点查询不到 */
 async function measureCategoryBoxes() {
   itemScrollTop.value = []
   scrollTop.value = 0
@@ -41,7 +41,8 @@ async function measureCategoryBoxes() {
   await new Promise<void>(resolve => setTimeout(resolve, 0))
 
   try {
-    const rects = await getRect('.category-box', true)
+    // 锚点须取始终渲染的 .category 卡片：.category-box 是 v-if="categoryPic" 的图片，类目未配图时节点不存在，会导致点击左侧无法定位
+    const rects = await getRect('.category', true)
     if (isArray(rects) && rects.length > 0) {
       itemScrollTop.value = rects.map(item => (item.top as number) - 44 || 0)
       scrollTop.value = 0
@@ -54,7 +55,17 @@ async function measureCategoryBoxes() {
 
 function handleChange({ value }: any) {
   active.value = value
-  scrollTop.value = itemScrollTop.value[value]
+  const target = itemScrollTop.value[value] ?? 0
+  if (scrollTop.value === target) {
+    // scroll-view 对相同的 scroll-top 不响应，先偏移再复位以支持重复点击同一分类
+    scrollTop.value = target > 0 ? target - 1 : 1
+    nextTick(() => {
+      scrollTop.value = target
+    })
+  }
+  else {
+    scrollTop.value = target
+  }
 }
 function onScroll(e: any) {
   const { scrollTop } = e.detail

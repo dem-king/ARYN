@@ -11,6 +11,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.common.core.constant.CommonConstants;
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.log.annotation.SysLog;
+import com.aryn.cloud.order.api.remote.RemoteDeliveryAccountService;
 import com.aryn.cloud.upms.api.dto.SysUserDTO;
 import com.aryn.cloud.upms.api.entity.SysRole;
 import com.aryn.cloud.upms.api.entity.SysUser;
@@ -21,18 +22,21 @@ import com.aryn.cloud.upms.service.ISysUserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.AllArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.web.bind.annotation.*;
 
 /**
- * 用户管理
+ * 员工账号管理
  *
  * @author 雨滴kian
  * @since 2022/2/26 16:45
  */
+@Slf4j
 @RestController
 @AllArgsConstructor
 @RequestMapping("/user")
-@Tag(description = "user", name = "用户管理")
+@Tag(description = "user", name = "员工账号管理")
 public class SysUserController {
 
 	private final ISysUserService sysUserService;
@@ -40,6 +44,9 @@ public class SysUserController {
 	private final ISysRoleService sysRoleService;
 
 	private final ISysUserRoleService sysUserRoleService;
+
+	@DubboReference
+	private final RemoteDeliveryAccountService remoteDeliveryAccountService;
 
 	@Operation(summary = "获取当前用户全部信息")
 	@GetMapping("/info")
@@ -89,9 +96,7 @@ public class SysUserController {
 	public Result edit(@RequestBody SysUser sysUser) {
 		sysUser.setPassword(null);
 		sysUser.setPhone(null);
-		if (ArrayUtil.isEmpty(sysUser.getRoles())) {
-			return Result.fail("角色不能为空");
-		}
+		// 角色非空与受保护配送角色合并由服务层处理：编辑时保留已有配送资格
 		return Result.success(sysUserService.updateUser(sysUser));
 	}
 
@@ -113,6 +118,19 @@ public class SysUserController {
 			.eq(SysUserRole::getUserId, sysUser.getId()));
 		if (count > 0) {
 			return Result.fail("管理员不允许删除");
+		}
+		// 删除保护：仍有关联配送资料时必须先在配送员管理清理，避免产生孤儿资料；
+		// 远程检查失败时 fail-closed 拒绝删除
+		boolean hasDeliveryStaff;
+		try {
+			hasDeliveryStaff = remoteDeliveryAccountService.hasActiveDeliveryStaff(sysUser.getId());
+		}
+		catch (Exception e) {
+			log.error("删除员工账号前确认配送关联失败，拒绝删除：userId={}", sysUser.getId(), e);
+			return Result.fail("无法确认配送关联，请稍后重试");
+		}
+		if (hasDeliveryStaff) {
+			return Result.fail("该员工账号仍关联配送员资料，请先在配送员管理中删除或停用配送员资料");
 		}
 		return Result.success(sysUserService.delUser(sysUser));
 	}

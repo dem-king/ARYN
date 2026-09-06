@@ -101,4 +101,23 @@ class RemoteDeliveryAccountServiceImplTest {
 		assertThat(dto.getSysUserId()).isEqualTo("sys-user-1");
 	}
 
+	@Test
+	void blankSysUserHasNoActiveDeliveryStaff() {
+		assertThat(service.hasActiveDeliveryStaff("")).isFalse();
+		assertThat(service.hasActiveDeliveryStaff(null)).isFalse();
+	}
+
+	@Test
+	void activeDeliveryStaffIsReportedForDeleteProtection() {
+		// 员工账号仍关联配送员资料时，删除员工账号的保护检查必须返回 true
+		when(deliveryStaffService.getByUserId("sys-user-1")).thenReturn(new DeliveryStaff());
+		assertThat(service.hasActiveDeliveryStaff("sys-user-1")).isTrue();
+	}
+
+	@Test
+	void cleanedUpDeliveryStaffAllowsDelete() {
+		when(deliveryStaffService.getByUserId("sys-user-1")).thenReturn(null);
+		assertThat(service.hasActiveDeliveryStaff("sys-user-1")).isFalse();
+	}
+
 }

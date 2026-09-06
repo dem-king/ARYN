@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { defineAsyncComponent, reactive, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 
 import {
   Delete,
@@ -11,6 +12,7 @@ import {
   Search,
 } from '@element-plus/icons-vue';
 import {
+  ElAlert,
   ElAvatar,
   ElButton,
   ElCol,
@@ -23,6 +25,7 @@ import {
   ElRow,
   ElTable,
   ElTableColumn,
+  ElTag,
   ElTree,
 } from 'element-plus';
 
@@ -76,6 +79,16 @@ const defaultProps = ref({
   children: 'children',
   label: 'name',
 });
+
+const route = useRoute();
+const router = useRouter();
+/**
+ * 从配送员向导“去创建员工账号”跳转过来时，展示返回配送员管理的入口
+ */
+const fromDeliveryStaff = route.query.from === 'delivery-staff';
+const backToDeliveryStaff = () => {
+  router.push('/delivery/staff');
+};
 /**
  * 树节点进行筛选时执行的方法
  */
@@ -131,7 +144,7 @@ const edit = (row: any) => {
  * 删除按钮
  */
 const del = (id: string) => {
-  ElMessageBox.confirm('此操作将删除该用户，是否继续?', '提示', {
+  ElMessageBox.confirm('此操作将删除该员工账号，是否继续?', '提示', {
     confirmButtonText: '确认',
     cancelButtonText: '取消',
     type: 'warning',
@@ -190,6 +203,23 @@ initPage();
           />
         </ElCol>
         <ElCol :span="20" class="user-page-main min-w-0">
+          <!-- 配送员向导跳转来源提示 -->
+          <ElAlert
+            v-if="fromDeliveryStaff"
+            type="info"
+            :closable="false"
+            show-icon
+            class="from-delivery-alert"
+          >
+            <template #title>
+              <span>
+                在此创建员工账号（不要勾选配送员角色），创建完成后返回配送员管理继续向导。
+              </span>
+              <ElButton link type="primary" @click="backToDeliveryStaff">
+                返回配送员管理
+              </ElButton>
+            </template>
+          </ElAlert>
           <!-- 搜索 -->
           <ElForm
             :model="state.queryParams"
@@ -197,10 +227,10 @@ initPage();
             :inline="true"
             v-show="showSearch"
           >
-            <ElFormItem label="用户名" prop="username">
+            <ElFormItem label="登录用户名" prop="username">
               <ElInput
                 v-model="state.queryParams.username"
-                placeholder="请输入用户名"
+                placeholder="请输入登录用户名"
               />
             </ElFormItem>
             <ElFormItem label="手机号" prop="phone">
@@ -261,18 +291,28 @@ initPage();
           </ElDialog>
           <!-- table列表 -->
           <ElTable v-loading="loading" :data="state.tableData" border>
-            <ElTableColumn prop="username" label="用户名" />
+            <ElTableColumn prop="username" label="登录用户名" />
             <ElTableColumn prop="avatar" label="头像">
               <template #default="scope">
                 <ElAvatar shape="square" :size="50" :src="scope.row.avatar" />
               </template>
             </ElTableColumn>
-            <ElTableColumn prop="nickname" label="用户昵称" />
+            <ElTableColumn prop="nickname" label="员工昵称" />
             <ElTableColumn prop="phone" label="手机号" />
             <ElTableColumn prop="deptName" label="部门" />
             <ElTableColumn prop="status" label="状态">
               <template #default="scope">
                 <DictTag :options="status" :value="scope.row.status" />
+              </template>
+            </ElTableColumn>
+            <ElTableColumn label="配送资格" align="center" width="100">
+              <template #default="scope">
+                <ElTag
+                  :type="scope.row.deliveryQualification ? 'success' : 'info'"
+                  size="small"
+                >
+                  {{ scope.row.deliveryQualification ? '已开通' : '未开通' }}
+                </ElTag>
               </template>
             </ElTableColumn>
             <ElTableColumn prop="createTime" label="创建时间" width="170" />
@@ -339,6 +379,10 @@ initPage();
 .user-page-row {
   width: 100%;
   max-width: 100%;
+}
+
+.from-delivery-alert {
+  margin-bottom: 12px;
 }
 
 .user-page-dept {

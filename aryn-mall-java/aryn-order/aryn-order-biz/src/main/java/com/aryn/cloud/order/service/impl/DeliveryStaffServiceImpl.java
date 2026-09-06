@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.aryn.cloud.common.core.constant.CommonConstants;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.order.api.dto.DeliveryOnboardDTO;
 import com.aryn.cloud.order.api.dto.DeliveryStaffDTO;
@@ -79,7 +80,7 @@ public class DeliveryStaffServiceImpl extends ServiceImpl<DeliveryStaffMapper, D
 	private static final String ONBOARD_QUALIFICATION_NOT_GRANTED = "NOT_GRANTED";
 
 	/** 配送员执行角色编码（移动端免重复登录依赖该角色携带 delivery:execute） */
-	public static final String DELIVERY_ROLE_CODE = "delivery_staff";
+	public static final String DELIVERY_ROLE_CODE = CommonConstants.PROTECTED_DELIVERY_ROLE_CODE;
 
 	private final IDeliveryAccountBindingService deliveryAccountBindingService;
 

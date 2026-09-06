@@ -70,6 +70,15 @@ public class RemoteDeliveryAccountServiceImpl implements RemoteDeliveryAccountSe
 		return dto;
 	}
 
+	@Override
+	public boolean hasActiveDeliveryStaff(String sysUserId) {
+		if (StrUtil.isBlank(sysUserId)) {
+			return false;
+		}
+		// getByUserId 走逻辑删除过滤，仅统计未删除的配送员资料
+		return deliveryStaffService.getByUserId(sysUserId) != null;
+	}
+
 	private int countPendingTasks(String staffId) {
 		if (StrUtil.isBlank(staffId)) {
 			return 0;
