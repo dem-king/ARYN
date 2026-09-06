@@ -140,12 +140,10 @@
         "navigationBarTitleText": "配送员中心"
       }
     },
-    // #ifdef MP-WEIXIN
     {
       "path": "pages/delivery/exception-report",
       "type": "page"
     }
-    // #endif
   ],
   "subPackages": [
     {

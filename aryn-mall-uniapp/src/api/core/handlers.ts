@@ -10,14 +10,18 @@ import type { Method } from 'alova'
 
 // 添加一个状态变量来防止重复跳转
 let isRedirectingToLogin = false
+let isRedirectingToDeliveryLogin = false
 
-function redirectToLogin() {
+function redirectToLogin(deliveryRequest = false) {
   const timer = setTimeout(() => {
     clearTimeout(timer)
     uni.reLaunch({
-      url: '/pages/login/index',
+      url: deliveryRequest ? '/pages/delivery/login' : '/pages/login/index',
       complete: () => {
-        isRedirectingToLogin = false
+        if (deliveryRequest)
+          isRedirectingToDeliveryLogin = false
+        else
+          isRedirectingToLogin = false
       },
     })
   }, 1000)
@@ -26,6 +30,38 @@ function redirectToLogin() {
 function expireAuthentication() {
   uni.removeStorageSync('auth')
   uni.$emit('auth-expired')
+}
+
+function expireDeliveryAuthentication() {
+  uni.removeStorageSync('deliveryToken')
+  // 与登录/个人中心写入的配送员资料 key 保持一致
+  uni.removeStorageSync('deliveryStaffInfo')
+  uni.$emit('delivery-auth-expired')
+}
+
+export function isDeliveryRequest(method?: Method) {
+  const url = method?.url || ''
+  return url.includes('/app/delivery/')
+    || url.includes('/staff/delivery-evidence/')
+    || url.includes('/token/delivery-login')
+}
+
+function handleAuthenticationExpired(globalToast: ReturnType<typeof useGlobalToast>, deliveryRequest: boolean) {
+  if (deliveryRequest) {
+    if (isRedirectingToDeliveryLogin)
+      return
+    expireDeliveryAuthentication()
+    isRedirectingToDeliveryLogin = true
+    globalToast.error({ msg: '配送登录已过期，请重新登录！', duration: 500 })
+    redirectToLogin(true)
+    return
+  }
+  if (isRedirectingToLogin)
+    return
+  expireAuthentication()
+  isRedirectingToLogin = true
+  globalToast.error({ msg: '登录已过期，请重新登录！', duration: 500 })
+  redirectToLogin()
 }
 
 // Custom error class for API errors
@@ -74,6 +110,7 @@ export function isUnauthorizedResponse(statusCode: number, response: ApiResponse
 // Handle successful responses
 export async function handleAlovaResponse(
   response: UniApp.RequestSuccessCallbackResult | UniApp.UploadFileSuccessCallbackResult | UniApp.DownloadSuccessData,
+  method?: Method,
 ) {
   const globalToast = useGlobalToast()
   // Extract status code and data from UniApp response
@@ -83,15 +120,10 @@ export async function handleAlovaResponse(
 
   // 处理401/403错误（如果不是在handleAlovaResponse中处理的）
   if (isUnauthorizedResponse(statusCode, resp)) {
-    // 检查是否已经在跳转中，避免重复跳转
-    if (!isRedirectingToLogin) {
-      expireAuthentication()
-      isRedirectingToLogin = true
-      globalToast.error({ msg: '登录已过期，请重新登录！', duration: 500 })
-      redirectToLogin()
-    }
+    const deliveryRequest = isDeliveryRequest(method)
+    handleAuthenticationExpired(globalToast, deliveryRequest)
 
-    throw new ApiError('登录已过期，请重新登录！', statusCode, data)
+    throw new ApiError(deliveryRequest ? '配送登录已过期，请重新登录！' : '登录已过期，请重新登录！', statusCode, data)
   }
 
   // Handle HTTP error status codes
@@ -124,15 +156,9 @@ export function handleAlovaError(error: any, method: Method) {
 
   // 处理401/403错误（如果不是在handleAlovaResponse中处理的）
   if (error instanceof ApiError && (error.code === 401 || error.code === 403)) {
-    // 如果是未授权错误，清除用户信息并跳转到登录页
-    // 检查是否已经在跳转中，避免重复跳转
-    if (!isRedirectingToLogin) {
-      expireAuthentication()
-      isRedirectingToLogin = true
-      globalToast.error({ msg: '登录已过期，请重新登录！', duration: 500 })
-      redirectToLogin()
-    }
-    throw new ApiError('登录已过期，请重新登录！', error.code, error.data)
+    const deliveryRequest = isDeliveryRequest(method)
+    handleAuthenticationExpired(globalToast, deliveryRequest)
+    throw new ApiError(deliveryRequest ? '配送登录已过期，请重新登录！' : '登录已过期，请重新登录！', error.code, error.data)
   }
 
   // Handle different types of errors

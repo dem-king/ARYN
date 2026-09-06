@@ -23,6 +23,7 @@ const document = shallowRef<DecorationDocument>(
 const token = computed(() =>
   typeof route.params.token === 'string' ? route.params.token : '',
 );
+const isWeappShell = computed(() => route.query.terminal === 'weapp');
 
 async function loadPreview() {
   loading.value = true;
@@ -60,7 +61,16 @@ watch(token, loadPreview, { immediate: true });
         </ElButton>
       </template>
     </ElResult>
-    <PreviewCanvas v-else :document="document" :page-name="pageName" />
+    <div v-else class="preview-shell" :class="{ weapp: isWeappShell }">
+      <div v-if="isWeappShell" class="weapp-capsule" aria-hidden="true">
+        <span class="weapp-title">{{ pageName }}</span>
+        <span class="weapp-pill">
+          <i class="weapp-dot"></i>
+          <i class="weapp-dot"></i>
+        </span>
+      </div>
+      <PreviewCanvas :document="document" :page-name="pageName" />
+    </div>
   </div>
 </template>
 
@@ -68,6 +78,45 @@ watch(token, loadPreview, { immediate: true });
 .page-preview {
   min-height: 100dvh;
   background: var(--el-fill-color-light);
+}
+
+.preview-shell.weapp {
+  width: min(calc(100% - 32px), 375px);
+  margin: 0 auto;
+  overflow: hidden;
+  background: var(--el-bg-color);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgb(15 23 42 / 12%);
+}
+
+.weapp-capsule {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: #ededed;
+}
+
+.weapp-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.weapp-pill {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 10px;
+  background: rgb(255 255 255 / 90%);
+  border: 1px solid rgb(0 0 0 / 8%);
+  border-radius: 999px;
+}
+
+.weapp-dot {
+  width: 6px;
+  height: 6px;
+  background: #333;
+  border-radius: 50%;
 }
 
 .preview-loading {

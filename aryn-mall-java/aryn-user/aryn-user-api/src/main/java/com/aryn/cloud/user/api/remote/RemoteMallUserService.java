@@ -33,4 +33,12 @@ public interface RemoteMallUserService {
 	 */
 	UserInfo getUserByOpenId(String openid, String platformType);
 
+	/**
+	 * 按关键字搜索商城用户（手机号/昵称/用户ID），供配送员绑定商城账号使用
+	 * @param keyword 关键字
+	 * @param limit 最大返回数量
+	 * @return 用户信息列表（不含密码）
+	 */
+	List<UserInfoVO> searchUsersForBinding(String keyword, int limit);
+
 }

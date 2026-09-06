@@ -7,9 +7,11 @@ import cn.hutool.core.io.IoUtil;
 import cn.hutool.core.util.ObjectUtil;
 import cn.hutool.core.util.StrUtil;
 import com.aryn.cloud.common.core.dto.SysStorageConfigDTO;
+import com.aryn.cloud.common.core.enums.DeviceTypeEnum;
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
+import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.common.storage.handler.StorageFactory;
 import com.aryn.cloud.upms.api.entity.SysMaterial;
 import com.aryn.cloud.upms.service.ISysMaterialService;
@@ -91,8 +93,10 @@ public class SysUploadController {
 	}
 
 	@Operation(summary = "配送凭证图片上传（配送员专用）")
+	@SaCheckPermission("delivery:execute")
 	@PostMapping("/staff/delivery-evidence/upload")
 	public Result staffDeliveryEvidenceUpload(@RequestPart("file") MultipartFile file) throws Exception {
+		SecurityUtils.requireUser(DeviceTypeEnum.TOB);
 		uploadFileValidator.validate(file);
 		SysStorageConfigDTO sysStorageConfig = sysStorageConfigService.getConfig();
 		if (ObjectUtil.isNull(sysStorageConfig)) {

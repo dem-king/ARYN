@@ -10,9 +10,11 @@ import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.promotion.api.dto.PageDesignDraftDTO;
 import com.aryn.cloud.promotion.api.entity.PageDesign;
+import com.aryn.cloud.promotion.api.entity.PageDesignAuditLog;
 import com.aryn.cloud.promotion.api.vo.PageDesignEditorVO;
 import com.aryn.cloud.promotion.mapper.PageDesignMapper;
 import com.aryn.cloud.promotion.service.IPageDesignService;
+import com.aryn.cloud.promotion.service.PageDesignAuditService;
 import lombok.RequiredArgsConstructor;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
@@ -39,6 +41,8 @@ public class PageDesignServiceImpl extends ServiceImpl<PageDesignMapper, PageDes
 	private final StringRedisTemplate redisTemplate;
 
 	private final RedissonClient redissonClient;
+
+	private final PageDesignAuditService auditService;
 
 	@Override
 	public PageDesign getHomePage(PageDesign request) {
@@ -184,6 +188,9 @@ public class PageDesignServiceImpl extends ServiceImpl<PageDesignMapper, PageDes
 		if (updated == 0) {
 			throw new ArynBusinessException("草稿已被其他人修改，请重新加载");
 		}
+		auditService.record(new PageDesignAuditService.PageDesignAuditEvent(PageDesignAuditLog.ACTION_SAVE_DRAFT,
+				draft.getId(), null, null, null, draft.getDraftRevision(), draft.getDraftRevision() + 1,
+				draft.getPageName()));
 		return draft.getDraftRevision() + 1;
 	}
 

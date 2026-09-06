@@ -45,12 +45,14 @@ import {
   createPreviewToken,
   delObj,
   getPage,
-  publishPage,
+  submitRelease,
   unpublishPage,
 } from '#/api/promotion/page-design';
 
+import MetricsDialog from './components/metrics-dialog.vue';
 import PreviewDialog from './components/preview-dialog.vue';
 import { PREVIEW_TTL_MS } from './components/preview-utils';
+import ReleaseDialog from './components/release-dialog.vue';
 import VersionDialog from './components/version-dialog.vue';
 
 const RightToolbar = defineAsyncComponent(
@@ -79,6 +81,8 @@ const preview = reactive({
   visible: false,
 });
 const versions = reactive({ pageId: '', pageName: '', visible: false });
+const releases = reactive({ pageId: '', pageName: '', visible: false });
+const metrics = reactive({ pageId: '', pageName: '', visible: false });
 
 async function initPage() {
   loading.value = true;
@@ -127,12 +131,16 @@ async function handlePreview(row: PageDesignRecord) {
 
 async function handlePublish(row: PageDesignRecord) {
   await ElMessageBox.confirm(
-    `发布后将更新“${row.pageName}”的线上版本，是否继续？`,
+    `提交后按发布流程更新“${row.pageName}”的线上版本（未开启审批时立即发布），是否继续？`,
     '发布页面',
-    { confirmButtonText: '发布', cancelButtonText: '取消', type: 'warning' },
+    { confirmButtonText: '提交发布', cancelButtonText: '取消', type: 'warning' },
   );
-  await publishPage(row.id, { draftRevision: row.draftRevision });
-  ElMessage.success('发布成功');
+  const release = await submitRelease(row.id, {
+    draftRevision: row.draftRevision,
+  });
+  ElMessage.success(
+    release.releaseStatus === '1' ? '发布成功' : '发布申请已提交，等待审批',
+  );
   await initPage();
 }
 
@@ -151,6 +159,18 @@ function openVersions(row: PageDesignRecord) {
   versions.pageId = row.id;
   versions.pageName = row.pageName;
   versions.visible = true;
+}
+
+function openReleases(row: PageDesignRecord) {
+  releases.pageId = row.id;
+  releases.pageName = row.pageName;
+  releases.visible = true;
+}
+
+function openMetrics(row: PageDesignRecord) {
+  metrics.pageId = row.id;
+  metrics.pageName = row.pageName;
+  metrics.visible = true;
 }
 
 async function handleDelete(row: PageDesignRecord) {
@@ -280,7 +300,7 @@ onMounted(initPage);
             {{ formatTime(row.publishedAt) }}
           </template>
         </ElTableColumn>
-        <ElTableColumn fixed="right" label="操作" width="300" align="center">
+        <ElTableColumn fixed="right" label="操作" width="380" align="center">
           <template #default="{ row }">
             <ElSpace :size="4">
               <ElTooltip content="编辑">
@@ -320,7 +340,7 @@ onMounted(initPage);
                     row.publishedStatus !== '1' ||
                     draftLabel(row as PageDesignRecord) === '有未发布修改'
                   "
-                  v-access:code="'promotion:pagedesign:publish'"
+                  v-access:code="'promotion:pagedesign:submit'"
                   :icon="Upload"
                   aria-label="发布"
                   circle
@@ -351,6 +371,28 @@ onMounted(initPage);
                   @click="openVersions(row as PageDesignRecord)"
                 />
               </ElTooltip>
+              <ElTooltip content="数据看板">
+                <ElButton
+                  v-access:code="'promotion:pagedesign:metrics'"
+                  aria-label="数据看板"
+                  circle
+                  text
+                  @click="openMetrics(row as PageDesignRecord)"
+                >
+                  数
+                </ElButton>
+              </ElTooltip>
+              <ElTooltip content="发布记录与审计">
+                <ElButton
+                  v-access:code="'promotion:pagedesign:get'"
+                  aria-label="发布记录与审计"
+                  circle
+                  text
+                  @click="openReleases(row as PageDesignRecord)"
+                >
+                  审
+                </ElButton>
+              </ElTooltip>
               <ElTooltip v-if="row.pageType === '0'" content="删除">
                 <ElButton
                   v-access:code="'promotion:pagedesign:del'"
@@ -380,6 +422,16 @@ onMounted(initPage);
       :page-id="versions.pageId"
       :page-name="versions.pageName"
       @restored="initPage"
+    />
+    <ReleaseDialog
+      v-model="releases.visible"
+      :page-id="releases.pageId"
+      :page-name="releases.pageName"
+    />
+    <MetricsDialog
+      v-model="metrics.visible"
+      :page-id="metrics.pageId"
+      :page-name="metrics.pageName"
     />
     <PreviewDialog
       v-model="preview.visible"

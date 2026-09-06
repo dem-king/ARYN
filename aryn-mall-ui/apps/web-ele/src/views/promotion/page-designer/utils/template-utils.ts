@@ -9,9 +9,12 @@ export function cloneTemplateDocument(
   idFactory: () => string = nanoid,
 ): DecorationDocument {
   const cloned = cloneDesignerValue(template);
-  cloned.components = cloned.components.map((component) => ({
-    ...component,
-    id: idFactory(),
+  cloned.sections = cloned.sections.map((section) => ({
+    ...section,
+    components: section.components.map((component) => ({
+      ...component,
+      id: idFactory(),
+    })),
   }));
   return cloned;
 }

@@ -3,13 +3,17 @@ package com.aryn.cloud.auth.controller;
 
 import cn.dev33.satoken.stp.SaTokenInfo;
 import cn.dev33.satoken.stp.StpUtil;
+import com.aryn.cloud.auth.dto.DeliveryLoginRequest;
 import com.aryn.cloud.auth.service.LoginService;
 import com.aryn.cloud.common.core.util.Result;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -38,6 +42,12 @@ public class TobTokenController {
 	@RequestMapping("/sms/login")
 	public Result<SaTokenInfo> smsLogin(String phone) {
 		return Result.success(loginService.smsLogin(phone));
+	}
+
+	@Operation(summary = "配送员账号登录")
+	@PostMapping("/delivery-login")
+	public Result<SaTokenInfo> deliveryLogin(@RequestBody @Valid DeliveryLoginRequest request) {
+		return Result.success(loginService.deliveryLogin(request.getPhone(), request.getPassword()));
 	}
 
 	/**

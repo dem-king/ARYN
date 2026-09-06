@@ -4,6 +4,8 @@ export type RetailCommonStyle = Record<string, unknown>
 export type RetailFallbackStrategy = 'hide' | 'placeholder'
 
 export interface RetailDataSource {
+  /** 数据缓存时长（秒），0 或缺省不缓存 */
+  cacheTtl?: number
   categoryId?: string
   metric?: string
   mode: 'automatic' | 'current-tenant' | 'manual' | 'ranking' | 'rule'
@@ -75,4 +77,66 @@ export const retailCommonStyle: RetailCommonStyle = {
   styleRtRadius: 0,
   styleTopMargin: 10,
   styleTopPadding: 12,
+}
+
+export interface GoodsWaterfallProps extends RetailBaseProps {
+  columns: 2 | 3
+  showPrice: boolean
+  showSales: boolean
+  title: string
+}
+
+export interface CouponComboProps extends RetailBaseProps {
+  showReceiveBtn: boolean
+  showThreshold: boolean
+}
+
+export interface MemberBenefitEntry {
+  description: string
+  iconUrl: string
+  id: string
+  link: DecorationLink
+  title: string
+}
+
+export interface MemberBenefitsProps extends RetailBaseProps {
+  entries: MemberBenefitEntry[]
+  title: string
+}
+
+export interface ServicePromiseItem {
+  description: string
+  iconUrl: string
+  id: string
+  title: string
+}
+
+export interface ServicePromiseProps {
+  commonStyle: RetailCommonStyle
+  items: ServicePromiseItem[]
+  title: string
+}
+
+export interface BottomNavItem {
+  iconUrl: string
+  id: string
+  link: DecorationLink
+  text: string
+}
+
+export interface BottomNavProps {
+  activeColor: string
+  backgroundColor: string
+  commonStyle: RetailCommonStyle
+  items: BottomNavItem[]
+  textColor: string
+}
+
+export interface VideoLiveProps {
+  commonStyle: RetailCommonStyle
+  coverUrl: string
+  liveId: string
+  mode: 'live' | 'video'
+  title: string
+  videoUrl: string
 }

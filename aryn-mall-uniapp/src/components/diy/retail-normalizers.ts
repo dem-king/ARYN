@@ -136,3 +136,42 @@ export function restoreConfiguredOrder<T extends { id: string }>(
     (order.get(left.id) ?? Number.MAX_SAFE_INTEGER)
     - (order.get(right.id) ?? Number.MAX_SAFE_INTEGER))
 }
+
+export interface RetailCouponItem {
+  id: string
+  thresholdText: string
+  title: string
+  value: string
+}
+
+/** 优惠券数据归一化：兼容 couponType/amount/discount/threshold 的存量字段 */
+export function normalizeCoupons(value: unknown): RetailCouponItem[] {
+  const records = Array.isArray(value)
+    ? value
+    : (isRecordLike(value) && Array.isArray((value as any).records) ? (value as any).records : [])
+  if (!Array.isArray(records))
+    return []
+  return records
+    .map((item: any) => {
+      if (!item || typeof item !== 'object')
+        return null
+      const id = String(item.id ?? '')
+      if (!id)
+        return null
+      const title = String(item.couponName ?? item.title ?? '优惠券')
+      const couponType = String(item.couponType ?? '1')
+      const value = couponType === '2' ? `${Number(item.discount ?? 0)}折` : `¥${Number(item.amount ?? 0)}`
+      const threshold = Number(item.threshold ?? 0)
+      return {
+        id,
+        thresholdText: threshold > 0 ? `满${threshold}可用` : '无门槛',
+        title,
+        value,
+      }
+    })
+    .filter((item: any): item is RetailCouponItem => !!item)
+}
+
+function isRecordLike(value: unknown): boolean {
+  return typeof value === 'object' && value !== null
+}

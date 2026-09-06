@@ -1,9 +1,19 @@
 <script setup lang="ts">
+import type { PreviewTerminal } from './preview-utils';
+
 import { computed, onBeforeUnmount, shallowRef, watch } from 'vue';
 
 import { CopyDocument, Link } from '@element-plus/icons-vue';
 import { useQRCode } from '@vueuse/integrations/useQRCode';
-import { ElButton, ElDialog, ElInput, ElMessage, ElTag } from 'element-plus';
+import {
+  ElButton,
+  ElDialog,
+  ElInput,
+  ElMessage,
+  ElRadio,
+  ElRadioGroup,
+  ElTag,
+} from 'element-plus';
 
 import {
   buildPreviewUrl,
@@ -23,10 +33,11 @@ const emit = defineEmits<{
 }>();
 
 const now = shallowRef(Date.now());
+const terminal = shallowRef<PreviewTerminal>('h5');
 let countdownTimer: ReturnType<typeof setInterval> | undefined;
 
 const previewUrl = computed(() =>
-  buildPreviewUrl(props.token, window.location.origin),
+  buildPreviewUrl(props.token, window.location.origin, terminal.value),
 );
 const remainingSeconds = computed(() =>
   getRemainingSeconds(props.expiresAt, now.value),
@@ -80,6 +91,13 @@ function openPreview() {
     width="560px"
     @update:model-value="emit('update:modelValue', $event)"
   >
+    <div class="preview-terminal">
+      <span class="terminal-label">预览终端</span>
+      <ElRadioGroup v-model="terminal" size="small">
+        <ElRadio value="h5">H5</ElRadio>
+        <ElRadio value="weapp">微信小程序</ElRadio>
+      </ElRadioGroup>
+    </div>
     <div class="preview-content">
       <div class="qr-panel">
         <img :src="qrcode" alt="草稿预览二维码" class="qr-code" />
@@ -92,7 +110,13 @@ function openPreview() {
           <span class="preview-mark" aria-hidden="true"><Link /></span>
           <div>
             <strong>短期预览已生成</strong>
-            <p>请使用手机扫码预览当前草稿。</p>
+            <p>
+              {{
+                terminal === 'weapp'
+                  ? '扫码体验微信小程序外壳下的草稿效果。'
+                  : '请使用手机扫码预览当前草稿。'
+              }}
+            </p>
           </div>
         </div>
         <p class="preview-note">
@@ -119,6 +143,18 @@ function openPreview() {
 </template>
 
 <style scoped>
+.preview-terminal {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.terminal-label {
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+}
+
 .preview-content {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);

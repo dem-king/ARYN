@@ -3,20 +3,33 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { requestClient } from '#/api/request';
 
 import {
+  auditRelease,
+  cancelRelease,
   copyPage,
   createPreviewToken,
   createTemplate,
+  createTheme,
   deleteTemplate,
+  deleteTheme,
+  getAssets,
+  getAuditLogs,
   getById,
   getEditor,
   getPreview,
+  getMetrics,
+  getReleases,
   getTemplates,
+  getThemes,
+  getVersionDiff,
   getVersions,
   publishPage,
   rollbackVersion,
   saveDraft,
+  submitRelease,
   unpublishPage,
   updateTemplate,
+  updateTheme,
+  validatePage,
 } from './page-design';
 
 vi.mock('#/api/request', () => ({
@@ -143,6 +156,88 @@ describe('page design transport API', () => {
     );
     expect(requestClient.delete).toHaveBeenCalledWith(
       '/promotion/pagedesign/templates/template-1',
+    );
+  });
+
+  it('validates the draft through the governance endpoint', async () => {
+    await validatePage('page-1');
+
+    expect(requestClient.post).toHaveBeenCalledWith(
+      '/promotion/pagedesign/page-1/validate',
+    );
+  });
+
+  it('submits, audits and cancels releases with dedicated endpoints', async () => {
+    await submitRelease('page-1', {
+      draftRevision: 4,
+      publishRemark: '大促上线',
+    });
+    await getReleases('page-1');
+    await auditRelease('release-1', { approved: true, auditRemark: '通过' });
+    await cancelRelease('page-1', 'release-2');
+
+    expect(requestClient.post).toHaveBeenCalledWith(
+      '/promotion/pagedesign/page-1/release',
+      { draftRevision: 4, publishRemark: '大促上线' },
+    );
+    expect(requestClient.get).toHaveBeenCalledWith(
+      '/promotion/pagedesign/page-1/releases',
+    );
+    expect(requestClient.post).toHaveBeenCalledWith(
+      '/promotion/pagedesign/releases/release-1/approve',
+      { approved: true, auditRemark: '通过' },
+    );
+    expect(requestClient.post).toHaveBeenCalledWith(
+      '/promotion/pagedesign/page-1/releases/release-2/cancel',
+    );
+  });
+
+  it('compares two immutable versions and loads audit logs', async () => {
+    await getVersionDiff('page-1', 'version-1', 'version-2');
+    await getAuditLogs('page-1');
+
+    expect(requestClient.get).toHaveBeenCalledWith(
+      '/promotion/pagedesign/page-1/versions/version-1/diff/version-2',
+    );
+    expect(requestClient.get).toHaveBeenCalledWith(
+      '/promotion/pagedesign/page-1/audit-logs',
+    );
+  });
+
+  it('loads aggregated metrics for the dashboard', async () => {
+    await getMetrics('page-1', 30);
+
+    expect(requestClient.get).toHaveBeenCalledWith(
+      '/promotion/pagedesign/page-1/metrics',
+      { params: { days: 30 } },
+    );
+  });
+
+  it('manages decoration themes and inspects assets', async () => {
+    const theme = { primaryColor: '#ff5500', themeName: '大促红' };
+
+    await getThemes();
+    await createTheme(theme);
+    await updateTheme('theme-1', theme);
+    await deleteTheme('theme-1');
+    await getAssets('page-1');
+
+    expect(requestClient.get).toHaveBeenCalledWith(
+      '/promotion/pagedesign/themes',
+    );
+    expect(requestClient.post).toHaveBeenCalledWith(
+      '/promotion/pagedesign/themes',
+      theme,
+    );
+    expect(requestClient.put).toHaveBeenCalledWith(
+      '/promotion/pagedesign/themes/theme-1',
+      theme,
+    );
+    expect(requestClient.delete).toHaveBeenCalledWith(
+      '/promotion/pagedesign/themes/theme-1',
+    );
+    expect(requestClient.get).toHaveBeenCalledWith(
+      '/promotion/pagedesign/page-1/assets',
     );
   });
 });

@@ -8,6 +8,8 @@ import com.aryn.cloud.promotion.api.entity.PageDesign;
 import com.aryn.cloud.promotion.api.entity.PageDesignVersion;
 import com.aryn.cloud.promotion.mapper.PageDesignMapper;
 import com.aryn.cloud.promotion.mapper.PageDesignVersionMapper;
+import com.aryn.cloud.promotion.service.IPageDesignThemeService;
+import com.aryn.cloud.promotion.service.PageDesignAuditService;
 import com.aryn.cloud.promotion.service.PageDesignDocumentValidator;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -46,6 +48,12 @@ class PageDesignPublishServiceTest {
 	private PageDesignDocumentValidator validator;
 
 	@Mock
+	private IPageDesignThemeService themeService;
+
+	@Mock
+	private PageDesignAuditService auditService;
+
+	@Mock
 	private StringRedisTemplate redisTemplate;
 
 	@Mock
@@ -64,8 +72,8 @@ class PageDesignPublishServiceTest {
 		ArynTenantContextHolder.setTenantId("tenant-1");
 		when(redissonClient.getLock(anyString())).thenReturn(lock);
 		when(lock.tryLock(5, TimeUnit.SECONDS)).thenReturn(true);
-		service = new PageDesignVersionServiceImpl(pageDesignMapper, versionMapper, validator, redisTemplate,
-				redissonClient, userSupplier);
+		service = new PageDesignVersionServiceImpl(pageDesignMapper, versionMapper, validator, themeService,
+				auditService, redisTemplate, redissonClient, userSupplier);
 	}
 
 	@AfterEach
@@ -82,6 +90,7 @@ class PageDesignPublishServiceTest {
 		when(pageDesignMapper.selectById("page-1")).thenReturn(page);
 		when(versionMapper.selectOne(any())).thenReturn(previous);
 		when(validator.validate(page.getPageContent())).thenReturn(List.of());
+		when(themeService.embedThemeSnapshot(anyString())).thenAnswer(invocation -> invocation.getArgument(0));
 		when(versionMapper.insert(any(PageDesignVersion.class))).thenReturn(1);
 		when(pageDesignMapper.update(any(PageDesign.class), any())).thenReturn(1);
 		PageDesignPublishDTO request = new PageDesignPublishDTO();
@@ -136,6 +145,7 @@ class PageDesignPublishServiceTest {
 		when(pageDesignMapper.selectById("page-1")).thenReturn(page);
 		when(versionMapper.selectById("version-1")).thenReturn(historical);
 		when(versionMapper.selectOne(any())).thenReturn(latest);
+		when(themeService.embedThemeSnapshot(anyString())).thenAnswer(invocation -> invocation.getArgument(0));
 		when(versionMapper.insert(any(PageDesignVersion.class))).thenReturn(1);
 		when(pageDesignMapper.update(any(PageDesign.class), any())).thenReturn(1);
 

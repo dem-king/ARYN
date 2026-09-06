@@ -125,6 +125,11 @@ secure:
       - /app/goodsspuspecs/**
       - /file/local/**
 
+decoration:
+  release:
+    # 装修发布审批开关：true 时提交发布申请后需审批通过才上线
+    approval-required: false
+
 hx:
   cors:
     allowed-origins: ${HX_CORS_ALLOWED_ORIGINS:http://localhost:5777}
@@ -188,6 +193,17 @@ hx:
       - page_design
       - page_design_version
       - page_design_template
+      - page_design_release
+      - page_design_release_target
+      - page_design_audit_log
+      - page_design_theme
+      - page_design_metric_daily
+      - seckill_activity
+      - seckill_session
+      - seckill_goods
+      - seckill_order
+      - discount_activity
+      - discount_goods
       - pay_config
       - pay_trade_order
       - pay_notify_record
@@ -212,6 +228,12 @@ hx:
       - delivery_task
       - delivery_task_item
       - delivery_warehouse_config
+      - delivery_task_log
+      - delivery_evidence
+      - delivery_area
+      - delivery_account_binding
+      - delivery_qualification_operation
+      - sys_user_wechat_binding
 
   swagger:
     enabled: true

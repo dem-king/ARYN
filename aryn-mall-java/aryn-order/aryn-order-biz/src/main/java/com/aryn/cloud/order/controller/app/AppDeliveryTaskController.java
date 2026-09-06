@@ -6,15 +6,14 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.log.annotation.SysLog;
-import com.aryn.cloud.common.security.util.SecurityUtils;
+import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.order.api.entity.DeliveryEvidence;
-import com.aryn.cloud.order.api.entity.DeliveryStaff;
 import com.aryn.cloud.order.api.entity.DeliveryTask;
-import com.aryn.cloud.order.service.IDeliveryStaffService;
+import com.aryn.cloud.order.security.DeliveryAccessGuard;
 import com.aryn.cloud.order.service.IDeliveryTaskService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import lombok.AllArgsConstructor;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
@@ -27,7 +26,7 @@ import java.util.List;
  * @since 2025/7/31
  */
 @Slf4j
-@AllArgsConstructor
+@RequiredArgsConstructor
 @RestController
 @RequestMapping("/app/delivery/task")
 @Tag(description = "app-delivery-task", name = "配送员任务-API")
@@ -35,7 +34,7 @@ public class AppDeliveryTaskController {
 
 	private final IDeliveryTaskService deliveryTaskService;
 
-	private final IDeliveryStaffService deliveryStaffService;
+	private final DeliveryAccessGuard deliveryAccessGuard;
 
 	@Operation(summary = "我的配送任务列表")
 	@GetMapping("/page")
@@ -49,7 +48,10 @@ public class AppDeliveryTaskController {
 	@Operation(summary = "任务详情")
 	@GetMapping("/{id}")
 	public Result<DeliveryTask> detail(@PathVariable String id) {
-		return Result.success(deliveryTaskService.getTaskDetail(id));
+		String staffId = getCurrentStaffId();
+		DeliveryTask task = deliveryTaskService.getTaskDetail(id);
+		assertOwned(task == null ? null : task.getStaffId(), staffId);
+		return Result.success(task);
 	}
 
 	@Operation(summary = "送达（含凭证图片）")
@@ -76,19 +78,23 @@ public class AppDeliveryTaskController {
 	@Operation(summary = "查询任务凭证")
 	@GetMapping("/{id}/evidence")
 	public Result<List<DeliveryEvidence>> evidence(@PathVariable String id) {
+		String staffId = getCurrentStaffId();
+		DeliveryTask task = deliveryTaskService.getById(id);
+		assertOwned(task == null ? null : task.getStaffId(), staffId);
 		return Result.success(deliveryTaskService.listEvidence(id));
 	}
 
 	/**
-	 * 获取当前登录的配送员ID
+	 * 获取当前登录的配送员ID（动态校验配送员资料与配送资格）
 	 */
 	private String getCurrentStaffId() {
-		String userId = SecurityUtils.getUserId();
-		DeliveryStaff staff = deliveryStaffService.getByUserId(userId);
-		if (staff == null) {
-			throw new com.aryn.cloud.common.security.handler.ArynBusinessException("当前用户不是配送员");
+		return deliveryAccessGuard.requireCurrentStaff().getId();
+	}
+
+	private void assertOwned(String ownerId, String staffId) {
+		if (ownerId == null || !ownerId.equals(staffId)) {
+			throw new ArynBusinessException("无权访问该配送任务");
 		}
-		return staff.getId();
 	}
 
 }

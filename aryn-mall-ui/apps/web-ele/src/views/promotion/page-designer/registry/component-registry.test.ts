@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   componentRegistry,
+  extensionComponentTypes,
   legacyComponentTypes,
   retailComponentTypes,
 } from './component-registry';
@@ -53,8 +54,22 @@ describe('retail component registry', () => {
     expect(retailComponentTypes).toEqual(expectedRetailComponentTypes);
     expect(new Set(expectedRetailComponentTypes).size).toBe(6);
     expect(Object.keys(componentRegistry).sort()).toEqual(
-      [...legacyComponentTypes, ...expectedRetailComponentTypes].sort(),
+      [
+        ...legacyComponentTypes,
+        ...expectedRetailComponentTypes,
+        ...extensionComponentTypes,
+      ].sort(),
     );
+  });
+
+  it('registers all six extension components exactly once', () => {
+    expect(new Set(extensionComponentTypes).size).toBe(6);
+    for (const type of extensionComponentTypes) {
+      const definition = componentRegistry[type];
+      expect(definition).toBeDefined();
+      expect(definition.validate(definition.createDefaultProps())).toEqual([]);
+      expect(Object.keys(definition.createDefaultProps())).not.toHaveLength(0);
+    }
   });
 
   it.each(expectedRetailComponentTypes)(

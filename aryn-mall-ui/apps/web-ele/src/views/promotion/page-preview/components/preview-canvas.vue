@@ -31,20 +31,41 @@ const pageStyle = computed(() => ({
       {{ document.page.navigation.title || pageName }}
     </header>
 
-    <div v-if="document.components.length === 0" class="preview-empty">
+    <div
+      v-if="
+        document.sections.every((section) => section.components.length === 0)
+      "
+      class="preview-empty"
+    >
       当前草稿还没有组件
     </div>
 
-    <template v-for="component in document.components" :key="component.id">
-      <component
-        :is="getComponentDefinition(component.type)?.preview"
-        v-if="getComponentDefinition(component.type)?.preview"
-        :show-data="component.props"
-      />
-      <div v-else class="preview-unknown">
-        暂不支持预览组件：{{ component.type }}
-      </div>
-    </template>
+    <div
+      v-for="section in document.sections"
+      :key="section.id"
+      class="preview-section"
+      :style="{
+        backgroundColor: section.style.backgroundColor || undefined,
+        backgroundImage: section.style.backgroundImage
+          ? `url(${section.style.backgroundImage})`
+          : undefined,
+        paddingBottom: `${section.style.paddingY}px`,
+        paddingTop: `${section.style.paddingY}px`,
+        position: section.style.sticky ? 'sticky' : undefined,
+        top: section.style.sticky ? '0' : undefined,
+      }"
+    >
+      <template v-for="component in section.components" :key="component.id">
+        <component
+          :is="getComponentDefinition(component.type)?.preview"
+          v-if="getComponentDefinition(component.type)?.preview"
+          :show-data="component.props"
+        />
+        <div v-else class="preview-unknown">
+          暂不支持预览组件：{{ component.type }}
+        </div>
+      </template>
+    </div>
   </main>
 </template>
 

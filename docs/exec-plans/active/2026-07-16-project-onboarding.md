@@ -2,6 +2,8 @@
 
 > **For Codex:** 按 `project-onboarding-vibe` 流程逐项执行并验证，不覆盖现有用户改动。
 
+> **2026-08-31 刷新状态：** 已按新版流程重新分类为 brownfield/full，刷新分层文档、配送/营销现状和风险台账，并通过 `validate_onboarding.sh`（0 warning）及 `git diff --check`。当前主机未安装 Graphify/Understand Anything，因此任务 2 的历史产物不在本轮重建，使用源码检查回退；Maven/pnpm 全量构建和运行态联调未执行。
+
 **目标：** 为悦航购建立可持续维护的中文项目知识层，使后续自然语言需求可从文档快速定位到代码、接口与验证命令。
 
 **架构：** 以 Markdown 作为长期记忆，以 Graphify 和 Understand Anything 作为按需代码侦察工具。文档按总览、开发、业务数据、端分析、接口风险、需求和归档七层组织，并由 `docs/README.md` 统一索引。
@@ -18,7 +20,7 @@
 
 ### 任务 2：初始化代码情报工具
 
-**生成：** `graphify-out/graph.json`、`graphify-out/GRAPH_TREE.html`、`.ua/knowledge-graph.json`。
+**按需生成：** 工具已安装且本轮确有关系/架构侦察需要时，生成 `graphify-out/graph.json`、`graphify-out/GRAPH_TREE.html` 或 UA knowledge graph；工具不可用时记录源码检查回退。
 
 **验收：** 记录节点/边/层/导览统计，生成物保持 Git 忽略。
 

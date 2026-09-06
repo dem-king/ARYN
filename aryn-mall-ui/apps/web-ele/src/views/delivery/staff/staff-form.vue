@@ -6,6 +6,7 @@ import type { DeliveryStaff, DeliveryStaffStatus } from '#/api/delivery/staff';
 import { reactive, ref } from 'vue';
 
 import {
+  ElAlert,
   ElButton,
   ElDialog,
   ElForm,
@@ -17,7 +18,6 @@ import {
 } from 'element-plus';
 
 import {
-  createDeliveryStaff,
   getDeliveryStaffById,
   updateDeliveryStaff,
 } from '#/api/delivery/staff';
@@ -161,35 +161,16 @@ const resetForm = (formEl: FormInstance | undefined) => {
 };
 
 /**
- * 提交按钮
+ * 提交按钮（本弹窗仅用于编辑，新增统一走向导式创建）
  */
 const submitForm = async (formEl: FormInstance | undefined) => {
   if (!formEl) return;
   await formEl.validate((valid) => {
     if (valid) {
       loading.value = true;
-      if (state.form.id) {
-        update();
-      } else {
-        add();
-      }
+      update();
     }
   });
-};
-
-/**
- * 新增
- */
-const add = () => {
-  createDeliveryStaff(state.form)
-    .then(() => {
-      resetForm(formRef.value);
-      ElMessage.success('新增成功');
-      emit('initPage');
-    })
-    .catch(() => {
-      loading.value = false;
-    });
 };
 
 /**
@@ -214,10 +195,18 @@ defineExpose({
 <template>
   <ElDialog
     v-model="dialog"
-    :title="state.form.id ? '编辑配送员' : '新增配送员'"
+    title="编辑配送员"
     width="520px"
     :before-close="handleClose"
   >
+    <ElAlert
+      v-if="state.form.id"
+      type="info"
+      :closable="false"
+      show-icon
+      title="已创建的配送员不能直接更换员工账号；如需更换，请先解绑商城账号并删除后重新创建。"
+      class="mb-3"
+    />
     <ElForm
       ref="formRef"
       :model="state.form"
@@ -229,6 +218,7 @@ defineExpose({
           v-model="state.form.userId"
           placeholder="请选择关联后台用户"
           filterable
+          :disabled="!!state.form.id"
           style="width: 100%"
           @change="handleUserChange"
         >

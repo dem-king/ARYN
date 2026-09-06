@@ -29,6 +29,9 @@ const ROUTE_PERMISSION_MAP: Record<string, DistributionPermissionPoint[]> = {
   [DISTRIBUTION_CENTER_PATH]: [DISTRIBUTION_PERMISSION_POINTS.ENTITY_PAGE],
 }
 
+const DELIVERY_ROUTE_PREFIX = '/pages/delivery/'
+const DELIVERY_LOGIN_PATH = '/pages/delivery/login'
+
 function extractPermissionPoints(userInfo: Record<string, any> | null | undefined): string[] {
   if (!userInfo)
     return []
@@ -63,6 +66,16 @@ const router = createRouter({
   routes: generateRoutes(),
 })
 router.beforeEach(async (to, from, next) => {
+  const isDeliveryRoute = Boolean(to.path?.startsWith(DELIVERY_ROUTE_PREFIX))
+  if (isDeliveryRoute) {
+    if (to.path === DELIVERY_LOGIN_PATH || Local.get('deliveryToken')) {
+      next()
+      return
+    }
+    next({ path: DELIVERY_LOGIN_PATH })
+    return
+  }
+
   // 检查目标页面是否在白名单中
   if (to.path && WHITE_LIST.includes(to.path)) {
     // 在白名单中的页面直接放行

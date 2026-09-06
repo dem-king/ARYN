@@ -6,10 +6,12 @@ import cn.hutool.core.util.IdUtil;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.order.api.constant.MallOrderConstants;
 import com.aryn.cloud.order.api.dto.DeliveryAssignDTO;
 import com.aryn.cloud.order.api.entity.*;
+import com.aryn.cloud.order.api.enums.DeliveryStaffStatusEnum;
 import com.aryn.cloud.order.api.enums.DeliveryTaskStatusEnum;
 import com.aryn.cloud.order.api.enums.DeliveryTripStatusEnum;
 import com.aryn.cloud.order.api.vo.DeliveryProgressVO;
@@ -26,6 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * 配送任务
@@ -116,14 +119,16 @@ public class DeliveryTaskServiceImpl extends ServiceImpl<DeliveryTaskMapper, Del
 			throw new ArynBusinessException("任务ID列表不能为空");
 		}
 		DeliveryStaff staff = deliveryStaffService.getById(dto.getStaffId());
-		if (staff == null) {
-			throw new ArynBusinessException("配送员不存在");
-		}
+		validateAssignableStaff(staff, null);
 		List<DeliveryTask> tasks = list(Wrappers.<DeliveryTask>lambdaQuery()
 			.in(DeliveryTask::getId, taskIds)
 			.eq(DeliveryTask::getStatus, DeliveryTaskStatusEnum.WAITING_ASSIGN.getCode()));
 		if (tasks.size() != taskIds.size()) {
 			throw new ArynBusinessException("存在非待派单状态的任务，无法派单");
+		}
+		if (tasks.stream().anyMatch(task -> StrUtil.isBlank(task.getTenantId())
+				|| !Objects.equals(task.getTenantId(), staff.getTenantId()))) {
+			throw new ArynBusinessException("任务与配送员不属于同一租户");
 		}
 		DeliveryWarehouseConfig warehouseConfig = deliveryWarehouseConfigService.getConfig();
 		String warehouseAddress = warehouseConfig == null ? null : buildWarehouseAddress(warehouseConfig);
@@ -173,9 +178,7 @@ public class DeliveryTaskServiceImpl extends ServiceImpl<DeliveryTaskMapper, Del
 			throw new ArynBusinessException("只允许待派单或异常状态的任务改派");
 		}
 		DeliveryStaff staff = deliveryStaffService.getById(staffId);
-		if (staff == null) {
-			throw new ArynBusinessException("配送员不存在");
-		}
+		validateAssignableStaff(staff, task.getTenantId());
 		int newAttemptNo = (task.getAttemptNo() == null ? 1 : task.getAttemptNo()) + 1;
 		int updated = baseMapper.update(null, Wrappers.<DeliveryTask>lambdaUpdate()
 			.eq(DeliveryTask::getId, taskId)
@@ -228,10 +231,12 @@ public class DeliveryTaskServiceImpl extends ServiceImpl<DeliveryTaskMapper, Del
 		if (!DeliveryTaskStatusEnum.WAITING_ARRIVE.getCode().equals(task.getStatus())) {
 			throw new ArynBusinessException("当前任务状态不允许送达");
 		}
-		if (CollUtil.isNotEmpty(materialIds)) {
-			if (materialIds.size() < 1 || materialIds.size() > 6) {
-				throw new ArynBusinessException("送达凭证图片数量必须为1至6张");
-			}
+		if (CollUtil.isEmpty(materialIds) || materialIds.size() > 6) {
+			throw new ArynBusinessException("送达凭证图片数量必须为1至6张");
+		}
+		if (materialIds.stream().anyMatch(StrUtil::isBlank)
+				|| materialIds.stream().distinct().count() != materialIds.size()) {
+			throw new ArynBusinessException("送达凭证图片无效或重复");
 		}
 		LocalDateTime now = LocalDateTime.now();
 		int updated = baseMapper.update(null, Wrappers.<DeliveryTask>lambdaUpdate()
@@ -243,18 +248,16 @@ public class DeliveryTaskServiceImpl extends ServiceImpl<DeliveryTaskMapper, Del
 		if (updated == 0) {
 			throw new ArynBusinessException("任务状态已变化，无法送达");
 		}
-		if (CollUtil.isNotEmpty(materialIds)) {
-			for (int i = 0; i < materialIds.size(); i++) {
-				DeliveryEvidence evidence = new DeliveryEvidence();
-				evidence.setTaskId(taskId);
-				evidence.setAttemptNo(task.getAttemptNo());
-				evidence.setEvidenceType("1");
-				evidence.setMaterialId(materialIds.get(i));
-				evidence.setSortNo(i + 1);
-				evidence.setUploadBy(staffId);
-				evidence.setTenantId(task.getTenantId());
-				deliveryEvidenceService.save(evidence);
-			}
+		for (int i = 0; i < materialIds.size(); i++) {
+			DeliveryEvidence evidence = new DeliveryEvidence();
+			evidence.setTaskId(taskId);
+			evidence.setAttemptNo(task.getAttemptNo());
+			evidence.setEvidenceType("1");
+			evidence.setMaterialId(materialIds.get(i));
+			evidence.setSortNo(i + 1);
+			evidence.setUploadBy(staffId);
+			evidence.setTenantId(task.getTenantId());
+			deliveryEvidenceService.save(evidence);
 		}
 		saveLog(taskId, "ARRIVE", DeliveryTaskStatusEnum.WAITING_ARRIVE.getCode(),
 				DeliveryTaskStatusEnum.ARRIVED.getCode(), task.getAttemptNo(),
@@ -278,8 +281,7 @@ public class DeliveryTaskServiceImpl extends ServiceImpl<DeliveryTaskMapper, Del
 		LocalDateTime now = LocalDateTime.now();
 		int updated = baseMapper.update(null, Wrappers.<DeliveryTask>lambdaUpdate()
 			.eq(DeliveryTask::getId, task.getId())
-			.in(DeliveryTask::getStatus, DeliveryTaskStatusEnum.ARRIVED.getCode(),
-					DeliveryTaskStatusEnum.WAITING_ARRIVE.getCode())
+			.eq(DeliveryTask::getStatus, DeliveryTaskStatusEnum.ARRIVED.getCode())
 			.set(DeliveryTask::getStatus, DeliveryTaskStatusEnum.SIGNED.getCode())
 			.set(DeliveryTask::getSignTime, now));
 		if (updated == 0) {
@@ -305,6 +307,27 @@ public class DeliveryTaskServiceImpl extends ServiceImpl<DeliveryTaskMapper, Del
 		return Boolean.TRUE;
 	}
 
+	/**
+	 * 派单/改派前校验配送员仍属于当前租户且处于可接单状态。
+	 */
+	private void validateAssignableStaff(DeliveryStaff staff, String taskTenantId) {
+		if (staff == null) {
+			throw new ArynBusinessException("配送员不存在");
+		}
+		String currentTenantId = ArynTenantContextHolder.getTenantId();
+		String expectedTenantId = StrUtil.isBlank(taskTenantId) ? currentTenantId : taskTenantId;
+		if (StrUtil.isBlank(staff.getTenantId())
+				|| (StrUtil.isNotBlank(expectedTenantId) && !expectedTenantId.equals(staff.getTenantId()))) {
+			throw new ArynBusinessException("配送员不属于当前租户");
+		}
+		if (StrUtil.isBlank(staff.getUserId())) {
+			throw new ArynBusinessException("配送员未关联有效账号");
+		}
+		if (DeliveryStaffStatusEnum.OFFLINE.getCode().equals(staff.getStatus())) {
+			throw new ArynBusinessException("配送员当前不可接单");
+		}
+	}
+
 	@Override
 	public DeliveryProgressVO getProgress(String orderId) {
 		DeliveryTask task = getOne(Wrappers.<DeliveryTask>lambdaQuery().eq(DeliveryTask::getOrderId, orderId));
@@ -322,9 +345,7 @@ public class DeliveryTaskServiceImpl extends ServiceImpl<DeliveryTaskMapper, Del
 		vo.setArriveTime(task.getArriveTime());
 		vo.setSignTime(task.getSignTime());
 		vo.setRecipientName(task.getRecipientName());
-		vo.setRecipientPhone(task.getRecipientPhone());
 		vo.setRecipientAddress(task.getRecipientAddress());
-		vo.setWarehouseAddress(task.getWarehouseAddress());
 		if (StrUtil.isNotBlank(task.getTripId())) {
 			DeliveryTrip trip = deliveryTripService.getById(task.getTripId());
 			if (trip != null) {
@@ -335,7 +356,6 @@ public class DeliveryTaskServiceImpl extends ServiceImpl<DeliveryTaskMapper, Del
 			DeliveryStaff staff = deliveryStaffService.getById(task.getStaffId());
 			if (staff != null) {
 				vo.setStaffName(staff.getStaffName());
-				vo.setStaffPhone(staff.getStaffPhone());
 			}
 		}
 		return vo;

@@ -6,9 +6,13 @@ import com.aryn.cloud.common.core.constant.CommonConstants;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.promotion.api.entity.PageDesign;
+import com.aryn.cloud.promotion.api.entity.PageDesignRelease;
+import com.aryn.cloud.promotion.api.entity.PageDesignReleaseTarget;
 import com.aryn.cloud.promotion.api.entity.PageDesignVersion;
 import com.aryn.cloud.promotion.api.vo.AppPageDesignVO;
 import com.aryn.cloud.promotion.mapper.PageDesignMapper;
+import com.aryn.cloud.promotion.mapper.PageDesignReleaseMapper;
+import com.aryn.cloud.promotion.mapper.PageDesignReleaseTargetMapper;
 import com.aryn.cloud.promotion.mapper.PageDesignVersionMapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import lombok.RequiredArgsConstructor;
@@ -31,6 +35,8 @@ public class PageDesignPreviewService {
 
 	private final PageDesignMapper pageDesignMapper;
 	private final PageDesignVersionMapper versionMapper;
+	private final PageDesignReleaseMapper releaseMapper;
+	private final PageDesignReleaseTargetMapper releaseTargetMapper;
 	private final StringRedisTemplate redisTemplate;
 
 	public AppPageDesignVO getPublishedHome() {
@@ -88,6 +94,10 @@ public class PageDesignPreviewService {
 				|| !StringUtils.hasText(page.getPublishedVersionId())) {
 			throw new ArynBusinessException("Published page does not exist");
 		}
+		// 灰度命中时返回灰度版本，其余租户读取稳定版本
+		if (StringUtils.hasText(page.getGrayVersionId()) && isGrayHit(page.getId(), page.getGrayVersionId())) {
+			return getGrayPage(page, page.getGrayVersionId());
+		}
 		String cacheKey = PAGE_CACHE_PREFIX + ArynTenantContextHolder.getTenantId() + ":" + page.getId() + ":"
 				+ page.getPublishedVersionId();
 		String cached = redisTemplate.opsForValue().get(cacheKey);
@@ -95,6 +105,56 @@ public class PageDesignPreviewService {
 			return JSON.parseObject(cached, AppPageDesignVO.class);
 		}
 		PageDesignVersion version = versionMapper.selectById(page.getPublishedVersionId());
+		if (version == null || !Objects.equals(page.getId(), version.getPageDesignId())) {
+			throw new ArynBusinessException("Published page version does not exist");
+		}
+		AppPageDesignVO result = fromVersion(version);
+		redisTemplate.opsForValue().set(cacheKey, JSON.toJSONString(result), PAGE_CACHE_TTL_HOURS, TimeUnit.HOURS);
+		return result;
+	}
+
+	/**
+	 * 判断当前租户是否命中该灰度版本的发布目标。
+	 */
+	private boolean isGrayHit(String pageId, String grayVersionId) {
+		PageDesignRelease release = releaseMapper.selectOne(Wrappers.<PageDesignRelease>lambdaQuery()
+			.eq(PageDesignRelease::getPageDesignId, pageId)
+			.eq(PageDesignRelease::getReleaseVersionId, grayVersionId)
+			.eq(PageDesignRelease::getReleaseStrategy, PageDesignRelease.STRATEGY_GRAY)
+			.eq(PageDesignRelease::getReleaseStatus, PageDesignRelease.STATUS_PUBLISHED)
+			.last("limit 1"));
+		if (release == null) {
+			return false;
+		}
+		Long hits = releaseTargetMapper.selectCount(Wrappers.<PageDesignReleaseTarget>lambdaQuery()
+			.eq(PageDesignReleaseTarget::getReleaseId, release.getId())
+			.eq(PageDesignReleaseTarget::getTargetTenantId, ArynTenantContextHolder.getTenantId())
+			.in(PageDesignReleaseTarget::getTerminal, PageDesignReleaseTarget.TERMINAL_ALL,
+					currentTerminal()));
+		return hits != null && hits > 0;
+	}
+
+	private String currentTerminal() {
+		try {
+			jakarta.servlet.http.HttpServletRequest request = ((org.springframework.web.context.request.ServletRequestAttributes) org.springframework.web.context.request.RequestContextHolder
+				.getRequestAttributes()).getRequest();
+			String platform = request.getHeader("platform-type");
+			return StringUtils.hasText(platform) ? platform : PageDesignReleaseTarget.TERMINAL_ALL;
+		}
+		catch (RuntimeException exception) {
+			return PageDesignReleaseTarget.TERMINAL_ALL;
+		}
+	}
+
+	private AppPageDesignVO getGrayPage(PageDesign page, String grayVersionId) {
+		// 灰度缓存键带版本号，指针切换后旧缓存自然失效
+		String cacheKey = PAGE_CACHE_PREFIX + ArynTenantContextHolder.getTenantId() + ":" + page.getId() + ":gray:"
+				+ grayVersionId;
+		String cached = redisTemplate.opsForValue().get(cacheKey);
+		if (StringUtils.hasText(cached)) {
+			return JSON.parseObject(cached, AppPageDesignVO.class);
+		}
+		PageDesignVersion version = versionMapper.selectById(grayVersionId);
 		if (version == null || !Objects.equals(page.getId(), version.getPageDesignId())) {
 			throw new ArynBusinessException("Published page version does not exist");
 		}

@@ -17,12 +17,13 @@ import {
   createPreviewToken,
   getEditor,
   getHomeDesign,
-  publishPage,
   saveDraft,
+  submitRelease,
 } from '#/api/promotion/page-design';
 
 import PreviewDialog from '../page-design/components/preview-dialog.vue';
 import { PREVIEW_TTL_MS } from '../page-design/components/preview-utils';
+import AssetCheck from './components/asset-check.vue';
 import ComponentLibrary from './components/component-library.vue';
 import DesignerToolbar from './components/designer-toolbar.vue';
 import PageOutline from './components/page-outline.vue';
@@ -30,12 +31,15 @@ import PageSettingsPanel from './components/page-settings.vue';
 import PhoneCanvas from './components/phone-canvas.vue';
 import PropertyPanel from './components/property-panel.vue';
 import PublishDialog from './components/publish-dialog.vue';
+import SectionSettings from './components/section-settings.vue';
 import TemplateDialog from './components/template-dialog.vue';
+import ThemeDialog from './components/theme-dialog.vue';
 import { useDraftSave } from './composables/use-draft-save';
 import { usePageDesigner } from './composables/use-page-designer';
 import { getComponentDefinition } from './registry/component-registry';
 import { createDefaultDecorationDocument } from './schema/defaults';
 import { migratePageContent } from './schema/migrate';
+import { toV3Document } from './schema/v3';
 
 const route = useRoute();
 const router = useRouter();
@@ -48,6 +52,9 @@ const zoom = ref(1);
 const loading = ref(true);
 const templateVisible = ref(false);
 const publishVisible = ref(false);
+const themeVisible = ref(false);
+const assetVisible = ref(false);
+const themeRef = ref('');
 const previewState = ref({ expiresAt: 0, token: '', visible: false });
 
 const designer = usePageDesigner({
@@ -55,10 +62,72 @@ const designer = usePageDesigner({
 });
 
 const selectedComponent = computed(() =>
-  designer.document.value.components.find(
+  designer.flatComponents.value.find(
     (component) => component.id === designer.selectedId.value,
   ),
 );
+const selectedSection = computed(() =>
+  designer.document.value.sections.find(
+    (section) => section.id === designer.activeSectionId.value,
+  ),
+);
+const selectedIds = ref<string[]>([]);
+
+function toggleSelect(id: string, checked: boolean) {
+  selectedIds.value = checked
+    ? [...new Set([id, ...selectedIds.value])]
+    : selectedIds.value.filter((item) => item !== id);
+}
+
+function batchDuplicate() {
+  changed(() => {
+    designer.duplicateComponents(selectedIds.value);
+    selectedIds.value = [];
+  });
+}
+
+function batchRemove() {
+  changed(() => {
+    designer.removeComponents(selectedIds.value);
+    selectedIds.value = [];
+  });
+}
+
+function handleKeyboard(event: KeyboardEvent) {
+  const target = event.target as HTMLElement | null;
+  if (target && ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName)) {
+    return;
+  }
+  if (
+    (event.key === 'Delete' || event.key === 'Backspace') &&
+    selectedIds.value.length > 0
+  ) {
+    event.preventDefault();
+    batchRemove();
+    return;
+  }
+  if (
+    (event.key === 'Delete' || event.key === 'Backspace') &&
+    designer.selectedId.value
+  ) {
+    event.preventDefault();
+    changed(() => designer.removeComponent(designer.selectedId.value!));
+    return;
+  }
+  if (event.key === 'Escape') {
+    designer.selectComponent(undefined);
+    selectedIds.value = [];
+    return;
+  }
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
+    event.preventDefault();
+    if (event.shiftKey) {
+      changed(designer.redo);
+    } else {
+      changed(designer.undo);
+    }
+  }
+}
 
 async function ensurePage() {
   if (pageId.value) return pageId.value;
@@ -75,9 +144,11 @@ async function ensurePage() {
 const draftSave = useDraftSave({
   buildPayload: () => ({
     draftRevision: revision.value,
-    pageContent: designer.document.value as unknown as Record<string, unknown>,
+    pageContent: toV3Document(designer.document.value, {
+      themeRef: themeRef.value || undefined,
+    }) as unknown as Record<string, unknown>,
     pageName: pageName.value,
-    schemaVersion: 2,
+    schemaVersion: 3,
   }),
   delay: 1800,
   revision,
@@ -98,6 +169,10 @@ async function loadPage() {
     pageType.value = editor.pageType;
     revision.value = editor.draftRevision;
     publishedStatus.value = editor.publishedStatus;
+    themeRef.value =
+      typeof editor.pageContent.themeRef === 'string'
+        ? editor.pageContent.themeRef
+        : '';
     designer.reset(migratePageContent(editor.pageContent));
   } finally {
     loader.close();
@@ -114,12 +189,20 @@ function addComponent(type: string) {
   const definition = getComponentDefinition(type);
   if (!definition) return;
   changed(() =>
-    designer.addComponent({
-      props: definition.createDefaultProps(),
-      type,
-      version: definition.version,
-    }),
+    designer.addComponent(
+      {
+        props: definition.createDefaultProps(),
+        type,
+        version: definition.version,
+      },
+      undefined,
+      designer.activeSectionId.value,
+    ),
   );
+}
+
+function addSection() {
+  changed(() => designer.addSection(designer.activeSectionId.value));
 }
 
 function patchPage(value: PageSettings) {
@@ -142,23 +225,39 @@ async function preview() {
 }
 
 async function publish(remark = '') {
-  if (designer.document.value.components.length === 0) {
+  if (designer.flatComponents.value.length === 0) {
     ElMessage.warning('至少添加一个组件后再发布');
     return;
   }
   await draftSave.saveNow();
-  await publishPage(await ensurePage(), {
+  const release = await submitRelease(await ensurePage(), {
     draftRevision: revision.value,
     publishRemark: remark || undefined,
   });
-  publishedStatus.value = '1';
+  if (release.releaseStatus === '1') {
+    publishedStatus.value = '1';
+    ElMessage.success('发布成功');
+  } else {
+    ElMessage.info('发布申请已提交，等待审批');
+  }
   publishVisible.value = false;
-  ElMessage.success('发布成功');
+}
+
+function locateComponent(componentId?: string) {
+  if (!componentId) return;
+  designer.selectComponent(componentId);
+  publishVisible.value = false;
 }
 
 function applyTemplate(document: DecorationDocument) {
   designer.reset(document);
   draftSave.markDirty();
+}
+
+function applyTheme(id: string) {
+  themeRef.value = id;
+  draftSave.markDirty();
+  ElMessage.success('主题已应用到页面，保存草稿后生效');
 }
 
 async function back() {
@@ -201,19 +300,26 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div v-loading="loading" class="page-designer">
+  <div
+    v-loading="loading"
+    class="page-designer"
+    tabindex="0"
+    @keydown="handleKeyboard"
+  >
     <DesignerToolbar
       v-model:page-name="pageName"
       v-model:zoom="zoom"
       :can-redo="designer.canRedo.value"
       :can-undo="designer.canUndo.value"
       :save-status="draftSave.status.value"
+      @assets="assetVisible = true"
       @back="back"
       @preview="preview"
       @publish="publishVisible = true"
       @redo="changed(designer.redo)"
       @save="draftSave.saveNow"
       @template="templateVisible = true"
+      @theme="themeVisible = true"
       @undo="changed(designer.undo)"
       @update:page-name="updatePageName"
     />
@@ -224,29 +330,62 @@ onBeforeUnmount(() => {
             <ComponentLibrary @add="addComponent" />
           </ElTabPane>
           <ElTabPane label="页面大纲">
-            <PageOutline
-              :components="designer.document.value.components"
-              :selected-id="designer.selectedId.value"
-              @move="
-                (id, index) => changed(() => designer.moveComponent(id, index))
-              "
-              @remove="(id) => changed(() => designer.removeComponent(id))"
-              @select="designer.selectComponent"
-            />
+            <div class="outline-pane">
+              <ElButton
+                class="outline-add-section"
+                size="small"
+                @click="addSection"
+              >
+                新增区块
+              </ElButton>
+              <PageOutline
+                :active-section-id="designer.activeSectionId.value"
+                :sections="designer.document.value.sections"
+                :selected-id="designer.selectedId.value"
+                :selected-ids="selectedIds"
+                @batch-duplicate="batchDuplicate"
+                @batch-remove="batchRemove"
+                @move="
+                  (id, index, sectionId) =>
+                    changed(() => designer.moveComponent(id, index, sectionId))
+                "
+                @move-section="
+                  (sectionId, index) =>
+                    changed(() => designer.moveSection(sectionId, index))
+                "
+                @remove="(id) => changed(() => designer.removeComponent(id))"
+                @remove-section="
+                  (sectionId) => {
+                    if (designer.document.value.sections.length <= 1) {
+                      ElMessage.warning('至少保留一个区块');
+                      return;
+                    }
+                    changed(() => designer.removeSection(sectionId));
+                  }
+                "
+                @select="designer.selectComponent"
+                @select-section="designer.selectSection"
+                @toggle-select="toggleSelect"
+              />
+            </div>
           </ElTabPane>
         </ElTabs>
       </aside>
 
       <PhoneCanvas
-        :components="designer.document.value.components"
         :page="designer.document.value.page"
         :page-name="pageName"
+        :sections="designer.document.value.sections"
         :selected-id="designer.selectedId.value"
         :zoom="zoom"
         @duplicate="(id) => changed(() => designer.duplicateComponent(id))"
-        @move="(id, index) => changed(() => designer.moveComponent(id, index))"
+        @move="
+          (id, index, sectionId) =>
+            changed(() => designer.moveComponent(id, index, sectionId))
+        "
         @remove="(id) => changed(() => designer.removeComponent(id))"
         @select="designer.selectComponent"
+        @select-section="designer.selectSection"
       />
 
       <aside class="right-rail">
@@ -259,6 +398,21 @@ onBeforeUnmount(() => {
                   changed(() =>
                     designer.patchComponent(
                       designer.selectedId.value!,
+                      patch,
+                      group,
+                    ),
+                  )
+              "
+            />
+          </ElTabPane>
+          <ElTabPane label="区块设置">
+            <SectionSettings
+              :section="selectedSection"
+              @patch="
+                (patch, group) =>
+                  changed(() =>
+                    designer.patchSection(
+                      designer.activeSectionId.value!,
                       patch,
                       group,
                     ),
@@ -281,11 +435,19 @@ onBeforeUnmount(() => {
       :page-type="pageType"
       @apply="applyTemplate"
     />
+    <ThemeDialog
+      v-model="themeVisible"
+      :theme-ref="themeRef || undefined"
+      @apply="applyTheme"
+    />
+    <AssetCheck v-model="assetVisible" :page-id="pageId" />
     <PublishDialog
       v-model="publishVisible"
       :document="designer.document.value"
+      :page-id="pageId"
       :page-name="pageName"
       @confirm="publish"
+      @locate="locateComponent"
     />
     <PreviewDialog
       v-model="previewState.visible"
@@ -303,6 +465,17 @@ onBeforeUnmount(() => {
   overflow: hidden;
   color: var(--el-text-color-primary);
   background: var(--el-bg-color);
+}
+
+.outline-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+}
+
+.outline-add-section {
+  align-self: flex-end;
 }
 
 .designer-workspace {

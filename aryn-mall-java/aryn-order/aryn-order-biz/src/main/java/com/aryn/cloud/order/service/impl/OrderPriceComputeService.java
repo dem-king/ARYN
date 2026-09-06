@@ -58,6 +58,10 @@ public class OrderPriceComputeService {
 	public void orderPromotionPriceHandler(List<OrderItemEntity> orderItemEntityList) {
 		for (OrderItemEntity item : orderItemEntityList) {
 			BigDecimal originalUnitPrice = item.getSalesPrice();
+			if (originalUnitPrice == null) {
+				// 未定价商品不做促销价处理，避免空指针
+				continue;
+			}
 			BigDecimal promotionUnitPrice = null;
 			// 优先秒杀价
 			try {

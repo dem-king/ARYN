@@ -3,6 +3,7 @@ package com.aryn.cloud.user.dubbo;
 
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.util.ObjectUtil;
+import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.aryn.cloud.user.api.entity.UserInfo;
 import com.aryn.cloud.user.api.remote.RemoteMallUserService;
@@ -86,6 +87,25 @@ public class RemoteMallUserServiceImpl implements RemoteMallUserService {
 			userInfo = userInfoService.createUserByOpenId(openid, platformType);
 		}
 		return userInfo;
+	}
+
+	@Override
+	public List<UserInfoVO> searchUsersForBinding(String keyword, int limit) {
+		int safeLimit = Math.min(Math.max(limit, 1), 50);
+		List<UserInfo> users = userInfoService.list(Wrappers.<UserInfo>lambdaQuery()
+			.and(StrUtil.isNotBlank(keyword), wrapper -> wrapper
+				.like(UserInfo::getPhone, keyword)
+				.or()
+				.like(UserInfo::getNickname, keyword)
+				.or()
+				.eq(UserInfo::getId, keyword))
+			.last("LIMIT " + safeLimit));
+		return users.stream().map(v -> {
+			UserInfoVO vo = new UserInfoVO();
+			BeanUtil.copyProperties(v, vo);
+			vo.setPassword(null);
+			return vo;
+		}).collect(Collectors.toList());
 	}
 
 }

@@ -3,13 +3,15 @@ import type { DecorationDocument } from '../schema/types';
 
 import type { PageDesignTemplateRecord } from '#/api/promotion/page-design';
 
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 
-import { Delete, Plus } from '@element-plus/icons-vue';
+import { Delete, Plus, Star, StarFilled } from '@element-plus/icons-vue';
 import {
   ElButton,
+  ElCheckbox,
   ElDialog,
   ElEmpty,
+  ElInput,
   ElMessage,
   ElMessageBox,
   ElTag,
@@ -37,6 +39,41 @@ const emit = defineEmits<{
 
 const loading = ref(false);
 const templates = ref<PageDesignTemplateRecord[]>([]);
+const industryKeyword = ref('');
+const favoritesOnly = ref(false);
+
+/** 模板收藏保存在本地（按模板 ID），跨端同步属后续能力 */
+const FAVORITE_KEY = 'decoration:template-favorites';
+const favoriteIds = ref<string[]>([]);
+
+function loadFavorites() {
+  try {
+    favoriteIds.value = JSON.parse(
+      localStorage.getItem(FAVORITE_KEY) ?? '[]',
+    ) as string[];
+  } catch {
+    favoriteIds.value = [];
+  }
+}
+
+function isFavorite(id: string) {
+  return favoriteIds.value.includes(id);
+}
+
+function toggleFavorite(id: string) {
+  favoriteIds.value = isFavorite(id)
+    ? favoriteIds.value.filter((item) => item !== id)
+    : [...favoriteIds.value, id];
+  localStorage.setItem(FAVORITE_KEY, JSON.stringify(favoriteIds.value));
+}
+
+const visibleTemplates = computed(() =>
+  templates.value.filter((template) => {
+    if (favoritesOnly.value && !isFavorite(template.id)) return false;
+    if (!industryKeyword.value.trim()) return true;
+    return (template.industryTag ?? '').includes(industryKeyword.value.trim());
+  }),
+);
 
 const systemTemplate: PageDesignTemplateRecord = {
   id: 'system-all-components',
@@ -50,6 +87,7 @@ const systemTemplate: PageDesignTemplateRecord = {
 
 async function load() {
   if (!props.modelValue) return;
+  loadFavorites();
   loading.value = true;
   try {
     templates.value = [systemTemplate, ...(await getTemplates(props.pageType))];
@@ -116,6 +154,16 @@ watch(() => props.modelValue, load);
     @update:model-value="emit('update:modelValue', $event)"
   >
     <div class="template-actions">
+      <div class="template-filters">
+        <ElInput
+          v-model="industryKeyword"
+          clearable
+          placeholder="按行业标签筛选"
+          size="small"
+          style="width: 160px"
+        />
+        <ElCheckbox v-model="favoritesOnly" size="small">只看收藏</ElCheckbox>
+      </div>
       <ElButton
         v-access:code="'promotion:pagedesign:template'"
         :icon="Plus"
@@ -126,9 +174,12 @@ watch(() => props.modelValue, load);
       </ElButton>
     </div>
     <div v-loading="loading" class="template-grid">
-      <ElEmpty v-if="templates.length === 0" description="暂无模板" />
+      <ElEmpty
+        v-if="visibleTemplates.length === 0"
+        description="暂无模板"
+      />
       <article
-        v-for="template in templates"
+        v-for="template in visibleTemplates"
         v-else
         :key="template.id"
         class="template-item"
@@ -138,9 +189,29 @@ watch(() => props.modelValue, load);
           <ElTag v-if="template.systemFlag === '1'" effect="plain" size="small">
             系统
           </ElTag>
+          <ElTag
+            v-if="template.industryTag"
+            effect="plain"
+            size="small"
+            type="warning"
+          >
+            {{ template.industryTag }}
+          </ElTag>
+          <ElButton
+            :icon="isFavorite(template.id) ? StarFilled : Star"
+            aria-label="收藏模板"
+            circle
+            size="small"
+            text
+            @click="toggleFavorite(template.id)"
+          />
         </div>
         <p>
-          {{ migratePageContent(template.templateContent).components.length }}
+          {{
+            migratePageContent(template.templateContent).sections.flatMap(
+              (section) => section.components,
+            ).length
+          }}
           个组件
         </p>
         <div class="template-item-actions">
@@ -166,8 +237,16 @@ watch(() => props.modelValue, load);
 <style scoped>
 .template-actions {
   display: flex;
-  justify-content: flex-end;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 16px;
+}
+
+.template-filters {
+  display: flex;
+  gap: 12px;
+  align-items: center;
 }
 
 .template-grid {

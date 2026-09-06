@@ -15,6 +15,7 @@ const query = ref('');
 const activeGroups = ref([
   '基础组件',
   '导航广告',
+  '内容',
   '商品经营',
   '营销活动',
   '店铺服务',

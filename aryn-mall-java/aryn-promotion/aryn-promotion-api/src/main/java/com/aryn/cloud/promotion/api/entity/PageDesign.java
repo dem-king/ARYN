@@ -42,6 +42,9 @@ public class PageDesign extends Model<PageDesign> {
 	@Schema(description = "当前发布版本ID")
 	private String publishedVersionId;
 
+	@Schema(description = "灰度发布版本ID")
+	private String grayVersionId;
+
 	@Schema(description = "发布状态：0.未发布；1.已发布；")
 	private String publishedStatus;
 

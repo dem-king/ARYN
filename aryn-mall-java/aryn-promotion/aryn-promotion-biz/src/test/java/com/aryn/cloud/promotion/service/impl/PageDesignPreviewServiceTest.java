@@ -41,6 +41,12 @@ class PageDesignPreviewServiceTest {
 	private PageDesignVersionMapper versionMapper;
 
 	@Mock
+	private com.aryn.cloud.promotion.mapper.PageDesignReleaseMapper releaseMapper;
+
+	@Mock
+	private com.aryn.cloud.promotion.mapper.PageDesignReleaseTargetMapper releaseTargetMapper;
+
+	@Mock
 	private StringRedisTemplate redisTemplate;
 
 	@Mock
@@ -51,7 +57,8 @@ class PageDesignPreviewServiceTest {
 	@BeforeEach
 	void setUp() {
 		ArynTenantContextHolder.setTenantId("tenant-1");
-		service = new PageDesignPreviewService(pageDesignMapper, versionMapper, redisTemplate);
+		service = new PageDesignPreviewService(pageDesignMapper, versionMapper, releaseMapper, releaseTargetMapper,
+				redisTemplate);
 	}
 
 	@AfterEach

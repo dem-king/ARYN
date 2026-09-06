@@ -3,7 +3,12 @@ package com.aryn.cloud.promotion.controller.app;
 
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.promotion.api.vo.AppPageDesignVO;
+import com.aryn.cloud.promotion.service.PageDesignMetricService;
 import com.aryn.cloud.promotion.service.PageDesignPreviewService;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+
+import java.util.List;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.AllArgsConstructor;
@@ -28,6 +33,8 @@ public class AppPageDesignController {
 
 	private final PageDesignPreviewService pageDesignPreviewService;
 
+	private final PageDesignMetricService pageDesignMetricService;
+
 	@Operation(summary = "页面设计查询")
 	@GetMapping
 	public Result<AppPageDesignVO> getHomePage() {
@@ -44,6 +51,12 @@ public class AppPageDesignController {
 	@GetMapping("/preview/{token}")
 	public Result<AppPageDesignVO> preview(@PathVariable String token) {
 		return Result.success(pageDesignPreviewService.getPreview(token));
+	}
+
+	@Operation(summary = "上报页面装修埋点事件")
+	@PostMapping("/metrics")
+	public Result<Integer> reportMetrics(@RequestBody List<PageDesignMetricService.MetricEvent> events) {
+		return Result.success(pageDesignMetricService.report(events));
 	}
 
 }

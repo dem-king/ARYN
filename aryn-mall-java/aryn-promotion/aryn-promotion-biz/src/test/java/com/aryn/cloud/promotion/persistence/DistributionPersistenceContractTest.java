@@ -84,7 +84,7 @@ class DistributionPersistenceContractTest {
 		String sql = Files.readString(javaRoot.resolve("db/cloud/3aryn_nacos.sql")).toLowerCase();
 		assertThat(sql)
 				.contains("distribution_refund_record")
-				.contains("0caafa04a3f23a4190be39571fce0f7a")
+				.contains("cf60c2c2528d85820ba9ff9a641f974d")
 				.contains("aryn-promotion-biz-dev.yml");
 	}
 

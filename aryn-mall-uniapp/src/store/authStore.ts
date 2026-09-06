@@ -72,6 +72,14 @@ export const useAuthStore = defineStore('auth', {
       catch (error) {
         console.warn('清除用户信息失败:', error)
       }
+      // 商城登录态与配送员身份隔离：退出商城登录时同步清理配送员本地登录态
+      try {
+        uni.removeStorageSync('deliveryToken')
+        uni.removeStorageSync('deliveryStaffInfo')
+      }
+      catch (error) {
+        console.warn('清除配送员登录态失败:', error)
+      }
     },
     /**
      * 微信小程序登录方法

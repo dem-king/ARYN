@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isUnauthorizedResponse, parseApiResponse } from './handlers'
+import { isDeliveryRequest, isUnauthorizedResponse, parseApiResponse } from './handlers'
 
 describe('api response parsing', () => {
   it('detects a business 401 from a JSON string response', () => {
@@ -13,5 +13,11 @@ describe('api response parsing', () => {
     expect(parseApiResponse('<html>Bad Gateway</html>')).toEqual({
       data: '<html>Bad Gateway</html>',
     })
+  })
+
+  it('recognizes delivery requests for isolated session expiry handling', () => {
+    expect(isDeliveryRequest({ url: '/boot/app/delivery/task/1/arrive' } as any)).toBe(true)
+    expect(isDeliveryRequest({ url: '/boot/file/staff/delivery-evidence/upload' } as any)).toBe(true)
+    expect(isDeliveryRequest({ url: '/boot/app/order/1/detail' } as any)).toBe(false)
   })
 })

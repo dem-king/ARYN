@@ -5,6 +5,13 @@
 
 USE `aryn_promotion`;
 
+DROP TABLE IF EXISTS `seckill_activity`;
+DROP TABLE IF EXISTS `seckill_session`;
+DROP TABLE IF EXISTS `seckill_goods`;
+DROP TABLE IF EXISTS `seckill_order`;
+DROP TABLE IF EXISTS `discount_activity`;
+DROP TABLE IF EXISTS `discount_goods`;
+
 -- ============ 限时秒杀 ============
 
 CREATE TABLE `seckill_activity` (

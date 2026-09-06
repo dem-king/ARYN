@@ -8,6 +8,12 @@ describe('boot URL rewriting', () => {
     )
   })
 
+  it('routes delivery APIs in both deployment modes', () => {
+    const cloudPath = '/mall-order/app/delivery/task/page'
+    expect(rewriteBootUrl(cloudPath, false)).toBe(cloudPath)
+    expect(rewriteBootUrl(cloudPath, true)).toBe('/boot/app/delivery/task/page')
+  })
+
   it('does not rewrite disabled, absolute, or already rewritten URLs', () => {
     expect(rewriteBootUrl('/auth/toc-token/login', false)).toBe(
       '/auth/toc-token/login',

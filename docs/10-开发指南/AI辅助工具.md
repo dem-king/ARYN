@@ -1,57 +1,43 @@
 # AI 辅助工具
 
+> 证据：当前 macOS 主机的命令查找、仓库目录和 `.gitignore`；检查于 2026-08-31；置信度：已验证。
+
+## 当前状态
+
+| 工具 | 当前主机状态 | 本轮策略 |
+|---|---|---|
+| Graphify | 未发现 `graphify` 命令或 `graphify-out/` | 使用源码、配置、Git 和原生搜索回退；不声明图谱结论 |
+| Understand Anything | 未发现可执行命令、`.ua/` 或 `.understand-anything/` | 不声明 dashboard/tour 可用 |
+
+2026-07-16 的首次初始化曾在另一台 Windows 主机生成 Graphify 结构图，并记录 17,431 个节点、41,948 条边；这些是历史快照，不代表当前分支或当前主机状态。本轮没有获得安装授权，因此没有联网安装或刷新工具。
+
 ## Graphify
 
-### 状态
+安装并验证后，可在仓库根目录使用：
 
-- 安装方式：`uv tool install "graphifyy[sql]"`
-- 命令位置：用户级 `uv` tool 环境，可直接执行 `graphify`
-- 图谱：`graphify-out/graph.json`
-- 静态树：`graphify-out/GRAPH_TREE.html`
-- 初始化统计：2,210 个代码文件首轮扫描；补齐 SQL 解析器后为 17,431 个节点、41,948 条边。
-- 说明：本次未配置 Gemini/Google API key，图谱是 AST/关系结构分析，不是 LLM 语义总结。
-
-### 刷新和查询
-
-```powershell
+```bash
 graphify update . --no-cluster
-graphify explain PageDesignController
 graphify explain ArynTenantLineHandler
-graphify tree --graph graphify-out/graph.json --output graphify-out/GRAPH_TREE.html --root "D:\Codes\aryn-mall" --label "悦航购 Aetheryn Mall"
+graphify path "node A" "node B"
+graphify query "question" --budget 1200
+graphify tree --graph graphify-out/graph.json \
+  --output graphify-out/GRAPH_TREE.html \
+  --root "$PWD" --label "悦航购 Aetheryn Mall"
 ```
 
-Graphify 主要用于命令行查询；`GRAPH_TREE.html` 是本地静态树，不是常驻服务。
+Graphify 适合调用者、依赖路径和共享代码影响范围分析。没有实际生成并验证 `graphify-out/graph.json` 时，不得引用历史节点数或声称当前图谱可用。
 
 ## Understand Anything
 
-### 状态
+安装并完成项目分析后，才可记录 `.understand-anything/knowledge-graph.json` 或启动 dashboard。启动时必须使用工具输出的完整 `http://127.0.0.1:<port>/?token=<token>` 地址；没有图文件或 token 时视为不可用。
 
-- 官方仓库：`C:\Users\admin\.understand-anything\repo`
-- 通用插件链接：`C:\Users\admin\.understand-anything-plugin`
-- Codex skill 链接：`C:\Users\admin\.agents\skills\understand*`
-- core 包已完成 `pnpm --filter @understand-anything/core build`。
-- 项目数据目录：`.ua/`，已生成 `.understandignore` 和中文配置。
-- 当前尚未生成 `.ua/knowledge-graph.json`，因此不能声明 dashboard 可用。
+UA 适合陌生模块、跨端业务流和架构导览。当前回退方式是先读 `docs/README.md` 与目标层文档，再按 Controller/API/Entity/SQL 进行源码检查。
 
-安装发生在当前会话，重启 Codex 后技能才能正常出现在新任务中。首次完整语义分析：
+## 安装与刷新规则
 
-```text
-$understand D:\Codes\aryn-mall --language zh
-```
-
-该仓库超过 2,000 个代码文件，完整语义分析会分批运行；可按 `aryn-mall-java`、`aryn-mall-ui`、`aryn-mall-uniapp` 分域生成后再合并。
-
-### Dashboard
-
-只有 `.ua/knowledge-graph.json` 生成并通过验证后再启动：
-
-```powershell
-cd C:\Users\admin\.understand-anything-plugin\packages\dashboard
-$env:GRAPH_DIR='D:\Codes\aryn-mall'
-pnpm exec vite --host 127.0.0.1
-```
-
-必须使用启动日志输出的完整 `http://127.0.0.1:<port>/?token=<token>` URL，token 不可省略。本轮没有启动 dashboard。
+- 安装外部工具前必须获得用户明确授权，并优先使用固定版本或已审阅安装器。
+- 工具输出只用于发现关系；可复用结论仍回写 `docs/`，并标明证据、日期和置信度。
+- 只有工具实际可用且改动影响已记录关系时才刷新图谱，不为普通局部改动强制生成。
 
 ## Git 规则
 

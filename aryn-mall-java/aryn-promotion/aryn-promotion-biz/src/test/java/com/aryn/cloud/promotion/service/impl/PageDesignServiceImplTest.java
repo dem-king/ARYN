@@ -5,6 +5,7 @@ import com.aryn.cloud.promotion.api.entity.PageDesign;
 import com.aryn.cloud.promotion.api.dto.PageDesignDraftDTO;
 import com.aryn.cloud.promotion.api.vo.PageDesignEditorVO;
 import com.aryn.cloud.promotion.mapper.PageDesignMapper;
+import com.aryn.cloud.promotion.service.PageDesignAuditService;
 import com.aryn.cloud.common.core.constant.CacheConstants;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
@@ -63,11 +64,14 @@ class PageDesignServiceImplTest {
 	@Mock
 	private PageDesignMapper pageDesignMapper;
 
+	@Mock
+	private PageDesignAuditService auditService;
+
 	private PageDesignServiceImpl service;
 
 	@BeforeEach
 	void setUp() {
-		service = new TestPageDesignService(redisTemplate, redissonClient, pageDesignMapper);
+		service = new TestPageDesignService(redisTemplate, redissonClient, auditService, pageDesignMapper);
 	}
 
 	private void mockAcquiredHomePageLock() throws InterruptedException {
@@ -326,8 +330,8 @@ class PageDesignServiceImplTest {
 	private static final class TestPageDesignService extends PageDesignServiceImpl {
 
 		private TestPageDesignService(StringRedisTemplate redisTemplate, RedissonClient redissonClient,
-				PageDesignMapper pageDesignMapper) {
-			super(redisTemplate, redissonClient);
+				PageDesignAuditService auditService, PageDesignMapper pageDesignMapper) {
+			super(redisTemplate, redissonClient, auditService);
 			this.baseMapper = pageDesignMapper;
 		}
 	}

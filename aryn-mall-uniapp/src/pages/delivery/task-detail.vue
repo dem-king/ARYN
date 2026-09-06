@@ -2,6 +2,7 @@
 import { onLoad } from '@dcloudio/uni-app'
 import { ref } from 'vue'
 import { arriveTask, getTaskDetail, getTaskStatusColor, getTaskStatusName } from '@/api/delivery'
+import { uploadDeliveryEvidence } from '@/api/upms/file'
 import type { DeliveryTask, DeliveryTaskStatus } from '@/api/delivery'
 
 definePage({
@@ -18,6 +19,8 @@ const { show: showToast } = useGlobalToast()
 const loading = ref(true)
 const submitting = ref(false)
 const task = ref<DeliveryTask | null>(null)
+const evidencePaths = ref<string[]>([])
+const evidenceIds = ref<string[]>([])
 
 /** 配送状态时间线节点 */
 const timelineNodes = ref<Array<{ name: string, time?: string, done: boolean, active: boolean }>>([])
@@ -111,7 +114,11 @@ async function handleArrive() {
   submitting.value = true
   globalLoading.loading('处理中...')
   try {
-    await arriveTask(task.value.id).send()
+    if (evidenceIds.value.length === 0) {
+      showToast('请先上传至少一张送达凭证')
+      return
+    }
+    await arriveTask(task.value.id, evidenceIds.value).send()
     showToast('已确认送达')
     await fetchTaskDetail(task.value.id)
   }
@@ -122,6 +129,39 @@ async function handleArrive() {
     submitting.value = false
     globalLoading.close()
   }
+}
+
+/** 选择并上传送达凭证，服务端只接收素材 ID。 */
+function chooseEvidence() {
+  if (evidencePaths.value.length >= 6) {
+    showToast('最多上传6张图片')
+    return
+  }
+  uni.chooseImage({
+    count: 6 - evidencePaths.value.length,
+    sizeType: ['compressed'],
+    sourceType: ['camera', 'album'],
+    success: async ({ tempFilePaths }) => {
+      const paths = Array.isArray(tempFilePaths) ? tempFilePaths : [tempFilePaths]
+      globalLoading.loading('上传凭证中...')
+      try {
+        const ids = await Promise.all(paths.map(path => uploadDeliveryEvidence(path)))
+        evidencePaths.value.push(...paths)
+        evidenceIds.value.push(...ids)
+      }
+      catch (error: any) {
+        showToast(error?.message || '凭证上传失败')
+      }
+      finally {
+        globalLoading.close()
+      }
+    },
+  })
+}
+
+function removeEvidence(index: number) {
+  evidencePaths.value.splice(index, 1)
+  evidenceIds.value.splice(index, 1)
 }
 </script>
 
@@ -208,6 +248,19 @@ async function handleArrive() {
         <wd-button size="small" plain type="primary" @click="handleNavigate">
           导航前往
         </wd-button>
+      </view>
+    </view>
+
+    <view v-if="task.status === '4'" class="mx-20rpx mb-20rpx rounded-20rpx bg-white p-30rpx">
+      <text class="mb-20rpx block text-28rpx font-bold">送达凭证</text>
+      <view class="flex flex-wrap gap-16rpx">
+        <view v-for="(path, index) in evidencePaths" :key="path" class="relative">
+          <image :src="path" class="h-150rpx w-150rpx rounded-lg" mode="aspectFill" />
+          <text class="absolute right-0 top-0 rounded-bl-lg bg-black/60 px-8rpx text-white" @click="removeEvidence(index)">×</text>
+        </view>
+        <view v-if="evidencePaths.length < 6" class="flex h-150rpx w-150rpx items-center justify-center rounded-lg border border-dashed border-gray-300" @click="chooseEvidence">
+          <text class="i-carbon:add text-44rpx text-gray-400" />
+        </view>
       </view>
     </view>
 

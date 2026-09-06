@@ -5,6 +5,7 @@ import com.aryn.cloud.message.api.entity.MessageNotice;
 import com.aryn.cloud.message.mapper.MessageNoticeMapper;
 import com.aryn.cloud.message.mapper.MessageRecipientMapper;
 import com.aryn.cloud.message.service.MessagePushService;
+import com.aryn.cloud.message.service.WechatSubscribeChannelService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
@@ -28,8 +29,9 @@ class MessageCommandServiceImplTest {
 		MessageRecipientMapper recipientMapper = mock(MessageRecipientMapper.class);
 		MessagePushService pushService = mock(MessagePushService.class);
 		Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
+		WechatSubscribeChannelService wechatSubscribeChannelService = mock(WechatSubscribeChannelService.class);
 		MessageCommandServiceImpl service = new MessageCommandServiceImpl(noticeMapper, recipientMapper, pushService,
-				new ObjectMapper(), validator);
+				wechatSubscribeChannelService, new ObjectMapper(), validator);
 		AtomicReference<MessageNotice> stored = new AtomicReference<>();
 		when(noticeMapper.selectBySource(anyString(), anyString(), anyString())).thenAnswer(invocation -> stored.get());
 		when(noticeMapper.insertIgnoreSource(any(MessageNotice.class))).thenAnswer(invocation -> {

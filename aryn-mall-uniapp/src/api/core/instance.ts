@@ -4,6 +4,7 @@ import vueHook from 'alova/vue'
 import { apiBaseUrl } from './api-base-url'
 import { parseOpenBoot, rewriteBootUrl } from './boot-url'
 import { handleAlovaError, handleAlovaResponse } from './handlers'
+import { Local } from '@/utils/storage'
 
 const openBoot = parseOpenBoot(import.meta.env.VITE_OPEN_BOOT)
 
@@ -19,12 +20,17 @@ export const alovaInstance = createAlova({
 
     // Add tenant ID to request headers
     method.config.headers['tenant-id'] = import.meta.env.VITE_TENANT_ID
-    // Add satoken to request headers
+    // Delivery uses a separate TOB token so it cannot accidentally reuse the customer session.
     const authState = uni.getStorageSync('auth') as { token?: string } | undefined
     const skipToken = method.config.headers.skipToken === true
+    const deliveryRequest = method.url.includes('/app/delivery/') || method.config.headers.authScope === 'delivery'
     delete method.config.headers.skipToken
-    if (authState?.token && !skipToken) {
-      method.config.headers.satoken = authState.token
+    delete method.config.headers.authScope
+    if (!skipToken) {
+      const token = deliveryRequest ? Local.get('deliveryToken') : authState?.token
+      if (token) {
+        method.config.headers.satoken = token
+      }
     }
     method.url = rewriteBootUrl(method.url, openBoot) ?? method.url
     // Add platform-specific headers

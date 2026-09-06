@@ -2,7 +2,7 @@
 -- 生成方式: node db/boot/build-full-sql.mjs
 -- 适用环境: MySQL 8.0.13+
 -- 警告: 本文件面向空库初始化，包含 DROP TABLE IF EXISTS，请勿用于存量生产库。
--- 生成日期: 2026-07-17
+-- 生成日期: 2026-09-06
 
 -- ============================================================================
 -- 创建数据库
@@ -24,10 +24,17 @@ USE aryn_boot;
 SET FOREIGN_KEY_CHECKS = 0;
 DROP TABLE IF EXISTS `page_design_version`;
 DROP TABLE IF EXISTS `page_design_template`;
+DROP TABLE IF EXISTS `page_design_release`;
+DROP TABLE IF EXISTS `page_design_audit_log`;
+DROP TABLE IF EXISTS `page_design_theme`;
+DROP TABLE IF EXISTS `page_design_release_target`;
+DROP TABLE IF EXISTS `page_design_metric_daily`;
 DROP TABLE IF EXISTS `group_buy_member`;
 DROP TABLE IF EXISTS `group_buy_record`;
 DROP TABLE IF EXISTS `group_buy_activity`;
 DROP TABLE IF EXISTS `goods_brand`;
+DROP TABLE IF EXISTS `delivery_account_binding`;
+DROP TABLE IF EXISTS `delivery_qualification_operation`;
 USE aryn_boot;
 
 SET NAMES utf8mb4;
@@ -1090,8 +1097,11 @@ INSERT INTO `sys_dict_value` VALUES ('1929206298094755842', '1929205944271659009
 INSERT INTO `sys_dict_value` VALUES ('1929206364058574849', '1929205944271659009', '30分钟', '16', 'mq_delay_time_level', '0', '30分钟', 16, '0', '2025-06-02 00:00:15', NULL, 'system', NULL, 'primary');
 INSERT INTO `sys_dict_value` VALUES ('1929206407276683265', '1929205944271659009', '1小时', '17', 'mq_delay_time_level', '0', '1小时', 17, '0', '2025-06-02 00:00:25', NULL, 'system', NULL, 'primary');
 INSERT INTO `sys_dict_value` VALUES ('1929206449693679617', '1929205944271659009', '2小时', '18', 'mq_delay_time_level', '0', '2小时', 18, '0', '2025-06-02 00:00:35', NULL, 'system', NULL, 'primary');
-INSERT INTO `sys_dict_value` VALUES ('2040457078937530370', '1583357541572108290', '本机', 'local', 'sys_storage_type', '0', NULL, 1, '0', '2026-04-04 23:50:52', NULL, 'system', NULL, 'primary');
-INSERT INTO `sys_dict_value` VALUES ('2040457134491086849', '1583357541572108290', 'OSS', 'oss', 'sys_storage_type', '0', NULL, 2, '0', '2026-04-04 23:51:05', NULL, 'system', NULL, 'primary');
+INSERT INTO `sys_dict_value` VALUES ('2040457078937530370', '1583357541572108290', '本机存储', 'local', 'sys_storage_type', '0', '服务器本地磁盘', 1, '0', '2026-04-04 23:50:52', NULL, 'system', NULL, 'primary');
+INSERT INTO `sys_dict_value` VALUES ('1583358198555303938', '1583357541572108290', '阿里OSS', 'aliyun', 'sys_storage_type', '0', '阿里云对象存储', 2, '0', '2022-10-21 15:23:07', NULL, NULL, NULL, NULL);
+INSERT INTO `sys_dict_value` VALUES ('1583358231816134658', '1583357541572108290', '七牛云', 'qiniu', 'sys_storage_type', '0', '七牛云对象存储', 3, '0', '2022-10-21 15:23:15', NULL, NULL, NULL, NULL);
+INSERT INTO `sys_dict_value` VALUES ('1583364488060952577', '1583357541572108290', '腾讯云', 'tencent', 'sys_storage_type', '0', '腾讯云对象存储', 4, '0', '2022-10-21 15:48:06', NULL, NULL, NULL, NULL);
+INSERT INTO `sys_dict_value` VALUES ('1928797196747186177', '1583357541572108290', 'MinIO', 'minio', 'sys_storage_type', '0', 'S3兼容自建存储', 5, '0', '2025-05-31 20:54:22', NULL, 'system', NULL, 'primary');
 
 -- ----------------------------
 -- Table structure for sys_log
@@ -2049,8 +2059,8 @@ CREATE TABLE `sys_storage_config`  (
                                        `id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '主键',
                                        `access_key` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT 'access_key',
                                        `access_secret` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT 'access_secret',
-                                       `endpoint` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '地域节点',
-                                       `bucket` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '域名',
+                                       `endpoint` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '地域节点',
+                                       `bucket` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT 'Bucket或本地存储根目录',
                                        `type` char(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '存储类型',
                                        `create_time` datetime NULL DEFAULT NULL COMMENT '新增时间',
                                        `update_time` datetime NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
@@ -3240,124 +3250,202 @@ DROP TABLE IF EXISTS `message_recipient`;
 DROP TABLE IF EXISTS `message_notice`;
 
 CREATE TABLE `message_notice` (
-  `id` varchar(32) NOT NULL COMMENT '主键', `title` varchar(200) NOT NULL COMMENT '标题',
-  `summary` varchar(500) DEFAULT NULL COMMENT '摘要', `content` text NOT NULL COMMENT '纯文本正文',
-  `category` varchar(64) NOT NULL COMMENT '通知分类', `priority` varchar(16) NOT NULL DEFAULT 'NORMAL' COMMENT '优先级',
-  `source_type` varchar(64) DEFAULT NULL COMMENT '来源类型', `source_key` varchar(128) DEFAULT NULL COMMENT '来源幂等键',
-  `target_types` varchar(64) NOT NULL COMMENT '目标端快照', `audience_snapshot` json DEFAULT NULL COMMENT '受众条件快照',
-  `sender_type` varchar(32) NOT NULL COMMENT '发送人类型', `sender_id` varchar(32) NOT NULL COMMENT '发送人ID',
-  `sender_name` varchar(100) DEFAULT NULL COMMENT '发送人名称快照', `status` varchar(32) NOT NULL DEFAULT 'DRAFT' COMMENT '发布状态',
-  `publish_time` datetime DEFAULT NULL COMMENT '发布时间', `expire_time` datetime DEFAULT NULL COMMENT '过期时间',
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `title` varchar(200) NOT NULL COMMENT '标题',
+  `summary` varchar(500) DEFAULT NULL COMMENT '摘要',
+  `content` text NOT NULL COMMENT '纯文本正文',
+  `category` varchar(64) NOT NULL COMMENT '通知分类',
+  `priority` varchar(16) NOT NULL DEFAULT 'NORMAL' COMMENT '优先级',
+  `source_type` varchar(64) DEFAULT NULL COMMENT '来源类型',
+  `source_key` varchar(128) DEFAULT NULL COMMENT '来源幂等键',
+  `target_types` varchar(64) NOT NULL COMMENT '目标端快照',
+  `audience_snapshot` json DEFAULT NULL COMMENT '受众条件快照',
+  `sender_type` varchar(32) NOT NULL COMMENT '发送人类型',
+  `sender_id` varchar(32) NOT NULL COMMENT '发送人ID',
+  `sender_name` varchar(100) DEFAULT NULL COMMENT '发送人名称快照',
+  `status` varchar(32) NOT NULL DEFAULT 'DRAFT' COMMENT '发布状态',
+  `publish_time` datetime DEFAULT NULL COMMENT '发布时间',
+  `expire_time` datetime DEFAULT NULL COMMENT '过期时间',
   `card_payload` json DEFAULT NULL COMMENT '安全业务卡片快照',
-  `jump_type` varchar(32) DEFAULT NULL COMMENT '安全跳转类型', `jump_payload` json DEFAULT NULL COMMENT '安全跳转参数',
-  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID', `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
-  `update_by` varchar(60) DEFAULT NULL COMMENT '修改人', `create_time` datetime DEFAULT NULL COMMENT '创建时间',
-  `update_time` datetime DEFAULT NULL COMMENT '更新时间', `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除',
-  PRIMARY KEY (`id`), UNIQUE KEY `uk_message_notice_source` (`tenant_id`, `source_type`, `source_key`),
+  `jump_type` varchar(32) DEFAULT NULL COMMENT '安全跳转类型',
+  `jump_payload` json DEFAULT NULL COMMENT '安全跳转参数',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0正常；1删除',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_message_notice_source` (`tenant_id`, `source_type`, `source_key`),
   KEY `idx_message_notice_status_time` (`tenant_id`, `status`, `publish_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='站内通知';
 
 CREATE TABLE `message_recipient` (
-  `id` varchar(32) NOT NULL COMMENT '主键', `message_id` varchar(32) NOT NULL COMMENT '通知ID',
-  `recipient_type` varchar(32) NOT NULL COMMENT '收件人类型', `recipient_id` varchar(32) NOT NULL COMMENT '收件人ID',
-  `recipient_name` varchar(100) DEFAULT NULL COMMENT '名称快照', `read_status` char(1) NOT NULL DEFAULT '0' COMMENT '已读状态',
-  `read_time` datetime DEFAULT NULL COMMENT '已读时间', `received_time` datetime NOT NULL COMMENT '接收时间',
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `message_id` varchar(32) NOT NULL COMMENT '通知ID',
+  `recipient_type` varchar(32) NOT NULL COMMENT '收件人类型',
+  `recipient_id` varchar(32) NOT NULL COMMENT '收件人ID',
+  `recipient_name` varchar(100) DEFAULT NULL COMMENT '收件人名称快照',
+  `read_status` char(1) NOT NULL DEFAULT '0' COMMENT '已读状态',
+  `read_time` datetime DEFAULT NULL COMMENT '已读时间',
+  `received_time` datetime NOT NULL COMMENT '接收时间',
   `inbox_status` varchar(16) NOT NULL DEFAULT 'VISIBLE' COMMENT '收件箱状态',
-  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID', `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
-  `update_by` varchar(60) DEFAULT NULL COMMENT '修改人', `create_time` datetime DEFAULT NULL COMMENT '创建时间',
-  `update_time` datetime DEFAULT NULL COMMENT '更新时间', `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除',
-  PRIMARY KEY (`id`), UNIQUE KEY `uk_message_recipient_identity` (`tenant_id`, `message_id`, `recipient_type`, `recipient_id`),
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0正常；1删除',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_message_recipient_identity` (`tenant_id`, `message_id`, `recipient_type`, `recipient_id`),
   KEY `idx_message_recipient_inbox` (`tenant_id`, `recipient_type`, `recipient_id`, `inbox_status`, `received_time`),
   KEY `idx_message_recipient_unread` (`tenant_id`, `recipient_type`, `recipient_id`, `read_status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='通知收件人';
 
 CREATE TABLE `message_dispatch_task` (
-  `id` varchar(32) NOT NULL COMMENT '主键', `message_id` varchar(32) NOT NULL COMMENT '通知ID',
-  `target_type` varchar(32) NOT NULL COMMENT '目标端', `audience_type` varchar(32) NOT NULL COMMENT '受众类型',
-  `audience_condition` json DEFAULT NULL COMMENT '受众条件', `cursor_value` varchar(64) DEFAULT NULL COMMENT '分发游标',
-  `status` varchar(32) NOT NULL DEFAULT 'PENDING' COMMENT '任务状态', `estimated_count` bigint NOT NULL DEFAULT 0 COMMENT '预计人数',
-  `success_count` bigint NOT NULL DEFAULT 0 COMMENT '成功数', `failure_count` bigint NOT NULL DEFAULT 0 COMMENT '失败数',
-  `retry_count` int NOT NULL DEFAULT 0 COMMENT '重试次数', `last_heartbeat_time` datetime DEFAULT NULL COMMENT '最后心跳时间',
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `message_id` varchar(32) NOT NULL COMMENT '通知ID',
+  `target_type` varchar(32) NOT NULL COMMENT '目标端',
+  `audience_type` varchar(32) NOT NULL COMMENT '受众类型',
+  `audience_condition` json DEFAULT NULL COMMENT '受众条件',
+  `cursor_value` varchar(64) DEFAULT NULL COMMENT '分发游标',
+  `status` varchar(32) NOT NULL DEFAULT 'PENDING' COMMENT '任务状态',
+  `estimated_count` bigint NOT NULL DEFAULT 0 COMMENT '预计人数',
+  `success_count` bigint NOT NULL DEFAULT 0 COMMENT '成功数',
+  `failure_count` bigint NOT NULL DEFAULT 0 COMMENT '失败数',
+  `retry_count` int NOT NULL DEFAULT 0 COMMENT '重试次数',
+  `last_heartbeat_time` datetime DEFAULT NULL COMMENT '最后心跳时间',
   `error_summary` varchar(1000) DEFAULT NULL COMMENT '错误摘要',
-  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID', `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
-  `update_by` varchar(60) DEFAULT NULL COMMENT '修改人', `create_time` datetime DEFAULT NULL COMMENT '创建时间',
-  `update_time` datetime DEFAULT NULL COMMENT '更新时间', `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除',
-  PRIMARY KEY (`id`), UNIQUE KEY `uk_message_dispatch_target` (`tenant_id`, `message_id`, `target_type`),
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0正常；1删除',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_message_dispatch_target` (`tenant_id`, `message_id`, `target_type`),
   KEY `idx_message_dispatch_recovery` (`tenant_id`, `status`, `last_heartbeat_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='通知分发任务';
 
 CREATE TABLE `message_conversation` (
-  `id` varchar(32) NOT NULL COMMENT '主键', `conversation_type` varchar(32) NOT NULL COMMENT '会话类型',
-  `queue_code` varchar(64) NOT NULL DEFAULT 'DEFAULT' COMMENT '客服队列', `customer_id` varchar(32) DEFAULT NULL COMMENT '会员ID',
-  `assigned_staff_id` varchar(32) DEFAULT NULL COMMENT '当前负责人', `staff_pair_key` varchar(80) DEFAULT NULL COMMENT '工作人员组合键',
-  `status` varchar(32) NOT NULL COMMENT '会话状态', `last_seq` bigint NOT NULL DEFAULT 0 COMMENT '最后消息序号',
-  `last_message_id` varchar(32) DEFAULT NULL COMMENT '最后消息ID', `last_message_summary` varchar(500) DEFAULT NULL COMMENT '最后消息摘要',
-  `last_message_time` datetime DEFAULT NULL COMMENT '最后消息时间', `closed_time` datetime DEFAULT NULL COMMENT '关闭时间',
-  `reopen_deadline` datetime DEFAULT NULL COMMENT '重开截止时间', `close_reason` varchar(500) DEFAULT NULL COMMENT '关闭原因',
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `conversation_type` varchar(32) NOT NULL COMMENT '会话类型',
+  `queue_code` varchar(64) NOT NULL DEFAULT 'DEFAULT' COMMENT '客服队列',
+  `customer_id` varchar(32) DEFAULT NULL COMMENT '会员ID',
+  `assigned_staff_id` varchar(32) DEFAULT NULL COMMENT '当前负责人',
+  `staff_pair_key` varchar(80) DEFAULT NULL COMMENT '排序后的工作人员组合键',
+  `status` varchar(32) NOT NULL COMMENT '会话状态',
+  `last_seq` bigint NOT NULL DEFAULT 0 COMMENT '最后消息序号',
+  `last_message_id` varchar(32) DEFAULT NULL COMMENT '最后消息ID',
+  `last_message_summary` varchar(500) DEFAULT NULL COMMENT '最后消息摘要',
+  `last_message_time` datetime DEFAULT NULL COMMENT '最后消息时间',
+  `closed_time` datetime DEFAULT NULL COMMENT '关闭时间',
+  `reopen_deadline` datetime DEFAULT NULL COMMENT '重开截止时间',
+  `close_reason` varchar(500) DEFAULT NULL COMMENT '关闭原因',
   `context_payload` json DEFAULT NULL COMMENT '业务上下文',
   `customer_active_key` varchar(160) GENERATED ALWAYS AS (CASE WHEN `conversation_type` = 'CUSTOMER_SERVICE' AND `status` IN ('WAITING','ASSIGNED','ACTIVE') AND `del_flag` = '0' THEN CONCAT(`customer_id`, ':', `queue_code`) ELSE NULL END) STORED COMMENT '客服活跃唯一键',
   `staff_active_key` varchar(80) GENERATED ALWAYS AS (CASE WHEN `conversation_type` = 'STAFF_DIRECT' AND `status` IN ('WAITING','ASSIGNED','ACTIVE') AND `del_flag` = '0' THEN `staff_pair_key` ELSE NULL END) STORED COMMENT '私信活跃唯一键',
-  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID', `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
-  `update_by` varchar(60) DEFAULT NULL COMMENT '修改人', `create_time` datetime DEFAULT NULL COMMENT '创建时间',
-  `update_time` datetime DEFAULT NULL COMMENT '更新时间', `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除',
-  PRIMARY KEY (`id`), UNIQUE KEY `uk_message_conversation_customer_active` (`tenant_id`, `customer_active_key`),
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0正常；1删除',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_message_conversation_customer_active` (`tenant_id`, `customer_active_key`),
   UNIQUE KEY `uk_message_conversation_staff_active` (`tenant_id`, `staff_active_key`),
   KEY `idx_message_conversation_waiting` (`tenant_id`, `queue_code`, `status`, `create_time`),
   KEY `idx_message_conversation_assignee` (`tenant_id`, `assigned_staff_id`, `status`, `last_message_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='消息会话';
 
 CREATE TABLE `message_participant` (
-  `id` varchar(32) NOT NULL COMMENT '主键', `conversation_id` varchar(32) NOT NULL COMMENT '会话ID',
-  `participant_type` varchar(32) NOT NULL COMMENT '参与者类型', `participant_id` varchar(32) NOT NULL COMMENT '参与者ID',
-  `participant_name` varchar(100) DEFAULT NULL COMMENT '名称快照', `participant_avatar` varchar(1024) DEFAULT NULL COMMENT '头像快照',
-  `last_read_seq` bigint NOT NULL DEFAULT 0 COMMENT '最后已读序号', `joined_time` datetime NOT NULL COMMENT '加入时间',
-  `exited_time` datetime DEFAULT NULL COMMENT '退出时间', `participant_status` varchar(16) NOT NULL DEFAULT 'ACTIVE' COMMENT '参与状态',
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `conversation_id` varchar(32) NOT NULL COMMENT '会话ID',
+  `participant_type` varchar(32) NOT NULL COMMENT '参与者类型',
+  `participant_id` varchar(32) NOT NULL COMMENT '参与者ID',
+  `participant_name` varchar(100) DEFAULT NULL COMMENT '名称快照',
+  `participant_avatar` varchar(1024) DEFAULT NULL COMMENT '头像快照',
+  `last_read_seq` bigint NOT NULL DEFAULT 0 COMMENT '最后已读序号',
+  `joined_time` datetime NOT NULL COMMENT '加入时间',
+  `exited_time` datetime DEFAULT NULL COMMENT '退出时间',
+  `participant_status` varchar(16) NOT NULL DEFAULT 'ACTIVE' COMMENT '参与状态',
   `notification_enabled` char(1) NOT NULL DEFAULT '1' COMMENT '通知开关',
-  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID', `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
-  `update_by` varchar(60) DEFAULT NULL COMMENT '修改人', `create_time` datetime DEFAULT NULL COMMENT '创建时间',
-  `update_time` datetime DEFAULT NULL COMMENT '更新时间', `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除',
-  PRIMARY KEY (`id`), UNIQUE KEY `uk_message_participant_identity` (`tenant_id`, `conversation_id`, `participant_type`, `participant_id`),
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0正常；1删除',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_message_participant_identity` (`tenant_id`, `conversation_id`, `participant_type`, `participant_id`),
   KEY `idx_message_participant_inbox` (`tenant_id`, `participant_type`, `participant_id`, `participant_status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='会话参与者';
 
 CREATE TABLE `message_chat` (
-  `id` varchar(32) NOT NULL COMMENT '主键', `conversation_id` varchar(32) NOT NULL COMMENT '会话ID',
-  `seq_no` bigint NOT NULL COMMENT '会话内序号', `sender_type` varchar(32) NOT NULL COMMENT '发送人类型',
-  `sender_id` varchar(32) NOT NULL COMMENT '发送人ID', `sender_name` varchar(100) DEFAULT NULL COMMENT '名称快照',
-  `sender_avatar` varchar(1024) DEFAULT NULL COMMENT '头像快照', `message_type` varchar(32) NOT NULL COMMENT '消息类型',
-  `content` text DEFAULT NULL COMMENT '纯文本内容', `payload` json DEFAULT NULL COMMENT '结构化负载',
-  `client_message_id` varchar(64) NOT NULL COMMENT '客户端幂等号', `quoted_message_id` varchar(32) DEFAULT NULL COMMENT '引用消息ID',
-  `recall_status` char(1) NOT NULL DEFAULT '0' COMMENT '撤回状态', `recall_time` datetime DEFAULT NULL COMMENT '撤回时间',
-  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID', `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
-  `update_by` varchar(60) DEFAULT NULL COMMENT '修改人', `create_time` datetime DEFAULT NULL COMMENT '创建时间',
-  `update_time` datetime DEFAULT NULL COMMENT '更新时间', `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除',
-  PRIMARY KEY (`id`), UNIQUE KEY `uk_message_chat_seq` (`tenant_id`, `conversation_id`, `seq_no`),
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `conversation_id` varchar(32) NOT NULL COMMENT '会话ID',
+  `seq_no` bigint NOT NULL COMMENT '会话内序号',
+  `sender_type` varchar(32) NOT NULL COMMENT '发送人类型',
+  `sender_id` varchar(32) NOT NULL COMMENT '发送人ID',
+  `sender_name` varchar(100) DEFAULT NULL COMMENT '发送人名称快照',
+  `sender_avatar` varchar(1024) DEFAULT NULL COMMENT '发送人头像快照',
+  `message_type` varchar(32) NOT NULL COMMENT '消息类型',
+  `content` text DEFAULT NULL COMMENT '纯文本内容',
+  `payload` json DEFAULT NULL COMMENT '结构化消息负载',
+  `client_message_id` varchar(64) NOT NULL COMMENT '客户端幂等号',
+  `quoted_message_id` varchar(32) DEFAULT NULL COMMENT '引用消息ID',
+  `recall_status` char(1) NOT NULL DEFAULT '0' COMMENT '撤回状态',
+  `recall_time` datetime DEFAULT NULL COMMENT '撤回时间',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0正常；1删除',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_message_chat_seq` (`tenant_id`, `conversation_id`, `seq_no`),
   UNIQUE KEY `uk_message_chat_client` (`tenant_id`, `sender_type`, `sender_id`, `client_message_id`),
   KEY `idx_message_chat_cursor` (`tenant_id`, `conversation_id`, `seq_no`, `del_flag`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='会话消息';
 
 CREATE TABLE `message_agent` (
-  `id` varchar(32) NOT NULL COMMENT '主键', `staff_id` varchar(32) NOT NULL COMMENT '工作人员ID',
-  `enabled` char(1) NOT NULL DEFAULT '1' COMMENT '客服资格开关', `auto_accept` char(1) NOT NULL DEFAULT '1' COMMENT '自动接待开关',
-  `max_active_count` int NOT NULL DEFAULT 10 COMMENT '最大活跃会话数', `current_active_count` int NOT NULL DEFAULT 0 COMMENT '当前活跃数',
-  `last_assigned_time` datetime DEFAULT NULL COMMENT '最后分配时间', `version` int NOT NULL DEFAULT 0 COMMENT '乐观锁版本',
-  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID', `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
-  `update_by` varchar(60) DEFAULT NULL COMMENT '修改人', `create_time` datetime DEFAULT NULL COMMENT '创建时间',
-  `update_time` datetime DEFAULT NULL COMMENT '更新时间', `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除',
-  PRIMARY KEY (`id`), UNIQUE KEY `uk_message_agent_staff` (`tenant_id`, `staff_id`),
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `staff_id` varchar(32) NOT NULL COMMENT '工作人员ID',
+  `enabled` char(1) NOT NULL DEFAULT '1' COMMENT '客服资格开关',
+  `auto_accept` char(1) NOT NULL DEFAULT '1' COMMENT '自动接待开关',
+  `max_active_count` int NOT NULL DEFAULT 10 COMMENT '最大活跃会话数',
+  `current_active_count` int NOT NULL DEFAULT 0 COMMENT '当前活跃会话数',
+  `last_assigned_time` datetime DEFAULT NULL COMMENT '最后分配时间',
+  `version` int NOT NULL DEFAULT 0 COMMENT '乐观锁版本',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0正常；1删除',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_message_agent_staff` (`tenant_id`, `staff_id`),
   KEY `idx_message_agent_assignment` (`tenant_id`, `enabled`, `auto_accept`, `current_active_count`, `last_assigned_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='客服坐席配置';
 
 CREATE TABLE `message_assignment_log` (
-  `id` varchar(32) NOT NULL COMMENT '主键', `conversation_id` varchar(32) NOT NULL COMMENT '会话ID',
-  `action_type` varchar(32) NOT NULL COMMENT '分配动作', `from_staff_id` varchar(32) DEFAULT NULL COMMENT '原客服ID',
-  `to_staff_id` varchar(32) DEFAULT NULL COMMENT '目标客服ID', `operator_type` varchar(32) NOT NULL COMMENT '操作人类型',
-  `operator_id` varchar(32) NOT NULL COMMENT '操作人ID', `reason` varchar(500) DEFAULT NULL COMMENT '操作原因',
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `conversation_id` varchar(32) NOT NULL COMMENT '会话ID',
+  `action_type` varchar(32) NOT NULL COMMENT '分配动作',
+  `from_staff_id` varchar(32) DEFAULT NULL COMMENT '原客服ID',
+  `to_staff_id` varchar(32) DEFAULT NULL COMMENT '目标客服ID',
+  `operator_type` varchar(32) NOT NULL COMMENT '操作人类型',
+  `operator_id` varchar(32) NOT NULL COMMENT '操作人ID',
+  `reason` varchar(500) DEFAULT NULL COMMENT '操作原因',
   `detail_payload` json DEFAULT NULL COMMENT '审计详情',
-  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID', `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
-  `update_by` varchar(60) DEFAULT NULL COMMENT '修改人', `create_time` datetime DEFAULT NULL COMMENT '创建时间',
-  `update_time` datetime DEFAULT NULL COMMENT '更新时间', `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除',
-  PRIMARY KEY (`id`), KEY `idx_message_assignment_conversation` (`tenant_id`, `conversation_id`, `create_time`),
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0正常；1删除',
+  PRIMARY KEY (`id`),
+  KEY `idx_message_assignment_conversation` (`tenant_id`, `conversation_id`, `create_time`),
   KEY `idx_message_assignment_staff` (`tenant_id`, `to_staff_id`, `create_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='客服分配审计日志';
 
@@ -3687,6 +3775,1399 @@ WHERE status = '0' AND del_flag = '0';
 UPDATE page_design
 SET published_version_id = CONCAT('v1_', id)
 WHERE published_status = '1' AND del_flag = '0';
+
+-- ============================================================================
+-- 页面装修发布治理与审计
+-- Source: db/boot/30page_design_release_audit.sql
+-- ============================================================================
+-- 商城装修发布治理与审计增量迁移（Boot 单体模式）
+-- 目标库：aryn_boot
+-- 特性：可重复执行，不执行 DROP/TRUNCATE，不覆盖已有业务数据。
+-- 执行：mysql -u root -p aryn_boot < 30page_design_release_audit.sql
+
+USE `aryn_boot`;
+
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- 页面装修发布申请表
+-- 说明：发布流程为 草稿保存 -> 服务端校验 -> 创建 release ->（可配置跳过）审批
+-- -> 基于快照生成不可变版本 -> 更新线上指针 -> 记录审计。
+-- 申请内容为提交时的页面快照，审批通过后按快照发布，保证审阅内容与上线内容一致。
+CREATE TABLE IF NOT EXISTS `page_design_release` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `page_design_id` varchar(32) NOT NULL COMMENT '页面ID（page_design.id）',
+  `release_no` int NOT NULL COMMENT '页面内申请序号，从1递增',
+  `release_strategy` char(2) NOT NULL DEFAULT '0' COMMENT '发布策略：0.立即；1.定时（预留）；2.灰度（预留）；',
+  `release_status` char(2) NOT NULL DEFAULT '0' COMMENT '申请状态：0.待审核；1.已发布；2.已拒绝；3.已取消；',
+  `draft_revision` bigint NOT NULL COMMENT '申请时草稿修订号',
+  `schema_version` int NOT NULL DEFAULT 2 COMMENT '装修协议版本',
+  `page_name` varchar(50) NOT NULL COMMENT '申请时页面名称',
+  `page_content` longtext NOT NULL COMMENT '申请内容快照',
+  `publish_remark` varchar(255) NULL COMMENT '发布备注',
+  `audit_remark` varchar(255) NULL COMMENT '审批意见',
+  `submit_by` varchar(60) NULL COMMENT '提交人',
+  `submit_at` datetime NULL COMMENT '提交时间',
+  `audit_by` varchar(60) NULL COMMENT '审批人',
+  `audit_at` datetime NULL COMMENT '审批时间',
+  `release_version_id` varchar(32) NULL COMMENT '审批通过后生成的发布版本ID（page_design_version.id）',
+  `fail_reason` varchar(255) NULL COMMENT '失败原因（预留）',
+  `plan_publish_at` datetime NULL COMMENT '计划发布时间（定时策略预留）',
+  `create_by` varchar(60) NULL COMMENT '创建人',
+  `update_by` varchar(60) NULL COMMENT '修改人',
+  `create_time` datetime NULL COMMENT '创建时间',
+  `update_time` datetime NULL ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_page_design_release_no` (`tenant_id`, `page_design_id`, `release_no`),
+  KEY `idx_page_design_release_status` (`page_design_id`, `release_status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='页面装修发布申请表';
+
+-- 页面装修审计日志表（追加写，不提供业务更新）
+-- 说明：记录草稿保存、发布、下线、回滚与发布申请全流程，
+-- 保证任何线上版本可回溯到租户、操作者、release 与前后版本。
+CREATE TABLE IF NOT EXISTS `page_design_audit_log` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `page_design_id` varchar(32) NOT NULL COMMENT '页面ID（page_design.id）',
+  `release_id` varchar(32) NULL COMMENT '关联发布申请ID（page_design_release.id）',
+  `action` varchar(32) NOT NULL COMMENT '操作类型：SAVE_DRAFT/PUBLISH/UNPUBLISH/ROLLBACK/RELEASE_SUBMIT/RELEASE_APPROVE/RELEASE_REJECT/RELEASE_CANCEL',
+  `operator` varchar(60) NULL COMMENT '操作人',
+  `operator_ip` varchar(64) NULL COMMENT '操作者IP',
+  `before_version_id` varchar(32) NULL COMMENT '操作前发布版本ID',
+  `after_version_id` varchar(32) NULL COMMENT '操作后发布版本ID',
+  `before_revision` bigint NULL COMMENT '操作前草稿修订号',
+  `after_revision` bigint NULL COMMENT '操作后草稿修订号',
+  `result` char(2) NOT NULL DEFAULT '0' COMMENT '操作结果：0.成功；1.失败；',
+  `remark` varchar(255) NULL COMMENT '备注',
+  `create_by` varchar(60) NULL COMMENT '创建人',
+  `create_time` datetime NULL COMMENT '创建时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  PRIMARY KEY (`id`),
+  KEY `idx_page_design_audit_page` (`tenant_id`, `page_design_id`, `create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='页面装修审计日志表';
+
+-- 装修发布治理按钮权限（IGNORE 幂等）
+INSERT IGNORE INTO `sys_menu`
+  (`id`, `name`, `permission`, `path`, `redirect`, `parent_id`, `icon`, `component`, `sort`, `type`,
+   `create_time`, `update_time`, `outer_status`, `del_flag`, `application_key`, `create_by`, `update_by`)
+VALUES
+  ('2026090509000000001', '提交发布申请', 'promotion:pagedesign:submit', NULL, NULL,
+   '1600477837933047810', NULL, NULL, 4, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+  ('2026090509000000002', '发布审批', 'promotion:pagedesign:approve', NULL, NULL,
+   '1600477837933047810', NULL, NULL, 5, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+  ('2026090509000000003', '装修审计日志', 'promotion:pagedesign:audit', NULL, NULL,
+   '1600477837933047810', NULL, NULL, 6, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL);
+
+-- 临时表：收集本次新增的菜单 ID，用于批量授权
+CREATE TEMPORARY TABLE tmp_menu_page_design_governance (
+  menu_id varchar(32) NOT NULL,
+  PRIMARY KEY (menu_id)
+) ENGINE = MEMORY DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_general_ci;
+
+INSERT INTO tmp_menu_page_design_governance (menu_id)
+VALUES
+  ('2026090509000000001'),
+  ('2026090509000000002'),
+  ('2026090509000000003');
+
+-- 为所有租户的 ROLE_ADMIN 角色授权
+INSERT INTO `sys_role_menu` (`id`, `role_id`, `menu_id`, `create_time`, `tenant_id`)
+SELECT REPLACE(UUID(), '-', ''), role.id, seed.menu_id, NOW(), role.tenant_id
+FROM sys_role AS role
+CROSS JOIN tmp_menu_page_design_governance AS seed
+WHERE role.del_flag = '0'
+  AND role.role_code = 'ROLE_ADMIN'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM sys_role_menu AS role_menu
+    WHERE role_menu.role_id = role.id
+      AND role_menu.menu_id = seed.menu_id
+      AND role_menu.tenant_id = role.tenant_id
+  );
+
+-- 为所有租户授权菜单（平台租户除外，平台租户不过滤菜单）
+INSERT INTO `sys_tenant_menu` (`id`, `tenant_id`, `menu_id`, `create_time`, `create_by`)
+SELECT REPLACE(UUID(), '-', ''), tenant.id, seed.menu_id, NOW(), 'system'
+FROM sys_tenant AS tenant
+CROSS JOIN tmp_menu_page_design_governance AS seed
+WHERE tenant.del_flag = '0'
+  AND tenant.id <> '1881232176465358849'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM sys_tenant_menu AS tenant_menu
+    WHERE tenant_menu.tenant_id = tenant.id
+      AND tenant_menu.menu_id = seed.menu_id
+  );
+
+DROP TEMPORARY TABLE tmp_menu_page_design_governance;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 页面装修主题
+-- Source: db/boot/32page_design_theme.sql
+-- ============================================================================
+-- 商城装修主题增量迁移（Boot 单体模式）
+-- 目标库：aryn_boot
+-- 特性：可重复执行，不执行 DROP/TRUNCATE，不覆盖已有业务数据。
+-- 执行：mysql -u root -p aryn_boot < 32page_design_theme.sql
+
+USE `aryn_boot`;
+
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- 页面装修主题表
+-- 说明：草稿经 v3 文档 themeRef 引用主题；发布时服务端把主题内容固化为
+-- themeSnapshot 写入发布快照，主题后续修改不影响已发布历史版本。
+CREATE TABLE IF NOT EXISTS `page_design_theme` (
+  `id` varchar(32) NOT NULL COMMENT '主键（同时作为 v3 文档 themeRef 令牌）',
+  `theme_name` varchar(100) NOT NULL COMMENT '主题名称',
+  `primary_color` varchar(16) NULL COMMENT '品牌主色',
+  `page_background_color` varchar(16) NULL COMMENT '页面背景色',
+  `navigation_color` varchar(16) NULL COMMENT '导航栏背景色',
+  `navigation_text_color` varchar(16) NULL COMMENT '导航栏文字色',
+  `radius` int NULL DEFAULT 8 COMMENT '全局圆角（px）',
+  `system_flag` char(2) NOT NULL DEFAULT '0' COMMENT '系统主题：0.否；1.是；',
+  `status` char(2) NOT NULL DEFAULT '0' COMMENT '状态：0.正常；1.停用；',
+  `sort` int NOT NULL DEFAULT 0 COMMENT '排序',
+  `create_by` varchar(60) NULL COMMENT '创建人',
+  `update_by` varchar(60) NULL COMMENT '修改人',
+  `create_time` datetime NULL COMMENT '创建时间',
+  `update_time` datetime NULL ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  PRIMARY KEY (`id`),
+  KEY `idx_page_design_theme_tenant` (`tenant_id`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='页面装修主题表';
+
+-- 主题管理按钮权限（IGNORE 幂等）
+INSERT IGNORE INTO `sys_menu`
+  (`id`, `name`, `permission`, `path`, `redirect`, `parent_id`, `icon`, `component`, `sort`, `type`,
+   `create_time`, `update_time`, `outer_status`, `del_flag`, `application_key`, `create_by`, `update_by`)
+VALUES
+  ('2026090509000000004', '装修主题管理', 'promotion:pagedesign:theme', NULL, NULL,
+   '1600477837933047810', NULL, NULL, 7, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL);
+
+-- 临时表：收集本次新增的菜单 ID，用于批量授权
+CREATE TEMPORARY TABLE tmp_menu_page_design_theme (
+  menu_id varchar(32) NOT NULL,
+  PRIMARY KEY (menu_id)
+) ENGINE = MEMORY DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_general_ci;
+
+INSERT INTO tmp_menu_page_design_theme (menu_id)
+VALUES ('2026090509000000004');
+
+-- 为所有租户的 ROLE_ADMIN 角色授权
+INSERT INTO `sys_role_menu` (`id`, `role_id`, `menu_id`, `create_time`, `tenant_id`)
+SELECT REPLACE(UUID(), '-', ''), role.id, seed.menu_id, NOW(), role.tenant_id
+FROM sys_role AS role
+CROSS JOIN tmp_menu_page_design_theme AS seed
+WHERE role.del_flag = '0'
+  AND role.role_code = 'ROLE_ADMIN'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM sys_role_menu AS role_menu
+    WHERE role_menu.role_id = role.id
+      AND role_menu.menu_id = seed.menu_id
+      AND role_menu.tenant_id = role.tenant_id
+  );
+
+-- 为所有租户授权菜单（平台租户除外，平台租户不过滤菜单）
+INSERT INTO `sys_tenant_menu` (`id`, `tenant_id`, `menu_id`, `create_time`, `create_by`)
+SELECT REPLACE(UUID(), '-', ''), tenant.id, seed.menu_id, NOW(), 'system'
+FROM sys_tenant AS tenant
+CROSS JOIN tmp_menu_page_design_theme AS seed
+WHERE tenant.del_flag = '0'
+  AND tenant.id <> '1881232176465358849'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM sys_tenant_menu AS tenant_menu
+    WHERE tenant_menu.tenant_id = tenant.id
+      AND tenant_menu.menu_id = seed.menu_id
+  );
+
+DROP TEMPORARY TABLE tmp_menu_page_design_theme;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 页面装修定时灰度与指标
+-- Source: db/boot/33page_design_phase4.sql
+-- ============================================================================
+-- 商城装修定时/灰度发布与指标增量迁移（Boot 单体模式）
+-- 目标库：aryn_boot
+-- 特性：可重复执行，不执行 DROP/TRUNCATE，不覆盖已有业务数据。
+-- 执行：mysql -u root -p aryn_boot < 33page_design_phase4.sql
+
+USE `aryn_boot`;
+
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- 灰度发布版本指针
+-- 说明：幂等守卫兼容已有列的存量库；information_schema 判断在 MySQL 8 可重复执行。
+SET @gray_column_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'page_design'
+    AND COLUMN_NAME = 'gray_version_id'
+);
+SET @gray_ddl = IF(
+  @gray_column_exists = 0,
+  'ALTER TABLE `page_design` ADD COLUMN `gray_version_id` varchar(32) NULL COMMENT ''灰度发布版本ID'' AFTER `published_version_id`',
+  'SELECT 1'
+);
+PREPARE gray_stmt FROM @gray_ddl;
+EXECUTE gray_stmt;
+DEALLOCATE PREPARE gray_stmt;
+
+-- 行业模板标签
+SET @industry_column_exists = (
+  SELECT COUNT(*)
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'page_design_template'
+    AND COLUMN_NAME = 'industry_tag'
+);
+SET @industry_ddl = IF(
+  @industry_column_exists = 0,
+  'ALTER TABLE `page_design_template` ADD COLUMN `industry_tag` varchar(32) NULL COMMENT ''行业标签（行业模板筛选用，通用为空）'' AFTER `system_flag`',
+  'SELECT 1'
+);
+PREPARE industry_stmt FROM @industry_ddl;
+EXECUTE industry_stmt;
+DEALLOCATE PREPARE industry_stmt;
+
+-- 灰度发布目标表
+CREATE TABLE IF NOT EXISTS `page_design_release_target` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `release_id` varchar(32) NOT NULL COMMENT '发布申请ID（page_design_release.id）',
+  `page_design_id` varchar(32) NOT NULL COMMENT '页面ID（page_design.id）',
+  `target_tenant_id` varchar(32) NOT NULL COMMENT '灰度目标租户ID',
+  `terminal` varchar(16) NOT NULL DEFAULT 'all' COMMENT '灰度目标终端：all/h5/weapp',
+  `create_by` varchar(60) NULL COMMENT '创建人',
+  `create_time` datetime NULL COMMENT '创建时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID（申请归属租户）',
+  PRIMARY KEY (`id`),
+  KEY `idx_page_design_target_release` (`release_id`, `target_tenant_id`),
+  KEY `idx_page_design_target_page` (`page_design_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='页面装修灰度发布目标表';
+
+-- 页面装修每日聚合指标表
+-- 说明：本表不纳入租户拦截器白名单（原生 upsert 与拦截器改写冲突），
+-- 租户维度由服务端显式写入并在查询时显式过滤。
+CREATE TABLE IF NOT EXISTS `page_design_metric_daily` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `page_design_id` varchar(32) NOT NULL COMMENT '页面ID',
+  `version_id` varchar(32) NOT NULL DEFAULT '-' COMMENT '发布版本ID，未知为 -',
+  `metric_date` date NOT NULL COMMENT '指标日期',
+  `component_type` varchar(32) NOT NULL DEFAULT '-' COMMENT '组件类型，页面级为 -',
+  `view_count` bigint NOT NULL DEFAULT 0 COMMENT '页面访问数',
+  `click_count` bigint NOT NULL DEFAULT 0 COMMENT '组件点击数',
+  `error_count` bigint NOT NULL DEFAULT 0 COMMENT '渲染错误数',
+  `create_by` varchar(60) NULL COMMENT '创建人',
+  `create_time` datetime NULL COMMENT '创建时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_page_design_metric_daily` (`tenant_id`, `page_design_id`, `version_id`, `metric_date`, `component_type`),
+  KEY `idx_page_design_metric_page` (`page_design_id`, `metric_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='页面装修每日聚合指标表';
+
+-- 指标查看按钮权限（IGNORE 幂等）
+INSERT IGNORE INTO `sys_menu`
+  (`id`, `name`, `permission`, `path`, `redirect`, `parent_id`, `icon`, `component`, `sort`, `type`,
+   `create_time`, `update_time`, `outer_status`, `del_flag`, `application_key`, `create_by`, `update_by`)
+VALUES
+  ('2026090609000000001', '装修数据看板', 'promotion:pagedesign:metrics', NULL, NULL,
+   '1600477837933047810', NULL, NULL, 8, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL);
+
+-- 临时表：收集本次新增的菜单 ID，用于批量授权
+CREATE TEMPORARY TABLE tmp_menu_page_design_metrics (
+  menu_id varchar(32) NOT NULL,
+  PRIMARY KEY (menu_id)
+) ENGINE = MEMORY DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_general_ci;
+
+INSERT INTO tmp_menu_page_design_metrics (menu_id)
+VALUES ('2026090609000000001');
+
+-- 为所有租户的 ROLE_ADMIN 角色授权
+INSERT INTO `sys_role_menu` (`id`, `role_id`, `menu_id`, `create_time`, `tenant_id`)
+SELECT REPLACE(UUID(), '-', ''), role.id, seed.menu_id, NOW(), role.tenant_id
+FROM sys_role AS role
+CROSS JOIN tmp_menu_page_design_metrics AS seed
+WHERE role.del_flag = '0'
+  AND role.role_code = 'ROLE_ADMIN'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM sys_role_menu AS role_menu
+    WHERE role_menu.role_id = role.id
+      AND role_menu.menu_id = seed.menu_id
+      AND role_menu.tenant_id = role.tenant_id
+  );
+
+-- 为所有租户授权菜单（平台租户除外，平台租户不过滤菜单）
+INSERT INTO `sys_tenant_menu` (`id`, `tenant_id`, `menu_id`, `create_time`, `create_by`)
+SELECT REPLACE(UUID(), '-', ''), tenant.id, seed.menu_id, NOW(), 'system'
+FROM sys_tenant AS tenant
+CROSS JOIN tmp_menu_page_design_metrics AS seed
+WHERE tenant.del_flag = '0'
+  AND tenant.id <> '1881232176465358849'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM sys_tenant_menu AS tenant_menu
+    WHERE tenant_menu.tenant_id = tenant.id
+      AND tenant_menu.menu_id = seed.menu_id
+  );
+
+DROP TEMPORARY TABLE tmp_menu_page_design_metrics;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 限时秒杀与限时折扣
+-- Source: db/boot/25seckill_discount.sql
+-- ============================================================================
+-- ============================================================
+-- 限时秒杀 + 限时折扣 DDL（Boot 模式，统一库 aryn_boot）
+-- 创建日期：2026-07-31
+-- ============================================================
+
+USE `aryn_boot`;
+
+DROP TABLE IF EXISTS `seckill_activity`;
+DROP TABLE IF EXISTS `seckill_session`;
+DROP TABLE IF EXISTS `seckill_goods`;
+DROP TABLE IF EXISTS `seckill_order`;
+DROP TABLE IF EXISTS `discount_activity`;
+DROP TABLE IF EXISTS `discount_goods`;
+
+-- ============ 限时秒杀 ============
+
+CREATE TABLE `seckill_activity` (
+    `id`            bigint       NOT NULL COMMENT '主键',
+    `tenant_id`     varchar(64)  NOT NULL DEFAULT '0' COMMENT '租户ID',
+    `activity_name` varchar(128) NOT NULL COMMENT '活动名称',
+    `start_time`    datetime     NOT NULL COMMENT '活动开始时间',
+    `end_time`      datetime     NOT NULL COMMENT '活动结束时间',
+    `status`        tinyint      NOT NULL DEFAULT 0 COMMENT '状态:0未开始 1进行中 2已结束 3已暂停',
+    `description`   varchar(512) DEFAULT NULL COMMENT '活动描述',
+    `create_by`     varchar(64)  DEFAULT NULL COMMENT '创建人',
+    `update_by`     varchar(64)  DEFAULT NULL COMMENT '修改人',
+    `create_time`   datetime     DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`   datetime     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '修改时间',
+    `del_flag`      varchar(1)   NOT NULL DEFAULT '0' COMMENT '逻辑删除:0正常 1删除',
+    `version`       int          NOT NULL DEFAULT 0 COMMENT '乐观锁版本号',
+    PRIMARY KEY (`id`),
+    KEY `idx_tenant_status` (`tenant_id`, `status`),
+    KEY `idx_time` (`start_time`, `end_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='秒杀活动';
+
+CREATE TABLE `seckill_session` (
+    `id`            bigint       NOT NULL COMMENT '主键',
+    `tenant_id`     varchar(64)  NOT NULL DEFAULT '0' COMMENT '租户ID',
+    `activity_id`   bigint       NOT NULL COMMENT '活动ID',
+    `session_name`  varchar(64)  NOT NULL COMMENT '场次名称',
+    `start_time`    datetime     NOT NULL COMMENT '场次开始时间',
+    `end_time`      datetime     NOT NULL COMMENT '场次结束时间',
+    `status`        tinyint      NOT NULL DEFAULT 0 COMMENT '状态:0未开始 1进行中 2已结束',
+    `create_time`   datetime     DEFAULT CURRENT_TIMESTAMP,
+    `update_time`   datetime     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `del_flag`      varchar(1)   NOT NULL DEFAULT '0',
+    PRIMARY KEY (`id`),
+    KEY `idx_activity` (`activity_id`),
+    KEY `idx_time` (`start_time`, `end_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='秒杀场次';
+
+CREATE TABLE `seckill_goods` (
+    `id`              bigint        NOT NULL COMMENT '主键',
+    `tenant_id`       varchar(64)   NOT NULL DEFAULT '0' COMMENT '租户ID',
+    `activity_id`     bigint        NOT NULL COMMENT '活动ID',
+    `session_id`      bigint        NOT NULL COMMENT '场次ID',
+    `spu_id`          varchar(64)   NOT NULL COMMENT '商品SPU ID',
+    `sku_id`          varchar(64)   NOT NULL COMMENT '商品SKU ID',
+    `seckill_price`   decimal(10,2) NOT NULL COMMENT '秒杀价',
+    `seckill_stock`   int           NOT NULL COMMENT '秒杀库存',
+    `limit_per_user`  int           NOT NULL DEFAULT 1 COMMENT '每人限购数',
+    `sold_count`      int           NOT NULL DEFAULT 0 COMMENT '已售数量',
+    `create_time`     datetime      DEFAULT CURRENT_TIMESTAMP,
+    `update_time`     datetime      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `del_flag`        varchar(1)    NOT NULL DEFAULT '0',
+    PRIMARY KEY (`id`),
+    KEY `idx_session` (`session_id`),
+    KEY `idx_sku` (`sku_id`),
+    KEY `uk_session_sku` (`session_id`, `sku_id`, `del_flag`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='秒杀商品';
+
+CREATE TABLE `seckill_order` (
+    `id`               bigint       NOT NULL COMMENT '主键',
+    `tenant_id`        varchar(64)  NOT NULL DEFAULT '0',
+    `activity_id`      bigint       NOT NULL COMMENT '活动ID',
+    `session_id`       bigint       NOT NULL COMMENT '场次ID',
+    `seckill_goods_id` bigint       NOT NULL COMMENT '秒杀商品ID',
+    `order_id`         varchar(64)  NOT NULL COMMENT '订单ID',
+    `user_id`          varchar(64)  NOT NULL COMMENT '用户ID',
+    `sku_id`           varchar(64)  NOT NULL COMMENT 'SKU ID',
+    `quantity`         int          NOT NULL COMMENT '购买数量',
+    `create_time`      datetime     DEFAULT CURRENT_TIMESTAMP,
+    `del_flag`         varchar(1)   NOT NULL DEFAULT '0',
+    PRIMARY KEY (`id`),
+    KEY `idx_order` (`order_id`),
+    KEY `idx_user_session` (`user_id`, `session_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='秒杀订单记录';
+
+-- ============ 限时折扣 ============
+
+CREATE TABLE `discount_activity` (
+    `id`             bigint       NOT NULL COMMENT '主键',
+    `tenant_id`      varchar(64)  NOT NULL DEFAULT '0' COMMENT '租户ID',
+    `activity_name`  varchar(128) NOT NULL COMMENT '活动名称',
+    `start_time`     datetime     NOT NULL COMMENT '开始时间',
+    `end_time`       datetime     NOT NULL COMMENT '结束时间',
+    `discount_type`  tinyint      NOT NULL COMMENT '折扣类型:1打折 2减价 3固定价',
+    `discount_value` decimal(10,2) NOT NULL COMMENT '折扣值',
+    `scope`          tinyint      NOT NULL DEFAULT 1 COMMENT '适用范围:1全场 2指定商品',
+    `status`         tinyint      NOT NULL DEFAULT 0 COMMENT '状态:0未开始 1进行中 2已结束 3已暂停',
+    `description`    varchar(512) DEFAULT NULL,
+    `create_by`      varchar(64)  DEFAULT NULL,
+    `update_by`      varchar(64)  DEFAULT NULL,
+    `create_time`    datetime     DEFAULT CURRENT_TIMESTAMP,
+    `update_time`    datetime     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `del_flag`       varchar(1)   NOT NULL DEFAULT '0',
+    `version`        int          NOT NULL DEFAULT 0,
+    PRIMARY KEY (`id`),
+    KEY `idx_tenant_status` (`tenant_id`, `status`),
+    KEY `idx_time` (`start_time`, `end_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='折扣活动';
+
+CREATE TABLE `discount_goods` (
+    `id`          bigint       NOT NULL COMMENT '主键',
+    `tenant_id`   varchar(64)  NOT NULL DEFAULT '0',
+    `activity_id` bigint       NOT NULL COMMENT '活动ID',
+    `spu_id`      varchar(64)  NOT NULL COMMENT '商品SPU ID',
+    `sku_id`      varchar(64)  NOT NULL COMMENT '商品SKU ID',
+    `create_time` datetime     DEFAULT CURRENT_TIMESTAMP,
+    `del_flag`    varchar(1)   NOT NULL DEFAULT '0',
+    PRIMARY KEY (`id`),
+    KEY `idx_activity` (`activity_id`),
+    KEY `idx_sku` (`sku_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='折扣商品关联';
+
+-- ============================================================================
+-- 秒杀与折扣菜单权限
+-- Source: db/boot/26seckill_discount_menu.sql
+-- ============================================================================
+USE aryn_boot;
+
+SET NAMES utf8mb4;
+
+START TRANSACTION;
+
+-- 秒杀活动与折扣活动菜单种子；IGNORE 兼容早期或不完整的存量库。
+-- 编辑页路由已在前端 core.ts 静态注册（hideInMenu），此处仅配置列表页与按钮权限。
+INSERT IGNORE INTO sys_menu
+  (id, name, permission, path, redirect, parent_id, icon, component, sort, type,
+   create_time, update_time, outer_status, del_flag, application_key, create_by, update_by)
+VALUES
+  -- 秒杀管理（目录）
+  ('1991000000000000070', '秒杀管理', NULL, '/promotion/seckill-activity', '/promotion/seckill-activity/index',
+   '1779386604402573314', 'carbon:flash', '', 22, '0', '2026-08-02 10:00:00', NULL, '0', '0',
+   'app_market', 'system', 'system'),
+  -- 秒杀活动列表
+  ('1991000000000000071', '秒杀活动', NULL, '/promotion/seckill-activity/index', NULL,
+   '1991000000000000070', 'carbon:flash', 'promotion/seckill-activity/index', 1, '0',
+   '2026-08-02 10:00:00', NULL, '0', '0', 'app_market', 'system', 'system'),
+  -- 秒杀活动按钮权限
+  ('1991000000000000072', '秒杀活动分页', 'promotion:seckill:page', NULL, NULL,
+   '1991000000000000071', NULL, NULL, 1, '1', '2026-08-02 10:00:00', NULL, '0', '0',
+   'app_market', 'system', NULL),
+  ('1991000000000000073', '秒杀活动查询', 'promotion:seckill:get', NULL, NULL,
+   '1991000000000000071', NULL, NULL, 2, '1', '2026-08-02 10:00:00', NULL, '0', '0',
+   'app_market', 'system', NULL),
+  ('1991000000000000074', '秒杀活动新增', 'promotion:seckill:add', NULL, NULL,
+   '1991000000000000071', NULL, NULL, 3, '1', '2026-08-02 10:00:00', NULL, '0', '0',
+   'app_market', 'system', NULL),
+  ('1991000000000000075', '秒杀活动修改', 'promotion:seckill:edit', NULL, NULL,
+   '1991000000000000071', NULL, NULL, 4, '1', '2026-08-02 10:00:00', NULL, '0', '0',
+   'app_market', 'system', NULL),
+  ('1991000000000000076', '秒杀活动删除', 'promotion:seckill:del', NULL, NULL,
+   '1991000000000000071', NULL, NULL, 5, '1', '2026-08-02 10:00:00', NULL, '0', '0',
+   'app_market', 'system', NULL),
+  ('1991000000000000077', '秒杀活动状态', 'promotion:seckill:status', NULL, NULL,
+   '1991000000000000071', NULL, NULL, 6, '1', '2026-08-02 10:00:00', NULL, '0', '0',
+   'app_market', 'system', NULL),
+
+  -- 折扣管理（目录）
+  ('1991000000000000080', '折扣管理', NULL, '/promotion/discount-activity', '/promotion/discount-activity/index',
+   '1779386604402573314', 'carbon:percentage', '', 23, '0', '2026-08-02 10:00:00', NULL, '0', '0',
+   'app_market', 'system', 'system'),
+  -- 折扣活动列表
+  ('1991000000000000081', '折扣活动', NULL, '/promotion/discount-activity/index', NULL,
+   '1991000000000000080', 'carbon:percentage', 'promotion/discount-activity/index', 1, '0',
+   '2026-08-02 10:00:00', NULL, '0', '0', 'app_market', 'system', 'system'),
+  -- 折扣活动按钮权限
+  ('1991000000000000082', '折扣活动分页', 'promotion:discount:page', NULL, NULL,
+   '1991000000000000081', NULL, NULL, 1, '1', '2026-08-02 10:00:00', NULL, '0', '0',
+   'app_market', 'system', NULL),
+  ('1991000000000000083', '折扣活动查询', 'promotion:discount:get', NULL, NULL,
+   '1991000000000000081', NULL, NULL, 2, '1', '2026-08-02 10:00:00', NULL, '0', '0',
+   'app_market', 'system', NULL),
+  ('1991000000000000084', '折扣活动新增', 'promotion:discount:add', NULL, NULL,
+   '1991000000000000081', NULL, NULL, 3, '1', '2026-08-02 10:00:00', NULL, '0', '0',
+   'app_market', 'system', NULL),
+  ('1991000000000000085', '折扣活动修改', 'promotion:discount:edit', NULL, NULL,
+   '1991000000000000081', NULL, NULL, 4, '1', '2026-08-02 10:00:00', NULL, '0', '0',
+   'app_market', 'system', NULL),
+  ('1991000000000000086', '折扣活动删除', 'promotion:discount:del', NULL, NULL,
+   '1991000000000000081', NULL, NULL, 5, '1', '2026-08-02 10:00:00', NULL, '0', '0',
+   'app_market', 'system', NULL),
+  ('1991000000000000087', '折扣活动状态', 'promotion:discount:status', NULL, NULL,
+   '1991000000000000081', NULL, NULL, 6, '1', '2026-08-02 10:00:00', NULL, '0', '0',
+   'app_market', 'system', NULL);
+
+-- 临时表：收集本次新增的菜单 ID，用于批量授权
+CREATE TEMPORARY TABLE tmp_menu_seckill_discount (
+  menu_id varchar(32) NOT NULL,
+  PRIMARY KEY (menu_id)
+) ENGINE = MEMORY DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_general_ci;
+
+INSERT INTO tmp_menu_seckill_discount (menu_id)
+VALUES
+  ('1991000000000000070'),
+  ('1991000000000000071'),
+  ('1991000000000000072'),
+  ('1991000000000000073'),
+  ('1991000000000000074'),
+  ('1991000000000000075'),
+  ('1991000000000000076'),
+  ('1991000000000000077'),
+  ('1991000000000000080'),
+  ('1991000000000000081'),
+  ('1991000000000000082'),
+  ('1991000000000000083'),
+  ('1991000000000000084'),
+  ('1991000000000000085'),
+  ('1991000000000000086'),
+  ('1991000000000000087');
+
+-- 为所有租户的 ROLE_ADMIN 角色授权
+INSERT INTO sys_role_menu (id, role_id, menu_id, create_time, tenant_id)
+SELECT REPLACE(UUID(), '-', ''), role.id, seed.menu_id, NOW(), role.tenant_id
+FROM sys_role AS role
+CROSS JOIN tmp_menu_seckill_discount AS seed
+WHERE role.del_flag = '0'
+  AND role.role_code = 'ROLE_ADMIN'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM sys_role_menu AS role_menu
+    WHERE role_menu.role_id = role.id
+      AND role_menu.menu_id = seed.menu_id
+      AND role_menu.tenant_id = role.tenant_id
+  );
+
+-- 为所有租户授权菜单（平台租户除外，平台租户不过滤菜单）
+INSERT INTO sys_tenant_menu (id, tenant_id, menu_id, create_time, create_by)
+SELECT REPLACE(UUID(), '-', ''), tenant.id, seed.menu_id, NOW(), 'system'
+FROM sys_tenant AS tenant
+CROSS JOIN tmp_menu_seckill_discount AS seed
+WHERE tenant.del_flag = '0'
+  AND tenant.id <> '1881232176465358849'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM sys_tenant_menu AS tenant_menu
+    WHERE tenant_menu.tenant_id = tenant.id
+      AND tenant_menu.menu_id = seed.menu_id
+  );
+
+DROP TEMPORARY TABLE tmp_menu_seckill_discount;
+
+COMMIT;
+
+-- ============================================================================
+-- 商城自配送模块
+-- Source: db/boot/25delivery_module.sql
+-- ============================================================================
+-- 商城自配送模块（Boot 模式，统一库 aryn_boot）
+USE `aryn_boot`;
+
+DROP TABLE IF EXISTS `delivery_evidence`;
+DROP TABLE IF EXISTS `delivery_task_log`;
+DROP TABLE IF EXISTS `delivery_task_item`;
+DROP TABLE IF EXISTS `delivery_task`;
+DROP TABLE IF EXISTS `delivery_trip`;
+DROP TABLE IF EXISTS `delivery_staff`;
+DROP TABLE IF EXISTS `delivery_warehouse_config`;
+DROP TABLE IF EXISTS `delivery_area`;
+DROP TABLE IF EXISTS `sys_user_wechat_binding`;
+
+-- 配送员表
+CREATE TABLE `delivery_staff` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `user_id` varchar(32) DEFAULT NULL COMMENT '关联sys_user后台用户ID',
+  `staff_name` varchar(64) NOT NULL COMMENT '配送员姓名',
+  `staff_phone` varchar(20) NOT NULL COMMENT '手机号',
+  `status` varchar(2) NOT NULL DEFAULT '3' COMMENT '状态：1在线 2忙碌 3离线',
+  `vehicle_info` varchar(255) DEFAULT NULL COMMENT '车辆信息',
+  `openid` varchar(64) DEFAULT NULL COMMENT '微信openid',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  KEY `idx_delivery_staff_tenant` (`tenant_id`),
+  KEY `idx_delivery_staff_user` (`user_id`),
+  KEY `idx_delivery_staff_status` (`tenant_id`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='配送员';
+
+-- 出车单表
+CREATE TABLE `delivery_trip` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `trip_no` varchar(64) NOT NULL COMMENT '出车单号（系统生成）',
+  `staff_id` varchar(32) NOT NULL COMMENT '配送员ID',
+  `status` varchar(2) NOT NULL DEFAULT '1' COMMENT '状态：1待配货 2配货中 3配送中 4已完成',
+  `task_count` int NOT NULL DEFAULT 0 COMMENT '关联订单数',
+  `warehouse_address` varchar(500) DEFAULT NULL COMMENT '仓库地址快照',
+  `start_load_time` datetime DEFAULT NULL COMMENT '开始配货时间',
+  `depart_time` datetime DEFAULT NULL COMMENT '装货出发时间',
+  `complete_time` datetime DEFAULT NULL COMMENT '全部完成时间',
+  `remark` varchar(500) DEFAULT NULL COMMENT '备注',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_delivery_trip_no` (`tenant_id`, `trip_no`),
+  KEY `idx_delivery_trip_staff` (`tenant_id`, `staff_id`),
+  KEY `idx_delivery_trip_status` (`tenant_id`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='出车单';
+
+-- 配送任务表
+CREATE TABLE `delivery_task` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `task_no` varchar(64) NOT NULL COMMENT '任务编号',
+  `trip_id` varchar(32) DEFAULT NULL COMMENT '关联出车单ID，待派单时为空',
+  `order_id` varchar(32) NOT NULL COMMENT '关联订单ID',
+  `order_no` varchar(64) NOT NULL COMMENT '订单号冗余',
+  `staff_id` varchar(32) DEFAULT NULL COMMENT '配送员ID，待派单时为空',
+  `status` varchar(2) NOT NULL DEFAULT '1' COMMENT '状态：1待派单 2待取货 3配货中 4待送达 5已送达 6已签收 7已取消 8异常 9待退回',
+  `sort_no` int NOT NULL DEFAULT 1 COMMENT '送货顺序',
+  `warehouse_address` varchar(500) DEFAULT NULL COMMENT '取货仓库地址快照',
+  `recipient_name` varchar(64) DEFAULT NULL COMMENT '收货人姓名',
+  `recipient_phone` varchar(20) DEFAULT NULL COMMENT '收货人电话',
+  `recipient_address` varchar(500) DEFAULT NULL COMMENT '收货完整地址',
+  `assign_time` datetime DEFAULT NULL COMMENT '派单时间',
+  `pick_up_time` datetime DEFAULT NULL COMMENT '取货开始时间',
+  `depart_time` datetime DEFAULT NULL COMMENT '出发配送时间',
+  `arrive_time` datetime DEFAULT NULL COMMENT '送达时间',
+  `sign_time` datetime DEFAULT NULL COMMENT '签收时间',
+  `exception_time` datetime DEFAULT NULL COMMENT '异常时间',
+  `return_pending_time` datetime DEFAULT NULL COMMENT '待退回时间',
+  `return_confirm_time` datetime DEFAULT NULL COMMENT '退回确认时间',
+  `close_time` datetime DEFAULT NULL COMMENT '关闭时间',
+  `attempt_no` int NOT NULL DEFAULT 1 COMMENT '当前尝试号，从1递增',
+  `version` int NOT NULL DEFAULT 0 COMMENT '乐观锁版本号',
+  `exception_reason` varchar(64) DEFAULT NULL COMMENT '异常原因编码',
+  `exception_desc` varchar(500) DEFAULT NULL COMMENT '异常说明',
+  `remark` varchar(500) DEFAULT NULL COMMENT '备注',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_delivery_task_no` (`tenant_id`, `task_no`),
+  UNIQUE KEY `uk_delivery_task_order` (`tenant_id`, `order_id`),
+  KEY `idx_delivery_task_trip` (`tenant_id`, `trip_id`),
+  KEY `idx_delivery_task_order` (`tenant_id`, `order_id`),
+  KEY `idx_delivery_task_staff` (`tenant_id`, `staff_id`),
+  KEY `idx_delivery_task_status` (`tenant_id`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='配送任务';
+
+-- 取货明细表
+CREATE TABLE `delivery_task_item` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `task_id` varchar(32) NOT NULL COMMENT '关联配送任务ID',
+  `order_item_id` varchar(32) NOT NULL COMMENT '关联订单明细ID',
+  `spu_name` varchar(255) DEFAULT NULL COMMENT '商品名称快照',
+  `sku_name` varchar(255) DEFAULT NULL COMMENT '规格名称快照',
+  `quantity` int NOT NULL DEFAULT 0 COMMENT '应取数量',
+  `image` varchar(500) DEFAULT NULL COMMENT '商品图片快照',
+  `picked` varchar(2) NOT NULL DEFAULT '0' COMMENT '0未取 1已取',
+  `picked_time` datetime DEFAULT NULL COMMENT '确认取货时间',
+  `attempt_no` int NOT NULL DEFAULT 1 COMMENT '当前尝试号',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  KEY `idx_delivery_task_item_task` (`tenant_id`, `task_id`),
+  KEY `idx_delivery_task_item_order_item` (`tenant_id`, `order_item_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='取货明细';
+
+-- 仓库配置表（租户级单条）
+CREATE TABLE `delivery_warehouse_config` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `warehouse_name` varchar(128) NOT NULL COMMENT '仓库名称',
+  `contact_name` varchar(64) DEFAULT NULL COMMENT '联系人',
+  `contact_phone` varchar(20) DEFAULT NULL COMMENT '联系电话',
+  `province` varchar(64) DEFAULT NULL COMMENT '省',
+  `city` varchar(64) DEFAULT NULL COMMENT '市',
+  `area` varchar(64) DEFAULT NULL COMMENT '区',
+  `address` varchar(255) DEFAULT NULL COMMENT '详细地址',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  KEY `idx_delivery_warehouse_config_tenant` (`tenant_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='仓库配置';
+
+-- 配送任务操作日志表
+CREATE TABLE `delivery_task_log` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `task_id` varchar(32) NOT NULL COMMENT '关联配送任务ID',
+  `action` varchar(32) NOT NULL COMMENT '动作：ASSIGN/REASSIGN/PICKING/PICKUP/DEPART/ARRIVE/EXCEPTION/RETURN_PENDING/RETURN_CONFIRM/CLOSE/CANCEL',
+  `from_status` varchar(2) DEFAULT NULL COMMENT '原状态',
+  `to_status` varchar(2) DEFAULT NULL COMMENT '目标状态',
+  `attempt_no` int DEFAULT NULL COMMENT '尝试号',
+  `operator_type` varchar(2) DEFAULT NULL COMMENT '操作人类型：1管理员 2配送员 3系统',
+  `operator_id` varchar(32) DEFAULT NULL COMMENT '操作人ID',
+  `operator_name` varchar(64) DEFAULT NULL COMMENT '操作人姓名快照',
+  `reason_code` varchar(64) DEFAULT NULL COMMENT '原因编码',
+  `reason_desc` varchar(500) DEFAULT NULL COMMENT '说明',
+  `summary` text DEFAULT NULL COMMENT '受控JSON摘要',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  KEY `idx_delivery_task_log_task` (`tenant_id`, `task_id`),
+  KEY `idx_delivery_task_log_action` (`tenant_id`, `action`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='配送任务操作日志';
+
+-- 送达凭证表
+CREATE TABLE `delivery_evidence` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `task_id` varchar(32) NOT NULL COMMENT '关联配送任务ID',
+  `attempt_no` int NOT NULL COMMENT '尝试号',
+  `evidence_type` varchar(2) NOT NULL COMMENT '凭证类型：1送达 2异常 3退回',
+  `material_id` varchar(32) DEFAULT NULL COMMENT '关联素材ID',
+  `material_url` varchar(500) DEFAULT NULL COMMENT '素材访问URL快照',
+  `sort_no` int NOT NULL DEFAULT 1 COMMENT '排序',
+  `upload_by` varchar(32) DEFAULT NULL COMMENT '上传人ID',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  KEY `idx_delivery_evidence_task` (`tenant_id`, `task_id`),
+  KEY `idx_delivery_evidence_material` (`tenant_id`, `material_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='送达凭证';
+
+-- 配送范围表
+CREATE TABLE `delivery_area` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `province_code` varchar(12) DEFAULT NULL COMMENT '省编码',
+  `province_name` varchar(64) DEFAULT NULL COMMENT '省名称',
+  `city_code` varchar(12) DEFAULT NULL COMMENT '市编码',
+  `city_name` varchar(64) DEFAULT NULL COMMENT '市名称',
+  `area_code` varchar(12) DEFAULT NULL COMMENT '区县编码',
+  `area_name` varchar(64) DEFAULT NULL COMMENT '区县名称',
+  `enabled` varchar(2) NOT NULL DEFAULT '1' COMMENT '启用状态：1启用 0禁用',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  KEY `idx_delivery_area_tenant` (`tenant_id`),
+  KEY `idx_delivery_area_codes` (`tenant_id`, `province_code`, `city_code`, `area_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='配送范围';
+
+-- 员工微信绑定表
+CREATE TABLE `sys_user_wechat_binding` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `user_id` varchar(32) NOT NULL COMMENT '员工ID',
+  `app_id` varchar(64) NOT NULL COMMENT '小程序AppID',
+  `openid` varchar(64) NOT NULL COMMENT 'openid',
+  `status` varchar(2) NOT NULL DEFAULT '1' COMMENT '绑定状态：1有效 0解绑',
+  `bind_time` datetime DEFAULT NULL COMMENT '绑定时间',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_wechat_binding_openid` (`tenant_id`, `app_id`, `openid`, `status`),
+  KEY `idx_wechat_binding_user` (`tenant_id`, `user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='员工微信绑定';
+
+-- 配送模块菜单和权限（IGNORE 幂等，兼容先执行 25delivery_menu_fix.sql 的场景）
+INSERT IGNORE INTO `sys_menu` (`id`, `name`, `permission`, `path`, `redirect`, `parent_id`, `icon`, `component`, `sort`, `type`, `create_time`, `update_time`, `outer_status`, `del_flag`, `application_key`, `create_by`, `update_by`) VALUES
+('2100000000000000001', '配送管理', NULL, '/delivery', '/delivery/task', '0', 'carbon:delivery-truck', '', 50, '0', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000002', '配送任务', NULL, '/delivery/task', NULL, '2100000000000000001', 'carbon:task', 'delivery/task/index', 10, '0', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000003', '配送员管理', NULL, '/delivery/staff', NULL, '2100000000000000001', 'carbon:user-role', 'delivery/staff/index', 20, '0', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000004', '出车单管理', NULL, '/delivery/trip', NULL, '2100000000000000001', 'carbon:truck', 'delivery/trip/index', 30, '0', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000005', '仓库配置', NULL, '/delivery/config', NULL, '2100000000000000001', 'carbon:warehouse', 'delivery/config/index', 40, '0', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000006', '配送范围', NULL, '/delivery/area', NULL, '2100000000000000001', 'carbon:location', 'delivery/area/index', 50, '0', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000010', '任务分页', 'delivery:task:page', NULL, NULL, '2100000000000000002', '', NULL, 1, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000011', '任务详情', 'delivery:task:get', NULL, NULL, '2100000000000000002', '', NULL, 2, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000012', '派单', 'delivery:task:assign', NULL, NULL, '2100000000000000002', '', NULL, 3, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000013', '改派', 'delivery:task:reassign', NULL, NULL, '2100000000000000002', '', NULL, 4, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000014', '取消任务', 'delivery:task:cancel', NULL, NULL, '2100000000000000002', '', NULL, 5, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000015', '异常处理', 'delivery:task:exception', NULL, NULL, '2100000000000000002', '', NULL, 6, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000016', '退回确认', 'delivery:task:return', NULL, NULL, '2100000000000000002', '', NULL, 7, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000017', '配送执行', 'delivery:execute', NULL, NULL, '2100000000000000002', '', NULL, 8, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000020', '配送员分页', 'delivery:staff:page', NULL, NULL, '2100000000000000003', '', NULL, 1, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000021', '新增配送员', 'delivery:staff:add', NULL, NULL, '2100000000000000003', '', NULL, 2, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000022', '编辑配送员', 'delivery:staff:edit', NULL, NULL, '2100000000000000003', '', NULL, 3, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000023', '删除配送员', 'delivery:staff:del', NULL, NULL, '2100000000000000003', '', NULL, 4, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000024', '配送员详情', 'delivery:staff:get', NULL, NULL, '2100000000000000003', '', NULL, 5, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000025', '配送员列表', 'delivery:staff:list', NULL, NULL, '2100000000000000003', '', NULL, 6, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000026', '配送员状态', 'delivery:staff:status', NULL, NULL, '2100000000000000003', '', NULL, 7, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000030', '出车单分页', 'delivery:trip:page', NULL, NULL, '2100000000000000004', '', NULL, 1, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000027', '出车单详情', 'delivery:trip:get', NULL, NULL, '2100000000000000004', '', NULL, 2, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000040', '配送范围分页', 'delivery:area:page', NULL, NULL, '2100000000000000006', '', NULL, 1, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000041', '新增配送范围', 'delivery:area:add', NULL, NULL, '2100000000000000006', '', NULL, 2, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000042', '编辑配送范围', 'delivery:area:edit', NULL, NULL, '2100000000000000006', '', NULL, 3, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000043', '删除配送范围', 'delivery:area:del', NULL, NULL, '2100000000000000006', '', NULL, 4, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000050', '查看仓库配置', 'delivery:warehouse:get', NULL, NULL, '2100000000000000005', '', NULL, 1, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000051', '保存仓库配置', 'delivery:warehouse:edit', NULL, NULL, '2100000000000000005', '', NULL, 2, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL);
+
+-- 将配送模块全部菜单分配给超级管理员角色（role_id='1'，tenant_id='1590229800633634816')
+INSERT IGNORE INTO `sys_role_menu` (`id`, `role_id`, `menu_id`, `create_time`, `tenant_id`) VALUES
+('2101000000000000001', '1', '2100000000000000001', NOW(), '1590229800633634816'),
+('2101000000000000002', '1', '2100000000000000002', NOW(), '1590229800633634816'),
+('2101000000000000003', '1', '2100000000000000003', NOW(), '1590229800633634816'),
+('2101000000000000004', '1', '2100000000000000004', NOW(), '1590229800633634816'),
+('2101000000000000005', '1', '2100000000000000005', NOW(), '1590229800633634816'),
+('2101000000000000006', '1', '2100000000000000006', NOW(), '1590229800633634816'),
+('2101000000000000010', '1', '2100000000000000010', NOW(), '1590229800633634816'),
+('2101000000000000011', '1', '2100000000000000011', NOW(), '1590229800633634816'),
+('2101000000000000012', '1', '2100000000000000012', NOW(), '1590229800633634816'),
+('2101000000000000013', '1', '2100000000000000013', NOW(), '1590229800633634816'),
+('2101000000000000014', '1', '2100000000000000014', NOW(), '1590229800633634816'),
+('2101000000000000015', '1', '2100000000000000015', NOW(), '1590229800633634816'),
+('2101000000000000016', '1', '2100000000000000016', NOW(), '1590229800633634816'),
+('2101000000000000017', '1', '2100000000000000017', NOW(), '1590229800633634816'),
+('2101000000000000020', '1', '2100000000000000020', NOW(), '1590229800633634816'),
+('2101000000000000021', '1', '2100000000000000021', NOW(), '1590229800633634816'),
+('2101000000000000022', '1', '2100000000000000022', NOW(), '1590229800633634816'),
+('2101000000000000023', '1', '2100000000000000023', NOW(), '1590229800633634816'),
+('2101000000000000024', '1', '2100000000000000024', NOW(), '1590229800633634816'),
+('2101000000000000025', '1', '2100000000000000025', NOW(), '1590229800633634816'),
+('2101000000000000026', '1', '2100000000000000026', NOW(), '1590229800633634816'),
+('2101000000000000030', '1', '2100000000000000030', NOW(), '1590229800633634816'),
+('2101000000000000027', '1', '2100000000000000027', NOW(), '1590229800633634816'),
+('2101000000000000040', '1', '2100000000000000040', NOW(), '1590229800633634816'),
+('2101000000000000041', '1', '2100000000000000041', NOW(), '1590229800633634816'),
+('2101000000000000042', '1', '2100000000000000042', NOW(), '1590229800633634816'),
+('2101000000000000043', '1', '2100000000000000043', NOW(), '1590229800633634816'),
+('2101000000000000050', '1', '2100000000000000050', NOW(), '1590229800633634816'),
+('2101000000000000051', '1', '2100000000000000051', NOW(), '1590229800633634816');
+
+-- 将配送模块全部菜单分配给默认租户（tenant_id='1590229800633634816'）
+INSERT IGNORE INTO `sys_tenant_menu` (`id`, `tenant_id`, `menu_id`, `create_time`, `create_by`) VALUES
+('2102000000000000001', '1590229800633634816', '2100000000000000001', NOW(), 'system'),
+('2102000000000000002', '1590229800633634816', '2100000000000000002', NOW(), 'system'),
+('2102000000000000003', '1590229800633634816', '2100000000000000003', NOW(), 'system'),
+('2102000000000000004', '1590229800633634816', '2100000000000000004', NOW(), 'system'),
+('2102000000000000005', '1590229800633634816', '2100000000000000005', NOW(), 'system'),
+('2102000000000000006', '1590229800633634816', '2100000000000000006', NOW(), 'system'),
+('2102000000000000010', '1590229800633634816', '2100000000000000010', NOW(), 'system'),
+('2102000000000000011', '1590229800633634816', '2100000000000000011', NOW(), 'system'),
+('2102000000000000012', '1590229800633634816', '2100000000000000012', NOW(), 'system'),
+('2102000000000000013', '1590229800633634816', '2100000000000000013', NOW(), 'system'),
+('2102000000000000014', '1590229800633634816', '2100000000000000014', NOW(), 'system'),
+('2102000000000000015', '1590229800633634816', '2100000000000000015', NOW(), 'system'),
+('2102000000000000016', '1590229800633634816', '2100000000000000016', NOW(), 'system'),
+('2102000000000000017', '1590229800633634816', '2100000000000000017', NOW(), 'system'),
+('2102000000000000020', '1590229800633634816', '2100000000000000020', NOW(), 'system'),
+('2102000000000000021', '1590229800633634816', '2100000000000000021', NOW(), 'system'),
+('2102000000000000022', '1590229800633634816', '2100000000000000022', NOW(), 'system'),
+('2102000000000000023', '1590229800633634816', '2100000000000000023', NOW(), 'system'),
+('2102000000000000024', '1590229800633634816', '2100000000000000024', NOW(), 'system'),
+('2102000000000000025', '1590229800633634816', '2100000000000000025', NOW(), 'system'),
+('2102000000000000026', '1590229800633634816', '2100000000000000026', NOW(), 'system'),
+('2102000000000000030', '1590229800633634816', '2100000000000000030', NOW(), 'system'),
+('2102000000000000027', '1590229800633634816', '2100000000000000027', NOW(), 'system'),
+('2102000000000000040', '1590229800633634816', '2100000000000000040', NOW(), 'system'),
+('2102000000000000041', '1590229800633634816', '2100000000000000041', NOW(), 'system'),
+('2102000000000000042', '1590229800633634816', '2100000000000000042', NOW(), 'system'),
+('2102000000000000043', '1590229800633634816', '2100000000000000043', NOW(), 'system'),
+('2102000000000000050', '1590229800633634816', '2100000000000000050', NOW(), 'system'),
+('2102000000000000051', '1590229800633634816', '2100000000000000051', NOW(), 'system');
+
+-- ============================================================================
+-- 配送履约增量迁移
+-- Source: db/boot/27delivery_fulfillment_incremental.sql
+-- ============================================================================
+-- 悦航购商城配送履约增量迁移（Boot 单体模式）
+-- 目标库：aryn_boot
+-- 特性：可重复执行，不执行 DROP/TRUNCATE，不覆盖已有业务数据。
+-- 执行：mysql -u root -p aryn_boot < 27delivery_fulfillment_incremental.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+CREATE TABLE IF NOT EXISTS `delivery_staff` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `user_id` varchar(32) DEFAULT NULL COMMENT '关联sys_user后台用户ID',
+  `staff_name` varchar(64) NOT NULL COMMENT '配送员姓名',
+  `staff_phone` varchar(20) NOT NULL COMMENT '手机号',
+  `status` varchar(2) NOT NULL DEFAULT '3' COMMENT '状态：1在线 2忙碌 3离线',
+  `vehicle_info` varchar(255) DEFAULT NULL COMMENT '车辆信息',
+  `openid` varchar(64) DEFAULT NULL COMMENT '微信openid',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人', `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间', `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`), KEY `idx_delivery_staff_tenant` (`tenant_id`), KEY `idx_delivery_staff_user` (`user_id`), KEY `idx_delivery_staff_status` (`tenant_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='配送员';
+
+CREATE TABLE IF NOT EXISTS `delivery_trip` (
+  `id` varchar(32) NOT NULL COMMENT '主键', `trip_no` varchar(64) NOT NULL COMMENT '出车单号（系统生成）',
+  `staff_id` varchar(32) NOT NULL COMMENT '配送员ID', `status` varchar(2) NOT NULL DEFAULT '1' COMMENT '状态：1待配货 2配货中 3配送中 4已完成',
+  `task_count` int NOT NULL DEFAULT 0 COMMENT '关联订单数', `warehouse_address` varchar(500) DEFAULT NULL COMMENT '仓库地址快照',
+  `start_load_time` datetime DEFAULT NULL COMMENT '开始配货时间', `depart_time` datetime DEFAULT NULL COMMENT '装货出发时间',
+  `complete_time` datetime DEFAULT NULL COMMENT '全部完成时间', `remark` varchar(500) DEFAULT NULL COMMENT '备注',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID', `create_by` varchar(60) DEFAULT NULL COMMENT '创建人', `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间', `update_time` datetime DEFAULT NULL COMMENT '更新时间', `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`), UNIQUE KEY `uk_delivery_trip_no` (`tenant_id`,`trip_no`), KEY `idx_delivery_trip_staff` (`tenant_id`,`staff_id`), KEY `idx_delivery_trip_status` (`tenant_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='出车单';
+
+CREATE TABLE IF NOT EXISTS `delivery_task` (
+  `id` varchar(32) NOT NULL COMMENT '主键', `task_no` varchar(64) NOT NULL COMMENT '任务编号', `trip_id` varchar(32) DEFAULT NULL COMMENT '关联出车单ID，待派单时为空',
+  `order_id` varchar(32) NOT NULL COMMENT '关联订单ID', `order_no` varchar(64) NOT NULL COMMENT '订单号冗余', `staff_id` varchar(32) DEFAULT NULL COMMENT '配送员ID，待派单时为空',
+  `status` varchar(2) NOT NULL DEFAULT '1' COMMENT '状态：1待派单 2待取货 3配货中 4待送达 5已送达 6已签收 7已取消 8异常 9待退回',
+  `sort_no` int NOT NULL DEFAULT 1 COMMENT '送货顺序', `warehouse_address` varchar(500) DEFAULT NULL COMMENT '取货仓库地址快照',
+  `recipient_name` varchar(64) DEFAULT NULL COMMENT '收货人姓名', `recipient_phone` varchar(20) DEFAULT NULL COMMENT '收货人电话', `recipient_address` varchar(500) DEFAULT NULL COMMENT '收货完整地址',
+  `assign_time` datetime DEFAULT NULL COMMENT '派单时间', `pick_up_time` datetime DEFAULT NULL COMMENT '取货开始时间', `depart_time` datetime DEFAULT NULL COMMENT '出发配送时间',
+  `arrive_time` datetime DEFAULT NULL COMMENT '送达时间', `sign_time` datetime DEFAULT NULL COMMENT '签收时间', `exception_time` datetime DEFAULT NULL COMMENT '异常时间',
+  `return_pending_time` datetime DEFAULT NULL COMMENT '待退回时间', `return_confirm_time` datetime DEFAULT NULL COMMENT '退回确认时间', `close_time` datetime DEFAULT NULL COMMENT '关闭时间',
+  `attempt_no` int NOT NULL DEFAULT 1 COMMENT '当前尝试号，从1递增', `version` int NOT NULL DEFAULT 0 COMMENT '乐观锁版本号',
+  `exception_reason` varchar(64) DEFAULT NULL COMMENT '异常原因编码', `exception_desc` varchar(500) DEFAULT NULL COMMENT '异常说明', `remark` varchar(500) DEFAULT NULL COMMENT '备注',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID', `create_by` varchar(60) DEFAULT NULL COMMENT '创建人', `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间', `update_time` datetime DEFAULT NULL COMMENT '更新时间', `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`), UNIQUE KEY `uk_delivery_task_no` (`tenant_id`,`task_no`), UNIQUE KEY `uk_delivery_task_order` (`tenant_id`,`order_id`),
+  KEY `idx_delivery_task_trip` (`tenant_id`,`trip_id`), KEY `idx_delivery_task_order` (`tenant_id`,`order_id`), KEY `idx_delivery_task_staff` (`tenant_id`,`staff_id`), KEY `idx_delivery_task_status` (`tenant_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='配送任务';
+
+CREATE TABLE IF NOT EXISTS `delivery_task_item` (
+  `id` varchar(32) NOT NULL COMMENT '主键', `task_id` varchar(32) NOT NULL COMMENT '关联配送任务ID', `order_item_id` varchar(32) NOT NULL COMMENT '关联订单明细ID',
+  `spu_name` varchar(255) DEFAULT NULL COMMENT '商品名称快照', `sku_name` varchar(255) DEFAULT NULL COMMENT '规格名称快照', `quantity` int NOT NULL DEFAULT 0 COMMENT '应取数量',
+  `image` varchar(500) DEFAULT NULL COMMENT '商品图片快照', `picked` varchar(2) NOT NULL DEFAULT '0' COMMENT '0未取 1已取', `picked_time` datetime DEFAULT NULL COMMENT '确认取货时间',
+  `attempt_no` int NOT NULL DEFAULT 1 COMMENT '当前尝试号', `tenant_id` varchar(32) NOT NULL COMMENT '租户ID', `create_by` varchar(60) DEFAULT NULL COMMENT '创建人', `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间', `update_time` datetime DEFAULT NULL COMMENT '更新时间', `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`), KEY `idx_delivery_task_item_task` (`tenant_id`,`task_id`), KEY `idx_delivery_task_item_order_item` (`tenant_id`,`order_item_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='取货明细';
+
+CREATE TABLE IF NOT EXISTS `delivery_warehouse_config` (
+  `id` varchar(32) NOT NULL COMMENT '主键', `warehouse_name` varchar(128) NOT NULL COMMENT '仓库名称', `contact_name` varchar(64) DEFAULT NULL COMMENT '联系人', `contact_phone` varchar(20) DEFAULT NULL COMMENT '联系电话',
+  `province` varchar(64) DEFAULT NULL COMMENT '省', `city` varchar(64) DEFAULT NULL COMMENT '市', `area` varchar(64) DEFAULT NULL COMMENT '区', `address` varchar(255) DEFAULT NULL COMMENT '详细地址',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID', `create_by` varchar(60) DEFAULT NULL COMMENT '创建人', `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间', `update_time` datetime DEFAULT NULL COMMENT '更新时间', `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`), KEY `idx_delivery_warehouse_config_tenant` (`tenant_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='仓库配置';
+
+CREATE TABLE IF NOT EXISTS `delivery_task_log` (
+  `id` varchar(32) NOT NULL COMMENT '主键', `task_id` varchar(32) NOT NULL COMMENT '关联配送任务ID', `action` varchar(32) NOT NULL COMMENT '动作', `from_status` varchar(2) DEFAULT NULL COMMENT '原状态', `to_status` varchar(2) DEFAULT NULL COMMENT '目标状态',
+  `attempt_no` int DEFAULT NULL COMMENT '尝试号', `operator_type` varchar(2) DEFAULT NULL COMMENT '操作人类型：1管理员 2配送员 3系统', `operator_id` varchar(32) DEFAULT NULL COMMENT '操作人ID', `operator_name` varchar(64) DEFAULT NULL COMMENT '操作人姓名快照',
+  `reason_code` varchar(64) DEFAULT NULL COMMENT '原因编码', `reason_desc` varchar(500) DEFAULT NULL COMMENT '说明', `summary` text DEFAULT NULL COMMENT '受控JSON摘要', `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人', `create_time` datetime DEFAULT NULL COMMENT '创建时间', `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`), KEY `idx_delivery_task_log_task` (`tenant_id`,`task_id`), KEY `idx_delivery_task_log_action` (`tenant_id`,`action`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='配送任务操作日志';
+
+CREATE TABLE IF NOT EXISTS `delivery_evidence` (
+  `id` varchar(32) NOT NULL COMMENT '主键', `task_id` varchar(32) NOT NULL COMMENT '关联配送任务ID', `attempt_no` int NOT NULL COMMENT '尝试号', `evidence_type` varchar(2) NOT NULL COMMENT '凭证类型：1送达 2异常 3退回',
+  `material_id` varchar(32) DEFAULT NULL COMMENT '关联素材ID', `material_url` varchar(500) DEFAULT NULL COMMENT '素材访问URL快照', `sort_no` int NOT NULL DEFAULT 1 COMMENT '排序', `upload_by` varchar(32) DEFAULT NULL COMMENT '上传人ID', `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人', `create_time` datetime DEFAULT NULL COMMENT '创建时间', `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`), KEY `idx_delivery_evidence_task` (`tenant_id`,`task_id`), KEY `idx_delivery_evidence_material` (`tenant_id`,`material_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='送达凭证';
+
+CREATE TABLE IF NOT EXISTS `delivery_area` (
+  `id` varchar(32) NOT NULL COMMENT '主键', `province_code` varchar(12) DEFAULT NULL COMMENT '省编码', `province_name` varchar(64) DEFAULT NULL COMMENT '省名称', `city_code` varchar(12) DEFAULT NULL COMMENT '市编码', `city_name` varchar(64) DEFAULT NULL COMMENT '市名称',
+  `area_code` varchar(12) DEFAULT NULL COMMENT '区县编码', `area_name` varchar(64) DEFAULT NULL COMMENT '区县名称', `enabled` varchar(2) NOT NULL DEFAULT '1' COMMENT '启用状态：1启用 0禁用', `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人', `update_by` varchar(60) DEFAULT NULL COMMENT '修改人', `create_time` datetime DEFAULT NULL COMMENT '创建时间', `update_time` datetime DEFAULT NULL COMMENT '更新时间', `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`), KEY `idx_delivery_area_tenant` (`tenant_id`), KEY `idx_delivery_area_codes` (`tenant_id`,`province_code`,`city_code`,`area_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='配送范围';
+
+CREATE TABLE IF NOT EXISTS `sys_user_wechat_binding` (
+  `id` varchar(32) NOT NULL COMMENT '主键', `user_id` varchar(32) NOT NULL COMMENT '员工ID', `app_id` varchar(64) NOT NULL COMMENT '小程序AppID', `openid` varchar(64) NOT NULL COMMENT 'openid', `status` varchar(2) NOT NULL DEFAULT '1' COMMENT '绑定状态：1有效 0解绑',
+  `bind_time` datetime DEFAULT NULL COMMENT '绑定时间', `tenant_id` varchar(32) NOT NULL COMMENT '租户ID', `create_by` varchar(60) DEFAULT NULL COMMENT '创建人', `create_time` datetime DEFAULT NULL COMMENT '创建时间', `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`), UNIQUE KEY `uk_wechat_binding_openid` (`tenant_id`,`app_id`,`openid`,`status`), KEY `idx_wechat_binding_user` (`tenant_id`,`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='员工微信绑定';
+
+-- UPMS 素材表为历史表，使用 information_schema 保证补列可重复执行。
+SET @add_material_object_key = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `sys_material` ADD COLUMN `object_key` varchar(255) DEFAULT NULL COMMENT ''稳定对象键'' AFTER `url`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sys_material' AND COLUMN_NAME = 'object_key'
+);
+PREPARE stmt FROM @add_material_object_key; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+SET @add_material_biz_tag = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `sys_material` ADD COLUMN `biz_tag` varchar(64) DEFAULT NULL COMMENT ''业务归属：delivery-evidence=配送凭证'' AFTER `object_key`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sys_material' AND COLUMN_NAME = 'biz_tag'
+);
+PREPARE stmt FROM @add_material_biz_tag; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 补充订单配送方式字典值（delivery_way=3）。
+INSERT IGNORE INTO `sys_dict_value`
+(`id`,`dict_id`,`dict_label`,`dict_value`,`dict_type`,`status`,`remarks`,`sort`,`del_flag`,`create_time`,`create_by`)
+SELECT '2103000000000000001', d.`id`, '商城配送', '3', 'delivery_way', '0', '商城配送', 3, '0', NOW(), 'system'
+FROM `sys_dict` d WHERE d.`dict_type` = 'delivery_way' LIMIT 1;
+
+-- 菜单、权限和默认租户授权。ID 已固定，重复执行不会重复插入。
+INSERT IGNORE INTO `sys_menu` (`id`,`name`,`permission`,`path`,`redirect`,`parent_id`,`icon`,`component`,`sort`,`type`,`create_time`,`outer_status`,`del_flag`,`application_key`,`create_by`) VALUES
+('2100000000000000001','配送管理',NULL,'/delivery','/delivery/task','0','carbon:delivery-truck','',50,'0',NOW(),'0','0','app_base','system'),
+('2100000000000000002','配送任务',NULL,'/delivery/task',NULL,'2100000000000000001','carbon:task','delivery/task/index',10,'0',NOW(),'0','0','app_base','system'),
+('2100000000000000003','配送员管理',NULL,'/delivery/staff',NULL,'2100000000000000001','carbon:user-role','delivery/staff/index',20,'0',NOW(),'0','0','app_base','system'),
+('2100000000000000004','出车单管理',NULL,'/delivery/trip',NULL,'2100000000000000001','carbon:truck','delivery/trip/index',30,'0',NOW(),'0','0','app_base','system'),
+('2100000000000000005','仓库配置',NULL,'/delivery/config',NULL,'2100000000000000001','carbon:warehouse','delivery/config/index',40,'0',NOW(),'0','0','app_base','system'),
+('2100000000000000006','配送范围',NULL,'/delivery/area',NULL,'2100000000000000001','carbon:location','delivery/area/index',50,'0',NOW(),'0','0','app_base','system'),
+('2100000000000000010','任务分页','delivery:task:page',NULL,NULL,'2100000000000000002','',NULL,1,'1',NOW(),'0','0','app_base','system'),
+('2100000000000000011','任务详情','delivery:task:get',NULL,NULL,'2100000000000000002','',NULL,2,'1',NOW(),'0','0','app_base','system'),
+('2100000000000000012','派单','delivery:task:assign',NULL,NULL,'2100000000000000002','',NULL,3,'1',NOW(),'0','0','app_base','system'),
+('2100000000000000013','改派','delivery:task:reassign',NULL,NULL,'2100000000000000002','',NULL,4,'1',NOW(),'0','0','app_base','system'),
+('2100000000000000014','取消任务','delivery:task:cancel',NULL,NULL,'2100000000000000002','',NULL,5,'1',NOW(),'0','0','app_base','system'),
+('2100000000000000015','异常处理','delivery:task:exception',NULL,NULL,'2100000000000000002','',NULL,6,'1',NOW(),'0','0','app_base','system'),
+('2100000000000000016','退回确认','delivery:task:return',NULL,NULL,'2100000000000000002','',NULL,7,'1',NOW(),'0','0','app_base','system'),
+('2100000000000000017','配送执行','delivery:execute',NULL,NULL,'2100000000000000002','',NULL,8,'1',NOW(),'0','0','app_base','system'),
+('2100000000000000020','配送员分页','delivery:staff:page',NULL,NULL,'2100000000000000003','',NULL,1,'1',NOW(),'0','0','app_base','system'),
+('2100000000000000021','新增配送员','delivery:staff:add',NULL,NULL,'2100000000000000003','',NULL,2,'1',NOW(),'0','0','app_base','system'),
+('2100000000000000022','编辑配送员','delivery:staff:edit',NULL,NULL,'2100000000000000003','',NULL,3,'1',NOW(),'0','0','app_base','system'),
+('2100000000000000023','删除配送员','delivery:staff:del',NULL,NULL,'2100000000000000003','',NULL,4,'1',NOW(),'0','0','app_base','system'),
+('2100000000000000024','配送员详情','delivery:staff:get',NULL,NULL,'2100000000000000003','',NULL,5,'1',NOW(),'0','0','app_base','system'),
+('2100000000000000025','配送员列表','delivery:staff:list',NULL,NULL,'2100000000000000003','',NULL,6,'1',NOW(),'0','0','app_base','system'),
+('2100000000000000026','配送员状态','delivery:staff:status',NULL,NULL,'2100000000000000003','',NULL,7,'1',NOW(),'0','0','app_base','system'),
+('2100000000000000030','出车单分页','delivery:trip:page',NULL,NULL,'2100000000000000004','',NULL,1,'1',NOW(),'0','0','app_base','system'),
+('2100000000000000027','出车单详情','delivery:trip:get',NULL,NULL,'2100000000000000004','',NULL,2,'1',NOW(),'0','0','app_base','system'),
+('2100000000000000040','配送范围分页','delivery:area:page',NULL,NULL,'2100000000000000006','',NULL,1,'1',NOW(),'0','0','app_base','system'),
+('2100000000000000041','新增配送范围','delivery:area:add',NULL,NULL,'2100000000000000006','',NULL,2,'1',NOW(),'0','0','app_base','system'),
+('2100000000000000042','编辑配送范围','delivery:area:edit',NULL,NULL,'2100000000000000006','',NULL,3,'1',NOW(),'0','0','app_base','system'),
+('2100000000000000043','删除配送范围','delivery:area:del',NULL,NULL,'2100000000000000006','',NULL,4,'1',NOW(),'0','0','app_base','system'),
+('2100000000000000050','查看仓库配置','delivery:warehouse:get',NULL,NULL,'2100000000000000005','',NULL,1,'1',NOW(),'0','0','app_base','system'),
+('2100000000000000051','保存仓库配置','delivery:warehouse:edit',NULL,NULL,'2100000000000000005','',NULL,2,'1',NOW(),'0','0','app_base','system');
+
+INSERT IGNORE INTO `sys_role_menu` (`id`,`role_id`,`menu_id`,`create_time`,`tenant_id`)
+SELECT CONCAT('210100000000000', RIGHT(m.`id`, 4)), '1', m.`id`, NOW(), '1590229800633634816'
+FROM `sys_menu` m WHERE m.`id` LIKE '2100000000000000%';
+INSERT IGNORE INTO `sys_tenant_menu` (`id`,`tenant_id`,`menu_id`,`create_time`,`create_by`)
+SELECT CONCAT('210200000000000', RIGHT(m.`id`, 4)), '1590229800633634816', m.`id`, NOW(), 'system'
+FROM `sys_menu` m WHERE m.`id` LIKE '2100000000000000%';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 配送员商城账号绑定
+-- Source: db/boot/29delivery_account_binding.sql
+-- ============================================================================
+-- 悦航购配送员商城账号绑定增量迁移（Boot 单体模式）
+-- 目标库：aryn_boot
+-- 特性：可重复执行，不执行 DROP/TRUNCATE，不覆盖已有业务数据。
+-- 执行：mysql -u root -p aryn_boot < 29delivery_account_binding.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- 配送员与商城用户绑定关系表
+-- 说明：
+-- 1. 同一商城用户在租户内全历史仅一行（唯一键 tenant_id+mall_user_id），
+--    解绑通过 status='0' 保留记录，重新绑定时复用该行更新归属。
+-- 2. active_sys_user_id 为生成列：仅有效绑定（status='1' 且未删除）取 sys_user_id，
+--    配合唯一键 uk_delivery_binding_active_sys_user 在数据库层保证
+--    同一员工账号在租户内最多一个有效绑定（解绑行为 NULL，不占用唯一键）。
+CREATE TABLE IF NOT EXISTS `delivery_account_binding` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `mall_user_id` varchar(32) NOT NULL COMMENT '商城用户ID（user_info.id）',
+  `sys_user_id` varchar(32) NOT NULL COMMENT '员工账号ID（sys_user.id）',
+  `delivery_staff_id` varchar(32) NOT NULL COMMENT '配送员资料ID（delivery_staff.id）',
+  `status` varchar(2) NOT NULL DEFAULT '1' COMMENT '绑定状态：1有效 0解绑',
+  `active_sys_user_id` varchar(32) GENERATED ALWAYS AS (
+    CASE WHEN `status` = '1' AND `del_flag` = '0' THEN `sys_user_id` ELSE NULL END
+  ) STORED COMMENT '有效绑定员工账号（生成列，供唯一键使用）',
+  `bind_time` datetime DEFAULT NULL COMMENT '绑定时间',
+  `unbind_time` datetime DEFAULT NULL COMMENT '解绑时间',
+  `bind_by` varchar(60) DEFAULT NULL COMMENT '绑定操作人',
+  `unbind_by` varchar(60) DEFAULT NULL COMMENT '解绑操作人',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_delivery_binding_mall_user` (`tenant_id`, `mall_user_id`),
+  UNIQUE KEY `uk_delivery_binding_active_sys_user` (`tenant_id`, `active_sys_user_id`),
+  KEY `idx_delivery_binding_sys_user` (`tenant_id`, `sys_user_id`),
+  KEY `idx_delivery_binding_staff` (`tenant_id`, `delivery_staff_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='配送员商城账号绑定';
+
+-- 配送员管理新增按钮权限（平台级定义，IGNORE 幂等）
+INSERT IGNORE INTO `sys_menu` (`id`, `name`, `permission`, `path`, `redirect`, `parent_id`, `icon`, `component`, `sort`, `type`, `create_time`, `update_time`, `outer_status`, `del_flag`, `application_key`, `create_by`, `update_by`) VALUES
+('2100000000000000060', '绑定商城账号', 'delivery:staff:bind', NULL, NULL, '2100000000000000003', '', NULL, 8, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000061', '配送资格管理', 'delivery:staff:qualification', NULL, NULL, '2100000000000000003', '', NULL, 9, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000062', '接单状态管理', 'delivery:staff:availability', NULL, NULL, '2100000000000000003', '', NULL, 10, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL);
+
+-- 配送员执行角色按租户初始化（平台定义 + 存量租户幂等补齐，不写死租户ID）
+-- 角色ID = MD5('delivery_staff_role_' + tenant_id)，稳定且租户内唯一；
+-- 移动端免重复登录依赖该角色携带 delivery:execute（菜单 2100000000000000017）。
+INSERT IGNORE INTO `sys_role` (`id`, `role_name`, `role_code`, `role_desc`, `create_time`, `update_time`, `del_flag`, `tenant_id`, `create_by`)
+SELECT MD5(CONCAT('delivery_staff_role_', t.`id`)), '配送员', 'delivery_staff',
+       '移动端配送工作台执行角色，仅包含配送执行权限', NOW(), NULL, '0', t.`id`, 'system'
+FROM `sys_tenant` t
+WHERE t.`del_flag` = '0'
+  AND NOT EXISTS (
+    SELECT 1 FROM `sys_role` r
+    WHERE r.`role_code` = 'delivery_staff' AND r.`tenant_id` = t.`id` AND r.`del_flag` = '0'
+  );
+
+-- 配送员角色授予配送执行权限（按角色逐条幂等补齐）
+INSERT IGNORE INTO `sys_role_menu` (`id`, `role_id`, `menu_id`, `create_time`, `tenant_id`)
+SELECT MD5(CONCAT(r.`id`, ':menu:2100000000000000017')), r.`id`, '2100000000000000017', NOW(), r.`tenant_id`
+FROM `sys_role` r
+WHERE r.`role_code` = 'delivery_staff' AND r.`del_flag` = '0'
+  AND NOT EXISTS (
+    SELECT 1 FROM `sys_role_menu` rm
+    WHERE rm.`role_id` = r.`id` AND rm.`menu_id` = '2100000000000000017'
+  );
+
+-- 新增按钮分配给各租户管理员角色（role_code=ROLE_ADMIN，按租户幂等补齐，不写死租户ID）
+INSERT IGNORE INTO `sys_role_menu` (`id`, `role_id`, `menu_id`, `create_time`, `tenant_id`)
+SELECT MD5(CONCAT(r.`id`, ':menu:', m.`menu_id`)), r.`id`, m.`menu_id`, NOW(), r.`tenant_id`
+FROM `sys_role` r
+JOIN (
+  SELECT '2100000000000000060' AS menu_id
+  UNION ALL SELECT '2100000000000000061'
+  UNION ALL SELECT '2100000000000000062'
+) m ON 1=1
+WHERE r.`role_code` = 'ROLE_ADMIN' AND r.`del_flag` = '0'
+  AND NOT EXISTS (
+    SELECT 1 FROM `sys_role_menu` rm
+    WHERE rm.`role_id` = r.`id` AND rm.`menu_id` = m.`menu_id`
+  );
+
+-- 新增按钮按租户初始化租户菜单（不写死租户ID）
+INSERT IGNORE INTO `sys_tenant_menu` (`id`, `tenant_id`, `menu_id`, `create_time`, `create_by`)
+SELECT MD5(CONCAT(t.`id`, ':menu:', m.`menu_id`)), t.`id`, m.`menu_id`, NOW(), 'system'
+FROM `sys_tenant` t
+JOIN (
+  SELECT '2100000000000000060' AS menu_id
+  UNION ALL SELECT '2100000000000000061'
+  UNION ALL SELECT '2100000000000000062'
+) m ON 1=1
+WHERE t.`del_flag` = '0'
+  AND NOT EXISTS (
+    SELECT 1 FROM `sys_tenant_menu` tm
+    WHERE tm.`tenant_id` = t.`id` AND tm.`menu_id` = m.`menu_id`
+  );
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 配送资格操作补偿记录
+-- Source: db/boot/34delivery_qualification_operation.sql
+-- ============================================================================
+-- 配送资格操作补偿记录表增量迁移（Boot 单体模式）
+-- 目标库：aryn_boot
+-- 特性：可重复执行，不执行 DROP/TRUNCATE，不覆盖已有业务数据。
+-- 执行：mysql -u root -p aryn_boot < 34delivery_qualification_operation.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+-- 配送资格操作（可靠授权/回收记录）
+-- 说明：UPMS 角色授予/回收是跨服务远程操作，无法随订单域本地事务回滚。
+-- 本表作为 outbox：本地事务提交前写入待处理操作，事务提交后同步执行一次，
+-- 失败由补偿任务（DeliveryQualificationRetryJob）按指数退避重试直到成功，
+-- 保证不残留孤儿角色或未回收权限。
+-- 幂等键 (tenant_id, idempotent_key) 保证同一租户内同一员工同一角色同一操作仅一条记录，
+-- 历史记录复用重置，不重复新增。
+CREATE TABLE IF NOT EXISTS `delivery_qualification_operation` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `staff_id` varchar(32) NOT NULL COMMENT '配送员资料ID（delivery_staff.id）',
+  `sys_user_id` varchar(32) NOT NULL COMMENT '员工账号ID（sys_user.id）',
+  `role_code` varchar(64) NOT NULL COMMENT '角色编码',
+  `operation` varchar(16) NOT NULL COMMENT '操作类型：GRANT授予 REVOKE回收',
+  `status` varchar(16) NOT NULL DEFAULT 'PENDING' COMMENT '状态：PENDING待处理 DONE已完成',
+  `idempotent_key` varchar(128) NOT NULL COMMENT '幂等键（operation:sys_user_id:role_code）',
+  `retry_count` int NOT NULL DEFAULT '0' COMMENT '已执行次数（含失败重试）',
+  `last_error` varchar(512) DEFAULT NULL COMMENT '最近一次失败原因',
+  `next_retry_time` datetime DEFAULT NULL COMMENT '下次重试时间',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_delivery_qual_op_key` (`tenant_id`, `idempotent_key`),
+  KEY `idx_delivery_qual_op_retry` (`tenant_id`, `status`, `next_retry_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='配送资格操作补偿记录';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 配送员商城账号绑定结构升级
+-- Source: db/boot/35delivery_account_binding_schema_upgrade.sql
+-- ============================================================================
+-- 配送员商城账号绑定表结构升级增量迁移（Boot 单体模式）
+-- 目标库：aryn_boot
+-- 背景：29delivery_account_binding.sql 使用 CREATE TABLE IF NOT EXISTS，
+--       对已存在旧版 delivery_account_binding（缺少 active_sys_user_id 生成列
+--       或唯一索引）的环境不会补齐缺失结构，约束并未生效。
+-- 特性：可重复执行，不执行 DROP/TRUNCATE，不覆盖已有业务数据。
+-- 前置检查（步骤 1）如返回重复有效绑定，必须先由管理员确认保留记录、
+--       通过业务解绑/逻辑删除处理另一条后再执行步骤 2-4，禁止脚本自动删除。
+-- 执行：mysql -u root -p aryn_boot < 35delivery_account_binding_schema_upgrade.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+-- 1) 重复有效绑定检查（应返回空结果集；如有返回，先人工处理再继续）
+SELECT tenant_id, sys_user_id, COUNT(*) AS cnt
+FROM delivery_account_binding
+WHERE status = '1' AND del_flag = '0'
+GROUP BY tenant_id, sys_user_id
+HAVING COUNT(*) > 1;
+
+-- 2) 幂等补齐有效绑定员工账号生成列
+SET @ddl = IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'delivery_account_binding'
+      AND COLUMN_NAME = 'active_sys_user_id') = 0,
+  'ALTER TABLE `delivery_account_binding` ADD COLUMN `active_sys_user_id` varchar(32) GENERATED ALWAYS AS (CASE WHEN `status` = ''1'' AND `del_flag` = ''0'' THEN `sys_user_id` ELSE NULL END) STORED COMMENT ''有效绑定员工账号（生成列，供唯一键使用）''',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 3) 幂等补齐同一员工账号最多一个有效绑定的唯一键
+SET @ddl = IF(
+  (SELECT COUNT(DISTINCT INDEX_NAME) FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'delivery_account_binding'
+      AND INDEX_NAME = 'uk_delivery_binding_active_sys_user') = 0,
+  'ALTER TABLE `delivery_account_binding` ADD UNIQUE KEY `uk_delivery_binding_active_sys_user` (`tenant_id`, `active_sys_user_id`)',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 4) 幂等补齐辅助索引（旧版本表可能缺失）
+SET @ddl = IF(
+  (SELECT COUNT(DISTINCT INDEX_NAME) FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'delivery_account_binding'
+      AND INDEX_NAME = 'idx_delivery_binding_sys_user') = 0,
+  'ALTER TABLE `delivery_account_binding` ADD KEY `idx_delivery_binding_sys_user` (`tenant_id`, `sys_user_id`)',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl = IF(
+  (SELECT COUNT(DISTINCT INDEX_NAME) FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'delivery_account_binding'
+      AND INDEX_NAME = 'idx_delivery_binding_staff') = 0,
+  'ALTER TABLE `delivery_account_binding` ADD KEY `idx_delivery_binding_staff` (`tenant_id`, `delivery_staff_id`)',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 用户角色关联逻辑删除改造
+-- Source: db/boot/36sys_user_role_logic_delete.sql
+-- ============================================================================
+-- 用户角色关联（sys_user_role）逻辑删除改造增量迁移（Boot 单体模式）
+-- 目标库：aryn_boot
+-- 背景：项目规则要求逻辑删除，sys_user_role 原先仅物理删除；
+--       本脚本补齐 del_flag/update_time/update_by 与有效关联唯一约束，
+--       配合 SysUserRole @TableLogic 使回收角色改为逻辑删除并可审计。
+-- 特性：可重复执行，不执行 DROP/TRUNCATE，不覆盖已有业务数据。
+-- 前置检查（步骤 1）如返回重复有效关联，必须先人工确认保留一条、
+--       处理其余后（建议保留行 del_flag='0'，其余置为 '1'）再执行步骤 4，
+--       禁止脚本自动删除。
+-- 执行：mysql -u root -p aryn_boot < 36sys_user_role_logic_delete.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+-- 1) 重复有效关联检查（应返回空结果集；如有返回，先人工处理再继续步骤 4）
+SELECT tenant_id, user_id, role_id, COUNT(*) AS cnt
+FROM sys_user_role
+GROUP BY tenant_id, user_id, role_id
+HAVING COUNT(*) > 1;
+
+-- 2) 幂等补齐逻辑删除标记
+SET @ddl = IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'sys_user_role'
+      AND COLUMN_NAME = 'del_flag') = 0,
+  'ALTER TABLE `sys_user_role` ADD COLUMN `del_flag` char(2) NOT NULL DEFAULT ''0'' COMMENT ''逻辑删除：0.显示；1.隐藏；''',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 3) 幂等补齐审计字段
+SET @ddl = IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'sys_user_role'
+      AND COLUMN_NAME = 'update_time') = 0,
+  'ALTER TABLE `sys_user_role` ADD COLUMN `update_time` datetime DEFAULT NULL COMMENT ''修改时间''',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl = IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'sys_user_role'
+      AND COLUMN_NAME = 'update_by') = 0,
+  'ALTER TABLE `sys_user_role` ADD COLUMN `update_by` varchar(60) DEFAULT NULL COMMENT ''修改人''',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 4) 幂等补齐有效关联生成列与唯一键：
+--    active_user_id 仅在 del_flag='0' 时取 user_id，回收行不占用唯一键，
+--    数据库层保证同一租户内 (role_id, user_id) 最多一条有效关联。
+SET @ddl = IF(
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'sys_user_role'
+      AND COLUMN_NAME = 'active_user_id') = 0,
+  'ALTER TABLE `sys_user_role` ADD COLUMN `active_user_id` varchar(32) GENERATED ALWAYS AS (CASE WHEN `del_flag` = ''0'' THEN `user_id` ELSE NULL END) STORED COMMENT ''有效关联用户ID（生成列，供唯一键使用）''',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl = IF(
+  (SELECT COUNT(DISTINCT INDEX_NAME) FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'sys_user_role'
+      AND INDEX_NAME = 'uk_sys_user_role_active') = 0,
+  'ALTER TABLE `sys_user_role` ADD UNIQUE KEY `uk_sys_user_role_active` (`tenant_id`, `role_id`, `active_user_id`)',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET FOREIGN_KEY_CHECKS = 1;
 
 -- ============================================================================
 -- XXL-JOB 调度库

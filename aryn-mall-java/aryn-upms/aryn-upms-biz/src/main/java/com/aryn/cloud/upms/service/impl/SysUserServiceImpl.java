@@ -12,6 +12,7 @@ import com.aryn.cloud.upms.api.entity.SysUser;
 import com.aryn.cloud.upms.api.entity.SysUserRole;
 import com.aryn.cloud.upms.api.vo.MenuVO;
 import com.aryn.cloud.upms.mapper.*;
+import com.aryn.cloud.upms.service.ISysUserRoleService;
 import com.aryn.cloud.upms.service.ISysUserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -38,6 +39,8 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
 	private final SysMenuMapper sysMenuMapper;
 
 	private final SysUserRoleMapper sysUserRoleMapper;
+
+	private final ISysUserRoleService sysUserRoleService;
 
 	private final SysRoleMenuMapper sysRoleMenuMapper;
 
@@ -112,12 +115,9 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
 	}
 
 	private void saveUserRole(SysUser sysUser) {
-		SysUserRole sysUserRole = new SysUserRole();
+		// 复用授予逻辑：已逻辑删除的关联恢复原行，避免重复编辑产生无限历史行
 		for (String role : sysUser.getRoles()) {
-			sysUserRole.setId(null);
-			sysUserRole.setUserId(sysUser.getId());
-			sysUserRole.setRoleId(role);
-			sysUserRole.insert();
+			sysUserRoleService.grantRole(sysUser.getId(), role);
 		}
 	}
 

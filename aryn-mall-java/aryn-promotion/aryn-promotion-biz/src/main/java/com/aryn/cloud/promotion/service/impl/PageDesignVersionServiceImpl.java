@@ -6,11 +6,14 @@ import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.promotion.api.dto.PageDesignPublishDTO;
 import com.aryn.cloud.promotion.api.entity.PageDesign;
+import com.aryn.cloud.promotion.api.entity.PageDesignAuditLog;
 import com.aryn.cloud.promotion.api.entity.PageDesignVersion;
 import com.aryn.cloud.promotion.api.vo.PageDesignVersionVO;
 import com.aryn.cloud.promotion.mapper.PageDesignMapper;
 import com.aryn.cloud.promotion.mapper.PageDesignVersionMapper;
+import com.aryn.cloud.promotion.service.IPageDesignThemeService;
 import com.aryn.cloud.promotion.service.IPageDesignVersionService;
+import com.aryn.cloud.promotion.service.PageDesignAuditService;
 import com.aryn.cloud.promotion.service.PageDesignDocumentValidator;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -41,6 +44,10 @@ public class PageDesignVersionServiceImpl implements IPageDesignVersionService {
 
 	private final PageDesignDocumentValidator validator;
 
+	private final IPageDesignThemeService themeService;
+
+	private final PageDesignAuditService auditService;
+
 	private final StringRedisTemplate redisTemplate;
 
 	private final RedissonClient redissonClient;
@@ -59,8 +66,49 @@ public class PageDesignVersionServiceImpl implements IPageDesignVersionService {
 			if (!errors.isEmpty()) {
 				throw new ArynBusinessException("发布校验失败：" + String.join("；", errors));
 			}
-			return createPublishedVersion(page, page.getPageName(), page.getPageType(), page.getPageContent(),
-					page.getSchemaVersion(), request.getPublishRemark(), request.getDraftRevision());
+			PageDesignVersion version = createPublishedVersion(page, page.getPageName(), page.getPageType(),
+					page.getPageContent(), page.getSchemaVersion(), request.getPublishRemark(),
+					request.getDraftRevision());
+			auditService.record(new PageDesignAuditService.PageDesignAuditEvent(PageDesignAuditLog.ACTION_PUBLISH,
+					page.getId(), null, page.getPublishedVersionId(), version.getId(), request.getDraftRevision(),
+					request.getDraftRevision(), request.getPublishRemark()));
+			return version;
+		});
+	}
+
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public PageDesignVersion publishSnapshot(PageDesign page, String pageName, String pageType, String pageContent,
+			Integer schemaVersion, String publishRemark, Long expectedDraftRevision) {
+		return withPageLock(page.getId(), () -> createPublishedVersion(page, pageName, pageType, pageContent,
+				schemaVersion, publishRemark, expectedDraftRevision));
+	}
+
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public PageDesignVersion createVersionSnapshot(PageDesign page, String pageName, String pageType,
+			String pageContent, Integer schemaVersion, String publishRemark) {
+		return withPageLock(page.getId(), () -> {
+			// 灰度版本：固化主题快照并落不可变版本，但不切换稳定指针
+			String contentWithTheme = themeService.embedThemeSnapshot(pageContent);
+			PageDesignVersion latest = versionMapper.selectOne(Wrappers.<PageDesignVersion>lambdaQuery()
+				.eq(PageDesignVersion::getPageDesignId, page.getId())
+				.orderByDesc(PageDesignVersion::getVersionNo)
+				.last("limit 1"));
+			PageDesignVersion version = new PageDesignVersion();
+			version.setId(IdWorker.getIdStr());
+			version.setPageDesignId(page.getId());
+			version.setVersionNo(latest == null ? 1 : latest.getVersionNo() + 1);
+			version.setSchemaVersion(schemaVersion);
+			version.setPageName(pageName);
+			version.setPageType(pageType);
+			version.setPageContent(contentWithTheme);
+			version.setPublishRemark(publishRemark);
+			version.setPublishBy(userSupplier.getCurrentUserName());
+			version.setPublishedAt(LocalDateTime.now());
+			version.setTenantId(ArynTenantContextHolder.getTenantId());
+			versionMapper.insert(version);
+			return version;
 		});
 	}
 
@@ -73,8 +121,12 @@ public class PageDesignVersionServiceImpl implements IPageDesignVersionService {
 			if (historical == null || !pageId.equals(historical.getPageDesignId())) {
 				throw new ArynBusinessException("历史版本不存在或无权访问");
 			}
-			return createPublishedVersion(page, historical.getPageName(), historical.getPageType(),
+			PageDesignVersion version = createPublishedVersion(page, historical.getPageName(), historical.getPageType(),
 					historical.getPageContent(), historical.getSchemaVersion(), publishRemark, null);
+			auditService.record(new PageDesignAuditService.PageDesignAuditEvent(PageDesignAuditLog.ACTION_ROLLBACK,
+					pageId, null, page.getPublishedVersionId(), version.getId(), page.getDraftRevision(),
+					page.getDraftRevision(), publishRemark));
+			return version;
 		});
 	}
 
@@ -85,10 +137,15 @@ public class PageDesignVersionServiceImpl implements IPageDesignVersionService {
 			PageDesign page = requirePage(pageId);
 			PageDesign update = new PageDesign();
 			update.setPublishedStatus("0");
+			// 下线同时结束灰度实验
+			update.setGrayVersionId("");
 			boolean updated = pageDesignMapper.update(update,
 					Wrappers.<PageDesign>lambdaUpdate().eq(PageDesign::getId, page.getId())) > 0;
 			if (updated) {
 				evictPageCacheAfterCommit(page);
+				auditService.record(new PageDesignAuditService.PageDesignAuditEvent(
+						PageDesignAuditLog.ACTION_UNPUBLISH, pageId, null, page.getPublishedVersionId(), null,
+						page.getDraftRevision(), page.getDraftRevision(), "下线页面装修"));
 			}
 			return updated;
 		});
@@ -107,6 +164,8 @@ public class PageDesignVersionServiceImpl implements IPageDesignVersionService {
 
 	private PageDesignVersion createPublishedVersion(PageDesign page, String pageName, String pageType,
 			String pageContent, Integer schemaVersion, String publishRemark, Long expectedDraftRevision) {
+		// 发布时固化主题快照，主题后续修改不影响历史版本
+		String contentWithTheme = themeService.embedThemeSnapshot(pageContent);
 		PageDesignVersion latest = versionMapper.selectOne(Wrappers.<PageDesignVersion>lambdaQuery()
 			.eq(PageDesignVersion::getPageDesignId, page.getId())
 			.orderByDesc(PageDesignVersion::getVersionNo)
@@ -119,7 +178,7 @@ public class PageDesignVersionServiceImpl implements IPageDesignVersionService {
 		version.setSchemaVersion(schemaVersion);
 		version.setPageName(pageName);
 		version.setPageType(pageType);
-		version.setPageContent(pageContent);
+		version.setPageContent(contentWithTheme);
 		version.setPublishRemark(publishRemark);
 		version.setPublishBy(userSupplier.getCurrentUserName());
 		version.setPublishedAt(now);

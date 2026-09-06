@@ -1,7 +1,16 @@
 -- ============================================================
--- 限时秒杀 + 限时折扣 DDL
+-- 限时秒杀 + 限时折扣 DDL（Boot 模式，统一库 aryn_boot）
 -- 创建日期：2026-07-31
 -- ============================================================
+
+USE `aryn_boot`;
+
+DROP TABLE IF EXISTS `seckill_activity`;
+DROP TABLE IF EXISTS `seckill_session`;
+DROP TABLE IF EXISTS `seckill_goods`;
+DROP TABLE IF EXISTS `seckill_order`;
+DROP TABLE IF EXISTS `discount_activity`;
+DROP TABLE IF EXISTS `discount_goods`;
 
 -- ============ 限时秒杀 ============
 

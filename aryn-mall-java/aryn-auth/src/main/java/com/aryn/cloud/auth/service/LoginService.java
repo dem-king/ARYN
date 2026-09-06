@@ -18,6 +18,7 @@ import com.aryn.cloud.common.core.entity.SysLoginLogBase;
 import com.aryn.cloud.common.log.event.ArynLoginLogEvent;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.entity.ArynUser;
+import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.upms.api.entity.SysUser;
 import com.aryn.cloud.upms.api.remote.RemoteSysUserService;
@@ -66,6 +67,27 @@ public class LoginService {
 		if (!CommonConstants.NORMAL_STATUS.equals(hxUser.getStatus())) {
 			saveLoginLog(hxUser, "状态异常不可登录");
 			throw new RuntimeException("状态异常不可登录");
+		}
+		SecurityUtils.loginByDevice(hxUser, DeviceTypeEnum.TOB);
+		return StpUtil.getTokenInfo();
+	}
+
+	/** 配送员使用系统员工账号登录，配送资格由独立权限控制。 */
+	public SaTokenInfo deliveryLogin(String phone, String password) {
+		SysUser result = remoteSysUserService.getUserInfoByPhone(phone);
+		if (ObjectUtil.isNull(result)) {
+			throw new ArynBusinessException("账号或密码错误");
+		}
+		ArynUser hxUser = getUserDetails(result);
+		if (StrUtil.isBlank(password) || !BCrypt.checkpw(password, hxUser.getPassword())) {
+			throw new ArynBusinessException("账号或密码错误");
+		}
+		if (!CommonConstants.NORMAL_STATUS.equals(hxUser.getStatus())) {
+			throw new ArynBusinessException("状态异常不可登录");
+		}
+		if (hxUser.getPermissions() == null
+				|| (!hxUser.getPermissions().contains("delivery:execute") && !hxUser.getPermissions().contains("*"))) {
+			throw new ArynBusinessException("当前账号未开通配送权限");
 		}
 		SecurityUtils.loginByDevice(hxUser, DeviceTypeEnum.TOB);
 		return StpUtil.getTokenInfo();

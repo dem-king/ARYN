@@ -9,6 +9,7 @@ DROP TABLE IF EXISTS `delivery_trip`;
 DROP TABLE IF EXISTS `delivery_staff`;
 DROP TABLE IF EXISTS `delivery_warehouse_config`;
 DROP TABLE IF EXISTS `delivery_area`;
+DROP TABLE IF EXISTS `sys_user_wechat_binding`;
 
 -- 配送员表
 CREATE TABLE `delivery_staff` (
@@ -221,8 +222,8 @@ CREATE TABLE `sys_user_wechat_binding` (
   KEY `idx_wechat_binding_user` (`tenant_id`, `user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='员工微信绑定';
 
--- 配送模块菜单和权限
-INSERT INTO `sys_menu` (`id`, `name`, `permission`, `path`, `redirect`, `parent_id`, `icon`, `component`, `sort`, `type`, `create_time`, `update_time`, `outer_status`, `del_flag`, `application_key`, `create_by`, `update_by`) VALUES
+-- 配送模块菜单和权限（IGNORE 幂等，兼容先执行 25delivery_menu_fix.sql 的场景）
+INSERT IGNORE INTO `sys_menu` (`id`, `name`, `permission`, `path`, `redirect`, `parent_id`, `icon`, `component`, `sort`, `type`, `create_time`, `update_time`, `outer_status`, `del_flag`, `application_key`, `create_by`, `update_by`) VALUES
 ('2100000000000000001', '配送管理', NULL, '/delivery', '/delivery/task', '0', 'carbon:delivery-truck', '', 50, '0', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
 ('2100000000000000002', '配送任务', NULL, '/delivery/task', NULL, '2100000000000000001', 'carbon:task', 'delivery/task/index', 10, '0', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
 ('2100000000000000003', '配送员管理', NULL, '/delivery/staff', NULL, '2100000000000000001', 'carbon:user-role', 'delivery/staff/index', 20, '0', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
@@ -236,11 +237,16 @@ INSERT INTO `sys_menu` (`id`, `name`, `permission`, `path`, `redirect`, `parent_
 ('2100000000000000014', '取消任务', 'delivery:task:cancel', NULL, NULL, '2100000000000000002', '', NULL, 5, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
 ('2100000000000000015', '异常处理', 'delivery:task:exception', NULL, NULL, '2100000000000000002', '', NULL, 6, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
 ('2100000000000000016', '退回确认', 'delivery:task:return', NULL, NULL, '2100000000000000002', '', NULL, 7, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000017', '配送执行', 'delivery:execute', NULL, NULL, '2100000000000000002', '', NULL, 8, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
 ('2100000000000000020', '配送员分页', 'delivery:staff:page', NULL, NULL, '2100000000000000003', '', NULL, 1, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
 ('2100000000000000021', '新增配送员', 'delivery:staff:add', NULL, NULL, '2100000000000000003', '', NULL, 2, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
 ('2100000000000000022', '编辑配送员', 'delivery:staff:edit', NULL, NULL, '2100000000000000003', '', NULL, 3, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
 ('2100000000000000023', '删除配送员', 'delivery:staff:del', NULL, NULL, '2100000000000000003', '', NULL, 4, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000024', '配送员详情', 'delivery:staff:get', NULL, NULL, '2100000000000000003', '', NULL, 5, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000025', '配送员列表', 'delivery:staff:list', NULL, NULL, '2100000000000000003', '', NULL, 6, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000026', '配送员状态', 'delivery:staff:status', NULL, NULL, '2100000000000000003', '', NULL, 7, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
 ('2100000000000000030', '出车单分页', 'delivery:trip:page', NULL, NULL, '2100000000000000004', '', NULL, 1, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
+('2100000000000000027', '出车单详情', 'delivery:trip:get', NULL, NULL, '2100000000000000004', '', NULL, 2, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
 ('2100000000000000040', '配送范围分页', 'delivery:area:page', NULL, NULL, '2100000000000000006', '', NULL, 1, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
 ('2100000000000000041', '新增配送范围', 'delivery:area:add', NULL, NULL, '2100000000000000006', '', NULL, 2, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
 ('2100000000000000042', '编辑配送范围', 'delivery:area:edit', NULL, NULL, '2100000000000000006', '', NULL, 3, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL),
@@ -249,7 +255,7 @@ INSERT INTO `sys_menu` (`id`, `name`, `permission`, `path`, `redirect`, `parent_
 ('2100000000000000051', '保存仓库配置', 'delivery:warehouse:edit', NULL, NULL, '2100000000000000005', '', NULL, 2, '1', NOW(), NULL, '0', '0', 'app_base', 'system', NULL);
 
 -- 将配送模块全部菜单分配给超级管理员角色（role_id='1'，tenant_id='1590229800633634816')
-INSERT INTO `sys_role_menu` (`id`, `role_id`, `menu_id`, `create_time`, `tenant_id`) VALUES
+INSERT IGNORE INTO `sys_role_menu` (`id`, `role_id`, `menu_id`, `create_time`, `tenant_id`) VALUES
 ('2101000000000000001', '1', '2100000000000000001', NOW(), '1590229800633634816'),
 ('2101000000000000002', '1', '2100000000000000002', NOW(), '1590229800633634816'),
 ('2101000000000000003', '1', '2100000000000000003', NOW(), '1590229800633634816'),
@@ -263,11 +269,16 @@ INSERT INTO `sys_role_menu` (`id`, `role_id`, `menu_id`, `create_time`, `tenant_
 ('2101000000000000014', '1', '2100000000000000014', NOW(), '1590229800633634816'),
 ('2101000000000000015', '1', '2100000000000000015', NOW(), '1590229800633634816'),
 ('2101000000000000016', '1', '2100000000000000016', NOW(), '1590229800633634816'),
+('2101000000000000017', '1', '2100000000000000017', NOW(), '1590229800633634816'),
 ('2101000000000000020', '1', '2100000000000000020', NOW(), '1590229800633634816'),
 ('2101000000000000021', '1', '2100000000000000021', NOW(), '1590229800633634816'),
 ('2101000000000000022', '1', '2100000000000000022', NOW(), '1590229800633634816'),
 ('2101000000000000023', '1', '2100000000000000023', NOW(), '1590229800633634816'),
+('2101000000000000024', '1', '2100000000000000024', NOW(), '1590229800633634816'),
+('2101000000000000025', '1', '2100000000000000025', NOW(), '1590229800633634816'),
+('2101000000000000026', '1', '2100000000000000026', NOW(), '1590229800633634816'),
 ('2101000000000000030', '1', '2100000000000000030', NOW(), '1590229800633634816'),
+('2101000000000000027', '1', '2100000000000000027', NOW(), '1590229800633634816'),
 ('2101000000000000040', '1', '2100000000000000040', NOW(), '1590229800633634816'),
 ('2101000000000000041', '1', '2100000000000000041', NOW(), '1590229800633634816'),
 ('2101000000000000042', '1', '2100000000000000042', NOW(), '1590229800633634816'),
@@ -276,7 +287,7 @@ INSERT INTO `sys_role_menu` (`id`, `role_id`, `menu_id`, `create_time`, `tenant_
 ('2101000000000000051', '1', '2100000000000000051', NOW(), '1590229800633634816');
 
 -- 将配送模块全部菜单分配给默认租户（tenant_id='1590229800633634816'）
-INSERT INTO `sys_tenant_menu` (`id`, `tenant_id`, `menu_id`, `create_time`, `create_by`) VALUES
+INSERT IGNORE INTO `sys_tenant_menu` (`id`, `tenant_id`, `menu_id`, `create_time`, `create_by`) VALUES
 ('2102000000000000001', '1590229800633634816', '2100000000000000001', NOW(), 'system'),
 ('2102000000000000002', '1590229800633634816', '2100000000000000002', NOW(), 'system'),
 ('2102000000000000003', '1590229800633634816', '2100000000000000003', NOW(), 'system'),
@@ -290,11 +301,16 @@ INSERT INTO `sys_tenant_menu` (`id`, `tenant_id`, `menu_id`, `create_time`, `cre
 ('2102000000000000014', '1590229800633634816', '2100000000000000014', NOW(), 'system'),
 ('2102000000000000015', '1590229800633634816', '2100000000000000015', NOW(), 'system'),
 ('2102000000000000016', '1590229800633634816', '2100000000000000016', NOW(), 'system'),
+('2102000000000000017', '1590229800633634816', '2100000000000000017', NOW(), 'system'),
 ('2102000000000000020', '1590229800633634816', '2100000000000000020', NOW(), 'system'),
 ('2102000000000000021', '1590229800633634816', '2100000000000000021', NOW(), 'system'),
 ('2102000000000000022', '1590229800633634816', '2100000000000000022', NOW(), 'system'),
 ('2102000000000000023', '1590229800633634816', '2100000000000000023', NOW(), 'system'),
+('2102000000000000024', '1590229800633634816', '2100000000000000024', NOW(), 'system'),
+('2102000000000000025', '1590229800633634816', '2100000000000000025', NOW(), 'system'),
+('2102000000000000026', '1590229800633634816', '2100000000000000026', NOW(), 'system'),
 ('2102000000000000030', '1590229800633634816', '2100000000000000030', NOW(), 'system'),
+('2102000000000000027', '1590229800633634816', '2100000000000000027', NOW(), 'system'),
 ('2102000000000000040', '1590229800633634816', '2100000000000000040', NOW(), 'system'),
 ('2102000000000000041', '1590229800633634816', '2100000000000000041', NOW(), 'system'),
 ('2102000000000000042', '1590229800633634816', '2100000000000000042', NOW(), 'system'),

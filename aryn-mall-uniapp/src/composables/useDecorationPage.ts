@@ -4,10 +4,28 @@ import { onShareAppMessage, onShareTimeline } from '@dcloudio/uni-app'
 import { computed, toValue, watch } from 'vue'
 
 import { migratePageContent } from '@/components/diy/schema/migrate'
+import type { MetricEvent } from '@/api/promotion/pageDesign'
+import { reportMetrics } from '@/api/promotion/pageDesign'
+
+interface DecorationPageMeta {
+  pageId?: string
+  versionId?: string
+}
 
 interface UseDecorationPageOptions {
   fallbackTitle: MaybeRefOrGetter<string | undefined>
+  /** 页面标识与发布版本，用于数据看板埋点 */
+  meta?: MaybeRefOrGetter<DecorationPageMeta | undefined>
   pageContent: MaybeRefOrGetter<unknown>
+}
+
+function currentTerminal(): 'h5' | 'weapp' {
+  // #ifdef MP-WEIXIN
+  return 'weapp'
+  // #endif
+  // #ifndef MP-WEIXIN
+  return 'h5'
+  // #endif
 }
 
 function normalizeNavigationTextColor(color: string): '#000000' | '#ffffff' {
@@ -38,6 +56,27 @@ export function useDecorationPage(options: UseDecorationPageOptions) {
         backgroundColor: navigation.backgroundColor,
         frontColor: normalizeNavigationTextColor(navigation.textColor),
       })
+    },
+    { immediate: true },
+  )
+
+  watch(
+    () => toValue(options.meta),
+    (meta) => {
+      if (!meta?.pageId) return
+      const rendered = document.value.components
+      const rawEmpty
+        = rendered.length === 0 && toValue(options.pageContent) != null
+      const events: MetricEvent[] = [
+        {
+          action: rawEmpty ? 'render_error' : 'page_view',
+          pageDesignId: meta.pageId,
+          terminal: currentTerminal(),
+          versionId: meta.versionId,
+        },
+      ]
+      // 渲染失败时附带 render_error 事件；埋点失败静默，不影响页面
+      reportMetrics(events).catch(() => {})
     },
     { immediate: true },
   )

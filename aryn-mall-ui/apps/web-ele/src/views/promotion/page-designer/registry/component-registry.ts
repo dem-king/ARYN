@@ -9,6 +9,20 @@ import {
   validateCountdown,
 } from '../../page-design/components/countdown/types';
 import {
+  createBottomNavDefaults,
+  createCouponComboDefaults,
+  createGoodsWaterfallDefaults,
+  createMemberBenefitsDefaults,
+  createServicePromiseDefaults,
+  createVideoLiveDefaults,
+  validateBottomNav,
+  validateCouponCombo,
+  validateGoodsWaterfall,
+  validateMemberBenefits,
+  validateServicePromise,
+  validateVideoLive,
+} from '../../page-design/components/extension/types';
+import {
   createGoodsGroupDefaults,
   validateGoodsGroup,
 } from '../../page-design/components/goods-group/types';
@@ -56,7 +70,19 @@ export const retailComponentTypes = [
 ] as const;
 
 export type RetailComponentType = (typeof retailComponentTypes)[number];
-export type RegisteredComponentType = LegacyComponentType | RetailComponentType;
+
+export const extensionComponentTypes = [
+  'goods-waterfall',
+  'coupon-combo',
+  'member-benefits',
+  'service-promise',
+  'bottom-nav',
+  'video-live',
+] as const;
+
+export type ExtensionComponentType = (typeof extensionComponentTypes)[number];
+export type RegisteredComponentType =
+  ExtensionComponentType | LegacyComponentType | RetailComponentType;
 
 export interface RegisteredComponentDefinition extends ComponentDefinition<
   Record<string, unknown>
@@ -109,6 +135,28 @@ function defineLegacyComponent(
 
 function defineRetailComponent<TProps extends Record<string, unknown>>(
   type: RetailComponentType,
+  label: string,
+  category: string,
+  defaults: TProps,
+  validate: (props: TProps) => string[],
+  preview: () => Promise<unknown>,
+  settings: () => Promise<unknown>,
+): RegisteredComponentDefinition {
+  return {
+    category,
+    createDefaultProps: () => cloneDesignerValue(defaults),
+    label,
+    preview: defineAsyncComponent(preview as never),
+    settings: defineAsyncComponent(settings as never),
+    supportedTerminals: ['admin', 'uniapp'],
+    type,
+    validate: (props) => validate(props as TProps),
+    version: 1,
+  };
+}
+
+function defineExtensionComponent<TProps extends Record<string, unknown>>(
+  type: ExtensionComponentType,
   label: string,
   category: string,
   defaults: TProps,
@@ -371,6 +419,70 @@ export const componentRegistry: Record<
     validateShopInfo,
     () => import('../../page-design/components/shop-info/index.vue'),
     () => import('../../page-design/components/shop-info/setting.vue'),
+  ),
+  'goods-waterfall': defineExtensionComponent(
+    'goods-waterfall',
+    '商品瀑布流',
+    '商品经营',
+    createGoodsWaterfallDefaults(),
+    validateGoodsWaterfall,
+    () =>
+      import('../../page-design/components/extension/goods-waterfall/index.vue'),
+    () =>
+      import('../../page-design/components/extension/goods-waterfall/setting.vue'),
+  ),
+  'coupon-combo': defineExtensionComponent(
+    'coupon-combo',
+    '优惠券组合',
+    '营销活动',
+    createCouponComboDefaults(),
+    validateCouponCombo,
+    () =>
+      import('../../page-design/components/extension/coupon-combo/index.vue'),
+    () =>
+      import('../../page-design/components/extension/coupon-combo/setting.vue'),
+  ),
+  'member-benefits': defineExtensionComponent(
+    'member-benefits',
+    '会员权益',
+    '营销活动',
+    createMemberBenefitsDefaults(),
+    validateMemberBenefits,
+    () =>
+      import('../../page-design/components/extension/member-benefits/index.vue'),
+    () =>
+      import('../../page-design/components/extension/member-benefits/setting.vue'),
+  ),
+  'service-promise': defineExtensionComponent(
+    'service-promise',
+    '服务承诺',
+    '店铺服务',
+    createServicePromiseDefaults(),
+    validateServicePromise,
+    () =>
+      import('../../page-design/components/extension/service-promise/index.vue'),
+    () =>
+      import('../../page-design/components/extension/service-promise/setting.vue'),
+  ),
+  'bottom-nav': defineExtensionComponent(
+    'bottom-nav',
+    '底部导航',
+    '导航广告',
+    createBottomNavDefaults(),
+    validateBottomNav,
+    () => import('../../page-design/components/extension/bottom-nav/index.vue'),
+    () =>
+      import('../../page-design/components/extension/bottom-nav/setting.vue'),
+  ),
+  'video-live': defineExtensionComponent(
+    'video-live',
+    '视频/直播入口',
+    '内容',
+    createVideoLiveDefaults(),
+    validateVideoLive,
+    () => import('../../page-design/components/extension/video-live/index.vue'),
+    () =>
+      import('../../page-design/components/extension/video-live/setting.vue'),
   ),
 };
 

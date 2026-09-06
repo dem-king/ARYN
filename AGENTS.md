@@ -109,9 +109,14 @@ cd aryn-mall-uniapp && pnpm type-check
 - 新增配置项需同时提供 boot（`aryn-boot/src/main/resources/application*.yml`）与 cloud（各 biz `application*.yml` + Nacos）两份配置
 - 使用 Dubbo `@DubboReference`/`@DubboService` 时确保接口定义在 `*-api` 模块，boot/cloud 均可注入
 
+**数据库规则**
+- 凡涉及数据库改动（新增/修改表、字段、索引、种子数据、菜单权限等），**必须提供可执行的增量 SQL**：按编号递增新建脚本，boot 放 `aryn-mall-java/db/boot/`、cloud 放 `aryn-mall-java/db/cloud/`，两种模式各一份、不得只写一份；参照 `27delivery_fulfillment_incremental.sql` 的风格，可重复执行，禁止 DROP/TRUNCATE 存量数据
+- 必须补齐双模式下的初始化完整 SQL：boot 模式将新脚本登记进 `db/boot/build-full-sql.mjs` 的 `sections` 并重新生成 `aryn_boot_full.sql`（`node db/boot/build-full-sql.mjs`，再用 `verify-full-sql.mjs` 校验）；cloud 模式确保 `db/cloud/` 下对应微服务基线脚本与同名增量脚本齐全且与 boot 内容一致
+
 **验证要求**
 - 修改前端后，分别在 `VITE_OPEN_BOOT=true` 与 `false` 下确认请求路径正确（至少检查 `rewriteBootUrl` 输出）
 - 修改后端后，确认 `aryn-boot` 可编译通过（`mvn clean compile -pl aryn-boot -am`）且无 biz 间直接 import
+- 涉及数据库改动后，确认增量 SQL 在 `db/boot/` 与 `db/cloud/` 均存在且可执行，`aryn_boot_full.sql` 已重新生成
 
 ## Harness 自动化（历史基线）
 

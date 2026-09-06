@@ -151,20 +151,78 @@ export interface DeliveryLoginParams {
   password: string
 }
 
+/** 配送工作台资格 */
+export interface DeliveryEligibility {
+  /** 是否允许展示配送工作台入口 */
+  eligible: boolean
+  /**
+   * 资格状态：ACTIVE正常 UNBOUND未绑定 PERMISSION_MISSING权限未授予
+   * ACCOUNT_DISABLED员工账号停用 STAFF_INVALID配送资料失效
+   */
+  status: 'ACTIVE' | 'UNBOUND' | 'PERMISSION_MISSING' | 'ACCOUNT_DISABLED' | 'STAFF_INVALID'
+  /** 配送员姓名（仅展示用） */
+  staffName?: string
+  /** 待处理任务数 */
+  pendingTaskCount?: number
+}
+
+/** 身份换取结果 */
+export interface DeliveryExchangeResult {
+  tokenValue: string
+  /** 有效期（秒） */
+  expiresIn?: number
+  /** 最小配送员资料 */
+  staff?: {
+    id: string
+    staffName?: string
+  }
+}
+
 // ===================== 配送员端API =====================
 
-const DELIVERY_API_BASE = '/app/delivery'
+// Keep the service segment in source URLs. Boot mode strips it to /boot, while
+// Cloud mode routes it to aryn-order-biz through /mall-order.
+const DELIVERY_API_BASE = '/mall-order/app/delivery'
 
 /**
  * 配送员登录（独立入口）
  * 配送员使用手机号+密码登录，登录后进入配送工作台
  */
 export function deliveryLogin(data: DeliveryLoginParams) {
-  return alovaInstance.Post<any>(`${DELIVERY_API_BASE}/staff/login`, data, {
+  return alovaInstance.Post<any>('/auth/token/delivery-login', {
+    phone: data.phone,
+    password: data.password,
+  }, {
     headers: {
       skipToken: true,
     },
   })
+}
+
+/** 查询当前登录配送员资料 */
+export function getMyDeliveryStaff() {
+  return alovaInstance.Get<any>(`${DELIVERY_API_BASE}/staff/me`)
+}
+
+// ===================== 配送工作台入口API（使用商城登录态） =====================
+
+// 注意：以下接口使用商城 TOC token（不带 skipToken，URL 也不命中配送请求判定），
+// Boot 模式改写为 /boot/delivery/**，Cloud 模式由网关 /auth/** 路由到认证服务。
+
+/**
+ * 查询配送工作台资格
+ * 仅已登录商城用户可调用，服务端判断绑定与权限，前端只负责展示
+ */
+export function getDeliveryEligibility() {
+  return alovaInstance.Get<DeliveryEligibility>('/auth/delivery/eligibility')
+}
+
+/**
+ * 用商城登录态换取独立配送员 token（免重复登录）
+ * 成功后保存 deliveryToken 与 deliveryStaffInfo 再进入工作台
+ */
+export function exchangeDeliveryIdentity() {
+  return alovaInstance.Post<DeliveryExchangeResult>('/auth/delivery/exchange')
 }
 
 /**
@@ -283,7 +341,7 @@ export function getTaskDetail(taskId: string) {
  * 当订单 deliveryWay=3（商城配送）时调用
  */
 export function getOrderDeliveryProgress(orderId: string) {
-  return alovaInstance.Get<DeliveryProgress>(`/app/order/${orderId}/delivery-progress`)
+  return alovaInstance.Get<DeliveryProgress>(`/mall-order/app/order/${orderId}/delivery-progress`)
 }
 
 // ===================== 状态辅助函数 =====================
@@ -333,17 +391,23 @@ export function getTaskStatusColor(status: DeliveryTaskStatus): string {
 
 /** 绑定微信 openid */
 export function bindWechatOpenid(appId: string, openid: string) {
-  return alovaInstance.Post('/app/wechat/binding/bind', { appId, openid })
+  return alovaInstance.Post('/upms/app/wechat/binding/bind', { appId, openid }, {
+    headers: { authScope: 'delivery' },
+  })
 }
 
 /** 通过微信 login code 绑定 */
 export function bindWechatByCode(appId: string, code: string) {
-  return alovaInstance.Post('/app/wechat/binding/bind-by-code', { appId, code })
+  return alovaInstance.Post('/upms/app/wechat/binding/bind-by-code', { appId, code }, {
+    headers: { authScope: 'delivery' },
+  })
 }
 
 /** 查询当前用户微信绑定状态 */
 export function getWechatBindStatus() {
-  return alovaInstance.Post<boolean>('/app/wechat/binding/status')
+  return alovaInstance.Post<boolean>('/upms/app/wechat/binding/status', undefined, {
+    headers: { authScope: 'delivery' },
+  })
 }
 
 /**

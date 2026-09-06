@@ -7,7 +7,9 @@ import {
   ArrowLeft,
   Check,
   Collection,
+  Discount,
   Minus,
+  Picture,
   Plus,
   RefreshLeft,
   RefreshRight,
@@ -25,12 +27,14 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
+  assets: [];
   back: [];
   preview: [];
   publish: [];
   redo: [];
   save: [];
   template: [];
+  theme: [];
   undo: [];
   'update:pageName': [value: string];
   'update:zoom': [value: number];
@@ -128,6 +132,8 @@ const statusLabel = computed(() => {
 
     <ElSpace :size="8" class="toolbar-group toolbar-actions">
       <ElButton :icon="Collection" @click="emit('template')">模板</ElButton>
+      <ElButton :icon="Discount" @click="emit('theme')">主题</ElButton>
+      <ElButton :icon="Picture" @click="emit('assets')">素材</ElButton>
       <ElButton :icon="View" @click="emit('preview')">预览</ElButton>
       <ElButton :icon="Check" @click="emit('save')">保存草稿</ElButton>
       <ElButton :icon="Upload" type="primary" @click="emit('publish')">

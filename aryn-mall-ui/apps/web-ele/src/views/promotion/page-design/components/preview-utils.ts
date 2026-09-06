@@ -1,8 +1,15 @@
 export const PREVIEW_TTL_MS = 10 * 60 * 1000;
 
-export function buildPreviewUrl(token: string, origin: string) {
+export type PreviewTerminal = 'h5' | 'weapp';
+
+export function buildPreviewUrl(
+  token: string,
+  origin: string,
+  terminal: PreviewTerminal = 'h5',
+) {
   const normalizedOrigin = origin.replace(/\/$/, '');
-  return `${normalizedOrigin}/#/page-preview/${encodeURIComponent(token)}`;
+  const query = terminal === 'weapp' ? '?terminal=weapp' : '';
+  return `${normalizedOrigin}/#/page-preview/${encodeURIComponent(token)}${query}`;
 }
 
 export function getRemainingSeconds(expiresAt: number, now = Date.now()) {

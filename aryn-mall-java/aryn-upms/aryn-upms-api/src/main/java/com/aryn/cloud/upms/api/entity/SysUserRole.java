@@ -35,7 +35,20 @@ public class SysUserRole extends Model<SysUserRole> {
 	@Schema(description = "创建时间")
 	private LocalDateTime createTime;
 
+	@TableField(fill = FieldFill.UPDATE)
+	@Schema(description = "修改时间")
+	private LocalDateTime updateTime;
+
+	@TableField(fill = FieldFill.UPDATE)
+	@Schema(description = "修改人")
+	private String updateBy;
+
 	@Schema(description = "租户id")
 	private String tenantId;
+
+	@TableLogic
+	@TableField(fill = FieldFill.INSERT)
+	@Schema(description = "逻辑删除：0.显示；1.隐藏；")
+	private String delFlag;
 
 }

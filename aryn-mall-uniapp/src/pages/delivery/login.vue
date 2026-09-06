@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
-import { deliveryLogin } from '@/api/delivery'
+import { deliveryLogin, getMyDeliveryStaff } from '@/api/delivery'
 import { Local } from '@/utils/storage'
 
 definePage({
@@ -44,7 +44,8 @@ async function handleLogin() {
     const token = response?.tokenValue || response?.data?.tokenValue
     if (token) {
       Local.set('deliveryToken', token)
-      Local.set('deliveryStaffInfo', response?.staffInfo || response?.data?.staffInfo || {})
+      const staffResponse: any = await getMyDeliveryStaff().send()
+      Local.set('deliveryStaffInfo', staffResponse?.data || staffResponse || {})
       showToast('登录成功')
       // 跳转到配送工作台
       router.replaceAll({ name: 'delivery-index' })

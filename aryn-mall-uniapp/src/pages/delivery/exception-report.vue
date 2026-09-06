@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { reportException } from '@/api/delivery'
+import { uploadDeliveryEvidence } from '@/api/upms/file'
 import { useToast } from 'wot-design-uni'
 
 const toast = useToast()
@@ -53,6 +54,26 @@ const handleSubmit = async () => {
     submitting.value = false
   }
 }
+
+async function handleChooseImage() {
+  if (materialIds.value.length >= 6)
+    return
+  uni.chooseImage({
+    count: 6 - materialIds.value.length,
+    sizeType: ['compressed'],
+    sourceType: ['camera', 'album'],
+    success: async ({ tempFilePaths }) => {
+      const paths = Array.isArray(tempFilePaths) ? tempFilePaths : [tempFilePaths]
+      try {
+        const ids = await Promise.all(paths.map(path => uploadDeliveryEvidence(path)))
+        materialIds.value.push(...ids)
+      }
+      catch (error: any) {
+        toast.error(error?.message ?? '图片上传失败')
+      }
+    },
+  })
+}
 </script>
 
 <template>
@@ -84,9 +105,10 @@ const handleSubmit = async () => {
         <view class="form-item">
           <text class="label">异常图片（选填）</text>
           <wd-upload
-            v-model:file-list="materialIds"
-            action=""
+            :file-list="materialIds.map(id => ({ url: id }))"
             :limit="6"
+            :before-upload="() => false"
+            @click="handleChooseImage"
           />
         </view>
       </view>

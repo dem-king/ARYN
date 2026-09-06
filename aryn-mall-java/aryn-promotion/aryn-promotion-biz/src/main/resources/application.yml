@@ -1,6 +1,15 @@
 server:
   port: 6500
 
+decoration:
+  release:
+    # 装修发布审批开关：true 时提交发布申请后需审批通过才上线；Nacos 中同名配置可覆盖
+    approval-required: false
+
+xxl:
+  job:
+    port: 9010
+
 spring:
   application:
     name: @artifactId@

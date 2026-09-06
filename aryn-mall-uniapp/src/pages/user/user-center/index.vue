@@ -1,10 +1,17 @@
 <script setup lang="ts">
 import { onShow } from '@dcloudio/uni-app'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { getCount as getOrderCount } from '@/api/order/orderInfo'
+import {
+  type DeliveryEligibility,
+  exchangeDeliveryIdentity,
+  getDeliveryEligibility,
+  getMyDeliveryStaff,
+} from '@/api/delivery'
 // 引入组件
 import WaterfallGoods from '@/components/waterfall-goods/index.vue'
 import { useMessageStore } from '@/store/messageStore'
+import { Local } from '@/utils/storage'
 
 definePage({
   name: 'user-center',
@@ -96,6 +103,7 @@ const myService = ref<MyService[]>([
 const router = useRouter()
 const authStore = useAuthStore()
 const messageStore = useMessageStore()
+const { show: showToast } = useGlobalToast()
 
 myService.value.unshift({
   icon: 'i-carbon:notification-new',
@@ -108,8 +116,157 @@ onShow(() => {
     getUserOrderCount()
     void messageStore.refreshUnread()
     messageStore.connect()
+    loadDeliveryEligibility()
+  }
+  else {
+    deliveryEligibility.value = null
+    hasDeliveryToken.value = false
   }
 })
+
+// ===================== 配送工作台入口 =====================
+
+/** 配送资格（服务端判断，资格请求完成前不渲染入口，避免先显示后隐藏跳动） */
+const deliveryEligibility = ref<DeliveryEligibility | null>(null)
+/** 本地是否已有配送员 token（仅作减少换取次数的提示，不作为授权依据） */
+const hasDeliveryToken = ref(false)
+/** 换取/探活请求进行中，防止连续点击重复换取 */
+const deliveryEntering = ref(false)
+
+/**
+ * 查询配送资格：请求失败或无资格时一律隐藏入口（token 不能作为授权依据）
+ */
+function loadDeliveryEligibility() {
+  hasDeliveryToken.value = !!Local.get('deliveryToken')
+  getDeliveryEligibility()
+    .send()
+    .then((eligibility) => {
+      deliveryEligibility.value = eligibility ?? null
+    })
+    .catch(() => {
+      // 资格查询失败：清理展示状态并隐藏入口，留在个人中心
+      deliveryEligibility.value = null
+      hasDeliveryToken.value = false
+    })
+}
+
+/**
+ * 入口是否可见：
+ * ACTIVE 正常展示；ACCOUNT_DISABLED（员工账号停用）展示灰色提示卡；
+ * UNBOUND / PERMISSION_MISSING / STAFF_INVALID 及请求失败一律不展示。
+ */
+const deliveryEntranceVisible = computed(() => {
+  const eligibility = deliveryEligibility.value
+  if (!eligibility) {
+    return false
+  }
+  return eligibility.eligible || eligibility.status === 'ACCOUNT_DISABLED'
+})
+
+/** 入口副标题 */
+const deliveryEntranceSubtitle = computed(() => {
+  const eligibility = deliveryEligibility.value
+  if (eligibility?.eligible) {
+    return eligibility.pendingTaskCount && eligibility.pendingTaskCount > 0
+      ? `${eligibility.pendingTaskCount} 项任务待处理`
+      : '已为你开通配送权限'
+  }
+  if (eligibility?.status === 'ACCOUNT_DISABLED') {
+    return '配送账号已停用'
+  }
+  return '进入配送工作台'
+})
+
+/** 入口角标：待处理任务数（最多显示 99+） */
+const deliveryEntranceBadge = computed(() => {
+  const count = deliveryEligibility.value?.pendingTaskCount ?? 0
+  return count > 0 ? (count > 99 ? '99+' : String(count)) : ''
+})
+
+/**
+ * 清理本地配送登录态（停用、解绑或 token 失效后调用）
+ */
+function clearDeliveryAuth() {
+  Local.remove('deliveryToken')
+  Local.remove('deliveryStaffInfo')
+  hasDeliveryToken.value = false
+}
+
+/**
+ * 保存配送登录态并进入工作台
+ */
+async function saveDeliveryAuthAndEnter(token: string) {
+  Local.set('deliveryToken', token)
+  try {
+    const staffResponse = await getMyDeliveryStaff().send()
+    Local.set('deliveryStaffInfo', staffResponse?.data || staffResponse || {})
+  }
+  catch {
+    Local.set('deliveryStaffInfo', {})
+  }
+  router.push({ path: '/pages/delivery/index' })
+}
+
+/**
+ * 用商城登录态换取配送员身份（供首次进入与 token 失效重试）
+ */
+async function exchangeAndEnter(): Promise<boolean> {
+  const response = await exchangeDeliveryIdentity().send()
+  const token = response?.tokenValue
+  if (!token) {
+    showToast('暂时无法进入配送工作台，请稍后重试')
+    return false
+  }
+  await saveDeliveryAuthAndEnter(token)
+  return true
+}
+
+/**
+ * 点击入口：
+ * 1. 停用状态：清理本地配送态并提示，不发起换取
+ * 2. 本地有 token：先探活，有效直接进入；失效清理后重新换取一次
+ * 3. 无 token：直接换取
+ */
+async function enterDeliveryWorkspace() {
+  const eligibility = deliveryEligibility.value
+  if (eligibility && !eligibility.eligible) {
+    if (eligibility.status === 'ACCOUNT_DISABLED') {
+      clearDeliveryAuth()
+      showToast('配送账号已停用，请联系管理员')
+    }
+    return
+  }
+  if (deliveryEntering.value) {
+    return
+  }
+  deliveryEntering.value = true
+  try {
+    if (hasDeliveryToken.value) {
+      try {
+        // 轻量探活：避免资格正常时重复换取
+        await getMyDeliveryStaff().send()
+        router.push({ path: '/pages/delivery/index' })
+        return
+      }
+      catch (error: any) {
+        // 探活失败（token 过期/权限回收）：清理后自动换取一次
+        clearDeliveryAuth()
+        const code = error?.code
+        if (code !== 401 && code !== 403) {
+          showToast('暂时无法进入配送工作台，请稍后重试')
+          return
+        }
+      }
+    }
+    await exchangeAndEnter()
+  }
+  catch {
+    // 401 已引导商城登录，403/业务错误已 toast，均留在个人中心
+  }
+  finally {
+    deliveryEntering.value = false
+  }
+}
 /**
  * 查询订单数量
  */
@@ -264,24 +421,33 @@ function toLogin() {
       </view>
     </view>
   </view>
-  <!-- 配送员入口 -->
-  <view class="px-20rpx pb-20rpx">
+  <!-- 配送工作台入口：仅已登录且具备配送资格的用户可见 -->
+  <view v-if="deliveryEntranceVisible" class="px-20rpx pb-20rpx">
     <view
       class="flex items-center justify-between rounded-20rpx bg-white p-30rpx"
-      @click="toRoute('/pages/delivery/login')"
+      :class="{ 'opacity-60': deliveryEligibility && !deliveryEligibility.eligible, 'opacity-50': deliveryEntering }"
+      @click="enterDeliveryWorkspace"
     >
       <view class="flex items-center">
         <text class="i-carbon:delivery-truck mr-20rpx text-40rpx text-primary" />
         <view>
           <text class="text-28rpx font-bold">
-            配送员入口
+            配送工作台
           </text>
           <view class="mt-4rpx text-24rpx text-gray-400">
-            配送员登录后进入工作台
+            {{ deliveryEntranceSubtitle }}
           </view>
         </view>
       </view>
-      <text class="i-carbon:chevron-right text-28rpx text-gray-400" />
+      <view class="flex items-center">
+        <view
+          v-if="deliveryEntranceBadge"
+          class="mr-10rpx rounded-full bg-red px-12rpx py-2rpx text-20rpx text-white"
+        >
+          {{ deliveryEntranceBadge }}
+        </view>
+        <text class="i-carbon:chevron-right text-28rpx text-gray-400" />
+      </view>
     </view>
   </view>
   <view class="flex items-center p-1">

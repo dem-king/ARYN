@@ -22,6 +22,7 @@
         sys_user_role AS sys_user_role
         WHERE sys_role.id = sys_user_role.role_id
         AND sys_user_role.user_id = #{userId}
+        AND sys_user_role.del_flag = '0'
     </select>
     <select id="selectRolePage" resultType="com.aryn.cloud.upms.api.entity.SysRole">
         SELECT

@@ -1,9 +1,14 @@
 
 package com.aryn.cloud.order.controller.app;
 
+import com.aryn.cloud.common.core.enums.DeviceTypeEnum;
 import com.aryn.cloud.common.core.util.Result;
+import com.aryn.cloud.common.security.handler.ArynBusinessException;
+import com.aryn.cloud.common.security.util.SecurityUtils;
+import com.aryn.cloud.order.api.entity.OrderInfo;
 import com.aryn.cloud.order.api.vo.DeliveryProgressVO;
 import com.aryn.cloud.order.service.IDeliveryTaskService;
+import com.aryn.cloud.order.service.IOrderInfoService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.AllArgsConstructor;
@@ -25,9 +30,16 @@ public class AppOrderDeliveryController {
 
 	private final IDeliveryTaskService deliveryTaskService;
 
+	private final IOrderInfoService orderInfoService;
+
 	@Operation(summary = "配送进度时间线")
 	@GetMapping("/{orderId}/delivery-progress")
 	public Result<DeliveryProgressVO> deliveryProgress(@PathVariable String orderId) {
+		String userId = SecurityUtils.requireUser(DeviceTypeEnum.TOC).getUserId();
+		OrderInfo order = orderInfoService.getUserOrderById(orderId, userId);
+		if (order == null) {
+			throw new ArynBusinessException("订单不存在");
+		}
 		return Result.success(deliveryTaskService.getProgress(orderId));
 	}
 

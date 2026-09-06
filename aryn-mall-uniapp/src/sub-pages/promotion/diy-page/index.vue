@@ -18,9 +18,11 @@ const loading = shallowRef(true)
 const errorMessage = shallowRef('')
 const pageContent = shallowRef<unknown>()
 const pageName = shallowRef<string>()
+const pageMeta = shallowRef<{ pageId?: string, versionId?: string }>()
 const diyId = shallowRef('')
 const { canPullDownRefresh, title } = useDecorationPage({
   fallbackTitle: pageName,
+  meta: pageMeta,
   pageContent,
 })
 const requestRunner = createLatestRequestRunner()
@@ -43,6 +45,7 @@ async function initPageDesign() {
       onSuccess: (response) => {
         pageContent.value = response.pageContent
         pageName.value = response.pageName
+        pageMeta.value = { pageId: response.id, versionId: response.publishedVersionId }
       },
     },
   )

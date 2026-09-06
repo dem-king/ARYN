@@ -1,12 +1,18 @@
 import type {
   DecorationComponent,
   DecorationDocument,
+  DecorationSection,
   PageSettings,
+  SectionStyle,
 } from './types';
 
 import { cloneDesignerValue } from './clone';
-import { createDefaultPageSettings } from './defaults';
-import { DECORATION_SCHEMA_VERSION } from './types';
+import {
+  createDefaultPageSettings,
+  createDefaultSectionStyle,
+} from './defaults';
+import { DECORATION_SCHEMA_VERSION_V3 } from './types';
+import { DEFAULT_SECTION_ID, DEFAULT_SECTION_TYPE } from './v3';
 
 interface UnknownRecord {
   [key: string]: unknown;
@@ -41,6 +47,57 @@ function migrateComponent(value: unknown): DecorationComponent | null {
   };
 }
 
+function migrateComponents(values: unknown): DecorationComponent[] {
+  return Array.isArray(values)
+    ? values
+        .map((component) => migrateComponent(component))
+        .filter((component): component is DecorationComponent => !!component)
+    : [];
+}
+
+function migrateSectionStyle(value: unknown): SectionStyle {
+  const defaults = createDefaultSectionStyle();
+  if (!isRecord(value)) return defaults;
+  const condition =
+    value.condition === 'login' || value.condition === 'guest'
+      ? value.condition
+      : defaults.condition;
+  return {
+    ...defaults,
+    ...cloneRecord(value),
+    condition,
+  } as SectionStyle;
+}
+
+function migrateSections(record: UnknownRecord): DecorationSection[] {
+  if (Array.isArray(record.sections)) {
+    const sections: DecorationSection[] = [];
+    for (const section of record.sections) {
+      if (!isRecord(section) || typeof section.id !== 'string') continue;
+      sections.push({
+        components: migrateComponents(section.components),
+        id: section.id,
+        name: typeof section.name === 'string' ? section.name : undefined,
+        style: migrateSectionStyle(section.style),
+        type:
+          typeof section.type === 'string' && section.type
+            ? section.type
+            : DEFAULT_SECTION_TYPE,
+      });
+    }
+    if (sections.length > 0) return sections;
+  }
+  // v1/v2 扁平文档与旧 formData 组件：包进唯一默认区块
+  return [
+    {
+      components: migrateComponents(record.components),
+      id: DEFAULT_SECTION_ID,
+      style: createDefaultSectionStyle(),
+      type: DEFAULT_SECTION_TYPE,
+    },
+  ];
+}
+
 function migratePageSettings(value: unknown): PageSettings {
   const defaults = createDefaultPageSettings();
   if (!isRecord(value)) return defaults;
@@ -71,15 +128,10 @@ function parseContent(value: unknown): unknown {
 export function migratePageContent(input: unknown): DecorationDocument {
   const source = parseContent(input);
   const record = isRecord(source) ? source : {};
-  const components = Array.isArray(record.components)
-    ? record.components
-        .map((component) => migrateComponent(component))
-        .filter((component): component is DecorationComponent => !!component)
-    : [];
 
   return {
-    components,
     page: migratePageSettings(record.page),
-    schemaVersion: DECORATION_SCHEMA_VERSION,
+    schemaVersion: DECORATION_SCHEMA_VERSION_V3,
+    sections: migrateSections(record),
   };
 }

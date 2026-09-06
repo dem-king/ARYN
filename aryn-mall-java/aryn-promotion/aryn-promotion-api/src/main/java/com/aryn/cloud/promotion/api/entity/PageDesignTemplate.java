@@ -43,6 +43,9 @@ public class PageDesignTemplate extends Model<PageDesignTemplate> {
 	@Schema(description = "系统模板：0.否；1.是；")
 	private String systemFlag;
 
+	@Schema(description = "行业标签（行业模板筛选用，通用为空）")
+	private String industryTag;
+
 	@Schema(description = "状态：0.正常；1.停用；")
 	private String status;
 

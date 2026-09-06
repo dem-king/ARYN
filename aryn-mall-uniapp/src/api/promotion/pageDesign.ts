@@ -32,6 +32,19 @@ export function getPageDesign(params?: object) {
 /**
  * 根据ID获取页面设计
  */
+export interface MetricEvent {
+  action: 'component_click' | 'page_view' | 'render_error'
+  componentType?: string
+  pageDesignId: string
+  terminal?: 'h5' | 'weapp'
+  versionId?: string
+}
+
+/** 上报装修埋点事件（page_view/component_click/render_error） */
+export function reportMetrics(events: MetricEvent[]) {
+  return alovaInstance.Post<number>('/promotion/app/pagedesign/metrics', events)
+}
+
 export function getById(id: string) {
   return alovaInstance.Get<PageDesign>(`/promotion/app/pagedesign/${id}`, {
     headers: {
