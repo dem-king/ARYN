@@ -1,0 +1,49 @@
+# 仓库根 lefthook 配置（唯一生效的配置文件）。
+# 本仓库为多项目单体仓库（Java + UI + UniApp），git 钩子入口在根 .git/hooks，
+# 但 lint 工具链（prettier/eslint/stylelint/vsh）只存在于 aryn-mall-ui 工作区，
+# 因此所有命令通过 root 选项切到 aryn-mall-ui 目录执行，且只对其下暂存文件生效。
+# 注意：aryn-mall-ui/lefthook.yml 是上游 vben 模板遗留文件，不会被加载，勿在其中增改钩子。
+# 文档：https://lefthook.dev/configuration/
+
+pre-commit:
+  parallel: true
+  commands:
+    code-workspace:
+      root: aryn-mall-ui
+      run: pnpm vsh code-workspace --auto-commit
+    lint-md:
+      root: aryn-mall-ui
+      glob: '*.md'
+      stage_fixed: true
+      run: pnpm prettier --cache --ignore-unknown --write {staged_files}
+    lint-vue:
+      root: aryn-mall-ui
+      glob: '*.vue'
+      stage_fixed: true
+      run: pnpm prettier --write {staged_files} && pnpm eslint --cache --fix {staged_files} && pnpm stylelint --fix --allow-empty-input {staged_files}
+    lint-js:
+      root: aryn-mall-ui
+      glob: '*.{js,jsx,ts,tsx}'
+      stage_fixed: true
+      run: pnpm prettier --cache --ignore-unknown --write {staged_files} && pnpm eslint --cache --fix {staged_files}
+    lint-style:
+      root: aryn-mall-ui
+      glob: '*.{scss,less,styl,html,vue,css}'
+      stage_fixed: true
+      run: pnpm prettier --cache --ignore-unknown --write {staged_files} && pnpm stylelint --fix --allow-empty-input {staged_files}
+    lint-package:
+      root: aryn-mall-ui
+      glob: 'package.json'
+      stage_fixed: true
+      run: pnpm prettier --cache --write {staged_files}
+    lint-json:
+      root: aryn-mall-ui
+      glob: '{!(package)*.json,*.code-snippets,.!(browserslist)*rc}'
+      stage_fixed: true
+      run: pnpm prettier --cache --write --parser json {staged_files}
+
+post-merge:
+  commands:
+    install:
+      root: aryn-mall-ui
+      run: pnpm install
