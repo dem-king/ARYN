@@ -147,6 +147,42 @@ public class OrderInfo extends Model<OrderInfo> {
 	@Schema(description = "详细地址")
 	private String recipientAddress;
 
+	@Schema(description = "购买场景：1海员个人购买 2船供采购")
+	private String purchaseScene;
+
+	@Schema(description = "配送船舶ID快照")
+	private String vesselId;
+
+	@Schema(description = "配送船舶名称快照")
+	private String vesselName;
+
+	@Schema(description = "靠港计划ID快照")
+	private String vesselCallId;
+
+	@Schema(description = "港口编码快照")
+	private String portCode;
+
+	@Schema(description = "港口名称快照")
+	private String portName;
+
+	@Schema(description = "泊位快照")
+	private String berth;
+
+	@Schema(description = "配送时间窗开始快照")
+	private LocalDateTime deliveryWindowStart;
+
+	@Schema(description = "配送时间窗结束快照")
+	private LocalDateTime deliveryWindowEnd;
+
+	@Schema(description = "船上代理/经办人姓名快照")
+	private String agentName;
+
+	@Schema(description = "船上代理/经办人电话快照")
+	private String agentPhone;
+
+	@Schema(description = "来源共享购物车ID")
+	private String sharedCartId;
+
 	@Schema(description = "应用ID")
 	private String appId;
 

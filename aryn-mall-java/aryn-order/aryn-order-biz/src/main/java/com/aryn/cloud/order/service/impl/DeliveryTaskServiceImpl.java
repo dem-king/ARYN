@@ -61,7 +61,8 @@ public class DeliveryTaskServiceImpl extends ServiceImpl<DeliveryTaskMapper, Del
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public boolean createTaskOnPay(OrderInfo orderInfo, List<OrderItemEntity> orderItems) {
-		if (orderInfo == null || !MallOrderConstants.DELIVERY_WAY_3.equals(orderInfo.getDeliveryWay())) {
+		if (orderInfo == null || !(MallOrderConstants.DELIVERY_WAY_3.equals(orderInfo.getDeliveryWay())
+				|| MallOrderConstants.DELIVERY_WAY_4.equals(orderInfo.getDeliveryWay()))) {
 			return Boolean.FALSE;
 		}
 		if (CollUtil.isEmpty(orderItems)) {
@@ -86,11 +87,22 @@ public class DeliveryTaskServiceImpl extends ServiceImpl<DeliveryTaskMapper, Del
 		task.setRecipientName(orderInfo.getRecipientName());
 		task.setRecipientPhone(orderInfo.getRecipientPhone());
 		task.setRecipientAddress(buildFullAddress(orderInfo));
+		applyInternalDeliverySnapshot(task, orderInfo);
 		DeliveryWarehouseConfig warehouseConfig = deliveryWarehouseConfigService.getConfig();
 		if (warehouseConfig != null) {
 			task.setWarehouseAddress(buildWarehouseAddress(warehouseConfig));
 		}
-		save(task);
+		try {
+			save(task);
+		}
+		catch (org.springframework.dao.DuplicateKeyException exception) {
+			// 唯一键 uk_delivery_task_order（tenant_id, order_id）兜底：并发重复回调只保留一个任务
+			DeliveryTask concurrentTask = getOne(Wrappers.<DeliveryTask>lambdaQuery()
+				.eq(DeliveryTask::getOrderId, orderInfo.getId()));
+			log.info("订单[{}]并发创建配送任务命中唯一约束，幂等返回任务[{}]", orderInfo.getId(),
+					concurrentTask != null ? concurrentTask.getId() : "-");
+			return Boolean.TRUE;
+		}
 
 		for (OrderItemEntity orderItem : orderItems) {
 			DeliveryTaskItem item = new DeliveryTaskItem();
@@ -109,6 +121,24 @@ public class DeliveryTaskServiceImpl extends ServiceImpl<DeliveryTaskMapper, Del
 				"3", null, "支付成功自动创建任务");
 		log.info("订单[{}]支付成功，自动创建配送任务[{}]", orderInfo.getId(), task.getId());
 		return Boolean.TRUE;
+	}
+
+	/**
+	 * 内部配送（delivery_way=4）任务保存船舶、靠港、港口与购买场景快照；快照以订单数据为准。
+	 */
+	private void applyInternalDeliverySnapshot(DeliveryTask task, OrderInfo orderInfo) {
+		task.setPurchaseScene(orderInfo.getPurchaseScene());
+		if (!MallOrderConstants.DELIVERY_WAY_4.equals(orderInfo.getDeliveryWay())) {
+			return;
+		}
+		task.setVesselId(orderInfo.getVesselId());
+		task.setVesselName(orderInfo.getVesselName());
+		task.setVesselCallId(orderInfo.getVesselCallId());
+		task.setPortCode(orderInfo.getPortCode());
+		task.setPortName(orderInfo.getPortName());
+		task.setBerth(orderInfo.getBerth());
+		task.setDeliveryWindowStart(orderInfo.getDeliveryWindowStart());
+		task.setDeliveryWindowEnd(orderInfo.getDeliveryWindowEnd());
 	}
 
 	@Override

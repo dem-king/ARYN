@@ -240,6 +240,35 @@ public class VesselServiceImpl implements VesselService {
 		return toContext(calls.get(0), requireVessel(tenantId, vesselId));
 	}
 
+	@Override
+	public boolean isVesselMember(String tenantId, String vesselId, String userId) {
+		if (!StringUtils.hasText(tenantId) || !StringUtils.hasText(vesselId) || !StringUtils.hasText(userId)) {
+			return false;
+		}
+		Long count = vesselMemberMapper.selectCount(Wrappers.lambdaQuery(VesselMember.class)
+				.eq(VesselMember::getTenantId, tenantId)
+				.eq(VesselMember::getVesselId, vesselId)
+				.eq(VesselMember::getUserId, userId)
+				.eq(VesselMember::getStatus, MEMBER_STATUS_ONBOARD));
+		return count != null && count > 0;
+	}
+
+	@Override
+	public VesselContextDTO contextByCallId(String tenantId, String vesselCallId) {
+		if (!StringUtils.hasText(vesselCallId)) {
+			return null;
+		}
+		VesselCall call = vesselCallMapper.selectOne(Wrappers.lambdaQuery(VesselCall.class)
+				.eq(VesselCall::getTenantId, tenantId)
+				.eq(VesselCall::getId, vesselCallId));
+		if (!isOrderableCall(call, LocalDateTime.now())) {
+			return null;
+		}
+		return toContext(call, vesselInfoMapper.selectOne(Wrappers.lambdaQuery(VesselInfo.class)
+				.eq(VesselInfo::getTenantId, tenantId)
+				.eq(VesselInfo::getId, call.getVesselId())));
+	}
+
 	private VesselInfo requireVessel(String tenantId, String vesselId) {
 		if (!StringUtils.hasText(vesselId)) {
 			throw new ArynBusinessException("船舶ID不能为空");

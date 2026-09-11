@@ -104,6 +104,33 @@ public class DeliveryTask extends Model<DeliveryTask> {
 	@Schema(description = "备注")
 	private String remark;
 
+	/** 购买场景快照：1海员个人购买 2船供采购 */
+	private String purchaseScene;
+
+	/** 配送船舶ID快照 */
+	private String vesselId;
+
+	/** 配送船舶名称快照 */
+	private String vesselName;
+
+	/** 靠港计划ID快照 */
+	private String vesselCallId;
+
+	/** 港口编码快照 */
+	private String portCode;
+
+	/** 港口名称快照 */
+	private String portName;
+
+	/** 泊位快照 */
+	private String berth;
+
+	/** 配送时间窗开始快照 */
+	private LocalDateTime deliveryWindowStart;
+
+	/** 配送时间窗结束快照 */
+	private LocalDateTime deliveryWindowEnd;
+
 	@Schema(description = "租户ID")
 	private String tenantId;
 

@@ -16,6 +16,9 @@ public class MallOrderConstants {
 
 	public static final String DELIVERY_WAY_3 = "3";
 
+	/** 公司港口/船舶内部配送 */
+	public static final String DELIVERY_WAY_4 = "4";
+
 	/** 支付类型：1.微信支付；2.支付宝支付; */
 	public static final String PAYMENT_TYPE_0 = "0";
 

@@ -18,6 +18,7 @@ import com.aryn.cloud.common.core.enums.MallErrorCodeEnum;
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.core.util.SnowflakeIdUtils;
 import com.aryn.cloud.common.logistics.util.Kuaidi100Utils;
+import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.order.api.constant.MallOrderConstants;
@@ -67,6 +68,8 @@ import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
+import com.aryn.cloud.vessel.api.dto.VesselContextDTO;
+
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -127,6 +130,10 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 	private final com.aryn.cloud.order.service.IDeliveryTaskService deliveryTaskService;
 
 	private final com.aryn.cloud.order.service.IDeliveryAreaService deliveryAreaService;
+
+	private final com.aryn.cloud.order.validator.PurchaseSceneValidator purchaseSceneValidator;
+
+	private final com.aryn.cloud.order.validator.DeliveryContextValidator deliveryContextValidator;
 
 	@Override
 	public IPage<OrderInfo> adminPage(Page page, OrderInfo orderInfo) {
@@ -352,6 +359,7 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 
 		// 生成订单
 		OrderInfo orderInfo = generateOrder(createOrderDTO);
+		validateAndApplyDeliveryContext(createOrderDTO.getPurchaseScene(), createOrderDTO.getUserId(), orderInfo);
 		// 生成订单商品
 		List<OrderItemEntity> orderItemEntityList = orderPriceComputeService.generateOrderItems(goodsSkuList, createOrderDTO.getSkuReqList());
 
@@ -414,7 +422,10 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 					MallErrorCodeEnum.ERROR_60061.getMsg());
 		}
 		orderPriceComputeService.orderStockHandler(goodsSkuList, orderItemEntityList);
-		orderItemEntityList.forEach(orderItem -> orderItem.setOrderId(orderInfo.getId()));
+		orderItemEntityList.forEach(orderItem -> {
+			orderItem.setOrderId(orderInfo.getId());
+			orderItem.setPurchaseScene(orderInfo.getPurchaseScene());
+		});
 		if (!orderItemService.saveBatch(orderItemEntityList)) {
 			throw new ArynBusinessException("订单商品保存失败");
 		}
@@ -619,6 +630,8 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		orderInfo.setCouponPrice(BigDecimal.ZERO);
 		orderInfo.setPayStatus(CommonConstants.NO);
 		orderInfo.setCouponUserId(settlementOrderDTO.getCouponUserId());
+		validateAndApplyDeliveryContext(settlementOrderDTO.getPurchaseScene(), settlementOrderDTO.getUserId(),
+				orderInfo);
 
 		// 生成订单商品
 		List<OrderItemEntity> orderItemEntityList = orderPriceComputeService.generateOrderItems(goodsSkuList,
@@ -661,7 +674,28 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 			}
 		}
 		orderInfo.setOrderItemList(orderItemEntityList);
+		orderItemEntityList.forEach(item -> item.setPurchaseScene(orderInfo.getPurchaseScene()));
 		return orderInfo;
+	}
+
+	/**
+	 * 购买场景与配送上下文校验：结算与下单共用同一校验；内部配送以服务端船舶域数据落快照，
+	 * 港口、泊位、时间窗不从客户端取值。
+	 */
+	private void validateAndApplyDeliveryContext(String purchaseScene, String userId, OrderInfo orderInfo) {
+		purchaseSceneValidator.validate(purchaseScene, orderInfo.getDeliveryWay());
+		VesselContextDTO context = deliveryContextValidator.validate(ArynTenantContextHolder.getTenantId(), userId,
+				orderInfo.getDeliveryWay(), orderInfo.getVesselId(), orderInfo.getVesselCallId());
+		if (context != null) {
+			orderInfo.setVesselId(context.getVesselId());
+			orderInfo.setVesselName(context.getVesselName());
+			orderInfo.setVesselCallId(context.getVesselCallId());
+			orderInfo.setPortCode(context.getPortCode());
+			orderInfo.setPortName(context.getPortName());
+			orderInfo.setBerth(context.getBerth());
+			orderInfo.setDeliveryWindowStart(context.getDeliveryWindowStart());
+			orderInfo.setDeliveryWindowEnd(context.getDeliveryWindowEnd());
+		}
 	}
 
 	@Override

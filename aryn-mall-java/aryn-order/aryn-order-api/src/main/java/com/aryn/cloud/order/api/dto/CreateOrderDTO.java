@@ -24,9 +24,9 @@ public class CreateOrderDTO {
 	@Schema(description = "用户ID")
 	private String userId;
 
-	@Schema(description = "配送方式：1.普通快递；2.上门自提；3.商城配送")
+	@Schema(description = "配送方式：1.普通快递；2.上门自提；3.商城配送；4.公司港口/船舶内部配送")
 	@NotBlank(message = "配送方式不能为空")
-	@Pattern(regexp = "[123]", message = "配送方式不合法")
+	@Pattern(regexp = "[1-4]", message = "配送方式不合法")
 	private String deliveryWay;
 
 	@Schema(description = "支付类型：1.微信支付；2.支付宝支付")
@@ -60,5 +60,27 @@ public class CreateOrderDTO {
 	@Size(max = 64, message = "请求幂等号长度不能超过64")
 	@Schema(description = "客户端请求幂等号")
 	private String requestId;
+
+	@Schema(description = "购买场景：1.海员个人购买；2.船供采购")
+	@Pattern(regexp = "[12]", message = "购买场景不合法")
+	private String purchaseScene;
+
+	@Schema(description = "配送船舶ID（内部配送必填）")
+	private String vesselId;
+
+	@Schema(description = "靠港计划ID（内部配送必填）")
+	private String vesselCallId;
+
+	@Schema(description = "收货人姓名（内部配送）")
+	private String recipientName;
+
+	@Schema(description = "收货人电话（内部配送）")
+	private String recipientPhone;
+
+	@Schema(description = "船上代理/经办人姓名（内部配送）")
+	private String agentName;
+
+	@Schema(description = "船上代理/经办人电话（内部配送）")
+	private String agentPhone;
 
 }

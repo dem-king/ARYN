@@ -54,19 +54,21 @@ public class ArynOrderPayEventListener {
 			log.warn("order not found!");
 			return;
 		}
+		if (OrderStatusEnum.CANCELED.getCode().equals(orderInfo.getStatus())) {
+			log.warn("订单[{}]已取消，忽略支付回调，不补建配送任务", orderInfo.getId());
+			return;
+		}
 
 		// 商城配送方式：支付后即等待配送员派单，订单状态仍为待发货
 		String targetStatus;
 		if (MallOrderConstants.DELIVERY_WAY_2.equals(orderInfo.getDeliveryWay())) {
 			targetStatus = OrderStatusEnum.WAITING_FOR_RECEIPT.getCode();
 		}
-		else if (MallOrderConstants.DELIVERY_WAY_3.equals(orderInfo.getDeliveryWay())) {
-			targetStatus = OrderStatusEnum.WAITING_FOR_DELIVERY.getCode();
-		}
 		else {
+			// 普通快递、商城配送与内部配送均进入待发货（仓库配货）
 			targetStatus = OrderStatusEnum.WAITING_FOR_DELIVERY.getCode();
 		}
-		if (!orderInfoService.update(Wrappers.<OrderInfo>lambdaUpdate()
+		boolean updated = orderInfoService.update(Wrappers.<OrderInfo>lambdaUpdate()
 			.eq(OrderInfo::getId, orderInfo.getId())
 			.eq(OrderInfo::getPayStatus, CommonConstants.NO)
 			.eq(OrderInfo::getStatus, OrderStatusEnum.WAITING_FOR_PAYMENT.getCode())
@@ -74,7 +76,14 @@ public class ArynOrderPayEventListener {
 			.set(OrderInfo::getPayStatus, CommonConstants.YES)
 			.set(OrderInfo::getPaymentTime, orderInfo.getPaymentTime())
 			.set(OrderInfo::getPaymentType, orderInfo.getPaymentType())
-			.set(OrderInfo::getTransactionId, orderInfo.getTransactionId()))) {
+			.set(OrderInfo::getTransactionId, orderInfo.getTransactionId()));
+		if (!updated) {
+			OrderInfo current = orderInfoService.getById(orderInfo.getId());
+			if (current != null && CommonConstants.YES.equals(current.getPayStatus())) {
+				// 并发重复回调：另一事务已完成支付处理，幂等退出
+				log.info("订单[{}]支付回调重复投递，已由并发事务处理，幂等退出", orderInfo.getId());
+				return;
+			}
 			throw new ArynBusinessException("订单支付状态更新失败，请重试");
 		}
 		orderInfo.setStatus(targetStatus);
@@ -93,8 +102,9 @@ public class ArynOrderPayEventListener {
 			throw new ArynBusinessException("订单商品支付状态更新失败，请重试");
 		}
 
-		// 商城配送：支付后自动创建配送任务
-		if (MallOrderConstants.DELIVERY_WAY_3.equals(orderInfo.getDeliveryWay())) {
+		// 商城配送与内部配送：支付后自动创建配送任务（服务内部按唯一键幂等）
+		if (MallOrderConstants.DELIVERY_WAY_3.equals(orderInfo.getDeliveryWay())
+				|| MallOrderConstants.DELIVERY_WAY_4.equals(orderInfo.getDeliveryWay())) {
 			deliveryTaskService.createTaskOnPay(orderInfo, orderItemEntityList);
 		}
 

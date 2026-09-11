@@ -94,6 +94,27 @@ public class OrderItemEntity extends Model<OrderItemEntity> {
 	@Schema(description = "规格信息")
 	private String specsInfo;
 
+	@Schema(description = "购买场景快照：1海员个人购买 2船供采购")
+	private String purchaseScene;
+
+	@Schema(description = "采购单位快照")
+	private String purchaseUnit;
+
+	@Schema(description = "箱规快照")
+	private String packageSpec;
+
+	@Schema(description = "最小起订量快照")
+	private Integer moq;
+
+	@Schema(description = "数量步长快照")
+	private Integer stepQty;
+
+	@Schema(description = "共享购物车来源成员用户ID")
+	private String contributorUserId;
+
+	@Schema(description = "共享购物车成员备注快照")
+	private String memberRemark;
+
 	@TableField(exist = false)
 	private OrderRefund orderRefund;
 

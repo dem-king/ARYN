@@ -71,4 +71,14 @@ public interface VesselService {
 	 */
 	VesselContextDTO currentContext(String tenantId, String userId, String vesselId);
 
+	/**
+	 * 判断用户是否为指定船舶的在船成员（供远程调用校验，不做额外权限门控）。
+	 */
+	boolean isVesselMember(String tenantId, String vesselId, String userId);
+
+	/**
+	 * 按靠港计划 ID 查询可配送上下文（船舶+港口+时间窗）；不存在或已过期返回 null。
+	 */
+	VesselContextDTO contextByCallId(String tenantId, String vesselCallId);
+
 }
