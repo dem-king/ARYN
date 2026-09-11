@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import type { FormInstance } from 'element-plus';
 
-import { defineAsyncComponent, reactive, ref } from 'vue';
+import { computed, defineAsyncComponent, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import {
@@ -28,6 +28,7 @@ import { getList as getBrandList } from '#/api/product/goods-brand';
 import { getPage as getCategoryTree } from '#/api/product/goods-category';
 import { getList as getSpecsList } from '#/api/product/goods-specs';
 import { addObj, editObj, getById } from '#/api/product/goods-spu';
+import { getShipProfile, saveShipProfile } from '#/api/product/ship-profile';
 import { useDict } from '#/utils/dict';
 
 import { validateGoodsSkus } from './goods-spu-form-validation';
@@ -39,6 +40,12 @@ const SelectMaterial = defineAsyncComponent(
   () => import('#/components/select-material/index.vue'),
 );
 const Sku = defineAsyncComponent(() => import('#/components/sku/index.vue'));
+const ShipProfileForm = defineAsyncComponent(
+  () => import('./components/ShipProfileForm.vue'),
+);
+const PublishChecklist = defineAsyncComponent(
+  () => import('./components/PublishChecklist.vue'),
+);
 
 interface DataState {
   form: {
@@ -77,6 +84,15 @@ interface DataState {
 const { freight_type } = useDict('freight_type');
 
 const active = ref(0);
+const shipProfileFormRef = ref();
+const shipProfileCheck = computed(() => ({
+  impaCode: shipProfileFormRef?.value?.profile?.impaCode,
+  internalItemCode: shipProfileFormRef?.value?.profile?.internalItemCode,
+  issaCode: shipProfileFormRef?.value?.profile?.issaCode,
+  saleScope: shipProfileFormRef?.value?.profile?.saleScope ?? '3',
+  storageType: shipProfileFormRef?.value?.profile?.storageType,
+  ...shipProfileFormRef?.value?.skuProfiles?.[0],
+}));
 const state = reactive<DataState>({
   form: {
     id: undefined,
@@ -254,6 +270,35 @@ const resetForm = (formEl: FormInstance | undefined) => {
   };
   loading.value = false;
   // formEl.resetFields();
+};
+/**
+ * 加载船供资料
+ */
+const loadShipProfile = (spuId: string) => {
+  getShipProfile(spuId)
+    .then((detail) => {
+      shipProfileFormRef.value?.load({
+        profile: detail.profile,
+        skuProfiles: detail.skuProfiles,
+      });
+    })
+    .catch(() => {});
+};
+/**
+ * 保存船供资料（与主表单独立保存，要求商品已存在）
+ */
+const handleShipProfileSave = (payload: any) => {
+  if (!state.form.id) {
+    ElMessage.warning('请先保存商品基础信息，再维护船供资料');
+    return;
+  }
+  const spuId = state.form.id ? String(state.form.id) : '';
+  saveShipProfile({ ...payload, spuId })
+    .then(() => {
+      ElMessage.success('船供资料保存成功');
+      loadShipProfile(spuId);
+    })
+    .catch(() => {});
 };
 /**
  * 提交按钮
@@ -466,6 +511,7 @@ const initForm = () => {
           state.form.sku = response.goodsSkus[0];
         }
         getGoodsSpuSpecsList();
+        loadShipProfile(response.id as string);
       })
       .catch(() => {
         loading.value = false;
@@ -690,6 +736,26 @@ initForm();
                   :disable="false"
                 />
               </ElFormItem>
+            </ElTabPane>
+            <ElTabPane label="船供资料" :name="3">
+              <PublishChecklist
+                :profile="shipProfileCheck"
+                :sku="shipProfileCheck"
+              />
+              <div class="mb10"></div>
+              <ShipProfileForm
+                ref="shipProfileFormRef"
+                :sku-options="
+                  (state.form.goodsSkus || []).map((sku: any) => ({
+                    id: sku.id,
+                    label: sku.specsInfo || sku.id,
+                  }))
+                "
+                @save="handleShipProfileSave"
+              />
+              <div v-if="!state.form.id" style="color: #909399">
+                新增商品请先在“基本信息”保存后，再维护船供资料。
+              </div>
             </ElTabPane>
           </ElTabs>
         </ElForm>
