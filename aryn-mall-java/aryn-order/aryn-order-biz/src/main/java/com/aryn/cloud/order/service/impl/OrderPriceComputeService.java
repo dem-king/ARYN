@@ -19,12 +19,18 @@ import com.aryn.cloud.promotion.api.dto.CouponUserReqDTO;
 import com.aryn.cloud.promotion.api.entity.CouponGoods;
 import com.aryn.cloud.promotion.api.entity.CouponInfo;
 import com.aryn.cloud.promotion.api.enums.CouponUserStatusEnum;
+import com.aryn.cloud.promotion.api.dto.PromotionContextDTO;
 import com.aryn.cloud.promotion.api.remote.RemoteCouponUserService;
+import com.aryn.cloud.promotion.api.remote.RemotePromotionEngine;
+import com.aryn.cloud.promotion.api.vo.PromotionCalculationVO;
 import com.aryn.cloud.promotion.api.remote.RemoteDiscountService;
 import com.aryn.cloud.promotion.api.remote.RemoteSeckillService;
 import com.aryn.cloud.promotion.api.vo.CouponUserRespVO;
 import com.aryn.cloud.user.api.vo.MemberBenefitsVO;
+import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
+
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -35,6 +41,7 @@ import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class OrderPriceComputeService {
@@ -50,6 +57,9 @@ public class OrderPriceComputeService {
 
 	@DubboReference
 	private final RemoteSeckillService remoteSeckillService;
+
+	@DubboReference
+	private final RemotePromotionEngine remotePromotionEngine;
 
 	/**
 	 * 促销价格处理：秒杀价 > 限时折扣 > 原价
@@ -150,12 +160,15 @@ public class OrderPriceComputeService {
 		BigDecimal freightPrice = BigDecimal.ZERO;
 		BigDecimal couponPrice = BigDecimal.ZERO;
 		BigDecimal memberDiscountPrice = BigDecimal.ZERO;
+		BigDecimal promoPrice = BigDecimal.ZERO;
 
 		for (OrderItemEntity orderItemEntity : orderItemEntityList) {
 			totalPrice = totalPrice.add(orderItemEntity.getTotalPrice());
 			freightPrice = freightPrice.add(orderItemEntity.getFreightPrice());
 			couponPrice = couponPrice.add(orderItemEntity.getCouponPrice());
 			memberDiscountPrice = memberDiscountPrice.add(orderItemEntity.getMemberDiscountPrice());
+			promoPrice = promoPrice
+				.add(orderItemEntity.getPromoPrice() != null ? orderItemEntity.getPromoPrice() : BigDecimal.ZERO);
 			paymentPrice = paymentPrice.add(orderItemEntity.getPaymentPrice());
 		}
 
@@ -163,14 +176,18 @@ public class OrderPriceComputeService {
 			.setPaymentPrice(paymentPrice)
 			.setFreightPrice(freightPrice)
 			.setCouponPrice(couponPrice)
+			.setPromoPrice(promoPrice)
 			.setMemberDiscountPrice(memberDiscountPrice);
 
 	}
 
 	public void computeItemPayPrice(OrderItemEntity orderItemEntity) {
+		BigDecimal promoPrice = orderItemEntity.getPromoPrice() != null ? orderItemEntity.getPromoPrice()
+				: BigDecimal.ZERO;
 		BigDecimal itemRealPrice = orderItemEntity.getTotalPrice()
 			.subtract(orderItemEntity.getMemberDiscountPrice())
-			.subtract(orderItemEntity.getCouponPrice());
+			.subtract(orderItemEntity.getCouponPrice())
+			.subtract(promoPrice);
 
 		if (itemRealPrice.compareTo(BigDecimal.ZERO) < 0) {
 			itemRealPrice = BigDecimal.ZERO;
@@ -342,6 +359,135 @@ public class OrderPriceComputeService {
 			return orderItemEntity;
 		}).collect(Collectors.toList());
 
+	}
+
+
+	/**
+	 * 营销试算与阶梯价改价：在会员折扣/优惠券之前调用（改 SKU 成交基价）。
+	 * 返回计算结果供券后整单优惠分摊；营销服务不可用时按无优惠处理，不阻断交易。
+	 */
+	public PromotionCalculationVO applyPromotionLadder(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList) {
+		try {
+			PromotionContextDTO context = buildPromotionContext(orderInfo, orderItemEntityList);
+			if (context == null) {
+				return null;
+			}
+			PromotionCalculationVO calculation = remotePromotionEngine.preview(context);
+			if (calculation == null || calculation.getLadderOverrides() == null) {
+				return calculation;
+			}
+			for (OrderItemEntity item : orderItemEntityList) {
+				calculation.getLadderOverrides().stream()
+					.filter(override -> override.getSkuId().equals(item.getSkuId()))
+					.findFirst()
+					.ifPresent(override -> {
+						item.setSalesPrice(override.getUnitPrice());
+						item.setTotalPrice(override.getUnitPrice().multiply(BigDecimal.valueOf(item.getBuyQuantity())));
+						item.setPaymentPrice(item.getTotalPrice());
+					});
+			}
+			return calculation;
+		}
+		catch (Exception ex) {
+			log.warn("订单[{}]营销试算失败，按无优惠处理", orderInfo.getId(), ex);
+			return null;
+		}
+	}
+
+	/**
+	 * 整船/整单优惠分摊：在优惠券之后调用，按可折金额占比分摊到明细（最后一条兜底）。
+	 */
+	public void applyShipWholeDiscount(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
+			PromotionCalculationVO calculation) {
+		if (calculation == null || calculation.getWholeDiscount() == null
+				|| calculation.getWholeDiscount().compareTo(BigDecimal.ZERO) <= 0) {
+			return;
+		}
+		BigDecimal wholeDiscount = calculation.getWholeDiscount();
+		BigDecimal discountableBase = orderItemEntityList.stream()
+			.map(this::discountedGoodsPrice)
+			.reduce(BigDecimal.ZERO, BigDecimal::add);
+		if (discountableBase.compareTo(BigDecimal.ZERO) <= 0) {
+			return;
+		}
+		if (wholeDiscount.compareTo(discountableBase) > 0) {
+			wholeDiscount = discountableBase;
+		}
+		BigDecimal remaining = wholeDiscount;
+		for (int i = 0; i < orderItemEntityList.size(); i++) {
+			OrderItemEntity item = orderItemEntityList.get(i);
+			BigDecimal itemBase = discountedGoodsPrice(item);
+			BigDecimal promo;
+			if (i == orderItemEntityList.size() - 1) {
+				promo = remaining;
+			}
+			else {
+				promo = itemBase.divide(discountableBase, 4, RoundingMode.HALF_EVEN)
+					.multiply(wholeDiscount)
+					.setScale(2, RoundingMode.HALF_EVEN);
+			}
+			if (promo.compareTo(itemBase) > 0) {
+				promo = itemBase;
+			}
+			if (promo.compareTo(BigDecimal.ZERO) < 0) {
+				promo = BigDecimal.ZERO;
+			}
+			item.setPromoPrice(promo);
+			remaining = remaining.subtract(promo);
+			computeItemPayPrice(item);
+		}
+		orderInfo.setPromotionDetails(calculation.getDetails());
+		computeOrderPrice(orderInfo, orderItemEntityList);
+	}
+
+	private PromotionContextDTO buildPromotionContext(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList) {
+		String tenantId = StringUtils.hasText(orderInfo.getTenantId()) ? orderInfo.getTenantId()
+				: ArynTenantContextHolder.getTenantId();
+		if (!StringUtils.hasText(tenantId) || CollUtil.isEmpty(orderItemEntityList)) {
+			return null;
+		}
+		PromotionContextDTO context = new PromotionContextDTO();
+		context.setTenantId(tenantId);
+		context.setUserId(orderInfo.getUserId());
+		context.setOrderId(orderInfo.getId());
+		context.setOrderNo(orderInfo.getOrderNo());
+		context.setPurchaseScene(orderInfo.getPurchaseScene());
+		context.setVesselId(orderInfo.getVesselId());
+		context.setVesselCallId(orderInfo.getVesselCallId());
+		context.setPortCode(orderInfo.getPortCode());
+		context.setSkuItems(orderItemEntityList.stream().map(item -> {
+			PromotionContextDTO.SkuItem skuItem = new PromotionContextDTO.SkuItem();
+			skuItem.setSkuId(item.getSkuId());
+			skuItem.setQuantity(item.getBuyQuantity());
+			skuItem.setSalesPrice(item.getSalesPrice());
+			return skuItem;
+		}).toList());
+		return context;
+	}
+
+
+	/**
+	 * 营销锁定：下单时预留（订单+活动幂等）。营销服务不可用时按无优惠继续下单。
+	 */
+	public PromotionCalculationVO reservePromotion(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList) {
+		try {
+			PromotionContextDTO context = buildPromotionContext(orderInfo, orderItemEntityList);
+			if (context == null) {
+				return null;
+			}
+			return remotePromotionEngine.reserve(context);
+		}
+		catch (Exception ex) {
+			log.warn("订单[{}]营销锁定失败，按无优惠继续", orderInfo.getId(), ex);
+			return null;
+		}
+	}
+
+	/**
+	 * 营销释放：取消/超时时调用（幂等）。
+	 */
+	public void releasePromotion(String tenantId, String orderId, String reason) {
+		remotePromotionEngine.release(tenantId, orderId, reason);
 	}
 
 }

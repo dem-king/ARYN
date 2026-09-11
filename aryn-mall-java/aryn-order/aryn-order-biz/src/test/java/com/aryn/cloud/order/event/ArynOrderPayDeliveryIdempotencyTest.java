@@ -76,7 +76,8 @@ class ArynOrderPayDeliveryIdempotencyTest {
 		orderItemService = mock(IOrderItemService.class);
 		deliveryTaskServiceMock = mock(IDeliveryTaskService.class);
 		listener = new ArynOrderPayEventListener(orderInfoService, orderItemService,
-				mock(com.aryn.cloud.order.event.listener.OrderPaySuccessNotifier.class), deliveryTaskServiceMock);
+				mock(com.aryn.cloud.order.event.listener.OrderPaySuccessNotifier.class), deliveryTaskServiceMock,
+				mock(com.aryn.cloud.promotion.api.remote.RemotePromotionEngine.class));
 	}
 
 	private OrderInfo order(String deliveryWay) {

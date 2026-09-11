@@ -12,6 +12,7 @@ import com.aryn.cloud.order.api.enums.OrderItemStatusEnum;
 import com.aryn.cloud.order.api.enums.OrderStatusEnum;
 import com.aryn.cloud.order.event.ArynOrderPayEvent;
 import com.aryn.cloud.order.service.IDeliveryTaskService;
+import org.apache.dubbo.config.annotation.DubboReference;
 import com.aryn.cloud.order.service.IOrderInfoService;
 import com.aryn.cloud.order.service.IOrderItemService;
 import lombok.RequiredArgsConstructor;
@@ -40,6 +41,9 @@ public class ArynOrderPayEventListener {
 	private final OrderPaySuccessNotifier orderPaySuccessNotifier;
 
 	private final IDeliveryTaskService deliveryTaskService;
+
+	@DubboReference
+	private final com.aryn.cloud.promotion.api.remote.RemotePromotionEngine promotionEngine;
 
 	/**
 	 * 订单状态修改
@@ -106,6 +110,14 @@ public class ArynOrderPayEventListener {
 		if (MallOrderConstants.DELIVERY_WAY_3.equals(orderInfo.getDeliveryWay())
 				|| MallOrderConstants.DELIVERY_WAY_4.equals(orderInfo.getDeliveryWay())) {
 			deliveryTaskService.createTaskOnPay(orderInfo, orderItemEntityList);
+		}
+
+		// 营销优惠确认（锁定→确认；失败仅告警，不阻断支付主流程）
+		try {
+			promotionEngine.confirm(orderInfo.getTenantId(), orderInfo.getId());
+		}
+		catch (Exception ex) {
+			log.warn("订单[{}]营销优惠确认失败", orderInfo.getId(), ex);
 		}
 
 		// 通知销量增加、优惠券更改状态

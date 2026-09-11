@@ -19,6 +19,7 @@ import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.core.util.SnowflakeIdUtils;
 import com.aryn.cloud.common.logistics.util.Kuaidi100Utils;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
+import com.aryn.cloud.promotion.api.vo.PromotionCalculationVO;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.order.api.constant.MallOrderConstants;
@@ -130,6 +131,8 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 	private final com.aryn.cloud.order.service.IDeliveryTaskService deliveryTaskService;
 
 	private final com.aryn.cloud.order.service.IDeliveryAreaService deliveryAreaService;
+
+	private final com.aryn.cloud.order.mapper.PromotionSnapshotMapper promotionSnapshotMapper;
 
 	private final com.aryn.cloud.order.validator.PurchaseSceneValidator purchaseSceneValidator;
 
@@ -263,6 +266,15 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 				throw new ArynBusinessException("订单优惠券释放失败");
 			}
 		}
+		// 释放营销锁定（取消/超时共用本方法，幂等）
+		try {
+			String releaseTenant = StringUtils.hasText(orderInfo.getTenantId()) ? orderInfo.getTenantId()
+					: ArynTenantContextHolder.getTenantId();
+			orderPriceComputeService.releasePromotion(releaseTenant, orderInfo.getId(), "CANCEL");
+		}
+		catch (Exception ex) {
+			log.warn("订单[" + orderInfo.getId() + "]营销优惠释放失败，等待补偿: " + ex.getMessage());
+		}
 		List<OrderItemEntity> orderItemEntityList = orderItemMapper
 			.selectList(Wrappers.<OrderItemEntity>lambdaQuery().eq(OrderItemEntity::getOrderId, orderInfo.getId()));
 		List<GoodsSkuStockReqDTO> stockRequests = orderItemEntityList.stream().map(orderItem -> {
@@ -362,11 +374,15 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		validateAndApplyDeliveryContext(createOrderDTO.getPurchaseScene(), createOrderDTO.getUserId(), orderInfo);
 		// 生成订单商品
 		List<OrderItemEntity> orderItemEntityList = orderPriceComputeService.generateOrderItems(goodsSkuList, createOrderDTO.getSkuReqList());
+		// 营销阶梯价改基价（会员/券之前）
+		PromotionCalculationVO promoCalculation = orderPriceComputeService.applyPromotionLadder(orderInfo, orderItemEntityList);
 
 		orderPriceComputeService.computeOrderPrice(orderInfo, orderItemEntityList);
 		MemberBenefitsVO memberBenefits = remoteMallUserService.getMemberBenefits(createOrderDTO.getUserId());
 		orderPriceComputeService.orderMemberBenefitHandler(orderInfo, orderItemEntityList, memberBenefits);
 		orderPriceComputeService.orderCouponHandler(orderInfo, orderItemEntityList);
+		// 整船/整单优惠分摊（券之后）
+		orderPriceComputeService.applyShipWholeDiscount(orderInfo, orderItemEntityList, promoCalculation);
 
 		// 5. 物流运费计算（普通快递和商城配送均需收货地址与运费）
 		if (MallOrderConstants.DELIVERY_WAY_1.equals(orderInfo.getDeliveryWay())
@@ -428,6 +444,24 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		});
 		if (!orderItemService.saveBatch(orderItemEntityList)) {
 			throw new ArynBusinessException("订单商品保存失败");
+		}
+		// 营销锁定与快照（订单+活动维度幂等；历史金额以快照为准）
+		PromotionCalculationVO reserved = orderPriceComputeService.reservePromotion(orderInfo, orderItemEntityList);
+		if (reserved != null && reserved.getDetails() != null) {
+			for (PromotionCalculationVO.ActivityDetail detail : reserved.getDetails()) {
+				com.aryn.cloud.order.api.entity.PromotionSnapshot snapshot = new com.aryn.cloud.order.api.entity.PromotionSnapshot();
+				snapshot.setOrderId(orderInfo.getId());
+				snapshot.setActivityId(detail.getActivityId());
+				snapshot.setActivityType(detail.getActivityType());
+				snapshot.setPromotionName(detail.getActivityName());
+				snapshot.setRuleSnapshot(detail.getRuleSnapshot());
+				snapshot.setDiscountAmount(detail.getDiscountAmount());
+				snapshot.setPurchaseScene(orderInfo.getPurchaseScene());
+				snapshot.setTenantId(orderInfo.getTenantId());
+				snapshot.setCreateTime(LocalDateTime.now());
+				snapshot.setDelFlag("0");
+				promotionSnapshotMapper.insert(snapshot);
+			}
 		}
 		if (MallOrderConstants.ORDER_CREATE_WAY_1.equals(createOrderDTO.getCreateWay())) {
 			shoppingCartService.clear(orderInfo.getUserId(), orderItemEntityList.stream()
@@ -636,11 +670,15 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		// 生成订单商品
 		List<OrderItemEntity> orderItemEntityList = orderPriceComputeService.generateOrderItems(goodsSkuList,
 				settlementOrderDTO.getSkuReqList());
+		// 营销阶梯价改基价（会员/券之前）
+		PromotionCalculationVO promoCalculation = orderPriceComputeService.applyPromotionLadder(orderInfo, orderItemEntityList);
 
 		orderPriceComputeService.computeOrderPrice(orderInfo, orderItemEntityList);
 		MemberBenefitsVO memberBenefits = remoteMallUserService.getMemberBenefits(settlementOrderDTO.getUserId());
 		orderPriceComputeService.orderMemberBenefitHandler(orderInfo, orderItemEntityList, memberBenefits);
 		orderPriceComputeService.orderCouponHandler(orderInfo, orderItemEntityList);
+		// 整船/整单优惠分摊（券之后）
+		orderPriceComputeService.applyShipWholeDiscount(orderInfo, orderItemEntityList, promoCalculation);
 		// 5.计算运费（普通快递和商城配送均需收货地址与运费）
 		if (MallOrderConstants.DELIVERY_WAY_1.equals(orderInfo.getDeliveryWay())
 				|| MallOrderConstants.DELIVERY_WAY_3.equals(orderInfo.getDeliveryWay())) {

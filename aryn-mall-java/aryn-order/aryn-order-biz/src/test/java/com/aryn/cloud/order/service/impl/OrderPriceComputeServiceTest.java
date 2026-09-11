@@ -25,6 +25,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -47,7 +48,8 @@ class OrderPriceComputeServiceTest {
 	@BeforeEach
 	void setUp() {
 		service = new OrderPriceComputeService(remoteGoodsSkuService, remoteCouponUserService,
-				remoteDiscountService, remoteSeckillService);
+				remoteDiscountService, remoteSeckillService,
+				mock(com.aryn.cloud.promotion.api.remote.RemotePromotionEngine.class));
 	}
 
 	@Test

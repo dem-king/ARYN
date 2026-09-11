@@ -115,6 +115,9 @@ public class OrderItemEntity extends Model<OrderItemEntity> {
 	@Schema(description = "共享购物车成员备注快照")
 	private String memberRemark;
 
+	@Schema(description = "营销分摊优惠金额")
+	private java.math.BigDecimal promoPrice;
+
 	@TableField(exist = false)
 	private OrderRefund orderRefund;
 

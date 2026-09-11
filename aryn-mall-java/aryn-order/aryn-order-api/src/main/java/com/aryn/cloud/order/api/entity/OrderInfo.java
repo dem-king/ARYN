@@ -69,6 +69,13 @@ public class OrderInfo extends Model<OrderInfo> {
 	@Schema(description = "优惠券优惠金额（元）")
 	private BigDecimal couponPrice;
 
+	@Schema(description = "营销整单优惠金额（阶梯价计入明细单价，整船优惠在此汇总）")
+	private BigDecimal promoPrice;
+
+	@Schema(description = "命中营销活动明细（结算/详情展示）")
+	@TableField(exist = false)
+	private List<com.aryn.cloud.promotion.api.vo.PromotionCalculationVO.ActivityDetail> promotionDetails;
+
 	@Schema(description = "会员折扣优惠金额（元）")
 	private BigDecimal memberDiscountPrice;
 

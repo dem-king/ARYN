@@ -188,7 +188,8 @@ class ArynOrderListenerReliabilityTest {
 		order.setDeliveryWay("1");
 		when(orderService.updateById(order)).thenReturn(false);
 		ArynOrderPayEventListener listener = new ArynOrderPayEventListener(orderService, itemService, notifier,
-				mock(IDeliveryTaskService.class));
+				mock(IDeliveryTaskService.class),
+				mock(com.aryn.cloud.promotion.api.remote.RemotePromotionEngine.class));
 
 		assertThatThrownBy(() -> listener.hxPayEventListener(
 			new ArynOrderPayEvent(this, order, List.of(new OrderItemEntity()))))
