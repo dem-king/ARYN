@@ -34,6 +34,8 @@ const sections = [
   ['订单配送上下文与履约域', '44order_delivery_context_incremental.sql'],
   ['商品批量导入与变更审计域', '48product_import_incremental.sql'],
   ['商品批量导入解析行', '50product_import_row_incremental.sql'],
+  ['船供菜单权限与租户能力', '45ship_supply_menu_permission.sql'],
+  ['船供试点种子数据', '46ship_supply_seed_pilot.sql'],
   ['XXL-JOB 调度库', '3aryn_boot_job.sql'],
 ];
 
