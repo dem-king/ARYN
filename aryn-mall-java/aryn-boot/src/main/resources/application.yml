@@ -251,6 +251,8 @@ hx:
       - product_import_error
       - product_change_log
       - product_import_row
+      - promotion_activity
+      - promotion_lock
 
   swagger:
     enabled: true

@@ -104,6 +104,9 @@ const required = [
   'fulfillment:wave:pick',
   'product:import:confirm',
   '9610000000000000001',
+  'CREATE TABLE IF NOT EXISTS `promotion_activity`',
+  'CREATE TABLE IF NOT EXISTS `promotion_lock`',
+  'uk_promotion_lock_order_activity',
   'uk_vessel_member_unique',
   'uk_ship_goods_profile_spu',
   'uk_ship_sku_profile_sku',
@@ -142,6 +145,7 @@ const sourceFiles = [
   '50product_import_row_incremental.sql',
   '45ship_supply_menu_permission.sql',
   '46ship_supply_seed_pilot.sql',
+  '53promotion_ship_supply_incremental.sql',
   '3aryn_boot_job.sql',
 ];
 for (const file of sourceFiles) {
