@@ -4,6 +4,7 @@ import { shallowRef } from 'vue'
 
 import { getPageDesign } from '@/api/promotion/pageDesign'
 import DiyPage from '@/components/diy/index.vue'
+import ShipWorkbench from '@/components/ship-workbench/index.vue'
 import { useDecorationPage } from '@/composables/useDecorationPage'
 import { createLatestRequestRunner } from '@/composables/useLatestRequest'
 
@@ -73,6 +74,7 @@ onPullDownRefresh(() => {
     {{ errorMessage }}
   </view>
   <view v-else>
+    <ShipWorkbench />
     <diy-page
       :page-content-data="pageContent"
       :page-name="title"
