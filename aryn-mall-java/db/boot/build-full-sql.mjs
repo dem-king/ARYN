@@ -37,6 +37,7 @@ const sections = [
   ['船供菜单权限与租户能力', '45ship_supply_menu_permission.sql'],
   ['船供试点种子数据', '46ship_supply_seed_pilot.sql'],
   ['船供营销二期（活动/锁定/分摊列）', '53promotion_ship_supply_incremental.sql'],
+  ['船供营销二期菜单', '55promotion_ship_menu.sql'],
   ['XXL-JOB 调度库', '3aryn_boot_job.sql'],
 ];
 

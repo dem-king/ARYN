@@ -146,6 +146,7 @@ const sourceFiles = [
   '45ship_supply_menu_permission.sql',
   '46ship_supply_seed_pilot.sql',
   '53promotion_ship_supply_incremental.sql',
+  '55promotion_ship_menu.sql',
   '3aryn_boot_job.sql',
 ];
 for (const file of sourceFiles) {
