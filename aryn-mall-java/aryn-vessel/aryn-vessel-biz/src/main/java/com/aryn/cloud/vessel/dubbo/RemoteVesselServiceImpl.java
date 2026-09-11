@@ -4,6 +4,7 @@ import com.aryn.cloud.vessel.api.dto.VesselContextDTO;
 import com.aryn.cloud.vessel.api.remote.RemoteVesselService;
 import com.aryn.cloud.vessel.service.VesselService;
 import org.apache.dubbo.config.annotation.DubboService;
+import org.springframework.stereotype.Service;
 import lombok.RequiredArgsConstructor;
 
 /**
