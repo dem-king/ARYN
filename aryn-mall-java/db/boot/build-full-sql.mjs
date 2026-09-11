@@ -29,6 +29,9 @@ const sections = [
   ['字典与菜单乱码数据修复', '38dict_charset_mojibake_repair.sql'],
   ['配送模块按钮权限补齐', '39delivery_menu_button_patch.sql'],
   ['配送员受保护角色修复与遗留角色下线', '40delivery_staff_role_repair.sql'],
+  ['船舶与靠港计划域', '42vessel_context_incremental.sql'],
+  ['船供商品资料域', '43ship_product_profile_incremental.sql'],
+  ['订单配送上下文与履约域', '44order_delivery_context_incremental.sql'],
   ['XXL-JOB 调度库', '3aryn_boot_job.sql'],
 ];
 
@@ -70,6 +73,19 @@ DROP TABLE IF EXISTS \`group_buy_activity\`;
 DROP TABLE IF EXISTS \`goods_brand\`;
 DROP TABLE IF EXISTS \`delivery_account_binding\`;
 DROP TABLE IF EXISTS \`delivery_qualification_operation\`;
+DROP TABLE IF EXISTS \`vessel_info\`;
+DROP TABLE IF EXISTS \`vessel_member\`;
+DROP TABLE IF EXISTS \`vessel_call\`;
+DROP TABLE IF EXISTS \`ship_goods_profile\`;
+DROP TABLE IF EXISTS \`ship_sku_profile\`;
+DROP TABLE IF EXISTS \`product_code_mapping\`;
+DROP TABLE IF EXISTS \`shared_cart\`;
+DROP TABLE IF EXISTS \`shared_cart_member\`;
+DROP TABLE IF EXISTS \`shared_cart_item\`;
+DROP TABLE IF EXISTS \`fulfillment_wave\`;
+DROP TABLE IF EXISTS \`fulfillment_pick_item\`;
+DROP TABLE IF EXISTS \`fulfillment_exception\`;
+DROP TABLE IF EXISTS \`promotion_snapshot\`;
 `;
 
 const output = sections.reduce((sql, [title, file]) => {

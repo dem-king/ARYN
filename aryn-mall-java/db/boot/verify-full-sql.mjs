@@ -81,6 +81,26 @@ const required = [
   '1928797196747186177',
   'uk_pay_trade_order_no',
   'uk_pay_refund_order_no',
+  'CREATE TABLE IF NOT EXISTS `vessel_info`',
+  'CREATE TABLE IF NOT EXISTS `vessel_member`',
+  'CREATE TABLE IF NOT EXISTS `vessel_call`',
+  'CREATE TABLE IF NOT EXISTS `ship_goods_profile`',
+  'CREATE TABLE IF NOT EXISTS `ship_sku_profile`',
+  'CREATE TABLE IF NOT EXISTS `product_code_mapping`',
+  'CREATE TABLE IF NOT EXISTS `shared_cart`',
+  'CREATE TABLE IF NOT EXISTS `shared_cart_member`',
+  'CREATE TABLE IF NOT EXISTS `shared_cart_item`',
+  'CREATE TABLE IF NOT EXISTS `fulfillment_wave`',
+  'CREATE TABLE IF NOT EXISTS `fulfillment_pick_item`',
+  'CREATE TABLE IF NOT EXISTS `fulfillment_exception`',
+  'CREATE TABLE IF NOT EXISTS `promotion_snapshot`',
+  '2103000000000000004',
+  'uk_vessel_member_unique',
+  'uk_ship_goods_profile_spu',
+  'uk_ship_sku_profile_sku',
+  'uk_product_code_mapping_code',
+  'idx_order_info_scene',
+  'uk_fulfillment_pick_item',
 ];
 
 for (const token of required) {
@@ -106,10 +126,45 @@ const sourceFiles = [
   '25delivery_module.sql',
   '27delivery_fulfillment_incremental.sql',
   '29delivery_account_binding.sql',
+  '42vessel_context_incremental.sql',
+  '43ship_product_profile_incremental.sql',
+  '44order_delivery_context_incremental.sql',
   '3aryn_boot_job.sql',
 ];
 for (const file of sourceFiles) {
   if (!sql.includes(`Source: db/boot/${file}`)) throw new Error(`缺少来源段: ${file}`);
+}
+
+// Boot 与 Cloud 同名增量脚本必须语义一致（42/43/44）：
+// 剔除注释、USE、CREATE DATABASE 等模式差异行后，剩余语句应完全一致。
+for (const pairFile of [
+  '42vessel_context_incremental.sql',
+  '43ship_product_profile_incremental.sql',
+  '44order_delivery_context_incremental.sql',
+]) {
+  const semantic = (content) => content
+    .split('\n')
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('--')) return false;
+      if (/^USE\s/i.test(trimmed)) return false;
+      if (/^CREATE DATABASE\s/i.test(trimmed)) return false;
+      return true;
+    })
+    .join('\n')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const bootContent = semantic(readFileSync(join(root, pairFile), 'utf8'));
+  const cloudPath = join(root, '..', 'cloud', pairFile);
+  let cloudContent;
+  try {
+    cloudContent = semantic(readFileSync(cloudPath, 'utf8'));
+  } catch {
+    throw new Error(`缺少 Cloud 增量脚本: db/cloud/${pairFile}`);
+  }
+  if (bootContent !== cloudContent) {
+    throw new Error(`Boot/Cloud 增量脚本不一致: db/boot/${pairFile} 与 db/cloud/${pairFile}`);
+  }
 }
 
 // 12/13/14/16/17 号增量的变更已并入 2aryn_boot.sql 基线，且脚本本身是无幂等守卫的裸
