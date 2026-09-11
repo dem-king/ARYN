@@ -60,6 +60,8 @@ export interface DeliveryTask {
   arriveTime?: string
   /** 签收时间 */
   signTime?: string
+  /** 配送船舶ID快照 */
+  vesselId?: string
   /** 购买场景快照：1海员个人购买 2船供采购 */
   purchaseScene?: string
   /** 配送船舶名称快照 */
