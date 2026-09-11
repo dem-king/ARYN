@@ -39,10 +39,10 @@ import {
 } from '#/api/product/goods-spu';
 import {
   confirmImport,
-  downloadCsvTemplate,
-  getTemplate,
+  downloadExcelTemplate,
   parseCsvToRows,
   previewImport,
+  uploadImport,
 } from '#/api/product/product-import';
 import { useDict } from '#/utils/dict';
 
@@ -104,27 +104,33 @@ const openImport = () => {
   previewResult.value = null;
   importFileName.value = '';
 };
-const onTemplateDownload = async () => {
-  const columns = await getTemplate();
-  downloadCsvTemplate(columns.map((c: any) => c.title));
+const onTemplateDownload = () => {
+  downloadExcelTemplate();
 };
 const handleImportFile = async (event: Event) => {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
   if (!file) return;
   importFileName.value = file.name;
-  const content = await file.text();
-  importRows.value = parseCsvToRows(content);
-  if (importRows.value.length === 0) {
-    ElMessage.warning('未解析到数据行');
-    return;
-  }
   importLoading.value = true;
   try {
-    previewResult.value = await previewImport({
-      fileName: file.name,
-      rows: importRows.value,
-    });
+    if (/\.(?:xlsx|xls)$/i.test(file.name)) {
+      // Excel 由服务端解析并落解析行
+      importRows.value = [];
+      previewResult.value = await uploadImport(file);
+    } else {
+      // CSV 兼容：前端解析后提交预览
+      const content = await file.text();
+      importRows.value = parseCsvToRows(content);
+      if (importRows.value.length === 0) {
+        ElMessage.warning('未解析到数据行');
+        return;
+      }
+      previewResult.value = await previewImport({
+        fileName: file.name,
+        rows: importRows.value,
+      });
+    }
   } finally {
     importLoading.value = false;
   }
@@ -133,11 +139,7 @@ const doConfirmImport = async () => {
   if (!previewResult.value?.jobId) return;
   importLoading.value = true;
   try {
-    const imported = await confirmImport({
-      jobId: previewResult.value.jobId,
-      fileName: importFileName.value,
-      rows: importRows.value,
-    });
+    const imported = await confirmImport(previewResult.value.jobId);
     ElMessage.success(`导入成功 ${imported} 行`);
     importVisible.value = false;
     initPage();
@@ -500,10 +502,10 @@ initPage();
       >
         <div class="mb10">
           <ElButton link type="primary" @click="onTemplateDownload">
-            下载 CSV 模板
+            下载 Excel 模板
           </ElButton>
           <input
-            accept=".csv"
+            accept=".xlsx,.xls,.csv"
             type="file"
             style="margin-left: 12px"
             @change="handleImportFile"

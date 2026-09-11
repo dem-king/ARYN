@@ -38,14 +38,24 @@ export interface ImportPreviewResult {
 }
 
 /**
- * 获取导入模板字段定义
+ * 上传 Excel（.xlsx/.xls）并由服务端解析预览；解析行落库，确认时服务端重新校验
  */
-export async function getTemplate() {
-  return requestClient.get('/product/product-import/template');
+export async function uploadImport(file: File) {
+  const formData = new FormData();
+  formData.append('file', file);
+  return requestClient.post<ImportPreviewResult>(
+    '/product/product-import/upload',
+    formData,
+    {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    },
+  );
 }
 
 /**
- * 预览校验（前端解析后的结构化行）
+ * 结构化行预览（CSV 前端解析后的兼容入口）
  */
 export async function previewImport(data: {
   fileName: string;
@@ -58,14 +68,10 @@ export async function previewImport(data: {
 }
 
 /**
- * 确认导入
+ * 确认导入（服务端从解析行读取数据，重新校验后写入）
  */
-export async function confirmImport(data: {
-  fileName: string;
-  jobId: string;
-  rows: ProductImportRow[];
-}) {
-  return requestClient.post<number>('/product/product-import/confirm', data);
+export async function confirmImport(jobId: string) {
+  return requestClient.post<number>(`/product/product-import/${jobId}/confirm`);
 }
 
 /**
@@ -73,6 +79,30 @@ export async function confirmImport(data: {
  */
 export async function getImportErrors(jobId: string) {
   return requestClient.get(`/product/product-import/${jobId}/errors`);
+}
+
+/**
+ * 下载 Excel 导入模板（服务端生成 .xlsx）
+ */
+export function downloadExcelTemplate() {
+  return requestClient
+    .download('/product/product-import/template')
+    .then((response: any) => {
+      const blob =
+        response instanceof Blob
+          ? response
+          : new Blob([response], {
+              type: 'application/octet-stream',
+            });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = '商品导入模板.xlsx';
+      document.body.append(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    });
 }
 
 /**
@@ -120,19 +150,4 @@ export function parseCsvToRows(content: string): ProductImportRow[] {
       storageType: record.storageType || undefined,
     } as ProductImportRow;
   });
-}
-
-/**
- * 生成 CSV 模板内容并触发下载
- */
-export function downloadCsvTemplate(headers: string[]) {
-  const content = headers.join(',');
-  const blob = new Blob([`\uFEFF${content}\n`], {
-    type: 'text/csv;charset=utf-8;',
-  });
-  const link = document.createElement('a');
-  link.href = URL.createObjectURL(blob);
-  link.download = 'product-import-template.csv';
-  link.click();
-  URL.revokeObjectURL(link.href);
 }
