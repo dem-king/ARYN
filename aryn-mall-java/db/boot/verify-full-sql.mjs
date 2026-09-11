@@ -97,6 +97,7 @@ const required = [
   'CREATE TABLE IF NOT EXISTS `product_import_job`',
   'CREATE TABLE IF NOT EXISTS `product_import_error`',
   'CREATE TABLE IF NOT EXISTS `product_change_log`',
+  'CREATE TABLE IF NOT EXISTS `product_import_row`',
   '2103000000000000004',
   'uk_vessel_member_unique',
   'uk_ship_goods_profile_spu',
@@ -133,6 +134,7 @@ const sourceFiles = [
   '43ship_product_profile_incremental.sql',
   '44order_delivery_context_incremental.sql',
   '48product_import_incremental.sql',
+  '50product_import_row_incremental.sql',
   '3aryn_boot_job.sql',
 ];
 for (const file of sourceFiles) {
@@ -146,6 +148,7 @@ for (const pairFile of [
   '43ship_product_profile_incremental.sql',
   '44order_delivery_context_incremental.sql',
   '48product_import_incremental.sql',
+  '50product_import_row_incremental.sql',
 ]) {
   const semantic = (content) => content
     .split('\n')

@@ -2,7 +2,7 @@
 -- 目标库：aryn_nacos
 -- 特性：幂等执行，不删除或重建 Nacos 配置数据。
 -- 变更内容：
---   product 服务租户白名单登记 product_import_job / product_import_error / product_change_log。
+--   product 服务租户白名单登记 product_import_job / product_import_error / product_change_log / product_import_row。
 
 USE `aryn_nacos`;
 
@@ -18,7 +18,7 @@ SET @product_content = IF(
   REPLACE(
     @product_content,
     '      - product_code_mapping\n',
-    '      - product_code_mapping\n      - product_import_job\n      - product_import_error\n      - product_change_log\n'
+    '      - product_code_mapping\n      - product_import_job\n      - product_import_error\n      - product_change_log\n      - product_import_row\n'
   )
 );
 UPDATE `config_info`

@@ -250,6 +250,7 @@ hx:
       - product_import_job
       - product_import_error
       - product_change_log
+      - product_import_row
 
   swagger:
     enabled: true

@@ -17,7 +17,9 @@ import com.aryn.cloud.product.mapper.ProductChangeLogMapper;
 import com.aryn.cloud.product.mapper.ProductCodeMappingMapper;
 import com.aryn.cloud.product.mapper.ProductImportErrorMapper;
 import com.aryn.cloud.product.mapper.ProductImportJobMapper;
+import com.aryn.cloud.product.mapper.ProductImportRowMapper;
 import com.aryn.cloud.product.service.impl.ProductImportServiceImpl;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -49,10 +51,15 @@ class ProductImportServiceTest {
 
 	private GoodsSkuMapper skuMapper;
 
+	private ProductImportRowMapper rowMapper;
+
+	private ProductImportJobMapper jobMapper;
+
 	@BeforeEach
 	void setUp() {
-		ProductImportJobMapper jobMapper = mock(ProductImportJobMapper.class);
+		jobMapper = mock(ProductImportJobMapper.class);
 		errorMapper = mock(ProductImportErrorMapper.class);
+		rowMapper = mock(ProductImportRowMapper.class);
 		ProductChangeLogMapper changeLogMapper = mock(ProductChangeLogMapper.class);
 		GoodsSpuMapper spuMapper = mock(GoodsSpuMapper.class);
 		skuMapper = mock(GoodsSkuMapper.class);
@@ -69,8 +76,8 @@ class ProductImportServiceTest {
 		brand.setId("brand-1");
 		when(brandMapper.selectById("brand-1")).thenReturn(brand);
 
-		service = new ProductImportServiceImpl(jobMapper, errorMapper, changeLogMapper, spuMapper, skuMapper,
-				categoryMapper, brandMapper, codeMappingMapper, shipProfileService);
+		service = new ProductImportServiceImpl(jobMapper, rowMapper, errorMapper, changeLogMapper, spuMapper, skuMapper,
+				categoryMapper, brandMapper, codeMappingMapper, shipProfileService, new ObjectMapper());
 	}
 
 	private ProductImportRowDTO row(String name) {
@@ -209,8 +216,18 @@ class ProductImportServiceTest {
 	@Test
 	@DisplayName("确认导入时任务不存在拒绝")
 	void confirmUnknownJobRejected() {
-		assertThrows(ArynBusinessException.class,
-				() -> service.confirmImport(TENANT, "job-missing", "a.csv", List.of(row("x")), "op", "op"));
+		assertThrows(ArynBusinessException.class, () -> service.confirmImport(TENANT, "job-missing", "op", "op"));
+	}
+
+	@Test
+	@DisplayName("确认导入时任务状态不可确认拒绝")
+	void confirmWrongStatusRejected() {
+		com.aryn.cloud.product.api.entity.ProductImportJob job = new com.aryn.cloud.product.api.entity.ProductImportJob();
+		job.setId("job-1");
+		job.setTenantId(TENANT);
+		job.setStatus(com.aryn.cloud.product.api.entity.ProductImportJob.STATUS_COMPLETED);
+		when(jobMapper.selectById("job-1")).thenReturn(job);
+		assertThrows(ArynBusinessException.class, () -> service.confirmImport(TENANT, "job-1", "op", "op"));
 	}
 
 	@Test

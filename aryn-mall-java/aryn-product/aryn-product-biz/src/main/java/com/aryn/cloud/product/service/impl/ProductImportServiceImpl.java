@@ -2,6 +2,7 @@ package com.aryn.cloud.product.service.impl;
 
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.product.api.dto.ProductImportRowDTO;
+import com.aryn.cloud.product.api.dto.ShipProductProfileDTO;
 import com.aryn.cloud.product.api.entity.GoodsBrand;
 import com.aryn.cloud.product.api.entity.GoodsCategory;
 import com.aryn.cloud.product.api.entity.GoodsSku;
@@ -10,9 +11,9 @@ import com.aryn.cloud.product.api.entity.ProductChangeLog;
 import com.aryn.cloud.product.api.entity.ProductCodeMapping;
 import com.aryn.cloud.product.api.entity.ProductImportError;
 import com.aryn.cloud.product.api.entity.ProductImportJob;
+import com.aryn.cloud.product.api.entity.ProductImportRow;
 import com.aryn.cloud.product.api.entity.ShipGoodsProfile;
 import com.aryn.cloud.product.api.entity.ShipSkuProfile;
-import com.aryn.cloud.product.api.dto.ShipProductProfileDTO;
 import com.aryn.cloud.product.api.vo.ProductImportPreviewVO;
 import com.aryn.cloud.product.mapper.GoodsBrandMapper;
 import com.aryn.cloud.product.mapper.GoodsCategoryMapper;
@@ -22,10 +23,13 @@ import com.aryn.cloud.product.mapper.ProductChangeLogMapper;
 import com.aryn.cloud.product.mapper.ProductCodeMappingMapper;
 import com.aryn.cloud.product.mapper.ProductImportErrorMapper;
 import com.aryn.cloud.product.mapper.ProductImportJobMapper;
+import com.aryn.cloud.product.mapper.ProductImportRowMapper;
 import com.aryn.cloud.product.service.IShipProductProfileService;
 import com.aryn.cloud.product.service.ProductImportService;
+import com.alibaba.excel.EasyExcel;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -33,6 +37,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.io.InputStream;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -46,8 +51,9 @@ import java.util.Set;
 /**
  * 商品批量导入服务实现。
  *
- * <p>更新商品只能按 SKU ID、IMPA 或内部编码匹配，禁止按名称覆盖；
- * 校验错误的行不导入，逐行错误与变更审计全部落库。
+ * <p>Excel 由服务端解析（EasyExcel，首行中文标题映射字段），解析行持久化到
+ * product_import_row；确认导入时服务端从行表重新校验后写入。更新商品只能按
+ * SKU ID、IMPA 或内部编码匹配，禁止按名称覆盖；错误行不导入并全部落库。
  *
  * @author aryn
  * @since 2026/9/11
@@ -60,6 +66,8 @@ public class ProductImportServiceImpl implements ProductImportService {
 	private static final int MAX_IMPORT_ROWS = 10000;
 
 	private final ProductImportJobMapper productImportJobMapper;
+
+	private final ProductImportRowMapper productImportRowMapper;
 
 	private final ProductImportErrorMapper productImportErrorMapper;
 
@@ -77,8 +85,20 @@ public class ProductImportServiceImpl implements ProductImportService {
 
 	private final IShipProductProfileService shipProductProfileService;
 
+	private final ObjectMapper objectMapper;
+
 	@Value("${hx.ship-import.max-rows:10000}")
 	private int maxRows = MAX_IMPORT_ROWS;
+
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public ProductImportPreviewVO previewExcel(String tenantId, String fileName, InputStream excelStream) {
+		List<ProductImportRowDTO> rows = ProductExcelConverter.parse(excelStream);
+		if (rows.isEmpty()) {
+			throw new ArynBusinessException("Excel 未解析到数据行，请按模板填写后重试");
+		}
+		return preview(tenantId, fileName, rows);
+	}
 
 	@Override
 	@Transactional(rollbackFor = Exception.class)
@@ -99,6 +119,7 @@ public class ProductImportServiceImpl implements ProductImportService {
 		productImportJobMapper.insert(job);
 
 		ValidationResult result = validateRows(tenantId, safeRows);
+		persistRows(tenantId, job.getId(), safeRows, result.errorRowNos());
 		persistErrors(tenantId, job.getId(), result.errors());
 
 		ProductImportPreviewVO vo = new ProductImportPreviewVO();
@@ -113,8 +134,7 @@ public class ProductImportServiceImpl implements ProductImportService {
 
 	@Override
 	@Transactional(rollbackFor = Exception.class)
-	public int confirmImport(String tenantId, String jobId, String fileName, List<ProductImportRowDTO> rows,
-			String operatorId, String operatorName) {
+	public int confirmImport(String tenantId, String jobId, String operatorId, String operatorName) {
 		ProductImportJob job = productImportJobMapper.selectById(jobId);
 		if (job == null || !Objects.equals(job.getTenantId(), tenantId)) {
 			throw new ArynBusinessException("导入任务不存在");
@@ -122,15 +142,16 @@ public class ProductImportServiceImpl implements ProductImportService {
 		if (!ProductImportJob.STATUS_PENDING_CONFIRM.equals(job.getStatus())) {
 			throw new ArynBusinessException("导入任务当前状态不可确认");
 		}
-		List<ProductImportRowDTO> safeRows = rows != null ? rows : List.of();
-		ValidationResult result = validateRows(tenantId, safeRows);
+		List<ProductImportRow> storedRows = productImportRowMapper.selectByJobId(tenantId, jobId);
+		List<ProductImportRowDTO> rows = storedRows.stream().map(this::deserializeRow).toList();
+		ValidationResult result = validateRows(tenantId, rows);
 
 		job.setStatus(ProductImportJob.STATUS_IMPORTING);
 		productImportJobMapper.updateById(job);
 
 		int imported = 0;
-		for (ProductImportRowDTO row : safeRows) {
-			if (result.errorKeys().contains(rowKey(row))) {
+		for (ProductImportRowDTO row : rows) {
+			if (result.errorRowNos().contains(row.getRowNo())) {
 				continue;
 			}
 			importRow(tenantId, row, operatorId, operatorName);
@@ -153,44 +174,34 @@ public class ProductImportServiceImpl implements ProductImportService {
 	@Override
 	public List<ProductImportError> listErrors(String tenantId, String jobId) {
 		return productImportErrorMapper.selectList(Wrappers.lambdaQuery(ProductImportError.class)
-				.eq(ProductImportError::getTenantId, tenantId)
-				.eq(ProductImportError::getJobId, jobId)
-				.orderByAsc(ProductImportError::getRowNo));
+			.eq(ProductImportError::getTenantId, tenantId)
+			.eq(ProductImportError::getJobId, jobId)
+			.orderByAsc(ProductImportError::getRowNo));
 	}
 
 	// ---------------------------------------------------------------------
 	// 校验
 	// ---------------------------------------------------------------------
 
-	private record ValidationResult(List<ProductImportError> errors, Set<String> errorKeys) {
+	private record ValidationResult(List<ProductImportError> errors, Set<Integer> errorRowNos) {
 	}
 
 	private ValidationResult validateRows(String tenantId, List<ProductImportRowDTO> rows) {
 		List<ProductImportError> errors = new ArrayList<>();
-		Set<String> errorKeys = new HashSet<>();
+		Set<Integer> errorRowNos = new HashSet<>();
 		Set<String> batchCodeValues = new HashSet<>();
 		Set<String> batchSkuValues = new HashSet<>();
 		int rowNo = 0;
 		for (ProductImportRowDTO row : rows) {
 			rowNo++;
 			row.setRowNo(row.getRowNo() != null ? row.getRowNo() : rowNo);
-			String key = rowKey(row);
+			int before = errors.size();
 			validateRow(tenantId, row, rowNo, errors, batchCodeValues, batchSkuValues);
-			if (!errors.isEmpty() && errors.get(errors.size() - 1).getRowNo().equals(rowNo)) {
-				errorKeys.add(key);
+			if (errors.size() > before) {
+				errorRowNos.add(rowNo);
 			}
 		}
-		return new ValidationResult(errors, errorKeys);
-	}
-
-	private String rowKey(ProductImportRowDTO row) {
-		if (StringUtils.hasText(row.getSkuId())) {
-			return "SKU:" + row.getSkuId();
-		}
-		if (StringUtils.hasText(row.getMatchValue())) {
-			return row.getMatchType() + ":" + row.getMatchValue();
-		}
-		return "ROW:" + row.getRowNo();
+		return new ValidationResult(errors, errorRowNos);
 	}
 
 	private void validateRow(String tenantId, ProductImportRowDTO row, int rowNo, List<ProductImportError> errors,
@@ -253,8 +264,8 @@ public class ProductImportServiceImpl implements ProductImportService {
 			case "SKU" -> {
 				GoodsSku sku = goodsSkuMapper.selectById(matchValue);
 				if (sku == null || !Objects.equals(sku.getTenantId(), tenantId)) {
-					addError(tenantId, rowNo, ProductImportError.TYPE_MISSING_UPDATE_TARGET,
-							"SKU 不存在或不属于当前租户", errors);
+					addError(tenantId, rowNo, ProductImportError.TYPE_MISSING_UPDATE_TARGET, "SKU 不存在或不属于当前租户",
+							errors);
 				}
 			}
 			case "IMPA", "INTERNAL" -> {
@@ -266,8 +277,8 @@ public class ProductImportServiceImpl implements ProductImportService {
 							matchType + " 编码未匹配到商品", errors);
 				}
 				else if (!Objects.equals(mapping.getTenantId(), tenantId)) {
-					addError(tenantId, rowNo, ProductImportError.TYPE_CROSS_TENANT_CODE,
-							"编码归属其他租户：" + matchValue, errors);
+					addError(tenantId, rowNo, ProductImportError.TYPE_CROSS_TENANT_CODE, "编码归属其他租户：" + matchValue,
+							errors);
 				}
 			}
 			default -> addError(tenantId, rowNo, ProductImportError.TYPE_OTHER, "不支持的匹配方式：" + matchType, errors);
@@ -291,6 +302,45 @@ public class ProductImportServiceImpl implements ProductImportService {
 		for (ProductImportError error : errors) {
 			error.setJobId(jobId);
 			productImportErrorMapper.insert(error);
+		}
+	}
+
+	private void persistRows(String tenantId, String jobId, List<ProductImportRowDTO> rows, Set<Integer> errorRowNos) {
+		for (ProductImportRowDTO row : rows) {
+			ProductImportRow storedRow = new ProductImportRow();
+			storedRow.setId(IdWorker.getIdStr());
+			storedRow.setJobId(jobId);
+			storedRow.setRowNo(row.getRowNo());
+			storedRow.setRowContent(serializeRow(row));
+			storedRow.setValidFlag(errorRowNos.contains(row.getRowNo()) ? ProductImportRow.VALID_FLAG_ERROR
+					: ProductImportRow.VALID_FLAG_OK);
+			storedRow.setTenantId(tenantId);
+			storedRow.setCreateTime(LocalDateTime.now());
+			storedRow.setDelFlag("0");
+			productImportRowMapper.insert(storedRow);
+		}
+	}
+
+	private String serializeRow(ProductImportRowDTO row) {
+		try {
+			return objectMapper.writeValueAsString(row);
+		}
+		catch (Exception ex) {
+			throw new ArynBusinessException("导入行序列化失败：" + row.getRowNo());
+		}
+	}
+
+	private ProductImportRowDTO deserializeRow(ProductImportRow storedRow) {
+		try {
+			ProductImportRowDTO row = objectMapper.readValue(storedRow.getRowContent(), ProductImportRowDTO.class);
+			row.setRowNo(storedRow.getRowNo());
+			return row;
+		}
+		catch (Exception ex) {
+			log.error("导入行反序列化失败 jobId={} rowNo={}", storedRow.getJobId(), storedRow.getRowNo(), ex);
+			ProductImportRowDTO row = new ProductImportRowDTO();
+			row.setRowNo(storedRow.getRowNo());
+			return row;
 		}
 	}
 

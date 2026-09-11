@@ -33,6 +33,7 @@ const sections = [
   ['船供商品资料域', '43ship_product_profile_incremental.sql'],
   ['订单配送上下文与履约域', '44order_delivery_context_incremental.sql'],
   ['商品批量导入与变更审计域', '48product_import_incremental.sql'],
+  ['商品批量导入解析行', '50product_import_row_incremental.sql'],
   ['XXL-JOB 调度库', '3aryn_boot_job.sql'],
 ];
 
@@ -90,6 +91,7 @@ DROP TABLE IF EXISTS \`promotion_snapshot\`;
 DROP TABLE IF EXISTS \`product_import_job\`;
 DROP TABLE IF EXISTS \`product_import_error\`;
 DROP TABLE IF EXISTS \`product_change_log\`;
+DROP TABLE IF EXISTS \`product_import_row\`;
 `;
 
 const output = sections.reduce((sql, [title, file]) => {

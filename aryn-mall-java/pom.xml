@@ -39,6 +39,7 @@
         <druid.version>1.2.24</druid.version>
         <xxl-job.version>3.2.0</xxl-job.version>
         <hutool.version>5.8.42</hutool.version>
+        <easyexcel.version>4.0.3</easyexcel.version>
         <captcha.version>1.4.0</captcha.version>
         <rocketmq.version>2.3.5</rocketmq.version>
         <velocity.version>2.3</velocity.version>
@@ -256,6 +257,12 @@
                 <groupId>cn.hutool</groupId>
                 <artifactId>hutool-all</artifactId>
                 <version>${hutool.version}</version>
+            </dependency>
+            <!--            Excel 导入导出-->
+            <dependency>
+                <groupId>com.alibaba</groupId>
+                <artifactId>easyexcel</artifactId>
+                <version>${easyexcel.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.baomidou</groupId>

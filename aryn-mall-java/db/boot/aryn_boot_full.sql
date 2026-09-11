@@ -51,6 +51,7 @@ DROP TABLE IF EXISTS `promotion_snapshot`;
 DROP TABLE IF EXISTS `product_import_job`;
 DROP TABLE IF EXISTS `product_import_error`;
 DROP TABLE IF EXISTS `product_change_log`;
+DROP TABLE IF EXISTS `product_import_row`;
 USE aryn_boot;
 
 SET NAMES utf8mb4;
@@ -6637,6 +6638,36 @@ CREATE TABLE IF NOT EXISTS `product_change_log` (
   KEY `idx_product_change_log_biz` (`tenant_id`,`biz_type`,`biz_id`),
   KEY `idx_product_change_log_time` (`tenant_id`,`create_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='商品资料变更审计';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 商品批量导入解析行
+-- Source: db/boot/50product_import_row_incremental.sql
+-- ============================================================================
+-- 悦航购商品批量导入解析行增量迁移（Boot 单体模式）
+-- 目标库：aryn_boot
+-- 特性：可重复执行，不执行 DROP/TRUNCATE，不覆盖已有业务数据。
+-- 执行：mysql -u root -p aryn_boot < 50product_import_row_incremental.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- 商品导入解析行（上传 Excel 后服务端解析结果，确认导入时重新校验）
+CREATE TABLE IF NOT EXISTS `product_import_row` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `job_id` varchar(32) NOT NULL COMMENT '导入任务ID',
+  `row_no` int NOT NULL DEFAULT 0 COMMENT '行号（从1开始，不含表头）',
+  `row_content` text DEFAULT NULL COMMENT '行内容（受控JSON，字段与导入模板一致）',
+  `valid_flag` char(2) NOT NULL DEFAULT '1' COMMENT '预览校验结果：1有效 0错误',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人', `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间', `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  KEY `idx_product_import_row_job` (`tenant_id`,`job_id`,`row_no`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='商品导入解析行';
 
 SET FOREIGN_KEY_CHECKS = 1;
 
