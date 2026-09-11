@@ -8,9 +8,17 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.log.annotation.SysLog;
+import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.product.api.dto.GoodsSpuShelfDTO;
+import com.aryn.cloud.product.api.dto.ShipProductProfileDTO;
 import com.aryn.cloud.product.api.entity.GoodsSpu;
+import com.aryn.cloud.product.api.entity.ProductCodeMapping;
+import com.aryn.cloud.product.api.entity.ShipGoodsProfile;
+import com.aryn.cloud.product.api.entity.ShipSkuProfile;
+import com.aryn.cloud.product.api.vo.ShipProductSummaryVO;
 import com.aryn.cloud.product.service.IGoodsSpuService;
+import com.aryn.cloud.product.service.IShipProductProfileService;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.AllArgsConstructor;
@@ -37,11 +45,43 @@ public class GoodsSpuController {
 
 	private final IGoodsSpuService goodsSpuService;
 
+	private final IShipProductProfileService shipProductProfileService;
+
 	@Operation(summary = "商品列表")
 	@SaCheckPermission("product:goodsspu:page")
 	@GetMapping("/page")
 	public Result page(Page page, GoodsSpu goodsSpu) {
 		return Result.success(goodsSpuService.adminPage(page, goodsSpu));
+	}
+
+	@Operation(summary = "船供商品摘要分页")
+	@SaCheckPermission("product:goodsspu:page")
+	@GetMapping("/ship/page")
+	public Result<IPage<ShipProductSummaryVO>> shipPage(Page<ShipProductSummaryVO> page, ShipProductSummaryVO query) {
+		return Result.success(shipProductProfileService.shipSummaryPage(SecurityUtils.getTenantId(), page, query));
+	}
+
+	@Operation(summary = "SPU 船供资料详情")
+	@SaCheckPermission("product:goodsspu:get")
+	@GetMapping("/profile/{spuId}")
+	public Result<Map<String, Object>> profile(@PathVariable String spuId) {
+		String tenantId = SecurityUtils.getTenantId();
+		ShipGoodsProfile profile = shipProductProfileService.getProfile(tenantId, spuId);
+		List<ShipSkuProfile> skuProfiles = shipProductProfileService.listSkuProfiles(tenantId, spuId);
+		List<ProductCodeMapping> codeMappings = shipProductProfileService.listCodeMappings(tenantId, spuId);
+		Map<String, Object> detail = new HashMap<>();
+		detail.put("profile", profile);
+		detail.put("skuProfiles", skuProfiles);
+		detail.put("codeMappings", codeMappings);
+		return Result.success(detail);
+	}
+
+	@SysLog("保存船供资料")
+	@Operation(summary = "保存 SPU 船供资料（资料/SKU 包装/编码映射同事务）")
+	@SaCheckPermission("product:goodsspu:edit")
+	@PostMapping("/profile")
+	public Result<ShipGoodsProfile> saveProfile(@RequestBody ShipProductProfileDTO dto) {
+		return Result.success(shipProductProfileService.saveProfile(SecurityUtils.getTenantId(), dto));
 	}
 
 	@Operation(summary = "商品库列表")
