@@ -94,6 +94,9 @@ const required = [
   'CREATE TABLE IF NOT EXISTS `fulfillment_pick_item`',
   'CREATE TABLE IF NOT EXISTS `fulfillment_exception`',
   'CREATE TABLE IF NOT EXISTS `promotion_snapshot`',
+  'CREATE TABLE IF NOT EXISTS `product_import_job`',
+  'CREATE TABLE IF NOT EXISTS `product_import_error`',
+  'CREATE TABLE IF NOT EXISTS `product_change_log`',
   '2103000000000000004',
   'uk_vessel_member_unique',
   'uk_ship_goods_profile_spu',
@@ -129,6 +132,7 @@ const sourceFiles = [
   '42vessel_context_incremental.sql',
   '43ship_product_profile_incremental.sql',
   '44order_delivery_context_incremental.sql',
+  '48product_import_incremental.sql',
   '3aryn_boot_job.sql',
 ];
 for (const file of sourceFiles) {
@@ -141,6 +145,7 @@ for (const pairFile of [
   '42vessel_context_incremental.sql',
   '43ship_product_profile_incremental.sql',
   '44order_delivery_context_incremental.sql',
+  '48product_import_incremental.sql',
 ]) {
   const semantic = (content) => content
     .split('\n')

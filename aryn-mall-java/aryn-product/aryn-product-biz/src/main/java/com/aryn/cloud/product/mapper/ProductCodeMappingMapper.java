@@ -24,6 +24,11 @@ public interface ProductCodeMappingMapper extends BaseMapper<ProductCodeMapping>
 			@Param("codeValue") String codeValue);
 
 	/**
+	 * 全租户范围按编码类型+值查询映射（跨租户编码校验用）。
+	 */
+	ProductCodeMapping selectByCodeGlobal(@Param("codeType") String codeType, @Param("codeValue") String codeValue);
+
+	/**
 	 * 按编码值/别名搜索有效映射（船供搜索用）。
 	 */
 	List<ProductCodeMapping> searchActiveByKeyword(@Param("tenantId") String tenantId, @Param("keyword") String keyword);

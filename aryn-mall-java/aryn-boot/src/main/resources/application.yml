@@ -247,6 +247,9 @@ hx:
       - fulfillment_pick_item
       - fulfillment_exception
       - promotion_snapshot
+      - product_import_job
+      - product_import_error
+      - product_change_log
 
   swagger:
     enabled: true
