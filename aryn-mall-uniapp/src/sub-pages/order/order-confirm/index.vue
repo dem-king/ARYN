@@ -3,6 +3,7 @@ import { onLoad, onUnload } from '@dcloudio/uni-app'
 import { storeToRefs } from 'pinia'
 import { reactive, ref } from 'vue'
 import { orderCreate, orderSettlement } from '@/api/order/orderInfo'
+import { useShipContextStore } from '@/store/shipContextStore'
 import { getPage as getCouponList } from '@/api/promotion/couponUser'
 import { getDefault } from '@/api/user/address'
 import AddressSelector from './components/AddressSelector.vue'
@@ -46,6 +47,7 @@ interface Address {
 }
 const goodsStore = useGoodsStore()
 const shoppingCartStore = useShoppingCartStore()
+const shipContextStore = useShipContextStore()
 const router = useRouter()
 const { createGoodsList } = storeToRefs(goodsStore)
 const globalLoading = useGlobalLoading()
@@ -103,7 +105,13 @@ function initData() {
       skuId: item.skuId,
     })
   })
-  state.orderParams.deliveryWay = '1'
+  if (shipContextStore.hasVesselContext) {
+    // 公司港口/船舶内部配送：上下文来自船舶工作台，服务端结算时再次校验
+    state.orderParams.deliveryWay = '4'
+    Object.assign(state.orderParams, shipContextStore.deliveryContextParams)
+  } else {
+    state.orderParams.deliveryWay = '1'
+  }
   state.orderParams.skuReqList = orderItemList
   toSettlement()
 }
@@ -151,6 +159,13 @@ async function toSettlement() {
   globalLoading.loading('加载中...')
   state.orderParams.createWay = state.createWay
   state.orderParams.userAddressId = selectedAddress.value ? selectedAddress.value.id : ''
+  if (state.orderParams.deliveryWay === '4' && shipContextStore.deliveryContextParams) {
+    Object.assign(state.orderParams, shipContextStore.deliveryContextParams)
+  } else {
+    delete state.orderParams.purchaseScene
+    delete state.orderParams.vesselId
+    delete state.orderParams.vesselCallId
+  }
 
   // 结算订单
   try {
@@ -183,6 +198,18 @@ async function toPay() {
   // 商城配送（deliveryWay=3）同样需要收货地址
   if (state.orderParams.deliveryWay === '3' && !selectedAddress.value?.id) {
     return useGlobalToast().warning('请选择收货地址')
+  }
+
+  // 内部配送（deliveryWay=4）必须携带船舶与靠港计划上下文
+  if (state.orderParams.deliveryWay === '4') {
+    if (!shipContextStore.hasVesselContext) {
+      return useGlobalToast().warning('请先在首页选择船舶和靠港计划')
+    }
+    Object.assign(state.orderParams, shipContextStore.deliveryContextParams)
+  } else {
+    delete state.orderParams.purchaseScene
+    delete state.orderParams.vesselId
+    delete state.orderParams.vesselCallId
   }
 
   submitting.value = true
@@ -231,8 +258,38 @@ onUnload(() => {
 <template>
   <hr-navbar title="订单确认" />
   <view v-if="!loading">
-    <!-- 收货地址选择 -->
-    <AddressSelector :selected-address="selectedAddress" @to-address="toAddress" />
+    <!-- 内部配送上下文（delivery_way=4） -->
+    <view
+      v-if="state.orderParams.deliveryWay === '4'"
+      class="hx-mb10"
+      style="
+        background: #fff;
+        border-radius: 12rpx;
+        margin: 20rpx;
+        padding: 24rpx;
+      "
+    >
+      <view style="font-weight: bold">
+        配送至：{{ shipContextStore.vesselName }}
+      </view>
+      <view style="color: #909399; font-size: 24rpx">
+        {{ shipContextStore.portName }} {{ shipContextStore.berth }}
+        <text v-if="shipContextStore.deliveryWindowStart">
+          （{{ shipContextStore.deliveryWindowStart }} ~
+          {{ shipContextStore.deliveryWindowEnd }}）
+        </text>
+      </view>
+      <view style="color: #10b981; font-size: 24rpx; margin-top: 8rpx">
+        公司司机按靠港计划送达港口/船舶
+      </view>
+    </view>
+
+    <!-- 收货地址选择（普通快递/商城配送） -->
+    <AddressSelector
+      v-if="state.orderParams.deliveryWay !== '4'"
+      :selected-address="selectedAddress"
+      @to-address="toAddress"
+    />
 
     <!-- 订单列表 -->
     <ShopOrderItem
