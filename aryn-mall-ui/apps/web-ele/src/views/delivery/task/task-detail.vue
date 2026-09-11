@@ -242,194 +242,303 @@ defineExpose({
 </script>
 <template>
   <div class="task-detail-root">
-  <ElDrawer
-    v-model="drawerVisible"
-    title="配送任务详情"
-    size="55%"
-  >
-    <div v-if="detail" v-loading="loading" style="padding: 0 8px">
-      <ElCard class="box-card">
-        <template #header>
-          <div class="card-header">
-            <span>基本信息</span>
-            <ElTag :type="getStatusType(detail.status)">
-              {{ getStatusLabel(detail.status) }}
-            </ElTag>
-          </div>
-        </template>
-        <ElDescriptions :column="2" border>
-          <ElDescriptionsItem label="任务编号">{{ detail.taskNo }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="订单号">{{ detail.orderNo }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="配送员">{{ detail.staffName ?? '—' }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="尝试号">{{ detail.attemptNo ?? 1 }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="派单时间">{{ detail.assignTime ?? '—' }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="取货时间">{{ detail.pickUpTime ?? '—' }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="出发时间">{{ detail.departTime ?? '—' }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="送达时间">{{ detail.arriveTime ?? '—' }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="签收时间">{{ detail.signTime ?? '—' }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="创建时间">{{ detail.createTime ?? '—' }}</ElDescriptionsItem>
-        </ElDescriptions>
-      </ElCard>
-
-      <ElCard class="box-card margin-top">
-        <template #header><div class="card-header"><span>收货信息</span></div></template>
-        <ElDescriptions :column="1" border>
-          <ElDescriptionsItem label="收货人">{{ detail.recipientName }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="联系电话">{{ detail.recipientPhone }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="收货地址">{{ detail.recipientAddress }}</ElDescriptionsItem>
-        </ElDescriptions>
-      </ElCard>
-
-      <ElCard v-if="detail.status === '8' || detail.status === '9'" class="box-card margin-top">
-        <template #header><div class="card-header"><span>异常信息</span></div></template>
-        <ElDescriptions :column="1" border>
-          <ElDescriptionsItem label="异常时间">{{ detail.exceptionTime ?? '—' }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="异常原因">{{ detail.exceptionReason ?? '—' }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="异常说明">{{ detail.exceptionDesc ?? '—' }}</ElDescriptionsItem>
-        </ElDescriptions>
-      </ElCard>
-
-      <ElCard class="box-card margin-top">
-        <template #header><div class="card-header"><span>订单明细</span></div></template>
-        <ElTable :data="detail.itemList ?? []" border row-key="id" style="width: 100%">
-          <ElTableColumn prop="spuName" label="商品信息" min-width="240">
-            <template #default="scope">
-              <ElRow>
-                <ElCol :span="4">
-                  <ElImage style="width: 60px; height: 60px" :src="scope.row.image" fit="cover" :preview-teleported="true" />
-                </ElCol>
-                <ElCol :span="20">
-                  <div class="overflow-line-clamp-2 name">{{ scope.row.spuName }}</div>
-                  <p style="font-size: 12px; color: #a8abb2">{{ scope.row.skuName }}</p>
-                </ElCol>
-              </ElRow>
-            </template>
-          </ElTableColumn>
-          <ElTableColumn prop="quantity" label="数量" width="100" align="center" />
-          <ElTableColumn prop="picked" label="已取" width="80" align="center">
-            <template #default="{ row }">
-              <ElTag :type="row.picked === '1' ? 'success' : 'info'">
-                {{ row.picked === '1' ? '已取' : '未取' }}
+    <ElDrawer v-model="drawerVisible" title="配送任务详情" size="55%">
+      <div v-if="detail" v-loading="loading" style="padding: 0 8px">
+        <ElCard class="box-card">
+          <template #header>
+            <div class="card-header">
+              <span>基本信息</span>
+              <ElTag :type="getStatusType(detail.status)">
+                {{ getStatusLabel(detail.status) }}
               </ElTag>
-            </template>
-          </ElTableColumn>
-        </ElTable>
-      </ElCard>
+            </div>
+          </template>
+          <ElDescriptions :column="2" border>
+            <ElDescriptionsItem label="任务编号">
+              {{ detail.taskNo }}
+            </ElDescriptionsItem>
+            <ElDescriptionsItem label="订单号">
+              {{ detail.orderNo }}
+            </ElDescriptionsItem>
+            <ElDescriptionsItem label="配送员">
+              {{ detail.staffName ?? '—' }}
+            </ElDescriptionsItem>
+            <ElDescriptionsItem label="尝试号">
+              {{ detail.attemptNo ?? 1 }}
+            </ElDescriptionsItem>
+            <ElDescriptionsItem label="派单时间">
+              {{ detail.assignTime ?? '—' }}
+            </ElDescriptionsItem>
+            <ElDescriptionsItem label="取货时间">
+              {{ detail.pickUpTime ?? '—' }}
+            </ElDescriptionsItem>
+            <ElDescriptionsItem label="出发时间">
+              {{ detail.departTime ?? '—' }}
+            </ElDescriptionsItem>
+            <ElDescriptionsItem label="送达时间">
+              {{ detail.arriveTime ?? '—' }}
+            </ElDescriptionsItem>
+            <ElDescriptionsItem label="签收时间">
+              {{ detail.signTime ?? '—' }}
+            </ElDescriptionsItem>
+            <ElDescriptionsItem label="创建时间">
+              {{ detail.createTime ?? '—' }}
+            </ElDescriptionsItem>
+          </ElDescriptions>
+        </ElCard>
 
-      <ElCard v-if="evidenceList.length > 0" class="box-card margin-top">
-        <template #header><div class="card-header"><span>送达凭证</span></div></template>
-        <div style="display: flex; flex-wrap: wrap; gap: 12px">
-          <ElImage
-            v-for="item in evidenceList"
-            :key="item.id"
-            style="width: 120px; height: 120px; border-radius: 4px"
-            :src="item.materialUrl"
-            fit="cover"
-            :preview-teleported="true"
-            :preview-src-list="evidenceList.map((e: any) => e.materialUrl)"
-          />
-        </div>
-      </ElCard>
+        <ElCard class="box-card margin-top">
+          <template #header>
+            <div class="card-header"><span>收货信息</span></div>
+          </template>
+          <ElDescriptions :column="1" border>
+            <ElDescriptionsItem label="收货人">
+              {{ detail.recipientName }}
+            </ElDescriptionsItem>
+            <ElDescriptionsItem label="联系电话">
+              {{ detail.recipientPhone }}
+            </ElDescriptionsItem>
+            <ElDescriptionsItem label="收货地址">
+              {{ detail.recipientAddress }}
+            </ElDescriptionsItem>
+          </ElDescriptions>
+        </ElCard>
 
-      <ElCard v-if="logList.length > 0" class="box-card margin-top">
-        <template #header><div class="card-header"><span>操作日志</span></div></template>
-        <ElTimeline>
-          <ElTimelineItem
-            v-for="log in logList"
-            :key="log.id"
-            :timestamp="log.createTime ?? '—'"
+        <ElCard
+          v-if="detail.status === '8' || detail.status === '9'"
+          class="box-card margin-top"
+        >
+          <template #header>
+            <div class="card-header"><span>异常信息</span></div>
+          </template>
+          <ElDescriptions :column="1" border>
+            <ElDescriptionsItem label="异常时间">
+              {{ detail.exceptionTime ?? '—' }}
+            </ElDescriptionsItem>
+            <ElDescriptionsItem label="异常原因">
+              {{ detail.exceptionReason ?? '—' }}
+            </ElDescriptionsItem>
+            <ElDescriptionsItem label="异常说明">
+              {{ detail.exceptionDesc ?? '—' }}
+            </ElDescriptionsItem>
+          </ElDescriptions>
+        </ElCard>
+
+        <ElCard class="box-card margin-top">
+          <template #header>
+            <div class="card-header"><span>订单明细</span></div>
+          </template>
+          <ElTable
+            :data="detail.itemList ?? []"
+            border
+            row-key="id"
+            style="width: 100%"
           >
-            <ElTag size="small">{{ log.action }}</ElTag>
-            <span style="margin-left: 8px">{{ log.reasonDesc ?? '' }}</span>
-          </ElTimelineItem>
-        </ElTimeline>
-      </ElCard>
-    </div>
+            <ElTableColumn prop="spuName" label="商品信息" min-width="240">
+              <template #default="scope">
+                <ElRow>
+                  <ElCol :span="4">
+                    <ElImage
+                      style="width: 60px; height: 60px"
+                      :src="scope.row.image"
+                      fit="cover"
+                      :preview-teleported="true"
+                    />
+                  </ElCol>
+                  <ElCol :span="20">
+                    <div class="overflow-line-clamp-2 name">
+                      {{ scope.row.spuName }}
+                    </div>
+                    <p style="font-size: 12px; color: #a8abb2">
+                      {{ scope.row.skuName }}
+                    </p>
+                  </ElCol>
+                </ElRow>
+              </template>
+            </ElTableColumn>
+            <ElTableColumn
+              prop="quantity"
+              label="数量"
+              width="100"
+              align="center"
+            />
+            <ElTableColumn prop="picked" label="已取" width="80" align="center">
+              <template #default="{ row }">
+                <ElTag :type="row.picked === '1' ? 'success' : 'info'">
+                  {{ row.picked === '1' ? '已取' : '未取' }}
+                </ElTag>
+              </template>
+            </ElTableColumn>
+          </ElTable>
+        </ElCard>
 
-    <template #footer>
-      <div style="text-align: right">
-        <ElButton @click="drawerVisible = false">关 闭</ElButton>
+        <ElCard v-if="evidenceList.length > 0" class="box-card margin-top">
+          <template #header>
+            <div class="card-header"><span>送达凭证</span></div>
+          </template>
+          <div style="display: flex; flex-wrap: wrap; gap: 12px">
+            <ElImage
+              v-for="item in evidenceList"
+              :key="item.id"
+              style="width: 120px; height: 120px; border-radius: 4px"
+              :src="item.materialUrl"
+              fit="cover"
+              :preview-teleported="true"
+              :preview-src-list="evidenceList.map((e: any) => e.materialUrl)"
+            />
+          </div>
+        </ElCard>
+
+        <ElCard v-if="logList.length > 0" class="box-card margin-top">
+          <template #header>
+            <div class="card-header"><span>操作日志</span></div>
+          </template>
+          <ElTimeline>
+            <ElTimelineItem
+              v-for="log in logList"
+              :key="log.id"
+              :timestamp="log.createTime ?? '—'"
+            >
+              <ElTag size="small">{{ log.action }}</ElTag>
+              <span style="margin-left: 8px">{{ log.reasonDesc ?? '' }}</span>
+            </ElTimelineItem>
+          </ElTimeline>
+        </ElCard>
+      </div>
+
+      <template #footer>
+        <div style="text-align: right">
+          <ElButton @click="drawerVisible = false">关 闭</ElButton>
+          <ElButton
+            v-if="detail && (detail.status === '1' || detail.status === '8')"
+            v-access:code="'delivery:task:reassign'"
+            type="primary"
+            @click="openReassign"
+          >
+            改派
+          </ElButton>
+          <ElButton
+            v-if="detail && detail.status === '8'"
+            v-access:code="'delivery:task:exception'"
+            type="danger"
+            @click="openClose"
+          >
+            关闭异常
+          </ElButton>
+          <ElButton
+            v-if="detail && (detail.status === '4' || detail.status === '8')"
+            v-access:code="'delivery:task:return'"
+            type="warning"
+            @click="handleReturnPending"
+          >
+            置为待退回
+          </ElButton>
+          <ElButton
+            v-if="detail && detail.status === '9'"
+            v-access:code="'delivery:task:return'"
+            type="success"
+            @click="openReturnConfirm"
+          >
+            确认退回
+          </ElButton>
+        </div>
+      </template>
+    </ElDrawer>
+
+    <ElDialog
+      v-model="reassignVisible"
+      title="改派"
+      width="420px"
+      append-to-body
+    >
+      <ElForm label-width="100px">
+        <ElFormItem label="新配送员">
+          <ElSelect
+            v-model="reassignStaffId"
+            placeholder="请选择新配送员"
+            filterable
+            style="width: 100%"
+          >
+            <ElOption
+              v-for="item in staffOptions"
+              :key="item.id"
+              :label="`${item.name}（${item.phone ?? ''}）`"
+              :value="item.id"
+            />
+          </ElSelect>
+        </ElFormItem>
+        <ElFormItem label="改派原因">
+          <ElInput
+            v-model="reassignReason"
+            type="textarea"
+            :rows="3"
+            placeholder="请输入改派原因（选填）"
+          />
+        </ElFormItem>
+      </ElForm>
+      <template #footer>
+        <ElButton @click="reassignVisible = false">取 消</ElButton>
         <ElButton
-          v-if="detail && (detail.status === '1' || detail.status === '8')"
-          v-access:code="'delivery:task:reassign'"
           type="primary"
-          @click="openReassign"
+          :loading="reassignLoading"
+          @click="confirmReassign"
         >
-          改派
+          确认改派
         </ElButton>
-        <ElButton
-          v-if="detail && detail.status === '8'"
-          v-access:code="'delivery:task:exception'"
-          type="danger"
-          @click="openClose"
-        >
-          关闭异常
+      </template>
+    </ElDialog>
+
+    <ElDialog
+      v-model="closeVisible"
+      title="关闭异常任务"
+      width="420px"
+      append-to-body
+    >
+      <ElForm label-width="100px">
+        <ElFormItem label="关闭原因">
+          <ElInput
+            v-model="closeReason"
+            type="textarea"
+            :rows="3"
+            placeholder="请输入关闭原因"
+          />
+        </ElFormItem>
+      </ElForm>
+      <template #footer>
+        <ElButton @click="closeVisible = false">取 消</ElButton>
+        <ElButton type="danger" :loading="closeLoading" @click="confirmClose">
+          确认关闭
         </ElButton>
+      </template>
+    </ElDialog>
+
+    <ElDialog
+      v-model="returnConfirmVisible"
+      title="确认商品退回"
+      width="420px"
+      append-to-body
+    >
+      <ElForm label-width="100px">
+        <ElFormItem label="备注">
+          <ElInput
+            v-model="returnConfirmRemark"
+            type="textarea"
+            :rows="3"
+            placeholder="请输入备注（选填）"
+          />
+        </ElFormItem>
+      </ElForm>
+      <template #footer>
+        <ElButton @click="returnConfirmVisible = false">取 消</ElButton>
         <ElButton
-          v-if="detail && (detail.status === '4' || detail.status === '8')"
-          v-access:code="'delivery:task:return'"
-          type="warning"
-          @click="handleReturnPending"
-        >
-          置为待退回
-        </ElButton>
-        <ElButton
-          v-if="detail && detail.status === '9'"
-          v-access:code="'delivery:task:return'"
           type="success"
-          @click="openReturnConfirm"
+          :loading="returnConfirmLoading"
+          @click="confirmReturn"
         >
           确认退回
         </ElButton>
-      </div>
-    </template>
-  </ElDrawer>
-
-  <ElDialog v-model="reassignVisible" title="改派" width="420px" append-to-body>
-    <ElForm label-width="100px">
-      <ElFormItem label="新配送员">
-        <ElSelect v-model="reassignStaffId" placeholder="请选择新配送员" filterable style="width: 100%">
-          <ElOption
-            v-for="item in staffOptions"
-            :key="item.id"
-            :label="`${item.name}（${item.phone ?? ''}）`"
-            :value="item.id"
-          />
-        </ElSelect>
-      </ElFormItem>
-      <ElFormItem label="改派原因">
-        <ElInput v-model="reassignReason" type="textarea" :rows="3" placeholder="请输入改派原因（选填）" />
-      </ElFormItem>
-    </ElForm>
-    <template #footer>
-      <ElButton @click="reassignVisible = false">取 消</ElButton>
-      <ElButton type="primary" :loading="reassignLoading" @click="confirmReassign">确认改派</ElButton>
-    </template>
-  </ElDialog>
-
-  <ElDialog v-model="closeVisible" title="关闭异常任务" width="420px" append-to-body>
-    <ElForm label-width="100px">
-      <ElFormItem label="关闭原因">
-        <ElInput v-model="closeReason" type="textarea" :rows="3" placeholder="请输入关闭原因" />
-      </ElFormItem>
-    </ElForm>
-    <template #footer>
-      <ElButton @click="closeVisible = false">取 消</ElButton>
-      <ElButton type="danger" :loading="closeLoading" @click="confirmClose">确认关闭</ElButton>
-    </template>
-  </ElDialog>
-
-  <ElDialog v-model="returnConfirmVisible" title="确认商品退回" width="420px" append-to-body>
-    <ElForm label-width="100px">
-      <ElFormItem label="备注">
-        <ElInput v-model="returnConfirmRemark" type="textarea" :rows="3" placeholder="请输入备注（选填）" />
-      </ElFormItem>
-    </ElForm>
-    <template #footer>
-      <ElButton @click="returnConfirmVisible = false">取 消</ElButton>
-      <ElButton type="success" :loading="returnConfirmLoading" @click="confirmReturn">确认退回</ElButton>
-    </template>
-  </ElDialog>
+      </template>
+    </ElDialog>
   </div>
 </template>
 

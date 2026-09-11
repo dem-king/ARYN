@@ -50,7 +50,9 @@ const state = reactive<{
     address: '',
   },
   rules: {
-    warehouseName: [{ required: true, message: '请输入仓库名称', trigger: 'blur' }],
+    warehouseName: [
+      { required: true, message: '请输入仓库名称', trigger: 'blur' },
+    ],
     contactName: [{ required: true, message: '请输入联系人', trigger: 'blur' }],
     contactPhone: [
       { required: true, message: '请输入联系电话', trigger: 'blur' },

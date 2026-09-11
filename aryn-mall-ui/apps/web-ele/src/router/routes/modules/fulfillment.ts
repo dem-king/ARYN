@@ -28,6 +28,15 @@ const routes: RouteRecordRaw[] = [
           title: '履约异常',
         },
       },
+      {
+        name: 'DeliveryPortBoard',
+        path: '/delivery/port-board',
+        component: () => import('#/views/delivery/port-board/index.vue'),
+        meta: {
+          icon: 'lucide:anchor',
+          title: '港口配送看板',
+        },
+      },
     ],
   },
 ];

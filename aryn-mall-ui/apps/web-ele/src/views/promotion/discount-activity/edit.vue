@@ -396,8 +396,8 @@ if (editId) {
             <div
               style="
                 display: flex;
-                justify-content: space-between;
                 align-items: center;
+                justify-content: space-between;
               "
             >
               <span>参与折扣的商品</span>
@@ -460,8 +460,8 @@ if (editId) {
 <style lang="scss" scoped>
 .empty-goods {
   padding: 24px;
-  text-align: center;
   color: var(--el-text-color-secondary);
+  text-align: center;
   background-color: var(--el-fill-color-blank);
   border: 1px dashed var(--el-border-color);
   border-radius: 4px;

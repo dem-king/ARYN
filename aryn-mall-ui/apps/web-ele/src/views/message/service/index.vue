@@ -370,9 +370,9 @@ onBeforeUnmount(() => heartbeatTimer && clearInterval(heartbeatTimer));
 
 .desk-brand {
   display: flex;
+  gap: 12px;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
   padding: 24px;
   border-bottom: 1px solid rgb(125 211 252 / 10%);
 }

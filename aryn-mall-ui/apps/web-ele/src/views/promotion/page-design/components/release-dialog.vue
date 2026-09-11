@@ -43,7 +43,7 @@ const emit = defineEmits<{
 const loading = ref(false);
 const releases = ref<PageDesignRelease[]>([]);
 const reportVisible = ref(false);
-const reportDiff = ref<PageDesignDiff | null>(null);
+const reportDiff = ref<null | PageDesignDiff>(null);
 const auditLoading = ref(false);
 const auditLogs = ref<PageDesignAuditLog[]>([]);
 
@@ -60,6 +60,9 @@ const statusTagTypes: Record<PageDesignRelease['releaseStatus'], string> = {
   2: 'danger',
   3: 'info',
 };
+
+const statusTagType = (status: PageDesignRelease['releaseStatus']) =>
+  statusTagTypes[status] as 'danger' | 'info' | 'success' | 'warning';
 
 const actionLabels: Record<string, string> = {
   PUBLISH: '发布',
@@ -86,11 +89,7 @@ async function loadReleases() {
   }
 }
 
-function changeText(change: {
-  field: string;
-  from?: unknown;
-  to?: unknown;
-}) {
+function changeText(change: { field: string; from?: unknown; to?: unknown }) {
   const format = (value: unknown) =>
     typeof value === 'object' && value !== null
       ? JSON.stringify(value)
@@ -184,20 +183,23 @@ watch(
           </ElTableColumn>
           <ElTableColumn label="状态" width="90" align="center">
             <template #default="{ row }">
-              <ElTag
-                :type="(statusTagTypes[row.releaseStatus as '0'] as 'warning' | 'success' | 'danger' | 'info')"
-                effect="plain"
-              >
-                {{ statusLabels[row.releaseStatus as '0'] }}
+              <ElTag :type="statusTagType(row.releaseStatus)" effect="plain">
+                {{
+                  statusLabels[
+                    row.releaseStatus as PageDesignRelease['releaseStatus']
+                  ]
+                }}
               </ElTag>
             </template>
           </ElTableColumn>
           <ElTableColumn label="草稿修订" width="90">
-            <template #default="{ row }">
-              r{{ row.draftRevision }}
-            </template>
+            <template #default="{ row }"> r{{ row.draftRevision }} </template>
           </ElTableColumn>
-          <ElTableColumn prop="publishRemark" label="发布说明" min-width="140" />
+          <ElTableColumn
+            prop="publishRemark"
+            label="发布说明"
+            min-width="140"
+          />
           <ElTableColumn prop="submitBy" label="提交人" width="100" />
           <ElTableColumn label="提交时间" width="150">
             <template #default="{ row }">
@@ -233,8 +235,14 @@ watch(
                   撤回
                 </ElButton>
               </template>
-              <template v-else-if="row.releaseStatus === '1' && row.releaseVersionId">
-                <ElButton link type="primary" @click="openReport(row as PageDesignRelease)">
+              <template
+                v-else-if="row.releaseStatus === '1' && row.releaseVersionId"
+              >
+                <ElButton
+                  link
+                  type="primary"
+                  @click="openReport(row as PageDesignRelease)"
+                >
                   查看变更
                 </ElButton>
               </template>
@@ -271,18 +279,30 @@ watch(
       </ElTabPane>
     </ElTabs>
 
-    <ElDialog v-model="reportVisible" append-to-body title="发布报告 · 与上一版本差异" width="640px">
+    <ElDialog
+      v-model="reportVisible"
+      append-to-body
+      title="发布报告 · 与上一版本差异"
+      width="640px"
+    >
       <template v-if="reportDiff">
         <p class="report-summary">
-          V{{ reportDiff.fromVersionNo }} → V{{ reportDiff.toVersionNo }} ·
-          新增 {{ reportDiff.added.length }} · 移除 {{ reportDiff.removed.length }} ·
-          修改 {{ reportDiff.changed.length }} · 页面设置 {{ reportDiff.pageChanged.length }}
+          V{{ reportDiff.fromVersionNo }} → V{{ reportDiff.toVersionNo }} · 新增
+          {{ reportDiff.added.length }} · 移除 {{ reportDiff.removed.length }} ·
+          修改 {{ reportDiff.changed.length }} · 页面设置
+          {{ reportDiff.pageChanged.length }}
         </p>
         <ul class="report-list">
-          <li v-for="change in reportDiff.added" :key="`a-${change.componentId}`">
+          <li
+            v-for="change in reportDiff.added"
+            :key="`a-${change.componentId}`"
+          >
             新增组件：{{ change.componentType }}（{{ change.componentId }}）
           </li>
-          <li v-for="change in reportDiff.removed" :key="`d-${change.componentId}`">
+          <li
+            v-for="change in reportDiff.removed"
+            :key="`d-${change.componentId}`"
+          >
             移除组件：{{ change.componentType }}（{{ change.componentId }}）
           </li>
           <li v-for="update in reportDiff.changed" :key="update.componentId">

@@ -1,6 +1,9 @@
 import type { DecorationDocument } from '../schema/types';
 
-import { createDefaultPageSettings, createDefaultSectionStyle } from '../schema/defaults';
+import {
+  createDefaultPageSettings,
+  createDefaultSectionStyle,
+} from '../schema/defaults';
 import {
   componentRegistry,
   legacyComponentTypes,

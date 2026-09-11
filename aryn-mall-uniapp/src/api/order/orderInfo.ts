@@ -48,3 +48,17 @@ export function orderPrepay(data: object) {
 export function orderAppraise(id: string, data: object) {
   return alovaInstance.Post<any>(`/mall-order/app/orderinfo/appraise/${id}`, data)
 }
+
+/**
+ * 再来一单预览：返回原明细与当前价格/库存/可购状态（重新确认后走正常结算）
+ */
+export function reorderPreview(orderId: string) {
+  return alovaInstance.Get<any>(`/mall-order/app/orderinfo/${orderId}/reorder-preview`)
+}
+
+/**
+ * 常购清单（近 90 天统计 Top20）
+ */
+export function getFrequentPurchase() {
+  return alovaInstance.Get<any[]>('/mall-order/app/orderinfo/frequent-purchase')
+}

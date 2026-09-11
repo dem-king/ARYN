@@ -133,7 +133,11 @@ async function handlePublish(row: PageDesignRecord) {
   await ElMessageBox.confirm(
     `提交后按发布流程更新“${row.pageName}”的线上版本（未开启审批时立即发布），是否继续？`,
     '发布页面',
-    { confirmButtonText: '提交发布', cancelButtonText: '取消', type: 'warning' },
+    {
+      confirmButtonText: '提交发布',
+      cancelButtonText: '取消',
+      type: 'warning',
+    },
   );
   const release = await submitRelease(row.id, {
     draftRevision: row.draftRevision,

@@ -19,6 +19,15 @@ const routes: RouteRecordRaw[] = [
           title: '船舶档案',
         },
       },
+      {
+        name: 'VesselCallCalendar',
+        path: '/vessel/call-calendar',
+        component: () => import('#/views/vessel/call-calendar/index.vue'),
+        meta: {
+          icon: 'lucide:calendar',
+          title: '靠港日历',
+        },
+      },
     ],
   },
 ];

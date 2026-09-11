@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { onLoad } from '@dcloudio/uni-app'
 import { reactive, ref } from 'vue'
-import { getById } from '@/api/order/orderInfo'
+import { getById, reorderPreview } from '@/api/order/orderInfo'
+import { addShoppingCart } from '@/api/order/shoppingCart'
 import OrderOperation from '@/sub-pages/order/components/order-operation/index.vue'
 import DeliveryProgress from '@/components/delivery/delivery-progress.vue'
 import { useDict } from '@/utils/dict'
@@ -128,6 +129,29 @@ function handleRefundDetail(item: any) {
     params: { id },
   })
 }
+
+/**
+ * 再来一单：预览原明细当前可购状态，可购项一键加入购物车（重新确认船舶/靠港/价格后结算）
+ */
+async function handleReorder() {
+  const orderId = state.order.id
+  if (!orderId) return
+  const preview = await reorderPreview(orderId)
+  const purchasable = (preview.items || []).filter((item: any) => item.purchasable)
+  const blocked = (preview.items || []).filter((item: any) => !item.purchasable)
+  if (purchasable.length === 0) {
+    uni.showToast({ title: blocked[0]?.reason || '商品暂不可购买', icon: 'none' })
+    return
+  }
+  for (const item of purchasable) {
+    await addShoppingCart({ skuId: item.skuId, quantity: item.originalQuantity, addType: '2' })
+  }
+  const tips = blocked.length > 0 ? `，${blocked.length} 项不可购已跳过` : ''
+  uni.showToast({ title: `已加入购物车${tips}`, icon: 'none' })
+  setTimeout(() => {
+    uni.switchTab({ url: '/pages/cart/index' })
+  }, 800)
+}
 // 切换更多信息显示状态
 function toggleMoreInfo() {
   showMoreInfo.value = !showMoreInfo.value
@@ -228,6 +252,16 @@ function toCustomerService() {
             v-if="state.order.payStatus === '1'"
             class="flex justify-end pt-10rpx"
           >
+            <wd-button
+              size="small"
+              plain
+              hairline
+              type="primary"
+              class="mr-10rpx"
+              @tap.stop="handleReorder"
+            >
+              再来一单
+            </wd-button>
             <wd-button
               v-if="item.status === '1' || item.status === '2'"
               size="small"

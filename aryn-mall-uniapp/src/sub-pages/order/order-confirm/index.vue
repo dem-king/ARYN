@@ -291,6 +291,48 @@ onUnload(() => {
       @to-address="toAddress"
     />
 
+    <!-- 营销优惠明细（阶梯价/整船优惠，结算返回） -->
+    <view
+      v-if="
+        (state.orderInfo.promotionDetails && state.orderInfo.promotionDetails.length) ||
+          state.orderInfo.promoPrice > 0
+      "
+      class="hx-mb10"
+      style="
+        background: #fff;
+        border-radius: 12rpx;
+        margin: 20rpx;
+        padding: 24rpx;
+      "
+    >
+      <view style="font-weight: bold">
+        营销优惠
+      </view>
+      <view
+        v-for="detail in state.orderInfo.promotionDetails || []"
+        :key="detail.activityId"
+        style="
+          color: #e67e22;
+          font-size: 24rpx;
+          margin-top: 8rpx;
+        "
+      >
+        {{ detail.activityName }}：已优惠
+        <template v-if="detail.activityType === '4'">
+          阶梯单价（明细已按档价计价）
+        </template>
+        <template v-else>
+          ¥{{ detail.discountAmount }}
+        </template>
+      </view>
+      <view
+        v-if="state.orderInfo.promoPrice > 0"
+        style="color: #e67e22; font-size: 24rpx; margin-top: 8rpx"
+      >
+        整船优惠合计：-¥{{ state.orderInfo.promoPrice }}
+      </view>
+    </view>
+
     <!-- 订单列表 -->
     <ShopOrderItem
       :order="state.orderInfo"

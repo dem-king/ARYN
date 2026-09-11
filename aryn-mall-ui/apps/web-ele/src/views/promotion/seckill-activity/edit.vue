@@ -353,8 +353,8 @@ if (editId) {
             <div
               style="
                 display: flex;
-                justify-content: space-between;
                 align-items: center;
+                justify-content: space-between;
               "
             >
               <span>场次与商品管理</span>
@@ -515,10 +515,10 @@ if (editId) {
 
   .session-header {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    margin-bottom: 16px;
+    justify-content: space-between;
     padding-bottom: 8px;
+    margin-bottom: 16px;
     border-bottom: 1px solid var(--el-border-color-lighter);
 
     .session-title {
@@ -533,16 +533,16 @@ if (editId) {
 
     .goods-section-header {
       display: flex;
-      justify-content: space-between;
       align-items: center;
+      justify-content: space-between;
       margin-bottom: 8px;
       font-weight: 600;
     }
 
     .empty-goods {
       padding: 24px;
-      text-align: center;
       color: var(--el-text-color-secondary);
+      text-align: center;
       background-color: var(--el-fill-color-blank);
       border: 1px dashed var(--el-border-color);
       border-radius: 4px;

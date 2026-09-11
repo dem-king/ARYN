@@ -5,8 +5,7 @@ import process from 'node:process';
 import { describe, expect, it } from 'vitest';
 
 const root = process.cwd();
-const readSource = (path: string) =>
-  readFileSync(resolve(root, path), 'utf8');
+const readSource = (path: string) => readFileSync(resolve(root, path), 'utf8');
 
 const basicLayoutSource = readSource('apps/web-ele/src/layouts/basic.vue');
 const userDropdownSource = readSource(

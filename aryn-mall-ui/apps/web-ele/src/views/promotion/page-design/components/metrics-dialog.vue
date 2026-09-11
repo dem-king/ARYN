@@ -96,9 +96,19 @@ watch(days, loadMetrics);
     <p class="metric-section">页面访问趋势（按版本）</p>
     <ElTable v-loading="loading" :data="pageRows" max-height="220" size="small">
       <ElTableColumn label="日期" prop="metricDate" width="120" />
-      <ElTableColumn label="版本" prop="versionId" min-width="180" show-overflow-tooltip />
+      <ElTableColumn
+        label="版本"
+        prop="versionId"
+        min-width="180"
+        show-overflow-tooltip
+      />
       <ElTableColumn label="访问" prop="viewCount" width="90" align="center" />
-      <ElTableColumn label="渲染错误" prop="errorCount" width="100" align="center" />
+      <ElTableColumn
+        label="渲染错误"
+        prop="errorCount"
+        width="100"
+        align="center"
+      />
     </ElTable>
 
     <p class="metric-section">组件点击 / 渲染错误 Top</p>
@@ -110,9 +120,19 @@ watch(days, loadMetrics);
     >
       <ElTableColumn label="日期" prop="metricDate" width="120" />
       <ElTableColumn label="组件" prop="componentType" width="160" />
-      <ElTableColumn label="版本" prop="versionId" min-width="160" show-overflow-tooltip />
+      <ElTableColumn
+        label="版本"
+        prop="versionId"
+        min-width="160"
+        show-overflow-tooltip
+      />
       <ElTableColumn label="点击" prop="clickCount" width="90" align="center" />
-      <ElTableColumn label="渲染错误" prop="errorCount" width="100" align="center" />
+      <ElTableColumn
+        label="渲染错误"
+        prop="errorCount"
+        width="100"
+        align="center"
+      />
     </ElTable>
     <p v-if="metrics.length === 0 && !loading" class="metric-empty">
       暂无数据：移动端访问页面后指标将在此聚合展示。

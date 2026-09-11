@@ -4,7 +4,8 @@ import { requestClient } from '#/api/request';
  * 配送任务状态：
  * 1-待派单 2-待取货 3-配货中 4-待送达 5-已送达 6-已签收 7-已取消 8-异常 9-待退回
  */
-export type DeliveryTaskStatus = '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9';
+export type DeliveryTaskStatus =
+  '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9';
 
 /**
  * 配送任务查询参数
@@ -111,7 +112,10 @@ export async function assignDeliveryTasks(data: AssignDeliveryTasksPayload) {
   return requestClient.post('/mall-order/delivery/task/assign', data);
 }
 
-export async function reassignDeliveryTask(id: string, data: ReassignDeliveryTaskPayload) {
+export async function reassignDeliveryTask(
+  id: string,
+  data: ReassignDeliveryTaskPayload,
+) {
   const url = `/mall-order/delivery/task/${id}/reassign`;
   return requestClient.post(`${url}?staffId=${data.staffId}`);
 }
@@ -120,7 +124,9 @@ export async function reassignDeliveryTask(id: string, data: ReassignDeliveryTas
  * 关闭异常任务
  */
 export async function closeDeliveryTask(id: string, reason: string) {
-  return requestClient.post(`/mall-order/delivery/task/${id}/close?reason=${encodeURIComponent(reason)}`);
+  return requestClient.post(
+    `/mall-order/delivery/task/${id}/close?reason=${encodeURIComponent(reason)}`,
+  );
 }
 
 /**
@@ -135,7 +141,9 @@ export async function returnPendingDeliveryTask(id: string) {
  */
 export async function returnConfirmDeliveryTask(id: string, remark?: string) {
   const url = `/mall-order/delivery/task/${id}/return-confirm`;
-  return requestClient.post(remark ? `${url}?remark=${encodeURIComponent(remark)}` : url);
+  return requestClient.post(
+    remark ? `${url}?remark=${encodeURIComponent(remark)}` : url,
+  );
 }
 
 /**

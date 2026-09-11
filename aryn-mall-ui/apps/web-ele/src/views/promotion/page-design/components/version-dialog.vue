@@ -21,7 +21,11 @@ import {
   ElTag,
 } from 'element-plus';
 
-import { getVersions, getVersionDiff, rollbackVersion } from '#/api/promotion/page-design';
+import {
+  getVersionDiff,
+  getVersions,
+  rollbackVersion,
+} from '#/api/promotion/page-design';
 
 const props = defineProps<{
   modelValue: boolean;
@@ -39,7 +43,7 @@ const versions = ref<PageDesignVersion[]>([]);
 const diffLoading = ref(false);
 const diffFromId = ref('');
 const diffToId = ref('');
-const diff = ref<PageDesignDiff | null>(null);
+const diff = ref<null | PageDesignDiff>(null);
 
 async function loadVersions() {
   if (!props.modelValue || !props.pageId) return;
@@ -103,11 +107,7 @@ function diffSummary() {
     : `新增 ${diff.value.added.length} · 移除 ${diff.value.removed.length} · 修改 ${diff.value.changed.length} · 页面设置 ${diff.value.pageChanged.length}`;
 }
 
-function changeText(change: {
-  field: string;
-  from?: unknown;
-  to?: unknown;
-}) {
+function changeText(change: { field: string; from?: unknown; to?: unknown }) {
   const format = (value: unknown) =>
     typeof value === 'object' && value !== null
       ? JSON.stringify(value)
@@ -172,7 +172,15 @@ watch(() => [props.modelValue, props.pageId], loadVersions);
       :closable="false"
       class="diff-summary"
       :title="`V${diff.fromVersionNo} → V${diff.toVersionNo}：${diffSummary()}`"
-      :type="diff.added.length + diff.removed.length + diff.changed.length + diff.pageChanged.length === 0 ? 'success' : 'info'"
+      :type="
+        diff.added.length +
+          diff.removed.length +
+          diff.changed.length +
+          diff.pageChanged.length ===
+        0
+          ? 'success'
+          : 'info'
+      "
     />
     <div v-if="diff" class="diff-detail">
       <div v-if="diff.pageChanged.length > 0">

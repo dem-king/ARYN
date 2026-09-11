@@ -9,9 +9,7 @@ describe('all-components v3 contract fixture', () => {
     const v3Document = toV3Document(allComponentsV2);
 
     expect(v3Document.schemaVersion).toBe(3);
-    expect(v3Document.sections).toHaveLength(
-      allComponentsV2.sections.length,
-    );
+    expect(v3Document.sections).toHaveLength(allComponentsV2.sections.length);
     expect(v3Document.sections[0]?.components).toHaveLength(17);
 
     const restored = migratePageContent(structuredClone(v3Document));
@@ -21,7 +19,9 @@ describe('all-components v3 contract fixture', () => {
   });
 
   it('keeps the v3 document serializable without data loss', () => {
-    const serialized = JSON.parse(JSON.stringify(toV3Document(allComponentsV2)));
+    const serialized = JSON.parse(
+      JSON.stringify(toV3Document(allComponentsV2)),
+    );
     const restored = migratePageContent(serialized);
 
     const restoredIds = restored.sections.flatMap((section) =>

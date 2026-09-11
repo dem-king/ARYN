@@ -174,10 +174,7 @@ watch(() => props.modelValue, load);
       </ElButton>
     </div>
     <div v-loading="loading" class="template-grid">
-      <ElEmpty
-        v-if="visibleTemplates.length === 0"
-        description="暂无模板"
-      />
+      <ElEmpty v-if="visibleTemplates.length === 0" description="暂无模板" />
       <article
         v-for="template in visibleTemplates"
         v-else
