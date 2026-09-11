@@ -12,9 +12,11 @@ import {
   Top,
 } from '@element-plus/icons-vue';
 import {
+  ElAlert,
   ElButton,
   ElCascader,
   ElCol,
+  ElDialog,
   ElForm,
   ElFormItem,
   ElImage,
@@ -35,6 +37,13 @@ import {
   getPage,
   goodsShelf as goodsShelfOpt,
 } from '#/api/product/goods-spu';
+import {
+  confirmImport,
+  downloadCsvTemplate,
+  getTemplate,
+  parseCsvToRows,
+  previewImport,
+} from '#/api/product/product-import';
 import { useDict } from '#/utils/dict';
 
 const RightToolbar = defineAsyncComponent(
@@ -81,6 +90,61 @@ const $route = useRouter();
 const loading = ref(false);
 const queryRef = ref();
 const { tableData, queryParams, page } = toRefs(state);
+
+// 批量导入状态
+const importVisible = ref(false);
+const importLoading = ref(false);
+const importFileName = ref('');
+const importRows = ref<any[]>([]);
+const previewResult = ref<any>(null);
+
+const openImport = () => {
+  importVisible.value = true;
+  importRows.value = [];
+  previewResult.value = null;
+  importFileName.value = '';
+};
+const onTemplateDownload = async () => {
+  const columns = await getTemplate();
+  downloadCsvTemplate(columns.map((c: any) => c.title));
+};
+const handleImportFile = async (event: Event) => {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+  importFileName.value = file.name;
+  const content = await file.text();
+  importRows.value = parseCsvToRows(content);
+  if (importRows.value.length === 0) {
+    ElMessage.warning('未解析到数据行');
+    return;
+  }
+  importLoading.value = true;
+  try {
+    previewResult.value = await previewImport({
+      fileName: file.name,
+      rows: importRows.value,
+    });
+  } finally {
+    importLoading.value = false;
+  }
+};
+const doConfirmImport = async () => {
+  if (!previewResult.value?.jobId) return;
+  importLoading.value = true;
+  try {
+    const imported = await confirmImport({
+      jobId: previewResult.value.jobId,
+      fileName: importFileName.value,
+      rows: importRows.value,
+    });
+    ElMessage.success(`导入成功 ${imported} 行`);
+    importVisible.value = false;
+    initPage();
+  } finally {
+    importLoading.value = false;
+  }
+};
 
 /**
  * 查询全部商品类目
@@ -288,6 +352,13 @@ initPage();
           >
             下架
           </ElButton>
+          <ElButton
+            type="warning"
+            v-access:code="'product:import:preview'"
+            @click="openImport"
+          >
+            批量导入
+          </ElButton>
         </div>
         <RightToolbar
           :search-btn="true"
@@ -420,6 +491,53 @@ initPage();
         v-model:size="state.page.pageSize"
         @change="initPage"
       />
+      <!-- 批量导入 -->
+      <ElDialog
+        v-model="importVisible"
+        title="商品批量导入"
+        width="720px"
+        :close-on-click-modal="false"
+      >
+        <div class="mb10">
+          <ElButton link type="primary" @click="onTemplateDownload">
+            下载 CSV 模板
+          </ElButton>
+          <input
+            accept=".csv"
+            type="file"
+            style="margin-left: 12px"
+            @change="handleImportFile"
+          />
+        </div>
+        <ElAlert
+          v-if="previewResult"
+          :title="`共 ${previewResult.totalRows} 行，可导入 ${previewResult.successRows} 行，错误 ${previewResult.errorRows} 行`"
+          :type="previewResult.errorRows > 0 ? 'warning' : 'success'"
+          :closable="false"
+          class="mb10"
+        />
+        <ElTable
+          v-if="previewResult?.errors?.length"
+          :data="previewResult.errors"
+          border
+          max-height="300"
+        >
+          <ElTableColumn prop="rowNo" label="行号" width="80" align="center" />
+          <ElTableColumn prop="errorType" label="错误类型" width="200" />
+          <ElTableColumn prop="errorMessage" label="错误说明" />
+        </ElTable>
+        <template #footer>
+          <ElButton @click="importVisible = false">取消</ElButton>
+          <ElButton
+            type="primary"
+            :disabled="!previewResult?.confirmable"
+            :loading="importLoading"
+            @click="doConfirmImport"
+          >
+            确认导入
+          </ElButton>
+        </template>
+      </ElDialog>
     </div>
   </div>
 </template>
