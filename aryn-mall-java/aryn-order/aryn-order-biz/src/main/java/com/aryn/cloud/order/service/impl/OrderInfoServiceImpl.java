@@ -756,4 +756,65 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		return orderAppraiseService.autoAppraiseOrder(orderInfo);
 	}
 
+
+	@Override
+	public List<com.aryn.cloud.order.api.vo.FrequentPurchaseVO> frequentPurchase(String tenantId, String userId) {
+		return orderItemMapper.selectFrequentPurchase(tenantId, userId, LocalDateTime.now().minusDays(90), 20);
+	}
+
+	@Override
+	public com.aryn.cloud.order.api.vo.ReorderPreviewVO reorderPreview(String tenantId, String userId, String orderId) {
+		OrderInfo orderInfo = getOne(Wrappers.<OrderInfo>lambdaQuery()
+			.eq(OrderInfo::getTenantId, tenantId)
+			.eq(OrderInfo::getId, orderId)
+			.eq(OrderInfo::getUserId, userId));
+		if (orderInfo == null) {
+			throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60003.getCode(), MallErrorCodeEnum.ERROR_60003.getMsg());
+		}
+		List<OrderItemEntity> items = orderItemMapper.selectList(Wrappers.<OrderItemEntity>lambdaQuery()
+			.eq(OrderItemEntity::getTenantId, tenantId)
+			.eq(OrderItemEntity::getOrderId, orderId));
+		List<String> skuIds = items.stream().map(OrderItemEntity::getSkuId).distinct().toList();
+		List<GoodsSku> skus = skuIds.isEmpty() ? List.of() : remoteGoodsSkuService.getBySkuIds(skuIds);
+		Map<String, GoodsSku> skuMap = skus.stream()
+			.collect(Collectors.toMap(GoodsSku::getId, sku -> sku, (a, b) -> a));
+
+		com.aryn.cloud.order.api.vo.ReorderPreviewVO preview = new com.aryn.cloud.order.api.vo.ReorderPreviewVO();
+		preview.setOrderId(orderInfo.getId());
+		preview.setOrderNo(orderInfo.getOrderNo());
+		preview.setPurchaseScene(orderInfo.getPurchaseScene());
+		preview.setItems(items.stream().map(item -> {
+			com.aryn.cloud.order.api.vo.ReorderPreviewVO.ReorderItem reorderItem = new com.aryn.cloud.order.api.vo.ReorderPreviewVO.ReorderItem();
+			reorderItem.setSkuId(item.getSkuId());
+			reorderItem.setSpuId(item.getSpuId());
+			reorderItem.setSpuName(item.getSpuName());
+			reorderItem.setSpecsInfo(item.getSpecsInfo());
+			reorderItem.setPicUrl(item.getPicUrl());
+			reorderItem.setOriginalQuantity(item.getBuyQuantity());
+			GoodsSku sku = skuMap.get(item.getSkuId());
+			if (sku == null) {
+				reorderItem.setPurchasable(false);
+				reorderItem.setReason("商品已不存在");
+				return reorderItem;
+			}
+			reorderItem.setCurrentPrice(sku.getSalesPrice());
+			reorderItem.setCurrentStock(sku.getStock());
+			reorderItem.setPriceChanged(sku.getSalesPrice() != null && item.getSalesPrice() != null
+					&& sku.getSalesPrice().compareTo(item.getSalesPrice()) != 0);
+			if (!"1".equals(sku.getStatus())) {
+				reorderItem.setPurchasable(false);
+				reorderItem.setReason("商品已下架");
+			}
+			else if (sku.getStock() == null || sku.getStock() < item.getBuyQuantity()) {
+				reorderItem.setPurchasable(false);
+				reorderItem.setReason("库存不足");
+			}
+			else {
+				reorderItem.setPurchasable(true);
+			}
+			return reorderItem;
+		}).toList());
+		return preview;
+	}
+
 }

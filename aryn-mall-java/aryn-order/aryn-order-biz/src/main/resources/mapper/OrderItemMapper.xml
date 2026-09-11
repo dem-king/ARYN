@@ -47,4 +47,29 @@
 		order_item AS order_item
 		WHERE order_item.`id` = #{id}
 	</select>
+
+	<select id="selectFrequentPurchase" resultType="com.aryn.cloud.order.api.vo.FrequentPurchaseVO">
+		SELECT
+		order_item.sku_id AS skuId,
+		order_item.spu_id AS spuId,
+		MAX(order_item.spu_name) AS spuName,
+		MAX(order_item.specs_info) AS specsInfo,
+		MAX(order_item.pic_url) AS picUrl,
+		SUM(order_item.buy_quantity) AS totalQuantity,
+		COUNT(DISTINCT order_item.order_id) AS orderCount,
+		MAX(order_info.create_time) AS lastPurchaseTime
+		FROM order_item AS order_item
+		INNER JOIN order_info AS order_info
+			ON order_info.id = order_item.order_id
+			AND order_info.tenant_id = order_item.tenant_id
+			AND order_info.del_flag = '0'
+			AND order_info.user_id = #{userId}
+			AND order_info.status IN ('2', '3', '4')
+			AND order_info.create_time &gt;= #{startTime}
+		WHERE order_item.tenant_id = #{tenantId}
+		  AND order_item.del_flag = '0'
+		GROUP BY order_item.sku_id, order_item.spu_id
+		ORDER BY totalQuantity DESC
+		LIMIT #{limit}
+	</select>
 </mapper>

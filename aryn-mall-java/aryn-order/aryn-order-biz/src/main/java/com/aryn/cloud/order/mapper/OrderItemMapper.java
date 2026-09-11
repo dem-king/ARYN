@@ -37,4 +37,13 @@ public interface OrderItemMapper extends BaseMapper<OrderItemEntity> {
 	 */
 	OrderItemEntity selectOrderItemById(Serializable id);
 
+	/**
+	 * 常购统计：用户近 N 天有效订单的 SKU 聚合（按累计件数倒序）。
+	 */
+	List<com.aryn.cloud.order.api.vo.FrequentPurchaseVO> selectFrequentPurchase(
+			@org.apache.ibatis.annotations.Param("tenantId") String tenantId,
+			@org.apache.ibatis.annotations.Param("userId") String userId,
+			@org.apache.ibatis.annotations.Param("startTime") java.time.LocalDateTime startTime,
+			@org.apache.ibatis.annotations.Param("limit") int limit);
+
 }

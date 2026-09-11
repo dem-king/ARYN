@@ -130,4 +130,15 @@ public class FulfillmentController {
 		return Result.success(fulfillmentService.exceptionPage(ArynTenantContextHolder.getTenantId(), page, query));
 	}
 
+	@Operation(summary = "港口配送看板（按港口与日期聚合波次状态）")
+	@SaCheckPermission("fulfillment:wave:page")
+	@GetMapping("/port-board")
+	public Result<java.util.Map<String, Object>> portBoard(@RequestParam("portCode") String portCode,
+			@RequestParam(value = "date", required = false) String date) {
+		java.time.LocalDate boardDate = date != null && !date.isBlank()
+				? java.time.LocalDate.parse(date)
+				: java.time.LocalDate.now();
+		return Result.success(fulfillmentService.portBoard(ArynTenantContextHolder.getTenantId(), portCode, boardDate));
+	}
+
 }

@@ -152,4 +152,18 @@ public class AppOrderInfoController {
 		return Result.success(orderInfoService.getUserOrderByOrderNo(orderNo, userId));
 	}
 
+	@Operation(summary = "常购清单（近90天统计 Top20）")
+	@GetMapping("/frequent-purchase")
+	public Result<List<com.aryn.cloud.order.api.vo.FrequentPurchaseVO>> frequentPurchase() {
+		return Result.success(orderInfoService.frequentPurchase(SecurityUtils.getUser().getTenantId(),
+				SecurityUtils.getUser().getUserId()));
+	}
+
+	@Operation(summary = "再来一单预览（重新确认船舶/靠港/库存/价格后走正常结算）")
+	@GetMapping("/{id}/reorder-preview")
+	public Result<com.aryn.cloud.order.api.vo.ReorderPreviewVO> reorderPreview(@PathVariable String id) {
+		return Result.success(orderInfoService.reorderPreview(SecurityUtils.getUser().getTenantId(),
+				SecurityUtils.getUser().getUserId(), id));
+	}
+
 }

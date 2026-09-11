@@ -339,4 +339,45 @@ public class VesselServiceImpl implements VesselService {
 		return context;
 	}
 
+
+	@Override
+	public List<com.aryn.cloud.vessel.api.vo.VesselCallCalendarVO> calendar(String tenantId, LocalDateTime start,
+			LocalDateTime end) {
+		if (start == null || end == null || !start.isBefore(end)) {
+			throw new ArynBusinessException("日历时间区间不合法");
+		}
+		List<VesselCall> calls = vesselCallMapper.selectList(Wrappers.lambdaQuery(VesselCall.class)
+				.eq(VesselCall::getTenantId, tenantId)
+				.le(VesselCall::getEta, end)
+				.ge(VesselCall::getEtd, start)
+				.ne(VesselCall::getStatus, "4")
+				.orderByAsc(VesselCall::getEta));
+		if (calls.isEmpty()) {
+			return List.of();
+		}
+		List<String> vesselIds = calls.stream().map(VesselCall::getVesselId).distinct().toList();
+		java.util.Map<String, String> vesselNames = vesselInfoMapper.selectList(
+				Wrappers.lambdaQuery(VesselInfo.class)
+						.eq(VesselInfo::getTenantId, tenantId)
+						.in(VesselInfo::getId, vesselIds))
+				.stream()
+				.collect(java.util.stream.Collectors.toMap(VesselInfo::getId, VesselInfo::getVesselName,
+						(a, b) -> a));
+		return calls.stream().map(call -> {
+			com.aryn.cloud.vessel.api.vo.VesselCallCalendarVO vo = new com.aryn.cloud.vessel.api.vo.VesselCallCalendarVO();
+			vo.setCallId(call.getId());
+			vo.setVesselId(call.getVesselId());
+			vo.setVesselName(vesselNames.get(call.getVesselId()));
+			vo.setPortCode(call.getPortCode());
+			vo.setPortName(call.getPortName());
+			vo.setBerth(call.getBerth());
+			vo.setEta(call.getEta());
+			vo.setEtd(call.getEtd());
+			vo.setDeliveryWindowStart(call.getDeliveryWindowStart());
+			vo.setDeliveryWindowEnd(call.getDeliveryWindowEnd());
+			vo.setStatus(call.getStatus());
+			return vo;
+		}).toList();
+	}
+
 }

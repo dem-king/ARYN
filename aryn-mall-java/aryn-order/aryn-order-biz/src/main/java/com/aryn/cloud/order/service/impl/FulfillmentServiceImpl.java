@@ -351,4 +351,53 @@ public class FulfillmentServiceImpl implements IFulfillmentService {
 		return text.length() > 500 ? text.substring(0, 500) : text;
 	}
 
+
+	@Override
+	public java.util.Map<String, Object> portBoard(String tenantId, String portCode, java.time.LocalDate date) {
+		if (!StringUtils.hasText(portCode) || date == null) {
+			throw new ArynBusinessException("看板必须指定港口与日期");
+		}
+		java.time.LocalDateTime dayStart = date.atStartOfDay();
+		java.time.LocalDateTime dayEnd = date.plusDays(1).atStartOfDay();
+
+		// 波次（计划交付在当日，按港口）
+		List<FulfillmentWave> waves = fulfillmentWaveMapper.selectList(Wrappers.lambdaQuery(FulfillmentWave.class)
+				.eq(FulfillmentWave::getTenantId, tenantId)
+				.eq(FulfillmentWave::getPortCode, portCode)
+				.ge(FulfillmentWave::getPlanDeliveryTime, dayStart)
+				.lt(FulfillmentWave::getPlanDeliveryTime, dayEnd)
+				.orderByAsc(FulfillmentWave::getPlanDeliveryTime));
+
+		// 配送任务（按港口与时间窗快照聚合状态）
+		List<FulfillmentPickItem> waveItems = waves.isEmpty() ? List.of()
+				: fulfillmentPickItemMapper.selectList(Wrappers.lambdaQuery(FulfillmentPickItem.class)
+						.eq(FulfillmentPickItem::getTenantId, tenantId)
+						.in(FulfillmentPickItem::getWaveId, waves.stream().map(FulfillmentWave::getId).toList()));
+
+		long pendingOrders = waves.stream()
+			.filter(wave -> FulfillmentWave.STATUS_PENDING_PICK.equals(wave.getStatus())
+					|| FulfillmentWave.STATUS_PICKING.equals(wave.getStatus()))
+			.count();
+		long handedOver = waves.stream()
+			.filter(wave -> FulfillmentWave.STATUS_HANDED_OVER.equals(wave.getStatus()))
+			.count();
+		long completed = waves.stream()
+			.filter(wave -> FulfillmentWave.STATUS_COMPLETED.equals(wave.getStatus()))
+			.count();
+		long shortItems = waveItems.stream()
+			.filter(item -> FulfillmentPickItem.PICK_SHORT.equals(item.getPickStatus()))
+			.count();
+
+		java.util.Map<String, Object> board = new java.util.HashMap<>();
+		board.put("portCode", portCode);
+		board.put("date", date.toString());
+		board.put("waveCount", waves.size());
+		board.put("pendingWaves", pendingOrders);
+		board.put("handedOverWaves", handedOver);
+		board.put("completedWaves", completed);
+		board.put("shortItemCount", shortItems);
+		board.put("waves", waves);
+		return board;
+	}
+
 }

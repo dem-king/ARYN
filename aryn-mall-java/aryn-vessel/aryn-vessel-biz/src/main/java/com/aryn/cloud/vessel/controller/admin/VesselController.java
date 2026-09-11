@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -80,6 +81,18 @@ public class VesselController {
 	@GetMapping("/{id}/calls")
 	public Result<List<VesselCall>> calls(@PathVariable String id) {
 		return Result.success(vesselService.listCalls(SecurityUtils.getTenantId(), id));
+	}
+
+	@Operation(summary = "靠港日历（时间区间，跨船舶）")
+	@SaCheckPermission("vessel:call:list")
+	@GetMapping("/calls/calendar")
+	public Result<List<com.aryn.cloud.vessel.api.vo.VesselCallCalendarVO>> calendar(
+			@RequestParam("start") String start, @RequestParam("end") String end) {
+		java.time.LocalDateTime startTime = java.time.LocalDateTime.parse(start,
+				java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+		java.time.LocalDateTime endTime = java.time.LocalDateTime.parse(end,
+				java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+		return Result.success(vesselService.calendar(SecurityUtils.getTenantId(), startTime, endTime));
 	}
 
 	@Operation(summary = "新增靠港计划")

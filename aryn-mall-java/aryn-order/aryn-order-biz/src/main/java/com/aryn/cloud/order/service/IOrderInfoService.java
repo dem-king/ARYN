@@ -155,4 +155,14 @@ public interface IOrderInfoService extends IService<OrderInfo> {
 	 */
 	boolean autoAppraiseOrder(OrderInfo orderInfo);
 
+	/**
+	 * 常购清单：用户近 90 天有效订单 SKU 统计（Top 20）。
+	 */
+	List<com.aryn.cloud.order.api.vo.FrequentPurchaseVO> frequentPurchase(String tenantId, String userId);
+
+	/**
+	 * 再购预览：返回原明细与当前价格/库存/可购校验，不直接下单。
+	 */
+	com.aryn.cloud.order.api.vo.ReorderPreviewVO reorderPreview(String tenantId, String userId, String orderId);
+
 }

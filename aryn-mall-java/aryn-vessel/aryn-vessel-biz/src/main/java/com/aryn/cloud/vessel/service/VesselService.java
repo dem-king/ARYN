@@ -81,4 +81,10 @@ public interface VesselService {
 	 */
 	VesselContextDTO contextByCallId(String tenantId, String vesselCallId);
 
+	/**
+	 * 靠港日历：查询时间区间内（ETA/ETD 与区间有交集）的全部靠港计划，附船舶名称。
+	 */
+	List<com.aryn.cloud.vessel.api.vo.VesselCallCalendarVO> calendar(String tenantId,
+			java.time.LocalDateTime start, java.time.LocalDateTime end);
+
 }

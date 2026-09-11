@@ -79,4 +79,9 @@ public interface IFulfillmentService {
 	IPage<FulfillmentException> exceptionPage(String tenantId, IPage<FulfillmentException> page,
 			FulfillmentException query);
 
+	/**
+	 * 港口配送看板：按港口聚合当日订单/波次/配送任务状态。
+	 */
+	java.util.Map<String, Object> portBoard(String tenantId, String portCode, java.time.LocalDate date);
+
 }
