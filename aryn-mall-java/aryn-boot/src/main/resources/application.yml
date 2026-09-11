@@ -234,6 +234,19 @@ hx:
       - delivery_account_binding
       - delivery_qualification_operation
       - sys_user_wechat_binding
+      - vessel_info
+      - vessel_member
+      - vessel_call
+      - ship_goods_profile
+      - ship_sku_profile
+      - product_code_mapping
+      - shared_cart
+      - shared_cart_member
+      - shared_cart_item
+      - fulfillment_wave
+      - fulfillment_pick_item
+      - fulfillment_exception
+      - promotion_snapshot
 
   swagger:
     enabled: true

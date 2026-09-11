@@ -69,6 +69,12 @@
             <artifactId>aryn-message-biz</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!--        船舶与靠港计划模块-->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-vessel-biz</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>com.aryn</groupId>
             <artifactId>aryn-generator</artifactId>

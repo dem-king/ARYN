@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Copyright (c) 2025 天启雨数科技有限公司
+  All rights reserved.
+  注意：
+  本项目源代码由天启雨数科技有限公司原创开发，版权所有。
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.aryn</groupId>
+        <artifactId>aryn-vessel</artifactId>
+        <version>3.2.1</version>
+    </parent>
+
+    <artifactId>aryn-vessel-api</artifactId>
+    <description>船舶与靠港计划公共契约</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-common-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-common-mybatis</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>
