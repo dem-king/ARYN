@@ -68,6 +68,7 @@ const state = reactive({
     payType: '',
     paymentQueryTimes: '',
     orderNo: '',
+    purchaseScene: '',
     recipientName: '',
     recipientPhone: '',
   },
@@ -267,6 +268,17 @@ initPage();
             />
           </ElSelect>
         </ElFormItem>
+        <ElFormItem label="购买场景" prop="purchaseScene">
+          <ElSelect
+            v-model="state.queryParams.purchaseScene"
+            clearable
+            placeholder="全部场景"
+            style="width: 160px"
+          >
+            <ElOption label="海员个人购买" value="1" />
+            <ElOption label="船供采购" value="2" />
+          </ElSelect>
+        </ElFormItem>
         <ElFormItem label="配送方式" prop="deliveryWay">
           <ElSelect
             v-model="state.queryParams.deliveryWay"
@@ -347,6 +359,17 @@ initPage();
         :data="state.tableData"
         border
       >
+        <ElTableColumn label="购买场景" width="110" align="center">
+          <template #default="scope">
+            {{
+              scope.row.purchaseScene === '2'
+                ? '船供采购'
+                : scope.row.purchaseScene === '1'
+                  ? '个人购买'
+                  : '—'
+            }}
+          </template>
+        </ElTableColumn>
         <ElTableColumn prop="orderItemList" label="订单信息" width="480">
           <template #default="scope">
             <ElRow
