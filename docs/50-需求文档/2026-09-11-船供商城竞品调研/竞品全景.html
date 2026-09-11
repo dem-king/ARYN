@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>船供数字化赛道竞品全景 · 2026-09 调研</title>
+<link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&display=swap">
+<style>
+  :root{
+    --navy-900:#0B2545; --navy-700:#13315C; --navy-500:#1D4E89;
+    --blue:#2E86DE; --teal:#19B5A6; --orange:#F2994A; --red:#EB5757;
+    --ink:#1F2D3D; --gray:#5C6B7A; --line:#DDE5EE;
+    --bg:#F4F7FB; --card:#FFFFFF; --soft:#EEF4FA; --soft2:#F0F8F7;
+    --shadow:0 2px 10px rgba(11,37,69,.06);
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{
+    font-family:"Noto Sans SC",-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Microsoft YaHei",sans-serif;
+    background:var(--bg); color:var(--ink); line-height:1.7; font-size:15px;
+  }
+  .wrap{max-width:1120px;margin:0 auto;padding:0 24px;}
+
+  .hero{background:linear-gradient(135deg,var(--navy-900) 0%,var(--navy-700) 55%,var(--navy-500) 100%);color:#fff;padding:60px 0 52px;position:relative;overflow:hidden;}
+  .hero::after{content:"";position:absolute;right:-120px;top:-120px;width:420px;height:420px;border-radius:50%;background:radial-gradient(circle,rgba(46,134,222,.35),transparent 65%);}
+  .hero .wrap{position:relative;z-index:1;}
+  .hero .kicker{display:inline-block;font-size:13px;letter-spacing:.14em;color:#9FC0E8;border:1px solid rgba(159,192,232,.4);border-radius:999px;padding:5px 16px;margin-bottom:22px;}
+  .hero h1{font-size:32px;font-weight:900;line-height:1.3;margin-bottom:14px;}
+  .hero .sub{font-size:15.5px;color:#C9D9EC;max-width:800px;font-weight:300;}
+  .hero .meta{margin-top:24px;display:flex;gap:26px;flex-wrap:wrap;font-size:13px;color:#8FAFCF;}
+  .hero .meta b{color:#fff;font-weight:500;}
+
+  section{padding:50px 0 6px;}
+  .sec-head{display:flex;align-items:baseline;gap:14px;margin-bottom:8px;}
+  .sec-num{font-size:15px;font-weight:900;color:#fff;background:var(--navy-700);width:34px;height:34px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;flex:none;}
+  .sec-title{font-size:22px;font-weight:900;color:var(--navy-900);}
+  .sec-desc{color:var(--gray);font-size:14px;margin:6px 0 24px 48px;max-width:920px;}
+  .card{background:var(--card);border-radius:14px;box-shadow:var(--shadow);padding:26px;margin-bottom:22px;}
+
+  /* 结论卡片 */
+  .concl{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:26px;}
+  .concl-item{background:var(--card);border-radius:14px;box-shadow:var(--shadow);padding:18px 16px;border-top:3px solid var(--teal);}
+  .concl-item .c-no{font-size:12px;font-weight:900;color:var(--teal);letter-spacing:.1em;margin-bottom:8px;}
+  .concl-item b{display:block;font-size:14.5px;color:var(--navy-900);margin-bottom:6px;line-height:1.45;}
+  .concl-item span{font-size:12.5px;color:var(--gray);line-height:1.6;}
+
+  /* 四象限 */
+  .quad{background:var(--card);border-radius:14px;box-shadow:var(--shadow);padding:28px 26px;}
+  .quad-note{font-size:12px;color:var(--gray);margin-bottom:16px;}
+  .quad-grid{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:2px;background:var(--line);border:2px solid var(--line);border-radius:12px;overflow:hidden;position:relative;}
+  .quad-cell{background:var(--bg);padding:18px;min-height:150px;}
+  .quad-cell .q-tag{display:inline-block;font-size:12px;font-weight:700;padding:2px 10px;border-radius:999px;margin-bottom:10px;}
+  .quad-cell ul{padding-left:16px;font-size:13px;}
+  .quad-cell li{margin-bottom:4px;color:var(--ink);}
+  .quad-cell li b{color:var(--navy-900);}
+  .quad-axes{display:grid;grid-template-columns:auto 1fr auto;margin-top:14px;color:var(--gray);font-size:12.5px;align-items:center;gap:8px;}
+  .quad-axes .xlab{text-align:center;grid-column:2;}
+  .quad-axes .ylab{writing-mode:vertical-rl;text-align:center;}
+  .gap-tag{display:inline-block;background:linear-gradient(135deg,var(--red),#C0392B);color:#fff;font-size:12px;font-weight:700;padding:3px 12px;border-radius:999px;margin-left:8px;}
+
+  /* 表格 */
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th,td{padding:11px 12px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line);}
+  th{background:var(--soft);color:var(--navy-900);font-weight:700;font-size:12.5px;white-space:nowrap;}
+  tr:last-child td{border-bottom:none;}
+  td:first-child{font-weight:600;color:var(--navy-700);white-space:nowrap;}
+  .tb-scroll{overflow-x:auto;border-radius:12px;border:1px solid var(--line);}
+  .star{color:#B8860B;font-weight:900;}
+  .note{font-size:12px;color:var(--gray);margin-top:10px;}
+  .flag{display:inline-block;padding:1px 8px;border-radius:6px;font-size:11.5px;font-weight:600;margin-right:4px;}
+  .flag-i{background:#E8F0FD;color:#2471A3;}
+  .flag-c{background:#FDEBE7;color:#C0392B;}
+  .flag-ok{background:#E7F5F2;color:#148F77;}
+  .flag-no{background:#F5F5F5;color:#95A5A6;}
+
+  /* 评级卡片组 */
+  .rank-group{margin-bottom:22px;}
+  .rank-title{font-size:15px;font-weight:900;color:var(--navy-900);margin-bottom:10px;display:flex;align-items:center;gap:8px;}
+  .dot{width:10px;height:10px;border-radius:3px;flex:none;}
+  .rank-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}
+  .rank-card{background:var(--card);border-radius:12px;box-shadow:var(--shadow);padding:14px 16px;min-height:96px;}
+  .rank-card b{display:block;font-size:14px;color:var(--navy-900);margin-bottom:4px;}
+  .rank-card span{font-size:12px;color:var(--gray);line-height:1.55;}
+
+  /* 借鉴清单 */
+  .learn-table td:first-child{white-space:normal;width:26%;}
+  .pri{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap;}
+  .pri-must{background:#FDEBE7;color:#C0392B;}
+  .pri-imp{background:#FDF3E7;color:#D68910;}
+  .pri-opt{background:#E8F0FD;color:#2471A3;}
+
+  .plan-box{background:linear-gradient(135deg,var(--navy-900),var(--navy-700));border-radius:14px;padding:26px 30px;color:#fff;margin-bottom:26px;}
+  .plan-box h3{font-size:16px;margin-bottom:12px;color:#fff;}
+  .plan-box ol{padding-left:20px;font-size:14px;}
+  .plan-box li{margin-bottom:8px;color:#D9E6F5;}
+  .plan-box b{color:#fff;}
+
+  footer{background:var(--navy-900);color:#8FAFCF;padding:26px 0;margin-top:48px;font-size:12.5px;}
+  footer .src{margin-bottom:6px;}
+  footer a{color:#9FC0E8;text-decoration:none;word-break:break-all;}
+  footer a:hover{text-decoration:underline;}
+
+  @media (max-width:960px){
+    .concl{grid-template-columns:1fr 1fr;}
+    .rank-cards{grid-template-columns:1fr 1fr;}
+  }
+  @media (max-width:640px){
+    .concl{grid-template-columns:1fr;}
+    .rank-cards{grid-template-columns:1fr;}
+    .quad-grid{grid-template-columns:1fr;}
+    .hero h1{font-size:25px;}
+    .sec-desc{margin-left:0;}
+    td:first-child{white-space:normal;}
+  }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="wrap">
+    <span class="kicker">竞品调研 · 悦航购船供化改造前置研究</span>
+    <h1>船供数字化赛道 · 竞品全景</h1>
+    <p class="sub">面向「船供公司 + 海员小程序下单 + 靠岸交付 + 大单量」业务，系统盘点国际船供 SaaS、船供电商平台、船员采购小程序与国内船供软件，回答三个问题：谁在做？能不能直接买？哪些值得借鉴？</p>
+    <div class="meta">
+      <span>调研范围：<b>4 个方向 · 30+ 竞品</b></span>
+      <span>调研时效：<b>2026-09</b></span>
+      <span>来源：<b>官网 / 行业媒体 / 政府报道 / App Store</b></span>
+    </div>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <!-- ===== 01 核心结论 ===== -->
+  <section id="s1">
+    <div class="sec-head"><span class="sec-num">01</span><h2 class="sec-title">五个核心结论</h2></div>
+    <p class="sec-desc">先看答案，再看细节。结论基于 30+ 竞品的公开信息，标注「自称」的为厂商单方数据、未经第三方验证。</p>
+
+    <div class="concl">
+      <div class="concl-item">
+        <div class="c-no">结论 1</div>
+        <b>直接竞品存在，但全球没有成熟玩家</b>
+        <span>做「海员 C 端下单」的仅 7 家（国际 3 + 国内 4），全部早期或区域化：国际的刚上线、仅限单港；国内最成熟的「长江汇」是长江内河重资产模式。国际海运船员的「小程序下单 + 靠岸交付」仍是蓝海。</span>
+      </div>
+      <div class="concl-item">
+        <div class="c-no">结论 2</div>
+        <b>B 端软件成熟，但没有一家打通 C 端</b>
+        <span>Seaborn / Tidal / 嘉软 MTS / 多麦德 MSP 等都是纯 B 端船供商 ERP（RFQ→报价→采购→库存→财务），全部没有面向海员的下单入口。B 端管理 + C 端海员下单的闭环是你们的差异化空位。</span>
+      </div>
+      <div class="concl-item">
+        <div class="c-no">结论 3</div>
+        <b>不建议采购通用商城 SaaS 做底座</b>
+        <span>微盟/有赞封闭、无法私有化与深度定制；ShopXO 技术栈不匹配；CRMEB 需大量自研船供流程。已有的悦航购（Spring Boot 3 + Vue 3 + UniApp 三端）已覆盖商品/订单/库存/多租户/小程序约 80% 基础能力，扩展边际成本最低。</span>
+      </div>
+      <div class="concl-item">
+        <div class="c-no">结论 4</div>
+        <b>必做功能 = 行业入围门槛</b>
+        <span>IMPA/ISSA 编码库与自动匹配、AI 邮件/RFQ 解析、移动扫码拣货 + 照片留证、多币种对账、船员合并订单/共享购物车、到港交付预约。缺这些进不了行业牌桌。</span>
+      </div>
+      <div class="concl-item">
+        <div class="c-no">结论 5</div>
+        <b>入驻 ShipServ / MarineOnline 补获客</b>
+        <span>两者都是纯 B2B 平台（不碰船员消费），供应商可免费/低成本入驻，分别有约 $7B 年 GMV 与 700+ 港口流量，可作为国际船供业务的获客渠道与你们的 C 端业务互补。</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 02 市场格局 ===== -->
+  <section id="s2">
+    <div class="sec-head"><span class="sec-num">02</span><h2 class="sec-title">市场格局：四象限定位图（示意）</h2></div>
+    <p class="sec-desc">横轴区分「B 端船供商管理软件」与「C 端海员购物入口」，纵轴区分「国际 / 国内」。右上象限（国际 × C 端海员入口）几乎空白——这是你们的位置。</p>
+
+    <div class="quad">
+      <div class="quad-note">示意：按产品形态与市场区域归类，非精确坐标；主竞品按业务重心落位。</div>
+      <div class="quad-grid">
+        <div class="quad-cell">
+          <span class="q-tag" style="background:#E8F0FD;color:#2471A3;">国际 × B端管理软件</span>
+          <ul>
+            <li><b>Seaborn</b>（12 模块船供 ERP）</li>
+            <li><b>Tidal</b>（AI RFQ，$2,500/月起）</li>
+            <li><b>Supply Logic 365</b>、<b>Maritime Server</b></li>
+            <li><b>SeaProc</b>、<b>Procureship</b></li>
+          </ul>
+        </div>
+        <div class="quad-cell" style="background:#FDF3F2;">
+          <span class="q-tag" style="background:#FDEBE7;color:#C0392B;">国际 × C端海员入口 <span class="gap-tag">你们的蓝海空位</span></span>
+          <ul>
+            <li><b>Sailor's Cart</b>（新加坡，2026.7 刚上线）</li>
+            <li><b>Seafarer.Global</b>（香港，WhatsApp 运营）</li>
+            <li><b>Portameegos</b>（印度，撮合模式）</li>
+            <li>ShipServ / MarineOnline 属 B2B 平台，在此区作获客渠道</li>
+          </ul>
+        </div>
+        <div class="quad-cell">
+          <span class="q-tag" style="background:#E8F0FD;color:#2471A3;">国内 × B端管理软件</span>
+          <ul>
+            <li><b>嘉软 MTS</b>（约 200 家船供企业，自称）</li>
+            <li><b>多麦德 MSP</b>（含 B2B2C 商城版）</li>
+            <li><b>互海科技 海易采</b>（600 万物料库，自称）</li>
+            <li>船易网（备件/招投标，弱相关）</li>
+          </ul>
+        </div>
+        <div class="quad-cell" style="background:#FDF9EF;">
+          <span class="q-tag" style="background:#FDF3E7;color:#D68910;">国内 × C端海员入口</span>
+          <ul>
+            <li><b>长江汇</b>（南京，50 万船员/年流水 30 亿，自称）</li>
+            <li><b>海通翼达</b>（舟山，政府样板）</li>
+            <li><b>飞船到家</b>（合肥，政府引导）</li>
+            <li><b>肇庆水上配送</b>（肇庆，海事局推动）</li>
+          </ul>
+        </div>
+      </div>
+      <div class="quad-axes">
+        <span class="ylab">国际 ↑</span>
+        <span class="xlab">B端管理软件 ←——— 中心：你们的系统（悦航购改造） ———→ C端海员入口</span>
+        <span class="ylab">↓ 国内</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 03 直接竞品 ===== -->
+  <section id="s3">
+    <div class="sec-head"><span class="sec-num">03</span><h2 class="sec-title">直接竞品：做「船员 C 端下单 + 到船交付」的 7 家</h2></div>
+    <p class="sec-desc">这 7 家与你们的业务形态最接近，是真正要盯的对手。共同点：都验证了「船员个人需求合并为整船订单」的模式；共同短板：要么区域化、要么重资产、要么未成规模。</p>
+
+    <div class="card">
+      <div class="tb-scroll">
+        <table>
+          <thead>
+            <tr><th>名称</th><th>地区</th><th>形态</th><th>模式</th><th>规模（口径）</th><th>成熟度</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>长江汇 <span class="star">★</span></td><td>南京</td><td>App + 小程序 + 趸船 + 无人机</td><td>自营商城 + 水上服务区 + 末端配送（长江内河）</td><td>50 万船员、年流水 30 亿、4 万+交易船（自称）</td><td>国内最成熟，重资产</td></tr>
+            <tr><td>Sailor's Cart × FrontM</td><td>新加坡</td><td>嵌入船管 SuperApp 的购物模块</td><td>佣金撮合，船员下单 → 合并整船订单 → 船上直收</td><td>2026.7 上线，仅限新加坡港；背后 FrontM 覆盖 4000+ 船、10 万+海员</td><td>早期，最值得跟踪</td></tr>
+            <tr><td>Seafarer.Global</td><td>香港</td><td>网站 + WhatsApp</td><td>自营电商，共享账户收集全船需求 → 合并下单 → 到船交付</td><td>自称 29 万海员、290+ 港口（未经第三方验证）</td><td>早期，运营粗糙</td></tr>
+            <tr><td>Portameegos</td><td>印度</td><td>iOS App</td><td>撮合本地供应商，货到付款，自称不抽佣</td><td>自称 5 万海员、500+ 供应商</td><td>早期</td></tr>
+            <tr><td>海通翼达</td><td>舟山</td><td>微信小程序 + 无人机</td><td>国企主导，菜篮子直供店 → 无人机送锚地</td><td>累计 1000+ 次送达</td><td>区域民生工程，非商业</td></tr>
+            <tr><td>飞船到家</td><td>合肥</td><td>微信小程序 + 配送船</td><td>政府引导，三步下单 + 腾讯资金监管 + 每日两配</td><td>上线 1 个月服务 100+ 船员</td><td>区域试点</td></tr>
+            <tr><td>肇庆水上配送</td><td>肇庆</td><td>微信小程序 + 无人机</td><td>海事局推动，线上超市 + 跑腿 + 代收</td><td>2026.7 报道，规模待补充</td><td>区域试点</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note">注：长江汇为长江内河重资产模式（自有趸船服务区 + 无人机队 + 肯德基/瑞幸/麦德龙等品牌入驻），与国际海运船供场景差异大；政府样板类为民生工程，非市场竞争对手，但验证了「微信小程序 + 资金监管」路径有效。</div>
+    </div>
+  </section>
+
+  <!-- ===== 04 B端可采购 ===== -->
+  <section id="s4">
+    <div class="sec-head"><span class="sec-num">04</span><h2 class="sec-title">可采购的 B 端软件：成熟但都缺 C 端</h2></div>
+    <p class="sec-desc">需要纯 B 端船供商后台的可以直接采购；但它们都没有海员下单入口，SaaS 类无法二次开发。若你们的定位是「B 端管理 + C 端海员闭环」，仍需以自研为主。</p>
+
+    <div class="card">
+      <div class="tb-scroll">
+        <table>
+          <thead>
+            <tr><th>名称</th><th>总部</th><th>核心功能</th><th>收费模式</th><th>C 端海员下单</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Seaborn Software</td><td><span class="flag flag-i">国际</span>土耳其/英国</td><td>AI RFQ 解析（自称 99% 准确率）、AI 定价助手、IMPA 编码匹配、移动 WMS 扫码拣货、多币种财务，12 模块</td><td>未公开（仅 Book a Demo）</td><td><span class="flag flag-no">无</span></td></tr>
+            <tr><td>Tidal</td><td><span class="flag flag-i">国际</span>Agility Tech</td><td>邮件 RFQ 自动解析、5 万码 IMPA+ISSA 目录（自称 90%+ 首遍匹配）、自动报价、Pantry 食品独立账本、银行直连对账</td><td><b>$2,500/月起</b>，按用量/模块扩展</td><td><span class="flag flag-no">无</span></td></tr>
+            <tr><td>Supply Logic 365</td><td><span class="flag flag-i">国际</span>未公开</td><td>Auto Bot 365 自动抽数、AI/ML RFQ、智能采购、深度集成 Dynamics 365 BC</td><td>订阅制 pay-as-you-grow，具体未公开</td><td><span class="flag flag-no">无</span></td></tr>
+            <tr><td>Maritime Server</td><td><span class="flag flag-i">国际</span>土耳其</td><td>销售/采购/库存/财务 + 船管模块（ISM/船员/工资），生态撮合</td><td>未公开；入驻「店铺池」免费接单</td><td><span class="flag flag-no">无</span></td></tr>
+            <tr><td>SeaProc</td><td><span class="flag flag-i">国际</span>美国</td><td>买方视角 Source-to-Receive，连接 5 万+供应商，电子发票</td><td>按采购额分档 $1,000 / $2,500 / $5,000 每月</td><td><span class="flag flag-no">无</span></td></tr>
+            <tr><td>Procureship</td><td><span class="flag flag-i">国际</span>希腊</td><td>ML 供应商推荐、LLM 自动归类、电子发票对账（自称提速 60%）、招投标合同</td><td>未公开（企业定制）</td><td><span class="flag flag-no">无</span></td></tr>
+            <tr><td>嘉软 MTS</td><td><span class="flag flag-c">国内</span>上海</td><td>船供业务财务一体化、5 档套装、条码物流追踪、LP 客户在线查询、跨地区集中管理</td><td>未公开（自部署 + 阿里云 SaaS 两种）</td><td><span class="flag flag-no">无</span></td></tr>
+            <tr><td>多麦德 MSP</td><td><span class="flag flag-c">国内</span>大连</td><td>报价/订单/采购/库存/财务/毛利、Excel 一键导入报价、IMPA 查询、黑名单共享防坏账、B2B2C 商城版</td><td>未公开（SaaS 模式）</td><td><span class="flag flag-ok">待确认</span> B2B2C 商城版是否含海员 C 端需核实</td></tr>
+            <tr><td>互海科技 海易采</td><td><span class="flag flag-c">国内</span>上海</td><td>船舶申请→审批→询价→下单→供货→入库→出库→记账全流程、600 万物料数据库、5700+ 供应商池、船端离线操作</td><td>对船东免费（年费 1 万/艘免单），靠供应商端变现</td><td><span class="flag flag-no">无</span>（船管侧采购）</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note">采购建议：纯 B 端后台可选嘉软 MTS（约 200 家船供企业验证，自称）、多麦德 MSP；国际最 AI 化且明码标价的是 Tidal。但均无 C 端，SaaS 类不可二开，只能作流程参考或内部后台备选。</div>
+    </div>
+  </section>
+
+  <!-- ===== 05 可入驻平台 ===== -->
+  <section id="s5">
+    <div class="sec-head"><span class="sec-num">05</span><h2 class="sec-title">可入驻的 B2B 平台：零成本补获客</h2></div>
+    <p class="sec-desc">这两个平台不碰船员个人消费，与你们的 C 端业务互补，建议同步入驻作为国际船供业务的获客渠道。</p>
+
+    <div class="rank-group">
+      <div class="rank-title"><span class="dot" style="background:var(--blue);"></span>ShipServ（Marcura 集团，荷兰/英国）</div>
+      <div class="rank-cards">
+        <div class="rank-card"><b>模式</b><span>B2B 询价交易平台，年 400 万+ RFQ</span></div>
+        <div class="rank-card"><b>规模</b><span>约 $7B 年 GMV、1 万+ 船舶、5.2 万+ 供应商、190 国</span></div>
+        <div class="rank-card"><b>入驻成本</b><span>供应商基础版免费；增值 SmartSupplier 约 €695/年 + PO 包</span></div>
+        <div class="rank-card"><b>对你们的价值</b><span>国际 B 端买家询价入口，获客成本极低</span></div>
+      </div>
+    </div>
+    <div class="rank-group">
+      <div class="rank-title"><span class="dot" style="background:var(--teal);"></span>MarineOnline 海运在线（新加坡）</div>
+      <div class="rank-cards">
+        <div class="rank-card"><b>模式</b><span>一站式 B2B 海运电商（租船/燃油/船供/船员/保险）</span></div>
+        <div class="rank-card"><b>规模</b><span>700+ 港口、4000+ 服务商、3.5 万+ SKU、平台授信最高 $500 万</span></div>
+        <div class="rank-card"><b>入驻成本</b><span>注册 + 认证免费，船供板块厂家入驻</span></div>
+        <div class="rank-card"><b>对你们的价值</b><span>东南亚及全球船东/船管触达</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 06 借鉴清单 ===== -->
+  <section id="s6">
+    <div class="sec-head"><span class="sec-num">06</span><h2 class="sec-title">值得借鉴的做法（按优先级）</h2></div>
+    <p class="sec-desc">以下模式来自竞品与行业实践，直接对应悦航购改造的功能设计。</p>
+
+    <div class="card">
+      <div class="tb-scroll">
+        <table class="learn-table">
+          <thead>
+            <tr><th>借鉴点</th><th>来源</th><th>具体做法</th><th>优先级</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>船员合并订单 / 共享购物车</td><td>Sailor's Cart、Seafarer.Global</td><td>船员各自加购并备注姓名，船长/采购官统一确认合并为整船订单，降低配送成本</td><td><span class="pri pri-must">必做</span></td></tr>
+            <tr><td>三步极简下单流程</td><td>飞船到家（合肥）</td><td>浏览选购 → 一键下单 → 确认收货，专为「怕复杂、怕卡顿」的海员设计</td><td><span class="pri pri-must">必做</span></td></tr>
+            <tr><td>资金监管 / 验货后确认</td><td>飞船到家（腾讯资金监管）、Portameegos（货到付款）</td><td>解决海员线上支付信任问题，微信支付天然有担保交易基础</td><td><span class="pri pri-must">必做</span></td></tr>
+            <tr><td>AI RFQ 解析 + IMPA/ISSA 编码匹配</td><td>Seaborn、Tidal</td><td>邮件/PDF/Excel 询价单自动解析为结构化订单，自动匹配商品编码，行业入围门槛</td><td><span class="pri pri-must">必做</span></td></tr>
+            <tr><td>移动扫码拣货 + 照片留证</td><td>Seaborn</td><td>扫码拣货、拣货拍照留证、箱/托盘绑定追踪，食品类船供硬需求</td><td><span class="pri pri-imp">重要</span></td></tr>
+            <tr><td>到港交付预约 / 船期联动</td><td>中远海运数字船供平台</td><td>船舶抵港时间、泊位、交付窗口预约，与船期数据联动排程</td><td><span class="pri pri-imp">重要</span></td></tr>
+            <tr><td>品牌入驻提升客单价</td><td>长江汇</td><td>引入肯德基/瑞幸/麦德龙等品牌，提升船员消费意愿和客单</td><td><span class="pri pri-imp">重要</span></td></tr>
+            <tr><td>对买方免费、靠供应商变现</td><td>互海海易采、ShipServ</td><td>船东/船管端免费使用，靠供应商入驻/增值服务收费，快速做大买方侧</td><td><span class="pri pri-opt">可选</span></td></tr>
+            <tr><td>船端离线操作</td><td>互海海易采</td><td>海上弱网场景支持离线录入，联网后同步</td><td><span class="pri pri-opt">可选</span></td></tr>
+            <tr><td>雇主福利金 / eWallet</td><td>Sailor's Cart（规划中）</td><td>船东/船管公司给船员发福利额度，B2B2C 增值方向</td><td><span class="pri pri-opt">可选</span></td></tr>
+            <tr><td>无人机 / 配送船末端交付</td><td>长江汇、海通翼达</td><td>锚地/在航船舶低空配送，重资产，可合作第三方作为差异化服务</td><td><span class="pri pri-opt">可选</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 07 相关度总览 ===== -->
+  <section id="s7">
+    <div class="sec-head"><span class="sec-num">07</span><h2 class="sec-title">竞品相关度总览</h2></div>
+    <div class="card">
+      <div class="rank-group">
+        <div class="rank-title"><span class="dot" style="background:var(--red);"></span>直接竞争（7）</div>
+        <div class="rank-cards">
+          <div class="rank-card"><b>长江汇</b><span>国内最成熟，内河重资产</span></div>
+          <div class="rank-card"><b>Sailor's Cart</b><span>新加坡，最值得跟踪</span></div>
+          <div class="rank-card"><b>Seafarer.Global</b><span>香港，WhatsApp 运营</span></div>
+          <div class="rank-card"><b>Portameegos</b><span>印度，撮合模式</span></div>
+          <div class="rank-card"><b>海通翼达</b><span>舟山，政府样板</span></div>
+          <div class="rank-card"><b>飞船到家</b><span>合肥，政府引导</span></div>
+          <div class="rank-card"><b>肇庆水上配送</b><span>肇庆，区域试点</span></div>
+        </div>
+      </div>
+      <div class="rank-group">
+        <div class="rank-title"><span class="dot" style="background:var(--orange);"></span>可采购现成 B 端（6）</div>
+        <div class="rank-cards">
+          <div class="rank-card"><b>嘉软 MTS</b><span>国内，约 200 家验证</span></div>
+          <div class="rank-card"><b>多麦德 MSP</b><span>国内，含 B2B2C 版</span></div>
+          <div class="rank-card"><b>Seaborn</b><span>国际 12 模块</span></div>
+          <div class="rank-card"><b>Tidal</b><span>$2,500/月，最 AI 化</span></div>
+          <div class="rank-card"><b>Supply Logic 365</b><span>集成 Dynamics BC</span></div>
+          <div class="rank-card"><b>Maritime Server</b><span>含船管模块</span></div>
+        </div>
+      </div>
+      <div class="rank-group">
+        <div class="rank-title"><span class="dot" style="background:var(--blue);"></span>可入驻利用（2）</div>
+        <div class="rank-cards">
+          <div class="rank-card"><b>ShipServ</b><span>$7B GMV，基础版免费</span></div>
+          <div class="rank-card"><b>MarineOnline</b><span>700+ 港口，入驻免费</span></div>
+        </div>
+      </div>
+      <div class="rank-group">
+        <div class="rank-title"><span class="dot" style="background:var(--gray);"></span>可借鉴（5）· 弱相关（4）</div>
+        <div class="rank-cards">
+          <div class="rank-card"><b>SeaProc</b><span>定价与买方视角</span></div>
+          <div class="rank-card"><b>Procureship</b><span>LLM 归类思路</span></div>
+          <div class="rank-card"><b>互海海易采</b><span>免费买方模式</span></div>
+          <div class="rank-card"><b>GeoMarine Hub</b><span>IMPA 目录 App</span></div>
+          <div class="rank-card"><b>中远海运平台</b><span>船期调度</span></div>
+          <div class="rank-card"><b>船易网 / ShipParts / 长江船链 / 船品汇</b><span>偏备件/造船 B2B，弱相关</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 08 建议 ===== -->
+  <section id="s8">
+    <div class="sec-head"><span class="sec-num">08</span><h2 class="sec-title">对悦航购改造的建议</h2></div>
+
+    <div class="plan-box">
+      <h3>基于竞品调研的落地建议</h3>
+      <ol>
+        <li><b>坚定自研路线</b>：基于悦航购扩展船供模块，不采购通用 SaaS、不采购纯 B 端 ERP（都缺 C 端海员下单）。</li>
+        <li><b>MVP 优先做 C 端闭环</b>：海员微信小程序（共享购物车 + 合并下单）→ 船供商后台接单 → 到港交付确认。B 端复杂能力（AI RFQ、WMS 扫码）二期迭代。</li>
+        <li><b>同步入驻 ShipServ / MarineOnline</b>：零成本获取国际 B 端买家流量，与 C 端业务互补。</li>
+        <li><b>关注长江汇扩张</b>：若从长江内河向沿海港口复制，将成为最直接对手；其重资产模式（趸船 + 无人机）在国际海运港口复制难度大，是你们的窗口期。</li>
+        <li><b>跟踪 Sailor's Cart</b>：背靠 FrontM 船管 SuperApp（4000+ 船、10 万+ 海员），若从新加坡扩张到中国港口，是最具威胁的国际玩家。</li>
+      </ol>
+    </div>
+  </section>
+
+</div>
+
+<footer>
+  <div class="wrap">
+    <div class="src">信息来源（部分）：Seaborn Software（seabornsoftware.com）、Tidal（tidal.supply）、Supply Logic（supply-logic.com）、Maritime Server（maritimeserver.com）、SeaProc（imarinesoftware.com）、ShipServ/Marcura（marcura.com）、多麦德（duomaide.com）、嘉软（maritimetek.com）、互海科技（oceanlinktech.net）、People Tech Maritime（Sailor's Cart）、潮新闻（海通翼达）、中国水运网（飞船到家）等官网与公开报道。规模数据标注「自称」的均为厂商单方口径。</div>
+    <div>本页为竞品调研整理（2026-09），信息来自公开渠道，未与竞品直接商务接触；「待确认 / 待补充」项见各表注。用途为悦航购船供化改造的决策参考。</div>
+  </div>
+</footer>
+
+</body>
+</html>
