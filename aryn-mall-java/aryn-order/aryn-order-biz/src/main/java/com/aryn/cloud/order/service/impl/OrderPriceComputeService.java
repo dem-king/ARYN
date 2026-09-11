@@ -337,6 +337,8 @@ public class OrderPriceComputeService {
 			orderItemEntity.setPaymentPrice(orderItemEntity.getTotalPrice());
 			orderItemEntity.setSpecsInfo(placeOrderSku.getSpecsInfo());
 			orderItemEntity.setPicUrl(placeOrderSku.getPicUrl());
+			orderItemEntity.setContributorUserId(placeOrderSku.getContributorUserId());
+			orderItemEntity.setMemberRemark(placeOrderSku.getMemberRemark());
 			return orderItemEntity;
 		}).collect(Collectors.toList());
 

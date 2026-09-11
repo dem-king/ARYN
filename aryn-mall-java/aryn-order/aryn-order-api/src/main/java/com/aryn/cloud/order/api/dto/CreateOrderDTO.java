@@ -61,6 +61,9 @@ public class CreateOrderDTO {
 	@Schema(description = "客户端请求幂等号")
 	private String requestId;
 
+	@Schema(description = "订单备注")
+	private String remark;
+
 	@Schema(description = "购买场景：1.海员个人购买；2.船供采购")
 	@Pattern(regexp = "[12]", message = "购买场景不合法")
 	private String purchaseScene;
