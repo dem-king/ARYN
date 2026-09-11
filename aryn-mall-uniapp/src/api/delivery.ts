@@ -60,6 +60,18 @@ export interface DeliveryTask {
   arriveTime?: string
   /** 签收时间 */
   signTime?: string
+  /** 购买场景快照：1海员个人购买 2船供采购 */
+  purchaseScene?: string
+  /** 配送船舶名称快照 */
+  vesselName?: string
+  /** 港口名称快照 */
+  portName?: string
+  /** 泊位快照 */
+  berth?: string
+  /** 配送时间窗开始 */
+  deliveryWindowStart?: string
+  /** 配送时间窗结束 */
+  deliveryWindowEnd?: string
   /** 订单明细 */
   itemList?: Array<{
     id: string

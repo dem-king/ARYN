@@ -186,6 +186,25 @@ function removeEvidence(index: number) {
       </view>
     </view>
 
+    <!-- 内部配送上下文（船舶/港口/时间窗快照） -->
+    <view
+      v-if="task.vesselId"
+      class="mx-20rpx mb-20rpx rounded-20rpx bg-white p-30rpx"
+    >
+      <text class="mb-10rpx block text-28rpx font-bold">
+        配送上下文
+      </text>
+      <view class="text-26rpx text-gray-600">
+        船舶：{{ task.vesselName }}（{{ task.purchaseScene === '2' ? '船供采购' : '个人购买' }}）
+      </view>
+      <view class="text-26rpx text-gray-600">
+        港口：{{ task.portName }} {{ task.berth }}
+      </view>
+      <view v-if="task.deliveryWindowStart" class="text-26rpx text-gray-600">
+        时间窗：{{ task.deliveryWindowStart }} ~ {{ task.deliveryWindowEnd }}
+      </view>
+    </view>
+
     <!-- 订单明细列表 -->
     <view class="mx-20rpx mb-20rpx rounded-20rpx bg-white p-30rpx">
       <text class="mb-20rpx block text-28rpx font-bold">
