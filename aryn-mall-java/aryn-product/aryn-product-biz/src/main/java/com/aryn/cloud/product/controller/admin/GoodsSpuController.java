@@ -93,7 +93,7 @@ public class GoodsSpuController {
 	}
 
 	private String nvl(Object value) {
-		return value != null ? value : "";
+		return value != null ? value.toString() : "";
 	}
 
 	private String scopeText(String saleScope) {
