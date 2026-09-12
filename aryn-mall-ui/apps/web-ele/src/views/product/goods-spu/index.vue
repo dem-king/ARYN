@@ -45,6 +45,7 @@ import {
   uploadImport,
 } from '#/api/product/product-import';
 import { getShipPage } from '#/api/product/ship-profile';
+import { requestClient } from '#/api/request';
 import { useDict } from '#/utils/dict';
 
 const RightToolbar = defineAsyncComponent(
@@ -115,6 +116,32 @@ const initShipPage = async () => {
   } finally {
     shipLoading.value = false;
   }
+};
+
+const exportShipLoading = ref(false);
+const exportShipCatalog = () => {
+  exportShipLoading.value = true;
+  requestClient
+    .download('/product/goodsspu/ship/export', {
+      params: { ...shipQuery },
+    })
+    .then((response: any) => {
+      const blob =
+        response instanceof Blob
+          ? response
+          : new Blob([response], { type: 'application/octet-stream' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = '船供商品目录.xlsx';
+      document.body.append(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    })
+    .finally(() => {
+      exportShipLoading.value = false;
+    });
 };
 
 // 批量导入状态
@@ -372,6 +399,13 @@ initPage();
         <ElFormItem v-else>
           <ElButton type="primary" @click="initShipPage" :icon="Search">
             搜索
+          </ElButton>
+          <ElButton
+            :loading="exportShipLoading"
+            v-access:code="'product:goodsspu:page'"
+            @click="exportShipCatalog"
+          >
+            导出
           </ElButton>
         </ElFormItem>
       </ElForm>

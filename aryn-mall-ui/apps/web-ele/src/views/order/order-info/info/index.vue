@@ -22,6 +22,7 @@ import {
 } from 'element-plus';
 
 import { getById, selffetchObj } from '#/api/order/order-info';
+import { getPromotionSnapshots } from '#/api/order/shared-cart';
 import { getById as getUserById } from '#/api/user/user-info';
 import { useDict } from '#/utils/dict';
 
@@ -31,9 +32,12 @@ const DictTag = defineAsyncComponent(
 
 interface DataState {
   orderInfo: {
+    berth?: string;
     couponPrice: number;
     deliverTime: string;
     deliveryWay: string;
+    deliveryWindowEnd?: string;
+    deliveryWindowStart?: string;
     freightPrice: number;
     id: string;
     orderDelivery: any;
@@ -43,6 +47,10 @@ interface DataState {
     paymentTime: string;
     paymentType: string;
     payStatus: string;
+    portCode?: string;
+    portName?: string;
+    promoPrice?: number;
+    purchaseScene?: string;
     receiverTime: string;
     recipientAddress: string;
     recipientArea: string;
@@ -52,6 +60,8 @@ interface DataState {
     recipientProvince: string;
     status: string;
     totalPrice: number;
+    vesselId?: string;
+    vesselName?: string;
   };
   userInfo: {
     avatarUrl: string;
@@ -98,6 +108,7 @@ const state = reactive<DataState>({
 });
 const loading = ref(false);
 const refDeliver = ref();
+const promotionSnapshots = ref<any[]>([]);
 const route = useRoute();
 const getDetail = () => {
   const { id }: any = route.query;
@@ -110,6 +121,11 @@ const getDetail = () => {
         const status = state.orderInfo.status;
         state.stepActive = status === '7' ? 1 : Number(status) - 1;
         getUser(response.userId);
+        getPromotionSnapshots(id as string)
+          .then((list) => {
+            promotionSnapshots.value = list;
+          })
+          .catch(() => {});
       })
       .catch(() => {
         loading.value = false;
@@ -170,6 +186,43 @@ getDetail();
         <span v-if="state.orderInfo.receiverTime">
           收货时间：{{ state.orderInfo.receiverTime }}
         </span>
+      </div>
+      <div
+        v-if="state.orderInfo.vesselId"
+        style="
+          padding: 8px 12px;
+          margin-bottom: 12px;
+          color: #67c23a;
+          background: #f0f9eb;
+          border-radius: 4px;
+        "
+      >
+        内部配送：{{ state.orderInfo.vesselName }} ·
+        {{ state.orderInfo.portName }} {{ state.orderInfo.berth }}
+        <template v-if="state.orderInfo.deliveryWindowStart">
+          （{{ state.orderInfo.deliveryWindowStart }} ~
+          {{ state.orderInfo.deliveryWindowEnd }}）
+        </template>
+        <ElDivider direction="vertical" />
+        {{ state.orderInfo.purchaseScene === '2' ? '船供采购' : '个人购买' }}
+      </div>
+      <div
+        v-if="
+          promotionSnapshots.length > 0 || (state.orderInfo.promoPrice ?? 0) > 0
+        "
+        class="mb10"
+        style="padding: 8px 12px; background: #fdf6ec; border-radius: 4px"
+      >
+        <div style="font-weight: bold; color: #e67e22">
+          营销优惠（整单优惠 ¥{{ state.orderInfo.promoPrice ?? 0 }}）
+        </div>
+        <div
+          v-for="snapshot in promotionSnapshots"
+          :key="snapshot.id"
+          style="font-size: 12px; color: #e67e22"
+        >
+          {{ snapshot.promotionName }}：-¥{{ snapshot.discountAmount }}
+        </div>
       </div>
       <div class="order-status-row">
         <div class="row-left">

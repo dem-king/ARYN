@@ -3,6 +3,7 @@ import { defineAsyncComponent, onMounted, reactive, ref } from 'vue';
 
 import {
   ElButton,
+  ElImage,
   ElMessage,
   ElMessageBox,
   ElTable,
@@ -51,6 +52,16 @@ const initPage = async () => {
   }
 };
 
+const parseEvidence = (evidenceUrls: null | string) => {
+  if (!evidenceUrls) return [];
+  try {
+    const parsed = JSON.parse(evidenceUrls);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return evidenceUrls.split(',').filter((url) => url.startsWith('http'));
+  }
+};
+
 const handleClose = (row: any) => {
   ElMessageBox.prompt('请输入处理说明', '关闭异常', {
     confirmButtonText: '确认关闭',
@@ -82,6 +93,21 @@ onMounted(initPage);
         <ElTableColumn label="状态" width="90">
           <template #default="scope">
             {{ statusLabel[scope.row.status] ?? scope.row.status }}
+          </template>
+        </ElTableColumn>
+        <ElTableColumn label="证据" width="140">
+          <template #default="scope">
+            <div class="flex gap-1">
+              <ElImage
+                v-for="(url, index) in parseEvidence(scope.row.evidenceUrls)"
+                :key="index"
+                :preview-src-list="parseEvidence(scope.row.evidenceUrls)"
+                :src="url"
+                fit="cover"
+                style="width: 40px; height: 40px"
+                :preview-teleported="true"
+              />
+            </div>
           </template>
         </ElTableColumn>
         <ElTableColumn prop="handleRemark" label="处理说明" min-width="160" />

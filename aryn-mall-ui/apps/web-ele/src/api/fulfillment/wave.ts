@@ -115,3 +115,15 @@ export async function closeException(
     { params: { handleRemark } },
   );
 }
+
+/** 履约异常上报（含证据照片 URL 列表 JSON） */
+export async function reportException(data: {
+  description?: string;
+  evidenceUrls?: string;
+  exceptionType: string;
+  orderId?: string;
+  taskId?: string;
+  waveId?: string;
+}) {
+  return requestClient.post('/order/fulfillment/exception', data);
+}

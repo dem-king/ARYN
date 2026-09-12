@@ -21,10 +21,12 @@ import {
   getWaveItems,
   getWavePage,
   handOverWave,
+  reportException,
   reportShort,
   reviewWave,
   scanPick,
 } from '#/api/fulfillment/wave';
+import { uploadFile } from '#/api/upms/upload';
 
 const Pagination = defineAsyncComponent(
   () => import('#/components/pagination/index.vue'),
@@ -50,6 +52,41 @@ const orderIdInput = ref('');
 const itemsDialogVisible = ref(false);
 const itemsWave = ref<any>({});
 const itemTableData = ref<any[]>([]);
+
+const exceptionDialogVisible = ref(false);
+const exceptionForm = reactive<any>({
+  description: '',
+  exceptionType: 'SHORT_PICK',
+  evidenceUrls: [] as string[],
+  orderId: '',
+});
+
+const handleExceptionUpload = async (options: any) => {
+  const formData = new FormData();
+  formData.append('file', options.file);
+  formData.append('type', '1');
+  const response = await uploadFile(formData);
+  const url =
+    typeof response === 'string'
+      ? response
+      : (response?.url ?? response?.data?.url ?? '');
+  if (url) exceptionForm.evidenceUrls.push(url);
+};
+
+const submitException = () => {
+  reportException({
+    description: exceptionForm.description,
+    evidenceUrls: JSON.stringify(exceptionForm.evidenceUrls),
+    exceptionType: exceptionForm.exceptionType,
+    orderId: exceptionForm.orderId || undefined,
+    waveId: itemsWave.value.id,
+  })
+    .then(() => {
+      ElMessage.success('异常已上报');
+      exceptionDialogVisible.value = false;
+    })
+    .catch(() => {});
+};
 
 const scanForm = reactive<any>({ itemId: '', quantity: 1, scannedCode: '' });
 const shortForm = reactive<any>({
@@ -392,8 +429,69 @@ onMounted(initPage);
             >
               记录短装
             </ElButton>
+            <ElButton
+              type="danger"
+              plain
+              v-access:code="'fulfillment:exception:save'"
+              @click="exceptionDialogVisible = true"
+            >
+              异常上报
+            </ElButton>
           </ElFormItem>
         </ElForm>
+      </ElDialog>
+
+      <!-- 履约异常上报（含照片留证） -->
+      <ElDialog
+        v-model="exceptionDialogVisible"
+        title="履约异常上报"
+        width="560px"
+      >
+        <ElForm label-width="90px">
+          <ElFormItem label="异常类型">
+            <ElSelect
+              v-model="exceptionForm.exceptionType"
+              style="width: 180px"
+            >
+              <ElOption label="缺货/短装" value="SHORT_PICK" />
+              <ElOption label="错发" value="WRONG_ITEM" />
+              <ElOption label="破损" value="DAMAGE" />
+              <ElOption label="替代" value="REPLACE" />
+              <ElOption label="其他" value="OTHER" />
+            </ElSelect>
+          </ElFormItem>
+          <ElFormItem label="订单ID">
+            <ElInput v-model="exceptionForm.orderId" />
+          </ElFormItem>
+          <ElFormItem label="描述">
+            <ElInput
+              v-model="exceptionForm.description"
+              type="textarea"
+              :rows="2"
+            />
+          </ElFormItem>
+          <ElFormItem label="证据照片">
+            <input
+              accept="image/*"
+              multiple
+              type="file"
+              @change="
+                async (event: any) => {
+                  for (const file of event.target.files) {
+                    await handleExceptionUpload({ file });
+                  }
+                }
+              "
+            />
+            <div v-if="exceptionForm.evidenceUrls.length > 0" class="mt-2">
+              已上传 {{ exceptionForm.evidenceUrls.length }} 张
+            </div>
+          </ElFormItem>
+        </ElForm>
+        <template #footer>
+          <ElButton @click="exceptionDialogVisible = false">取消</ElButton>
+          <ElButton type="primary" @click="submitException">上报</ElButton>
+        </template>
       </ElDialog>
     </div>
   </div>

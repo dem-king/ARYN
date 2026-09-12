@@ -29,6 +29,15 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
+        name: 'OrderSharedCart',
+        path: '/order/shared-cart',
+        component: () => import('#/views/order/shared-cart/index.vue'),
+        meta: {
+          icon: 'lucide:shopping-basket',
+          title: '共享购物车',
+        },
+      },
+      {
         name: 'DeliveryPortBoard',
         path: '/delivery/port-board',
         component: () => import('#/views/delivery/port-board/index.vue'),
