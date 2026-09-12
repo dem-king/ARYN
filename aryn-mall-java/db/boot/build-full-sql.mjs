@@ -38,6 +38,7 @@ const sections = [
   ['船供试点种子数据', '46ship_supply_seed_pilot.sql'],
   ['船供营销二期（活动/锁定/分摊列）', '53promotion_ship_supply_incremental.sql'],
   ['船供营销二期菜单', '55promotion_ship_menu.sql'],
+  ['靠港计划变更日志', '56vessel_call_change_log.sql'],
   ['XXL-JOB 调度库', '3aryn_boot_job.sql'],
 ];
 
@@ -98,6 +99,7 @@ DROP TABLE IF EXISTS \`product_change_log\`;
 DROP TABLE IF EXISTS \`product_import_row\`;
 DROP TABLE IF EXISTS \`promotion_activity\`;
 DROP TABLE IF EXISTS \`promotion_lock\`;
+DROP TABLE IF EXISTS \`vessel_call_change_log\`;
 `;
 
 const output = sections.reduce((sql, [title, file]) => {

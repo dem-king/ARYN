@@ -22,6 +22,7 @@ import {
   addVessel,
   addVesselCall,
   addVesselMember,
+  getVesselCallImpact,
   getVesselCalls,
   getVesselMembers,
   getVesselPage,
@@ -191,6 +192,18 @@ const saveCall = () => {
 const editCall = (row: any) => {
   editingCallId.value = row.id;
   Object.assign(callForm, row);
+};
+
+// 变更影响查询
+const impactDialogVisible = ref(false);
+const impactData = ref<any>({});
+const viewImpact = (row: any) => {
+  getVesselCallImpact(row.id)
+    .then((data) => {
+      impactData.value = data;
+      impactDialogVisible.value = true;
+    })
+    .catch(() => {});
 };
 
 const callStatusLabel: Record<string, string> = {
@@ -447,9 +460,46 @@ onMounted(initPage);
               >
                 修改
               </ElButton>
+              <ElButton link type="warning" @click="viewImpact(scope.row)">
+                影响面
+              </ElButton>
             </template>
           </ElTableColumn>
         </ElTable>
+      </ElDialog>
+
+      <!-- 变更影响面 -->
+      <ElDialog
+        v-model="impactDialogVisible"
+        title="靠港计划变更影响面"
+        width="520px"
+      >
+        <ElAlert
+          :title="`未完成订单 ${impactData.orderCount ?? 0} 单、共享购物车 ${impactData.sharedCartCount ?? 0} 个、拣货波次 ${impactData.waveCount ?? 0} 个`"
+          :type="(impactData.orderCount ?? 0) > 0 ? 'warning' : 'success'"
+          :closable="false"
+          class="mb10"
+        />
+        <div v-if="(impactData.orderNos ?? []).length > 0" class="mb10">
+          <div style="margin-bottom: 4px; font-weight: bold">
+            涉及订单（前 10）
+          </div>
+          <div style="color: #606266">
+            {{ (impactData.orderNos ?? []).join('、') }}
+          </div>
+        </div>
+        <div v-if="(impactData.waveNos ?? []).length > 0">
+          <div style="margin-bottom: 4px; font-weight: bold">
+            涉及波次（前 10）
+          </div>
+          <div style="color: #606266">
+            {{ (impactData.waveNos ?? []).join('、') }}
+          </div>
+        </div>
+        <div style="margin-top: 8px; color: #909399">
+          修改
+          ETA/ETD/泊位/时间窗并保存后，系统将自动站内信提醒受影响用户重新确认配送安排。
+        </div>
       </ElDialog>
     </div>
   </div>

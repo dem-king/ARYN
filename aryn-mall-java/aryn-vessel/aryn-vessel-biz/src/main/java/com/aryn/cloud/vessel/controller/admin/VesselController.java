@@ -103,11 +103,13 @@ public class VesselController {
 		return Result.success(vesselService.saveCall(SecurityUtils.getTenantId(), call));
 	}
 
-	@Operation(summary = "修改靠港计划")
+	@Operation(summary = "修改靠港计划（ETA/ETD/泊位/时间窗变更将自动提醒受影响用户）")
 	@SaCheckPermission("vessel:call:update")
 	@PutMapping("/calls/{id}")
 	public Result<VesselCall> updateCall(@PathVariable String id, @RequestBody VesselCall call) {
 		call.setId(id);
+		call.setOperatorId(cn.dev33.satoken.stp.StpUtil.getLoginIdAsString());
+		call.setOperatorName(cn.dev33.satoken.stp.StpUtil.getLoginIdAsString());
 		return Result.success(vesselService.updateCall(SecurityUtils.getTenantId(), call));
 	}
 

@@ -44,6 +44,14 @@ public class VesselCall extends AbstractVesselEntity {
 	/** 靠港状态：1计划中 2靠泊中 3已完成 4已取消 */
 	private String status;
 
+	/** 操作人ID（管理端修改时透传，不入库） */
+	@com.baomidou.mybatisplus.annotation.TableField(exist = false)
+	private String operatorId;
+
+	/** 操作人姓名（管理端修改时透传，不入库） */
+	@com.baomidou.mybatisplus.annotation.TableField(exist = false)
+	private String operatorName;
+
 	/** 备注 */
 	private String remark;
 

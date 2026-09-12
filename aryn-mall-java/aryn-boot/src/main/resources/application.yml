@@ -237,6 +237,7 @@ hx:
       - vessel_info
       - vessel_member
       - vessel_call
+      - vessel_call_change_log
       - ship_goods_profile
       - ship_sku_profile
       - product_code_mapping

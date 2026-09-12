@@ -27,6 +27,9 @@ public interface RocketMqConstants {
 	/** 统一站内业务通知命令 topic */
 	String MESSAGE_SEND_COMMAND_TOPIC = "message-send-command-topic";
 
+	/** 靠港计划变更事件（ETA/ETD/泊位/时间窗变更后广播，订单域消费并提醒相关用户） */
+	String VESSEL_CALL_CHANGED_TOPIC = "vessel-call-changed-topic";
+
 	/** 退款通知topic */
 	String PAY_REFUND_NOTIFY_TOPIC = "pay-refund-notify-topic";
 

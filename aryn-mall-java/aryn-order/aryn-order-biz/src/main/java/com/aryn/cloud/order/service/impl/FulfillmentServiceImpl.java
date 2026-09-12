@@ -55,6 +55,8 @@ public class FulfillmentServiceImpl implements IFulfillmentService {
 
 	private final OrderItemMapper orderItemMapper;
 
+	private final com.aryn.cloud.order.mapper.SharedCartMapper sharedCartMapper;
+
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public FulfillmentWave createWave(String tenantId, String operatorId, String operatorName,
@@ -398,6 +400,47 @@ public class FulfillmentServiceImpl implements IFulfillmentService {
 		board.put("shortItemCount", shortItems);
 		board.put("waves", waves);
 		return board;
+	}
+
+
+	@Override
+	public java.util.Map<String, Object> vesselCallImpact(String tenantId, String vesselCallId) {
+		if (!StringUtils.hasText(vesselCallId)) {
+			throw new ArynBusinessException("靠港计划ID不能为空");
+		}
+		List<FulfillmentWave> waves = fulfillmentWaveMapper.selectList(Wrappers.lambdaQuery(FulfillmentWave.class)
+				.eq(FulfillmentWave::getTenantId, tenantId)
+				.eq(FulfillmentWave::getVesselCallId, vesselCallId)
+				.in(FulfillmentWave::getStatus, List.of(FulfillmentWave.STATUS_PENDING_PICK,
+						FulfillmentWave.STATUS_PICKING, FulfillmentWave.STATUS_REVIEWED)));
+		java.util.List<com.aryn.cloud.order.api.entity.OrderInfo> orders = orderInfoMapper.selectList(
+				Wrappers.lambdaQuery(com.aryn.cloud.order.api.entity.OrderInfo.class)
+						.eq(com.aryn.cloud.order.api.entity.OrderInfo::getTenantId, tenantId)
+						.eq(com.aryn.cloud.order.api.entity.OrderInfo::getVesselCallId, vesselCallId)
+						.in(com.aryn.cloud.order.api.entity.OrderInfo::getStatus, List.of("2", "3"))
+						.eq(com.aryn.cloud.order.api.entity.OrderInfo::getDelFlag, "0"));
+		java.util.List<com.aryn.cloud.order.api.entity.SharedCart> carts = java.util.List.of();
+		try {
+			carts = sharedCartMapper.selectList(Wrappers.lambdaQuery(com.aryn.cloud.order.api.entity.SharedCart.class)
+					.eq(com.aryn.cloud.order.api.entity.SharedCart::getTenantId, tenantId)
+					.eq(com.aryn.cloud.order.api.entity.SharedCart::getVesselCallId, vesselCallId)
+					.in(com.aryn.cloud.order.api.entity.SharedCart::getStatus,
+							List.of(com.aryn.cloud.order.api.entity.SharedCart.STATUS_COLLECTING,
+									com.aryn.cloud.order.api.entity.SharedCart.STATUS_WAITING_CONFIRM))
+					.eq(com.aryn.cloud.order.api.entity.SharedCart::getDelFlag, "0"));
+		}
+		catch (Exception ex) {
+			log.warn("查询共享购物车影响面失败（可忽略）", ex);
+		}
+		java.util.Map<String, Object> impact = new java.util.HashMap<>();
+		impact.put("vesselCallId", vesselCallId);
+		impact.put("orderCount", orders.size());
+		impact.put("orderNos", orders.stream()
+				.map(com.aryn.cloud.order.api.entity.OrderInfo::getOrderNo).limit(10).toList());
+		impact.put("sharedCartCount", carts.size());
+		impact.put("waveCount", waves.size());
+		impact.put("waveNos", waves.stream().map(FulfillmentWave::getWaveNo).limit(10).toList());
+		return impact;
 	}
 
 }

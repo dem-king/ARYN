@@ -13,6 +13,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -30,6 +31,7 @@ import java.util.Objects;
  * @author aryn
  * @since 2026/9/11
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class VesselServiceImpl implements VesselService {
@@ -54,6 +56,10 @@ public class VesselServiceImpl implements VesselService {
 	private final VesselMemberMapper vesselMemberMapper;
 
 	private final VesselCallMapper vesselCallMapper;
+
+	private final com.aryn.cloud.vessel.mapper.VesselCallChangeLogMapper vesselCallChangeLogMapper;
+
+	private final org.apache.rocketmq.spring.core.RocketMQTemplate rocketMQTemplate;
 
 	@Override
 	public IPage<VesselInfo> pageVessels(String tenantId, IPage<VesselInfo> page, VesselInfo query) {
@@ -183,7 +189,85 @@ public class VesselServiceImpl implements VesselService {
 				call.getDeliveryWindowStart() != null || call.getDeliveryWindowEnd() != null ? call : exists);
 		call.setTenantId(tenantId);
 		vesselCallMapper.updateById(call);
+		recordChangeAndNotify(tenantId, exists, call, call.getOperatorId(), call.getOperatorName());
 		return call;
+	}
+
+	/**
+	 * 靠港计划变更留痕与事件发布：ETA/ETD/泊位/时间窗任一变化才触发；
+	 * 通知失败仅告警，不阻断变更主流程（fail-open）。
+	 * 快照原则：已支付订单的配送上下文快照不自动改写，由订单域提醒相关用户确认。
+	 */
+	void recordChangeAndNotify(String tenantId, VesselCall before, VesselCall after, String operatorId,
+			String operatorName) {
+		LocalDateTime oldEta = before.getEta();
+		LocalDateTime newEta = after.getEta() != null ? after.getEta() : before.getEta();
+		LocalDateTime oldEtd = before.getEtd();
+		LocalDateTime newEtd = after.getEtd() != null ? after.getEtd() : before.getEtd();
+		String oldBerth = before.getBerth();
+		String newBerth = after.getBerth() != null ? after.getBerth() : before.getBerth();
+		LocalDateTime oldStart = before.getDeliveryWindowStart();
+		LocalDateTime newStart = after.getDeliveryWindowStart() != null ? after.getDeliveryWindowStart()
+				: before.getDeliveryWindowStart();
+		LocalDateTime oldEnd = before.getDeliveryWindowEnd();
+		LocalDateTime newEnd = after.getDeliveryWindowEnd() != null ? after.getDeliveryWindowEnd()
+				: before.getDeliveryWindowEnd();
+
+		boolean etaChanged = !java.util.Objects.equals(oldEta, newEta);
+		boolean etdChanged = !java.util.Objects.equals(oldEtd, newEtd);
+		boolean berthChanged = !java.util.Objects.equals(oldBerth, newBerth);
+		boolean windowChanged = !java.util.Objects.equals(oldStart, newStart)
+				|| !java.util.Objects.equals(oldEnd, newEnd);
+		if (!etaChanged && !etdChanged && !berthChanged && !windowChanged) {
+			return;
+		}
+
+		com.aryn.cloud.vessel.api.entity.VesselCallChangeLog changeLog = new com.aryn.cloud.vessel.api.entity.VesselCallChangeLog();
+		changeLog.setId(com.baomidou.mybatisplus.core.toolkit.IdWorker.getIdStr());
+		changeLog.setCallId(before.getId());
+		changeLog.setVesselId(before.getVesselId());
+		changeLog.setOldEta(oldEta);
+		changeLog.setNewEta(newEta);
+		changeLog.setOldEtd(oldEtd);
+		changeLog.setNewEtd(newEtd);
+		changeLog.setOldBerth(oldBerth);
+		changeLog.setNewBerth(newBerth);
+		changeLog.setOldWindowStart(oldStart);
+		changeLog.setNewWindowStart(newStart);
+		changeLog.setOldWindowEnd(oldEnd);
+		changeLog.setNewWindowEnd(newEnd);
+		changeLog.setOperatorId(operatorId);
+		changeLog.setOperatorName(operatorName);
+		changeLog.setTenantId(tenantId);
+		changeLog.setCreateTime(LocalDateTime.now());
+		changeLog.setDelFlag("0");
+		vesselCallChangeLogMapper.insert(changeLog);
+
+		try {
+			com.aryn.cloud.vessel.api.dto.VesselCallChangedNotice notice = new com.aryn.cloud.vessel.api.dto.VesselCallChangedNotice();
+			notice.setChangeLogId(changeLog.getId());
+			notice.setTenantId(tenantId);
+			notice.setCallId(before.getId());
+			notice.setVesselId(before.getVesselId());
+			notice.setPortCode(before.getPortCode());
+			notice.setPortName(before.getPortName());
+			notice.setOldEta(oldEta);
+			notice.setNewEta(newEta);
+			notice.setOldEtd(oldEtd);
+			notice.setNewEtd(newEtd);
+			notice.setOldBerth(oldBerth);
+			notice.setNewBerth(newBerth);
+			notice.setOldWindowStart(oldStart);
+			notice.setNewWindowStart(newStart);
+			notice.setOldWindowEnd(oldEnd);
+			notice.setNewWindowEnd(newEnd);
+			notice.setOperatorName(operatorName);
+			rocketMQTemplate.convertAndSend(
+					com.aryn.cloud.common.core.constant.RocketMqConstants.VESSEL_CALL_CHANGED_TOPIC, notice);
+		}
+		catch (Exception ex) {
+			log.error("靠港计划[{}]变更事件发布失败，仅保留变更日志", before.getId(), ex);
+		}
 	}
 
 	@Override

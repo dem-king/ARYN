@@ -44,6 +44,10 @@ class VesselContextServiceTest {
 
 	private VesselCallMapper vesselCallMapper;
 
+	private com.aryn.cloud.vessel.mapper.VesselCallChangeLogMapper changeLogMapper;
+
+	private org.apache.rocketmq.spring.core.RocketMQTemplate rocketMQTemplate;
+
 	private VesselServiceImpl service;
 
 	@BeforeEach
@@ -51,7 +55,10 @@ class VesselContextServiceTest {
 		vesselInfoMapper = mock(VesselInfoMapper.class);
 		vesselMemberMapper = mock(VesselMemberMapper.class);
 		vesselCallMapper = mock(VesselCallMapper.class);
-		service = new VesselServiceImpl(vesselInfoMapper, vesselMemberMapper, vesselCallMapper);
+		changeLogMapper = mock(com.aryn.cloud.vessel.mapper.VesselCallChangeLogMapper.class);
+		rocketMQTemplate = mock(org.apache.rocketmq.spring.core.RocketMQTemplate.class);
+		service = new VesselServiceImpl(vesselInfoMapper, vesselMemberMapper, vesselCallMapper, changeLogMapper,
+				rocketMQTemplate);
 	}
 
 	private VesselInfo vessel(String id) {
@@ -237,6 +244,74 @@ class VesselContextServiceTest {
 	void tenantScopedMembershipRequired() {
 		when(vesselMemberMapper.selectCount(any())).thenReturn(0L);
 		assertThrows(ArynBusinessException.class, () -> service.currentContext("tenant-2", USER, OTHER_VESSEL_ID));
+	}
+
+
+	@Test
+	@DisplayName("修改 ETA/泊位/时间窗写入变更日志并发布提醒事件")
+	void updateCallLogsAndPublishesChange() {
+		when(vesselCallMapper.selectOne(any())).thenReturn(
+				call("call-1", "1", LocalDateTime.now().plusDays(1), LocalDateTime.now().plusDays(1).plusHours(12)));
+
+		VesselCall change = new VesselCall();
+		change.setId("call-1");
+		change.setEta(LocalDateTime.now().plusDays(2));
+		change.setEtd(LocalDateTime.now().plusDays(2).plusHours(12));
+		change.setOperatorId("op-1");
+		change.setOperatorName("调度员");
+
+		service.updateCall(TENANT, change);
+
+		org.mockito.ArgumentCaptor<com.aryn.cloud.vessel.api.entity.VesselCallChangeLog> logCaptor =
+				org.mockito.ArgumentCaptor.forClass(com.aryn.cloud.vessel.api.entity.VesselCallChangeLog.class);
+		org.mockito.Mockito.verify(changeLogMapper).insert(logCaptor.capture());
+		assertNotNull(logCaptor.getValue().getNewEta());
+		org.mockito.ArgumentCaptor<String> topicCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
+		org.mockito.ArgumentCaptor<com.aryn.cloud.vessel.api.dto.VesselCallChangedNotice> noticeCaptor =
+				org.mockito.ArgumentCaptor.forClass(com.aryn.cloud.vessel.api.dto.VesselCallChangedNotice.class);
+		org.mockito.Mockito.verify(rocketMQTemplate).convertAndSend(topicCaptor.capture(), noticeCaptor.capture());
+		assertEquals(com.aryn.cloud.common.core.constant.RocketMqConstants.VESSEL_CALL_CHANGED_TOPIC,
+				topicCaptor.getValue());
+	}
+
+	@Test
+	@DisplayName("无实质变化的修改不触发变更日志与提醒")
+	void updateCallWithoutChangeSkipsNotify() {
+		LocalDateTime eta = LocalDateTime.now().plusDays(1);
+		LocalDateTime etd = eta.plusHours(12);
+		when(vesselCallMapper.selectOne(any())).thenReturn(call("call-1", "1", eta, etd));
+
+		VesselCall change = new VesselCall();
+		change.setId("call-1");
+		change.setEta(eta);
+		change.setEtd(etd);
+
+		service.updateCall(TENANT, change);
+
+		org.mockito.Mockito.verify(changeLogMapper, org.mockito.Mockito.never())
+				.insert(any(com.aryn.cloud.vessel.api.entity.VesselCallChangeLog.class));
+		org.mockito.Mockito.verify(rocketMQTemplate, org.mockito.Mockito.never())
+				.convertAndSend(org.mockito.ArgumentMatchers.<String>any(),
+						org.mockito.ArgumentMatchers.<com.aryn.cloud.vessel.api.dto.VesselCallChangedNotice>any());
+	}
+
+	@Test
+	@DisplayName("事件发布失败不影响变更主流程（fail-open）")
+	void publishFailureDoesNotBreakUpdate() {
+		when(vesselCallMapper.selectOne(any())).thenReturn(
+				call("call-1", "1", LocalDateTime.now().plusDays(1), LocalDateTime.now().plusDays(1).plusHours(12)));
+		org.mockito.Mockito.doThrow(new RuntimeException("mq down")).when(rocketMQTemplate)
+				.convertAndSend(org.mockito.ArgumentMatchers.anyString(),
+						org.mockito.ArgumentMatchers.any(com.aryn.cloud.vessel.api.dto.VesselCallChangedNotice.class));
+
+		VesselCall change = new VesselCall();
+		change.setId("call-1");
+		change.setEta(LocalDateTime.now().plusDays(3));
+		change.setEtd(LocalDateTime.now().plusDays(3).plusHours(12));
+
+		VesselCall updated = service.updateCall(TENANT, change);
+		assertNotNull(updated);
+		org.mockito.Mockito.verify(changeLogMapper).insert(any(com.aryn.cloud.vessel.api.entity.VesselCallChangeLog.class));
 	}
 
 }

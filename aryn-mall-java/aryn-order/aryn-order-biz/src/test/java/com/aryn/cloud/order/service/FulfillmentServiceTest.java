@@ -47,6 +47,8 @@ class FulfillmentServiceTest {
 
 	private OrderItemMapper orderItemMapper;
 
+	private com.aryn.cloud.order.mapper.SharedCartMapper sharedCartMapper;
+
 	private FulfillmentServiceImpl service;
 
 	@BeforeEach
@@ -56,8 +58,9 @@ class FulfillmentServiceTest {
 		exceptionMapper = mock(FulfillmentExceptionMapper.class);
 		orderInfoMapper = mock(OrderInfoMapper.class);
 		orderItemMapper = mock(OrderItemMapper.class);
+		sharedCartMapper = mock(com.aryn.cloud.order.mapper.SharedCartMapper.class);
 		service = new FulfillmentServiceImpl(waveMapper, pickItemMapper, exceptionMapper, orderInfoMapper,
-				orderItemMapper);
+				orderItemMapper, sharedCartMapper);
 	}
 
 	private FulfillmentWave wave(String status) {

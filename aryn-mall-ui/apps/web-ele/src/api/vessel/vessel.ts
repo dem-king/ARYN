@@ -83,3 +83,10 @@ export async function updateVesselCall(
 ) {
   return requestClient.put(`/vessel/admin/calls/${callId}`, data);
 }
+
+/** 靠港计划变更影响面 */
+export async function getVesselCallImpact(vesselCallId: string) {
+  return requestClient.get('/order/fulfillment/vessel-call-impact', {
+    params: { vesselCallId },
+  });
+}

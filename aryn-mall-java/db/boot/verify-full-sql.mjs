@@ -107,6 +107,7 @@ const required = [
   'CREATE TABLE IF NOT EXISTS `promotion_activity`',
   'CREATE TABLE IF NOT EXISTS `promotion_lock`',
   'uk_promotion_lock_order_activity',
+  'CREATE TABLE IF NOT EXISTS `vessel_call_change_log`',
   'uk_vessel_member_unique',
   'uk_ship_goods_profile_spu',
   'uk_ship_sku_profile_sku',
@@ -147,6 +148,7 @@ const sourceFiles = [
   '46ship_supply_seed_pilot.sql',
   '53promotion_ship_supply_incremental.sql',
   '55promotion_ship_menu.sql',
+  '56vessel_call_change_log.sql',
   '3aryn_boot_job.sql',
 ];
 for (const file of sourceFiles) {

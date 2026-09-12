@@ -84,4 +84,9 @@ public interface IFulfillmentService {
 	 */
 	java.util.Map<String, Object> portBoard(String tenantId, String portCode, java.time.LocalDate date);
 
+	/**
+	 * 靠港计划变更影响面：未完成订单、共享购物车与波次聚合（供管理端 ETA 变更前评估）。
+	 */
+	java.util.Map<String, Object> vesselCallImpact(String tenantId, String vesselCallId);
+
 }

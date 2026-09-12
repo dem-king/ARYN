@@ -3,7 +3,7 @@
 -- 特性：幂等执行，不删除或重建 Nacos 配置数据。
 -- 变更内容：
 --   1) 网关新增 aryn-vessel-biz 路由（/vessel/**）；
---   2) 创建 aryn-vessel-biz-dev.yml 服务配置（数据源 + 租户拦截表白名单）；
+--   2) 创建 aryn-vessel-biz-dev.yml 服务配置（数据源 + 租户拦截表白名单，含 vessel_call_change_log）；
 --   3) product 服务租户白名单登记 ship_goods_profile / ship_sku_profile / product_code_mapping；
 --   4) order 服务租户白名单登记 shared_cart / fulfillment / promotion_snapshot 相关表。
 

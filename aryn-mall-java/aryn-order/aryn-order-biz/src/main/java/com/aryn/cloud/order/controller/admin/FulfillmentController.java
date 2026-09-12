@@ -130,6 +130,14 @@ public class FulfillmentController {
 		return Result.success(fulfillmentService.exceptionPage(ArynTenantContextHolder.getTenantId(), page, query));
 	}
 
+	@Operation(summary = "靠港计划变更影响面（未完成订单/购物车/波次）")
+	@SaCheckPermission("fulfillment:wave:page")
+	@GetMapping("/vessel-call-impact")
+	public Result<java.util.Map<String, Object>> vesselCallImpact(@RequestParam("vesselCallId") String vesselCallId) {
+		return Result.success(
+				fulfillmentService.vesselCallImpact(ArynTenantContextHolder.getTenantId(), vesselCallId));
+	}
+
 	@Operation(summary = "港口配送看板（按港口与日期聚合波次状态）")
 	@SaCheckPermission("fulfillment:wave:page")
 	@GetMapping("/port-board")
