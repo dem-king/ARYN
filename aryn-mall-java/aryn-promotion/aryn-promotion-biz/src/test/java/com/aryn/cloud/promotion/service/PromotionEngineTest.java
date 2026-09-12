@@ -1,5 +1,6 @@
 package com.aryn.cloud.promotion.service;
 
+import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.promotion.api.dto.PromotionContextDTO;
 import com.aryn.cloud.promotion.api.entity.PromotionActivity;
 import com.aryn.cloud.promotion.api.entity.PromotionLock;
@@ -42,11 +43,14 @@ class PromotionEngineTest {
 
 	private PromotionReservationServiceImpl reservation;
 
+	private com.aryn.cloud.promotion.service.impl.ActivityPublishGovernanceService governanceService;
+
 	@BeforeEach
 	void setUp() {
 		activityMapper = mock(PromotionActivityMapper.class);
 		lockMapper = mock(PromotionLockMapper.class);
 		engine = new PromotionEngineServiceImpl(activityMapper);
+		governanceService = new com.aryn.cloud.promotion.service.impl.ActivityPublishGovernanceService(activityMapper);
 		reservation = new PromotionReservationServiceImpl(engine, lockMapper);
 		ReflectionTestUtils.setField(reservation, "promotionEngineService", engine);
 		ReflectionTestUtils.setField(reservation, "promotionLockMapper", lockMapper);
@@ -253,6 +257,47 @@ class PromotionEngineTest {
 
 		PromotionCalculationVO result = engine.preview(context("2", "vessel-1", "call-1", "CNSHA"));
 		assertTrue(result.getDetails().isEmpty());
+	}
+
+
+
+	@Test
+	@DisplayName("阶梯价档位重复或单价不递减时发布校验拒绝")
+	void validateLaddersRejectsBadTiers() {
+		PromotionActivity activity = activity("act-1", PromotionActivity.TYPE_LADDER_PRICE, "1", null, null,
+				"{\"ladders\":[{\"minQty\":10,\"unitPrice\":26},{\"minQty\":10,\"unitPrice\":25}]}");
+		assertThrows(ArynBusinessException.class, () -> governanceService.validateRules(activity));
+
+		activity.setRules("{\"ladders\":[{\"minQty\":10,\"unitPrice\":24},{\"minQty\":50,\"unitPrice\":26}]}");
+		assertThrows(ArynBusinessException.class, () -> governanceService.validateRules(activity));
+
+		activity.setRules("{\"ladders\":[{\"minQty\":10,\"unitPrice\":26},{\"minQty\":50,\"unitPrice\":24}]}");
+		governanceService.validateRules(activity);
+	}
+
+	@Test
+	@DisplayName("整船优惠档位重复或优惠递减时发布校验拒绝")
+	void validateTiersRejectsBadTiers() {
+		PromotionActivity activity = activity("act-1", PromotionActivity.TYPE_SHIP_WHOLE_DISCOUNT, "1", null, null,
+				"{\"tiers\":[{\"minAmount\":1000,\"discountAmount\":100},{\"minAmount\":1000,\"discountAmount\":200}]}");
+		assertThrows(ArynBusinessException.class, () -> governanceService.validateRules(activity));
+
+		activity.setRules("{\"tiers\":[{\"minAmount\":1000,\"discountAmount\":300},{\"minAmount\":2000,\"discountAmount\":200}]}");
+		assertThrows(ArynBusinessException.class, () -> governanceService.validateRules(activity));
+	}
+
+	@Test
+	@DisplayName("发布冲突：同类型时间重叠命中，不同类型或无重叠不命中")
+	void listPublishConflictsScoping() {
+		PromotionActivity mine = activity("act-new", PromotionActivity.TYPE_LADDER_PRICE, "1", null, null,
+				"{\"ladders\":[{\"minQty\":10,\"unitPrice\":26}]}");
+		mine.setStartTime(LocalDateTime.now().minusDays(1));
+		mine.setEndTime(LocalDateTime.now().plusDays(1));
+
+		PromotionActivity overlapping = activity("act-old", PromotionActivity.TYPE_LADDER_PRICE, "1", null, null, "{}");
+		when(activityMapper.selectList(any())).thenReturn(List.of(overlapping));
+
+		assertEquals(1, governanceService.listPublishConflicts(TENANT, mine).size());
 	}
 
 }

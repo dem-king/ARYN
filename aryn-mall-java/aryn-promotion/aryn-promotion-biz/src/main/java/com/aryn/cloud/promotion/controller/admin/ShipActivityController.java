@@ -11,6 +11,7 @@ import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.promotion.api.entity.PromotionActivity;
 import com.aryn.cloud.promotion.mapper.PromotionActivityMapper;
+import com.aryn.cloud.promotion.service.impl.ActivityPublishGovernanceService;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -19,6 +20,9 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.StringUtils;
+import org.springframework.web.bind.annotation.RequestParam;
+
+import java.util.List;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -46,6 +50,8 @@ import java.time.LocalDateTime;
 public class ShipActivityController {
 
 	private final PromotionActivityMapper promotionActivityMapper;
+
+	private final ActivityPublishGovernanceService publishGovernanceService;
 
 	@Operation(summary = "活动分页")
 	@SaCheckPermission("promotion:shipactivity:page")
@@ -75,7 +81,7 @@ public class ShipActivityController {
 	@SaCheckPermission("promotion:shipactivity:save")
 	@PostMapping
 	public Result<PromotionActivity> save(@RequestBody PromotionActivity activity) {
-		validateRules(activity);
+		publishGovernanceService.validateRules(activity);
 		activity.setId(null);
 		activity.setStatus(PromotionActivity.STATUS_DRAFT);
 		activity.setTenantId(ArynTenantContextHolder.getTenantId());
@@ -98,7 +104,7 @@ public class ShipActivityController {
 			}
 		}
 		if (StringUtils.hasText(activity.getRules())) {
-			validateRules(activity);
+			publishGovernanceService.validateRules(activity);
 		}
 		activity.setId(id);
 		activity.setTenantId(SecurityUtils.getTenantId());
@@ -107,15 +113,33 @@ public class ShipActivityController {
 	}
 
 	@SysLog("发布船供营销活动")
-	@Operation(summary = "发布活动")
+	@Operation(summary = "发布冲突检索（同类型时间重叠的已发布/暂停活动）")
+	@SaCheckPermission("promotion:shipactivity:publish")
+	@GetMapping("/{id}/conflicts")
+	public Result<List<PromotionActivity>> conflicts(@PathVariable String id) {
+		PromotionActivity activity = requireActivity(id);
+		return Result.success(
+				publishGovernanceService.listPublishConflicts(SecurityUtils.getTenantId(), activity));
+	}
+
+	@Operation(summary = "发布活动（force=true 时忽略同类型时间重叠提示）")
 	@SaCheckPermission("promotion:shipactivity:publish")
 	@PostMapping("/{id}/publish")
-	public Result<Void> publish(@PathVariable String id) {
+	public Result<Void> publish(@PathVariable String id,
+			@RequestParam(required = false, defaultValue = "false") boolean force) {
 		PromotionActivity activity = requireActivity(id);
-		validateRules(activity);
+		publishGovernanceService.validateRules(activity);
 		if (activity.getStartTime() == null || activity.getEndTime() == null
 				|| !activity.getStartTime().isBefore(activity.getEndTime())) {
 			throw new ArynBusinessException("活动开始时间必须早于结束时间");
+		}
+		if (!force) {
+			List<PromotionActivity> conflicts = publishGovernanceService
+					.listPublishConflicts(SecurityUtils.getTenantId(), activity);
+			if (!conflicts.isEmpty()) {
+				throw new ArynBusinessException("与已发布活动时间重叠：" + conflicts.stream()
+						.map(PromotionActivity::getActivityName).toList() + "；运行时同类取最优，确认后可强制发布");
+			}
 		}
 		activity.setStatus(PromotionActivity.STATUS_PUBLISHED);
 		activity.setPublishTime(LocalDateTime.now());
@@ -155,53 +179,6 @@ public class ShipActivityController {
 			throw new ArynBusinessException("活动不存在");
 		}
 		return activity;
-	}
-
-	/**
-	 * 发布前规则结构检查：阶梯价 ladders[{minQty,unitPrice}]，整船优惠 tiers[{minAmount,discountAmount}]。
-	 */
-	private void validateRules(PromotionActivity activity) {
-		if (!StringUtils.hasText(activity.getRules())) {
-			throw new ArynBusinessException("活动规则不能为空");
-		}
-		try {
-			JSONObject rules = JSONUtil.parseObj(activity.getRules());
-			if (PromotionActivity.TYPE_LADDER_PRICE.equals(activity.getActivityType())) {
-				JSONArray ladders = rules.getJSONArray("ladders");
-				if (ladders == null || ladders.isEmpty()) {
-					throw new ArynBusinessException("阶梯价活动必须配置 ladders 档位");
-				}
-				for (Object element : ladders) {
-					JSONObject ladder = (JSONObject) element;
-					if (ladder.getInt("minQty") == null || ladder.getBigDecimal("unitPrice") == null
-							|| ladder.getBigDecimal("unitPrice").signum() <= 0) {
-						throw new ArynBusinessException("阶梯价档位必须包含正数 unitPrice 与 minQty");
-					}
-				}
-			}
-			else if (PromotionActivity.TYPE_SHIP_WHOLE_DISCOUNT.equals(activity.getActivityType())) {
-				JSONArray tiers = rules.getJSONArray("tiers");
-				if (tiers == null || tiers.isEmpty()) {
-					throw new ArynBusinessException("整船优惠活动必须配置 tiers 档位");
-				}
-				for (Object element : tiers) {
-					JSONObject tier = (JSONObject) element;
-					if (tier.getBigDecimal("minAmount") == null || tier.getBigDecimal("discountAmount") == null
-							|| tier.getBigDecimal("discountAmount").signum() <= 0) {
-						throw new ArynBusinessException("整船优惠档位必须包含正数 discountAmount 与 minAmount");
-					}
-				}
-			}
-			else {
-				throw new ArynBusinessException("暂不支持的活动类型：" + activity.getActivityType());
-			}
-		}
-		catch (ArynBusinessException ex) {
-			throw ex;
-		}
-		catch (Exception ex) {
-			throw new ArynBusinessException("活动规则 JSON 不合法");
-		}
 	}
 
 	private boolean changed(String before, String after) {

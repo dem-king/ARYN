@@ -28,6 +28,9 @@ public class PromotionActivity extends Model<PromotionActivity> {
 
 	public static final String TYPE_SHIP_WHOLE_DISCOUNT = "7";
 
+	/** 买赠 */
+	public static final String TYPE_GIFT = "5";
+
 	public static final String STATUS_DRAFT = "1";
 
 	public static final String STATUS_PUBLISHED = "2";

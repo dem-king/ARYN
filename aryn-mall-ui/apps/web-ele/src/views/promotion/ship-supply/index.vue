@@ -22,6 +22,7 @@ import {
   addActivity,
   deleteActivity,
   getActivityPage,
+  getPublishConflicts,
   pauseActivity,
   publishActivity,
   updateActivity,
@@ -141,11 +142,33 @@ const handleSave = () => {
     .catch(() => {});
 };
 
-const handlePublish = (row: any) => {
-  publishActivity(row.id)
+const doPublish = (row: any, force: boolean) => {
+  publishActivity(row.id, force)
     .then(() => {
       ElMessage.success('已发布');
       initPage();
+    })
+    .catch(() => {});
+};
+const handlePublish = (row: any) => {
+  getPublishConflicts(row.id)
+    .then((conflicts: any[]) => {
+      if (conflicts.length > 0) {
+        const names = conflicts.map((item) => item.activityName).join('、');
+        ElMessageBox.confirm(
+          `与已发布活动时间重叠：${names}。运行时同类型取最优，确认强制发布？`,
+          '发布冲突',
+          {
+            confirmButtonText: '强制发布',
+            cancelButtonText: '取消',
+            type: 'warning',
+          },
+        )
+          .then(() => doPublish(row, true))
+          .catch(() => {});
+      } else {
+        doPublish(row, false);
+      }
     })
     .catch(() => {});
 };

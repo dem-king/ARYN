@@ -30,8 +30,14 @@ export async function updateActivity(id: string, data: Partial<ShipActivity>) {
   return requestClient.put(`/promotion/ship-activity/${id}`, data);
 }
 
-export async function publishActivity(id: string) {
-  return requestClient.post(`/promotion/ship-activity/${id}/publish`);
+export async function getPublishConflicts(id: string) {
+  return requestClient.get(`/promotion/ship-activity/${id}/conflicts`);
+}
+
+export async function publishActivity(id: string, force = false) {
+  return requestClient.post(`/promotion/ship-activity/${id}/publish`, null, {
+    params: { force },
+  });
 }
 
 export async function pauseActivity(id: string) {
