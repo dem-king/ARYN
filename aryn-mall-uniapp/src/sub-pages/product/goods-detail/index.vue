@@ -27,6 +27,7 @@ import { customerServiceRoute } from '@/utils/message'
 import GoodsComment from './components/GoodsComment.vue'
 import GoodsFooter from './components/GoodsFooter.vue'
 import GoodsInfo from './components/GoodsInfo.vue'
+import ShipProfileCard from './components/ShipProfileCard.vue'
 import GoodsNavbar from './components/GoodsNavbar.vue'
 import MorePopup from './components/MorePopup.vue'
 import SharePopup from './components/SharePopup.vue'
@@ -547,6 +548,7 @@ async function handleReceive(coupon: any) {
       @collect="handleCollect"
       @share="handleShare"
     />
+    <ShipProfileCard :spu-id="spuId" />
     <!-- 评论组件 -->
     <GoodsComment ref="goodsCommentRef" :spu-id="state.goodsSpu.id" />
     <!-- 商品介绍 -->

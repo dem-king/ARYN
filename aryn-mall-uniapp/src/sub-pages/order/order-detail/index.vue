@@ -288,7 +288,10 @@ function toCustomerService() {
     </view>
     <!-- 商城配送进度时间线（deliveryWay=3 且已付款后展示） -->
     <view
-      v-if="state.order.deliveryWay === '3' && state.order.payStatus === '1'"
+      v-if="
+        ['3', '4'].includes(state.order.deliveryWay) &&
+          state.order.payStatus === '1'
+      "
       class="m-2"
     >
       <DeliveryProgress :order-id="state.order.id" />

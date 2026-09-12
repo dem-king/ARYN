@@ -61,6 +61,17 @@ function handleAddToCart(item: any, quantity: number | undefined) {
     uni.showToast({ title: '请填写采购数量', icon: 'none' })
     return
   }
+  // 数量规则就地提示（服务端结算仍会重新校验）
+  const moq = Number(item.moq) || 0
+  const stepQty = Number(item.stepQty) || 0
+  if (moq && quantity < moq) {
+    uni.showToast({ title: `未达最小起订量 ${moq}`, icon: 'none' })
+    return
+  }
+  if (stepQty && quantity % stepQty !== 0) {
+    uni.showToast({ title: `数量需为 ${stepQty} 的整数倍`, icon: 'none' })
+    return
+  }
   addShoppingCart({
     skuId: item.skuId,
     quantity,

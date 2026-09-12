@@ -59,6 +59,10 @@ function goPersonal() {
   uni.switchTab({ url: '/pages/product/index' })
 }
 
+function goFrequent() {
+  uni.navigateTo({ url: '/sub-pages/product/frequent' })
+}
+
 onMounted(loadWorkbench)
 </script>
 
@@ -99,6 +103,12 @@ onMounted(loadWorkbench)
         @tap="goPersonal"
       >
         个人购买
+      </button>
+      <button
+        class="!m-0 flex-1 rounded-40rpx bg-amber-100 text-26rpx text-amber-700"
+        @tap="goFrequent"
+      >
+        常购
       </button>
     </view>
   </view>
