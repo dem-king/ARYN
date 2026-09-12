@@ -149,6 +149,7 @@ const sourceFiles = [
   '53promotion_ship_supply_incremental.sql',
   '55promotion_ship_menu.sql',
   '56vessel_call_change_log.sql',
+  '57shared_cart_admin_menu.sql',
   '3aryn_boot_job.sql',
 ];
 for (const file of sourceFiles) {

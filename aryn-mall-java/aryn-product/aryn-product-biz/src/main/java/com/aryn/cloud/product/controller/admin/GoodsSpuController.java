@@ -61,6 +61,50 @@ public class GoodsSpuController {
 		return Result.success(shipProductProfileService.shipSummaryPage(SecurityUtils.getTenantId(), page, query));
 	}
 
+	@Operation(summary = "船供目录导出（Excel）")
+	@SaCheckPermission("product:goodsspu:page")
+	@GetMapping("/ship/export")
+	public void shipExport(ShipProductSummaryVO query, jakarta.servlet.http.HttpServletResponse response)
+			throws java.io.IOException {
+		Page<ShipProductSummaryVO> page = new Page<>(1, 10000);
+		IPage<ShipProductSummaryVO> result = shipProductProfileService.shipSummaryPage(SecurityUtils.getTenantId(),
+				page, query);
+		response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+		response.setCharacterEncoding("utf-8");
+		String fileName = java.net.URLEncoder.encode("船供商品目录", java.nio.charset.StandardCharsets.UTF_8)
+				.replaceAll("\\+", "%20");
+		response.setHeader("Content-Disposition", "attachment;filename*=utf-8''" + fileName + ".xlsx");
+		java.util.List<java.util.List<String>> head = java.util.List.of(
+				java.util.List.of("商品名称"), java.util.List.of("英文名"), java.util.List.of("销售范围"),
+				java.util.List.of("IMPA"), java.util.List.of("ISSA"), java.util.List.of("内部编码"),
+				java.util.List.of("条形码"), java.util.List.of("采购单位"), java.util.List.of("箱规"),
+				java.util.List.of("MOQ"), java.util.List.of("步长"), java.util.List.of("库存"),
+				java.util.List.of("售价"), java.util.List.of("完整度%"));
+		java.util.List<java.util.List<Object>> rows = result.getRecords().stream()
+				.<java.util.List<Object>>map(item -> java.util.List.of(
+						(Object) nvl(item.getName()), nvl(item.getNameEn()), scopeText(item.getSaleScope()),
+						nvl(item.getImpaCode()), nvl(item.getIssaCode()), nvl(item.getInternalItemCode()),
+						nvl(item.getBarcode()), nvl(item.getPurchaseUnit()), nvl(item.getPackageSpec()),
+						nvl(item.getMoq()), nvl(item.getStepQty()), nvl(item.getStock()),
+						nvl(item.getSalesPrice()), nvl(item.getPublishCompleteness())))
+				.toList();
+		com.alibaba.excel.EasyExcel.write(response.getOutputStream()).head(head).sheet("船供商品")
+				.doWrite(rows);
+	}
+
+	private String nvl(Object value) {
+		return value != null ? value : "";
+	}
+
+	private String scopeText(String saleScope) {
+		return switch (saleScope == null ? "" : saleScope) {
+			case "1" -> "仅个人";
+			case "2" -> "仅船供";
+			case "3" -> "个人+船供";
+			default -> "";
+		};
+	}
+
 	@Operation(summary = "SPU 船供资料详情")
 	@SaCheckPermission("product:goodsspu:get")
 	@GetMapping("/profile/{spuId}")

@@ -39,6 +39,7 @@ const sections = [
   ['船供营销二期（活动/锁定/分摊列）', '53promotion_ship_supply_incremental.sql'],
   ['船供营销二期菜单', '55promotion_ship_menu.sql'],
   ['靠港计划变更日志', '56vessel_call_change_log.sql'],
+  ['共享购物车管理页菜单', '57shared_cart_admin_menu.sql'],
   ['XXL-JOB 调度库', '3aryn_boot_job.sql'],
 ];
 

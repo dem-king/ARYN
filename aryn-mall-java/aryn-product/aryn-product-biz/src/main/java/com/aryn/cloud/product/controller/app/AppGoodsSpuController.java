@@ -52,6 +52,16 @@ public class AppGoodsSpuController {
 				shipProductProfileService.shipSummaryPage(ArynTenantContextHolder.getTenantId(), page, query));
 	}
 
+	@Operation(summary = "商品船供资料摘要（C 端详情页展示采购单位/箱规/MOQ/步长/储存条件）")
+	@GetMapping("/ship-summary/{spuId}")
+	public Result<java.util.Map<String, Object>> shipSummary(@PathVariable String spuId) {
+		String tenantId = ArynTenantContextHolder.getTenantId();
+		java.util.Map<String, Object> summary = new java.util.HashMap<>();
+		summary.put("profile", shipProductProfileService.getProfile(tenantId, spuId));
+		summary.put("skuProfiles", shipProductProfileService.listSkuProfiles(tenantId, spuId));
+		return Result.success(summary);
+	}
+
 	@Operation(summary = "船供/个人商品搜索（关键词匹配中英文、IMPA/ISSA、条码、别名）")
 	@GetMapping("/search")
 	public Result<IPage<ShipProductSummaryVO>> search(Page<ShipProductSummaryVO> page,
