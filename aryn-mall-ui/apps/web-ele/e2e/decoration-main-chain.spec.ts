@@ -1,4 +1,8 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import type { APIRequestContext, Page } from '@playwright/test';
+
+import process from 'node:process';
+
+import { expect, test } from '@playwright/test';
 
 /**
  * 商城装修发布主链路 E2E（Phase 1 验收链路）：
@@ -14,7 +18,7 @@ const APP_ENDPOINT = '/api/promotion/app/pagedesign';
 
 async function backendReachable(request: APIRequestContext) {
   try {
-    const response = await request.get(APP_ENDPOINT, { timeout: 5_000 });
+    const response = await request.get(APP_ENDPOINT, { timeout: 5000 });
     // 已发布首页不存在时返回业务错误 JSON，同样证明后端可用
     return response.status() < 500;
   } catch {
@@ -24,8 +28,12 @@ async function backendReachable(request: APIRequestContext) {
 
 async function login(page: Page) {
   await page.goto('/auth/login');
-  await page.getByPlaceholder('请输入用户名').fill(process.env.E2E_USERNAME ?? '');
-  await page.getByPlaceholder('请输入密码').fill(process.env.E2E_PASSWORD ?? '');
+  await page
+    .getByPlaceholder('请输入用户名')
+    .fill(process.env.E2E_USERNAME ?? '');
+  await page
+    .getByPlaceholder('请输入密码')
+    .fill(process.env.E2E_PASSWORD ?? '');
   await page.getByRole('button', { name: '登录' }).click();
   await expect(page).not.toHaveURL(/auth\/login/, { timeout: 15_000 });
 }
@@ -49,16 +57,22 @@ test.describe('商城装修发布主链路', () => {
     );
   });
 
-  test('新建、编辑、保存并发布后 App 端读取到 v3 已发布快照', async ({ page }) => {
+  test('新建、编辑、保存并发布后 App 端读取到 v3 已发布快照', async ({
+    page,
+  }) => {
     await login(page);
 
     const designer = await openNewDesigner(page);
     // 组件库：加入第一个组件（公告）并确认画布大纲出现
     await designer.locator('.library-item').first().click();
-    await expect(designer.locator('.page-outline-list li, [data-test="outline-item"]')).toHaveCount(1, { timeout: 10_000 });
+    await expect(
+      designer.locator('.page-outline-list li, [data-test="outline-item"]'),
+    ).toHaveCount(1, { timeout: 10_000 });
 
     await designer.getByRole('button', { name: '保存草稿' }).click();
-    await expect(designer.getByText('已保存', { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(designer.getByText('已保存', { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
 
     // 从编辑器地址解析页面 ID
     const pageId = designer.url().match(/page-designer\/([^/?]+)/)?.[1];
@@ -75,10 +89,15 @@ test.describe('商城装修发布主链路', () => {
     const published = await page.request.get(`${APP_ENDPOINT}/${pageId}`);
     expect(published.ok()).toBeTruthy();
     const publishedBody = (await published.json()) as {
-      data?: { schemaVersion?: number; pageContent?: { components?: unknown[] } };
+      data?: {
+        pageContent?: { components?: unknown[] };
+        schemaVersion?: number;
+      };
     };
     expect(publishedBody.data?.schemaVersion).toBe(3);
-    expect(publishedBody.data?.pageContent?.components?.length).toBeGreaterThan(0);
+    expect(publishedBody.data?.pageContent?.components?.length).toBeGreaterThan(
+      0,
+    );
 
     // 回滚到同一版本（历史版本重发），App 端仍可读取
     const versionsResponse = await page.request.get(
@@ -108,7 +127,9 @@ test.describe('商城装修发布主链路', () => {
     const designer = await openNewDesigner(page);
     await designer.locator('.library-item').first().click();
     await designer.getByRole('button', { name: '保存草稿' }).click();
-    await expect(designer.getByText('已保存', { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(designer.getByText('已保存', { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
     const pageId = designer.url().match(/page-designer\/([^/?]+)/)?.[1];
     expect(pageId).toBeTruthy();
 
