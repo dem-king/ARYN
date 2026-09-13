@@ -39,6 +39,8 @@ class PromotionEngineTest {
 
 	private PromotionLockMapper lockMapper;
 
+	private com.aryn.cloud.promotion.api.remote.RemoteBuyerProfileService buyerProfileService;
+
 	private PromotionEngineServiceImpl engine;
 
 	private PromotionReservationServiceImpl reservation;
@@ -49,7 +51,8 @@ class PromotionEngineTest {
 	void setUp() {
 		activityMapper = mock(PromotionActivityMapper.class);
 		lockMapper = mock(PromotionLockMapper.class);
-		engine = new PromotionEngineServiceImpl(activityMapper);
+		buyerProfileService = mock(com.aryn.cloud.promotion.api.remote.RemoteBuyerProfileService.class);
+		engine = new PromotionEngineServiceImpl(activityMapper, buyerProfileService);
 		governanceService = new com.aryn.cloud.promotion.service.impl.ActivityPublishGovernanceService(activityMapper);
 		reservation = new PromotionReservationServiceImpl(engine, lockMapper);
 		ReflectionTestUtils.setField(reservation, "promotionEngineService", engine);
@@ -345,6 +348,47 @@ class PromotionEngineTest {
 
 		activity.setRules("{\"minAmount\":100,\"gifts\":[{\"skuId\":\"g1\",\"quantity\":1}]}");
 		governanceService.validateRules(activity);
+	}
+
+
+	@Test
+	@DisplayName("常购专属价：用户常购且SKU在活动范围内命中单价覆盖")
+	void frequentExclusivePriceMatches() {
+		String rules = "{\"ladders\":[{\"minQty\":1,\"unitPrice\":25}]}";
+		PromotionActivity activity = activity("act-freq", PromotionActivity.TYPE_LADDER_PRICE, "8", "sku-1", "2",
+				rules);
+		when(activityMapper.selectList(any())).thenReturn(List.of(activity));
+		when(buyerProfileService.frequentSkuIds(TENANT, "user-1")).thenReturn(List.of("sku-1"));
+
+		PromotionCalculationVO result = engine.preview(context("2", "vessel-1", "call-1", "CNSHA"));
+		assertEquals(1, result.getLadderOverrides().size());
+		assertEquals(0, result.getLadderOverrides().get(0).getUnitPrice().compareTo(new BigDecimal("25")));
+	}
+
+	@Test
+	@DisplayName("常购画像查询失败时活动按不命中处理（fail-closed）")
+	void frequentProfileFailureSkipsActivity() {
+		String rules = "{\"ladders\":[{\"minQty\":1,\"unitPrice\":25}]}";
+		PromotionActivity activity = activity("act-freq", PromotionActivity.TYPE_LADDER_PRICE, "8", "sku-1", "2",
+				rules);
+		when(activityMapper.selectList(any())).thenReturn(List.of(activity));
+		when(buyerProfileService.frequentSkuIds(any(), any())).thenThrow(new RuntimeException("rpc down"));
+
+		PromotionCalculationVO result = engine.preview(context("2", "vessel-1", "call-1", "CNSHA"));
+		assertTrue(result.getLadderOverrides().isEmpty());
+	}
+
+	@Test
+	@DisplayName("用户非常购该SKU时常购专属价不命中")
+	void nonFrequentUserSkipsExclusivePrice() {
+		String rules = "{\"ladders\":[{\"minQty\":1,\"unitPrice\":25}]}";
+		PromotionActivity activity = activity("act-freq", PromotionActivity.TYPE_LADDER_PRICE, "8", "sku-1", "2",
+				rules);
+		when(activityMapper.selectList(any())).thenReturn(List.of(activity));
+		when(buyerProfileService.frequentSkuIds(TENANT, "user-1")).thenReturn(List.of("sku-other"));
+
+		PromotionCalculationVO result = engine.preview(context("2", "vessel-1", "call-1", "CNSHA"));
+		assertTrue(result.getLadderOverrides().isEmpty());
 	}
 
 }

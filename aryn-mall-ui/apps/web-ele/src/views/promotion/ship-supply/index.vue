@@ -80,6 +80,7 @@ const scopeLabel: Record<string, string> = {
   '5': '指定船舶',
   '6': '指定靠港',
   '7': '指定港口',
+  '8': '常购用户',
 };
 
 const initPage = async () => {
@@ -357,7 +358,7 @@ onMounted(initPage);
                   ? '场景：1 或 2'
                   : form.scopeType === '7'
                     ? '港口编码，如 CNSHA'
-                    : 'ID 逗号分隔'
+                    : 'SKU ID 逗号分隔'
               "
               style="width: 260px"
             />

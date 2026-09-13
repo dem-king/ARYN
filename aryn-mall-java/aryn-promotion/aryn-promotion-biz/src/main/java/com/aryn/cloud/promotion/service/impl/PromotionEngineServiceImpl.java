@@ -39,6 +39,8 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 
 	private final PromotionActivityMapper promotionActivityMapper;
 
+	private final com.aryn.cloud.promotion.api.remote.RemoteBuyerProfileService remoteBuyerProfileService;
+
 	@Override
 	public PromotionCalculationVO preview(PromotionContextDTO context) {
 		PromotionCalculationVO result = new PromotionCalculationVO();
@@ -245,8 +247,27 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 			case "6" -> containsValue(activity.getScopeValue(), context.getVesselCallId());
 			case "7" -> activity.getScopeValue() != null
 					&& activity.getScopeValue().equals(context.getPortCode());
+			case "8" -> matchesFrequentScope(activity, context);
 			default -> false;
 		};
+	}
+
+	/**
+	 * 常购专属价：用户常购 SKU 与活动指定 SKU 存在交集才命中；
+	 * 查询失败按不命中处理（fail-closed，避免误给优惠）。
+	 */
+	private boolean matchesFrequentScope(PromotionActivity activity, PromotionContextDTO context) {
+		try {
+			Set<String> frequent = new HashSet<>(remoteBuyerProfileService.frequentSkuIds(
+					context.getTenantId(), context.getUserId()));
+			Set<String> scopeSkus = parseScopeSkus(activity);
+			return context.getSkuItems().stream()
+					.anyMatch(item -> frequent.contains(item.getSkuId()) && scopeSkus.contains(item.getSkuId()));
+		}
+		catch (Exception ex) {
+			log.warn("常购画像查询失败，活动[{}]按不命中处理", activity.getId(), ex);
+			return false;
+		}
 	}
 
 	private Set<String> parseScopeSkus(PromotionActivity activity) {
