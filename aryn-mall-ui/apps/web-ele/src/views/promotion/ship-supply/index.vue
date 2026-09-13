@@ -57,9 +57,14 @@ const ladders = ref<Array<{ minQty: number; unitPrice: number }>>([
 const tiers = ref<Array<{ discountAmount: number; minAmount: number }>>([
   { discountAmount: 0, minAmount: 0 },
 ]);
+const giftThreshold = ref(0);
+const gifts = ref<Array<{ quantity: number; skuId: string }>>([
+  { quantity: 1, skuId: '' },
+]);
 
 const typeLabel: Record<string, string> = {
   '4': '阶梯价',
+  '5': '买赠',
   '7': '整船优惠',
 };
 const statusLabel: Record<string, string> = {
@@ -107,18 +112,24 @@ const openDialog = (row?: any) => {
     const rules = row ? JSON.parse(row.rules) : {};
     ladders.value = rules.ladders ?? [{ minQty: 10, unitPrice: 0 }];
     tiers.value = rules.tiers ?? [{ discountAmount: 0, minAmount: 0 }];
+    giftThreshold.value = rules.minAmount ?? 0;
+    gifts.value = rules.gifts ?? [{ quantity: 1, skuId: '' }];
   } catch {
     ladders.value = [{ minQty: 10, unitPrice: 0 }];
     tiers.value = [{ discountAmount: 0, minAmount: 0 }];
+    giftThreshold.value = 0;
+    gifts.value = [{ quantity: 1, skuId: '' }];
   }
   dialogVisible.value = true;
 };
 
 const buildPayload = () => {
-  const rules =
-    form.activityType === '4'
-      ? { ladders: ladders.value }
-      : { tiers: tiers.value };
+  let rules: Record<string, any> = { tiers: tiers.value };
+  if (form.activityType === '4') {
+    rules = { ladders: ladders.value };
+  } else if (form.activityType === '5') {
+    rules = { minAmount: giftThreshold.value, gifts: gifts.value };
+  }
   return {
     ...form,
     rules: JSON.stringify(rules),
@@ -321,6 +332,7 @@ onMounted(initPage);
             <ElRadioGroup v-model="form.activityType" :disabled="!!editingId">
               <ElRadioButton value="4">船供阶梯价</ElRadioButton>
               <ElRadioButton value="7">船供整船优惠</ElRadioButton>
+              <ElRadioButton value="5">买赠</ElRadioButton>
             </ElRadioGroup>
           </ElFormItem>
           <ElFormItem label="适用范围">
@@ -393,6 +405,41 @@ onMounted(initPage);
                 style="width: 120px; margin: 0 8px"
               />
               <ElButton link type="primary" @click="addLadder"> 加档 </ElButton>
+            </ElFormItem>
+          </template>
+          <template v-else-if="form.activityType === '5'">
+            <ElFormItem label="消费门槛">
+              <ElInputNumber
+                v-model="giftThreshold"
+                :min="0"
+                :precision="2"
+                controls-position="right"
+              />
+              <span class="ml-8px">元</span>
+            </ElFormItem>
+            <ElFormItem
+              v-for="(gift, index) in gifts"
+              :key="index"
+              :label="`赠品 ${index + 1}`"
+            >
+              <ElInput
+                v-model="gift.skuId"
+                placeholder="赠品 SKU ID"
+                style="width: 200px; margin-right: 8px"
+              />
+              <ElInputNumber
+                v-model="gift.quantity"
+                :min="1"
+                controls-position="right"
+                style="width: 110px; margin-right: 8px"
+              />
+              <ElButton
+                link
+                type="primary"
+                @click="gifts.push({ skuId: '', quantity: 1 })"
+              >
+                加赠品
+              </ElButton>
             </ElFormItem>
           </template>
           <template v-else>

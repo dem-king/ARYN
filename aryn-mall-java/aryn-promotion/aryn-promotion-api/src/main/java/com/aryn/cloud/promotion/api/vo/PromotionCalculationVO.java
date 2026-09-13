@@ -37,6 +37,27 @@ public class PromotionCalculationVO implements Serializable {
 	@Schema(description = "命中活动明细（含规则快照）")
 	private List<ActivityDetail> details;
 
+	@Schema(description = "买赠赠品（下单时追加为 0 元明细，不混入付费数量）")
+	private List<GiftItem> gifts;
+
+	@Data
+	@Schema(description = "买赠赠品项")
+	public static class GiftItem implements Serializable {
+
+		@Serial
+		private static final long serialVersionUID = 1L;
+
+		@Schema(description = "赠品 SKU ID")
+		private String skuId;
+
+		@Schema(description = "赠品数量")
+		private Integer quantity;
+
+		@Schema(description = "命中活动ID")
+		private String activityId;
+
+	}
+
 	@Data
 	@Schema(description = "阶梯价单价覆盖")
 	public static class UnitPriceOverride implements Serializable {

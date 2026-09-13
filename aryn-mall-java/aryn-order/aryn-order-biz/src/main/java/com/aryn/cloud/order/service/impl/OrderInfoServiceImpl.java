@@ -437,6 +437,11 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 			throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60061.getCode(),
 					MallErrorCodeEnum.ERROR_60061.getMsg());
 		}
+		// 营销锁定（须在库存扣减与明细落库前完成：买赠赠品要追加为 0 元明细并参与扣减）
+		PromotionCalculationVO reserved = orderPriceComputeService.reservePromotion(orderInfo, orderItemEntityList);
+		if (reserved != null && reserved.getGifts() != null && !reserved.getGifts().isEmpty()) {
+			appendGiftItems(orderInfo, reserved.getGifts(), orderItemEntityList, goodsSkuList);
+		}
 		orderPriceComputeService.orderStockHandler(goodsSkuList, orderItemEntityList);
 		orderItemEntityList.forEach(orderItem -> {
 			orderItem.setOrderId(orderInfo.getId());
@@ -445,8 +450,7 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		if (!orderItemService.saveBatch(orderItemEntityList)) {
 			throw new ArynBusinessException("订单商品保存失败");
 		}
-		// 营销锁定与快照（订单+活动维度幂等；历史金额以快照为准）
-		PromotionCalculationVO reserved = orderPriceComputeService.reservePromotion(orderInfo, orderItemEntityList);
+		// 营销快照（订单+活动维度；历史金额以快照为准）
 		if (reserved != null && reserved.getDetails() != null) {
 			for (PromotionCalculationVO.ActivityDetail detail : reserved.getDetails()) {
 				com.aryn.cloud.order.api.entity.PromotionSnapshot snapshot = new com.aryn.cloud.order.api.entity.PromotionSnapshot();
@@ -714,6 +718,53 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		orderInfo.setOrderItemList(orderItemEntityList);
 		orderItemEntityList.forEach(item -> item.setPurchaseScene(orderInfo.getPurchaseScene()));
 		return orderInfo;
+	}
+
+
+	/**
+	 * 买赠赠品追加为 0 元明细（不混入付费数量）；赠品 SKU 参与库存扣减。
+	 */
+	private void appendGiftItems(OrderInfo orderInfo, List<PromotionCalculationVO.GiftItem> gifts,
+			List<OrderItemEntity> orderItemEntityList, List<GoodsSku> goodsSkuList) {
+		List<String> giftSkuIds = gifts.stream()
+			.map(PromotionCalculationVO.GiftItem::getSkuId)
+			.distinct()
+			.filter(giftSkuId -> orderItemEntityList.stream().noneMatch(item -> giftSkuId.equals(item.getSkuId())))
+			.toList();
+		if (giftSkuIds.isEmpty()) {
+			return;
+		}
+		Map<String, GoodsSku> giftSkuMap = remoteGoodsSkuService.getBySkuIds(giftSkuIds).stream()
+			.collect(Collectors.toMap(GoodsSku::getId, sku -> sku, (a, b) -> a));
+		for (PromotionCalculationVO.GiftItem gift : gifts) {
+			GoodsSku giftSku = giftSkuMap.get(gift.getSkuId());
+			if (giftSku == null) {
+				log.warn("买赠赠品SKU[" + gift.getSkuId() + "]不存在，跳过");
+				continue;
+			}
+			OrderItemEntity giftItem = new OrderItemEntity();
+			giftItem.setId(IdUtil.getSnowflakeNextIdStr());
+			giftItem.setSkuId(giftSku.getId());
+			giftItem.setSpuId(giftSku.getGoodsSpu() != null ? giftSku.getGoodsSpu().getId() : giftSku.getSpuId());
+			giftItem.setSpuName(giftSku.getGoodsSpu() != null ? giftSku.getGoodsSpu().getName() : "");
+			giftItem.setPicUrl(giftSku.getPicUrl());
+			giftItem.setBuyQuantity(gift.getQuantity());
+			giftItem.setSalesPrice(BigDecimal.ZERO);
+			giftItem.setTotalPrice(BigDecimal.ZERO);
+			giftItem.setFreightPrice(BigDecimal.ZERO);
+			giftItem.setCouponPrice(BigDecimal.ZERO);
+			giftItem.setMemberDiscountPrice(BigDecimal.ZERO);
+			giftItem.setPromoPrice(BigDecimal.ZERO);
+			giftItem.setPaymentPrice(BigDecimal.ZERO);
+			giftItem.setGiftFlag("1");
+			giftItem.setTenantId(orderInfo.getTenantId());
+			orderItemEntityList.add(giftItem);
+			GoodsSku giftStockSku = new GoodsSku();
+			giftStockSku.setId(giftSku.getId());
+			giftStockSku.setSpuId(giftItem.getSpuId());
+			giftStockSku.setStock(gift.getQuantity());
+			goodsSkuList.add(giftStockSku);
+		}
 	}
 
 	/**

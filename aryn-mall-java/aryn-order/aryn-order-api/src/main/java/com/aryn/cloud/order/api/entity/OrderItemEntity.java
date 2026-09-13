@@ -118,6 +118,9 @@ public class OrderItemEntity extends Model<OrderItemEntity> {
 	@Schema(description = "营销分摊优惠金额")
 	private java.math.BigDecimal promoPrice;
 
+	@Schema(description = "赠品标记：0普通 1买赠赠品（0元单独成行）")
+	private String giftFlag;
+
 	@TableField(exist = false)
 	private OrderRefund orderRefund;
 

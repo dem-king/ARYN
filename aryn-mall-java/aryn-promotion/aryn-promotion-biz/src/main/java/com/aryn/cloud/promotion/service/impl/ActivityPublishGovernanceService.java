@@ -119,15 +119,17 @@ public class ActivityPublishGovernanceService {
 		if (gifts == null || gifts.isEmpty()) {
 			throw new ArynBusinessException("买赠活动必须配置 gifts 赠品");
 		}
+		BigDecimal minAmount = rules.getBigDecimal("minAmount");
+		if (minAmount == null || minAmount.signum() < 0) {
+			throw new ArynBusinessException("买赠活动必须配置非负的 minAmount 门槛");
+		}
 		Set<String> skuIds = new HashSet<>();
 		for (Object element : gifts) {
 			JSONObject gift = (JSONObject) element;
 			String skuId = gift.getStr("skuId");
 			Integer quantity = gift.getInt("quantity");
-			BigDecimal minAmount = gift.getBigDecimal("minAmount");
-			if (!StringUtils.hasText(skuId) || quantity == null || quantity < 1 || minAmount == null
-					|| minAmount.signum() < 0) {
-				throw new ArynBusinessException("买赠档位必须包含 skuId、正数 quantity 与非负 minAmount");
+			if (!StringUtils.hasText(skuId) || quantity == null || quantity < 1) {
+				throw new ArynBusinessException("买赠赠品位必须包含 skuId 与正数 quantity");
 			}
 			if (!skuIds.add(skuId)) {
 				throw new ArynBusinessException("买赠赠品 SKU 重复：" + skuId);

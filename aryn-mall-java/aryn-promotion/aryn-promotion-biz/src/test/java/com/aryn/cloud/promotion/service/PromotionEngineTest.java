@@ -300,4 +300,51 @@ class PromotionEngineTest {
 		assertEquals(1, governanceService.listPublishConflicts(TENANT, mine).size());
 	}
 
+
+	@Test
+	@DisplayName("买赠：基价达门槛时返回赠品列表，未达门槛不返回")
+	void giftActivityThreshold() {
+		String rules = "{\"minAmount\":1000,\"gifts\":[{\"skuId\":\"gift-sku\",\"quantity\":2}]}";
+		when(activityMapper.selectList(any())).thenReturn(List.of(
+				activity("act-gift", PromotionActivity.TYPE_GIFT, "1", null, "2", rules)));
+
+		// 基价 60*28.5 + 5*12 = 1770 ≥ 1000 → 命中
+		PromotionCalculationVO hit = engine.preview(context("2", "vessel-1", "call-1", "CNSHA"));
+		assertEquals(1, hit.getGifts().size());
+		assertEquals("gift-sku", hit.getGifts().get(0).getSkuId());
+		assertEquals(2, hit.getGifts().get(0).getQuantity());
+		assertEquals(0, hit.getWholeDiscount().compareTo(BigDecimal.ZERO));
+
+		// 仅保留低价小单 → 未达门槛
+		PromotionContextDTO small = context("2", "vessel-1", "call-1", "CNSHA");
+		small.setSkuItems(List.of(skuItem("sku-1", 1, "10")));
+		PromotionCalculationVO miss = engine.preview(small);
+		assertEquals(0, miss.getGifts().size());
+	}
+
+	@Test
+	@DisplayName("买赠同类取最优：赠品总数量最大者命中")
+	void giftActivityPicksBest() {
+		String one = "{\"minAmount\":100,\"gifts\":[{\"skuId\":\"g1\",\"quantity\":1}]}";
+		String two = "{\"minAmount\":100,\"gifts\":[{\"skuId\":\"g2\",\"quantity\":3}]}";
+		when(activityMapper.selectList(any())).thenReturn(List.of(
+				activity("act-1", PromotionActivity.TYPE_GIFT, "1", null, null, one),
+				activity("act-2", PromotionActivity.TYPE_GIFT, "1", null, null, two)));
+
+		PromotionCalculationVO result = engine.preview(context("1", null, null, null));
+		assertEquals(1, result.getGifts().size());
+		assertEquals("g2", result.getGifts().get(0).getSkuId());
+	}
+
+	@Test
+	@DisplayName("买赠规则档位不合法时发布校验拒绝")
+	void validateGiftsRejectsBad() {
+		PromotionActivity activity = activity("act-1", PromotionActivity.TYPE_GIFT, "1", null, null,
+				"{\"minAmount\":100,\"gifts\":[{\"skuId\":\"\",\"quantity\":0}]}");
+		assertThrows(ArynBusinessException.class, () -> governanceService.validateRules(activity));
+
+		activity.setRules("{\"minAmount\":100,\"gifts\":[{\"skuId\":\"g1\",\"quantity\":1}]}");
+		governanceService.validateRules(activity);
+	}
+
 }

@@ -46,6 +46,7 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 		result.setWholeDiscount(BigDecimal.ZERO);
 		result.setLadderOverrides(new ArrayList<>());
 		result.setDetails(new ArrayList<>());
+		result.setGifts(new ArrayList<>());
 		if (context == null || context.getTenantId() == null || context.getSkuItems() == null
 				|| context.getSkuItems().isEmpty()) {
 			return result;
@@ -58,10 +59,12 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 						.le(PromotionActivity::getStartTime, now)
 						.ge(PromotionActivity::getEndTime, now)
 						.in(PromotionActivity::getActivityType,
-								List.of(PromotionActivity.TYPE_LADDER_PRICE, PromotionActivity.TYPE_SHIP_WHOLE_DISCOUNT)));
+								List.of(PromotionActivity.TYPE_LADDER_PRICE, PromotionActivity.TYPE_SHIP_WHOLE_DISCOUNT,
+										PromotionActivity.TYPE_GIFT)));
 
 		List<PromotionActivity> ladderHits = new ArrayList<>();
 		List<PromotionActivity> wholeHits = new ArrayList<>();
+		List<PromotionActivity> giftHits = new ArrayList<>();
 		for (PromotionActivity activity : activities) {
 			if (!matchesScope(activity, context)) {
 				continue;
@@ -72,10 +75,14 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 			else if (PromotionActivity.TYPE_SHIP_WHOLE_DISCOUNT.equals(activity.getActivityType())) {
 				wholeHits.add(activity);
 			}
+			else if (PromotionActivity.TYPE_GIFT.equals(activity.getActivityType())) {
+				giftHits.add(activity);
+			}
 		}
 
 		applyBestLadderPrice(context, ladderHits, result);
 		applyBestWholeDiscount(context, wholeHits, result);
+		applyBestGift(context, giftHits, result);
 		return result;
 	}
 
@@ -254,6 +261,68 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 			return false;
 		}
 		return Arrays.asList(scopeValue.split(",")).contains(value);
+	}
+
+
+	/**
+	 * 买赠：同类型取赠品数量最大者，按订单商品基价总额命中门槛；
+	 * 赠品只入 gifts 列表，由订单侧追加 0 元明细，不混入付费数量。
+	 */
+	private void applyBestGift(PromotionContextDTO context, List<PromotionActivity> activities,
+			PromotionCalculationVO result) {
+		BigDecimal baseAmount = context.getSkuItems().stream()
+			.map(item -> item.getSalesPrice().multiply(BigDecimal.valueOf(item.getQuantity())))
+			.reduce(BigDecimal.ZERO, BigDecimal::add);
+
+		PromotionActivity best = null;
+		List<PromotionCalculationVO.GiftItem> bestGifts = null;
+		for (PromotionActivity activity : activities) {
+			try {
+				JSONObject rules = JSONUtil.parseObj(activity.getRules());
+				JSONArray giftArray = rules.getJSONArray("gifts");
+				if (giftArray == null || giftArray.isEmpty()) {
+					continue;
+				}
+				BigDecimal minAmount = rules.getBigDecimal("minAmount");
+				if (minAmount == null || baseAmount.compareTo(minAmount) < 0) {
+					continue;
+				}
+				List<PromotionCalculationVO.GiftItem> gifts = new ArrayList<>();
+				int totalQty = 0;
+				for (Object element : giftArray) {
+					JSONObject gift = (JSONObject) element;
+					String skuId = gift.getStr("skuId");
+					Integer quantity = gift.getInt("quantity");
+					if (!StringUtils.hasText(skuId) || quantity == null || quantity < 1) {
+						continue;
+					}
+					PromotionCalculationVO.GiftItem item = new PromotionCalculationVO.GiftItem();
+					item.setSkuId(skuId);
+					item.setQuantity(quantity);
+					item.setActivityId(activity.getId());
+					gifts.add(item);
+					totalQty += quantity;
+				}
+				if (!gifts.isEmpty() && totalQty > (bestGifts == null ? 0
+						: bestGifts.stream().mapToInt(PromotionCalculationVO.GiftItem::getQuantity).sum())) {
+					best = activity;
+					bestGifts = gifts;
+				}
+			}
+			catch (Exception ex) {
+				log.warn("买赠活动[{}]规则解析失败，跳过: {}", activity.getId(), ex.getMessage());
+			}
+		}
+		if (best != null && bestGifts != null) {
+			result.getGifts().addAll(bestGifts);
+			PromotionCalculationVO.ActivityDetail detail = new PromotionCalculationVO.ActivityDetail();
+			detail.setActivityId(best.getId());
+			detail.setActivityType(best.getActivityType());
+			detail.setActivityName(best.getActivityName());
+			detail.setDiscountAmount(BigDecimal.ZERO);
+			detail.setRuleSnapshot(best.getRules());
+			result.getDetails().add(detail);
+		}
 	}
 
 }
