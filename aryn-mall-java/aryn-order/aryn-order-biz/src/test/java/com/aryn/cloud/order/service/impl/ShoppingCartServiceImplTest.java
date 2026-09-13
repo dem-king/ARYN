@@ -44,7 +44,7 @@ class ShoppingCartServiceImplTest {
 	@Test
 	void addUsesServerSideSkuSnapshot() {
 		when(remoteGoodsSkuService.getBySkuIds(List.of("sku-1"))).thenReturn(List.of(saleSku(10)));
-		when(mapper.incrementQuantity("user-1", "sku-1", 2)).thenReturn(0);
+		when(mapper.selectOne(any(Wrapper.class))).thenReturn(null);
 		when(mapper.insert(any(ShoppingCart.class))).thenReturn(1);
 		ShoppingCartCreateDTO request = new ShoppingCartCreateDTO();
 		request.setSkuId("sku-1");

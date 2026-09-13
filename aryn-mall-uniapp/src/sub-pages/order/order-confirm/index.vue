@@ -200,6 +200,18 @@ async function toPay() {
     return useGlobalToast().warning('请选择收货地址')
   }
 
+  // 防串船：购物车下单时所选行的靠港归属必须与当前上下文一致（无归属的旧行放行）
+  if (state.createWay === '1' && shipContextStore.vesselCallId) {
+    const mismatched = (createGoodsList.value || []).filter(
+      (item: any) => item.vesselCallId && item.vesselCallId !== shipContextStore.vesselCallId,
+    )
+    if (mismatched.length > 0) {
+      return useGlobalToast().warning(
+        `有 ${mismatched.length} 件商品属于其他靠港计划，请切换船舶或调整购物车`,
+      )
+    }
+  }
+
   // 内部配送（deliveryWay=4）必须携带船舶与靠港计划上下文
   if (state.orderParams.deliveryWay === '4') {
     if (!shipContextStore.hasVesselContext) {

@@ -31,9 +31,9 @@ public interface ShoppingCartMapper extends BaseMapper<ShoppingCart> {
 	@Update("""
 		UPDATE shopping_cart
 		SET quantity = quantity + #{quantity}, update_time = NOW()
-		WHERE user_id = #{userId} AND sku_id = #{skuId} AND del_flag = '0'
+		WHERE id = #{id} AND user_id = #{userId} AND del_flag = '0'
 		""")
-	int incrementQuantity(@Param("userId") String userId, @Param("skuId") String skuId,
+	int incrementQuantityById(@Param("userId") String userId, @Param("id") String id,
 			@Param("quantity") int quantity);
 
 }

@@ -75,6 +75,15 @@ public class ShoppingCart extends Model<ShoppingCart> {
 	@Schema(description = "规格信息")
 	private String specsInfo;
 
+	/** 加购船舶ID快照 */
+	private String vesselId;
+
+	/** 加购靠港计划ID快照（防串船分组键） */
+	private String vesselCallId;
+
+	/** 加购购买场景快照：1个人 2船供 */
+	private String purchaseScene;
+
 	@TableField(exist = false)
 	private GoodsSku goodsSku;
 

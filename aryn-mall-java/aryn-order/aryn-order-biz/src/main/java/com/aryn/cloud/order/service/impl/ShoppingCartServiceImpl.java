@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.aryn.cloud.common.core.enums.MallErrorCodeEnum;
+import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.order.api.dto.ShoppingCartCreateDTO;
 import com.aryn.cloud.order.api.dto.ShoppingCartUpdateDTO;
@@ -73,16 +74,42 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
 	@Transactional(rollbackFor = Exception.class)
 	public boolean saveShoppingCart(String userId, ShoppingCartCreateDTO request) {
 		GoodsSku sku = requireSaleSku(request.getSkuId(), request.getQuantity());
-		if (baseMapper.incrementQuantity(userId, sku.getId(), request.getQuantity()) > 0) {
-			return true;
+		// 防串船：合并范围限定在同用户 + 同 SKU + 同靠港（无上下文归入“未指定”组）
+		ShoppingCart mergeable = findMergeableRow(userId, sku.getId(), request.getVesselCallId());
+		if (mergeable != null) {
+			return baseMapper.incrementQuantityById(userId, mergeable.getId(), request.getQuantity()) > 0;
 		}
-		ShoppingCart shoppingCart = buildCart(userId, sku, request.getQuantity());
+		ShoppingCart shoppingCart = buildCart(userId, sku, request.getQuantity(), request);
 		try {
 			return super.save(shoppingCart);
 		}
 		catch (DuplicateKeyException exception) {
-			return baseMapper.incrementQuantity(userId, sku.getId(), request.getQuantity()) > 0;
+			ShoppingCart concurrent = findMergeableRow(userId, sku.getId(), request.getVesselCallId());
+			if (concurrent != null) {
+				return baseMapper.incrementQuantityById(userId, concurrent.getId(), request.getQuantity()) > 0;
+			}
+			throw exception;
 		}
+	}
+
+	/**
+	 * 查找同用户同 SKU 且靠港归属相同（NULL 等价于“未指定”）的可合并购物车行。
+	 */
+	private ShoppingCart findMergeableRow(String userId, String skuId, String vesselCallId) {
+		com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<ShoppingCart> wrapper = Wrappers
+			.<ShoppingCart>lambdaQuery()
+			.eq(ShoppingCart::getTenantId, ArynTenantContextHolder.getTenantId())
+			.eq(ShoppingCart::getUserId, userId)
+			.eq(ShoppingCart::getSkuId, skuId)
+			.eq(ShoppingCart::getDelFlag, "0");
+		if (StringUtils.hasText(vesselCallId)) {
+			wrapper.eq(ShoppingCart::getVesselCallId, vesselCallId);
+		}
+		else {
+			wrapper.and(query -> query.isNull(ShoppingCart::getVesselCallId)
+				.or().eq(ShoppingCart::getVesselCallId, ""));
+		}
+		return baseMapper.selectOne(wrapper.last("LIMIT 1"));
 	}
 
 	@Override
@@ -115,9 +142,11 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
 		ShoppingCart target = baseMapper.selectOne(Wrappers.<ShoppingCart>lambdaQuery()
 			.eq(ShoppingCart::getUserId, userId)
 			.eq(ShoppingCart::getSkuId, sku.getId())
-			.ne(ShoppingCart::getId, source.getId()));
+			.eq(ShoppingCart::getVesselCallId, source.getVesselCallId())
+			.ne(ShoppingCart::getId, source.getId())
+			.last("LIMIT 1"));
 		if (target != null) {
-			baseMapper.incrementQuantity(userId, sku.getId(), request.getQuantity());
+			baseMapper.incrementQuantityById(userId, target.getId(), request.getQuantity());
 			return baseMapper.delete(Wrappers.<ShoppingCart>lambdaQuery()
 				.eq(ShoppingCart::getId, source.getId())
 				.eq(ShoppingCart::getUserId, userId)) > 0;
@@ -128,7 +157,7 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
 			return super.updateById(source);
 		}
 		catch (DuplicateKeyException exception) {
-			baseMapper.incrementQuantity(userId, sku.getId(), request.getQuantity());
+			baseMapper.incrementQuantityById(userId, source.getId(), request.getQuantity());
 			return baseMapper.delete(Wrappers.<ShoppingCart>lambdaQuery()
 				.eq(ShoppingCart::getId, source.getId())
 				.eq(ShoppingCart::getUserId, userId)) > 0;
@@ -152,10 +181,13 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
 		return skuList.get(0);
 	}
 
-	private ShoppingCart buildCart(String userId, GoodsSku sku, int quantity) {
+	private ShoppingCart buildCart(String userId, GoodsSku sku, int quantity, ShoppingCartCreateDTO request) {
 		ShoppingCart shoppingCart = new ShoppingCart();
 		shoppingCart.setUserId(userId);
 		shoppingCart.setQuantity(quantity);
+		shoppingCart.setVesselId(request.getVesselId());
+		shoppingCart.setVesselCallId(request.getVesselCallId());
+		shoppingCart.setPurchaseScene(request.getPurchaseScene());
 		applySkuSnapshot(shoppingCart, sku);
 		return shoppingCart;
 	}

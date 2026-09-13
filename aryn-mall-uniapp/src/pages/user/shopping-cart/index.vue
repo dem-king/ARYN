@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { onShow } from '@dcloudio/uni-app'
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
+
+import { useShipContextStore } from '@/store/shipContextStore'
 import { delShoppingCart, editShoppingCart, getPage } from '@/api/order/shoppingCart'
 import { saveBatch } from '@/api/product/collect'
 import { getById } from '@/api/product/spu'
@@ -45,6 +47,30 @@ const router = useRouter()
 const authStore = useAuthStore()
 const goodsStore = useGoodsStore()
 const shoppingCartStore = useShoppingCartStore()
+// 防串船：按加购靠港分组，当前船舶组排前
+const shipContextStore = useShipContextStore()
+const cartGroups = computed(() => {
+  const groups: Record<string, any[]> = {}
+  for (const row of state.cartList) {
+    const key = row.vesselCallId || ''
+    if (!groups[key]) groups[key] = []
+    groups[key].push(row)
+  }
+  const currentKey = shipContextStore.vesselCallId || ''
+  return Object.keys(groups)
+    .sort((a, b) => (a === currentKey ? -1 : b === currentKey ? 1 : 0))
+    .map((key) => ({
+      key,
+      label:
+        key === currentKey
+          ? `当前船舶：${shipContextStore.vesselName || '未命名'}`
+          : key
+            ? `其他靠港计划（${key.slice(-6)}）`
+            : '未指定配送计划',
+      isCurrent: key === currentKey && !!key,
+      rows: groups[key],
+    }))
+})
 const globalLoading = useGlobalLoading()
 const { success: showSuccess } = useGlobalToast()
 const { confirm } = useGlobalMessage()
@@ -306,6 +332,24 @@ onShow(async () => {
   <wd-gap bg-color="#FFFFFF" height="80rpx" />
   <view class="cart-container bg-white">
     <view v-if="state.cartList && state.cartList.length > 0" class="cart-item">
+      <!-- 防串船分组头：当前船舶组排前，其他靠港行结算时将被拦截 -->
+      <view
+        v-for="group in cartGroups"
+        :key="group.key || 'none'"
+        style="
+          background: #f7f8fa;
+          border-radius: 12rpx;
+          color: #646566;
+          font-size: 24rpx;
+          margin: 16rpx 20rpx 0;
+          padding: 12rpx 20rpx;
+        "
+      >
+        {{ group.label }}
+        <text v-if="!group.isCurrent && group.key" style="color: #ee0a24">
+          （结算前请切换船舶）
+        </text>
+      </view>
       <view
         v-for="(goods, goodsIndex) in state.cartList" :key="goodsIndex" class="cart-content"
         @click="toGoodsDetail(goods.spuId)"
