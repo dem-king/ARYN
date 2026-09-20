@@ -27,7 +27,17 @@
 	order_item.update_time,
 	order_item.del_flag,
 	order_item.specs_info,
-	order_item.`status`
+	order_item.`status`,
+	order_item.purchase_scene,
+	order_item.purchase_unit,
+	order_item.package_spec,
+	order_item.moq,
+	order_item.step_qty,
+	order_item.contributor_user_id,
+	order_item.contributor_name,
+	order_item.member_remark,
+	order_item.promo_price,
+	order_item.gift_flag
     </sql>
     <select id="selectByOrderId" resultType="com.aryn.cloud.order.api.entity.OrderItemEntity">
         SELECT

@@ -44,7 +44,6 @@ import {
   previewImport,
   uploadImport,
 } from '#/api/product/product-import';
-import { getShipPage } from '#/api/product/ship-profile';
 import { requestClient } from '#/api/request';
 import { useDict } from '#/utils/dict';
 
@@ -93,30 +92,14 @@ const loading = ref(false);
 const queryRef = ref();
 const { tableData, queryParams, page } = toRefs(state);
 
-// 船供目录视图
-const shipView = ref(false);
-const shipLoading = ref(false);
+// 商品统一（2026-09-20）：不再区分「船供目录 / 普通列表」两套视图，
+// 商品在一个列表内管理；IMPA/ISSA/采购单位/MOQ 等船供属性收进编辑页作为可选扩展资料。
+// 导出能力保留（仍按编码/英文名筛选导出目录）。
 const shipQuery = reactive({
   impaCode: '',
   nameEn: '',
   saleScope: '',
 });
-const shipPage = reactive({ total: 0, currentPage: 1, pageSize: 10 });
-const shipTableData = ref<any[]>([]);
-const initShipPage = async () => {
-  shipLoading.value = true;
-  try {
-    const response = await getShipPage({
-      current: shipPage.currentPage,
-      size: shipPage.pageSize,
-      ...shipQuery,
-    });
-    shipTableData.value = response.records;
-    shipPage.total = response.total;
-  } finally {
-    shipLoading.value = false;
-  }
-};
 
 const exportShipLoading = ref(false);
 const exportShipCatalog = () => {
@@ -371,42 +354,11 @@ initPage();
             />
           </ElSelect>
         </ElFormItem>
-        <ElFormItem v-if="shipView" label="销售范围" prop="saleScope">
-          <ElSelect
-            v-model="shipQuery.saleScope"
-            clearable
-            placeholder="全部船供商品"
-            style="width: 160px"
-          >
-            <ElOption label="仅船供采购" value="2" />
-            <ElOption label="个人和船供" value="3" />
-          </ElSelect>
-        </ElFormItem>
-        <ElFormItem v-if="shipView" label="编码/英文名">
-          <ElInput
-            v-model="shipQuery.impaCode"
-            clearable
-            placeholder="IMPA/ISSA/条码/内部编码"
-            style="width: 200px"
-          />
-        </ElFormItem>
-        <ElFormItem v-if="!shipView">
+        <ElFormItem>
           <ElButton type="primary" @click="initPage" :icon="Search">
             搜索
           </ElButton>
           <ElButton @click="resetQuery" :icon="Refresh"> 重置 </ElButton>
-        </ElFormItem>
-        <ElFormItem v-else>
-          <ElButton type="primary" @click="initShipPage" :icon="Search">
-            搜索
-          </ElButton>
-          <ElButton
-            :loading="exportShipLoading"
-            v-access:code="'product:goodsspu:page'"
-            @click="exportShipCatalog"
-          >
-            导出
-          </ElButton>
         </ElFormItem>
       </ElForm>
       <!-- 工具栏 -->
@@ -446,16 +398,11 @@ initPage();
             批量导入
           </ElButton>
           <ElButton
-            :type="shipView ? 'primary' : 'default'"
-            @click="
-              () => {
-                shipView = !shipView;
-                if (shipView) initShipPage();
-                else initPage();
-              }
-            "
+            :loading="exportShipLoading"
+            v-access:code="'product:goodsspu:page'"
+            @click="exportShipCatalog"
           >
-            {{ shipView ? '返回普通列表' : '船供目录' }}
+            导出商品目录
           </ElButton>
         </div>
         <RightToolbar
@@ -467,93 +414,6 @@ initPage();
       </div>
       <!-- 列表 -->
       <ElTable
-        v-if="shipView"
-        v-loading="shipLoading"
-        :data="shipTableData"
-        border
-        style="width: 100%"
-      >
-        <ElTableColumn prop="name" label="商品信息" min-width="220">
-          <template #default="scope">
-            <span>{{ scope.row.name }}</span>
-            <div style="font-size: 13px; color: #909399">
-              {{ scope.row.nameEn }}
-            </div>
-          </template>
-        </ElTableColumn>
-        <ElTableColumn
-          prop="saleScope"
-          label="销售范围"
-          align="center"
-          width="110"
-        >
-          <template #default="scope">
-            {{
-              scope.row.saleScope === '2'
-                ? '仅船供'
-                : scope.row.saleScope === '3'
-                  ? '个人+船供'
-                  : '仅个人'
-            }}
-          </template>
-        </ElTableColumn>
-        <ElTableColumn
-          prop="impaCode"
-          label="IMPA/ISSA"
-          align="center"
-          width="120"
-        />
-        <ElTableColumn
-          prop="internalItemCode"
-          label="内部编码"
-          align="center"
-          width="120"
-        />
-        <ElTableColumn
-          prop="purchaseUnit"
-          label="采购单位"
-          align="center"
-          width="90"
-        />
-        <ElTableColumn
-          prop="packageSpec"
-          label="箱规"
-          align="center"
-          width="100"
-        />
-        <ElTableColumn prop="moq" label="MOQ" align="center" width="80" />
-        <ElTableColumn prop="stepQty" label="步长" align="center" width="80" />
-        <ElTableColumn prop="stock" label="库存" align="center" width="90" />
-        <ElTableColumn
-          prop="salesPrice"
-          label="售价"
-          align="center"
-          width="100"
-        >
-          <template #default="scope">
-            <span style="color: red">￥{{ scope.row.salesPrice }}</span>
-          </template>
-        </ElTableColumn>
-        <ElTableColumn
-          prop="publishCompleteness"
-          label="完整度"
-          align="center"
-          width="90"
-        >
-          <template #default="scope">
-            {{ scope.row.publishCompleteness }}%
-          </template>
-        </ElTableColumn>
-      </ElTable>
-      <Pagination
-        v-if="shipView"
-        :total="shipPage.total"
-        v-model:current="shipPage.currentPage"
-        v-model:size="shipPage.pageSize"
-        @change="initShipPage"
-      />
-      <ElTable
-        v-if="!shipView"
         v-loading="loading"
         :data="tableData"
         border

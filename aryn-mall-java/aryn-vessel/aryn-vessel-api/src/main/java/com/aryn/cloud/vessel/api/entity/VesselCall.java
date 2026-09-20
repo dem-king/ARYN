@@ -17,6 +17,13 @@ import java.time.LocalDateTime;
 @TableName("vessel_call")
 public class VesselCall extends AbstractVesselEntity {
 
+	/** 来源：运营维护 */
+	public static final String SOURCE_ADMIN = "1";
+
+	/** 来源：海员申报 */
+	public static final String SOURCE_CREW = "2";
+
+
 	/** 船舶ID */
 	private String vesselId;
 
@@ -51,6 +58,12 @@ public class VesselCall extends AbstractVesselEntity {
 	/** 操作人姓名（管理端修改时透传，不入库） */
 	@com.baomidou.mybatisplus.annotation.TableField(exist = false)
 	private String operatorName;
+
+	/** 来源：1运营维护 2海员申报 */
+	private String source;
+
+	/** 申报人商城用户ID（海员申报时写入） */
+	private String declaredBy;
 
 	/** 备注 */
 	private String remark;

@@ -41,6 +41,48 @@ describe('mobile review contracts', () => {
     expect(source('src/api/upms/file.ts')).toContain("Local.remove('deliveryToken')")
   })
 
+  it('keeps ship workbench navigation aligned with declared pages', () => {
+    const workbenchSource = source('src/components/ship-workbench/index.vue')
+    const orderSource = source('src/sub-pages/order/order-detail/index.vue')
+    const pagesSource = source('src/pages.json')
+
+    // 商品统一（2026-09-20）：工作台不再有独立的「船供采购」商品目录入口，
+    // 统一走商品分类；ship-supply 页面保留给共享购物车选货模式使用。
+    expect(workbenchSource).not.toContain("ship-supply/index?scene=2")
+    expect(workbenchSource).toContain("'/pages/product/category/index'")
+    expect(workbenchSource).toContain("'/sub-pages/product/frequent/index'")
+    expect(orderSource).toContain("'/pages/user/shopping-cart/index'")
+    expect(workbenchSource).not.toContain("'/pages/product/index'")
+    expect(orderSource).not.toContain("'/pages/cart/index'")
+    expect(pagesSource).toContain('"path": "product/ship-supply/index"')
+    expect(pagesSource).toContain('"path": "product/frequent/index"')
+  })
+
+  it('does not persist vessel context across sessions', () => {
+    expect(source('src/store/persist.ts')).toContain("'shipContext'")
+    expect(source('src/store/authStore.ts')).toContain('useShipContextStore().reset()')
+  })
+
+  it('keeps the home ship workbench below the fixed navbar placeholder', () => {
+    const homeSource = source('src/pages/home/index.vue')
+    const diySource = source('src/components/diy/index.vue')
+
+    // diy-page 的导航栏是 fixed 定位，其占位只对内部内容生效，
+    // 因此必须暴露「导航栏下方」插槽，且插槽位于导航栏之后、DIY 组件之前
+    const navbarIndex = diySource.indexOf('<hr-navbar')
+    const slotIndex = diySource.indexOf('<slot name="below-navbar" />')
+    const componentsIndex = diySource.indexOf('class="diy-components"')
+    expect(navbarIndex).toBeGreaterThan(-1)
+    expect(slotIndex).toBeGreaterThan(navbarIndex)
+    expect(componentsIndex).toBeGreaterThan(slotIndex)
+
+    // 首页必须把船舶工作台放进该插槽，不能渲染成 diy-page 的兄弟节点，否则会被导航栏盖住
+    expect(homeSource).toMatch(
+      /<template #below-navbar>[\s\S]*<ShipWorkbench \/>[\s\S]*<\/template>/,
+    )
+    expect(homeSource).not.toMatch(/<ShipWorkbench \/>\s*\n\s*<diy-page/)
+  })
+
   it('keeps internal IDs out of the delivery eligibility contract', () => {
     const deliverySource = source('src/api/delivery.ts')
 

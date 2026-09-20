@@ -6,11 +6,13 @@ import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.entity.ArynUser;
 import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.order.api.dto.SharedCartItemDTO;
+import com.aryn.cloud.order.api.dto.SharedCartMemberNameDTO;
 import com.aryn.cloud.order.api.dto.SharedCartConfirmDTO;
 import com.aryn.cloud.order.api.dto.SharedCartCreateDTO;
 import com.aryn.cloud.order.api.entity.SharedCart;
 import com.aryn.cloud.order.api.entity.SharedCartItem;
 import com.aryn.cloud.order.api.entity.SharedCartMember;
+import com.aryn.cloud.order.api.vo.SharedCartVO;
 import com.aryn.cloud.order.service.ISharedCartService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -49,11 +51,20 @@ public class AppSharedCartController {
 		return Result.success(sharedCartService.create(ArynTenantContextHolder.getTenantId(), user.getUserId(), dto));
 	}
 
+	@Operation(summary = "我参与的共享购物车列表（我发起或我被邀请）")
+	@GetMapping("/my")
+	public Result<List<SharedCartVO>> myCarts() {
+		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
+		return Result.success(
+				sharedCartService.listMyCarts(ArynTenantContextHolder.getTenantId(), user.getUserId()));
+	}
+
 	@Operation(summary = "购物车详情（仅成员可见）")
 	@GetMapping("/{id}")
-	public Result<SharedCart> detail(@PathVariable String id) {
+	public Result<SharedCartVO> detail(@PathVariable String id) {
 		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
-		return Result.success(sharedCartService.getCartForUser(ArynTenantContextHolder.getTenantId(), user.getUserId(), id));
+		return Result.success(
+				sharedCartService.getCartDetail(ArynTenantContextHolder.getTenantId(), user.getUserId(), id));
 	}
 
 	@Operation(summary = "购物车成员列表")
@@ -62,6 +73,33 @@ public class AppSharedCartController {
 		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
 		sharedCartService.getCartForUser(ArynTenantContextHolder.getTenantId(), user.getUserId(), id);
 		return Result.success(sharedCartService.listMembers(ArynTenantContextHolder.getTenantId(), id));
+	}
+
+	@Operation(summary = "生成分享令牌（发起人）——用于微信群转发自助加入")
+	@PostMapping("/{id}/share")
+	public Result<String> share(@PathVariable String id) {
+		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
+		return Result.success(sharedCartService.ensureShareToken(ArynTenantContextHolder.getTenantId(),
+				user.getUserId(), id));
+	}
+
+	@Operation(summary = "凭分享令牌加入（群成员点击卡片后调用，自动补建船舶成员关系）")
+	@PostMapping("/join")
+	public Result<String> joinByToken(@RequestParam("token") String token) {
+		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
+		// 只回传购物车 ID 供前端跳转，不回显实体（避免把 share_token 等字段回抛）
+		SharedCart cart = sharedCartService.joinByShareToken(ArynTenantContextHolder.getTenantId(),
+				user.getUserId(), token);
+		return Result.success(cart.getId());
+	}
+
+	@Operation(summary = "设置我的展示姓名（加入时填写，用于配送贴标签）")
+	@PutMapping("/{id}/members/me/name")
+	public Result<SharedCartMember> updateMyDisplayName(@PathVariable String id,
+			@Valid @RequestBody SharedCartMemberNameDTO dto) {
+		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
+		return Result.success(sharedCartService.updateMemberDisplayName(ArynTenantContextHolder.getTenantId(),
+				user.getUserId(), id, dto.getDisplayName()));
 	}
 
 	@Operation(summary = "购物车明细列表")

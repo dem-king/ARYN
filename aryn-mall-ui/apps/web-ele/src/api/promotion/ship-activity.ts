@@ -57,7 +57,7 @@ export async function getCallCalendar(start: string, end: string) {
 
 /** 港口配送看板 */
 export async function getPortBoard(portCode: string, date?: string) {
-  return requestClient.get('/order/fulfillment/port-board', {
+  return requestClient.get('/mall-order/fulfillment/port-board', {
     params: { portCode, date },
   });
 }

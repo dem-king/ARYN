@@ -8,10 +8,18 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.aryn.cloud.product.mapper.ShipGoodsProfileMapper">
 
+    <!--
+      注意：本文件所有参与 JOIN 的表都必须声明表别名。
+      多租户拦截器 TenantLineInnerInterceptor 会向 ON 子句追加 tenant_id 条件，
+      其 getAliasColumn() 在表无别名时只会输出裸列名 tenant_id，
+      导致 JOIN 作用域内多张表都有 tenant_id 时报 ambiguous。
+    -->
     <sql id="summaryColumns">
-        goods_spu.id AS spu_id,
-        goods_spu.`name` AS `name`,
-        goods_spu.`status` AS `status`,
+        spu.id AS spu_id,
+        spu.`name` AS `name`,
+        spu.`status` AS `status`,
+        <!-- LEFT JOIN 后 profile 可能为 NULL（无船供资料的普通商品），
+             采购单位/MOQ/步长由应用层按默认值处理 -->
         profile.sale_scope,
         profile.impa_code,
         profile.issa_code,
@@ -26,28 +34,43 @@
         sku_profile.package_spec,
         sku_profile.moq,
         sku_profile.step_qty,
-        goods_sku.sales_price,
-        goods_sku.stock
+        sku.sales_price,
+        sku.stock
     </sql>
 
     <!-- 船供商品摘要分页：一次联表返回，避免 N+1 -->
     <select id="selectShipSummaryPage" resultType="com.aryn.cloud.product.api.vo.ShipProductSummaryVO">
         SELECT
         <include refid="summaryColumns"/>
-        FROM goods_spu
-        INNER JOIN ship_goods_profile profile
-            ON profile.spu_id = goods_spu.id AND profile.tenant_id = goods_spu.tenant_id AND profile.del_flag = '0'
+        FROM goods_spu spu
+        <!-- 商品统一（2026-09-20）：船供属性是**可选扩展资料**，不能作为商品池闸门。
+             改 INNER JOIN 为 LEFT JOIN，使无船供资料的商品同样出现在统一选货页；
+             其 MOQ/步长由应用层按默认值 1 处理。 -->
+        LEFT JOIN ship_goods_profile profile
+            ON profile.spu_id = spu.id AND profile.tenant_id = spu.tenant_id AND profile.del_flag = '0'
+        LEFT JOIN goods_sku sku
+            ON sku.spu_id = spu.id AND sku.tenant_id = spu.tenant_id AND sku.del_flag = '0'
         LEFT JOIN ship_sku_profile sku_profile
-            ON sku_profile.spu_id = goods_spu.id AND sku_profile.tenant_id = goods_spu.tenant_id AND sku_profile.del_flag = '0'
-        LEFT JOIN goods_sku
-            ON goods_sku.id = sku_profile.sku_id AND goods_sku.tenant_id = goods_spu.tenant_id AND goods_sku.del_flag = '0'
-        WHERE goods_spu.tenant_id = #{tenantId}
-          AND goods_spu.del_flag = '0'
+            ON sku_profile.sku_id = sku.id AND sku_profile.tenant_id = spu.tenant_id AND sku_profile.del_flag = '0'
+        WHERE spu.tenant_id = #{tenantId}
+          AND spu.del_flag = '0'
+        <!-- 商品统一（2026-09-20）：不再按 sale_scope 限定可见范围。
+             sale_scope 字段保留以兼容历史数据，但不再作为商品池的划分依据。 -->
         <if test="query.saleScope != null and query.saleScope != ''">
             AND profile.sale_scope = #{query.saleScope}
         </if>
-        <if test="query.saleScope == null or query.saleScope == ''">
-            AND profile.sale_scope IN ('2', '3')
+        <!-- 统一关键词：编码组与名称组之间取 OR。
+             历史缺陷：调用方把同一关键词同时塞进 impaCode 与 nameEn，
+             两个 <if> 是 AND 关系，导致按 IMPA 码搜（品名不含该码）返回 0 条，
+             按中文品名搜（编码不含该名）同样返回 0 条。 -->
+        <if test="query.keyword != null and query.keyword != ''">
+            AND (profile.impa_code LIKE CONCAT('%', #{query.keyword}, '%')
+                 OR profile.issa_code LIKE CONCAT('%', #{query.keyword}, '%')
+                 OR profile.internal_item_code LIKE CONCAT('%', #{query.keyword}, '%')
+                 OR profile.barcode LIKE CONCAT('%', #{query.keyword}, '%')
+                 OR profile.name_en LIKE CONCAT('%', #{query.keyword}, '%')
+                 OR spu.name LIKE CONCAT('%', #{query.keyword}, '%')
+                 OR profile.search_aliases LIKE CONCAT('%', #{query.keyword}, '%'))
         </if>
         <if test="query.impaCode != null and query.impaCode != ''">
             AND (profile.impa_code LIKE CONCAT('%', #{query.impaCode}, '%')
@@ -57,14 +80,14 @@
         </if>
         <if test="query.nameEn != null and query.nameEn != ''">
             AND (profile.name_en LIKE CONCAT('%', #{query.nameEn}, '%')
-                 OR goods_spu.name LIKE CONCAT('%', #{query.nameEn}, '%')
+                 OR spu.name LIKE CONCAT('%', #{query.nameEn}, '%')
                  OR profile.search_aliases LIKE CONCAT('%', #{query.nameEn}, '%'))
         </if>
         <if test="query.storageType != null and query.storageType != ''">
             AND profile.storage_type = #{query.storageType}
         </if>
         <if test="query.status != null and query.status != ''">
-            AND goods_spu.`status` = #{query.status}
+            AND spu.`status` = #{query.status}
         </if>
         <if test="query.moq != null">
             AND sku_profile.moq &gt;= #{query.moq}
@@ -72,31 +95,42 @@
         <if test="query.publishCompleteness != null">
             AND profile.publish_completeness &lt;= #{query.publishCompleteness}
         </if>
-        ORDER BY goods_spu.create_time DESC
+        ORDER BY spu.create_time DESC
     </select>
 
-    <!-- 个人商品摘要（sale_scope 包含个人购买的场景） -->
+    <!-- 商品摘要（统一商品池：不再区分个人/船供） -->
     <select id="selectPersonalSummaryPage" resultType="com.aryn.cloud.product.api.vo.ShipProductSummaryVO">
         SELECT
         <include refid="summaryColumns"/>
-        FROM goods_spu
-        INNER JOIN ship_goods_profile profile
-            ON profile.spu_id = goods_spu.id AND profile.tenant_id = goods_spu.tenant_id AND profile.del_flag = '0'
+        FROM goods_spu spu
+        <!-- 商品统一（2026-09-20）：与 shipSummaryPage 同源，改为 LEFT JOIN。
+             无船供资料的商品按默认 MOQ=1/步长=1 参与下单。 -->
+        LEFT JOIN ship_goods_profile profile
+            ON profile.spu_id = spu.id AND profile.tenant_id = spu.tenant_id AND profile.del_flag = '0'
+        LEFT JOIN goods_sku sku
+            ON sku.spu_id = spu.id AND sku.tenant_id = spu.tenant_id AND sku.del_flag = '0'
         LEFT JOIN ship_sku_profile sku_profile
-            ON sku_profile.spu_id = goods_spu.id AND sku_profile.tenant_id = goods_spu.tenant_id AND sku_profile.del_flag = '0'
-        LEFT JOIN goods_sku
-            ON goods_sku.id = sku_profile.sku_id AND goods_sku.tenant_id = goods_spu.tenant_id AND goods_sku.del_flag = '0'
-        WHERE goods_spu.tenant_id = #{tenantId}
-          AND goods_spu.del_flag = '0'
-          AND profile.sale_scope IN ('1', '3')
+            ON sku_profile.sku_id = sku.id AND sku_profile.tenant_id = spu.tenant_id AND sku_profile.del_flag = '0'
+        WHERE spu.tenant_id = #{tenantId}
+          AND spu.del_flag = '0'
+
+        <if test="query.keyword != null and query.keyword != ''">
+            AND (spu.name LIKE CONCAT('%', #{query.keyword}, '%')
+                 OR profile.name_en LIKE CONCAT('%', #{query.keyword}, '%')
+                 OR profile.impa_code LIKE CONCAT('%', #{query.keyword}, '%')
+                 OR profile.issa_code LIKE CONCAT('%', #{query.keyword}, '%')
+                 OR profile.internal_item_code LIKE CONCAT('%', #{query.keyword}, '%')
+                 OR profile.barcode LIKE CONCAT('%', #{query.keyword}, '%')
+                 OR profile.search_aliases LIKE CONCAT('%', #{query.keyword}, '%'))
+        </if>
         <if test="query.nameEn != null and query.nameEn != ''">
-            AND (goods_spu.name LIKE CONCAT('%', #{query.nameEn}, '%')
+            AND (spu.name LIKE CONCAT('%', #{query.nameEn}, '%')
                  OR profile.name_en LIKE CONCAT('%', #{query.nameEn}, '%'))
         </if>
         <if test="query.status != null and query.status != ''">
-            AND goods_spu.`status` = #{query.status}
+            AND spu.`status` = #{query.status}
         </if>
-        ORDER BY goods_spu.create_time DESC
+        ORDER BY spu.create_time DESC
     </select>
 
 </mapper>

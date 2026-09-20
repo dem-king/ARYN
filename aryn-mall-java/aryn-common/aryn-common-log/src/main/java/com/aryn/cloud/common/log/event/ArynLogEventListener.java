@@ -4,16 +4,16 @@ import com.aryn.cloud.common.core.entity.SysLogBase;
 import com.aryn.cloud.common.core.entity.SysLoginLogBase;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.upms.api.remote.RemoteSysLogService;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
 
 @Slf4j
-@RequiredArgsConstructor
 public class ArynLogEventListener {
 
-	private final RemoteSysLogService remoteSysLogService;
+	@DubboReference
+	private RemoteSysLogService remoteSysLogService;
 
 	@Async("hxAsyncExecutor")
 	@EventListener(ArynLogEvent.class)

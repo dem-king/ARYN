@@ -48,21 +48,27 @@ export interface FulfillmentException {
 }
 
 export async function createWave(data: Partial<FulfillmentWave>) {
-  return requestClient.post('/order/fulfillment/wave', data);
+  return requestClient.post('/mall-order/fulfillment/wave', data);
 }
 
 export async function getWavePage(query: any) {
-  return requestClient.get('/order/fulfillment/wave/page', { params: query });
+  return requestClient.get('/mall-order/fulfillment/wave/page', {
+    params: query,
+  });
 }
 
 export async function getWaveItems(waveId: string) {
-  return requestClient.get(`/order/fulfillment/wave/${waveId}/items`);
+  return requestClient.get(`/mall-order/fulfillment/wave/${waveId}/items`);
 }
 
 export async function addOrderToWave(waveId: string, orderId: string) {
-  return requestClient.post(`/order/fulfillment/wave/${waveId}/orders`, null, {
-    params: { orderId },
-  });
+  return requestClient.post(
+    `/mall-order/fulfillment/wave/${waveId}/orders`,
+    null,
+    {
+      params: { orderId },
+    },
+  );
 }
 
 export async function scanPick(data: {
@@ -71,7 +77,7 @@ export async function scanPick(data: {
   scannedCode: string;
   waveId: string;
 }) {
-  return requestClient.post('/order/fulfillment/pick/scan', data);
+  return requestClient.post('/mall-order/fulfillment/pick/scan', data);
 }
 
 export async function reportShort(data: {
@@ -82,16 +88,16 @@ export async function reportShort(data: {
   substitutedSkuId?: string;
   waveId: string;
 }) {
-  return requestClient.post('/order/fulfillment/pick/short', data);
+  return requestClient.post('/mall-order/fulfillment/pick/short', data);
 }
 
 export async function reviewWave(waveId: string) {
-  return requestClient.post(`/order/fulfillment/wave/${waveId}/review`);
+  return requestClient.post(`/mall-order/fulfillment/wave/${waveId}/review`);
 }
 
 export async function handOverWave(waveId: string, staffId?: string) {
   return requestClient.post(
-    `/order/fulfillment/wave/${waveId}/hand-over`,
+    `/mall-order/fulfillment/wave/${waveId}/hand-over`,
     null,
     {
       params: { staffId },
@@ -100,7 +106,7 @@ export async function handOverWave(waveId: string, staffId?: string) {
 }
 
 export async function getExceptionPage(query: any) {
-  return requestClient.get('/order/fulfillment/exception/page', {
+  return requestClient.get('/mall-order/fulfillment/exception/page', {
     params: query,
   });
 }
@@ -110,7 +116,7 @@ export async function closeException(
   handleRemark?: string,
 ) {
   return requestClient.post(
-    `/order/fulfillment/exception/${exceptionId}/close`,
+    `/mall-order/fulfillment/exception/${exceptionId}/close`,
     null,
     { params: { handleRemark } },
   );
@@ -125,5 +131,5 @@ export async function reportException(data: {
   taskId?: string;
   waveId?: string;
 }) {
-  return requestClient.post('/order/fulfillment/exception', data);
+  return requestClient.post('/mall-order/fulfillment/exception', data);
 }

@@ -186,6 +186,52 @@ class VesselContextServiceTest {
 	}
 
 	@Test
+	@DisplayName("海员申报靠港：标记来源为海员申报并记录申报人，且不写入配送时间窗")
+	void declareCallMarksCrewSourceAndSkipsDeliveryWindow() {
+		when(vesselMemberMapper.selectCount(any())).thenReturn(1L);
+		when(vesselCallMapper.selectList(any())).thenReturn(List.of());
+
+		LocalDateTime eta = LocalDateTime.of(2026, 9, 20, 8, 0);
+		LocalDateTime etd = LocalDateTime.of(2026, 9, 20, 20, 0);
+		VesselCall declared = call(null, "1", eta, etd);
+		// 配送时间窗属于公司排产决策，海员即使传了也不应落库
+		declared.setDeliveryWindowStart(eta.plusHours(1));
+		declared.setDeliveryWindowEnd(eta.plusHours(3));
+
+		VesselCall saved = service.declareCall(TENANT, USER, declared);
+
+		assertEquals(VesselCall.SOURCE_CREW, saved.getSource());
+		assertEquals(USER, saved.getDeclaredBy());
+		assertEquals(null, saved.getDeliveryWindowStart());
+		assertEquals(null, saved.getDeliveryWindowEnd());
+	}
+
+	@Test
+	@DisplayName("海员申报靠港：同船 ETA 相近时复用已有计划，不重复建")
+	void declareCallReusesNearbyCall() {
+		when(vesselMemberMapper.selectCount(any())).thenReturn(1L);
+
+		LocalDateTime eta = LocalDateTime.of(2026, 9, 20, 8, 0);
+		VesselCall existing = call("call-existing", "1", eta, eta.plusHours(12));
+		when(vesselCallMapper.selectList(any())).thenReturn(List.of(existing));
+
+		// ±72 小时内视为同一航次
+		VesselCall declared = call(null, "1", eta.plusHours(48), eta.plusHours(60));
+		VesselCall saved = service.declareCall(TENANT, USER, declared);
+
+		assertEquals("call-existing", saved.getId());
+	}
+
+	@Test
+	@DisplayName("海员申报靠港：非本船成员被拒绝")
+	void declareCallRejectsNonMember() {
+		when(vesselMemberMapper.selectCount(any())).thenReturn(0L);
+		LocalDateTime eta = LocalDateTime.of(2026, 9, 20, 8, 0);
+		VesselCall declared = call(null, "1", eta, eta.plusHours(12));
+		assertThrows(ArynBusinessException.class, () -> service.declareCall(TENANT, USER, declared));
+	}
+
+	@Test
 	@DisplayName("已离港、已完成和已取消的靠港计划不能作为新订单配送计划")
 	void expiredCallsNotOrderable() {
 		LocalDateTime now = LocalDateTime.of(2026, 9, 12, 12, 0);

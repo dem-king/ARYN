@@ -74,11 +74,14 @@ onPullDownRefresh(() => {
     {{ errorMessage }}
   </view>
   <view v-else>
-    <ShipWorkbench />
     <diy-page
       :page-content-data="pageContent"
       :page-name="title"
-    />
+    >
+      <template #below-navbar>
+        <ShipWorkbench />
+      </template>
+    </diy-page>
   </view>
 </template>
 

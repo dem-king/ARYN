@@ -215,7 +215,7 @@ async function toPay() {
   // 内部配送（deliveryWay=4）必须携带船舶与靠港计划上下文
   if (state.orderParams.deliveryWay === '4') {
     if (!shipContextStore.hasVesselContext) {
-      return useGlobalToast().warning('请先在首页选择船舶和靠港计划')
+      return useGlobalToast().warning('请先选择船舶和靠港计划')
     }
     Object.assign(state.orderParams, shipContextStore.deliveryContextParams)
   } else {

@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { defineAsyncComponent, reactive, ref } from 'vue';
+import { computed, defineAsyncComponent, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
 
 import { Box } from '@element-plus/icons-vue';
@@ -72,6 +72,14 @@ interface DataState {
   dialog: boolean;
 }
 const Deliver = defineAsyncComponent(() => import('../deliver/index.vue'));
+
+/**
+ * 是否存在成员备注：共享采购（按人拆行）才可能有，
+ * 普通订单不渲染该列，避免表格出现过宽的空列。
+ */
+const hasContributorRemark = computed(() =>
+  (state.orderInfo.orderItemList ?? []).some((item: any) => item.memberRemark),
+);
 // 字典
 const { pay_type, delivery_way, order_item_status } = useDict(
   'pay_type',
@@ -502,6 +510,21 @@ getDetail();
         </ElTableColumn>
         <ElTableColumn prop="salesPrice" label="单价（元）" width="150" />
         <ElTableColumn prop="buyQuantity" label="数量" width="100" />
+        <!-- 共享采购按人拆行后的归属：仓库按此列逐人分拣并打印配送标签 -->
+        <ElTableColumn label="订购人" width="140">
+          <template #default="scope">
+            <span v-if="scope.row.contributorName">{{
+              scope.row.contributorName
+            }}</span>
+            <span v-else class="text-gray-400">—</span>
+          </template>
+        </ElTableColumn>
+        <ElTableColumn
+          v-if="hasContributorRemark"
+          prop="memberRemark"
+          label="成员备注"
+          width="180"
+        />
         <ElTableColumn prop="freightPrice" label="运费（元）" width="150" />
         <ElTableColumn prop="couponPrice" label="优惠金额（元）" width="150" />
         <ElTableColumn prop="paymentPrice" label="小记（元）" />

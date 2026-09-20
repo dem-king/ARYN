@@ -46,8 +46,11 @@ public class CreateOrderSkuReqDTO {
 	@Schema(description = "规格图")
 	private String picUrl;
 
-	@Schema(description = "共享购物车来源成员用户ID（多个成员合并时为逗号分隔）")
+	@Schema(description = "共享购物车来源成员用户ID（按人拆行后为单一成员）")
 	private String contributorUserId;
+
+	@Schema(description = "共享购物车贡献者姓名快照（配送贴标签用）")
+	private String contributorName;
 
 	@Schema(description = "共享购物车成员备注快照")
 	private String memberRemark;

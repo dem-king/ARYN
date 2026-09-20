@@ -12,6 +12,7 @@ import type { PiniaPluginContext } from 'pinia'
 const EXCLUDED_STORE_IDS = new Set([
   'temp',
   'shoppingCart',
+  'shipContext',
   'global-loading',
   'global-toast',
   'global-message',

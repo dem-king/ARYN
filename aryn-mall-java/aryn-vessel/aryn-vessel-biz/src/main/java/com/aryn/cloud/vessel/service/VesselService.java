@@ -52,6 +52,23 @@ public interface VesselService {
 	VesselCall saveCall(String tenantId, VesselCall call);
 
 	/**
+	 * 海员申报靠港：校验船舶成员关系后落库，来源标记为「海员申报」。
+	 *
+	 * <p>公司无法与船舶公司对接船期，ETA/ETD 只有船上的人知道；
+	 * 因此港口/泊位/到离港时间由海员在下单时申报，运营收到后再排产
+	 * （填配送时间窗、排波次、派车）。同一船舶已有未完成且 ETA 相近
+	 * （±72 小时）的靠港时复用，避免同一航次被多人重复申报。
+	 *
+	 * @return 新建或被复用的靠港计划
+	 */
+	VesselCall declareCall(String tenantId, String userId, VesselCall call);
+
+	/**
+	 * 待处理的靠港申报（运营视角：来源为海员申报且尚未排产）
+	 */
+	List<VesselCall> listDeclaredCalls(String tenantId);
+
+	/**
 	 * 管理端修改靠港计划（ETA/泊位/时间窗等）。
 	 */
 	VesselCall updateCall(String tenantId, VesselCall call);

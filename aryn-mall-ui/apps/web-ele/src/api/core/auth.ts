@@ -57,7 +57,7 @@ export async function refreshTokenApi() {
  * 退出登录
  */
 export async function logoutApi() {
-  return baseRequestClient.delete('/token/logout', {
+  return baseRequestClient.delete('/auth/token/logout', {
     withCredentials: true,
     headers: {
       isSwitchTenant: false,

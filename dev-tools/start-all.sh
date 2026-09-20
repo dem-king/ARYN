@@ -101,7 +101,8 @@ backend_artifacts_exist() {
     aryn-product/aryn-product-biz/target/aryn-product-biz.jar \
     aryn-order/aryn-order-biz/target/aryn-order-biz.jar \
     aryn-promotion/aryn-promotion-biz/target/aryn-promotion-biz.jar \
-    aryn-pay/aryn-pay-biz/target/aryn-pay-biz.jar; do
+    aryn-pay/aryn-pay-biz/target/aryn-pay-biz.jar \
+    aryn-vessel/aryn-vessel-biz/target/aryn-vessel-biz.jar; do
     [[ -f "${JAVA_DIR}/${artifact}" ]] || return 1
     unzip -p "${JAVA_DIR}/${artifact}" META-INF/MANIFEST.MF 2>/dev/null | grep -q '^Start-Class:' || return 1
   done
@@ -112,7 +113,7 @@ build_backend() {
   (
     cd "${JAVA_DIR}"
     mvn -Pcloud -DskipTests package \
-      -pl aryn-gateway,aryn-auth,aryn-upms/aryn-upms-biz,aryn-user/aryn-user-biz,aryn-message/aryn-message-biz,aryn-product/aryn-product-biz,aryn-order/aryn-order-biz,aryn-promotion/aryn-promotion-biz,aryn-pay/aryn-pay-biz \
+      -pl aryn-gateway,aryn-auth,aryn-upms/aryn-upms-biz,aryn-user/aryn-user-biz,aryn-message/aryn-message-biz,aryn-product/aryn-product-biz,aryn-order/aryn-order-biz,aryn-promotion/aryn-promotion-biz,aryn-pay/aryn-pay-biz,aryn-vessel/aryn-vessel-biz \
       -am
   )
 }
@@ -186,27 +187,37 @@ start_frontend() {
   fi
 
   log "启动 ${name}，日志: ${log_file}"
+  local started_pid=""
   if [[ "$(uname -s)" == "Darwin" ]]; then
     local launch_label="com.aryn.mall.${name}"
     launchctl remove "${launch_label}" >/dev/null 2>&1 || true
     launchctl submit -l "${launch_label}" -o "${log_file}" -e "${log_file}" -- \
       /bin/bash -c 'cd "$1" && runtime_path="$2" && shift 2 && exec env PATH="${runtime_path}" VITE_OPEN_BOOT=false "$@"' \
-      _ "${work_dir}" "${PATH}" "${executable}" "$@"
+      _ "${work_dir}" "${PATH}" "${executable}" "$@" >/dev/null 2>&1 || true
     for _ in $(seq 1 20); do
       local launch_pid
       launch_pid="$(launchctl print "gui/$(id -u)/${launch_label}" 2>/dev/null | awk '/pid =/ {print $3; exit}')"
       if [[ -n "${launch_pid}" ]]; then
-        echo "${launch_pid}" >"${pid_file}"
+        started_pid="${launch_pid}"
         break
       fi
       sleep 0.1
     done
-  else
+    # macOS 15 起部分环境会拒绝 launchctl submit（返回码非 0 且无提示），
+    # 此时退回到 nohup 后台启动，保证前端仍可拉起。
+    if [[ -z "${started_pid}" ]]; then
+      log "launchctl 不可用，改用 nohup 后台启动 ${name}"
+    fi
+  fi
+
+  if [[ -z "${started_pid}" ]]; then
     (
       cd "${work_dir}"
       nohup env VITE_OPEN_BOOT=false "${executable}" "$@" >"${log_file}" 2>&1 &
       echo $! >"${pid_file}"
     )
+  else
+    echo "${started_pid}" >"${pid_file}"
   fi
 }
 

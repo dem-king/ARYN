@@ -4,7 +4,7 @@ import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.order.api.enums.DeliveryWayEnum;
 import com.aryn.cloud.vessel.api.dto.VesselContextDTO;
 import com.aryn.cloud.vessel.api.remote.RemoteVesselService;
-import lombok.RequiredArgsConstructor;
+import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -21,10 +21,10 @@ import java.util.Objects;
  * @since 2026/9/12
  */
 @Component
-@RequiredArgsConstructor
 public class DeliveryContextValidator {
 
-	private final RemoteVesselService remoteVesselService;
+	@DubboReference
+	private RemoteVesselService remoteVesselService;
 
 	/**
 	 * 校验配送上下文。

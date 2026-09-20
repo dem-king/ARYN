@@ -83,6 +83,8 @@ function sectionStyle(section: DecorationSection) {
       :title="title"
       :left-arrow="false"
     />
+    <!-- 导航栏占位之后的自定义区域，供页面插入需要在导航栏下方展示的模块 -->
+    <slot name="below-navbar" />
     <view class="diy-components">
       <view
         v-for="section in sections"

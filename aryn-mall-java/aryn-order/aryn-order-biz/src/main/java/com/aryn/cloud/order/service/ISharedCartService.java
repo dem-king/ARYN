@@ -6,6 +6,7 @@ import com.aryn.cloud.order.api.dto.SharedCartCreateDTO;
 import com.aryn.cloud.order.api.entity.SharedCart;
 import com.aryn.cloud.order.api.entity.SharedCartItem;
 import com.aryn.cloud.order.api.entity.SharedCartMember;
+import com.aryn.cloud.order.api.vo.SharedCartVO;
 
 import java.util.List;
 
@@ -63,13 +64,51 @@ public interface ISharedCartService {
 	SharedCart getCartForUser(String tenantId, String userId, String cartId);
 
 	/**
+	 * 查询购物车详情视图（仅成员可见），含船舶/靠港展示字段与查看者权限标记。
+	 */
+	SharedCartVO getCartDetail(String tenantId, String userId, String cartId);
+
+	/**
+	 * 查询我参与的全部共享购物车（我发起或我作为成员），按创建时间倒序。
+	 */
+	List<SharedCartVO> listMyCarts(String tenantId, String userId);
+
+	/**
 	 * 查询购物车成员。
 	 */
 	List<SharedCartMember> listMembers(String tenantId, String cartId);
 
 	/**
+	 * 设置当前成员在共享购物车中的展示姓名（加入时填写一次，用于配送贴标签）。
+	 */
+	SharedCartMember updateMemberDisplayName(String tenantId, String userId, String cartId, String displayName);
+
+	/**
 	 * 查询购物车有效明细。
 	 */
 	List<SharedCartItem> listItems(String tenantId, String cartId);
+
+	/**
+	 * 生成/复用分享令牌（发起人）。令牌随购物车过期失效，用于微信群转发自助加入。
+	 * @return 分享令牌
+	 */
+	String ensureShareToken(String tenantId, String userId, String cartId);
+
+	/**
+	 * 凭分享令牌自助加入：校验令牌与购物车有效期，自动补建船舶成员关系后写入成员行。
+	 * @return 加入后的购物车（供前端直接跳转详情）
+	 */
+	SharedCart joinByShareToken(String tenantId, String userId, String shareToken);
+
+	/**
+	 * 关闭已过期的收集/待确认购物车，返回处理条数（定时任务调用，按租户执行）。
+	 */
+	int closeExpiredCarts(int batchSize);
+
+	/**
+	 * 订单签收后归档：把生成该订单的共享购物车置为「已完成」，让船员看到「本次采购已送达」。
+	 * @return 是否归档成功（无关联购物车视为无需处理，返回 false）
+	 */
+	boolean archiveOnOrderSigned(String orderId);
 
 }

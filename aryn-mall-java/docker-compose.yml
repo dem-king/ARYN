@@ -82,6 +82,21 @@ services:
     depends_on:
       aryn-mysql:
         condition: service_healthy
+    # Nacos 就绪判定必须同时覆盖 HTTP 8848 与 gRPC 9848：
+    # 各 biz 通过 gRPC 9848 拉配置，若只等容器 started 就放行，
+    # 服务会在 9848 尚未监听时抛
+    # "Connection refused: aryn-nacos:9848" 导致 APPLICATION FAILED TO START，
+    # 再由 restart: always 重启一次才成功（表现为 RestartCount=1 的瞬时重启）。
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          curl -fsS --max-time 3 -o /dev/null http://127.0.0.1:8848/nacos/v1/ns/operator/metrics
+          && bash -c 'exec 3<>/dev/tcp/127.0.0.1/9848'
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
 
   aryn-rocketmq-namesrv:
     image: aryn/rocketmq:5.4.0-amd64
@@ -173,7 +188,7 @@ services:
       - aryn-net
     depends_on:
       aryn-nacos:
-        condition: service_started
+        condition: service_healthy
       aryn-redis:
         condition: service_healthy
       aryn-upms-biz:
@@ -195,7 +210,7 @@ services:
       - aryn-net
     depends_on:
       aryn-nacos:
-        condition: service_started
+        condition: service_healthy
       aryn-redis:
         condition: service_healthy
       aryn-upms-biz:
@@ -219,7 +234,7 @@ services:
       - aryn-net
     depends_on:
       aryn-nacos:
-        condition: service_started
+        condition: service_healthy
       aryn-mysql:
         condition: service_healthy
       aryn-redis:
@@ -247,7 +262,7 @@ services:
       - aryn-net
     depends_on:
       aryn-nacos:
-        condition: service_started
+        condition: service_healthy
       aryn-mysql:
         condition: service_healthy
       aryn-redis:
@@ -271,7 +286,7 @@ services:
       - aryn-net
     depends_on:
       aryn-nacos:
-        condition: service_started
+        condition: service_healthy
       aryn-mysql:
         condition: service_healthy
       aryn-redis:
@@ -299,7 +314,7 @@ services:
       - aryn-net
     depends_on:
       aryn-nacos:
-        condition: service_started
+        condition: service_healthy
       aryn-mysql:
         condition: service_healthy
       aryn-redis:
@@ -308,6 +323,8 @@ services:
         condition: service_healthy
       aryn-upms-biz:
         condition: service_healthy
+      aryn-vessel-biz:
+        condition: service_started
       aryn-xxl-job-admin:
         condition: service_started
 
@@ -327,7 +344,7 @@ services:
       - aryn-net
     depends_on:
       aryn-nacos:
-        condition: service_started
+        condition: service_healthy
       aryn-mysql:
         condition: service_healthy
       aryn-redis:
@@ -351,7 +368,7 @@ services:
       - aryn-net
     depends_on:
       aryn-nacos:
-        condition: service_started
+        condition: service_healthy
       aryn-mysql:
         condition: service_healthy
       aryn-redis:
@@ -375,7 +392,7 @@ services:
       - aryn-net
     depends_on:
       aryn-nacos:
-        condition: service_started
+        condition: service_healthy
       aryn-mysql:
         condition: service_healthy
       aryn-redis:
@@ -384,6 +401,34 @@ services:
         condition: service_healthy
       aryn-xxl-job-admin:
         condition: service_started
+
+  aryn-vessel-biz:
+    build:
+      context: ./aryn-vessel/aryn-vessel-biz
+      dockerfile: Dockerfile
+    pull_policy: never
+    container_name: aryn-vessel-biz
+    restart: always
+    ports:
+      - "6700:6700"
+    environment:
+      <<: *java-environment
+      SPRING_PROFILES_ACTIVE: cloud
+    networks:
+      - aryn-net
+    depends_on:
+      aryn-nacos:
+        condition: service_healthy
+      aryn-mysql:
+        condition: service_healthy
+      aryn-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/6700'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
 
 #  aryn-monitor:
 #    build:

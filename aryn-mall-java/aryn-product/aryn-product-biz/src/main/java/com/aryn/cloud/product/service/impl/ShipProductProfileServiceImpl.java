@@ -104,31 +104,30 @@ public class ShipProductProfileServiceImpl implements IShipProductProfileService
 		return shipGoodsProfileMapper.selectPersonalSummaryPage(page, tenantId, query);
 	}
 
+	/**
+	 * 校验船供扩展资料。
+	 *
+	 * <p>商品统一（2026-09-20）后，船供属性是**可选扩展资料**而非商品池闸门：
+	 * 未填写 IMPA/ISSA/采购单位等字段的商品同样可以销售，缺省按采购单位=基本单位、
+	 * MOQ=1、步长=1 处理。因此这里不再要求「船供可见必须有编码/包装资料」，
+	 * 仅在**填写了**相关字段时校验其取值合法性，避免脏数据。
+	 */
 	private void validateProfile(String tenantId, ShipGoodsProfile profile, List<ShipSkuProfile> skuProfiles) {
-		if (SaleScopeEnum.getValue(profile.getSaleScope()) == null) {
+		if (StringUtils.hasText(profile.getSaleScope())
+				&& SaleScopeEnum.getValue(profile.getSaleScope()) == null) {
 			throw new ArynBusinessException("销售范围不合法");
 		}
-		boolean shipSupplyVisible = !"1".equals(profile.getSaleScope());
-		if (shipSupplyVisible) {
-			boolean hasShipCode = StringUtils.hasText(profile.getImpaCode())
-					|| StringUtils.hasText(profile.getIssaCode()) || StringUtils.hasText(profile.getInternalItemCode());
-			if (!hasShipCode) {
-				throw new ArynBusinessException("船供商品必须至少提供 IMPA/ISSA/内部物料编码之一");
-			}
-			if (skuProfiles == null || skuProfiles.isEmpty()) {
-				throw new ArynBusinessException("船供商品必须提供 SKU 包装资料");
-			}
+		if (skuProfiles != null) {
 			for (ShipSkuProfile skuProfile : skuProfiles) {
-				if (!StringUtils.hasText(skuProfile.getPurchaseUnit())) {
-					throw new ArynBusinessException("船供商品必须提供采购单位");
-				}
-				if (skuProfile.getMoq() == null || skuProfile.getMoq() < 1) {
+				boolean hasQtyRule = skuProfile.getMoq() != null || skuProfile.getStepQty() != null;
+				if (skuProfile.getMoq() != null && skuProfile.getMoq() < 1) {
 					throw new ArynBusinessException("最小起订量必须大于 0");
 				}
-				if (skuProfile.getStepQty() == null || skuProfile.getStepQty() <= 0) {
+				if (skuProfile.getStepQty() != null && skuProfile.getStepQty() <= 0) {
 					throw new ArynBusinessException("数量步长必须大于 0");
 				}
-				if (skuProfile.getMoq() % skuProfile.getStepQty() != 0) {
+				if (hasQtyRule && skuProfile.getMoq() != null && skuProfile.getStepQty() != null
+						&& skuProfile.getMoq() % skuProfile.getStepQty() != 0) {
 					throw new ArynBusinessException("最小起订量必须是数量步长的整数倍");
 				}
 			}

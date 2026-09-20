@@ -238,6 +238,8 @@ hx:
       - vessel_member
       - vessel_call
       - vessel_call_change_log
+      - vessel_invite_code
+      - vessel_bind_apply
       - ship_goods_profile
       - ship_sku_profile
       - product_code_mapping

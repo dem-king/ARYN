@@ -23,6 +23,19 @@ public interface RemoteVesselService {
 	boolean isVesselMember(String tenantId, String vesselId, String userId);
 
 	/**
+	 * 凭分享加入时自动补建船舶成员关系（幂等：已是成员则直接返回）。
+	 *
+	 * <p>场景：船员通过微信群分享卡片首次进入商城，此前没有船舶成员关系。
+	 * 补建后即获得该船船员身份，后续可直接参与船供采购与内部配送。
+	 *
+	 * @param tenantId 租户ID
+	 * @param vesselId 船舶ID
+	 * @param userId 商城用户ID
+	 * @return true 表示已成为成员（新建或原本就是）
+	 */
+	boolean bindMemberByShare(String tenantId, String vesselId, String userId);
+
+	/**
 	 * 查询靠港计划的配送上下文（含船舶名称、港口、泊位和时间窗）。
 	 * @param tenantId 租户ID
 	 * @param vesselCallId 靠港计划ID

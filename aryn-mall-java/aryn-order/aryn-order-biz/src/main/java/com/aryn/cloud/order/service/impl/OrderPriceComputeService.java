@@ -127,16 +127,22 @@ public class OrderPriceComputeService {
 		computeOrderPrice(orderInfo, orderItemEntityList);
 	}
 
+	/**
+	 * 库存校验与扣减。
+	 *
+	 * <p>共享购物车按成员拆行后，同一 SKU 会出现在多条明细中，
+	 * 因此必须<b>按 SKU 汇总数量</b>后再与库存比对；
+	 * 历史实现取 findFirst() 的单个数量，且以「SKU 去重数 &lt; 明细行数」判定不足，
+	 * 在多人买同一商品时必然误报库存不足。
+	 */
 	public void orderStockHandler(List<GoodsSku> goodsSkuList, List<OrderItemEntity> orderItemEntityList) {
 
-		List<GoodsSku> skuList = goodsSkuList.stream()
-			.filter(goodsSku -> goodsSku.getStock() >= orderItemEntityList.stream()
-				.filter(skuReq -> skuReq.getSkuId().equals(goodsSku.getId()))
-				.findFirst()
-				.get()
-				.getBuyQuantity())
-			.toList();
-		if (CollUtil.isEmpty(skuList) || skuList.size() < orderItemEntityList.size()) {
+		Map<String, Integer> requiredBySku = orderItemEntityList.stream()
+			.collect(Collectors.toMap(OrderItemEntity::getSkuId, OrderItemEntity::getBuyQuantity, Integer::sum));
+		boolean stockEnough = goodsSkuList.stream()
+			.allMatch(goodsSku -> goodsSku.getStock() != null
+					&& goodsSku.getStock() >= requiredBySku.getOrDefault(goodsSku.getId(), 0));
+		if (CollUtil.isEmpty(goodsSkuList) || !stockEnough) {
 			throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60008.getCode(),
 					MallErrorCodeEnum.ERROR_60008.getMsg());
 		}
@@ -330,14 +336,24 @@ public class OrderPriceComputeService {
 		}
 	}
 
+	/**
+	 * 生成订单明细。
+	 *
+	 * <p>以「请求行」为粒度生成，一个 {@link CreateOrderSkuReqDTO} 对应一条明细。
+	 * 共享购物车按成员拆分提交时，同一 SKU 会有多行（每人一行），用于配送贴标签区分归属；
+	 * 因此不能按 goodsSkuList 去重后遍历，否则同 SKU 的其余成员明细会被静默丢弃。
+	 */
 	public List<OrderItemEntity> generateOrderItems(List<GoodsSku> goodsSkuList,
 			List<CreateOrderSkuReqDTO> skuReqList) {
-		return goodsSkuList.stream().map(sku -> {
+		Map<String, GoodsSku> skuMap = goodsSkuList.stream()
+			.collect(Collectors.toMap(GoodsSku::getId, sku -> sku, (first, second) -> first));
+		return skuReqList.stream().map(placeOrderSku -> {
+			GoodsSku sku = skuMap.get(placeOrderSku.getSkuId());
+			if (sku == null) {
+				throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60008.getCode(),
+						MallErrorCodeEnum.ERROR_60008.getMsg());
+			}
 			BigDecimal salesPrice = sku.getSalesPrice();
-			CreateOrderSkuReqDTO placeOrderSku = skuReqList.stream()
-				.filter(tree -> tree.getSkuId().equals(sku.getId()))
-				.toList()
-				.get(0);
 			GoodsSpu goodsSpu = sku.getGoodsSpu();
 			OrderItemEntity orderItemEntity = new OrderItemEntity();
 			orderItemEntity.setBuyQuantity(placeOrderSku.getQuantity());
@@ -355,6 +371,7 @@ public class OrderPriceComputeService {
 			orderItemEntity.setSpecsInfo(placeOrderSku.getSpecsInfo());
 			orderItemEntity.setPicUrl(placeOrderSku.getPicUrl());
 			orderItemEntity.setContributorUserId(placeOrderSku.getContributorUserId());
+			orderItemEntity.setContributorName(placeOrderSku.getContributorName());
 			orderItemEntity.setMemberRemark(placeOrderSku.getMemberRemark());
 			return orderItemEntity;
 		}).collect(Collectors.toList());
@@ -455,13 +472,24 @@ public class OrderPriceComputeService {
 		context.setVesselId(orderInfo.getVesselId());
 		context.setVesselCallId(orderInfo.getVesselCallId());
 		context.setPortCode(orderInfo.getPortCode());
-		context.setSkuItems(orderItemEntityList.stream().map(item -> {
-			PromotionContextDTO.SkuItem skuItem = new PromotionContextDTO.SkuItem();
-			skuItem.setSkuId(item.getSkuId());
-			skuItem.setQuantity(item.getBuyQuantity());
-			skuItem.setSalesPrice(item.getSalesPrice());
-			return skuItem;
-		}).toList());
+		// 按 SKU 聚合后再交给营销引擎：共享购物车按成员拆行后，
+		// 同一 SKU 会有多条明细（每人一行），若逐行传入则阶梯价的「满 N 件」档位
+		// 会按单行数量判定而永不触发，导致整船优惠失效。聚合后语义为整单该 SKU 总量。
+		Map<String, PromotionContextDTO.SkuItem> mergedBySku = new LinkedHashMap<>();
+		for (OrderItemEntity item : orderItemEntityList) {
+			PromotionContextDTO.SkuItem skuItem = mergedBySku.get(item.getSkuId());
+			if (skuItem == null) {
+				skuItem = new PromotionContextDTO.SkuItem();
+				skuItem.setSkuId(item.getSkuId());
+				skuItem.setQuantity(item.getBuyQuantity());
+				skuItem.setSalesPrice(item.getSalesPrice());
+				mergedBySku.put(item.getSkuId(), skuItem);
+			}
+			else {
+				skuItem.setQuantity(skuItem.getQuantity() + item.getBuyQuantity());
+			}
+		}
+		context.setSkuItems(List.copyOf(mergedBySku.values()));
 		return context;
 	}
 

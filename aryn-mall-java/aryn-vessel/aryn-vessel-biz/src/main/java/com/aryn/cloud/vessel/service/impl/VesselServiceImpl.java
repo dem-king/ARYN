@@ -51,6 +51,9 @@ public class VesselServiceImpl implements VesselService {
 
 	private static final String CALL_STATUS_CANCELED = "4";
 
+	/** 海员申报去重窗口：同船 ETA 相差在此范围内视为同一航次 */
+	private static final long DECLARE_DEDUP_HOURS = 72L;
+
 	private final VesselInfoMapper vesselInfoMapper;
 
 	private final VesselMemberMapper vesselMemberMapper;
@@ -170,6 +173,54 @@ public class VesselServiceImpl implements VesselService {
 		}
 		vesselCallMapper.insert(call);
 		return call;
+	}
+
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public VesselCall declareCall(String tenantId, String userId, VesselCall call) {
+		requireMembership(tenantId, call.getVesselId(), userId);
+		validateCallWindow(call);
+
+		// 去重：同一船舶已有未完成且 ETA 相近（±72 小时）的靠港计划时复用，
+		// 避免同船多人对同一航次重复申报（业务确认窗口，2026-09-20）。
+		LocalDateTime eta = call.getEta();
+		if (eta != null) {
+			VesselCall existing = vesselCallMapper.selectList(Wrappers.lambdaQuery(VesselCall.class)
+					.eq(VesselCall::getTenantId, tenantId)
+					.eq(VesselCall::getVesselId, call.getVesselId())
+					.in(VesselCall::getStatus, List.of(CALL_STATUS_PLANNED, CALL_STATUS_BERTHED))
+					.between(VesselCall::getEta, eta.minusHours(DECLARE_DEDUP_HOURS), eta.plusHours(DECLARE_DEDUP_HOURS))
+					.last("LIMIT 1"))
+				.stream().findFirst().orElse(null);
+			if (existing != null) {
+				log.info("船舶[{}]已存在相近靠港计划[{}]，复用而非新建申报", call.getVesselId(), existing.getId());
+				return existing;
+			}
+		}
+
+		call.setId(null);
+		call.setTenantId(tenantId);
+		call.setSource(VesselCall.SOURCE_CREW);
+		call.setDeclaredBy(userId);
+		if (!StringUtils.hasText(call.getStatus())) {
+			call.setStatus(CALL_STATUS_PLANNED);
+		}
+		// 配送时间窗属于公司排产决策，海员申报时不写入，由运营后续补充
+		call.setDeliveryWindowStart(null);
+		call.setDeliveryWindowEnd(null);
+		vesselCallMapper.insert(call);
+		log.info("海员[{}]申报靠港：vessel={} port={} eta={} etd={}", userId, call.getVesselId(),
+				call.getPortCode(), call.getEta(), call.getEtd());
+		return call;
+	}
+
+	@Override
+	public List<VesselCall> listDeclaredCalls(String tenantId) {
+		return vesselCallMapper.selectList(Wrappers.lambdaQuery(VesselCall.class)
+				.eq(VesselCall::getTenantId, tenantId)
+				.eq(VesselCall::getSource, VesselCall.SOURCE_CREW)
+				.in(VesselCall::getStatus, List.of(CALL_STATUS_PLANNED, CALL_STATUS_BERTHED))
+				.orderByAsc(VesselCall::getEta));
 	}
 
 	@Override

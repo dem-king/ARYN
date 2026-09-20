@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -86,17 +87,19 @@ class ShipProductProfileServiceTest {
 	}
 
 	@Test
-	@DisplayName("船供商品缺少采购单位时不能保存")
-	void shipSupplyRequiresPurchaseUnit() {
+	@DisplayName("商品统一后：缺少采购单位不再阻断保存（按基本单位处理）")
+	void purchaseUnitIsOptionalAfterUnification() {
 		ShipProductProfileDTO d = dto("2", skuProfile("sku-1", null, 10, 5));
-		assertThrows(ArynBusinessException.class, () -> service.saveProfile(TENANT, d));
+		ShipGoodsProfile saved = service.saveProfile(TENANT, d);
+		assertNotNull(saved);
 	}
 
 	@Test
-	@DisplayName("船供商品缺少 MOQ 时不能保存")
-	void shipSupplyRequiresMoq() {
+	@DisplayName("商品统一后：缺少 MOQ 不再阻断保存（按 1 处理）")
+	void moqIsOptionalAfterUnification() {
 		ShipProductProfileDTO d = dto("2", skuProfile("sku-1", "箱", null, 5));
-		assertThrows(ArynBusinessException.class, () -> service.saveProfile(TENANT, d));
+		ShipGoodsProfile saved = service.saveProfile(TENANT, d);
+		assertNotNull(saved);
 	}
 
 	@Test
@@ -114,14 +117,15 @@ class ShipProductProfileServiceTest {
 	}
 
 	@Test
-	@DisplayName("船供商品缺少 IMPA/ISSA/内部编码时不能保存")
-	void shipSupplyRequiresCode() {
+	@DisplayName("商品统一后：缺少 IMPA/ISSA/内部编码不再阻断保存")
+	void codeIsOptionalAfterUnification() {
 		ShipGoodsProfile profile = new ShipGoodsProfile();
 		profile.setSpuId(SPU_ID);
 		profile.setSaleScope("2");
 		ShipProductProfileDTO d = dto("2", skuProfile("sku-1", "箱", 10, 5));
 		d.getProfile().setImpaCode(null);
-		assertThrows(ArynBusinessException.class, () -> service.saveProfile(TENANT, d));
+		ShipGoodsProfile saved = service.saveProfile(TENANT, d);
+		assertNotNull(saved);
 	}
 
 	@Test

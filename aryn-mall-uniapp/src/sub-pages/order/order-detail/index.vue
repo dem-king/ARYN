@@ -6,6 +6,12 @@ import { addShoppingCart } from '@/api/order/shoppingCart'
 import OrderOperation from '@/sub-pages/order/components/order-operation/index.vue'
 import DeliveryProgress from '@/components/delivery/delivery-progress.vue'
 import { useDict } from '@/utils/dict'
+import {
+  DELIVERY_WAY_EXPRESS,
+  DELIVERY_WAY_MALL_DELIVERY,
+  DELIVERY_WAY_VESSEL_INTERNAL,
+  deliveryWayLabel,
+} from '@/utils/delivery-way'
 import { customerServiceRoute } from '@/utils/message'
 
 definePage({
@@ -35,9 +41,21 @@ const navbarTitle = computed(() => {
     case '1':
       return '等待付款'
     case '2':
-      return way === '1' ? '等待发货' : way === '3' ? '商城备货中' : '商家备货中'
+      if (way === DELIVERY_WAY_EXPRESS)
+        return '等待发货'
+      if (way === DELIVERY_WAY_MALL_DELIVERY)
+        return '商城备货中'
+      if (way === DELIVERY_WAY_VESSEL_INTERNAL)
+        return '备货中'
+      return '商家备货中'
     case '3':
-      return way === '1' ? '等待签收' : way === '3' ? '配送中' : '等待提货'
+      if (way === DELIVERY_WAY_EXPRESS)
+        return '等待签收'
+      if (way === DELIVERY_WAY_MALL_DELIVERY)
+        return '配送中'
+      if (way === DELIVERY_WAY_VESSEL_INTERNAL)
+        return '配送至船舶'
+      return '等待提货'
     case '4':
       return '交易完成'
     case '5':
@@ -54,17 +72,21 @@ const navbarSubTitle = computed(() => {
     case '1':
       return '请在30分钟内付款，超时订单自动取消'
     case '2':
-      return way === '1'
-        ? '订单已付款，等待商家发货'
-        : way === '3'
-          ? '订单已付款，商城正在备货配货'
-          : '订单已付款，商家备货中'
+      if (way === DELIVERY_WAY_EXPRESS)
+        return '订单已付款，等待商家发货'
+      if (way === DELIVERY_WAY_MALL_DELIVERY)
+        return '订单已付款，商城正在备货配货'
+      if (way === DELIVERY_WAY_VESSEL_INTERNAL)
+        return '订单已付款，仓库正在备货'
+      return '订单已付款，商家备货中'
     case '3':
-      return way === '1'
-        ? '商家已发货，等待签收'
-        : way === '3'
-          ? '商城配送员正在为您配送'
-          : '商家已备货，等待提货中'
+      if (way === DELIVERY_WAY_EXPRESS)
+        return '商家已发货，等待签收'
+      if (way === DELIVERY_WAY_MALL_DELIVERY)
+        return '商城配送员正在为您配送'
+      if (way === DELIVERY_WAY_VESSEL_INTERNAL)
+        return '公司司机正在配送至船舶'
+      return '商家已备货，等待提货中'
     default:
       return ''
   }
@@ -149,7 +171,7 @@ async function handleReorder() {
   const tips = blocked.length > 0 ? `，${blocked.length} 项不可购已跳过` : ''
   uni.showToast({ title: `已加入购物车${tips}`, icon: 'none' })
   setTimeout(() => {
-    uni.switchTab({ url: '/pages/cart/index' })
+    uni.switchTab({ url: '/pages/user/shopping-cart/index' })
   }, 800)
 }
 // 切换更多信息显示状态
@@ -234,6 +256,14 @@ function toCustomerService() {
                   size="24rpx"
                   color="#909090"
                   :text="item.specsInfo"
+                />
+              </view>
+              <!-- 共享采购按人拆行：标明这件商品是谁要的，配送时按此贴标签 -->
+              <view v-if="item.contributorName" class="pt-6rpx">
+                <wd-text
+                  size="22rpx"
+                  color="#185FA5"
+                  :text="`为 ${item.contributorName} 购买`"
                 />
               </view>
             </view>
@@ -377,15 +407,7 @@ function toCustomerService() {
             <wd-text
               size="26rpx"
               color="inherit"
-              :text="
-                state.order.deliveryWay === '1'
-                  ? '普通快递'
-                  : state.order.deliveryWay === '2'
-                    ? '上门自提'
-                    : state.order.deliveryWay === '3'
-                      ? '商城配送'
-                      : '无需配送'
-              "
+              :text="deliveryWayLabel(state.order.deliveryWay)"
             />
           </view>
           <!-- 订单编号（始终显示） -->

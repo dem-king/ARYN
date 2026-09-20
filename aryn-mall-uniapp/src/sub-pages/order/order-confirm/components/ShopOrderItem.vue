@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 
+import { useShipContextStore } from '@/store/shipContextStore'
+import { deliveryWayLabel, deliveryWayOptions } from '@/utils/delivery-way'
+
 interface OrderItem {
   spuId: string
   picUrl: string
@@ -40,7 +43,10 @@ const emit = defineEmits<{
 }>()
 
 const deliveryShow = ref(false)
+/** 已确认的配送方式（提交值） */
 const deliveryWay = ref(props.deliveryWay)
+/** 弹窗内草稿值：只有点「确认」才提交，避免取消后展示值与提交值不一致 */
+const deliveryWayDraft = ref(props.deliveryWay)
 // 创建本地响应式变量来避免直接修改prop
 const localOrder = ref<Order>({ ...props.order })
 
@@ -56,20 +62,30 @@ watch(() => props.order, (newOrder) => {
   localOrder.value = { ...newOrder }
 }, { deep: true })
 
-// 将 deliveryMethod 转换为 wd-select-picker 需要的格式
-// deliveryWay: 1普通快递 2上门自提 3商城配送
-const deliveryMethodColumns = computed(() => {
-  return [
-    { value: '1', name: '普通快递' },
-    { value: '2', name: '上门自提' },
-    { value: '3', name: '商城配送' },
-  ]
+// 父组件在重新结算时可能改变配送方式（如绑定船舶后回落为内部配送），需同步已确认值
+watch(() => props.deliveryWay, (way) => {
+  deliveryWay.value = way
+  if (!deliveryShow.value) {
+    deliveryWayDraft.value = way
+  }
 })
 
+// 配送方式选项。内部配送（way=4）仅在已绑定船舶+靠港上下文时可选——
+// 未绑定时选中它也无法履约，故不展示。文案与取值统一来自 @/utils/delivery-way。
+const shipContextStore = useShipContextStore()
+const deliveryMethodColumns = computed(() =>
+  deliveryWayOptions({ withVesselInternal: shipContextStore.hasVesselContext }),
+)
+
+function openDeliverySheet() {
+  deliveryWayDraft.value = deliveryWay.value
+  deliveryShow.value = true
+}
 function handleDeliveryWayChange(item: any) {
-  deliveryWay.value = item.value
+  deliveryWayDraft.value = item.value
 }
 function deliveryWayConfirm() {
+  deliveryWay.value = deliveryWayDraft.value
   localOrder.value.deliveryWay = deliveryWay.value
   deliveryShow.value = false
   emit('deliveryWayChange', localOrder.value)
@@ -178,8 +194,8 @@ function saveRemark() {
             配送方式
           </text>
           <view>
-            <text class="pr-4rpx text-26rpx" @click="deliveryShow = true">
-              {{ localOrder.deliveryWay === '2' ? '上门自提' : localOrder.deliveryWay === '3' ? '商城配送' : '普通快递' }}
+            <text class="pr-4rpx text-26rpx" @click="openDeliverySheet">
+              {{ deliveryWayLabel(deliveryWay) }}
             </text>
             <text class="i-carbon:chevron-right text-14px" />
           </view>
@@ -234,7 +250,7 @@ function saveRemark() {
         >
           <wd-text size="26rpx" color="inherit" :text="item.name" />
           <wd-icon
-            v-if="deliveryWay === item.value"
+            v-if="deliveryWayDraft === item.value"
             name="check"
             size="26rpx"
             color="#07c160"

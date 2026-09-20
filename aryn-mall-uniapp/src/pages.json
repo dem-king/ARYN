@@ -222,6 +222,38 @@
             "navigationBarTitleText": "支付结果"
           }
         },
+        // #ifdef MP-WEIXIN
+        {
+          "path": "order/shared-cart/list",
+          "type": "page",
+          "name": "shared-cart-list",
+          "style": {
+            "enablePullDownRefresh": true,
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "共享购物车"
+          }
+        },
+        // #endif
+        // #ifdef H5
+        {
+          "path": "order/shared-cart/list",
+          "type": "page",
+          "name": "shared-cart-list",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "共享购物车"
+          }
+        },
+        // #endif
+        {
+          "path": "order/shared-cart/detail",
+          "type": "page",
+          "name": "shared-cart-detail",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "共享购物车详情"
+          }
+        },
         {
           "path": "product/goods-appraise/index",
           "type": "page",
@@ -499,6 +531,33 @@
             "enablePullDownRefresh": true,
             "navigationStyle": "custom",
             "navigationBarTitleText": "消息中心"
+          }
+        },
+        {
+          "path": "product/frequent/index",
+          "type": "page",
+          "name": "frequent-purchase",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "常购清单"
+          }
+        },
+        {
+          "path": "product/ship-supply/index",
+          "type": "page",
+          "name": "ship-supply",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "船供采购"
+          }
+        },
+        {
+          "path": "vessel/bind/index",
+          "type": "page",
+          "name": "vessel-bind",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "船舶绑定"
           }
         }
       ]

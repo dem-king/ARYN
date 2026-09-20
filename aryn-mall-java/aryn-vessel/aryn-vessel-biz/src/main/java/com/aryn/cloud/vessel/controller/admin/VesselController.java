@@ -95,6 +95,13 @@ public class VesselController {
 		return Result.success(vesselService.calendar(SecurityUtils.getTenantId(), startTime, endTime));
 	}
 
+	@Operation(summary = "待处理靠港申报（海员申报且尚未排产）")
+	@SaCheckPermission("vessel:call:list")
+	@GetMapping("/calls/declared")
+	public Result<List<VesselCall>> declaredCalls() {
+		return Result.success(vesselService.listDeclaredCalls(SecurityUtils.getTenantId()));
+	}
+
 	@Operation(summary = "新增靠港计划")
 	@SaCheckPermission("vessel:call:save")
 	@PostMapping("/{id}/calls")

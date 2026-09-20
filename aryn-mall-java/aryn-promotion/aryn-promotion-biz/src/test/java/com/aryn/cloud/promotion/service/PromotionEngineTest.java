@@ -52,7 +52,8 @@ class PromotionEngineTest {
 		activityMapper = mock(PromotionActivityMapper.class);
 		lockMapper = mock(PromotionLockMapper.class);
 		buyerProfileService = mock(com.aryn.cloud.promotion.api.remote.RemoteBuyerProfileService.class);
-		engine = new PromotionEngineServiceImpl(activityMapper, buyerProfileService);
+		engine = new PromotionEngineServiceImpl(activityMapper);
+		ReflectionTestUtils.setField(engine, "remoteBuyerProfileService", buyerProfileService);
 		governanceService = new com.aryn.cloud.promotion.service.impl.ActivityPublishGovernanceService(activityMapper);
 		reservation = new PromotionReservationServiceImpl(engine, lockMapper);
 		ReflectionTestUtils.setField(reservation, "promotionEngineService", engine);

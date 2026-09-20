@@ -112,6 +112,9 @@ public class OrderItemEntity extends Model<OrderItemEntity> {
 	@Schema(description = "共享购物车来源成员用户ID")
 	private String contributorUserId;
 
+	@Schema(description = "共享购物车贡献者姓名快照（配送贴标签用）")
+	private String contributorName;
+
 	@Schema(description = "共享购物车成员备注快照")
 	private String memberRemark;
 

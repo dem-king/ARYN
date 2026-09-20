@@ -51,20 +51,35 @@ export function uploadDeliveryEvidence(filePath: string): Promise<string> {
     '/upms/file/staff/delivery-evidence/upload',
     parseOpenBoot(import.meta.env.VITE_OPEN_BOOT),
   ) ?? '/upms/file/staff/delivery-evidence/upload'
+  const header: Record<string, string> = {
+    'tenant-id': import.meta.env.VITE_TENANT_ID,
+    'satoken': String(Local.get('deliveryToken') || ''),
+    'authScope': 'delivery',
+  }
+  // #ifdef MP
+  header['app-id'] = uni.getAccountInfoSync().miniProgram.appId
+  // #endif
+  // #ifdef MP-WEIXIN
+  header['platform-type'] = 'WX_MA'
+  // #endif
+  // #ifdef APP-PLUS
+  header['platform-type'] = 'APP'
+  // #endif
+  // #ifdef H5
+  header['platform-type'] = 'H5'
+  // #endif
   return new Promise((resolve, reject) => {
     uni.uploadFile({
       url: buildApiUrl(uploadPath),
       filePath,
       name: 'file',
-      header: {
-        'tenant-id': import.meta.env.VITE_TENANT_ID,
-        'satoken': Local.get('deliveryToken'),
-      },
+      header,
       success(res) {
         try {
-          const payload = JSON.parse(res.data) as { data?: string, msg?: string }
-          if (res.statusCode === 401 || res.statusCode === 403) {
+          const payload = JSON.parse(res.data) as { data?: string, msg?: string, code?: number }
+          if ([401, 403].includes(res.statusCode) || [401, 403].includes(payload.code ?? 0)) {
             Local.remove('deliveryToken')
+            Local.remove('deliveryStaffInfo')
             uni.reLaunch({ url: '/pages/delivery/login' })
             reject(new Error('配送登录已过期，请重新登录！'))
             return

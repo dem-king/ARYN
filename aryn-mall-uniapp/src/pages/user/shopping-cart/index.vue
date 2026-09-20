@@ -8,6 +8,7 @@ import { saveBatch } from '@/api/product/collect'
 import { getById } from '@/api/product/spu'
 import { getDefault } from '@/api/user/address'
 // 引入组件
+import ShipContextPicker from '@/components/ship-context-picker/index.vue'
 import WaterfallGoods from '@/components/waterfall-goods/index.vue'
 import { initGoodsSpecs } from '@/utils/goods-specs'
 
@@ -37,6 +38,8 @@ interface ShoppingCartState {
 
 // 定义变量
 const loading = ref(false)
+/** 船舶与靠港选择器：购物车按靠港分组，跨靠港的行需要用户切换船舶才能一起结算 */
+const shipPickerVisible = ref(false)
 const message = useMessage()
 const skuPopup = ref()
 const skuKey = ref<boolean>(false)
@@ -276,6 +279,14 @@ function toGoodsDetail(id: string) {
     },
   })
 }
+/** 进入共享购物车列表（同船多成员合并采购） */
+function toSharedCart() {
+  uni.navigateTo({ url: '/sub-pages/order/shared-cart/list' })
+}
+/** 打开船舶与靠港选择器；切换后分组随 shipContextStore 变化自动重算 */
+function openShipPicker() {
+  shipPickerVisible.value = true
+}
 // 去结算 跳转结算页
 function toSettlement() {
   goodsStore.setGoodsList(state.checkedList)
@@ -329,6 +340,23 @@ onShow(async () => {
       </wd-button>
     </view>
   </view>
+  <!-- 共享购物车入口：同船多成员分别加购，采购确认人统一提交 -->
+  <view
+    class="mx-20rpx mt-20rpx flex items-center justify-between rounded-20rpx bg-white p-24rpx"
+    @click="toSharedCart"
+  >
+    <view>
+      <view class="text-28rpx font-bold">
+        共享购物车
+      </view>
+      <view class="mt-6rpx text-24rpx text-gray-500">
+        与同船成员分别加购，由采购确认人统一提交整船订单
+      </view>
+    </view>
+    <text class="text-26rpx text-gray-400">
+      查看 &gt;
+    </text>
+  </view>
   <wd-gap bg-color="#FFFFFF" height="80rpx" />
   <view class="cart-container bg-white">
     <view v-if="state.cartList && state.cartList.length > 0" class="cart-item">
@@ -346,8 +374,12 @@ onShow(async () => {
         "
       >
         {{ group.label }}
-        <text v-if="!group.isCurrent && group.key" style="color: #ee0a24">
-          （结算前请切换船舶）
+        <text
+          v-if="!group.isCurrent && group.key"
+          style="color: #ee0a24; text-decoration: underline"
+          @click="openShipPicker"
+        >
+          （结算前请点此切换船舶）
         </text>
       </view>
       <view
@@ -467,6 +499,8 @@ onShow(async () => {
     spec-list-name="specList" :mode="skuMode" @open="onOpenSkuPopup" @close="onCloseSkuPopup"
     @add-cart="editCart"
   />
+  <!-- 船舶与靠港选择器：跨靠港分组需要切换船舶才能合并结算 -->
+  <ShipContextPicker v-model="shipPickerVisible" />
 </template>
 
 <style scoped lang="scss">

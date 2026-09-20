@@ -42,6 +42,12 @@ const sections = [
   ['共享购物车管理页菜单', '57shared_cart_admin_menu.sql'],
   ['购物车船舶归属', '58shopping_cart_vessel_incremental.sql'],
   ['买赠赠品标记', '59gift_activity_incremental.sql'],
+  ['船供验收种子数据', '62ship_supply_seed_acceptance.sql'],
+  ['船舶自助绑定', '63vessel_bind_incremental.sql'],
+  ['船舶绑定申请审核菜单', '64vessel_bind_admin_menu.sql'],
+  ['共享采购按人拆行与配送到人标签', '65shared_cart_member_label_incremental.sql'],
+  ['共享购物车生命周期治理', '66shared_cart_lifecycle_incremental.sql'],
+  ['靠港信息由海员申报', '67vessel_call_declare_incremental.sql'],
   ['XXL-JOB 调度库', '3aryn_boot_job.sql'],
 ];
 
@@ -103,6 +109,8 @@ DROP TABLE IF EXISTS \`product_import_row\`;
 DROP TABLE IF EXISTS \`promotion_activity\`;
 DROP TABLE IF EXISTS \`promotion_lock\`;
 DROP TABLE IF EXISTS \`vessel_call_change_log\`;
+DROP TABLE IF EXISTS \`vessel_invite_code\`;
+DROP TABLE IF EXISTS \`vessel_bind_apply\`;
 `;
 
 const output = sections.reduce((sql, [title, file]) => {

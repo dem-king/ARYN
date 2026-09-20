@@ -13,7 +13,7 @@ import java.time.LocalDateTime;
 /**
  * 共享购物车（同船多海员合并采购）。
  *
- * <p>状态机：1草稿 2收集中 3待确认 4已提交 5已关闭。
+ * <p>状态机：1草稿 2收集中 3待确认 4已提交 5已关闭 6已完成（订单签收后归档）。
  * 创建后绑定船舶与靠港计划，不可变更；已提交/已关闭不可编辑。
  *
  * @author aryn
@@ -34,6 +34,9 @@ public class SharedCart extends Model<SharedCart> {
 
 	public static final String STATUS_CLOSED = "5";
 
+	/** 已完成：订单签收（送达）后归档 */
+	public static final String STATUS_COMPLETED = "6";
+
 	@TableId(type = IdType.ASSIGN_ID)
 	private String id;
 
@@ -52,7 +55,7 @@ public class SharedCart extends Model<SharedCart> {
 	/** 确认人用户ID（默认发起人） */
 	private String confirmerUserId;
 
-	/** 状态：1草稿 2收集中 3待确认 4已提交 5已关闭 */
+	/** 状态：1草稿 2收集中 3待确认 4已提交 5已关闭 6已完成（送达归档） */
 	private String status;
 
 	/** 收集截止时间 */
@@ -63,6 +66,19 @@ public class SharedCart extends Model<SharedCart> {
 
 	/** 提交时间 */
 	private LocalDateTime submittedTime;
+
+	/** 送达归档时间（订单签收后写入） */
+	private LocalDateTime completedTime;
+
+	/** 分享令牌（转发卡片携带，随购物车过期失效） */
+	private String shareToken;
+
+	/**
+	 * 非持久化标记：本次创建请求命中了该船已有的「收集中」购物车，
+	 * 返回的是被复用的实例而非新建。前端据此提示「已为你打开进行中的采购」。
+	 */
+	@com.baomidou.mybatisplus.annotation.TableField(exist = false)
+	private Boolean adoptedExisting;
 
 	/** 备注 */
 	private String remark;

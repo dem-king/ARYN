@@ -51,6 +51,12 @@
             <groupId>com.aryn</groupId>
             <artifactId>aryn-vessel-api</artifactId>
         </dependency>
+        <!-- 成员管理需按手机号/昵称检索商城用户并回填昵称，复用用户域已有的 Dubbo 接口
+             （与配送员绑定商城账号同一套能力，见 RemoteMallUserService#searchUsersForBinding） -->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-user-api</artifactId>
+        </dependency>
         <dependency>
             <groupId>com.aryn</groupId>
             <artifactId>aryn-common-security</artifactId>

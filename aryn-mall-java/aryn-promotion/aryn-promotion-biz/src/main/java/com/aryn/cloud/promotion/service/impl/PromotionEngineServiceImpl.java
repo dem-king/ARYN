@@ -11,6 +11,7 @@ import com.aryn.cloud.promotion.service.PromotionEngineService;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -39,7 +40,8 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 
 	private final PromotionActivityMapper promotionActivityMapper;
 
-	private final com.aryn.cloud.promotion.api.remote.RemoteBuyerProfileService remoteBuyerProfileService;
+	@DubboReference
+	private com.aryn.cloud.promotion.api.remote.RemoteBuyerProfileService remoteBuyerProfileService;
 
 	@Override
 	public PromotionCalculationVO preview(PromotionContextDTO context) {

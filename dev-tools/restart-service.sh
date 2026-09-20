@@ -14,7 +14,7 @@ usage() {
 用法: ./dev-tools/restart-service.sh <服务名> [--no-build]
 
 服务名:
-  gateway auth upms user product order promotion pay xxl-job
+  gateway auth upms user product order promotion pay vessel xxl-job
 
 选项:
   --no-build  不打包、不重建镜像，仅重启已有容器
@@ -59,6 +59,7 @@ case "${SERVICE_ALIAS}" in
   order)     COMPOSE_SERVICE=aryn-order-biz;     MAVEN_MODULE=aryn-order/aryn-order-biz;            PORT=6400; HEALTH_PATH=/actuator/health ;;
   promotion) COMPOSE_SERVICE=aryn-promotion-biz; MAVEN_MODULE=aryn-promotion/aryn-promotion-biz;    PORT=6500; HEALTH_PATH=/actuator/health ;;
   pay)       COMPOSE_SERVICE=aryn-pay-biz;       MAVEN_MODULE=aryn-pay/aryn-pay-biz;                PORT=6900; HEALTH_PATH=/actuator/health ;;
+  vessel)    COMPOSE_SERVICE=aryn-vessel-biz;    MAVEN_MODULE=aryn-vessel/aryn-vessel-biz;          PORT=6700; HEALTH_PATH=/actuator/health ;;
   xxl-job)   COMPOSE_SERVICE=aryn-xxl-job-admin; MAVEN_MODULE=xxl-job-admin;                        PORT=7002; HEALTH_PATH=/xxl-job-admin/actuator/health ;;
   *) die "不支持的服务名: ${SERVICE_ALIAS}（运行 --help 查看列表）" ;;
 esac

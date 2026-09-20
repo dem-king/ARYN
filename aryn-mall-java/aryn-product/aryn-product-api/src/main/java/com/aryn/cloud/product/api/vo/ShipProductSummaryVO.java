@@ -38,6 +38,9 @@ public class ShipProductSummaryVO implements Serializable {
 	@Schema(description = "IMPA 编码")
 	private String impaCode;
 
+	@Schema(description = "统一关键词：同时模糊匹配 IMPA/ISSA/内部编码/条码/中英文品名/搜索别名")
+	private String keyword;
+
 	@Schema(description = "ISSA 编码")
 	private String issaCode;
 

@@ -6,6 +6,7 @@ import { defineStore } from 'pinia'
 import { logout, passwordLogin as passwordLoginApi, phoneLogin as phoneLoginApi, quickLogin as quickLoginApi, wxLogin as wxLoginApi } from '@/api/auth'
 import { useShoppingCartStore } from '@/store/shoppingCartStore'
 import { useUserStore } from '@/store/userStore'
+import { useShipContextStore } from '@/store/shipContextStore'
 import { requireTokenValue } from './auth-token'
 
 interface AuthState {
@@ -67,6 +68,7 @@ export const useAuthStore = defineStore('auth', {
         const shoppingCartStore = useShoppingCartStore()
         userStore.clearUserInfo()
         shoppingCartStore.clearCartCount()
+        useShipContextStore().reset()
         console.log('📝 用户信息已清除')
       }
       catch (error) {

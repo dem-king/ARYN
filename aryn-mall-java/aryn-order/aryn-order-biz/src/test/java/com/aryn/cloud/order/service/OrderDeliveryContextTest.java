@@ -10,6 +10,7 @@ import com.aryn.cloud.vessel.api.remote.RemoteVesselService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
 
@@ -43,7 +44,8 @@ class OrderDeliveryContextTest {
 	void setUp() {
 		remoteVesselService = mock(RemoteVesselService.class);
 		purchaseSceneValidator = new PurchaseSceneValidator();
-		deliveryContextValidator = new DeliveryContextValidator(remoteVesselService);
+		deliveryContextValidator = new DeliveryContextValidator();
+		ReflectionTestUtils.setField(deliveryContextValidator, "remoteVesselService", remoteVesselService);
 	}
 
 	private VesselContextDTO context() {

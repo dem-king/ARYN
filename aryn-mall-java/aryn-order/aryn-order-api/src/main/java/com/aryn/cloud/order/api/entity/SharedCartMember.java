@@ -45,6 +45,9 @@ public class SharedCartMember extends Model<SharedCartMember> {
 	/** 可确认提交订单：1是 0否 */
 	private String canConfirm;
 
+	/** 成员展示姓名（加入时填写一次，用于配送贴标签；默认取商城收货人姓名，可自行修改） */
+	private String displayName;
+
 	/** 加入时间 */
 	private LocalDateTime joinedTime;
 

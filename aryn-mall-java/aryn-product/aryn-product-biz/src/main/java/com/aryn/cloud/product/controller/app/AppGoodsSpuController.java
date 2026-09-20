@@ -45,9 +45,12 @@ public class AppGoodsSpuController {
 		return Result.success(goodsSpuService.apiPage(page, goodsSpu));
 	}
 
-	@Operation(summary = "船供商品目录（sale_scope 2/3）")
+	@Operation(summary = "船供商品目录（sale_scope 2/3，仅上架商品）")
 	@GetMapping("/ship/page")
 	public Result<IPage<ShipProductSummaryVO>> shipPage(Page<ShipProductSummaryVO> page, ShipProductSummaryVO query) {
+		// C 端只展示上架商品。管理端复用同一查询且需要看到下架商品，
+		// 因此在此强制而非写死在 SQL 里。
+		query.setStatus("1");
 		return Result.success(
 				shipProductProfileService.shipSummaryPage(ArynTenantContextHolder.getTenantId(), page, query));
 	}
@@ -68,8 +71,11 @@ public class AppGoodsSpuController {
 			@RequestParam(value = "scene", defaultValue = "1") String scene,
 			@RequestParam(value = "keyword", required = false) String keyword) {
 		ShipProductSummaryVO query = new ShipProductSummaryVO();
-		query.setNameEn(keyword);
-		query.setImpaCode(keyword);
+		// 统一关键词交给 SQL 在「编码组」与「名称组」之间取 OR。
+		// 历史缺陷：分别赋值给 nameEn 与 impaCode，两个 <if> 是 AND 关系，
+		// 按 IMPA 码或按中文品名单独搜索均返回 0 条。
+		query.setKeyword(keyword);
+		query.setStatus("1");
 		IPage<ShipProductSummaryVO> result = "2".equals(scene)
 				? shipProductProfileService.shipSummaryPage(ArynTenantContextHolder.getTenantId(), page, query)
 				: shipProductProfileService.personalSummaryPage(ArynTenantContextHolder.getTenantId(), page, query);

@@ -40,6 +40,7 @@ const statusLabel: Record<string, string> = {
   '3': '待确认',
   '4': '已提交',
   '5': '已关闭',
+  '6': '已完成（已送达）',
 };
 const itemStatusLabel: Record<string, string> = {
   '1': '待确认',
@@ -132,7 +133,14 @@ onMounted(initPage);
         <ElTabs>
           <ElTabPane label="成员" name="members">
             <ElTable :data="detail.members" border>
-              <ElTableColumn prop="userId" label="用户" min-width="160" />
+              <ElTableColumn label="用户" min-width="160">
+                <template #default="scope">
+                  <span v-if="scope.row.displayName">{{
+                    scope.row.displayName
+                  }}</span>
+                  <span v-else>{{ scope.row.userId }}</span>
+                </template>
+              </ElTableColumn>
               <ElTableColumn label="角色" width="110">
                 <template #default="scope">
                   {{

@@ -2,7 +2,7 @@
 -- 生成方式: node db/boot/build-full-sql.mjs
 -- 适用环境: MySQL 8.0.13+
 -- 警告: 本文件面向空库初始化，包含 DROP TABLE IF EXISTS，请勿用于存量生产库。
--- 生成日期: 2026-09-13
+-- 生成日期: 2026-09-20
 
 -- ============================================================================
 -- 创建数据库
@@ -55,6 +55,8 @@ DROP TABLE IF EXISTS `product_import_row`;
 DROP TABLE IF EXISTS `promotion_activity`;
 DROP TABLE IF EXISTS `promotion_lock`;
 DROP TABLE IF EXISTS `vessel_call_change_log`;
+DROP TABLE IF EXISTS `vessel_invite_code`;
+DROP TABLE IF EXISTS `vessel_bind_apply`;
 USE aryn_boot;
 
 SET NAMES utf8mb4;
@@ -7120,6 +7122,738 @@ SET @add_item_gift_flag = (
 PREPARE stmt FROM @add_item_gift_flag; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 船供验收种子数据
+-- Source: db/boot/62ship_supply_seed_acceptance.sql
+-- ============================================================================
+-- 悦航购船供化验收种子数据（Cloud 微服务模式）
+--
+-- 目标库：aryn_boot（单体模式所有表同库）
+-- 特性：可重复执行；仅按 96x 人工编排前缀清理本脚本自身的种子数据，不触碰存量业务数据
+-- 内容：
+--   1) 船舶成员：把 3 个商城用户绑定到悦航1号（发起人 / 采购确认人 / 普通船员）
+--   2) 靠港计划：保证至少有 2 个可用靠港（46 号脚本用的是相对日期，会随时间自然过期）
+--   3) 船舶物料类目：1 个一级 + 6 个二级
+--   4) 28 个船供商品（SPU + SKU + ship_goods_profile + ship_sku_profile）
+--
+-- 这 28 个商品是按验收清单的需要刻意设计的：
+--   · 26 个上架（25 个 sale_scope=3 个人+船供、1 个 sale_scope=2 仅船供）→ 超过 20 条，可验证分页
+--   · 1 个下架（status=0）→ 验证船供目录不得出现下架商品
+--   · 编码覆盖 IMPA / ISSA / 内部编码 / 条码 / 英文名 / 搜索别名 → 验证搜索各自可命中
+--   · MOQ 与步长组合多样，且全部满足「MOQ 是步长整数倍」→ 验证数量规则
+--   · 储存条件覆盖 常温/冷藏/冷冻/危险品 → 验证详情页储存条件展示
+--
+-- 执行：mysql -u root -p aryn_boot < 62ship_supply_seed_acceptance.sql
+-- 清理：见文末「清理本脚本数据」段落，或使用 dev-tools/seed-acceptance-data.sh --clean
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ===========================================================================
+-- 0. 清理本脚本历史种子（幂等）
+-- ===========================================================================
+DELETE FROM `ship_sku_profile` WHERE `id` LIKE '967%';
+DELETE FROM `ship_goods_profile` WHERE `id` LIKE '966%';
+DELETE FROM `goods_sku` WHERE `id` LIKE '965%';
+DELETE FROM `goods_spu` WHERE `id` LIKE '964%';
+DELETE FROM `goods_category` WHERE `id` LIKE '963%';
+DELETE FROM `vessel_bind_apply` WHERE `id` LIKE '969%';
+DELETE FROM `user_info` WHERE `id` LIKE '97%';
+DELETE FROM `vessel_member` WHERE `id` LIKE '962%';
+DELETE FROM `vessel_call` WHERE `id` LIKE '968%';
+
+-- ===========================================================================
+-- 1. 船舶成员：绑定到悦航1号（9610000000000000001）
+--    仅当该用户在 user_info 中真实存在时才插入，避免产生孤儿成员行。
+--    若试点账号不同，改下面三个 user_id 即可。
+-- ===========================================================================
+INSERT INTO `vessel_member`
+  (`id`, `vessel_id`, `user_id`, `member_role`, `can_edit`, `can_confirm`, `status`, `join_time`, `remark`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9620000000000000001', '9610000000000000001', u.`id`, '1', '1', '1', '1', NOW(), '试点发起人（可邀请成员、可提交、可关闭）', '1590229800633634816', 'seed', NOW(), '0'
+FROM `user_info` u WHERE u.`id` = '2040654277629796353' AND u.`del_flag` = '0';
+
+INSERT INTO `vessel_member`
+  (`id`, `vessel_id`, `user_id`, `member_role`, `can_edit`, `can_confirm`, `status`, `join_time`, `remark`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9620000000000000002', '9610000000000000001', u.`id`, '3', '1', '1', '1', NOW(), '采购确认人（可核定数量并提交整船订单）', '1590229800633634816', 'seed', NOW(), '0'
+FROM `user_info` u WHERE u.`id` = '2040656345832747009' AND u.`del_flag` = '0';
+
+INSERT INTO `vessel_member`
+  (`id`, `vessel_id`, `user_id`, `member_role`, `can_edit`, `can_confirm`, `status`, `join_time`, `remark`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9620000000000000003', '9610000000000000001', u.`id`, '2', '1', '0', '1', NOW(), '普通船员（只能维护自己的明细）', '1590229800633634816', 'seed', NOW(), '0'
+FROM `user_info` u WHERE u.`id` = '2096466699352522754' AND u.`del_flag` = '0';
+
+-- ===========================================================================
+-- 1c. 绑定申请：留 1 条待审核申请，供验收直接测试管理端审核
+--
+--     申请人必须**不是任何在营船舶的成员**，否则服务端会拒绝重复申请，
+--     而且审核通过也只剩「同步成员」这一步，测不到真正的绑定路径。
+--     三个试点账号都已在船，所以这里专门建一个验收用申请人（97 前缀），
+--     不依赖既有账号的成员状态，保证本段一定有数据。
+--
+--     审核通过时若船名匹配不到在营船舶，管理端会走「新建船舶后绑定」分支 ——
+--     这正是地推场景（船还没录入系统）需要人工验证的路径。
+--     验收时建议走「新建船舶后绑定」，避免污染试点船舶。
+--
+--     该申请人的用途仅限验收：用手机号 13800009701 + 短信码登录 App，
+--     即可走「申请 → 运营审核 → 绑定成功」完整链路。
+-- ===========================================================================
+-- 验收用申请人（非任何船舶成员）。仅补必要字段，其余走表默认值。
+INSERT IGNORE INTO `user_info`
+  (`id`, `nickname`, `phone`, `tenant_id`, `del_flag`, `create_time`, `user_source`, `sex`)
+VALUES
+  ('9700000000000000001', '验收申请人', '13800009701', '1590229800633634816', '0', NOW(), '1', '0');
+
+INSERT INTO `vessel_bind_apply`
+  (`id`, `apply_no`, `user_id`, `apply_role`, `apply_vessel_name`, `apply_vessel_imo`, `apply_port_name`,
+   `real_name`, `phone`, `position`, `remark`, `status`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9690000000000000001', 'VBSMOKE0001', u.`id`, '4', '悦航验收测试船', 'IMO9800999', '上海港',
+       '验收业务员', '13800009999', 'YG-VERIFY', '验收种子：待审核的业务员认领申请', '1',
+       '1590229800633634816', 'seed', NOW(), '0'
+FROM `user_info` u
+WHERE u.`id` = '9700000000000000001'
+  AND u.`del_flag` = '0'
+  AND NOT EXISTS (
+    SELECT 1 FROM `vessel_member` m
+    WHERE m.`user_id` = u.`id` AND m.`del_flag` = '0' AND m.`status` = '1'
+  );
+
+-- ===========================================================================
+-- 1b. 靠港计划：保证验收时有 2 个可用靠港
+--     46 号脚本用的是 NOW()+3天 / NOW()+10天 的相对日期，几天后就会过期；
+--     D 链路（船舶靠港切换）需要至少 2 个可用靠港才能验证。
+--     这里用独立的 968 前缀新建，不动 46 号脚本的数据。
+-- ===========================================================================
+INSERT INTO `vessel_call`
+  (`id`, `vessel_id`, `port_code`, `port_name`, `berth`, `eta`, `etd`,
+   `delivery_window_start`, `delivery_window_end`, `status`, `tenant_id`, `create_by`, `create_time`, `del_flag`) VALUES
+('9680000000000000001', '9610000000000000001', 'CNSHA', '上海港', '3号泊位',
+ DATE_ADD(NOW(), INTERVAL 2 DAY), DATE_ADD(NOW(), INTERVAL 2 DAY) + INTERVAL 12 HOUR,
+ DATE_ADD(NOW(), INTERVAL 2 DAY) + INTERVAL 1 HOUR, DATE_ADD(NOW(), INTERVAL 2 DAY) + INTERVAL 8 HOUR,
+ '1', '1590229800633634816', 'seed', NOW(), '0'),
+('9680000000000000002', '9610000000000000001', 'CNSHA', '上海港', '5号泊位',
+ DATE_ADD(NOW(), INTERVAL 9 DAY), DATE_ADD(NOW(), INTERVAL 9 DAY) + INTERVAL 12 HOUR,
+ DATE_ADD(NOW(), INTERVAL 9 DAY) + INTERVAL 1 HOUR, DATE_ADD(NOW(), INTERVAL 9 DAY) + INTERVAL 8 HOUR,
+ '1', '1590229800633634816', 'seed', NOW(), '0');
+
+-- ===========================================================================
+-- 2. 船舶物料类目（1 个一级 + 6 个二级）
+-- ===========================================================================
+INSERT INTO `goods_category`
+  (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `tenant_id`, `create_by`, `update_by`) VALUES
+('9630000000000000001', '船舶物料', '0',    NULL, '船供采购专用类目，按船舶物料惯例组织', '0', NULL, NULL, '0', 90, '1590229800633634816', 'seed', NULL),
+('9630000000000000002', '清洁用品', '9630000000000000001', NULL, '船舶物料·清洁用品', '0', NULL, NULL, '0', 1, '1590229800633634816', 'seed', NULL),
+('9630000000000000003', '安全防护', '9630000000000000001', NULL, '船舶物料·安全防护', '0', NULL, NULL, '0', 2, '1590229800633634816', 'seed', NULL),
+('9630000000000000004', '甲板索具', '9630000000000000001', NULL, '船舶物料·甲板索具', '0', NULL, NULL, '0', 3, '1590229800633634816', 'seed', NULL),
+('9630000000000000005', '轮机备件', '9630000000000000001', NULL, '船舶物料·轮机备件', '0', NULL, NULL, '0', 4, '1590229800633634816', 'seed', NULL),
+('9630000000000000006', '电工照明', '9630000000000000001', NULL, '船舶物料·电工照明', '0', NULL, NULL, '0', 5, '1590229800633634816', 'seed', NULL),
+('9630000000000000007', '船用食品', '9630000000000000001', NULL, '船舶物料·船用食品', '0', NULL, NULL, '0', 6, '1590229800633634816', 'seed', NULL);
+
+-- ===========================================================================
+-- 3. 商品规格表（唯一的数据源，四张业务表都由它派生，避免多处维护）
+--    cat: 二级类目序号(2-7)  storage: 1常温 2冷藏 3冷冻 4危险品 5其他
+--    scope: sale_scope  status: 商品上下架  moq 必须是 step_qty 的整数倍
+-- ===========================================================================
+DROP TEMPORARY TABLE IF EXISTS `tmp_ship_seed`;
+CREATE TEMPORARY TABLE `tmp_ship_seed` (
+  `seq` int NOT NULL,
+  `name` varchar(100) NOT NULL,
+  `name_en` varchar(255) NOT NULL,
+  `cat` int NOT NULL,
+  `impa` varchar(32) DEFAULT NULL,
+  `issa` varchar(32) DEFAULT NULL,
+  `internal_code` varchar(64) DEFAULT NULL,
+  `barcode` varchar(64) DEFAULT NULL,
+  `aliases` varchar(500) DEFAULT NULL,
+  `storage` char(2) NOT NULL,
+  `purchase_unit` varchar(32) NOT NULL,
+  `package_spec` varchar(128) NOT NULL,
+  `moq` int NOT NULL,
+  `step_qty` int NOT NULL,
+  `scope` char(2) NOT NULL,
+  `status` char(2) NOT NULL,
+  `price` decimal(10,2) NOT NULL,
+  `stock` int NOT NULL
+);
+
+INSERT INTO `tmp_ship_seed`
+  (`seq`, `name`, `name_en`, `cat`, `impa`, `issa`, `internal_code`, `barcode`, `aliases`, `storage`, `purchase_unit`, `package_spec`, `moq`, `step_qty`, `scope`, `status`, `price`, `stock`) VALUES
+( 1, '船用洗手液',       'Marine Hand Soap',       2, '0301010', '30.01.01', 'INT-CLN-001', '6901234500011', '洗手液,洗洁精,hand soap',    '1', '箱', '24瓶/箱',      5,   1, '3', '1',   128.00,  800),
+( 2, '甲板清洁剂',       'Deck Cleaner',           2, '0302020', NULL,       'INT-CLN-002', '6901234500028', '除油剂,甲板清洗,cleaner',    '1', '箱', '12桶/箱',      6,   3, '3', '1',   396.00,  400),
+( 3, '医用酒精 75%',     'Medical Alcohol 75%',    2, '0305010', NULL,       'INT-CLN-003', NULL,            '酒精,消毒液,alcohol',        '4', '箱', '24瓶/箱',      6,   6, '2', '1',   216.00,  300),
+( 4, '救生衣',           'Life Jacket',            3, '0902010', '09.02.01', 'INT-SAF-001', '6901234500042', '救生服,life jacket',         '1', '件', '10件/箱',     10,   5, '3', '1',   185.00,  500),
+( 5, '救生圈',           'Life Buoy',              3, '0902020', NULL,       'INT-SAF-002', NULL,            '救生浮圈,life buoy',         '1', '个', '4个/箱',       4,   2, '3', '1',    96.00,  300),
+( 6, '消防水带 65mm',    'Fire Hose 65mm',         3, '0903010', NULL,       'INT-SAF-003', NULL,            '水带,消防,fire hose',        '1', '条', '20米/条',      2,   1, '3', '1',   268.00,  200),
+( 7, '安全带',           'Safety Harness',         3, '0902030', NULL,       'INT-SAF-004', NULL,            '高空安全带,harness',         '1', '件', '5件/箱',       5,   1, '3', '1',   156.00,  250),
+( 8, '工作手套',         'Work Gloves',            3, '0904010', NULL,       'INT-SAF-005', NULL,            '劳保手套,gloves',            '1', '双', '120双/箱',    60,  12, '3', '1',   360.00,  600),
+( 9, '船用雨衣',         'Marine Raincoat',        3, '0904020', NULL,       'INT-SAF-006', NULL,            '雨披,raincoat',              '1', '件', '20件/箱',     20,  10, '3', '1',   180.00,  300),
+(10, '尼龙缆绳 24mm',    'Nylon Rope 24mm',        4, '0701020', '07.01.02', 'INT-DEK-001', NULL,            '缆绳,rope',                  '1', '卷', '200米/卷',     1,   1, '3', '1',  1450.00,  120),
+(11, '钢丝绳 16mm',      'Steel Wire Rope 16mm',   4, '0701030', NULL,       'INT-DEK-002', NULL,            '钢索,wire rope',             '1', '米', '100米/卷',   100,  50, '3', '1',    18.50, 5000),
+(12, '船用卸扣',         'Marine Shackle',         4, '0701040', NULL,       'INT-DEK-003', NULL,            '卡扣,shackle',               '1', '个', '20个/箱',     20,   5, '3', '1',    42.00,  800),
+(13, '柴油滤芯',         'Diesel Filter',          5, '0504020', '05.04.02', 'INT-ENG-001', '6901234500135', '燃油滤,filter',              '1', '个', '12个/箱',     12,   6, '3', '1',    88.00,  900),
+(14, '机油滤芯',         'Oil Filter',             5, '0504030', NULL,       'INT-ENG-002', NULL,            '润滑油滤,oil filter',        '1', '个', '12个/箱',     12,  12, '3', '1',    76.00,  900),
+(15, '液压油 46#',       'Hydraulic Oil 46',       5, '0401010', NULL,       'INT-OIL-001', NULL,            '液压油,hydraulic oil',       '1', '桶', '200L/桶',      1,   1, '3', '1',  2380.00,   60),
+(16, '密封垫片',         'Gasket',                 5, '0602030', NULL,       'INT-FAS-002', NULL,            '垫片,gasket',                '1', '片', '50片/盒',     50,  25, '3', '1',    12.00, 2000),
+(17, '不锈钢螺栓 M16',   'SS Bolt M16',            5, '0601010', '06.01.01', 'INT-FAS-001', NULL,            '螺栓,bolt',                  '1', '盒', '100只/盒',     5,   5, '3', '1',   165.00,  400),
+(18, '船用电缆 3x2.5',   'Marine Cable 3x2.5',     6, '0703020', NULL,       'INT-ELE-001', NULL,            '电缆,cable',                 '1', '卷', '100米/卷',     2,   2, '3', '1',  1280.00,  150),
+(19, '船用灯泡 220V',    'Marine Bulb 220V',       6, '0705010', NULL,       'INT-ELE-002', NULL,            '灯泡,bulb',                  '1', '只', '100只/箱',    20,  10, '3', '1',     8.50, 3000),
+(20, 'LED 投光灯 100W',  'LED Floodlight 100W',    6, '0705020', '07.05.02', 'INT-ELE-003', NULL,            '投光灯,floodlight',          '1', '只', '6只/箱',       6,   6, '3', '1',   320.00,  240),
+(21, '绝缘胶带',         'Insulation Tape',        6, '0705030', NULL,       'INT-ELE-004', NULL,            '电工胶带,tape',              '1', '卷', '200卷/箱',    40,  20, '3', '1',     6.00, 4000),
+(22, '饮用水 5L',        'Drinking Water 5L',      7, '0101010', NULL,       'INT-FOD-001', NULL,            '矿泉水,water',               '1', '箱', '4桶/箱',       4,   4, '3', '1',    56.00, 1200),
+(23, '速溶咖啡',         'Instant Coffee',         7, '0102010', NULL,       'INT-FOD-002', NULL,            '咖啡,coffee',                '1', '盒', '24袋/盒',     24,  12, '3', '1',   168.00,  600),
+(24, '冷冻牛肉',         'Frozen Beef',            7, '0103020', NULL,       'INT-FOD-003', NULL,            '牛肉,beef,冷冻',             '3', '箱', '10kg/箱',      2,   1, '3', '1',   680.00,  200),
+(25, '新鲜蔬菜',         'Fresh Vegetables',       7, '0104010', NULL,       'INT-FOD-004', NULL,            '蔬菜,vegetables,冷藏',       '2', '箱', '5kg/箱',       2,   1, '3', '1',   120.00,  300),
+(26, '方便面',           'Instant Noodles',        7, '0105010', NULL,       'INT-FOD-005', NULL,            '泡面,noodles',               '1', '箱', '24包/箱',     24,  24, '3', '1',    96.00,  800),
+(27, '午餐肉罐头',       'Luncheon Meat Can',      7, '0105020', NULL,       'INT-FOD-006', NULL,            '罐头,can',                   '1', '箱', '24罐/箱',     24,  12, '3', '1',   288.00,  500),
+-- 第 28 条专门用于验证「船供目录不得出现下架商品」
+(28, '【下架测试】停用备件', 'Discontinued Spare Part', 5, '0509000', NULL,    'INT-ENG-099', NULL,            '下架测试,discontinued',      '1', '个', '1个/箱',       1,   1, '3', '0',    10.00,    0);
+
+-- ===========================================================================
+-- 4. SPU（挂到「船舶物料」一级 + 对应二级类目；分类必须有值，
+--    否则零售列表的 goods_category.del_flag 过滤会把商品排除掉）
+-- ===========================================================================
+INSERT INTO `goods_spu`
+  (`id`, `name`, `sub_title`, `spu_urls`, `status`, `sales_volume`, `category_first_id`, `category_second_id`,
+   `create_time`, `update_time`, `del_flag`, `description`, `enable_specs`, `tenant_id`, `create_by`, `stock`,
+   `freight_type`, `sales_price`, `original_price`, `cost_price`)
+SELECT CONCAT('96400000000000000', LPAD(`seq`, 2, '0')),
+       `name`,
+       CONCAT(`name_en`, ' / ', `package_spec`),
+       '[]',
+       `status`,
+       0,
+       '9630000000000000001',
+       CONCAT('963000000000000000', `cat`),
+       NOW(), NOW(), '0',
+       CONCAT(`name`, '（船供验收种子数据，图片请由运营在管理端补充）'),
+       '0',
+       '1590229800633634816', 'seed',
+       `stock`,
+       '0',
+       `price`, ROUND(`price` * 1.15, 2), ROUND(`price` * 0.70, 2)
+FROM `tmp_ship_seed`;
+
+-- ===========================================================================
+-- 5. SKU（每个 SPU 一个默认 SKU，与 SPU 同价同库存）
+-- ===========================================================================
+INSERT INTO `goods_sku`
+  (`id`, `spu_id`, `sales_price`, `original_price`, `cost_price`, `stock`, `create_time`, `update_time`,
+   `del_flag`, `version`, `tenant_id`, `create_by`, `status`, `specs_json`)
+SELECT CONCAT('96500000000000000', LPAD(`seq`, 2, '0')),
+       CONCAT('96400000000000000', LPAD(`seq`, 2, '0')),
+       `price`, ROUND(`price` * 1.15, 2), ROUND(`price` * 0.70, 2),
+       `stock`, NOW(), NOW(), '0', 0,
+       '1590229800633634816', 'seed', '1',
+       '[]'
+FROM `tmp_ship_seed`;
+
+-- ===========================================================================
+-- 6. SPU 船供资料
+-- ===========================================================================
+INSERT INTO `ship_goods_profile`
+  (`id`, `spu_id`, `sale_scope`, `impa_code`, `issa_code`, `internal_item_code`, `barcode`, `name_en`,
+   `search_aliases`, `storage_type`, `shelf_life_days`, `ship_supply_remark`, `publish_completeness`,
+   `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT CONCAT('96600000000000000', LPAD(`seq`, 2, '0')),
+       CONCAT('96400000000000000', LPAD(`seq`, 2, '0')),
+       `scope`, `impa`, `issa`, `internal_code`, `barcode`, `name_en`, `aliases`,
+       `storage`, 365, '船供验收种子数据',
+       100,
+       '1590229800633634816', 'seed', NOW(), '0'
+FROM `tmp_ship_seed`;
+
+-- ===========================================================================
+-- 7. SKU 包装资料（采购单位 / 箱规 / MOQ / 步长）
+-- ===========================================================================
+INSERT INTO `ship_sku_profile`
+  (`id`, `spu_id`, `sku_id`, `base_unit`, `purchase_unit`, `conversion_rate`, `package_spec`,
+   `package_spec_en`, `moq`, `step_qty`, `stock_warning_line`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT CONCAT('96700000000000000', LPAD(`seq`, 2, '0')),
+       CONCAT('96400000000000000', LPAD(seq, 2, '0')),
+       CONCAT('96500000000000000', LPAD(`seq`, 2, '0')),
+       '件', `purchase_unit`, 1.0000, `package_spec`,
+       NULL, `moq`, `step_qty`, 10,
+       '1590229800633634816', 'seed', NOW(), '0'
+FROM `tmp_ship_seed`;
+
+DROP TEMPORARY TABLE IF EXISTS `tmp_ship_seed`;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ===========================================================================
+-- 自检：应输出 上架船供商品=27、仅船供=1、下架=1、成员=3、可用靠港>=2
+-- （27 条 > 单页 20 条，足以验证分页）
+-- ===========================================================================
+SELECT '上架船供商品(应 27)' AS item, COUNT(*) AS cnt
+FROM `ship_goods_profile` p JOIN `goods_spu` s ON s.`id` = p.`spu_id`
+WHERE p.`del_flag` = '0' AND p.`sale_scope` IN ('2', '3') AND s.`status` = '1' AND s.`del_flag` = '0'
+UNION ALL
+SELECT '仅船供(sale_scope=2，应 1)', COUNT(*)
+FROM `ship_goods_profile` WHERE `del_flag` = '0' AND `sale_scope` = '2'
+UNION ALL
+SELECT '下架商品(应 1)', COUNT(*)
+FROM `ship_goods_profile` p JOIN `goods_spu` s ON s.`id` = p.`spu_id`
+WHERE p.`del_flag` = '0' AND s.`status` <> '1'
+UNION ALL
+SELECT '船舶成员(应 3)', COUNT(*) FROM `vessel_member` WHERE `del_flag` = '0' AND `id` LIKE '962%'
+UNION ALL
+SELECT '待审核绑定申请(应 >=0)', COUNT(*) FROM `vessel_bind_apply`
+WHERE `del_flag` = '0' AND `id` LIKE '969%' AND `status` = '1'
+UNION ALL
+SELECT '可用靠港计划(应 >=2)', COUNT(*)
+FROM `vessel_call`
+WHERE `del_flag` = '0' AND `status` IN ('1', '2') AND `etd` > NOW();
+
+-- ===========================================================================
+-- 清理本脚本数据（需要时手工执行）
+-- ===========================================================================
+-- DELETE FROM `ship_sku_profile`   WHERE `id` LIKE '967%';
+-- DELETE FROM `ship_goods_profile` WHERE `id` LIKE '966%';
+-- DELETE FROM `goods_sku`          WHERE `id` LIKE '965%';
+-- DELETE FROM `goods_spu`          WHERE `id` LIKE '964%';
+-- DELETE FROM `goods_category`     WHERE `id` LIKE '963%';
+-- DELETE FROM `vessel_member` WHERE `id` LIKE '962%';
+-- DELETE FROM `vessel_call`   WHERE `id` LIKE '968%';
+-- DELETE FROM `vessel_bind_apply` WHERE `id` LIKE '969%';
+
+-- ============================================================================
+-- 船舶自助绑定
+-- Source: db/boot/63vessel_bind_incremental.sql
+-- ============================================================================
+-- 悦航购船舶自助绑定增量迁移（Cloud 微服务模式）
+--
+-- 目标库：aryn_boot（单体模式所有表同库）
+-- 租户白名单：Boot 侧在 aryn-boot/src/main/resources/application.yml 的 hx.tenant.tables，不走本脚本
+-- 特性：幂等执行，不删除或重建数据。
+--
+-- 背景：C 端此前**没有任何自助绑定入口**——VesselAppController 只有 3 个 GET，
+--       唯一的绑定接口是管理端 POST /admin/{id}/members。未绑定用户进不了船供链路，
+--       且没有任何出路。本脚本为「邀请码 + 申请审核」两条自助通道提供数据模型。
+--
+-- 两条通道的分工：
+--   · 邀请码 vessel_invite_code：已在船成员生成 6 位码，新同事输入即绑定。
+--     零运营成本，适合规模化；天然由「已在船的同事」背书。
+--   · 申请审核 vessel_bind_apply：用户自填船名提交申请，运营审核。
+--     解决两个邀请码覆盖不了的场景：① 全船都是新用户（没人能生成码）
+--     ② **船还没录入系统**（审核通过时由运营创建船舶再绑定）
+--
+-- 执行：mysql -u root -p aryn_boot < 63vessel_bind_incremental.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ===========================================================================
+-- 1. 船舶邀请码
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS `vessel_invite_code` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `vessel_id` varchar(32) NOT NULL COMMENT '船舶ID',
+  `code` varchar(12) NOT NULL COMMENT '邀请码（6 位大写字母数字，已去除易混字符）',
+  `owner_user_id` varchar(32) NOT NULL COMMENT '生成人商城用户ID（命名刻意区别于审计字段 create_by）',
+  `max_uses` int NOT NULL DEFAULT 0 COMMENT '最大使用次数，0 表示不限',
+  `used_count` int NOT NULL DEFAULT 0 COMMENT '已使用次数',
+  `expires_at` datetime NOT NULL COMMENT '过期时间',
+  `status` char(2) NOT NULL DEFAULT '1' COMMENT '状态：1有效 0已撤销',
+  `remark` varchar(255) DEFAULT NULL COMMENT '备注',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL, `update_by` varchar(60) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL, `update_time` datetime DEFAULT NULL,
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_vessel_invite_code` (`tenant_id`, `code`),
+  KEY `idx_vessel_invite_code_vessel` (`tenant_id`, `vessel_id`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='船舶邀请码';
+
+-- ===========================================================================
+-- 2. 船舶绑定申请
+--    承载两类申请，由 apply_role 区分：
+--      · 2 普通船员   —— 船员自助申请（业务员不在场时的兜底）
+--      · 4 业务员     —— **销售业务员认领船舶**（冷启动主路径）
+--    matched_vessel_id 在审核通过时写入：匹配到已有船舶则直接绑定，
+--    否则运营先建船再绑定——这样「船还没录入系统」也能走通。
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS `vessel_bind_apply` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `apply_no` varchar(40) NOT NULL COMMENT '申请单号',
+  `user_id` varchar(32) NOT NULL COMMENT '申请人商城用户ID',
+  `apply_role` char(2) NOT NULL DEFAULT '2' COMMENT '申请角色：2普通船员 4业务员',
+  `apply_vessel_name` varchar(128) NOT NULL COMMENT '申请人填写的船名',
+  `apply_vessel_imo` varchar(32) DEFAULT NULL COMMENT 'IMO 或呼号（选填）',
+  `apply_port_name` varchar(128) DEFAULT NULL COMMENT '常靠港口（选填）',
+  `real_name` varchar(64) DEFAULT NULL COMMENT '真实姓名',
+  `phone` varchar(32) DEFAULT NULL COMMENT '联系电话',
+  `position` varchar(64) DEFAULT NULL COMMENT '船上职务 / 业务员工号',
+  `remark` varchar(500) DEFAULT NULL COMMENT '补充说明',
+  `status` char(2) NOT NULL DEFAULT '1' COMMENT '状态：1待审核 2已通过 3已驳回 4已取消',
+  `matched_vessel_id` varchar(32) DEFAULT NULL COMMENT '审核通过后实际绑定的船舶ID',
+  `audit_by` varchar(32) DEFAULT NULL COMMENT '审核人',
+  `audit_time` datetime DEFAULT NULL COMMENT '审核时间',
+  `audit_remark` varchar(500) DEFAULT NULL COMMENT '审核意见（驳回原因）',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL, `update_by` varchar(60) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL, `update_time` datetime DEFAULT NULL,
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  KEY `idx_vessel_bind_apply_user` (`tenant_id`, `user_id`, `status`),
+  KEY `idx_vessel_bind_apply_audit` (`tenant_id`, `status`, `create_time`),
+  KEY `idx_vessel_bind_apply_name` (`tenant_id`, `apply_vessel_name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='船舶绑定申请';
+
+-- ===========================================================================
+-- 2b. 成员角色说明（vessel_member.member_role，本脚本不新增列，仅补充取值语义）
+--     1 发起人/船长   —— 可管理成员、可提交整船订单
+--     2 普通船员     —— 只能下单与维护自己的明细
+--     3 采购确认人   —— 可核定数量并提交整船订单
+--     4 业务员       —— **新增**：公司销售，可添加成员、可代船员下单
+--
+--     可添加成员的角色 = 1 / 3 / 4；普通船员(2)不可添加。
+-- ===========================================================================
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- 自检：两张表应已创建
+SELECT 'vessel_invite_code' AS tbl, COUNT(*) AS cnt FROM information_schema.TABLES
+WHERE TABLE_SCHEMA = 'aryn_boot' AND TABLE_NAME = 'vessel_invite_code'
+UNION ALL
+SELECT 'vessel_bind_apply', COUNT(*) FROM information_schema.TABLES
+WHERE TABLE_SCHEMA = 'aryn_boot' AND TABLE_NAME = 'vessel_bind_apply';
+
+-- ============================================================================
+-- 船舶绑定申请审核菜单
+-- Source: db/boot/64vessel_bind_admin_menu.sql
+-- ============================================================================
+-- 悦航购船舶绑定申请审核菜单增量（Boot 单体模式）
+-- 目标库：aryn_boot（单体模式所有表同库）
+-- 特性：按固定 ID 幂等补齐；向试点租户与既有授权角色推导式补授。
+--
+-- 背景：VesselBindAdminController 的审核接口带 @SaCheckPermission，
+--       不补菜单权限则运营在管理端看不到入口、调接口会 403。
+--       权限在登录时快照进 token，授权后必须重新登录才生效。
+--
+-- 与 cloud/64vessel_bind_admin_menu.sql 内容一致，仅目标库不同。
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+INSERT IGNORE INTO `sys_menu` (`id`,`name`,`permission`,`path`,`redirect`,`parent_id`,`icon`,`component`,`sort`,`type`,`create_time`,`outer_status`,`del_flag`,`application_key`,`create_by`) VALUES
+('2110000000000000131','绑定申请',NULL,'/vessel/bind-apply',NULL,'2110000000000000000','lucide:user-check','vessel/bind-apply/index',3,'0',NOW(),'0','0','app_base','system'),
+('2110000000000000132','申请列表','vessel:bindapply:page',NULL,NULL,'2110000000000000131','',NULL,1,'1',NOW(),'0','0','app_base','system'),
+('2110000000000000133','申请审核','vessel:bindapply:audit',NULL,NULL,'2110000000000000131','',NULL,2,'1',NOW(),'0','0','app_base','system');
+
+-- 试点租户可见
+INSERT IGNORE INTO `sys_tenant_menu` (`id`,`tenant_id`,`menu_id`,`create_time`,`create_by`)
+SELECT CONCAT('2114', RIGHT(m.`id`, 16)), '1590229800633634816', m.`id`, NOW(), 'system'
+FROM `sys_menu` m
+WHERE m.`id` IN ('2110000000000000131','2110000000000000132','2110000000000000133')
+  AND m.`del_flag` = '0';
+
+-- 推导式授权：基于「船供运营」父菜单（2110000000000000000）的既有授权推导。
+--
+-- 注意：不能按「同父节点推导」——本页三个菜单的父节点 131 本身也是新建的，
+-- 其下没有已授权的兄弟节点，推导结果会是 0 条（第一版就踩了这个坑）。
+-- 语义上正确的依据是：能看「船供运营」的角色，就应该能看「绑定申请」。
+INSERT IGNORE INTO `sys_role_menu` (`id`,`role_id`,`menu_id`,`create_time`,`tenant_id`)
+SELECT MD5(CONCAT(gr.`role_id`, ':menu:', m.`id`)), gr.`role_id`, m.`id`, NOW(), gr.`tenant_id`
+FROM `sys_menu` m
+JOIN `sys_role_menu` gr ON gr.`menu_id` = '2110000000000000000'
+WHERE m.`id` IN ('2110000000000000131','2110000000000000132','2110000000000000133')
+  AND m.`del_flag` = '0';
+
+INSERT IGNORE INTO `sys_tenant_menu` (`id`,`tenant_id`,`menu_id`,`create_time`,`create_by`)
+SELECT MD5(CONCAT(gt.`tenant_id`, ':menu:', m.`id`)), gt.`tenant_id`, m.`id`, NOW(), 'system'
+FROM `sys_menu` m
+JOIN `sys_tenant_menu` gt ON gt.`menu_id` = '2110000000000000000'
+WHERE m.`id` IN ('2110000000000000131','2110000000000000132','2110000000000000133')
+  AND m.`del_flag` = '0';
+
+-- 自检：三条菜单应就位，且至少被一个角色授权
+SELECT m.`id`, m.`name`, m.`permission`, m.`type`,
+       (SELECT COUNT(*) FROM `sys_role_menu` rm WHERE rm.`menu_id` = m.`id`) AS granted_roles
+FROM `sys_menu` m
+WHERE m.`id` IN ('2110000000000000131','2110000000000000132','2110000000000000133')
+ORDER BY m.`id`;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 共享采购按人拆行与配送到人标签
+-- Source: db/boot/65shared_cart_member_label_incremental.sql
+-- ============================================================================
+-- 悦航购共享采购按人拆行与配送到人标签增量迁移（Boot 单体模式）
+--
+-- 目标库：aryn_boot（单体模式所有表同库）
+-- 租户白名单：Boot 侧在 aryn-boot/src/main/resources/application.yml 的 hx.tenant.tables。
+--             本脚本仅对已有表 order_item / shared_cart_member 增加列，不新增表，无需改动白名单。
+-- 特性：幂等执行，不删除或重建数据；不修改既有列类型，不覆盖业务数据。
+--
+-- 背景：共享购物车原先在提交订单时**按 SKU 聚合**，把多个成员的同款商品并成一条订单明细，
+--       contributor_user_id 用逗号拼接多个雪花 ID（20 位），而字段为 varchar(32)，
+--       两人同购即 41 字符 → 非严格模式静默截断、严格模式报错；且合并后无法区分商品归属，
+--       仓库配送时无法为「谁要的商品」逐人贴标签。
+--
+-- 本次改造：
+--   1. 订单明细改为**按成员拆行**：谁加购就按谁生成一条明细，同一 SKU 多位成员各自成行。
+--      拆行后每条明细只对应一个贡献者（20 字符），上述溢出问题自然消除。
+--   2. 新增姓名快照字段，供仓库/司机打印配送标签使用（存姓名而非 ID，避免标签反查用户表）。
+--
+-- 执行：mysql -u root -p aryn_boot < 65shared_cart_member_label_incremental.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ===========================================================================
+-- 1. shared_cart_member.display_name
+--    成员加入共享购物车时填写一次姓名，作为该成员在本轮采购中的展示名。
+--    取值优先级：成员填写 → 商城默认收货地址收货人姓名 → 商城昵称 → 用户{ID后6位}
+-- ===========================================================================
+SET @add_member_display_name = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `shared_cart_member` ADD COLUMN `display_name` varchar(64) DEFAULT NULL COMMENT ''成员展示姓名（加入时填写，配送贴标签用）'' AFTER `can_confirm`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shared_cart_member' AND COLUMN_NAME = 'display_name'
+);
+PREPARE stmt FROM @add_member_display_name; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ===========================================================================
+-- 2. order_item.contributor_name
+--    下单时结转的贡献者姓名快照。必须是快照而非外键：
+--    用户后续改名或离船，历史订单的标签仍应保持下单当时的信息。
+-- ===========================================================================
+SET @add_order_item_contributor_name = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `order_item` ADD COLUMN `contributor_name` varchar(64) DEFAULT NULL COMMENT ''共享购物车贡献者姓名快照（配送贴标签用）'' AFTER `contributor_user_id`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'order_item' AND COLUMN_NAME = 'contributor_name'
+);
+PREPARE stmt FROM @add_order_item_contributor_name; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ===========================================================================
+-- 3. 存量数据回填（仅补空值，不覆盖已有业务数据）
+--    历史订单的明细是合并行，contributor_user_id 可能是 "id1,id2" 形式，无法精确拆分归属，
+--    因此不回填为姓名——保持 NULL 让管理端显示为“未记录”。
+-- ===========================================================================
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- 自检：两个新列应存在
+SELECT `TABLE_NAME`, `COLUMN_NAME`, `COLUMN_TYPE`, `COLUMN_COMMENT`
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE()
+  AND (   (`TABLE_NAME` = 'shared_cart_member' AND `COLUMN_NAME` = 'display_name')
+       OR (`TABLE_NAME` = 'order_item'         AND `COLUMN_NAME` = 'contributor_name'))
+ORDER BY `TABLE_NAME`;
+
+-- ============================================================================
+-- 共享购物车生命周期治理
+-- Source: db/boot/66shared_cart_lifecycle_incremental.sql
+-- ============================================================================
+-- 悦航购共享购物车生命周期治理增量迁移（Boot 单体模式）
+--
+-- 目标库：aryn_boot（单体模式所有表同库）
+-- 租户白名单：本脚本仅对已有表 shared_cart 增加列/索引，不新增表，无需改动 hx.tenant.tables。
+-- 特性：幂等执行，不删除或重建数据；不修改既有列类型，不覆盖业务数据。
+--
+-- 背景（业务规则，2026-09-20 确认）：
+--   1. 同一艘船同时只允许一个「收集中」的共享购物车。重复发起时前端应被引导去加入已有购物车，
+--      而不是各发各的，否则同船同一靠港会重复下单。
+--   2. 收集有效期 24 小时，自创建时刻起算，由服务端计算。
+--   3. 过期由定时任务置为「已关闭」，避免列表长期显示误导性的「收集中」。
+--   4. 订单签收后购物车置为「已完成」，让船员看到「本次采购已送达」。
+--
+-- 执行：mysql -u root -p aryn_boot < 66shared_cart_lifecycle_incremental.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ===========================================================================
+-- 1. 收集截止时间兜底
+--    历史数据由前端传 expiresAt，可能为空（永不过期）。这里仅补空值，
+--    不覆盖运营已设置的有效期；新建由服务端强制写成 created + 24h。
+-- ===========================================================================
+UPDATE `shared_cart`
+SET `expires_at` = DATE_ADD(`create_time`, INTERVAL 24 HOUR)
+WHERE `expires_at` IS NULL
+  AND `create_time` IS NOT NULL
+  AND `status` IN ('2', '3');
+
+-- ===========================================================================
+-- 2. 送达归档时间
+-- ===========================================================================
+SET @add_shared_cart_completed_time = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `shared_cart` ADD COLUMN `completed_time` datetime DEFAULT NULL COMMENT ''送达归档时间（订单签收后写入）'' AFTER `submitted_time`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shared_cart' AND COLUMN_NAME = 'completed_time'
+);
+PREPARE stmt FROM @add_shared_cart_completed_time; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ===========================================================================
+-- 3. 同一船舶「收集中」唯一性 —— 生成列 + 唯一索引
+--    应用层先查后插无法防并发（两个请求可能同时通过校验），
+--    因此用数据库兜底：仅当 status='2'（收集中）且未逻辑删除时生成列取 1，其余取 NULL。
+--    MySQL 唯一索引允许多个 NULL，故「已提交/已完成/已关闭/已删除」可并存，
+--    只有「同一租户 + 同一船舶 + 收集中且未删除」互斥。
+-- ===========================================================================
+SET @add_shared_cart_active_flag = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `shared_cart` ADD COLUMN `active_flag` tinyint GENERATED ALWAYS AS (CASE WHEN `status` = ''2'' AND `del_flag` = ''0'' THEN 1 ELSE NULL END) STORED COMMENT ''进行中标记：仅收集中且未删除为1，其余为NULL以允许多行''',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shared_cart' AND COLUMN_NAME = 'active_flag'
+);
+PREPARE stmt FROM @add_shared_cart_active_flag; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 建索引前先清理存量重复：同一船舶只保留最早的一条为收集中，其余置为已关闭。
+-- （不删除数据，仅改状态；重复的收集中购物车本身即为历史缺陷产物。）
+UPDATE `shared_cart` c
+JOIN (
+  SELECT `tenant_id`, `vessel_id`, MIN(`id`) AS keep_id
+  FROM `shared_cart`
+  WHERE `status` = '2' AND `del_flag` = '0'
+  GROUP BY `tenant_id`, `vessel_id`
+  HAVING COUNT(*) > 1
+) d ON c.`tenant_id` = d.`tenant_id` AND c.`vessel_id` = d.`vessel_id`
+SET c.`status` = '5'
+WHERE c.`status` = '2' AND c.`del_flag` = '0' AND c.`id` <> d.keep_id;
+
+SET @add_shared_cart_active_uk = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `shared_cart` ADD UNIQUE KEY `uk_shared_cart_active` (`tenant_id`, `vessel_id`, `active_flag`)',
+    'SELECT 1')
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shared_cart' AND INDEX_NAME = 'uk_shared_cart_active'
+);
+PREPARE stmt FROM @add_shared_cart_active_uk; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ===========================================================================
+-- 4. 过期扫描索引（Job 按 status + expires_at 扫描）
+-- ===========================================================================
+SET @add_shared_cart_expire_idx = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `shared_cart` ADD INDEX `idx_shared_cart_expire` (`status`, `expires_at`)',
+    'SELECT 1')
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shared_cart' AND INDEX_NAME = 'idx_shared_cart_expire'
+);
+PREPARE stmt FROM @add_shared_cart_expire_idx; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- 自检：新列与唯一索引应存在
+SELECT `COLUMN_NAME`, `COLUMN_TYPE`, `COLUMN_COMMENT`
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shared_cart'
+  AND `COLUMN_NAME` IN ('completed_time', 'active_flag')
+ORDER BY `COLUMN_NAME`;
+
+SELECT `INDEX_NAME`, `NON_UNIQUE`, GROUP_CONCAT(`COLUMN_NAME` ORDER BY `SEQ_IN_INDEX`) AS cols
+FROM information_schema.STATISTICS
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shared_cart'
+  AND `INDEX_NAME` IN ('uk_shared_cart_active', 'idx_shared_cart_expire')
+GROUP BY `INDEX_NAME`, `NON_UNIQUE`;
+
+-- ===========================================================================
+-- 5. 分享令牌（微信群分享自助加入）
+--    背景：原邀请方式要求发起人先知道对方商城用户 ID，而群里的人尚未进入系统，
+--    不可能预先获取。改为卡片携带随机令牌，点击即凭令牌加入。
+--    令牌随购物车 24 小时过期，且加入时校验船舶成员关系（见 Service 层），
+--    降低链接被转发到外部群后的滥用风险。
+-- ===========================================================================
+SET @add_shared_cart_share_token = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `shared_cart` ADD COLUMN `share_token` varchar(64) DEFAULT NULL COMMENT ''分享令牌（转发卡片携带，随购物车过期失效）'' AFTER `active_flag`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shared_cart' AND COLUMN_NAME = 'share_token'
+);
+PREPARE stmt FROM @add_shared_cart_share_token; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @add_shared_cart_share_token_uk = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `shared_cart` ADD UNIQUE KEY `uk_shared_cart_share_token` (`share_token`)',
+    'SELECT 1')
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shared_cart' AND INDEX_NAME = 'uk_shared_cart_share_token'
+);
+PREPARE stmt FROM @add_shared_cart_share_token_uk; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ============================================================================
+-- 靠港信息由海员申报
+-- Source: db/boot/67vessel_call_declare_incremental.sql
+-- ============================================================================
+-- 悦航购靠港信息由海员申报增量迁移（Boot 单体模式）
+--
+-- 目标库：aryn_boot（单体模式所有表同库）
+-- 租户白名单：本脚本仅对已有表 vessel_call 增加列与索引，不新增表，无需改动 hx.tenant.tables。
+-- 特性：幂等执行，不删除或重建数据；不修改既有列类型，不覆盖业务数据。
+--
+-- 背景（业务事实，2026-09-20 确认）：
+--   公司无法与船舶公司对接船期，ETA/ETD 只有船上的人知道。
+--   此前 vessel_call 完全由运营在管理端录入，等于让运营编造船期。
+--   正确分工：
+--     · 港口/泊位/ETA/ETD  —— 海员在下单时申报（客观事实，他才知道）
+--     · 配送时间窗/波次/司机 —— 运营收到申报后排产决策（公司能力）
+--   因此新增 source 区分来源，并保留运营事后修正（走既有变更日志与站内信通知）。
+--
+-- 执行：mysql -u root -p aryn_boot < 67vessel_call_declare_incremental.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ===========================================================================
+-- 1. 来源标记
+--    存量数据均为运营维护，默认 '1'；海员申报写入 '2'。
+-- ===========================================================================
+SET @add_vessel_call_source = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `vessel_call` ADD COLUMN `source` char(2) NOT NULL DEFAULT ''1'' COMMENT ''来源：1运营维护 2海员申报'' AFTER `status`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'vessel_call' AND COLUMN_NAME = 'source'
+);
+PREPARE stmt FROM @add_vessel_call_source; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ===========================================================================
+-- 2. 申报人（审计与后续沟通用；海员申报时写入）
+-- ===========================================================================
+SET @add_vessel_call_declared_by = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `vessel_call` ADD COLUMN `declared_by` varchar(32) DEFAULT NULL COMMENT ''申报人商城用户ID（海员申报时写入）'' AFTER `source`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'vessel_call' AND COLUMN_NAME = 'declared_by'
+);
+PREPARE stmt FROM @add_vessel_call_declared_by; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ===========================================================================
+-- 3. 待处理申报索引（运营按来源筛选待排产的靠港）
+-- ===========================================================================
+SET @add_vessel_call_source_idx = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `vessel_call` ADD INDEX `idx_vessel_call_source` (`tenant_id`, `source`, `status`)',
+    'SELECT 1')
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'vessel_call' AND INDEX_NAME = 'idx_vessel_call_source'
+);
+PREPARE stmt FROM @add_vessel_call_source_idx; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- 自检
+SELECT `COLUMN_NAME`, `COLUMN_TYPE`, `COLUMN_DEFAULT`, `COLUMN_COMMENT`
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'vessel_call'
+  AND `COLUMN_NAME` IN ('source', 'declared_by')
+ORDER BY `COLUMN_NAME`;
 
 -- ============================================================================
 -- XXL-JOB 调度库

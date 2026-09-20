@@ -35,7 +35,7 @@ WHERE `data_id` = 'aryn-gateway-dev.yml'
   AND `content` <> @gateway_content;
 
 -- 2) 创建 aryn-vessel-biz-dev.yml（已存在则不覆盖）
-SET @vessel_content = 'spring:  \n  datasource:\n    type: com.alibaba.druid.pool.DruidDataSource\n    driver-class-name: com.mysql.cj.jdbc.Driver\n    username: root\n    password: 123456\n    url: jdbc:mysql://aryn-mysql:3306/aryn_vessel?useUnicode=true&characterEncoding=utf8mb4&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true&cachePrepStmts=true&useServerPrepStmts=true\n\nlogging:\n  level:\n    com.aryn.cloud.vessel.mapper: debug\n\nhx:\n  tenant:\n    tables: \n      - vessel_info\n      - vessel_member\n      - vessel_call\n';
+SET @vessel_content = 'spring:  \n  datasource:\n    type: com.alibaba.druid.pool.DruidDataSource\n    driver-class-name: com.mysql.cj.jdbc.Driver\n    username: root\n    password: 123456\n    url: jdbc:mysql://aryn-mysql:3306/aryn_vessel?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true&cachePrepStmts=true&useServerPrepStmts=true\n\nlogging:\n  level:\n    com.aryn.cloud.vessel.mapper: debug\n\nhx:\n  tenant:\n    tables: \n      - vessel_info\n      - vessel_member\n      - vessel_call\n      - vessel_call_change_log\n';
 INSERT INTO `config_info` (`data_id`,`group_id`,`content`,`md5`,`src_ip`,`tenant_id`,`c_desc`,`type`)
 SELECT 'aryn-vessel-biz-dev.yml', 'DEFAULT_GROUP', @vessel_content, MD5(@vessel_content), 'system', '', '船舶与靠港计划服务配置', 'yaml'
 WHERE NOT EXISTS (

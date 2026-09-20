@@ -445,6 +445,20 @@ onMounted(initPage);
               {{ scope.row.deliveryWindowEnd }}
             </template>
           </ElTableColumn>
+          <ElTableColumn label="来源" width="100">
+            <template #default="scope">
+              <!-- 海员申报的靠港需要运营补配送时间窗并排产；
+                   运营自建的多为已知船期的大客户，两者处理方式不同 -->
+              <ElTag
+                v-if="scope.row.source === '2'"
+                type="warning"
+                size="small"
+              >
+                海员申报
+              </ElTag>
+              <span v-else>运营维护</span>
+            </template>
+          </ElTableColumn>
           <ElTableColumn label="状态" width="90">
             <template #default="scope">
               {{ callStatusLabel[scope.row.status] ?? scope.row.status }}

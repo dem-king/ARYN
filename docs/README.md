@@ -43,7 +43,7 @@
 1. 根目录包含商城后端、管理后台、UniApp 商城和一份独立 XXL-JOB 3.2.0 源码；XXL-JOB 不属于 `aryn-mall-java` 根 POM 模块。
 2. 后端支持 `/boot` 单体模式和 Gateway + Nacos + Dubbo 微服务模式；管理端和移动端用 `VITE_OPEN_BOOT` 切换路径。
 3. 管理端业务菜单主要由 `/upms/menu` 动态下发，静态路由模块只有 dashboard，排查“页面有文件但菜单不可见”时必须同时检查数据库菜单。
-4. 多租户启动校验、SQL/配置一致性测试和拦截绕过审计已经建立；配送相关表 Boot/Cloud 租户白名单已双模式补齐，`TenantConfigurationConsistencyTest` 基线转绿（2026-09-06）。存量库执行唯一索引迁移前仍需先按脚本预检查处理重复数据，boot 模式增量脚本尚未在真实 boot 库执行。
+4. 多租户启动校验、SQL/配置一致性测试和拦截绕过审计已经建立；配送相关表 Boot/Cloud 租户白名单已双模式补齐，`TenantConfigurationConsistencyTest` 基线转绿（2026-09-06）。存量库执行唯一索引迁移前仍需先按脚本预检查处理重复数据，boot 模式增量脚本尚未在真实 boot 库执行。**（2026-09-19 更新：该测试当前为红。`nacosConfigs()` 只解析 `3aryn_nacos.sql` 的 `INSERT ... VALUES` 写法，读不到 27/28/29/31/32/33/34/47/49/54/60/61 等增量补丁脚本的 `SET @var` + `UPDATE config_info` 改写；`3aryn_nacos.sql` 停留在 ship-supply 之前的旧基线，导致 upms/order/product/promotion 四个服务的白名单比对均不一致。另 `CLOUD_SCHEMAS` 未登记 `aryn-vessel-biz-dev.yml → aryn_vessel`。详见 [多租户 SQL 硬约束](40-接口与风险/README.md#多租户-sql-硬约束)。）**
 5. 开发配置和 SQL 种子中存在明文敏感配置；生产环境 API 地址仍有 localhost/模板值，部署前必须外置并核对。
 6. 2026-08-31 静态盘点后端 92 个测试类、管理端 62 个测试文件、UniApp 9 个测试文件；2026-09-06 已完成一轮全量验证：后端 `mvn test -pl aryn-boot -am` 转绿、管理端 63 文件 461 用例通过、UniApp type-check 与 38 用例通过。单轮通过不等于关键交易链路已被持续覆盖。
 7. 配送履约、秒杀和折扣活动已进入三端源码；配送资格体系已按 outbox 架构落地——角色授予/回收本地事务只写 `delivery_qualification_operation`，提交后执行，失败由 `DeliveryQualificationRetryJob` 指数退避重试；C 端资格结论禁回 `sysUserId`/`staffId` 内部 ID，访问守卫 fail-closed。UniApp 配送路径已统一 `/mall-order` 首段，资格/守卫专项测试 52 例已补齐，2026-07-28 设计偏差已收口。

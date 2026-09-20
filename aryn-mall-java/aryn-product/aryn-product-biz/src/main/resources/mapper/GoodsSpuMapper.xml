@@ -115,6 +115,9 @@
             AND goods_spu.`del_flag` = '0'
             AND goods_category.`del_flag` = '0'
             AND goods_spu.`status` = '1'
+            <!-- 商品统一（2026-09-20）：不再按 sale_scope 排除任何商品。
+                 船供/个人是**下单场景**（purchase_scene）而非商品分类，
+                 同一商品池对所有场景可见；船供属性（采购单位/MOQ/步长）退化为可选扩展资料。 -->
             <if test="query.name != null and query.name != ''">
                 AND LOWER(goods_spu.`name`) LIKE CONCAT('%',LOWER(#{query.name}),'%')
             </if>
