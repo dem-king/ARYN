@@ -67,6 +67,7 @@ import org.springframework.messaging.support.GenericMessage;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
@@ -140,14 +141,16 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 	private final com.aryn.cloud.order.validator.DeliveryContextValidator deliveryContextValidator;
 
 	/**
-	 * 共享购物车归档服务。
+	 * 共享购物车归档服务（延迟解析）。
 	 *
-	 * <p>@Lazy 断开构造器循环依赖：SharedCartServiceImpl 需要 IOrderInfoService 来创建整船订单，
-	 * 而订单签收后又需要把对应购物车归档为「已完成」。参照 {@link com.aryn.cloud.order.security.DeliveryAccessGuard}
-	 * 的做法，在消费方注入处延迟解析。
+	 * <p>必须用 {@link ObjectProvider} 而非直接注入：SharedCartServiceImpl 依赖 IOrderInfoService
+	 * 创建整船订单，订单签收又要回调它归档购物车，直接注入会形成构造器循环依赖。
+	 *
+	 * <p>注意不能用 Lombok 字段上的 {@code @Lazy}——{@code @RequiredArgsConstructor}
+	 * 不会把字段注解复制到构造参数上，循环依赖依然存在（已在部署时验证过）。
+	 * ObjectProvider 注入的是提供者本身，调用 {@code getObject()} 时才解析目标 Bean。
 	 */
-	@org.springframework.context.annotation.Lazy
-	private final ISharedCartService sharedCartService;
+	private final ObjectProvider<ISharedCartService> sharedCartServiceProvider;
 
 	@Override
 	public IPage<OrderInfo> adminPage(Page page, OrderInfo orderInfo) {
@@ -561,7 +564,10 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		// 共享购物车归档：整船订单送达后置为「已完成」，让船员看到「本次采购已送达」。
 		// fail-open：归档失败不影响签收主流程，购物车状态可由运营后台或重试修正。
 		try {
-			sharedCartService.archiveOnOrderSigned(orderInfo.getId());
+			ISharedCartService sharedCartService = sharedCartServiceProvider.getIfAvailable();
+			if (sharedCartService != null) {
+				sharedCartService.archiveOnOrderSigned(orderInfo.getId());
+			}
 		}
 		catch (Exception e) {
 			log.error("共享购物车签收归档失败: " + orderInfo.getId(), e);
