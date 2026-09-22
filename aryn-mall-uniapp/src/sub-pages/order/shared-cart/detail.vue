@@ -27,11 +27,13 @@ import {
   type SharedCartItem,
   type SharedCartMember,
   updateSharedCartItem,
+  updateSharedCartItemPlan,
 } from '@/api/order/sharedCart'
 import { getByIds } from '@/api/product/spu'
 import hrNavbar from '@/components/hr-navbar/index.vue'
 import { useShipContextStore } from '@/store/shipContextStore'
 import { useUserStore } from '@/store/userStore'
+import { buildReplenishRowView, summarizeReplenishItems } from '@/utils/replenish-progress'
 import {
   cartStatusLabel,
   cartStatusTheme,
@@ -72,6 +74,45 @@ const cartReadonly = computed(() => isCartReadonly(cart.value?.status))
 const canConfirmNow = computed(() =>
   !!cart.value?.viewerCanConfirm && collecting.value && items.value.length > 0,
 )
+
+/**
+ * 排计划与回填已采量是确认人（或发起人）职责，普通成员只能维护自己的需求量，
+ * 因此按钮可见性以服务端 viewerCanConfirm 为准，前端不自行推断角色。
+ *
+ * 状态上只排除已提交/已关闭/已完成（与后端 requireEditable 同口径）：
+ * 「待确认」阶段仍可能要补最后几项，不该提前锁死。
+ */
+const canPlan = computed(() => !cartReadonly.value && !!cart.value?.viewerCanConfirm)
+
+/** 整单进度：详情接口只返回原始明细，汇总口径与卡片保持一致（按项数） */
+const progressSummary = computed(() => summarizeReplenishItems(items.value))
+
+/**
+ * 明细行进度视图：itemId -> 文案。
+ * 列表里渲染时不能对每行反复建对象，这里一次算好。
+ */
+const rowViews = computed<Record<string, ReturnType<typeof buildReplenishRowView>>>(() => {
+  const map: Record<string, ReturnType<typeof buildReplenishRowView>> = {}
+  for (const item of items.value)
+    map[item.id] = buildReplenishRowView(item)
+  return map
+})
+
+/** 进度文案；无计划时显示「未排计划」而不是 0% */
+const progressSummaryText = computed(() => {
+  const summary = progressSummary.value
+  if (summary.totalItems === 0)
+    return ''
+  if (summary.plannedItems === 0)
+    return `尚未排计划 · ${summary.totalItems} 项待安排`
+  const parts = [
+    `已采 ${summary.fulfilledItems} / ${summary.plannedItems} 项`,
+    `还差 ${summary.remainingItems} 项`,
+  ]
+  if (summary.unplannedItems > 0)
+    parts.push(`${summary.unplannedItems} 项未排计划`)
+  return parts.join(' · ')
+})
 
 /** 邀请成员表单 */
 const inviteState = reactive({
@@ -232,6 +273,67 @@ function submitEditItem() {
     .catch(() => {})
     .finally(() => {
       editState.submitting = false
+    })
+}
+
+/** 排计划/回填已采量表单（确认人操作，可改任意成员的明细行） */
+const planState = reactive({
+  visible: false,
+  submitting: false,
+  itemId: '',
+  /** 计划量字符串，便于输入框绑定；空串表示取消计划 */
+  planned: '',
+  fulfilled: '',
+  itemName: '',
+})
+
+function openPlanItem(item: SharedCartItem) {
+  planState.itemId = item.id
+  planState.itemName = spuNames[item.spuId] || item.skuId
+  planState.planned = item.plannedQuantity == null ? '' : String(item.plannedQuantity)
+  planState.fulfilled = String(item.fulfilledQuantity ?? 0)
+  planState.visible = true
+}
+
+/** 空串视为「取消计划」；否则必须是 >= 0 的整数 */
+function parseQuantityInput(raw: string): number | null | undefined {
+  const trimmed = raw.trim()
+  if (trimmed === '')
+    return null
+  const value = Number(trimmed)
+  if (!Number.isInteger(value) || value < 0) {
+    uni.showToast({ title: '请填写非负整数', icon: 'none' })
+    return undefined
+  }
+  return value
+}
+
+function submitPlanItem() {
+  const planned = parseQuantityInput(planState.planned)
+  if (planned === undefined)
+    return
+  const fulfilled = parseQuantityInput(planState.fulfilled)
+  if (fulfilled === undefined)
+    return
+  if (planState.submitting)
+    return
+  planState.submitting = true
+  updateSharedCartItemPlan(cartId.value, {
+    itemId: planState.itemId,
+    // 清空输入框 -> 显式取消计划；否则写入新计划量
+    plannedQuantity: planned,
+    clearPlanned: planned === null,
+    // 已采量留空 -> 本次不改（后端仅在非 null 时写入）
+    fulfilledQuantity: fulfilled,
+  })
+    .then(() => {
+      planState.visible = false
+      uni.showToast({ title: '已保存', icon: 'success' })
+      return fetchDetail()
+    })
+    .catch(() => {})
+    .finally(() => {
+      planState.submitting = false
     })
 }
 
@@ -618,6 +720,24 @@ onShow(() => {
           </view>
         </view>
 
+        <!-- 进度摘要：按项数统计，未排计划的行不参与百分比 -->
+        <view v-if="progressSummaryText" class="mt-12rpx">
+          <view class="flex items-center">
+            <view class="flex-1 overflow-hidden rounded-full bg-gray-100" style="height:12rpx">
+              <view
+                v-if="progressSummary.plannedItems > 0"
+                :style="`width:${progressSummary.progressPercent ?? 0}%;height:12rpx;background:linear-gradient(90deg,#FFB25C,#F2741D)`"
+              />
+            </view>
+            <text class="ml-16rpx flex-none text-22rpx text-gray-500">
+              {{ progressSummary.progressPercent == null ? '—' : `${progressSummary.progressPercent}%` }}
+            </text>
+          </view>
+          <view class="mt-8rpx text-22rpx text-gray-500">
+            {{ progressSummaryText }}
+          </view>
+        </view>
+
         <view
           v-for="item in items"
           :key="item.id"
@@ -631,14 +751,25 @@ onShow(() => {
           </view>
           <view class="mt-8rpx flex items-center justify-between">
             <view class="text-24rpx text-gray-600">
-              申请 {{ item.requestedQuantity }}
+              {{ rowViews[item.id]?.text }}
               <text v-if="item.approvedQuantity != null" class="text-amber-600">
                 · 核定 {{ item.approvedQuantity }}
               </text>
             </view>
-            <view v-if="canEditItem(item)" class="flex items-center gap-20rpx">
-              <text class="text-24rpx text-blue-500" @tap="openEditItem(item)">编辑</text>
-              <text class="text-24rpx text-red-500" @tap="handleRemoveItem(item)">移除</text>
+            <view class="flex items-center gap-20rpx">
+              <!-- 排计划/回填已采量：确认人职责，与提交整船订单同权限 -->
+              <text
+                v-if="canPlan"
+                class="text-24rpx"
+                style="color:#0B8A6B"
+                @tap="openPlanItem(item)"
+              >
+                {{ item.plannedQuantity == null ? '排计划' : '改进度' }}
+              </text>
+              <template v-if="canEditItem(item)">
+                <text class="text-24rpx text-blue-500" @tap="openEditItem(item)">编辑</text>
+                <text class="text-24rpx text-red-500" @tap="handleRemoveItem(item)">移除</text>
+              </template>
             </view>
           </view>
           <view v-if="item.memberRemark" class="mt-6rpx text-22rpx text-gray-500">
@@ -653,6 +784,50 @@ onShow(() => {
           <template v-if="collecting">还没有成员加购，点「添加商品」开始</template>
           <template v-else-if="cartReadonly">本次未提交任何明细</template>
           <template v-else>暂无明细</template>
+        </view>
+      </view>
+
+      <!-- 排计划 / 回填已采量（确认人） -->
+      <view v-if="planState.visible" class="mx-20rpx mt-20rpx rounded-20rpx bg-white p-24rpx">
+        <view class="text-28rpx font-bold">
+          排计划 · 回填进度
+        </view>
+        <view class="mt-8rpx text-22rpx text-gray-500">
+          {{ planState.itemName }}
+        </view>
+        <view class="mt-8rpx text-22rpx text-gray-500">
+          计划量是本船这次要采多少，留空表示取消计划；未排计划的行不计入进度。
+        </view>
+        <view class="mt-16rpx text-24rpx text-gray-600">
+          计划采购量
+        </view>
+        <input
+          v-model="planState.planned"
+          class="mt-8rpx h-72rpx rounded-12rpx bg-gray-50 px-24rpx text-26rpx"
+          type="number"
+          placeholder="留空 = 取消计划"
+        >
+        <view class="mt-16rpx text-24rpx text-gray-600">
+          已采量
+        </view>
+        <input
+          v-model="planState.fulfilled"
+          class="mt-8rpx h-72rpx rounded-12rpx bg-gray-50 px-24rpx text-26rpx"
+          type="number"
+          placeholder="留空 = 本次不修改"
+        >
+        <view class="mt-20rpx flex gap-20rpx">
+          <button class="!m-0 flex-1 h-68rpx text-26rpx leading-68rpx" @tap="planState.visible = false">
+            取消
+          </button>
+          <button
+            class="!m-0 flex-1 h-68rpx text-26rpx leading-68rpx"
+            type="primary"
+            :disabled="planState.submitting"
+            @tap="submitPlanItem"
+          >
+            保存
+          </button>
         </view>
       </view>
 

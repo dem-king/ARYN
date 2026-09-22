@@ -21,6 +21,7 @@ function repoSource(relativePath: string) {
 }
 
 const API_BASE = '/mall-order/app/shared-cart'
+const ORDER_BIZ = 'aryn-mall-java/aryn-order/aryn-order-biz/src/main/java/com/aryn/cloud/order'
 
 describe('shared cart routing contract', () => {
   it('registers both shared cart pages in pages.json', () => {
@@ -48,6 +49,53 @@ describe('shared cart routing contract', () => {
     expect(shipSupply).toContain('addSharedCartItem')
     // 共享车模式下不得再写入个人购物车，否则同一件商品会进两处
     expect(shipSupply).toContain('isSharedMode')
+  })
+
+  it('detail page wires plan/fulfil editing to the backend plan endpoint', () => {
+    const detail = source('src/sub-pages/order/shared-cart/detail.vue')
+    const api = source('src/api/order/sharedCart.ts')
+
+    // 从函数体里取实际拼出的路径，避免"路径写错但别处碰巧有同样字样"蒙混过关
+    const fnBody = api.slice(
+      api.indexOf('export function updateSharedCartItemPlan'),
+      api.indexOf('export function removeSharedCartItem'),
+    )
+    // 用正则而非普通字符串，避免 no-template-curly-in-string（与文件内既有写法一致）
+    expect(fnBody).toMatch(/\$\{BASE\}\/\$\{id\}\/items\/plan/)
+    expect(detail).toContain('updateSharedCartItemPlan')
+
+    // 后端映射必须同段
+    const controller = repoSource(`${ORDER_BIZ}/controller/app/AppSharedCartController.java`)
+    expect(controller).toContain('@PutMapping("/{id}/items/plan")')
+    expect(controller).toContain('@RequestMapping("/app/shared-cart")')
+  })
+
+  it('plan submission distinguishes clear-plan from leave-unchanged', () => {
+    const detail = source('src/sub-pages/order/shared-cart/detail.vue')
+    const call = detail.slice(
+      detail.indexOf('updateSharedCartItemPlan(cartId.value'),
+      detail.indexOf('function handleRemoveItem'),
+    )
+    // 清空输入框 = 取消计划，必须显式带 clearPlanned，否则后端把 null 当成"不改"，
+    // 用户清空后保存会发现计划没被清掉
+    expect(call).toContain('clearPlanned: planned === null')
+    // 只改已采量不能顺手把计划清掉（后端靠 fulfilledQuantity 非 null 判断）
+    expect(call).toContain('fulfilledQuantity: fulfilled')
+  })
+
+  it('plan entry only shows to confirmer, not to every member', () => {
+    const detail = source('src/sub-pages/order/shared-cart/detail.vue')
+    // 权限以服务端 viewerCanConfirm 为准，不能前端按 userId 猜
+    expect(detail).toContain('viewerCanConfirm')
+    expect(detail).not.toMatch(/const\s+canPlan\s*=\s*computed\(\(\)\s*=>\s*isMine/)
+  })
+
+  it('detail progress uses the same calculator as the home card', () => {
+    const detail = source('src/sub-pages/order/shared-cart/detail.vue')
+    const card = source('src/components/diy/diy-replenish-card/index.vue')
+    // 两处都走纯函数，避免"首页 65% / 详情 62%"这类漂移
+    expect(detail).toContain('summarizeReplenishItems')
+    expect(card).toContain('buildReplenishProgressView')
   })
 
   it('exposes every shared cart page from an existing entry point', () => {
