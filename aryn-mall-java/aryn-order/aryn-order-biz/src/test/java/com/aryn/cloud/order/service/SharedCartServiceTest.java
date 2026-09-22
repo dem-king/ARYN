@@ -4,6 +4,7 @@ import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.order.api.dto.CreateOrderDTO;
 import com.aryn.cloud.order.api.dto.CreateOrderSkuReqDTO;
 import com.aryn.cloud.order.api.dto.SharedCartItemDTO;
+import com.aryn.cloud.order.api.dto.SharedCartPlanDTO;
 import com.aryn.cloud.order.api.dto.SharedCartConfirmDTO;
 import com.aryn.cloud.order.api.dto.SharedCartCreateDTO;
 import com.aryn.cloud.order.api.entity.OrderInfo;
@@ -16,6 +17,7 @@ import com.aryn.cloud.order.mapper.SharedCartMapper;
 import com.aryn.cloud.order.mapper.SharedCartMemberMapper;
 import com.aryn.cloud.order.service.impl.SharedCartServiceImpl;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import com.aryn.cloud.product.api.entity.ShipSkuProfile;
@@ -87,6 +89,9 @@ class SharedCartServiceTest {
 		// lambdaUpdate 需要实体表信息缓存，否则单测中抛
 		// "MybatisPlus can not find lambda cache for this entity"
 		TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), SharedCart.class);
+		// requireConfirmer / requireMembership 都走 lambdaQuery；不初始化成员表信息
+		// 单测里连 SQL 片段都取不到，只能靠 any() 蒙混，无法区分两种权限
+		TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), SharedCartMember.class);
 		service = new SharedCartServiceImpl(cartMapper, memberMapper, itemMapper, orderInfoService);
 		ReflectionTestUtils.setField(service, "remoteShipProductProfileService", remoteShipProductProfileService);
 		ReflectionTestUtils.setField(service, "remoteVesselService", remoteVesselService);
@@ -506,6 +511,137 @@ class SharedCartServiceTest {
 		assertEquals(SharedCartMember.ROLE_CONFIRMATOR, vo.getViewerRole());
 		assertTrue(vo.getViewerCanConfirm());
 		assertEquals("悦航1号", vo.getVesselName());
+	}
+
+	@Test
+	@DisplayName("排计划：确认人可给任意成员的明细行排计划")
+	void updateItemPlanAllowsConfirmer() {
+		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
+		SharedCartItem target = item("item-1", MEMBER, "sku-1", 6);
+		when(itemMapper.selectOne(any())).thenReturn(target);
+
+		SharedCartPlanDTO dto = new SharedCartPlanDTO();
+		dto.setItemId("item-1");
+		dto.setPlannedQuantity(4);
+		dto.setFulfilledQuantity(1);
+
+		SharedCartItem updated = service.updateItemPlan(TENANT, OWNER, CART_ID, dto);
+
+		assertEquals(4, updated.getPlannedQuantity());
+		assertEquals(1, updated.getFulfilledQuantity());
+		verify(itemMapper).updateById(target);
+	}
+
+	@Test
+	@DisplayName("排计划：普通成员是有效成员但无确认权时仍无权排计划")
+	void updateItemPlanRejectsPlainMember() {
+		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
+		when(itemMapper.selectOne(any())).thenReturn(item("item-1", MEMBER, "sku-1", 6));
+		// 该成员是有效成员（成员关系查得到），但成员行的 canConfirm=0：
+		// 这两个查询都走 selectCount，靠 SQL 里是否带 can_confirm 区分，
+		// 否则用 any() 一把梭会让「权限收紧」和「权限放宽」得到同样结果。
+		when(memberMapper.selectCount(any())).thenAnswer(invocation -> {
+			Wrapper<SharedCartMember> wrapper = invocation.getArgument(0);
+			return wrapper.getSqlSegment().contains("can_confirm") ? 0L : 1L;
+		});
+
+		SharedCartPlanDTO dto = new SharedCartPlanDTO();
+		dto.setItemId("item-1");
+		dto.setPlannedQuantity(4);
+
+		assertThrows(ArynBusinessException.class,
+				() -> service.updateItemPlan(TENANT, MEMBER, CART_ID, dto));
+		verify(itemMapper, never()).updateById(any(SharedCartItem.class));
+	}
+
+	@Test
+	@DisplayName("排计划：clearPlanned=true 才清空计划量")
+	void updateItemPlanClearsOnlyWhenExplicit() {
+		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
+		SharedCartItem target = item("item-1", MEMBER, "sku-1", 6);
+		target.setPlannedQuantity(4);
+		target.setFulfilledQuantity(2);
+		when(itemMapper.selectOne(any())).thenReturn(target);
+
+		SharedCartPlanDTO dto = new SharedCartPlanDTO();
+		dto.setItemId("item-1");
+		// plannedQuantity 为空但未显式 clearPlanned：应保持原计划不动
+		dto.setFulfilledQuantity(3);
+
+		SharedCartItem updated = service.updateItemPlan(TENANT, OWNER, CART_ID, dto);
+
+		assertEquals(4, updated.getPlannedQuantity());
+		assertEquals(3, updated.getFulfilledQuantity());
+	}
+
+	@Test
+	@DisplayName("排计划：只改已采量不会抹掉计划（clearPlanned 缺席时的语义）")
+	void updateItemPlanOnlyFulfilledKeepsPlan() {
+		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
+		SharedCartItem target = item("item-1", MEMBER, "sku-1", 6);
+		target.setPlannedQuantity(4);
+		when(itemMapper.selectOne(any())).thenReturn(target);
+
+		SharedCartPlanDTO dto = new SharedCartPlanDTO();
+		dto.setItemId("item-1");
+		dto.setPlannedQuantity(4);
+		dto.setFulfilledQuantity(4);
+
+		SharedCartItem updated = service.updateItemPlan(TENANT, OWNER, CART_ID, dto);
+
+		assertEquals(4, updated.getPlannedQuantity());
+		assertEquals(4, updated.getFulfilledQuantity());
+	}
+
+	@Test
+	@DisplayName("排计划：显式 clearPlanned=true 清空计划，行退出进度统计")
+	void updateItemPlanClearsPlanWhenRequested() {
+		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
+		SharedCartItem target = item("item-1", MEMBER, "sku-1", 6);
+		target.setPlannedQuantity(4);
+		target.setFulfilledQuantity(2);
+		when(itemMapper.selectOne(any())).thenReturn(target);
+
+		SharedCartPlanDTO dto = new SharedCartPlanDTO();
+		dto.setItemId("item-1");
+		dto.setClearPlanned(true);
+
+		SharedCartItem updated = service.updateItemPlan(TENANT, OWNER, CART_ID, dto);
+
+		assertNull(updated.getPlannedQuantity());
+		// 清计划不该顺手把已采量清零（已采是既成事实）
+		assertEquals(2, updated.getFulfilledQuantity());
+	}
+
+	@Test
+	@DisplayName("排计划：存量行的已采量为 null 时补 0，保证进度口径统一")
+	void updateItemPlanBackfillsNullFulfilled() {
+		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
+		SharedCartItem target = item("item-1", MEMBER, "sku-1", 6);
+		target.setPlannedQuantity(4);
+		target.setFulfilledQuantity(null);
+		when(itemMapper.selectOne(any())).thenReturn(target);
+
+		SharedCartPlanDTO dto = new SharedCartPlanDTO();
+		dto.setItemId("item-1");
+
+		SharedCartItem updated = service.updateItemPlan(TENANT, OWNER, CART_ID, dto);
+
+		assertEquals(0, updated.getFulfilledQuantity());
+	}
+
+	@Test
+	@DisplayName("排计划：已提交的购物车不能再改计划")
+	void updateItemPlanRejectsReadonlyCart() {
+		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_SUBMITTED));
+		when(itemMapper.selectOne(any())).thenReturn(item("item-1", MEMBER, "sku-1", 6));
+
+		SharedCartPlanDTO dto = new SharedCartPlanDTO();
+		dto.setItemId("item-1");
+		dto.setPlannedQuantity(4);
+
+		assertThrows(ArynBusinessException.class,
+				() -> service.updateItemPlan(TENANT, OWNER, CART_ID, dto));
 	}
 
 	private SharedCartMember member(String cartId, String userId, String role, String canEdit, String canConfirm) {
