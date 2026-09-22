@@ -19,9 +19,10 @@ import type { ReplenishCardProps } from '@/components/diy/retail-types'
  * | 纯零售租户 business_mode=2    | 不渲染                  |
  * | 共享购物车/商品服务异常        | 不渲染                  |
  *
- * 刻意不展示「已采 N 项 / 还差 X 件 / 进度条」：现有模型 approved_quantity
- * 与 ITEM_CONFIRMED 只在确认人提交整船订单时写入，收集阶段没有目标量可算，
- * 编一个进度就是假数据（见 SharedCartSummaryVO 类注释）。
+ * 进度口径（与后端 ReplenishProgressCalculator 一致）：
+ * 只有排了计划的行才参与统计，未排计划的行只提示「尚未排计划」；
+ * 无任何计划时不给百分比（显示「—」），而不是 0% —— 后者会被误读成
+ * 「有计划但一项没采」。
  */
 import { onShow } from '@dcloudio/uni-app'
 import { computed, ref } from 'vue'
@@ -31,6 +32,7 @@ import { useDiyStyle } from '@/composables/useDiyStyle'
 import { useAuthStore } from '@/store/authStore'
 import { useShipContextStore } from '@/store/shipContextStore'
 import { useTenantCapabilityStore } from '@/store/tenantCapabilityStore'
+import { buildReplenishProgressView } from '@/utils/replenish-progress'
 
 const props = withDefaults(defineProps<{ showData?: Partial<ReplenishCardProps> }>(), {
   showData: () => ({}),
@@ -91,19 +93,8 @@ const overviewText = computed(() => {
   return parts.join(' · ')
 })
 
-/**
- * 明细预览文案：`番茄 2 · 矿泉水 5`，超出上限以省略号收尾。
- * 商品名拿不到时回落 SKU ID，避免出现空白行。
- */
-const previewText = computed(() => {
-  const data = summary.value
-  if (!data || data.previewItems.length === 0)
-    return ''
-  const text = data.previewItems
-    .map(item => `${item.spuName || item.skuId} ${item.quantity}`)
-    .join(' · ')
-  return data.previewTruncated ? `${text} …` : text
-})
+/** 进度视图（文案与进度条宽度统一由纯函数产出，便于单测守口径） */
+const progressView = computed(() => buildReplenishProgressView(summary.value))
 
 async function loadSummary() {
   // 未登录用户永远不会看到卡片，无需为租户能力或摘要发起请求
@@ -182,12 +173,24 @@ onShow(() => {
         </view>
       </view>
 
+      <view v-if="progressView.hasPlan" class="card-progress">
+        <view class="progress-track">
+          <view class="progress-bar" :style="`width:${progressView.percent}%`" />
+        </view>
+        <text class="progress-text">
+          {{ progressView.progressText }}
+        </text>
+      </view>
+      <text v-else-if="progressView.progressText" class="card-progress-hint">
+        {{ progressView.progressText }}
+      </text>
+
       <view
-        v-if="showData.showPreview && previewText"
+        v-if="showData.showPreview && progressView.previewLineText"
         class="card-preview"
       >
         <text class="flex-1 truncate">
-          {{ previewText }}
+          {{ progressView.previewLineText }}
         </text>
         <text class="i-carbon:chevron-right ml-8rpx flex-none text-24rpx" />
       </view>
@@ -243,10 +246,42 @@ onShow(() => {
   font-weight: 700;
 }
 
+.card-progress {
+  margin-top: 16rpx;
+}
+
+.progress-track {
+  overflow: hidden;
+  height: 10rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.progress-bar {
+  height: 100%;
+  border-radius: 999rpx;
+  background: linear-gradient(90deg, #ffb25c, #f2741d);
+  transition: width 0.3s ease;
+}
+
+.progress-text {
+  display: block;
+  margin-top: 10rpx;
+  font-size: 22rpx;
+  opacity: 0.9;
+}
+
+.card-progress-hint {
+  display: block;
+  margin-top: 14rpx;
+  font-size: 22rpx;
+  opacity: 0.8;
+}
+
 .card-preview {
   display: flex;
   align-items: center;
-  margin-top: 18rpx;
+  margin-top: 14rpx;
   font-size: 22rpx;
   opacity: 0.92;
 }

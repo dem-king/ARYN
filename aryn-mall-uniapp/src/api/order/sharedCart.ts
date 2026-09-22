@@ -62,10 +62,39 @@ export interface SharedCartItem {
   skuId: string
   requestedQuantity: number
   approvedQuantity?: number
+  /**
+   * 计划采购量（采购单位）；null/undefined 表示未设计划。
+   *
+   * 未设计划的行不参与进度统计，也不能回落成 requestedQuantity ——
+   * 「成员报的需求量」与「本次计划采购多少」不是一回事（77 号脚本加列）。
+   */
+  plannedQuantity?: number | null
+  /** 已采量（采购单位，收集期间由确认人回填）；存量行为 null 时按 0 展示 */
+  fulfilledQuantity?: number | null
   memberRemark?: string
   /** 1待确认 2已确认 3已移除 */
   status: string
   createTime?: string
+}
+
+/** 单行进度：与后端 ReplenishProgressVO 同口径（未设计划时只剩 plannedQuantity 为空） */
+export interface ReplenishRowProgress {
+  plannedQuantity?: number | null
+  fulfilledQuantity: number
+  remainingQuantity?: number | null
+  completed?: boolean | null
+}
+
+/** 整单进度：按项数算百分比，与数量单位无关 */
+export interface ReplenishSummaryProgress {
+  totalItems: number
+  plannedItems: number
+  fulfilledItems: number
+  remainingItems: number
+  unplannedItems: number
+  /** 无任何计划时为 null -> 前端显示「—」，不是 0% */
+  progressPercent?: number | null
+  totalAmount: number
 }
 
 export interface SharedCartCreatePayload {
@@ -97,6 +126,8 @@ export interface SharedCartSummary {
   itemCount: number
   memberCount: number
   totalAmount: number
+  /** 进度汇总（未设计划的行只计入 unplannedItems，不参与百分比） */
+  progress?: ReplenishSummaryProgress | null
   previewItems: Array<{
     itemId: string
     spuId: string
@@ -104,6 +135,14 @@ export interface SharedCartSummary {
     spuName?: string
     specsInfo?: string
     quantity: number
+    /** 计划量；null 表示未设计划 */
+    plannedQuantity?: number | null
+    /** 已采量 */
+    fulfilledQuantity?: number | null
+    /** 还差量（未设计划时为 null） */
+    remainingQuantity?: number | null
+    /** 是否已采满（未设计划时为 null） */
+    completed?: boolean | null
     picUrl?: string
     amount: number
   }>
@@ -121,7 +160,8 @@ export function getMySharedCarts() {
  * 当前进行中的共享购物车摘要（首页补给单卡片）。
  *
  * 无进行中的购物车时 cart 为 null（首页渲染空态引导），不抛异常。
- * 注：现有模型尚无「目标量」，「还差」只能按明细用量展示，不做进度百分比。
+ * 进度来自 `shared_cart_item.planned_quantity / fulfilled_quantity`
+ * （77 号双模式脚本），未设计划的行不参与百分比。
  */
 export function getActiveSharedCartSummary(vesselCallId?: string) {
   return alovaInstance.Get<SharedCartSummary>(`${BASE}/active-summary`, {
@@ -183,9 +223,32 @@ export function updateSharedCartItem(id: string, itemId: string, data: SharedCar
   return alovaInstance.Put<SharedCartItem>(`${BASE}/${id}/items/${itemId}`, data)
 }
 
+/**
+ * 设置明细的计划量/已采量（确认人/发起人；补给单排计划与回填进度）。
+ *
+ * 两个数量的语义由 `clearPlanned` 区分，避免误清计划：
+ * - `plannedQuantity = null` 且 `clearPlanned = true` -> 取消该行计划；
+ * - `plannedQuantity = null` 且不传 `clearPlanned` -> 本次不改计划；
+ * - `fulfilledQuantity = null` -> 本次不改已采量。
+ */
+export function updateSharedCartItemPlan(id: string, data: SharedCartPlanPayload) {
+  return alovaInstance.Put<SharedCartItem>(`${BASE}/${id}/items/plan`, data)
+}
+
 /** 移除自己的明细 */
 export function removeSharedCartItem(id: string, itemId: string) {
   return alovaInstance.Delete<void>(`${BASE}/${id}/items/${itemId}`)
+}
+
+/** 计划量/已采量编辑入参（确认人操作，可操作任意成员的明细行） */
+export interface SharedCartPlanPayload {
+  itemId: string
+  /** 计划采购量；null 表示取消计划（需配合 clearPlanned）或不改（不传） */
+  plannedQuantity?: number | null
+  /** 已采量；null/不传表示本次不改 */
+  fulfilledQuantity?: number | null
+  /** 显式清除计划量：区分「取消计划」与「本次不改已采量」 */
+  clearPlanned?: boolean
 }
 
 /** 确认人统一提交，生成整船订单（幂等，返回订单ID） */
