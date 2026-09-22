@@ -79,8 +79,9 @@ const canConfirmNow = computed(() =>
  * 排计划与回填已采量是确认人（或发起人）职责，普通成员只能维护自己的需求量，
  * 因此按钮可见性以服务端 viewerCanConfirm 为准，前端不自行推断角色。
  *
- * 状态上只排除已提交/已关闭/已完成（与后端 requireEditable 同口径）：
- * 「待确认」阶段仍可能要补最后几项，不该提前锁死。
+ * 状态上只排除已提交/已关闭/已完成（`cartReadonly`）。后端 `requireEditable`
+ * 只拦已提交/已关闭；前端对「已完成」也隐藏，因为订单已送达归档，
+ * 此时再排计划没有意义。「待确认」阶段仍可能要补最后几项，不提前锁死。
  */
 const canPlan = computed(() => !cartReadonly.value && !!cart.value?.viewerCanConfirm)
 
