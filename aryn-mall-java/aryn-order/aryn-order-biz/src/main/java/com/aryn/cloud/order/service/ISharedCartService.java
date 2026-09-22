@@ -1,12 +1,14 @@
 package com.aryn.cloud.order.service;
 
 import com.aryn.cloud.order.api.dto.SharedCartItemDTO;
+import com.aryn.cloud.order.api.dto.SharedCartReuseDTO;
 import com.aryn.cloud.order.api.dto.SharedCartPlanDTO;
 import com.aryn.cloud.order.api.dto.SharedCartConfirmDTO;
 import com.aryn.cloud.order.api.dto.SharedCartCreateDTO;
 import com.aryn.cloud.order.api.entity.SharedCart;
 import com.aryn.cloud.order.api.entity.SharedCartItem;
 import com.aryn.cloud.order.api.entity.SharedCartMember;
+import com.aryn.cloud.order.api.vo.SharedCartReuseVO;
 import com.aryn.cloud.order.api.vo.SharedCartSummaryVO;
 import com.aryn.cloud.order.api.vo.SharedCartVO;
 
@@ -58,6 +60,20 @@ public interface ISharedCartService {
 	 * @return 更新后的明细
 	 */
 	SharedCartItem updateItemPlan(String tenantId, String userId, String cartId, SharedCartPlanDTO planDTO);
+
+	/**
+	 * 历史补给单一键复用：把源单明细复制到「当前靠港计划」下的购物车。
+	 *
+	 * <p>与「再来一单」同口径：复用只是把清单搬过来，不下单、不锁价、不校验库存，
+	 * 用户确认后仍走正常的改数量→提交整船订单流程。
+	 *
+	 * <p>权限：须为源单成员（发起人也算），否则可以借复用读取任意购物车明细。
+	 * 目标车沿用 create 的「同船同时只有一张收集中购物车」规则，命中则并入。
+	 *
+	 * @param sourceCartId 历史购物车ID
+	 * @return 目标购物车与复用统计
+	 */
+	SharedCartReuseVO reuseFromHistory(String tenantId, String userId, String sourceCartId, SharedCartReuseDTO dto);
 
 	/**
 	 * 确认人调整核定数量并统一提交，生成一个整船订单（按购物车幂等）。

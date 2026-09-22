@@ -5,6 +5,7 @@ import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.order.api.dto.CreateOrderDTO;
 import com.aryn.cloud.order.api.dto.CreateOrderSkuReqDTO;
 import com.aryn.cloud.order.api.dto.SharedCartItemDTO;
+import com.aryn.cloud.order.api.dto.SharedCartReuseDTO;
 import com.aryn.cloud.order.api.dto.SharedCartPlanDTO;
 import com.aryn.cloud.order.api.dto.SharedCartConfirmDTO;
 import com.aryn.cloud.order.api.dto.SharedCartCreateDTO;
@@ -13,6 +14,7 @@ import com.aryn.cloud.order.api.entity.SharedCartItem;
 import com.aryn.cloud.order.api.entity.SharedCartMember;
 import com.aryn.cloud.order.api.support.ReplenishProgressCalculator;
 import com.aryn.cloud.order.api.vo.ReplenishProgressVO;
+import com.aryn.cloud.order.api.vo.SharedCartReuseVO;
 import com.aryn.cloud.order.api.vo.SharedCartSummaryVO;
 import com.aryn.cloud.order.api.vo.SharedCartVO;
 import com.aryn.cloud.order.mapper.SharedCartItemMapper;
@@ -46,6 +48,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -252,6 +255,182 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		}
 		item.setStatus(SharedCartItem.ITEM_REMOVED);
 		sharedCartItemMapper.updateById(item);
+	}
+
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public SharedCartReuseVO reuseFromHistory(String tenantId, String userId, String sourceCartId,
+			SharedCartReuseDTO dto) {
+		SharedCart source = requireCart(tenantId, sourceCartId);
+		// 权限：必须是源单成员。否则任何人都能借「复用」读取别人购物车的明细。
+		requireMembership(source, userId);
+		// 补给清单按船组织（船员、航线、靠港各不同），把 A 船的清单搬到 B 船没有业务意义。
+		if (!Objects.equals(source.getVesselId(), dto.getVesselId())) {
+			throw new ArynBusinessException("只能把历史补给单复用到同一条船上");
+		}
+		// 只允许复用**已结束**的单：进行中的单本身就是本轮的清单，再「复用」一次
+		// 会命中同一张车、全部明细按"已存在"跳过，用户只会看到一句莫名其妙的提示。
+		if (SharedCart.STATUS_DRAFT.equals(source.getStatus())
+				|| SharedCart.STATUS_COLLECTING.equals(source.getStatus())
+				|| SharedCart.STATUS_WAITING_CONFIRM.equals(source.getStatus())) {
+			throw new ArynBusinessException("该补给单还在进行中，无需复用");
+		}
+
+		// 目标车沿用 create 的「同船同时只有一张收集中购物车」规则：命中已有车则并入。
+		// 靠港计划取 dto 里**当前**这一个，而非源单那个已结束的历史靠港 ——
+		// 复用出来的是本轮采购，配送窗口必须落在本次靠港。
+		SharedCartCreateDTO createDTO = new SharedCartCreateDTO();
+		createDTO.setVesselId(dto.getVesselId());
+		createDTO.setVesselCallId(dto.getVesselCallId());
+		createDTO.setRemark(StringUtils.hasText(dto.getRemark()) ? dto.getRemark() : source.getRemark());
+		SharedCart target = create(tenantId, userId, createDTO);
+		ensureReuseMembership(tenantId, target, userId);
+
+		// 目标清单里已有的 SKU 不再搬：重复点「历史复用」时数量不能翻倍。
+		Set<String> existingSkuIds = listItems(tenantId, target.getId()).stream()
+			.map(SharedCartItem::getSkuId)
+			.filter(StringUtils::hasText)
+			.collect(Collectors.toSet());
+
+		SharedCartReuseVO result = new SharedCartReuseVO();
+		result.setCartId(target.getId());
+		result.setCartNo(target.getCartNo());
+		result.setAdoptedExisting(Boolean.TRUE.equals(target.getAdoptedExisting()));
+
+		// 源单是「按人拆行」的，同一 SKU 可能有多行；而复用后归属只有当前操作者一人，
+		// 再保留多行只会让清单变乱，因此按 SKU 合并后再落地。
+		Map<String, ReuseAggregate> merged = new LinkedHashMap<>();
+		Map<String, String> skipReasons = new LinkedHashMap<>();
+		for (SharedCartItem item : listReusableItems(tenantId, sourceCartId)) {
+			String skuId = item.getSkuId();
+			if (!StringUtils.hasText(skuId)) {
+				continue;
+			}
+			Integer quantity = reuseQuantity(item);
+			if (quantity == null || quantity <= 0) {
+				skipReasons.putIfAbsent(skuId, "原明细没有可用数量");
+				continue;
+			}
+			ReuseAggregate aggregate = merged.computeIfAbsent(skuId,
+					key -> new ReuseAggregate(item.getSpuId()));
+			aggregate.quantity += quantity;
+			// 计划量只继承**真实排过计划**的部分；源单没排计划就保持 null，
+			// 不拿申请量充数 —— 与 ReplenishProgressCalculator 同一口径。
+			if (item.getPlannedQuantity() != null) {
+				aggregate.plannedQuantity = (aggregate.plannedQuantity == null ? 0 : aggregate.plannedQuantity)
+						+ item.getPlannedQuantity();
+			}
+		}
+
+		int reused = 0;
+		for (Map.Entry<String, ReuseAggregate> entry : merged.entrySet()) {
+			String skuId = entry.getKey();
+			if (existingSkuIds.contains(skuId)) {
+				skipReasons.put(skuId, "本次清单中已有该商品");
+				continue;
+			}
+			ReuseAggregate aggregate = entry.getValue();
+			SharedCartItem item = new SharedCartItem();
+			item.setId(IdWorker.getIdStr());
+			item.setCartId(target.getId());
+			item.setUserId(userId);
+			item.setSpuId(aggregate.spuId);
+			item.setSkuId(skuId);
+			item.setRequestedQuantity(aggregate.quantity);
+			item.setPlannedQuantity(aggregate.plannedQuantity);
+			// 已采量不继承：那是上一轮的既成事实，继承过来进度条一上来就是满的。
+			item.setFulfilledQuantity(0);
+			item.setStatus(SharedCartItem.ITEM_PENDING);
+			item.setTenantId(tenantId);
+			item.setCreateTime(LocalDateTime.now());
+			item.setDelFlag("0");
+			sharedCartItemMapper.insert(item);
+			reused++;
+		}
+
+		result.setReusedCount(reused);
+		result.setSkippedCount(skipReasons.size());
+		skipReasons.forEach((skuId, reason) -> result.getSkipped().add(new SharedCartReuseVO.Skipped(skuId, reason)));
+		log.info("复用历史补给单：source={} target={} 复用={} 跳过={}", sourceCartId, target.getId(), reused,
+				skipReasons.size());
+		return result;
+	}
+
+	/**
+	 * 复用时确认操作者在目标车里有成员关系。
+	 *
+	 * <p>{@code create} 命中「同船已有收集中购物车」时只回传该车、不补成员行，
+	 * 若非成员就会被写进一张自己打不开的清单（详情接口按成员校验）。
+	 * 复用者既然能读同一艘船的历史单，就该能参与本轮的同一张车。
+	 */
+	private void ensureReuseMembership(String tenantId, SharedCart cart, String userId) {
+		if (Objects.equals(cart.getOwnerUserId(), userId)) {
+			return;
+		}
+		Long count = sharedCartMemberMapper.selectCount(Wrappers.lambdaQuery(SharedCartMember.class)
+				.eq(SharedCartMember::getTenantId, tenantId)
+				.eq(SharedCartMember::getCartId, cart.getId())
+				.eq(SharedCartMember::getUserId, userId));
+		if (count != null && count > 0) {
+			return;
+		}
+		SharedCartMember member = new SharedCartMember();
+		member.setCartId(cart.getId());
+		member.setUserId(userId);
+		member.setMemberRole(SharedCartMember.ROLE_MEMBER);
+		member.setCanEdit("1");
+		member.setCanConfirm("0");
+		member.setJoinedTime(LocalDateTime.now());
+		member.setTenantId(tenantId);
+		member.setCreateTime(LocalDateTime.now());
+		member.setDelFlag("0");
+		sharedCartMemberMapper.insert(member);
+	}
+
+	/**
+	 * 可复用的源明细：待确认 + 已确认（不含已移除）。
+	 *
+	 * <p>刻意不复用 {@code listItems}：它只取 {@code ITEM_PENDING}，而已提交的历史单里
+	 * 被核定过数量的行已置为 {@code ITEM_CONFIRMED} —— 直接拿它会漏掉这些行，
+	 * 复用出来的清单凭空少几项。
+	 */
+	private List<SharedCartItem> listReusableItems(String tenantId, String cartId) {
+		return sharedCartItemMapper.selectList(Wrappers.lambdaQuery(SharedCartItem.class)
+				.eq(SharedCartItem::getTenantId, tenantId)
+				.eq(SharedCartItem::getCartId, cartId)
+				.in(SharedCartItem::getStatus, SharedCartItem.ITEM_PENDING, SharedCartItem.ITEM_CONFIRMED)
+				.orderByAsc(SharedCartItem::getCreateTime));
+	}
+
+	/**
+	 * 复用时的数量口径：计划量 → 核定数量 → 申请数量。
+	 *
+	 * <p>计划量排在最前，因为它是本轮「打算采多少」的明确表述；没有计划才回落到
+	 * 上一轮实际下单的核定/申请数量。三者都没有时返回 null，由调用方计入跳过。
+	 */
+	private Integer reuseQuantity(SharedCartItem item) {
+		if (item.getPlannedQuantity() != null) {
+			return item.getPlannedQuantity();
+		}
+		if (item.getApprovedQuantity() != null) {
+			return item.getApprovedQuantity();
+		}
+		return item.getRequestedQuantity();
+	}
+
+	/** 复用过程中按 SKU 聚合的中间态 */
+	private static final class ReuseAggregate {
+
+		private final String spuId;
+
+		private int quantity;
+
+		private Integer plannedQuantity;
+
+		private ReuseAggregate(String spuId) {
+			this.spuId = spuId;
+		}
+
 	}
 
 	@Override

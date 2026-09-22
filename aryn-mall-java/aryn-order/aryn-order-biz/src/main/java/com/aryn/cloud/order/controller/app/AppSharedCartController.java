@@ -7,12 +7,14 @@ import com.aryn.cloud.common.security.entity.ArynUser;
 import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.order.api.dto.SharedCartItemDTO;
 import com.aryn.cloud.order.api.dto.SharedCartPlanDTO;
+import com.aryn.cloud.order.api.dto.SharedCartReuseDTO;
 import com.aryn.cloud.order.api.dto.SharedCartMemberNameDTO;
 import com.aryn.cloud.order.api.dto.SharedCartConfirmDTO;
 import com.aryn.cloud.order.api.dto.SharedCartCreateDTO;
 import com.aryn.cloud.order.api.entity.SharedCart;
 import com.aryn.cloud.order.api.entity.SharedCartItem;
 import com.aryn.cloud.order.api.entity.SharedCartMember;
+import com.aryn.cloud.order.api.vo.SharedCartReuseVO;
 import com.aryn.cloud.order.api.vo.SharedCartSummaryVO;
 import com.aryn.cloud.order.api.vo.SharedCartVO;
 import com.aryn.cloud.order.service.ISharedCartService;
@@ -162,6 +164,14 @@ public class AppSharedCartController {
 		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
 		sharedCartService.removeItem(ArynTenantContextHolder.getTenantId(), user.getUserId(), id, itemId);
 		return Result.success();
+	}
+
+	@Operation(summary = "历史补给单一键复用（把历史明细复制到当前靠港计划下的购物车）")
+	@PostMapping("/{id}/reuse")
+	public Result<SharedCartReuseVO> reuse(@PathVariable String id, @Valid @RequestBody SharedCartReuseDTO dto) {
+		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
+		return Result.success(sharedCartService.reuseFromHistory(ArynTenantContextHolder.getTenantId(),
+				user.getUserId(), id, dto));
 	}
 
 	@Operation(summary = "确认人统一提交，生成整船订单（幂等）")
