@@ -56,6 +56,7 @@ const sections = [
   ['家电数码类目图片回填', '73appliance_digital_category_images.sql'],
   ['首页装修banner与金刚区图片回填', '74home_banner_images.sql'],
   ['船舶物料商品图回填与家电数码新商品', '75ship_and_tech_product_images.sql'],
+  ['首页金刚区改为 8 项运营入口', '76home_kingkong_entries.sql'],
   ['XXL-JOB 调度库', '3aryn_boot_job.sql'],
 ];
 
