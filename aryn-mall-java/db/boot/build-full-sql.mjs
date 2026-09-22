@@ -57,6 +57,7 @@ const sections = [
   ['首页装修banner与金刚区图片回填', '74home_banner_images.sql'],
   ['船舶物料商品图回填与家电数码新商品', '75ship_and_tech_product_images.sql'],
   ['首页金刚区改为 8 项运营入口', '76home_kingkong_entries.sql'],
+  ['补给单计划量与执行进度', '77shared_cart_item_planned_qty.sql'],
   ['XXL-JOB 调度库', '3aryn_boot_job.sql'],
 ];
 

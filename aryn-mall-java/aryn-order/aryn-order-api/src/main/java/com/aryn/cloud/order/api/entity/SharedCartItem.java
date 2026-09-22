@@ -48,6 +48,24 @@ public class SharedCartItem extends Model<SharedCartItem> {
 	/** 确认人核定数量（采购单位，确认时填写） */
 	private Integer approvedQuantity;
 
+	/**
+	 * 计划采购量（采购单位）。
+	 *
+	 * <p>NULL 表示未设计划；此时**不做进度计算**，也不能回落成
+	 * {@code requestedQuantity} 假造进度 —— 后者是"成员报的需求量"，
+	 * 与"本次计划采购多少"不是一回事。
+	 */
+	private Integer plannedQuantity;
+
+	/**
+	 * 已采量（采购单位）。
+	 *
+	 * <p>与 {@code approvedQuantity} 的分工：核定数量是确认人提交整船订单时
+	 * 一次性写入的；已采量是收集期间由采购/运营逐步回填的执行进度，
+	 * 因此收集阶段就能展示「已采 N 项」。
+	 */
+	private Integer fulfilledQuantity;
+
 	/** 成员备注 */
 	private String memberRemark;
 

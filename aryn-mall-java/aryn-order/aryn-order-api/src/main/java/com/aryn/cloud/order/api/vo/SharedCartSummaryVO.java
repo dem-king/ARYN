@@ -16,12 +16,13 @@ import java.util.List;
  * 五类信息。若由前端分别调 {@code /my} + {@code /{id}/items} + 商品批量查询，
  * 首屏会多出串行请求（装修校验器 {@code MAX_REQUESTS=10} 的预算也吃紧），故在服务端一次组装。
  *
- * <p><b>刻意不提供「已采/待采」或「清单还差 X 件」这类字段</b>：
- * 现有模型里 {@code approved_quantity} 与 {@code ITEM_CONFIRMED} 只在
- * 「确认人提交整船订单」这一次事务里写入（见 SharedCartServiceImpl#applyApprovedQuantities），
- * 收集阶段所有明细都是 {@code ITEM_PENDING}。因此没有"目标量 − 已采量"可算，
- * 编一个只会是假的 0 或假的进度条。若要该能力，需先给 shared_cart_item
- * 增加 {@code planned_quantity} 字段（见可行性分析 §10.3 口径 2）。
+ * <p>「已采 / 还差 / 进度」由 {@link ReplenishProgressVO} 承载：
+ * 2026-09-22 起 {@code shared_cart_item} 增加了 {@code planned_quantity}
+ * 与 {@code fulfilled_quantity}（77 号增量脚本），收集阶段即可表达执行进度。
+ * 口径统一收敛在 ReplenishProgressCalculator，避免各处各算一套。
+ *
+ * <p>注意：**未设计划的行不参与进度**，单独计入 {@code unplannedItems}，
+ * 不按需求量凑数 —— 否则就是假进度。
  *
  * @author aryn
  * @since 2026/9/22
@@ -47,6 +48,9 @@ public class SharedCartSummaryVO implements Serializable {
 
 	@Schema(description = "合计金额（SKU 当前售价 × 申请数量；仅为估算，实付以结算页为准）")
 	private BigDecimal totalAmount = BigDecimal.ZERO;
+
+	@Schema(description = "进度汇总（未设计划的行不计入百分比）")
+	private ReplenishProgressVO.Summary progress;
 
 	@Schema(description = "明细预览（最多 3 项，供卡片「还差…」文案使用）")
 	private List<SummaryItem> previewItems = new ArrayList<>();
@@ -81,6 +85,18 @@ public class SharedCartSummaryVO implements Serializable {
 
 		@Schema(description = "用量（采购单位）")
 		private Integer quantity;
+
+		@Schema(description = "计划量；null 表示未设计划")
+		private Integer plannedQuantity;
+
+		@Schema(description = "已采量")
+		private Integer fulfilledQuantity;
+
+		@Schema(description = "还差量（未设计划时为 null）")
+		private Integer remainingQuantity;
+
+		@Schema(description = "是否已采满（未设计划时为 null）")
+		private Boolean completed;
 
 		@Schema(description = "图片地址")
 		private String picUrl;

@@ -6,6 +6,7 @@ import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.entity.ArynUser;
 import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.order.api.dto.SharedCartItemDTO;
+import com.aryn.cloud.order.api.dto.SharedCartPlanDTO;
 import com.aryn.cloud.order.api.dto.SharedCartMemberNameDTO;
 import com.aryn.cloud.order.api.dto.SharedCartConfirmDTO;
 import com.aryn.cloud.order.api.dto.SharedCartCreateDTO;
@@ -144,6 +145,15 @@ public class AppSharedCartController {
 		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
 		return Result.success(sharedCartService.updateItem(ArynTenantContextHolder.getTenantId(), user.getUserId(), id,
 				itemId, itemDTO));
+	}
+
+	@Operation(summary = "设置明细的计划量与已采量（确认人/发起人，补给单排计划与回填进度）")
+	@PutMapping("/{id}/items/plan")
+	public Result<SharedCartItem> updateItemPlan(@PathVariable String id,
+			@Valid @RequestBody SharedCartPlanDTO planDTO) {
+		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
+		return Result.success(sharedCartService.updateItemPlan(ArynTenantContextHolder.getTenantId(),
+				user.getUserId(), id, planDTO));
 	}
 
 	@Operation(summary = "移除自己的明细")

@@ -1,6 +1,7 @@
 package com.aryn.cloud.order.service;
 
 import com.aryn.cloud.order.api.dto.SharedCartItemDTO;
+import com.aryn.cloud.order.api.dto.SharedCartPlanDTO;
 import com.aryn.cloud.order.api.dto.SharedCartConfirmDTO;
 import com.aryn.cloud.order.api.dto.SharedCartCreateDTO;
 import com.aryn.cloud.order.api.entity.SharedCart;
@@ -47,6 +48,16 @@ public interface ISharedCartService {
 	 * 成员移除自己的明细。
 	 */
 	void removeItem(String tenantId, String userId, String cartId, String itemId);
+
+	/**
+	 * 确认人/发起人设置某条明细的计划量与已采量（B 版补给单的"排计划/回填进度"）。
+	 *
+	 * <p>权限与提交整船订单一致（requireConfirmer）：计划量决定整船采购目标，
+	 * 属确认人职责，普通成员只能报自己的需求量。
+	 *
+	 * @return 更新后的明细
+	 */
+	SharedCartItem updateItemPlan(String tenantId, String userId, String cartId, SharedCartPlanDTO planDTO);
 
 	/**
 	 * 确认人调整核定数量并统一提交，生成一个整船订单（按购物车幂等）。

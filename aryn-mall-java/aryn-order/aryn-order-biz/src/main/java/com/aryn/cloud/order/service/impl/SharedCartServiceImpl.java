@@ -5,11 +5,14 @@ import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.order.api.dto.CreateOrderDTO;
 import com.aryn.cloud.order.api.dto.CreateOrderSkuReqDTO;
 import com.aryn.cloud.order.api.dto.SharedCartItemDTO;
+import com.aryn.cloud.order.api.dto.SharedCartPlanDTO;
 import com.aryn.cloud.order.api.dto.SharedCartConfirmDTO;
 import com.aryn.cloud.order.api.dto.SharedCartCreateDTO;
 import com.aryn.cloud.order.api.entity.SharedCart;
 import com.aryn.cloud.order.api.entity.SharedCartItem;
 import com.aryn.cloud.order.api.entity.SharedCartMember;
+import com.aryn.cloud.order.api.support.ReplenishProgressCalculator;
+import com.aryn.cloud.order.api.vo.ReplenishProgressVO;
 import com.aryn.cloud.order.api.vo.SharedCartSummaryVO;
 import com.aryn.cloud.order.api.vo.SharedCartVO;
 import com.aryn.cloud.order.mapper.SharedCartItemMapper;
@@ -209,6 +212,37 @@ public class SharedCartServiceImpl implements ISharedCartService {
 
 	@Override
 	@Transactional(rollbackFor = Exception.class)
+	public SharedCartItem updateItemPlan(String tenantId, String userId, String cartId, SharedCartPlanDTO planDTO) {
+		SharedCart cart = requireCart(tenantId, cartId);
+		SharedCartItem item = requireItem(tenantId, cartId, planDTO.getItemId());
+		// 排计划与提交整船订单同权限：计划量决定采购目标，属确认人职责，
+		// 普通成员只能报自己的需求量（见 updateItem 的"只能改自己的明细"）。
+		requireEditable(cart);
+		requireConfirmer(cart, userId);
+
+		// plannedQuantity 传 null 有两种语义：显式取消计划，或"本次不动计划"。
+		// 由 clearPlanned 区分，避免"只想改已采量"却把计划抹掉。
+		if (Boolean.TRUE.equals(planDTO.getClearPlanned())) {
+			item.setPlannedQuantity(null);
+		}
+		else if (planDTO.getPlannedQuantity() != null) {
+			item.setPlannedQuantity(planDTO.getPlannedQuantity());
+		}
+
+		if (planDTO.getFulfilledQuantity() != null) {
+			item.setFulfilledQuantity(planDTO.getFulfilledQuantity());
+		}
+		else if (item.getFulfilledQuantity() == null) {
+			// 存量行可能为 null（加列前的老数据），补 0 让进度计算口径统一
+			item.setFulfilledQuantity(0);
+		}
+
+		sharedCartItemMapper.updateById(item);
+		return item;
+	}
+
+	@Override
+	@Transactional(rollbackFor = Exception.class)
 	public void removeItem(String tenantId, String userId, String cartId, String itemId) {
 		SharedCart cart = requireCart(tenantId, cartId);
 		SharedCartItem item = requireItem(tenantId, cartId, itemId);
@@ -316,23 +350,32 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		}
 
 		Map<String, GoodsSku> skuMap = loadSkuMap(items);
-		BigDecimal total = BigDecimal.ZERO;
 		List<SharedCartSummaryVO.SummaryItem> preview = new ArrayList<>();
 		for (SharedCartItem item : items) {
 			GoodsSku sku = skuMap.get(item.getSkuId());
-			int quantity = item.getRequestedQuantity() == null ? 0 : item.getRequestedQuantity();
+			// 有计划的按计划量算钱（用户关心"这次要花多少"，不是"谁报了多少"）；
+			// 未设计划才回落需求量，避免出现 ¥0 的假合计。
+			int quantity = item.getPlannedQuantity() != null
+					? item.getPlannedQuantity()
+					: (item.getRequestedQuantity() == null ? 0 : item.getRequestedQuantity());
 			BigDecimal unitPrice = sku == null || sku.getSalesPrice() == null
 					? BigDecimal.ZERO
 					: sku.getSalesPrice();
 			BigDecimal amount = unitPrice.multiply(BigDecimal.valueOf(quantity));
-			total = total.add(amount);
 
 			SharedCartSummaryVO.SummaryItem row = new SharedCartSummaryVO.SummaryItem();
 			row.setItemId(item.getId());
 			row.setSpuId(item.getSpuId());
 			row.setSkuId(item.getSkuId());
-			row.setQuantity(quantity);
+			row.setQuantity(item.getRequestedQuantity() == null ? 0 : item.getRequestedQuantity());
 			row.setAmount(amount);
+			// 行级进度与整单进度用同一套计算器，避免两处口径漂移
+			ReplenishProgressVO rowProgress = ReplenishProgressCalculator.ofRow(
+					item.getPlannedQuantity(), item.getFulfilledQuantity());
+			row.setPlannedQuantity(rowProgress.getPlannedQuantity());
+			row.setFulfilledQuantity(rowProgress.getFulfilledQuantity());
+			row.setRemainingQuantity(rowProgress.getRemainingQuantity());
+			row.setCompleted(rowProgress.getCompleted());
 			if (sku != null) {
 				row.setSpuName(sku.getGoodsSpu() == null ? null : sku.getGoodsSpu().getName());
 				row.setPicUrl(resolvePicUrl(sku));
@@ -340,7 +383,20 @@ public class SharedCartServiceImpl implements ISharedCartService {
 			}
 			preview.add(row);
 		}
-		summary.setTotalAmount(total);
+
+		// 整单进度与合计：统一由计算器汇总（按项数算百分比，不按数量）
+		ReplenishProgressVO.Summary progress = ReplenishProgressCalculator.summarize(items, item -> {
+			GoodsSku sku = skuMap.get(item.getSkuId());
+			if (sku == null || sku.getSalesPrice() == null) {
+				return BigDecimal.ZERO;
+			}
+			int quantity = item.getPlannedQuantity() != null
+					? item.getPlannedQuantity()
+					: (item.getRequestedQuantity() == null ? 0 : item.getRequestedQuantity());
+			return sku.getSalesPrice().multiply(BigDecimal.valueOf(quantity));
+		});
+		summary.setProgress(progress);
+		summary.setTotalAmount(progress.getTotalAmount());
 
 		// 预览只取前 N 条，并显式告知是否被截断，避免前端自行猜测「还差…」是否完整
 		boolean truncated = preview.size() > SharedCartSummaryVO.MAX_PREVIEW_ITEMS;

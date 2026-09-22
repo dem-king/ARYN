@@ -99,14 +99,21 @@ describe('replenish semantics contract', () => {
     expect(impl).toContain('readableReason')
   })
 
-  it('summary does not fabricate a progress/target field the model cannot support', () => {
-    // approved_quantity / ITEM_CONFIRMED 只在提交整船订单时写入，
-    // 收集阶段没有"目标量 − 已采量"可算。
+  it('summary carries progress only from the real planned/fulfilled columns', () => {
+    // 77 号脚本给 shared_cart_item 加了 planned_quantity / fulfilled_quantity，
+    // 收集阶段因此可以算真实进度。守两条底线：
+    //   1. 进度字段确实来自这两个列（不是前端拿需求量凑的）；
+    //   2. 未设计划的行不得回落成需求量，否则就是假进度。
     const vo = repoSource(
       'aryn-mall-java/aryn-order/aryn-order-api/src/main/java/com/aryn/cloud/order/api/vo/SharedCartSummaryVO.java',
     )
-    expect(vo).not.toContain('progressPercent')
-    expect(vo).not.toContain('confirmedCount')
-    expect(vo).not.toContain('plannedQuantity')
+    expect(vo).toContain('ReplenishProgressVO.Summary progress')
+
+    const calculator = repoSource(
+      'aryn-mall-java/aryn-order/aryn-order-api/src/main/java/com/aryn/cloud/order/api/support/ReplenishProgressCalculator.java',
+    )
+    // 未设计划 => plannedQuantity 空、remaining/completed 空，绝不回落 requestedQuantity
+    expect(calculator).toContain('plannedQuantity == null')
+    expect(calculator).not.toContain('getRequestedQuantity')
   })
 })
