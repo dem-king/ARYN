@@ -77,12 +77,20 @@ public final class PageDesignComponentTypes {
 	public static final String SHIP_WORKBENCH = "ship-workbench";
 
 	/**
+	 * 补给单卡片（单个，展示当前进行中的共享购物车摘要）。
+	 * <p>
+	 * 「补给单」在本项目里不是新领域对象，而是 shared_cart 的产品化外壳：
+	 * 卡片内容由「谁在看 + 当前靠港」决定，故与船舶工作台一样是单例组件。
+	 */
+	public static final String REPLENISH_CARD = "replenish-card";
+
+	/**
 	 * 当前全量已知组件类型。
 	 */
 	public static final Set<String> KNOWN_TYPES = Set.of(CATEGORY_NAV, COUPON_RECEIVE, GAP, GOODS, IMAGE_AD, NOTICE,
 			RICH_TEXT, SEARCH_BAR, SWIPER_BANNER, TAB_NAV, TITLE_TEXT, GOODS_GROUP, GOODS_RANKING, LIMITED_ACTIVITY,
 			COUNTDOWN, MARKETING_ENTRY, SHOP_INFO, GOODS_WATERFALL, COUPON_COMBO, MEMBER_BENEFITS, SERVICE_PROMISE,
-			BOTTOM_NAV, VIDEO_LIVE, SHIP_WORKBENCH);
+			BOTTOM_NAV, VIDEO_LIVE, SHIP_WORKBENCH, REPLENISH_CARD);
 
 	/**
 	 * 依赖数据源拉取业务数据的组件（手动数据源为空时发布阻断）。
@@ -93,9 +101,10 @@ public final class PageDesignComponentTypes {
 	/**
 	 * 全页面唯一组件：同一页最多出现一次，出现多个即发布阻断。
 	 * <p>
-	 * 船舶工作台展示的是「当前用户此刻的船舶与靠港」，放多个只会互相矛盾。
+	 * 船舶工作台展示的是「当前用户此刻的船舶与靠港」，
+	 * 补给单卡片展示的是「当前进行中的那一张清单」——放多个只会互相矛盾。
 	 */
-	public static final Set<String> SINGLETON_TYPES = Set.of(SHIP_WORKBENCH);
+	public static final Set<String> SINGLETON_TYPES = Set.of(SHIP_WORKBENCH, REPLENISH_CARD);
 
 	private PageDesignComponentTypes() {
 	}

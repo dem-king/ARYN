@@ -168,6 +168,44 @@ class DefaultPageDesignDocumentValidatorTest {
 	}
 
 	@Test
+	void rejectsDuplicatedSingletonComponentWithItsOwnLabel() {
+		// 新增第二个单例组件（补给单卡片）后，报错文案必须点出是哪个组件重复，
+		// 否则运营配了两个补给单也只会看到「船舶工作台」而找不到问题。
+		String content = """
+				{"schemaVersion":3,"page":{},"sections":[
+				  {"id":"section-1","type":"default","components":[
+				    {"id":"c1","type":"replenish-card","version":1,"props":{}},
+				    {"id":"c2","type":"replenish-card","version":1,"props":{}}]}]}
+				""";
+
+		PageDesignValidationVO result = validator.validateStructured(content);
+
+		boolean duplicated = result.getErrors().stream()
+				.anyMatch(issue -> "COMPONENT_DUPLICATED".equals(issue.getCode()));
+		assertTrue(duplicated, "同一页面配两个补给单卡片应当被阻断");
+		assertTrue(result.getErrors().stream()
+				.filter(issue -> "COMPONENT_DUPLICATED".equals(issue.getCode()))
+				.allMatch(issue -> issue.getMessage().contains("补给单")));
+	}
+
+	@Test
+	void keepsShipWorkbenchLabelForItsOwnDuplicate() {
+		// 回归：船舶工作台重复时的文案不能被新增单例组件的映射带偏
+		String content = """
+				{"schemaVersion":3,"page":{},"sections":[
+				  {"id":"section-1","type":"default","components":[
+				    {"id":"c1","type":"ship-workbench","version":1,"props":{}},
+				    {"id":"c2","type":"ship-workbench","version":1,"props":{}}]}]}
+				""";
+
+		PageDesignValidationVO result = validator.validateStructured(content);
+
+		assertTrue(result.getErrors().stream()
+				.filter(issue -> "COMPONENT_DUPLICATED".equals(issue.getCode()))
+				.allMatch(issue -> issue.getMessage().contains("船舶工作台")));
+	}
+
+	@Test
 	void validateReturnsMessageListForPublishFlow() {
 		List<String> errors = validator.validate("{\"schemaVersion\":2}");
 

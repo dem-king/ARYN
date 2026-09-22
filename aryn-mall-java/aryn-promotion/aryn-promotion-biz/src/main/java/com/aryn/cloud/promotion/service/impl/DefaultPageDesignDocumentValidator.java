@@ -107,10 +107,23 @@ public class DefaultPageDesignDocumentValidator implements PageDesignDocumentVal
 			int count = seen.merge(type, 1, Integer::sum);
 			if (count > 1) {
 				result.getErrors()
-					.add(issue("COMPONENT_DUPLICATED", "同一页面最多只能放置一个「船舶工作台」", entry.component().getString("id"),
-							type, entry.path() + ".type"));
+					.add(issue("COMPONENT_DUPLICATED", "同一页面最多只能放置一个「" + singletonLabel(type) + "」",
+							entry.component().getString("id"), type, entry.path() + ".type"));
 			}
 		}
+	}
+
+	/**
+	 * 单例组件的用户可读名称。
+	 * <p>
+	 * 历史实现把「船舶工作台」写死在报错文案里，新增第二个单例组件后
+	 * 配了两次补给单也只会提示「船舶工作台」，运营无从判断是哪个组件重复。
+	 */
+	private String singletonLabel(String type) {
+		if (PageDesignComponentTypes.REPLENISH_CARD.equals(type)) {
+			return "补给单卡片";
+		}
+		return "船舶工作台";
 	}
 
 	private JSONObject tryParse(String pageContent) {

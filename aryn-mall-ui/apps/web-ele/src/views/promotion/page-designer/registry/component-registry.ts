@@ -39,6 +39,10 @@ import {
   validateMarketingEntry,
 } from '../../page-design/components/marketing-entry/types';
 import {
+  createReplenishCardDefaults,
+  validateReplenishCard,
+} from '../../page-design/components/replenish-card/types';
+import {
   createShipWorkbenchDefaults,
   validateShipWorkbench,
 } from '../../page-design/components/ship-workbench/types';
@@ -72,6 +76,7 @@ export const retailComponentTypes = [
   'marketing-entry',
   'shop-info',
   'ship-workbench',
+  'replenish-card',
 ] as const;
 
 export type RetailComponentType = (typeof retailComponentTypes)[number];
@@ -439,6 +444,15 @@ export const componentRegistry: Record<
     validateShipWorkbench,
     () => import('../../page-design/components/ship-workbench/index.vue'),
     () => import('../../page-design/components/ship-workbench/setting.vue'),
+  ),
+  'replenish-card': defineRetailComponent(
+    'replenish-card',
+    '补给单卡片',
+    '店铺服务',
+    createReplenishCardDefaults(),
+    validateReplenishCard,
+    () => import('../../page-design/components/replenish-card/index.vue'),
+    () => import('../../page-design/components/replenish-card/setting.vue'),
   ),
   'goods-waterfall': defineExtensionComponent(
     'goods-waterfall',

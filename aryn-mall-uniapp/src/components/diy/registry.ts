@@ -15,6 +15,7 @@ import DiyLimitedActivity from './diy-limited-activity/index.vue'
 import DiyMarketingEntry from './diy-marketing-entry/index.vue'
 import DiyMemberBenefits from './diy-member-benefits/index.vue'
 import DiyNotice from './diy-notice/index.vue'
+import DiyReplenishCard from './diy-replenish-card/index.vue'
 import DiyRichText from './diy-rich-text/index.vue'
 import DiySearchBar from './diy-search-bar/index.vue'
 import DiyServicePromise from './diy-service-promise/index.vue'
@@ -51,6 +52,7 @@ export const mobileComponentTypes = [
   'bottom-nav',
   'video-live',
   'ship-workbench',
+  'replenish-card',
 ] as const
 
 export type MobileComponentType = typeof mobileComponentTypes[number]
@@ -80,6 +82,7 @@ const componentRegistry: Record<MobileComponentType, Component> = {
   'bottom-nav': DiyBottomNav,
   'video-live': DiyVideoLive,
   'ship-workbench': DiyShipWorkbench,
+  'replenish-card': DiyReplenishCard,
 }
 
 export function getDiyComponent(type: string): Component | undefined {

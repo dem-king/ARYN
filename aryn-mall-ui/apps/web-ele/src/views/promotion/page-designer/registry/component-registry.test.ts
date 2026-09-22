@@ -15,6 +15,7 @@ const expectedRetailComponentTypes = [
   'marketing-entry',
   'shop-info',
   'ship-workbench',
+  'replenish-card',
 ] as const;
 
 describe('legacy component registry', () => {
@@ -51,9 +52,9 @@ describe('legacy component registry', () => {
 });
 
 describe('retail component registry', () => {
-  it('registers all seven retail components exactly once', () => {
+  it('registers all eight retail components exactly once', () => {
     expect(retailComponentTypes).toEqual(expectedRetailComponentTypes);
-    expect(new Set(expectedRetailComponentTypes).size).toBe(7);
+    expect(new Set(expectedRetailComponentTypes).size).toBe(8);
     expect(Object.keys(componentRegistry).sort()).toEqual(
       [
         ...legacyComponentTypes,

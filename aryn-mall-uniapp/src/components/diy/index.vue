@@ -18,6 +18,7 @@ import DiyLimitedActivity from './diy-limited-activity/index.vue'
 import DiyMarketingEntry from './diy-marketing-entry/index.vue'
 import DiyMemberBenefits from './diy-member-benefits/index.vue'
 import DiyNotice from './diy-notice/index.vue'
+import DiyReplenishCard from './diy-replenish-card/index.vue'
 import DiyRichText from './diy-rich-text/index.vue'
 import DiySearchBar from './diy-search-bar/index.vue'
 import DiyServicePromise from './diy-service-promise/index.vue'
@@ -158,6 +159,10 @@ function sectionStyle(section: DecorationSection) {
         />
         <DiyShipWorkbench
           v-else-if="item.type === 'ship-workbench'"
+          :show-data="item.props"
+        />
+        <DiyReplenishCard
+          v-else-if="item.type === 'replenish-card'"
           :show-data="item.props"
         />
         <DiyShopInfo

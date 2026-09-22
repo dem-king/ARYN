@@ -91,11 +91,42 @@ export interface SharedCartConfirmPayload {
   remark?: string
 }
 
+/** 首页「今日补给单」卡片摘要（服务端一次聚合，避免首屏串行多请求） */
+export interface SharedCartSummary {
+  cart: SharedCart | null
+  itemCount: number
+  memberCount: number
+  totalAmount: number
+  previewItems: Array<{
+    itemId: string
+    spuId: string
+    skuId: string
+    spuName?: string
+    specsInfo?: string
+    quantity: number
+    picUrl?: string
+    amount: number
+  }>
+  previewTruncated: boolean
+}
+
 const BASE = '/mall-order/app/shared-cart'
 
 /** 我参与的全部共享购物车（我发起或我被邀请），按创建时间倒序 */
 export function getMySharedCarts() {
   return alovaInstance.Get<SharedCart[]>(`${BASE}/my`)
+}
+
+/**
+ * 当前进行中的共享购物车摘要（首页补给单卡片）。
+ *
+ * 无进行中的购物车时 cart 为 null（首页渲染空态引导），不抛异常。
+ * 注：现有模型尚无「目标量」，「还差」只能按明细用量展示，不做进度百分比。
+ */
+export function getActiveSharedCartSummary(vesselCallId?: string) {
+  return alovaInstance.Get<SharedCartSummary>(`${BASE}/active-summary`, {
+    params: { vesselCallId },
+  })
 }
 
 /** 购物车详情（仅成员可见） */

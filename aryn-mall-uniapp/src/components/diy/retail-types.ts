@@ -89,6 +89,24 @@ export interface ShipWorkbenchProps extends RetailBaseProps {
   showFrequent: boolean
 }
 
+/**
+ * 补给单卡片（首页「今日补给单」）。
+ *
+ * 展示当前进行中的共享购物车摘要（项数/人数/估算合计/明细预览），
+ * 内容由「谁在看 + 当前靠港」决定，因此没有可手选数据源。
+ *
+ * 刻意不含「已采/还差 X 件」或进度条配置：现有模型没有目标量，
+ * 编一个进度只会是假数据；需要时先加 shared_cart_item.planned_quantity。
+ */
+export interface ReplenishCardProps extends RetailBaseProps {
+  /** 是否展示「按单加购」按钮 */
+  showBatchAdd: boolean
+  /** 是否展示明细预览行 */
+  showPreview: boolean
+  /** 展示标题，如「今日补给单」 */
+  title: string
+}
+
 export interface GoodsWaterfallProps extends RetailBaseProps {
   columns: 2 | 3
   showPrice: boolean
