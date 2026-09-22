@@ -12,6 +12,7 @@ import com.aryn.cloud.order.api.dto.SharedCartCreateDTO;
 import com.aryn.cloud.order.api.entity.SharedCart;
 import com.aryn.cloud.order.api.entity.SharedCartItem;
 import com.aryn.cloud.order.api.entity.SharedCartMember;
+import com.aryn.cloud.order.api.vo.SharedCartSummaryVO;
 import com.aryn.cloud.order.api.vo.SharedCartVO;
 import com.aryn.cloud.order.service.ISharedCartService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -57,6 +58,15 @@ public class AppSharedCartController {
 		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
 		return Result.success(
 				sharedCartService.listMyCarts(ArynTenantContextHolder.getTenantId(), user.getUserId()));
+	}
+
+	@Operation(summary = "当前进行中的共享购物车摘要（首页「今日补给单」卡片一次取数）")
+	@GetMapping("/active-summary")
+	public Result<SharedCartSummaryVO> activeSummary(
+			@RequestParam(required = false) String vesselCallId) {
+		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
+		return Result.success(sharedCartService.getActiveSummary(ArynTenantContextHolder.getTenantId(),
+				user.getUserId(), vesselCallId));
 	}
 
 	@Operation(summary = "购物车详情（仅成员可见）")

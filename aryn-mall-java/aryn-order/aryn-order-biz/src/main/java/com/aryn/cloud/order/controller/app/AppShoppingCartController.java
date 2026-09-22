@@ -6,9 +6,11 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.security.util.SecurityUtils;
+import com.aryn.cloud.order.api.dto.ShoppingCartBatchAddDTO;
 import com.aryn.cloud.order.api.dto.ShoppingCartCreateDTO;
 import com.aryn.cloud.order.api.dto.ShoppingCartUpdateDTO;
 import com.aryn.cloud.order.api.entity.ShoppingCart;
+import com.aryn.cloud.order.api.vo.ShoppingCartBatchAddVO;
 import com.aryn.cloud.order.service.IShoppingCartService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -50,6 +52,13 @@ public class AppShoppingCartController {
 	public Result<Boolean> add(@Valid @RequestBody ShoppingCartCreateDTO request) {
 		String userId = SecurityUtils.getUser().getUserId();
 		return Result.success(shoppingCartService.saveShoppingCart(userId, request));
+	}
+
+	@Operation(summary = "购物车批量加购（部分成功：返回成功项数与失败明细）")
+	@PostMapping("/batch")
+	public Result<ShoppingCartBatchAddVO> batchAdd(@Valid @RequestBody ShoppingCartBatchAddDTO request) {
+		String userId = SecurityUtils.getUser().getUserId();
+		return Result.success(shoppingCartService.batchAdd(userId, request));
 	}
 
 	@Operation(summary = "购物车修改")

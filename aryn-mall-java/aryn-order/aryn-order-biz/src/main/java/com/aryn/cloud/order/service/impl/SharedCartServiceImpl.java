@@ -10,6 +10,7 @@ import com.aryn.cloud.order.api.dto.SharedCartCreateDTO;
 import com.aryn.cloud.order.api.entity.SharedCart;
 import com.aryn.cloud.order.api.entity.SharedCartItem;
 import com.aryn.cloud.order.api.entity.SharedCartMember;
+import com.aryn.cloud.order.api.vo.SharedCartSummaryVO;
 import com.aryn.cloud.order.api.vo.SharedCartVO;
 import com.aryn.cloud.order.mapper.SharedCartItemMapper;
 import com.aryn.cloud.order.mapper.SharedCartMapper;
@@ -18,7 +19,10 @@ import com.aryn.cloud.order.service.IOrderInfoService;
 import com.aryn.cloud.order.service.ISharedCartService;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.aryn.cloud.product.api.entity.GoodsSku;
+import com.aryn.cloud.product.api.entity.GoodsSpu;
 import com.aryn.cloud.product.api.entity.ShipSkuProfile;
+import com.aryn.cloud.product.api.remote.RemoteGoodsSkuService;
 import com.aryn.cloud.product.api.remote.RemoteShipProductProfileService;
 import com.aryn.cloud.vessel.api.dto.VesselContextDTO;
 import com.aryn.cloud.vessel.api.remote.RemoteVesselService;
@@ -31,6 +35,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -68,6 +73,10 @@ public class SharedCartServiceImpl implements ISharedCartService {
 
 	@DubboReference
 	private RemoteShipProductProfileService remoteShipProductProfileService;
+
+	/** 商品域：摘要卡片需要 SKU 售价与商品名（明细表只存 ID，不存快照） */
+	@DubboReference
+	private RemoteGoodsSkuService remoteGoodsSkuService;
 
 	@DubboReference
 	private RemoteVesselService remoteVesselService;
@@ -285,6 +294,141 @@ public class SharedCartServiceImpl implements ISharedCartService {
 			return List.of();
 		}
 		return buildVOs(carts, tenantId, userId);
+	}
+
+	@Override
+	public SharedCartSummaryVO getActiveSummary(String tenantId, String userId, String vesselCallId) {
+		SharedCartSummaryVO summary = new SharedCartSummaryVO();
+		SharedCart active = findActiveCart(tenantId, userId, vesselCallId);
+		if (active == null) {
+			// 无进行中的购物车是正常状态（首页展示空态引导创建），不作为异常
+			return summary;
+		}
+
+		SharedCartVO cartVO = buildVOs(List.of(active), tenantId, userId).get(0);
+		summary.setCart(cartVO);
+		summary.setMemberCount(cartVO.getMemberCount());
+
+		List<SharedCartItem> items = listItems(tenantId, active.getId());
+		summary.setItemCount(items.size());
+		if (items.isEmpty()) {
+			return summary;
+		}
+
+		Map<String, GoodsSku> skuMap = loadSkuMap(items);
+		BigDecimal total = BigDecimal.ZERO;
+		List<SharedCartSummaryVO.SummaryItem> preview = new ArrayList<>();
+		for (SharedCartItem item : items) {
+			GoodsSku sku = skuMap.get(item.getSkuId());
+			int quantity = item.getRequestedQuantity() == null ? 0 : item.getRequestedQuantity();
+			BigDecimal unitPrice = sku == null || sku.getSalesPrice() == null
+					? BigDecimal.ZERO
+					: sku.getSalesPrice();
+			BigDecimal amount = unitPrice.multiply(BigDecimal.valueOf(quantity));
+			total = total.add(amount);
+
+			SharedCartSummaryVO.SummaryItem row = new SharedCartSummaryVO.SummaryItem();
+			row.setItemId(item.getId());
+			row.setSpuId(item.getSpuId());
+			row.setSkuId(item.getSkuId());
+			row.setQuantity(quantity);
+			row.setAmount(amount);
+			if (sku != null) {
+				row.setSpuName(sku.getGoodsSpu() == null ? null : sku.getGoodsSpu().getName());
+				row.setPicUrl(resolvePicUrl(sku));
+				row.setSpecsInfo(joinSpecs(sku));
+			}
+			preview.add(row);
+		}
+		summary.setTotalAmount(total);
+
+		// 预览只取前 N 条，并显式告知是否被截断，避免前端自行猜测「还差…」是否完整
+		boolean truncated = preview.size() > SharedCartSummaryVO.MAX_PREVIEW_ITEMS;
+		summary.setPreviewTruncated(truncated);
+		summary.setPreviewItems(truncated
+				? new ArrayList<>(preview.subList(0, SharedCartSummaryVO.MAX_PREVIEW_ITEMS))
+				: preview);
+		return summary;
+	}
+
+	/**
+	 * 找当前进行中的共享购物车：我参与 + 收集中 + 未过期，按创建时间取最近一条。
+	 *
+	 * <p>传 {@code vesselCallId} 时优先该靠港计划（首页刷新到别的靠港不应串出上一港的清单）；
+	 * 该靠港无进行中购物车时回落为不限靠港，保证卡片仍能体现"我有一条清单在收集中"。
+	 */
+	private SharedCart findActiveCart(String tenantId, String userId, String vesselCallId) {
+		List<SharedCartMember> memberships = sharedCartMemberMapper.selectList(Wrappers.lambdaQuery(SharedCartMember.class)
+				.eq(SharedCartMember::getTenantId, tenantId)
+				.eq(SharedCartMember::getUserId, userId));
+		if (memberships.isEmpty()) {
+			return null;
+		}
+		List<String> cartIds = memberships.stream().map(SharedCartMember::getCartId).distinct().toList();
+
+		SharedCart matched = selectActive(tenantId, cartIds, vesselCallId);
+		if (matched == null && StringUtils.hasText(vesselCallId)) {
+			matched = selectActive(tenantId, cartIds, null);
+		}
+		return matched;
+	}
+
+	private SharedCart selectActive(String tenantId, List<String> cartIds, String vesselCallId) {
+		return sharedCartMapper.selectOne(Wrappers.lambdaQuery(SharedCart.class)
+				.eq(SharedCart::getTenantId, tenantId)
+				.in(SharedCart::getId, cartIds)
+				.eq(SharedCart::getStatus, SharedCart.STATUS_COLLECTING)
+				// 过期由 Job 异步置为已关闭，存在"已过期但尚未被扫到"的窗口，这里按时间再挡一次
+				.and(query -> query.isNull(SharedCart::getExpiresAt)
+						.or().gt(SharedCart::getExpiresAt, LocalDateTime.now()))
+				.eq(StringUtils.hasText(vesselCallId), SharedCart::getVesselCallId, vesselCallId)
+				.orderByDesc(SharedCart::getCreateTime)
+				.last("LIMIT 1"));
+	}
+
+	/**
+	 * 批量取 SKU（含商品名/规格/图片）。远程失败降级为空表：
+	 * 摘要卡片少了商品名仍应能显示项数与人数，不因商品域抖动整张卡消失。
+	 */
+	private Map<String, GoodsSku> loadSkuMap(List<SharedCartItem> items) {
+		List<String> skuIds = items.stream().map(SharedCartItem::getSkuId).distinct().toList();
+		try {
+			List<GoodsSku> skus = remoteGoodsSkuService.getSkuByIds(skuIds);
+			if (skus == null || skus.isEmpty()) {
+				return Map.of();
+			}
+			Map<String, GoodsSku> map = new HashMap<>();
+			for (GoodsSku sku : skus) {
+				map.put(sku.getId(), sku);
+			}
+			return map;
+		}
+		catch (Exception exception) {
+			log.warn("共享购物车摘要补齐商品信息失败，降级为仅返回ID", exception);
+			return Map.of();
+		}
+	}
+
+	private String resolvePicUrl(GoodsSku sku) {
+		if (StringUtils.hasText(sku.getPicUrl())) {
+			return sku.getPicUrl();
+		}
+		GoodsSpu spu = sku.getGoodsSpu();
+		if (spu != null && spu.getSpuUrls() != null && spu.getSpuUrls().length > 0) {
+			return spu.getSpuUrls()[0];
+		}
+		return null;
+	}
+
+	private String joinSpecs(GoodsSku sku) {
+		if (sku.getSpecsArr() == null) {
+			return null;
+		}
+		String joined = sku.getSpecsArr().stream()
+			.map(GoodsSku.Specs::getSpecsValueName)
+			.filter(StringUtils::hasText)
+			.collect(Collectors.joining("；"));
+		return StringUtils.hasText(joined) ? joined : null;
 	}
 
 	/**

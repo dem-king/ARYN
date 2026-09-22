@@ -3,9 +3,11 @@ package com.aryn.cloud.order.service;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.IService;
+import com.aryn.cloud.order.api.dto.ShoppingCartBatchAddDTO;
 import com.aryn.cloud.order.api.dto.ShoppingCartCreateDTO;
 import com.aryn.cloud.order.api.dto.ShoppingCartUpdateDTO;
 import com.aryn.cloud.order.api.entity.ShoppingCart;
+import com.aryn.cloud.order.api.vo.ShoppingCartBatchAddVO;
 
 import java.util.List;
 
@@ -36,6 +38,18 @@ public interface IShoppingCartService extends IService<ShoppingCart> {
 	 * @return: boolean
 	 */
 	boolean saveShoppingCart(String userId, ShoppingCartCreateDTO request);
+
+	/**
+	 * 批量加购：逐项独立提交，返回成功/失败清单（部分成功语义）。
+	 *
+	 * <p>用于首页「清单还差 / 今日补给单」勾选多项后一次加入，
+	 * 避免前端串行调用 N 次单条接口。
+	 *
+	 * @param userId  当前用户
+	 * @param request 批量请求（上限 {@link ShoppingCartBatchAddDTO#MAX_BATCH_SIZE}）
+	 * @return 成功项数与失败明细
+	 */
+	ShoppingCartBatchAddVO batchAdd(String userId, ShoppingCartBatchAddDTO request);
 
 	/**
 	 * 删除购物车

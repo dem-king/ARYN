@@ -8,14 +8,18 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.aryn.cloud.common.core.enums.MallErrorCodeEnum;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
+import com.aryn.cloud.order.api.dto.ShoppingCartBatchAddDTO;
 import com.aryn.cloud.order.api.dto.ShoppingCartCreateDTO;
 import com.aryn.cloud.order.api.dto.ShoppingCartUpdateDTO;
 import com.aryn.cloud.order.api.entity.ShoppingCart;
+import com.aryn.cloud.order.api.vo.ShoppingCartBatchAddVO;
 import com.aryn.cloud.order.mapper.ShoppingCartMapper;
 import com.aryn.cloud.order.service.IShoppingCartService;
 import com.aryn.cloud.product.api.entity.GoodsSku;
 import com.aryn.cloud.product.api.entity.GoodsSpu;
+import com.aryn.cloud.product.api.entity.ShipSkuProfile;
 import com.aryn.cloud.product.api.remote.RemoteGoodsSkuService;
+import com.aryn.cloud.product.api.remote.RemoteShipProductProfileService;
 import lombok.RequiredArgsConstructor;
 import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.dao.DuplicateKeyException;
@@ -24,6 +28,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -41,6 +47,16 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
 
 	@DubboReference
 	private final RemoteGoodsSkuService remoteGoodsSkuService;
+
+	/**
+	 * 船供包装资料：批量加购时用于校验 MOQ/步长（与共享购物车提交口径一致）。
+	 *
+	 * <p>刻意不声明为 final：`@RequiredArgsConstructor` 只收集 final 字段，
+	 * 加进来会改变构造器签名、波及既有单测。此处沿用 SharedCartServiceImpl
+	 * 的写法（非 final + 容器注入），构造器保持单参数不变。
+	 */
+	@DubboReference
+	private RemoteShipProductProfileService remoteShipProductProfileService;
 
 	@Override
 	public List<ShoppingCart> apiPage(Page page, ShoppingCart shoppingCart) {
@@ -110,6 +126,105 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
 				.or().eq(ShoppingCart::getVesselCallId, ""));
 		}
 		return baseMapper.selectOne(wrapper.last("LIMIT 1"));
+	}
+
+	/**
+	 * 批量加购（**刻意不加 @Transactional**）。
+	 *
+	 * <p>按部分成功语义实现：逐项调用 {@link #saveShoppingCart}，单项失败只记录原因、
+	 * 不回滚已成功的项。若在此方法上加事务，任一项失败会把整批一起回滚，
+	 * 用户就无法把清单里可买的商品先加进购物车。
+	 */
+	@Override
+	public ShoppingCartBatchAddVO batchAdd(String userId, ShoppingCartBatchAddDTO request) {
+		List<ShoppingCartCreateDTO> items = request.getItems();
+		ShoppingCartBatchAddVO result = new ShoppingCartBatchAddVO();
+		result.setRequestedCount(items.size());
+
+		// 先批量取一次包装资料，避免逐项远程调用（列表越大越明显）
+		Map<String, ShipSkuProfile> profiles = loadSkuProfiles(items);
+
+		int added = 0;
+		for (ShoppingCartCreateDTO item : items) {
+			try {
+				// 数量规则（MOQ/步长）在单条加购里不校验，但批量场景多来自「按清单补货」，
+				// 不校验会出现"加进购物车、结算时才被拦下"的体验断裂，故在此提前拦截。
+				validateQuantityRule(item, profiles.get(item.getSkuId()));
+				if (saveShoppingCart(userId, item)) {
+					added++;
+				}
+				else {
+					result.getFailures().add(new ShoppingCartBatchAddVO.Failure(
+							item.getSkuId(), item.getQuantity(), "加入购物车失败"));
+				}
+			}
+			catch (ArynBusinessException exception) {
+				// 单条失败不影响其余项：批量加购按部分成功语义返回
+				result.getFailures().add(new ShoppingCartBatchAddVO.Failure(
+						item.getSkuId(), item.getQuantity(), readableReason(exception)));
+			}
+		}
+		result.setAddedCount(added);
+		result.setFailedCount(result.getFailures().size());
+		return result;
+	}
+
+	/**
+	 * 批量取 SKU 包装资料；远程失败时降级为空表（视为普通商品，不做 MOQ/步长校验），
+	 * 避免一个装饰性的数量规则把整批加购打挂。
+	 */
+	private Map<String, ShipSkuProfile> loadSkuProfiles(List<ShoppingCartCreateDTO> items) {
+		List<String> skuIds = items.stream()
+			.map(ShoppingCartCreateDTO::getSkuId)
+			.filter(StringUtils::hasText)
+			.distinct()
+			.toList();
+		if (skuIds.isEmpty()) {
+			return Map.of();
+		}
+		try {
+			List<ShipSkuProfile> profiles = remoteShipProductProfileService
+				.getSkuProfiles(ArynTenantContextHolder.getTenantId(), skuIds);
+			if (CollectionUtils.isEmpty(profiles)) {
+				return Map.of();
+			}
+			Map<String, ShipSkuProfile> map = new HashMap<>();
+			for (ShipSkuProfile profile : profiles) {
+				map.put(profile.getSkuId(), profile);
+			}
+			return map;
+		}
+		catch (Exception exception) {
+			return Map.of();
+		}
+	}
+
+	/**
+	 * 校验 MOQ 与步长，口径与共享购物车提交时的 validateQuantityRules 保持一致。
+	 */
+	private void validateQuantityRule(ShoppingCartCreateDTO item, ShipSkuProfile profile) {
+		if (profile == null) {
+			return;
+		}
+		int quantity = item.getQuantity() == null ? 0 : item.getQuantity();
+		int moq = profile.getMoq() != null ? profile.getMoq() : 1;
+		int stepQty = profile.getStepQty() != null ? profile.getStepQty() : 1;
+		if (moq > 1 && quantity < moq) {
+			throw new ArynBusinessException("数量未达到最小起订量 " + moq);
+		}
+		if (stepQty > 1 && quantity % stepQty != 0) {
+			throw new ArynBusinessException("数量必须是 " + stepQty + " 的整数倍");
+		}
+	}
+
+	/**
+	 * 取面向用户可读的失败原因：优先用业务异常的 msg，为空时回落 code 提示。
+	 */
+	private String readableReason(ArynBusinessException exception) {
+		if (StringUtils.hasText(exception.getMsg())) {
+			return exception.getMsg();
+		}
+		return "加入购物车失败";
 	}
 
 	@Override

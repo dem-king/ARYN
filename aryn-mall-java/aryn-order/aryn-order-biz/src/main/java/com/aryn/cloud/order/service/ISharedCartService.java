@@ -6,6 +6,7 @@ import com.aryn.cloud.order.api.dto.SharedCartCreateDTO;
 import com.aryn.cloud.order.api.entity.SharedCart;
 import com.aryn.cloud.order.api.entity.SharedCartItem;
 import com.aryn.cloud.order.api.entity.SharedCartMember;
+import com.aryn.cloud.order.api.vo.SharedCartSummaryVO;
 import com.aryn.cloud.order.api.vo.SharedCartVO;
 
 import java.util.List;
@@ -72,6 +73,16 @@ public interface ISharedCartService {
 	 * 查询我参与的全部共享购物车（我发起或我作为成员），按创建时间倒序。
 	 */
 	List<SharedCartVO> listMyCarts(String tenantId, String userId);
+
+	/**
+	 * 当前进行中的共享购物车摘要（首页「今日补给单」卡片一次取数）。
+	 *
+	 * <p>取「我参与 + 状态为收集中 + 未过期」的最近一条，聚合项数/人数/估算合计/明细预览。
+	 * 无进行中的购物车时返回仅含零值的对象（cart 为 null），不抛异常，便于首页直接渲染空态。
+	 *
+	 * @param vesselCallId 可选；传入时优先取该靠港计划下的购物车，为空则取全部进行中的最近一条
+	 */
+	SharedCartSummaryVO getActiveSummary(String tenantId, String userId, String vesselCallId);
 
 	/**
 	 * 查询购物车成员。
