@@ -14,6 +14,8 @@ import com.aryn.cloud.order.api.entity.SharedCartItem;
 import com.aryn.cloud.order.api.entity.SharedCartMember;
 import com.aryn.cloud.order.api.vo.SharedCartReuseVO;
 import com.aryn.cloud.order.api.vo.SharedCartVO;
+import com.aryn.cloud.order.mapper.SharedCartImportMapper;
+import com.aryn.cloud.order.mapper.SharedCartImportRowMapper;
 import com.aryn.cloud.order.mapper.SharedCartItemMapper;
 import com.aryn.cloud.order.mapper.SharedCartMapper;
 import com.aryn.cloud.order.mapper.SharedCartMemberMapper;
@@ -70,6 +72,10 @@ class SharedCartServiceTest {
 
 	private SharedCartItemMapper itemMapper;
 
+	private SharedCartImportMapper importMapper;
+
+	private SharedCartImportRowMapper importRowMapper;
+
 	private IOrderInfoService orderInfoService;
 
 	private RemoteShipProductProfileService remoteShipProductProfileService;
@@ -85,6 +91,8 @@ class SharedCartServiceTest {
 		cartMapper = mock(SharedCartMapper.class);
 		memberMapper = mock(SharedCartMemberMapper.class);
 		itemMapper = mock(SharedCartItemMapper.class);
+		importMapper = mock(SharedCartImportMapper.class);
+		importRowMapper = mock(SharedCartImportRowMapper.class);
 		orderInfoService = mock(IOrderInfoService.class);
 		remoteShipProductProfileService = mock(RemoteShipProductProfileService.class);
 		remoteVesselService = mock(RemoteVesselService.class);
@@ -98,7 +106,8 @@ class SharedCartServiceTest {
 		// 明细同理：listItems（status =）与 listReusableItems（status IN）都走 selectList，
 		// 不初始化就只能用 any()，无法区分两者——而那正是"复用漏掉已确认行"的缺陷点
 		TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), SharedCartItem.class);
-		service = new SharedCartServiceImpl(cartMapper, memberMapper, itemMapper, orderInfoService);
+		service = new SharedCartServiceImpl(cartMapper, memberMapper, itemMapper, importMapper, importRowMapper,
+				orderInfoService);
 		ReflectionTestUtils.setField(service, "remoteShipProductProfileService", remoteShipProductProfileService);
 		ReflectionTestUtils.setField(service, "remoteVesselService", remoteVesselService);
 		ReflectionTestUtils.setField(service, "remoteMallUserService", remoteMallUserService);

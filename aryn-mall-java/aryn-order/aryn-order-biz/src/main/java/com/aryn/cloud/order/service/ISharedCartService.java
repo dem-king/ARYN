@@ -1,5 +1,6 @@
 package com.aryn.cloud.order.service;
 
+import com.aryn.cloud.order.api.dto.SharedCartImportConfirmDTO;
 import com.aryn.cloud.order.api.dto.SharedCartItemDTO;
 import com.aryn.cloud.order.api.dto.SharedCartReuseDTO;
 import com.aryn.cloud.order.api.dto.SharedCartPlanDTO;
@@ -8,6 +9,7 @@ import com.aryn.cloud.order.api.dto.SharedCartCreateDTO;
 import com.aryn.cloud.order.api.entity.SharedCart;
 import com.aryn.cloud.order.api.entity.SharedCartItem;
 import com.aryn.cloud.order.api.entity.SharedCartMember;
+import com.aryn.cloud.order.api.vo.SharedCartImportVO;
 import com.aryn.cloud.order.api.vo.SharedCartReuseVO;
 import com.aryn.cloud.order.api.vo.SharedCartSummaryVO;
 import com.aryn.cloud.order.api.vo.SharedCartVO;
@@ -50,6 +52,33 @@ public interface ISharedCartService {
 	 * 成员移除自己的明细。
 	 */
 	void removeItem(String tenantId, String userId, String cartId, String itemId);
+
+	/**
+	 * 补给单 Excel 导入预览：解析 + 匹配 + 落任务与解析行，返回导入报告。
+	 *
+	 * <p>权限与排计划一致（确认人/发起人）。解析与匹配全部在服务端完成，
+	 * 客户端后续只回传「行号 → 处置动作」，不信任客户端回传的行内容。
+	 */
+	SharedCartImportVO previewImport(String tenantId, String userId, String cartId, String fileName, long fileSize,
+			byte[] fileBytes);
+
+	/**
+	 * 取回导入报告（「稍后处理」后回来继续）。
+	 */
+	SharedCartImportVO getImport(String tenantId, String userId, String cartId, String importId);
+
+	/**
+	 * 列出该补给单的导入任务（按时间倒序，不带行明细）。
+	 */
+	List<SharedCartImportVO> listImports(String tenantId, String userId, String cartId);
+
+	/**
+	 * 确认并入补给单：按行处置重新校验后写入明细，幂等。
+	 *
+	 * @return 并入后的报告（status=2 已并入）
+	 */
+	SharedCartImportVO confirmImport(String tenantId, String userId, String cartId, String importId,
+			SharedCartImportConfirmDTO dto);
 
 	/**
 	 * 确认人/发起人设置某条明细的计划量与已采量（B 版补给单的"排计划/回填进度"）。

@@ -60,6 +60,13 @@ describe('replenish routing contract', () => {
       expect(api).not.toContain('VITE_OPEN_BOOT')
       expect(api).not.toContain('JSON.parse')
     }
+    // 文件流（上传/下载）单独一文件，但同样只能走统一解析函数，
+    // 不得自己写 JSON.parse(import.meta.env.VITE_OPEN_BOOT) 这类旁路
+    const sharedImportApi = source('src/api/order/sharedCartImport.ts')
+    expect(sharedImportApi).toContain('parseOpenBoot')
+    expect(sharedImportApi).toContain('rewriteBootUrl')
+    expect(sharedImportApi).not.toContain('JSON.parse(import.meta.env')
+    expect(sharedImportApi).not.toContain('\'/boot/')
   })
 })
 

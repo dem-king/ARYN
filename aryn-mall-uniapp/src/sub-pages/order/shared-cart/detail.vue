@@ -356,6 +356,13 @@ function handleRemoveItem(item: SharedCartItem) {
   })
 }
 
+/** 导入补给清单：独立的导入分包页承载「选文件 → 报告」两步 */
+function goImport() {
+  uni.navigateTo({
+    url: `/sub-pages/order/shared-cart/import?cartId=${cartId.value}`,
+  })
+}
+
 /** 添加商品：进入船供目录的「共享购物车选货」模式 */
 function goAddGoods() {
   uni.navigateTo({
@@ -781,8 +788,18 @@ onShow(() => {
           <view class="text-28rpx font-bold">
             明细（{{ items.length }}）
           </view>
-          <view v-if="collecting && cart.viewerCanEdit" class="text-24rpx text-blue-500" @tap="goAddGoods">
-            添加商品
+          <view class="flex items-center gap-20rpx">
+            <!-- 导入是「排计划」的批量形态：确认人/发起人职责，与服务端 requireConfirmer 一致 -->
+            <view
+              v-if="collecting && cart.viewerCanConfirm"
+              class="text-24rpx text-emerald-600"
+              @tap="goImport"
+            >
+              导入 Excel
+            </view>
+            <view v-if="collecting && cart.viewerCanEdit" class="text-24rpx text-blue-500" @tap="goAddGoods">
+              添加商品
+            </view>
           </view>
         </view>
 

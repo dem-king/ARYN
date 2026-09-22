@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  Copyright (c) 2025 天启雨数科技有限公司
+  All rights reserved.
+-->
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aryn.cloud.product.mapper.ReplenishImportMatchMapper">
+
+    <!--
+      注意：本文件所有参与 JOIN 的表都必须声明表别名。
+      多租户拦截器 TenantLineInnerInterceptor 会向 ON 子句追加 tenant_id 条件，
+      表无别名时只输出裸列名 tenant_id，JOIN 作用域内会出现 ambiguous。
+    -->
+    <resultMap id="replenishImportSkuRowMap" type="com.aryn.cloud.product.support.ReplenishImportSkuRow">
+        <id column="sku_id" property="skuId"/>
+        <result column="spu_id" property="spuId"/>
+        <result column="name" property="name"/>
+        <result column="spu_status" property="spuStatus"/>
+        <result column="sku_status" property="skuStatus"/>
+        <result column="sales_price" property="salesPrice"/>
+        <result column="stock" property="stock"/>
+        <result column="purchase_unit" property="purchaseUnit"/>
+        <result column="moq" property="moq"/>
+        <result column="step_qty" property="stepQty"/>
+        <result column="specs_arr" property="specsArr" jdbcType="VARCHAR"
+                typeHandler="com.aryn.cloud.product.api.hanlder.SpecsListTypeHandler"/>
+    </resultMap>
+
+    <sql id="skuRowColumns">
+        sku.id AS sku_id,
+        sku.spu_id AS spu_id,
+        spu.`name` AS `name`,
+        spu.`status` AS spu_status,
+        sku.`status` AS sku_status,
+        sku.sales_price,
+        sku.stock,
+        sku.specs_arr,
+        sku_profile.purchase_unit,
+        sku_profile.moq,
+        sku_profile.step_qty,
+        sku.create_time
+    </sql>
+
+    <sql id="skuRowJoins">
+        FROM goods_sku sku
+        LEFT JOIN goods_spu spu
+            ON spu.id = sku.spu_id AND spu.tenant_id = sku.tenant_id AND spu.del_flag = '0'
+        LEFT JOIN ship_sku_profile sku_profile
+            ON sku_profile.sku_id = sku.id AND sku_profile.tenant_id = sku.tenant_id
+               AND sku_profile.del_flag = '0'
+    </sql>
+
+    <select id="selectRowsBySkuIds" resultMap="replenishImportSkuRowMap">
+        SELECT
+        <include refid="skuRowColumns"/>
+        <include refid="skuRowJoins"/>
+        WHERE sku.tenant_id = #{tenantId}
+          AND sku.del_flag = '0'
+          AND sku.id IN
+        <foreach collection="skuIds" item="skuId" open="(" separator="," close=")">
+            #{skuId}
+        </foreach>
+        ORDER BY sku.id
+    </select>
+
+    <select id="selectRowsByExactNames" resultMap="replenishImportSkuRowMap">
+        SELECT
+        <include refid="skuRowColumns"/>
+        <include refid="skuRowJoins"/>
+        WHERE sku.tenant_id = #{tenantId}
+          AND sku.del_flag = '0'
+          AND spu.del_flag = '0'
+          AND spu.`name` IN
+        <foreach collection="names" item="name" open="(" separator="," close=")">
+            #{name}
+        </foreach>
+        ORDER BY spu.`name`, sku.id
+    </select>
+
+    <!--
+      关键词包含匹配：线下清单的品名常带前缀/后缀（如「鲜牛奶 950ml」对「鲜牛奶」），
+      精确匹配失败时用包含匹配兜底。每个关键词限制 20 条、整体由调用方限制关键词数量。
+    -->
+    <select id="selectRowsByKeywords" resultMap="replenishImportSkuRowMap">
+        SELECT
+        <include refid="skuRowColumns"/>
+        <include refid="skuRowJoins"/>
+        WHERE sku.tenant_id = #{tenantId}
+          AND sku.del_flag = '0'
+          AND spu.del_flag = '0'
+          AND (
+        <foreach collection="keywords" item="keyword" separator=" OR ">
+            spu.`name` LIKE CONCAT('%', #{keyword}, '%')
+        </foreach>
+          )
+        ORDER BY spu.`name`, sku.id
+        LIMIT 500
+    </select>
+
+</mapper>

@@ -5,6 +5,7 @@ import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.entity.ArynUser;
 import com.aryn.cloud.common.security.util.SecurityUtils;
+import com.aryn.cloud.order.api.dto.SharedCartImportConfirmDTO;
 import com.aryn.cloud.order.api.dto.SharedCartItemDTO;
 import com.aryn.cloud.order.api.dto.SharedCartPlanDTO;
 import com.aryn.cloud.order.api.dto.SharedCartReuseDTO;
@@ -14,12 +15,16 @@ import com.aryn.cloud.order.api.dto.SharedCartCreateDTO;
 import com.aryn.cloud.order.api.entity.SharedCart;
 import com.aryn.cloud.order.api.entity.SharedCartItem;
 import com.aryn.cloud.order.api.entity.SharedCartMember;
+import com.aryn.cloud.order.api.vo.SharedCartImportVO;
 import com.aryn.cloud.order.api.vo.SharedCartReuseVO;
 import com.aryn.cloud.order.api.vo.SharedCartSummaryVO;
 import com.aryn.cloud.order.api.vo.SharedCartVO;
 import com.aryn.cloud.order.service.ISharedCartService;
+import com.aryn.cloud.order.support.ReplenishImportExcel;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import com.alibaba.excel.EasyExcel;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -32,6 +37,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
@@ -180,6 +188,54 @@ public class AppSharedCartController {
 		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
 		return Result.success(sharedCartService.confirmAndCreateOrder(ArynTenantContextHolder.getTenantId(),
 				user.getUserId(), id, dto));
+	}
+
+	@Operation(summary = "下载补给清单 Excel 模板（首行为标题行，含示例行）")
+	@GetMapping("/import/template")
+	public void importTemplate(HttpServletResponse response) throws IOException {
+		response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+		response.setCharacterEncoding("utf-8");
+		String fileName = URLEncoder.encode("补给清单导入模板", StandardCharsets.UTF_8).replaceAll("\\+", "%20");
+		response.setHeader("Content-Disposition", "attachment;filename*=utf-8''" + fileName + ".xlsx");
+		// 带一行示例：线下清单的表头各家不同，示例行能显著降低"填错列"的返工
+		List<List<String>> rows = List.of(
+				List.of("IMPA123456", "鲜牛奶 950ml", "950ml/瓶", "4", "瓶", "冷藏"));
+		EasyExcel.write(response.getOutputStream()).sheet("补给清单")
+			.head(ReplenishImportExcel.templateHead()).doWrite(rows);
+	}
+
+	@Operation(summary = "上传补给清单，解析并返回导入报告（确认人/发起人）")
+	@PostMapping("/{id}/import/preview")
+	public Result<SharedCartImportVO> previewImport(@PathVariable String id,
+			@RequestParam("file") org.springframework.web.multipart.MultipartFile file) throws IOException {
+		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
+		return Result.success(sharedCartService.previewImport(ArynTenantContextHolder.getTenantId(), user.getUserId(),
+				id, file.getOriginalFilename(), file.getSize(), file.getBytes()));
+	}
+
+	@Operation(summary = "取回导入报告（稍后处理）")
+	@GetMapping("/{id}/imports/{importId}")
+	public Result<SharedCartImportVO> getImport(@PathVariable String id, @PathVariable String importId) {
+		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
+		return Result.success(sharedCartService.getImport(ArynTenantContextHolder.getTenantId(), user.getUserId(), id,
+				importId));
+	}
+
+	@Operation(summary = "导入记录列表（不带行明细）")
+	@GetMapping("/{id}/imports")
+	public Result<List<SharedCartImportVO>> listImports(@PathVariable String id) {
+		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
+		return Result.success(sharedCartService.listImports(ArynTenantContextHolder.getTenantId(), user.getUserId(),
+				id));
+	}
+
+	@Operation(summary = "确认并入补给单（按行处置重新校验，幂等）")
+	@PostMapping("/{id}/imports/{importId}/confirm")
+	public Result<SharedCartImportVO> confirmImport(@PathVariable String id, @PathVariable String importId,
+			@RequestBody(required = false) SharedCartImportConfirmDTO dto) {
+		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
+		return Result.success(sharedCartService.confirmImport(ArynTenantContextHolder.getTenantId(),
+				user.getUserId(), id, importId, dto));
 	}
 
 	@Operation(summary = "发起人关闭购物车")

@@ -223,6 +223,15 @@
           }
         },
         {
+          "path": "order/shared-cart/import",
+          "type": "page",
+          "name": "shared-cart-import",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "导入补给清单"
+          }
+        },
+        {
           "path": "order/shared-cart/list",
           "type": "page",
           "name": "shared-cart-list",

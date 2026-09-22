@@ -102,10 +102,8 @@ describe('shared cart routing contract', () => {
     const detail = source('src/sub-pages/order/shared-cart/detail.vue')
     const api = source('src/api/order/sharedCart.ts')
 
-    const fnBody = api.slice(
-      api.indexOf('export function reuseSharedCartFromHistory'),
-      api.indexOf('export function confirmSharedCart'),
-    )
+    const fnStart = api.indexOf('export function reuseSharedCartFromHistory')
+    const fnBody = api.slice(fnStart, api.indexOf('\n}', fnStart) + 2)
     // 路径要连结尾反引号一起断言：只写 /reuse 会被 /reused 这种前缀匹配蒙混过关
     // （缺陷注入实测：把路径改成 /reused，第一版断言仍然全绿）。
     expect(fnBody).toMatch(/\$\{BASE\}\/\$\{id\}\/reuse`/)
@@ -113,6 +111,90 @@ describe('shared cart routing contract', () => {
 
     const controller = repoSource(`${ORDER_BIZ}/controller/app/AppSharedCartController.java`)
     expect(controller).toContain('@PostMapping("/{id}/reuse")')
+  })
+
+  it('import page uses the mall-order domain path in both boot and cloud modes', () => {
+    const api = source('src/api/order/sharedCartImport.ts')
+    const fnBody = api.slice(
+      api.indexOf('export function previewSharedCartImport'),
+      api.indexOf('export function downloadSharedCartImportTemplate'),
+    )
+    // 双模式强制：首段必须是微服务域 mall-order，再经 rewriteBootUrl 改写，
+    // 不能在页面里硬编码 /boot（boot 模式由 context-path 统一加前缀）
+    expect(fnBody).toContain('/import/preview')
+    // 路径改写集中在 importPath 一处，避免每个调用各自拼 /boot 前缀
+    const pathFn = api.slice(
+      api.indexOf('function importPath'),
+      api.indexOf('export function getSharedCartImportTemplateUrl'),
+    )
+    expect(pathFn).toContain('parseOpenBoot')
+    expect(pathFn).toContain('rewriteBootUrl')
+    expect(api).not.toContain('\'/boot/')
+
+    const controller = repoSource(`${ORDER_BIZ}/controller/app/AppSharedCartController.java`)
+    expect(controller).toContain('@RequestMapping("/app/shared-cart")')
+    expect(controller).toContain('@PostMapping("/{id}/import/preview")')
+    expect(controller).toContain('@PostMapping("/{id}/imports/{importId}/confirm")')
+    expect(controller).toContain('@GetMapping("/import/template")')
+    // Controller 上不得出现硬编码 /boot 前缀
+    expect(controller).not.toContain('@RequestMapping("/boot')
+  })
+
+  it('import template download keeps auth and goes through the gateway domain', () => {
+    const api = source('src/api/order/sharedCartImport.ts')
+    const fnBody = api.slice(
+      api.indexOf('export function getSharedCartImportTemplateUrl'),
+      api.indexOf('export function previewSharedCartImport'),
+    )
+    expect(fnBody).toContain('/import/template')
+    expect(fnBody).toContain('rewriteBootUrl')
+
+    // 模板下载要带鉴权头：模板接口挂在 C 端登录态下，不能为了省事挂到网关白名单
+    expect(api).toContain('satoken')
+    expect(api).toContain('uni.downloadFile')
+    const page = source('src/sub-pages/order/shared-cart/import.vue')
+    expect(page).toContain('downloadTemplate')
+  })
+
+  it('import page registers in pages.json and is reachable from detail', () => {
+    const pages = source('src/pages.json')
+    expect(pages).toContain('"path": "order/shared-cart/import"')
+    expect(pages).toContain('"name": "shared-cart-import"')
+
+    const detail = source('src/sub-pages/order/shared-cart/detail.vue')
+    expect(detail).toContain('/sub-pages/order/shared-cart/import?cartId=')
+    // 入口按服务端权限标记显示，前端不自行推断角色
+    expect(detail).toContain('cart.viewerCanConfirm')
+  })
+
+  it('import confirm only sends actions, never row content', () => {
+    const page = source('src/sub-pages/order/shared-cart/import.vue')
+    // 客户端只回传「行号 → 处置动作」；行内容一律以服务端解析行为准
+    expect(page).toContain('confirmSharedCartImport')
+    expect(page).toContain('rowNo')
+    expect(page).toContain('action')
+    // 不得把服务端返回的行原文再回传（那是可被篡改的输入）
+    expect(page).not.toMatch(/confirmSharedCartImport\([^)]*rawQuantity/)
+
+    const api = source('src/api/order/sharedCart.ts')
+    expect(api).toContain('SharedCartImportActionPayload')
+
+    // 处置入参只允许三个字段：行号、动作、动作所需参数。
+    // 一旦塞进 raw*（Excel 原文）就说明客户端开始回传行内容，服务端就失去了
+    // "以库中解析行为准"的前提 —— 数量可被篡改（缺陷注入实测：只查页面文本会漏网）。
+    const payloadStart = api.indexOf('export interface SharedCartImportActionPayload')
+    const payloadBody = api.slice(payloadStart, api.indexOf('\n}', payloadStart))
+    expect(payloadBody).toContain('rowNo')
+    expect(payloadBody).toContain('action')
+    expect(payloadBody).not.toMatch(/raw[A-Z]/)
+  })
+
+  it('import page does not fake a parse progress bar', () => {
+    const page = source('src/sub-pages/order/shared-cart/import.vue')
+    // 解析同步完成、没有真实进度可回传；画百分比进度条就是假进度
+    expect(page).not.toContain('parseBar')
+    expect(page).not.toMatch(/progress.*=\s*\d+/)
+    expect(page).toContain('正在解析')
   })
 
   it('reuse only offered for finished carts, never the active one', () => {

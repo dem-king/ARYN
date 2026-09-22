@@ -36,6 +36,24 @@ describe('boot URL rewriting', () => {
     )
   })
 
+  it('routes the replenish import APIs in both deployment modes', () => {
+    // 补给单 Excel 导入的三条路径（模板下载 / 上传解析 / 确认并入）
+    // 必须在两种模式下都显式锁定输出，避免只对一种模式生效。
+    const template = '/mall-order/app/shared-cart/import/template'
+    expect(rewriteBootUrl(template, false)).toBe(template)
+    expect(rewriteBootUrl(template, true)).toBe('/boot/app/shared-cart/import/template')
+
+    const preview = '/mall-order/app/shared-cart/cart-1/import/preview'
+    expect(rewriteBootUrl(preview, false)).toBe(preview)
+    expect(rewriteBootUrl(preview, true)).toBe('/boot/app/shared-cart/cart-1/import/preview')
+
+    const confirm = '/mall-order/app/shared-cart/cart-1/imports/import-9/confirm'
+    expect(rewriteBootUrl(confirm, false)).toBe(confirm)
+    expect(rewriteBootUrl(confirm, true)).toBe(
+      '/boot/app/shared-cart/cart-1/imports/import-9/confirm',
+    )
+  })
+
   it('does not rewrite disabled, absolute, or already rewritten URLs', () => {
     expect(rewriteBootUrl('/auth/toc-token/login', false)).toBe(
       '/auth/toc-token/login',

@@ -4,19 +4,26 @@ import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.order.api.dto.CreateOrderDTO;
 import com.aryn.cloud.order.api.dto.CreateOrderSkuReqDTO;
+import com.aryn.cloud.order.api.dto.SharedCartImportConfirmDTO;
 import com.aryn.cloud.order.api.dto.SharedCartItemDTO;
 import com.aryn.cloud.order.api.dto.SharedCartReuseDTO;
 import com.aryn.cloud.order.api.dto.SharedCartPlanDTO;
 import com.aryn.cloud.order.api.dto.SharedCartConfirmDTO;
 import com.aryn.cloud.order.api.dto.SharedCartCreateDTO;
 import com.aryn.cloud.order.api.entity.SharedCart;
+import com.aryn.cloud.order.api.entity.SharedCartImport;
+import com.aryn.cloud.order.api.entity.SharedCartImportRow;
 import com.aryn.cloud.order.api.entity.SharedCartItem;
 import com.aryn.cloud.order.api.entity.SharedCartMember;
 import com.aryn.cloud.order.api.support.ReplenishProgressCalculator;
 import com.aryn.cloud.order.api.vo.ReplenishProgressVO;
+import com.aryn.cloud.order.api.vo.SharedCartImportRowVO;
+import com.aryn.cloud.order.api.vo.SharedCartImportVO;
 import com.aryn.cloud.order.api.vo.SharedCartReuseVO;
 import com.aryn.cloud.order.api.vo.SharedCartSummaryVO;
 import com.aryn.cloud.order.api.vo.SharedCartVO;
+import com.aryn.cloud.order.mapper.SharedCartImportMapper;
+import com.aryn.cloud.order.mapper.SharedCartImportRowMapper;
 import com.aryn.cloud.order.mapper.SharedCartItemMapper;
 import com.aryn.cloud.order.mapper.SharedCartMapper;
 import com.aryn.cloud.order.mapper.SharedCartMemberMapper;
@@ -24,11 +31,17 @@ import com.aryn.cloud.order.service.IOrderInfoService;
 import com.aryn.cloud.order.service.ISharedCartService;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.aryn.cloud.order.support.ReplenishImportClassifier;
+import com.aryn.cloud.order.support.ReplenishImportExcel;
+import com.aryn.cloud.product.api.dto.ReplenishImportMatchDTO;
 import com.aryn.cloud.product.api.entity.GoodsSku;
 import com.aryn.cloud.product.api.entity.GoodsSpu;
 import com.aryn.cloud.product.api.entity.ShipSkuProfile;
 import com.aryn.cloud.product.api.remote.RemoteGoodsSkuService;
+import com.aryn.cloud.product.api.remote.RemoteReplenishImportMatchService;
+import com.aryn.cloud.product.api.support.ReplenishMatchRules;
 import com.aryn.cloud.product.api.remote.RemoteShipProductProfileService;
+import com.aryn.cloud.product.api.vo.ReplenishImportMatchVO;
 import com.aryn.cloud.vessel.api.dto.VesselContextDTO;
 import com.aryn.cloud.vessel.api.remote.RemoteVesselService;
 import com.aryn.cloud.user.api.remote.RemoteMallUserService;
@@ -40,11 +53,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.io.ByteArrayInputStream;
 import java.math.BigDecimal;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -75,6 +92,10 @@ public class SharedCartServiceImpl implements ISharedCartService {
 
 	private final SharedCartItemMapper sharedCartItemMapper;
 
+	private final SharedCartImportMapper sharedCartImportMapper;
+
+	private final SharedCartImportRowMapper sharedCartImportRowMapper;
+
 	private final IOrderInfoService orderInfoService;
 
 	@DubboReference
@@ -83,6 +104,10 @@ public class SharedCartServiceImpl implements ISharedCartService {
 	/** 商品域：摘要卡片需要 SKU 售价与商品名（明细表只存 ID，不存快照） */
 	@DubboReference
 	private RemoteGoodsSkuService remoteGoodsSkuService;
+
+	/** 商品域：补给单导入的编码/品名匹配（含下架商品，报告要如实给出原因） */
+	@DubboReference
+	private RemoteReplenishImportMatchService remoteReplenishImportMatchService;
 
 	@DubboReference
 	private RemoteVesselService remoteVesselService;
@@ -1125,6 +1150,484 @@ public class SharedCartServiceImpl implements ISharedCartService {
 			log.warn("回填贡献者昵称失败，使用 ID 兜底, userId={}", userId, ex);
 		}
 		return "用户" + userId.substring(Math.max(0, userId.length() - 6));
+	}
+
+
+	// ---------------------------------------------------------------------
+	// 补给单 Excel 导入（C2）
+	// ---------------------------------------------------------------------
+
+	/**
+	 * 解析 + 匹配 + 落报告。
+	 *
+	 * <p>三步：Excel 解析（订单域）→ 商品域批量匹配 → 报告分类落库。
+	 * 分类口径统一走 {@link ReplenishImportClassifier}，与该行确认时的校验同一份规则，
+	 * 避免「报告说 OK、确认时又被拦下」。
+	 *
+	 * <p>解析同步完成，因此**不返回假的解析进度**：前端用不确定态 loading 表达
+	 * 「正在解析」，真实进度属于二期（需求确认单 §5）。
+	 */
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public SharedCartImportVO previewImport(String tenantId, String userId, String cartId, String fileName,
+			long fileSize, byte[] fileBytes) {
+		SharedCart cart = requireCart(tenantId, cartId);
+		requireEditable(cart);
+		requireNotExpired(cart);
+		// 导入是「排计划」的批量形态：确认人/发起人职责，普通成员只能报自己的需求
+		requireConfirmer(cart, userId);
+
+		List<ReplenishImportExcel.ParsedRow> parsed = ReplenishImportExcel.parse(
+				new ByteArrayInputStream(fileBytes));
+		List<ReplenishImportMatchDTO> requests = new ArrayList<>(parsed.size());
+		for (int index = 0; index < parsed.size(); index++) {
+			ReplenishImportExcel.ParsedRow row = parsed.get(index);
+			ReplenishImportMatchDTO request = new ReplenishImportMatchDTO();
+			request.setRowNo(index + 1);
+			request.setCode(row.getCode());
+			request.setName(row.getName());
+			request.setSpec(row.getSpec());
+			request.setQuantity(ReplenishMatchRules.parseQuantity(row.getQuantityText()));
+			requests.add(request);
+		}
+
+		Map<Integer, ReplenishImportMatchVO> matchByRowNo = new LinkedHashMap<>();
+		try {
+			List<ReplenishImportMatchVO> matches = remoteReplenishImportMatchService.matchRows(tenantId, requests);
+			for (int index = 0; index < matches.size(); index++) {
+				ReplenishImportMatchVO match = matches.get(index);
+				if (match == null) {
+					continue;
+				}
+				// 商品域按契约回显 rowNo；万一没回显，按返回顺序对齐，
+				// 否则整份报告会静默退化成"全部未匹配"，用户只会以为商品都没建档
+				Integer rowNo = match.getRowNo() != null ? match.getRowNo() : index + 1;
+				matchByRowNo.put(rowNo, match);
+			}
+		}
+		catch (Exception exception) {
+			// 商品域抖动时按「全部未匹配」出报告：用户仍能人工补选，
+			// 好过整次上传直接失败（与批量加购的降级口径一致）
+			log.warn("补给单导入匹配失败，按未匹配处理 cart={}", cartId, exception);
+		}
+
+		SharedCartImport job = new SharedCartImport();
+		job.setId(IdWorker.getIdStr());
+		job.setCartId(cartId);
+		job.setFileName(fileName);
+		job.setFileSize(fileSize);
+		job.setFileSha256(sha256(fileBytes));
+		job.setTotalRows(parsed.size());
+		job.setStatus(SharedCartImport.STATUS_PENDING);
+		job.setOperatorUserId(userId);
+		job.setTenantId(tenantId);
+		job.setCreateTime(LocalDateTime.now());
+		job.setDelFlag("0");
+
+		int matched = 0;
+		int unmatched = 0;
+		int specChanged = 0;
+		int overStock = 0;
+		int invalid = 0;
+		int offShelf = 0;
+		List<SharedCartImportRow> entities = new ArrayList<>(parsed.size());
+		for (int index = 0; index < parsed.size(); index++) {
+			ReplenishImportExcel.ParsedRow row = parsed.get(index);
+			int rowNo = index + 1;
+			ReplenishImportMatchVO match = matchByRowNo.get(rowNo);
+			Integer quantity = ReplenishMatchRules.parseQuantity(row.getQuantityText());
+			ReplenishImportClassifier.Result classified = ReplenishImportClassifier.classify(match, row.getSpec(),
+					quantity);
+
+			SharedCartImportRow entity = new SharedCartImportRow();
+			entity.setId(IdWorker.getIdStr());
+			entity.setImportId(job.getId());
+			entity.setCartId(cartId);
+			entity.setRowNo(rowNo);
+			entity.setRawCode(row.getCode());
+			entity.setRawName(row.getName());
+			entity.setRawSpec(row.getSpec());
+			entity.setRawQuantity(quantity);
+			entity.setRawUnit(row.getUnit());
+			entity.setRawRemark(row.getRemark());
+			entity.setMatchType(match == null ? "NONE" : match.getMatchType());
+			entity.setMatchedSkuId(match == null ? null : match.getSkuId());
+			entity.setMatchedSpuId(match == null ? null : match.getSpuId());
+			entity.setMatchedName(match == null ? null : match.getName());
+			entity.setMatchedSpec(match == null ? null : match.getSpec());
+			entity.setMatchedUnit(match == null ? null : match.getPurchaseUnit());
+			entity.setMatchedPrice(match == null ? null : match.getSalesPrice());
+			entity.setMatchedStock(match == null ? null : match.getStock());
+			entity.setPlannedQuantity(quantity);
+			entity.setSuggestedQuantity(classified.suggestedQuantity());
+			entity.setResultType(classified.resultType());
+			entity.setResultMessage(classified.message());
+			entity.setTenantId(tenantId);
+			entity.setCreateTime(LocalDateTime.now());
+			entity.setDelFlag("0");
+			sharedCartImportRowMapper.insert(entity);
+			entities.add(entity);
+
+			switch (classified.resultType()) {
+				case SharedCartImportRow.RESULT_OK -> matched++;
+				case SharedCartImportRow.RESULT_UNMATCHED -> unmatched++;
+				case SharedCartImportRow.RESULT_SPEC_CHANGED -> specChanged++;
+				case SharedCartImportRow.RESULT_OVER_STOCK -> overStock++;
+				case SharedCartImportRow.RESULT_INVALID_QTY -> invalid++;
+				case SharedCartImportRow.RESULT_OFF_SHELF -> offShelf++;
+				default -> invalid++;
+			}
+		}
+
+		job.setMatchedRows(matched);
+		job.setUnmatchedRows(unmatched);
+		job.setSpecChangedRows(specChanged);
+		job.setOverStockRows(overStock);
+		job.setInvalidRows(invalid);
+		job.setOffShelfRows(offShelf);
+		sharedCartImportMapper.insert(job);
+		log.info("补给单导入解析完成 cart={} import={} 行数={} 匹配={} 未匹配={} 超库存={}", cartId, job.getId(),
+				parsed.size(), matched, unmatched, overStock);
+		return toImportVO(job, entities);
+	}
+
+	@Override
+	public SharedCartImportVO getImport(String tenantId, String userId, String cartId, String importId) {
+		SharedCart cart = requireCart(tenantId, cartId);
+		requireMembership(cart, userId);
+		SharedCartImport job = requireImport(tenantId, cartId, importId);
+		return toImportVO(job, listImportRows(tenantId, job.getId()));
+	}
+
+	@Override
+	public List<SharedCartImportVO> listImports(String tenantId, String userId, String cartId) {
+		SharedCart cart = requireCart(tenantId, cartId);
+		requireMembership(cart, userId);
+		List<SharedCartImport> jobs = sharedCartImportMapper.selectList(Wrappers.lambdaQuery(SharedCartImport.class)
+			.eq(SharedCartImport::getTenantId, tenantId)
+			.eq(SharedCartImport::getCartId, cartId)
+			.orderByDesc(SharedCartImport::getCreateTime));
+		List<SharedCartImportVO> result = new ArrayList<>(jobs.size());
+		for (SharedCartImport job : jobs) {
+			// 列表不带行明细：一次拉回几百行没有意义，点开报告再取 getImport
+			result.add(toImportVO(job, null));
+		}
+		return result;
+	}
+
+	/**
+	 * 确认并入：按行处置**重新校验**后写入 shared_cart_item。
+	 *
+	 * <p>幂等靠任务状态：已并入直接返回首次报告，不重复累加数量 ——
+	 * 重复点「确认并入」时用户最容易察觉的缺陷就是数量翻倍。
+	 *
+	 * <p>同一 SKU 的多行在此合并；已存在的活动明细累加数量；被逻辑移除
+	 * （status=3）的明细**复活**，否则会撞 uk_shared_cart_item 唯一键
+	 * （该唯一键不含 status，物理上只允许一行）。
+	 */
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public SharedCartImportVO confirmImport(String tenantId, String userId, String cartId, String importId,
+			SharedCartImportConfirmDTO dto) {
+		SharedCart cart = requireCart(tenantId, cartId);
+		requireEditable(cart);
+		requireNotExpired(cart);
+		requireConfirmer(cart, userId);
+		SharedCartImport job = requireImport(tenantId, cartId, importId);
+		if (SharedCartImport.STATUS_IMPORTED.equals(job.getStatus())) {
+			return toImportVO(job, listImportRows(tenantId, job.getId()));
+		}
+		if (SharedCartImport.STATUS_CANCELLED.equals(job.getStatus())) {
+			throw new ArynBusinessException("该导入已取消，请重新上传");
+		}
+
+		Map<Integer, SharedCartImportConfirmDTO.RowAction> actionByRowNo = new LinkedHashMap<>();
+		if (dto != null && dto.getRows() != null) {
+			for (SharedCartImportConfirmDTO.RowAction action : dto.getRows()) {
+				if (action != null && action.getRowNo() != null) {
+					actionByRowNo.put(action.getRowNo(), action);
+				}
+			}
+		}
+
+		List<SharedCartImportRow> rows = listImportRows(tenantId, job.getId());
+		// 确认时重新取一次商品现状：报告页停留期间商品可能已下架或库存变化
+		Map<String, ReplenishImportMatchVO> currentBySkuId = loadCurrentSkus(tenantId, rows, actionByRowNo);
+
+		Map<String, Integer> quantityBySku = new LinkedHashMap<>();
+		Map<String, String> spuBySku = new LinkedHashMap<>();
+		Map<String, String> remarkBySku = new LinkedHashMap<>();
+		int skipped = 0;
+		for (SharedCartImportRow row : rows) {
+			SharedCartImportConfirmDTO.RowAction action = actionByRowNo.get(row.getRowNo());
+			// 匹配成功的行按原型口径已在报告里标为「已入单」，无需用户逐行点确认；
+			// 需要处置的行（未匹配/规格变更/超库存/数量异常）未给动作则跳过
+			if (action == null && !SharedCartImportRow.RESULT_OK.equals(row.getResultType())) {
+				action = null;
+			}
+			Integer quantity = action == null && SharedCartImportRow.RESULT_OK.equals(row.getResultType())
+					? row.getPlannedQuantity()
+					: resolvedQuantity(row, action);
+			String skuId = action == null && SharedCartImportRow.RESULT_OK.equals(row.getResultType())
+					? row.getMatchedSkuId()
+					: resolvedSkuId(row, action);
+			ReplenishImportMatchVO current = skuId == null ? null : currentBySkuId.get(skuId);
+			boolean acceptable = current != null && "0".equals(current.getSkuStatus())
+					&& "1".equals(current.getSpuStatus())
+					&& ReplenishMatchRules.quantityAcceptable(quantity, current.getMoq(), current.getStepQty())
+					&& (current.getStock() == null || quantity <= current.getStock());
+
+			if (!acceptable) {
+				skipped++;
+				row.setResolvedAction(action == null ? SharedCartImportRow.ACTION_SKIP : action.getAction());
+				row.setResolvedTime(LocalDateTime.now());
+				if (current != null && quantity != null && current.getStock() != null && quantity > current.getStock()) {
+					row.setResultMessage("确认时库存已变化（当前 " + current.getStock() + "），本行已跳过");
+				}
+				sharedCartImportRowMapper.updateById(row);
+				continue;
+			}
+
+			row.setResolvedAction(action == null ? SharedCartImportRow.ACTION_ACCEPT_SPEC : action.getAction());
+			row.setResolvedSkuId(skuId);
+			row.setResolvedQuantity(quantity);
+			row.setPlannedQuantity(quantity);
+			row.setMatchedSkuId(current.getSkuId());
+			row.setMatchedSpuId(current.getSpuId());
+			row.setMatchedSpec(current.getSpec());
+			row.setResolvedTime(LocalDateTime.now());
+			sharedCartImportRowMapper.updateById(row);
+
+			quantityBySku.merge(skuId, quantity, Integer::sum);
+			spuBySku.putIfAbsent(skuId, current.getSpuId());
+			if (StringUtils.hasText(row.getRawRemark())) {
+				remarkBySku.putIfAbsent(skuId, row.getRawRemark());
+			}
+		}
+
+		int imported = mergeIntoCartItems(tenantId, userId, cartId, quantityBySku, spuBySku, remarkBySku);
+		job.setStatus(SharedCartImport.STATUS_IMPORTED);
+		job.setImportedRows(imported);
+		job.setSkippedRows(skipped);
+		job.setConfirmedTime(LocalDateTime.now());
+		sharedCartImportMapper.updateById(job);
+		log.info("补给单导入并入完成 cart={} import={} 并入={} 跳过={}", cartId, importId, imported, skipped);
+		return toImportVO(job, listImportRows(tenantId, job.getId()));
+	}
+
+	/** 把「SKU → 数量」合并写进补给单明细，返回实际写入的明细项数 */
+	private int mergeIntoCartItems(String tenantId, String userId, String cartId, Map<String, Integer> quantityBySku,
+			Map<String, String> spuBySku, Map<String, String> remarkBySku) {
+		if (quantityBySku.isEmpty()) {
+			return 0;
+		}
+		// 已有的活动/已移除明细一次取出按 SKU 归并，避免逐条查询
+		List<SharedCartItem> existing = sharedCartItemMapper.selectList(Wrappers.lambdaQuery(SharedCartItem.class)
+			.eq(SharedCartItem::getTenantId, tenantId)
+			.eq(SharedCartItem::getCartId, cartId)
+			.in(SharedCartItem::getSkuId, new ArrayList<>(quantityBySku.keySet())));
+		Map<String, SharedCartItem> existingBySku = new LinkedHashMap<>();
+		for (SharedCartItem item : existing) {
+			existingBySku.putIfAbsent(item.getSkuId(), item);
+		}
+
+		int imported = 0;
+		for (Map.Entry<String, Integer> entry : quantityBySku.entrySet()) {
+			String skuId = entry.getKey();
+			int quantity = entry.getValue();
+			SharedCartItem item = existingBySku.get(skuId);
+			if (item == null) {
+				item = new SharedCartItem();
+				item.setId(IdWorker.getIdStr());
+				item.setCartId(cartId);
+				item.setUserId(userId);
+				item.setSpuId(spuBySku.get(skuId));
+				item.setSkuId(skuId);
+				item.setRequestedQuantity(quantity);
+				item.setPlannedQuantity(quantity);
+				item.setFulfilledQuantity(0);
+				item.setStatus(SharedCartItem.ITEM_PENDING);
+				item.setMemberRemark(remarkBySku.get(skuId));
+				item.setTenantId(tenantId);
+				item.setCreateTime(LocalDateTime.now());
+				item.setDelFlag("0");
+				sharedCartItemMapper.insert(item);
+			}
+			else if (SharedCartItem.ITEM_REMOVED.equals(item.getStatus())) {
+				// 复活已移除明细：唯一键 (tenant, cart, user, sku) 不含 status，
+				// 插入新行会直接撞键；且复活后归属改为本次导入的操作者
+				item.setUserId(userId);
+				item.setSpuId(spuBySku.get(skuId));
+				item.setStatus(SharedCartItem.ITEM_PENDING);
+				item.setRequestedQuantity(quantity);
+				item.setPlannedQuantity(quantity);
+				item.setFulfilledQuantity(0);
+				if (StringUtils.hasText(remarkBySku.get(skuId))) {
+					item.setMemberRemark(remarkBySku.get(skuId));
+				}
+				item.setUpdateTime(LocalDateTime.now());
+				sharedCartItemMapper.updateById(item);
+			}
+			else {
+				// 与已有明细合并数量：需求量与计划量同口径累加（口径见需求确认单 §4）
+				int currentRequested = item.getRequestedQuantity() == null ? 0 : item.getRequestedQuantity();
+				int currentPlanned = item.getPlannedQuantity() == null ? 0 : item.getPlannedQuantity();
+				item.setRequestedQuantity(currentRequested + quantity);
+				item.setPlannedQuantity(currentPlanned + quantity);
+				item.setUpdateTime(LocalDateTime.now());
+				sharedCartItemMapper.updateById(item);
+			}
+			imported++;
+		}
+		return imported;
+	}
+
+	/** 行最终数量：调整数量动作取客户端值，其余沿用服务端解析值 */
+	private Integer resolvedQuantity(SharedCartImportRow row, SharedCartImportConfirmDTO.RowAction action) {
+		if (action == null) {
+			return null;
+		}
+		if (SharedCartImportRow.ACTION_ADJUST_QTY.equals(action.getAction())) {
+			return action.getQuantity();
+		}
+		return row.getPlannedQuantity();
+	}
+
+	/** 行最终 SKU：人工补选取客户端 SKU，其余动作沿用匹配结果；未处置动作返回 null */
+	private String resolvedSkuId(SharedCartImportRow row, SharedCartImportConfirmDTO.RowAction action) {
+		if (action == null || !StringUtils.hasText(action.getAction())
+				|| SharedCartImportRow.ACTION_SKIP.equals(action.getAction())) {
+			return null;
+		}
+		if (SharedCartImportRow.ACTION_REPLACE_SKU.equals(action.getAction())) {
+			return action.getSkuId();
+		}
+		return row.getMatchedSkuId();
+	}
+
+	/**
+	 * 一次性取出本次确认涉及的 SKU 现状（不过滤上下架），
+	 * 供确认阶段重新校验使用。
+	 */
+	private Map<String, ReplenishImportMatchVO> loadCurrentSkus(String tenantId, List<SharedCartImportRow> rows,
+			Map<Integer, SharedCartImportConfirmDTO.RowAction> actionByRowNo) {
+		Set<String> skuIds = new LinkedHashSet<>();
+		for (SharedCartImportRow row : rows) {
+			SharedCartImportConfirmDTO.RowAction action = actionByRowNo.get(row.getRowNo());
+			// 匹配成功的行没有显式动作，按「沿用匹配结果」取 SKU，
+			// 否则这些行在回查时被漏掉、确认阶段全部按跳过处理
+			String skuId = action == null && SharedCartImportRow.RESULT_OK.equals(row.getResultType())
+					? row.getMatchedSkuId()
+					: resolvedSkuId(row, action);
+			if (StringUtils.hasText(skuId)) {
+				skuIds.add(skuId);
+			}
+		}
+		Map<String, ReplenishImportMatchVO> map = new LinkedHashMap<>();
+		if (skuIds.isEmpty()) {
+			return map;
+		}
+		try {
+			for (ReplenishImportMatchVO match : remoteReplenishImportMatchService.matchSkuIds(tenantId,
+					new ArrayList<>(skuIds))) {
+				if (match != null && StringUtils.hasText(match.getSkuId())) {
+					map.put(match.getSkuId(), match);
+				}
+			}
+		}
+		catch (Exception exception) {
+			// 查不到就全部按跳过处理：宁可少并入，也不能把不确定的行写进清单
+			log.warn("补给单确认时回查商品失败，相关行将跳过 tenantId={}", tenantId, exception);
+		}
+		return map;
+	}
+
+	private SharedCartImport requireImport(String tenantId, String cartId, String importId) {
+		if (!StringUtils.hasText(importId)) {
+			throw new ArynBusinessException("导入任务ID不能为空");
+		}
+		SharedCartImport job = sharedCartImportMapper.selectOne(Wrappers.lambdaQuery(SharedCartImport.class)
+			.eq(SharedCartImport::getTenantId, tenantId)
+			.eq(SharedCartImport::getCartId, cartId)
+			.eq(SharedCartImport::getId, importId));
+		if (job == null) {
+			throw new ArynBusinessException("导入任务不存在");
+		}
+		return job;
+	}
+
+	private List<SharedCartImportRow> listImportRows(String tenantId, String importId) {
+		return sharedCartImportRowMapper.selectList(Wrappers.lambdaQuery(SharedCartImportRow.class)
+			.eq(SharedCartImportRow::getTenantId, tenantId)
+			.eq(SharedCartImportRow::getImportId, importId)
+			.orderByAsc(SharedCartImportRow::getRowNo));
+	}
+
+	private SharedCartImportVO toImportVO(SharedCartImport job, List<SharedCartImportRow> rows) {
+		SharedCartImportVO vo = new SharedCartImportVO();
+		vo.setImportId(job.getId());
+		vo.setCartId(job.getCartId());
+		vo.setFileName(job.getFileName());
+		vo.setStatus(job.getStatus());
+		vo.setTotalRows(job.getTotalRows());
+		vo.setMatchedRows(job.getMatchedRows());
+		vo.setUnmatchedRows(job.getUnmatchedRows());
+		vo.setSpecChangedRows(job.getSpecChangedRows());
+		vo.setOverStockRows(job.getOverStockRows());
+		vo.setInvalidRows(job.getInvalidRows());
+		vo.setOffShelfRows(job.getOffShelfRows());
+		vo.setImportedRows(job.getImportedRows());
+		vo.setSkippedRows(job.getSkippedRows());
+		vo.setCreateTime(job.getCreateTime());
+		vo.setConfirmedTime(job.getConfirmedTime());
+		if (rows == null) {
+			return vo;
+		}
+		List<SharedCartImportRowVO> rowVOs = new ArrayList<>(rows.size());
+		for (SharedCartImportRow row : rows) {
+			SharedCartImportRowVO rowVO = new SharedCartImportRowVO();
+			rowVO.setRowNo(row.getRowNo());
+			rowVO.setRawCode(row.getRawCode());
+			rowVO.setRawName(row.getRawName());
+			rowVO.setRawSpec(row.getRawSpec());
+			rowVO.setRawQuantity(row.getRawQuantity());
+			rowVO.setRawUnit(row.getRawUnit());
+			rowVO.setRawRemark(row.getRawRemark());
+			rowVO.setMatchType(row.getMatchType());
+			rowVO.setMatchedSkuId(row.getMatchedSkuId());
+			rowVO.setMatchedName(row.getMatchedName());
+			rowVO.setMatchedSpec(row.getMatchedSpec());
+			rowVO.setMatchedUnit(row.getMatchedUnit());
+			rowVO.setMatchedPrice(row.getMatchedPrice());
+			rowVO.setMatchedStock(row.getMatchedStock());
+			rowVO.setPlannedQuantity(row.getPlannedQuantity());
+			rowVO.setResultType(row.getResultType());
+			rowVO.setResultMessage(row.getResultMessage());
+			rowVO.setResolvedAction(row.getResolvedAction());
+			rowVO.setResolvedSkuId(row.getResolvedSkuId());
+			rowVO.setResolvedQuantity(row.getResolvedQuantity());
+			rowVO.setSuggestedQuantity(row.getSuggestedQuantity());
+			rowVOs.add(rowVO);
+		}
+		vo.setRows(rowVOs);
+		return vo;
+	}
+
+	/** 文件内容摘要：仅用于「是不是同一个文件」的提示，不做去重拦截 */
+	private static String sha256(byte[] bytes) {
+		try {
+			byte[] digest = MessageDigest.getInstance("SHA-256").digest(bytes);
+			StringBuilder builder = new StringBuilder(digest.length * 2);
+			for (byte value : digest) {
+				builder.append(Character.forDigit((value >> 4) & 0xF, 16));
+				builder.append(Character.forDigit(value & 0xF, 16));
+			}
+			return builder.toString();
+		}
+		catch (NoSuchAlgorithmException exception) {
+			// JDK 必带 SHA-256；真出现也只是失去"同一文件"提示能力
+			return null;
+		}
 	}
 
 }

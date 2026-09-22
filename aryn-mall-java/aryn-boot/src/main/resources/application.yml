@@ -246,6 +246,8 @@ hx:
       - shared_cart
       - shared_cart_member
       - shared_cart_item
+      - shared_cart_import
+      - shared_cart_import_row
       - fulfillment_wave
       - fulfillment_pick_item
       - fulfillment_exception

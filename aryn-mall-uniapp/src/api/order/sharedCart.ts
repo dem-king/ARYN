@@ -274,6 +274,120 @@ export interface SharedCartPlanPayload {
   clearPlanned?: boolean
 }
 
+/* -------------------------------------------------------------------------
+ * 补给单 Excel 导入（C2）
+ * ---------------------------------------------------------------------- */
+
+/** 导入行结果类型（与后端 SharedCartImportRow 常量一一对应） */
+export type SharedCartImportResultType
+  = | 'OK'
+    | 'UNMATCHED'
+    | 'SPEC_CHANGED'
+    | 'OVER_STOCK'
+    | 'INVALID_QTY'
+    | 'OFF_SHELF'
+
+/** 用户对单行的处置动作 */
+export type SharedCartImportAction
+  = | 'ACCEPT_SPEC'
+    | 'ADJUST_QTY'
+    | 'REPLACE_SKU'
+    | 'SKIP'
+
+/** 匹配候选（多规格歧义时由服务端给出） */
+export interface SharedCartImportCandidate {
+  spuId?: string
+  skuId?: string
+  name?: string
+  spec?: string
+  purchaseUnit?: string
+  salesPrice?: number
+  stock?: number
+  skuStatus?: string
+  spuStatus?: string
+}
+
+/** 导入报告行 */
+export interface SharedCartImportRow {
+  rowNo: number
+  rawCode?: string
+  rawName?: string
+  rawSpec?: string
+  rawQuantity?: number
+  rawUnit?: string
+  rawRemark?: string
+  matchType?: 'CODE' | 'NAME' | 'AMBIGUOUS' | 'NONE'
+  matchedSkuId?: string
+  matchedName?: string
+  matchedSpec?: string
+  matchedUnit?: string
+  matchedPrice?: number
+  matchedStock?: number
+  plannedQuantity?: number
+  resultType: SharedCartImportResultType
+  resultMessage?: string
+  resolvedAction?: SharedCartImportAction
+  resolvedSkuId?: string
+  resolvedQuantity?: number
+  /** 服务端建议数量（超库存调减 / 数量异常就近取整） */
+  suggestedQuantity?: number
+  candidates?: SharedCartImportCandidate[]
+}
+
+/** 导入报告（任务 + 行明细；列表接口不含 rows） */
+export interface SharedCartImport {
+  importId: string
+  cartId: string
+  fileName?: string
+  /** 1待确认 2已并入 3已取消 */
+  status: string
+  totalRows: number
+  matchedRows: number
+  unmatchedRows: number
+  specChangedRows: number
+  overStockRows: number
+  invalidRows: number
+  offShelfRows: number
+  importedRows?: number
+  skippedRows?: number
+  createTime?: string
+  confirmedTime?: string
+  rows?: SharedCartImportRow[]
+}
+
+/** 单行处置入参：客户端只传动作，不传行内容 */
+export interface SharedCartImportActionPayload {
+  rowNo: number
+  action: SharedCartImportAction
+  /** action=REPLACE_SKU 时必填 */
+  skuId?: string
+  /** action=ADJUST_QTY 时必填 */
+  quantity?: number
+}
+
+/** 取回导入报告（「稍后处理」后回来继续） */
+export function getSharedCartImport(id: string, importId: string) {
+  return alovaInstance.Get<SharedCartImport>(`${BASE}/${id}/imports/${importId}`)
+}
+
+/** 导入记录列表（不带行明细） */
+export function listSharedCartImports(id: string) {
+  return alovaInstance.Get<SharedCartImport[]>(`${BASE}/${id}/imports`)
+}
+
+/**
+ * 确认并入补给单（幂等）。
+ *
+ * rows 只包含需要显式处置的行；匹配成功的行由服务端按原匹配结果并入。
+ */
+export function confirmSharedCartImport(
+  id: string,
+  importId: string,
+  rows: SharedCartImportActionPayload[],
+) {
+  return alovaInstance.Post<SharedCartImport>(`${BASE}/${id}/imports/${importId}/confirm`, { rows })
+}
+
 /**
  * 历史补给单一键复用：把历史购物车的明细复制到当前靠港计划下的购物车。
  *

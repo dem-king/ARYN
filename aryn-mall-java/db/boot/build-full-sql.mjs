@@ -59,6 +59,7 @@ const sections = [
   ['首页金刚区改为 8 项运营入口', '76home_kingkong_entries.sql'],
   ['补给单计划量与执行进度', '77shared_cart_item_planned_qty.sql'],
   ['首页补给单卡片装修迁移', '78home_replenish_card_entry.sql'],
+  ['补给单Excel导入', '80shared_cart_import_incremental.sql'],
   ['XXL-JOB 调度库', '3aryn_boot_job.sql'],
 ];
 
@@ -122,6 +123,8 @@ DROP TABLE IF EXISTS \`promotion_lock\`;
 DROP TABLE IF EXISTS \`vessel_call_change_log\`;
 DROP TABLE IF EXISTS \`vessel_invite_code\`;
 DROP TABLE IF EXISTS \`vessel_bind_apply\`;
+DROP TABLE IF EXISTS \`shared_cart_import\`;
+DROP TABLE IF EXISTS \`shared_cart_import_row\`;
 `;
 
 const output = sections.reduce((sql, [title, file]) => {

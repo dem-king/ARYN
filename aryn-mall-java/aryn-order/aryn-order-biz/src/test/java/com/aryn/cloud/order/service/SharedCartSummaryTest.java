@@ -5,6 +5,8 @@ import com.aryn.cloud.order.api.entity.SharedCart;
 import com.aryn.cloud.order.api.entity.SharedCartItem;
 import com.aryn.cloud.order.api.entity.SharedCartMember;
 import com.aryn.cloud.order.api.vo.SharedCartSummaryVO;
+import com.aryn.cloud.order.mapper.SharedCartImportMapper;
+import com.aryn.cloud.order.mapper.SharedCartImportRowMapper;
 import com.aryn.cloud.order.mapper.SharedCartItemMapper;
 import com.aryn.cloud.order.mapper.SharedCartMapper;
 import com.aryn.cloud.order.mapper.SharedCartMemberMapper;
@@ -73,6 +75,7 @@ class SharedCartSummaryTest {
 		TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), SharedCart.class);
 
 		service = new SharedCartServiceImpl(cartMapper, memberMapper, itemMapper,
+				mock(SharedCartImportMapper.class), mock(SharedCartImportRowMapper.class),
 				mock(IOrderInfoService.class));
 		ReflectionTestUtils.setField(service, "remoteGoodsSkuService", remoteGoodsSkuService);
 		ReflectionTestUtils.setField(service, "remoteShipProductProfileService",
