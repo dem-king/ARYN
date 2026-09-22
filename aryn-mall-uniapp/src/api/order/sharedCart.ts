@@ -240,6 +240,29 @@ export function removeSharedCartItem(id: string, itemId: string) {
   return alovaInstance.Delete<void>(`${BASE}/${id}/items/${itemId}`)
 }
 
+/** 历史补给单复用入参（把历史明细复制到当前靠港计划下的购物车） */
+export interface SharedCartReusePayload {
+  /** 船舶ID（必须与源单一致；跨船复用无业务意义） */
+  vesselId: string
+  /** 本次采购的靠港计划ID（取当前上下文，不是源单那个历史靠港） */
+  vesselCallId: string
+  /** 备注；不传则沿用源单备注 */
+  remark?: string
+}
+
+/** 历史补给单复用结果 */
+export interface SharedCartReuseResult {
+  cartId: string
+  cartNo?: string
+  /** 是否并入该船已有的进行中购物车（true 表示不是新建的） */
+  adoptedExisting?: boolean
+  /** 成功复用的明细项数（按 SKU 合并后） */
+  reusedCount: number
+  /** 跳过的项数 */
+  skippedCount: number
+  skipped: Array<{ skuId: string, reason: string }>
+}
+
 /** 计划量/已采量编辑入参（确认人操作，可操作任意成员的明细行） */
 export interface SharedCartPlanPayload {
   itemId: string
@@ -249,6 +272,16 @@ export interface SharedCartPlanPayload {
   fulfilledQuantity?: number | null
   /** 显式清除计划量：区分「取消计划」与「本次不改已采量」 */
   clearPlanned?: boolean
+}
+
+/**
+ * 历史补给单一键复用：把历史购物车的明细复制到当前靠港计划下的购物车。
+ *
+ * 复用只搬清单，不下单、不锁价、不校验库存 —— 用户确认后仍走正常的
+ * 「改数量 → 提交整船订单」流程（与订单「再来一单」同口径）。
+ */
+export function reuseSharedCartFromHistory(id: string, data: SharedCartReusePayload) {
+  return alovaInstance.Post<SharedCartReuseResult>(`${BASE}/${id}/reuse`, data)
 }
 
 /** 确认人统一提交，生成整船订单（幂等，返回订单ID） */

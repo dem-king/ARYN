@@ -21,6 +21,7 @@ import {
   inviteSharedCartMember,
   joinSharedCartByToken,
   removeSharedCartItem,
+  reuseSharedCartFromHistory,
   setMyDisplayName,
   shareSharedCart,
   type SharedCart,
@@ -31,6 +32,7 @@ import {
 } from '@/api/order/sharedCart'
 import { getByIds } from '@/api/product/spu'
 import hrNavbar from '@/components/hr-navbar/index.vue'
+import ShipContextPicker from '@/components/ship-context-picker/index.vue'
 import { useShipContextStore } from '@/store/shipContextStore'
 import { useUserStore } from '@/store/userStore'
 import { buildReplenishRowView, summarizeReplenishItems } from '@/utils/replenish-progress'
@@ -401,6 +403,69 @@ function handleClose() {
         .catch(() => {})
     },
   })
+}
+
+/** 船舶与靠港选择器：复用时必须有当前靠港上下文 */
+const shipPickerVisible = ref(false)
+const reusing = ref(false)
+
+/**
+ * 历史单复用：仅对已结束的单开放（进行中的单本身就是本轮清单）。
+ *
+ * 另外要求当前船舶上下文与源单一致 —— 跨船复用没有业务意义（服务端也会拒），
+ * 与其让用户点完再看到失败提示，不如直接不显示这个按钮。
+ * 尚无上下文时不拦，由用户在选择器里选（选错船时服务端仍会兜底拒绝）。
+ */
+const canReuse = computed(() => {
+  if (!cartReadonly.value || !cart.value) {
+    return false
+  }
+  const currentVesselId = shipContextStore.vesselId
+  return !currentVesselId || currentVesselId === cart.value.vesselId
+})
+
+/**
+ * 一键复用历史补给单。
+ *
+ * 复用出来的是**本轮**采购，因此靠港计划取当前上下文，而不是源单那个已结束的靠港；
+ * 船必须与源单一致（服务端也会校验，这里先做一次本地提示以免白跑一趟）。
+ */
+function handleReuse() {
+  if (!cart.value || reusing.value) {
+    return
+  }
+  // 兜底：按钮已按船舶过滤，这里再挡一次（例如上下文在页面停留期间被切走）
+  if (shipContextStore.vesselId && shipContextStore.vesselId !== cart.value.vesselId) {
+    uni.showToast({ title: '只能复用到同一条船', icon: 'none' })
+    return
+  }
+  if (!shipContextStore.hasVesselContext) {
+    shipPickerVisible.value = true
+    return
+  }
+  reusing.value = true
+  reuseSharedCartFromHistory(cart.value.id, {
+    vesselId: cart.value.vesselId,
+    vesselCallId: shipContextStore.vesselCallId,
+  })
+    .then((result) => {
+      if (!result?.cartId) {
+        return
+      }
+      // 部分成功要如实告知：跳过项往往是「本次清单已有该商品」或原明细没有可用数量
+      const skipped = result.skippedCount ?? 0
+      uni.showToast({
+        title: skipped > 0
+          ? `已复用 ${result.reusedCount} 项，跳过 ${skipped} 项`
+          : `已复用 ${result.reusedCount} 项`,
+        icon: 'none',
+      })
+      uni.navigateTo({ url: `/sub-pages/order/shared-cart/detail?id=${result.cartId}` })
+    })
+    .catch(() => {})
+    .finally(() => {
+      reusing.value = false
+    })
 }
 
 function openConfirm() {
@@ -945,6 +1010,15 @@ onShow(() => {
         >
           关闭购物车
         </button>
+        <!-- 历史单：一键把上次的清单搬成本轮补给单 -->
+        <button
+          v-if="canReuse"
+          class="!m-0 flex-1 h-80rpx text-28rpx leading-80rpx"
+          :disabled="reusing"
+          @tap="handleReuse"
+        >
+          复用为本次补给单
+        </button>
       </view>
 
       <view
@@ -963,5 +1037,8 @@ onShow(() => {
         去登录
       </view>
     </view>
+
+    <!-- 复用时缺船舶/靠港上下文，先让用户选 -->
+    <ShipContextPicker v-model="shipPickerVisible" />
   </view>
 </template>

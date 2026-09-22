@@ -98,6 +98,50 @@ describe('shared cart routing contract', () => {
     expect(card).toContain('buildReplenishProgressView')
   })
 
+  it('detail page exposes history reuse and posts to the reuse endpoint', () => {
+    const detail = source('src/sub-pages/order/shared-cart/detail.vue')
+    const api = source('src/api/order/sharedCart.ts')
+
+    const fnBody = api.slice(
+      api.indexOf('export function reuseSharedCartFromHistory'),
+      api.indexOf('export function confirmSharedCart'),
+    )
+    // 路径要连结尾反引号一起断言：只写 /reuse 会被 /reused 这种前缀匹配蒙混过关
+    // （缺陷注入实测：把路径改成 /reused，第一版断言仍然全绿）。
+    expect(fnBody).toMatch(/\$\{BASE\}\/\$\{id\}\/reuse`/)
+    expect(detail).toContain('reuseSharedCartFromHistory')
+
+    const controller = repoSource(`${ORDER_BIZ}/controller/app/AppSharedCartController.java`)
+    expect(controller).toContain('@PostMapping("/{id}/reuse")')
+  })
+
+  it('reuse only offered for finished carts, never the active one', () => {
+    const detail = source('src/sub-pages/order/shared-cart/detail.vue')
+    // 进行中的单本身就是本轮清单，复用会命中同一张车并把明细全部按「已存在」跳过
+    expect(detail).toContain('canReuse')
+    expect(detail).toContain('cartReadonly.value')
+  })
+
+  it('reuse binds the CURRENT vessel call, not the source cart one', () => {
+    const detail = source('src/sub-pages/order/shared-cart/detail.vue')
+    const call = detail.slice(
+      detail.indexOf('reuseSharedCartFromHistory(cart.value.id'),
+      detail.indexOf('function openConfirm'),
+    )
+    // 复用出来的是本轮采购，配送窗口必须落在本次靠港
+    expect(call).toContain('vesselCallId: shipContextStore.vesselCallId')
+    // 船必须与源单一致
+    expect(call).toContain('vesselId: cart.value.vesselId')
+  })
+
+  it('reuse reports partial success instead of swallowing skipped items', () => {
+    const detail = source('src/sub-pages/order/shared-cart/detail.vue')
+    // 跳过项（本次清单已有该商品 / 原明细无可用数量）必须如实告知。
+    // 断到「跳过 N 项」这个完整文案：只查 skippedCount 或「已复用」的话，
+    // 把提示改成永远说「已复用 N 项」也照样通过（缺陷注入实测如此）。
+    expect(detail).toMatch(/已复用 \$\{result\.reusedCount\} 项，跳过 \$\{skipped\} 项/)
+  })
+
   it('exposes every shared cart page from an existing entry point', () => {
     const cart = source('src/pages/user/shopping-cart/index.vue')
     const shipSupply = source('src/sub-pages/product/ship-supply/index.vue')
