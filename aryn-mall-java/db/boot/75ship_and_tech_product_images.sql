@@ -1,6 +1,6 @@
 -- 悦航购商品图片回填（船舶物料26个现有SPU + 家电数码14个新SPU）
 -- 模式: boot
-USE `aryn_product`;
+USE `aryn_boot`;
 SET NAMES utf8mb4;
 
 -- ---------- 1. 船舶物料26个现有SPU回填图片 ----------
