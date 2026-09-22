@@ -7,6 +7,13 @@
 --   现有首页金刚区是 tab-nav 的 4 项（全部商品/浏览记录/浏览记录/领券中心），
 --   与移动端改造方案 B 版原型的 8 项不一致，且"浏览记录"重复占了 2 格。
 --
+--   ⚠️ **不含「船供专区」**（2026-09-22 裁决）：
+--   与 2026-09-20 决策 D1「船供不是商品分类，是采购场景，C 端不区分展示」冲突
+--   ——船供商品统一走商品分类浏览，不再设专区入口。原型第 2 格的「船供专区」
+--   由「限时秒杀」补位（该入口在 A 版原型里本来就有，后被补给单挤出）。
+--   注意：`ship-supply` 页面**仍然保留**，它是共享购物车的选货模式入口
+--   （`?scene=2&sharedCartId=...`），删除的是金刚区的专区入口，不是这个页面。
+--
 --   客户端读取的是**已发布版本快照**（page_design.published_version_id →
 --   page_design_version），不是草稿，因此必须同时迁移两处。
 --
@@ -70,8 +77,8 @@ SET `page_content` = JSON_SET(
                   'link', JSON_OBJECT('name', '每日签到', 'url', '/sub-pages/user/member/sign-in')),
                 JSON_OBJECT('title', '多人拼团', 'url', '',
                   'link', JSON_OBJECT('name', '拼团列表', 'url', '/sub-pages/promotion/group-buy/group-buy-list/index')),
-                JSON_OBJECT('title', '船供专区', 'url', '',
-                  'link', JSON_OBJECT('name', '船供采购', 'url', '/sub-pages/product/ship-supply/index')),
+                JSON_OBJECT('title', '限时秒杀', 'url', '',
+                  'link', JSON_OBJECT('name', '限时秒杀', 'url', '/pages/promotion/seckill')),
                 JSON_OBJECT('title', '联系客服', 'url', '',
                   'link', JSON_OBJECT('name', '客服会话', 'url', '/sub-pages/message/chat/index'))
               ),
@@ -85,8 +92,20 @@ WHERE `page_type` = '1'
   AND JSON_VALID(`page_content`)
   -- 只处理含 tab-nav 的首页
   AND JSON_SEARCH(`page_content`, 'one', 'tab-nav', NULL, '$.sections[0].components[*].type') IS NOT NULL
-  -- 幂等护栏：已升级过则跳过
-  AND `page_content` NOT LIKE '%kk-replenish-%';
+  -- 幂等护栏：金刚区的条目里已有指向秒杀页的链接则跳过。
+  --
+  -- ⚠️ 原护栏写的是 `NOT LIKE '%kk-replenish-%'`，但脚本从未把该串写进 JSON，
+  --   属**死代码**：重跑会重新覆盖整个 props，把运营在装修后台的改动静默抹掉。
+  --   2026-09-22 用真实 page_design 数据在临时表实测确认（改一项后重跑被还原）。
+  --
+  -- ⚠️ 也不能拿 title 当判据：「我的补给单」是运营可见文案，改成「我的补给清单」
+  --   之类以后护栏就失效，重跑又会覆盖整组（实测已复现）。改用 link.url 判断 ——
+  --   URL 是入口指向，运营改标题/换图都不会动它。
+  --
+  --   另：旧版 76 号（含「船供专区」）的产物不含秒杀链接，因此**不会被本护栏跳过**，
+  --   会被下面这条 UPDATE 整体升级为新的 8 项，无需额外的修补脚本。
+  AND JSON_SEARCH(`page_content`, 'one', '/pages/promotion/seckill', NULL,
+                  '$.sections[0].components[*].props.navList[*].link.url') IS NULL;
 
 -- ---------------------------------------------------------------------------
 -- 2. 已发布版本（page_design_version.page_content，含灰度版本）
@@ -127,8 +146,8 @@ SET v.`page_content` = JSON_SET(
                   'link', JSON_OBJECT('name', '每日签到', 'url', '/sub-pages/user/member/sign-in')),
                 JSON_OBJECT('title', '多人拼团', 'url', '',
                   'link', JSON_OBJECT('name', '拼团列表', 'url', '/sub-pages/promotion/group-buy/group-buy-list/index')),
-                JSON_OBJECT('title', '船供专区', 'url', '',
-                  'link', JSON_OBJECT('name', '船供采购', 'url', '/sub-pages/product/ship-supply/index')),
+                JSON_OBJECT('title', '限时秒杀', 'url', '',
+                  'link', JSON_OBJECT('name', '限时秒杀', 'url', '/pages/promotion/seckill')),
                 JSON_OBJECT('title', '联系客服', 'url', '',
                   'link', JSON_OBJECT('name', '客服会话', 'url', '/sub-pages/message/chat/index'))
               ),
@@ -139,7 +158,8 @@ WHERE p.`page_type` = '1'
   AND v.`del_flag` = '0'
   AND JSON_VALID(v.`page_content`)
   AND JSON_SEARCH(v.`page_content`, 'one', 'tab-nav', NULL, '$.sections[0].components[*].type') IS NOT NULL
-  AND v.`page_content` NOT LIKE '%kk-replenish-%';
+  AND JSON_SEARCH(v.`page_content`, 'one', '/pages/promotion/seckill', NULL,
+                  '$.sections[0].components[*].props.navList[*].link.url') IS NULL;
 
 -- ---------------------------------------------------------------------------
 -- 3. 自检
