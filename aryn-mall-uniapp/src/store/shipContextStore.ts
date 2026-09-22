@@ -125,6 +125,21 @@ export const useShipContextStore = defineStore('shipContext', {
     },
 
     /**
+     * 清空靠港计划，保留船舶。
+     *
+     * 用于「有船但暂无可用靠港计划」：此时必须把上一靠港的港口/泊位/时间窗
+     * 一并清掉，否则首页状态条会显示已经失效的靠港信息。
+     */
+    clearVesselCall() {
+      this.vesselCallId = ''
+      this.portCode = ''
+      this.portName = ''
+      this.berth = ''
+      this.deliveryWindowStart = ''
+      this.deliveryWindowEnd = ''
+    },
+
+    /**
      * 切换购买场景
      */
     setPurchaseScene(scene: string) {

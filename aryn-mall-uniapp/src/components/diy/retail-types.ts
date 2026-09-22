@@ -79,6 +79,16 @@ export const retailCommonStyle: RetailCommonStyle = {
   styleTopPadding: 12,
 }
 
+/**
+ * 船舶工作台。
+ *
+ * 展示当前登录用户此刻的船舶与靠港，内容由「谁在看」决定，
+ * 因此没有可手选的数据源；运营只能控制「常购」入口与通用样式。
+ */
+export interface ShipWorkbenchProps extends RetailBaseProps {
+  showFrequent: boolean
+}
+
 export interface GoodsWaterfallProps extends RetailBaseProps {
   columns: 2 | 3
   showPrice: boolean

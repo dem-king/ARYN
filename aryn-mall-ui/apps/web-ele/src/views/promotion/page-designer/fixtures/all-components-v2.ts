@@ -13,7 +13,7 @@ import {
 const allComponentTypes = [...legacyComponentTypes, ...retailComponentTypes];
 
 /**
- * 全组件 fixture：v3 区块模型（17 个组件挂在默认区块下）。
+ * 全组件 fixture：v3 区块模型（18 个组件挂在默认区块下）。
  * 保留 v2 命名以延续既有契约测试语义。
  */
 export const allComponentsV2: DecorationDocument = {

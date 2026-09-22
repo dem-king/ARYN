@@ -126,7 +126,8 @@ public class ArynRefundListener implements RocketMQListener<String> {
 						throw new ArynBusinessException("订单退款完成状态更新失败，请重试");
 					}
 				}
-				if (com.aryn.cloud.order.api.constant.MallOrderConstants.DELIVERY_WAY_3.equals(orderInfo.getDeliveryWay())) {
+				if (com.aryn.cloud.order.api.constant.MallOrderConstants.DELIVERY_WAY_3.equals(orderInfo.getDeliveryWay())
+						|| com.aryn.cloud.order.api.constant.MallOrderConstants.DELIVERY_WAY_4.equals(orderInfo.getDeliveryWay())) {
 					try {
 						deliveryTaskService.cancelByOrderId(orderRefund.getOrderId());
 					} catch (Exception e) {

@@ -34,6 +34,7 @@ public class AppTenantController {
 		shop.setAddress(tenant.getAddress());
 		shop.setSiteUrl(tenant.getSiteUrl());
 		shop.setPhone(tenant.getPhone());
+		shop.setBusinessMode(tenant.getBusinessMode());
 		return Result.success(shop);
 	}
 

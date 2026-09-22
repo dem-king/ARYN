@@ -99,10 +99,29 @@ public class OrderRefundServiceImpl extends ServiceImpl<OrderRefundMapper, Order
 			orderRefund.setRefuseReason(refuseReason);
 			orderRefund.setStatus(OrderRefundEnum.REVIEW_REJECTED.getCode());
 			// 拒绝修改订单项状态 恢复原状态
-			// 查询是否有发货单
+			// 第三方快递：以发货单是否存在判断是否已发货
 			long count = orderDeliveryMapper.selectCount(
 					Wrappers.<OrderDelivery>lambdaQuery().eq(OrderDelivery::getOrderId, orderItemEntity.getOrderId()));
-			if (count > 0) {
+			// 商城配送/公司内部配送：不存在发货单，改由配送任务是否已取货判断，
+			// 否则已发货的订单项会被错误回退成「待发货」。
+			boolean deliveryPicked = false;
+			if (count == 0) {
+				com.aryn.cloud.order.api.entity.DeliveryTask deliveryTask = deliveryTaskService.getOne(
+						Wrappers.<com.aryn.cloud.order.api.entity.DeliveryTask>lambdaQuery()
+								.eq(com.aryn.cloud.order.api.entity.DeliveryTask::getOrderId,
+										orderItemEntity.getOrderId()));
+				if (deliveryTask != null) {
+					deliveryPicked = com.aryn.cloud.order.api.enums.DeliveryTaskStatusEnum.PICKING.getCode()
+							.equals(deliveryTask.getStatus())
+							|| com.aryn.cloud.order.api.enums.DeliveryTaskStatusEnum.WAITING_ARRIVE.getCode()
+							.equals(deliveryTask.getStatus())
+							|| com.aryn.cloud.order.api.enums.DeliveryTaskStatusEnum.ARRIVED.getCode()
+							.equals(deliveryTask.getStatus())
+							|| com.aryn.cloud.order.api.enums.DeliveryTaskStatusEnum.SIGNED.getCode()
+							.equals(deliveryTask.getStatus());
+				}
+			}
+			if (count > 0 || deliveryPicked) {
 				// 已发货
 				orderItemEntity.setStatus(OrderItemStatusEnum.SHIPPED.getCode());
 			}
@@ -139,7 +158,10 @@ public class OrderRefundServiceImpl extends ServiceImpl<OrderRefundMapper, Order
 				}
 				default -> throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60005.getMsg());
 			}
-			if (MallOrderConstants.DELIVERY_WAY_3.equals(orderInfo.getDeliveryWay())) {
+			// 商城配送(3)与公司内部配送(4)共用配送任务：都是先取货后送达，
+			// 只判断 way=3 会让 way=4 的已取货订单绕过「先退回仓库再退款」约束。
+			if (MallOrderConstants.DELIVERY_WAY_3.equals(orderInfo.getDeliveryWay())
+					|| MallOrderConstants.DELIVERY_WAY_4.equals(orderInfo.getDeliveryWay())) {
 				com.aryn.cloud.order.api.entity.DeliveryTask task = deliveryTaskService.getOne(
 						Wrappers.<com.aryn.cloud.order.api.entity.DeliveryTask>lambdaQuery()
 								.eq(com.aryn.cloud.order.api.entity.DeliveryTask::getOrderId, orderInfo.getId()));

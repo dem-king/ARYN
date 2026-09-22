@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { getByIds } from '@/api/product/spu'
+import QuickCartButton from '@/components/quick-cart-button/index.vue'
 import { useDiyStyle } from '@/composables/useDiyStyle'
 
 const props = defineProps({
@@ -89,22 +90,29 @@ const dynamicGoodsStyles = useDiyStyle(
                 >
                   ￥{{ item.salesPrice }}
                 </view>
-                <view class="goods-info-buy-btn">
-                  <wd-icon
-                    v-if="showData.buyBtnStyle === '1'" name="goods" :color="showData.buyBtnColor"
-                    :size="`${showData.buyBtnSize}px`"
-                  />
-                  <wd-icon
-                    v-if="showData.buyBtnStyle === '2'" name="cart" :color="showData.buyBtnColor"
-                    :size="`${showData.buyBtnSize}px`"
-                  />
-                  <wd-tag
-                    v-if="showData.buyBtnStyle === '3'" :size="`${showData.buyBtnSize}px`"
-                    :color="showData.buyBtnColor" plain
-                  >
-                    {{
-                      showData.buyBtnText }}
-                  </wd-tag>
+                <!--
+                  快捷加购：卡片上的购买按钮不再是纯装饰，点击直接加购。
+                  外观沿用运营在后台选的样式（图标/文字/颜色），
+                  单规格一键加购，多规格自动唤起规格弹层。
+                -->
+                <view v-if="showData.showBuyBtn !== false" class="goods-info-buy-btn">
+                  <quick-cart-button :spu-id="item.id">
+                    <wd-icon
+                      v-if="showData.buyBtnStyle === '1'" name="goods" :color="showData.buyBtnColor"
+                      :size="`${showData.buyBtnSize}px`"
+                    />
+                    <wd-icon
+                      v-else-if="showData.buyBtnStyle === '2'" name="cart" :color="showData.buyBtnColor"
+                      :size="`${showData.buyBtnSize}px`"
+                    />
+                    <wd-tag
+                      v-else :size="`${showData.buyBtnSize}px`"
+                      :color="showData.buyBtnColor" plain
+                    >
+                      {{
+                        showData.buyBtnText }}
+                    </wd-tag>
+                  </quick-cart-button>
                 </view>
               </view>
             </view>

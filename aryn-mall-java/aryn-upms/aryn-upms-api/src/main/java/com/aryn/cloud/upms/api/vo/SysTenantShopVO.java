@@ -25,4 +25,11 @@ public class SysTenantShopVO {
 	@Schema(description = "联系电话")
 	private String phone;
 
+	/**
+	 * 业务模式：1 综合（个人购买 + 船供采购并存）；2 纯零售。
+	 * C 端据此决定是否渲染船舶工作台等船供专属入口。
+	 */
+	@Schema(description = "业务模式：1综合 2纯零售")
+	private String businessMode;
+
 }

@@ -74,6 +74,7 @@ describe('mobile decoration renderer contract', () => {
     ['countdown', ['targetTime', 'completedText']],
     ['marketing-entry', ['entries', 'columns']],
     ['shop-info', ['showContact', 'showDescription']],
+    ['ship-workbench', ['showFrequent']],
   ] as const)('%s implements its mobile props contract', (type, fields) => {
     const file = `${type === 'shop-info' ? 'diy-shop-info' : `diy-${type}`}/index.vue`;
     const source = readMobileFile(file);
@@ -91,6 +92,7 @@ describe('mobile decoration renderer contract', () => {
     'countdown',
     'marketing-entry',
     'shop-info',
+    'ship-workbench',
   ])('registers the %s renderer instead of the unknown fallback', (type) => {
     const registry = readMobileFile('registry.ts');
     const componentName = type
@@ -103,13 +105,24 @@ describe('mobile decoration renderer contract', () => {
   });
 
   it.each([
-    'diy-goods-group/index.vue',
     'diy-goods-ranking/index.vue',
     'diy-limited-activity/index.vue',
     'diy-shop-info/index.vue',
   ])('%s uses shared async retail state', (file) => {
     expect(readMobileFile(file)).toContain('useRetailData');
   });
+
+  // 首页商品分组/瀑布流已改为 z-paging 分页追加（2026-09-22），
+  // 不再走 useRetailData 的一次性加载，改为守住分页契约。
+  it.each(['diy-goods-group/index.vue', 'diy-goods-waterfall/index.vue'])(
+    '%s paginates through z-paging',
+    (file) => {
+      const source = readMobileFile(file);
+
+      expect(source).toContain('z-paging');
+      expect(source).toContain('loadGoods');
+    },
+  );
 
   it.each([
     'diy-category-nav/index.vue',

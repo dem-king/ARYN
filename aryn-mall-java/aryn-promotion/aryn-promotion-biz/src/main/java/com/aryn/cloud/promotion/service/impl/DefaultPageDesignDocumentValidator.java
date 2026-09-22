@@ -9,8 +9,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -72,6 +74,7 @@ public class DefaultPageDesignDocumentValidator implements PageDesignDocumentVal
 			result.getErrors().add(issue("SCHEMA_VERSION", "schemaVersion必须为2或3", null, null, "schemaVersion"));
 		}
 		List<ComponentEntry> components = collectComponents(document, schemaVersion, result);
+		validateSingletonComponents(components, result);
 		int imageCount = 0;
 		int requestCount = 0;
 		for (ComponentEntry entry : components) {
@@ -86,6 +89,28 @@ public class DefaultPageDesignDocumentValidator implements PageDesignDocumentVal
 		budget.setContentBytes(pageContent == null ? 0 : pageContent.getBytes().length);
 		appendBudgetWarnings(result);
 		return result;
+	}
+
+	/**
+	 * 校验「全页面唯一」组件。
+	 * <p>
+	 * 船舶工作台读取的是当前用户此刻的船舶与靠港，同页出现多个只会互相矛盾，
+	 * 因此重复出现直接发布阻断，而不是留给用户去猜哪个生效。
+	 */
+	private void validateSingletonComponents(List<ComponentEntry> components, PageDesignValidationVO result) {
+		Map<String, Integer> seen = new HashMap<>();
+		for (ComponentEntry entry : components) {
+			String type = entry.component().getString("type");
+			if (type == null || !PageDesignComponentTypes.SINGLETON_TYPES.contains(type)) {
+				continue;
+			}
+			int count = seen.merge(type, 1, Integer::sum);
+			if (count > 1) {
+				result.getErrors()
+					.add(issue("COMPONENT_DUPLICATED", "同一页面最多只能放置一个「船舶工作台」", entry.component().getString("id"),
+							type, entry.path() + ".type"));
+			}
+		}
 	}
 
 	private JSONObject tryParse(String pageContent) {

@@ -69,6 +69,8 @@ export const useAuthStore = defineStore('auth', {
         userStore.clearUserInfo()
         shoppingCartStore.clearCartCount()
         useShipContextStore().reset()
+        // 租户能力随登录态失效：切换账号/租户后需重新拉取业务模式
+        useTenantCapabilityStore().reset()
         console.log('📝 用户信息已清除')
       }
       catch (error) {

@@ -29,6 +29,7 @@ interface State {
     address: string;
     authBeginTime: string;
     authEndTime: string;
+    businessMode: string;
     datatimes: Array<string>;
     email: string;
     id: string;
@@ -45,11 +46,15 @@ interface State {
 }
 // 字典
 const { status } = useDict('status');
+// 业务模式决定 C 端是否渲染船供入口（首页船舶状态条、靠港配送）
+const { business_mode: businessModeOptions } = useDict('business_mode');
 const state = reactive<State>({
   form: {
     id: '',
     name: '',
     status: '1',
+    // 默认综合模式：与 db 中 sys_tenant.business_mode 的默认值一致
+    businessMode: '1',
     address: '',
     siteUrl: '',
     email: '',
@@ -293,6 +298,17 @@ defineExpose({
           </ElFormItem>
           <ElFormItem label="手机号" prop="phone">
             <ElInput v-model="state.form.phone" />
+          </ElFormItem>
+          <ElFormItem label="业务模式" prop="businessMode">
+            <ElRadioGroup v-model="state.form.businessMode">
+              <ElRadio
+                v-for="item in businessModeOptions"
+                :key="item.value"
+                :value="item.value"
+              >
+                {{ item.label }}
+              </ElRadio>
+            </ElRadioGroup>
           </ElFormItem>
           <ElFormItem label="状态" prop="status">
             <ElRadioGroup v-model="state.form.status">

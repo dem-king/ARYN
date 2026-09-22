@@ -14,7 +14,7 @@ describe('all-components v2 fixture', () => {
     expect(allComponentsV2.schemaVersion).toBe(3);
     expect(allComponentsV2.sections).toHaveLength(1);
     const components = allComponentsV2.sections[0]?.components ?? [];
-    expect(components).toHaveLength(17);
+    expect(components).toHaveLength(18);
     expect(components.map(({ type }) => type).sort()).toEqual(
       expectedTypes.sort(),
     );

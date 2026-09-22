@@ -69,18 +69,33 @@ public final class PageDesignComponentTypes {
 	public static final String VIDEO_LIVE = "video-live";
 
 	/**
+	 * 船舶工作台（单个，展示当前船舶与靠港状态）。
+	 * <p>
+	 * 该组件原先硬编码在首页 diy-page 的 below-navbar 插槽中，运营既不能调整位置也不能隐藏，
+	 * 2026-09-21 起改为装修组件，可自由排序/删除。
+	 */
+	public static final String SHIP_WORKBENCH = "ship-workbench";
+
+	/**
 	 * 当前全量已知组件类型。
 	 */
 	public static final Set<String> KNOWN_TYPES = Set.of(CATEGORY_NAV, COUPON_RECEIVE, GAP, GOODS, IMAGE_AD, NOTICE,
 			RICH_TEXT, SEARCH_BAR, SWIPER_BANNER, TAB_NAV, TITLE_TEXT, GOODS_GROUP, GOODS_RANKING, LIMITED_ACTIVITY,
 			COUNTDOWN, MARKETING_ENTRY, SHOP_INFO, GOODS_WATERFALL, COUPON_COMBO, MEMBER_BENEFITS, SERVICE_PROMISE,
-			BOTTOM_NAV, VIDEO_LIVE);
+			BOTTOM_NAV, VIDEO_LIVE, SHIP_WORKBENCH);
 
 	/**
 	 * 依赖数据源拉取业务数据的组件（手动数据源为空时发布阻断）。
 	 */
 	public static final Set<String> DATA_DRIVEN_TYPES = Set.of(GOODS_GROUP, GOODS_RANKING, LIMITED_ACTIVITY, COUNTDOWN,
 			MARKETING_ENTRY, SHOP_INFO, GOODS_WATERFALL, COUPON_COMBO);
+
+	/**
+	 * 全页面唯一组件：同一页最多出现一次，出现多个即发布阻断。
+	 * <p>
+	 * 船舶工作台展示的是「当前用户此刻的船舶与靠港」，放多个只会互相矛盾。
+	 */
+	public static final Set<String> SINGLETON_TYPES = Set.of(SHIP_WORKBENCH);
 
 	private PageDesignComponentTypes() {
 	}

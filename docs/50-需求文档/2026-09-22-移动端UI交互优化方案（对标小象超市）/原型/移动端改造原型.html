@@ -1,0 +1,986 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aryn Mall 移动端改造原型（对标小象超市）</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%230B63E5'/%3E%3Cpath d='M12 4c-3.3 0-6 2.7-6 6 0 4 6 10 6 10s6-6 6-10c0-3.3-2.7-6-6-6zm0 8.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z' fill='%23fff'/%3E%3C/svg%3E">
+<style>
+/* ============ 设计 Token（P0 落地示范） ============ */
+:root{
+  /* 品牌：悦航购 · 深海航海蓝 */
+  --brand:#0B63E5;
+  --brand-deep:#0A4DA3;
+  --brand-ink:#082E63;
+  --brand-soft:#E8F1FD;
+  --brand-grad:linear-gradient(135deg,#0B63E5 0%,#17A2C7 100%);
+  /* 促销 / 加购：活力橙 */
+  --accent:#F2741D;
+  --accent-deep:#D95F0E;
+  --accent-soft:#FEF0E4;
+  /* 功能色 */
+  --success:#0BA881;
+  --danger:#E5484D;
+  /* 中性色 */
+  --ink:#14202E;
+  --ink-2:#5B6B7C;
+  --ink-3:#8A97A6;
+  --line:#E7ECF2;
+  --bg:#F2F6FB;
+  --card:#FFFFFF;
+  /* 圆角 / 阴影 / 间距 */
+  --r-lg:16px; --r-md:12px; --r-sm:8px; --r-full:999px;
+  --shadow-card:0 2px 10px rgba(11,99,229,.06);
+  --shadow-float:0 6px 24px rgba(8,46,99,.12);
+  --gap:12px;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{background:#0D1B2E;font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Helvetica Neue','Microsoft YaHei',sans-serif;}
+body{display:flex;justify-content:center;min-height:100vh;padding:24px 0;}
+/* ============ 手机外框 ============ */
+.phone{
+  width:390px;max-width:100%;height:calc(100vh - 48px);min-height:640px;
+  background:var(--bg);border-radius:32px;overflow:hidden;position:relative;
+  box-shadow:0 24px 60px rgba(0,0,0,.45), inset 0 0 0 1px rgba(255,255,255,.08);
+  display:flex;flex-direction:column;
+}
+.statusbar{
+  height:28px;background:var(--card);display:flex;align-items:center;justify-content:space-between;
+  padding:0 18px;font-size:12px;font-weight:600;color:var(--ink);flex-shrink:0;
+}
+.statusbar svg{display:block}
+.screen{flex:1;overflow-y:auto;overflow-x:hidden;position:relative;-webkit-overflow-scrolling:touch;scroll-behavior:smooth;}
+.screen::-webkit-scrollbar{width:0;height:0}
+/* ============ 视图 ============ */
+.view{display:none;min-height:100%;}
+.view.active{display:block;}
+/* ============ 通用组件 ============ */
+.card{background:var(--card);border-radius:var(--r-md);box-shadow:var(--shadow-card);}
+.row{display:flex;align-items:center;}
+.gap8{gap:8px;}.gap12{gap:12px;}
+.flex1{flex:1;min-width:0;}
+.sec-title{display:flex;align-items:center;justify-content:space-between;padding:18px 14px 10px;}
+.sec-title .t{font-size:16px;font-weight:700;color:var(--ink);display:flex;align-items:center;gap:6px;}
+.sec-title .t .bar{width:4px;height:16px;border-radius:2px;background:var(--brand);}
+.sec-title .more{font-size:12px;color:var(--ink-3);}
+.tag{display:inline-flex;align-items:center;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;line-height:1.4;}
+.tag-sale{background:var(--accent);color:#fff;}
+.tag-brand{background:var(--brand);color:#fff;}
+.tag-new{background:var(--success);color:#fff;}
+.tag-soft{background:var(--brand-soft);color:var(--brand-deep);}
+.price{font-size:16px;font-weight:700;color:var(--accent-deep);font-style:normal;}
+.price::before{content:'¥';font-size:12px;}
+.price .origin{font-size:11px;font-weight:400;color:var(--ink-3);text-decoration:line-through;margin-left:4px;}
+/* 加购按钮 */
+.addbtn{width:28px;height:28px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;border:none;cursor:pointer;box-shadow:0 2px 6px rgba(242,116,29,.4);flex-shrink:0;transition:transform .15s;}
+.addbtn:active{transform:scale(.88);}
+.addbtn svg{width:16px;height:16px;}
+/* 底部 tabbar */
+.tabbar{
+  height:56px;background:var(--card);border-top:1px solid var(--line);flex-shrink:0;
+  display:flex;position:relative;padding-bottom:env(safe-area-inset-bottom);
+}
+.tabbar .tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:var(--ink-3);cursor:pointer;font-size:10px;position:relative;}
+.tabbar .tab svg{width:22px;height:22px;}
+.tabbar .tab.active{color:var(--brand);font-weight:600;}
+.tabbar .tab .badge{position:absolute;top:6px;right:calc(50% - 20px);min-width:16px;height:16px;border-radius:8px;background:var(--danger);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 4px;}
+/* 导航条 */
+.navbar{height:44px;display:flex;align-items:center;padding:0 12px;background:var(--card);position:sticky;top:0;z-index:20;flex-shrink:0;}
+.navbar .ttl{font-size:16px;font-weight:700;color:var(--ink);flex:1;text-align:center;}
+.navbar .side{width:52px;}
+.navbar .side.right{text-align:right;color:var(--ink-2);font-size:13px;}
+/* toast */
+.toast{position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);background:rgba(20,32,46,.88);color:#fff;font-size:13px;padding:10px 18px;border-radius:20px;z-index:99;opacity:0;pointer-events:none;transition:opacity .25s;white-space:nowrap;}
+.toast.show{opacity:1;}
+/* SKU 弹层 */
+.mask{position:absolute;inset:0;background:rgba(8,15,26,.5);z-index:40;opacity:0;pointer-events:none;transition:opacity .25s;}
+.mask.show{opacity:1;pointer-events:auto;}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:var(--card);border-radius:20px 20px 0 0;z-index:50;transform:translateY(100%);transition:transform .28s;padding:16px 16px calc(20px + env(safe-area-inset-bottom));}
+.sheet.show{transform:translateY(0);}
+.sheet .handle{width:36px;height:4px;border-radius:2px;background:var(--line);margin:0 auto 14px;}
+.sheet .sku-head{display:flex;gap:12px;}
+.sheet .sku-head img{width:84px;height:84px;border-radius:var(--r-md);object-fit:cover;background:var(--bg);}
+.sheet .sku-title{font-size:14px;color:var(--ink);font-weight:600;line-height:1.4;}
+.sheet .sku-spec{margin-top:14px;}
+.sheet .sku-spec .label{font-size:12px;color:var(--ink-2);margin-bottom:8px;}
+.sheet .chips{display:flex;flex-wrap:wrap;gap:8px;}
+.sheet .chip{padding:6px 14px;border-radius:var(--r-full);background:var(--bg);font-size:13px;color:var(--ink);border:1px solid transparent;cursor:pointer;}
+.sheet .chip.on{background:var(--brand-soft);color:var(--brand-deep);border-color:var(--brand);}
+.sheet .sku-cta{display:flex;align-items:center;justify-content:space-between;margin-top:18px;}
+.sheet .btn-primary{background:var(--brand-grad);color:#fff;border:none;border-radius:var(--r-full);padding:12px 28px;font-size:15px;font-weight:600;cursor:pointer;}
+/* ============ 首页 ============ */
+.delivery-bar{background:var(--card);padding:10px 14px;display:flex;align-items:center;gap:8px;}
+.delivery-bar .pin{color:var(--brand);flex-shrink:0;display:flex;}
+.delivery-bar .addr{font-size:14px;font-weight:700;color:var(--ink);display:flex;align-items:center;gap:6px;}
+.delivery-bar .addr .sub{font-size:11px;color:var(--ink-3);font-weight:400;}
+.search-bar{display:flex;align-items:center;gap:10px;padding:8px 14px;background:var(--card);}
+.search-box{flex:1;display:flex;align-items:center;gap:6px;background:var(--bg);border-radius:var(--r-full);padding:9px 14px;color:var(--ink-3);font-size:13px;cursor:pointer;}
+.search-box svg{width:15px;height:15px;flex-shrink:0;}
+.search-box .hot{margin-left:4px;}
+.bell{position:relative;width:30px;height:30px;display:flex;align-items:center;justify-content:center;color:var(--ink-2);cursor:pointer;}
+.bell .dot{position:absolute;top:3px;right:2px;width:8px;height:8px;border-radius:50%;background:var(--danger);border:2px solid #fff;}
+/* 金刚区 */
+.kc{background:var(--card);margin:10px 12px;border-radius:var(--r-lg);padding:14px 6px 10px;box-shadow:var(--shadow-card);}
+.kc-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px 6px;}
+.kc-item{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:11px;color:var(--ink);cursor:pointer;}
+.kc-item .ico{width:44px;height:44px;border-radius:14px;display:flex;align-items:center;justify-content:center;}
+.kc-item .ico svg{width:24px;height:24px;}
+.ico-sale{background:linear-gradient(135deg,#FFE0C2,#FFD0A6);color:#E8720C;}
+.ico-coupon{background:linear-gradient(135deg,#FFD9C9,#FFC4AE);color:#E5484D;}
+.ico-sign{background:linear-gradient(135deg,#FFE9B8,#FFD98F);color:#D9900B;}
+.ico-list{background:var(--brand-soft);color:var(--brand);}
+.ico-disc{background:linear-gradient(135deg,#D9EAFE,#C4DDFC);color:#0A6FD0;}
+.ico-group{background:linear-gradient(135deg,#DDF4EC,#C2EADB);color:#0BA881;}
+.ico-ship{background:linear-gradient(135deg,#E4E0FA,#CDC6F5);color:#5B4ED6;}
+.ico-svc{background:linear-gradient(135deg,#E8F0F8,#D5E3F2);color:#3E6A94;}
+/* 场景楼层 */
+.scene-scroll{display:flex;gap:10px;overflow-x:auto;padding:0 12px 2px;scrollbar-width:none;}
+.scene-scroll::-webkit-scrollbar{display:none;}
+.scene-card{flex:0 0 210px;height:92px;border-radius:var(--r-lg);padding:14px;display:flex;flex-direction:column;justify-content:space-between;cursor:pointer;position:relative;overflow:hidden;}
+.scene-card .name{font-size:15px;font-weight:800;color:#fff;line-height:1.3;}
+.scene-card .desc{font-size:11px;color:rgba(255,255,255,.85);}
+.scene-card .go{font-size:11px;color:#fff;background:rgba(255,255,255,.22);border-radius:var(--r-full);padding:3px 10px;align-self:flex-start;}
+.scene-bf{background:linear-gradient(135deg,#0B63E5,#17A2C7);}
+.scene-ship{background:linear-gradient(135deg,#082E63,#0B63E5);}
+.scene-bf::after,.scene-ship::after{content:'';position:absolute;right:-18px;top:-18px;width:90px;height:90px;border-radius:50%;background:rgba(255,255,255,.12);}
+/* 秒杀 */
+.flash-scroll{display:flex;gap:10px;overflow-x:auto;padding:0 12px 4px;scrollbar-width:none;}
+.flash-scroll::-webkit-scrollbar{display:none;}
+.flash-card{flex:0 0 132px;background:var(--card);border-radius:var(--r-md);overflow:hidden;box-shadow:var(--shadow-card);}
+.flash-card .img{width:100%;height:132px;object-fit:cover;display:block;background:var(--bg);}
+.flash-card .bd{padding:8px;}
+.flash-card .nm{font-size:12px;color:var(--ink);line-height:1.35;height:32px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
+.flash-card .btm{display:flex;align-items:center;justify-content:space-between;margin-top:6px;}
+.progress{height:5px;border-radius:3px;background:var(--line);overflow:hidden;margin-top:6px;position:relative;}
+.progress i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,#FF8A3D,#F2741D);}
+.progress .tick{position:absolute;right:0;top:-3px;font-size:8px;color:var(--accent-deep);font-weight:700;line-height:11px;}
+/* 常购横滑 */
+.freq-scroll{display:flex;gap:10px;overflow-x:auto;padding:0 12px 4px;scrollbar-width:none;}
+.freq-scroll::-webkit-scrollbar{display:none;}
+.freq-item{flex:0 0 74px;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:11px;color:var(--ink);cursor:pointer;}
+.freq-item img{width:74px;height:74px;border-radius:50%;object-fit:cover;border:1px solid var(--line);background:var(--card);}
+.freq-item .plus{width:74px;height:74px;border-radius:50%;border:1px dashed var(--brand);color:var(--brand);display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10px;gap:2px;background:var(--brand-soft);}
+/* 瀑布流 */
+.waterfall{padding:2px 12px 16px;column-count:2;column-gap:10px;}
+.w-card{break-inside:avoid;background:var(--card);border-radius:var(--r-md);overflow:hidden;box-shadow:var(--shadow-card);margin-bottom:10px;cursor:pointer;}
+.w-card .img{width:100%;display:block;object-fit:cover;background:var(--bg);}
+.w-card .bd{padding:8px 10px 10px;}
+.w-card .nm{font-size:13px;color:var(--ink);line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.w-card .btm{display:flex;align-items:center;justify-content:space-between;margin-top:6px;}
+/* ============ 分类页 ============ */
+.cat-top{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--card);position:sticky;top:0;z-index:20;}
+.cat-main{display:flex;flex:1;min-height:0;}
+.cat-first{width:88px;background:var(--card);border-right:1px solid var(--line);overflow-y:auto;flex-shrink:0;}
+.cat-first .it{padding:16px 8px;text-align:center;font-size:12px;color:var(--ink-2);cursor:pointer;position:relative;}
+.cat-first .it .dot{width:26px;height:26px;border-radius:50%;margin:0 auto 6px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;}
+.cat-first .it.on{color:var(--brand-deep);font-weight:700;background:var(--bg);}
+.cat-first .it.on::before{content:'';position:absolute;left:0;top:50%;transform:translateY(-50%);width:3px;height:20px;border-radius:2px;background:var(--brand);}
+.cat-right{flex:1;overflow-y:auto;padding:10px 12px;}
+.cat-second{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;}
+.cat-second .it{padding:6px 14px;border-radius:var(--r-full);background:var(--card);font-size:12px;color:var(--ink-2);cursor:pointer;}
+.cat-second .it.on{background:var(--brand);color:#fff;font-weight:600;}
+.cat-goods{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
+.cat-goods .g-card{background:var(--card);border-radius:var(--r-md);overflow:hidden;box-shadow:var(--shadow-card);cursor:pointer;}
+.cat-goods .g-card img{width:100%;height:130px;object-fit:cover;display:block;background:var(--bg);}
+.cat-goods .g-card .bd{padding:8px 10px 10px;}
+.cat-goods .g-card .nm{font-size:12px;line-height:1.35;height:32px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;color:var(--ink);}
+.cat-goods .g-card .btm{display:flex;align-items:center;justify-content:space-between;margin-top:6px;}
+/* ============ 购物车 ============ */
+.soon-bar{margin:10px 12px;background:linear-gradient(135deg,#FFF4E8,#FFE9D6);border-radius:var(--r-md);padding:12px 14px;}
+.soon-bar .row{justify-content:space-between;}
+.soon-bar .l1{font-size:13px;font-weight:700;color:var(--accent-deep);}
+.soon-bar .l2{font-size:11px;color:#B06A2E;margin-top:2px;}
+.soon-bar .soon-btn{font-size:12px;font-weight:700;color:var(--accent-deep);border:1px solid var(--accent);padding:4px 12px;border-radius:var(--r-full);cursor:pointer;}
+.soon-track{height:8px;border-radius:4px;background:rgba(242,116,29,.15);margin-top:8px;overflow:hidden;position:relative;}
+.soon-track i{display:block;height:100%;border-radius:4px;background:linear-gradient(90deg,#FFB25C,#F2741D);}
+.cart-group{margin:4px 12px 0;}
+.cart-group .glabel{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-2);padding:12px 2px 8px;}
+.cart-group .glabel .dot{width:6px;height:6px;border-radius:50%;background:var(--brand);}
+.cart-row{display:flex;align-items:center;gap:10px;background:var(--card);padding:12px;border-radius:var(--r-md);margin-bottom:8px;box-shadow:var(--shadow-card);}
+.check{width:20px;height:20px;border-radius:50%;border:2px solid var(--line);flex-shrink:0;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;}
+.check.on{background:var(--success);border-color:var(--success);}
+.check svg{width:12px;height:12px;color:#fff;opacity:0;}
+.check.on svg{opacity:1;}
+.cart-row img{width:76px;height:76px;border-radius:var(--r-md);object-fit:cover;background:var(--bg);flex-shrink:0;}
+.cart-row .nm{font-size:13px;color:var(--ink);line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.cart-row .spec{font-size:10px;color:var(--ink-3);background:var(--bg);border-radius:4px;padding:2px 6px;margin-top:4px;display:inline-block;}
+.cart-row .bd .row{margin-top:6px;}
+.stepper{display:flex;align-items:center;gap:2px;}
+.stepper .s-btn{width:22px;height:22px;border-radius:50%;border:1px solid var(--line);background:var(--card);color:var(--ink-2);display:flex;align-items:center;justify-content:center;font-size:14px;cursor:pointer;}
+.stepper .num{min-width:30px;text-align:center;font-size:13px;color:var(--ink);font-weight:600;}
+.cart-row .off{font-size:10px;color:var(--ink-3);text-decoration:line-through;margin-left:4px;}
+.cart-row.is-off{opacity:.65;}
+.cart-row.is-off .nm{color:var(--ink-3);}
+.footer-bar{position:absolute;left:0;right:0;bottom:56px;background:var(--card);border-top:1px solid var(--line);padding:10px 14px calc(10px + env(safe-area-inset-bottom));display:flex;align-items:center;gap:12px;z-index:30;box-shadow:0 -2px 10px rgba(8,46,99,.05);}
+.footer-bar .total{margin-left:auto;font-size:13px;color:var(--ink);}
+.footer-bar .total b{color:var(--accent-deep);font-size:18px;}
+.footer-bar .total b::before{content:'¥';font-size:12px;}
+.settle-btn{background:linear-gradient(135deg,#FF8A3D,#F2741D);color:#fff;border:none;border-radius:var(--r-full);padding:11px 26px;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 4px 12px rgba(242,116,29,.35);}
+/* ============ 我的 ============ */
+.member-card{margin:12px;border-radius:var(--r-lg);padding:18px 16px;color:#fff;background:var(--brand-grad);position:relative;overflow:hidden;box-shadow:var(--shadow-float);}
+.member-card::after{content:'';position:absolute;right:-30px;top:-30px;width:140px;height:140px;border-radius:50%;background:rgba(255,255,255,.1);}
+.member-card::before{content:'';position:absolute;right:30px;bottom:-50px;width:100px;height:100px;border-radius:50%;background:rgba(255,255,255,.08);}
+.member-card .top{display:flex;align-items:center;gap:12px;position:relative;z-index:1;}
+.member-card .avatar{width:52px;height:52px;border-radius:50%;background:rgba(255,255,255,.25);border:2px solid rgba(255,255,255,.6);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:800;color:#fff;}
+.member-card .who{font-size:16px;font-weight:700;}
+.member-card .lvl{font-size:11px;opacity:.85;margin-top:3px;}
+.member-card .trio{display:flex;margin-top:16px;background:rgba(255,255,255,.14);border-radius:var(--r-md);padding:10px 0;position:relative;z-index:1;}
+.member-card .trio .cell{flex:1;text-align:center;}
+.member-card .trio .v{font-size:16px;font-weight:800;}
+.member-card .trio .k{font-size:10px;opacity:.85;margin-top:2px;}
+.ship-card{margin:0 12px 12px;border-radius:var(--r-md);padding:14px;background:linear-gradient(135deg,#082E63,#0B63E5);color:#fff;display:flex;align-items:center;gap:10px;cursor:pointer;}
+.ship-card .nm{font-size:14px;font-weight:700;}
+.ship-card .sub{font-size:11px;opacity:.85;margin-top:3px;}
+.order-grid{margin:0 12px;}
+.order-5{display:flex;padding:14px 0;}
+.order-5 .cell{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:11px;color:var(--ink);cursor:pointer;position:relative;}
+.order-5 .cell svg{width:24px;height:24px;color:var(--ink-2);}
+.order-5 .cell .bdg{position:absolute;top:-4px;right:calc(50% - 16px);min-width:14px;height:14px;border-radius:7px;background:var(--danger);color:#fff;font-size:9px;display:flex;align-items:center;justify-content:center;padding:0 3px;}
+.svc-group{margin:12px;}
+.svc-group .hd{font-size:12px;color:var(--ink-3);padding:6px 2px 8px;}
+.svc-row{display:flex;flex-wrap:wrap;background:var(--card);border-radius:var(--r-md);box-shadow:var(--shadow-card);}
+.svc-row .cell{width:25%;display:flex;flex-direction:column;align-items:center;gap:7px;padding:14px 0;font-size:11px;color:var(--ink);cursor:pointer;}
+.svc-row .cell svg{width:22px;height:22px;color:var(--ink-2);}
+/* ============ 搜索页 ============ */
+.search-nav{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--card);position:sticky;top:0;z-index:20;}
+.search-nav .back{width:30px;height:30px;display:flex;align-items:center;justify-content:center;color:var(--ink-2);cursor:pointer;}
+.search-input{flex:1;display:flex;align-items:center;gap:6px;background:var(--bg);border-radius:var(--r-full);padding:9px 14px;font-size:13px;color:var(--ink);}
+.search-input svg{width:15px;height:15px;color:var(--ink-3);flex-shrink:0;}
+.search-input input{border:none;outline:none;background:transparent;flex:1;font-size:13px;color:var(--ink);font-family:inherit;}
+.search-nav .go{color:var(--brand);font-size:14px;font-weight:600;cursor:pointer;}
+.hot-tags{padding:16px 14px 0;}
+.hot-tags .hd{font-size:13px;font-weight:700;color:var(--ink);display:flex;align-items:center;gap:6px;margin-bottom:10px;}
+.hot-tags .hd svg{width:16px;height:16px;color:var(--accent);}
+.tags{display:flex;flex-wrap:wrap;gap:8px;}
+.tags .t{padding:6px 14px;border-radius:var(--r-full);background:var(--card);font-size:12px;color:var(--ink-2);cursor:pointer;}
+.tags .t.hot{background:var(--accent-soft);color:var(--accent-deep);font-weight:600;}
+.history{padding:18px 14px 0;}
+.history .hd{font-size:13px;font-weight:700;color:var(--ink);display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+.history .hd svg{width:16px;height:16px;color:var(--ink-3);cursor:pointer;}
+.history .items{display:flex;flex-wrap:wrap;gap:8px;}
+.history .items .t{padding:6px 14px;border-radius:var(--r-full);background:var(--card);font-size:12px;color:var(--ink-2);cursor:pointer;display:flex;align-items:center;gap:4px;}
+.history .items .t svg{width:12px;height:12px;color:var(--ink-3);}
+.like-list{padding:18px 14px 16px;}
+.like-list .hd{font-size:13px;font-weight:700;color:var(--ink);margin-bottom:10px;}
+.like-list .row{padding:12px 0;border-bottom:1px solid var(--line);cursor:pointer;}
+.like-list .row:last-child{border-bottom:none;}
+.like-list .word{font-size:14px;color:var(--ink);font-weight:600;}
+.like-list .desc{font-size:11px;color:var(--ink-3);margin-top:3px;}
+.like-list .go{margin-left:auto;color:var(--ink-3);}
+/* ============ B 版 · 船供清单驱动 ============ */
+.replenish{margin:10px 12px;background:linear-gradient(135deg,#082E63,#0B63E5);border-radius:var(--r-lg);padding:14px;color:#fff;box-shadow:var(--shadow-float);position:relative;overflow:hidden;}
+.replenish::after{content:'';position:absolute;right:-26px;bottom:-46px;width:130px;height:130px;border-radius:50%;background:rgba(255,255,255,.08);}
+.rp-top{display:flex;align-items:flex-start;justify-content:space-between;position:relative;z-index:1;}
+.rp-name{font-size:16px;font-weight:800;display:flex;align-items:center;gap:6px;}
+.tag-white{background:rgba(255,255,255,.22);color:#fff;}
+.rp-sub{font-size:11px;opacity:.85;margin-top:4px;}
+.rp-btn{background:#fff;color:var(--brand-deep);border:none;border-radius:var(--r-full);padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;flex-shrink:0;box-shadow:0 2px 8px rgba(0,0,0,.15);}
+.rp-track{height:6px;border-radius:3px;background:rgba(255,255,255,.22);margin-top:12px;overflow:hidden;position:relative;z-index:1;}
+.rp-track i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,#FFB25C,#F2741D);}
+.rp-items{display:flex;align-items:center;justify-content:space-between;font-size:11px;opacity:.92;margin-top:10px;cursor:pointer;position:relative;z-index:1;}
+.rp-items svg{flex-shrink:0;}
+.w-card .meta{font-size:10px;color:var(--ink-3);margin-top:4px;line-height:1.4;display:flex;gap:4px;flex-wrap:wrap;}
+.w-card .meta .u{background:var(--bg);border-radius:4px;padding:1px 5px;}
+.check-sm{width:18px;height:18px;border-radius:6px;border:1.5px solid #D5DCE4;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;background:var(--card);transition:all .15s;}
+.check-sm.on{background:var(--brand);border-color:var(--brand);}
+.check-sm svg{width:11px;height:11px;color:#fff;opacity:0;}
+.check-sm.on svg{opacity:1;}
+.rp-bar{position:absolute;left:0;right:0;bottom:56px;background:var(--card);border-top:1px solid var(--line);padding:10px 14px calc(10px + env(safe-area-inset-bottom));display:flex;align-items:center;gap:10px;z-index:30;box-shadow:0 -2px 10px rgba(8,46,99,.05);}
+.rp-pick{font-size:13px;color:var(--ink);}
+.rp-pick b{color:var(--brand);font-size:16px;}
+.rp-bar-btn{background:var(--brand-grad);color:#fff;border:none;border-radius:var(--r-full);padding:11px 18px;font-size:13px;font-weight:700;cursor:pointer;}
+.rp-miss .tag-sale{position:absolute;top:6px;left:6px;z-index:1;}
+.rp-miss{position:relative;}
+</style>
+</head>
+<body>
+<div class="phone" id="phone">
+  <div class="statusbar">
+    <span>9:41</span>
+    <svg width="64" height="11" viewBox="0 0 64 11" fill="none"><rect x="0" y="1" width="34" height="9" rx="2.5" stroke="#14202E" stroke-opacity=".35"/><rect x="2" y="3" width="30" height="5" rx="1.5" fill="#14202E" fill-opacity=".35"/><rect x="38" y="2" width="10" height="7" rx="1.5" fill="#14202E" fill-opacity=".35"/><rect x="50" y="0" width="14" height="11" rx="2" fill="#14202E" fill-opacity=".35"/></svg>
+  </div>
+
+  <div class="screen" id="screen">
+
+    <!-- ===================== 视图：首页（B 版 · 船供清单驱动） ===================== -->
+    <section class="view active" id="view-home">
+      <!-- 船舶状态条：位置与靠港信息前置（不含履约时效承诺） -->
+      <div class="delivery-bar" onclick="go('user')">
+        <span class="pin">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+        </span>
+        <div class="flex1">
+          <div class="addr">翠屏港 3 号泊位 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></div>
+          <div class="sub">当前船舶「悦航 8 号」· 支持靠港配送</div>
+        </div>
+      </div>
+
+      <!-- 搜索栏 + 消息 -->
+      <div class="search-bar">
+        <div class="search-box" onclick="go('search')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+          <span>搜索</span><span class="hot">SKU 编码 · 品名 · 船上补给</span>
+        </div>
+        <div class="bell" onclick="toast('消息中心（演示）')">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+          <span class="dot"></span>
+        </div>
+      </div>
+
+      <!-- 今日补给单：清单驱动核心入口 -->
+      <div class="replenish" onclick="toast('补给单详情（演示）')">
+        <div class="rp-top">
+          <div class="flex1">
+            <div class="rp-name">今日补给单 <span class="tag tag-white">翠屏港 3 号泊位</span></div>
+            <div class="rp-sub">12 项待采 · 已采 8 项 · 合计 ¥1,286</div>
+          </div>
+          <button class="rp-btn" onclick="event.stopPropagation();toast('按补给单一键加购（演示）')">按单加购</button>
+        </div>
+        <div class="rp-track"><i style="width:65%"></i></div>
+        <div class="rp-items">
+          <span>清单还差：番茄 2kg · 矿泉水 5 箱 · 抽纸 10 包 …</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>
+        </div>
+      </div>
+
+      <!-- 金刚区 8 宫格（船供优先） -->
+      <div class="kc">
+        <div class="kc-grid">
+          <div class="kc-item" onclick="toast('我的补给单（演示）')"><span class="ico ico-list"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M3 6l1 1 2-2M3 12l1 1 2-2M3 18l1 1 2-2"/></svg></span>我的补给单</div>
+          <div class="kc-item" onclick="toast('船供专区（演示）')"><span class="ico ico-ship"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20h20"/><path d="M4 20V9l7 2V4l4 2v6l5-1.5V20"/></svg></span>船供专区</div>
+          <div class="kc-item" onclick="toast('常购清单（演示）')"><span class="ico ico-sign"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M3 6l1 1 2-2M3 12l1 1 2-2M3 18l1 1 2-2"/></svg></span>常购清单</div>
+          <div class="kc-item" onclick="toast('限时折扣（演示）')"><span class="ico ico-disc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.5"/><circle cx="16" cy="16" r="2.5"/><path d="M9.5 14.5l5-5"/></svg></span>限时折扣</div>
+          <div class="kc-item" onclick="toast('领券中心（演示）')"><span class="ico ico-coupon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a2 2 0 0 0 2-2h16a2 2 0 0 0 2 2v2a2 2 0 0 1 0 4v2a2 2 0 0 0-2 2H4a2 2 0 0 0-2-2v-2a2 2 0 0 1 0-4V9z"/><path d="M13 9v2m0 2v2m0 2v2"/></svg></span>领券中心</div>
+          <div class="kc-item" onclick="toast('每日签到（演示）')"><span class="ico ico-sale"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="3"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M9 15l2 2 4-4"/></svg></span>每日签到</div>
+          <div class="kc-item" onclick="toast('多人拼团（演示）')"><span class="ico ico-group"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17.5" cy="9" r="2.5"/><path d="M16 15.5a5.5 5.5 0 0 1 5.5 4.5"/></svg></span>多人拼团</div>
+          <div class="kc-item" onclick="toast('联系客服（演示）')"><span class="ico ico-svc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H5l-2 2V12.5A8.5 8.5 0 1 1 21 11.5z"/><path d="M8.5 11.5h.01M12.5 11.5h.01M16.5 11.5h.01"/></svg></span>联系客服</div>
+        </div>
+      </div>
+
+      <!-- 清单还差：一键补齐 -->
+      <div class="sec-title">
+        <div class="t"><span class="bar"></span>清单还差 · 一键补齐</div>
+        <div class="more" onclick="toast('编辑补给单（演示）')">编辑 ›</div>
+      </div>
+      <div class="flash-scroll">
+        <div class="flash-card rp-miss" onclick="toast('补给项：番茄 2kg（演示）')">
+          <span class="tag tag-sale">缺</span>
+          <img class="img" src="assets/veggies.jpg" alt="番茄">
+          <div class="bd">
+            <div class="nm">番茄 2kg 补水单缺量</div>
+            <div class="btm"><span class="price">9.9</span><button class="addbtn" onclick="event.stopPropagation();addCart(this,'番茄 2kg')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button></div>
+          </div>
+        </div>
+        <div class="flash-card rp-miss" onclick="toast('补给项：矿泉水 5 箱（演示）')">
+          <span class="tag tag-sale">缺</span>
+          <img class="img" src="assets/milk.jpg" alt="矿泉水">
+          <div class="bd">
+            <div class="nm">矿泉水 5 箱 550ml×24</div>
+            <div class="btm"><span class="price">69.0</span><button class="addbtn" onclick="event.stopPropagation();addCart(this,'矿泉水 5 箱')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button></div>
+          </div>
+        </div>
+        <div class="flash-card rp-miss" onclick="toast('补给项：抽纸 10 包（演示）')">
+          <span class="tag tag-sale">缺</span>
+          <img class="img" src="assets/tissue.jpg" alt="抽纸">
+          <div class="bd">
+            <div class="nm">抽纸 10 包 整箱装</div>
+            <div class="btm"><span class="price">39.9</span><button class="addbtn" onclick="event.stopPropagation();addCart(this,'抽纸 10 包')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 限时秒杀 -->
+      <div class="sec-title">
+        <div class="t"><span class="bar"></span>限时秒杀 <span class="tag tag-sale" style="margin-left:4px" id="flashTimer">01:28:36</span></div>
+        <div class="more" onclick="toast('查看全部秒杀（演示）')">更多 ›</div>
+      </div>
+      <div class="flash-scroll">
+        <div class="flash-card" onclick="toast('秒杀详情（演示）')">
+          <img class="img" src="assets/shrimp.jpg" alt="鲜虾">
+          <div class="bd">
+            <div class="nm">鲜活基围虾 500g 冷链到家</div>
+            <div class="btm"><span class="price">29.9<span class="origin">39.9</span></span><button class="addbtn" onclick="event.stopPropagation();addCart(this,'鲜虾')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button></div>
+            <div class="progress"><i style="width:62%"></i><span class="tick">已抢 62%</span></div>
+          </div>
+        </div>
+        <div class="flash-card" onclick="toast('秒杀详情（演示）')">
+          <img class="img" src="assets/apple.jpg" alt="苹果">
+          <div class="bd">
+            <div class="nm">红富士苹果 2.5kg 脆甜多汁</div>
+            <div class="btm"><span class="price">16.9<span class="origin">25.9</span></span><button class="addbtn" onclick="event.stopPropagation();addCart(this,'苹果')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button></div>
+            <div class="progress"><i style="width:48%"></i><span class="tick">已抢 48%</span></div>
+          </div>
+        </div>
+        <div class="flash-card" onclick="toast('秒杀详情（演示）')">
+          <img class="img" src="assets/milk.jpg" alt="牛奶">
+          <div class="bd">
+            <div class="nm">鲜牛奶 950ml 当日生产</div>
+            <div class="btm"><span class="price">12.9<span class="origin">16.9</span></span><button class="addbtn" onclick="event.stopPropagation();addCart(this,'牛奶')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button></div>
+            <div class="progress"><i style="width:80%"></i><span class="tick">已抢 80%</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 常购清单 -->
+      <div class="sec-title">
+        <div class="t"><span class="bar"></span>常购清单</div>
+        <div class="more" onclick="toast('查看常购清单（演示）')">管理 ›</div>
+      </div>
+      <div class="freq-scroll">
+        <div class="freq-item" onclick="addCart(this,'红富士苹果')"><img src="assets/apple.jpg" alt="苹果">红富士</div>
+        <div class="freq-item" onclick="addCart(this,'鲜牛奶')"><img src="assets/milk.jpg" alt="牛奶">鲜牛奶</div>
+        <div class="freq-item" onclick="addCart(this,'抽纸')"><img src="assets/tissue.jpg" alt="纸巾">抽纸</div>
+        <div class="freq-item" onclick="addCart(this,'奶油饼干')"><img src="assets/cookie.jpg" alt="饼干">饼干</div>
+        <div class="freq-item" onclick="toast('继续选购（演示）')"><span class="plus">＋<span>继续选购</span></span></div>
+      </div>
+
+      <!-- 今日爆款瀑布流（信息增强 + 批量勾选） -->
+      <div class="sec-title">
+        <div class="t"><span class="bar"></span>今日爆款</div>
+        <div class="more" onclick="toast('查看全部商品（演示）')">更多 ›</div>
+      </div>
+      <div class="waterfall">
+        <div class="w-card" onclick="toast('商品详情（演示）')">
+          <img class="img" src="assets/apple.jpg" alt="红富士苹果">
+          <div class="bd">
+            <div class="nm"><span class="tag tag-sale" style="margin-right:4px">爆款</span>红富士苹果 2.5kg 产地直采</div>
+            <div class="meta"><span class="u">2.5kg/袋</span><span class="u">现货 36</span><span class="u">免配送费</span></div>
+            <div class="btm"><span class="check-sm" onclick="event.stopPropagation();togglePick(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span><span class="price">16.9<span class="origin">25.9</span></span><button class="addbtn" onclick="event.stopPropagation();addCart(this,'红富士苹果')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button></div>
+          </div>
+        </div>
+        <div class="w-card" onclick="toast('商品详情（演示）')">
+          <img class="img" src="assets/veggies.jpg" alt="番茄黄瓜">
+          <div class="bd">
+            <div class="nm"><span class="tag tag-brand" style="margin-right:4px">时令</span>新鲜番茄黄瓜组合 1kg</div>
+            <div class="meta"><span class="u">1kg/份</span><span class="u">现货 120</span></div>
+            <div class="btm"><span class="check-sm" onclick="event.stopPropagation();togglePick(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span><span class="price">9.9</span><button class="addbtn" onclick="event.stopPropagation();addCart(this,'番茄黄瓜')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button></div>
+          </div>
+        </div>
+        <div class="w-card" onclick="toast('商品详情（演示）')">
+          <img class="img" src="assets/milk.jpg" alt="鲜牛奶">
+          <div class="bd">
+            <div class="nm">鲜牛奶 950ml 当日生产冷链</div>
+            <div class="meta"><span class="u">950ml/瓶</span><span class="u">现货 64</span></div>
+            <div class="btm"><span class="check-sm" onclick="event.stopPropagation();togglePick(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span><span class="price">12.9<span class="origin">16.9</span></span><button class="addbtn" onclick="event.stopPropagation();addCart(this,'鲜牛奶')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button></div>
+          </div>
+        </div>
+        <div class="w-card" onclick="toast('商品详情（演示）')">
+          <img class="img" src="assets/tissue.jpg" alt="抽纸">
+          <div class="bd">
+            <div class="nm"><span class="tag tag-new" style="margin-right:4px">新品</span>抽纸整箱 24 包家庭装</div>
+            <div class="meta"><span class="u">24包/箱</span><span class="u">现货 48</span></div>
+            <div class="btm"><span class="check-sm" onclick="event.stopPropagation();togglePick(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span><span class="price">39.9<span class="origin">49.9</span></span><button class="addbtn" onclick="event.stopPropagation();addCart(this,'抽纸')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button></div>
+          </div>
+        </div>
+        <div class="w-card" onclick="toast('商品详情（演示）')">
+          <img class="img" src="assets/cookie.jpg" alt="饼干">
+          <div class="bd">
+            <div class="nm">奶油夹心饼干 420g 早餐代餐</div>
+            <div class="meta"><span class="u">420g/袋</span><span class="u">现货 90</span></div>
+            <div class="btm"><span class="check-sm" onclick="event.stopPropagation();togglePick(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span><span class="price">13.9</span><button class="addbtn" onclick="event.stopPropagation();addCart(this,'奶油饼干')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button></div>
+          </div>
+        </div>
+        <div class="w-card" onclick="toast('商品详情（演示）')">
+          <img class="img" src="assets/shrimp.jpg" alt="鲜虾">
+          <div class="bd">
+            <div class="nm"><span class="tag tag-brand" style="margin-right:4px">冷链</span>鲜活基围虾 500g 鲜活直达</div>
+            <div class="meta"><span class="u">500g/盒</span><span class="u">现货 25</span></div>
+            <div class="btm"><span class="check-sm" onclick="event.stopPropagation();togglePick(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span><span class="price">29.9<span class="origin">39.9</span></span><button class="addbtn" onclick="event.stopPropagation();addCart(this,'鲜虾')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button></div>
+          </div>
+        </div>
+      </div>
+      <div style="height:120px"></div>
+
+      <!-- 底部补给单操作条 -->
+      <div class="rp-bar">
+        <span class="check-sm" onclick="togglePickAll(this)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span>
+        <span class="rp-pick">已选 <b id="pickCount">0</b>/12 项</span>
+        <button class="rp-bar-btn" onclick="toast('批量加入补给单（演示）')">批量加购</button>
+        <button class="settle-btn" style="padding:11px 16px;font-size:13px" onclick="toast('去核对清单：采购单视图（演示）')">去核对</button>
+      </div>
+    </section>
+
+    <!-- ===================== 视图：分类 ===================== -->
+    <section class="view" id="view-category">
+      <div class="cat-top">
+        <div class="search-box flex1" onclick="go('search')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+          <span>搜索商品</span>
+        </div>
+        <div class="bell" onclick="switchTab('cart')">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="20" r="1.6"/><circle cx="17" cy="20" r="1.6"/><path d="M2.5 3.5h3l2.6 12.5h10.8L22 7H6.2"/></svg>
+          <span class="dot"></span>
+        </div>
+      </div>
+      <div class="cat-main">
+        <div class="cat-first">
+          <div class="it on" onclick="toast('全部品类（演示）')"><span class="dot" style="background:var(--brand)">全</span>全部</div>
+          <div class="it" onclick="toast('蔬菜品类（演示）')"><span class="dot" style="background:#0BA881">蔬</span>蔬菜</div>
+          <div class="it" onclick="toast('水果品类（演示）')"><span class="dot" style="background:#F2741D">果</span>水果</div>
+          <div class="it" onclick="toast('肉禽品类（演示）')"><span class="dot" style="background:#E5484D">肉</span>肉禽</div>
+          <div class="it" onclick="toast('水产品类（演示）')"><span class="dot" style="background:#0B63E5">水</span>水产</div>
+          <div class="it" onclick="toast('酒饮品类（演示）')"><span class="dot" style="background:#5B4ED6">酒</span>酒饮</div>
+          <div class="it" onclick="toast('零食品类（演示）')"><span class="dot" style="background:#D9900B">零</span>零食</div>
+          <div class="it" onclick="toast('日用品类（演示）')"><span class="dot" style="background:#3E6A94">用</span>日用</div>
+          <div class="it" onclick="toast('船供品类（演示）')"><span class="dot" style="background:#082E63">船</span>船供</div>
+        </div>
+        <div class="cat-right">
+          <div class="cat-second">
+            <div class="it on">全部</div>
+            <div class="it" onclick="toast('子分类：叶菜（演示）')">叶菜</div>
+            <div class="it" onclick="toast('子分类：根茎（演示）')">根茎</div>
+            <div class="it" onclick="toast('子分类：菌菇（演示）')">菌菇</div>
+            <div class="it" onclick="toast('子分类：茄果（演示）')">茄果</div>
+          </div>
+          <div class="cat-goods">
+            <div class="g-card" onclick="toast('商品详情（演示）')">
+              <img src="assets/veggies.jpg" alt="番茄黄瓜">
+              <div class="bd">
+                <div class="nm">新鲜番茄黄瓜组合 1kg</div>
+                <div class="btm"><span class="price">9.9</span><button class="addbtn" onclick="event.stopPropagation();addCart(this,'番茄黄瓜')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button></div>
+              </div>
+            </div>
+            <div class="g-card" onclick="toast('商品详情（演示）')">
+              <img src="assets/apple.jpg" alt="苹果">
+              <div class="bd">
+                <div class="nm">红富士苹果 2.5kg</div>
+                <div class="btm"><span class="price">16.9<span class="origin">25.9</span></span><button class="addbtn" onclick="event.stopPropagation();addCart(this,'红富士苹果')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button></div>
+              </div>
+            </div>
+            <div class="g-card" onclick="toast('商品详情（演示）')">
+              <img src="assets/milk.jpg" alt="牛奶">
+              <div class="bd">
+                <div class="nm">鲜牛奶 950ml 当日冷链</div>
+                <div class="btm"><span class="price">12.9</span><button class="addbtn" onclick="event.stopPropagation();addCart(this,'鲜牛奶')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button></div>
+              </div>
+            </div>
+            <div class="g-card" onclick="toast('商品详情（演示）')">
+              <img src="assets/cookie.jpg" alt="饼干">
+              <div class="bd">
+                <div class="nm">奶油夹心饼干 420g</div>
+                <div class="btm"><span class="price">13.9</span><button class="addbtn" onclick="event.stopPropagation();addCart(this,'奶油饼干')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== 视图：购物车 ===================== -->
+    <section class="view" id="view-cart">
+      <div class="navbar">
+        <span class="side"></span>
+        <span class="ttl">购物车</span>
+        <span class="side right" id="cartMgr" onclick="toggleMgr()" style="cursor:pointer">管理</span>
+      </div>
+      <div class="delivery-bar" onclick="toast('切换配送船舶/靠港（演示）')">
+        <span class="pin"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg></span>
+        <div class="flex1">
+          <div class="addr" style="font-size:13px">翠屏港 3 号泊位 · 悦航 8 号</div>
+          <div class="sub">满 ¥99 免配送费</div>
+        </div>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+      </div>
+
+      <!-- 满减凑单进度条 -->
+      <div class="soon-bar">
+        <div class="row">
+          <div>
+            <div class="l1">满 ¥99 减 ¥20，再买 ¥36 立减</div>
+            <div class="l2">已选 ¥63 · 叠加优惠券后更省</div>
+          </div>
+          <span class="soon-btn" onclick="toast('去凑单：跳转爆款列表（演示）')">去凑单</span>
+        </div>
+        <div class="soon-track"><i style="width:63.6%"></i></div>
+      </div>
+
+      <!-- 常购再买 -->
+      <div class="sec-title" style="padding-bottom:6px">
+        <div class="t" style="font-size:14px"><span class="bar"></span>常购再买</div>
+        <div class="more" onclick="toast('常购清单（演示）')">查看 ›</div>
+      </div>
+      <div class="freq-scroll">
+        <div class="freq-item" onclick="addCart(this,'鲜牛奶')"><img src="assets/milk.jpg" alt="牛奶">鲜牛奶</div>
+        <div class="freq-item" onclick="addCart(this,'红富士苹果')"><img src="assets/apple.jpg" alt="苹果">红富士</div>
+        <div class="freq-item" onclick="addCart(this,'抽纸')"><img src="assets/tissue.jpg" alt="纸巾">抽纸</div>
+        <div class="freq-item" onclick="addCart(this,'奶油饼干')"><img src="assets/cookie.jpg" alt="饼干">饼干</div>
+      </div>
+
+      <!-- 商品分组（防串船） -->
+      <div class="cart-group">
+        <div class="glabel"><span class="dot"></span>当前船舶 · 翠屏港 3 号泊位（可结算）</div>
+        <div class="cart-row">
+          <span class="check on" onclick="this.classList.toggle('on')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span>
+          <img src="assets/milk.jpg" alt="鲜牛奶">
+          <div class="bd flex1">
+            <div class="nm">鲜牛奶 950ml 当日生产冷链</div>
+            <span class="spec" onclick="openSku(this,'鲜牛奶')">950ml/瓶 ›</span>
+            <div class="row">
+              <span class="price" style="font-size:14px">12.9</span>
+              <span class="stepper" style="margin-left:auto">
+                <span class="s-btn" onclick="event.stopPropagation();step(this,-1)">−</span>
+                <span class="num">2</span>
+                <span class="s-btn" onclick="event.stopPropagation();step(this,1)">＋</span>
+              </span>
+            </div>
+          </div>
+        </div>
+        <div class="cart-row">
+          <span class="check on" onclick="this.classList.toggle('on')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span>
+          <img src="assets/apple.jpg" alt="苹果">
+          <div class="bd flex1">
+            <div class="nm">红富士苹果 2.5kg 脆甜多汁</div>
+            <span class="spec" onclick="openSku(this,'红富士苹果')">2.5kg/袋 ›</span>
+            <div class="row">
+              <span class="price" style="font-size:14px">16.9</span>
+              <span class="stepper" style="margin-left:auto">
+                <span class="s-btn" onclick="event.stopPropagation();step(this,-1)">−</span>
+                <span class="num">1</span>
+                <span class="s-btn" onclick="event.stopPropagation();step(this,1)">＋</span>
+              </span>
+            </div>
+          </div>
+        </div>
+        <div class="cart-row">
+          <span class="check on" onclick="this.classList.toggle('on')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span>
+          <img src="assets/tissue.jpg" alt="抽纸">
+          <div class="bd flex1">
+            <div class="nm">抽纸整箱 24 包家庭装</div>
+            <span class="spec" onclick="openSku(this,'抽纸')">24包/箱 ›</span>
+            <div class="row">
+              <span class="price" style="font-size:14px">39.9<span class="origin">49.9</span></span>
+              <span class="stepper" style="margin-left:auto">
+                <span class="s-btn" onclick="event.stopPropagation();step(this,-1)">−</span>
+                <span class="num">1</span>
+                <span class="s-btn" onclick="event.stopPropagation();step(this,1)">＋</span>
+              </span>
+            </div>
+          </div>
+        </div>
+        <div class="glabel" style="padding-top:4px"><span class="dot" style="background:var(--ink-3)"></span>其他靠港计划（不可结算 · 需切换船舶）</div>
+        <div class="cart-row is-off">
+          <span class="check" onclick="this.classList.toggle('on')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span>
+          <img src="assets/cookie.jpg" alt="饼干" style="opacity:.6">
+          <div class="bd flex1">
+            <div class="nm">奶油夹心饼干 420g</div>
+            <span class="spec">10 号泊位加购 ›</span>
+            <div class="row">
+              <span class="price" style="font-size:14px;color:var(--ink-3)">13.9</span>
+              <span class="stepper" style="margin-left:auto"><span class="num" style="color:var(--ink-3)">1</span></span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="height:130px"></div>
+
+      <!-- 底部结算条 -->
+      <div class="footer-bar">
+        <span class="check on" onclick="this.classList.toggle('on')" style="width:20px;height:20px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span>
+        <span style="font-size:12px;color:var(--ink-2)">全选</span>
+        <div class="total">合计 <b>63.0</b><div style="font-size:10px;color:var(--ink-3);font-weight:400">已优惠 ¥10</div></div>
+        <button class="settle-btn" onclick="toast('去结算：确认订单（演示）')">去结算(3)</button>
+      </div>
+    </section>
+
+    <!-- ===================== 视图：我的 ===================== -->
+    <section class="view" id="view-user">
+      <div class="navbar">
+        <span class="side"></span>
+        <span class="ttl">我的</span>
+        <span class="side right" onclick="toast('设置（演示）')" style="cursor:pointer">设置</span>
+      </div>
+
+      <!-- 会员卡头部 -->
+      <div class="member-card">
+        <div class="top">
+          <span class="avatar">航</span>
+          <div class="flex1">
+            <div class="who">悦航 8 号 · 王船长</div>
+            <div class="lvl">Lv.3 远航会员 · 再消费 ¥160 升 Lv.4</div>
+          </div>
+          <span style="font-size:11px;background:rgba(255,255,255,.2);padding:4px 10px;border-radius:999px;cursor:pointer" onclick="toast('会员中心（演示）')">查看 ›</span>
+        </div>
+        <div class="trio">
+          <div class="cell"><div class="v">1,260</div><div class="k">积分</div></div>
+          <div class="cell"><div class="v">¥86.5</div><div class="k">余额</div></div>
+          <div class="cell"><div class="v">3 张</div><div class="k">优惠券</div></div>
+        </div>
+      </div>
+
+      <!-- 船舶卡片 -->
+      <div class="ship-card" onclick="toast('船舶管理：靠港计划与成员（演示）')">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20h20"/><path d="M4 20V9l7 2V4l4 2v6l5-1.5V20"/></svg>
+        <div class="flex1">
+          <div class="nm">悦航 8 号 · 已绑定</div>
+          <div class="sub">当前靠港：翠屏港 3 号泊位 · 3 名成员 · 共享购物车可合并结算</div>
+        </div>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>
+      </div>
+
+      <!-- 我的订单 -->
+      <div class="card order-grid">
+        <div class="sec-title" style="padding:14px 14px 4px">
+          <div class="t" style="font-size:15px"><span class="bar"></span>我的订单</div>
+          <div class="more" onclick="toast('全部订单（演示）')">全部 ›</div>
+        </div>
+        <div class="order-5">
+          <div class="cell" onclick="toast('待付款订单（演示）')"><span class="bdg">1</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/></svg>待付款</div>
+          <div class="cell" onclick="toast('待发货订单（演示）')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 9.4V3.5H5v17h11.5v-5.9"/><path d="M16.5 9.4L21 10.5v7.9h-4.5"/><path d="M8 7h6M8 11h4"/></svg>待发货</div>
+          <div class="cell" onclick="toast('待收货订单（演示）')"><span class="bdg">2</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 8l11-5 11 5-11 5L1 8z"/><path d="M6 10.5V16c0 1.5 2.7 3 6 3s6-1.5 6-3v-5.5"/><path d="M23 8v6"/></svg>待收货</div>
+          <div class="cell" onclick="toast('待评价订单（演示）')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5c-1.3 0-2.6-.3-3.7-.8L2 21l1.8-6.8A8.5 8.5 0 1 1 21 11.5z"/><path d="M8 11.5h.01M12 11.5h.01M16 11.5h.01"/></svg>待评价</div>
+          <div class="cell" onclick="toast('退款售后（演示）')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 2.6-6.3"/><path d="M3 4v5h5"/></svg>退款/售后</div>
+        </div>
+      </div>
+
+      <!-- 服务分组 -->
+      <div class="svc-group">
+        <div class="hd">账户服务</div>
+        <div class="svc-row">
+          <div class="cell" onclick="toast('收货地址（演示）')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>收货地址</div>
+          <div class="cell" onclick="toast('我的评价（演示）')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.7 5.6 6.3.9-4.5 4.3 1 6-5.5-2.9-5.5 2.9 1-6L3 9.5l6.3-.9L12 3z"/></svg>我的评价</div>
+          <div class="cell" onclick="toast('浏览记录（演示）')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>浏览记录</div>
+          <div class="cell" onclick="toast('我的收藏（演示）')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>我的收藏</div>
+        </div>
+      </div>
+      <div class="svc-group">
+        <div class="hd">交易与增值</div>
+        <div class="svc-row">
+          <div class="cell" onclick="toast('我的优惠券（演示）')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a2 2 0 0 0 2-2h16a2 2 0 0 0 2 2v2a2 2 0 0 1 0 4v2a2 2 0 0 0-2 2H4a2 2 0 0 0-2-2v-2a2 2 0 0 1 0-4V9z"/><path d="M13 9v2m0 2v2m0 2v2"/></svg>优惠券</div>
+          <div class="cell" onclick="toast('常购清单（演示）')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M3 6l1 1 2-2M3 12l1 1 2-2M3 18l1 1 2-2"/></svg>常购清单</div>
+          <div class="cell" onclick="toast('分销中心（演示）')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/></svg>分销中心</div>
+          <div class="cell" onclick="toast('会员中心（演示）')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15a7 7 0 1 0 0-14 7 7 0 0 0 0 14z"/><path d="M8.5 21l3.5-4 3.5 4"/></svg>会员中心</div>
+        </div>
+      </div>
+      <div style="height:20px"></div>
+    </section>
+
+    <!-- ===================== 视图：搜索 ===================== -->
+    <section class="view" id="view-search">
+      <div class="search-nav">
+        <span class="back" onclick="back()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></span>
+        <div class="search-input">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+          <input id="searchInput" type="text" placeholder="搜索商品 / 船上补给" oninput="onSearchInput(this.value)">
+        </div>
+        <span class="go" onclick="doSearch()">搜索</span>
+      </div>
+
+      <!-- 联想词（输入时显示） -->
+      <div class="like-list" id="likeBox" style="display:none;padding-top:6px">
+        <div class="hd">猜你想搜</div>
+      </div>
+
+      <div id="searchDefault">
+        <div class="hot-tags">
+          <div class="hd"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h7l-1 8 11-12h-7l0-8z"/></svg>热门搜索</div>
+          <div class="tags">
+            <span class="t hot" onclick="fill('船上补给')">船上补给</span>
+            <span class="t" onclick="fill('鲜牛奶')">鲜牛奶</span>
+            <span class="t" onclick="fill('红富士苹果')">红富士苹果</span>
+            <span class="t" onclick="fill('抽纸')">抽纸</span>
+            <span class="t" onclick="fill('早餐饼干')">早餐饼干</span>
+            <span class="t" onclick="fill('海鲜礼盒')">海鲜礼盒</span>
+          </div>
+        </div>
+        <div class="history">
+          <div class="hd">搜索历史 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" onclick="clearHistory()"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg></div>
+          <div class="items">
+            <span class="t" onclick="fill('翠屏港补货')">翠屏港补货</span>
+            <span class="t" onclick="fill('基围虾')">基围虾</span>
+            <span class="t" onclick="fill('矿泉水整箱')">矿泉水整箱</span>
+          </div>
+        </div>
+        <!-- 场景化搜索引导：对标小象语义搜索 -->
+        <div class="hot-tags">
+          <div class="hd">试试这样搜</div>
+          <div class="tags">
+            <span class="t" onclick="fill('早餐')">输入「早餐」→ 早餐组合套装</span>
+            <span class="t" onclick="fill('苹果')">输入「苹果」→ 细分品种与规格</span>
+            <span class="t" onclick="fill('夜宵')">输入「夜宵」→ 加班应急包</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+    <!-- SKU 弹层 -->
+    <div class="mask" id="skuMask" onclick="closeSku()"></div>
+    <div class="sheet" id="skuSheet">
+      <div class="handle"></div>
+      <div class="sku-head">
+        <img id="skuImg" src="assets/milk.jpg" alt="商品">
+        <div class="flex1">
+          <div class="sku-title" id="skuName">鲜牛奶 950ml</div>
+          <div class="row" style="margin-top:8px">
+            <span class="price" style="font-size:18px">12.9</span>
+            <span class="tag tag-soft" style="margin-left:8px">冷链</span>
+          </div>
+          <div style="font-size:11px;color:var(--ink-3);margin-top:6px">库存充足</div>
+        </div>
+      </div>
+      <div class="sku-spec">
+        <div class="label">规格</div>
+        <div class="chips">
+          <span class="chip on">950ml/瓶</span>
+          <span class="chip" onclick="this.classList.add('on');this.previousElementSibling.classList.remove('on')">2L/桶</span>
+          <span class="chip" onclick="this.classList.add('on');this.previousElementSibling.classList.remove('on')">家庭装 4 瓶</span>
+        </div>
+      </div>
+      <div class="sku-cta">
+        <span style="font-size:12px;color:var(--ink-3)">已选：950ml/瓶 × 1</span>
+        <button class="btn-primary" onclick="addCartFromSku()">加入购物车</button>
+      </div>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
+
+  <!-- 底部 TabBar -->
+  <nav class="tabbar" id="tabbar">
+    <div class="tab active" data-tab="home" onclick="switchTab('home')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>首页
+    </div>
+    <div class="tab" data-tab="category" onclick="switchTab('category')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/></svg>分类
+    </div>
+    <div class="tab" data-tab="cart" onclick="switchTab('cart')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="20" r="1.6"/><circle cx="17" cy="20" r="1.6"/><path d="M2.5 3.5h3l2.6 12.5h10.8L22 7H6.2"/></svg>购物车
+      <span class="badge" id="cartBadge" style="display:none">0</span>
+    </div>
+    <div class="tab" data-tab="user" onclick="switchTab('user')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/></svg>我的
+    </div>
+  </nav>
+</div>
+<style>
+/* 分类页内部滚动区：全屏高度减去状态栏与 TabBar */
+#view-category{display:flex;flex-direction:column;height:calc(100vh - 132px);overflow:hidden;}
+@media (max-width:420px){ body{padding:0;} .phone{height:100vh;border-radius:0;} #view-category{height:calc(100vh - 84px);} }
+</style>
+<script>
+/* ============ 视图路由（首页 / 分类 / 购物车 / 我的 + 搜索） ============ */
+var prevTab = 'home';
+var TAB_VIEWS = ['home','category','cart','user'];
+
+function switchTab(name){
+  TAB_VIEWS.forEach(function(v){ document.getElementById('view-'+v).classList.toggle('active', v===name); });
+  document.querySelectorAll('#tabbar .tab').forEach(function(t){ t.classList.toggle('active', t.dataset.tab===name); });
+  prevTab = name;
+  document.getElementById('tabbar').style.display = 'flex';
+  document.getElementById('screen').scrollTop = 0;
+}
+function go(name){
+  document.getElementById('view-'+name).classList.add('active');
+  document.getElementById('tabbar').style.display = 'none';
+  document.getElementById('screen').scrollTop = 0;
+}
+function back(){
+  switchTab(prevTab);
+}
+/* ============ Toast ============ */
+var toastTimer = null;
+function toast(msg){
+  var el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function(){ el.classList.remove('show'); }, 1800);
+}
+/* ============ 加购 ============ */
+var cartCount = 0;
+function addCart(btn, name){
+  cartCount += 1;
+  var badge = document.getElementById('cartBadge');
+  badge.textContent = cartCount;
+  badge.style.display = 'flex';
+  if(btn){ btn.style.transform = 'scale(1.35)'; setTimeout(function(){ btn.style.transform = ''; }, 180); }
+  toast('已加入购物车：' + name);
+}
+function addCartFromSku(){
+  var nm = document.getElementById('skuName').textContent;
+  closeSku();
+  addCart(null, nm);
+}
+/* ============ 数量步进 ============ */
+function step(btn, d){
+  var numEl = btn.parentElement.querySelector('.num');
+  var v = parseInt(numEl.textContent, 10) + d;
+  if(v < 1) v = 1;
+  numEl.textContent = v;
+}
+/* ============ 补给单批量勾选（B 版） ============ */
+function togglePick(el){
+  el.classList.toggle('on');
+  var n = document.querySelectorAll('#view-home .w-card .check-sm.on').length;
+  document.getElementById('pickCount').textContent = n;
+}
+function togglePickAll(el){
+  var all = document.querySelectorAll('#view-home .w-card .check-sm');
+  var on = el.classList.toggle('on');
+  all.forEach(function(c){ c.classList.toggle('on', on); });
+  document.getElementById('pickCount').textContent = on ? all.length : 0;
+}
+/* ============ 购物车管理 ============ */
+function toggleMgr(){
+  var el = document.getElementById('cartMgr');
+  el.textContent = el.textContent === '管理' ? '完成' : '管理';
+  toast(el.textContent === '完成' ? '管理模式：可删除/移入收藏（演示）' : '已退出管理模式');
+}
+/* ============ SKU 弹层 ============ */
+function openSku(el, name){
+  document.getElementById('skuName').textContent = name;
+  var imgs = { '鲜牛奶':'assets/milk.jpg','红富士苹果':'assets/apple.jpg','抽纸':'assets/tissue.jpg' };
+  document.getElementById('skuImg').src = imgs[name] || 'assets/apple.jpg';
+  document.getElementById('skuMask').classList.add('show');
+  document.getElementById('skuSheet').classList.add('show');
+}
+function closeSku(){
+  document.getElementById('skuMask').classList.remove('show');
+  document.getElementById('skuSheet').classList.remove('show');
+}
+/* ============ 搜索联想（对标小象语义搜索） ============ */
+var SUGGEST = ['红富士苹果','苹果醋','苹果汁','鲜牛奶 950ml','早餐饼干','船上补给包','矿泉水整箱','基围虾'];
+function onSearchInput(v){
+  var box = document.getElementById('likeBox');
+  var def = document.getElementById('searchDefault');
+  var kw = v.trim();
+  if(!kw){ box.style.display = 'none'; def.style.display = 'block'; return; }
+  var hit = SUGGEST.filter(function(s){ return s.indexOf(kw) > -1 || kw.indexOf('苹') > -1 && s.indexOf('苹果') > -1; });
+  if(hit.length === 0){ hit = [kw + '相关商品', '在「' + kw + '」下的细分规格']; }
+  box.innerHTML = '<div class="hd">猜你想搜</div>';
+  hit.forEach(function(s){
+    var row = document.createElement('div');
+    row.className = 'row';
+    row.onclick = function(){ fill(s); };
+    row.innerHTML = '<div class="flex1"><div class="word">' + s + '</div></div><span class="go">›</span>';
+    box.appendChild(row);
+  });
+  box.style.display = 'block';
+  def.style.display = 'none';
+}
+function fill(t){
+  var input = document.getElementById('searchInput');
+  input.value = t;
+  onSearchInput(t);
+  doSearch();
+}
+function doSearch(){
+  var input = document.getElementById('searchInput');
+  toast('搜索：「' + (input.value || '全部商品') + '」（演示）');
+}
+function clearHistory(){ toast('搜索历史已清空（演示）'); }
+/* ============ 秒杀倒计时 ============ */
+(function(){
+  var total = 1*3600 + 28*60 + 36;
+  setInterval(function(){
+    total = total > 0 ? total - 1 : 0;
+    var h = Math.floor(total/3600), m = Math.floor(total%3600/60), s = total%60;
+    function p(n){ return n < 10 ? '0'+n : ''+n; }
+    var el = document.getElementById('flashTimer');
+    if(el) el.textContent = p(h) + ':' + p(m) + ':' + p(s);
+  }, 1000);
+})();
+</script>
+</body>
+</html>

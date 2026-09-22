@@ -50,5 +50,8 @@ function handleLeftClick() {
         @click="handleLeftClick"
       />
     </template>
+    <template #right>
+      <slot name="right" />
+    </template>
   </wd-navbar>
 </template>

@@ -43,6 +43,7 @@ class AppTenantControllerTest {
 		tenant.setAddress("Shanghai");
 		tenant.setSiteUrl("https://shop.example.com");
 		tenant.setPhone("10086");
+		tenant.setBusinessMode("2");
 		tenant.setEmail("private@example.com");
 		tenant.setPackageId("private-package");
 		tenant.setAuthEndTime(LocalDateTime.now());
@@ -51,11 +52,12 @@ class AppTenantControllerTest {
 
 		Result<SysTenantShopVO> result = new AppTenantController(tenantService).getShopInfo();
 
-		assertEquals(Set.of("address", "id", "logoUrl", "name", "phone", "siteUrl"),
+		assertEquals(Set.of("address", "businessMode", "id", "logoUrl", "name", "phone", "siteUrl"),
 				Arrays.stream(SysTenantShopVO.class.getDeclaredFields()).map(Field::getName).collect(Collectors.toSet()));
 		assertEquals("tenant-a", result.getData().getId());
 		assertEquals("A shop", result.getData().getName());
 		assertEquals("10086", result.getData().getPhone());
+		assertEquals("2", result.getData().getBusinessMode());
 		verify(tenantService).getById("tenant-a");
 	}
 

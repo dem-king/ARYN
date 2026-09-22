@@ -90,16 +90,20 @@ public class OrderJobHandler {
 						return;
 					}
 					LocalDateTime cutoff = LocalDateTime.now().minusDays(orderConfig.getOrderAutoConfirmDays());
-					// 非商城配送：按 deliver_time 起算
+					// 第三方快递等非任务驱动配送：按 order_info.deliver_time 起算
 					List<OrderInfo> normalList = orderInfoService.list(Wrappers.<OrderInfo>lambdaQuery()
 						.eq(OrderInfo::getStatus, OrderStatusEnum.WAITING_FOR_RECEIPT.getCode())
-						.ne(OrderInfo::getDeliveryWay, com.aryn.cloud.order.api.constant.MallOrderConstants.DELIVERY_WAY_3)
+						.notIn(OrderInfo::getDeliveryWay, List.of(
+								com.aryn.cloud.order.api.constant.MallOrderConstants.DELIVERY_WAY_3,
+								com.aryn.cloud.order.api.constant.MallOrderConstants.DELIVERY_WAY_4))
 						.lt(OrderInfo::getDeliverTime, cutoff));
 					normalList.forEach(orderInfoService::receiveOrder);
-					// 商城配送：按 delivery_task.arrive_time 起算
+					// 商城配送与公司内部配送：按 delivery_task.arrive_time（送达时间）起算
 					List<OrderInfo> deliveryList = orderInfoService.list(Wrappers.<OrderInfo>lambdaQuery()
 						.eq(OrderInfo::getStatus, OrderStatusEnum.WAITING_FOR_RECEIPT.getCode())
-						.eq(OrderInfo::getDeliveryWay, com.aryn.cloud.order.api.constant.MallOrderConstants.DELIVERY_WAY_3));
+						.in(OrderInfo::getDeliveryWay, List.of(
+								com.aryn.cloud.order.api.constant.MallOrderConstants.DELIVERY_WAY_3,
+								com.aryn.cloud.order.api.constant.MallOrderConstants.DELIVERY_WAY_4)));
 					for (OrderInfo order : deliveryList) {
 						com.aryn.cloud.order.api.entity.DeliveryTask task = deliveryTaskService.getOne(
 								Wrappers.<com.aryn.cloud.order.api.entity.DeliveryTask>lambdaQuery()

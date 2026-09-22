@@ -215,7 +215,7 @@ SELECT CONCAT('96500000000000000', LPAD(`seq`, 2, '0')),
        CONCAT('96400000000000000', LPAD(`seq`, 2, '0')),
        `price`, ROUND(`price` * 1.15, 2), ROUND(`price` * 0.70, 2),
        `stock`, NOW(), NOW(), '0', 0,
-       '1590229800633634816', 'seed', '1',
+       '1590229800633634816', 'seed', '0',
        '[]'
 FROM `tmp_ship_seed`;
 

@@ -25,8 +25,8 @@ class AppGoodsSpuControllerTest {
 		TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), GoodsSpu.class);
 		IGoodsSpuService goodsSpuService = mock(IGoodsSpuService.class);
 		when(goodsSpuService.list(any(Wrapper.class))).thenReturn(List.of());
-		// 被测方法不触达船供服务，传 null 避免 Mockito 内联 mock 其依赖层次失败
-		AppGoodsSpuController controller = new AppGoodsSpuController(goodsSpuService, null);
+		// 被测方法不触达船供/快捷加购服务，传 null 避免 Mockito 内联 mock 其依赖层次失败
+		AppGoodsSpuController controller = new AppGoodsSpuController(goodsSpuService, null, null);
 
 		controller.getById(List.of("goods-1", "goods-2"));
 

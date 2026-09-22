@@ -222,19 +222,6 @@
             "navigationBarTitleText": "支付结果"
           }
         },
-        // #ifdef MP-WEIXIN
-        {
-          "path": "order/shared-cart/list",
-          "type": "page",
-          "name": "shared-cart-list",
-          "style": {
-            "enablePullDownRefresh": true,
-            "navigationStyle": "custom",
-            "navigationBarTitleText": "共享购物车"
-          }
-        },
-        // #endif
-        // #ifdef H5
         {
           "path": "order/shared-cart/list",
           "type": "page",
@@ -244,7 +231,6 @@
             "navigationBarTitleText": "共享购物车"
           }
         },
-        // #endif
         {
           "path": "order/shared-cart/detail",
           "type": "page",

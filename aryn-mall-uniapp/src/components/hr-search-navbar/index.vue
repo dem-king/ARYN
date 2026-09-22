@@ -80,6 +80,14 @@ onMounted(() => {
   // #endif
 })
 
+/**
+ * 导航栏占位高度（状态栏 + 导航栏）。
+ *
+ * 对外暴露，供「需要从导航栏下沿开始渲染」的浮层使用（如分类页的全部分类面板）：
+ * 让浮层直接读取这个值，避免各页面再按平台手算导航栏高度而漂移。
+ */
+const placeholderHeight = computed(() => statusBarHeight.value + navBarHeight.value)
+
 function updateValue(val: string) {
   searchValue.value = val
   emit('update:modelValue', val)
@@ -133,6 +141,8 @@ const titleColor = computed(() => {
     return '#ffffff'
   return props.fontColor || '#000000'
 })
+
+defineExpose({ placeholderHeight })
 </script>
 
 <template>
@@ -199,7 +209,7 @@ const titleColor = computed(() => {
     </view>
     <view v-if="bordered" class="h-1px bg-[#eaeaea]" />
   </view>
-  <view v-if="navPlaceholder" :style="{ height: `${statusBarHeight + navBarHeight}px` }" />
+  <view v-if="navPlaceholder" :style="{ height: `${placeholderHeight}px` }" />
 </template>
 
 <style lang="scss" scoped>

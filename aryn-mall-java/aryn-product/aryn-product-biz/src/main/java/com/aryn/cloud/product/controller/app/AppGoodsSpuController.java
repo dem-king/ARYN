@@ -3,7 +3,9 @@ package com.aryn.cloud.product.controller.app;
 
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
+import com.aryn.cloud.product.api.vo.QuickCartInfoVO;
 import com.aryn.cloud.product.api.vo.ShipProductSummaryVO;
+import com.aryn.cloud.product.service.IQuickCartService;
 import com.aryn.cloud.product.service.IShipProductProfileService;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -38,6 +40,8 @@ public class AppGoodsSpuController {
 	private final IGoodsSpuService goodsSpuService;
 
 	private final IShipProductProfileService shipProductProfileService;
+
+	private final IQuickCartService quickCartService;
 
 	@Operation(summary = "商品列表")
 	@GetMapping("/page")
@@ -86,6 +90,12 @@ public class AppGoodsSpuController {
 	@GetMapping("/{id}")
 	public Result getById(@PathVariable String id) {
 		return Result.success(goodsSpuService.getApiSpuById(id));
+	}
+
+	@Operation(summary = "快捷加购信息（列表页加购按钮按需查询 SKU/库存/MOQ）")
+	@GetMapping("/quick-cart/{id}")
+	public Result<QuickCartInfoVO> quickCart(@PathVariable String id) {
+		return Result.success(quickCartService.getQuickCartInfo(id));
 	}
 
 	@Operation(summary = "通过ids查询商品")

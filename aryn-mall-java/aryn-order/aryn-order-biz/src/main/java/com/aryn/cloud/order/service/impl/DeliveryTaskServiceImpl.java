@@ -14,6 +14,7 @@ import com.aryn.cloud.order.api.entity.*;
 import com.aryn.cloud.order.api.enums.DeliveryStaffStatusEnum;
 import com.aryn.cloud.order.api.enums.DeliveryTaskStatusEnum;
 import com.aryn.cloud.order.api.enums.DeliveryTripStatusEnum;
+import com.aryn.cloud.order.api.vo.DeliveryProgressNode;
 import com.aryn.cloud.order.api.vo.DeliveryProgressVO;
 import com.aryn.cloud.order.mapper.DeliveryTaskMapper;
 import com.aryn.cloud.order.service.*;
@@ -27,6 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -309,11 +311,17 @@ public class DeliveryTaskServiceImpl extends ServiceImpl<DeliveryTaskMapper, Del
 			return Boolean.TRUE;
 		}
 		LocalDateTime now = LocalDateTime.now();
+		// 正常路径：配送员已上传送达凭证（ARRIVED）后客户签收。
+		// 兼容路径：客户在「待送达」阶段直接确认收货，视为商品已交付，同样签收任务。
+		String expectedStatus = DeliveryTaskStatusEnum.ARRIVED.getCode().equals(task.getStatus())
+				? DeliveryTaskStatusEnum.ARRIVED.getCode()
+				: DeliveryTaskStatusEnum.WAITING_ARRIVE.getCode();
 		int updated = baseMapper.update(null, Wrappers.<DeliveryTask>lambdaUpdate()
 			.eq(DeliveryTask::getId, task.getId())
-			.eq(DeliveryTask::getStatus, DeliveryTaskStatusEnum.ARRIVED.getCode())
+			.eq(DeliveryTask::getStatus, expectedStatus)
 			.set(DeliveryTask::getStatus, DeliveryTaskStatusEnum.SIGNED.getCode())
-			.set(DeliveryTask::getSignTime, now));
+			.set(DeliveryTask::getSignTime, now)
+			.set(DeliveryTask::getArriveTime, task.getArriveTime() == null ? now : task.getArriveTime()));
 		if (updated == 0) {
 			log.warn("订单[{}]签收联动失败，任务状态不匹配", orderId);
 			return Boolean.FALSE;
@@ -331,7 +339,7 @@ public class DeliveryTaskServiceImpl extends ServiceImpl<DeliveryTaskMapper, Del
 					.set(DeliveryTrip::getCompleteTime, now));
 			}
 		}
-		saveLog(task.getId(), "SIGN", DeliveryTaskStatusEnum.ARRIVED.getCode(),
+		saveLog(task.getId(), "SIGN", expectedStatus,
 				DeliveryTaskStatusEnum.SIGNED.getCode(), task.getAttemptNo(),
 				"3", null, "客户确认收货");
 		return Boolean.TRUE;
@@ -365,6 +373,7 @@ public class DeliveryTaskServiceImpl extends ServiceImpl<DeliveryTaskMapper, Del
 			return null;
 		}
 		DeliveryProgressVO vo = new DeliveryProgressVO();
+		vo.setOrderId(task.getOrderId());
 		vo.setTaskId(task.getId());
 		vo.setTaskNo(task.getTaskNo());
 		vo.setStatus(task.getStatus());
@@ -386,9 +395,95 @@ public class DeliveryTaskServiceImpl extends ServiceImpl<DeliveryTaskMapper, Del
 			DeliveryStaff staff = deliveryStaffService.getById(task.getStaffId());
 			if (staff != null) {
 				vo.setStaffName(staff.getStaffName());
+				vo.setStaffPhone(staff.getStaffPhone());
 			}
 		}
+		vo.setNodes(buildProgressNodes(task));
 		return vo;
+	}
+
+	/**
+	 * 构建客户端配送进度时间线。
+	 *
+	 * <p>节点顺序与配送任务状态机一致；异常/退回/取消等非正常路径单独呈现，
+	 * 避免客户端把异常订单显示成「正在配送」。
+	 */
+	private List<DeliveryProgressNode> buildProgressNodes(DeliveryTask task) {
+		String status = task.getStatus();
+		List<DeliveryProgressNode> nodes = new ArrayList<>();
+		nodes.add(progressNode(DeliveryTaskStatusEnum.WAITING_ASSIGN.getCode(), "已下单，等待派单",
+				task.getAssignTime(), status));
+		nodes.add(progressNode(DeliveryTaskStatusEnum.WAITING_PICK.getCode(), "已派单，等待取货",
+				task.getAssignTime(), status));
+		nodes.add(progressNode(DeliveryTaskStatusEnum.PICKING.getCode(), "仓库配货中",
+				task.getPickUpTime(), status));
+		nodes.add(progressNode(DeliveryTaskStatusEnum.WAITING_ARRIVE.getCode(), "已出发，配送中",
+				task.getDepartTime(), status));
+		nodes.add(progressNode(DeliveryTaskStatusEnum.ARRIVED.getCode(), "已送达，等待签收",
+				task.getArriveTime(), status));
+		nodes.add(progressNode(DeliveryTaskStatusEnum.SIGNED.getCode(), "已签收",
+				task.getSignTime(), status));
+
+		if (DeliveryTaskStatusEnum.EXCEPTION.getCode().equals(status)) {
+			nodes.add(exceptionNode("配送异常", task.getExceptionTime(), task.getExceptionDesc()));
+		}
+		else if (DeliveryTaskStatusEnum.RETURN_PENDING.getCode().equals(status)) {
+			nodes.add(exceptionNode("待退回仓库", task.getReturnPendingTime(), task.getExceptionDesc()));
+		}
+		else if (DeliveryTaskStatusEnum.CANCELED.getCode().equals(status)) {
+			nodes.add(exceptionNode("配送已取消", task.getCloseTime(), null));
+		}
+		return nodes;
+	}
+
+	/**
+	 * 生成一个时间线节点：已完成（含当前节点）标记 done，处于当前状态标记 active。
+	 */
+	private DeliveryProgressNode progressNode(String nodeStatus, String name, LocalDateTime time, String currentStatus) {
+		DeliveryProgressNode node = new DeliveryProgressNode();
+		node.setStatus(nodeStatus);
+		node.setName(name);
+		node.setTime(time);
+		int current = statusOrder(currentStatus);
+		int target = statusOrder(nodeStatus);
+		boolean reached = current >= 0 && target >= 0 && target <= current;
+		node.setDone(reached && time != null);
+		node.setActive(nodeStatus.equals(currentStatus));
+		return node;
+	}
+
+	private DeliveryProgressNode exceptionNode(String name, LocalDateTime time, String desc) {
+		DeliveryProgressNode node = new DeliveryProgressNode();
+		node.setName(name);
+		node.setTime(time);
+		node.setDone(time != null);
+		node.setActive(Boolean.TRUE);
+		return node;
+	}
+
+	/**
+	 * 主线状态顺序；异常/退回/取消不参与时间线推进计算。
+	 */
+	private int statusOrder(String status) {
+		if (DeliveryTaskStatusEnum.WAITING_ASSIGN.getCode().equals(status)) {
+			return 0;
+		}
+		if (DeliveryTaskStatusEnum.WAITING_PICK.getCode().equals(status)) {
+			return 1;
+		}
+		if (DeliveryTaskStatusEnum.PICKING.getCode().equals(status)) {
+			return 2;
+		}
+		if (DeliveryTaskStatusEnum.WAITING_ARRIVE.getCode().equals(status)) {
+			return 3;
+		}
+		if (DeliveryTaskStatusEnum.ARRIVED.getCode().equals(status)) {
+			return 4;
+		}
+		if (DeliveryTaskStatusEnum.SIGNED.getCode().equals(status)) {
+			return 5;
+		}
+		return -1;
 	}
 
 	@Override

@@ -39,6 +39,10 @@ import {
   validateMarketingEntry,
 } from '../../page-design/components/marketing-entry/types';
 import {
+  createShipWorkbenchDefaults,
+  validateShipWorkbench,
+} from '../../page-design/components/ship-workbench/types';
+import {
   createShopInfoDefaults,
   validateShopInfo,
 } from '../../page-design/components/shop-info/types';
@@ -67,6 +71,7 @@ export const retailComponentTypes = [
   'countdown',
   'marketing-entry',
   'shop-info',
+  'ship-workbench',
 ] as const;
 
 export type RetailComponentType = (typeof retailComponentTypes)[number];
@@ -331,8 +336,14 @@ export const componentRegistry: Record<
         { link: null, title: '导航三', url: '' },
         { link: null, title: '导航四', url: '' },
       ],
+      // 显示方式：grid 平铺 | scroll 横向滚动 | pager 分页滑动
+      displayMode: 'grid',
       scrollShow: false,
       showNum: 4,
+      pageRows: 3,
+      indicatorDots: true,
+      indicatorColor: 'rgba(0, 0, 0, 0.2)',
+      indicatorActiveColor: '#1989fa',
       type: '1',
     },
     () => import('../../page-design/components/tab-nav/index.vue'),
@@ -419,6 +430,15 @@ export const componentRegistry: Record<
     validateShopInfo,
     () => import('../../page-design/components/shop-info/index.vue'),
     () => import('../../page-design/components/shop-info/setting.vue'),
+  ),
+  'ship-workbench': defineRetailComponent(
+    'ship-workbench',
+    '船舶工作台',
+    '店铺服务',
+    createShipWorkbenchDefaults(),
+    validateShipWorkbench,
+    () => import('../../page-design/components/ship-workbench/index.vue'),
+    () => import('../../page-design/components/ship-workbench/setting.vue'),
   ),
   'goods-waterfall': defineExtensionComponent(
     'goods-waterfall',

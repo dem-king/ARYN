@@ -31,6 +31,12 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class OrderWxDeliveryService {
 
+	/** 微信发货方式：同城配送（公司自有配送员送货上门） */
+	private static final int WX_LOGISTICS_TYPE_LOCAL_DELIVERY = 2;
+
+	/** 微信发货模式：统一发货 */
+	private static final int WX_DELIVERY_MODE_UNIFIED = 1;
+
 	private final IOrderConfigService orderConfigService;
 
 	@DubboReference
@@ -51,6 +57,42 @@ public class OrderWxDeliveryService {
 			return;
 		}
 		WxMaOrderShippingInfoUploadRequest request = buildShippingUploadRequest(orderInfo, orderItemEntityList);
+		remoteSecOrderService.uploadShippingInfo(request, orderInfo.getAppId());
+	}
+
+	/**
+	 * 商城配送/公司内部配送发货信息上传。
+	 *
+	 * <p>这两类配送由公司自有配送员完成，微信 logistics_type 取 2（同城配送）；
+	 * 快递发货仍走 {@link #uploadDeliveryInfoOnDeliver}，自提仍走
+	 * {@link #uploadDeliveryInfoOnReceive}，互不影响。
+	 */
+	public void uploadDeliveryInfoOnTaskShipped(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList) {
+		if (!StringUtils.hasText(orderInfo.getTradeType())
+				|| !orderInfo.getTradeType().equals(PayTradeTypeEnum.WX_JSAPI_PAY.getName())
+				|| !orderInfo.getPaymentType().equals(PayConstants.PAY_TYPE_1)) {
+			return;
+		}
+		if (!MallOrderConstants.DELIVERY_WAY_3.equals(orderInfo.getDeliveryWay())
+				&& !MallOrderConstants.DELIVERY_WAY_4.equals(orderInfo.getDeliveryWay())) {
+			return;
+		}
+		OrderConfig orderConfig = orderConfigService.getConfig();
+		if (Objects.isNull(orderConfig)
+				|| !CommonConstants.NORMAL_STATUS.equals(orderConfig.getWxDeliveryStatus())) {
+			return;
+		}
+		if (!OrderStatusEnum.WAITING_FOR_RECEIPT.getCode().equals(orderInfo.getStatus())) {
+			return;
+		}
+		if (orderItemEntityList == null || orderItemEntityList.isEmpty()) {
+			return;
+		}
+		WxMaOrderShippingInfoUploadRequest request = buildShippingUploadRequest(orderInfo, orderItemEntityList);
+		// 公司自有司机配送：微信侧按「同城配送」上报
+		request.setLogisticsType(WX_LOGISTICS_TYPE_LOCAL_DELIVERY);
+		request.setDeliveryMode(WX_DELIVERY_MODE_UNIFIED);
+		request.setIsAllDelivered(Boolean.TRUE);
 		remoteSecOrderService.uploadShippingInfo(request, orderInfo.getAppId());
 	}
 

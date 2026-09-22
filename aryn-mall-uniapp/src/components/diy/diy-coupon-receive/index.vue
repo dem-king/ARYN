@@ -66,50 +66,26 @@ onMounted(() => {
 
 <template>
   <view class="coupon-receive" :style="dynamicStyles">
-    <view v-if="showStyle === '1'" class="coupon-list">
+    <!--
+      布局与后台设计器预览保持一致：
+      showStyle=1：横向一排小卡片，上红下白（list-style）
+      showStyle=2：纵向大卡片，左红右白（card-style）
+    -->
+    <view class="coupon-list" :class="{ 'list-style': showStyle === '1', 'card-style': showStyle === '2' }">
       <view
         v-for="(item, index) in couponList"
         :key="index"
         class="coupon-item"
       >
-        <view class="coupon-item-left">
-          <view class="coupon-value">
-            {{ getCouponValue(item) }}
-          </view>
-          <view class="coupon-threshold">
-            {{ getThresholdText(item) }}
-          </view>
+        <view class="coupon-amount">
+          <text class="coupon-symbol">¥</text>
+          <text class="coupon-value">{{ item.couponType === '2' ? `${item.discount}折` : item.amount }}</text>
         </view>
-        <view class="coupon-item-right">
-          <view class="coupon-name">
-            {{ item.couponName }}
-          </view>
+        <view class="coupon-info">
+          <view class="coupon-name">{{ item.couponName }}</view>
+          <view class="coupon-condition">{{ getThresholdText(item) }}</view>
           <view v-if="showReceiveBtn" class="coupon-btn" @click="handleReceive(item.id)">
             领取
-          </view>
-        </view>
-      </view>
-    </view>
-    <view v-else class="coupon-cards">
-      <view
-        v-for="(item, index) in couponList"
-        :key="index"
-        class="coupon-card"
-      >
-        <view class="coupon-card-top">
-          <view class="coupon-value">
-            {{ getCouponValue(item) }}
-          </view>
-          <view class="coupon-threshold">
-            {{ getThresholdText(item) }}
-          </view>
-        </view>
-        <view class="coupon-card-bottom">
-          <view class="coupon-name">
-            {{ item.couponName }}
-          </view>
-          <view v-if="showReceiveBtn" class="coupon-btn" @click="handleReceive(item.id)">
-            立即领取
           </view>
         </view>
       </view>
@@ -122,128 +98,111 @@ onMounted(() => {
   padding: 12px;
 
   .coupon-list {
-    display: flex;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
+    &.list-style {
+      display: flex;
+      gap: 16rpx;
+      overflow-x: auto;
 
-    &::-webkit-scrollbar {
-      display: none;
+      &::-webkit-scrollbar {
+        display: none;
+      }
+
+      .coupon-item {
+        flex: 1;
+        min-width: 0;
+        flex-direction: column;
+        align-items: center;
+
+        .coupon-amount {
+          width: 100%;
+          height: 100rpx;
+          border-radius: 12rpx 12rpx 0 0;
+        }
+
+        .coupon-info {
+          width: 100%;
+          padding: 12rpx 16rpx;
+          border-radius: 0 0 12rpx 12rpx;
+        }
+      }
+    }
+
+    &.card-style {
+      display: flex;
+      flex-direction: column;
+      gap: 16rpx;
+
+      .coupon-item {
+        flex-direction: row;
+        height: 140rpx;
+
+        .coupon-amount {
+          width: 160rpx;
+          height: 100%;
+          border-radius: 12rpx 0 0 12rpx;
+        }
+
+        .coupon-info {
+          flex: 1;
+          padding: 16rpx 24rpx;
+          border-radius: 0 12rpx 12rpx 0;
+        }
+      }
     }
 
     .coupon-item {
-      flex-shrink: 0;
-      width: 240px;
       display: flex;
-      margin-right: 10px;
-      border-radius: 8px;
       overflow: hidden;
       background: #fff;
-      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+      border-radius: 12rpx;
+      box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.08);
 
-      .coupon-item-left {
-        width: 80px;
+      .coupon-amount {
         display: flex;
-        flex-direction: column;
         align-items: center;
         justify-content: center;
-        background: linear-gradient(135deg, #ff6034, #ee0a24);
         color: #fff;
-        padding: 12px 0;
+        background: linear-gradient(135deg, #f44, #ff6b6b);
 
-        .coupon-value {
-          font-size: 20px;
-          font-weight: bold;
+        .coupon-symbol {
+          font-size: 24rpx;
         }
 
-        .coupon-threshold {
-          font-size: 10px;
-          margin-top: 4px;
-          opacity: 0.9;
+        .coupon-value {
+          font-size: 44rpx;
+          font-weight: bold;
         }
       }
 
-      .coupon-item-right {
-        flex: 1;
+      .coupon-info {
         display: flex;
         flex-direction: column;
         justify-content: center;
-        padding: 10px 12px;
+        background: #fff;
 
         .coupon-name {
-          font-size: 13px;
+          font-size: 26rpx;
+          font-weight: 500;
           color: #333;
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
         }
 
+        .coupon-condition {
+          margin-top: 4rpx;
+          font-size: 22rpx;
+          color: #999;
+        }
+
         .coupon-btn {
-          margin-top: 8px;
+          margin-top: 8rpx;
           align-self: flex-start;
-          padding: 2px 10px;
-          font-size: 12px;
-          color: #ee0a24;
-          border: 1px solid #ee0a24;
-          border-radius: 12px;
-        }
-      }
-    }
-  }
-
-  .coupon-cards {
-    display: flex;
-    flex-direction: column;
-
-    .coupon-card {
-      width: 100%;
-      border-radius: 8px;
-      overflow: hidden;
-      background: #fff;
-      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
-      margin-bottom: 10px;
-
-      .coupon-card-top {
-        display: flex;
-        align-items: center;
-        padding: 12px 16px;
-        background: linear-gradient(135deg, #ff6034, #ee0a24);
-        color: #fff;
-
-        .coupon-value {
-          font-size: 24px;
-          font-weight: bold;
-          margin-right: 8px;
-        }
-
-        .coupon-threshold {
-          font-size: 12px;
-          opacity: 0.9;
-        }
-      }
-
-      .coupon-card-bottom {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 10px 16px;
-
-        .coupon-name {
-          font-size: 14px;
-          color: #333;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-          flex: 1;
-        }
-
-        .coupon-btn {
-          flex-shrink: 0;
-          margin-left: 12px;
-          padding: 4px 14px;
-          font-size: 13px;
-          color: #fff;
-          background: linear-gradient(135deg, #ff6034, #ee0a24);
-          border-radius: 14px;
+          padding: 4rpx 20rpx;
+          font-size: 24rpx;
+          color: #f44;
+          border: 1rpx solid #f44;
+          border-radius: 20rpx;
         }
       }
     }

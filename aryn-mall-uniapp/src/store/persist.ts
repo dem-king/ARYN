@@ -16,6 +16,8 @@ const EXCLUDED_STORE_IDS = new Set([
   'global-loading',
   'global-toast',
   'global-message',
+  // 租户能力是服务端事实（含 resolved 标记），持久化会让换租户后仍读到旧模式
+  'tenantCapability',
 ])
 
 export function shouldPersistStore(storeId: string) {

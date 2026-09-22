@@ -14,6 +14,14 @@ describe('boot URL rewriting', () => {
     expect(rewriteBootUrl(cloudPath, true)).toBe('/boot/app/delivery/task/page')
   })
 
+  it('routes the quick-cart API in both deployment modes', () => {
+    const cloudPath = '/product/app/goodsspu/quick-cart/spu-1'
+    expect(rewriteBootUrl(cloudPath, false)).toBe(cloudPath)
+    expect(rewriteBootUrl(cloudPath, true)).toBe(
+      '/boot/app/goodsspu/quick-cart/spu-1',
+    )
+  })
+
   it('does not rewrite disabled, absolute, or already rewritten URLs', () => {
     expect(rewriteBootUrl('/auth/toc-token/login', false)).toBe(
       '/auth/toc-token/login',

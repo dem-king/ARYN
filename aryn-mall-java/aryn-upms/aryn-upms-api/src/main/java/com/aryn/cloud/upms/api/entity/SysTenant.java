@@ -39,6 +39,9 @@ public class SysTenant extends Model<SysTenant> {
 	@Schema(description = "官网地址")
 	private String siteUrl;
 
+	@Schema(description = "业务模式：1综合（个人+船供并存） 2纯零售")
+	private String businessMode;
+
 	@Schema(description = "状态：0.正常；1.停用；")
 	@NotBlank(message = "状态不能为空")
 	private String status;

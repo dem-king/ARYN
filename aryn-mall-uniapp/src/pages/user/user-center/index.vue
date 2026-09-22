@@ -11,6 +11,7 @@ import {
 // 引入组件
 import WaterfallGoods from '@/components/waterfall-goods/index.vue'
 import { useMessageStore } from '@/store/messageStore'
+import { useTenantCapabilityStore } from '@/store/tenantCapabilityStore'
 import { Local } from '@/utils/storage'
 
 definePage({
@@ -111,16 +112,63 @@ myService.value.unshift({
   url: '/sub-pages/message/notice/index',
 })
 
+// ===================== 船舶入口 =====================
+
+/**
+ * 船舶入口只在「已登录 + 租户开放船供能力」时出现。
+ *
+ * 首页状态条只对有船用户展示靠港信息，未绑定用户完全不显示，
+ * 因此绑定入口必须在这里给出，否则新用户会再次陷入「知道缺什么却无处可去」。
+ */
+const tenantCapabilityStore = useTenantCapabilityStore()
+const vesselBound = ref(false)
+const vesselName = ref('')
+
+const vesselEntranceVisible = computed(() => {
+  // resolved 之前不渲染：否则纯零售租户会先闪出一个船供入口再收起
+  if (!tenantCapabilityStore.resolved)
+    return false
+  if (!authStore.isLoggedIn)
+    return false
+  return tenantCapabilityStore.shipSupplyEnabled
+})
+
+const vesselEntranceSubtitle = computed(() =>
+  vesselBound.value
+    ? `${vesselName.value || '已关联船舶'} · 查看靠港与成员`
+    : '未关联船舶，加入后可用靠港配送',
+)
+
+/** 仅用于入口文案；失败时不影响入口本身可点 */
+function loadVesselState() {
+  getMyVessels()
+    .then((vessels) => {
+      vesselBound.value = !!vessels && vessels.length > 0
+      vesselName.value = vessels?.[0]?.vesselName ?? ''
+    })
+    .catch(() => {
+      vesselBound.value = false
+      vesselName.value = ''
+    })
+}
+
 onShow(() => {
   if (authStore.isLoggedIn) {
     getUserOrderCount()
     void messageStore.refreshUnread()
     messageStore.connect()
     loadDeliveryEligibility()
+    void tenantCapabilityStore.ensureLoaded().then(() => {
+      if (tenantCapabilityStore.shipSupplyEnabled) {
+        loadVesselState()
+      }
+    })
   }
   else {
     deliveryEligibility.value = null
     hasDeliveryToken.value = false
+    vesselBound.value = false
+    vesselName.value = ''
   }
 })
 
@@ -448,6 +496,26 @@ function toLogin() {
         </view>
         <text class="i-carbon:chevron-right text-28rpx text-gray-400" />
       </view>
+    </view>
+  </view>
+  <!-- 船舶入口：首页状态条只服务「有船用户」，未绑定用户的出路收进这里 -->
+  <view v-if="vesselEntranceVisible" class="px-20rpx pb-20rpx">
+    <view
+      class="flex items-center justify-between rounded-20rpx bg-white p-30rpx"
+      @click="toRoute('/sub-pages/vessel/bind/index')"
+    >
+      <view class="flex items-center">
+        <text class="i-carbon:sailboat-coastal mr-20rpx text-40rpx text-primary" />
+        <view>
+          <text class="text-28rpx font-bold">
+            我的船舶
+          </text>
+          <view class="mt-4rpx text-24rpx text-gray-400">
+            {{ vesselEntranceSubtitle }}
+          </view>
+        </view>
+      </view>
+      <text class="i-carbon:chevron-right text-28rpx text-gray-400" />
     </view>
   </view>
   <view class="flex items-center p-1">

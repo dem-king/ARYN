@@ -15,6 +15,7 @@ import com.aryn.cloud.order.mapper.DeliveryTripMapper;
 import com.aryn.cloud.order.service.IDeliveryTaskItemService;
 import com.aryn.cloud.order.service.IDeliveryTaskService;
 import com.aryn.cloud.order.service.IDeliveryTripService;
+import com.aryn.cloud.order.service.IOrderDeliveryStateService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
@@ -38,10 +39,14 @@ public class DeliveryTripServiceImpl extends ServiceImpl<DeliveryTripMapper, Del
 
 	private final IDeliveryTaskItemService deliveryTaskItemService;
 
+	private final IOrderDeliveryStateService orderDeliveryStateService;
+
 	public DeliveryTripServiceImpl(@Lazy IDeliveryTaskService deliveryTaskService,
-			IDeliveryTaskItemService deliveryTaskItemService) {
+			IDeliveryTaskItemService deliveryTaskItemService,
+			IOrderDeliveryStateService orderDeliveryStateService) {
 		this.deliveryTaskService = deliveryTaskService;
 		this.deliveryTaskItemService = deliveryTaskItemService;
+		this.orderDeliveryStateService = orderDeliveryStateService;
 	}
 
 	@Override
@@ -105,11 +110,25 @@ public class DeliveryTripServiceImpl extends ServiceImpl<DeliveryTripMapper, Del
 			throw new ArynBusinessException("出车单状态已变化，无法出发");
 		}
 		// 所有 task 状态变为待送达
+		List<DeliveryTask> departedTasks = deliveryTaskService.list(Wrappers.<DeliveryTask>lambdaQuery()
+			.eq(DeliveryTask::getTripId, tripId)
+			.eq(DeliveryTask::getStatus, DeliveryTaskStatusEnum.PICKING.getCode()));
 		deliveryTaskService.update(Wrappers.<DeliveryTask>lambdaUpdate()
 			.eq(DeliveryTask::getTripId, tripId)
 			.eq(DeliveryTask::getStatus, DeliveryTaskStatusEnum.PICKING.getCode())
 			.set(DeliveryTask::getStatus, DeliveryTaskStatusEnum.WAITING_ARRIVE.getCode())
 			.set(DeliveryTask::getDepartTime, now));
+		// 订单状态联动：商城配送/内部配送订单在商品离仓后进入「待收货」
+		// 第三方快递订单不受影响，仍由发货单驱动
+		for (DeliveryTask task : departedTasks) {
+			try {
+				orderDeliveryStateService.markShippedOnPickUp(task);
+			}
+			catch (Exception ex) {
+				log.error("订单状态联动失败，任务[{}]，订单[{}]", task.getId(), task.getOrderId(), ex);
+				throw ex;
+			}
+		}
 		return Boolean.TRUE;
 	}
 

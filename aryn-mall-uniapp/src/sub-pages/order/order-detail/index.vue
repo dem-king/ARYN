@@ -205,7 +205,7 @@ function toCustomerService() {
     >
       {{ navbarSubTitle }}
     </view>
-    <!-- 收货地址 -->
+    <!-- 收货地址（普通快递 / 商城配送） -->
     <view
       v-if="state.order.deliveryWay === '1' || state.order.deliveryWay === '3'"
       class="m-2 rounded-xl bg-white p-2"
@@ -227,6 +227,36 @@ function toCustomerService() {
             {{ state.order.recipientProvince }} {{ state.order.recipientCity }}
             {{ state.order.recipientArea }}
             {{ state.order.recipientAddress }}
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 配送至船舶（公司港口/船舶内部配送 way=4） -->
+    <view
+      v-if="state.order.deliveryWay === '4'"
+      class="m-2 rounded-xl bg-white p-2"
+    >
+      <view class="flex items-center">
+        <view class="flex items-center">
+          <wd-icon name="location" size="22px" />
+        </view>
+        <view class="pl-10px flex-1">
+          <view class="text-14px font-bold">
+            {{ state.order.vesselName || '船舶配送' }}
+          </view>
+          <view class="py-8px text-13px text-gray-500">
+            {{ state.order.portName }} {{ state.order.berth }}
+          </view>
+          <view
+            v-if="state.order.deliveryWindowStart"
+            class="text-12px text-gray-400"
+          >
+            配送时间窗：{{ state.order.deliveryWindowStart }} ~
+            {{ state.order.deliveryWindowEnd }}
+          </view>
+          <view class="pt-6rpx text-12px text-green-600">
+            由公司司机按靠港计划送达港口/船舶
           </view>
         </view>
       </view>

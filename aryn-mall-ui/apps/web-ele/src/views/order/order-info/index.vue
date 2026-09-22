@@ -443,7 +443,13 @@ initPage();
               付款时间：{{ scope.row.paymentTime }}
             </div>
             <div v-if="scope.row.deliverTime">
-              {{ scope.row.deliveryWay === '2' ? '自提时间：' : '发货时间：'
+              {{
+                scope.row.deliveryWay === '2'
+                  ? '自提时间：'
+                  : scope.row.deliveryWay === '3' ||
+                      scope.row.deliveryWay === '4'
+                    ? '配送出发时间：'
+                    : '发货时间：'
               }}{{ scope.row.deliverTime }}
             </div>
           </template>

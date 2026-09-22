@@ -1,6 +1,7 @@
 import type {
   GoodsGroupProps,
   GoodsRankingProps,
+  GoodsWaterfallProps,
   LimitedActivityProps,
 } from './retail-types'
 
@@ -33,6 +34,26 @@ export async function loadGoodsGroup(props: GoodsGroupProps) {
     size: props.count,
   })
   return normalizeRetailGoods(response).slice(0, props.count)
+}
+
+/**
+ * 商品分组「自动规则」模式分页加载：供首页底部无限滚动（上拉加载更多）使用。
+ * 手选（manual）模式不走此函数，仍由 loadGoodsGroup 一次性返回。
+ */
+export async function loadGoodsGroupPage(
+  props: GoodsGroupProps,
+  current: number,
+  size: number,
+) {
+  const response: any = await getGoodsPage({
+    categorySecondId: props.dataSource.categoryId || undefined,
+    current,
+    ...createRetailSortParams(props.dataSource.sort || 'sales', true),
+    size,
+  })
+  const list = normalizeRetailGoods(response)
+  const total = Number(response?.total ?? list.length)
+  return { list, total }
 }
 
 export async function loadGoodsRanking(props: GoodsRankingProps) {
@@ -122,6 +143,27 @@ export async function loadGoodsWaterfall(
     })
     return normalizeRetailGoods(response).slice(0, props.count)
   })
+}
+
+/**
+ * 商品瀑布流「自动数据源」分页加载：供首页无限滚动（上拉加载更多）使用。
+ * 与一次性的 loadGoodsWaterfall 不同，这里按 current/size 取指定一页并回传 total，
+ * 由调用方（z-paging）负责追加与判断是否到底。手选（manual）模式不走此函数。
+ */
+export async function loadGoodsWaterfallPage(
+  props: GoodsWaterfallProps,
+  current: number,
+  size: number,
+) {
+  const response: any = await getGoodsPage({
+    categorySecondId: props.dataSource.categoryId || undefined,
+    current,
+    ...createRetailSortParams(props.dataSource.sort || 'sales', true),
+    size,
+  })
+  const list = normalizeRetailGoods(response)
+  const total = Number(response?.total ?? list.length)
+  return { list, total }
 }
 
 export async function loadCouponCombo(

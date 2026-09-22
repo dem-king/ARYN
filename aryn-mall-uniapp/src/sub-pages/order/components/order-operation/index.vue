@@ -107,8 +107,11 @@ const showLogistics = computed(() =>
   ['3', '4', '7'].includes(props.orderInfo.status) && props.orderInfo.deliveryWay === '1',
 )
 
+// 确认收货：第三方快递与商城配送/公司内部配送在「待收货」时都可确认。
+// 上门自提（way=2）走提货二维码，不在此列。
 const showReceiver = computed(() =>
-  props.orderInfo.status === '3' && props.orderInfo.deliveryWay === '1',
+  props.orderInfo.status === '3' &&
+  ['1', '3', '4'].includes(props.orderInfo.deliveryWay),
 )
 
 const showAppraise = computed(() =>

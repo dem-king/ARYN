@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { defineAsyncComponent, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, ref, watch } from 'vue';
 
 import { CircleCloseFilled, DCaret, Plus } from '@element-plus/icons-vue';
 import {
@@ -36,7 +36,8 @@ const ColorPicker = defineAsyncComponent(
 );
 
 const active = ref('0');
-const limitNum = ref(10);
+// 导航数量上限：分页模式下每页最多 5 列 × 3 行 = 15 个，预留两页共 30 个
+const limitNum = ref(30);
 const dragOptions = {
   animation: 300,
   group: 'description',
@@ -50,7 +51,13 @@ const defaultConfig = {
   showNum: 4,
   imgSize: 40, // 图片大小
   imgRadius: 0, // 图片圆角
-  scrollShow: false, // 超出滚动显示
+  // 显示方式：grid 平铺 | scroll 横向滚动 | pager 分页滑动
+  displayMode: 'grid',
+  scrollShow: false, // 兼容旧数据：displayMode === 'scroll' 时为 true
+  pageRows: 3, // 分页模式下每页行数
+  indicatorDots: true, // 分页模式下是否显示指示点
+  indicatorColor: 'rgba(0, 0, 0, 0.2)', // 指示点颜色
+  indicatorActiveColor: '#1989fa', // 当前页指示点颜色
   commonStyle: {
     styleTopMargin: 0,
     styleBottomMargin: 0,
@@ -85,6 +92,20 @@ watch(
   },
   { deep: true, immediate: true },
 );
+
+// 显示方式归一化：旧数据没有 displayMode 字段时，由 scrollShow 推导
+const effectiveDisplayMode = computed({
+  get() {
+    const mode = form.value.displayMode;
+    if (mode === 'grid' || mode === 'scroll' || mode === 'pager') return mode;
+    return form.value.scrollShow ? 'scroll' : 'grid';
+  },
+  set(val: string) {
+    form.value.displayMode = val;
+    // 同步旧字段，保证未升级的渲染端仍能识别横向滚动
+    form.value.scrollShow = val === 'scroll';
+  },
+});
 
 const add = () => {
   if (form.value.navList.length < limitNum.value) {
@@ -123,18 +144,41 @@ const del = (index: number) => {
                 <ElRadio value="3">图文导航</ElRadio>
               </ElRadioGroup>
             </ElFormItem>
-            <ElFormItem label="滚动显示">
-              <ElSwitch v-model="form.scrollShow" />
+            <ElFormItem label="显示方式" v-if="form.type !== '2'">
+              <ElRadioGroup v-model="effectiveDisplayMode">
+                <ElRadio value="grid">平铺</ElRadio>
+                <ElRadio value="scroll">横向滚动</ElRadio>
+                <ElRadio value="pager">分页滑动</ElRadio>
+              </ElRadioGroup>
             </ElFormItem>
             <ElFormItem
               label="一行显示"
-              v-if="form.type !== '2' && !form.scrollShow"
+              v-if="form.type !== '2' && effectiveDisplayMode !== 'scroll'"
             >
               <ElRadioGroup v-model="form.showNum">
                 <ElRadio :value="4">4个导航 </ElRadio>
                 <ElRadio :value="5">5个导航</ElRadio>
               </ElRadioGroup>
             </ElFormItem>
+            <template
+              v-if="form.type !== '2' && effectiveDisplayMode === 'pager'"
+            >
+              <ElFormItem label="每页行数">
+                <ElRadioGroup v-model="form.pageRows">
+                  <ElRadio :value="2">2行</ElRadio>
+                  <ElRadio :value="3">3行</ElRadio>
+                </ElRadioGroup>
+              </ElFormItem>
+              <ElFormItem label="指示器">
+                <ElSwitch v-model="form.indicatorDots" />
+              </ElFormItem>
+              <ElFormItem label="指示器颜色" v-if="form.indicatorDots">
+                <ColorPicker v-model="form.indicatorColor" />
+              </ElFormItem>
+              <ElFormItem label="激活颜色" v-if="form.indicatorDots">
+                <ColorPicker v-model="form.indicatorActiveColor" />
+              </ElFormItem>
+            </template>
             <ElFormItem label="导航设置">
               <p class="form-tip">可以上下拖动更改顺序</p>
             </ElFormItem>

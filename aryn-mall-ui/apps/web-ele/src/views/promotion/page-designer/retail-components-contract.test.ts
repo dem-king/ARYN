@@ -16,6 +16,7 @@ const retailTypes = [
   'countdown',
   'marketing-entry',
   'shop-info',
+  'ship-workbench',
 ] as const;
 
 function readComponent(type: (typeof retailTypes)[number], file: string) {

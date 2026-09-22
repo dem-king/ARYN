@@ -47,7 +47,7 @@ describe('ship context picker contract', () => {
 
   it('is reachable from every screen that asks the user to choose or switch', () => {
     for (const page of [
-      'src/components/ship-workbench/index.vue',
+      'src/components/diy/diy-ship-workbench/index.vue',
       'src/pages/user/shopping-cart/index.vue',
       'src/sub-pages/product/ship-supply/index.vue',
       'src/sub-pages/order/shared-cart/list.vue',

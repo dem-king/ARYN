@@ -2,7 +2,7 @@
 -- 生成方式: node db/boot/build-full-sql.mjs
 -- 适用环境: MySQL 8.0.13+
 -- 警告: 本文件面向空库初始化，包含 DROP TABLE IF EXISTS，请勿用于存量生产库。
--- 生成日期: 2026-09-20
+-- 生成日期: 2026-09-22
 
 -- ============================================================================
 -- 创建数据库
@@ -7124,6 +7124,109 @@ PREPARE stmt FROM @add_item_gift_flag; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ============================================================================
+-- 船舶自助绑定
+-- Source: db/boot/63vessel_bind_incremental.sql
+-- ============================================================================
+-- 悦航购船舶自助绑定增量迁移（Cloud 微服务模式）
+--
+-- 目标库：aryn_boot（单体模式所有表同库）
+-- 租户白名单：Boot 侧在 aryn-boot/src/main/resources/application.yml 的 hx.tenant.tables，不走本脚本
+-- 特性：幂等执行，不删除或重建数据。
+--
+-- 背景：C 端此前**没有任何自助绑定入口**——VesselAppController 只有 3 个 GET，
+--       唯一的绑定接口是管理端 POST /admin/{id}/members。未绑定用户进不了船供链路，
+--       且没有任何出路。本脚本为「邀请码 + 申请审核」两条自助通道提供数据模型。
+--
+-- 两条通道的分工：
+--   · 邀请码 vessel_invite_code：已在船成员生成 6 位码，新同事输入即绑定。
+--     零运营成本，适合规模化；天然由「已在船的同事」背书。
+--   · 申请审核 vessel_bind_apply：用户自填船名提交申请，运营审核。
+--     解决两个邀请码覆盖不了的场景：① 全船都是新用户（没人能生成码）
+--     ② **船还没录入系统**（审核通过时由运营创建船舶再绑定）
+--
+-- 执行：mysql -u root -p aryn_boot < 63vessel_bind_incremental.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ===========================================================================
+-- 1. 船舶邀请码
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS `vessel_invite_code` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `vessel_id` varchar(32) NOT NULL COMMENT '船舶ID',
+  `code` varchar(12) NOT NULL COMMENT '邀请码（6 位大写字母数字，已去除易混字符）',
+  `owner_user_id` varchar(32) NOT NULL COMMENT '生成人商城用户ID（命名刻意区别于审计字段 create_by）',
+  `max_uses` int NOT NULL DEFAULT 0 COMMENT '最大使用次数，0 表示不限',
+  `used_count` int NOT NULL DEFAULT 0 COMMENT '已使用次数',
+  `expires_at` datetime NOT NULL COMMENT '过期时间',
+  `status` char(2) NOT NULL DEFAULT '1' COMMENT '状态：1有效 0已撤销',
+  `remark` varchar(255) DEFAULT NULL COMMENT '备注',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL, `update_by` varchar(60) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL, `update_time` datetime DEFAULT NULL,
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_vessel_invite_code` (`tenant_id`, `code`),
+  KEY `idx_vessel_invite_code_vessel` (`tenant_id`, `vessel_id`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='船舶邀请码';
+
+-- ===========================================================================
+-- 2. 船舶绑定申请
+--    承载两类申请，由 apply_role 区分：
+--      · 2 普通船员   —— 船员自助申请（业务员不在场时的兜底）
+--      · 4 业务员     —— **销售业务员认领船舶**（冷启动主路径）
+--    matched_vessel_id 在审核通过时写入：匹配到已有船舶则直接绑定，
+--    否则运营先建船再绑定——这样「船还没录入系统」也能走通。
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS `vessel_bind_apply` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `apply_no` varchar(40) NOT NULL COMMENT '申请单号',
+  `user_id` varchar(32) NOT NULL COMMENT '申请人商城用户ID',
+  `apply_role` char(2) NOT NULL DEFAULT '2' COMMENT '申请角色：2普通船员 4业务员',
+  `apply_vessel_name` varchar(128) NOT NULL COMMENT '申请人填写的船名',
+  `apply_vessel_imo` varchar(32) DEFAULT NULL COMMENT 'IMO 或呼号（选填）',
+  `apply_port_name` varchar(128) DEFAULT NULL COMMENT '常靠港口（选填）',
+  `real_name` varchar(64) DEFAULT NULL COMMENT '真实姓名',
+  `phone` varchar(32) DEFAULT NULL COMMENT '联系电话',
+  `position` varchar(64) DEFAULT NULL COMMENT '船上职务 / 业务员工号',
+  `remark` varchar(500) DEFAULT NULL COMMENT '补充说明',
+  `status` char(2) NOT NULL DEFAULT '1' COMMENT '状态：1待审核 2已通过 3已驳回 4已取消',
+  `matched_vessel_id` varchar(32) DEFAULT NULL COMMENT '审核通过后实际绑定的船舶ID',
+  `audit_by` varchar(32) DEFAULT NULL COMMENT '审核人',
+  `audit_time` datetime DEFAULT NULL COMMENT '审核时间',
+  `audit_remark` varchar(500) DEFAULT NULL COMMENT '审核意见（驳回原因）',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL, `update_by` varchar(60) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL, `update_time` datetime DEFAULT NULL,
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  KEY `idx_vessel_bind_apply_user` (`tenant_id`, `user_id`, `status`),
+  KEY `idx_vessel_bind_apply_audit` (`tenant_id`, `status`, `create_time`),
+  KEY `idx_vessel_bind_apply_name` (`tenant_id`, `apply_vessel_name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='船舶绑定申请';
+
+-- ===========================================================================
+-- 2b. 成员角色说明（vessel_member.member_role，本脚本不新增列，仅补充取值语义）
+--     1 发起人/船长   —— 可管理成员、可提交整船订单
+--     2 普通船员     —— 只能下单与维护自己的明细
+--     3 采购确认人   —— 可核定数量并提交整船订单
+--     4 业务员       —— **新增**：公司销售，可添加成员、可代船员下单
+--
+--     可添加成员的角色 = 1 / 3 / 4；普通船员(2)不可添加。
+-- ===========================================================================
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- 自检：两张表应已创建
+SELECT 'vessel_invite_code' AS tbl, COUNT(*) AS cnt FROM information_schema.TABLES
+WHERE TABLE_SCHEMA = 'aryn_boot' AND TABLE_NAME = 'vessel_invite_code'
+UNION ALL
+SELECT 'vessel_bind_apply', COUNT(*) FROM information_schema.TABLES
+WHERE TABLE_SCHEMA = 'aryn_boot' AND TABLE_NAME = 'vessel_bind_apply';
+
+-- ============================================================================
 -- 船供验收种子数据
 -- Source: db/boot/62ship_supply_seed_acceptance.sql
 -- ============================================================================
@@ -7344,7 +7447,7 @@ SELECT CONCAT('96500000000000000', LPAD(`seq`, 2, '0')),
        CONCAT('96400000000000000', LPAD(`seq`, 2, '0')),
        `price`, ROUND(`price` * 1.15, 2), ROUND(`price` * 0.70, 2),
        `stock`, NOW(), NOW(), '0', 0,
-       '1590229800633634816', 'seed', '1',
+       '1590229800633634816', 'seed', '0',
        '[]'
 FROM `tmp_ship_seed`;
 
@@ -7416,109 +7519,6 @@ WHERE `del_flag` = '0' AND `status` IN ('1', '2') AND `etd` > NOW();
 -- DELETE FROM `vessel_member` WHERE `id` LIKE '962%';
 -- DELETE FROM `vessel_call`   WHERE `id` LIKE '968%';
 -- DELETE FROM `vessel_bind_apply` WHERE `id` LIKE '969%';
-
--- ============================================================================
--- 船舶自助绑定
--- Source: db/boot/63vessel_bind_incremental.sql
--- ============================================================================
--- 悦航购船舶自助绑定增量迁移（Cloud 微服务模式）
---
--- 目标库：aryn_boot（单体模式所有表同库）
--- 租户白名单：Boot 侧在 aryn-boot/src/main/resources/application.yml 的 hx.tenant.tables，不走本脚本
--- 特性：幂等执行，不删除或重建数据。
---
--- 背景：C 端此前**没有任何自助绑定入口**——VesselAppController 只有 3 个 GET，
---       唯一的绑定接口是管理端 POST /admin/{id}/members。未绑定用户进不了船供链路，
---       且没有任何出路。本脚本为「邀请码 + 申请审核」两条自助通道提供数据模型。
---
--- 两条通道的分工：
---   · 邀请码 vessel_invite_code：已在船成员生成 6 位码，新同事输入即绑定。
---     零运营成本，适合规模化；天然由「已在船的同事」背书。
---   · 申请审核 vessel_bind_apply：用户自填船名提交申请，运营审核。
---     解决两个邀请码覆盖不了的场景：① 全船都是新用户（没人能生成码）
---     ② **船还没录入系统**（审核通过时由运营创建船舶再绑定）
---
--- 执行：mysql -u root -p aryn_boot < 63vessel_bind_incremental.sql
-
-USE `aryn_boot`;
-SET NAMES utf8mb4;
-SET FOREIGN_KEY_CHECKS = 0;
-
--- ===========================================================================
--- 1. 船舶邀请码
--- ===========================================================================
-CREATE TABLE IF NOT EXISTS `vessel_invite_code` (
-  `id` varchar(32) NOT NULL COMMENT '主键',
-  `vessel_id` varchar(32) NOT NULL COMMENT '船舶ID',
-  `code` varchar(12) NOT NULL COMMENT '邀请码（6 位大写字母数字，已去除易混字符）',
-  `owner_user_id` varchar(32) NOT NULL COMMENT '生成人商城用户ID（命名刻意区别于审计字段 create_by）',
-  `max_uses` int NOT NULL DEFAULT 0 COMMENT '最大使用次数，0 表示不限',
-  `used_count` int NOT NULL DEFAULT 0 COMMENT '已使用次数',
-  `expires_at` datetime NOT NULL COMMENT '过期时间',
-  `status` char(2) NOT NULL DEFAULT '1' COMMENT '状态：1有效 0已撤销',
-  `remark` varchar(255) DEFAULT NULL COMMENT '备注',
-  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
-  `create_by` varchar(60) DEFAULT NULL, `update_by` varchar(60) DEFAULT NULL,
-  `create_time` datetime DEFAULT NULL, `update_time` datetime DEFAULT NULL,
-  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_vessel_invite_code` (`tenant_id`, `code`),
-  KEY `idx_vessel_invite_code_vessel` (`tenant_id`, `vessel_id`, `status`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='船舶邀请码';
-
--- ===========================================================================
--- 2. 船舶绑定申请
---    承载两类申请，由 apply_role 区分：
---      · 2 普通船员   —— 船员自助申请（业务员不在场时的兜底）
---      · 4 业务员     —— **销售业务员认领船舶**（冷启动主路径）
---    matched_vessel_id 在审核通过时写入：匹配到已有船舶则直接绑定，
---    否则运营先建船再绑定——这样「船还没录入系统」也能走通。
--- ===========================================================================
-CREATE TABLE IF NOT EXISTS `vessel_bind_apply` (
-  `id` varchar(32) NOT NULL COMMENT '主键',
-  `apply_no` varchar(40) NOT NULL COMMENT '申请单号',
-  `user_id` varchar(32) NOT NULL COMMENT '申请人商城用户ID',
-  `apply_role` char(2) NOT NULL DEFAULT '2' COMMENT '申请角色：2普通船员 4业务员',
-  `apply_vessel_name` varchar(128) NOT NULL COMMENT '申请人填写的船名',
-  `apply_vessel_imo` varchar(32) DEFAULT NULL COMMENT 'IMO 或呼号（选填）',
-  `apply_port_name` varchar(128) DEFAULT NULL COMMENT '常靠港口（选填）',
-  `real_name` varchar(64) DEFAULT NULL COMMENT '真实姓名',
-  `phone` varchar(32) DEFAULT NULL COMMENT '联系电话',
-  `position` varchar(64) DEFAULT NULL COMMENT '船上职务 / 业务员工号',
-  `remark` varchar(500) DEFAULT NULL COMMENT '补充说明',
-  `status` char(2) NOT NULL DEFAULT '1' COMMENT '状态：1待审核 2已通过 3已驳回 4已取消',
-  `matched_vessel_id` varchar(32) DEFAULT NULL COMMENT '审核通过后实际绑定的船舶ID',
-  `audit_by` varchar(32) DEFAULT NULL COMMENT '审核人',
-  `audit_time` datetime DEFAULT NULL COMMENT '审核时间',
-  `audit_remark` varchar(500) DEFAULT NULL COMMENT '审核意见（驳回原因）',
-  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
-  `create_by` varchar(60) DEFAULT NULL, `update_by` varchar(60) DEFAULT NULL,
-  `create_time` datetime DEFAULT NULL, `update_time` datetime DEFAULT NULL,
-  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
-  PRIMARY KEY (`id`),
-  KEY `idx_vessel_bind_apply_user` (`tenant_id`, `user_id`, `status`),
-  KEY `idx_vessel_bind_apply_audit` (`tenant_id`, `status`, `create_time`),
-  KEY `idx_vessel_bind_apply_name` (`tenant_id`, `apply_vessel_name`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='船舶绑定申请';
-
--- ===========================================================================
--- 2b. 成员角色说明（vessel_member.member_role，本脚本不新增列，仅补充取值语义）
---     1 发起人/船长   —— 可管理成员、可提交整船订单
---     2 普通船员     —— 只能下单与维护自己的明细
---     3 采购确认人   —— 可核定数量并提交整船订单
---     4 业务员       —— **新增**：公司销售，可添加成员、可代船员下单
---
---     可添加成员的角色 = 1 / 3 / 4；普通船员(2)不可添加。
--- ===========================================================================
-
-SET FOREIGN_KEY_CHECKS = 1;
-
--- 自检：两张表应已创建
-SELECT 'vessel_invite_code' AS tbl, COUNT(*) AS cnt FROM information_schema.TABLES
-WHERE TABLE_SCHEMA = 'aryn_boot' AND TABLE_NAME = 'vessel_invite_code'
-UNION ALL
-SELECT 'vessel_bind_apply', COUNT(*) FROM information_schema.TABLES
-WHERE TABLE_SCHEMA = 'aryn_boot' AND TABLE_NAME = 'vessel_bind_apply';
 
 -- ============================================================================
 -- 船舶绑定申请审核菜单
@@ -7854,6 +7854,2396 @@ FROM information_schema.COLUMNS
 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'vessel_call'
   AND `COLUMN_NAME` IN ('source', 'declared_by')
 ORDER BY `COLUMN_NAME`;
+
+-- ============================================================================
+-- 租户业务模式能力启用
+-- Source: db/boot/68tenant_business_mode_incremental.sql
+-- ============================================================================
+-- 悦航购租户业务模式能力启用（Boot 单体模式）
+-- 目标库：aryn_boot
+-- 背景：45ship_supply_menu_permission.sql 已为 sys_tenant 增加 business_mode
+--       （1 综合 = 个人 + 船供并存；2 纯零售），但该字段此前**无任何代码读取**，
+--       纯零售租户的 C 端首页仍会渲染船舶工作台。
+-- 本次改动让能力真正生效，并补齐运营侧的配置入口与枚举字典。
+-- 特性：幂等；不删除、不覆盖已有业务数据；无 DROP/TRUNCATE。
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ============================================================================
+-- 一、字典：business_mode，供管理端租户表单下拉选择
+-- ============================================================================
+INSERT IGNORE INTO `sys_dict`
+(`id`,`type`,`description`,`status`,`remarks`,`del_flag`,`create_time`,`update_time`,`create_by`,`update_by`)
+SELECT '2130000000000000001', 'business_mode', '租户业务模式', '0', '1综合（个人+船供并存） 2纯零售', '0', NOW(), NULL, 'system', NULL
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `sys_dict` WHERE `type` = 'business_mode');
+
+INSERT IGNORE INTO `sys_dict_value`
+(`id`,`dict_id`,`dict_label`,`dict_value`,`dict_type`,`status`,`remarks`,`sort`,`del_flag`,`create_time`,`create_by`)
+SELECT '2130000000000000011', d.`id`, '综合（个人+船供并存）', '1', 'business_mode', '0', '展示船供入口', 1, '0', NOW(), 'system'
+FROM `sys_dict` d WHERE d.`type` = 'business_mode' LIMIT 1;
+
+INSERT IGNORE INTO `sys_dict_value`
+(`id`,`dict_id`,`dict_label`,`dict_value`,`dict_type`,`status`,`remarks`,`sort`,`del_flag`,`create_time`,`create_by`)
+SELECT '2130000000000000012', d.`id`, '纯零售', '2', 'business_mode', '0', '不展示船供入口', 2, '0', NOW(), 'system'
+FROM `sys_dict` d WHERE d.`type` = 'business_mode' LIMIT 1;
+
+-- ============================================================================
+-- 二、存量兜底：历史上以 NULL / 空串存在的租户按综合模式处理
+-- 仅回填空值，不覆盖运营已显式配置的取值。
+-- ============================================================================
+UPDATE `sys_tenant` SET `business_mode` = '1' WHERE `business_mode` IS NULL OR `business_mode` = '';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 首页船舶工作台装修化
+-- Source: db/boot/69ship_workbench_component_incremental.sql
+-- ============================================================================
+-- 悦航购首页船舶工作台装修化（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 特性：幂等；不删除、不覆盖既有组件与运营配置；仅做 JSON 结构插入。
+--
+-- 背景（2026-09-21）：
+--   船舶工作台原先硬编码在首页装修页的 below-navbar 插槽中，运营既不能调整位置也不能隐藏。
+--   改造后成为装修组件 ship-workbench，可自由排序/删除，服务端对「同页重复」发布阻断。
+--
+--   客户端读取的是**已发布版本快照**（page_design.published_version_id → page_design_version），
+--   不是草稿（page_design.page_content）。因此存量首页必须同时迁移两处，
+--   否则改造上线后存量租户首页的船舶工作台会直接消失。
+--
+--   同时兼容两种历史结构：
+--     · v3：sections[].components[]，组件用 props
+--     · v2：根级 components[]，组件用 formData（读取侧 migratePageContent 会自动迁移）
+--   插入位置为组件数组**首位**，与改造前「导航栏下方、所有 DIY 组件之上」的视觉位置一致。
+--
+--   注意：必须用 JSON_ARRAY_INSERT(..., '$[0]', ...) 在数组头部插入；
+--   JSON_INSERT 在路径已存在时会静默不生效。
+--
+-- 执行：mysql -u root -p aryn_boot < 69ship_workbench_component_incremental.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+-- ===========================================================================
+-- ===========================================================================
+-- 1. 草稿（page_design.page_content）
+-- v3（sections）：插入首区块组件数组首位
+UPDATE `page_design`
+SET `page_content` = JSON_REPLACE(
+      `page_content`,
+      '$.sections[0].components',
+      JSON_ARRAY_INSERT(
+        JSON_EXTRACT(`page_content`, '$.sections[0].components'),
+        '$[0]',
+        JSON_OBJECT('id', CONCAT('sb-', `id`), 'type', 'ship-workbench', 'version', 1, 'props', JSON_OBJECT(
+            'commonStyle', JSON_OBJECT(
+              'bgColorDirection', 'to right',
+              'bgEndColor', '',
+              'bgPicUrl', '',
+              'bgStartColor', '#ffffff',
+              'styleBottomMargin', 10,
+              'styleBottomPadding', 0,
+              'styleLbRadius', 16,
+              'styleLeftMargin', 10,
+              'styleLeftPadding', 0,
+              'styleLtRadius', 16,
+              'styleRbRadius', 16,
+              'styleRightMargin', 10,
+              'styleRightPadding', 0,
+              'styleRtRadius', 16,
+              'styleTopMargin', 10,
+              'styleTopPadding', 0
+            ),
+            'count', 1,
+            'dataSource', JSON_OBJECT('mode', 'current-tenant'),
+            'emptyStrategy', 'hide',
+            'invalidStrategy', 'hide',
+            'showFrequent', TRUE
+          ))
+      )
+    )
+WHERE `page_type` = '1'
+  AND `del_flag` = '0'
+  AND JSON_VALID(`page_content`)
+  AND JSON_TYPE(JSON_EXTRACT(`page_content`, '$.sections[0].components')) = 'ARRAY'
+  AND `page_content` NOT LIKE '%"ship-workbench"%'
+  AND JSON_SEARCH(`page_content`, 'one', 'ship-workbench', NULL, '$.sections[*].components[*].type') IS NULL;
+
+-- v2（components + formData）：同一位置，写入旧格式字段以兼容存量结构
+--   读取侧 migratePageContent 会把 formData 迁到 props，无需额外处理。
+UPDATE `page_design`
+SET `page_content` = JSON_REPLACE(
+      `page_content`,
+      '$.components',
+      JSON_ARRAY_INSERT(
+        JSON_EXTRACT(`page_content`, '$.components'),
+        '$[0]',
+        JSON_OBJECT('id', CONCAT('sb-', `id`), 'title', '船舶工作台', 'type', 'ship-workbench',
+                    'formData', JSON_OBJECT(
+            'commonStyle', JSON_OBJECT(
+              'bgColorDirection', 'to right',
+              'bgEndColor', '',
+              'bgPicUrl', '',
+              'bgStartColor', '#ffffff',
+              'styleBottomMargin', 10,
+              'styleBottomPadding', 0,
+              'styleLbRadius', 16,
+              'styleLeftMargin', 10,
+              'styleLeftPadding', 0,
+              'styleLtRadius', 16,
+              'styleRbRadius', 16,
+              'styleRightMargin', 10,
+              'styleRightPadding', 0,
+              'styleRtRadius', 16,
+              'styleTopMargin', 10,
+              'styleTopPadding', 0
+            ),
+            'count', 1,
+            'dataSource', JSON_OBJECT('mode', 'current-tenant'),
+            'emptyStrategy', 'hide',
+            'invalidStrategy', 'hide',
+            'showFrequent', TRUE
+          ))
+      )
+    )
+WHERE `page_type` = '1'
+  AND `del_flag` = '0'
+  AND JSON_VALID(`page_content`)
+  AND JSON_TYPE(JSON_EXTRACT(`page_content`, '$.components')) = 'ARRAY'
+  AND `page_content` NOT LIKE '%"ship-workbench"%'
+  AND JSON_SEARCH(`page_content`, 'one', 'ship-workbench', NULL, '$.components[*].type') IS NULL;
+
+-- 2. 已发布版本（page_design_version.page_content，含灰度版本）
+-- v3（sections）：插入首区块组件数组首位
+UPDATE `page_design_version` v
+JOIN `page_design` p ON p.`id` = v.`page_design_id`
+SET v.`page_content` = JSON_REPLACE(
+      v.`page_content`,
+      '$.sections[0].components',
+      JSON_ARRAY_INSERT(
+        JSON_EXTRACT(v.`page_content`, '$.sections[0].components'),
+        '$[0]',
+        JSON_OBJECT('id', CONCAT('sb-', v.`id`), 'type', 'ship-workbench', 'version', 1, 'props', JSON_OBJECT(
+            'commonStyle', JSON_OBJECT(
+              'bgColorDirection', 'to right',
+              'bgEndColor', '',
+              'bgPicUrl', '',
+              'bgStartColor', '#ffffff',
+              'styleBottomMargin', 10,
+              'styleBottomPadding', 0,
+              'styleLbRadius', 16,
+              'styleLeftMargin', 10,
+              'styleLeftPadding', 0,
+              'styleLtRadius', 16,
+              'styleRbRadius', 16,
+              'styleRightMargin', 10,
+              'styleRightPadding', 0,
+              'styleRtRadius', 16,
+              'styleTopMargin', 10,
+              'styleTopPadding', 0
+            ),
+            'count', 1,
+            'dataSource', JSON_OBJECT('mode', 'current-tenant'),
+            'emptyStrategy', 'hide',
+            'invalidStrategy', 'hide',
+            'showFrequent', TRUE
+          ))
+      )
+    )
+WHERE p.`page_type` = '1'
+  AND v.`del_flag` = '0'
+  AND JSON_VALID(v.`page_content`)
+  AND JSON_TYPE(JSON_EXTRACT(v.`page_content`, '$.sections[0].components')) = 'ARRAY'
+  AND v.`page_content` NOT LIKE '%"ship-workbench"%'
+  AND JSON_SEARCH(v.`page_content`, 'one', 'ship-workbench', NULL, '$.sections[*].components[*].type') IS NULL;
+
+-- v2（components + formData）：同一位置，写入旧格式字段以兼容存量结构
+--   读取侧 migratePageContent 会把 formData 迁到 props，无需额外处理。
+UPDATE `page_design_version` v
+JOIN `page_design` p ON p.`id` = v.`page_design_id`
+SET v.`page_content` = JSON_REPLACE(
+      v.`page_content`,
+      '$.components',
+      JSON_ARRAY_INSERT(
+        JSON_EXTRACT(v.`page_content`, '$.components'),
+        '$[0]',
+        JSON_OBJECT('id', CONCAT('sb-', v.`id`), 'title', '船舶工作台', 'type', 'ship-workbench',
+                    'formData', JSON_OBJECT(
+            'commonStyle', JSON_OBJECT(
+              'bgColorDirection', 'to right',
+              'bgEndColor', '',
+              'bgPicUrl', '',
+              'bgStartColor', '#ffffff',
+              'styleBottomMargin', 10,
+              'styleBottomPadding', 0,
+              'styleLbRadius', 16,
+              'styleLeftMargin', 10,
+              'styleLeftPadding', 0,
+              'styleLtRadius', 16,
+              'styleRbRadius', 16,
+              'styleRightMargin', 10,
+              'styleRightPadding', 0,
+              'styleRtRadius', 16,
+              'styleTopMargin', 10,
+              'styleTopPadding', 0
+            ),
+            'count', 1,
+            'dataSource', JSON_OBJECT('mode', 'current-tenant'),
+            'emptyStrategy', 'hide',
+            'invalidStrategy', 'hide',
+            'showFrequent', TRUE
+          ))
+      )
+    )
+WHERE p.`page_type` = '1'
+  AND v.`del_flag` = '0'
+  AND JSON_VALID(v.`page_content`)
+  AND JSON_TYPE(JSON_EXTRACT(v.`page_content`, '$.components')) = 'ARRAY'
+  AND v.`page_content` NOT LIKE '%"ship-workbench"%'
+  AND JSON_SEARCH(v.`page_content`, 'one', 'ship-workbench', NULL, '$.components[*].type') IS NULL;
+
+-- ===========================================================================
+-- 自检：以下四行均应为 0，否则说明首页草稿或已发布版本仍缺少该组件
+-- ===========================================================================
+SELECT '草稿-v3缺少' AS check_item, COUNT(*) AS remaining
+FROM `page_design`
+WHERE `page_type` = '1' AND `del_flag` = '0' AND JSON_VALID(`page_content`)
+  AND JSON_TYPE(JSON_EXTRACT(`page_content`, '$.sections[0].components')) = 'ARRAY'
+  AND JSON_SEARCH(`page_content`, 'one', 'ship-workbench', NULL, '$.sections[*].components[*].type') IS NULL
+UNION ALL
+SELECT '草稿-v2缺少', COUNT(*)
+FROM `page_design`
+WHERE `page_type` = '1' AND `del_flag` = '0' AND JSON_VALID(`page_content`)
+  AND JSON_TYPE(JSON_EXTRACT(`page_content`, '$.components')) = 'ARRAY'
+  AND JSON_SEARCH(`page_content`, 'one', 'ship-workbench', NULL, '$.components[*].type') IS NULL
+UNION ALL
+SELECT '版本-v3缺少', COUNT(*)
+FROM `page_design_version` dv JOIN `page_design` p ON p.`id` = dv.`page_design_id`
+WHERE p.`page_type` = '1' AND dv.`del_flag` = '0' AND JSON_VALID(dv.`page_content`)
+  AND JSON_TYPE(JSON_EXTRACT(dv.`page_content`, '$.sections[0].components')) = 'ARRAY'
+  AND JSON_SEARCH(dv.`page_content`, 'one', 'ship-workbench', NULL, '$.sections[*].components[*].type') IS NULL
+UNION ALL
+SELECT '版本-v2缺少', COUNT(*)
+FROM `page_design_version` dv JOIN `page_design` p ON p.`id` = dv.`page_design_id`
+WHERE p.`page_type` = '1' AND dv.`del_flag` = '0' AND JSON_VALID(dv.`page_content`)
+  AND JSON_TYPE(JSON_EXTRACT(dv.`page_content`, '$.components')) = 'ARRAY'
+  AND JSON_SEARCH(dv.`page_content`, 'one', 'ship-workbench', NULL, '$.components[*].type') IS NULL;
+
+-- ============================================================================
+-- 商超商品主图回填
+-- Source: db/boot/70grocery_product_images.sql
+-- ============================================================================
+-- 悦航购商超商品主图回填（Boot 单体模式）
+--
+-- 目标库：aryn_boot（单体模式所有表同库）
+-- 内容：为 41grocery_catalog_seed.sql 的 106 个商超种子商品（SPU 954x）回填 spu_urls，
+--       并在 sys_material 素材库登记同一批图片，使后台「素材中心」可见可复用。
+-- 图片实体：db/assets/grocery-product-images/（清单见该目录 manifest.tsv）
+-- 部署方式：dev-tools/install-product-images.sh 负责把图片放进文件存储根目录；本脚本只写库。
+-- 特性：可重复执行；仅按 SPU 954x 精确匹配更新，不新增/删除商品，不触碰其它商品与素材。
+-- 注意：Boot 模式 context-path 为 /boot，故回源路径首段为 /boot；
+--       Cloud 模式经网关 /upms 路由到 upms 服务，故首段为 /upms。
+--
+-- 执行：mysql -u root -p aryn_boot < 70grocery_product_images.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+-- ---------- 1. 商品主图回填（仅商超种子 SPU 954x） ----------
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/d6650771-5f1b-5910-9e70-8aac605a0ad2.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000001' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/bf250889-7506-5663-b68c-f9c267227d0f.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000002' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/d3dcc610-8d23-5908-bf5f-e8553e67d279.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000003' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/f5fa1f7f-a5d8-5d06-91ae-6105281e3a18.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000004' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/0daad437-94a2-541a-811b-a760b7045604.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000005' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/9ad07eba-62cd-5411-972c-0b7c66a2da72.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000006' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/062cdae5-544c-5f0b-96c5-288987793e4a.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000007' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/0d13ba9e-652f-5c19-8b8b-6c020296e246.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000008' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/8193de5e-8775-5351-8c44-92d3295afda6.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000009' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/78f47746-bc68-56bf-8070-ee7ffe72eeba.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000010' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/6d9dbdc2-3aff-5c19-8617-b989388da68f.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000011' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/392f5c86-3d4d-51bc-83a5-2eb02c49ab51.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000012' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/5ed8a171-36b3-5dd4-acb1-cac617e71ea0.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000013' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/013568ca-01cb-519c-8c0e-1b9bf6a0fc50.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000014' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/41816ad8-59e0-56eb-a90c-a66c24d2f6fd.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000015' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/e8890bed-4962-5297-994f-8341236a738e.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000016' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/911bd777-8d4a-5d03-9a5b-e7f7b1e1e7ff.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000017' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/751151ee-2861-52ed-837b-c41fc7af06c9.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000018' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/30c310d8-3773-57ba-97e9-eac41e98e23b.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000019' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/bd8dc217-50a4-5047-a319-482da462045a.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000020' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/fb63dbf5-f4c8-5882-a4ae-cbf76421a7fd.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000021' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/66ec184a-1eee-5b49-85bb-2198f26d8252.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000022' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/f1120f6f-ee96-5f3d-97d3-800c5b6b8d62.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000023' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/bc58e7ba-12d6-5cb6-b312-ffb6ac1b928d.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000024' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/871161fb-ff69-5661-8cbe-1e84345cc58e.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000025' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/32ce4e22-347c-5fb4-9cf6-df94de028362.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000026' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/1060e150-4d0d-5e07-a14f-76f3dce01ef5.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000027' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/b2879c2e-3b6d-5c01-8d6f-6d0ad4b2333e.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000028' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/3de6b614-e23e-5171-8022-687092f3f29d.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000029' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/46805a9b-a84f-5aa8-a0c4-351fa4357bac.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000030' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/26e8ab5d-67fd-5438-82c7-0074ea3b4cbb.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000031' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/c2ae8584-af58-59bf-8123-0e72a7cc899e.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000032' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/aab20876-68c4-594e-aa88-0e1dc67b9c59.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000033' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/aa338aaf-580a-5a96-b192-bbcc790befb3.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000034' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/2d751244-d448-51e1-a348-60a48e06e3d5.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000035' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/d9d7844b-7a20-5b6c-86be-0a49065cb296.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000036' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/38199a9b-2470-5865-ada7-db259f7e408a.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000037' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/b83ab7f9-4f61-5ec9-bffd-ad0e3bd4b61d.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000038' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/eb22e3f1-6e4e-56fc-b7cf-f8c3728d3dff.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000039' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/5e949170-6408-5936-a2d0-abcfba1f403b.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000040' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/66602ae6-c0fd-56e3-ad20-8337595e7f36.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000041' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/f581e529-0bcc-5acd-890d-13babe4b13af.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000042' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/0452355d-193b-5fe1-9b98-333f2e1455e4.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000043' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/06eccc45-5f57-5d6d-89c1-f2fc3e465c3b.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000044' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/308f143f-b208-54ea-887e-fbf4760863bc.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000045' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/18394667-2bb3-5601-a4fa-3c70ec34112e.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000046' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/d361d47d-c4d7-5cc3-acf2-567242d2d154.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000047' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/4121b190-9fe2-54b0-99f7-d44dd7cf3ba2.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000048' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/b07be96d-a998-51ea-b7af-9ab2f699d55c.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000049' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/ce669240-4df4-54b4-9162-4e482cdc8048.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000050' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/8d1bd7a8-df8b-5daf-ba99-05b71b043e00.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000051' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/ebef5a7c-1d06-5264-a8c5-93cdc4637faa.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000052' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/c175db19-2690-5168-86b0-edb0951321b6.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000053' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/1486989a-f4c9-5cdb-8c6f-c70b778a70fd.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000054' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/116f6ff3-5d79-5948-9356-c244f0a87dc9.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000055' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/e8d7a4f0-27ee-5787-928f-4748bff80a9f.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000056' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/621f931e-362f-523d-9e38-a990a7d2e21a.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000057' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/8eba70da-8546-54ed-ba0f-223e88258cbe.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000058' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/7865b31b-6842-553f-ac29-a6eac07ac278.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000059' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/75a1b2ae-da71-544c-89c2-37728c585fa9.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000060' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/ae471a67-61d0-5e69-98c4-9277580a34cb.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000061' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/b4147e7c-cbeb-5603-94e3-cf4a93471720.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000062' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/4de1ff54-a5cb-596c-825b-de40d97c133b.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000063' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/ddef0e70-5c32-5179-a4f2-e8eec209124d.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000064' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/b1782e99-881f-5a82-b94f-a48d33a7991f.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000065' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/2f09f7ec-77ca-50b7-bf5b-9285f8b85135.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000066' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/15bad279-be8b-5696-9852-73c734bb2041.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000067' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/2fa2df12-c8b7-5cff-a979-89fd8ae2c4ae.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000068' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/fbaed193-bc98-58a8-b247-29962e7a152c.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000069' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/ba4af140-30a4-5877-be2d-51dbf25c1fc1.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000070' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/39556ada-5532-56e0-9a5e-0735e9038534.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000071' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/520a7b9a-75be-54fc-8b90-b9fce56a2efc.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000072' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/be924432-060e-5c71-8dfb-ff34299449ae.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000073' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/2bd66d4c-bf73-5efd-bf6e-6ef49a7e609f.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000074' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/3bf9b1d6-0437-5072-9513-55eb8e307c55.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000075' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/bd361f5a-89ce-548d-a16f-0b267dabfefb.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000076' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/d8975494-ae89-5b29-a742-611bdbfa82a9.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000077' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/af9089c2-c849-518e-a095-9a871bff04b9.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000078' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/88cf76b8-46fd-5c10-aea9-0ca6e9138b8d.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000079' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/8fc7cdcf-35ed-5be0-8df3-b43331fdd619.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000080' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/b21fb9b8-cf3b-56ed-902d-fdc80cf46ccc.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000081' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/eb16f801-4c57-5c21-b3eb-0f78f8851a6d.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000082' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/8d7c1946-cd15-5c56-bb8e-394eb05a2e42.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000083' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/454da1ec-e6be-563b-bd5f-b67329dc0566.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000084' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/fcae3db3-5302-50f5-ab43-6cd50b3ef07a.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000085' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/514878f9-23b8-5a65-9a0a-0638f85e2496.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000086' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/44423e72-9fcc-53d4-8c6b-4e01bec8519b.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000087' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/fa3ee693-7d85-5326-acde-a06c56121183.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000088' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/bd7cbaa4-9ab9-5288-8f83-99df5267e334.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000089' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/c845c250-5ef6-5332-bccc-d2b0917c8e07.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000090' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/4b7a5b3d-c338-5a4c-a159-cce84b78da66.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000091' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/a525a124-ba29-5043-baf5-837287f9d1d8.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000092' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/38f65e00-4ec1-52f0-9963-f11bebcda5a6.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000093' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/53164646-f933-53bf-b0f1-5d2fb7281e7d.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000094' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/7b466830-62a8-5f70-a423-06a5f6ce4973.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000095' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/13d20d35-c04d-54c5-a472-fbe33df34105.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000096' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/a51e9872-19cd-58d6-b086-c38c9cd0ecbf.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000097' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/1f0420fd-47f8-5c55-81b8-c3a27c648e69.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000098' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/442d5833-77c8-5e82-9ad2-0c9dc1cc4cef.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000099' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/4e892efd-ccc2-5570-8f58-9cd1a6db013c.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000100' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/a53e5dd5-3077-5699-91f6-948f11b3caee.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000101' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/2c9a9652-c7a7-51e0-85ad-5051ed5d0cf9.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000102' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/2366f862-8b39-5b7c-ae0d-c81d6e31ecd2.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000103' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/f40ba0a6-3f02-5a91-8f2b-75d8b5b98567.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000104' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/1ded5713-3dc3-5082-89fe-5cf67c0a9d7e.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000105' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_spu`
+   SET `spu_urls` = 'http://localhost:9999/boot/file/local/1590229800633634816/b29b4db5-08db-5eb7-82b3-a7e752107626.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9540000000000000106' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+
+-- ---------- 2. 素材库登记（等价于管理端上传接口的副作用） ----------
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/d6650771-5f1b-5910-9e70-8aac605a0ad2.jpg', `name` = '油麦菜 约300g-份.jpg', `file_size` = 403973, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000001' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000001', '1', '-1', '油麦菜 约300g-份.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/d6650771-5f1b-5910-9e70-8aac605a0ad2.jpg', 403973, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000001');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/bf250889-7506-5663-b68c-f9c267227d0f.jpg', `name` = '新鲜菠菜 约300g-份.jpg', `file_size` = 24629, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000002' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000002', '1', '-1', '新鲜菠菜 约300g-份.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/bf250889-7506-5663-b68c-f9c267227d0f.jpg', 24629, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000002');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/d3dcc610-8d23-5908-bf5f-e8553e67d279.jpg', `name` = '娃娃菜 3颗装 约500g.jpg', `file_size` = 30714, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000003' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000003', '1', '-1', '娃娃菜 3颗装 约500g.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/d3dcc610-8d23-5908-bf5f-e8553e67d279.jpg', 30714, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000003');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/f5fa1f7f-a5d8-5d06-91ae-6105281e3a18.jpg', `name` = '黄心土豆 约500g-份.jpg', `file_size` = 249417, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000004' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000004', '1', '-1', '黄心土豆 约500g-份.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/f5fa1f7f-a5d8-5d06-91ae-6105281e3a18.jpg', 249417, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000004');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/0daad437-94a2-541a-811b-a760b7045604.jpg', `name` = '紫皮洋葱 约500g-份.jpg', `file_size` = 175810, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000005' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000005', '1', '-1', '紫皮洋葱 约500g-份.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/0daad437-94a2-541a-811b-a760b7045604.jpg', 175810, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000005');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/9ad07eba-62cd-5411-972c-0b7c66a2da72.jpg', `name` = '新鲜胡萝卜 约400g-份.jpg', `file_size` = 40471, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000006' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000006', '1', '-1', '新鲜胡萝卜 约400g-份.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/9ad07eba-62cd-5411-972c-0b7c66a2da72.jpg', 40471, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000006');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/062cdae5-544c-5f0b-96c5-288987793e4a.jpg', `name` = '普罗旺斯西红柿 约500g-份.jpg', `file_size` = 238126, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000007' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000007', '1', '-1', '普罗旺斯西红柿 约500g-份.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/062cdae5-544c-5f0b-96c5-288987793e4a.jpg', 238126, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000007');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/0d13ba9e-652f-5c19-8b8b-6c020296e246.jpg', `name` = '荷兰黄瓜 2根装 约300g.jpg', `file_size` = 113553, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000008' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000008', '1', '-1', '荷兰黄瓜 2根装 约300g.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/0d13ba9e-652f-5c19-8b8b-6c020296e246.jpg', 113553, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000008');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/8193de5e-8775-5351-8c44-92d3295afda6.jpg', `name` = '紫长茄子 约400g-份.jpg', `file_size` = 145220, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000009' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000009', '1', '-1', '紫长茄子 约400g-份.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/8193de5e-8775-5351-8c44-92d3295afda6.jpg', 145220, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000009');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/78f47746-bc68-56bf-8070-ee7ffe72eeba.jpg', `name` = '小香葱 约100g-份.jpg', `file_size` = 327239, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000010' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000010', '1', '-1', '小香葱 约100g-份.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/78f47746-bc68-56bf-8070-ee7ffe72eeba.jpg', 327239, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000010');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/6d9dbdc2-3aff-5c19-8617-b989388da68f.jpg', `name` = '独头蒜 约200g-份.jpg', `file_size` = 43744, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000011' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000011', '1', '-1', '独头蒜 约200g-份.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/6d9dbdc2-3aff-5c19-8617-b989388da68f.jpg', 43744, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000011');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/392f5c86-3d4d-51bc-83a5-2eb02c49ab51.jpg', `name` = '白玉菇 2连包 约400g.jpg', `file_size` = 72026, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000012' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000012', '1', '-1', '白玉菇 2连包 约400g.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/392f5c86-3d4d-51bc-83a5-2eb02c49ab51.jpg', 72026, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000012');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/5ed8a171-36b3-5dd4-acb1-cac617e71ea0.jpg', `name` = '新鲜香菇 约300g-份.jpg', `file_size` = 269967, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000013' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000013', '1', '-1', '新鲜香菇 约300g-份.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/5ed8a171-36b3-5dd4-acb1-cac617e71ea0.jpg', 269967, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000013');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/013568ca-01cb-519c-8c0e-1b9bf6a0fc50.jpg', `name` = '嫩豆腐 2盒装 约800g.jpg', `file_size` = 35691, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000014' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000014', '1', '-1', '嫩豆腐 2盒装 约800g.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/013568ca-01cb-519c-8c0e-1b9bf6a0fc50.jpg', 35691, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000014');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/41816ad8-59e0-56eb-a90c-a66c24d2f6fd.jpg', `name` = '千张豆腐皮 约300g-份.jpg', `file_size` = 134363, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000015' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000015', '1', '-1', '千张豆腐皮 约300g-份.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/41816ad8-59e0-56eb-a90c-a66c24d2f6fd.jpg', 134363, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000015');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/e8890bed-4962-5297-994f-8341236a738e.jpg', `name` = '烟台红富士苹果 4个装 约1kg.jpg', `file_size` = 139884, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000016' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000016', '1', '-1', '烟台红富士苹果 4个装 约1kg.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/e8890bed-4962-5297-994f-8341236a738e.jpg', 139884, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000016');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/911bd777-8d4a-5d03-9a5b-e7f7b1e1e7ff.jpg', `name` = '新疆库尔勒香梨 6个装 约1.2kg.jpg', `file_size` = 84513, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000017' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000017', '1', '-1', '新疆库尔勒香梨 6个装 约1.2kg.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/911bd777-8d4a-5d03-9a5b-e7f7b1e1e7ff.jpg', 84513, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000017');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/751151ee-2861-52ed-837b-c41fc7af06c9.jpg', `name` = '赣南脐橙 5个装 约1kg.jpg', `file_size` = 79255, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000018' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000018', '1', '-1', '赣南脐橙 5个装 约1kg.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/751151ee-2861-52ed-837b-c41fc7af06c9.jpg', 79255, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000018');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/30c310d8-3773-57ba-97e9-eac41e98e23b.jpg', `name` = '福建琯溪蜜柚 1个 约1kg.jpg', `file_size` = 43455, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000019' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000019', '1', '-1', '福建琯溪蜜柚 1个 约1kg.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/30c310d8-3773-57ba-97e9-eac41e98e23b.jpg', 43455, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000019');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/bd8dc217-50a4-5047-a319-482da462045a.jpg', `name` = '海南高山香蕉 约1kg-把.jpg', `file_size` = 16158, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000020' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000020', '1', '-1', '海南高山香蕉 约1kg-把.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/bd8dc217-50a4-5047-a319-482da462045a.jpg', 16158, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000020');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/fb63dbf5-f4c8-5882-a4ae-cbf76421a7fd.jpg', `name` = '海南贵妃芒 3个装 约500g.jpg', `file_size` = 110384, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000021' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000021', '1', '-1', '海南贵妃芒 3个装 约500g.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/fb63dbf5-f4c8-5882-a4ae-cbf76421a7fd.jpg', 110384, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000021');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/66ec184a-1eee-5b49-85bb-2198f26d8252.jpg', `name` = '泰国椰青 1个装 约1kg.jpg', `file_size` = 179196, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000022' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000022', '1', '-1', '泰国椰青 1个装 约1kg.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/66ec184a-1eee-5b49-85bb-2198f26d8252.jpg', 179196, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000022');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/f1120f6f-ee96-5f3d-97d3-800c5b6b8d62.jpg', `name` = '麒麟西瓜 1个 约2kg.jpg', `file_size` = 153517, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000023' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000023', '1', '-1', '麒麟西瓜 1个 约2kg.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/f1120f6f-ee96-5f3d-97d3-800c5b6b8d62.jpg', 153517, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000023');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/bc58e7ba-12d6-5cb6-b312-ffb6ac1b928d.jpg', `name` = '西州蜜哈密瓜 1个 约1.5kg.jpg', `file_size` = 10510, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000024' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000024', '1', '-1', '西州蜜哈密瓜 1个 约1.5kg.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/bc58e7ba-12d6-5cb6-b312-ffb6ac1b928d.jpg', 10510, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000024');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/871161fb-ff69-5661-8cbe-1e84345cc58e.jpg', `name` = '云南阳光玫瑰葡萄 500g-串.jpg', `file_size` = 73428, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000025' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000025', '1', '-1', '云南阳光玫瑰葡萄 500g-串.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/871161fb-ff69-5661-8cbe-1e84345cc58e.jpg', 73428, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000025');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/32ce4e22-347c-5fb4-9cf6-df94de028362.jpg', `name` = '丹东99红颜草莓 250g-盒.jpg', `file_size` = 77495, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000026' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000026', '1', '-1', '丹东99红颜草莓 250g-盒.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/32ce4e22-347c-5fb4-9cf6-df94de028362.jpg', 77495, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000026');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/1060e150-4d0d-5e07-a14f-76f3dce01ef5.jpg', `name` = '猪五花肉片 约300g-份.jpg', `file_size` = 89476, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000027' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000027', '1', '-1', '猪五花肉片 约300g-份.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/1060e150-4d0d-5e07-a14f-76f3dce01ef5.jpg', 89476, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000027');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/b2879c2e-3b6d-5c01-8d6f-6d0ad4b2333e.jpg', `name` = '猪里脊肉 约300g-份.jpg', `file_size` = 87397, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000028' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000028', '1', '-1', '猪里脊肉 约300g-份.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/b2879c2e-3b6d-5c01-8d6f-6d0ad4b2333e.jpg', 87397, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000028');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/3de6b614-e23e-5171-8022-687092f3f29d.jpg', `name` = '原切谷饲牛腩块 约500g-盒.jpg', `file_size` = 275211, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000029' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000029', '1', '-1', '原切谷饲牛腩块 约500g-盒.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/3de6b614-e23e-5171-8022-687092f3f29d.jpg', 275211, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000029');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/46805a9b-a84f-5aa8-a0c4-351fa4357bac.jpg', `name` = '澳洲谷饲原切牛排 2片装 约300g.jpg', `file_size` = 443783, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000030' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000030', '1', '-1', '澳洲谷饲原切牛排 2片装 约300g.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/46805a9b-a84f-5aa8-a0c4-351fa4357bac.jpg', 443783, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000030');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/26e8ab5d-67fd-5438-82c7-0074ea3b4cbb.jpg', `name` = '内蒙古羔羊肉卷 约300g-份.jpg', `file_size` = 97609, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000031' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000031', '1', '-1', '内蒙古羔羊肉卷 约300g-份.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/26e8ab5d-67fd-5438-82c7-0074ea3b4cbb.jpg', 97609, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000031');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/c2ae8584-af58-59bf-8123-0e72a7cc899e.jpg', `name` = '内蒙古羔羊排 约600g-份.jpg', `file_size` = 62633, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000032' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000032', '1', '-1', '内蒙古羔羊排 约600g-份.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/c2ae8584-af58-59bf-8123-0e72a7cc899e.jpg', 62633, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000032');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/aab20876-68c4-594e-aa88-0e1dc67b9c59.jpg', `name` = '温氏三黄鸡 1只 约1kg.jpg', `file_size` = 42343, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000033' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000033', '1', '-1', '温氏三黄鸡 1只 约1kg.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/aab20876-68c4-594e-aa88-0e1dc67b9c59.jpg', 42343, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000033');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/aa338aaf-580a-5a96-b192-bbcc790befb3.jpg', `name` = '单冻鸡胸肉 约500g-袋.jpg', `file_size` = 56333, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000034' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000034', '1', '-1', '单冻鸡胸肉 约500g-袋.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/aa338aaf-580a-5a96-b192-bbcc790befb3.jpg', 56333, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000034');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/2d751244-d448-51e1-a348-60a48e06e3d5.jpg', `name` = '正大鲜鸡蛋 10枚装 约500g.jpg', `file_size` = 58831, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000035' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000035', '1', '-1', '正大鲜鸡蛋 10枚装 约500g.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/2d751244-d448-51e1-a348-60a48e06e3d5.jpg', 58831, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000035');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/d9d7844b-7a20-5b6c-86be-0a49065cb296.jpg', `name` = '红泥咸鸭蛋 6枚装 约360g.jpg', `file_size` = 251933, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000036' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000036', '1', '-1', '红泥咸鸭蛋 6枚装 约360g.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/d9d7844b-7a20-5b6c-86be-0a49065cb296.jpg', 251933, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000036');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/38199a9b-2470-5865-ada7-db259f7e408a.jpg', `name` = '鲜活河虾 约250g-份.jpg', `file_size` = 92605, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000037' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000037', '1', '-1', '鲜活河虾 约250g-份.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/38199a9b-2470-5865-ada7-db259f7e408a.jpg', 92605, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000037');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/b83ab7f9-4f61-5ec9-bffd-ad0e3bd4b61d.jpg', `name` = '鲜活肉蟹 1只 约400g.jpg', `file_size` = 257215, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000038' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000038', '1', '-1', '鲜活肉蟹 1只 约400g.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/b83ab7f9-4f61-5ec9-bffd-ad0e3bd4b61d.jpg', 257215, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000038');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/eb22e3f1-6e4e-56fc-b7cf-f8c3728d3dff.jpg', `name` = '冰鲜三文鱼刺身段 约200g-盒.jpg', `file_size` = 111717, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000039' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000039', '1', '-1', '冰鲜三文鱼刺身段 约200g-盒.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/eb22e3f1-6e4e-56fc-b7cf-f8c3728d3dff.jpg', 111717, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000039');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/5e949170-6408-5936-a2d0-abcfba1f403b.jpg', `name` = '冰鲜大黄鱼 1条 约500g.jpg', `file_size` = 205823, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000040' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000040', '1', '-1', '冰鲜大黄鱼 1条 约500g.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/5e949170-6408-5936-a2d0-abcfba1f403b.jpg', 205823, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000040');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/66602ae6-c0fd-56e3-ad20-8337595e7f36.jpg', `name` = '冷冻白虾仁 约250g-袋.jpg', `file_size` = 60853, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000041' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000041', '1', '-1', '冷冻白虾仁 约250g-袋.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/66602ae6-c0fd-56e3-ad20-8337595e7f36.jpg', 60853, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000041');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/f581e529-0bcc-5acd-890d-13babe4b13af.jpg', `name` = '鲜活花蛤 约500g-份.jpg', `file_size` = 110441, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000042' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000042', '1', '-1', '鲜活花蛤 约500g-份.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/f581e529-0bcc-5acd-890d-13babe4b13af.jpg', 110441, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000042');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/0452355d-193b-5fe1-9b98-333f2e1455e4.jpg', `name` = '阿根廷红虾 2kg-盒.jpg', `file_size` = 162594, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000043' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000043', '1', '-1', '阿根廷红虾 2kg-盒.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/0452355d-193b-5fe1-9b98-333f2e1455e4.jpg', 162594, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000043');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/06eccc45-5f57-5d6d-89c1-f2fc3e465c3b.jpg', `name` = '越南巴沙鱼片 约300g-袋.jpg', `file_size` = 112594, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000044' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000044', '1', '-1', '越南巴沙鱼片 约300g-袋.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/06eccc45-5f57-5d6d-89c1-f2fc3e465c3b.jpg', 112594, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000044');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/308f143f-b208-54ea-887e-fbf4760863bc.jpg', `name` = '悦航优鲜 全脂鲜牛奶 950ml.jpg', `file_size` = 143274, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000045' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000045', '1', '-1', '悦航优鲜 全脂鲜牛奶 950ml.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/308f143f-b208-54ea-887e-fbf4760863bc.jpg', 143274, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000045');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/18394667-2bb3-5601-a4fa-3c70ec34112e.jpg', `name` = '悦航优鲜 脱脂鲜牛奶 950ml.jpg', `file_size` = 26325, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000046' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000046', '1', '-1', '悦航优鲜 脱脂鲜牛奶 950ml.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/18394667-2bb3-5601-a4fa-3c70ec34112e.jpg', 26325, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000046');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/d361d47d-c4d7-5cc3-acf2-567242d2d154.jpg', `name` = '简爱 0添加原味酸奶 135g×3杯.jpg', `file_size` = 35721, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000047' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000047', '1', '-1', '简爱 0添加原味酸奶 135g×3杯.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/d361d47d-c4d7-5cc3-acf2-567242d2d154.jpg', 35721, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000047');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/4121b190-9fe2-54b0-99f7-d44dd7cf3ba2.jpg', `name` = '蒙牛冠益乳 草莓味酸奶 250g×3杯.jpg', `file_size` = 225150, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000048' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000048', '1', '-1', '蒙牛冠益乳 草莓味酸奶 250g×3杯.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/4121b190-9fe2-54b0-99f7-d44dd7cf3ba2.jpg', 225150, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000048');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/b07be96d-a998-51ea-b7af-9ab2f699d55c.jpg', `name` = '伊利金典 纯牛奶 250ml×10盒.jpg', `file_size` = 59733, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000049' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000049', '1', '-1', '伊利金典 纯牛奶 250ml×10盒.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/b07be96d-a998-51ea-b7af-9ab2f699d55c.jpg', 59733, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000049');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/ce669240-4df4-54b4-9162-4e482cdc8048.jpg', `name` = '特仑苏 纯牛奶 250ml×10盒.jpg', `file_size` = 103001, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000050' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000050', '1', '-1', '特仑苏 纯牛奶 250ml×10盒.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/ce669240-4df4-54b4-9162-4e482cdc8048.jpg', 103001, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000050');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/8d1bd7a8-df8b-5daf-ba99-05b71b043e00.jpg', `name` = '悦航工坊 爆浆巧克力麻薯 4个装.jpg', `file_size` = 98552, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000051' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000051', '1', '-1', '悦航工坊 爆浆巧克力麻薯 4个装.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/8d1bd7a8-df8b-5daf-ba99-05b71b043e00.jpg', 98552, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000051');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/ebef5a7c-1d06-5264-a8c5-93cdc4637faa.jpg', `name` = '悦航工坊 全麦贝果 3个装.jpg', `file_size` = 590456, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000052' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000052', '1', '-1', '悦航工坊 全麦贝果 3个装.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/ebef5a7c-1d06-5264-a8c5-93cdc4637faa.jpg', 590456, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000052');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/c175db19-2690-5168-86b0-edb0951321b6.jpg', `name` = '悦航大厨 鱼香肉丝快手菜 约350g.jpg', `file_size` = 190012, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000053' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000053', '1', '-1', '悦航大厨 鱼香肉丝快手菜 约350g.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/c175db19-2690-5168-86b0-edb0951321b6.jpg', 190012, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000053');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/1486989a-f4c9-5cdb-8c6f-c70b778a70fd.jpg', `name` = '悦航大厨 宫保鸡丁快手菜 约350g.jpg', `file_size` = 92086, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000054' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000054', '1', '-1', '悦航大厨 宫保鸡丁快手菜 约350g.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/1486989a-f4c9-5cdb-8c6f-c70b778a70fd.jpg', 92086, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000054');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/116f6ff3-5d79-5948-9356-c244f0a87dc9.jpg', `name` = '悦航大厨 黑椒牛柳意面 约320g.jpg', `file_size` = 37404, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000055' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000055', '1', '-1', '悦航大厨 黑椒牛柳意面 约320g.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/116f6ff3-5d79-5948-9356-c244f0a87dc9.jpg', 37404, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000055');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/e8d7a4f0-27ee-5787-928f-4748bff80a9f.jpg', `name` = '悦航大厨 广式豉汁排骨 约400g.jpg', `file_size` = 57397, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000056' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000056', '1', '-1', '悦航大厨 广式豉汁排骨 约400g.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/e8d7a4f0-27ee-5787-928f-4748bff80a9f.jpg', 57397, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000056');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/621f931e-362f-523d-9e38-a990a7d2e21a.jpg', `name` = '悦航工坊 五香酱牛肉 约200g-盒.jpg', `file_size` = 125496, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000057' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000057', '1', '-1', '悦航工坊 五香酱牛肉 约200g-盒.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/621f931e-362f-523d-9e38-a990a7d2e21a.jpg', 125496, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000057');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/8eba70da-8546-54ed-ba0f-223e88258cbe.jpg', `name` = '悦航工坊 盐水鸭 半只 约600g.jpg', `file_size` = 19515, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000058' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000058', '1', '-1', '悦航工坊 盐水鸭 半只 约600g.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/8eba70da-8546-54ed-ba0f-223e88258cbe.jpg', 19515, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000058');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/7865b31b-6842-553f-ac29-a6eac07ac278.jpg', `name` = '悦航工坊 鲜虾云吞 20只装 约400g.jpg', `file_size` = 335031, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000059' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000059', '1', '-1', '悦航工坊 鲜虾云吞 20只装 约400g.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/7865b31b-6842-553f-ac29-a6eac07ac278.jpg', 335031, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000059');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/75a1b2ae-da71-544c-89c2-37728c585fa9.jpg', `name` = '悦航工坊 老面馒头 6个装 约480g.jpg', `file_size` = 458156, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000060' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000060', '1', '-1', '悦航工坊 老面馒头 6个装 约480g.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/75a1b2ae-da71-544c-89c2-37728c585fa9.jpg', 458156, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000060');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/ae471a67-61d0-5e69-98c4-9277580a34cb.jpg', `name` = '金龙鱼 东北大米 5kg-袋.jpg', `file_size` = 197985, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000061' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000061', '1', '-1', '金龙鱼 东北大米 5kg-袋.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/ae471a67-61d0-5e69-98c4-9277580a34cb.jpg', 197985, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000061');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/b4147e7c-cbeb-5603-94e3-cf4a93471720.jpg', `name` = '香满园 麦芯小麦粉 2.5kg-袋.jpg', `file_size` = 12965, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000062' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000062', '1', '-1', '香满园 麦芯小麦粉 2.5kg-袋.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/b4147e7c-cbeb-5603-94e3-cf4a93471720.jpg', 12965, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000062');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/4de1ff54-a5cb-596c-825b-de40d97c133b.jpg', `name` = '悦航优选 有机黄小米 1kg-袋.jpg', `file_size` = 181944, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000063' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000063', '1', '-1', '悦航优选 有机黄小米 1kg-袋.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/4de1ff54-a5cb-596c-825b-de40d97c133b.jpg', 181944, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000063');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/ddef0e70-5c32-5179-a4f2-e8eec209124d.jpg', `name` = '悦航优选 红芸豆 500g-袋.jpg', `file_size` = 27787, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000064' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000064', '1', '-1', '悦航优选 红芸豆 500g-袋.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/ddef0e70-5c32-5179-a4f2-e8eec209124d.jpg', 27787, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000064');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/b1782e99-881f-5a82-b94f-a48d33a7991f.jpg', `name` = '金龙鱼 压榨一级花生油 4L-桶.jpg', `file_size` = 57686, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000065' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000065', '1', '-1', '金龙鱼 压榨一级花生油 4L-桶.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/b1782e99-881f-5a82-b94f-a48d33a7991f.jpg', 57686, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000065');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/2f09f7ec-77ca-50b7-bf5b-9285f8b85135.jpg', `name` = '鲁花 5S压榨一级花生油 5L-桶.jpg', `file_size` = 41987, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000066' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000066', '1', '-1', '鲁花 5S压榨一级花生油 5L-桶.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/2f09f7ec-77ca-50b7-bf5b-9285f8b85135.jpg', 41987, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000066');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/15bad279-be8b-5696-9852-73c734bb2041.jpg', `name` = '海天 金标生抽 1.9L-瓶.jpg', `file_size` = 34762, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000067' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000067', '1', '-1', '海天 金标生抽 1.9L-瓶.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/15bad279-be8b-5696-9852-73c734bb2041.jpg', 34762, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000067');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/2fa2df12-c8b7-5cff-a979-89fd8ae2c4ae.jpg', `name` = '太太乐 三鲜鸡精 400g-罐.jpg', `file_size` = 61412, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000068' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000068', '1', '-1', '太太乐 三鲜鸡精 400g-罐.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/2fa2df12-c8b7-5cff-a979-89fd8ae2c4ae.jpg', 61412, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000068');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/fbaed193-bc98-58a8-b247-29962e7a152c.jpg', `name` = '洽洽 每日坚果 30日装 750g.jpg', `file_size` = 455689, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000069' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000069', '1', '-1', '洽洽 每日坚果 30日装 750g.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/fbaed193-bc98-58a8-b247-29962e7a152c.jpg', 455689, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000069');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/ba4af140-30a4-5877-be2d-51dbf25c1fc1.jpg', `name` = '三只松鼠 碧根果 500g-袋.jpg', `file_size` = 143664, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000070' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000070', '1', '-1', '三只松鼠 碧根果 500g-袋.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/ba4af140-30a4-5877-be2d-51dbf25c1fc1.jpg', 143664, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000070');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/39556ada-5532-56e0-9a5e-0735e9038534.jpg', `name` = '乐事 原味薯片 104g×3连包.jpg', `file_size` = 55032, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000071' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000071', '1', '-1', '乐事 原味薯片 104g×3连包.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/39556ada-5532-56e0-9a5e-0735e9038534.jpg', 55032, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000071');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/520a7b9a-75be-54fc-8b90-b9fce56a2efc.jpg', `name` = '好丽友 薯愿原味薯片 104g.jpg', `file_size` = 92819, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000072' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000072', '1', '-1', '好丽友 薯愿原味薯片 104g.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/520a7b9a-75be-54fc-8b90-b9fce56a2efc.jpg', 92819, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000072');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/be924432-060e-5c71-8dfb-ff34299449ae.jpg', `name` = '奥利奥 原味夹心饼干 388g-盒.jpg', `file_size` = 83691, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000073' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000073', '1', '-1', '奥利奥 原味夹心饼干 388g-盒.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/be924432-060e-5c71-8dfb-ff34299449ae.jpg', 83691, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000073');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/2bd66d4c-bf73-5efd-bf6e-6ef49a7e609f.jpg', `name` = '盼盼 梅尼耶干蛋糕 1kg-箱.jpg', `file_size` = 807426, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000074' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000074', '1', '-1', '盼盼 梅尼耶干蛋糕 1kg-箱.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/2bd66d4c-bf73-5efd-bf6e-6ef49a7e609f.jpg', 807426, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000074');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/3bf9b1d6-0437-5072-9513-55eb8e307c55.jpg', `name` = '德芙 丝滑牛奶巧克力 252g-盒.jpg', `file_size` = 121098, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000075' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000075', '1', '-1', '德芙 丝滑牛奶巧克力 252g-盒.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/3bf9b1d6-0437-5072-9513-55eb8e307c55.jpg', 121098, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000075');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/bd361f5a-89ce-548d-a16f-0b267dabfefb.jpg', `name` = '徐福记 酥心糖 500g-袋.jpg', `file_size` = 378759, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000076' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000076', '1', '-1', '徐福记 酥心糖 500g-袋.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/bd361f5a-89ce-548d-a16f-0b267dabfefb.jpg', 378759, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000076');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/d8975494-ae89-5b29-a742-611bdbfa82a9.jpg', `name` = '百草味 芒果干 300g-袋.jpg', `file_size` = 62688, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000077' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000077', '1', '-1', '百草味 芒果干 300g-袋.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/d8975494-ae89-5b29-a742-611bdbfa82a9.jpg', 62688, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000077');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/af9089c2-c849-518e-a095-9a871bff04b9.jpg', `name` = '悦航优选 新疆无核葡萄干 500g-袋.jpg', `file_size` = 2723528, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000078' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000078', '1', '-1', '悦航优选 新疆无核葡萄干 500g-袋.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/af9089c2-c849-518e-a095-9a871bff04b9.jpg', 2723528, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000078');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/88cf76b8-46fd-5c10-aea9-0ca6e9138b8d.jpg', `name` = '农夫山泉 饮用天然水 550ml×24瓶.jpg', `file_size` = 18570, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000079' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000079', '1', '-1', '农夫山泉 饮用天然水 550ml×24瓶.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/88cf76b8-46fd-5c10-aea9-0ca6e9138b8d.jpg', 18570, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000079');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/8fc7cdcf-35ed-5be0-8df3-b43331fdd619.jpg', `name` = '农夫山泉 饮用天然水 4L×4桶.jpg', `file_size` = 72663, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000080' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000080', '1', '-1', '农夫山泉 饮用天然水 4L×4桶.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/8fc7cdcf-35ed-5be0-8df3-b43331fdd619.jpg', 72663, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000080');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/b21fb9b8-cf3b-56ed-902d-fdc80cf46ccc.jpg', `name` = '可口可乐 500ml×12瓶.jpg', `file_size` = 226484, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000081' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000081', '1', '-1', '可口可乐 500ml×12瓶.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/b21fb9b8-cf3b-56ed-902d-fdc80cf46ccc.jpg', 226484, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000081');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/eb16f801-4c57-5c21-b3eb-0f78f8851a6d.jpg', `name` = '元气森林 白桃味气泡水 480ml×6瓶.jpg', `file_size` = 12740, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000082' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000082', '1', '-1', '元气森林 白桃味气泡水 480ml×6瓶.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/eb16f801-4c57-5c21-b3eb-0f78f8851a6d.jpg', 12740, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000082');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/8d7c1946-cd15-5c56-bb8e-394eb05a2e42.jpg', `name` = '农夫山泉 NFC橙汁 950ml-瓶.jpg', `file_size` = 96018, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000083' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000083', '1', '-1', '农夫山泉 NFC橙汁 950ml-瓶.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/8d7c1946-cd15-5c56-bb8e-394eb05a2e42.jpg', 96018, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000083');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/454da1ec-e6be-563b-bd5f-b67329dc0566.jpg', `name` = '三得利 无糖乌龙茶 500ml×15瓶.jpg', `file_size` = 86368, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000084' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000084', '1', '-1', '三得利 无糖乌龙茶 500ml×15瓶.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/454da1ec-e6be-563b-bd5f-b67329dc0566.jpg', 86368, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000084');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/fcae3db3-5302-50f5-ab43-6cd50b3ef07a.jpg', `name` = '青岛啤酒 经典10度 500ml×12听.jpg', `file_size` = 82956, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000085' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000085', '1', '-1', '青岛啤酒 经典10度 500ml×12听.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/fcae3db3-5302-50f5-ab43-6cd50b3ef07a.jpg', 82956, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000085');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/514878f9-23b8-5a65-9a0a-0638f85e2496.jpg', `name` = '百威小麦醇正拉罐 500ml×18听.jpg', `file_size` = 87719, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000086' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000086', '1', '-1', '百威小麦醇正拉罐 500ml×18听.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/514878f9-23b8-5a65-9a0a-0638f85e2496.jpg', 87719, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000086');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/44423e72-9fcc-53d4-8c6b-4e01bec8519b.jpg', `name` = '牛栏山 陈酿白酒 42度 500ml.jpg', `file_size` = 53761, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000087' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000087', '1', '-1', '牛栏山 陈酿白酒 42度 500ml.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/44423e72-9fcc-53d4-8c6b-4e01bec8519b.jpg', 53761, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000087');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/fa3ee693-7d85-5326-acde-a06c56121183.jpg', `name` = '张裕 解百纳干红葡萄酒 750ml.jpg', `file_size` = 134404, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000088' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000088', '1', '-1', '张裕 解百纳干红葡萄酒 750ml.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/fa3ee693-7d85-5326-acde-a06c56121183.jpg', 134404, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000088');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/bd7cbaa4-9ab9-5288-8f83-99df5267e334.jpg', `name` = '海飞丝 去屑洗发露 750ml.jpg', `file_size` = 47683, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000089' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000089', '1', '-1', '海飞丝 去屑洗发露 750ml.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/bd7cbaa4-9ab9-5288-8f83-99df5267e334.jpg', 47683, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000089');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/c845c250-5ef6-5332-bccc-d2b0917c8e07.jpg', `name` = '舒肤佳 沐浴露 720ml.jpg', `file_size` = 131369, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000090' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000090', '1', '-1', '舒肤佳 沐浴露 720ml.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/c845c250-5ef6-5332-bccc-d2b0917c8e07.jpg', 131369, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000090');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/4b7a5b3d-c338-5a4c-a159-cce84b78da66.jpg', `name` = '云南白药 牙膏 210g.jpg', `file_size` = 47011, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000091' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000091', '1', '-1', '云南白药 牙膏 210g.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/4b7a5b3d-c338-5a4c-a159-cce84b78da66.jpg', 47011, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000091');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/a525a124-ba29-5043-baf5-837287f9d1d8.jpg', `name` = '高露洁 光感白牙膏 180g.jpg', `file_size` = 17201, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000092' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000092', '1', '-1', '高露洁 光感白牙膏 180g.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/a525a124-ba29-5043-baf5-837287f9d1d8.jpg', 17201, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000092');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/38f65e00-4ec1-52f0-9963-f11bebcda5a6.jpg', `name` = '维达 棉韧抽纸 3层130抽×24包.jpg', `file_size` = 94275, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000093' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000093', '1', '-1', '维达 棉韧抽纸 3层130抽×24包.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/38f65e00-4ec1-52f0-9963-f11bebcda5a6.jpg', 94275, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000093');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/53164646-f933-53bf-b0f1-5d2fb7281e7d.jpg', `name` = '心相印 厨房湿巾 40抽×3包.jpg', `file_size` = 44084, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000094' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000094', '1', '-1', '心相印 厨房湿巾 40抽×3包.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/53164646-f933-53bf-b0f1-5d2fb7281e7d.jpg', 44084, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000094');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/7b466830-62a8-5f70-a423-06a5f6ce4973.jpg', `name` = '蓝月亮 洗衣液 3kg-瓶.jpg', `file_size` = 139025, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000095' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000095', '1', '-1', '蓝月亮 洗衣液 3kg-瓶.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/7b466830-62a8-5f70-a423-06a5f6ce4973.jpg', 139025, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000095');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/13d20d35-c04d-54c5-a472-fbe33df34105.jpg', `name` = '立白 洗洁精 1.5kg-瓶.jpg', `file_size` = 27278, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000096' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000096', '1', '-1', '立白 洗洁精 1.5kg-瓶.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/13d20d35-c04d-54c5-a472-fbe33df34105.jpg', 27278, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000096');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/a51e9872-19cd-58d6-b086-c38c9cd0ecbf.jpg', `name` = '美丽雅 点断式保鲜袋 200只-卷.jpg', `file_size` = 33103, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000097' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000097', '1', '-1', '美丽雅 点断式保鲜袋 200只-卷.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/a51e9872-19cd-58d6-b086-c38c9cd0ecbf.jpg', 33103, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000097');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/1f0420fd-47f8-5c55-81b8-c3a27c648e69.jpg', `name` = '悦航优选 硅胶铲勺三件套.jpg', `file_size` = 25268, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000098' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000098', '1', '-1', '悦航优选 硅胶铲勺三件套.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/1f0420fd-47f8-5c55-81b8-c3a27c648e69.jpg', 25268, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000098');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/442d5833-77c8-5e82-9ad2-0c9dc1cc4cef.jpg', `name` = '悦航优选 棉麻收纳袋 三件套.jpg', `file_size` = 177644, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000099' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000099', '1', '-1', '悦航优选 棉麻收纳袋 三件套.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/442d5833-77c8-5e82-9ad2-0c9dc1cc4cef.jpg', 177644, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000099');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/4e892efd-ccc2-5570-8f58-9cd1a6db013c.jpg', `name` = '悦航优选 折叠收纳箱 30L.jpg', `file_size` = 15979, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000100' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000100', '1', '-1', '悦航优选 折叠收纳箱 30L.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/4e892efd-ccc2-5570-8f58-9cd1a6db013c.jpg', 15979, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000100');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/a53e5dd5-3077-5699-91f6-948f11b3caee.jpg', `name` = '妙洁 一次性纸杯 250ml×50只.jpg', `file_size` = 109404, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000101' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000101', '1', '-1', '妙洁 一次性纸杯 250ml×50只.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/a53e5dd5-3077-5699-91f6-948f11b3caee.jpg', 109404, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000101');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/2c9a9652-c7a7-51e0-85ad-5051ed5d0cf9.jpg', `name` = '悦航优选 一次性加厚台布 10片.jpg', `file_size` = 141393, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000102' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000102', '1', '-1', '悦航优选 一次性加厚台布 10片.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/2c9a9652-c7a7-51e0-85ad-5051ed5d0cf9.jpg', 141393, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000102');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/2366f862-8b39-5b7c-ae0d-c81d6e31ecd2.jpg', `name` = '云南直发 玫瑰混搭花束 10枝.jpg', `file_size` = 63295, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000103' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000103', '1', '-1', '云南直发 玫瑰混搭花束 10枝.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/2366f862-8b39-5b7c-ae0d-c81d6e31ecd2.jpg', 63295, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000103');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/f40ba0a6-3f02-5a91-8f2b-75d8b5b98567.jpg', `name` = '云南直发 向日葵鲜切花 5枝.jpg', `file_size` = 157505, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000104' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000104', '1', '-1', '云南直发 向日葵鲜切花 5枝.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/f40ba0a6-3f02-5a91-8f2b-75d8b5b98567.jpg', 157505, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000104');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/1ded5713-3dc3-5082-89fe-5cf67c0a9d7e.jpg', `name` = '绿萝盆栽 带盆栽好 苗高约15cm.jpg', `file_size` = 378418, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000105' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000105', '1', '-1', '绿萝盆栽 带盆栽好 苗高约15cm.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/1ded5713-3dc3-5082-89fe-5cf67c0a9d7e.jpg', 378418, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000105');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/b29b4db5-08db-5eb7-82b3-a7e752107626.jpg', `name` = '多肉植物组合盆栽 3棵装.jpg', `file_size` = 209872, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9560000000000000106' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9560000000000000106', '1', '-1', '多肉植物组合盆栽 3棵装.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/b29b4db5-08db-5eb7-82b3-a7e752107626.jpg', 209872, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9560000000000000106');
+
+-- ============================================================================
+-- 商超类目图片回填
+-- Source: db/boot/71grocery_category_images.sql
+-- ============================================================================
+-- 悦航购商超类目图片回填（Boot 单体模式）
+-- 目标库：aryn_boot（单体模式所有表同库）
+-- 内容：为 41grocery_catalog_seed.sql 的 12 个一级类目 + 51 个二级类目回填 category_pic，
+--       并在 sys_material 素材库登记同一批图片，使后台「素材中心」可见可复用。
+-- 图片实体：db/assets/grocery-category-images/（清单见该目录 manifest.tsv）
+-- 部署方式：将 stored_file（uuid.jpg）放入文件存储根目录 /data/aryn/uploads/{TENANT}/；本脚本只写库。
+-- 特性：可重复执行；仅按类目 ID 95x 精确匹配更新，不新增/删除类目，不触碰其它数据。
+-- 注意：Boot 模式 context-path 为 /boot，故回源路径首段为 /boot；
+--
+-- 执行：mysql -u root -p aryn_boot < 71grocery_category_images.sql
+
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+-- ---------- 1. 类目图回填（12 一级 + 51 二级） ----------
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/811e3097-3297-517c-8cd3-a68abb886b5d.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9510000000000000001' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/4da110f9-7661-50f0-af81-e9197545f933.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9510000000000000002' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/44541e06-523e-585f-b2a7-88388cdc8c75.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9510000000000000003' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/06303430-7745-5104-b9a5-072ae1042f3d.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9510000000000000004' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/63ab6b55-8bfb-56ab-b633-f49b722f3082.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9510000000000000005' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/713e6001-1493-540e-9f36-bc061fd89330.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9510000000000000006' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/7c5c8470-aef7-51df-a861-8630f7b73e5f.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9510000000000000007' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/32b003a3-ea83-5a53-a4e3-5e475c2c9c9a.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9510000000000000008' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/d912a375-2d39-5aaa-84aa-e0f87e2684bd.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9510000000000000009' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/a2faf3a8-af8a-5d90-872a-275f531ef415.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9510000000000000010' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/bbb62486-ff6e-52a3-8383-04436bd085e2.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9510000000000000011' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/2d228933-e1b5-5195-8510-ccaed5322574.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9510000000000000012' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/35a3b0ea-e273-5059-92dd-f2554863f01d.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000001' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/a7ab94ed-385b-5e8d-8116-390f1efc2806.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000002' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/dd37469f-0b1a-526e-8c01-53a4776b00de.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000003' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/fff4b328-8eed-5977-bcfa-69ba7a084272.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000004' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/bcd09cee-31aa-5cdc-916f-b3f0c410b212.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000005' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/006b72af-28ce-5be6-a160-3871fb55f2cd.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000006' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/295b790e-23d9-570c-9f18-dd1f59881eff.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000007' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/4362c046-bdd9-55e4-bc4c-0dcdedb528f2.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000008' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/58f5eda7-8d78-57bc-a453-9cf53692d14b.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000009' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/3e3bcea3-2902-5808-a96a-01f30536e801.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000010' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/5ef4e019-f092-5559-ab01-2d88b881b7b4.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000011' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/d5bd0671-f5c3-5a11-88c0-2e3e044c9345.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000012' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/c9a83de7-7a72-561b-b7e7-5cf4ec661a3a.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000013' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/bd1022ec-bcb5-59cf-8ea6-71c76d1fe861.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000014' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/e3db51c3-dbdb-5dcd-8bac-9e227f39f06f.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000015' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/e4178722-f6cb-5d03-8de4-00359e694da9.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000016' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/32e91f4a-6540-5c6e-9ce7-9c1f301f5be2.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000017' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/d9be60c2-ba54-582f-a7b7-b85b67da957f.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000018' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/ee23c1a0-e7f2-5050-b5da-81db671b84b7.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000019' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/a09eb476-d537-5cc5-86f0-44ff78999417.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000020' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/ca10ce2f-109e-5c4e-b393-7aeef00baa76.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000021' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/22cf2eaf-c908-5cc8-92aa-8369e0645e3b.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000022' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/f1b645a9-1eef-5ea2-93c0-4630ba1cb661.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000023' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/1eaba45e-7c87-5975-a64d-6f45619df071.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000024' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/d80b85c1-4299-5021-981f-36336b8f9ccf.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000025' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/11e65f4d-a7b7-50d5-85c6-db88366f9aa8.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000026' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/b599aa65-a790-5f24-bc64-61baba22e931.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000027' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/bc1c972d-f06e-50aa-b4b5-994719bef3ed.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000028' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/456c36ae-3e5a-515f-a1be-02c5900794f0.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000029' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/1bb5fb9b-51bd-51b4-9557-2165a98c55dd.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000030' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/4358fecb-11ac-528f-8983-ead8e683bb54.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000031' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/fad75fac-20d5-55ad-84a7-9f2069da1669.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000032' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/63e5c8fb-bb4e-59ac-8045-11b93536641c.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000033' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/ac04a01e-381e-5e05-a088-e00efa7b72ff.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000034' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/c46fa196-4b6f-5dfa-862d-f3648dbc695b.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000035' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/e47306e0-6797-50dc-8c48-9d2533e564c9.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000036' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/c1c69397-9bc7-5b9b-b774-64f0878097e3.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000037' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/bad226fa-3411-5326-beb4-0171ed8ccf4a.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000038' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/8eca7eb8-77bf-527c-b7a9-117e54d60c62.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000039' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/44640e27-ac17-57fe-9e24-f38a3baf4442.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000040' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/74cd9798-26cb-56de-aec8-e98b09d98739.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000041' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/1d4c0431-0932-5330-ad96-1ebc8563a584.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000042' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/c5a20b45-7f88-5a0f-9f3e-1e07dc4d294f.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000043' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/eaf108ef-726a-5103-9cbd-cb0507352473.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000044' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/7b8ac67a-6a1c-5db1-b403-fa5eae15b48b.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000045' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/34b916cd-e464-5c47-9771-af81ea987486.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000046' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/0a3c0999-fe11-5b33-a99f-d950f88318df.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000047' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/c95dda32-e0fe-5b86-83d0-b965e1a5f0b9.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000048' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/0afa3fd1-b950-5d45-90a9-f6cded92673f.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000049' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/148b5bcc-88db-552c-8b0e-cdf88e40cae0.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000050' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/a91e308e-4178-5ea0-b1f9-a792975cffe7.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9520000000000000051' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+
+-- ---------- 2. 素材库登记（等价于管理端上传接口的副作用） ----------
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/811e3097-3297-517c-8cd3-a68abb886b5d.jpg', `name` = '蔬菜.jpg', `file_size` = 108122, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000001' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000001', '1', '-1', '蔬菜.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/811e3097-3297-517c-8cd3-a68abb886b5d.jpg', 108122, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000001');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/4da110f9-7661-50f0-af81-e9197545f933.jpg', `name` = '水果.jpg', `file_size` = 85402, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000002' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000002', '1', '-1', '水果.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/4da110f9-7661-50f0-af81-e9197545f933.jpg', 85402, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000002');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/44541e06-523e-585f-b2a7-88388cdc8c75.jpg', `name` = '肉禽蛋.jpg', `file_size` = 61010, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000003' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000003', '1', '-1', '肉禽蛋.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/44541e06-523e-585f-b2a7-88388cdc8c75.jpg', 61010, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000003');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/06303430-7745-5104-b9a5-072ae1042f3d.jpg', `name` = '海鲜水产.jpg', `file_size` = 1318901, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000004' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000004', '1', '-1', '海鲜水产.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/06303430-7745-5104-b9a5-072ae1042f3d.jpg', 1318901, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000004');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/63ab6b55-8bfb-56ab-b633-f49b722f3082.jpg', `name` = '乳品烘焙.jpg', `file_size` = 197882, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000005' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000005', '1', '-1', '乳品烘焙.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/63ab6b55-8bfb-56ab-b633-f49b722f3082.jpg', 197882, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000005');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/713e6001-1493-540e-9f36-bc061fd89330.jpg', `name` = '熟食预制菜.jpg', `file_size` = 94340, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000006' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000006', '1', '-1', '熟食预制菜.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/713e6001-1493-540e-9f36-bc061fd89330.jpg', 94340, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000006');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/7c5c8470-aef7-51df-a861-8630f7b73e5f.jpg', `name` = '米面粮油.jpg', `file_size` = 151685, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000007' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000007', '1', '-1', '米面粮油.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/7c5c8470-aef7-51df-a861-8630f7b73e5f.jpg', 151685, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000007');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/32b003a3-ea83-5a53-a4e3-5e475c2c9c9a.jpg', `name` = '休闲零食.jpg', `file_size` = 415543, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000008' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000008', '1', '-1', '休闲零食.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/32b003a3-ea83-5a53-a4e3-5e475c2c9c9a.jpg', 415543, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000008');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/d912a375-2d39-5aaa-84aa-e0f87e2684bd.jpg', `name` = '酒水饮料.jpg', `file_size` = 78497, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000009' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000009', '1', '-1', '酒水饮料.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/d912a375-2d39-5aaa-84aa-e0f87e2684bd.jpg', 78497, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000009');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/a2faf3a8-af8a-5d90-872a-275f531ef415.jpg', `name` = '个护清洁.jpg', `file_size` = 15297, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000010' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000010', '1', '-1', '个护清洁.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/a2faf3a8-af8a-5d90-872a-275f531ef415.jpg', 15297, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000010');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/bbb62486-ff6e-52a3-8383-04436bd085e2.jpg', `name` = '日用百货.jpg', `file_size` = 13289, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000011' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000011', '1', '-1', '日用百货.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/bbb62486-ff6e-52a3-8383-04436bd085e2.jpg', 13289, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000011');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/2d228933-e1b5-5195-8510-ccaed5322574.jpg', `name` = '鲜花绿植.jpg', `file_size` = 58430, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000012' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000012', '1', '-1', '鲜花绿植.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/2d228933-e1b5-5195-8510-ccaed5322574.jpg', 58430, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000012');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/35a3b0ea-e273-5059-92dd-f2554863f01d.jpg', `name` = '叶菜类.jpg', `file_size` = 66116, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000013' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000013', '1', '-1', '叶菜类.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/35a3b0ea-e273-5059-92dd-f2554863f01d.jpg', 66116, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000013');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/a7ab94ed-385b-5e8d-8116-390f1efc2806.jpg', `name` = '根茎类.jpg', `file_size` = 71912, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000014' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000014', '1', '-1', '根茎类.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/a7ab94ed-385b-5e8d-8116-390f1efc2806.jpg', 71912, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000014');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/dd37469f-0b1a-526e-8c01-53a4776b00de.jpg', `name` = '茄果瓜类.jpg', `file_size` = 22762, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000015' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000015', '1', '-1', '茄果瓜类.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/dd37469f-0b1a-526e-8c01-53a4776b00de.jpg', 22762, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000015');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/fff4b328-8eed-5977-bcfa-69ba7a084272.jpg', `name` = '葱蒜椒.jpg', `file_size` = 270534, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000016' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000016', '1', '-1', '葱蒜椒.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/fff4b328-8eed-5977-bcfa-69ba7a084272.jpg', 270534, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000016');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/bcd09cee-31aa-5cdc-916f-b3f0c410b212.jpg', `name` = '食用菌菇.jpg', `file_size` = 158251, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000017' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000017', '1', '-1', '食用菌菇.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/bcd09cee-31aa-5cdc-916f-b3f0c410b212.jpg', 158251, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000017');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/006b72af-28ce-5be6-a160-3871fb55f2cd.jpg', `name` = '豆制品.jpg', `file_size` = 72617, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000018' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000018', '1', '-1', '豆制品.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/006b72af-28ce-5be6-a160-3871fb55f2cd.jpg', 72617, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000018');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/295b790e-23d9-570c-9f18-dd1f59881eff.jpg', `name` = '苹果梨.jpg', `file_size` = 66393, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000019' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000019', '1', '-1', '苹果梨.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/295b790e-23d9-570c-9f18-dd1f59881eff.jpg', 66393, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000019');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/4362c046-bdd9-55e4-bc4c-0dcdedb528f2.jpg', `name` = '柑橘橙柚.jpg', `file_size` = 122430, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000020' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000020', '1', '-1', '柑橘橙柚.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/4362c046-bdd9-55e4-bc4c-0dcdedb528f2.jpg', 122430, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000020');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/58f5eda7-8d78-57bc-a453-9cf53692d14b.jpg', `name` = '热带水果.jpg', `file_size` = 52485, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000021' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000021', '1', '-1', '热带水果.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/58f5eda7-8d78-57bc-a453-9cf53692d14b.jpg', 52485, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000021');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/3e3bcea3-2902-5808-a96a-01f30536e801.jpg', `name` = '瓜类.jpg', `file_size` = 23593, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000022' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000022', '1', '-1', '瓜类.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/3e3bcea3-2902-5808-a96a-01f30536e801.jpg', 23593, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000022');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/5ef4e019-f092-5559-ab01-2d88b881b7b4.jpg', `name` = '浆果葡萄.jpg', `file_size` = 43078, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000023' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000023', '1', '-1', '浆果葡萄.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/5ef4e019-f092-5559-ab01-2d88b881b7b4.jpg', 43078, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000023');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/d5bd0671-f5c3-5a11-88c0-2e3e044c9345.jpg', `name` = '猪肉.jpg', `file_size` = 93801, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000024' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000024', '1', '-1', '猪肉.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/d5bd0671-f5c3-5a11-88c0-2e3e044c9345.jpg', 93801, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000024');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/c9a83de7-7a72-561b-b7e7-5cf4ec661a3a.jpg', `name` = '牛肉.jpg', `file_size` = 62002, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000025' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000025', '1', '-1', '牛肉.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/c9a83de7-7a72-561b-b7e7-5cf4ec661a3a.jpg', 62002, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000025');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/bd1022ec-bcb5-59cf-8ea6-71c76d1fe861.jpg', `name` = '羊肉.jpg', `file_size` = 38064, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000026' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000026', '1', '-1', '羊肉.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/bd1022ec-bcb5-59cf-8ea6-71c76d1fe861.jpg', 38064, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000026');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/e3db51c3-dbdb-5dcd-8bac-9e227f39f06f.jpg', `name` = '禽肉.jpg', `file_size` = 240980, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000027' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000027', '1', '-1', '禽肉.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/e3db51c3-dbdb-5dcd-8bac-9e227f39f06f.jpg', 240980, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000027');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/e4178722-f6cb-5d03-8de4-00359e694da9.jpg', `name` = '蛋类.jpg', `file_size` = 37164, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000028' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000028', '1', '-1', '蛋类.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/e4178722-f6cb-5d03-8de4-00359e694da9.jpg', 37164, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000028');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/32e91f4a-6540-5c6e-9ce7-9c1f301f5be2.jpg', `name` = '活鲜.jpg', `file_size` = 61034, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000029' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000029', '1', '-1', '活鲜.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/32e91f4a-6540-5c6e-9ce7-9c1f301f5be2.jpg', 61034, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000029');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/d9be60c2-ba54-582f-a7b7-b85b67da957f.jpg', `name` = '冰鲜鱼.jpg', `file_size` = 59572, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000030' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000030', '1', '-1', '冰鲜鱼.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/d9be60c2-ba54-582f-a7b7-b85b67da957f.jpg', 59572, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000030');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/ee23c1a0-e7f2-5050-b5da-81db671b84b7.jpg', `name` = '虾蟹贝.jpg', `file_size` = 180693, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000031' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000031', '1', '-1', '虾蟹贝.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/ee23c1a0-e7f2-5050-b5da-81db671b84b7.jpg', 180693, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000031');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/a09eb476-d537-5cc5-86f0-44ff78999417.jpg', `name` = '冷冻水产.jpg', `file_size` = 91070, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000032' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000032', '1', '-1', '冷冻水产.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/a09eb476-d537-5cc5-86f0-44ff78999417.jpg', 91070, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000032');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/ca10ce2f-109e-5c4e-b393-7aeef00baa76.jpg', `name` = '鲜奶.jpg', `file_size` = 13174, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000033' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000033', '1', '-1', '鲜奶.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/ca10ce2f-109e-5c4e-b393-7aeef00baa76.jpg', 13174, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000033');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/22cf2eaf-c908-5cc8-92aa-8369e0645e3b.jpg', `name` = '酸奶.jpg', `file_size` = 75813, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000034' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000034', '1', '-1', '酸奶.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/22cf2eaf-c908-5cc8-92aa-8369e0645e3b.jpg', 75813, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000034');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/f1b645a9-1eef-5ea2-93c0-4630ba1cb661.jpg', `name` = '常温乳品.jpg', `file_size` = 62088, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000035' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000035', '1', '-1', '常温乳品.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/f1b645a9-1eef-5ea2-93c0-4630ba1cb661.jpg', 62088, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000035');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/1eaba45e-7c87-5975-a64d-6f45619df071.jpg', `name` = '面包烘焙.jpg', `file_size` = 43156, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000036' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000036', '1', '-1', '面包烘焙.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/1eaba45e-7c87-5975-a64d-6f45619df071.jpg', 43156, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000036');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/d80b85c1-4299-5021-981f-36336b8f9ccf.jpg', `name` = '快手菜.jpg', `file_size` = 72454, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000037' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000037', '1', '-1', '快手菜.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/d80b85c1-4299-5021-981f-36336b8f9ccf.jpg', 72454, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000037');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/11e65f4d-a7b7-50d5-85c6-db88366f9aa8.jpg', `name` = '预制菜肴.jpg', `file_size` = 128234, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000038' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000038', '1', '-1', '预制菜肴.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/11e65f4d-a7b7-50d5-85c6-db88366f9aa8.jpg', 128234, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000038');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/b599aa65-a790-5f24-bc64-61baba22e931.jpg', `name` = '卤味熟食.jpg', `file_size` = 60590, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000039' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000039', '1', '-1', '卤味熟食.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/b599aa65-a790-5f24-bc64-61baba22e931.jpg', 60590, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000039');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/bc1c972d-f06e-50aa-b4b5-994719bef3ed.jpg', `name` = '面点主食.jpg', `file_size` = 14560, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000040' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000040', '1', '-1', '面点主食.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/bc1c972d-f06e-50aa-b4b5-994719bef3ed.jpg', 14560, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000040');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/456c36ae-3e5a-515f-a1be-02c5900794f0.jpg', `name` = '大米面粉.jpg', `file_size` = 16860, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000041' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000041', '1', '-1', '大米面粉.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/456c36ae-3e5a-515f-a1be-02c5900794f0.jpg', 16860, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000041');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/1bb5fb9b-51bd-51b4-9557-2165a98c55dd.jpg', `name` = '杂粮.jpg', `file_size` = 250540, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000042' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000042', '1', '-1', '杂粮.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/1bb5fb9b-51bd-51b4-9557-2165a98c55dd.jpg', 250540, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000042');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/4358fecb-11ac-528f-8983-ead8e683bb54.jpg', `name` = '食用油.jpg', `file_size` = 41847, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000043' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000043', '1', '-1', '食用油.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/4358fecb-11ac-528f-8983-ead8e683bb54.jpg', 41847, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000043');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/fad75fac-20d5-55ad-84a7-9f2069da1669.jpg', `name` = '调味品.jpg', `file_size` = 67807, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000044' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000044', '1', '-1', '调味品.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/fad75fac-20d5-55ad-84a7-9f2069da1669.jpg', 67807, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000044');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/63e5c8fb-bb4e-59ac-8045-11b93536641c.jpg', `name` = '坚果炒货.jpg', `file_size` = 113719, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000045' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000045', '1', '-1', '坚果炒货.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/63e5c8fb-bb4e-59ac-8045-11b93536641c.jpg', 113719, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000045');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/ac04a01e-381e-5e05-a088-e00efa7b72ff.jpg', `name` = '膨化食品.jpg', `file_size` = 39131, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000046' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000046', '1', '-1', '膨化食品.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/ac04a01e-381e-5e05-a088-e00efa7b72ff.jpg', 39131, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000046');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/c46fa196-4b6f-5dfa-862d-f3648dbc695b.jpg', `name` = '饼干糕点.jpg', `file_size` = 32738, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000047' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000047', '1', '-1', '饼干糕点.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/c46fa196-4b6f-5dfa-862d-f3648dbc695b.jpg', 32738, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000047');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/e47306e0-6797-50dc-8c48-9d2533e564c9.jpg', `name` = '糖果巧克力.jpg', `file_size` = 42749, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000048' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000048', '1', '-1', '糖果巧克力.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/e47306e0-6797-50dc-8c48-9d2533e564c9.jpg', 42749, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000048');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/c1c69397-9bc7-5b9b-b774-64f0878097e3.jpg', `name` = '果干蜜饯.jpg', `file_size` = 69572, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000049' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000049', '1', '-1', '果干蜜饯.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/c1c69397-9bc7-5b9b-b774-64f0878097e3.jpg', 69572, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000049');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/bad226fa-3411-5326-beb4-0171ed8ccf4a.jpg', `name` = '饮用水.jpg', `file_size` = 36679, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000050' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000050', '1', '-1', '饮用水.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/bad226fa-3411-5326-beb4-0171ed8ccf4a.jpg', 36679, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000050');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/8eca7eb8-77bf-527c-b7a9-117e54d60c62.jpg', `name` = '碳酸饮料.jpg', `file_size` = 69177, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000051' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000051', '1', '-1', '碳酸饮料.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/8eca7eb8-77bf-527c-b7a9-117e54d60c62.jpg', 69177, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000051');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/44640e27-ac17-57fe-9e24-f38a3baf4442.jpg', `name` = '果汁茶饮.jpg', `file_size` = 44734, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000052' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000052', '1', '-1', '果汁茶饮.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/44640e27-ac17-57fe-9e24-f38a3baf4442.jpg', 44734, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000052');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/74cd9798-26cb-56de-aec8-e98b09d98739.jpg', `name` = '啤酒.jpg', `file_size` = 24795, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000053' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000053', '1', '-1', '啤酒.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/74cd9798-26cb-56de-aec8-e98b09d98739.jpg', 24795, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000053');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/1d4c0431-0932-5330-ad96-1ebc8563a584.jpg', `name` = '白酒红酒.jpg', `file_size` = 35202, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000054' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000054', '1', '-1', '白酒红酒.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/1d4c0431-0932-5330-ad96-1ebc8563a584.jpg', 35202, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000054');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/c5a20b45-7f88-5a0f-9f3e-1e07dc4d294f.jpg', `name` = '洗发沐浴.jpg', `file_size` = 130171, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000055' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000055', '1', '-1', '洗发沐浴.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/c5a20b45-7f88-5a0f-9f3e-1e07dc4d294f.jpg', 130171, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000055');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/eaf108ef-726a-5103-9cbd-cb0507352473.jpg', `name` = '口腔护理.jpg', `file_size` = 65431, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000056' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000056', '1', '-1', '口腔护理.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/eaf108ef-726a-5103-9cbd-cb0507352473.jpg', 65431, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000056');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/7b8ac67a-6a1c-5db1-b403-fa5eae15b48b.jpg', `name` = '纸品湿巾.jpg', `file_size` = 120442, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000057' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000057', '1', '-1', '纸品湿巾.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/7b8ac67a-6a1c-5db1-b403-fa5eae15b48b.jpg', 120442, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000057');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/34b916cd-e464-5c47-9771-af81ea987486.jpg', `name` = '家庭清洁.jpg', `file_size` = 14723, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000058' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000058', '1', '-1', '家庭清洁.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/34b916cd-e464-5c47-9771-af81ea987486.jpg', 14723, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000058');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/0a3c0999-fe11-5b33-a99f-d950f88318df.jpg', `name` = '厨房用品.jpg', `file_size` = 879227, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000059' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000059', '1', '-1', '厨房用品.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/0a3c0999-fe11-5b33-a99f-d950f88318df.jpg', 879227, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000059');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/c95dda32-e0fe-5b86-83d0-b965e1a5f0b9.jpg', `name` = '家居收纳.jpg', `file_size` = 56117, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000060' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000060', '1', '-1', '家居收纳.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/c95dda32-e0fe-5b86-83d0-b965e1a5f0b9.jpg', 56117, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000060');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/0afa3fd1-b950-5d45-90a9-f6cded92673f.jpg', `name` = '一次性用品.jpg', `file_size` = 205982, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000061' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000061', '1', '-1', '一次性用品.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/0afa3fd1-b950-5d45-90a9-f6cded92673f.jpg', 205982, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000061');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/148b5bcc-88db-552c-8b0e-cdf88e40cae0.jpg', `name` = '鲜切花.jpg', `file_size` = 51891, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000062' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000062', '1', '-1', '鲜切花.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/148b5bcc-88db-552c-8b0e-cdf88e40cae0.jpg', 51891, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000062');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/a91e308e-4178-5ea0-b1f9-a792975cffe7.jpg', `name` = '绿植多肉.jpg', `file_size` = 378418, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9570000000000000063' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9570000000000000063', '1', '-1', '绿植多肉.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/a91e308e-4178-5ea0-b1f9-a792975cffe7.jpg', 378418, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9570000000000000063');
+
+-- ============================================================================
+-- 船舶物料类目图片回填
+-- Source: db/boot/72vessel_category_images.sql
+-- ============================================================================
+-- 悦航购船舶物料类目图片回填（Boot 单体模式）
+-- 目标库：aryn_boot（单体模式所有表同库）
+-- 内容：为 963 段 7 个船舶物料类目（1 一级 + 6 二级）回填 category_pic，
+--       并在 sys_material 素材库登记同一批图片，使后台「素材中心」可见可复用。
+-- 图片实体：db/assets/vessel-category-images/（清单见该目录 manifest.tsv）
+-- 部署方式：将 stored_file（uuid.jpg）放入文件存储根目录 /data/aryn/uploads/{TENANT}/；本脚本只写库。
+-- 特性：可重复执行；仅按类目 ID 963x 精确匹配更新，不新增/删除类目，不触碰其它数据。
+-- 注意：Boot 模式 context-path 为 /boot，故回源路径首段为 /boot；
+--
+-- 执行：mysql -u root -p aryn_boot < 72vessel_category_images.sql
+
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+-- ---------- 1. 类目图回填（1 一级 + 6 二级） ----------
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/d9230b66-c1ec-5ccd-a0f0-7af6757c1206.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9630000000000000001' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/6f2d9c67-d579-5756-a146-79858a6034ec.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9630000000000000002' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/de1be548-ad4b-5988-be0e-678b17f9d86b.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9630000000000000003' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/d69f171d-a4e5-5975-97f9-d4659f145d2d.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9630000000000000004' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/7e0d05a0-ebd6-556b-b1cf-0c16f6465526.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9630000000000000005' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/ab83f69c-c67f-50d2-9049-d17ddc8c5d0f.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9630000000000000006' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/930cdcc6-681f-5755-ab18-5e4b83cbb229.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9630000000000000007' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+
+-- ---------- 2. 素材库登记（等价于管理端上传接口的副作用） ----------
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/d9230b66-c1ec-5ccd-a0f0-7af6757c1206.jpg', `name` = '船舶物料.jpg', `file_size` = 259455, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9580000000000000001' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9580000000000000001', '1', '-1', '船舶物料.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/d9230b66-c1ec-5ccd-a0f0-7af6757c1206.jpg', 259455, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9580000000000000001');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/6f2d9c67-d579-5756-a146-79858a6034ec.jpg', `name` = '清洁用品.jpg', `file_size` = 15407, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9580000000000000002' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9580000000000000002', '1', '-1', '清洁用品.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/6f2d9c67-d579-5756-a146-79858a6034ec.jpg', 15407, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9580000000000000002');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/de1be548-ad4b-5988-be0e-678b17f9d86b.jpg', `name` = '安全防护.jpg', `file_size` = 61810, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9580000000000000003' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9580000000000000003', '1', '-1', '安全防护.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/de1be548-ad4b-5988-be0e-678b17f9d86b.jpg', 61810, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9580000000000000003');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/d69f171d-a4e5-5975-97f9-d4659f145d2d.jpg', `name` = '甲板索具.jpg', `file_size` = 10567, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9580000000000000004' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9580000000000000004', '1', '-1', '甲板索具.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/d69f171d-a4e5-5975-97f9-d4659f145d2d.jpg', 10567, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9580000000000000004');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/7e0d05a0-ebd6-556b-b1cf-0c16f6465526.jpg', `name` = '轮机备件.jpg', `file_size` = 92083, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9580000000000000005' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9580000000000000005', '1', '-1', '轮机备件.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/7e0d05a0-ebd6-556b-b1cf-0c16f6465526.jpg', 92083, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9580000000000000005');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/ab83f69c-c67f-50d2-9049-d17ddc8c5d0f.jpg', `name` = '电工照明.jpg', `file_size` = 47835, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9580000000000000006' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9580000000000000006', '1', '-1', '电工照明.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/ab83f69c-c67f-50d2-9049-d17ddc8c5d0f.jpg', 47835, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9580000000000000006');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/930cdcc6-681f-5755-ab18-5e4b83cbb229.jpg', `name` = '船用食品.jpg', `file_size` = 82284, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9580000000000000007' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9580000000000000007', '1', '-1', '船用食品.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/930cdcc6-681f-5755-ab18-5e4b83cbb229.jpg', 82284, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9580000000000000007');
+
+-- ============================================================================
+-- 家电数码类目图片回填
+-- Source: db/boot/73appliance_digital_category_images.sql
+-- ============================================================================
+-- 悦航购家用电器/手机数码类目图片回填（Boot 单体模式）
+-- 目标库：aryn_boot（单体模式所有表同库）
+-- 背景：191/192 段 9 个类目（家用电器/手机数码/电视/空调/冰箱/手机/智能设备/无人机/电脑）
+--       原 category_pic 指向已失效的 MinIO 域名 minio.Aetheryn.cn，本次回填为本机存储 URL。
+-- 内容：更新 category_pic，并在 sys_material 素材库登记同一批图片，使后台「素材中心」可见可复用。
+-- 图片实体：db/assets/appliance-digital-category-images/（清单见该目录 manifest.tsv）
+-- 部署方式：将 stored_file（uuid.jpg）放入文件存储根目录 /data/aryn/uploads/{TENANT}/；本脚本只写库。
+-- 特性：可重复执行；仅按类目 ID 精确匹配更新，不新增/删除类目，不触碰其它数据。
+-- 注意：Boot 模式 context-path 为 /boot，故回源路径首段为 /boot；
+--
+-- 执行：mysql -u root -p aryn_boot < 73appliance_digital_category_images.sql
+
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+-- ---------- 1. 类目图回填（2 一级 + 7 二级） ----------
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/7f1b75dc-7ed4-50c5-b0c2-d1618c5b7c69.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '1912861788486148097' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/cb9c985d-cedf-5418-adc0-14c4762c1219.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '1912863400222957569' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/4fca39a6-bedc-521c-bc25-768d7b1db1c0.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '1912862220591734785' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/8fc757bb-5947-56a9-97d2-99b67880b72a.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '1912862615531593730' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/a866ffc8-5fee-52f0-af0e-c05acae6d737.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '1912863000879079426' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/b1814746-6f02-575a-92e8-28c704a88f07.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '1912863683464306689' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/004d03fc-ed39-574e-9201-79004df20bb2.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '1912863991967948801' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/a5d1fd41-b122-598f-952e-dca167c548df.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '1912864294511484929' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+UPDATE `goods_category`
+   SET `category_pic` = 'http://localhost:9999/boot/file/local/1590229800633634816/449166a8-2256-5bcd-ab28-009062169a96.jpg', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '1925541056051564546' AND `tenant_id` = '1590229800633634816' AND `del_flag` = '0';
+
+-- ---------- 2. 素材库登记（等价于管理端上传接口的副作用） ----------
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/7f1b75dc-7ed4-50c5-b0c2-d1618c5b7c69.jpg', `name` = '家用电器.jpg', `file_size` = 20149, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9590000000000000001' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9590000000000000001', '1', '-1', '家用电器.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/7f1b75dc-7ed4-50c5-b0c2-d1618c5b7c69.jpg', 20149, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9590000000000000001');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/cb9c985d-cedf-5418-adc0-14c4762c1219.jpg', `name` = '手机数码.jpg', `file_size` = 91853, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9590000000000000002' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9590000000000000002', '1', '-1', '手机数码.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/cb9c985d-cedf-5418-adc0-14c4762c1219.jpg', 91853, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9590000000000000002');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/4fca39a6-bedc-521c-bc25-768d7b1db1c0.jpg', `name` = '电视.jpg', `file_size` = 142503, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9590000000000000003' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9590000000000000003', '1', '-1', '电视.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/4fca39a6-bedc-521c-bc25-768d7b1db1c0.jpg', 142503, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9590000000000000003');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/8fc757bb-5947-56a9-97d2-99b67880b72a.jpg', `name` = '空调.jpg', `file_size` = 128450, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9590000000000000004' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9590000000000000004', '1', '-1', '空调.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/8fc757bb-5947-56a9-97d2-99b67880b72a.jpg', 128450, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9590000000000000004');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/a866ffc8-5fee-52f0-af0e-c05acae6d737.jpg', `name` = '冰箱.jpg', `file_size` = 6467, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9590000000000000005' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9590000000000000005', '1', '-1', '冰箱.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/a866ffc8-5fee-52f0-af0e-c05acae6d737.jpg', 6467, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9590000000000000005');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/b1814746-6f02-575a-92e8-28c704a88f07.jpg', `name` = '手机.jpg', `file_size` = 233692, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9590000000000000006' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9590000000000000006', '1', '-1', '手机.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/b1814746-6f02-575a-92e8-28c704a88f07.jpg', 233692, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9590000000000000006');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/004d03fc-ed39-574e-9201-79004df20bb2.jpg', `name` = '智能设备.jpg', `file_size` = 36680, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9590000000000000007' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9590000000000000007', '1', '-1', '智能设备.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/004d03fc-ed39-574e-9201-79004df20bb2.jpg', 36680, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9590000000000000007');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/a5d1fd41-b122-598f-952e-dca167c548df.jpg', `name` = '无人机.jpg', `file_size` = 70486, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9590000000000000008' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9590000000000000008', '1', '-1', '无人机.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/a5d1fd41-b122-598f-952e-dca167c548df.jpg', 70486, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9590000000000000008');
+UPDATE `sys_material`
+   SET `url` = 'http://localhost:9999/boot/file/local/1590229800633634816/449166a8-2256-5bcd-ab28-009062169a96.jpg', `name` = '电脑.jpg', `file_size` = 56448, `del_flag` = '0', `update_time` = NOW(), `update_by` = 'system'
+ WHERE `id` = '9590000000000000009' AND `tenant_id` = '1590229800633634816';
+INSERT INTO `sys_material`
+  (`id`, `type`, `group_id`, `name`, `url`, `file_size`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
+SELECT '9590000000000000009', '1', '-1', '电脑.jpg', 'http://localhost:9999/boot/file/local/1590229800633634816/449166a8-2256-5bcd-ab28-009062169a96.jpg', 56448, '1590229800633634816', 'system', NOW(), '0'
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id` = '9590000000000000009');
+
+-- ============================================================================
+-- 首页装修banner与金刚区图片回填
+-- Source: db/boot/74home_banner_images.sql
+-- ============================================================================
+-- 悦航购首页装修图片回填（Cloud 模式）
+-- 首页轮播banner 2组 + 金刚区入口图标 4个，共7张图，本机存储
+USE `aryn_promotion`;
+SET NAMES utf8mb4;
+UPDATE `page_design` SET `page_content` = '{"page":{"backgroundColor":"#f5f5f5","backgroundImage":"","enablePullDownRefresh":true,"navigation":{"backgroundColor":"#ffffff","textColor":"#000000","title":"","visible":true},"share":{"description":"","imageUrl":"","title":""}},"schemaVersion":3,"sections":[{"components":[{"id":"DdqIzXHxWfqzy47oOOGSp","props":{"type":"2","interval":5,"swiperType":"1","height":140,"imgRadius":10,"indicatorDots":true,"indicatorColor":"rgba(249, 223, 237, 1)","indicatorActiveColor":"rgba(198, 222, 236, 1)","commonImageStyle":{"styleTopMargin":0,"styleBottomMargin":0,"styleLeftMargin":0,"styleRightMargin":0,"styleTopPadding":0,"styleBottomPadding":0,"styleLeftPadding":0,"styleRightPadding":0,"styleLtRadius":0,"styleRtRadius":0,"styleLbRadius":0,"styleRbRadius":0,"bgColorDirection":"to right","bgStartColor":"","bgEndColor":"","bgPicUrl":""},"commonStyle":{"styleTopMargin":10,"styleBottomMargin":10,"styleLeftMargin":10,"styleRightMargin":10,"styleTopPadding":0,"styleBottomPadding":0,"styleLeftPadding":0,"styleRightPadding":0,"styleLtRadius":100,"styleRtRadius":100,"styleLbRadius":100,"styleRbRadius":100,"bgColorDirection":"to right","bgStartColor":"","bgEndColor":"","bgPicUrl":""},"imageList":[{"url":"http://localhost:9999/boot/file/local/1590229800633634816/611f7204-e030-58ba-965e-bbe3e96414fa.jpg"},{"url":"http://localhost:9999/boot/file/local/1590229800633634816/c61896ee-f000-528a-baa9-34eac71fe5a3.jpg"}]},"type":"image-ad","version":1},{"id":"E_5fdneuFjO2HZujfFtE9","props":{"type":"3","fontColor":"rgba(0, 0, 0, 1)","showNum":4,"imgSize":30,"imgRadius":0,"scrollShow":false,"commonStyle":{"styleTopMargin":10,"styleBottomMargin":10,"styleLeftMargin":10,"styleRightMargin":10,"styleTopPadding":10,"styleBottomPadding":10,"styleLeftPadding":10,"styleRightPadding":10,"styleLtRadius":10,"styleRtRadius":10,"styleLbRadius":10,"styleRbRadius":10,"bgColorDirection":"to right","bgStartColor":"rgba(255, 255, 255, 1)","bgEndColor":"","bgPicUrl":""},"navList":[{"title":"全部商品","link":{"name":"商品列表","url":"/sub-pages/product/goods-list/index"},"url":"http://localhost:9999/boot/file/local/1590229800633634816/4a4b984a-a5b7-5900-9923-6accc6b950b6.jpg"},{"title":"浏览记录","link":{"name":"足迹列表","url":"/sub-pages/user/footprint/index"},"url":"http://localhost:9999/boot/file/local/1590229800633634816/63783edc-366c-5b1e-9045-0b46fa33a32a.jpg"},{"title":"浏览记录","link":{"name":"足迹列表","url":"/sub-pages/user/footprint/index"},"url":"http://localhost:9999/boot/file/local/1590229800633634816/63783edc-366c-5b1e-9045-0b46fa33a32a.jpg"},{"title":"领券中心","link":{"name":"优惠券列表","url":"/sub-pages/promotion/coupon/coupon-list/index"},"url":"http://localhost:9999/boot/file/local/1590229800633634816/0a8926b6-cf35-5187-b669-c73b6dff57a7.jpg"}],"scrollShw":true},"type":"tab-nav","version":1},{"id":"obN44DXHcWUp8plYAam0s","props":{"type":"2","interval":5,"swiperType":"1","height":100,"imgRadius":10,"indicatorDots":true,"indicatorColor":"rgba(249, 223, 237, 1)","indicatorActiveColor":"rgba(138, 218, 240, 1)","commonStyle":{"styleTopMargin":10,"styleBottomMargin":10,"styleLeftMargin":10,"styleRightMargin":10,"styleTopPadding":0,"styleBottomPadding":0,"styleLeftPadding":0,"styleRightPadding":0,"styleLtRadius":0,"styleRtRadius":0,"styleLbRadius":0,"styleRbRadius":0,"bgColorDirection":"to right","bgStartColor":"","bgEndColor":"","bgPicUrl":""},"imageList":[{"link":{"name":"优惠券列表","url":"/pages/promotion/coupon/coupon-list/index"},"url":"http://localhost:9999/boot/file/local/1590229800633634816/5860844a-c1c9-5b66-b4ac-3f6b533cb24d.jpg"},{"url":"http://localhost:9999/boot/file/local/1590229800633634816/6800bf75-468c-5a7a-ac12-ca2fbfad162f.jpg"}],"commonImageStyle":{"styleTopMargin":0,"styleBottomMargin":0,"styleLeftMargin":0,"styleRightMargin":0,"styleTopPadding":0,"styleBottomPadding":0,"styleLeftPadding":0,"styleRightPadding":0,"styleLtRadius":0,"styleRtRadius":0,"styleLbRadius":0,"styleRbRadius":0,"bgColorDirection":"to right","bgStartColor":"","bgEndColor":"","bgPicUrl":""}},"type":"image-ad","version":1},{"id":"016z_FTuG3Tofz2AfUQkc","props":{"showType":"3","showDesc":false,"descSize":14,"descColor":"rgba(0, 0, 0, 1)","descStyle":"0","showName":true,"nameSize":14,"nameColor":"rgba(0, 0, 0, 1)","nameStyle":"0","showTag":false,"showSalesPrice":true,"salesPriceSize":14,"salesPriceColor":"rgba(255, 0, 0, 1)","salesPriceStyle":"0","showOriginalPrice":false,"showSalesVolume":false,"salesVolumeSize":14,"salesVolumeColor":"rgba(0, 0, 0, 1)","salesVolumeStyle":"0","showStock":false,"stockSize":14,"stockColor":"rgba(0, 0, 0, 1)","stockStyle":"0","buyBtnColor":"rgba(255, 0, 0, 1)","buyBtnSize":14,"buyBtnStyle":"1","showBuyBtn":true,"buyBtnText":"购买","goodsList":[{"id":"1912867577569386497","name":"Apple/苹果 iPhone 16 Pro Max（A3297）","spuUrls":["https://minio.aryn.co/aryn/file/e8e18e94-d352-45d9-acdd-f918a6f77f90.jpg","https://minio.aryn.co/aryn/file/88e79726-2368-4767-aa60-065b5ea9aabd.jpg","https://minio.aryn.co/aryn/file/cc5819fb-8f39-45ad-b584-52ff3fbdf642.jpg","https://minio.aryn.co/aryn/file/f9a3fe3b-22ee-437d-9676-8fe4127e04ec.jpg","https://minio.aryn.co/aryn/file/f7a85fb7-adde-4635-9738-88709be3b76a.jpg"],"status":"1","salesVolume":1000,"categoryFirstId":"1912863400222957569","categorySecondId":"1912863683464306689","description":"<p><br></p><p><img src=\\"https://minio.aryn.co/aryn/file/9888cb29-e6b8-4d67-b129-0d3859c3717e.jpg\\" alt=\\"\\" data-href=\\"\\" style=\\"\\"/></p><p><img src=\\"https://minio.aryn.co/aryn/file/1744aaa5-ed8a-46ca-ba53-3e0038aa5ea6.jpg\\" alt=\\"\\" data-href=\\"\\" style=\\"\\"/></p>","enableSpecs":"1","shopId":"1","shopName":"悦航购自营旗舰店","shopType":"1","shopCategoryFirstId":"1912864433649131522","shopCategorySecondId":"1912864638087897089","createTime":"2025-04-17 21:55:45","updateTime":"2025-04-18 22:44:17","delFlag":"0","verifyStatus":"1","verifyDesc":"","categoryName":"手机","goodsSkus":[{"id":"1912867578517299201","spuId":"1912867577569386497","salesPrice":9299,"originalPrice":9299,"costPrice":9299,"stock":100,"createTime":"2025-04-17 21:55:45","updateTime":"2025-04-18 22:43:59","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913242117281624066","skuId":"1912867578517299201","specsValueId":"1912866747504041986","sort":0,"createTime":"2025-04-18 22:44:02","delFlag":"0","specsValueName":"沙漠色钛金属"},{"id":"1913242118242119682","skuId":"1912867578517299201","specsValueId":"1912866886893346818","sort":1,"createTime":"2025-04-18 22:44:02","delFlag":"0","specsValueName":"256GB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912867579440046081","spuId":"1912867577569386497","salesPrice":11299,"originalPrice":11299,"costPrice":9299,"stock":100,"createTime":"2025-04-17 21:55:45","updateTime":"2025-04-18 22:44:00","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913242119148089346","skuId":"1912867579440046081","specsValueId":"1912866747504041986","sort":0,"createTime":"2025-04-18 22:44:02","delFlag":"0","specsValueName":"沙漠色钛金属"},{"id":"1913242120075030530","skuId":"1912867579440046081","specsValueId":"1912866927229968386","sort":1,"createTime":"2025-04-18 22:44:02","delFlag":"0","specsValueName":"512GB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912867580371181569","spuId":"1912867577569386497","salesPrice":13299,"originalPrice":13299,"costPrice":9299,"stock":100,"createTime":"2025-04-17 21:55:45","updateTime":"2025-04-18 22:44:00","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913242120997777410","skuId":"1912867580371181569","specsValueId":"1912866747504041986","sort":0,"createTime":"2025-04-18 22:44:03","delFlag":"0","specsValueName":"沙漠色钛金属"},{"id":"1913242121920524290","skuId":"1912867580371181569","specsValueId":"1912866949661106178","sort":1,"createTime":"2025-04-18 22:44:03","delFlag":"0","specsValueName":"1TB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912867581298122754","spuId":"1912867577569386497","salesPrice":9299,"originalPrice":9299,"costPrice":9299,"stock":100,"createTime":"2025-04-17 21:55:45","updateTime":"2025-04-18 22:44:00","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913242122826493954","skuId":"1912867581298122754","specsValueId":"1912866787874217985","sort":0,"createTime":"2025-04-18 22:44:03","delFlag":"0","specsValueName":"原色钛金属"},{"id":"1913242123782795265","skuId":"1912867581298122754","specsValueId":"1912866886893346818","sort":1,"createTime":"2025-04-18 22:44:03","delFlag":"0","specsValueName":"256GB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912867582258618370","spuId":"1912867577569386497","salesPrice":11299,"originalPrice":11299,"costPrice":9299,"stock":100,"createTime":"2025-04-17 21:55:46","updateTime":"2025-04-18 22:44:00","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913242124734902274","skuId":"1912867582258618370","specsValueId":"1912866787874217985","sort":0,"createTime":"2025-04-18 22:44:04","delFlag":"0","specsValueName":"原色钛金属"},{"id":"1913242125649260545","skuId":"1912867582258618370","specsValueId":"1912866927229968386","sort":1,"createTime":"2025-04-18 22:44:04","delFlag":"0","specsValueName":"512GB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912867583248474114","spuId":"1912867577569386497","salesPrice":13299,"originalPrice":13299,"costPrice":9299,"stock":100,"createTime":"2025-04-17 21:55:46","updateTime":"2025-04-18 22:44:00","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913242126576201729","skuId":"1912867583248474114","specsValueId":"1912866787874217985","sort":0,"createTime":"2025-04-18 22:44:04","delFlag":"0","specsValueName":"原色钛金属"},{"id":"1913242127503142913","skuId":"1912867583248474114","specsValueId":"1912866949661106178","sort":1,"createTime":"2025-04-18 22:44:04","delFlag":"0","specsValueName":"1TB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912867584276078593","spuId":"1912867577569386497","salesPrice":9299,"originalPrice":9299,"costPrice":9299,"stock":100,"createTime":"2025-04-17 21:55:46","updateTime":"2025-04-18 22:44:00","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913242128434278402","skuId":"1912867584276078593","specsValueId":"1912866817397923842","sort":0,"createTime":"2025-04-18 22:44:04","delFlag":"0","specsValueName":"白色钛金属"},{"id":"1913242129377996801","skuId":"1912867584276078593","specsValueId":"1912866886893346818","sort":1,"createTime":"2025-04-18 22:44:05","delFlag":"0","specsValueName":"256GB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912867585219796994","spuId":"1912867577569386497","salesPrice":11299,"originalPrice":11299,"costPrice":9299,"stock":100,"createTime":"2025-04-17 21:55:46","updateTime":"2025-04-18 22:44:00","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913242130271383553","skuId":"1912867585219796994","specsValueId":"1912866817397923842","sort":0,"createTime":"2025-04-18 22:44:05","delFlag":"0","specsValueName":"白色钛金属"},{"id":"1913242131202519041","skuId":"1912867585219796994","specsValueId":"1912866927229968386","sort":1,"createTime":"2025-04-18 22:44:05","delFlag":"0","specsValueName":"512GB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912867586150932481","spuId":"1912867577569386497","salesPrice":13299,"originalPrice":13299,"costPrice":9299,"stock":100,"createTime":"2025-04-17 21:55:47","updateTime":"2025-04-18 22:44:01","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913242132121071617","skuId":"1912867586150932481","specsValueId":"1912866817397923842","sort":0,"createTime":"2025-04-18 22:44:05","delFlag":"0","specsValueName":"白色钛金属"},{"id":"1913242133064790018","skuId":"1912867586150932481","specsValueId":"1912866949661106178","sort":1,"createTime":"2025-04-18 22:44:06","delFlag":"0","specsValueName":"1TB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912867587086262274","spuId":"1912867577569386497","salesPrice":9299,"originalPrice":9299,"costPrice":9299,"stock":100,"createTime":"2025-04-17 21:55:47","updateTime":"2025-04-18 22:44:01","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913242133979148290","skuId":"1912867587086262274","specsValueId":"1912866843499077633","sort":0,"createTime":"2025-04-18 22:44:06","delFlag":"0","specsValueName":"黑色钛金属"},{"id":"1913242134901895169","skuId":"1912867587086262274","specsValueId":"1912866886893346818","sort":1,"createTime":"2025-04-18 22:44:06","delFlag":"0","specsValueName":"256GB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912867588017397761","spuId":"1912867577569386497","salesPrice":11299,"originalPrice":11299,"costPrice":9299,"stock":100,"createTime":"2025-04-17 21:55:47","updateTime":"2025-04-18 22:44:01","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913242135820447745","skuId":"1912867588017397761","specsValueId":"1912866843499077633","sort":0,"createTime":"2025-04-18 22:44:06","delFlag":"0","specsValueName":"黑色钛金属"},{"id":"1913242136739000321","skuId":"1912867588017397761","specsValueId":"1912866927229968386","sort":1,"createTime":"2025-04-18 22:44:06","delFlag":"0","specsValueName":"512GB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912867588935950337","spuId":"1912867577569386497","salesPrice":9299,"originalPrice":9299,"costPrice":9299,"stock":100,"createTime":"2025-04-17 21:55:47","updateTime":"2025-04-18 22:44:01","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913242137665941505","skuId":"1912867588935950337","specsValueId":"1912866843499077633","sort":0,"createTime":"2025-04-18 22:44:07","delFlag":"0","specsValueName":"黑色钛金属"},{"id":"1913242138651602946","skuId":"1912867588935950337","specsValueId":"1912866949661106178","sort":1,"createTime":"2025-04-18 22:44:07","delFlag":"0","specsValueName":"1TB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0}],"goodsSpuSpecs":[{"id":"1912867589871280130","spuId":"1912867577569386497","specsId":"1912866651538366466","sort":0,"createTime":"2025-04-17 21:55:47","delFlag":"1"},{"id":"1912888755335921665","spuId":"1912867577569386497","specsId":"1912866651538366466","sort":0,"createTime":"2025-04-17 23:19:54","delFlag":"1"},{"id":"1912934226058850306","spuId":"1912867577569386497","specsId":"1912866651538366466","sort":0,"createTime":"2025-04-18 02:20:35","delFlag":"1"},{"id":"1913242115398381569","spuId":"1912867577569386497","specsId":"1912866651538366466","sort":0,"createTime":"2025-04-18 22:44:01","delFlag":"0"},{"id":"1912867590802415617","spuId":"1912867577569386497","specsId":"1912866862587355137","sort":1,"createTime":"2025-04-17 21:55:48","delFlag":"1"},{"id":"1912888756262862850","spuId":"1912867577569386497","specsId":"1912866862587355137","sort":1,"createTime":"2025-04-17 23:19:54","delFlag":"1"},{"id":"1912934227099037698","spuId":"1912867577569386497","specsId":"1912866862587355137","sort":1,"createTime":"2025-04-18 02:20:35","delFlag":"1"},{"id":"1913242116350488578","spuId":"1912867577569386497","specsId":"1912866862587355137","sort":1,"createTime":"2025-04-18 22:44:02","delFlag":"0"}],"stock":1200,"enableMemberPrice":"1","enableGivePoints":"1","pointsAmount":100,"enablePointDeduction":"1","pointDeductionRatio":10,"freightType":"0","fixedFreightPrice":0,"salesPrice":9299,"originalPrice":9299,"costPrice":9299,"distributionCalcType":"0","distributionType":"0"},{"id":"1912870113080680449","name":"小米15 国家补贴 徕卡光学Summilux高速镜头 骁龙8至尊版移动平台","spuUrls":["https://minio.aryn.co/aryn/file/6b5481c8-ee15-41a2-bca8-d08463947208.jpg","https://minio.aryn.co/aryn/file/22e2fc4e-bc1e-4c42-a57f-af4cb04af847.jpg","https://minio.aryn.co/aryn/file/9f371b82-9843-4fd2-a206-ebbb0b9ddb9e.jpg","https://minio.aryn.co/aryn/file/505b78ac-7dfa-4379-a4df-d11e90d34ae0.jpg","https://minio.aryn.co/aryn/file/3f462f51-a183-465d-94cc-f8bfd1759869.jpg"],"status":"1","salesVolume":100,"categoryFirstId":"1912863400222957569","categorySecondId":"1912863683464306689","description":"<p><br></p><p><img src=\\"https://minio.aryn.co/aryn/file/292fbf15-33cc-4eee-b1ef-3a4dc71ba4d2.jpg\\" alt=\\"\\" data-href=\\"\\" style=\\"\\"/></p>","enableSpecs":"1","shopId":"1","shopName":"悦航购自营旗舰店","shopType":"1","shopCategoryFirstId":"1912864433649131522","shopCategorySecondId":"1912864567430651906","createTime":"2025-04-17 22:05:49","updateTime":"2025-04-18 22:44:17","delFlag":"0","verifyStatus":"1","verifyDesc":"","categoryName":"手机","goodsSkus":[{"id":"1912870113982455809","spuId":"1912870113080680449","salesPrice":4199,"originalPrice":4199,"costPrice":4199,"stock":100,"createTime":"2025-04-17 22:05:49","updateTime":"2025-04-18 22:43:26","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913241979834281985","skuId":"1912870113982455809","specsValueId":"1912869461206147074","sort":0,"createTime":"2025-04-18 22:43:29","delFlag":"0","picUrl":"https://minio.aryn.co/aryn/file/3f462f51-a183-465d-94cc-f8bfd1759869.jpg","specsValueName":"黑色"},{"id":"1913241980786388994","skuId":"1912870113982455809","specsValueId":"1912869653045223426","sort":1,"createTime":"2025-04-18 22:43:29","delFlag":"0","specsValueName":"12GB+256GB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912870114942951425","spuId":"1912870113080680449","salesPrice":4499,"originalPrice":4499,"costPrice":4199,"stock":100,"createTime":"2025-04-17 22:05:49","updateTime":"2025-04-18 22:43:26","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913241981717524481","skuId":"1912870114942951425","specsValueId":"1912869461206147074","sort":0,"createTime":"2025-04-18 22:43:29","delFlag":"0","picUrl":"https://minio.aryn.co/aryn/file/3f462f51-a183-465d-94cc-f8bfd1759869.jpg","specsValueName":"黑色"},{"id":"1913241982698991618","skuId":"1912870114942951425","specsValueId":"1912869723891212289","sort":1,"createTime":"2025-04-18 22:43:30","delFlag":"0","specsValueName":"12GB+512GB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912870115911835649","spuId":"1912870113080680449","salesPrice":4199,"originalPrice":4199,"costPrice":4199,"stock":100,"createTime":"2025-04-17 22:05:50","updateTime":"2025-04-18 22:43:26","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913241983638515713","skuId":"1912870115911835649","specsValueId":"1912869494215319554","sort":0,"createTime":"2025-04-18 22:43:30","delFlag":"0","picUrl":"https://minio.aryn.co/aryn/file/6b5481c8-ee15-41a2-bca8-d08463947208.jpg","specsValueName":"白色"},{"id":"1913241984603205634","skuId":"1912870115911835649","specsValueId":"1912869653045223426","sort":1,"createTime":"2025-04-18 22:43:30","delFlag":"0","specsValueName":"12GB+256GB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912870116868136962","spuId":"1912870113080680449","salesPrice":4499,"originalPrice":4499,"costPrice":4199,"stock":100,"createTime":"2025-04-17 22:05:50","updateTime":"2025-04-18 22:43:26","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913241985538535425","skuId":"1912870116868136962","specsValueId":"1912869494215319554","sort":0,"createTime":"2025-04-18 22:43:30","delFlag":"0","picUrl":"https://minio.aryn.co/aryn/file/6b5481c8-ee15-41a2-bca8-d08463947208.jpg","specsValueName":"白色"},{"id":"1913241986532585473","skuId":"1912870116868136962","specsValueId":"1912869723891212289","sort":1,"createTime":"2025-04-18 22:43:31","delFlag":"0","specsValueName":"12GB+512GB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912870117761523714","spuId":"1912870113080680449","salesPrice":4199,"originalPrice":4199,"costPrice":4199,"stock":100,"createTime":"2025-04-17 22:05:50","updateTime":"2025-04-18 22:43:26","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913241987484692481","skuId":"1912870117761523714","specsValueId":"1912869535868952578","sort":0,"createTime":"2025-04-18 22:43:31","delFlag":"0","picUrl":"https://minio.aryn.co/aryn/file/4714dced-02c2-4300-9f57-862033c1f98f.jpg","specsValueName":"浅草色"},{"id":"1913241988457771010","skuId":"1912870117761523714","specsValueId":"1912869653045223426","sort":1,"createTime":"2025-04-18 22:43:31","delFlag":"0","specsValueName":"12GB+256GB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912870118663299074","spuId":"1912870113080680449","salesPrice":4499,"originalPrice":4499,"costPrice":4199,"stock":100,"createTime":"2025-04-17 22:05:50","updateTime":"2025-04-18 22:43:27","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913241989363740674","skuId":"1912870118663299074","specsValueId":"1912869535868952578","sort":0,"createTime":"2025-04-18 22:43:31","delFlag":"0","picUrl":"https://minio.aryn.co/aryn/file/4714dced-02c2-4300-9f57-862033c1f98f.jpg","specsValueName":"浅草色"},{"id":"1913241990324236290","skuId":"1912870118663299074","specsValueId":"1912869723891212289","sort":1,"createTime":"2025-04-18 22:43:31","delFlag":"0","specsValueName":"12GB+512GB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912870119623794689","spuId":"1912870113080680449","salesPrice":4199,"originalPrice":4199,"costPrice":4199,"stock":100,"createTime":"2025-04-17 22:05:51","updateTime":"2025-04-18 22:43:27","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913241991255371777","skuId":"1912870119623794689","specsValueId":"1912869571721863169","sort":0,"createTime":"2025-04-18 22:43:32","delFlag":"0","picUrl":"https://minio.aryn.co/aryn/file/29c5fa1e-d2b5-487f-a4fe-ddf72154303f.jpg","specsValueName":"丁香紫"},{"id":"1913241992203284482","skuId":"1912870119623794689","specsValueId":"1912869653045223426","sort":1,"createTime":"2025-04-18 22:43:32","delFlag":"0","specsValueName":"12GB+256GB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912870120580096002","spuId":"1912870113080680449","salesPrice":4499,"originalPrice":4499,"costPrice":4199,"stock":100,"createTime":"2025-04-17 22:05:51","updateTime":"2025-04-18 22:43:27","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913241993117642753","skuId":"1912870120580096002","specsValueId":"1912869571721863169","sort":0,"createTime":"2025-04-18 22:43:32","delFlag":"0","picUrl":"https://minio.aryn.co/aryn/file/29c5fa1e-d2b5-487f-a4fe-ddf72154303f.jpg","specsValueName":"丁香紫"},{"id":"1913241994073944065","skuId":"1912870120580096002","specsValueId":"1912869723891212289","sort":1,"createTime":"2025-04-18 22:43:32","delFlag":"0","specsValueName":"12GB+512GB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0}],"goodsSpuSpecs":[{"id":"1912870121486065666","spuId":"1912870113080680449","specsId":"1912866651538366466","sort":0,"createTime":"2025-04-17 22:05:51","delFlag":"1"},{"id":"1912880928009658370","spuId":"1912870113080680449","specsId":"1912866651538366466","sort":0,"createTime":"2025-04-17 22:48:48","delFlag":"1"},{"id":"1912888587442126850","spuId":"1912870113080680449","specsId":"1912866651538366466","sort":0,"createTime":"2025-04-17 23:19:14","delFlag":"1"},{"id":"1912934769850363905","spuId":"1912870113080680449","specsId":"1912866651538366466","sort":0,"createTime":"2025-04-18 02:22:44","delFlag":"1"},{"id":"1913241972276146177","spuId":"1912870113080680449","specsId":"1912866651538366466","sort":0,"createTime":"2025-04-18 22:43:27","delFlag":"0"},{"id":"1912870122438172674","spuId":"1912870113080680449","specsId":"1912866862587355137","sort":1,"createTime":"2025-04-17 22:05:51","delFlag":"1"},{"id":"1912880928936599554","spuId":"1912870113080680449","specsId":"1912866862587355137","sort":1,"createTime":"2025-04-17 22:48:48","delFlag":"1"},{"id":"1912888588406816770","spuId":"1912870113080680449","specsId":"1912866862587355137","sort":1,"createTime":"2025-04-17 23:19:14","delFlag":"1"},{"id":"1912934770953465857","spuId":"1912870113080680449","specsId":"1912866862587355137","sort":1,"createTime":"2025-04-18 02:22:45","delFlag":"1"},{"id":"1913241973224058881","spuId":"1912870113080680449","specsId":"1912866651538366466","sort":1,"createTime":"2025-04-18 22:43:27","delFlag":"0"},{"id":"1913241974138417154","spuId":"1912870113080680449","specsId":"1912866651538366466","sort":2,"createTime":"2025-04-18 22:43:28","delFlag":"0"},{"id":"1913241975115689986","spuId":"1912870113080680449","specsId":"1912866651538366466","sort":3,"createTime":"2025-04-18 22:43:28","delFlag":"0"},{"id":"1913241976080379906","spuId":"1912870113080680449","specsId":"1912866862587355137","sort":4,"createTime":"2025-04-18 22:43:28","delFlag":"0"},{"id":"1913241977019904002","spuId":"1912870113080680449","specsId":"1912866862587355137","sort":5,"createTime":"2025-04-18 22:43:28","delFlag":"0"},{"id":"1913241977934262273","spuId":"1912870113080680449","specsId":"1912866862587355137","sort":6,"createTime":"2025-04-18 22:43:29","delFlag":"0"},{"id":"1913241978894757889","spuId":"1912870113080680449","specsId":"1912866862587355137","sort":7,"createTime":"2025-04-18 22:43:29","delFlag":"0"}],"stock":800,"enableMemberPrice":"1","enableGivePoints":"1","pointsAmount":120,"enablePointDeduction":"1","pointDeductionRatio":10,"freightType":"0","fixedFreightPrice":0,"salesPrice":4199,"originalPrice":4199,"costPrice":4199,"distributionCalcType":"0","distributionType":"0"},{"id":"1912882761411239938","name":"大疆 DJI Mini 3 优选迷你航拍机 智能高清拍摄无人机 小型遥控飞机 兼容带屏遥控器 大疆无人机","spuUrls":["https://minio.aryn.co/aryn/file/e38f917c-c4a5-4fd8-9acf-e6a4f40aff60.jpg","https://minio.aryn.co/aryn/file/ff6de4fc-406e-4f02-8b9a-6269dd9b8ce8.jpg","https://minio.aryn.co/aryn/file/0f4f5061-3930-4ef8-9352-5307d3689307.jpg","https://minio.aryn.co/aryn/file/78fa70d0-faff-4440-a9a4-55b4b4ca71f7.jpg"],"status":"1","salesVolume":111,"categoryFirstId":"1912863400222957569","categorySecondId":"1912864294511484929","description":"<p><br></p><p><img src=\\"https://minio.aryn.co/aryn/file/b775af49-8e44-4ba7-b19c-08b8141af9c5.jpg\\" alt=\\"\\" data-href=\\"\\" style=\\"\\"/></p>","enableSpecs":"0","shopId":"1","shopName":"悦航购自营旗舰店","shopType":"1","shopCategoryFirstId":"1912882883218022401","shopCategorySecondId":"1912864567430651906","createTime":"2025-04-17 22:56:05","updateTime":"2025-04-18 02:23:33","delFlag":"0","verifyStatus":"1","verifyDesc":"","categoryName":"无人机","goodsSkus":[{"id":"1912882762380124162","spuId":"1912882761411239938","salesPrice":5999,"originalPrice":5999,"costPrice":5999,"stock":1000,"createTime":"2025-04-17 22:56:05","updateTime":"2025-04-17 23:18:31","delFlag":"0","goodsSkuSpecsValues":[],"distributionFirstValue":0,"distributionSecondValue":0}],"goodsSpuSpecs":[],"stock":1000,"enableMemberPrice":"0","enableGivePoints":"1","pointsAmount":24,"enablePointDeduction":"1","pointDeductionRatio":10,"freightType":"0","fixedFreightPrice":0,"salesPrice":5999,"originalPrice":5999,"costPrice":5999,"distributionCalcType":"0","distributionType":"0"}],"goodsCommonStyle":{"styleTopMargin":5,"styleBottomMargin":5,"styleLeftMargin":5,"styleRightMargin":5,"styleTopPadding":4,"styleBottomPadding":4,"styleLeftPadding":4,"styleRightPadding":4,"styleLtRadius":10,"styleRtRadius":10,"styleLbRadius":10,"styleRbRadius":10,"bgColorDirection":"to right","bgStartColor":"rgba(255, 255, 255, 1)","bgEndColor":"","bgPicUrl":""},"commonStyle":{"styleTopMargin":10,"styleBottomMargin":10,"styleLeftMargin":10,"styleRightMargin":10,"styleTopPadding":0,"styleBottomPadding":0,"styleLeftPadding":0,"styleRightPadding":0,"styleLtRadius":10,"styleRtRadius":10,"styleLbRadius":10,"styleRbRadius":10,"bgColorDirection":"to right","bgStartColor":"rgba(255, 255, 255, 1)","bgEndColor":"","bgPicUrl":""},"showSalePrice":true,"salePriceSize":14,"salePriceColor":"rgba(255, 0, 0, 1)","salePriceStyle":"0"},"type":"goods","version":1},{"id":"J3RnU3Mjc_kbQKuPFRJJS","props":{"showType":"2","showDesc":true,"descSize":14,"descColor":"rgba(0, 0, 0, 1)","descStyle":"0","showName":true,"nameSize":14,"nameColor":"rgba(0, 0, 0, 1)","nameStyle":"0","showTag":true,"showSalesPrice":true,"salesPriceSize":14,"salesPriceColor":"rgba(255, 0, 0, 1)","salesPriceStyle":"0","showOriginalPrice":false,"showSalesVolume":false,"salesVolumeSize":14,"salesVolumeColor":"rgba(0, 0, 0, 1)","salesVolumeStyle":"0","showStock":false,"stockSize":14,"stockColor":"rgba(0, 0, 0, 1)","stockStyle":"0","buyBtnColor":"rgba(255, 0, 0, 1)","buyBtnSize":14,"buyBtnStyle":"2","showBuyBtn":true,"buyBtnText":"购买","goodsList":[{"id":"1912867577569386497","name":"Apple/苹果 iPhone 16 Pro Max（A3297）","spuUrls":["https://minio.aryn.co/aryn/file/e8e18e94-d352-45d9-acdd-f918a6f77f90.jpg","https://minio.aryn.co/aryn/file/88e79726-2368-4767-aa60-065b5ea9aabd.jpg","https://minio.aryn.co/aryn/file/cc5819fb-8f39-45ad-b584-52ff3fbdf642.jpg","https://minio.aryn.co/aryn/file/f9a3fe3b-22ee-437d-9676-8fe4127e04ec.jpg","https://minio.aryn.co/aryn/file/f7a85fb7-adde-4635-9738-88709be3b76a.jpg"],"status":"1","salesVolume":1000,"categoryFirstId":"1912863400222957569","categorySecondId":"1912863683464306689","description":"<p><br></p><p><img src=\\"https://minio.aryn.co/aryn/file/9888cb29-e6b8-4d67-b129-0d3859c3717e.jpg\\" alt=\\"\\" data-href=\\"\\" style=\\"\\"/></p><p><img src=\\"https://minio.aryn.co/aryn/file/1744aaa5-ed8a-46ca-ba53-3e0038aa5ea6.jpg\\" alt=\\"\\" data-href=\\"\\" style=\\"\\"/></p>","enableSpecs":"1","shopId":"1","shopName":"悦航购自营旗舰店","shopType":"1","shopCategoryFirstId":"1912864433649131522","shopCategorySecondId":"1912864638087897089","createTime":"2025-04-17 21:55:45","updateTime":"2025-04-18 22:44:17","delFlag":"0","verifyStatus":"1","verifyDesc":"","categoryName":"手机","goodsSkus":[{"id":"1912867578517299201","spuId":"1912867577569386497","salesPrice":9299,"originalPrice":9299,"costPrice":9299,"stock":100,"createTime":"2025-04-17 21:55:45","updateTime":"2025-04-18 22:43:59","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913242117281624066","skuId":"1912867578517299201","specsValueId":"1912866747504041986","sort":0,"createTime":"2025-04-18 22:44:02","delFlag":"0","specsValueName":"沙漠色钛金属"},{"id":"1913242118242119682","skuId":"1912867578517299201","specsValueId":"1912866886893346818","sort":1,"createTime":"2025-04-18 22:44:02","delFlag":"0","specsValueName":"256GB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912867579440046081","spuId":"1912867577569386497","salesPrice":11299,"originalPrice":11299,"costPrice":9299,"stock":100,"createTime":"2025-04-17 21:55:45","updateTime":"2025-04-18 22:44:00","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913242119148089346","skuId":"1912867579440046081","specsValueId":"1912866747504041986","sort":0,"createTime":"2025-04-18 22:44:02","delFlag":"0","specsValueName":"沙漠色钛金属"},{"id":"1913242120075030530","skuId":"1912867579440046081","specsValueId":"1912866927229968386","sort":1,"createTime":"2025-04-18 22:44:02","delFlag":"0","specsValueName":"512GB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912867580371181569","spuId":"1912867577569386497","salesPrice":13299,"originalPrice":13299,"costPrice":9299,"stock":100,"createTime":"2025-04-17 21:55:45","updateTime":"2025-04-18 22:44:00","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913242120997777410","skuId":"1912867580371181569","specsValueId":"1912866747504041986","sort":0,"createTime":"2025-04-18 22:44:03","delFlag":"0","specsValueName":"沙漠色钛金属"},{"id":"1913242121920524290","skuId":"1912867580371181569","specsValueId":"1912866949661106178","sort":1,"createTime":"2025-04-18 22:44:03","delFlag":"0","specsValueName":"1TB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912867581298122754","spuId":"1912867577569386497","salesPrice":9299,"originalPrice":9299,"costPrice":9299,"stock":100,"createTime":"2025-04-17 21:55:45","updateTime":"2025-04-18 22:44:00","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913242122826493954","skuId":"1912867581298122754","specsValueId":"1912866787874217985","sort":0,"createTime":"2025-04-18 22:44:03","delFlag":"0","specsValueName":"原色钛金属"},{"id":"1913242123782795265","skuId":"1912867581298122754","specsValueId":"1912866886893346818","sort":1,"createTime":"2025-04-18 22:44:03","delFlag":"0","specsValueName":"256GB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912867582258618370","spuId":"1912867577569386497","salesPrice":11299,"originalPrice":11299,"costPrice":9299,"stock":100,"createTime":"2025-04-17 21:55:46","updateTime":"2025-04-18 22:44:00","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913242124734902274","skuId":"1912867582258618370","specsValueId":"1912866787874217985","sort":0,"createTime":"2025-04-18 22:44:04","delFlag":"0","specsValueName":"原色钛金属"},{"id":"1913242125649260545","skuId":"1912867582258618370","specsValueId":"1912866927229968386","sort":1,"createTime":"2025-04-18 22:44:04","delFlag":"0","specsValueName":"512GB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912867583248474114","spuId":"1912867577569386497","salesPrice":13299,"originalPrice":13299,"costPrice":9299,"stock":100,"createTime":"2025-04-17 21:55:46","updateTime":"2025-04-18 22:44:00","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913242126576201729","skuId":"1912867583248474114","specsValueId":"1912866787874217985","sort":0,"createTime":"2025-04-18 22:44:04","delFlag":"0","specsValueName":"原色钛金属"},{"id":"1913242127503142913","skuId":"1912867583248474114","specsValueId":"1912866949661106178","sort":1,"createTime":"2025-04-18 22:44:04","delFlag":"0","specsValueName":"1TB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912867584276078593","spuId":"1912867577569386497","salesPrice":9299,"originalPrice":9299,"costPrice":9299,"stock":100,"createTime":"2025-04-17 21:55:46","updateTime":"2025-04-18 22:44:00","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913242128434278402","skuId":"1912867584276078593","specsValueId":"1912866817397923842","sort":0,"createTime":"2025-04-18 22:44:04","delFlag":"0","specsValueName":"白色钛金属"},{"id":"1913242129377996801","skuId":"1912867584276078593","specsValueId":"1912866886893346818","sort":1,"createTime":"2025-04-18 22:44:05","delFlag":"0","specsValueName":"256GB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912867585219796994","spuId":"1912867577569386497","salesPrice":11299,"originalPrice":11299,"costPrice":9299,"stock":100,"createTime":"2025-04-17 21:55:46","updateTime":"2025-04-18 22:44:00","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913242130271383553","skuId":"1912867585219796994","specsValueId":"1912866817397923842","sort":0,"createTime":"2025-04-18 22:44:05","delFlag":"0","specsValueName":"白色钛金属"},{"id":"1913242131202519041","skuId":"1912867585219796994","specsValueId":"1912866927229968386","sort":1,"createTime":"2025-04-18 22:44:05","delFlag":"0","specsValueName":"512GB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912867586150932481","spuId":"1912867577569386497","salesPrice":13299,"originalPrice":13299,"costPrice":9299,"stock":100,"createTime":"2025-04-17 21:55:47","updateTime":"2025-04-18 22:44:01","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913242132121071617","skuId":"1912867586150932481","specsValueId":"1912866817397923842","sort":0,"createTime":"2025-04-18 22:44:05","delFlag":"0","specsValueName":"白色钛金属"},{"id":"1913242133064790018","skuId":"1912867586150932481","specsValueId":"1912866949661106178","sort":1,"createTime":"2025-04-18 22:44:06","delFlag":"0","specsValueName":"1TB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912867587086262274","spuId":"1912867577569386497","salesPrice":9299,"originalPrice":9299,"costPrice":9299,"stock":100,"createTime":"2025-04-17 21:55:47","updateTime":"2025-04-18 22:44:01","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913242133979148290","skuId":"1912867587086262274","specsValueId":"1912866843499077633","sort":0,"createTime":"2025-04-18 22:44:06","delFlag":"0","specsValueName":"黑色钛金属"},{"id":"1913242134901895169","skuId":"1912867587086262274","specsValueId":"1912866886893346818","sort":1,"createTime":"2025-04-18 22:44:06","delFlag":"0","specsValueName":"256GB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912867588017397761","spuId":"1912867577569386497","salesPrice":11299,"originalPrice":11299,"costPrice":9299,"stock":100,"createTime":"2025-04-17 21:55:47","updateTime":"2025-04-18 22:44:01","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913242135820447745","skuId":"1912867588017397761","specsValueId":"1912866843499077633","sort":0,"createTime":"2025-04-18 22:44:06","delFlag":"0","specsValueName":"黑色钛金属"},{"id":"1913242136739000321","skuId":"1912867588017397761","specsValueId":"1912866927229968386","sort":1,"createTime":"2025-04-18 22:44:06","delFlag":"0","specsValueName":"512GB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912867588935950337","spuId":"1912867577569386497","salesPrice":9299,"originalPrice":9299,"costPrice":9299,"stock":100,"createTime":"2025-04-17 21:55:47","updateTime":"2025-04-18 22:44:01","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913242137665941505","skuId":"1912867588935950337","specsValueId":"1912866843499077633","sort":0,"createTime":"2025-04-18 22:44:07","delFlag":"0","specsValueName":"黑色钛金属"},{"id":"1913242138651602946","skuId":"1912867588935950337","specsValueId":"1912866949661106178","sort":1,"createTime":"2025-04-18 22:44:07","delFlag":"0","specsValueName":"1TB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0}],"goodsSpuSpecs":[{"id":"1912867589871280130","spuId":"1912867577569386497","specsId":"1912866651538366466","sort":0,"createTime":"2025-04-17 21:55:47","delFlag":"1"},{"id":"1912888755335921665","spuId":"1912867577569386497","specsId":"1912866651538366466","sort":0,"createTime":"2025-04-17 23:19:54","delFlag":"1"},{"id":"1912934226058850306","spuId":"1912867577569386497","specsId":"1912866651538366466","sort":0,"createTime":"2025-04-18 02:20:35","delFlag":"1"},{"id":"1913242115398381569","spuId":"1912867577569386497","specsId":"1912866651538366466","sort":0,"createTime":"2025-04-18 22:44:01","delFlag":"0"},{"id":"1912867590802415617","spuId":"1912867577569386497","specsId":"1912866862587355137","sort":1,"createTime":"2025-04-17 21:55:48","delFlag":"1"},{"id":"1912888756262862850","spuId":"1912867577569386497","specsId":"1912866862587355137","sort":1,"createTime":"2025-04-17 23:19:54","delFlag":"1"},{"id":"1912934227099037698","spuId":"1912867577569386497","specsId":"1912866862587355137","sort":1,"createTime":"2025-04-18 02:20:35","delFlag":"1"},{"id":"1913242116350488578","spuId":"1912867577569386497","specsId":"1912866862587355137","sort":1,"createTime":"2025-04-18 22:44:02","delFlag":"0"}],"stock":1200,"enableMemberPrice":"1","enableGivePoints":"1","pointsAmount":100,"enablePointDeduction":"1","pointDeductionRatio":10,"freightType":"0","fixedFreightPrice":0,"salesPrice":9299,"originalPrice":9299,"costPrice":9299,"distributionCalcType":"0","distributionType":"0"},{"id":"1912870113080680449","name":"小米15 国家补贴 徕卡光学Summilux高速镜头 骁龙8至尊版移动平台","spuUrls":["https://minio.aryn.co/aryn/file/6b5481c8-ee15-41a2-bca8-d08463947208.jpg","https://minio.aryn.co/aryn/file/22e2fc4e-bc1e-4c42-a57f-af4cb04af847.jpg","https://minio.aryn.co/aryn/file/9f371b82-9843-4fd2-a206-ebbb0b9ddb9e.jpg","https://minio.aryn.co/aryn/file/505b78ac-7dfa-4379-a4df-d11e90d34ae0.jpg","https://minio.aryn.co/aryn/file/3f462f51-a183-465d-94cc-f8bfd1759869.jpg"],"status":"1","salesVolume":100,"categoryFirstId":"1912863400222957569","categorySecondId":"1912863683464306689","description":"<p><br></p><p><img src=\\"https://minio.aryn.co/aryn/file/292fbf15-33cc-4eee-b1ef-3a4dc71ba4d2.jpg\\" alt=\\"\\" data-href=\\"\\" style=\\"\\"/></p>","enableSpecs":"1","shopId":"1","shopName":"悦航购自营旗舰店","shopType":"1","shopCategoryFirstId":"1912864433649131522","shopCategorySecondId":"1912864567430651906","createTime":"2025-04-17 22:05:49","updateTime":"2025-04-18 22:44:17","delFlag":"0","verifyStatus":"1","verifyDesc":"","categoryName":"手机","goodsSkus":[{"id":"1912870113982455809","spuId":"1912870113080680449","salesPrice":4199,"originalPrice":4199,"costPrice":4199,"stock":100,"createTime":"2025-04-17 22:05:49","updateTime":"2025-04-18 22:43:26","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913241979834281985","skuId":"1912870113982455809","specsValueId":"1912869461206147074","sort":0,"createTime":"2025-04-18 22:43:29","delFlag":"0","picUrl":"https://minio.aryn.co/aryn/file/3f462f51-a183-465d-94cc-f8bfd1759869.jpg","specsValueName":"黑色"},{"id":"1913241980786388994","skuId":"1912870113982455809","specsValueId":"1912869653045223426","sort":1,"createTime":"2025-04-18 22:43:29","delFlag":"0","specsValueName":"12GB+256GB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912870114942951425","spuId":"1912870113080680449","salesPrice":4499,"originalPrice":4499,"costPrice":4199,"stock":100,"createTime":"2025-04-17 22:05:49","updateTime":"2025-04-18 22:43:26","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913241981717524481","skuId":"1912870114942951425","specsValueId":"1912869461206147074","sort":0,"createTime":"2025-04-18 22:43:29","delFlag":"0","picUrl":"https://minio.aryn.co/aryn/file/3f462f51-a183-465d-94cc-f8bfd1759869.jpg","specsValueName":"黑色"},{"id":"1913241982698991618","skuId":"1912870114942951425","specsValueId":"1912869723891212289","sort":1,"createTime":"2025-04-18 22:43:30","delFlag":"0","specsValueName":"12GB+512GB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912870115911835649","spuId":"1912870113080680449","salesPrice":4199,"originalPrice":4199,"costPrice":4199,"stock":100,"createTime":"2025-04-17 22:05:50","updateTime":"2025-04-18 22:43:26","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913241983638515713","skuId":"1912870115911835649","specsValueId":"1912869494215319554","sort":0,"createTime":"2025-04-18 22:43:30","delFlag":"0","picUrl":"https://minio.aryn.co/aryn/file/6b5481c8-ee15-41a2-bca8-d08463947208.jpg","specsValueName":"白色"},{"id":"1913241984603205634","skuId":"1912870115911835649","specsValueId":"1912869653045223426","sort":1,"createTime":"2025-04-18 22:43:30","delFlag":"0","specsValueName":"12GB+256GB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912870116868136962","spuId":"1912870113080680449","salesPrice":4499,"originalPrice":4499,"costPrice":4199,"stock":100,"createTime":"2025-04-17 22:05:50","updateTime":"2025-04-18 22:43:26","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913241985538535425","skuId":"1912870116868136962","specsValueId":"1912869494215319554","sort":0,"createTime":"2025-04-18 22:43:30","delFlag":"0","picUrl":"https://minio.aryn.co/aryn/file/6b5481c8-ee15-41a2-bca8-d08463947208.jpg","specsValueName":"白色"},{"id":"1913241986532585473","skuId":"1912870116868136962","specsValueId":"1912869723891212289","sort":1,"createTime":"2025-04-18 22:43:31","delFlag":"0","specsValueName":"12GB+512GB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912870117761523714","spuId":"1912870113080680449","salesPrice":4199,"originalPrice":4199,"costPrice":4199,"stock":100,"createTime":"2025-04-17 22:05:50","updateTime":"2025-04-18 22:43:26","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913241987484692481","skuId":"1912870117761523714","specsValueId":"1912869535868952578","sort":0,"createTime":"2025-04-18 22:43:31","delFlag":"0","picUrl":"https://minio.aryn.co/aryn/file/4714dced-02c2-4300-9f57-862033c1f98f.jpg","specsValueName":"浅草色"},{"id":"1913241988457771010","skuId":"1912870117761523714","specsValueId":"1912869653045223426","sort":1,"createTime":"2025-04-18 22:43:31","delFlag":"0","specsValueName":"12GB+256GB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912870118663299074","spuId":"1912870113080680449","salesPrice":4499,"originalPrice":4499,"costPrice":4199,"stock":100,"createTime":"2025-04-17 22:05:50","updateTime":"2025-04-18 22:43:27","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913241989363740674","skuId":"1912870118663299074","specsValueId":"1912869535868952578","sort":0,"createTime":"2025-04-18 22:43:31","delFlag":"0","picUrl":"https://minio.aryn.co/aryn/file/4714dced-02c2-4300-9f57-862033c1f98f.jpg","specsValueName":"浅草色"},{"id":"1913241990324236290","skuId":"1912870118663299074","specsValueId":"1912869723891212289","sort":1,"createTime":"2025-04-18 22:43:31","delFlag":"0","specsValueName":"12GB+512GB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912870119623794689","spuId":"1912870113080680449","salesPrice":4199,"originalPrice":4199,"costPrice":4199,"stock":100,"createTime":"2025-04-17 22:05:51","updateTime":"2025-04-18 22:43:27","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913241991255371777","skuId":"1912870119623794689","specsValueId":"1912869571721863169","sort":0,"createTime":"2025-04-18 22:43:32","delFlag":"0","picUrl":"https://minio.aryn.co/aryn/file/29c5fa1e-d2b5-487f-a4fe-ddf72154303f.jpg","specsValueName":"丁香紫"},{"id":"1913241992203284482","skuId":"1912870119623794689","specsValueId":"1912869653045223426","sort":1,"createTime":"2025-04-18 22:43:32","delFlag":"0","specsValueName":"12GB+256GB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0},{"id":"1912870120580096002","spuId":"1912870113080680449","salesPrice":4499,"originalPrice":4499,"costPrice":4199,"stock":100,"createTime":"2025-04-17 22:05:51","updateTime":"2025-04-18 22:43:27","delFlag":"0","goodsSkuSpecsValues":[{"id":"1913241993117642753","skuId":"1912870120580096002","specsValueId":"1912869571721863169","sort":0,"createTime":"2025-04-18 22:43:32","delFlag":"0","picUrl":"https://minio.aryn.co/aryn/file/29c5fa1e-d2b5-487f-a4fe-ddf72154303f.jpg","specsValueName":"丁香紫"},{"id":"1913241994073944065","skuId":"1912870120580096002","specsValueId":"1912869723891212289","sort":1,"createTime":"2025-04-18 22:43:32","delFlag":"0","specsValueName":"12GB+512GB"}],"status":"0","distributionFirstValue":0,"distributionSecondValue":0}],"goodsSpuSpecs":[{"id":"1912870121486065666","spuId":"1912870113080680449","specsId":"1912866651538366466","sort":0,"createTime":"2025-04-17 22:05:51","delFlag":"1"},{"id":"1912880928009658370","spuId":"1912870113080680449","specsId":"1912866651538366466","sort":0,"createTime":"2025-04-17 22:48:48","delFlag":"1"},{"id":"1912888587442126850","spuId":"1912870113080680449","specsId":"1912866651538366466","sort":0,"createTime":"2025-04-17 23:19:14","delFlag":"1"},{"id":"1912934769850363905","spuId":"1912870113080680449","specsId":"1912866651538366466","sort":0,"createTime":"2025-04-18 02:22:44","delFlag":"1"},{"id":"1913241972276146177","spuId":"1912870113080680449","specsId":"1912866651538366466","sort":0,"createTime":"2025-04-18 22:43:27","delFlag":"0"},{"id":"1912870122438172674","spuId":"1912870113080680449","specsId":"1912866862587355137","sort":1,"createTime":"2025-04-17 22:05:51","delFlag":"1"},{"id":"1912880928936599554","spuId":"1912870113080680449","specsId":"1912866862587355137","sort":1,"createTime":"2025-04-17 22:48:48","delFlag":"1"},{"id":"1912888588406816770","spuId":"1912870113080680449","specsId":"1912866862587355137","sort":1,"createTime":"2025-04-17 23:19:14","delFlag":"1"},{"id":"1912934770953465857","spuId":"1912870113080680449","specsId":"1912866862587355137","sort":1,"createTime":"2025-04-18 02:22:45","delFlag":"1"},{"id":"1913241973224058881","spuId":"1912870113080680449","specsId":"1912866651538366466","sort":1,"createTime":"2025-04-18 22:43:27","delFlag":"0"},{"id":"1913241974138417154","spuId":"1912870113080680449","specsId":"1912866651538366466","sort":2,"createTime":"2025-04-18 22:43:28","delFlag":"0"},{"id":"1913241975115689986","spuId":"1912870113080680449","specsId":"1912866651538366466","sort":3,"createTime":"2025-04-18 22:43:28","delFlag":"0"},{"id":"1913241976080379906","spuId":"1912870113080680449","specsId":"1912866862587355137","sort":4,"createTime":"2025-04-18 22:43:28","delFlag":"0"},{"id":"1913241977019904002","spuId":"1912870113080680449","specsId":"1912866862587355137","sort":5,"createTime":"2025-04-18 22:43:28","delFlag":"0"},{"id":"1913241977934262273","spuId":"1912870113080680449","specsId":"1912866862587355137","sort":6,"createTime":"2025-04-18 22:43:29","delFlag":"0"},{"id":"1913241978894757889","spuId":"1912870113080680449","specsId":"1912866862587355137","sort":7,"createTime":"2025-04-18 22:43:29","delFlag":"0"}],"stock":800,"enableMemberPrice":"1","enableGivePoints":"1","pointsAmount":120,"enablePointDeduction":"1","pointDeductionRatio":10,"freightType":"0","fixedFreightPrice":0,"salesPrice":4199,"originalPrice":4199,"costPrice":4199,"distributionCalcType":"0","distributionType":"0"},{"id":"1912882761411239938","name":"大疆 DJI Mini 3 优选迷你航拍机 智能高清拍摄无人机 小型遥控飞机 兼容带屏遥控器 大疆无人机","spuUrls":["https://minio.aryn.co/aryn/file/e38f917c-c4a5-4fd8-9acf-e6a4f40aff60.jpg","https://minio.aryn.co/aryn/file/ff6de4fc-406e-4f02-8b9a-6269dd9b8ce8.jpg","https://minio.aryn.co/aryn/file/0f4f5061-3930-4ef8-9352-5307d3689307.jpg","https://minio.aryn.co/aryn/file/78fa70d0-faff-4440-a9a4-55b4b4ca71f7.jpg"],"status":"1","salesVolume":111,"categoryFirstId":"1912863400222957569","categorySecondId":"1912864294511484929","description":"<p><br></p><p><img src=\\"https://minio.aryn.co/aryn/file/b775af49-8e44-4ba7-b19c-08b8141af9c5.jpg\\" alt=\\"\\" data-href=\\"\\" style=\\"\\"/></p>","enableSpecs":"0","shopId":"1","shopName":"悦航购自营旗舰店","shopType":"1","shopCategoryFirstId":"1912882883218022401","shopCategorySecondId":"1912864567430651906","createTime":"2025-04-17 22:56:05","updateTime":"2025-04-18 02:23:33","delFlag":"0","verifyStatus":"1","verifyDesc":"","categoryName":"无人机","goodsSkus":[{"id":"1912882762380124162","spuId":"1912882761411239938","salesPrice":5999,"originalPrice":5999,"costPrice":5999,"stock":1000,"createTime":"2025-04-17 22:56:05","updateTime":"2025-04-17 23:18:31","delFlag":"0","goodsSkuSpecsValues":[],"distributionFirstValue":0,"distributionSecondValue":0}],"goodsSpuSpecs":[],"stock":1000,"enableMemberPrice":"0","enableGivePoints":"1","pointsAmount":24,"enablePointDeduction":"1","pointDeductionRatio":10,"freightType":"0","fixedFreightPrice":0,"salesPrice":5999,"originalPrice":5999,"costPrice":5999,"distributionCalcType":"0","distributionType":"0"}],"goodsCommonStyle":{"styleTopMargin":10,"styleBottomMargin":10,"styleLeftMargin":10,"styleRightMargin":10,"styleTopPadding":0,"styleBottomPadding":0,"styleLeftPadding":0,"styleRightPadding":0,"styleLtRadius":33,"styleRtRadius":33,"styleLbRadius":33,"styleRbRadius":33,"bgColorDirection":"to right","bgStartColor":"rgba(255, 255, 255, 1)","bgEndColor":""},"commonStyle":{"styleTopMargin":10,"styleBottomMargin":10,"styleLeftMargin":10,"styleRightMargin":10,"styleTopPadding":0,"styleBottomPadding":0,"styleLeftPadding":0,"styleRightPadding":0,"styleLtRadius":10,"styleRtRadius":10,"styleLbRadius":10,"styleRbRadius":10,"bgColorDirection":"to right","bgStartColor":"rgba(255, 255, 255, 1)","bgEndColor":"","bgPicUrl":""},"showSalePrice":true,"salePriceSize":14,"salePriceColor":"rgba(255, 0, 0, 1)","salePriceStyle":"0"},"type":"goods","version":1},{"id":"96q6lexfjc9AdHcRnMgcl","props":{"commonStyle":{"bgColorDirection":"to right","bgEndColor":"","bgPicUrl":"","bgStartColor":"#ffffff","styleBottomMargin":10,"styleBottomPadding":12,"styleLbRadius":0,"styleLeftMargin":10,"styleLeftPadding":12,"styleLtRadius":0,"styleRbRadius":0,"styleRightMargin":10,"styleRightPadding":12,"styleRtRadius":0,"styleTopMargin":10,"styleTopPadding":12},"count":3,"dataSource":{"mode":"automatic","sort":"start-time"},"emptyStrategy":"hide","invalidStrategy":"hide","showCountdown":true,"title":"限时活动"},"type":"limited-activity","version":1}],"id":"section-root","style":{"backgroundColor":"","backgroundImage":"","condition":"always","horizontalScroll":false,"paddingY":0,"sticky":false},"type":"default"}]}', `update_time` = NOW(), `update_by` = 'system' WHERE `id` = '1912871334512336898';
+
+USE `aryn_upms`;
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/611f7204-e030-58ba-965e-bbe3e96414fa.jpg', `del_flag`='0', `update_time`=NOW(), `update_by`='system' WHERE `id`='9600000000000000001' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`)
+SELECT '9600000000000000001','1','-1','home-banner-fresh-1.jpg','http://localhost:9999/boot/file/local/1590229800633634816/611f7204-e030-58ba-965e-bbe3e96414fa.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9600000000000000001');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/c61896ee-f000-528a-baa9-34eac71fe5a3.jpg', `del_flag`='0', `update_time`=NOW(), `update_by`='system' WHERE `id`='9600000000000000002' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`)
+SELECT '9600000000000000002','1','-1','home-banner-fresh-2.jpg','http://localhost:9999/boot/file/local/1590229800633634816/c61896ee-f000-528a-baa9-34eac71fe5a3.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9600000000000000002');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/5860844a-c1c9-5b66-b4ac-3f6b533cb24d.jpg', `del_flag`='0', `update_time`=NOW(), `update_by`='system' WHERE `id`='9600000000000000003' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`)
+SELECT '9600000000000000003','1','-1','home-banner-promo-1.jpg','http://localhost:9999/boot/file/local/1590229800633634816/5860844a-c1c9-5b66-b4ac-3f6b533cb24d.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9600000000000000003');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/6800bf75-468c-5a7a-ac12-ca2fbfad162f.jpg', `del_flag`='0', `update_time`=NOW(), `update_by`='system' WHERE `id`='9600000000000000004' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`)
+SELECT '9600000000000000004','1','-1','home-banner-promo-2.jpg','http://localhost:9999/boot/file/local/1590229800633634816/6800bf75-468c-5a7a-ac12-ca2fbfad162f.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9600000000000000004');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/4a4b984a-a5b7-5900-9923-6accc6b950b6.jpg', `del_flag`='0', `update_time`=NOW(), `update_by`='system' WHERE `id`='9600000000000000005' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`)
+SELECT '9600000000000000005','1','-1','home-icon-all.jpg','http://localhost:9999/boot/file/local/1590229800633634816/4a4b984a-a5b7-5900-9923-6accc6b950b6.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9600000000000000005');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/63783edc-366c-5b1e-9045-0b46fa33a32a.jpg', `del_flag`='0', `update_time`=NOW(), `update_by`='system' WHERE `id`='9600000000000000006' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`)
+SELECT '9600000000000000006','1','-1','home-icon-history.jpg','http://localhost:9999/boot/file/local/1590229800633634816/63783edc-366c-5b1e-9045-0b46fa33a32a.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9600000000000000006');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/0a8926b6-cf35-5187-b669-c73b6dff57a7.jpg', `del_flag`='0', `update_time`=NOW(), `update_by`='system' WHERE `id`='9600000000000000007' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`)
+SELECT '9600000000000000007','1','-1','home-icon-coupon.jpg','http://localhost:9999/boot/file/local/1590229800633634816/0a8926b6-cf35-5187-b669-c73b6dff57a7.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9600000000000000007');
+
+-- ============================================================================
+-- 船舶物料商品图回填与家电数码新商品
+-- Source: db/boot/75ship_and_tech_product_images.sql
+-- ============================================================================
+-- 悦航购商品图片回填（船舶物料26个现有SPU + 家电数码14个新SPU）
+-- 模式: boot
+USE `aryn_product`;
+SET NAMES utf8mb4;
+
+-- ---------- 1. 船舶物料26个现有SPU回填图片 ----------
+UPDATE `goods_spu` SET `spu_urls`='http://localhost:9999/boot/file/local/1590229800633634816/008de3f0-02a1-580d-b834-da373417f582.jpg', `update_time`=NOW(), `update_by`='system' WHERE `id`='9640000000000000002' AND `tenant_id`='1590229800633634816';
+UPDATE `goods_spu` SET `spu_urls`='http://localhost:9999/boot/file/local/1590229800633634816/2d847c4e-66cb-573d-b0ea-523b4153b04f.jpg', `update_time`=NOW(), `update_by`='system' WHERE `id`='9640000000000000003' AND `tenant_id`='1590229800633634816';
+UPDATE `goods_spu` SET `spu_urls`='http://localhost:9999/boot/file/local/1590229800633634816/fe78b07b-7f69-5777-a107-9e6d500c883a.jpg', `update_time`=NOW(), `update_by`='system' WHERE `id`='9640000000000000004' AND `tenant_id`='1590229800633634816';
+UPDATE `goods_spu` SET `spu_urls`='http://localhost:9999/boot/file/local/1590229800633634816/157ca58b-861d-54bc-935e-ff4f82d83634.jpg', `update_time`=NOW(), `update_by`='system' WHERE `id`='9640000000000000005' AND `tenant_id`='1590229800633634816';
+UPDATE `goods_spu` SET `spu_urls`='http://localhost:9999/boot/file/local/1590229800633634816/40142199-396b-55d0-a347-0d494eba38a4.jpg', `update_time`=NOW(), `update_by`='system' WHERE `id`='9640000000000000006' AND `tenant_id`='1590229800633634816';
+UPDATE `goods_spu` SET `spu_urls`='http://localhost:9999/boot/file/local/1590229800633634816/0430ab7a-a2bf-5679-b6c0-7d4eceab0bc9.jpg', `update_time`=NOW(), `update_by`='system' WHERE `id`='9640000000000000007' AND `tenant_id`='1590229800633634816';
+UPDATE `goods_spu` SET `spu_urls`='http://localhost:9999/boot/file/local/1590229800633634816/2b434114-c8c9-5597-9e39-f95c5ec5a5cc.jpg', `update_time`=NOW(), `update_by`='system' WHERE `id`='9640000000000000008' AND `tenant_id`='1590229800633634816';
+UPDATE `goods_spu` SET `spu_urls`='http://localhost:9999/boot/file/local/1590229800633634816/4cff6ad8-8dcd-505c-a5ea-7710e69ba2bf.jpg', `update_time`=NOW(), `update_by`='system' WHERE `id`='9640000000000000009' AND `tenant_id`='1590229800633634816';
+UPDATE `goods_spu` SET `spu_urls`='http://localhost:9999/boot/file/local/1590229800633634816/6fbe0b1b-6d24-5c20-849d-9e3ffbfc9312.jpg', `update_time`=NOW(), `update_by`='system' WHERE `id`='9640000000000000010' AND `tenant_id`='1590229800633634816';
+UPDATE `goods_spu` SET `spu_urls`='http://localhost:9999/boot/file/local/1590229800633634816/4aeae27f-c38a-5616-aeb4-f39f9780a794.jpg', `update_time`=NOW(), `update_by`='system' WHERE `id`='9640000000000000011' AND `tenant_id`='1590229800633634816';
+UPDATE `goods_spu` SET `spu_urls`='http://localhost:9999/boot/file/local/1590229800633634816/1fac1cbc-d053-5636-984a-1ef9db5b95e4.jpg', `update_time`=NOW(), `update_by`='system' WHERE `id`='9640000000000000012' AND `tenant_id`='1590229800633634816';
+UPDATE `goods_spu` SET `spu_urls`='http://localhost:9999/boot/file/local/1590229800633634816/f6493fd6-17e5-504b-b915-6be84ad851b9.jpg', `update_time`=NOW(), `update_by`='system' WHERE `id`='9640000000000000017' AND `tenant_id`='1590229800633634816';
+UPDATE `goods_spu` SET `spu_urls`='http://localhost:9999/boot/file/local/1590229800633634816/1ab1212c-1573-560f-ab8b-5ee9adb9f074.jpg', `update_time`=NOW(), `update_by`='system' WHERE `id`='9640000000000000016' AND `tenant_id`='1590229800633634816';
+UPDATE `goods_spu` SET `spu_urls`='http://localhost:9999/boot/file/local/1590229800633634816/67b118a4-6a56-55f4-adf7-05653bb08a03.jpg', `update_time`=NOW(), `update_by`='system' WHERE `id`='9640000000000000015' AND `tenant_id`='1590229800633634816';
+UPDATE `goods_spu` SET `spu_urls`='http://localhost:9999/boot/file/local/1590229800633634816/60b9f89a-c49f-5e09-97e7-6618c6063914.jpg', `update_time`=NOW(), `update_by`='system' WHERE `id`='9640000000000000014' AND `tenant_id`='1590229800633634816';
+UPDATE `goods_spu` SET `spu_urls`='http://localhost:9999/boot/file/local/1590229800633634816/262a1e6d-c2b7-5327-b1dc-1c3d75c7a8e4.jpg', `update_time`=NOW(), `update_by`='system' WHERE `id`='9640000000000000013' AND `tenant_id`='1590229800633634816';
+UPDATE `goods_spu` SET `spu_urls`='http://localhost:9999/boot/file/local/1590229800633634816/73c85ce7-06e2-57ab-8549-69048865b940.jpg', `update_time`=NOW(), `update_by`='system' WHERE `id`='9640000000000000018' AND `tenant_id`='1590229800633634816';
+UPDATE `goods_spu` SET `spu_urls`='http://localhost:9999/boot/file/local/1590229800633634816/8adb4785-f41f-5d87-a079-119b473b7221.jpg', `update_time`=NOW(), `update_by`='system' WHERE `id`='9640000000000000019' AND `tenant_id`='1590229800633634816';
+UPDATE `goods_spu` SET `spu_urls`='http://localhost:9999/boot/file/local/1590229800633634816/56f2a82d-30c0-55ce-b3f9-1a4b2e8568b2.jpg', `update_time`=NOW(), `update_by`='system' WHERE `id`='9640000000000000020' AND `tenant_id`='1590229800633634816';
+UPDATE `goods_spu` SET `spu_urls`='http://localhost:9999/boot/file/local/1590229800633634816/e6da3439-79af-5d08-b661-7509792c77d1.jpg', `update_time`=NOW(), `update_by`='system' WHERE `id`='9640000000000000021' AND `tenant_id`='1590229800633634816';
+UPDATE `goods_spu` SET `spu_urls`='http://localhost:9999/boot/file/local/1590229800633634816/7ec3d3e4-865c-5750-a086-4c734103cd95.jpg', `update_time`=NOW(), `update_by`='system' WHERE `id`='9640000000000000022' AND `tenant_id`='1590229800633634816';
+UPDATE `goods_spu` SET `spu_urls`='http://localhost:9999/boot/file/local/1590229800633634816/c1d767e6-eddc-5f25-a173-1db24e80d95e.jpg', `update_time`=NOW(), `update_by`='system' WHERE `id`='9640000000000000023' AND `tenant_id`='1590229800633634816';
+UPDATE `goods_spu` SET `spu_urls`='http://localhost:9999/boot/file/local/1590229800633634816/48dc9e14-c3c9-5ae2-a81f-32b46f3d9bcb.jpg', `update_time`=NOW(), `update_by`='system' WHERE `id`='9640000000000000024' AND `tenant_id`='1590229800633634816';
+UPDATE `goods_spu` SET `spu_urls`='http://localhost:9999/boot/file/local/1590229800633634816/bd33af1c-1131-506a-866f-379c9b282f2d.jpg', `update_time`=NOW(), `update_by`='system' WHERE `id`='9640000000000000025' AND `tenant_id`='1590229800633634816';
+UPDATE `goods_spu` SET `spu_urls`='http://localhost:9999/boot/file/local/1590229800633634816/01212043-94cb-5b76-9516-a343794d2a73.jpg', `update_time`=NOW(), `update_by`='system' WHERE `id`='9640000000000000026' AND `tenant_id`='1590229800633634816';
+UPDATE `goods_spu` SET `spu_urls`='http://localhost:9999/boot/file/local/1590229800633634816/3a22a54b-0a11-5b0f-9ea9-831d292fbf3a.jpg', `update_time`=NOW(), `update_by`='system' WHERE `id`='9640000000000000027' AND `tenant_id`='1590229800633634816';
+
+-- ---------- 2. 家电数码14个新SPU ----------
+INSERT INTO `goods_spu` (`id`,`name`,`sub_title`,`spu_urls`,`status`,`sales_volume`,`category_first_id`,`category_second_id`,`brand_id`,`description`,`enable_specs`,`tenant_id`,`create_by`,`update_by`,`stock`,`freight_type`,`sales_price`,`original_price`,`cost_price`,`del_flag`,`create_time`,`update_time`) SELECT '1930000000000000001','小米电视 65英寸 4K超清','Xiaomi TV 65" 4K / HDR','http://localhost:9999/boot/file/local/1590229800633634816/63e0ff3a-0a5d-56a3-8e1d-5edb5981a5b5.jpg','1',0,'1912861788486148097','1912862220591734785',NULL,'小米电视 65英寸 4K超清（演示商品）','0','1590229800633634816','seed','system',500,'0',2999,3599,2399,'0',NOW(),NOW() FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `goods_spu` WHERE `id`='1930000000000000001');
+INSERT INTO `goods_spu` (`id`,`name`,`sub_title`,`spu_urls`,`status`,`sales_volume`,`category_first_id`,`category_second_id`,`brand_id`,`description`,`enable_specs`,`tenant_id`,`create_by`,`update_by`,`stock`,`freight_type`,`sales_price`,`original_price`,`cost_price`,`del_flag`,`create_time`,`update_time`) SELECT '1930000000000000002','海信电视 55英寸 4K全面屏','Hisense 55" 4K AI','http://localhost:9999/boot/file/local/1590229800633634816/812adcc7-a2a9-594f-b93c-2d16fc3fa16f.jpg','1',0,'1912861788486148097','1912862220591734785',NULL,'海信电视 55英寸 4K全面屏（演示商品）','0','1590229800633634816','seed','system',500,'0',2199,2699,1799,'0',NOW(),NOW() FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `goods_spu` WHERE `id`='1930000000000000002');
+INSERT INTO `goods_spu` (`id`,`name`,`sub_title`,`spu_urls`,`status`,`sales_volume`,`category_first_id`,`category_second_id`,`brand_id`,`description`,`enable_specs`,`tenant_id`,`create_by`,`update_by`,`stock`,`freight_type`,`sales_price`,`original_price`,`cost_price`,`del_flag`,`create_time`,`update_time`) SELECT '1930000000000000003','格力1.5匹变频壁挂空调','GREE 1.5匹 一级能效','http://localhost:9999/boot/file/local/1590229800633634816/75e86a72-0b69-51f6-8c7c-56bfbc9fa5ac.jpg','1',0,'1912861788486148097','1912862615531593730',NULL,'格力1.5匹变频壁挂空调（演示商品）','0','1590229800633634816','seed','system',500,'0',2599,3199,2099,'0',NOW(),NOW() FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `goods_spu` WHERE `id`='1930000000000000003');
+INSERT INTO `goods_spu` (`id`,`name`,`sub_title`,`spu_urls`,`status`,`sales_volume`,`category_first_id`,`category_second_id`,`brand_id`,`description`,`enable_specs`,`tenant_id`,`create_by`,`update_by`,`stock`,`freight_type`,`sales_price`,`original_price`,`cost_price`,`del_flag`,`create_time`,`update_time`) SELECT '1930000000000000004','美的大1匹冷暖挂机','Midea 大1匹 新三级','http://localhost:9999/boot/file/local/1590229800633634816/57732797-52e4-5de7-93df-11d14abc40ac.jpg','1',0,'1912861788486148097','1912862615531593730',NULL,'美的大1匹冷暖挂机（演示商品）','0','1590229800633634816','seed','system',500,'0',1899,2299,1499,'0',NOW(),NOW() FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `goods_spu` WHERE `id`='1930000000000000004');
+INSERT INTO `goods_spu` (`id`,`name`,`sub_title`,`spu_urls`,`status`,`sales_volume`,`category_first_id`,`category_second_id`,`brand_id`,`description`,`enable_specs`,`tenant_id`,`create_by`,`update_by`,`stock`,`freight_type`,`sales_price`,`original_price`,`cost_price`,`del_flag`,`create_time`,`update_time`) SELECT '1930000000000000005','海尔十字对开门冰箱','Haier 431L 风冷无霜','http://localhost:9999/boot/file/local/1590229800633634816/e01f9ff6-f5c0-51e7-8279-15a520584f4f.jpg','1',0,'1912861788486148097','1912863000879079426',NULL,'海尔十字对开门冰箱（演示商品）','0','1590229800633634816','seed','system',500,'0',3999,4699,3299,'0',NOW(),NOW() FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `goods_spu` WHERE `id`='1930000000000000005');
+INSERT INTO `goods_spu` (`id`,`name`,`sub_title`,`spu_urls`,`status`,`sales_volume`,`category_first_id`,`category_second_id`,`brand_id`,`description`,`enable_specs`,`tenant_id`,`create_by`,`update_by`,`stock`,`freight_type`,`sales_price`,`original_price`,`cost_price`,`del_flag`,`create_time`,`update_time`) SELECT '1930000000000000006','容声双门冰箱 252L','Ronshen 252L 节能','http://localhost:9999/boot/file/local/1590229800633634816/a2da3fe2-52b9-5504-b8d7-470a039df9e8.jpg','1',0,'1912861788486148097','1912863000879079426',NULL,'容声双门冰箱 252L（演示商品）','0','1590229800633634816','seed','system',500,'0',1599,1899,1299,'0',NOW(),NOW() FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `goods_spu` WHERE `id`='1930000000000000006');
+INSERT INTO `goods_spu` (`id`,`name`,`sub_title`,`spu_urls`,`status`,`sales_volume`,`category_first_id`,`category_second_id`,`brand_id`,`description`,`enable_specs`,`tenant_id`,`create_by`,`update_by`,`stock`,`freight_type`,`sales_price`,`original_price`,`cost_price`,`del_flag`,`create_time`,`update_time`) SELECT '1930000000000000007','vivo X300 Pro 5G','16GB+512GB 蔡司影像','http://localhost:9999/boot/file/local/1590229800633634816/9ba232df-65c5-52d6-906e-267486f813cd.jpg','1',0,'1912863400222957569','1912863683464306689',NULL,'vivo X300 Pro 5G（演示商品）','0','1590229800633634816','seed','system',500,'0',4299,4999,3599,'0',NOW(),NOW() FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `goods_spu` WHERE `id`='1930000000000000007');
+INSERT INTO `goods_spu` (`id`,`name`,`sub_title`,`spu_urls`,`status`,`sales_volume`,`category_first_id`,`category_second_id`,`brand_id`,`description`,`enable_specs`,`tenant_id`,`create_by`,`update_by`,`stock`,`freight_type`,`sales_price`,`original_price`,`cost_price`,`del_flag`,`create_time`,`update_time`) SELECT '1930000000000000008','小米15 16GB+512GB','Xiaomi 15 骁龙8至尊版','http://localhost:9999/boot/file/local/1590229800633634816/3ae72d51-9c5e-5b3b-896e-2026d690ec22.jpg','1',0,'1912863400222957569','1912863683464306689',NULL,'小米15 16GB+512GB（演示商品）','0','1590229800633634816','seed','system',500,'0',3999,4499,3399,'0',NOW(),NOW() FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `goods_spu` WHERE `id`='1930000000000000008');
+INSERT INTO `goods_spu` (`id`,`name`,`sub_title`,`spu_urls`,`status`,`sales_volume`,`category_first_id`,`category_second_id`,`brand_id`,`description`,`enable_specs`,`tenant_id`,`create_by`,`update_by`,`stock`,`freight_type`,`sales_price`,`original_price`,`cost_price`,`del_flag`,`create_time`,`update_time`) SELECT '1930000000000000009','智能手表 运动版','心率血氧监测 50米防水','http://localhost:9999/boot/file/local/1590229800633634816/80dd2d3d-f2d5-50a5-a147-a50076469f35.jpg','1',0,'1912863400222957569','1912863991967948801',NULL,'智能手表 运动版（演示商品）','0','1590229800633634816','seed','system',500,'0',899,1099,699,'0',NOW(),NOW() FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `goods_spu` WHERE `id`='1930000000000000009');
+INSERT INTO `goods_spu` (`id`,`name`,`sub_title`,`spu_urls`,`status`,`sales_volume`,`category_first_id`,`category_second_id`,`brand_id`,`description`,`enable_specs`,`tenant_id`,`create_by`,`update_by`,`stock`,`freight_type`,`sales_price`,`original_price`,`cost_price`,`del_flag`,`create_time`,`update_time`) SELECT '1930000000000000010','小米小爱智能音箱','Xiaomi AI 语音控制','http://localhost:9999/boot/file/local/1590229800633634816/f3fabb20-7c52-5340-9cb1-953635a93b91.jpg','1',0,'1912863400222957569','1912863991967948801',NULL,'小米小爱智能音箱（演示商品）','0','1590229800633634816','seed','system',500,'0',249,299,169,'0',NOW(),NOW() FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `goods_spu` WHERE `id`='1930000000000000010');
+INSERT INTO `goods_spu` (`id`,`name`,`sub_title`,`spu_urls`,`status`,`sales_volume`,`category_first_id`,`category_second_id`,`brand_id`,`description`,`enable_specs`,`tenant_id`,`create_by`,`update_by`,`stock`,`freight_type`,`sales_price`,`original_price`,`cost_price`,`del_flag`,`create_time`,`update_time`) SELECT '1930000000000000011','大疆 Mini 4 Pro','DJI 航拍无人机 4K','http://localhost:9999/boot/file/local/1590229800633634816/c62fea57-7a1d-5745-96d2-0f8a9d335551.jpg','1',0,'1912863400222957569','1912864294511484929',NULL,'大疆 Mini 4 Pro（演示商品）','0','1590229800633634816','seed','system',500,'0',4788,5288,4188,'0',NOW(),NOW() FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `goods_spu` WHERE `id`='1930000000000000011');
+INSERT INTO `goods_spu` (`id`,`name`,`sub_title`,`spu_urls`,`status`,`sales_volume`,`category_first_id`,`category_second_id`,`brand_id`,`description`,`enable_specs`,`tenant_id`,`create_by`,`update_by`,`stock`,`freight_type`,`sales_price`,`original_price`,`cost_price`,`del_flag`,`create_time`,`update_time`) SELECT '1930000000000000012','大疆 Air 3 无人机','DJI 双摄全向避障','http://localhost:9999/boot/file/local/1590229800633634816/9a29d699-2fa9-5fb7-8630-3d3fec3502d7.jpg','1',0,'1912863400222957569','1912864294511484929',NULL,'大疆 Air 3 无人机（演示商品）','0','1590229800633634816','seed','system',500,'0',6988,7788,6188,'0',NOW(),NOW() FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `goods_spu` WHERE `id`='1930000000000000012');
+INSERT INTO `goods_spu` (`id`,`name`,`sub_title`,`spu_urls`,`status`,`sales_volume`,`category_first_id`,`category_second_id`,`brand_id`,`description`,`enable_specs`,`tenant_id`,`create_by`,`update_by`,`stock`,`freight_type`,`sales_price`,`original_price`,`cost_price`,`del_flag`,`create_time`,`update_time`) SELECT '1930000000000000013','联想小新Pro16','16英寸 i7 32G 1T','http://localhost:9999/boot/file/local/1590229800633634816/0210ccf9-7a4b-50c3-9c47-2308a28a633a.jpg','1',0,'1912863400222957569','1925541056051564546',NULL,'联想小新Pro16（演示商品）','0','1590229800633634816','seed','system',500,'0',5499,6299,4699,'0',NOW(),NOW() FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `goods_spu` WHERE `id`='1930000000000000013');
+INSERT INTO `goods_spu` (`id`,`name`,`sub_title`,`spu_urls`,`status`,`sales_volume`,`category_first_id`,`category_second_id`,`brand_id`,`description`,`enable_specs`,`tenant_id`,`create_by`,`update_by`,`stock`,`freight_type`,`sales_price`,`original_price`,`cost_price`,`del_flag`,`create_time`,`update_time`) SELECT '1930000000000000014','MacBook Air 13 M3','Apple M3 16GB+512GB','http://localhost:9999/boot/file/local/1590229800633634816/eaf13572-ed4b-54da-8e1a-1dcada251c11.jpg','1',0,'1912863400222957569','1925541056051564546',NULL,'MacBook Air 13 M3（演示商品）','0','1590229800633634816','seed','system',500,'0',8999,9999,7999,'0',NOW(),NOW() FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `goods_spu` WHERE `id`='1930000000000000014');
+
+-- ---------- 3. 素材库登记（961段） ----------
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/008de3f0-02a1-580d-b834-da373417f582.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000001' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000001','1','-1','ship-deck-cleaner.jpg','http://localhost:9999/boot/file/local/1590229800633634816/008de3f0-02a1-580d-b834-da373417f582.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000001');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/2d847c4e-66cb-573d-b0ea-523b4153b04f.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000002' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000002','1','-1','ship-alcohol-75.jpg','http://localhost:9999/boot/file/local/1590229800633634816/2d847c4e-66cb-573d-b0ea-523b4153b04f.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000002');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/fe78b07b-7f69-5777-a107-9e6d500c883a.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000003' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000003','1','-1','ship-life-jacket.jpg','http://localhost:9999/boot/file/local/1590229800633634816/fe78b07b-7f69-5777-a107-9e6d500c883a.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000003');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/157ca58b-861d-54bc-935e-ff4f82d83634.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000004' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000004','1','-1','ship-buoy-ring.jpg','http://localhost:9999/boot/file/local/1590229800633634816/157ca58b-861d-54bc-935e-ff4f82d83634.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000004');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/40142199-396b-55d0-a347-0d494eba38a4.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000005' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000005','1','-1','ship-fire-hose-65.jpg','http://localhost:9999/boot/file/local/1590229800633634816/40142199-396b-55d0-a347-0d494eba38a4.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000005');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/0430ab7a-a2bf-5679-b6c0-7d4eceab0bc9.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000006' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000006','1','-1','ship-safety-harness.jpg','http://localhost:9999/boot/file/local/1590229800633634816/0430ab7a-a2bf-5679-b6c0-7d4eceab0bc9.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000006');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/2b434114-c8c9-5597-9e39-f95c5ec5a5cc.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000007' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000007','1','-1','ship-work-gloves.jpg','http://localhost:9999/boot/file/local/1590229800633634816/2b434114-c8c9-5597-9e39-f95c5ec5a5cc.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000007');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/4cff6ad8-8dcd-505c-a5ea-7710e69ba2bf.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000008' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000008','1','-1','ship-rain-suit.jpg','http://localhost:9999/boot/file/local/1590229800633634816/4cff6ad8-8dcd-505c-a5ea-7710e69ba2bf.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000008');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/6fbe0b1b-6d24-5c20-849d-9e3ffbfc9312.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000009' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000009','1','-1','ship-nylon-rope-24.jpg','http://localhost:9999/boot/file/local/1590229800633634816/6fbe0b1b-6d24-5c20-849d-9e3ffbfc9312.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000009');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/4aeae27f-c38a-5616-aeb4-f39f9780a794.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000010' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000010','1','-1','ship-wire-rope-16.jpg','http://localhost:9999/boot/file/local/1590229800633634816/4aeae27f-c38a-5616-aeb4-f39f9780a794.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000010');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/1fac1cbc-d053-5636-984a-1ef9db5b95e4.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000011' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000011','1','-1','ship-shackle.jpg','http://localhost:9999/boot/file/local/1590229800633634816/1fac1cbc-d053-5636-984a-1ef9db5b95e4.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000011');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/f6493fd6-17e5-504b-b915-6be84ad851b9.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000012' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000012','1','-1','ship-bolt-m16.jpg','http://localhost:9999/boot/file/local/1590229800633634816/f6493fd6-17e5-504b-b915-6be84ad851b9.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000012');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/1ab1212c-1573-560f-ab8b-5ee9adb9f074.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000013' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000013','1','-1','ship-seal-gasket.jpg','http://localhost:9999/boot/file/local/1590229800633634816/1ab1212c-1573-560f-ab8b-5ee9adb9f074.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000013');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/67b118a4-6a56-55f4-adf7-05653bb08a03.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000014' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000014','1','-1','ship-hydraulic-oil-46.jpg','http://localhost:9999/boot/file/local/1590229800633634816/67b118a4-6a56-55f4-adf7-05653bb08a03.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000014');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/60b9f89a-c49f-5e09-97e7-6618c6063914.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000015' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000015','1','-1','ship-oil-filter.jpg','http://localhost:9999/boot/file/local/1590229800633634816/60b9f89a-c49f-5e09-97e7-6618c6063914.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000015');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/262a1e6d-c2b7-5327-b1dc-1c3d75c7a8e4.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000016' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000016','1','-1','ship-diesel-filter.jpg','http://localhost:9999/boot/file/local/1590229800633634816/262a1e6d-c2b7-5327-b1dc-1c3d75c7a8e4.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000016');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/73c85ce7-06e2-57ab-8549-69048865b940.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000017' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000017','1','-1','ship-cable-3x2.5.jpg','http://localhost:9999/boot/file/local/1590229800633634816/73c85ce7-06e2-57ab-8549-69048865b940.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000017');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/8adb4785-f41f-5d87-a079-119b473b7221.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000018' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000018','1','-1','ship-bulb-220v.jpg','http://localhost:9999/boot/file/local/1590229800633634816/8adb4785-f41f-5d87-a079-119b473b7221.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000018');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/56f2a82d-30c0-55ce-b3f9-1a4b2e8568b2.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000019' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000019','1','-1','ship-led-flood-100w.jpg','http://localhost:9999/boot/file/local/1590229800633634816/56f2a82d-30c0-55ce-b3f9-1a4b2e8568b2.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000019');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/e6da3439-79af-5d08-b661-7509792c77d1.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000020' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000020','1','-1','ship-insulation-tape.jpg','http://localhost:9999/boot/file/local/1590229800633634816/e6da3439-79af-5d08-b661-7509792c77d1.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000020');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/7ec3d3e4-865c-5750-a086-4c734103cd95.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000021' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000021','1','-1','ship-water-5l.jpg','http://localhost:9999/boot/file/local/1590229800633634816/7ec3d3e4-865c-5750-a086-4c734103cd95.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000021');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/c1d767e6-eddc-5f25-a173-1db24e80d95e.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000022' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000022','1','-1','ship-instant-coffee.jpg','http://localhost:9999/boot/file/local/1590229800633634816/c1d767e6-eddc-5f25-a173-1db24e80d95e.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000022');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/48dc9e14-c3c9-5ae2-a81f-32b46f3d9bcb.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000023' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000023','1','-1','ship-frozen-beef.jpg','http://localhost:9999/boot/file/local/1590229800633634816/48dc9e14-c3c9-5ae2-a81f-32b46f3d9bcb.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000023');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/bd33af1c-1131-506a-866f-379c9b282f2d.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000024' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000024','1','-1','ship-fresh-veg.jpg','http://localhost:9999/boot/file/local/1590229800633634816/bd33af1c-1131-506a-866f-379c9b282f2d.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000024');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/01212043-94cb-5b76-9516-a343794d2a73.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000025' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000025','1','-1','ship-instant-noodle.jpg','http://localhost:9999/boot/file/local/1590229800633634816/01212043-94cb-5b76-9516-a343794d2a73.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000025');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/3a22a54b-0a11-5b0f-9ea9-831d292fbf3a.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000026' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000026','1','-1','ship-luncheon-meat.jpg','http://localhost:9999/boot/file/local/1590229800633634816/3a22a54b-0a11-5b0f-9ea9-831d292fbf3a.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000026');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/63e0ff3a-0a5d-56a3-8e1d-5edb5981a5b5.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000027' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000027','1','-1','tech-tv-xiaomi-65.jpg','http://localhost:9999/boot/file/local/1590229800633634816/63e0ff3a-0a5d-56a3-8e1d-5edb5981a5b5.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000027');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/812adcc7-a2a9-594f-b93c-2d16fc3fa16f.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000028' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000028','1','-1','tech-tv-hisense-55.jpg','http://localhost:9999/boot/file/local/1590229800633634816/812adcc7-a2a9-594f-b93c-2d16fc3fa16f.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000028');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/75e86a72-0b69-51f6-8c7c-56bfbc9fa5ac.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000029' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000029','1','-1','tech-ac-gree-1.5.jpg','http://localhost:9999/boot/file/local/1590229800633634816/75e86a72-0b69-51f6-8c7c-56bfbc9fa5ac.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000029');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/57732797-52e4-5de7-93df-11d14abc40ac.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000030' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000030','1','-1','tech-ac-midea-1p.jpg','http://localhost:9999/boot/file/local/1590229800633634816/57732797-52e4-5de7-93df-11d14abc40ac.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000030');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/e01f9ff6-f5c0-51e7-8279-15a520584f4f.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000031' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000031','1','-1','tech-fridge-haier-431.jpg','http://localhost:9999/boot/file/local/1590229800633634816/e01f9ff6-f5c0-51e7-8279-15a520584f4f.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000031');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/a2da3fe2-52b9-5504-b8d7-470a039df9e8.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000032' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000032','1','-1','tech-fridge-ronshen-252.jpg','http://localhost:9999/boot/file/local/1590229800633634816/a2da3fe2-52b9-5504-b8d7-470a039df9e8.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000032');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/9ba232df-65c5-52d6-906e-267486f813cd.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000033' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000033','1','-1','tech-phone-vivo-x300.jpg','http://localhost:9999/boot/file/local/1590229800633634816/9ba232df-65c5-52d6-906e-267486f813cd.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000033');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/3ae72d51-9c5e-5b3b-896e-2026d690ec22.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000034' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000034','1','-1','tech-phone-mi15.jpg','http://localhost:9999/boot/file/local/1590229800633634816/3ae72d51-9c5e-5b3b-896e-2026d690ec22.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000034');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/80dd2d3d-f2d5-50a5-a147-a50076469f35.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000035' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000035','1','-1','tech-watch-sport.jpg','http://localhost:9999/boot/file/local/1590229800633634816/80dd2d3d-f2d5-50a5-a147-a50076469f35.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000035');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/f3fabb20-7c52-5340-9cb1-953635a93b91.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000036' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000036','1','-1','tech-speaker-xiaoai.jpg','http://localhost:9999/boot/file/local/1590229800633634816/f3fabb20-7c52-5340-9cb1-953635a93b91.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000036');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/c62fea57-7a1d-5745-96d2-0f8a9d335551.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000037' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000037','1','-1','tech-dji-mini4pro.jpg','http://localhost:9999/boot/file/local/1590229800633634816/c62fea57-7a1d-5745-96d2-0f8a9d335551.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000037');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/9a29d699-2fa9-5fb7-8630-3d3fec3502d7.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000038' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000038','1','-1','tech-dji-air3.jpg','http://localhost:9999/boot/file/local/1590229800633634816/9a29d699-2fa9-5fb7-8630-3d3fec3502d7.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000038');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/0210ccf9-7a4b-50c3-9c47-2308a28a633a.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000039' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000039','1','-1','tech-lenovo-xiaoxin16.jpg','http://localhost:9999/boot/file/local/1590229800633634816/0210ccf9-7a4b-50c3-9c47-2308a28a633a.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000039');
+UPDATE `sys_material` SET `url`='http://localhost:9999/boot/file/local/1590229800633634816/eaf13572-ed4b-54da-8e1a-1dcada251c11.jpg',`del_flag`='0',`update_time`=NOW(),`update_by`='system' WHERE `id`='9610000000000000040' AND `tenant_id`='1590229800633634816';
+INSERT INTO `sys_material` (`id`,`type`,`group_id`,`name`,`url`,`file_size`,`tenant_id`,`create_by`,`create_time`,`del_flag`) SELECT '9610000000000000040','1','-1','tech-macbook-air-m3.jpg','http://localhost:9999/boot/file/local/1590229800633634816/eaf13572-ed4b-54da-8e1a-1dcada251c11.jpg',0,'1590229800633634816','system',NOW(),'0' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `sys_material` WHERE `id`='9610000000000000040');
 
 -- ============================================================================
 -- XXL-JOB 调度库

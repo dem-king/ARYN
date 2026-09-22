@@ -5,6 +5,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 配送进度时间线
@@ -14,6 +15,9 @@ import java.time.LocalDateTime;
  */
 @Data
 public class DeliveryProgressVO {
+
+	@Schema(description = "订单ID")
+	private String orderId;
 
 	@Schema(description = "任务ID")
 	private String taskId;
@@ -62,5 +66,8 @@ public class DeliveryProgressVO {
 
 	@Schema(description = "仓库地址")
 	private String warehouseAddress;
+
+	@Schema(description = "时间线节点列表")
+	private List<DeliveryProgressNode> nodes;
 
 }

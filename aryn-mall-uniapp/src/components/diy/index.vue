@@ -21,6 +21,7 @@ import DiyNotice from './diy-notice/index.vue'
 import DiyRichText from './diy-rich-text/index.vue'
 import DiySearchBar from './diy-search-bar/index.vue'
 import DiyServicePromise from './diy-service-promise/index.vue'
+import DiyShipWorkbench from './diy-ship-workbench/index.vue'
 import DiyShopInfo from './diy-shop-info/index.vue'
 import DiySwiperBanner from './diy-swiper-banner/index.vue'
 import DiyTabnav from './diy-tabnav/index.vue'
@@ -83,8 +84,6 @@ function sectionStyle(section: DecorationSection) {
       :title="title"
       :left-arrow="false"
     />
-    <!-- 导航栏占位之后的自定义区域，供页面插入需要在导航栏下方展示的模块 -->
-    <slot name="below-navbar" />
     <view class="diy-components">
       <view
         v-for="section in sections"
@@ -155,6 +154,10 @@ function sectionStyle(section: DecorationSection) {
         />
         <DiyMarketingEntry
           v-else-if="item.type === 'marketing-entry'"
+          :show-data="item.props"
+        />
+        <DiyShipWorkbench
+          v-else-if="item.type === 'ship-workbench'"
           :show-data="item.props"
         />
         <DiyShopInfo

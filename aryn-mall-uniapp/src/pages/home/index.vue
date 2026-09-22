@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { onLoad, onPullDownRefresh } from '@dcloudio/uni-app'
+import { onLoad, onPullDownRefresh, onReachBottom } from '@dcloudio/uni-app'
 import { shallowRef } from 'vue'
 
 import { getPageDesign } from '@/api/promotion/pageDesign'
 import DiyPage from '@/components/diy/index.vue'
-import ShipWorkbench from '@/components/ship-workbench/index.vue'
 import { useDecorationPage } from '@/composables/useDecorationPage'
 import { createLatestRequestRunner } from '@/composables/useLatestRequest'
 
@@ -64,6 +63,11 @@ onPullDownRefresh(() => {
     uni.stopPullDownRefresh()
   }
 })
+
+// 页面滚动到底：转发给装修里的分页商品组件（goods-group / goods-waterfall），触发自动加载下一页
+onReachBottom(() => {
+  uni.$emit('home-reach-bottom')
+})
 </script>
 
 <template>
@@ -77,11 +81,7 @@ onPullDownRefresh(() => {
     <diy-page
       :page-content-data="pageContent"
       :page-name="title"
-    >
-      <template #below-navbar>
-        <ShipWorkbench />
-      </template>
-    </diy-page>
+    />
   </view>
 </template>
 

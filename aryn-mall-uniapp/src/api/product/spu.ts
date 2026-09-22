@@ -30,3 +30,10 @@ export function getTop10HotSearchGoods() {
     headers: { skipToken: true },
   })
 }
+
+// 快捷加购信息（列表页加购按钮按需查询 SKU/库存/MOQ，不写浏览足迹）
+export function getQuickCartInfo(id: string) {
+  return alovaInstance.Get<any>(`/product/app/goodsspu/quick-cart/${id}`, {
+    headers: { skipToken: true },
+  })
+}

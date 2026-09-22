@@ -28,6 +28,8 @@ const Form = defineAsyncComponent(() => import('./form.vue'));
 const TenantMenu = defineAsyncComponent(() => import('./tenantmenu.vue'));
 // 字典
 const { status } = useDict('status');
+// 业务模式：1 综合（个人+船供并存）；2 纯零售
+const { business_mode: businessModeOptions } = useDict('business_mode');
 const queryRef = ref();
 const state = reactive({
   queryParams: {
@@ -141,6 +143,14 @@ const upMenu = (id: string) => {
         <ElTableColumn prop="phone" label="手机号" />
         <ElTableColumn prop="authBeginTime" label="授权开始时间" />
         <ElTableColumn prop="authEndTime" label="授权结束时间" />
+        <ElTableColumn prop="businessMode" label="业务模式">
+          <template #default="scope">
+            <DictTag
+              :options="businessModeOptions"
+              :value="scope.row.businessMode || '1'"
+            />
+          </template>
+        </ElTableColumn>
         <ElTableColumn prop="status" label="状态">
           <template #default="scope">
             <DictTag :options="status" :value="scope.row.status" />

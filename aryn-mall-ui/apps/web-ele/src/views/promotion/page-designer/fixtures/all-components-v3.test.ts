@@ -10,7 +10,7 @@ describe('all-components v3 contract fixture', () => {
 
     expect(v3Document.schemaVersion).toBe(3);
     expect(v3Document.sections).toHaveLength(allComponentsV2.sections.length);
-    expect(v3Document.sections[0]?.components).toHaveLength(17);
+    expect(v3Document.sections[0]?.components).toHaveLength(18);
 
     const restored = migratePageContent(structuredClone(v3Document));
 
