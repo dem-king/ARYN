@@ -22,6 +22,20 @@ describe('boot URL rewriting', () => {
     )
   })
 
+  it('routes the replenish batch-add and summary APIs in both deployment modes', () => {
+    // 新增补给单接口的 boot/cloud 双模式输出必须显式锁定：
+    // cloud 走网关的 /mall-order 域，boot 去掉首段加 /boot 前缀。
+    const batchAdd = '/mall-order/app/shopping-cart/batch'
+    expect(rewriteBootUrl(batchAdd, false)).toBe(batchAdd)
+    expect(rewriteBootUrl(batchAdd, true)).toBe('/boot/app/shopping-cart/batch')
+
+    const activeSummary = '/mall-order/app/shared-cart/active-summary'
+    expect(rewriteBootUrl(activeSummary, false)).toBe(activeSummary)
+    expect(rewriteBootUrl(activeSummary, true)).toBe(
+      '/boot/app/shared-cart/active-summary',
+    )
+  })
+
   it('does not rewrite disabled, absolute, or already rewritten URLs', () => {
     expect(rewriteBootUrl('/auth/toc-token/login', false)).toBe(
       '/auth/toc-token/login',
