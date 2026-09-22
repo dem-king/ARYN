@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import type { SuggestItem } from '@/utils/search-suggest'
 import { onLoad } from '@dcloudio/uni-app'
+import { computed, reactive, ref } from 'vue'
 import { getPage, getTop10HotSearchGoods } from '@/api/product/spu'
 import HrSearchNavbar from '@/components/hr-search-navbar/index.vue'
+import { buildSearchSuggest, suggestFromLabel } from '@/utils/search-suggest'
 
 definePage({
   name: 'goods-search',
@@ -27,6 +29,24 @@ const state = reactive<State>({
   hotSearchList: [],
   keyword: '',
 })
+
+/**
+ * 联想词：本地用「历史 + 热搜商品名」做前缀/包含匹配。
+ * 后端暂无 suggestion 接口，词源先由本页已有数据拼出，接口就绪后替换词源即可。
+ */
+const suggestList = computed<SuggestItem[]>(() => buildSearchSuggest(
+  state.keyword,
+  historyList.value,
+  state.hotTopList.map(item => item.name).filter(Boolean),
+))
+
+/** 是否处于「输入中」：有输入且没在展示联想以外的面板 */
+const showSuggest = computed(() => state.keyword.trim().length > 0)
+
+function applySuggest(item: SuggestItem) {
+  state.keyword = item.word
+  doSearch(item.word)
+}
 
 onLoad(async (options) => {
   if (options?.keyword && options?.keyword !== 'undefined') {
@@ -119,8 +139,34 @@ onMounted(() => {
     @search="doSearch"
   />
   <view class="page-wrapper">
-    <!-- 搜索历史 -->
-    <view class="p-2">
+    <!-- 联想词：有输入时优先展示，替代默认面板 -->
+    <view v-if="showSuggest" class="p-2">
+      <view class="text-sm">
+        猜你想搜
+      </view>
+      <view v-if="suggestList.length > 0" class="pt-2">
+        <view
+          v-for="item in suggestList"
+          :key="`${item.from}-${item.word}`"
+          class="suggest-row"
+          @click="applySuggest(item)"
+        >
+          <wd-icon name="search" size="28rpx" color="#999" />
+          <text class="suggest-word">
+            {{ item.word }}
+          </text>
+          <text class="suggest-from">
+            {{ suggestFromLabel(item.from) }}
+          </text>
+        </view>
+      </view>
+      <view v-else class="flex items-center justify-center pt-2 text-xs">
+        暂无相关联想词
+      </view>
+    </view>
+
+    <!-- 搜索历史（有输入时让位给联想面板，避免两个面板同时出现） -->
+    <view v-if="!showSuggest" class="p-2">
       <view class="flex items-center justify-between">
         <view class="text-sm">
           搜索历史
@@ -144,7 +190,7 @@ onMounted(() => {
       </template>
     </view>
     <!-- 热搜排行和销量排行 -->
-    <view class="p-2">
+    <view v-if="!showSuggest" class="p-2">
       <view class="no-scrollbar flex overflow-x-auto">
         <view class="my-2 w-60% w-full flex-shrink-0 rounded-20rpx from-theme-bg to-white from-20% bg-gradient-to-b p-2 shadow-sm">
           <!-- 销量排行 -->
@@ -210,6 +256,38 @@ onMounted(() => {
 </template>
 
 <style lang="scss" scoped>
+.suggest-row {
+  display: flex;
+  align-items: center;
+  padding: 20rpx 8rpx;
+  border-bottom: 1rpx solid #f2f2f2;
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.suggest-word {
+  flex: 1;
+  min-width: 0;
+  margin-left: 12rpx;
+  overflow: hidden;
+  color: #303133;
+  font-size: 28rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.suggest-from {
+  flex: none;
+  margin-left: 12rpx;
+  padding: 2rpx 10rpx;
+  border-radius: 4rpx;
+  background: #f2f3f5;
+  color: #8a97a6;
+  font-size: 20rpx;
+}
+
 .page-wrapper {
   min-height: calc(100vh - var(--window-top));
   background-color: #fff;

@@ -5,6 +5,22 @@ export interface RetailGoodsItem {
   price: number
   sales: number
   stock: number
+  /**
+   * 规格摘要（如「950ml/瓶」）。
+   *
+   * 商品**列表**接口只返回 SPU 字段，没有 SKU 明细，因此大多数情况下这里
+   * 为空；仅当按 ID 批量取回（含 goodsSkus）时才可能补上。
+   * 卡片渲染必须允许它缺失，不能编造规格。
+   */
+  specsInfo?: string
+  /**
+   * 是否免配送费。
+   *
+   * 来源 `goods_spu.freight_type === '0'`（包邮）。注意语义是「商品级包邮」，
+   * 与"满额免运费"这类订单级规则不是一回事，文案上不写「包邮」以免与
+   * 运费模板规则混淆。
+   */
+  freeShipping?: boolean
 }
 
 export interface RetailActivityItem {
@@ -49,6 +65,27 @@ function toText(value: unknown): string {
   return value === null || value === undefined ? '' : String(value)
 }
 
+/**
+ * 取规格摘要。
+ *
+ * 列表接口不返回 goodsSkus，所以优先用后端可能补的 `specsInfo` 字段；
+ * 其次从 goodsSkus[0].specsArr 拼。单规格商品的值为「默认」，视为无规格。
+ */
+function firstSpecs(record: Record<string, unknown>): string {
+  const direct = toText(record.specsInfo ?? record.packageSpec ?? '')
+  if (direct && direct !== '默认')
+    return direct
+
+  const skus = Array.isArray(record.goodsSkus) ? record.goodsSkus : []
+  const first = asRecord(skus[0])
+  const specsArr = Array.isArray(first.specsArr) ? first.specsArr : []
+  const joined = specsArr
+    .map(item => toText(asRecord(item).specsValueName))
+    .filter(value => value && value !== '默认')
+    .join('；')
+  return joined
+}
+
 function firstImage(record: Record<string, unknown>): string {
   if (Array.isArray(record.spuUrls))
     return toText(record.spuUrls[0])
@@ -59,6 +96,7 @@ export function normalizeRetailGoods(value: unknown): RetailGoodsItem[] {
   return extractItems(value)
     .map((item) => {
       const record = asRecord(item)
+      const specsInfo = firstSpecs(record)
       return {
         id: toText(record.id),
         imageUrl: firstImage(record),
@@ -66,6 +104,8 @@ export function normalizeRetailGoods(value: unknown): RetailGoodsItem[] {
         price: toNumber(record.salesPrice ?? record.price),
         sales: toNumber(record.salesVolume),
         stock: toNumber(record.stock),
+        specsInfo: specsInfo || undefined,
+        freeShipping: toText(record.freightType) === '0' ? true : undefined,
       }
     })
     .filter(item => Boolean(item.id))

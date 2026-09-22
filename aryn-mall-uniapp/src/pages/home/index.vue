@@ -3,6 +3,7 @@ import { onLoad, onPullDownRefresh, onReachBottom } from '@dcloudio/uni-app'
 import { shallowRef } from 'vue'
 
 import { getPageDesign } from '@/api/promotion/pageDesign'
+import BatchCartBar from '@/components/batch-cart-bar/index.vue'
 import DiyPage from '@/components/diy/index.vue'
 import { useDecorationPage } from '@/composables/useDecorationPage'
 import { createLatestRequestRunner } from '@/composables/useLatestRequest'
@@ -82,6 +83,8 @@ onReachBottom(() => {
       :page-content-data="pageContent"
       :page-name="title"
     />
+    <!-- 商品勾选后出现的批量加购条；未勾选时不渲染 -->
+    <BatchCartBar />
   </view>
 </template>
 

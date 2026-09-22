@@ -18,6 +18,8 @@ const EXCLUDED_STORE_IDS = new Set([
   'global-message',
   // 租户能力是服务端事实（含 resolved 标记），持久化会让换租户后仍读到旧模式
   'tenantCapability',
+  // 商品勾选是一次会话内的临时意图，持久化只会让用户下次打开时困惑
+  'goodsPick',
 ])
 
 export function shouldPersistStore(storeId: string) {

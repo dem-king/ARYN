@@ -17,6 +17,7 @@ import { computed, ref, watch } from 'vue'
 
 import { getPage } from '@/api/product/spu'
 import GoodsDetailSheet from '@/components/goods-detail-sheet/index.vue'
+import GoodsPickCheckbox from '@/components/goods-pick-checkbox/index.vue'
 import QuickCartButton from '@/components/quick-cart-button/index.vue'
 
 interface Props {
@@ -125,6 +126,24 @@ function sortHandler(val: 'default' | 'sales' | 'price' | 'newGoods') {
   refresh()
 }
 
+/**
+ * 卡片信息 chip：规格 / 现货 / 免配送费。
+ *
+ * 列表接口只返回 SPU 字段，规格与库存不一定有；有才显示，不编造。
+ * `freightType === '0'` 是商品级包邮，文案用「免配送费」而非「包邮」，
+ * 避免与运费模板/满额免运费规则混淆。
+ */
+function cardTags(item: any): string[] {
+  const tags: string[] = []
+  if (item.specsInfo)
+    tags.push(String(item.specsInfo))
+  if (Number(item.stock) > 0)
+    tags.push(`现货 ${item.stock}`)
+  if (item.freightType === '0')
+    tags.push('免配送费')
+  return tags
+}
+
 function toDetail(id: string) {
   if (props.detailSheet) {
     currentSpuId.value = id
@@ -188,6 +207,12 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
             <view class="goods-name">
               {{ item.name }}
             </view>
+            <!-- 信息 chip：规格 / 现货 / 免配送费（字段缺失时不渲染） -->
+            <view v-if="cardTags(item).length > 0" class="goods-tags">
+              <text v-for="tag in cardTags(item)" :key="tag" class="goods-tag">
+                {{ tag }}
+              </text>
+            </view>
             <view class="goods-bottom">
               <view class="goods-price">
                 <text class="goods-price-symbol">
@@ -197,7 +222,10 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
                   {{ item.salesPrice }}
                 </text>
               </view>
-              <quick-cart-button :spu-id="item.id" size="44rpx" />
+              <view class="goods-actions">
+                <goods-pick-checkbox :spu-id="item.id" size="36rpx" />
+                <quick-cart-button :spu-id="item.id" size="44rpx" />
+              </view>
             </view>
           </view>
         </view>
@@ -306,6 +334,29 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
   align-items: center;
   justify-content: space-between;
   padding-top: 12rpx;
+}
+
+.goods-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6rpx;
+  padding-top: 8rpx;
+}
+
+.goods-tag {
+  padding: 2rpx 8rpx;
+  border-radius: 4rpx;
+  background: #f2f3f5;
+  color: #8a97a6;
+  font-size: 20rpx;
+  line-height: 1.5;
+}
+
+.goods-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 12rpx;
 }
 
 .goods-price {
