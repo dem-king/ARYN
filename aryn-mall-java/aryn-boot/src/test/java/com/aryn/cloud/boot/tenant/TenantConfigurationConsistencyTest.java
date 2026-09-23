@@ -38,7 +38,8 @@ class TenantConfigurationConsistencyTest {
 			"aryn-pay-biz-dev.yml", "aryn_pay",
 			"aryn-order-biz-dev.yml", "aryn_order",
 			"aryn-product-biz-dev.yml", "aryn_product",
-			"aryn-promotion-biz-dev.yml", "aryn_promotion");
+			"aryn-promotion-biz-dev.yml", "aryn_promotion",
+			"aryn-vessel-biz-dev.yml", "aryn_vessel");
 
 	private static final Set<String> NON_TENANT_DATA_SERVICES = Set.of("aryn-generator-dev.yml");
 

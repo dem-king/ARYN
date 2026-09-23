@@ -60,9 +60,20 @@ class HomeKingKongSqlContractTest {
 	 *   <li>只数落地页 URL 会把幂等护栏里那个判据也算进来。</li>
 	 * </ul>
 	 */
-	private static String navEntry(String title, String linkName, String url) {
-		return "JSON_OBJECT('title', '" + title + "', 'url', '',\n"
-			+ "                  'link', JSON_OBJECT('name', '" + linkName + "', 'url', '" + url + "'))";
+	/**
+	 * 条目定义的正则：**不绑定图标 url 的具体值**。
+	 *
+	 * <p>金刚区条目的 `url` 是图标地址（`diy-tabnav` 里 `:src="item.url"`），
+	 * 装修运营回填图标后它就不再是空串 —— 原先写死 `'url', ''` 的断言会在
+	 * 「图标已回填」这种**正确演进**下集体失败（实测：8 个入口全报"出现 0 次"）。
+	 * 这里只校验 title / link 的结构与顺序，图标值用 [^']* 通配。
+	 */
+	private static java.util.regex.Pattern navEntryPattern(String title, String linkName, String url) {
+		return java.util.regex.Pattern.compile(
+			java.util.regex.Pattern.quote("JSON_OBJECT('title', '" + title + "', 'url', '")
+				+ "[^']*" + java.util.regex.Pattern.quote("',")
+				+ "\\s*" + java.util.regex.Pattern.quote("'link', JSON_OBJECT('name', '" + linkName
+					+ "', 'url', '" + url + "'))"));
 	}
 
 	@Test
@@ -73,7 +84,8 @@ class HomeKingKongSqlContractTest {
 		for (String path : new String[] { BOOT_PATH, CLOUD_PATH }) {
 			String sql = read(path);
 			for (String title : EXPECTED_TITLES) {
-				String titleDef = "'title', '" + title + "', 'url', ''";
+				// 只数 title（不绑定图标 url 的值），图标是否回填不影响该断言
+				String titleDef = "'title', '" + title + "'";
 				assertThat(countOccurrences(sql, titleDef))
 					.as("%s 入口[%s] 应恰好出现 %d 次（草稿+已发布）", path, title, SECTIONS_PER_SCRIPT)
 					.isEqualTo(SECTIONS_PER_SCRIPT);
@@ -202,10 +214,11 @@ class HomeKingKongSqlContractTest {
 				.contains("\"path\": \"" + relative + "\"");
 
 			for (String path : new String[] { BOOT_PATH, CLOUD_PATH }) {
-				// 按**完整条目定义**计数：只改坏其中一段时 contains 会静默放过，
-				// 而只数 URL 又会把幂等护栏里的同一个 URL 算进来。
-				assertThat(countOccurrences(read(path), navEntry(title, linkName, url)))
-					.as("%s 入口[%s]的条目定义应恰好出现 %d 次", path, title, SECTIONS_PER_SCRIPT)
+				// 按**完整条目定义**计数（图标 url 通配）：只改坏其中一段时 contains
+				// 会静默放过，而只数 URL 又会把幂等护栏里的同一个 URL 算进来。
+				assertThat(countMatches(read(path), navEntryPattern(title, linkName, url)))
+					.as("%s 入口[%s]的条目定义应恰好出现 %d 次（title+link 结构完整）",
+						path, title, SECTIONS_PER_SCRIPT)
 					.isEqualTo(SECTIONS_PER_SCRIPT);
 			}
 		}
@@ -220,6 +233,15 @@ class HomeKingKongSqlContractTest {
 
 	private String read(String relativePath) throws IOException {
 		return Files.readString(projectRoot.resolve(relativePath));
+	}
+
+	private static int countMatches(String haystack, java.util.regex.Pattern pattern) {
+		java.util.regex.Matcher matcher = pattern.matcher(haystack);
+		int count = 0;
+		while (matcher.find()) {
+			count++;
+		}
+		return count;
 	}
 
 	private static int countOccurrences(String haystack, String needle) {
