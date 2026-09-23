@@ -46,6 +46,7 @@ public final class ReplenishImportClassifier {
 
 		int moq = match.getMoq() == null || match.getMoq() < 1 ? 1 : match.getMoq();
 		int stepQty = match.getStepQty() == null || match.getStepQty() < 1 ? 1 : match.getStepQty();
+		Integer stock = match.getStock();
 		if (quantity == null || quantity <= 0) {
 			return new Result(SharedCartImportRow.RESULT_INVALID_QTY, "数量不能为空且必须大于 0", null);
 		}
@@ -54,10 +55,20 @@ public final class ReplenishImportClassifier {
 		}
 		if (quantity % stepQty != 0) {
 			int suggested = quantity - (quantity % stepQty) + stepQty;
+			// 建议值必须同时受库存约束：否则「数量 99999 / 库存 3000」会建议 100000，
+			// 用户点了「调整为建议数量」后仍会因超库存被跳过，动作指向一个不可行的值。
+			if (stock != null && suggested > stock) {
+				Integer capped = ReplenishMatchRules.suggestedQuantity(stock, moq, stepQty);
+				if (capped == null) {
+					return new Result(SharedCartImportRow.RESULT_INVALID_QTY,
+							"数量必须是 " + stepQty + " 的整数倍，且库存不足起订量，请人工补选", null);
+				}
+				return new Result(SharedCartImportRow.RESULT_INVALID_QTY,
+						"数量必须是 " + stepQty + " 的整数倍，库存仅 " + stock + "，建议调整为 " + capped, capped);
+			}
 			return new Result(SharedCartImportRow.RESULT_INVALID_QTY, "数量必须是 " + stepQty + " 的整数倍", suggested);
 		}
 
-		Integer stock = match.getStock();
 		if (stock != null && quantity > stock) {
 			Integer suggested = ReplenishMatchRules.suggestedQuantity(stock, moq, stepQty);
 			String message = suggested == null

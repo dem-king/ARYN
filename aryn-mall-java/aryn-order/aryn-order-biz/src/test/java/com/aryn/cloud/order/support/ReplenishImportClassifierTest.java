@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * 补给单导入报告分类口径测试。
@@ -81,6 +82,37 @@ class ReplenishImportClassifierTest {
 		assertEquals(4, ReplenishImportClassifier.classify(vo, null, 2).suggestedQuantity());
 		// 非步长整数倍：建议就近**向上**取整，不能让用户改小到低于起订量
 		assertEquals(6, ReplenishImportClassifier.classify(vo, null, 5).suggestedQuantity());
+	}
+
+	@Test
+	@DisplayName("数量异常的建议值必须同时受库存约束，不能给出超库存的建议")
+	void invalidQuantitySuggestionRespectsStock() {
+		// 真实缺陷复现：数量 99999、库存 3000、moq=20、step=10。
+		// 仅按步长向上取整会建议 100000 —— 用户点「调整为建议数量」后
+		// 依然会因超库存被跳过，动作指向一个不可行的值。
+		ReplenishImportMatchVO vo = matched(3000, 20, 10, "16mm");
+		var result = ReplenishImportClassifier.classify(vo, null, 99999);
+		assertEquals(SharedCartImportRow.RESULT_INVALID_QTY, result.resultType());
+		assertEquals(3000, result.suggestedQuantity(), "建议值必须落在库存内");
+		assertTrue(result.suggestedQuantity() <= 3000);
+	}
+
+	@Test
+	@DisplayName("数量异常且库存不足起订量时不给建议值，提示人工补选")
+	void invalidQuantitySuggestionNullWhenStockTooLow() {
+		ReplenishImportMatchVO vo = matched(5, 20, 10, "16mm");
+		var result = ReplenishImportClassifier.classify(vo, null, 99999);
+		assertEquals(SharedCartImportRow.RESULT_INVALID_QTY, result.resultType());
+		assertNull(result.suggestedQuantity());
+	}
+
+	@Test
+	@DisplayName("数量异常但库存充足时，仍按步长向上取整给建议")
+	void invalidQuantitySuggestionWhenStockPlenty() {
+		ReplenishImportMatchVO vo = matched(100000, 20, 10, "16mm");
+		var result = ReplenishImportClassifier.classify(vo, null, 99999);
+		assertEquals(SharedCartImportRow.RESULT_INVALID_QTY, result.resultType());
+		assertEquals(100000, result.suggestedQuantity());
 	}
 
 	@Test

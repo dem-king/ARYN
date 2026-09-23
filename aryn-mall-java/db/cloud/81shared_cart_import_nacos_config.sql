@@ -51,6 +51,9 @@ SET @app_content = (
   WHERE `data_id` = 'application-dev.yml' AND `group_id` = 'DEFAULT_GROUP'
   LIMIT 1
 );
+-- 两种锚点都要覆盖：基线 dump 里 location 是字面量 /data/tmp，
+-- 而实际运行环境的 Nacos 配置用的是 ${MULTIPART_LOCATION:${java.io.tmpdir}} 占位。
+-- 只认其中一种会出现「脚本执行成功、上限却没改」的静默失效（首次执行实测踩到）。
 SET @app_content = IF(
   @app_content IS NULL OR @app_content LIKE '%max-file-size%',
   @app_content,
@@ -58,6 +61,15 @@ SET @app_content = IF(
     @app_content,
     '  servlet:\n    multipart:\n      location: /data/tmp\n',
     '  servlet:\n    multipart:\n      location: /data/tmp\n      max-file-size: 100MB\n      max-request-size: 100MB\n'
+  )
+);
+SET @app_content = IF(
+  @app_content IS NULL OR @app_content LIKE '%max-file-size%',
+  @app_content,
+  REPLACE(
+    @app_content,
+    '  servlet:\n    multipart:\n      location: ${MULTIPART_LOCATION:${java.io.tmpdir}}\n',
+    '  servlet:\n    multipart:\n      location: ${MULTIPART_LOCATION:${java.io.tmpdir}}\n      max-file-size: 100MB\n      max-request-size: 100MB\n'
   )
 );
 UPDATE `config_info`
