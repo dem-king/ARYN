@@ -20,6 +20,8 @@ import org.mockito.ArgumentCaptor;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -31,6 +33,7 @@ class ChatMessageServiceImplTest {
 	private MessageConversationMapper conversationMapper;
 	private MessageParticipantMapper participantMapper;
 	private MessageChatMapper chatMapper;
+	private MessagePushService pushService;
 	private ChatMessageServiceImpl service;
 
 	@BeforeEach
@@ -38,8 +41,9 @@ class ChatMessageServiceImplTest {
 		conversationMapper = mock(MessageConversationMapper.class);
 		participantMapper = mock(MessageParticipantMapper.class);
 		chatMapper = mock(MessageChatMapper.class);
+		pushService = mock(MessagePushService.class);
 		service = new ChatMessageServiceImpl(conversationMapper, participantMapper, chatMapper, new ObjectMapper(),
-				mock(MessagePushService.class));
+				pushService);
 	}
 
 	@Test
@@ -107,6 +111,37 @@ class ChatMessageServiceImplTest {
 		conversation.setStatus(ConversationStatus.WAITING.name());
 		conversation.setLastSeq(0L);
 		return conversation;
+	}
+
+	@Test
+	void memberMessageInWaitingConversationNotifiesSharedPool() {
+		MessageConversation conversation = conversation();
+		conversation.setStatus(ConversationStatus.WAITING.name());
+		when(conversationMapper.selectByIdForUpdate("tenant-1", "conversation-1")).thenReturn(conversation);
+		when(participantMapper.selectActiveParticipant("tenant-1", "conversation-1", "MALL_USER", "member-1"))
+			.thenReturn(new MessageParticipant());
+		when(chatMapper.selectByClientMessageId(any(), any(), any(), any())).thenReturn(null);
+
+		service.send("tenant-1", MessageIdentityType.MALL_USER, "member-1", "会员", null, "conversation-1",
+				text("client-1", "有人在吗"));
+
+		// 未分配会话没有坐席参与者，必须额外广播共享池，调度台才知道有人排队。
+		verify(pushService).pushConversationQueued(eq("tenant-1"), eq("conversation-1"), any(), anyLong());
+	}
+
+	@Test
+	void staffReplyDoesNotNotifySharedPool() {
+		MessageConversation conversation = conversation();
+		conversation.setStatus(ConversationStatus.ASSIGNED.name());
+		when(conversationMapper.selectByIdForUpdate("tenant-1", "conversation-1")).thenReturn(conversation);
+		when(participantMapper.selectActiveParticipant("tenant-1", "conversation-1", "SYS_USER", "staff-1"))
+			.thenReturn(new MessageParticipant());
+		when(chatMapper.selectByClientMessageId(any(), any(), any(), any())).thenReturn(null);
+
+		service.send("tenant-1", MessageIdentityType.SYS_USER, "staff-1", "客服", null, "conversation-1",
+				text("client-1", "您好"));
+
+		verify(pushService, never()).pushConversationQueued(any(), any(), any(), anyLong());
 	}
 
 	private ChatMessageSendRequest text(String clientMessageId, String content) {

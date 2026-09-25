@@ -49,4 +49,13 @@
           AND staff_id = #{staffId}
           AND del_flag = '0'
     </update>
+    <select id="selectEnabledStaffIds" resultType="java.lang.String">
+        SELECT staff_id
+        FROM message_agent
+        WHERE tenant_id = #{tenantId}
+          AND enabled = '1'
+          AND del_flag = '0'
+        ORDER BY last_assigned_time ASC, id ASC
+        LIMIT #{limit}
+    </select>
 </mapper>

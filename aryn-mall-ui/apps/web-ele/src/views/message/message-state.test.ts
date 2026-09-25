@@ -6,7 +6,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   latestSequence,
+  latestServerSequence,
   markMessageFailed,
+  mergeCursorMessages,
   mergeServerMessage,
 } from './message-state';
 
@@ -43,6 +45,44 @@ describe('message state helpers', () => {
 
     expect(merged.map((item) => item.seqNo)).toEqual([8, 10]);
     expect(latestSequence(merged)).toBe(10);
+  });
+
+  it('excludes local and failed items from the recovery cursor', () => {
+    const merged = mergeServerMessage(
+      [
+        message({ clientMessageId: 'client-9', id: 'message-9', seqNo: 9 }),
+        message({
+          clientMessageId: 'client-local',
+          id: 'local:client-local',
+          sendState: 'sending',
+          seqNo: Number.MAX_SAFE_INTEGER,
+        }),
+        message({
+          clientMessageId: 'client-failed',
+          id: 'local:client-failed',
+          sendState: 'failed',
+          seqNo: Number.MAX_SAFE_INTEGER,
+        }),
+      ],
+      message({ id: 'message-9', seqNo: 9 }) as ChatMessage,
+    );
+
+    expect(latestServerSequence(merged)).toBe(9);
+  });
+
+  it('appends pulled messages without duplicating known ones', () => {
+    const known = message({ id: 'message-1', seqNo: 1 });
+    const merged = mergeCursorMessages(
+      [known],
+      [
+        message({ id: 'message-1', seqNo: 1 }) as ChatMessage,
+        message({ clientMessageId: 'client-2', id: 'message-2', seqNo: 2 }),
+      ],
+    );
+
+    expect(merged).toHaveLength(2);
+    expect(merged.map((item) => item.seqNo)).toEqual([1, 2]);
+    expect(merged[1]?.sendState).toBe('sent');
   });
 
   it('marks only the matching optimistic item as failed', () => {

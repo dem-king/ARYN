@@ -2,6 +2,7 @@
 import type { ViewChatMessage } from '../message-state';
 
 import type { Conversation } from '#/api/message/types';
+import type { MessagePushSignal } from '#/store/message';
 
 import { nextTick, onMounted, ref } from 'vue';
 
@@ -17,7 +18,13 @@ import {
 } from '#/api/message/conversation';
 import { getPage as getStaffPage } from '#/api/upms/user';
 
-import { markMessageFailed, mergeServerMessage } from '../message-state';
+import {
+  latestServerSequence,
+  markMessageFailed,
+  mergeCursorMessages,
+  mergeServerMessage,
+} from '../message-state';
+import { useConversationPush } from '../use-conversation-push';
 
 interface StaffOption {
   avatar?: string;
@@ -65,9 +72,39 @@ async function openConversation(conversation: Conversation) {
   messages.value = [...page.records].reverse();
   if (conversation.lastSeq > conversation.lastReadSeq) {
     await markConversationRead(conversation.id, conversation.lastSeq);
+    await loadConversations();
   }
   await nextTick();
   timeline.value?.scrollTo({ top: timeline.value.scrollHeight });
+}
+
+/** 推送到达后按 afterSeq 增量补拉当前私信，并推进已读游标。 */
+async function refreshActiveConversation() {
+  const conversation = active.value;
+  if (!conversation) return;
+  const afterSeq = latestServerSequence(messages.value);
+  const page = await getConversationMessages(conversation.id, {
+    afterSeq,
+    limit: 100,
+  });
+  if (active.value?.id !== conversation.id) return;
+  if (page.records.length > 0) {
+    messages.value = mergeCursorMessages(messages.value, page.records);
+    await nextTick();
+    timeline.value?.scrollTo({ top: timeline.value.scrollHeight });
+  }
+  const latest = latestServerSequence(messages.value);
+  if (latest > (conversation.lastReadSeq || 0)) {
+    await markConversationRead(conversation.id, latest);
+  }
+}
+
+/** 推送到达后刷新私信列表；当前会话有新消息时再按游标补拉。 */
+async function refreshOnPush(signal: MessagePushSignal) {
+  await loadConversations();
+  if (!signal.conversationId || signal.conversationId === active.value?.id) {
+    await refreshActiveConversation();
+  }
 }
 
 async function send() {
@@ -101,6 +138,8 @@ async function send() {
     throw error;
   }
 }
+
+useConversationPush(refreshOnPush);
 
 onMounted(async () => {
   await Promise.all([loadConversations(), searchStaff()]);

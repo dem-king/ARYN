@@ -176,8 +176,16 @@ public class ChatMessageServiceImpl implements ChatMessageService {
 		conversation.setUpdateBy(senderId);
 		conversation.setUpdateTime(now);
 		conversationMapper.updateById(conversation);
-		runAfterCommit(() -> pushService.pushConversationMessage(conversation.getTenantId(), conversation.getId(),
-				chat.getId(), chat.getSeqNo()));
+		boolean waiting = ConversationStatus.WAITING.name().equals(conversation.getStatus());
+		runAfterCommit(() -> {
+			pushService.pushConversationMessage(conversation.getTenantId(), conversation.getId(), chat.getId(),
+					chat.getSeqNo());
+			if (waiting) {
+				// 未分配会话没有坐席参与者，必须额外广播给共享池，否则调度台不知道有人排队。
+				pushService.pushConversationQueued(conversation.getTenantId(), conversation.getId(), chat.getId(),
+						chat.getSeqNo());
+			}
+		});
 		return toVO(chat);
 	}
 

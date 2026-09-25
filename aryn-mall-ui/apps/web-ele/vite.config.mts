@@ -12,7 +12,8 @@ export default defineConfig(async () => {
             rewrite: (path) => path.replace(/^\/api/, ''),
             // mock代理目标地址
             target: 'http://localhost:9999',
-            ws: false,
+            // 实时消息通道与接口共用 /api 前缀，必须开启 WebSocket 升级。
+            ws: true,
           },
           '/message': {
             changeOrigin: true,

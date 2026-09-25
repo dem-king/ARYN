@@ -3,6 +3,7 @@ import type { ViewChatMessage } from '../message-state';
 
 import type { AgentInfo } from '#/api/message/agent';
 import type { Conversation } from '#/api/message/types';
+import type { MessagePushSignal } from '#/store/message';
 
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 
@@ -36,7 +37,13 @@ import {
   transferConversation,
 } from '#/api/message/conversation';
 
-import { markMessageFailed, mergeServerMessage } from '../message-state';
+import {
+  latestServerSequence,
+  markMessageFailed,
+  mergeCursorMessages,
+  mergeServerMessage,
+} from '../message-state';
+import { useConversationPush } from '../use-conversation-push';
 import AgentConfigDialog from './agent-config-dialog.vue';
 
 const activeTab = ref<'mine' | 'waiting'>('mine');
@@ -76,14 +83,59 @@ async function openConversation(conversation: Conversation) {
   active.value = conversation;
   const page = await getConversationMessages(conversation.id, { limit: 100 });
   messages.value = [...page.records].reverse();
-  if (conversation.lastSeq > conversation.lastReadSeq) {
+  if (
+    isReadable(conversation) &&
+    conversation.lastSeq > conversation.lastReadSeq
+  ) {
     await markConversationRead(conversation.id, conversation.lastSeq);
+    await loadConversations();
   }
   await nextTick();
+  scrollToBottom();
+}
+
+/** 待领取会话尚未分配给当前坐席，此时推进已读游标会被服务端拒绝。 */
+function isReadable(conversation: Conversation) {
+  return conversation.status !== 'WAITING';
+}
+
+function scrollToBottom(behavior: ScrollBehavior = 'smooth') {
   timeline.value?.scrollTo({
-    behavior: 'smooth',
+    behavior,
     top: timeline.value.scrollHeight,
   });
+}
+
+/** 推送到达后按 afterSeq 增量补拉当前会话，并按需推进已读游标。 */
+async function refreshActiveConversation() {
+  const conversation = active.value;
+  if (!conversation) return;
+  const afterSeq = latestServerSequence(messages.value);
+  const page = await getConversationMessages(conversation.id, {
+    afterSeq,
+    limit: 100,
+  });
+  if (active.value?.id !== conversation.id) return;
+  if (page.records.length > 0) {
+    messages.value = mergeCursorMessages(messages.value, page.records);
+    await nextTick();
+    scrollToBottom('auto');
+  }
+  const latest = latestServerSequence(messages.value);
+  if (isReadable(conversation) && latest > (conversation.lastReadSeq || 0)) {
+    await markConversationRead(conversation.id, latest);
+  }
+}
+
+/**
+ * 推送到达后刷新会话列表；只有当前会话有新消息时才补拉消息，
+ * 避免为其他会话的变化白白拉一次当前会话。
+ */
+async function refreshOnPush(signal: MessagePushSignal) {
+  await loadConversations();
+  if (!signal.conversationId || signal.conversationId === active.value?.id) {
+    await refreshActiveConversation();
+  }
 }
 
 async function send() {
@@ -112,10 +164,7 @@ async function send() {
     });
     messages.value = mergeServerMessage(messages.value, message);
     await nextTick();
-    timeline.value?.scrollTo({
-      behavior: 'smooth',
-      top: timeline.value.scrollHeight,
-    });
+    scrollToBottom();
   } catch (error) {
     messages.value = markMessageFailed(messages.value, clientMessageId);
     throw error;
@@ -180,6 +229,8 @@ function displayMessage(message: ViewChatMessage) {
   };
   return labels[message.messageType] || '[消息]';
 }
+
+useConversationPush(refreshOnPush);
 
 onMounted(async () => {
   try {

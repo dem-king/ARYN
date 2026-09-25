@@ -2,6 +2,8 @@ package com.aryn.cloud.message.service.impl;
 
 import com.aryn.cloud.message.api.dto.push.MessagePushEvent;
 import com.aryn.cloud.message.api.entity.MessageParticipant;
+import com.aryn.cloud.message.api.enums.MessageIdentityType;
+import com.aryn.cloud.message.mapper.MessageAgentMapper;
 import com.aryn.cloud.message.mapper.MessageParticipantMapper;
 import com.aryn.cloud.message.service.MessagePushService;
 import com.aryn.cloud.message.websocket.MessageWebSocketHandler;
@@ -22,7 +24,11 @@ public class MessagePushServiceImpl implements MessagePushService {
 
 	public static final String CHANNEL = "message:push:events";
 
+	/** 单次待领取广播的坐席上限，与坐席候选查询保持一致。 */
+	private static final int POOL_FANOUT_LIMIT = 500;
+
 	private final MessageParticipantMapper participantMapper;
+	private final MessageAgentMapper agentMapper;
 	private final MessageWebSocketHandler webSocketHandler;
 	private final StringRedisTemplate redisTemplate;
 	private final ObjectMapper objectMapper;
@@ -52,6 +58,13 @@ public class MessagePushServiceImpl implements MessagePushService {
 	}
 
 	@Override
+	public void pushConversationQueued(String tenantId, String conversationId, String messageId, long seqNo) {
+		for (String staffId : agentMapper.selectEnabledStaffIds(tenantId, POOL_FANOUT_LIMIT)) {
+			dispatch(queuedEvent(tenantId, conversationId, messageId, seqNo, staffId), messageId);
+		}
+	}
+
+	@Override
 	public void pushNotice(String tenantId, String recipientType, String recipientId, String messageId) {
 		MessagePushEvent event = new MessagePushEvent();
 		event.setEventType("NOTICE_RECEIVED");
@@ -72,6 +85,32 @@ public class MessagePushServiceImpl implements MessagePushService {
 
 	public String getInstanceId() {
 		return instanceId;
+	}
+
+	private MessagePushEvent queuedEvent(String tenantId, String conversationId, String messageId, long seqNo,
+			String staffId) {
+		MessagePushEvent event = new MessagePushEvent();
+		event.setEventType("CONVERSATION_QUEUED");
+		event.setTenantId(tenantId);
+		event.setRecipientType(MessageIdentityType.SYS_USER.name());
+		event.setRecipientId(staffId);
+		event.setConversationId(conversationId);
+		event.setMessageId(messageId);
+		event.setSeqNo(seqNo);
+		event.setOriginInstanceId(instanceId);
+		return event;
+	}
+
+	/** 本实例直推，并广播给其他实例；Redis 不可用时保留直推。 */
+	private void dispatch(MessagePushEvent event, String messageId) {
+		webSocketHandler.send(event);
+		try {
+			redisTemplate.convertAndSend(CHANNEL, objectMapper.writeValueAsString(event));
+		}
+		catch (RuntimeException | JsonProcessingException exception) {
+			log.warn("Redis 跨实例推送失败，保留本实例直推 tenantId={}, messageId={}", event.getTenantId(), messageId,
+					exception);
+		}
 	}
 
 }

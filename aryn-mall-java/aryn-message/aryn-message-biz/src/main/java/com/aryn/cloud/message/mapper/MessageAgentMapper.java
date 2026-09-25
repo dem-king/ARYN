@@ -20,4 +20,6 @@ public interface MessageAgentMapper extends BaseMapper<MessageAgent> {
 	int incrementActiveCount(@Param("tenantId") String tenantId, @Param("staffId") String staffId);
 
 	int decrementActiveCount(@Param("tenantId") String tenantId, @Param("staffId") String staffId);
+
+	List<String> selectEnabledStaffIds(@Param("tenantId") String tenantId, @Param("limit") int limit);
 }
