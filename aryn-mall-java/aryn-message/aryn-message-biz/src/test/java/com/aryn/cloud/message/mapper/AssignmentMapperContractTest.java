@@ -30,6 +30,15 @@ class AssignmentMapperContractTest {
 	}
 
 	@Test
+	void reopenNullsAssignmentColumnsExplicitly() throws IOException {
+		String xml = Files.readString(Path.of("src/main/resources/mapper/MessageConversationMapper.xml"));
+
+		assertTrue(xml.contains("assigned_staff_id = NULL"));
+		assertTrue(xml.contains("AND status = 'CLOSED'"));
+		assertTrue(xml.contains("reopen_deadline &gt; NOW()"));
+	}
+
+	@Test
 	void staffParticipantCanBeReactivatedAfterTransferOrReopen() throws IOException {
 		String xml = Files.readString(Path.of("src/main/resources/mapper/MessageParticipantMapper.xml"));
 

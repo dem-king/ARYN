@@ -124,6 +124,30 @@ class ConversationAssignmentServiceImplTest {
 				org.mockito.ArgumentMatchers.eq("conversation-1"), any(), any(), any());
 	}
 
+	@Test
+	void reopenClearsStaleAssignmentWithoutIgnoringNullUpdate() {
+		MessageConversation closed = conversation();
+		closed.setStatus(ConversationStatus.CLOSED.name());
+		closed.setAssignedStaffId("staff-1");
+		closed.setReopenDeadline(LocalDateTime.now().plusHours(1));
+		when(conversationMapper.selectRecentlyClosedCustomerConversation(org.mockito.ArgumentMatchers.eq("tenant-1"),
+				org.mockito.ArgumentMatchers.eq("member-1"), org.mockito.ArgumentMatchers.eq("DEFAULT"), any()))
+				.thenReturn(closed);
+		when(conversationMapper.selectByIdForUpdate("tenant-1", "conversation-1")).thenReturn(closed);
+		when(conversationMapper.reopenToWaiting("tenant-1", "conversation-1", "member-1")).thenReturn(1);
+		when(staffService.isCustomerServiceStaff("tenant-1", "staff-1")).thenReturn(true);
+		when(agentService.isAutoAssignable("tenant-1", "staff-1")).thenReturn(false);
+
+		String reopened = service.reopenCustomerConversation("tenant-1", "member-1", "DEFAULT");
+
+		assertEquals("conversation-1", reopened);
+		verify(conversationMapper).reopenToWaiting("tenant-1", "conversation-1", "member-1");
+		// 回归守卫：updateById 会忽略 null 字段，残留 assigned_staff_id 导致会话永远无法领取。
+		verify(conversationMapper, never()).updateById(any(MessageConversation.class));
+		verify(participantMapper).deactivate("tenant-1", "conversation-1", MessageIdentityType.SYS_USER.name(),
+				"staff-1");
+	}
+
 	private MessageAgent agent(String staffId, int load, LocalDateTime lastAssignedTime) {
 		MessageAgent agent = new MessageAgent();
 		agent.setStaffId(staffId);

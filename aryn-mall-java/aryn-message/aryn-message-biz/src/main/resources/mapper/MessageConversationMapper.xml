@@ -101,6 +101,21 @@
           AND assigned_staff_id IS NULL
           AND del_flag = '0'
     </update>
+    <update id="reopenToWaiting">
+        UPDATE message_conversation
+        SET status = 'WAITING',
+            assigned_staff_id = NULL,
+            closed_time = NULL,
+            reopen_deadline = NULL,
+            close_reason = NULL,
+            update_by = #{customerId},
+            update_time = NOW()
+        WHERE tenant_id = #{tenantId}
+          AND id = #{conversationId}
+          AND status = 'CLOSED'
+          AND reopen_deadline &gt; NOW()
+          AND del_flag = '0'
+    </update>
     <select id="selectWaiting" resultType="com.aryn.cloud.message.api.entity.MessageConversation">
         SELECT *
         FROM message_conversation

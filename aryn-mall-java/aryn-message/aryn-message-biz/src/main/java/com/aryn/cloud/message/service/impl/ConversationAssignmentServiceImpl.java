@@ -180,14 +180,9 @@ public class ConversationAssignmentServiceImpl implements ConversationAssignment
 					|| conversation.getReopenDeadline().isBefore(LocalDateTime.now())) {
 				return false;
 			}
-			conversation.setStatus(ConversationStatus.WAITING.name());
-			conversation.setAssignedStaffId(null);
-			conversation.setClosedTime(null);
-			conversation.setReopenDeadline(null);
-			conversation.setCloseReason(null);
-			conversation.setUpdateBy(customerId);
-			conversation.setUpdateTime(LocalDateTime.now());
-			conversationMapper.updateById(conversation);
+			if (conversationMapper.reopenToWaiting(tenantId, conversation.getId(), customerId) != 1) {
+				return false;
+			}
 			if (StringUtils.hasText(originalStaffId)) {
 				participantMapper.deactivate(tenantId, conversation.getId(), MessageIdentityType.SYS_USER.name(),
 						originalStaffId);

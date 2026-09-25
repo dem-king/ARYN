@@ -37,6 +37,14 @@ public interface MessageConversationMapper extends BaseMapper<MessageConversatio
 	int assignWaiting(@Param("tenantId") String tenantId, @Param("conversationId") String conversationId,
 			@Param("staffId") String staffId);
 
+	/**
+	 * 重开会话回 WAITING。assigned_staff_id 等字段必须显式置 NULL：
+	 * updateById 默认忽略 null 字段，残留旧坐席会让 assignWaiting 的
+	 * assigned_staff_id IS NULL 条件永远不成立，会话无法被领取。
+	 */
+	int reopenToWaiting(@Param("tenantId") String tenantId, @Param("conversationId") String conversationId,
+			@Param("customerId") String customerId);
+
 	List<MessageConversation> selectWaiting(@Param("tenantId") String tenantId,
 			@Param("queueCode") String queueCode, @Param("limit") int limit);
 
