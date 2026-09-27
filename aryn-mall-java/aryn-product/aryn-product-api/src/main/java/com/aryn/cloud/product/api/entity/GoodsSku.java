@@ -4,6 +4,7 @@ package com.aryn.cloud.product.api.entity;
 import com.baomidou.mybatisplus.annotation.*;
 import com.baomidou.mybatisplus.extension.activerecord.Model;
 import com.aryn.cloud.product.api.hanlder.SpecsListTypeHandler;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -43,6 +44,10 @@ public class GoodsSku extends Model<GoodsSku> {
 	@Schema(description = "原价（元）")
 	private BigDecimal originalPrice;
 
+	/**
+	 * 成本价（内部经营数据，不下发 C 端）。NON_NULL 语义同 {@link GoodsSpu#costPrice}。
+	 */
+	@JsonInclude(JsonInclude.Include.NON_NULL)
 	@Schema(description = "成本价（元）")
 	private BigDecimal costPrice;
 

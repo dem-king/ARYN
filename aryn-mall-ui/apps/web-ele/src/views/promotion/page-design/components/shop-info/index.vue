@@ -5,7 +5,7 @@ import { computed, watch } from 'vue';
 
 import { useUserStore } from '@vben/stores';
 
-import { Location, Phone, Shop } from '@element-plus/icons-vue';
+import { Shop } from '@element-plus/icons-vue';
 import { ElAvatar, ElIcon } from 'element-plus';
 
 import { loadShopInfo } from '../common/retail-preview/retail-data';
@@ -48,57 +48,97 @@ watch(
     :message="state.message"
     :status="state.status"
   >
-    <article v-for="shop in state.items" :key="shop.id" class="shop-panel">
-      <ElAvatar :size="56" :src="shop.logoUrl">
+    <div v-for="shop in state.items" :key="shop.id" class="shop-content">
+      <ElAvatar
+        v-if="shop.logoUrl"
+        :size="48"
+        class="shop-logo"
+        :src="shop.logoUrl"
+      >
         <ElIcon><Shop /></ElIcon>
       </ElAvatar>
-      <div class="shop-panel__body">
-        <strong>{{ shop.name }}</strong>
-        <p v-if="showData.showDescription && shop.address">
-          <ElIcon><Location /></ElIcon><span>{{ shop.address }}</span>
-        </p>
-        <p v-if="showData.showContact && shop.phone">
-          <ElIcon><Phone /></ElIcon><span>{{ shop.phone }}</span>
-        </p>
+      <span v-else class="shop-logo shop-logo--empty">
+        <ElIcon><Shop /></ElIcon>
+      </span>
+      <div class="shop-main">
+        <div class="shop-name">{{ shop.name }}</div>
+        <div
+          v-if="showData.showDescription && shop.address"
+          class="shop-description"
+        >
+          {{ shop.address }}
+        </div>
+        <div v-if="showData.showDescription && shop.phone" class="shop-phone">
+          {{ shop.phone }}
+        </div>
       </div>
-    </article>
+      <!-- 小程序端是 open-type=contact 的联系按钮，预览按同尺寸静态呈现 -->
+      <span v-if="showData.showContact" class="contact-button">联系</span>
+    </div>
   </RetailPreviewFrame>
 </template>
 
-<style scoped>
-.shop-panel {
-  display: grid;
-  grid-template-columns: 56px minmax(0, 1fr);
-  gap: 12px;
+<!--
+  样式与小程序 diy-shop-info 逐值对齐。
+  换算口径：小程序屏宽在 rpx 下恒为 750，画布正好 375px，故 1rpx = 0.5px，
+  本文件所有 px 值都是对应 rpx 值的一半；改任一端都要同步另一端。
+-->
+<style scoped lang="scss">
+.shop-content {
+  display: flex;
+  gap: 9px;
   align-items: center;
-  min-height: 76px;
+  min-height: 56px;
 }
 
-.shop-panel__body {
+.shop-logo {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  font-size: 17px;
+  color: #606266;
+  background: #f2f3f5;
+  border-radius: 4px;
+}
+
+.shop-main {
+  flex: 1;
   min-width: 0;
 }
 
-.shop-panel__body strong {
-  display: block;
+.shop-name {
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 16px;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: #1f2329;
   white-space: nowrap;
 }
 
-.shop-panel__body p {
-  display: flex;
-  gap: 5px;
+.shop-description,
+.shop-phone {
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  color: #909399;
+  white-space: nowrap;
+}
+
+.contact-button {
+  display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
-  margin: 7px 0 0;
-  overflow: hidden;
-  font-size: 12px;
-  color: #64748b;
-  white-space: nowrap;
-}
-
-.shop-panel__body p span {
-  overflow: hidden;
-  text-overflow: ellipsis;
+  justify-content: center;
+  width: 56px;
+  height: 28px;
+  font-size: 11.5px;
+  color: #303133;
+  background: #fff;
+  border: 0.5px solid #dcdfe6;
+  border-radius: 4px;
 }
 </style>

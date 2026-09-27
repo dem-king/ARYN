@@ -25,7 +25,11 @@
 	coupon_user.validat_time,
 	coupon_user.used_time,
 	coupon_user.create_time,
-	coupon_user.update_time
+	coupon_user.update_time,
+	coupon_user.del_flag,
+	coupon_user.tenant_id,
+	coupon_user.source_type,
+	coupon_user.source_id
     </sql>
     <select id="selectAdminPage" resultType="com.aryn.cloud.promotion.api.entity.CouponUser">
         SELECT

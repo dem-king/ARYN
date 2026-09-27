@@ -49,6 +49,11 @@ public class PageDesignAuditLog extends Model<PageDesignAuditLog> {
 	 * 操作类型：回滚。
 	 */
 	public static final String ACTION_ROLLBACK = "ROLLBACK";
+	/**
+	 * 操作类型：设为首页（切换租户线上首页指针）。
+	 */
+	public static final String ACTION_SET_HOME = "SET_HOME";
+
 
 	/**
 	 * 操作类型：提交发布申请。
@@ -90,7 +95,7 @@ public class PageDesignAuditLog extends Model<PageDesignAuditLog> {
 	@Schema(description = "关联发布申请ID")
 	private String releaseId;
 
-	@Schema(description = "操作类型：SAVE_DRAFT/PUBLISH/UNPUBLISH/ROLLBACK/RELEASE_SUBMIT/RELEASE_APPROVE/RELEASE_REJECT/RELEASE_CANCEL")
+	@Schema(description = "操作类型：SAVE_DRAFT/PUBLISH/UNPUBLISH/SET_HOME/ROLLBACK/RELEASE_SUBMIT/RELEASE_APPROVE/RELEASE_REJECT/RELEASE_CANCEL")
 	private String action;
 
 	@Schema(description = "操作人")

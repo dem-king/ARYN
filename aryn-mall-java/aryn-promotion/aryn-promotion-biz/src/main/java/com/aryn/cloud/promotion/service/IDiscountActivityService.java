@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.aryn.cloud.promotion.api.dto.DiscountActivityDTO;
 import com.aryn.cloud.promotion.api.entity.DiscountActivity;
+import com.aryn.cloud.promotion.api.vo.AppDiscountActivityVO;
 import com.aryn.cloud.promotion.api.vo.AppDiscountVO;
 import com.aryn.cloud.promotion.api.vo.DiscountActivityVO;
 
@@ -43,9 +44,9 @@ public interface IDiscountActivityService extends IService<DiscountActivity> {
 	// ==================== C端 ====================
 
 	/**
-	 * 获取进行中的折扣活动
+	 * 分页获取进行中的折扣活动（含商品明细与实时折扣价，供 C 端会场按活动分组展示）
 	 */
-	List<DiscountActivityVO> getActiveActivities();
+	IPage<AppDiscountActivityVO> getActiveActivityPage(Page page);
 
 	/**
 	 * 获取商品当前最优折扣信息

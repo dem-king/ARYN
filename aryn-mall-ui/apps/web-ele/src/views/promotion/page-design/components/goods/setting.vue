@@ -56,7 +56,10 @@ const defaultConfig = {
   salesPriceSize: 14, // 商品售价字体大小
   salesPriceColor: 'rgba(255, 0, 0, 1)', // 商品售价字体颜色
   salesPriceStyle: '0', // 商品售价字体样式 0.正常 1.加粗
-  showOriginalPrice: false,
+  showOriginalPrice: true, // 默认开启；仅当商品原价高于售价时才可见（见 price-display）
+  originalPriceSize: 12, // 商品原价字体大小
+  originalPriceColor: 'rgba(153, 153, 153, 1)', // 商品原价字体颜色
+  originalPriceStyle: '0', // 商品原价字体样式 0.正常 1.加粗
   showSalesVolume: false,
   salesVolumeSize: 14, // 商品销量字体大小
   salesVolumeColor: 'rgba(0, 0, 0, 1)', // 商品销量字体颜色
@@ -268,6 +271,28 @@ const deleteGoods = (index: number) => {
                 <ElFormItem label="字体大小">
                   <ElSlider
                     v-model="form.salesPriceSize"
+                    show-input
+                    :show-input-controls="false"
+                    :min="0"
+                  />
+                </ElFormItem>
+              </div>
+            </div>
+            <div v-if="form.showOriginalPrice">
+              <h4>商品原价</h4>
+              <div class="content-item">
+                <ElFormItem label="字体颜色">
+                  <ColorPicker v-model="form.originalPriceColor" />
+                </ElFormItem>
+                <ElFormItem label="字体样式">
+                  <ElRadioGroup v-model="form.originalPriceStyle">
+                    <ElRadio value="0">正常</ElRadio>
+                    <ElRadio value="1">加粗</ElRadio>
+                  </ElRadioGroup>
+                </ElFormItem>
+                <ElFormItem label="字体大小">
+                  <ElSlider
+                    v-model="form.originalPriceSize"
                     show-input
                     :show-input-controls="false"
                     :min="0"

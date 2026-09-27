@@ -20,7 +20,9 @@
 
     <select id="selectAdminPage" resultType="com.aryn.cloud.promotion.api.entity.SeckillActivity">
         SELECT
-        <include refid="seckillActivitySql"/>
+        <include refid="seckillActivitySql"/>,
+        (SELECT COUNT(*) FROM seckill_session ss
+            WHERE ss.activity_id = seckill_activity.id AND ss.del_flag = '0') AS session_count
         FROM seckill_activity
         <where>
             AND seckill_activity.del_flag = '0'

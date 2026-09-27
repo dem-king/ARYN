@@ -28,7 +28,7 @@ const { items, shouldRender, status } = useRetailData(showData, loadCurrentShop)
   <view v-if="shouldRender" class="shop-info" :style="dynamicStyles">
     <RetailState v-if="status !== 'ready'" :status="status" />
     <view v-else-if="items[0]" class="shop-content">
-      <image v-if="items[0].logoUrl" class="shop-logo" :src="items[0].logoUrl" mode="aspectFill" />
+      <image v-if="items[0].logoUrl" class="shop-logo" :src="items[0].logoUrl" mode="aspectFill" lazy-load />
       <view v-else class="shop-logo shop-logo--empty">店</view>
       <view class="shop-main">
         <view class="shop-name">{{ items[0].name }}</view>

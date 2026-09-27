@@ -4,6 +4,7 @@ import type { DecorationDocument } from '../../page-designer/schema/types';
 import { computed } from 'vue';
 
 import { getComponentDefinition } from '../../page-designer/registry/component-registry';
+import { buildSectionStyle } from '../../page-designer/schema/section-style';
 
 const props = defineProps<{
   document: DecorationDocument;
@@ -16,6 +17,11 @@ const pageStyle = computed(() => ({
     ? `url(${props.document.page.backgroundImage})`
     : undefined,
 }));
+
+function sectionStyle(section: DecorationDocument['sections'][number]) {
+  // 吸顶层级 10：与 C 端实机一致（此页不与编辑器操作按钮共存）
+  return buildSectionStyle(section.style, { stickyZIndex: 10 });
+}
 </script>
 
 <template>
@@ -44,16 +50,7 @@ const pageStyle = computed(() => ({
       v-for="section in document.sections"
       :key="section.id"
       class="preview-section"
-      :style="{
-        backgroundColor: section.style.backgroundColor || undefined,
-        backgroundImage: section.style.backgroundImage
-          ? `url(${section.style.backgroundImage})`
-          : undefined,
-        paddingBottom: `${section.style.paddingY}px`,
-        paddingTop: `${section.style.paddingY}px`,
-        position: section.style.sticky ? 'sticky' : undefined,
-        top: section.style.sticky ? '0' : undefined,
-      }"
+      :style="sectionStyle(section)"
     >
       <template v-for="component in section.components" :key="component.id">
         <component

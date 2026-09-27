@@ -1,13 +1,16 @@
 package com.aryn.cloud.user.controller.app;
 
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.user.api.entity.MemberLevel;
 import com.aryn.cloud.user.api.entity.UserInfo;
+import com.aryn.cloud.user.api.vo.AppPointsRecordVO;
 import com.aryn.cloud.user.api.vo.UserPointsInfoVO;
 import com.aryn.cloud.user.mapper.MemberLevelMapper;
 import com.aryn.cloud.user.mapper.UserInfoMapper;
+import com.aryn.cloud.user.service.IPointsRecordService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.AllArgsConstructor;
@@ -32,6 +35,8 @@ public class AppPointsController {
 
 	private final MemberLevelMapper memberLevelMapper;
 
+	private final IPointsRecordService pointsRecordService;
+
 	@Operation(summary = "用户积分信息")
 	@GetMapping("/info")
 	public Result<UserPointsInfoVO> info() {
@@ -50,6 +55,13 @@ public class AppPointsController {
 			}
 		}
 		return Result.success(vo);
+	}
+
+	@Operation(summary = "我的积分记录")
+	@GetMapping("/records")
+	public Result<IPage<AppPointsRecordVO>> records(Page page) {
+		String userId = SecurityUtils.getUser().getUserId();
+		return Result.success(pointsRecordService.getUserPage(page, userId).convert(AppPointsRecordVO::from));
 	}
 
 }

@@ -120,9 +120,13 @@ secure:
       - /app/goodscategory/tree
       - /app/goodsappraise/**
       - /app/goodscategory/**
+      - /app/goodsbrand/list
       - /app/sku/**
       - /app/goodsspu/**
       - /app/goodsspuspecs/**
+      - /app/seckill/sessions/**
+      - /app/seckill/goods/**
+      - /app/discount/activities/**
       - /file/local/**
 
 decoration:

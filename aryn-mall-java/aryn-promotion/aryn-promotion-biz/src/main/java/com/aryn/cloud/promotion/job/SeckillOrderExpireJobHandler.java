@@ -29,7 +29,14 @@ public class SeckillOrderExpireJobHandler {
 	@DubboReference
 	private final RemoteTenantService remoteTenantService;
 
-	private static final int EXPIRE_MINUTES = 15;
+	/**
+	 * 预扣释放超时（分钟）。
+	 *
+	 * <p>必须大于订单取消窗口（orderCancelJobHandler 为 30 分钟）：订单取消会自行释放秒杀
+	 * 预扣，若本任务先跑，同一笔订单会出现两条释放路径；虽然秒杀服务内做了状态 CAS 幂等，
+	 * 但取 45 分钟可让取消路径先接管，减少无谓竞争。
+	 */
+	private static final int EXPIRE_MINUTES = 45;
 
 	private static final int BATCH_SIZE = 200;
 

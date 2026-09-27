@@ -2,16 +2,20 @@
 import { computed } from 'vue'
 
 import { useAuthStore } from '@/store/authStore'
+import { useUserStore } from '@/store/userStore'
 
 import DiyBottomNav from './diy-bottom-nav/index.vue'
 import DiyCategoryNav from './diy-category-nav/index.vue'
 import DiyCountdown from './diy-countdown/index.vue'
+import DiyDiscount from './diy-discount/index.vue'
 import DiyCouponCombo from './diy-coupon-combo/index.vue'
 import DiyCouponReceive from './diy-coupon-receive/index.vue'
+import DiyCustomHtml from './diy-custom-html/index.vue'
 import DiyGap from './diy-gap/index.vue'
 import DiyGoods from './diy-goods/index.vue'
 import DiyGoodsGroup from './diy-goods-group/index.vue'
 import DiyGoodsRanking from './diy-goods-ranking/index.vue'
+import DiyGoodsScroll from './diy-goods-scroll/index.vue'
 import DiyGoodsWaterfall from './diy-goods-waterfall/index.vue'
 import DiyImage from './diy-image/index.vue'
 import DiyLimitedActivity from './diy-limited-activity/index.vue'
@@ -21,6 +25,7 @@ import DiyNotice from './diy-notice/index.vue'
 import DiyReplenishCard from './diy-replenish-card/index.vue'
 import DiyRichText from './diy-rich-text/index.vue'
 import DiySearchBar from './diy-search-bar/index.vue'
+import DiySeckill from './diy-seckill/index.vue'
 import DiyServicePromise from './diy-service-promise/index.vue'
 import DiyShipWorkbench from './diy-ship-workbench/index.vue'
 import DiyShopInfo from './diy-shop-info/index.vue'
@@ -28,6 +33,7 @@ import DiySwiperBanner from './diy-swiper-banner/index.vue'
 import DiyTabnav from './diy-tabnav/index.vue'
 import DiyTitleText from './diy-titletext/index.vue'
 import DiyVideoLive from './diy-video-live/index.vue'
+import { evaluateCondition } from './schema/condition'
 import { migratePageContent } from './schema/migrate'
 import type { DecorationSection } from './schema/types'
 import UnknownComponent from './unknown-component.vue'
@@ -35,9 +41,23 @@ import UnknownComponent from './unknown-component.vue'
 const props = defineProps<{
   pageContentData: unknown
   pageName?: string
+  /** 当前商品 ID（商详页装修场景透传，供商品类组件感知上下文） */
+  goodsId?: string
+  /**
+   * 内嵌模式：装修块作为页面中间的一段内容使用（分类页 / 商详页 / 个人中心页），
+   * 而非整页 DIY。
+   *
+   * 两处差别都由本开关控制，缺一不可：
+   *   · **不渲染 hr-navbar**：装修 Schema 的 `navigation.visible` 默认 true 且存量
+   *     数据全是 true，内嵌场景原样渲染会在页面中间横插一条导航栏；
+   *   · **不撑满 100vh**：整页 DIY 需要 `min-height: 100vh` 保证背景铺满，
+   *     内嵌到商品流里会撑出一屏空白，把后面的商品挤到屏幕外。
+   */
+  embedded?: boolean
 }>()
 
 const authStore = useAuthStore()
+const userStore = useUserStore()
 const document = computed(() => migratePageContent(props.pageContentData))
 const sections = computed(() =>
   document.value.sections.filter((section) => sectionVisible(section)),
@@ -53,11 +73,11 @@ const pageStyle = computed(() => ({
 }))
 
 function sectionVisible(section: DecorationSection) {
-  if (section.style.condition === 'login')
-    return authStore.isLoggedIn
-  if (section.style.condition === 'guest')
-    return !authStore.isLoggedIn
-  return true
+  return evaluateCondition(section.style.condition, {
+    isLoggedIn: authStore.isLoggedIn,
+    memberLevelId: userStore.getLevelId,
+    userTags: userStore.getUserTags,
+  })
 }
 
 function sectionStyle(section: DecorationSection) {
@@ -66,8 +86,28 @@ function sectionStyle(section: DecorationSection) {
     backgroundImage: section.style.backgroundImage
       ? `url(${section.style.backgroundImage})`
       : undefined,
-    paddingBottom: `${section.style.paddingY}rpx`,
-    paddingTop: `${section.style.paddingY}rpx`,
+    // 长度字段口径为 px（见 SectionStyle 注释），与管理端画布一致
+    marginBottom: `${section.style.marginY}px`,
+    marginLeft: `${section.style.marginX}px`,
+    marginRight: `${section.style.marginX}px`,
+    marginTop: `${section.style.marginY}px`,
+    paddingBottom: `${section.style.paddingY}px`,
+    paddingLeft: `${section.style.paddingX}px`,
+    paddingRight: `${section.style.paddingX}px`,
+    paddingTop: `${section.style.paddingY}px`,
+  }
+  if (section.style.radius > 0) {
+    style.borderRadius = `${section.style.radius}px`
+    // 圆角需要裁掉子元素溢出的直角背景（轮播图/图片类组件自带白底）；
+    // 横滑区块靠 overflow-x: auto 滚动，裁切会禁掉横滑，故跳过。
+    if (!section.style.horizontalScroll)
+      style.overflow = 'hidden'
+  }
+  // 区块背景图可能自带圆角/留白，补齐平铺属性，否则会按默认 tile 重复
+  if (section.style.backgroundImage) {
+    style.backgroundPosition = 'top center'
+    style.backgroundRepeat = 'no-repeat'
+    style.backgroundSize = '100% auto'
   }
   if (section.style.sticky) {
     style.position = 'sticky'
@@ -79,11 +119,13 @@ function sectionStyle(section: DecorationSection) {
 </script>
 
 <template>
-  <view class="diy-page" :style="pageStyle">
+  <view class="diy-page" :class="{ 'diy-page--embedded': embedded }" :style="pageStyle">
     <hr-navbar
-      v-if="document.page.navigation.visible"
+      v-if="!embedded && document.page.navigation.visible"
       :title="title"
       :left-arrow="false"
+      :background-color="document.page.navigation.backgroundColor"
+      :text-color="document.page.navigation.textColor"
     />
     <view class="diy-components">
       <view
@@ -121,6 +163,10 @@ function sectionStyle(section: DecorationSection) {
           v-else-if="item.type === 'rich-text'"
           :show-data="item.props"
         />
+        <DiyCustomHtml
+          v-else-if="item.type === 'custom-html'"
+          :show-data="item.props"
+        />
         <DiySearchBar
           v-else-if="item.type === 'search-bar'"
           :show-data="item.props"
@@ -145,12 +191,24 @@ function sectionStyle(section: DecorationSection) {
           v-else-if="item.type === 'goods-ranking'"
           :show-data="item.props"
         />
+        <DiyGoodsScroll
+          v-else-if="item.type === 'goods-scroll'"
+          :show-data="item.props"
+        />
         <DiyLimitedActivity
           v-else-if="item.type === 'limited-activity'"
           :show-data="item.props"
         />
+        <DiySeckill
+          v-else-if="item.type === 'seckill'"
+          :show-data="item.props"
+        />
         <DiyCountdown
           v-else-if="item.type === 'countdown'"
+          :show-data="item.props"
+        />
+        <DiyDiscount
+          v-else-if="item.type === 'discount'"
           :show-data="item.props"
         />
         <DiyMarketingEntry
@@ -211,6 +269,11 @@ function sectionStyle(section: DecorationSection) {
   background-position: top center;
   background-repeat: no-repeat;
   background-size: 100% auto;
+
+  /* 内嵌模式不撑满可视区：装修块只是页面中的一段内容（见 embedded 属性说明） */
+  &--embedded {
+    min-height: 0;
+  }
 }
 
 .diy-section-scroll {

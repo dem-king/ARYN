@@ -22,7 +22,7 @@ mysql -u root -p < db/boot/aryn_boot_full.sql
 1. 建库：`db/cloud/1schema.sql`（创建 upms/nacos/pay/job/user/message/order/product/promotion/gen 全部库）
 2. 各库底座 dump（任意顺序，脚本自带 `USE`）：
    `2aryn_upms.sql`、`3aryn_nacos.sql`、`4aryn_user.sql`、`4aryn_user_menu.sql`、`6aryn_pay.sql`、`7aryn_order.sql`、`8aryn_product.sql`、`9aryn_promotion.sql`、`99aryn_gen.sql`、`999aryn_job.sql`
-   可选辅助（均为 nacos `config_info` 更新，按需执行）：`4gateway_local_file_ignore.sql`（网关白名单追加 `/upms/file/local/**`，存储类型用本机存储时必需）、`5idea_host_config.sql`（IDEA 本地启动时把 nacos 配置中的 Docker 主机名替换为宿主机地址）。
+   可选辅助（均为 nacos `config_info` 更新，按需执行）：`4gateway_local_file_ignore.sql`（网关白名单追加 `/upms/file/local/**`，存储类型用本机存储时必需）、`88public_goods_read_nacos_config.sql`（网关白名单追加秒杀/折扣公开读接口，金刚区「限时秒杀」「限时折扣」入口必需，漏配会表现为点进去提示「登录已过期」）、`5idea_host_config.sql`（IDEA 本地启动时把 nacos 配置中的 Docker 主机名替换为宿主机地址）。
 3. 按文件名顺序执行增量：`10*` ~ `28*`。
    其中 `27delivery_fulfillment_incremental.sql`、`28promotion_tenant_config_incremental.sql` 会同步更新 `aryn_nacos.config_info`（租户表清单、XXL-JOB 端口），已做幂等处理。
 

@@ -91,6 +91,30 @@ public class SeckillStockManager {
 	}
 
 	/**
+	 * 懒初始化：库存 key 缺失时按 DB 基线重建，绝不覆盖已有计数（setIfAbsent）。
+	 *
+	 * <p>活动经管理端创建时 {@link #initStock} 会在事务提交后写入库存池；但 Redis 被清空/重启、
+	 * 或活动由 SQL 直接导入时 key 可能缺失，此时 Lua 扣减对缺失 key 一律返回「库存不足」，
+	 * 整场秒杀都无法下单，必须按 DB 基线（总量-已售）兜底重建。
+	 *
+	 * @return true=本次执行了重建
+	 */
+	public boolean ensureStockInitialized(String activityId, String sessionId, String skuId,
+			Integer stock, Integer limitPerUser, Duration ttl) {
+		String stockKey = buildStockKey(activityId, sessionId, skuId);
+		Boolean created = redisTemplate.opsForValue()
+			.setIfAbsent(stockKey, String.valueOf(Math.max(stock, 0)), ttl);
+		if (!Boolean.TRUE.equals(created)) {
+			return false;
+		}
+		String limitKey = buildBoughtKeyPrefix(activityId, sessionId, skuId) + ":limit";
+		redisTemplate.opsForValue().setIfAbsent(limitKey, String.valueOf(limitPerUser), ttl);
+		log.warn("秒杀库存池缺失，已按 DB 基线重建（限购计数从零起算）, activityId={}, sessionId={}, skuId={}, stock={}",
+				activityId, sessionId, skuId, stock);
+		return true;
+	}
+
+	/**
 	 * 原子扣减库存（Lua 脚本）
 	 *
 	 * @return 1成功 / 0库存不足 / -1超出限购

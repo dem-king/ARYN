@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-
-import { followDecorationLink } from '@/components/diy/link-resolver'
 import type { VideoLiveProps } from '@/components/diy/retail-types'
+
+import { computed } from 'vue'
 import { useDiyStyle } from '@/composables/useDiyStyle'
 
 const props = defineProps({
@@ -16,13 +15,15 @@ const componentProps = computed(() => props.showData as unknown as VideoLiveProp
 const dynamicStyles = useDiyStyle(computed(() => componentProps.value.commonStyle))
 
 function enterLive() {
-  followDecorationLink({
-    params: {},
-    path: componentProps.value.liveId
-      ? `/sub-pages/promotion/live/index?liveId=${componentProps.value.liveId}`
-      : '',
-    type: 'custom',
-  })
+  // 直播承载页 `/sub-pages/promotion/live/index` **尚未实现**（全仓无该页面）。
+  // 此前这里照样拼出该路径跳转，必然失败并触发微信
+  // `routeDone with a webviewId ... is not found`。
+  // 在承载页落地前，明确提示而不是跳一个不存在的页面。
+  if (!componentProps.value.liveId) {
+    uni.showToast({ title: '暂无可观看的直播', icon: 'none' })
+    return
+  }
+  uni.showToast({ title: '直播功能即将开放', icon: 'none' })
 }
 </script>
 
@@ -50,8 +51,12 @@ function enterLive() {
         :src="componentProps.coverUrl"
         mode="aspectFill"
       />
-      <view v-else class="videolive-cover-fallback">直播入口</view>
-      <view class="videolive-live-tag">直播</view>
+      <view v-else class="videolive-cover-fallback">
+        直播入口
+      </view>
+      <view class="videolive-live-tag">
+        直播
+      </view>
     </view>
     <view v-else class="videolive-empty">
       请在装修中配置视频地址或直播入口

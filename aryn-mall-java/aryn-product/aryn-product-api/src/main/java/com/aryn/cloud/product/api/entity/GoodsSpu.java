@@ -2,6 +2,7 @@
 package com.aryn.cloud.product.api.entity;
 
 import com.baomidou.mybatisplus.annotation.*;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.baomidou.mybatisplus.extension.activerecord.Model;
 import com.aryn.cloud.common.myabtis.handler.JsonArrayStringTypeHandler;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -115,6 +116,13 @@ public class GoodsSpu extends Model<GoodsSpu> {
 	@Schema(description = "商品原价  sku最低原价")
 	private BigDecimal originalPrice;
 
+	/**
+	 * 商品成本价（内部经营数据，不下发 C 端）。
+	 *
+	 * <p>NON_NULL：C 端出参经 {@code GoodsCostPriceMasker} 置空后，该字段从 JSON
+	 * 中整个消失，而不是留一个 {@code "costPrice": null}。管理端出参有值时不受影响。
+	 */
+	@JsonInclude(JsonInclude.Include.NON_NULL)
 	@Schema(description = "商品成本价 sku最低成本价")
 	private BigDecimal costPrice;
 

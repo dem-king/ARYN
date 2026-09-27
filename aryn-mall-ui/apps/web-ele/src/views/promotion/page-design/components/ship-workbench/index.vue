@@ -21,72 +21,73 @@ const previewStatus = 'data' as const;
     :common-style="showData.commonStyle"
     :status="previewStatus"
   >
-    <div class="ship-bar">
-      <span class="ship-bar__icon">⚓</span>
-      <strong>悦航1号</strong>
-      <span class="ship-bar__dot">·</span>
-      <span class="ship-bar__summary">上海港 3号泊位 · 明天 00:15</span>
-      <span class="ship-bar__chevron">›</span>
-      <span v-if="showData.showFrequent" class="ship-bar__frequent">常购</span>
+    <div class="ship-workbench">
+      <span class="ship-icon">⚓</span>
+      <strong class="ship-name">悦航1号</strong>
+      <span class="ship-dot">·</span>
+      <span class="ship-summary">上海港 3号泊位 · 明天 00:15</span>
+      <span class="ship-chevron">›</span>
+      <span v-if="showData.showFrequent" class="ship-frequent">常购</span>
     </div>
-    <p class="ship-bar__hint">
-      预览为示意数据；实际展示取决于访问者是否登录且已关联船舶
-    </p>
   </RetailPreviewFrame>
 </template>
 
-<style scoped>
-.ship-bar {
+<!--
+  样式与小程序 diy-ship-workbench 逐值对齐（该组件高 88rpx）。
+  换算口径：小程序屏宽在 rpx 下恒为 750，画布正好 375px，故 1rpx = 0.5px。
+  真实船舶与靠港取决于访问者，此处为示意文案。
+-->
+<style scoped lang="scss">
+.ship-workbench {
   display: flex;
   align-items: center;
   height: 44px;
-  padding: 0 12px;
   overflow: hidden;
   font-size: 13px;
   background: #fff;
-  border-radius: 8px;
 }
 
-.ship-bar__icon {
+.ship-icon {
+  flex: none;
   margin-right: 6px;
   font-size: 16px;
+  color: #4d7fff;
 }
 
-.ship-bar strong {
+.ship-name {
   flex: none;
+  font-size: 13px;
   font-weight: 700;
 }
 
-.ship-bar__dot {
+.ship-dot {
+  flex: none;
   margin: 0 5px;
-  color: #cbd5e1;
+  color: #d1d5db;
 }
 
-.ship-bar__summary {
+.ship-summary {
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: 12px;
-  color: #64748b;
+  color: #6b7280;
   white-space: nowrap;
 }
 
-.ship-bar__chevron {
+.ship-chevron {
+  flex: none;
   margin-left: 3px;
-  color: #cbd5e1;
+  font-size: 12px;
+  color: #9ca3af;
 }
 
-.ship-bar__frequent {
+.ship-frequent {
   flex: none;
   padding-left: 10px;
   margin-left: 8px;
   font-size: 12px;
   color: #b45309;
-  border-left: 1px solid #e2e8f0;
-}
-
-.ship-bar__hint {
-  margin: 8px 0 0;
-  font-size: 12px;
-  color: #94a3b8;
+  border-left: 1px solid #e5e7eb;
 }
 </style>

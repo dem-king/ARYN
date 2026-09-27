@@ -7,8 +7,9 @@
  * 几何对齐参考图（该图的像素测量见需求包「实施结果」）：
  *   · **顶边落在导航栏之下**，搜索框保持纯白可点。参考图里搜索框是 (255,255,255)、
  *     购物车角标是满饱和红，说明导航栏渲染在遮罩之上，遮罩并没有盖住它。
- *   · **底边不贴屏幕底**，下方保留约 12% 屏高的遮罩带，露出压暗的页面内容
- *     （参考图面板底边在 832/953 ≈ 87.3% 屏高处）。
+ *   · **高度自适应内容**：分类少时面板随宫格收窄，「点击收起」紧贴最后一行；
+ *     分类多时被上限封顶（底边最多落在约 86.5% 屏高处），宫格内部滚动，
+ *     下方始终保留遮罩带露出压暗的页面内容。
  *   · 底角带圆角，形成「自上滑出的卡片」观感。
  *
  * 层级：遮罩 999 —— 高于 H5 tabBar(998) 与 SKU 弹层(990)，低于导航栏(1000)。
@@ -58,7 +59,14 @@ function showFallback(item: CategoryItem, index: number) {
   return !item.categoryPic || failedImages.value[index] === true
 }
 
-const sheetStyle = computed(() => ({ top: `${props.topOffset}px` }))
+const sheetStyle = computed(() => ({
+  top: `${props.topOffset}px`,
+  /**
+   * 面板高度自适应内容；上限使底边最多落在 86.5% 屏高处
+   * （绝对定位元素的百分比参照 fixed 全屏根节点），分类再多也不铺满全屏。
+   */
+  maxHeight: `calc(86.5% - ${props.topOffset}px)`,
+}))
 
 /** 打开时把选中项滚入可视区；用 scroll-into-view 而非 DOM API，小程序同样可用 */
 const activeAnchor = computed(() => `all-sheet-anchor-${props.activeIndex}`)
@@ -85,9 +93,14 @@ const activeAnchor = computed(() => `all-sheet-anchor-${props.activeIndex}`)
             :id="`all-sheet-anchor-${index}`"
             :key="item.id ?? index"
             class="all-sheet-item"
+            hover-class="all-sheet-item--pressed"
+            :hover-stay-time="120"
             @click="emit('select', index)"
           >
-            <view class="all-sheet-circle">
+            <view
+              class="all-sheet-circle"
+              :class="index === props.activeIndex ? 'all-sheet-circle--active' : ''"
+            >
               <image
                 v-if="item.categoryPic && !failedImages[index]"
                 class="all-sheet-pic"
@@ -141,33 +154,38 @@ const activeAnchor = computed(() => `all-sheet-anchor-${props.activeIndex}`)
   right: 0;
   bottom: 0;
   left: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(16, 24, 40, 0.52);
+  animation: all-sheet-mask-in 220ms ease-out both;
 }
 
 .all-sheet {
   position: absolute;
   right: 0;
   left: 0;
-  /* 不贴屏幕底：参考图面板底边落在 86.5% 屏高处，下方留出压暗的页面内容 */
-  bottom: 13.5%;
+  /* 高度自适应内容；上限由内联 maxHeight 封顶（底边最多 86.5% 屏高），分类多时宫格内滚动 */
   display: flex;
   flex-direction: column;
   background: #fff;
-  border-bottom-left-radius: 24rpx;
-  border-bottom-right-radius: 24rpx;
+  border-bottom-left-radius: 28rpx;
+  border-bottom-right-radius: 28rpx;
+  box-shadow: 0 16rpx 48rpx rgba(20, 29, 45, 0.14);
   overflow: hidden;
+  transform-origin: top center;
+  animation: all-sheet-panel-in 260ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
 }
 
 .all-sheet-header {
   position: relative;
   flex: none;
-  padding: 24rpx 32rpx 16rpx;
+  padding: 28rpx 32rpx 20rpx;
+  border-bottom: 1rpx solid #f4f5f7;
 }
 
 .all-sheet-title {
   font-size: 36rpx;
   font-weight: 600;
-  color: #333;
+  color: #252a34;
+  letter-spacing: 1rpx;
 }
 
 .all-sheet-close {
@@ -182,7 +200,14 @@ const activeAnchor = computed(() => `all-sheet-anchor-${props.activeIndex}`)
 }
 
 .all-sheet-body {
-  flex: 1;
+  /**
+   * 内容驱动高度：分类少时高度就等于宫格实际高度，面板随之收窄、「点击收起」紧贴最后一行。
+   * 内容超过面板 maxHeight 上限时，本节点是唯一可收缩项（header/footer 均 flex:none），
+   * 收缩出的空间交给内部滚动。
+   * 不用 flex:1 —— flex-grow 在 auto 高度容器里依赖引擎实现，小程序端会出现面板不收缩
+   * 或主体被压扁的差异。
+   */
+  flex: 0 1 auto;
   min-height: 0;
 }
 
@@ -204,8 +229,25 @@ const activeAnchor = computed(() => `all-sheet-anchor-${props.activeIndex}`)
 .all-sheet-circle {
   width: 100rpx;
   height: 100rpx;
+  border: 1rpx solid rgba(26, 36, 52, 0.05);
   border-radius: 50%;
+  box-shadow: 0 6rpx 16rpx rgba(26, 36, 52, 0.08);
   overflow: hidden;
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+
+  &--active {
+    border-color: var(--theme-color-primary, var(--wot-color-theme-primary));
+    box-shadow: 0 0 0 4rpx rgba(32, 112, 235, 0.1), 0 6rpx 16rpx rgba(26, 36, 52, 0.12);
+  }
+}
+
+.all-sheet-item:active .all-sheet-circle {
+  transform: scale(0.9);
+}
+
+/* 小程序端 :active 不生效，用 hover-class 提供同等按压反馈 */
+.all-sheet-item--pressed .all-sheet-circle {
+  transform: scale(0.9);
 }
 
 .all-sheet-pic {
@@ -230,7 +272,7 @@ const activeAnchor = computed(() => `all-sheet-anchor-${props.activeIndex}`)
   padding: 4rpx 12rpx;
   font-size: 24rpx;
   line-height: 1.3;
-  color: #333;
+  color: #4b5260;
   text-align: center;
   border-radius: 24rpx;
   overflow: hidden;
@@ -239,6 +281,7 @@ const activeAnchor = computed(() => `all-sheet-anchor-${props.activeIndex}`)
 
   &--active {
     background: var(--theme-color-primary, var(--wot-color-theme-primary));
+    box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.12);
     color: #fff;
     font-weight: 600;
   }
@@ -250,8 +293,35 @@ const activeAnchor = computed(() => `all-sheet-anchor-${props.activeIndex}`)
   align-items: center;
   justify-content: center;
   height: 96rpx;
-  border-top: 1rpx solid #f2f2f2;
+  border-top: 1rpx solid #f0f1f3;
+  background: #fff;
   font-size: 28rpx;
-  color: #666;
+  color: #687080;
+  transition: background-color 160ms ease;
+
+  &:active {
+    background: #f7f8fa;
+  }
+}
+
+@keyframes all-sheet-mask-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes all-sheet-panel-in {
+  from { opacity: 0; transform: translateY(-18rpx) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .all-sheet-mask,
+  .all-sheet,
+  .all-sheet-circle,
+  .all-sheet-footer {
+    animation: none;
+    animation-duration: 1ms;
+    transition: none;
+  }
 }
 </style>

@@ -506,7 +506,12 @@ function submitConfirm() {
       uni.showToast({ title: '已提交整船订单', icon: 'success' })
       return fetchDetail().then(() => {
         if (orderId) {
+          // 延时跳转期间用户可能已自行离开本页：对已销毁页面发路由会触发
+          // 微信 `routeDone with a webviewId xxx is not found`，故先记住当前页再确认。
+          const currentPage = getCurrentPages().at(-1)
           setTimeout(() => {
+            if (getCurrentPages().at(-1) !== currentPage)
+              return
             uni.navigateTo({ url: `/sub-pages/order/order-detail/index?id=${orderId}` })
           }, 800)
         }

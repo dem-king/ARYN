@@ -53,15 +53,13 @@ public class TocLoginService {
 		}
 		// 获取三方用户
 		SocialUser socialUser = remoteSocialUserService.socialLogin(userLoginReqDTO);
-		if (Objects.isNull(socialUser)) {
-			throw new IllegalArgumentException("login failed!");
-		}
+		String tenantId = restoreTenantContext(socialUser);
 		bindOpenUser(socialUser, userInfo.getId(), userLoginReqDTO);
 
 		ArynUser hxUser = new ArynUser();
 		hxUser.setUserId(userInfo.getId());
 		hxUser.setOpenId(socialUser.getOpenId());
-		hxUser.setTenantId(ArynTenantContextHolder.getTenantId());
+		hxUser.setTenantId(tenantId);
 		hxUser.setUsername(userInfo.getNickname());
 		SecurityUtils.loginByDevice(hxUser, DeviceTypeEnum.TOC);
 		return StpUtil.getTokenInfo();
@@ -77,17 +75,16 @@ public class TocLoginService {
 		}
 
 		ArynUser hxUser = new ArynUser();
+		String tenantId = ArynTenantContextHolder.getTenantId();
 		if (userLoginReqDTO.getPlatformType().equals(OpenPlatformTypeEnum.WX_MA.getCode())) {
 			// 获取三方用户
 			SocialUser socialUser = remoteSocialUserService.socialLogin(userLoginReqDTO);
-			if (Objects.isNull(socialUser)) {
-				throw new IllegalArgumentException("login failed!");
-			}
+			tenantId = restoreTenantContext(socialUser);
 			hxUser.setOpenId(socialUser.getOpenId());
 			bindOpenUser(socialUser, userInfo.getId(), userLoginReqDTO);
 		}
 		hxUser.setUserId(userInfo.getId());
-		hxUser.setTenantId(ArynTenantContextHolder.getTenantId());
+		hxUser.setTenantId(tenantId);
 		hxUser.setUsername(userInfo.getNickname());
 		SecurityUtils.loginByDevice(hxUser, DeviceTypeEnum.TOC);
 
@@ -110,14 +107,15 @@ public class TocLoginService {
 		if (userLoginReqDTO.getPlatformType().equals(OpenPlatformTypeEnum.WX_MA.getCode())) {
 			// 获取三方用户
 			SocialUser socialUser = remoteSocialUserService.socialLogin(userLoginReqDTO);
-			if (Objects.isNull(socialUser)) {
-				throw new IllegalArgumentException("login failed!");
-			}
+			String tenantId = restoreTenantContext(socialUser);
 			hxUser.setOpenId(socialUser.getOpenId());
 			bindOpenUser(socialUser, userInfo.getId(), userLoginReqDTO);
+			hxUser.setTenantId(tenantId);
 		}
 		hxUser.setUserId(userInfo.getId());
-		hxUser.setTenantId(userInfo.getTenantId());
+		if (!StringUtils.hasText(hxUser.getTenantId())) {
+			hxUser.setTenantId(userInfo.getTenantId());
+		}
 		hxUser.setUsername(userInfo.getNickname());
 		SecurityUtils.loginByDevice(hxUser, DeviceTypeEnum.TOC);
 
@@ -126,9 +124,7 @@ public class TocLoginService {
 
 	public Object maLogin(UserLoginReqDTO userLoginReqDTO) {
 		SocialUser socialUser = remoteSocialUserService.socialLogin(userLoginReqDTO);
-		if (Objects.isNull(socialUser)) {
-			throw new IllegalArgumentException("login failed!");
-		}
+		String tenantId = restoreTenantContext(socialUser);
 
 		String userId = socialUser.getMallUserId();
 		if (!StringUtils.hasText(userId)) {
@@ -139,7 +135,7 @@ public class TocLoginService {
 			userId = userInfo.getId();
 			bindOpenUser(socialUser, userInfo.getId(), userLoginReqDTO);
 		}
-		return loginMallUser(userId, socialUser.getOpenId(), socialUser.getTenantId());
+		return loginMallUser(userId, socialUser.getOpenId(), tenantId);
 
 	}
 
@@ -160,6 +156,19 @@ public class TocLoginService {
 
 		SecurityUtils.loginByDevice(hxUser, DeviceTypeEnum.TOC);
 		return StpUtil.getTokenInfo();
+	}
+
+	/**
+	 * Dubbo injvm 在服务提供方返回时会清理提供方线程上下文，不能依赖调用前的 ThreadLocal。
+	 * 微信三方用户记录携带账号所属租户，认证流程后续的用户创建、绑定和 token 必须恢复该租户。
+	 */
+	private String restoreTenantContext(SocialUser socialUser) {
+		if (Objects.isNull(socialUser) || !StringUtils.hasText(socialUser.getTenantId())) {
+			throw new IllegalArgumentException("租户上下文缺失，无法登录");
+		}
+		String tenantId = socialUser.getTenantId();
+		ArynTenantContextHolder.setTenantId(tenantId);
+		return tenantId;
 	}
 
 	private void bindOpenUser(SocialUser socialUser, String userId, UserLoginReqDTO userLoginReqDTO) {

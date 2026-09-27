@@ -5,11 +5,14 @@ import type { ChatMessage } from '#/api/message/types';
 import { describe, expect, it } from 'vitest';
 
 import {
+  chatCardLink,
+  isStructuredMessage,
   latestSequence,
   latestServerSequence,
   markMessageFailed,
   mergeCursorMessages,
   mergeServerMessage,
+  parseMessageCard,
 } from './message-state';
 
 function message(overrides: Partial<ViewChatMessage>): ViewChatMessage {
@@ -95,5 +98,40 @@ describe('message state helpers', () => {
     );
 
     expect(result.map((item) => item.sendState)).toEqual(['failed', 'sending']);
+  });
+
+  it('parses structured card payloads and rejects invalid ones', () => {
+    expect(
+      parseMessageCard(
+        JSON.stringify({
+          image: 'https://img.example/1.jpg',
+          productId: '9540000000000000001',
+          title: '油麦菜 约300g/份',
+        }),
+      ),
+    ).toMatchObject({ title: '油麦菜 约300g/份' });
+    expect(parseMessageCard(undefined)).toEqual({});
+    expect(parseMessageCard('not-json')).toEqual({});
+    expect(parseMessageCard('["array"]')).toEqual({});
+  });
+
+  it('links product cards to the admin goods editor only', () => {
+    const card = { productId: '9540000000000000001', title: '油麦菜' };
+    expect(chatCardLink('PRODUCT_CARD', card)).toBe(
+      '/spu/form?id=9540000000000000001',
+    );
+    expect(chatCardLink('PRODUCT_CARD', {})).toBe('');
+    expect(chatCardLink('ORDER_CARD', { orderId: 'order-1' })).toBe('');
+  });
+
+  it('flags structured messages for card rendering', () => {
+    expect(
+      isStructuredMessage(
+        message({ messageType: 'PRODUCT_CARD', payload: '{}' }),
+      ),
+    ).toBe(true);
+    expect(isStructuredMessage(message({ messageType: 'IMAGE' }))).toBe(true);
+    expect(isStructuredMessage(message({ messageType: 'TEXT' }))).toBe(false);
+    expect(isStructuredMessage(message({ messageType: 'SYSTEM' }))).toBe(false);
   });
 });

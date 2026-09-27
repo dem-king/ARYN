@@ -10,6 +10,7 @@ import com.aryn.cloud.common.security.entity.ArynUser;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.product.api.entity.*;
+import com.aryn.cloud.product.api.util.GoodsCostPriceMasker;
 import com.aryn.cloud.product.mapper.*;
 import com.aryn.cloud.product.service.IGoodsSpuService;
 import lombok.RequiredArgsConstructor;
@@ -279,7 +280,12 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 
 	@Override
 	public IPage<GoodsSpu> apiPage(Page page, GoodsSpu goodsSpu) {
-		return baseMapper.selectApiPage(page, goodsSpu);
+		IPage<GoodsSpu> result = baseMapper.selectApiPage(page, goodsSpu);
+		// C 端出参脱敏：成本价是内部经营数据，不下发（详见 GoodsCostPriceMasker）
+		if (Objects.nonNull(result)) {
+			result.getRecords().forEach(GoodsCostPriceMasker::maskSpu);
+		}
+		return result;
 	}
 
 	@Override
@@ -302,7 +308,22 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 			}
 
 		}
-		return goodsSpu;
+		// C 端出参脱敏：SPU 与嵌套 SKU 的成本价不下发（详见 GoodsCostPriceMasker）
+		return GoodsCostPriceMasker.maskSpu(goodsSpu);
+	}
+
+	/**
+	 * C 端按 ID 批量查在售商品（装修楼层/分类页用）。
+	 *
+	 * <p>从控制器收拢进服务层：查询条件（仅上架）保持不变，出参统一脱敏成本价。
+	 */
+	@Override
+	public List<GoodsSpu> apiListByIds(List<String> ids) {
+		List<GoodsSpu> goodsSpuList = list(Wrappers.<GoodsSpu>lambdaQuery()
+			.in(GoodsSpu::getId, ids)
+			.eq(GoodsSpu::getStatus, "1"));
+		goodsSpuList.forEach(GoodsCostPriceMasker::maskSpu);
+		return goodsSpuList;
 	}
 
 	@Override
@@ -356,7 +377,9 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 
 	@Override
 	public List<GoodsSpu> getTop10HotSearchGoods() {
-		return baseMapper.getTop10HotSearchGoods();
+		List<GoodsSpu> goodsSpuList = baseMapper.getTop10HotSearchGoods();
+		goodsSpuList.forEach(GoodsCostPriceMasker::maskSpu);
+		return goodsSpuList;
 	}
 
 }

@@ -80,7 +80,7 @@ public class PageDesignReleaseService {
 	 */
 	public PageDesignValidationVO validateDraft(String pageId) {
 		PageDesign page = requirePage(pageId);
-		return validator.validateStructured(page.getPageContent());
+		return validator.validateStructured(page.getPageContent(), page.getPageType());
 	}
 
 	/**
@@ -94,7 +94,7 @@ public class PageDesignReleaseService {
 			if (!Objects.equals(page.getDraftRevision(), request.getDraftRevision())) {
 				throw new ArynBusinessException("草稿已被其他人修改，请重新加载");
 			}
-			List<String> errors = validator.validate(page.getPageContent());
+			List<String> errors = validator.validate(page.getPageContent(), page.getPageType());
 			if (!errors.isEmpty()) {
 				throw new ArynBusinessException("发布校验失败：" + String.join("；", errors));
 			}

@@ -6,6 +6,8 @@ import { computed } from 'vue';
 import { Handbag, ShoppingCart } from '@element-plus/icons-vue';
 import { ElButton, ElIcon, ElTag } from 'element-plus';
 
+import { shouldShowOriginalPrice as showOriginalPrice } from '../common/retail-preview/price-display';
+
 interface ShowData {
   commonStyle?: DiyCommonStyle | null;
   goodsCommonStyle?: DiyCommonStyle | null;
@@ -218,6 +220,24 @@ const dynamicGoodsStyles = computed(() => {
                     }"
                   >
                     ￥{{ item.salesPrice }}
+                    <!--
+                      划线原价：由「商品原价」开关控制，仅在原价高于售价时显示。
+                      与售价同行，跟随 .price-info 的省略号截断，不额外占高。
+                    -->
+                    <span
+                      v-if="
+                        showData.showOriginalPrice && showOriginalPrice(item)
+                      "
+                      class="price-original"
+                      :style="{
+                        color: showData.originalPriceColor || '#999999',
+                        fontSize: `${Number(showData.originalPriceSize) || 12}px`,
+                        'font-weight':
+                          showData.originalPriceStyle === '1' ? 'bold' : '',
+                      }"
+                    >
+                      ￥{{ item.originalPrice }}
+                    </span>
                   </div>
                   <div class="goods-info-buy-btn">
                     <ElIcon
@@ -372,6 +392,15 @@ const dynamicGoodsStyles = computed(() => {
                 font-size: 14px;
                 color: #f44;
                 white-space: nowrap;
+              }
+
+              /* 划线原价：与小程序 diy-goods 的 .price-original 逐值对齐（1px = 2rpx） */
+              .price-original {
+                margin-left: 2px;
+                font-size: 12px;
+                font-weight: normal;
+                color: #999;
+                text-decoration: line-through;
               }
 
               .goods-info-buy-btn {

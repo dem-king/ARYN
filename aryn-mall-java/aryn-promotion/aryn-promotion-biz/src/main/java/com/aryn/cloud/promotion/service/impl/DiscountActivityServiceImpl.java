@@ -11,6 +11,8 @@ import com.aryn.cloud.promotion.api.dto.DiscountActivityDTO;
 import com.aryn.cloud.promotion.api.dto.DiscountGoodsDTO;
 import com.aryn.cloud.promotion.api.entity.DiscountActivity;
 import com.aryn.cloud.promotion.api.entity.DiscountGoods;
+import com.aryn.cloud.promotion.api.vo.AppDiscountActivityVO;
+import com.aryn.cloud.promotion.api.vo.AppDiscountGoodsVO;
 import com.aryn.cloud.promotion.api.vo.AppDiscountVO;
 import com.aryn.cloud.promotion.api.vo.DiscountActivityVO;
 import com.aryn.cloud.promotion.api.vo.DiscountGoodsVO;
@@ -27,11 +29,14 @@ import org.springframework.util.CollectionUtils;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -124,47 +129,16 @@ public class DiscountActivityServiceImpl extends ServiceImpl<DiscountActivityMap
 	}
 
 	@Override
-	public List<DiscountActivityVO> getActiveActivities() {
+	public IPage<AppDiscountActivityVO> getActiveActivityPage(Page page) {
 		LocalDateTime now = LocalDateTime.now();
-		List<DiscountActivity> activities = this.list(Wrappers.<DiscountActivity>lambdaQuery()
+		IPage<DiscountActivity> activityPage = this.page(page, Wrappers.<DiscountActivity>lambdaQuery()
 				.eq(DiscountActivity::getStatus, 1)
 				.le(DiscountActivity::getStartTime, now)
 				.gt(DiscountActivity::getEndTime, now)
 				.orderByDesc(DiscountActivity::getCreateTime));
-		return activities.stream().map(activity -> {
-			DiscountActivityVO vo = new DiscountActivityVO();
-			BeanUtils.copyProperties(activity, vo);
-			List<DiscountGoods> goodsList = discountGoodsService.listByActivityId(activity.getId());
-			vo.setGoodsCount((long) goodsList.size());
-			// scope=2 时填充商品列表（含商品图片、价格信息）
-			if (activity.getScope() != null && activity.getScope() == 2 && !CollectionUtils.isEmpty(goodsList)) {
-				List<DiscountGoodsVO> goodsVOs = goodsList.stream().map(goods -> {
-					DiscountGoodsVO goodsVO = new DiscountGoodsVO();
-					BeanUtils.copyProperties(goods, goodsVO);
-					return goodsVO;
-				}).collect(Collectors.toList());
-				// 批量查询 SKU 信息填充图片和价格
-				List<String> skuIds = goodsList.stream().map(DiscountGoods::getSkuId).distinct().toList();
-				try {
-					List<GoodsSku> skus = remoteGoodsSkuService.getBySkuIds(skuIds);
-					if (!CollectionUtils.isEmpty(skus)) {
-						Map<String, GoodsSku> skuMap = skus.stream()
-								.collect(Collectors.toMap(GoodsSku::getId, s -> s, (a, b) -> a));
-						goodsVOs.forEach(goodsVO -> {
-							GoodsSku sku = skuMap.get(goodsVO.getSkuId());
-							if (sku != null) {
-								goodsVO.setGoodsImage(sku.getPicUrl());
-								goodsVO.setSalesPrice(sku.getSalesPrice());
-							}
-						});
-					}
-				} catch (Exception e) {
-					log.warn("查询折扣商品 SKU 信息失败, activityId={}", activity.getId(), e);
-				}
-				vo.setGoodsList(goodsVOs);
-			}
-			return vo;
-		}).collect(Collectors.toList());
+		Map<String, List<DiscountGoods>> goodsByActivity = loadGoodsByActivity(activityPage.getRecords());
+		Map<String, GoodsSku> skuMap = loadSkuMap(goodsByActivity);
+		return activityPage.convert(activity -> toAppDiscountActivity(activity, goodsByActivity, skuMap, now));
 	}
 
 	@Override
@@ -259,6 +233,90 @@ public class DiscountActivityServiceImpl extends ServiceImpl<DiscountActivityMap
 			list.add(goods);
 		}
 		discountGoodsService.saveBatch(list);
+	}
+
+	/** 批量装载本页活动的折扣商品，避免逐活动查询；全场(scope=1)活动不挂商品 */
+	private Map<String, List<DiscountGoods>> loadGoodsByActivity(List<DiscountActivity> activities) {
+		if (CollectionUtils.isEmpty(activities)) {
+			return Map.of();
+		}
+		List<String> scopedIds = activities.stream()
+				.filter(activity -> activity.getScope() != null && activity.getScope() == 2)
+				.map(DiscountActivity::getId)
+				.toList();
+		if (scopedIds.isEmpty()) {
+			return Map.of();
+		}
+		return discountGoodsService.list(Wrappers.<DiscountGoods>lambdaQuery()
+					.in(DiscountGoods::getActivityId, scopedIds))
+				.stream()
+				.collect(Collectors.groupingBy(DiscountGoods::getActivityId));
+	}
+
+	private Map<String, GoodsSku> loadSkuMap(Map<String, List<DiscountGoods>> goodsByActivity) {
+		Set<String> skuIds = goodsByActivity.values().stream()
+				.flatMap(List::stream)
+				.map(DiscountGoods::getSkuId)
+				.collect(Collectors.toSet());
+		if (skuIds.isEmpty()) {
+			return Map.of();
+		}
+		try {
+			return remoteGoodsSkuService.getBySkuIds(new ArrayList<>(skuIds)).stream()
+					.collect(Collectors.toMap(GoodsSku::getId, sku -> sku, (a, b) -> a));
+		} catch (Exception e) {
+			// 商品信息不可用不应让整个会场挂掉：活动照常返回，仅商品项降级
+			log.warn("查询折扣活动商品SKU失败, skuCount={}", skuIds.size(), e);
+			return Map.of();
+		}
+	}
+
+	private AppDiscountActivityVO toAppDiscountActivity(DiscountActivity activity,
+			Map<String, List<DiscountGoods>> goodsByActivity, Map<String, GoodsSku> skuMap, LocalDateTime now) {
+		AppDiscountActivityVO vo = new AppDiscountActivityVO();
+		BeanUtils.copyProperties(activity, vo);
+		vo.setActivityId(activity.getId());
+		vo.setCountdown(countdownSeconds(activity, now));
+		List<DiscountGoods> goodsList = goodsByActivity.getOrDefault(activity.getId(), List.of());
+		vo.setGoodsList(goodsList.stream()
+				.map(goods -> toAppDiscountGoods(goods, skuMap.get(goods.getSkuId()), activity))
+				.filter(Objects::nonNull)
+				.collect(Collectors.toList()));
+		return vo;
+	}
+
+	/** 商品项在售校验失败（已下架/删除）时返回 null，由调用方过滤，避免渲染空卡片 */
+	private AppDiscountGoodsVO toAppDiscountGoods(DiscountGoods goods, GoodsSku sku, DiscountActivity activity) {
+		if (sku == null) {
+			return null;
+		}
+		AppDiscountGoodsVO vo = new AppDiscountGoodsVO();
+		vo.setSpuId(sku.getSpuId() != null ? sku.getSpuId() : goods.getSpuId());
+		vo.setSkuId(goods.getSkuId());
+		vo.setDiscountType(activity.getDiscountType());
+		vo.setDiscountValue(activity.getDiscountValue());
+		vo.setGoodsImage(sku.getPicUrl());
+		vo.setGoodsName(sku.getGoodsSpu() != null ? sku.getGoodsSpu().getName() : null);
+		// 折扣以销售价为基准，与商品详情页 getGoodsDiscountInfo 的口径保持一致
+		BigDecimal originalPrice = sku.getSalesPrice();
+		vo.setOriginalPrice(originalPrice);
+		vo.setDiscountPrice(calculateDiscountPrice(originalPrice,
+				activity.getDiscountType(), activity.getDiscountValue()));
+		return vo;
+	}
+
+	/** 倒计时：进行中取距结束，未开始取距开始，其余为 0 */
+	private Long countdownSeconds(DiscountActivity activity, LocalDateTime now) {
+		if (activity.getStatus() == null) {
+			return 0L;
+		}
+		if (activity.getStatus() == 1 && activity.getEndTime() != null) {
+			return Math.max(0, Duration.between(now, activity.getEndTime()).getSeconds());
+		}
+		if (activity.getStatus() == 0 && activity.getStartTime() != null) {
+			return Math.max(0, Duration.between(now, activity.getStartTime()).getSeconds());
+		}
+		return 0L;
 	}
 
 	/**

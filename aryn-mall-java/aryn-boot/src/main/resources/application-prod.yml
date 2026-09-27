@@ -40,7 +40,8 @@ sms:
 
 xxl:
   job:
-    adminAddresses: http://localhost:8081/xxl-job-admin
+    # 容器内 localhost 指向自身，部署时用 XXL_JOB_ADMINADDRESSES 指向调度中心服务名
+    adminAddresses: ${XXL_JOB_ADMINADDRESSES:http://localhost:8081/xxl-job-admin}
     accessToken: hxsadadasdasdasda
 
 demo:

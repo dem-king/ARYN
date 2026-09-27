@@ -1,33 +1,34 @@
-import { tabBar } from '@/pages.json'
 import router from '@/router'
+import { isTabBarPage, toTabBarUrl } from '@/utils/tab-bar'
 
 /**
- * 跳转
+ * 跳转。
+ *
+ * tabBar 页必须走 `switchTab`，且判定要吞掉 query：旧实现拿
+ * `jumpUrl` 去掉首斜杠后与 `pagePath` 全等比较，形如
+ * `/pages/home/index?tab=1` 的链接匹配不上，会落到 navigateTo 分支，
+ * 对 tabBar 页必然失败并触发微信 `routeDone with a webviewId ... is not found`。
  */
 export function toJumpUrl(jumpUrl: string) {
   if (!jumpUrl) {
     return
   }
-  const cleanUrl = jumpUrl.startsWith('/') ? jumpUrl.substring(1) : jumpUrl
-  const index = tabBar.list.findIndex((item: any) => {
-    return cleanUrl === item.pagePath
-  })
-  if (index < 0) {
-    const pages = getCurrentPages()
-    // 预留 2 个页面空间（避免频繁崩）
-    if (pages.length >= 8) {
-      router.replace({
-        path: jumpUrl,
-      })
-    }
-    else {
-      router.push({
-        path: jumpUrl,
-      })
-    }
+  if (isTabBarPage(jumpUrl)) {
+    // tabBar 页不接受 query，统一截断后再 switchTab
+    router.pushTab({
+      path: toTabBarUrl(jumpUrl),
+    })
+    return
+  }
+  const pages = getCurrentPages()
+  // 预留 2 个页面空间（避免频繁崩）
+  if (pages.length >= 8) {
+    router.replace({
+      path: jumpUrl,
+    })
   }
   else {
-    router.pushTab({
+    router.push({
       path: jumpUrl,
     })
   }

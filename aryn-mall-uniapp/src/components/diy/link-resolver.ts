@@ -1,13 +1,13 @@
 import type { DecorationLink } from './schema/types'
 
+import { navigateToUrl } from '../../utils/tab-bar'
+
 declare const uni: {
-  navigateTo: (options: { fail: () => void, url: string }) => void
   navigateToMiniProgram: (options: {
     appId: string
     envVersion: 'develop' | 'release' | 'trial'
     path: string
   }) => void
-  switchTab: (options: { url: string }) => void
 }
 
 export type DecorationLinkAction
@@ -109,26 +109,45 @@ export function createDecorationLinkAction(
   const targetId = link.targetId || ''
   const defaultPaths: Partial<Record<DecorationLink['type'], string>> = {
     activity: `/sub-pages/promotion/group-buy/group-buy-detail/index?id=${targetId}`,
-    category: `/sub-pages/product/goods-list/index?categoryId=${targetId}`,
     coupon: `/sub-pages/promotion/coupon/coupon-list/index?id=${targetId}`,
     goods: `/sub-pages/product/goods-detail/index?id=${targetId}`,
     page: `/sub-pages/promotion/diy-page/index?id=${targetId}`,
   }
+
+  // 分类链接：后台分类树选择器会把 categoryFirstId/categorySecondId 写进 params，
+  // 此时按明确层级跳转，goods-list 直接查询、无需再查树判断层级。
+  // 旧数据（只有 targetId、params 里没有层级）回退历史 categoryId，
+  // 由 goods-list 页查分类树解析它到底是一级还是二级。
+  if (link.type === 'category') {
+    const base = '/sub-pages/product/goods-list/index'
+    const p = link.params || {}
+    const url = (p.categoryFirstId || p.categorySecondId)
+      ? appendParams(base, p)
+      : `${base}?categoryId=${targetId}`
+    return { kind: 'navigate', url }
+  }
+
   const path = link.path || defaultPaths[link.type] || ''
   return path && isSafeInternalPath(path)
     ? { kind: 'navigate', url: appendParams(path, link.params) }
     : { kind: 'none' }
 }
 
+/**
+ * 按装修链接跳转。
+ *
+ * 跳转本身交给 `navigateToUrl`：装修链接的落地页由运营在后台配置，
+ * 可能指向 tabBar 页（首页/分类/购物车/我的）。此前这里写的是
+ * `navigateTo` + `fail: () => switchTab`，对 tabBar 页必然先失败一次再补跳，
+ * 两次路由挤在同一 tick，微信会报
+ * `routeDone with a webviewId xxx is not found`。
+ */
 export function followDecorationLink(
   link?: DecorationLink | LegacyDecorationLink | string | null,
 ) {
   const action = createDecorationLinkAction(normalizeDecorationLink(link))
   if (action.kind === 'navigate') {
-    uni.navigateTo({
-      url: action.url,
-      fail: () => uni.switchTab({ url: action.url }),
-    })
+    navigateToUrl(action.url)
   }
   else if (action.kind === 'mini-program' && action.appId) {
     uni.navigateToMiniProgram({

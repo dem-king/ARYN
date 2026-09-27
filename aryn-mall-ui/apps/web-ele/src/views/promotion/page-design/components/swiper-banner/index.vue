@@ -123,8 +123,14 @@ const hasImages = computed(() => {
   </div>
 </template>
 
+<!--
+  样式与小程序 diy-swiper-banner 逐值对齐：外层左右内外边距 12px，
+  高度与圆角由运营配置直接生效。
+-->
 <style scoped lang="scss">
 .swiper-banner-box {
+  margin: 0 12px;
+
   .swiper-banner-view {
     width: 100%;
 
@@ -145,7 +151,7 @@ const hasImages = computed(() => {
     background-color: #f5f7fa;
 
     .empty-text {
-      font-size: 14px;
+      font-size: 12px;
       color: #909399;
     }
   }

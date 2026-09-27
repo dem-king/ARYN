@@ -18,7 +18,9 @@ import {
 } from '#/api/message/conversation';
 import { getPage as getStaffPage } from '#/api/upms/user';
 
+import ChatMessageCard from '../chat-message-card.vue';
 import {
+  isStructuredMessage,
   latestServerSequence,
   markMessageFailed,
   mergeCursorMessages,
@@ -212,7 +214,11 @@ onMounted(async () => {
         >
           <div class="direct-bubble">
             <small>{{ message.senderName || message.senderType }}</small>
-            <p>{{ message.content || `[${message.messageType}]` }}</p>
+            <ChatMessageCard
+              v-if="isStructuredMessage(message)"
+              :message="message"
+            />
+            <p v-else>{{ message.content || '[系统消息]' }}</p>
             <time>{{
               message.sendState === 'sending'
                 ? '发送中…'

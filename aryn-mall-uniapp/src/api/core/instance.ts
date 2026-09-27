@@ -26,6 +26,10 @@ export const alovaInstance = createAlova({
     const deliveryRequest = method.url.includes('/app/delivery/') || method.config.headers.authScope === 'delivery'
     delete method.config.headers.skipToken
     delete method.config.headers.authScope
+    // 免登请求不带任何凭证，响应侧若收到 401/403 只能说明该接口未开通公开访问，
+    // 与登录态是否过期无关。这里把标记透传给响应处理器，避免一次白名单漏配
+    // 就把已登录用户清掉 token 并跳回登录页（金刚区→商品列表的品牌接口曾如此）。
+    method.config.meta = { ...(method.config.meta as object | undefined), publicRequest: skipToken }
     if (!skipToken) {
       const token = deliveryRequest ? Local.get('deliveryToken') : authState?.token
       if (token) {

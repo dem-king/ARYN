@@ -45,7 +45,22 @@ public final class PageDesignComponentTypes {
 
 	public static final String GOODS_RANKING = "goods-ranking";
 
+	public static final String GOODS_SCROLL = "goods-scroll";
+
 	public static final String LIMITED_ACTIVITY = "limited-activity";
+
+	/**
+	 * 秒杀楼层（活动 → 场次 → 商品）。
+	 * <p>
+	 * 与 {@link #LIMITED_ACTIVITY} 的区别：后者读拼团活动（一活动一商品），
+	 * 秒杀是多场次结构，两者的数据源 ID 语义不同（拼团存活动 ID，秒杀存场次 ID）。
+	 */
+	public static final String SECKILL = "seckill";
+
+	/**
+	 * 折扣楼层（活动 → 商品）。
+	 */
+	public static final String DISCOUNT = "discount";
 
 	public static final String COUNTDOWN = "countdown";
 
@@ -85,18 +100,26 @@ public final class PageDesignComponentTypes {
 	public static final String REPLENISH_CARD = "replenish-card";
 
 	/**
+	 * 自定义 HTML 组件（纯静态，运营粘贴有限白名单内的 HTML 片段）。
+	 * <p>
+	 * props.html 承载 HTML 源码字符串；发布时由服务端做 XSS 阻断式校验
+	 * （无 jsoup/owasp 依赖，采用危险特征正则匹配，命中即阻断发布而非净化）。
+	 */
+	public static final String CUSTOM_HTML = "custom-html";
+
+	/**
 	 * 当前全量已知组件类型。
 	 */
 	public static final Set<String> KNOWN_TYPES = Set.of(CATEGORY_NAV, COUPON_RECEIVE, GAP, GOODS, IMAGE_AD, NOTICE,
-			RICH_TEXT, SEARCH_BAR, SWIPER_BANNER, TAB_NAV, TITLE_TEXT, GOODS_GROUP, GOODS_RANKING, LIMITED_ACTIVITY,
-			COUNTDOWN, MARKETING_ENTRY, SHOP_INFO, GOODS_WATERFALL, COUPON_COMBO, MEMBER_BENEFITS, SERVICE_PROMISE,
-			BOTTOM_NAV, VIDEO_LIVE, SHIP_WORKBENCH, REPLENISH_CARD);
+			RICH_TEXT, SEARCH_BAR, SWIPER_BANNER, TAB_NAV, TITLE_TEXT, GOODS_GROUP, GOODS_RANKING, GOODS_SCROLL,
+			LIMITED_ACTIVITY, COUNTDOWN, MARKETING_ENTRY, SHOP_INFO, GOODS_WATERFALL, COUPON_COMBO, MEMBER_BENEFITS,
+			SERVICE_PROMISE, BOTTOM_NAV, VIDEO_LIVE, SHIP_WORKBENCH, REPLENISH_CARD, CUSTOM_HTML, SECKILL, DISCOUNT);
 
 	/**
 	 * 依赖数据源拉取业务数据的组件（手动数据源为空时发布阻断）。
 	 */
-	public static final Set<String> DATA_DRIVEN_TYPES = Set.of(GOODS_GROUP, GOODS_RANKING, LIMITED_ACTIVITY, COUNTDOWN,
-			MARKETING_ENTRY, SHOP_INFO, GOODS_WATERFALL, COUPON_COMBO);
+	public static final Set<String> DATA_DRIVEN_TYPES = Set.of(GOODS_GROUP, GOODS_RANKING, GOODS_SCROLL, LIMITED_ACTIVITY,
+			COUNTDOWN, MARKETING_ENTRY, SHOP_INFO, GOODS_WATERFALL, COUPON_COMBO, SECKILL, DISCOUNT);
 
 	/**
 	 * 全页面唯一组件：同一页最多出现一次，出现多个即发布阻断。
@@ -105,6 +128,79 @@ public final class PageDesignComponentTypes {
 	 * 补给单卡片展示的是「当前进行中的那一张清单」——放多个只会互相矛盾。
 	 */
 	public static final Set<String> SINGLETON_TYPES = Set.of(SHIP_WORKBENCH, REPLENISH_CARD);
+
+	/**
+	 * 页面类型：微页面（不受组件白名单限制）。
+	 */
+	public static final String PAGE_TYPE_MICRO = "0";
+
+	/**
+	 * 页面类型：商城首页（不受组件白名单限制）。
+	 */
+	public static final String PAGE_TYPE_HOME = "1";
+
+	/**
+	 * 页面类型：商品详情页。
+	 */
+	public static final String PAGE_TYPE_DETAIL = "2";
+
+	/**
+	 * 页面类型：分类页。
+	 */
+	public static final String PAGE_TYPE_CATEGORY = "3";
+
+	/**
+	 * 页面类型：个人中心页。
+	 */
+	public static final String PAGE_TYPE_USER_CENTER = "4";
+
+	/**
+	 * 商品详情页（pageType=2）允许的组件。
+	 * <p>
+	 * 与 {@code aryn-mall-ui .../registry/component-registry.ts} 的
+	 * {@code detailPageAllowedComponents} 一一对应；两处必须同步维护。
+	 */
+	private static final Set<String> DETAIL_PAGE_ALLOWED_TYPES = Set.of(GOODS, GOODS_GROUP, GOODS_SCROLL,
+			GOODS_WATERFALL, GOODS_RANKING, IMAGE_AD, SWIPER_BANNER, TITLE_TEXT, RICH_TEXT, COUPON_RECEIVE,
+			COUPON_COMBO, LIMITED_ACTIVITY, SECKILL, DISCOUNT, CUSTOM_HTML, GAP, NOTICE);
+
+	/**
+	 * 分类页（pageType=3）允许的组件；对应管理端 {@code categoryPageAllowedComponents}。
+	 */
+	private static final Set<String> CATEGORY_PAGE_ALLOWED_TYPES = Set.of(IMAGE_AD, SWIPER_BANNER, GOODS, GOODS_GROUP,
+			GOODS_SCROLL, GOODS_WATERFALL, GOODS_RANKING, COUPON_RECEIVE, COUPON_COMBO, LIMITED_ACTIVITY, SECKILL,
+			DISCOUNT, COUNTDOWN, TITLE_TEXT, RICH_TEXT, CUSTOM_HTML, GAP, NOTICE);
+
+	/**
+	 * 个人中心页（pageType=4）允许的组件；对应管理端 {@code userCenterAllowedComponents}。
+	 * <p>
+	 * 个人中心页不展示商品流，故排除全部商品类组件。
+	 */
+	private static final Set<String> USER_CENTER_ALLOWED_TYPES = Set.of(IMAGE_AD, SWIPER_BANNER, COUPON_RECEIVE,
+			COUPON_COMBO, LIMITED_ACTIVITY, SECKILL, DISCOUNT, COUNTDOWN, TITLE_TEXT, RICH_TEXT, CUSTOM_HTML, GAP,
+			NOTICE);
+
+	/**
+	 * 取指定页面类型允许的组件白名单；微页面/首页无限制返回 {@code null}。
+	 * <p>
+	 * 管理端组件面板已按同一份清单过滤，但组件面板是「编辑体验」而非「安全边界」：
+	 * 直接 POST schema 可以绕过它，因此发布校验必须再拦一次，否则
+	 * 「商详页放底部导航」这类非法组合会被发布上线。
+	 *
+	 * @param pageType 页面类型，取值见 {@code PAGE_TYPE_*} 常量
+	 * @return 允许的组件类型集合；{@code null} 表示不做限制
+	 */
+	public static Set<String> allowedTypesForPageType(String pageType) {
+		if (pageType == null) {
+			return null;
+		}
+		return switch (pageType) {
+			case PAGE_TYPE_DETAIL -> DETAIL_PAGE_ALLOWED_TYPES;
+			case PAGE_TYPE_CATEGORY -> CATEGORY_PAGE_ALLOWED_TYPES;
+			case PAGE_TYPE_USER_CENTER -> USER_CENTER_ALLOWED_TYPES;
+			default -> null;
+		};
+	}
 
 	private PageDesignComponentTypes() {
 	}

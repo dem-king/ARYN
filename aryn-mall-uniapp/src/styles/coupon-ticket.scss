@@ -1,0 +1,77 @@
+/**
+ * 优惠券票面样式（对标小象超市券卡）。
+ *
+ * 结构：渐变描边外框 + 浅色票面 + 底部红色状态带，票根缺口落在票面与状态带之间。
+ * 这里只放变量与 mixin，不产出选择器，供券卡组件与装修组件共用，
+ * 避免同一套配色在多处各抄一遍后走形（历史上券卡就是这样分叉的）。
+ *
+ * 取色依据：小程序屏宽恒为 750rpx，故图上 1rpx = 1.7067 图像像素；
+ * 参考图实测描边 #F85417→#FA2332、票面 #FFF9F9→#FFF0EB、
+ * 状态带 #FF8A7E→#FF343D、数值 #FF3228，此处取其整。
+ */
+
+/* 描边 */
+$coupon-rim-start: #ff6a00;
+$coupon-rim-end: #ff2d2d;
+/* 票根缺口：与描边同色，取描边在该侧的实际色值，缺口贴在边上才不会显脏 */
+$coupon-notch-left: #f9531a;
+$coupon-notch-right: #fa2431;
+
+/* 票面 */
+$coupon-face-start: #fff9f9;
+$coupon-face-end: #fff0eb;
+
+/* 状态带 */
+$coupon-band-start: #ff8a7e;
+$coupon-band-end: #ff343d;
+
+/* 文字 */
+$coupon-value: #ec3d2a;
+$coupon-pill-bg: #fde1d6;
+$coupon-pill-text: #e8402f;
+$coupon-title: #222222;
+$coupon-desc: #9a8f8c;
+
+/* 不可用（已使用/已过期/未达门槛）整体降级为灰 */
+$coupon-muted-rim-start: #d9d9d9;
+$coupon-muted-rim-end: #b8b8b8;
+$coupon-muted-notch-left: #d9d9d9;
+$coupon-muted-notch-right: #b8b8b8;
+$coupon-muted-face-start: #fbfbfb;
+$coupon-muted-face-end: #f4f4f4;
+$coupon-muted-band-start: #c9c9c9;
+$coupon-muted-band-end: #a6a6a6;
+$coupon-muted-value: #9a9a9a;
+$coupon-muted-pill-bg: #ededed;
+$coupon-muted-pill-text: #9a9a9a;
+
+/* 冻结中（订单未支付占用）保留暖色，与「已用过」区分开 */
+$coupon-frozen-rim-start: #ffb44d;
+$coupon-frozen-rim-end: #ff8a00;
+$coupon-frozen-notch-left: #ffa235;
+$coupon-frozen-notch-right: #ff8a00;
+$coupon-frozen-face-start: #fffaf3;
+$coupon-frozen-face-end: #fff2e0;
+$coupon-frozen-band-start: #ffc978;
+$coupon-frozen-band-end: #ff9a2e;
+$coupon-frozen-value: #e8842a;
+$coupon-frozen-pill-bg: #fff0d6;
+$coupon-frozen-pill-text: #d9821f;
+
+/* 描边厚度与状态带高度：票根缺口按它们定位，改这三处会一起动 */
+$coupon-rim-width: 6rpx;
+$coupon-radius: 20rpx;
+$coupon-band-height: 52rpx;
+$coupon-notch-size: 18rpx;
+
+@mixin coupon-rim($start, $end) {
+  background: linear-gradient(135deg, $start 0%, $end 100%);
+}
+
+@mixin coupon-face($start, $end) {
+  background: linear-gradient(180deg, $start 0%, $end 100%);
+}
+
+@mixin coupon-band($start, $end) {
+  background: linear-gradient(180deg, $start 0%, $end 100%);
+}

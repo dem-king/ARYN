@@ -62,8 +62,11 @@ public class OrderPriceComputeService {
 	private final RemotePromotionEngine remotePromotionEngine;
 
 	/**
-	 * 促销价格处理：秒杀价 > 限时折扣 > 原价
-	 * 在运费计算前应用，使后续会员折扣/优惠券基于促销后价格计算
+	 * 促销价格处理：秒杀价 > 限时折扣 > 原价。
+	 *
+	 * <p>由下单/结算主流程在会员折扣与优惠券之前显式调用：券与会员折扣必须基于促销后
+	 * 金额计算，若仍按原价基数抵扣，券额会超过商品实际应付（历史实现即在运费分支内调用，
+	 * 导致自提/内配不生效、且券按原价抵扣）。
 	 */
 	public void orderPromotionPriceHandler(List<OrderItemEntity> orderItemEntityList) {
 		for (OrderItemEntity item : orderItemEntityList) {
@@ -104,16 +107,18 @@ public class OrderPriceComputeService {
 
 	public void orderFreightHandler(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
 			List<GoodsSku> goodsSkuList, boolean freeShipping) {
-		// 先应用促销价格（秒杀 > 限时折扣 > 原价）
-		orderPromotionPriceHandler(orderItemEntityList);
 		Map<String, GoodsSku> skuMap = goodsSkuList.stream().collect(Collectors.toMap(GoodsSku::getId, v -> v));
 
 		for (OrderItemEntity orderItemEntity : orderItemEntityList) {
 			GoodsSku goodsSku = skuMap.get(orderItemEntity.getSkuId());
+			if (goodsSku == null) {
+				// 游离明细（如已被移除的赠品）无对应 SKU，跳过运费即可，避免空指针中断下单
+				continue;
+			}
 			GoodsSpu goodsSpu = goodsSku.getGoodsSpu();
 			BigDecimal freightPrice = BigDecimal.ZERO;
 
-			if (ProductConstants.FREIGHT_TYPE_1.equals(goodsSpu.getFreightType())) {
+			if (goodsSpu != null && ProductConstants.FREIGHT_TYPE_1.equals(goodsSpu.getFreightType())) {
 				freightPrice = goodsSpu.getFixedFreightPrice()
 					.multiply(BigDecimal.valueOf(orderItemEntity.getBuyQuantity()));
 				orderItemEntity.setFreightPrice(freightPrice);

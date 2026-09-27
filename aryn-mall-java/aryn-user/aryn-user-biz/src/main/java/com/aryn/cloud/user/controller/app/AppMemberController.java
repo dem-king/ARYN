@@ -5,6 +5,7 @@ import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.user.api.entity.MemberBenefit;
 import com.aryn.cloud.user.api.entity.MemberLevel;
 import com.aryn.cloud.user.api.vo.MemberBenefitsVO;
+import com.aryn.cloud.user.api.vo.MemberCurrentInfoVO;
 import com.aryn.cloud.user.service.IMemberBenefitService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -40,6 +41,12 @@ public class AppMemberController {
 	@Operation(summary = "获取启用的等级权益")
 	public Result<List<MemberBenefit>> levelBenefits(@RequestParam String levelId) {
 		return Result.success(memberBenefitService.getEnabledLevelBenefits(levelId));
+	}
+
+	@GetMapping("/current-info")
+	@Operation(summary = "获取当前登录用户会员等级与标签（装修条件渲染用）")
+	public Result<MemberCurrentInfoVO> currentInfo() {
+		return Result.success(memberBenefitService.getCurrentMemberInfo(SecurityUtils.getUser().getUserId()));
 	}
 
 }

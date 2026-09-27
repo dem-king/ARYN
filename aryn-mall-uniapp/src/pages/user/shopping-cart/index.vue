@@ -95,15 +95,17 @@ const state = reactive<ShoppingCartState>({
 // 编辑按钮
 function handleEdit() {
   state.isEdit = !state.isEdit
-  state.checkedList.forEach((val: any, index: number) => {
-    if (!state.isEdit && val.goodsSku.stock <= 0) {
-      state.checkedList.splice(index, 1)
-    }
-  })
+  // 退出编辑模式时剔除已选中但无货/下架的行（filter 重建，
+  // 边遍历边 splice 会因下标前移漏掉相邻项）
+  if (!state.isEdit) {
+    state.checkedList = state.checkedList.filter(
+      (val: any) => val.goodsSku && val.goodsSku.stock > 0,
+    )
+  }
   if (state.isEdit && state.shopCheckedAll) {
     // 如果全选了，检查是否存在无货商品
     state.cartList.forEach((val: any) => {
-      if (val.goodsSku.stock <= 0) {
+      if (!val.goodsSku || val.goodsSku.stock <= 0) {
         // 存在无货商品，取消全选
         state.shopCheckedAll = false
         // 取消单选全选
@@ -114,7 +116,7 @@ function handleEdit() {
   if (!state.isEdit && !state.shopCheckedAll) {
     let allChecked = true
     state.cartList.forEach((val: any) => {
-      if (!val.checked && val.goodsSku.stock > 0) {
+      if (!val.checked && val.goodsSku && val.goodsSku.stock > 0) {
         allChecked = false
       }
     })
@@ -129,7 +131,7 @@ function checkedAll(e: any) {
   if (e.value) {
     state.cartList.forEach((val: any) => {
       const exists = state.checkedList.some(obj => obj.id === val.id)
-      if (state.isEdit || val.goodsSku.stock > 0) {
+      if (state.isEdit || (val.goodsSku && val.goodsSku.stock > 0)) {
         if (!exists) {
           val.checked = e.value
           state.checkedList.push(val)
@@ -229,7 +231,9 @@ async function getCartPage() {
       current: 1,
       size: 100,
     })
-    state.cartList = response
+    // 空购物车时后端返回 data:null，统一归一化为空数组，
+    // 避免各处 length / forEach / 分组计算面对 null 各写一遍判空
+    state.cartList = response || []
     loading.value = false
     state.checkedList = []
     computePrice()
@@ -494,7 +498,7 @@ onShow(async () => {
               prefix="￥"
             />
             <wd-input-number
-              v-if="goods.goodsSku.stock > 0" v-model="goods.quantity" :min="1" :index="goods.id"
+              v-if="goods.goodsSku && goods.goodsSku.stock > 0" v-model="goods.quantity" :min="1" :index="goods.id"
               step-strictly :max="goods.goodsSku.stock" :step="1"
               @change="quantityChange($event, goods.id)" @tap.stop=""
             />

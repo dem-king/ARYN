@@ -48,6 +48,25 @@ public class PageDesignPreviewService {
 		return getPublishedPage(page);
 	}
 
+	/**
+	 * 按页面类型获取已发布的装修页面（C端无需登录）。
+	 * 例如 pageType=2 用于商品详情页装修 Schema 渲染。
+	 * @param pageType 页面类型：0.微页面；1.首页；2.商品详情页；3.分类页；4.个人中心页
+	 */
+	public AppPageDesignVO getPublishedByType(String pageType) {
+		PageDesign page = pageDesignMapper.selectOne(Wrappers.<PageDesign>lambdaQuery()
+			.eq(PageDesign::getPageType, pageType)
+			.eq(PageDesign::getPublishedStatus, "1")
+			.last("limit 1"));
+		// 按类型查询的是「可选装修」（分类页/商详页/个人中心页等可嵌入的装修区）：
+		// 该类型尚未发布装修属正常空态，返回 null 由 C 端降级为无装修，
+		// 不抛业务异常——否则 C 端会把「没配装修」误当成接口错误弹出红错 toast。
+		if (page == null) {
+			return null;
+		}
+		return getPublishedPage(page);
+	}
+
 	public AppPageDesignVO getPublished(String pageId) {
 		return getPublishedPage(pageDesignMapper.selectById(pageId));
 	}

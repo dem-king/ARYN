@@ -33,8 +33,17 @@ const title = computed(() => (props.showData.title ?? '') as string);
         :key="index"
         class="preview-coupon"
       >
-        <span class="coupon-value">¥</span>
-        <span class="coupon-line"></span>
+        <div class="preview-coupon__face">
+          <div class="preview-coupon__notch preview-coupon__notch--left"></div>
+          <div class="preview-coupon__notch preview-coupon__notch--right"></div>
+          <span class="preview-coupon__value">¥10</span>
+          <div class="preview-coupon__info">
+            <span class="preview-coupon__pill">满减券</span>
+            <span class="preview-coupon__title">优惠券</span>
+            <span class="preview-coupon__threshold">满100元可用</span>
+          </div>
+        </div>
+        <span class="preview-coupon__btn">领取</span>
       </div>
     </div>
     <div
@@ -102,27 +111,99 @@ const title = computed(() => (props.showData.title ?? '') as string);
   break-inside: avoid;
 }
 
+/* 与小程序 diy-coupon-combo 票面同源（1rpx = 0.5px） */
 .preview-coupon {
   display: flex;
-  gap: 10px;
   align-items: center;
-  height: 44px;
-  padding: 0 12px;
+  padding: 3px;
   margin-bottom: 6px;
-  background: linear-gradient(135deg, #ff5000, #ff8a00);
-  border-radius: 6px;
-}
+  overflow: hidden;
+  background: linear-gradient(135deg, #ff6a00 0%, #ff2d2d 100%);
+  border-radius: 10px;
 
-.coupon-value {
-  font-weight: 700;
-  color: #fff;
-}
+  &__face {
+    position: relative;
+    display: flex;
+    flex: 1;
+    align-items: center;
+    min-height: 50px;
+    padding: 7px 10px;
+    background: linear-gradient(180deg, #fff9f9 0%, #fff0eb 100%);
+    border-radius: 7px;
+  }
 
-.coupon-line {
-  flex: 1;
-  height: 6px;
-  background: rgb(255 255 255 / 40%);
-  border-radius: 3px;
+  &__notch {
+    position: absolute;
+    top: 50%;
+    z-index: 2;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    transform: translateY(-50%);
+
+    &--left {
+      left: -4.5px;
+      background: #f9531a;
+    }
+
+    &--right {
+      right: -4.5px;
+      background: #fa2431;
+    }
+  }
+
+  &__value {
+    flex-shrink: 0;
+    width: 70px;
+    font-size: 22px;
+    font-weight: 700;
+    color: #ec3d2a;
+    text-align: center;
+  }
+
+  &__info {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+    padding-left: 8px;
+  }
+
+  &__pill {
+    align-self: flex-start;
+    padding: 1px 7px;
+    font-size: 10px;
+    color: #e8402f;
+    background: #fde1d6;
+    border-radius: 999px;
+  }
+
+  &__title {
+    margin-top: 3px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 13px;
+    font-weight: 600;
+    color: #222;
+    white-space: nowrap;
+  }
+
+  &__threshold {
+    margin-top: 2px;
+    font-size: 10px;
+    color: #9a8f8c;
+  }
+
+  &__btn {
+    flex-shrink: 0;
+    padding: 4px 11px;
+    margin-left: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #fff;
+    background: linear-gradient(135deg, #ff6a00 0%, #ff2d2d 100%);
+    border-radius: 999px;
+  }
 }
 
 .preview-grid {

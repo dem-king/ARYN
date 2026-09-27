@@ -45,7 +45,21 @@
 			AND coupon_info.`receive_ended_at` > now()
 			AND now()> coupon_info.`receive_started_at`
 			AND coupon_info.`status` = '0'
-			AND coupon_info.`remain_num` >0
+			<if test="couponUser.userId != null and couponUser.userId != ''">
+				AND (
+					coupon_info.`remain_num` > 0
+					OR EXISTS (
+						SELECT 1
+						FROM coupon_user AS coupon_user
+						WHERE coupon_user.coupon_id = coupon_info.id
+						AND coupon_user.user_id = #{couponUser.userId}
+						AND coupon_user.del_flag = '0'
+					)
+				)
+			</if>
+			<if test="couponUser.userId == null or couponUser.userId == ''">
+				AND coupon_info.`remain_num` > 0
+			</if>
 			<if test="query.couponType !=null and query.couponType !=''">
 				AND coupon_info.`coupon_type` = #{query.couponType}
 			</if>

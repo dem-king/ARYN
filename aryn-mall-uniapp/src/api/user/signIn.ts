@@ -18,16 +18,16 @@ export function signIn() {
   return alovaInstance.Post<SignInResult>('/mall-user/app/signin')
 }
 
-// 签到配置列表（用于展示签到奖励规则）
+// 签到奖励规则（C 端只读启用中的配置）
 export function getSignInConfigPage(params: object) {
-  return alovaInstance.Get<any>('/mall-user/signinconfig/page', {
+  return alovaInstance.Get<any>('/mall-user/app/signin/configs', {
     params,
   })
 }
 
-// 签到记录分页
+// 我的签到记录（C 端按登录态取本人记录）
 export function getSignInRecordPage(params: object) {
-  return alovaInstance.Get<any>('/mall-user/signinrecord/page', {
+  return alovaInstance.Get<any>('/mall-user/app/signin/records', {
     params,
   })
 }

@@ -170,7 +170,12 @@ async function handleReorder() {
   }
   const tips = blocked.length > 0 ? `，${blocked.length} 项不可购已跳过` : ''
   uni.showToast({ title: `已加入购物车${tips}`, icon: 'none' })
+  // 延时跳转期间用户可能已自行离开本页：对已销毁页面发路由会触发
+  // 微信 `routeDone with a webviewId xxx is not found`，故先记住当前页再确认。
+  const currentPage = getCurrentPages().at(-1)
   setTimeout(() => {
+    if (getCurrentPages().at(-1) !== currentPage)
+      return
     uni.switchTab({ url: '/pages/user/shopping-cart/index' })
   }, 800)
 }

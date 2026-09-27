@@ -23,11 +23,15 @@ export interface RetailBaseProps {
 
 export interface GoodsGroupProps extends RetailBaseProps {
   columns: 2 | 3
+  /** 是否展示划线原价（仅当商品原价高于售价时可见） */
+  showOriginalPrice: boolean
   showSales: boolean
   title: string
 }
 
 export interface GoodsRankingProps extends RetailBaseProps {
+  /** 是否展示划线原价（仅当商品原价高于售价时可见） */
+  showOriginalPrice: boolean
   showRankNumber: boolean
   title: string
 }
@@ -107,8 +111,89 @@ export interface ReplenishCardProps extends RetailBaseProps {
   title: string
 }
 
+/**
+ * 秒杀会场组件。
+ *
+ * 秒杀与拼团的数据形态不同：拼团是「一活动一商品」的平铺列表，
+ * 秒杀是「活动 → 场次 → 商品」两层结构，故单独建类型而非复用限时活动。
+ */
+export interface SeckillProps extends RetailBaseProps {
+  /** 是否展示场次倒计时 */
+  showCountdown: boolean
+  /** 是否展示已售进度条 */
+  showProgress: boolean
+  title: string
+}
+
+/** 秒杀场次商品项（已归一化） */
+export interface SeckillGoodsItem {
+  goodsImage: string
+  goodsName: string
+  /** 每人限购数，0 或缺失表示不限购 */
+  limitPerUser: number
+  originalPrice: number
+  /** 已售件数 */
+  soldCount: number
+  seckillPrice: number
+  skuId: string
+  spuId: string
+  /** 剩余库存；-1 表示后端未下发，此时不渲染进度 */
+  remainingStock: number
+  /** 秒杀总库存 */
+  seckillStock: number
+}
+
+/** 秒杀场次（已归一化） */
+export interface SeckillSessionItem {
+  countdown: number
+  endTime: string
+  goodsList: SeckillGoodsItem[]
+  sessionId: string
+  sessionName: string
+  startTime: string
+  /** 0未开始 1进行中 2已结束 */
+  status: number
+}
+
+/**
+ * 折扣会场组件。
+ *
+ * 与秒杀同样按活动分组，但只有一层（活动 → 商品），没有场次概念。
+ */
+export interface DiscountProps extends RetailBaseProps {
+  /** 是否展示活动倒计时 */
+  showCountdown: boolean
+  title: string
+}
+
+/** 折扣活动商品项（已归一化） */
+export interface DiscountGoodsItem {
+  discountPrice: number
+  goodsImage: string
+  goodsName: string
+  originalPrice: number
+  skuId: string
+  spuId: string
+}
+
+/** 折扣活动（已归一化） */
+export interface DiscountActivityItem {
+  activityId: string
+  activityName: string
+  countdown: number
+  discountType: number
+  discountValue: number
+  endTime: string
+  goodsList: DiscountGoodsItem[]
+  scope: number
+  startTime: string
+  status: number
+}
+
 export interface GoodsWaterfallProps extends RetailBaseProps {
   columns: 2 | 3
+  /** 是否展示划线原价（仅当商品原价高于售价时可见） */
+  showOriginalPrice: boolean
   showPrice: boolean
   showSales: boolean
   title: string

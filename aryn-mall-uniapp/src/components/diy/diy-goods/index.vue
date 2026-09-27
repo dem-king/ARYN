@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { getByIds } from '@/api/product/spu'
+import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 import QuickCartButton from '@/components/quick-cart-button/index.vue'
 import { useDiyStyle } from '@/composables/useDiyStyle'
 
@@ -36,6 +37,32 @@ const dynamicStyles = useDiyStyle(computed(() => props.showData.commonStyle))
 const dynamicGoodsStyles = useDiyStyle(
   computed(() => props.showData.goodsCommonStyle),
 )
+
+/**
+ * 划线原价：运营在后台勾选「商品原价」后才渲染。
+ *
+ * 该开关在旧版装修数据里都是 false（此前两端都未实现），因此这里严格按
+ * `=== true` 判定，不做「缺省即显示」的兜底，避免运营没开也划出原价。
+ */
+function showOriginalPrice(item: any) {
+  return props.showData?.showOriginalPrice === true
+    && shouldShowOriginalPrice(item.salesPrice, item.originalPrice)
+}
+
+/**
+ * 原价的字号/颜色/字重。
+ *
+ * 旧版装修数据里没有 originalPriceSize 等字段（开关是死配置），因此给出默认值：
+ * 比售价小 2px 的灰色，保证原价不会抢过现价的视觉层级。
+ */
+const originalPriceStyle = computed(() => {
+  const showData: any = props.showData || {}
+  return {
+    'color': showData.originalPriceColor || '#999999',
+    'fontSize': `${Number(showData.originalPriceSize) || 12}px`,
+    'font-weight': showData.originalPriceStyle === '1' ? 'bold' : '',
+  }
+})
 </script>
 
 <template>
@@ -47,9 +74,12 @@ const dynamicGoodsStyles = useDiyStyle(
       >
         <view class="goods-li-box" @click="toJumpUrl(`/sub-pages/product/goods-detail/index?id=${item.id}`)">
           <view class="goods-item" :style="dynamicGoodsStyles">
-            <view
+            <image
               class="goods-img-one"
-              :style="{ backgroundImage: `url(${item.spuUrls[0]})`, borderRadius: `${showData.imageBorderSize}px` }"
+              :src="resolveImageSrc(item.spuUrls[0])"
+              mode="aspectFill"
+              lazy-load
+              :style="{ borderRadius: `${showData.imageBorderSize}px` }"
             />
             <view class="goods-box-info">
               <view
@@ -89,6 +119,16 @@ const dynamicGoodsStyles = useDiyStyle(
                   :style="{ 'color': showData.salesPriceColor, 'fontSize': `${showData.salesPriceSize}px`, 'font-weight': showData.salesPriceStyle === '1' ? 'bold' : '' }"
                 >
                   ￥{{ item.salesPrice }}
+                  <!--
+                    划线原价：由后台「商品原价」开关控制，且只在原价高于售价时显示
+                    （存量商品原价多为 0，直接渲染会划出「￥0」）。
+                    与售价同行，随该行一起省略号截断，不额外占高。
+                  -->
+                  <text
+                    v-if="showOriginalPrice(item)" class="price-original" :style="originalPriceStyle"
+                  >
+                    ￥{{ item.originalPrice }}
+                  </text>
                 </view>
                 <!--
                   快捷加购：卡片上的购买按钮不再是纯装饰，点击直接加购。
@@ -148,20 +188,9 @@ const dynamicGoodsStyles = useDiyStyle(
           padding: 10px;
           .goods-img-one {
             width: 100%;
-            background-repeat: no-repeat;
-            background-size: cover;
-
-            &::before {
-              content: '';
-              padding-top: 100%;
-              float: left;
-            }
-
-            &::after {
-              content: '';
-              display: block;
-              clear: both;
-            }
+            aspect-ratio: 1;
+            display: block;
+            background-color: #f5f5f5;
           }
 
           .goods-box-info {
@@ -209,6 +238,15 @@ const dynamicGoodsStyles = useDiyStyle(
                 -webkit-text-overflow: ellipsis;
                 -moz-text-overflow: ellipsis;
                 white-space: nowrap;
+              }
+
+              /* 划线原价：字号/颜色由装修配置内联覆盖，这里只给保底样式与删除线 */
+              .price-original {
+                margin-left: 4px;
+                font-size: 12px;
+                color: #999;
+                font-weight: normal;
+                text-decoration: line-through;
               }
 
               .goods-info-buy-btn {

@@ -65,6 +65,42 @@ class ArynDubboRequestFilterTest {
 	}
 
 	@Test
+	void restoresCallerTenantAfterProviderInvocation() {
+		Invoker<?> invoker = mock(Invoker.class);
+		Invocation invocation = providerInvocation("tenant-provider");
+		Result expected = mock(Result.class);
+		when(invoker.invoke(invocation)).thenAnswer(ignored -> {
+			assertThat(ArynTenantContextHolder.getTenantId()).isEqualTo("tenant-provider");
+			return expected;
+		});
+		// Boot 模式 injvm：服务提供方与 HTTP 请求线程是同一线程，
+		// 记录一个调用方租户来模拟「请求线程已有租户时发起远程调用」。
+		ArynTenantContextHolder.setTenantId("tenant-caller");
+
+		try (MockedStatic<RpcContext> context = providerContext()) {
+			assertThat(filter.invoke(invoker, invocation)).isSameAs(expected);
+		}
+
+		assertThat(ArynTenantContextHolder.getTenantId()).isEqualTo("tenant-caller");
+	}
+
+	@Test
+	void restoresCallerTenantAfterFailedProviderInvocation() {
+		Invoker<?> invoker = mock(Invoker.class);
+		Invocation invocation = providerInvocation("tenant-provider");
+		when(invoker.invoke(invocation)).thenThrow(new RpcException("provider failure"));
+		ArynTenantContextHolder.setTenantId("tenant-caller");
+
+		try (MockedStatic<RpcContext> context = providerContext()) {
+			assertThatThrownBy(() -> filter.invoke(invoker, invocation))
+					.isInstanceOf(RpcException.class)
+					.hasMessage("provider failure");
+		}
+
+		assertThat(ArynTenantContextHolder.getTenantId()).isEqualTo("tenant-caller");
+	}
+
+	@Test
 	void clearsTenantAfterFailedProviderInvocation() {
 		Invoker<?> invoker = mock(Invoker.class);
 		Invocation invocation = providerInvocation("tenant-provider");

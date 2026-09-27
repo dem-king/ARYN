@@ -39,7 +39,7 @@ function handleClick(item: any) {
         >
           <image
             v-if="item.url"
-            :src="item.url"
+            :src="resolveImageSrc(item.url)"
             mode="aspectFit"
             :style="{
               width: `${imgSize}px`,
@@ -63,7 +63,7 @@ function handleClick(item: any) {
       >
         <image
           v-if="item.url"
-          :src="item.url"
+          :src="resolveImageSrc(item.url)"
           mode="aspectFit"
           :style="{
             width: `${imgSize}px`,

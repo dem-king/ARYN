@@ -9,7 +9,7 @@ services:
     ports:
       - "3306:3306"
     volumes:
-      - mysql-data:/var/lib/mysql
+      - aryn-boot-mysql-data:/var/lib/mysql
       - ./db/boot:/docker-entrypoint-initdb.d
     command:
       --character-set-server=utf8mb4
@@ -19,7 +19,7 @@ services:
     networks:
       - aryn-net
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-pwqy123456"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -28,6 +28,8 @@ services:
     image: redis:7-alpine
     container_name: aryn-boot-redis
     restart: always
+    environment:
+      TZ: Asia/Shanghai
     ports:
       - "6379:6379"
     volumes:
@@ -48,6 +50,7 @@ services:
     ports:
       - "9876:9876"
     environment:
+      TZ: Asia/Shanghai
       JAVA_OPT_EXT: "-Xms256m -Xmx512m"
     command: sh mqnamesrv
     networks:
@@ -59,13 +62,18 @@ services:
       retries: 5
 
   aryn-boot-rocketmq-broker:
-    image: apache/rocketmq:5.4.0
+    # 官方 arm64 镜像缺 rocksdb aarch64 native，衍生镜像替换 rocketmq-rocksdb jar（见 Dockerfile）
+    build:
+      context: ./docker/rocketmq/broker-arm64
+      dockerfile: Dockerfile
+    image: aryn-rocketmq-broker:5.4.0-arm64
     container_name: aryn-boot-rocketmq-broker
     restart: always
     ports:
       - "10911:10911"
       - "10909:10909"
     environment:
+      TZ: Asia/Shanghai
       NAMESRV_ADDR: aryn-boot-rocketmq-namesrv:9876
       JAVA_OPT_EXT: "-Xms256m -Xmx512m"
     command: sh mqbroker -n aryn-boot-rocketmq-namesrv:9876 -c /home/rocketmq/rocketmq-5.4.0/conf/broker.conf
@@ -85,13 +93,15 @@ services:
     ports:
       - "9999:9999"
     environment:
-      SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_URL: jdbc:mysql://aryn-boot-mysql:3306/aryn_boot_pro?characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=false&useJDBCCompliantTimezoneShift=true&useLegacyDatetimeCode=false&serverTimezone=GMT%2B8&allowMultiQueries=true&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_URL: jdbc:mysql://aryn-boot-mysql:3306/aryn_boot?characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=false&useJDBCCompliantTimezoneShift=true&useLegacyDatetimeCode=false&serverTimezone=GMT%2B8&allowMultiQueries=true&allowPublicKeyRetrieval=true
       SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_USERNAME: root
-      SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_PASSWORD: 123456
+      SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_PASSWORD: wqy123456
       SPRING_DATA_REDIS_HOST: aryn-boot-redis
       SPRING_DATA_REDIS_PORT: 6379
       SPRING_DATA_REDIS_PASSWORD: redis
       ROCKETMQ_NAME_SERVER: aryn-boot-rocketmq-namesrv:9876
+      # 容器内 localhost:8081 指向自身而非调度中心，必须用服务名访问
+      XXL_JOB_ADMINADDRESSES: http://aryn-boot-xxl-job-admin:8081/xxl-job-admin
     volumes:
       - boot-storage:/data/aryn/uploads
     networks:
@@ -104,12 +114,33 @@ services:
       aryn-boot-rocketmq-namesrv:
         condition: service_healthy
 
+  aryn-boot-xxl-job-admin:
+    build:
+      context: ../xxl-job-3.2.0/xxl-job-admin
+      dockerfile: Dockerfile
+    pull_policy: never
+    container_name: aryn-boot-xxl-job-admin
+    restart: always
+    ports:
+      - "8081:8081"
+    environment:
+      # 避免手工 docker run 传参时出现字面量反斜杠转义（autoReconnect=true\ 会被驱动判为非法值）
+      SPRING_DATASOURCE_URL: jdbc:mysql://aryn-boot-mysql:3306/aryn_boot_job?useUnicode=true&characterEncoding=UTF-8&autoReconnect=true&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: wqy123456
+      XXL_JOB_ACCESSTOKEN: hxsadadasdasdasda
+    networks:
+      - aryn-net
+    depends_on:
+      aryn-boot-mysql:
+        condition: service_healthy
+
 networks:
   aryn-net:
     name: aryn-net
     driver: bridge
 
 volumes:
-  mysql-data:
+  aryn-boot-mysql-data:
   redis-data:
   boot-storage:

@@ -18,6 +18,28 @@ const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
 );
 
+/**
+ * 类目角标解析（与 C 端 `aryn-mall-uniapp/src/utils/category-badge.ts` 同口径）。
+ *
+ * 这里本地实现而非跨仓 import：C 端模块内部依赖 `@/` 别名，管理端解析不到
+ * （两端是两个独立工程）。取值与配色必须与 C 端保持一致 —— 列表里看到的
+ * 角标就是用户在分类页左栏看到的那一个。
+ */
+const CATEGORY_BADGES: Record<
+  string,
+  { bgColor: string; color: string; text: string }
+> = {
+  1: { text: '荐', bgColor: '#00B578', color: '#FFFFFF' },
+  2: { text: '热', bgColor: '#FF4D2D', color: '#FFFFFF' },
+};
+
+function resolveCategoryBadge(badgeType: null | number | string | undefined) {
+  if (badgeType === null || badgeType === undefined || badgeType === '') {
+    return null;
+  }
+  return CATEGORY_BADGES[String(badgeType)] ?? null;
+}
+
 const DictTag = defineAsyncComponent(
   () => import('#/components/dict-tag/index.vue'),
 );
@@ -141,6 +163,23 @@ initPage();
           </template>
         </ElTableColumn>
         <ElTableColumn prop="sort" label="排序" align="center" />
+        <ElTableColumn label="类目角标" align="center" width="100">
+          <template #default="scope">
+            <!-- 与 C 端分类页左栏同款方块（荐绿 / 热红）；无角标时显示占位横线 -->
+            <span
+              v-if="resolveCategoryBadge(scope.row.badgeType)"
+              class="category-badge"
+              :style="{
+                backgroundColor: resolveCategoryBadge(scope.row.badgeType)!
+                  .bgColor,
+                color: resolveCategoryBadge(scope.row.badgeType)!.color,
+              }"
+            >
+              {{ resolveCategoryBadge(scope.row.badgeType)!.text }}
+            </span>
+            <span v-else class="category-badge-empty">-</span>
+          </template>
+        </ElTableColumn>
         <ElTableColumn prop="createTime" label="创建时间" />
         <ElTableColumn label="操作" align="center" width="200">
           <template #default="scope">
@@ -168,3 +207,19 @@ initPage();
     </div>
   </div>
 </template>
+
+<style lang="scss" scoped>
+/* 与 C 端分类页左栏的角标同尺寸（那边是 19rpx ≈ 13px 字号、4rpx 圆角） */
+.category-badge {
+  display: inline-block;
+  padding: 0 5px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 19px;
+  border-radius: 2px;
+}
+
+.category-badge-empty {
+  color: var(--el-text-color-placeholder);
+}
+</style>

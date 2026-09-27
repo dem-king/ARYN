@@ -52,3 +52,15 @@ export function getById(id: string) {
     },
   });
 }
+
+/**
+ * 按 pageType 获取已发布的装修页面内容（无需登录）。
+ * @param pageType 页面类型（'1'=首页, '2'=商品详情页, ...）
+ */
+export function getPublishedByType(pageType: string) {
+  return alovaInstance.Get<PageDesign>(`/promotion/app/pagedesign/type/${pageType}`, {
+    headers: {
+      skipToken: true,
+    },
+  });
+}

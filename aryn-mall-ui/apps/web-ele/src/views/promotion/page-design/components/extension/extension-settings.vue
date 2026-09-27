@@ -166,6 +166,12 @@ function updateTargetIds(value: string) {
         <ElFormItem label="显示销量">
           <ElSwitch v-model="form.showSales as boolean" @change="commit" />
         </ElFormItem>
+        <ElFormItem label="商品原价">
+          <ElSwitch
+            v-model="form.showOriginalPrice as boolean"
+            @change="commit"
+          />
+        </ElFormItem>
       </template>
       <template v-else>
         <ElFormItem label="显示领取按钮">

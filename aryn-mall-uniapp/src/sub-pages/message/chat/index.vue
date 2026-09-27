@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import type { ChatMessageType, Conversation } from '@/api/message/types'
 import type { BusinessCardType, ViewChatMessage } from '@/utils/message'
-import { onLoad, onUnload } from '@dcloudio/uni-app'
+import { onLoad, onShow, onUnload } from '@dcloudio/uni-app'
 import {
+  getConversation,
   getConversationMessages,
   getOrCreateCustomerService,
   markConversationRead,
@@ -90,10 +91,19 @@ async function recoverAfterPush() {
   const afterSeq = latestSequence(
     messages.value.filter(item => item.seqNo < Number.MAX_SAFE_INTEGER),
   )
-  const page = await getConversationMessages(conversation.value.id, {
-    afterSeq,
-    limit: 100,
-  }).send()
+  const [page] = await Promise.all([
+    getConversationMessages(conversation.value.id, {
+      afterSeq,
+      limit: 100,
+    }).send(),
+    // 推送到达时一并刷新会话状态，避免坐席已领取仍显示“等待客服领取”
+    getConversation(conversation.value.id)
+      .send()
+      .then((view) => {
+        conversation.value = view
+      })
+      .catch(() => undefined),
+  ])
   messages.value = mergeCursorMessages(messages.value, page.records)
   await markLatestRead()
   scrollToBottom()
@@ -105,8 +115,14 @@ async function markLatestRead() {
   const latest = latestSequence(
     messages.value.filter(item => item.seqNo < Number.MAX_SAFE_INTEGER),
   )
-  if (latest)
+  if (!latest)
+    return
+  try {
     await markConversationRead(conversation.value.id, latest).send()
+  }
+  catch {
+    // 已读上报失败不影响消息主流程（如会话刚好被关闭）
+  }
 }
 
 function optimistic(
@@ -151,6 +167,7 @@ async function sendMessage(
       payload,
     }).send()
     messages.value = mergeServerMessage(messages.value, server)
+    await markLatestRead()
   }
   catch (error) {
     messages.value = messages.value.map(item =>
@@ -219,6 +236,12 @@ onLoad(async (options) => {
   finally {
     loading.value = false
   }
+})
+onShow(() => {
+  // 后台挂起期间的推送可能丢失（socket 假在线由 store 心跳兜底），
+  // 回到前台时按游标补拉一次，保证坐席回复最终可见。
+  if (!loading.value)
+    void recoverAfterPush()
 })
 onUnload(() => uni.$off('message-push', recoverAfterPush))
 </script>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onLoad, onPullDownRefresh, onReachBottom } from '@dcloudio/uni-app'
+import { onLoad, onPullDownRefresh } from '@dcloudio/uni-app'
 import { shallowRef } from 'vue'
 
 import { getPageDesign } from '@/api/promotion/pageDesign'
@@ -7,6 +7,7 @@ import BatchCartBar from '@/components/batch-cart-bar/index.vue'
 import DiyPage from '@/components/diy/index.vue'
 import { useDecorationPage } from '@/composables/useDecorationPage'
 import { createLatestRequestRunner } from '@/composables/useLatestRequest'
+import { useDecorationInfiniteScroll } from '@/composables/useDecorationInfiniteScroll'
 
 definePage({
   name: 'home',
@@ -28,6 +29,9 @@ const { canPullDownRefresh, title } = useDecorationPage({
   pageContent,
 })
 const requestRunner = createLatestRequestRunner()
+
+// 滚动接近底部时提前通知装修里的分页商品组件（goods-group / goods-waterfall）加载下一页
+useDecorationInfiniteScroll()
 
 async function initPageDesign() {
   errorMessage.value = ''
@@ -63,11 +67,6 @@ onPullDownRefresh(() => {
   else {
     uni.stopPullDownRefresh()
   }
-})
-
-// 页面滚动到底：转发给装修里的分页商品组件（goods-group / goods-waterfall），触发自动加载下一页
-onReachBottom(() => {
-  uni.$emit('home-reach-bottom')
 })
 </script>
 

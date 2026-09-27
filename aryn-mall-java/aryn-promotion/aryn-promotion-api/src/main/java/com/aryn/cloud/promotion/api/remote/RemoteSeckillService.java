@@ -29,6 +29,20 @@ public interface RemoteSeckillService {
 	boolean rollbackStock(String orderId);
 
 	/**
+	 * 按预扣参数释放库存（下单事务回滚时调用）。
+	 *
+	 * <p>下单与预扣在同一事务内时（boot 单体模式），事务回滚会连预扣记录一起回滚，
+	 * 此时无法按订单号找回记录，必须凭参数直接回滚 Redis；预扣记录若仍在，
+	 * 一并置为已取消。方法幂等，可安全重试。
+	 *
+	 * @param dto    预扣时的下单参数
+	 * @param userId 用户ID
+	 * @param orderId 业务订单ID
+	 * @return true=已释放
+	 */
+	boolean releaseDeduct(SeckillOrderDTO dto, String userId, String orderId);
+
+	/**
 	 * 查询 SKU 当前秒杀价（供订单价格计算使用）
 	 *
 	 * @param skuId SKU ID

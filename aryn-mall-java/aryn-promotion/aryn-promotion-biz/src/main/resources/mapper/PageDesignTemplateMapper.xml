@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aryn.cloud.promotion.mapper.PageDesignTemplateMapper">
+
+    <!--
+      模板市场跨租户查询：均带 @InterceptorIgnore(tenantLine="true")，
+      SQL 内显式过滤 market_status='1' 与 del_flag='0'，避免暴露未上架/已删除模板。
+    -->
+
+    <select id="selectMarketTemplatePage" resultType="com.aryn.cloud.promotion.api.entity.PageDesignTemplate">
+        SELECT
+            id,
+            template_name,
+            template_type,
+            page_type,
+            industry_tag,
+            market_status,
+            download_count,
+            tenant_id,
+            create_time
+        FROM page_design_template
+        WHERE del_flag = '0'
+          AND market_status = '1'
+        <if test="templateName != null and templateName != ''">
+            AND template_name LIKE CONCAT('%', #{templateName}, '%')
+        </if>
+        <if test="industryTag != null and industryTag != ''">
+            AND industry_tag = #{industryTag}
+        </if>
+        ORDER BY download_count DESC, create_time DESC
+    </select>
+
+    <select id="selectMarketTemplateById" resultType="com.aryn.cloud.promotion.api.entity.PageDesignTemplate">
+        SELECT
+            id,
+            template_name,
+            template_type,
+            page_type,
+            template_content,
+            schema_version,
+            system_flag,
+            industry_tag,
+            market_status,
+            download_count,
+            status,
+            sort,
+            create_by,
+            update_by,
+            create_time,
+            update_time,
+            del_flag,
+            tenant_id
+        FROM page_design_template
+        WHERE del_flag = '0'
+          AND market_status = '1'
+          AND id = #{id}
+    </select>
+
+    <update id="increaseMarketDownloadCount">
+        UPDATE page_design_template
+        SET download_count = download_count + 1
+        WHERE del_flag = '0'
+          AND id = #{id}
+    </update>
+
+</mapper>

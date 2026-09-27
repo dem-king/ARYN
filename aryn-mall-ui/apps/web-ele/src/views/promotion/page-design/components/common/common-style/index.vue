@@ -102,7 +102,7 @@ watch(
 </script>
 <template>
   <div>
-    <ElForm :model="form">
+    <ElForm :model="form" label-position="top">
       <div class="common-item">
         <ElFormItem label="背景颜色">
           <gradientColorPicker
@@ -216,5 +216,16 @@ watch(
 .common-item {
   padding: 10px;
   border-bottom: 1px solid #e5e5e5;
+}
+
+/* 双列布局下让数字输入框撑满列宽，避免被左右加减按钮挤没数字；
+   注意只作用于 ElRow 内的边距/圆角输入框，不影响 ElSlider show-input 旁的输入框 */
+.common-item :deep(.el-row .el-input-number) {
+  width: 100%;
+}
+
+/* 双列布局下保证每格之间有纵向间距，避免 label 顶行 */
+.common-item :deep(.el-row) {
+  row-gap: 4px;
 }
 </style>

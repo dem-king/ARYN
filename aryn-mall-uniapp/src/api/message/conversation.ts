@@ -27,6 +27,12 @@ export function getConversationInbox(params: {
   )
 }
 
+export function getConversation(conversationId: string) {
+  return alovaInstance.Get<Conversation>(
+    `/message/app/conversation/${conversationId}`,
+  )
+}
+
 export function getConversationMessages(
   conversationId: string,
   params: { afterSeq?: number, beforeSeq?: number, limit?: number },

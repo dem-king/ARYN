@@ -28,6 +28,8 @@ describe('mobile retail response normalization', () => {
         id: 'g-1',
         imageUrl: 'tea.png',
         name: 'Tea',
+        // 未下发原价的商品落 0，渲染侧据此隐藏划线（避免划出「￥0」）
+        originalPrice: 0,
         price: 12.5,
         sales: 8,
         stock: 3,

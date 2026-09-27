@@ -93,6 +93,9 @@ watch(
     <ElFormItem label="显示销量">
       <ElSwitch v-model="form.showSales" />
     </ElFormItem>
+    <ElFormItem label="商品原价">
+      <ElSwitch v-model="form.showOriginalPrice" />
+    </ElFormItem>
     <ElFormItem label="无数据策略">
       <ElSelect v-model="form.emptyStrategy">
         <ElOption label="显示占位" value="placeholder" /><ElOption

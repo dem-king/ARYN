@@ -2,12 +2,18 @@ import type { Component } from 'vue';
 
 import type { ComponentDefinition } from '../schema/types';
 
+import type { PageDesignType } from '#/api/promotion/page-design';
+
 import { defineAsyncComponent } from 'vue';
 
 import {
   createCountdownDefaults,
   validateCountdown,
 } from '../../page-design/components/countdown/types';
+import {
+  createDiscountDefaults,
+  validateDiscount,
+} from '../../page-design/components/discount/types';
 import {
   createBottomNavDefaults,
   createCouponComboDefaults,
@@ -31,6 +37,10 @@ import {
   validateGoodsRanking,
 } from '../../page-design/components/goods-ranking/types';
 import {
+  createGoodsScrollDefaults,
+  validateGoodsScroll,
+} from '../../page-design/components/goods-scroll/types';
+import {
   createLimitedActivityDefaults,
   validateLimitedActivity,
 } from '../../page-design/components/limited-activity/types';
@@ -42,6 +52,10 @@ import {
   createReplenishCardDefaults,
   validateReplenishCard,
 } from '../../page-design/components/replenish-card/types';
+import {
+  createSeckillDefaults,
+  validateSeckill,
+} from '../../page-design/components/seckill/types';
 import {
   createShipWorkbenchDefaults,
   validateShipWorkbench,
@@ -55,6 +69,7 @@ import { cloneDesignerValue } from '../schema/clone';
 export const legacyComponentTypes = [
   'category-nav',
   'coupon-receive',
+  'custom-html',
   'gap',
   'goods',
   'image-ad',
@@ -71,7 +86,10 @@ export type LegacyComponentType = (typeof legacyComponentTypes)[number];
 export const retailComponentTypes = [
   'goods-group',
   'goods-ranking',
+  'goods-scroll',
   'limited-activity',
+  'seckill',
+  'discount',
   'countdown',
   'marketing-entry',
   'shop-info',
@@ -224,6 +242,28 @@ export const componentRegistry: Record<
     () => import('../../page-design/components/coupon-receive/index.vue'),
     () => import('../../page-design/components/coupon-receive/setting.vue'),
   ),
+  'custom-html': {
+    category: '基础组件',
+    createDefaultProps: () => cloneDesignerValue({ height: 300, html: '' }),
+    label: '自定义HTML',
+    preview: defineAsyncComponent(
+      () => import('../../page-design/components/custom-html/index.vue'),
+    ),
+    settings: defineAsyncComponent(
+      () => import('../../page-design/components/custom-html/setting.vue'),
+    ),
+    supportedTerminals: ['admin', 'uniapp'],
+    type: 'custom-html',
+    validate: (props) => {
+      const errors: string[] = [];
+      const html = String((props as { html?: unknown })?.html ?? '').trim();
+      if (!html) errors.push('HTML 内容不能为空');
+      else if (html.length > 50_000)
+        errors.push('HTML 内容不能超过 50000 字符');
+      return errors;
+    },
+    version: 1,
+  },
   gap: defineLegacyComponent(
     'gap',
     '辅助空白',
@@ -391,6 +431,15 @@ export const componentRegistry: Record<
     () => import('../../page-design/components/goods-group/index.vue'),
     () => import('../../page-design/components/goods-group/setting.vue'),
   ),
+  'goods-scroll': defineRetailComponent(
+    'goods-scroll',
+    '商品横滑条',
+    '商品经营',
+    createGoodsScrollDefaults(),
+    validateGoodsScroll,
+    () => import('../../page-design/components/goods-scroll/index.vue'),
+    () => import('../../page-design/components/goods-scroll/setting.vue'),
+  ),
   'goods-ranking': defineRetailComponent(
     'goods-ranking',
     '商品排行',
@@ -402,12 +451,30 @@ export const componentRegistry: Record<
   ),
   'limited-activity': defineRetailComponent(
     'limited-activity',
-    '限时活动',
+    '拼团',
     '营销活动',
     createLimitedActivityDefaults(),
     validateLimitedActivity,
     () => import('../../page-design/components/limited-activity/index.vue'),
     () => import('../../page-design/components/limited-activity/setting.vue'),
+  ),
+  discount: defineRetailComponent(
+    'discount',
+    '折扣',
+    '营销活动',
+    createDiscountDefaults(),
+    validateDiscount,
+    () => import('../../page-design/components/discount/index.vue'),
+    () => import('../../page-design/components/discount/setting.vue'),
+  ),
+  seckill: defineRetailComponent(
+    'seckill',
+    '秒杀',
+    '营销活动',
+    createSeckillDefaults(),
+    validateSeckill,
+    () => import('../../page-design/components/seckill/index.vue'),
+    () => import('../../page-design/components/seckill/setting.vue'),
   ),
   countdown: defineRetailComponent(
     'countdown',
@@ -519,6 +586,101 @@ export const componentRegistry: Record<
       import('../../page-design/components/extension/video-live/setting.vue'),
   ),
 };
+
+/**
+ * 商品详情页（pageType='2'）允许装修的组件白名单：
+ * 商品类 + 图片类 + 文本类 + 营销类 + 辅助类。
+ * 导航/搜索/底部导航/分类导航等页面级组件不在此列。
+ */
+export const detailPageAllowedComponents: ReadonlySet<RegisteredComponentType> =
+  new Set([
+    'coupon-combo',
+    'coupon-receive',
+    'custom-html',
+    'discount',
+    'gap',
+    'goods',
+    'goods-group',
+    'goods-ranking',
+    'goods-scroll',
+    'goods-waterfall',
+    'image-ad',
+    'limited-activity',
+    'notice',
+    'rich-text',
+    'seckill',
+    'swiper-banner',
+    'title-text',
+  ]);
+
+/**
+ * 分类页（pageType='3'）允许装修的组件白名单：
+ * 图片类 + 商品类 + 营销类 + 文本类 + 辅助类。
+ * 排除搜索栏/分类导航/图文导航/底部导航/船舶工作台/补给单卡片等页面级组件。
+ */
+export const categoryPageAllowedComponents: ReadonlySet<RegisteredComponentType> =
+  new Set([
+    'countdown',
+    'coupon-combo',
+    'coupon-receive',
+    'custom-html',
+    'discount',
+    'gap',
+    'goods',
+    'goods-group',
+    'goods-ranking',
+    'goods-scroll',
+    'goods-waterfall',
+    'image-ad',
+    'limited-activity',
+    'notice',
+    'rich-text',
+    'seckill',
+    'swiper-banner',
+    'title-text',
+  ]);
+
+/**
+ * 个人中心页（pageType='4'）允许装修的组件白名单：
+ * 图片类 + 营销类 + 文本类 + 自定义HTML + 辅助类。
+ * 个人中心页通常不展示商品流，故排除商品类与搜索/导航/底部导航等页面级组件。
+ */
+export const userCenterAllowedComponents: ReadonlySet<RegisteredComponentType> =
+  new Set([
+    'countdown',
+    'coupon-combo',
+    'coupon-receive',
+    'custom-html',
+    'discount',
+    'gap',
+    'image-ad',
+    'limited-activity',
+    'notice',
+    'rich-text',
+    'seckill',
+    'swiper-banner',
+    'title-text',
+  ]);
+
+/** 各特殊页面类型对应的组件白名单（微页面/商城首页不做限制） */
+export function getAllowedComponentsForPageType(
+  pageType: PageDesignType | undefined,
+): ReadonlySet<RegisteredComponentType> | undefined {
+  switch (pageType) {
+    case '2': {
+      return detailPageAllowedComponents;
+    }
+    case '3': {
+      return categoryPageAllowedComponents;
+    }
+    case '4': {
+      return userCenterAllowedComponents;
+    }
+    default: {
+      return undefined;
+    }
+  }
+}
 
 export function getComponentDefinition(type: string) {
   return componentRegistry[type as RegisteredComponentType];

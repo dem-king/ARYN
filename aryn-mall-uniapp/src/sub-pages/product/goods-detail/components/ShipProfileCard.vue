@@ -2,15 +2,17 @@
 /**
  * 船供资料卡片（商品详情页）：显示采购单位/箱规/MOQ/步长/储存条件与内部配送说明。
  * 无船供资料时不渲染。
+ *
+ * 数据来自 useShipProfile 的共享缓存——详情页购买链路要用同一份 MOQ/步长
+ * 预填数量弹层，卡片与弹层共用一次请求，避免同一页重复拉取。
  */
-import { ref } from 'vue'
+import { watch } from 'vue'
 
-import { alovaInstance } from '@/api/core/instance'
+import { useShipProfile } from '@/composables/useShipProfile'
 
 const props = defineProps<{ spuId: string }>()
 
-const profile = ref<any>(null)
-const skuProfiles = ref<any[]>([])
+const { profile, skuProfiles, load } = useShipProfile()
 
 const storageLabels: Record<string, string> = {
   '1': '常温',
@@ -20,18 +22,14 @@ const storageLabels: Record<string, string> = {
   '5': '其他',
 }
 
-function load() {
-  if (!props.spuId) return
-  alovaInstance
-    .Get<any>(`/product/app/goodsspu/ship-summary/${props.spuId}`)
-    .then((res) => {
-      profile.value = res?.profile ?? null
-      skuProfiles.value = res?.skuProfiles ?? []
-    })
-    .catch(() => {})
-}
-
-load()
+watch(
+  () => props.spuId,
+  (spuId) => {
+    if (spuId)
+      load(spuId)
+  },
+  { immediate: true },
+)
 
 function firstSkuField(field: string) {
   for (const sku of skuProfiles.value) {

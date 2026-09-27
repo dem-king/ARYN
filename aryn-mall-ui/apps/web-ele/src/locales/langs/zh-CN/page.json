@@ -4,7 +4,17 @@
     "register": "注册",
     "codeLogin": "验证码登录",
     "qrcodeLogin": "二维码登录",
-    "forgetPassword": "忘记密码"
+    "forgetPassword": "忘记密码",
+    "loginWelcome": "欢迎回来",
+    "loginWelcomeDesc": "登录悦航购管理后台，开启今天的经营",
+    "brandSloganTitle": "让每一笔生意，都乘风而起",
+    "brandSloganSub": "电商 SaaS 一站式经营管理平台",
+    "brandFeature1Title": "多租户隔离",
+    "brandFeature1Desc": "租户数据彻底隔离，权限精细可控",
+    "brandFeature2Title": "全链路经营",
+    "brandFeature2Desc": "商品、订单、营销、履约一站式打通",
+    "brandFeature3Title": "实时经营洞察",
+    "brandFeature3Desc": "销售看板实时呈现，辅助经营决策"
   },
   "dashboard": {
     "title": "概览",

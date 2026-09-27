@@ -37,7 +37,9 @@ import {
   transferConversation,
 } from '#/api/message/conversation';
 
+import ChatMessageCard from '../chat-message-card.vue';
 import {
+  isStructuredMessage,
   latestServerSequence,
   markMessageFailed,
   mergeCursorMessages,
@@ -217,17 +219,10 @@ function handleAgentSaved(agent: AgentInfo) {
   presence.value = agent.enabled === '1' ? agent.presenceStatus : 'OFFLINE';
 }
 
+/** 结构化消息（图片/业务卡片）交给卡片组件，这里只兜底文本与系统消息。 */
 function displayMessage(message: ViewChatMessage) {
   if (message.messageType === 'TEXT') return message.content;
-  const labels: Record<string, string> = {
-    IMAGE: '[图片]',
-    NOTICE_CARD: '[通知卡片]',
-    ORDER_CARD: '[订单卡片]',
-    PRODUCT_CARD: '[商品卡片]',
-    REFUND_CARD: '[退款卡片]',
-    SYSTEM: message.content || '[系统消息]',
-  };
-  return labels[message.messageType] || '[消息]';
+  return message.content || '[系统消息]';
 }
 
 useConversationPush(refreshOnPush);
@@ -364,7 +359,11 @@ onBeforeUnmount(() => heartbeatTimer && clearInterval(heartbeatTimer));
         >
           <div class="bubble">
             <small>{{ message.senderName || message.senderType }}</small>
-            <p>{{ displayMessage(message) }}</p>
+            <ChatMessageCard
+              v-if="isStructuredMessage(message)"
+              :message="message"
+            />
+            <p v-else>{{ displayMessage(message) }}</p>
             <time>{{
               message.sendState === 'sending'
                 ? '发送中…'

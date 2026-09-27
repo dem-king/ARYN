@@ -26,6 +26,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 @Slf4j
@@ -46,15 +47,19 @@ public class SeckillOrderServiceImpl extends ServiceImpl<SeckillOrderMapper, Sec
 
 	private static final String IDEMPOTENT_PREFIX = "seckill:idempotent:";
 
+	private static final String RELEASE_PREFIX = "seckill:released:";
+
 	private static final String LOCK_PREFIX = "seckill:lock:";
 
 	@Override
 	public BigDecimal createSeckillOrder(SeckillOrderDTO dto, String userId, String orderId) {
-		// 幂等校验：同一用户+活动+场次 5分钟内防重提交
-		String idempotentKey = IDEMPOTENT_PREFIX + userId + ":" + dto.getActivityId() + ":" + dto.getSessionId();
+		// 幂等校验：同一订单+SKU 5分钟内防重提交。
+		// 不可按「用户+活动+场次」判重：同一场次的多个秒杀商品会在同一订单内一起下单，
+		// 按场次判重会把该订单的第二个秒杀商品误判为重复提交而阻断整单。
+		String idempotentKey = IDEMPOTENT_PREFIX + orderId + ":" + dto.getSkuId();
 		Boolean first = redisTemplate.opsForValue().setIfAbsent(idempotentKey, orderId, Duration.ofMinutes(5));
 		if (Boolean.FALSE.equals(first)) {
-			log.warn("秒杀重复提交, userId={}, activityId={}, sessionId={}", userId, dto.getActivityId(), dto.getSessionId());
+			log.warn("秒杀重复提交, orderId={}, skuId={}", orderId, dto.getSkuId());
 			throw new ArynBusinessException("请勿重复提交，请稍后再试");
 		}
 
@@ -88,6 +93,10 @@ public class SeckillOrderServiceImpl extends ServiceImpl<SeckillOrderMapper, Sec
 			if (dto.getQuantity() > limitPerUser) {
 				throw new ArynBusinessException("超过单人限购数量" + limitPerUser);
 			}
+
+			// Redis 库存池缺失（被清空/重启、或活动由 SQL 直接导入）时按 DB 基线懒重建，
+			// 否则 Lua 扣减对缺失 key 一律返回「库存不足」，整场秒杀都无法下单
+			ensureStockPool(goods, session, limitPerUser);
 
 			// Lua 原子扣减 Redis 库存
 			long result = seckillStockManager.deductStock(
@@ -140,111 +149,141 @@ public class SeckillOrderServiceImpl extends ServiceImpl<SeckillOrderMapper, Sec
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public boolean rollbackByOrderId(String orderId) {
-		SeckillOrder seckillOrder = this.getOne(Wrappers.<SeckillOrder>lambdaQuery()
+		// 同一订单可有多个秒杀商品（多条预扣记录），必须全部回滚；
+		// 历史实现只取 LIMIT 1，购物车同时买多个秒杀商品时只释放其中一件的库存。
+		List<SeckillOrder> seckillOrders = this.list(Wrappers.<SeckillOrder>lambdaQuery()
 				.eq(SeckillOrder::getOrderId, orderId)
-				.last("LIMIT 1"));
-		if (seckillOrder == null) {
+				.eq(SeckillOrder::getStatus, SeckillOrderStatusEnum.UNPAID.getCode()));
+		if (seckillOrders.isEmpty()) {
 			return false;
 		}
-		// 仅未支付状态可回滚
-		if (!SeckillOrderStatusEnum.UNPAID.getCode().equals(seckillOrder.getStatus())) {
-			log.warn("秒杀订单非未支付状态，跳过回滚, orderId={}, status={}", orderId, seckillOrder.getStatus());
-			return false;
+		List<SeckillOrder> rollbackOrders = new ArrayList<>();
+		for (SeckillOrder seckillOrder : seckillOrders) {
+			// CAS 更新状态为已取消
+			boolean updated = this.update(Wrappers.<SeckillOrder>lambdaUpdate()
+					.eq(SeckillOrder::getId, seckillOrder.getId())
+					.eq(SeckillOrder::getStatus, SeckillOrderStatusEnum.UNPAID.getCode())
+					.set(SeckillOrder::getStatus, SeckillOrderStatusEnum.CANCELED.getCode()));
+			if (updated) {
+				rollbackOrders.add(seckillOrder);
+			}
 		}
-		// CAS 更新状态为已取消
-		boolean updated = this.update(Wrappers.<SeckillOrder>lambdaUpdate()
-				.eq(SeckillOrder::getId, seckillOrder.getId())
-				.eq(SeckillOrder::getStatus, SeckillOrderStatusEnum.UNPAID.getCode())
-				.set(SeckillOrder::getStatus, SeckillOrderStatusEnum.CANCELED.getCode()));
-		if (!updated) {
+		if (rollbackOrders.isEmpty()) {
 			return false;
 		}
 		// 事务提交后回滚 Redis
 		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
 			@Override
 			public void afterCommit() {
-				seckillStockManager.rollbackStock(
-						seckillOrder.getActivityId(), seckillOrder.getSessionId(), seckillOrder.getSkuId(),
-						seckillOrder.getUserId(), seckillOrder.getQuantity());
+				for (SeckillOrder seckillOrder : rollbackOrders) {
+					seckillStockManager.rollbackStock(
+							seckillOrder.getActivityId(), seckillOrder.getSessionId(), seckillOrder.getSkuId(),
+							seckillOrder.getUserId(), seckillOrder.getQuantity());
+				}
 			}
 		});
-		log.info("秒杀订单取消回滚, orderId={}", orderId);
+		log.info("秒杀订单取消回滚, orderId={}, 明细数={}", orderId, rollbackOrders.size());
+		return true;
+	}
+
+	@Override
+	public boolean releaseDeduct(SeckillOrderDTO dto, String userId, String orderId) {
+		// 下单事务回滚时预扣记录可能已一并回滚，无法按订单号找回，故凭参数直接释放 Redis。
+		// 用 NX 标记防止重复释放把库存越滚越多（同一 orderId+sku 只可能预扣一次）。
+		String releaseKey = RELEASE_PREFIX + orderId + ":" + dto.getSkuId();
+		Boolean firstRelease = redisTemplate.opsForValue()
+			.setIfAbsent(releaseKey, "1", Duration.ofMinutes(5));
+		if (Boolean.FALSE.equals(firstRelease)) {
+			log.info("秒杀预扣已释放，跳过重复释放, orderId={}, skuId={}", orderId, dto.getSkuId());
+			return false;
+		}
+		// 预扣记录若仍在（事务未回滚其插入），一并置为已取消，避免超时任务二次释放
+		this.update(Wrappers.<SeckillOrder>lambdaUpdate()
+			.eq(SeckillOrder::getOrderId, orderId)
+			.eq(SeckillOrder::getSkuId, dto.getSkuId())
+			.eq(SeckillOrder::getStatus, SeckillOrderStatusEnum.UNPAID.getCode())
+			.set(SeckillOrder::getStatus, SeckillOrderStatusEnum.CANCELED.getCode()));
+		long result = seckillStockManager.rollbackStock(
+				dto.getActivityId(), dto.getSessionId(), dto.getSkuId(), userId, dto.getQuantity());
+		log.info("秒杀预扣补偿释放, orderId={}, skuId={}, quantity={}, result={}",
+				orderId, dto.getSkuId(), dto.getQuantity(), result);
 		return true;
 	}
 
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public void handlePaySuccess(String orderId) {
-		SeckillOrder seckillOrder = this.getOne(Wrappers.<SeckillOrder>lambdaQuery()
+		List<SeckillOrder> seckillOrders = this.list(Wrappers.<SeckillOrder>lambdaQuery()
 				.eq(SeckillOrder::getOrderId, orderId)
-				.last("LIMIT 1"));
-		if (seckillOrder == null) {
+				.eq(SeckillOrder::getStatus, SeckillOrderStatusEnum.UNPAID.getCode()));
+		if (seckillOrders.isEmpty()) {
 			return;
 		}
-		// 幂等：仅未支付→已支付
-		if (!SeckillOrderStatusEnum.UNPAID.getCode().equals(seckillOrder.getStatus())) {
-			log.info("秒杀订单非未支付状态，跳过支付处理, orderId={}, status={}", orderId, seckillOrder.getStatus());
-			return;
-		}
-		// CAS 状态更新
-		boolean updated = this.update(Wrappers.<SeckillOrder>lambdaUpdate()
+		for (SeckillOrder seckillOrder : seckillOrders) {
+			// 幂等：仅未支付→已支付
+			boolean updated = this.update(Wrappers.<SeckillOrder>lambdaUpdate()
 				.eq(SeckillOrder::getId, seckillOrder.getId())
 				.eq(SeckillOrder::getStatus, SeckillOrderStatusEnum.UNPAID.getCode())
 				.set(SeckillOrder::getStatus, SeckillOrderStatusEnum.PAID.getCode()));
-		if (!updated) {
-			log.info("秒杀订单支付状态CAS失败(并发已处理), orderId={}", orderId);
-			return;
-		}
-		// 更新已售数量（带条件防超卖）
-		seckillGoodsService.update(Wrappers.<SeckillGoods>lambdaUpdate()
+			if (!updated) {
+				log.info("秒杀订单支付状态CAS失败(并发已处理), orderId={}, skuId={}", orderId, seckillOrder.getSkuId());
+				continue;
+			}
+			// 更新已售数量（带条件防超卖）
+			seckillGoodsService.update(Wrappers.<SeckillGoods>lambdaUpdate()
 				.eq(SeckillGoods::getId, seckillOrder.getSeckillGoodsId())
 				.apply("sold_count + {0} <= seckill_stock", seckillOrder.getQuantity())
 				.setSql("sold_count = sold_count + " + seckillOrder.getQuantity()));
-		log.info("秒杀支付成功处理, orderId={}, seckillGoodsId={}", orderId, seckillOrder.getSeckillGoodsId());
+		}
+		log.info("秒杀支付成功处理, orderId={}, 明细数={}", orderId, seckillOrders.size());
 	}
 
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public void handleRefundSuccess(String orderId) {
-		SeckillOrder seckillOrder = this.getOne(Wrappers.<SeckillOrder>lambdaQuery()
+		List<SeckillOrder> seckillOrders = this.list(Wrappers.<SeckillOrder>lambdaQuery()
 				.eq(SeckillOrder::getOrderId, orderId)
-				.last("LIMIT 1"));
-		if (seckillOrder == null) {
+				.eq(SeckillOrder::getStatus, SeckillOrderStatusEnum.PAID.getCode()));
+		if (seckillOrders.isEmpty()) {
 			return;
 		}
-		// 幂等：仅已支付→已取消
-		if (!SeckillOrderStatusEnum.PAID.getCode().equals(seckillOrder.getStatus())) {
-			log.info("秒杀订单非已支付状态，跳过退款处理, orderId={}, status={}", orderId, seckillOrder.getStatus());
-			return;
-		}
-		// CAS 状态更新
-		boolean updated = this.update(Wrappers.<SeckillOrder>lambdaUpdate()
+		List<SeckillOrder> refunded = new ArrayList<>();
+		for (SeckillOrder seckillOrder : seckillOrders) {
+			// 幂等：仅已支付→已取消
+			boolean updated = this.update(Wrappers.<SeckillOrder>lambdaUpdate()
 				.eq(SeckillOrder::getId, seckillOrder.getId())
 				.eq(SeckillOrder::getStatus, SeckillOrderStatusEnum.PAID.getCode())
 				.set(SeckillOrder::getStatus, SeckillOrderStatusEnum.CANCELED.getCode()));
-		if (!updated) {
-			log.info("秒杀订单退款状态CAS失败(并发已处理), orderId={}", orderId);
-			return;
-		}
-		// 回滚 DB 已售数量（带条件防负数）
-		seckillGoodsService.update(Wrappers.<SeckillGoods>lambdaUpdate()
+			if (!updated) {
+				log.info("秒杀订单退款状态CAS失败(并发已处理), orderId={}, skuId={}", orderId, seckillOrder.getSkuId());
+				continue;
+			}
+			refunded.add(seckillOrder);
+			// 回滚 DB 已售数量（带条件防负数）
+			seckillGoodsService.update(Wrappers.<SeckillGoods>lambdaUpdate()
 				.eq(SeckillGoods::getId, seckillOrder.getSeckillGoodsId())
 				.apply("sold_count >= {0}", seckillOrder.getQuantity())
 				.setSql("sold_count = sold_count - " + seckillOrder.getQuantity()));
+		}
+		if (refunded.isEmpty()) {
+			return;
+		}
 		// 事务提交后安全回滚 Redis
 		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
 			@Override
 			public void afterCommit() {
-				try {
-					seckillStockManager.rollbackStock(
-							seckillOrder.getActivityId(), seckillOrder.getSessionId(), seckillOrder.getSkuId(),
-							seckillOrder.getUserId(), seckillOrder.getQuantity());
-				} catch (Exception e) {
-					log.error("退款Redis库存回滚失败, orderId={}, skuId={}", orderId, seckillOrder.getSkuId(), e);
+				for (SeckillOrder seckillOrder : refunded) {
+					try {
+						seckillStockManager.rollbackStock(
+								seckillOrder.getActivityId(), seckillOrder.getSessionId(), seckillOrder.getSkuId(),
+								seckillOrder.getUserId(), seckillOrder.getQuantity());
+					} catch (Exception e) {
+						log.error("退款Redis库存回滚失败, orderId={}, skuId={}", orderId, seckillOrder.getSkuId(), e);
+					}
 				}
 			}
 		});
-		log.info("秒杀退款处理完成, orderId={}", orderId);
+		log.info("秒杀退款处理完成, orderId={}, 明细数={}", orderId, refunded.size());
 	}
 
 	@Override
@@ -258,37 +297,66 @@ public class SeckillOrderServiceImpl extends ServiceImpl<SeckillOrderMapper, Sec
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public boolean expireOrder(String orderId) {
-		SeckillOrder seckillOrder = this.getOne(Wrappers.<SeckillOrder>lambdaQuery()
+		List<SeckillOrder> seckillOrders = this.list(Wrappers.<SeckillOrder>lambdaQuery()
 				.eq(SeckillOrder::getOrderId, orderId)
-				.last("LIMIT 1"));
-		if (seckillOrder == null) {
+				.eq(SeckillOrder::getStatus, SeckillOrderStatusEnum.UNPAID.getCode()));
+		if (seckillOrders.isEmpty()) {
 			return false;
 		}
-		if (!SeckillOrderStatusEnum.UNPAID.getCode().equals(seckillOrder.getStatus())) {
-			return false;
-		}
-		// CAS 更新状态为已超时
-		boolean updated = this.update(Wrappers.<SeckillOrder>lambdaUpdate()
+		List<SeckillOrder> expired = new ArrayList<>();
+		for (SeckillOrder seckillOrder : seckillOrders) {
+			// CAS 更新状态为已超时
+			boolean updated = this.update(Wrappers.<SeckillOrder>lambdaUpdate()
 				.eq(SeckillOrder::getId, seckillOrder.getId())
 				.eq(SeckillOrder::getStatus, SeckillOrderStatusEnum.UNPAID.getCode())
 				.set(SeckillOrder::getStatus, SeckillOrderStatusEnum.EXPIRED.getCode()));
-		if (!updated) {
+			if (updated) {
+				expired.add(seckillOrder);
+			}
+		}
+		if (expired.isEmpty()) {
 			return false;
 		}
 		// 事务提交后回滚 Redis
 		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
 			@Override
 			public void afterCommit() {
-				try {
-					seckillStockManager.rollbackStock(
-							seckillOrder.getActivityId(), seckillOrder.getSessionId(), seckillOrder.getSkuId(),
-							seckillOrder.getUserId(), seckillOrder.getQuantity());
-				} catch (Exception e) {
-					log.error("超时订单Redis库存回滚失败, orderId={}", orderId, e);
+				for (SeckillOrder seckillOrder : expired) {
+					try {
+						seckillStockManager.rollbackStock(
+								seckillOrder.getActivityId(), seckillOrder.getSessionId(), seckillOrder.getSkuId(),
+								seckillOrder.getUserId(), seckillOrder.getQuantity());
+					} catch (Exception e) {
+						log.error("超时订单Redis库存回滚失败, orderId={}, skuId={}", orderId, seckillOrder.getSkuId(), e);
+					}
 				}
 			}
 		});
-		log.info("秒杀订单超时处理, orderId={}", orderId);
+		log.info("秒杀订单超时处理, orderId={}, 明细数={}", orderId, expired.size());
 		return true;
+	}
+
+	/**
+	 * Redis 库存池缺失时按 DB 基线重建。
+	 *
+	 * <p>管理端创建活动会在事务提交后初始化库存池，但 Redis 被清空/重启、或活动由 SQL
+	 * 直接导入时 key 可能缺失。重建基线取「秒杀总量 - DB 已售」；预扣中（未支付）的占用
+	 * 只存在于 Redis，重建后无法恢复，属可接受的降级（Redis 丢失本身即不可恢复）。
+	 * 单人限购计数同样无法重建，从零起算。
+	 */
+	private void ensureStockPool(SeckillGoods goods, SeckillSession session, int limitPerUser) {
+		if (seckillStockManager.getRemainingStock(
+				goods.getActivityId(), goods.getSessionId(), goods.getSkuId()) != null) {
+			return;
+		}
+		int sold = goods.getSoldCount() == null ? 0 : goods.getSoldCount();
+		int total = goods.getSeckillStock() == null ? 0 : goods.getSeckillStock();
+		int remaining = Math.max(0, total - sold);
+		Duration ttl = Duration.between(LocalDateTime.now(), session.getEndTime()).plusHours(1);
+		if (ttl.isNegative() || ttl.isZero()) {
+			ttl = Duration.ofHours(1);
+		}
+		seckillStockManager.ensureStockInitialized(
+				goods.getActivityId(), goods.getSessionId(), goods.getSkuId(), remaining, limitPerUser, ttl);
 	}
 }

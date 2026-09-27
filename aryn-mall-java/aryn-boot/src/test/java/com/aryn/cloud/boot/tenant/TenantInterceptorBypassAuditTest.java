@@ -30,7 +30,12 @@ class TenantInterceptorBypassAuditTest {
 			"aryn-upms/aryn-upms-biz/src/main/java/com/aryn/cloud/upms/mapper/SysUserMapper.java#selectCount",
 			"aryn-upms/aryn-upms-biz/src/main/java/com/aryn/cloud/upms/mapper/SysUserMapper.java#selectUserByName",
 			"aryn-upms/aryn-upms-biz/src/main/java/com/aryn/cloud/upms/mapper/SysUserMapper.java#selectUserByPhone",
-			"aryn-user/aryn-user-biz/src/main/java/com/aryn/cloud/user/mapper/SocialAccountMapper.java#selectByAppId");
+			"aryn-user/aryn-user-biz/src/main/java/com/aryn/cloud/user/mapper/SocialAccountMapper.java#selectByAppId",
+			"aryn-user/aryn-user-biz/src/main/java/com/aryn/cloud/user/mapper/SocialUserMapper.java#selectByIdInAnyTenant",
+			"aryn-user/aryn-user-biz/src/main/java/com/aryn/cloud/user/mapper/SocialUserMapper.java#selectByAppIdAndOpenIdInAnyTenant",
+			"aryn-promotion/aryn-promotion-biz/src/main/java/com/aryn/cloud/promotion/mapper/PageDesignTemplateMapper.java#selectMarketTemplatePage",
+			"aryn-promotion/aryn-promotion-biz/src/main/java/com/aryn/cloud/promotion/mapper/PageDesignTemplateMapper.java#selectMarketTemplateById",
+			"aryn-promotion/aryn-promotion-biz/src/main/java/com/aryn/cloud/promotion/mapper/PageDesignTemplateMapper.java#increaseMarketDownloadCount");
 
 	private final Path projectRoot = findProjectRoot();
 
@@ -127,6 +132,19 @@ class TenantInterceptorBypassAuditTest {
 			String sql = Files.readString(projectRoot.resolve(migration));
 			assertThat(sql).as(migration).contains("WHERE del_flag = '0'").contains("ADD UNIQUE KEY").contains("((IF(");
 		}
+	}
+
+	@Test
+	void socialUserBypassesLocateTheSameRecordAndExcludeDeletedRows() throws IOException {
+		String mapper = Files.readString(projectRoot
+				.resolve("aryn-user/aryn-user-biz/src/main/resources/mapper/SocialUserMapper.xml"));
+
+		// 绕过租户拦截器的反查必须与紧邻的带租户条件查询语义等价：绑定按主键、解绑按 appId+openId+mallUserId。
+		assertThat(selectStatement(mapper, "selectByIdInAnyTenant"))
+			.contains("social_user.id = #{id}", "del_flag = '0'");
+		assertThat(selectStatement(mapper, "selectByAppIdAndOpenIdInAnyTenant"))
+			.contains("social_user.app_id = #{appId}", "social_user.open_id = #{openId}",
+					"social_user.mall_user_id = #{mallUserId}", "del_flag = '0'");
 	}
 
 	private static void assertActiveUniqueColumn(String sql, String table, String column) {

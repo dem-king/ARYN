@@ -291,6 +291,52 @@ body{display:flex;justify-content:center;min-height:100vh;padding:24px 0;}
 .rp-bar-btn{background:var(--brand-grad);color:#fff;border:none;border-radius:var(--r-full);padding:11px 18px;font-size:13px;font-weight:700;cursor:pointer;}
 .rp-miss .tag-sale{position:absolute;top:6px;left:6px;z-index:1;}
 .rp-miss{position:relative;}
+/* ============ 补给单详情 / Excel 导入（sheet 内三步） ============ */
+.sup-hd{font-size:16px;font-weight:800;color:var(--ink);display:flex;align-items:center;justify-content:space-between;}
+.sup-hd .sub{font-size:11px;color:var(--ink-3);font-weight:400;}
+.sup-progress{margin-top:10px;background:var(--bg);border-radius:10px;padding:10px 12px;font-size:12px;color:var(--ink-2);display:flex;justify-content:space-between;}
+.sup-progress b{color:var(--brand);font-size:14px;}
+.sup-list{margin-top:12px;max-height:220px;overflow-y:auto;}
+.sup-row{display:flex;align-items:center;gap:8px;padding:10px 4px;border-bottom:1px solid var(--line);font-size:13px;color:var(--ink);}
+.sup-row:last-child{border-bottom:none;}
+.sup-row .st{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;}
+.sup-row .st.done{background:#E8F9F3;color:#0B8A6B;}
+.sup-row .st.miss{background:#FFF0EC;color:#D4453A;}
+.sup-row .qty{margin-left:auto;color:var(--ink-3);font-size:12px;white-space:nowrap;}
+.sup-actions{display:flex;gap:10px;margin-top:16px;}
+.sup-actions .btn{flex:1;padding:12px 0;border-radius:var(--r-full);font-size:14px;font-weight:700;cursor:pointer;text-align:center;border:none;}
+.sup-actions .btn-main{background:var(--brand-grad);color:#fff;box-shadow:0 4px 12px rgba(11,99,229,.3);}
+.sup-actions .btn-line{background:var(--bg);color:var(--ink-2);}
+.sup-actions .btn-add{background:var(--accent-soft);color:var(--accent-deep);}
+.file-box{margin-top:12px;border:1.5px dashed var(--brand);border-radius:var(--r-md);padding:26px 16px;text-align:center;cursor:pointer;background:var(--brand-soft);}
+.file-box svg{width:34px;height:34px;color:var(--brand);}
+.file-box .f1{font-size:14px;font-weight:700;color:var(--brand-deep);margin-top:8px;}
+.file-box .f2{font-size:11px;color:var(--ink-3);margin-top:4px;}
+.file-picked{margin-top:10px;background:#E8F9F3;border:1px solid #BFEBDD;border-radius:10px;padding:10px 12px;font-size:12px;color:#0B8A6B;display:flex;align-items:center;gap:8px;}
+.file-picked svg{width:16px;height:16px;flex-shrink:0;}
+.parse-track{height:8px;border-radius:4px;background:var(--line);margin-top:14px;overflow:hidden;}
+.parse-track i{display:block;height:100%;border-radius:4px;background:var(--brand-grad);transition:width .12s;}
+.parse-txt{font-size:12px;color:var(--ink-2);margin-top:8px;text-align:center;}
+.report-stat{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;}
+.report-stat .cell{flex:1;min-width:84px;background:var(--bg);border-radius:10px;padding:10px 6px;text-align:center;}
+.report-stat .v{font-size:17px;font-weight:800;}
+.report-stat .k{font-size:10px;color:var(--ink-3);margin-top:2px;}
+.report-stat .ok .v{color:#0B8A6B;}
+.report-stat .miss .v{color:#D4453A;}
+.report-stat .chg .v{color:#B87A12;}
+.report-stat .over .v{color:#7A828E;}
+.report-list{margin-top:12px;max-height:170px;overflow-y:auto;}
+.report-row{display:flex;align-items:center;gap:8px;padding:9px 4px;border-bottom:1px solid var(--line);font-size:12px;color:var(--ink);}
+.report-row .rt{padding:1px 7px;border-radius:4px;font-size:10px;font-weight:700;flex-shrink:0;}
+.rt-ok{background:#E8F9F3;color:#0B8A6B;}
+.rt-miss{background:#FFF0EC;color:#D4453A;}
+.rt-chg{background:#FFF7E8;color:#B87A12;}
+.rt-over{background:#F2F6FB;color:#7A828E;}
+.report-row .go{margin-left:auto;color:var(--ink-3);font-size:11px;cursor:pointer;white-space:nowrap;}
+.sup-cta{display:flex;gap:10px;margin-top:16px;}
+.sup-cta .btn{flex:1;padding:13px 0;border-radius:var(--r-full);font-size:14px;font-weight:700;cursor:pointer;text-align:center;border:none;}
+.sup-back{display:inline-flex;align-items:center;gap:4px;color:var(--ink-2);font-size:12px;cursor:pointer;margin-bottom:10px;}
+.sup-back svg{width:14px;height:14px;}
 </style>
 </head>
 <body>
@@ -328,15 +374,15 @@ body{display:flex;justify-content:center;min-height:100vh;padding:24px 0;}
       </div>
 
       <!-- 今日补给单：清单驱动核心入口 -->
-      <div class="replenish" onclick="toast('补给单详情（演示）')">
+      <div class="replenish" onclick="openSupplySheet()">
         <div class="rp-top">
           <div class="flex1">
             <div class="rp-name">今日补给单 <span class="tag tag-white">翠屏港 3 号泊位</span></div>
-            <div class="rp-sub">12 项待采 · 已采 8 项 · 合计 ¥1,286</div>
+            <div class="rp-sub" id="supSummary">12 项待采 · 已采 8 项 · 合计 ¥1,286</div>
           </div>
           <button class="rp-btn" onclick="event.stopPropagation();toast('按补给单一键加购（演示）')">按单加购</button>
         </div>
-        <div class="rp-track"><i style="width:65%"></i></div>
+        <div class="rp-track"><i id="supTrack" style="width:65%"></i></div>
         <div class="rp-items">
           <span>清单还差：番茄 2kg · 矿泉水 5 箱 · 抽纸 10 包 …</span>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>
@@ -805,7 +851,7 @@ body{display:flex;justify-content:center;min-height:100vh;padding:24px 0;}
   </div>
 
     <!-- SKU 弹层 -->
-    <div class="mask" id="skuMask" onclick="closeSku()"></div>
+    <div class="mask" id="skuMask" onclick="closeAllSheets()"></div>
     <div class="sheet" id="skuSheet">
       <div class="handle"></div>
       <div class="sku-head">
@@ -830,6 +876,84 @@ body{display:flex;justify-content:center;min-height:100vh;padding:24px 0;}
       <div class="sku-cta">
         <span style="font-size:12px;color:var(--ink-3)">已选：950ml/瓶 × 1</span>
         <button class="btn-primary" onclick="addCartFromSku()">加入购物车</button>
+      </div>
+    </div>
+
+    <!-- 补给单弹层（详情 → 导入 → 报告 三步） -->
+    <div class="sheet" id="supplySheet">
+      <div class="handle"></div>
+
+      <!-- 步骤 1：补给单详情 -->
+      <div id="supStep1">
+        <div class="sup-hd">今日补给单 <span class="sub">翠屏港 3 号泊位 · 悦航 8 号</span></div>
+        <div class="sup-progress">
+          <span>待采 <b>12</b> 项</span>
+          <span>已采 <b style="color:#0B8A6B">8</b> 项</span>
+          <span>合计 <b>¥1,286</b></span>
+        </div>
+        <div class="sup-list">
+          <div class="sup-row"><span class="st done">✓</span>鲜牛奶 950ml<span class="qty">目标 4 · 已采 4</span></div>
+          <div class="sup-row"><span class="st done">✓</span>红富士苹果 2.5kg<span class="qty">目标 3 · 已采 3</span></div>
+          <div class="sup-row"><span class="st miss">缺</span>番茄 2kg<span class="qty">目标 2 · 已采 0</span></div>
+          <div class="sup-row"><span class="st miss">缺</span>矿泉水 5 箱<span class="qty">目标 5 · 已采 0</span></div>
+          <div class="sup-row"><span class="st miss">缺</span>抽纸 10 包<span class="qty">目标 10 · 已采 0</span></div>
+          <div class="sup-row"><span class="st done">✓</span>奶油饼干 420g<span class="qty">目标 2 · 已采 2</span></div>
+          <div class="sup-row"><span class="st miss">缺</span>食用油 5L×2<span class="qty">目标 2 · 已采 0</span></div>
+        </div>
+        <div class="sup-actions">
+          <button class="btn btn-main" onclick="supImport()">导入 Excel</button>
+          <button class="btn btn-line" onclick="toast('历史补给单一键复用（演示）')">历史复用</button>
+          <button class="btn btn-add" onclick="toast('手工添加补给项（演示）')">+ 添加</button>
+        </div>
+      </div>
+
+      <!-- 步骤 2：选择文件 / 解析 -->
+      <div id="supStep2" style="display:none">
+        <div class="sup-back" onclick="supBack()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>返回补给单</div>
+        <div class="sup-hd">导入补给清单 <span class="sub">支持 .xlsx / .xls</span></div>
+        <div class="file-box" id="fileBox" onclick="pickFile()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h8M8 9h2"/></svg>
+          <div class="f1">点击选择 Excel 文件</div>
+          <div class="f2">推荐使用标准模板（SKU编码 / 品名 / 规格 / 数量 / 单位 / 备注）</div>
+        </div>
+        <div class="file-picked" id="filePicked" style="display:none">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+          <span class="flex1">已选择：<b>补给清单_20260922.xlsx</b>（12 行）</span>
+        </div>
+        <div style="margin-top:10px;text-align:center">
+          <span style="font-size:12px;color:var(--ink-3);cursor:pointer;text-decoration:underline" onclick="toast('下载标准模板（演示）')">下载标准模板 ›</span>
+        </div>
+        <div id="parseBox" style="display:none">
+          <div class="parse-track"><i id="parseBar" style="width:0%"></i></div>
+          <div class="parse-txt" id="parseTxt">正在解析文件…</div>
+        </div>
+        <div class="sup-cta">
+          <button class="btn" id="parseBtn" style="display:none;background:var(--brand-grad);color:#fff" onclick="runParse()">开始解析</button>
+        </div>
+      </div>
+
+      <!-- 步骤 3：导入报告 -->
+      <div id="supStep3" style="display:none">
+        <div class="sup-back" onclick="supBack()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>返回补给单</div>
+        <div class="sup-hd">导入完成 <span class="sub">共 12 行</span></div>
+        <div class="report-stat">
+          <div class="cell ok"><div class="v">8</div><div class="k">匹配成功</div></div>
+          <div class="cell miss"><div class="v">2</div><div class="k">未匹配</div></div>
+          <div class="cell chg"><div class="v">1</div><div class="k">规格变更</div></div>
+          <div class="cell over"><div class="v">1</div><div class="k">超库存</div></div>
+        </div>
+        <div class="report-list">
+          <div class="report-row"><span class="rt rt-ok">成功</span>红富士苹果 2.5kg × 3<span class="go">已入单</span></div>
+          <div class="report-row"><span class="rt rt-ok">成功</span>鲜牛奶 950ml × 4<span class="go">已入单</span></div>
+          <div class="report-row"><span class="rt rt-miss">未匹配</span>船用缆绳 50m<span class="go" onclick="toast('人工补选：搜索相似商品（演示）')">补选 ›</span></div>
+          <div class="report-row"><span class="rt rt-miss">未匹配</span>食品级润滑油 5L<span class="go" onclick="toast('人工补选：搜索相似商品（演示）')">补选 ›</span></div>
+          <div class="report-row"><span class="rt rt-chg">变更</span>矿泉水（550ml×24 现售）<span class="go" onclick="toast('确认新规格（演示）')">确认 ›</span></div>
+          <div class="report-row"><span class="rt rt-over">超库存</span>抽纸 10 包（库存 6）<span class="go" onclick="toast('调减数量（演示）')">调整 ›</span></div>
+        </div>
+        <div class="sup-cta">
+          <button class="btn" style="background:var(--bg);color:var(--ink-2)" onclick="toast('稍后处理（演示）')">稍后处理</button>
+          <button class="btn" style="background:var(--brand-grad);color:#fff" onclick="confirmImport()">确认并入补给单</button>
+        </div>
       </div>
     </div>
 
@@ -938,6 +1062,66 @@ function openSku(el, name){
 function closeSku(){
   document.getElementById('skuMask').classList.remove('show');
   document.getElementById('skuSheet').classList.remove('show');
+}
+/* ============ 补给单详情 / Excel 导入 ============ */
+function openSupplySheet(){
+  document.getElementById('skuMask').classList.add('show');
+  document.getElementById('supplySheet').classList.add('show');
+  document.getElementById('supStep1').style.display = 'block';
+  document.getElementById('supStep2').style.display = 'none';
+  document.getElementById('supStep3').style.display = 'none';
+}
+function closeAllSheets(){
+  document.getElementById('skuMask').classList.remove('show');
+  document.getElementById('skuSheet').classList.remove('show');
+  document.getElementById('supplySheet').classList.remove('show');
+}
+function supImport(){
+  document.getElementById('supStep1').style.display = 'none';
+  document.getElementById('supStep2').style.display = 'block';
+  document.getElementById('supStep3').style.display = 'none';
+  document.getElementById('filePicked').style.display = 'none';
+  document.getElementById('parseBox').style.display = 'none';
+  document.getElementById('parseBtn').style.display = 'none';
+}
+function supBack(){
+  document.getElementById('supStep1').style.display = 'block';
+  document.getElementById('supStep2').style.display = 'none';
+  document.getElementById('supStep3').style.display = 'none';
+}
+function pickFile(){
+  document.getElementById('fileBox').style.display = 'none';
+  document.getElementById('filePicked').style.display = 'flex';
+  document.getElementById('parseBtn').style.display = 'block';
+}
+function runParse(){
+  var btn = document.getElementById('parseBtn');
+  btn.style.display = 'none';
+  document.getElementById('parseBox').style.display = 'block';
+  var bar = document.getElementById('parseBar'), p = 0, txt = document.getElementById('parseTxt');
+  var timer = setInterval(function(){
+    p += 8 + Math.round(Math.random()*10);
+    if(p >= 100){
+      p = 100; clearInterval(timer);
+      txt.textContent = '解析完成：12 行，8 行可匹配';
+      setTimeout(showReport, 500);
+    } else {
+      bar.style.width = p + '%';
+      txt.textContent = '正在解析 ' + Math.min(p, 99) + '%…';
+    }
+  }, 160);
+}
+function showReport(){
+  document.getElementById('supStep2').style.display = 'none';
+  document.getElementById('supStep3').style.display = 'block';
+}
+function confirmImport(){
+  closeAllSheets();
+  var sum = document.getElementById('supSummary');
+  if(sum){ sum.textContent = '20 项待采 · 已采 10 项 · 合计 ¥1,980（已并入导入清单）'; }
+  var tr = document.getElementById('supTrack');
+  if(tr){ tr.style.width = '50%'; }
+  toast('已并入补给单：新增 10 项待采（演示）');
 }
 /* ============ 搜索联想（对标小象语义搜索） ============ */
 var SUGGEST = ['红富士苹果','苹果醋','苹果汁','鲜牛奶 950ml','早餐饼干','船上补给包','矿泉水整箱','基围虾'];

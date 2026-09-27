@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS `page_design_audit_log` (
   `id` varchar(32) NOT NULL COMMENT '主键',
   `page_design_id` varchar(32) NOT NULL COMMENT '页面ID（page_design.id）',
   `release_id` varchar(32) NULL COMMENT '关联发布申请ID（page_design_release.id）',
-  `action` varchar(32) NOT NULL COMMENT '操作类型：SAVE_DRAFT/PUBLISH/UNPUBLISH/ROLLBACK/RELEASE_SUBMIT/RELEASE_APPROVE/RELEASE_REJECT/RELEASE_CANCEL',
+  `action` varchar(32) NOT NULL COMMENT '操作类型：SAVE_DRAFT/PUBLISH/UNPUBLISH/SET_HOME/ROLLBACK/RELEASE_SUBMIT/RELEASE_APPROVE/RELEASE_REJECT/RELEASE_CANCEL',
   `operator` varchar(60) NULL COMMENT '操作人',
   `operator_ip` varchar(64) NULL COMMENT '操作者IP',
   `before_version_id` varchar(32) NULL COMMENT '操作前发布版本ID',

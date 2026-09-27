@@ -54,7 +54,7 @@ public class PageDesign extends Model<PageDesign> {
 	@Schema(description = "旧版装修内容备份")
 	private String legacyContentBackup;
 
-	@Schema(description = "页面类型：0.微页面；1.首页；")
+	@Schema(description = "页面类型：0.微页面；1.首页；2.商品详情页；3.分类页；4.个人中心页；")
 	private String pageType;
 
 	@Schema(description = "状态：0.正常；1.停用；")

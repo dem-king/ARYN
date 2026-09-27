@@ -45,6 +45,22 @@ function pad(value: number) {
 }
 
 /**
+ * 时间选择器回传的时间戳 → 靠港申报接口所需口径 `yyyy-MM-dd HH:mm:ss`。
+ *
+ * 与展示用的 `formatCallTime` 分开：申报接口的 `LocalDateTime` 反序列化
+ * 只认这一种格式（`DateFormatConfig` 的 `NORM_DATETIME_PATTERN`），
+ * 少写一段就会被后端 400 拒掉，因此格式固定在这里并由单测守住。
+ *
+ * 取值一律走 Date 的本地 getter，不经过字符串解析——后者在小程序 iOS 端
+ * 对 `yyyy-MM-dd HH:mm:ss` 会返回 Invalid Date（与 formatCallTime 同一口径）。
+ */
+export function formatDeclareTime(timestamp: number): string {
+  const date = new Date(timestamp)
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} `
+    + `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+}
+
+/**
  * 把后端靠港时间格式化为首页可读文案。
  *
  * 无法解析时原样返回，保证界面不出现空白；空值返回空串。

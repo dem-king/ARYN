@@ -2,6 +2,8 @@ FROM eclipse-temurin:17-jdk-jammy
 
 WORKDIR /app
 
+ENV TZ=Asia/Shanghai
+
 COPY target/*.jar app.jar
 
 ENV JAVA_OPTS="-Xms512m -Xmx1024m -XX:+ExitOnOutOfMemoryError"

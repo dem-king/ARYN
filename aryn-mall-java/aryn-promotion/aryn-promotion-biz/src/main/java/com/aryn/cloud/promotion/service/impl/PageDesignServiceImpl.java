@@ -8,6 +8,7 @@ import com.aryn.cloud.common.core.constant.CacheConstants;
 import com.aryn.cloud.common.core.constant.CommonConstants;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
+import com.aryn.cloud.promotion.api.constant.PageDesignComponentTypes;
 import com.aryn.cloud.promotion.api.dto.PageDesignDraftDTO;
 import com.aryn.cloud.promotion.api.entity.PageDesign;
 import com.aryn.cloud.promotion.api.entity.PageDesignAuditLog;
@@ -26,6 +27,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.util.StringUtils;
 
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -37,6 +39,14 @@ import java.util.concurrent.TimeUnit;
 @Service
 @RequiredArgsConstructor
 public class PageDesignServiceImpl extends ServiceImpl<PageDesignMapper, PageDesign> implements IPageDesignService {
+
+	/**
+	 * 新建页面的初始装修文档：page_design.page_content 为 NOT NULL 且无默认值，
+	 * 必须在插入时显式写入，否则报 "Field 'page_content' doesn't have a default value"。
+	 */
+	private static final String EMPTY_PAGE_CONTENT = "{\"schemaVersion\":3,\"sections\":[]}";
+
+	private static final int DEFAULT_SCHEMA_VERSION = 3;
 
 	private final StringRedisTemplate redisTemplate;
 
@@ -167,6 +177,60 @@ public class PageDesignServiceImpl extends ServiceImpl<PageDesignMapper, PageDes
 		}
 	}
 
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public boolean setAsHome(String pageId) {
+		RLock lock = redissonClient
+			.getLock(CacheConstants.HOME_PAGE_DESIGN_LOCK_CACHE + ArynTenantContextHolder.getTenantId());
+		boolean locked = false;
+		try {
+			locked = lock.tryLock(5, TimeUnit.SECONDS);
+			if (!locked) {
+				throw new ArynBusinessException("系统繁忙，请刷新重试");
+			}
+			PageDesign target = baseMapper.selectById(pageId);
+			if (target == null) {
+				throw new ArynBusinessException("页面不存在或无权访问");
+			}
+			// 只有已发布页面才能成为 C 端首页：移动端读的是线上快照，
+			// 若把草稿页设为首页，getPublishedHome() 会因缺少发布版本直接报错。
+			if (!"1".equals(target.getPublishedStatus()) || !StringUtils.hasText(target.getPublishedVersionId())) {
+				throw new ArynBusinessException("页面尚未发布，发布后才能设为首页");
+			}
+			if (CommonConstants.YES.equals(target.getHomeStatus()) && "1".equals(target.getPageType())) {
+				return true;
+			}
+			PageDesign resetPage = new PageDesign();
+			resetPage.setHomeStatus(CommonConstants.NO);
+			resetPage.setPageType("0");
+			baseMapper.update(resetPage, Wrappers.<PageDesign>lambdaQuery()
+				.ne(PageDesign::getId, target.getId())
+				.eq(PageDesign::getHomeStatus, CommonConstants.YES));
+			PageDesign promote = new PageDesign();
+			promote.setId(target.getId());
+			promote.setHomeStatus(CommonConstants.YES);
+			promote.setPageType("1");
+			boolean updated = baseMapper.updateById(promote) > 0;
+			if (updated) {
+				auditService.record(new PageDesignAuditService.PageDesignAuditEvent(
+						PageDesignAuditLog.ACTION_SET_HOME, target.getId(), null, null, target.getPublishedVersionId(),
+						target.getDraftRevision(), target.getDraftRevision(),
+						"将“" + target.getPageName() + "”设为线上首页"));
+				evictHomePageCacheAfterCommit();
+			}
+			return updated;
+		}
+		catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			throw new ArynBusinessException("系统繁忙，请刷新重试");
+		}
+		finally {
+			if (locked) {
+				unlockAfterTransactionCompletion(lock);
+			}
+		}
+	}
+
 	private boolean updateAndEvictCache(PageDesign pageDesign) {
 		boolean updated = baseMapper.updateById(pageDesign) > 0;
 		if (updated) {
@@ -232,6 +296,48 @@ public class PageDesignServiceImpl extends ServiceImpl<PageDesignMapper, PageDes
 		copy.setLegacyContentBackup(source.getLegacyContentBackup());
 		baseMapper.insert(copy);
 		return copy;
+	}
+
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public PageDesign createPage(PageDesign pageDesign) {
+		assertSupportedPageType(pageDesign.getPageType());
+		if (!StringUtils.hasText(pageDesign.getPageType())) {
+			// 未指定时按微页面建，与前端新建下拉的默认项一致
+			pageDesign.setPageType(PageDesignComponentTypes.PAGE_TYPE_MICRO);
+		}
+		if (!StringUtils.hasText(pageDesign.getPageContent())) {
+			pageDesign.setPageContent(EMPTY_PAGE_CONTENT);
+		}
+		if (pageDesign.getSchemaVersion() == null) {
+			pageDesign.setSchemaVersion(DEFAULT_SCHEMA_VERSION);
+		}
+		if (pageDesign.getDraftRevision() == null) {
+			pageDesign.setDraftRevision(0L);
+		}
+		if (pageDesign.getPublishedStatus() == null) {
+			pageDesign.setPublishedStatus("0");
+		}
+		save(pageDesign);
+		return pageDesign;
+	}
+
+	/**
+	 * 校验 pageType 取值。
+	 * <p>
+	 * 该值决定发布时施加哪份组件白名单（{@code allowedTypesForPageType}），
+	 * 因此不能任由调用方写入任意字符串：一个未被识别的 pageType 会让白名单查不到
+	 * 对应清单而静默放行全部组件，绕过页面类型限制。
+	 * <p>
+	 * 页面类型 1（首页）由「设为首页」专用流程维护，不允许直接新建。
+	 */
+	private void assertSupportedPageType(String pageType) {
+		Set<String> supported = Set.of(PageDesignComponentTypes.PAGE_TYPE_MICRO,
+				PageDesignComponentTypes.PAGE_TYPE_DETAIL, PageDesignComponentTypes.PAGE_TYPE_CATEGORY,
+				PageDesignComponentTypes.PAGE_TYPE_USER_CENTER);
+		if (StringUtils.hasText(pageType) && !supported.contains(pageType)) {
+			throw new ArynBusinessException("不支持的页面类型：" + pageType);
+		}
 	}
 
 	private void evictHomePageCacheAfterCommit() {

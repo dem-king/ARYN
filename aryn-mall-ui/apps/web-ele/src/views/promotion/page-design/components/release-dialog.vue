@@ -72,6 +72,7 @@ const actionLabels: Record<string, string> = {
   RELEASE_SUBMIT: '提交申请',
   ROLLBACK: '回滚',
   SAVE_DRAFT: '保存草稿',
+  SET_HOME: '设为首页',
   UNPUBLISH: '下线',
 };
 

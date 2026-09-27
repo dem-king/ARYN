@@ -37,7 +37,7 @@ function customerService() {
   <view
     class="fixed bottom-0 left-0 right-0 flex justify-between border-t border-t-[rgba(255,255,255,0.33)] bg-white p-20rpx pb-[max(env(safe-area-inset-bottom),16rpx)]"
   >
-    <view class="flex text-center text-20rpx">
+    <view class="flex flex-shrink-0 text-center text-20rpx">
       <view class="ml-20rpx mr-30rpx" @click="toHome">
         <wd-icon name="home" size="40rpx" />
         <view class="text">
@@ -63,20 +63,12 @@ function customerService() {
         </wd-badge>
       </view>
     </view>
-    <view>
-      <view class="box-border w-full flex items-center justify-between">
-        <view
-          class="h-68rpx w-200rpx rounded-l-[38rpx] text-center text-28rpx text-white font-500 leading-[68rpx] bg-secondary!"
-          @click="openSkuPopup(2)"
-        >
-          加入购物车
-        </view>
-        <view
-          class="h-68rpx w-200rpx rounded-r-[38rpx] text-center text-28rpx text-white font-500 leading-[68rpx] bg-primary!"
-          @click="openSkuPopup(3)"
-        >
-          立即购买
-        </view>
+    <view class="ml-20rpx flex-1">
+      <view
+        class="h-68rpx w-full rounded-[38rpx] text-center text-28rpx text-white font-500 leading-[68rpx] bg-primary!"
+        @click="openSkuPopup(2)"
+      >
+        加入购物车
       </view>
     </view>
   </view>

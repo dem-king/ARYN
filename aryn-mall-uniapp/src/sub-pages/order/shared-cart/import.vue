@@ -244,7 +244,17 @@ async function handleConfirm() {
       const previous: any = pages[pages.length - 2]
       if (previous?.$vm?.fetchDetail)
         previous.$vm.fetchDetail()
-      setTimeout(() => uni.navigateBack(), 800)
+      // 延时返回期间用户可能已经自己离开本页（切了 tab、点了返回）：
+      // 那时再 navigateBack 就是对已销毁页面发路由，微信报
+      // `routeDone with a webviewId xxx is not found`。
+      // 因此先记住当前页，回调里确认「还是这一页且下面还有页」才返回。
+      const currentPage = pages[pages.length - 1]
+      setTimeout(() => {
+        const stack = getCurrentPages()
+        if (stack[stack.length - 1] !== currentPage || stack.length <= 1)
+          return
+        uni.navigateBack()
+      }, 800)
     }
   }
   catch (error) {

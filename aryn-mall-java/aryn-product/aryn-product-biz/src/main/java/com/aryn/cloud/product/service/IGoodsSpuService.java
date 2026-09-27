@@ -78,6 +78,14 @@ public interface IGoodsSpuService extends IService<GoodsSpu> {
 	GoodsSpu getApiSpuById(String id);
 
 	/**
+	 * C 端按 ID 批量查询在售商品（装修楼层、分类页用）。
+	 * <p>仅返回上架商品；出参已脱敏成本价，管理端读写成本价走 admin 系列方法，不受影响。
+	 * @param ids 商品 SPU ID 列表
+	 * @return 在售商品列表（costPrice 已置空）
+	 */
+	List<GoodsSpu> apiListByIds(List<String> ids);
+
+	/**
 	 * 更新销量
 	 * @param spuId
 	 * @param buyQuantity

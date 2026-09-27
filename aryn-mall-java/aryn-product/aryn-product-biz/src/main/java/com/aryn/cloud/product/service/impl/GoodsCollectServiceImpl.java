@@ -8,6 +8,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.product.api.entity.GoodsCollect;
 import com.aryn.cloud.product.api.entity.GoodsSpu;
+import com.aryn.cloud.product.api.util.GoodsCostPriceMasker;
 import com.aryn.cloud.product.api.vo.GoodsCollectVO;
 import com.aryn.cloud.product.mapper.GoodsCollectMapper;
 import com.aryn.cloud.product.mapper.GoodsSpuMapper;
@@ -27,7 +28,12 @@ public class GoodsCollectServiceImpl extends ServiceImpl<GoodsCollectMapper, Goo
 
 	@Override
 	public IPage<GoodsCollectVO> getPage(Page page, GoodsCollect userCollect) {
-		return baseMapper.selectCollectPage(page, userCollect);
+		IPage<GoodsCollectVO> result = baseMapper.selectCollectPage(page, userCollect);
+		// VO 内嵌完整 GoodsSpu 实体，C 端出参需脱敏成本价（详见 GoodsCostPriceMasker）
+		if (Objects.nonNull(result)) {
+			result.getRecords().forEach(vo -> GoodsCostPriceMasker.maskSpu(vo.getGoodsSpu()));
+		}
+		return result;
 	}
 
 	@Override

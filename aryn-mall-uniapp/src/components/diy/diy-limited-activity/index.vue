@@ -20,7 +20,7 @@ const showData = computed<LimitedActivityProps>(() => ({
   emptyStrategy: props.showData.emptyStrategy || 'placeholder',
   invalidStrategy: props.showData.invalidStrategy || 'hide',
   showCountdown: props.showData.showCountdown !== false,
-  title: props.showData.title || '限时活动',
+  title: props.showData.title || '拼团',
 }))
 const dynamicStyles = useDiyStyle(computed(() => showData.value.commonStyle))
 const { items, shouldRender, status } = useRetailData(showData, loadLimitedActivities)
@@ -41,10 +41,10 @@ function openActivity(id: string) {
     <RetailState v-if="status !== 'ready'" :status="status" />
     <view v-else class="activity-list">
       <view v-for="item in items" :key="item.id" class="activity-item" @click="openActivity(item.id)">
-        <image v-if="item.imageUrl" class="activity-image" :src="item.imageUrl" mode="aspectFill" />
+        <image v-if="item.imageUrl" class="activity-image" :src="item.imageUrl" mode="aspectFill" lazy-load />
         <view v-else class="activity-image activity-image--empty">活动</view>
         <view class="activity-content">
-          <view class="activity-name">{{ item.name || '限时活动' }}</view>
+          <view class="activity-name">{{ item.name || '拼团' }}</view>
           <view v-if="showData.showCountdown" class="activity-time">
             {{ item.status === 'ended' || !remaining(item.endTime) ? '活动已结束' : `剩余 ${remaining(item.endTime)}` }}
           </view>

@@ -3,6 +3,9 @@ import type {
   DecorationDocument,
   DecorationSection,
   PageSettings,
+  SectionCondition,
+  SectionConditionGroup,
+  SectionConditionRule,
   SectionStyle,
 } from './types';
 
@@ -55,18 +58,101 @@ function migrateComponents(values: unknown): DecorationComponent[] {
     : [];
 }
 
+/**
+ * 归一化区块条件：
+ * - 旧字符串简写（always/guest/login）原样保留；
+ * - 合法的组合条件对象深拷贝透传，规则字段缺省时补默认值；
+ * - 未知格式（含 'loginXxx'、空对象等）归一为 'always'。
+ */
+function normalizeCondition(value: unknown): SectionCondition {
+  if (value === 'always' || value === 'guest' || value === 'login') {
+    return value;
+  }
+  if (!isRecord(value)) return 'always';
+
+  const rawRules = value.rules;
+  if (!Array.isArray(rawRules)) return 'always';
+
+  const rules: SectionConditionRule[] = [];
+  for (const rawRule of rawRules) {
+    if (!isRecord(rawRule) || typeof rawRule.type !== 'string') continue;
+    switch (rawRule.type) {
+      case 'guest':
+      case 'login': {
+        rules.push({ type: rawRule.type });
+        break;
+      }
+      case 'memberLevel': {
+        rules.push({
+          type: 'memberLevel',
+          memberLevelIds: Array.isArray(rawRule.memberLevelIds)
+            ? rawRule.memberLevelIds.filter(
+                (id): id is string => typeof id === 'string',
+              )
+            : [],
+        });
+        break;
+      }
+      case 'timeRange': {
+        rules.push({
+          type: 'timeRange',
+          startTime:
+            typeof rawRule.startTime === 'string' ? rawRule.startTime : '',
+          endTime: typeof rawRule.endTime === 'string' ? rawRule.endTime : '',
+        });
+        break;
+      }
+      case 'userTag': {
+        rules.push({
+          type: 'userTag',
+          userTagIds: Array.isArray(rawRule.userTagIds)
+            ? rawRule.userTagIds.filter(
+                (id): id is string => typeof id === 'string',
+              )
+            : [],
+        });
+        break;
+      }
+      default: {
+        // 未知规则类型丢弃，保证旧文档向前兼容
+        break;
+      }
+    }
+  }
+
+  const group: SectionConditionGroup = {
+    logic: value.logic === 'or' ? 'or' : 'and',
+    rules,
+  };
+  return group;
+}
+
+/**
+ * 区块长度字段归一化：负数与非法值回落默认值，超大值封顶。
+ * 与 C 端 `diy/schema/migrate.ts` 保持同口径，避免编辑器预览与实机渲染不一致。
+ */
+const SECTION_LENGTH_MAX = 200;
+
+function normalizeSectionLength(value: unknown, fallback = 0): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+  return Math.min(Math.max(value, 0), SECTION_LENGTH_MAX);
+}
+
 function migrateSectionStyle(value: unknown): SectionStyle {
   const defaults = createDefaultSectionStyle();
   if (!isRecord(value)) return defaults;
-  const condition =
-    value.condition === 'login' || value.condition === 'guest'
-      ? value.condition
-      : defaults.condition;
-  return {
+  const condition = normalizeCondition(value.condition);
+  const merged = {
     ...defaults,
     ...cloneRecord(value),
     condition,
   } as SectionStyle;
+  merged.marginX = normalizeSectionLength(value.marginX);
+  merged.marginY = normalizeSectionLength(value.marginY);
+  merged.paddingX = normalizeSectionLength(value.paddingX);
+  merged.paddingY = normalizeSectionLength(value.paddingY);
+  merged.radius = normalizeSectionLength(value.radius);
+  return merged;
 }
 
 function migrateSections(record: UnknownRecord): DecorationSection[] {

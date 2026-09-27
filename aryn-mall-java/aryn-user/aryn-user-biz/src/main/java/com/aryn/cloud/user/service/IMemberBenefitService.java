@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.extension.service.IService;
 import com.aryn.cloud.user.api.entity.MemberBenefit;
 import com.aryn.cloud.user.api.entity.MemberLevel;
 import com.aryn.cloud.user.api.vo.MemberBenefitsVO;
+import com.aryn.cloud.user.api.vo.MemberCurrentInfoVO;
 
 import java.util.List;
 
@@ -43,6 +44,13 @@ public interface IMemberBenefitService extends IService<MemberBenefit> {
 	List<MemberLevel> getEnabledLevels();
 
 	MemberBenefitsVO getUserBenefits(String userId);
+
+	/**
+	 * 获取当前登录用户的会员等级与标签（用于装修条件渲染）
+	 * @param userId 用户ID
+	 * @return 会员等级信息（levelId/levelName）与标签列表
+	 */
+	MemberCurrentInfoVO getCurrentMemberInfo(String userId);
 
 	MemberBenefit getBenefitDetail(String id);
 

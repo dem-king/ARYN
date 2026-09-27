@@ -65,6 +65,10 @@ public class SeckillActivity extends Model<SeckillActivity> {
 	@Version
 	private Integer version;
 
+	@Schema(description = "场次数（管理端分页联表统计，非表字段）")
+	@TableField(exist = false)
+	private Integer sessionCount;
+
 	@Schema(description = "租户ID")
 	private String tenantId;
 }

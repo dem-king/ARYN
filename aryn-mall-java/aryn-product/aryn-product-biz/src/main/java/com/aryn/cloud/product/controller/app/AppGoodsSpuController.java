@@ -8,7 +8,6 @@ import com.aryn.cloud.product.api.vo.ShipProductSummaryVO;
 import com.aryn.cloud.product.service.IQuickCartService;
 import com.aryn.cloud.product.service.IShipProductProfileService;
 import com.baomidou.mybatisplus.core.metadata.IPage;
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.product.api.entity.GoodsSpu;
 import com.aryn.cloud.product.service.IGoodsSpuService;
@@ -101,8 +100,8 @@ public class AppGoodsSpuController {
 	@Operation(summary = "通过ids查询商品")
 	@GetMapping("/list/{ids}")
 	public Result<List<GoodsSpu>> getById(@PathVariable List<String> ids) {
-		return Result.success(goodsSpuService
-			.list(Wrappers.<GoodsSpu>lambdaQuery().in(GoodsSpu::getId, ids).eq(GoodsSpu::getStatus, "1")));
+		// 查询与出参脱敏收拢在服务层（仅上架 + 成本价不下发），控制器保持轻薄
+		return Result.success(goodsSpuService.apiListByIds(ids));
 	}
 
 	@Operation(summary = "获取热搜商品 Top10")

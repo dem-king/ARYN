@@ -59,8 +59,23 @@ const sections = [
   ['首页金刚区改为 8 项运营入口', '76home_kingkong_entries.sql'],
   ['补给单计划量与执行进度', '77shared_cart_item_planned_qty.sql'],
   ['首页补给单卡片装修迁移', '78home_replenish_card_entry.sql'],
+  ['伙食补给缺失商品补录', '79provision_grocery_supplement.sql'],
   ['补给单Excel导入', '80shared_cart_import_incremental.sql'],
+  ['页面装修审计动作枚举补充', '81page_design_audit_action_comment.sql'],
+  ['优惠券领取记录索引补充', '82coupon_user_received_index.sql'],
+  ['页面装修模板市场上下架与下载量', '83page_design_template_market_incremental.sql'],
+  ['模板市场菜单入口与授权', '84template_market_menu.sql'],
+  ['商超分类扩充与商品图片回填', '86extend_category_seed.sql'],
+  ['微信小程序凭证切换', '87wechat_miniapp_credentials.sql'],
+  ['营销装修组件（拼团改名/秒杀/折扣）', '88marketing_seckill_discount_components.sql'],
+  ['类目角标（推荐/热卖）', '89goods_category_badge.sql'],
+  ['商品卡片划线原价开关', '90goods_card_original_price.sql'],
+  ['船供菜单角色授权补齐', '91ship_menu_role_grant.sql'],
+  ['订单优惠券秒杀结构漂移修复', '92schema_drift_repair.sql'],
+  ['装修区块样式升级与首页品牌区拆分', '93page_design_section_style_upgrade.sql'],
   ['XXL-JOB 调度库', '3aryn_boot_job.sql'],
+  ['秒杀状态流转定时任务注册', '94seckill_status_job.sql'],
+  ['秒杀预扣超时释放定时任务注册', '95seckill_order_expire_job.sql'],
 ];
 
 const normalize = (content) => content.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim();

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { formatCouponExpiry } from '@/utils/coupon-display'
 
 interface Props {
   couponPopup: boolean
@@ -22,7 +23,6 @@ const selectedCouponId = ref()
 watch(() => props.couponPopup, (newVal) => {
   localCouponPopup.value = newVal
 })
-const couponUnavailableMap = computed(getCouponUnavailableMap)
 
 function closeCouponPopup() {
   emit('closeCouponPopup')
@@ -30,22 +30,6 @@ function closeCouponPopup() {
 
 function couponConfirm() {
   emit('couponConfirm', selectedCouponId.value)
-}
-// 选择事件处理：选择当前优惠券（并转为 string）
-function handleSelect(item: any) {
-  const unavailable = couponUnavailableMap.value?.[item.id]?.unavailable
-  if (unavailable) {
-    return
-  }
-  if (item.couponInfo.threshold > 0 && props.orderPrice < item.couponInfo.threshold) {
-    return
-  }
-  if (selectedCouponId.value === item.id) {
-    selectedCouponId.value = ''
-  }
-  else {
-    selectedCouponId.value = item.id
-  }
 }
 function getCouponUnavailableMap() {
   return props.couponUserList.reduce((map, item) => {
@@ -83,6 +67,41 @@ function getCouponUnavailableInfo(item: any) {
 
   return result
 }
+
+const couponUnavailableMap = computed(getCouponUnavailableMap)
+
+// 选择事件处理：选择当前优惠券（并转为 string）
+function handleSelect(item: any) {
+  const unavailable = couponUnavailableMap.value?.[item.id]?.unavailable
+  if (unavailable) {
+    return
+  }
+  if (item.couponInfo.threshold > 0 && props.orderPrice < item.couponInfo.threshold) {
+    return
+  }
+  if (selectedCouponId.value === item.id) {
+    selectedCouponId.value = ''
+  }
+  else {
+    selectedCouponId.value = item.id
+  }
+}
+/**
+ * 列表 → 券卡视图模型。
+ *
+ * 状态带统一放有效期，不可用原因单独放在卡片下方（沿用原有红色说明文案），
+ * 两处都写原因会重复——灰色的带已经把「不可用」表达清楚了。
+ */
+const cards = computed(() => props.couponUserList.map((item) => {
+  const unavailable = couponUnavailableMap.value[item.id]
+  return {
+    item,
+    band: formatCouponExpiry(item.validatTime || item.couponInfo?.receiveEndedAt),
+    reason: unavailable?.unavailable ? unavailable.reason : '',
+    tone: unavailable?.unavailable ? ('muted' as const) : ('active' as const),
+    selectable: !unavailable?.unavailable,
+  }
+}))
 </script>
 
 <template>
@@ -90,50 +109,26 @@ function getCouponUnavailableInfo(item: any) {
     v-model="localCouponPopup" safe-area-inset-bottom custom-class="coupon-action" title="选择优惠券"
     @close="closeCouponPopup"
   >
-    <scroll-view scroll-y class="mb-4 h-400px">
-      <view v-for="item in couponUserList" :key="item.id" class="px-4 py-1">
-        <view class="coupon-card coupon-img-style" :class="{ 'coupon-disabled': couponUnavailableMap[item.id]?.unavailable }" @click="handleSelect(item)">
-          <!-- 左侧金额区 -->
-          <view class="coupon-left-img">
-            <view class="coupon-amount-img">
-              {{ item.couponInfo.couponType === '1' ? `￥${item.couponInfo.amount}` : `${item.couponInfo.discount}折` }}
-            </view>
-            <view class="coupon-threshold-img">
-              {{ item.couponInfo.threshold && item.couponInfo.threshold > 0 ? `满${item.couponInfo.threshold}元可用` : '无门槛优惠券' }}
-            </view>
-            <view class="coupon-notch-img" />
-          </view>
-          <!-- 右侧信息区 -->
-          <view class="coupon-right-img">
-            <view class="coupon-title-img">
-              {{ item.couponInfo.couponName }}
-            </view>
-            <view class="coupon-desc-img">
-              {{ item.couponInfo.useRange === '1' ? '全部商品可用' : '部分商品可用' }}
-            </view>
-          </view>
-          <view class="coupon-btn-img">
-            <!-- 选中显示对勾图标；未选中显示圆圈图标 -->
-            <wd-icon
-              v-if="selectedCouponId === item.id"
-              name="check-outline"
-              size="22px"
-            />
-            <wd-icon
-              v-else
-              name="circle1"
-              size="22px"
-            />
-          </view>
-          <!-- 不可用蒙层 -->
-          <view v-if="couponUnavailableMap[item.id].unavailable" class="coupon-mask-img" />
-        </view>
-        <view v-if="couponUnavailableMap[item.id].unavailable" class="flex items-center px-2 py-1 text-12px text-primary">
-          优惠券不可用原因：{{ couponUnavailableMap[item.id].reason }}
+    <scroll-view scroll-y class="coupon-scroll">
+      <view v-for="card in cards" :key="card.item.id" class="coupon-scroll__item">
+        <coupon-card
+          :coupon="card.item.couponInfo || {}"
+          :band="card.band"
+          :tone="card.tone"
+          selector
+          :selected="selectedCouponId === card.item.id"
+          :action-enabled="card.selectable"
+          @select="handleSelect(card.item)"
+        />
+        <view v-if="card.reason" class="coupon-scroll__reason">
+          优惠券不可用原因：{{ card.reason }}
         </view>
       </view>
+      <view v-if="cards.length === 0" class="coupon-scroll__empty">
+        暂无可用优惠券
+      </view>
     </scroll-view>
-    <view class="border-1 border-gray-300 border-t-solid p-1">
+    <view class="coupon-scroll__footer">
       <wd-button block type="primary" @click="couponConfirm">
         确认
       </wd-button>
@@ -145,169 +140,24 @@ function getCouponUnavailableInfo(item: any) {
 .coupon-action {
   max-height: 500px;
 }
-.coupon-card {
-  position: relative;
-  width: 100%;
-  height: 160rpx;
-  border-radius: 24rpx;
-  overflow: hidden;
-  display: flex;
-  box-shadow: 0 8rpx 32rpx rgba(0, 0, 0, 0.1);
-  transition: all 0.3s ease;
-  &:active {
-    transform: scale(0.98);
-  }
+.coupon-scroll {
+  height: 400px;
 }
-.coupon-disabled {
-  pointer-events: none;
+.coupon-scroll__item {
+  padding: 16rpx 24rpx 0;
 }
-.coupon-disabled:active {
-  transform: none;
-}
-.coupon-img-style {
-  display: flex;
-  align-items: stretch;
-  border-radius: 20rpx;
-  background: linear-gradient(90deg, #ff5a4a 0%, #ff2d2d 100%);
-  border: 2px solid #ff2d2d;
-  position: relative;
-  min-height: 140rpx;
-  overflow: visible;
-}
-.coupon-left-img {
-  width: 180rpx;
-  background: #fff;
-  border-top-left-radius: 20rpx;
-  border-bottom-left-radius: 20rpx;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 20rpx 0;
-  position: relative;
-  z-index: 100;
-  &::after{
-    content: "";
-    position: absolute;
-    right: -0.8rem;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 2rem;
-    height: 100%;
-    border-radius: 50%;
-    background: #fff;
-    z-index: -10;
-  }
-}
-.coupon-amount-img {
-  color: #ff2d2d;
-  font-size: 44rpx;
-  font-weight: bold;
-  line-height: 1.1;
-}
-.coupon-threshold-img {
-  color: #bfbfbf;
-  font-size: 20rpx;
-  margin-top: 4rpx;
-}
-.coupon-notch-img {
-  position: absolute;
-  right: -20rpx;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 40rpx;
-  height: 40rpx;
-  background: #fff;
-  border-radius: 50%;
-  box-shadow: 0 2rpx 8rpx rgba(0,0,0,0.04);
-  z-index: 2;
-}
-.coupon-right-img {
-  flex: 1;
-  padding: 18rpx 24rpx 18rpx 18rpx;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  margin-left: 10px;
-}
-.coupon-title-img {
-  color: #fff;
-  font-size: 28rpx;
-  font-weight: bold;
-  margin-bottom: 8rpx;
-}
-.coupon-countdown-img {
-  color: #fff;
+.coupon-scroll__reason {
+  padding: 4rpx 8rpx 0;
   font-size: 22rpx;
-  font-weight: bold;
-  margin-bottom: 4rpx;
-}
-.coupon-desc-img {
-  color: #fff;
-  font-size: 20rpx;
-  margin-top: 2rpx;
-}
-.coupon-btn-img {
-  position: absolute;
-  right: 24rpx;
-  top: 50%;
-  transform: translateY(-50%);
-  background: #fff;
   color: #ff2d2d;
-  font-size: 22rpx;
-  font-weight: bold;
-  border-radius: 24rpx;
-  padding: 8rpx 18rpx;
-  box-shadow: 0 2rpx 8rpx rgba(255, 107, 107, 0.08);
-  cursor: pointer;
-  transition: background 0.2s;
-  border: none;
 }
-.coupon-btn-img:active {
-  background: #ffeaea;
+.coupon-scroll__empty {
+  padding: 80rpx 0;
+  font-size: 26rpx;
+  color: #999;
+  text-align: center;
 }
-.coupon-tag-img {
-  position: absolute;
-  top: 0;
-  right: 0;
-  background: #ff2d2d;
-  color: #fff;
-  font-size: 20rpx;
-  font-weight: bold;
-  padding: 0 24rpx;
-  height: 40rpx;
-  line-height: 40rpx;
-  border-top-right-radius: 20rpx;
-  border-bottom-left-radius: 20rpx;
-  transform: rotate(25deg) translate(18rpx, -12rpx);
-  box-shadow: 0 2rpx 8rpx rgba(255, 107, 107, 0.12);
-  z-index: 2;
-}
-.coupon-mask-img {
-  position: absolute;
-  left: 0;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(200, 200, 200, 0.2);
-  border-radius: 20rpx;
-  z-index: 1;
-  pointer-events: auto;
-}
-@media (max-width: 750rpx) {
-  .coupon-left-img {
-    width: 110rpx;
-    padding: 12rpx 0;
-  }
-  .coupon-amount-img {
-    font-size: 32rpx;
-  }
-  .coupon-title-img {
-    font-size: 22rpx;
-  }
-  .coupon-btn-img {
-    font-size: 18rpx;
-    padding: 6rpx 18rpx;
-  }
+.coupon-scroll__footer {
+  margin: 16rpx;
 }
 </style>

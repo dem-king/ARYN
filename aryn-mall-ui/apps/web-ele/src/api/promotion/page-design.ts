@@ -1,7 +1,62 @@
 import { requestClient } from '#/api/request';
 
-export type PageDesignType = '0' | '1';
+/** 页面类型：0.微页面 1.商城首页 2.商品详情页 3.分类页 4.个人中心页 */
+export type PageDesignType = '0' | '1' | '2' | '3' | '4';
 export type PublishStatus = '0' | '1';
+
+/**
+ * 页面类型元数据（唯一来源）。
+ *
+ * 页面列表、搭建器入口、模板市场三处都要按 pageType 取中文名与路由 query token，
+ * 此前各自 maintain 了一份 switch / Record —— 加一个页面类型要改四处，
+ * 漏改一处就出现「筛选下拉有、列表文案没有」这类不一致。
+ * 新增页面类型只改这里。
+ *
+ * `queryToken` 是搭建器 URL 的 `type` 参数值（router query 只接受字符串，
+ * 用可读 token 而不是数字，便于排查）。
+ */
+export const PAGE_TYPE_META: Record<
+  PageDesignType,
+  { label: string; queryToken: string }
+> = {
+  '0': { label: '微页面', queryToken: 'micro' },
+  '1': { label: '商城首页', queryToken: 'home' },
+  '2': { label: '商品详情页', queryToken: 'detail' },
+  '3': { label: '分类页', queryToken: 'category' },
+  '4': { label: '个人中心页', queryToken: 'usercenter' },
+};
+
+/** 可新建/可筛选的页面类型（首页由「设为首页」切换而来，不在新建列表内）。 */
+export const CREATABLE_PAGE_TYPES: PageDesignType[] = ['0', '2', '3', '4'];
+
+/** 全部页面类型，按固定顺序（筛选下拉用）。 */
+export const PAGE_TYPE_OPTIONS: PageDesignType[] = ['0', '1', '2', '3', '4'];
+
+/** 页面类型中文名；未知值原样回显，避免渲染出 undefined。 */
+export function pageTypeLabel(pageType: string | undefined): string {
+  if (!pageType) {
+    return '-';
+  }
+  return PAGE_TYPE_META[pageType as PageDesignType]?.label ?? pageType;
+}
+
+/** 页面类型对应的搭建器 query token；未知值返回空串（回落微页面）。 */
+export function pageTypeToQueryToken(pageType: PageDesignType): string {
+  return PAGE_TYPE_META[pageType]?.queryToken ?? '';
+}
+
+/** 搭建器 query token 反查页面类型；未知 token 回落微页面(0)。 */
+export function queryTokenToPageType(
+  token: string | undefined,
+): PageDesignType {
+  if (!token) {
+    return '0';
+  }
+  const matched = (
+    Object.entries(PAGE_TYPE_META) as [PageDesignType, { queryToken: string }][]
+  ).find(([, meta]) => meta.queryToken === token);
+  return matched?.[0] ?? '0';
+}
 
 export interface PageDesignQuery {
   current: number;
@@ -88,7 +143,7 @@ export interface PageDesignMutationPayload {
 
 export interface PageDesignTemplatePayload {
   industryTag?: string;
-  pageType: '0' | '1' | '2';
+  pageType: PageDesignType;
   schemaVersion: number;
   systemFlag: '0' | '1';
   templateContent: Record<string, unknown>;
@@ -96,11 +151,18 @@ export interface PageDesignTemplatePayload {
   templateType: '0' | '1';
 }
 
+/** 模板市场状态：0.未上架 1.已上架 2.已下架 */
+export type TemplateMarketStatus = '0' | '1' | '2';
+
 export interface PageDesignTemplateRecord extends PageDesignTemplatePayload {
+  createTime?: string;
+  downloadCount?: number;
   id: string;
   industryTag?: string;
+  marketStatus?: TemplateMarketStatus;
   sort?: number;
   status?: string;
+  updateTime?: string;
 }
 
 /** 服务端结构化校验问题项 */
@@ -310,6 +372,14 @@ export async function publishPage(id: string, data: PageDesignPublishPayload) {
   );
 }
 
+/**
+ * 将已发布的页面设为租户线上首页（移动端首页读取该指针）。
+ * 目标页面必须先发布，否则 C 端首页会读不到线上快照。
+ */
+export async function setAsHome(id: string) {
+  return requestClient.post<boolean>(`/promotion/pagedesign/${id}/set-home`);
+}
+
 export async function unpublishPage(id: string) {
   return requestClient.post<boolean>(`/promotion/pagedesign/${id}/unpublish`);
 }
@@ -371,6 +441,73 @@ export async function updateTemplate(
 
 export async function deleteTemplate(id: string) {
   return requestClient.delete<boolean>(`/promotion/pagedesign/templates/${id}`);
+}
+
+/** 模板市场列表查询：分页参数为 pageNum/pageSize，支持关键字与行业标签筛选 */
+export interface TemplateMarketQuery {
+  industryTag?: string;
+  keyword?: string;
+  pageNum: number;
+  pageSize: number;
+  sortField?: 'createTime' | 'downloadCount';
+}
+
+/** 模板市场卡片（不含 templateContent，列表轻量返回） */
+export interface TemplateMarketItem {
+  createTime?: string;
+  createUserName?: string;
+  description?: string;
+  downloadCount: number;
+  id: string;
+  industryTag?: string;
+  pageType: PageDesignType;
+  templateName: string;
+  templateType: '0' | '1';
+  thumbnailUrl?: string;
+}
+
+export interface TemplateMarketPage {
+  current: number;
+  pages: number;
+  records: TemplateMarketItem[];
+  size: number;
+  total: number;
+}
+
+/** 发布模板到市场 */
+export async function publishTemplateToMarket(id: string) {
+  return requestClient.post<boolean>(
+    `/promotion/pagedesign/templates/${id}/market/publish`,
+  );
+}
+
+/** 将模板从市场下架 */
+export async function offlineTemplateFromMarket(id: string) {
+  return requestClient.post<boolean>(
+    `/promotion/pagedesign/templates/${id}/market/offline`,
+  );
+}
+
+/** 模板市场分页列表 */
+export async function getTemplateMarketList(query: TemplateMarketQuery) {
+  return requestClient.get<TemplateMarketPage>(
+    '/promotion/pagedesign/templates/market/list',
+    { params: query },
+  );
+}
+
+/** 模板市场详情 */
+export async function getTemplateMarketDetail(id: string) {
+  return requestClient.get<TemplateMarketItem>(
+    `/promotion/pagedesign/templates/market/${id}`,
+  );
+}
+
+/** 下载市场模板，返回生成的新模板 ID */
+export async function downloadTemplateFromMarket(id: string) {
+  return requestClient.post<string>(
+    `/promotion/pagedesign/templates/market/${id}/download`,
+  );
 }
 
 /** 发布前结构化校验当前草稿（服务端） */

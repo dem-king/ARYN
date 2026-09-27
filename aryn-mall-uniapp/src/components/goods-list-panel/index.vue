@@ -72,9 +72,13 @@ async function queryList(pageNo: number, pageSize: number) {
       brandId: props.brandId || undefined,
       ...pageOrder.value,
     })
+    // eslint-disable-next-line no-console
+    console.log('[goods-list-panel] queryList', { pageNo, keys: Object.keys(response ?? {}), records: response?.records?.length, sample: response?.records?.[0] })
     pagingRef.value?.complete(response?.records ?? [])
   }
-  catch {
+  catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('[goods-list-panel] queryList failed', e)
     // 失败时结束本次分页，避免 z-paging 一直停留在加载中
     pagingRef.value?.complete(false)
   }
@@ -165,36 +169,53 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
       :safe-area-inset-bottom="false"
       @query="queryList"
     >
-      <template v-if="showSort" #top>
-        <view class="sort-bar">
-          <view
-            class="sort-item"
-            :class="sortMode === 'default' ? 'sort-item--active' : ''"
-            @click="sortHandler('default')"
-          >
-            综合推荐
-          </view>
-          <view class="sort-item">
-            <wd-sort-button v-model="salesSort" title="销量" @change="sortHandler('sales')" />
-          </view>
-          <view class="sort-item">
-            <wd-sort-button v-model="priceSort" title="价格" @change="sortHandler('price')" />
-          </view>
-          <view
-            class="sort-item"
-            :class="sortMode === 'newGoods' ? 'sort-item--active' : ''"
-            @click="sortHandler('newGoods')"
-          >
-            新品
-          </view>
+      <!--
+        顶部内容区（装修 banner + 排序条）排在**滚动区内**，随商品流一起滚动。
+
+        排序条原先挂在 z-paging 的 `#top` 插槽上，而该插槽渲染在滚动容器之外
+        （z-paging.vue 注释即「顶部固定的 slot」），装修 banner 只能排在它下方，
+        与参考图「banner 在上、排序条在下」的次序相反。因此两者同置滚动区内：
+        banner 随商品流移出，排序条用 sticky 维持常驻可见。
+
+        容器不做 `v-if="$slots.banner"` 判断：uni-app 小程序端的 slot 检测不可靠，
+        传了内容也可能判定为空而整块不渲染。空插槽的 view 无样式、高度为 0，
+        无条件渲染没有副作用。
+      -->
+      <view class="list-banner">
+        <slot name="banner" />
+      </view>
+
+      <view v-if="showSort" class="sort-bar">
+        <view
+          class="sort-item"
+          :class="sortMode === 'default' ? 'sort-item--active' : ''"
+          @click="sortHandler('default')"
+        >
+          综合推荐
         </view>
-      </template>
+        <view class="sort-item">
+          <wd-sort-button v-model="salesSort" title="销量" @change="sortHandler('sales')" />
+        </view>
+        <view class="sort-item">
+          <wd-sort-button v-model="priceSort" title="价格" @change="sortHandler('price')" />
+        </view>
+        <view
+          class="sort-item"
+          :class="sortMode === 'newGoods' ? 'sort-item--active' : ''"
+          @click="sortHandler('newGoods')"
+        >
+          新品
+        </view>
+      </view>
 
       <view class="goods-list" :class="grid ? 'goods-list--grid' : 'goods-list--row'">
         <view
-          v-for="item in goodsList"
+          v-for="(item, index) in goodsList"
           :key="item.id"
           :class="cardClass"
+          :style="{ animationDelay: `${Math.min(index, 8) * 36}ms` }"
+          hover-class="goods-card--pressed"
+          :hover-stay-time="120"
           @click="toDetail(item.id)"
         >
           <image
@@ -241,6 +262,16 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
   height: 100%;
 }
 
+/**
+ * 装修 banner 容器（banner 插槽内容）。
+ *
+ * 只做「随商品流滚动」的定位，不加内边距：具体留白由各装修组件自带的
+ * commonStyle 决定，这里再加一层会与编辑器里的预览值叠加、两端对不上。
+ */
+.list-banner {
+  position: relative;
+}
+
 .sort-bar {
   display: flex;
   align-items: center;
@@ -250,6 +281,10 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
   background: #fff;
   font-size: 28rpx;
   color: #666;
+  /* 排序条排在滚动区内（见模板注释），靠 sticky 常驻顶部 */
+  position: sticky;
+  top: 0;
+  z-index: 10;
 
   .sort-item {
     display: flex;
@@ -272,26 +307,68 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
   }
 }
 
+/**
+ * 两列走 grid 轨道均分，不要写成 flex-wrap + 卡宽 `calc(50% - gap/2)`。
+ *
+ * 后者算出来正好等于容器宽度的 100%、零余量；小程序把 rpx 换算成整数 px 时
+ * 多出的零头会让 flex-wrap 判定「放不下」，表现成每行只剩一张卡、右侧半屏空白。
+ * grid 先扣 gap 再分轨道宽度，不存在这个临界问题。
+ */
 .goods-list--grid {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16rpx;
 }
 
 .goods-card {
   background: #fff;
   overflow: hidden;
+  /* 卡片逐项入场（按 index 错峰），backwards 保证结束后 :active 按压仍生效 */
+  animation: goods-card-in 300ms ease-out backwards;
 }
 
 .goods-card--grid {
-  width: calc(50% - 8rpx);
   border-radius: 16rpx;
+  box-shadow: 0 4rpx 14rpx rgba(22, 34, 51, 0.05);
+  transition: transform 160ms ease, box-shadow 160ms ease;
+
+  &:active {
+    transform: scale(0.98);
+    box-shadow: 0 2rpx 8rpx rgba(22, 34, 51, 0.06);
+  }
+}
+
+@keyframes goods-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(16rpx);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 按压反馈：H5 用 :active，小程序用 hover-class，两者效果一致 */
+.goods-card--pressed {
+  transform: scale(0.98);
+}
+
+.goods-card--row.goods-card--pressed {
+  transform: none;
+  background: #fafbfc;
 }
 
 .goods-card--row {
   display: flex;
   padding: 16rpx;
   border-bottom: 1rpx solid #f2f2f2;
+  transition: background-color 160ms ease;
+
+  &:active {
+    background: #fafbfc;
+  }
 }
 
 .goods-pic--grid {
@@ -369,6 +446,13 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
 
   .goods-price-value {
     font-size: 32rpx;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .goods-card {
+    animation: none;
+    transition: none;
   }
 }
 </style>

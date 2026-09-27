@@ -39,6 +39,8 @@ services:
     image: redis:7-alpine
     container_name: aryn-redis
     restart: always
+    environment:
+      TZ: Asia/Shanghai
     ports:
       - "6379:6379"
     volumes:
@@ -57,6 +59,7 @@ services:
     container_name: aryn-nacos
     restart: always
     environment:
+      TZ: Asia/Shanghai
       MODE: standalone
       SPRING_DATASOURCE_PLATFORM: mysql
       MYSQL_SERVICE_HOST: aryn-mysql
@@ -107,6 +110,7 @@ services:
     ports:
       - "9876:9876"
     environment:
+      TZ: Asia/Shanghai
       JAVA_OPT_EXT: "-Xms256m -Xmx512m"
     command: sh mqnamesrv
     networks:
@@ -128,6 +132,7 @@ services:
       - "10911:10911"
       - "10909:10909"
     environment:
+      TZ: Asia/Shanghai
       NAMESRV_ADDR: aryn-rocketmq-namesrv:9876
       JAVA_OPT_EXT: "-Xms256m -Xmx512m"
     command: sh mqbroker -n aryn-rocketmq-namesrv:9876 -c /home/rocketmq/rocketmq-5.4.0/conf/broker.conf
@@ -145,6 +150,7 @@ services:
       - "8091:8091"
       - "7091:7091"
     environment:
+      TZ: Asia/Shanghai
       SEATA_PORT: 8091
       STORE_MODE: file
       SEATA_IP: aryn-seata

@@ -10,7 +10,10 @@ import {
 const expectedRetailComponentTypes = [
   'goods-group',
   'goods-ranking',
+  'goods-scroll',
   'limited-activity',
+  'seckill',
+  'discount',
   'countdown',
   'marketing-entry',
   'shop-info',
@@ -18,10 +21,16 @@ const expectedRetailComponentTypes = [
   'replenish-card',
 ] as const;
 
+/** legacy 组件数：P1 起 custom-html 纳入基础组件 */
+const LEGACY_COMPONENT_COUNT = 12;
+
+/** retail 组件数：P1 起含 goods-scroll；本轮新增 seckill / discount */
+const RETAIL_COMPONENT_COUNT = 11;
+
 describe('legacy component registry', () => {
   it('registers every legacy component exactly once', () => {
-    expect(legacyComponentTypes).toHaveLength(11);
-    expect(new Set(legacyComponentTypes).size).toBe(11);
+    expect(legacyComponentTypes).toHaveLength(LEGACY_COMPONENT_COUNT);
+    expect(new Set(legacyComponentTypes).size).toBe(LEGACY_COMPONENT_COUNT);
     expect(legacyComponentTypes.every((type) => componentRegistry[type])).toBe(
       true,
     );
@@ -40,7 +49,17 @@ describe('legacy component registry', () => {
       expect(definition?.preview).toBeTruthy();
       expect(definition?.settings).toBeTruthy();
       expect(definition?.supportedTerminals).toEqual(['admin', 'uniapp']);
-      expect(definition?.validate(definition.createDefaultProps())).toEqual([]);
+      if (type === 'custom-html') {
+        // 自定义 HTML 的默认内容刻意留空：空块不允许发布，
+        // 运营必须粘贴内容后才能上线，因此新拖入的组件校验必然不通过。
+        expect(definition?.validate(definition.createDefaultProps())).toEqual([
+          'HTML 内容不能为空',
+        ]);
+      } else {
+        expect(definition?.validate(definition.createDefaultProps())).toEqual(
+          [],
+        );
+      }
       expect(
         Object.keys(definition?.createDefaultProps() ?? {}),
       ).not.toHaveLength(0);
@@ -52,9 +71,11 @@ describe('legacy component registry', () => {
 });
 
 describe('retail component registry', () => {
-  it('registers all eight retail components exactly once', () => {
+  it('registers all retail components exactly once', () => {
     expect(retailComponentTypes).toEqual(expectedRetailComponentTypes);
-    expect(new Set(expectedRetailComponentTypes).size).toBe(8);
+    expect(new Set(expectedRetailComponentTypes).size).toBe(
+      RETAIL_COMPONENT_COUNT,
+    );
     expect(Object.keys(componentRegistry).sort()).toEqual(
       [
         ...legacyComponentTypes,

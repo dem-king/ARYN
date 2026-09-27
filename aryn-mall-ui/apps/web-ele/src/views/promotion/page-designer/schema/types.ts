@@ -65,14 +65,44 @@ export type DecorationTerminal = 'admin' | 'h5' | 'weapp';
 /** 旧版扁平文档常量，仅用于历史测试与迁移器输入识别 */
 export const LEGACY_FLAT_SCHEMA_VERSION = 2 as const;
 
-export type SectionCondition = 'always' | 'guest' | 'login';
+/**
+ * 区块条件显示：向后兼容字符串简写（登录态三态），
+ * 同时支持「登录态 + 会员等级 + 用户标签 + 时间段」的对象组合条件，
+ * 契约与 C 端（aryn-mall-uniapp diy/schema）保持一致。
+ */
+export type SectionCondition =
+  'always' | 'guest' | 'login' | SectionConditionGroup;
 
+export interface SectionConditionGroup {
+  logic: 'and' | 'or';
+  rules: SectionConditionRule[];
+}
+
+export type SectionConditionRule =
+  | { endTime: string; startTime: string; type: 'timeRange' }
+  | { memberLevelIds: string[]; type: 'memberLevel' }
+  | { type: 'guest' }
+  | { type: 'login' }
+  | { type: 'userTag'; userTagIds: string[] };
+
+/**
+ * 区块容器样式。长度单位一律为 px，与画布（375px 手机壳）一致，
+ * 也与 C 端 `diy/schema/types.ts` 的 SectionStyle 保持同构。
+ */
 export interface SectionStyle {
   backgroundColor: string;
   backgroundImage: string;
   condition: SectionCondition;
   horizontalScroll: boolean;
+  /** 左右外边距：让区块脱离通栏、成为一张卡片（配合 radius 使用） */
+  marginX: number;
+  /** 上下外边距：撑开区块之间的距离 */
+  marginY: number;
+  /** 左右内边距：让区块内的组件不贴边，避免盖住圆角 */
+  paddingX: number;
   paddingY: number;
+  /** 圆角：0 表示通栏直角区块 */
+  radius: number;
   sticky: boolean;
 }
 

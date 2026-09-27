@@ -4,7 +4,17 @@
     "register": "Register",
     "codeLogin": "Code Login",
     "qrcodeLogin": "Qr Code Login",
-    "forgetPassword": "Forget Password"
+    "forgetPassword": "Forget Password",
+    "loginWelcome": "Welcome back",
+    "loginWelcomeDesc": "Sign in to the Aetheryn Mall admin console",
+    "brandSloganTitle": "Set every business on a smooth voyage",
+    "brandSloganSub": "One-stop e-commerce SaaS management platform",
+    "brandFeature1Title": "Multi-tenant",
+    "brandFeature1Desc": "Data isolated per tenant with fine-grained access",
+    "brandFeature2Title": "End-to-end operations",
+    "brandFeature2Desc": "Goods, orders, marketing and fulfillment in one place",
+    "brandFeature3Title": "Real-time insights",
+    "brandFeature3Desc": "Live dashboards to support business decisions"
   },
   "dashboard": {
     "title": "Dashboard",

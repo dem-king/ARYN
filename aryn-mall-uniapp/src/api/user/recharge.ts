@@ -1,13 +1,15 @@
 import { alovaInstance } from '@/api/core/instance'
 
-// 获取充值配置列表
-export function getRechargeConfigList(params: object) {
-  return alovaInstance.Get<any>('/mall-user/rechargeconfig/page', { params })
+// 获取充值配置列表（C 端只回启用中的方案）
+export function getRechargeConfigList() {
+  return alovaInstance.Get<any>('/mall-user/app/recharge/config/list')
 }
 
 // 创建充值订单
-export function createRechargeOrder(data: object) {
-  return alovaInstance.Post<any>('/mall-user/app/recharge/order', data)
+export function createRechargeOrder(rechargeConfigId: string) {
+  return alovaInstance.Post<any>('/mall-user/app/recharge/order', {}, {
+    params: { rechargeConfigId },
+  })
 }
 
 // 我的充值订单

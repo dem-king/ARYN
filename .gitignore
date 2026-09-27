@@ -97,6 +97,11 @@ graphify-out/
 .understand-anything/
 .codex/hooks.json
 
+# Local runtime artifacts (file upload storage and tool outputs)
+aryn-mall-java/aryn-boot/aryn/
+.workbuddy-ai/
+artifacts/
+
 # Turborepo local build cache
 .turbo/
 .eslintcache

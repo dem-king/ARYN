@@ -6,6 +6,8 @@ import type { UserInfo } from '@/api/auth'
 import { getUserInfo } from '@/api/auth'
 import { getCount as getCollectCount } from '@/api/product/collect'
 import { getCount as getCouponCount } from '@/api/promotion/couponUser'
+import type { MemberCurrentInfo } from '@/api/user/member'
+import { getMemberCurrentInfo } from '@/api/user/member'
 import { getPointsInfo } from '@/api/user/points'
 import type { PointsInfo } from '@/api/user/points'
 
@@ -14,6 +16,10 @@ interface UserState {
 
   // 会员积分信息
   pointsInfo: PointsInfo | null
+
+  // 会员等级与标签（用于装修区块条件渲染）
+  levelId: string
+  userTags: string[]
 
   // loading flags
   isUserInfoLoading: boolean
@@ -26,6 +32,7 @@ interface UserState {
   collectPromise?: Promise<number>
   couponPromise?: Promise<number>
   pointsPromise?: Promise<PointsInfo>
+  memberInfoPromise?: Promise<MemberCurrentInfo>
 
   collectCount: number
   couponCount: number
@@ -35,6 +42,8 @@ export const useUserStore = defineStore('user', {
   state: (): UserState => ({
     userInfo: null,
     pointsInfo: null,
+    levelId: '',
+    userTags: [],
 
     isUserInfoLoading: false,
     isCollectLoading: false,
@@ -45,6 +54,7 @@ export const useUserStore = defineStore('user', {
     collectPromise: undefined,
     couponPromise: undefined,
     pointsPromise: undefined,
+    memberInfoPromise: undefined,
 
     collectCount: 0,
     couponCount: 0,
@@ -63,6 +73,9 @@ export const useUserStore = defineStore('user', {
     getPoint: state => state.pointsInfo?.point ?? 0,
     getBalance: state => state.pointsInfo?.balance ?? 0,
     getLevelName: state => state.pointsInfo?.levelName ?? '',
+    getLevelId: state => state.levelId,
+    getUserTags: state => state.userTags,
+    hasTag: state => (tagId: string) => state.userTags.includes(tagId),
   },
 
   actions: {
@@ -77,6 +90,8 @@ export const useUserStore = defineStore('user', {
     clearUserInfo() {
       this.userInfo = null
       this.pointsInfo = null
+      this.levelId = ''
+      this.userTags = []
       this.collectCount = 0
       this.couponCount = 0
     },
@@ -125,6 +140,9 @@ export const useUserStore = defineStore('user', {
               ),
               this.refreshPointsInfo().catch(err =>
                 console.error('[用户信息] 刷新积分信息失败:', err),
+              ),
+              this.fetchMemberInfo().catch(err =>
+                console.error('[用户信息] 刷新会员等级/标签失败:', err),
               ),
             ])
           }
@@ -231,6 +249,37 @@ export const useUserStore = defineStore('user', {
       })()
 
       return this.pointsPromise
+    },
+
+    /**
+     * fetchMemberInfo - 获取当前用户会员等级与标签（去重 Promise）
+     * 登录后由 fetchUserInfo 并行调用，供装修区块条件渲染使用。
+     */
+    async fetchMemberInfo(): Promise<MemberCurrentInfo> {
+      if (this.memberInfoPromise)
+        return this.memberInfoPromise
+
+      this.memberInfoPromise = (async () => {
+        try {
+          const response: MemberCurrentInfo = await getMemberCurrentInfo().send()
+          this.levelId = response.levelId ?? ''
+          // 从 tags 对象数组中提取 tagId 列表
+          this.userTags = Array.isArray(response.tags)
+            ? response.tags.map(t => t.tagId).filter(Boolean)
+            : []
+          return response
+        }
+        catch (error) {
+          console.error('获取会员等级/标签失败:', error)
+          // 失败时保持空值，不抛出以免影响主流程
+          return { levelId: '', levelName: '', tags: [] }
+        }
+        finally {
+          this.memberInfoPromise = undefined
+        }
+      })()
+
+      return this.memberInfoPromise
     },
 
     /**

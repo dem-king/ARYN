@@ -109,7 +109,7 @@ CREATE TABLE `social_account`  (
 -- ----------------------------
 -- Records of social_account
 -- ----------------------------
-INSERT INTO `social_account` VALUES ('1', 'WX_MA', 'wxe150c73d0376f899', 'xxxxxxxx', '2026-04-05 12:33:47', '2026-04-05 13:42:02', '0', NULL, 'system', '1590229800633634816');
+INSERT INTO `social_account` VALUES ('1', 'WX_MA', 'wx0a8242ea59f3e6b4', '2556ce9a864c8e0ff8f4fb4f0f94fc89', '2026-04-05 12:33:47', '2026-04-05 13:42:02', '0', NULL, 'system', '1590229800633634816');
 -- ----------------------------
 -- Table structure for social_user
 -- ----------------------------

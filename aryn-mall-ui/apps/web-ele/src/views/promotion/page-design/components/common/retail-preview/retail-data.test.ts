@@ -5,11 +5,14 @@ import { describe, expect, it, vi } from 'vitest';
 import { createGoodsGroupDefaults } from '../../goods-group/types';
 import { createGoodsRankingDefaults } from '../../goods-ranking/types';
 import { createLimitedActivityDefaults } from '../../limited-activity/types';
+import { createSeckillDefaults } from '../../seckill/types';
 import {
   loadGoodsGroup,
   loadGoodsRanking,
   loadLimitedActivities,
+  loadSeckillSessions,
   loadShopInfo,
+  normalizeDiscountActivities,
 } from './retail-data';
 
 function createDependencies(
@@ -21,6 +24,8 @@ function createDependencies(
     goodsByIds: vi.fn(async () => []),
     goodsPage: vi.fn(async () => ({ records: [] })),
     salesRanking: vi.fn(async () => []),
+    seckillSessionGoods: vi.fn(async () => ({})),
+    seckillSessions: vi.fn(async () => []),
     shopById: vi.fn(async () => ({})),
     ...overrides,
   };
@@ -62,6 +67,8 @@ describe('retail preview data adapters', () => {
         id: 'goods-1',
         imageUrl: 'fan.png',
         name: '夏日风扇',
+        // 未下发原价的商品落 0，渲染侧据此隐藏划线（避免划出「￥0」）
+        originalPrice: 0,
         price: 39.9,
         sales: 21,
         stock: 8,
@@ -221,5 +228,96 @@ describe('retail preview data adapters', () => {
         siteUrl: 'https://example.test',
       },
     ]);
+  });
+  it('loads seckill sessions and keeps a negative remaining stock as unknown', async () => {
+    const seckillSessions = vi.fn(async () => [
+      {
+        goodsList: [
+          {
+            goodsImage: 'a.png',
+            goodsName: '洗发水',
+            originalPrice: 39.9,
+            // 后端未下发剩余库存时必须是 -1（未知），不能落成 0（售罄）
+            remainingStock: undefined,
+            seckillPrice: 9.9,
+            seckillStock: 100,
+            skuId: 'sku-1',
+            spuId: 'spu-1',
+          },
+        ],
+        sessionId: 's-1',
+        sessionName: '10 点场',
+        status: 1,
+      },
+      // 已结束场次不应进入楼层
+      { sessionId: 's-2', sessionName: '昨日场', status: 2 },
+    ]);
+
+    const result = await loadSeckillSessions(
+      createSeckillDefaults(),
+      createDependencies({ seckillSessions }),
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.sessionId).toBe('s-1');
+    expect(result[0]?.goodsList[0]?.remainingStock).toBe(-1);
+    expect(result[0]?.goodsList[0]?.goodsName).toBe('洗发水');
+  });
+
+  it('passes the seckill session status through so the editor can label it', async () => {
+    const seckillSessions = vi.fn(async () => [
+      { sessionId: 's-9', sessionName: '预热场', status: 0 },
+    ]);
+
+    const result = await loadSeckillSessions(
+      createSeckillDefaults(),
+      createDependencies({ seckillSessions }),
+    );
+
+    // 未开始场次保留 status=0，前端据此显示「距开始」
+    expect(result[0]?.status).toBe(0);
+  });
+
+  it('normalizes discount activities, keeping goods names and discount prices', () => {
+    const result = normalizeDiscountActivities({
+      records: [
+        {
+          activityId: 'd-1',
+          activityName: '夏日折扣',
+          discountType: 1,
+          discountValue: 0.8,
+          goodsList: [
+            {
+              discountPrice: 31.92,
+              goodsImage: 'b.png',
+              goodsName: '风扇',
+              originalPrice: 39.9,
+              skuId: 'sku-2',
+              spuId: 'spu-2',
+            },
+          ],
+          scope: 2,
+          status: 1,
+        },
+        // 全场活动没有商品清单，应保留为空数组而不是被丢弃
+        {
+          activityId: 'd-2',
+          activityName: '全场折扣',
+          scope: 1,
+          status: 1,
+        },
+      ],
+    });
+
+    expect(result).toHaveLength(2);
+    expect(result[0]?.goodsList[0]).toEqual({
+      discountPrice: 31.92,
+      goodsImage: 'b.png',
+      goodsName: '风扇',
+      originalPrice: 39.9,
+      skuId: 'sku-2',
+      spuId: 'spu-2',
+    });
+    expect(result[1]?.goodsList).toEqual([]);
   });
 });

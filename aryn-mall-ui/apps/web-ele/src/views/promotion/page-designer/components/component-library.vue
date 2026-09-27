@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import type { PageDesignType } from '#/api/promotion/page-design';
+
 import { computed, ref } from 'vue';
 
 import { Grid, Search } from '@element-plus/icons-vue';
@@ -6,9 +8,14 @@ import { ElCollapse, ElCollapseItem, ElIcon, ElInput } from 'element-plus';
 
 import {
   componentRegistry,
+  getAllowedComponentsForPageType,
   legacyComponentTypes,
   retailComponentTypes,
 } from '../registry/component-registry';
+
+const props = withDefaults(defineProps<{ pageType?: PageDesignType }>(), {
+  pageType: '0',
+});
 
 const emit = defineEmits<{ add: [type: string] }>();
 const query = ref('');
@@ -24,8 +31,13 @@ const componentTypes = [...legacyComponentTypes, ...retailComponentTypes];
 
 const groupedItems = computed(() => {
   const keyword = query.value.trim().toLowerCase();
+  // 商品详情页/分类页/个人中心页仅展示各自白名单内的组件
+  const allowed = getAllowedComponentsForPageType(props.pageType);
   const groups: Record<string, (typeof componentTypes)[number][]> = {};
   for (const type of componentTypes) {
+    if (allowed && !allowed.has(type)) {
+      continue;
+    }
     const definition = componentRegistry[type];
     if (
       keyword &&

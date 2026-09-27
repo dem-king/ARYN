@@ -306,9 +306,12 @@ const pagerHeight = computed(
 
       .nav-item-image-li {
         display: inline-flex;
+        flex-shrink: 0;
         justify-content: center;
         min-width: 80px;
-        padding: 0 8px;
+
+        /* 与小程序 scroll-item 的 padding: 0 8rpx 对齐（8rpx = 4px） */
+        padding: 0 4px;
       }
     }
   }

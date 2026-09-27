@@ -6,6 +6,7 @@ import com.aryn.cloud.user.mapper.MemberBenefitLevelRelMapper;
 import com.aryn.cloud.user.mapper.MemberBenefitMapper;
 import com.aryn.cloud.user.mapper.MemberLevelMapper;
 import com.aryn.cloud.user.mapper.UserInfoMapper;
+import com.aryn.cloud.user.service.IMemberTagService;
 import com.aryn.cloud.user.api.entity.MemberLevel;
 import com.aryn.cloud.user.api.entity.UserInfo;
 import com.aryn.cloud.user.api.vo.MemberBenefitsVO;
@@ -40,6 +41,7 @@ class MemberBenefitServiceImplTest {
 
 	@Mock private MemberLevelMapper memberLevelMapper;
 	@Mock private UserInfoMapper userInfoMapper;
+	@Mock private IMemberTagService memberTagService;
 
 	private MemberBenefitServiceImpl memberBenefitService;
 
@@ -47,7 +49,7 @@ class MemberBenefitServiceImplTest {
 	void setUp() {
 		// 设置 baseMapper
 		memberBenefitService = new TestMemberBenefitService(memberBenefitLevelRelMapper, memberLevelMapper,
-				userInfoMapper, memberBenefitMapper);
+				userInfoMapper, memberTagService, memberBenefitMapper);
 		lenient().when(memberBenefitMapper.selectById(any())).thenReturn(new MemberBenefit().setId("benefit001"));
 		lenient().when(memberLevelMapper.selectById(any())).thenReturn(new MemberLevel().setId("level001"));
 		lenient().when(memberLevelMapper.selectByIds(anyCollection())).thenAnswer(invocation ->
@@ -289,8 +291,9 @@ class MemberBenefitServiceImplTest {
 	private static final class TestMemberBenefitService extends MemberBenefitServiceImpl {
 
 		private TestMemberBenefitService(MemberBenefitLevelRelMapper memberBenefitLevelRelMapper,
-				MemberLevelMapper memberLevelMapper, UserInfoMapper userInfoMapper, MemberBenefitMapper memberBenefitMapper) {
-			super(memberBenefitLevelRelMapper, memberLevelMapper, userInfoMapper);
+				MemberLevelMapper memberLevelMapper, UserInfoMapper userInfoMapper, IMemberTagService memberTagService,
+				MemberBenefitMapper memberBenefitMapper) {
+			super(memberBenefitLevelRelMapper, memberLevelMapper, userInfoMapper, memberTagService);
 			this.baseMapper = memberBenefitMapper;
 		}
 	}

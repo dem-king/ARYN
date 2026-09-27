@@ -37,7 +37,6 @@ async function queryList(pageNo: number, pageSize: number) {
     const response = await getPointsRecordPage({
       current: pageNo,
       size: pageSize,
-      desc: 'create_time',
     })
     pagingRef.value?.complete(response.records)
   }

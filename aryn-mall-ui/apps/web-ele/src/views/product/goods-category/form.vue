@@ -11,8 +11,10 @@ import {
   ElInput,
   ElInputNumber,
   ElMessage,
+  ElOption,
   ElRadio,
   ElRadioGroup,
+  ElSelect,
   ElTreeSelect,
 } from 'element-plus';
 
@@ -30,6 +32,7 @@ const SelectMaterial = defineAsyncComponent(
 );
 interface DataState {
   form: {
+    badgeType: string;
     categoryPic: string;
     description: string;
     id: string;
@@ -43,11 +46,25 @@ interface DataState {
 }
 // 字典
 const { status } = useDict('status');
+
+/**
+ * 类目角标选项（唯一来源）。
+ *
+ * 只给语义、不给样式：C 端内置「荐」绿 /「热」红的方块样式，
+ * 运营在这里选不动配色，避免同一语义在不同租户下漂移。
+ * 取值与后端 `goods_category.badge_type` 一一对应。
+ */
+const BADGE_OPTIONS = [
+  { label: '无角标', value: '0' },
+  { label: '荐（推荐）', value: '1' },
+  { label: '热（热卖）', value: '2' },
+];
 const state = reactive<DataState>({
   form: {
     id: '',
     name: '',
     parentId: '',
+    badgeType: '0',
     categoryPic: '',
     status: '0',
     description: '',
@@ -248,6 +265,16 @@ defineExpose({
           :max="99999"
           controls-position="right"
         />
+      </ElFormItem>
+      <ElFormItem label="类目角标" prop="badgeType">
+        <ElSelect v-model="state.form.badgeType" style="width: 100%">
+          <ElOption
+            v-for="item in BADGE_OPTIONS"
+            :key="item.value"
+            :label="item.label"
+            :value="item.value"
+          />
+        </ElSelect>
       </ElFormItem>
       <ElFormItem label="状态" prop="status">
         <ElRadioGroup v-model="state.form.status">

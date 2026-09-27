@@ -71,11 +71,14 @@ describe('category page structure', () => {
     expect(navbar).toContain('defineExpose({ placeholderHeight })')
   })
 
-  it('浮层底边不贴屏幕底，下方露出压暗的页面内容', () => {
+  it('浮层高度自适应内容，上限底边不贴屏幕底（86.5% 屏高封顶）', () => {
     const sheet = source('src/components/category-all-sheet/index.vue')
     const styleBlock = sheet.slice(sheet.indexOf('<style'))
-    // 参考图面板底边在约 86.5% 屏高；写死 bottom:0 就等于铺满全屏
-    expect(styleBlock).toMatch(/bottom:\s*13\.5%/)
+    // 分类少时面板随宫格收窄（不得写死 bottom 撑满到固定高度）；
+    // 分类多时由内联 max-height 上限截断为内部滚动，防止退化成铺满全屏
+    expect(sheet).toContain('maxHeight')
+    expect(sheet).toContain('calc(86.5% - ${props.topOffset}px)')
+    expect(styleBlock).not.toMatch(/bottom:\s*13\.5%/)
     expect(styleBlock).toContain('border-bottom-left-radius')
   })
 

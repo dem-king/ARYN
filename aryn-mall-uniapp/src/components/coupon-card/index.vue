@@ -1,240 +1,372 @@
 <script setup lang="ts">
+import type { CouponLike } from '@/utils/coupon-display'
 import { computed } from 'vue'
-import type { CouponInfo } from '@/api/promotion/couponInfo'
-import { addObj } from '@/api/promotion/couponUser'
+import {
+  couponSubtitle,
+  couponThresholdText,
+  couponType,
+  couponValueParts,
+} from '@/utils/coupon-display'
+
+export interface CouponCardData extends CouponLike {
+  id?: string
+  remainNum?: number | string | null
+  userReceiveCount?: number | string | null
+}
 
 interface Props {
-  coupon: CouponInfo
-  /**
-   * 优惠券状态
-   * available: 可领取
-   * received: 已领取
-   */
-  status?: 'available' | 'received'
-  selectable?: boolean
+  coupon: CouponCardData
+  /** 底部状态带文案（今天过期 / 已使用…）；为空则整条不渲染 */
+  band?: string
+  /** 右侧动作文案（立即领取 / 去使用）；为空则不渲染动作区 */
+  actionText?: string
+  /** 动作区是否可点，false 时置灰但仍可见 */
+  actionEnabled?: boolean
+  /** 动作区改为单选图标（下单页选券用） */
+  selector?: boolean
+  /** 单选选中态 */
+  selected?: boolean
+  /** 视觉色调：muted 已使用/已过期/本单不可用，frozen 冻结中 */
+  tone?: 'active' | 'frozen' | 'muted'
+  /** 是否展示适用范围副文案 */
+  showScope?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  status: 'available',
-  selectable: false,
-})
-const emit = defineEmits(['receive'])
-const router = useRouter()
-const globalLoading = useGlobalLoading()
-const userStore = useUserStore()
-const { show } = useGlobalToast()
-
-function handleClick() {
-  if (!props.selectable) {
-    handleReceive()
-  }
-}
-
-// 优惠券金额显示
-const amountDisplay = computed(() => {
-  if (props.coupon.couponType === '1') {
-    // 满减券
-    return `￥${props.coupon.amount}`
-  }
-  else {
-    // 折扣券
-    return `${props.coupon.discount}折`
-  }
+  band: '',
+  actionText: '',
+  actionEnabled: true,
+  selector: false,
+  selected: false,
+  tone: 'active',
+  showScope: true,
 })
 
-// 优惠券描述
-const description = computed(() => {
-  if (props.coupon.threshold && props.coupon.threshold > 0) {
-    return `满${props.coupon.threshold}元可用`
-  }
-  return '无门槛优惠券'
-})
+const emit = defineEmits<{
+  action: [coupon: CouponCardData]
+  select: [coupon: CouponCardData]
+}>()
 
-// 领取/使用事件处理
-async function handleReceive() {
-  if (props.status === 'available') {
-    globalLoading.loading('领取中...')
-    try {
-      await addObj({ couponId: props.coupon.id })
-      show('领取成功')
-      emit('receive', props.coupon)
-      // 刷新本地缓存
-      userStore.refreshUserCouponCount()
-    }
-    catch (err: any) {
-      console.log(err.message)
-    }
-    finally {
-      globalLoading.close()
-    }
+const valueParts = computed(() => couponValueParts(props.coupon))
+const typeLabel = computed(() => (couponType(props.coupon) === '2' ? '折扣券' : '满减券'))
+const threshold = computed(() => couponThresholdText(props.coupon))
+const desc = computed(() => (props.showScope ? couponSubtitle(props.coupon) : ''))
+
+/**
+ * 整卡可点：选择态下派发 select，其余情况派发 action。
+ *
+ * 不用父组件 `@click` 透传 —— 小程序端组件上的原生事件透传不可靠，
+ * 且卡内已有自身点击逻辑，两者叠加会重复触发。
+ */
+function handleAction() {
+  if (props.selector) {
+    if (props.actionEnabled)
+      emit('select', props.coupon)
+    return
   }
-  else if (props.status === 'received') {
-    router.push({
-      name: 'goods-list',
-    })
-  }
+  if (!props.actionEnabled)
+    return
+  emit('action', props.coupon)
 }
 </script>
 
 <template>
-  <view class="coupon-card coupon-img-style" @click="handleClick">
-    <!-- 左侧金额区 -->
-    <view class="coupon-left-img">
-      <view class="coupon-amount-img">
-        {{ amountDisplay }}
+  <!--
+    券票样式对标小象超市：渐变描边外框 + 浅色票面 + 底部红色状态带，
+    票根缺口落在票面左右边缘的垂直中线上，外侧一半被外框裁掉后只留内半圆。
+    金额/门槛/副文案统一走 utils/coupon-display，避免各页面各写一套文案。
+  -->
+  <view
+    class="coupon-ticket"
+    :class="[
+      `coupon-ticket--${tone}`,
+      { 'coupon-ticket--banded': !!band, 'coupon-ticket--selector': selector },
+    ]"
+    @click="handleAction"
+  >
+    <view class="coupon-ticket__face">
+      <view class="coupon-ticket__notch coupon-ticket__notch--left" />
+      <view class="coupon-ticket__notch coupon-ticket__notch--right" />
+
+      <view class="coupon-ticket__value">
+        <view class="coupon-ticket__amount">
+          <text v-if="valueParts.symbol" class="coupon-ticket__symbol">
+            {{ valueParts.symbol }}
+          </text>
+          <text class="coupon-ticket__number">
+            {{ valueParts.value }}
+          </text>
+          <text v-if="valueParts.unit" class="coupon-ticket__unit">
+            {{ valueParts.unit }}
+          </text>
+        </view>
+        <view class="coupon-ticket__threshold">
+          {{ threshold }}
+        </view>
       </view>
-      <view class="coupon-threshold-img">
-        {{ description }}
+
+      <view class="coupon-ticket__info">
+        <view class="coupon-ticket__pill">
+          {{ typeLabel }}
+        </view>
+        <view class="coupon-ticket__name">
+          {{ coupon.couponName || '优惠券' }}
+        </view>
+        <view v-if="desc" class="coupon-ticket__desc">
+          {{ desc }}
+        </view>
       </view>
-      <view class="coupon-notch-img" />
+
+      <view v-if="selector" class="coupon-ticket__action">
+        <wd-icon
+          v-if="selected"
+          name="check-outline"
+          :color="tone === 'muted' ? '#b8b8b8' : '#ff2d2d'"
+          size="22px"
+        />
+        <wd-icon v-else name="circle1" :color="tone === 'muted' ? '#d0d0d0' : '#c8c8c8'" size="22px" />
+      </view>
+      <view
+        v-else-if="actionText"
+        class="coupon-ticket__action coupon-ticket__button"
+        :class="{ 'coupon-ticket__button--disabled': !actionEnabled }"
+      >
+        {{ actionText }}
+      </view>
     </view>
-    <!-- 右侧信息区 -->
-    <view class="coupon-right-img">
-      <view class="coupon-title-img">
-        {{ coupon.couponName }}
-      </view>
-      <view class="coupon-desc-img">
-        {{ coupon.useRange === '1' ? '全部商品可用' : '部分商品可用' }}
-      </view>
-    </view>
-    <!-- 按钮/选择区 -->
-    <view v-if="status === 'available'" class="coupon-btn-img" @click.stop="handleReceive">
-      立即领取
-    </view>
-    <!-- 已领取：根据 selectable 切换为按钮或图标选择 -->
-    <view v-else-if="status === 'received' && !selectable" class="coupon-btn-img" @click.stop="handleReceive">
-      去使用
+
+    <view v-if="band" class="coupon-ticket__band">
+      {{ band }}
     </view>
   </view>
 </template>
 
 <style lang="scss" scoped>
-.coupon-card {
+@import '@/styles/coupon-ticket.scss';
+
+.coupon-ticket {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
   width: 100%;
-  height: 160rpx;
-  border-radius: 24rpx;
+  padding: $coupon-rim-width;
+  // 裁掉票根缺口伸到卡外的一半，外轮廓保持齐边
   overflow: hidden;
-  display: flex;
-  box-shadow: 0 8rpx 32rpx rgba(0, 0, 0, 0.1);
-  transition: all 0.3s ease;
-  &:active {
-    transform: scale(0.98);
+  border-radius: $coupon-radius;
+  @include coupon-rim($coupon-rim-start, $coupon-rim-end);
+
+  &--muted {
+    @include coupon-rim($coupon-muted-rim-start, $coupon-muted-rim-end);
+  }
+
+  &--frozen {
+    @include coupon-rim($coupon-frozen-rim-start, $coupon-frozen-rim-end);
   }
 }
-.coupon-img-style {
-  display: flex;
-  align-items: stretch;
-  border-radius: 20rpx;
-  background: linear-gradient(90deg, #ff5a4a 0%, #ff2d2d 100%);
-  border: 2px solid #ff2d2d;
+
+.coupon-ticket__face {
   position: relative;
-  min-height: 140rpx;
-  overflow: visible;
-}
-.coupon-left-img {
-  width: 180rpx;
-  background: #fff;
-  border-top-left-radius: 20rpx;
-  border-bottom-left-radius: 20rpx;
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 20rpx 0;
-  position: relative;
-  z-index: 100;
-  &::after{
-    content: "";
-    position: absolute;
-    right: -0.8rem;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 2rem;
-    height: 100%;
-    border-radius: 50%;
-    background: #fff;
-    z-index: -10;
-  }
-}
-.coupon-amount-img {
-  color: #ff2d2d;
-  font-size: 44rpx;
-  font-weight: bold;
-  line-height: 1.1;
-}
-.coupon-threshold-img {
-  color: #bfbfbf;
-  font-size: 20rpx;
-  margin-top: 4rpx;
-}
-.coupon-notch-img {
-  position: absolute;
-  right: -20rpx;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 40rpx;
-  height: 40rpx;
-  background: #fff;
-  border-radius: 50%;
-  box-shadow: 0 2rpx 8rpx rgba(0,0,0,0.04);
-  z-index: 2;
-}
-.coupon-right-img {
+  flex-direction: row;
   flex: 1;
-  padding: 18rpx 24rpx 18rpx 18rpx;
+  align-items: center;
+  box-sizing: border-box;
+  min-height: 100rpx;
+  padding: 14rpx 20rpx;
+  border-radius: $coupon-radius - $coupon-rim-width;
+  @include coupon-face($coupon-face-start, $coupon-face-end);
+
+  /*
+    有状态带时，票面下沿改成向上拱起的弧，压在状态带上（对标参考图里
+    「票面鼓进红带」的那道弧）：底部两个超大圆角从左右角向中间收，
+    中间自然形成弧顶。直接给下沿加 border-radius 只会做圆角，做不出这道弧。
+  */
+  .coupon-ticket--banded & {
+    margin-bottom: -14rpx;
+    border-bottom-left-radius: 50% 28rpx;
+    border-bottom-right-radius: 50% 28rpx;
+  }
+
+  .coupon-ticket--muted & {
+    @include coupon-face($coupon-muted-face-start, $coupon-muted-face-end);
+  }
+
+  .coupon-ticket--frozen & {
+    @include coupon-face($coupon-frozen-face-start, $coupon-frozen-face-end);
+  }
+}
+
+// 缺口整圆按票面边缘居中：贴外框的半圆与描边同色自然融掉，只留内半圆
+.coupon-ticket__notch {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  width: $coupon-notch-size;
+  height: $coupon-notch-size;
+  border-radius: 50%;
+  transform: translateY(-50%);
+
+  &--left {
+    left: -($coupon-notch-size * 0.5);
+    background: $coupon-notch-left;
+  }
+
+  &--right {
+    right: -($coupon-notch-size * 0.5);
+    background: $coupon-notch-right;
+  }
+
+  .coupon-ticket--muted &--left {
+    background: $coupon-muted-notch-left;
+  }
+
+  .coupon-ticket--muted &--right {
+    background: $coupon-muted-notch-right;
+  }
+
+  .coupon-ticket--frozen &--left {
+    background: $coupon-frozen-notch-left;
+  }
+
+  .coupon-ticket--frozen &--right {
+    background: $coupon-frozen-notch-right;
+  }
+}
+
+.coupon-ticket__value {
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  margin-left: 10px;
-}
-.coupon-shop-img {
-  display: flex;
+  flex-shrink: 0;
   align-items: center;
-  margin-top: 8rpx;
+  justify-content: center;
+  width: 152rpx;
 }
-.coupon-title-img {
-  color: #fff;
+
+.coupon-ticket__amount {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  justify-content: center;
+  color: $coupon-value;
+
+  .coupon-ticket--muted & {
+    color: $coupon-muted-value;
+  }
+
+  .coupon-ticket--frozen & {
+    color: $coupon-frozen-value;
+  }
+}
+
+.coupon-ticket__symbol {
+  font-size: 26rpx;
+  font-weight: 600;
+}
+
+.coupon-ticket__number {
+  font-size: 56rpx;
+  font-weight: 700;
+  line-height: 1.05;
+}
+
+.coupon-ticket__unit {
   font-size: 28rpx;
-  font-weight: bold;
-  margin-bottom: 8rpx;
+  font-weight: 600;
 }
 
-.coupon-desc-img {
-  color: #fff;
-  font-size: 20rpx;
+.coupon-ticket__threshold {
   margin-top: 2rpx;
-}
-.coupon-btn-img {
-  position: absolute;
-  right: 24rpx;
-  top: 50%;
-  transform: translateY(-50%);
-  background: #fff;
-  color: #ff2d2d;
-  font-size: 22rpx;
-  font-weight: bold;
-  border-radius: 24rpx;
-  padding: 8rpx 18rpx;
-  width: 100rpx;
-  text-align: center;
-  border: none;
+  font-size: 20rpx;
+  color: $coupon-desc;
 }
 
-@media (max-width: 750rpx) {
-  .coupon-left-img {
-    width: 110rpx;
-    padding: 12rpx 0;
+.coupon-ticket__info {
+  flex: 1;
+  min-width: 0;
+  padding-left: 16rpx;
+}
+
+.coupon-ticket__pill {
+  display: inline-block;
+  padding: 2rpx 14rpx;
+  font-size: 20rpx;
+  color: $coupon-pill-text;
+  background: $coupon-pill-bg;
+  border-radius: 999rpx;
+
+  .coupon-ticket--muted & {
+    color: $coupon-muted-pill-text;
+    background: $coupon-muted-pill-bg;
   }
-  .coupon-amount-img {
-    font-size: 32rpx;
+
+  .coupon-ticket--frozen & {
+    color: $coupon-frozen-pill-text;
+    background: $coupon-frozen-pill-bg;
   }
-  .coupon-title-img {
-    font-size: 22rpx;
+}
+
+.coupon-ticket__name {
+  margin-top: 6rpx;
+  overflow: hidden;
+  font-size: 26rpx;
+  font-weight: 600;
+  color: $coupon-title;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.coupon-ticket__desc {
+  margin-top: 4rpx;
+  overflow: hidden;
+  font-size: 20rpx;
+  color: $coupon-desc;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.coupon-ticket__action {
+  display: flex;
+  flex-direction: row;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: flex-end;
+  padding-left: 12rpx;
+}
+
+.coupon-ticket__button {
+  padding: 8rpx 22rpx;
+  font-size: 22rpx;
+  font-weight: 600;
+  color: #fff;
+  border-radius: 999rpx;
+  @include coupon-rim($coupon-rim-start, $coupon-rim-end);
+
+  &--disabled {
+    color: #fff;
+    @include coupon-rim($coupon-muted-rim-start, $coupon-muted-rim-end);
   }
-  .coupon-btn-img {
-    font-size: 18rpx;
-    padding: 6rpx 18rpx;
+}
+
+.coupon-ticket__band {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  height: $coupon-band-height + 14rpx;
+  padding-top: 14rpx;
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #fff;
+  border-radius: 0 0 ($coupon-radius - $coupon-rim-width) ($coupon-radius - $coupon-rim-width);
+  @include coupon-band($coupon-band-start, $coupon-band-end);
+
+  .coupon-ticket--muted & {
+    @include coupon-band($coupon-muted-band-start, $coupon-muted-band-end);
+  }
+
+  .coupon-ticket--frozen & {
+    @include coupon-band($coupon-frozen-band-start, $coupon-frozen-band-end);
   }
 }
 </style>

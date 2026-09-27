@@ -27,7 +27,7 @@ class PageDesignControllerTest {
 	void lifecycleActionsUseDedicatedPermissions() {
 		Map<String, String> permissions = Map.of("saveDraft", "promotion:pagedesign:edit", "publish",
 				"promotion:pagedesign:publish", "unpublish", "promotion:pagedesign:publish", "rollback",
-				"promotion:pagedesign:rollback");
+				"promotion:pagedesign:rollback", "setHome", "promotion:pagedesign:publish");
 		permissions.forEach((method, permission) -> assertPermission(PageDesignController.class, method, permission));
 		for (String method : new String[] { "add", "edit", "remove" }) {
 			assertPermission(PageDesignTemplateController.class, method, "promotion:pagedesign:template");

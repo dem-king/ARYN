@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import type { DecorationDocument, PageSettings } from './schema/types';
 
+import type { PageDesignType } from '#/api/promotion/page-design';
+
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router';
 
@@ -17,6 +19,7 @@ import {
   createPreviewToken,
   getEditor,
   getHomeDesign,
+  queryTokenToPageType,
   saveDraft,
   submitRelease,
 } from '#/api/promotion/page-design';
@@ -45,7 +48,9 @@ const route = useRoute();
 const router = useRouter();
 const pageId = ref(typeof route.params.id === 'string' ? route.params.id : '');
 const pageName = ref('新建页面');
-const pageType = ref<'0' | '1'>(route.query.type === 'home' ? '1' : '0');
+const pageType = ref<PageDesignType>(
+  queryTokenToPageType(route.query.type as string | undefined),
+);
 const revision = ref(0);
 const publishedStatus = ref<'0' | '1'>('0');
 const zoom = ref(1);
@@ -214,6 +219,27 @@ function updatePageName(value: string) {
   draftSave.markDirty();
 }
 
+/**
+ * 「保存草稿」按钮：必须对三种结果都给出可见反馈。
+ *
+ * 编辑器有 1.8s 防抖自动保存，用户点按钮时改动通常已落库；
+ * 此前的实现直接透传 `draftSave.saveNow`，该函数在"无未保存改动"时
+ * 静默 resolve，既不请求也不提示，用户看到的就是"点了没有任何反应"。
+ */
+async function saveDraftManually() {
+  try {
+    const result = await draftSave.saveNow();
+    if (result === 'skipped') {
+      ElMessage.info('当前没有未保存的修改');
+    } else {
+      ElMessage.success('草稿已保存');
+    }
+  } catch {
+    // 失败原因由 requestClient 的错误拦截器统一弹出（含 revision 冲突文案），
+    // 这里兜住 rejection，避免 unhandled rejection 且不重复提示。
+  }
+}
+
 async function preview() {
   await draftSave.saveNow();
   const token = await createPreviewToken(await ensurePage(), revision.value);
@@ -317,7 +343,7 @@ onBeforeUnmount(() => {
       @preview="preview"
       @publish="publishVisible = true"
       @redo="changed(designer.redo)"
-      @save="draftSave.saveNow"
+      @save="saveDraftManually"
       @template="templateVisible = true"
       @theme="themeVisible = true"
       @undo="changed(designer.undo)"
@@ -327,7 +353,7 @@ onBeforeUnmount(() => {
       <aside class="left-rail">
         <ElTabs type="border-card" class="left-tabs">
           <ElTabPane label="组件库">
-            <ComponentLibrary @add="addComponent" />
+            <ComponentLibrary :page-type="pageType" @add="addComponent" />
           </ElTabPane>
           <ElTabPane label="页面大纲">
             <div class="outline-pane">

@@ -7,14 +7,17 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.aryn.cloud.user.api.entity.MemberBenefit;
 import com.aryn.cloud.user.api.entity.MemberBenefitLevelRel;
 import com.aryn.cloud.user.api.entity.MemberLevel;
+import com.aryn.cloud.user.api.entity.MemberTag;
 import com.aryn.cloud.user.api.entity.UserInfo;
 import com.aryn.cloud.user.api.vo.MemberBenefitsVO;
+import com.aryn.cloud.user.api.vo.MemberCurrentInfoVO;
 import com.aryn.cloud.user.mapper.MemberBenefitLevelRelMapper;
 import com.aryn.cloud.user.mapper.MemberBenefitMapper;
 import com.aryn.cloud.user.mapper.MemberLevelMapper;
 import com.aryn.cloud.user.mapper.UserInfoMapper;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.user.service.IMemberBenefitService;
+import com.aryn.cloud.user.service.IMemberTagService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -43,6 +46,8 @@ public class MemberBenefitServiceImpl extends ServiceImpl<MemberBenefitMapper, M
 	private final MemberLevelMapper memberLevelMapper;
 
 	private final UserInfoMapper userInfoMapper;
+
+	private final IMemberTagService memberTagService;
 
 	@Override
 	public IPage<MemberBenefit> getPage(Page page, MemberBenefit memberBenefit) {
@@ -169,6 +174,27 @@ public class MemberBenefitServiceImpl extends ServiceImpl<MemberBenefitMapper, M
 				default -> throw new ArynBusinessException("会员权益类型不合法");
 			}
 		}
+		return result;
+	}
+
+	@Override
+	public MemberCurrentInfoVO getCurrentMemberInfo(String userId) {
+		MemberCurrentInfoVO result = new MemberCurrentInfoVO();
+		UserInfo user = userInfoMapper.selectById(userId);
+		if (user != null && user.getMemberLevelId() != null && !user.getMemberLevelId().isBlank()) {
+			MemberLevel level = memberLevelMapper.selectById(user.getMemberLevelId());
+			if (level != null) {
+				result.setLevelId(level.getId());
+				result.setLevelName(level.getLevelName());
+			}
+		}
+		List<MemberCurrentInfoVO.TagItem> tagItems = memberTagService.getUserTags(userId).stream().map(tag -> {
+			MemberCurrentInfoVO.TagItem item = new MemberCurrentInfoVO.TagItem();
+			item.setTagId(tag.getId());
+			item.setTagName(tag.getTagName());
+			return item;
+		}).collect(Collectors.toList());
+		result.setTags(tagItems);
 		return result;
 	}
 

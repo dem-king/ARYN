@@ -1,19 +1,13 @@
 package com.aryn.cloud.product.controller.app;
 
-import com.baomidou.mybatisplus.core.conditions.Wrapper;
-import com.baomidou.mybatisplus.core.conditions.AbstractWrapper;
-import com.baomidou.mybatisplus.core.MybatisConfiguration;
-import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.aryn.cloud.product.api.entity.GoodsSpu;
 import com.aryn.cloud.product.service.IGoodsSpuService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.apache.ibatis.builder.MapperBuilderAssistant;
 
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -21,21 +15,19 @@ import static org.mockito.Mockito.when;
 class AppGoodsSpuControllerTest {
 
 	@Test
-	void batchLookupOnlyReturnsPublishedGoods() {
-		TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), GoodsSpu.class);
+	void batchLookupDelegatesToMaskedServiceQuery() {
+		// 批量查询的过滤条件（仅上架）与出参脱敏已收拢进 GoodsSpuServiceImpl.apiListByIds，
+		// 这里只锁「控制器必须走服务方法」——防止有人改回在控制器里直查实体、绕过脱敏
 		IGoodsSpuService goodsSpuService = mock(IGoodsSpuService.class);
-		when(goodsSpuService.list(any(Wrapper.class))).thenReturn(List.of());
+		when(goodsSpuService.apiListByIds(List.of("goods-1", "goods-2"))).thenReturn(List.of());
 		// 被测方法不触达船供/快捷加购服务，传 null 避免 Mockito 内联 mock 其依赖层次失败
 		AppGoodsSpuController controller = new AppGoodsSpuController(goodsSpuService, null, null);
 
 		controller.getById(List.of("goods-1", "goods-2"));
 
-		ArgumentCaptor<Wrapper<GoodsSpu>> wrapperCaptor = ArgumentCaptor.forClass(Wrapper.class);
-		verify(goodsSpuService).list(wrapperCaptor.capture());
-		Wrapper<GoodsSpu> wrapper = wrapperCaptor.getValue();
-		assertTrue(wrapper.getSqlSegment().contains("status"));
-		AbstractWrapper<?, ?, ?> abstractWrapper = (AbstractWrapper<?, ?, ?>) wrapper;
-		assertTrue(abstractWrapper.getParamNameValuePairs().containsValue("1"));
+		ArgumentCaptor<List<String>> idsCaptor = ArgumentCaptor.forClass(List.class);
+		verify(goodsSpuService).apiListByIds(idsCaptor.capture());
+		assertThat(idsCaptor.getValue()).containsExactly("goods-1", "goods-2");
 	}
 
 }

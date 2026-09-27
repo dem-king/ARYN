@@ -157,10 +157,18 @@ public class SeckillActivityServiceImpl extends ServiceImpl<SeckillActivityMappe
 	@Override
 	public List<AppSeckillVO> getActiveSessions() {
 		LocalDateTime now = LocalDateTime.now();
-		// 查询进行中的场次
+		// 已暂停的活动不投放；活动是否结束按时间判定，不依赖定时任务落库的 status（任务停摆时 C 端不空窗）
+		List<SeckillActivity> activities = this.list(Wrappers.<SeckillActivity>lambdaQuery()
+				.select(SeckillActivity::getId)
+				.ne(SeckillActivity::getStatus, 3)
+				.gt(SeckillActivity::getEndTime, now));
+		if (CollectionUtils.isEmpty(activities)) {
+			return List.of();
+		}
+		List<String> activityIds = activities.stream().map(SeckillActivity::getId).collect(Collectors.toList());
+		// 未结束的场次：进行中的场次开始时间靠前自然排前，即将开始的场次随后供「距开始」预告
 		List<SeckillSession> sessions = seckillSessionService.list(Wrappers.<SeckillSession>lambdaQuery()
-				.eq(SeckillSession::getStatus, 1)
-				.le(SeckillSession::getStartTime, now)
+				.in(SeckillSession::getActivityId, activityIds)
 				.gt(SeckillSession::getEndTime, now)
 				.orderByAsc(SeckillSession::getStartTime));
 		return sessions.stream().map(this::convertToAppSeckillVO).collect(Collectors.toList());
@@ -183,6 +191,12 @@ public class SeckillActivityServiceImpl extends ServiceImpl<SeckillActivityMappe
 		}
 		AppSeckillGoodsVO vo = new AppSeckillGoodsVO();
 		BeanUtils.copyProperties(goods, vo);
+		// 场次信息：商详页据此展示倒计时与场次名，无需再查一次场次列表
+		SeckillSession session = seckillSessionService.getById(goods.getSessionId());
+		if (session != null) {
+			vo.setSessionEndTime(session.getEndTime());
+			vo.setSessionName(session.getSessionName());
+		}
 		// 从 Redis 获取实时库存
 		Integer remaining = seckillStockManager.getRemainingStock(
 				goods.getActivityId(), goods.getSessionId(), goods.getSkuId());
@@ -193,6 +207,7 @@ public class SeckillActivityServiceImpl extends ServiceImpl<SeckillActivityMappe
 			GoodsSku sku = skus.get(0);
 			vo.setGoodsImage(sku.getPicUrl());
 			vo.setOriginalPrice(sku.getSalesPrice());
+			vo.setGoodsName(sku.getGoodsSpu() != null ? sku.getGoodsSpu().getName() : null);
 		}
 		return vo;
 	}
@@ -274,12 +289,21 @@ public class SeckillActivityServiceImpl extends ServiceImpl<SeckillActivityMappe
 		vo.setSessionName(session.getSessionName());
 		vo.setStartTime(session.getStartTime());
 		vo.setEndTime(session.getEndTime());
-		vo.setStatus(session.getStatus());
-		// 倒计时（不能为负数）
+		// 状态与倒计时按时间实时推导，不读落库 status（定时任务延迟/停摆时 C 端口径仍正确）：
+		// 未开始算距开始，进行中算距结束，已结束不进楼层（列表查询已过滤，此处兜底）
 		LocalDateTime now = LocalDateTime.now();
-		if (session.getStatus() == 0) {
+		int status;
+		if (now.isBefore(session.getStartTime())) {
+			status = 0;
+		} else if (now.isBefore(session.getEndTime())) {
+			status = 1;
+		} else {
+			status = 2;
+		}
+		vo.setStatus(status);
+		if (status == 0) {
 			vo.setCountdown(Math.max(0, Duration.between(now, session.getStartTime()).getSeconds()));
-		} else if (session.getStatus() == 1) {
+		} else if (status == 1) {
 			vo.setCountdown(Math.max(0, Duration.between(now, session.getEndTime()).getSeconds()));
 		} else {
 			vo.setCountdown(0L);
@@ -308,9 +332,13 @@ public class SeckillActivityServiceImpl extends ServiceImpl<SeckillActivityMappe
 			if (sku != null) {
 				goodsVO.setGoodsImage(sku.getPicUrl());
 				goodsVO.setOriginalPrice(sku.getSalesPrice());
+				// 商品名取自 SPU；此前漏填，C 端秒杀列表的商品名一直是空白
+				goodsVO.setGoodsName(sku.getGoodsSpu() != null ? sku.getGoodsSpu().getName() : null);
 			}
 			Integer remaining = remainingStocks.get(i);
 			goodsVO.setRemainingStock(remaining != null ? remaining : goods.getSeckillStock() - Optional.ofNullable(goods.getSoldCount()).orElse(0));
+			goodsVO.setSessionEndTime(vo.getEndTime());
+			goodsVO.setSessionName(vo.getSessionName());
 			goodsVOs.add(goodsVO);
 		}
 		vo.setGoodsList(goodsVOs);

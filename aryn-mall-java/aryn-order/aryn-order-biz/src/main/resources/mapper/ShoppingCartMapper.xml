@@ -26,7 +26,10 @@
         shopping_cart.`create_by`,
         shopping_cart.`update_by`,
         shopping_cart.`del_flag`,
-        shopping_cart.`specs_info`
+        shopping_cart.`specs_info`,
+        shopping_cart.`vessel_id`,
+        shopping_cart.`vessel_call_id`,
+        shopping_cart.`purchase_scene`
     </sql>
 
     <select id="selectApiPage" resultType="com.aryn.cloud.order.api.entity.ShoppingCart">

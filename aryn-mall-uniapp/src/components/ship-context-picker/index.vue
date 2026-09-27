@@ -15,6 +15,7 @@ import { computed, ref, watch } from 'vue'
 
 import { declareVesselCall, getMyVessels, getVesselCalls } from '@/api/vessel'
 import { useShipContextStore } from '@/store/shipContextStore'
+import { formatDeclareTime } from '@/utils/vessel-call-time'
 
 const props = defineProps<{ modelValue: boolean }>()
 const emit = defineEmits<{
@@ -32,15 +33,86 @@ const loadingCalls = ref(false)
  *
  * 公司拿不到船期，ETA/ETD 只有船上的人知道，因此这里让海员自己申报；
  * 运营收到申报后再补配送时间窗并排产，不再由运营凭空录入靠港计划。
+ *
+ * ETA/ETD 走日历式日期时间选择器而非手输：此前是自由文本 input，placeholder 写着
+ * `yyyy-MM-dd HH:mm:ss`——用户在手机上要逐字符敲 19 位，格式差一位就被后端
+ * `LocalDateTime` 反序列化判 400，且没有任何提示说明格式错在哪。
+ * 用日历而不是五列滚轮：ETA 常在几天到几周之外，日历能直接看到星期与月份结构，
+ * 也避开了滚轮「各列顶格、上半屏整块空白」的观感问题。
  */
 const declareState = ref({
   visible: false,
   submitting: false,
   portName: '',
   berth: '',
-  eta: '',
-  etd: '',
+  /** 选择器回传的时间戳，null 表示未选（此时日历的确认按钮置灰） */
+  eta: null as number | null,
+  etd: null as number | null,
 })
+
+/**
+ * 选择器可选范围。
+ *
+ * 下限取「今天零点」而不是此刻：海员常在靠港前补申报，把已过去的当天
+ * 整段禁掉会让当天靠港无解。上限给两年，覆盖长航次排期。
+ */
+const declareNow = new Date()
+const declareDateMin = new Date(declareNow.getFullYear(), declareNow.getMonth(), declareNow.getDate()).getTime()
+const declareDateMax = new Date(declareNow.getFullYear() + 2, 11, 31, 23, 59, 59).getTime()
+
+/**
+ * 离港选择器的下限跟随到港时间：选完 ETA 后，ETD 只能选到 ETA 之后，
+ * 从源头避免「到港晚于离港」这种提交时才被拒的组合。
+ *
+ * 加一分钟而不是直接用 ETA：后端要求 ETA **严格早于** ETD（`eta.isBefore(etd)`），
+ * 下限取 ETA 本身时用户仍能选出两者相等的时刻，只能等提交才被拒。
+ */
+const etdMinDate = computed(() =>
+  typeof declareState.value.eta === 'number' ? declareState.value.eta + 60_000 : declareDateMin)
+
+/**
+ * 日历选中某个日期后预填的时刻：从当前时刻向上取整 5 分钟，每次打开申报表单时刷新。
+ *
+ * 旧滚轮的毛病是空值会回退到 min-date——打开就停在「今天 00:00」这种已经过去的
+ * 时刻，直接点完成就能申报出过去时间的 ETA。日历打开时不预置任何日期（确认按钮
+ * 置灰直到选定），这个问题从根上消失；这里只决定点选日期后拼上的初始时分，
+ * 取整到未来保证申报「今天」靠港时默认值不落在过去。
+ *
+ * 格式必须是 HH:mm:ss 三段：库内 `getDefaultTime` 按冒号拆段后逐段
+ * setHours/setMinutes/setSeconds，两段式会在 setSeconds(undefined) 上变成
+ * Invalid Date，点选日期后确认按钮永远置灰。
+ */
+const declareDefaultTime = ref('00:00:00')
+
+function refreshDeclareDefaultTime() {
+  const now = new Date()
+  const minuteOfDay = now.getHours() * 60 + Math.ceil((now.getMinutes() + 1) / 5) * 5
+  // 23:5x 时取整会滚过零点，钳回当天最后一分钟，避免「点今天、值却是明天」
+  const clamped = Math.min(minuteOfDay, 23 * 60 + 59)
+  const hour = Math.floor(clamped / 60)
+  const minute = clamped % 60
+  const pad = (value: number) => String(value).padStart(2, '0')
+  declareDefaultTime.value = `${pad(hour)}:${pad(minute)}:00`
+}
+
+/**
+ * 先选离港、再改到港时，旧的 ETD 可能落到新 ETA 之前而变成非法值。
+ * 这里直接清掉让它重选，而不是留到提交时才报错——用户此刻正看着表单，
+ * 清空的框比一句「必须早于」更能说明该做什么。
+ *
+ * 判据与 `etdMinDate` 对齐（`<=`），否则刚好等于新 ETA 的旧值会被留下，
+ * 而那个值在选择器里已经选不出来了。
+ */
+watch(() => declareState.value.eta, (eta) => {
+  if (typeof eta === 'number' && typeof declareState.value.etd === 'number' && declareState.value.etd <= eta)
+    declareState.value.etd = null
+})
+
+/** 选择器展示用的可读文案，未选时为占位符 */
+const declareEtaText = computed(() =>
+  typeof declareState.value.eta === 'number' ? formatDeclareTime(declareState.value.eta) : '')
+const declareEtdText = computed(() =>
+  typeof declareState.value.etd === 'number' ? formatDeclareTime(declareState.value.etd) : '')
 
 const loadFailed = ref(false)
 const vessels = ref<any[]>([])
@@ -142,17 +214,20 @@ watch(() => props.modelValue, (visible) => {
 
 /** 打开靠港申报表单（无可用靠港计划时给出的可执行出路） */
 function openDeclare() {
+  refreshDeclareDefaultTime()
   declareState.value.portName = ''
   declareState.value.berth = ''
-  declareState.value.eta = ''
-  declareState.value.etd = ''
+  declareState.value.eta = null
+  declareState.value.etd = null
   declareState.value.visible = true
 }
 
 /** 提交靠港申报：成功后刷新可用靠港列表，用户即可直接选用 */
 function submitDeclare() {
   const form = declareState.value
-  const vesselId = shipContextStore.vesselId
+  // 以弹层内选中的船为准：store.vesselId 只在确认靠港（chooseCall）后写入，
+  // 而「无靠港 → 申报」恰恰是弹层已自动选中船、store 仍为空的场景，读它必误报
+  const vesselId = pickedVesselId.value
   if (!vesselId) {
     uni.showToast({ title: '请先选择船舶', icon: 'none' })
     return
@@ -161,8 +236,8 @@ function submitDeclare() {
     uni.showToast({ title: '请填写港口', icon: 'none' })
     return
   }
-  if (!form.eta || !form.etd) {
-    uni.showToast({ title: '请填写预计到港与离港时间', icon: 'none' })
+  if (typeof form.eta !== 'number' || typeof form.etd !== 'number') {
+    uni.showToast({ title: '请选择预计到港与离港时间', icon: 'none' })
     return
   }
   if (form.eta >= form.etd) {
@@ -176,8 +251,8 @@ function submitDeclare() {
     portCode: form.portName.trim(),
     portName: form.portName.trim(),
     berth: form.berth.trim() || undefined,
-    eta: form.eta,
-    etd: form.etd,
+    eta: formatDeclareTime(form.eta),
+    etd: formatDeclareTime(form.etd),
   })
     .then(() => {
       form.visible = false
@@ -315,19 +390,55 @@ function submitDeclare() {
             <view class="mt-12rpx text-24rpx text-gray-500">
               预计到港时间
             </view>
-            <input
+            <!--
+              日历式日期时间选择器替代手输：先翻日历选日期，再在面板内调时分。
+              命中区域是下面这个 72rpx 高的白框（with-cell=false 走 slot 分支）。
+              必须 root-portal —— 申报表单嵌在 scroll-view 里，小程序端 fixed 元素
+              会被 scroll-view 裁掉；z-index 抬到 1000 才压得住本弹层（900/901）
+              与 H5 原生 tabBar（998）。
+            -->
+            <wd-calendar
               v-model="declareState.eta"
-              class="mt-6rpx h-72rpx rounded-12rpx bg-white px-24rpx text-26rpx"
-              placeholder="yyyy-MM-dd HH:mm:ss"
+              type="datetime"
+              title="选择预计到港时间"
+              :min-date="declareDateMin"
+              :max-date="declareDateMax"
+              :default-time="declareDefaultTime"
+              hide-second
+              :with-cell="false"
+              root-portal
+              :z-index="1000"
             >
+              <view class="mt-6rpx flex h-72rpx items-center rounded-12rpx bg-white px-24rpx text-26rpx">
+                <text v-if="declareEtaText">{{ declareEtaText }}</text>
+                <text v-else class="text-gray-400">
+                  请选择到港时间
+                </text>
+              </view>
+            </wd-calendar>
             <view class="mt-12rpx text-24rpx text-gray-500">
               预计离港时间
             </view>
-            <input
+            <!-- 离港下限跟随到港，早于到港的日期在日历上直接置灰 -->
+            <wd-calendar
               v-model="declareState.etd"
-              class="mt-6rpx h-72rpx rounded-12rpx bg-white px-24rpx text-26rpx"
-              placeholder="yyyy-MM-dd HH:mm:ss"
+              type="datetime"
+              title="选择预计离港时间"
+              :min-date="etdMinDate"
+              :max-date="declareDateMax"
+              :default-time="declareDefaultTime"
+              hide-second
+              :with-cell="false"
+              root-portal
+              :z-index="1000"
             >
+              <view class="mt-6rpx flex h-72rpx items-center rounded-12rpx bg-white px-24rpx text-26rpx">
+                <text v-if="declareEtdText">{{ declareEtdText }}</text>
+                <text v-else class="text-gray-400">
+                  请选择离港时间
+                </text>
+              </view>
+            </wd-calendar>
             <view class="mt-20rpx flex gap-20rpx">
               <button
                 class="!m-0 flex-1 h-68rpx text-26rpx leading-68rpx"

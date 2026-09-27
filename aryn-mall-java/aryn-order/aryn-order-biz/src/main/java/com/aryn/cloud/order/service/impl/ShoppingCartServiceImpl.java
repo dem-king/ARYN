@@ -16,6 +16,7 @@ import com.aryn.cloud.order.api.vo.ShoppingCartBatchAddVO;
 import com.aryn.cloud.order.mapper.ShoppingCartMapper;
 import com.aryn.cloud.order.service.IShoppingCartService;
 import com.aryn.cloud.product.api.entity.GoodsSku;
+import com.aryn.cloud.product.api.util.GoodsCostPriceMasker;
 import com.aryn.cloud.product.api.entity.GoodsSpu;
 import com.aryn.cloud.product.api.entity.ShipSkuProfile;
 import com.aryn.cloud.product.api.remote.RemoteGoodsSkuService;
@@ -71,17 +72,22 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
 			.distinct() // 去重，如果有可能有重复的商品ID
 			.toList();
 
-		// 调用商品服务，获取商品详情
+		// 调用商品服务，获取商品详情。下架/删除的 SKU 查不到属正常情况：
+		// 购物车允许留有历史商品，前端据 goodsSku 为空展示「下架」并让用户自行清理，
+		// 因此这里不能因查不到而整体报错（曾导致整车商品全下架时列表 500）。
 		List<GoodsSku> goodsSkuList = remoteGoodsSkuService.getSkuByIds(skuIds);
 		if (CollectionUtils.isEmpty(goodsSkuList)) {
-			throw new IllegalArgumentException("query goods sku list fail!");
+			return iPage.getRecords();
 		}
 
 		// 创建商品SKU ID到商品对象的映射
 		Map<String, GoodsSku> skuIdToGoodsSku = goodsSkuList.stream()
 			.collect(Collectors.toMap(GoodsSku::getId, goodsSku -> goodsSku, (existing, replacement) -> existing)); // 解决key冲突的情况
 		iPage.getRecords().forEach(s -> {
-			s.setGoodsSku(skuIdToGoodsSku.get(s.getSkuId()));
+			GoodsSku goodsSku = skuIdToGoodsSku.get(s.getSkuId());
+			// C 端出参脱敏：购物车行内嵌完整 GoodsSku，成本价不下发（详见 GoodsCostPriceMasker）
+			GoodsCostPriceMasker.maskSku(goodsSku);
+			s.setGoodsSku(goodsSku);
 		});
 		return iPage.getRecords();
 	}

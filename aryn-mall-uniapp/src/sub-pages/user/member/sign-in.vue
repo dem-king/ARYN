@@ -33,7 +33,7 @@ onShow(() => {
 
 async function loadSignInConfig() {
   try {
-    const response = await getSignInConfigPage({ current: 1, size: 100, desc: 'sort_order' })
+    const response = await getSignInConfigPage({ current: 1, size: 100 })
     signInConfigs.value = response.records || []
   }
   catch (error) {
@@ -49,7 +49,6 @@ async function loadSignInRecord() {
     const response = await getSignInRecordPage({
       current: 1,
       size: 31,
-      desc: 'sign_date',
     })
     const records = response.records || []
     signedDates.value = records.map((r: any) => r.signDate)

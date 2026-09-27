@@ -47,6 +47,12 @@ public class AppPageDesignController {
 		return Result.success(pageDesignPreviewService.getPublished(id));
 	}
 
+	@Operation(summary = "按页面类型查询已发布装修页面（如商品详情页 pageType=2）")
+	@GetMapping("/type/{pageType}")
+	public Result<AppPageDesignVO> getByType(@PathVariable("pageType") String pageType) {
+		return Result.success(pageDesignPreviewService.getPublishedByType(pageType));
+	}
+
 	@Operation(summary = "Preview a page draft with a short-lived token")
 	@GetMapping("/preview/{token}")
 	public Result<AppPageDesignVO> preview(@PathVariable String token) {

@@ -15,6 +15,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.aryn.cloud.common.core.desensitization.MobilePhoneDesensitization;
+import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.user.api.dto.UserAdminUpdateDTO;
 import com.aryn.cloud.user.api.dto.UserCreateDTO;
@@ -168,6 +169,24 @@ public class UserInfoServiceImpl extends ServiceImpl<UserInfoMapper, UserInfo> i
 		userInfo.setUserSource(platformType);
 		userInfo.setNickname("微信用户" + RandomUtil.randomNumbers(4));
 		userInfo.setCreateBy(openid);
+		// boot 单体模式（Dubbo injvm）下租户上下文可能未随 RPC 传递，从三方绑定记录反查兜底
+		String tenantId = ArynTenantContextHolder.getTenantId();
+		if (StringUtils.hasText(tenantId)) {
+			userInfo.setTenantId(tenantId);
+		}
+		else {
+			SocialUser socialUser = socialUserMapper.selectOne(Wrappers.<SocialUser>lambdaQuery()
+				.eq(SocialUser::getOpenId, openid)
+				.last("LIMIT 1"));
+			if (socialUser != null && StringUtils.hasText(socialUser.getTenantId())) {
+				tenantId = socialUser.getTenantId();
+				ArynTenantContextHolder.setTenantId(tenantId);
+				userInfo.setTenantId(tenantId);
+			}
+		}
+		if (!StringUtils.hasText(userInfo.getTenantId())) {
+			throw new ArynBusinessException("租户上下文缺失，无法创建用户");
+		}
 		this.save(userInfo);
 		return userInfo;
 	}

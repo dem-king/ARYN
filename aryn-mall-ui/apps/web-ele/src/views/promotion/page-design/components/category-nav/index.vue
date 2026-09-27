@@ -157,8 +157,14 @@ const itemWidth = computed(() => {
   </div>
 </template>
 
+<!--
+  样式与小程序 diy-category-nav 逐值对齐：容器上下内边距 12px，
+  单元上下 8px、文字上边距 6px / 12px 字号并单行截断。
+-->
 <style scoped lang="scss">
 .category-nav-box {
+  padding: 12px 0;
+
   .category-nav-grid {
     display: flex;
     flex-wrap: wrap;
@@ -166,14 +172,15 @@ const itemWidth = computed(() => {
     &.scroll-mode {
       flex-wrap: nowrap;
       overflow-x: auto;
+      white-space: nowrap;
     }
 
     .nav-item {
       display: flex;
       flex-direction: column;
-      gap: 6px;
       align-items: center;
-      padding: 4px 0;
+      justify-content: center;
+      padding: 8px 0;
 
       .nav-icon {
         display: flex;
@@ -181,7 +188,8 @@ const itemWidth = computed(() => {
         justify-content: center;
 
         img {
-          object-fit: cover;
+          display: block;
+          object-fit: contain;
         }
       }
 
@@ -190,10 +198,14 @@ const itemWidth = computed(() => {
       }
 
       .nav-text {
+        max-width: 100%;
+        margin-top: 6px;
+        overflow: hidden;
+        text-overflow: ellipsis;
         font-size: 12px;
         line-height: 1.2;
         text-align: center;
-        word-break: break-all;
+        white-space: nowrap;
       }
     }
   }

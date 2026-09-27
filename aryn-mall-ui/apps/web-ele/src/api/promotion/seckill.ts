@@ -141,3 +141,42 @@ export async function updateStatus(id: string, status: number): Promise<void> {
     status,
   });
 }
+
+/**
+ * C端秒杀场次（进行中）——装修预览与「手动选择场次」共用
+ * 对应后端 AppSeckillController#getSessions
+ */
+export interface AppSeckillGoodsVO {
+  goodsImage: string;
+  goodsName: string;
+  originalPrice: number;
+  remainingStock: number;
+  seckillPrice: number;
+  seckillStock: number;
+  skuId: string;
+  spuId: string;
+}
+
+export interface AppSeckillVO {
+  countdown: number;
+  endTime: string;
+  goodsList: AppSeckillGoodsVO[];
+  sessionId: string;
+  sessionName: string;
+  startTime: string;
+  status: number;
+}
+
+/** 获取进行中的秒杀场次列表（含商品） */
+export async function getAppSessions(): Promise<AppSeckillVO[]> {
+  return requestClient.get('/promotion/app/seckill/sessions');
+}
+
+/** 获取指定场次的详情（含商品） */
+export async function getAppSessionGoods(
+  sessionId: string,
+): Promise<AppSeckillVO> {
+  return requestClient.get(
+    `/promotion/app/seckill/sessions/${sessionId}/goods`,
+  );
+}

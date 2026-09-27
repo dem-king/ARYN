@@ -52,18 +52,18 @@ watch(
     </ElFormItem>
     <ElFormItem label="数据来源">
       <ElRadioGroup v-model="form.dataSource.mode">
-        <ElRadio value="automatic">自动读取进行中活动</ElRadio>
+        <ElRadio value="automatic">自动读取进行中拼团</ElRadio>
         <ElRadio value="manual">手动选择</ElRadio>
       </ElRadioGroup>
     </ElFormItem>
-    <ElFormItem v-if="form.dataSource.mode === 'manual'" label="活动 ID">
+    <ElFormItem v-if="form.dataSource.mode === 'manual'" label="拼团活动 ID">
       <ElSelect
         v-model="form.dataSource.targetIds"
         allow-create
         default-first-option
         filterable
         multiple
-        placeholder="输入活动 ID 后回车"
+        placeholder="输入拼团活动 ID 后回车"
       />
     </ElFormItem>
     <ElFormItem label="展示数量">

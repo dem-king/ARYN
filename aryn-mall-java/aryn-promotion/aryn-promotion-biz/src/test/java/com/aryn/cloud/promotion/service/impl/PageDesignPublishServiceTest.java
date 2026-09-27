@@ -89,7 +89,7 @@ class PageDesignPublishServiceTest {
 		previous.setVersionNo(2);
 		when(pageDesignMapper.selectById("page-1")).thenReturn(page);
 		when(versionMapper.selectOne(any())).thenReturn(previous);
-		when(validator.validate(page.getPageContent())).thenReturn(List.of());
+		when(validator.validate(page.getPageContent(), page.getPageType())).thenReturn(List.of());
 		when(themeService.embedThemeSnapshot(anyString())).thenAnswer(invocation -> invocation.getArgument(0));
 		when(versionMapper.insert(any(PageDesignVersion.class))).thenReturn(1);
 		when(pageDesignMapper.update(any(PageDesign.class), any())).thenReturn(1);
@@ -116,7 +116,7 @@ class PageDesignPublishServiceTest {
 	void publishValidationFailureLeavesPublishedPointerUntouched() {
 		PageDesign page = page("page-1", 4L, "{}");
 		when(pageDesignMapper.selectById("page-1")).thenReturn(page);
-		when(validator.validate("{}")).thenReturn(List.of("schemaVersion必须为2"));
+		when(validator.validate("{}", "1")).thenReturn(List.of("schemaVersion必须为2"));
 		PageDesignPublishDTO request = new PageDesignPublishDTO();
 		request.setId("page-1");
 		request.setDraftRevision(4L);

@@ -1,8 +1,12 @@
 import type {
-  GoodsGroupProps,
+  DiscountActivityItem,
+  DiscountProps,
   GoodsRankingProps,
   GoodsWaterfallProps,
   LimitedActivityProps,
+  RetailBaseProps,
+  SeckillProps,
+  SeckillSessionItem,
 } from './retail-types'
 
 import { getByIds, getPage as getGoodsPage } from '@/api/product/spu'
@@ -10,18 +14,29 @@ import {
   getActivityById,
   getActivityPage,
 } from '@/api/promotion/groupBuyActivity'
+import {
+  getDiscountActivities,
+  getSeckillSessions,
+  getSessionGoods,
+} from '@/api/promotion'
 import { getCurrentShop } from '@/api/upms/tenant'
 
 import {
   mergeActivityGoods,
   normalizeRetailActivities,
+  normalizeRetailDiscounts,
   normalizeRetailGoods,
+  normalizeRetailSeckillSessions,
   normalizeRetailShop,
   restoreConfiguredOrder,
 } from './retail-normalizers'
 import { createRetailSortParams } from './retail-query'
 
-export async function loadGoodsGroup(props: GoodsGroupProps) {
+/**
+ * 商品取数：只读取数据源与条数，故参数用基础契约，
+ * 商品分组（含 columns）与商品横滑等组件都能直接复用。
+ */
+export async function loadGoodsGroup(props: RetailBaseProps) {
   if (props.dataSource.mode === 'manual') {
     const ids = props.dataSource.targetIds || []
     const items = normalizeRetailGoods(await getByIds(ids))
@@ -41,7 +56,7 @@ export async function loadGoodsGroup(props: GoodsGroupProps) {
  * 手选（manual）模式不走此函数，仍由 loadGoodsGroup 一次性返回。
  */
 export async function loadGoodsGroupPage(
-  props: GoodsGroupProps,
+  props: RetailBaseProps,
   current: number,
   size: number,
 ) {
@@ -90,6 +105,59 @@ export async function loadLimitedActivities(props: LimitedActivityProps) {
     size: props.count,
   })
   return (await withGoods(response)).slice(0, props.count)
+}
+
+/**
+ * 秒杀会场取数。
+ *
+ * 数据源语义与其它零售组件不同：秒杀的活动结构是「场次」，
+ * `targetIds` 存的是场次 ID（不是活动 ID）——一场秒杀就是一个可独立投放的楼层。
+ *
+ * · automatic：读全部进行中场次
+ * · manual：按 targetIds 逐场次取数（`/sessions/{id}/goods` 只回单场且带商品）
+ */
+export async function loadSeckillSessions(props: SeckillProps): Promise<SeckillSessionItem[]> {
+  if (props.dataSource.mode === 'manual') {
+    const ids = props.dataSource.targetIds || []
+    if (ids.length === 0)
+      return []
+    const sessions = await Promise.all(ids.map(id => getSessionGoods(id)))
+    return normalizeRetailSeckillSessions(sessions).slice(0, props.count)
+  }
+  const sessions = normalizeRetailSeckillSessions(await getSeckillSessions())
+  // 进行中优先、未开始次之；已结束的场次不进楼层，避免运营看到过期数据
+  const ranked = sessions
+    .filter(session => session.status !== 2)
+    .sort((a, b) => a.status - b.status)
+  return ranked.slice(0, props.count)
+}
+
+/**
+ * 折扣会场取数。
+ *
+ * 手动模式与自动模式的差别同其它零售组件：manual 按 `targetIds`(活动 ID) 取；
+ * 自动模式读进行中活动，一页取够配置条数即可（组件只展示前 count 个）。
+ */
+export async function loadDiscounts(props: DiscountProps): Promise<DiscountActivityItem[]> {
+  const response = await getDiscountActivities({
+    current: 1,
+    size: Math.max(props.count, 10),
+  })
+  const activities = normalizeRetailDiscounts(response)
+  if (props.dataSource.mode === 'manual') {
+    const ids = props.dataSource.targetIds || []
+    if (ids.length === 0)
+      return []
+    const picked = activities.filter(activity => ids.includes(activity.activityId))
+    // 折扣活动的键是 activityId（非 id），不能直接用 restoreConfiguredOrder
+    const order = new Map(ids.map((id, index) => [id, index]))
+    return [...picked]
+      .sort((left, right) =>
+        (order.get(left.activityId) ?? Number.MAX_SAFE_INTEGER)
+        - (order.get(right.activityId) ?? Number.MAX_SAFE_INTEGER))
+      .slice(0, props.count)
+  }
+  return activities.slice(0, props.count)
 }
 
 export async function loadCurrentShop() {

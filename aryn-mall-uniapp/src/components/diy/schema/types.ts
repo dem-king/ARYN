@@ -58,14 +58,43 @@ export const DECORATION_SCHEMA_VERSION_V3 = 3 as const
 
 export type DecorationTerminal = 'admin' | 'h5' | 'weapp'
 
-export type SectionCondition = 'always' | 'guest' | 'login'
+/**
+ * 区块显示条件：向后兼容字符串简写（always/guest/login），
+ * 同时支持对象组合条件（SectionConditionGroup），与管理后台保持一致。
+ */
+export type SectionCondition = 'always' | 'guest' | 'login' | SectionConditionGroup
 
+export interface SectionConditionGroup {
+  logic: 'and' | 'or'
+  rules: SectionConditionRule[]
+}
+
+export type SectionConditionRule =
+  | { type: 'login' }
+  | { type: 'guest' }
+  | { type: 'memberLevel'; memberLevelIds: string[] }
+  | { type: 'userTag'; userTagIds: string[] }
+  | { type: 'timeRange'; startTime: string; endTime: string }
+
+/**
+ * 区块容器样式。长度单位一律为 **px**，与组件级 commonStyle 以及
+ * 管理端画布（375px 手机壳）保持同一口径；早期 paddingY 在 C 端被当作
+ * rpx 渲染、管理端按 px 编辑，同一数值两端相差 2 倍，已统一为 px。
+ */
 export interface SectionStyle {
   backgroundColor: string
   backgroundImage: string
   condition: SectionCondition
   horizontalScroll: boolean
+  /** 左右外边距：让区块脱离通栏、成为一张卡片（配合 radius 使用） */
+  marginX: number
+  /** 上下外边距：撑开区块之间的距离 */
+  marginY: number
+  /** 左右内边距：让区块内的组件不贴边，避免盖住圆角 */
+  paddingX: number
   paddingY: number
+  /** 圆角：0 表示通栏直角区块 */
+  radius: number
   sticky: boolean
 }
 

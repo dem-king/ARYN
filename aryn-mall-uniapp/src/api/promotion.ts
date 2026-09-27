@@ -18,6 +18,10 @@ export interface AppSeckillGoodsVO {
   soldCount: number
   limitPerUser: number
   remainingStock: number
+  /** 场次结束时间（商详页倒计时用） */
+  sessionEndTime?: string
+  /** 场次名称 */
+  sessionName?: string
 }
 
 /** C端秒杀场次 VO */
@@ -84,8 +88,13 @@ export interface AppDiscountGoodsVO {
   discountValue: number
 }
 
-/** C端折扣活动 VO */
-export interface AppDiscountVO {
+/**
+ * C端折扣活动 VO（会场按活动分组）
+ *
+ * 与「商品最优折扣」接口区分：本类型描述一个活动及其商品明细，
+ * 由后端 `getActiveActivityPage` 分页返回。
+ */
+export interface AppDiscountActivityVO {
   activityId: string
   activityName: string
   startTime: string
@@ -97,13 +106,15 @@ export interface AppDiscountVO {
   scope: number
   /** 状态: 0未开始 1进行中 2已结束 */
   status: number
+  /** 倒计时(秒) */
   countdown: number
+  /** 参与折扣的商品；全场活动为空 */
   goodsList: AppDiscountGoodsVO[]
 }
 
 /** 折扣活动分页响应 */
 export interface AppDiscountPageResponse {
-  records: AppDiscountVO[]
+  records: AppDiscountActivityVO[]
   total: number
 }
 
@@ -122,16 +133,23 @@ export function getDiscountActivities(params?: { current?: number, size?: number
 }
 
 /**
- * 获取指定折扣活动的商品列表
- * GET /promotion/app/discount/activities/{activityId}/goods
+ * C端「商品当前最优折扣」VO（扁平：一个 SKU 一条）
+ *
+ * 对应后端 `AppDiscountVO`，用于商品详情页展示该 SKU 命中的最低折扣；
+ * 与按活动分组的 `AppDiscountActivityVO` 是两套结构，不可混用。
  */
-export function getDiscountGoods(activityId: string) {
-  return alovaInstance.Get<AppDiscountVO>(
-    `/promotion/app/discount/activities/${activityId}/goods`,
-    {
-      headers: { skipToken: true },
-    },
-  )
+export interface AppDiscountVO {
+  activityId: string
+  activityName: string
+  /** 折扣类型: 1打折 2减价 3固定价 */
+  discountType: number
+  discountValue: number
+  spuId: string
+  skuId: string
+  goodsName: string
+  goodsImage: string
+  originalPrice: number
+  discountPrice: number
 }
 
 /**
@@ -139,7 +157,7 @@ export function getDiscountGoods(activityId: string) {
  * GET /promotion/app/discount/goods/{skuId}
  */
 export function getGoodsDiscountInfo(skuId: string) {
-  return alovaInstance.Get<AppDiscountGoodsVO>(
+  return alovaInstance.Get<AppDiscountVO>(
     `/promotion/app/discount/goods/${skuId}`,
     {
       headers: { skipToken: true },

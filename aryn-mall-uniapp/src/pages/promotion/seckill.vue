@@ -2,7 +2,7 @@
 import type { AppSeckillGoodsVO, AppSeckillVO } from '@/api/promotion'
 import { onLoad, onUnload } from '@dcloudio/uni-app'
 import { computed, reactive, ref } from 'vue'
-import { getSessionGoods, getSeckillSessions } from '@/api/promotion'
+import { getSeckillSessions, getSessionGoods } from '@/api/promotion'
 import { useGlobalLoading } from '@/composables/useGlobalLoading'
 
 definePage({
@@ -36,16 +36,6 @@ let countdownTimer: ReturnType<typeof setInterval> | null = null
 /** 当前场次 */
 const currentSession = computed<AppSeckillVO | null>(() => {
   return sessionList.value[currentSessionIndex.value] || null
-})
-
-/** 倒计时显示文本 */
-const countdownText = computed(() => {
-  if (countdown.finished)
-    return '已结束'
-  const h = String(countdown.hours).padStart(2, '0')
-  const m = String(countdown.minutes).padStart(2, '0')
-  const s = String(countdown.seconds).padStart(2, '0')
-  return `${h}:${m}:${s}`
 })
 
 /** 倒计时标签 */
@@ -182,18 +172,18 @@ function isSoldOut(goods: AppSeckillGoodsVO): boolean {
   return (goods.remainingStock || 0) <= 0
 }
 
-/** 抢购按钮文本 */
+/** 抢购按钮文本：秒杀商品走加购动线（与全网商超业态一致），文案随之改为加购口径 */
 function buyButtonText(goods: AppSeckillGoodsVO): string {
   const session = currentSession.value
   if (!session)
-    return '不可抢'
+    return '不可购买'
   if (session.status === 0)
     return '即将开始'
   if (session.status === 2)
     return '已结束'
   if (isSoldOut(goods))
     return '已抢完'
-  return '立即抢购'
+  return '加入购物车'
 }
 
 /** 抢购按钮是否可点击 */
@@ -204,11 +194,10 @@ function canBuy(goods: AppSeckillGoodsVO): boolean {
   return !isSoldOut(goods)
 }
 
-/** 处理抢购 */
+/** 处理抢购：跳转商品详情页加购，由服务端在下单时按秒杀价结算 */
 function handleBuy(goods: AppSeckillGoodsVO) {
   if (!canBuy(goods))
     return
-  // 跳转到商品详情页，由详情页发起秒杀下单
   uni.navigateTo({
     url: `/sub-pages/product/goods-detail/index?id=${goods.spuId}&skuId=${goods.skuId}&from=seckill`,
   })

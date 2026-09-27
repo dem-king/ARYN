@@ -34,10 +34,30 @@ export function createDefaultSectionStyle(): SectionStyle {
     backgroundImage: '',
     condition: 'always',
     horizontalScroll: false,
+    marginX: 0,
+    marginY: 0,
+    paddingX: 0,
     paddingY: 0,
+    radius: 0,
     sticky: false,
   };
 }
+
+/**
+ * 卡片区块预设：一键把通栏区块变成带留白的圆角卡片。
+ * 数值取自零售首页常见形态（12px 留白 + 16px 圆角 + 12px 内边距），
+ * 运营可在控件里继续微调。
+ */
+export const CARD_SECTION_PRESET: Pick<
+  SectionStyle,
+  'marginX' | 'marginY' | 'paddingX' | 'paddingY' | 'radius'
+> = {
+  marginX: 12,
+  marginY: 12,
+  paddingX: 12,
+  paddingY: 12,
+  radius: 16,
+};
 
 export function createDefaultSection(): DecorationSection {
   return {

@@ -18,7 +18,7 @@ export function createLimitedActivityDefaults(): LimitedActivityProps {
     emptyStrategy: 'placeholder',
     invalidStrategy: 'hide',
     showCountdown: true,
-    title: '限时活动',
+    title: '拼团',
   };
 }
 

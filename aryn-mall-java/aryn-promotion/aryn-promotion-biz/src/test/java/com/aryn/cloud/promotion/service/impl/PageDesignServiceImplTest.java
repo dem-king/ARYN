@@ -20,6 +20,7 @@ import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.util.StringUtils;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
@@ -192,6 +193,114 @@ class PageDesignServiceImplTest {
 	}
 
 	@Test
+	void setAsHomePromotesPublishedMicroPageInsideTenantLock() throws InterruptedException {
+		mockAcquiredHomePageLock();
+		when(pageDesignMapper.selectById("micro-1")).thenReturn(publishedMicroPage("micro-1"));
+		when(pageDesignMapper.update(any(PageDesign.class), any())).thenReturn(1);
+		when(pageDesignMapper.updateById(any(PageDesign.class))).thenReturn(1);
+
+		boolean updated = service.setAsHome("micro-1");
+
+		assertTrue(updated);
+		ArgumentCaptor<PageDesign> resetCaptor = ArgumentCaptor.forClass(PageDesign.class);
+		verify(pageDesignMapper).update(resetCaptor.capture(), any());
+		assertEquals("0", resetCaptor.getValue().getHomeStatus());
+		assertEquals("0", resetCaptor.getValue().getPageType());
+		ArgumentCaptor<PageDesign> promotedCaptor = ArgumentCaptor.forClass(PageDesign.class);
+		verify(pageDesignMapper).updateById(promotedCaptor.capture());
+		assertEquals("micro-1", promotedCaptor.getValue().getId());
+		assertEquals("1", promotedCaptor.getValue().getHomeStatus());
+		assertEquals("1", promotedCaptor.getValue().getPageType());
+		verify(lock).unlock();
+	}
+
+	@Test
+	void setAsHomeRejectsPageWithoutPublishedVersion() throws InterruptedException {
+		mockAcquiredHomePageLock();
+		PageDesign draft = new PageDesign();
+		draft.setId("draft-1");
+		draft.setPageType("0");
+		draft.setHomeStatus("0");
+		draft.setPublishedStatus("0");
+		when(pageDesignMapper.selectById("draft-1")).thenReturn(draft);
+
+		ArynBusinessException error = assertThrows(ArynBusinessException.class, () -> service.setAsHome("draft-1"));
+
+		assertEquals("页面尚未发布，发布后才能设为首页", error.getMsg());
+		verify(pageDesignMapper, never()).update(any(PageDesign.class), any());
+		verify(pageDesignMapper, never()).updateById(any(PageDesign.class));
+		verify(lock).unlock();
+	}
+
+	@Test
+	void setAsHomeRejectsMissingPage() throws InterruptedException {
+		mockAcquiredHomePageLock();
+		when(pageDesignMapper.selectById("missing-1")).thenReturn(null);
+
+		ArynBusinessException error = assertThrows(ArynBusinessException.class, () -> service.setAsHome("missing-1"));
+
+		assertEquals("页面不存在或无权访问", error.getMsg());
+		verify(pageDesignMapper, never()).updateById(any(PageDesign.class));
+		verify(lock).unlock();
+	}
+
+	@Test
+	void setAsHomeKeepsExistingHomepageWithoutWriting() throws InterruptedException {
+		mockAcquiredHomePageLock();
+		PageDesign home = publishedMicroPage("home-1");
+		home.setHomeStatus("1");
+		home.setPageType("1");
+		when(pageDesignMapper.selectById("home-1")).thenReturn(home);
+
+		assertTrue(service.setAsHome("home-1"));
+
+		verify(pageDesignMapper, never()).update(any(PageDesign.class), any());
+		verify(pageDesignMapper, never()).updateById(any(PageDesign.class));
+		verify(lock).unlock();
+	}
+
+	@Test
+	void setAsHomeEvictsHomepageCacheAfterTransactionCommit() throws InterruptedException {
+		mockAcquiredHomePageLock();
+		when(pageDesignMapper.selectById("micro-1")).thenReturn(publishedMicroPage("micro-1"));
+		when(pageDesignMapper.update(any(PageDesign.class), any())).thenReturn(1);
+		when(pageDesignMapper.updateById(any(PageDesign.class))).thenReturn(1);
+		TransactionSynchronizationManager.initSynchronization();
+		try {
+			assertTrue(service.setAsHome("micro-1"));
+
+			verify(redisTemplate, never()).delete(anyString());
+			TransactionSynchronizationManager.getSynchronizations()
+				.forEach(TransactionSynchronization::afterCommit);
+			verify(redisTemplate).delete(anyString());
+		}
+		finally {
+			TransactionSynchronizationManager.clearSynchronization();
+		}
+	}
+
+	@Test
+	void setAsHomeReleasesTenantLockWhenNotAcquired() throws InterruptedException {
+		when(redissonClient.getLock(anyString())).thenReturn(lock);
+		when(lock.tryLock(5, TimeUnit.SECONDS)).thenReturn(false);
+
+		assertThrows(ArynBusinessException.class, () -> service.setAsHome("micro-1"));
+
+		verify(lock, never()).unlock();
+	}
+
+	private static PageDesign publishedMicroPage(String id) {
+		PageDesign page = new PageDesign();
+		page.setId(id);
+		page.setPageName("小象超市风格首页");
+		page.setPageType("0");
+		page.setHomeStatus("0");
+		page.setPublishedStatus("1");
+		page.setPublishedVersionId("version-2");
+		return page;
+	}
+
+	@Test
 	void updatePageDesignByIdEvictsHomepageCacheAfterTransactionCommit() {
 		when(pageDesignMapper.updateById(any(PageDesign.class))).thenReturn(1);
 		PageDesign pageDesign = new PageDesign();
@@ -293,6 +402,94 @@ class PageDesignServiceImplTest {
 		assertEquals(5L, editor.getDraftRevision());
 		assertEquals("1", editor.getPublishedStatus());
 		assertEquals("version-3", editor.getPublishedVersionId());
+	}
+
+	@Test
+	void createPageFillsNotNullPageContentForBrandNewPage() {
+		when(pageDesignMapper.insert(any(PageDesign.class))).thenAnswer(invocation -> {
+			PageDesign inserted = invocation.getArgument(0);
+			inserted.setId("page-new");
+			return 1;
+		});
+		PageDesign request = new PageDesign();
+		request.setPageName("新建页面");
+		request.setPageType("0");
+		request.setStatus("0");
+
+		PageDesign created = service.createPage(request);
+
+		assertEquals("page-new", created.getId());
+		// page_content 为 NOT NULL 且无数据库默认值：必须在插入前显式写入，否则 POST /pagedesign 会 500
+		assertTrue(StringUtils.hasText(created.getPageContent()));
+		assertEquals(3, created.getSchemaVersion());
+		assertEquals(0L, created.getDraftRevision());
+		assertEquals("0", created.getPublishedStatus());
+		ArgumentCaptor<PageDesign> captor = ArgumentCaptor.forClass(PageDesign.class);
+		verify(pageDesignMapper).insert(captor.capture());
+		assertTrue(StringUtils.hasText(captor.getValue().getPageContent()));
+	}
+
+	@Test
+	void createPageKeepsCallerSuppliedContentAndMetadata() {
+		when(pageDesignMapper.insert(any(PageDesign.class))).thenReturn(1);
+		PageDesign request = new PageDesign();
+		request.setPageName("复制页");
+		request.setPageContent("{\"schemaVersion\":2,\"components\":[]}");
+		request.setSchemaVersion(2);
+		request.setDraftRevision(5L);
+
+		PageDesign created = service.createPage(request);
+
+		assertEquals("{\"schemaVersion\":2,\"components\":[]}", created.getPageContent());
+		assertEquals(2, created.getSchemaVersion());
+		assertEquals(5L, created.getDraftRevision());
+	}
+
+	@Test
+	void createPageDefaultsBlankPageTypeToMicroPage() {
+		when(pageDesignMapper.insert(any(PageDesign.class))).thenReturn(1);
+		PageDesign request = new PageDesign();
+		request.setPageName("未指定类型");
+
+		PageDesign created = service.createPage(request);
+
+		assertEquals("0", created.getPageType());
+	}
+
+	@Test
+	void createPageRejectsUnsupportedPageType() {
+		PageDesign request = new PageDesign();
+		request.setPageName("非法类型");
+		// 未被识别的 pageType 会让发布校验查不到组件白名单而放行全部组件，
+		// 因此必须在建页时就拒绝，而不是留到发布阶段才发现没有约束。
+		request.setPageType("99");
+
+		ArynBusinessException error = assertThrows(ArynBusinessException.class,
+				() -> service.createPage(request));
+
+		assertTrue(error.getMsg().contains("不支持的页面类型"));
+	}
+
+	@Test
+	void createPageRejectsHomePageType() {
+		PageDesign request = new PageDesign();
+		request.setPageName("想直接建首页");
+		// 首页身份由「设为首页」专用流程维护，直接建 pageType=1 会造成双首页
+		request.setPageType("1");
+
+		assertThrows(ArynBusinessException.class, () -> service.createPage(request));
+	}
+
+	@Test
+	void createPageAcceptsAllSupportedPageTypes() {
+		when(pageDesignMapper.insert(any(PageDesign.class))).thenReturn(1);
+		for (String pageType : java.util.List.of("0", "2", "3", "4")) {
+			PageDesign request = new PageDesign();
+			request.setPageName("页面-" + pageType);
+			request.setPageType(pageType);
+
+			assertEquals(pageType, service.createPage(request).getPageType());
+		}
 	}
 
 	@Test

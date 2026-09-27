@@ -50,12 +50,12 @@ export interface UserInfoResponse {
 }
 
 export interface MPLoginParams {
-  code: string
+  jsCode: string
 }
 /**
  * 微信小程序登录（静默登录获取openid）
  */
-export function wxLogin(data: PhoneLoginParams) {
+export function wxLogin(data: MPLoginParams) {
   return alovaInstance.Post('/auth/toc-token/ma/login', data, {
     headers: {
       skipToken: true,

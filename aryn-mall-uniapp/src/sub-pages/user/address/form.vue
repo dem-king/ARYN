@@ -4,7 +4,7 @@ import { onLoad } from '@dcloudio/uni-app'
 import type { FormInstance } from 'wot-design-uni/components/wd-form/types'
 import { getById, saveOrUpdateAddress } from '@/api/user/address'
 // @ts-expect-error: region-picker type declaration issue
-import RegionPicker from '@/components/region-picker/region-picker.vue'
+import RegionPicker from '@/sub-pages/components/region-picker/region-picker.vue'
 
 definePage({
   name: 'address-form',

@@ -3,6 +3,7 @@ package com.aryn.cloud.order.service.impl;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.order.api.dto.ShoppingCartCreateDTO;
 import com.aryn.cloud.order.api.dto.ShoppingCartUpdateDTO;
@@ -100,6 +101,72 @@ class ShoppingCartServiceImplTest {
 		assertThat(captor.getValue().getQuantity()).isEqualTo(3);
 		assertThat(captor.getValue().getSpuName()).isEqualTo("服务端商品");
 		assertThat(captor.getValue().getSalesPrice()).isEqualByComparingTo("19.90");
+	}
+
+	/**
+	 * 购物车里的商品可能已下架/删除，此时商品服务查不到该 SKU —— 这是正常业务状态，
+	 * 不是错误。前端据 goodsSku 为空展示「下架」并让用户自行清理。
+	 *
+	 * <p>回归背景（真实缺陷）：此处原先直接抛 IllegalArgumentException，
+	 * 导致「整车商品都已下架」的用户打开购物车页得到 HTTP 500，
+	 * 连清空购物车的入口都进不去。
+	 */
+	@Test
+	void cartListToleratesEntirelyOffShelfSkus() {
+		when(mapper.selectApiPage(any(), any(ShoppingCart.class))).thenReturn(pageOf(cartRow("cart-1", "sku-gone")));
+		when(remoteGoodsSkuService.getSkuByIds(List.of("sku-gone"))).thenReturn(List.of());
+
+		List<ShoppingCart> rows = service.apiPage(new Page<>(1, 10), new ShoppingCart());
+
+		assertThat(rows).hasSize(1);
+		assertThat(rows.get(0).getGoodsSku()).isNull();
+	}
+
+	/**
+	 * 部分下架：在售行照常带出 SKU 详情，下架行留空，不影响同车其他商品结算。
+	 */
+	@Test
+	void cartListKeepsSnapshotForSellableRowsWhenOthersOffShelf() {
+		when(mapper.selectApiPage(any(), any(ShoppingCart.class)))
+			.thenReturn(pageOf(cartRow("cart-1", "sku-1"), cartRow("cart-2", "sku-gone")));
+		when(remoteGoodsSkuService.getSkuByIds(List.of("sku-1", "sku-gone"))).thenReturn(List.of(saleSku(10)));
+
+		List<ShoppingCart> rows = service.apiPage(new Page<>(1, 10), new ShoppingCart());
+
+		assertThat(rows).hasSize(2);
+		assertThat(rows.get(0).getGoodsSku()).isNotNull();
+		assertThat(rows.get(0).getGoodsSku().getId()).isEqualTo("sku-1");
+		assertThat(rows.get(1).getGoodsSku()).isNull();
+	}
+
+	private static Page<ShoppingCart> pageOf(ShoppingCart... rows) {
+		Page<ShoppingCart> page = new Page<>(1, 10);
+		page.setRecords(List.of(rows));
+		return page;
+	}
+
+	private static ShoppingCart cartRow(String id, String skuId) {
+		ShoppingCart row = new ShoppingCart();
+		row.setId(id);
+		row.setUserId("user-1");
+		row.setSkuId(skuId);
+		return row;
+	}
+
+	@Test
+	void cartPageMasksCostPriceOnAttachedSku() {
+		Page<ShoppingCart> page = new Page<>(1, 10);
+		page.setRecords(List.of(cartRow("cart-1", "sku-1")));
+		when(mapper.selectApiPage(any(Page.class), any(ShoppingCart.class))).thenReturn(page);
+		GoodsSku sku = saleSku(10);
+		sku.setCostPrice(new BigDecimal("6.50"));
+		when(remoteGoodsSkuService.getSkuByIds(List.of("sku-1"))).thenReturn(List.of(sku));
+
+		List<ShoppingCart> result = service.apiPage(page, new ShoppingCart());
+
+		// 购物车行内嵌完整 GoodsSku，成本价属内部经营数据，出参必须清空；售价保留供展示
+		assertThat(result.get(0).getGoodsSku().getCostPrice()).isNull();
+		assertThat(result.get(0).getGoodsSku().getSalesPrice()).isEqualByComparingTo("19.90");
 	}
 
 	private GoodsSku saleSku(int stock) {

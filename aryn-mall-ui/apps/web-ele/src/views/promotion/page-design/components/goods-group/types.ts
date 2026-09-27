@@ -7,6 +7,8 @@ import {
 
 export interface GoodsGroupProps extends RetailComponentBaseProps {
   columns: 2 | 3;
+  /** 是否展示划线原价（仅当商品原价高于售价时可见） */
+  showOriginalPrice: boolean;
   showSales: boolean;
   title: string;
 }
@@ -19,6 +21,7 @@ export function createGoodsGroupDefaults(): GoodsGroupProps {
     dataSource: { mode: 'rule', sort: 'sales' },
     emptyStrategy: 'placeholder',
     invalidStrategy: 'hide',
+    showOriginalPrice: true,
     showSales: true,
     title: '热卖商品',
   };

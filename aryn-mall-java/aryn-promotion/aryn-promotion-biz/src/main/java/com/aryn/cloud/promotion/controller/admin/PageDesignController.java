@@ -95,7 +95,7 @@ public class PageDesignController {
 	@SaCheckPermission("promotion:pagedesign:add")
 	@PostMapping
 	public Result<String> add(@RequestBody PageDesign pageDesign) {
-		pageDesignService.save(pageDesign);
+		pageDesignService.createPage(pageDesign);
 		return Result.success(pageDesign.getId());
 	}
 
@@ -105,6 +105,14 @@ public class PageDesignController {
 	@PutMapping
 	public Result<Boolean> edit(@RequestBody PageDesign pageDesign) {
 		return Result.success(pageDesignService.updatePageDesignById(pageDesign));
+	}
+
+	@SysLog("设为线上首页")
+	@Operation(summary = "设为线上首页")
+	@SaCheckPermission("promotion:pagedesign:publish")
+	@PostMapping("/{id}/set-home")
+	public Result<Boolean> setHome(@PathVariable String id) {
+		return Result.success(pageDesignService.setAsHome(id));
 	}
 
 	@SysLog("保存页面装修草稿")

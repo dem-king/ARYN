@@ -77,9 +77,12 @@ CREATE TABLE `coupon_user`  (
                                 `update_time` datetime NULL DEFAULT NULL COMMENT '更新时间',
                                 `del_flag` char(2) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
                                 `tenant_id` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '租户id',
+                                `source_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '发放来源类型',
+                                `source_id` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '发放来源ID',
                                 `create_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '创建人',
                                 `update_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '修改人',
-                                PRIMARY KEY (`id`) USING BTREE
+                                PRIMARY KEY (`id`) USING BTREE,
+                                UNIQUE INDEX `uk_coupon_user_source` (`tenant_id`, `user_id`, `source_type`, `source_id`) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '用户领券记录表' ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
@@ -575,6 +578,8 @@ CREATE TABLE `order_info`  (
                                `total_price` decimal(10, 2) NULL DEFAULT NULL COMMENT '订单总金额（元）',
                                `freight_price` decimal(10, 2) NULL DEFAULT NULL COMMENT '运费（元）',
                                `coupon_price` decimal(10, 2) NULL DEFAULT NULL COMMENT '优惠券优惠金额（元）',
+                               `member_discount_price` decimal(10, 2) NOT NULL DEFAULT 0.00 COMMENT '会员折扣优惠金额（元）',
+                               `points_multiplier` decimal(10, 2) NOT NULL DEFAULT 1.00 COMMENT '下单时会员积分倍率',
                                `payment_price` decimal(10, 2) NULL DEFAULT NULL COMMENT '支付金额（总金额-优惠券优惠金额+运费）',
                                `create_time` datetime NULL DEFAULT NULL COMMENT '创建时间',
                                `update_time` datetime NULL DEFAULT NULL COMMENT '更新时间',
@@ -607,7 +612,7 @@ CREATE TABLE `order_info`  (
 -- ----------------------------
 -- Records of order_info
 -- ----------------------------
-INSERT INTO `order_info` VALUES ('2040656660950806529', '2040656345832747009', '2', '2040656659658969088', 'legacy-2040656660950806529', NULL, NULL, NULL, '0', '1', '0', 1.00, 0.00, 0.00, 1.00, '2026-04-05 13:03:56', NULL, '0', NULL, NULL, NULL, NULL, NULL, NULL, '1590229800633634816', 'ozexS3bXeBjIkrfIZoe07SWXBY4I', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'wxe150c73d0376f899', 'ozexS3bXeBjIkrfIZoe07SWXBY4I');
+INSERT INTO `order_info` VALUES ('2040656660950806529', '2040656345832747009', '2', '2040656659658969088', 'legacy-2040656660950806529', NULL, NULL, NULL, '0', '1', '0', 1.00, 0.00, 0.00, 0.00, 1.00, 1.00, '2026-04-05 13:03:56', NULL, '0', NULL, NULL, NULL, NULL, NULL, NULL, '1590229800633634816', 'ozexS3bXeBjIkrfIZoe07SWXBY4I', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'wxe150c73d0376f899', 'ozexS3bXeBjIkrfIZoe07SWXBY4I');
 
 -- ----------------------------
 -- Table structure for order_item
@@ -625,6 +630,7 @@ CREATE TABLE `order_item`  (
                                `total_price` decimal(10, 2) NULL DEFAULT NULL COMMENT '订单金额（元）',
                                `freight_price` decimal(10, 2) NULL DEFAULT NULL COMMENT '运费（元）',
                                `coupon_price` decimal(10, 2) NULL DEFAULT NULL COMMENT '优惠券优惠金额（元）',
+                               `member_discount_price` decimal(10, 2) NOT NULL DEFAULT 0.00 COMMENT '会员折扣优惠金额（元）',
                                `payment_price` decimal(10, 2) NULL DEFAULT NULL COMMENT '支付金额（总金额-优惠券优惠金额+运费= 支付金额）',
                                `create_time` datetime NULL DEFAULT NULL COMMENT '创建时间',
                                `update_time` datetime NULL DEFAULT NULL COMMENT '更新时间',
@@ -640,7 +646,7 @@ CREATE TABLE `order_item`  (
 -- ----------------------------
 -- Records of order_item
 -- ----------------------------
-INSERT INTO `order_item` VALUES ('2040656661730947073', '2040656660950806529', '1925545886404988929', '2026667019995189250', 'HUAWEI Mate X6 分布式玄武架构 鸿蒙大屏AI 红枫原色影像折叠旗舰手机 折叠屏', 'https://minio.aryn.co/aryn/1590229800633634816/file/dcb4b7d0-4293-4c3f-aa00-0068e8216db6.jpg', 1.00, 1, 1.00, 0.00, 0.00, 1.00, '2026-04-05 13:03:56', NULL, '0', '0', '沙漠色钛金属', '1590229800633634816', 'ozexS3bXeBjIkrfIZoe07SWXBY4I', NULL);
+INSERT INTO `order_item` VALUES ('2040656661730947073', '2040656660950806529', '1925545886404988929', '2026667019995189250', 'HUAWEI Mate X6 分布式玄武架构 鸿蒙大屏AI 红枫原色影像折叠旗舰手机 折叠屏', 'https://minio.aryn.co/aryn/1590229800633634816/file/dcb4b7d0-4293-4c3f-aa00-0068e8216db6.jpg', 1.00, 1, 1.00, 0.00, 0.00, 0.00, 1.00, '2026-04-05 13:03:56', NULL, '0', '0', '沙漠色钛金属', '1590229800633634816', 'ozexS3bXeBjIkrfIZoe07SWXBY4I', NULL);
 
 -- ----------------------------
 -- Table structure for order_refund
@@ -874,7 +880,7 @@ CREATE TABLE `social_account`  (
 -- ----------------------------
 -- Records of social_account
 -- ----------------------------
-INSERT INTO `social_account` VALUES ('1', 'WX_MA', 'wxe150c73d0376f899', 'xxxxxxxx', '2026-04-05 12:33:47', '2026-04-05 13:42:02', '0', NULL, 'system', '1590229800633634816');
+INSERT INTO `social_account` VALUES ('1', 'WX_MA', 'wx0a8242ea59f3e6b4', '2556ce9a864c8e0ff8f4fb4f0f94fc89', '2026-04-05 12:33:47', '2026-04-05 13:42:02', '0', NULL, 'system', '1590229800633634816');
 -- ----------------------------
 -- Table structure for social_user
 -- ----------------------------

@@ -42,8 +42,11 @@ function handleSwiper(obj: any) {
         <view v-if="showData.type === '1'">
           <view v-for="(item, index) in showData.imageList" :key="index" :style="dynamicImageStyles">
             <image
-              style="width: 100%; height: 100%; display: block;" :src="item.url"
-              :style="{ borderRadius: `${showData.imgRadius}px` }" @click="followDecorationLink(item.link)"
+              style="width: 100%; height: 100%; display: block;"
+              :src="resolveImageSrc(item.url)"
+              lazy-load
+              :style="{ borderRadius: `${showData.imgRadius}px` }"
+              @click="followDecorationLink(item.link)"
             />
           </view>
         </view>
@@ -63,7 +66,7 @@ function handleSwiper(obj: any) {
               @click="handleSwiper(item)"
             >
               <image
-                :src="item.url" mode="scaleToFill"
+                :src="resolveImageSrc(item.url)" mode="scaleToFill"
                 :style="{ width: '100%', height: '100%', borderRadius: `${showData.imgRadius}px` }"
               />
             </swiper-item>

@@ -11,9 +11,9 @@ export function getPointsInfo() {
   return alovaInstance.Get<PointsInfo>('/mall-user/app/points/info')
 }
 
-// 用户积分记录分页
+// 我的积分记录（C 端按登录态取本人记录）
 export function getPointsRecordPage(params: object) {
-  return alovaInstance.Get<any>('/mall-user/pointsrecord/user/page', {
+  return alovaInstance.Get<any>('/mall-user/app/points/records', {
     params,
   })
 }

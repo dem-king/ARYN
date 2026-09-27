@@ -46,6 +46,12 @@ public class PageDesignTemplate extends Model<PageDesignTemplate> {
 	@Schema(description = "行业标签（行业模板筛选用，通用为空）")
 	private String industryTag;
 
+	@Schema(description = "市场状态：0.未上架；1.已上架；2.已下架；")
+	private String marketStatus;
+
+	@Schema(description = "下载量")
+	private Integer downloadCount;
+
 	@Schema(description = "状态：0.正常；1.停用；")
 	private String status;
 

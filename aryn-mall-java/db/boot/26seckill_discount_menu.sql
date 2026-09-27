@@ -5,7 +5,8 @@ SET NAMES utf8mb4;
 START TRANSACTION;
 
 -- 秒杀活动与折扣活动菜单种子；IGNORE 兼容早期或不完整的存量库。
--- 编辑页路由已在前端 core.ts 静态注册（hideInMenu），此处仅配置列表页与按钮权限。
+-- 编辑页路由注册在前端动态路由模块 routes/modules/promotion.ts（hideInMenu + activePath），
+-- 此处仅配置列表页与按钮权限。不要改到 core.ts：那里不经过 BasicLayout，会整屏遮住菜单与导航。
 INSERT IGNORE INTO sys_menu
   (id, name, permission, path, redirect, parent_id, icon, component, sort, type,
    create_time, update_time, outer_status, del_flag, application_key, create_by, update_by)

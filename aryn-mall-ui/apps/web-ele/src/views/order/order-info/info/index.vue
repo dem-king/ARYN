@@ -6,12 +6,10 @@ import { Box } from '@element-plus/icons-vue';
 import {
   ElAvatar,
   ElButton,
-  ElCol,
   ElDivider,
   ElImage,
   ElMessage,
   ElMessageBox,
-  ElRow,
   ElStep,
   ElSteps,
   ElTable,
@@ -484,34 +482,28 @@ getDetail();
         </div>
       </div>
       <ElTable :data="state.orderInfo.orderItemList" border>
-        <ElTableColumn prop="date" label="商品信息" width="400">
+        <ElTableColumn label="商品信息" min-width="220">
           <template #default="scope">
             <div class="order-item">
-              <div style="width: 350px">
-                <ElRow>
-                  <ElCol :span="6">
-                    <ElImage
-                      style="width: 60px; height: 60px"
-                      :src="scope.row.picUrl"
-                      fit="cover"
-                      :preview-teleported="true"
-                    />
-                  </ElCol>
-                  <ElCol :span="18">
-                    <span class="overflow-line-clamp-2 name">{{
-                      scope.row.spuName
-                    }}</span>
-                    <p>{{ scope.row.specsInfo }}</p>
-                  </ElCol>
-                </ElRow>
+              <ElImage
+                class="pic"
+                :src="scope.row.picUrl"
+                fit="cover"
+                :preview-teleported="true"
+              />
+              <div class="main">
+                <div class="name line-clamp-2">{{ scope.row.spuName }}</div>
+                <p v-if="scope.row.specsInfo" class="specs">
+                  {{ scope.row.specsInfo }}
+                </p>
               </div>
             </div>
           </template>
         </ElTableColumn>
-        <ElTableColumn prop="salesPrice" label="单价（元）" width="150" />
-        <ElTableColumn prop="buyQuantity" label="数量" width="100" />
+        <ElTableColumn prop="salesPrice" label="单价（元）" width="118" />
+        <ElTableColumn prop="buyQuantity" label="数量" width="80" />
         <!-- 共享采购按人拆行后的归属：仓库按此列逐人分拣并打印配送标签 -->
-        <ElTableColumn label="订购人" width="140">
+        <ElTableColumn label="订购人" width="110">
           <template #default="scope">
             <span v-if="scope.row.contributorName">{{
               scope.row.contributorName
@@ -523,12 +515,13 @@ getDetail();
           v-if="hasContributorRemark"
           prop="memberRemark"
           label="成员备注"
-          width="180"
+          width="120"
+          show-overflow-tooltip
         />
-        <ElTableColumn prop="freightPrice" label="运费（元）" width="150" />
-        <ElTableColumn prop="couponPrice" label="优惠金额（元）" width="150" />
-        <ElTableColumn prop="paymentPrice" label="小记（元）" />
-        <ElTableColumn prop="address" label="状态">
+        <ElTableColumn prop="freightPrice" label="运费（元）" width="118" />
+        <ElTableColumn prop="couponPrice" label="优惠金额（元）" width="132" />
+        <ElTableColumn prop="paymentPrice" label="小计（元）" width="118" />
+        <ElTableColumn label="状态" width="100">
           <template #default="scope">
             <ElTag
               v-if="
@@ -543,6 +536,13 @@ getDetail();
               "
             >
               待自提
+            </ElTag>
+            <ElTag
+              v-else-if="scope.row.status === '0'"
+              :type="state.orderInfo.status === '11' ? 'info' : 'primary'"
+              :disable-transitions="true"
+            >
+              {{ state.orderInfo.status === '11' ? '已取消' : '待付款' }}
             </ElTag>
             <DictTag
               v-else
@@ -620,11 +620,29 @@ getDetail();
 
 .order-item {
   display: flex;
-  justify-content: space-between;
-  padding: 5px;
+  gap: 10px;
+  align-items: flex-start;
+
+  .pic {
+    flex: none;
+    width: 60px;
+    height: 60px;
+  }
+
+  .main {
+    min-width: 0;
+  }
 
   .name {
     color: #409eff;
+    overflow-wrap: anywhere;
+  }
+
+  .specs {
+    margin-top: 4px;
+    font-size: 12px;
+    color: #a8abb2;
+    overflow-wrap: anywhere;
   }
 }
 

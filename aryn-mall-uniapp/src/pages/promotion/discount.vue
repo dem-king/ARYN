@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import type { AppDiscountGoodsVO, AppDiscountVO } from '@/api/promotion'
+import type {
+  AppDiscountActivityVO,
+  AppDiscountGoodsVO,
+} from '@/api/promotion'
 import { onLoad, onUnload } from '@dcloudio/uni-app'
 import { computed, reactive, ref } from 'vue'
 import { getDiscountActivities } from '@/api/promotion'
@@ -16,20 +19,46 @@ definePage({
 const globalLoading = useGlobalLoading()
 
 /** 折扣活动列表 */
-const activityList = ref<AppDiscountVO[]>([])
+const activityList = ref<AppDiscountActivityVO[]>([])
 /** 是否还有更多 */
 const noMore = ref(false)
 /** 分页参数 */
 const currentPage = ref(1)
 const PAGE_SIZE = 10
 
-/** 倒计时状态映射（按活动ID） */
+/**
+ * 倒计时状态映射（按活动ID）。
+ *
+ * `remaining` 为唯一真值，由后端下发的秒数赋值后本地递减；
+ * h/m/s 仅由它派生，不再解析 endTime —— 后端返回的是 `yyyy-MM-dd HH:mm:ss`，
+ * iOS 对带空格的日期串解析失败会得到 NaN，倒计时会卡在 00:00:00。
+ */
 const countdownMap = reactive<Record<string, {
   hours: number
   minutes: number
+  remaining: number
   seconds: number
   finished: boolean
 }>>({})
+
+/** 由剩余秒数派生 h/m/s 与结束标记 */
+function applyRemaining(activityId: string) {
+  const state = countdownMap[activityId]
+  if (!state)
+    return
+  if (state.remaining <= 0) {
+    state.remaining = 0
+    state.hours = 0
+    state.minutes = 0
+    state.seconds = 0
+    state.finished = true
+    return
+  }
+  state.hours = Math.floor(state.remaining / 3600)
+  state.minutes = Math.floor((state.remaining % 3600) / 60)
+  state.seconds = state.remaining % 60
+  state.finished = false
+}
 
 let countdownTimer: ReturnType<typeof setInterval> | null = null
 
@@ -69,16 +98,17 @@ async function loadActivities(isRefresh = false) {
     if (records.length < PAGE_SIZE || activityList.value.length >= response.total) {
       noMore.value = true
     }
-    // 初始化倒计时
+    // 初始化倒计时：以后端下发秒数为准，避免客户端与服务端时钟漂移
     activityList.value.forEach((activity) => {
-      if (!countdownMap[activity.activityId]) {
-        countdownMap[activity.activityId] = {
-          hours: 0,
-          minutes: 0,
-          seconds: 0,
-          finished: false,
-        }
+      const total = Number(activity.countdown) || 0
+      countdownMap[activity.activityId] = {
+        finished: total <= 0,
+        hours: 0,
+        minutes: 0,
+        remaining: total,
+        seconds: 0,
       }
+      applyRemaining(activity.activityId)
     })
     updateAllCountdowns()
   }
@@ -119,34 +149,19 @@ function stopCountdown() {
   }
 }
 
-/** 更新所有活动倒计时 */
+/** 更新所有活动倒计时（每秒本地递减） */
 function updateAllCountdowns() {
   activityList.value.forEach((activity) => {
     const state = countdownMap[activity.activityId]
-    if (!state)
+    if (!state || state.finished)
       return
-    const targetTime = activity.status === 1 ? activity.endTime : activity.startTime
-    if (!targetTime) {
-      state.finished = true
-      return
-    }
-    const diff = new Date(targetTime).getTime() - Date.now()
-    if (diff <= 0) {
-      state.hours = 0
-      state.minutes = 0
-      state.seconds = 0
-      state.finished = true
-      return
-    }
-    state.hours = Math.floor(diff / (1000 * 60 * 60))
-    state.minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
-    state.seconds = Math.floor((diff % (1000 * 60)) / 1000)
-    state.finished = false
+    state.remaining -= 1
+    applyRemaining(activity.activityId)
   })
 }
 
 /** 获取活动倒计时显示文本 */
-function getCountdownText(activity: AppDiscountVO): string {
+function getCountdownText(activity: AppDiscountActivityVO): string {
   const state = countdownMap[activity.activityId]
   if (!state || state.finished)
     return '已结束'
@@ -157,12 +172,12 @@ function getCountdownText(activity: AppDiscountVO): string {
 }
 
 /** 倒计时标签 */
-function getCountdownLabel(activity: AppDiscountVO): string {
+function getCountdownLabel(activity: AppDiscountActivityVO): string {
   return activity.status === 1 ? '距结束' : '距开始'
 }
 
 /** 折扣标签文本 */
-function discountTagText(activity: AppDiscountVO): string {
+function discountTagText(activity: AppDiscountActivityVO): string {
   switch (activity.discountType) {
     case 1:
       return `${Math.round(activity.discountValue * 10)}折`
@@ -176,7 +191,7 @@ function discountTagText(activity: AppDiscountVO): string {
 }
 
 /** 折扣标签颜色类 */
-function discountTagClass(activity: AppDiscountVO): string {
+function discountTagClass(activity: AppDiscountActivityVO): string {
   switch (activity.discountType) {
     case 1:
       return 'tag-discount'
@@ -252,6 +267,13 @@ function statusText(status: number): string {
 
         <!-- 折扣商品列表 -->
         <view class="goods-list">
+          <!-- 全场活动没有指定商品清单，折扣在商品详情页生效；给出说明避免看起来是坏数据 -->
+          <view
+            v-if="!activity.goodsList || activity.goodsList.length === 0"
+            class="goods-empty"
+          >
+            全场商品参与，进入商品详情查看折扣价
+          </view>
           <view
             v-for="goods in activity.goodsList"
             :key="goods.skuId"
@@ -315,6 +337,13 @@ function statusText(status: number): string {
 }
 
 // 空状态
+.goods-empty {
+  padding: 24rpx 0;
+  color: #909399;
+  font-size: 24rpx;
+  text-align: center;
+}
+
 .empty-state {
   display: flex;
   align-items: center;

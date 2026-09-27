@@ -2,6 +2,8 @@ package com.aryn.cloud.product.service.impl;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.product.api.entity.GoodsSku;
@@ -14,10 +16,12 @@ import com.aryn.cloud.product.mapper.GoodsSpuMapper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.math.BigDecimal;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -156,6 +160,58 @@ class GoodsSpuServiceImplTest {
 		assertThat(request.getStock()).isNull();
 		assertThat(request.getTenantId()).isNull();
 		verify(spuMapper).update(any(GoodsSpu.class), any(Wrapper.class));
+	}
+
+	@Test
+	void apiPageMasksCostPriceForApp() {
+		Page<GoodsSpu> page = new Page<>(1, 10);
+		GoodsSpu spu = product("spu-1", List.of());
+		spu.setSalesPrice(BigDecimal.valueOf(20));
+		spu.setOriginalPrice(BigDecimal.valueOf(80));
+		spu.setCostPrice(BigDecimal.valueOf(40));
+		page.setRecords(List.of(spu));
+		when(spuMapper.selectApiPage(any(Page.class), any(GoodsSpu.class))).thenReturn(page);
+
+		IPage<GoodsSpu> result = service.apiPage(page, new GoodsSpu());
+
+		// C 端列表不下发成本价；售价/原价是展示所需，必须保留
+		assertThat(result.getRecords()).hasSize(1);
+		assertThat(result.getRecords().get(0).getCostPrice()).isNull();
+		assertThat(result.getRecords().get(0).getSalesPrice()).isEqualByComparingTo("20");
+		assertThat(result.getRecords().get(0).getOriginalPrice()).isEqualByComparingTo("80");
+	}
+
+	@Test
+	void getApiSpuByIdMasksCostPriceOnSpuAndSkus() {
+		GoodsSpu spu = product("spu-1", List.of(sku("sku-1", 20, 80, 40, 3, 0)));
+		spu.setCostPrice(BigDecimal.valueOf(40));
+		when(spuMapper.selectApiSpuById("spu-1")).thenReturn(spu);
+
+		GoodsSpu result = service.getApiSpuById("spu-1");
+
+		assertThat(result.getCostPrice()).isNull();
+		assertThat(result.getGoodsSkus()).allSatisfy(item -> {
+			assertThat(item.getCostPrice()).isNull();
+			assertThat(item.getSalesPrice()).isEqualByComparingTo("20");
+			assertThat(item.getOriginalPrice()).isEqualByComparingTo("80");
+		});
+	}
+
+	@Test
+	void apiListByIdsReturnsOnlyPublishedGoodsAndMasksCostPrice() {
+		GoodsSpu published = product("spu-1", List.of());
+		published.setSalesPrice(BigDecimal.valueOf(20));
+		published.setCostPrice(BigDecimal.valueOf(40));
+		when(spuMapper.selectList(any(Wrapper.class))).thenReturn(List.of(published));
+
+		List<GoodsSpu> result = service.apiListByIds(List.of("spu-1"));
+
+		assertThat(result.get(0).getCostPrice()).isNull();
+		assertThat(result.get(0).getSalesPrice()).isEqualByComparingTo("20");
+		// 仅上架商品的过滤条件从控制器收拢到了服务层，这里锁住，防止回归
+		ArgumentCaptor<Wrapper<GoodsSpu>> wrapperCaptor = ArgumentCaptor.forClass(Wrapper.class);
+		verify(spuMapper).selectList(wrapperCaptor.capture());
+		assertTrue(wrapperCaptor.getValue().getSqlSegment().contains("status"));
 	}
 
 	private GoodsSpu product(String id, List<GoodsSku> skus) {

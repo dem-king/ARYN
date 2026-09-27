@@ -25,6 +25,7 @@ import {
   publishPage,
   rollbackVersion,
   saveDraft,
+  setAsHome,
   submitRelease,
   unpublishPage,
   updateTemplate,
@@ -93,6 +94,14 @@ describe('page design transport API', () => {
     expect(requestClient.post).toHaveBeenNthCalledWith(
       3,
       '/promotion/pagedesign/page-1/unpublish',
+    );
+  });
+
+  it('switches the live homepage through a dedicated endpoint', async () => {
+    await setAsHome('page-1');
+
+    expect(requestClient.post).toHaveBeenCalledWith(
+      '/promotion/pagedesign/page-1/set-home',
     );
   });
 

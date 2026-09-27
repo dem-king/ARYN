@@ -36,6 +36,17 @@ public class RemoteSeckillServiceImpl implements RemoteSeckillService {
 	}
 
 	@Override
+	public boolean releaseDeduct(SeckillOrderDTO dto, String userId, String orderId) {
+		try {
+			return seckillOrderService.releaseDeduct(dto, userId, orderId);
+		}
+		catch (Exception e) {
+			log.error("秒杀预扣补偿释放失败, orderId={}, skuId={}", orderId, dto.getSkuId(), e);
+			return false;
+		}
+	}
+
+	@Override
 	public BigDecimal getSeckillPrice(String skuId) {
 		AppSeckillGoodsVO vo = seckillActivityService.getGoodsSeckillInfo(skuId);
 		if (vo == null || vo.getSeckillPrice() == null) {

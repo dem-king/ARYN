@@ -45,6 +45,7 @@ export function createGoodsWaterfallDefaults() {
       sort: 'sales',
       targetIds: [] as string[],
     },
+    showOriginalPrice: true,
     showPrice: true,
     showSales: true,
     title: '猜你喜欢',

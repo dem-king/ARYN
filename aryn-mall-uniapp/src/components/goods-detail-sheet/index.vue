@@ -7,16 +7,21 @@
  *   ＋ 标题/卖点 ＋ 图文详情（mp-html 富文本）
  *   ＋ 底部固定「加入购物车」
  *
- * 加购统一唤起 vk-data-goods-sku-popup（mode=2，自带数量步进器与库存校验）：
+ * 加购与商详页同口径（utils/goods-purchase + useQuickCart）：
+ *   · 单规格 → 按 MOQ/步长的合法数量直接入车，不弹层
+ *   · 多规格 → 唤起 vk-data-goods-sku-popup 选规格（mode=2，自带库存校验）
  *   · 未登录 → 本地拦截跳登录（避免 401 把访客踢出当前页）
  *   · SKU 主键字段直接复用 getById 返回的 `id`（详情页同口径，不做字段映射）
  */
+import type { PurchaseDecision, SpecRowView } from '@/utils/goods-purchase'
 // @ts-expect-error: mp-html type declaration issue
 import mpHtml from 'mp-html/dist/uni-app/components/mp-html/mp-html'
-import { nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 
 import { addShoppingCart } from '@/api/order/shoppingCart'
 import { getById as getSpuById } from '@/api/product/spu'
+import { useQuickCart } from '@/composables/useQuickCart'
+import { resolvePurchaseDecision, resolveSpecRow } from '@/utils/goods-purchase'
 import { initGoodsSpecs } from '@/utils/goods-specs'
 
 interface Props {
@@ -38,6 +43,8 @@ const emit = defineEmits<{
 
 const authStore = useAuthStore()
 const shoppingCartStore = useShoppingCartStore()
+/** 单规格直加购与列表页/商详页共用同一份规则（MOQ/步长/登录守卫） */
+const { quickAdd } = useQuickCart()
 
 const visible = computed({
   get: () => props.modelValue,
@@ -61,16 +68,9 @@ const showOriginalPrice = computed(
   () => Number(goodsSpu.value?.salesPrice) < Number(goodsSpu.value?.originalPrice),
 )
 
-/** 规格摘要：单规格取第一个 sku 的规格值；多规格引导选择 */
-const specSummary = computed(() => {
-  if (!goodsSpu.value?.id)
-    return ''
-  if (goodsSpu.value.enableSpecs === '0')
-    return '默认'
-  const first = goodsSpu.value.goodsSkus?.[0]
-  const names = (first?.specsArr ?? []).map((s: any) => s.specsValueName).filter(Boolean)
-  return names.length ? names.join(' / ') : '请选择规格'
-})
+/** 规格行视图：与商详页同口径——单规格展示真实规格值（无规格值时整行隐藏），多规格引导选择 */
+const purchaseDecision = ref<PurchaseDecision>({ needChoose: true, specText: '' })
+const specRow = computed<SpecRowView>(() => resolveSpecRow(purchaseDecision.value, ''))
 
 async function loadSpu(id: string) {
   if (!id)
@@ -78,6 +78,8 @@ async function loadSpu(id: string) {
   loading.value = true
   try {
     const response = await getSpuById(id)
+    // 在注入「默认」占位规格前取原始规格口径
+    purchaseDecision.value = resolvePurchaseDecision(response)
     goodsSpu.value = response ?? {}
     if (response)
       initGoodsSpecs(response)
@@ -85,6 +87,7 @@ async function loadSpu(id: string) {
   }
   catch {
     goodsSpu.value = {}
+    purchaseDecision.value = { needChoose: true, specText: '' }
   }
   finally {
     loading.value = false
@@ -133,15 +136,22 @@ function goLogin() {
   uni.navigateTo({ url: '/pages/login/index' })
 }
 
-/** 加入购物车：统一唤起 SKU 弹层选规格与数量（弹层内置库存校验） */
-function handleAddCart() {
+/** 加入购物车：单规格按合法数量直接入车，多规格唤起弹层选规格 */
+async function handleAddCart() {
   if (!goodsSpu.value.id)
     return
   if (!authStore.isLoggedIn) {
     goLogin()
     return
   }
-  openSkuPopup()
+  const result = await quickAdd(String(goodsSpu.value.id))
+  if (result.added) {
+    emit('added', String(goodsSpu.value.id))
+    return
+  }
+  // 需选规格（多规格）或查询异常时退回弹层；缺货场景 useQuickCart 已 toast 原因
+  if (result.needChoose || result.info === null)
+    openSkuPopup()
 }
 
 /** SKU 弹层回传后加购（回传结构含 skuId/quantity/spuId 等，与详情页同一接口口径） */
@@ -209,8 +219,9 @@ function handleSkuAdd(data: any) {
         </view>
 
         <!-- 规格行 -->
-        <view class="detail-sheet-spec" @click="openSkuPopup">
-          <text class="detail-sheet-spec-text">{{ specSummary || '规格' }}</text>
+        <!-- 规格行：单规格无规格值时整行隐藏（规格在商品名/船供箱规里），点击只调数量 -->
+        <view v-if="specRow.visible" class="detail-sheet-spec" @click="openSkuPopup">
+          <text class="detail-sheet-spec-text">{{ specRow.text }}</text>
           <wd-icon name="arrow-right" size="24rpx" color="#999" />
         </view>
 
@@ -233,7 +244,12 @@ function handleSkuAdd(data: any) {
 
       <!-- 底部操作栏：SKU 弹层弹出时隐藏，避免两层「加入购物车」按钮叠在一起 -->
       <view v-if="!skuKey" class="detail-sheet-footer">
-        <view class="detail-sheet-add" @click="handleAddCart">
+        <view
+          class="detail-sheet-add"
+          hover-class="detail-sheet-add--pressed"
+          :hover-stay-time="120"
+          @click="handleAddCart"
+        >
           <wd-icon name="plus" size="32rpx" color="#fff" />
           加入购物车
         </view>
@@ -259,15 +275,22 @@ function handleSkuAdd(data: any) {
 .detail-sheet {
   display: flex;
   flex-direction: column;
-  /* 面板接近全屏，只在顶部露出下拉关闭钮与少量压暗背景 */
-  height: 92vh;
+  /**
+   * 弹层高度收敛到 2/3 屏而非 92vh：
+   * 1) 底部「加入购物车」操作栏固定可见，不再被富文本撑到可视区外；
+   * 2) 上方保留更多压暗背景，让弹层呈现「预览卡片」而非「全屏页」的观感。
+   * max-height 与 height 同值，避免 H5 地址栏收缩时 vh 偏差把 footer 挤出。
+   */
+  height: 66vh;
+  max-height: 66vh;
   background: #fff;
 }
 
 .detail-sheet-gallery {
   position: relative;
   flex: none;
-  height: 640rpx;
+  /* 大图收敛：420rpx 约等于四分之一屏，把空间让给信息与操作区 */
+  height: 420rpx;
   background: #f5f5f5;
 }
 
@@ -319,7 +342,7 @@ function handleSkuAdd(data: any) {
 .detail-sheet-price {
   display: flex;
   align-items: baseline;
-  padding: 24rpx 32rpx 0;
+  padding: 20rpx 32rpx 0;
   background: linear-gradient(180deg, #fff2f2 0%, #ffffff 100%);
 }
 
@@ -347,10 +370,17 @@ function handleSkuAdd(data: any) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin: 20rpx 32rpx 0;
-  padding: 16rpx 20rpx;
+  margin: 16rpx 32rpx 0;
+  padding: 14rpx 20rpx;
   background: #f7f7f7;
   border-radius: 12rpx;
+  /* 规格行可点，按压反馈与页面其它可点元素一致 */
+  transition: opacity 160ms ease, transform 160ms ease;
+
+  &:active {
+    opacity: 0.75;
+    transform: scale(0.99);
+  }
 }
 
 .detail-sheet-spec-text {
@@ -364,7 +394,7 @@ function handleSkuAdd(data: any) {
 }
 
 .detail-sheet-title {
-  padding: 20rpx 32rpx 0;
+  padding: 16rpx 32rpx 0;
   font-size: 32rpx;
   font-weight: 600;
   line-height: 1.4;
@@ -372,28 +402,31 @@ function handleSkuAdd(data: any) {
 }
 
 .detail-sheet-intro {
-  padding: 12rpx 32rpx 0;
+  padding: 10rpx 32rpx 0;
   font-size: 26rpx;
   line-height: 1.5;
   color: #888;
 }
 
 .detail-sheet-divider {
-  margin: 24rpx 0 0;
+  margin: 20rpx 0 0;
   padding: 0 32rpx;
   color: #333;
   font-weight: 600;
 }
 
 .detail-sheet-rich {
-  padding: 16rpx 32rpx 32rpx;
+  padding: 12rpx 32rpx 28rpx;
 }
 
 .detail-sheet-footer {
   flex: none;
   display: flex;
-  padding: 16rpx 32rpx;
+  align-items: center;
+  gap: 16rpx;
+  padding: 14rpx 32rpx;
   border-top: 1rpx solid #f2f2f2;
+  background: #fff;
 }
 
 .detail-sheet-add {
@@ -408,5 +441,26 @@ function handleSkuAdd(data: any) {
   color: #fff;
   font-size: 30rpx;
   font-weight: 600;
+  box-shadow: 0 8rpx 20rpx rgba(32, 112, 235, 0.22);
+  transition: transform 160ms ease, box-shadow 160ms ease;
+
+  &:active {
+    transform: scale(0.97);
+    box-shadow: 0 4rpx 12rpx rgba(32, 112, 235, 0.18);
+  }
+}
+
+/* 小程序端 :active 不生效，hover-class 兜底同款按压反馈 */
+.detail-sheet-add--pressed {
+  transform: scale(0.97);
+  box-shadow: 0 4rpx 12rpx rgba(32, 112, 235, 0.18);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .detail-sheet-spec,
+  .detail-sheet-add {
+    animation: none;
+    transition: none;
+  }
 }
 </style>

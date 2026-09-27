@@ -9,6 +9,7 @@ import { computed, ref, watch } from 'vue';
 import { ArrowRightBold, CircleClose } from '@element-plus/icons-vue';
 import {
   ElButton,
+  ElCascader,
   ElDialog,
   ElForm,
   ElFormItem,
@@ -16,6 +17,8 @@ import {
   ElOption,
   ElSelect,
 } from 'element-plus';
+
+import { getPage as getCategoryTree } from '#/api/product/goods-category';
 
 import { cloneDesignerValue } from '../../../../page-designer/schema/clone';
 import {
@@ -41,10 +44,35 @@ const needsTarget = computed(() =>
 const needsPath = computed(() =>
   ['custom', 'mini-program'].includes(form.value.type),
 );
-const displayValue = computed(
-  () =>
-    form.value.targetId || form.value.path || props.placeholder || '选择链接',
-);
+
+/**
+ * 分类树选择器：金刚区入口常只选一级（如「水果」），
+ * 故 checkStrictly 允许选任意层级；选中后把一级/二级 id 分别写进 params，
+ * 移动端跳转时直接带正确层级，不再事后查树判断。
+ */
+const categoryTree = ref<any[]>([]);
+const categoryCascader = ref<string[]>([]);
+const categoryLabel = ref('');
+const cascaderProps = {
+  label: 'name',
+  value: 'id',
+  children: 'children',
+  checkStrictly: true,
+};
+
+const displayValue = computed(() => {
+  if (form.value.type === 'category') {
+    return (
+      categoryLabel.value ||
+      form.value.targetId ||
+      props.placeholder ||
+      '选择链接'
+    );
+  }
+  return (
+    form.value.targetId || form.value.path || props.placeholder || '选择链接'
+  );
+});
 
 const linkTypes: Array<{ label: string; value: DecorationLinkType }> = [
   { label: '商品', value: 'goods' },
@@ -57,9 +85,64 @@ const linkTypes: Array<{ label: string; value: DecorationLinkType }> = [
   { label: '自定义路径', value: 'custom' },
 ];
 
+function loadCategoryTree() {
+  if (categoryTree.value.length > 0) return;
+  getCategoryTree().then((res) => {
+    categoryTree.value = res ?? [];
+    // 树回来后用当前已选路径反查展示名（打开弹窗时树可能还没到）
+    categoryLabel.value = findCategoryLabel(
+      categoryTree.value,
+      categoryCascader.value,
+    );
+  });
+}
+
+/** 沿已选 id 路径在树里找出最后一级的名字，用于触发器回显 */
+function findCategoryLabel(tree: any[], path: string[]): string {
+  if (path.length === 0) return '';
+  let nodes = tree;
+  let label = '';
+  for (const id of path) {
+    const node = nodes.find((n: any) => String(n.id) === String(id));
+    if (!node) return label;
+    label = node.name;
+    nodes = node.children ?? [];
+  }
+  return label;
+}
+
+function onCategoryChange(val: any) {
+  categoryCascader.value = Array.isArray(val) ? [...val] : [];
+  const firstId = categoryCascader.value[0] ?? '';
+  const secondId = categoryCascader.value[1] ?? '';
+  // targetId 仍保留所选节点 id（二级优先），兼容旧校验与展示
+  form.value.targetId = secondId || firstId;
+  // 层级写进 params，移动端跳转时直接带正确的 first/second
+  form.value.params = {
+    ...form.value.params,
+    categoryFirstId: firstId,
+    categorySecondId: secondId,
+  };
+  paramsText.value = JSON.stringify(form.value.params ?? {}, null, 2);
+  categoryLabel.value = findCategoryLabel(
+    categoryTree.value,
+    categoryCascader.value,
+  );
+}
+
 function open() {
   form.value = normalizeDecorationLink(props.modelValue);
   paramsText.value = JSON.stringify(form.value.params ?? {}, null, 2);
+  // 回填已有分类选择：params 里带了 first/second 就拼回级联路径
+  const p = form.value.params ?? {};
+  categoryCascader.value = [p.categoryFirstId, p.categorySecondId].filter(
+    Boolean,
+  ) as string[];
+  categoryLabel.value = findCategoryLabel(
+    categoryTree.value,
+    categoryCascader.value,
+  );
+  loadCategoryTree();
   dialogVisible.value = true;
 }
 
@@ -125,7 +208,22 @@ watch(
             />
           </ElSelect>
         </ElFormItem>
-        <ElFormItem v-if="needsTarget" label="目标 ID" :error="errors[0]">
+        <ElFormItem
+          v-if="form.type === 'category'"
+          label="选择分类"
+          :error="errors[0]"
+        >
+          <ElCascader
+            :options="categoryTree"
+            v-model="categoryCascader"
+            clearable
+            :props="cascaderProps"
+            class="full-width"
+            placeholder="选择分类（可只选一级，如「水果」）"
+            @change="onCategoryChange"
+          />
+        </ElFormItem>
+        <ElFormItem v-else-if="needsTarget" label="目标 ID" :error="errors[0]">
           <ElInput v-model="form.targetId" clearable />
         </ElFormItem>
         <ElFormItem v-if="needsPath" label="页面路径" :error="errors[0]">

@@ -1,4 +1,4 @@
-import type { DecorationComponent, DecorationDocument, DecorationSection, PageSettings, SectionStyle } from './types'
+import type { DecorationComponent, DecorationDocument, DecorationSection, PageSettings, SectionCondition, SectionConditionGroup, SectionStyle } from './types'
 import { DECORATION_SCHEMA_VERSION } from './types'
 
 type UnknownRecord = Record<string, unknown>
@@ -34,9 +34,25 @@ function createDefaultSectionStyle(): SectionStyle {
     backgroundImage: '',
     condition: 'always',
     horizontalScroll: false,
+    marginX: 0,
+    marginY: 0,
+    paddingX: 0,
     paddingY: 0,
+    radius: 0,
     sticky: false,
   }
+}
+
+/**
+ * 区块长度字段归一化：负数与非法值一律回落默认值。
+ * 上限只做防御（避免脏数据把整块内容挤出屏幕），不参与业务校验。
+ */
+const SECTION_LENGTH_MAX = 200
+
+function normalizeSectionLength(value: unknown, fallback = 0): number {
+  if (typeof value !== 'number' || !Number.isFinite(value))
+    return fallback
+  return Math.min(Math.max(value, 0), SECTION_LENGTH_MAX)
 }
 
 function migrateComponent(value: unknown): DecorationComponent | null {
@@ -56,13 +72,39 @@ function migrateComponents(values: unknown): DecorationComponent[] {
     : []
 }
 
+function isConditionGroup(value: unknown): value is SectionConditionGroup {
+  return (
+    isRecord(value)
+    && (value.logic === 'and' || value.logic === 'or')
+    && Array.isArray(value.rules)
+  )
+}
+
+function normalizeCondition(value: unknown): SectionCondition {
+  // 字符串简写：向后兼容旧值
+  if (value === 'login' || value === 'guest' || value === 'always')
+    return value
+  // 对象组合条件：透传
+  if (isConditionGroup(value))
+    return value
+  // 未知值归一为 always
+  return 'always'
+}
+
 function migrateSectionStyle(value: unknown): SectionStyle {
   const defaults = createDefaultSectionStyle()
   if (!isRecord(value))
     return defaults
-  const condition
-    = value.condition === 'login' || value.condition === 'guest' ? value.condition : defaults.condition
-  return { ...defaults, ...cloneRecord(value), condition } as SectionStyle
+  const condition = normalizeCondition(value.condition)
+  const merged = { ...defaults, ...cloneRecord(value), condition } as SectionStyle
+  // 旧文档没有 margin/padding/radius 字段，缺省即 0（通栏直角）；
+  // 脏数据（负数/字符串/超大值）在此收敛，渲染层不必再防御。
+  merged.marginX = normalizeSectionLength(value.marginX)
+  merged.marginY = normalizeSectionLength(value.marginY)
+  merged.paddingX = normalizeSectionLength(value.paddingX)
+  merged.paddingY = normalizeSectionLength(value.paddingY)
+  merged.radius = normalizeSectionLength(value.radius)
+  return merged
 }
 
 function migrateSections(source: UnknownRecord): DecorationSection[] {

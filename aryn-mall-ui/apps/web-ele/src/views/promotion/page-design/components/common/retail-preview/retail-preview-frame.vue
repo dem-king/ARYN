@@ -13,6 +13,8 @@ const props = defineProps<{
   message?: string;
   status: RetailPreviewStatus;
   title?: string;
+  /** 组件类型标识（如「秒杀」「拼团」）：占位态视觉几乎一致，用标签区分楼层类型 */
+  typeLabel?: string;
 }>();
 
 const frameStyle = computed(() => {
@@ -58,6 +60,7 @@ const stateMeta = computed(() => {
       aria-live="polite"
       role="status"
     >
+      <span v-if="typeLabel" class="retail-frame__tag">{{ typeLabel }}</span>
       <ElIcon :class="{ 'is-loading': status === 'loading' }">
         <component :is="stateMeta.icon" />
       </ElIcon>
@@ -107,5 +110,13 @@ const stateMeta = computed(() => {
 
 .retail-frame__state .el-icon {
   font-size: 22px;
+}
+
+.retail-frame__tag {
+  padding: 1px 10px;
+  font-size: 11px;
+  border: 1px solid currentcolor;
+  border-radius: 999px;
+  opacity: 0.8;
 }
 </style>

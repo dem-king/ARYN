@@ -27,6 +27,8 @@ interface ShowData {
   bottomLine: string;
   showDesc: boolean;
   moreBtnColor: string;
+  titleCenter?: boolean;
+  descCenter?: boolean;
 }
 
 const props = defineProps<{
@@ -82,7 +84,13 @@ const dynamicStyles = computed(() => {
 
 <template>
   <div class="base" :style="dynamicStyles">
-    <div class="title">
+    <div
+      class="title"
+      :class="{
+        'title-center': showData.titleCenter,
+        'title-left': !showData.titleCenter,
+      }"
+    >
       <div
         class="diy-title"
         :style="{
@@ -122,6 +130,7 @@ const dynamicStyles = computed(() => {
         fontSize: `${showData.descSize}px`,
         color: showData.descColor,
         fontWeight: showData.descWeight === '1' ? 'bold' : '',
+        textAlign: showData.descCenter ? 'center' : undefined,
       }"
     >
       <p>{{ showData.desc }}</p>
@@ -135,10 +144,42 @@ const dynamicStyles = computed(() => {
   margin: 0% !important;
 }
 
+/* 与小程序 diy-titletext 一致：左对齐 / 居中两态，more-btn 绝对定位在右侧 */
 .title {
+  position: relative;
   display: flex;
-  justify-content: space-between;
+  align-items: center;
   padding-bottom: 10px;
+
+  &.title-left {
+    justify-content: flex-start;
+
+    .diy-title {
+      text-align: left;
+    }
+
+    .more-btn {
+      position: absolute;
+      top: 0;
+      right: 0;
+      transform: translateY(0);
+    }
+  }
+
+  &.title-center {
+    justify-content: center;
+
+    .diy-title {
+      text-align: center;
+    }
+
+    .more-btn {
+      position: absolute;
+      top: -10%;
+      right: 0;
+      transform: translateY(0);
+    }
+  }
 
   .more-btn {
     display: flex;

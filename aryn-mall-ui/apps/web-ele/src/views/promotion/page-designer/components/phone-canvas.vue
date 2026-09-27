@@ -7,6 +7,7 @@ import { CopyDocument, Delete } from '@element-plus/icons-vue';
 import { ElButton, ElEmpty, ElTooltip } from 'element-plus';
 
 import { getComponentDefinition } from '../registry/component-registry';
+import { buildSectionStyle } from '../schema/section-style';
 
 const props = defineProps<{
   page: PageSettings;
@@ -34,20 +35,8 @@ const canvasStyle = computed(() => ({
 }));
 
 function sectionStyle(section: DecorationSection) {
-  const style: Record<string, number | string | undefined> = {
-    backgroundColor: section.style.backgroundColor || undefined,
-    backgroundImage: section.style.backgroundImage
-      ? `url(${section.style.backgroundImage})`
-      : undefined,
-    paddingBottom: `${section.style.paddingY}px`,
-    paddingTop: `${section.style.paddingY}px`,
-  };
-  if (section.style.sticky) {
-    style.position = 'sticky';
-    style.top = '0';
-    style.zIndex = '4';
-  }
-  return style;
+  // 吸顶层级 4：编辑器里要给组件悬浮操作按钮（z-index 5/8）让位
+  return buildSectionStyle(section.style, { stickyZIndex: 4 });
 }
 </script>
 

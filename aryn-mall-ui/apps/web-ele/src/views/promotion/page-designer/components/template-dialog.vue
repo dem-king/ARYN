@@ -1,11 +1,22 @@
 <script setup lang="ts">
 import type { DecorationDocument } from '../schema/types';
 
-import type { PageDesignTemplateRecord } from '#/api/promotion/page-design';
+import type {
+  PageDesignTemplateRecord,
+  PageDesignType,
+  TemplateMarketStatus,
+} from '#/api/promotion/page-design';
 
 import { computed, ref, watch } from 'vue';
 
-import { Delete, Plus, Star, StarFilled } from '@element-plus/icons-vue';
+import {
+  CircleClose,
+  Delete,
+  Plus,
+  Promotion,
+  Star,
+  StarFilled,
+} from '@element-plus/icons-vue';
 import {
   ElButton,
   ElCheckbox,
@@ -21,6 +32,8 @@ import {
   createTemplate,
   deleteTemplate,
   getTemplates,
+  offlineTemplateFromMarket,
+  publishTemplateToMarket,
 } from '#/api/promotion/page-design';
 
 import { allLegacyComponentsV2 } from '../fixtures/all-components-v2';
@@ -30,7 +43,7 @@ import { cloneTemplateDocument } from '../utils/template-utils';
 const props = defineProps<{
   currentDocument: DecorationDocument;
   modelValue: boolean;
-  pageType: '0' | '1';
+  pageType: PageDesignType;
 }>();
 const emit = defineEmits<{
   apply: [document: DecorationDocument];
@@ -78,12 +91,26 @@ const visibleTemplates = computed(() =>
 const systemTemplate: PageDesignTemplateRecord = {
   id: 'system-all-components',
   pageType: '2',
-  schemaVersion: 2,
+  schemaVersion: allLegacyComponentsV2.schemaVersion,
   systemFlag: '1',
   templateContent: allLegacyComponentsV2 as unknown as Record<string, unknown>,
   templateName: '全组件基础模板',
   templateType: '0',
 };
+
+/** 市场状态展示文案与标签类型 */
+const MARKET_STATUS_META: Record<
+  TemplateMarketStatus,
+  { label: string; type: 'danger' | 'info' | 'success' }
+> = {
+  '0': { label: '未上架', type: 'info' },
+  '1': { label: '已上架', type: 'success' },
+  '2': { label: '已下架', type: 'danger' },
+};
+
+function marketMeta(template: PageDesignTemplateRecord) {
+  return MARKET_STATUS_META[template.marketStatus ?? '0'];
+}
 
 async function load() {
   if (!props.modelValue) return;
@@ -116,7 +143,7 @@ async function saveCurrent() {
   );
   await createTemplate({
     pageType: props.pageType,
-    schemaVersion: 2,
+    schemaVersion: props.currentDocument.schemaVersion,
     systemFlag: '0',
     templateContent: props.currentDocument as unknown as Record<
       string,
@@ -140,6 +167,28 @@ async function remove(template: PageDesignTemplateRecord) {
     },
   );
   await deleteTemplate(template.id);
+  await load();
+}
+
+async function handlePublishMarket(template: PageDesignTemplateRecord) {
+  await ElMessageBox.confirm(
+    `发布后“${template.templateName}”将出现在模板市场，供其他租户下载使用，是否继续？`,
+    '发布到市场',
+    { confirmButtonText: '发布', cancelButtonText: '取消', type: 'warning' },
+  );
+  await publishTemplateToMarket(template.id);
+  ElMessage.success('已发布到模板市场');
+  await load();
+}
+
+async function handleOfflineMarket(template: PageDesignTemplateRecord) {
+  await ElMessageBox.confirm(
+    `下架后其他租户将无法在模板市场看到“${template.templateName}”，是否继续？`,
+    '从市场下架',
+    { confirmButtonText: '下架', cancelButtonText: '取消', type: 'warning' },
+  );
+  await offlineTemplateFromMarket(template.id);
+  ElMessage.success('已从模板市场下架');
   await load();
 }
 
@@ -203,28 +252,67 @@ watch(() => props.modelValue, load);
             @click="toggleFavorite(template.id)"
           />
         </div>
-        <p>
-          {{
-            migratePageContent(template.templateContent).sections.flatMap(
-              (section) => section.components,
-            ).length
-          }}
-          个组件
-        </p>
+        <div class="template-meta">
+          <span>
+            {{
+              migratePageContent(template.templateContent).sections.flatMap(
+                (section) => section.components,
+              ).length
+            }}
+            个组件
+          </span>
+          <ElTag
+            v-if="template.systemFlag !== '1'"
+            effect="plain"
+            size="small"
+            :type="marketMeta(template).type"
+          >
+            {{ marketMeta(template).label }}
+          </ElTag>
+          <span v-if="template.systemFlag !== '1'" class="download-count">
+            下载 {{ template.downloadCount ?? 0 }}
+          </span>
+        </div>
         <div class="template-item-actions">
           <ElButton type="primary" @click="applyTemplate(template)">
             使用
           </ElButton>
-          <ElButton
-            v-if="template.systemFlag !== '1'"
-            v-access:code="'promotion:pagedesign:template'"
-            :icon="Delete"
-            aria-label="删除模板"
-            circle
-            text
-            type="danger"
-            @click="remove(template)"
-          />
+          <div class="template-item-side">
+            <ElButton
+              v-if="
+                template.systemFlag !== '1' && template.marketStatus !== '1'
+              "
+              v-access:code="'promotion:pagedesign:template'"
+              :icon="Promotion"
+              size="small"
+              type="success"
+              @click="handlePublishMarket(template)"
+            >
+              发布到市场
+            </ElButton>
+            <ElButton
+              v-if="
+                template.systemFlag !== '1' && template.marketStatus === '1'
+              "
+              v-access:code="'promotion:pagedesign:template'"
+              :icon="CircleClose"
+              size="small"
+              type="warning"
+              @click="handleOfflineMarket(template)"
+            >
+              下架
+            </ElButton>
+            <ElButton
+              v-if="template.systemFlag !== '1'"
+              v-access:code="'promotion:pagedesign:template'"
+              :icon="Delete"
+              aria-label="删除模板"
+              circle
+              text
+              type="danger"
+              @click="remove(template)"
+            />
+          </div>
         </div>
       </article>
     </div>
@@ -268,9 +356,16 @@ watch(() => props.modelValue, load);
   align-items: center;
 }
 
-.template-item p {
-  margin: 0;
+.template-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
   color: var(--el-text-color-secondary);
+}
+
+.download-count {
+  margin-left: auto;
 }
 
 .template-item-actions {
@@ -278,5 +373,11 @@ watch(() => props.modelValue, load);
   align-items: center;
   align-self: end;
   justify-content: space-between;
+}
+
+.template-item-side {
+  display: flex;
+  gap: 4px;
+  align-items: center;
 }
 </style>

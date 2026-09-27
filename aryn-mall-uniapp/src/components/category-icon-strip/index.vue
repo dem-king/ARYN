@@ -58,6 +58,9 @@ function showFallback(item: CategoryItem, index: number) {
           v-for="(item, index) in props.categories"
           :key="item.id ?? index"
           class="icon-strip-item"
+          :class="index === props.activeIndex ? 'icon-strip-item--active' : ''"
+          hover-class="icon-strip-item--pressed"
+          :hover-stay-time="120"
           @click="emit('select', index)"
         >
           <view class="icon-strip-circle" :class="index === props.activeIndex ? 'icon-strip-circle--active' : ''">
@@ -102,7 +105,9 @@ function showFallback(item: CategoryItem, index: number) {
 .icon-strip {
   position: relative;
   background: #fff;
-  padding: 20rpx 0 16rpx;
+  padding: 24rpx 0 18rpx;
+  /* 与下方内容区形成层次分隔，避免纯白平贴 */
+  border-bottom: 1rpx solid #f1f2f4;
 }
 
 .icon-strip-scroll {
@@ -121,6 +126,16 @@ function showFallback(item: CategoryItem, index: number) {
   align-items: center;
   width: 140rpx;
   flex: none;
+  transition: transform 180ms ease;
+
+  &--active {
+    transform: translateY(-2rpx);
+  }
+
+  /* 按压反馈（hover-class，小程序与 H5 通用）：未选中项轻压回弹 */
+  &--pressed {
+    transform: scale(0.92);
+  }
 }
 
 .icon-strip-circle {
@@ -129,16 +144,41 @@ function showFallback(item: CategoryItem, index: number) {
   border-radius: 50%;
   overflow: hidden;
   box-sizing: border-box;
-  border: 4rpx solid transparent;
+  border: 3rpx solid transparent;
+  background: #f5f6f8;
+  box-shadow: 0 5rpx 14rpx rgba(29, 39, 54, 0.08);
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
 
   &--active {
     border-color: var(--theme-color-primary, var(--wot-color-theme-primary));
+    box-shadow: 0 0 0 5rpx rgba(32, 112, 235, 0.1), 0 7rpx 18rpx rgba(29, 39, 54, 0.12);
+    /* 选中弹跳：overshoot 曲线给切换一个「落位」的弹性感，动画结束保持 1.04 */
+    animation: icon-strip-bounce 480ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+}
+
+@keyframes icon-strip-bounce {
+  0% {
+    transform: scale(1);
+  }
+
+  45% {
+    transform: scale(1.1);
+  }
+
+  70% {
+    transform: scale(0.97);
+  }
+
+  100% {
+    transform: scale(1.04);
   }
 }
 
 .icon-strip-pic {
   width: 100%;
   height: 100%;
+  display: block;
 }
 
 .icon-strip-fallback {
@@ -153,10 +193,12 @@ function showFallback(item: CategoryItem, index: number) {
 }
 
 .icon-strip-name {
-  margin-top: 10rpx;
+  margin-top: 12rpx;
   max-width: 132rpx;
-  font-size: 24rpx;
-  color: #666;
+  font-size: 23rpx;
+  line-height: 32rpx;
+  color: #737985;
+  transition: color 180ms ease, font-weight 180ms ease;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -179,7 +221,7 @@ function showFallback(item: CategoryItem, index: number) {
 .icon-strip-mask {
   width: 40rpx;
   height: 100%;
-  background: linear-gradient(to right, rgba(255, 255, 255, 0), #fff);
+  background: linear-gradient(to right, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.96) 78%);
 }
 
 .icon-strip-expand-btn {
@@ -190,10 +232,27 @@ function showFallback(item: CategoryItem, index: number) {
   align-items: center;
   justify-content: center;
   background: #fff;
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.icon-strip-expand:active .icon-strip-expand-btn {
+  opacity: 0.72;
+  transform: scale(0.96);
 }
 
 .icon-strip-expand-text {
   font-size: 22rpx;
-  color: #333;
+  line-height: 30rpx;
+  color: #4b5360;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .icon-strip-item,
+  .icon-strip-circle,
+  .icon-strip-circle--active,
+  .icon-strip-expand-btn {
+    animation: none;
+    transition: none;
+  }
 }
 </style>

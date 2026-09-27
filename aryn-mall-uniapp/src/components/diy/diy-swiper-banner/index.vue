@@ -40,8 +40,9 @@ function handleClick(item: any) {
         @click="handleClick(item)"
       >
         <image
-          :src="item.url"
+          :src="resolveImageSrc(item.url)"
           mode="scaleToFill"
+          lazy-load
           :style="{ width: '100%', height: `${height}px`, display: 'block' }"
         />
       </swiper-item>

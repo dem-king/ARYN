@@ -66,6 +66,16 @@ public class GoodsCategory extends Model<GoodsCategory> {
 	@Schema(description = "排序序号")
 	private Integer sort;
 
+	/**
+	 * 类目角标：0.无 1.推荐 2.热卖
+	 *
+	 * <p>分类页左栏在类目名前渲染一个小图标（参考图的「荐」「热」方块）。
+	 * 只存枚举值不存图片地址：样式由 C 端内置，运营只能选语义，
+	 * 避免同一语义在不同租户下配色漂移。
+	 */
+	@Schema(description = "类目角标：0.无 1.推荐 2.热卖")
+	private String badgeType;
+
 	@Schema(description = "租户id")
 	private String tenantId;
 

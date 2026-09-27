@@ -9,7 +9,9 @@ import {
   getMyDeliveryStaff,
 } from '@/api/delivery'
 // 引入组件
+import DiyPage from '@/components/diy/index.vue'
 import WaterfallGoods from '@/components/waterfall-goods/index.vue'
+import { usePageDecoration } from '@/composables/usePageDecoration'
 import { useMessageStore } from '@/store/messageStore'
 import { useTenantCapabilityStore } from '@/store/tenantCapabilityStore'
 import { Local } from '@/utils/storage'
@@ -106,6 +108,9 @@ const authStore = useAuthStore()
 const messageStore = useMessageStore()
 const { show: showToast } = useGlobalToast()
 
+// 个人中心页装修（pageType=4）：用户信息卡下方、订单入口上方，可放会员活动 / 优惠券 / 公告
+const { pageContentData, loading: decorationLoading, fetch: fetchDecoration } = usePageDecoration('4')
+
 myService.value.unshift({
   icon: 'i-carbon:notification-new',
   name: '消息中心',
@@ -153,6 +158,7 @@ function loadVesselState() {
 }
 
 onShow(() => {
+  fetchDecoration()
   if (authStore.isLoggedIn) {
     getUserOrderCount()
     void messageStore.refreshUnread()
@@ -400,6 +406,11 @@ function toLogin() {
       />
     </view>
   </view>
+  <!-- 个人中心装修区域：用户信息卡下方、订单入口上方，可放会员活动 / 优惠券 / 公告 -->
+  <view v-if="pageContentData" class="user-center-decoration">
+    <DiyPage :page-content-data="pageContentData" />
+  </view>
+  <view v-else-if="decorationLoading" class="user-center-decoration-skeleton" />
   <view class="grid-container">
     <view class="warp">
       <view class="header">
@@ -525,6 +536,17 @@ function toLogin() {
 </template>
 
 <style lang="scss" scoped>
+.user-center-decoration {
+  background-color: #f4f5f7;
+}
+
+.user-center-decoration-skeleton {
+  height: 200rpx;
+  margin: 16rpx;
+  border-radius: 12rpx;
+  background: #f5f5f5;
+}
+
 .user-info {
   background-color: rgb(255, 255, 255);
   display: flex;

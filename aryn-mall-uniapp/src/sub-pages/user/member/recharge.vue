@@ -39,8 +39,8 @@ onShow(() => {
 async function loadRechargeConfig() {
   globalLoading.loading('加载中...')
   try {
-    const response = await getRechargeConfigList({ current: 1, size: 100, desc: 'recharge_amount' })
-    configList.value = response.records || []
+    const response = await getRechargeConfigList()
+    configList.value = response || []
   }
   catch (error) {
     console.error('加载充值配置失败:', error)
@@ -54,7 +54,7 @@ async function handleRecharge(config: RechargeConfig) {
   selectedId.value = config.id
   globalLoading.loading('创建订单中...')
   try {
-    const result = await createRechargeOrder({ configId: config.id })
+    const result = await createRechargeOrder(config.id)
     showSuccess(`订单创建成功！订单号：${result.orderNo || result}`)
     userStore.refreshPointsInfo()
   }

@@ -52,4 +52,10 @@ public class AppSeckillGoodsVO implements Serializable {
 
 	@Schema(description = "剩余库存")
 	private Integer remainingStock;
+
+	@Schema(description = "场次结束时间（商详页倒计时用）")
+	private java.time.LocalDateTime sessionEndTime;
+
+	@Schema(description = "场次名称")
+	private String sessionName;
 }

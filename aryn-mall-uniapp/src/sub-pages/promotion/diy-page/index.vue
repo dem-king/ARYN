@@ -5,6 +5,7 @@ import { shallowRef } from 'vue'
 import { getById } from '@/api/promotion/pageDesign'
 import DiyPage from '@/components/diy/index.vue'
 import { useDecorationPage } from '@/composables/useDecorationPage'
+import { useDecorationInfiniteScroll } from '@/composables/useDecorationInfiniteScroll'
 import { createLatestRequestRunner } from '@/composables/useLatestRequest'
 
 definePage({
@@ -26,6 +27,9 @@ const { canPullDownRefresh, title } = useDecorationPage({
   pageContent,
 })
 const requestRunner = createLatestRequestRunner()
+
+// 落地页同样接入无限滚动：滚动接近底部时提前加载装修里的分页商品下一页
+useDecorationInfiniteScroll()
 
 async function initPageDesign() {
   errorMessage.value = ''

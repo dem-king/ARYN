@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 
 import { followDecorationLink } from '@/components/diy/link-resolver'
+import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 import { loadGoodsRanking } from '@/components/diy/retail-data'
 import { retailCommonStyle } from '@/components/diy/retail-types'
 import type { GoodsRankingProps } from '@/components/diy/retail-types'
@@ -18,6 +19,8 @@ const showData = computed<GoodsRankingProps>(() => ({
   dataSource: props.showData.dataSource || { metric: 'sales', mode: 'ranking' },
   emptyStrategy: props.showData.emptyStrategy || 'placeholder',
   invalidStrategy: props.showData.invalidStrategy || 'hide',
+  // 划线原价的运营开关：缺省视为关闭（存量装修数据里没有该字段）
+  showOriginalPrice: Boolean(props.showData.showOriginalPrice),
   showRankNumber: props.showData.showRankNumber !== false,
   title: props.showData.title || '畅销排行',
 }))
@@ -36,12 +39,19 @@ function openGoods(id: string) {
     <view v-else class="ranking-list">
       <view v-for="(item, index) in items" :key="item.id" class="ranking-item" @click="openGoods(item.id)">
         <view v-if="showData.showRankNumber" class="rank-number" :class="{ 'rank-number--top': index < 3 }">{{ index + 1 }}</view>
-        <image v-if="item.imageUrl" class="ranking-image" :src="item.imageUrl" mode="aspectFill" />
+        <image v-if="item.imageUrl" class="ranking-image" :src="item.imageUrl" mode="aspectFill" lazy-load />
         <view v-else class="ranking-image ranking-image--empty">商品</view>
         <view class="ranking-content">
           <view class="ranking-name">{{ item.name }}</view>
           <view class="ranking-stats">销量 {{ item.sales }} · 库存 {{ item.stock }}</view>
-          <view class="ranking-price">￥{{ item.price.toFixed(2) }}</view>
+          <view class="ranking-price">
+            ￥{{ item.price.toFixed(2) }}
+            <!-- 划线原价：仅原价严格高于售价时显示（存量商品原价多为 0，会划出￥0） -->
+            <text
+              v-if="showData.showOriginalPrice && shouldShowOriginalPrice(item.price, item.originalPrice)"
+              class="ranking-price-original"
+            >￥{{ item.originalPrice.toFixed(2) }}</text>
+          </view>
         </view>
       </view>
     </view>
@@ -60,4 +70,6 @@ function openGoods(id: string) {
 .ranking-name { overflow: hidden; color: #303133; font-size: 26rpx; text-overflow: ellipsis; white-space: nowrap; }
 .ranking-stats { margin-top: 8rpx; color: #909399; font-size: 21rpx; }
 .ranking-price { margin-top: 6rpx; color: #e5484d; font-size: 27rpx; font-weight: 600; }
+/* 划线原价：灰字小一号，仅作价格锚点，不与售价抢视觉层级 */
+.ranking-price-original { margin-left: 8rpx; color: #999; font-size: 22rpx; font-weight: normal; text-decoration: line-through; }
 </style>

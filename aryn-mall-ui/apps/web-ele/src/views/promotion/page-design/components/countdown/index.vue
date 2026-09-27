@@ -12,28 +12,35 @@ const now = ref(Date.now());
 let timer: ReturnType<typeof setInterval> | undefined;
 
 const validationErrors = computed(() => validateCountdown(props.showData));
-const remainingSeconds = computed(() =>
-  Math.max(
-    0,
-    Math.floor((Date.parse(props.showData.targetTime) - now.value) / 1000),
-  ),
-);
 const previewStatus = computed<RetailPreviewStatus>(() =>
   validationErrors.value.length > 0 ? 'invalid' : 'data',
 );
-const segments = computed(() => {
-  let rest = remainingSeconds.value;
-  const days = Math.floor(rest / 86_400);
-  rest %= 86_400;
-  const hours = Math.floor(rest / 3600);
-  rest %= 3600;
-  const minutes = Math.floor(rest / 60);
-  return [
-    { label: '天', value: days },
-    { label: '时', value: hours },
-    { label: '分', value: minutes },
-    { label: '秒', value: rest % 60 },
-  ];
+
+/**
+ * 剩余时长格式化：与小程序 useCountdown.formatRemainingTime 同一口径
+ * （天 + HH:mm:ss，已结束或时间不可解析返回空串）。
+ */
+function formatRemainingTime(targetTime: string, current: number) {
+  const remaining = Math.max(0, Date.parse(targetTime) - current);
+  if (!Number.isFinite(remaining) || remaining <= 0) return '';
+  const totalSeconds = Math.floor(remaining / 1000);
+  const days = Math.floor(totalSeconds / 86_400);
+  const hours = Math.floor((totalSeconds % 86_400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const time = [hours, minutes, seconds]
+    .map((value) => String(value).padStart(2, '0'))
+    .join(':');
+  return days > 0 ? `${days}天 ${time}` : time;
+}
+
+const remaining = computed(() =>
+  formatRemainingTime(props.showData.targetTime, now.value),
+);
+/** 时间不可解析时同样按已结束呈现，与小程序 invalid 判断一致 */
+const invalid = computed(() => {
+  const target = Date.parse(props.showData.targetTime);
+  return !props.showData.targetTime || Number.isNaN(target);
 });
 
 onMounted(() => {
@@ -49,57 +56,40 @@ onBeforeUnmount(() => clearInterval(timer));
     :common-style="showData.commonStyle"
     :message="validationErrors[0]"
     :status="previewStatus"
-    :title="showData.title"
   >
-    <div v-if="remainingSeconds > 0" class="countdown-row">
-      <div
-        v-for="segment in segments"
-        :key="segment.label"
-        class="countdown-segment"
-      >
-        <strong>{{ String(segment.value).padStart(2, '0') }}</strong>
-        <span>{{ segment.label }}</span>
-      </div>
+    <div class="countdown">
+      <span class="countdown-title">{{ showData.title }}</span>
+      <span class="countdown-value">
+        {{ !invalid && remaining ? remaining : showData.completedText }}
+      </span>
     </div>
-    <div v-else class="countdown-completed">{{ showData.completedText }}</div>
   </RetailPreviewFrame>
 </template>
 
-<style scoped>
-.countdown-row {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
+<!--
+  样式与小程序 diy-countdown 逐值对齐。
+  换算口径：小程序屏宽在 rpx 下恒为 750，画布正好 375px，故 1rpx = 0.5px，
+  本文件所有 px 值都是对应 rpx 值的一半；改任一端都要同步另一端。
+-->
+<style scoped lang="scss">
+.countdown {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 38px;
 }
 
-.countdown-segment {
-  display: grid;
-  place-items: center;
-  align-content: center;
-  min-height: 64px;
-  color: #fff;
-  background: #172033;
-  border-radius: 6px;
+.countdown-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: #303133;
 }
 
-.countdown-segment strong {
-  font-size: 22px;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-}
-
-.countdown-segment span {
-  margin-top: 5px;
-  font-size: 11px;
-  color: #cbd5e1;
-}
-
-.countdown-completed {
-  display: grid;
-  place-items: center;
-  min-height: 64px;
-  color: #64748b;
-  background: #f1f5f9;
-  border-radius: 6px;
+.countdown-value {
+  font-family: monospace;
+  font-size: 16px;
+  font-weight: 700;
+  color: #e5484d;
 }
 </style>

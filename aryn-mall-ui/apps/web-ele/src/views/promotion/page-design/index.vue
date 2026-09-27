@@ -16,6 +16,7 @@ import {
   CopyDocument,
   Delete,
   EditPen,
+  HomeFilled,
   Plus,
   Refresh,
   Search,
@@ -26,6 +27,9 @@ import {
 import dayjs from 'dayjs';
 import {
   ElButton,
+  ElDropdown,
+  ElDropdownItem,
+  ElDropdownMenu,
   ElForm,
   ElFormItem,
   ElInput,
@@ -45,6 +49,9 @@ import {
   createPreviewToken,
   delObj,
   getPage,
+  pageTypeLabel,
+  pageTypeToQueryToken,
+  setAsHome,
   submitRelease,
   unpublishPage,
 } from '#/api/promotion/page-design';
@@ -108,12 +115,19 @@ function resetQuery() {
   void initPage();
 }
 
-function openDesigner(id?: string) {
+function openDesigner(id?: string, pageType?: PageDesignType) {
+  const queryToken = !id && pageType ? pageTypeToQueryToken(pageType) : '';
   const target = router.resolve({
     name: 'PageDesigner',
     params: id ? { id } : {},
+    query: queryToken ? { type: queryToken } : {},
   });
   window.open(target.href, '_blank', 'noopener,noreferrer');
+}
+
+/** 新建页面：微页面 / 商品详情页 / 分类页 / 个人中心页 */
+function handleCreate(command: PageDesignType) {
+  openDesigner(undefined, command);
 }
 
 async function handleCopy(row: PageDesignRecord) {
@@ -156,6 +170,21 @@ async function handleUnpublish(row: PageDesignRecord) {
   );
   await unpublishPage(row.id);
   ElMessage.success('页面已下线');
+  await initPage();
+}
+
+async function handleSetAsHome(row: PageDesignRecord) {
+  await ElMessageBox.confirm(
+    `移动端首页将切换为“${row.pageName}”，原首页保留但不再作为首页展示，是否继续？`,
+    '设为首页',
+    {
+      confirmButtonText: '设为首页',
+      cancelButtonText: '取消',
+      type: 'warning',
+    },
+  );
+  await setAsHome(row.id);
+  ElMessage.success(`已将“${row.pageName}”设为移动端首页`);
   await initPage();
 }
 
@@ -230,6 +259,9 @@ onMounted(initPage);
           <ElSelect v-model="query.pageType" clearable placeholder="全部类型">
             <ElOption label="首页" value="1" />
             <ElOption label="微页面" value="0" />
+            <ElOption label="商品详情页" value="2" />
+            <ElOption label="分类页" value="3" />
+            <ElOption label="个人中心页" value="4" />
           </ElSelect>
         </ElFormItem>
         <ElFormItem label="发布状态" prop="publishedStatus">
@@ -251,14 +283,23 @@ onMounted(initPage);
       </ElForm>
 
       <div class="hx-table-toolbar">
-        <ElButton
-          v-access:code="'promotion:pagedesign:add'"
-          :icon="Plus"
-          type="primary"
-          @click="openDesigner()"
-        >
-          新建页面
-        </ElButton>
+        <ElDropdown trigger="click" @command="handleCreate">
+          <ElButton
+            v-access:code="'promotion:pagedesign:add'"
+            :icon="Plus"
+            type="primary"
+          >
+            新建页面
+          </ElButton>
+          <template #dropdown>
+            <ElDropdownMenu>
+              <ElDropdownItem command="0">微页面</ElDropdownItem>
+              <ElDropdownItem command="2">商品详情页</ElDropdownItem>
+              <ElDropdownItem command="3">分类页</ElDropdownItem>
+              <ElDropdownItem command="4">个人中心页</ElDropdownItem>
+            </ElDropdownMenu>
+          </template>
+        </ElDropdown>
         <RightToolbar
           :refresh-btn="true"
           :search-btn="true"
@@ -272,7 +313,7 @@ onMounted(initPage);
           <template #default="{ row }">
             <div class="page-cell">
               <strong>{{ row.pageName }}</strong>
-              <span>{{ row.pageType === '1' ? '商城首页' : '微页面' }}</span>
+              <span>{{ pageTypeLabel(row.pageType as PageDesignType) }}</span>
             </div>
           </template>
         </ElTableColumn>
@@ -397,7 +438,19 @@ onMounted(initPage);
                   审
                 </ElButton>
               </ElTooltip>
-              <ElTooltip v-if="row.pageType === '0'" content="删除">
+              <ElTooltip content="设为首页">
+                <ElButton
+                  v-if="row.publishedStatus === '1' && row.homeStatus !== '1'"
+                  v-access:code="'promotion:pagedesign:publish'"
+                  :icon="HomeFilled"
+                  aria-label="设为首页"
+                  circle
+                  text
+                  type="primary"
+                  @click="handleSetAsHome(row as PageDesignRecord)"
+                />
+              </ElTooltip>
+              <ElTooltip v-if="row.pageType !== '1'" content="删除">
                 <ElButton
                   v-access:code="'promotion:pagedesign:del'"
                   :icon="Delete"

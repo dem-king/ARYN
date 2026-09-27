@@ -108,7 +108,7 @@ export const useAuthStore = defineStore('auth', {
         return response
       }
       catch (error) {
-        console.error('手机验证码登录失败:', error)
+        console.error('微信登录失败:', error)
         throw error
       }
       finally {

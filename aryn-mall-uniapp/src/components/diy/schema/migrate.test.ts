@@ -72,6 +72,76 @@ describe('diy schema migratePageContent', () => {
     expect(result.components).toEqual([])
   })
 
+  it('defaults section box styles for legacy documents', () => {
+    const result = migratePageContent({
+      schemaVersion: 3,
+      sections: [
+        {
+          components: [],
+          id: 's1',
+          style: { backgroundColor: '#ffeeee' },
+          type: 'default',
+        },
+      ],
+    })
+
+    // 旧文档没有 margin/paddingX/radius，缺省即通栏直角，保证历史页面视觉不变
+    expect(result.sections[0]?.style).toMatchObject({
+      marginX: 0,
+      marginY: 0,
+      paddingX: 0,
+      paddingY: 0,
+      radius: 0,
+    })
+  })
+
+  it('keeps section box styles and clamps illegal length values', () => {
+    const result = migratePageContent({
+      schemaVersion: 3,
+      sections: [
+        {
+          components: [],
+          id: 'card',
+          style: {
+            marginX: 12,
+            marginY: 12,
+            paddingX: 12,
+            paddingY: 12,
+            radius: 16,
+          },
+          type: 'default',
+        },
+        {
+          components: [],
+          id: 'dirty',
+          style: {
+            marginX: -8,
+            marginY: 'large',
+            paddingX: 999,
+            paddingY: null,
+            radius: Number.NaN,
+          },
+          type: 'default',
+        },
+      ],
+    })
+
+    expect(result.sections[0]?.style).toMatchObject({
+      marginX: 12,
+      marginY: 12,
+      paddingX: 12,
+      paddingY: 12,
+      radius: 16,
+    })
+    expect(result.sections[1]?.style).toMatchObject({
+      marginX: 0,
+      marginY: 0,
+      paddingX: 200,
+      paddingY: 0,
+      radius: 0,
+    })
+  })
+
   it('parses a published v3 json string snapshot', () => {
     const snapshot = JSON.stringify({
       page: {},

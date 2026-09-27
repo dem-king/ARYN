@@ -3,11 +3,17 @@ package com.aryn.cloud.promotion.api.vo;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
+import java.io.Serial;
+import java.io.Serializable;
 import java.math.BigDecimal;
 
 @Data
 @Schema(description = "C端折扣商品VO")
-public class AppDiscountVO {
+public class AppDiscountVO implements Serializable {
+
+	@Serial
+	private static final long serialVersionUID = 1L;
+
 
 	@Schema(description = "活动ID")
 	private String activityId;

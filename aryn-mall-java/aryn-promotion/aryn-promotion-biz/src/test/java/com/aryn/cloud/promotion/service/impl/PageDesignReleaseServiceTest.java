@@ -115,7 +115,7 @@ class PageDesignReleaseServiceTest {
 		PageDesign page = page("page-1", 4L);
 		PageDesignVersion version = publishedVersion("version-9", 1);
 		when(pageDesignMapper.selectById("page-1")).thenReturn(page);
-		when(validator.validate(page.getPageContent())).thenReturn(List.of());
+		when(validator.validate(page.getPageContent(), page.getPageType())).thenReturn(List.of());
 		when(releaseMapper.selectOne(any())).thenReturn(null);
 		when(releaseMapper.insert(any(PageDesignRelease.class))).thenReturn(1);
 		when(versionService.publishSnapshot(any(), any(), any(), any(), any(), any(), anyLong()))
@@ -145,7 +145,7 @@ class PageDesignReleaseServiceTest {
 		when(userSupplier.getCurrentUserName()).thenReturn("ops-user");
 		PageDesign page = page("page-1", 4L);
 		when(pageDesignMapper.selectById("page-1")).thenReturn(page);
-		when(validator.validate(page.getPageContent())).thenReturn(List.of());
+		when(validator.validate(page.getPageContent(), page.getPageType())).thenReturn(List.of());
 		when(releaseMapper.selectOne(any())).thenReturn(null);
 		when(releaseMapper.insert(any(PageDesignRelease.class))).thenReturn(1);
 		PageDesignReleaseCreateDTO request = createRequest(4L);
@@ -255,7 +255,7 @@ class PageDesignReleaseServiceTest {
 	void submitBlocksOnValidationErrors() {
 		PageDesign page = page("page-1", 4L);
 		when(pageDesignMapper.selectById("page-1")).thenReturn(page);
-		when(validator.validate(page.getPageContent())).thenReturn(List.of("未知组件类型：flash"));
+		when(validator.validate(page.getPageContent(), page.getPageType())).thenReturn(List.of("未知组件类型：flash"));
 		PageDesignReleaseCreateDTO request = createRequest(4L);
 
 		ArynBusinessException error = assertThrows(ArynBusinessException.class, () -> service.submit("page-1", request));
@@ -270,7 +270,7 @@ class PageDesignReleaseServiceTest {
 		PageDesign page = page("page-1", 4L);
 		page.setPageContent("{\"schemaVersion\":3,\"themeRef\":\"theme-404\",\"sections\":[],\"components\":[]}");
 		when(pageDesignMapper.selectById("page-1")).thenReturn(page);
-		when(validator.validate(page.getPageContent())).thenReturn(List.of());
+		when(validator.validate(page.getPageContent(), page.getPageType())).thenReturn(List.of());
 		doThrow(new ArynBusinessException("页面引用的主题不存在或无权访问，请重新选择主题"))
 			.when(themeService)
 			.assertThemeUsable(page.getPageContent());
@@ -288,7 +288,7 @@ class PageDesignReleaseServiceTest {
 		PageDesignRelease latest = pendingRelease();
 		latest.setReleaseNo(3);
 		when(pageDesignMapper.selectById("page-1")).thenReturn(page);
-		when(validator.validate(page.getPageContent())).thenReturn(List.of());
+		when(validator.validate(page.getPageContent(), page.getPageType())).thenReturn(List.of());
 		when(releaseMapper.selectOne(any())).thenReturn(latest);
 		when(releaseMapper.insert(any(PageDesignRelease.class))).thenReturn(1);
 		when(versionService.publishSnapshot(any(), any(), any(), any(), any(), any(), anyLong()))
@@ -304,7 +304,7 @@ class PageDesignReleaseServiceTest {
 	void scheduledSubmitWaitsForPlannedTimeWhenApprovalDisabled() {
 		PageDesign page = page("page-1", 4L);
 		when(pageDesignMapper.selectById("page-1")).thenReturn(page);
-		when(validator.validate(page.getPageContent())).thenReturn(List.of());
+		when(validator.validate(page.getPageContent(), page.getPageType())).thenReturn(List.of());
 		when(releaseMapper.selectOne(any())).thenReturn(null);
 		when(releaseMapper.insert(any(PageDesignRelease.class))).thenReturn(1);
 		when(userSupplier.getCurrentUserName()).thenReturn("ops-user");
@@ -322,7 +322,7 @@ class PageDesignReleaseServiceTest {
 	void scheduledSubmitRejectsMissingPlanTime() {
 		PageDesign page = page("page-1", 4L);
 		when(pageDesignMapper.selectById("page-1")).thenReturn(page);
-		when(validator.validate(page.getPageContent())).thenReturn(List.of());
+		when(validator.validate(page.getPageContent(), page.getPageType())).thenReturn(List.of());
 		PageDesignReleaseCreateDTO request = createRequest(4L);
 		request.setReleaseStrategy(PageDesignRelease.STRATEGY_SCHEDULED);
 
@@ -337,7 +337,7 @@ class PageDesignReleaseServiceTest {
 		PageDesign page = page("page-1", 4L);
 		PageDesignVersion grayVersion = publishedVersion("version-gray", 5);
 		when(pageDesignMapper.selectById("page-1")).thenReturn(page);
-		when(validator.validate(page.getPageContent())).thenReturn(List.of());
+		when(validator.validate(page.getPageContent(), page.getPageType())).thenReturn(List.of());
 		when(releaseMapper.selectOne(any())).thenReturn(null);
 		when(releaseMapper.insert(any(PageDesignRelease.class))).thenReturn(1);
 		when(versionService.createVersionSnapshot(any(), any(), any(), any(), any(), any())).thenReturn(grayVersion);
@@ -365,7 +365,7 @@ class PageDesignReleaseServiceTest {
 	void graySubmitRejectsMissingTargets() {
 		PageDesign page = page("page-1", 4L);
 		when(pageDesignMapper.selectById("page-1")).thenReturn(page);
-		when(validator.validate(page.getPageContent())).thenReturn(List.of());
+		when(validator.validate(page.getPageContent(), page.getPageType())).thenReturn(List.of());
 		PageDesignReleaseCreateDTO request = createRequest(4L);
 		request.setReleaseStrategy(PageDesignRelease.STRATEGY_GRAY);
 

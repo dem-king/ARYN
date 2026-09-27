@@ -19,6 +19,7 @@ public class PageDesignEditorVO implements Serializable {
 
 	private String pageName;
 
+	@Schema(description = "页面类型：0.微页面；1.首页；2.商品详情页；3.分类页；4.个人中心页；")
 	private String pageType;
 
 	private JSONObject pageContent;

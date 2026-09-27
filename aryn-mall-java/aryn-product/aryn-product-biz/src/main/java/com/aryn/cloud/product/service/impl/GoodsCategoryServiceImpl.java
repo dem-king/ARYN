@@ -45,6 +45,7 @@ public class GoodsCategoryServiceImpl extends ServiceImpl<GoodsCategoryMapper, G
 				extra.put("description", goodsCategory.getDescription());
 				extra.put("status", goodsCategory.getStatus());
 				extra.put("sort", goodsCategory.getSort());
+				extra.put("badgeType", goodsCategory.getBadgeType());
 				treeNode.setExtra(extra);
 				return treeNode;
 			})

@@ -33,6 +33,7 @@ import com.aryn.cloud.order.api.enums.OrderLogisticsStateEnum;
 import com.aryn.cloud.order.api.enums.OrderStatusEnum;
 import com.aryn.cloud.order.api.vo.OrderStatisticsVO;
 import com.aryn.cloud.order.event.ArynOrderCreateAfterEvent;
+import com.aryn.cloud.order.event.ArynOrderCreateBeforeEvent;
 import com.aryn.cloud.order.mapper.OrderDeliveryMapper;
 import com.aryn.cloud.order.mapper.OrderInfoMapper;
 import com.aryn.cloud.order.mapper.OrderItemMapper;
@@ -52,6 +53,7 @@ import com.aryn.cloud.product.api.dto.GoodsSkuStockReqDTO;
 import com.aryn.cloud.product.api.remote.RemoteGoodsSkuService;
 import com.aryn.cloud.promotion.api.enums.CouponUserStatusEnum;
 import com.aryn.cloud.promotion.api.remote.RemoteCouponUserService;
+import com.aryn.cloud.promotion.api.remote.RemoteSeckillService;
 import com.aryn.cloud.user.api.entity.UserAddress;
 import com.aryn.cloud.user.api.remote.RemoteMallUserService;
 import com.aryn.cloud.user.api.remote.RemoteUserAddressService;
@@ -125,6 +127,9 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 
 	@DubboReference
 	private final RemoteCouponUserService remoteCouponUserService;
+
+	@DubboReference
+	private final RemoteSeckillService remoteSeckillService;
 
 	private final RocketMQTemplate rocketMQTemplate;
 
@@ -299,6 +304,14 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 			return request;
 		}).toList();
 		remoteGoodsSkuService.rollbackStock(stockRequests);
+		// 释放秒杀预扣：取消/超时订单不再占用秒杀限量名额。
+		// 与超时任务互为兜底（先到者生效，秒杀服务内幂等），失败只告警不阻断取消
+		try {
+			remoteSeckillService.rollbackStock(orderInfo.getId());
+		}
+		catch (Exception ex) {
+			log.warn("订单[" + orderInfo.getId() + "]秒杀预扣释放失败，等待超时任务兜底: " + ex.getMessage());
+		}
 		return orderInfo.getId();
 	}
 
@@ -390,6 +403,9 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		List<OrderItemEntity> orderItemEntityList = orderPriceComputeService.generateOrderItems(goodsSkuList, createOrderDTO.getSkuReqList());
 		// 营销阶梯价改基价（会员/券之前）
 		PromotionCalculationVO promoCalculation = orderPriceComputeService.applyPromotionLadder(orderInfo, orderItemEntityList);
+		// 促销价（秒杀 > 限时折扣 > 原价）须在会员折扣与优惠券之前落到成交基价，
+		// 否则券与会员折扣按原价基数抵扣；历史实现藏在运费分支内，自提/内配恒不生效
+		orderPriceComputeService.orderPromotionPriceHandler(orderItemEntityList);
 
 		orderPriceComputeService.computeOrderPrice(orderInfo, orderItemEntityList);
 		MemberBenefitsVO memberBenefits = remoteMallUserService.getMemberBenefits(createOrderDTO.getUserId());
@@ -457,6 +473,10 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 			appendGiftItems(orderInfo, reserved.getGifts(), orderItemEntityList, goodsSkuList);
 		}
 		orderPriceComputeService.orderStockHandler(goodsSkuList, orderItemEntityList);
+		// 秒杀预扣：Redis 秒杀库存扣减 + 单人限购校验，库存不足/超限购阻断整单。
+		// 必须在普通库存扣减之后：普通库存不足已能快速失败，避免先占秒杀名额再回滚
+		applicationEventPublisher.publishEvent(
+				new ArynOrderCreateBeforeEvent(this, orderInfo, orderItemEntityList));
 		orderItemEntityList.forEach(orderItem -> {
 			orderItem.setOrderId(orderInfo.getId());
 			orderItem.setPurchaseScene(orderInfo.getPurchaseScene());
@@ -702,6 +722,9 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 				settlementOrderDTO.getSkuReqList());
 		// 营销阶梯价改基价（会员/券之前）
 		PromotionCalculationVO promoCalculation = orderPriceComputeService.applyPromotionLadder(orderInfo, orderItemEntityList);
+		// 促销价（秒杀 > 限时折扣 > 原价）与下单口径一致，须在会员折扣与优惠券之前应用，
+		// 否则确认页展示金额与提交后的实际应付不一致
+		orderPriceComputeService.orderPromotionPriceHandler(orderItemEntityList);
 
 		orderPriceComputeService.computeOrderPrice(orderInfo, orderItemEntityList);
 		MemberBenefitsVO memberBenefits = remoteMallUserService.getMemberBenefits(settlementOrderDTO.getUserId());

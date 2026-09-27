@@ -133,3 +133,45 @@ export async function updateStatus(id: string, status: number): Promise<void> {
     status,
   });
 }
+
+/** C端折扣商品项（装修预览用） */
+export interface AppDiscountGoodsVO {
+  discountPrice: number;
+  discountType: number;
+  discountValue: number;
+  goodsImage: string;
+  goodsName: string;
+  originalPrice: number;
+  skuId: string;
+  spuId: string;
+}
+
+/** C端折扣活动（装修预览用，按活动分组） */
+export interface AppDiscountActivityVO {
+  activityId: string;
+  activityName: string;
+  countdown: number;
+  discountType: number;
+  discountValue: number;
+  endTime: string;
+  goodsList: AppDiscountGoodsVO[];
+  scope: number;
+  startTime: string;
+  status: number;
+}
+
+export interface AppDiscountPageResponse {
+  records: AppDiscountActivityVO[];
+  total: number;
+}
+
+/**
+ * 进行中的折扣活动（分页，含商品明细）——装修预览与「手动选择活动」共用
+ * 对应后端 AppDiscountController#getActiveActivities
+ */
+export async function getAppDiscountActivities(params?: {
+  current?: number;
+  size?: number;
+}): Promise<AppDiscountPageResponse> {
+  return requestClient.get('/promotion/app/discount/activities', { params });
+}
