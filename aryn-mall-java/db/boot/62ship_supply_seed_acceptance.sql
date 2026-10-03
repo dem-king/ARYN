@@ -6,14 +6,11 @@
 --   1) 船舶成员：把 3 个商城用户绑定到悦航1号（发起人 / 采购确认人 / 普通船员）
 --   2) 靠港计划：保证至少有 2 个可用靠港（46 号脚本用的是相对日期，会随时间自然过期）
 --   3) 船舶物料类目：1 个一级 + 6 个二级
---   4) 28 个船供商品（SPU + SKU + ship_goods_profile + ship_sku_profile）
+--   4) 28 个船供商品（SPU + SKU；船供资料三表已下线，不再写船供资料表）
 --
 -- 这 28 个商品是按验收清单的需要刻意设计的：
---   · 26 个上架（25 个 sale_scope=3 个人+船供、1 个 sale_scope=2 仅船供）→ 超过 20 条，可验证分页
---   · 1 个下架（status=0）→ 验证船供目录不得出现下架商品
---   · 编码覆盖 IMPA / ISSA / 内部编码 / 条码 / 英文名 / 搜索别名 → 验证搜索各自可命中
---   · MOQ 与步长组合多样，且全部满足「MOQ 是步长整数倍」→ 验证数量规则
---   · 储存条件覆盖 常温/冷藏/冷冻/危险品 → 验证详情页储存条件展示
+--   · 26 个上架 → 超过 20 条，可验证分页
+--   · 1 个下架（status=0）→ 验证选货目录不得出现下架商品
 --
 -- 执行：mysql -u root -p aryn_boot < 62ship_supply_seed_acceptance.sql
 -- 清理：见文末「清理本脚本数据」段落，或使用 dev-tools/seed-acceptance-data.sh --clean
@@ -25,8 +22,6 @@ SET FOREIGN_KEY_CHECKS = 0;
 -- ===========================================================================
 -- 0. 清理本脚本历史种子（幂等）
 -- ===========================================================================
-DELETE FROM `ship_sku_profile` WHERE `id` LIKE '967%';
-DELETE FROM `ship_goods_profile` WHERE `id` LIKE '966%';
 DELETE FROM `goods_sku` WHERE `id` LIKE '965%';
 DELETE FROM `goods_spu` WHERE `id` LIKE '964%';
 DELETE FROM `goods_category` WHERE `id` LIKE '963%';
@@ -219,53 +214,21 @@ SELECT CONCAT('96500000000000000', LPAD(`seq`, 2, '0')),
        '[]'
 FROM `tmp_ship_seed`;
 
--- ===========================================================================
--- 6. SPU 船供资料
--- ===========================================================================
-INSERT INTO `ship_goods_profile`
-  (`id`, `spu_id`, `sale_scope`, `impa_code`, `issa_code`, `internal_item_code`, `barcode`, `name_en`,
-   `search_aliases`, `storage_type`, `shelf_life_days`, `ship_supply_remark`, `publish_completeness`,
-   `tenant_id`, `create_by`, `create_time`, `del_flag`)
-SELECT CONCAT('96600000000000000', LPAD(`seq`, 2, '0')),
-       CONCAT('96400000000000000', LPAD(`seq`, 2, '0')),
-       `scope`, `impa`, `issa`, `internal_code`, `barcode`, `name_en`, `aliases`,
-       `storage`, 365, '船供验收种子数据',
-       100,
-       '1590229800633634816', 'seed', NOW(), '0'
-FROM `tmp_ship_seed`;
-
--- ===========================================================================
--- 7. SKU 包装资料（采购单位 / 箱规 / MOQ / 步长）
--- ===========================================================================
-INSERT INTO `ship_sku_profile`
-  (`id`, `spu_id`, `sku_id`, `base_unit`, `purchase_unit`, `conversion_rate`, `package_spec`,
-   `package_spec_en`, `moq`, `step_qty`, `stock_warning_line`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
-SELECT CONCAT('96700000000000000', LPAD(`seq`, 2, '0')),
-       CONCAT('96400000000000000', LPAD(seq, 2, '0')),
-       CONCAT('96500000000000000', LPAD(`seq`, 2, '0')),
-       '件', `purchase_unit`, 1.0000, `package_spec`,
-       NULL, `moq`, `step_qty`, 10,
-       '1590229800633634816', 'seed', NOW(), '0'
-FROM `tmp_ship_seed`;
-
 DROP TEMPORARY TABLE IF EXISTS `tmp_ship_seed`;
 
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ===========================================================================
--- 自检：应输出 上架船供商品=27、仅船供=1、下架=1、成员=3、可用靠港>=2
+-- 自检：应输出 上架商品=27、下架=1、成员=3、可用靠港>=2
 -- （27 条 > 单页 20 条，足以验证分页）
 -- ===========================================================================
-SELECT '上架船供商品(应 27)' AS item, COUNT(*) AS cnt
-FROM `ship_goods_profile` p JOIN `goods_spu` s ON s.`id` = p.`spu_id`
-WHERE p.`del_flag` = '0' AND p.`sale_scope` IN ('2', '3') AND s.`status` = '1' AND s.`del_flag` = '0'
-UNION ALL
-SELECT '仅船供(sale_scope=2，应 1)', COUNT(*)
-FROM `ship_goods_profile` WHERE `del_flag` = '0' AND `sale_scope` = '2'
+SELECT '上架商品(应 27)' AS item, COUNT(*) AS cnt
+FROM `goods_spu` s
+WHERE s.`del_flag` = '0' AND s.`id` LIKE '964%' AND s.`status` = '1'
 UNION ALL
 SELECT '下架商品(应 1)', COUNT(*)
-FROM `ship_goods_profile` p JOIN `goods_spu` s ON s.`id` = p.`spu_id`
-WHERE p.`del_flag` = '0' AND s.`status` <> '1'
+FROM `goods_spu` s
+WHERE s.`del_flag` = '0' AND s.`id` LIKE '964%' AND s.`status` <> '1'
 UNION ALL
 SELECT '船舶成员(应 3)', COUNT(*) FROM `vessel_member` WHERE `del_flag` = '0' AND `id` LIKE '962%'
 UNION ALL
@@ -279,9 +242,7 @@ WHERE `del_flag` = '0' AND `status` IN ('1', '2') AND `etd` > NOW();
 -- ===========================================================================
 -- 清理本脚本数据（需要时手工执行）
 -- ===========================================================================
--- DELETE FROM `ship_sku_profile`   WHERE `id` LIKE '967%';
--- DELETE FROM `ship_goods_profile` WHERE `id` LIKE '966%';
--- DELETE FROM `goods_sku`          WHERE `id` LIKE '965%';
+-- -- DELETE FROM `goods_sku`          WHERE `id` LIKE '965%';
 -- DELETE FROM `goods_spu`          WHERE `id` LIKE '964%';
 -- DELETE FROM `goods_category`     WHERE `id` LIKE '963%';
 -- DELETE FROM `vessel_member` WHERE `id` LIKE '962%';

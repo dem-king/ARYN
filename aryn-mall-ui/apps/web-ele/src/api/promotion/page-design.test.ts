@@ -18,6 +18,7 @@ import {
   getMetrics,
   getPreview,
   getReleases,
+  getTemplateMarketList,
   getTemplates,
   getThemes,
   getVersionDiff,
@@ -247,6 +248,29 @@ describe('page design transport API', () => {
     );
     expect(requestClient.get).toHaveBeenCalledWith(
       '/promotion/pagedesign/page-1/assets',
+    );
+  });
+
+  it('sends the market list filters under the names the backend accepts', async () => {
+    await getTemplateMarketList({
+      industryTag: '电商零售',
+      pageNum: 1,
+      pageSize: 12,
+      sortField: 'downloadCount',
+      templateName: '生鲜',
+    });
+
+    expect(requestClient.get).toHaveBeenCalledWith(
+      '/promotion/pagedesign/templates/market/list',
+      {
+        params: {
+          industryTag: '电商零售',
+          pageNum: 1,
+          pageSize: 12,
+          sortField: 'downloadCount',
+          templateName: '生鲜',
+        },
+      },
     );
   });
 });

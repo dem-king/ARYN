@@ -45,4 +45,15 @@ public interface IPageDesignThemeService extends IService<PageDesignTheme> {
 	 */
 	String embedThemeSnapshot(String pageContent);
 
+	/**
+	 * 设为商城默认主题（租户内唯一）：先清掉旧的默认标记再标记目标主题；
+	 * 主题不存在或已停用时抛出业务异常。
+	 */
+	boolean setDefaultTheme(String id);
+
+	/**
+	 * 当前租户的商城默认主题；未设置时返回 null。
+	 */
+	PageDesignTheme getDefaultTheme();
+
 }

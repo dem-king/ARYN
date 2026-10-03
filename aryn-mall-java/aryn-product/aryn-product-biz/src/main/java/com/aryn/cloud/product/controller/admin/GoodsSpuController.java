@@ -10,15 +10,8 @@ import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.log.annotation.SysLog;
 import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.product.api.dto.GoodsSpuShelfDTO;
-import com.aryn.cloud.product.api.dto.ShipProductProfileDTO;
 import com.aryn.cloud.product.api.entity.GoodsSpu;
-import com.aryn.cloud.product.api.entity.ProductCodeMapping;
-import com.aryn.cloud.product.api.entity.ShipGoodsProfile;
-import com.aryn.cloud.product.api.entity.ShipSkuProfile;
-import com.aryn.cloud.product.api.vo.ShipProductSummaryVO;
 import com.aryn.cloud.product.service.IGoodsSpuService;
-import com.aryn.cloud.product.service.IShipProductProfileService;
-import com.baomidou.mybatisplus.core.metadata.IPage;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.AllArgsConstructor;
@@ -45,87 +38,11 @@ public class GoodsSpuController {
 
 	private final IGoodsSpuService goodsSpuService;
 
-	private final IShipProductProfileService shipProductProfileService;
-
 	@Operation(summary = "商品列表")
 	@SaCheckPermission("product:goodsspu:page")
 	@GetMapping("/page")
 	public Result page(Page page, GoodsSpu goodsSpu) {
 		return Result.success(goodsSpuService.adminPage(page, goodsSpu));
-	}
-
-	@Operation(summary = "船供商品摘要分页")
-	@SaCheckPermission("product:goodsspu:page")
-	@GetMapping("/ship/page")
-	public Result<IPage<ShipProductSummaryVO>> shipPage(Page<ShipProductSummaryVO> page, ShipProductSummaryVO query) {
-		return Result.success(shipProductProfileService.shipSummaryPage(SecurityUtils.getTenantId(), page, query));
-	}
-
-	@Operation(summary = "船供目录导出（Excel）")
-	@SaCheckPermission("product:goodsspu:page")
-	@GetMapping("/ship/export")
-	public void shipExport(ShipProductSummaryVO query, jakarta.servlet.http.HttpServletResponse response)
-			throws java.io.IOException {
-		Page<ShipProductSummaryVO> page = new Page<>(1, 10000);
-		IPage<ShipProductSummaryVO> result = shipProductProfileService.shipSummaryPage(SecurityUtils.getTenantId(),
-				page, query);
-		response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-		response.setCharacterEncoding("utf-8");
-		String fileName = java.net.URLEncoder.encode("船供商品目录", java.nio.charset.StandardCharsets.UTF_8)
-				.replaceAll("\\+", "%20");
-		response.setHeader("Content-Disposition", "attachment;filename*=utf-8''" + fileName + ".xlsx");
-		java.util.List<java.util.List<String>> head = java.util.List.of(
-				java.util.List.of("商品名称"), java.util.List.of("英文名"), java.util.List.of("销售范围"),
-				java.util.List.of("IMPA"), java.util.List.of("ISSA"), java.util.List.of("内部编码"),
-				java.util.List.of("条形码"), java.util.List.of("采购单位"), java.util.List.of("箱规"),
-				java.util.List.of("MOQ"), java.util.List.of("步长"), java.util.List.of("库存"),
-				java.util.List.of("售价"), java.util.List.of("完整度%"));
-		java.util.List<java.util.List<Object>> rows = result.getRecords().stream()
-				.<java.util.List<Object>>map(item -> java.util.List.of(
-						(Object) nvl(item.getName()), nvl(item.getNameEn()), scopeText(item.getSaleScope()),
-						nvl(item.getImpaCode()), nvl(item.getIssaCode()), nvl(item.getInternalItemCode()),
-						nvl(item.getBarcode()), nvl(item.getPurchaseUnit()), nvl(item.getPackageSpec()),
-						nvl(item.getMoq()), nvl(item.getStepQty()), nvl(item.getStock()),
-						nvl(item.getSalesPrice()), nvl(item.getPublishCompleteness())))
-				.toList();
-		com.alibaba.excel.EasyExcel.write(response.getOutputStream()).head(head).sheet("船供商品")
-				.doWrite(rows);
-	}
-
-	private String nvl(Object value) {
-		return value != null ? value.toString() : "";
-	}
-
-	private String scopeText(String saleScope) {
-		return switch (saleScope == null ? "" : saleScope) {
-			case "1" -> "仅个人";
-			case "2" -> "仅船供";
-			case "3" -> "个人+船供";
-			default -> "";
-		};
-	}
-
-	@Operation(summary = "SPU 船供资料详情")
-	@SaCheckPermission("product:goodsspu:get")
-	@GetMapping("/profile/{spuId}")
-	public Result<Map<String, Object>> profile(@PathVariable String spuId) {
-		String tenantId = SecurityUtils.getTenantId();
-		ShipGoodsProfile profile = shipProductProfileService.getProfile(tenantId, spuId);
-		List<ShipSkuProfile> skuProfiles = shipProductProfileService.listSkuProfiles(tenantId, spuId);
-		List<ProductCodeMapping> codeMappings = shipProductProfileService.listCodeMappings(tenantId, spuId);
-		Map<String, Object> detail = new HashMap<>();
-		detail.put("profile", profile);
-		detail.put("skuProfiles", skuProfiles);
-		detail.put("codeMappings", codeMappings);
-		return Result.success(detail);
-	}
-
-	@SysLog("保存船供资料")
-	@Operation(summary = "保存 SPU 船供资料（资料/SKU 包装/编码映射同事务）")
-	@SaCheckPermission("product:goodsspu:edit")
-	@PostMapping("/profile")
-	public Result<ShipGoodsProfile> saveProfile(@RequestBody ShipProductProfileDTO dto) {
-		return Result.success(shipProductProfileService.saveProfile(SecurityUtils.getTenantId(), dto));
 	}
 
 	@Operation(summary = "商品库列表")

@@ -60,6 +60,7 @@ import MetricsDialog from './components/metrics-dialog.vue';
 import PreviewDialog from './components/preview-dialog.vue';
 import { PREVIEW_TTL_MS } from './components/preview-utils';
 import ReleaseDialog from './components/release-dialog.vue';
+import TemplateCreateDialog from './components/template-create-dialog.vue';
 import VersionDialog from './components/version-dialog.vue';
 
 const RightToolbar = defineAsyncComponent(
@@ -90,6 +91,7 @@ const preview = reactive({
 const versions = reactive({ pageId: '', pageName: '', visible: false });
 const releases = reactive({ pageId: '', pageName: '', visible: false });
 const metrics = reactive({ pageId: '', pageName: '', visible: false });
+const templateCreateVisible = ref(false);
 
 async function initPage() {
   loading.value = true;
@@ -125,9 +127,18 @@ function openDesigner(id?: string, pageType?: PageDesignType) {
   window.open(target.href, '_blank', 'noopener,noreferrer');
 }
 
-/** 新建页面：微页面 / 商品详情页 / 分类页 / 个人中心页 */
-function handleCreate(command: PageDesignType) {
+/** 新建页面：微页面 / 商品详情页 / 分类页 / 个人中心页；'template' 走「从模板新建」 */
+function handleCreate(command: 'template' | PageDesignType) {
+  if (command === 'template') {
+    templateCreateVisible.value = true;
+    return;
+  }
   openDesigner(undefined, command);
+}
+
+function handleCreatedFromTemplate(pageId: string) {
+  openDesigner(pageId);
+  void initPage();
 }
 
 async function handleCopy(row: PageDesignRecord) {
@@ -293,7 +304,8 @@ onMounted(initPage);
           </ElButton>
           <template #dropdown>
             <ElDropdownMenu>
-              <ElDropdownItem command="0">微页面</ElDropdownItem>
+              <ElDropdownItem command="template">从模板新建</ElDropdownItem>
+              <ElDropdownItem divided command="0">微页面</ElDropdownItem>
               <ElDropdownItem command="2">商品详情页</ElDropdownItem>
               <ElDropdownItem command="3">分类页</ElDropdownItem>
               <ElDropdownItem command="4">个人中心页</ElDropdownItem>
@@ -479,6 +491,10 @@ onMounted(initPage);
       :page-id="versions.pageId"
       :page-name="versions.pageName"
       @restored="initPage"
+    />
+    <TemplateCreateDialog
+      v-model="templateCreateVisible"
+      @created="handleCreatedFromTemplate"
     />
     <ReleaseDialog
       v-model="releases.visible"

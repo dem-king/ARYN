@@ -355,7 +355,7 @@ function goGoodsDetail(goods: AppSeckillGoodsVO) {
 
 // 场次标签栏
 .session-bar {
-  background: linear-gradient(135deg, #ff6b35, #ff4500);
+  background: linear-gradient(135deg, var(--wot-color-theme-secondary, #ff6b35), var(--wot-color-theme-primary, #ff4500));
   white-space: nowrap;
   padding: 16rpx 0;
 
@@ -498,7 +498,7 @@ function goGoodsDetail(goods: AppSeckillGoodsVO) {
     margin-top: 12rpx;
 
     .seckill-price {
-      color: #ff4500;
+      color: var(--wot-color-theme-primary, #ff2237);
 
       .price-symbol {
         font-size: 24rpx;
@@ -533,7 +533,7 @@ function goGoodsDetail(goods: AppSeckillGoodsVO) {
 
       .stock-fill {
         height: 100%;
-        background: linear-gradient(90deg, #ff6b35, #ff4500);
+        background: linear-gradient(90deg, var(--wot-color-theme-secondary, #ff6b35), var(--wot-color-theme-primary, #ff4500));
         border-radius: 6rpx;
         transition: width 0.3s;
       }
@@ -541,7 +541,7 @@ function goGoodsDetail(goods: AppSeckillGoodsVO) {
 
     .stock-text {
       font-size: 22rpx;
-      color: #ff4500;
+      color: var(--wot-color-theme-primary, #ff2237);
       white-space: nowrap;
     }
   }
@@ -549,7 +549,7 @@ function goGoodsDetail(goods: AppSeckillGoodsVO) {
   // 抢购按钮
   .buy-btn {
     align-self: flex-end;
-    background: linear-gradient(135deg, #ff6b35, #ff4500);
+    background: linear-gradient(135deg, var(--wot-color-theme-secondary, #ff6b35), var(--wot-color-theme-primary, #ff4500));
     color: #fff;
     font-size: 26rpx;
     font-weight: 600;

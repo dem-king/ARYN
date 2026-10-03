@@ -202,7 +202,7 @@ initPage();
           </template>
         </ElTableColumn>
         <ElTableColumn
-          prop="orderCount"
+          prop="taskCount"
           label="订单数"
           align="center"
           width="100"
@@ -214,7 +214,7 @@ initPage();
           min-width="200"
         />
         <ElTableColumn
-          prop="loadStartTime"
+          prop="startLoadTime"
           label="开始配货时间"
           align="center"
           width="170"
@@ -226,7 +226,7 @@ initPage();
           width="170"
         />
         <ElTableColumn
-          prop="finishTime"
+          prop="completeTime"
           label="完成时间"
           align="center"
           width="170"

@@ -15,14 +15,16 @@ import { onLoad, onShow } from '@dcloudio/uni-app'
  * 在筛选模型下没有对应物，已整体删除。
  */
 import { ref } from 'vue'
-import { getTree } from '@/api/product/category'
+import { getActiveTree } from '@/api/product/category'
 import CategoryAllSheet from '@/components/category-all-sheet/index.vue'
 import CategoryIconStrip from '@/components/category-icon-strip/index.vue'
 import DiyPage from '@/components/diy/index.vue'
 import GoodsListPanel from '@/components/goods-list-panel/index.vue'
 import HrSearchNavbar from '@/components/hr-search-navbar/index.vue'
 import { usePageDecoration } from '@/composables/usePageDecoration'
+import type { CategoryLocateTarget } from '@/store/categoryLocateStore'
 import { resolveCategoryBadge } from '@/utils/category-badge'
+import { locateCategoryInTree } from '@/utils/category-tree'
 
 definePage({
   name: 'category',
@@ -36,6 +38,7 @@ definePage({
 const router = useRouter()
 const authStore = useAuthStore()
 const shoppingCartStore = useShoppingCartStore()
+const categoryLocateStore = useCategoryLocateStore()
 
 // 分类页装修（pageType=3）：在图标条与商品列表之间嵌入活动 banner / 优惠券入口
 const { pageContentData, loading: decorationLoading, fetch: fetchDecoration } = usePageDecoration('3')
@@ -48,6 +51,8 @@ const searchNavbarRef = ref<any>(null)
 const activeFirst = ref(0)
 const activeSecond = ref(0)
 const sheetVisible = ref(false)
+/** 商品列表页「全部分类」带来的定位目标；树未就绪时先挂着，加载后应用 */
+const pendingLocate = ref<CategoryLocateTarget | null>(null)
 
 /** 当前一级分类下的二级列表（带解析后的角标，供左栏直接渲染） */
 const subCategories = computed<any[]>(() =>
@@ -85,11 +90,41 @@ onShow(() => {
   // 购物车数量接口无 token 会返回 401，统一错误处理会把访客直接踢到登录页。
   if (authStore.isLoggedIn)
     shoppingCartStore.fetchCartCount().catch(() => {})
+
+  // 商品列表页「全部分类」跳转带来的定位目标（switchTab 带不了 query，走 store 中转）。
+  // onShow 每次 tab 切换都会触发，正好覆盖「分类 tab 已加载过」的复访场景。
+  const locateTarget = categoryLocateStore.consumePendingLocate()
+  if (locateTarget) {
+    pendingLocate.value = locateTarget
+    applyPendingLocate()
+  }
 })
+
+/**
+ * 应用待定位目标。
+ *
+ * 首次进分类页时 onShow 早于树请求返回，此时 categories 为空，目标先挂在
+ * pendingLocate 上，待 getCategory 完成后由 watch 补应用。目标在启用树中
+ * 找不到（已删 / 停用被过滤）则放弃定位，保持默认选中，不拦跳转。
+ */
+function applyPendingLocate() {
+  const target = pendingLocate.value
+  if (!target || !categories.value.length)
+    return
+  pendingLocate.value = null
+  const { firstIndex, secondIndex } = locateCategoryInTree(categories.value, target)
+  if (firstIndex < 0)
+    return
+  activeFirst.value = firstIndex
+  activeSecond.value = secondIndex >= 0 ? secondIndex : 0
+}
+
+watch([categories, pendingLocate], applyPendingLocate)
 
 async function getCategory() {
   try {
-    const response = await getTree()
+    // 导航展示位只呈现启用中的分类（一级/二级均过滤），与首页金刚区对齐
+    const response = await getActiveTree()
     categories.value = response ?? []
   }
   catch {
@@ -198,7 +233,9 @@ const sheetTopOffset = computed(() => searchNavbarRef.value?.placeholderHeight ?
           >
             {{ item.badge.text }}
           </view>
-          <text class="category-rail-item__name">{{ item.name }}</text>
+          <text class="category-rail-item__name">
+            {{ item.name }}
+          </text>
         </view>
         <view v-if="subCategories.length === 0" class="category-rail-empty">
           <wd-icon name="apps" size="38rpx" color="#b5bac3" />
@@ -435,7 +472,9 @@ const sheetTopOffset = computed(() => searchNavbarRef.value?.placeholderHeight ?
   min-height: 0;
   background: #fff;
 
-  // 类目切换时由页面层重放该动画（见 goodsSwitching），与卡片逐项入场衔接
+  // 类目切换时由页面层重放该动画（见 goodsSwitching），与卡片逐项入场衔接。
+  // 详情弹层「只盖右栏」的包含块由 goods-list-panel 自身显式声明（--sheet 修饰符），
+  // 不依赖本动画 fill 残留的 transform——那种巧合机制改动画就会让弹层变全屏。
   &--enter {
     animation: goods-panel-enter 240ms ease-out both;
   }

@@ -145,7 +145,7 @@ onBeforeUnmount(() => {
     height: 16px;
     padding: 0 4px;
     border-radius: 8px;
-    background: #e5484d;
+    background: var(--wot-color-theme-primary, #ff2237);
     color: #fff;
     font-size: 10px;
     line-height: 16px;

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
-import { editObj } from '@/api/user/user'
+import { editObj } from '@/sub-pages/api/user/user'
 import { uploadFile, uploadImg } from '@/api/upms/file'
 
 definePage({

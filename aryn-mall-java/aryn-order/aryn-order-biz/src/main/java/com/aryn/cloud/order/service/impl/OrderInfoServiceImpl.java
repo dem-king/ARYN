@@ -34,6 +34,7 @@ import com.aryn.cloud.order.api.enums.OrderStatusEnum;
 import com.aryn.cloud.order.api.vo.OrderStatisticsVO;
 import com.aryn.cloud.order.event.ArynOrderCreateAfterEvent;
 import com.aryn.cloud.order.event.ArynOrderCreateBeforeEvent;
+import com.aryn.cloud.order.event.listener.OrderPaySuccessNotifier;
 import com.aryn.cloud.order.mapper.OrderDeliveryMapper;
 import com.aryn.cloud.order.mapper.OrderInfoMapper;
 import com.aryn.cloud.order.mapper.OrderItemMapper;
@@ -49,10 +50,13 @@ import com.aryn.cloud.pay.api.enums.PayTradeTypeEnum;
 import com.aryn.cloud.pay.api.remote.RemotePayService;
 import com.aryn.cloud.pay.api.utils.TransactionalMqUtils;
 import com.aryn.cloud.product.api.entity.GoodsSku;
+import com.aryn.cloud.product.api.entity.GoodsSpu;
 import com.aryn.cloud.product.api.dto.GoodsSkuStockReqDTO;
 import com.aryn.cloud.product.api.remote.RemoteGoodsSkuService;
+import com.aryn.cloud.product.api.remote.RemoteGoodsSpuService;
 import com.aryn.cloud.promotion.api.enums.CouponUserStatusEnum;
 import com.aryn.cloud.promotion.api.remote.RemoteCouponUserService;
+import com.aryn.cloud.promotion.api.remote.RemotePromotionEngine;
 import com.aryn.cloud.promotion.api.remote.RemoteSeckillService;
 import com.aryn.cloud.user.api.entity.UserAddress;
 import com.aryn.cloud.user.api.remote.RemoteMallUserService;
@@ -97,6 +101,9 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 
 	@DubboReference
 	private final RemoteGoodsSkuService remoteGoodsSkuService;
+
+	@DubboReference
+	private final RemoteGoodsSpuService remoteGoodsSpuService;
 
 	@DubboReference
 	private final RemoteMallUserService remoteMallUserService;
@@ -145,6 +152,14 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 
 	private final com.aryn.cloud.order.validator.DeliveryContextValidator deliveryContextValidator;
 
+	private final OrderPaySuccessNotifier orderPaySuccessNotifier;
+
+	@DubboReference
+	private final RemotePromotionEngine promotionEngine;
+
+	@DubboReference
+	private final com.aryn.cloud.upms.api.remote.RemoteMaterialService remoteMaterialService;
+
 	/**
 	 * 共享购物车归档服务（延迟解析）。
 	 *
@@ -159,7 +174,38 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 
 	@Override
 	public IPage<OrderInfo> adminPage(Page page, OrderInfo orderInfo) {
-		return baseMapper.selectAdminPage(page, orderInfo);
+		IPage<OrderInfo> result = baseMapper.selectAdminPage(page, orderInfo);
+		if (!CollectionUtils.isEmpty(result.getRecords())) {
+			// 管理端列表内嵌商品行按分类分组展示，需要统一回填分类名
+			fillCategoryNames(result.getRecords().stream()
+				.filter(order -> !CollectionUtils.isEmpty(order.getOrderItemList()))
+				.flatMap(order -> order.getOrderItemList().stream())
+				.collect(Collectors.toList()));
+		}
+		return result;
+	}
+
+	@Override
+	public List<OrderInfo> listForExport(OrderInfo orderInfo) {
+		int total = baseMapper.countExportList(orderInfo);
+		if (total > MallOrderConstants.EXPORT_MAX_ORDERS) {
+			throw new ArynBusinessException("符合条件的订单超过 " + MallOrderConstants.EXPORT_MAX_ORDERS
+					+ " 单，请缩小筛选范围后导出");
+		}
+		List<OrderInfo> orders = baseMapper.selectExportList(orderInfo);
+		if (CollectionUtils.isEmpty(orders)) {
+			return orders;
+		}
+		Map<String, List<OrderItemEntity>> itemsByOrderId = orderItemMapper
+			.selectByOrderIds(orders.stream().map(OrderInfo::getId).collect(Collectors.toList()))
+			.stream()
+			.collect(Collectors.groupingBy(OrderItemEntity::getOrderId));
+		orders.forEach(order -> order.setOrderItemList(
+			itemsByOrderId.getOrDefault(order.getId(), Collections.emptyList())));
+		fillCategoryNames(orders.stream()
+			.flatMap(order -> order.getOrderItemList().stream())
+			.collect(Collectors.toList()));
+		return orders;
 	}
 
 	@Override
@@ -169,6 +215,7 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 			return null;
 		}
 		if (!CollectionUtils.isEmpty(orderInfo.getOrderItemList())) {
+			fillCategoryNames(orderInfo.getOrderItemList());
 			orderInfo.getOrderItemList().forEach(orderItem -> {
 				if (!OrderItemStatusEnum.SHIPPED.getCode().equals(orderItem.getStatus())
 						&& !OrderItemStatusEnum.PAID.getCode().equals(orderItem.getStatus())) {
@@ -206,6 +253,40 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 			});
 		}
 		return orderInfo;
+	}
+
+	/**
+	 * 批量回填订单商品行的分类名（一级/二级拼接，口径同商品域 {@code RemoteGoodsSpuService#getSpuByIds}）。
+	 *
+	 * <p>order_item 不落分类快照，分类经 Dubbo 从商品域实时读取；回填失败只降级为
+	 * 无分类展示（前端/导出按「未分类」归组），不阻断订单主流程。
+	 */
+	private void fillCategoryNames(List<OrderItemEntity> orderItems) {
+		if (CollectionUtils.isEmpty(orderItems)) {
+			return;
+		}
+		List<String> spuIds = orderItems.stream()
+			.map(OrderItemEntity::getSpuId)
+			.filter(Objects::nonNull)
+			.filter(spuId -> !spuId.isBlank())
+			.distinct()
+			.collect(Collectors.toList());
+		if (spuIds.isEmpty()) {
+			return;
+		}
+		try {
+			Map<String, String> categoryNameBySpuId = remoteGoodsSpuService.getSpuByIds(spuIds).stream()
+				.filter(spu -> StrUtil.isNotBlank(spu.getCategoryName()))
+				.collect(Collectors.toMap(GoodsSpu::getId, GoodsSpu::getCategoryName, (first, second) -> first));
+			if (categoryNameBySpuId.isEmpty()) {
+				return;
+			}
+			orderItems.forEach(orderItem -> orderItem
+				.setCategoryName(categoryNameBySpuId.get(orderItem.getSpuId())));
+		}
+		catch (Exception ex) {
+			log.warn("订单商品分类名回填失败，按未分类展示: " + ex.getMessage());
+		}
 	}
 
 	@Override
@@ -270,9 +351,18 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 	@GlobalTransactional(rollbackFor = Exception.class)
 	@Transactional(rollbackFor = Exception.class)
 	public String cancelOrder(OrderInfo orderInfo) {
+		// 货到付款单在待发货阶段可取消：先关待派单任务再取消订单，任务已派单/配送中直接拒绝
+		boolean cashOnDeliveryCancel = MallOrderConstants.PAYMENT_TYPE_3.equals(orderInfo.getPaymentType())
+				&& OrderStatusEnum.WAITING_FOR_DELIVERY.getCode().equals(orderInfo.getStatus())
+				&& CommonConstants.NO.equals(orderInfo.getPayStatus());
+		if (cashOnDeliveryCancel) {
+			deliveryTaskService.cancelWaitingAssignByOrderId(orderInfo.getId());
+		}
 		int updated = baseMapper.update(null, Wrappers.<OrderInfo>lambdaUpdate()
 			.eq(OrderInfo::getId, orderInfo.getId())
-			.eq(OrderInfo::getStatus, OrderStatusEnum.WAITING_FOR_PAYMENT.getCode())
+			.eq(OrderInfo::getStatus, cashOnDeliveryCancel
+					? OrderStatusEnum.WAITING_FOR_DELIVERY.getCode()
+					: OrderStatusEnum.WAITING_FOR_PAYMENT.getCode())
 			.eq(OrderInfo::getPayStatus, CommonConstants.NO)
 			.set(OrderInfo::getStatus, OrderStatusEnum.CANCELED.getCode())
 			.set(OrderInfo::getCancelTime, LocalDateTime.now()));
@@ -331,6 +421,77 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 
 	@Override
 	@Transactional(rollbackFor = Exception.class)
+	public boolean confirmOfflinePayment(String id, PayConfirmDTO payConfirmDTO) {
+		if (payConfirmDTO == null || payConfirmDTO.getActualPayPrice() == null) {
+			throw new ArynBusinessException("请填写实收金额");
+		}
+		OrderInfo orderInfo = getById(id);
+		if (orderInfo == null || !MallOrderConstants.PAYMENT_TYPE_3.equals(orderInfo.getPaymentType())) {
+			throw new ArynBusinessException("仅货到付款订单支持确认收款");
+		}
+		BigDecimal receivable = orderInfo.getPaymentPrice() != null ? orderInfo.getPaymentPrice()
+				: orderInfo.getTotalPrice();
+		if (receivable != null && payConfirmDTO.getActualPayPrice().compareTo(receivable) > 0) {
+			throw new ArynBusinessException("实收金额不能大于应收金额" + receivable + "元");
+		}
+		String payVouchers = buildPayVoucherSnapshot(payConfirmDTO.getVoucherMaterialIds());
+		LocalDateTime paymentTime = LocalDateTime.now();
+		int updated = baseMapper.update(null, Wrappers.<OrderInfo>lambdaUpdate()
+			.eq(OrderInfo::getId, id)
+			.eq(OrderInfo::getPayStatus, CommonConstants.NO)
+			.ne(OrderInfo::getStatus, OrderStatusEnum.CANCELED.getCode())
+			.set(OrderInfo::getPayStatus, CommonConstants.YES)
+			.set(OrderInfo::getPaymentTime, paymentTime)
+			.set(OrderInfo::getActualPayPrice, payConfirmDTO.getActualPayPrice())
+			.set(OrderInfo::getPayVouchers, payVouchers));
+		if (updated == 0) {
+			throw new ArynBusinessException("订单状态已变化，无法确认收款");
+		}
+		orderInfo.setPayStatus(CommonConstants.YES);
+		orderInfo.setPaymentTime(paymentTime);
+		orderInfo.setActualPayPrice(payConfirmDTO.getActualPayPrice());
+		orderInfo.setPayVouchers(payVouchers);
+		List<OrderItemEntity> orderItemEntityList = orderItemService
+			.list(Wrappers.<OrderItemEntity>lambdaQuery().eq(OrderItemEntity::getOrderId, id));
+		// 营销优惠确认（锁定→确认），失败仅告警不阻断收款，与在线支付回调口径一致
+		try {
+			promotionEngine.confirm(orderInfo.getTenantId(), orderInfo.getId());
+		}
+		catch (Exception ex) {
+			log.error("货到付款订单[" + orderInfo.getId() + "]营销优惠确认失败", ex);
+		}
+		// 销量/优惠券/用户通知：确认收款视同支付成功
+		TransactionalMqUtils.sendAfterCommit(() -> orderPaySuccessNotifier.notify(orderInfo, orderItemEntityList));
+		return Boolean.TRUE;
+	}
+
+	/**
+	 * 付款凭证素材 ID → 访问 URL 快照，确认收款后素材删除不影响回显；
+	 * 素材 ID 无效（不存在或已删除）时拒绝提交，避免凭证静默丢失。
+	 */
+	private String buildPayVoucherSnapshot(List<String> voucherMaterialIds) {
+		if (CollectionUtils.isEmpty(voucherMaterialIds)) {
+			return null;
+		}
+		List<String> materialIds = voucherMaterialIds.stream()
+			.filter(StrUtil::isNotBlank)
+			.distinct()
+			.toList();
+		if (materialIds.isEmpty()) {
+			return null;
+		}
+		Map<String, String> urlMap = remoteMaterialService.mapUrlByIds(materialIds);
+		if (urlMap == null || urlMap.size() != materialIds.size()) {
+			throw new ArynBusinessException("付款凭证素材不存在或已删除，请重新上传");
+		}
+		List<Map<String, String>> vouchers = materialIds.stream()
+			.map(materialId -> Map.of("materialId", materialId, "materialUrl", urlMap.get(materialId)))
+			.toList();
+		return com.alibaba.fastjson2.JSON.toJSONString(vouchers);
+	}
+
+	@Override
+	@Transactional(rollbackFor = Exception.class)
 	public boolean deleteUserOrder(String id, String userId) {
 		OrderInfo orderInfo = getOne(Wrappers.<OrderInfo>lambdaQuery()
 			.eq(OrderInfo::getId, id)
@@ -374,6 +535,16 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 			.eq(OrderInfo::getRequestId, createOrderDTO.getRequestId()));
 		if (existingOrder != null) {
 			return existingOrder;
+		}
+		// 支付类型入口校验：下单时仅允许声明货到付款；微信/支付宝由支付回调回填
+		if (StringUtils.hasText(createOrderDTO.getPaymentType())
+				&& !MallOrderConstants.PAYMENT_TYPE_3.equals(createOrderDTO.getPaymentType())) {
+			throw new ArynBusinessException("支付类型不合法");
+		}
+		if (MallOrderConstants.PAYMENT_TYPE_3.equals(createOrderDTO.getPaymentType())
+				&& !MallOrderConstants.DELIVERY_WAY_3.equals(createOrderDTO.getDeliveryWay())
+				&& !MallOrderConstants.DELIVERY_WAY_4.equals(createOrderDTO.getDeliveryWay())) {
+			throw new ArynBusinessException("该配送方式不支持货到付款");
 		}
 
 		// 查询用户信息
@@ -477,9 +648,14 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		// 必须在普通库存扣减之后：普通库存不足已能快速失败，避免先占秒杀名额再回滚
 		applicationEventPublisher.publishEvent(
 				new ArynOrderCreateBeforeEvent(this, orderInfo, orderItemEntityList));
+		boolean cashOnDelivery = MallOrderConstants.PAYMENT_TYPE_3.equals(orderInfo.getPaymentType());
 		orderItemEntityList.forEach(orderItem -> {
 			orderItem.setOrderId(orderInfo.getId());
 			orderItem.setPurchaseScene(orderInfo.getPurchaseScene());
+			if (cashOnDelivery) {
+				// 货到付款无支付回调：明细直接置为待发货，保证仓库配货/管理端发货校验通过
+				orderItem.setStatus(OrderItemStatusEnum.PAID.getCode());
+			}
 		});
 		if (!orderItemService.saveBatch(orderItemEntityList)) {
 			throw new ArynBusinessException("订单商品保存失败");
@@ -501,6 +677,10 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 				promotionSnapshotMapper.insert(snapshot);
 			}
 		}
+		// 货到付款：跳过支付回调，商城配送/内部配送的配送任务在下单时直接创建（服务内幂等）
+		if (cashOnDelivery) {
+			deliveryTaskService.createTaskOnPay(orderInfo, orderItemEntityList);
+		}
 		if (MallOrderConstants.ORDER_CREATE_WAY_1.equals(createOrderDTO.getCreateWay())) {
 			shoppingCartService.clear(orderInfo.getUserId(), orderItemEntityList.stream()
 				.map(OrderItemEntity::getSkuId)
@@ -519,7 +699,9 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		orderInfo.setAppraiseStatus(CommonConstants.NO);
 		orderInfo.setOrderNo(SnowflakeIdUtils.orderNo());
 		orderInfo.setPaymentPrice(BigDecimal.ZERO);
-		orderInfo.setStatus(OrderStatusEnum.WAITING_FOR_PAYMENT.getCode());
+		// 货到付款：下单即进入待发货，跳过待付款（入口已校验仅商城配送/内部配送可用）
+		orderInfo.setStatus(MallOrderConstants.PAYMENT_TYPE_3.equals(createOrderDTO.getPaymentType())
+				? OrderStatusEnum.WAITING_FOR_DELIVERY.getCode() : OrderStatusEnum.WAITING_FOR_PAYMENT.getCode());
 		orderInfo.setTotalPrice(BigDecimal.ZERO);
 		orderInfo.setFreightPrice(BigDecimal.ZERO);
 		orderInfo.setCouponPrice(BigDecimal.ZERO);
@@ -536,10 +718,13 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 	@Transactional(rollbackFor = Exception.class)
 	public boolean receiveOrder(OrderInfo orderInfo) {
 		LocalDateTime receiverTime = LocalDateTime.now();
+		// 已支付，或货到付款单（货已送达款项线下结算，收款由管理端确认）：均可确认收货
 		int updated = baseMapper.update(null, Wrappers.<OrderInfo>lambdaUpdate()
 			.eq(OrderInfo::getId, orderInfo.getId())
 			.eq(OrderInfo::getStatus, OrderStatusEnum.WAITING_FOR_RECEIPT.getCode())
-			.eq(OrderInfo::getPayStatus, CommonConstants.YES)
+			.and(wrapper -> wrapper.eq(OrderInfo::getPayStatus, CommonConstants.YES)
+				.or()
+				.eq(OrderInfo::getPaymentType, MallOrderConstants.PAYMENT_TYPE_3))
 			.set(OrderInfo::getReceiverTime, receiverTime)
 			.set(OrderInfo::getStatus, OrderStatusEnum.COMPLETED.getCode()));
 		if (updated == 0) {

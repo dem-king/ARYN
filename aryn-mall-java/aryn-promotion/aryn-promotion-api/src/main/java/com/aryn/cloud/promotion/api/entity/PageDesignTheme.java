@@ -45,6 +45,16 @@ public class PageDesignTheme extends Model<PageDesignTheme> {
 	 */
 	public static final String STATUS_ENABLED = "0";
 
+	/**
+	 * 商城默认主题：否。
+	 */
+	public static final String MALL_DEFAULT_NO = "0";
+
+	/**
+	 * 商城默认主题：是。
+	 */
+	public static final String MALL_DEFAULT_YES = "1";
+
 	@TableId(type = IdType.ASSIGN_ID)
 	@Schema(description = "主键（同时作为 v3 文档 themeRef 令牌）")
 	private String id;
@@ -72,6 +82,9 @@ public class PageDesignTheme extends Model<PageDesignTheme> {
 
 	@Schema(description = "状态：0.正常；1.停用；")
 	private String status;
+
+	@Schema(description = "商城默认主题：0.否；1.是；")
+	private String mallDefaultFlag;
 
 	@Schema(description = "排序")
 	private Integer sort;

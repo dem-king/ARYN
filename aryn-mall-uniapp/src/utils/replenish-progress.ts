@@ -25,6 +25,12 @@ export interface ReplenishRowView {
   fulfilled: number
   remaining: number | null
   completed: boolean
+  /**
+   * 行进度条宽度 0~100；未排计划时为 0（须配合 `planned != null` 才画）。
+   * 与整单百分比同一口径（都按完成情况取整），但行内是「已采/目标」的
+   * 数量比 —— 一行只有一个商品，数量比在这里是有意义的。
+   */
+  percent: number
   /** `申请 9 · 目标 4 · 已采 4` / `申请 9 · 未排计划` */
   text: string
 }
@@ -67,6 +73,45 @@ function buildProgressText(
   if (progress.unplannedItems > 0)
     parts.push(`${progress.unplannedItems} 项未排计划`)
   return parts.join(' · ')
+}
+
+/**
+ * 进度文案（对外暴露，供共用同一份服务端汇总的页面复用）。
+ *
+ * 列表卡片与首页卡片都拿 `progress` 汇总对象，文案必须同源，
+ * 否则「首页说还差 4 项、列表说还差 5 项」这类漂移只能靠肉眼发现。
+ */
+export function buildReplenishProgressText(
+  progress?: ReplenishSummaryProgress | null,
+): string {
+  return buildProgressText(progress, (progress?.plannedItems ?? 0) > 0)
+}
+
+/** 进度条视图：只有排过计划才画条，无计划时百分比恒为 0（配合 hasPlan 使用） */
+export interface ReplenishSummaryView {
+  /** 是否排过计划：没排过就不画空槽，那条空槽会被读成「加载失败」 */
+  hasPlan: boolean
+  /** 进度条宽度 0~100；无计划时为 0 */
+  percent: number
+  /** 进度文案；无数据时为空串 */
+  text: string
+}
+
+/**
+ * 由服务端汇总对象（`SharedCart.progress`）构造进度视图。
+ *
+ * 与 `buildReplenishProgressView` 的区别：后者吃整个摘要（含明细预览文案），
+ * 这里只吃汇总数字，供列表这种「只有汇总、没有预览明细」的场景使用。
+ */
+export function buildReplenishSummaryView(
+  progress?: ReplenishSummaryProgress | null,
+): ReplenishSummaryView {
+  const hasPlan = (progress?.plannedItems ?? 0) > 0
+  return {
+    hasPlan,
+    percent: hasPlan ? clampPercent(progress?.progressPercent) : 0,
+    text: buildProgressText(progress, hasPlan),
+  }
 }
 
 /**
@@ -133,6 +178,7 @@ export function buildReplenishRowView(
       fulfilled,
       remaining: null,
       completed: false,
+      percent: 0,
       text: `申请 ${requested} · 未排计划`,
     }
   }
@@ -145,6 +191,10 @@ export function buildReplenishRowView(
     fulfilled,
     remaining,
     completed: fulfilled >= plannedSafe,
+    // 计划的 0 视为无进度（避免除零得出 Infinity）
+    percent: plannedSafe === 0
+      ? 0
+      : Math.min(Math.round((fulfilled * 100) / plannedSafe), 100),
     text: `申请 ${requested} · 目标 ${plannedSafe} · 已采 ${fulfilled}`,
   }
 }

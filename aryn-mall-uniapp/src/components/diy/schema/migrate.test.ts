@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { DECORATION_SCHEMA_VERSION, DECORATION_SCHEMA_VERSION_V3 } from './types'
 import { migratePageContent } from './migrate'
+import { DECORATION_SCHEMA_VERSION, DECORATION_SCHEMA_VERSION_V3 } from './types'
 
 describe('diy schema migratePageContent', () => {
   it('keeps a v2 flat document intact', () => {
@@ -196,5 +196,22 @@ describe('diy schema migratePageContent', () => {
       sections: [],
     })
     expect(unthemed.page.backgroundColor).toBe('#abcdef')
+  })
+
+  it('passes theme snapshot primary color through only when it is a valid hex', () => {
+    const themed = migratePageContent({
+      schemaVersion: 3,
+      sections: [],
+      themeSnapshot: { primaryColor: '#123ABC', secondaryColor: 'not-a-color' },
+    })
+    expect(themed.themePrimaryColor).toBe('#123ABC')
+    expect(themed.themeSecondaryColor).toBeUndefined()
+
+    const unthemed = migratePageContent({
+      schemaVersion: 3,
+      sections: [],
+      themeSnapshot: { primaryColor: 'red' },
+    })
+    expect(unthemed.themePrimaryColor).toBeUndefined()
   })
 })

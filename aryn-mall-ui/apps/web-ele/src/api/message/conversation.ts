@@ -3,6 +3,7 @@ import type {
   ChatMessagePage,
   ChatMessageType,
   Conversation,
+  ConversationAttention,
   CursorPage,
 } from './types';
 
@@ -14,6 +15,19 @@ export function getStaffConversations(params: {
 }) {
   return requestClient.get<CursorPage<Conversation>>(
     '/message/staff/conversation',
+    {
+      params,
+    },
+  );
+}
+
+/** 坐席待办提醒：本人未读会话 + 共享池待领取，供管理端铃铛使用。 */
+export function getConversationAttention(params: {
+  limit?: number;
+  queueCode?: string;
+}) {
+  return requestClient.get<ConversationAttention>(
+    '/message/staff/conversation/attention',
     {
       params,
     },

@@ -11,6 +11,7 @@ import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.product.api.entity.*;
 import com.aryn.cloud.product.api.util.GoodsCostPriceMasker;
+import com.aryn.cloud.product.api.vo.GoodsCatalogSummaryVO;
 import com.aryn.cloud.product.mapper.*;
 import com.aryn.cloud.product.service.IGoodsSpuService;
 import lombok.RequiredArgsConstructor;
@@ -42,6 +43,12 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 	@Override
 	public IPage<GoodsSpu> adminPage(Page page, GoodsSpu goodsSpu) {
 		return baseMapper.selectPageByAdmin(page, goodsSpu);
+	}
+
+	@Override
+	public IPage<GoodsCatalogSummaryVO> catalogPage(String tenantId, Page<GoodsCatalogSummaryVO> page, String keyword,
+			String status) {
+		return baseMapper.selectCatalogPage(page, tenantId, keyword, status);
 	}
 
 	@Override

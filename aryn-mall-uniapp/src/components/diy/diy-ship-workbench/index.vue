@@ -18,7 +18,6 @@
  *
  * 未绑定用户的绑定入口在「我的」页，不在首页堆引导文案。
  */
-import { onShow } from '@dcloudio/uni-app'
 import { computed, ref } from 'vue'
 
 import { getMyVessels, getVesselCalls } from '@/api/vessel'
@@ -29,6 +28,7 @@ import { useAuthStore } from '@/store/authStore'
 import { useShipContextStore } from '@/store/shipContextStore'
 import { useTenantCapabilityStore } from '@/store/tenantCapabilityStore'
 import { useDiyStyle } from '@/composables/useDiyStyle'
+import { usePageShowLoad } from '@/composables/usePageShowLoad'
 import { formatCallTime } from '@/utils/vessel-call-time'
 
 const props = withDefaults(defineProps<{ showData?: Partial<ShipWorkbenchProps> }>(), {
@@ -155,7 +155,9 @@ function goFrequent() {
   uni.navigateTo({ url: '/sub-pages/product/frequent/index' })
 }
 
-onShow(loadWorkbench)
+// 装载即加载 + 页面每次显示刷新：只挂 onShow 会在小程序端漏掉首屏
+// （装修内容异步渲染，组件挂载时页面 onShow 已过，且小程序端不补调）
+usePageShowLoad(loadWorkbench)
 </script>
 
 <template>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onLoad } from '@dcloudio/uni-app'
 import { reactive, ref } from 'vue'
-import { getById } from '@/api/order/orderRefunds'
+import { getById } from '@/sub-pages/api/order/orderRefunds'
 import { customerServiceRoute } from '@/utils/message'
 
 definePage({

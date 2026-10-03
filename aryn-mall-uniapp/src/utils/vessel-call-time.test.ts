@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { formatCallTime, formatDeclareTime } from './vessel-call-time'
+import { formatCallTime, formatDeclareTime, formatExpiryCountdown } from './vessel-call-time'
 
 const NOW = new Date(2026, 8, 21, 10, 0, 0)
 
@@ -34,6 +34,45 @@ describe('formatCallTime', () => {
   it('不依赖 Date 字符串构造，iOS 不支持的格式也能解析', () => {
     // 小程序 iOS 端 new Date('2026-09-22 00:15:33') 会得到 Invalid Date
     expect(formatCallTime('2026-09-22T00:15:33', NOW)).toBe('明天 00:15')
+  })
+})
+
+describe('formatExpiryCountdown', () => {
+  it('小时级剩余给「N 小时 M 分」', () => {
+    expect(formatExpiryCountdown('2026-09-21 13:12:00', NOW)).toBe('还剩 3 小时 12 分')
+  })
+
+  it('整小时不拖一个「0 分」的尾巴', () => {
+    expect(formatExpiryCountdown('2026-09-21 13:00:00', NOW)).toBe('还剩 3 小时')
+  })
+
+  it('不足一小时只给分钟', () => {
+    expect(formatExpiryCountdown('2026-09-21 10:08:00', NOW)).toBe('还剩 8 分')
+  })
+
+  it('不足一分钟说「即将截止」，不显示 00:00', () => {
+    expect(formatExpiryCountdown('2026-09-21 10:00:30', NOW)).toBe('即将截止')
+  })
+
+  it('已过期返回空串，由调用方决定展示什么', () => {
+    expect(formatExpiryCountdown('2026-09-21 09:59:00', NOW)).toBe('')
+    // 恰好到点也算过期
+    expect(formatExpiryCountdown('2026-09-21 10:00:00', NOW)).toBe('')
+  })
+
+  it('空值与无法解析的值返回空串', () => {
+    expect(formatExpiryCountdown('', NOW)).toBe('')
+    expect(formatExpiryCountdown(undefined, NOW)).toBe('')
+    expect(formatExpiryCountdown('待定', NOW)).toBe('')
+  })
+
+  it('不带秒的时间按 0 秒算', () => {
+    expect(formatExpiryCountdown('2026-09-21 13:12', NOW)).toBe('还剩 3 小时 12 分')
+  })
+
+  it('不依赖 Date 字符串构造，iOS 不支持的格式也能解析', () => {
+    // 与 formatCallTime 同一口径：小程序 iOS 端无法解析空格分隔的格式
+    expect(formatExpiryCountdown('2026-09-21T13:12:00', NOW)).toBe('还剩 3 小时 12 分')
   })
 })
 

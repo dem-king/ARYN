@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
-import { getMemberLevelList, getLevelBenefits } from '@/api/user/benefit'
+import { getMemberLevelList, getLevelBenefits } from '@/sub-pages/api/user/benefit'
 
 definePage({
   name: 'member-level-benefit',

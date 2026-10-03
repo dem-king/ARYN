@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-
-import { retailCommonStyle } from '@/components/diy/retail-types'
 import type { CountdownProps } from '@/components/diy/retail-types'
+
+import { computed } from 'vue'
+import { retailCommonStyle } from '@/components/diy/retail-types'
 import { formatRemainingTime, useCountdownTicker } from '@/composables/useCountdown'
 import { useDiyStyle } from '@/composables/useDiyStyle'
 
@@ -28,13 +28,17 @@ const shouldRender = computed(() => !invalid.value || showData.value.invalidStra
 
 <template>
   <view v-if="shouldRender" class="countdown" :style="dynamicStyles">
-    <text class="countdown-title">{{ showData.title }}</text>
-    <text class="countdown-value">{{ invalid || !remaining ? showData.completedText : remaining }}</text>
+    <text class="countdown-title">
+      {{ showData.title }}
+    </text>
+    <text class="countdown-value">
+      {{ invalid || !remaining ? showData.completedText : remaining }}
+    </text>
   </view>
 </template>
 
 <style scoped lang="scss">
 .countdown { display: flex; min-height: 76rpx; align-items: center; justify-content: space-between; gap: 18rpx; }
 .countdown-title { color: #303133; font-size: 28rpx; font-weight: 500; }
-.countdown-value { color: #e5484d; font-family: monospace; font-size: 32rpx; font-weight: 700; }
+.countdown-value { color: var(--wot-color-theme-primary, #ff2237); font-family: monospace; font-size: 32rpx; font-weight: 700; }
 </style>

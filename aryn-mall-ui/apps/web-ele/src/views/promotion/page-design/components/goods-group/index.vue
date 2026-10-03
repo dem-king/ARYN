@@ -166,7 +166,7 @@ watch(
 .goods-price {
   font-size: 14px;
   font-weight: 600;
-  color: #e5484d;
+  color: var(--wot-color-theme-primary, #ff2237);
 }
 
 /* 划线原价：与小程序 diy-goods-group 的 .goods-price-original 逐值对齐（1px = 2rpx） */

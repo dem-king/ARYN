@@ -15,8 +15,8 @@ import java.util.List;
  * 点击时按需拉取一次本 VO：单规格商品直接给出可加购的 SKU，
  * 多规格商品返回 {@code choose} 交由用户选择规格，避免列表接口背负全部 SKU。
  *
- * <p>数量规则（MOQ/步长）来自 {@code ship_sku_profile}：前端据此给出
- * 可直接提交的最小起订数量，避免加购成功后卡在结算环节。
+ * <p>船供包装资料（MOQ/步长/采购单位）已下线（2026-09-29），
+ * 数量规则由前端按默认 1 兜底。
  *
  * @author aryn
  * @since 2026/9/21
@@ -75,15 +75,6 @@ public class QuickCartInfoVO implements Serializable {
 
 	@Schema(description = "可售库存")
 	private Integer stock;
-
-	@Schema(description = "最小起订量")
-	private Integer moq;
-
-	@Schema(description = "数量步长")
-	private Integer stepQty;
-
-	@Schema(description = "采购单位")
-	private String purchaseUnit;
 
 	@Schema(description = "不可加购原因（mode=unavailable 时返回）")
 	private String reason;

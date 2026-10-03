@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import type { GroupBuyRecord } from '@/api/promotion/groupBuyRecord'
+import type { GroupBuyRecord } from '@/sub-pages/api/promotion/groupBuyRecord'
 import { onLoad } from '@dcloudio/uni-app'
 import { reactive, ref } from 'vue'
-import { getRecordPage } from '@/api/promotion/groupBuyRecord'
+import { getRecordPage } from '@/sub-pages/api/promotion/groupBuyRecord'
 
 definePage({
   name: 'group-buy-record',
@@ -149,7 +149,7 @@ function getGroupStatusClass(status?: string) {
 
       .label { color: #999; }
       .value { color: #333; }
-      .value.price { color: #ff4500; font-weight: 600; }
+      .value.price { color: var(--wot-color-theme-primary, #ff2237); font-weight: 600; }
     }
   }
 }

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
-import { getCount, getPage } from '@/api/product/appraise'
+import { getCount, getPage } from '@/sub-pages/api/product/appraise'
 import { formatTime } from '@/utils/index'
 
 definePage({

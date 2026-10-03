@@ -113,6 +113,61 @@ class OrderPriceComputeServiceTest {
 	}
 
 	/**
+	 * 共享购物车按成员拆分下单的请求行不带 picUrl，历史实现用请求里的 null
+	 * 覆盖掉已兜底的 SPU 主图，导致订单明细 pic_url 入库即 NULL、三端订单页全部无图。
+	 * 请求缺省时必须回落 SKU 图 / SPU 主图。
+	 */
+	@Test
+	void fallsBackToGoodsPicWhenRequestPicMissing() {
+		GoodsSpu spu = new GoodsSpu();
+		spu.setId("spu-1");
+		spu.setName("医用酒精 75%");
+		spu.setSpuUrls(new String[] { "http://img.example.com/alcohol.jpg" });
+		GoodsSku sku = new GoodsSku().setId("sku-1").setSalesPrice(new BigDecimal("216.00")).setGoodsSpu(spu);
+
+		List<OrderItemEntity> items = service.generateOrderItems(List.of(sku),
+				List.of(skuReq("sku-1", "spu-1", 6, "user-owner", "王建国")));
+
+		assertThat(items).singleElement()
+			.satisfies(item -> assertThat(item.getPicUrl()).isEqualTo("http://img.example.com/alcohol.jpg"));
+	}
+
+	/**
+	 * 购物车链路会在请求行带上下单时的图片快照，其优先级必须高于商品当前图。
+	 */
+	@Test
+	void requestPicWinsOverGoodsPic() {
+		GoodsSpu spu = new GoodsSpu();
+		spu.setId("spu-1");
+		spu.setSpuUrls(new String[] { "http://img.example.com/current.jpg" });
+		GoodsSku sku = new GoodsSku().setId("sku-1").setSalesPrice(new BigDecimal("20.00")).setGoodsSpu(spu);
+		CreateOrderSkuReqDTO req = skuReq("sku-1", "spu-1", 1, "user-owner", "王建国");
+		req.setPicUrl("http://img.example.com/snapshot.jpg");
+
+		List<OrderItemEntity> items = service.generateOrderItems(List.of(sku), List.of(req));
+
+		assertThat(items).singleElement()
+			.satisfies(item -> assertThat(item.getPicUrl()).isEqualTo("http://img.example.com/snapshot.jpg"));
+	}
+
+	/**
+	 * spu_urls 存量脏数据存在字面量 "[]"（TypeHandler 解析成单元素 ["[]"]），
+	 * 且请求/SKU 均无图时不得把 "[]" 当图片地址，也不得因空图数组抛数组越界。
+	 */
+	@Test
+	void treatsBracketPlaceholderAsNoPic() {
+		GoodsSpu spu = new GoodsSpu();
+		spu.setId("spu-1");
+		spu.setSpuUrls(new String[] { "[]" });
+		GoodsSku sku = new GoodsSku().setId("sku-1").setSalesPrice(new BigDecimal("128.00")).setGoodsSpu(spu);
+
+		List<OrderItemEntity> items = service.generateOrderItems(List.of(sku),
+				List.of(skuReq("sku-1", "spu-1", 5, "user-owner", "王建国")));
+
+		assertThat(items).singleElement().satisfies(item -> assertThat(item.getPicUrl()).isNull());
+	}
+
+	/**
 	 * 库存校验必须按 SKU 汇总数量后再比对：
 	 * 拆行后同一 SKU 有多条明细，历史实现取 findFirst() 的单个数量，
 	 * 且以「SKU 去重数 &lt; 明细行数」判定不足，多人同购必然误报库存不足。

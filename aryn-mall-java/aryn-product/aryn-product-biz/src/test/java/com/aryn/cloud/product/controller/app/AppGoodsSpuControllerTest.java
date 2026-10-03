@@ -20,8 +20,8 @@ class AppGoodsSpuControllerTest {
 		// 这里只锁「控制器必须走服务方法」——防止有人改回在控制器里直查实体、绕过脱敏
 		IGoodsSpuService goodsSpuService = mock(IGoodsSpuService.class);
 		when(goodsSpuService.apiListByIds(List.of("goods-1", "goods-2"))).thenReturn(List.of());
-		// 被测方法不触达船供/快捷加购服务，传 null 避免 Mockito 内联 mock 其依赖层次失败
-		AppGoodsSpuController controller = new AppGoodsSpuController(goodsSpuService, null, null);
+		// 被测方法不触达快捷加购服务，传 null 避免 Mockito 内联 mock 其依赖层次失败
+		AppGoodsSpuController controller = new AppGoodsSpuController(goodsSpuService, null);
 
 		controller.getById(List.of("goods-1", "goods-2"));
 

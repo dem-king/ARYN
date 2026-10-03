@@ -37,10 +37,3 @@ export function getQuickCartInfo(id: string) {
     headers: { skipToken: true },
   })
 }
-
-// 商品船供资料摘要（采购单位/箱规/MOQ/步长/储存条件）
-export function getShipSummary(id: string) {
-  return alovaInstance.Get<any>(`/product/app/goodsspu/ship-summary/${id}`, {
-    headers: { skipToken: true },
-  })
-}

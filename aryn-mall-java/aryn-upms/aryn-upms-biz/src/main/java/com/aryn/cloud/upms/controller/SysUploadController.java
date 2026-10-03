@@ -75,7 +75,9 @@ public class SysUploadController {
 		sysMaterial.setGroupId(groupId);
 		sysMaterial.setType(type);
 		sysMaterial.setName(file.getOriginalFilename());
-		return Result.success(sysMaterialService.save(sysMaterial));
+		sysMaterialService.save(sysMaterial);
+		// 返回保存后的素材（含 id/url），调用方可直接引用素材 ID（如订单付款凭证登记）
+		return Result.success(sysMaterial);
 	}
 
 	@Operation(summary = "移动端文件上传")

@@ -1,5 +1,9 @@
 <script lang="ts" setup name="order">
-import type { FormInstance } from 'element-plus';
+import type {
+  FormInstance,
+  UploadRequestOptions,
+  UploadUserFile,
+} from 'element-plus';
 
 import { defineAsyncComponent, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
@@ -8,6 +12,9 @@ import {
   ArrowRightBold,
   Box,
   Delete,
+  Download,
+  Money,
+  Plus,
   Refresh,
   Search,
   Van,
@@ -15,32 +22,37 @@ import {
 } from '@element-plus/icons-vue';
 import {
   ElButton,
-  ElCol,
   ElDatePicker,
+  ElDialog,
   ElForm,
   ElFormItem,
   ElIcon,
-  ElImage,
   ElInput,
+  ElInputNumber,
   ElMessage,
   ElMessageBox,
   ElOption,
   ElPopover,
-  ElRow,
   ElSegmented,
   ElSelect,
   ElTable,
   ElTableColumn,
   ElTag,
+  ElUpload,
 } from 'element-plus';
 
 import {
   cancelObj,
+  confirmOfflinePayment,
   delObj,
   getPage,
   selffetchObj,
 } from '#/api/order/order-info';
+import { uploadFile } from '#/api/upms/upload';
 import { useDict } from '#/utils/dict';
+import { downloadBlobFile } from '#/utils/util';
+
+import OrderItemsCell from './order-items-cell.vue';
 
 const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
@@ -56,11 +68,10 @@ const Deliver = defineAsyncComponent(() => import('./deliver/index.vue'));
 
 // 字典
 const queryRef = ref<FormInstance>();
-const { pay_type, delivery_way, order_status, order_item_status } = useDict(
+const { pay_type, delivery_way, order_status } = useDict(
   'pay_type',
   'delivery_way',
   'order_status',
-  'order_item_status',
 );
 const state = reactive({
   queryParams: {
@@ -241,6 +252,121 @@ const selffetchOrder = (row: any) => {
       .catch(() => {});
   });
 };
+/**
+ * 货到付款确认收款（实收金额 + 付款凭证上传）
+ */
+interface PayVoucherFile extends UploadUserFile {
+  materialId?: string;
+}
+const payConfirmState = reactive({
+  visible: false,
+  submitting: false,
+  orderId: '',
+  orderNo: '',
+  // 应收金额（总金额-优惠+运费），线下收款可能有折扣
+  receivable: 0,
+  actualPayPrice: 0,
+  voucherFiles: [] as PayVoucherFile[],
+});
+const openPayConfirm = (row: any) => {
+  payConfirmState.orderId = row.id;
+  payConfirmState.orderNo = row.orderNo || row.id;
+  payConfirmState.receivable = Number(row.paymentPrice ?? row.totalPrice ?? 0);
+  payConfirmState.actualPayPrice = payConfirmState.receivable;
+  payConfirmState.voucherFiles = [];
+  payConfirmState.visible = true;
+};
+const uploadPayVoucher = async (options: UploadRequestOptions) => {
+  const formData = new FormData();
+  formData.append('file', options.file);
+  formData.append('type', '1');
+  const res: any = await uploadFile(formData);
+  const fileItem = payConfirmState.voucherFiles.at(-1);
+  if (fileItem) {
+    fileItem.materialId = res?.id;
+    fileItem.url = res?.url;
+  }
+  options.onSuccess?.(res);
+  return res;
+};
+const beforePayVoucherUpload = (file: any) => {
+  const isImage = file.type?.startsWith('image/');
+  if (!isImage) {
+    ElMessage.error('付款凭证仅支持图片');
+    return false;
+  }
+  if (payConfirmState.voucherFiles.length >= 6) {
+    ElMessage.error('付款凭证最多上传6张');
+    return false;
+  }
+  return true;
+};
+const confirmPaySubmit = () => {
+  if (!payConfirmState.actualPayPrice || payConfirmState.actualPayPrice <= 0) {
+    ElMessage.error('请填写大于0的实收金额');
+    return;
+  }
+  if (payConfirmState.actualPayPrice > payConfirmState.receivable) {
+    ElMessage.error('实收金额不能大于应收金额');
+    return;
+  }
+  const pending = payConfirmState.voucherFiles.some(
+    (file) => file.status === 'uploading' || !file.materialId,
+  );
+  if (pending) {
+    ElMessage.error('付款凭证还在上传中，请稍候');
+    return;
+  }
+  payConfirmState.submitting = true;
+  confirmOfflinePayment(payConfirmState.orderId, {
+    actualPayPrice: payConfirmState.actualPayPrice,
+    voucherMaterialIds: payConfirmState.voucherFiles
+      .map((file) => file.materialId)
+      .filter(Boolean),
+  })
+    .then(() => {
+      ElMessage.success('确认收款成功');
+      payConfirmState.visible = false;
+      initPage();
+    })
+    .catch(() => {})
+    .finally(() => {
+      payConfirmState.submitting = false;
+    });
+};
+
+/**
+ * 按当前筛选条件导出订单明细（商品行按分类分组、含分类小计与汇总）
+ */
+const exporting = ref(false);
+const localTimestamp = () => {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return (
+    `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}` +
+    `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
+  );
+};
+const handleExport = () => {
+  ElMessageBox.confirm(
+    '将按当前筛选条件导出订单明细（商品按分类分组），是否继续?',
+    '订单导出',
+    {
+      confirmButtonText: '导出',
+      cancelButtonText: '取消',
+      type: 'info',
+    },
+  ).then(() => {
+    exporting.value = true;
+    downloadBlobFile(
+      '/mall-order/orderinfo/export',
+      { ...state.queryParams, status: activeType.value },
+      `订单明细_${localTimestamp()}.xlsx`,
+    ).finally(() => {
+      exporting.value = false;
+    });
+  });
+};
 initPage();
 </script>
 <template>
@@ -343,6 +469,16 @@ initPage();
           :options="activeTypeOptions"
           @change="tabHandle"
         />
+        <ElButton
+          type="warning"
+          plain
+          :icon="Download"
+          :loading="exporting"
+          v-access:code="'order:orderinfo:export'"
+          @click="handleExport"
+        >
+          导出
+        </ElButton>
         <RightToolbar
           :search-btn="true"
           :refresh-btn="true"
@@ -370,45 +506,9 @@ initPage();
             }}
           </template>
         </ElTableColumn>
-        <ElTableColumn prop="orderItemList" label="订单信息" width="480">
+        <ElTableColumn prop="orderItemList" label="订单信息" width="420">
           <template #default="scope">
-            <ElRow
-              style="padding: 0 !important"
-              v-for="(item, index) in scope.row.orderItemList"
-              :key="index"
-              class="order-item"
-            >
-              <ElCol :span="4">
-                <ElImage
-                  style="width: 60px; height: 60px"
-                  :src="item.picUrl"
-                  fit="cover"
-                  :preview-teleported="true"
-                />
-              </ElCol>
-              <ElCol :span="15">
-                <span class="name line-clamp-2">
-                  {{ item.spuName }}
-                </span>
-                <p style="font-size: 12px; color: #a8abb2">
-                  {{ item.specsInfo }}
-                </p>
-                <p>
-                  <span style="color: red" v-if="item.couponPrice > 0">
-                    优惠券减免：-{{ item.couponPrice }}元
-                  </span>
-                </p>
-              </ElCol>
-              <ElCol :span="5" style="padding-left: 20px">
-                <span style="color: #f56c6c">￥{{ item.paymentPrice }}</span>
-                <p>x{{ item.buyQuantity }}</p>
-                <DictTag
-                  v-if="item.status === '3' || item.status === '6'"
-                  :options="order_item_status"
-                  :value="item.status"
-                />
-              </ElCol>
-            </ElRow>
+            <OrderItemsCell :row="scope.row" />
           </template>
         </ElTableColumn>
         <ElTableColumn
@@ -419,6 +519,21 @@ initPage();
         >
           <template #default="scope">
             <DictTag :options="delivery_way" :value="scope.row.deliveryWay" />
+          </template>
+        </ElTableColumn>
+        <ElTableColumn
+          prop="paymentType"
+          label="支付方式"
+          align="center"
+          width="110"
+        >
+          <template #default="scope">
+            <span v-if="!scope.row.paymentType">—</span>
+            <DictTag
+              v-else
+              :options="pay_type"
+              :value="scope.row.paymentType"
+            />
           </template>
         </ElTableColumn>
         <ElTableColumn
@@ -522,6 +637,20 @@ initPage();
             </ElButton>
             <ElButton
               link
+              type="primary"
+              v-access:code="'order:orderinfo:payconfirm'"
+              v-if="
+                scope.row.paymentType === '3' &&
+                scope.row.payStatus === '0' &&
+                scope.row.status !== '11'
+              "
+              @click="openPayConfirm(scope.row)"
+              :icon="Money"
+            >
+              确认收款
+            </ElButton>
+            <ElButton
+              link
               type="danger"
               v-access:code="'order:orderinfo:del'"
               v-if="scope.row.status === '11' && scope.row.payStatus === '0'"
@@ -550,15 +679,55 @@ initPage();
         @change="initPage"
       />
     </div>
+
+    <!-- 货到付款确认收款弹窗 -->
+    <ElDialog
+      v-model="payConfirmState.visible"
+      :title="`确认收款${payConfirmState.orderNo ? ` - ${payConfirmState.orderNo}` : ''}`"
+      width="520px"
+      :close-on-click-modal="false"
+    >
+      <ElForm label-width="90px">
+        <ElFormItem label="应收金额">
+          <span>￥{{ payConfirmState.receivable }}</span>
+        </ElFormItem>
+        <ElFormItem label="实收金额" required>
+          <ElInputNumber
+            v-model="payConfirmState.actualPayPrice"
+            :min="0.01"
+            :max="payConfirmState.receivable"
+            :precision="2"
+            :step="1"
+            controls-position="right"
+            style="width: 200px"
+          />
+          <span class="pl-6px text-12px text-gray-400"
+            >客户线下实付，可低于应收</span
+          >
+        </ElFormItem>
+        <ElFormItem label="付款凭证">
+          <ElUpload
+            v-model:file-list="payConfirmState.voucherFiles"
+            list-type="picture-card"
+            accept="image/*"
+            :limit="6"
+            :before-upload="beforePayVoucherUpload"
+            :http-request="uploadPayVoucher"
+          >
+            <ElIcon><Plus /></ElIcon>
+          </ElUpload>
+        </ElFormItem>
+      </ElForm>
+      <template #footer>
+        <ElButton @click="payConfirmState.visible = false">取消</ElButton>
+        <ElButton
+          type="primary"
+          :loading="payConfirmState.submitting"
+          @click="confirmPaySubmit"
+        >
+          确认收款
+        </ElButton>
+      </template>
+    </ElDialog>
   </div>
 </template>
-<style scoped lang="scss">
-.order-item {
-  margin-right: 0 !important;
-  margin-left: 0 !important;
-
-  .name {
-    color: #409eff;
-  }
-}
-</style>

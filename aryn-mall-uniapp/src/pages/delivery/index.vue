@@ -13,6 +13,7 @@ definePage({
 })
 
 const globalLoading = useGlobalLoading()
+const { show: showToast } = useGlobalToast()
 const router = useRouter()
 
 const loading = ref(true)
@@ -57,10 +58,12 @@ async function fetchData() {
   }
 }
 
-/** 跳转到出车单详情 */
+/** 跳转到出车单详情：优先进行中的出车单，没有则给出提示 */
 function toTripDetail() {
-  if (!activeTrip.value)
+  if (!activeTrip.value) {
+    showToast('暂无进行中的出车单')
     return
+  }
   router.push({
     name: 'delivery-trip-detail',
     params: { id: activeTrip.value.id },
@@ -137,7 +140,7 @@ function onRefresh() {
             仓库
           </text>
           <text class="text-26rpx">
-            {{ activeTrip.warehouseName }}
+            {{ activeTrip.warehouseName || '取货仓库' }}
           </text>
         </view>
         <view class="flex items-center justify-between py-10rpx">

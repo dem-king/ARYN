@@ -43,6 +43,9 @@ public class SharedCartConfirmDTO implements Serializable {
 	@Schema(description = "整单备注")
 	private String remark;
 
+	@Schema(description = "支付类型：空=在线支付；3=货到付款（内部配送专用，下单即进待发货）")
+	private String paymentType;
+
 	@Data
 	@Schema(description = "核定数量调整项")
 	public static class ApprovedQuantity implements Serializable {

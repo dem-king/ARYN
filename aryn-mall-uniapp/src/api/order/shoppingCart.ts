@@ -1,4 +1,5 @@
 import { alovaInstance } from '@/api/core/instance'
+import { ensureShipContextLoaded } from '@/composables/useShipContextLoad'
 import { useShipContextStore } from '@/store/shipContextStore'
 
 // 分页列表
@@ -8,14 +9,30 @@ export function getPage(params: object) {
   })
 }
 
-// 购物车添加（自动携带当前船舶/靠港/场景归属，防串船分组键）
-export function addShoppingCart(data: Record<string, any>) {
+/**
+ * 加购前确保船舶上下文已装载。
+ *
+ * 这里携带的 vesselId / vesselCallId 是**加购时刻的归属快照**，会落库并被
+ * 购物车据以分组（防串船）。上下文不持久化，冷启动为空——若不先装载，
+ * 快照就写空，商品进购物车后一律落到「未指定配送计划」，跨靠港拦截失效。
+ * 装载失败不阻断加购（按无归属写入），与页面降级口径一致。
+ */
+async function withShipContext() {
+  await ensureShipContextLoaded()
   const shipContextStore = useShipContextStore()
-  return alovaInstance.Post<any>('/mall-order/app/shopping-cart', {
-    ...data,
+  return {
     vesselId: shipContextStore.vesselId || undefined,
     vesselCallId: shipContextStore.vesselCallId || undefined,
     purchaseScene: shipContextStore.purchaseScene || undefined,
+  }
+}
+
+// 购物车添加（自动携带当前船舶/靠港/场景归属，防串船分组键）
+export async function addShoppingCart(data: Record<string, any>) {
+  const context = await withShipContext()
+  return alovaInstance.Post<any>('/mall-order/app/shopping-cart', {
+    ...data,
+    ...context,
   })
 }
 
@@ -38,14 +55,12 @@ export interface ShoppingCartBatchAddResult {
  * 服务端逐项复用单条加购校验，返回成功/失败清单，前端可提示"已加入 8 项，2 项失败"。
  * 船舶/靠港上下文与单条加购口径一致，统一由此函数补齐，避免调用方漏传导致串船。
  */
-export function batchAddShoppingCart(items: Array<{ skuId: string, quantity: number }>) {
-  const shipContextStore = useShipContextStore()
+export async function batchAddShoppingCart(items: Array<{ skuId: string, quantity: number }>) {
+  const context = await withShipContext()
   return alovaInstance.Post<ShoppingCartBatchAddResult>('/mall-order/app/shopping-cart/batch', {
     items: items.map(item => ({
       ...item,
-      vesselId: shipContextStore.vesselId || undefined,
-      vesselCallId: shipContextStore.vesselCallId || undefined,
-      purchaseScene: shipContextStore.purchaseScene || undefined,
+      ...context,
     })),
   })
 }

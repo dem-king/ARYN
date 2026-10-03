@@ -15,6 +15,8 @@ import {
 
 import { getDeliveryTripDetail } from '#/api/delivery/trip';
 
+import { resolveDeliveryDestination } from '../delivery-destination';
+
 /**
  * 出车单状态选项（含 Tag 着色）
  */
@@ -170,12 +172,7 @@ defineExpose({
           />
           <ElTableColumn label="收货地址" align="center" min-width="220">
             <template #default="scope">
-              <span>
-                {{ scope.row.recipientProvince }}
-                {{ scope.row.recipientCity }}
-                {{ scope.row.recipientArea }}
-                {{ scope.row.recipientAddress }}
-              </span>
+              {{ resolveDeliveryDestination(scope.row) || '—' }}
             </template>
           </ElTableColumn>
           <ElTableColumn

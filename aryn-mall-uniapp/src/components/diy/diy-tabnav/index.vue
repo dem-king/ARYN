@@ -13,6 +13,11 @@ const props = defineProps({
 
 const current = shallowRef(0)
 
+// 分页滑动翻页时记录当前页，驱动高度按该页实际行数收缩
+function onPagerChange(e: any) {
+  current.value = e.detail.current
+}
+
 const baseStyle = useDiyStyle(computed(() => props.showData.commonStyle))
 const dynamicStyles = computed(() => {
   return {
@@ -68,10 +73,18 @@ const rowHeight = computed(() => {
   const imgSize = Number(props.showData.imgSize) || 40
   return imgSize + (navType.value === '3' ? 22 : 0)
 })
+// 高度自适应：按「当前页」实际行数收缩——铺满 pageRows 行占满，铺不满自动缩小
+//（swiper 各页等高，翻页时高度过渡到新页的行数）
+const actualRows = computed(() => {
+  const total = navList.value.length
+  if (!total) return pageRows.value
+  const page = pages.value[Math.min(current.value, pages.value.length - 1)] || []
+  return Math.min(pageRows.value, Math.ceil(page.length / showNum.value))
+})
 // 每行底部间距 6px；分页指示点预留 16px
 const pagerHeight = computed(
   () =>
-    pageRows.value * (rowHeight.value + 6)
+    actualRows.value * (rowHeight.value + 6)
     + (indicatorDots.value && pages.value.length > 1 ? 16 : 0),
 )
 </script>
@@ -124,6 +137,7 @@ const pagerHeight = computed(
         :indicator-color="indicatorColor"
         :indicator-active-color="indicatorActiveColor"
         :style="{ height: `${pagerHeight}px` }"
+        @change="onPagerChange"
       >
         <swiper-item
           v-for="(page, pageIndex) in pages"
@@ -249,6 +263,8 @@ const pagerHeight = computed(
 
   &-pager {
     width: 100%;
+    // 高度随当前页行数收缩/展开
+    transition: height 0.3s ease;
   }
 
   .hx-grid-page {

@@ -253,6 +253,9 @@ onMounted(async () => {
 <style scoped>
 .direct-page {
   display: grid;
+
+  /* 缺省行是 auto，会按内容撑高、顶破固定高度容器把输入区挤到可视区外 */
+  grid-template-rows: minmax(0, 1fr);
   grid-template-columns: 370px 1fr;
   height: calc(100vh - 112px);
   min-height: 620px;

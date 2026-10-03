@@ -84,9 +84,6 @@ const required = [
   'CREATE TABLE IF NOT EXISTS `vessel_info`',
   'CREATE TABLE IF NOT EXISTS `vessel_member`',
   'CREATE TABLE IF NOT EXISTS `vessel_call`',
-  'CREATE TABLE IF NOT EXISTS `ship_goods_profile`',
-  'CREATE TABLE IF NOT EXISTS `ship_sku_profile`',
-  'CREATE TABLE IF NOT EXISTS `product_code_mapping`',
   'CREATE TABLE IF NOT EXISTS `shared_cart`',
   'CREATE TABLE IF NOT EXISTS `shared_cart_member`',
   'CREATE TABLE IF NOT EXISTS `shared_cart_item`',
@@ -109,9 +106,6 @@ const required = [
   'uk_promotion_lock_order_activity',
   'CREATE TABLE IF NOT EXISTS `vessel_call_change_log`',
   'uk_vessel_member_unique',
-  'uk_ship_goods_profile_spu',
-  'uk_ship_sku_profile_sku',
-  'uk_product_code_mapping_code',
   'idx_order_info_scene',
   'uk_fulfillment_pick_item',
 ];
@@ -140,7 +134,6 @@ const sourceFiles = [
   '27delivery_fulfillment_incremental.sql',
   '29delivery_account_binding.sql',
   '42vessel_context_incremental.sql',
-  '43ship_product_profile_incremental.sql',
   '44order_delivery_context_incremental.sql',
   '48product_import_incremental.sql',
   '50product_import_row_incremental.sql',
@@ -162,7 +155,6 @@ for (const file of sourceFiles) {
 // 剔除注释、USE、CREATE DATABASE 等模式差异行后，剩余语句应完全一致。
 for (const pairFile of [
   '42vessel_context_incremental.sql',
-  '43ship_product_profile_incremental.sql',
   '44order_delivery_context_incremental.sql',
   '48product_import_incremental.sql',
   '50product_import_row_incremental.sql',

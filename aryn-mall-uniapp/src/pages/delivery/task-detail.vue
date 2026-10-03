@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { onLoad } from '@dcloudio/uni-app'
-import { ref } from 'vue'
-import { arriveTask, getTaskDetail, getTaskStatusColor, getTaskStatusName } from '@/api/delivery'
-import { uploadDeliveryEvidence } from '@/api/upms/file'
 import type { DeliveryTask, DeliveryTaskStatus } from '@/api/delivery'
+import { onLoad } from '@dcloudio/uni-app'
+import { computed, ref } from 'vue'
+import { arriveTask, getTaskDetail, getTaskEvidence, getTaskStatusColor, getTaskStatusName } from '@/api/delivery'
+import { uploadDeliveryEvidence } from '@/api/upms/file'
+import { openDeliveryNavigation, resolveDeliveryDestination } from '@/utils/delivery-navigation'
 
 definePage({
   name: 'delivery-task-detail',
@@ -21,6 +22,8 @@ const submitting = ref(false)
 const task = ref<DeliveryTask | null>(null)
 const evidencePaths = ref<string[]>([])
 const evidenceIds = ref<string[]>([])
+/** 送达/签收后从后端回显的凭证快照 URL */
+const savedEvidenceUrls = ref<string[]>([])
 
 /** 配送状态时间线节点 */
 const timelineNodes = ref<Array<{ name: string, time?: string, done: boolean, active: boolean }>>([])
@@ -39,6 +42,9 @@ async function fetchTaskDetail(id: string) {
     const res = await getTaskDetail(id).send()
     task.value = res as DeliveryTask
     buildTimeline()
+    if (task.value && task.value.status !== '4') {
+      loadSavedEvidence(id)
+    }
   }
   catch (error) {
     console.error('获取任务详情失败:', error)
@@ -86,26 +92,19 @@ function handleCallPhone(phone: string) {
   })
 }
 
-/** 导航到收货地址 */
+/**
+ * 导航到收货地址：有坐标走微信内置地图，没有坐标则复制地址给司机粘贴到导航软件。
+ *
+ * 后端目前不下发经纬度，线上走到的一律是复制分支。
+ */
 function handleNavigate() {
   if (!task.value)
     return
-  const { latitude, longitude, recipientAddress } = task.value
-  if (latitude && longitude) {
-    uni.openLocation({
-      latitude,
-      longitude,
-      name: recipientAddress || '目的地',
-      scale: 18,
-      fail: () => {
-        showToast('打开地图失败')
-      },
-    })
-  }
-  else {
-    showToast('暂无坐标信息')
-  }
+  openDeliveryNavigation(task.value, showToast)
 }
+
+/** 目的地文本：收货地址为空时回落港口/泊位，与导航递交的口径同源 */
+const destination = computed(() => resolveDeliveryDestination(task.value))
 
 /** 确认送达 */
 async function handleArrive() {
@@ -123,12 +122,33 @@ async function handleArrive() {
     await fetchTaskDetail(task.value.id)
   }
   catch (error: any) {
-    showToast(error?.msg || '操作失败')
+    showToast(error?.message || error?.msg || '操作失败')
   }
   finally {
     submitting.value = false
     globalLoading.close()
   }
+}
+
+/** 加载已上传的送达凭证（送达确认后回显） */
+async function loadSavedEvidence(id: string) {
+  try {
+    const list = await getTaskEvidence(id).send()
+    savedEvidenceUrls.value = (Array.isArray(list) ? list : [])
+      .map((item: any) => item?.materialUrl)
+      .filter((url: any) => !!url)
+  }
+  catch (error) {
+    console.error('获取送达凭证失败:', error)
+  }
+}
+
+/** 点击预览已上传的送达凭证 */
+function previewSavedEvidence(index: number) {
+  uni.previewImage({
+    urls: savedEvidenceUrls.value,
+    current: savedEvidenceUrls.value[index],
+  })
 }
 
 /** 选择并上传送达凭证，服务端只接收素材 ID。 */
@@ -215,11 +235,11 @@ function removeEvidence(index: number) {
         :key="item.id"
         class="flex border-b border-gray-100 py-20rpx last:border-none"
       >
-        <image :src="item.picUrl" class="h-120rpx w-120rpx flex-none rounded-lg" mode="aspectFill" />
+        <image :src="item.image ?? ''" class="h-120rpx w-120rpx flex-none rounded-lg" mode="aspectFill" />
         <view class="ml-20rpx flex flex-1 flex-col overflow-hidden">
-          <wd-text :lines="2" size="26rpx" color="inherit" :text="item.spuName" />
-          <view v-if="item.specsInfo" class="pt-6rpx">
-            <wd-text size="24rpx" color="#909090" :text="item.specsInfo" />
+          <wd-text :lines="2" size="26rpx" color="inherit" :text="item.spuName ?? ''" />
+          <view v-if="item.skuName" class="pt-6rpx">
+            <wd-text size="24rpx" color="#909090" :text="item.skuName" />
           </view>
           <view class="pt-6rpx text-24rpx text-gray-500">
             数量：{{ item.quantity }}
@@ -252,12 +272,12 @@ function removeEvidence(index: number) {
         </text>
       </view>
       <view class="flex items-start py-10rpx">
-        <text class="i-carbon:location mr-10rpx mt-4rpx text-28rpx flex-none text-gray-400" />
+        <text class="i-carbon:location mr-10rpx mt-4rpx flex-none text-28rpx text-gray-400" />
         <text class="text-26rpx text-gray-600">
           地址：
         </text>
         <text class="flex-1 text-26rpx">
-          {{ task.recipientAddress }}
+          {{ destination || '暂无收货地址' }}
         </text>
       </view>
       <view class="mt-20rpx flex gap-20rpx border-t border-gray-100 pt-20rpx">
@@ -271,15 +291,39 @@ function removeEvidence(index: number) {
     </view>
 
     <view v-if="task.status === '4'" class="mx-20rpx mb-20rpx rounded-20rpx bg-white p-30rpx">
-      <text class="mb-20rpx block text-28rpx font-bold">送达凭证</text>
+      <text class="mb-20rpx block text-28rpx font-bold">
+        送达凭证
+      </text>
       <view class="flex flex-wrap gap-16rpx">
         <view v-for="(path, index) in evidencePaths" :key="path" class="relative">
           <image :src="path" class="h-150rpx w-150rpx rounded-lg" mode="aspectFill" />
-          <text class="absolute right-0 top-0 rounded-bl-lg bg-black/60 px-8rpx text-white" @click="removeEvidence(index)">×</text>
+          <text class="absolute right-0 top-0 rounded-bl-lg bg-black/60 px-8rpx text-white" @click="removeEvidence(index)">
+            ×
+          </text>
         </view>
-        <view v-if="evidencePaths.length < 6" class="flex h-150rpx w-150rpx items-center justify-center rounded-lg border border-dashed border-gray-300" @click="chooseEvidence">
+        <view v-if="evidencePaths.length < 6" class="h-150rpx w-150rpx flex items-center justify-center border border-gray-300 rounded-lg border-dashed" @click="chooseEvidence">
           <text class="i-carbon:add text-44rpx text-gray-400" />
         </view>
+      </view>
+    </view>
+
+    <!-- 已上传的送达凭证（送达/签收后回显） -->
+    <view
+      v-if="task.status !== '4' && savedEvidenceUrls.length > 0"
+      class="mx-20rpx mb-20rpx rounded-20rpx bg-white p-30rpx"
+    >
+      <text class="mb-20rpx block text-28rpx font-bold">
+        送达凭证
+      </text>
+      <view class="flex flex-wrap gap-16rpx">
+        <image
+          v-for="(url, index) in savedEvidenceUrls"
+          :key="url"
+          :src="url"
+          class="h-150rpx w-150rpx rounded-lg"
+          mode="aspectFill"
+          @click="previewSavedEvidence(index)"
+        />
       </view>
     </view>
 

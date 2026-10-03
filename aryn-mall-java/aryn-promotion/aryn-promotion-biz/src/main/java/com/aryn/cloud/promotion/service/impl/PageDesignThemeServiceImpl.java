@@ -6,10 +6,12 @@ import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.promotion.api.entity.PageDesignTheme;
 import com.aryn.cloud.promotion.mapper.PageDesignThemeMapper;
 import com.aryn.cloud.promotion.service.IPageDesignThemeService;
+import com.aryn.cloud.promotion.util.ThemeColorUtils;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.List;
@@ -39,6 +41,7 @@ public class PageDesignThemeServiceImpl extends ServiceImpl<PageDesignThemeMappe
 		theme.setId(IdWorker.getIdStr());
 		theme.setSystemFlag(PageDesignTheme.SYSTEM_NO);
 		theme.setStatus(PageDesignTheme.STATUS_ENABLED);
+		theme.setMallDefaultFlag(PageDesignTheme.MALL_DEFAULT_NO);
 		if (theme.getRadius() == null) {
 			theme.setRadius(DEFAULT_RADIUS);
 		}
@@ -57,6 +60,7 @@ public class PageDesignThemeServiceImpl extends ServiceImpl<PageDesignThemeMappe
 		}
 		theme.setSystemFlag(null);
 		theme.setTenantId(null);
+		theme.setMallDefaultFlag(null);
 		return updateById(theme);
 	}
 
@@ -104,6 +108,7 @@ public class PageDesignThemeServiceImpl extends ServiceImpl<PageDesignThemeMappe
 		snapshot.put("themeId", theme.getId());
 		snapshot.put("themeName", theme.getThemeName());
 		snapshot.put("primaryColor", theme.getPrimaryColor());
+		snapshot.put("secondaryColor", ThemeColorUtils.deriveSecondary(theme.getPrimaryColor()));
 		snapshot.put("pageBackgroundColor", theme.getPageBackgroundColor());
 		snapshot.put("navigationColor", theme.getNavigationColor());
 		snapshot.put("navigationTextColor", theme.getNavigationTextColor());
@@ -138,6 +143,32 @@ public class PageDesignThemeServiceImpl extends ServiceImpl<PageDesignThemeMappe
 			throw new ArynBusinessException("主题不存在或无权访问");
 		}
 		return theme;
+	}
+
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public boolean setDefaultTheme(String id) {
+		PageDesignTheme theme = requireTheme(id);
+		if (!PageDesignTheme.STATUS_ENABLED.equals(theme.getStatus())) {
+			throw new ArynBusinessException("已停用的主题不能设为商城默认");
+		}
+		// 租户内只保留一个默认主题：先清旧标记再打新标记，同事务保证不出现双默认
+		update(Wrappers.<PageDesignTheme>lambdaUpdate()
+			.eq(PageDesignTheme::getMallDefaultFlag, PageDesignTheme.MALL_DEFAULT_YES)
+			.set(PageDesignTheme::getMallDefaultFlag, PageDesignTheme.MALL_DEFAULT_NO));
+		PageDesignTheme mark = new PageDesignTheme();
+		mark.setId(id);
+		mark.setMallDefaultFlag(PageDesignTheme.MALL_DEFAULT_YES);
+		return updateById(mark);
+	}
+
+	@Override
+	public PageDesignTheme getDefaultTheme() {
+		List<PageDesignTheme> themes = list(Wrappers.<PageDesignTheme>lambdaQuery()
+			.eq(PageDesignTheme::getMallDefaultFlag, PageDesignTheme.MALL_DEFAULT_YES)
+			.eq(PageDesignTheme::getStatus, PageDesignTheme.STATUS_ENABLED)
+			.last("LIMIT 1"));
+		return themes.isEmpty() ? null : themes.get(0);
 	}
 
 }

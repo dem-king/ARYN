@@ -18,8 +18,8 @@ function source(relativePath: string) {
 
 const DETAIL_PAGE = 'src/sub-pages/product/goods-detail/index.vue'
 const GOODS_INFO = 'src/sub-pages/product/goods-detail/components/GoodsInfo.vue'
-const SHIP_CARD = 'src/sub-pages/product/goods-detail/components/ShipProfileCard.vue'
 const SHEET = 'src/components/goods-detail-sheet/index.vue'
+const SHIP_CARD_PATH = 'src/sub-pages/product/goods-detail/components/ShipProfileCard.vue'
 
 describe('goods detail purchase contract', () => {
   it('detail page branches on resolvePurchaseDecision instead of ad-hoc enableSpecs checks', () => {
@@ -27,7 +27,7 @@ describe('goods detail purchase contract', () => {
     expect(page).toContain('resolvePurchaseDecision(response)')
     // 加入购物车入口先做单规格判定，命中才直加
     expect(page).toMatch(/value === 2 && !purchaseDecision\.value\.needChoose/)
-    // 直加复用 useQuickCart（MOQ/步长/登录守卫同一份口径）
+    // 直加复用 useQuickCart（数量规则/登录守卫同一份口径）
     expect(page).toContain('quickAdd(')
   })
 
@@ -69,17 +69,12 @@ describe('goods detail purchase contract', () => {
     expect(sheet).toMatch(/result\.needChoose \|\| result\.info === null/)
   })
 
-  it('ship profile card consumes the shared useShipProfile cache (no duplicate request)', () => {
-    const card = source(SHIP_CARD)
-    expect(card).toContain('useShipProfile()')
-    // 卡片不再自发请求，避免与详情页数量规则各拉一次 ship-summary
-    expect(card).not.toContain('alovaInstance')
-  })
-
-  it('ship summary api keeps the boot/cloud-safe path prefix', () => {
-    // 首段必须是微服务域 /product，boot 模式由 rewriteBootUrl 改写
-    expect(source('src/api/product/spu.ts')).toMatch(
-      /\/product\/app\/goodsspu\/ship-summary\/\$\{id\}/,
-    )
+  it('ship profile card and ship-summary api stay removed', () => {
+    // 船供资料下线（2026-09-29）：商详不再有船供卡片与 ship-summary 摘要接口，
+    // 防止有人把旧链路接回来却找不到数据源（接口已在后端一并删除）
+    const page = source(DETAIL_PAGE)
+    expect(page).not.toContain('ShipProfileCard')
+    expect(source('src/api/product/spu.ts')).not.toContain('ship-summary')
+    expect(() => source(SHIP_CARD_PATH)).toThrow()
   })
 })

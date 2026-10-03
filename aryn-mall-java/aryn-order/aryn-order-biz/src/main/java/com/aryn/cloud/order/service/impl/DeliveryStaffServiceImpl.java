@@ -124,6 +124,20 @@ public class DeliveryStaffServiceImpl extends ServiceImpl<DeliveryStaffMapper, D
 	}
 
 	@Override
+	public Map<String, String> mapStaffNames(Collection<String> staffIds) {
+		if (CollUtil.isEmpty(staffIds)) {
+			return Collections.emptyMap();
+		}
+		List<String> distinctIds = staffIds.stream().filter(StrUtil::isNotBlank).distinct().toList();
+		if (distinctIds.isEmpty()) {
+			return Collections.emptyMap();
+		}
+		return listByIds(distinctIds).stream()
+			.filter(staff -> StrUtil.isNotBlank(staff.getId()))
+			.collect(Collectors.toMap(DeliveryStaff::getId, DeliveryStaff::getStaffName, (a, b) -> a));
+	}
+
+	@Override
 	public Page<DeliveryStaffManagerVO> managerPage(Page<DeliveryStaff> page, String keyword, String bindingStatus,
 			String status) {
 		List<String> boundStaffIds = deliveryAccountBindingService

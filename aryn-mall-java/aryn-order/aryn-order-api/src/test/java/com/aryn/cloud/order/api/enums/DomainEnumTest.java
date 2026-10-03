@@ -2,7 +2,6 @@ package com.aryn.cloud.order.api.enums;
 
 import com.aryn.cloud.order.api.dto.DeliveryContextDTO;
 import com.aryn.cloud.order.api.dto.PurchaseContextDTO;
-import com.aryn.cloud.product.api.enums.SaleScopeEnum;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -14,7 +13,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * 船供化领域契约测试：固定购买场景、配送方式和销售范围的取值语义。
+ * 船供化领域契约测试：固定购买场景与配送方式的取值语义。
+ * （sale_scope 随船供资料下线移除，2026-09-29。）
  */
 class DomainEnumTest {
 
@@ -47,23 +47,11 @@ class DomainEnumTest {
 		assertEquals("商城配送", DeliveryWayEnum.getValue("3"));
 	}
 
-	@DisplayName("sale_scope=1/2/3 分别表示个人、船供、两者可用")
-	@Test
-	void saleScopeValues() {
-		assertEquals("1", SaleScopeEnum.PERSONAL_ONLY.getCode());
-		assertEquals("2", SaleScopeEnum.SHIP_SUPPLY_ONLY.getCode());
-		assertEquals("3", SaleScopeEnum.BOTH.getCode());
-		assertEquals("仅个人购买", SaleScopeEnum.getValue("1"));
-		assertEquals("仅船供采购", SaleScopeEnum.getValue("2"));
-		assertEquals("个人购买和船供采购", SaleScopeEnum.getValue("3"));
-	}
-
 	@DisplayName("无效枚举值返回空，不能静默转成普通快递")
 	@Test
 	void invalidCodeReturnsNull() {
 		assertNull(PurchaseSceneEnum.getValue("9"));
 		assertNull(DeliveryWayEnum.getValue("9"));
-		assertNull(SaleScopeEnum.getValue("9"));
 		assertNull(DeliveryWayEnum.getValue(null));
 	}
 

@@ -1,6 +1,6 @@
 <script setup lang="ts" name="orderOperation">
-import { computed } from 'vue'
 import type { MessageResult } from 'wot-design-uni/components/wd-message-box/types'
+import { computed } from 'vue'
 import { orderCancel, orderDel, orderReceiver } from '@/api/order/orderInfo'
 
 const props = defineProps({
@@ -44,8 +44,9 @@ function onPay() {
 async function onCancel() {
   const res = await useConfirm('取消订单', '是否取消订单？')
   if (res.action === 'confirm') {
-    const { data } = await orderCancel(props.orderInfo.id)
-    emit('orderCancel', data)
+    await orderCancel(props.orderInfo.id)
+    // 详情页回调按 row.id 取值刷新，载荷须与确认收货一致传对象；直传接口返回的 id 字符串会让刷新拿到 undefined
+    emit('orderCancel', { id: props.orderInfo.id })
   }
 }
 
@@ -95,10 +96,14 @@ const showDelete = computed(() =>
   props.orderInfo.status === '11' && props.orderInfo.payStatus === '0',
 )
 
+// 取消订单：待付款单可取消；货到付款单在待发货阶段（确认收款前）也可取消，
+// 已派单/配送中的货到付款单由后端拒绝
 const showCancel = computed(() =>
-  props.orderInfo.status === '1' && props.orderInfo.payStatus === '0',
+  (props.orderInfo.status === '1' && props.orderInfo.payStatus === '0')
+  || (props.orderInfo.status === '2' && props.orderInfo.payStatus === '0' && props.orderInfo.paymentType === '3'),
 )
 
+// 货到付款单不允许在线支付（后端 prepay 亦有状态守卫），立即付款仅对待付款单显示
 const showPay = computed(() =>
   props.orderInfo.status === '1' && props.orderInfo.payStatus === '0',
 )
@@ -110,8 +115,8 @@ const showLogistics = computed(() =>
 // 确认收货：第三方快递与商城配送/公司内部配送在「待收货」时都可确认。
 // 上门自提（way=2）走提货二维码，不在此列。
 const showReceiver = computed(() =>
-  props.orderInfo.status === '3' &&
-  ['1', '3', '4'].includes(props.orderInfo.deliveryWay),
+  props.orderInfo.status === '3'
+  && ['1', '3', '4'].includes(props.orderInfo.deliveryWay),
 )
 
 const showAppraise = computed(() =>

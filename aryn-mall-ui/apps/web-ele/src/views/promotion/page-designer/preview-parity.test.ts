@@ -417,6 +417,61 @@ describe('装修预览与小程序视觉一致性', () => {
     );
   });
 
+  it('补给单：空态占位引导卡两端一致（emptyStrategy=placeholder）', () => {
+    const admin = readAdmin('replenish-card');
+    const mobile = readMobile('diy-replenish-card');
+    const adminStyle = styleBlock(admin);
+    const mobileStyle = styleBlock(mobile);
+
+    // 两端都按策略切换形态，占位卡结构与两个入口文案一致
+    for (const source of [admin, mobile]) {
+      expect(source).toContain("emptyStrategy === 'placeholder'");
+      expect(source).toContain('guide-inner');
+      expect(source).toContain('导入清单下单');
+      expect(source).toContain('发起补给单');
+    }
+
+    // 1rpx = 0.5px：内边距 / 圆角 / 标题字号 / 按钮高度逐值换算
+    expect(value(declarations(adminStyle, '.guide-inner'), 'padding')).toBe(
+      '12px',
+    );
+    expect(value(declarations(mobileStyle, '.guide-inner'), 'padding')).toBe(
+      '24rpx',
+    );
+    expect(
+      value(declarations(adminStyle, '.guide-inner'), 'border-radius'),
+    ).toBe('12px');
+    expect(
+      value(declarations(mobileStyle, '.guide-inner'), 'border-radius'),
+    ).toBe('24rpx');
+    expect(value(declarations(adminStyle, '.guide-title'), 'font-size')).toBe(
+      '14px',
+    );
+    expect(value(declarations(mobileStyle, '.guide-title'), 'font-size')).toBe(
+      '28rpx',
+    );
+    expect(value(declarations(adminStyle, '.guide-btn'), 'height')).toBe(
+      '32px',
+    );
+    expect(value(declarations(mobileStyle, '.guide-btn'), 'height')).toBe(
+      '64rpx',
+    );
+  });
+
+  it('图文导航（金刚区）：分页高度自适应公式两端一致', () => {
+    // 两端独立实现过一次 pagerHeight，曾只改一边导致预览与实机高度差一截；
+    // 这里锁住「按当前页实际行数收缩高度」的公式与高度过渡同时存在于两端
+    const admin = readAdmin('tab-nav');
+    const mobile = readMobile('diy-tabnav');
+    for (const source of [admin, mobile]) {
+      expect(source).toContain('actualRows');
+      expect(source).toMatch(
+        /Math\.min\(\s*pageRows\.value\s*,\s*Math\.ceil\(\s*page\.length\s*\/\s*showNum\.value\s*\)/,
+      );
+      expect(source).toContain('transition: height 0.3s ease');
+    }
+  });
+
   it('区块容器：两端都按 px 输出留白与圆角', () => {
     // 管理端画布与草稿预览共用 buildSectionStyle，这里锁住它本身；
     // C 端渲染器 diy/index.vue 是第二套实现，必须逐项对齐。

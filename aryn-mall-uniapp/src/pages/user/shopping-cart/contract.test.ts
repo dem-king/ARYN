@@ -64,6 +64,39 @@ describe('shopping cart vessel grouping contract', () => {
     expect(cart).toContain('cartGroups')
   })
 
+  it('loads the ship context before snapshotting it onto a new cart row', () => {
+    const api = source('src/api/order/shoppingCart.ts')
+    // 归属快照由 shipContextStore 写入，而它不持久化、冷启动为空。
+    // 不先装载就写信，行落库即 vessel_call_id=NULL，
+    // 购物车一律显示「未指定配送计划」，跨靠港拦截随之失效
+    // （2026-09-29 实测：09-27 那行有归属，09-28 两行均为 NULL）。
+    expect(api).toContain('ensureShipContextLoaded')
+    expect(api).toContain('await withShipContext()')
+
+    // 两条写入路径都要覆盖：单品加购与批量加购
+    const addFn = api.slice(api.indexOf('function addShoppingCart'))
+    expect(addFn).toContain('withShipContext')
+    const batchFn = api.slice(api.indexOf('function batchAddShoppingCart'))
+    expect(batchFn).toContain('withShipContext')
+  })
+
+  it('keeps the ship context load idempotent per login session', () => {
+    const loader = source('src/composables/useShipContextLoad.ts')
+    // 「无船舶 / 纯零售 / 服务异常」也算已尝试：不加标记会导致每次加购白打接口。
+    // 登出必须复位，否则换账号登录后装载不回来。
+    expect(loader).toContain('resolved')
+    expect(loader).toContain('resolved = true')
+    expect(loader).toContain('resolved = false')
+  })
+
+  it('does not let the cart list wait on the ship context request', () => {
+    const cart = source(CART_PAGE)
+    // 列表与上下文并行：分组是 computed，任一侧就绪都会重算，
+    // 串行 await 会让弱网下的购物车多等一个请求才出内容
+    const onShow = cart.slice(cart.indexOf('onShow(async'), cart.indexOf('</script>'))
+    expect(onShow).toContain('void loadShipContext()')
+  })
+
   it('blocks cross-port-call checkout using the same field', () => {
     const confirm = source('src/sub-pages/order/order-confirm/index.vue')
     expect(confirm).toContain('item.vesselCallId')

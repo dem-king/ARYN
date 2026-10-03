@@ -26,6 +26,9 @@ public class MallOrderConstants {
 
 	public static final String PAYMENT_TYPE_2 = "2";
 
+	/** 货到付款：仅商城配送/内部配送可用，下单即进入待发货，收货后线下收款由管理端确认 */
+	public static final String PAYMENT_TYPE_3 = "3";
+
 	/** 订单创建方式：1.购物车下单；2.普通购买下单 */
 	public static final String ORDER_CREATE_WAY_1 = "1";
 
@@ -37,5 +40,8 @@ public class MallOrderConstants {
 	public static final String OPERATE_STATUS_REJECT = "2";
 
 	public static final String OPERATE_STATUS_REFUND = "4";
+
+	/** 管理端订单导出单次最大订单数：防止全表导出拖垮内存与响应 */
+	public static final int EXPORT_MAX_ORDERS = 5000;
 
 }

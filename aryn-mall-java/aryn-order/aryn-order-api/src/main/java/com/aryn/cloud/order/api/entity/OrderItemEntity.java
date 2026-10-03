@@ -124,6 +124,10 @@ public class OrderItemEntity extends Model<OrderItemEntity> {
 	@Schema(description = "赠品标记：0普通 1买赠赠品（0元单独成行）")
 	private String giftFlag;
 
+	@Schema(description = "商品分类名（一级/二级拼接，管理端分组展示与导出用，查询时经 Dubbo 回填，非表字段）")
+	@TableField(exist = false)
+	private String categoryName;
+
 	@TableField(exist = false)
 	private OrderRefund orderRefund;
 

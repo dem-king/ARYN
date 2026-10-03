@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
-import { getBalanceRecordPage } from '@/api/user/balance'
+import { getBalanceRecordPage } from '@/sub-pages/api/user/balance'
 
 definePage({
   name: 'member-balance-record',

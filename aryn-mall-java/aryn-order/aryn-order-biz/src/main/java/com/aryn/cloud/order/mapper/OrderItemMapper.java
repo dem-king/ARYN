@@ -4,6 +4,7 @@ package com.aryn.cloud.order.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.aryn.cloud.order.api.entity.OrderItemEntity;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
 
 import java.io.Serializable;
 import java.util.List;
@@ -26,6 +27,14 @@ public interface OrderItemMapper extends BaseMapper<OrderItemEntity> {
 	 * @return: java.util.List<com.aryn.cloud.mall.common.entity.OrderItem>
 	 */
 	List<OrderItemEntity> selectByOrderId(String orderId);
+
+	/**
+	 * 通过订单ID集合批量查询子订单（导出场景避免逐单 N+1）
+	 *
+	 * @param orderIds 订单主键集合
+	 * @return 子订单列表，按 order_id 排序
+	 */
+	List<OrderItemEntity> selectByOrderIds(@Param("orderIds") List<String> orderIds);
 
 	/**
 	 * 查询子订单详情

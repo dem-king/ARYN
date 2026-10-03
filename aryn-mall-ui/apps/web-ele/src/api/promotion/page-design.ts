@@ -273,6 +273,8 @@ export interface PageDesignAuditLog {
 /** 装修主题（id 同时作为 v3 文档 themeRef 令牌） */
 export interface PageDesignTheme {
   id: string;
+  /** 商城默认主题标记：'1' 表示当前租户的商城默认主题（至多一个） */
+  mallDefaultFlag?: '0' | '1';
   navigationColor?: string;
   navigationTextColor?: string;
   pageBackgroundColor?: string;
@@ -443,16 +445,16 @@ export async function deleteTemplate(id: string) {
   return requestClient.delete<boolean>(`/promotion/pagedesign/templates/${id}`);
 }
 
-/** 模板市场列表查询：分页参数为 pageNum/pageSize，支持关键字与行业标签筛选 */
+/** 模板市场列表查询：分页参数为 pageNum/pageSize，支持模板名称与行业标签筛选 */
 export interface TemplateMarketQuery {
   industryTag?: string;
-  keyword?: string;
   pageNum: number;
   pageSize: number;
   sortField?: 'createTime' | 'downloadCount';
+  templateName?: string;
 }
 
-/** 模板市场卡片（不含 templateContent，列表轻量返回） */
+/** 模板市场卡片（列表轻量返回，templateContent 为 null；详情接口返回完整装修文档） */
 export interface TemplateMarketItem {
   createTime?: string;
   createUserName?: string;
@@ -461,6 +463,7 @@ export interface TemplateMarketItem {
   id: string;
   industryTag?: string;
   pageType: PageDesignType;
+  templateContent?: null | Record<string, unknown>;
   templateName: string;
   templateType: '0' | '1';
   thumbnailUrl?: string;
@@ -584,6 +587,13 @@ export async function updateTheme(id: string, data: PageDesignThemePayload) {
 
 export async function deleteTheme(id: string) {
   return requestClient.delete<boolean>(`/promotion/pagedesign/themes/${id}`);
+}
+
+/** 设为商城默认主题（租户内唯一，C 端全商城换肤） */
+export async function setDefaultTheme(id: string) {
+  return requestClient.post<boolean>(
+    `/promotion/pagedesign/themes/${id}/default`,
+  );
 }
 
 export async function getMetrics(id: string, days = 7) {

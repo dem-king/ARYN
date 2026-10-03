@@ -46,13 +46,4 @@ public class QuickCartSkuVO implements Serializable {
 	@Schema(description = "规格明细")
 	private List<GoodsSku.Specs> specsArr;
 
-	@Schema(description = "最小起订量")
-	private Integer moq;
-
-	@Schema(description = "数量步长")
-	private Integer stepQty;
-
-	@Schema(description = "采购单位")
-	private String purchaseUnit;
-
 }

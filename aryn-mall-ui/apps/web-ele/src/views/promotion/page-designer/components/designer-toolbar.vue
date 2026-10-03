@@ -8,6 +8,7 @@ import {
   Check,
   Collection,
   Discount,
+  Grid,
   Minus,
   Picture,
   Plus,
@@ -23,6 +24,10 @@ const props = defineProps<{
   canUndo: boolean;
   pageName: string;
   saveStatus: DraftSaveStatus;
+  /** 当前页型是否为内嵌页型（商详/分类/个人中心）——决定骨架开关是否可用 */
+  shellAvailable: boolean;
+  /** 是否展示原生页面骨架（仅内嵌页型可切换） */
+  showPageShell: boolean;
   zoom: number;
 }>();
 
@@ -37,6 +42,7 @@ const emit = defineEmits<{
   theme: [];
   undo: [];
   'update:pageName': [value: string];
+  'update:showPageShell': [value: boolean];
   'update:zoom': [value: number];
 }>();
 
@@ -131,8 +137,30 @@ const statusLabel = computed(() => {
     </ElSpace>
 
     <ElSpace :size="8" class="toolbar-group toolbar-actions">
+      <ElTooltip
+        v-if="shellAvailable"
+        :content="
+          showPageShell
+            ? '隐藏原生页面骨架，只看装修块'
+            : '显示原生页面骨架，确认装修块在页面中的位置与宽度'
+        "
+      >
+        <ElButton
+          :icon="Grid"
+          :type="showPageShell ? 'primary' : 'default'"
+          plain
+          @click="emit('update:showPageShell', !showPageShell)"
+        >
+          页面结构
+        </ElButton>
+      </ElTooltip>
       <ElButton :icon="Collection" @click="emit('template')">模板</ElButton>
-      <ElButton :icon="Discount" @click="emit('theme')">主题</ElButton>
+      <ElTooltip
+        content="只作用于当前装修页面；修改配色方案或设置全商城主题请到「商城装修 → 商城主题」"
+        placement="bottom"
+      >
+        <ElButton :icon="Discount" @click="emit('theme')">本页主题</ElButton>
+      </ElTooltip>
       <ElButton :icon="Picture" @click="emit('assets')">素材</ElButton>
       <ElButton :icon="View" @click="emit('preview')">预览</ElButton>
       <ElButton :icon="Check" @click="emit('save')">保存草稿</ElButton>

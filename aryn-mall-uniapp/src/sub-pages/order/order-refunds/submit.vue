@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { onLoad } from '@dcloudio/uni-app'
 import { reactive, ref } from 'vue'
-import { getById } from '@/api/order/orderItem'
-import { addObj } from '@/api/order/orderRefunds'
+import { getById } from '@/sub-pages/api/order/orderItem'
+import { addObj } from '@/sub-pages/api/order/orderRefunds'
 
 definePage({
   name: 'refunds-submit',

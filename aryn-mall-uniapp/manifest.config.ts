@@ -68,10 +68,17 @@ export default defineManifestConfig({
     appid: 'wx0a8242ea59f3e6b4',
     setting: {
       urlCheck: true,
+      minified: true,
+      minifyWXML: true,
+      minifyWXSS: true,
     },
+    // 组件按需注入
+    lazyCodeLoading: 'requiredComponents',
     usingComponents: true,
-    // darkmode: true,
-    // themeLocation: 'theme.json',
+    // 深色模式：原生导航/tabBar 颜色由 theme.json 的 dark 段跟随系统切换，
+    // 页面内容层由 mallThemeStore.mode → App.ku.vue 的 config-provider theme 生效
+    darkmode: true,
+    themeLocation: 'theme.json',
   },
   'mp-alipay': {
     usingComponents: true,

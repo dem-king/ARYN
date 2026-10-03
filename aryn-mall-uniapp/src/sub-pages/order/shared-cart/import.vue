@@ -25,12 +25,12 @@ import {
   getSharedCartImport,
   listSharedCartImports,
 } from '@/api/order/sharedCart'
+import hrNavbar from '@/components/hr-navbar/index.vue'
+import { useAuthStore } from '@/store/authStore'
 import {
   downloadSharedCartImportTemplate,
   previewSharedCartImport,
-} from '@/api/order/sharedCartImport'
-import hrNavbar from '@/components/hr-navbar/index.vue'
-import { useAuthStore } from '@/store/authStore'
+} from '@/sub-pages/api/order/sharedCartImport'
 
 definePage({
   name: 'shared-cart-import',
@@ -58,9 +58,27 @@ const pickCandidates = reactive<Record<number, SharedCartImportCandidate[]>>({})
 const picking = reactive<Record<number, boolean>>({})
 
 const rows = computed(() => report.value?.rows ?? [])
-/** 需要用户处置的行：匹配成功与已下架的无需逐行确认 */
+/**
+ * 需要用户处置的行：匹配成功、已下架、未填数量的都不需要逐行确认。
+ *
+ * 未填数量必须排除在外：目录模板铺满在售商品，客户只填要买的几行，
+ * 把没填的行全列出来会变成一屏几百条的噪声，真正的错误反而看不见。
+ */
 const actionableRows = computed(() =>
-  rows.value.filter(row => row.resultType !== 'OK' && row.resultType !== 'OFF_SHELF'),
+  rows.value.filter(row =>
+    row.resultType !== 'OK' && row.resultType !== 'OFF_SHELF' && row.resultType !== 'NOT_FILLED',
+  ),
+)
+/** 无需处置的行（含未填数量），单独一组展示给用户核对 */
+const passiveRows = computed(() =>
+  rows.value.filter(row =>
+    row.resultType === 'OK' || row.resultType === 'OFF_SHELF' || row.resultType === 'NOT_FILLED',
+  ),
+)
+
+/** 未填数量行数：报告计数优先，缺失时按行实时算（旧报告没有该字段） */
+const notFilledCount = computed(
+  () => report.value?.notFilledRows ?? rows.value.filter(row => row.resultType === 'NOT_FILLED').length,
 )
 
 const RESULT_LABEL: Record<string, string> = {
@@ -70,6 +88,7 @@ const RESULT_LABEL: Record<string, string> = {
   OVER_STOCK: '超库存',
   INVALID_QTY: '数量异常',
   OFF_SHELF: '已下架',
+  NOT_FILLED: '未填数量',
 }
 
 const RESULT_THEME: Record<string, string> = {
@@ -79,6 +98,7 @@ const RESULT_THEME: Record<string, string> = {
   OVER_STOCK: 'bg-gray-100 text-gray-500',
   INVALID_QTY: 'bg-amber-50 text-amber-600',
   OFF_SHELF: 'bg-gray-100 text-gray-500',
+  NOT_FILLED: 'bg-gray-100 text-gray-400',
 }
 
 onLoad((options) => {
@@ -181,7 +201,6 @@ async function searchCandidates(row: SharedCartImportRow) {
       skuId: record.skuId,
       name: record.name,
       spec: record.specsInfo,
-      purchaseUnit: record.purchaseUnit,
       salesPrice: record.salesPrice,
       stock: record.stock,
       skuStatus: '0',
@@ -329,7 +348,7 @@ async function reopenLatestImport() {
             {{ parsing ? '正在解析…' : '点击选择 Excel 文件' }}
           </view>
           <view class="mt-10rpx text-22rpx text-gray-400">
-            推荐使用标准模板：商品编码 / 品名 / 规格 / 数量 / 单位 / 备注
+            推荐下载标准模板：已按分类列好全部在售商品，只需填「数量」列
           </view>
         </view>
 
@@ -342,7 +361,10 @@ async function reopenLatestImport() {
         </view>
 
         <view class="mt-30rpx border-t border-gray-100 pt-20rpx text-22rpx text-gray-400">
-          <view>· 商品编码优先匹配（IMPA / ISSA / 内部编码 / 条码 / 供应商编码）</view>
+          <view>· 模板按分类列出全部在售商品，只需填「数量」列，其余行留空即可</view>
+          <view class="mt-6rpx">
+            · 商品编码优先匹配（IMPA / ISSA / 内部编码 / 条码 / 供应商编码）
+          </view>
           <view class="mt-6rpx">
             · 未填编码时按品名 + 规格兜底，命中多个规格需人工确认
           </view>
@@ -421,6 +443,20 @@ async function reopenLatestImport() {
               已下架
             </view>
           </view>
+          <!-- 未填数量独立一格且用灰字：模板铺满在售商品，这是正常状态而非错误 -->
+          <view class="min-w-120rpx flex-1 rounded-12rpx bg-gray-50 px-10rpx py-14rpx text-center">
+            <view class="text-32rpx text-gray-400 font-bold">
+              {{ report?.notFilledRows || 0 }}
+            </view>
+            <view class="mt-4rpx text-20rpx text-gray-400">
+              未填数量
+            </view>
+          </view>
+        </view>
+
+        <!-- 只填了少数行时给出明确解释，避免用户以为漏导了商品 -->
+        <view v-if="report?.notFilledRows" class="mt-16rpx text-22rpx text-gray-400">
+          未填数量的 {{ report.notFilledRows }} 行视为本次不采购，不会并入补给单。
         </view>
       </view>
 
@@ -501,9 +537,6 @@ async function reopenLatestImport() {
                   {{ candidate.spec }} ·
                 </text>
                 库存 {{ candidate.stock ?? '—' }}
-                <text v-if="candidate.purchaseUnit">
-                  · {{ candidate.purchaseUnit }}
-                </text>
               </view>
             </view>
             <text class="text-24rpx text-blue-500">
@@ -513,16 +546,20 @@ async function reopenLatestImport() {
         </view>
       </view>
 
-      <!-- 匹配成功/已下架的行：只读展示，避免用户以为漏了 -->
+      <!--
+        匹配成功/已下架的行：只读展示，避免用户以为漏了。
+        未填数量的行**不逐行列出**：目录模板一次可能带回几百行，
+        全铺出来会撑爆列表也让用户抓不住重点，只在上面用计数说明。
+      -->
       <view
-        v-if="rows.length > actionableRows.length"
+        v-if="passiveRows.length > notFilledCount"
         class="mx-20rpx mt-20rpx rounded-20rpx bg-white p-24rpx"
       >
         <view class="text-28rpx font-bold">
           无需处置
         </view>
         <view
-          v-for="row in rows.filter(item => item.resultType === 'OK' || item.resultType === 'OFF_SHELF')"
+          v-for="row in passiveRows.filter(item => item.resultType !== 'NOT_FILLED')"
           :key="`done-${row.rowNo}`"
           class="mt-16rpx flex items-center gap-12rpx border-b border-gray-100 pb-12rpx text-24rpx"
         >

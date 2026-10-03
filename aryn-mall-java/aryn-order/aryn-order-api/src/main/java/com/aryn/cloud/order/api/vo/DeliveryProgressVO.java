@@ -70,4 +70,7 @@ public class DeliveryProgressVO {
 	@Schema(description = "时间线节点列表")
 	private List<DeliveryProgressNode> nodes;
 
+	@Schema(description = "送达凭证图片URL（已送达/已签收时返回，仅URL不含内部ID）")
+	private List<String> evidenceUrls;
+
 }

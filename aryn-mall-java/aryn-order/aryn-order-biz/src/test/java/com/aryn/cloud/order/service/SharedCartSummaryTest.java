@@ -14,7 +14,7 @@ import com.aryn.cloud.order.service.impl.SharedCartServiceImpl;
 import com.aryn.cloud.product.api.entity.GoodsSku;
 import com.aryn.cloud.product.api.entity.GoodsSpu;
 import com.aryn.cloud.product.api.remote.RemoteGoodsSkuService;
-import com.aryn.cloud.product.api.remote.RemoteShipProductProfileService;
+import com.aryn.cloud.product.api.remote.RemoteGoodsSpuService;
 import com.aryn.cloud.user.api.remote.RemoteMallUserService;
 import com.aryn.cloud.vessel.api.remote.RemoteVesselService;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
@@ -63,6 +63,8 @@ class SharedCartSummaryTest {
 
 	private RemoteGoodsSkuService remoteGoodsSkuService;
 
+	private RemoteGoodsSpuService remoteGoodsSpuService;
+
 	private SharedCartServiceImpl service;
 
 	@BeforeEach
@@ -71,6 +73,12 @@ class SharedCartSummaryTest {
 		memberMapper = mock(SharedCartMemberMapper.class);
 		itemMapper = mock(SharedCartItemMapper.class);
 		remoteGoodsSkuService = mock(RemoteGoodsSkuService.class);
+		remoteGoodsSpuService = mock(RemoteGoodsSpuService.class);
+		// 商品名走 SPU 批量查询（sku 的 resultMap 不回填 goodsSpu，见实现类字段注释）
+		when(remoteGoodsSpuService.getSpuByIds(anyList())).thenAnswer(invocation -> {
+			List<String> spuIds = invocation.getArgument(0);
+			return spuIds.stream().map(spuId -> spu(spuId, "商品" + spuId.replace("spu-", ""))).toList();
+		});
 		// lambdaUpdate/lambdaQuery 需要实体表信息缓存，否则单测中抛 lambda cache 异常
 		TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), SharedCart.class);
 
@@ -78,8 +86,7 @@ class SharedCartSummaryTest {
 				mock(SharedCartImportMapper.class), mock(SharedCartImportRowMapper.class),
 				mock(IOrderInfoService.class));
 		ReflectionTestUtils.setField(service, "remoteGoodsSkuService", remoteGoodsSkuService);
-		ReflectionTestUtils.setField(service, "remoteShipProductProfileService",
-				mock(RemoteShipProductProfileService.class));
+		ReflectionTestUtils.setField(service, "remoteGoodsSpuService", remoteGoodsSpuService);
 		ReflectionTestUtils.setField(service, "remoteVesselService", mock(RemoteVesselService.class));
 		ReflectionTestUtils.setField(service, "remoteMallUserService", mock(RemoteMallUserService.class));
 		ArynTenantContextHolder.setTenantId(TENANT);
@@ -130,15 +137,25 @@ class SharedCartSummaryTest {
 		return item;
 	}
 
+	/**
+	 * SKU 只带价格与规格：**刻意不塞 goodsSpu**。
+	 *
+	 * <p>真实链路的 {@code getSkuByIds} 走 goodsSkuResultMap，不会回填该关联；
+	 * 以前这里塞了假 SPU，把「卡片回落 SKU ID」的线上问题在单测里盖住了。
+	 */
 	private GoodsSku sku(String skuId, String price) {
 		GoodsSku sku = new GoodsSku();
 		sku.setId(skuId);
+		sku.setSpuId("spu-" + skuId);
 		sku.setSalesPrice(new BigDecimal(price));
-		GoodsSpu spu = new GoodsSpu();
-		spu.setId("spu-" + skuId);
-		spu.setName("商品" + skuId);
-		sku.setGoodsSpu(spu);
 		return sku;
+	}
+
+	private GoodsSpu spu(String spuId, String name) {
+		GoodsSpu spu = new GoodsSpu();
+		spu.setId(spuId);
+		spu.setName(name);
+		return spu;
 	}
 
 	@Test
@@ -173,6 +190,38 @@ class SharedCartSummaryTest {
 		assertEquals(0, new BigDecimal("36.50").compareTo(summary.getTotalAmount()));
 		assertEquals(2, summary.getPreviewItems().size());
 		assertEquals("商品sku-1", summary.getPreviewItems().get(0).getSpuName());
+	}
+
+	@Test
+	@DisplayName("商品名按 SPU 批量取：不依赖 SKU 回填的 goodsSpu（否则卡片只剩 SKU ID）")
+	void loadsSpuNameBySpuId() {
+		when(memberMapper.selectList(any())).thenReturn(List.of(membership()));
+		when(cartMapper.selectOne(any())).thenReturn(collectingCart());
+		when(itemMapper.selectList(any())).thenReturn(List.of(item("i1", "sku-1", 2)));
+		when(remoteGoodsSkuService.getSkuByIds(anyList())).thenReturn(List.of(sku("sku-1", "10.00")));
+		when(remoteGoodsSpuService.getSpuByIds(List.of("spu-sku-1")))
+				.thenReturn(List.of(spu("spu-sku-1", "维达 棉韧抽纸 3层130抽×24包")));
+
+		SharedCartSummaryVO summary = service.getActiveSummary(TENANT, USER, null);
+
+		assertEquals("维达 棉韧抽纸 3层130抽×24包", summary.getPreviewItems().get(0).getSpuName());
+	}
+
+	@Test
+	@DisplayName("商品域只挂了 SPU 查询：名称缺失时回落空值，项数与金额仍照常返回")
+	void degradesWhenSpuServiceFails() {
+		when(memberMapper.selectList(any())).thenReturn(List.of(membership()));
+		when(cartMapper.selectOne(any())).thenReturn(collectingCart());
+		when(itemMapper.selectList(any())).thenReturn(List.of(item("i1", "sku-1", 2)));
+		when(remoteGoodsSkuService.getSkuByIds(anyList())).thenReturn(List.of(sku("sku-1", "10.00")));
+		when(remoteGoodsSpuService.getSpuByIds(anyList())).thenThrow(new RuntimeException("dubbo down"));
+
+		SharedCartSummaryVO summary = service.getActiveSummary(TENANT, USER, null);
+
+		// 名称缺失 -> 前端回落 SKU ID；金额来自 SKU 售价，不受影响
+		assertNull(summary.getPreviewItems().get(0).getSpuName());
+		assertEquals(1, summary.getItemCount());
+		assertEquals(0, new BigDecimal("20.00").compareTo(summary.getTotalAmount()));
 	}
 
 	@Test

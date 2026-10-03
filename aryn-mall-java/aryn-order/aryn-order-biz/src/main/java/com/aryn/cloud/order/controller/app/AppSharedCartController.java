@@ -21,12 +21,15 @@ import com.aryn.cloud.order.api.vo.SharedCartSummaryVO;
 import com.aryn.cloud.order.api.vo.SharedCartVO;
 import com.aryn.cloud.order.service.ISharedCartService;
 import com.aryn.cloud.order.support.ReplenishImportExcel;
+import com.aryn.cloud.product.api.remote.RemoteReplenishImportMatchService;
+import com.aryn.cloud.product.api.vo.ReplenishCatalogVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import com.alibaba.excel.EasyExcel;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -55,6 +58,14 @@ import java.util.List;
 public class AppSharedCartController {
 
 	private final ISharedCartService sharedCartService;
+
+	/**
+	 * 模板下载需要按租户取在售商品目录，直接用商品域的远程匹配服务：
+	 * 目录口径（在售过滤、编码优先级）与导入回查必须同源，
+	 * 经服务层再包一层只会多一处可能漂移的转发。
+	 */
+	@DubboReference
+	private RemoteReplenishImportMatchService remoteReplenishImportMatchService;
 
 	@Operation(summary = "创建共享购物车（发起人）")
 	@PostMapping
@@ -190,18 +201,27 @@ public class AppSharedCartController {
 				user.getUserId(), id, dto));
 	}
 
-	@Operation(summary = "下载补给清单 Excel 模板（首行为标题行，含示例行）")
+	@Operation(summary = "下载补给清单 Excel 模板（按分类铺满在售商品，客户只填数量列）")
 	@GetMapping("/import/template")
 	public void importTemplate(HttpServletResponse response) throws IOException {
+		String tenantId = ArynTenantContextHolder.getTenantId();
+		// 模板内容以服务端的在售商品目录为准：线下清单的表头各家不同，
+		// 把商品按分类铺出来能显著降低「填错列 / 商品名对不上」的返工。
+		ReplenishCatalogVO catalog = remoteReplenishImportMatchService.exportCatalog(tenantId,
+				ReplenishImportExcel.MAX_ROWS);
+		List<List<String>> rows = catalog.getRows().stream().map(ReplenishImportExcel::catalogRow).toList();
+
 		response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
 		response.setCharacterEncoding("utf-8");
-		String fileName = URLEncoder.encode("补给清单导入模板", StandardCharsets.UTF_8).replaceAll("\\+", "%20");
+		String fileName = URLEncoder.encode("补给清单采购模板", StandardCharsets.UTF_8).replaceAll("\\+", "%20");
 		response.setHeader("Content-Disposition", "attachment;filename*=utf-8''" + fileName + ".xlsx");
-		// 带一行示例：线下清单的表头各家不同，示例行能显著降低"填错列"的返工
-		List<List<String>> rows = List.of(
-				List.of("IMPA123456", "鲜牛奶 950ml", "950ml/瓶", "4", "瓶", "冷藏"));
+		// 截断提示走响应头：模板只有表头行时没法在文件里写「还有 N 项没导」，
+		// 而客户必须知道这件事，否则会以为「我的商品没有建档」。
+		if (catalog.isTruncated()) {
+			response.setHeader("X-Catalog-Truncated", String.valueOf(catalog.getTotalCount()));
+		}
 		EasyExcel.write(response.getOutputStream()).sheet("补给清单")
-			.head(ReplenishImportExcel.templateHead()).doWrite(rows);
+			.head(ReplenishImportExcel.catalogHead()).doWrite(rows);
 	}
 
 	@Operation(summary = "上传补给清单，解析并返回导入报告（确认人/发起人）")

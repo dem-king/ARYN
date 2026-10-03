@@ -20,19 +20,26 @@ import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.log.annotation.SysLog;
 import com.aryn.cloud.order.api.dto.OrderDeliveryDTO;
 import com.aryn.cloud.order.api.dto.OrderStatisticsDTO;
+import com.aryn.cloud.order.api.dto.PayConfirmDTO;
 import com.aryn.cloud.order.api.entity.OrderInfo;
 import com.aryn.cloud.order.api.entity.OrderItemEntity;
 import com.aryn.cloud.order.api.enums.OrderStatusEnum;
 import com.aryn.cloud.order.service.IOrderInfoService;
 import com.aryn.cloud.order.service.IOrderItemService;
+import com.aryn.cloud.order.support.OrderCategoryExportExcel;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
+import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -60,6 +67,22 @@ public class OrderInfoController {
 	@GetMapping("/page")
 	public Result<IPage<OrderInfo>> page(Page page, OrderInfo orderInfo) {
 		return Result.success(orderInfoService.adminPage(page, orderInfo));
+	}
+
+	@Operation(summary = "订单导出（商品行按分类分组，含分类小计与汇总）")
+	@SysLog("订单导出")
+	@SaCheckPermission("order:orderinfo:export")
+	@GetMapping("/export")
+	public void export(OrderInfo orderInfo, HttpServletResponse response) throws IOException {
+		List<OrderInfo> orders = orderInfoService.listForExport(orderInfo);
+
+		String fileName = "订单明细_" + DateTimeFormatter.ofPattern("yyyyMMddHHmmss").format(LocalDateTime.now())
+				+ ".xlsx";
+		response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+		response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+		response.setHeader("Content-Disposition",
+				"attachment; filename*=UTF-8''" + URLEncoder.encode(fileName, StandardCharsets.UTF_8));
+		OrderCategoryExportExcel.write(orders, response.getOutputStream());
 	}
 
 	@Operation(summary = "订单详情")
@@ -121,6 +144,15 @@ public class OrderInfoController {
 		}
 
 		return Result.success(orderInfoService.receiveOrder(orderInfo));
+	}
+
+	@Operation(summary = "货到付款确认收款")
+	@SysLog("货到付款确认收款")
+	@SaCheckPermission("order:orderinfo:payconfirm")
+	@PostMapping("/payconfirm/{id}")
+	public Result<Boolean> confirmOfflinePayment(@PathVariable String id,
+			@Valid @RequestBody PayConfirmDTO payConfirmDTO) {
+		return Result.success(orderInfoService.confirmOfflinePayment(id, payConfirmDTO));
 	}
 
 	@Operation(summary = "订单统计")

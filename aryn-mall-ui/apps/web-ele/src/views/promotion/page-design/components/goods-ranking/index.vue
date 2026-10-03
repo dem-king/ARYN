@@ -126,7 +126,7 @@ watch(
 
 .rank-number--top {
   font-weight: 700;
-  color: #e5484d;
+  color: var(--wot-color-theme-primary, #ff2237);
 }
 
 .ranking-image {
@@ -165,7 +165,7 @@ watch(
   margin-top: 3px;
   font-size: 13.5px;
   font-weight: 600;
-  color: #e5484d;
+  color: var(--wot-color-theme-primary, #ff2237);
 }
 
 /* 划线原价：与小程序 diy-goods-ranking 的 .ranking-price-original 逐值对齐（1px = 2rpx） */

@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.aryn.cloud.product.api.entity.GoodsSpu;
+import com.aryn.cloud.product.api.vo.GoodsCatalogSummaryVO;
 
 import java.util.List;
 import java.util.Map;
@@ -24,6 +25,19 @@ public interface IGoodsSpuService extends IService<GoodsSpu> {
 	 * @return IPage<GoodsSpu>
 	 */
 	IPage<GoodsSpu> adminPage(Page page, GoodsSpu goodsSpu);
+
+	/**
+	 * 统一商品目录分页（C 端场景选货页/搜索共用）。
+	 *
+	 * <p>船供资料已下线（2026-09-29），原船供摘要分页由本方法承接。
+	 * @param tenantId 租户
+	 * @param page 分页
+	 * @param keyword 关键词（匹配名称/子标题）
+	 * @param status 商品状态过滤
+	 * @return 目录行摘要分页
+	 */
+	IPage<GoodsCatalogSummaryVO> catalogPage(String tenantId, Page<GoodsCatalogSummaryVO> page, String keyword,
+			String status);
 
 	/**
 	 * 分页查询商品库列表

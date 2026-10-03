@@ -2,29 +2,23 @@ package com.aryn.cloud.product.service.impl;
 
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.product.api.dto.ProductImportRowDTO;
-import com.aryn.cloud.product.api.dto.ShipProductProfileDTO;
 import com.aryn.cloud.product.api.entity.GoodsBrand;
 import com.aryn.cloud.product.api.entity.GoodsCategory;
 import com.aryn.cloud.product.api.entity.GoodsSku;
 import com.aryn.cloud.product.api.entity.GoodsSpu;
 import com.aryn.cloud.product.api.entity.ProductChangeLog;
-import com.aryn.cloud.product.api.entity.ProductCodeMapping;
 import com.aryn.cloud.product.api.entity.ProductImportError;
 import com.aryn.cloud.product.api.entity.ProductImportJob;
 import com.aryn.cloud.product.api.entity.ProductImportRow;
-import com.aryn.cloud.product.api.entity.ShipGoodsProfile;
-import com.aryn.cloud.product.api.entity.ShipSkuProfile;
 import com.aryn.cloud.product.api.vo.ProductImportPreviewVO;
 import com.aryn.cloud.product.mapper.GoodsBrandMapper;
 import com.aryn.cloud.product.mapper.GoodsCategoryMapper;
 import com.aryn.cloud.product.mapper.GoodsSkuMapper;
 import com.aryn.cloud.product.mapper.GoodsSpuMapper;
 import com.aryn.cloud.product.mapper.ProductChangeLogMapper;
-import com.aryn.cloud.product.mapper.ProductCodeMappingMapper;
 import com.aryn.cloud.product.mapper.ProductImportErrorMapper;
 import com.aryn.cloud.product.mapper.ProductImportJobMapper;
 import com.aryn.cloud.product.mapper.ProductImportRowMapper;
-import com.aryn.cloud.product.service.IShipProductProfileService;
 import com.aryn.cloud.product.service.ProductImportService;
 import com.alibaba.excel.EasyExcel;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
@@ -53,7 +47,8 @@ import java.util.Set;
  *
  * <p>Excel 由服务端解析（EasyExcel，首行中文标题映射字段），解析行持久化到
  * product_import_row；确认导入时服务端从行表重新校验后写入。更新商品只能按
- * SKU ID、IMPA 或内部编码匹配，禁止按名称覆盖；错误行不导入并全部落库。
+ * SKU 编号（{@code goods_sku.id}）匹配，禁止按名称覆盖；错误行不导入并全部落库。
+ * 船供资料写入链路已随船供化下线（2026-09-29）。
  *
  * @author aryn
  * @since 2026/9/11
@@ -80,10 +75,6 @@ public class ProductImportServiceImpl implements ProductImportService {
 	private final GoodsCategoryMapper goodsCategoryMapper;
 
 	private final GoodsBrandMapper goodsBrandMapper;
-
-	private final ProductCodeMappingMapper productCodeMappingMapper;
-
-	private final IShipProductProfileService shipProductProfileService;
 
 	private final ObjectMapper objectMapper;
 
@@ -189,14 +180,13 @@ public class ProductImportServiceImpl implements ProductImportService {
 	private ValidationResult validateRows(String tenantId, List<ProductImportRowDTO> rows) {
 		List<ProductImportError> errors = new ArrayList<>();
 		Set<Integer> errorRowNos = new HashSet<>();
-		Set<String> batchCodeValues = new HashSet<>();
 		Set<String> batchSkuValues = new HashSet<>();
 		int rowNo = 0;
 		for (ProductImportRowDTO row : rows) {
 			rowNo++;
 			row.setRowNo(row.getRowNo() != null ? row.getRowNo() : rowNo);
 			int before = errors.size();
-			validateRow(tenantId, row, rowNo, errors, batchCodeValues, batchSkuValues);
+			validateRow(tenantId, row, rowNo, errors, batchSkuValues);
 			if (errors.size() > before) {
 				errorRowNos.add(rowNo);
 			}
@@ -205,19 +195,13 @@ public class ProductImportServiceImpl implements ProductImportService {
 	}
 
 	private void validateRow(String tenantId, ProductImportRowDTO row, int rowNo, List<ProductImportError> errors,
-			Set<String> batchCodeValues, Set<String> batchSkuValues) {
+			Set<String> batchSkuValues) {
 		if (!StringUtils.hasText(row.getName())) {
 			addError(tenantId, rowNo, ProductImportError.TYPE_EMPTY_NAME, "商品名称为空", errors);
 			return;
 		}
-		for (String codeValue : new String[] { row.getImpaCode(), row.getIssaCode(), row.getInternalItemCode() }) {
-			if (StringUtils.hasText(codeValue) && !batchCodeValues.add(codeValue)) {
-				addError(tenantId, rowNo, ProductImportError.TYPE_DUPLICATE_CODE, "同批次重复编码：" + codeValue, errors);
-				return;
-			}
-		}
 		String skuKey = StringUtils.hasText(row.getSkuId()) ? row.getSkuId()
-				: "SKU".equals(row.getMatchType()) ? row.getMatchValue() : null;
+				: StringUtils.hasText(row.getMatchValue()) ? row.getMatchValue() : null;
 		if (StringUtils.hasText(skuKey) && !batchSkuValues.add(skuKey)) {
 			addError(tenantId, rowNo, ProductImportError.TYPE_DUPLICATE_SKU, "同批次重复SKU：" + skuKey, errors);
 			return;
@@ -230,14 +214,6 @@ public class ProductImportServiceImpl implements ProductImportService {
 			addError(tenantId, rowNo, ProductImportError.TYPE_ILLEGAL_STOCK, "库存不能为负数", errors);
 			return;
 		}
-		if (row.getMoq() != null || row.getStepQty() != null) {
-			int moq = row.getMoq() != null ? row.getMoq() : 1;
-			int stepQty = row.getStepQty() != null ? row.getStepQty() : 1;
-			if (stepQty <= 0 || moq < 1 || moq % stepQty != 0) {
-				addError(tenantId, rowNo, ProductImportError.TYPE_ILLEGAL_QTY_RULE, "MOQ/步长不合规", errors);
-				return;
-			}
-		}
 		if (StringUtils.hasText(row.getCategorySecondId())
 				&& goodsCategoryMapper.selectById(row.getCategorySecondId()) == null) {
 			addError(tenantId, rowNo, ProductImportError.TYPE_UNKNOWN_CATEGORY, "类目不存在", errors);
@@ -247,41 +223,21 @@ public class ProductImportServiceImpl implements ProductImportService {
 			addError(tenantId, rowNo, ProductImportError.TYPE_UNKNOWN_BRAND, "品牌不存在", errors);
 			return;
 		}
-		if (StringUtils.hasText(row.getMatchType())) {
+		if (StringUtils.hasText(row.getMatchValue())) {
 			validateUpdateTarget(tenantId, row, rowNo, errors);
 		}
 	}
 
 	private void validateUpdateTarget(String tenantId, ProductImportRowDTO row, int rowNo,
 			List<ProductImportError> errors) {
-		String matchType = row.getMatchType();
 		String matchValue = row.getMatchValue();
 		if (!StringUtils.hasText(matchValue)) {
 			addError(tenantId, rowNo, ProductImportError.TYPE_MISSING_UPDATE_TARGET, "更新匹配值缺失", errors);
 			return;
 		}
-		switch (matchType) {
-			case "SKU" -> {
-				GoodsSku sku = goodsSkuMapper.selectById(matchValue);
-				if (sku == null || !Objects.equals(sku.getTenantId(), tenantId)) {
-					addError(tenantId, rowNo, ProductImportError.TYPE_MISSING_UPDATE_TARGET, "SKU 不存在或不属于当前租户",
-							errors);
-				}
-			}
-			case "IMPA", "INTERNAL" -> {
-				String codeType = "IMPA".equals(matchType) ? ProductCodeMapping.TYPE_IMPA
-						: ProductCodeMapping.TYPE_INTERNAL;
-				ProductCodeMapping mapping = productCodeMappingMapper.selectByCodeGlobal(codeType, matchValue);
-				if (mapping == null) {
-					addError(tenantId, rowNo, ProductImportError.TYPE_MISSING_UPDATE_TARGET,
-							matchType + " 编码未匹配到商品", errors);
-				}
-				else if (!Objects.equals(mapping.getTenantId(), tenantId)) {
-					addError(tenantId, rowNo, ProductImportError.TYPE_CROSS_TENANT_CODE, "编码归属其他租户：" + matchValue,
-							errors);
-				}
-			}
-			default -> addError(tenantId, rowNo, ProductImportError.TYPE_OTHER, "不支持的匹配方式：" + matchType, errors);
+		GoodsSku sku = goodsSkuMapper.selectById(matchValue);
+		if (sku == null || !Objects.equals(sku.getTenantId(), tenantId)) {
+			addError(tenantId, rowNo, ProductImportError.TYPE_MISSING_UPDATE_TARGET, "SKU 不存在或不属于当前租户", errors);
 		}
 	}
 
@@ -349,7 +305,7 @@ public class ProductImportServiceImpl implements ProductImportService {
 	// ---------------------------------------------------------------------
 
 	private void importRow(String tenantId, ProductImportRowDTO row, String operatorId, String operatorName) {
-		boolean update = StringUtils.hasText(row.getMatchType());
+		boolean update = StringUtils.hasText(row.getMatchValue());
 		String spuId;
 		String skuId;
 		if (update) {
@@ -363,22 +319,13 @@ public class ProductImportServiceImpl implements ProductImportService {
 			skuId = null;
 		}
 		upsertSku(tenantId, row, spuId, skuId, operatorId, operatorName);
-		upsertShipProfile(tenantId, row, spuId);
 	}
 
 	private Map<String, String> resolveUpdateTarget(String tenantId, ProductImportRowDTO row) {
 		Map<String, String> target = new HashMap<>();
-		if ("SKU".equals(row.getMatchType())) {
-			GoodsSku sku = goodsSkuMapper.selectById(row.getMatchValue());
-			target.put("spuId", sku.getSpuId());
-			target.put("skuId", sku.getId());
-			return target;
-		}
-		String codeType = "IMPA".equals(row.getMatchType()) ? ProductCodeMapping.TYPE_IMPA
-				: ProductCodeMapping.TYPE_INTERNAL;
-		ProductCodeMapping mapping = productCodeMappingMapper.selectByCodeGlobal(codeType, row.getMatchValue());
-		target.put("spuId", mapping.getSpuId());
-		target.put("skuId", mapping.getSkuId());
+		GoodsSku sku = goodsSkuMapper.selectById(row.getMatchValue());
+		target.put("spuId", sku.getSpuId());
+		target.put("skuId", sku.getId());
 		return target;
 	}
 
@@ -475,41 +422,6 @@ public class ProductImportServiceImpl implements ProductImportService {
 			goodsSkuMapper.insert(sku);
 		}
 		row.setSkuId(sku.getId());
-	}
-
-	private void upsertShipProfile(String tenantId, ProductImportRowDTO row, String spuId) {
-		ShipGoodsProfile profile = new ShipGoodsProfile();
-		profile.setSpuId(spuId);
-		profile.setSaleScope(StringUtils.hasText(row.getSaleScope()) ? row.getSaleScope() : "3");
-		profile.setImpaCode(row.getImpaCode());
-		profile.setIssaCode(row.getIssaCode());
-		profile.setInternalItemCode(row.getInternalItemCode());
-		profile.setBarcode(row.getBarcode());
-		profile.setNameEn(row.getNameEn());
-		profile.setStorageType(row.getStorageType());
-
-		ShipSkuProfile skuProfile = new ShipSkuProfile();
-		skuProfile.setSkuId(row.getSkuId());
-		skuProfile.setPurchaseUnit(row.getPurchaseUnit());
-		skuProfile.setPackageSpec(row.getPackageSpec());
-		skuProfile.setMoq(row.getMoq());
-		skuProfile.setStepQty(row.getStepQty());
-
-		ShipProductProfileDTO profileDTO = new ShipProductProfileDTO();
-		profileDTO.setSpuId(spuId);
-		profileDTO.setProfile(profile);
-		profileDTO.setSkuProfiles(skuProfile.getSkuId() != null ? List.of(skuProfile) : null);
-
-		if (StringUtils.hasText(row.getImpaCode())) {
-			ProductCodeMapping mapping = new ProductCodeMapping();
-			mapping.setSpuId(spuId);
-			mapping.setSkuId(row.getSkuId());
-			mapping.setCodeType(ProductCodeMapping.TYPE_IMPA);
-			mapping.setCodeValue(row.getImpaCode());
-			mapping.setMatchSource(ProductCodeMapping.SOURCE_IMPORT);
-			profileDTO.setCodeMappings(List.of(mapping));
-		}
-		shipProductProfileService.saveProfile(tenantId, profileDTO);
 	}
 
 	private ProductChangeLog changeLog(String tenantId, String bizType, String bizId, String changeType,

@@ -19,9 +19,10 @@
         <result column="sku_status" property="skuStatus"/>
         <result column="sales_price" property="salesPrice"/>
         <result column="stock" property="stock"/>
-        <result column="purchase_unit" property="purchaseUnit"/>
-        <result column="moq" property="moq"/>
-        <result column="step_qty" property="stepQty"/>
+        <result column="category_first_name" property="categoryFirstName"/>
+        <result column="category_second_name" property="categorySecondName"/>
+        <result column="category_first_sort" property="categoryFirstSort"/>
+        <result column="category_second_sort" property="categorySecondSort"/>
         <result column="specs_arr" property="specsArr" jdbcType="VARCHAR"
                 typeHandler="com.aryn.cloud.product.api.hanlder.SpecsListTypeHandler"/>
     </resultMap>
@@ -35,9 +36,6 @@
         sku.sales_price,
         sku.stock,
         sku.specs_arr,
-        sku_profile.purchase_unit,
-        sku_profile.moq,
-        sku_profile.step_qty,
         sku.create_time
     </sql>
 
@@ -45,9 +43,6 @@
         FROM goods_sku sku
         LEFT JOIN goods_spu spu
             ON spu.id = sku.spu_id AND spu.tenant_id = sku.tenant_id AND spu.del_flag = '0'
-        LEFT JOIN ship_sku_profile sku_profile
-            ON sku_profile.sku_id = sku.id AND sku_profile.tenant_id = sku.tenant_id
-               AND sku_profile.del_flag = '0'
     </sql>
 
     <select id="selectRowsBySkuIds" resultMap="replenishImportSkuRowMap">
@@ -95,6 +90,68 @@
           )
         ORDER BY spu.`name`, sku.id
         LIMIT 500
+    </select>
+
+    <!--
+      模板导出用的在售商品目录：与上面「按条件找商品」的查询不同，
+      这里要的是「把可采购的商品全列出来」，因此**必须过滤下架** ——
+      下架商品写进模板只会在报告里被标成「已下架」，客户白填一行。
+      商品编码列即 sku.id（导出与回查共用同一稳定键）。
+
+      排序：第一层按 sort，第二层按类目名 —— 只按 sort 不够。
+      不同类目树的 sort 会撞车（实测「蔬菜」与「家用电器」都是 sort=1），
+      撞车时若直接落到二级 sort，两个类目的行会交错出现
+      （第 1 行蔬菜、第 2 行电视、第 3 行蔬菜…），模板就没法按分类阅读了。
+      补上类目名做稳定的分组键，同一类目的商品必然连成一片。
+      COALESCE 兜底：sort 为空时排到最后，避免 NULL 抢占首屏。
+    -->
+    <select id="selectCatalogRows" resultMap="replenishImportSkuRowMap">
+        SELECT
+        sku.id AS sku_id,
+        sku.spu_id AS spu_id,
+        spu.`name` AS `name`,
+        spu.`status` AS spu_status,
+        sku.`status` AS sku_status,
+        sku.sales_price,
+        sku.stock,
+        sku.specs_arr,
+        category_first.`name` AS category_first_name,
+        category_second.`name` AS category_second_name,
+        COALESCE(category_first.`sort`, 9999) AS category_first_sort,
+        COALESCE(category_second.`sort`, 9999) AS category_second_sort
+        FROM goods_sku sku
+        JOIN goods_spu spu
+            ON spu.id = sku.spu_id AND spu.tenant_id = sku.tenant_id
+               AND spu.del_flag = '0' AND spu.`status` = '1'
+        LEFT JOIN goods_category category_first
+            ON category_first.id = spu.category_first_id AND category_first.tenant_id = spu.tenant_id
+               AND category_first.del_flag = '0'
+        LEFT JOIN goods_category category_second
+            ON category_second.id = spu.category_second_id AND category_second.tenant_id = spu.tenant_id
+               AND category_second.del_flag = '0'
+        WHERE sku.tenant_id = #{tenantId}
+          AND sku.del_flag = '0'
+          AND sku.`status` = '0'
+        ORDER BY
+            category_first_sort,
+            category_first_name,
+            category_second_sort,
+            category_second_name,
+            spu.`name`,
+            sku.id
+        LIMIT #{limit}
+    </select>
+
+    <!-- 目录真实总数：与 selectCatalogRows 同源同条件，供「模板只含前 N 项」如实告知 -->
+    <select id="countCatalogRows" resultType="int">
+        SELECT COUNT(*)
+        FROM goods_sku sku
+        JOIN goods_spu spu
+            ON spu.id = sku.spu_id AND spu.tenant_id = sku.tenant_id
+               AND spu.del_flag = '0' AND spu.`status` = '1'
+        WHERE sku.tenant_id = #{tenantId}
+          AND sku.del_flag = '0'
+          AND sku.`status` = '0'
     </select>
 
 </mapper>

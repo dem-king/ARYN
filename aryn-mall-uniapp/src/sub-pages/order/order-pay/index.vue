@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onLoad } from '@dcloudio/uni-app'
 import { computed, reactive, ref } from 'vue'
-import { prepay } from '@/utils/pay'
+import { prepay } from '@/sub-pages/utils/pay'
 import { getByOrderNo, orderPrepay } from '@/api/order/orderInfo'
 import { useGlobalLoading } from '@/composables/useGlobalLoading'
 

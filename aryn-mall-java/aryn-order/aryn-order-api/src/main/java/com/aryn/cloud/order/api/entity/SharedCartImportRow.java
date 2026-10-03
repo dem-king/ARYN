@@ -41,6 +41,15 @@ public class SharedCartImportRow extends Model<SharedCartImportRow> {
 
 	public static final String RESULT_OFF_SHELF = "OFF_SHELF";
 
+	/**
+	 * 未填数量：客户没打算采购这一行（商品目录模板里绝大多数行都是这种）。
+	 *
+	 * <p>与 {@link #RESULT_INVALID_QTY} 的区别是刻意的：目录模板按分类铺满在售商品，
+	 * 客户只填要买的那几行；把这些行判成「数量异常」会让报告被几百条红色报错灌满，
+	 * 真正的错误反而看不见。因此「数量列为空」是**正常状态**，不是错误。
+	 */
+	public static final String RESULT_NOT_FILLED = "NOT_FILLED";
+
 	public static final String ACTION_ACCEPT_SPEC = "ACCEPT_SPEC";
 
 	public static final String ACTION_ADJUST_QTY = "ADJUST_QTY";

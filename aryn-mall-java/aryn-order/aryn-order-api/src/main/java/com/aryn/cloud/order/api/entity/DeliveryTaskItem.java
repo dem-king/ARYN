@@ -45,6 +45,10 @@ public class DeliveryTaskItem extends Model<DeliveryTaskItem> {
 	@Schema(description = "商品图片快照")
 	private String image;
 
+	@Schema(description = "商品分类名（读时经 order_item.spuId 聚合回填，不入库；分类≈供应商批次，供配货清单分组）")
+	@TableField(exist = false)
+	private String categoryName;
+
 	@Schema(description = "0未取 1已取")
 	private String picked;
 

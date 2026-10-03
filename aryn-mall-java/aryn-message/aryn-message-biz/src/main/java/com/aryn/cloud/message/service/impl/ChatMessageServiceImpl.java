@@ -176,6 +176,10 @@ public class ChatMessageServiceImpl implements ChatMessageService {
 		conversation.setUpdateBy(senderId);
 		conversation.setUpdateTime(now);
 		conversationMapper.updateById(conversation);
+		// 发送方显然已读自己的消息；不推进游标会让管理端铃铛把自己的回复算成未读。
+		// 系统消息没有参与者行，此处自然空转。
+		participantMapper.updateLastReadSeq(conversation.getTenantId(), conversation.getId(), senderType.name(),
+				senderId, nextSeq);
 		boolean waiting = ConversationStatus.WAITING.name().equals(conversation.getStatus());
 		runAfterCommit(() -> {
 			pushService.pushConversationMessage(conversation.getTenantId(), conversation.getId(), chat.getId(),

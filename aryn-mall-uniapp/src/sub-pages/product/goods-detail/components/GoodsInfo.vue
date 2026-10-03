@@ -339,14 +339,14 @@ defineExpose({
     flex-shrink: 0;
     padding: 4rpx 14rpx;
     border-radius: 8rpx;
-    background: linear-gradient(135deg, #ff6b35, #ff4500);
+    background: linear-gradient(135deg, var(--wot-color-theme-secondary, #ff6b35), var(--wot-color-theme-primary, #ff4500));
     color: #fff;
     font-size: 22rpx;
     font-weight: 600;
   }
 
   .seckill-countdown {
-    color: #ff4500;
+    color: var(--wot-color-theme-primary, #ff2237);
     font-size: 24rpx;
 
     .seckill-time {
@@ -368,7 +368,7 @@ defineExpose({
     font-size: 22rpx;
 
     .seckill-remaining {
-      color: #ff4500;
+      color: var(--wot-color-theme-primary, #ff2237);
     }
   }
 }
@@ -381,10 +381,10 @@ defineExpose({
   text-align: center;
   line-height: 32upx;
   padding: 0 14upx;
-  border: 1upx solid #ff3d36;
+  border: 1upx solid var(--wot-color-theme-primary, #ff2237);
   border-radius: 10upx;
   font-size: 22upx;
-  color: #ff3d36;
+  color: var(--wot-color-theme-primary, #ff2237);
 }
 
 .leftdot {
@@ -395,7 +395,7 @@ defineExpose({
   height: 10upx;
   border-top-right-radius: 20upx;
   border-bottom-right-radius: 20upx;
-  border: 1upx solid #ff3d36;
+  border: 1upx solid var(--wot-color-theme-primary, #ff2237);
   background-color: #fff;
   border-left: 0;
 }
@@ -408,7 +408,7 @@ defineExpose({
   height: 10upx;
   border-top-left-radius: 20upx;
   border-bottom-left-radius: 20upx;
-  border: 1upx solid #ff3d36;
+  border: 1upx solid var(--wot-color-theme-primary, #ff2237);
   background-color: #fff;
   border-right: 0;
 }

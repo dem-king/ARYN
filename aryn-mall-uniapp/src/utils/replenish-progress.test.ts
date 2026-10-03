@@ -185,6 +185,20 @@ describe('buildReplenishRowView', () => {
     expect(row.completed).toBe(true)
     expect(row.remaining).toBe(0)
   })
+
+  it('行进度百分比按已采/目标取整', () => {
+    expect(buildReplenishRowView({ requestedQuantity: 1, plannedQuantity: 4, fulfilledQuantity: 3 }).percent).toBe(75)
+    expect(buildReplenishRowView({ requestedQuantity: 1, plannedQuantity: 3, fulfilledQuantity: 2 }).percent).toBe(67)
+  })
+
+  it('未排计划的行不给百分比，避免画成空进度条', () => {
+    expect(buildReplenishRowView({ requestedQuantity: 9, plannedQuantity: null, fulfilledQuantity: 0 }).percent).toBe(0)
+  })
+
+  it('计划量为 0 不出现除零，超采不超过 100', () => {
+    expect(buildReplenishRowView({ requestedQuantity: 1, plannedQuantity: 0, fulfilledQuantity: 0 }).percent).toBe(0)
+    expect(buildReplenishRowView({ requestedQuantity: 1, plannedQuantity: 4, fulfilledQuantity: 9 }).percent).toBe(100)
+  })
 })
 
 describe('summarizeReplenishItems', () => {

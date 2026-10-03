@@ -365,7 +365,6 @@ public class OrderPriceComputeService {
 			orderItemEntity.setSpuName(goodsSpu.getName());
 			orderItemEntity.setSpuId(goodsSpu.getId());
 			orderItemEntity.setSkuId(sku.getId());
-			orderItemEntity.setPicUrl(goodsSpu.getSpuUrls()[0]);
 			orderItemEntity.setSalesPrice(salesPrice);
 			orderItemEntity.setTotalPrice(
 					orderItemEntity.getSalesPrice().multiply(BigDecimal.valueOf(placeOrderSku.getQuantity())));
@@ -374,13 +373,40 @@ public class OrderPriceComputeService {
 			orderItemEntity.setMemberDiscountPrice(BigDecimal.ZERO);
 			orderItemEntity.setPaymentPrice(orderItemEntity.getTotalPrice());
 			orderItemEntity.setSpecsInfo(placeOrderSku.getSpecsInfo());
-			orderItemEntity.setPicUrl(placeOrderSku.getPicUrl());
+			orderItemEntity.setPicUrl(resolveItemPicUrl(placeOrderSku.getPicUrl(), sku));
 			orderItemEntity.setContributorUserId(placeOrderSku.getContributorUserId());
 			orderItemEntity.setContributorName(placeOrderSku.getContributorName());
 			orderItemEntity.setMemberRemark(placeOrderSku.getMemberRemark());
 			return orderItemEntity;
 		}).collect(Collectors.toList());
 
+	}
+
+	/**
+	 * 订单明细图片三级兜底：请求快照 → SKU 图 → SPU 主图首张。
+	 *
+	 * <p>请求 DTO 的 picUrl 由购物车链路带入；共享购物车按成员拆分下单等链路不带该字段，
+	 * 不能因缺省就把已取到的商品图覆盖成 null，否则订单列表/详情整页无图。
+	 * spu_urls 存量数据存在字面量 "[]"（JsonArrayStringTypeHandler 会解析成单元素 ["[]"]），
+	 * 作图地址时须跳过；同时不盲目取下标，避免空数组导致下单失败。
+	 */
+	private String resolveItemPicUrl(String reqPicUrl, GoodsSku sku) {
+		if (StringUtils.hasText(reqPicUrl)) {
+			return reqPicUrl;
+		}
+		if (StringUtils.hasText(sku.getPicUrl())) {
+			return sku.getPicUrl();
+		}
+		GoodsSpu goodsSpu = sku.getGoodsSpu();
+		if (goodsSpu == null || goodsSpu.getSpuUrls() == null) {
+			return null;
+		}
+		for (String url : goodsSpu.getSpuUrls()) {
+			if (StringUtils.hasText(url) && !"[]".equals(url.trim())) {
+				return url;
+			}
+		}
+		return null;
 	}
 
 

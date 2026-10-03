@@ -77,7 +77,7 @@ function onShare() {
     align-items: center;
 
     .share-icon-warp {
-      background-color: #fe560a;
+      background-color: var(--wot-color-theme-primary, #ff2237);
       border-radius: 50%;
       width: 60rpx;
       /* 确保宽高相等 */

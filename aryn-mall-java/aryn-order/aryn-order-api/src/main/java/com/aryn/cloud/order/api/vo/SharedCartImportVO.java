@@ -54,6 +54,9 @@ public class SharedCartImportVO implements Serializable {
 	@Schema(description = "已下架商品行数")
 	private Integer offShelfRows;
 
+	@Schema(description = "未填数量行数（客户本次不采购，非错误）")
+	private Integer notFilledRows;
+
 	@Schema(description = "确认后实际并入的明细项数")
 	private Integer importedRows;
 

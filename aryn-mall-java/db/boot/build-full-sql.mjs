@@ -30,7 +30,6 @@ const sections = [
   ['配送模块按钮权限补齐', '39delivery_menu_button_patch.sql'],
   ['配送员受保护角色修复与遗留角色下线', '40delivery_staff_role_repair.sql'],
   ['船舶与靠港计划域', '42vessel_context_incremental.sql'],
-  ['船供商品资料域', '43ship_product_profile_incremental.sql'],
   ['订单配送上下文与履约域', '44order_delivery_context_incremental.sql'],
   ['商品批量导入与变更审计域', '48product_import_incremental.sql'],
   ['商品批量导入解析行', '50product_import_row_incremental.sql'],
@@ -76,6 +75,19 @@ const sections = [
   ['XXL-JOB 调度库', '3aryn_boot_job.sql'],
   ['秒杀状态流转定时任务注册', '94seckill_status_job.sql'],
   ['秒杀预扣超时释放定时任务注册', '95seckill_order_expire_job.sql'],
+  ['下线船供履约作业菜单', '96hide_fulfillment_menus.sql'],
+  ['回填订单明细商品图片', '97fix_order_item_pic.sql'],
+  ['家电数码演示商品补齐 SKU', '98tech_digital_sku_backfill.sql'],
+  ['补给单模板按分类铺满在售商品与未填数量分类', '100replenish_catalog_template_incremental.sql'],
+  ['货到付款支付方式与确认收款权限', '101cod_payment_incremental.sql'],
+  ['分类页与个人中心页精品装修种子', '102page_design_category_usercenter_decoration.sql'],
+  ['模板市场预置全套装修模板', '103page_design_template_market_seed.sql'],
+  ['出车单结清口径修正与存量回填', '104delivery_trip_settle_backfill.sql'],
+  ['订单商品按分类分组展示与导出权限', '105order_category_group_export_incremental.sql'],
+  ['模板市场二期预置装修模板（品质生活/邻里团购/直播甄选 9 套）', '106page_design_template_market_seed_phase2.sql'],
+  ['商城默认主题换肤能力', '107page_design_theme_mall_default.sql'],
+  ['商城主题菜单入口', '108mall_theme_menu.sql'],
+  ['货到付款实收金额与付款凭证', '109cod_pay_voucher_incremental.sql'],
 ];
 
 const normalize = (content) => content.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim();
@@ -119,9 +131,6 @@ DROP TABLE IF EXISTS \`delivery_qualification_operation\`;
 DROP TABLE IF EXISTS \`vessel_info\`;
 DROP TABLE IF EXISTS \`vessel_member\`;
 DROP TABLE IF EXISTS \`vessel_call\`;
-DROP TABLE IF EXISTS \`ship_goods_profile\`;
-DROP TABLE IF EXISTS \`ship_sku_profile\`;
-DROP TABLE IF EXISTS \`product_code_mapping\`;
 DROP TABLE IF EXISTS \`shared_cart\`;
 DROP TABLE IF EXISTS \`shared_cart_member\`;
 DROP TABLE IF EXISTS \`shared_cart_item\`;

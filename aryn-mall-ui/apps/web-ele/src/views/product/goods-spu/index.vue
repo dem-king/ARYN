@@ -44,7 +44,6 @@ import {
   previewImport,
   uploadImport,
 } from '#/api/product/product-import';
-import { requestClient } from '#/api/request';
 import { useDict } from '#/utils/dict';
 
 const RightToolbar = defineAsyncComponent(
@@ -92,40 +91,9 @@ const loading = ref(false);
 const queryRef = ref();
 const { tableData, queryParams, page } = toRefs(state);
 
-// 商品统一（2026-09-20）：不再区分「船供目录 / 普通列表」两套视图，
-// 商品在一个列表内管理；IMPA/ISSA/采购单位/MOQ 等船供属性收进编辑页作为可选扩展资料。
-// 导出能力保留（仍按编码/英文名筛选导出目录）。
-const shipQuery = reactive({
-  impaCode: '',
-  nameEn: '',
-  saleScope: '',
-});
-
-const exportShipLoading = ref(false);
-const exportShipCatalog = () => {
-  exportShipLoading.value = true;
-  requestClient
-    .download('/product/goodsspu/ship/export', {
-      params: { ...shipQuery },
-    })
-    .then((response: any) => {
-      const blob =
-        response instanceof Blob
-          ? response
-          : new Blob([response], { type: 'application/octet-stream' });
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = '船供商品目录.xlsx';
-      document.body.append(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-    })
-    .finally(() => {
-      exportShipLoading.value = false;
-    });
-};
+// 商品统一（2026-09-20）：不再区分「船供目录 / 普通列表」两套视图。
+// 船供资料（IMPA/ISSA/采购单位/MOQ）已于 2026-09-29 随船供化下线，
+// 「导出商品目录」按钮一并移除。
 
 // 批量导入状态
 const importVisible = ref(false);
@@ -396,13 +364,6 @@ initPage();
             @click="openImport"
           >
             批量导入
-          </ElButton>
-          <ElButton
-            :loading="exportShipLoading"
-            v-access:code="'product:goodsspu:page'"
-            @click="exportShipCatalog"
-          >
-            导出商品目录
           </ElButton>
         </div>
         <RightToolbar

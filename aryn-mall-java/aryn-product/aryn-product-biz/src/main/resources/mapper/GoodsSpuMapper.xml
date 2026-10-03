@@ -164,4 +164,32 @@
             LIMIT 10;
     </select>
 
+    <!-- 统一商品目录分页（2026-09-29 船供资料下线）：
+         原船供摘要分页（已删的两条查询）显式 JOIN 船供三表，
+         表删除后由本查询承接 C 端选货页与搜索。
+         列表缩略图取货顺序与原 summaryColumns 一致：SKU 图优先、回退 SPU 首图。 -->
+    <select id="selectCatalogPage" resultType="com.aryn.cloud.product.api.vo.GoodsCatalogSummaryVO">
+        SELECT
+        spu.id AS spu_id,
+        sku.id AS sku_id,
+        spu.`name` AS `name`,
+        COALESCE(NULLIF(sku.pic_url, ''), NULLIF(SUBSTRING_INDEX(spu.spu_urls, ',', 1), '')) AS pic_url,
+        sku.stock,
+        sku.sales_price,
+        spu.`status`
+        FROM goods_spu spu
+        LEFT JOIN goods_sku sku
+            ON sku.spu_id = spu.id AND sku.tenant_id = spu.tenant_id AND sku.del_flag = '0'
+        WHERE spu.tenant_id = #{tenantId}
+          AND spu.del_flag = '0'
+        <if test="status != null and status != ''">
+            AND spu.`status` = #{status}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            AND (spu.`name` LIKE CONCAT('%', #{keyword}, '%')
+                 OR spu.sub_title LIKE CONCAT('%', #{keyword}, '%'))
+        </if>
+        ORDER BY spu.create_time DESC
+    </select>
+
 </mapper>

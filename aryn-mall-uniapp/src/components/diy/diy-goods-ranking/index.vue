@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import type { GoodsRankingProps } from '@/components/diy/retail-types'
 
+import { computed } from 'vue'
 import { followDecorationLink } from '@/components/diy/link-resolver'
 import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 import { loadGoodsRanking } from '@/components/diy/retail-data'
-import { retailCommonStyle } from '@/components/diy/retail-types'
-import type { GoodsRankingProps } from '@/components/diy/retail-types'
 import RetailState from '@/components/diy/retail-state.vue'
+import { retailCommonStyle } from '@/components/diy/retail-types'
 import { useDiyStyle } from '@/composables/useDiyStyle'
 import { useRetailData } from '@/composables/useRetailData'
 
@@ -34,23 +34,35 @@ function openGoods(id: string) {
 
 <template>
   <view v-if="shouldRender" class="goods-ranking" :style="dynamicStyles">
-    <view class="section-title">{{ showData.title }}</view>
+    <view class="section-title">
+      {{ showData.title }}
+    </view>
     <RetailState v-if="status !== 'ready'" :status="status" />
     <view v-else class="ranking-list">
       <view v-for="(item, index) in items" :key="item.id" class="ranking-item" @click="openGoods(item.id)">
-        <view v-if="showData.showRankNumber" class="rank-number" :class="{ 'rank-number--top': index < 3 }">{{ index + 1 }}</view>
+        <view v-if="showData.showRankNumber" class="rank-number" :class="{ 'rank-number--top': index < 3 }">
+          {{ index + 1 }}
+        </view>
         <image v-if="item.imageUrl" class="ranking-image" :src="item.imageUrl" mode="aspectFill" lazy-load />
-        <view v-else class="ranking-image ranking-image--empty">商品</view>
+        <view v-else class="ranking-image ranking-image--empty">
+          商品
+        </view>
         <view class="ranking-content">
-          <view class="ranking-name">{{ item.name }}</view>
-          <view class="ranking-stats">销量 {{ item.sales }} · 库存 {{ item.stock }}</view>
+          <view class="ranking-name">
+            {{ item.name }}
+          </view>
+          <view class="ranking-stats">
+            销量 {{ item.sales }} · 库存 {{ item.stock }}
+          </view>
           <view class="ranking-price">
             ￥{{ item.price.toFixed(2) }}
             <!-- 划线原价：仅原价严格高于售价时显示（存量商品原价多为 0，会划出￥0） -->
             <text
               v-if="showData.showOriginalPrice && shouldShowOriginalPrice(item.price, item.originalPrice)"
               class="ranking-price-original"
-            >￥{{ item.originalPrice.toFixed(2) }}</text>
+            >
+              ￥{{ item.originalPrice.toFixed(2) }}
+            </text>
           </view>
         </view>
       </view>
@@ -64,12 +76,12 @@ function openGoods(id: string) {
 .ranking-item { display: flex; min-height: 132rpx; align-items: center; gap: 16rpx; border-bottom: 1rpx solid #eef0f3; }
 .ranking-item:last-child { border-bottom: 0; }
 .rank-number { width: 36rpx; color: #909399; font-size: 26rpx; text-align: center; }
-.rank-number--top { color: #e5484d; font-weight: 700; }
+.rank-number--top { color: var(--wot-color-theme-primary, #ff2237); font-weight: 700; }
 .ranking-image { display: flex; width: 104rpx; height: 104rpx; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 8rpx; background: #f3f4f6; color: #a8abb2; font-size: 22rpx; }
 .ranking-content { min-width: 0; flex: 1; }
 .ranking-name { overflow: hidden; color: #303133; font-size: 26rpx; text-overflow: ellipsis; white-space: nowrap; }
 .ranking-stats { margin-top: 8rpx; color: #909399; font-size: 21rpx; }
-.ranking-price { margin-top: 6rpx; color: #e5484d; font-size: 27rpx; font-weight: 600; }
+.ranking-price { margin-top: 6rpx; color: var(--wot-color-theme-primary, #ff2237); font-size: 27rpx; font-weight: 600; }
 /* 划线原价：灰字小一号，仅作价格锚点，不与售价抢视觉层级 */
 .ranking-price-original { margin-left: 8rpx; color: #999; font-size: 22rpx; font-weight: normal; text-decoration: line-through; }
 </style>

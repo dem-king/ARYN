@@ -46,6 +46,13 @@ export interface DecorationDocument {
   page: PageSettings
   schemaVersion: typeof DECORATION_SCHEMA_VERSION
   sections: DecorationSection[]
+  /**
+   * 页面引用主题（发布时固化的 themeSnapshot）的品牌主色/辅色。
+   * 与商城默认主题（mallThemeStore）两级并存：页面级在 diy 内容区
+   * 以 CSS 变量下放并覆盖全局，未引用主题时为空、回落全局主题。
+   */
+  themePrimaryColor?: string
+  themeSecondaryColor?: string
 }
 
 /**
@@ -69,12 +76,12 @@ export interface SectionConditionGroup {
   rules: SectionConditionRule[]
 }
 
-export type SectionConditionRule =
-  | { type: 'login' }
-  | { type: 'guest' }
-  | { type: 'memberLevel'; memberLevelIds: string[] }
-  | { type: 'userTag'; userTagIds: string[] }
-  | { type: 'timeRange'; startTime: string; endTime: string }
+export type SectionConditionRule
+  = | { type: 'login' }
+    | { type: 'guest' }
+    | { type: 'memberLevel', memberLevelIds: string[] }
+    | { type: 'userTag', userTagIds: string[] }
+    | { type: 'timeRange', startTime: string, endTime: string }
 
 /**
  * 区块容器样式。长度单位一律为 **px**，与组件级 commonStyle 以及

@@ -2,9 +2,13 @@
 package com.aryn.cloud.promotion.controller.app;
 
 import com.aryn.cloud.common.core.util.Result;
+import com.aryn.cloud.promotion.api.entity.PageDesignTheme;
+import com.aryn.cloud.promotion.api.vo.AppMallThemeVO;
 import com.aryn.cloud.promotion.api.vo.AppPageDesignVO;
+import com.aryn.cloud.promotion.service.IPageDesignThemeService;
 import com.aryn.cloud.promotion.service.PageDesignMetricService;
 import com.aryn.cloud.promotion.service.PageDesignPreviewService;
+import com.aryn.cloud.promotion.util.ThemeColorUtils;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 
@@ -35,6 +39,8 @@ public class AppPageDesignController {
 
 	private final PageDesignMetricService pageDesignMetricService;
 
+	private final IPageDesignThemeService pageDesignThemeService;
+
 	@Operation(summary = "页面设计查询")
 	@GetMapping
 	public Result<AppPageDesignVO> getHomePage() {
@@ -53,6 +59,12 @@ public class AppPageDesignController {
 		return Result.success(pageDesignPreviewService.getPublishedByType(pageType));
 	}
 
+	@Operation(summary = "商城默认主题（C 端启动换肤，未设置时 data 为 null）")
+	@GetMapping("/mall-theme")
+	public Result<AppMallThemeVO> getMallTheme() {
+		return Result.success(toMallThemeVO(pageDesignThemeService.getDefaultTheme()));
+	}
+
 	@Operation(summary = "Preview a page draft with a short-lived token")
 	@GetMapping("/preview/{token}")
 	public Result<AppPageDesignVO> preview(@PathVariable String token) {
@@ -63,6 +75,25 @@ public class AppPageDesignController {
 	@PostMapping("/metrics")
 	public Result<Integer> reportMetrics(@RequestBody List<PageDesignMetricService.MetricEvent> events) {
 		return Result.success(pageDesignMetricService.report(events));
+	}
+
+	/**
+	 * 主题实体转 C 端换肤 VO；辅色由主色向白色混合 35% 衍生，主色缺失或非法时不下发辅色。
+	 */
+	private AppMallThemeVO toMallThemeVO(PageDesignTheme theme) {
+		if (theme == null) {
+			return null;
+		}
+		AppMallThemeVO vo = new AppMallThemeVO();
+		vo.setThemeId(theme.getId());
+		vo.setThemeName(theme.getThemeName());
+		vo.setPrimaryColor(theme.getPrimaryColor());
+		vo.setSecondaryColor(ThemeColorUtils.deriveSecondary(theme.getPrimaryColor()));
+		vo.setPageBackgroundColor(theme.getPageBackgroundColor());
+		vo.setNavigationColor(theme.getNavigationColor());
+		vo.setNavigationTextColor(theme.getNavigationTextColor());
+		vo.setRadius(theme.getRadius());
+		return vo;
 	}
 
 }

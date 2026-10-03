@@ -231,7 +231,7 @@ const originalPriceStyle = computed(() => {
               .price-info {
                 width: 100%;
                 font-size: 14px;
-                color: #ff4444;
+                color: var(--wot-color-theme-primary, #ff2237);
                 overflow: hidden;
                 text-overflow: ellipsis;
                 -o-text-overflow: ellipsis;

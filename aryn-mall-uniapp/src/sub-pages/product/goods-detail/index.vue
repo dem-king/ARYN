@@ -12,16 +12,13 @@ import {
   reactive,
   ref,
 } from 'vue'
-import { addShoppingCart } from '@/api/order/shoppingCart'
-import {
-  addObj as addCollect,
-  deleteObj as deleteCollect,
-} from '@/api/product/collect'
+import { addObj as addCollect, deleteObj as deleteCollect } from '@/api/product/collect'
 import { getById as getSpuById } from '@/api/product/spu'
 import { getGoodsSeckillInfo } from '@/api/promotion'
 import { getPage as getCouponPage } from '@/api/promotion/couponInfo'
 import { getDefault } from '@/api/user/address'
 import DiyPage from '@/components/diy/index.vue'
+import { useCartDestination } from '@/composables/useCartDestination'
 import {
   buildDistributionSharePath,
   captureDistributionShareParams,
@@ -38,7 +35,6 @@ import GoodsInfo from './components/GoodsInfo.vue'
 import GoodsNavbar from './components/GoodsNavbar.vue'
 import MorePopup from './components/MorePopup.vue'
 import SharePopup from './components/SharePopup.vue'
-import ShipProfileCard from './components/ShipProfileCard.vue'
 
 definePage({
   name: 'goods-detail',
@@ -120,6 +116,7 @@ const userStore = useUserStore()
 const shoppingCartStore = useShoppingCartStore()
 /** 单规格直加购与列表页快捷加购共用同一份规则（MOQ/步长/登录守卫） */
 const { quickAdd } = useQuickCart()
+const { submitCartAdd } = useCartDestination()
 const spuId = ref()
 const proxy = getCurrentInstance()?.proxy
 const { statusBarHeight }: any = uni.getSystemInfoSync()
@@ -432,17 +429,22 @@ async function updateTabListPositions() {
       })
   }
 }
-// 添加购物车（弹层回传路径；单规格直加路径在 handleBuyAction → useQuickCart）
-function addCart(data: any) {
-  addShoppingCart(data).then(() => {
-    uni.showToast({
-      title: '已加入购物车',
-      icon: 'none',
-      duration: 3000,
+// 添加购物车（弹层回传路径；单规格直加路径在 handleBuyAction → useQuickCart）。
+// 去向由统一入口决定：有进行中的共享购物车时先询问，提示与角标也由它处理
+async function addCart(data: any) {
+  try {
+    const dest = await submitCartAdd({
+      skuId: data.skuId,
+      quantity: data.quantity,
+      spuId: data.spuId || state.goodsSpu.id,
     })
+    if (dest === 'abort')
+      return
     skuKey.value = false
-    shoppingCartStore.fetchCartCount()
-  })
+  }
+  catch {
+    // 请求异常已由统一拦截器提示，弹层保持打开让用户重试
+  }
 }
 // 收藏
 async function handleCollect() {
@@ -570,7 +572,6 @@ async function handleReceive(coupon: any) {
       @collect="handleCollect"
       @share="handleShare"
     />
-    <ShipProfileCard :spu-id="spuId" />
     <!-- 商详装修区域（商品信息下方、评价上方） -->
     <view v-if="decorationContent">
       <DiyPage
@@ -624,6 +625,7 @@ async function handleReceive(coupon: any) {
     @close="onCloseSkuPopup"
     @add-cart="addCart"
   />
+
   <!-- 领券弹窗 -->
   <wd-action-sheet
     v-model="state.couponState"

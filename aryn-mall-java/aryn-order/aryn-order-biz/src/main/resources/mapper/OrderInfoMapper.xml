@@ -41,6 +41,8 @@
 	order_info.member_discount_price,
 	order_info.points_multiplier,
 	order_info.payment_price,
+	order_info.actual_pay_price,
+	order_info.pay_vouchers,
 	order_info.create_time,
 	order_info.update_time,
 	order_info.del_flag,
@@ -65,44 +67,66 @@
     order_info.app_id,
     order_info.open_id
     </sql>
+    <sql id="adminQueryCondition">
+        AND order_info.`del_flag` = '0'
+        <if test="query.status != null and query.status != ''">
+            AND order_info.`status` = #{query.status}
+        </if>
+        <if test="query.paymentType != null and query.paymentType != ''">
+            AND order_info.`payment_type` = #{query.paymentType}
+        </if>
+        <if test="query.deliveryWay != null and query.deliveryWay != ''">
+            AND order_info.`delivery_way` = #{query.deliveryWay}
+        </if>
+        <if test="query.userId != null and query.userId != ''">
+            AND order_info.`user_id` = #{query.userId}
+        </if>
+        <if test="query.payStatus != null and query.payStatus != ''">
+            AND order_info.`pay_status` = #{query.payStatus}
+        </if>
+        <if test="query.id != null and query.id != ''">
+            AND order_info.`id` = #{query.id}
+        </if>
+        <if test="query.paymentQueryTimes != null and query.paymentQueryTimes.length > 0">
+            AND order_info.`payment_time` >= #{query.paymentQueryTimes[0]} AND
+            #{query.paymentQueryTimes[1]}>=order_info.`payment_time`
+        </if>
+        <if test="query.orderNo != null and query.orderNo != ''">
+            AND order_info.`order_no` = #{query.orderNo}
+        </if>
+        <if test="query.recipientName != null and query.recipientName != ''">
+            AND order_info.`recipient_name` = #{query.recipientName}
+        </if>
+        <if test="query.recipientPhone != null and query.recipientPhone != ''">
+            AND order_info.`recipient_phone` = #{query.recipientPhone}
+        </if>
+    </sql>
     <select id="selectAdminPage" resultMap="adminPageResultMap">
         SELECT
         <include refid="orderSql"/>
         FROM
         order_info AS order_info
         <where>
-            AND order_info.`del_flag` = '0'
-            <if test="query.status != null and query.status != ''">
-                AND order_info.`status` = #{query.status}
-            </if>
-            <if test="query.paymentType != null and query.paymentType != ''">
-                AND order_info.`payment_type` = #{query.paymentType}
-            </if>
-            <if test="query.deliveryWay != null and query.deliveryWay != ''">
-                AND order_info.`delivery_way` = #{query.deliveryWay}
-            </if>
-            <if test="query.userId != null and query.userId != ''">
-                AND order_info.`user_id` = #{query.userId}
-            </if>
-            <if test="query.payStatus != null and query.payStatus != ''">
-                AND order_info.`pay_status` = #{query.payStatus}
-            </if>
-            <if test="query.id != null and query.id != ''">
-                AND order_info.`id` = #{query.id}
-            </if>
-            <if test="query.paymentQueryTimes != null and query.paymentQueryTimes.length > 0">
-                AND order_info.`payment_time` >= #{query.paymentQueryTimes[0]} AND
-                #{query.paymentQueryTimes[1]}>=order_info.`payment_time`
-            </if>
-            <if test="query.orderNo != null and query.orderNo != ''">
-                AND order_info.`order_no` = #{query.orderNo}
-            </if>
-            <if test="query.recipientName != null and query.recipientName != ''">
-                AND order_info.`recipient_name` = #{query.recipientName}
-            </if>
-            <if test="query.recipientPhone != null and query.recipientPhone != ''">
-                AND order_info.`recipient_phone` = #{query.recipientPhone}
-            </if>
+            <include refid="adminQueryCondition"/>
+        </where>
+    </select>
+    <select id="selectExportList" resultMap="exportResultMap">
+        SELECT
+        <include refid="orderSql"/>
+        FROM
+        order_info AS order_info
+        <where>
+            <include refid="adminQueryCondition"/>
+        </where>
+        ORDER BY order_info.`create_time` DESC, order_info.`id` DESC
+    </select>
+    <select id="countExportList" resultType="int">
+        SELECT
+        COUNT(*)
+        FROM
+        order_info AS order_info
+        <where>
+            <include refid="adminQueryCondition"/>
         </where>
     </select>
     <select id="selectOrderById" resultMap="resultMap">
@@ -159,6 +183,11 @@
         <collection property="orderItemList" column="{orderId=id}"
                     ofType="com.aryn.cloud.order.api.entity.OrderItemEntity"
                     select="com.aryn.cloud.order.mapper.OrderItemMapper.selectByOrderId"></collection>
+    </resultMap>
+
+    <!-- 导出专用简版映射：订单字段平铺，商品行由调用方批量查询，避免逐单 N+1 -->
+    <resultMap id="exportResultMap" type="com.aryn.cloud.order.api.entity.OrderInfo" autoMapping="true">
+        <id property="id" column="id"/>
     </resultMap>
 
     <select id="selectApiPage" resultMap="resultMap">

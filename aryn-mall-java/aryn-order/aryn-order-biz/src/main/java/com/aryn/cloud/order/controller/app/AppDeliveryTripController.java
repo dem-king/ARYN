@@ -65,7 +65,7 @@ public class AppDeliveryTripController {
 		return Result.success(deliveryTripService.startLoading(id, staffId));
 	}
 
-	@Operation(summary = "全部取货清单（按订单分组）")
+	@Operation(summary = "全部取货明细（按任务返回，明细在 itemList 含取货状态）")
 	@GetMapping("/{id}/pick-list")
 	public Result<List<DeliveryTask>> pickList(@PathVariable String id) {
 		String staffId = getCurrentStaffId();

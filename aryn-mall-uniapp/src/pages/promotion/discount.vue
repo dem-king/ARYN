@@ -4,7 +4,7 @@ import type {
   AppDiscountGoodsVO,
 } from '@/api/promotion'
 import { onLoad, onUnload } from '@dcloudio/uni-app'
-import { computed, reactive, ref } from 'vue'
+import { reactive, ref } from 'vue'
 import { getDiscountActivities } from '@/api/promotion'
 import { useGlobalLoading } from '@/composables/useGlobalLoading'
 
@@ -367,7 +367,7 @@ function statusText(status: number): string {
 
 // 活动头部
 .activity-header {
-  background: linear-gradient(135deg, #ff9a56, #ff6b35);
+  background: linear-gradient(135deg, var(--wot-color-theme-secondary, #ff9a56), var(--wot-color-theme-primary, #ff6b35));
   padding: 24rpx 32rpx;
   color: #fff;
 
@@ -405,7 +405,7 @@ function statusText(status: number): string {
 
       &.status-1 {
         background: #fff;
-        color: #ff4500;
+        color: var(--wot-color-theme-primary, #ff2237);
       }
 
       &.status-2 {
@@ -477,7 +477,7 @@ function statusText(status: number): string {
     margin-top: 12rpx;
 
     .discount-price {
-      color: #ff4500;
+      color: var(--wot-color-theme-primary, #ff2237);
 
       .price-symbol {
         font-size: 24rpx;
@@ -505,7 +505,7 @@ function statusText(status: number): string {
     margin-top: 12rpx;
 
     &.tag-discount {
-      color: #ff4500;
+      color: var(--wot-color-theme-primary, #ff2237);
       background: #fff2f0;
     }
 

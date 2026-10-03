@@ -2,18 +2,23 @@
 /**
  * 快捷加购按钮。
  *
- * 商品卡片上的加购入口：单规格商品一键按合法数量加入购物车，
- * 多规格商品自动唤起规格弹层（弹层由本组件内部持有，卡片无需关心 SKU 结构）。
+ * 商品卡片上的加购入口：单规格商品一键按合法数量加购，多规格商品自动唤起规格弹层。
+ * 加购去向由 useCartDestination 统一决定：用户有进行中的共享购物车时先弹层询问
+ * 加入共享车还是个人购物车，没有则保持原有行为直接入个人购物车。
  *
  * 数量规则（MOQ/步长）统一由 `useQuickCart` 决定，与结算侧
  * `SharedCartServiceImpl.validateQuantityRules` 的校验口径一致。
  *
  * 默认渲染圆形购物车图标；装修组件通过默认插槽注入自己的按钮样式，
  * 这样运营在后台选的「购买按钮样式」仍然生效，但按钮从装饰变为可用。
+ *
+ * 加购目的地的选择弹层不由本组件挂载：本组件随商品卡重复渲染，挂在这里会
+ * 让同屏出现 N 份弹层（遮罩叠成全黑、动画抖动、按钮冒泡跳商详）。弹层统一
+ * 挂在根组件 src/App.ku.vue，每页恰好一份。
  */
 import { nextTick, ref } from 'vue'
 
-import { addShoppingCart } from '@/api/order/shoppingCart'
+import { useCartDestination } from '@/composables/useCartDestination'
 import { useQuickCart } from '@/composables/useQuickCart'
 import { initGoodsSpecs } from '@/utils/goods-specs'
 
@@ -31,6 +36,7 @@ const emit = defineEmits<{
 }>()
 
 const { pending, quickAdd } = useQuickCart()
+const { submitCartAdd } = useCartDestination()
 const skuPopup = ref()
 const skuKey = ref(false)
 const skuMode = ref(2)
@@ -74,14 +80,22 @@ async function handleAdd() {
   }
 }
 
-function handleSkuAdd(data: any) {
-  addShoppingCart(data)
-    .then(() => {
-      skuKey.value = false
-      uni.showToast({ title: '已加入购物车', icon: 'success' })
-      emit('added', props.spuId)
+/** SKU 弹层回传后加购：与快捷直加同一目的地口径（个人/共享），提示与角标由统一入口处理 */
+async function handleSkuAdd(data: any) {
+  try {
+    const dest = await submitCartAdd({
+      skuId: data.skuId,
+      quantity: data.quantity,
+      spuId: data.spuId || props.spuId,
     })
-    .catch(() => {})
+    if (dest === 'abort')
+      return
+    skuKey.value = false
+    emit('added', props.spuId)
+  }
+  catch {
+    // 请求异常已由统一拦截器提示，弹层保持打开让用户重试
+  }
 }
 </script>
 

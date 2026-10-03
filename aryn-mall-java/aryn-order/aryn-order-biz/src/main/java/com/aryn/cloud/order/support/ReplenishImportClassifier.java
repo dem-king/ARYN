@@ -13,13 +13,20 @@ import com.aryn.cloud.product.api.vo.ReplenishImportMatchVO;
  *
  * <p>判定优先级（后者依赖前者）：
  * <ol>
+ *   <li><b>数量列没填</b> → NOT_FILLED（未填数量 = 不需要这项，直接略过，不算错误）</li>
  *   <li>未命中 / 多规格歧义 → UNMATCHED</li>
  *   <li>SKU 或 SPU 下架 → OFF_SHELF（不计入未匹配，否则用户永远补不到）</li>
- *   <li>数量非法（空 / 非正 / 低于 MOQ / 非步长整数倍）→ INVALID_QTY</li>
+ *   <li>数量非法（非正 / 低于 MOQ / 非步长整数倍）→ INVALID_QTY</li>
  *   <li>数量超过库存 → OVER_STOCK</li>
  *   <li>规格文本不一致 → SPEC_CHANGED</li>
  *   <li>其余 → OK</li>
  * </ol>
+ *
+ * <p><b>为什么「没填数量」必须排在最前</b>：商品目录模板（按分类铺满在售商品）
+ * 的用法就是「只填你要买的那几行数量」，其余行天然空着。
+ * 若按数量非法处理，客户打开报告会看到几百条红色报错，
+ * 真正的错误（编码填错、库存不足）会被淹没。
+ * 因此它先于「未匹配」判定：没打算买的行，商品是否下架、编码对不对都不该报。
  *
  * @author aryn
  * @since 2026/9/22
@@ -33,7 +40,18 @@ public final class ReplenishImportClassifier {
 	public record Result(String resultType, String message, Integer suggestedQuantity) {
 	}
 
-	public static Result classify(ReplenishImportMatchVO match, String excelSpec, Integer quantity) {
+	/**
+	 * 按「匹配结果 + 数量原文」分类。
+	 *
+	 * @param match 商品域匹配结果，可为 null（未命中）
+	 * @param excelSpec 清单里的规格原文，可为空（空表示无法比较）
+	 * @param quantityText 数量列原文；**空串/null 表示客户没填这一行**
+	 */
+	public static Result classify(ReplenishImportMatchVO match, String excelSpec, String quantityText) {
+		if (quantityText == null || quantityText.isBlank()) {
+			return new Result(SharedCartImportRow.RESULT_NOT_FILLED, "未填数量，本次不采购", null);
+		}
+		Integer quantity = ReplenishMatchRules.parseQuantity(quantityText);
 		if (match == null || "NONE".equals(match.getMatchType())) {
 			return new Result(SharedCartImportRow.RESULT_UNMATCHED, "未匹配到商品，请人工补选", null);
 		}
@@ -48,7 +66,8 @@ public final class ReplenishImportClassifier {
 		int stepQty = match.getStepQty() == null || match.getStepQty() < 1 ? 1 : match.getStepQty();
 		Integer stock = match.getStock();
 		if (quantity == null || quantity <= 0) {
-			return new Result(SharedCartImportRow.RESULT_INVALID_QTY, "数量不能为空且必须大于 0", null);
+			// 填了但解析不出数字（如「十份」）：这才是真正的填写错误
+			return new Result(SharedCartImportRow.RESULT_INVALID_QTY, "数量必须是正整数", null);
 		}
 		if (quantity < moq) {
 			return new Result(SharedCartImportRow.RESULT_INVALID_QTY, "数量未达到最小起订量 " + moq, moq);

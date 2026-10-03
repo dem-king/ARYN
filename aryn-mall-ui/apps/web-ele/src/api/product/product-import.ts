@@ -1,27 +1,15 @@
 import { requestClient } from '#/api/request';
 
-/** 导入行结构（与后端 ProductImportRowDTO 对齐） */
+/** 导入行结构（与后端 ProductImportRowDTO 对齐；船供资料列已随船供化下线） */
 export interface ProductImportRow {
   rowNo?: number;
   name: string;
-  nameEn?: string;
-  saleScope?: string;
-  impaCode?: string;
-  issaCode?: string;
-  internalItemCode?: string;
-  barcode?: string;
-  matchType?: string;
   matchValue?: string;
   skuId?: string;
   categorySecondId?: string;
   brandId?: string;
   salesPrice?: number;
   stock?: number;
-  purchaseUnit?: string;
-  packageSpec?: string;
-  moq?: number;
-  stepQty?: number;
-  storageType?: string;
 }
 
 export interface ImportPreviewResult {
@@ -131,23 +119,12 @@ export function parseCsvToRows(content: string): ProductImportRow[] {
     return {
       rowNo: index + 1,
       name: record.name ?? '',
-      nameEn: record.nameEn || undefined,
-      saleScope: record.saleScope || undefined,
-      impaCode: record.impaCode || undefined,
-      issaCode: record.issaCode || undefined,
-      internalItemCode: record.internalItemCode || undefined,
-      barcode: record.barcode || undefined,
-      matchType: record.matchType || undefined,
-      matchValue: record.matchValue || undefined,
+      matchValue:
+        record['更新匹配值(SKU编号)'] || record.matchValue || undefined,
       categorySecondId: record.categorySecondId || undefined,
       brandId: record.brandId || undefined,
       salesPrice: record.salesPrice ? Number(record.salesPrice) : undefined,
       stock: record.stock ? Number(record.stock) : undefined,
-      purchaseUnit: record.purchaseUnit || undefined,
-      packageSpec: record.packageSpec || undefined,
-      moq: record.moq ? Number(record.moq) : undefined,
-      stepQty: record.stepQty ? Number(record.stepQty) : undefined,
-      storageType: record.storageType || undefined,
     } as ProductImportRow;
   });
 }

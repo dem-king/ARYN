@@ -105,7 +105,8 @@ function showFallback(item: CategoryItem, index: number) {
 .icon-strip {
   position: relative;
   background: #fff;
-  padding: 24rpx 0 18rpx;
+  /* 顶边 4rpx 与 .icon-strip-inner 的 20rpx 相加仍是原 24rpx：拆开是为了给选中项留裁切余量 */
+  padding: 4rpx 0 18rpx;
   /* 与下方内容区形成层次分隔，避免纯白平贴 */
   border-bottom: 1rpx solid #f1f2f4;
 }
@@ -117,7 +118,15 @@ function showFallback(item: CategoryItem, index: number) {
 
 .icon-strip-inner {
   display: inline-flex;
-  padding: 0 120rpx 0 20rpx;
+  /**
+   * 顶部 20rpx 是给选中项留的裁切余量。scroll-view 会在自身内容盒上沿裁掉溢出内容，
+   * 而选中项被 translateY(-2rpx) 上提，圆再叠加弹跳动画的 scale（45% 处峰值 1.1、
+   * 结束保持 1.04）与选中描边阴影 5rpx 的扩散：圆顶最多外溢
+   * 1px(上提) + 2.4px(峰值放大) + 2.5px(阴影) ≈ 6px，余量不足时表现为顶部被平切。
+   * 这份余量从 .icon-strip 的 padding 让出，两者相加仍等于原来的 24rpx：
+   * 图标位置与图标条总高都不变，只是滚动容器上沿上移、多出这段不裁切的空间。
+   */
+  padding: 20rpx 120rpx 0 20rpx;
 }
 
 .icon-strip-item {

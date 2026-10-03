@@ -242,21 +242,21 @@ const dynamicGoodsStyles = computed(() => {
                   <div class="goods-info-buy-btn">
                     <ElIcon
                       v-if="showData.buyBtnStyle === '1'"
-                      color="#ff4444"
+                      color="var(--wot-color-theme-primary, #ff2237)"
                       size="20"
                     >
                       <Handbag />
                     </ElIcon>
                     <ElIcon
                       v-if="showData.buyBtnStyle === '2'"
-                      color="#ff4444"
+                      color="var(--wot-color-theme-primary, #ff2237)"
                       size="20"
                     >
                       <ShoppingCart />
                     </ElIcon>
                     <ElButton
                       v-if="showData.buyBtnStyle === '3'"
-                      color="#ff4444"
+                      color="var(--wot-color-theme-primary, #ff2237)"
                     >
                       {{ showData.buyBtnText }}
                     </ElButton>
@@ -284,21 +284,21 @@ const dynamicGoodsStyles = computed(() => {
                 <div class="goods-info-buy-btn" v-if="showData.showBuyBtn">
                   <ElIcon
                     v-if="showData.buyBtnStyle === '1'"
-                    color="#ff4444"
+                    color="var(--wot-color-theme-primary, #ff2237)"
                     size="20"
                   >
                     <Handbag />
                   </ElIcon>
                   <ElIcon
                     v-if="showData.buyBtnStyle === '2'"
-                    color="#ff4444"
+                    color="var(--wot-color-theme-primary, #ff2237)"
                     size="20"
                   >
                     <ShoppingCart />
                   </ElIcon>
                   <ElButton
                     v-if="showData.buyBtnStyle === '3'"
-                    color="#ff4444"
+                    color="var(--wot-color-theme-primary, #ff2237)"
                     size="small"
                   >
                     {{ showData.buyBtnText }}

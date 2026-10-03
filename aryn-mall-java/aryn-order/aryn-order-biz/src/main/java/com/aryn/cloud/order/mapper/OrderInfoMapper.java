@@ -35,6 +35,20 @@ public interface OrderInfoMapper extends BaseMapper<OrderInfo> {
 	IPage<OrderInfo> selectAdminPage(Page page, @Param("query") OrderInfo orderInfo);
 
 	/**
+	 * 管理端订单导出列表：查询条件与 {@link #selectAdminPage} 完全一致，仅不分页
+	 * @param orderInfo 查询条件
+	 * @return 订单列表（不含商品行，商品行由调用方批量查询回填）
+	 */
+	List<OrderInfo> selectExportList(@Param("query") OrderInfo orderInfo);
+
+	/**
+	 * 导出前计数：与 {@link #selectExportList} 条件一致，用于超限拦截
+	 * @param orderInfo 查询条件
+	 * @return 符合条件的订单数
+	 */
+	int countExportList(@Param("query") OrderInfo orderInfo);
+
+	/**
 	 * 订单详情
 	 * @param id
 	 * @author 雨滴kian

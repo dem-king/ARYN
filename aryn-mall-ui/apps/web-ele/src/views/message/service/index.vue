@@ -3,9 +3,10 @@ import type { ViewChatMessage } from '../message-state';
 
 import type { AgentInfo } from '#/api/message/agent';
 import type { Conversation } from '#/api/message/types';
+import type { PresenceStatus } from '#/store/agent-presence';
 import type { MessagePushSignal } from '#/store/message';
 
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 
 import { useUserStore } from '@vben/stores';
 
@@ -22,11 +23,6 @@ import {
 import { nanoid } from 'nanoid';
 
 import {
-  getSelfAgent,
-  heartbeatAgent,
-  updateAgentPresence,
-} from '#/api/message/agent';
-import {
   claimConversation,
   closeConversation,
   getConversationMessages,
@@ -36,6 +32,8 @@ import {
   sendConversationMessage,
   transferConversation,
 } from '#/api/message/conversation';
+import { useAgentPresenceStore } from '#/store/agent-presence';
+import { useMessageStore } from '#/store/message';
 
 import ChatMessageCard from '../chat-message-card.vue';
 import {
@@ -50,14 +48,14 @@ import AgentConfigDialog from './agent-config-dialog.vue';
 
 const activeTab = ref<'mine' | 'waiting'>('mine');
 const userStore = useUserStore();
+const messageStore = useMessageStore();
+const presenceStore = useAgentPresenceStore();
 const conversations = ref<Conversation[]>([]);
 const active = ref<Conversation>();
 const messages = ref<ViewChatMessage[]>([]);
 const draft = ref('');
-const presence = ref<'BUSY' | 'OFFLINE' | 'ONLINE' | 'PAUSED'>('OFFLINE');
 const timeline = ref<HTMLElement>();
 const agentConfigDialog = ref<InstanceType<typeof AgentConfigDialog>>();
-let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
 
 const title = computed(() =>
   active.value?.conversationType === 'STAFF_DIRECT'
@@ -91,6 +89,7 @@ async function openConversation(conversation: Conversation) {
   ) {
     await markConversationRead(conversation.id, conversation.lastSeq);
     await loadConversations();
+    syncBellAfterRead();
   }
   await nextTick();
   scrollToBottom();
@@ -99,6 +98,15 @@ async function openConversation(conversation: Conversation) {
 /** 待领取会话尚未分配给当前坐席，此时推进已读游标会被服务端拒绝。 */
 function isReadable(conversation: Conversation) {
   return conversation.status !== 'WAITING';
+}
+
+/**
+ * 工作台推进已读游标后，铃铛里的会话未读需要同步回落。
+ *
+ * 否则读过的会话会一直挂在角标上，坐席分不清哪些还没看。
+ */
+function syncBellAfterRead() {
+  void messageStore.refreshNotifications();
 }
 
 function scrollToBottom(behavior: ScrollBehavior = 'smooth') {
@@ -126,6 +134,8 @@ async function refreshActiveConversation() {
   const latest = latestServerSequence(messages.value);
   if (isReadable(conversation) && latest > (conversation.lastReadSeq || 0)) {
     await markConversationRead(conversation.id, latest);
+    // 推送触发的 store 刷新可能先于本次已读上报完成，这里补一次保证角标收敛。
+    syncBellAfterRead();
   }
 }
 
@@ -179,6 +189,8 @@ async function claim() {
   ElMessage.success('会话已领取');
   activeTab.value = 'mine';
   await loadConversations();
+  // 领取后该会话不再属于待领取池，铃铛角标要同步减少。
+  syncBellAfterRead();
 }
 
 async function transfer() {
@@ -203,20 +215,32 @@ async function close() {
   await loadConversations();
 }
 
-async function changePresence(value: typeof presence.value) {
-  const previous = presence.value;
+const showOfflineTip = computed(
+  () =>
+    presenceStore.loaded &&
+    presenceStore.enabled &&
+    presenceStore.presence === 'OFFLINE',
+);
+
+/** 下拉切换接待状态；失败时 store 已回滚状态，错误提示由请求层统一弹出。 */
+async function changePresence(value: PresenceStatus) {
   try {
-    const agent = await updateAgentPresence(value);
-    presence.value = agent.presenceStatus;
-  } catch (error) {
-    presence.value = previous;
-    throw error;
+    await presenceStore.changePresence(value);
+  } catch {
+    // 已由请求层提示，这里无需重复处理。
   }
+}
+
+/** 离线提示条的一键上线。 */
+function goOnline() {
+  void changePresence('ONLINE');
 }
 
 function handleAgentSaved(agent: AgentInfo) {
   if (agent.staffId !== userStore.userInfo?.userId) return;
-  presence.value = agent.enabled === '1' ? agent.presenceStatus : 'OFFLINE';
+  // 首次配置坐席时本地还没有心跳循环，先补激活再同步状态。
+  presenceStore.activate();
+  presenceStore.applyAgent(agent);
 }
 
 /** 结构化消息（图片/业务卡片）交给卡片组件，这里只兜底文本与系统消息。 */
@@ -225,22 +249,47 @@ function displayMessage(message: ViewChatMessage) {
   return message.content || '[系统消息]';
 }
 
+/**
+ * 定位铃铛指定的会话。
+ *
+ * 待领取会话不在“我的会话”里，需要切到待领取页签再打开。
+ */
+async function openPendingConversation(conversationId: string) {
+  const mine = conversations.value.find((item) => item.id === conversationId);
+  if (mine) {
+    await openConversation(mine);
+    return;
+  }
+  activeTab.value = 'waiting';
+  await loadConversations();
+  const waiting = conversations.value.find(
+    (item) => item.id === conversationId,
+  );
+  if (waiting) await openConversation(waiting);
+}
+
+/** 会话已在工作台打开时再次点击铃铛，走 watch 分支而不是重新挂载。 */
+watch(
+  () => messageStore.pendingConversationId,
+  async (conversationId) => {
+    if (!conversationId) return;
+    messageStore.clearPendingConversation();
+    await openPendingConversation(conversationId);
+  },
+);
+
 useConversationPush(refreshOnPush);
 
 onMounted(async () => {
-  try {
-    const agent = await getSelfAgent();
-    presence.value = agent.presenceStatus;
-  } catch {
-    presence.value = 'OFFLINE';
-  }
+  // 接待状态与心跳由应用级 store 托管，页面卸载（去查订单等）不再掉线。
+  presenceStore.activate();
   await loadConversations();
-  heartbeatTimer = setInterval(() => {
-    if (presence.value !== 'OFFLINE') void heartbeatAgent();
-  }, 30_000);
+  const pending = messageStore.pendingConversationId;
+  if (pending) {
+    messageStore.clearPendingConversation();
+    await openPendingConversation(pending);
+  }
 });
-
-onBeforeUnmount(() => heartbeatTimer && clearInterval(heartbeatTimer));
 </script>
 
 <template>
@@ -264,7 +313,11 @@ onBeforeUnmount(() => heartbeatTimer && clearInterval(heartbeatTimer));
       </div>
       <div class="presence-row">
         <span>接待状态</span
-        ><ElSelect v-model="presence" size="small" @change="changePresence">
+        ><ElSelect
+          v-model="presenceStore.presence"
+          size="small"
+          @change="changePresence"
+        >
           <ElOption label="在线" value="ONLINE" /><ElOption
             label="忙碌"
             value="BUSY"
@@ -273,6 +326,12 @@ onBeforeUnmount(() => heartbeatTimer && clearInterval(heartbeatTimer));
             value="OFFLINE"
           />
         </ElSelect>
+      </div>
+      <div v-if="showOfflineTip" class="offline-tip">
+        <span>当前离线，不参与自动接待与待领取分配</span>
+        <ElButton size="small" type="primary" @click="goOnline">
+          一键上线
+        </ElButton>
       </div>
       <div class="segment">
         <button
@@ -399,6 +458,9 @@ onBeforeUnmount(() => heartbeatTimer && clearInterval(heartbeatTimer));
 <style scoped>
 .service-desk {
   display: grid;
+
+  /* 缺省行是 auto，会按内容撑高、顶破固定高度容器把输入区挤到可视区外 */
+  grid-template-rows: minmax(0, 1fr);
   grid-template-columns: 330px 1fr;
   height: calc(100vh - 112px);
   min-height: 620px;
@@ -475,6 +537,20 @@ onBeforeUnmount(() => heartbeatTimer && clearInterval(heartbeatTimer));
   padding: 14px 20px;
   font-size: 12px;
   color: #8eb2c8;
+}
+
+.offline-tip {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 12px;
+  margin: 0 16px 12px;
+  font-size: 12px;
+  color: #fbbf24;
+  background: rgb(251 191 36 / 10%);
+  border: 1px solid rgb(251 191 36 / 32%);
+  border-radius: 10px;
 }
 
 .segment {

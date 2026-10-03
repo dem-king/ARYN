@@ -164,6 +164,15 @@ export function migratePageContent(input: unknown): DecorationDocument {
     = theme && typeof theme.navigationTextColor === 'string' && theme.navigationTextColor
       ? theme.navigationTextColor
       : null
+  // 品牌主色/辅色只在合法 hex 时透传，diy 渲染器据此在页面内容区覆盖全局主题 CSS 变量
+  const themePrimaryColor
+    = theme && typeof theme.primaryColor === 'string' && /^#[0-9a-f]{6}$/i.test(theme.primaryColor)
+      ? theme.primaryColor
+      : undefined
+  const themeSecondaryColor
+    = theme && typeof theme.secondaryColor === 'string' && /^#[0-9a-f]{6}$/i.test(theme.secondaryColor)
+      ? theme.secondaryColor
+      : undefined
 
   return {
     components,
@@ -184,5 +193,7 @@ export function migratePageContent(input: unknown): DecorationDocument {
     } as PageSettings,
     schemaVersion: DECORATION_SCHEMA_VERSION,
     sections,
+    ...(themePrimaryColor ? { themePrimaryColor } : {}),
+    ...(themeSecondaryColor ? { themeSecondaryColor } : {}),
   }
 }

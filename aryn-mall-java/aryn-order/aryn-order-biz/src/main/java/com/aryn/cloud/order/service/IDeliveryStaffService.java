@@ -37,6 +37,13 @@ public interface IDeliveryStaffService extends IService<DeliveryStaff> {
 	DeliveryStaff getByUserId(String userId);
 
 	/**
+	 * 批量查询配送员姓名（按ID去重后一次查询，供任务/出车单列表回填派生字段）
+	 * @param staffIds 配送员ID集合
+	 * @return 配送员ID -> 姓名
+	 */
+	java.util.Map<String, String> mapStaffNames(java.util.Collection<String> staffIds);
+
+	/**
 	 * 管理列表分页（含员工账号、商城绑定与权限摘要）
 	 * @param page 分页参数
 	 * @param keyword 姓名/手机号模糊

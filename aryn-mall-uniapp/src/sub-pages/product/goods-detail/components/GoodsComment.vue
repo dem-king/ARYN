@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, getCurrentInstance, ref, watch } from 'vue'
 import { formatTime } from '@/utils/index'
-import { getPage as getAppraisePage, getCount } from '@/api/product/appraise'
+import { getPage as getAppraisePage, getCount } from '@/sub-pages/api/product/appraise'
 
 interface Props {
   spuId: string

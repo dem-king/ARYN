@@ -3,30 +3,30 @@
  * 定义页面设计获取的API接口
  */
 
-import { alovaInstance } from "@/api/core/instance";
+import { alovaInstance } from '@/api/core/instance'
 
 export interface PageDesign {
-  id: string;
+  id: string
   /** 页面名称 */
-  pageName: string;
+  pageName: string
   /** 页面内容 */
-  pageContent: unknown;
-  pageType: string;
-  schemaVersion: number;
-  publishedVersionId?: string;
-  publishedVersionNo?: number;
+  pageContent: unknown
+  pageType: string
+  schemaVersion: number
+  publishedVersionId?: string
+  publishedVersionNo?: number
 }
 
 /**
  * 查询页面设计列表
  */
 export function getPageDesign(params?: object) {
-  return alovaInstance.Get<PageDesign>("/promotion/app/pagedesign", {
+  return alovaInstance.Get<PageDesign>('/promotion/app/pagedesign', {
     params,
     headers: {
       skipToken: true,
     },
-  });
+  })
 }
 
 /**
@@ -50,7 +50,7 @@ export function getById(id: string) {
     headers: {
       skipToken: true,
     },
-  });
+  })
 }
 
 /**
@@ -62,5 +62,30 @@ export function getPublishedByType(pageType: string) {
     headers: {
       skipToken: true,
     },
-  });
+  })
+}
+
+/** 商城默认主题（C 端启动换肤用，未设置时 data 为 null） */
+export interface MallTheme {
+  themeId: string
+  themeName: string
+  primaryColor?: string
+  /** 品牌辅色，后端由主色衍生下发 */
+  secondaryColor?: string
+  pageBackgroundColor?: string
+  navigationColor?: string
+  navigationTextColor?: string
+  radius?: number
+}
+
+/**
+ * 获取商城默认主题（无需登录）。
+ * 未设置默认主题时返回 null，调用方应保持当前配色不变。
+ */
+export function getMallTheme() {
+  return alovaInstance.Get<MallTheme | null>('/promotion/app/pagedesign/mall-theme', {
+    headers: {
+      skipToken: true,
+    },
+  })
 }

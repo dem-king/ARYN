@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-
-import { followDecorationLink } from '@/components/diy/link-resolver'
 import type { BottomNavProps } from '@/components/diy/retail-types'
+
+import { computed } from 'vue'
+import { followDecorationLink } from '@/components/diy/link-resolver'
 import { useDiyStyle } from '@/composables/useDiyStyle'
 
 const props = defineProps({

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
-import { getUserPage } from '@/api/product/appraise'
+import { getUserPage } from '@/sub-pages/api/product/appraise'
 
 definePage({
   name: 'user-appraise',

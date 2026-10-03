@@ -74,7 +74,7 @@ function onCollect() {
     align-items: center;
 
     .pic-icon-warp {
-      background-color: #ff3d36;
+      background-color: var(--wot-color-theme-primary, #ff2237);
       border-radius: 50%;
       width: 60rpx;
       /* 确保宽高相等 */
@@ -85,7 +85,7 @@ function onCollect() {
     }
 
     .share-icon-warp {
-      background-color: #fe560a;
+      background-color: var(--wot-color-theme-primary, #ff2237);
       border-radius: 50%;
       width: 60rpx;
       /* 确保宽高相等 */

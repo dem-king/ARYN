@@ -35,6 +35,13 @@ export interface SharedCart {
   viewerIsOwner?: boolean
   itemCount?: number
   memberCount?: number
+  /**
+   * 补给进度汇总（服务端按项数算，未排计划的行不计入百分比）。
+   *
+   * 与首页补给单卡片、详情页同一口径；无任何计划时 `progressPercent` 为 null，
+   * 前端显示「尚未排计划」而不是 0%（0% 会被读成「有计划但一项没采」）。
+   */
+  progress?: ReplenishSummaryProgress | null
   /** 仅创建接口返回：命中了该船已有的收集中购物车（被复用的实例，非新建） */
   adoptedExisting?: boolean
   /** 分享令牌（发起人可生成，随购物车过期失效） */
@@ -118,6 +125,8 @@ export interface SharedCartConfirmPayload {
   agentName?: string
   agentPhone?: string
   remark?: string
+  /** 支付类型：''=在线支付（默认）；'3'=货到付款（内部配送专用，下单即进待发货） */
+  paymentType?: string
 }
 
 /** 首页「今日补给单」卡片摘要（服务端一次聚合，避免首屏串行多请求） */
@@ -286,6 +295,13 @@ export type SharedCartImportResultType
     | 'OVER_STOCK'
     | 'INVALID_QTY'
     | 'OFF_SHELF'
+    /**
+     * 未填数量：目录模板里没填数量的行 = 本次不采购，**不是错误**。
+     *
+     * 与 INVALID_QTY 分开的原因：模板按分类铺满在售商品，客户只填要买的几行，
+     * 若把空数量当异常，273 行的模板会显示 268 行红色报错。
+     */
+    | 'NOT_FILLED'
 
 /** 用户对单行的处置动作 */
 export type SharedCartImportAction
@@ -348,6 +364,8 @@ export interface SharedCartImport {
   overStockRows: number
   invalidRows: number
   offShelfRows: number
+  /** 未填数量行数（客户本次不采购，非错误） */
+  notFilledRows?: number
   importedRows?: number
   skippedRows?: number
   createTime?: string

@@ -23,6 +23,8 @@ import {
 import { getDeliveryStaffList } from '#/api/delivery/staff';
 import { assignDeliveryTasks, getDeliveryTaskPage } from '#/api/delivery/task';
 
+import { resolveDeliveryDestination } from '../delivery-destination';
+
 const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
 );
@@ -344,12 +346,7 @@ initPage();
         />
         <ElTableColumn label="收货地址" align="center" min-width="240">
           <template #default="scope">
-            <span>
-              {{ scope.row.recipientProvince }}
-              {{ scope.row.recipientCity }}
-              {{ scope.row.recipientArea }}
-              {{ scope.row.recipientAddress }}
-            </span>
+            {{ resolveDeliveryDestination(scope.row) || '—' }}
           </template>
         </ElTableColumn>
         <ElTableColumn prop="status" label="状态" align="center" width="100">

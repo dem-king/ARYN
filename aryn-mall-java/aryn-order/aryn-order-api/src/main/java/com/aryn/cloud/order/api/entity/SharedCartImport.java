@@ -69,6 +69,14 @@ public class SharedCartImport extends Model<SharedCartImport> {
 	/** 下架商品行数 */
 	private Integer offShelfRows;
 
+	/**
+	 * 未填数量行数（客户本次不采购）。
+	 *
+	 * <p>单独计数而不并入异常：商品目录模板按分类铺满在售商品，
+	 * 客户只填要买的那几行，其余行天然空着；把它们算成异常会让报告失真。
+	 */
+	private Integer notFilledRows;
+
 	/** 确认后实际并入的明细项数 */
 	private Integer importedRows;
 

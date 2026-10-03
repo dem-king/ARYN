@@ -34,6 +34,18 @@ public interface MessageConversationMapper extends BaseMapper<MessageConversatio
 			@Param("participantType") String participantType, @Param("participantId") String participantId,
 			@Param("cursor") String cursor, @Param("fetchSize") int fetchSize);
 
+	/** 本人参与、且最后一次已读之后有新消息的会话，按最新消息倒序。 */
+	List<ConversationVO> selectUnreadForParticipant(@Param("tenantId") String tenantId,
+			@Param("participantType") String participantType, @Param("participantId") String participantId,
+			@Param("limit") int limit);
+
+	/** 与 selectUnreadForParticipant 同口径的总数，用于管理端铃铛角标。 */
+	long countUnreadForParticipant(@Param("tenantId") String tenantId,
+			@Param("participantType") String participantType, @Param("participantId") String participantId);
+
+	/** 共享池待领取会话数；分配条件与 selectWaiting 保持一致。 */
+	long countWaiting(@Param("tenantId") String tenantId, @Param("queueCode") String queueCode);
+
 	int assignWaiting(@Param("tenantId") String tenantId, @Param("conversationId") String conversationId,
 			@Param("staffId") String staffId);
 

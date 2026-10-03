@@ -113,6 +113,14 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
       // 当前mock接口返回的错误字段是 error 或者 message
       const responseData = error?.response?.data ?? {};
       const errorMessage = responseData?.msg ?? '';
+      // 坐席心跳是 30 秒一次的后台轮询，失败由状态 store 自行恢复（重写租约或回落离线），
+      // 不能每次都弹全局错误提示。
+      const failedUrl: string =
+        error?.config?.url ?? error?.response?.config?.url ?? '';
+      if (failedUrl.endsWith('/staff/agent/heartbeat')) {
+        console.warn('客服心跳续约失败，等待下一轮恢复。', error);
+        return;
+      }
       // 如果没有错误信息，则会根据状态码进行提示
       ElMessage.error(errorMessage || msg);
     }),

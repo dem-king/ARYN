@@ -111,11 +111,13 @@ public class PageDesignTemplateServiceImpl {
 
 	/**
 	 * 市场模板分页列表（跨租户，仅已上架）。
+	 *
+	 * @param sortField 排序方式：createTime 按最新创建，其余（含空值）按下载量倒序
 	 */
 	public IPage<PageDesignTemplateVO> listMarketTemplates(long pageNum, long pageSize, String templateName,
-			String industryTag) {
+			String industryTag, String sortField) {
 		Page<PageDesignTemplate> page = new Page<>(pageNum, pageSize);
-		return mapper.selectMarketTemplatePage(page, templateName, industryTag)
+		return mapper.selectMarketTemplatePage(page, templateName, industryTag, sortField)
 			.convert(PageDesignTemplateVO::fromMarketList);
 	}
 

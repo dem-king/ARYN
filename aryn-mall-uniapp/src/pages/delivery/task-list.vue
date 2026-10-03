@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
-import { getMyTaskPage, getTaskStatusName, getTaskStatusColor } from '@/api/delivery'
 import type { DeliveryTask, DeliveryTaskStatus } from '@/api/delivery'
+import { onShow } from '@dcloudio/uni-app'
+import { reactive, ref } from 'vue'
+import { getMyTaskPage, getTaskStatusColor, getTaskStatusName } from '@/api/delivery'
+import { resolveDeliveryDestination } from '@/utils/delivery-navigation'
 
 definePage({
   name: 'delivery-task-list',
@@ -81,6 +83,17 @@ function toTaskDetail(taskId: string) {
   })
 }
 
+// 首次进入由 z-paging 的 auto 首查兜底，这里跳过，否则同一进页会发两个请求；
+// 之后每次显示（如从详情页操作完返回）都重查，保证任务状态最新
+let hasShownOnce = false
+onShow(() => {
+  if (!hasShownOnce) {
+    hasShownOnce = true
+    return
+  }
+  pagingRef.value?.reload()
+})
+
 /** 跳转回工作台 */
 function toWorkbench() {
   router.replaceAll({ name: 'delivery-index' })
@@ -96,7 +109,6 @@ function toProfile() {
   <z-paging
     ref="pagingRef"
     v-model="state.taskList"
-    :auto="false"
     @query="queryList"
   >
     <template #top>
@@ -157,12 +169,12 @@ function toProfile() {
 
         <!-- 收货地址 -->
         <view class="flex items-start pb-10rpx">
-          <text class="i-carbon:location mr-10rpx mt-4rpx text-28rpx flex-none text-gray-400" />
+          <text class="i-carbon:location mr-10rpx mt-4rpx flex-none text-28rpx text-gray-400" />
           <text class="text-26rpx text-gray-600">
             收货地址：
           </text>
           <text class="flex-1 text-26rpx">
-            {{ task.recipientAddress }}
+            {{ resolveDeliveryDestination(task) || '暂无收货地址' }}
           </text>
         </view>
 

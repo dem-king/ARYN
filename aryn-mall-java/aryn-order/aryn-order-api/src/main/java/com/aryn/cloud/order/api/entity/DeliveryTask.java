@@ -155,6 +155,10 @@ public class DeliveryTask extends Model<DeliveryTask> {
 	@Schema(description = "逻辑删除：0.显示；1.隐藏；")
 	private String delFlag;
 
+	@Schema(description = "配送员姓名（按 staffId 关联查询的派生值）")
+	@TableField(exist = false)
+	private String staffName;
+
 	@Schema(description = "取货明细列表")
 	@TableField(exist = false)
 	private List<DeliveryTaskItem> itemList;

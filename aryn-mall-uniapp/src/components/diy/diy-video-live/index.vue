@@ -98,7 +98,7 @@ function enterLive() {
   place-items: center;
   color: #fff;
   font-size: 32rpx;
-  background: linear-gradient(135deg, #ff5000, #ff8a00);
+  background: linear-gradient(135deg, var(--wot-color-theme-primary, #ff5000), var(--wot-color-theme-secondary, #ff8a00));
 }
 
 .videolive-live-tag {

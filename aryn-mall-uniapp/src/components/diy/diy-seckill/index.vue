@@ -5,8 +5,8 @@ import { computed } from 'vue'
 
 import { followDecorationLink } from '@/components/diy/link-resolver'
 import { loadSeckillSessions } from '@/components/diy/retail-data'
-import { retailCommonStyle } from '@/components/diy/retail-types'
 import RetailState from '@/components/diy/retail-state.vue'
+import { retailCommonStyle } from '@/components/diy/retail-types'
 import { formatRemainingTime, useCountdownTicker } from '@/composables/useCountdown'
 import { useDiyStyle } from '@/composables/useDiyStyle'
 import { useRetailData } from '@/composables/useRetailData'
@@ -63,12 +63,16 @@ function openGoods(spuId: string, skuId: string) {
 
 <template>
   <view v-if="shouldRender" class="seckill" :style="dynamicStyles">
-    <view class="section-title">{{ showData.title }}</view>
+    <view class="section-title">
+      {{ showData.title }}
+    </view>
     <RetailState v-if="status !== 'ready'" :status="status" />
     <view v-else class="session-list">
       <view v-for="session in items" :key="session.sessionId" class="session-item">
         <view class="session-header">
-          <text class="session-name">{{ session.sessionName || '秒杀场次' }}</text>
+          <text class="session-name">
+            {{ session.sessionName || '秒杀场次' }}
+          </text>
           <text v-if="showData.showCountdown" class="session-time">
             {{ session.status === 2 || !remaining(session)
               ? '本场已结束'
@@ -89,17 +93,25 @@ function openGoods(spuId: string, skuId: string) {
               mode="aspectFill"
               lazy-load
             />
-            <view v-else class="goods-image goods-image--empty">秒杀</view>
+            <view v-else class="goods-image goods-image--empty">
+              秒杀
+            </view>
             <view class="goods-content">
-              <view class="goods-name">{{ goods.goodsName || '秒杀商品' }}</view>
+              <view class="goods-name">
+                {{ goods.goodsName || '秒杀商品' }}
+              </view>
               <view v-if="showData.showProgress && soldPercent(goods) !== null" class="goods-progress">
                 <view class="progress-track">
                   <view class="progress-bar" :style="{ width: `${soldPercent(goods)}%` }" />
                 </view>
-                <text class="progress-text">已售{{ soldPercent(goods) }}%</text>
+                <text class="progress-text">
+                  已售{{ soldPercent(goods) }}%
+                </text>
               </view>
               <view class="goods-price-row">
-                <text class="goods-price">￥{{ goods.seckillPrice.toFixed(2) }}</text>
+                <text class="goods-price">
+                  ￥{{ goods.seckillPrice.toFixed(2) }}
+                </text>
                 <text v-if="goods.originalPrice" class="goods-original">
                   ￥{{ goods.originalPrice.toFixed(2) }}
                 </text>
@@ -121,17 +133,17 @@ function openGoods(spuId: string, skuId: string) {
 .session-list { display: flex; flex-direction: column; gap: 16rpx; }
 .session-header { display: flex; margin-bottom: 12rpx; align-items: baseline; justify-content: space-between; }
 .session-name { color: #1f2329; font-size: 27rpx; font-weight: 600; }
-.session-time { color: #e5484d; font-size: 22rpx; }
+.session-time { color: var(--wot-color-theme-primary, #ff2237); font-size: 22rpx; }
 .goods-list { display: flex; flex-direction: column; gap: 14rpx; }
 .goods-card { display: flex; overflow: hidden; min-height: 140rpx; gap: 18rpx; border: 1rpx solid #ffe1dc; border-radius: 8rpx; background: #fff; }
-.goods-image { display: flex; width: 150rpx; min-height: 140rpx; flex: 0 0 auto; align-items: center; justify-content: center; background: #fff1ee; color: #e5484d; font-size: 22rpx; }
+.goods-image { display: flex; width: 150rpx; min-height: 140rpx; flex: 0 0 auto; align-items: center; justify-content: center; background: var(--wot-color-theme-background, #fff1ee); color: var(--wot-color-theme-primary, #ff2237); font-size: 22rpx; }
 .goods-content { min-width: 0; flex: 1; padding: 16rpx 16rpx 16rpx 0; }
 .goods-name { overflow: hidden; color: #303133; font-size: 27rpx; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .goods-progress { display: flex; margin-top: 10rpx; align-items: center; gap: 10rpx; }
 .progress-track { overflow: hidden; width: 160rpx; height: 12rpx; border-radius: 6rpx; background: #ffe1dc; }
-.progress-bar { height: 100%; border-radius: 6rpx; background: #e5484d; }
-.progress-text { color: #e5484d; font-size: 21rpx; }
+.progress-bar { height: 100%; border-radius: 6rpx; background: var(--wot-color-theme-primary, #ff2237); }
+.progress-text { color: var(--wot-color-theme-primary, #ff2237); font-size: 21rpx; }
 .goods-price-row { display: flex; margin-top: 14rpx; align-items: baseline; gap: 10rpx; }
-.goods-price { color: #e5484d; font-size: 30rpx; font-weight: 700; }
+.goods-price { color: var(--wot-color-theme-primary, #ff2237); font-size: 30rpx; font-weight: 700; }
 .goods-original { color: #a8abb2; font-size: 21rpx; text-decoration: line-through; }
 </style>

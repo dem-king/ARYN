@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { computed, defineAsyncComponent, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue';
 
 import { CircleCloseFilled, DCaret, Plus } from '@element-plus/icons-vue';
 import {
@@ -7,17 +7,20 @@ import {
   ElForm,
   ElFormItem,
   ElIcon,
-  ElInput,
   ElInputNumber,
   ElMessageBox,
+  ElOption,
   ElRadio,
   ElRadioGroup,
+  ElSelect,
   ElSlider,
   ElSwitch,
   ElTabPane,
   ElTabs,
 } from 'element-plus';
 import draggable from 'vuedraggable';
+
+import { getPage as getCategoryTree } from '#/api/product/goods-category';
 
 // 用于接收外部 v-model
 const props = defineProps<{ modelValue: any }>();
@@ -125,6 +128,66 @@ const del = (index: number) => {
     form.value.navList.splice(index, 1);
   });
 };
+
+// ---------- 一级分类选项（标题可选可输） ----------
+
+interface CategoryOption {
+  id: string;
+  name: string;
+  pic: string;
+}
+
+const categoryOptions = ref<CategoryOption[]>([]);
+
+/** 所有分类配图集合：当前图标命中说明是自动带出的，可随重新选择覆盖 */
+const categoryPicSet = computed(
+  () => new Set(categoryOptions.value.map((o) => o.pic).filter(Boolean)),
+);
+
+onMounted(async () => {
+  try {
+    // 与「跟随分类」数据源一致：仅启用中的一级分类（status '1' 为停用）
+    const tree = (await getCategoryTree()) ?? [];
+    categoryOptions.value = tree
+      .filter((node: any) => node.status !== '1')
+      .sort((a: any, b: any) => (Number(a.sort) || 0) - (Number(b.sort) || 0))
+      .map((node: any) => ({
+        id: String(node.id ?? ''),
+        name: node.name,
+        pic: node.categoryPic || '',
+      }));
+  } catch {
+    // 拉取失败时退化为纯手动输入，不阻塞编辑器
+    categoryOptions.value = [];
+  }
+});
+
+/**
+ * 选中真实分类名时联动链接与图片：链接为空、或本就指向某个一级分类时，
+ * 直接改指所选分类（标题与链接一步对齐）；指向二级分类或非分类页的链接不动。
+ * 图片同理：未配图或当前图是其他分类带出的才覆盖，手动上传的图保留。
+ */
+const onNavTitleChange = (item: any, val: string) => {
+  const matched = categoryOptions.value.find((o) => o.name === val);
+  if (!matched) return;
+  const link = item.link;
+  const canSyncLink =
+    !link ||
+    (typeof link === 'object' &&
+      link.type === 'category' &&
+      !link.params?.categorySecondId);
+  if (canSyncLink) {
+    item.link = {
+      type: 'category',
+      targetId: matched.id,
+      path: '',
+      params: { categoryFirstId: matched.id, categorySecondId: '' },
+    };
+  }
+  if (!item.url || categoryPicSet.value.has(item.url)) {
+    item.url = matched.pic;
+  }
+};
 </script>
 
 <template>
@@ -168,6 +231,9 @@ const del = (index: number) => {
                   <ElRadio :value="2">2行</ElRadio>
                   <ElRadio :value="3">3行</ElRadio>
                 </ElRadioGroup>
+                <p class="form-tip">
+                  高度自适应：铺不满整页时按当前页实际行数收缩高度
+                </p>
               </ElFormItem>
               <ElFormItem label="指示器">
                 <ElSwitch v-model="form.indicatorDots" />
@@ -180,7 +246,9 @@ const del = (index: number) => {
               </ElFormItem>
             </template>
             <ElFormItem label="导航设置">
-              <p class="form-tip">可以上下拖动更改顺序</p>
+              <p class="form-tip">
+                可以上下拖动更改顺序；标题支持选择一级分类或手动输入，选中分类后自动带出该分类的图片和链接
+              </p>
             </ElFormItem>
             <draggable
               v-model="form.navList"
@@ -204,10 +272,22 @@ const del = (index: number) => {
                       label-width="40"
                       v-if="form.type !== '1'"
                     >
-                      <ElInput
+                      <ElSelect
                         v-model="element.title"
-                        placeholder="请输入标题"
-                      />
+                        filterable
+                        allow-create
+                        default-first-option
+                        clearable
+                        placeholder="选择分类或输入标题"
+                        @change="onNavTitleChange(element, $event)"
+                      >
+                        <ElOption
+                          v-for="opt in categoryOptions"
+                          :key="opt.id"
+                          :label="opt.name"
+                          :value="opt.name"
+                        />
+                      </ElSelect>
                     </ElFormItem>
                     <ElFormItem label="链接" class="mt10" label-width="40">
                       <LinkUrl v-model="element.link" />

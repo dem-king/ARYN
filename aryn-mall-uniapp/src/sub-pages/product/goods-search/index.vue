@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import type { SuggestItem } from '@/utils/search-suggest'
+import type { SuggestItem } from '@/sub-pages/utils/search-suggest'
 import { onLoad } from '@dcloudio/uni-app'
 import { computed, reactive, ref } from 'vue'
 import { getPage, getTop10HotSearchGoods } from '@/api/product/spu'
 import HrSearchNavbar from '@/components/hr-search-navbar/index.vue'
-import { buildSearchSuggest, suggestFromLabel } from '@/utils/search-suggest'
+import { buildSearchSuggest, suggestFromLabel } from '@/sub-pages/utils/search-suggest'
+import { useSearchHistory } from '@/sub-pages/composables/useSearchHistory'
 
 definePage({
   name: 'goods-search',

@@ -72,6 +72,16 @@ export interface Conversation {
   unreadCount: number;
 }
 
+/** 坐席待办提醒：本人未读会话与共享池待领取。 */
+export interface ConversationAttention {
+  /** 逐个会话的提醒明细，未读在前、待领取在后。 */
+  conversations: Conversation[];
+  /** 存在未读消息的本人会话数。 */
+  unreadConversations: number;
+  /** 共享池中等待领取的会话数。 */
+  waitingTotal: number;
+}
+
 export interface ChatMessage {
   clientMessageId: string;
   content?: string;

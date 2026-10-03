@@ -22,6 +22,7 @@ function repoSource(relativePath: string) {
 
 const API_BASE = '/mall-order/app/shared-cart'
 const ORDER_BIZ = 'aryn-mall-java/aryn-order/aryn-order-biz/src/main/java/com/aryn/cloud/order'
+const ORDER_API = 'aryn-mall-java/aryn-order/aryn-order-api/src/main/java/com/aryn/cloud/order'
 
 describe('shared cart routing contract', () => {
   it('registers both shared cart pages in pages.json', () => {
@@ -83,6 +84,17 @@ describe('shared cart routing contract', () => {
     expect(call).toContain('fulfilledQuantity: fulfilled')
   })
 
+  it('clear-plan must be written explicitly, not through updateById', () => {
+    // 全库 update-strategy=not_null：updateById 会跳过 null 字段。
+    // 后端若用 setPlannedQuantity(null) + updateById，接口照 200 返回、对象也是 null，
+    // 但库里 planned_quantity 纹丝不动 —— 前端「清空保存」等于没生效且无任何报错。
+    const impl = repoSource(`${ORDER_BIZ}/service/impl/SharedCartServiceImpl.java`)
+    const fnStart = impl.indexOf('public SharedCartItem updateItemPlan')
+    const fnBody = impl.slice(fnStart, impl.indexOf('public void removeItem', fnStart))
+    expect(fnBody).toContain('lambdaUpdate')
+    expect(fnBody).toMatch(/set\(SharedCartItem::getPlannedQuantity,\s*null\)/)
+  })
+
   it('plan entry only shows to confirmer, not to every member', () => {
     const detail = source('src/sub-pages/order/shared-cart/detail.vue')
     // 权限以服务端 viewerCanConfirm 为准，不能前端按 userId 猜
@@ -114,7 +126,7 @@ describe('shared cart routing contract', () => {
   })
 
   it('import page uses the mall-order domain path in both boot and cloud modes', () => {
-    const api = source('src/api/order/sharedCartImport.ts')
+    const api = source('src/sub-pages/api/order/sharedCartImport.ts')
     const fnBody = api.slice(
       api.indexOf('export function previewSharedCartImport'),
       api.indexOf('export function downloadSharedCartImportTemplate'),
@@ -140,8 +152,23 @@ describe('shared cart routing contract', () => {
     expect(controller).not.toContain('@RequestMapping("/boot')
   })
 
+  it('import preview accepts the platform success code instead of a hardcoded 200', () => {
+    const api = source('src/sub-pages/api/order/sharedCartImport.ts')
+    const fnBody = api.slice(
+      api.indexOf('export function previewSharedCartImport'),
+      api.indexOf('export function downloadSharedCartImportTemplate'),
+    )
+    // 本平台成功码是 0（handlers.ts 以 code !== 0 判错）。曾经这里写死 !== 200，
+    // 解析明明成功也会弹「上传解析失败」，导入功能等于不可用。
+    // 成功判定只认 HTTP 状态 + data 存在，不得再出现字面量 200 比对。
+    expect(fnBody).not.toMatch(/code[^\n]*!==\s*200/)
+    expect(fnBody).not.toMatch(/code[^\n]*===\s*200/)
+    expect(fnBody).toContain('res.statusCode')
+    expect(fnBody).toContain('payload.data')
+  })
+
   it('import template download keeps auth and goes through the gateway domain', () => {
-    const api = source('src/api/order/sharedCartImport.ts')
+    const api = source('src/sub-pages/api/order/sharedCartImport.ts')
     const fnBody = api.slice(
       api.indexOf('export function getSharedCartImportTemplateUrl'),
       api.indexOf('export function previewSharedCartImport'),
@@ -156,6 +183,50 @@ describe('shared cart routing contract', () => {
     expect(page).toContain('downloadTemplate')
   })
 
+  it('template lists on-sale goods by category so only the quantity column needs filling', () => {
+    // 客户视角的核心诉求：打开模板就能看到自己商品按分类排好，只改数量列。
+    // 后端必须走「目录导出」而不是给一行示例，否则客户仍要手敲编码与品名。
+    const controller = repoSource(`${ORDER_BIZ}/controller/app/AppSharedCartController.java`)
+    expect(controller).toContain('exportCatalog')
+    expect(controller).toContain('catalogHead')
+    expect(controller).toContain('catalogRow')
+
+    const excel = repoSource(`${ORDER_BIZ}/support/ReplenishImportExcel.java`)
+    // 分类列必须存在且在解析列里排第一：模板按分类铺开才谈得上「方便快速修改」
+    expect(excel).toMatch(/CATEGORY_TITLE\s*=\s*"分类"/)
+    // 参考列（库存/售价；起订量/步长已随船供包装资料下线移除）不参与解析：
+    // 客户改了不算数，混进解析会污染数量与备注
+    const referenceBlock = excel.slice(
+      excel.indexOf('REFERENCE_TITLES'),
+      excel.indexOf('TITLE_TO_FIELD'),
+    )
+    expect(referenceBlock).toContain('库存')
+    expect(referenceBlock).toContain('售价')
+    expect(referenceBlock).not.toContain('起订量')
+    expect(referenceBlock).not.toContain('步长')
+    // 两处列定义的长度必须一致，否则 EasyExcel 会静默错列
+    expect(excel).toContain('catalogHead')
+  })
+
+  it('import report distinguishes not-filled rows from quantity errors', () => {
+    // 目录模板铺满在售商品，客户只填要买的几行。没填数量的行必须是
+    // 「未填数量」而不是「数量异常」，否则 273 行的模板会刷出 268 条红色报错。
+    const page = source('src/sub-pages/order/shared-cart/import.vue')
+    expect(page).toContain('NOT_FILLED')
+    expect(page).toContain('notFilledRows')
+    expect(page).toContain('未填数量')
+
+    // 未填数量的行不进「待处置」列表：它是正常状态，不该占用处置位
+    const actionable = page.slice(
+      page.indexOf('const actionableRows'),
+      page.indexOf('const passiveRows'),
+    )
+    expect(actionable).toContain('NOT_FILLED')
+
+    const controller = repoSource(`${ORDER_BIZ}/controller/app/AppSharedCartController.java`)
+    expect(controller).toContain('@GetMapping("/import/template")')
+  })
+
   it('import page registers in pages.json and is reachable from detail', () => {
     const pages = source('src/pages.json')
     expect(pages).toContain('"path": "order/shared-cart/import"')
@@ -165,6 +236,28 @@ describe('shared cart routing contract', () => {
     expect(detail).toContain('/sub-pages/order/shared-cart/import?cartId=')
     // 入口按服务端权限标记显示，前端不自行推断角色
     expect(detail).toContain('cart.viewerCanConfirm')
+  })
+
+  it('import entry wizard registers in pages.json and shortcuts into import', () => {
+    const pages = source('src/pages.json')
+    expect(pages).toContain('"path": "order/shared-cart/import-entry"')
+    expect(pages).toContain('"name": "shared-cart-import-entry"')
+
+    const entry = source('src/sub-pages/order/shared-cart/import-entry.vue')
+    // 有进行中购物车：摘要复用后直达导入，不让用户感知"购物车"这一层
+    expect(entry).toContain('getActiveSharedCartSummary')
+    expect(entry).toContain('/sub-pages/order/shared-cart/import?cartId=')
+    // 无进行中购物车：内联创建，同船期复用口径与列表页一致
+    expect(entry).toContain('createSharedCart')
+    expect(entry).toContain('adoptedExisting')
+    // 有效期统一由服务端按创建时刻 +24h 决定，前端不得传 expiresAt
+    expect(entry).not.toContain('expiresAt')
+  })
+
+  it('import entry is reachable from the home replenish card placeholder', () => {
+    const card = source('src/components/diy/diy-replenish-card/index.vue')
+    expect(card).toContain('/sub-pages/order/shared-cart/import-entry')
+    expect(card).toContain('/sub-pages/order/shared-cart/list')
   })
 
   it('import confirm only sends actions, never row content', () => {
@@ -232,6 +325,114 @@ describe('shared cart routing contract', () => {
   })
 })
 
+describe('shared cart detail page layout contract', () => {
+  /**
+   * 2026-09 详情页重构的守门：这些是「重排后容易改回去」的结构性决定，
+   * 不是样式细节 —— 每一条都对应一次实际的可用性缺陷。
+   */
+  it('keeps every editing form in a bottom sheet, not inline in the page', () => {
+    const detail = source('src/sub-pages/order/shared-cart/detail.vue')
+    // 原来表单内联在长列表下方，点「排计划」后要往下滚很久才看到表单
+    for (const state of ['nameState', 'inviteState', 'planState', 'editState', 'confirmState']) {
+      expect(detail).toMatch(new RegExp(`v-model="${state}\\.visible"[\\s\\S]{0,120}wd-popup|wd-popup[\\s\\S]{0,120}v-model="${state}\\.visible"`))
+    }
+  })
+
+  it('binds the confirm sheet with a viewport-scoped scroll area', () => {
+    const detail = source('src/sub-pages/order/shared-cart/detail.vue')
+    // 明细多时表单会超过屏幕，只让 body 滚，标题与提交按钮始终可见
+    expect(detail).toContain('confirm-body')
+    expect(detail).toContain('scroll-view scroll-y')
+  })
+
+  it('never renders raw user ids or raw SKU ids as the primary row label', () => {
+    const detail = source('src/sub-pages/order/shared-cart/detail.vue')
+    // 「SKU 9550000000000094」「来自 2103140502970413057」对用户没有意义
+    expect(detail).toContain('memberLabel')
+    expect(detail).toContain('contributorLabel')
+    // 两个兜底函数各自都要截短，不能一个截一个不截
+    // （只查全文件里出现过 slice(-4) 会被另一个函数蒙混过关 —— 缺陷注入实测如此）
+    for (const fn of ['memberLabel', 'contributorLabel']) {
+      const start = detail.indexOf(`function ${fn}(`)
+      const body = detail.slice(start, detail.indexOf('\n}', start))
+      expect(body).toContain('userId.slice(-4)')
+    }
+  })
+
+  it('does not draw an empty progress track when nothing is planned', () => {
+    const detail = source('src/sub-pages/order/shared-cart/detail.vue')
+    // 无计划时画空槽 + 「—」会被读成「加载失败」
+    expect(detail).toContain('hasPlan')
+    // 进度条本身必须挂在 hasPlan 上：hasPlan 与 progressPercent 之间不得再有别的分支
+    const bar = detail.slice(detail.indexOf('v-if="hasPlan"'))
+    expect(bar.slice(0, 400)).toContain('progressPercent')
+  })
+
+  it('gives each planned row its own progress bar', () => {
+    const detail = source('src/sub-pages/order/shared-cart/detail.vue')
+    // 行内进度条回答「这一项还差几件」，是确认人扫清单时最先要看的
+    expect(detail).toMatch(/rowViews\[item\.id\]\?\.percent/)
+  })
+
+  it('pins the bottom action bar and reserves space for it', () => {
+    const detail = source('src/sub-pages/order/shared-cart/detail.vue')
+    expect(detail).toContain('action-bar')
+    // 不留占位会把最后一张卡片压在固定条下面
+    expect(detail).toContain('footer-spacer')
+    expect(detail).toMatch(/bottom:\s*var\(--window-bottom/)
+  })
+
+  it('keeps close-cart away from the primary submit action', () => {
+    const detail = source('src/sub-pages/order/shared-cart/detail.vue')
+    // 关闭不可逆，不再与「提交整船订单」并排等权，避免误触
+    const bar = detail.slice(
+      detail.indexOf('class="action-bar"'),
+      detail.indexOf('<!-\u002D 明细行操作面板'),
+    )
+    expect(bar).toContain('primaryAction')
+    expect(bar).not.toContain('handleClose')
+  })
+
+  it('renders the primary CTA with the brand gradient, not uni default blue', () => {
+    const detail = source('src/sub-pages/order/shared-cart/detail.vue')
+    // 原生 button type=primary 走 uni 默认蓝，与全站品牌色不一致。
+    // 断言按钮的**起始标签**是 view：类名在标签内部，只看类名之后的内容
+    // 会把 `<button type="primary" class="action-bar__primary">` 当成合规
+    // （缺陷注入实测如此），必须回看到最近的 '<'。
+    expect(detail).toMatch(
+      /linear-gradient\(135deg,\s*var\(--wot-color-theme-secondary,\s*#ff8a00\),\s*var\(--wot-color-theme-primary,\s*#ff4d2e\)\)/,
+    )
+    const barStart = detail.indexOf('class="action-bar"')
+    const classAt = detail.indexOf('class="action-bar__primary"', barStart)
+    expect(classAt).toBeGreaterThan(barStart)
+    const openTag = detail.slice(detail.lastIndexOf('<', classAt), classAt)
+    expect(openTag).toMatch(/^<view\b/)
+    expect(openTag).not.toContain('<button')
+  })
+
+  it('shows the collect deadline as a live countdown plus the absolute time', () => {
+    const detail = source('src/sub-pages/order/shared-cart/detail.vue')
+    // 倒计时回答「还有多久」，绝对时刻用于核对「几点截止」
+    expect(detail).toContain('formatExpiryCountdown')
+    expect(detail).toContain('expiryCountdown')
+    expect(detail).toContain('expiryPoint')
+    // 需要自己走时，否则倒计时停在打开页面那一刻
+    expect(detail).toContain('useCountdownTicker')
+  })
+
+  it('drives row actions from one sheet instead of three inline buttons per row', () => {
+    const detail = source('src/sub-pages/order/shared-cart/detail.vue')
+    // 12 行 × 3 个彩色文字按钮会把清单刷成噪声
+    expect(detail).toContain('openRowActions')
+    // 面板从自身容器的开头切起，才能覆盖到「排计划」那一项
+    const sheetStart = detail.indexOf('v-model="rowActionState.visible"')
+    const rowSheet = detail.slice(sheetStart, detail.indexOf('我的姓名（配送贴标签用）'))
+    expect(rowSheet).toContain('canEditItem(rowActionState.item)')
+    expect(rowSheet).toContain('canPlan')
+    expect(rowSheet).toContain('handleRemoveItem(rowActionState.item)')
+  })
+})
+
 describe('shared cart API contract', () => {
   it('declares the C-end base path and the my-carts endpoint', () => {
     const api = source('src/api/order/sharedCart.ts')
@@ -285,6 +486,130 @@ describe('shared cart API contract', () => {
     // 前端必须区分「新建」与「并入已有」，否则用户会误以为重复创建成功。
     const list = source('src/sub-pages/order/shared-cart/list.vue')
     expect(list).toContain('adoptedExisting')
+  })
+})
+
+/**
+ * 2026-09 列表页重设计的守门。
+ *
+ * 每一条都对应一次实际的可用性缺陷，而不是样式偏好：
+ * 改回去会让页面重新变成「四张一模一样的卡片 + 一个不知道能不能点的按钮」。
+ */
+describe('shared cart list page layout contract', () => {
+  it('splits the list into in-progress and history instead of one flat run', () => {
+    const list = source('src/sub-pages/order/shared-cart/list.vue')
+    // 分区逻辑集中在纯函数里（可单测），页面只负责渲染
+    expect(list).toContain('groupSharedCarts')
+    expect(list).toContain('section')
+    // 不能再退回「一个 v-for 平铺所有记录」
+    expect(list).not.toMatch(/v-for="cart in records"/)
+  })
+
+  it('never draws an empty progress track when nothing is planned', () => {
+    // 没排计划时画空槽 + 「—」会被读成「加载失败」；进度条本身必须挂在 hasPlan 上。
+    // 断言回看到最近的 '<'：只看类名之后的内容会把「轨道无条件渲染、
+    // 父级才有 v-if」当成合规（与详情页同一条守则）。
+    const list = source('src/sub-pages/order/shared-cart/list.vue')
+    const trackAt = list.indexOf('class="card__track"')
+    expect(trackAt).toBeGreaterThan(-1)
+    const openTag = list.slice(list.lastIndexOf('<', trackAt), trackAt)
+    expect(openTag).toContain('v-if')
+    expect(openTag).toContain('progress.hasPlan')
+    // 百分比只信服务端算好的值，前端不再除一遍
+    expect(list).toContain('progress.percent')
+  })
+
+  it('takes its progress wording from the shared calculator, not a local formula', () => {
+    // 首页卡片、详情页、列表三处口径必须同源，否则会出现
+    // 「首页说还差 4 项、列表说还差 5 项」这种自相矛盾
+    const list = source('src/sub-pages/order/shared-cart/list.vue')
+    expect(list).toContain('buildReplenishSummaryView')
+    const util = source('src/utils/replenish-progress.ts')
+    expect(util).toContain('buildReplenishProgressText')
+  })
+
+  it('labels the card action with a verb instead of a generic "view"', () => {
+    const list = source('src/sub-pages/order/shared-cart/list.vue')
+    expect(list).toContain('cartActionLabel')
+    const util = source('src/utils/shared-cart.ts')
+    // 每个分支都要给出可执行的动词，让用户不点进去就知道会发生什么
+    for (const verb of ['查看订单', '排计划', '去加货']) {
+      expect(util).toContain(verb)
+    }
+  })
+
+  it('shows the collect deadline as a countdown plus the absolute time', () => {
+    const list = source('src/sub-pages/order/shared-cart/list.vue')
+    expect(list).toContain('cartDeadlineView')
+    expect(list).toContain('expiresPoint')
+    // 倒计时要走时，否则停在打开页面那一刻
+    expect(list).toContain('useCountdownTicker')
+  })
+
+  it('keeps the create form in a bottom sheet, not inline above the list', () => {
+    // 表单曾内联在页面顶部，收起/展开会让列表整体跳动；收集设置是低频决策，
+    // 用弹层承载后列表首屏只剩「上下文 + 单据」
+    const list = source('src/sub-pages/order/shared-cart/list.vue')
+    expect(list).toContain('createState.visible')
+    expect(list).toMatch(/v-model="createState\.visible"[\s\S]{0,120}wd-popup|wd-popup[\s\S]{0,120}v-model="createState\.visible"/)
+  })
+
+  it('enables pull-down refresh, which the handler alone never did', () => {
+    // onPullDownRefresh 早就写了，但 definePage 没开 enablePullDownRefresh，
+    // 手势根本不会被触发 —— 回调成了死代码。
+    const list = source('src/sub-pages/order/shared-cart/list.vue')
+    expect(list).toContain('enablePullDownRefresh: true')
+    expect(list).toContain('onPullDownRefresh')
+    expect(list).toContain('uni.stopPullDownRefresh()')
+  })
+
+  it('uses the brand CTA gradient rather than the uni default blue', () => {
+    const list = source('src/sub-pages/order/shared-cart/list.vue')
+    // 与详情页「提交整船订单」、购物车「去结算」同一套橙红渐变
+    // （2026-10-02 起接主题变量：辅色→主色，fallback 维持原渐变色值）
+    expect(list).toMatch(
+      /linear-gradient\(135deg,\s*var\(--wot-color-theme-secondary,\s*#ff8a00\),\s*var\(--wot-color-theme-primary,\s*#ff4d2e\)\)/,
+    )
+    // 原生 button type=primary 走 uni 默认蓝，创建按钮不得用它
+    expect(list).not.toMatch(/<button[^>]*type="primary"/)
+  })
+
+  it('distinguishes loading, failure, logged-out and empty states', () => {
+    const list = source('src/sub-pages/order/shared-cart/list.vue')
+    // 四态共用一句「暂无数据」会让用户不知道是该等待、该登录还是该去创建
+    for (const text of ['加载中...', '加载失败', '登录后可查看共享购物车', '还没有共享购物车']) {
+      expect(list).toContain(text)
+    }
+    expect(list).toContain('showEmpty')
+  })
+
+  it('keeps the create flow opening the ship picker instead of dead-ending', () => {
+    const list = source('src/sub-pages/order/shared-cart/list.vue')
+    expect(list).toContain('shipPickerVisible.value = true')
+    expect(list).toContain('ShipContextPicker')
+  })
+
+  it('counts submitted rows too, so finished carts never read "0 项商品"', () => {
+    // 真实缺陷：提交时明细行被置为 ITEM_CONFIRMED，而列表统计写的是
+    // eq(status, ITEM_PENDING)，于是已提交的单全部显示「0 项商品 · 1 名成员」。
+    // 统计口径必须是「未移除」而不是「待确认」。
+    const impl = repoSource(`${ORDER_BIZ}/service/impl/SharedCartServiceImpl.java`)
+    const buildStart = impl.indexOf('private List<SharedCartVO> buildVOs')
+    const build = impl.slice(buildStart, impl.indexOf('listMembers', buildStart))
+    expect(build).toContain('ITEM_REMOVED')
+    expect(build).not.toMatch(/eq\(SharedCartItem::getStatus,\s*SharedCartItem\.ITEM_PENDING\)/)
+  })
+
+  it('carries the replenish progress summary on the list VO', () => {
+    // 列表卡片要回答「这单还差多少」，与首页卡片同一口径；
+    // 摘要由服务端用 ReplenishProgressCalculator 算好，前端不做二次除法。
+    const vo = repoSource(`${ORDER_API}/api/vo/SharedCartVO.java`)
+    expect(vo).toContain('ReplenishProgressVO.Summary progress')
+    const impl = repoSource(`${ORDER_BIZ}/service/impl/SharedCartServiceImpl.java`)
+    expect(impl).toContain('ReplenishProgressCalculator.summarize')
+    // 前端类型同步声明，否则拿不到字段
+    const api = source('src/api/order/sharedCart.ts')
+    expect(api).toMatch(/progress\?: ReplenishSummaryProgress \| null/)
   })
 })
 

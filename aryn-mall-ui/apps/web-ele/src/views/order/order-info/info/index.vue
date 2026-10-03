@@ -1,4 +1,6 @@
 <script lang="ts" setup>
+import type { GroupedOrderItem } from '../category-group';
+
 import { computed, defineAsyncComponent, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
 
@@ -24,12 +26,15 @@ import { getPromotionSnapshots } from '#/api/order/shared-cart';
 import { getById as getUserById } from '#/api/user/user-info';
 import { useDict } from '#/utils/dict';
 
+import { buildGroupedDisplayItems } from '../category-group';
+
 const DictTag = defineAsyncComponent(
   () => import('#/components/dict-tag/index.vue'),
 );
 
 interface DataState {
   orderInfo: {
+    actualPayPrice?: number;
     berth?: string;
     couponPrice: number;
     deliverTime: string;
@@ -45,6 +50,7 @@ interface DataState {
     paymentTime: string;
     paymentType: string;
     payStatus: string;
+    payVouchers?: string;
     portCode?: string;
     portName?: string;
     promoPrice?: number;
@@ -78,6 +84,25 @@ const Deliver = defineAsyncComponent(() => import('../deliver/index.vue'));
 const hasContributorRemark = computed(() =>
   (state.orderInfo.orderItemList ?? []).some((item: any) => item.memberRemark),
 );
+
+/**
+ * 商品按分类分组的展示列表：组内保持原始顺序（共享采购按人拆行的
+ * 归属语义不被打乱），组间按分类名拼音序，「未分类」固定排最后。
+ */
+const displayItemList = computed<GroupedOrderItem[]>(() =>
+  buildGroupedDisplayItems(state.orderInfo.orderItemList),
+);
+
+/**
+ * 「分类」列纵向合并：组首行 rowspan=组大小，组内其余行隐藏。
+ */
+const categorySpanMethod = ({ rowIndex, columnIndex }: any) => {
+  if (columnIndex !== 0) return;
+  const row = displayItemList.value[rowIndex];
+  if (!row) return;
+  return row.isFirstOfGroup ? [row.groupSize, 1] : [0, 0];
+};
+
 // 字典
 const { pay_type, delivery_way, order_item_status } = useDict(
   'pay_type',
@@ -116,6 +141,19 @@ const loading = ref(false);
 const refDeliver = ref();
 const promotionSnapshots = ref<any[]>([]);
 const route = useRoute();
+// 付款凭证快照（确认收款时登记的 JSON 数组），仅货到付款已收款订单有值
+const payVoucherList = computed<{ materialId: string; materialUrl: string }[]>(
+  () => {
+    const raw = state.orderInfo.payVouchers;
+    if (!raw) return [];
+    try {
+      const list = JSON.parse(raw);
+      return Array.isArray(list) ? list : [];
+    } catch {
+      return [];
+    }
+  },
+);
 const getDetail = () => {
   const { id }: any = route.query;
   if (id) {
@@ -177,7 +215,10 @@ getDetail();
         <span>订单号：{{ state.orderInfo.orderNo }}</span>
         <ElDivider v-if="state.orderInfo.paymentType" direction="vertical" />
         <DictTag
-          v-if="state.orderInfo.payStatus === '1'"
+          v-if="
+            state.orderInfo.payStatus === '1' ||
+            state.orderInfo.paymentType === '3'
+          "
           :options="pay_type"
           :value="state.orderInfo.paymentType"
         />
@@ -388,6 +429,37 @@ getDetail();
                 state.orderInfo.paymentTime
               }}</span>
             </p>
+            <p v-if="state.orderInfo.actualPayPrice != null">
+              <span>实收金额:</span>
+              <span style="color: red">
+                ￥{{ state.orderInfo.actualPayPrice }}
+                <span
+                  v-if="
+                    state.orderInfo.paymentPrice != null &&
+                    Number(state.orderInfo.actualPayPrice) <
+                      Number(state.orderInfo.paymentPrice)
+                  "
+                  class="text-12px text-gray-400"
+                >
+                  （应收 ￥{{ state.orderInfo.paymentPrice }}）
+                </span>
+              </span>
+            </p>
+            <p v-if="payVoucherList.length > 0">
+              <span>付款凭证:</span>
+              <span>
+                <ElImage
+                  v-for="voucher in payVoucherList"
+                  :key="voucher.materialId"
+                  :src="voucher.materialUrl"
+                  :preview-src-list="payVoucherList.map((v) => v.materialUrl)"
+                  :initial-index="payVoucherList.indexOf(voucher)"
+                  fit="cover"
+                  style="width: 48px; height: 48px; margin-right: 6px"
+                  preview-teleported
+                />
+              </span>
+            </p>
           </div>
         </div>
         <div class="item">
@@ -481,64 +553,90 @@ getDetail();
           </div>
         </div>
       </div>
-      <ElTable :data="state.orderInfo.orderItemList" border>
+      <ElTable :data="displayItemList" border :span-method="categorySpanMethod">
+        <ElTableColumn label="分类" width="140">
+          <template #default="scope">
+            <span
+              :class="scope.row.isUncategorized ? 'text-gray-400' : ''"
+              class="category-cell"
+            >
+              {{ scope.row.categoryLabel }}
+            </span>
+          </template>
+        </ElTableColumn>
         <ElTableColumn label="商品信息" min-width="220">
           <template #default="scope">
             <div class="order-item">
               <ElImage
                 class="pic"
-                :src="scope.row.picUrl"
+                :src="scope.row.item.picUrl"
                 fit="cover"
                 :preview-teleported="true"
               />
               <div class="main">
-                <div class="name line-clamp-2">{{ scope.row.spuName }}</div>
-                <p v-if="scope.row.specsInfo" class="specs">
-                  {{ scope.row.specsInfo }}
+                <div class="name line-clamp-2">
+                  {{ scope.row.item.spuName }}
+                </div>
+                <p v-if="scope.row.item.specsInfo" class="specs">
+                  {{ scope.row.item.specsInfo }}
                 </p>
               </div>
             </div>
           </template>
         </ElTableColumn>
-        <ElTableColumn prop="salesPrice" label="单价（元）" width="118" />
-        <ElTableColumn prop="buyQuantity" label="数量" width="80" />
+        <ElTableColumn prop="item.salesPrice" label="单价（元）" width="118" />
+        <ElTableColumn prop="item.buyQuantity" label="数量" width="80" />
         <!-- 共享采购按人拆行后的归属：仓库按此列逐人分拣并打印配送标签 -->
         <ElTableColumn label="订购人" width="110">
           <template #default="scope">
-            <span v-if="scope.row.contributorName">{{
-              scope.row.contributorName
+            <span v-if="scope.row.item.contributorName">{{
+              scope.row.item.contributorName
             }}</span>
             <span v-else class="text-gray-400">—</span>
           </template>
         </ElTableColumn>
         <ElTableColumn
           v-if="hasContributorRemark"
-          prop="memberRemark"
+          prop="item.memberRemark"
           label="成员备注"
           width="120"
           show-overflow-tooltip
         />
-        <ElTableColumn prop="freightPrice" label="运费（元）" width="118" />
-        <ElTableColumn prop="couponPrice" label="优惠金额（元）" width="132" />
-        <ElTableColumn prop="paymentPrice" label="小计（元）" width="118" />
+        <ElTableColumn
+          prop="item.freightPrice"
+          label="运费（元）"
+          width="118"
+        />
+        <ElTableColumn
+          prop="item.couponPrice"
+          label="优惠金额（元）"
+          width="132"
+        />
+        <ElTableColumn
+          prop="item.paymentPrice"
+          label="小计（元）"
+          width="118"
+        />
         <ElTableColumn label="状态" width="100">
           <template #default="scope">
             <ElTag
               v-if="
-                state.orderInfo.deliveryWay === '2' && scope.row.status === '1'
+                state.orderInfo.deliveryWay === '2' &&
+                scope.row.item.status === '1'
               "
             >
               备货中
             </ElTag>
             <ElTag
               v-else-if="
-                state.orderInfo.deliveryWay === '2' && scope.row.status === '2'
+                state.orderInfo.deliveryWay === '2' &&
+                scope.row.item.status === '2'
               "
             >
               待自提
             </ElTag>
             <ElTag
-              v-else-if="scope.row.status === '0'"
+              v-else-if="scope.row.item.status === '0'"
               :type="state.orderInfo.status === '11' ? 'info' : 'primary'"
               :disable-transitions="true"
             >
@@ -547,7 +645,7 @@ getDetail();
             <DictTag
               v-else
               :options="order_item_status"
-              :value="scope.row.status"
+              :value="scope.row.item.status"
             />
           </template>
         </ElTableColumn>
@@ -569,7 +667,13 @@ getDetail();
             <span>优惠券：</span>
             <span style="color: red">-￥{{ state.orderInfo.couponPrice }}</span>
           </p>
-          <p v-if="state.orderInfo.payStatus === '1'" class="pay-type">
+          <p
+            v-if="
+              state.orderInfo.payStatus === '1' ||
+              state.orderInfo.paymentType === '3'
+            "
+            class="pay-type"
+          >
             <span>支付方式：</span>
             <span>
               <DictTag
@@ -578,9 +682,24 @@ getDetail();
               />
             </span>
           </p>
+          <p
+            v-if="
+              state.orderInfo.actualPayPrice != null &&
+              state.orderInfo.paymentPrice != null &&
+              Number(state.orderInfo.actualPayPrice) <
+                Number(state.orderInfo.paymentPrice)
+            "
+          >
+            <span>应收金额：</span>
+            <span>￥{{ state.orderInfo.paymentPrice }}</span>
+          </p>
           <p class="pay-price">
             <span>实收金额：</span>
-            <span>￥{{ state.orderInfo.paymentPrice }}</span>
+            <span>
+              ￥{{
+                state.orderInfo.actualPayPrice ?? state.orderInfo.paymentPrice
+              }}
+            </span>
           </p>
         </div>
       </div>
@@ -644,6 +763,15 @@ getDetail();
     color: #a8abb2;
     overflow-wrap: anywhere;
   }
+}
+
+.category-cell {
+  display: inline-block;
+  width: 100%;
+  font-weight: 600;
+  color: #323233;
+  text-align: center;
+  word-break: break-all;
 }
 
 .logistics-title {

@@ -6,14 +6,17 @@ import com.aryn.cloud.promotion.controller.admin.PageDesignTemplateController;
 import com.aryn.cloud.promotion.controller.app.AppPageDesignController;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PageDesignControllerTest {
 
@@ -39,6 +42,32 @@ class PageDesignControllerTest {
 		assertFalse(Arrays.stream(AppPageDesignController.class.getDeclaredMethods())
 			.filter(this::isEndpoint)
 			.anyMatch(method -> method.isAnnotationPresent(SaCheckPermission.class)));
+	}
+
+	@Test
+	void marketListAcceptsTheFiltersTheAdminPageSends() {
+		Map<String, RequestParam> params = Arrays.stream(marketListMethod().getParameters())
+			.filter(parameter -> parameter.isAnnotationPresent(RequestParam.class))
+			.collect(java.util.stream.Collectors.toMap(this::paramName,
+					parameter -> parameter.getAnnotation(RequestParam.class)));
+		// 管理端模板市场页按这几个筛选/排序参数发起请求，漏接会静默忽略筛选条件
+		assertTrue(params.containsKey("templateName"), () -> "marketList 未接收 templateName，名称搜索会被静默忽略");
+		assertTrue(params.containsKey("industryTag"));
+		assertTrue(params.containsKey("pageNum"));
+		assertTrue(params.containsKey("pageSize"));
+		assertEquals("downloadCount", params.get("sortField").defaultValue());
+	}
+
+	private String paramName(java.lang.reflect.Parameter parameter) {
+		String declared = parameter.getAnnotation(RequestParam.class).value();
+		return declared.isEmpty() ? parameter.getName() : declared;
+	}
+
+	private Method marketListMethod() {
+		return Arrays.stream(PageDesignTemplateController.class.getDeclaredMethods())
+			.filter(method -> method.getName().equals("marketList"))
+			.findFirst()
+			.orElseThrow();
 	}
 
 	private void assertEveryEndpointProtected(Class<?> controller) {

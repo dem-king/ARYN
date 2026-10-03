@@ -44,6 +44,23 @@ export interface DeliveryTrip {
   departTime?: string;
   /** 完成时间 */
   completeTime?: string;
+  /** 总件数（派生值） */
+  totalItemCount?: number;
+  /** 已取件数（派生值） */
+  pickedItemCount?: number;
+  /** 已送达单数（派生值） */
+  arrivedTaskCount?: number;
+  /** 仓库名称（派生值） */
+  warehouseName?: string;
+  /** 关联配送任务列表（详情接口下发） */
+  taskList?: any[];
+  /** 取货清单汇总（详情接口按商品聚合的派生值） */
+  pickupSummary?: {
+    picUrl?: string;
+    quantity: number;
+    specsInfo?: string;
+    spuName: string;
+  }[];
   createTime?: string;
   updateTime?: string;
 }

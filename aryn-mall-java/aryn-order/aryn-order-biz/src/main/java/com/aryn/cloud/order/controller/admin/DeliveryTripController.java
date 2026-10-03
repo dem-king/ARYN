@@ -32,7 +32,7 @@ public class DeliveryTripController {
 	@SaCheckPermission("delivery:trip:page")
 	@GetMapping("/page")
 	public Result<IPage<DeliveryTrip>> page(Page page, DeliveryTrip deliveryTrip) {
-		return Result.success(deliveryTripService.page(page,
+		return Result.success(deliveryTripService.pageWithStaffName(page,
 				com.baomidou.mybatisplus.core.toolkit.Wrappers.lambdaQuery(deliveryTrip)
 						.orderByDesc(DeliveryTrip::getCreateTime)));
 	}

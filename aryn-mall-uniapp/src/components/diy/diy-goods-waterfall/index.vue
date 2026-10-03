@@ -1,16 +1,15 @@
 <script setup lang="ts">
 import type { GoodsWaterfallProps } from '@/components/diy/retail-types'
 
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 import {
   loadGoodsWaterfall,
   loadGoodsWaterfallPage,
 } from '@/components/diy/retail-data'
-import GoodsPickCheckbox from '@/components/goods-pick-checkbox/index.vue'
 import QuickCartButton from '@/components/quick-cart-button/index.vue'
+import { useDiyPagedLoadMore } from '@/composables/useDiyPagedLoadMore'
 import { useDiyStyle } from '@/composables/useDiyStyle'
-import { DIY_REACH_BOTTOM_EVENT } from '@/composables/useDecorationInfiniteScroll'
 
 const props = defineProps({
   showData: {
@@ -31,12 +30,15 @@ const dynamicStyles = useDiyStyle(computed(() => componentProps.value.commonStyl
 // 每页大小：后台若配置了 count 则作为每页条数，否则默认 10
 const pageSize = computed(() => Math.max(1, Number(componentProps.value.count) || 10))
 
+// 自动续页：页面滚动接近底部 / 加载完成后自愈补页，见 useDiyPagedLoadMore
+const { runQuery } = useDiyPagedLoadMore(pagingRef, '.diy-waterfall')
+
 async function queryList(pageNo: number, pageSize: number) {
-  try {
+  await runQuery(async () => {
     if (isManual.value) {
       // 手选：一次性取全量，回传明确无下一页，z-paging 据此隐藏“点击加载更多”
       const items = await loadGoodsWaterfall(componentProps.value)
-      pagingRef.value?.completeByNoMore(items, true)
+      await pagingRef.value?.completeByNoMore(items, true)
       return
     }
     const { list, total } = await loadGoodsWaterfallPage(
@@ -46,12 +48,8 @@ async function queryList(pageNo: number, pageSize: number) {
     )
     // 注意：complete 的第二参是 success(布尔)，传总数必须用 completeByTotal，
     // 否则 z-paging 拿不到 total，会退化成“按返回条数<每页条数”猜测是否到底，导致自动续页中途停在“点击加载更多”
-    pagingRef.value?.completeByTotal(list, total)
-  }
-  catch {
-    // 当前页加载失败：置失败状态，z-paging 显示“加载失败，点击重新加载”，不阻断整页
-    pagingRef.value?.completeByError('加载失败')
-  }
+    await pagingRef.value?.completeByTotal(list, total)
+  })
 }
 
 function openGoods(id: string) {
@@ -74,17 +72,6 @@ function cardTags(item: any): string[] {
     tags.push('免配送费')
   return tags
 }
-
-// 装修页滚动接近底部时自动加载下一页（useDecorationInfiniteScroll 提前预加载 + onReachBottom 兜底）
-function onDiyReachBottom() {
-  pagingRef.value?.pageReachBottom()
-}
-onMounted(() => {
-  uni.$on(DIY_REACH_BOTTOM_EVENT, onDiyReachBottom)
-})
-onBeforeUnmount(() => {
-  uni.$off(DIY_REACH_BOTTOM_EVENT, onDiyReachBottom)
-})
 </script>
 
 <template>
@@ -93,11 +80,10 @@ onBeforeUnmount(() => {
       {{ componentProps.title }}
     </view>
     <!--
-      use-page-scroll：复用装修页页面滚动，配合 useDecorationInfiniteScroll 在接近底部前
-      自动加载下一页（无感浏览，不出现「点击加载更多」）。
+      use-page-scroll：复用装修页页面滚动，由 useDiyPagedLoadMore 测自身底边位置，
+      接近底部前自动加载下一页（无感浏览，不出现「点击加载更多」）。
       refresher-enabled=false：装修页整体已有下拉刷新，避免与 z-paging 下拉冲突。
       loading-more-default-text 置空：默认状态不渲染任何可点击文案。
-      inside-more：列表不满一屏时自动续页补齐。
     -->
     <z-paging
       ref="pagingRef"
@@ -105,8 +91,7 @@ onBeforeUnmount(() => {
       use-page-scroll
       :refresher-enabled="false"
       :default-page-size="pageSize"
-      :loading-more-default-text="''"
-      :inside-more="true"
+      loading-more-default-text=""
       @query="queryList"
     >
       <view class="waterfall-columns" :style="{ columnCount: componentProps.columns || 2 }">
@@ -117,7 +102,9 @@ onBeforeUnmount(() => {
           @click="openGoods(item.id)"
         >
           <image class="waterfall-pic" :src="item.imageUrl" mode="widthFix" lazy-load />
-          <view class="waterfall-name">{{ item.name }}</view>
+          <view class="waterfall-name">
+            {{ item.name }}
+          </view>
           <!-- 信息 chip：规格 / 现货 / 免配送费（字段缺失时整行不渲染） -->
           <view v-if="cardTags(item).length > 0" class="waterfall-tags">
             <text
@@ -147,16 +134,17 @@ onBeforeUnmount(() => {
                 已售{{ item.sales }}
               </text>
             </view>
-            <!-- 勾选进批量加购 + 快捷加购（单规格直加，多规格弹层）；两者都需阻止冒泡 -->
+            <!-- 快捷加购（单规格直加，多规格弹层） -->
             <view class="waterfall-actions">
-              <goods-pick-checkbox :spu-id="item.id" size="36rpx" />
               <quick-cart-button v-if="item.stock > 0" :spu-id="item.id" size="40rpx" />
             </view>
           </view>
         </view>
       </view>
       <template #empty>
-        <view class="waterfall-empty">暂无商品</view>
+        <view class="waterfall-empty">
+          暂无商品
+        </view>
       </template>
     </z-paging>
   </view>
@@ -244,7 +232,7 @@ onBeforeUnmount(() => {
 }
 
 .waterfall-price {
-  color: #ff5000;
+  color: var(--wot-color-theme-primary, #ff2237);
   font-size: 30rpx;
   font-weight: 600;
 }

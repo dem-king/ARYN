@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- 
+  Copyright (c) 2025 天启雨数科技有限公司 
+  All rights reserved. 
+ 注意： 
+  本项目源代码由天启雨数科技有限公司原创开发，版权所有。 
+ -->
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aryn.cloud.product.mapper.GoodsBrandMapper">
+
+    <!--
+      C 端品牌筛选项：聚合出「在当前查询条件下确有在售商品」的品牌 + 商品数。
+
+      这是分面导航（faceted navigation）的做法：分面值随结果集动态生成，
+      零结果的分面值不返回。原先 C 端直接拉全租户品牌列表（AppGoodsBrandController#list），
+      与当前分类/关键词无关，导致水果这类「商品全无品牌」的分类下每个品牌都点出空列表。
+
+      谓词必须与 GoodsSpuMapper.selectApiPage 逐条对齐，否则品牌条的计数与
+      点进去的商品列表条数会不一致。selectApiPage 里的 LEFT JOIN goods_category
+      配合 where 中的 `goods_category.del_flag = '0'` 实际等价于 INNER JOIN
+      （类目缺失的商品会被过滤掉），这里照抄同一形态以保持集合一致。
+
+      INNER JOIN goods_spu 同时完成两件事：只保留有商品的品牌，以及给出商品数。
+    -->
+    <select id="selectFilterList" resultType="com.aryn.cloud.product.api.vo.GoodsBrandFilterVO">
+        SELECT
+        goods_brand.id,
+        goods_brand.name,
+        goods_brand.logo_url,
+        COUNT(goods_spu.id) AS goods_count
+        FROM
+        goods_brand AS goods_brand
+        INNER JOIN goods_spu AS goods_spu ON goods_spu.brand_id = goods_brand.id
+        LEFT JOIN goods_category AS goods_category ON goods_spu.category_second_id = goods_category.id
+        <where>
+            AND goods_brand.`del_flag` = '0'
+            AND goods_brand.`status` = '0'
+            AND goods_spu.`del_flag` = '0'
+            AND goods_spu.`status` = '1'
+            AND goods_category.`del_flag` = '0'
+            <if test="query.name != null and query.name != ''">
+                AND LOWER(goods_spu.`name`) LIKE CONCAT('%',LOWER(#{query.name}),'%')
+            </if>
+            <if test="query.categoryFirstId != null and query.categoryFirstId != ''">
+                AND goods_spu.`category_first_id` = #{query.categoryFirstId}
+            </if>
+            <if test="query.categorySecondId != null and query.categorySecondId != ''">
+                AND goods_spu.`category_second_id` = #{query.categorySecondId}
+            </if>
+        </where>
+        GROUP BY goods_brand.id, goods_brand.name, goods_brand.logo_url, goods_brand.sort
+        <!-- 品牌 sort 为主（运营可控，悦航系自有品牌靠前），商品数降序为次 -->
+        ORDER BY goods_brand.sort ASC, goods_count DESC, goods_brand.id ASC
+    </select>
+
+</mapper>

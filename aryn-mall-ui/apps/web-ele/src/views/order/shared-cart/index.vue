@@ -33,6 +33,7 @@ const loading = ref(false);
 
 const detailVisible = ref(false);
 const detail = ref<any>({ cart: {}, members: [], items: [] });
+const detailTab = ref('members');
 
 const statusLabel: Record<string, string> = {
   '1': '草稿',
@@ -130,7 +131,7 @@ onMounted(initPage);
       />
 
       <ElDialog v-model="detailVisible" title="共享购物车详情" width="900px">
-        <ElTabs>
+        <ElTabs v-model="detailTab">
           <ElTabPane label="成员" name="members">
             <ElTable :data="detail.members" border>
               <ElTableColumn label="用户" min-width="160">
@@ -162,8 +163,14 @@ onMounted(initPage);
           </ElTabPane>
           <ElTabPane label="明细" name="items">
             <ElTable :data="detail.items" border>
-              <ElTableColumn prop="spuId" label="SPU" min-width="140" />
-              <ElTableColumn prop="skuId" label="SKU" min-width="140" />
+              <ElTableColumn label="商品" min-width="240">
+                <template #default="scope">
+                  <div>{{ scope.row.spuName ?? '—' }}</div>
+                  <div v-if="scope.row.specText" class="goods-spec-text">
+                    {{ scope.row.specText }}
+                  </div>
+                </template>
+              </ElTableColumn>
               <ElTableColumn
                 prop="requestedQuantity"
                 label="申请数量"
@@ -186,7 +193,11 @@ onMounted(initPage);
                   {{ itemStatusLabel[scope.row.status] ?? scope.row.status }}
                 </template>
               </ElTableColumn>
-              <ElTableColumn prop="userId" label="来源成员" min-width="140" />
+              <ElTableColumn
+                prop="contributorName"
+                label="来源成员"
+                min-width="120"
+              />
             </ElTable>
           </ElTabPane>
         </ElTabs>
@@ -194,3 +205,10 @@ onMounted(initPage);
     </div>
   </div>
 </template>
+
+<style scoped>
+.goods-spec-text {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+</style>

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { onLoad } from '@dcloudio/uni-app'
 import { reactive, ref } from 'vue'
-import { getOrder as getOrderByNo } from '@/api/pay/index'
-import { useDict } from '@/utils/dict'
+import { getOrder as getOrderByNo } from '@/sub-pages/api/pay/index'
+import { useDict } from '@/sub-pages/utils/dict'
 
 definePage({
   name: 'pay-result',

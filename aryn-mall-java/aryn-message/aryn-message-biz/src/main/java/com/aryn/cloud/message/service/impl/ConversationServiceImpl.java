@@ -8,8 +8,11 @@ import com.aryn.cloud.message.api.entity.MessageParticipant;
 import com.aryn.cloud.message.api.enums.ConversationStatus;
 import com.aryn.cloud.message.api.enums.ConversationType;
 import com.aryn.cloud.message.api.enums.MessageIdentityType;
+import com.aryn.cloud.message.api.vo.conversation.ConversationAttentionVO;
 import com.aryn.cloud.message.api.vo.conversation.ConversationInboxPageVO;
 import com.aryn.cloud.message.api.vo.conversation.ConversationVO;
+import com.aryn.cloud.message.api.entity.MessageAgent;
+import com.aryn.cloud.message.mapper.MessageAgentMapper;
 import com.aryn.cloud.message.mapper.MessageConversationMapper;
 import com.aryn.cloud.message.mapper.MessageParticipantMapper;
 import com.aryn.cloud.message.service.ConversationService;
@@ -23,6 +26,7 @@ import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.BeanUtils;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,6 +35,8 @@ import org.springframework.util.StringUtils;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /** 会话创建、查询和已读实现。 */
 @Service
@@ -43,6 +49,7 @@ public class ConversationServiceImpl implements ConversationService {
 
 	private final MessageConversationMapper conversationMapper;
 	private final MessageParticipantMapper participantMapper;
+	private final MessageAgentMapper agentMapper;
 	private final ObjectMapper objectMapper;
 	private final ConversationAssignmentService assignmentService;
 
@@ -168,6 +175,57 @@ public class ConversationServiceImpl implements ConversationService {
 		result.setHasMore(hasMore);
 		result.setNextCursor(hasMore && !records.isEmpty() ? records.get(records.size() - 1).getId() : null);
 		return result;
+	}
+
+	@Override
+	public ConversationAttentionVO attention(String tenantId, MessageIdentityType identityType, String identityId,
+			String queueCode, int limit) {
+		int normalizedLimit = Math.min(Math.max(limit, 1), MAX_LIMIT);
+		ConversationAttentionVO result = new ConversationAttentionVO();
+		List<ConversationVO> conversations = new ArrayList<>(
+				conversationMapper.selectUnreadForParticipant(tenantId, identityType.name(), identityId,
+						normalizedLimit));
+		result.setUnreadConversations(
+				conversationMapper.countUnreadForParticipant(tenantId, identityType.name(), identityId));
+		if (isEnabledAgent(tenantId, identityId)) {
+			String normalizedQueue = StringUtils.hasText(queueCode) ? queueCode : DEFAULT_QUEUE;
+			result.setWaitingTotal(conversationMapper.countWaiting(tenantId, normalizedQueue));
+			// 共享池还没有坐席参与者，未读查询天然取不到，这里按同一顺序补在未读之后。
+			appendWaiting(conversations, tenantId, normalizedQueue, normalizedLimit);
+		}
+		result.setConversations(conversations);
+		return result;
+	}
+
+	/** 待领取会话对未读查询不可见（没有参与者行），需要显式补进提醒列表尾部。 */
+	private void appendWaiting(List<ConversationVO> conversations, String tenantId, String queueCode, int limit) {
+		if (conversations.size() >= limit) {
+			return;
+		}
+		Set<String> known = conversations.stream().map(ConversationVO::getId).collect(Collectors.toSet());
+		for (MessageConversation waiting : conversationMapper.selectWaiting(tenantId, queueCode, limit)) {
+			if (conversations.size() >= limit) {
+				return;
+			}
+			if (!known.add(waiting.getId())) {
+				continue;
+			}
+			ConversationVO vo = new ConversationVO();
+			BeanUtils.copyProperties(waiting, vo);
+			vo.setUnreadCount(0L);
+			vo.setLastReadSeq(0L);
+			conversations.add(vo);
+		}
+	}
+
+	/**
+	 * 只有启用中的客席才需要待领取提醒。
+	 *
+	 * <p>否则普通管理员会看到自己无权领取的池子；推送也只会发给启用坐席。
+	 */
+	private boolean isEnabledAgent(String tenantId, String staffId) {
+		MessageAgent agent = agentMapper.selectByStaffId(tenantId, staffId);
+		return agent != null && CommonConstants.YES.equals(agent.getEnabled());
 	}
 
 	@Override

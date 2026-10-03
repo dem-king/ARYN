@@ -114,9 +114,19 @@ const rowHeight = computed(() => {
   const imgSize = Number(props.showData.imgSize) || 40;
   return imgSize + (navType.value === '3' ? 22 : 0);
 });
+// 高度自适应：按「当前页」实际行数收缩——铺满 pageRows 行占满，铺不满自动缩小
+// （swiper 各页等高，翻页时高度过渡到新页的行数）
+const actualRows = computed(() => {
+  const total = navList.value.length;
+  if (total === 0) return pageRows.value;
+  const page =
+    pages.value[Math.min(activePage.value, pages.value.length - 1)] || [];
+  return Math.min(pageRows.value, Math.ceil(page.length / showNum.value));
+});
 // 每行底部间距 6px；分页指示点预留 16px
 const pagerHeight = computed(
-  () => pageRows.value * (rowHeight.value + 6) + (showIndicator.value ? 16 : 0),
+  () =>
+    actualRows.value * (rowHeight.value + 6) + (showIndicator.value ? 16 : 0),
 );
 </script>
 
@@ -320,6 +330,8 @@ const pagerHeight = computed(
   .nav-pager {
     position: relative;
     width: 100%;
+    // 高度随当前页行数收缩/展开（与小程序端一致）
+    transition: height 0.3s ease;
 
     &-track {
       display: flex;

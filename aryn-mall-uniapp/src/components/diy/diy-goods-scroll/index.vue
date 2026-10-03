@@ -3,8 +3,8 @@ import { computed } from 'vue'
 import { followDecorationLink } from '@/components/diy/link-resolver'
 import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 import { loadGoodsGroup } from '@/components/diy/retail-data'
-import { retailCommonStyle } from '@/components/diy/retail-types'
 import RetailState from '@/components/diy/retail-state.vue'
+import { retailCommonStyle } from '@/components/diy/retail-types'
 import { useDiyStyle } from '@/composables/useDiyStyle'
 import { useRetailData } from '@/composables/useRetailData'
 
@@ -87,10 +87,19 @@ const CARD_BORDER_RPX = 2
 const imageHeightRpx = computed(() => cardWidthRpx.value - CARD_BORDER_RPX)
 
 // 文字区高度（rpx）：上下内边距 24 + 两行名称 72 + 价格行间距 8 与行高 46，
-// 加上可选的销量行（行高 28 + 间距 6）。取值与下方 .gs-name/.gs-bottom/.gs-sales
-// 的显式行高一一对应，任一处改动都要同步这里，否则 swiper 会裁掉底部。
+// 加上可选的原价行与销量行（行高 28 + 间距 6，各占 34）。取值与下方
+// .gs-name/.gs-bottom/.gs-price-original/.gs-sales 的显式行高一一对应，
+// 任一处改动都要同步这里，否则 swiper 会裁掉底部。
+// 原价行按运营开关整行预留（不按单件商品实际是否划线）：同一轮播页的卡片
+// 必须等高，若按商品有无原价增减高度，同页卡片会高低不齐。
 const cardBodyHeightRpx = computed(
-  () => 24 + 72 + 8 + 46 + (showData.value.showSales ? 34 : 0),
+  () =>
+    24
+    + 72
+    + 8
+    + 46
+    + (showData.value.showOriginalPrice ? 34 : 0)
+    + (showData.value.showSales ? 34 : 0),
 )
 
 const cardHeightRpx = computed(
@@ -118,6 +127,17 @@ const pages = computed(() => {
 function openGoods(id: string) {
   followDecorationLink({ params: {}, path: '', targetId: id, type: 'goods' })
 }
+
+/**
+ * 原价行内容：行位由运营开关整行预留（等高诉求见 cardBodyHeightRpx），
+ * 内容仍须原价 > 现价才渲染，避免给未填原价的商品划出「¥0」。
+ */
+function originalPriceText(item: { price: number, originalPrice: number }) {
+  return showData.value.showOriginalPrice
+    && shouldShowOriginalPrice(item.price, item.originalPrice)
+    ? `¥${item.originalPrice.toFixed(2)}`
+    : ''
+}
 </script>
 
 <template>
@@ -125,8 +145,12 @@ function openGoods(id: string) {
     <!-- 标题栏：色条 + 标题，副标题做成胶囊标签 -->
     <view class="gs-head">
       <view class="gs-bar" />
-      <text class="gs-title">{{ showData.title }}</text>
-      <text v-if="showData.subtitle" class="gs-subtitle">{{ showData.subtitle }}</text>
+      <text class="gs-title">
+        {{ showData.title }}
+      </text>
+      <text v-if="showData.subtitle" class="gs-subtitle">
+        {{ showData.subtitle }}
+      </text>
     </view>
 
     <RetailState v-if="status !== 'ready'" :status="status" />
@@ -154,25 +178,33 @@ function openGoods(id: string) {
             mode="aspectFill"
             lazy-load
           />
-          <view v-else class="gs-img gs-img--empty" :style="imageStyle">商品</view>
+          <view v-else class="gs-img gs-img--empty" :style="imageStyle">
+            商品
+          </view>
           <view class="gs-body">
-            <view class="gs-name">{{ item.name }}</view>
+            <view class="gs-name">
+              {{ item.name }}
+            </view>
+            <!--
+              售价行只放售价与「抢」：卡片内容区仅约 194rpx 宽，
+              售价、划线原价、按钮三者同行必触发省略号，原价整段被截掉。
+            -->
             <view class="gs-bottom">
               <text class="gs-price">
-                <text class="gs-price-symbol">¥</text>{{ item.price.toFixed(2) }}
-                <!--
-                  划线原价嵌在 .gs-price 内，跟随该行一起省略号截断：
-                  .gs-bottom 是定高 46rpx 的价格行，卡片总高由 cardBodyHeightRpx 算出，
-                  另起一行会把卡片撑破（swiper 会裁掉底部）。
-                -->
-                <text
-                  v-if="showData.showOriginalPrice && shouldShowOriginalPrice(item.price, item.originalPrice)"
-                  class="gs-price-original"
-                >¥{{ item.originalPrice.toFixed(2) }}</text>
+                <text class="gs-price-symbol">
+                  ¥
+                </text>{{ item.price.toFixed(2) }}
               </text>
-              <view class="gs-btn">抢</view>
+              <view class="gs-btn">
+                抢
+              </view>
             </view>
-            <text v-if="showData.showSales" class="gs-sales">已售 {{ item.sales }}</text>
+            <text v-if="showData.showOriginalPrice" class="gs-price-original">
+              {{ originalPriceText(item) }}
+            </text>
+            <text v-if="showData.showSales" class="gs-sales">
+              已售 {{ item.sales }}
+            </text>
           </view>
         </view>
       </view>
@@ -206,21 +238,29 @@ function openGoods(id: string) {
               mode="aspectFill"
               lazy-load
             />
-            <view v-else class="gs-img gs-img--empty" :style="imageStyle">商品</view>
+            <view v-else class="gs-img gs-img--empty" :style="imageStyle">
+              商品
+            </view>
             <view class="gs-body">
-              <view class="gs-name">{{ item.name }}</view>
+              <view class="gs-name">
+                {{ item.name }}
+              </view>
               <view class="gs-bottom">
                 <text class="gs-price">
-                  <text class="gs-price-symbol">¥</text>{{ item.price.toFixed(2) }}
-                  <!-- 划线原价嵌在 .gs-price 内，跟随该行省略号截断（卡片高度已被算死） -->
-                  <text
-                    v-if="showData.showOriginalPrice && shouldShowOriginalPrice(item.price, item.originalPrice)"
-                    class="gs-price-original"
-                  >¥{{ item.originalPrice.toFixed(2) }}</text>
+                  <text class="gs-price-symbol">
+                    ¥
+                  </text>{{ item.price.toFixed(2) }}
                 </text>
-                <view class="gs-btn">抢</view>
+                <view class="gs-btn">
+                  抢
+                </view>
               </view>
-              <text v-if="showData.showSales" class="gs-sales">已售 {{ item.sales }}</text>
+              <text v-if="showData.showOriginalPrice" class="gs-price-original">
+                {{ originalPriceText(item) }}
+              </text>
+              <text v-if="showData.showSales" class="gs-sales">
+                已售 {{ item.sales }}
+              </text>
             </view>
           </view>
         </view>
@@ -256,7 +296,7 @@ function openGoods(id: string) {
   padding: 2rpx 12rpx;
   border-radius: 999rpx;
   background: #fff1f0;
-  color: #e5484d;
+  color: var(--wot-color-theme-primary, #ff2237);
   font-size: 20rpx;
 }
 
@@ -341,7 +381,7 @@ function openGoods(id: string) {
 .gs-price {
   overflow: hidden;
   min-width: 0;
-  color: #e5484d;
+  color: var(--wot-color-theme-primary, #ff2237);
   font-size: 30rpx;
   font-weight: 700;
   text-overflow: ellipsis;
@@ -352,12 +392,17 @@ function openGoods(id: string) {
   font-size: 22rpx;
 }
 
-/* 划线原价：灰字小一号，仅作价格锚点，不与售价抢视觉层级 */
+/* 划线原价独占一行（行高契约 34rpx = 间距 6 + 行高 28，见 cardBodyHeightRpx）：
+   灰字小一号，仅作价格锚点，不与售价抢视觉层级 */
 .gs-price-original {
-  margin-left: 6rpx;
+  display: block;
+  overflow: hidden;
+  height: 28rpx;
+  margin-top: 6rpx;
   color: #999;
   font-size: 20rpx;
   font-weight: normal;
+  line-height: 28rpx;
   text-decoration: line-through;
 }
 
@@ -365,7 +410,7 @@ function openGoods(id: string) {
   flex: 0 0 auto;
   padding: 4rpx 20rpx;
   border-radius: 999rpx;
-  background: linear-gradient(90deg, #ff7a45, #ff4d4f);
+  background: linear-gradient(90deg, var(--wot-color-theme-secondary, #ff7a45), var(--wot-color-theme-primary, #ff4d4f));
   box-shadow: 0 2rpx 8rpx rgba(255, 77, 79, 0.28);
   color: #fff;
   font-size: 22rpx;
@@ -387,7 +432,6 @@ function openGoods(id: string) {
 /* 一屏 4 个时内容区仅约 66px 宽，原价也要跟着收窄才放得下 */
 .gs-track--4 .gs-price-original,
 .gs-page--4 .gs-price-original {
-  margin-left: 4rpx;
   font-size: 18rpx;
 }
 

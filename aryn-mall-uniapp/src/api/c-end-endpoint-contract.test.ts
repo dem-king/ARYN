@@ -35,14 +35,14 @@ describe('C-end api layer must not call admin endpoints', () => {
 
   /** C 端 api 层文件（移动端全部请求都从这里发出） */
   const C_END_API_FILES = [
-    'src/api/user/signIn.ts',
+    'src/sub-pages/api/user/signIn.ts',
     'src/api/user/points.ts',
-    'src/api/user/balance.ts',
-    'src/api/user/recharge.ts',
+    'src/sub-pages/api/user/balance.ts',
+    'src/sub-pages/api/user/recharge.ts',
     'src/api/user/member.ts',
-    'src/api/user/user.ts',
+    'src/sub-pages/api/user/user.ts',
     'src/api/user/address.ts',
-    'src/api/user/benefit.ts',
+    'src/sub-pages/api/user/benefit.ts',
   ]
 
   it('keeps every C-end request on an /app/ endpoint', () => {
@@ -59,7 +59,7 @@ describe('C-end api layer must not call admin endpoints', () => {
   })
 
   it('routes the sign-in page to C-end endpoints', () => {
-    const signInSource = source('src/api/user/signIn.ts')
+    const signInSource = source('src/sub-pages/api/user/signIn.ts')
 
     expect(signInSource).toContain('/mall-user/app/signin/configs')
     expect(signInSource).toContain('/mall-user/app/signin/records')
@@ -68,8 +68,8 @@ describe('C-end api layer must not call admin endpoints', () => {
 
   it('routes points, balance and recharge to C-end endpoints', () => {
     expect(source('src/api/user/points.ts')).toContain('/mall-user/app/points/records')
-    expect(source('src/api/user/balance.ts')).toContain('/mall-user/app/balance/records')
-    expect(source('src/api/user/recharge.ts')).toContain('/mall-user/app/recharge/config/list')
+    expect(source('src/sub-pages/api/user/balance.ts')).toContain('/mall-user/app/balance/records')
+    expect(source('src/sub-pages/api/user/recharge.ts')).toContain('/mall-user/app/recharge/config/list')
   })
 
   it('never passes another user id as a query parameter', () => {

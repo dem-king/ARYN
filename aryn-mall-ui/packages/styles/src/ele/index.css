@@ -75,4 +75,10 @@ html .el-loading-mask {
     background-color: hsl(var(--card));
     border-radius: calc(var(--radius) - 2px);
   }
+
+  /* el-table 自带 overflow:hidden，作为本 flex 列容器的直接子项时
+     自动最小尺寸按 0 计算，页面内容超出视口会被压缩成一条缝，禁止其收缩 */
+  &-auto > .el-table {
+    flex-shrink: 0;
+  }
 }

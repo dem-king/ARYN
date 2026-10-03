@@ -4,6 +4,7 @@ import com.alibaba.excel.EasyExcel;
 import com.alibaba.excel.context.AnalysisContext;
 import com.alibaba.excel.event.AnalysisEventListener;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
+import com.aryn.cloud.product.api.vo.ReplenishCatalogRowVO;
 
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -18,6 +19,15 @@ import java.util.Map;
  * （与商品批量导入 {@code ProductExcelConverter} 同一范式）。
  * 首行为中文标题，按标题映射字段，空行跳过。
  *
+ * <p>模板有两个版本，列定义相同：
+ * <ul>
+ *   <li><b>标准模板</b>：只有表头，客户自己填编码/品名；</li>
+ *   <li><b>商品目录模板</b>：把在售商品按分类铺满全表，客户只改「数量」列
+ *       （见 {@code ReplenishImportMatchService.exportCatalog}）。
+ *       目录模板里必然有大量行没填数量，这些行必须被识别为「未填数量」
+ *       而不是「数量异常」——否则客户打开报告会看到几百条红色报错。</li>
+ * </ul>
+ *
  * @author aryn
  * @since 2026/9/22
  */
@@ -26,13 +36,35 @@ public final class ReplenishImportExcel {
 	/** 单个文件允许的最大数据行数 */
 	public static final int MAX_ROWS = 2000;
 
+	/** 分类列标题：仅目录模板写入，解析时忽略（不含在 {@link ParsedRow} 内） */
+	public static final String CATEGORY_TITLE = "分类";
+
 	/** 模板列定义：title 为 Excel 表头文本，field 为行 DTO 字段 */
 	public record Column(String title, String field) {
 	}
 
-	public static final List<Column> COLUMNS = List.of(new Column("商品编码", "code"), new Column("品名", "name"),
-			new Column("规格", "spec"), new Column("数量", "quantity"), new Column("单位", "unit"),
-			new Column("备注", "remark"));
+	/**
+	 * 参与解析的列（客户需要填/会被匹配读取的列）。
+	 *
+	 * <p>「单位」列已随船供包装资料（采购单位/基本单位）下线移除（2026-09-29）。
+	 */
+	public static final List<Column> COLUMNS = List.of(new Column(CATEGORY_TITLE, "category"),
+			new Column("商品编码", "code"), new Column("品名", "name"), new Column("规格", "spec"),
+			new Column("数量", "quantity"), new Column("备注", "remark"));
+
+	/**
+	 * 只读参考列：目录模板里给客户看的现状快照。
+	 *
+	 * <p>刻意**不参与解析**：这几列是服务端的现状快照，客户改了也不算数
+	 * （确认并入时会重新按库中商品校验）。把它们排除在解析之外，
+	 * 客户改错列不会污染数量与备注。
+	 *
+	 * <p>「起订量/步长」参考列已随船供包装资料下线移除（2026-09-29）。
+	 *
+	 * <p>顺序必须与 {@link #catalogRow} 的取值顺序严格一致：行列错位会把
+	 * 数量写进别的列，而客户在 Excel 里看不出来。
+	 */
+	public static final List<String> REFERENCE_TITLES = List.of("库存", "售价");
 
 	private static final Map<String, String> TITLE_TO_FIELD = COLUMNS.stream()
 		.collect(LinkedHashMap::new, (map, column) -> map.put(column.title(), column.field()), Map::putAll);
@@ -94,6 +126,41 @@ public final class ReplenishImportExcel {
 	}
 
 	/**
+	 * 商品目录模板的表头：解析列在前、只读参考列在后。
+	 *
+	 * <p>「数量」列留空由客户填写；库存/售价是服务端现状快照，
+	 * 让客户在下单前就能看到「还剩多少、多少钱」，少一轮来回。
+	 */
+	public static List<List<String>> catalogHead() {
+		List<String> titles = new ArrayList<>(COLUMNS.stream().map(Column::title).toList());
+		titles.addAll(REFERENCE_TITLES);
+		return titles.stream().map(List::of).toList();
+	}
+
+	/**
+	 * 商品目录模板的一行（与 {@link #catalogHead()} 的列顺序严格对应）。
+	 *
+	 * <p>数量列刻意留空：模板的用法就是「客户只填要买的那几行」，
+	 * 预填 0 或 1 反而会被当成真实采购量。
+	 */
+	public static List<String> catalogRow(ReplenishCatalogRowVO row) {
+		return List.of(nullToEmpty(row.getCategoryName()), nullToEmpty(row.getCode()), nullToEmpty(row.getName()),
+				nullToEmpty(row.getSpec()), "", "", number(row.getStock()), decimal(row.getSalesPrice()));
+	}
+
+	private static String nullToEmpty(String value) {
+		return value == null ? "" : value;
+	}
+
+	private static String number(Integer value) {
+		return value == null ? "" : String.valueOf(value);
+	}
+
+	private static String decimal(java.math.BigDecimal value) {
+		return value == null ? "" : value.stripTrailingZeros().toPlainString();
+	}
+
+	/**
 	 * 按「字段 → 文本」映射构建解析行；行号由调用方按顺序编号，与报告一致。
 	 */
 	public static ParsedRow toParsedRow(Map<String, String> record) {
@@ -102,7 +169,6 @@ public final class ReplenishImportExcel {
 		row.setName(orNull(record.get("name")));
 		row.setSpec(orNull(record.get("spec")));
 		row.setQuantityText(orNull(record.get("quantity")));
-		row.setUnit(orNull(record.get("unit")));
 		row.setRemark(orNull(record.get("remark")));
 		return row;
 	}
@@ -140,13 +206,10 @@ public final class ReplenishImportExcel {
 
 		private String quantityText;
 
-		private String unit;
-
 		private String remark;
 
 		public boolean blank() {
-			return code == null && name == null && spec == null && quantityText == null && unit == null
-					&& remark == null;
+			return code == null && name == null && spec == null && quantityText == null && remark == null;
 		}
 
 		public String getCode() {
@@ -179,14 +242,6 @@ public final class ReplenishImportExcel {
 
 		public void setQuantityText(String quantityText) {
 			this.quantityText = quantityText;
-		}
-
-		public String getUnit() {
-			return unit;
-		}
-
-		public void setUnit(String unit) {
-			this.unit = unit;
 		}
 
 		public String getRemark() {

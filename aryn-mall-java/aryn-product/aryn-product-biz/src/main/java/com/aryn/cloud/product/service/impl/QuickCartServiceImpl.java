@@ -1,14 +1,11 @@
 package com.aryn.cloud.product.service.impl;
 
-import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.product.api.entity.GoodsSku;
 import com.aryn.cloud.product.api.entity.GoodsSpu;
-import com.aryn.cloud.product.api.entity.ShipSkuProfile;
 import com.aryn.cloud.product.api.vo.QuickCartInfoVO;
 import com.aryn.cloud.product.api.vo.QuickCartSkuVO;
 import com.aryn.cloud.product.mapper.GoodsSpuMapper;
 import com.aryn.cloud.product.service.IQuickCartService;
-import com.aryn.cloud.product.service.IShipProductProfileService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
@@ -16,13 +13,14 @@ import org.springframework.util.StringUtils;
 
 import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
  * 快捷加购服务实现。
+ *
+ * <p>船供包装资料（采购单位/MOQ/步长）已下线（2026-09-29），
+ * 数量规则由 C 端按默认 MOQ=1、步长=1 兜底。
  *
  * @author aryn
  * @since 2026/9/21
@@ -38,8 +36,6 @@ public class QuickCartServiceImpl implements IQuickCartService {
 	private static final String SINGLE_SPEC = "0";
 
 	private final GoodsSpuMapper goodsSpuMapper;
-
-	private final IShipProductProfileService shipProductProfileService;
 
 	@Override
 	public QuickCartInfoVO getQuickCartInfo(String spuId) {
@@ -58,11 +54,9 @@ public class QuickCartServiceImpl implements IQuickCartService {
 		vo.setSpuUrls(spu.getSpuUrls());
 		vo.setEnableSpecs(spu.getEnableSpecs());
 
-		Map<String, ShipSkuProfile> profiles = loadProfiles(spu.getId());
-
 		// 多规格必须由用户选择规格后才能确定价格与库存，交由前端唤起 SKU 弹层
 		if (!SINGLE_SPEC.equals(spu.getEnableSpecs())) {
-			List<QuickCartSkuVO> skus = toSellableSkuVos(spu, profiles);
+			List<QuickCartSkuVO> skus = toSellableSkuVos(spu);
 			if (skus.isEmpty()) {
 				vo.setMode(QuickCartInfoVO.MODE_UNAVAILABLE);
 				vo.setReason("商品暂时缺货");
@@ -86,7 +80,6 @@ public class QuickCartServiceImpl implements IQuickCartService {
 		vo.setStock(sku.getStock());
 		vo.setPicUrl(resolvePicUrl(sku, spu));
 		vo.setSpecsInfo(toSpecsInfo(sku));
-		applyProfile(vo, profiles.get(sku.getId()));
 		return vo;
 	}
 
@@ -119,7 +112,7 @@ public class QuickCartServiceImpl implements IQuickCartService {
 			.toList();
 	}
 
-	private List<QuickCartSkuVO> toSellableSkuVos(GoodsSpu spu, Map<String, ShipSkuProfile> profiles) {
+	private List<QuickCartSkuVO> toSellableSkuVos(GoodsSpu spu) {
 		return filterSellableSkus(spu).stream()
 			.map((sku) -> {
 				QuickCartSkuVO skuVO = new QuickCartSkuVO();
@@ -129,48 +122,9 @@ public class QuickCartServiceImpl implements IQuickCartService {
 				skuVO.setPicUrl(resolvePicUrl(sku, spu));
 				skuVO.setSpecsInfo(toSpecsInfo(sku));
 				skuVO.setSpecsArr(sku.getSpecsArr());
-				ShipSkuProfile profile = profiles.get(sku.getId());
-				if (profile != null) {
-					skuVO.setMoq(profile.getMoq());
-					skuVO.setStepQty(profile.getStepQty());
-					skuVO.setPurchaseUnit(resolvePurchaseUnit(profile));
-				}
 				return skuVO;
 			})
 			.toList();
-	}
-
-	/**
-	 * 查询商品的船供包装资料，按 SKU ID 建索引。
-	 *
-	 * <p>船供资料是「可选扩展属性」：未维护的商品按 MOQ=1、步长=1 处理，
-	 * 与 {@code SharedCartServiceImpl.validateQuantityRules} 的默认值保持一致。
-	 */
-	private Map<String, ShipSkuProfile> loadProfiles(String spuId) {
-		String tenantId = ArynTenantContextHolder.getTenantId();
-		if (!StringUtils.hasText(tenantId)) {
-			return Map.of();
-		}
-		List<ShipSkuProfile> profiles = shipProductProfileService.listSkuProfiles(tenantId, spuId);
-		if (CollectionUtils.isEmpty(profiles)) {
-			return Map.of();
-		}
-		return profiles.stream()
-			.filter(profile -> StringUtils.hasText(profile.getSkuId()))
-			.collect(Collectors.toMap(ShipSkuProfile::getSkuId, Function.identity(), (first, second) -> first));
-	}
-
-	private void applyProfile(QuickCartInfoVO vo, ShipSkuProfile profile) {
-		if (profile == null) {
-			return;
-		}
-		vo.setMoq(profile.getMoq());
-		vo.setStepQty(profile.getStepQty());
-		vo.setPurchaseUnit(resolvePurchaseUnit(profile));
-	}
-
-	private String resolvePurchaseUnit(ShipSkuProfile profile) {
-		return StringUtils.hasText(profile.getPurchaseUnit()) ? profile.getPurchaseUnit() : profile.getBaseUnit();
 	}
 
 	private String resolvePicUrl(GoodsSku sku, GoodsSpu spu) {

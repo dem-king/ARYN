@@ -27,14 +27,11 @@ public final class ProductExcelConverter {
 	public record Column(String title, String field) {
 	}
 
-	public static final List<Column> COLUMNS = List.of(new Column("商品中文名", "name"), new Column("英文名", "nameEn"),
-			new Column("销售范围(1/2/3)", "saleScope"), new Column("IMPA编码", "impaCode"),
-			new Column("ISSA编码", "issaCode"), new Column("内部物料编码", "internalItemCode"),
-			new Column("条形码", "barcode"), new Column("更新匹配方式(SKU/IMPA/INTERNAL)", "matchType"),
-			new Column("更新匹配值", "matchValue"), new Column("二级类目ID", "categorySecondId"),
-			new Column("品牌ID", "brandId"), new Column("售价(元)", "salesPrice"), new Column("库存", "stock"),
-			new Column("采购单位", "purchaseUnit"), new Column("箱规", "packageSpec"), new Column("最小起订量", "moq"),
-			new Column("数量步长", "stepQty"), new Column("储存条件(1-5)", "storageType"));
+	// 船供资料列（英文名/销售范围/IMPA/ISSA/内部编码/条形码/采购单位/箱规/MOQ/步长/储存条件）
+	// 已随船供化下线（2026-09-29）；更新定位只支持 SKU 编号，不再有匹配方式列。
+	public static final List<Column> COLUMNS = List.of(new Column("商品中文名", "name"),
+			new Column("更新匹配值(SKU编号)", "matchValue"), new Column("二级类目ID", "categorySecondId"),
+			new Column("品牌ID", "brandId"), new Column("售价(元)", "salesPrice"), new Column("库存", "stock"));
 
 	private static final Map<String, String> TITLE_TO_FIELD = COLUMNS.stream()
 		.collect(LinkedHashMap::new, (map, column) -> map.put(column.title(), column.field()), Map::putAll);
@@ -88,23 +85,11 @@ public final class ProductExcelConverter {
 	public static ProductImportRowDTO toRowDTO(Map<String, String> record) {
 		ProductImportRowDTO row = new ProductImportRowDTO();
 		row.setName(orNull(record.get("name")));
-		row.setNameEn(orNull(record.get("nameEn")));
-		row.setSaleScope(orNull(record.get("saleScope")));
-		row.setImpaCode(orNull(record.get("impaCode")));
-		row.setIssaCode(orNull(record.get("issaCode")));
-		row.setInternalItemCode(orNull(record.get("internalItemCode")));
-		row.setBarcode(orNull(record.get("barcode")));
-		row.setMatchType(orNull(record.get("matchType")));
 		row.setMatchValue(orNull(record.get("matchValue")));
 		row.setCategorySecondId(orNull(record.get("categorySecondId")));
 		row.setBrandId(orNull(record.get("brandId")));
 		row.setSalesPrice(toDecimal(record.get("salesPrice")));
 		row.setStock(toInteger(record.get("stock")));
-		row.setPurchaseUnit(orNull(record.get("purchaseUnit")));
-		row.setPackageSpec(orNull(record.get("packageSpec")));
-		row.setMoq(toInteger(record.get("moq")));
-		row.setStepQty(toInteger(record.get("stepQty")));
-		row.setStorageType(orNull(record.get("storageType")));
 		return row;
 	}
 

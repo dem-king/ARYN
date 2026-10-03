@@ -17,7 +17,6 @@ import { computed, ref, watch } from 'vue'
 
 import { getPage } from '@/api/product/spu'
 import GoodsDetailSheet from '@/components/goods-detail-sheet/index.vue'
-import GoodsPickCheckbox from '@/components/goods-pick-checkbox/index.vue'
 import QuickCartButton from '@/components/quick-cart-button/index.vue'
 
 interface Props {
@@ -34,10 +33,18 @@ interface Props {
   /** 栅格 / 列表两种卡片布局 */
   grid?: boolean
   /**
-   * 点击商品时从底部弹出详情面板（参考小象超市），而非跳转整页详情。
+   * 点击商品时在**本面板区域内**从底部弹出详情弹层（参考小象超市：弹层与遮罩
+   * 只盖住商品流，宿主页面的分类栏等保持可点），而非跳转整页详情。
    * 默认 false 保持整页跳转；分类页等需要快捷加购的场景开启。
    */
   detailSheet?: boolean
+  /**
+   * 空结果的「清除筛选」出口回调。
+   *
+   * 传了才在空态展示该按钮：面板不持有筛选状态（品牌选中项在父组件），
+   * 因此只能由父组件清空并触发展开重查。分类页不传该项、也就没有这个入口。
+   */
+  clearFilter?: () => void
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -48,6 +55,7 @@ const props = withDefaults(defineProps<Props>(), {
   showSort: true,
   grid: true,
   detailSheet: false,
+  clearFilter: undefined,
 })
 
 const router = useRouter()
@@ -57,6 +65,8 @@ const priceSort = ref(0)
 const salesSort = ref(0)
 const sortMode = ref<'default' | 'newGoods'>('default')
 const pageOrder = ref<{ asc?: string, desc?: string }>({})
+/** 本次查询是否失败：空态必须区分「没数据」与「请求失败」（见 #empty 插槽） */
+const loadFailed = ref(false)
 /** 底部详情弹层 */
 const detailVisible = ref(false)
 const currentSpuId = ref('')
@@ -72,20 +82,20 @@ async function queryList(pageNo: number, pageSize: number) {
       brandId: props.brandId || undefined,
       ...pageOrder.value,
     })
-    // eslint-disable-next-line no-console
-    console.log('[goods-list-panel] queryList', { pageNo, keys: Object.keys(response ?? {}), records: response?.records?.length, sample: response?.records?.[0] })
+    loadFailed.value = false
     pagingRef.value?.complete(response?.records ?? [])
   }
   catch (e) {
-    // eslint-disable-next-line no-console
     console.warn('[goods-list-panel] queryList failed', e)
+    loadFailed.value = true
     // 失败时结束本次分页，避免 z-paging 一直停留在加载中
     pagingRef.value?.complete(false)
   }
 }
 
-/** 切换筛选条件后重置到第一页 */
+/** 切换筛选条件后重置到第一页；旧商品的详情弹层一并收起，详情不属于新结果集 */
 function refresh() {
+  detailVisible.value = false
   pagingRef.value?.reload()
 }
 
@@ -161,7 +171,7 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
 </script>
 
 <template>
-  <view class="goods-list-panel">
+  <view class="goods-list-panel" :class="detailSheet ? 'goods-list-panel--sheet' : ''">
     <z-paging
       ref="pagingRef"
       v-model="goodsList"
@@ -218,12 +228,17 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
           :hover-stay-time="120"
           @click="toDetail(item.id)"
         >
-          <image
-            class="goods-pic"
-            :class="grid ? 'goods-pic--grid' : 'goods-pic--row'"
-            :src="item.spuUrls?.[0]"
-            mode="aspectFill"
-          />
+          <!--
+            图片区锁 1:1 方框 + aspectFit 完整展示（与首页商品分组同一口径）。
+
+            商品图源比例混杂（实测 800×533 横图 / 533×800 竖图 / 1:1 方图）：
+            定高 + aspectFill 会裁掉边缘，看起来「图不完整」；
+            高度随原图比例浮动（widthFix）又会让栅格同一行的矮卡下方空出页面底色，
+            看起来像「商品之间多了一块留白」。方框 contain 两者兼得。
+          -->
+          <view class="goods-pic-box" :class="grid ? 'goods-pic-box--grid' : 'goods-pic-box--row'">
+            <image class="goods-pic" :src="item.spuUrls?.[0]" mode="aspectFit" lazy-load />
+          </view>
           <view class="goods-meta" :class="grid ? '' : 'goods-meta--row'">
             <view class="goods-name">
               {{ item.name }}
@@ -244,13 +259,35 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
                 </text>
               </view>
               <view class="goods-actions">
-                <goods-pick-checkbox :spu-id="item.id" size="36rpx" />
                 <quick-cart-button :spu-id="item.id" size="44rpx" />
               </view>
             </view>
           </view>
         </view>
       </view>
+
+      <!--
+        空态：必须区分「请求失败」与「无数据」—— z-paging 默认文案是「没有数据哦~」，
+        把加载失败也显示成没数据会让用户以为这个分类确实没商品（船供列表踩过同一个坑）。
+        品牌筛选是「先选条件再收敛」的分面语义，选完可能落到空结果集，
+        因此父组件传了 clearFilter 时给出清除筛选的出口，避免用户停在无路的死状态。
+      -->
+      <template #empty>
+        <view class="list-empty">
+          <wd-status-tip
+            :image="loadFailed ? 'network' : 'content'"
+            image-size="176rpx"
+            :tip="loadFailed ? '加载失败，请检查网络后重试' : '当前筛选条件下暂无商品'"
+          />
+          <view
+            v-if="loadFailed || (props.brandId && props.clearFilter)"
+            class="list-empty__action"
+            @tap="loadFailed ? pagingRef?.reload() : props.clearFilter?.()"
+          >
+            {{ loadFailed ? '重新加载' : '清除筛选' }}
+          </view>
+        </view>
+      </template>
     </z-paging>
 
     <goods-detail-sheet v-model="detailVisible" :spu-id="currentSpuId" />
@@ -260,6 +297,29 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
 <style lang="scss" scoped>
 .goods-list-panel {
   height: 100%;
+}
+
+/**
+ * detailSheet 模式下在本容器上常驻一个 transform，**故意**把 wd-popup（fixed 定位）
+ * 的包含块从视口改成商品流右栏：详情弹层与遮罩只盖住右栏，左侧分类栏/顶部图标条
+ * 保持可点，点分类由 refresh() 收起弹层并切换（对标小象超市，非全屏弹层）。
+ * 必须常驻声明、不能靠页面入场动画 fill 残留的 transform 顶替——动画一改，
+ * 弹层就会悄悄变回全屏。
+ */
+.goods-list-panel--sheet {
+  transform: translateZ(0);
+}
+
+/* 空态：与船供列表同一套排版（status-tip + 主题色文字动作） */
+.list-empty {
+  padding: 60rpx 0;
+
+  &__action {
+    margin-top: 16rpx;
+    font-size: 26rpx;
+    color: var(--theme-color-primary, var(--wot-color-theme-primary));
+    text-align: center;
+  }
 }
 
 /**
@@ -371,17 +431,37 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
   }
 }
 
-.goods-pic--grid {
-  display: block;
+/**
+ * 图片区：1:1 方框，图 aspectFit 完整落在框内（与首页商品分组同一口径）。
+ *
+ * 框比例用 `padding-top: 100%` 而非 `aspect-ratio`：小程序 `<image>` 基座自带
+ * 默认宽高，比例写在它上面不生效（首页 goods-group 踩过同一个坑）。
+ * 底色留白，与商品图背景融合，容器化后的留白边不显脏。
+ */
+.goods-pic-box {
+  position: relative;
   width: 100%;
-  height: 320rpx;
+  background: #fff;
 }
 
-.goods-pic--row {
+.goods-pic-box--grid {
+  padding-top: 100%;
+}
+
+.goods-pic-box--row {
+  flex: none;
   width: 240rpx;
   height: 240rpx;
-  flex: none;
   border-radius: 12rpx;
+  overflow: hidden;
+}
+
+.goods-pic {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
 }
 
 .goods-meta {
@@ -437,7 +517,7 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
 }
 
 .goods-price {
-  color: #ff2237;
+  color: var(--wot-color-theme-primary, #ff2237);
   font-weight: 600;
 
   .goods-price-symbol {

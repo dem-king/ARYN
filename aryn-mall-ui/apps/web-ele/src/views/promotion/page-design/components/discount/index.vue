@@ -172,14 +172,14 @@ const activities = computed(() => state.items);
 .activity-tag {
   padding: 1px 5px;
   font-size: 10.5px;
-  color: #e5484d;
-  background: #ffe1dc;
+  color: var(--wot-color-theme-primary, #ff2237);
+  background: var(--wot-color-theme-background, #ffe1dc);
   border-radius: 2px;
 }
 
 .activity-time {
   font-size: 11px;
-  color: #e5484d;
+  color: var(--wot-color-theme-primary, #ff2237);
 }
 
 .goods-list {
@@ -201,7 +201,7 @@ const activities = computed(() => state.items);
   min-height: 70px;
   overflow: hidden;
   background: #fff;
-  border: 0.5px solid #ffe1dc;
+  border: 0.5px solid var(--wot-color-theme-background, #ffe1dc);
   border-radius: 4px;
 }
 
@@ -213,8 +213,8 @@ const activities = computed(() => state.items);
   width: 75px;
   min-height: 70px;
   font-size: 11px;
-  color: #e5484d;
-  background: #fff1ee;
+  color: var(--wot-color-theme-primary, #ff2237);
+  background: var(--wot-color-theme-background, #fff1ee);
 }
 
 .goods-content {
@@ -242,7 +242,7 @@ const activities = computed(() => state.items);
 .goods-price {
   font-size: 15px;
   font-weight: 700;
-  color: #e5484d;
+  color: var(--wot-color-theme-primary, #ff2237);
 }
 
 .goods-original {

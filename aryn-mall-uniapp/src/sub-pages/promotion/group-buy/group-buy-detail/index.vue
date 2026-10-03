@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import type { GroupBuyActivity } from '@/api/promotion/groupBuyActivity'
-import type { GroupBuyRecord } from '@/api/promotion/groupBuyRecord'
+import type { GroupBuyRecord } from '@/sub-pages/api/promotion/groupBuyRecord'
 import { onLoad, onShareAppMessage } from '@dcloudio/uni-app'
 import { reactive, ref } from 'vue'
 import { getById as getSpuById } from '@/api/product/spu'
 import { getActivityById } from '@/api/promotion/groupBuyActivity'
-import { getRecordPage, joinGroup, openGroup } from '@/api/promotion/groupBuyRecord'
+import { getRecordPage, joinGroup, openGroup } from '@/sub-pages/api/promotion/groupBuyRecord'
 
 definePage({
   name: 'group-buy-detail',
@@ -276,7 +276,7 @@ function getGroupStatusClass(status?: string) {
 }
 
 .activity-info {
-  background: linear-gradient(135deg, #ff6b35, #ff4500);
+  background: linear-gradient(135deg, var(--wot-color-theme-secondary, #ff6b35), var(--wot-color-theme-primary, #ff4500));
   padding: 32rpx;
   color: #fff;
 
@@ -378,7 +378,7 @@ function getGroupStatusClass(status?: string) {
   }
 
   .join-btn {
-    background: linear-gradient(135deg, #ff6b35, #ff4500);
+    background: linear-gradient(135deg, var(--wot-color-theme-secondary, #ff6b35), var(--wot-color-theme-primary, #ff4500));
     color: #fff;
     font-size: 24rpx;
     padding: 12rpx 24rpx;
@@ -401,7 +401,7 @@ function getGroupStatusClass(status?: string) {
   .open-group-btn {
     width: 100%;
     text-align: center;
-    background: linear-gradient(135deg, #ff6b35, #ff4500);
+    background: linear-gradient(135deg, var(--wot-color-theme-secondary, #ff6b35), var(--wot-color-theme-primary, #ff4500));
     color: #fff;
     font-size: 32rpx;
     font-weight: 600;

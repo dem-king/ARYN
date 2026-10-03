@@ -52,6 +52,21 @@
         </where>
     </select>
 
+    <select id="selectByOrderIds" resultType="com.aryn.cloud.order.api.entity.OrderItemEntity">
+        SELECT
+        <include refid="orderItemSql"/>
+        FROM
+        order_item AS order_item
+        <where>
+            AND order_item.`del_flag` = '0'
+            AND order_item.`order_id` IN
+            <foreach collection="orderIds" item="orderId" open="(" separator="," close=")">
+                #{orderId}
+            </foreach>
+        </where>
+        ORDER BY order_item.`order_id`, order_item.`create_time`, order_item.`id`
+    </select>
+
 	<select id="selectOrderItemById" resultType="com.aryn.cloud.order.api.entity.OrderItemEntity">
 		SELECT
 		<include refid="orderItemSql"/>

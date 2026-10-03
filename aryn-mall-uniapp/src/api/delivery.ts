@@ -12,17 +12,17 @@ export type TripStatus = '1' | '2' | '3' | '4'
 /** 配送任务状态：1待派单 2待取货 3配货中 4待送达 5已送达 6已签收 7已取消 8异常 9待退回 */
 export type DeliveryTaskStatus = '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'
 
-/** 取货明细项 */
+/** 取货明细项（页面视图模型，由任务明细 itemList 映射而来） */
 export interface PickItem {
   id: string
   orderId: string
   orderNo: string
-  skuId: string
-  spuId: string
   spuName: string
   picUrl: string
   specsInfo: string
   quantity: number
+  /** 商品分类名（空串表示后端未回填，展示归「未分类」） */
+  categoryName: string
   /** 是否已确认取货：'0' 否 '1' 是 */
   picked: string
 }
@@ -74,13 +74,17 @@ export interface DeliveryTask {
   deliveryWindowStart?: string
   /** 配送时间窗结束 */
   deliveryWindowEnd?: string
-  /** 订单明细 */
+  /** 订单明细（后端 DeliveryTaskItem：图片字段为 image、规格字段为 skuName） */
   itemList?: Array<{
     id: string
-    picUrl: string
-    spuName: string
-    specsInfo: string
+    spuName?: string
+    skuName?: string
+    image?: string
     quantity: number
+    /** 商品分类名（读时聚合回填；分类≈供应商批次，配货清单按它分组） */
+    categoryName?: string
+    /** 是否已确认取货：'0' 否 '1' 是 */
+    picked: string
   }>
 }
 
@@ -88,29 +92,21 @@ export interface DeliveryTask {
 export interface DeliveryTrip {
   id: string
   tripNo: string
-  /** 仓库ID */
-  warehouseId: string
-  /** 仓库名称 */
-  warehouseName: string
+  /** 仓库名称（后端派生自仓库配置） */
+  warehouseName?: string
   /** 仓库地址 */
-  warehouseAddress: string
-  /** 仓库纬度 */
-  warehouseLatitude?: number
-  /** 仓库经度 */
-  warehouseLongitude?: number
+  warehouseAddress?: string
   status: TripStatus
-  /** 总件数 */
+  /** 总件数（后端按任务明细汇总） */
   totalItemCount: number
-  /** 已取件数 */
+  /** 已取件数（后端派生） */
   pickedItemCount: number
   /** 任务总数 */
   taskCount: number
-  /** 已送达单数 */
+  /** 已送达单数（后端派生） */
   arrivedTaskCount: number
   /** 配送员ID */
   staffId: string
-  /** 配送员姓名 */
-  staffName: string
   /** 出车时间 */
   departTime?: string
   /** 开始配货时间 */
@@ -149,6 +145,8 @@ export interface DeliveryProgress {
   staffPhone?: string
   /** 时间线节点列表 */
   nodes: DeliveryProgressNode[]
+  /** 送达凭证图片URL（已送达/已签收时后端返回） */
+  evidenceUrls?: string[]
 }
 
 /** 任务列表查询参数 */
@@ -262,10 +260,11 @@ export function startLoading(tripId: string) {
 }
 
 /**
- * 获取取货清单（按订单分组）
+ * 获取取货清单（后端按任务返回，明细在 itemList，字段为 image/skuName；
+ * 页面展示用 PickGroup 时由 trip-detail 本地归组映射）
  */
 export function getPickList(tripId: string) {
-  return alovaInstance.Get<PickGroup[]>(`${DELIVERY_API_BASE}/trip/${tripId}/pick-list`)
+  return alovaInstance.Get<DeliveryTask[]>(`${DELIVERY_API_BASE}/trip/${tripId}/pick-list`)
 }
 
 /**
@@ -362,23 +361,23 @@ export function getOrderDeliveryProgress(orderId: string) {
 
 /** 出车单状态映射 */
 export const TRIP_STATUS_MAP: Record<TripStatus, { name: string, color: string }> = {
-  '1': { name: '待配货', color: '#fa9500' },
-  '2': { name: '配货中', color: '#0084ff' },
-  '3': { name: '配送中', color: '#07c160' },
-  '4': { name: '已完成', color: '#909399' },
+  1: { name: '待配货', color: '#fa9500' },
+  2: { name: '配货中', color: '#0084ff' },
+  3: { name: '配送中', color: '#07c160' },
+  4: { name: '已完成', color: '#909399' },
 }
 
 /** 配送任务状态映射 */
 export const TASK_STATUS_MAP: Record<DeliveryTaskStatus, { name: string, color: string }> = {
-  '1': { name: '待派单', color: '#909399' },
-  '2': { name: '待取货', color: '#fa9500' },
-  '3': { name: '配货中', color: '#0084ff' },
-  '4': { name: '待送达', color: '#e6a23c' },
-  '5': { name: '已送达', color: '#07c160' },
-  '6': { name: '已签收', color: '#909399' },
-  '7': { name: '已取消', color: '#c0c4cc' },
-  '8': { name: '异常', color: '#f56c6c' },
-  '9': { name: '待退回', color: '#f56c6c' },
+  1: { name: '待派单', color: '#909399' },
+  2: { name: '待取货', color: '#fa9500' },
+  3: { name: '配货中', color: '#0084ff' },
+  4: { name: '待送达', color: '#e6a23c' },
+  5: { name: '已送达', color: '#07c160' },
+  6: { name: '已签收', color: '#909399' },
+  7: { name: '已取消', color: '#c0c4cc' },
+  8: { name: '异常', color: '#f56c6c' },
+  9: { name: '待退回', color: '#f56c6c' },
 }
 
 /** 获取出车单状态名称 */
@@ -434,8 +433,8 @@ export function requestSubscribeMessage(templateIds: string[]): Promise<Record<s
     // #ifdef MP-WEIXIN
     wx.requestSubscribeMessage({
       tmplIds: templateIds,
-      success: (res) => resolve(res as Record<string, string>),
-      fail: (err) => reject(err),
+      success: res => resolve(res as Record<string, string>),
+      fail: err => reject(err),
     })
     // #endif
     // #ifndef MP-WEIXIN
@@ -451,8 +450,8 @@ export function getWxLoginCode(): Promise<string> {
   return new Promise((resolve, reject) => {
     // #ifdef MP-WEIXIN
     wx.login({
-      success: (res) => resolve(res.code),
-      fail: (err) => reject(err),
+      success: res => resolve(res.code),
+      fail: err => reject(err),
     })
     // #endif
     // #ifndef MP-WEIXIN

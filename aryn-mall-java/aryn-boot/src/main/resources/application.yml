@@ -121,6 +121,7 @@ secure:
       - /app/goodsappraise/**
       - /app/goodscategory/**
       - /app/goodsbrand/list
+      - /app/goodsbrand/filter-list
       - /app/sku/**
       - /app/goodsspu/**
       - /app/goodsspuspecs/**
@@ -244,9 +245,6 @@ hx:
       - vessel_call_change_log
       - vessel_invite_code
       - vessel_bind_apply
-      - ship_goods_profile
-      - ship_sku_profile
-      - product_code_mapping
       - shared_cart
       - shared_cart_member
       - shared_cart_item

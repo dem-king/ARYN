@@ -67,4 +67,12 @@ public class PageDesignThemeController {
 		return Result.success(pageDesignThemeService.deleteTheme(id));
 	}
 
+	@SysLog("设置商城默认装修主题")
+	@Operation(summary = "设为商城默认主题（C 端全商城换肤）")
+	@SaCheckPermission("promotion:pagedesign:theme")
+	@PostMapping("/{id}/default")
+	public Result<Boolean> setDefault(@PathVariable String id) {
+		return Result.success(pageDesignThemeService.setDefaultTheme(id));
+	}
+
 }

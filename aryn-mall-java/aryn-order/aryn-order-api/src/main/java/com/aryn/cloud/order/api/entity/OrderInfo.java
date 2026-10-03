@@ -85,6 +85,12 @@ public class OrderInfo extends Model<OrderInfo> {
 	@Schema(description = "支付金额（总金额-优惠券优惠金额+运费 = 支付金额）")
 	private BigDecimal paymentPrice;
 
+	@Schema(description = "实收金额（货到付款确认收款时登记；NULL=未确认）")
+	private BigDecimal actualPayPrice;
+
+	@Schema(description = "付款凭证快照 JSON 数组 [{materialId, materialUrl}]（确认收款时写入）")
+	private String payVouchers;
+
 	@Schema(description = "付款时间")
 	private LocalDateTime paymentTime;
 

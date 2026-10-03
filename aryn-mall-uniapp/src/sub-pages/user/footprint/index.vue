@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onLoad } from '@dcloudio/uni-app'
 import { ref } from 'vue'
-import { getPage } from '@/api/product/footprint'
+import { getPage } from '@/sub-pages/api/product/footprint'
 
 definePage({
   name: 'footprint',

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 import { onLoad, onUnload } from '@dcloudio/uni-app'
-import { editPhone } from '@/api/user/user'
+import { editPhone } from '@/sub-pages/api/user/user'
 import { sendSmsCode } from '@/api/upms/sms'
 
 definePage({

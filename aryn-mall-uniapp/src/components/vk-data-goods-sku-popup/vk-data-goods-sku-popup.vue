@@ -1176,7 +1176,7 @@ export default {
             font-weight: 500;
 
             .price-content {
-              color: #fe560a;
+              color: var(--wot-color-theme-primary, #ff2237);
               margin-bottom: 20rpx;
 
               .sign {
@@ -1241,8 +1241,8 @@ export default {
                 box-sizing: border-box;
 
                 &.actived {
-                  border-color: #fe560a;
-                  color: #fe560a;
+                  border-color: var(--wot-color-theme-primary, #ff2237);
+                  color: var(--wot-color-theme-primary, #ff2237);
                 }
 
                 &.noactived {
@@ -1302,7 +1302,7 @@ export default {
         }
 
         &.buy {
-          background: #fe560a;
+          background: var(--wot-color-theme-primary, #ff2237);
         }
       }
 
@@ -1315,7 +1315,7 @@ export default {
         text-align: center;
         font-weight: 500;
         font-size: 28rpx;
-        background: #fe560a;
+        background: var(--wot-color-theme-primary, #ff2237);
       }
 
       .sure.add-cart {

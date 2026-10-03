@@ -92,6 +92,46 @@
         ORDER BY c.id DESC
         LIMIT #{fetchSize}
     </select>
+    <select id="selectUnreadForParticipant" resultType="com.aryn.cloud.message.api.vo.conversation.ConversationVO">
+        SELECT <include refid="conversationViewColumns"/>
+        FROM message_conversation c
+        INNER JOIN message_participant p ON p.tenant_id = #{tenantId}
+            AND p.conversation_id = c.id
+            AND p.participant_type = #{participantType}
+            AND p.participant_id = #{participantId}
+            AND p.participant_status = 'ACTIVE'
+            AND p.del_flag = '0'
+        WHERE c.tenant_id = #{tenantId}
+          AND c.del_flag = '0'
+          AND c.status != 'CLOSED'
+          AND c.last_seq > p.last_read_seq
+        ORDER BY c.last_message_time DESC, c.id DESC
+        LIMIT #{limit}
+    </select>
+    <select id="countUnreadForParticipant" resultType="long">
+        SELECT COUNT(*)
+        FROM message_conversation c
+        INNER JOIN message_participant p ON p.tenant_id = #{tenantId}
+            AND p.conversation_id = c.id
+            AND p.participant_type = #{participantType}
+            AND p.participant_id = #{participantId}
+            AND p.participant_status = 'ACTIVE'
+            AND p.del_flag = '0'
+        WHERE c.tenant_id = #{tenantId}
+          AND c.del_flag = '0'
+          AND c.status != 'CLOSED'
+          AND c.last_seq > p.last_read_seq
+    </select>
+    <select id="countWaiting" resultType="long">
+        SELECT COUNT(*)
+        FROM message_conversation
+        WHERE tenant_id = #{tenantId}
+          AND conversation_type = 'CUSTOMER_SERVICE'
+          AND queue_code = #{queueCode}
+          AND status = 'WAITING'
+          AND assigned_staff_id IS NULL
+          AND del_flag = '0'
+    </select>
     <update id="assignWaiting">
         UPDATE message_conversation
         SET assigned_staff_id = #{staffId}, status = 'ASSIGNED', update_time = NOW()

@@ -3,6 +3,7 @@ import { onLoad, onUnload } from '@dcloudio/uni-app'
 import { nextTick, reactive, ref } from 'vue'
 import { getPage } from '@/api/order/orderInfo'
 import OrderOperation from '@/sub-pages/order/components/order-operation/index.vue'
+import { useDict } from '@/sub-pages/utils/dict'
 
 definePage({
   name: 'order-list',
@@ -250,7 +251,8 @@ onUnload(() => {
             共{{ order.orderItemList.length }}件商品， 合计
           </text>
           <wd-text
-            custom-class="pl-10rpx" size="28rpx" :text="order.paymentPrice" color="red" mode="price"
+            custom-class="pl-10rpx" size="28rpx"
+            :text="order.actualPayPrice ?? order.paymentPrice" color="red" mode="price"
             prefix="￥"
           />
         </view>

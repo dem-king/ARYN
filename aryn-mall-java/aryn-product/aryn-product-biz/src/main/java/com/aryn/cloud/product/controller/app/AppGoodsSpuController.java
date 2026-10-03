@@ -3,10 +3,9 @@ package com.aryn.cloud.product.controller.app;
 
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
+import com.aryn.cloud.product.api.vo.GoodsCatalogSummaryVO;
 import com.aryn.cloud.product.api.vo.QuickCartInfoVO;
-import com.aryn.cloud.product.api.vo.ShipProductSummaryVO;
 import com.aryn.cloud.product.service.IQuickCartService;
-import com.aryn.cloud.product.service.IShipProductProfileService;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.product.api.entity.GoodsSpu;
@@ -38,8 +37,6 @@ public class AppGoodsSpuController {
 
 	private final IGoodsSpuService goodsSpuService;
 
-	private final IShipProductProfileService shipProductProfileService;
-
 	private final IQuickCartService quickCartService;
 
 	@Operation(summary = "商品列表")
@@ -48,41 +45,21 @@ public class AppGoodsSpuController {
 		return Result.success(goodsSpuService.apiPage(page, goodsSpu));
 	}
 
-	@Operation(summary = "船供商品目录（sale_scope 2/3，仅上架商品）")
+	@Operation(summary = "场景选货目录（统一商品池，仅上架商品；路径保留 scene=2 兼容）")
 	@GetMapping("/ship/page")
-	public Result<IPage<ShipProductSummaryVO>> shipPage(Page<ShipProductSummaryVO> page, ShipProductSummaryVO query) {
-		// C 端只展示上架商品。管理端复用同一查询且需要看到下架商品，
-		// 因此在此强制而非写死在 SQL 里。
-		query.setStatus("1");
-		return Result.success(
-				shipProductProfileService.shipSummaryPage(ArynTenantContextHolder.getTenantId(), page, query));
+	public Result<IPage<GoodsCatalogSummaryVO>> shipPage(Page<GoodsCatalogSummaryVO> page,
+			@RequestParam(value = "keyword", required = false) String keyword) {
+		// C 端只展示上架商品。船供资料下线后目录即统一商品池，
+		// 路径保留以兼容共享购物车补选入口。
+		return Result.success(goodsSpuService.catalogPage(ArynTenantContextHolder.getTenantId(), page, keyword, "1"));
 	}
 
-	@Operation(summary = "商品船供资料摘要（C 端详情页展示采购单位/箱规/MOQ/步长/储存条件）")
-	@GetMapping("/ship-summary/{spuId}")
-	public Result<java.util.Map<String, Object>> shipSummary(@PathVariable String spuId) {
-		String tenantId = ArynTenantContextHolder.getTenantId();
-		java.util.Map<String, Object> summary = new java.util.HashMap<>();
-		summary.put("profile", shipProductProfileService.getProfile(tenantId, spuId));
-		summary.put("skuProfiles", shipProductProfileService.listSkuProfiles(tenantId, spuId));
-		return Result.success(summary);
-	}
-
-	@Operation(summary = "船供/个人商品搜索（关键词匹配中英文、IMPA/ISSA、条码、别名）")
+	@Operation(summary = "商品搜索（关键词匹配名称/子标题；scene 参数保留兼容，商品池已统一）")
 	@GetMapping("/search")
-	public Result<IPage<ShipProductSummaryVO>> search(Page<ShipProductSummaryVO> page,
+	public Result<IPage<GoodsCatalogSummaryVO>> search(Page<GoodsCatalogSummaryVO> page,
 			@RequestParam(value = "scene", defaultValue = "1") String scene,
 			@RequestParam(value = "keyword", required = false) String keyword) {
-		ShipProductSummaryVO query = new ShipProductSummaryVO();
-		// 统一关键词交给 SQL 在「编码组」与「名称组」之间取 OR。
-		// 历史缺陷：分别赋值给 nameEn 与 impaCode，两个 <if> 是 AND 关系，
-		// 按 IMPA 码或按中文品名单独搜索均返回 0 条。
-		query.setKeyword(keyword);
-		query.setStatus("1");
-		IPage<ShipProductSummaryVO> result = "2".equals(scene)
-				? shipProductProfileService.shipSummaryPage(ArynTenantContextHolder.getTenantId(), page, query)
-				: shipProductProfileService.personalSummaryPage(ArynTenantContextHolder.getTenantId(), page, query);
-		return Result.success(result);
+		return Result.success(goodsSpuService.catalogPage(ArynTenantContextHolder.getTenantId(), page, keyword, "1"));
 	}
 
 	@Operation(summary = "通过id查询商品")

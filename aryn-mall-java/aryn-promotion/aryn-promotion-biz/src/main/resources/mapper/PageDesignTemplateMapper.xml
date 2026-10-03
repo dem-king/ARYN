@@ -27,7 +27,14 @@
         <if test="industryTag != null and industryTag != ''">
             AND industry_tag = #{industryTag}
         </if>
-        ORDER BY download_count DESC, create_time DESC
+        <choose>
+            <when test="sortField == 'createTime'">
+                ORDER BY create_time DESC, download_count DESC
+            </when>
+            <otherwise>
+                ORDER BY download_count DESC, create_time DESC
+            </otherwise>
+        </choose>
     </select>
 
     <select id="selectMarketTemplateById" resultType="com.aryn.cloud.promotion.api.entity.PageDesignTemplate">

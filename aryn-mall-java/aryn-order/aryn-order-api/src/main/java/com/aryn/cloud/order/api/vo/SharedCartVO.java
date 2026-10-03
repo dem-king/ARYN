@@ -100,4 +100,14 @@ public class SharedCartVO implements Serializable {
 	@Schema(description = "成员数")
 	private Integer memberCount;
 
+	/**
+	 * 补给进度汇总（按项数，未排计划的行不计入百分比）。
+	 *
+	 * <p>列表卡片要回答「这单还差多少」，与首页卡片、详情页共用同一口径，
+	 * 计算集中在 {@code ReplenishProgressCalculator}；无任何计划时
+	 * {@code progressPercent} 为 null，前端显示「尚未排计划」而不是 0%。
+	 */
+	@Schema(description = "补给进度汇总")
+	private ReplenishProgressVO.Summary progress;
+
 }

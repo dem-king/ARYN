@@ -4,15 +4,24 @@
  *
  * 真实数据来自「当前登录用户此刻进行中的共享购物车」，编辑器无法取得，
  * 因此这里渲染一张示意卡片，让运营能判断位置与视觉重量。
+ *
+ * 无数据策略影响预览形态（与小程序 diy-replenish-card 同口径）：
+ * - hide：渲染示意数据卡（有单时的视觉重量）；
+ * - placeholder：渲染空态引导卡（发起 / 导入清单两个入口），与 C 端占位一致。
  */
 import type { ReplenishCardProps } from './types';
 
+import { computed } from 'vue';
+
 import RetailPreviewFrame from '../common/retail-preview/retail-preview-frame.vue';
 
-defineProps<{ showData: ReplenishCardProps }>();
+const props = defineProps<{ showData: ReplenishCardProps }>();
 
-// 无异步请求：真实清单取决于访问者，编辑器只需呈现位置与视觉重量。
 const previewStatus = 'data' as const;
+// 按钮在画布上不可点：预览只呈现形态，跳转由 C 端实现
+const showPlaceholder = computed(
+  () => props.showData.emptyStrategy === 'placeholder',
+);
 </script>
 
 <template>
@@ -20,7 +29,18 @@ const previewStatus = 'data' as const;
     :common-style="showData.commonStyle"
     :status="previewStatus"
   >
-    <div class="replenish-card">
+    <!-- 空态占位引导卡：与小程序 guide-* 逐值对齐（px = rpx / 2） -->
+    <div v-if="showPlaceholder" class="guide-inner">
+      <span class="guide-title">还没有进行中的补给单</span>
+      <span class="guide-desc"
+        >发起补给单与同船成员合并采购，或直接导入 Excel 清单一键下单</span
+      >
+      <div class="guide-actions">
+        <span class="guide-btn guide-btn--ghost">发起补给单</span>
+        <span class="guide-btn guide-btn--primary">导入清单下单</span>
+      </div>
+    </div>
+    <div v-else class="replenish-card">
       <div class="card-head">
         <div class="card-main">
           <div class="card-title-row">
@@ -149,5 +169,54 @@ const previewStatus = 'data' as const;
   flex: none;
   margin-left: 4px;
   font-size: 12px;
+}
+
+/* 空态占位引导卡：与小程序 guide-* 逐值对齐（px = rpx / 2） */
+.guide-inner {
+  padding: 12px;
+  text-align: center;
+  background: #fff;
+  border: 1px dashed rgb(11 99 229 / 35%);
+  border-radius: 12px;
+}
+
+.guide-title {
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+  color: #172033;
+}
+
+.guide-desc {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #7a8699;
+}
+
+.guide-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.guide-btn {
+  flex: 1;
+  height: 32px;
+  font-size: 12px;
+  line-height: 32px;
+  border-radius: 999px;
+}
+
+.guide-btn--ghost {
+  color: #0b63e5;
+  background: #fff;
+  border: 1px solid #0b63e5;
+}
+
+.guide-btn--primary {
+  color: #fff;
+  background: #0b63e5;
 }
 </style>

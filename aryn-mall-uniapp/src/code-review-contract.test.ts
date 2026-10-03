@@ -82,10 +82,10 @@ describe('mobile review contracts', () => {
   it('keeps the cart header in flow and the checkout bar above the tab bar', () => {
     const cartSource = source('src/pages/user/shopping-cart/index.vue')
 
-    // 收货地址栏曾用 position: fixed 却不占位，把下面的共享购物车入口盖住；
-    // 保持普通流内布局，地址栏就不会遮挡任何内容。
-    const headerRule = cartSource.match(/\.cart-header \{[\s\S]*?\n\}/)?.[0] ?? ''
-    expect(headerRule).not.toContain('position: fixed')
+    // 收货地址栏曾用 position: fixed 却不占位，把下面的共享购物车入口盖住。
+    // 2026-09-29：该栏已整体移除（纯展示、不参与下单，结算页会重新取地址），
+    // 断言改为「没有把贴顶 fixed 的地址栏加回来」。
+    expect(cartSource).not.toMatch(/position: fixed[^}]*cart-header/)
 
     // 结算条固定在 TabBar 之上：H5 的 TabBar 是一层 fixed 遮盖（z-index 998），
     // 用 --window-bottom 定位才能露出「去结算」按钮；小程序该变量为 0。

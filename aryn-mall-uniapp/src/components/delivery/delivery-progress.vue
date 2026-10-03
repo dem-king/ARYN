@@ -26,6 +26,14 @@ function handleCallStaff(phone?: string) {
   })
 }
 
+/** 预览送达凭证大图 */
+function previewEvidence(index: number) {
+  const urls = progress.value?.evidenceUrls ?? []
+  if (urls.length === 0)
+    return
+  uni.previewImage({ urls, current: urls[index] })
+}
+
 /** 加载配送进度 */
 async function fetchProgress() {
   if (!props.orderId)
@@ -142,6 +150,23 @@ watch(() => props.orderId, () => {
                 {{ node.time }}
               </text>
             </view>
+          </view>
+        </view>
+
+        <!-- 送达凭证：后端已送达/已签收时才返回，空列表整块隐藏 -->
+        <view v-if="progress.evidenceUrls && progress.evidenceUrls.length > 0" class="mt-30rpx border-t border-gray-100 pt-20rpx">
+          <text class="mb-16rpx block text-26rpx text-gray-600">
+            送达凭证
+          </text>
+          <view class="flex flex-wrap gap-16rpx">
+            <image
+              v-for="(url, index) in progress.evidenceUrls"
+              :key="url"
+              :src="url"
+              class="h-150rpx w-150rpx rounded-lg"
+              mode="aspectFill"
+              @click="previewEvidence(index)"
+            />
           </view>
         </view>
       </view>

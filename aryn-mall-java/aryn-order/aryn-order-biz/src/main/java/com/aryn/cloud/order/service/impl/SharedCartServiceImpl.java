@@ -36,11 +36,10 @@ import com.aryn.cloud.order.support.ReplenishImportExcel;
 import com.aryn.cloud.product.api.dto.ReplenishImportMatchDTO;
 import com.aryn.cloud.product.api.entity.GoodsSku;
 import com.aryn.cloud.product.api.entity.GoodsSpu;
-import com.aryn.cloud.product.api.entity.ShipSkuProfile;
 import com.aryn.cloud.product.api.remote.RemoteGoodsSkuService;
+import com.aryn.cloud.product.api.remote.RemoteGoodsSpuService;
 import com.aryn.cloud.product.api.remote.RemoteReplenishImportMatchService;
 import com.aryn.cloud.product.api.support.ReplenishMatchRules;
-import com.aryn.cloud.product.api.remote.RemoteShipProductProfileService;
 import com.aryn.cloud.product.api.vo.ReplenishImportMatchVO;
 import com.aryn.cloud.vessel.api.dto.VesselContextDTO;
 import com.aryn.cloud.vessel.api.remote.RemoteVesselService;
@@ -98,12 +97,18 @@ public class SharedCartServiceImpl implements ISharedCartService {
 
 	private final IOrderInfoService orderInfoService;
 
-	@DubboReference
-	private RemoteShipProductProfileService remoteShipProductProfileService;
-
-	/** 商品域：摘要卡片需要 SKU 售价与商品名（明细表只存 ID，不存快照） */
+	/** 商品域：摘要卡片需要 SKU 售价与规格（明细表只存 ID，不存快照） */
 	@DubboReference
 	private RemoteGoodsSkuService remoteGoodsSkuService;
+
+	/**
+	 * 商品域：按 spuId 批量回填商品名。
+	 *
+	 * <p>不能走 {@code sku.getGoodsSpu()}：{@code getSkuByIds} 的 resultMap 不回填该关联，
+	 * 名称会恒为 null，卡片只能显示 SKU ID（正常购物车链路用的 {@code getBySkuIds} 才回填）。
+	 */
+	@DubboReference
+	private RemoteGoodsSpuService remoteGoodsSpuService;
 
 	/** 商品域：补给单导入的编码/品名匹配（含下架商品，报告要如实给出原因） */
 	@DubboReference
@@ -250,10 +255,14 @@ public class SharedCartServiceImpl implements ISharedCartService {
 
 		// plannedQuantity 传 null 有两种语义：显式取消计划，或"本次不动计划"。
 		// 由 clearPlanned 区分，避免"只想改已采量"却把计划抹掉。
-		if (Boolean.TRUE.equals(planDTO.getClearPlanned())) {
-			item.setPlannedQuantity(null);
-		}
-		else if (planDTO.getPlannedQuantity() != null) {
+		//
+		// 取消计划必须走 lambdaUpdate 显式 set(null)：全局
+		// `mybatis-plus.global-config.db-config.update-strategy: not_null` 会让
+		// updateById 跳过 null 字段，setPlannedQuantity(null) 后 updateById 实际不写这一列，
+		// 接口照 200 返回、传出的对象也是 null，但库里计划量纹丝不动 ——
+		// 用户「清空输入框保存」后会发现计划还在（实测复现）。
+		boolean clearPlanned = Boolean.TRUE.equals(planDTO.getClearPlanned());
+		if (!clearPlanned && planDTO.getPlannedQuantity() != null) {
 			item.setPlannedQuantity(planDTO.getPlannedQuantity());
 		}
 
@@ -263,6 +272,16 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		else if (item.getFulfilledQuantity() == null) {
 			// 存量行可能为 null（加列前的老数据），补 0 让进度计算口径统一
 			item.setFulfilledQuantity(0);
+		}
+
+		if (clearPlanned) {
+			item.setPlannedQuantity(null);
+			sharedCartItemMapper.update(null, Wrappers.<SharedCartItem>lambdaUpdate()
+				.eq(SharedCartItem::getId, item.getId())
+				.set(SharedCartItem::getPlannedQuantity, null)
+				.set(SharedCartItem::getFulfilledQuantity, item.getFulfilledQuantity())
+				.set(SharedCartItem::getUpdateTime, LocalDateTime.now()));
+			return item;
 		}
 
 		sharedCartItemMapper.updateById(item);
@@ -475,7 +494,6 @@ public class SharedCartServiceImpl implements ISharedCartService {
 			throw new ArynBusinessException("共享购物车没有可提交的明细");
 		}
 		applyApprovedQuantities(tenantId, confirmDTO, items);
-		validateQuantityRules(tenantId, items);
 
 		CreateOrderDTO createOrderDTO = buildCreateOrder(cart, items, confirmDTO);
 		var orderInfo = orderInfoService.createOrder(createOrderDTO);
@@ -554,6 +572,8 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		}
 
 		Map<String, GoodsSku> skuMap = loadSkuMap(items);
+		// 商品名单独按 SPU 批量取：SKU 查询的 resultMap 不回填 goodsSpu（见字段注释）
+		Map<String, GoodsSpu> spuMap = loadSpuMap(items);
 		List<SharedCartSummaryVO.SummaryItem> preview = new ArrayList<>();
 		for (SharedCartItem item : items) {
 			GoodsSku sku = skuMap.get(item.getSkuId());
@@ -580,10 +600,15 @@ public class SharedCartServiceImpl implements ISharedCartService {
 			row.setFulfilledQuantity(rowProgress.getFulfilledQuantity());
 			row.setRemainingQuantity(rowProgress.getRemainingQuantity());
 			row.setCompleted(rowProgress.getCompleted());
+			// 名称来自 SPU 表；图片优先 SKU 图，缺省回落 SPU 主图（sku 可能因下架查不到）
+			GoodsSpu spu = spuMap.get(item.getSpuId());
+			row.setSpuName(spu == null ? null : spu.getName());
 			if (sku != null) {
-				row.setSpuName(sku.getGoodsSpu() == null ? null : sku.getGoodsSpu().getName());
-				row.setPicUrl(resolvePicUrl(sku));
+				row.setPicUrl(resolvePicUrl(sku, spu));
 				row.setSpecsInfo(joinSpecs(sku));
+			}
+			else if (spu != null) {
+				row.setPicUrl(resolvePicUrl(null, spu));
 			}
 			preview.add(row);
 		}
@@ -669,13 +694,50 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		}
 	}
 
-	private String resolvePicUrl(GoodsSku sku) {
-		if (StringUtils.hasText(sku.getPicUrl())) {
+	/**
+	 * 批量取 SPU（商品名/主图）。远程失败降级为空表：
+	 * 名称缺失时前端回落到 SKU ID，卡片其余信息照常展示。
+	 */
+	private Map<String, GoodsSpu> loadSpuMap(List<SharedCartItem> items) {
+		List<String> spuIds = items.stream().map(SharedCartItem::getSpuId).filter(StringUtils::hasText).distinct()
+			.toList();
+		if (spuIds.isEmpty()) {
+			return Map.of();
+		}
+		try {
+			List<GoodsSpu> spus = remoteGoodsSpuService.getSpuByIds(spuIds);
+			if (spus == null || spus.isEmpty()) {
+				return Map.of();
+			}
+			Map<String, GoodsSpu> map = new HashMap<>();
+			for (GoodsSpu spu : spus) {
+				map.put(spu.getId(), spu);
+			}
+			return map;
+		}
+		catch (Exception exception) {
+			log.warn("共享购物车摘要补齐商品名称失败，降级为仅返回ID", exception);
+			return Map.of();
+		}
+	}
+
+	/**
+	 * 行图片：SKU 图 → SPU 主图首张。
+	 *
+	 * <p>{@code spu_urls} 存量数据存在字面量 {@code "[]"}（JsonArrayStringTypeHandler
+	 * 会解析成单元素 {@code ["[]"]}），作图地址时须跳过。
+	 */
+	private String resolvePicUrl(GoodsSku sku, GoodsSpu spu) {
+		if (sku != null && StringUtils.hasText(sku.getPicUrl())) {
 			return sku.getPicUrl();
 		}
-		GoodsSpu spu = sku.getGoodsSpu();
-		if (spu != null && spu.getSpuUrls() != null && spu.getSpuUrls().length > 0) {
-			return spu.getSpuUrls()[0];
+		if (spu == null || spu.getSpuUrls() == null) {
+			return null;
+		}
+		for (String url : spu.getSpuUrls()) {
+			if (StringUtils.hasText(url) && !"[]".equals(url.trim())) {
+				return url;
+			}
 		}
 		return null;
 	}
@@ -704,13 +766,15 @@ public class SharedCartServiceImpl implements ISharedCartService {
 			.stream()
 			.collect(Collectors.groupingBy(SharedCartMember::getCartId));
 
-		Map<String, Long> itemCountByCart = sharedCartItemMapper
+		// 明细一次查全（未移除）：列表卡片要计数与进度。只按 ITEM_PENDING 统计会让
+		// 已提交的单显示「0 项商品」—— 提交时行已置为 ITEM_CONFIRMED。
+		Map<String, List<SharedCartItem>> itemsByCart = sharedCartItemMapper
 			.selectList(Wrappers.lambdaQuery(SharedCartItem.class)
 				.eq(SharedCartItem::getTenantId, tenantId)
 				.in(SharedCartItem::getCartId, cartIds)
-				.eq(SharedCartItem::getStatus, SharedCartItem.ITEM_PENDING))
+				.ne(SharedCartItem::getStatus, SharedCartItem.ITEM_REMOVED))
 			.stream()
-			.collect(Collectors.groupingBy(SharedCartItem::getCartId, Collectors.counting()));
+			.collect(Collectors.groupingBy(SharedCartItem::getCartId));
 
 		List<SharedCartVO> result = new ArrayList<>(carts.size());
 		for (SharedCart cart : carts) {
@@ -734,7 +798,12 @@ public class SharedCartServiceImpl implements ISharedCartService {
 			vo.setRemark(cart.getRemark());
 			vo.setCreateTime(cart.getCreateTime());
 			vo.setMemberCount(members.size());
-			vo.setItemCount(itemCountByCart.getOrDefault(cart.getId(), 0L).intValue());
+			List<SharedCartItem> cartItems = itemsByCart.getOrDefault(cart.getId(), List.of());
+			vo.setItemCount(cartItems.size());
+			// 进度与首页卡片/详情页同一个计算器：列表卡片要回答「这单还差多少」，
+			// 三处各写一套除法必然漂移。金额传 null —— 列表卡片不显示合计金额，
+			// 没必要为每个车再查一遍 SKU 售价。
+			vo.setProgress(ReplenishProgressCalculator.summarize(cartItems, null));
 
 			// 查看者权限：发起人天然可编辑可提交，其余按成员行标记
 			boolean isOwner = Objects.equals(cart.getOwnerUserId(), userId);
@@ -1023,34 +1092,6 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		}
 	}
 
-	/**
-	 * 提交时按服务端船供包装资料校验数量规则：数量必须达到 MOQ 且为 step_qty 整数倍。
-	 */
-	private void validateQuantityRules(String tenantId, List<SharedCartItem> items) {
-		List<String> skuIds = items.stream().map(SharedCartItem::getSkuId).distinct().toList();
-		Map<String, ShipSkuProfile> profiles = new HashMap<>();
-		for (ShipSkuProfile profile : remoteShipProductProfileService.getSkuProfiles(tenantId, skuIds)) {
-			profiles.put(profile.getSkuId(), profile);
-		}
-		for (SharedCartItem item : items) {
-			int quantity = item.getApprovedQuantity() != null ? item.getApprovedQuantity()
-					: item.getRequestedQuantity();
-			ShipSkuProfile profile = profiles.get(item.getSkuId());
-			if (profile == null) {
-				// 无船供包装资料的商品按普通商品处理，数量规则由结算服务校验
-				continue;
-			}
-			int moq = profile.getMoq() != null ? profile.getMoq() : 1;
-			int stepQty = profile.getStepQty() != null ? profile.getStepQty() : 1;
-			if (quantity < moq) {
-				throw new ArynBusinessException("SKU[" + item.getSkuId() + "]数量未达到最小起订量 " + moq);
-			}
-			if (quantity % stepQty != 0) {
-				throw new ArynBusinessException("SKU[" + item.getSkuId() + "]数量必须是 " + stepQty + " 的整数倍");
-			}
-		}
-	}
-
 	private CreateOrderDTO buildCreateOrder(SharedCart cart, List<SharedCartItem> items,
 			SharedCartConfirmDTO confirmDTO) {
 		CreateOrderDTO createOrderDTO = new CreateOrderDTO();
@@ -1067,6 +1108,9 @@ public class SharedCartServiceImpl implements ISharedCartService {
 			createOrderDTO.setAgentName(confirmDTO.getAgentName());
 			createOrderDTO.setAgentPhone(confirmDTO.getAgentPhone());
 			createOrderDTO.setRemark(confirmDTO.getRemark());
+			// 货到付款透传给 createOrder 校验（共享车固定 deliveryWay=4 内部配送，允许 COD）：
+			// 选 COD 时下单即进待发货并直接创建配送任务，不产生待付款单
+			createOrderDTO.setPaymentType(confirmDTO.getPaymentType());
 		}
 		createOrderDTO.setSkuReqList(splitByMember(items));
 		return createOrderDTO;
@@ -1230,14 +1274,17 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		int overStock = 0;
 		int invalid = 0;
 		int offShelf = 0;
+		int notFilled = 0;
 		List<SharedCartImportRow> entities = new ArrayList<>(parsed.size());
 		for (int index = 0; index < parsed.size(); index++) {
 			ReplenishImportExcel.ParsedRow row = parsed.get(index);
 			int rowNo = index + 1;
 			ReplenishImportMatchVO match = matchByRowNo.get(rowNo);
 			Integer quantity = ReplenishMatchRules.parseQuantity(row.getQuantityText());
+			// 分类以「数量列原文」为输入：空值代表客户不采购这一行，
+			// 与「填了非法数字」是两回事（见 ReplenishImportClassifier）
 			ReplenishImportClassifier.Result classified = ReplenishImportClassifier.classify(match, row.getSpec(),
-					quantity);
+					row.getQuantityText());
 
 			SharedCartImportRow entity = new SharedCartImportRow();
 			entity.setId(IdWorker.getIdStr());
@@ -1248,14 +1295,16 @@ public class SharedCartServiceImpl implements ISharedCartService {
 			entity.setRawName(row.getName());
 			entity.setRawSpec(row.getSpec());
 			entity.setRawQuantity(quantity);
-			entity.setRawUnit(row.getUnit());
+			// 「单位」列随船供包装资料下线移除，raw_unit 列保留但恒空
+			entity.setRawUnit(null);
 			entity.setRawRemark(row.getRemark());
 			entity.setMatchType(match == null ? "NONE" : match.getMatchType());
 			entity.setMatchedSkuId(match == null ? null : match.getSkuId());
 			entity.setMatchedSpuId(match == null ? null : match.getSpuId());
 			entity.setMatchedName(match == null ? null : match.getName());
 			entity.setMatchedSpec(match == null ? null : match.getSpec());
-			entity.setMatchedUnit(match == null ? null : match.getPurchaseUnit());
+			// 船供包装资料下线后无采购单位来源，matchedUnit 列保留但恒空
+			entity.setMatchedUnit(null);
 			entity.setMatchedPrice(match == null ? null : match.getSalesPrice());
 			entity.setMatchedStock(match == null ? null : match.getStock());
 			entity.setPlannedQuantity(quantity);
@@ -1275,6 +1324,7 @@ public class SharedCartServiceImpl implements ISharedCartService {
 				case SharedCartImportRow.RESULT_OVER_STOCK -> overStock++;
 				case SharedCartImportRow.RESULT_INVALID_QTY -> invalid++;
 				case SharedCartImportRow.RESULT_OFF_SHELF -> offShelf++;
+				case SharedCartImportRow.RESULT_NOT_FILLED -> notFilled++;
 				default -> invalid++;
 			}
 		}
@@ -1285,9 +1335,10 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		job.setOverStockRows(overStock);
 		job.setInvalidRows(invalid);
 		job.setOffShelfRows(offShelf);
+		job.setNotFilledRows(notFilled);
 		sharedCartImportMapper.insert(job);
-		log.info("补给单导入解析完成 cart={} import={} 行数={} 匹配={} 未匹配={} 超库存={}", cartId, job.getId(),
-				parsed.size(), matched, unmatched, overStock);
+		log.info("补给单导入解析完成 cart={} import={} 行数={} 匹配={} 未匹配={} 未填数量={} 超库存={}", cartId, job.getId(),
+				parsed.size(), matched, unmatched, notFilled, overStock);
 		return toImportVO(job, entities);
 	}
 
@@ -1359,6 +1410,12 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		Map<String, String> remarkBySku = new LinkedHashMap<>();
 		int skipped = 0;
 		for (SharedCartImportRow row : rows) {
+			// 未填数量的行是「本次不采购」，不是被跳过的异常行：
+			// 不计入 skippedRows，也不写 SKIP 处置痕迹 —— 否则目录模板确认一次，
+			// 报告会说「跳过 268 项」，把客户没打算买的东西说成处理失败。
+			if (SharedCartImportRow.RESULT_NOT_FILLED.equals(row.getResultType())) {
+				continue;
+			}
 			SharedCartImportConfirmDTO.RowAction action = actionByRowNo.get(row.getRowNo());
 			// 匹配成功的行按原型口径已在报告里标为「已入单」，无需用户逐行点确认；
 			// 需要处置的行（未匹配/规格变更/超库存/数量异常）未给动作则跳过
@@ -1576,6 +1633,7 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		vo.setOverStockRows(job.getOverStockRows());
 		vo.setInvalidRows(job.getInvalidRows());
 		vo.setOffShelfRows(job.getOffShelfRows());
+		vo.setNotFilledRows(job.getNotFilledRows());
 		vo.setImportedRows(job.getImportedRows());
 		vo.setSkippedRows(job.getSkippedRows());
 		vo.setCreateTime(job.getCreateTime());

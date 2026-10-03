@@ -77,7 +77,17 @@ onMounted(() => {
   messageStore.connect();
 });
 
+/**
+ * 铃铛里的提醒分两类：
+ * - 客服会话：登记待定位会话并跳到工作台，由工作台打开（待领取会话进“待领取”页签）；
+ * - 站内信：沿用原有标记已读行为。
+ */
 function handleNoticeRead(item: any) {
+  if (item?.kind === 'conversation' && item.conversationId) {
+    messageStore.requestConversation(item.conversationId);
+    void router.push('/message/service');
+    return;
+  }
   void messageStore.markRead(item);
 }
 
@@ -130,6 +140,7 @@ function handleViewAllNotices() {
       <Notification
         :dot="messageStore.showDot"
         :notifications="messageStore.notifications"
+        :total="messageStore.totalUnread"
         @clear="messageStore.markAllRead"
         @make-all="messageStore.markAllRead"
         @read="handleNoticeRead"

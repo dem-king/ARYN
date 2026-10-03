@@ -6,20 +6,22 @@ import type { QuickCartInfo } from '@/utils/quick-cart'
  * 列表/推荐位的商品卡片没有 SKU 明细，点击加购时：
  * 1. 未登录 → 直接引导登录（加购接口需要 token，本地先拦截避免一次 401 跳转）
  * 2. 按需查询 `/product/app/goodsspu/quick-cart/{id}`
- * 3. 单规格 → 按 MOQ/步长算出合法数量直接加购
+ * 3. 单规格 → 按 MOQ/步长算出合法数量，经 useCartDestination 弹出数量确认
+ *    （有进行中的共享购物车时，数量与去向在同一次确认里选）
  * 4. 多规格 → 抛出「需选择规格」，由调用方打开 SKU 弹层
  *
  * 商品详情页与列表页共用同一份规则，避免两处数量校验漂移。
  */
 import { ref } from 'vue'
-import { addShoppingCart } from '@/api/order/shoppingCart'
+
 import { getQuickCartInfo } from '@/api/product/spu'
+import { useCartDestination } from '@/composables/useCartDestination'
 import { useAuthStore } from '@/store/authStore'
-import { useShoppingCartStore } from '@/store/shoppingCartStore'
 import {
   QUICK_CART_MODE_DIRECT,
   QUICK_CART_MODE_UNAVAILABLE,
   quickAddBlockedText,
+  resolveQuantityRule,
   resolveQuickAddMode,
   resolveQuickAddQuantity,
 } from '@/utils/quick-cart'
@@ -35,7 +37,7 @@ export interface QuickCartResult {
 
 export function useQuickCart() {
   const authStore = useAuthStore()
-  const shoppingCartStore = useShoppingCartStore()
+  const { submitCartAdd } = useCartDestination()
   const pending = ref(false)
 
   function goLogin() {
@@ -82,10 +84,23 @@ export function useQuickCart() {
         return { added: false, needChoose: false, info }
       }
 
-      await addShoppingCart({ skuId: info.skuId, quantity })
-      uni.showToast({ title: '已加入购物车', icon: 'success' })
-      // 角标刷新失败不影响加购结果本身
-      shoppingCartStore.fetchCartCount().catch(() => {})
+      // 去向与数量由统一入口决定：数量按 MOQ/步长预填并允许用户改大
+      // （采购量大时一次输入到位，不必反复点击加购）；有进行中的共享车时
+      // 在同一次确认里选择加入哪张车。skuId 已由 DIRECT 分支保证存在。
+      const dest = await submitCartAdd(
+        {
+          skuId: String(info.skuId),
+          quantity,
+          spuId,
+          goodsName: info.name,
+          unitPrice: info.salesPrice,
+        },
+        { rule: resolveQuantityRule(info) },
+      )
+      if (dest === 'abort') {
+        // 用户关闭了确认弹层，本次不加
+        return { added: false, needChoose: false, info }
+      }
       return { added: true, needChoose: false, info }
     }
     catch {

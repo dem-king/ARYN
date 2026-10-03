@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
-import { signIn as signInApi, getSignInConfigPage, getSignInRecordPage } from '@/api/user/signIn'
-import type { SignInConfig } from '@/api/user/signIn'
+import { signIn as signInApi, getSignInConfigPage, getSignInRecordPage } from '@/sub-pages/api/user/signIn'
+import type { SignInConfig } from '@/sub-pages/api/user/signIn'
 
 definePage({
   name: 'member-sign-in',

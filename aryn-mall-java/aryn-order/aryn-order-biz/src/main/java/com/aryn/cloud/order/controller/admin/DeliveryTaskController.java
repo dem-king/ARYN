@@ -39,7 +39,7 @@ public class DeliveryTaskController {
 	@SaCheckPermission("delivery:task:page")
 	@GetMapping("/page")
 	public Result<IPage<DeliveryTask>> page(Page page, DeliveryTask deliveryTask) {
-		return Result.success(deliveryTaskService.page(page,
+		return Result.success(deliveryTaskService.pageWithStaffName(page,
 				com.baomidou.mybatisplus.core.toolkit.Wrappers.lambdaQuery(deliveryTask)
 						.orderByAsc(DeliveryTask::getStatus)
 						.orderByAsc(DeliveryTask::getSortNo)));

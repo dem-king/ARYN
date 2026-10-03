@@ -1,22 +1,23 @@
 <script setup lang="ts">
+import type { DecorationSection } from './schema/types'
+
 import { computed } from 'vue'
-
 import { useAuthStore } from '@/store/authStore'
-import { useUserStore } from '@/store/userStore'
 
+import { useUserStore } from '@/store/userStore'
 import DiyBottomNav from './diy-bottom-nav/index.vue'
 import DiyCategoryNav from './diy-category-nav/index.vue'
 import DiyCountdown from './diy-countdown/index.vue'
-import DiyDiscount from './diy-discount/index.vue'
 import DiyCouponCombo from './diy-coupon-combo/index.vue'
 import DiyCouponReceive from './diy-coupon-receive/index.vue'
 import DiyCustomHtml from './diy-custom-html/index.vue'
+import DiyDiscount from './diy-discount/index.vue'
 import DiyGap from './diy-gap/index.vue'
-import DiyGoods from './diy-goods/index.vue'
 import DiyGoodsGroup from './diy-goods-group/index.vue'
 import DiyGoodsRanking from './diy-goods-ranking/index.vue'
 import DiyGoodsScroll from './diy-goods-scroll/index.vue'
 import DiyGoodsWaterfall from './diy-goods-waterfall/index.vue'
+import DiyGoods from './diy-goods/index.vue'
 import DiyImage from './diy-image/index.vue'
 import DiyLimitedActivity from './diy-limited-activity/index.vue'
 import DiyMarketingEntry from './diy-marketing-entry/index.vue'
@@ -35,7 +36,6 @@ import DiyTitleText from './diy-titletext/index.vue'
 import DiyVideoLive from './diy-video-live/index.vue'
 import { evaluateCondition } from './schema/condition'
 import { migratePageContent } from './schema/migrate'
-import type { DecorationSection } from './schema/types'
 import UnknownComponent from './unknown-component.vue'
 
 const props = defineProps<{
@@ -59,8 +59,13 @@ const props = defineProps<{
 const authStore = useAuthStore()
 const userStore = useUserStore()
 const document = computed(() => migratePageContent(props.pageContentData))
+// 空区块（没有组件）不渲染：删空组件的区块只剩一张空样式卡（背景/圆角/内边距），
+// 实机会出现一条莫名的灰条占位；与管理端画布、预览画布同口径。
 const sections = computed(() =>
-  document.value.sections.filter((section) => sectionVisible(section)),
+  document.value.sections.filter(
+    section =>
+      section.components.length > 0 && sectionVisible(section),
+  ),
 )
 const title = computed(
   () => document.value.page.navigation.title || props.pageName || '',
@@ -70,6 +75,16 @@ const pageStyle = computed(() => ({
   backgroundImage: document.value.page.backgroundImage
     ? `url(${document.value.page.backgroundImage})`
     : undefined,
+  // 页面级主题（发布固化的 themeSnapshot）在 diy 内容区覆盖全局商城主题：
+  // 内联 CSS 变量沿节点树继承，区块内组件的 var(--wot-color-theme-*) 会读到页面值；
+  // 未引用主题时不下发，回落 App.ku.vue 的全局商城默认主题
+  ...(document.value.themePrimaryColor
+    ? {
+        '--wot-color-theme-primary': document.value.themePrimaryColor,
+        '--wot-color-theme-secondary': document.value.themeSecondaryColor
+          ?? document.value.themePrimaryColor,
+      }
+    : {}),
 }))
 
 function sectionVisible(section: DecorationSection) {
@@ -141,121 +156,121 @@ function sectionStyle(section: DecorationSection) {
           class="diy-item"
           :class="{ 'diy-item-scroll': section.style.horizontalScroll }"
         >
-        <DiyCategoryNav
-          v-if="item.type === 'category-nav'"
-          :show-data="item.props"
-        />
-        <DiyCouponReceive
-          v-else-if="item.type === 'coupon-receive'"
-          :show-data="item.props"
-        />
-        <DiyGap v-else-if="item.type === 'gap'" :show-data="item.props" />
-        <DiyGoods v-else-if="item.type === 'goods'" :show-data="item.props" />
-        <DiyImage
-          v-else-if="item.type === 'image-ad'"
-          :show-data="item.props"
-        />
-        <DiyNotice
-          v-else-if="item.type === 'notice'"
-          :show-data="item.props"
-        />
-        <DiyRichText
-          v-else-if="item.type === 'rich-text'"
-          :show-data="item.props"
-        />
-        <DiyCustomHtml
-          v-else-if="item.type === 'custom-html'"
-          :show-data="item.props"
-        />
-        <DiySearchBar
-          v-else-if="item.type === 'search-bar'"
-          :show-data="item.props"
-        />
-        <DiySwiperBanner
-          v-else-if="item.type === 'swiper-banner'"
-          :show-data="item.props"
-        />
-        <DiyTabnav
-          v-else-if="item.type === 'tab-nav'"
-          :show-data="item.props"
-        />
-        <DiyTitleText
-          v-else-if="item.type === 'title-text'"
-          :show-data="item.props"
-        />
-        <DiyGoodsGroup
-          v-else-if="item.type === 'goods-group'"
-          :show-data="item.props"
-        />
-        <DiyGoodsRanking
-          v-else-if="item.type === 'goods-ranking'"
-          :show-data="item.props"
-        />
-        <DiyGoodsScroll
-          v-else-if="item.type === 'goods-scroll'"
-          :show-data="item.props"
-        />
-        <DiyLimitedActivity
-          v-else-if="item.type === 'limited-activity'"
-          :show-data="item.props"
-        />
-        <DiySeckill
-          v-else-if="item.type === 'seckill'"
-          :show-data="item.props"
-        />
-        <DiyCountdown
-          v-else-if="item.type === 'countdown'"
-          :show-data="item.props"
-        />
-        <DiyDiscount
-          v-else-if="item.type === 'discount'"
-          :show-data="item.props"
-        />
-        <DiyMarketingEntry
-          v-else-if="item.type === 'marketing-entry'"
-          :show-data="item.props"
-        />
-        <DiyShipWorkbench
-          v-else-if="item.type === 'ship-workbench'"
-          :show-data="item.props"
-        />
-        <DiyReplenishCard
-          v-else-if="item.type === 'replenish-card'"
-          :show-data="item.props"
-        />
-        <DiyShopInfo
-          v-else-if="item.type === 'shop-info'"
-          :show-data="item.props"
-        />
-        <DiyGoodsWaterfall
-          v-else-if="item.type === 'goods-waterfall'"
-          :show-data="item.props"
-        />
-        <DiyCouponCombo
-          v-else-if="item.type === 'coupon-combo'"
-          :show-data="item.props"
-        />
-        <DiyMemberBenefits
-          v-else-if="item.type === 'member-benefits'"
-          :show-data="item.props"
-        />
-        <DiyServicePromise
-          v-else-if="item.type === 'service-promise'"
-          :show-data="item.props"
-        />
-        <DiyBottomNav
-          v-else-if="item.type === 'bottom-nav'"
-          :show-data="item.props"
-        />
-        <DiyVideoLive
-          v-else-if="item.type === 'video-live'"
-          :show-data="item.props"
-        />
-        <UnknownComponent
-          v-else
-          :component-type="item.type"
-          :show-data="item.props"
-        />
+          <DiyCategoryNav
+            v-if="item.type === 'category-nav'"
+            :show-data="item.props"
+          />
+          <DiyCouponReceive
+            v-else-if="item.type === 'coupon-receive'"
+            :show-data="item.props"
+          />
+          <DiyGap v-else-if="item.type === 'gap'" :show-data="item.props" />
+          <DiyGoods v-else-if="item.type === 'goods'" :show-data="item.props" />
+          <DiyImage
+            v-else-if="item.type === 'image-ad'"
+            :show-data="item.props"
+          />
+          <DiyNotice
+            v-else-if="item.type === 'notice'"
+            :show-data="item.props"
+          />
+          <DiyRichText
+            v-else-if="item.type === 'rich-text'"
+            :show-data="item.props"
+          />
+          <DiyCustomHtml
+            v-else-if="item.type === 'custom-html'"
+            :show-data="item.props"
+          />
+          <DiySearchBar
+            v-else-if="item.type === 'search-bar'"
+            :show-data="item.props"
+          />
+          <DiySwiperBanner
+            v-else-if="item.type === 'swiper-banner'"
+            :show-data="item.props"
+          />
+          <DiyTabnav
+            v-else-if="item.type === 'tab-nav'"
+            :show-data="item.props"
+          />
+          <DiyTitleText
+            v-else-if="item.type === 'title-text'"
+            :show-data="item.props"
+          />
+          <DiyGoodsGroup
+            v-else-if="item.type === 'goods-group'"
+            :show-data="item.props"
+          />
+          <DiyGoodsRanking
+            v-else-if="item.type === 'goods-ranking'"
+            :show-data="item.props"
+          />
+          <DiyGoodsScroll
+            v-else-if="item.type === 'goods-scroll'"
+            :show-data="item.props"
+          />
+          <DiyLimitedActivity
+            v-else-if="item.type === 'limited-activity'"
+            :show-data="item.props"
+          />
+          <DiySeckill
+            v-else-if="item.type === 'seckill'"
+            :show-data="item.props"
+          />
+          <DiyCountdown
+            v-else-if="item.type === 'countdown'"
+            :show-data="item.props"
+          />
+          <DiyDiscount
+            v-else-if="item.type === 'discount'"
+            :show-data="item.props"
+          />
+          <DiyMarketingEntry
+            v-else-if="item.type === 'marketing-entry'"
+            :show-data="item.props"
+          />
+          <DiyShipWorkbench
+            v-else-if="item.type === 'ship-workbench'"
+            :show-data="item.props"
+          />
+          <DiyReplenishCard
+            v-else-if="item.type === 'replenish-card'"
+            :show-data="item.props"
+          />
+          <DiyShopInfo
+            v-else-if="item.type === 'shop-info'"
+            :show-data="item.props"
+          />
+          <DiyGoodsWaterfall
+            v-else-if="item.type === 'goods-waterfall'"
+            :show-data="item.props"
+          />
+          <DiyCouponCombo
+            v-else-if="item.type === 'coupon-combo'"
+            :show-data="item.props"
+          />
+          <DiyMemberBenefits
+            v-else-if="item.type === 'member-benefits'"
+            :show-data="item.props"
+          />
+          <DiyServicePromise
+            v-else-if="item.type === 'service-promise'"
+            :show-data="item.props"
+          />
+          <DiyBottomNav
+            v-else-if="item.type === 'bottom-nav'"
+            :show-data="item.props"
+          />
+          <DiyVideoLive
+            v-else-if="item.type === 'video-live'"
+            :show-data="item.props"
+          />
+          <UnknownComponent
+            v-else
+            :component-type="item.type"
+            :show-data="item.props"
+          />
         </view>
       </view>
     </view>

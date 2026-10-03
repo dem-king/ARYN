@@ -51,19 +51,16 @@ public class ReplenishImportMatchVO implements Serializable {
 	@Schema(description = "规格描述（SKU 规格值拼接，用于「规格变更」比对）")
 	private String spec;
 
-	@Schema(description = "采购单位")
-	private String purchaseUnit;
-
 	@Schema(description = "售价")
 	private BigDecimal salesPrice;
 
 	@Schema(description = "SKU 库存")
 	private Integer stock;
 
-	@Schema(description = "最小起订量（缺省 1）")
+	@Schema(description = "最小起订量（船供包装资料下线后恒空，订单域按 1 兜底）")
 	private Integer moq;
 
-	@Schema(description = "数量步长（缺省 1）")
+	@Schema(description = "数量步长（船供包装资料下线后恒空，订单域按 1 兜底）")
 	private Integer stepQty;
 
 	@Schema(description = "SKU 状态：0正常 1下架")
@@ -93,9 +90,6 @@ public class ReplenishImportMatchVO implements Serializable {
 
 		@Schema(description = "规格描述")
 		private String spec;
-
-		@Schema(description = "采购单位")
-		private String purchaseUnit;
 
 		@Schema(description = "售价")
 		private BigDecimal salesPrice;

@@ -4,9 +4,10 @@
  */
 import { defineStore } from 'pinia'
 import { logout, passwordLogin as passwordLoginApi, phoneLogin as phoneLoginApi, quickLogin as quickLoginApi, wxLogin as wxLoginApi } from '@/api/auth'
+import { useMallThemeStore } from '@/store/mallThemeStore'
+import { useShipContextStore } from '@/store/shipContextStore'
 import { useShoppingCartStore } from '@/store/shoppingCartStore'
 import { useUserStore } from '@/store/userStore'
-import { useShipContextStore } from '@/store/shipContextStore'
 import { requireTokenValue } from './auth-token'
 
 interface AuthState {
@@ -71,6 +72,8 @@ export const useAuthStore = defineStore('auth', {
         useShipContextStore().reset()
         // 租户能力随登录态失效：切换账号/租户后需重新拉取业务模式
         useTenantCapabilityStore().reset()
+        // 商城默认主题按租户配置，登出/切换账号后回内置配色并重新拉取
+        useMallThemeStore().reset()
         console.log('📝 用户信息已清除')
       }
       catch (error) {

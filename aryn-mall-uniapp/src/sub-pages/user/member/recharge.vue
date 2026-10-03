@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
-import { getRechargeConfigList, createRechargeOrder } from '@/api/user/recharge'
+import { getRechargeConfigList, createRechargeOrder } from '@/sub-pages/api/user/recharge'
 
 definePage({
   name: 'member-recharge',

@@ -350,6 +350,32 @@ ALTER TABLE `order_item`
 | 19 | 标签数据 | 每条明细可取到 SPU 名、规格、数量、贡献者姓名 |
 | 20 | 两人同购不再溢出 | `contributor_user_id` 单值，无截断/报错 |
 
+### 7.5.7 缺陷修复：共享购物车选货页「该商品暂无可售规格」
+
+**现象**（2026-09-29 线上）：共享购物车选货页（`sub-pages/product/ship-supply/index.vue`，携带
+`sharedCartId` 进入）绝大部分商品加购时报「该商品暂无可售规格」，而首页/分类列表的快捷加购
+对同一商品完全正常。
+
+**根因**：`ShipGoodsProfileMapper.xml` 的 `summaryColumns` 把行主键取成了
+`sku_profile.sku_id`（来自 `LEFT JOIN ship_sku_profile`）。
+
+商品统一（2026-09-20）后船供资料已退化为**可选扩展资料**，实测该租户 272 个在售商品中
+**231 个没有 `ship_sku_profile` 行**，LEFT JOIN 落空即下发 `skuId=null`；
+前端按「无 skuId 无法加购」拦下并提示。
+
+首页/分类走 `quick-cart`（`QuickCartServiceImpl` 直接读 `goods_sku`），因此不受影响 ——
+这正是「同商品两处行为不一致」的来源。
+
+**改法**：行主键改为货架上的 `sku.id AS sku_id`；`ship_sku_profile` 只保留 MOQ/步长/包装
+等扩展字段。前端同步把「无 skuId」并入 `isRowAddable` 的置灰条件（角标显示「暂无可售规格」），
+与页面「不放到点击之后才失败」的既有取舍一致。
+
+**影响面**：`/app/goodsspu/ship/page`、`/app/goodsspu/search`（scene=1/2）共用同一
+`summaryColumns`，补货单导入的「人工补选」候选列表一并修好。
+
+**验证**：SQL 层返回 273 行 0 个空 `sku_id`（修复前 232 个）；实际调用选货页加购接口
+（曾经报错的那件「牛油火锅底料 256g/袋」）返回 `code=0`。
+
 ---
 
 ## 7.6 实施进度（2026-09-20）

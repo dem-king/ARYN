@@ -1,6 +1,7 @@
 package com.aryn.cloud.product.service;
 
 import com.aryn.cloud.product.api.dto.ReplenishImportMatchDTO;
+import com.aryn.cloud.product.api.vo.ReplenishCatalogVO;
 import com.aryn.cloud.product.api.vo.ReplenishImportMatchVO;
 
 import java.util.List;
@@ -22,5 +23,10 @@ public interface IReplenishImportMatchService {
 	 * 按 SKU ID 精确回查（不过滤上下架）。
 	 */
 	List<ReplenishImportMatchVO> matchSkuIds(String tenantId, List<String> skuIds);
+
+	/**
+	 * 导出在售商品目录（按分类排序，供模板生成）。
+	 */
+	ReplenishCatalogVO exportCatalog(String tenantId, int limit);
 
 }

@@ -26,6 +26,22 @@ public interface IDeliveryTaskService extends IService<DeliveryTask> {
 
 	DeliveryTask getTaskDetail(String id);
 
+	/**
+	 * 分页查询并回填配送员姓名（staffName 为非持久化派生字段，管理端列表直接展示）
+	 * @param page 分页参数
+	 * @param wrapper 查询条件
+	 * @return 分页结果
+	 */
+	com.baomidou.mybatisplus.core.metadata.IPage<DeliveryTask> pageWithStaffName(
+			com.baomidou.mybatisplus.extension.plugins.pagination.Page<DeliveryTask> page,
+			com.baomidou.mybatisplus.core.conditions.Wrapper<DeliveryTask> wrapper);
+
+	/**
+	 * 批量回填配送员姓名，按 staffId 去重后一次查询，避免逐行查询
+	 * @param tasks 任务列表，原地写入 staffName
+	 */
+	void fillStaffName(List<DeliveryTask> tasks);
+
 	boolean arrive(String taskId, String staffId);
 
 	boolean signOnReceive(String orderId);
@@ -40,6 +56,14 @@ public interface IDeliveryTaskService extends IService<DeliveryTask> {
 	 * @return 是否成功
 	 */
 	boolean cancelByOrderId(String orderId);
+
+	/**
+	 * 按订单ID取消待派单的配送任务（货到付款订单取消时调用）
+	 * @param orderId 订单ID
+	 * @return 任务存在且已关闭返回 true；无关联任务返回 false
+	 * @throws com.aryn.cloud.common.security.handler.ArynBusinessException 任务已派单/配送中
+	 */
+	boolean cancelWaitingAssignByOrderId(String orderId);
 
 	/**
 	 * 配送员上报异常

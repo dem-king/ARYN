@@ -1,31 +1,24 @@
 <script setup lang="ts">
-import type {
-  PageDesignTheme,
-  PageDesignThemePayload,
-} from '#/api/promotion/page-design';
+import type { PageDesignTheme } from '#/api/promotion/page-design';
 
-import { reactive, ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 
-import {
-  ElButton,
-  ElColorPicker,
-  ElDialog,
-  ElForm,
-  ElFormItem,
-  ElInput,
-  ElInputNumber,
-  ElMessage,
-  ElTable,
-  ElTableColumn,
-  ElTag,
-} from 'element-plus';
+import { ElButton, ElDialog, ElEmpty, ElTag } from 'element-plus';
 
-import {
-  createTheme,
-  deleteTheme,
-  getThemes,
-  updateTheme,
-} from '#/api/promotion/page-design';
+import { getThemes } from '#/api/promotion/page-design';
+
+/**
+ * 「本页主题」选择器（页级视觉配置）。
+ *
+ * 2026-10-02 从租户级主题管理降级而来：主题库 CRUD 与「设为商城默认」
+ * （全局动作）已迁至独立菜单「商城装修 → 商城主题」。此处只做一件事：
+ * 决定**当前装修页面**引用哪个主题，语义与「页面设置 / 区块设置」同级，
+ * 避免在单页编辑器里出现影响全商城的操作。
+ *
+ * 选项语义与 C 端两级结构一致：
+ *   · 跟随商城默认 —— 不写 themeRef，页面用商城默认主题；
+ *   · 指定主题 —— 写入 themeRef，发布时固化为 themeSnapshot，页面内覆盖全局。
+ */
 
 const props = defineProps<{
   modelValue: boolean;
@@ -33,22 +26,14 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  apply: [themeId: string];
+  apply: [themeRef: string];
   'update:modelValue': [value: boolean];
 }>();
 
 const loading = ref(false);
 const themes = ref<PageDesignTheme[]>([]);
-const editing = ref<null | PageDesignTheme>(null);
-const formVisible = ref(false);
-const form = reactive<PageDesignThemePayload>({
-  navigationColor: '#ffffff',
-  navigationTextColor: '#222222',
-  pageBackgroundColor: '#f5f5f5',
-  primaryColor: '#ff5500',
-  radius: 8,
-  themeName: '',
-});
+
+const currentId = computed(() => props.themeRef ?? '');
 
 async function loadThemes() {
   if (!props.modelValue) return;
@@ -60,59 +45,8 @@ async function loadThemes() {
   }
 }
 
-function openCreate() {
-  editing.value = null;
-  form.themeName = '';
-  form.primaryColor = '#ff5500';
-  form.pageBackgroundColor = '#f5f5f5';
-  form.navigationColor = '#ffffff';
-  form.navigationTextColor = '#222222';
-  form.radius = 8;
-  formVisible.value = true;
-}
-
-function openEdit(theme: PageDesignTheme) {
-  editing.value = theme;
-  form.themeName = theme.themeName;
-  form.primaryColor = theme.primaryColor;
-  form.pageBackgroundColor = theme.pageBackgroundColor;
-  form.navigationColor = theme.navigationColor;
-  form.navigationTextColor = theme.navigationTextColor;
-  form.radius = theme.radius;
-  formVisible.value = true;
-}
-
-async function submitForm() {
-  if (!form.themeName.trim()) {
-    ElMessage.warning('请填写主题名称');
-    return;
-  }
-  if (editing.value) {
-    await updateTheme(editing.value.id, { ...form });
-    ElMessage.success('主题已更新');
-  } else {
-    const created = await createTheme({ ...form });
-    ElMessage.success('主题已创建');
-    themes.value = [...themes.value, created];
-  }
-  formVisible.value = false;
-  await loadThemes();
-}
-
-async function remove(theme: PageDesignTheme) {
-  const { ElMessageBox } = await import('element-plus');
-  await ElMessageBox.confirm(`确认删除主题“${theme.themeName}”？`, '删除主题', {
-    confirmButtonText: '删除',
-    cancelButtonText: '取消',
-    type: 'warning',
-  });
-  await deleteTheme(theme.id);
-  ElMessage.success('已删除');
-  await loadThemes();
-}
-
-function apply(theme: PageDesignTheme) {
-  emit('apply', theme.id);
+function choose(themeId: string) {
+  emit('apply', themeId);
   emit('update:modelValue', false);
 }
 
@@ -122,7 +56,6 @@ watch(
     if (visible) {
       void loadThemes();
     }
-    formVisible.value = false;
   },
 );
 </script>
@@ -130,171 +63,154 @@ watch(
 <template>
   <ElDialog
     :model-value="modelValue"
-    title="装修主题"
-    width="720px"
+    title="本页主题"
+    width="560px"
     @update:model-value="emit('update:modelValue', $event)"
   >
-    <div class="theme-toolbar">
-      <ElButton
-        v-access:code="'promotion:pagedesign:theme'"
-        size="small"
-        type="primary"
-        @click="openCreate"
-      >
-        新建主题
-      </ElButton>
-      <span v-if="themeRef" class="theme-current">
-        当前页面引用的主题令牌：{{ themeRef }}
-      </span>
+    <p class="dialog-tip">
+      只作用于当前装修页面：指定主题后，本页发布时固化为快照，页面内覆盖商城默认配色。
+      需要修改配色方案或设置全商城主题，请到「商城装修 → 商城主题」。
+    </p>
+
+    <div v-loading="loading" class="theme-options">
+      <ElEmpty v-if="themes.length === 0" description="主题库暂无主题" />
+      <template v-else>
+        <button
+          :class="{ 'is-active': !currentId }"
+          class="theme-option"
+          type="button"
+          @click="choose('')"
+        >
+          <span class="option-main">
+            <strong>跟随商城默认</strong>
+            <span class="option-meta">页面不引用主题，使用商城默认配色</span>
+          </span>
+          <ElTag v-if="!currentId" effect="dark" size="small" type="primary">
+            当前
+          </ElTag>
+        </button>
+
+        <button
+          v-for="theme in themes"
+          :key="theme.id"
+          :class="{ 'is-active': currentId === theme.id }"
+          class="theme-option"
+          type="button"
+          @click="choose(theme.id)"
+        >
+          <span class="option-swatches">
+            <span
+              :style="{ background: theme.primaryColor }"
+              class="swatch swatch-primary"
+            ></span>
+            <span
+              :style="{ background: theme.pageBackgroundColor }"
+              class="swatch"
+            ></span>
+            <span
+              :style="{ background: theme.navigationColor }"
+              class="swatch"
+            ></span>
+          </span>
+          <span class="option-main">
+            <strong>
+              {{ theme.themeName }}
+              <ElTag
+                v-if="theme.mallDefaultFlag === '1'"
+                effect="plain"
+                size="small"
+                type="warning"
+              >
+                商城默认
+              </ElTag>
+            </strong>
+            <span class="option-meta">
+              主色 {{ theme.primaryColor || '—' }}
+            </span>
+          </span>
+          <ElTag
+            v-if="currentId === theme.id"
+            effect="dark"
+            size="small"
+            type="primary"
+          >
+            当前
+          </ElTag>
+        </button>
+      </template>
     </div>
 
-    <ElTable v-loading="loading" :data="themes" max-height="360">
-      <ElTableColumn label="主题" min-width="140">
-        <template #default="{ row }">
-          {{ row.themeName }}
-          <ElTag
-            v-if="row.systemFlag === '1'"
-            class="theme-tag"
-            effect="plain"
-            size="small"
-          >
-            系统
-          </ElTag>
-        </template>
-      </ElTableColumn>
-      <ElTableColumn label="主色" width="90">
-        <template #default="{ row }">
-          <span
-            :style="{ background: row.primaryColor }"
-            class="color-chip"
-          ></span>
-        </template>
-      </ElTableColumn>
-      <ElTableColumn label="页面背景" width="90">
-        <template #default="{ row }">
-          <span
-            :style="{ background: row.pageBackgroundColor }"
-            class="color-chip"
-          ></span>
-        </template>
-      </ElTableColumn>
-      <ElTableColumn label="导航背景 / 文字" width="120">
-        <template #default="{ row }">
-          <div class="color-pair">
-            <span
-              :style="{ background: row.navigationColor }"
-              class="color-chip"
-            ></span>
-            <span
-              :style="{ background: row.navigationTextColor }"
-              class="color-chip"
-            ></span>
-          </div>
-        </template>
-      </ElTableColumn>
-      <ElTableColumn label="圆角" width="70" prop="radius" />
-      <ElTableColumn label="操作" width="190" align="center">
-        <template #default="{ row }">
-          <ElButton
-            :disabled="themeRef === row.id"
-            link
-            type="primary"
-            @click="apply(row as PageDesignTheme)"
-          >
-            {{ themeRef === row.id ? '已应用' : '应用' }}
-          </ElButton>
-          <template v-if="row.systemFlag !== '1'">
-            <ElButton
-              v-access:code="'promotion:pagedesign:theme'"
-              link
-              @click="openEdit(row as PageDesignTheme)"
-            >
-              编辑
-            </ElButton>
-            <ElButton
-              v-access:code="'promotion:pagedesign:theme'"
-              link
-              type="danger"
-              @click="remove(row as PageDesignTheme)"
-            >
-              删除
-            </ElButton>
-          </template>
-        </template>
-      </ElTableColumn>
-    </ElTable>
-
-    <ElDialog
-      v-model="formVisible"
-      :title="editing ? '编辑主题' : '新建主题'"
-      width="440px"
-      append-to-body
-    >
-      <ElForm :model="form" label-position="top">
-        <ElFormItem label="主题名称" required>
-          <ElInput v-model="form.themeName" maxlength="30" />
-        </ElFormItem>
-        <ElFormItem label="品牌主色">
-          <ElColorPicker v-model="form.primaryColor" />
-        </ElFormItem>
-        <ElFormItem label="页面背景色">
-          <ElColorPicker v-model="form.pageBackgroundColor" show-alpha />
-        </ElFormItem>
-        <ElFormItem label="导航栏背景 / 文字">
-          <div class="color-row">
-            <ElColorPicker v-model="form.navigationColor" />
-            <ElColorPicker v-model="form.navigationTextColor" />
-          </div>
-        </ElFormItem>
-        <ElFormItem label="全局圆角（px）">
-          <ElInputNumber
-            v-model="form.radius"
-            :max="28"
-            :min="0"
-            controls-position="right"
-          />
-        </ElFormItem>
-      </ElForm>
-      <template #footer>
-        <ElButton @click="formVisible = false">取消</ElButton>
-        <ElButton type="primary" @click="submitForm">保存</ElButton>
-      </template>
-    </ElDialog>
+    <template #footer>
+      <ElButton @click="emit('update:modelValue', false)">关闭</ElButton>
+    </template>
   </ElDialog>
 </template>
 
 <style scoped>
-.theme-toolbar {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  margin-bottom: 12px;
-}
-
-.theme-current {
+.dialog-tip {
+  margin: 0 0 12px;
   font-size: 12px;
+  line-height: 18px;
   color: var(--el-text-color-secondary);
 }
 
-.theme-tag {
-  margin-left: 6px;
-}
-
-.color-chip {
-  display: inline-block;
-  width: 22px;
-  height: 16px;
-  border: 1px solid var(--el-border-color);
-  border-radius: 3px;
-}
-
-.color-pair {
+.theme-options {
   display: flex;
-  gap: 6px;
-}
-
-.color-row {
-  display: flex;
+  flex-direction: column;
   gap: 8px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.theme-option {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  padding: 10px 12px;
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 6px;
+}
+
+.theme-option:hover {
+  border-color: var(--el-color-primary-light-5);
+}
+
+.theme-option.is-active {
+  border-color: var(--el-color-primary);
+  box-shadow: 0 0 0 2px var(--el-color-primary-light-8);
+}
+
+.option-swatches {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 4px;
+}
+
+.swatch {
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 4px;
+}
+
+.swatch-primary {
+  width: 24px;
+}
+
+.option-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.option-meta {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 </style>

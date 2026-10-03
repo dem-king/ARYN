@@ -34,8 +34,13 @@ export interface DeliveryTask {
   recipientName: string;
   recipientPhone: string;
   recipientAddress?: string;
+  /** 配送港口名称快照（内部配送单地址为空时的回落项） */
+  portName?: string;
+  /** 泊位快照（内部配送单地址为空时的回落项） */
+  berth?: string;
   status: DeliveryTaskStatus;
   staffId?: string;
+  /** 配送员姓名（后端按 staffId 回填的派生字段） */
   staffName?: string;
   assignTime?: string;
   pickUpTime?: string;

@@ -4,7 +4,10 @@ package com.aryn.cloud.order.service.impl;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.IdUtil;
 import cn.hutool.core.util.StrUtil;
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
@@ -20,8 +23,10 @@ import com.aryn.cloud.order.mapper.DeliveryTaskMapper;
 import com.aryn.cloud.order.service.*;
 import com.aryn.cloud.common.core.constant.RocketMqConstants;
 import com.aryn.cloud.message.api.dto.MessageSendCommand;
+import com.aryn.cloud.upms.api.remote.RemoteMaterialService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.dubbo.config.annotation.DubboReference;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,8 +34,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * 配送任务
@@ -55,6 +63,9 @@ public class DeliveryTaskServiceImpl extends ServiceImpl<DeliveryTaskMapper, Del
 	private final IDeliveryTaskLogService deliveryTaskLogService;
 
 	private final IDeliveryEvidenceService deliveryEvidenceService;
+
+	@DubboReference
+	private RemoteMaterialService remoteMaterialService;
 
 	private final RocketMQTemplate rocketMQTemplate;
 
@@ -240,8 +251,32 @@ public class DeliveryTaskServiceImpl extends ServiceImpl<DeliveryTaskMapper, Del
 		if (task == null) {
 			return null;
 		}
-		task.setItemList(deliveryTaskItemService.listByTaskId(id));
+		List<DeliveryTaskItem> items = deliveryTaskItemService.listByTaskId(id);
+		deliveryTaskItemService.fillCategoryName(items);
+		task.setItemList(items);
+		fillStaffName(List.of(task));
 		return task;
+	}
+
+	@Override
+	public IPage<DeliveryTask> pageWithStaffName(Page<DeliveryTask> page, Wrapper<DeliveryTask> wrapper) {
+		IPage<DeliveryTask> result = page(page, wrapper);
+		fillStaffName(result.getRecords());
+		return result;
+	}
+
+	@Override
+	public void fillStaffName(List<DeliveryTask> tasks) {
+		if (CollUtil.isEmpty(tasks)) {
+			return;
+		}
+		Map<String, String> names = deliveryStaffService.mapStaffNames(tasks.stream()
+			.map(DeliveryTask::getStaffId)
+			.toList());
+		if (names.isEmpty()) {
+			return;
+		}
+		tasks.forEach(task -> task.setStaffName(names.get(task.getStaffId())));
 	}
 
 	@Override
@@ -280,20 +315,13 @@ public class DeliveryTaskServiceImpl extends ServiceImpl<DeliveryTaskMapper, Del
 		if (updated == 0) {
 			throw new ArynBusinessException("任务状态已变化，无法送达");
 		}
-		for (int i = 0; i < materialIds.size(); i++) {
-			DeliveryEvidence evidence = new DeliveryEvidence();
-			evidence.setTaskId(taskId);
-			evidence.setAttemptNo(task.getAttemptNo());
-			evidence.setEvidenceType("1");
-			evidence.setMaterialId(materialIds.get(i));
-			evidence.setSortNo(i + 1);
-			evidence.setUploadBy(staffId);
-			evidence.setTenantId(task.getTenantId());
-			deliveryEvidenceService.save(evidence);
-		}
+		saveEvidenceWithUrl(taskId, task, "1", materialIds, staffId);
 		saveLog(taskId, "ARRIVE", DeliveryTaskStatusEnum.WAITING_ARRIVE.getCode(),
 				DeliveryTaskStatusEnum.ARRIVED.getCode(), task.getAttemptNo(),
 				"2", staffId, "送达确认");
+		// 一单送达后本趟车可能只剩已送达任务：出车单不能等客户签收才结束，
+		// 否则司机的「当前出车单」永远停在配送中，下一趟车也派不出来
+		deliveryTripService.completeIfAllTasksSettled(task.getTripId());
 		return Boolean.TRUE;
 	}
 
@@ -326,18 +354,9 @@ public class DeliveryTaskServiceImpl extends ServiceImpl<DeliveryTaskMapper, Del
 			log.warn("订单[{}]签收联动失败，任务状态不匹配", orderId);
 			return Boolean.FALSE;
 		}
+		// 签收只影响订单域；出车单是否收车统一按任务结清口径判定
 		if (StrUtil.isNotBlank(task.getTripId())) {
-			long unsignedCount = count(Wrappers.<DeliveryTask>lambdaQuery()
-				.eq(DeliveryTask::getTripId, task.getTripId())
-				.ne(DeliveryTask::getStatus, DeliveryTaskStatusEnum.SIGNED.getCode())
-				.ne(DeliveryTask::getStatus, DeliveryTaskStatusEnum.CANCELED.getCode()));
-			if (unsignedCount == 0) {
-				deliveryTripService.update(Wrappers.<DeliveryTrip>lambdaUpdate()
-					.eq(DeliveryTrip::getId, task.getTripId())
-					.eq(DeliveryTrip::getStatus, DeliveryTripStatusEnum.DELIVERING.getCode())
-					.set(DeliveryTrip::getStatus, DeliveryTripStatusEnum.COMPLETED.getCode())
-					.set(DeliveryTrip::getCompleteTime, now));
-			}
+			deliveryTripService.completeIfAllTasksSettled(task.getTripId());
 		}
 		saveLog(task.getId(), "SIGN", expectedStatus,
 				DeliveryTaskStatusEnum.SIGNED.getCode(), task.getAttemptNo(),
@@ -399,7 +418,20 @@ public class DeliveryTaskServiceImpl extends ServiceImpl<DeliveryTaskMapper, Del
 			}
 		}
 		vo.setNodes(buildProgressNodes(task));
+		// 买家侧凭证可见：只回 URL 不回内部 ID，送达前的空列表让客户端整块隐藏
+		vo.setEvidenceUrls(listArriveEvidenceUrls(task.getId()));
 		return vo;
+	}
+
+	/**
+	 * 任务的送达凭证 URL（仅 evidenceType=1，按尝试号+序号排序），供客户端订单详情展示。
+	 */
+	private List<String> listArriveEvidenceUrls(String taskId) {
+		return listEvidence(taskId).stream()
+			.filter(evidence -> "1".equals(evidence.getEvidenceType()))
+			.map(DeliveryEvidence::getMaterialUrl)
+			.filter(StrUtil::isNotBlank)
+			.collect(Collectors.toList());
 	}
 
 	/**
@@ -502,6 +534,7 @@ public class DeliveryTaskServiceImpl extends ServiceImpl<DeliveryTaskMapper, Del
 		}
 		saveLog(taskId, "CANCEL", task.getStatus(), DeliveryTaskStatusEnum.CANCELED.getCode(),
 				task.getAttemptNo(), "3", null, "取消任务");
+		deliveryTripService.completeIfAllTasksSettled(task.getTripId());
 		return Boolean.TRUE;
 	}
 
@@ -523,7 +556,34 @@ public class DeliveryTaskServiceImpl extends ServiceImpl<DeliveryTaskMapper, Del
 		if (updated > 0) {
 			saveLog(task.getId(), "CANCEL", task.getStatus(), DeliveryTaskStatusEnum.CANCELED.getCode(),
 					task.getAttemptNo(), "3", null, "退款完成自动关闭任务");
+			deliveryTripService.completeIfAllTasksSettled(task.getTripId());
 		}
+		return Boolean.TRUE;
+	}
+
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public boolean cancelWaitingAssignByOrderId(String orderId) {
+		DeliveryTask task = getOne(Wrappers.<DeliveryTask>lambdaQuery().eq(DeliveryTask::getOrderId, orderId));
+		if (task == null) {
+			return Boolean.FALSE;
+		}
+		if (DeliveryTaskStatusEnum.CANCELED.getCode().equals(task.getStatus())) {
+			return Boolean.TRUE;
+		}
+		if (!DeliveryTaskStatusEnum.WAITING_ASSIGN.getCode().equals(task.getStatus())) {
+			throw new ArynBusinessException("配送已安排，无法取消");
+		}
+		int updated = baseMapper.update(null, Wrappers.<DeliveryTask>lambdaUpdate()
+			.eq(DeliveryTask::getId, task.getId())
+			.eq(DeliveryTask::getStatus, DeliveryTaskStatusEnum.WAITING_ASSIGN.getCode())
+			.set(DeliveryTask::getStatus, DeliveryTaskStatusEnum.CANCELED.getCode())
+			.set(DeliveryTask::getCloseTime, LocalDateTime.now()));
+		if (updated == 0) {
+			throw new ArynBusinessException("配送已安排，无法取消");
+		}
+		saveLog(task.getId(), "CANCEL", task.getStatus(), DeliveryTaskStatusEnum.CANCELED.getCode(),
+				task.getAttemptNo(), "3", null, "货到付款订单取消自动关闭任务");
 		return Boolean.TRUE;
 	}
 
@@ -558,17 +618,7 @@ public class DeliveryTaskServiceImpl extends ServiceImpl<DeliveryTaskMapper, Del
 			throw new ArynBusinessException("任务状态已变化，异常上报失败");
 		}
 		if (CollUtil.isNotEmpty(materialIds)) {
-			for (int i = 0; i < materialIds.size(); i++) {
-				DeliveryEvidence evidence = new DeliveryEvidence();
-				evidence.setTaskId(taskId);
-				evidence.setAttemptNo(task.getAttemptNo());
-				evidence.setEvidenceType("2");
-				evidence.setMaterialId(materialIds.get(i));
-				evidence.setSortNo(i + 1);
-				evidence.setUploadBy(staffId);
-				evidence.setTenantId(task.getTenantId());
-				deliveryEvidenceService.save(evidence);
-			}
+			saveEvidenceWithUrl(taskId, task, "2", materialIds, staffId);
 		}
 		saveLog(taskId, "EXCEPTION", task.getStatus(), DeliveryTaskStatusEnum.EXCEPTION.getCode(),
 				task.getAttemptNo(), "2", staffId, "异常上报[" + reasonCode + "]" + reasonDesc);
@@ -620,6 +670,7 @@ public class DeliveryTaskServiceImpl extends ServiceImpl<DeliveryTaskMapper, Del
 		saveLog(taskId, "RETURN_CONFIRM", DeliveryTaskStatusEnum.RETURN_PENDING.getCode(),
 				DeliveryTaskStatusEnum.CANCELED.getCode(), task.getAttemptNo(),
 				"1", null, "确认商品退回仓库[" + remark + "]");
+		deliveryTripService.completeIfAllTasksSettled(task.getTripId());
 		return Boolean.TRUE;
 	}
 
@@ -643,14 +694,73 @@ public class DeliveryTaskServiceImpl extends ServiceImpl<DeliveryTaskMapper, Del
 		}
 		saveLog(taskId, "CLOSE", task.getStatus(), DeliveryTaskStatusEnum.CANCELED.getCode(),
 				task.getAttemptNo(), "1", null, "关闭异常任务[" + reason + "]");
+		deliveryTripService.completeIfAllTasksSettled(task.getTripId());
 		return Boolean.TRUE;
 	}
 
 	@Override
 	public List<DeliveryEvidence> listEvidence(String taskId) {
-		return deliveryEvidenceService.list(Wrappers.<DeliveryEvidence>lambdaQuery()
+		List<DeliveryEvidence> list = deliveryEvidenceService.list(Wrappers.<DeliveryEvidence>lambdaQuery()
 			.eq(DeliveryEvidence::getTaskId, taskId)
 			.orderByAsc(DeliveryEvidence::getSortNo));
+		backfillEvidenceUrls(taskId, list);
+		return list;
+	}
+
+	/**
+	 * 送达/异常凭证按素材ID落库，同时快照素材访问URL，供管理端与小程序直接渲染；
+	 * 素材服务不可用时凭证先行落库，URL由 {@link #backfillEvidenceUrls} 在读取侧兜底。
+	 */
+	private void saveEvidenceWithUrl(String taskId, DeliveryTask task, String evidenceType,
+			List<String> materialIds, String uploadBy) {
+		Map<String, String> urlMap = mapMaterialUrls(taskId, materialIds);
+		for (int i = 0; i < materialIds.size(); i++) {
+			DeliveryEvidence evidence = new DeliveryEvidence();
+			evidence.setTaskId(taskId);
+			evidence.setAttemptNo(task.getAttemptNo());
+			evidence.setEvidenceType(evidenceType);
+			evidence.setMaterialId(materialIds.get(i));
+			evidence.setMaterialUrl(urlMap.get(materialIds.get(i)));
+			evidence.setSortNo(i + 1);
+			evidence.setUploadBy(uploadBy);
+			evidence.setTenantId(task.getTenantId());
+			deliveryEvidenceService.save(evidence);
+		}
+	}
+
+	private Map<String, String> mapMaterialUrls(String taskId, List<String> materialIds) {
+		try {
+			Map<String, String> urlMap = remoteMaterialService.mapUrlByIds(materialIds);
+			return urlMap == null ? Collections.emptyMap() : urlMap;
+		}
+		catch (Exception e) {
+			log.warn("任务[{}]查询素材URL失败，凭证仅记录素材ID", taskId, e);
+			return Collections.emptyMap();
+		}
+	}
+
+	/**
+	 * 存量凭证行只存了素材ID未存URL快照，读取时按素材ID回填，避免两端渲染空图。
+	 */
+	private void backfillEvidenceUrls(String taskId, List<DeliveryEvidence> list) {
+		List<String> missingUrlIds = list.stream()
+			.filter(evidence -> StrUtil.isBlank(evidence.getMaterialUrl())
+					&& StrUtil.isNotBlank(evidence.getMaterialId()))
+			.map(DeliveryEvidence::getMaterialId)
+			.distinct()
+			.collect(Collectors.toList());
+		if (missingUrlIds.isEmpty()) {
+			return;
+		}
+		Map<String, String> urlMap = mapMaterialUrls(taskId, missingUrlIds);
+		if (urlMap.isEmpty()) {
+			return;
+		}
+		list.forEach(evidence -> {
+			if (StrUtil.isBlank(evidence.getMaterialUrl())) {
+				evidence.setMaterialUrl(urlMap.get(evidence.getMaterialId()));
+			}
+		});
 	}
 
 	@Override

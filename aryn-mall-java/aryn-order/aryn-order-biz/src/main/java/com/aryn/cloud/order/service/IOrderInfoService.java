@@ -32,6 +32,14 @@ public interface IOrderInfoService extends IService<OrderInfo> {
 	IPage<OrderInfo> adminPage(Page page, OrderInfo orderInfo);
 
 	/**
+	 * 管理端订单导出列表：查询条件与 {@link #adminPage} 一致但不分页，
+	 * 商品行批量回填且带分类名（{@code OrderItemEntity#categoryName}）
+	 * @param orderInfo 查询条件
+	 * @return 订单列表（含商品行）
+	 */
+	List<OrderInfo> listForExport(OrderInfo orderInfo);
+
+	/**
 	 * 订单详情
 	 * @param id
 	 * @author 雨滴kian
@@ -61,6 +69,14 @@ public interface IOrderInfoService extends IService<OrderInfo> {
 	 * @return: boolean
 	 */
 	String cancelOrder(OrderInfo orderInfo);
+
+	/**
+	 * 货到付款订单确认收款（线下收款到账后由管理端操作，视同支付成功）
+	 * @param id 订单ID
+	 * @param payConfirmDTO 实收金额与付款凭证
+	 * @return 是否确认成功
+	 */
+	boolean confirmOfflinePayment(String id, PayConfirmDTO payConfirmDTO);
 
 	String cancelUserOrder(String id, String userId);
 

@@ -164,4 +164,34 @@ describe('usePageDesigner sections', () => {
       duplicated,
     );
   });
+
+  it('prunes sections emptied by component removal but keeps the last resort', () => {
+    let sequence = 0;
+    const designer = usePageDesigner({
+      idFactory: () => `id-${(sequence += 1)}`,
+      initialDocument: createDefaultDecorationDocument(),
+    });
+    designer.addComponent({ props: {}, type: 'gap', version: 1 });
+    const secondId = designer.addSection();
+    designer.addComponent(
+      { props: {}, type: 'notice', version: 1 },
+      undefined,
+      secondId,
+    );
+
+    // 删空第二个区块：空区块一并回收，选中区块回落到首个剩余区块
+    designer.removeComponent('id-3');
+    expect(designer.document.value.sections.map(({ id }) => id)).toEqual([
+      'section-root',
+    ]);
+    expect(designer.activeSectionId.value).toBe('section-root');
+
+    // 唯一区块被删空时保留区块（画布显示空态，新增组件仍有落点）
+    designer.removeComponent('id-1');
+    expect(designer.document.value.sections).toHaveLength(1);
+    expect(designer.document.value.sections[0]?.components).toHaveLength(0);
+
+    designer.undo();
+    expect(designer.flatComponents.value).toHaveLength(1);
+  });
 });

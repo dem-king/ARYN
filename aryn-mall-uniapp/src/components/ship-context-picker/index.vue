@@ -10,6 +10,11 @@
  * 1. 加载我作为在船成员的在营船舶；
  * 2. 选择船舶后加载其**可用**靠港计划（服务端已按 ETA 升序并排除已离港/已完成/已取消）；
  * 3. 选中靠港后写入 shipContextStore，切换船舶时先 switchVessel 清空旧靠港防止串船。
+ *
+ * 弹层内部分两个视图（`mode`）：「list」浏览与选用靠港计划，「declare」申报本次靠港。
+ * 申报曾是嵌在列表尾部的一段表单——展开后空态文案和入口按钮还挂在表单下方，
+ * 「申报本次靠港」看起来像第二个提交键；改为整层视图切换后，两个动作互不干扰，
+ * 底部操作区（取消/提交）固定在弹层底部而非随内容滚动。
  */
 import { computed, ref, watch } from 'vue'
 
@@ -28,6 +33,9 @@ const shipContextStore = useShipContextStore()
 const loadingVessels = ref(false)
 const loadingCalls = ref(false)
 
+/** 弹层当前视图：list=浏览/选用靠港计划，declare=申报本次靠港 */
+const mode = ref<'list' | 'declare'>('list')
+
 /**
  * 靠港申报表单。
  *
@@ -41,7 +49,6 @@ const loadingCalls = ref(false)
  * 也避开了滚轮「各列顶格、上半屏整块空白」的观感问题。
  */
 const declareState = ref({
-  visible: false,
   submitting: false,
   portName: '',
   berth: '',
@@ -57,8 +64,19 @@ const declareState = ref({
  * 整段禁掉会让当天靠港无解。上限给两年，覆盖长航次排期。
  */
 const declareNow = new Date()
-const declareDateMin = new Date(declareNow.getFullYear(), declareNow.getMonth(), declareNow.getDate()).getTime()
-const declareDateMax = new Date(declareNow.getFullYear() + 2, 11, 31, 23, 59, 59).getTime()
+const declareDateMin = new Date(
+  declareNow.getFullYear(),
+  declareNow.getMonth(),
+  declareNow.getDate(),
+).getTime()
+const declareDateMax = new Date(
+  declareNow.getFullYear() + 2,
+  11,
+  31,
+  23,
+  59,
+  59,
+).getTime()
 
 /**
  * 离港选择器的下限跟随到港时间：选完 ETA 后，ETD 只能选到 ETA 之后，
@@ -86,7 +104,8 @@ const declareDefaultTime = ref('00:00:00')
 
 function refreshDeclareDefaultTime() {
   const now = new Date()
-  const minuteOfDay = now.getHours() * 60 + Math.ceil((now.getMinutes() + 1) / 5) * 5
+  const minuteOfDay
+    = now.getHours() * 60 + Math.ceil((now.getMinutes() + 1) / 5) * 5
   // 23:5x 时取整会滚过零点，钳回当天最后一分钟，避免「点今天、值却是明天」
   const clamped = Math.min(minuteOfDay, 23 * 60 + 59)
   const hour = Math.floor(clamped / 60)
@@ -110,9 +129,15 @@ watch(() => declareState.value.eta, (eta) => {
 
 /** 选择器展示用的可读文案，未选时为占位符 */
 const declareEtaText = computed(() =>
-  typeof declareState.value.eta === 'number' ? formatDeclareTime(declareState.value.eta) : '')
+  typeof declareState.value.eta === 'number'
+    ? formatDeclareTime(declareState.value.eta)
+    : '',
+)
 const declareEtdText = computed(() =>
-  typeof declareState.value.etd === 'number' ? formatDeclareTime(declareState.value.etd) : '')
+  typeof declareState.value.etd === 'number'
+    ? formatDeclareTime(declareState.value.etd)
+    : '',
+)
 
 const loadFailed = ref(false)
 const vessels = ref<any[]>([])
@@ -120,13 +145,17 @@ const calls = ref<any[]>([])
 /** 当前在弹层内选中的船舶（未必等于 store 中的当前船舶） */
 const pickedVesselId = ref('')
 
-const pickedVessel = computed(() => vessels.value.find(v => v.id === pickedVesselId.value) ?? null)
+const pickedVessel = computed(
+  () => vessels.value.find(v => v.id === pickedVesselId.value) ?? null,
+)
 
 /** 后端返回 yyyy-MM-dd HH:mm:ss，列表里压缩成 MM-dd HH:mm */
 function shortTime(value?: string) {
-  if (!value) return ''
+  if (!value)
+    return ''
   const match = value.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/)
-  if (!match) return value
+  if (!match)
+    return value
   return `${match[2]}-${match[3]} ${match[4]}:${match[5]}`
 }
 
@@ -169,7 +198,9 @@ function loadVessels() {
     .then((res) => {
       vessels.value = res ?? []
       // 优先定位到 store 中已选船舶，否则取第一艘
-      const preferred = vessels.value.find(v => v.id === shipContextStore.vesselId)
+      const preferred = vessels.value.find(
+        v => v.id === shipContextStore.vesselId,
+      )
       pickedVesselId.value = preferred?.id ?? vessels.value[0]?.id ?? ''
       return loadCalls(pickedVesselId.value)
     })
@@ -184,7 +215,8 @@ function loadVessels() {
 }
 
 function pickVessel(vesselId: string) {
-  if (vesselId === pickedVesselId.value) return
+  if (vesselId === pickedVesselId.value)
+    return
   pickedVesselId.value = vesselId
   void loadCalls(vesselId)
 }
@@ -192,7 +224,10 @@ function pickVessel(vesselId: string) {
 function chooseCall(call: any) {
   // 换船必须先 switchVessel：它会清空靠港上下文，避免把 A 船的靠港带到 B 船
   if (pickedVesselId.value !== shipContextStore.vesselId) {
-    shipContextStore.switchVessel(pickedVesselId.value, pickedVessel.value?.vesselName ?? '')
+    shipContextStore.switchVessel(
+      pickedVesselId.value,
+      pickedVessel.value?.vesselName ?? '',
+    )
   }
   shipContextStore.setVesselCall({
     berth: call.berth,
@@ -206,23 +241,39 @@ function chooseCall(call: any) {
   close()
 }
 
-watch(() => props.modelValue, (visible) => {
-  if (visible) {
-    void loadVessels()
-  }
-})
+watch(
+  () => props.modelValue,
+  (visible) => {
+    if (visible) {
+      // 每次打开都回到列表视图并重新拉取：船期可能已被运营更新
+      mode.value = 'list'
+      void loadVessels()
+    }
+  },
+)
 
-/** 打开靠港申报表单（无可用靠港计划时给出的可执行出路） */
+/** 进入靠港申报视图：清空上次表单，避免把旧港口带进新申报 */
 function openDeclare() {
   refreshDeclareDefaultTime()
   declareState.value.portName = ''
   declareState.value.berth = ''
   declareState.value.eta = null
   declareState.value.etd = null
-  declareState.value.visible = true
+  mode.value = 'declare'
 }
 
-/** 提交靠港申报：成功后刷新可用靠港列表，用户即可直接选用 */
+/** 退回列表视图：保留已填内容，误触返回不必重填 */
+function backToList() {
+  mode.value = 'list'
+}
+
+/**
+ * 提交靠港申报。
+ *
+ * 成功后接口回传创建好的靠港计划（含 id），直接走 chooseCall 选中并关闭弹层——
+ * 用户申报就是为了让本次购物有靠港可用，让他再回列表点一次 newly created 卡片是多余一步。
+ * 回传异常（拿不到 id）时退回列表并刷新，至少保证新计划可见可选。
+ */
 function submitDeclare() {
   const form = declareState.value
   // 以弹层内选中的船为准：store.vesselId 只在确认靠港（chooseCall）后写入，
@@ -233,18 +284,23 @@ function submitDeclare() {
     return
   }
   if (!form.portName.trim()) {
-    uni.showToast({ title: '请填写港口', icon: 'none' })
+    uni.showToast({ title: '请填写港口名称', icon: 'none' })
     return
   }
-  if (typeof form.eta !== 'number' || typeof form.etd !== 'number') {
-    uni.showToast({ title: '请选择预计到港与离港时间', icon: 'none' })
+  if (typeof form.eta !== 'number') {
+    uni.showToast({ title: '请选择预计到港时间', icon: 'none' })
+    return
+  }
+  if (typeof form.etd !== 'number') {
+    uni.showToast({ title: '请选择预计离港时间', icon: 'none' })
     return
   }
   if (form.eta >= form.etd) {
     uni.showToast({ title: '到港时间必须早于离港时间', icon: 'none' })
     return
   }
-  if (form.submitting) return
+  if (form.submitting)
+    return
   form.submitting = true
   declareVesselCall({
     vesselId,
@@ -254,9 +310,13 @@ function submitDeclare() {
     eta: formatDeclareTime(form.eta),
     etd: formatDeclareTime(form.etd),
   })
-    .then(() => {
-      form.visible = false
+    .then((created: any) => {
       uni.showToast({ title: '已提交，运营将据此安排配送', icon: 'none' })
+      if (created?.id) {
+        chooseCall(created)
+        return undefined
+      }
+      backToList()
       return loadCalls(vesselId)
     })
     .catch(() => {})
@@ -264,33 +324,57 @@ function submitDeclare() {
       form.submitting = false
     })
 }
-
 </script>
 
 <template>
   <view v-if="modelValue">
-    <!-- 遮罩 -->
+    <!-- 遮罩：点空白处关闭 -->
     <view
       class="fixed bottom-0 left-0 right-0 top-0"
       style="z-index: 900; background: rgba(0, 0, 0, 0.45)"
       @tap="close"
     />
 
-    <!-- 弹层 -->
+    <!-- 弹层：纵向 flex，头部/底部固定，中间滚动 -->
     <view
       class="fixed bottom-0 left-0 right-0 rounded-t-24rpx bg-white"
-      style="z-index: 901; max-height: 76vh; display: flex; flex-direction: column"
+      style="
+        z-index: 901;
+        max-height: 80vh;
+        display: flex;
+        flex-direction: column;
+      "
     >
-      <view class="flex items-center justify-between px-30rpx pb-16rpx pt-30rpx">
-        <view class="text-30rpx font-bold">
-          选择船舶与靠港计划
+      <view
+        class="mx-auto mt-14rpx h-8rpx w-72rpx rounded-full"
+        style="background: #e5e6eb"
+      />
+
+      <!-- 标题栏：申报视图给返回键，列表视图给关闭键 -->
+      <view class="flex items-center px-24rpx pb-16rpx pt-18rpx">
+        <view
+          v-if="mode === 'declare'"
+          class="mr-16rpx h-56rpx w-56rpx flex items-center justify-center rounded-full"
+          style="background: #f2f3f5"
+          @tap="backToList"
+        >
+          <wd-icon name="arrow-left" size="18px" color="#4E5969" />
         </view>
-        <text class="text-26rpx text-gray-400" @tap="close">
-          关闭
-        </text>
+        <view class="flex-1 text-32rpx font-bold">
+          {{ mode === 'declare' ? '申报本次靠港' : '选择船舶与靠港计划' }}
+        </view>
+        <view
+          class="h-56rpx w-56rpx flex items-center justify-center"
+          @tap="close"
+        >
+          <wd-icon name="close" size="18px" color="#86909C" />
+        </view>
       </view>
 
-      <view v-if="loadingVessels" class="py-60rpx text-center text-26rpx text-gray-400">
+      <view
+        v-if="loadingVessels"
+        class="py-60rpx text-center text-26rpx text-gray-400"
+      >
         加载中...
       </view>
 
@@ -303,183 +387,277 @@ function submitDeclare() {
         </view>
       </view>
 
-      <view v-else-if="vessels.length === 0" class="px-40rpx py-60rpx text-center">
+      <view
+        v-else-if="vessels.length === 0"
+        class="px-40rpx py-60rpx text-center"
+      >
         <view class="text-26rpx text-gray-400">
           当前账号暂未关联船舶，关联后即可选择靠港计划
         </view>
-        <view
-          class="mt-24rpx inline-block rounded-40rpx bg-blue-500 px-40rpx py-14rpx text-26rpx text-white"
+        <button
+          class="mt-32rpx h-76rpx text-26rpx leading-76rpx"
+          type="primary"
           @tap="goBind"
         >
           去绑定船舶
-        </view>
+        </button>
       </view>
 
-      <template v-else>
-        <!-- 船舶：多船时才需要选择 -->
-        <view v-if="vessels.length > 1" class="px-30rpx pb-10rpx">
-          <scroll-view scroll-x class="whitespace-nowrap">
-            <view
-              v-for="vessel in vessels"
-              :key="vessel.id"
-              class="mr-16rpx inline-block rounded-30rpx px-24rpx py-10rpx text-24rpx"
-              :style="pickedVesselId === vessel.id
-                ? 'background:#378ADD;color:#fff'
-                : 'background:#F1EFE8;color:#5F5E5A'"
-              @tap="pickVessel(vessel.id)"
-            >
-              {{ vessel.vesselName }}
-            </view>
-          </scroll-view>
+      <!-- ============ 列表视图：选船 + 选靠港 ============ -->
+      <scroll-view
+        v-else-if="mode === 'list'"
+        scroll-y
+        style="flex: 1; max-height: 56vh"
+      >
+        <view class="px-30rpx pb-12rpx text-24rpx text-gray-500">
+          我的船舶
         </view>
-        <view v-else class="px-30rpx pb-10rpx text-24rpx text-gray-500">
-          {{ pickedVessel?.vesselName }}
+        <!-- 单船也渲染成选中态胶囊：让「申报归属哪条船」始终有视觉落点 -->
+        <view class="flex flex-wrap px-30rpx pb-16rpx">
+          <view
+            v-for="vessel in vessels"
+            :key="vessel.id"
+            class="mb-12rpx mr-16rpx rounded-16rpx px-28rpx py-14rpx text-24rpx"
+            :style="
+              pickedVesselId === vessel.id
+                ? 'background:#378ADD;color:#fff'
+                : 'background:#F1EFE8;color:#5F5E5A'
+            "
+            @tap="pickVessel(vessel.id)"
+          >
+            {{ vessel.vesselName }}
+          </view>
         </view>
 
-        <!-- 靠港计划 -->
-        <view class="px-30rpx pb-10rpx text-24rpx text-gray-500">
-          可用靠港计划
+        <view class="flex items-center justify-between px-30rpx pb-12rpx">
+          <view class="text-24rpx text-gray-500">
+            可用靠港计划
+          </view>
+          <view v-if="calls.length > 0" class="text-22rpx text-gray-400">
+            {{ calls.length }} 个
+          </view>
         </view>
-        <scroll-view scroll-y style="flex: 1; max-height: 46vh">
+
+        <view
+          v-if="loadingCalls"
+          class="py-40rpx text-center text-26rpx text-gray-400"
+        >
+          加载中...
+        </view>
+
+        <template v-else>
           <view
             v-for="call in calls"
             :key="call.id"
             class="mx-30rpx mb-16rpx rounded-16rpx p-24rpx"
-            :style="call.id === shipContextStore.vesselCallId
-              ? 'background:#E6F1FB;border:1rpx solid #378ADD'
-              : 'background:#F7F8FA;border:1rpx solid #F7F8FA'"
+            :style="
+              call.id === shipContextStore.vesselCallId
+                ? 'background:#E6F1FB;border:1rpx solid #378ADD'
+                : 'background:#F7F8FA;border:1rpx solid #F7F8FA'
+            "
             @tap="chooseCall(call)"
           >
             <view class="flex items-center justify-between">
-              <view class="text-26rpx font-bold">
+              <view class="text-28rpx font-bold">
                 {{ call.portName || call.portCode }}
-                <text v-if="call.berth" class="text-24rpx text-gray-500">
+                <text
+                  v-if="call.berth"
+                  class="ml-8rpx text-24rpx text-gray-500"
+                >
                   {{ call.berth }}
                 </text>
               </view>
-              <text v-if="call.id === shipContextStore.vesselCallId" class="text-22rpx text-blue-500">
-                当前
-              </text>
+              <view
+                v-if="call.id === shipContextStore.vesselCallId"
+                class="flex items-center"
+              >
+                <text class="mr-4rpx text-22rpx text-blue-500">
+                  当前
+                </text>
+                <wd-icon name="check" size="14px" color="#378ADD" />
+              </view>
             </view>
-            <view class="mt-6rpx text-22rpx text-gray-500">
-              预计到港 {{ shortTime(call.eta) }} · 离港 {{ shortTime(call.etd) }}
+            <view class="mt-10rpx text-22rpx text-gray-500">
+              到港 {{ shortTime(call.eta) }} · 离港 {{ shortTime(call.etd) }}
             </view>
-            <view v-if="call.deliveryWindowStart" class="mt-4rpx text-22rpx text-green-600">
-              配送时间窗 {{ shortTime(call.deliveryWindowStart) }} ~ {{ shortTime(call.deliveryWindowEnd) }}
+            <view
+              v-if="call.deliveryWindowStart"
+              class="mt-6rpx text-22rpx"
+              style="color: #2e9e5b"
+            >
+              配送时间窗 {{ shortTime(call.deliveryWindowStart) }} ~
+              {{ shortTime(call.deliveryWindowEnd) }}
             </view>
           </view>
 
-          <!-- 靠港申报表单 -->
-          <view v-if="declareState.visible" class="mt-20rpx rounded-16rpx bg-gray-50 p-24rpx">
-            <view class="text-26rpx font-bold">
-              申报本次靠港
-            </view>
-            <view class="mt-6rpx text-22rpx text-gray-500">
-              公司无法获取船期，请填写你船本次的到离港信息；运营将据此安排备货与配送。
-            </view>
-            <input
-              v-model="declareState.portName"
-              class="mt-16rpx h-72rpx rounded-12rpx bg-white px-24rpx text-26rpx"
-              placeholder="港口，如：上海港"
-            >
-            <input
-              v-model="declareState.berth"
-              class="mt-12rpx h-72rpx rounded-12rpx bg-white px-24rpx text-26rpx"
-              placeholder="泊位（选填）"
-            >
-            <view class="mt-12rpx text-24rpx text-gray-500">
-              预计到港时间
-            </view>
-            <!--
-              日历式日期时间选择器替代手输：先翻日历选日期，再在面板内调时分。
-              命中区域是下面这个 72rpx 高的白框（with-cell=false 走 slot 分支）。
-              必须 root-portal —— 申报表单嵌在 scroll-view 里，小程序端 fixed 元素
-              会被 scroll-view 裁掉；z-index 抬到 1000 才压得住本弹层（900/901）
-              与 H5 原生 tabBar（998）。
-            -->
-            <wd-calendar
-              v-model="declareState.eta"
-              type="datetime"
-              title="选择预计到港时间"
-              :min-date="declareDateMin"
-              :max-date="declareDateMax"
-              :default-time="declareDefaultTime"
-              hide-second
-              :with-cell="false"
-              root-portal
-              :z-index="1000"
-            >
-              <view class="mt-6rpx flex h-72rpx items-center rounded-12rpx bg-white px-24rpx text-26rpx">
-                <text v-if="declareEtaText">{{ declareEtaText }}</text>
-                <text v-else class="text-gray-400">
-                  请选择到港时间
-                </text>
-              </view>
-            </wd-calendar>
-            <view class="mt-12rpx text-24rpx text-gray-500">
-              预计离港时间
-            </view>
-            <!-- 离港下限跟随到港，早于到港的日期在日历上直接置灰 -->
-            <wd-calendar
-              v-model="declareState.etd"
-              type="datetime"
-              title="选择预计离港时间"
-              :min-date="etdMinDate"
-              :max-date="declareDateMax"
-              :default-time="declareDefaultTime"
-              hide-second
-              :with-cell="false"
-              root-portal
-              :z-index="1000"
-            >
-              <view class="mt-6rpx flex h-72rpx items-center rounded-12rpx bg-white px-24rpx text-26rpx">
-                <text v-if="declareEtdText">{{ declareEtdText }}</text>
-                <text v-else class="text-gray-400">
-                  请选择离港时间
-                </text>
-              </view>
-            </wd-calendar>
-            <view class="mt-20rpx flex gap-20rpx">
-              <button
-                class="!m-0 flex-1 h-68rpx text-26rpx leading-68rpx"
-                @tap="declareState.visible = false"
-              >
-                取消
-              </button>
-              <button
-                class="!m-0 flex-1 h-68rpx text-26rpx leading-68rpx"
-                type="primary"
-                :disabled="declareState.submitting"
-                @tap="submitDeclare"
-              >
-                提交申报
-              </button>
-            </view>
-          </view>
-
-          <view v-if="loadingCalls" class="py-40rpx text-center text-26rpx text-gray-400">
-            加载中...
-          </view>
-          <view
-            v-else-if="calls.length === 0"
-            class="px-40rpx py-40rpx text-center"
-          >
+          <!-- 无可用计划时的出路：由海员自行申报本次靠港 -->
+          <view v-if="calls.length === 0" class="px-40rpx py-50rpx text-center">
             <view class="text-26rpx text-gray-400">
               该船舶暂无靠港计划
             </view>
-            <!-- 公司拿不到船期，只有船上的人知道；因此无可用计划时由海员自行申报 -->
+            <view class="mt-8rpx text-22rpx text-gray-400">
+              公司拿不到船期，由你申报本次到离港时间，运营据此安排备货与配送
+            </view>
             <button
-              class="mt-24rpx h-72rpx text-26rpx leading-72rpx"
+              class="mt-32rpx h-76rpx text-26rpx leading-76rpx"
               type="primary"
               @tap="openDeclare"
             >
               申报本次靠港
             </button>
           </view>
-        </scroll-view>
-      </template>
+          <view
+            v-else-if="calls.length > 0"
+            class="pb-16rpx pt-8rpx text-center text-24rpx text-blue-500"
+            @tap="openDeclare"
+          >
+            没有本次靠港？手动申报
+          </view>
+        </template>
+        <view style="height: calc(20rpx + env(safe-area-inset-bottom))" />
+      </scroll-view>
 
-      <view style="height: 20rpx" />
+      <!-- ============ 申报视图：整层替换列表，底部固定操作区 ============ -->
+      <scroll-view v-else scroll-y style="flex: 1; max-height: 56vh">
+        <view
+          class="mx-30rpx mb-20rpx rounded-12rpx px-24rpx py-16rpx text-22rpx"
+          style="background: #f0f7ff; color: #4e5969"
+        >
+          公司无法获取船期，请填写你船本次的到离港信息；运营将据此安排备货与配送。
+        </view>
+
+        <view
+          class="mx-30rpx mb-20rpx rounded-16rpx px-24rpx"
+          style="background: #f7f8fa"
+        >
+          <view
+            class="flex items-center"
+            style="min-height: 96rpx; border-bottom: 1rpx solid #edeef0"
+          >
+            <view class="w-170rpx text-26rpx">
+              港口
+            </view>
+            <input
+              v-model="declareState.portName"
+              class="h-96rpx flex-1 bg-transparent text-right text-26rpx"
+              placeholder="如：上海港"
+              placeholder-style="color: #A8ABB2"
+              :maxlength="30"
+            >
+          </view>
+          <view
+            class="flex items-center"
+            style="min-height: 96rpx; border-bottom: 1rpx solid #edeef0"
+          >
+            <view class="w-170rpx text-26rpx">
+              泊位
+            </view>
+            <input
+              v-model="declareState.berth"
+              class="h-96rpx flex-1 bg-transparent text-right text-26rpx"
+              placeholder="选填"
+              placeholder-style="color: #A8ABB2"
+              :maxlength="30"
+            >
+          </view>
+          <!--
+            日历式日期时间选择器替代手输：先翻日历选日期，再在面板内调时分。
+            标签行放在默认插槽里：with-cell 保持默认 true 时，插槽外包着
+            `@click="open"` 的块级 view 占满整行，所以整行都是命中区域。
+            必须 root-portal —— 申报表单嵌在 scroll-view 里，小程序端 fixed 元素
+            会被 scroll-view 裁掉；z-index 抬到 1000 才压得住本弹层（900/901）
+            与 H5 原生 tabBar（998）。
+            注意 with-cell 千万别传 false：库内 `<template v-if="withCell">` 把
+            默认插槽分支也包在里面，传 false 连触发区一起不渲染（1.14.0 实测）。
+          -->
+          <wd-calendar
+            v-model="declareState.eta"
+            type="datetime"
+            title="选择预计到港时间"
+            :min-date="declareDateMin"
+            :max-date="declareDateMax"
+            :default-time="declareDefaultTime"
+            hide-second
+            root-portal
+            :z-index="1000"
+          >
+            <view
+              class="w-full flex items-center"
+              style="min-height: 96rpx; border-bottom: 1rpx solid #edeef0"
+            >
+              <text class="w-170rpx text-26rpx">
+                预计到港时间
+              </text>
+              <view class="flex flex-1 items-center justify-end">
+                <text v-if="declareEtaText" class="text-26rpx">
+                  {{ declareEtaText }}
+                </text>
+                <text v-else class="text-26rpx" style="color: #a8abb2">
+                  请选择
+                </text>
+                <view class="ml-8rpx flex items-center">
+                  <wd-icon name="calendar" size="16px" color="#86909C" />
+                </view>
+              </view>
+            </view>
+          </wd-calendar>
+          <!-- 离港下限跟随到港，早于到港的日期在日历上直接置灰 -->
+          <wd-calendar
+            v-model="declareState.etd"
+            type="datetime"
+            title="选择预计离港时间"
+            :min-date="etdMinDate"
+            :max-date="declareDateMax"
+            :default-time="declareDefaultTime"
+            hide-second
+            root-portal
+            :z-index="1000"
+          >
+            <view class="w-full flex items-center" style="min-height: 96rpx">
+              <text class="w-170rpx text-26rpx">
+                预计离港时间
+              </text>
+              <view class="flex flex-1 items-center justify-end">
+                <text v-if="declareEtdText" class="text-26rpx">
+                  {{ declareEtdText }}
+                </text>
+                <text v-else class="text-26rpx" style="color: #a8abb2">
+                  请选择
+                </text>
+                <view class="ml-8rpx flex items-center">
+                  <wd-icon name="calendar" size="16px" color="#86909C" />
+                </view>
+              </view>
+            </view>
+          </wd-calendar>
+        </view>
+        <view style="height: 20rpx" />
+      </scroll-view>
+
+      <!-- 申报视图底部固定操作区 -->
+      <view
+        v-if="mode === 'declare' && vessels.length > 0"
+        class="flex items-center px-30rpx pt-16rpx"
+        style="padding-bottom: calc(24rpx + env(safe-area-inset-bottom))"
+      >
+        <button
+          class="mr-20rpx h-80rpx flex-1 rounded-16rpx text-28rpx leading-80rpx !m-0"
+          style="background: #f2f3f5; color: #4e5969"
+          :disabled="declareState.submitting"
+          @tap="backToList"
+        >
+          取消
+        </button>
+        <button
+          class="h-80rpx flex-1 rounded-16rpx text-28rpx leading-80rpx !m-0"
+          type="primary"
+          :disabled="declareState.submitting"
+          :loading="declareState.submitting"
+          @tap="submitDeclare"
+        >
+          提交申报
+        </button>
+      </view>
     </view>
   </view>
 </template>

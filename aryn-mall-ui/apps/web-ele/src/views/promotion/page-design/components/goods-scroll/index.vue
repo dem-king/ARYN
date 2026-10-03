@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { RetailGoodsItem } from '../common/retail-preview/retail-data';
 import type { GoodsScrollProps } from './types';
 
 import { computed, watch } from 'vue';
@@ -32,6 +33,17 @@ watch(
 const perViewClass = computed(() =>
   props.showData.perView === 4 ? 'is-per-view-4' : '',
 );
+
+/**
+ * 原价行内容：行位由运营开关整行预留（与小程序 diy-goods-scroll 的
+ * cardBodyHeightRpx 等高口径一致），内容仍须原价 > 现价才渲染，
+ * 避免给未填原价的商品划出「¥0」。
+ */
+function originalPriceText(item: RetailGoodsItem) {
+  return props.showData.showOriginalPrice && shouldShowOriginalPrice(item)
+    ? `¥${item.originalPrice.toFixed(2)}`
+    : '';
+}
 </script>
 
 <template>
@@ -67,21 +79,17 @@ const perViewClass = computed(() =>
         </div>
         <div class="gs-body">
           <div class="gs-name">{{ item.name }}</div>
+          <!--
+            售价行只放售价与「抢」：卡片内容区仅约 97px 宽，售价、划线原价、
+            按钮三者同行必触发省略号，原价整段被截掉（与小程序端同步改的布局）。
+          -->
           <div class="gs-bottom">
-            <span class="gs-price"
-              ><i>¥</i>{{ item.price.toFixed(2) }}<!--
-                划线原价嵌在 .gs-price 内，跟随该行一起省略号截断：价格行定高 23px，
-                另起一行会撑破卡片（与小程序 diy-goods-scroll 的算法一致）。
-              --><i
-                v-if="
-                  showData.showOriginalPrice && shouldShowOriginalPrice(item)
-                "
-                class="gs-price-original"
-                >¥{{ item.originalPrice.toFixed(2) }}</i
-              ></span
-            >
+            <span class="gs-price"><i>¥</i>{{ item.price.toFixed(2) }}</span>
             <span class="gs-btn">抢</span>
           </div>
+          <span v-if="showData.showOriginalPrice" class="gs-price-original">
+            {{ originalPriceText(item) }}
+          </span>
           <span v-if="showData.showSales" class="gs-sales">
             已售 {{ item.sales }}
           </span>
@@ -122,7 +130,7 @@ const perViewClass = computed(() =>
   padding: 1px 6px;
   margin-left: 6px;
   font-size: 10px;
-  color: #e5484d;
+  color: var(--wot-color-theme-primary, #ff2237);
   background: #fff1f0;
   border-radius: 999px;
 }
@@ -192,7 +200,7 @@ const perViewClass = computed(() =>
   text-overflow: ellipsis;
   font-size: 15px;
   font-weight: 700;
-  color: #e5484d;
+  color: var(--wot-color-theme-primary, #ff2237);
   white-space: nowrap;
 }
 
@@ -201,11 +209,17 @@ const perViewClass = computed(() =>
   font-style: normal;
 }
 
-/* 划线原价：与小程序 diy-goods-scroll 的 .gs-price-original 逐值对齐（1px = 2rpx） */
+/* 划线原价独占一行（与小程序 diy-goods-scroll 的 .gs-price-original 逐值对齐，
+   1px = 2rpx；行高契约 17px = 间距 3 + 行高 14）：灰字小一号，仅作价格锚点。
+   运营开「商品原价」后整行预留，商品未填原价时留白，保证同排卡片等高 */
 .gs-price-original {
-  margin-left: 3px;
+  display: block;
+  height: 14px;
+  margin-top: 3px;
+  overflow: hidden;
   font-size: 10px;
   font-weight: 400;
+  line-height: 14px;
   color: #999;
   text-decoration: line-through;
 }
@@ -216,7 +230,11 @@ const perViewClass = computed(() =>
   font-size: 11px;
   line-height: 17px;
   color: #fff;
-  background: linear-gradient(90deg, #ff7a45, #ff4d4f);
+  background: linear-gradient(
+    90deg,
+    var(--wot-color-theme-secondary, #ff7a45),
+    var(--wot-color-theme-primary, #ff4d4f)
+  );
   border-radius: 999px;
   box-shadow: 0 1px 4px rgb(255 77 79 / 28%);
 }
@@ -244,7 +262,6 @@ const perViewClass = computed(() =>
   }
 
   .gs-price-original {
-    margin-left: 2px;
     font-size: 9px;
   }
 

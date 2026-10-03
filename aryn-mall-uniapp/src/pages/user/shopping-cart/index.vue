@@ -2,14 +2,14 @@
 import { onShow } from '@dcloudio/uni-app'
 import { computed, reactive, ref } from 'vue'
 
-import { useShipContextStore } from '@/store/shipContextStore'
 import { delShoppingCart, editShoppingCart, getPage } from '@/api/order/shoppingCart'
 import { saveBatch } from '@/api/product/collect'
 import { getById } from '@/api/product/spu'
-import { getDefault } from '@/api/user/address'
 // 引入组件
 import ShipContextPicker from '@/components/ship-context-picker/index.vue'
 import WaterfallGoods from '@/components/waterfall-goods/index.vue'
+import { useShipContextLoad } from '@/composables/useShipContextLoad'
+import { useShipContextStore } from '@/store/shipContextStore'
 import { initGoodsSpecs } from '@/utils/goods-specs'
 
 definePage({
@@ -31,7 +31,6 @@ interface ShoppingCartState {
   shopCheckedAll: boolean
   totalAmount: string
   isEdit: boolean
-  address: any
   goodsSpu: any
   selectArr: any[]
 }
@@ -52,25 +51,31 @@ const goodsStore = useGoodsStore()
 const shoppingCartStore = useShoppingCartStore()
 // 防串船：按加购靠港分组，当前船舶组排前
 const shipContextStore = useShipContextStore()
+// 船舶上下文不持久化，冷启动为空；本页自行装载，不依赖用户是否访问过首页
+const { load: loadShipContext } = useShipContextLoad()
 const cartGroups = computed(() => {
   const groups: Record<string, any[]> = {}
   for (const row of state.cartList) {
     const key = row.vesselCallId || ''
-    if (!groups[key]) groups[key] = []
+    if (!groups[key])
+      groups[key] = []
     groups[key].push(row)
   }
   const currentKey = shipContextStore.vesselCallId || ''
   return Object.keys(groups)
-    .sort((a, b) => (a === currentKey ? -1 : b === currentKey ? 1 : 0))
-    .map((key) => ({
+    .sort((a, b) => (a === currentKey && !!a ? -1 : b === currentKey && !!b ? 1 : 0))
+    .map(key => ({
       key,
+      // 只有「非空的当前靠港」才算当前船舶。currentKey 为空时它与无归属行
+      // 都是 ''，若直接比 key === currentKey 就会把「未指定配送计划」这一组
+      // 标成「当前船舶：未命名」——用户明明有船却显示未命名，正是这个误判。
       label:
-        key === currentKey
+        key && key === currentKey
           ? `当前船舶：${shipContextStore.vesselName || '未命名'}`
           : key
             ? `其他靠港计划（${key.slice(-6)}）`
             : '未指定配送计划',
-      isCurrent: key === currentKey && !!key,
+      isCurrent: !!key && key === currentKey,
       rows: groups[key],
     }))
 })
@@ -87,7 +92,6 @@ const state = reactive<ShoppingCartState>({
   shopCheckedAll: false, // 全选
   totalAmount: '0', // 合计金额
   isEdit: false, // 编辑按钮
-  address: {}, // 默认收货地址
   goodsSpu: {},
   selectArr: [],
 })
@@ -188,7 +192,8 @@ function toggleGoodsCheck(row: any, _index: number) {
   }
   else {
     const i = state.checkedList.findIndex(v => v.id === row.id)
-    if (i > -1) state.checkedList.splice(i, 1)
+    if (i > -1)
+      state.checkedList.splice(i, 1)
   }
   computePrice()
 }
@@ -234,6 +239,11 @@ async function getCartPage() {
     // 空购物车时后端返回 data:null，统一归一化为空数组，
     // 避免各处 length / forEach / 分组计算面对 null 各写一遍判空
     state.cartList = response || []
+    // 空车没有可管理对象，工具行会随列表一起隐藏；编辑态必须同步退出，
+    // 否则用户删光商品后找不到退出编辑的入口（底栏停在编辑态变死锁）
+    if (state.cartList.length === 0) {
+      state.isEdit = false
+    }
     loading.value = false
     state.checkedList = []
     computePrice()
@@ -243,10 +253,6 @@ async function getCartPage() {
     loading.value = false
     globalLoading.close()
   }
-}
-// 查询用户默认收货地址
-async function getDefaultAddress() {
-  state.address = await getDefault()
 }
 // 删除选中的商品
 function delCart() {
@@ -280,7 +286,8 @@ function delOne(row: any) {
       if (res.action === 'confirm') {
         delShoppingCart([row.id]).then(() => {
           const i = state.checkedList.findIndex(v => v.id === row.id)
-          if (i > -1) state.checkedList.splice(i, 1)
+          if (i > -1)
+            state.checkedList.splice(i, 1)
           getCartPage()
         })
       }
@@ -365,8 +372,7 @@ function toSharedCart() {
 /** 打开船舶与靠港选择器；切换后分组随 shipContextStore 变化自动重算 */
 function openShipPicker() {
   shipPickerVisible.value = true
-}
-// 去结算 跳转结算页
+}// 去结算 跳转结算页
 function toSettlement() {
   goodsStore.setGoodsList(state.checkedList)
   router.push({
@@ -394,30 +400,23 @@ async function toCollect() {
 
 onShow(async () => {
   if (authStore.isLoggedIn) {
+    // 两者并行：cartGroups 是 computed，任一侧就绪都会重算，
+    // 不必让列表等上下文拉回来才渲染
+    void loadShipContext()
     getCartPage()
-    getDefaultAddress()
   }
 })
 </script>
 
 <template>
-  <hr-navbar title="购物车" :left-arrow="false">
-    <template #right>
-      <view class="manage-entry" @click="handleEdit">
-        {{ state.isEdit ? '完成' : '管理' }}
-      </view>
-    </template>
-  </hr-navbar>
-  <view class="cart-header bg-white">
-    <!-- 收货地址 -->
-    <view @click="toJumpUrl('/sub-pages/user/address/index')">
-      <wd-icon name="location" size="26rpx" />
-      <wd-text
-        :text="state.address?.detailAddress || '请添加收货地址'"
-        size="26rpx" color="inherit"
-      />
-    </view>
-  </view>
+  <hr-navbar title="购物车" :left-arrow="false" />
+  <!--
+    这里曾常驻一条「收货地址」栏，但它是纯展示：state.address 只用于渲染这行文案，
+    toSettlement 并不会把它带给结算页，结算页自己会重新取默认地址并允许改选；
+    地址的常驻入口在「我的 → 收货地址」。留在购物车只会误导（尤其是船内配送
+    delivery_way=4 时地址根本不参与下单），故整行移除，同时省去每次 onShow
+    都发一次 getDefault 请求。
+  -->
   <!-- 共享购物车入口：同船多成员分别加购，采购确认人统一提交 -->
   <view
     class="mx-20rpx mt-20rpx flex items-center justify-between rounded-20rpx bg-white p-24rpx"
@@ -437,6 +436,22 @@ onShow(async () => {
   </view>
   <view class="cart-container">
     <view v-if="state.cartList && state.cartList.length > 0" class="cart-item">
+      <!-- 管理入口挂在列表头而非导航栏：小程序端导航栏右侧要避让微信胶囊，
+           文字会被挤到标题和胶囊之间；列表头右侧空间充裕且语义更贴切 -->
+      <view class="cart-toolbar">
+        <text class="toolbar-count">
+          共 {{ state.cartList.length }} 件商品
+        </text>
+        <view class="manage-pill" :class="{ 'is-active': state.isEdit }" @click="handleEdit">
+          <wd-icon
+            :name="state.isEdit ? 'check' : 'edit-outline'" size="24rpx"
+            :color="state.isEdit ? '#07c160' : '#646566'"
+          />
+          <text class="manage-pill-text">
+            {{ state.isEdit ? '完成' : '管理' }}
+          </text>
+        </view>
+      </view>
       <!-- 防串船分组头：当前船舶组排前，其他靠港行结算时将被拦截 -->
       <view
         v-for="group in cartGroups"
@@ -469,7 +484,9 @@ onShow(async () => {
           <wd-icon v-if="goods.checked" name="check" size="22rpx" color="#fff" />
         </view>
         <view v-else class="check-circle is-disabled">
-          <text class="no-stock-text">{{ goods.goodsSku ? '无货' : '下架' }}</text>
+          <text class="no-stock-text">
+            {{ goods.goodsSku ? '无货' : '下架' }}
+          </text>
         </view>
         <!-- left -->
         <image class="goods-img" :src="goods.picUrl" mode="aspectFill" />
@@ -494,7 +511,7 @@ onShow(async () => {
           </view>
           <view v-if="goods.goodsSku" class="goods-bottom">
             <wd-text
-              :text="goods.goodsSku.salesPrice" size="30rpx" color="#ff2e4d" mode="price"
+              :text="goods.goodsSku.salesPrice" size="30rpx" color="var(--wot-color-theme-primary, #ff2e4d)" mode="price"
               prefix="￥"
             />
             <wd-input-number
@@ -522,12 +539,16 @@ onShow(async () => {
         <view class="check-circle check-circle-lg" :class="{ 'is-checked': state.shopCheckedAll }">
           <wd-icon v-if="state.shopCheckedAll" name="check" size="24rpx" color="#fff" />
         </view>
-        <text class="footer-all-text">全选</text>
+        <text class="footer-all-text">
+          全选
+        </text>
       </view>
       <view v-if="!state.isEdit" class="footer-right">
         <view class="footer-price">
-          <text class="footer-price-label">合计：</text>
-          <wd-text size="32rpx" mode="price" :text="state.totalAmount" prefix="￥" color="#ff2e4d" />
+          <text class="footer-price-label">
+            合计：
+          </text>
+          <wd-text size="32rpx" mode="price" :text="state.totalAmount" prefix="￥" color="var(--wot-color-theme-primary, #ff2e4d)" />
         </view>
         <view
           class="settle-btn" :class="{ 'is-disabled': state.checkedList.length <= 0 }"
@@ -577,18 +598,41 @@ onShow(async () => {
 </template>
 
 <style scoped lang="scss">
-.cart-header {
+/* 列表工具行：件数 + 管理入口 */
+.cart-toolbar {
   display: flex;
   align-items: center;
-  padding: 15rpx 24rpx;
-  background: #fff;
-  border-bottom: 1rpx solid #f2f3f5;
-}
+  justify-content: space-between;
+  margin: 20rpx 20rpx 0;
 
-.manage-entry {
-  font-size: 28rpx;
-  color: #303133;
-  padding: 8rpx 12rpx;
+  .toolbar-count {
+    font-size: 24rpx;
+    color: #969799;
+  }
+
+  .manage-pill {
+    display: flex;
+    align-items: center;
+    height: 56rpx;
+    padding: 0 22rpx;
+    border-radius: 28rpx;
+    background: #fff;
+    transition: all 0.15s;
+
+    .manage-pill-text {
+      margin-left: 6rpx;
+      font-size: 24rpx;
+      color: #303133;
+    }
+
+    &.is-active {
+      background: rgba(7, 193, 96, 0.1);
+
+      .manage-pill-text {
+        color: #07c160;
+      }
+    }
+  }
 }
 
 .cart-container {
@@ -606,7 +650,7 @@ onShow(async () => {
   padding: 12rpx 20rpx;
 
   .group-switch {
-    color: #ff2e4d;
+    color: var(--wot-color-theme-primary, #ff2237);
     text-decoration: underline;
   }
 }
@@ -759,7 +803,7 @@ onShow(async () => {
     text-align: center;
     padding: 0 44rpx;
     border-radius: 40rpx;
-    background: linear-gradient(135deg, #ff8a00, #ff4d2e);
+    background: linear-gradient(135deg, var(--wot-color-theme-secondary, #ff8a00), var(--wot-color-theme-primary, #ff4d2e));
     color: #fff;
     font-size: 30rpx;
     font-weight: 500;
@@ -787,7 +831,7 @@ onShow(async () => {
 
     &.action-btn-danger {
       background: #fff1f0;
-      color: #ff2e4d;
+      color: var(--wot-color-theme-primary, #ff2237);
     }
 
     &.is-disabled {

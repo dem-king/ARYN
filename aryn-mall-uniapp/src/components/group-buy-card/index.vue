@@ -77,7 +77,7 @@ function handleClick() {
     }
 
     .group-num {
-      background: linear-gradient(135deg, #ff6b35, #ff4500);
+      background: linear-gradient(135deg, var(--wot-color-theme-secondary, #ff6b35), var(--wot-color-theme-primary, #ff4500));
       color: #fff;
       font-size: 22rpx;
       padding: 4rpx 16rpx;
@@ -99,7 +99,7 @@ function handleClick() {
       gap: 12rpx;
 
       .group-price {
-        color: #ff4500;
+        color: var(--wot-color-theme-primary, #ff2237);
 
         .price-symbol {
           font-size: 24rpx;
@@ -140,7 +140,7 @@ function handleClick() {
       }
 
       &.status-1 {
-        color: #ff4500;
+        color: var(--wot-color-theme-primary, #ff2237);
         background: #fff2f0;
       }
 
@@ -151,7 +151,7 @@ function handleClick() {
     }
 
     .action-btn {
-      background: linear-gradient(135deg, #ff6b35, #ff4500);
+      background: linear-gradient(135deg, var(--wot-color-theme-secondary, #ff6b35), var(--wot-color-theme-primary, #ff4500));
       color: #fff;
       font-size: 24rpx;
       padding: 12rpx 32rpx;

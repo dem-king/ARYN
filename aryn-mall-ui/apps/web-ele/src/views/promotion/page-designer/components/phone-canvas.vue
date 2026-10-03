@@ -1,19 +1,29 @@
 <script setup lang="ts">
 import type { DecorationSection, PageSettings } from '../schema/types';
 
-import { computed, ref } from 'vue';
+import type { PageDesignType } from '#/api/promotion/page-design';
 
-import { CopyDocument, Delete } from '@element-plus/icons-vue';
-import { ElButton, ElEmpty, ElTooltip } from 'element-plus';
+import { computed } from 'vue';
 
-import { getComponentDefinition } from '../registry/component-registry';
-import { buildSectionStyle } from '../schema/section-style';
+import { ElEmpty } from 'element-plus';
+
+import CanvasPageShell from './canvas-page-shell.vue';
+import CanvasSectionList from './canvas-section-list.vue';
 
 const props = defineProps<{
   page: PageSettings;
   pageName: string;
+  pageType: PageDesignType;
   sections: DecorationSection[];
   selectedId?: string;
+  /** 是否展示原生页面骨架（内嵌页型默认开启，运营可关掉只看装修块） */
+  showPageShell: boolean;
+  /**
+   * 主题 CSS 变量（页面引用主题 > 商城默认主题 > 内置默认红），
+   * 与 C 端 App.ku.vue / diy 页面级覆盖使用同一套 `--wot-color-theme-*` 变量名，
+   * 画布组件用 var() 消费即可与管理端预览、小程序实机三端同源。
+   */
+  themeVars?: { primaryColor?: string; secondaryColor?: string };
   zoom: number;
 }>();
 
@@ -25,26 +35,64 @@ const emit = defineEmits<{
   selectSection: [sectionId: string];
 }>();
 
-const draggedId = ref('');
+/**
+ * 内嵌页型（商详/分类/个人中心）：装修块只是页面中的一段内容。
+ *
+ * C 端这些页面的 `DiyPage` 都传了 `embedded`，渲染器据此**不渲染装修自带的导航栏**
+ * 且不撑满 100vh（见 aryn-mall-uniapp/src/components/diy/index.vue）。画布必须同构，
+ * 否则运营在画布里看到一条页面中间的导航栏、保存后到实机却没有。
+ */
+const isEmbeddedPage = computed(() => ['2', '3', '4'].includes(props.pageType));
+
+/** 只有整页 DIY（微页面/首页）才按 Schema 的 navigation 设置画导航栏 */
+const showNavigation = computed(
+  () => !isEmbeddedPage.value && props.page.navigation.visible,
+);
+
+const showShell = computed(() => isEmbeddedPage.value && props.showPageShell);
+
+/**
+ * 页面背景色/图在**整页 DIY**（微页面/首页）下铺满整个手机壳；
+ * 内嵌页型下改由骨架内的装修段落承接（见 embeddedStyle）。
+ */
 const canvasStyle = computed(() => ({
+  backgroundColor: showShell.value ? undefined : props.page.backgroundColor,
+  backgroundImage:
+    !showShell.value && props.page.backgroundImage
+      ? `url(${props.page.backgroundImage})`
+      : undefined,
+  // 主题变量沿手机壳节点树继承，画布组件里的 var(--wot-color-theme-*) 由此取值
+  '--wot-color-theme-primary': props.themeVars?.primaryColor || undefined,
+  '--wot-color-theme-secondary': props.themeVars?.secondaryColor || undefined,
+  transform: `scale(${props.zoom})`,
+}));
+
+/**
+ * 内嵌页型下页面背景只作用在装修块自己那一段。
+ *
+ * C 端 `diy/index.vue` 的 `pageStyle`（页面背景色/图）绑在 `.diy-page` 根节点上，
+ * 内嵌场景该节点只包住装修区块，整页底色仍由各页面自己决定（分类页是 #f4f5f7）。
+ */
+const embeddedStyle = computed(() => ({
   backgroundColor: props.page.backgroundColor,
   backgroundImage: props.page.backgroundImage
     ? `url(${props.page.backgroundImage})`
     : undefined,
-  transform: `scale(${props.zoom})`,
+  backgroundPosition: props.page.backgroundImage ? 'top center' : undefined,
+  backgroundRepeat: props.page.backgroundImage ? 'no-repeat' : undefined,
+  backgroundSize: props.page.backgroundImage ? '100% auto' : undefined,
 }));
 
-function sectionStyle(section: DecorationSection) {
-  // 吸顶层级 4：编辑器里要给组件悬浮操作按钮（z-index 5/8）让位
-  return buildSectionStyle(section.style, { stickyZIndex: 4 });
-}
+const isEmpty = computed(() =>
+  props.sections.every((section) => section.components.length === 0),
+);
 </script>
 
 <template>
   <div class="canvas-stage" @click.self="emit('select', undefined)">
     <div class="phone-shell" :style="canvasStyle">
       <div
-        v-if="page.navigation.visible"
+        v-if="showNavigation"
         class="phone-navigation"
         :style="{
           backgroundColor: page.navigation.backgroundColor,
@@ -53,73 +101,49 @@ function sectionStyle(section: DecorationSection) {
       >
         {{ page.navigation.title || pageName }}
       </div>
-      <ElEmpty
-        v-if="sections.every((section) => section.components.length === 0)"
-        :image-size="72"
-        description="从左侧添加组件"
-      />
-      <div
-        v-for="section in sections"
-        v-else
-        :key="section.id"
-        class="canvas-section"
-        :class="[
-          {
-            'canvas-section-scroll': section.style.horizontalScroll,
-          },
-        ]"
-        :style="sectionStyle(section)"
-        @click.self="emit('selectSection', section.id)"
+
+      <!--
+        内嵌页型套原生骨架：让运营看到装修块落在页面哪一段、能用的真实宽度是多少
+        （分类页装修在右栏商品流内，可用宽度只有 375 - 88 = 287px）。
+        骨架里的插槽就是装修块的真实落点，区块仍在外层受拖拽/选中逻辑管辖。
+      -->
+      <CanvasPageShell
+        v-if="showShell"
+        :page-type="pageType"
+        @click.self="emit('select', undefined)"
       >
-        <div
-          v-for="(component, index) in section.components"
-          :key="component.id"
-          class="canvas-component"
-          :class="[
-            {
-              active: selectedId === component.id,
-              scroll: section.style.horizontalScroll,
-            },
-          ]"
-          draggable="true"
-          tabindex="0"
-          @click.stop="emit('select', component.id)"
-          @dragover.prevent
-          @dragstart="draggedId = component.id"
-          @drop.stop="emit('move', draggedId, index, section.id)"
-          @keydown.enter="emit('select', component.id)"
-        >
-          <component
-            :is="getComponentDefinition(component.type)?.preview"
-            v-if="getComponentDefinition(component.type)?.preview"
-            :show-data="component.props"
+        <div :style="embeddedStyle">
+          <ElEmpty
+            v-if="isEmpty"
+            :image-size="72"
+            description="从左侧添加组件"
           />
-          <div v-else class="unknown-component">
-            未识别组件：{{ component.type }}
-          </div>
-          <div v-if="selectedId === component.id" class="component-actions">
-            <ElTooltip content="复制组件" placement="right">
-              <ElButton
-                :icon="CopyDocument"
-                aria-label="复制组件"
-                circle
-                size="small"
-                @click.stop="emit('duplicate', component.id)"
-              />
-            </ElTooltip>
-            <ElTooltip content="删除组件" placement="right">
-              <ElButton
-                :icon="Delete"
-                aria-label="删除组件"
-                circle
-                size="small"
-                type="danger"
-                @click.stop="emit('remove', component.id)"
-              />
-            </ElTooltip>
-          </div>
+          <CanvasSectionList
+            v-else
+            :sections="sections"
+            :selected-id="selectedId"
+            @duplicate="emit('duplicate', $event)"
+            @move="(id, index, sectionId) => emit('move', id, index, sectionId)"
+            @remove="emit('remove', $event)"
+            @select="emit('select', $event)"
+            @select-section="emit('selectSection', $event)"
+          />
         </div>
-      </div>
+      </CanvasPageShell>
+
+      <template v-else>
+        <ElEmpty v-if="isEmpty" :image-size="72" description="从左侧添加组件" />
+        <CanvasSectionList
+          v-else
+          :sections="sections"
+          :selected-id="selectedId"
+          @duplicate="emit('duplicate', $event)"
+          @move="(id, index, sectionId) => emit('move', id, index, sectionId)"
+          @remove="emit('remove', $event)"
+          @select="emit('select', $event)"
+          @select-section="emit('selectSection', $event)"
+        />
+      </template>
     </div>
   </div>
 </template>
@@ -136,14 +160,19 @@ function sectionStyle(section: DecorationSection) {
 }
 
 .phone-shell {
+  /* 内容宽必须正好是设备屏宽 375px（= 750rpx）：骨架里分类页左栏 88px 是实数，
+     内容区若被边框吃掉 2px，右栏量出来就是 285px 而不是真实的 287px。
+     故用 content-box + 内偏移 outline（不影响布局）画那圈描边。 */
+  box-sizing: content-box;
   width: 375px;
   min-height: 667px;
   overflow: visible;
+  outline: 1px solid var(--el-border-color);
+  outline-offset: -1px;
   background: #fff;
   background-repeat: no-repeat;
   background-position: top center;
   background-size: 100% auto;
-  border: 1px solid var(--el-border-color);
   box-shadow: 0 12px 32px rgb(15 23 42 / 12%);
   transform-origin: top center;
 }
@@ -157,57 +186,5 @@ function sectionStyle(section: DecorationSection) {
   font-size: 16px;
   font-weight: 600;
   text-align: center;
-}
-
-.canvas-section {
-  position: relative;
-  background-repeat: no-repeat;
-  background-position: top center;
-  background-size: 100% auto;
-}
-
-.canvas-section-scroll {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-}
-
-.canvas-component {
-  position: relative;
-  width: 375px;
-  min-height: 24px;
-  cursor: pointer;
-}
-
-.canvas-component.scroll {
-  flex: 0 0 300px;
-  width: 300px;
-}
-
-.canvas-component:hover::after,
-.canvas-component.active::after {
-  position: absolute;
-  inset: 0;
-  z-index: 5;
-  pointer-events: none;
-  content: '';
-  border: 2px solid var(--el-color-primary);
-}
-
-.component-actions {
-  position: absolute;
-  top: 0;
-  right: -44px;
-  z-index: 8;
-  display: grid;
-  gap: 6px;
-}
-
-.unknown-component {
-  padding: 16px;
-  color: var(--el-text-color-secondary);
-  text-align: center;
-  background: var(--el-fill-color-light);
-  border: 1px dashed var(--el-border-color);
 }
 </style>

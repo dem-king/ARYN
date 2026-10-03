@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
-import { editPassword } from '@/api/user/user'
+import { editPassword } from '@/sub-pages/api/user/user'
 
 definePage({
   name: 'user-setting-password',

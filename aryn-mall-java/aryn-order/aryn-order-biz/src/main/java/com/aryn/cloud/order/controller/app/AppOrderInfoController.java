@@ -51,14 +51,16 @@ public class AppOrderInfoController {
 	@GetMapping("/page")
 	public Result<IPage<OrderInfo>> page(Page page, OrderInfo orderInfo) {
 		orderInfo.setUserId(SecurityUtils.getUser().getUserId());
-		return Result.success(orderInfoService.apiPage(page, orderInfo));
+		IPage<OrderInfo> result = orderInfoService.apiPage(page, orderInfo);
+		result.getRecords().forEach(AppOrderInfoController::maskPayVouchers);
+		return Result.success(result);
 	}
 
 	@Operation(summary = "通过订单id查询")
 	@GetMapping("/{id}")
 	public Result<OrderInfo> getById(@PathVariable String id) {
 		String userId = SecurityUtils.getUser().getUserId();
-		return Result.success(orderInfoService.getUserOrderById(id, userId));
+		return Result.success(maskPayVouchers(orderInfoService.getUserOrderById(id, userId)));
 	}
 
 	@Operation(summary = "结算订单")
@@ -149,7 +151,15 @@ public class AppOrderInfoController {
 	@GetMapping("/getByOrderNo/{orderNo}")
 	public Result<OrderInfo> getOrderByOrderNo(@PathVariable String orderNo) {
 		String userId = SecurityUtils.getUser().getUserId();
-		return Result.success(orderInfoService.getUserOrderByOrderNo(orderNo, userId));
+		return Result.success(maskPayVouchers(orderInfoService.getUserOrderByOrderNo(orderNo, userId)));
+	}
+
+	/** 付款凭证为管理端线下收款材料，C 端不下发（实收金额字段保留展示）。 */
+	private static OrderInfo maskPayVouchers(OrderInfo orderInfo) {
+		if (orderInfo != null) {
+			orderInfo.setPayVouchers(null);
+		}
+		return orderInfo;
 	}
 
 	@Operation(summary = "常购清单（近90天统计 Top20）")

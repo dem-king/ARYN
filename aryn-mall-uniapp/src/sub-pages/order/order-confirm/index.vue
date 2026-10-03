@@ -3,9 +3,9 @@ import { onLoad, onUnload } from '@dcloudio/uni-app'
 import { storeToRefs } from 'pinia'
 import { reactive, ref } from 'vue'
 import { orderCreate, orderSettlement } from '@/api/order/orderInfo'
-import { useShipContextStore } from '@/store/shipContextStore'
 import { getPage as getCouponList } from '@/api/promotion/couponUser'
 import { getDefault } from '@/api/user/address'
+import { useShipContextStore } from '@/store/shipContextStore'
 import AddressSelector from './components/AddressSelector.vue'
 import CouponSelector from './components/CouponSelector.vue'
 import PaymentFooter from './components/PaymentFooter.vue'
@@ -109,8 +109,10 @@ function initData() {
     // 公司港口/船舶内部配送：上下文来自船舶工作台，服务端结算时再次校验
     state.orderParams.deliveryWay = '4'
     Object.assign(state.orderParams, shipContextStore.deliveryContextParams)
-  } else {
-    state.orderParams.deliveryWay = '1'
+  }
+  else {
+    // 默认商城配送（deliveryWay=3），用户可在结算页弹层里改选
+    state.orderParams.deliveryWay = '3'
   }
   state.orderParams.skuReqList = orderItemList
   toSettlement()
@@ -127,7 +129,16 @@ function getDefaultAddress() {
 // 配送方式切换
 function deliveryWayChange(item: any) {
   state.orderParams.deliveryWay = item.deliveryWay
+  // 货到付款仅商城配送（3）/内部配送（4）可用，切走时重置为在线支付
+  if (item.deliveryWay !== '3' && item.deliveryWay !== '4') {
+    state.orderParams.paymentType = ''
+  }
   toSettlement()
+}
+
+// 支付方式切换（货到付款不影响结算价格，无需重新结算）
+function paymentWayChange(paymentWay: string) {
+  state.orderParams.paymentType = paymentWay
 }
 /**
  * 备注输入监听
@@ -161,7 +172,8 @@ async function toSettlement() {
   state.orderParams.userAddressId = selectedAddress.value ? selectedAddress.value.id : ''
   if (state.orderParams.deliveryWay === '4' && shipContextStore.deliveryContextParams) {
     Object.assign(state.orderParams, shipContextStore.deliveryContextParams)
-  } else {
+  }
+  else {
     delete state.orderParams.purchaseScene
     delete state.orderParams.vesselId
     delete state.orderParams.vesselCallId
@@ -218,7 +230,8 @@ async function toPay() {
       return useGlobalToast().warning('请先选择船舶和靠港计划')
     }
     Object.assign(state.orderParams, shipContextStore.deliveryContextParams)
-  } else {
+  }
+  else {
     delete state.orderParams.purchaseScene
     delete state.orderParams.vesselId
     delete state.orderParams.vesselCallId
@@ -230,12 +243,24 @@ async function toPay() {
   try {
   // 创建订单
     const response = await orderCreate(state.orderParams)
-    router.replace({
-      name: 'order-pay',
-      params: {
-        orderNo: response.orderNo,
-      },
-    })
+    if (state.orderParams.paymentType === '3') {
+      // 货到付款：无需在线支付，直接进订单详情
+      useGlobalToast().success('下单成功，收货后请线下支付货款')
+      router.replace({
+        name: 'order-detail',
+        params: {
+          id: response.id,
+        },
+      })
+    }
+    else {
+      router.replace({
+        name: 'order-pay',
+        params: {
+          orderNo: response.orderNo,
+        },
+      })
+    }
     if (state.createWay === '1') {
       // 刷新购物车数量
       shoppingCartStore.fetchCartCount()
@@ -306,8 +331,8 @@ onUnload(() => {
     <!-- 营销优惠明细（阶梯价/整船优惠，结算返回） -->
     <view
       v-if="
-        (state.orderInfo.promotionDetails && state.orderInfo.promotionDetails.length) ||
-          state.orderInfo.promoPrice > 0
+        (state.orderInfo.promotionDetails && state.orderInfo.promotionDetails.length)
+          || state.orderInfo.promoPrice > 0
       "
       class="hx-mb10"
       style="
@@ -350,7 +375,8 @@ onUnload(() => {
       :order="state.orderInfo"
       :coupon-user-list="state.couponUserList"
       :delivery-way="state.orderParams.deliveryWay"
-      @delivery-way-change="deliveryWayChange" @remark-change="remarkChange" @show-coupon="showCoupon"
+      :payment-way="state.orderParams.paymentType"
+      @delivery-way-change="deliveryWayChange" @payment-way-change="paymentWayChange" @remark-change="remarkChange" @show-coupon="showCoupon"
     />
 
     <wd-gap :height="60" />

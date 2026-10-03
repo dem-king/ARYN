@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
-import { getPage } from '@/api/order/orderRefunds'
-import { useDict } from '@/utils/dict'
+import { getPage } from '@/sub-pages/api/order/orderRefunds'
+import { useDict } from '@/sub-pages/utils/dict'
 
 definePage({
   name: 'refunds-list',

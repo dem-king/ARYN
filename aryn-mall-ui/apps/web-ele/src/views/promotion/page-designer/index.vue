@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import type { DecorationDocument, PageSettings } from './schema/types';
 
-import type { PageDesignType } from '#/api/promotion/page-design';
+import type {
+  PageDesignTheme,
+  PageDesignType,
+} from '#/api/promotion/page-design';
 
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router';
@@ -19,6 +22,7 @@ import {
   createPreviewToken,
   getEditor,
   getHomeDesign,
+  getThemes,
   queryTokenToPageType,
   saveDraft,
   submitRelease,
@@ -42,6 +46,11 @@ import { usePageDesigner } from './composables/use-page-designer';
 import { getComponentDefinition } from './registry/component-registry';
 import { createDefaultDecorationDocument } from './schema/defaults';
 import { migratePageContent } from './schema/migrate';
+import {
+  DEFAULT_PRIMARY_COLOR,
+  DEFAULT_SECONDARY_COLOR,
+  deriveSecondaryColor,
+} from './schema/theme-presets';
 import { toV3Document } from './schema/v3';
 
 const route = useRoute();
@@ -54,6 +63,15 @@ const pageType = ref<PageDesignType>(
 const revision = ref(0);
 const publishedStatus = ref<'0' | '1'>('0');
 const zoom = ref(1);
+/**
+ * 是否展示原生页面骨架（仅内嵌页型可用：商详/分类/个人中心）。
+ *
+ * 默认开启：这三类页面的装修块只是页面中的一段内容，只看区块本身无法判断
+ * 落点与可用宽度（分类页嵌在右栏商品流内，只有 287px 宽）。纯编辑视图可关掉。
+ * 按页型在加载完成后重置，避免从内嵌页切到微页面时把开关状态带过去。
+ */
+const showPageShell = ref(true);
+const shellAvailable = computed(() => ['2', '3', '4'].includes(pageType.value));
 const loading = ref(true);
 const templateVisible = ref(false);
 const publishVisible = ref(false);
@@ -61,6 +79,45 @@ const themeVisible = ref(false);
 const assetVisible = ref(false);
 const themeRef = ref('');
 const previewState = ref({ expiresAt: 0, token: '', visible: false });
+
+/**
+ * 画布预览的主题解析（与 C 端两级结构同构，保证所见即所得）：
+ * 页面引用的主题（themeRef，发布后固化为 themeSnapshot）优先；
+ * 页面未引用主题时回落「商城默认主题」，与 C 端 App.ku.vue 的全局换肤一致。
+ * 主题库加载失败不阻塞编辑，画布退化为内置默认红。
+ */
+const themes = ref<PageDesignTheme[]>([]);
+const activeTheme = computed(() => {
+  const byRef = themeRef.value
+    ? themes.value.find((theme) => theme.id === themeRef.value)
+    : undefined;
+  if (byRef) return byRef;
+  return themes.value.find((theme) => theme.mallDefaultFlag === '1');
+});
+
+async function loadThemesQuietly() {
+  try {
+    themes.value = await getThemes();
+  } catch {
+    themes.value = [];
+  }
+}
+
+onMounted(() => {
+  void loadThemesQuietly();
+});
+
+/** 画布根节点下发的主题 CSS 变量（phone-canvas 内联到手机壳上，两端同款变量名） */
+const canvasThemeVars = computed(() => {
+  const theme = activeTheme.value;
+  const primary = theme?.primaryColor || DEFAULT_PRIMARY_COLOR;
+  return {
+    primaryColor: primary,
+    secondaryColor: theme?.primaryColor
+      ? deriveSecondaryColor(theme.primaryColor)
+      : DEFAULT_SECONDARY_COLOR,
+  };
+});
 
 const designer = usePageDesigner({
   initialDocument: createDefaultDecorationDocument(),
@@ -283,7 +340,11 @@ function applyTemplate(document: DecorationDocument) {
 function applyTheme(id: string) {
   themeRef.value = id;
   draftSave.markDirty();
-  ElMessage.success('主题已应用到页面，保存草稿后生效');
+  ElMessage.success(
+    id
+      ? '本页已指定主题，保存草稿后生效'
+      : '本页已改为跟随商城默认主题，保存草稿后生效',
+  );
 }
 
 async function back() {
@@ -334,10 +395,12 @@ onBeforeUnmount(() => {
   >
     <DesignerToolbar
       v-model:page-name="pageName"
+      v-model:show-page-shell="showPageShell"
       v-model:zoom="zoom"
       :can-redo="designer.canRedo.value"
       :can-undo="designer.canUndo.value"
       :save-status="draftSave.status.value"
+      :shell-available="shellAvailable"
       @assets="assetVisible = true"
       @back="back"
       @preview="preview"
@@ -401,8 +464,11 @@ onBeforeUnmount(() => {
       <PhoneCanvas
         :page="designer.document.value.page"
         :page-name="pageName"
+        :page-type="pageType"
         :sections="designer.document.value.sections"
         :selected-id="designer.selectedId.value"
+        :show-page-shell="showPageShell"
+        :theme-vars="canvasThemeVars"
         :zoom="zoom"
         @duplicate="(id) => changed(() => designer.duplicateComponent(id))"
         @move="
@@ -465,6 +531,7 @@ onBeforeUnmount(() => {
       v-model="themeVisible"
       :theme-ref="themeRef || undefined"
       @apply="applyTheme"
+      @changed="loadThemesQuietly"
     />
     <AssetCheck v-model="assetVisible" :page-id="pageId" />
     <PublishDialog

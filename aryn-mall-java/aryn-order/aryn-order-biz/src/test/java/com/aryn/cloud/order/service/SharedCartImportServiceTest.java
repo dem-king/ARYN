@@ -18,7 +18,6 @@ import com.aryn.cloud.order.service.impl.SharedCartServiceImpl;
 import com.aryn.cloud.product.api.dto.ReplenishImportMatchDTO;
 import com.aryn.cloud.product.api.remote.RemoteGoodsSkuService;
 import com.aryn.cloud.product.api.remote.RemoteReplenishImportMatchService;
-import com.aryn.cloud.product.api.remote.RemoteShipProductProfileService;
 import com.aryn.cloud.product.api.vo.ReplenishImportMatchVO;
 import com.aryn.cloud.user.api.remote.RemoteMallUserService;
 import com.aryn.cloud.vessel.api.remote.RemoteVesselService;
@@ -108,8 +107,6 @@ class SharedCartImportServiceTest {
 		service = new SharedCartServiceImpl(cartMapper, memberMapper, itemMapper, importMapper, importRowMapper,
 				mock(IOrderInfoService.class));
 		ReflectionTestUtils.setField(service, "remoteReplenishImportMatchService", remoteReplenishImportMatchService);
-		ReflectionTestUtils.setField(service, "remoteShipProductProfileService",
-				mock(RemoteShipProductProfileService.class));
 		ReflectionTestUtils.setField(service, "remoteGoodsSkuService", mock(RemoteGoodsSkuService.class));
 		ReflectionTestUtils.setField(service, "remoteVesselService", mock(RemoteVesselService.class));
 		ReflectionTestUtils.setField(service, "remoteMallUserService", mock(RemoteMallUserService.class));
@@ -206,7 +203,7 @@ class SharedCartImportServiceTest {
 		when(memberMapper.selectCount(any(Wrapper.class))).thenReturn(0L);
 		when(remoteReplenishImportMatchService.matchRows(anyString(), anyList())).thenReturn(List.of());
 
-		byte[] excel = buildExcel(List.of(List.of("IMPA1", "抽纸", "10包", "4", "包", "")));
+		byte[] excel = buildExcel(List.of(List.of("", "IMPA1", "抽纸", "10包", "4", "包", "")));
 		ArynBusinessException exception = assertThrows(ArynBusinessException.class,
 				() -> service.previewImport(TENANT, MEMBER, CART_ID, "a.xlsx", excel.length, excel));
 		assertTrue(exception.getMsg().contains("确认人"));
@@ -474,9 +471,9 @@ class SharedCartImportServiceTest {
 		when(remoteReplenishImportMatchService.matchRows(anyString(), anyList())).thenReturn(List.of());
 
 		byte[] excel = buildExcel(List.of(
-				List.of("IMPA123456", "鲜牛奶 950ml", "950ml/瓶", "4", "瓶", "冷藏"),
-				List.of("", "", "", "", "", ""),
-				List.of("IMPA999", "番茄 2kg", "2kg/份", "2", "份", "")));
+				List.of("", "IMPA123456", "鲜牛奶 950ml", "950ml/瓶", "4", "瓶", "冷藏"),
+				List.of("", "", "", "", "", "", ""),
+				List.of("", "IMPA999", "番茄 2kg", "2kg/份", "2", "份", "")));
 
 		SharedCartImportVO vo = service.previewImport(TENANT, OWNER, CART_ID, "补给清单.xlsx", excel.length, excel);
 
@@ -487,18 +484,64 @@ class SharedCartImportServiceTest {
 	}
 
 	@Test
-	@DisplayName("解析：数量为文本时按未匹配外的数量异常处理，不抛异常")
+	@DisplayName("解析：目录模板中没填数量的行判「未填数量」，不刷成数量异常")
+	void previewClassifiesBlankQuantityAsNotFilled() {
+		when(cartMapper.selectOne(any(Wrapper.class))).thenReturn(collectingCart());
+		ReplenishImportMatchVO matched = currentSku(100, 1, 1, "0", "1");
+		when(remoteReplenishImportMatchService.matchRows(anyString(), anyList())).thenReturn(List.of(matched));
+
+		// 目录模板：分类/编码/品名/规格/数量/单位/备注，只有一行填了数量
+		byte[] excel = buildExcel(List.of(
+				List.of("蔬果/蔬菜", "IMPA1", "抽纸", "10包", "4", "包", ""),
+				List.of("蔬果/蔬菜", "IMPA2", "番茄", "2kg/份", "", "份", ""),
+				List.of("蔬果/蔬菜", "IMPA3", "土豆", "5kg/袋", "", "袋", "")));
+		SharedCartImportVO vo = service.previewImport(TENANT, OWNER, CART_ID, "目录.xlsx", excel.length, excel);
+
+		assertEquals(3, vo.getTotalRows());
+		assertEquals(1, vo.getMatchedRows(), "填了数量的那行正常匹配");
+		assertEquals(2, vo.getNotFilledRows(), "没填数量的行必须单独计数");
+		assertEquals(0, vo.getInvalidRows(), "没填数量不是数量异常，否则报告会被刷屏");
+	}
+
+	@Test
+	@DisplayName("解析：填了数量的非法文本仍归入数量异常")
 	void previewToleratesInvalidQuantity() {
 		when(cartMapper.selectOne(any(Wrapper.class))).thenReturn(collectingCart());
 		ReplenishImportMatchVO matched = currentSku(100, 1, 1, "0", "1");
 		when(remoteReplenishImportMatchService.matchRows(anyString(), anyList())).thenReturn(List.of(matched));
 		when(remoteReplenishImportMatchService.matchSkuIds(anyString(), anyList())).thenReturn(List.of(matched));
 
-		byte[] excel = buildExcel(List.of(List.of("IMPA1", "抽纸", "10包", "十", "包", "")));
+		byte[] excel = buildExcel(List.of(List.of("", "IMPA1", "抽纸", "10包", "十", "包", "")));
 		SharedCartImportVO vo = service.previewImport(TENANT, OWNER, CART_ID, "a.xlsx", excel.length, excel);
 
 		assertEquals(1, vo.getTotalRows());
 		assertEquals(1, vo.getInvalidRows(), "数量非法必须归入数量异常并由用户调整");
+		assertEquals(0, vo.getNotFilledRows(), "填了非法文本不等于没填");
+	}
+
+	@Test
+	@DisplayName("确认并入：未填数量的行不写明细，也不计入 skippedRows")
+	void confirmIgnoresNotFilledRows() {
+		SharedCartImportRow filled = row(1, SharedCartImportRow.RESULT_OK, 6);
+		SharedCartImportRow blank = row(2, SharedCartImportRow.RESULT_NOT_FILLED, null);
+		blank.setMatchedSkuId("sku-2");
+
+		when(cartMapper.selectOne(any(Wrapper.class))).thenReturn(collectingCart());
+		when(importMapper.selectOne(any(Wrapper.class))).thenReturn(pendingImport());
+		when(importRowMapper.selectList(any(Wrapper.class))).thenReturn(List.of(filled, blank));
+		when(itemMapper.selectList(any(Wrapper.class))).thenReturn(List.of());
+		when(remoteReplenishImportMatchService.matchSkuIds(anyString(), anyList()))
+			.thenReturn(List.of(currentSku(100, 4, 2, "0", "1")));
+
+		service.confirmImport(TENANT, OWNER, CART_ID, IMPORT_ID,
+				confirmAction(1, SharedCartImportRow.ACTION_ACCEPT_SPEC));
+
+		ArgumentCaptor<SharedCartImport> jobCaptor = ArgumentCaptor.forClass(SharedCartImport.class);
+		verify(importMapper).updateById(jobCaptor.capture());
+		// 客户没打算买的行既不是「已并入」也不是「被跳过」，它是正常略过
+		assertEquals(0, jobCaptor.getValue().getSkippedRows(),
+				"未填数量的行算作跳过会让报告说「跳过 268 项」，把正常留空说成处理失败");
+		verify(itemMapper, times(1)).insert(any(SharedCartItem.class));
 	}
 
 	/** 用 EasyExcel 生成真实 xlsx 字节，避免测试依赖外部文件 */

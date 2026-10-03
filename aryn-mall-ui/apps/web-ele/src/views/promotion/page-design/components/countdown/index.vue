@@ -90,6 +90,6 @@ onBeforeUnmount(() => clearInterval(timer));
   font-family: monospace;
   font-size: 16px;
   font-weight: 700;
-  color: #e5484d;
+  color: var(--wot-color-theme-primary, #ff2237);
 }
 </style>

@@ -175,7 +175,7 @@ const sessions = computed(() => state.items);
 
 .session-time {
   font-size: 11px;
-  color: #e5484d;
+  color: var(--wot-color-theme-primary, #ff2237);
 }
 
 .goods-list {
@@ -190,7 +190,7 @@ const sessions = computed(() => state.items);
   min-height: 70px;
   overflow: hidden;
   background: #fff;
-  border: 0.5px solid #ffe1dc;
+  border: 0.5px solid var(--wot-color-theme-background, #ffe1dc);
   border-radius: 4px;
 }
 
@@ -202,8 +202,8 @@ const sessions = computed(() => state.items);
   width: 75px;
   min-height: 70px;
   font-size: 11px;
-  color: #e5484d;
-  background: #fff1ee;
+  color: var(--wot-color-theme-primary, #ff2237);
+  background: var(--wot-color-theme-background, #fff1ee);
 }
 
 .goods-content {
@@ -232,19 +232,19 @@ const sessions = computed(() => state.items);
   width: 80px;
   height: 6px;
   overflow: hidden;
-  background: #ffe1dc;
+  background: var(--wot-color-theme-background, #ffe1dc);
   border-radius: 3px;
 }
 
 .progress-bar {
   height: 100%;
-  background: #e5484d;
+  background: var(--wot-color-theme-primary, #ff2237);
   border-radius: 3px;
 }
 
 .progress-text {
   font-size: 10.5px;
-  color: #e5484d;
+  color: var(--wot-color-theme-primary, #ff2237);
 }
 
 .goods-price-row {
@@ -257,7 +257,7 @@ const sessions = computed(() => state.items);
 .goods-price {
   font-size: 15px;
   font-weight: 700;
-  color: #e5484d;
+  color: var(--wot-color-theme-primary, #ff2237);
 }
 
 .goods-original {

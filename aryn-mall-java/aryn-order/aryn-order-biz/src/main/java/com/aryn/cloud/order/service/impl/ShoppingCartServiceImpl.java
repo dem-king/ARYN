@@ -18,9 +18,7 @@ import com.aryn.cloud.order.service.IShoppingCartService;
 import com.aryn.cloud.product.api.entity.GoodsSku;
 import com.aryn.cloud.product.api.util.GoodsCostPriceMasker;
 import com.aryn.cloud.product.api.entity.GoodsSpu;
-import com.aryn.cloud.product.api.entity.ShipSkuProfile;
 import com.aryn.cloud.product.api.remote.RemoteGoodsSkuService;
-import com.aryn.cloud.product.api.remote.RemoteShipProductProfileService;
 import lombok.RequiredArgsConstructor;
 import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.dao.DuplicateKeyException;
@@ -48,16 +46,6 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
 
 	@DubboReference
 	private final RemoteGoodsSkuService remoteGoodsSkuService;
-
-	/**
-	 * 船供包装资料：批量加购时用于校验 MOQ/步长（与共享购物车提交口径一致）。
-	 *
-	 * <p>刻意不声明为 final：`@RequiredArgsConstructor` 只收集 final 字段，
-	 * 加进来会改变构造器签名、波及既有单测。此处沿用 SharedCartServiceImpl
-	 * 的写法（非 final + 容器注入），构造器保持单参数不变。
-	 */
-	@DubboReference
-	private RemoteShipProductProfileService remoteShipProductProfileService;
 
 	@Override
 	public List<ShoppingCart> apiPage(Page page, ShoppingCart shoppingCart) {
@@ -147,15 +135,11 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
 		ShoppingCartBatchAddVO result = new ShoppingCartBatchAddVO();
 		result.setRequestedCount(items.size());
 
-		// 先批量取一次包装资料，避免逐项远程调用（列表越大越明显）
-		Map<String, ShipSkuProfile> profiles = loadSkuProfiles(items);
-
 		int added = 0;
 		for (ShoppingCartCreateDTO item : items) {
 			try {
-				// 数量规则（MOQ/步长）在单条加购里不校验，但批量场景多来自「按清单补货」，
-				// 不校验会出现"加进购物车、结算时才被拦下"的体验断裂，故在此提前拦截。
-				validateQuantityRule(item, profiles.get(item.getSkuId()));
+				// 数量规则（MOQ/步长）随船供包装资料下线（2026-09-29）：
+				// 批量加购不再做 MOQ/步长拦截，与单条加购口径一致。
 				if (saveShoppingCart(userId, item)) {
 					added++;
 				}
@@ -173,54 +157,6 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
 		result.setAddedCount(added);
 		result.setFailedCount(result.getFailures().size());
 		return result;
-	}
-
-	/**
-	 * 批量取 SKU 包装资料；远程失败时降级为空表（视为普通商品，不做 MOQ/步长校验），
-	 * 避免一个装饰性的数量规则把整批加购打挂。
-	 */
-	private Map<String, ShipSkuProfile> loadSkuProfiles(List<ShoppingCartCreateDTO> items) {
-		List<String> skuIds = items.stream()
-			.map(ShoppingCartCreateDTO::getSkuId)
-			.filter(StringUtils::hasText)
-			.distinct()
-			.toList();
-		if (skuIds.isEmpty()) {
-			return Map.of();
-		}
-		try {
-			List<ShipSkuProfile> profiles = remoteShipProductProfileService
-				.getSkuProfiles(ArynTenantContextHolder.getTenantId(), skuIds);
-			if (CollectionUtils.isEmpty(profiles)) {
-				return Map.of();
-			}
-			Map<String, ShipSkuProfile> map = new HashMap<>();
-			for (ShipSkuProfile profile : profiles) {
-				map.put(profile.getSkuId(), profile);
-			}
-			return map;
-		}
-		catch (Exception exception) {
-			return Map.of();
-		}
-	}
-
-	/**
-	 * 校验 MOQ 与步长，口径与共享购物车提交时的 validateQuantityRules 保持一致。
-	 */
-	private void validateQuantityRule(ShoppingCartCreateDTO item, ShipSkuProfile profile) {
-		if (profile == null) {
-			return;
-		}
-		int quantity = item.getQuantity() == null ? 0 : item.getQuantity();
-		int moq = profile.getMoq() != null ? profile.getMoq() : 1;
-		int stepQty = profile.getStepQty() != null ? profile.getStepQty() : 1;
-		if (moq > 1 && quantity < moq) {
-			throw new ArynBusinessException("数量未达到最小起订量 " + moq);
-		}
-		if (stepQty > 1 && quantity % stepQty != 0) {
-			throw new ArynBusinessException("数量必须是 " + stepQty + " 的整数倍");
-		}
 	}
 
 	/**

@@ -16,6 +16,7 @@ import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.aryn.cloud.message.api.enums.MessageIdentityType;
 import com.aryn.cloud.message.api.vo.conversation.ChatMessagePageVO;
 import com.aryn.cloud.message.api.vo.conversation.ChatMessageVO;
+import com.aryn.cloud.message.api.vo.conversation.ConversationAttentionVO;
 import com.aryn.cloud.message.api.vo.conversation.ConversationInboxPageVO;
 import com.aryn.cloud.message.api.vo.conversation.ConversationVO;
 import com.aryn.cloud.message.service.ChatMessageService;
@@ -69,6 +70,15 @@ public class StaffConversationController {
 		ArynUser user = currentUser();
 		return Result.success(conversationService.inbox(user.getTenantId(), MessageIdentityType.SYS_USER,
 				user.getUserId(), query));
+	}
+
+	@GetMapping("/attention")
+	@Operation(summary = "坐席待办提醒：本人未读会话与共享池待领取")
+	public Result<ConversationAttentionVO> attention(@RequestParam(defaultValue = "DEFAULT") String queueCode,
+			@RequestParam(defaultValue = "10") int limit) {
+		ArynUser user = currentUser();
+		return Result.success(conversationService.attention(user.getTenantId(), MessageIdentityType.SYS_USER,
+				user.getUserId(), queueCode, limit));
 	}
 
 	@GetMapping("/{id}")

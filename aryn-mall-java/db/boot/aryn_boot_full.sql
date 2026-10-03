@@ -2,7 +2,7 @@
 -- 生成方式: node db/boot/build-full-sql.mjs
 -- 适用环境: MySQL 8.0.13+
 -- 警告: 本文件面向空库初始化，包含 DROP TABLE IF EXISTS，请勿用于存量生产库。
--- 生成日期: 2026-09-26
+-- 生成日期: 2026-10-03
 
 -- ============================================================================
 -- 创建数据库
@@ -38,9 +38,6 @@ DROP TABLE IF EXISTS `delivery_qualification_operation`;
 DROP TABLE IF EXISTS `vessel_info`;
 DROP TABLE IF EXISTS `vessel_member`;
 DROP TABLE IF EXISTS `vessel_call`;
-DROP TABLE IF EXISTS `ship_goods_profile`;
-DROP TABLE IF EXISTS `ship_sku_profile`;
-DROP TABLE IF EXISTS `product_code_mapping`;
 DROP TABLE IF EXISTS `shared_cart`;
 DROP TABLE IF EXISTS `shared_cart_member`;
 DROP TABLE IF EXISTS `shared_cart_item`;
@@ -5984,96 +5981,6 @@ CREATE TABLE IF NOT EXISTS `vessel_call` (
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ============================================================================
--- 船供商品资料域
--- Source: db/boot/43ship_product_profile_incremental.sql
--- ============================================================================
--- 悦航购船供商品资料域增量迁移（Boot 单体模式）
--- 目标库：aryn_boot
--- 特性：可重复执行，不执行 DROP/TRUNCATE，不覆盖已有业务数据。
--- 执行：mysql -u root -p aryn_boot < 43ship_product_profile_incremental.sql
-
-USE `aryn_boot`;
-SET NAMES utf8mb4;
-SET FOREIGN_KEY_CHECKS = 0;
-
--- SPU 船供资料（与 goods_spu 一对一扩展）
-CREATE TABLE IF NOT EXISTS `ship_goods_profile` (
-  `id` varchar(32) NOT NULL COMMENT '主键',
-  `spu_id` varchar(32) NOT NULL COMMENT '商品SPU ID',
-  `sale_scope` char(2) NOT NULL DEFAULT '3' COMMENT '销售范围：1仅个人购买 2仅船供采购 3个人和船供均可',
-  `impa_code` varchar(32) DEFAULT NULL COMMENT 'IMPA 编码',
-  `issa_code` varchar(32) DEFAULT NULL COMMENT 'ISSA 编码',
-  `internal_item_code` varchar(64) DEFAULT NULL COMMENT '内部物料编码',
-  `barcode` varchar(64) DEFAULT NULL COMMENT '条形码',
-  `name_en` varchar(255) DEFAULT NULL COMMENT '英文品名',
-  `search_aliases` varchar(500) DEFAULT NULL COMMENT '搜索别名（逗号分隔）',
-  `storage_type` char(2) DEFAULT NULL COMMENT '储存条件：1常温 2冷藏 3冷冻 4危险品 5其他',
-  `shelf_life_days` int DEFAULT NULL COMMENT '保质期天数',
-  `temperature_requirement` varchar(128) DEFAULT NULL COMMENT '温度要求说明',
-  `ship_supply_remark` varchar(500) DEFAULT NULL COMMENT '船供说明',
-  `publish_completeness` int NOT NULL DEFAULT 0 COMMENT '资料完整度（0-100）',
-  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
-  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人', `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
-  `create_time` datetime DEFAULT NULL COMMENT '创建时间', `update_time` datetime DEFAULT NULL COMMENT '更新时间',
-  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_ship_goods_profile_spu` (`tenant_id`,`spu_id`),
-  KEY `idx_ship_goods_profile_impa` (`tenant_id`,`impa_code`),
-  KEY `idx_ship_goods_profile_issa` (`tenant_id`,`issa_code`),
-  KEY `idx_ship_goods_profile_internal` (`tenant_id`,`internal_item_code`),
-  KEY `idx_ship_goods_profile_barcode` (`tenant_id`,`barcode`),
-  KEY `idx_ship_goods_profile_scope` (`tenant_id`,`sale_scope`),
-  KEY `idx_ship_goods_profile_completeness` (`tenant_id`,`publish_completeness`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='SPU船供资料';
-
--- SKU 包装资料（与 goods_sku 一对一扩展）
-CREATE TABLE IF NOT EXISTS `ship_sku_profile` (
-  `id` varchar(32) NOT NULL COMMENT '主键',
-  `spu_id` varchar(32) NOT NULL COMMENT '商品SPU ID',
-  `sku_id` varchar(32) NOT NULL COMMENT '商品SKU ID',
-  `base_unit` varchar(32) DEFAULT NULL COMMENT '基本单位（零售单位）',
-  `purchase_unit` varchar(32) DEFAULT NULL COMMENT '采购单位',
-  `conversion_rate` decimal(10,4) NOT NULL DEFAULT 1.0000 COMMENT '采购单位换算基本单位倍率',
-  `package_spec` varchar(128) DEFAULT NULL COMMENT '箱规（中文包装规格）',
-  `package_spec_en` varchar(255) DEFAULT NULL COMMENT '箱规（英文包装规格）',
-  `moq` int NOT NULL DEFAULT 1 COMMENT '最小起订量',
-  `step_qty` int NOT NULL DEFAULT 1 COMMENT '数量步长',
-  `gross_weight` decimal(12,3) DEFAULT NULL COMMENT '毛重（kg）',
-  `volume` decimal(12,4) DEFAULT NULL COMMENT '体积（m³）',
-  `stock_warning_line` int NOT NULL DEFAULT 0 COMMENT '库存预警线',
-  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
-  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人', `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
-  `create_time` datetime DEFAULT NULL COMMENT '创建时间', `update_time` datetime DEFAULT NULL COMMENT '更新时间',
-  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_ship_sku_profile_sku` (`tenant_id`,`sku_id`),
-  KEY `idx_ship_sku_profile_spu` (`tenant_id`,`spu_id`),
-  KEY `idx_ship_sku_profile_warning` (`tenant_id`,`stock_warning_line`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='SKU包装资料';
-
--- 商品编码映射（IMPA/ISSA/条码/内部编码/供应商编码）
-CREATE TABLE IF NOT EXISTS `product_code_mapping` (
-  `id` varchar(32) NOT NULL COMMENT '主键',
-  `spu_id` varchar(32) NOT NULL COMMENT '商品SPU ID',
-  `sku_id` varchar(32) NOT NULL COMMENT '商品SKU ID',
-  `code_type` varchar(16) NOT NULL COMMENT '编码类型：IMPA/ISSA/BARCODE/INTERNAL/SUPPLIER',
-  `code_value` varchar(64) NOT NULL COMMENT '编码值',
-  `match_source` varchar(16) NOT NULL DEFAULT 'MANUAL' COMMENT '匹配来源：MANUAL人工/IMPORT导入/AI智能/EXTERNAL外部',
-  `confidence` decimal(5,2) DEFAULT NULL COMMENT '匹配置信度（0-100，人工为空）',
-  `status` char(2) NOT NULL DEFAULT '1' COMMENT '状态：1生效 0停用',
-  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
-  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人', `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
-  `create_time` datetime DEFAULT NULL COMMENT '创建时间', `update_time` datetime DEFAULT NULL COMMENT '更新时间',
-  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_product_code_mapping_code` (`tenant_id`,`code_type`,`code_value`,`del_flag`),
-  KEY `idx_product_code_mapping_sku` (`tenant_id`,`sku_id`),
-  KEY `idx_product_code_mapping_spu` (`tenant_id`,`spu_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='商品编码映射';
-
-SET FOREIGN_KEY_CHECKS = 1;
-
--- ============================================================================
 -- 订单配送上下文与履约域
 -- Source: db/boot/44order_delivery_context_incremental.sql
 -- ============================================================================
@@ -7250,14 +7157,11 @@ WHERE TABLE_SCHEMA = 'aryn_boot' AND TABLE_NAME = 'vessel_bind_apply';
 --   1) 船舶成员：把 3 个商城用户绑定到悦航1号（发起人 / 采购确认人 / 普通船员）
 --   2) 靠港计划：保证至少有 2 个可用靠港（46 号脚本用的是相对日期，会随时间自然过期）
 --   3) 船舶物料类目：1 个一级 + 6 个二级
---   4) 28 个船供商品（SPU + SKU + ship_goods_profile + ship_sku_profile）
+--   4) 28 个船供商品（SPU + SKU；船供资料三表已下线，不再写船供资料表）
 --
 -- 这 28 个商品是按验收清单的需要刻意设计的：
---   · 26 个上架（25 个 sale_scope=3 个人+船供、1 个 sale_scope=2 仅船供）→ 超过 20 条，可验证分页
---   · 1 个下架（status=0）→ 验证船供目录不得出现下架商品
---   · 编码覆盖 IMPA / ISSA / 内部编码 / 条码 / 英文名 / 搜索别名 → 验证搜索各自可命中
---   · MOQ 与步长组合多样，且全部满足「MOQ 是步长整数倍」→ 验证数量规则
---   · 储存条件覆盖 常温/冷藏/冷冻/危险品 → 验证详情页储存条件展示
+--   · 26 个上架 → 超过 20 条，可验证分页
+--   · 1 个下架（status=0）→ 验证选货目录不得出现下架商品
 --
 -- 执行：mysql -u root -p aryn_boot < 62ship_supply_seed_acceptance.sql
 -- 清理：见文末「清理本脚本数据」段落，或使用 dev-tools/seed-acceptance-data.sh --clean
@@ -7269,8 +7173,6 @@ SET FOREIGN_KEY_CHECKS = 0;
 -- ===========================================================================
 -- 0. 清理本脚本历史种子（幂等）
 -- ===========================================================================
-DELETE FROM `ship_sku_profile` WHERE `id` LIKE '967%';
-DELETE FROM `ship_goods_profile` WHERE `id` LIKE '966%';
 DELETE FROM `goods_sku` WHERE `id` LIKE '965%';
 DELETE FROM `goods_spu` WHERE `id` LIKE '964%';
 DELETE FROM `goods_category` WHERE `id` LIKE '963%';
@@ -7463,53 +7365,21 @@ SELECT CONCAT('96500000000000000', LPAD(`seq`, 2, '0')),
        '[]'
 FROM `tmp_ship_seed`;
 
--- ===========================================================================
--- 6. SPU 船供资料
--- ===========================================================================
-INSERT INTO `ship_goods_profile`
-  (`id`, `spu_id`, `sale_scope`, `impa_code`, `issa_code`, `internal_item_code`, `barcode`, `name_en`,
-   `search_aliases`, `storage_type`, `shelf_life_days`, `ship_supply_remark`, `publish_completeness`,
-   `tenant_id`, `create_by`, `create_time`, `del_flag`)
-SELECT CONCAT('96600000000000000', LPAD(`seq`, 2, '0')),
-       CONCAT('96400000000000000', LPAD(`seq`, 2, '0')),
-       `scope`, `impa`, `issa`, `internal_code`, `barcode`, `name_en`, `aliases`,
-       `storage`, 365, '船供验收种子数据',
-       100,
-       '1590229800633634816', 'seed', NOW(), '0'
-FROM `tmp_ship_seed`;
-
--- ===========================================================================
--- 7. SKU 包装资料（采购单位 / 箱规 / MOQ / 步长）
--- ===========================================================================
-INSERT INTO `ship_sku_profile`
-  (`id`, `spu_id`, `sku_id`, `base_unit`, `purchase_unit`, `conversion_rate`, `package_spec`,
-   `package_spec_en`, `moq`, `step_qty`, `stock_warning_line`, `tenant_id`, `create_by`, `create_time`, `del_flag`)
-SELECT CONCAT('96700000000000000', LPAD(`seq`, 2, '0')),
-       CONCAT('96400000000000000', LPAD(seq, 2, '0')),
-       CONCAT('96500000000000000', LPAD(`seq`, 2, '0')),
-       '件', `purchase_unit`, 1.0000, `package_spec`,
-       NULL, `moq`, `step_qty`, 10,
-       '1590229800633634816', 'seed', NOW(), '0'
-FROM `tmp_ship_seed`;
-
 DROP TEMPORARY TABLE IF EXISTS `tmp_ship_seed`;
 
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ===========================================================================
--- 自检：应输出 上架船供商品=27、仅船供=1、下架=1、成员=3、可用靠港>=2
+-- 自检：应输出 上架商品=27、下架=1、成员=3、可用靠港>=2
 -- （27 条 > 单页 20 条，足以验证分页）
 -- ===========================================================================
-SELECT '上架船供商品(应 27)' AS item, COUNT(*) AS cnt
-FROM `ship_goods_profile` p JOIN `goods_spu` s ON s.`id` = p.`spu_id`
-WHERE p.`del_flag` = '0' AND p.`sale_scope` IN ('2', '3') AND s.`status` = '1' AND s.`del_flag` = '0'
-UNION ALL
-SELECT '仅船供(sale_scope=2，应 1)', COUNT(*)
-FROM `ship_goods_profile` WHERE `del_flag` = '0' AND `sale_scope` = '2'
+SELECT '上架商品(应 27)' AS item, COUNT(*) AS cnt
+FROM `goods_spu` s
+WHERE s.`del_flag` = '0' AND s.`id` LIKE '964%' AND s.`status` = '1'
 UNION ALL
 SELECT '下架商品(应 1)', COUNT(*)
-FROM `ship_goods_profile` p JOIN `goods_spu` s ON s.`id` = p.`spu_id`
-WHERE p.`del_flag` = '0' AND s.`status` <> '1'
+FROM `goods_spu` s
+WHERE s.`del_flag` = '0' AND s.`id` LIKE '964%' AND s.`status` <> '1'
 UNION ALL
 SELECT '船舶成员(应 3)', COUNT(*) FROM `vessel_member` WHERE `del_flag` = '0' AND `id` LIKE '962%'
 UNION ALL
@@ -7523,9 +7393,7 @@ WHERE `del_flag` = '0' AND `status` IN ('1', '2') AND `etd` > NOW();
 -- ===========================================================================
 -- 清理本脚本数据（需要时手工执行）
 -- ===========================================================================
--- DELETE FROM `ship_sku_profile`   WHERE `id` LIKE '967%';
--- DELETE FROM `ship_goods_profile` WHERE `id` LIKE '966%';
--- DELETE FROM `goods_sku`          WHERE `id` LIKE '965%';
+-- -- DELETE FROM `goods_sku`          WHERE `id` LIKE '965%';
 -- DELETE FROM `goods_spu`          WHERE `id` LIKE '964%';
 -- DELETE FROM `goods_category`     WHERE `id` LIKE '963%';
 -- DELETE FROM `vessel_member` WHERE `id` LIKE '962%';
@@ -12535,5 +12403,7790 @@ FROM DUAL
 WHERE NOT EXISTS (
     SELECT 1 FROM `xxl_job_info` WHERE `executor_handler` = 'seckillOrderExpireJobHandler'
 );
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 下线船供履约作业菜单
+-- Source: db/boot/96hide_fulfillment_menus.sql
+-- ============================================================================
+-- 悦航购下线船供履约作业菜单（Boot 单体模式）
+-- 目标库：aryn_boot
+-- 背景：实际履约作业不使用扫码拣货流程（司机线下取货），
+--       拣货波次、履约异常、港口配送看板三个页面上线后无实际使用；
+--       将其从「船供运营」菜单下隐藏，避免无效入口。
+-- 语义：仅逻辑删除 sys_menu 页面菜单（del_flag 0→1），
+--       页面下的按钮权限与 sys_tenant_menu / sys_role_menu 授权行全部保留，
+--       恢复显示只需把对应行 del_flag 改回 '0'。可重复执行，不物理删除任何数据。
+-- 注意：菜单在登录时快照，执行后需重新登录管理端才生效。
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+UPDATE `sys_menu`
+SET `del_flag` = '1', `update_time` = NOW(), `update_by` = 'system'
+WHERE `id` IN (
+  '2110000000000000002', -- 拣货波次 /fulfillment/wave
+  '2110000000000000003', -- 履约异常 /fulfillment/exception
+  '2110000000000000103'  -- 港口配送看板 /delivery/port-board
+)
+  AND `del_flag` = '0';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 回填订单明细商品图片
+-- Source: db/boot/97fix_order_item_pic.sql
+-- ============================================================================
+-- 回填订单明细商品图片（Boot 单体模式）
+-- 目标库：aryn_boot
+-- 背景：船供共享购物车按成员拆分下单的请求行不携带 picUrl，
+--       OrderPriceComputeService.generateOrderItems 曾用请求里的 null
+--       覆盖已兜底的 SPU 主图，导致 order_item.pic_url 入库即 NULL：
+--         · C 端订单列表/订单详情商品缩略图全部不显示；
+--         · 管理端「商城订单」订单信息列商品无图。
+--       代码侧已改为「请求快照 → SKU 图 → SPU 主图首张」三级兜底，
+--       本脚本负责回填存量明细，并归一化 spu_urls 的字面量 "[]" 脏数据。
+-- 特性：可重复执行，不执行 DROP/TRUNCATE，不覆盖已有非空业务数据。
+-- 执行：mysql -u root -p aryn_boot < 97fix_order_item_pic.sql
+
+USE `aryn_boot`;
+
+SET NAMES utf8mb4;
+
+-- ============ goods_spu：归一化字面量 "[]" 主图脏数据 ============
+-- JsonArrayStringTypeHandler 按逗号切分，"[]" 会被解析成单元素 ["[]"] 参与
+-- 前端渲染（当作图片地址加载失败）；置空即视为无主图，与空数组语义一致。
+
+UPDATE `goods_spu`
+SET `spu_urls` = '', `update_time` = NOW()
+WHERE `del_flag` = 0
+  AND `spu_urls` = '[]';
+
+-- ============ order_item：回填为空的商品图片 ============
+-- 兜底顺序与代码一致：SKU 图优先，其次 SPU 主图首张（spu_urls 为裸 URL 逗号串）；
+-- 明细已非空的不覆盖；商品行无论是否逻辑删除均可回填。
+
+UPDATE `order_item` oi
+JOIN `goods_sku` gs ON gs.`id` = oi.`sku_id`
+LEFT JOIN `goods_spu` sp ON sp.`id` = gs.`spu_id`
+SET oi.`pic_url` = CASE
+        WHEN gs.`pic_url` IS NOT NULL AND gs.`pic_url` <> '' THEN gs.`pic_url`
+        WHEN sp.`spu_urls` IS NOT NULL AND sp.`spu_urls` <> '' AND sp.`spu_urls` <> '[]'
+            THEN TRIM(SUBSTRING_INDEX(sp.`spu_urls`, ',', 1))
+        ELSE oi.`pic_url`
+    END
+WHERE oi.`del_flag` = 0
+  AND (oi.`pic_url` IS NULL OR oi.`pic_url` = '' OR oi.`pic_url` = '[]');
+
+-- 验证：SELECT COUNT(*) FROM order_item WHERE del_flag=0 AND (pic_url IS NULL OR pic_url='');
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 家电数码演示商品补齐 SKU
+-- Source: db/boot/98tech_digital_sku_backfill.sql
+-- ============================================================================
+-- 家电数码演示商品补齐 SKU 数据（Boot 单体 模式）
+--
+-- 目标库：aryn_boot
+-- 背景：75ship_and_tech_product_images.sql 插入的 14 个家电数码演示商品（1930 段 SPU）
+--       只写了 goods_spu，没有配套的 goods_sku。由此产生三类可见缺陷：
+--         1) C 端「共享购物车选货页」价格整列显示 ￥-：列表 SQL 取 sku.sales_price，
+--            LEFT JOIN 后 SKU 缺失 → NULL → 前端回落成 "-"；
+--         2) 点「加入共享车 / 加入购物车」传的 skuId 为空：列表接口的 sku_id 列
+--            为 NULL，加购落库成 sku_id 为空的脏明细；
+--         3) 商品详情/下单链路的 selectListByIds 以 goods_sku 为入口（status='0'），
+--            无 SKU 行的商品无法进入下单流程。
+-- 特性：可重复执行；仅按 1931/1932 前缀清理自身数据，不触碰存量业务数据；
+--       逻辑删除字段 del_flag，禁止物理删除存量。
+-- 依赖：先执行 75ship_and_tech_product_images.sql（本脚本按 SPU id 关联，不新建 SPU）。
+--
+-- 执行：mysql -u root -p aryn_boot < 98tech_digital_sku_backfill.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ---------- 0. 幂等清理（仅本脚本 1931/1932 前缀） ----------
+-- 注意：主键为 19 位（17 位前缀 + 2 位序号），LIKE 前缀必须写足 17 位，
+-- 少写会漏删序号 ≥10 的行，重跑时撞主键。
+DELETE FROM `goods_sku` WHERE `id` LIKE '19310000000000000%';
+
+-- ===========================================================================
+-- 1. 商品规格表（唯一数据源，两张业务表都由它派生，避免多处维护）
+--    moq/step_qty 取值 1：家电数码为整件采购，无批量步进约束
+--    价格/库存与 goods_spu 保持一致，避免列表价与结算价口径打架
+-- ===========================================================================
+DROP TEMPORARY TABLE IF EXISTS `tmp_tech_digital_sku`;
+CREATE TEMPORARY TABLE `tmp_tech_digital_sku` (
+  `seq` int NOT NULL,
+  `spu_id` varchar(32) NOT NULL,
+  `name` varchar(100) NOT NULL,
+  `price` decimal(10,2) NOT NULL,
+  `stock` int NOT NULL,
+  `weight` decimal(10,2) NOT NULL,
+  `purchase_unit` varchar(32) NOT NULL,
+  `package_spec` varchar(128) NOT NULL,
+  PRIMARY KEY (`seq`)
+);
+
+-- 重量为演示用估重（kg），仅用于运费试算，非实测值
+INSERT INTO `tmp_tech_digital_sku` (`seq`, `spu_id`, `name`, `price`, `stock`, `weight`, `purchase_unit`, `package_spec`) VALUES
+( 1, '1930000000000000001', '小米电视 65英寸 4K超清',   2999.00, 500, 18.00, '台', '1台/箱'),
+( 2, '1930000000000000002', '海信电视 55英寸 4K全面屏', 2199.00, 500, 13.50, '台', '1台/箱'),
+( 3, '1930000000000000003', '格力1.5匹变频壁挂空调',    2599.00, 500, 10.50, '台', '1台/箱'),
+( 4, '1930000000000000004', '美的大1匹冷暖挂机',        1899.00, 500,  9.50, '台', '1台/箱'),
+( 5, '1930000000000000005', '海尔十字对开门冰箱',       3999.00, 500, 78.00, '台', '1台/箱'),
+( 6, '1930000000000000006', '容声双门冰箱 252L',        1599.00, 500, 52.00, '台', '1台/箱'),
+( 7, '1930000000000000007', 'vivo X300 Pro 5G',       4299.00, 500,  0.22, '台', '1台/盒'),
+( 8, '1930000000000000008', '小米15 16GB+512GB',       3999.00, 500,  0.22, '台', '1台/盒'),
+( 9, '1930000000000000009', '智能手表 运动版',            899.00, 500,  0.06, '块', '1块/盒'),
+(10, '1930000000000000010', '小米小爱智能音箱',           249.00, 500,  0.55, '台', '1台/盒'),
+(11, '1930000000000000011', '大疆 Mini 4 Pro',          4788.00, 500,  0.25, '台', '1台/盒'),
+(12, '1930000000000000012', '大疆 Air 3 无人机',         6988.00, 500,  0.72, '台', '1台/盒'),
+(13, '1930000000000000013', '联想小新Pro16',            5499.00, 500,  1.90, '台', '1台/盒'),
+(14, '1930000000000000014', 'MacBook Air 13 M3',       8999.00, 500,  1.24, '台', '1台/盒');
+
+-- ===========================================================================
+-- 2. SKU 明细（价格/库存/重量与 SPU 对齐；status='0' 表示可售）
+--    goods_spu.status='1' 为上架，goods_sku.status='0' 为可售 —— 两者语义相反，勿混用
+-- ===========================================================================
+INSERT INTO `goods_sku`
+  (`id`, `spu_id`, `sales_price`, `original_price`, `cost_price`, `stock`, `weight`, `volume`,
+   `create_time`, `update_time`, `del_flag`, `version`, `tenant_id`, `create_by`, `update_by`,
+   `specs_json`, `status`, `specs_arr`, `pic_url`)
+SELECT CONCAT('19310000000000000', LPAD(t.`seq`, 2, '0')),
+       t.`spu_id`,
+       t.`price`,
+       COALESCE(sp.`original_price`, t.`price`),
+       COALESCE(sp.`cost_price`, t.`price`),
+       t.`stock`, t.`weight`, NULL,
+       NOW(), NULL, '0', 0, '1590229800633634816', 'seed', NULL,
+       NULL, '0', NULL, sp.`spu_urls`
+FROM `tmp_tech_digital_sku` t
+JOIN `goods_spu` sp ON sp.`id` = t.`spu_id` AND sp.`tenant_id` = '1590229800633634816';
+
+DROP TEMPORARY TABLE IF EXISTS `tmp_tech_digital_sku`;
+
+-- 验证：
+-- SELECT s.name, k.sales_price, k.stock FROM goods_spu s JOIN goods_sku k ON k.spu_id = s.id
+--   WHERE s.id LIKE '1930000000000000%' ORDER BY s.id;                        -- 期望 14 行非空价格
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 补给单模板按分类铺满在售商品与未填数量分类
+-- Source: db/boot/100replenish_catalog_template_incremental.sql
+-- ============================================================================
+-- 补给单导入模板改为「按分类铺满在售商品」+ 未填数量结果类型（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 特性：可重复执行；不 DROP/TRUNCATE；不覆盖已有业务数据；仅加列与建索引。
+--
+-- 背景（2026-09-28）：
+--   原「下载标准模板」只给一行示例（IMPA123456 / 鲜牛奶 950ml / …），
+--   客户要自己把商品名、规格、编码一条条敲进去，商品一多就很容易：
+--     · 编码抄错 → 整行未匹配；
+--     · 品名带了自己的叫法 → 命中不了；
+--     · 规格写法与商品资料不一致 → 被报「规格变更」。
+--   改为导出「按分类铺满在售商品」的采购目录后，客户只需要在「数量」列
+--   填要买的那几行，其余行留空即可。
+--
+--   这带来一个必须落库的语义变化：目录模板里**绝大多数行天然没填数量**。
+--   原先 shared_cart_import_row.result_type 只有
+--   OK/UNMATCHED/SPEC_CHANGED/OVER_STOCK/INVALID_QTY/OFF_SHELF 六种，
+--   而 INVALID_QTY 的语义包含「数量为空」——若沿用，客户上传 273 行的目录、
+--   只填了 5 行数量，报告会显示 268 行「数量异常」，
+--   真正的错误（编码抄错、库存不足）会被彻底淹没。
+--
+--   因此新增 NOT_FILLED（未填数量 = 本次不采购，不是错误）并单独计数：
+--   row.result_type      NOT_FILLED 与 INVALID_QTY 语义分离
+--   import.not_filled_rows 未填数量行数（不计入 invalid_rows）
+--
+-- 配套代码：ReplenishImportClassifier（判定优先级）、ReplenishImportExcel.catalogHead/catalogRow、
+--          ReplenishImportMatchServiceImpl#exportCatalog、SharedCartServiceImpl#previewImport
+--
+-- 执行：mysql -u root -p aryn_boot < 99replenish_catalog_template_incremental.sql
+
+USE `aryn_boot`;
+
+SET NAMES utf8mb4;
+
+-- ---------------------------------------------------------------------------
+-- 一、shared_cart_import 增加「未填数量」行数计数
+--    单独计数而不并入 invalid_rows：两者归因完全不同，
+--    混在一起后运营无法从报表看出「客户是没填，还是填错了」。
+-- ---------------------------------------------------------------------------
+SET @add_not_filled_rows = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `shared_cart_import` ADD COLUMN `not_filled_rows` int NOT NULL DEFAULT 0 COMMENT ''未填数量行数（客户本次不采购，非错误）'' AFTER `off_shelf_rows`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shared_cart_import' AND COLUMN_NAME = 'not_filled_rows'
+);
+PREPARE stmt FROM @add_not_filled_rows; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ---------------------------------------------------------------------------
+-- 二、result_type 注释补上 NOT_FILLED
+--    列本身是 varchar(24)，无需变更类型；只更新注释以免后人以为取值只有六种。
+-- ---------------------------------------------------------------------------
+SET @row_column_type = (
+  SELECT COLUMN_TYPE FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shared_cart_import_row' AND COLUMN_NAME = 'result_type'
+);
+SET @comment_sql = IF(
+  @row_column_type IS NULL,
+  'SELECT 1',
+  CONCAT('ALTER TABLE `shared_cart_import_row` MODIFY COLUMN `result_type` ', @row_column_type,
+         ' NOT NULL DEFAULT ''UNMATCHED'' COMMENT ''结果：OK匹配成功/UNMATCHED未匹配/SPEC_CHANGED规格变更/OVER_STOCK超库存/INVALID_QTY数量异常/OFF_SHELF已下架/NOT_FILLED未填数量（客户本次不采购，非错误）''')
+);
+PREPARE stmt FROM @comment_sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ---------------------------------------------------------------------------
+-- 三、目录导出按分类排序，补一个覆盖索引
+--    导出语句是「在售商品全表按类目排序」，缺索引时每次下载都会 filesort。
+--    仅加索引，不改动任何数据。
+-- ---------------------------------------------------------------------------
+SET @add_idx_catalog = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `goods_sku` ADD INDEX `idx_goods_sku_catalog` (`tenant_id`, `status`, `del_flag`, `spu_id`)',
+    'SELECT 1')
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'goods_sku' AND INDEX_NAME = 'idx_goods_sku_catalog'
+);
+PREPARE stmt FROM @add_idx_catalog; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ---------------------------------------------------------------------------
+-- 四、自检
+-- ---------------------------------------------------------------------------
+SELECT
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shared_cart_import'
+       AND COLUMN_NAME = 'not_filled_rows') AS added_not_filled_rows,
+  (SELECT COUNT(*) FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'goods_sku'
+       AND INDEX_NAME = 'idx_goods_sku_catalog') AS added_catalog_index,
+  (SELECT COUNT(*) FROM `shared_cart_import_row` WHERE `result_type` = 'NOT_FILLED') AS not_filled_rows_existing;
+
+-- 自检口径：added_not_filled_rows 应为 1；
+-- added_catalog_index 等于该索引的**列数**（information_schema.STATISTICS 每个索引列一行，
+-- 本索引 4 列故为 4），不是 0 即表示索引已建。
+-- not_filled_rows_existing 不要求为 0：历史报告里若已出现该类型，属正常存量，不做回填改写。
+-- 存量报告的 invalid_rows 不回填：无法区分历史「数量为空」是被判成异常还是真的填错，
+-- 改写历史统计会污染已有的运营报表。
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 货到付款支付方式与确认收款权限
+-- Source: db/boot/101cod_payment_incremental.sql
+-- ============================================================================
+-- ============================================================================
+-- 货到付款（COD）支付方式增量
+-- 背景：订单确认页对「商城配送 / 公司港口船舶内部配送」新增货到付款支付方式：
+--       C 端选择后无需在线支付即可生成待发货订单，客户收货后线下把货款转给公司，
+--       管理端通过「货到付款确认收款」按钮将订单标记为已收款（视同支付成功）。
+-- 内容：
+--   1) pay_type 字典补「货到付款」（dict_value=3），管理端与 C 端回显用；
+--   2) sys_menu 补按钮权限 order:orderinfo:payconfirm（商城订单确认收款），
+--      并向已拥有同父订单按钮授权的角色与已开通同父菜单的租户推导补授。
+-- 幂等：固定 ID + INSERT IGNORE / NOT EXISTS，可重复执行；
+--       仅新增行，不修改、不删除任何存量数据。
+-- 注意：菜单与字典在登录时快照，执行后管理端需重新登录才生效。
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+-- 1) pay_type 字典补「货到付款」
+INSERT INTO `sys_dict_value`
+	(`id`, `dict_id`, `dict_label`, `dict_value`, `dict_type`, `status`, `remarks`, `sort`, `del_flag`,
+	 `create_time`, `update_time`, `create_by`, `update_by`, `show_class`)
+SELECT '2110000000000000301', d.`id`, '货到付款', '3', 'pay_type', '0',
+       '货到付款（商城配送/内部配送收货后线下收款）', 3, '0', NOW(), NOW(), 'system', 'system', 'warning'
+FROM `sys_dict` d
+WHERE d.`type` = 'pay_type' AND d.`del_flag` = '0'
+  AND NOT EXISTS (SELECT 1 FROM `sys_dict_value` v
+	WHERE v.`dict_type` = 'pay_type' AND v.`dict_value` = '3' AND v.`del_flag` = '0');
+
+-- 2) 商城订单下补「货到付款确认收款」按钮权限
+INSERT IGNORE INTO `sys_menu`
+	(`id`, `name`, `permission`, `path`, `redirect`, `parent_id`, `icon`, `component`, `sort`, `type`,
+	 `create_time`, `update_time`, `outer_status`, `del_flag`, `application_key`, `create_by`, `update_by`)
+VALUES
+	('2110000000000000203', '货到付款确认收款', 'order:orderinfo:payconfirm', NULL, NULL,
+	 '1531528760525074434', '', NULL, 9, '1', NOW(), NOW(), '0', '0', 'app_base', 'system', 'system');
+
+-- 向已拥有同父菜单任一按钮授权的角色补授新按钮，主键 MD5(role_id:menu:menu_id) 保证幂等
+INSERT IGNORE INTO `sys_role_menu` (`id`, `role_id`, `menu_id`, `create_time`, `tenant_id`)
+SELECT MD5(CONCAT(gr.`role_id`, ':menu:', m.`id`)), gr.`role_id`, m.`id`, NOW(), gr.`tenant_id`
+FROM `sys_menu` m
+JOIN `sys_menu` peer ON peer.`parent_id` = m.`parent_id` AND peer.`del_flag` = '0'
+JOIN `sys_role_menu` gr ON gr.`menu_id` = peer.`id`
+WHERE m.`id` = '2110000000000000203' AND m.`del_flag` = '0';
+
+-- 向已开通同父菜单的租户补齐租户菜单记录
+INSERT IGNORE INTO `sys_tenant_menu` (`id`, `tenant_id`, `menu_id`, `create_time`, `create_by`)
+SELECT MD5(CONCAT(gt.`tenant_id`, ':menu:', m.`id`)), gt.`tenant_id`, m.`id`, NOW(), 'system'
+FROM `sys_menu` m
+JOIN `sys_menu` peer ON peer.`parent_id` = m.`parent_id` AND peer.`del_flag` = '0'
+JOIN `sys_tenant_menu` gt ON gt.`menu_id` = peer.`id`
+WHERE m.`id` = '2110000000000000203' AND m.`del_flag` = '0';
+
+-- 执行结果自检：应返回 1 行菜单、1 行字典值及对应的角色/租户授权数
+SELECT m.`id`, m.`permission`,
+       (SELECT COUNT(*) FROM `sys_role_menu` rm WHERE rm.`menu_id` = m.`id`) AS role_grants,
+       (SELECT COUNT(*) FROM `sys_tenant_menu` tm WHERE tm.`menu_id` = m.`id`) AS tenant_grants
+FROM `sys_menu` m
+WHERE m.`id` = '2110000000000000203';
+
+SELECT v.`dict_label`, v.`dict_value`
+FROM `sys_dict_value` v
+WHERE v.`dict_type` = 'pay_type' AND v.`dict_value` = '3' AND v.`del_flag` = '0';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 分类页与个人中心页精品装修种子
+-- Source: db/boot/102page_design_category_usercenter_decoration.sql
+-- ============================================================================
+-- ============================================================================
+-- 分类页与个人中心页精品风格装修种子（Boot 单体模式）
+--
+-- 背景（2026-09-30）：
+--   装修功能已支持分类页（pageType=3）与个人中心页（pageType=4）的嵌入式装修，
+--   但默认租户一直没有配置过这两页，C 端展示的是纯静态兜底布局。
+--   本脚本按主流精品商城（小象超市 / 京东居家 / 天猫甄选）的楼层化套路，
+--   为这两页各铺一版初始装修并直接发布，让 C 端开箱即得精品观感：
+--
+--   · 分类页：活动轮播（2.19:1 品牌图）→ 热销榜（销量 Top5 列表）→
+--     掌柜推荐（横滑商品条）。三段都收进 #f7f8fa 圆角卡片，与右栏白底形成层次。
+--   · 个人中心页：会员活动大圆角 banner（新人专享图）→ 服务公告白卡，
+--     边距 10px / 圆角 12px 与页面 uc-card 卡片语言完全对齐。
+--
+-- 设计约定：
+--   1. 只用白名单内组件（分类页 18 种 / 个人中心页 13 种，见
+--      PageDesignComponentTypes.allowedTypesForPageType），发布校验可直接通过。
+--   2. 商品楼层全部走数据驱动（ranking / rule 数据源），环境里没有
+--      优惠券与秒杀/拼团/折扣活动，故不放活动类组件；数据为空时区块
+--      自动隐藏（emptyStrategy=hide），不会出现空态残页。
+--   3. 图片复用首页装修已上传的活动图（绝对地址，与首页装修同一存储口径）；
+--      换环境部署时图片需随租户文件重新上传替换。
+--   4. 区块/组件长度单位一律 px（装修 Schema v3 口径，1rpx=0.5px 换算）。
+--
+-- 幂等与安全（可重复执行）：
+--   · 仅当该租户**尚无已发布的该类型装修**时插入，商户已自行装修则整脚本跳过；
+--   · 固定 ID 段 2110000000000000701-704，仅新增行，不修改、不删除任何存量数据；
+--   · C 端读取的是 published_version_id 指向的版本快照，两表同步插入。
+--
+-- 缓存：新增 versionId 不命中旧缓存键（page_design_cache:{tenant}:{pageId}:{versionId}），
+--       无需清缓存；如需立即生效可清理 redis db1 的 page_design_cache:*。
+--
+-- 执行：mysql -u root -p <db> < 102page_design_category_usercenter_decoration.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+-- ---------------------------------------------------------------------------
+-- 1. 分类页装修（pageType=3）：该租户尚无已发布分类页装修时才插入
+-- ---------------------------------------------------------------------------
+INSERT INTO `page_design`
+    (`id`, `page_name`, `page_content`, `draft_revision`, `schema_version`,
+     `published_version_id`, `gray_version_id`, `published_status`, `published_at`,
+     `legacy_content_backup`, `page_type`, `status`, `home_status`,
+     `create_time`, `del_flag`, `tenant_id`, `create_by`, `update_by`)
+SELECT '2110000000000000701', '分类页装修', '{
+  "schemaVersion": 3,
+  "page": {
+    "backgroundColor": "#ffffff",
+    "backgroundImage": "",
+    "enablePullDownRefresh": false,
+    "navigation": {
+      "backgroundColor": "#ffffff",
+      "textColor": "#000000",
+      "title": "",
+      "visible": false
+    },
+    "share": {
+      "description": "",
+      "imageUrl": "",
+      "title": ""
+    }
+  },
+  "themeRef": "",
+  "sections": [
+    {
+      "id": "section-cat-banner",
+      "name": "活动轮播",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 6,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "cat-banner-1",
+          "type": "swiper-banner",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 12,
+              "styleRightMargin": 12,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            },
+            "height": 120,
+            "interval": 5000,
+            "imageList": [
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/b557d7db-1d09-4f4a-b5fa-03ba07fcd5d7.jpg"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/92268911-4c17-4443-a5bd-a90c6f4f674a.jpg"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/199329f6-7f5c-48b8-8fef-9b403be68b25.jpg"
+              }
+            ],
+            "borderRadius": 12,
+            "indicatorDots": true,
+            "indicatorColor": "rgba(255, 255, 255, 0.4)",
+            "indicatorActiveColor": "#ffffff"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-cat-ranking",
+      "name": "热销榜单",
+      "type": "default",
+      "style": {
+        "backgroundColor": "#f7f8fa",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 8,
+        "marginY": 8,
+        "paddingX": 12,
+        "paddingY": 12,
+        "radius": 12,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "cat-ranking-1",
+          "type": "goods-ranking",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "#f7f8fa",
+              "bgEndColor": "#f7f8fa",
+              "bgPicUrl": ""
+            },
+            "title": "热销榜",
+            "count": 5,
+            "showRankNumber": true,
+            "showOriginalPrice": true,
+            "dataSource": {
+              "mode": "ranking",
+              "metric": "sales"
+            },
+            "emptyStrategy": "hide",
+            "invalidStrategy": "hide"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-cat-scroll",
+      "name": "掌柜推荐",
+      "type": "default",
+      "style": {
+        "backgroundColor": "#f7f8fa",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 8,
+        "marginY": 8,
+        "paddingX": 0,
+        "paddingY": 10,
+        "radius": 12,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "cat-scroll-1",
+          "type": "goods-scroll",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "#f7f8fa",
+              "bgEndColor": "#f7f8fa",
+              "bgPicUrl": ""
+            },
+            "title": "掌柜推荐",
+            "subtitle": "热卖好货",
+            "displayMode": "scroll",
+            "perView": 3,
+            "count": 8,
+            "showSales": false,
+            "showOriginalPrice": true,
+            "dataSource": {
+              "mode": "rule",
+              "sort": "sales"
+            },
+            "emptyStrategy": "hide",
+            "invalidStrategy": "hide"
+          }
+        }
+      ]
+    }
+  ]
+}',
+       0, 3,
+       '2110000000000000702', NULL, '1', NOW(),
+       NULL, '3', '0', '0',
+       NOW(), '0', '1590229800633634816', 'system', 'system'
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM `page_design`
+    WHERE `page_type` = '3' AND `published_status` = '1' AND `del_flag` = '0'
+      AND `tenant_id` = '1590229800633634816'
+);
+
+INSERT INTO `page_design_version`
+    (`id`, `page_design_id`, `version_no`, `schema_version`, `page_name`, `page_type`,
+     `page_content`, `publish_remark`, `publish_by`, `published_at`,
+     `create_by`, `create_time`, `del_flag`, `tenant_id`)
+SELECT '2110000000000000702', '2110000000000000701', 1, 3, '分类页装修', '3',
+       '{
+  "schemaVersion": 3,
+  "page": {
+    "backgroundColor": "#ffffff",
+    "backgroundImage": "",
+    "enablePullDownRefresh": false,
+    "navigation": {
+      "backgroundColor": "#ffffff",
+      "textColor": "#000000",
+      "title": "",
+      "visible": false
+    },
+    "share": {
+      "description": "",
+      "imageUrl": "",
+      "title": ""
+    }
+  },
+  "themeRef": "",
+  "sections": [
+    {
+      "id": "section-cat-banner",
+      "name": "活动轮播",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 6,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "cat-banner-1",
+          "type": "swiper-banner",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 12,
+              "styleRightMargin": 12,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            },
+            "height": 120,
+            "interval": 5000,
+            "imageList": [
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/b557d7db-1d09-4f4a-b5fa-03ba07fcd5d7.jpg"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/92268911-4c17-4443-a5bd-a90c6f4f674a.jpg"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/199329f6-7f5c-48b8-8fef-9b403be68b25.jpg"
+              }
+            ],
+            "borderRadius": 12,
+            "indicatorDots": true,
+            "indicatorColor": "rgba(255, 255, 255, 0.4)",
+            "indicatorActiveColor": "#ffffff"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-cat-ranking",
+      "name": "热销榜单",
+      "type": "default",
+      "style": {
+        "backgroundColor": "#f7f8fa",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 8,
+        "marginY": 8,
+        "paddingX": 12,
+        "paddingY": 12,
+        "radius": 12,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "cat-ranking-1",
+          "type": "goods-ranking",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "#f7f8fa",
+              "bgEndColor": "#f7f8fa",
+              "bgPicUrl": ""
+            },
+            "title": "热销榜",
+            "count": 5,
+            "showRankNumber": true,
+            "showOriginalPrice": true,
+            "dataSource": {
+              "mode": "ranking",
+              "metric": "sales"
+            },
+            "emptyStrategy": "hide",
+            "invalidStrategy": "hide"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-cat-scroll",
+      "name": "掌柜推荐",
+      "type": "default",
+      "style": {
+        "backgroundColor": "#f7f8fa",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 8,
+        "marginY": 8,
+        "paddingX": 0,
+        "paddingY": 10,
+        "radius": 12,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "cat-scroll-1",
+          "type": "goods-scroll",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "#f7f8fa",
+              "bgEndColor": "#f7f8fa",
+              "bgPicUrl": ""
+            },
+            "title": "掌柜推荐",
+            "subtitle": "热卖好货",
+            "displayMode": "scroll",
+            "perView": 3,
+            "count": 8,
+            "showSales": false,
+            "showOriginalPrice": true,
+            "dataSource": {
+              "mode": "rule",
+              "sort": "sales"
+            },
+            "emptyStrategy": "hide",
+            "invalidStrategy": "hide"
+          }
+        }
+      ]
+    }
+  ]
+}',
+       '精品风格初始装修（种子）', 'system', NOW(),
+       'system', NOW(), '0', '1590229800633634816'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `page_design_version` WHERE `id` = '2110000000000000702')
+  AND NOT EXISTS (
+    SELECT 1 FROM `page_design`
+    WHERE `page_type` = '3' AND `published_status` = '1' AND `del_flag` = '0'
+      AND `tenant_id` = '1590229800633634816' AND `id` <> '2110000000000000701'
+  );
+
+-- ---------------------------------------------------------------------------
+-- 2. 个人中心页装修（pageType=4）：该租户尚无已发布个人中心页装修时才插入
+-- ---------------------------------------------------------------------------
+INSERT INTO `page_design`
+    (`id`, `page_name`, `page_content`, `draft_revision`, `schema_version`,
+     `published_version_id`, `gray_version_id`, `published_status`, `published_at`,
+     `legacy_content_backup`, `page_type`, `status`, `home_status`,
+     `create_time`, `del_flag`, `tenant_id`, `create_by`, `update_by`)
+SELECT '2110000000000000703', '个人中心页装修', '{
+  "schemaVersion": 3,
+  "page": {
+    "backgroundColor": "#F8F8F8",
+    "backgroundImage": "",
+    "enablePullDownRefresh": false,
+    "navigation": {
+      "backgroundColor": "#ffffff",
+      "textColor": "#000000",
+      "title": "",
+      "visible": false
+    },
+    "share": {
+      "description": "",
+      "imageUrl": "",
+      "title": ""
+    }
+  },
+  "themeRef": "",
+  "sections": [
+    {
+      "id": "section-uc-banner",
+      "name": "会员活动",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 10,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "uc-banner-1",
+          "type": "image-ad",
+          "version": 1,
+          "props": {
+            "type": "1",
+            "height": 162,
+            "imgRadius": 12,
+            "imageList": [
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/bd253fac-2a13-4ff2-a611-1beb95bca09e.jpg"
+              }
+            ],
+            "interval": 5,
+            "indicatorDots": false,
+            "swiperType": "1",
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 10,
+              "styleRightMargin": 10,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            },
+            "commonImageStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-uc-notice",
+      "name": "服务公告",
+      "type": "default",
+      "style": {
+        "backgroundColor": "#ffffff",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 10,
+        "marginY": 0,
+        "paddingX": 12,
+        "paddingY": 6,
+        "radius": 12,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "uc-notice-1",
+          "type": "notice",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "#ffffff",
+              "bgEndColor": "#ffffff",
+              "bgPicUrl": ""
+            },
+            "contentList": [
+              {
+                "content": "精选全球好物 · 每日新鲜直达",
+                "type": 0,
+                "url": ""
+              }
+            ],
+            "color": "#4e5969",
+            "direction": "horizontal",
+            "speed": 40,
+            "titleType": "2",
+            "titleText": "公告",
+            "titleColor": "#FF2237",
+            "titleSize": 13,
+            "titleStyle": "1",
+            "titleUrl": ""
+          }
+        }
+      ]
+    }
+  ]
+}',
+       0, 3,
+       '2110000000000000704', NULL, '1', NOW(),
+       NULL, '4', '0', '0',
+       NOW(), '0', '1590229800633634816', 'system', 'system'
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM `page_design`
+    WHERE `page_type` = '4' AND `published_status` = '1' AND `del_flag` = '0'
+      AND `tenant_id` = '1590229800633634816'
+);
+
+INSERT INTO `page_design_version`
+    (`id`, `page_design_id`, `version_no`, `schema_version`, `page_name`, `page_type`,
+     `page_content`, `publish_remark`, `publish_by`, `published_at`,
+     `create_by`, `create_time`, `del_flag`, `tenant_id`)
+SELECT '2110000000000000704', '2110000000000000703', 1, 3, '个人中心页装修', '4',
+       '{
+  "schemaVersion": 3,
+  "page": {
+    "backgroundColor": "#F8F8F8",
+    "backgroundImage": "",
+    "enablePullDownRefresh": false,
+    "navigation": {
+      "backgroundColor": "#ffffff",
+      "textColor": "#000000",
+      "title": "",
+      "visible": false
+    },
+    "share": {
+      "description": "",
+      "imageUrl": "",
+      "title": ""
+    }
+  },
+  "themeRef": "",
+  "sections": [
+    {
+      "id": "section-uc-banner",
+      "name": "会员活动",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 10,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "uc-banner-1",
+          "type": "image-ad",
+          "version": 1,
+          "props": {
+            "type": "1",
+            "height": 162,
+            "imgRadius": 12,
+            "imageList": [
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/bd253fac-2a13-4ff2-a611-1beb95bca09e.jpg"
+              }
+            ],
+            "interval": 5,
+            "indicatorDots": false,
+            "swiperType": "1",
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 10,
+              "styleRightMargin": 10,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            },
+            "commonImageStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-uc-notice",
+      "name": "服务公告",
+      "type": "default",
+      "style": {
+        "backgroundColor": "#ffffff",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 10,
+        "marginY": 0,
+        "paddingX": 12,
+        "paddingY": 6,
+        "radius": 12,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "uc-notice-1",
+          "type": "notice",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "#ffffff",
+              "bgEndColor": "#ffffff",
+              "bgPicUrl": ""
+            },
+            "contentList": [
+              {
+                "content": "精选全球好物 · 每日新鲜直达",
+                "type": 0,
+                "url": ""
+              }
+            ],
+            "color": "#4e5969",
+            "direction": "horizontal",
+            "speed": 40,
+            "titleType": "2",
+            "titleText": "公告",
+            "titleColor": "#FF2237",
+            "titleSize": 13,
+            "titleStyle": "1",
+            "titleUrl": ""
+          }
+        }
+      ]
+    }
+  ]
+}',
+       '精品风格初始装修（种子）', 'system', NOW(),
+       'system', NOW(), '0', '1590229800633634816'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `page_design_version` WHERE `id` = '2110000000000000704')
+  AND NOT EXISTS (
+    SELECT 1 FROM `page_design`
+    WHERE `page_type` = '4' AND `published_status` = '1' AND `del_flag` = '0'
+      AND `tenant_id` = '1590229800633634816' AND `id` <> '2110000000000000703'
+  );
+
+-- ---------------------------------------------------------------------------
+-- 3. 自检：期望 category_seeded / usercenter_seeded 均为 1
+-- ---------------------------------------------------------------------------
+SELECT 'category_seeded' AS `check_name`, COUNT(*) AS `value`, 1 AS `expected`
+FROM `page_design`
+WHERE `id` = '2110000000000000701' AND `published_status` = '1' AND `del_flag` = '0'
+UNION ALL
+SELECT 'usercenter_seeded', COUNT(*), 1
+FROM `page_design`
+WHERE `id` = '2110000000000000703' AND `published_status` = '1' AND `del_flag` = '0';
+
+-- 全量脚本以本脚本收尾（build-full-sql sections 末位），按约定恢复外键检查
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 模板市场预置全套装修模板
+-- Source: db/boot/103page_design_template_market_seed.sql
+-- ============================================================================
+-- ============================================================================
+-- 模板市场预置全套装修模板（Boot 单体模式）
+--
+-- 背景（2026-09-30）：
+--   模板市场（商城装修 → 模板市场）缺可用的成套模板。本脚本按主流商城风格
+--   预置 3 套「全套」模板（每套含 首页/分类页/个人中心页 三张，page_type 分别
+--   为 1/3/4，设计器模板弹窗与模板市场均按页面类型匹配展示），共 9 条：
+--
+--   · 生鲜到家（小象超市风）：蓝品牌页头 + 补给单 + 金刚区 + 商品楼层；
+--     首页直接继承线上已发布首页的组件配置（去除券区）。
+--   · 品质甄选（会员店风）：暖米色调 + 买手推荐榜 + 甄选好物。
+--   · 大促狂欢（促销风）：红品牌页头 + 秒杀/拼团/折扣满配（无活动数据时
+--     楼层自动隐藏，商户建活动后自动亮起）+ 疯抢排行。
+--
+--   每条模板内容为完整 v3 装修文档（page + sections），「使用」即整文档
+--   替换设计器草稿；发布时走服务端校验（组件白名单/条件/单例均已自检通过）。
+--
+-- 幂等与安全（可重复执行）：
+--   · 固定 ID 段 2110000000000000711-719，仅按主键判缺插入，
+--     不修改、不删除任何存量模板（含商户下载的副本）；
+--   · system_flag='1' 系统模板：租户不可改删，market_status='1' 已上架（跨租户可见）；
+--   · industry_tag 统一 电商零售（模板市场筛选项为静态枚举）。
+--
+-- 执行：mysql -u root -p <db> < 103page_design_template_market_seed.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+-- 生鲜到家 · 商城首页（生鲜到家套 / pageType=1）
+INSERT INTO `page_design_template`
+    (`id`, `template_name`, `template_type`, `page_type`, `template_content`,
+     `schema_version`, `system_flag`, `industry_tag`, `market_status`,
+     `download_count`, `status`, `sort`,
+     `create_time`, `del_flag`, `tenant_id`, `create_by`, `update_by`)
+SELECT '2110000000000000711', '生鲜到家 · 商城首页', '0', '1', '{
+  "page": {
+    "backgroundColor": "rgb(255, 255, 255)",
+    "backgroundImage": "",
+    "enablePullDownRefresh": true,
+    "navigation": {
+      "backgroundColor": "#1543e8",
+      "textColor": "#ffffff",
+      "title": "",
+      "visible": true
+    },
+    "share": {
+      "description": "",
+      "imageUrl": "",
+      "title": ""
+    }
+  },
+  "schemaVersion": 3,
+  "sections": [
+    {
+      "components": [
+        {
+          "id": "m_6f3hp-ZGwXpvr5wZXof",
+          "props": {
+            "style": "1",
+            "height": 36,
+            "bgColor": "rgb(242, 242, 242)",
+            "hotWords": "",
+            "showScan": true,
+            "textAlign": "left",
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "rgba(255, 255, 255, 1)",
+              "styleLbRadius": 0,
+              "styleLtRadius": 0,
+              "styleRbRadius": 0,
+              "styleRtRadius": 0,
+              "styleTopMargin": 0,
+              "styleLeftMargin": 0,
+              "styleTopPadding": 0,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 0,
+              "styleRightMargin": 0,
+              "styleBottomMargin": 0,
+              "styleRightPadding": 0,
+              "styleBottomPadding": 0
+            },
+            "placeholder": "搜索商品",
+            "borderRadius": 16,
+            "backgroundColor": "#ffffff"
+          },
+          "type": "search-bar",
+          "version": 1
+        },
+        {
+          "id": "2IvecuLH_oqxGPa1ssChb",
+          "props": {
+            "height": 160,
+            "interval": 5000,
+            "imageList": [
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/92268911-4c17-4443-a5bd-a90c6f4f674a.jpg"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/199329f6-7f5c-48b8-8fef-9b403be68b25.jpg"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/b557d7db-1d09-4f4a-b5fa-03ba07fcd5d7.jpg"
+              }
+            ],
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "rgba(255, 255, 255, 1)",
+              "styleLbRadius": 10,
+              "styleLtRadius": 10,
+              "styleRbRadius": 10,
+              "styleRtRadius": 10,
+              "styleTopMargin": 10,
+              "styleLeftMargin": 0,
+              "styleTopPadding": 0,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 0,
+              "styleRightMargin": 0,
+              "styleBottomMargin": 0,
+              "styleRightPadding": 0,
+              "styleBottomPadding": 0
+            },
+            "borderRadius": 9,
+            "indicatorDots": true,
+            "indicatorColor": "rgba(255, 255, 255, 0.3)",
+            "indicatorActiveColor": "rgb(51, 159, 248)"
+          },
+          "type": "swiper-banner",
+          "version": 1
+        }
+      ],
+      "id": "section-brand",
+      "name": "品牌区",
+      "style": {
+        "backgroundColor": "rgb(41, 130, 238)",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 12,
+        "radius": 0,
+        "sticky": false
+      },
+      "type": "default"
+    },
+    {
+      "components": [
+        {
+          "id": "rp-2102572931049308162",
+          "props": {
+            "count": 1,
+            "title": "今日补给单",
+            "dataSource": {
+              "mode": "current-tenant"
+            },
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "#ffffff",
+              "styleLbRadius": 16,
+              "styleLtRadius": 16,
+              "styleRbRadius": 16,
+              "styleRtRadius": 16,
+              "styleTopMargin": 12,
+              "styleLeftMargin": 12,
+              "styleTopPadding": 12,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 12,
+              "styleRightMargin": 12,
+              "styleBottomMargin": 12,
+              "styleRightPadding": 12,
+              "styleBottomPadding": 12
+            },
+            "showPreview": true,
+            "showBatchAdd": true,
+            "emptyStrategy": "placeholder",
+            "invalidStrategy": "hide"
+          },
+          "type": "replenish-card",
+          "version": 1
+        },
+        {
+          "id": "pzY0iPxxIpZYtl74o-Q1G",
+          "props": {
+            "type": "3",
+            "imgSize": 44,
+            "navList": [
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/4da110f9-7661-50f0-af81-e9197545f933.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {
+                    "categoryFirstId": "9510000000000000002",
+                    "categorySecondId": ""
+                  },
+                  "targetId": "9510000000000000002"
+                },
+                "title": "水果"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/811e3097-3297-517c-8cd3-a68abb886b5d.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {
+                    "categoryFirstId": "9510000000000000001",
+                    "categorySecondId": ""
+                  },
+                  "targetId": "9510000000000000001"
+                },
+                "title": "蔬菜"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/44541e06-523e-585f-b2a7-88388cdc8c75.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {
+                    "categoryFirstId": "9510000000000000003",
+                    "categorySecondId": ""
+                  },
+                  "targetId": "9510000000000000003"
+                },
+                "title": "肉禽蛋"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/06303430-7745-5104-b9a5-072ae1042f3d.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000004"
+                },
+                "title": "海鲜水产"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/63ab6b55-8bfb-56ab-b633-f49b722f3082.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000005"
+                },
+                "title": "乳品烘焙"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/713e6001-1493-540e-9f36-bc061fd89330.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000006"
+                },
+                "title": "熟食预制菜"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/bc1c972d-f06e-50aa-b4b5-994719bef3ed.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9520000000000000028"
+                },
+                "title": "面点主食"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/d912a375-2d39-5aaa-84aa-e0f87e2684bd.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000009"
+                },
+                "title": "酒水饮料"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/32b003a3-ea83-5a53-a4e3-5e475c2c9c9a.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000008"
+                },
+                "title": "休闲零食"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/4358fecb-11ac-528f-8983-ead8e683bb54.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000007"
+                },
+                "title": "米面粮油"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/2d228933-e1b5-5195-8510-ccaed5322574.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000012"
+                },
+                "title": "鲜花绿植"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/d80b85c1-4299-5021-981f-36336b8f9ccf.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9520000000000000025"
+                },
+                "title": "快手菜"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/bbb62486-ff6e-52a3-8383-04436bd085e2.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000011"
+                },
+                "title": "日用百货"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/a2faf3a8-af8a-5d90-872a-275f531ef415.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000010"
+                },
+                "title": "个护清洁"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/006b72af-28ce-5be6-a160-3871fb55f2cd.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9520000000000000006"
+                },
+                "title": "豆制品"
+              }
+            ],
+            "showNum": 5,
+            "pageRows": 3,
+            "fontColor": "#303133",
+            "imgRadius": 22,
+            "scrollShow": false,
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "rgba(255, 255, 255, 1)",
+              "styleLbRadius": 16,
+              "styleLtRadius": 16,
+              "styleRbRadius": 16,
+              "styleRtRadius": 16,
+              "styleTopMargin": 12,
+              "styleLeftMargin": 12,
+              "styleTopPadding": 0,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 12,
+              "styleRightMargin": 12,
+              "styleBottomMargin": 12,
+              "styleRightPadding": 12,
+              "styleBottomPadding": 0
+            },
+            "displayMode": "pager",
+            "indicatorDots": true,
+            "indicatorColor": "rgba(0, 0, 0, 0.2)",
+            "indicatorActiveColor": "#07c160"
+          },
+          "type": "tab-nav",
+          "version": 1
+        },
+        {
+          "id": "cr_cFyjWqZxZnmFyouwu1",
+          "props": {
+            "color": "rgba(100, 101, 102, 1)",
+            "speed": 50,
+            "bgColor": "#fff8e6",
+            "content": "欢迎光临",
+            "direction": "horizontal",
+            "iconColor": "#ff9900",
+            "textColor": "#5a3c14",
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "rgba(255, 255, 255, 1)",
+              "styleLbRadius": 16,
+              "styleLtRadius": 16,
+              "styleRbRadius": 16,
+              "styleRtRadius": 16,
+              "styleTopMargin": 12,
+              "styleLeftMargin": 12,
+              "styleTopPadding": 0,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 0,
+              "styleRightMargin": 12,
+              "styleBottomMargin": 12,
+              "styleRightPadding": 0,
+              "styleBottomPadding": 0
+            },
+            "contentList": [
+              {
+                "content": "欢迎光临悦航购，生鲜好货每日直送",
+                "type": 0,
+                "url": ""
+              }
+            ]
+          },
+          "type": "notice",
+          "version": 1
+        },
+        {
+          "id": "E_goodsScroll9wuzhbgu",
+          "props": {
+            "count": 8,
+            "title": "新人专享",
+            "perView": 3,
+            "interval": 3000,
+            "subtitle": "快手好菜 美味即享",
+            "showSales": false,
+            "dataSource": {
+              "mode": "rule",
+              "sort": "sales"
+            },
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "rgba(255, 255, 255, 1)",
+              "styleLbRadius": 16,
+              "styleLtRadius": 16,
+              "styleRbRadius": 16,
+              "styleRtRadius": 16,
+              "styleTopMargin": 12,
+              "styleLeftMargin": 12,
+              "styleTopPadding": 0,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 0,
+              "styleRightMargin": 12,
+              "styleBottomMargin": 12,
+              "styleRightPadding": 0,
+              "styleBottomPadding": 0
+            },
+            "displayMode": "pager",
+            "emptyStrategy": "placeholder",
+            "invalidStrategy": "hide"
+          },
+          "type": "goods-scroll",
+          "version": 1
+        },
+        {
+          "id": "4czdOqQ79KKRvYSJi9ooU",
+          "props": {
+            "count": 1,
+            "title": "限时秒杀",
+            "dataSource": {
+              "mode": "automatic"
+            },
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "#ffffff",
+              "styleLbRadius": 16,
+              "styleLtRadius": 16,
+              "styleRbRadius": 16,
+              "styleRtRadius": 16,
+              "styleTopMargin": 12,
+              "styleLeftMargin": 12,
+              "styleTopPadding": 12,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 12,
+              "styleRightMargin": 12,
+              "styleBottomMargin": 12,
+              "styleRightPadding": 12,
+              "styleBottomPadding": 12
+            },
+            "showProgress": true,
+            "emptyStrategy": "hide",
+            "showCountdown": true,
+            "invalidStrategy": "hide"
+          },
+          "type": "seckill",
+          "version": 1
+        },
+        {
+          "id": "SFAHq9zRfszM5Gxe-EY02",
+          "props": {
+            "count": 6,
+            "title": "热卖商品",
+            "columns": 2,
+            "showSales": true,
+            "dataSource": {
+              "mode": "rule",
+              "sort": "sales"
+            },
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "#ffffff",
+              "styleLbRadius": 16,
+              "styleLtRadius": 16,
+              "styleRbRadius": 16,
+              "styleRtRadius": 16,
+              "styleTopMargin": 12,
+              "styleLeftMargin": 12,
+              "styleTopPadding": 12,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 12,
+              "styleRightMargin": 12,
+              "styleBottomMargin": 12,
+              "styleRightPadding": 12,
+              "styleBottomPadding": 12
+            },
+            "emptyStrategy": "placeholder",
+            "invalidStrategy": "hide"
+          },
+          "type": "goods-group",
+          "version": 1
+        }
+      ],
+      "id": "section-content",
+      "name": "内容区",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "type": "default"
+    }
+  ],
+  "themeRef": ""
+}',
+       3, '1', '电商零售', '1',
+       0, '0', 11,
+       NOW(), '0', '1590229800633634816', 'system', 'system'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `page_design_template` WHERE `id` = '2110000000000000711');
+
+-- 生鲜到家 · 分类页（生鲜到家套 / pageType=3）
+INSERT INTO `page_design_template`
+    (`id`, `template_name`, `template_type`, `page_type`, `template_content`,
+     `schema_version`, `system_flag`, `industry_tag`, `market_status`,
+     `download_count`, `status`, `sort`,
+     `create_time`, `del_flag`, `tenant_id`, `create_by`, `update_by`)
+SELECT '2110000000000000712', '生鲜到家 · 分类页', '0', '3', '{
+  "schemaVersion": 3,
+  "page": {
+    "backgroundColor": "#ffffff",
+    "backgroundImage": "",
+    "enablePullDownRefresh": false,
+    "navigation": {
+      "backgroundColor": "#ffffff",
+      "textColor": "#000000",
+      "title": "",
+      "visible": false
+    },
+    "share": {
+      "description": "",
+      "imageUrl": "",
+      "title": ""
+    }
+  },
+  "themeRef": "",
+  "sections": [
+    {
+      "id": "section-cat-banner",
+      "name": "活动轮播",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 6,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "cat-banner-1",
+          "type": "swiper-banner",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 10,
+              "styleRightMargin": 10,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            },
+            "height": 120,
+            "interval": 5000,
+            "imageList": [
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/b557d7db-1d09-4f4a-b5fa-03ba07fcd5d7.jpg"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/92268911-4c17-4443-a5bd-a90c6f4f674a.jpg"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/199329f6-7f5c-48b8-8fef-9b403be68b25.jpg"
+              }
+            ],
+            "borderRadius": 12,
+            "indicatorDots": true,
+            "indicatorColor": "rgba(255, 255, 255, 0.3)",
+            "indicatorActiveColor": "#ffffff"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-cat-ranking",
+      "name": "热销榜单",
+      "type": "default",
+      "style": {
+        "backgroundColor": "#f7f8fa",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 8,
+        "marginY": 8,
+        "paddingX": 12,
+        "paddingY": 12,
+        "radius": 12,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "cat-ranking-1",
+          "type": "goods-ranking",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "#f7f8fa",
+              "bgEndColor": "#f7f8fa",
+              "bgPicUrl": ""
+            },
+            "title": "热销榜",
+            "count": 5,
+            "showRankNumber": true,
+            "showOriginalPrice": true,
+            "dataSource": {
+              "mode": "ranking",
+              "metric": "sales"
+            },
+            "emptyStrategy": "hide",
+            "invalidStrategy": "hide"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-cat-scroll",
+      "name": "掌柜推荐",
+      "type": "default",
+      "style": {
+        "backgroundColor": "#f7f8fa",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 8,
+        "marginY": 8,
+        "paddingX": 0,
+        "paddingY": 10,
+        "radius": 12,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "cat-scroll-1",
+          "type": "goods-scroll",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "#f7f8fa",
+              "bgEndColor": "#f7f8fa",
+              "bgPicUrl": ""
+            },
+            "title": "掌柜推荐",
+            "subtitle": "热卖好货",
+            "displayMode": "scroll",
+            "perView": 3,
+            "count": 8,
+            "showSales": false,
+            "showOriginalPrice": true,
+            "dataSource": {
+              "mode": "rule",
+              "sort": "sales"
+            },
+            "emptyStrategy": "hide",
+            "invalidStrategy": "hide"
+          }
+        }
+      ]
+    }
+  ]
+}',
+       3, '1', '电商零售', '1',
+       0, '0', 12,
+       NOW(), '0', '1590229800633634816', 'system', 'system'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `page_design_template` WHERE `id` = '2110000000000000712');
+
+-- 生鲜到家 · 个人中心页（生鲜到家套 / pageType=4）
+INSERT INTO `page_design_template`
+    (`id`, `template_name`, `template_type`, `page_type`, `template_content`,
+     `schema_version`, `system_flag`, `industry_tag`, `market_status`,
+     `download_count`, `status`, `sort`,
+     `create_time`, `del_flag`, `tenant_id`, `create_by`, `update_by`)
+SELECT '2110000000000000713', '生鲜到家 · 个人中心页', '0', '4', '{
+  "schemaVersion": 3,
+  "page": {
+    "backgroundColor": "#F8F8F8",
+    "backgroundImage": "",
+    "enablePullDownRefresh": false,
+    "navigation": {
+      "backgroundColor": "#ffffff",
+      "textColor": "#000000",
+      "title": "",
+      "visible": false
+    },
+    "share": {
+      "description": "",
+      "imageUrl": "",
+      "title": ""
+    }
+  },
+  "themeRef": "",
+  "sections": [
+    {
+      "id": "section-uc-banner",
+      "name": "会员活动",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 10,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "uc-banner-1",
+          "type": "image-ad",
+          "version": 1,
+          "props": {
+            "type": "1",
+            "height": 162,
+            "imgRadius": 12,
+            "imageList": [
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/bd253fac-2a13-4ff2-a611-1beb95bca09e.jpg"
+              }
+            ],
+            "interval": 5,
+            "indicatorDots": false,
+            "swiperType": "1",
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 10,
+              "styleRightMargin": 10,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            },
+            "commonImageStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-uc-notice",
+      "name": "服务公告",
+      "type": "default",
+      "style": {
+        "backgroundColor": "#ffffff",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 10,
+        "marginY": 0,
+        "paddingX": 12,
+        "paddingY": 6,
+        "radius": 12,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "uc-notice-1",
+          "type": "notice",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "#ffffff",
+              "bgEndColor": "#ffffff",
+              "bgPicUrl": ""
+            },
+            "contentList": [
+              {
+                "content": "精选全球好物 · 每日新鲜直达",
+                "type": 0,
+                "url": ""
+              }
+            ],
+            "color": "#4e5969",
+            "direction": "horizontal",
+            "speed": 40,
+            "titleType": "2",
+            "titleText": "公告",
+            "titleColor": "#FF2237",
+            "titleSize": 13,
+            "titleStyle": "1",
+            "titleUrl": ""
+          }
+        }
+      ]
+    }
+  ]
+}',
+       3, '1', '电商零售', '1',
+       0, '0', 13,
+       NOW(), '0', '1590229800633634816', 'system', 'system'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `page_design_template` WHERE `id` = '2110000000000000713');
+
+-- 品质甄选 · 商城首页（品质甄选套 / pageType=1）
+INSERT INTO `page_design_template`
+    (`id`, `template_name`, `template_type`, `page_type`, `template_content`,
+     `schema_version`, `system_flag`, `industry_tag`, `market_status`,
+     `download_count`, `status`, `sort`,
+     `create_time`, `del_flag`, `tenant_id`, `create_by`, `update_by`)
+SELECT '2110000000000000714', '品质甄选 · 商城首页', '0', '1', '{
+  "schemaVersion": 3,
+  "page": {
+    "backgroundColor": "#f7f4ee",
+    "backgroundImage": "",
+    "enablePullDownRefresh": false,
+    "navigation": {
+      "backgroundColor": "#ffffff",
+      "textColor": "#000000",
+      "title": "",
+      "visible": false
+    },
+    "share": {
+      "description": "",
+      "imageUrl": "",
+      "title": ""
+    }
+  },
+  "themeRef": "",
+  "sections": [
+    {
+      "id": "section-brand",
+      "name": "品牌页头",
+      "type": "default",
+      "style": {
+        "backgroundColor": "#efe8da",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 12,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "t-search",
+          "props": {
+            "style": "1",
+            "height": 36,
+            "bgColor": "rgb(242, 242, 242)",
+            "hotWords": "",
+            "showScan": true,
+            "textAlign": "left",
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "rgba(255, 255, 255, 1)",
+              "styleLbRadius": 0,
+              "styleLtRadius": 0,
+              "styleRbRadius": 0,
+              "styleRtRadius": 0,
+              "styleTopMargin": 0,
+              "styleLeftMargin": 0,
+              "styleTopPadding": 0,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 0,
+              "styleRightMargin": 0,
+              "styleBottomMargin": 0,
+              "styleRightPadding": 0,
+              "styleBottomPadding": 0
+            },
+            "placeholder": "搜索商品",
+            "borderRadius": 16,
+            "backgroundColor": "#ffffff"
+          },
+          "type": "search-bar",
+          "version": 1
+        },
+        {
+          "id": "t-banner",
+          "type": "swiper-banner",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 10,
+              "styleRightMargin": 10,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            },
+            "height": 160,
+            "interval": 5000,
+            "imageList": [
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/b557d7db-1d09-4f4a-b5fa-03ba07fcd5d7.jpg"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/92268911-4c17-4443-a5bd-a90c6f4f674a.jpg"
+              }
+            ],
+            "borderRadius": 9,
+            "indicatorDots": true,
+            "indicatorColor": "rgba(255, 255, 255, 0.3)",
+            "indicatorActiveColor": "#ffffff"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-kingkong",
+      "name": "分类导航",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "t-tabnav",
+          "props": {
+            "type": "3",
+            "imgSize": 44,
+            "navList": [
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/4da110f9-7661-50f0-af81-e9197545f933.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {
+                    "categoryFirstId": "9510000000000000002",
+                    "categorySecondId": ""
+                  },
+                  "targetId": "9510000000000000002"
+                },
+                "title": "水果"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/811e3097-3297-517c-8cd3-a68abb886b5d.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {
+                    "categoryFirstId": "9510000000000000001",
+                    "categorySecondId": ""
+                  },
+                  "targetId": "9510000000000000001"
+                },
+                "title": "蔬菜"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/44541e06-523e-585f-b2a7-88388cdc8c75.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {
+                    "categoryFirstId": "9510000000000000003",
+                    "categorySecondId": ""
+                  },
+                  "targetId": "9510000000000000003"
+                },
+                "title": "肉禽蛋"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/06303430-7745-5104-b9a5-072ae1042f3d.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000004"
+                },
+                "title": "海鲜水产"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/63ab6b55-8bfb-56ab-b633-f49b722f3082.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000005"
+                },
+                "title": "乳品烘焙"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/713e6001-1493-540e-9f36-bc061fd89330.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000006"
+                },
+                "title": "熟食预制菜"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/bc1c972d-f06e-50aa-b4b5-994719bef3ed.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9520000000000000028"
+                },
+                "title": "面点主食"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/d912a375-2d39-5aaa-84aa-e0f87e2684bd.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000009"
+                },
+                "title": "酒水饮料"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/32b003a3-ea83-5a53-a4e3-5e475c2c9c9a.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000008"
+                },
+                "title": "休闲零食"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/4358fecb-11ac-528f-8983-ead8e683bb54.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000007"
+                },
+                "title": "米面粮油"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/2d228933-e1b5-5195-8510-ccaed5322574.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000012"
+                },
+                "title": "鲜花绿植"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/d80b85c1-4299-5021-981f-36336b8f9ccf.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9520000000000000025"
+                },
+                "title": "快手菜"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/bbb62486-ff6e-52a3-8383-04436bd085e2.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000011"
+                },
+                "title": "日用百货"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/a2faf3a8-af8a-5d90-872a-275f531ef415.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000010"
+                },
+                "title": "个护清洁"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/006b72af-28ce-5be6-a160-3871fb55f2cd.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9520000000000000006"
+                },
+                "title": "豆制品"
+              }
+            ],
+            "showNum": 5,
+            "pageRows": 3,
+            "fontColor": "#303133",
+            "imgRadius": 22,
+            "scrollShow": false,
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "rgba(255, 255, 255, 1)",
+              "styleLbRadius": 16,
+              "styleLtRadius": 16,
+              "styleRbRadius": 16,
+              "styleRtRadius": 16,
+              "styleTopMargin": 12,
+              "styleLeftMargin": 12,
+              "styleTopPadding": 0,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 12,
+              "styleRightMargin": 12,
+              "styleBottomMargin": 12,
+              "styleRightPadding": 12,
+              "styleBottomPadding": 0
+            },
+            "displayMode": "pager",
+            "indicatorDots": true,
+            "indicatorColor": "rgba(0, 0, 0, 0.2)",
+            "indicatorActiveColor": "#07c160"
+          },
+          "type": "tab-nav",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "id": "section-notice",
+      "name": "会员公告",
+      "type": "default",
+      "style": {
+        "backgroundColor": "#ffffff",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 10,
+        "marginY": 10,
+        "paddingX": 12,
+        "paddingY": 6,
+        "radius": 12,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "t-notice",
+          "type": "notice",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "#ffffff",
+              "bgEndColor": "#ffffff",
+              "bgPicUrl": ""
+            },
+            "contentList": [
+              {
+                "content": "会员甄选 · 每日新鲜直采，买手严选好物",
+                "type": 0,
+                "url": ""
+              }
+            ],
+            "color": "#4e5969",
+            "direction": "horizontal",
+            "speed": 40,
+            "titleType": "2",
+            "titleText": "甄选",
+            "titleColor": "#FF2237",
+            "titleSize": 13,
+            "titleStyle": "1",
+            "titleUrl": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-ranking",
+      "name": "买手推荐榜",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "t-ranking",
+          "type": "goods-ranking",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            },
+            "title": "买手推荐榜",
+            "count": 5,
+            "showRankNumber": true,
+            "showOriginalPrice": true,
+            "dataSource": {
+              "mode": "ranking",
+              "metric": "sales"
+            },
+            "emptyStrategy": "hide",
+            "invalidStrategy": "hide"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-scroll",
+      "name": "甄选好物",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "t-scroll",
+          "type": "goods-scroll",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            },
+            "title": "甄选好物",
+            "subtitle": "买手严选",
+            "displayMode": "scroll",
+            "perView": 3,
+            "count": 8,
+            "showSales": false,
+            "showOriginalPrice": true,
+            "dataSource": {
+              "mode": "rule",
+              "sort": "sales"
+            },
+            "emptyStrategy": "hide",
+            "invalidStrategy": "hide"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-group",
+      "name": "品质之选",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "t-group",
+          "type": "goods-group",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            },
+            "title": "品质之选",
+            "count": 6,
+            "columns": 2,
+            "showSales": true,
+            "showOriginalPrice": true,
+            "dataSource": {
+              "mode": "rule",
+              "sort": "sales"
+            },
+            "emptyStrategy": "hide",
+            "invalidStrategy": "hide"
+          }
+        }
+      ]
+    }
+  ]
+}',
+       3, '1', '电商零售', '1',
+       0, '0', 21,
+       NOW(), '0', '1590229800633634816', 'system', 'system'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `page_design_template` WHERE `id` = '2110000000000000714');
+
+-- 品质甄选 · 分类页（品质甄选套 / pageType=3）
+INSERT INTO `page_design_template`
+    (`id`, `template_name`, `template_type`, `page_type`, `template_content`,
+     `schema_version`, `system_flag`, `industry_tag`, `market_status`,
+     `download_count`, `status`, `sort`,
+     `create_time`, `del_flag`, `tenant_id`, `create_by`, `update_by`)
+SELECT '2110000000000000715', '品质甄选 · 分类页', '0', '3', '{
+  "schemaVersion": 3,
+  "page": {
+    "backgroundColor": "#ffffff",
+    "backgroundImage": "",
+    "enablePullDownRefresh": false,
+    "navigation": {
+      "backgroundColor": "#ffffff",
+      "textColor": "#000000",
+      "title": "",
+      "visible": false
+    },
+    "share": {
+      "description": "",
+      "imageUrl": "",
+      "title": ""
+    }
+  },
+  "themeRef": "",
+  "sections": [
+    {
+      "id": "section-cat-banner",
+      "name": "活动轮播",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 6,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "cat-banner-1",
+          "type": "swiper-banner",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 10,
+              "styleRightMargin": 10,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            },
+            "height": 120,
+            "interval": 5000,
+            "imageList": [
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/b557d7db-1d09-4f4a-b5fa-03ba07fcd5d7.jpg"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/199329f6-7f5c-48b8-8fef-9b403be68b25.jpg"
+              }
+            ],
+            "borderRadius": 12,
+            "indicatorDots": true,
+            "indicatorColor": "rgba(255, 255, 255, 0.3)",
+            "indicatorActiveColor": "#ffffff"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-cat-ranking",
+      "name": "买手推荐榜",
+      "type": "default",
+      "style": {
+        "backgroundColor": "#f6f1e7",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 8,
+        "marginY": 8,
+        "paddingX": 12,
+        "paddingY": 12,
+        "radius": 12,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "cat-ranking-1",
+          "type": "goods-ranking",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "#f6f1e7",
+              "bgEndColor": "#f6f1e7",
+              "bgPicUrl": ""
+            },
+            "title": "买手推荐榜",
+            "count": 5,
+            "showRankNumber": true,
+            "showOriginalPrice": true,
+            "dataSource": {
+              "mode": "ranking",
+              "metric": "sales"
+            },
+            "emptyStrategy": "hide",
+            "invalidStrategy": "hide"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-cat-scroll",
+      "name": "甄选好物",
+      "type": "default",
+      "style": {
+        "backgroundColor": "#f6f1e7",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 8,
+        "marginY": 8,
+        "paddingX": 0,
+        "paddingY": 10,
+        "radius": 12,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "cat-scroll-1",
+          "type": "goods-scroll",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "#f6f1e7",
+              "bgEndColor": "#f6f1e7",
+              "bgPicUrl": ""
+            },
+            "title": "甄选好物",
+            "subtitle": "买手严选",
+            "displayMode": "scroll",
+            "perView": 3,
+            "count": 8,
+            "showSales": false,
+            "showOriginalPrice": true,
+            "dataSource": {
+              "mode": "rule",
+              "sort": "sales"
+            },
+            "emptyStrategy": "hide",
+            "invalidStrategy": "hide"
+          }
+        }
+      ]
+    }
+  ]
+}',
+       3, '1', '电商零售', '1',
+       0, '0', 22,
+       NOW(), '0', '1590229800633634816', 'system', 'system'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `page_design_template` WHERE `id` = '2110000000000000715');
+
+-- 品质甄选 · 个人中心页（品质甄选套 / pageType=4）
+INSERT INTO `page_design_template`
+    (`id`, `template_name`, `template_type`, `page_type`, `template_content`,
+     `schema_version`, `system_flag`, `industry_tag`, `market_status`,
+     `download_count`, `status`, `sort`,
+     `create_time`, `del_flag`, `tenant_id`, `create_by`, `update_by`)
+SELECT '2110000000000000716', '品质甄选 · 个人中心页', '0', '4', '{
+  "schemaVersion": 3,
+  "page": {
+    "backgroundColor": "#F8F8F8",
+    "backgroundImage": "",
+    "enablePullDownRefresh": false,
+    "navigation": {
+      "backgroundColor": "#ffffff",
+      "textColor": "#000000",
+      "title": "",
+      "visible": false
+    },
+    "share": {
+      "description": "",
+      "imageUrl": "",
+      "title": ""
+    }
+  },
+  "themeRef": "",
+  "sections": [
+    {
+      "id": "section-uc-banner",
+      "name": "会员活动",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 10,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "uc-banner-1",
+          "type": "image-ad",
+          "version": 1,
+          "props": {
+            "type": "1",
+            "height": 162,
+            "imgRadius": 12,
+            "imageList": [
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/b557d7db-1d09-4f4a-b5fa-03ba07fcd5d7.jpg"
+              }
+            ],
+            "interval": 5,
+            "indicatorDots": false,
+            "swiperType": "1",
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 10,
+              "styleRightMargin": 10,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            },
+            "commonImageStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-uc-notice",
+      "name": "服务公告",
+      "type": "default",
+      "style": {
+        "backgroundColor": "#ffffff",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 10,
+        "marginY": 0,
+        "paddingX": 12,
+        "paddingY": 6,
+        "radius": 12,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "uc-notice-1",
+          "type": "notice",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "#ffffff",
+              "bgEndColor": "#ffffff",
+              "bgPicUrl": ""
+            },
+            "contentList": [
+              {
+                "content": "会员甄选 · 品质好物每日直采",
+                "type": 0,
+                "url": ""
+              }
+            ],
+            "color": "#4e5969",
+            "direction": "horizontal",
+            "speed": 40,
+            "titleType": "2",
+            "titleText": "甄选",
+            "titleColor": "#FF2237",
+            "titleSize": 13,
+            "titleStyle": "1",
+            "titleUrl": ""
+          }
+        }
+      ]
+    }
+  ]
+}',
+       3, '1', '电商零售', '1',
+       0, '0', 23,
+       NOW(), '0', '1590229800633634816', 'system', 'system'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `page_design_template` WHERE `id` = '2110000000000000716');
+
+-- 大促狂欢 · 商城首页（大促狂欢套 / pageType=1）
+INSERT INTO `page_design_template`
+    (`id`, `template_name`, `template_type`, `page_type`, `template_content`,
+     `schema_version`, `system_flag`, `industry_tag`, `market_status`,
+     `download_count`, `status`, `sort`,
+     `create_time`, `del_flag`, `tenant_id`, `create_by`, `update_by`)
+SELECT '2110000000000000717', '大促狂欢 · 商城首页', '0', '1', '{
+  "schemaVersion": 3,
+  "page": {
+    "backgroundColor": "#f5f5f5",
+    "backgroundImage": "",
+    "enablePullDownRefresh": false,
+    "navigation": {
+      "backgroundColor": "#ffffff",
+      "textColor": "#000000",
+      "title": "",
+      "visible": false
+    },
+    "share": {
+      "description": "",
+      "imageUrl": "",
+      "title": ""
+    }
+  },
+  "themeRef": "",
+  "sections": [
+    {
+      "id": "section-brand",
+      "name": "品牌页头",
+      "type": "default",
+      "style": {
+        "backgroundColor": "#e8433f",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 12,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "t-search",
+          "props": {
+            "style": "1",
+            "height": 36,
+            "bgColor": "rgb(242, 242, 242)",
+            "hotWords": "",
+            "showScan": true,
+            "textAlign": "left",
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "rgba(255, 255, 255, 1)",
+              "styleLbRadius": 0,
+              "styleLtRadius": 0,
+              "styleRbRadius": 0,
+              "styleRtRadius": 0,
+              "styleTopMargin": 0,
+              "styleLeftMargin": 0,
+              "styleTopPadding": 0,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 0,
+              "styleRightMargin": 0,
+              "styleBottomMargin": 0,
+              "styleRightPadding": 0,
+              "styleBottomPadding": 0
+            },
+            "placeholder": "搜索商品",
+            "borderRadius": 16,
+            "backgroundColor": "#ffffff"
+          },
+          "type": "search-bar",
+          "version": 1
+        },
+        {
+          "id": "t-banner",
+          "type": "swiper-banner",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 10,
+              "styleRightMargin": 10,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            },
+            "height": 160,
+            "interval": 5000,
+            "imageList": [
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/a2e53a7d-5a7a-4e51-a0e8-bf957e5369ea.jpg"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/46023b6a-72ba-4c47-8060-1eec1e7c1c5b.jpg"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/bd253fac-2a13-4ff2-a611-1beb95bca09e.jpg"
+              }
+            ],
+            "borderRadius": 9,
+            "indicatorDots": true,
+            "indicatorColor": "rgba(255, 255, 255, 0.3)",
+            "indicatorActiveColor": "#ffffff"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-seckill",
+      "name": "限时秒杀",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "t-seckill",
+          "type": "seckill",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            },
+            "title": "限时秒杀",
+            "count": 1,
+            "dataSource": {
+              "mode": "automatic"
+            },
+            "emptyStrategy": "hide",
+            "invalidStrategy": "hide",
+            "showCountdown": true,
+            "showProgress": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-group-buy",
+      "name": "多人拼团",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "t-limited-activity",
+          "type": "limited-activity",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            },
+            "title": "多人拼团",
+            "count": 3,
+            "dataSource": {
+              "mode": "automatic"
+            },
+            "emptyStrategy": "hide",
+            "invalidStrategy": "hide",
+            "showCountdown": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-discount",
+      "name": "折扣专区",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "t-discount",
+          "type": "discount",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            },
+            "title": "折扣专区",
+            "count": 3,
+            "dataSource": {
+              "mode": "automatic"
+            },
+            "emptyStrategy": "hide",
+            "invalidStrategy": "hide",
+            "showCountdown": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-kingkong",
+      "name": "分类导航",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "t-tabnav",
+          "props": {
+            "type": "3",
+            "imgSize": 44,
+            "navList": [
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/4da110f9-7661-50f0-af81-e9197545f933.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {
+                    "categoryFirstId": "9510000000000000002",
+                    "categorySecondId": ""
+                  },
+                  "targetId": "9510000000000000002"
+                },
+                "title": "水果"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/811e3097-3297-517c-8cd3-a68abb886b5d.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {
+                    "categoryFirstId": "9510000000000000001",
+                    "categorySecondId": ""
+                  },
+                  "targetId": "9510000000000000001"
+                },
+                "title": "蔬菜"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/44541e06-523e-585f-b2a7-88388cdc8c75.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {
+                    "categoryFirstId": "9510000000000000003",
+                    "categorySecondId": ""
+                  },
+                  "targetId": "9510000000000000003"
+                },
+                "title": "肉禽蛋"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/06303430-7745-5104-b9a5-072ae1042f3d.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000004"
+                },
+                "title": "海鲜水产"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/63ab6b55-8bfb-56ab-b633-f49b722f3082.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000005"
+                },
+                "title": "乳品烘焙"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/713e6001-1493-540e-9f36-bc061fd89330.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000006"
+                },
+                "title": "熟食预制菜"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/bc1c972d-f06e-50aa-b4b5-994719bef3ed.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9520000000000000028"
+                },
+                "title": "面点主食"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/d912a375-2d39-5aaa-84aa-e0f87e2684bd.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000009"
+                },
+                "title": "酒水饮料"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/32b003a3-ea83-5a53-a4e3-5e475c2c9c9a.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000008"
+                },
+                "title": "休闲零食"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/4358fecb-11ac-528f-8983-ead8e683bb54.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000007"
+                },
+                "title": "米面粮油"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/2d228933-e1b5-5195-8510-ccaed5322574.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000012"
+                },
+                "title": "鲜花绿植"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/d80b85c1-4299-5021-981f-36336b8f9ccf.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9520000000000000025"
+                },
+                "title": "快手菜"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/bbb62486-ff6e-52a3-8383-04436bd085e2.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000011"
+                },
+                "title": "日用百货"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/a2faf3a8-af8a-5d90-872a-275f531ef415.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000010"
+                },
+                "title": "个护清洁"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/006b72af-28ce-5be6-a160-3871fb55f2cd.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9520000000000000006"
+                },
+                "title": "豆制品"
+              }
+            ],
+            "showNum": 5,
+            "pageRows": 3,
+            "fontColor": "#303133",
+            "imgRadius": 22,
+            "scrollShow": false,
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "rgba(255, 255, 255, 1)",
+              "styleLbRadius": 16,
+              "styleLtRadius": 16,
+              "styleRbRadius": 16,
+              "styleRtRadius": 16,
+              "styleTopMargin": 12,
+              "styleLeftMargin": 12,
+              "styleTopPadding": 0,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 12,
+              "styleRightMargin": 12,
+              "styleBottomMargin": 12,
+              "styleRightPadding": 12,
+              "styleBottomPadding": 0
+            },
+            "displayMode": "pager",
+            "indicatorDots": true,
+            "indicatorColor": "rgba(0, 0, 0, 0.2)",
+            "indicatorActiveColor": "#07c160"
+          },
+          "type": "tab-nav",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "id": "section-scroll",
+      "name": "疯抢排行",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "t-scroll",
+          "type": "goods-scroll",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            },
+            "title": "疯抢排行",
+            "subtitle": "手慢无",
+            "displayMode": "pager",
+            "perView": 3,
+            "count": 8,
+            "showSales": false,
+            "showOriginalPrice": true,
+            "dataSource": {
+              "mode": "rule",
+              "sort": "sales"
+            },
+            "emptyStrategy": "hide",
+            "invalidStrategy": "hide"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-group",
+      "name": "热卖商品",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "t-group",
+          "type": "goods-group",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            },
+            "title": "热卖商品",
+            "count": 6,
+            "columns": 2,
+            "showSales": true,
+            "showOriginalPrice": true,
+            "dataSource": {
+              "mode": "rule",
+              "sort": "sales"
+            },
+            "emptyStrategy": "hide",
+            "invalidStrategy": "hide"
+          }
+        }
+      ]
+    }
+  ]
+}',
+       3, '1', '电商零售', '1',
+       0, '0', 31,
+       NOW(), '0', '1590229800633634816', 'system', 'system'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `page_design_template` WHERE `id` = '2110000000000000717');
+
+-- 大促狂欢 · 分类页（大促狂欢套 / pageType=3）
+INSERT INTO `page_design_template`
+    (`id`, `template_name`, `template_type`, `page_type`, `template_content`,
+     `schema_version`, `system_flag`, `industry_tag`, `market_status`,
+     `download_count`, `status`, `sort`,
+     `create_time`, `del_flag`, `tenant_id`, `create_by`, `update_by`)
+SELECT '2110000000000000718', '大促狂欢 · 分类页', '0', '3', '{
+  "schemaVersion": 3,
+  "page": {
+    "backgroundColor": "#ffffff",
+    "backgroundImage": "",
+    "enablePullDownRefresh": false,
+    "navigation": {
+      "backgroundColor": "#ffffff",
+      "textColor": "#000000",
+      "title": "",
+      "visible": false
+    },
+    "share": {
+      "description": "",
+      "imageUrl": "",
+      "title": ""
+    }
+  },
+  "themeRef": "",
+  "sections": [
+    {
+      "id": "section-cat-banner",
+      "name": "活动轮播",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 6,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "cat-banner-1",
+          "type": "swiper-banner",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 10,
+              "styleRightMargin": 10,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            },
+            "height": 120,
+            "interval": 5000,
+            "imageList": [
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/46023b6a-72ba-4c47-8060-1eec1e7c1c5b.jpg"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/bd253fac-2a13-4ff2-a611-1beb95bca09e.jpg"
+              }
+            ],
+            "borderRadius": 12,
+            "indicatorDots": true,
+            "indicatorColor": "rgba(255, 255, 255, 0.3)",
+            "indicatorActiveColor": "#ffffff"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-cat-seckill",
+      "name": "限时秒杀",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "t-seckill",
+          "type": "seckill",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            },
+            "title": "限时秒杀",
+            "count": 1,
+            "dataSource": {
+              "mode": "automatic"
+            },
+            "emptyStrategy": "hide",
+            "invalidStrategy": "hide",
+            "showCountdown": true,
+            "showProgress": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-cat-ranking",
+      "name": "热卖榜",
+      "type": "default",
+      "style": {
+        "backgroundColor": "#fdf1ef",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 8,
+        "marginY": 8,
+        "paddingX": 12,
+        "paddingY": 12,
+        "radius": 12,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "cat-ranking-1",
+          "type": "goods-ranking",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "#fdf1ef",
+              "bgEndColor": "#fdf1ef",
+              "bgPicUrl": ""
+            },
+            "title": "热卖榜",
+            "count": 5,
+            "showRankNumber": true,
+            "showOriginalPrice": true,
+            "dataSource": {
+              "mode": "ranking",
+              "metric": "sales"
+            },
+            "emptyStrategy": "hide",
+            "invalidStrategy": "hide"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-cat-scroll",
+      "name": "疯抢好货",
+      "type": "default",
+      "style": {
+        "backgroundColor": "#fdf1ef",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 8,
+        "marginY": 8,
+        "paddingX": 0,
+        "paddingY": 10,
+        "radius": 12,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "cat-scroll-1",
+          "type": "goods-scroll",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "#fdf1ef",
+              "bgEndColor": "#fdf1ef",
+              "bgPicUrl": ""
+            },
+            "title": "疯抢好货",
+            "subtitle": "手慢无",
+            "displayMode": "scroll",
+            "perView": 3,
+            "count": 8,
+            "showSales": false,
+            "showOriginalPrice": true,
+            "dataSource": {
+              "mode": "rule",
+              "sort": "sales"
+            },
+            "emptyStrategy": "hide",
+            "invalidStrategy": "hide"
+          }
+        }
+      ]
+    }
+  ]
+}',
+       3, '1', '电商零售', '1',
+       0, '0', 32,
+       NOW(), '0', '1590229800633634816', 'system', 'system'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `page_design_template` WHERE `id` = '2110000000000000718');
+
+-- 大促狂欢 · 个人中心页（大促狂欢套 / pageType=4）
+INSERT INTO `page_design_template`
+    (`id`, `template_name`, `template_type`, `page_type`, `template_content`,
+     `schema_version`, `system_flag`, `industry_tag`, `market_status`,
+     `download_count`, `status`, `sort`,
+     `create_time`, `del_flag`, `tenant_id`, `create_by`, `update_by`)
+SELECT '2110000000000000719', '大促狂欢 · 个人中心页', '0', '4', '{
+  "schemaVersion": 3,
+  "page": {
+    "backgroundColor": "#F8F8F8",
+    "backgroundImage": "",
+    "enablePullDownRefresh": false,
+    "navigation": {
+      "backgroundColor": "#ffffff",
+      "textColor": "#000000",
+      "title": "",
+      "visible": false
+    },
+    "share": {
+      "description": "",
+      "imageUrl": "",
+      "title": ""
+    }
+  },
+  "themeRef": "",
+  "sections": [
+    {
+      "id": "section-uc-banner",
+      "name": "会员活动",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 10,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "uc-banner-1",
+          "type": "image-ad",
+          "version": 1,
+          "props": {
+            "type": "1",
+            "height": 162,
+            "imgRadius": 12,
+            "imageList": [
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/a2e53a7d-5a7a-4e51-a0e8-bf957e5369ea.jpg"
+              }
+            ],
+            "interval": 5,
+            "indicatorDots": false,
+            "swiperType": "1",
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 10,
+              "styleRightMargin": 10,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            },
+            "commonImageStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-uc-notice",
+      "name": "服务公告",
+      "type": "default",
+      "style": {
+        "backgroundColor": "#ffffff",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 10,
+        "marginY": 0,
+        "paddingX": 12,
+        "paddingY": 6,
+        "radius": 12,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "uc-notice-1",
+          "type": "notice",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "#ffffff",
+              "bgEndColor": "#ffffff",
+              "bgPicUrl": ""
+            },
+            "contentList": [
+              {
+                "content": "开业大促 · 全场钜惠进行中",
+                "type": 0,
+                "url": ""
+              }
+            ],
+            "color": "#4e5969",
+            "direction": "horizontal",
+            "speed": 40,
+            "titleType": "2",
+            "titleText": "促销",
+            "titleColor": "#FF2237",
+            "titleSize": 13,
+            "titleStyle": "1",
+            "titleUrl": ""
+          }
+        }
+      ]
+    }
+  ]
+}',
+       3, '1', '电商零售', '1',
+       0, '0', 33,
+       NOW(), '0', '1590229800633634816', 'system', 'system'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `page_design_template` WHERE `id` = '2110000000000000719');
+
+-- ---------------------------------------------------------------------------
+-- 自检：期望 template_seeded = 9
+-- ---------------------------------------------------------------------------
+SELECT 'template_seeded' AS `check_name`, COUNT(*) AS `value`, 9 AS `expected`
+FROM `page_design_template`
+WHERE `id` IN ('2110000000000000711', '2110000000000000712', '2110000000000000713', '2110000000000000714', '2110000000000000715', '2110000000000000716', '2110000000000000717', '2110000000000000718', '2110000000000000719') AND `del_flag` = '0';
+
+-- 全量脚本以本脚本收尾（build-full-sql sections 末位），按约定恢复外键检查
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 出车单结清口径修正与存量回填
+-- Source: db/boot/104delivery_trip_settle_backfill.sql
+-- ============================================================================
+-- 出车单结清口径修正与存量僵尸出车单回填（Boot 单体模式）
+-- 目标库：aryn_boot
+-- 背景：出车单原先只在客户「签收」（delivery_task.status=6）时才被置为已完成，
+--       而司机侧履约终点其实是「已送达」（status=5）。客户不点确认收货，
+--       出车单就一直停在 3配送中：
+--         · 配送员工作台「当前出车单」永远显示「配送中」，与出车单详情的
+--           「全部配送完成 / 已送达」自相矛盾；
+--         · 配送员下一趟车无法体现为「当前出车单」（getActiveTrip 取最新在途）。
+--       代码侧已改为：任一任务进入结清状态后，若该出车单已无未结清任务，
+--       即置为 4已完成并写 complete_time；客户签收不再影响出车单收车。
+--       本脚本按同一口径回填存量出车单。
+-- 结清状态：5已送达 6已签收 7已取消（异常关闭/退回确认）；
+--           8异常、9待退回不结清——异常等管理员改派或关闭，退回等商品回仓确认。
+-- 特性：可重复执行，不执行 DROP/TRUNCATE，不覆盖已有 complete_time。
+-- 执行：mysql -u root -p aryn_boot < 104delivery_trip_settle_backfill.sql
+
+USE `aryn_boot`;
+
+SET NAMES utf8mb4;
+
+-- ============ delivery_trip：回填全部任务已结清的存量出车单 ============
+-- 只处理 1待配货/2配货中/3配送中；已完结的出车单不进 WHERE。
+-- 子查询 HAVING 要求该出车单至少有一个任务（零任务的出车单按代码口径不收车），
+-- 且所有任务都在结清状态；complete_time 取任务侧最晚的终结时间，缺失时回落 NOW()。
+
+UPDATE `delivery_trip` t
+JOIN (
+    SELECT `trip_id`,
+           MAX(COALESCE(`sign_time`, `arrive_time`, `close_time`)) AS `settled_time`
+    FROM `delivery_task`
+    WHERE `del_flag` = '0'
+      AND `trip_id` IS NOT NULL
+      AND `trip_id` <> ''
+    GROUP BY `trip_id`
+    HAVING SUM(CASE WHEN `status` NOT IN ('5', '6', '7') THEN 1 ELSE 0 END) = 0
+) s ON s.`trip_id` = t.`id`
+SET t.`status` = '4',
+    t.`complete_time` = COALESCE(t.`complete_time`, s.`settled_time`, NOW()),
+    t.`update_time` = NOW()
+WHERE t.`del_flag` = '0'
+  AND t.`status` IN ('1', '2', '3');
+
+-- 验证：不应再有「任务全结清但仍未完成」的出车单
+-- SELECT t.id, t.trip_no, t.status FROM delivery_trip t
+-- JOIN (SELECT trip_id FROM delivery_task WHERE del_flag='0' AND trip_id IS NOT NULL AND trip_id <> ''
+--       GROUP BY trip_id HAVING SUM(CASE WHEN status NOT IN ('5','6','7') THEN 1 ELSE 0 END)=0) s
+--   ON s.trip_id = t.id
+-- WHERE t.del_flag='0' AND t.status IN ('1','2','3');
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 订单商品按分类分组展示与导出权限
+-- Source: db/boot/105order_category_group_export_incremental.sql
+-- ============================================================================
+-- ============================================================================
+-- 订单商品按分类分组展示与导出增量
+-- 背景：管理端订单详情/列表的商品信息按分类分组展示，并新增「订单导出」
+--       （Excel 商品行按分类分组、含分类小计与汇总）。
+-- 内容：sys_menu 补按钮权限 order:orderinfo:export（商城订单导出），
+--       并向已拥有同父订单按钮授权的角色与已开通同父菜单的租户推导补授。
+-- 幂等：固定 ID + INSERT IGNORE / NOT EXISTS，可重复执行；
+--       仅新增行，不修改、不删除任何存量数据。
+-- 注意：菜单在登录时快照，执行后管理端需重新登录才生效。
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+-- 商城订单下补「商城订单导出」按钮权限
+INSERT IGNORE INTO `sys_menu`
+	(`id`, `name`, `permission`, `path`, `redirect`, `parent_id`, `icon`, `component`, `sort`, `type`,
+	 `create_time`, `update_time`, `outer_status`, `del_flag`, `application_key`, `create_by`, `update_by`)
+VALUES
+	('2110000000000000204', '商城订单导出', 'order:orderinfo:export', NULL, NULL,
+	 '1531528760525074434', '', NULL, 10, '1', NOW(), NOW(), '0', '0', 'app_base', 'system', 'system');
+
+-- 向已拥有同父菜单任一按钮授权的角色补授新按钮，主键 MD5(role_id:menu:menu_id) 保证幂等
+INSERT IGNORE INTO `sys_role_menu` (`id`, `role_id`, `menu_id`, `create_time`, `tenant_id`)
+SELECT MD5(CONCAT(gr.`role_id`, ':menu:', m.`id`)), gr.`role_id`, m.`id`, NOW(), gr.`tenant_id`
+FROM `sys_menu` m
+JOIN `sys_menu` peer ON peer.`parent_id` = m.`parent_id` AND peer.`del_flag` = '0'
+JOIN `sys_role_menu` gr ON gr.`menu_id` = peer.`id`
+WHERE m.`id` = '2110000000000000204' AND m.`del_flag` = '0';
+
+-- 向已开通同父菜单的租户补齐租户菜单记录
+INSERT IGNORE INTO `sys_tenant_menu` (`id`, `tenant_id`, `menu_id`, `create_time`, `create_by`)
+SELECT MD5(CONCAT(gt.`tenant_id`, ':menu:', m.`id`)), gt.`tenant_id`, m.`id`, NOW(), 'system'
+FROM `sys_menu` m
+JOIN `sys_menu` peer ON peer.`parent_id` = m.`parent_id` AND peer.`del_flag` = '0'
+JOIN `sys_tenant_menu` gt ON gt.`menu_id` = peer.`id`
+WHERE m.`id` = '2110000000000000204' AND m.`del_flag` = '0';
+
+-- 执行结果自检：应返回 1 行菜单及对应的角色/租户授权数
+SELECT m.`id`, m.`permission`,
+       (SELECT COUNT(*) FROM `sys_role_menu` rm WHERE rm.`menu_id` = m.`id`) AS role_grants,
+       (SELECT COUNT(*) FROM `sys_tenant_menu` tm WHERE tm.`menu_id` = m.`id`) AS tenant_grants
+FROM `sys_menu` m
+WHERE m.`id` = '2110000000000000204';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 模板市场二期预置装修模板（品质生活/邻里团购/直播甄选 9 套）
+-- Source: db/boot/106page_design_template_market_seed_phase2.sql
+-- ============================================================================
+-- ============================================================================
+-- 模板市场预置全新装修模板（Boot 单体模式）
+--
+-- 背景（2026-10-02）：
+--   基于 7 家主流即时零售/商超电商（小象超市/盒马/京东七鲜/朴朴超市/叮咚买菜/
+--   永辉生活/多点Dmall）首页装修调研，新增 3 套成套模板（每套含 首页/分类页/
+--   个人中心页，page_type 1/3/4），与既有 3 套（生鲜到家/品质甄选/大促狂欢）
+--   明显差异化：
+--   · 品质生活馆（盒马系）：科技蓝 + 服务承诺 + 人群活动宫格 + 会员权益 + 双列瀑布流；
+--   · 邻里团购（朴朴/多点系）：社区绿 + 拼团/折扣/领券 + 到店自提工具宫格；
+--   · 直播甄选（叮咚/多点系）：活力橙 + 直播入口 + 主播热销榜 + 直播同款瀑布流。
+--
+--   每条模板内容为完整 v3 装修文档（page + sections），「使用」即整文档
+--   替换设计器草稿；发布时走服务端校验（组件白名单/条件/单例均已自检通过）。
+--
+-- 幂等与安全（可重复执行）：
+--   · 固定 ID 段 2110000000000000720-728，仅按主键判缺插入，
+--     不修改、不删除任何存量模板（含商户下载的副本）；
+--   · system_flag='1' 系统模板：租户不可改删，market_status='1' 已上架（跨租户可见）；
+--   · industry_tag 统一 电商零售（模板市场筛选项为静态枚举）。
+--
+-- 执行：mysql -u root -p <db> < 106page_design_template_market_seed_phase2.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+-- 品质生活馆 · 商城首页（品质生活馆套 / pageType=1）
+INSERT INTO `page_design_template`
+    (`id`, `template_name`, `template_type`, `page_type`, `template_content`,
+     `schema_version`, `system_flag`, `industry_tag`, `market_status`,
+     `download_count`, `status`, `sort`,
+     `create_time`, `del_flag`, `tenant_id`, `create_by`, `update_by`)
+SELECT '2110000000000000720', '品质生活馆 · 商城首页', '0', '1', '{
+  "schemaVersion": 3,
+  "themeRef": "",
+  "page": {
+    "backgroundColor": "#F5F6FA",
+    "backgroundImage": "",
+    "enablePullDownRefresh": false,
+    "navigation": {
+      "backgroundColor": "#ffffff",
+      "textColor": "#000000",
+      "title": "",
+      "visible": false
+    },
+    "share": {
+      "description": "",
+      "imageUrl": "",
+      "title": ""
+    }
+  },
+  "sections": [
+    {
+      "id": "section-brand",
+      "name": "品牌页头",
+      "type": "default",
+      "style": {
+        "backgroundColor": "#072E99",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 12,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "ql-home-search",
+          "type": "search-bar",
+          "version": 1,
+          "props": {
+            "style": "1",
+            "height": 36,
+            "bgColor": "rgb(242, 242, 242)",
+            "hotWords": "",
+            "showScan": true,
+            "textAlign": "left",
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "rgba(255, 255, 255, 1)",
+              "styleLbRadius": 0,
+              "styleLtRadius": 0,
+              "styleRbRadius": 0,
+              "styleRtRadius": 0,
+              "styleTopMargin": 0,
+              "styleLeftMargin": 0,
+              "styleTopPadding": 0,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 0,
+              "styleRightMargin": 0,
+              "styleBottomMargin": 0,
+              "styleRightPadding": 0,
+              "styleBottomPadding": 0
+            },
+            "placeholder": "搜索新鲜好物",
+            "borderRadius": 16,
+            "backgroundColor": "#ffffff"
+          }
+        },
+        {
+          "id": "ql-home-banner",
+          "type": "swiper-banner",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 10,
+              "styleRightMargin": 10,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            },
+            "height": 160,
+            "interval": 5000,
+            "imageList": [
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/bd253fac-2a13-4ff2-a611-1beb95bca09e.jpg"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/92268911-4c17-4443-a5bd-a90c6f4f674a.jpg"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/199329f6-7f5c-48b8-8fef-9b403be68b25.jpg"
+              }
+            ],
+            "borderRadius": 12,
+            "indicatorDots": true,
+            "indicatorColor": "rgba(255, 255, 255, 0.3)",
+            "indicatorActiveColor": "#ffffff"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-promise",
+      "name": "服务承诺",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "ql-home-promise",
+          "type": "service-promise",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "#ffffff",
+              "styleLbRadius": 12,
+              "styleLtRadius": 12,
+              "styleRbRadius": 12,
+              "styleRtRadius": 12,
+              "styleTopMargin": 10,
+              "styleLeftMargin": 10,
+              "styleTopPadding": 8,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 12,
+              "styleRightMargin": 10,
+              "styleBottomMargin": 10,
+              "styleRightPadding": 12,
+              "styleBottomPadding": 8
+            },
+            "items": [
+              {
+                "id": "promise-1",
+                "title": "30分钟达",
+                "description": "周边门店即时配送",
+                "iconUrl": ""
+              },
+              {
+                "id": "promise-2",
+                "title": "品质保障",
+                "description": "甄选好货 坏损包赔",
+                "iconUrl": ""
+              },
+              {
+                "id": "promise-3",
+                "title": "售后无忧",
+                "description": "7天无理由退货",
+                "iconUrl": ""
+              }
+            ],
+            "title": "服务保障"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-kingkong",
+      "name": "分类导航",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "ql-home-tabnav",
+          "type": "tab-nav",
+          "version": 1,
+          "props": {
+            "type": "3",
+            "imgSize": 44,
+            "navList": [
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/4da110f9-7661-50f0-af81-e9197545f933.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {
+                    "categoryFirstId": "9510000000000000002",
+                    "categorySecondId": ""
+                  },
+                  "targetId": "9510000000000000002"
+                },
+                "title": "水果"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/811e3097-3297-517c-8cd3-a68abb886b5d.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {
+                    "categoryFirstId": "9510000000000000001",
+                    "categorySecondId": ""
+                  },
+                  "targetId": "9510000000000000001"
+                },
+                "title": "蔬菜"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/44541e06-523e-585f-b2a7-88388cdc8c75.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {
+                    "categoryFirstId": "9510000000000000003",
+                    "categorySecondId": ""
+                  },
+                  "targetId": "9510000000000000003"
+                },
+                "title": "肉禽蛋"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/06303430-7745-5104-b9a5-072ae1042f3d.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000004"
+                },
+                "title": "海鲜水产"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/63ab6b55-8bfb-56ab-b633-f49b722f3082.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000005"
+                },
+                "title": "乳品烘焙"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/713e6001-1493-540e-9f36-bc061fd89330.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000006"
+                },
+                "title": "熟食预制菜"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/bc1c972d-f06e-50aa-b4b5-994719bef3ed.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9520000000000000028"
+                },
+                "title": "面点主食"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/d912a375-2d39-5aaa-84aa-e0f87e2684bd.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000009"
+                },
+                "title": "酒水饮料"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/32b003a3-ea83-5a53-a4e3-5e475c2c9c9a.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000008"
+                },
+                "title": "休闲零食"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/4358fecb-11ac-528f-8983-ead8e683bb54.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000007"
+                },
+                "title": "米面粮油"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/2d228933-e1b5-5195-8510-ccaed5322574.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000012"
+                },
+                "title": "鲜花绿植"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/d80b85c1-4299-5021-981f-36336b8f9ccf.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9520000000000000025"
+                },
+                "title": "快手菜"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/bbb62486-ff6e-52a3-8383-04436bd085e2.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000011"
+                },
+                "title": "日用百货"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/a2faf3a8-af8a-5d90-872a-275f531ef415.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000010"
+                },
+                "title": "个护清洁"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/006b72af-28ce-5be6-a160-3871fb55f2cd.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9520000000000000006"
+                },
+                "title": "豆制品"
+              }
+            ],
+            "showNum": 5,
+            "pageRows": 3,
+            "fontColor": "#303133",
+            "imgRadius": 22,
+            "scrollShow": false,
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "rgba(255, 255, 255, 1)",
+              "styleLbRadius": 16,
+              "styleLtRadius": 16,
+              "styleRbRadius": 16,
+              "styleRtRadius": 16,
+              "styleTopMargin": 12,
+              "styleLeftMargin": 12,
+              "styleTopPadding": 0,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 12,
+              "styleRightMargin": 12,
+              "styleBottomMargin": 12,
+              "styleRightPadding": 12,
+              "styleBottomPadding": 0
+            },
+            "displayMode": "pager",
+            "indicatorDots": true,
+            "indicatorColor": "rgba(0, 0, 0, 0.2)",
+            "indicatorActiveColor": "#1989fa"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-shengxin",
+      "name": "省心价",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "ql-home-shengxin",
+          "type": "goods-scroll",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "#ffffff",
+              "styleLbRadius": 12,
+              "styleLtRadius": 12,
+              "styleRbRadius": 12,
+              "styleRtRadius": 12,
+              "styleTopMargin": 0,
+              "styleLeftMargin": 10,
+              "styleTopPadding": 10,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 12,
+              "styleRightMargin": 10,
+              "styleBottomMargin": 0,
+              "styleRightPadding": 12,
+              "styleBottomPadding": 10
+            },
+            "title": "省心价",
+            "subtitle": "每日好价 新鲜直采",
+            "displayMode": "pager",
+            "perView": 3,
+            "interval": 3000,
+            "count": 8,
+            "showSales": false,
+            "showOriginalPrice": true,
+            "dataSource": {
+              "mode": "rule",
+              "sort": "sales"
+            },
+            "emptyStrategy": "hide",
+            "invalidStrategy": "hide"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-entry",
+      "name": "人群活动宫格",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "ql-home-entry",
+          "type": "marketing-entry",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "#ffffff",
+              "styleLbRadius": 12,
+              "styleLtRadius": 12,
+              "styleRbRadius": 12,
+              "styleRtRadius": 12,
+              "styleTopMargin": 0,
+              "styleLeftMargin": 10,
+              "styleTopPadding": 10,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 12,
+              "styleRightMargin": 10,
+              "styleBottomMargin": 0,
+              "styleRightPadding": 12,
+              "styleBottomPadding": 10
+            },
+            "columns": 4,
+            "count": 4,
+            "dataSource": {
+              "mode": "automatic"
+            },
+            "emptyStrategy": "placeholder",
+            "invalidStrategy": "hide",
+            "entries": [
+              {
+                "id": "entry-season",
+                "title": "时令鲜果",
+                "iconUrl": "",
+                "link": {
+                  "params": {
+                    "categoryFirstId": "9510000000000000002"
+                  },
+                  "path": "",
+                  "type": "category",
+                  "targetId": "9510000000000000002"
+                }
+              },
+              {
+                "id": "entry-meat",
+                "title": "严选肉禽",
+                "iconUrl": "",
+                "link": {
+                  "params": {},
+                  "path": "",
+                  "type": "category",
+                  "targetId": "9510000000000000003"
+                }
+              },
+              {
+                "id": "entry-bargain",
+                "title": "超值好价",
+                "iconUrl": "",
+                "link": {
+                  "params": {},
+                  "path": "",
+                  "type": "category",
+                  "targetId": "9510000000000000008"
+                }
+              },
+              {
+                "id": "entry-service",
+                "title": "专属客服",
+                "iconUrl": "",
+                "link": {
+                  "params": {},
+                  "path": "",
+                  "type": "customer-service"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-member",
+      "name": "会员权益",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "ql-home-member",
+          "type": "member-benefits",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "#ffffff",
+              "styleLbRadius": 12,
+              "styleLtRadius": 12,
+              "styleRbRadius": 12,
+              "styleRtRadius": 12,
+              "styleTopMargin": 10,
+              "styleLeftMargin": 10,
+              "styleTopPadding": 10,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 12,
+              "styleRightMargin": 10,
+              "styleBottomMargin": 0,
+              "styleRightPadding": 12,
+              "styleBottomPadding": 10
+            },
+            "dataSource": {
+              "mode": "manual",
+              "targetIds": []
+            },
+            "entries": [
+              {
+                "id": "benefit-price",
+                "description": "会员专享价 天天有",
+                "iconUrl": "",
+                "link": {
+                  "params": {},
+                  "path": "",
+                  "type": "category",
+                  "targetId": "9510000000000000001"
+                },
+                "title": "会员价专区"
+              },
+              {
+                "id": "benefit-points",
+                "description": "购物积分 翻倍抵扣",
+                "iconUrl": "",
+                "link": {
+                  "params": {},
+                  "path": "",
+                  "type": "customer-service"
+                },
+                "title": "积分翻倍"
+              },
+              {
+                "id": "benefit-birthday",
+                "description": "生日好礼 免费领",
+                "iconUrl": "",
+                "link": {
+                  "params": {},
+                  "path": "",
+                  "type": "customer-service"
+                },
+                "title": "生日礼遇"
+              },
+              {
+                "id": "benefit-service",
+                "description": "专属客服 优先响应",
+                "iconUrl": "",
+                "link": {
+                  "params": {},
+                  "path": "",
+                  "type": "customer-service"
+                },
+                "title": "专属客服"
+              }
+            ],
+            "title": "品质会员"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-waterfall",
+      "name": "猜你喜欢",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "ql-home-waterfall",
+          "type": "goods-waterfall",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "#ffffff",
+              "styleLbRadius": 12,
+              "styleLtRadius": 12,
+              "styleRbRadius": 12,
+              "styleRtRadius": 12,
+              "styleTopMargin": 10,
+              "styleLeftMargin": 10,
+              "styleTopPadding": 10,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 12,
+              "styleRightMargin": 10,
+              "styleBottomMargin": 0,
+              "styleRightPadding": 12,
+              "styleBottomPadding": 10
+            },
+            "columns": 2,
+            "count": 6,
+            "dataSource": {
+              "cacheTtl": 60,
+              "categoryId": "",
+              "mode": "automatic",
+              "sort": "sales",
+              "targetIds": []
+            },
+            "showOriginalPrice": true,
+            "showPrice": true,
+            "showSales": true,
+            "title": "猜你喜欢"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-notice",
+      "name": "服务公告",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "ql-home-notice",
+          "type": "notice",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "#ffffff",
+              "styleLbRadius": 12,
+              "styleLtRadius": 12,
+              "styleRbRadius": 12,
+              "styleRtRadius": 12,
+              "styleTopMargin": 10,
+              "styleLeftMargin": 10,
+              "styleTopPadding": 0,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 12,
+              "styleRightMargin": 10,
+              "styleBottomMargin": 10,
+              "styleRightPadding": 12,
+              "styleBottomPadding": 0
+            },
+            "contentList": [
+              {
+                "content": "品质生活馆 · 每日新鲜直送，会员日全场 88 折",
+                "type": 0,
+                "url": ""
+              }
+            ],
+            "bgColor": "#fff8e6",
+            "content": "品质生活馆 · 每日新鲜直送，会员日全场 88 折",
+            "iconColor": "#ff9900",
+            "textColor": "#5a3c14"
+          }
+        }
+      ]
+    }
+  ]
+}',
+       3, '1', '电商零售', '1',
+       0, '0', 34,
+       NOW(), '0', '1590229800633634816', 'system', 'system'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `page_design_template` WHERE `id` = '2110000000000000720');
+
+-- 品质生活馆 · 分类页（品质生活馆套 / pageType=3）
+INSERT INTO `page_design_template`
+    (`id`, `template_name`, `template_type`, `page_type`, `template_content`,
+     `schema_version`, `system_flag`, `industry_tag`, `market_status`,
+     `download_count`, `status`, `sort`,
+     `create_time`, `del_flag`, `tenant_id`, `create_by`, `update_by`)
+SELECT '2110000000000000721', '品质生活馆 · 分类页', '0', '3', '{
+  "schemaVersion": 3,
+  "themeRef": "",
+  "page": {
+    "backgroundColor": "#F5F6FA",
+    "backgroundImage": "",
+    "enablePullDownRefresh": false,
+    "navigation": {
+      "backgroundColor": "#ffffff",
+      "textColor": "#000000",
+      "title": "",
+      "visible": false
+    },
+    "share": {
+      "description": "",
+      "imageUrl": "",
+      "title": ""
+    }
+  },
+  "sections": [
+    {
+      "id": "section-cat-banner",
+      "name": "活动轮播",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 6,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "ql-cat-banner",
+          "type": "swiper-banner",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 10,
+              "styleRightMargin": 10,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            },
+            "height": 120,
+            "interval": 5000,
+            "imageList": [
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/b557d7db-1d09-4f4a-b5fa-03ba07fcd5d7.jpg"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/92268911-4c17-4443-a5bd-a90c6f4f674a.jpg"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/199329f6-7f5c-48b8-8fef-9b403be68b25.jpg"
+              }
+            ],
+            "borderRadius": 12,
+            "indicatorDots": true,
+            "indicatorColor": "rgba(255, 255, 255, 0.3)",
+            "indicatorActiveColor": "#ffffff"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-cat-ranking",
+      "name": "品质热销榜",
+      "type": "default",
+      "style": {
+        "backgroundColor": "#ffffff",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 8,
+        "marginY": 8,
+        "paddingX": 12,
+        "paddingY": 12,
+        "radius": 12,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "ql-cat-ranking",
+          "type": "goods-ranking",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "#ffffff",
+              "bgEndColor": "#ffffff",
+              "bgPicUrl": ""
+            },
+            "title": "品质热销榜",
+            "count": 5,
+            "showRankNumber": true,
+            "showOriginalPrice": true,
+            "dataSource": {
+              "mode": "ranking",
+              "metric": "sales"
+            },
+            "emptyStrategy": "hide",
+            "invalidStrategy": "hide"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-cat-waterfall",
+      "name": "精选好物",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "ql-cat-waterfall",
+          "type": "goods-waterfall",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "#ffffff",
+              "styleLbRadius": 12,
+              "styleLtRadius": 12,
+              "styleRbRadius": 12,
+              "styleRtRadius": 12,
+              "styleTopMargin": 10,
+              "styleLeftMargin": 10,
+              "styleTopPadding": 10,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 12,
+              "styleRightMargin": 10,
+              "styleBottomMargin": 0,
+              "styleRightPadding": 12,
+              "styleBottomPadding": 10
+            },
+            "columns": 2,
+            "count": 6,
+            "dataSource": {
+              "cacheTtl": 60,
+              "categoryId": "",
+              "mode": "automatic",
+              "sort": "sales",
+              "targetIds": []
+            },
+            "showOriginalPrice": true,
+            "showPrice": true,
+            "showSales": true,
+            "title": "精选好物"
+          }
+        }
+      ]
+    }
+  ]
+}',
+       3, '1', '电商零售', '1',
+       0, '0', 35,
+       NOW(), '0', '1590229800633634816', 'system', 'system'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `page_design_template` WHERE `id` = '2110000000000000721');
+
+-- 品质生活馆 · 个人中心页（品质生活馆套 / pageType=4）
+INSERT INTO `page_design_template`
+    (`id`, `template_name`, `template_type`, `page_type`, `template_content`,
+     `schema_version`, `system_flag`, `industry_tag`, `market_status`,
+     `download_count`, `status`, `sort`,
+     `create_time`, `del_flag`, `tenant_id`, `create_by`, `update_by`)
+SELECT '2110000000000000722', '品质生活馆 · 个人中心页', '0', '4', '{
+  "schemaVersion": 3,
+  "themeRef": "",
+  "page": {
+    "backgroundColor": "#F8F8F8",
+    "backgroundImage": "",
+    "enablePullDownRefresh": false,
+    "navigation": {
+      "backgroundColor": "#ffffff",
+      "textColor": "#000000",
+      "title": "",
+      "visible": false
+    },
+    "share": {
+      "description": "",
+      "imageUrl": "",
+      "title": ""
+    }
+  },
+  "sections": [
+    {
+      "id": "section-uc-banner",
+      "name": "会员活动",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 10,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "ql-uc-banner",
+          "type": "image-ad",
+          "version": 1,
+          "props": {
+            "type": "1",
+            "height": 162,
+            "imgRadius": 12,
+            "imageList": [
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/bd253fac-2a13-4ff2-a611-1beb95bca09e.jpg"
+              }
+            ],
+            "interval": 5,
+            "indicatorDots": false,
+            "swiperType": "1",
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 10,
+              "styleRightMargin": 10,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            },
+            "commonImageStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-uc-coupon",
+      "name": "领券中心",
+      "type": "default",
+      "style": {
+        "backgroundColor": "#ffffff",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 10,
+        "marginY": 0,
+        "paddingX": 12,
+        "paddingY": 12,
+        "radius": 12,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "ql-uc-coupon",
+          "type": "coupon-combo",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "rgba(255, 255, 255, 1)",
+              "styleLbRadius": 0,
+              "styleLtRadius": 0,
+              "styleRbRadius": 0,
+              "styleRtRadius": 0,
+              "styleTopMargin": 0,
+              "styleLeftMargin": 0,
+              "styleTopPadding": 0,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 0,
+              "styleRightMargin": 0,
+              "styleBottomMargin": 0,
+              "styleRightPadding": 0,
+              "styleBottomPadding": 0
+            },
+            "count": 3,
+            "dataSource": {
+              "cacheTtl": 60,
+              "mode": "automatic",
+              "targetIds": []
+            },
+            "showReceiveBtn": true,
+            "showThreshold": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-uc-notice",
+      "name": "服务公告",
+      "type": "default",
+      "style": {
+        "backgroundColor": "#ffffff",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 10,
+        "marginY": 0,
+        "paddingX": 12,
+        "paddingY": 6,
+        "radius": 12,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "ql-uc-notice",
+          "type": "notice",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "#ffffff",
+              "bgEndColor": "#ffffff",
+              "bgPicUrl": ""
+            },
+            "contentList": [
+              {
+                "content": "品质会员权益升级 · 积分当钱花",
+                "type": 0,
+                "url": ""
+              }
+            ],
+            "bgColor": "#fff8e6",
+            "content": "品质会员权益升级 · 积分当钱花",
+            "iconColor": "#ff9900",
+            "textColor": "#5a3c14"
+          }
+        }
+      ]
+    }
+  ]
+}',
+       3, '1', '电商零售', '1',
+       0, '0', 36,
+       NOW(), '0', '1590229800633634816', 'system', 'system'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `page_design_template` WHERE `id` = '2110000000000000722');
+
+-- 邻里团购 · 商城首页（邻里团购套 / pageType=1）
+INSERT INTO `page_design_template`
+    (`id`, `template_name`, `template_type`, `page_type`, `template_content`,
+     `schema_version`, `system_flag`, `industry_tag`, `market_status`,
+     `download_count`, `status`, `sort`,
+     `create_time`, `del_flag`, `tenant_id`, `create_by`, `update_by`)
+SELECT '2110000000000000723', '邻里团购 · 商城首页', '0', '1', '{
+  "schemaVersion": 3,
+  "themeRef": "",
+  "page": {
+    "backgroundColor": "#F7F8FA",
+    "backgroundImage": "",
+    "enablePullDownRefresh": false,
+    "navigation": {
+      "backgroundColor": "#ffffff",
+      "textColor": "#000000",
+      "title": "",
+      "visible": false
+    },
+    "share": {
+      "description": "",
+      "imageUrl": "",
+      "title": ""
+    }
+  },
+  "sections": [
+    {
+      "id": "section-brand",
+      "name": "品牌页头",
+      "type": "default",
+      "style": {
+        "backgroundColor": "#00A859",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 12,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "lt-home-search",
+          "type": "search-bar",
+          "version": 1,
+          "props": {
+            "style": "1",
+            "height": 36,
+            "bgColor": "rgb(242, 242, 242)",
+            "hotWords": "",
+            "showScan": true,
+            "textAlign": "left",
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "rgba(255, 255, 255, 1)",
+              "styleLbRadius": 0,
+              "styleLtRadius": 0,
+              "styleRbRadius": 0,
+              "styleRtRadius": 0,
+              "styleTopMargin": 0,
+              "styleLeftMargin": 0,
+              "styleTopPadding": 0,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 0,
+              "styleRightMargin": 0,
+              "styleBottomMargin": 0,
+              "styleRightPadding": 0,
+              "styleBottomPadding": 0
+            },
+            "placeholder": "搜索邻里好货",
+            "borderRadius": 16,
+            "backgroundColor": "#ffffff"
+          }
+        },
+        {
+          "id": "lt-home-banner",
+          "type": "swiper-banner",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 10,
+              "styleRightMargin": 10,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            },
+            "height": 160,
+            "interval": 5000,
+            "imageList": [
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/b557d7db-1d09-4f4a-b5fa-03ba07fcd5d7.jpg"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/92268911-4c17-4443-a5bd-a90c6f4f674a.jpg"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/199329f6-7f5c-48b8-8fef-9b403be68b25.jpg"
+              }
+            ],
+            "borderRadius": 12,
+            "indicatorDots": true,
+            "indicatorColor": "rgba(255, 255, 255, 0.3)",
+            "indicatorActiveColor": "#ffffff"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-kingkong",
+      "name": "分类导航",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "lt-home-tabnav",
+          "type": "tab-nav",
+          "version": 1,
+          "props": {
+            "type": "3",
+            "imgSize": 44,
+            "navList": [
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/4da110f9-7661-50f0-af81-e9197545f933.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {
+                    "categoryFirstId": "9510000000000000002",
+                    "categorySecondId": ""
+                  },
+                  "targetId": "9510000000000000002"
+                },
+                "title": "水果"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/811e3097-3297-517c-8cd3-a68abb886b5d.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {
+                    "categoryFirstId": "9510000000000000001",
+                    "categorySecondId": ""
+                  },
+                  "targetId": "9510000000000000001"
+                },
+                "title": "蔬菜"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/44541e06-523e-585f-b2a7-88388cdc8c75.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {
+                    "categoryFirstId": "9510000000000000003",
+                    "categorySecondId": ""
+                  },
+                  "targetId": "9510000000000000003"
+                },
+                "title": "肉禽蛋"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/06303430-7745-5104-b9a5-072ae1042f3d.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000004"
+                },
+                "title": "海鲜水产"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/63ab6b55-8bfb-56ab-b633-f49b722f3082.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000005"
+                },
+                "title": "乳品烘焙"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/713e6001-1493-540e-9f36-bc061fd89330.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000006"
+                },
+                "title": "熟食预制菜"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/bc1c972d-f06e-50aa-b4b5-994719bef3ed.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9520000000000000028"
+                },
+                "title": "面点主食"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/d912a375-2d39-5aaa-84aa-e0f87e2684bd.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000009"
+                },
+                "title": "酒水饮料"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/32b003a3-ea83-5a53-a4e3-5e475c2c9c9a.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000008"
+                },
+                "title": "休闲零食"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/4358fecb-11ac-528f-8983-ead8e683bb54.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000007"
+                },
+                "title": "米面粮油"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/2d228933-e1b5-5195-8510-ccaed5322574.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000012"
+                },
+                "title": "鲜花绿植"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/d80b85c1-4299-5021-981f-36336b8f9ccf.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9520000000000000025"
+                },
+                "title": "快手菜"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/bbb62486-ff6e-52a3-8383-04436bd085e2.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000011"
+                },
+                "title": "日用百货"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/a2faf3a8-af8a-5d90-872a-275f531ef415.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9510000000000000010"
+                },
+                "title": "个护清洁"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/006b72af-28ce-5be6-a160-3871fb55f2cd.jpg",
+                "link": {
+                  "path": "",
+                  "type": "category",
+                  "params": {},
+                  "targetId": "9520000000000000006"
+                },
+                "title": "豆制品"
+              }
+            ],
+            "showNum": 5,
+            "pageRows": 3,
+            "fontColor": "#303133",
+            "imgRadius": 22,
+            "scrollShow": false,
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "rgba(255, 255, 255, 1)",
+              "styleLbRadius": 16,
+              "styleLtRadius": 16,
+              "styleRbRadius": 16,
+              "styleRtRadius": 16,
+              "styleTopMargin": 12,
+              "styleLeftMargin": 12,
+              "styleTopPadding": 0,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 12,
+              "styleRightMargin": 12,
+              "styleBottomMargin": 12,
+              "styleRightPadding": 12,
+              "styleBottomPadding": 0
+            },
+            "displayMode": "pager",
+            "indicatorDots": true,
+            "indicatorColor": "rgba(0, 0, 0, 0.2)",
+            "indicatorActiveColor": "#00A859"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-groupbuy",
+      "name": "邻里拼团",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "lt-home-groupbuy",
+          "type": "limited-activity",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "#ffffff",
+              "styleLbRadius": 16,
+              "styleLtRadius": 16,
+              "styleRbRadius": 16,
+              "styleRtRadius": 16,
+              "styleTopMargin": 0,
+              "styleLeftMargin": 12,
+              "styleTopPadding": 10,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 12,
+              "styleRightMargin": 12,
+              "styleBottomMargin": 0,
+              "styleRightPadding": 12,
+              "styleBottomPadding": 10
+            },
+            "title": "邻里拼团",
+            "count": 3,
+            "dataSource": {
+              "mode": "automatic",
+              "sort": "start-time"
+            },
+            "emptyStrategy": "hide",
+            "invalidStrategy": "hide",
+            "showCountdown": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-discount",
+      "name": "限时折扣",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "lt-home-discount",
+          "type": "discount",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "#ffffff",
+              "styleLbRadius": 16,
+              "styleLtRadius": 16,
+              "styleRbRadius": 16,
+              "styleRtRadius": 16,
+              "styleTopMargin": 12,
+              "styleLeftMargin": 12,
+              "styleTopPadding": 10,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 12,
+              "styleRightMargin": 12,
+              "styleBottomMargin": 12,
+              "styleRightPadding": 12,
+              "styleBottomPadding": 10
+            },
+            "title": "限时折扣",
+            "count": 3,
+            "dataSource": {
+              "mode": "automatic"
+            },
+            "emptyStrategy": "hide",
+            "invalidStrategy": "hide",
+            "showCountdown": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-coupon",
+      "name": "领券中心",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "lt-home-coupon",
+          "type": "coupon-combo",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "#ffffff",
+              "styleLbRadius": 16,
+              "styleLtRadius": 16,
+              "styleRbRadius": 16,
+              "styleRtRadius": 16,
+              "styleTopMargin": 0,
+              "styleLeftMargin": 12,
+              "styleTopPadding": 10,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 12,
+              "styleRightMargin": 12,
+              "styleBottomMargin": 12,
+              "styleRightPadding": 12,
+              "styleBottomPadding": 10
+            },
+            "count": 3,
+            "dataSource": {
+              "cacheTtl": 60,
+              "mode": "automatic",
+              "targetIds": []
+            },
+            "showReceiveBtn": true,
+            "showThreshold": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-today",
+      "name": "今日特价",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "lt-home-today",
+          "type": "goods-scroll",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "#ffffff",
+              "styleLbRadius": 16,
+              "styleLtRadius": 16,
+              "styleRbRadius": 16,
+              "styleRtRadius": 16,
+              "styleTopMargin": 0,
+              "styleLeftMargin": 12,
+              "styleTopPadding": 10,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 12,
+              "styleRightMargin": 12,
+              "styleBottomMargin": 12,
+              "styleRightPadding": 12,
+              "styleBottomPadding": 10
+            },
+            "title": "今日特价",
+            "subtitle": "好货不贵",
+            "displayMode": "pager",
+            "perView": 3,
+            "interval": 3000,
+            "count": 8,
+            "showSales": false,
+            "showOriginalPrice": true,
+            "dataSource": {
+              "mode": "rule",
+              "sort": "sales"
+            },
+            "emptyStrategy": "hide",
+            "invalidStrategy": "hide"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-hot",
+      "name": "人气好货",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "lt-home-hot",
+          "type": "goods-group",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "#ffffff",
+              "styleLbRadius": 16,
+              "styleLtRadius": 16,
+              "styleRbRadius": 16,
+              "styleRtRadius": 16,
+              "styleTopMargin": 0,
+              "styleLeftMargin": 12,
+              "styleTopPadding": 10,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 12,
+              "styleRightMargin": 12,
+              "styleBottomMargin": 12,
+              "styleRightPadding": 12,
+              "styleBottomPadding": 10
+            },
+            "title": "人气好货",
+            "count": 6,
+            "columns": 2,
+            "showSales": true,
+            "showOriginalPrice": true,
+            "dataSource": {
+              "mode": "rule",
+              "sort": "sales"
+            },
+            "emptyStrategy": "placeholder",
+            "invalidStrategy": "hide"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-community",
+      "name": "社区服务宫格",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "lt-home-entry",
+          "type": "marketing-entry",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "#ffffff",
+              "styleLbRadius": 16,
+              "styleLtRadius": 16,
+              "styleRbRadius": 16,
+              "styleRtRadius": 16,
+              "styleTopMargin": 0,
+              "styleLeftMargin": 12,
+              "styleTopPadding": 10,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 12,
+              "styleRightMargin": 12,
+              "styleBottomMargin": 12,
+              "styleRightPadding": 12,
+              "styleBottomPadding": 10
+            },
+            "columns": 4,
+            "count": 4,
+            "dataSource": {
+              "mode": "automatic"
+            },
+            "emptyStrategy": "placeholder",
+            "invalidStrategy": "hide",
+            "entries": [
+              {
+                "id": "entry-fruit",
+                "title": "时令鲜果",
+                "iconUrl": "",
+                "link": {
+                  "params": {
+                    "categoryFirstId": "9510000000000000002",
+                    "categorySecondId": ""
+                  },
+                  "path": "",
+                  "type": "category",
+                  "targetId": "9510000000000000002"
+                }
+              },
+              {
+                "id": "entry-meat",
+                "title": "放心肉禽",
+                "iconUrl": "",
+                "link": {
+                  "params": {
+                    "categoryFirstId": "9510000000000000003",
+                    "categorySecondId": ""
+                  },
+                  "path": "",
+                  "type": "category",
+                  "targetId": "9510000000000000003"
+                }
+              },
+              {
+                "id": "entry-leader",
+                "title": "联系团长",
+                "iconUrl": "",
+                "link": {
+                  "params": {},
+                  "path": "",
+                  "type": "customer-service"
+                }
+              },
+              {
+                "id": "entry-pickup",
+                "title": "到店自提",
+                "iconUrl": "",
+                "link": {
+                  "params": {},
+                  "path": "",
+                  "type": "customer-service"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}',
+       3, '1', '电商零售', '1',
+       0, '0', 37,
+       NOW(), '0', '1590229800633634816', 'system', 'system'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `page_design_template` WHERE `id` = '2110000000000000723');
+
+-- 邻里团购 · 分类页（邻里团购套 / pageType=3）
+INSERT INTO `page_design_template`
+    (`id`, `template_name`, `template_type`, `page_type`, `template_content`,
+     `schema_version`, `system_flag`, `industry_tag`, `market_status`,
+     `download_count`, `status`, `sort`,
+     `create_time`, `del_flag`, `tenant_id`, `create_by`, `update_by`)
+SELECT '2110000000000000724', '邻里团购 · 分类页', '0', '3', '{
+  "schemaVersion": 3,
+  "themeRef": "",
+  "page": {
+    "backgroundColor": "#F7F8FA",
+    "backgroundImage": "",
+    "enablePullDownRefresh": false,
+    "navigation": {
+      "backgroundColor": "#ffffff",
+      "textColor": "#000000",
+      "title": "",
+      "visible": false
+    },
+    "share": {
+      "description": "",
+      "imageUrl": "",
+      "title": ""
+    }
+  },
+  "sections": [
+    {
+      "id": "section-cat-banner",
+      "name": "活动轮播",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 6,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "lt-cat-banner",
+          "type": "swiper-banner",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 10,
+              "styleRightMargin": 10,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            },
+            "height": 120,
+            "interval": 5000,
+            "imageList": [
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/bd253fac-2a13-4ff2-a611-1beb95bca09e.jpg"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/92268911-4c17-4443-a5bd-a90c6f4f674a.jpg"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/199329f6-7f5c-48b8-8fef-9b403be68b25.jpg"
+              }
+            ],
+            "borderRadius": 12,
+            "indicatorDots": true,
+            "indicatorColor": "rgba(255, 255, 255, 0.3)",
+            "indicatorActiveColor": "#ffffff"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-cat-groupbuy",
+      "name": "邻里拼团",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "lt-cat-groupbuy",
+          "type": "limited-activity",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "#ffffff",
+              "styleLbRadius": 16,
+              "styleLtRadius": 16,
+              "styleRbRadius": 16,
+              "styleRtRadius": 16,
+              "styleTopMargin": 12,
+              "styleLeftMargin": 12,
+              "styleTopPadding": 10,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 12,
+              "styleRightMargin": 12,
+              "styleBottomMargin": 0,
+              "styleRightPadding": 12,
+              "styleBottomPadding": 10
+            },
+            "title": "邻里拼团",
+            "count": 3,
+            "dataSource": {
+              "mode": "automatic",
+              "sort": "start-time"
+            },
+            "emptyStrategy": "hide",
+            "invalidStrategy": "hide",
+            "showCountdown": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-cat-ranking",
+      "name": "社区热销榜",
+      "type": "default",
+      "style": {
+        "backgroundColor": "#ffffff",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 12,
+        "marginY": 12,
+        "paddingX": 12,
+        "paddingY": 12,
+        "radius": 16,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "lt-cat-ranking",
+          "type": "goods-ranking",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "#ffffff",
+              "bgEndColor": "#ffffff",
+              "bgPicUrl": ""
+            },
+            "title": "社区热销榜",
+            "count": 5,
+            "showRankNumber": true,
+            "showOriginalPrice": true,
+            "dataSource": {
+              "mode": "ranking",
+              "metric": "sales"
+            },
+            "emptyStrategy": "hide",
+            "invalidStrategy": "hide"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-cat-scroll",
+      "name": "掌柜推荐",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "lt-cat-scroll",
+          "type": "goods-scroll",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "#ffffff",
+              "styleLbRadius": 16,
+              "styleLtRadius": 16,
+              "styleRbRadius": 16,
+              "styleRtRadius": 16,
+              "styleTopMargin": 0,
+              "styleLeftMargin": 12,
+              "styleTopPadding": 10,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 12,
+              "styleRightMargin": 12,
+              "styleBottomMargin": 12,
+              "styleRightPadding": 12,
+              "styleBottomPadding": 10
+            },
+            "title": "掌柜推荐",
+            "subtitle": "团长精选 新鲜直达",
+            "displayMode": "pager",
+            "perView": 3,
+            "interval": 3000,
+            "count": 8,
+            "showSales": false,
+            "showOriginalPrice": true,
+            "dataSource": {
+              "mode": "rule",
+              "sort": "sales"
+            },
+            "emptyStrategy": "hide",
+            "invalidStrategy": "hide"
+          }
+        }
+      ]
+    }
+  ]
+}',
+       3, '1', '电商零售', '1',
+       0, '0', 38,
+       NOW(), '0', '1590229800633634816', 'system', 'system'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `page_design_template` WHERE `id` = '2110000000000000724');
+
+-- 邻里团购 · 个人中心页（邻里团购套 / pageType=4）
+INSERT INTO `page_design_template`
+    (`id`, `template_name`, `template_type`, `page_type`, `template_content`,
+     `schema_version`, `system_flag`, `industry_tag`, `market_status`,
+     `download_count`, `status`, `sort`,
+     `create_time`, `del_flag`, `tenant_id`, `create_by`, `update_by`)
+SELECT '2110000000000000725', '邻里团购 · 个人中心页', '0', '4', '{
+  "schemaVersion": 3,
+  "themeRef": "",
+  "page": {
+    "backgroundColor": "#F7F8FA",
+    "backgroundImage": "",
+    "enablePullDownRefresh": false,
+    "navigation": {
+      "backgroundColor": "#ffffff",
+      "textColor": "#000000",
+      "title": "",
+      "visible": false
+    },
+    "share": {
+      "description": "",
+      "imageUrl": "",
+      "title": ""
+    }
+  },
+  "sections": [
+    {
+      "id": "section-uc-banner",
+      "name": "会员活动",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 10,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "lt-uc-banner",
+          "type": "image-ad",
+          "version": 1,
+          "props": {
+            "type": "1",
+            "height": 162,
+            "imgRadius": 12,
+            "imageList": [
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/a2e53a7d-5a7a-4e51-a0e8-bf957e5369ea.jpg"
+              }
+            ],
+            "interval": 5,
+            "indicatorDots": false,
+            "swiperType": "1",
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 10,
+              "styleRightMargin": 10,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            },
+            "commonImageStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-uc-coupon",
+      "name": "领券中心",
+      "type": "default",
+      "style": {
+        "backgroundColor": "#ffffff",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 12,
+        "marginY": 0,
+        "paddingX": 12,
+        "paddingY": 12,
+        "radius": 16,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "lt-uc-coupon",
+          "type": "coupon-combo",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "rgba(255, 255, 255, 1)",
+              "styleLbRadius": 0,
+              "styleLtRadius": 0,
+              "styleRbRadius": 0,
+              "styleRtRadius": 0,
+              "styleTopMargin": 0,
+              "styleLeftMargin": 0,
+              "styleTopPadding": 0,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 0,
+              "styleRightMargin": 0,
+              "styleBottomMargin": 0,
+              "styleRightPadding": 0,
+              "styleBottomPadding": 0
+            },
+            "count": 3,
+            "dataSource": {
+              "cacheTtl": 60,
+              "mode": "automatic",
+              "targetIds": []
+            },
+            "showReceiveBtn": true,
+            "showThreshold": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-uc-notice",
+      "name": "服务公告",
+      "type": "default",
+      "style": {
+        "backgroundColor": "#ffffff",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 12,
+        "marginY": 12,
+        "paddingX": 12,
+        "paddingY": 6,
+        "radius": 16,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "lt-uc-notice",
+          "type": "notice",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "#ffffff",
+              "bgEndColor": "#ffffff",
+              "bgPicUrl": ""
+            },
+            "contentList": [
+              {
+                "content": "今日开团 · 团长直送 邻里自提更方便",
+                "type": 0,
+                "url": ""
+              }
+            ],
+            "bgColor": "#E8F7EE",
+            "content": "今日开团 · 团长直送 邻里自提更方便",
+            "iconColor": "#00A859",
+            "textColor": "#1A5C3A"
+          }
+        }
+      ]
+    }
+  ]
+}',
+       3, '1', '电商零售', '1',
+       0, '0', 39,
+       NOW(), '0', '1590229800633634816', 'system', 'system'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `page_design_template` WHERE `id` = '2110000000000000725');
+
+-- 直播甄选 · 商城首页（直播甄选套 / pageType=1）
+INSERT INTO `page_design_template`
+    (`id`, `template_name`, `template_type`, `page_type`, `template_content`,
+     `schema_version`, `system_flag`, `industry_tag`, `market_status`,
+     `download_count`, `status`, `sort`,
+     `create_time`, `del_flag`, `tenant_id`, `create_by`, `update_by`)
+SELECT '2110000000000000726', '直播甄选 · 商城首页', '0', '1', '{
+  "schemaVersion": 3,
+  "themeRef": "",
+  "page": {
+    "backgroundColor": "#F7F7F7",
+    "backgroundImage": "",
+    "enablePullDownRefresh": false,
+    "navigation": {
+      "backgroundColor": "#ffffff",
+      "textColor": "#000000",
+      "title": "",
+      "visible": false
+    },
+    "share": {
+      "description": "",
+      "imageUrl": "",
+      "title": ""
+    }
+  },
+  "sections": [
+    {
+      "id": "section-brand",
+      "name": "品牌页头",
+      "type": "default",
+      "style": {
+        "backgroundColor": "#FF5000",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 12,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "zs-home-search",
+          "type": "search-bar",
+          "version": 1,
+          "props": {
+            "style": "1",
+            "height": 36,
+            "bgColor": "rgb(242, 242, 242)",
+            "hotWords": "",
+            "showScan": true,
+            "textAlign": "left",
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "rgba(255, 255, 255, 1)",
+              "styleLbRadius": 0,
+              "styleLtRadius": 0,
+              "styleRbRadius": 0,
+              "styleRtRadius": 0,
+              "styleTopMargin": 0,
+              "styleLeftMargin": 0,
+              "styleTopPadding": 0,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 0,
+              "styleRightMargin": 0,
+              "styleBottomMargin": 0,
+              "styleRightPadding": 0,
+              "styleBottomPadding": 0
+            },
+            "placeholder": "搜索直播好物",
+            "borderRadius": 16,
+            "backgroundColor": "#ffffff"
+          }
+        },
+        {
+          "id": "zs-home-banner",
+          "type": "swiper-banner",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 10,
+              "styleRightMargin": 10,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            },
+            "height": 160,
+            "interval": 5000,
+            "imageList": [
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/bd253fac-2a13-4ff2-a611-1beb95bca09e.jpg"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/92268911-4c17-4443-a5bd-a90c6f4f674a.jpg"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/199329f6-7f5c-48b8-8fef-9b403be68b25.jpg"
+              }
+            ],
+            "borderRadius": 12,
+            "indicatorDots": true,
+            "indicatorColor": "rgba(255, 255, 255, 0.3)",
+            "indicatorActiveColor": "#ffffff"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-live",
+      "name": "直播甄选",
+      "type": "default",
+      "style": {
+        "backgroundColor": "#1F1F1F",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 10,
+        "marginY": 10,
+        "paddingX": 12,
+        "paddingY": 12,
+        "radius": 12,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "zs-home-live",
+          "type": "video-live",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "#ffffff",
+              "styleLbRadius": 12,
+              "styleLtRadius": 12,
+              "styleRbRadius": 12,
+              "styleRtRadius": 12,
+              "styleTopMargin": 0,
+              "styleLeftMargin": 0,
+              "styleTopPadding": 12,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 12,
+              "styleRightMargin": 0,
+              "styleBottomMargin": 0,
+              "styleRightPadding": 12,
+              "styleBottomPadding": 12
+            },
+            "coverUrl": "",
+            "liveId": "",
+            "mode": "live",
+            "title": "直播甄选",
+            "videoUrl": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-ranking",
+      "name": "主播热销榜",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "zs-home-ranking",
+          "type": "goods-ranking",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "#ffffff",
+              "styleLbRadius": 12,
+              "styleLtRadius": 12,
+              "styleRbRadius": 12,
+              "styleRtRadius": 12,
+              "styleTopMargin": 0,
+              "styleLeftMargin": 10,
+              "styleTopPadding": 10,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 12,
+              "styleRightMargin": 10,
+              "styleBottomMargin": 0,
+              "styleRightPadding": 12,
+              "styleBottomPadding": 10
+            },
+            "title": "主播热销榜",
+            "count": 5,
+            "showRankNumber": true,
+            "showOriginalPrice": true,
+            "dataSource": {
+              "mode": "ranking",
+              "metric": "sales"
+            },
+            "emptyStrategy": "hide",
+            "invalidStrategy": "hide"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-coupon",
+      "name": "直播专属券",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "zs-home-coupon",
+          "type": "coupon-combo",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "#ffffff",
+              "styleLbRadius": 12,
+              "styleLtRadius": 12,
+              "styleRbRadius": 12,
+              "styleRtRadius": 12,
+              "styleTopMargin": 10,
+              "styleLeftMargin": 10,
+              "styleTopPadding": 10,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 12,
+              "styleRightMargin": 10,
+              "styleBottomMargin": 0,
+              "styleRightPadding": 12,
+              "styleBottomPadding": 10
+            },
+            "count": 3,
+            "dataSource": {
+              "cacheTtl": 60,
+              "mode": "automatic",
+              "targetIds": []
+            },
+            "showReceiveBtn": true,
+            "showThreshold": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-waterfall",
+      "name": "直播同款",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "zs-home-waterfall",
+          "type": "goods-waterfall",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "#ffffff",
+              "styleLbRadius": 12,
+              "styleLtRadius": 12,
+              "styleRbRadius": 12,
+              "styleRtRadius": 12,
+              "styleTopMargin": 10,
+              "styleLeftMargin": 10,
+              "styleTopPadding": 10,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 12,
+              "styleRightMargin": 10,
+              "styleBottomMargin": 0,
+              "styleRightPadding": 12,
+              "styleBottomPadding": 10
+            },
+            "columns": 2,
+            "count": 6,
+            "dataSource": {
+              "cacheTtl": 60,
+              "categoryId": "",
+              "mode": "automatic",
+              "sort": "sales",
+              "targetIds": []
+            },
+            "showOriginalPrice": true,
+            "showPrice": true,
+            "showSales": true,
+            "title": "直播同款 · 猜你喜欢"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-member",
+      "name": "会员专享",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "zs-home-member",
+          "type": "member-benefits",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "#ffffff",
+              "styleLbRadius": 12,
+              "styleLtRadius": 12,
+              "styleRbRadius": 12,
+              "styleRtRadius": 12,
+              "styleTopMargin": 10,
+              "styleLeftMargin": 10,
+              "styleTopPadding": 10,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 12,
+              "styleRightMargin": 10,
+              "styleBottomMargin": 0,
+              "styleRightPadding": 12,
+              "styleBottomPadding": 10
+            },
+            "dataSource": {
+              "mode": "manual",
+              "targetIds": []
+            },
+            "entries": [
+              {
+                "id": "benefit-price",
+                "description": "会员专享价 天天有",
+                "iconUrl": "",
+                "link": {
+                  "params": {},
+                  "path": "",
+                  "type": "category",
+                  "targetId": "9510000000000000001"
+                },
+                "title": "会员价专区"
+              },
+              {
+                "id": "benefit-points",
+                "description": "购物积分 翻倍抵扣",
+                "iconUrl": "",
+                "link": {
+                  "params": {},
+                  "path": "",
+                  "type": "customer-service"
+                },
+                "title": "积分翻倍"
+              },
+              {
+                "id": "benefit-birthday",
+                "description": "生日好礼 免费领",
+                "iconUrl": "",
+                "link": {
+                  "params": {},
+                  "path": "",
+                  "type": "customer-service"
+                },
+                "title": "生日礼遇"
+              },
+              {
+                "id": "benefit-service",
+                "description": "专属客服 优先响应",
+                "iconUrl": "",
+                "link": {
+                  "params": {},
+                  "path": "",
+                  "type": "customer-service"
+                },
+                "title": "专属客服"
+              }
+            ],
+            "title": "会员专享"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-notice",
+      "name": "服务公告",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "zs-home-notice",
+          "type": "notice",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "#ffffff",
+              "styleLbRadius": 12,
+              "styleLtRadius": 12,
+              "styleRbRadius": 12,
+              "styleRtRadius": 12,
+              "styleTopMargin": 10,
+              "styleLeftMargin": 10,
+              "styleTopPadding": 0,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 12,
+              "styleRightMargin": 10,
+              "styleBottomMargin": 10,
+              "styleRightPadding": 12,
+              "styleBottomPadding": 0
+            },
+            "contentList": [
+              {
+                "content": "直播上新 · 每晚 8 点不见不散",
+                "type": 0,
+                "url": ""
+              }
+            ],
+            "bgColor": "#fff8e6",
+            "content": "直播上新 · 每晚 8 点不见不散",
+            "iconColor": "#ff9900",
+            "textColor": "#5a3c14"
+          }
+        }
+      ]
+    }
+  ]
+}',
+       3, '1', '电商零售', '1',
+       0, '0', 40,
+       NOW(), '0', '1590229800633634816', 'system', 'system'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `page_design_template` WHERE `id` = '2110000000000000726');
+
+-- 直播甄选 · 分类页（直播甄选套 / pageType=3）
+INSERT INTO `page_design_template`
+    (`id`, `template_name`, `template_type`, `page_type`, `template_content`,
+     `schema_version`, `system_flag`, `industry_tag`, `market_status`,
+     `download_count`, `status`, `sort`,
+     `create_time`, `del_flag`, `tenant_id`, `create_by`, `update_by`)
+SELECT '2110000000000000727', '直播甄选 · 分类页', '0', '3', '{
+  "schemaVersion": 3,
+  "themeRef": "",
+  "page": {
+    "backgroundColor": "#F7F7F7",
+    "backgroundImage": "",
+    "enablePullDownRefresh": false,
+    "navigation": {
+      "backgroundColor": "#ffffff",
+      "textColor": "#000000",
+      "title": "",
+      "visible": false
+    },
+    "share": {
+      "description": "",
+      "imageUrl": "",
+      "title": ""
+    }
+  },
+  "sections": [
+    {
+      "id": "section-cat-banner",
+      "name": "活动轮播",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 6,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "zs-cat-banner",
+          "type": "swiper-banner",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 10,
+              "styleRightMargin": 10,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            },
+            "height": 120,
+            "interval": 5000,
+            "imageList": [
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/b557d7db-1d09-4f4a-b5fa-03ba07fcd5d7.jpg"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/a2e53a7d-5a7a-4e51-a0e8-bf957e5369ea.jpg"
+              },
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/46023b6a-72ba-4c47-8060-1eec1e7c1c5b.jpg"
+              }
+            ],
+            "borderRadius": 12,
+            "indicatorDots": true,
+            "indicatorColor": "rgba(255, 255, 255, 0.3)",
+            "indicatorActiveColor": "#ffffff"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-cat-discount",
+      "name": "直播折扣",
+      "type": "default",
+      "style": {
+        "backgroundColor": "#ffffff",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 8,
+        "marginY": 8,
+        "paddingX": 12,
+        "paddingY": 12,
+        "radius": 12,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "zs-cat-discount",
+          "type": "discount",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "#ffffff",
+              "bgEndColor": "#ffffff",
+              "bgPicUrl": ""
+            },
+            "title": "直播折扣",
+            "count": 3,
+            "dataSource": {
+              "mode": "automatic"
+            },
+            "showCountdown": true,
+            "emptyStrategy": "hide",
+            "invalidStrategy": "hide"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-cat-ranking",
+      "name": "热销榜",
+      "type": "default",
+      "style": {
+        "backgroundColor": "#ffffff",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 8,
+        "marginY": 8,
+        "paddingX": 12,
+        "paddingY": 12,
+        "radius": 12,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "zs-cat-ranking",
+          "type": "goods-ranking",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "#ffffff",
+              "bgEndColor": "#ffffff",
+              "bgPicUrl": ""
+            },
+            "title": "热销榜",
+            "count": 5,
+            "showRankNumber": true,
+            "showOriginalPrice": true,
+            "dataSource": {
+              "mode": "ranking",
+              "metric": "sales"
+            },
+            "emptyStrategy": "hide",
+            "invalidStrategy": "hide"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-cat-waterfall",
+      "name": "精选好物",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 0,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "zs-cat-waterfall",
+          "type": "goods-waterfall",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "#ffffff",
+              "styleLbRadius": 12,
+              "styleLtRadius": 12,
+              "styleRbRadius": 12,
+              "styleRtRadius": 12,
+              "styleTopMargin": 10,
+              "styleLeftMargin": 10,
+              "styleTopPadding": 10,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 12,
+              "styleRightMargin": 10,
+              "styleBottomMargin": 0,
+              "styleRightPadding": 12,
+              "styleBottomPadding": 10
+            },
+            "columns": 2,
+            "count": 6,
+            "dataSource": {
+              "cacheTtl": 60,
+              "categoryId": "",
+              "mode": "automatic",
+              "sort": "sales",
+              "targetIds": []
+            },
+            "showOriginalPrice": true,
+            "showPrice": true,
+            "showSales": true,
+            "title": "精选好物"
+          }
+        }
+      ]
+    }
+  ]
+}',
+       3, '1', '电商零售', '1',
+       0, '0', 41,
+       NOW(), '0', '1590229800633634816', 'system', 'system'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `page_design_template` WHERE `id` = '2110000000000000727');
+
+-- 直播甄选 · 个人中心页（直播甄选套 / pageType=4）
+INSERT INTO `page_design_template`
+    (`id`, `template_name`, `template_type`, `page_type`, `template_content`,
+     `schema_version`, `system_flag`, `industry_tag`, `market_status`,
+     `download_count`, `status`, `sort`,
+     `create_time`, `del_flag`, `tenant_id`, `create_by`, `update_by`)
+SELECT '2110000000000000728', '直播甄选 · 个人中心页', '0', '4', '{
+  "schemaVersion": 3,
+  "themeRef": "",
+  "page": {
+    "backgroundColor": "#F7F7F7",
+    "backgroundImage": "",
+    "enablePullDownRefresh": false,
+    "navigation": {
+      "backgroundColor": "#ffffff",
+      "textColor": "#000000",
+      "title": "",
+      "visible": false
+    },
+    "share": {
+      "description": "",
+      "imageUrl": "",
+      "title": ""
+    }
+  },
+  "sections": [
+    {
+      "id": "section-uc-banner",
+      "name": "会员活动",
+      "type": "default",
+      "style": {
+        "backgroundColor": "",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 0,
+        "marginY": 10,
+        "paddingX": 0,
+        "paddingY": 0,
+        "radius": 0,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "zs-uc-banner",
+          "type": "image-ad",
+          "version": 1,
+          "props": {
+            "type": "1",
+            "height": 162,
+            "imgRadius": 12,
+            "imageList": [
+              {
+                "url": "http://localhost:9999/boot/file/local/1590229800633634816/b557d7db-1d09-4f4a-b5fa-03ba07fcd5d7.jpg"
+              }
+            ],
+            "interval": 5,
+            "indicatorDots": false,
+            "swiperType": "1",
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 10,
+              "styleRightMargin": 10,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            },
+            "commonImageStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "",
+              "bgEndColor": "",
+              "bgPicUrl": ""
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-uc-discount",
+      "name": "会员折扣",
+      "type": "default",
+      "style": {
+        "backgroundColor": "#ffffff",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 10,
+        "marginY": 0,
+        "paddingX": 12,
+        "paddingY": 12,
+        "radius": 12,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "zs-uc-discount",
+          "type": "discount",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "#ffffff",
+              "bgEndColor": "#ffffff",
+              "bgPicUrl": ""
+            },
+            "title": "会员折扣",
+            "count": 3,
+            "dataSource": {
+              "mode": "automatic"
+            },
+            "showCountdown": true,
+            "emptyStrategy": "hide",
+            "invalidStrategy": "hide"
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-uc-coupon",
+      "name": "领券中心",
+      "type": "default",
+      "style": {
+        "backgroundColor": "#ffffff",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 10,
+        "marginY": 10,
+        "paddingX": 12,
+        "paddingY": 12,
+        "radius": 12,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "zs-uc-coupon",
+          "type": "coupon-combo",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "bgPicUrl": "",
+              "bgEndColor": "",
+              "bgStartColor": "rgba(255, 255, 255, 1)",
+              "styleLbRadius": 0,
+              "styleLtRadius": 0,
+              "styleRbRadius": 0,
+              "styleRtRadius": 0,
+              "styleTopMargin": 0,
+              "styleLeftMargin": 0,
+              "styleTopPadding": 0,
+              "bgColorDirection": "to right",
+              "styleLeftPadding": 0,
+              "styleRightMargin": 0,
+              "styleBottomMargin": 0,
+              "styleRightPadding": 0,
+              "styleBottomPadding": 0
+            },
+            "count": 3,
+            "dataSource": {
+              "cacheTtl": 60,
+              "mode": "automatic",
+              "targetIds": []
+            },
+            "showReceiveBtn": true,
+            "showThreshold": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "section-uc-notice",
+      "name": "服务公告",
+      "type": "default",
+      "style": {
+        "backgroundColor": "#ffffff",
+        "backgroundImage": "",
+        "condition": "always",
+        "horizontalScroll": false,
+        "marginX": 10,
+        "marginY": 0,
+        "paddingX": 12,
+        "paddingY": 6,
+        "radius": 12,
+        "sticky": false
+      },
+      "components": [
+        {
+          "id": "zs-uc-notice",
+          "type": "notice",
+          "version": 1,
+          "props": {
+            "commonStyle": {
+              "styleTopMargin": 0,
+              "styleBottomMargin": 0,
+              "styleLeftMargin": 0,
+              "styleRightMargin": 0,
+              "styleTopPadding": 0,
+              "styleBottomPadding": 0,
+              "styleLeftPadding": 0,
+              "styleRightPadding": 0,
+              "styleLtRadius": 0,
+              "styleRtRadius": 0,
+              "styleLbRadius": 0,
+              "styleRbRadius": 0,
+              "bgColorDirection": "to right",
+              "bgStartColor": "#ffffff",
+              "bgEndColor": "#ffffff",
+              "bgPicUrl": ""
+            },
+            "contentList": [
+              {
+                "content": "直播甄选会员日 · 专属折扣每晚 8 点开抢",
+                "type": 0,
+                "url": ""
+              }
+            ],
+            "bgColor": "#fff8e6",
+            "content": "直播甄选会员日 · 专属折扣每晚 8 点开抢",
+            "iconColor": "#ff9900",
+            "textColor": "#5a3c14"
+          }
+        }
+      ]
+    }
+  ]
+}',
+       3, '1', '电商零售', '1',
+       0, '0', 42,
+       NOW(), '0', '1590229800633634816', 'system', 'system'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `page_design_template` WHERE `id` = '2110000000000000728');
+
+-- ---------------------------------------------------------------------------
+-- 自检：期望 template_seeded = 9
+-- ---------------------------------------------------------------------------
+SELECT 'template_seeded' AS `check_name`, COUNT(*) AS `value`, 9 AS `expected`
+FROM `page_design_template`
+WHERE `id` IN ('2110000000000000720', '2110000000000000721', '2110000000000000722', '2110000000000000723', '2110000000000000724', '2110000000000000725', '2110000000000000726', '2110000000000000727', '2110000000000000728') AND `del_flag` = '0';
+
+-- 全量脚本以本脚本收尾（build-full-sql sections 末位），按约定恢复外键检查
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 商城默认主题换肤能力
+-- Source: db/boot/107page_design_theme_mall_default.sql
+-- ============================================================================
+-- 商城默认主题换肤能力（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 背景（2026-10-02）：
+--   page_design_theme 此前只能被单个装修页面通过 themeRef 引用，主题改动
+--   「存了但全商城不生效」。本次为表增加 mall_default_flag 列，支持把一个
+--   主题设为「商城默认主题」，C 端经免登接口 /app/pagedesign/mall-theme
+--   拉取后对整个小程序换肤（wot 组件、tabBar 选中色等）。
+--   租户内只允许一行 mall_default_flag='1'，由服务层在事务内互斥维护，
+--   不加唯一索引（绝大多数行都是 '0'，索引无法表达「至多一个 '1'」）。
+-- 特性：幂等（information_schema 判列存在）；不改动任何存量数据，全部
+--       主题行的默认标记保持 '0'，C 端未设置默认主题时回落内置配色。
+-- 配套：代码侧新增 setDefaultTheme / getDefaultTheme 与管理端「设为默认」。
+--
+-- 执行：mysql -u root -p aryn_boot < 107page_design_theme_mall_default.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+-- ---------------------------------------------------------------------------
+-- 1. page_design_theme 增加商城默认主题标记
+-- ---------------------------------------------------------------------------
+SET @add_mall_default_flag = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE `page_design_theme` ADD COLUMN `mall_default_flag` char(2) NOT NULL DEFAULT ''0'' COMMENT ''商城默认主题：0.否；1.是；'' AFTER `status`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'page_design_theme' AND COLUMN_NAME = 'mall_default_flag'
+);
+PREPARE stmt FROM @add_mall_default_flag; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ---------------------------------------------------------------------------
+-- 2. 自检：应返回 mall_default_flag 列且默认值为 '0'
+-- ---------------------------------------------------------------------------
+SELECT COLUMN_NAME, COLUMN_TYPE, COLUMN_DEFAULT
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'page_design_theme' AND COLUMN_NAME = 'mall_default_flag';
+
+-- 自检：默认主题标记为 '1' 的行数（执行后预期 0，设置默认主题后预期 1）
+SELECT COUNT(*) AS mall_default_rows FROM `page_design_theme` WHERE `mall_default_flag` = '1';
+
+-- 全量脚本以本脚本收尾（build-full-sql sections 末位），按约定恢复外键检查
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 商城主题菜单入口
+-- Source: db/boot/108mall_theme_menu.sql
+-- ============================================================================
+-- 商城主题菜单入口增量（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 背景（2026-10-02）：
+--   「商城默认主题」（一键全商城换肤）此前只藏在装修器顶栏弹窗里，而它改的是
+--   租户级全局配置，「设为默认」放在单页编辑器里作用域误导、发现性差。现将
+--   主题库管理与设为默认迁到独立菜单，装修器只保留页级「本页主题」选择。
+--   本脚本在「商城装修」(1527835787455164418) 下新增「商城主题」菜单
+--   （sort=15，位于「微页面」与「模板市场」之间）。
+-- 授权：向已拥有「微页面」(1600477837933047810) 的角色/租户推导式补授，
+--       与 84template_market_menu.sql 同口径。
+-- 特性：INSERT IGNORE 按固定 ID 幂等；无 DROP/TRUNCATE；重复执行不报错。
+-- 注意：菜单权限在登录时快照，**执行后需重新登录**管理端才能看到新菜单。
+--
+-- 执行：mysql -u root -p aryn_boot < 108mall_theme_menu.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- 1. 菜单（type='0'）：页面级 component 由前端 pageMap 按 views/{component}.vue 解析
+INSERT IGNORE INTO `sys_menu` (`id`,`name`,`permission`,`path`,`redirect`,`parent_id`,`icon`,`component`,`sort`,`type`,`create_time`,`outer_status`,`del_flag`,`application_key`,`create_by`) VALUES
+('2110000000000000205','商城主题','promotion:pagedesign:theme','/promotion/mall-theme',NULL,'1527835787455164418','carbon:color-palette','promotion/mall-theme/index',15,'0',NOW(),'0','0','app_base','system');
+
+-- 2. 试点租户直接授权（PK 与下方推导式同为 MD5(tenant:menu:id)，重复执行/推导命中自动 IGNORE）
+INSERT IGNORE INTO `sys_tenant_menu` (`id`,`tenant_id`,`menu_id`,`create_time`,`create_by`)
+SELECT MD5(CONCAT('1590229800633634816', ':menu:', m.`id`)), '1590229800633634816', m.`id`, NOW(), 'system'
+FROM `sys_menu` m
+WHERE m.`id` = '2110000000000000205'
+  AND m.`del_flag` = '0';
+
+-- 3. 角色推导：向已拥有「微页面」菜单的角色补授
+INSERT IGNORE INTO `sys_role_menu` (`id`,`role_id`,`menu_id`,`create_time`,`tenant_id`)
+SELECT MD5(CONCAT(gr.`role_id`, ':menu:', m.`id`)), gr.`role_id`, m.`id`, NOW(), gr.`tenant_id`
+FROM `sys_menu` m
+JOIN `sys_role_menu` gr ON gr.`menu_id` = '1600477837933047810'
+WHERE m.`id` = '2110000000000000205'
+  AND m.`del_flag` = '0';
+
+-- 4. 租户推导：向已拥有「微页面」菜单的租户补授
+INSERT IGNORE INTO `sys_tenant_menu` (`id`,`tenant_id`,`menu_id`,`create_time`,`create_by`)
+SELECT MD5(CONCAT(gt.`tenant_id`, ':menu:', m.`id`)), gt.`tenant_id`, m.`id`, NOW(), 'system'
+FROM `sys_menu` m
+JOIN `sys_tenant_menu` gt ON gt.`menu_id` = '1600477837933047810'
+WHERE m.`id` = '2110000000000000205'
+  AND m.`del_flag` = '0';
+
+-- 5. 自检：菜单 1 行；租户授权应覆盖所有拥有「微页面」的租户
+SELECT `id`, `name`, `permission`, `path`, `component`, `sort`, `parent_id`
+FROM `sys_menu` WHERE `id` = '2110000000000000205';
+
+SELECT `tenant_id`, `menu_id`
+FROM `sys_tenant_menu` WHERE `menu_id` = '2110000000000000205';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 货到付款实收金额与付款凭证
+-- Source: db/boot/109cod_pay_voucher_incremental.sql
+-- ============================================================================
+-- ============================================================================
+-- 货到付款实收金额与付款凭证增量
+-- 背景：客户线下付款可能有折扣（如应收 1803 实付 1800），管理端「确认收款」
+--       时需登记实收金额并上传付款凭证，C 端订单需同时展示应收总额与实付总额。
+-- 内容：order_info 补两列：
+--       actual_pay_price  实收金额（确认收款时登记，NULL=未确认收款）；
+--       pay_vouchers      付款凭证快照 JSON 数组 [{materialId, materialUrl}]，
+--                         URL 在确认收款时经素材服务快照，素材删除不影响回显。
+-- 特性：information_schema 守卫，可重复执行；不修改、不删除存量数据。
+-- 注意：本脚本只加列，不改数据；管理端确认收款改为携带实收金额与凭证上传。
+-- 执行：mysql -u root -p aryn_boot < 109cod_pay_voucher_incremental.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+
+SET NAMES utf8mb4;
+
+-- ============ order_info.actual_pay_price ============
+SET @add_actual_pay_price = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `order_info` ADD COLUMN `actual_pay_price` decimal(10,2) NULL COMMENT ''实收金额（货到付款确认收款时登记；NULL=未确认）'' AFTER `payment_price`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'order_info' AND COLUMN_NAME = 'actual_pay_price'
+);
+PREPARE stmt FROM @add_actual_pay_price; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ============ order_info.pay_vouchers ============
+SET @add_pay_vouchers = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `order_info` ADD COLUMN `pay_vouchers` json NULL COMMENT ''付款凭证快照 JSON 数组 [{materialId, materialUrl}]（确认收款时写入）'' AFTER `actual_pay_price`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'order_info' AND COLUMN_NAME = 'pay_vouchers'
+);
+PREPARE stmt FROM @add_pay_vouchers; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ============ 自检：应返回 2 ============
+SELECT
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'order_info'
+       AND COLUMN_NAME IN ('actual_pay_price', 'pay_vouchers')) AS added_columns;
 
 SET FOREIGN_KEY_CHECKS = 1;

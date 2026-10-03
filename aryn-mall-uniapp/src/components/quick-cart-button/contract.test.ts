@@ -54,10 +54,12 @@ describe('quick cart interaction contract', () => {
     expect(composable).toContain('uni.navigateTo({ url: \'/pages/login/index\' })')
   })
 
-  it('never reports success unless the cart API resolved', () => {
+  it('never reports success unless the cart write resolved', () => {
     const composable = source('src/composables/useQuickCart.ts')
-    // 加购失败时把 added 置为 false，避免「提示已加入但购物车是空的」
-    expect(composable).toContain('await addShoppingCart({ skuId: info.skuId, quantity })')
+    // 加购（个人/共享）经统一入口 submitCartAdd，写入成功才把 added 置为 true：
+    // 失败走 catch、用户关闭目的地弹层走 abort，两条路径都必须 added: false
+    expect(composable).toContain('await submitCartAdd(')
+    expect(composable).toMatch(/dest === 'abort'[\s\S]*?added: false/)
     expect(composable).toMatch(/catch \{[\s\S]*?added: false/)
   })
 

@@ -9,18 +9,27 @@ import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.order.api.entity.DeliveryTask;
 import com.aryn.cloud.order.api.entity.DeliveryTaskItem;
 import com.aryn.cloud.order.api.entity.DeliveryTrip;
+import com.aryn.cloud.order.api.entity.OrderItemEntity;
 import com.aryn.cloud.order.api.enums.DeliveryTripStatusEnum;
 import com.aryn.cloud.order.mapper.DeliveryTaskItemMapper;
 import com.aryn.cloud.order.service.IDeliveryTaskItemService;
 import com.aryn.cloud.order.service.IDeliveryTaskService;
 import com.aryn.cloud.order.service.IDeliveryTripService;
+import com.aryn.cloud.order.service.IOrderItemService;
+import com.aryn.cloud.product.api.entity.GoodsSpu;
+import com.aryn.cloud.product.api.remote.RemoteGoodsSpuService;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * 取货明细
@@ -37,15 +46,61 @@ public class DeliveryTaskItemServiceImpl extends ServiceImpl<DeliveryTaskItemMap
 
 	private final IDeliveryTripService deliveryTripService;
 
+	private final IOrderItemService orderItemService;
+
+	/** 商品域：按 spuId 批量回填类目名（明细快照表不存分类，分类≈供应商批次） */
+	@DubboReference
+	private RemoteGoodsSpuService remoteGoodsSpuService;
+
 	public DeliveryTaskItemServiceImpl(@Lazy IDeliveryTaskService deliveryTaskService,
-			@Lazy IDeliveryTripService deliveryTripService) {
+			@Lazy IDeliveryTripService deliveryTripService, IOrderItemService orderItemService) {
 		this.deliveryTaskService = deliveryTaskService;
 		this.deliveryTripService = deliveryTripService;
+		this.orderItemService = orderItemService;
 	}
 
 	@Override
 	public List<DeliveryTaskItem> listByTaskId(String taskId) {
 		return list(Wrappers.<DeliveryTaskItem>lambdaQuery().eq(DeliveryTaskItem::getTaskId, taskId));
+	}
+
+	@Override
+	public void fillCategoryName(List<DeliveryTaskItem> items) {
+		if (CollUtil.isEmpty(items)) {
+			return;
+		}
+		List<String> orderItemIds = items.stream()
+			.map(DeliveryTaskItem::getOrderItemId)
+			.filter(StrUtil::isNotBlank)
+			.distinct()
+			.toList();
+		if (orderItemIds.isEmpty()) {
+			return;
+		}
+		Map<String, String> spuIdByOrderItemId = orderItemService.listByIds(orderItemIds)
+			.stream()
+			.filter(orderItem -> StrUtil.isNotBlank(orderItem.getSpuId()))
+			.collect(Collectors.toMap(OrderItemEntity::getId, OrderItemEntity::getSpuId, (first, second) -> first));
+		if (spuIdByOrderItemId.isEmpty()) {
+			return;
+		}
+		Map<String, GoodsSpu> spuById = remoteGoodsSpuService
+			.getSpuByIds(spuIdByOrderItemId.values().stream().distinct().toList())
+			.stream()
+			.collect(Collectors.toMap(GoodsSpu::getId, Function.identity(), (first, second) -> first));
+		if (spuById.isEmpty()) {
+			return;
+		}
+		items.forEach(item -> {
+			String spuId = spuIdByOrderItemId.get(item.getOrderItemId());
+			if (spuId == null) {
+				return;
+			}
+			GoodsSpu spu = spuById.get(spuId);
+			if (Objects.nonNull(spu) && StrUtil.isNotBlank(spu.getCategoryName())) {
+				item.setCategoryName(spu.getCategoryName());
+			}
+		});
 	}
 
 	@Override

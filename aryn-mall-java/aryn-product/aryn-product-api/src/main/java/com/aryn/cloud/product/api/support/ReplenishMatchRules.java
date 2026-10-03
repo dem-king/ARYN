@@ -1,6 +1,7 @@
 package com.aryn.cloud.product.api.support;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 /**
  * 补给单导入匹配的共享口径（纯函数，放在 api 层供商品域与订单域共用）。
@@ -20,6 +21,26 @@ public final class ReplenishMatchRules {
 	public static final String SEPARATOR = "；";
 
 	private ReplenishMatchRules() {
+	}
+
+	/**
+	 * 规格描述：SKU 规格值按 {@link #SEPARATOR} 拼接（与 C 端展示口径一致）。
+	 *
+	 * <p>模板导出与行匹配必须共用这一份拼接：导出写进「规格」列的文本，
+	 * 回传时会拿来做「规格变更」比对，两边各拼一份就会出现
+	 * 「客户没改规格，却被报规格不一致」。
+	 *
+	 * @param specsValueNames SKU 规格值名称，可为空
+	 * @return 拼接结果；无有效规格值时返回 null（空规格与「无规格」同义）
+	 */
+	public static String specText(List<String> specsValueNames) {
+		if (specsValueNames == null || specsValueNames.isEmpty()) {
+			return null;
+		}
+		String joined = specsValueNames.stream()
+			.filter(name -> name != null && !name.isBlank())
+			.collect(java.util.stream.Collectors.joining(SEPARATOR));
+		return joined.isBlank() ? null : joined;
 	}
 
 	/**

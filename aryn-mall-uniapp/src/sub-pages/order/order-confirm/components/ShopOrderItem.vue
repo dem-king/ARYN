@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 
 import { useShipContextStore } from '@/store/shipContextStore'
-import { deliveryWayLabel, deliveryWayOptions } from '@/utils/delivery-way'
+import { deliveryWayLabel, deliveryWayOptions } from '@/sub-pages/utils/delivery-way'
 
 interface OrderItem {
   spuId: string
@@ -31,6 +31,8 @@ interface Order {
 interface Props {
   order: Order
   deliveryWay: string
+  /** 支付方式：''=在线支付；'3'=货到付款（仅商城配送/内部配送可选） */
+  paymentWay: string
   couponUserList: any[]
 }
 
@@ -38,15 +40,24 @@ const props = defineProps<Props>()
 
 const emit = defineEmits<{
   (e: 'deliveryWayChange', order: Order): void
+  (e: 'paymentWayChange', paymentWay: string): void
   (e: 'remarkChange', order: Order): void
   (e: 'showCoupon', order: Order): void
 }>()
+
+const PAYMENT_TYPE_COD = '3'
 
 const deliveryShow = ref(false)
 /** 已确认的配送方式（提交值） */
 const deliveryWay = ref(props.deliveryWay)
 /** 弹窗内草稿值：只有点「确认」才提交，避免取消后展示值与提交值不一致 */
 const deliveryWayDraft = ref(props.deliveryWay)
+
+const paymentShow = ref(false)
+/** 已确认的支付方式（提交值） */
+const paymentWay = ref(props.paymentWay || '')
+/** 弹窗内草稿值：只有点「确认」才提交 */
+const paymentWayDraft = ref(paymentWay.value)
 // 创建本地响应式变量来避免直接修改prop
 const localOrder = ref<Order>({ ...props.order })
 
@@ -70,8 +81,17 @@ watch(() => props.deliveryWay, (way) => {
   }
 })
 
+// 父组件切换配送方式离开 3/4 时会重置支付方式，需同步已确认值
+watch(() => props.paymentWay, (way) => {
+  const next = way || ''
+  paymentWay.value = next
+  if (!paymentShow.value) {
+    paymentWayDraft.value = next
+  }
+})
+
 // 配送方式选项。内部配送（way=4）仅在已绑定船舶+靠港上下文时可选——
-// 未绑定时选中它也无法履约，故不展示。文案与取值统一来自 @/utils/delivery-way。
+// 未绑定时选中它也无法履约，故不展示。文案与取值统一来自 @/sub-pages/utils/delivery-way。
 const shipContextStore = useShipContextStore()
 const deliveryMethodColumns = computed(() =>
   deliveryWayOptions({ withVesselInternal: shipContextStore.hasVesselContext }),
@@ -89,6 +109,25 @@ function deliveryWayConfirm() {
   localOrder.value.deliveryWay = deliveryWay.value
   deliveryShow.value = false
   emit('deliveryWayChange', localOrder.value)
+}
+
+// 支付方式选项。货到付款仅商城配送/内部配送可用，支付方式不影响结算价格
+const paymentMethodColumns = computed(() => [
+  { name: '在线支付', value: '' },
+  { name: '货到付款', value: PAYMENT_TYPE_COD },
+])
+
+function openPaymentSheet() {
+  paymentWayDraft.value = paymentWay.value
+  paymentShow.value = true
+}
+function handlePaymentWayChange(item: any) {
+  paymentWayDraft.value = item.value
+}
+function paymentWayConfirm() {
+  paymentWay.value = paymentWayDraft.value
+  paymentShow.value = false
+  emit('paymentWayChange', paymentWay.value)
 }
 
 function showCoupon() {
@@ -201,6 +240,22 @@ function saveRemark() {
           </view>
         </view>
 
+        <!-- 支付方式：仅商城配送（3）/内部配送（4）可选货到付款 -->
+        <view
+          v-if="deliveryWay === '3' || deliveryWay === '4'"
+          class="flex items-center justify-between pb-20rpx"
+        >
+          <text class="text-14px">
+            支付方式
+          </text>
+          <view>
+            <text class="pr-4rpx text-26rpx" @click="openPaymentSheet">
+              {{ paymentWay === PAYMENT_TYPE_COD ? '货到付款' : '在线支付' }}
+            </text>
+            <text class="i-carbon:chevron-right text-14px" />
+          </view>
+        </view>
+
         <!-- 修改：备注展示为可点击行，弹出层内再输入 -->
         <view class="flex items-center justify-between pb-20rpx" @click="openRemarkPopup">
           <view class="text-14px">
@@ -259,6 +314,30 @@ function saveRemark() {
       </view>
       <view class="border-1 border-gray-300 border-t-solid p-1">
         <wd-button block type="primary" @click="deliveryWayConfirm">
+          确认
+        </wd-button>
+      </view>
+    </wd-action-sheet>
+    <!-- 支付方式弹窗：货到付款下单后无需在线支付，收货后线下结算 -->
+    <wd-action-sheet v-model="paymentShow" position="bottom" :safe-area-inset-bottom="true" custom-class="rounded-t-20rpx" title="选择支付方式" @cancel="paymentShow = false">
+      <view class="px-24rpx pb-2">
+        <view
+          v-for="item in paymentMethodColumns"
+          :key="item.value"
+          class="flex items-center justify-between border-b border-[#f0f0f0] py-24rpx"
+          @click="handlePaymentWayChange(item)"
+        >
+          <wd-text size="26rpx" color="inherit" :text="item.name" />
+          <wd-icon
+            v-if="paymentWayDraft === item.value"
+            name="check"
+            size="26rpx"
+            color="#07c160"
+          />
+        </view>
+      </view>
+      <view class="border-1 border-gray-300 border-t-solid p-1">
+        <wd-button block type="primary" @click="paymentWayConfirm">
           确认
         </wd-button>
       </view>

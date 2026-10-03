@@ -37,6 +37,8 @@ import {
   returnPendingDeliveryTask,
 } from '#/api/delivery/task';
 
+import { resolveDeliveryDestination } from '../delivery-destination';
+
 const emit = defineEmits(['initPage']);
 
 const statusOptions: {
@@ -63,6 +65,12 @@ interface TaskDetail {
   recipientName: string;
   recipientPhone: string;
   recipientAddress?: string;
+  /** 配送港口名称快照（内部配送单地址为空时的回落项） */
+  portName?: string;
+  /** 泊位快照（内部配送单地址为空时的回落项） */
+  berth?: string;
+  /** 配送船舶名称快照 */
+  vesselName?: string;
   status: DeliveryTaskStatus;
   staffId?: string;
   staffName?: string;
@@ -136,7 +144,8 @@ const open = (id: string) => {
 
 const loadEvidence = (id: string) => {
   getDeliveryTaskEvidence(id).then((res: any) => {
-    evidenceList.value = res || [];
+    // 无 URL 快照的凭证行（素材已删/脏数据）渲染必为灰块，直接过滤
+    evidenceList.value = (res || []).filter((item: any) => item?.materialUrl);
   });
 };
 
@@ -299,7 +308,10 @@ defineExpose({
               {{ detail.recipientPhone }}
             </ElDescriptionsItem>
             <ElDescriptionsItem label="收货地址">
-              {{ detail.recipientAddress }}
+              {{ resolveDeliveryDestination(detail) || '—' }}
+            </ElDescriptionsItem>
+            <ElDescriptionsItem v-if="detail.vesselName" label="配送船舶">
+              {{ detail.vesselName }}
             </ElDescriptionsItem>
           </ElDescriptions>
         </ElCard>

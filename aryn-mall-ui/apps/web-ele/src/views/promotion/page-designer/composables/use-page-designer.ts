@@ -213,16 +213,38 @@ export function usePageDesigner(
 
   function removeComponents(ids: string[]) {
     if (ids.length === 0) return;
+    let prunedSectionIds: string[] = [];
     mutate((document) => {
       const idSet = new Set(ids);
+      const emptied: string[] = [];
       for (const section of document.sections) {
+        const before = section.components.length;
         section.components = section.components.filter(
           (component) => !idSet.has(component.id),
         );
+        if (before > 0 && section.components.length === 0) {
+          emptied.push(section.id);
+        }
+      }
+      // 删空即回收区块：空区块在画布/实机都不渲染，留着只会在大纲里
+      // 剩一个看不到内容的幽灵区块。全部删空时保留原区块，给
+      // addComponent 留落点（画布此时显示「从左侧添加组件」空态）。
+      if (emptied.length > 0 && emptied.length < document.sections.length) {
+        document.sections = document.sections.filter(
+          (section) => !emptied.includes(section.id),
+        );
+        prunedSectionIds = emptied;
       }
     });
     if (selectedId.value && ids.includes(selectedId.value)) {
       selectedId.value = undefined;
+    }
+    if (
+      prunedSectionIds.length > 0 &&
+      activeSectionId.value &&
+      prunedSectionIds.includes(activeSectionId.value)
+    ) {
+      activeSectionId.value = history.state.value.sections[0]?.id;
     }
   }
 

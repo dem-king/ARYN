@@ -1,6 +1,8 @@
 <script lang="ts" setup>
 import type { NotificationItem } from './types';
 
+import { computed } from 'vue';
+
 import { Bell, MailCheck } from '@vben/icons';
 import { $t } from '@vben/locales';
 
@@ -22,13 +24,18 @@ interface Props {
    * 消息列表
    */
   notifications?: NotificationItem[];
+  /**
+   * 未读总数。大于 0 时用数字角标替代圆点，便于客服这类需要知道条数的提醒。
+   */
+  total?: number;
 }
 
 defineOptions({ name: 'NotificationPopup' });
 
-withDefaults(defineProps<Props>(), {
+const props = withDefaults(defineProps<Props>(), {
   dot: false,
   notifications: () => [],
+  total: 0,
 });
 
 const emit = defineEmits<{
@@ -39,6 +46,9 @@ const emit = defineEmits<{
 }>();
 
 const [open, toggle] = useToggle();
+
+/** 角标超过两位数就收敛为 99+，避免撑破按钮。 */
+const badge = computed(() => (props.total > 99 ? '99+' : String(props.total)));
 
 function close() {
   open.value = false;
@@ -69,10 +79,17 @@ function handleClick(item: NotificationItem) {
     <template #trigger>
       <div class="flex-center mr-2 h-full" @click.stop="toggle()">
         <VbenIconButton class="bell-button text-foreground relative">
+          <!-- 有具体条数时用数字角标，没有条数才回落到圆点，两者不叠加 -->
           <span
-            v-if="dot"
+            v-if="dot && total <= 0"
             class="bg-primary absolute right-0.5 top-0.5 h-2 w-2 rounded"
           ></span>
+          <span
+            v-if="total > 0"
+            class="bg-destructive text-destructive-foreground absolute -right-1.5 -top-1 z-10 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-medium leading-none"
+          >
+            {{ badge }}
+          </span>
           <Bell class="size-4" />
         </VbenIconButton>
       </div>
@@ -91,7 +108,10 @@ function handleClick(item: NotificationItem) {
       </div>
       <VbenScrollbar v-if="notifications.length > 0">
         <ul class="!flex max-h-[360px] w-full flex-col">
-          <template v-for="item in notifications" :key="item.title">
+          <template
+            v-for="item in notifications"
+            :key="item.conversationId || item.messageId || item.title"
+          >
             <li
               class="hover:bg-accent border-border relative flex w-full cursor-pointer items-start gap-5 border-t px-3 py-3"
               @click="handleClick(item)"
@@ -102,16 +122,39 @@ function handleClick(item: NotificationItem) {
               ></span>
 
               <span
-                class="relative flex h-10 w-10 shrink-0 overflow-hidden rounded-full"
+                class="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full"
+                :class="
+                  item.avatarText
+                    ? 'bg-primary/10 text-primary text-sm font-semibold'
+                    : ''
+                "
               >
+                <template v-if="item.avatarText">{{
+                  item.avatarText
+                }}</template>
                 <img
+                  v-else
                   :src="item.avatar"
                   class="aspect-square h-full w-full object-cover"
                   role="img"
                 />
               </span>
-              <div class="flex flex-col gap-1 leading-none">
-                <p class="font-semibold">{{ item.title }}</p>
+              <div class="flex min-w-0 flex-1 flex-col gap-1 leading-none">
+                <div class="flex items-center gap-2">
+                  <p class="font-semibold">{{ item.title }}</p>
+                  <span
+                    v-if="item.tag"
+                    class="bg-warning/15 text-warning rounded px-1.5 py-0.5 text-[10px] font-medium leading-none"
+                  >
+                    {{ item.tag }}
+                  </span>
+                  <span
+                    v-if="item.unreadCount"
+                    class="bg-destructive text-destructive-foreground ml-auto flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-medium leading-none"
+                  >
+                    {{ item.unreadCount > 99 ? '99+' : item.unreadCount }}
+                  </span>
+                </div>
                 <p class="text-muted-foreground my-1 line-clamp-2 text-xs">
                   {{ item.message }}
                 </p>

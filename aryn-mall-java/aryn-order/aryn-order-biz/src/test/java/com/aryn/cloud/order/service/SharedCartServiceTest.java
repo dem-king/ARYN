@@ -24,8 +24,6 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
-import com.aryn.cloud.product.api.entity.ShipSkuProfile;
-import com.aryn.cloud.product.api.remote.RemoteShipProductProfileService;
 import com.aryn.cloud.vessel.api.dto.VesselContextDTO;
 import com.aryn.cloud.user.api.remote.RemoteMallUserService;
 import com.aryn.cloud.vessel.api.remote.RemoteVesselService;
@@ -44,9 +42,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -78,8 +75,6 @@ class SharedCartServiceTest {
 
 	private IOrderInfoService orderInfoService;
 
-	private RemoteShipProductProfileService remoteShipProductProfileService;
-
 	private RemoteVesselService remoteVesselService;
 
 	private RemoteMallUserService remoteMallUserService;
@@ -94,7 +89,6 @@ class SharedCartServiceTest {
 		importMapper = mock(SharedCartImportMapper.class);
 		importRowMapper = mock(SharedCartImportRowMapper.class);
 		orderInfoService = mock(IOrderInfoService.class);
-		remoteShipProductProfileService = mock(RemoteShipProductProfileService.class);
 		remoteVesselService = mock(RemoteVesselService.class);
 		remoteMallUserService = mock(RemoteMallUserService.class);
 		// lambdaUpdate 需要实体表信息缓存，否则单测中抛
@@ -108,7 +102,6 @@ class SharedCartServiceTest {
 		TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), SharedCartItem.class);
 		service = new SharedCartServiceImpl(cartMapper, memberMapper, itemMapper, importMapper, importRowMapper,
 				orderInfoService);
-		ReflectionTestUtils.setField(service, "remoteShipProductProfileService", remoteShipProductProfileService);
 		ReflectionTestUtils.setField(service, "remoteVesselService", remoteVesselService);
 		ReflectionTestUtils.setField(service, "remoteMallUserService", remoteMallUserService);
 	}
@@ -307,7 +300,6 @@ class SharedCartServiceTest {
 		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
 		when(itemMapper.selectList(any())).thenReturn(List.of(item("item-1", OWNER, "sku-1", 5),
 				item("item-2", MEMBER, "sku-1", 3), item("item-3", MEMBER, "sku-2", 2)));
-		when(remoteShipProductProfileService.getSkuProfiles(eq(TENANT), anyList())).thenReturn(List.of());
 		OrderInfo createdOrder = new OrderInfo();
 		createdOrder.setId("order-1");
 		when(orderInfoService.createOrder(any(CreateOrderDTO.class))).thenReturn(createdOrder);
@@ -338,6 +330,31 @@ class SharedCartServiceTest {
 	}
 
 	@Test
+	@DisplayName("确认提交透传支付类型：货到付款传 3，缺省为在线支付")
+	void confirmPassesPaymentTypeThrough() {
+		// 每次确认返回全新购物车：confirmAndCreateOrder 会把 cart 置为 SUBMITTED，
+		// 同一实例第二次会命中幂等分支、不再建单
+		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING),
+				cart(SharedCart.STATUS_COLLECTING));
+		when(itemMapper.selectList(any())).thenReturn(List.of(item("item-1", OWNER, "sku-1", 5)));
+		OrderInfo createdOrder = new OrderInfo();
+		createdOrder.setId("order-1");
+		when(orderInfoService.createOrder(any(CreateOrderDTO.class))).thenReturn(createdOrder);
+
+		SharedCartConfirmDTO codConfirm = new SharedCartConfirmDTO();
+		codConfirm.setPaymentType("3");
+		service.confirmAndCreateOrder(TENANT, OWNER, CART_ID, codConfirm);
+		ArgumentCaptor<CreateOrderDTO> codCaptor = ArgumentCaptor.forClass(CreateOrderDTO.class);
+		verify(orderInfoService).createOrder(codCaptor.capture());
+		assertEquals("3", codCaptor.getValue().getPaymentType());
+
+		service.confirmAndCreateOrder(TENANT, OWNER, CART_ID, new SharedCartConfirmDTO());
+		ArgumentCaptor<CreateOrderDTO> onlineCaptor = ArgumentCaptor.forClass(CreateOrderDTO.class);
+		verify(orderInfoService, times(2)).createOrder(onlineCaptor.capture());
+		assertNull(onlineCaptor.getAllValues().get(1).getPaymentType());
+	}
+
+	@Test
 	@DisplayName("重复确认幂等返回原订单")
 	void confirmIsIdempotent() {
 		SharedCart submitted = cart(SharedCart.STATUS_SUBMITTED);
@@ -347,36 +364,6 @@ class SharedCartServiceTest {
 		String orderId = service.confirmAndCreateOrder(TENANT, OWNER, CART_ID, new SharedCartConfirmDTO());
 		assertEquals("order-1", orderId);
 		verify(orderInfoService, never()).createOrder(any(CreateOrderDTO.class));
-	}
-
-	@Test
-	@DisplayName("提交时数量未达 MOQ 被拒绝")
-	void submitRejectsBelowMoq() {
-		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
-		when(itemMapper.selectList(any())).thenReturn(List.of(item("item-1", OWNER, "sku-1", 7)));
-		ShipSkuProfile profile = new ShipSkuProfile();
-		profile.setSkuId("sku-1");
-		profile.setMoq(10);
-		profile.setStepQty(5);
-		when(remoteShipProductProfileService.getSkuProfiles(eq(TENANT), anyList())).thenReturn(List.of(profile));
-
-		assertThrows(ArynBusinessException.class,
-				() -> service.confirmAndCreateOrder(TENANT, OWNER, CART_ID, new SharedCartConfirmDTO()));
-	}
-
-	@Test
-	@DisplayName("提交时数量不是步长整数倍被拒绝")
-	void submitRejectsStepQtyViolation() {
-		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
-		when(itemMapper.selectList(any())).thenReturn(List.of(item("item-1", OWNER, "sku-1", 7)));
-		ShipSkuProfile profile = new ShipSkuProfile();
-		profile.setSkuId("sku-1");
-		profile.setMoq(5);
-		profile.setStepQty(5);
-		when(remoteShipProductProfileService.getSkuProfiles(eq(TENANT), anyList())).thenReturn(List.of(profile));
-
-		assertThrows(ArynBusinessException.class,
-				() -> service.confirmAndCreateOrder(TENANT, OWNER, CART_ID, new SharedCartConfirmDTO()));
 	}
 
 	@Test
@@ -396,7 +383,6 @@ class SharedCartServiceTest {
 	void confirmAppliesApprovedQuantities() {
 		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
 		when(itemMapper.selectList(any())).thenReturn(List.of(item("item-1", OWNER, "sku-1", 12)));
-		when(remoteShipProductProfileService.getSkuProfiles(eq(TENANT), anyList())).thenReturn(List.of());
 		OrderInfo createdOrder = new OrderInfo();
 		createdOrder.setId("order-2");
 		when(orderInfoService.createOrder(any(CreateOrderDTO.class))).thenReturn(createdOrder);
@@ -454,6 +440,85 @@ class SharedCartServiceTest {
 		assertTrue(vo.getViewerCanConfirm());
 		assertEquals(1, vo.getMemberCount());
 		assertEquals(0, vo.getItemCount());
+	}
+
+	@Test
+	@DisplayName("已提交的单一并统计核定行：不能再显示「0 项商品」")
+	void listMyCartsCountsConfirmedRows() {
+		// 提交时明细行被置为 ITEM_CONFIRMED，列表若只数 ITEM_PENDING 就会让
+		// 已提交/已完成的单显示 0 项（列表页截图里的真实缺陷）。
+		when(memberMapper.selectList(any()))
+			.thenReturn(List.of(member(CART_ID, OWNER, SharedCartMember.ROLE_OWNER, "1", "1")));
+		when(cartMapper.selectList(any())).thenReturn(List.of(cart(SharedCart.STATUS_SUBMITTED)));
+		SharedCartItem confirmed = item("item-1", OWNER, "sku-1", 5);
+		confirmed.setStatus(SharedCartItem.ITEM_CONFIRMED);
+		SharedCartItem pending = item("item-2", OWNER, "sku-2", 3);
+		when(itemMapper.selectList(any())).thenReturn(List.of(confirmed, pending));
+
+		SharedCartVO vo = service.listMyCarts(TENANT, OWNER).get(0);
+
+		assertEquals(2, vo.getItemCount());
+	}
+
+	@Test
+	@DisplayName("明细按「未移除」统计，而不是按「待确认」统计")
+	void listMyCartsQueryExcludesOnlyRemovedRows() {
+		// 排除条件必须写在 SQL 里（木桩返回的行不会经过 where），因此这里断言查询形状：
+		// 条件从 eq(ITEM_PENDING) 变回 eq(ITEM_PENDING) 就等于让已提交单重新显示 0 项。
+		when(memberMapper.selectList(any()))
+			.thenReturn(List.of(member(CART_ID, OWNER, SharedCartMember.ROLE_OWNER, "1", "1")));
+		when(cartMapper.selectList(any())).thenReturn(List.of(cart(SharedCart.STATUS_COLLECTING)));
+		when(itemMapper.selectList(any())).thenReturn(List.of());
+
+		service.listMyCarts(TENANT, OWNER);
+
+		@SuppressWarnings("unchecked")
+		ArgumentCaptor<Wrapper<SharedCartItem>> captor = ArgumentCaptor.forClass(Wrapper.class);
+		verify(itemMapper).selectList(captor.capture());
+		String segment = captor.getValue().getSqlSegment();
+		// "<>" 即 ne(status, ITEM_REMOVED)：只排除已移除的行
+		assertTrue(segment.contains("<>"), "明细查询应排除已移除行：" + segment);
+	}
+
+	@Test
+	@DisplayName("列表卡片带出补给进度，未排计划的行不编造百分比")
+	void listMyCartsCarriesProgress() {
+		when(memberMapper.selectList(any()))
+			.thenReturn(List.of(member(CART_ID, OWNER, SharedCartMember.ROLE_OWNER, "1", "1")));
+		when(cartMapper.selectList(any())).thenReturn(List.of(cart(SharedCart.STATUS_COLLECTING)));
+		SharedCartItem done = item("item-1", OWNER, "sku-1", 5);
+		done.setPlannedQuantity(4);
+		done.setFulfilledQuantity(4);
+		SharedCartItem partial = item("item-2", OWNER, "sku-2", 3);
+		partial.setPlannedQuantity(4);
+		partial.setFulfilledQuantity(1);
+		SharedCartItem unplanned = item("item-3", OWNER, "sku-3", 2);
+		when(itemMapper.selectList(any())).thenReturn(List.of(done, partial, unplanned));
+
+		SharedCartVO vo = service.listMyCarts(TENANT, OWNER).get(0);
+
+		assertEquals(3, vo.getProgress().getTotalItems());
+		assertEquals(2, vo.getProgress().getPlannedItems());
+		assertEquals(1, vo.getProgress().getFulfilledItems());
+		assertEquals(1, vo.getProgress().getRemainingItems());
+		assertEquals(1, vo.getProgress().getUnplannedItems());
+		assertEquals(50, vo.getProgress().getProgressPercent());
+	}
+
+	@Test
+	@DisplayName("完全没有排计划时进度百分比为 null，而不是 0%")
+	void listMyCartsReportsNullPercentWithoutPlan() {
+		// 0% 会被读成「有计划但一项没采」，与「根本没排计划」是两回事。
+		when(memberMapper.selectList(any()))
+			.thenReturn(List.of(member(CART_ID, OWNER, SharedCartMember.ROLE_OWNER, "1", "1")));
+		when(cartMapper.selectList(any())).thenReturn(List.of(cart(SharedCart.STATUS_COLLECTING)));
+		when(itemMapper.selectList(any())).thenReturn(List.of(item("item-1", OWNER, "sku-1", 5)));
+
+		SharedCartVO vo = service.listMyCarts(TENANT, OWNER).get(0);
+
+		assertEquals(1, vo.getProgress().getTotalItems());
+		assertEquals(0, vo.getProgress().getPlannedItems());
+		assertNull(vo.getProgress().getProgressPercent());
 	}
 
 	@Test
@@ -626,6 +691,36 @@ class SharedCartServiceTest {
 		assertNull(updated.getPlannedQuantity());
 		// 清计划不该顺手把已采量清零（已采是既成事实）
 		assertEquals(2, updated.getFulfilledQuantity());
+	}
+
+	@Test
+	@DisplayName("取计划必须真的写库：updateById 会跳过 null，需走 lambdaUpdate")
+	void updateItemPlanClearWritesNullToDatabase() {
+		// 缺陷注入实测：全库配了 update-strategy: not_null，updateById 会**跳过 null 字段**。
+		// 只断言返回对象的 plannedQuantity 是 null 完全看不出来 —— 内存里被置空、
+		// 接口也照 200 返回，但库里该列纹丝不动，用户「清空输入框保存」后计划还在。
+		// 因此这里断言真正执行的写操作是 lambdaUpdate（显式 set null）而不是 updateById。
+		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
+		SharedCartItem target = item("item-1", MEMBER, "sku-1", 6);
+		target.setPlannedQuantity(4);
+		target.setFulfilledQuantity(2);
+		when(itemMapper.selectOne(any())).thenReturn(target);
+
+		SharedCartPlanDTO dto = new SharedCartPlanDTO();
+		dto.setItemId("item-1");
+		dto.setClearPlanned(true);
+
+		service.updateItemPlan(TENANT, OWNER, CART_ID, dto);
+
+		// 走 update(entity, wrapper) 而非 updateById：前者能把 null 显式写进列
+		ArgumentCaptor<Wrapper<SharedCartItem>> captor = ArgumentCaptor.forClass(Wrapper.class);
+		verify(itemMapper).update(isNull(), captor.capture());
+		String sqlSet = captor.getValue().getSqlSet();
+		assertNotNull(sqlSet);
+		assertTrue(sqlSet.contains("planned_quantity"),
+				"清空计划必须显式 set planned_quantity，实际 SET 段：" + sqlSet);
+		// 清计划这条路径不应再调 updateById，否则等于什么都没写
+		verify(itemMapper, never()).updateById(any(SharedCartItem.class));
 	}
 
 	@Test

@@ -71,3 +71,13 @@ export async function cancelObj(id: string) {
 export async function selffetchObj(data: any) {
   return requestClient.post('/mall-order/orderinfo/selffetch', data);
 }
+
+/**
+ * 货到付款确认收款（线下收款到账后视同支付成功，登记实收金额与付款凭证）
+ */
+export async function confirmOfflinePayment(
+  id: string,
+  data: { actualPayPrice: number; voucherMaterialIds?: string[] },
+) {
+  return requestClient.post(`/mall-order/orderinfo/payconfirm/${id}`, data);
+}

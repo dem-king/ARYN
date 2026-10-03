@@ -33,6 +33,19 @@ const titleStyle = computed(() =>
   tinted.value ? `color:${foreground.value};` : '',
 )
 
+/**
+ * 右侧插槽避让微信胶囊。
+ *
+ * wd-navbar 把 right 插槽绝对定位在 right:0，正好压在微信原生胶囊「… ○」下面：
+ * 文字被胶囊盖住看不见、点击也落在胶囊上，购物车页的「管理」入口因此完全不可达。
+ * 左移量 = 胶囊左缘到屏幕右缘的距离（胶囊宽度 + 右边距），取值口径与
+ * hr-search-navbar 的 capsulePaddingRight 一致。
+ */
+const rightInset = ref(0)
+const rightInsetStyle = computed(() =>
+  rightInset.value ? `margin-right:${rightInset.value}px;` : '',
+)
+
 onMounted(() => {
   const pages = getCurrentPages()
   /**
@@ -44,6 +57,12 @@ onMounted(() => {
   else {
     isCanBack.value = true
   }
+
+  // #ifdef MP-WEIXIN
+  const sys = uni.getSystemInfoSync()
+  const capsule = uni.getMenuButtonBoundingClientRect()
+  rightInset.value = Math.max(sys.windowWidth - capsule.left, 0) + 8
+  // #endif
 })
 
 function handleLeftClick() {
@@ -76,12 +95,23 @@ function handleLeftClick() {
         @click="handleLeftClick"
       />
     </template>
-    <!-- 品牌色底上接管标题渲染，避免 :deep 穿透（weapp 样式隔离不可靠） -->
-    <template v-if="tinted" #title>
+    <!--
+      标题一律由本组件渲染，不再交给 wd-navbar 的 title 分支。
+
+      这里曾经写成 `<template v-if="tinted" #title>`：小程序编译期会把命名插槽
+      静态登记进 u-s（`u-s="{{['left','title','right']}}"`），与运行时条件无关，
+      于是 wd-navbar 的 `!$slots.title` 恒为 false，永远不再渲染自己的 title 文案；
+      而 tinted 为 false 时插槽内容又是空的 —— 标题就此整条消失。
+      现在改为常驻插槽，tinted 只决定是否注入前景色，未传底色时留空字符串，
+      由 wd-navbar 自身的 .wd-navbar__title 颜色接管。
+    -->
+    <template #title>
       <text :style="titleStyle">{{ title }}</text>
     </template>
     <template #right>
-      <slot name="right" />
+      <view :style="rightInsetStyle">
+        <slot name="right" />
+      </view>
     </template>
   </wd-navbar>
 </template>

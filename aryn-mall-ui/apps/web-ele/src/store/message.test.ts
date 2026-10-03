@@ -3,6 +3,7 @@ import type { NotificationItem } from '@vben/layouts';
 import { createPinia, setActivePinia } from 'pinia';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { getConversationAttention } from '#/api/message/conversation';
 import {
   getStaffNoticeInbox,
   getStaffNoticeUnreadCount,
@@ -19,6 +20,10 @@ vi.mock('#/api/message/notice', () => ({
   markStaffNoticeRead: vi.fn(),
 }));
 
+vi.mock('#/api/message/conversation', () => ({
+  getConversationAttention: vi.fn(),
+}));
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((promiseResolve) => {
@@ -30,6 +35,12 @@ function deferred<T>() {
 describe('message store', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // 真实接口总是返回 Promise；用例未显式桩时补一个空提醒，避免解构时炸掉。
+    vi.mocked(getConversationAttention).mockResolvedValue({
+      conversations: [],
+      unreadConversations: 0,
+      waitingTotal: 0,
+    });
     setActivePinia(createPinia());
   });
 
@@ -143,6 +154,142 @@ describe('message store', () => {
 
     expect(currentItem.isRead).toBe(false);
     expect(store.unreadCount).toBe(3);
+  });
+
+  it('merges conversation attention into the bell count and list', async () => {
+    vi.mocked(getStaffNoticeUnreadCount).mockResolvedValueOnce(2);
+    vi.mocked(getStaffNoticeInbox).mockResolvedValueOnce({
+      hasMore: false,
+      records: [
+        {
+          category: 'SYSTEM',
+          content: '站内信内容',
+          messageId: 'notice-1',
+          priority: 'NORMAL',
+          publishTime: '2026-07-22 17:00:00',
+          readStatus: '1',
+          receivedTime: '2026-07-22 17:00:00',
+          recipientRecordId: 'recipient-1',
+          title: '站内信',
+        },
+      ],
+    });
+    vi.mocked(getConversationAttention).mockResolvedValueOnce({
+      conversations: [
+        {
+          conversationType: 'CUSTOMER_SERVICE',
+          customerId: 'member-9',
+          id: 'conversation-1',
+          lastMessageSummary: '在吗',
+          lastMessageTime: '2026-09-29 18:49:25',
+          lastReadSeq: 5,
+          lastSeq: 7,
+          queueCode: 'DEFAULT',
+          status: 'ACTIVE',
+          unreadCount: 2,
+        },
+        {
+          conversationType: 'CUSTOMER_SERVICE',
+          customerId: 'member-8',
+          id: 'conversation-2',
+          lastMessageSummary: '排队中',
+          lastReadSeq: 0,
+          lastSeq: 1,
+          queueCode: 'DEFAULT',
+          status: 'WAITING',
+          unreadCount: 0,
+        },
+      ],
+      unreadConversations: 1,
+      waitingTotal: 1,
+    });
+    const store = useMessageStore();
+
+    await store.refreshNotifications();
+
+    // 角标 = 站内信 2 + 未读会话 1 + 待领取 1
+    expect(store.totalUnread).toBe(4);
+    expect(store.conversationUnread).toBe(2);
+    // 会话在前、站内信在后，且待领取项带状态标记
+    expect(store.notifications.map((item) => item.kind)).toEqual([
+      'conversation',
+      'conversation',
+      'notice',
+    ]);
+    expect(store.notifications[0]).toMatchObject({
+      conversationId: 'conversation-1',
+      isRead: false,
+      unreadCount: 2,
+    });
+    expect(store.notifications[1]).toMatchObject({
+      conversationId: 'conversation-2',
+      tag: '待领取',
+    });
+  });
+
+  it('keeps conversation unread when marking all notices read', async () => {
+    vi.mocked(markAllStaffNoticesRead).mockResolvedValueOnce(undefined);
+    const store = useMessageStore();
+    store.conversationUnread = 3;
+    store.unreadCount = 2;
+    store.notifications = [
+      {
+        avatar: '',
+        conversationId: 'conversation-1',
+        date: '',
+        isRead: false,
+        kind: 'conversation',
+        message: '在吗',
+        title: '会员 member-9',
+      },
+      {
+        avatar: '/favicon.ico',
+        date: '2026-07-22 17:00:00',
+        isRead: false,
+        kind: 'notice',
+        message: '站内信内容',
+        title: '站内信',
+      },
+    ];
+
+    await store.markAllRead();
+
+    // 一键已读只作用于站内信，会话未读必须保留，否则坐席会漏消息
+    expect(store.unreadCount).toBe(0);
+    expect(store.conversationUnread).toBe(3);
+    expect(store.totalUnread).toBe(3);
+    expect(store.notifications[0]?.isRead).toBe(false);
+    expect(store.notifications[1]?.isRead).toBe(true);
+  });
+
+  it('falls back to notices only when conversation attention fails', async () => {
+    vi.mocked(getStaffNoticeUnreadCount).mockResolvedValueOnce(1);
+    vi.mocked(getStaffNoticeInbox).mockResolvedValueOnce({
+      hasMore: false,
+      records: [
+        {
+          category: 'SYSTEM',
+          content: '站内信内容',
+          messageId: 'notice-1',
+          priority: 'NORMAL',
+          publishTime: '2026-07-22 17:00:00',
+          readStatus: '0',
+          receivedTime: '2026-07-22 17:00:00',
+          recipientRecordId: 'recipient-1',
+          title: '站内信',
+        },
+      ],
+    });
+    vi.mocked(getConversationAttention).mockRejectedValueOnce(
+      new Error('no agent'),
+    );
+    const store = useMessageStore();
+
+    await store.refreshNotifications();
+
+    expect(store.unreadCount).toBe(1);
+    expect(store.conversationUnread).toBe(0);
+    expect(store.notifications.map((item) => item.kind)).toEqual(['notice']);
   });
 
   it('does not reconnect after logout resets the store', () => {

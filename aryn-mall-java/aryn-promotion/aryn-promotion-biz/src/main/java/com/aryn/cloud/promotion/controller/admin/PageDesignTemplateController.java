@@ -87,8 +87,9 @@ public class PageDesignTemplateController {
 			@RequestParam(defaultValue = "1") Long pageNum,
 			@RequestParam(defaultValue = "10") Long pageSize,
 			@RequestParam(required = false) String templateName,
-			@RequestParam(required = false) String industryTag) {
-		return Result.success(templateService.listMarketTemplates(pageNum, pageSize, templateName, industryTag));
+			@RequestParam(required = false) String industryTag,
+			@RequestParam(required = false, defaultValue = "downloadCount") String sortField) {
+		return Result.success(templateService.listMarketTemplates(pageNum, pageSize, templateName, industryTag, sortField));
 	}
 
 	@Operation(summary = "跨租户市场模板详情")

@@ -19,6 +19,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Excel 模板列定义与行转换契约测试。
+ *
+ * <p>船供资料列已随船供化下线（2026-09-29），模板缩为 6 列，
+ * 更新定位只支持 SKU 编号。
  */
 class ProductExcelConverterTest {
 
@@ -27,7 +30,8 @@ class ProductExcelConverterTest {
 	void templateHeadCoversFields() {
 		List<List<String>> head = ProductExcelConverter.templateHead();
 		assertEquals("商品中文名", head.get(0).get(0));
-		assertEquals("储存条件(1-5)", head.get(head.size() - 1).get(0));
+		assertEquals("库存", head.get(head.size() - 1).get(0));
+		assertEquals(6, head.size());
 		assertEquals(ProductExcelConverter.COLUMNS.size(), head.size());
 	}
 
@@ -36,25 +40,15 @@ class ProductExcelConverterTest {
 	void toRowDTOMapsFields() {
 		Map<String, String> record = new LinkedHashMap<>();
 		record.put("name", "缆绳 8字结");
-		record.put("nameEn", "Mooring Rope");
-		record.put("saleScope", "2");
-		record.put("impaCode", "401201");
+		record.put("matchValue", "975000000000000001");
 		record.put("salesPrice", "128.0");
 		record.put("stock", "50.0");
-		record.put("moq", "10.0");
-		record.put("stepQty", "5.0");
-		record.put("purchaseUnit", "卷");
 
 		ProductImportRowDTO row = ProductExcelConverter.toRowDTO(record);
 		assertEquals("缆绳 8字结", row.getName());
-		assertEquals("Mooring Rope", row.getNameEn());
-		assertEquals("2", row.getSaleScope());
-		assertEquals("401201", row.getImpaCode());
+		assertEquals("975000000000000001", row.getMatchValue());
 		assertEquals(0, row.getSalesPrice().compareTo(new java.math.BigDecimal("128")));
 		assertEquals(50, row.getStock());
-		assertEquals(10, row.getMoq());
-		assertEquals(5, row.getStepQty());
-		assertEquals("卷", row.getPurchaseUnit());
 	}
 
 	@Test
@@ -66,10 +60,10 @@ class ProductExcelConverterTest {
 		record.put("stock", " ");
 
 		ProductImportRowDTO row = ProductExcelConverter.toRowDTO(record);
-		assertNull(row.getNameEn());
+		assertNull(row.getMatchValue());
 		assertEquals(0, row.getSalesPrice().compareTo(new java.math.BigDecimal("-1")));
 		assertNull(row.getStock());
-		assertTrue(row.getImpaCode() == null);
+		assertTrue(row.getCategorySecondId() == null);
 	}
 
 	@Test
@@ -77,18 +71,15 @@ class ProductExcelConverterTest {
 	void parseRoundTrip() {
 		ByteArrayOutputStream out = new ByteArrayOutputStream();
 		EasyExcel.write(out).sheet("商品导入").head(ProductExcelConverter.templateHead())
-			.doWrite(List.of(List.of("缆绳", "Rope", "2", "401201", "", "", "", "", "", "", "", "128.0", "50.0", "卷", "1卷", "10.0", "5.0", "1")));
+			.doWrite(List.of(List.of("缆绳", "975000000000000001", "", "", "128.0", "50.0")));
 		List<ProductImportRowDTO> rows = ProductExcelConverter
 			.parse(new ByteArrayInputStream(out.toByteArray()));
 		assertEquals(1, rows.size());
 		ProductImportRowDTO row = rows.get(0);
 		assertEquals("缆绳", row.getName());
-		assertEquals("Rope", row.getNameEn());
-		assertEquals("2", row.getSaleScope());
-		assertEquals("401201", row.getImpaCode());
+		assertEquals("975000000000000001", row.getMatchValue());
 		assertEquals(0, row.getSalesPrice().compareTo(new java.math.BigDecimal("128")));
 		assertEquals(50, row.getStock());
-		assertEquals("卷", row.getPurchaseUnit());
 	}
 
 }

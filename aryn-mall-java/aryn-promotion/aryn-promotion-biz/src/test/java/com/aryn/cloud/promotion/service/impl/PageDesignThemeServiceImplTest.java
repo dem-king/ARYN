@@ -3,6 +3,10 @@ package com.aryn.cloud.promotion.service.impl;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.promotion.api.entity.PageDesignTheme;
 import com.aryn.cloud.promotion.mapper.PageDesignThemeMapper;
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -14,10 +18,12 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -29,6 +35,13 @@ class PageDesignThemeServiceImplTest {
 	private PageDesignThemeMapper themeMapper;
 
 	private PageDesignThemeServiceImpl service;
+
+	@BeforeAll
+	static void initLambdaCache() {
+		// 纯 Mockito 环境没有 MyBatis 启动流程，手动初始化 lambda 包装所需的实体列缓存
+		MapperBuilderAssistant assistant = new MapperBuilderAssistant(new MybatisConfiguration(), "");
+		TableInfoHelper.initTableInfo(assistant, PageDesignTheme.class);
+	}
 
 	@BeforeEach
 	void setUp() {
@@ -144,6 +157,66 @@ class PageDesignThemeServiceImplTest {
 			.forClass(com.baomidou.mybatisplus.core.conditions.Wrapper.class);
 		verify(themeMapper).selectList(captor.capture());
 		assertNotNull(captor.getValue());
+	}
+
+	@Test
+	void setDefaultThemeClearsOldFlagThenMarksTarget() {
+		PageDesignTheme theme = tenantTheme();
+		when(themeMapper.selectById("theme-9")).thenReturn(theme);
+		when(themeMapper.update(any(), any())).thenReturn(1);
+		when(themeMapper.updateById(any(PageDesignTheme.class))).thenReturn(1);
+
+		assertTrue(service.setDefaultTheme("theme-9"));
+
+		ArgumentCaptor<com.baomidou.mybatisplus.core.conditions.Wrapper<PageDesignTheme>> clearCaptor = ArgumentCaptor
+			.forClass(com.baomidou.mybatisplus.core.conditions.Wrapper.class);
+		verify(themeMapper).update(isNull(), clearCaptor.capture());
+		assertNotNull(clearCaptor.getValue());
+
+		ArgumentCaptor<PageDesignTheme> markCaptor = ArgumentCaptor.forClass(PageDesignTheme.class);
+		verify(themeMapper).updateById(markCaptor.capture());
+		assertEquals("theme-9", markCaptor.getValue().getId());
+		assertEquals(PageDesignTheme.MALL_DEFAULT_YES, markCaptor.getValue().getMallDefaultFlag());
+	}
+
+	@Test
+	void setDefaultThemeRejectsDisabledTheme() {
+		PageDesignTheme theme = tenantTheme();
+		theme.setStatus("1");
+		when(themeMapper.selectById("theme-9")).thenReturn(theme);
+
+		ArynBusinessException error = assertThrows(ArynBusinessException.class, () -> service.setDefaultTheme("theme-9"));
+
+		assertTrue(error.getMsg().contains("不能设为商城默认"));
+		verify(themeMapper, never()).update(any(), any());
+	}
+
+	@Test
+	void setDefaultThemeRejectsMissingTheme() {
+		when(themeMapper.selectById("theme-404")).thenReturn(null);
+
+		ArynBusinessException error = assertThrows(ArynBusinessException.class, () -> service.setDefaultTheme("theme-404"));
+
+		assertTrue(error.getMsg().contains("主题不存在"));
+	}
+
+	@Test
+	void getDefaultThemeReturnsFirstEnabledDefault() {
+		when(themeMapper.selectList(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class)))
+			.thenReturn(List.of(tenantTheme()));
+
+		PageDesignTheme theme = service.getDefaultTheme();
+
+		assertNotNull(theme);
+		assertEquals("theme-9", theme.getId());
+	}
+
+	@Test
+	void getDefaultThemeReturnsNullWhenNoneSet() {
+		when(themeMapper.selectList(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class)))
+			.thenReturn(List.of());
+
+		assertNull(service.getDefaultTheme());
 	}
 
 	private PageDesignTheme tenantTheme() {

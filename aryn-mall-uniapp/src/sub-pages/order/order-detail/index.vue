@@ -3,15 +3,15 @@ import { onLoad } from '@dcloudio/uni-app'
 import { reactive, ref } from 'vue'
 import { getById, reorderPreview } from '@/api/order/orderInfo'
 import { addShoppingCart } from '@/api/order/shoppingCart'
-import OrderOperation from '@/sub-pages/order/components/order-operation/index.vue'
 import DeliveryProgress from '@/components/delivery/delivery-progress.vue'
-import { useDict } from '@/utils/dict'
+import OrderOperation from '@/sub-pages/order/components/order-operation/index.vue'
 import {
   DELIVERY_WAY_EXPRESS,
   DELIVERY_WAY_MALL_DELIVERY,
   DELIVERY_WAY_VESSEL_INTERNAL,
   deliveryWayLabel,
-} from '@/utils/delivery-way'
+} from '@/sub-pages/utils/delivery-way'
+import { useDict } from '@/sub-pages/utils/dict'
 import { customerServiceRoute } from '@/utils/message'
 
 definePage({
@@ -33,6 +33,17 @@ const router = useRouter()
 const state = reactive<{ order: any }>({
   order: {},
 })
+// 已在线支付，或货到付款单（payStatus 在确认收款前仍为未收款，收货后由管理端线下确认）
+const paidOrCod = computed(() => state.order.payStatus === '1' || state.order.paymentType === '3')
+// 货到付款单在待发货阶段的副标题前缀不同（无“已付款”事实）
+const isCod = computed(() => state.order.paymentType === '3')
+// 实付总额：管理端确认收款登记的实收金额（线下收款可能有折扣），未登记时回退应收金额
+const actualPayPrice = computed(() => state.order.actualPayPrice ?? state.order.paymentPrice)
+// 实收低于应收（线下收款折扣）时，详情页同时展示「订单金额 + 实付款」双行
+const hasPayDiscount = computed(() =>
+  state.order.actualPayPrice != null
+  && state.order.paymentPrice != null
+  && Number(state.order.actualPayPrice) < Number(state.order.paymentPrice))
 // 动态标题
 const navbarTitle = computed(() => {
   const status = state.order.status
@@ -71,14 +82,16 @@ const navbarSubTitle = computed(() => {
   switch (status) {
     case '1':
       return '请在30分钟内付款，超时订单自动取消'
-    case '2':
+    case '2': {
+      const paidPrefix = isCod.value ? '货到付款，' : '订单已付款，'
       if (way === DELIVERY_WAY_EXPRESS)
-        return '订单已付款，等待商家发货'
+        return `${paidPrefix}等待商家发货`
       if (way === DELIVERY_WAY_MALL_DELIVERY)
-        return '订单已付款，商城正在备货配货'
+        return `${paidPrefix}商城正在备货配货`
       if (way === DELIVERY_WAY_VESSEL_INTERNAL)
-        return '订单已付款，仓库正在备货'
-      return '订单已付款，商家备货中'
+        return `${paidPrefix}仓库正在备货`
+      return `${paidPrefix}商家备货中`
+    }
     case '3':
       if (way === DELIVERY_WAY_EXPRESS)
         return '商家已发货，等待签收'
@@ -157,7 +170,8 @@ function handleRefundDetail(item: any) {
  */
 async function handleReorder() {
   const orderId = state.order.id
-  if (!orderId) return
+  if (!orderId)
+    return
   const preview = await reorderPreview(orderId)
   const purchasable = (preview.items || []).filter((item: any) => item.purchasable)
   const blocked = (preview.items || []).filter((item: any) => !item.purchasable)
@@ -189,7 +203,7 @@ function toCustomerService() {
     url: customerServiceRoute({
       messageType: 'ORDER_CARD',
       payload: {
-        amount: state.order.paymentPrice ? `￥${state.order.paymentPrice}` : '',
+        amount: actualPayPrice.value ? `￥${actualPayPrice.value}` : '',
         image: firstItem?.picUrl || '',
         orderId: String(state.order.id),
         statusText: navbarTitle.value,
@@ -246,7 +260,7 @@ function toCustomerService() {
         <view class="flex items-center">
           <wd-icon name="location" size="22px" />
         </view>
-        <view class="pl-10px flex-1">
+        <view class="flex-1 pl-10px">
           <view class="text-14px font-bold">
             {{ state.order.vesselName || '船舶配送' }}
           </view>
@@ -314,7 +328,7 @@ function toCustomerService() {
             </view>
           </view>
           <view
-            v-if="state.order.payStatus === '1'"
+            v-if="paidOrCod"
             class="flex justify-end pt-10rpx"
           >
             <wd-button
@@ -351,11 +365,11 @@ function toCustomerService() {
         </view>
       </view>
     </view>
-    <!-- 商城配送进度时间线（deliveryWay=3 且已付款后展示） -->
+    <!-- 商城配送进度时间线（deliveryWay=3/4 且已付款或货到付款后展示） -->
     <view
       v-if="
-        ['3', '4'].includes(state.order.deliveryWay) &&
-          state.order.payStatus === '1'
+        ['3', '4'].includes(state.order.deliveryWay)
+          && paidOrCod
       "
       class="m-2"
     >
@@ -415,6 +429,22 @@ function toCustomerService() {
               prefix="-￥"
             />
           </view>
+          <!-- 订单金额（线下收款有折扣时展示应收口径） -->
+          <view
+            v-if="hasPayDiscount"
+            class="flex items-center justify-between pb-20rpx"
+          >
+            <text class="text-14px">
+              订单金额
+            </text>
+            <wd-text
+              size="26rpx"
+              color="inherit"
+              :text="state.order.paymentPrice"
+              mode="price"
+              prefix="￥"
+            />
+          </view>
           <!-- 实付款 -->
           <view class="flex items-center justify-between pb-20rpx">
             <text class="text-14px">
@@ -423,7 +453,7 @@ function toCustomerService() {
             <wd-text
               custom-class="pl-10rpx"
               size="28rpx"
-              :text="state.order.paymentPrice"
+              :text="actualPayPrice"
               color="red"
               mode="price"
               prefix="￥"
@@ -466,7 +496,7 @@ function toCustomerService() {
           </view>
           <!-- 支付方式 -->
           <view
-            v-if="showMoreInfo && state.order.payStatus === '1'"
+            v-if="showMoreInfo && paidOrCod"
             class="flex items-center justify-between pb-20rpx"
           >
             <text class="text-14px">

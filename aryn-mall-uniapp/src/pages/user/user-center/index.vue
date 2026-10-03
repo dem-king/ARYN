@@ -21,6 +21,8 @@ definePage({
   layout: 'tabbar',
   style: {
     navigationStyle: 'custom',
+    // 页头是品牌渐变，状态栏前景必须转白，否则黑字压在深色渐变上看不清
+    navigationBarTextStyle: 'white',
     navigationBarTitleText: '个人中心',
   },
 })
@@ -35,8 +37,11 @@ interface MyService {
   url: string
 }
 
+/** 页头底色：与导航栏同源，二者取值必须一致，否则顶部会露出一道色差 */
+const BRAND_COLOR = 'var(--theme-color-primary, var(--wot-color-theme-primary, #FF2237))'
+
 // 定义变量
-const orderCountArray = ref([])
+const orderCountArray = ref<Record<string, number>>({})
 const userStore = useUserStore()
 const myOrder = ref<MyOrder[]>([
   {
@@ -65,7 +70,17 @@ const myOrder = ref<MyOrder[]>([
     status: '5',
   },
 ])
+/**
+ * 服务宫格：8 项按 4 列铺满两行。
+ * 消息中心排首位，未读角标是这里的首要信息；顺带把「5+3」的断行补齐成整行，
+ * 末行只剩 3 项会在视觉上留下一个豁口。
+ */
 const myService = ref<MyService[]>([
+  {
+    icon: 'i-carbon:notification-new',
+    name: '消息中心',
+    url: '/sub-pages/message/notice/index',
+  },
   {
     icon: 'i-carbon:user-profile',
     name: '会员中心',
@@ -111,11 +126,18 @@ const { show: showToast } = useGlobalToast()
 // 个人中心页装修（pageType=4）：用户信息卡下方、订单入口上方，可放会员活动 / 优惠券 / 公告
 const { pageContentData, loading: decorationLoading, fetch: fetchDecoration } = usePageDecoration('4')
 
-myService.value.unshift({
-  icon: 'i-carbon:notification-new',
-  name: '消息中心',
-  url: '/sub-pages/message/notice/index',
-})
+// ===================== 资产条 =====================
+
+/**
+ * 页头资产条：优惠券 / 积分 / 余额。
+ *
+ * 三者都是 userStore 里已有的数据（登录后由 fetchUserInfo 拉取并持久化），
+ * 这里只是把它们从「藏在会员中心二级页」提到一屏可见的位置——
+ * 原来页头只有一个「优惠券 0」灰胶囊，既看不出信息层级，也漏掉了积分与余额。
+ */
+const assetCoupon = computed(() => userStore.getCouponCount ?? 0)
+const assetPoint = computed(() => userStore.getPoint ?? 0)
+const assetBalance = computed(() => userStore.getBalance ?? 0)
 
 // ===================== 船舶入口 =====================
 
@@ -164,6 +186,20 @@ onShow(() => {
     void messageStore.refreshUnread()
     messageStore.connect()
     loadDeliveryEligibility()
+    /**
+     * 本页在路由白名单里，守卫不会替它拉用户信息，而页头的昵称/头像/等级
+     * 与资产条全部取自 store —— 冷启动时可能只恢复了 token 而没有用户数据，
+     * 不补这一次请求就会顶着「登录/注册」渲染已登录用户的页面。
+     */
+    if (!userStore.getUserInfo) {
+      // fetchUserInfo 会并行刷新优惠券/积分/收藏，失败静默降级为 0
+      userStore.fetchUserInfo().catch(() => {})
+    }
+    else {
+      // 已有用户信息时只需刷新资产条的数字，避免每次切 Tab 都打一次用户信息接口
+      userStore.refreshPointsInfo().catch(() => {})
+      userStore.refreshUserCouponCount().catch(() => {})
+    }
     void tenantCapabilityStore.ensureLoaded().then(() => {
       if (tenantCapabilityStore.shipSupplyEnabled) {
         loadVesselState()
@@ -232,10 +268,9 @@ const deliveryEntranceSubtitle = computed(() => {
 })
 
 /** 入口角标：待处理任务数（最多显示 99+） */
-const deliveryEntranceBadge = computed(() => {
-  const count = deliveryEligibility.value?.pendingTaskCount ?? 0
-  return count > 0 ? (count > 99 ? '99+' : String(count)) : ''
-})
+const deliveryEntranceBadge = computed(() =>
+  formatBadge(deliveryEligibility.value?.pendingTaskCount ?? 0),
+)
 
 /**
  * 清理本地配送登录态（停用、解绑或 token 失效后调用）
@@ -329,6 +364,20 @@ function getUserOrderCount() {
     orderCountArray.value = response
   })
 }
+
+/** 角标文案：0 / 空值不出角标，超过 99 收敛为 99+ */
+function formatBadge(count: number | undefined): string {
+  if (!count || count <= 0) {
+    return ''
+  }
+  return count > 99 ? '99+' : String(count)
+}
+
+/** 订单角标按状态码取值：接口返回的是 { '1': n, ... } 映射，不是数组 */
+function orderBadge(status: string): string {
+  return formatBadge(orderCountArray.value?.[status])
+}
+
 /**
  * 跳转订单页
  * @param status 订单状态
@@ -369,279 +418,594 @@ function toLogin() {
 </script>
 
 <template>
-  <hr-navbar :left-arrow="false" title="个人中心" />
-  <view class="user-info">
-    <wd-img
-      :width="50"
-      :height="50"
-      round
-      :src="userStore.getUserAvatar || '/static/default-avatar.png'"
-      @click="toLogin"
-    />
-    <view style="display: flex; flex-direction: column; flex: 1">
-      <view class="nick-name" @click="toLogin">
-        <view>
-          {{ userStore.getUserNickname || "登录/注册" }}
+  <hr-navbar
+    :left-arrow="false"
+    title="个人中心"
+    :bordered="false"
+    :background-color="BRAND_COLOR"
+    text-color="#ffffff"
+  />
+  <!-- 页头：品牌渐变铺底，右上角齿轮是设置入口 -->
+  <view class="uc-hero">
+    <view class="uc-hero__profile" @click="toLogin">
+      <image
+        class="uc-hero__avatar"
+        :src="userStore.getUserAvatar || '/static/default-avatar.png'"
+        mode="aspectFill"
+      />
+      <view class="uc-hero__meta">
+        <view class="uc-hero__name-row">
+          <text class="uc-hero__name">
+            {{ userStore.getUserNickname || "登录/注册" }}
+          </text>
+          <text
+            v-if="authStore.isLoggedIn && userStore.getLevelName"
+            class="uc-hero__level"
+          >
+            {{ userStore.getLevelName }}
+          </text>
         </view>
-        <view
-          v-if="authStore.isLoggedIn && userStore.getLevelName"
-          class="level-tag ml-2"
-        >
-          {{ userStore.getLevelName }}
-        </view>
-      </view>
-      <view class="pl-2 pt-2 text-12px">
-        <text
-          class="user-tag ml-1"
-          @click="toRoute('/sub-pages/promotion/coupon/coupon-user/index')"
-        >
-          优惠券{{ userStore.getCouponCount || 0 }}
+        <text v-if="!authStore.isLoggedIn" class="uc-hero__hint">
+          登录后同步订单、优惠券与积分
         </text>
       </view>
     </view>
-    <view class="user-setting">
-      <text
-        class="i-carbon:settings text-xl"
-        @click="toJumpUrl('/sub-pages/user/user-setting/index')"
-      />
+    <view
+      class="uc-hero__setting"
+      hover-class="uc-hero__setting--pressed"
+      @click="toJumpUrl('/sub-pages/user/user-setting/index')"
+    >
+      <text class="i-carbon:settings uc-hero__setting-icon" />
     </view>
+  </view>
+  <!-- 资产条：上移压在渐变收口处，把优惠券/积分/余额提到首屏 -->
+  <view
+    v-if="authStore.isLoggedIn"
+    class="uc-assets"
+  >
+    <view
+      class="uc-assets__item"
+      hover-class="uc-assets__item--pressed"
+      @click="toRoute('/sub-pages/promotion/coupon/coupon-user/index')"
+    >
+      <text class="uc-assets__value">
+        {{ assetCoupon }}
+      </text>
+      <text class="uc-assets__label">
+        优惠券
+      </text>
+    </view>
+    <view
+      class="uc-assets__item"
+      hover-class="uc-assets__item--pressed"
+      @click="toRoute('/sub-pages/user/member/points-record')"
+    >
+      <text class="uc-assets__value">
+        {{ assetPoint }}
+      </text>
+      <text class="uc-assets__label">
+        积分
+      </text>
+    </view>
+    <view
+      class="uc-assets__item"
+      hover-class="uc-assets__item--pressed"
+      @click="toRoute('/sub-pages/user/member/balance-record')"
+    >
+      <text class="uc-assets__value">
+        {{ assetBalance }}
+      </text>
+      <text class="uc-assets__label">
+        余额
+      </text>
+    </view>
+  </view>
+  <!-- 未登录没有可展示的资产，换成一条登录引导，不摆三个 0 -->
+  <view
+    v-else
+    class="uc-assets uc-assets--guest"
+    hover-class="uc-assets__item--pressed"
+    @click="toLogin"
+  >
+    <text class="uc-assets__guest-text">
+      登录后查看优惠券、积分与余额
+    </text>
+    <text class="i-carbon:chevron-right uc-assets__guest-arrow" />
   </view>
   <!-- 个人中心装修区域：用户信息卡下方、订单入口上方，可放会员活动 / 优惠券 / 公告 -->
-  <view v-if="pageContentData" class="user-center-decoration">
-    <DiyPage :page-content-data="pageContentData" />
+  <view v-if="pageContentData" class="uc-decoration">
+    <DiyPage :page-content-data="pageContentData" embedded />
   </view>
-  <view v-else-if="decorationLoading" class="user-center-decoration-skeleton" />
-  <view class="grid-container">
-    <view class="warp">
-      <view class="header">
-        <view class="title">
-          我的订单
-        </view>
-        <view class="right" @click="toOrder('')">
-          查看全部<wd-icon name="arrow-right" size="22rpx" />
-        </view>
+  <view v-else-if="decorationLoading" class="uc-decoration-skeleton" />
+  <!-- 我的订单 -->
+  <view class="uc-card">
+    <view class="uc-card__head">
+      <text class="uc-card__title">
+        我的订单
+      </text>
+      <view
+        class="uc-card__more"
+        hover-class="uc-card__more--pressed"
+        @click="toOrder('')"
+      >
+        <text>查看全部</text>
+        <text class="i-carbon:chevron-right uc-card__more-arrow" />
       </view>
-      <view class="grid">
-        <view
-          v-for="(item, index) in myOrder"
-          :key="index"
-          class="grid-item"
-          @click="toOrder(item.status)"
-        >
-          <text :class="item.icon" class="text-xl" />
-          <view
-            v-if="
-              orderCountArray
-                && orderCountArray[index + 1]
-                && orderCountArray[index + 1] !== 0
-            "
-            class="grid-dot"
-          >
-            <view class="grid-dot-text">
-              {{ orderCountArray[index + 1] }}
-            </view>
-          </view>
-          <view class="grid-text">
-            {{ item.name }}
-          </view>
+    </view>
+    <view class="uc-grid uc-grid--5">
+      <view
+        v-for="item in myOrder"
+        :key="item.status"
+        class="uc-grid__item"
+        hover-class="uc-grid__item--pressed"
+        @click="toOrder(item.status)"
+      >
+        <view class="uc-grid__icon">
+          <text :class="item.icon" class="uc-grid__glyph" />
+          <text v-if="orderBadge(item.status)" class="uc-grid__badge">
+            {{ orderBadge(item.status) }}
+          </text>
         </view>
+        <text class="uc-grid__label">
+          {{ item.name }}
+        </text>
       </view>
     </view>
   </view>
-  <view class="grid-container">
-    <view class="warp">
-      <view class="header">
-        <view class="title">
-          我的服务
-        </view>
-      </view>
-      <view class="grid">
-        <view
-          v-for="(item, index) in myService"
-          :key="index"
-          class="grid-item"
-          @click="toRoute(item.url)"
-        >
-          <text :class="item.icon" class="text-24px" />
-          <view
-            v-if="item.name === '消息中心' && messageStore.totalUnread"
-            class="grid-dot"
+  <!-- 我的服务 -->
+  <view class="uc-card">
+    <view class="uc-card__head">
+      <text class="uc-card__title">
+        我的服务
+      </text>
+    </view>
+    <view class="uc-grid uc-grid--4">
+      <view
+        v-for="item in myService"
+        :key="item.name"
+        class="uc-grid__item"
+        hover-class="uc-grid__item--pressed"
+        @click="toRoute(item.url)"
+      >
+        <view class="uc-grid__icon">
+          <text :class="item.icon" class="uc-grid__glyph" />
+          <text
+            v-if="item.name === '消息中心' && formatBadge(messageStore.totalUnread)"
+            class="uc-grid__badge"
           >
-            <view class="grid-dot-text">
-              {{
-                messageStore.totalUnread > 99 ? "99+" : messageStore.totalUnread
-              }}
-            </view>
-          </view>
-          <view class="grid-text">
-            {{ item.name }}
-          </view>
+            {{ formatBadge(messageStore.totalUnread) }}
+          </text>
         </view>
+        <text class="uc-grid__label">
+          {{ item.name }}
+        </text>
       </view>
     </view>
   </view>
   <!-- 配送工作台入口：仅已登录且具备配送资格的用户可见 -->
-  <view v-if="deliveryEntranceVisible" class="px-20rpx pb-20rpx">
-    <view
-      class="flex items-center justify-between rounded-20rpx bg-white p-30rpx"
-      :class="{ 'opacity-60': deliveryEligibility && !deliveryEligibility.eligible, 'opacity-50': deliveryEntering }"
-      @click="enterDeliveryWorkspace"
-    >
-      <view class="flex items-center">
-        <text class="i-carbon:delivery-truck mr-20rpx text-40rpx text-primary" />
-        <view>
-          <text class="text-28rpx font-bold">
-            配送工作台
-          </text>
-          <view class="mt-4rpx text-24rpx text-gray-400">
-            {{ deliveryEntranceSubtitle }}
-          </view>
-        </view>
-      </view>
-      <view class="flex items-center">
-        <view
-          v-if="deliveryEntranceBadge"
-          class="mr-10rpx rounded-full bg-red px-12rpx py-2rpx text-20rpx text-white"
-        >
-          {{ deliveryEntranceBadge }}
-        </view>
-        <text class="i-carbon:chevron-right text-28rpx text-gray-400" />
-      </view>
+  <view
+    v-if="deliveryEntranceVisible"
+    class="uc-entry"
+    :class="{
+      'uc-entry--muted': deliveryEligibility && !deliveryEligibility.eligible,
+      'uc-entry--busy': deliveryEntering,
+    }"
+    hover-class="uc-entry--pressed"
+    @click="enterDeliveryWorkspace"
+  >
+    <view class="uc-entry__icon">
+      <text class="i-carbon:delivery-truck uc-entry__glyph" />
     </view>
+    <view class="uc-entry__body">
+      <text class="uc-entry__title">
+        配送工作台
+      </text>
+      <text class="uc-entry__desc">
+        {{ deliveryEntranceSubtitle }}
+      </text>
+    </view>
+    <text v-if="deliveryEntranceBadge" class="uc-entry__count">
+      {{ deliveryEntranceBadge }}
+    </text>
+    <text class="i-carbon:chevron-right uc-entry__arrow" />
   </view>
   <!-- 船舶入口：首页状态条只服务「有船用户」，未绑定用户的出路收进这里 -->
-  <view v-if="vesselEntranceVisible" class="px-20rpx pb-20rpx">
-    <view
-      class="flex items-center justify-between rounded-20rpx bg-white p-30rpx"
-      @click="toRoute('/sub-pages/vessel/bind/index')"
-    >
-      <view class="flex items-center">
-        <text class="i-carbon:sailboat-coastal mr-20rpx text-40rpx text-primary" />
-        <view>
-          <text class="text-28rpx font-bold">
-            我的船舶
-          </text>
-          <view class="mt-4rpx text-24rpx text-gray-400">
-            {{ vesselEntranceSubtitle }}
-          </view>
-        </view>
-      </view>
-      <text class="i-carbon:chevron-right text-28rpx text-gray-400" />
+  <view
+    v-if="vesselEntranceVisible"
+    class="uc-entry"
+    hover-class="uc-entry--pressed"
+    @click="toRoute('/sub-pages/vessel/bind/index')"
+  >
+    <view class="uc-entry__icon">
+      <text class="i-carbon:sailboat-coastal uc-entry__glyph" />
     </view>
+    <view class="uc-entry__body">
+      <text class="uc-entry__title">
+        我的船舶
+      </text>
+      <text class="uc-entry__desc">
+        {{ vesselEntranceSubtitle }}
+      </text>
+    </view>
+    <text class="i-carbon:chevron-right uc-entry__arrow" />
   </view>
-  <view class="flex items-center p-1">
-    猜你喜欢
+  <view class="uc-like">
+    <view class="uc-like__rule" />
+    <text class="uc-like__text">
+      猜你喜欢
+    </text>
+    <view class="uc-like__rule" />
   </view>
   <WaterfallGoods />
 </template>
 
 <style lang="scss" scoped>
-.user-center-decoration {
-  background-color: #f4f5f7;
+/* 文字色阶与卡片口径沿用全站约定：标题 #1f2329 / 正文 #4e5969 / 辅助 #9ca3af */
+$uc-title: #1f2329;
+$uc-text: #4e5969;
+$uc-muted: #9ca3af;
+$uc-hairline: #eef0f3;
+/* 卡片左右留白与全站 mx-20rpx 对齐 */
+$uc-gutter: 20rpx;
+
+.uc-decoration {
+  /* 装修块自带底色，这里不再叠加第四种灰（全站已用 #f5f5f5/#f2f3f5/#F8F8F8） */
+  min-height: 0;
 }
 
-.user-center-decoration-skeleton {
+.uc-decoration-skeleton {
   height: 200rpx;
-  margin: 16rpx;
-  border-radius: 12rpx;
-  background: #f5f5f5;
+  margin: 20rpx $uc-gutter;
+  border-radius: 24rpx;
+  background: #ececf0;
 }
 
-.user-info {
-  background-color: rgb(255, 255, 255);
+/* ===================== 页头 ===================== */
+
+.uc-hero {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  padding: 40rpx;
+  /* 底部多留一截给资产条上移压盖，渐变收口才落在卡片背后而不是露出一条灰边 */
+  padding: 24rpx $uc-gutter 104rpx;
+  background: linear-gradient(180deg, var(--theme-color-primary, var(--wot-color-theme-primary, #FF2237)) 0%, var(--theme-color-secondary, var(--wot-color-theme-secondary, #FF6B7A)) 100%);
 
-  .nick-name {
-    padding-left: 30rpx;
+  &__profile {
+    display: flex;
+    align-items: center;
+    flex: 1;
+    min-width: 0;
+  }
+
+  &__avatar {
+    width: 104rpx;
+    height: 104rpx;
+    flex-shrink: 0;
+    border: 3rpx solid rgba(255, 255, 255, 0.55);
+    border-radius: 50%;
+    background-color: #fff;
+  }
+
+  &__meta {
+    display: flex;
+    flex-direction: column;
+    margin-left: 24rpx;
+    min-width: 0;
+  }
+
+  &__name-row {
     display: flex;
     align-items: center;
   }
 
-  .level-tag {
-    border: 1px solid #667eea;
-    border-radius: 50rpx;
-    background: linear-gradient(135deg, #667eea, #764ba2);
-    padding: 2rpx 12rpx;
-    font-size: 20rpx;
+  &__name {
+    max-width: 340rpx;
+    overflow: hidden;
     color: #fff;
+    font-size: 36rpx;
+    font-weight: 700;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
 
-  .user-tag {
-    border: 1px solid #f4f4f5;
-    border-radius: 50rpx;
-    background-color: #f4f4f5;
-    padding: 4rpx 8rpx;
+  /* 等级徽章做半透明玻璃片，压在渐变上不抢昵称的主次 */
+  &__level {
+    margin-left: 14rpx;
+    padding: 4rpx 16rpx;
+    flex-shrink: 0;
+    border-radius: 999rpx;
+    background: rgba(255, 255, 255, 0.24);
+    color: #fff;
+    font-size: 20rpx;
+    line-height: 1.6;
   }
 
-  .user-setting {
+  &__hint {
+    margin-top: 10rpx;
+    color: rgba(255, 255, 255, 0.82);
+    font-size: 24rpx;
+  }
+
+  &__setting {
     display: flex;
-    justify-content: flex-end;
     align-items: center;
+    justify-content: center;
+    width: 72rpx;
+    height: 72rpx;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.18);
+  }
+
+  &__setting--pressed {
+    background: rgba(255, 255, 255, 0.32);
+  }
+
+  &__setting-icon {
+    color: #fff;
+    font-size: 40rpx;
   }
 }
 
-.grid-container {
-  padding: 20rpx;
+/* ===================== 资产条 ===================== */
 
-  .warp {
-    background-color: rgb(255, 255, 255);
-    padding: 10rpx;
-    border-radius: 20rpx;
+.uc-assets {
+  display: flex;
+  align-items: stretch;
+  margin: -72rpx $uc-gutter 0;
+  padding: 28rpx 0;
+  border-radius: 24rpx;
+  background: #fff;
+  box-shadow: 0 8rpx 24rpx rgba(31, 44, 65, 0.06);
 
-    .header {
-      height: 80rpx;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      position: relative;
-      .title {
-        font-size: 14px;
-        color: rgb(60, 60, 60);
-      }
-
-      .right {
-        font-size: 22rpx;
-        color: rgb(200, 200, 200);
-      }
-    }
+  &__item {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    /* 分栏竖线：用边框而不是伪元素，小程序端不用额外生成节点 */
+    border-left: 1rpx solid $uc-hairline;
   }
 
-  .grid {
+  &__item:first-child {
+    border-left: 0;
+  }
+
+  &__item--pressed {
+    opacity: 0.6;
+  }
+
+  &__value {
+    color: $uc-title;
+    font-size: 40rpx;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+
+  &__label {
+    margin-top: 8rpx;
+    color: $uc-muted;
+    font-size: 24rpx;
+  }
+
+  &--guest {
+    align-items: center;
+    justify-content: space-between;
+    padding: 36rpx 32rpx;
+  }
+
+  &__guest-text {
+    color: $uc-text;
+    font-size: 26rpx;
+  }
+
+  &__guest-arrow {
+    color: $uc-muted;
+    font-size: 32rpx;
+  }
+}
+
+/* ===================== 卡片与宫格 ===================== */
+
+.uc-card {
+  margin: 20rpx $uc-gutter 0;
+  padding: 8rpx 20rpx 4rpx;
+  border-radius: 24rpx;
+  background: #fff;
+  box-shadow: 0 8rpx 24rpx rgba(31, 44, 65, 0.04);
+
+  &__head {
     display: flex;
-    padding: 20rpx 0;
-    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    height: 88rpx;
+  }
 
-    .grid-item {
-      padding: 20rpx 0;
-      width: 20%;
-      display: flex;
-      align-items: center;
-      flex-direction: column;
-      position: relative;
+  &__title {
+    color: $uc-title;
+    font-size: 30rpx;
+    font-weight: 700;
+  }
 
-      .grid-text {
-        padding-top: 10rpx;
-        font-size: 24rpx;
-      }
+  &__more {
+    display: flex;
+    align-items: center;
+    color: $uc-muted;
+    font-size: 24rpx;
+  }
 
-      .grid-dot {
-        position: absolute;
-        right: 18px;
-        width: 16px;
-        top: 5px;
+  &__more--pressed {
+    opacity: 0.6;
+  }
 
-        .grid-dot-text {
-          border-radius: 15px;
-          padding: 1rpx;
-          color: #fff;
-          text-align: center;
-          background-color: red;
-          font-size: 18rpx;
-        }
-      }
-    }
+  &__more-arrow {
+    font-size: 26rpx;
+  }
+}
+
+.uc-grid {
+  display: flex;
+  flex-wrap: wrap;
+  padding-bottom: 20rpx;
+
+  &__item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 12rpx 0 20rpx;
+  }
+
+  &--5 &__item {
+    width: 20%;
+  }
+
+  &--4 &__item {
+    width: 25%;
+  }
+
+  &__item--pressed {
+    opacity: 0.6;
+  }
+
+  &__icon {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 76rpx;
+    height: 76rpx;
+    border-radius: 24rpx;
+    background: #f5f6f8;
+  }
+
+  &__glyph {
+    color: $uc-text;
+    font-size: 40rpx;
+  }
+
+  /* 角标锚在图标方块右上角：全部用 rpx 定位，混用 px 会在不同机型上漂移 */
+  &__badge {
+    position: absolute;
+    top: -10rpx;
+    right: -16rpx;
+    min-width: 32rpx;
+    height: 32rpx;
+    padding: 0 8rpx;
+    box-sizing: border-box;
+    border-radius: 16rpx;
+    background: var(--theme-color-primary, var(--wot-color-theme-primary, #FF2237));
+    color: #fff;
+    font-size: 20rpx;
+    line-height: 32rpx;
+    text-align: center;
+  }
+
+  &__label {
+    margin-top: 12rpx;
+    color: $uc-text;
+    font-size: 24rpx;
+  }
+}
+
+/* ===================== 横幅入口（配送工作台 / 我的船舶） ===================== */
+
+.uc-entry {
+  display: flex;
+  align-items: center;
+  margin: 20rpx $uc-gutter 0;
+  padding: 28rpx 32rpx;
+  border-radius: 24rpx;
+  background: #fff;
+  box-shadow: 0 8rpx 24rpx rgba(31, 44, 65, 0.04);
+
+  &--pressed {
+    background: #fafbfc;
+  }
+
+  /* 停用/换取中只降透明度，不隐藏：入口本身仍要看得见、点得到 */
+  &--muted {
+    opacity: 0.6;
+  }
+
+  &--busy {
+    opacity: 0.5;
+  }
+
+  &__icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 88rpx;
+    height: 88rpx;
+    flex-shrink: 0;
+    border-radius: 28rpx;
+    background: #f5f6f8;
+  }
+
+  &__glyph {
+    color: var(--theme-color-primary, var(--wot-color-theme-primary, #FF2237));
+    font-size: 48rpx;
+  }
+
+  &__body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+    margin-left: 24rpx;
+  }
+
+  &__title {
+    color: $uc-title;
+    font-size: 28rpx;
+    font-weight: 700;
+  }
+
+  &__desc {
+    margin-top: 6rpx;
+    overflow: hidden;
+    color: $uc-muted;
+    font-size: 24rpx;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  &__count {
+    margin-right: 12rpx;
+    padding: 2rpx 14rpx;
+    flex-shrink: 0;
+    border-radius: 999rpx;
+    background: var(--theme-color-primary, var(--wot-color-theme-primary, #FF2237));
+    color: #fff;
+    font-size: 20rpx;
+    line-height: 1.6;
+  }
+
+  &__arrow {
+    color: $uc-muted;
+    font-size: 28rpx;
+  }
+}
+
+/* ===================== 猜你喜欢 ===================== */
+
+.uc-like {
+  display: flex;
+  align-items: center;
+  padding: 40rpx 60rpx 8rpx;
+
+  &__rule {
+    flex: 1;
+    height: 1rpx;
+    background: #e4e6eb;
+  }
+
+  &__text {
+    margin: 0 24rpx;
+    color: $uc-title;
+    font-size: 28rpx;
+    font-weight: 700;
   }
 }
 </style>

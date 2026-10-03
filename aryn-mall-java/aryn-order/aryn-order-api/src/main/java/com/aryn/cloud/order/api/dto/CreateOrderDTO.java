@@ -29,7 +29,7 @@ public class CreateOrderDTO {
 	@Pattern(regexp = "[1-4]", message = "配送方式不合法")
 	private String deliveryWay;
 
-	@Schema(description = "支付类型：1.微信支付；2.支付宝支付")
+	@Schema(description = "支付类型：1.微信支付；2.支付宝支付；3.货到付款（仅商城配送/内部配送）")
 	private String paymentType;
 
 	@Schema(description = "交易类型")

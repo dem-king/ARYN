@@ -68,4 +68,29 @@ describe('补给单卡片契约', () => {
     expect(source(API)).not.toContain('不做进度百分比')
     expect(source(CARD)).not.toContain('刻意不展示')
   })
+
+  it('商品名从 SPU 批量查询取，不依赖 SKU 回填的 goodsSpu', () => {
+    // getSkuByIds 走 goodsSkuResultMap，**不填充 goodsSpu**，靠它取名字会恒为 null，
+    // 卡片只能显示 19 位 SKU ID（管理端详情当年同一个坑）。类型检查发现不了。
+    const impl = repoSource(
+      `${ORDER_BIZ}/service/impl/SharedCartServiceImpl.java`,
+    )
+    expect(impl).toContain('remoteGoodsSpuService.getSpuByIds')
+    // 只在注释里提 goodsSpu 可以；写成取值表达式就是回退到坏链路
+    const code = impl
+      .split('\n')
+      .filter(line => !line.trim().startsWith('*') && !line.trim().startsWith('//'))
+      .join('\n')
+    expect(code).not.toContain('getGoodsSpu()')
+  })
+
+  it('无数据策略为显示占位时渲染引导卡，两个入口直达', () => {
+    const card = source(CARD)
+    // 占位只在「摘要已查但无单」时出现；还没查/未登录/非船供租户仍整体隐藏
+    expect(card).toContain('summaryLoaded')
+    expect(card).toContain('showData.value.emptyStrategy === \'placeholder\'')
+    // 占位卡是入口不是装饰：能发起补给单、能直达「导入清单下单」向导
+    expect(card).toContain('/sub-pages/order/shared-cart/list')
+    expect(card).toContain('/sub-pages/order/shared-cart/import-entry')
+  })
 })

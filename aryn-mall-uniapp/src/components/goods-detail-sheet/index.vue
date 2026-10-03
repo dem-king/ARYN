@@ -18,8 +18,8 @@ import type { PurchaseDecision, SpecRowView } from '@/utils/goods-purchase'
 import mpHtml from 'mp-html/dist/uni-app/components/mp-html/mp-html'
 import { computed, nextTick, ref, watch } from 'vue'
 
-import { addShoppingCart } from '@/api/order/shoppingCart'
 import { getById as getSpuById } from '@/api/product/spu'
+import { useCartDestination } from '@/composables/useCartDestination'
 import { useQuickCart } from '@/composables/useQuickCart'
 import { resolvePurchaseDecision, resolveSpecRow } from '@/utils/goods-purchase'
 import { initGoodsSpecs } from '@/utils/goods-specs'
@@ -42,9 +42,9 @@ const emit = defineEmits<{
 }>()
 
 const authStore = useAuthStore()
-const shoppingCartStore = useShoppingCartStore()
 /** 单规格直加购与列表页/商详页共用同一份规则（MOQ/步长/登录守卫） */
 const { quickAdd } = useQuickCart()
+const { submitCartAdd } = useCartDestination()
 
 const visible = computed({
   get: () => props.modelValue,
@@ -154,15 +154,22 @@ async function handleAddCart() {
     openSkuPopup()
 }
 
-/** SKU 弹层回传后加购（回传结构含 skuId/quantity/spuId 等，与详情页同一接口口径） */
-function handleSkuAdd(data: any) {
-  addShoppingCart(data).then(() => {
+/** SKU 弹层回传后加购：与单规格直加同一目的地口径（个人/共享），提示与角标由统一入口处理 */
+async function handleSkuAdd(data: any) {
+  try {
+    const dest = await submitCartAdd({
+      skuId: data.skuId,
+      quantity: data.quantity,
+      spuId: data.spuId || goodsSpu.value.id,
+    })
+    if (dest === 'abort')
+      return
     skuKey.value = false
-    uni.showToast({ title: '已加入购物车', icon: 'success' })
-    // 角标随 store 响应式刷新，tabBar 购物车数量实时更新
-    shoppingCartStore.fetchCartCount().catch(() => {})
     emit('added', goodsSpu.value.id)
-  })
+  }
+  catch {
+    // 请求异常已由统一拦截器提示，弹层保持打开让用户重试
+  }
 }
 </script>
 
@@ -207,8 +214,12 @@ function handleSkuAdd(data: any) {
         <!-- 价格条 -->
         <view class="detail-sheet-price">
           <view class="detail-sheet-price-main">
-            <text class="detail-sheet-symbol">¥</text>
-            <text class="detail-sheet-value">{{ goodsSpu.salesPrice }}</text>
+            <text class="detail-sheet-symbol">
+              ¥
+            </text>
+            <text class="detail-sheet-value">
+              {{ goodsSpu.salesPrice }}
+            </text>
           </view>
           <text
             v-if="showOriginalPrice"
@@ -221,7 +232,9 @@ function handleSkuAdd(data: any) {
         <!-- 规格行 -->
         <!-- 规格行：单规格无规格值时整行隐藏（规格在商品名/船供箱规里），点击只调数量 -->
         <view v-if="specRow.visible" class="detail-sheet-spec" @click="openSkuPopup">
-          <text class="detail-sheet-spec-text">{{ specRow.text }}</text>
+          <text class="detail-sheet-spec-text">
+            {{ specRow.text }}
+          </text>
           <wd-icon name="arrow-right" size="24rpx" color="#999" />
         </view>
 
@@ -347,7 +360,7 @@ function handleSkuAdd(data: any) {
 }
 
 .detail-sheet-price-main {
-  color: #ff2237;
+  color: var(--wot-color-theme-primary, #ff2237);
   font-weight: 700;
 }
 

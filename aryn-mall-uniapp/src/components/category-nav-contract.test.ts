@@ -96,6 +96,39 @@ describe('category page structure', () => {
     }
   })
 
+  it('选中项的上浮与放大不被 scroll-view 裁切（图标条顶部留出溢出余量）', () => {
+    const src = source('src/components/category-icon-strip/index.vue')
+    const styleBlock = src.slice(src.indexOf('<style'))
+    // 去掉注释，避免命中注释里解释性的数字
+    const css = styleBlock.replace(/\/\*[\s\S]*?\*\//g, '')
+
+    const ruleOf = (name: string) => {
+      const start = css.indexOf(`${name} {`)
+      expect(start, `缺少样式规则 ${name}`).toBeGreaterThan(-1)
+      return css.slice(start, css.indexOf('}', start))
+    }
+    /** padding 简写的第一个值即上边距，如 "20rpx 120rpx 0 20rpx" -> 20 */
+    const topPaddingRpx = (rule: string) => {
+      const match = rule.match(/padding:([^;]+);/)
+      expect(match, `未解析到 padding: ${rule}`).toBeTruthy()
+      const top = match?.[1].trim().split(/\s+/)[0]
+      expect(top, `padding 首值不是长度值: ${top}`).toMatch(/^(0|[\d.]+rpx)$/)
+      return top === '0' ? 0 : Number.parseFloat(top!)
+    }
+
+    // 圆顶外溢的成因：选中项整体上提 + 弹跳动画放大圆（峰值 1.1）
+    expect(css).toContain('translateY(-2rpx)')
+    expect(css).toMatch(/45%\s*\{\s*transform:\s*scale\(1\.1\)/)
+
+    const stripTop = topPaddingRpx(ruleOf('.icon-strip'))
+    const innerTop = topPaddingRpx(ruleOf('.icon-strip-inner'))
+    // 余量必须落在滚动容器内部（inner 的 padding-top），落在 .icon-strip 上不起作用：
+    // scroll-view 是按自身内容盒裁切的
+    expect(innerTop).toBeGreaterThanOrEqual(12)
+    // 但两者相加要保持原来的 24rpx，图标位置与图标条总高不得改变
+    expect(stripTop + innerTop).toBe(24)
+  })
+
   it('一级过滤传 categoryFirstId（后端 selectApiPage 已支持该字段）', () => {
     expect(source('src/components/goods-list-panel/index.vue')).toContain('categoryFirstId')
   })
