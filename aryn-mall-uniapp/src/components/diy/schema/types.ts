@@ -28,6 +28,11 @@ export interface PageSettings {
   backgroundColor: string
   backgroundImage: string
   enablePullDownRefresh: boolean
+  /**
+   * 是否跟随商城默认主题配色（页面背景/导航），缺省视为跟随；
+   * false 表示管理端「页面设置」关闭了跟随，页面自存配色直接生效（自定义配色）。
+   */
+  followMallTheme?: boolean
   navigation: {
     backgroundColor: string
     textColor: string

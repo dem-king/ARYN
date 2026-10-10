@@ -10,6 +10,7 @@ import ShipContextPicker from '@/components/ship-context-picker/index.vue'
 import WaterfallGoods from '@/components/waterfall-goods/index.vue'
 import { useShipContextLoad } from '@/composables/useShipContextLoad'
 import { useShipContextStore } from '@/store/shipContextStore'
+import { useTenantCapabilityStore } from '@/store/tenantCapabilityStore'
 import { initGoodsSpecs } from '@/utils/goods-specs'
 
 definePage({
@@ -53,6 +54,31 @@ const shoppingCartStore = useShoppingCartStore()
 const shipContextStore = useShipContextStore()
 // 船舶上下文不持久化，冷启动为空；本页自行装载，不依赖用户是否访问过首页
 const { load: loadShipContext } = useShipContextLoad()
+// 船舶靠港状态行：不用先加购商品也能看到配送计划状态（2026-10-04）。
+// 纯零售租户没有船舶链路、未装载到船舶的用户无可展示内容，都不渲染
+const capabilityStore = useTenantCapabilityStore()
+const showShipStatusBar = computed(() =>
+  authStore.isLoggedIn && capabilityStore.shipSupplyEnabled && !!shipContextStore.vesselId,
+)
+const hasActiveCall = computed(() => !!shipContextStore.vesselCallId)
+const shipStatusBarText = computed(() => {
+  if (!hasActiveCall.value)
+    return '暂无进行中的靠港计划，商品将按常规方式配送'
+  const context = shipContextStore
+  // 时间窗由运营排产时补填，刚申报的靠港没有；有则展示 MM-DD HH:mm 区间
+  const windowText = context.deliveryWindowStart && context.deliveryWindowEnd
+    ? ` · ${context.deliveryWindowStart.slice(5, 16)}~${context.deliveryWindowEnd.slice(5, 16)}`
+    : ''
+  return `靠港：${context.portName || '待排产'}${context.berth ? ` ${context.berth}` : ''}${windowText}`
+})
+/** 船舶卡状态点：无靠港计划用橙色预警，与右侧「去申报」同色 */
+const shipStatusTone = computed(() => (hasActiveCall.value ? 'is-active' : 'is-warning'))
+/** 分组头与其上方船舶卡重复报同一艘船名，这里收敛成只留区分靠港的部分 */
+const currentCallSuffix = computed(() =>
+  shipContextStore.portName
+    ? ` · ${shipContextStore.portName}${shipContextStore.berth ? ` ${shipContextStore.berth}` : ''}`
+    : '',
+)
 const cartGroups = computed(() => {
   const groups: Record<string, any[]> = {}
   for (const row of state.cartList) {
@@ -69,16 +95,30 @@ const cartGroups = computed(() => {
       // 只有「非空的当前靠港」才算当前船舶。currentKey 为空时它与无归属行
       // 都是 ''，若直接比 key === currentKey 就会把「未指定配送计划」这一组
       // 标成「当前船舶：未命名」——用户明明有船却显示未命名，正是这个误判。
-      label:
-        key && key === currentKey
-          ? `当前船舶：${shipContextStore.vesselName || '未命名'}`
-          : key
-            ? `其他靠港计划（${key.slice(-6)}）`
-            : '未指定配送计划',
+      label: groupLabel(key, groups[key]),
       isCurrent: !!key && key === currentKey,
       rows: groups[key],
     }))
 })
+
+/** 无靠港组的标签要区分两种行：靠港已结束的船归属行 vs 从未归属过船舶的行 */
+function groupLabel(key: string, rows: any[]) {
+  if (key) {
+    // 当前靠港组由上方船舶状态卡承载船名与靠港，这里只补区分别组所需的信息
+    return key === (shipContextStore.vesselCallId || '')
+      ? `本单商品${currentCallSuffix.value}`
+      : `其他靠港计划 · ${key.slice(-6)}`
+  }
+  // 靠港结束（ETD 过点/已完成）后快照只带船不带靠港，行 vesselId 有值、
+  // vesselCallId 为空——这不是「未指定」，回落到常规配送方式是设计内行为
+  const vesselRow = rows.find(row => row.vesselId)
+  if (!vesselRow)
+    return '未指定配送计划'
+  // 行上只有船 ID 没有船名；行归属恰好是当前上下文那艘时才报得出船名
+  return vesselRow.vesselId === shipContextStore.vesselId
+    ? `当前船舶：${shipContextStore.vesselName || '未命名'}（暂无进行中的靠港计划）`
+    : '船舶暂无进行中的靠港计划'
+}
 const globalLoading = useGlobalLoading()
 const { success: showSuccess } = useGlobalToast()
 const { confirm } = useGlobalMessage()
@@ -95,6 +135,18 @@ const state = reactive<ShoppingCartState>({
   goodsSpu: {},
   selectArr: [],
 })
+
+/**
+ * 商品件数不叫「种数」：一行可能买 3 件，按 cartList.length 统计会让顶部
+ * 「共 1 件商品」与底部「去结算(3)」对不上。
+ * 勾选件数同样按数量累加，保证顶部汇总、底部按钮、编辑模式删除条三处同口径。
+ */
+const cartPieceCount = computed(() =>
+  state.cartList.reduce((sum: number, row: any) => sum + (Number(row.quantity) || 0), 0),
+)
+const checkedPieceCount = computed(() =>
+  state.checkedList.reduce((sum: number, row: any) => sum + (Number(row.quantity) || 0), 0),
+)
 
 // 编辑按钮
 function handleEdit() {
@@ -369,6 +421,10 @@ function toGoodsDetail(id: string) {
 function toSharedCart() {
   uni.navigateTo({ url: '/sub-pages/order/shared-cart/list' })
 }
+/** 空态次操作：常购清单（船供场景的复购入口，与首页工作台同一个） */
+function toFrequent() {
+  uni.navigateTo({ url: '/sub-pages/product/frequent/index' })
+}
 /** 打开船舶与靠港选择器；切换后分组随 shipContextStore 变化自动重算 */
 function openShipPicker() {
   shipPickerVisible.value = true
@@ -417,31 +473,64 @@ onShow(async () => {
     delivery_way=4 时地址根本不参与下单），故整行移除，同时省去每次 onShow
     都发一次 getDefault 请求。
   -->
-  <!-- 共享购物车入口：同船多成员分别加购，采购确认人统一提交 -->
-  <view
-    class="mx-20rpx mt-20rpx flex items-center justify-between rounded-20rpx bg-white p-24rpx"
-    @click="toSharedCart"
-  >
-    <view>
-      <view class="text-28rpx font-bold">
-        共享购物车
+  <!--
+    船舶上下文控制区。
+    原先是两张等权重的白卡纵向堆叠：上面一张「共享购物车」通栏、下面一张船舶状态卡，
+    而「当前船舶：X」在紧接着的分组头里又出现一次。首屏只有一件商品时，
+    用户先看到两块几乎一样重的大卡片和两次重复的船名，密度全耗在容器上。
+    现在合并为一个区：船舶卡（主控，点按切换/申报）+ 共享购物车降为区内的胶囊入口，
+    分组头随即去重（只报靠港，不重复船名）。
+    无船舶上下文（纯零售租户 / 未绑定）时整个区不渲染：此时共享购物车不做
+    整船合并、没有靠港可切，留一个入口只会引导到空列表。
+  -->
+  <view v-if="showShipStatusBar" class="ship-panel">
+    <view class="ship-card" @click="openShipPicker">
+      <!-- 状态点：有进行中靠港=主题色，无靠港=橙色（与右侧「去申报」同色），
+           颜色之外还有文案区分，不依赖颜色单独传达状态 -->
+      <view class="ship-status-dot" :class="shipStatusTone" />
+      <view class="min-w-0 flex-1">
+        <view class="ship-name">
+          {{ shipContextStore.vesselName || '未命名' }}
+        </view>
+        <view class="ship-meta" :class="{ 'is-warning': !hasActiveCall }">
+          {{ shipStatusBarText }}
+        </view>
       </view>
-      <view class="mt-6rpx text-24rpx text-gray-500">
-        与同船成员分别加购，由采购确认人统一提交整船订单
-      </view>
+      <text
+        v-if="!hasActiveCall"
+        class="ship-action is-warning"
+      >
+        去申报 &gt;
+      </text>
+      <text v-else class="ship-action">
+        切换 &gt;
+      </text>
     </view>
-    <text class="text-26rpx text-gray-400">
-      查看 &gt;
-    </text>
+    <!-- 共享购物车：同船多成员分别加购，采购确认人统一提交整船订单 -->
+    <view class="ship-shared-entry" @click="toSharedCart">
+      与同船成员合并采购
+      <text class="ship-shared-arrow">
+        &gt;
+      </text>
+    </view>
   </view>
   <view class="cart-container">
     <view v-if="state.cartList && state.cartList.length > 0" class="cart-item">
       <!-- 管理入口挂在列表头而非导航栏：小程序端导航栏右侧要避让微信胶囊，
            文字会被挤到标题和胶囊之间；列表头右侧空间充裕且语义更贴切 -->
       <view class="cart-toolbar">
-        <text class="toolbar-count">
-          共 {{ state.cartList.length }} 件商品
-        </text>
+        <!-- 件数走数量累加：一行买 3 件时「共 1 件商品」会与底部结算件数对不上 -->
+        <view class="toolbar-info">
+          <text class="toolbar-count">
+            共 {{ cartPieceCount }} 件商品
+          </text>
+          <text v-if="state.shopCheckedAll" class="toolbar-badge">
+            已全选
+          </text>
+          <text v-else-if="state.checkedList.length > 0" class="toolbar-badge">
+            已选 {{ checkedPieceCount }}
+          </text>
+        </view>
         <view class="manage-pill" :class="{ 'is-active': state.isEdit }" @click="handleEdit">
           <wd-icon
             :name="state.isEdit ? 'check' : 'edit-outline'" size="24rpx"
@@ -452,7 +541,11 @@ onShow(async () => {
           </text>
         </view>
       </view>
-      <!-- 防串船分组头：当前船舶组排前，其他靠港行结算时将被拦截 -->
+      <!--
+        防串船分组头：商品归属哪条船由上方船舶卡回答（分组头不再重复船名），
+        这里只保留「跨靠港结算会被拦截」这一条商品列表信息，且做成细窄说明行，
+        避免与船舶卡争夺视觉层级（此前是同款灰底圆角条，读起来像第二张卡片）。
+      -->
       <view
         v-for="group in cartGroups"
         :key="group.key || 'none'"
@@ -464,7 +557,7 @@ onShow(async () => {
           class="group-switch"
           @click.stop="openShipPicker"
         >
-          （结算前请点此切换船舶）
+          结算前请切换船舶
         </text>
       </view>
       <view
@@ -523,12 +616,20 @@ onShow(async () => {
         </view>
       </view>
     </view>
-    <view v-else>
-      <wd-status-tip image="content" tip="购物车为空" />
-      <view style="text-align: center; margin-top: 20rpx">
-        <wd-button type="primary" size="small" @tap.stop="toPageUrl">
+    <view v-else class="cart-empty">
+      <wd-status-tip image="content" tip="购物车还是空的" />
+      <!-- 空态给两条出路：主操作回商品列表，次操作去常购清单。
+           原先只有「去逛逛」，常购用户每次都要从分类页重新翻一遍 -->
+      <view class="cart-empty-actions">
+        <view class="empty-btn empty-btn-primary" @tap.stop="toPageUrl">
           去逛逛
-        </wd-button>
+        </view>
+        <view class="empty-btn" @tap.stop="toFrequent">
+          常购清单
+        </view>
+      </view>
+      <view class="cart-empty-tip">
+        绑定了船舶的商品会自动按靠港计划分组，方便同船成员合并结算
       </view>
     </view>
   </view>
@@ -546,15 +647,17 @@ onShow(async () => {
       <view v-if="!state.isEdit" class="footer-right">
         <view class="footer-price">
           <text class="footer-price-label">
-            合计：
+            合计
           </text>
           <wd-text size="32rpx" mode="price" :text="state.totalAmount" prefix="￥" color="var(--wot-color-theme-primary, #ff2e4d)" />
         </view>
+        <!-- 按钮禁用态去掉饱和渐变与投影：一屏里最重的色块落在不可点的按钮上，
+             会让人以为那是可点的主操作。禁用时改浅灰，可点时才用品牌渐变 -->
         <view
           class="settle-btn" :class="{ 'is-disabled': state.checkedList.length <= 0 }"
           @click="state.checkedList.length > 0 && toSettlement()"
         >
-          去结算({{ state.checkedList.length }})
+          去结算({{ checkedPieceCount }})
         </view>
       </view>
       <view v-else class="footer-right">
@@ -571,7 +674,7 @@ onShow(async () => {
           class="action-btn action-btn-danger" :class="{ 'is-disabled': state.checkedList.length <= 0 }"
           @click="state.checkedList.length > 0 && delCart()"
         >
-          删除({{ state.checkedList.length }})
+          删除({{ checkedPieceCount }})
         </view>
       </view>
     </view>
@@ -593,21 +696,113 @@ onShow(async () => {
     spec-list-name="specList" :mode="skuMode" @open="onOpenSkuPopup" @close="onCloseSkuPopup"
     @add-cart="editCart"
   />
-  <!-- 船舶与靠港选择器：跨靠港分组需要切换船舶才能合并结算 -->
-  <ShipContextPicker v-model="shipPickerVisible" />
+  <!-- 船舶与靠港选择器：跨靠港分组需要切换船舶才能合并结算；
+       申报成功（chooseCall）后 change 回来刷新列表，让顺延过的行按新靠港重新分组 -->
+  <ShipContextPicker v-model="shipPickerVisible" @change="getCartPage" />
 </template>
 
 <style scoped lang="scss">
-/* 列表工具行：件数 + 管理入口 */
+/* 船舶控制区：船舶卡（主控）+ 共享购物车胶囊（次入口） */
+.ship-panel {
+  margin: 20rpx 20rpx 0;
+}
+
+.ship-card {
+  display: flex;
+  align-items: center;
+  padding: 24rpx;
+  border-radius: 20rpx;
+  background: #fff;
+
+  .ship-status-dot {
+    width: 12rpx;
+    height: 12rpx;
+    border-radius: 50%;
+    flex-shrink: 0;
+    margin-right: 16rpx;
+
+    &.is-active {
+      background: var(--wot-color-theme-primary, #ff2e4d);
+    }
+
+    &.is-warning {
+      background: #ff8f1f;
+    }
+  }
+
+  .ship-name {
+    font-size: 28rpx;
+    font-weight: 700;
+    color: #1d2129;
+    line-height: 40rpx;
+  }
+
+  .ship-meta {
+    margin-top: 6rpx;
+    font-size: 24rpx;
+    color: #86909c;
+    line-height: 34rpx;
+
+    &.is-warning {
+      color: #ff8f1f;
+    }
+  }
+
+  .ship-action {
+    flex-shrink: 0;
+    margin-left: 16rpx;
+    font-size: 26rpx;
+    color: #86909c;
+
+    &.is-warning {
+      color: var(--wot-color-theme-primary, #ff2e4d);
+    }
+  }
+}
+
+/* 共享购物车由通栏大卡降为区内胶囊：它平时只是偶尔用的协作入口，
+   与「切换船舶」这对高频操作不该有同等视觉权重 */
+.ship-shared-entry {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 12rpx;
+  padding: 10rpx 20rpx;
+  border-radius: 999rpx;
+  background: #fff;
+  font-size: 24rpx;
+  color: #4e5969;
+
+  .ship-shared-arrow {
+    margin-left: 8rpx;
+    color: #c9cdd4;
+  }
+}
+
+/* 列表工具行：件数 + 选中态 + 管理入口 */
 .cart-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin: 20rpx 20rpx 0;
 
+  .toolbar-info {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+  }
+
   .toolbar-count {
     font-size: 24rpx;
-    color: #969799;
+    color: #86909c;
+  }
+
+  .toolbar-badge {
+    margin-left: 12rpx;
+    padding: 2rpx 12rpx;
+    border-radius: 16rpx;
+    font-size: 22rpx;
+    color: var(--wot-color-theme-primary, #ff2e4d);
+    background: rgba(255, 46, 77, 0.08);
   }
 
   .manage-pill {
@@ -641,17 +836,20 @@ onShow(async () => {
   padding-bottom: 20rpx;
 }
 
+/* 分组说明行：细窄、无底色块，靠左侧色条表达「这一组归属同一靠港」 */
 .group-label {
-  background: #eef0f3;
-  border-radius: 12rpx;
-  color: #646566;
+  display: flex;
+  align-items: center;
   font-size: 24rpx;
+  color: #86909c;
   margin: 20rpx 20rpx 0;
-  padding: 12rpx 20rpx;
+  padding-left: 16rpx;
+  line-height: 36rpx;
+  border-left: 4rpx solid #dcdfe6;
 
   .group-switch {
-    color: var(--wot-color-theme-primary, #ff2237);
-    text-decoration: underline;
+    margin-left: 12rpx;
+    color: var(--wot-color-theme-primary, #ff2e4d);
   }
 }
 
@@ -810,8 +1008,11 @@ onShow(async () => {
     box-shadow: 0 6rpx 16rpx rgba(255, 77, 46, 0.3);
 
     &.is-disabled {
-      background: #c8c9cc;
+      /* 禁用态彻底去饱和：渐变与品牌色投影都会让不可点的按钮看着像主操作 */
+      background: #e5e6eb;
+      color: #a8abb2;
       box-shadow: none;
+      font-weight: 400;
     }
   }
 
@@ -856,5 +1057,49 @@ onShow(async () => {
 // 与固定结算条等高的滚动占位，保证最后一行推荐商品可完整滚入可视区
 .cart-footer-holder {
   height: calc(112rpx + env(safe-area-inset-bottom));
+}
+
+/* 空态：两条出路并排，主次分明；补一句分组说明让用户知道加购后会发生什么 */
+.cart-empty {
+  padding: 120rpx 60rpx 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+
+  .cart-empty-actions {
+    display: flex;
+    align-items: center;
+    margin-top: 40rpx;
+  }
+
+  .empty-btn {
+    min-width: 200rpx;
+    height: 72rpx;
+    line-height: 72rpx;
+    text-align: center;
+    border-radius: 36rpx;
+    font-size: 28rpx;
+    color: #4e5969;
+    background: #fff;
+    border: 1rpx solid #e5e6eb;
+
+    + .empty-btn {
+      margin-left: 24rpx;
+    }
+
+    &.empty-btn-primary {
+      color: #fff;
+      border: none;
+      background: linear-gradient(135deg, var(--wot-color-theme-secondary, #ff8a00), var(--wot-color-theme-primary, #ff4d2e));
+    }
+  }
+
+  .cart-empty-tip {
+    margin-top: 32rpx;
+    font-size: 22rpx;
+    color: #a8abb2;
+    text-align: center;
+    line-height: 34rpx;
+  }
 }
 </style>

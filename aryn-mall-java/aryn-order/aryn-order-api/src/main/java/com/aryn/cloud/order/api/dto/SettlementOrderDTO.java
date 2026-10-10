@@ -39,6 +39,9 @@ public class SettlementOrderDTO {
 	@Schema(description = "用户优惠券id")
 	private String couponUserId;
 
+	@Schema(description = "拼团记录ID（拼团下单预览时携带，与下单口径一致；普通结算为空）")
+	private String groupBuyRecordId;
+
 	@Schema(description = "订单商品sku集合")
 	@Valid
 	@NotEmpty(message = "订单商品不能为空")

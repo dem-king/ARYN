@@ -47,15 +47,9 @@ const showPlaceholder = computed(
             <span class="card-title">{{ showData.title }}</span>
             <span class="card-location">翠屏港 3 号泊位</span>
           </div>
-          <span class="card-overview">12 项 · 3 人参与 · 合计 ¥1,286</span>
+          <span class="card-overview">12 项 · 3 人参与 · 预估 ¥1,286</span>
         </div>
         <span v-if="showData.showBatchAdd" class="card-action">按单加购</span>
-      </div>
-      <div class="card-progress">
-        <div class="progress-track">
-          <div class="progress-bar" style="width: 62%"></div>
-        </div>
-        <span class="progress-text">已采 62%</span>
       </div>
       <div v-if="showData.showPreview" class="card-preview">
         <span class="card-preview-text">番茄 2 · 矿泉水 5 · 抽纸 10 …</span>
@@ -124,30 +118,6 @@ const showPlaceholder = computed(
   color: #0a4da3;
   background: #fff;
   border-radius: 999px;
-}
-
-.card-progress {
-  margin-top: 8px;
-}
-
-.progress-track {
-  height: 5px;
-  overflow: hidden;
-  background: rgb(255 255 255 / 24%);
-  border-radius: 999px;
-}
-
-.progress-bar {
-  height: 100%;
-  background: linear-gradient(90deg, #ffb25c, #f2741d);
-  border-radius: 999px;
-}
-
-.progress-text {
-  display: block;
-  margin-top: 5px;
-  font-size: 11px;
-  opacity: 0.9;
 }
 
 .card-preview {

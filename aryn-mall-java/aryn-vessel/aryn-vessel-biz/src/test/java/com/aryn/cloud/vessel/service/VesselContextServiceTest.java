@@ -19,6 +19,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -262,6 +263,49 @@ class VesselContextServiceTest {
 		assertEquals("call-1", context.getVesselCallId());
 		assertEquals("测试轮", context.getVesselName());
 		assertEquals("3号泊位", context.getBerth());
+	}
+
+	@Test
+	@DisplayName("展示快照对已结束的靠港照样返回船名与港口，仅以 callOrderable 标记失效")
+	void snapshotKeepsNameForFinishedCall() {
+		// 历史单据（已提交/已关闭的共享购物车）绑定的靠港必然已经结束。
+		// 「能不能下单」与「这班船当时去哪」是两回事：前者返回 null，后者必须有值，
+		// 否则历史单卡片会永久退化成「船舶信息加载中」占位文案。
+		LocalDateTime now = LocalDateTime.now();
+		VesselCall finished = call("call-old", "3", now.minusDays(3), now.minusDays(2));
+		when(vesselCallMapper.selectOne(any())).thenReturn(finished);
+		when(vesselInfoMapper.selectOne(any())).thenReturn(vessel(VESSEL_ID));
+
+		VesselContextDTO snapshot = service.snapshotByCallId(TENANT, "call-old");
+
+		assertNotNull(snapshot);
+		assertEquals("测试轮", snapshot.getVesselName());
+		assertEquals("上海港", snapshot.getPortName());
+		assertEquals(Boolean.FALSE, snapshot.getCallOrderable());
+		// 可下单查询对同一靠港仍返回 null：两条路径的语义必须分开
+		assertNull(service.contextByCallId(TENANT, "call-old"));
+	}
+
+	@Test
+	@DisplayName("仍可下单的靠港：快照与上下文都取得到，标记为 true")
+	void snapshotMarksOrderableCall() {
+		LocalDateTime now = LocalDateTime.now();
+		VesselCall active = call("call-live", "1", now.plusHours(2), now.plusHours(20));
+		when(vesselCallMapper.selectOne(any())).thenReturn(active);
+		when(vesselInfoMapper.selectOne(any())).thenReturn(vessel(VESSEL_ID));
+
+		VesselContextDTO snapshot = service.snapshotByCallId(TENANT, "call-live");
+
+		assertEquals(Boolean.TRUE, snapshot.getCallOrderable());
+		assertEquals("call-live", service.contextByCallId(TENANT, "call-live").getVesselCallId());
+	}
+
+	@Test
+	@DisplayName("靠港记录不存在或ID为空时快照返回 null，不抛异常")
+	void snapshotReturnsNullForMissingCall() {
+		when(vesselCallMapper.selectOne(any())).thenReturn(null);
+		assertNull(service.snapshotByCallId(TENANT, "call-missing"));
+		assertNull(service.snapshotByCallId(TENANT, " "));
 	}
 
 	@Test

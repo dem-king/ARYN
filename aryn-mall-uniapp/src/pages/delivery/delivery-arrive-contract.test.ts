@@ -32,10 +32,16 @@ describe('delivery arrive evidence contract', () => {
   it('后端要求送达凭证为 1 至 6 张（前端据此必须先收图）', () => {
     const service = repoSource(TASK_SERVICE)
     expect(service).toContain('送达凭证图片数量必须为1至6张')
-    // 数量校验必须在写状态之前：先改状态再拒绝会让任务卡在半途
-    const validationIndex = service.indexOf('送达凭证图片数量必须为1至6张')
-    const updateIndex = service.indexOf('DeliveryTaskStatusEnum.ARRIVED.getCode()')
+    // 数量校验必须在写状态之前：先改状态再拒绝会让任务卡在半途。
+    // 断言限定在送达落库方法体内——文件里其他地方（如工作台统计的
+    // 状态筛选）也会提到「已送达」，按全文首个匹配会误判。
+    const methodStart = service.indexOf('private boolean markArrived(')
+    const methodEnd = service.indexOf('\n\t@Override', methodStart)
+    const markArrivedBody = service.slice(methodStart, methodEnd > methodStart ? methodEnd : undefined)
+    const validationIndex = markArrivedBody.indexOf('送达凭证图片数量必须为1至6张')
+    const updateIndex = markArrivedBody.indexOf('DeliveryTaskStatusEnum.ARRIVED.getCode()')
     expect(validationIndex).toBeGreaterThan(-1)
+    expect(updateIndex).toBeGreaterThan(-1)
     expect(validationIndex).toBeLessThan(updateIndex)
   })
 

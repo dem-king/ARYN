@@ -1,10 +1,18 @@
-export function prepay(data: any, paymentPrice: any, JumpUrl: string, paymentType: string) {
+import { ensureSessionTenant, ensureTenantReady } from '@/api/core/tenant-identity'
+
+export async function prepay(data: any, paymentPrice: any, JumpUrl: string, paymentType: string) {
   if (paymentPrice === 0) {
     uni.reLaunch({
       url: JumpUrl,
     })
   }
   else {
+    // 支付前守卫：绑定/会话租户校验失败时阻断支付（零传输、零收银台唤起）
+    await ensureTenantReady()
+    const authStore = useAuthStore()
+    if (authStore.getToken) {
+      await ensureSessionTenant('mall', authStore.getToken)
+    }
     // #ifdef H5
     if (paymentType === '2') {
       // 支付宝支付

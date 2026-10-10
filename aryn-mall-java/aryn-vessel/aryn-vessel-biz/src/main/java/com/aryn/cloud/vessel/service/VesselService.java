@@ -69,6 +69,16 @@ public interface VesselService {
 	List<VesselCall> listDeclaredCalls(String tenantId);
 
 	/**
+	 * 定时任务：按时间推进靠港状态（1计划中→2靠泊中→3已完成）。
+	 *
+	 * <p>已到 ETA 且未过 ETD 推「靠泊中」；已过 ETD 推「已完成」（含 ETA/ETD
+	 * 均已过期导致跳过靠泊中的场景）。已取消(4)的不动。
+	 *
+	 * @return 本轮实际推进的记录数
+	 */
+	int refreshCallStatus(String tenantId);
+
+	/**
 	 * 管理端修改靠港计划（ETA/泊位/时间窗等）。
 	 */
 	VesselCall updateCall(String tenantId, VesselCall call);
@@ -97,6 +107,25 @@ public interface VesselService {
 	 * 按靠港计划 ID 查询可配送上下文（船舶+港口+时间窗）；不存在或已过期返回 null。
 	 */
 	VesselContextDTO contextByCallId(String tenantId, String vesselCallId);
+
+	/**
+	 * 按靠港计划 ID 查询展示快照：已离港/已完成/已取消也返回名称与港口。
+	 *
+	 * <p>与 {@link #contextByCallId} 的分工是「历史事实」与「可下单性」：
+	 * 历史单据要显示当时的船名与港口，不能因为靠港结束就查不出名字。
+	 * 可下单性由返回值的 {@code callOrderable} 标记，不做过滤。
+	 *
+	 * @return 快照；靠港记录不存在返回 null
+	 */
+	VesselContextDTO snapshotByCallId(String tenantId, String vesselCallId);
+
+	/**
+	 * 解析船舶当前可用的靠港计划（1计划中/2靠泊中且 ETD 未过，按 ETA 最早一班）。
+	 *
+	 * <p>不做在船成员校验：这是域级解析，调用方（如共享购物车提交顺延）自行负责
+	 * 成员关系校验。船舶没有可用靠港时返回 null。
+	 */
+	VesselContextDTO resolveAvailableCall(String tenantId, String vesselId);
 
 	/**
 	 * 靠港日历：查询时间区间内（ETA/ETD 与区间有交集）的全部靠港计划，附船舶名称。

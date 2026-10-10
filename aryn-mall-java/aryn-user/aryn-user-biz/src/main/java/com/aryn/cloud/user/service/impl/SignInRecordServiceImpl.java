@@ -42,8 +42,8 @@ public class SignInRecordServiceImpl extends ServiceImpl<SignInRecordMapper, Sig
 	}
 
 	@Override
-	public IPage<SignInRecordVO> getUserPage(Page page, String userId) {
-		return baseMapper.selectUserRecordPage(page, userId);
+	public IPage<SignInRecordVO> getUserPage(Page page, String userId, String beginDate, String endDate) {
+		return baseMapper.selectUserRecordPage(page, userId, beginDate, endDate);
 	}
 
 	@Override

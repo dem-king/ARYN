@@ -7,12 +7,14 @@ import com.aryn.cloud.upms.api.remote.RemoteTenantService;
 import com.xxl.job.core.context.XxlJobHelper;
 import com.xxl.job.core.handler.annotation.XxlJob;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 
 import java.util.List;
 
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class GroupBuyExpireJobHandler {
@@ -28,10 +30,17 @@ public class GroupBuyExpireJobHandler {
 		List<SysTenant> listSysTenant = remoteTenantService.list();
 		if (!CollectionUtils.isEmpty(listSysTenant)) {
 			listSysTenant.forEach(sysTenant -> {
-				ArynTenantContextHolder.setTenantId(sysTenant.getId());
-				groupBuyRecordService.handleGroupExpire();
-				groupBuyRecordService.handleActivityExpire();
-				ArynTenantContextHolder.removeTenantId();
+				try {
+					ArynTenantContextHolder.setTenantId(sysTenant.getId());
+					groupBuyRecordService.handleGroupExpire();
+					groupBuyRecordService.handleActivityExpire();
+				}
+				catch (Exception e) {
+					log.error("拼团超时处理失败, tenantId={}", sysTenant.getId(), e);
+				}
+				finally {
+					ArynTenantContextHolder.removeTenantId();
+				}
 			});
 		}
 		XxlJobHelper.log("拼团超时处理完成.");

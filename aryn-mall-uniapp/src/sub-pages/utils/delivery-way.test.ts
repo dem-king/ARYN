@@ -46,13 +46,15 @@ describe('deliveryWayOptions', () => {
     ])
   })
 
-  it('offers internal delivery first when vessel context exists', () => {
+  it('offers internal delivery only when vessel context exists（入口统一）', () => {
+    // 已绑定船舶+靠港的在船成员只走内部配送：地址簿类方式是伪选项，
+    // 手填地址会丢失船期/泊位/时间窗；未绑定场景才回落 1/2/3。
     const options = deliveryWayOptions({ withVesselInternal: true })
+    expect(options.map(option => option.value)).toEqual([DELIVERY_WAY_VESSEL_INTERNAL])
     expect(options[0]).toEqual({
       value: DELIVERY_WAY_VESSEL_INTERNAL,
       name: '公司港口/船舶内部配送',
     })
-    expect(options).toHaveLength(4)
   })
 
   it('never exposes an option without a label', () => {

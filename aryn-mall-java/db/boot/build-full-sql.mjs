@@ -88,6 +88,19 @@ const sections = [
   ['商城默认主题换肤能力', '107page_design_theme_mall_default.sql'],
   ['商城主题菜单入口', '108mall_theme_menu.sql'],
   ['货到付款实收金额与付款凭证', '109cod_pay_voucher_incremental.sql'],
+  ['货到付款收款提醒配置', '110cod_pay_remind_config_incremental.sql'],
+  ['货到付款收款预警定时任务注册', '111cod_pay_remind_job.sql'],
+  ['靠港计划状态流转定时任务注册', '112vessel_call_status_job.sql'],
+  ['靠港生效后购物车归属顺延回填', '113vessel_call_reattach_cart_backfill.sql'],
+  ['拼团订单关联', '114group_buy_order_link.sql'],
+  ['折扣与拼团定时任务注册', '115promotion_job_register.sql'],
+  ['共享购物车成员权限开关', '116shared_cart_member_permission.sql'],
+  ['订单购买场景口径修复与存量回填', '117order_purchase_scene_backfill.sql'],
+  ['管理端补录送达凭证按钮权限', '118delivery_backfill_arrive_menu.sql'],
+  ['出车单归并：一个司机一辆车只留一张在途单', '119delivery_trip_merge_incremental.sql'],
+  ['司机自助拉单开关', '120driver_self_pull_unassigned_incremental.sql'],
+  ['共享购物车接龙粘贴导入（归属人姓名快照）', '121chain_import_attributed_name_incremental.sql'],
+  ['平台管理员配送与船供菜单授权修复', '122platform_admin_menu_grant_fix.sql'],
 ];
 
 const normalize = (content) => content.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim();

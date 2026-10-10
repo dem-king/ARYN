@@ -31,13 +31,20 @@ public class PromotionActivity extends Model<PromotionActivity> {
 	/** 买赠 */
 	public static final String TYPE_GIFT = "5";
 
+	/** 人工操作态（落库）：草稿 */
 	public static final String STATUS_DRAFT = "1";
 
+	/** 人工操作态（落库）：已发布 */
 	public static final String STATUS_PUBLISHED = "2";
 
+	/** 人工操作态（落库）：已暂停 */
 	public static final String STATUS_PAUSED = "3";
 
+	/** 展示态（不落库，管理端出参按时间窗派生）：已发布且结束时间已过 */
 	public static final String STATUS_ENDED = "4";
+
+	/** 展示态（不落库，管理端出参按时间窗派生）：已发布且未到开始时间 */
+	public static final String STATUS_UPCOMING = "5";
 
 	@TableId(type = IdType.ASSIGN_ID)
 	private String id;
@@ -72,7 +79,7 @@ public class PromotionActivity extends Model<PromotionActivity> {
 	/** 结束时间 */
 	private LocalDateTime endTime;
 
-	/** 状态：1草稿 2已发布 3已暂停 4已结束 */
+	/** 状态：1草稿 2已发布 3已暂停（落库）；4已结束 5待开始（展示态，管理端出参派生） */
 	private String status;
 
 	/** 发布时间 */

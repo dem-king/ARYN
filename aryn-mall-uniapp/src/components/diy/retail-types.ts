@@ -96,11 +96,11 @@ export interface ShipWorkbenchProps extends RetailBaseProps {
 /**
  * 补给单卡片（首页「今日补给单」）。
  *
- * 展示当前进行中的共享购物车摘要（项数/人数/估算合计/明细预览），
+ * 展示当前进行中的共享购物车摘要（项数/人数/预估合计/明细预览），
  * 内容由「谁在看 + 当前靠港」决定，因此没有可手选数据源。
  *
- * 刻意不含「已采/还差 X 件」或进度条配置：现有模型没有目标量，
- * 编一个进度只会是假数据；需要时先加 shared_cart_item.planned_quantity。
+ * 刻意不含「已采/还差 X 件」或进度条配置：提单只是一份需求清单，
+ * 采没采、采到什么程度由线下沟通，系统里没有这个事实来源。
  */
 export interface ReplenishCardProps extends RetailBaseProps {
   /** 是否展示「按单加购」按钮 */
@@ -252,4 +252,34 @@ export interface VideoLiveProps {
   mode: 'live' | 'video'
   title: string
   videoUrl: string
+}
+
+/**
+ * 商品推荐（商详「看了又看」）。
+ *
+ * automatic 模式取「当前商品同分类销量 Top N」（分类解析自 goodsId，
+ * 运营也可通过 dataSource.categoryId 固定分类；商详上下文缺失时回落全站
+ * 销量榜）；manual 模式为手选商品。automatic 模式下 targetIds 同时作为
+ * 补位来源：列表不足 count 时按顺序追加未重复的手选商品。
+ */
+export interface GoodsRecommendProps extends RetailBaseProps {
+  showOriginalPrice: boolean
+  showPrice: boolean
+  title: string
+}
+
+export interface ImageCubeItem {
+  id: string
+  link: DecorationLink
+  url: string
+}
+
+/**
+ * 图片魔方：布局决定格数（items 长度建议与之一致），纯静态图片 + 链接。
+ * 格位尺寸两端同源（1rpx = 0.5px）：大格 376rpx、小格 184rpx、三分格 120rpx。
+ */
+export interface ImageCubeProps {
+  commonStyle: RetailCommonStyle
+  items: ImageCubeItem[]
+  layout: '1' | '1+2' | '1+3' | '2h' | '2v' | '4'
 }

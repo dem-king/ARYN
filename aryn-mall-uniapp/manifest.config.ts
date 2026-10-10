@@ -1,112 +1,21 @@
 /*
- * @Author: weisheng
- * @Date: 2025-08-28 20:59:43
- * @LastEditTime: 2025-09-15 18:18:28
- * @LastEditors: weisheng
- * @Description:
- * @FilePath: /aryn-uniapp-pro/manifest.config.ts
- * 记得注释
+ * manifest 源配置 → 薄包装。
+ *
+ * 完整静态对象已迁移到 build/manifest-factory.mjs（唯一工厂）；本文件只负责
+ * 区分默认开发与租户构建两种身份来源：
+ * - 默认开发：固定默认名称与微信 AppID，忽略残留的租户环境变量；
+ * - 租户构建（VITE_TENANT_BUILD=true）：由 build-tenant.mjs 注入名称与 AppID，缺任一立即失败。
+ * src/manifest.json 是生成物；租户构建不会触碰原目录的该文件。
  */
 import { defineManifestConfig } from '@uni-helper/vite-plugin-uni-manifest'
+import { createManifest, DEFAULT_APP_NAME, DEFAULT_WX_APP_ID } from './build/manifest-factory.mjs'
 
-export default defineManifestConfig({
-  'name': 'aryn-mall-uniapp',
-  'appid': '__UNI__2A0AEFA',
-  'description': '',
-  'versionName': '3.1.0',
-  'versionCode': '310',
-  'transformPx': false,
-  /* 5+App特有相关 */
-  'app-plus': {
-    usingComponents: true,
-    nvueStyleCompiler: 'uni-app',
-    compilerVersion: 3,
-    splashscreen: {
-      alwaysShowBeforeRender: true,
-      waiting: true,
-      autoclose: true,
-      delay: 0,
-    },
-    /* 模块配置 */
-    modules: {},
-    /* 应用发布信息 */
-    distribute: {
-      /* android打包配置 */
-      android: {
-        permissions: [
-          '<uses-permission android:name="android.permission.CHANGE_NETWORK_STATE"/>',
-          '<uses-permission android:name="android.permission.MOUNT_UNMOUNT_FILESYSTEMS"/>',
-          '<uses-permission android:name="android.permission.VIBRATE"/>',
-          '<uses-permission android:name="android.permission.READ_LOGS"/>',
-          '<uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>',
-          '<uses-feature android:name="android.hardware.camera.autofocus"/>',
-          '<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>',
-          '<uses-permission android:name="android.permission.CAMERA"/>',
-          '<uses-permission android:name="android.permission.GET_ACCOUNTS"/>',
-          '<uses-permission android:name="android.permission.READ_PHONE_STATE"/>',
-          '<uses-permission android:name="android.permission.CHANGE_WIFI_STATE"/>',
-          '<uses-permission android:name="android.permission.WAKE_LOCK"/>',
-          '<uses-permission android:name="android.permission.FLASHLIGHT"/>',
-          '<uses-feature android:name="android.hardware.camera"/>',
-          '<uses-permission android:name="android.permission.WRITE_SETTINGS"/>',
-        ],
-        minSdkVersion: 21,
-      },
-      /* ios打包配置 */
-      ios: {},
-      /* SDK配置 */
-      sdkConfigs: {},
-    },
-  },
-  /* 快应用特有相关 */
-  'quickapp': {},
-  /* 小程序特有相关 */
-  'mp-weixin': {
-    optimization: {
-      subPackages: true,
-    },
-    appid: 'wx0a8242ea59f3e6b4',
-    setting: {
-      urlCheck: true,
-      minified: true,
-      minifyWXML: true,
-      minifyWXSS: true,
-    },
-    // 组件按需注入
-    lazyCodeLoading: 'requiredComponents',
-    usingComponents: true,
-    // 深色模式：原生导航/tabBar 颜色由 theme.json 的 dark 段跟随系统切换，
-    // 页面内容层由 mallThemeStore.mode → App.ku.vue 的 config-provider theme 生效
-    darkmode: true,
-    themeLocation: 'theme.json',
-  },
-  'mp-alipay': {
-    usingComponents: true,
-    compileOptions: {
-      globalObjectMode: 'enable',
-      treeShaking: true,
-    },
-  },
-  'mp-baidu': {
-    usingComponents: true,
-  },
-  'mp-toutiao': {
-    usingComponents: true,
-  },
-  'h5': {
-    // darkmode: true,
-    router: {
-      mode: 'history',
-    },
-    // themeLocation: 'theme.json',
-  },
-  'app-harmony': {
-    distribute: {
-      bundleName: 'com.aryn.cloud',
-    },
-  },
-  'uniStatistics': {
-    enable: false,
-  },
-  'vueVersion': '3',
-})
+const tenantBuild = process.env.VITE_TENANT_BUILD === 'true'
+if (tenantBuild && (!process.env.VITE_TENANT_NAME || !process.env.VITE_TENANT_WX_APPID)) {
+  throw new Error('租户构建缺少名称或微信 AppID')
+}
+
+export default defineManifestConfig(createManifest({
+  name: tenantBuild ? process.env.VITE_TENANT_NAME as string : DEFAULT_APP_NAME,
+  wxAppId: tenantBuild ? process.env.VITE_TENANT_WX_APPID as string : DEFAULT_WX_APP_ID,
+}))

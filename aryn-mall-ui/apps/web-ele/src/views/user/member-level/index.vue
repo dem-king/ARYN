@@ -2,7 +2,15 @@
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
 import { Delete, Edit, Plus } from '@element-plus/icons-vue';
-import { ElButton, ElImage, ElTable, ElTableColumn, ElTag } from 'element-plus';
+import {
+  ElButton,
+  ElImage,
+  ElMessage,
+  ElMessageBox,
+  ElTable,
+  ElTableColumn,
+  ElTag,
+} from 'element-plus';
 
 import { delObj, getPage } from '#/api/user/member-level';
 import { useDict } from '#/utils/dict';
@@ -60,9 +68,23 @@ const handleEdit = (row: any) => {
   formRef.value.initForm(row);
 };
 
-const handleDelete = async (row: any) => {
-  await delObj(row.id);
-  initPage();
+const handleDelete = (row: any) => {
+  ElMessageBox.confirm(
+    `此操作将删除会员等级「${row.levelName}」并解除其权益关联，是否继续?`,
+    '提示',
+    {
+      confirmButtonText: '确认',
+      cancelButtonText: '取消',
+      type: 'warning',
+    },
+  ).then(() => {
+    delObj(row.id)
+      .then(() => {
+        ElMessage.success('删除成功');
+        initPage();
+      })
+      .catch(() => {});
+  });
 };
 
 initPage();

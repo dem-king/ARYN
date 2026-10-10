@@ -56,8 +56,10 @@ import com.aryn.cloud.product.api.remote.RemoteGoodsSkuService;
 import com.aryn.cloud.product.api.remote.RemoteGoodsSpuService;
 import com.aryn.cloud.promotion.api.enums.CouponUserStatusEnum;
 import com.aryn.cloud.promotion.api.remote.RemoteCouponUserService;
+import com.aryn.cloud.promotion.api.remote.RemoteGroupBuyService;
 import com.aryn.cloud.promotion.api.remote.RemotePromotionEngine;
 import com.aryn.cloud.promotion.api.remote.RemoteSeckillService;
+import com.aryn.cloud.promotion.api.vo.GroupBuyOrderContextVO;
 import com.aryn.cloud.user.api.entity.UserAddress;
 import com.aryn.cloud.user.api.remote.RemoteMallUserService;
 import com.aryn.cloud.user.api.remote.RemoteUserAddressService;
@@ -138,11 +140,16 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 	@DubboReference
 	private final RemoteSeckillService remoteSeckillService;
 
+	@DubboReference
+	private final RemoteGroupBuyService remoteGroupBuyService;
+
 	private final RocketMQTemplate rocketMQTemplate;
 
 	private final CallbackPrefixProperties callbackPrefixProperties;
 
 	private final com.aryn.cloud.order.service.IDeliveryTaskService deliveryTaskService;
+
+	private final com.aryn.cloud.order.service.IOrderDeliveryStateService orderDeliveryStateService;
 
 	private final com.aryn.cloud.order.service.IDeliveryAreaService deliveryAreaService;
 
@@ -181,8 +188,29 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 				.filter(order -> !CollectionUtils.isEmpty(order.getOrderItemList()))
 				.flatMap(order -> order.getOrderItemList().stream())
 				.collect(Collectors.toList()));
+			// 商城配送/内部配送订单回填当前配送任务，列表才能区分「未派单」与「已派单取货中」，
+			// 否则派单后订单仍显示待发货，运营会误以为没有点过发货
+			fillDeliveryTasks(result.getRecords());
+			// 下发「是否已送达」供管理端判断能否确认收款/代确认收货（依赖上面的配送任务回填）
+			result.getRecords().forEach(order -> order.setDelivered(orderDeliveryStateService.isDelivered(order)));
 		}
 		return result;
+	}
+
+	private void fillDeliveryTasks(List<OrderInfo> orders) {
+		List<String> orderIds = orders.stream()
+			.filter(order -> OrderDeliveryStateService.isTaskDrivenDeliveryWay(order.getDeliveryWay()))
+			.map(OrderInfo::getId)
+			.filter(Objects::nonNull)
+			.collect(Collectors.toList());
+		if (CollectionUtils.isEmpty(orderIds)) {
+			return;
+		}
+		Map<String, com.aryn.cloud.order.api.entity.DeliveryTask> taskMap = deliveryTaskService.mapByOrderIds(orderIds);
+		if (CollectionUtils.isEmpty(taskMap)) {
+			return;
+		}
+		orders.forEach(order -> order.setDeliveryTask(taskMap.get(order.getId())));
 	}
 
 	@Override
@@ -214,6 +242,12 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		if (Objects.isNull(orderInfo)) {
 			return null;
 		}
+		if (OrderDeliveryStateService.isTaskDrivenDeliveryWay(orderInfo.getDeliveryWay())) {
+			// 管理端发货窗口需要展示派单进度，快递订单不回填
+			orderInfo.setDeliveryTask(deliveryTaskService.getTaskByOrderId(orderInfo.getId()));
+		}
+		// 详情页需要判断能否确认收款 / 代确认收货
+		orderInfo.setDelivered(orderDeliveryStateService.isDelivered(orderInfo));
 		if (!CollectionUtils.isEmpty(orderInfo.getOrderItemList())) {
 			fillCategoryNames(orderInfo.getOrderItemList());
 			orderInfo.getOrderItemList().forEach(orderItem -> {
@@ -230,6 +264,13 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 	@Override
 	public OrderInfo getUserOrderById(String id, String userId) {
 		OrderInfo orderInfo = baseMapper.selectOrderByIdAndUser(id, userId);
+		if (Objects.nonNull(orderInfo)) {
+			// C 端详情需要展示配送进度与「确认收货」按钮，回填配送任务与送达标记
+			if (OrderDeliveryStateService.isTaskDrivenDeliveryWay(orderInfo.getDeliveryWay())) {
+				orderInfo.setDeliveryTask(deliveryTaskService.getTaskByOrderId(orderInfo.getId()));
+			}
+			orderInfo.setDelivered(orderDeliveryStateService.isDelivered(orderInfo));
+		}
 		return enrichOrderRefund(orderInfo);
 	}
 
@@ -300,6 +341,10 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		if (ObjectUtil.isNull(orderInfo)) {
 			throw new ArynBusinessException("订单不存在");
 		}
+		if (OrderDeliveryStateService.isTaskDrivenDeliveryWay(orderInfo.getDeliveryWay())) {
+			// 商城配送/内部配送由配送任务状态机驱动，快递发货单会造成任务与订单双轨不一致
+			throw new ArynBusinessException("商城配送/内部配送订单无需物流单号，请直接派单给司机");
+		}
 		List<OrderItemEntity> orderItemEntityList = orderItemService
 			.list(Wrappers.<OrderItemEntity>lambdaQuery().eq(OrderItemEntity::getOrderId, orderInfo.getId()));
 		if (CollectionUtils.isEmpty(orderItemEntityList)) {
@@ -344,6 +389,36 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 				orderInfo.getRecipientPhone(), orderDelivery.getDeliveryNo());
 		orderWxDeliveryService.uploadDeliveryInfoOnDeliver(orderInfo, orderItemEntityList);
 
+		return true;
+	}
+
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public boolean deliverAndAssignOrder(OrderDeliverAssignDTO request) {
+		OrderInfo orderInfo = baseMapper.selectById(request.getOrderId());
+		if (ObjectUtil.isNull(orderInfo)) {
+			throw new ArynBusinessException("订单不存在");
+		}
+		if (!OrderDeliveryStateService.isTaskDrivenDeliveryWay(orderInfo.getDeliveryWay())) {
+			throw new ArynBusinessException("快递配送订单请填写物流信息发货");
+		}
+		if (!OrderStatusEnum.WAITING_FOR_DELIVERY.getCode().equals(orderInfo.getStatus())) {
+			throw new ArynBusinessException("订单不是待发货状态，无法派单");
+		}
+		List<OrderItemEntity> orderItemEntityList = orderItemService
+			.list(Wrappers.<OrderItemEntity>lambdaQuery().eq(OrderItemEntity::getOrderId, orderInfo.getId()));
+		if (CollectionUtils.isEmpty(orderItemEntityList)) {
+			throw new ArynBusinessException("订单商品不存在");
+		}
+		orderItemEntityList.forEach(orderItem -> {
+			if (!OrderItemStatusEnum.PAID.getCode().equals(orderItem.getStatus())) {
+				throw new ArynBusinessException("订单商品状态已变化，无法派单");
+			}
+		});
+		// 幂等兜底：历史订单可能缺配送任务（服务内按订单幂等，已有任务直接复用）
+		deliveryTaskService.createTaskOnPay(orderInfo, orderItemEntityList);
+		// 派单后订单仍为待发货，司机取货出发时由 OrderDeliveryStateService 推转为待收货
+		deliveryTaskService.assignByOrderId(orderInfo.getId(), request.getStaffId());
 		return true;
 	}
 
@@ -402,6 +477,14 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		catch (Exception ex) {
 			log.warn("订单[" + orderInfo.getId() + "]秒杀预扣释放失败，等待超时任务兜底: " + ex.getMessage());
 		}
+		// 释放拼团占坑：清空成员的订单关联并回到待付款，用户可重新下单
+		// （商品库存已随上方 rollbackStock 回滚；团超时后由超时任务统一收尾），失败只告警
+		try {
+			remoteGroupBuyService.releaseOrder(orderInfo.getId());
+		}
+		catch (Exception ex) {
+			log.warn("订单[" + orderInfo.getId() + "]拼团占坑释放失败，等待超时任务兜底: " + ex.getMessage());
+		}
 		return orderInfo.getId();
 	}
 
@@ -429,6 +512,12 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		if (orderInfo == null || !MallOrderConstants.PAYMENT_TYPE_3.equals(orderInfo.getPaymentType())) {
 			throw new ArynBusinessException("仅货到付款订单支持确认收款");
 		}
+		// 货到付款为签收付款：货物已送达（买家已收货，或配送任务已送达/签收）才可能收到钱。
+		// 不以「订单已完成」为门槛——客户常当面付款却不在小程序点确认收货，
+		// 若只认已完成，收款入口会被拖到超时自动收货之后（默认 7 天）。
+		if (!orderDeliveryStateService.isDelivered(orderInfo)) {
+			throw new ArynBusinessException("订单尚未送达，无法确认收款");
+		}
 		BigDecimal receivable = orderInfo.getPaymentPrice() != null ? orderInfo.getPaymentPrice()
 				: orderInfo.getTotalPrice();
 		if (receivable != null && payConfirmDTO.getActualPayPrice().compareTo(receivable) > 0) {
@@ -436,10 +525,13 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		}
 		String payVouchers = buildPayVoucherSnapshot(payConfirmDTO.getVoucherMaterialIds());
 		LocalDateTime paymentTime = LocalDateTime.now();
+		// 允许「待收货但已送达」与「已完成」两种状态下登记收款；
+		// 条件同时校验 pay_status=0 与状态，防并发重复收款。
 		int updated = baseMapper.update(null, Wrappers.<OrderInfo>lambdaUpdate()
 			.eq(OrderInfo::getId, id)
 			.eq(OrderInfo::getPayStatus, CommonConstants.NO)
-			.ne(OrderInfo::getStatus, OrderStatusEnum.CANCELED.getCode())
+			.in(OrderInfo::getStatus, List.of(OrderStatusEnum.WAITING_FOR_RECEIPT.getCode(),
+					OrderStatusEnum.COMPLETED.getCode()))
 			.set(OrderInfo::getPayStatus, CommonConstants.YES)
 			.set(OrderInfo::getPaymentTime, paymentTime)
 			.set(OrderInfo::getActualPayPrice, payConfirmDTO.getActualPayPrice())
@@ -520,7 +612,35 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 
 	@Override
 	public IPage<OrderInfo> apiPage(Page page, OrderInfo orderInfo) {
-		return baseMapper.selectApiPage(page, orderInfo);
+		IPage<OrderInfo> result = baseMapper.selectApiPage(page, orderInfo);
+		if (!CollectionUtils.isEmpty(result.getRecords())) {
+			// 回填「货物是否已送达」，C 端据此决定是否展示「确认收货」按钮
+			// （商城配送/内部配送必须等司机点已送达，否则按钮不出现）
+			fillDeliveredForReceive(result.getRecords());
+		}
+		return result;
+	}
+
+	/**
+	 * 批量回填 C 端的「是否已送达」。
+	 *
+	 * <p>仅任务驱动的配送方式（way=3/4）需要查配送任务；快递与自提的送达口径
+	 * 不依赖配送任务，避免无谓查询。回填前先批量取任务，避免逐单 N+1。
+	 */
+	private void fillDeliveredForReceive(List<OrderInfo> orders) {
+		List<String> taskDrivenOrderIds = orders.stream()
+			.filter(order -> OrderDeliveryStateService.isTaskDrivenDeliveryWay(order.getDeliveryWay()))
+			.map(OrderInfo::getId)
+			.filter(Objects::nonNull)
+			.collect(Collectors.toList());
+		Map<String, com.aryn.cloud.order.api.entity.DeliveryTask> taskMap = taskDrivenOrderIds.isEmpty()
+				? Collections.emptyMap() : deliveryTaskService.mapByOrderIds(taskDrivenOrderIds);
+		orders.forEach(order -> {
+			if (taskMap.containsKey(order.getId())) {
+				order.setDeliveryTask(taskMap.get(order.getId()));
+			}
+			order.setDelivered(orderDeliveryStateService.isDelivered(order));
+		});
 	}
 
 	@Override
@@ -545,6 +665,11 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 				&& !MallOrderConstants.DELIVERY_WAY_3.equals(createOrderDTO.getDeliveryWay())
 				&& !MallOrderConstants.DELIVERY_WAY_4.equals(createOrderDTO.getDeliveryWay())) {
 			throw new ArynBusinessException("该配送方式不支持货到付款");
+		}
+		// 拼团单必须在线支付：成团判定依赖支付回调，货到付款无支付回调会导致团永远无法成团
+		if (StringUtils.hasText(createOrderDTO.getGroupBuyRecordId())
+				&& MallOrderConstants.PAYMENT_TYPE_3.equals(createOrderDTO.getPaymentType())) {
+			throw new ArynBusinessException("拼团商品不支持货到付款，请选择在线支付");
 		}
 
 		// 查询用户信息
@@ -572,11 +697,15 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		validateAndApplyDeliveryContext(createOrderDTO.getPurchaseScene(), createOrderDTO.getUserId(), orderInfo);
 		// 生成订单商品
 		List<OrderItemEntity> orderItemEntityList = orderPriceComputeService.generateOrderItems(goodsSkuList, createOrderDTO.getSkuReqList());
+		// 拼团价预取（拼团单）：校验拼团记录有效并取活动 SKU 的拼团单价，
+		// 拼团价优先级最高，须在会员折扣与优惠券之前落到成交基价
+		Map<String, BigDecimal> groupBuyPriceBySku = resolveGroupBuyPrice(createOrderDTO.getGroupBuyRecordId(),
+				createOrderDTO.getUserId(), orderItemEntityList);
 		// 营销阶梯价改基价（会员/券之前）
 		PromotionCalculationVO promoCalculation = orderPriceComputeService.applyPromotionLadder(orderInfo, orderItemEntityList);
-		// 促销价（秒杀 > 限时折扣 > 原价）须在会员折扣与优惠券之前落到成交基价，
+		// 促销价（拼团 > 秒杀 > 限时折扣 > 原价）须在会员折扣与优惠券之前落到成交基价，
 		// 否则券与会员折扣按原价基数抵扣；历史实现藏在运费分支内，自提/内配恒不生效
-		orderPriceComputeService.orderPromotionPriceHandler(orderItemEntityList);
+		orderPriceComputeService.orderPromotionPriceHandler(orderItemEntityList, groupBuyPriceBySku);
 
 		orderPriceComputeService.computeOrderPrice(orderInfo, orderItemEntityList);
 		MemberBenefitsVO memberBenefits = remoteMallUserService.getMemberBenefits(createOrderDTO.getUserId());
@@ -638,6 +767,13 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 			throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60061.getCode(),
 					MallErrorCodeEnum.ERROR_60061.getMsg());
 		}
+		// 拼团绑定：把订单号写入拼团成员（成团判定与失败退款依赖该关联）。
+		// 乐观抢占失败说明占坑已被并发订单占用，阻断本单，避免同一资格下重复成交
+		if (StringUtils.hasText(createOrderDTO.getGroupBuyRecordId())
+				&& !remoteGroupBuyService.bindOrder(createOrderDTO.getGroupBuyRecordId(),
+						createOrderDTO.getUserId(), orderInfo.getId())) {
+			throw new ArynBusinessException("拼团资格已被占用，请重新开团或参团");
+		}
 		// 营销锁定（须在库存扣减与明细落库前完成：买赠赠品要追加为 0 元明细并参与扣减）
 		PromotionCalculationVO reserved = orderPriceComputeService.reservePromotion(orderInfo, orderItemEntityList);
 		if (reserved != null && reserved.getGifts() != null && !reserved.getGifts().isEmpty()) {
@@ -692,6 +828,31 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		return orderInfo;
 	}
 
+	/**
+	 * 拼团单取价：校验拼团资格并返回「SKU → 拼团单价」映射；非拼团单返回 null。
+	 *
+	 * <p>下单商品必须与活动 SKU 一致（活动为单 SKU 拼团），否则抛业务异常，
+	 * 避免用户拿 A 商品的开团资格以拼团价购买 B 商品。
+	 */
+	private Map<String, BigDecimal> resolveGroupBuyPrice(String groupBuyRecordId, String userId,
+			List<OrderItemEntity> orderItemEntityList) {
+		if (!StringUtils.hasText(groupBuyRecordId)) {
+			return null;
+		}
+		GroupBuyOrderContextVO context = remoteGroupBuyService.getOrderContext(groupBuyRecordId, userId);
+		if (context == null) {
+			throw new ArynBusinessException("拼团信息不存在，请重新开团或参团");
+		}
+		boolean skuMatched = orderItemEntityList.stream()
+			.anyMatch(item -> item.getSkuId().equals(context.getSkuId()));
+		if (!skuMatched) {
+			throw new ArynBusinessException("下单商品与拼团活动商品不一致，无法按拼团价下单");
+		}
+		Map<String, BigDecimal> priceBySku = new HashMap<>();
+		priceBySku.put(context.getSkuId(), context.getGroupPrice());
+		return priceBySku;
+	}
+
 	private OrderInfo generateOrder(CreateOrderDTO createOrderDTO) {
 		OrderInfo orderInfo = new OrderInfo();
 		BeanUtil.copyProperties(createOrderDTO, orderInfo);
@@ -717,6 +878,12 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public boolean receiveOrder(OrderInfo orderInfo) {
+		// 送达守卫：商城配送/内部配送必须等司机点「已送达」后才能确认收货。
+		// 订单在「司机出发」时就已进入待收货，若不加此守卫，司机未送达买家便能确认收货。
+		// 快递（无内部配送任务）与自提（到店即交付）不受此限。
+		if (!orderDeliveryStateService.isReadyToReceive(orderInfo)) {
+			throw new ArynBusinessException("货物尚未送达，暂不能确认收货");
+		}
 		LocalDateTime receiverTime = LocalDateTime.now();
 		// 已支付，或货到付款单（货已送达款项线下结算，收款由管理端确认）：均可确认收货
 		int updated = baseMapper.update(null, Wrappers.<OrderInfo>lambdaUpdate()
@@ -905,11 +1072,14 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		// 生成订单商品
 		List<OrderItemEntity> orderItemEntityList = orderPriceComputeService.generateOrderItems(goodsSkuList,
 				settlementOrderDTO.getSkuReqList());
+		// 拼团价预取（拼团单）：与下单同口径，保证确认页展示金额与提交后一致
+		Map<String, BigDecimal> groupBuyPriceBySku = resolveGroupBuyPrice(settlementOrderDTO.getGroupBuyRecordId(),
+				settlementOrderDTO.getUserId(), orderItemEntityList);
 		// 营销阶梯价改基价（会员/券之前）
 		PromotionCalculationVO promoCalculation = orderPriceComputeService.applyPromotionLadder(orderInfo, orderItemEntityList);
-		// 促销价（秒杀 > 限时折扣 > 原价）与下单口径一致，须在会员折扣与优惠券之前应用，
+		// 促销价（拼团 > 秒杀 > 限时折扣 > 原价）与下单口径一致，须在会员折扣与优惠券之前应用，
 		// 否则确认页展示金额与提交后的实际应付不一致
-		orderPriceComputeService.orderPromotionPriceHandler(orderItemEntityList);
+		orderPriceComputeService.orderPromotionPriceHandler(orderItemEntityList, groupBuyPriceBySku);
 
 		orderPriceComputeService.computeOrderPrice(orderInfo, orderItemEntityList);
 		MemberBenefitsVO memberBenefits = remoteMallUserService.getMemberBenefits(settlementOrderDTO.getUserId());
@@ -1004,9 +1174,13 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 	/**
 	 * 购买场景与配送上下文校验：结算与下单共用同一校验；内部配送以服务端船舶域数据落快照，
 	 * 港口、泊位、时间窗不从客户端取值。
+	 *
+	 * <p>同时归一购买场景：未声明的按海员个人购买落库，保证订单场景恒为 1/2，
+	 * 管理端列表、导出与场景筛选才有稳定口径。
 	 */
 	private void validateAndApplyDeliveryContext(String purchaseScene, String userId, OrderInfo orderInfo) {
 		purchaseSceneValidator.validate(purchaseScene, orderInfo.getDeliveryWay());
+		orderInfo.setPurchaseScene(purchaseSceneValidator.normalize(purchaseScene));
 		VesselContextDTO context = deliveryContextValidator.validate(ArynTenantContextHolder.getTenantId(), userId,
 				orderInfo.getDeliveryWay(), orderInfo.getVesselId(), orderInfo.getVesselCallId());
 		if (context != null) {
@@ -1077,20 +1251,18 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 			reorderItem.setPicUrl(item.getPicUrl());
 			reorderItem.setOriginalQuantity(item.getBuyQuantity());
 			GoodsSku sku = skuMap.get(item.getSkuId());
+			// getBySkuIds 只回在售 SKU（goods_sku.status='0' 且 goods_spu.status='1'，两表 status 语义相反），
+			// 查不到即已删除或 SKU/SPU 任一级下架，不能再按 status 重复判定
 			if (sku == null) {
 				reorderItem.setPurchasable(false);
-				reorderItem.setReason("商品已不存在");
+				reorderItem.setReason("商品已下架或已删除");
 				return reorderItem;
 			}
 			reorderItem.setCurrentPrice(sku.getSalesPrice());
 			reorderItem.setCurrentStock(sku.getStock());
 			reorderItem.setPriceChanged(sku.getSalesPrice() != null && item.getSalesPrice() != null
 					&& sku.getSalesPrice().compareTo(item.getSalesPrice()) != 0);
-			if (!"1".equals(sku.getStatus())) {
-				reorderItem.setPurchasable(false);
-				reorderItem.setReason("商品已下架");
-			}
-			else if (sku.getStock() == null || sku.getStock() < item.getBuyQuantity()) {
+			if (sku.getStock() == null || sku.getStock() < item.getBuyQuantity()) {
 				reorderItem.setPurchasable(false);
 				reorderItem.setReason("库存不足");
 			}

@@ -45,10 +45,34 @@ public interface IDeliveryTaskItemService extends IService<DeliveryTaskItem> {
 	boolean unpick(String itemId, String staffId);
 
 	/**
+	 * 批量确认/取消取货。
+	 *
+	 * <p>配货视图按「商品 + 规格」合并展示（整趟车一次配齐），一次勾选命中多条明细，
+	 * 逐条发起请求在整趟车场景下会放大成几十次往返。这里改为一次性校验并批量落库，
+	 * 校验口径与 {@link #pick} 一致：明细必须属于该配送员的配货中出车单。
+	 * @param tripId 出车单ID
+	 * @param itemIds 明细ID列表
+	 * @param picked true 确认取货，false 取消确认
+	 * @param staffId 当前配送员ID
+	 * @return 本次实际变更的明细数
+	 */
+	int batchPick(String tripId, List<String> itemIds, boolean picked, String staffId);
+
+	/**
 	 * 校验某出车单下所有任务的所有明细是否全部已取
 	 * @param tripId 出车单ID
 	 * @return 是否全部已取
 	 */
 	boolean allPicked(String tripId);
+
+	/**
+	 * 校验单个任务的明细是否全部已取。
+	 *
+	 * <p>用于「已出发」趟次重复点出发时，只校验后来新并入的那几张单，
+	 * 而不是把整趟（含早已在配送路上的单）重新校验一遍。
+	 * @param taskId 配送任务ID
+	 * @return 是否全部已取
+	 */
+	boolean allPickedByTask(String taskId);
 
 }

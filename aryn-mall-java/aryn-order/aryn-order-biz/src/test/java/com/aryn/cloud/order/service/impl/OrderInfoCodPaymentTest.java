@@ -14,6 +14,7 @@ import com.aryn.cloud.order.api.entity.OrderInfo;
 import com.aryn.cloud.order.api.entity.OrderItemEntity;
 import com.aryn.cloud.order.api.enums.OrderItemStatusEnum;
 import com.aryn.cloud.order.api.enums.OrderStatusEnum;
+import com.aryn.cloud.order.api.enums.PurchaseSceneEnum;
 import com.aryn.cloud.order.event.listener.OrderPaySuccessNotifier;
 import com.aryn.cloud.order.mapper.OrderDeliveryMapper;
 import com.aryn.cloud.order.mapper.OrderInfoMapper;
@@ -82,6 +83,8 @@ class OrderInfoCodPaymentTest {
 
 	private com.aryn.cloud.order.service.IDeliveryTaskService deliveryTaskService;
 
+	private com.aryn.cloud.order.service.IOrderDeliveryStateService orderDeliveryStateService;
+
 	private OrderPaySuccessNotifier orderPaySuccessNotifier;
 
 	private RemotePromotionEngine promotionEngine;
@@ -120,9 +123,11 @@ class OrderInfoCodPaymentTest {
 		com.aryn.cloud.common.core.entity.CallbackPrefixProperties callbackPrefixProperties = mock(
 				com.aryn.cloud.common.core.entity.CallbackPrefixProperties.class);
 		deliveryTaskService = mock(com.aryn.cloud.order.service.IDeliveryTaskService.class);
+		orderDeliveryStateService = mock(com.aryn.cloud.order.service.IOrderDeliveryStateService.class);
 		deliveryAreaService = mock(com.aryn.cloud.order.service.IDeliveryAreaService.class);
 		PromotionSnapshotMapper promotionSnapshotMapper = mock(PromotionSnapshotMapper.class);
-		PurchaseSceneValidator purchaseSceneValidator = mock(PurchaseSceneValidator.class);
+		// 购买场景校验用真实实现：下单链路依赖它把未声明的场景归一为个人购买
+		PurchaseSceneValidator purchaseSceneValidator = new PurchaseSceneValidator();
 		DeliveryContextValidator deliveryContextValidator = mock(DeliveryContextValidator.class);
 		orderPaySuccessNotifier = mock(OrderPaySuccessNotifier.class);
 		promotionEngine = mock(RemotePromotionEngine.class);
@@ -135,7 +140,8 @@ class OrderInfoCodPaymentTest {
 				mock(com.aryn.cloud.pay.api.remote.RemotePayService.class), applicationEventPublisher,
 				orderPriceComputeService, orderWxDeliveryService, orderStatisticsQueryService, orderAppraiseService,
 				remoteUserAddressService, orderDeliveryMapper, orderRefundMapper, remoteCouponUserService,
-				remoteSeckillService, rocketMQTemplate, callbackPrefixProperties, deliveryTaskService,
+				remoteSeckillService, mock(com.aryn.cloud.promotion.api.remote.RemoteGroupBuyService.class), rocketMQTemplate, callbackPrefixProperties, deliveryTaskService,
+				orderDeliveryStateService,
 				deliveryAreaService, promotionSnapshotMapper, purchaseSceneValidator, deliveryContextValidator,
 				orderPaySuccessNotifier, promotionEngine, remoteMaterialService, sharedCartServiceProvider);
 
@@ -186,6 +192,51 @@ class OrderInfoCodPaymentTest {
 	}
 
 	@Test
+	void createOrderFallsBackToPersonalSceneWhenClientOmitsIt() {
+		// 商城配送单未声明场景：须落「海员个人购买」，否则管理端列表与导出无场景可显示
+		stubCreateOrderSuccess();
+		OrderItemEntity item = new OrderItemEntity();
+		when(orderPriceComputeService.generateOrderItems(any(), any())).thenReturn(List.of(item));
+
+		OrderInfo order = service.createOrder(codOrderDto());
+
+		assertThat(order.getPurchaseScene()).isEqualTo(PurchaseSceneEnum.PERSONAL.getCode());
+		// 明细场景与订单同口径：导出与共享采购归属都读 order_item.purchase_scene
+		assertThat(item.getPurchaseScene()).isEqualTo(PurchaseSceneEnum.PERSONAL.getCode());
+	}
+
+	@Test
+	void createOrderKeepsDeclaredShipSupplyScene() {
+		// 已声明的船供场景不得被归一覆盖，且必须走内部配送
+		stubCreateOrderSuccess();
+		OrderItemEntity item = new OrderItemEntity();
+		when(orderPriceComputeService.generateOrderItems(any(), any())).thenReturn(List.of(item));
+		CreateOrderDTO dto = codOrderDto();
+		dto.setDeliveryWay(MallOrderConstants.DELIVERY_WAY_4);
+		dto.setPurchaseScene(PurchaseSceneEnum.SHIP_SUPPLY.getCode());
+
+		OrderInfo order = service.createOrder(dto);
+
+		assertThat(order.getPurchaseScene()).isEqualTo(PurchaseSceneEnum.SHIP_SUPPLY.getCode());
+		assertThat(item.getPurchaseScene()).isEqualTo(PurchaseSceneEnum.SHIP_SUPPLY.getCode());
+	}
+
+	private void stubCreateOrderSuccess() {
+		when(orderInfoMapper.selectOne(any(Wrapper.class))).thenReturn(null);
+		when(orderInfoMapper.selectList(any(Wrapper.class))).thenReturn(List.of());
+		when(orderInfoMapper.insert(any(OrderInfo.class))).thenReturn(1);
+		when(remoteMallUserService.getUserById("u1")).thenReturn(new UserInfoVO());
+		when(remoteGoodsSkuService.getBySkuIds(any())).thenReturn(List.of(new GoodsSku()));
+		when(remoteMallUserService.getMemberBenefits("u1")).thenReturn(null);
+		UserAddress address = new UserAddress();
+		address.setRecipientName("张三");
+		address.setTelephone("13800000000");
+		when(remoteUserAddressService.getById("addr-1", "u1")).thenReturn(address);
+		when(deliveryAreaService.isAddressInDeliveryArea(any(), any(), any())).thenReturn(true);
+		when(orderItemService.saveBatch(any())).thenReturn(true);
+	}
+
+	@Test
 	void createOrderRejectsOnlinePaymentTypeDeclaredByClient() {
 		CreateOrderDTO dto = codOrderDto();
 		dto.setPaymentType("1");
@@ -213,11 +264,12 @@ class OrderInfoCodPaymentTest {
 		order.setId("o1");
 		order.setPaymentType(MallOrderConstants.PAYMENT_TYPE_3);
 		order.setPayStatus(CommonConstants.NO);
-		order.setStatus(OrderStatusEnum.WAITING_FOR_DELIVERY.getCode());
+		order.setStatus(OrderStatusEnum.COMPLETED.getCode());
 		order.setTenantId("t1");
 		order.setPaymentPrice(new java.math.BigDecimal("1803"));
 		when(orderInfoMapper.selectById("o1")).thenReturn(order);
 		when(orderInfoMapper.update(isNull(), any(Wrapper.class))).thenReturn(1);
+		when(orderDeliveryStateService.isDelivered(order)).thenReturn(true);
 		OrderItemEntity item = new OrderItemEntity();
 		when(orderItemService.list(any(Wrapper.class))).thenReturn(List.of(item));
 
@@ -228,6 +280,26 @@ class OrderInfoCodPaymentTest {
 		assertThat(order.getActualPayPrice()).isEqualByComparingTo("1800");
 		verify(promotionEngine).confirm("t1", "o1");
 		verify(orderPaySuccessNotifier).notify(order, List.of(item));
+	}
+
+	@Test
+	void confirmOfflinePaymentAllowsDeliveredOrderNotYetReceived() {
+		// 客户已当面付款但未在小程序点确认收货：订单仍是待收货，配送任务已送达
+		OrderInfo order = new OrderInfo();
+		order.setId("o1");
+		order.setPaymentType(MallOrderConstants.PAYMENT_TYPE_3);
+		order.setPayStatus(CommonConstants.NO);
+		order.setStatus(OrderStatusEnum.WAITING_FOR_RECEIPT.getCode());
+		order.setTenantId("t1");
+		order.setPaymentPrice(new java.math.BigDecimal("1803"));
+		when(orderInfoMapper.selectById("o1")).thenReturn(order);
+		when(orderInfoMapper.update(isNull(), any(Wrapper.class))).thenReturn(1);
+		when(orderDeliveryStateService.isDelivered(order)).thenReturn(true);
+		when(orderItemService.list(any(Wrapper.class))).thenReturn(List.of());
+
+		assertThat(service.confirmOfflinePayment("o1", payConfirmDto("1800"))).isTrue();
+
+		assertThat(order.getPayStatus()).isEqualTo(CommonConstants.YES);
 	}
 
 	private PayConfirmDTO payConfirmDto(String actualPayPrice) {
@@ -252,12 +324,30 @@ class OrderInfoCodPaymentTest {
 		order.setId("o1");
 		order.setPaymentType(MallOrderConstants.PAYMENT_TYPE_3);
 		order.setPayStatus(CommonConstants.NO);
+		order.setStatus(OrderStatusEnum.COMPLETED.getCode());
 		order.setPaymentPrice(new java.math.BigDecimal("1803"));
 		when(orderInfoMapper.selectById("o1")).thenReturn(order);
+		when(orderDeliveryStateService.isDelivered(order)).thenReturn(true);
 
 		assertThatThrownBy(() -> service.confirmOfflinePayment("o1", payConfirmDto("1803.01")))
 				.isInstanceOf(ArynBusinessException.class)
 				.satisfies(ex -> assertThat(((ArynBusinessException) ex).getMsg()).contains("实收金额不能大于应收金额"));
+	}
+
+	@Test
+	void confirmOfflinePaymentRejectsOrderNotDeliveredYet() {
+		OrderInfo order = new OrderInfo();
+		order.setId("o1");
+		order.setPaymentType(MallOrderConstants.PAYMENT_TYPE_3);
+		order.setPayStatus(CommonConstants.NO);
+		order.setStatus(OrderStatusEnum.WAITING_FOR_RECEIPT.getCode());
+		when(orderInfoMapper.selectById("o1")).thenReturn(order);
+		when(orderDeliveryStateService.isDelivered(order)).thenReturn(false);
+
+		assertThatThrownBy(() -> service.confirmOfflinePayment("o1", payConfirmDto("100")))
+				.isInstanceOf(ArynBusinessException.class)
+				.hasFieldOrPropertyWithValue("msg", "订单尚未送达，无法确认收款");
+		verify(orderInfoMapper, never()).update(isNull(), any(Wrapper.class));
 	}
 
 	@Test
@@ -266,11 +356,12 @@ class OrderInfoCodPaymentTest {
 		order.setId("o1");
 		order.setPaymentType(MallOrderConstants.PAYMENT_TYPE_3);
 		order.setPayStatus(CommonConstants.NO);
-		order.setStatus(OrderStatusEnum.WAITING_FOR_DELIVERY.getCode());
+		order.setStatus(OrderStatusEnum.COMPLETED.getCode());
 		order.setTenantId("t1");
 		order.setPaymentPrice(new java.math.BigDecimal("1803"));
 		when(orderInfoMapper.selectById("o1")).thenReturn(order);
 		when(orderInfoMapper.update(isNull(), any(Wrapper.class))).thenReturn(1);
+		when(orderDeliveryStateService.isDelivered(order)).thenReturn(true);
 		when(orderItemService.list(any(Wrapper.class))).thenReturn(List.of());
 		when(remoteMaterialService.mapUrlByIds(List.of("m1", "m2")))
 			.thenReturn(java.util.Map.of("m1", "http://f/1.png", "m2", "http://f/2.png"));
@@ -296,8 +387,10 @@ class OrderInfoCodPaymentTest {
 		order.setId("o1");
 		order.setPaymentType(MallOrderConstants.PAYMENT_TYPE_3);
 		order.setPayStatus(CommonConstants.NO);
+		order.setStatus(OrderStatusEnum.COMPLETED.getCode());
 		order.setPaymentPrice(new java.math.BigDecimal("1803"));
 		when(orderInfoMapper.selectById("o1")).thenReturn(order);
+		when(orderDeliveryStateService.isDelivered(order)).thenReturn(true);
 		when(remoteMaterialService.mapUrlByIds(List.of("gone")))
 			.thenReturn(java.util.Collections.emptyMap());
 
@@ -328,8 +421,10 @@ class OrderInfoCodPaymentTest {
 		order.setId("o1");
 		order.setPaymentType(MallOrderConstants.PAYMENT_TYPE_3);
 		order.setPayStatus(CommonConstants.NO);
+		order.setStatus(OrderStatusEnum.COMPLETED.getCode());
 		when(orderInfoMapper.selectById("o1")).thenReturn(order);
-		// 条件更新未命中：说明 payStatus 已被并发置 1 或订单已取消
+		when(orderDeliveryStateService.isDelivered(order)).thenReturn(true);
+		// 条件更新未命中：说明 payStatus 已被并发置 1
 		when(orderInfoMapper.update(isNull(), any(Wrapper.class))).thenReturn(0);
 
 		assertThatThrownBy(() -> service.confirmOfflinePayment("o1", payConfirmDto("100")))

@@ -94,10 +94,9 @@ async function handleOpenGroup() {
     return
   globalLoading.loading('开团中...')
   try {
-    await openGroup({ activityId: state.activity.id })
-    uni.showToast({ title: '开团成功，请尽快支付', icon: 'success' })
+    const record = await openGroup({ activityId: state.activity.id })
     await loadRecords(state.activity.id)
-    navigateToOrder()
+    gotoOrderConfirm(record?.id)
   }
   catch {
     uni.showToast({ title: '开团失败', icon: 'none' })
@@ -112,10 +111,9 @@ async function handleJoinGroup(recordId: string) {
     return
   globalLoading.loading('参团中...')
   try {
-    await joinGroup({ activityId: state.activity.id, recordId })
-    uni.showToast({ title: '参团成功，请尽快支付', icon: 'success' })
+    const record = await joinGroup({ activityId: state.activity.id, recordId })
     await loadRecords(state.activity.id)
-    navigateToOrder()
+    gotoOrderConfirm(record?.id || recordId)
   }
   catch {
     uni.showToast({ title: '参团失败', icon: 'none' })
@@ -125,15 +123,43 @@ async function handleJoinGroup(recordId: string) {
   }
 }
 
-function navigateToOrder(orderId?: string) {
-  if (orderId) {
-    uni.navigateTo({
-      url: `/sub-pages/order/order-confirm/index?orderId=${orderId}`,
-    })
+/**
+ * 开团/参团成功后进入结算页下单。
+ *
+ * <p>拼团价只在服务端按拼团记录重算，结算页无商品上下文会空单，
+ * 故把活动 SKU 写入 goodsStore 并携带 recordId 走「立即购买」链路；
+ * 该拼团件为拼团单，支付方式由结算页锁定为在线支付（成团判定依赖支付回调）。
+ */
+function gotoOrderConfirm(recordId?: string) {
+  const activity = state.activity
+  if (!recordId || !activity?.skuId) {
+    uni.showToast({ title: '拼团资格获取失败，请重试', icon: 'none' })
+    return
   }
-  else {
-    uni.showToast({ title: '订单创建中，请稍后在订单列表查看', icon: 'none' })
-  }
+  const goodsStore = useGoodsStore()
+  goodsStore.setGoodsList([
+    {
+      spuId: activity.spuId,
+      skuId: activity.skuId,
+      spuName: spuInfo.value?.spuName || activity.activityName,
+      picUrl: spuInfo.value?.picUrl || '',
+      quantity: 1,
+      specsInfo: '',
+    },
+  ])
+  uni.navigateTo({
+    url: `/sub-pages/order/order-confirm/index?createWay=2&groupBuyRecordId=${recordId}`,
+  })
+}
+
+/**
+ * 已下单未支付：跳订单详情（内含「去支付」入口，按订单号进收银台），
+ * 避免重复下单再占一份拼团资格。
+ */
+function gotoPay(orderId: string) {
+  uni.navigateTo({
+    url: `/sub-pages/order/order-detail/index?id=${orderId}`,
+  })
 }
 
 function getGroupStatusLabel(status?: string) {
@@ -225,10 +251,35 @@ function getGroupStatusClass(status?: string) {
         <view class="record-status" :class="[getGroupStatusClass(record.groupStatus)]">
           {{ getGroupStatusLabel(record.groupStatus) }}
         </view>
-        <view v-if="record.groupStatus === '0' && !record.isJoined" class="record-action">
+        <!-- 自己已占坑未下单：继续下单（占坑仅在团有效期内保留） -->
+        <view
+          v-if="record.groupStatus === '0' && record.myMemberStatus === '0' && !record.myOrderId"
+          class="record-action"
+        >
+          <view class="join-btn" @tap="gotoOrderConfirm(record.id!)">
+            去下单
+          </view>
+        </view>
+        <!-- 自己已下单待付款：去收银台完成支付，付款后才计入成团人数 -->
+        <view
+          v-else-if="record.groupStatus === '0' && record.myMemberStatus === '0' && record.myOrderId"
+          class="record-action"
+        >
+          <view class="join-btn" @tap="gotoPay(record.myOrderId!)">
+            去支付
+          </view>
+        </view>
+        <!-- 未参与且团未满：可参团 -->
+        <view
+          v-else-if="record.groupStatus === '0' && !record.isJoined"
+          class="record-action"
+        >
           <view class="join-btn" @tap="handleJoinGroup(record.id!)">
             参与拼团
           </view>
+        </view>
+        <view v-else-if="record.groupStatus === '0'" class="record-action">
+          <text class="joined-tip">已参与</text>
         </view>
       </view>
     </view>
@@ -383,6 +434,12 @@ function getGroupStatusClass(status?: string) {
     font-size: 24rpx;
     padding: 12rpx 24rpx;
     border-radius: 24rpx;
+  }
+
+  .joined-tip {
+    color: #999;
+    font-size: 24rpx;
+    padding: 12rpx 24rpx;
   }
 }
 

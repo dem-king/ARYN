@@ -4,6 +4,7 @@
  */
 import { defineStore } from 'pinia'
 import { logout, passwordLogin as passwordLoginApi, phoneLogin as phoneLoginApi, quickLogin as quickLoginApi, wxLogin as wxLoginApi } from '@/api/auth'
+import { ensureSessionTenant, isTenantIdentityError } from '@/api/core/tenant-identity'
 import { useMallThemeStore } from '@/store/mallThemeStore'
 import { useShipContextStore } from '@/store/shipContextStore'
 import { useShoppingCartStore } from '@/store/shoppingCartStore'
@@ -100,8 +101,8 @@ export const useAuthStore = defineStore('auth', {
       try {
         const response: any = await wxLoginApi(data).send()
         if (response.tokenValue) {
-          // 自动登录
-          // 存储token信息
+          // 先验证会话租户，失败不进入登录态（身份校验错误不被吞掉）
+          await this.requireSessionTenantOrThrow(response.tokenValue)
           this.setLoginState(response.tokenValue)
 
           // 登录成功后自动获取用户信息
@@ -135,8 +136,10 @@ export const useAuthStore = defineStore('auth', {
         })
         const response: any = await phoneLoginApi(loginData).send()
 
-        // 存储token信息
-        this.setLoginState(requireTokenValue(response))
+        // 先验证会话租户，失败不进入登录态（身份校验错误不被吞掉）
+        const tokenValue = requireTokenValue(response)
+        await this.requireSessionTenantOrThrow(tokenValue)
+        this.setLoginState(tokenValue)
 
         // 登录成功后自动获取用户信息
         await this.fetchUserInfoAfterLogin()
@@ -168,8 +171,10 @@ export const useAuthStore = defineStore('auth', {
         })
         const response: any = await passwordLoginApi(loginData).send()
 
-        // 存储token信息
-        this.setLoginState(requireTokenValue(response))
+        // 先验证会话租户，失败不进入登录态（身份校验错误不被吞掉）
+        const tokenValue = requireTokenValue(response)
+        await this.requireSessionTenantOrThrow(tokenValue)
+        this.setLoginState(tokenValue)
 
         // 登录成功后自动获取用户信息
         await this.fetchUserInfoAfterLogin()
@@ -202,8 +207,10 @@ export const useAuthStore = defineStore('auth', {
         })
         const response: any = await quickLoginApi(loginData).send()
 
-        // 存储token信息
-        this.setLoginState(requireTokenValue(response))
+        // 先验证会话租户，失败不进入登录态（身份校验错误不被吞掉）
+        const tokenValue = requireTokenValue(response)
+        await this.requireSessionTenantOrThrow(tokenValue)
+        this.setLoginState(tokenValue)
 
         // 登录成功后自动获取用户信息
         await this.fetchUserInfoAfterLogin()
@@ -233,9 +240,18 @@ export const useAuthStore = defineStore('auth', {
         await shoppingCartStore.fetchCartCount()
       }
       catch (error) {
+        // 租户身份校验失败必须抛出：吞掉会伪装成「登录成功但资料未加载」的错租户会话
+        if (isTenantIdentityError(error)) {
+          throw error
+        }
         console.warn('⚠️ 登录成功但获取用户信息失败:', error)
         // 不抛出错误，避免影响登录流程
       }
+    },
+
+    /** 登录 token 的会话租户校验：在 setLoginState 之前调用，失败直接抛出、不进入登录态。 */
+    async requireSessionTenantOrThrow(token: string): Promise<void> {
+      await ensureSessionTenant('mall', token)
     },
 
     /**

@@ -3,6 +3,9 @@ package com.aryn.cloud.order.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.aryn.cloud.order.api.entity.DeliveryTrip;
+import com.aryn.cloud.order.api.vo.DeliveryTripBriefVO;
+
+import java.util.List;
 
 /**
  * 出车单
@@ -60,6 +63,16 @@ public interface IDeliveryTripService extends IService<DeliveryTrip> {
 	 * @return 出车单
 	 */
 	DeliveryTrip getActiveTrip(String staffId);
+
+	/**
+	 * 配送员进行中的全部出车单摘要（按创建时间升序），供工作台一次装下整天的活。
+	 *
+	 * <p>原实现只取最新一趟（LIMIT 1），订单分批派给同一司机时会各自成趟，
+	 * 司机在工作台只看得到最后一趟，前面的订单等于消失。这里返回全部在途趟次。
+	 * @param staffId 配送员ID
+	 * @return 出车单摘要列表（含每趟的订单摘要，按 sortNo 升序）
+	 */
+	List<DeliveryTripBriefVO> listActiveTripBriefs(String staffId);
 
 	/**
 	 * 全部任务结清（已送达/已签收/已取消）后自动完成出车单。

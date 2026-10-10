@@ -9,16 +9,16 @@ import type {
   SeckillSessionItem,
 } from './retail-types'
 
-import { getByIds, getPage as getGoodsPage } from '@/api/product/spu'
-import {
-  getActivityById,
-  getActivityPage,
-} from '@/api/promotion/groupBuyActivity'
+import { getById, getByIds, getPage as getGoodsPage } from '@/api/product/spu'
 import {
   getDiscountActivities,
   getSeckillSessions,
   getSessionGoods,
 } from '@/api/promotion'
+import {
+  getActivityById,
+  getActivityPage,
+} from '@/api/promotion/groupBuyActivity'
 import { getCurrentShop } from '@/api/upms/tenant'
 
 import {
@@ -248,5 +248,58 @@ export async function loadCouponCombo(
       return restoreConfiguredOrder(filtered, ids).slice(0, props.count)
     }
     return coupons.slice(0, props.count)
+  })
+}
+
+/**
+ * 商品推荐（看了又看）取数。
+ *
+ * · automatic：当前商品同分类销量 Top N——分类解析自 goodsId 的
+ *   categorySecondId（运营固定分类时走 dataSource.categoryId）；
+ *   goodsId 缺失或分类解析失败（预览/非商详上下文）回落全站销量榜。
+ *   自动结果排除当前商品本身，不足 count 时按顺序追加手选商品补位。
+ * · manual：手选商品 ID（发布校验保证非空）。
+ *
+ * 缓存 key 必须包含 goodsId：同一组件配置在不同商品详情页结果不同。
+ */
+export async function loadGoodsRecommend(
+  props: import('./retail-types').GoodsRecommendProps,
+  goodsId?: string,
+) {
+  const count = Math.max(1, Number(props.count) || 6)
+  const selfId = goodsId || ''
+  const cacheKey = `goods-recommend:${selfId}:${JSON.stringify(props.dataSource ?? {})}`
+  return withDataSourceCache(cacheKey, props.dataSource.cacheTtl ?? 0, async () => {
+    if (props.dataSource.mode === 'manual') {
+      const ids = props.dataSource.targetIds || []
+      const items = normalizeRetailGoods(await getByIds(ids))
+      return restoreConfiguredOrder(items, ids).slice(0, count)
+    }
+    let categorySecondId = props.dataSource.categoryId || ''
+    if (!categorySecondId && selfId) {
+      try {
+        const spu: any = await getById(selfId)
+        categorySecondId = String(spu?.categorySecondId ?? '')
+      }
+      catch {
+        // 分类解析失败不阻断渲染：回落全站销量榜
+      }
+    }
+    // 多取一件用于排除当前商品后仍能凑满 count
+    const response = await getGoodsPage({
+      categorySecondId: categorySecondId || undefined,
+      current: 1,
+      ...createRetailSortParams('sales', true),
+      size: count + (selfId ? 1 : 0),
+    })
+    const items = normalizeRetailGoods(response)
+      .filter(item => !selfId || item.id !== selfId)
+    const manualIds = (props.dataSource.targetIds || [])
+      .filter(id => id && id !== selfId && !items.some(item => item.id === id))
+    if (manualIds.length > 0 && items.length < count) {
+      const extra = normalizeRetailGoods(await getByIds(manualIds))
+      items.push(...restoreConfiguredOrder(extra, manualIds))
+    }
+    return items.slice(0, count)
   })
 }

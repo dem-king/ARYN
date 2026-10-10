@@ -85,12 +85,22 @@ describe('retail component registry', () => {
     );
   });
 
-  it('registers all six extension components exactly once', () => {
-    expect(new Set(extensionComponentTypes).size).toBe(6);
+  it('registers all eight extension components exactly once', () => {
+    expect(new Set(extensionComponentTypes).size).toBe(8);
     for (const type of extensionComponentTypes) {
       const definition = componentRegistry[type];
       expect(definition).toBeDefined();
-      expect(definition.validate(definition.createDefaultProps())).toEqual([]);
+      if (type === 'image-cube') {
+        // 图片魔方默认无图属刻意设计：空魔方不允许发布，
+        // 运营至少填一张图后校验才通过（同 custom-html 的「内容不能为空」）
+        expect(definition.validate(definition.createDefaultProps())).toEqual([
+          '请至少为一张图片填入地址',
+        ]);
+      } else {
+        expect(definition.validate(definition.createDefaultProps())).toEqual(
+          [],
+        );
+      }
       expect(Object.keys(definition.createDefaultProps())).not.toHaveLength(0);
     }
   });

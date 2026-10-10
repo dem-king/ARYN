@@ -2,8 +2,8 @@ package com.aryn.cloud.user.controller.app;
 
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.security.util.SecurityUtils;
-import com.aryn.cloud.user.api.entity.MemberBenefit;
-import com.aryn.cloud.user.api.entity.MemberLevel;
+import com.aryn.cloud.user.api.vo.AppMemberBenefitVO;
+import com.aryn.cloud.user.api.vo.AppMemberLevelVO;
 import com.aryn.cloud.user.api.vo.MemberBenefitsVO;
 import com.aryn.cloud.user.api.vo.MemberCurrentInfoVO;
 import com.aryn.cloud.user.service.IMemberBenefitService;
@@ -33,14 +33,33 @@ public class AppMemberController {
 
 	@GetMapping("/levels")
 	@Operation(summary = "获取启用的会员等级")
-	public Result<List<MemberLevel>> levels() {
-		return Result.success(memberBenefitService.getEnabledLevels());
+	public Result<List<AppMemberLevelVO>> levels() {
+		// 只回展示字段：等级实体带 createBy/tenantId/delFlag 等内部字段
+		return Result.success(memberBenefitService.getEnabledLevels().stream().map(source -> {
+			AppMemberLevelVO vo = new AppMemberLevelVO();
+			vo.setId(source.getId());
+			vo.setLevelName(source.getLevelName());
+			vo.setLevelIcon(source.getLevelIcon());
+			vo.setConditionType(source.getConditionType());
+			vo.setConditionValue(source.getConditionValue());
+			vo.setSortOrder(source.getSortOrder());
+			return vo;
+		}).toList());
 	}
 
 	@GetMapping("/level-benefits")
 	@Operation(summary = "获取启用的等级权益")
-	public Result<List<MemberBenefit>> levelBenefits(@RequestParam String levelId) {
-		return Result.success(memberBenefitService.getEnabledLevelBenefits(levelId));
+	public Result<List<AppMemberBenefitVO>> levelBenefits(@RequestParam String levelId) {
+		// 只回展示字段：权益实体带 createBy/tenantId/delFlag 等内部字段
+		return Result.success(memberBenefitService.getEnabledLevelBenefits(levelId).stream().map(source -> {
+			AppMemberBenefitVO vo = new AppMemberBenefitVO();
+			vo.setId(source.getId());
+			vo.setBenefitName(source.getBenefitName());
+			vo.setBenefitType(source.getBenefitType());
+			vo.setBenefitValue(source.getBenefitValue());
+			vo.setDescription(source.getDescription());
+			return vo;
+		}).toList());
 	}
 
 	@GetMapping("/current-info")

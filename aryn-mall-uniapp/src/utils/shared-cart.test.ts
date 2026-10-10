@@ -1,8 +1,9 @@
-import type { SharedCart } from '@/api/order/sharedCart'
+import type { SharedCart, SharedCartItem } from '@/api/order/sharedCart'
 
 import { describe, expect, it } from 'vitest'
 
 import {
+  amountText,
   CART_STATUS_CLOSED,
   CART_STATUS_COLLECTING,
   CART_STATUS_COMPLETED,
@@ -17,12 +18,17 @@ import {
   isCartCollecting,
   isCartExpired,
   isCartReadonly,
+  itemAmountOf,
+  itemAmountText,
   MEMBER_ROLE_CONFIRMATOR,
   MEMBER_ROLE_MEMBER,
   MEMBER_ROLE_OWNER,
   memberRoleLabel,
   pickActiveCart,
+  pricedQuantityOf,
   sharedCartLocationLabel,
+  summarizeCartAmount,
+  unitPriceText,
 } from './shared-cart'
 
 describe('cartStatusLabel', () => {
@@ -271,5 +277,119 @@ describe('cartActionLabel', () => {
       makeCart({ expiresAt: at(NOW, -60_000), viewerCanEdit: true, viewerCanConfirm: false }),
       NOW,
     )).toBe('查看')
+  })
+})
+
+/** 构造最小明细行，只填与金额相关的字段 */
+function makeItem(overrides: Partial<SharedCartItem> = {}): SharedCartItem {
+  return {
+    id: 'item-1',
+    cartId: 'cart-1',
+    userId: 'u1',
+    spuId: 'spu-1',
+    skuId: 'sku-1',
+    requestedQuantity: 1,
+    status: '1',
+    ...overrides,
+  }
+}
+
+describe('pricedQuantityOf', () => {
+  it('uses the requested quantity while collecting', () => {
+    expect(pricedQuantityOf(makeItem({ requestedQuantity: 3 }))).toBe(3)
+  })
+
+  it('prefers the approved quantity once the confirmer set one', () => {
+    expect(pricedQuantityOf(makeItem({ requestedQuantity: 3, approvedQuantity: 5 }))).toBe(5)
+  })
+
+  it('treats "not buying this time" (approved 0) as zero, not as the requested amount', () => {
+    // 核定 0 的行不进订单：拿申请量算金额会让合计凭空多出一笔
+    expect(pricedQuantityOf(makeItem({ requestedQuantity: 3, approvedQuantity: 0 }))).toBe(0)
+  })
+
+  it('never returns a negative quantity', () => {
+    expect(pricedQuantityOf(makeItem({ requestedQuantity: -2, approvedQuantity: -5 }))).toBe(0)
+  })
+})
+
+describe('itemAmountOf', () => {
+  it('multiplies unit price by the priced quantity', () => {
+    expect(itemAmountOf(makeItem({ requestedQuantity: 3, unitPrice: 12.5 }))).toBe(37.5)
+  })
+
+  it('returns null (not 0) when the price is unknown', () => {
+    // 0 会被读成「不要钱」，而真正发生的是「系统还没拿到价」
+    expect(itemAmountOf(makeItem({ unitPrice: null }))).toBeNull()
+    expect(itemAmountOf(makeItem({ unitPrice: undefined }))).toBeNull()
+  })
+
+  it('keeps 0 as a real price', () => {
+    // 免费商品是真实存在的价格，不能被当成未知
+    expect(itemAmountOf(makeItem({ requestedQuantity: 2, unitPrice: 0 }))).toBe(0)
+  })
+})
+
+describe('summarizeCartAmount', () => {
+  it('sums priced rows and counts unpriced ones separately', () => {
+    const summary = summarizeCartAmount([
+      makeItem({ id: 'i1', requestedQuantity: 2, unitPrice: 10 }),
+      makeItem({ id: 'i2', requestedQuantity: 3, unitPrice: null }),
+      makeItem({ id: 'i3', requestedQuantity: 1, unitPrice: 5.5 }),
+    ])
+    expect(summary.amount).toBe(25.5)
+    expect(summary.unpricedCount).toBe(1)
+    expect(summary.pricedCount).toBe(2)
+  })
+
+  it('rounds accumulated float noise to cents', () => {
+    // 0.1 + 0.2 = 0.30000000000000004，直接显示会很难看
+    const summary = summarizeCartAmount([
+      makeItem({ id: 'i1', requestedQuantity: 1, unitPrice: 0.1 }),
+      makeItem({ id: 'i2', requestedQuantity: 1, unitPrice: 0.2 }),
+    ])
+    expect(summary.amount).toBe(0.3)
+  })
+
+  it('reports an all-unpriced list as an empty sum rather than zero yuan', () => {
+    const summary = summarizeCartAmount([makeItem({ unitPrice: null })])
+    expect(summary.amount).toBe(0)
+    expect(summary.pricedCount).toBe(0)
+    expect(summary.unpricedCount).toBe(1)
+  })
+
+  it('ignores rows the confirmer excluded', () => {
+    const summary = summarizeCartAmount([
+      makeItem({ id: 'i1', requestedQuantity: 2, unitPrice: 10, approvedQuantity: 0 }),
+    ])
+    expect(summary.amount).toBe(0)
+    expect(summary.pricedCount).toBe(1)
+  })
+
+  it('returns zeros for an empty list', () => {
+    expect(summarizeCartAmount([])).toEqual({ amount: 0, unpricedCount: 0, pricedCount: 0 })
+  })
+})
+
+describe('amount text helpers', () => {
+  it('formats to two decimals', () => {
+    expect(amountText(12.5)).toBe('12.50')
+    expect(amountText(0)).toBe('0.00')
+  })
+
+  it('returns an empty string for missing values instead of a fake zero', () => {
+    expect(amountText(null)).toBe('')
+    expect(amountText(undefined)).toBe('')
+    expect(amountText(Number.NaN)).toBe('')
+  })
+
+  it('labels an unpriced row "待核价" rather than ¥0.00', () => {
+    expect(itemAmountText(makeItem({ unitPrice: null }))).toBe('待核价')
+    expect(itemAmountText(makeItem({ requestedQuantity: 2, unitPrice: 3 }))).toBe('¥6.00')
+  })
+
+  it('renders the unit price text with a currency mark', () => {
+    expect(unitPriceText(makeItem({ unitPrice: 8.9 }))).toBe('¥8.90')
+    expect(unitPriceText(makeItem({ unitPrice: null }))).toBe('待核价')
   })
 })

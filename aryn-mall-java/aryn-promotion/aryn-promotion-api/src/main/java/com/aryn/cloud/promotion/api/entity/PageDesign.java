@@ -63,6 +63,10 @@ public class PageDesign extends Model<PageDesign> {
 	@Schema(description = "首页页面：0.否；1.是；")
 	private String homeStatus;
 
+	@Schema(description = "是否为 C 端按类型读取时当前生效的装修（管理端列表回显，不落库）")
+	@TableField(exist = false)
+	private Boolean effective;
+
 	@TableField(fill = FieldFill.INSERT)
 	@Schema(description = "创建人")
 	private String createBy;

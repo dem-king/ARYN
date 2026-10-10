@@ -12,6 +12,7 @@ import {
   deliveryWayLabel,
 } from '@/sub-pages/utils/delivery-way'
 import { useDict } from '@/sub-pages/utils/dict'
+import { formatPayTimeout } from '@/sub-pages/utils/pay-timeout'
 import { customerServiceRoute } from '@/utils/message'
 
 definePage({
@@ -70,6 +71,8 @@ const navbarTitle = computed(() => {
     case '4':
       return '交易完成'
     case '5':
+      return '退款中'
+    case '11':
       return '订单已取消'
     default:
       return '订单详情'
@@ -81,7 +84,7 @@ const navbarSubTitle = computed(() => {
   const way = state.order.deliveryWay
   switch (status) {
     case '1':
-      return '请在30分钟内付款，超时订单自动取消'
+      return `请在${formatPayTimeout(state.order.payTimeoutMinutes)}内付款，超时订单自动取消`
     case '2': {
       const paidPrefix = isCod.value ? '货到付款，' : '订单已付款，'
       if (way === DELIVERY_WAY_EXPRESS)

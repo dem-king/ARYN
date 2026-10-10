@@ -1,9 +1,13 @@
 <script lang="ts" setup>
+import type { UploadUserFile } from 'element-plus';
+
 import type { DeliveryTaskStatus } from '#/api/delivery/task';
 
 import { ref } from 'vue';
 
+import { Plus } from '@element-plus/icons-vue';
 import {
+  ElAlert,
   ElButton,
   ElCard,
   ElCol,
@@ -13,6 +17,7 @@ import {
   ElDrawer,
   ElForm,
   ElFormItem,
+  ElIcon,
   ElImage,
   ElInput,
   ElMessage,
@@ -24,10 +29,12 @@ import {
   ElTag,
   ElTimeline,
   ElTimelineItem,
+  ElUpload,
 } from 'element-plus';
 
 import { getDeliveryStaffList } from '#/api/delivery/staff';
 import {
+  backfillDeliveryTaskArrive,
   closeDeliveryTask,
   getDeliveryTaskDetail,
   getDeliveryTaskEvidence,
@@ -36,6 +43,7 @@ import {
   returnConfirmDeliveryTask,
   returnPendingDeliveryTask,
 } from '#/api/delivery/task';
+import { uploadFile } from '#/api/upms/upload';
 
 import { resolveDeliveryDestination } from '../delivery-destination';
 
@@ -118,6 +126,15 @@ const closeLoading = ref(false);
 const returnConfirmVisible = ref(false);
 const returnConfirmRemark = ref('');
 const returnConfirmLoading = ref(false);
+
+// 管理端补录送达凭证（司机已送达却漏点送达时使用）
+interface BackfillFile extends UploadUserFile {
+  materialId?: string;
+}
+const backfillVisible = ref(false);
+const backfillLoading = ref(false);
+const backfillRemark = ref('');
+const backfillFiles = ref<BackfillFile[]>([]);
 
 const getStatusType = (status: DeliveryTaskStatus) => {
   return statusOptions.find((item) => item.value === status)?.type ?? 'info';
@@ -242,6 +259,61 @@ const confirmReturn = () => {
     })
     .catch(() => {
       returnConfirmLoading.value = false;
+    });
+};
+
+const openBackfill = () => {
+  backfillRemark.value = '';
+  backfillFiles.value = [];
+  backfillVisible.value = true;
+};
+
+const beforeBackfillUpload = (file: any) => {
+  if (!file.type?.startsWith('image/')) {
+    ElMessage.error('送达凭证仅支持图片');
+    return false;
+  }
+  if (backfillFiles.value.length >= 6) {
+    ElMessage.error('送达凭证最多上传6张');
+    return false;
+  }
+  return true;
+};
+
+const uploadBackfillFile = async (options: any) => {
+  const formData = new FormData();
+  formData.append('file', options.file);
+  formData.append('type', '1');
+  const res: any = await uploadFile(formData);
+  const fileItem = backfillFiles.value.at(-1);
+  if (fileItem) {
+    fileItem.materialId = res?.id;
+    fileItem.url = res?.url;
+  }
+  options.onSuccess?.(res);
+  return res;
+};
+
+const confirmBackfill = () => {
+  if (!detail.value) return;
+  const materialIds = backfillFiles.value
+    .map((item) => item.materialId)
+    .filter((id): id is string => !!id);
+  if (materialIds.length === 0) {
+    ElMessage.warning('请至少上传 1 张送达凭证');
+    return;
+  }
+  backfillLoading.value = true;
+  backfillDeliveryTaskArrive(detail.value.id, materialIds, backfillRemark.value)
+    .then(() => {
+      ElMessage.success('补录送达成功');
+      backfillLoading.value = false;
+      backfillVisible.value = false;
+      open(detail.value!.id);
+      emit('initPage');
+    })
+    .catch(() => {
+      backfillLoading.value = false;
     });
 };
 
@@ -453,6 +525,14 @@ defineExpose({
           >
             确认退回
           </ElButton>
+          <ElButton
+            v-if="detail && detail.status === '4'"
+            v-access:code="'delivery:task:backfill-arrive'"
+            type="primary"
+            @click="openBackfill"
+          >
+            补录送达
+          </ElButton>
         </div>
       </template>
     </ElDrawer>
@@ -548,6 +628,55 @@ defineExpose({
           @click="confirmReturn"
         >
           确认退回
+        </ElButton>
+      </template>
+    </ElDialog>
+
+    <ElDialog
+      v-model="backfillVisible"
+      title="补录送达凭证"
+      width="520px"
+      append-to-body
+      :close-on-click-modal="false"
+    >
+      <ElAlert
+        type="warning"
+        :closable="false"
+        show-icon
+        title="仅用于司机实际已送达却漏点「送达」的场景"
+        description="补录后将视为已送达，必须上传真实送达照片作为凭证，操作会记入任务日志。"
+        style="margin-bottom: 12px"
+      />
+      <ElForm label-width="90px">
+        <ElFormItem label="送达凭证" required>
+          <ElUpload
+            v-model:file-list="backfillFiles"
+            list-type="picture-card"
+            accept="image/*"
+            :limit="6"
+            :before-upload="beforeBackfillUpload"
+            :http-request="uploadBackfillFile"
+          >
+            <ElIcon><Plus /></ElIcon>
+          </ElUpload>
+        </ElFormItem>
+        <ElFormItem label="备注">
+          <ElInput
+            v-model="backfillRemark"
+            type="textarea"
+            :rows="3"
+            placeholder="请输入备注（选填，如补录原因）"
+          />
+        </ElFormItem>
+      </ElForm>
+      <template #footer>
+        <ElButton @click="backfillVisible = false">取 消</ElButton>
+        <ElButton
+          type="primary"
+          :loading="backfillLoading"
+          @click="confirmBackfill"
+        >
+          确认补录
         </ElButton>
       </template>
     </ElDialog>

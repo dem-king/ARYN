@@ -52,64 +52,108 @@ describe('shared cart routing contract', () => {
     expect(shipSupply).toContain('isSharedMode')
   })
 
-  it('detail page wires plan/fulfil editing to the backend plan endpoint', () => {
+  it('removed the plan/fulfil model end to end', () => {
+    // 2026-10-09 决策：删除「计划量 / 已采量」模型 —— 提单只是一份需求清单，
+    // 采没采由线下沟通，靠人工回填的进度会立刻过期。前端调用、API 声明与后端端点
+    // 必须一起消失：任一处残留都会让旧按钮继续被点（接口 404 且无提示）。
     const detail = source('src/sub-pages/order/shared-cart/detail.vue')
     const api = source('src/api/order/sharedCart.ts')
-
-    // 从函数体里取实际拼出的路径，避免"路径写错但别处碰巧有同样字样"蒙混过关
-    const fnBody = api.slice(
-      api.indexOf('export function updateSharedCartItemPlan'),
-      api.indexOf('export function removeSharedCartItem'),
-    )
-    // 用正则而非普通字符串，避免 no-template-curly-in-string（与文件内既有写法一致）
-    expect(fnBody).toMatch(/\$\{BASE\}\/\$\{id\}\/items\/plan/)
-    expect(detail).toContain('updateSharedCartItemPlan')
-
-    // 后端映射必须同段
     const controller = repoSource(`${ORDER_BIZ}/controller/app/AppSharedCartController.java`)
-    expect(controller).toContain('@PutMapping("/{id}/items/plan")')
-    expect(controller).toContain('@RequestMapping("/app/shared-cart")')
+
+    expect(detail).not.toContain('updateSharedCartItemPlan')
+    expect(api).not.toContain('updateSharedCartItemPlan')
+    expect(api).not.toContain('/items/plan')
+    expect(api).not.toContain('plannedQuantity')
+    expect(api).not.toContain('fulfilledQuantity')
+    expect(controller).not.toContain('items/plan')
+    expect(controller).not.toContain('SharedCartPlanDTO')
+    // 计划量/已采量两列也不该再出现在实体上（列本身按增量脚本约定保留在库里）
+    const entity = repoSource(`${ORDER_API}/api/entity/SharedCartItem.java`)
+    expect(entity).not.toContain('plannedQuantity')
+    expect(entity).not.toContain('fulfilledQuantity')
   })
 
-  it('plan submission distinguishes clear-plan from leave-unchanged', () => {
+  it('offers an explicit skip control instead of asking users to blank a field', () => {
+    // 「取消计划」原来靠清空输入框表达，同一个弹层里另一个框的"留空"又是"不修改"，
+    // 语义互相矛盾。现在排除动作是一个可见的开关：点了就是"这次不买"。
     const detail = source('src/sub-pages/order/shared-cart/detail.vue')
-    const call = detail.slice(
-      detail.indexOf('updateSharedCartItemPlan(cartId.value'),
-      detail.indexOf('function handleRemoveItem'),
+    expect(detail).toContain('toggleSkipped')
+    expect(detail).toContain('本次不采')
+    // 被排除的行必须显式提交核定 0，由服务端从订单里剔除并留痕。
+    // 提交与弹层金额共用 confirmQuantityOf 一处口径：两处各算一份，
+    // 就会出现「界面显示 3 件、实际提交 5 件」这种对不上账的情况。
+    const quantityFnStart = detail.indexOf('function confirmQuantityOf')
+    const quantityFn = detail.slice(quantityFnStart, detail.indexOf('\n}', quantityFnStart))
+    expect(quantityFn).toContain('confirmState.skipped[item.id]')
+    expect(quantityFn).toContain('return 0')
+    const submit = detail.slice(detail.indexOf('function submitConfirm'), detail.indexOf('function goOrder'))
+    expect(submit).toContain('confirmQuantityOf(item)')
+    // 全部排除时本地也要拦住，不能等用户点了提交才报错
+    expect(detail).toContain('confirmBuyCount')
+  })
+
+  it('shows the amount per row, per member and for the whole cart', () => {
+    // 2026-10-10：清单原来只有数量没有金额，用户提交前不知道这批要花多少钱。
+    // 三处必须同时存在：单行金额（核对）、成员汇总（谁报了多少）、整单预估（要不要买）。
+    const detail = source('src/sub-pages/order/shared-cart/detail.vue')
+    expect(detail).toContain('itemAmountText')
+    expect(detail).toContain('memberSummaries')
+    expect(detail).toContain('cartAmountText')
+    // 提交弹层必须给出本次采购的预估总额
+    expect(detail).toContain('confirmAmountText')
+    expect(detail).toContain('本次采购预估金额')
+
+    // 金额口径集中在 util 里，页面不得自己写一套乘法
+    const utils = source('src/utils/shared-cart.ts')
+    expect(utils).toContain('export function summarizeCartAmount')
+    expect(utils).toContain('export function itemAmountOf')
+  })
+
+  it('never fakes a missing price as 0 yuan', () => {
+    // 取不到价（商品下架/已删除）时若按 0 计，用户会把「系统没算到」读成「不要钱」，
+    // 合计偏小却毫无提示。金额工具必须返回 null 并让界面写「待核价」。
+    const utils = source('src/utils/shared-cart.ts')
+    const amountStart = utils.indexOf('export function itemAmountOf')
+    expect(amountStart).toBeGreaterThan(-1)
+    const amountFn = utils.slice(amountStart, utils.indexOf('export function summarizeCartAmount', amountStart))
+    expect(amountFn).toContain('return null')
+
+    const detail = source('src/sub-pages/order/shared-cart/detail.vue')
+    expect(detail).toContain('待核价')
+    // 合计不完整时必须说明，否则偏小的数会被当成真实总价
+    expect(detail).toContain('cartAmountIncomplete')
+  })
+
+  it('prices the cart from the requested quantity while collecting', () => {
+    // 收集阶段没有核定数量，金额只能按申请量算；虚报一个"已定价"的口径
+    // 会和订单实付对不上。定价数量的唯一实现在 pricedQuantityOf。
+    const utils = source('src/utils/shared-cart.ts')
+    const qty = utils.slice(
+      utils.indexOf('export function pricedQuantityOf'),
+      utils.indexOf('export function itemAmountOf'),
     )
-    // 清空输入框 = 取消计划，必须显式带 clearPlanned，否则后端把 null 当成"不改"，
-    // 用户清空后保存会发现计划没被清掉
-    expect(call).toContain('clearPlanned: planned === null')
-    // 只改已采量不能顺手把计划清掉（后端靠 fulfilledQuantity 非 null 判断）
-    expect(call).toContain('fulfilledQuantity: fulfilled')
+    expect(qty).toContain('approvedQuantity')
+    expect(qty).toContain('requestedQuantity')
   })
 
-  it('clear-plan must be written explicitly, not through updateById', () => {
-    // 全库 update-strategy=not_null：updateById 会跳过 null 字段。
-    // 后端若用 setPlannedQuantity(null) + updateById，接口照 200 返回、对象也是 null，
-    // 但库里 planned_quantity 纹丝不动 —— 前端「清空保存」等于没生效且无任何报错。
-    const impl = repoSource(`${ORDER_BIZ}/service/impl/SharedCartServiceImpl.java`)
-    const fnStart = impl.indexOf('public SharedCartItem updateItemPlan')
-    const fnBody = impl.slice(fnStart, impl.indexOf('public void removeItem', fnStart))
-    expect(fnBody).toContain('lambdaUpdate')
-    expect(fnBody).toMatch(/set\(SharedCartItem::getPlannedQuantity,\s*null\)/)
-  })
-
-  it('plan entry only shows to confirmer, not to every member', () => {
+  it('marks rows the confirmer excluded so members can see what was dropped', () => {
     const detail = source('src/sub-pages/order/shared-cart/detail.vue')
-    // 权限以服务端 viewerCanConfirm 为准，不能前端按 userId 猜
-    expect(detail).toContain('viewerCanConfirm')
-    expect(detail).not.toMatch(/const\s+canPlan\s*=\s*computed\(\(\)\s*=>\s*isMine/)
+    // 成员报的东西被确认人排除了，界面上必须能看出来，否则只剩"我的商品不见了"
+    expect(detail).toMatch(/approvedQuantity === 0/)
   })
 
-  it('detail progress uses the same calculator as the home card', () => {
+  it('no longer renders any purchase-progress concept on the detail page', () => {
+    // 计划量/已采量下线后，详情页只剩「申请数量」一个口径。
+    // 若哪天有人把进度条加回来，这条会红 —— 那意味着又引入了一个
+    // 没有事实来源的"买了多少"。
     const detail = source('src/sub-pages/order/shared-cart/detail.vue')
-    const card = source('src/components/diy/diy-replenish-card/index.vue')
-    // 两处都走纯函数，避免"首页 65% / 详情 62%"这类漂移
-    expect(detail).toContain('summarizeReplenishItems')
-    expect(card).toContain('buildReplenishProgressView')
+    expect(detail).not.toContain('summarizeReplenishItems')
+    expect(detail).not.toContain('rowViews')
+    expect(detail).not.toContain('已采')
+    expect(detail).not.toContain('还差')
+    // 收集阶段的明细小结只用申请量
+    expect(detail).toContain('itemSummaryText')
   })
-
   it('detail page exposes history reuse and posts to the reuse endpoint', () => {
     const detail = source('src/sub-pages/order/shared-cart/detail.vue')
     const api = source('src/api/order/sharedCart.ts')
@@ -128,7 +172,7 @@ describe('shared cart routing contract', () => {
   it('import page uses the mall-order domain path in both boot and cloud modes', () => {
     const api = source('src/sub-pages/api/order/sharedCartImport.ts')
     const fnBody = api.slice(
-      api.indexOf('export function previewSharedCartImport'),
+      api.indexOf('export async function previewSharedCartImport'),
       api.indexOf('export function downloadSharedCartImportTemplate'),
     )
     // 双模式强制：首段必须是微服务域 mall-order，再经 rewriteBootUrl 改写，
@@ -155,7 +199,7 @@ describe('shared cart routing contract', () => {
   it('import preview accepts the platform success code instead of a hardcoded 200', () => {
     const api = source('src/sub-pages/api/order/sharedCartImport.ts')
     const fnBody = api.slice(
-      api.indexOf('export function previewSharedCartImport'),
+      api.indexOf('export async function previewSharedCartImport'),
       api.indexOf('export function downloadSharedCartImportTemplate'),
     )
     // 本平台成功码是 0（handlers.ts 以 code !== 0 判错）。曾经这里写死 !== 200，
@@ -171,7 +215,7 @@ describe('shared cart routing contract', () => {
     const api = source('src/sub-pages/api/order/sharedCartImport.ts')
     const fnBody = api.slice(
       api.indexOf('export function getSharedCartImportTemplateUrl'),
-      api.indexOf('export function previewSharedCartImport'),
+      api.indexOf('export async function previewSharedCartImport'),
     )
     expect(fnBody).toContain('/import/template')
     expect(fnBody).toContain('rewriteBootUrl')
@@ -317,6 +361,20 @@ describe('shared cart routing contract', () => {
     expect(detail).toMatch(/已复用 \$\{result\.reusedCount\} 项，跳过 \$\{skipped\} 项/)
   })
 
+  it('warns on a stale call snapshot instead of exposing it only at submit', () => {
+    const detail = source('src/sub-pages/order/shared-cart/detail.vue')
+    // 整车的靠港快照可能活不过收集中（ETD 过点），失效后头部只剩占位文案。
+    // 详情页要预告「提交时会顺延到最新可用靠港」，别让用户到提交才撞
+    // 「靠港计划不可用」（2026-10-04，服务端 confirmAndCreateOrder 已做顺延）
+    expect(detail).toContain('callSnapshotStale')
+    // 判据必须是服务端下发的 callOrderable：展示字段取自展示快照，靠港结束后
+    // 照样有船名，用「vesselName 为空」反推会让真正失效的清单静默不提示
+    // （2026-10-09 修历史单船名缺失时一并纠正）
+    expect(detail).toContain('cart.value.callOrderable === false')
+    expect(detail).not.toContain('!cart.value.vesselName')
+    expect(detail).toContain('提交时将自动顺延')
+  })
+
   it('exposes every shared cart page from an existing entry point', () => {
     const cart = source('src/pages/user/shopping-cart/index.vue')
     const shipSupply = source('src/sub-pages/product/ship-supply/index.vue')
@@ -333,11 +391,12 @@ describe('shared cart detail page layout contract', () => {
   it('keeps every editing form in a bottom sheet, not inline in the page', () => {
     const detail = source('src/sub-pages/order/shared-cart/detail.vue')
     // 原来表单内联在长列表下方，点「排计划」后要往下滚很久才看到表单
-    for (const state of ['nameState', 'inviteState', 'planState', 'editState', 'confirmState']) {
+    for (const state of ['nameState', 'inviteState', 'editState', 'confirmState']) {
       expect(detail).toMatch(new RegExp(`v-model="${state}\\.visible"[\\s\\S]{0,120}wd-popup|wd-popup[\\s\\S]{0,120}v-model="${state}\\.visible"`))
     }
+    // 排计划弹层已随模型一起下线
+    expect(detail).not.toContain('planState')
   })
-
   it('binds the confirm sheet with a viewport-scoped scroll area', () => {
     const detail = source('src/sub-pages/order/shared-cart/detail.vue')
     // 明细多时表单会超过屏幕，只让 body 滚，标题与提交按钮始终可见
@@ -359,21 +418,20 @@ describe('shared cart detail page layout contract', () => {
     }
   })
 
-  it('does not draw an empty progress track when nothing is planned', () => {
+  it('carries no progress track at all after the model removal', () => {
+    // 原契约守的是「无计划时不画空槽」；现在连进度槽本身都不该存在，
+    // 守则随之收紧：详情页不得再出现进度条与百分比。
     const detail = source('src/sub-pages/order/shared-cart/detail.vue')
-    // 无计划时画空槽 + 「—」会被读成「加载失败」
-    expect(detail).toContain('hasPlan')
-    // 进度条本身必须挂在 hasPlan 上：hasPlan 与 progressPercent 之间不得再有别的分支
-    const bar = detail.slice(detail.indexOf('v-if="hasPlan"'))
-    expect(bar.slice(0, 400)).toContain('progressPercent')
+    expect(detail).not.toContain('hasPlan')
+    expect(detail).not.toContain('progressPercent')
+    expect(detail).not.toContain('progress-track')
   })
-
-  it('gives each planned row its own progress bar', () => {
+  it('does not draw a per-row progress bar any more', () => {
+    // 行内进度条依赖"已采量"，随模型下线。行内只保留申请数量与来源。
     const detail = source('src/sub-pages/order/shared-cart/detail.vue')
-    // 行内进度条回答「这一项还差几件」，是确认人扫清单时最先要看的
-    expect(detail).toMatch(/rowViews\[item\.id\]\?\.percent/)
+    expect(detail).not.toMatch(/rowViews\[item\.id\]\?\.percent/)
+    expect(detail).toContain('申请 {{ item.requestedQuantity }}')
   })
-
   it('pins the bottom action bar and reserves space for it', () => {
     const detail = source('src/sub-pages/order/shared-cart/detail.vue')
     expect(detail).toContain('action-bar')
@@ -424,16 +482,54 @@ describe('shared cart detail page layout contract', () => {
     const detail = source('src/sub-pages/order/shared-cart/detail.vue')
     // 12 行 × 3 个彩色文字按钮会把清单刷成噪声
     expect(detail).toContain('openRowActions')
-    // 面板从自身容器的开头切起，才能覆盖到「排计划」那一项
     const sheetStart = detail.indexOf('v-model="rowActionState.visible"')
     const rowSheet = detail.slice(sheetStart, detail.indexOf('我的姓名（配送贴标签用）'))
     expect(rowSheet).toContain('canEditItem(rowActionState.item)')
-    expect(rowSheet).toContain('canPlan')
     expect(rowSheet).toContain('handleRemoveItem(rowActionState.item)')
+    // 排计划入口已随模型下线
+    expect(rowSheet).not.toContain('canPlan')
+    expect(rowSheet).not.toContain('排计划')
   })
-})
 
-describe('shared cart API contract', () => {
+  it('dismisses the row action sheet before running its own actions', () => {
+    // 2026-10-10 线上反馈：改完数量 / 移除成功后弹窗还挂在屏幕上。
+    // 面板里的两个动作都从面板自身发起，必须先把面板收掉，否则：
+    //   · 移除：确认框盖在弹层上，用户点确定后明细已删、面板还在，
+    //     残留的 rowActionState.item 指向列表里已不存在的行；
+    //   · 改数量：编辑面板与操作面板同时开着，收起一个另一个还在。
+    const detail = source('src/sub-pages/order/shared-cart/detail.vue')
+
+    function bodyOf(fn: string) {
+      const start = detail.indexOf(`function ${fn}(`)
+      expect(start).toBeGreaterThan(-1)
+      // 函数体以顶格 `}` 结束
+      return detail.slice(start, detail.indexOf('\n}', start))
+    }
+
+    expect(detail).toContain('function closeRowActions()')
+
+    const openEdit = bodyOf('openEditItem')
+    expect(openEdit).toContain('closeRowActions()')
+    // 先收起再打开编辑面板，顺序反了等于没收
+    expect(openEdit.indexOf('closeRowActions()')).toBeLessThan(openEdit.indexOf('editState.visible = true'))
+
+    const removeItem = bodyOf('handleRemoveItem')
+    expect(removeItem).toContain('closeRowActions()')
+    expect(removeItem.indexOf('closeRowActions()')).toBeLessThan(removeItem.indexOf('uni.showModal'))
+
+    // 保存成功后同样要收掉编辑面板，且发生在重新拉详情之前
+    const submitEdit = bodyOf('submitEditItem')
+    expect(submitEdit).toContain('editState.visible = false')
+    expect(submitEdit.indexOf('editState.visible = false')).toBeLessThan(submitEdit.indexOf('fetchDetail()'))
+
+    // 点遮罩 / 侧滑关闭也要把持有的行放掉，否则下次打开先闪过期文案
+    const sheetTag = detail.slice(
+      detail.indexOf('v-model="rowActionState.visible"'),
+      detail.indexOf('</wd-popup>', detail.indexOf('v-model="rowActionState.visible"')),
+    )
+    expect(sheetTag).toContain('@close="rowActionState.item = null"')
+  })
+
   it('declares the C-end base path and the my-carts endpoint', () => {
     const api = source('src/api/order/sharedCart.ts')
     expect(api).toContain(`const BASE = '${API_BASE}'`)
@@ -505,29 +601,25 @@ describe('shared cart list page layout contract', () => {
     expect(list).not.toMatch(/v-for="cart in records"/)
   })
 
-  it('never draws an empty progress track when nothing is planned', () => {
-    // 没排计划时画空槽 + 「—」会被读成「加载失败」；进度条本身必须挂在 hasPlan 上。
-    // 断言回看到最近的 '<'：只看类名之后的内容会把「轨道无条件渲染、
-    // 父级才有 v-if」当成合规（与详情页同一条守则）。
+  it('no longer renders any progress track on list cards', () => {
+    // 进度模型下线：列表卡片不再有进度槽/百分比/进度文案，
+    // 只保留状态、位置、截止时间与主操作。
     const list = source('src/sub-pages/order/shared-cart/list.vue')
-    const trackAt = list.indexOf('class="card__track"')
-    expect(trackAt).toBeGreaterThan(-1)
-    const openTag = list.slice(list.lastIndexOf('<', trackAt), trackAt)
-    expect(openTag).toContain('v-if')
-    expect(openTag).toContain('progress.hasPlan')
-    // 百分比只信服务端算好的值，前端不再除一遍
-    expect(list).toContain('progress.percent')
+    expect(list).not.toContain('card__track')
+    expect(list).not.toContain('card__progress')
+    expect(list).not.toContain('progress.hasPlan')
+    expect(list).not.toContain('progress.percent')
   })
-
-  it('takes its progress wording from the shared calculator, not a local formula', () => {
-    // 首页卡片、详情页、列表三处口径必须同源，否则会出现
-    // 「首页说还差 4 项、列表说还差 5 项」这种自相矛盾
+  it('keeps list cards free of any progress wording', () => {
+    // 三处口径同源的旧约束随模型一起失效：现在三处都不该有进度文案。
     const list = source('src/sub-pages/order/shared-cart/list.vue')
-    expect(list).toContain('buildReplenishSummaryView')
-    const util = source('src/utils/replenish-progress.ts')
-    expect(util).toContain('buildReplenishProgressText')
+    expect(list).not.toContain('buildReplenishSummaryView')
+    expect(list).not.toContain('已采')
+    expect(list).not.toContain('还差')
+    // 截止时间与主操作仍然保留（它们是列表的真实价值）
+    expect(list).toContain('cartDeadlineView')
+    expect(list).toContain('cartActionLabel')
   })
-
   it('labels the card action with a verb instead of a generic "view"', () => {
     const list = source('src/sub-pages/order/shared-cart/list.vue')
     expect(list).toContain('cartActionLabel')
@@ -600,20 +692,16 @@ describe('shared cart list page layout contract', () => {
     expect(build).not.toMatch(/eq\(SharedCartItem::getStatus,\s*SharedCartItem\.ITEM_PENDING\)/)
   })
 
-  it('carries the replenish progress summary on the list VO', () => {
-    // 列表卡片要回答「这单还差多少」，与首页卡片同一口径；
-    // 摘要由服务端用 ReplenishProgressCalculator 算好，前端不做二次除法。
+  it('dropped the progress summary from the list VO and its client type', () => {
+    // 契约反转：列表 VO 不再携带进度汇总，前端类型也不再声明。
     const vo = repoSource(`${ORDER_API}/api/vo/SharedCartVO.java`)
-    expect(vo).toContain('ReplenishProgressVO.Summary progress')
-    const impl = repoSource(`${ORDER_BIZ}/service/impl/SharedCartServiceImpl.java`)
-    expect(impl).toContain('ReplenishProgressCalculator.summarize')
-    // 前端类型同步声明，否则拿不到字段
+    expect(vo).not.toContain('ReplenishProgressVO')
+    expect(vo).not.toContain('progress')
     const api = source('src/api/order/sharedCart.ts')
-    expect(api).toMatch(/progress\?: ReplenishSummaryProgress \| null/)
+    expect(api).not.toContain('ReplenishSummaryProgress')
+    // 后端计算器已整体删除（该文件不应存在于仓库中）
+    expect(() => repoSource(`${ORDER_API}/api/support/ReplenishProgressCalculator.java`)).toThrow()
   })
-})
-
-describe('shared cart permission contract', () => {
   it('drives detail page actions from backend viewer flags', () => {
     const detail = source('src/sub-pages/order/shared-cart/detail.vue')
     expect(detail).toContain('viewerCanEdit')
@@ -625,6 +713,30 @@ describe('shared cart permission contract', () => {
     // `readonly` 与 vue 的 readonly() 冲突，模板中会解析成函数导致条件恒真
     const detail = source('src/sub-pages/order/shared-cart/detail.vue')
     expect(detail).not.toMatch(/const readonly\s*=/)
+  })
+
+  it('keeps the can_edit permission switch wired across all three layers', () => {
+    // can_edit 曾经只在前端生效：C 端据此隐藏入口，服务端照单全收，运营也没有任何
+    // 入口能改它。三处必须同时存在，缺任一处就会出现"界面收回了、接口还能写"或
+    // "服务端拒绝、前端却仍显示开关"这类半吊子状态。
+    const service = repoSource(`${ORDER_BIZ}/service/impl/SharedCartServiceImpl.java`)
+    // 服务端守卫：成员只读即拒绝（C 端加购/导入/复用的共同门槛）
+    expect(service).toContain('requireCanEdit')
+    expect(service).toContain('你没有维护该购物车明细的权限')
+    // 管理端写入口
+    expect(service).toContain('updateMemberCanEdit')
+    const admin = repoSource(`${ORDER_BIZ}/controller/admin/SharedCartAdminController.java`)
+    expect(admin).toContain('/members/{memberId}/permission')
+    expect(admin).toContain('sharedcart:member:permission')
+  })
+
+  it('explains a revoked edit permission instead of silently hiding the entries', () => {
+    // 入口凭空消失最容易被当成故障：详情页必须给出原因，且判据是服务端
+    // 下发的 viewerCanEdit，而不是前端自行推断
+    const detail = source('src/sub-pages/order/shared-cart/detail.vue')
+    expect(detail).toContain('editRevoked')
+    expect(detail).toMatch(/viewerCanEdit === false/)
+    expect(detail).toContain('只能查看清单')
   })
 
   it('keeps delivery way labels single-sourced', () => {

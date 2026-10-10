@@ -62,6 +62,15 @@ public interface IOrderInfoService extends IService<OrderInfo> {
 	boolean deliverOrder(OrderDeliveryDTO request);
 
 	/**
+	 * 订单发货并派单（商城配送/内部配送订单，无需物流单号，直接派给司机）
+	 * @param request 订单ID + 配送员ID
+	 * @author aryn
+	 * @date 2026/10/3
+	 * @return: boolean
+	 */
+	boolean deliverAndAssignOrder(OrderDeliverAssignDTO request);
+
+	/**
 	 * 订单取消
 	 * @param orderInfo
 	 * @author 雨滴kian

@@ -17,6 +17,7 @@ import com.aryn.cloud.order.api.entity.*;
 import com.aryn.cloud.order.api.enums.OrderArrivalStatusEnum;
 import com.aryn.cloud.order.api.enums.OrderItemStatusEnum;
 import com.aryn.cloud.order.api.enums.OrderRefundEnum;
+import com.aryn.cloud.order.api.enums.OrderStatusEnum;
 import com.aryn.cloud.order.mapper.OrderDeliveryMapper;
 import com.aryn.cloud.order.mapper.OrderInfoMapper;
 import com.aryn.cloud.order.mapper.OrderItemMapper;
@@ -27,10 +28,12 @@ import com.aryn.cloud.pay.api.constants.PayConstants;
 import com.aryn.cloud.pay.api.dto.CreateRefundsReqDTO;
 import com.aryn.cloud.pay.api.remote.RemoteRefundService;
 import lombok.AllArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -39,6 +42,7 @@ import java.util.Objects;
  * @author 雨滴kian
  * @date 2022/5/31
  */
+@Slf4j
 @Service
 @AllArgsConstructor
 public class OrderRefundServiceImpl extends ServiceImpl<OrderRefundMapper, OrderRefund> implements IOrderRefundService {
@@ -219,6 +223,66 @@ public class OrderRefundServiceImpl extends ServiceImpl<OrderRefundMapper, Order
 	@Override
 	public IPage<OrderRefund> getPage(Page page, OrderRefund orderRefund) {
 		return baseMapper.selectAdminPage(page, orderRefund);
+	}
+
+	/**
+	 * 整单自动退款（系统侧发起，跳过售后审核）。
+	 *
+	 * <p>当前场景：拼团成团失败对已付款成员退款。复用「申请退款 + 审核通过退款」既有链路：
+	 * 逐项创建退款单（saveRefund 把明细置为售后处理中）后立即按退款通过执行（refund 调支付网关）。
+	 * 按明细幂等：已有退款单、或不在可退状态（待发货/已发货）的明细跳过，支持人工重试。
+	 *
+	 * <p>任一项退款失败（如配送任务已取货需先退回仓库）整体抛异常回滚，避免半退状态。
+	 */
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public boolean refundWholeOrder(String orderId, String reason) {
+		OrderInfo orderInfo = orderInfoMapper.selectById(orderId);
+		if (ObjectUtil.isNull(orderInfo)) {
+			throw new ArynBusinessException("订单不存在");
+		}
+		if (!CommonConstants.YES.equals(orderInfo.getPayStatus())) {
+			// 未支付订单无需退款：取消链路自行释放占用
+			log.info("整单退款跳过: 订单未支付, orderId={}", orderId);
+			return false;
+		}
+		if (OrderStatusEnum.CANCELED.getCode().equals(orderInfo.getStatus())) {
+			log.info("整单退款跳过: 订单已取消, orderId={}", orderId);
+			return false;
+		}
+		List<OrderItemEntity> orderItems = orderItemMapper.selectList(Wrappers.<OrderItemEntity>lambdaQuery()
+			.eq(OrderItemEntity::getOrderId, orderId));
+		boolean refundedAny = false;
+		for (OrderItemEntity item : orderItems) {
+			boolean refundable = OrderItemStatusEnum.PAID.getCode().equals(item.getStatus())
+					|| OrderItemStatusEnum.SHIPPED.getCode().equals(item.getStatus());
+			if (!refundable) {
+				continue;
+			}
+			long exists = baseMapper.selectCount(Wrappers.<OrderRefund>lambdaQuery()
+				.eq(OrderRefund::getOrderItemId, item.getId()));
+			if (exists > 0) {
+				log.info("整单退款跳过已有退款单的明细, orderId={}, orderItemId={}", orderId, item.getId());
+				continue;
+			}
+			OrderRefund saveRequest = new OrderRefund();
+			saveRequest.setOrderItemId(item.getId());
+			saveRequest.setUserId(orderInfo.getUserId());
+			saveRequest.setRefundReason(reason);
+			OrderRefund saved = saveRefund(saveRequest);
+			if (ObjectUtil.isNull(saved) || ObjectUtil.isNull(saved.getId())) {
+				continue;
+			}
+			OrderRefund executeRequest = new OrderRefund();
+			executeRequest.setId(saved.getId());
+			executeRequest.setOperateStatus(MallOrderConstants.OPERATE_STATUS_REFUND);
+			refund(executeRequest);
+			refundedAny = true;
+		}
+		if (!refundedAny) {
+			log.info("整单退款无可退明细, orderId={}", orderId);
+		}
+		return refundedAny;
 	}
 
 }

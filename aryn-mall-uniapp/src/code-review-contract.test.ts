@@ -16,7 +16,8 @@ describe('mobile review contracts', () => {
   })
 
   it('enables WeChat request-domain validation', () => {
-    expect(source('manifest.config.ts')).toContain('urlCheck: true')
+    // manifest 已收敛到唯一工厂（manifest.config.ts 是薄包装），契约钉在工厂上
+    expect(source('build/manifest-factory.mjs')).toContain('urlCheck: true')
   })
 
   it('applies token and Boot URL validation at integration boundaries', () => {

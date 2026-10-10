@@ -50,4 +50,14 @@ public class RemoteVesselServiceImpl implements RemoteVesselService {
 		return vesselService.contextByCallId(tenantId, vesselCallId);
 	}
 
+	@Override
+	public VesselContextDTO getVesselCallSnapshot(String tenantId, String vesselCallId) {
+		return vesselService.snapshotByCallId(tenantId, vesselCallId);
+	}
+
+	@Override
+	public VesselContextDTO resolveAvailableCall(String tenantId, String vesselId) {
+		return vesselService.resolveAvailableCall(tenantId, vesselId);
+	}
+
 }

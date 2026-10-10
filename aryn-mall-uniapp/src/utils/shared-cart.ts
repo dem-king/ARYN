@@ -8,7 +8,7 @@
  * 约束：页面禁止自行用三元链兜底，一律经 cartStatusLabel() / memberRoleLabel() 获取，
  * 避免出现未知取值被静默显示成某个具体状态。
  */
-import type { SharedCart, SharedCartSummary } from '@/api/order/sharedCart'
+import type { SharedCart, SharedCartItem, SharedCartSummary } from '@/api/order/sharedCart'
 
 import { formatExpiryCountdown, remainingMsUntil } from '@/utils/vessel-call-time'
 
@@ -244,4 +244,98 @@ export function cartActionLabel(cart: SharedCart, now: Date = new Date()): strin
   if (cart.status === CART_STATUS_DRAFT)
     return cart.viewerCanEdit === true ? '去加货' : '查看'
   return '查看'
+}
+
+/* -------------------------------------------------------------------------
+ * 金额
+ *
+ * 计价数量只有一个口径：收集中用成员申请量，提交后（核定已落库）用核定数量。
+ * 「本次不采」（核定 0）的行不进订单，也不该计进任何金额里。
+ *
+ * 单价取不到（商品下架/已删除、商品域抖动）时不能拿 0 顶替 —— 那会让
+ * 「还没算到的钱」看起来像「不要钱」。这类行单独计入 unpricedCount，
+ * 界面上以「待核价」标示并提示合计不完整。
+ * ---------------------------------------------------------------------- */
+
+/** 行金额与汇总的唯一来源：明细行的计价数量 */
+export function pricedQuantityOf(item: SharedCartItem): number {
+  if (item.approvedQuantity !== null && item.approvedQuantity !== undefined) {
+    return Math.max(0, item.approvedQuantity)
+  }
+  return Math.max(0, item.requestedQuantity ?? 0)
+}
+
+/**
+ * 行金额；单价未知时返回 null（不是 0）。
+ *
+ * 调用方须自行区分「null = 待核价」与「0 = 免费/数量为 0」。
+ */
+export function itemAmountOf(item: SharedCartItem): number | null {
+  const unitPrice = item.unitPrice
+  if (unitPrice === null || unitPrice === undefined)
+    return null
+  const price = Number(unitPrice)
+  if (!Number.isFinite(price))
+    return null
+  return price * pricedQuantityOf(item)
+}
+
+export interface CartAmountSummary {
+  /** 可计价明细的金额合计（元） */
+  amount: number
+  /** 取不到单价的行数；> 0 时界面要说明合计不完整 */
+  unpricedCount: number
+  /** 参与计价的明细项数（不含待核价、不含本次不采） */
+  pricedCount: number
+}
+
+/**
+ * 汇总一组明细的金额。
+ *
+ * 传 itemIds 之外的过滤在调用方完成（例如成员维度、或排除「本次不采」的行）；
+ * 这里只保证「单价未知不计入金额」这一条口径三处一致。
+ */
+export function summarizeCartAmount(items: SharedCartItem[]): CartAmountSummary {
+  let amount = 0
+  let unpricedCount = 0
+  let pricedCount = 0
+  for (const item of items) {
+    const rowAmount = itemAmountOf(item)
+    if (rowAmount === null) {
+      unpricedCount += 1
+      continue
+    }
+    amount += rowAmount
+    pricedCount += 1
+  }
+  // 浮点累加会出 0.30000000000000004 这类尾差，金额一律收敛到分
+  return { amount: Math.round(amount * 100) / 100, unpricedCount, pricedCount }
+}
+
+/** 金额展示：保留两位小数，取不到值时不显示「0.00」而是空串 */
+export function amountText(value?: null | number): string {
+  if (value === null || value === undefined)
+    return ''
+  const amount = Number(value)
+  if (!Number.isFinite(amount))
+    return ''
+  return amount.toFixed(2)
+}
+
+/**
+ * 明细行金额文案。
+ *
+ * 「待核价」与「¥0.00」是两件事：前者是系统还没拿到价格，后者是不要钱，
+ * 混在一起会让用户以为整单免费。
+ */
+export function itemAmountText(item: SharedCartItem): string {
+  const amount = itemAmountOf(item)
+  return amount === null ? '待核价' : `¥${amountText(amount)}`
+}
+
+/** 单价文案：`¥12.00 / 件` 之类的部分由调用方拼接，这里只出数字部分 */
+export function unitPriceText(item: SharedCartItem): string {
+  if (item.unitPrice === null || item.unitPrice === undefined)
+    return '待核价'
+  return `¥${amountText(Number(item.unitPrice))}`
 }

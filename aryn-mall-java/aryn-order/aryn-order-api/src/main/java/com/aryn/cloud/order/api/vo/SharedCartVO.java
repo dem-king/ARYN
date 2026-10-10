@@ -58,6 +58,16 @@ public class SharedCartVO implements Serializable {
 	@Schema(description = "配送时间窗结束")
 	private LocalDateTime deliveryWindowEnd;
 
+	/**
+	 * 该车的靠港是否仍可作为新订单的配送计划。
+	 *
+	 * <p>展示字段（船名/港口）取自展示快照，靠港结束后照样有值；因此不能用
+	 * 「名称为空」反推靠港已失效——两者必须分开。详情页据此预告「提交时会顺延」，
+	 * 只在收集中且已失效时提示。
+	 */
+	@Schema(description = "靠港是否仍可下单；false 表示提交时会自动顺延到本船最新可用靠港")
+	private Boolean callOrderable;
+
 	@Schema(description = "发起人用户ID")
 	private String ownerUserId;
 
@@ -99,15 +109,5 @@ public class SharedCartVO implements Serializable {
 
 	@Schema(description = "成员数")
 	private Integer memberCount;
-
-	/**
-	 * 补给进度汇总（按项数，未排计划的行不计入百分比）。
-	 *
-	 * <p>列表卡片要回答「这单还差多少」，与首页卡片、详情页共用同一口径，
-	 * 计算集中在 {@code ReplenishProgressCalculator}；无任何计划时
-	 * {@code progressPercent} 为 null，前端显示「尚未排计划」而不是 0%。
-	 */
-	@Schema(description = "补给进度汇总")
-	private ReplenishProgressVO.Summary progress;
 
 }

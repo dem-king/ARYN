@@ -32,6 +32,21 @@ export const CREATABLE_PAGE_TYPES: PageDesignType[] = ['0', '2', '3', '4'];
 /** 全部页面类型，按固定顺序（筛选下拉用）。 */
 export const PAGE_TYPE_OPTIONS: PageDesignType[] = ['0', '1', '2', '3', '4'];
 
+/**
+ * C 端可枚举的装修槽位页型，顺序与「当前生效」卡片区一致。
+ *
+ * 与后端 `PageDesignComponentTypes.EFFECTIVE_SLOT_PAGE_TYPES` 同源（见
+ * page-design-effective-slot.test.ts 的跨仓一致性守卫）。
+ * 微页面（'0'）不在其中：它只能通过链接被指定访问，C 端没有「按类型取微页面」
+ * 的入口，因此不存在「生效」语义——纳进来会让发布最新的微页面被误标「生效中」。
+ */
+export const EFFECTIVE_SLOT_PAGE_TYPES: PageDesignType[] = ['1', '3', '4', '2'];
+
+/** 该页型是否参与 C 端「当前生效」判定（微页面不参与）。 */
+export function isEffectiveSlotPageType(pageType: string | undefined): boolean {
+  return EFFECTIVE_SLOT_PAGE_TYPES.includes(pageType as PageDesignType);
+}
+
 /** 页面类型中文名；未知值原样回显，避免渲染出 undefined。 */
 export function pageTypeLabel(pageType: string | undefined): string {
   if (!pageType) {
@@ -70,6 +85,8 @@ export interface PageDesignQuery {
 export interface PageDesignRecord {
   createTime?: string;
   draftRevision: number;
+  /** C 端按类型读取时是否为当前生效装修（后端列表回显） */
+  effective?: boolean;
   homeStatus: '0' | '1';
   id: string;
   pageContent?: Record<string, unknown> | string;
@@ -329,6 +346,13 @@ export async function getPage(query: PageDesignQuery) {
   return requestClient.get<PageDesignPage>('/promotion/pagedesign/page', {
     params: query,
   });
+}
+
+/** 各类型当前生效的装修页汇总（未配置的类型不返回），供「当前生效」卡片区渲染 */
+export async function getEffectivePages() {
+  return requestClient.get<PageDesignRecord[]>(
+    '/promotion/pagedesign/effective-summary',
+  );
 }
 
 export async function getById(id: string) {

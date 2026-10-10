@@ -8,6 +8,7 @@ import { ElCollapse, ElCollapseItem, ElIcon, ElInput } from 'element-plus';
 
 import {
   componentRegistry,
+  extensionComponentTypes,
   getAllowedComponentsForPageType,
   legacyComponentTypes,
   retailComponentTypes,
@@ -27,7 +28,13 @@ const activeGroups = ref([
   '营销活动',
   '店铺服务',
 ]);
-const componentTypes = [...legacyComponentTypes, ...retailComponentTypes];
+// 扩展组件（瀑布流/商品推荐/优惠券组合/图片魔方等）同样进入组件库，
+// 此前只列 legacy+retail 导致已注册的 extension 组件在面板里拖不到
+const componentTypes = [
+  ...legacyComponentTypes,
+  ...retailComponentTypes,
+  ...extensionComponentTypes,
+];
 
 const groupedItems = computed(() => {
   const keyword = query.value.trim().toLowerCase();

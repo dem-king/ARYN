@@ -9,6 +9,8 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Update;
 
+import java.util.List;
+
 /**
  * 购物车
  *
@@ -35,5 +37,16 @@ public interface ShoppingCartMapper extends BaseMapper<ShoppingCart> {
 		""")
 	int incrementQuantityById(@Param("userId") String userId, @Param("id") String id,
 			@Param("quantity") int quantity);
+
+	/**
+	 * 把船舶「无靠港归属或挂在已结束靠港」的行迁移到新靠港。
+	 *
+	 * <p>由 {@link com.aryn.cloud.order.api.remote.RemoteShoppingCartService} 在靠港
+	 * 申报/排产生效时调用。迁移只动 vessel_call_id：行的 vessel_id 已是本船，
+	 * 不涉及跨船归属；租户与删除标记显式过滤，不依赖调用链路上的租户上下文。
+	 * SQL 在 XML（reattachRowsToVesselCall），动态拼接已结束靠港的 OR 链。
+	 */
+	int reattachRowsToVesselCall(@Param("tenantId") String tenantId, @Param("vesselId") String vesselId,
+			@Param("vesselCallId") String vesselCallId, @Param("staleCallIds") List<String> staleCallIds);
 
 }

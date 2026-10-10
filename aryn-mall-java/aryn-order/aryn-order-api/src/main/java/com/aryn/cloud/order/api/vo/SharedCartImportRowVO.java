@@ -27,6 +27,9 @@ public class SharedCartImportRowVO implements Serializable {
 	@Schema(description = "行号（从1开始）")
 	private Integer rowNo;
 
+	@Schema(description = "接龙人名原文（接龙导入来源；Excel 导入为 null）")
+	private String personName;
+
 	@Schema(description = "Excel 商品编码原文")
 	private String rawCode;
 
@@ -66,8 +69,8 @@ public class SharedCartImportRowVO implements Serializable {
 	@Schema(description = "匹配时的库存")
 	private Integer matchedStock;
 
-	@Schema(description = "计划采购量")
-	private Integer plannedQuantity;
+	@Schema(description = "本次采购数量")
+	private Integer quantity;
 
 	@Schema(description = "结果：OK/UNMATCHED/SPEC_CHANGED/OVER_STOCK/INVALID_QTY/OFF_SHELF")
 	private String resultType;

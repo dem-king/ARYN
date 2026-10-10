@@ -52,6 +52,7 @@
 	order_info.receiver_time,
 	order_info.transaction_id,
 	order_info.coupon_user_id,
+	order_info.group_buy_record_id,
 	order_info.tenant_id,
     order_info.create_by,
     order_info.update_by,
@@ -78,6 +79,10 @@
         <if test="query.deliveryWay != null and query.deliveryWay != ''">
             AND order_info.`delivery_way` = #{query.deliveryWay}
         </if>
+        <!-- 存量单据场景可能为空（历史版本仅内部配送落场景），空值等价于海员个人购买 -->
+        <if test="query.purchaseScene != null and query.purchaseScene != ''">
+            AND IFNULL(NULLIF(order_info.`purchase_scene`, ''), '1') = #{query.purchaseScene}
+        </if>
         <if test="query.userId != null and query.userId != ''">
             AND order_info.`user_id` = #{query.userId}
         </if>
@@ -86,6 +91,12 @@
         </if>
         <if test="query.id != null and query.id != ''">
             AND order_info.`id` = #{query.id}
+        </if>
+        <if test="query.ids != null and query.ids.size() > 0">
+            AND order_info.`id` IN
+            <foreach collection="query.ids" item="queryId" open="(" separator="," close=")">
+                #{queryId}
+            </foreach>
         </if>
         <if test="query.paymentQueryTimes != null and query.paymentQueryTimes.length > 0">
             AND order_info.`payment_time` >= #{query.paymentQueryTimes[0]} AND

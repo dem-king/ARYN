@@ -16,7 +16,15 @@ public interface ISignInRecordService extends IService<SignInRecord> {
 
 	IPage<SignInRecordVO> getPage(Page page, String nickname, String beginDate, String endDate);
 
-	IPage<SignInRecordVO> getUserPage(Page page, String userId);
+	/**
+	 * C端签到记录分页（按登录态取本人记录）
+	 * @param page 分页
+	 * @param userId 用户ID
+	 * @param beginDate 起始签到日期（含），可空
+	 * @param endDate 截止签到日期（含），可空
+	 * @return 签到记录分页
+	 */
+	IPage<SignInRecordVO> getUserPage(Page page, String userId, String beginDate, String endDate);
 
 	/**
 	 * C端用户签到

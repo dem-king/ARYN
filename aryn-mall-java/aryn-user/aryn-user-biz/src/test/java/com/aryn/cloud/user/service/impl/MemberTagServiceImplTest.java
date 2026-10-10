@@ -143,15 +143,15 @@ class MemberTagServiceImplTest {
 
 		// 无已存在的关联
 		when(userTagRelMapper.selectList(any())).thenReturn(Collections.emptyList());
-		when(userTagRelMapper.insert(anyList())).thenReturn(Collections.emptyList());
+		when(userTagRelMapper.insertIgnoreBatch(anyList())).thenReturn(2);
 
 		// when
 		memberTagService.tagUser(userId, tagIds);
 
 		// then
-		verify(userTagRelMapper).insert(argThat((Collection<UserTagRel> rels) -> {
+		verify(userTagRelMapper).insertIgnoreBatch(argThat((List<UserTagRel> rels) -> {
 			return rels.size() == 2
-					&& rels.stream().allMatch(r -> userId.equals(r.getUserId()))
+					&& rels.stream().allMatch(r -> userId.equals(r.getUserId()) && r.getId() != null)
 					&& rels.stream().map(UserTagRel::getTagId).collect(java.util.stream.Collectors.toList())
 					.containsAll(tagIds);
 		}));
@@ -169,13 +169,13 @@ class MemberTagServiceImplTest {
 		existRel.setUserId(userId);
 		existRel.setTagId("tag001");
 		when(userTagRelMapper.selectList(any())).thenReturn(Collections.singletonList(existRel));
-		when(userTagRelMapper.insert(anyList())).thenReturn(Collections.emptyList());
+		when(userTagRelMapper.insertIgnoreBatch(anyList())).thenReturn(1);
 
 		// when
 		memberTagService.tagUser(userId, tagIds);
 
 		// then - 只插入tag002
-		verify(userTagRelMapper).insert(argThat((Collection<UserTagRel> rels) -> {
+		verify(userTagRelMapper).insertIgnoreBatch(argThat((List<UserTagRel> rels) -> {
 			return rels.size() == 1
 					&& rels.stream().anyMatch(rel -> "tag002".equals(rel.getTagId())
 							&& userId.equals(rel.getUserId()));
@@ -201,7 +201,7 @@ class MemberTagServiceImplTest {
 		memberTagService.tagUser(userId, tagIds);
 
 		// then
-		verify(userTagRelMapper, never()).insert(anyList());
+		verify(userTagRelMapper, never()).insertIgnoreBatch(anyList());
 	}
 
 	@Test
@@ -211,7 +211,7 @@ class MemberTagServiceImplTest {
 				() -> memberTagService.tagUser("user001", Arrays.asList("tag001", null)));
 
 		assertEquals("标签ID不能为空", exception.getMsg());
-		verify(userTagRelMapper, never()).insert(anyList());
+		verify(userTagRelMapper, never()).insertIgnoreBatch(anyList());
 	}
 
 	@Test

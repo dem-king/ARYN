@@ -25,6 +25,39 @@
         WHERE social_account.app_id = #{appId}
           AND social_account.del_flag = '0'
     </select>
+
+    <!-- 权威绑定查询：仅限 MiniAppBindingResolver 登录校验使用；别名 sa、参数绑定、最小绕过范围 -->
+    <select id="selectValidWxMaByAppId" resultType="com.aryn.cloud.user.api.entity.SocialAccount">
+        SELECT
+            sa.id,
+            sa.type,
+            sa.app_id,
+            sa.app_secret,
+            sa.create_time,
+            sa.update_time,
+            sa.del_flag,
+            sa.create_by,
+            sa.update_by,
+            sa.tenant_id
+        FROM
+            social_account AS sa
+        WHERE sa.app_id = #{appId}
+          AND sa.type = 'WX_MA'
+          AND sa.del_flag = '0'
+    </select>
+
+    <!-- 后台维护全局重复预检：仅限 SocialAccountServiceImpl 使用 -->
+    <select id="countValidWxMaByAppIdExcluding" resultType="long">
+        SELECT COUNT(*)
+        FROM social_account AS sa
+        WHERE sa.app_id = #{appId}
+          AND sa.type = 'WX_MA'
+          AND sa.del_flag = '0'
+          <if test="excludeId != null and excludeId != ''">
+              AND sa.id != #{excludeId}
+          </if>
+    </select>
+
     <select id="selectSocialAccountById" resultType="com.aryn.cloud.user.api.vo.SocialAccountVO">
         SELECT
             social_account.id,

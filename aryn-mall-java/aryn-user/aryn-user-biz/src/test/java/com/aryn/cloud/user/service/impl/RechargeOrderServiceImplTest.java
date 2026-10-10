@@ -1,8 +1,12 @@
 package com.aryn.cloud.user.service.impl;
 
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
+import com.aryn.cloud.pay.api.dto.PaySettlementResult;
+import com.aryn.cloud.pay.api.remote.RemotePayService;
+import com.aryn.cloud.order.api.remote.RemoteOrderConfigService;
 import com.aryn.cloud.user.api.entity.RechargeConfig;
 import com.aryn.cloud.user.api.entity.RechargeOrder;
+import com.aryn.cloud.user.api.vo.AppRechargeOrderVO;
 import com.aryn.cloud.user.mapper.RechargeOrderMapper;
 import com.aryn.cloud.user.service.IBalanceRecordService;
 import com.aryn.cloud.user.service.IPointsRecordService;
@@ -13,8 +17,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -38,6 +44,12 @@ class RechargeOrderServiceImplTest {
 	@Mock
 	private RechargeOrderMapper rechargeOrderMapper;
 
+	@Mock
+	private RemotePayService remotePayService;
+
+	@Mock
+	private RemoteOrderConfigService remoteOrderConfigService;
+
 	private RechargeOrderServiceImpl rechargeOrderService;
 
 	private RechargeConfig activeConfig;
@@ -48,6 +60,9 @@ class RechargeOrderServiceImplTest {
 		// 设置 baseMapper
 		rechargeOrderService = new TestRechargeOrderService(rechargeConfigService, balanceRecordService,
 				pointsRecordService, rechargeOrderMapper);
+		// @DubboReference 字段不走构造器，测试里反射注入
+		ReflectionTestUtils.setField(rechargeOrderService, "remotePayService", remotePayService);
+		ReflectionTestUtils.setField(rechargeOrderService, "remoteOrderConfigService", remoteOrderConfigService);
 
 		activeConfig = new RechargeConfig();
 		activeConfig.setId("config001");
@@ -129,17 +144,14 @@ class RechargeOrderServiceImplTest {
 		order.setPayStatus("0");
 
 		when(rechargeOrderMapper.selectOne(any(), eq(true))).thenReturn(order);
-		when(rechargeOrderMapper.updateById(any(RechargeOrder.class))).thenReturn(1);
+		when(rechargeOrderMapper.markPaidIfPending(eq("order001"), eq("payOrder123"), any(LocalDateTime.class)))
+				.thenReturn(1);
 
 		// when
 		rechargeOrderService.paySuccess("20240101120000000123456", "payOrder123");
 
-		// then
-		// 验证订单状态更新为已支付
-		verify(rechargeOrderMapper).updateById(argThat((RechargeOrder o) ->
-				"1".equals(o.getPayStatus())
-						&& "payOrder123".equals(o.getPayOrderNo())
-						&& o.getPayTime() != null));
+		// then - 状态推进走带条件的抢占式更新，避免并发重复入账
+		verify(rechargeOrderMapper).markPaidIfPending(eq("order001"), eq("payOrder123"), any(LocalDateTime.class));
 
 		// 验证余额增加（充值金额+赠送金额）
 		verify(balanceRecordService).recordBalanceChange(
@@ -152,6 +164,31 @@ class RechargeOrderServiceImplTest {
 		verify(pointsRecordService).recordPointsChange(
 				"user001", "1", 50, "RECHARGE",
 				"充值赠送积分：20240101120000000123456");
+	}
+
+	@Test
+	@DisplayName("支付成功 - 并发下未抢到状态推进权时不重复入账")
+	void paySuccess_lostRaceDoesNotDoubleCredit() {
+		// given
+		RechargeOrder order = new RechargeOrder();
+		order.setId("order001");
+		order.setUserId("user001");
+		order.setOrderNo("orderNo001");
+		order.setRechargeAmount(new BigDecimal("100.00"));
+		order.setGiftAmount(BigDecimal.ZERO);
+		order.setGiftPoint(0);
+		order.setPayStatus("0"); // 读到的是待支付，但已被另一路径抢先推进
+		when(rechargeOrderMapper.selectOne(any(), eq(true))).thenReturn(order);
+		when(rechargeOrderMapper.markPaidIfPending(anyString(), any(), any(LocalDateTime.class))).thenReturn(0);
+
+		// when
+		rechargeOrderService.paySuccess("orderNo001", "payOrder123");
+
+		// then
+		verify(balanceRecordService, never()).recordBalanceChange(anyString(), anyString(), any(), anyString(),
+				anyString());
+		verify(pointsRecordService, never()).recordPointsChange(anyString(), anyString(), anyInt(), anyString(),
+				anyString());
 	}
 
 	@Test
@@ -169,11 +206,31 @@ class RechargeOrderServiceImplTest {
 	}
 
 	@Test
-	@DisplayName("支付成功 - 订单状态异常(非待支付)时抛出异常")
+	@DisplayName("支付成功 - 已支付的重复回调静默忽略，不重复入账")
+	void paySuccess_duplicateCallbackIgnored() {
+		// given
+		RechargeOrder order = new RechargeOrder();
+		order.setId("order001");
+		order.setOrderNo("orderNo123");
+		order.setPayStatus("1"); // 已支付（MQ 重复投递）
+		when(rechargeOrderMapper.selectOne(any(), eq(true))).thenReturn(order);
+
+		// when - 不抛异常，否则 MQ 会一直重投
+		rechargeOrderService.paySuccess("orderNo123", "payOrder123");
+
+		// then
+		verify(rechargeOrderMapper, never()).updateById(any(RechargeOrder.class));
+		verify(balanceRecordService, never()).recordBalanceChange(anyString(), anyString(), any(), anyString(),
+				anyString());
+	}
+
+	@Test
+	@DisplayName("支付成功 - 订单状态异常(已取消)时抛出异常")
 	void paySuccess_invalidOrderStatus() {
 		// given
 		RechargeOrder order = new RechargeOrder();
-		order.setPayStatus("1"); // 已支付
+		order.setOrderNo("orderNo123");
+		order.setPayStatus("2"); // 已取消
 		when(rechargeOrderMapper.selectOne(any(), eq(true))).thenReturn(order);
 
 		// when & then
@@ -181,6 +238,8 @@ class RechargeOrderServiceImplTest {
 				rechargeOrderService.paySuccess("orderNo123", "payOrder123"));
 
 		assertEquals("订单状态异常", exception.getMsg());
+		verify(balanceRecordService, never()).recordBalanceChange(anyString(), anyString(), any(), anyString(),
+				anyString());
 	}
 
 	@Test
@@ -197,7 +256,7 @@ class RechargeOrderServiceImplTest {
 		order.setPayStatus("0");
 
 		when(rechargeOrderMapper.selectOne(any(), eq(true))).thenReturn(order);
-		when(rechargeOrderMapper.updateById(any(RechargeOrder.class))).thenReturn(1);
+		when(rechargeOrderMapper.markPaidIfPending(anyString(), any(), any(LocalDateTime.class))).thenReturn(1);
 
 		// when
 		rechargeOrderService.paySuccess("orderNo001", "payOrder123");
@@ -221,7 +280,7 @@ class RechargeOrderServiceImplTest {
 		order.setPayStatus("0");
 
 		when(rechargeOrderMapper.selectOne(any(), eq(true))).thenReturn(order);
-		when(rechargeOrderMapper.updateById(any(RechargeOrder.class))).thenReturn(1);
+		when(rechargeOrderMapper.markPaidIfPending(anyString(), any(), any(LocalDateTime.class))).thenReturn(1);
 
 		// when
 		rechargeOrderService.paySuccess("orderNo001", "payOrder123");
@@ -240,7 +299,6 @@ class RechargeOrderServiceImplTest {
 		order.setPayStatus("0"); // 待支付
 
 		when(rechargeOrderMapper.selectOne(any(), eq(true))).thenReturn(order);
-		when(rechargeOrderMapper.updateById(any(RechargeOrder.class))).thenReturn(1);
 
 		// when
 		rechargeOrderService.cancelOrder("orderNo001");
@@ -277,6 +335,66 @@ class RechargeOrderServiceImplTest {
 
 		assertEquals("只能取消待支付订单", exception.getMsg());
 		verify(rechargeOrderMapper, never()).updateById(any(RechargeOrder.class));
+	}
+
+	@Test
+	@DisplayName("核对支付结果 - 本地待支付时请渠道查单，已确认则回读入账结果")
+	void queryAndSettle_asksChannelWhenStillPending() {
+		// given
+		RechargeOrder pending = rechargeOrder("orderNo001", "user001", "0");
+		RechargeOrder paid = rechargeOrder("orderNo001", "user001", "1");
+		paid.setPayOrderNo("WX-1");
+		when(rechargeOrderMapper.selectOne(any(), eq(true))).thenReturn(pending, paid);
+		when(remotePayService.queryAndSettlePayOrder("orderNo001"))
+				.thenReturn(PaySettlementResult.paid("WX-1"));
+
+		// when
+		AppRechargeOrderVO vo = rechargeOrderService.queryAndSettle("user001", "orderNo001");
+
+		// then - 判定权交给渠道，本地状态随核对结果回读
+		verify(remotePayService).queryAndSettlePayOrder("orderNo001");
+		assertEquals("1", vo.getPayStatus());
+	}
+
+	@Test
+	@DisplayName("核对支付结果 - 本地已支付时不再打扰渠道")
+	void queryAndSettle_skipsChannelWhenAlreadyPaid() {
+		// given
+		when(rechargeOrderMapper.selectOne(any(), eq(true))).thenReturn(rechargeOrder("orderNo001", "user001", "1"));
+
+		// when
+		AppRechargeOrderVO vo = rechargeOrderService.queryAndSettle("user001", "orderNo001");
+
+		// then
+		assertEquals("1", vo.getPayStatus());
+		verify(remotePayService, never()).queryAndSettlePayOrder(anyString());
+	}
+
+	@Test
+	@DisplayName("核对支付结果 - 渠道不可达时回退本地状态，不让查询接口失败")
+	void queryAndSettle_fallsBackWhenChannelUnavailable() {
+		// given
+		when(rechargeOrderMapper.selectOne(any(), eq(true))).thenReturn(rechargeOrder("orderNo001", "user001", "0"));
+		when(remotePayService.queryAndSettlePayOrder("orderNo001"))
+				.thenThrow(new RuntimeException("渠道不可用"));
+
+		// when
+		AppRechargeOrderVO vo = rechargeOrderService.queryAndSettle("user001", "orderNo001");
+
+		// then - 用户看到的仍是待确认，可再次刷新，而不是报错
+		assertEquals("0", vo.getPayStatus());
+	}
+
+	private RechargeOrder rechargeOrder(String orderNo, String userId, String payStatus) {
+		RechargeOrder order = new RechargeOrder();
+		order.setId("order001");
+		order.setOrderNo(orderNo);
+		order.setUserId(userId);
+		order.setRechargeAmount(new BigDecimal("100.00"));
+		order.setGiftAmount(BigDecimal.ZERO);
+		order.setGiftPoint(0);
+		order.setPayStatus(payStatus);
+		return order;
 	}
 
 	private static final class TestRechargeOrderService extends RechargeOrderServiceImpl {

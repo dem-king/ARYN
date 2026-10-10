@@ -6,6 +6,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 import java.io.Serial;
@@ -57,6 +58,10 @@ public class SharedCartImportConfirmDTO implements Serializable {
 		@Min(value = 1, message = "数量必须大于0")
 		@Max(value = 999999, message = "数量过大")
 		private Integer quantity;
+
+		@Schema(description = "修正后的归属人名（接龙导入；空表示沿用解析结果）")
+		@Size(max = 32, message = "人名长度不能超过32")
+		private String personName;
 
 	}
 

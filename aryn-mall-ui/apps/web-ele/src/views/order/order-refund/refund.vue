@@ -11,7 +11,6 @@ import {
 import {
   ElButton,
   ElCard,
-  ElCol,
   ElDialog,
   ElForm,
   ElFormItem,
@@ -20,7 +19,6 @@ import {
   ElMessage,
   ElRadio,
   ElRadioGroup,
-  ElRow,
 } from 'element-plus';
 
 import { getById, refundObj } from '#/api/order/order-refund';
@@ -149,26 +147,22 @@ defineExpose({
           <span>退款商品</span>
         </div>
       </template>
-      <ElRow v-if="state.orderItem">
-        <ElCol :span="6">
-          <ElImage
-            style="width: 80px; height: 80px"
-            :src="state.orderItem.picUrl"
-            fit="cover"
-            :preview-teleported="true"
-          />
-        </ElCol>
-        <ElCol :span="18">
-          <div class="overflow-line-clamp-2 name">
-            {{ state.orderItem.spuName }}
-          </div>
+      <div v-if="state.orderItem" class="order-item">
+        <ElImage
+          style="width: 80px; height: 80px"
+          :src="state.orderItem.picUrl"
+          fit="cover"
+          :preview-teleported="true"
+        />
+        <div class="main">
+          <div class="name line-clamp-2">{{ state.orderItem.spuName }}</div>
           <p></p>
           <div style="display: flex; justify-content: space-between">
             <span style="color: red">￥{{ state.orderItem.paymentPrice }}</span>
             x{{ state.orderItem.buyQuantity }}
           </div>
-        </ElCol>
-      </ElRow>
+        </div>
+      </div>
     </ElCard>
     <ElCard class="box-card">
       <ElForm
@@ -258,3 +252,19 @@ defineExpose({
     </template>
   </ElDialog>
 </template>
+<style lang="scss" scoped>
+/* 图片固定宽、文字区自适应：避免窄容器下图片压住商品名 */
+.order-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+
+  .main {
+    min-width: 0;
+  }
+
+  .name {
+    overflow-wrap: anywhere;
+  }
+}
+</style>

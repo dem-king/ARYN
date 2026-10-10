@@ -64,7 +64,8 @@
     },
     "lazyCodeLoading": "requiredComponents",
     "darkmode": true,
-    "themeLocation": "theme.json"
+    "themeLocation": "theme.json",
+    "miniprogramRoot": "./"
   },
   "mp-alipay": {
     "usingComponents": true,

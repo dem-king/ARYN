@@ -83,12 +83,12 @@ class AppRecordEndpointAuthorizationTest {
 		row.setRewardPoint(15);
 		IPage<SignInRecordVO> source = new Page<SignInRecordVO>(1, 31);
 		source.setRecords(List.of(row));
-		when(signInRecordService.getUserPage(any(), eq("mall-user-1"))).thenReturn(source);
+		when(signInRecordService.getUserPage(any(), eq("mall-user-1"), any(), any())).thenReturn(source);
 
-		IPage<AppSignInRecordVO> result = controller.records(new Page<>()).getData();
+		IPage<AppSignInRecordVO> result = controller.records(new Page<>(), null, null).getData();
 
 		// 关键断言：userId 取自登录态，而不是任何请求参数
-		verify(signInRecordService).getUserPage(any(), eq("mall-user-1"));
+		verify(signInRecordService).getUserPage(any(), eq("mall-user-1"), any(), any());
 		assertThat(result.getRecords()).hasSize(1);
 		AppSignInRecordVO vo = result.getRecords().get(0);
 		assertThat(vo.getSignDate()).isEqualTo(LocalDate.of(2026, 9, 24));
@@ -174,7 +174,7 @@ class AppRecordEndpointAuthorizationTest {
 		}
 
 		// 反向确认：管理端接口确实是靠 userId 参数的，这正是不能给 C 端用的原因
-		verify(signInRecordService, never()).getUserPage(any(), eq("other-user"));
+		verify(signInRecordService, never()).getUserPage(any(), eq("other-user"), any(), any());
 	}
 
 }

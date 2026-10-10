@@ -43,4 +43,28 @@ public interface RemoteVesselService {
 	 */
 	VesselContextDTO getVesselCallContext(String tenantId, String vesselCallId);
 
+	/**
+	 * 查询靠港计划的**展示快照**：靠港已离港/已完成/已取消时照样返回名称与港口。
+	 *
+	 * <p>与 {@link #getVesselCallContext} 的区别是语义：「能不能下单」与
+	 * 「这班船当时去哪」是两回事。历史单据（已提交/已关闭的共享购物车）绑定的靠港
+	 * 必然已经结束，若复用可下单查询，船名与港口会永久缺失，卡片退化成
+	 * 「船舶信息加载中」占位文案。
+	 *
+	 * <p>是否仍可下单由返回值的 {@code callOrderable} 标记给出，调用方按需自取。
+	 *
+	 * @param tenantId 租户ID
+	 * @param vesselCallId 靠港计划ID
+	 * @return 上下文（含 callOrderable 标记）；靠港记录不存在返回 null
+	 */
+	VesselContextDTO getVesselCallSnapshot(String tenantId, String vesselCallId);
+
+	/**
+	 * 解析船舶当前可用的靠港计划（1计划中/2靠泊中且 ETD 未过，按 ETA 最早一班）。
+	 * @param tenantId 租户ID
+	 * @param vesselId 船舶ID
+	 * @return 可用靠港上下文；船舶没有可用靠港时返回 null
+	 */
+	VesselContextDTO resolveAvailableCall(String tenantId, String vesselId);
+
 }

@@ -12,6 +12,7 @@
 import type { SharedCartImport } from '@/api/order/sharedCart'
 import { buildApiUrl } from '@/api/core/api-base-url'
 import { parseOpenBoot, rewriteBootUrl } from '@/api/core/boot-url'
+import { ensureSessionTenant, ensureTenantReady } from '@/api/core/tenant-identity'
 
 const BASE = '/mall-order/app/shared-cart'
 
@@ -46,13 +47,19 @@ function authHeader(): Record<string, string> {
  * 解析同步完成、服务端一次性返回完整报告，因此**没有真实进度可回传**：
  * 页面用不确定态 loading 表达「正在解析」，不画假的百分比进度条。
  */
-export function previewSharedCartImport(id: string, filePath: string): Promise<SharedCartImport> {
+export async function previewSharedCartImport(id: string, filePath: string): Promise<SharedCartImport> {
+  // 旁路上传与主请求同权：守卫失败零传输
+  await ensureTenantReady()
+  const header = authHeader()
+  if (header.satoken) {
+    await ensureSessionTenant('mall', header.satoken)
+  }
   return new Promise<SharedCartImport>((resolve, reject) => {
     uni.uploadFile({
       url: importPath(id, '/import/preview'),
       filePath,
       name: 'file',
-      header: authHeader(),
+      header,
       success(res) {
         let payload: { code?: number, msg?: string, data?: SharedCartImport }
         try {

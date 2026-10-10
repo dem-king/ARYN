@@ -4,6 +4,8 @@ import vueHook from 'alova/vue'
 import { apiBaseUrl } from './api-base-url'
 import { parseOpenBoot, rewriteBootUrl } from './boot-url'
 import { handleAlovaError, handleAlovaResponse } from './handlers'
+import { ensureSessionTenant, ensureTenantReady } from './tenant-identity'
+import { TenantPreflightError } from './tenant-preflight'
 import { Local } from '@/utils/storage'
 
 const openBoot = parseOpenBoot(import.meta.env.VITE_OPEN_BOOT)
@@ -12,7 +14,8 @@ export const alovaInstance = createAlova({
   baseURL: apiBaseUrl,
   requestAdapter: uniappRequestAdapter,
   statesHook: vueHook,
-  beforeRequest: (method) => {
+  // beforeRequest 支持异步：租户守卫在发送前完成校验，失败零传输
+  beforeRequest: async (method) => {
     // Add content type for POST/PUT/PATCH requests
     if (['POST', 'PUT', 'PATCH'].includes(method.type)) {
       method.config.headers['Content-Type'] = 'application/json'
@@ -37,6 +40,37 @@ export const alovaInstance = createAlova({
       }
     }
     method.url = rewriteBootUrl(method.url, openBoot) ?? method.url
+
+    // 租户身份守卫（仅租户构建生效；默认开发直接放行）：
+    // 1. binding preflight 通过前不放行任何业务请求；
+    // 2. 携带 token 的请求在其首次使用前做会话租户校验（mall/delivery 独立）。
+    try {
+      await ensureTenantReady()
+      const guardedToken = method.config.headers.satoken as string | undefined
+      if (guardedToken) {
+        await ensureSessionTenant(deliveryRequest ? 'delivery' : 'mall', guardedToken)
+      }
+    }
+    catch (error) {
+      // 会话校验 401：仅该 scope 的旧 token 失效。比对当前存储 token 仍等于本次校验
+      // token 才清理，防止迟到 401 删掉新登录态；403/网络故障保留 token 只阻断本请求。
+      if (error instanceof TenantPreflightError && error.type === 'unauthorized' && error.scope) {
+        const currentToken = error.scope === 'delivery'
+          ? String(Local.get('deliveryToken') || '')
+          : (uni.getStorageSync('auth') as { token?: string } | undefined)?.token
+        if (currentToken === error.checkedToken) {
+          if (error.scope === 'delivery') {
+            Local.remove('deliveryToken')
+            Local.remove('deliveryStaffInfo')
+          }
+          else {
+            uni.$emit('auth-expired')
+          }
+        }
+      }
+      throw error
+    }
+
     // Add platform-specific headers
     // #ifdef MP
     method.config.headers['app-id'] = uni.getAccountInfoSync().miniProgram.appId

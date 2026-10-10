@@ -6,9 +6,8 @@ import { describe, expect, it } from 'vitest'
 /**
  * 补给单卡片接线契约。
  *
- * 进度口径本身由 `src/utils/replenish-progress.test.ts` 做行为测试；
- * 这里只守类型检查看不出来的两件事：前端路径与后端映射是否漂移、
- * 卡片是否真的用了那套口径（而不是自己另写一套展示逻辑）。
+ * 这里只守类型检查看不出来的一件事：前端展示与后端下发的摘要在字段上是否漂移。
+ * 卡片只回答「几项、几个人、多少钱、有什么」，不做采购执行进度 —— 那没有事实来源。
  */
 const projectRoot = fileURLToPath(new URL('../../../../', import.meta.url))
 const repoRoot = resolve(projectRoot, '..')
@@ -26,47 +25,32 @@ const API = 'src/api/order/sharedCart.ts'
 const ORDER_BIZ = 'aryn-mall-java/aryn-order/aryn-order-biz/src/main/java/com/aryn/cloud/order'
 
 describe('补给单卡片契约', () => {
-  it('排计划接口路径与后端映射一致', () => {
+  it('卡片不再声明或展示任何计划量/已采量字段', () => {
     const api = source(API)
-    // 用正则避免在普通字符串里写模板占位符（no-template-curly-in-string）
-    expect(api).toMatch(/\$\{BASE\}\/\$\{id\}\/items\/plan/)
-
-    const controller = repoSource(`${ORDER_BIZ}/controller/app/AppSharedCartController.java`)
-    expect(controller).toContain('@RequestMapping("/app/shared-cart")')
-    expect(controller).toContain('@PutMapping("/{id}/items/plan")')
-  })
-
-  it('摘要类型接住服务端 progress 与预览行进度字段', () => {
-    const api = source(API)
-    expect(api).toContain('progress?: ReplenishSummaryProgress | null')
-    for (const field of [
-      'plannedQuantity',
-      'fulfilledQuantity',
-      'remainingQuantity',
-      'completed',
-    ]) {
-      expect(api, `预览行缺少 ${field}`).toContain(field)
+    const card = source(CARD)
+    for (const gone of ['plannedQuantity', 'fulfilledQuantity', 'remainingQuantity', 'ReplenishSummaryProgress']) {
+      expect(api, `类型里仍有 ${gone}`).not.toContain(gone)
+      expect(card, `卡片里仍有 ${gone}`).not.toContain(gone)
     }
-
+    // 后端摘要 VO 同样不该再下发这些字段
     const vo = repoSource(
       'aryn-mall-java/aryn-order/aryn-order-api/src/main/java/com/aryn/cloud/order/api/vo/SharedCartSummaryVO.java',
     )
-    for (const field of ['plannedQuantity', 'fulfilledQuantity', 'remainingQuantity', 'completed']) {
-      expect(vo, `后端 VO 缺少 ${field}`).toContain(field)
+    for (const gone of ['plannedQuantity', 'fulfilledQuantity', 'remainingQuantity', 'completed']) {
+      expect(vo, `后端 VO 仍有 ${gone}`).not.toContain(gone)
     }
   })
 
-  it('卡片用统一的进度视图，不自己另写一套除法', () => {
+  it('卡片只用申请数量拼预览行，不画进度条也不做除法', () => {
     const card = source(CARD)
-    expect(card).toContain('buildReplenishProgressView')
-    // 自己算百分比就会与详情页口径漂移
+    // 预览行的数量直接取服务端下发的 quantity
+    expect(card).toContain('item.quantity')
+    // 任何形式的进度百分比都是回归
+    expect(card).not.toContain('progressView')
+    expect(card).not.toContain('progress-bar')
     expect(card).not.toMatch(/progressPercent[\s\S]{0,40}\/\s*\d/)
-  })
-
-  it('删掉「刻意不展示进度」的过期注释', () => {
-    // 这两处注释在 C1 之后已与实现相反，留着会误导下一个接手的人
-    expect(source(API)).not.toContain('不做进度百分比')
-    expect(source(CARD)).not.toContain('刻意不展示')
+    // 金额只作量级参考，文案必须是「预估」而不是「合计」
+    expect(card).toContain('预估 ¥')
   })
 
   it('商品名从 SPU 批量查询取，不依赖 SKU 回填的 goodsSpu', () => {

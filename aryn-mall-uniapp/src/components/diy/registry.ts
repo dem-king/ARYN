@@ -3,16 +3,18 @@ import type { Component } from 'vue'
 import DiyBottomNav from './diy-bottom-nav/index.vue'
 import DiyCategoryNav from './diy-category-nav/index.vue'
 import DiyCountdown from './diy-countdown/index.vue'
-import DiyDiscount from './diy-discount/index.vue'
 import DiyCouponCombo from './diy-coupon-combo/index.vue'
 import DiyCouponReceive from './diy-coupon-receive/index.vue'
 import DiyCustomHtml from './diy-custom-html/index.vue'
+import DiyDiscount from './diy-discount/index.vue'
 import DiyGap from './diy-gap/index.vue'
-import DiyGoods from './diy-goods/index.vue'
 import DiyGoodsGroup from './diy-goods-group/index.vue'
 import DiyGoodsRanking from './diy-goods-ranking/index.vue'
+import DiyGoodsRecommend from './diy-goods-recommend/index.vue'
 import DiyGoodsScroll from './diy-goods-scroll/index.vue'
 import DiyGoodsWaterfall from './diy-goods-waterfall/index.vue'
+import DiyGoods from './diy-goods/index.vue'
+import DiyImageCube from './diy-image-cube/index.vue'
 import DiyImage from './diy-image/index.vue'
 import DiyLimitedActivity from './diy-limited-activity/index.vue'
 import DiyMarketingEntry from './diy-marketing-entry/index.vue'
@@ -29,7 +31,6 @@ import DiySwiperBanner from './diy-swiper-banner/index.vue'
 import DiyTabnav from './diy-tabnav/index.vue'
 import DiyTitleText from './diy-titletext/index.vue'
 import DiyVideoLive from './diy-video-live/index.vue'
-import UnknownComponent from './unknown-component.vue'
 
 export const mobileComponentTypes = [
   'category-nav',
@@ -59,6 +60,8 @@ export const mobileComponentTypes = [
   'service-promise',
   'bottom-nav',
   'video-live',
+  'goods-recommend',
+  'image-cube',
   'ship-workbench',
   'replenish-card',
 ] as const
@@ -93,6 +96,8 @@ const componentRegistry: Record<MobileComponentType, Component> = {
   'service-promise': DiyServicePromise,
   'bottom-nav': DiyBottomNav,
   'video-live': DiyVideoLive,
+  'goods-recommend': DiyGoodsRecommend,
+  'image-cube': DiyImageCube,
   'ship-workbench': DiyShipWorkbench,
   'replenish-card': DiyReplenishCard,
 }

@@ -219,5 +219,9 @@ export function migratePageContent(input: unknown): DecorationDocument {
     page: migratePageSettings(record.page),
     schemaVersion: DECORATION_SCHEMA_VERSION_V3,
     sections: migrateSections(record),
+    // 页面引用的主题令牌透传：预览画布据此应用页面级主题（未引用时不产出该字段）
+    ...(typeof record.themeRef === 'string' && record.themeRef
+      ? { themeRef: record.themeRef }
+      : {}),
   };
 }

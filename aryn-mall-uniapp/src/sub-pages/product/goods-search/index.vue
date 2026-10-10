@@ -4,8 +4,8 @@ import { onLoad } from '@dcloudio/uni-app'
 import { computed, reactive, ref } from 'vue'
 import { getPage, getTop10HotSearchGoods } from '@/api/product/spu'
 import HrSearchNavbar from '@/components/hr-search-navbar/index.vue'
-import { buildSearchSuggest, suggestFromLabel } from '@/sub-pages/utils/search-suggest'
 import { useSearchHistory } from '@/sub-pages/composables/useSearchHistory'
+import { buildSearchSuggest, suggestFromLabel } from '@/sub-pages/utils/search-suggest'
 
 definePage({
   name: 'goods-search',
@@ -19,6 +19,8 @@ interface State {
   hotSearchList: any[]
   keyword: string
 }
+// 前三名高亮色必须写成静态字符串：运行时模板字符串拼出的类名 UnoCSS 提取不到，样式永远不会生成
+const RANK_COLORS = ['text-red-500', 'text-orange-500', 'text-amber-500'] as const
 // 定义变量
 const { confirm } = useGlobalMessage()
 const router = useRouter()
@@ -193,7 +195,10 @@ onMounted(() => {
     <!-- 热搜排行和销量排行 -->
     <view v-if="!showSuggest" class="p-2">
       <view class="no-scrollbar flex overflow-x-auto">
-        <view class="my-2 w-60% w-full flex-shrink-0 rounded-20rpx from-theme-bg to-white from-20% bg-gradient-to-b p-2 shadow-sm">
+        <!-- 只保留一个宽度类：w-full 会在样式表顺序上覆盖 w-60%，把板块撑满整屏，
+             右侧热搜榜完全不可见；小程序默认 content-box，须显式 box-border 才不会因
+             内边距把销量数字顶出可视区 -->
+        <view class="my-2 box-border w-86% flex-shrink-0 rounded-20rpx from-theme-bg to-white from-20% bg-gradient-to-b p-2 shadow-sm">
           <!-- 销量排行 -->
           <view class="mb-2 flex items-center justify-between">
             <view> 销量排行 </view>
@@ -204,7 +209,7 @@ onMounted(() => {
           >
             <view
               class="pr-2 font-bold"
-              :class="[index < 3 ? `text-${['red', 'orange', 'amber'][index]}-500` : 'text-gray-400']"
+              :class="index < 3 ? RANK_COLORS[index] : 'text-gray-400'"
             >
               {{ index + 1 }}
             </view>
@@ -212,10 +217,10 @@ onMounted(() => {
             <view class="mx-10rpx flex-1">
               <wd-text
                 :text="item.name" :lines="1" size="24rpx"
-                :custom-class="index < 3 ? `text-${['red', 'orange', 'amber'][index]}-500` : ''"
+                :custom-class="index < 3 ? RANK_COLORS[index] : ''"
               />
             </view>
-            <view class="flex justify-end text-12px text-gray-500">
+            <view class="flex flex-shrink-0 justify-end pl-2 text-12px text-gray-500">
               {{ item.salesVolume }}
             </view>
           </view>
@@ -225,7 +230,7 @@ onMounted(() => {
         <view class="w-40rpx flex-shrink-0" />
 
         <!-- 热搜榜 -->
-        <view class="my-20rpx w-60% w-full flex-shrink-0 rounded-20rpx from-theme-bg to-white from-20% bg-gradient-to-b p-20rpx shadow-sm">
+        <view class="my-20rpx box-border w-86% flex-shrink-0 rounded-20rpx from-theme-bg to-white from-20% bg-gradient-to-b p-20rpx shadow-sm">
           <view class="mb-20rpx flex items-center justify-between">
             <view> 热搜榜 </view>
           </view>
@@ -243,7 +248,7 @@ onMounted(() => {
             <view class="mx-10rpx flex-1">
               <wd-text
                 :text="item.name" :lines="1" size="24rpx"
-                :custom-class="index < 3 ? `text-${['red', 'orange', 'amber'][index]}-500` : ''"
+                :custom-class="index < 3 ? RANK_COLORS[index] : ''"
               />
             </view>
           <!-- <view class="flex justify-end text-14px text-gray-500">

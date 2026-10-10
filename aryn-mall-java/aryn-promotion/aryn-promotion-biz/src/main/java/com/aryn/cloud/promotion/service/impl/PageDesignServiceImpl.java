@@ -2,6 +2,8 @@
 package com.aryn.cloud.promotion.service.impl;
 
 import com.alibaba.fastjson2.JSON;
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.aryn.cloud.common.core.constant.CacheConstants;
@@ -12,10 +14,13 @@ import com.aryn.cloud.promotion.api.constant.PageDesignComponentTypes;
 import com.aryn.cloud.promotion.api.dto.PageDesignDraftDTO;
 import com.aryn.cloud.promotion.api.entity.PageDesign;
 import com.aryn.cloud.promotion.api.entity.PageDesignAuditLog;
+import com.aryn.cloud.promotion.api.entity.PageDesignVersion;
 import com.aryn.cloud.promotion.api.vo.PageDesignEditorVO;
 import com.aryn.cloud.promotion.mapper.PageDesignMapper;
+import com.aryn.cloud.promotion.mapper.PageDesignVersionMapper;
 import com.aryn.cloud.promotion.service.IPageDesignService;
 import com.aryn.cloud.promotion.service.PageDesignAuditService;
+import com.aryn.cloud.promotion.service.PageDesignPreviewService;
 import lombok.RequiredArgsConstructor;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
@@ -26,6 +31,11 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -53,6 +63,10 @@ public class PageDesignServiceImpl extends ServiceImpl<PageDesignMapper, PageDes
 	private final RedissonClient redissonClient;
 
 	private final PageDesignAuditService auditService;
+
+	private final PageDesignPreviewService pageDesignPreviewService;
+
+	private final PageDesignVersionMapper pageDesignVersionMapper;
 
 	@Override
 	public PageDesign getHomePage(PageDesign request) {
@@ -200,6 +214,10 @@ public class PageDesignServiceImpl extends ServiceImpl<PageDesignMapper, PageDes
 			if (CommonConstants.YES.equals(target.getHomeStatus()) && "1".equals(target.getPageType())) {
 				return true;
 			}
+			// 分类页/商品详情页/个人中心页是固定槽位，晋升会改写其 pageType，导致对应槽位在商城里消失
+			if (!"0".equals(target.getPageType())) {
+				throw new ArynBusinessException("仅微页面可以设为首页");
+			}
 			PageDesign resetPage = new PageDesign();
 			resetPage.setHomeStatus(CommonConstants.NO);
 			resetPage.setPageType("0");
@@ -228,6 +246,91 @@ public class PageDesignServiceImpl extends ServiceImpl<PageDesignMapper, PageDes
 			if (locked) {
 				unlockAfterTransactionCompletion(lock);
 			}
+		}
+	}
+
+	/**
+	 * 管理端分页列表：为每行回显是否为 C 端实际生效的装修。
+	 * <p>
+	 * 生效口径与 {@link PageDesignPreviewService#findEffectivePage} 严格一致；
+	 * 生效行可能不在当前分页内，因此必须按行内出现过的类型逐类查询后再打标。
+	 * <p>
+	 * 只判定 {@link PageDesignComponentTypes#EFFECTIVE_SLOT_PAGE_TYPES}：微页面没有
+	 * 「C 端按类型读取」的入口，若一并判定，同类型里发布最新的那条会被误标为生效。
+	 */
+	@Override
+	public <E extends IPage<PageDesign>> E page(E page, Wrapper<PageDesign> queryWrapper) {
+		E result = super.page(page, queryWrapper);
+		markCEndEffective(result.getRecords());
+		return result;
+	}
+
+	/**
+	 * 各类型当前生效的装修页汇总（商城首页→分类页→个人中心页→商品详情页），
+	 * 供管理端「当前生效」卡片区渲染，未配置的类型不返回。
+	 * <p>
+	 * 页面内容回填为发布版快照：C 端渲染的是 {@code page_design_version} 快照，
+	 * 行上的 {@code page_content} 是草稿，直接下发会让卡片展示未发布的修改。
+	 */
+	@Override
+	public List<PageDesign> listEffectivePages() {
+		List<PageDesign> effectivePages = new ArrayList<>();
+		for (String pageType : PageDesignComponentTypes.EFFECTIVE_SLOT_PAGE_TYPES) {
+			PageDesign effectivePage = pageDesignPreviewService.findEffectivePage(pageType);
+			if (effectivePage != null) {
+				effectivePage.setEffective(Boolean.TRUE);
+				effectivePages.add(effectivePage);
+			}
+		}
+		fillPublishedSnapshotContent(effectivePages);
+		return effectivePages;
+	}
+
+	private void fillPublishedSnapshotContent(List<PageDesign> effectivePages) {
+		Set<String> versionIds = new HashSet<>();
+		for (PageDesign page : effectivePages) {
+			if (StringUtils.hasText(page.getPublishedVersionId())) {
+				versionIds.add(page.getPublishedVersionId());
+			}
+		}
+		if (versionIds.isEmpty()) {
+			return;
+		}
+		Map<String, PageDesignVersion> versions = new HashMap<>();
+		for (PageDesignVersion version : pageDesignVersionMapper.selectBatchIds(versionIds)) {
+			versions.put(version.getId(), version);
+		}
+		for (PageDesign page : effectivePages) {
+			PageDesignVersion version = versions.get(page.getPublishedVersionId());
+			if (version != null) {
+				page.setPageContent(version.getPageContent());
+				page.setSchemaVersion(version.getSchemaVersion());
+			} else {
+				// 版本快照缺失属数据异常（C 端同样无法渲染）：置空让前端降级为文字卡，避免误显示草稿
+				page.setPageContent(null);
+			}
+		}
+	}
+
+	private void markCEndEffective(List<PageDesign> records) {
+		if (records == null || records.isEmpty()) {
+			return;
+		}
+		Set<String> pageTypes = new HashSet<>();
+		for (PageDesign record : records) {
+			if (PageDesignComponentTypes.EFFECTIVE_SLOT_PAGE_TYPES.contains(record.getPageType())) {
+				pageTypes.add(record.getPageType());
+			}
+		}
+		Map<String, Boolean> effectiveIds = new HashMap<>();
+		for (String pageType : pageTypes) {
+			PageDesign effectivePage = pageDesignPreviewService.findEffectivePage(pageType);
+			if (effectivePage != null) {
+				effectiveIds.put(effectivePage.getId(), Boolean.TRUE);
+			}
+		}
+		for (PageDesign record : records) {
+			record.setEffective(Boolean.TRUE.equals(effectiveIds.get(record.getId())));
 		}
 	}
 

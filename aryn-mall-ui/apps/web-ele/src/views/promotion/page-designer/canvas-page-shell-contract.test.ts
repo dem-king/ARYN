@@ -7,13 +7,15 @@ import { describe, expect, it } from 'vitest';
 /**
  * 装修编辑器画布「能编辑、看得见真实落点」的契约。
  *
- * 两个曾经踩过的坑，这里都用静态断言钉死：
+ * 三个曾经踩过的坑，这里都用静态断言钉死：
  *
- * 1. **组件操作按钮被区块圆角裁掉**。区块 `radius > 0` 时会内联
- *    `overflow: hidden`（为了裁掉轮播图这类子组件的直角背景，见
- *    `section-style.ts` 与 C 端同构实现），而操作按钮原先定位在组件盒子
- *    右外侧 44px（`right: -44px`），溢出的部分被整块剪掉——运营选中组件
- *    后看不到删除/复制按钮，只能绕去「页面大纲」。
+ * 1. **组件操作按钮不可见 / 压住组件内容**。操作条经历过两个坏位置：
+ *    挂组件盒右侧外 44px 时，区块 `radius > 0` 会内联 `overflow: hidden`
+ *    （为了裁掉轮播图这类子组件的直角背景，见 `section-style.ts` 与 C 端
+ *    同构实现），溢出的按钮被整块剪掉——运营看不到删除/复制按钮；改挂盒子
+ *    内部右上角后不被裁了，但船舶工作台这类 44px 细条组件几乎被按钮盖掉
+ *    半条内容。现在区块拆成「外层定位（不裁切）+ 内层 body（背景/圆角/裁切）」，
+ *    操作条挂外层、由脚本量出位置悬浮在选中组件盒子**正上方**，两个问题都不存在。
  *
  * 2. **内嵌页型画布只画区块、不画原生页面**。分类页(3)/商详页(2)/个人中心页(4)
  *    的装修块在 C 端都只是页面中的一段内容（`DiyPage` 传 `embedded`：不渲染
@@ -48,16 +50,24 @@ function scriptBlock(source: string) {
 }
 
 describe('page designer canvas contract', () => {
-  it('keeps component actions inside the component box', () => {
+  it('keeps component actions clear of clipping and of the component content', () => {
     const sectionList = readAdmin('canvas-section-list.vue');
     const styles = styleBlock(sectionList);
 
-    // 操作条必须挂在组件盒子**内部**：内联 overflow:hidden 的区块（圆角裁切）
-    // 会把任何负偏移溢出的按钮剪掉。
+    // 操作条必须始终可见：圆角区块内联 overflow:hidden（裁子组件直角背景），
+    // 任何挂进裁切层的负偏移按钮都会被剪掉。
     expect(sectionList).toContain('复制组件');
     expect(sectionList).toContain('删除组件');
     expect(styles).not.toMatch(/right:\s*-\d+px/);
     expect(styles).not.toMatch(/right:\s*-\d+%/);
+
+    // 裁切必须收在内层 body（背景/圆角/overflow:hidden 都在它身上），
+    // 操作条挂未裁切的外层区块，才既不被剪也不压组件内容。
+    expect(sectionList).toContain('canvas-section__body');
+
+    // 操作条定位在选中组件盒子**正上方**（不盖住内容），位置按实时布局量出，
+    // 而不是写死偏移（组件高度随兄弟组件与异步预览数据变化）。
+    expect(sectionList).toMatch(/itemRect\.top\s*-\s*sectionRect\.top/);
 
     // 组件宽度跟随区块内容盒（width:100%），不能钉死 375px：
     // 区块带 margin/padding 时会溢出并被圆角裁切，画布比实机宽。

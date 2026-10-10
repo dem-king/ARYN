@@ -2,7 +2,7 @@
 -- 生成方式: node db/boot/build-full-sql.mjs
 -- 适用环境: MySQL 8.0.13+
 -- 警告: 本文件面向空库初始化，包含 DROP TABLE IF EXISTS，请勿用于存量生产库。
--- 生成日期: 2026-10-03
+-- 生成日期: 2026-10-10
 
 -- ============================================================================
 -- 创建数据库
@@ -20188,5 +20188,801 @@ SELECT
   (SELECT COUNT(*) FROM information_schema.COLUMNS
      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'order_info'
        AND COLUMN_NAME IN ('actual_pay_price', 'pay_vouchers')) AS added_columns;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 货到付款收款提醒配置
+-- Source: db/boot/110cod_pay_remind_config_incremental.sql
+-- ============================================================================
+-- ============================================================================
+-- 货到付款收款提醒配置增量
+-- 背景：货到付款（COD）订单允许未收款先确认收货，收货后长期未确认收款需要预警，
+--       向买家与租户管理员发站内信催收。
+-- 内容：order_config 补一列：
+--       cod_pay_remind_hours  收款提醒时间点（收货后小时数，逗号分隔升序，如 72,168；
+--                             空串关闭提醒）。NOT NULL DEFAULT '72,168'，存量配置与
+--                             新建配置默认按收货后 72/168 小时两轮提醒。
+-- 特性：information_schema 守卫，可重复执行；不修改、不删除存量数据。
+-- 消费方：CodPayRemindJobHandler（XXL-JOB，注册见 111cod_pay_remind_job.sql），
+--         逐租户读取 order_config 后扫描 order_info（payment_type=3 且 pay_status=0
+--         且已完成）并发送站内信。
+-- 执行：mysql -u root -p aryn_boot < 110cod_pay_remind_config_incremental.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+
+SET NAMES utf8mb4;
+
+-- ============ order_config.cod_pay_remind_hours ============
+SET @add_cod_pay_remind_hours = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `order_config` ADD COLUMN `cod_pay_remind_hours` varchar(100) NOT NULL DEFAULT ''72,168'' COMMENT ''货到付款收款提醒时间点（收货后小时数，逗号分隔升序，如 72,168；空串关闭提醒）'' AFTER `order_auto_comment_days`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'order_config' AND COLUMN_NAME = 'cod_pay_remind_hours'
+);
+PREPARE stmt FROM @add_cod_pay_remind_hours; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ============ 自检：应返回 1 ============
+SELECT
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'order_config'
+       AND COLUMN_NAME = 'cod_pay_remind_hours') AS added_columns;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 货到付款收款预警定时任务注册
+-- Source: db/boot/111cod_pay_remind_job.sql
+-- ============================================================================
+-- ============================================================================
+-- 货到付款收款预警定时任务注册
+-- 内容：xxl_job_info 注册 codPayRemindJobHandler（FIX_RATE 3600 秒，每小时扫描一次）。
+--       提醒阈值本身在 order_config.cod_pay_remind_hours 按租户配置（见
+--       110cod_pay_remind_config_incremental.sql），空串关闭提醒。
+-- 特性：按 executor_handler 判重，可重复执行；trigger_status=1 起调。
+-- 执行：mysql -u root -p aryn_boot_job < 111cod_pay_remind_job.sql
+-- ============================================================================
+
+USE aryn_boot_job;
+
+INSERT INTO `xxl_job_info` (
+    `job_group`, `job_desc`, `add_time`, `update_time`, `author`, `alarm_email`,
+    `schedule_type`, `schedule_conf`, `misfire_strategy`, `executor_route_strategy`,
+    `executor_handler`, `executor_param`, `executor_block_strategy`, `executor_timeout`,
+    `executor_fail_retry_count`, `glue_type`, `glue_source`, `glue_remark`,
+    `glue_updatetime`, `child_jobid`, `trigger_status`, `trigger_last_time`, `trigger_next_time`
+)
+SELECT 1, '货到付款收款预警提醒', NOW(), NOW(), 'admin', '',
+       'FIX_RATE', '3600', 'DO_NOTHING', 'FIRST',
+       'codPayRemindJobHandler', '', 'SERIAL_EXECUTION', 0,
+       0, 'BEAN', '', 'GLUE代码初始化',
+       NOW(), '', 1, 0, 0
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM `xxl_job_info` WHERE `executor_handler` = 'codPayRemindJobHandler'
+);
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 靠港计划状态流转定时任务注册
+-- Source: db/boot/112vessel_call_status_job.sql
+-- ============================================================================
+-- ============================================================================
+-- 靠港计划状态流转定时任务注册
+-- 内容：xxl_job_info 注册 vesselCallStatusJobHandler（FIX_RATE 60 秒，每分钟扫描一次）。
+--       任务把 vessel_call.status 按时间推进：已到 ETA 且未过 ETD → 2靠泊中；
+--       已过 ETD → 3已完成（1/2 均可推 3）。此前状态只在新增时写入 1（计划中），
+--       过期靠港恒显示「计划中」，海员申报列表也会无限积压过期航次。
+-- 特性：按 executor_handler 判重，可重复执行；trigger_status=1 起调；
+--       已取消(4)的记录不触碰；与 seckillStatusJobHandler（94 号）同套推进逻辑。
+-- 执行：mysql -u root -p aryn_boot_job < 112vessel_call_status_job.sql
+-- ============================================================================
+
+USE aryn_boot_job;
+
+INSERT INTO `xxl_job_info` (
+    `job_group`, `job_desc`, `add_time`, `update_time`, `author`, `alarm_email`,
+    `schedule_type`, `schedule_conf`, `misfire_strategy`, `executor_route_strategy`,
+    `executor_handler`, `executor_param`, `executor_block_strategy`, `executor_timeout`,
+    `executor_fail_retry_count`, `glue_type`, `glue_source`, `glue_remark`,
+    `glue_updatetime`, `child_jobid`, `trigger_status`, `trigger_last_time`, `trigger_next_time`
+)
+SELECT 1, '靠港计划状态流转', NOW(), NOW(), 'admin', '',
+       'FIX_RATE', '60', 'DO_NOTHING', 'FIRST',
+       'vesselCallStatusJobHandler', '', 'SERIAL_EXECUTION', 0,
+       0, 'BEAN', '', 'GLUE代码初始化',
+       NOW(), '', 1, 0, 0
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM `xxl_job_info` WHERE `executor_handler` = 'vesselCallStatusJobHandler'
+);
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 靠港生效后购物车归属顺延回填
+-- Source: db/boot/113vessel_call_reattach_cart_backfill.sql
+-- ============================================================================
+-- ============================================================================
+-- 靠港生效后购物车归属顺延：存量「无靠港归属/挂已结束靠港」行一次性回填（Boot 单体模式）
+-- 目标库：aryn_boot
+-- 背景：购物车行在加购时刻快照船舶与靠港归属（shopping_cart.vessel_id / vessel_call_id，
+--       防串船分组键）。「有船无靠港」期间加购的行 vessel_call_id 落空；靠港结束
+--       （status 3已完成 / 4已取消 / ETD 过点）后新加购的行同样只带船不带靠港。
+--       代码侧已在海员申报（declareCall）与运营排产（saveCall）新靠港生效时自动把
+--       这类行顺延到新靠港（RemoteShoppingCartService.reattachRowsToVesselCall）；
+--       本脚本针对「靠港在代码上线前已生效、不会再触发申报」的存量行做一次性补迁，
+--       使用户无需删掉重加。
+-- 口径：同船（vessel_id 相同）且行归属为空，或挂在该船已结束（3）/已取消（4）/ETD
+--       已过/ETD 为空的靠港上的行 → 迁到该船当前可用靠港（1计划中/2靠泊中且 ETD
+--       未过，按 ETA 最近的一班，与 App 端 availableCalls 口径一致）。
+--       没有可用靠港的船舶不动（等下一次申报靠港时由代码自动迁移）。
+--       挂在「其他可用靠港」上的行不迁移（多靠港船各自的行保持原归属）。
+-- 特性：可重复执行（迁移后行不再满足 WHERE）；不执行 DROP/TRUNCATE。
+-- 执行：mysql -u root -p aryn_boot < 113vessel_call_reattach_cart_backfill.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+
+SET NAMES utf8mb4;
+
+-- ============ shopping_cart：无归属行与挂已结束靠港的行顺延到当前可用靠港 ============
+-- live 子查询：每艘船取「可用靠港中 ETA 最早」的一班（同 ETA 取 id 小者），
+-- 与 useShipContextLoad 回落 calls[0] 的前端口径一致。
+UPDATE `shopping_cart` sc
+JOIN (
+    SELECT vc1.`vessel_id`, vc1.`id` AS `live_call_id`
+    FROM `vessel_call` vc1
+    WHERE vc1.`del_flag` = '0'
+      AND vc1.`status` IN ('1', '2')
+      AND vc1.`etd` > NOW()
+      AND NOT EXISTS (
+          SELECT 1
+          FROM `vessel_call` vc2
+          WHERE vc2.`vessel_id` = vc1.`vessel_id`
+            AND vc2.`del_flag` = '0'
+            AND vc2.`status` IN ('1', '2')
+            AND vc2.`etd` > NOW()
+            AND (vc2.`eta` < vc1.`eta`
+                 OR (vc2.`eta` = vc1.`eta` AND vc2.`id` < vc1.`id`))
+      )
+) live ON live.`vessel_id` = sc.`vessel_id`
+SET sc.`vessel_call_id` = live.`live_call_id`,
+    sc.`update_time` = NOW()
+WHERE sc.`del_flag` = '0'
+  AND (sc.`vessel_call_id` IS NULL
+       OR sc.`vessel_call_id` = ''
+       OR sc.`vessel_call_id` IN (
+           SELECT `stale`.`id`
+           FROM (
+               SELECT vc3.`id`
+               FROM `vessel_call` vc3
+               WHERE vc3.`del_flag` = '0'
+                 AND (vc3.`status` IN ('3', '4')
+                      OR vc3.`etd` IS NULL
+                      OR vc3.`etd` <= NOW())
+           ) `stale`
+       ));
+
+-- 验证：不应再有「船舶有可用靠港、行却无归属/挂已结束靠港」的购物车行
+-- SELECT sc.`id`, sc.`vessel_id`, sc.`vessel_call_id`
+-- FROM `shopping_cart` sc
+-- JOIN `vessel_call` vc ON vc.`vessel_id` = sc.`vessel_id`
+--   AND vc.`del_flag` = '0' AND vc.`status` IN ('1', '2') AND vc.`etd` > NOW()
+-- WHERE sc.`del_flag` = '0'
+--   AND (sc.`vessel_call_id` IS NULL OR sc.`vessel_call_id` = ''
+--        OR NOT EXISTS (SELECT 1 FROM `vessel_call` lc
+--                       WHERE lc.`id` = sc.`vessel_call_id`
+--                         AND lc.`del_flag` = '0'
+--                         AND lc.`status` IN ('1', '2') AND lc.`etd` > NOW()));
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 拼团订单关联
+-- Source: db/boot/114group_buy_order_link.sql
+-- ============================================================================
+-- ============================================================================
+-- 拼团订单关联增量（Boot 单体模式）
+-- 背景：拼团下单链路打通——C 端开团/参团后携拼团记录（recordId）进入结算页下单，
+--       下单时服务端按拼团价成交，订单支付成功后按团内已付款人数判定成团。
+--       order_info 需要持有拼团记录 ID，用于：
+--         1) 下单成功后把订单号回填到拼团成员（支付回调按订单号推进成团）；
+--         2) 订单取消/超时取消时释放拼团成员占坑（允许重新下单）。
+-- 内容：order_info 新增 group_buy_record_id 列（订单关联的拼团记录 ID，普通下单为 NULL）。
+-- 幂等：information_schema 判重后 ALTER，可重复执行；不修改/删除任何存量数据。
+-- 与 db/cloud/115group_buy_order_link.sql 内容保持一致，仅库名不同。
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+SET @add_group_buy_record_id = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `order_info` ADD COLUMN `group_buy_record_id` varchar(64) NULL COMMENT ''拼团记录ID（拼团单关联开团/参团记录，用于成团判定与取消释放；普通订单为NULL）'' AFTER `coupon_user_id`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'order_info' AND COLUMN_NAME = 'group_buy_record_id'
+);
+PREPARE stmt FROM @add_group_buy_record_id; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 自检：应返回 1 行且 COLUMN_NAME = group_buy_record_id
+SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'order_info' AND COLUMN_NAME = 'group_buy_record_id';
+
+-- ============================================================================
+-- 折扣与拼团定时任务注册
+-- Source: db/boot/115promotion_job_register.sql
+-- ============================================================================
+-- 折扣/拼团定时任务注册（Boot 单体模式）
+--
+-- 目标库：aryn_boot_job（xxl-job 调度库）
+-- 特性：可重复执行；不 DROP/TRUNCATE；按 executor_handler 判重，已注册则跳过。
+--
+-- 背景（2026-10-07 · 营销三件套上线核查）：
+--   后端已有两个 Handler 但从未在 xxl_job_info 注册，调度器不会触发：
+--     · discountStatusJobHandler（DiscountStatusJobHandler）：折扣活动状态按时间流转
+--       （0 未开始 → 1 进行中 → 2 已结束）。C 端折扣会场与下单取价均要求落库 status=1，
+--       不注册则活动到点不会自动上线（只能运营在管理端手动「启用」）。
+--     · groupBuyExpireJobHandler（GroupBuyExpireJobHandler）：拼团超时失败处理（回滚占坑
+--       库存、已付款成员发起退款）与拼团活动自动结束。不注册则开团/参团占用的商品库存
+--       永不回滚、成团失败已付款订单不退款。
+--   调度频率：折扣状态与秒杀状态一致（固定 10 秒）；拼团超时按分钟粒度（固定 60 秒）。
+--
+-- 幂等与安全：
+--   · 只 INSERT 缺失的调度记录，不触碰既有任务；
+--   · trigger_status=1 自动起调，执行器自动注册，与现有任务同配置。
+
+USE aryn_boot_job;
+
+INSERT INTO `xxl_job_info` (
+    `job_group`, `job_desc`, `add_time`, `update_time`, `author`, `alarm_email`,
+    `schedule_type`, `schedule_conf`, `misfire_strategy`, `executor_route_strategy`,
+    `executor_handler`, `executor_param`, `executor_block_strategy`, `executor_timeout`,
+    `executor_fail_retry_count`, `glue_type`, `glue_source`, `glue_remark`,
+    `glue_updatetime`, `child_jobid`, `trigger_status`, `trigger_last_time`, `trigger_next_time`
+)
+SELECT 1, '折扣活动状态流转', NOW(), NOW(), 'admin', '',
+       'FIX_RATE', '10', 'DO_NOTHING', 'FIRST',
+       'discountStatusJobHandler', '', 'SERIAL_EXECUTION', 0,
+       0, 'BEAN', '', 'GLUE代码初始化',
+       NOW(), '', 1, 0, 0
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM `xxl_job_info` WHERE `executor_handler` = 'discountStatusJobHandler'
+);
+
+INSERT INTO `xxl_job_info` (
+    `job_group`, `job_desc`, `add_time`, `update_time`, `author`, `alarm_email`,
+    `schedule_type`, `schedule_conf`, `misfire_strategy`, `executor_route_strategy`,
+    `executor_handler`, `executor_param`, `executor_block_strategy`, `executor_timeout`,
+    `executor_fail_retry_count`, `glue_type`, `glue_source`, `glue_remark`,
+    `glue_updatetime`, `child_jobid`, `trigger_status`, `trigger_last_time`, `trigger_next_time`
+)
+SELECT 1, '拼团超时失败与活动结束处理', NOW(), NOW(), 'admin', '',
+       'FIX_RATE', '60', 'DO_NOTHING', 'FIRST',
+       'groupBuyExpireJobHandler', '', 'SERIAL_EXECUTION', 0,
+       0, 'BEAN', '', 'GLUE代码初始化',
+       NOW(), '', 1, 0, 0
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM `xxl_job_info` WHERE `executor_handler` = 'groupBuyExpireJobHandler'
+);
+
+-- 自检：应返回 2 行
+SELECT `id`, `job_desc`, `executor_handler`, `schedule_type`, `schedule_conf`, `trigger_status`
+FROM `xxl_job_info`
+WHERE `executor_handler` IN ('discountStatusJobHandler', 'groupBuyExpireJobHandler');
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 共享购物车成员权限开关
+-- Source: db/boot/116shared_cart_member_permission.sql
+-- ============================================================================
+-- ============================================================================
+-- 共享购物车成员明细权限开关（Boot 单体模式）
+-- 背景：shared_cart_member.can_edit 此前只在前端生效（C 端据此隐藏加购入口），
+--       服务端不校验，运营也没有任何入口可以调整它。本次两头补齐：
+--       服务端 requireCanEdit 已使该标记具备真实约束力，本脚本补管理端按钮权限
+--       「成员权限设置 sharedcart:member:permission」，用于收回/恢复某成员的明细维护权。
+-- 内容：sys_menu 补 1 个按钮权限，并向已拥有同父菜单授权的角色与已开通同父菜单的租户推导补授。
+-- 幂等：固定 ID + INSERT IGNORE，可重复执行；仅新增行，不修改、不删除存量数据。
+-- 注意：菜单与权限在登录时快照，执行后管理端需重新登录才生效。
+-- 无需改表结构（can_edit 列早已存在于 shared_cart_member）。
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- 1) 共享购物车下补「成员权限设置」按钮权限
+--    ID 段 2110000000000000124 为空位（121 父菜单、122 列表、123 详情已占用）
+INSERT IGNORE INTO `sys_menu`
+	(`id`, `name`, `permission`, `path`, `redirect`, `parent_id`, `icon`, `component`, `sort`, `type`,
+	 `create_time`, `update_time`, `outer_status`, `del_flag`, `application_key`, `create_by`, `update_by`)
+VALUES
+	('2110000000000000124', '成员权限设置', 'sharedcart:member:permission', NULL, NULL,
+	 '2110000000000000121', '', NULL, 3, '1', NOW(), NOW(), '0', '0', 'app_base', 'system', 'system');
+
+-- 2) 向已拥有同父菜单任一按钮授权的角色补授新按钮（MD5(role_id:menu:menu_id) 保证幂等）
+INSERT IGNORE INTO `sys_role_menu` (`id`, `role_id`, `menu_id`, `create_time`, `tenant_id`)
+SELECT MD5(CONCAT(gr.`role_id`, ':menu:', m.`id`)), gr.`role_id`, m.`id`, NOW(), gr.`tenant_id`
+FROM `sys_menu` m
+JOIN `sys_menu` peer ON peer.`parent_id` = m.`parent_id` AND peer.`del_flag` = '0'
+JOIN `sys_role_menu` gr ON gr.`menu_id` = peer.`id`
+WHERE m.`id` = '2110000000000000124' AND m.`del_flag` = '0';
+
+-- 3) 向已开通同父菜单的租户补齐租户菜单记录
+INSERT IGNORE INTO `sys_tenant_menu` (`id`, `tenant_id`, `menu_id`, `create_time`, `create_by`)
+SELECT MD5(CONCAT(gt.`tenant_id`, ':menu:', m.`id`)), gt.`tenant_id`, m.`id`, NOW(), 'system'
+FROM `sys_menu` m
+JOIN `sys_menu` peer ON peer.`parent_id` = m.`parent_id` AND peer.`del_flag` = '0'
+JOIN `sys_tenant_menu` gt ON gt.`menu_id` = peer.`id`
+WHERE m.`id` = '2110000000000000124' AND m.`del_flag` = '0';
+
+-- 执行结果自检：应返回 1 行，permission 必须是 sharedcart:member:permission。
+-- 注意：ID 段 2110000000000000xxx 为多域共用的人工段，若此处 permission 不是本按钮，
+-- 说明 ID 被别的脚本占了（INSERT IGNORE 会静默跳过），需换号重跑。
+SELECT m.`id`, m.`name`, m.`permission`,
+       (SELECT COUNT(*) FROM `sys_role_menu` rm WHERE rm.`menu_id` = m.`id`) AS role_grants,
+       (SELECT COUNT(*) FROM `sys_tenant_menu` tm WHERE tm.`menu_id` = m.`id`) AS tenant_grants
+FROM `sys_menu` m
+WHERE m.`id` = '2110000000000000124';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 订单购买场景口径修复与存量回填
+-- Source: db/boot/117order_purchase_scene_backfill.sql
+-- ============================================================================
+-- ============================================================================
+-- 订单购买场景口径修复：存量空场景一次性回填（Boot 单体模式）
+-- 目标库：aryn_boot
+-- 背景：购买场景是订单固有属性（1 海员个人购买 / 2 船供采购），但历史实现只在
+--       公司港口/船舶内部配送（delivery_way=4）时才由 C 端携带该字段，走商城配送（3）
+--       与普通快递（1）的订单 purchase_scene 恒为空，导致管理端订单列表「购买场景」
+--       显示「—」、导出留空、按场景筛选也筛不出这些单。
+-- 口径：代码侧已修正为「下单未声明场景时归一为 1 个人购买」。本脚本回填存量空值：
+--         - order_info：delivery_way <> '4' 的空场景 → '1'；
+--           delivery_way = '4' 且场景为空的行不猜（内部配送既可能是船供采购、也可能是
+--           个人到船订单，船供采购必须显式声明），保留空值由管理端按个人购买展示与筛选；
+--         - order_item / delivery_task：场景跟随所属订单，订单为 1 的同步回填为 1，
+--           避免明细与订单、配送任务三处口径不一致。
+-- 特性：可重复执行（回填后不再满足 WHERE）；不执行 DROP/TRUNCATE；
+--       只写 purchase_scene 与 update_time，不触碰金额、状态等业务列。
+-- 执行：mysql -u root -p aryn_boot < 117order_purchase_scene_backfill.sql
+-- 与 db/cloud/118order_purchase_scene_backfill.sql 内容保持一致，仅库名不同。
+-- ============================================================================
+
+USE `aryn_boot`;
+
+SET NAMES utf8mb4;
+
+-- ============ order_info：非内部配送的存量空场景回填为个人购买 ============
+-- 仅回填 delivery_way <> '4'：内部配送订单的场景缺失属于「未声明」，语义上无法
+-- 从配送方式反推（船供采购与个人到船都走内部配送），须保持空值而不是猜成个人购买。
+UPDATE `order_info`
+SET `purchase_scene` = '1',
+    `update_time` = NOW()
+WHERE `del_flag` = '0'
+  AND `delivery_way` <> '4'
+  AND (`purchase_scene` IS NULL OR `purchase_scene` = '');
+
+-- ============ order_item：明细场景跟随所属订单 ============
+UPDATE `order_item` oi
+JOIN `order_info` o ON o.`id` = oi.`order_id`
+SET oi.`purchase_scene` = o.`purchase_scene`
+WHERE oi.`del_flag` = '0'
+  AND o.`del_flag` = '0'
+  AND (oi.`purchase_scene` IS NULL OR oi.`purchase_scene` = '')
+  AND o.`purchase_scene` IS NOT NULL;
+
+-- ============ delivery_task：配送任务场景跟随所属订单 ============
+UPDATE `delivery_task` t
+JOIN `order_info` o ON o.`id` = t.`order_id`
+SET t.`purchase_scene` = o.`purchase_scene`,
+    t.`update_time` = NOW()
+WHERE t.`del_flag` = '0'
+  AND o.`del_flag` = '0'
+  AND (t.`purchase_scene` IS NULL OR t.`purchase_scene` = '')
+  AND o.`purchase_scene` IS NOT NULL;
+
+-- 自检 1：非内部配送订单不应再有空场景（期望 0 行）
+SELECT COUNT(*) AS `non_internal_blank_scene`
+FROM `order_info`
+WHERE `del_flag` = '0'
+  AND `delivery_way` <> '4'
+  AND (`purchase_scene` IS NULL OR `purchase_scene` = '');
+
+-- 自检 2：内部配送订单中场景仍为空的行数（属预期存量，管理端按个人购买展示）
+SELECT COUNT(*) AS `internal_blank_scene`
+FROM `order_info`
+WHERE `del_flag` = '0'
+  AND `delivery_way` = '4'
+  AND (`purchase_scene` IS NULL OR `purchase_scene` = '');
+
+-- 自检 3：场景分布（1 个人购买 / 2 船供采购 / 空）
+SELECT IFNULL(NULLIF(`purchase_scene`, ''), 'NULL') AS `scene`, COUNT(*) AS `cnt`
+FROM `order_info`
+WHERE `del_flag` = '0'
+GROUP BY `scene`;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 管理端补录送达凭证按钮权限
+-- Source: db/boot/118delivery_backfill_arrive_menu.sql
+-- ============================================================================
+-- ============================================================================
+-- 管理端补录送达凭证：按钮权限种子
+-- 目标库：aryn_boot
+-- 背景：货到付款确认收款以「货物已送达」为前提（delivery_task 已送达/签收），
+--       而司机实际送达却漏点「送达」时订单会长期滞留待收货。
+--       为此新增管理端补录送达凭证接口 POST /delivery/task/{id}/backfill-arrive，
+--       本脚本登记对应按钮权限 delivery:task:backfill-arrive。
+-- 语义：仅登记权限点并授予试点租户超级管理员角色（id=1）；
+--       全部 INSERT IGNORE + 固定 id（2100000000000000018），可重复执行。
+-- 注意：菜单可见性 = 角色菜单 ∩ 租户菜单，授权后须重新登录才生效（权限登录快照）。
+-- 执行：mysql -u root -p aryn_boot < 118delivery_backfill_arrive_menu.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+-- 一、登记按钮权限（挂在「配送任务」页面节点下，type=1 为按钮）
+INSERT IGNORE INTO `sys_menu`
+(`id`,`name`,`permission`,`path`,`redirect`,`parent_id`,`icon`,`component`,`sort`,`type`,
+ `create_time`,`outer_status`,`del_flag`,`application_key`,`create_by`)
+VALUES
+('2100000000000000018','补录送达凭证','delivery:task:backfill-arrive',NULL,NULL,
+ '2100000000000000002','',NULL,9,'1',NOW(),'0','0','app_base','system');
+
+-- 二、授予试点租户超级管理员角色
+INSERT IGNORE INTO `sys_role_menu` (`id`,`role_id`,`menu_id`,`create_time`,`tenant_id`)
+SELECT MD5(CONCAT('1', ':menu:', m.`id`)), '1', m.`id`, NOW(), '1590229800633634816'
+FROM `sys_menu` m
+WHERE m.`permission` = 'delivery:task:backfill-arrive'
+  AND m.`del_flag` = '0';
+
+-- 三、试点租户菜单兜底（可见性需同时落在租户菜单上）
+INSERT IGNORE INTO `sys_tenant_menu` (`id`,`tenant_id`,`menu_id`,`create_time`,`create_by`)
+SELECT CONCAT('2118', RIGHT(m.`id`, 16)), '1590229800633634816', m.`id`, NOW(), 'system'
+FROM `sys_menu` m
+WHERE m.`permission` = 'delivery:task:backfill-arrive'
+  AND m.`del_flag` = '0';
+
+-- 四、自检：应返回 1 行
+SELECT m.`id`, m.`name`, m.`permission`, rm.`role_id`
+FROM `sys_menu` m
+LEFT JOIN `sys_role_menu` rm ON rm.`menu_id` = m.`id`
+WHERE m.`permission` = 'delivery:task:backfill-arrive';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 出车单归并：一个司机一辆车只留一张在途单
+-- Source: db/boot/119delivery_trip_merge_incremental.sql
+-- ============================================================================
+-- ============================================================================
+-- 出车单归并：一个司机一辆车只留一张在途单（Boot 单体模式）
+-- 目标库：aryn_boot
+-- 背景：出车单原先由「派单动作」创建——每派一批新建一张。同一司机的订单分几次派，
+--       就产生多张在途出车单，各自独立配货、独立出发；司机端排序只能排「单内」，
+--       跨单的两个订单无法排序（工作台也只显示被点开的那一张）。
+--       代码侧已改为「一个司机一辆车 = 一张在途单」：派单并入该司机当前这趟车
+--       （含已出发的配送中趟次），车开出后仍可继续加单。
+-- 口径：把同一租户 + 同一配送员的多张在途出车单（1待配货/2配货中/3配送中）
+--       归并到**创建时间最早**的那一张：
+--         · 其余趟次的订单改属最早那张（按「已出发趟次优先、再按原 sort_no」重排 sort_no）；
+--         · 被拉空的趟次置为 4已完成 并补 complete_time，避免残留空卡片；
+--         · 目标趟次的 task_count 按实际任务数重算。
+--       归并后订单的配送状态、取货确认状态一律不变 —— 只改「挂在哪张单上」。
+-- 安全边界（重要）：
+--       · 只按 (tenant_id, staff_id) 分组，绝不跨司机/跨租户合并；
+--       · 只处理状态 1/2/3，已完成/已取消的趟次不参与；
+--       · 归并后同一订单仍只属于一张单（uk_delivery_task_order 保证一单一任务，
+--         本脚本只 UPDATE trip_id，不新增任务行）。
+-- 特性：可重复执行（归并后每个司机只剩一张在途单，不再满足 HAVING 多张的条件）；
+--       不执行 DROP/TRUNCATE；不改任务状态、金额、收货信息。
+-- 执行：mysql -u root -p aryn_boot < 119delivery_trip_merge_incremental.sql
+-- 与 db/cloud/120delivery_trip_merge_incremental.sql 内容保持一致，仅库名不同。
+-- ============================================================================
+
+USE `aryn_boot`;
+
+SET NAMES utf8mb4;
+
+-- ============ 执行前预览：将被归并的司机与趟次（供人工核对） ============
+-- 预期：下面列出的每个 staff_id 都有 2 张及以上在途单；keep_trip_id 是保留的目标单。
+SELECT t.`staff_id`,
+       t.`tenant_id`,
+       COUNT(*)                        AS active_trip_count,
+       MIN(t.`create_time`)            AS keep_create_time,
+       GROUP_CONCAT(t.`trip_no` ORDER BY t.`create_time`) AS trip_nos
+FROM `delivery_trip` t
+WHERE t.`del_flag` = '0'
+  AND t.`status` IN ('1', '2', '3')
+GROUP BY t.`staff_id`, t.`tenant_id`
+HAVING COUNT(*) > 1;
+
+-- ============ 1. 确定每个司机的「保留趟次」：创建时间最早的一张 ============
+-- 用临时表固定下来，后续步骤都引用它，保证同一脚本内多次执行结果稳定。
+DROP TEMPORARY TABLE IF EXISTS `tmp_delivery_trip_keep`;
+CREATE TEMPORARY TABLE `tmp_delivery_trip_keep` AS
+SELECT t.`staff_id`,
+       t.`tenant_id`,
+       SUBSTRING_INDEX(MIN(CONCAT(DATE_FORMAT(t.`create_time`, '%Y%m%d%H%i%s'), '|', t.`id`)), '|', -1)
+           AS `keep_trip_id`
+FROM `delivery_trip` t
+WHERE t.`del_flag` = '0'
+  AND t.`status` IN ('1', '2', '3')
+GROUP BY t.`staff_id`, t.`tenant_id`;
+
+-- ============ 2. 把其余趟次的订单改属保留趟次并重排顺序 ============
+-- 排序规则：先「已出发（3）」的订单 —— 它们的货已经在车上，理应排在前面；
+--           再按原趟次创建时间、原 sort_no，尽量保持司机已排好的相对顺序。
+DROP TEMPORARY TABLE IF EXISTS `tmp_delivery_task_merge`;
+CREATE TEMPORARY TABLE `tmp_delivery_task_merge` AS
+SELECT task.`id` AS `task_id`,
+       keep.`keep_trip_id`,
+       ROW_NUMBER() OVER (
+           PARTITION BY keep.`keep_trip_id`
+           ORDER BY (trip.`status` = '3') DESC, trip.`create_time`, task.`sort_no`, task.`id`
+       ) AS `new_sort_no`
+FROM `delivery_task` task
+JOIN `delivery_trip` trip ON trip.`id` = task.`trip_id` AND trip.`del_flag` = '0'
+JOIN `tmp_delivery_trip_keep` keep
+     ON keep.`staff_id` = trip.`staff_id` AND keep.`tenant_id` = trip.`tenant_id`
+WHERE task.`del_flag` = '0'
+  AND trip.`status` IN ('1', '2', '3');
+-- 注意：这里把「保留趟次自己的任务」也纳入重排，保证合并后 sort_no 连续无空洞。
+
+UPDATE `delivery_task` task
+JOIN `tmp_delivery_task_merge` merged ON merged.`task_id` = task.`id`
+SET task.`trip_id`    = merged.`keep_trip_id`,
+    task.`sort_no`    = merged.`new_sort_no`,
+    task.`update_time` = NOW()
+WHERE task.`del_flag` = '0'
+  AND (task.`trip_id` <> merged.`keep_trip_id` OR task.`sort_no` <> merged.`new_sort_no`);
+
+-- ============ 3. 被拉空的趟次置为已完成，避免残留空卡片 ============
+UPDATE `delivery_trip` trip
+JOIN `tmp_delivery_trip_keep` keep
+     ON keep.`staff_id` = trip.`staff_id` AND keep.`tenant_id` = trip.`tenant_id`
+SET trip.`status`        = '4',
+    trip.`complete_time` = COALESCE(trip.`complete_time`, NOW()),
+    trip.`task_count`    = 0,
+    trip.`update_time`   = NOW()
+WHERE trip.`del_flag` = '0'
+  AND trip.`status` IN ('1', '2', '3')
+  AND trip.`id` <> keep.`keep_trip_id`;
+
+-- ============ 4. 保留趟次回写实际任务数 ============
+UPDATE `delivery_trip` trip
+JOIN `tmp_delivery_trip_keep` keep ON keep.`keep_trip_id` = trip.`id`
+SET trip.`task_count` = (
+        SELECT COUNT(*) FROM `delivery_task` task
+        WHERE task.`del_flag` = '0' AND task.`trip_id` = trip.`id`
+    ),
+    trip.`update_time` = NOW()
+WHERE trip.`del_flag` = '0';
+
+DROP TEMPORARY TABLE IF EXISTS `tmp_delivery_task_merge`;
+DROP TEMPORARY TABLE IF EXISTS `tmp_delivery_trip_keep`;
+
+-- ============ 验证：不应再有「同一司机多张在途单」 ============
+-- SELECT staff_id, tenant_id, COUNT(*) AS active_trip_count
+-- FROM delivery_trip
+-- WHERE del_flag='0' AND status IN ('1','2','3')
+-- GROUP BY staff_id, tenant_id HAVING COUNT(*) > 1;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 司机自助拉单开关
+-- Source: db/boot/120driver_self_pull_unassigned_incremental.sql
+-- ============================================================================
+-- ============================================================================
+-- 司机自助拉单开关增量
+-- 背景：司机配货页的「加单」允许自己把未派送订单拉上本趟车。该能力会让司机
+--       越过管理端派单（先到先得），不同租户的调度纪律不一致，需按租户可控。
+-- 内容：order_config 补一列：
+--       driver_self_pull_unassigned  1=允许（默认，含存量配置）0=仅可拉管理端
+--                                    已派给自己的任务，未派送单必须由管理端派单。
+-- 特性：information_schema 守卫，可重复执行；不修改、不删除存量数据。
+-- 消费方：DeliveryTaskServiceImpl#isDriverSelfPullUnassignedAllowed（拉单候选查询
+--         与 pullOrdersIntoTrip 写入前逐单校验都会读它），配送员端出车单详情
+--         下发 selfPullUnassignedAllowed 供界面隐藏入口。
+-- 执行：mysql -u root -p aryn_boot < 120driver_self_pull_unassigned_incremental.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+
+SET NAMES utf8mb4;
+
+-- ============ order_config.driver_self_pull_unassigned ============
+SET @add_driver_self_pull = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `order_config` ADD COLUMN `driver_self_pull_unassigned` char(1) NOT NULL DEFAULT ''1'' COMMENT ''司机可否自助拉未派送订单：1允许 0仅可拉管理端已派给自己的任务'' AFTER `cod_pay_remind_hours`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'order_config' AND COLUMN_NAME = 'driver_self_pull_unassigned'
+);
+PREPARE stmt FROM @add_driver_self_pull; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ============ 自检：应返回 1 ============
+SELECT
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'order_config'
+       AND COLUMN_NAME = 'driver_self_pull_unassigned') AS added_columns;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 共享购物车接龙粘贴导入（归属人姓名快照）
+-- Source: db/boot/121chain_import_attributed_name_incremental.sql
+-- ============================================================================
+-- ============================================================================
+-- 共享购物车接龙粘贴导入增量（Boot 单体模式）
+--
+-- 目标库：aryn_boot（单体模式所有表同库）
+-- 租户白名单：本脚本仅对已有表 shared_cart_import_row / shared_cart_item 增加列
+--             并调整唯一键，不新增表，无需改动白名单。
+-- 特性：幂等执行，不删除或重建数据；不修改既有列类型，不覆盖业务数据。
+--
+-- 背景：船员报货接龙发在微信群，工作人员在小程序创建共享购物车代为下单。
+--       接龙里的很多人从未登录过小程序、甚至不是系统用户——「归属」只能是
+--       姓名标签而不是用户账号。粘贴整段接龙 → 解析成「人 × 商品 × 数量」→
+--       人工核对 → 并入共享购物车 → 按人拆行提交整船订单（标签贴到人）。
+--
+-- 本次改造：
+--   1. shared_cart_import_row 增加来源与接龙人名：
+--        source_type   EXCEL=补给清单文件导入（存量行默认值）/ CHAIN=接龙文本粘贴
+--        person_name   接龙人名原文（CHAIN 来源），纯职务称呼按原文保留
+--   2. shared_cart_item 增加归属人姓名快照 attributed_name（NOT NULL DEFAULT ''，
+--      空串 = 行归属就是 user_id 本人，与既有行为完全一致）：
+--      接龙代报的明细挂在操作者名下，接龙人名落在这里——配送贴标签、按人
+--      分装认的是这个名字。
+--   3. 唯一键 uk_shared_cart_item 扩一列 (tenant,cart,user,sku,attributed_name)：
+--      两个人在同一车里订同一种商品时靠归属姓名区分，否则同 SKU 撞键。
+--      存量行 attributed_name=''，扩列后键值与原来逐行等价。
+--
+-- 消费方：SharedCartServiceImpl#previewChainImport / confirmImport（按人并入）、
+--         splitByMember（contributorName 优先取归属姓名）。
+-- 执行：mysql -u root -p aryn_boot < 121chain_import_attributed_name_incremental.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ============ 1. shared_cart_import_row.source_type / person_name ============
+SET @add_row_source_type = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `shared_cart_import_row` ADD COLUMN `source_type` varchar(16) NOT NULL DEFAULT ''EXCEL'' COMMENT ''来源：EXCEL补给清单文件 / CHAIN接龙文本粘贴'' AFTER `row_no`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shared_cart_import_row' AND COLUMN_NAME = 'source_type'
+);
+PREPARE stmt FROM @add_row_source_type; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @add_row_person_name = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `shared_cart_import_row` ADD COLUMN `person_name` varchar(64) DEFAULT NULL COMMENT ''接龙人名原文（CHAIN 来源；纯职务称呼按原文保留）'' AFTER `source_type`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shared_cart_import_row' AND COLUMN_NAME = 'person_name'
+);
+PREPARE stmt FROM @add_row_person_name; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ============ 2. shared_cart_item.attributed_name ============
+SET @add_item_attributed_name = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `shared_cart_item` ADD COLUMN `attributed_name` varchar(64) NOT NULL DEFAULT '''' COMMENT ''归属人姓名快照（接龙代报；空串=归属即 user_id 本人）'' AFTER `user_id`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shared_cart_item' AND COLUMN_NAME = 'attributed_name'
+);
+PREPARE stmt FROM @add_item_attributed_name; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ============ 3. 唯一键扩列 (tenant,cart,user,sku) → (tenant,cart,user,sku,attributed_name) ============
+-- 三态守卫：新键已存在 → 跳过；旧键存在 → 原子替换；键不存在 → 直接建。
+SET @uk_has_name_col = (
+  SELECT COUNT(*)
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shared_cart_item'
+    AND INDEX_NAME = 'uk_shared_cart_item' AND COLUMN_NAME = 'attributed_name'
+);
+SET @uk_exists = (
+  SELECT COUNT(DISTINCT INDEX_NAME)
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shared_cart_item'
+    AND INDEX_NAME = 'uk_shared_cart_item'
+);
+SET @rebuild_uk_shared_cart_item = (
+  SELECT IF(@uk_exists = 0,
+    'ALTER TABLE `shared_cart_item` ADD UNIQUE KEY `uk_shared_cart_item` (`tenant_id`,`cart_id`,`user_id`,`sku_id`,`attributed_name`)',
+    IF(@uk_has_name_col = 0,
+      'ALTER TABLE `shared_cart_item` DROP INDEX `uk_shared_cart_item`, ADD UNIQUE KEY `uk_shared_cart_item` (`tenant_id`,`cart_id`,`user_id`,`sku_id`,`attributed_name`)',
+      'SELECT 1'))
+);
+PREPARE stmt FROM @rebuild_uk_shared_cart_item; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 自检：两个新列应存在；唯一键应包含 5 列（attributed_name 出现即新键）
+SELECT `TABLE_NAME`, `COLUMN_NAME`, `COLUMN_TYPE`
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE()
+  AND (   (`TABLE_NAME` = 'shared_cart_import_row' AND `COLUMN_NAME` IN ('source_type', 'person_name'))
+       OR (`TABLE_NAME` = 'shared_cart_item'        AND `COLUMN_NAME` = 'attributed_name'))
+ORDER BY `TABLE_NAME`, `COLUMN_NAME`;
+
+SELECT `INDEX_NAME`, `SEQ_IN_INDEX`, `COLUMN_NAME`
+FROM information_schema.STATISTICS
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shared_cart_item'
+  AND INDEX_NAME = 'uk_shared_cart_item'
+ORDER BY `SEQ_IN_INDEX`;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 平台管理员配送与船供菜单授权修复
+-- Source: db/boot/122platform_admin_menu_grant_fix.sql
+-- ============================================================================
+-- 悦航购平台管理员配送/船供菜单授权修复（Boot 单体模式）
+-- 目标库：aryn_boot
+-- 背景：system 用户（平台租户「系统租户」1881232176465358849 的「系统管理员」角色
+--       ROLE_ADMIN，role_id=1881232177484574722）登录管理端看不到
+--       「配送管理」(菜单前缀 2100000000000000%) 与「船供运营」(菜单前缀 2110000000000000%)。
+--       平台租户登录时跳过租户菜单白名单交集（SysMenuServiceImpl.getLoginUserMenuTree），
+--       菜单可见性完全由角色授权决定；但 sys_role_menu 在租户拦截表白名单内，
+--       查询按当前租户过滤，历史手工补授权存在两类缺口：
+--       1) ROLE_ADMIN 从未授予两个模块的目录与页面菜单（仅零星按钮，目录缺失整树不可见）；
+--       2) 部分 2110 段授权行 tenant_id 误写为试点租户(1590229800633634816)，
+--          对 system 恒不可见（连带模板市场、商城主题等一并失效）。
+-- 语义：
+--       一、修正 ROLE_ADMIN 授权行的租户归属：该角色属于系统租户，
+--           其全部授权行 tenant_id 必须为 1881232176465358849；
+--       二、幂等补全 2100/2110 段全部未删除菜单（目录/页面/按钮）授权，
+--           新行 tenant_id 固定为系统租户，id 采用 MD5(角色:menu:菜单ID) 防撞风格。
+--       全部可重复执行，不删除、不修改任何菜单数据（sys_menu 不动）。
+-- 注意：sys_role_menu 查询按租户过滤，新增行 tenant_id 写成其他租户等于没授权；
+--       执行后须清 Redis menu_cache 并重新登录管理端才生效（权限登录快照）。
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+-- 一、修正 ROLE_ADMIN 历史错行租户归属（该角色只属于系统租户）
+UPDATE `sys_role_menu`
+SET `tenant_id` = '1881232176465358849'
+WHERE `role_id` = '1881232177484574722'
+  AND `tenant_id` <> '1881232176465358849';
+
+-- 二、补全配送管理(2100段)与船供运营(2110段)全量菜单授权
+--     目录与页面决定菜单树可见性，按钮决定操作权限；del_flag='1' 的隐藏菜单不授。
+INSERT IGNORE INTO `sys_role_menu` (`id`, `role_id`, `menu_id`, `create_time`, `tenant_id`)
+SELECT MD5(CONCAT('1881232177484574722', ':menu:', m.`id`)), '1881232177484574722', m.`id`, NOW(), '1881232176465358849'
+FROM `sys_menu` m
+WHERE (m.`id` LIKE '2100000000000000%' OR m.`id` LIKE '2110000000000000%')
+  AND m.`del_flag` = '0'
+  AND NOT EXISTS (
+    SELECT 1 FROM `sys_role_menu` rm
+    WHERE rm.`role_id` = '1881232177484574722' AND rm.`menu_id` = m.`id`
+  );
+
+-- 三、自检：ROLE_ADMIN 两个模块的授权行数与错租户行数（期望错行=0）
+SELECT 'role_menu_2100_2110_count' AS item, COUNT(*) AS cnt
+FROM `sys_role_menu`
+WHERE `role_id` = '1881232177484574722'
+  AND (`menu_id` LIKE '2100000000000000%' OR `menu_id` LIKE '2110000000000000%')
+UNION ALL
+SELECT 'role_menu_wrong_tenant_count', COUNT(*)
+FROM `sys_role_menu`
+WHERE `role_id` = '1881232177484574722'
+  AND `tenant_id` <> '1881232176465358849';
 
 SET FOREIGN_KEY_CHECKS = 1;

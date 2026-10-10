@@ -64,9 +64,10 @@ public class AppSignInController {
 
 	@Operation(summary = "我的签到记录")
 	@GetMapping("/records")
-	public Result<IPage<AppSignInRecordVO>> records(Page page) {
+	public Result<IPage<AppSignInRecordVO>> records(Page page, String beginDate, String endDate) {
 		String userId = SecurityUtils.getUser().getUserId();
-		return Result.success(signInRecordService.getUserPage(page, userId).convert(AppSignInRecordVO::from));
+		return Result.success(signInRecordService.getUserPage(page, userId, beginDate, endDate)
+				.convert(AppSignInRecordVO::from));
 	}
 
 }

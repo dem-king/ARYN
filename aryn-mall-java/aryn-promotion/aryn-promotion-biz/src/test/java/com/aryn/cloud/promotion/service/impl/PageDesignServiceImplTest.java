@@ -1,11 +1,16 @@
 package com.aryn.cloud.promotion.service.impl;
 
 import com.alibaba.fastjson2.JSON;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.promotion.api.entity.PageDesign;
+import com.aryn.cloud.promotion.api.entity.PageDesignVersion;
 import com.aryn.cloud.promotion.api.dto.PageDesignDraftDTO;
 import com.aryn.cloud.promotion.api.vo.PageDesignEditorVO;
 import com.aryn.cloud.promotion.mapper.PageDesignMapper;
+import com.aryn.cloud.promotion.mapper.PageDesignVersionMapper;
 import com.aryn.cloud.promotion.service.PageDesignAuditService;
+import com.aryn.cloud.promotion.service.PageDesignPreviewService;
 import com.aryn.cloud.common.core.constant.CacheConstants;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
@@ -35,6 +40,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -68,11 +74,18 @@ class PageDesignServiceImplTest {
 	@Mock
 	private PageDesignAuditService auditService;
 
+	@Mock
+	private PageDesignPreviewService pageDesignPreviewService;
+
+	@Mock
+	private PageDesignVersionMapper pageDesignVersionMapper;
+
 	private PageDesignServiceImpl service;
 
 	@BeforeEach
 	void setUp() {
-		service = new TestPageDesignService(redisTemplate, redissonClient, auditService, pageDesignMapper);
+		service = new TestPageDesignService(redisTemplate, redissonClient, auditService, pageDesignPreviewService,
+				pageDesignVersionMapper, pageDesignMapper);
 	}
 
 	private void mockAcquiredHomePageLock() throws InterruptedException {
@@ -245,6 +258,21 @@ class PageDesignServiceImplTest {
 	}
 
 	@Test
+	void setAsHomeRejectsFixedSlotPage() throws InterruptedException {
+		mockAcquiredHomePageLock();
+		PageDesign categoryPage = publishedMicroPage("category-1");
+		categoryPage.setPageType("3");
+		when(pageDesignMapper.selectById("category-1")).thenReturn(categoryPage);
+
+		ArynBusinessException error = assertThrows(ArynBusinessException.class, () -> service.setAsHome("category-1"));
+
+		assertEquals("仅微页面可以设为首页", error.getMsg());
+		verify(pageDesignMapper, never()).update(any(PageDesign.class), any());
+		verify(pageDesignMapper, never()).updateById(any(PageDesign.class));
+		verify(lock).unlock();
+	}
+
+	@Test
 	void setAsHomeKeepsExistingHomepageWithoutWriting() throws InterruptedException {
 		mockAcquiredHomePageLock();
 		PageDesign home = publishedMicroPage("home-1");
@@ -287,6 +315,79 @@ class PageDesignServiceImplTest {
 		assertThrows(ArynBusinessException.class, () -> service.setAsHome("micro-1"));
 
 		verify(lock, never()).unlock();
+	}
+
+	@Test
+	void pageMarksCEndEffectiveRowsUsingPreviewRule() {
+		PageDesign home = publishedMicroPage("home-1");
+		home.setPageType("1");
+		home.setHomeStatus("1");
+		PageDesign category = publishedMicroPage("cat-1");
+		category.setPageType("3");
+		Page<PageDesign> result = new Page<>(1, 10);
+		result.setRecords(java.util.List.of(home, category));
+		when(pageDesignMapper.selectPage(any(Page.class), any())).thenReturn(result);
+		PageDesign effectiveCategory = publishedMicroPage("cat-2");
+		effectiveCategory.setPageType("3");
+		when(pageDesignPreviewService.findEffectivePage("1")).thenReturn(home);
+		when(pageDesignPreviewService.findEffectivePage("3")).thenReturn(effectiveCategory);
+
+		Page<PageDesign> returned = service.page(new Page<>(1, 10), Wrappers.emptyWrapper());
+
+		assertSame(result, returned);
+		assertEquals(Boolean.TRUE, home.getEffective());
+		// 生效分类页不在当前分页内：本页的分类行不得误标为生效
+		assertEquals(Boolean.FALSE, category.getEffective());
+	}
+
+	/**
+	 * 微页面（pageType=0）不是 C 端可枚举的槽位，不存在「生效」语义：
+	 * 若一并参与判定，同类型里发布最新的微页面会被误标为「生效中」（列表里表现为
+	 * 名字像首页的微页面挂着「生效中」，与真正的「当前首页」并存）。
+	 */
+	@Test
+	void pageNeverMarksMicroPagesAsEffective() {
+		PageDesign micro = publishedMicroPage("micro-1");
+		Page<PageDesign> result = new Page<>(1, 10);
+		result.setRecords(java.util.List.of(micro));
+		when(pageDesignMapper.selectPage(any(Page.class), any())).thenReturn(result);
+
+		service.page(new Page<>(1, 10), Wrappers.emptyWrapper());
+
+		assertEquals(Boolean.FALSE, micro.getEffective());
+		// 微页面不参与判定：不该产生任何按类型的生效查询
+		verify(pageDesignPreviewService, never()).findEffectivePage("0");
+	}
+
+	@Test
+	void listEffectivePagesReturnsConfiguredSlotsInFixedOrder() {
+		PageDesign home = publishedMicroPage("home-1");
+		home.setPageType("1");
+		home.setPublishedVersionId("version-1");
+		home.setPageContent("{\"schemaVersion\":3,\"sections\":[]}");
+		PageDesign category = publishedMicroPage("cat-1");
+		category.setPageType("3");
+		category.setPublishedVersionId("version-2");
+		category.setPageContent("{\"draft\":true}");
+		when(pageDesignPreviewService.findEffectivePage("1")).thenReturn(home);
+		when(pageDesignPreviewService.findEffectivePage("3")).thenReturn(category);
+		when(pageDesignPreviewService.findEffectivePage("4")).thenReturn(null);
+		when(pageDesignPreviewService.findEffectivePage("2")).thenReturn(null);
+		PageDesignVersion homeVersion = new PageDesignVersion();
+		homeVersion.setId("version-1");
+		homeVersion.setPageContent("{\"published\":true}");
+		homeVersion.setSchemaVersion(3);
+		when(pageDesignVersionMapper.selectBatchIds(any())).thenReturn(java.util.List.of(homeVersion));
+
+		java.util.List<PageDesign> effectivePages = service.listEffectivePages();
+
+		assertEquals(2, effectivePages.size());
+		assertEquals("home-1", effectivePages.get(0).getId());
+		assertEquals("cat-1", effectivePages.get(1).getId());
+		assertTrue(effectivePages.stream().allMatch(page -> Boolean.TRUE.equals(page.getEffective())));
+		// 卡片渲染 C 端实际布局：内容必须是发布版快照，未找到快照的置空降级，不得回退展示草稿
+		assertEquals("{\"published\":true}", effectivePages.get(0).getPageContent());
+		assertNull(effectivePages.get(1).getPageContent());
 	}
 
 	private static PageDesign publishedMicroPage(String id) {
@@ -527,8 +628,9 @@ class PageDesignServiceImplTest {
 	private static final class TestPageDesignService extends PageDesignServiceImpl {
 
 		private TestPageDesignService(StringRedisTemplate redisTemplate, RedissonClient redissonClient,
-				PageDesignAuditService auditService, PageDesignMapper pageDesignMapper) {
-			super(redisTemplate, redissonClient, auditService);
+				PageDesignAuditService auditService, PageDesignPreviewService pageDesignPreviewService,
+				PageDesignVersionMapper pageDesignVersionMapper, PageDesignMapper pageDesignMapper) {
+			super(redisTemplate, redissonClient, auditService, pageDesignPreviewService, pageDesignVersionMapper);
 			this.baseMapper = pageDesignMapper;
 		}
 	}

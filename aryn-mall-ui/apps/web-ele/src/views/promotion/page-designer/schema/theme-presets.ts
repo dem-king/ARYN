@@ -1,4 +1,7 @@
-import type { PageDesignThemePayload } from '#/api/promotion/page-design';
+import type {
+  PageDesignTheme,
+  PageDesignThemePayload,
+} from '#/api/promotion/page-design';
 
 /**
  * 装修主题预设色板与颜色衍生工具。
@@ -94,5 +97,39 @@ export function buildThemePayloadFromPrimary(
     primaryColor,
     radius: 8,
     themeName,
+  };
+}
+
+/** 内置默认页面底色/导航配色：与 C 端 mallThemeStore.DEFAULT_MALL_THEME 同源 */
+export const DEFAULT_MALL_PAGE_BACKGROUND = '#FFF0F0';
+export const DEFAULT_MALL_NAVIGATION_COLOR = '#FFFFFF';
+export const DEFAULT_MALL_NAVIGATION_TEXT_COLOR = '#222222';
+
+/**
+ * 画布/预览消费的完整主题色集合：除主色/辅色外，还包括页面底色与导航配色，
+ * 画布据此把页面自存的品牌色覆盖成有效主题（与 C 端 diy 渲染器同口径），
+ * 保证「页面指定主题 > 商城默认主题 > 内置默认」三端一致。
+ */
+export interface CanvasThemeVars {
+  navigationColor: string;
+  navigationTextColor: string;
+  pageBackgroundColor: string;
+  primaryColor: string;
+  secondaryColor: string;
+}
+
+/** 画布/预览主题色统一构建：主题缺失或字段为空时逐项回落内置默认 */
+export function buildCanvasThemeVars(theme?: PageDesignTheme): CanvasThemeVars {
+  const primary = theme?.primaryColor || DEFAULT_PRIMARY_COLOR;
+  return {
+    primaryColor: primary,
+    secondaryColor: theme?.primaryColor
+      ? deriveSecondaryColor(theme.primaryColor)
+      : DEFAULT_SECONDARY_COLOR,
+    pageBackgroundColor:
+      theme?.pageBackgroundColor || DEFAULT_MALL_PAGE_BACKGROUND,
+    navigationColor: theme?.navigationColor || DEFAULT_MALL_NAVIGATION_COLOR,
+    navigationTextColor:
+      theme?.navigationTextColor || DEFAULT_MALL_NAVIGATION_TEXT_COLOR,
   };
 }

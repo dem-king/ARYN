@@ -1,19 +1,30 @@
 <script setup lang="ts">
-import type { DeliveryTask, DeliveryTaskStatus, DeliveryTrip, PickGroup, PickItem } from '@/api/delivery'
+import type { DeliveryCandidateOrder, DeliveryCandidateSource, DeliveryTask, DeliveryTaskStatus, DeliveryTrip } from '@/api/delivery'
+import type { PickRow, PickRowGroup } from '@/utils/delivery-pick'
 import { onLoad } from '@dcloudio/uni-app'
 import { computed, ref } from 'vue'
 import {
   arriveTask,
+  batchPickItems,
   departTrip,
+  getPullCandidates,
   getTaskStatusName,
   getTripDetail,
-  pickItem,
+  pullOrdersIntoTrip,
   sortTripTasks,
   startLoading,
-  unpickItem,
 } from '@/api/delivery'
 import { uploadDeliveryEvidence } from '@/api/upms/file'
 import { openDeliveryNavigation, resolveDeliveryDestination } from '@/utils/delivery-navigation'
+import {
+  applyRouteOrder,
+  buildPickRows,
+  groupPickRows,
+  isPickRowDone,
+  moveItem,
+  resolveTargetIndex,
+  sortRowOffset,
+} from '@/utils/delivery-pick'
 
 definePage({
   name: 'delivery-trip-detail',
@@ -51,51 +62,6 @@ const evidencePaths = ref<string[]>([])
 const evidenceIds = ref<string[]>([])
 const evidenceUploading = ref(false)
 
-/** 任务明细（itemList: image/skuName）映射为取货清单视图模型，按任务（一单一任务）归组 */
-function buildPickGroups(tasks: DeliveryTask[]): PickGroup[] {
-  return (tasks ?? []).map(task => ({
-    orderId: task.orderId,
-    orderNo: task.orderNo,
-    items: (task.itemList ?? []).map(item => ({
-      id: item.id,
-      orderId: task.orderId,
-      orderNo: task.orderNo,
-      spuName: item.spuName ?? '',
-      picUrl: item.image ?? '',
-      specsInfo: item.skuName ?? '',
-      quantity: item.quantity ?? 0,
-      picked: item.picked ?? '0',
-      categoryName: item.categoryName ?? '',
-    })),
-  }))
-}
-
-/** 订单内按分类分组的小节（分类≈供应商批次） */
-interface PickSection {
-  name: string
-  items: PickItem[]
-}
-
-/** 订单内按分类再分节，保持清单出现顺序；未回填分类的明细归「未分类」兜底组 */
-function buildPickSections(items: PickItem[]): PickSection[] {
-  const sections: PickSection[] = []
-  const sectionByName = new Map<string, PickSection>()
-  for (const item of items) {
-    const name = item.categoryName || '未分类'
-    let section = sectionByName.get(name)
-    if (!section) {
-      section = { name, items: [] }
-      sectionByName.set(name, section)
-      sections.push(section)
-    }
-    section.items.push(item)
-  }
-  return sections
-}
-
-/** 取货清单（来自详情响应的任务明细） */
-const pickGroups = computed<PickGroup[]>(() => buildPickGroups(trip.value?.taskList ?? []))
-
 /** 是否为配货视图（status=1待配货 或 2配货中） */
 const isPickView = computed(() => {
   const status = trip.value?.status
@@ -110,7 +76,18 @@ const isPickView = computed(() => {
  */
 const isDeliverView = computed(() => trip.value?.status === '3' || trip.value?.status === '4')
 
-/** 已取件数 */
+/**
+ * 配货汇总行：整趟车的明细按「分类 + 商品 + 规格」合并。
+ *
+ * 司机在仓库要的是「这趟车一共拿多少货」，而不是按订单分成 N 份清单
+ * （同一件货出现在 5 个订单里就要跑 5 遍货架）。
+ */
+const pickRows = computed<PickRow[]>(() => buildPickRows(trip.value?.taskList ?? []))
+
+/** 汇总行按分类分组（分类≈供应商批次，按批次走仓库） */
+const pickGroups = computed<PickRowGroup[]>(() => groupPickRows(pickRows.value))
+
+/** 已取件数：按明细统计（与后端 pickedItemCount 同口径） */
 const pickedCount = computed(() => trip.value?.pickedItemCount ?? 0)
 
 /** 总件数 */
@@ -128,12 +105,261 @@ const totalTaskCount = computed(() => trip.value?.taskCount ?? 0)
 /** 是否全部送达 */
 const isAllArrived = computed(() => arrivedCount.value >= totalTaskCount.value && totalTaskCount.value > 0)
 
-/** 送货视图按 sortNo 排序的任务列表 */
+/** 送货视图的任务列表：本地顺序优先（拖拽即时生效），否则按 sortNo */
+const routeOrderIds = ref<string[]>([])
+
+/**
+ * 配送中趟次里新并入、还没配货的任务（落点状态=配货中）。
+ *
+ * 车已开出后司机回车取货或顺路捎带加进来的单都停在这个状态，
+ * 必须配齐、再次出发才会被 depart 推到待送达（订单才转待收货）。
+ */
+const pendingPickTasks = computed(() => (trip.value?.taskList ?? [])
+  .filter(task => task.status === '3'))
+
+/** 新加货的配货汇总行（同一件货只列一行，与首次配货同一口径） */
+const pendingPickRows = computed<PickRow[]>(() => buildPickRows(pendingPickTasks.value))
+
+/** 新加货按分类分组 */
+const pendingPickGroups = computed<PickRowGroup[]>(() => groupPickRows(pendingPickRows.value))
+
+/** 新加货的明细总数 */
+const pendingItemCount = computed(() => pendingPickRows.value
+  .reduce((sum, row) => sum + row.itemIds.length, 0))
+
+/** 新加货已确认取货的明细数 */
+const pendingPickedCount = computed(() => pendingPickRows.value
+  .reduce((sum, row) => sum + row.pickedCount, 0))
+
+/** 新加货是否已全部确认取货 */
+const isPendingAllPicked = computed(() => pendingItemCount.value > 0
+  && pendingPickedCount.value >= pendingItemCount.value)
+
 const sortedTaskList = computed(() => {
-  if (!trip.value?.taskList)
-    return []
-  return [...trip.value.taskList].sort((a, b) => a.sortNo - b.sortNo)
+  const tasks = trip.value?.taskList ?? []
+  if (routeOrderIds.value.length > 0) {
+    return applyRouteOrder(tasks, routeOrderIds.value)
+  }
+  return [...tasks].sort((a, b) => (a.sortNo ?? 0) - (b.sortNo ?? 0))
 })
+
+// ===================== 拖拽排序 =====================
+
+/** 排序面板是否展开（默认收起：多数时候顺序由派单决定，司机不天天调） */
+const sortPanelVisible = ref(false)
+/** 排序面板里的行高（rpx 转 px 由样式固定，这里按 px 记） */
+const SORT_ROW_HEIGHT = 72
+
+/** 正在拖拽的下标；-1 表示未拖拽 */
+const dragFromIndex = ref(-1)
+/** 拖拽目标下标（跟随位移换算） */
+const dragToIndex = ref(-1)
+/** 拖拽行的实时位移（px） */
+const dragOffsetY = ref(0)
+/** 拖拽起点（touchstart 的 pageY） */
+let dragStartY = 0
+
+/** 排序面板的行数据 */
+const sortRows = computed(() => sortedTaskList.value)
+
+/** 某行在拖拽态下的变形位移 */
+function rowTransform(index: number): string {
+  if (dragFromIndex.value < 0) {
+    return ''
+  }
+  const offset = resolveTargetIndex(dragFromIndex.value, dragOffsetY.value, SORT_ROW_HEIGHT, sortRows.value.length)
+  const y = sortRowOffset(index, dragFromIndex.value, offset, SORT_ROW_HEIGHT, dragOffsetY.value)
+  return y === 0 ? '' : `transform: translateY(${y}px);`
+}
+
+/** 开始拖拽某一行 */
+function handleSortTouchStart(index: number, event: any) {
+  if (submitting.value) {
+    return
+  }
+  dragFromIndex.value = index
+  dragToIndex.value = index
+  dragOffsetY.value = 0
+  dragStartY = event?.touches?.[0]?.pageY ?? event?.changedTouches?.[0]?.pageY ?? 0
+}
+
+/** 拖拽中：跟手位移并实时换算落点 */
+function handleSortTouchMove(event: any) {
+  if (dragFromIndex.value < 0) {
+    return
+  }
+  const pageY = event?.touches?.[0]?.pageY ?? event?.changedTouches?.[0]?.pageY
+  if (typeof pageY !== 'number') {
+    return
+  }
+  dragOffsetY.value = pageY - dragStartY
+  dragToIndex.value = resolveTargetIndex(dragFromIndex.value, dragOffsetY.value, SORT_ROW_HEIGHT, sortRows.value.length)
+}
+
+/** 松手：落库并重排 */
+async function handleSortTouchEnd() {
+  const fromIndex = dragFromIndex.value
+  const toIndex = dragToIndex.value
+  dragFromIndex.value = -1
+  dragToIndex.value = -1
+  dragOffsetY.value = 0
+  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) {
+    return
+  }
+  await persistRouteOrder(moveItem(sortRows.value, fromIndex, toIndex).map(task => task.id))
+}
+
+/**
+ * 保存送货顺序：整趟任务的排列一次性提交。
+ *
+ * 后端要求提交的是本趟全部任务的一个排列（旧快照的部分列表会被拒绝，
+ * 否则未提交的会留在原序号上造成路线静默错乱）。
+ */
+async function persistRouteOrder(orderedIds: string[]) {
+  if (!trip.value || submitting.value) {
+    return
+  }
+  const previous = routeOrderIds.value
+  routeOrderIds.value = orderedIds
+  submitting.value = true
+  try {
+    await sortTripTasks(trip.value.id, orderedIds.map((id, index) => ({ taskId: id, sortNo: index + 1 }))).send()
+  }
+  catch (error: any) {
+    // 失败回滚本地顺序，避免界面与库里的路线不一致
+    routeOrderIds.value = previous
+    showToast(error?.message || error?.msg || '调整顺序失败')
+  }
+  finally {
+    submitting.value = false
+  }
+}
+
+/** 上移/下移兜底：拖拽在小程序上手感不稳时仍能精确调整 */
+async function handleMoveUp(index: number) {
+  if (index <= 0) {
+    return
+  }
+  await persistRouteOrder(moveItem(sortRows.value, index, index - 1).map(task => task.id))
+}
+
+async function handleMoveDown(index: number) {
+  if (index >= sortRows.value.length - 1) {
+    return
+  }
+  await persistRouteOrder(moveItem(sortRows.value, index, index + 1).map(task => task.id))
+}
+
+// ===================== 拉单（配货页加单入口） =====================
+
+/**
+ * 加单入口在数据上收敛为同一个动作：把已有订单的配送任务归属本趟车。
+ *
+ * - 我的任务：派给我但不在本趟的未完成任务（可能在别的趟次）
+ * - 未派送订单：本租户已付款待发货、走商城/内部配送的单；受租户开关控制
+ *
+ * 两者都用订单本身的数据（商品、收货人、地址），司机不手填字段。
+ */
+const pullPanelVisible = ref(false)
+/** 当前面板的来源 */
+const pullSource = ref<DeliveryCandidateSource>('MINE')
+/** 面板标题 */
+const pullPanelTitle = ref('选择订单')
+const pullCandidates = ref<DeliveryCandidateOrder[]>([])
+const pullKeyword = ref('')
+const pullLoading = ref(false)
+/** 已勾选的订单ID */
+const pullSelectedIds = ref<string[]>([])
+
+/**
+ * 本租户是否开放司机自助拉未派送订单。
+ *
+ * 后端按 order_config 下发；缺省（老接口/字段缺失）按允许处理，
+ * 与后端「未配置即放行」的口径保持一致，避免升级期间司机入口凭空消失。
+ */
+const canSelfPullUnassigned = computed(() => trip.value?.selfPullUnassignedAllowed !== false)
+
+/** 候选件数合计，帮司机确认拉了多少货 */
+const pullTotalQuantity = computed(() => pullCandidates.value
+  .filter(candidate => pullSelectedIds.value.includes(candidate.orderId))
+  .reduce((sum, candidate) => sum + (candidate.itemCount ?? 0), 0))
+
+/** 打开选单面板并拉取候选 */
+async function openPullPanel(source: DeliveryCandidateSource, title: string) {
+  if (!trip.value || submitting.value) {
+    return
+  }
+  pullSource.value = source
+  pullPanelTitle.value = title
+  pullKeyword.value = ''
+  pullSelectedIds.value = []
+  pullPanelVisible.value = true
+  await fetchPullCandidates()
+}
+
+/** 拉取候选订单（带关键字过滤交给后端，避免本地过滤与分页口径不一致） */
+async function fetchPullCandidates() {
+  if (!trip.value) {
+    return
+  }
+  pullLoading.value = true
+  try {
+    pullCandidates.value = await getPullCandidates(
+      trip.value.id,
+      pullSource.value,
+      pullKeyword.value.trim() || undefined,
+    ).send() as DeliveryCandidateOrder[]
+  }
+  catch (error: any) {
+    pullCandidates.value = []
+    showToast(error?.message || '获取订单失败')
+  }
+  finally {
+    pullLoading.value = false
+  }
+}
+
+/** 勾选/取消勾选一张订单 */
+function togglePullSelection(orderId: string) {
+  const index = pullSelectedIds.value.indexOf(orderId)
+  if (index >= 0) {
+    pullSelectedIds.value.splice(index, 1)
+  }
+  else {
+    pullSelectedIds.value.push(orderId)
+  }
+}
+
+/** 关闭面板并清空勾选，避免下一轮带着上次的选择 */
+function closePullPanel() {
+  pullPanelVisible.value = false
+  pullSelectedIds.value = []
+  pullCandidates.value = []
+  pullKeyword.value = ''
+}
+
+/** 确认拉入：成功后刷新详情，本趟立刻多出这些单 */
+async function confirmPullOrders() {
+  const orderIds = [...pullSelectedIds.value]
+  if (!trip.value || orderIds.length === 0 || submitting.value) {
+    return
+  }
+  submitting.value = true
+  globalLoading.loading('添加中...')
+  try {
+    const pulled = await pullOrdersIntoTrip(trip.value.id, orderIds).send() as number
+    showToast(`已加入 ${pulled} 单`)
+    closePullPanel()
+    await fetchTripDetail(trip.value.id)
+  }
+  catch (error: any) {
+    showToast(error?.message || '添加订单失败')
+  }
+  finally {
+    submitting.value = false
+    globalLoading.close()
+  }
+}
 
 onLoad((options) => {
   if (options?.id) {
@@ -148,6 +374,8 @@ async function fetchTripDetail(id: string) {
   try {
     const res = await getTripDetail(id).send()
     trip.value = res as DeliveryTrip
+    // 重新拉取后以服务端 sortNo 为准，清掉本地拖拽残留的顺序
+    routeOrderIds.value = []
   }
   catch (error) {
     console.error('获取出车单详情失败:', error)
@@ -178,20 +406,27 @@ async function handleStartLoading() {
   }
 }
 
-/** 装货完毕出发（status: 2 -> 3） */
+/** 装货完毕出发（status: 2 -> 3）；配送中的趟次用它把新加货带走 */
 async function handleDepart() {
   if (!trip.value || submitting.value)
     return
-  if (!isAllPicked.value) {
+  const isDelivering = trip.value.status === '3'
+  if (!isDelivering && !isAllPicked.value) {
     const remaining = totalCount.value - pickedCount.value
     showToast(`还有${remaining}件商品未确认取货`)
+    return
+  }
+  // 已出发的趟次：新拉上车的货必须先配齐，否则后端会拒
+  if (isDelivering && !isPendingAllPicked.value) {
+    const remaining = pendingItemCount.value - pendingPickedCount.value
+    showToast(`新加货还有${remaining}件未确认取货`)
     return
   }
   submitting.value = true
   globalLoading.loading('处理中...')
   try {
     await departTrip(trip.value.id).send()
-    showToast('已出发配送')
+    showToast(isDelivering ? '已再次出发，新加货已上路' : '已出发配送')
     await fetchTripDetail(trip.value.id)
   }
   catch (error: any) {
@@ -203,30 +438,24 @@ async function handleDepart() {
   }
 }
 
-/** 切换商品取货确认状态 */
-async function handleTogglePick(item: PickItem) {
+/**
+ * 切换汇总行的取货状态。
+ *
+ * 汇总行是「商品 + 规格」的合计，一次勾选要把这条货在整趟车里的所有明细
+ * 一起改掉 —— 司机拿货的动作就是一把抓走合计数量，不会按订单分次确认。
+ */
+async function handleToggleRow(row: PickRow) {
   if (!trip.value || submitting.value)
     return
-  // status=1时不允许操作，需先开始配货
   if (trip.value.status === '1') {
     showToast('请先开始配货')
     return
   }
+  const shouldPick = !isPickRowDone(row)
   submitting.value = true
   try {
-    if (item.picked === '1') {
-      await unpickItem(trip.value.id, item.id).send()
-      item.picked = '0'
-    }
-    else {
-      await pickItem(trip.value.id, item.id).send()
-      item.picked = '1'
-    }
-    // 更新已取件数
-    if (trip.value) {
-      trip.value.pickedItemCount = pickGroups.value
-        .reduce((sum, g) => sum + g.items.filter(i => i.picked === '1').length, 0)
-    }
+    await batchPickItems(trip.value.id, row.itemIds, shouldPick).send()
+    await fetchTripDetail(trip.value.id)
   }
   catch (error: any) {
     showToast(error?.message || error?.msg || '操作失败')
@@ -353,50 +582,6 @@ async function confirmArrive() {
     globalLoading.close()
   }
 }
-
-/** 上移任务 */
-async function handleMoveUp(task: DeliveryTask, index: number) {
-  if (index === 0 || submitting.value)
-    return
-  await handleSortTask(index, index - 1)
-}
-
-/** 下移任务 */
-async function handleMoveDown(task: DeliveryTask, index: number) {
-  if (index === sortedTaskList.value.length - 1 || submitting.value)
-    return
-  await handleSortTask(index, index + 1)
-}
-
-/** 调整任务顺序 */
-async function handleSortTask(fromIndex: number, toIndex: number) {
-  if (!trip.value || submitting.value)
-    return
-  const list = [...sortedTaskList.value]
-  const [moved] = list.splice(fromIndex, 1)
-  list.splice(toIndex, 0, moved)
-  const taskSort = list.map((t, idx) => ({ taskId: t.id, sortNo: idx + 1 }))
-  submitting.value = true
-  globalLoading.loading('调整顺序中...')
-  try {
-    await sortTripTasks(trip.value.id, taskSort).send()
-    // 更新本地排序
-    if (trip.value.taskList) {
-      trip.value.taskList.forEach((t) => {
-        const found = taskSort.find(s => s.taskId === t.id)
-        if (found)
-          t.sortNo = found.sortNo
-      })
-    }
-  }
-  catch (error: any) {
-    showToast(error?.message || error?.msg || '调整顺序失败')
-  }
-  finally {
-    submitting.value = false
-    globalLoading.close()
-  }
-}
 </script>
 
 <template>
@@ -408,7 +593,7 @@ async function handleSortTask(fromIndex: number, toIndex: number) {
       <view class="m-20rpx rounded-20rpx bg-white p-30rpx">
         <view class="mb-20rpx flex items-center justify-between">
           <text class="text-30rpx font-bold">
-            取货进度
+            配货进度
           </text>
           <text class="text-26rpx text-primary">
             {{ pickedCount }} / {{ totalCount }} 件
@@ -419,6 +604,10 @@ async function handleSortTask(fromIndex: number, toIndex: number) {
             class="progress-bar-inner"
             :style="{ width: `${totalCount > 0 ? (pickedCount / totalCount) * 100 : 0}%` }"
           />
+        </view>
+        <view class="mt-16rpx text-24rpx text-gray-500">
+          下面是把这趟车 {{ trip.taskCount }} 个订单合并后的配货单：同一件货只列一行，数量是合计。
+          按清单一次配齐再出发。
         </view>
       </view>
 
@@ -437,65 +626,91 @@ async function handleSortTask(fromIndex: number, toIndex: number) {
         </view>
       </view>
 
-      <!-- 取货清单（按订单分组） -->
+      <!-- 加单入口：还有哪些货要拉上这趟车 -->
+      <view class="mx-20rpx mb-20rpx rounded-20rpx bg-white p-30rpx">
+        <view class="mb-16rpx flex items-center justify-between">
+          <text class="text-28rpx font-bold">
+            加单
+          </text>
+          <text class="text-22rpx text-gray-400">
+            把这趟车还该送的货拉进来
+          </text>
+        </view>
+        <view class="grid grid-cols-2 gap-16rpx">
+          <view class="pull-entry" @click="openPullPanel('MINE', '我的待送订单')">
+            <text class="i-carbon:list-boxes text-44rpx text-primary" />
+            <text class="mt-8rpx text-24rpx">
+              我的任务
+            </text>
+          </view>
+          <!-- 未派送池受租户开关控制：关掉后司机不能自助拉，入口直接不显示 -->
+          <view
+            v-if="canSelfPullUnassigned"
+            class="pull-entry"
+            @click="openPullPanel('UNASSIGNED', '未派送订单')"
+          >
+            <text class="i-carbon:document-add text-44rpx text-primary" />
+            <text class="mt-8rpx text-24rpx">
+              未派送订单
+            </text>
+          </view>
+        </view>
+        <view v-if="!canSelfPullUnassigned" class="mt-12rpx text-22rpx text-gray-400">
+          本租户未开放司机自助拉单，新订单请由管理端派单后再配货
+        </view>
+      </view>
+
+      <!-- 配货清单（按分类分节，节内按商品合并） -->
       <view
         v-for="group in pickGroups"
-        :key="group.orderId"
+        :key="group.categoryName"
         class="mx-20rpx mb-20rpx rounded-20rpx bg-white p-30rpx"
       >
-        <!-- 订单号 -->
-        <view class="mb-20rpx flex items-center justify-between border-b border-gray-100 pb-20rpx">
+        <view class="mb-16rpx flex items-center justify-between border-b border-gray-100 pb-16rpx">
           <text class="text-28rpx font-bold">
-            订单 {{ group.orderNo }}
+            {{ group.categoryName }}
           </text>
           <text class="text-24rpx text-gray-400">
-            共{{ group.items.length }}件
+            {{ group.rows.length }} 项
           </text>
         </view>
 
-        <!-- 商品列表（订单内按分类分节：分类≈供应商批次，司机按供货来源整段取货） -->
         <view
-          v-for="section in buildPickSections(group.items)"
-          :key="section.name"
-          class="mb-16rpx last:mb-0"
+          v-for="row in group.rows"
+          :key="row.key"
+          class="pick-item"
+          :class="{ 'pick-item-done': isPickRowDone(row) }"
+          @click="handleToggleRow(row)"
         >
-          <view class="mb-6rpx flex items-center justify-between">
-            <text class="text-26rpx text-gray-700 font-bold">
-              {{ section.name }}
-            </text>
-            <text class="text-22rpx text-gray-400">
-              共{{ section.items.length }}件
-            </text>
+          <image :src="row.picUrl" class="h-120rpx w-120rpx flex-none rounded-lg" mode="aspectFill" />
+          <view class="ml-20rpx flex flex-1 flex-col overflow-hidden">
+            <wd-text :lines="2" size="26rpx" color="inherit" :text="row.spuName" />
+            <view v-if="row.specsInfo" class="pt-6rpx">
+              <wd-text size="24rpx" color="#909090" :text="row.specsInfo" />
+            </view>
+            <view class="pt-6rpx text-24rpx text-gray-500">
+              共 {{ row.quantity }} 件
+              <text v-if="row.itemIds.length > 1" class="text-gray-400">
+                （{{ row.itemIds.length }} 个订单）
+              </text>
+            </view>
           </view>
-
-          <view
-            v-for="item in section.items"
-            :key="item.id"
-            class="pick-item"
-            :class="{ 'pick-item-done': item.picked === '1' }"
-            @click="handleTogglePick(item)"
-          >
-            <image :src="item.picUrl" class="h-120rpx w-120rpx flex-none rounded-lg" mode="aspectFill" />
-            <view class="ml-20rpx flex flex-1 flex-col overflow-hidden">
-              <wd-text :lines="2" size="26rpx" color="inherit" :text="item.spuName" />
-              <view v-if="item.specsInfo" class="pt-6rpx">
-                <wd-text size="24rpx" color="#909090" :text="item.specsInfo" />
-              </view>
-              <view class="pt-6rpx text-24rpx text-gray-500">
-                数量：{{ item.quantity }}
-              </view>
-            </view>
-            <!-- 确认状态 -->
-            <view class="flex-none pl-20rpx">
-              <text
-                v-if="item.picked === '1'"
-                class="i-carbon:checkmark-filled text-48rpx text-green-500"
-              />
-              <text
-                v-else
-                class="i-carbon:checkbox text-48rpx text-gray-300"
-              />
-            </view>
+          <!-- 确认状态 -->
+          <view class="flex flex-none flex-col items-end pl-20rpx">
+            <text
+              v-if="isPickRowDone(row)"
+              class="i-carbon:checkmark-filled text-48rpx text-green-500"
+            />
+            <text
+              v-else
+              class="i-carbon:checkbox text-48rpx text-gray-300"
+            />
+            <text
+              v-if="row.pickedCount > 0 && !isPickRowDone(row)"
+              class="mt-4rpx text-20rpx text-primary"
+            >
+              {{ row.pickedCount }}/{{ row.itemIds.length }}
+            </text>
           </view>
         </view>
       </view>
@@ -518,6 +733,154 @@ async function handleSortTask(fromIndex: number, toIndex: number) {
             class="progress-bar-inner"
             :style="{ width: `${totalTaskCount > 0 ? (arrivedCount / totalTaskCount) * 100 : 0}%` }"
           />
+        </view>
+        <!-- 顺序调整入口：默认收起，需要时展开 -->
+        <view class="mt-20rpx flex items-center justify-between border-t border-gray-100 pt-20rpx">
+          <text class="text-24rpx text-gray-500">
+            按下方顺序送货，长按拖动可调整
+          </text>
+          <view class="flex items-center" @click="sortPanelVisible = !sortPanelVisible">
+            <text class="text-24rpx text-primary">
+              {{ sortPanelVisible ? '收起排序' : '调整顺序' }}
+            </text>
+            <text
+              class="i-carbon:chevron-right ml-4rpx text-24rpx text-primary transition-transform"
+              :class="{ 'rotate-90': sortPanelVisible }"
+            />
+          </view>
+        </view>
+      </view>
+
+      <!-- 加单入口：车已开出也能继续加货，加进来立即成为本趟的一站 -->
+      <view v-if="trip.status !== '4'" class="mx-20rpx mb-20rpx rounded-20rpx bg-white p-30rpx">
+        <view class="mb-16rpx flex items-center justify-between">
+          <text class="text-28rpx font-bold">
+            再加一单
+          </text>
+          <text class="text-22rpx text-gray-400">
+            客户临时加货，拉上车顺路送
+          </text>
+        </view>
+        <view class="grid grid-cols-2 gap-16rpx">
+          <view class="pull-entry" @click="openPullPanel('MINE', '我的待送订单')">
+            <text class="i-carbon:list-boxes text-44rpx text-primary" />
+            <text class="mt-8rpx text-24rpx">
+              我的任务
+            </text>
+          </view>
+          <!-- 未派送池受租户开关控制：关掉后司机不能自助拉，入口直接不显示 -->
+          <view
+            v-if="canSelfPullUnassigned"
+            class="pull-entry"
+            @click="openPullPanel('UNASSIGNED', '未派送订单')"
+          >
+            <text class="i-carbon:document-add text-44rpx text-primary" />
+            <text class="mt-8rpx text-24rpx">
+              未派送订单
+            </text>
+          </view>
+        </view>
+        <view class="mt-12rpx text-22rpx text-gray-400">
+          {{ canSelfPullUnassigned
+            ? '加入后该单进入本趟待配货，配齐后再点「配货完毕，再次出发」才通知买家发货'
+            : '本租户未开放司机自助拉单，新订单请由管理端派单' }}
+        </view>
+      </view>
+
+      <!--
+        新加货配货清单：配送中趟次里新并入的单停在「配货中」，
+        司机要先照清单配齐这些货，再次出发才会把它们变成待送达。
+      -->
+      <view v-if="pendingPickGroups.length > 0" class="mx-20rpx mb-20rpx rounded-20rpx bg-white p-30rpx">
+        <view class="mb-16rpx flex items-center justify-between border-b border-gray-100 pb-16rpx">
+          <text class="text-28rpx font-bold">
+            新加货待配
+          </text>
+          <text class="text-24rpx" :class="isPendingAllPicked ? 'text-green-500' : 'text-primary'">
+            {{ pendingPickedCount }} / {{ pendingItemCount }} 件
+          </text>
+        </view>
+        <view class="mb-16rpx text-24rpx text-gray-400">
+          这些是本次新拉上车的货，配齐后再点下方「配货完毕，再次出发」
+        </view>
+
+        <view v-for="group in pendingPickGroups" :key="group.categoryName" class="mb-16rpx">
+          <view class="mb-8rpx text-24rpx text-gray-500">
+            {{ group.categoryName }}
+          </view>
+          <view
+            v-for="row in group.rows"
+            :key="row.key"
+            class="pick-item"
+            :class="{ 'pick-item-done': isPickRowDone(row) }"
+            @click="handleToggleRow(row)"
+          >
+            <image :src="row.picUrl" class="h-120rpx w-120rpx flex-none rounded-lg" mode="aspectFill" />
+            <view class="ml-20rpx flex flex-1 flex-col overflow-hidden">
+              <wd-text :lines="2" size="26rpx" color="inherit" :text="row.spuName" />
+              <view v-if="row.specsInfo" class="pt-6rpx">
+                <wd-text size="24rpx" color="#909090" :text="row.specsInfo" />
+              </view>
+              <view class="pt-6rpx text-24rpx text-gray-500">
+                共 {{ row.quantity }} 件
+              </view>
+            </view>
+            <view class="flex flex-none flex-col items-end pl-20rpx">
+              <text
+                v-if="isPickRowDone(row)"
+                class="i-carbon:checkmark-filled text-48rpx text-green-500"
+              />
+              <text v-else class="i-carbon:checkbox text-48rpx text-gray-300" />
+            </view>
+          </view>
+        </view>
+      </view>
+
+      <!-- 排序面板：拖动即改路线，松手落库 -->
+      <view v-if="sortPanelVisible" class="mx-20rpx mb-20rpx rounded-20rpx bg-white p-30rpx">
+        <view class="mb-16rpx text-24rpx text-gray-400">
+          按住右侧手柄拖动到目标位置，松手即保存送货顺序
+        </view>
+        <view
+          v-for="(task, index) in sortRows"
+          :key="task.id"
+          class="sort-row"
+          :style="rowTransform(index)"
+          :class="{ 'sort-row-dragging': dragFromIndex === index }"
+        >
+          <view class="sort-row-index">
+            {{ index + 1 }}
+          </view>
+          <view class="ml-16rpx flex-1 truncate">
+            <text class="text-26rpx font-bold">
+              {{ task.recipientName || '未填收货人' }}
+            </text>
+            <text class="ml-10rpx text-22rpx text-gray-400">
+              {{ taskDestination(task) || '暂无收货地址' }}
+            </text>
+          </view>
+          <!-- 上移/下移兜底：拖拽不灵时仍能精确调整 -->
+          <view class="flex flex-none items-center">
+            <text
+              class="i-carbon:arrow-up text-32rpx"
+              :class="index === 0 ? 'text-gray-300' : 'text-primary'"
+              @click.stop="handleMoveUp(index)"
+            />
+            <text
+              class="i-carbon:arrow-down ml-16rpx text-32rpx"
+              :class="index === sortRows.length - 1 ? 'text-gray-300' : 'text-primary'"
+              @click.stop="handleMoveDown(index)"
+            />
+            <view
+              class="sort-handle ml-16rpx"
+              @touchstart.stop="handleSortTouchStart(index, $event)"
+              @touchmove.stop.prevent="handleSortTouchMove($event)"
+              @touchend.stop="handleSortTouchEnd"
+              @touchcancel.stop="handleSortTouchEnd"
+            >
+              <text class="i-carbon:draggable text-36rpx text-gray-400" />
+            </view>
+          </view>
         </view>
       </view>
 
@@ -598,19 +961,9 @@ async function handleSortTask(fromIndex: number, toIndex: number) {
           >
             已送达
           </wd-button>
-          <!-- 上移/下移按钮 -->
-          <view class="ml-auto flex flex-col items-center">
-            <text
-              class="i-carbon:arrow-up text-32rpx"
-              :class="index === 0 ? 'text-gray-300' : 'text-primary'"
-              @click.stop="handleMoveUp(task, index)"
-            />
-            <text
-              class="i-carbon:arrow-down mt-10rpx text-32rpx"
-              :class="index === sortedTaskList.length - 1 ? 'text-gray-300' : 'text-primary'"
-              @click.stop="handleMoveDown(task, index)"
-            />
-          </view>
+          <text class="ml-auto text-22rpx text-gray-400">
+            第 {{ index + 1 }} 站
+          </text>
         </view>
       </view>
 
@@ -657,7 +1010,137 @@ async function handleSortTask(fromIndex: number, toIndex: number) {
     >
       {{ isAllPicked ? '装货完毕出发' : `还有${totalCount - pickedCount}件未确认` }}
     </wd-button>
+
+    <!-- status=3 且有新加货：配齐后再次出发，这单才会转待送达 -->
+    <wd-button
+      v-if="trip.status === '3' && pendingItemCount > 0"
+      type="primary"
+      block
+      :disabled="!isPendingAllPicked"
+      :loading="submitting"
+      @click="handleDepart"
+    >
+      {{ isPendingAllPicked
+        ? '配货完毕，再次出发'
+        : `新加货还有${pendingItemCount - pendingPickedCount}件未确认` }}
+    </wd-button>
   </view>
+
+  <!-- 选单面板：三个加单入口共用，勾选后一次性拉进本趟 -->
+  <wd-popup
+    v-model="pullPanelVisible"
+    position="bottom"
+    :safe-area-inset-bottom="true"
+    :z-index="1020"
+    :close-on-click-modal="false"
+    custom-style="border-radius: 24rpx 24rpx 0 0; overflow: hidden;"
+    @close="closePullPanel"
+  >
+    <view class="max-h-70vh flex flex-col px-32rpx pb-32rpx pt-28rpx">
+      <view class="text-32rpx font-bold">
+        {{ pullPanelTitle }}
+      </view>
+      <view class="mt-8rpx text-24rpx text-gray-400">
+        勾选要加入本趟车的订单，商品与收货信息按订单自动带出
+      </view>
+      <!-- 搜索：交给后端按订单号/收货人/电话匹配 -->
+      <view class="mt-16rpx">
+        <wd-search
+          v-model="pullKeyword"
+          placeholder="搜索订单号 / 收货人 / 电话"
+          hide-cancel
+          @search="fetchPullCandidates"
+          @clear="fetchPullCandidates"
+        />
+      </view>
+
+      <!-- 候选列表 -->
+      <scroll-view scroll-y class="mt-16rpx flex-1" style="max-height: 46vh;">
+        <view v-if="pullLoading" class="py-60rpx text-center text-26rpx text-gray-400">
+          加载中...
+        </view>
+        <view v-else-if="pullCandidates.length === 0" class="py-60rpx text-center">
+          <text class="i-carbon:document text-60rpx text-gray-300" />
+          <view class="mt-16rpx text-26rpx text-gray-400">
+            没有可加入的订单
+          </view>
+        </view>
+        <view
+          v-for="candidate in pullCandidates"
+          v-else
+          :key="candidate.orderId"
+          class="pull-row"
+          :class="{ 'pull-row-active': pullSelectedIds.includes(candidate.orderId) }"
+          @click="togglePullSelection(candidate.orderId)"
+        >
+          <text
+            class="flex-none text-44rpx"
+            :class="pullSelectedIds.includes(candidate.orderId)
+              ? 'i-carbon:checkmark-filled text-primary'
+              : 'i-carbon:checkbox text-gray-300'"
+          />
+          <view class="ml-16rpx flex-1 overflow-hidden">
+            <!-- 收货人 + 货到付款标记（司机送达时要收款） -->
+            <view class="flex items-center">
+              <text class="text-26rpx font-bold">
+                {{ candidate.recipientName || '未填收货人' }}
+              </text>
+              <text
+                v-if="candidate.paymentType === '3'"
+                class="ml-10rpx rounded-4rpx bg-orange-100 px-8rpx text-20rpx text-orange-600"
+              >
+                货到付款
+              </text>
+              <text v-if="candidate.vesselName" class="ml-10rpx text-22rpx text-gray-400">
+                {{ candidate.vesselName }}
+              </text>
+            </view>
+            <view class="mt-4rpx truncate text-24rpx text-gray-500">
+              {{ candidate.recipientAddress || '暂无收货地址' }}
+            </view>
+            <view class="mt-4rpx truncate text-22rpx text-gray-400">
+              单号 {{ candidate.orderNo }} · {{ candidate.itemCount ?? 0 }} 件
+              <text v-if="candidate.tripNo">
+                · 现挂在 {{ candidate.tripNo }}
+              </text>
+            </view>
+            <!-- 商品明细：司机勾选前要能看清这单到底要送什么，否则无法判断要不要装车 -->
+            <view v-if="candidate.items && candidate.items.length > 0" class="candidate-items">
+              <view
+                v-for="(item, itemIndex) in candidate.items"
+                :key="itemIndex"
+                class="candidate-item"
+              >
+                <text class="flex-1 truncate text-22rpx text-gray-600">
+                  {{ item.spuName }}{{ item.specsInfo ? ` / ${item.specsInfo}` : '' }}
+                </text>
+                <text class="ml-10rpx flex-none text-22rpx text-gray-400">
+                  ×{{ item.quantity ?? 0 }}
+                </text>
+              </view>
+            </view>
+          </view>
+        </view>
+      </scroll-view>
+
+      <view class="mt-20rpx flex gap-20rpx border-t border-gray-100 pt-20rpx">
+        <wd-button type="info" plain block :disabled="submitting" @click="closePullPanel">
+          取消
+        </wd-button>
+        <wd-button
+          type="primary"
+          block
+          :loading="submitting"
+          :disabled="pullSelectedIds.length === 0"
+          @click="confirmPullOrders"
+        >
+          {{ pullSelectedIds.length === 0
+            ? '请选择订单'
+            : `加入本趟(${pullSelectedIds.length}单/${pullTotalQuantity}件)` }}
+        </wd-button>
+      </view>
+    </view>
+  </wd-popup>
 
   <!-- 送达凭证弹层：司机端唯一提交凭证的入口，与任务详情页的上传口径一致 -->
   <wd-popup
@@ -741,7 +1224,7 @@ async function handleSortTask(fromIndex: number, toIndex: number) {
   padding: 20rpx 0;
   border-bottom: 1px solid #f5f5f5;
 
-  &:last-child {
+  &:last-of-type {
     border-bottom: none;
   }
 }
@@ -766,5 +1249,85 @@ async function handleSortTask(fromIndex: number, toIndex: number) {
   color: #fff;
   font-size: 26rpx;
   font-weight: bold;
+}
+
+.sort-row {
+  display: flex;
+  align-items: center;
+  /* 固定行高：拖拽落点按行高换算，变高行长会让插入位置判定漂移 */
+  height: 72px;
+  padding: 0 8rpx;
+  border-bottom: 1px solid #f5f5f5;
+  background-color: #fff;
+  transition: transform 0.15s ease;
+
+  &:last-of-type {
+    border-bottom: none;
+  }
+}
+
+.sort-row-dragging {
+  transition: none;
+  background-color: #f7f8fa;
+  border-radius: 12rpx;
+}
+
+.sort-row-index {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 44rpx;
+  height: 44rpx;
+  border-radius: 50%;
+  background-color: #eef3ff;
+  color: var(--wot-color-theme, #0084ff);
+  font-size: 24rpx;
+  font-weight: bold;
+}
+
+.sort-handle {
+  display: flex;
+  align-items: center;
+  padding: 10rpx 6rpx;
+}
+
+.pull-entry {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24rpx 0;
+  border-radius: 12rpx;
+  background-color: #f7f8fa;
+}
+
+.pull-row {
+  display: flex;
+  align-items: center;
+  padding: 20rpx 16rpx;
+  border-bottom: 1px solid #f5f5f5;
+
+  &:last-of-type {
+    border-bottom: none;
+  }
+}
+
+.pull-row-active {
+  background-color: #f0f7ff;
+  border-radius: 12rpx;
+}
+
+.candidate-items {
+  margin-top: 10rpx;
+  padding: 12rpx 16rpx;
+  border-radius: 10rpx;
+  background-color: #fafbfc;
+}
+
+.candidate-item {
+  display: flex;
+  align-items: center;
+  padding: 4rpx 0;
 }
 </style>

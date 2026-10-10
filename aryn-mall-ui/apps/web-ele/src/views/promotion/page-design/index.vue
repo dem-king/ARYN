@@ -1,29 +1,21 @@
 <script setup lang="ts">
 import type { FormInstance } from 'element-plus';
 
+import type { CanvasThemeVars } from '../page-designer/schema/theme-presets';
+import type { PageDesignRowAction } from './list-actions';
+
 import type {
   PageDesignQuery,
   PageDesignRecord,
+  PageDesignTheme,
   PageDesignType,
   PublishStatus,
 } from '#/api/promotion/page-design';
 
-import { defineAsyncComponent, onMounted, reactive, ref } from 'vue';
+import { computed, defineAsyncComponent, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
-import {
-  Clock,
-  CopyDocument,
-  Delete,
-  EditPen,
-  HomeFilled,
-  Plus,
-  Refresh,
-  Search,
-  Upload,
-  VideoPause,
-  View,
-} from '@element-plus/icons-vue';
+import { EditPen, Plus, Refresh, Search, View } from '@element-plus/icons-vue';
 import dayjs from 'dayjs';
 import {
   ElButton,
@@ -37,7 +29,6 @@ import {
   ElMessageBox,
   ElOption,
   ElSelect,
-  ElSpace,
   ElTable,
   ElTableColumn,
   ElTag,
@@ -48,7 +39,10 @@ import {
   copyPage,
   createPreviewToken,
   delObj,
+  EFFECTIVE_SLOT_PAGE_TYPES,
+  getEffectivePages,
   getPage,
+  getThemes,
   pageTypeLabel,
   pageTypeToQueryToken,
   setAsHome,
@@ -56,12 +50,22 @@ import {
   unpublishPage,
 } from '#/api/promotion/page-design';
 
+import { buildCanvasThemeVars } from '../page-designer/schema/theme-presets';
+import EffectivePageThumb from './components/effective-page-thumb.vue';
 import MetricsDialog from './components/metrics-dialog.vue';
 import PreviewDialog from './components/preview-dialog.vue';
 import { PREVIEW_TTL_MS } from './components/preview-utils';
 import ReleaseDialog from './components/release-dialog.vue';
+import RowActionDropdown from './components/row-action-dropdown.vue';
 import TemplateCreateDialog from './components/template-create-dialog.vue';
 import VersionDialog from './components/version-dialog.vue';
+import {
+  draftLabel,
+  draftTagType,
+  effectiveLabel,
+  pageTypeTagType,
+  showEffectiveBadge,
+} from './list-actions';
 
 const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
@@ -75,6 +79,7 @@ const queryRef = ref<FormInstance>();
 const loading = ref(false);
 const showSearch = ref(true);
 const tableData = ref<PageDesignRecord[]>([]);
+const effectivePages = ref<PageDesignRecord[]>([]);
 const page = reactive({ currentPage: 1, pageSize: 10, total: 0 });
 const query = reactive<{
   pageName: string;
@@ -93,6 +98,43 @@ const releases = reactive({ pageId: '', pageName: '', visible: false });
 const metrics = reactive({ pageId: '', pageName: '', visible: false });
 const templateCreateVisible = ref(false);
 
+/** 「当前生效」卡片固定槽位顺序：商城首页 → 分类页 → 个人中心页 → 商品详情页 */
+const EFFECTIVE_SLOT_TYPES: PageDesignType[] = EFFECTIVE_SLOT_PAGE_TYPES;
+
+interface EffectiveSlot {
+  label: string;
+  page?: PageDesignRecord;
+  type: PageDesignType;
+}
+
+const effectiveSlots = computed<EffectiveSlot[]>(() => {
+  const byType = new Map(
+    effectivePages.value.map((page) => [page.pageType, page]),
+  );
+  return EFFECTIVE_SLOT_TYPES.map((type) => ({
+    label: pageTypeLabel(type),
+    page: byType.get(type),
+    type,
+  }));
+});
+
+/** 商城默认主题：生效卡片缩略图与 C 端实机取同一套主题变量（页面自带主题在画布内优先） */
+const themes = ref<PageDesignTheme[]>([]);
+const previewThemeVars = computed<CanvasThemeVars>(() =>
+  buildCanvasThemeVars(
+    themes.value.find((theme) => theme.mallDefaultFlag === '1'),
+  ),
+);
+
+async function loadThemesQuietly() {
+  try {
+    themes.value = await getThemes();
+  } catch {
+    // 主题库加载失败退回内置默认配色，不阻塞列表
+    themes.value = [];
+  }
+}
+
 async function initPage() {
   loading.value = true;
   const params: PageDesignQuery = {
@@ -103,9 +145,14 @@ async function initPage() {
     size: page.pageSize,
   };
   try {
-    const response = await getPage(params);
+    // 生效汇总失败时降级为空卡片，不拖垮列表本身（兼容未升级的后端）
+    const [response, effective] = await Promise.all([
+      getPage(params),
+      getEffectivePages().catch(() => [] as PageDesignRecord[]),
+    ]);
     tableData.value = response.records;
     page.total = response.total;
+    effectivePages.value = effective;
   } finally {
     loading.value = false;
   }
@@ -228,24 +275,65 @@ async function handleDelete(row: PageDesignRecord) {
   await initPage();
 }
 
+/** 「⋯」菜单分发：表格行与生效卡片共用 */
+function handleRowAction(action: PageDesignRowAction, row: PageDesignRecord) {
+  switch (action) {
+    case 'copy': {
+      void handleCopy(row);
+      break;
+    }
+    case 'delete': {
+      void handleDelete(row);
+      break;
+    }
+    case 'metrics': {
+      openMetrics(row);
+      break;
+    }
+    case 'publish': {
+      void handlePublish(row);
+      break;
+    }
+    case 'releases': {
+      openReleases(row);
+      break;
+    }
+    case 'set-home': {
+      void handleSetAsHome(row);
+      break;
+    }
+    case 'unpublish': {
+      void handleUnpublish(row);
+      break;
+    }
+    case 'versions': {
+      openVersions(row);
+      break;
+    }
+  }
+}
+
+function openSlotEditor(slot: EffectiveSlot) {
+  if (slot.page) openDesigner(slot.page.id);
+}
+
+function previewSlot(slot: EffectiveSlot) {
+  if (slot.page) void handlePreview(slot.page);
+}
+
+function handleSlotAction(action: PageDesignRowAction, slot: EffectiveSlot) {
+  if (!slot.page) return;
+  handleRowAction(action, slot.page);
+}
+
 function formatTime(value?: string) {
   return value ? dayjs(value).format('YYYY-MM-DD HH:mm') : '-';
 }
 
-function draftLabel(row: PageDesignRecord) {
-  if (row.publishedStatus !== '1') return '待发布';
-  if (!row.publishedAt || !row.updateTime) return '已发布';
-  return dayjs(row.updateTime).isAfter(dayjs(row.publishedAt))
-    ? '有未发布修改'
-    : '已同步';
-}
-
-function draftTagType(row: PageDesignRecord) {
-  if (row.publishedStatus !== '1') return 'info';
-  return draftLabel(row) === '有未发布修改' ? 'warning' : 'success';
-}
-
-onMounted(initPage);
+onMounted(() => {
+  void initPage();
+  void loadThemesQuietly();
+});
 </script>
 
 <template>
@@ -320,12 +408,121 @@ onMounted(initPage);
         />
       </div>
 
+      <div class="effective-strip">
+        <div class="effective-head">
+          <span class="effective-title">当前生效</span>
+          <span class="muted">
+            C 端实际渲染的装修页；同类型多条已发布时按最近发布生效
+          </span>
+        </div>
+        <div class="effective-cards">
+          <div
+            v-for="slot in effectiveSlots"
+            :key="slot.type"
+            class="effective-card"
+            :class="{ 'is-empty': !slot.page }"
+          >
+            <div class="card-head">
+              <ElTag
+                :type="pageTypeTagType(slot.type)"
+                effect="plain"
+                size="small"
+              >
+                {{ slot.label }}
+              </ElTag>
+              <ElTag
+                v-if="slot.page"
+                effect="light"
+                size="small"
+                type="success"
+              >
+                {{ effectiveLabel(slot.page) }}
+              </ElTag>
+            </div>
+            <template v-if="slot.page">
+              <EffectivePageThumb
+                :page="slot.page"
+                :theme-vars="previewThemeVars"
+              />
+              <div class="card-name" :title="slot.page.pageName">
+                {{ slot.page.pageName }}
+              </div>
+              <div class="card-meta">
+                最近发布 {{ formatTime(slot.page.publishedAt) }}
+              </div>
+              <div class="card-actions">
+                <ElTooltip content="编辑">
+                  <ElButton
+                    v-access:code="'promotion:pagedesign:edit'"
+                    :icon="EditPen"
+                    aria-label="编辑"
+                    circle
+                    text
+                    type="primary"
+                    @click="openSlotEditor(slot)"
+                  />
+                </ElTooltip>
+                <ElTooltip content="预览">
+                  <ElButton
+                    v-access:code="'promotion:pagedesign:edit'"
+                    :icon="View"
+                    aria-label="预览"
+                    circle
+                    text
+                    @click="previewSlot(slot)"
+                  />
+                </ElTooltip>
+                <RowActionDropdown
+                  :page="slot.page"
+                  @action="(action) => handleSlotAction(action, slot)"
+                />
+              </div>
+            </template>
+            <template v-else>
+              <div class="card-name is-placeholder">未配置</div>
+              <div class="card-meta">
+                {{
+                  slot.type === '1'
+                    ? '发布微页面后可「设为首页」'
+                    : `发布${slot.label}装修后自动生效`
+                }}
+              </div>
+              <div v-if="slot.type !== '1'" class="card-actions">
+                <ElButton
+                  v-access:code="'promotion:pagedesign:add'"
+                  plain
+                  size="small"
+                  type="primary"
+                  @click="handleCreate(slot.type)"
+                >
+                  新建{{ slot.label }}
+                </ElButton>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+
       <ElTable v-loading="loading" :data="tableData" border row-key="id">
-        <ElTableColumn label="页面" min-width="220">
+        <ElTableColumn label="页面" min-width="260">
           <template #default="{ row }">
             <div class="page-cell">
               <strong>{{ row.pageName }}</strong>
-              <span>{{ pageTypeLabel(row.pageType as PageDesignType) }}</span>
+              <ElTag
+                :type="pageTypeTagType(row.pageType as PageDesignType)"
+                effect="plain"
+                size="small"
+              >
+                {{ pageTypeLabel(row.pageType as PageDesignType) }}
+              </ElTag>
+              <ElTag
+                v-if="showEffectiveBadge(row as PageDesignRecord)"
+                effect="light"
+                size="small"
+                type="success"
+              >
+                {{ effectiveLabel(row as PageDesignRecord) }}
+              </ElTag>
             </div>
           </template>
         </ElTableColumn>
@@ -334,17 +531,6 @@ onMounted(initPage);
             <ElTag :type="draftTagType(row as PageDesignRecord)" effect="plain">
               {{ draftLabel(row as PageDesignRecord) }}
             </ElTag>
-          </template>
-        </ElTableColumn>
-        <ElTableColumn label="线上版本" min-width="160">
-          <template #default="{ row }">
-            <ElTooltip
-              v-if="row.publishedVersionId"
-              :content="row.publishedVersionId"
-            >
-              <span class="version-id">{{ row.publishedVersionId }}</span>
-            </ElTooltip>
-            <span v-else class="muted">尚未发布</span>
           </template>
         </ElTableColumn>
         <ElTableColumn label="最近编辑" width="160">
@@ -357,9 +543,9 @@ onMounted(initPage);
             {{ formatTime(row.publishedAt) }}
           </template>
         </ElTableColumn>
-        <ElTableColumn fixed="right" label="操作" width="380" align="center">
+        <ElTableColumn fixed="right" label="操作" width="180" align="center">
           <template #default="{ row }">
-            <ElSpace :size="4">
+            <div class="row-actions">
               <ElTooltip content="编辑">
                 <ElButton
                   v-access:code="'promotion:pagedesign:edit'"
@@ -369,16 +555,6 @@ onMounted(initPage);
                   text
                   type="primary"
                   @click="openDesigner(row.id)"
-                />
-              </ElTooltip>
-              <ElTooltip content="复制">
-                <ElButton
-                  v-access:code="'promotion:pagedesign:add'"
-                  :icon="CopyDocument"
-                  aria-label="复制"
-                  circle
-                  text
-                  @click="handleCopy(row as PageDesignRecord)"
                 />
               </ElTooltip>
               <ElTooltip content="预览">
@@ -391,89 +567,13 @@ onMounted(initPage);
                   @click="handlePreview(row as PageDesignRecord)"
                 />
               </ElTooltip>
-              <ElTooltip content="发布">
-                <ElButton
-                  v-if="
-                    row.publishedStatus !== '1' ||
-                    draftLabel(row as PageDesignRecord) === '有未发布修改'
-                  "
-                  v-access:code="'promotion:pagedesign:submit'"
-                  :icon="Upload"
-                  aria-label="发布"
-                  circle
-                  text
-                  type="success"
-                  @click="handlePublish(row as PageDesignRecord)"
-                />
-              </ElTooltip>
-              <ElTooltip content="下线">
-                <ElButton
-                  v-if="row.publishedStatus === '1'"
-                  v-access:code="'promotion:pagedesign:publish'"
-                  :icon="VideoPause"
-                  aria-label="下线"
-                  circle
-                  text
-                  type="warning"
-                  @click="handleUnpublish(row as PageDesignRecord)"
-                />
-              </ElTooltip>
-              <ElTooltip content="版本历史">
-                <ElButton
-                  v-access:code="'promotion:pagedesign:get'"
-                  :icon="Clock"
-                  aria-label="版本历史"
-                  circle
-                  text
-                  @click="openVersions(row as PageDesignRecord)"
-                />
-              </ElTooltip>
-              <ElTooltip content="数据看板">
-                <ElButton
-                  v-access:code="'promotion:pagedesign:metrics'"
-                  aria-label="数据看板"
-                  circle
-                  text
-                  @click="openMetrics(row as PageDesignRecord)"
-                >
-                  数
-                </ElButton>
-              </ElTooltip>
-              <ElTooltip content="发布记录与审计">
-                <ElButton
-                  v-access:code="'promotion:pagedesign:get'"
-                  aria-label="发布记录与审计"
-                  circle
-                  text
-                  @click="openReleases(row as PageDesignRecord)"
-                >
-                  审
-                </ElButton>
-              </ElTooltip>
-              <ElTooltip content="设为首页">
-                <ElButton
-                  v-if="row.publishedStatus === '1' && row.homeStatus !== '1'"
-                  v-access:code="'promotion:pagedesign:publish'"
-                  :icon="HomeFilled"
-                  aria-label="设为首页"
-                  circle
-                  text
-                  type="primary"
-                  @click="handleSetAsHome(row as PageDesignRecord)"
-                />
-              </ElTooltip>
-              <ElTooltip v-if="row.pageType !== '1'" content="删除">
-                <ElButton
-                  v-access:code="'promotion:pagedesign:del'"
-                  :icon="Delete"
-                  aria-label="删除"
-                  circle
-                  text
-                  type="danger"
-                  @click="handleDelete(row as PageDesignRecord)"
-                />
-              </ElTooltip>
-            </ElSpace>
+              <RowActionDropdown
+                :page="row as PageDesignRecord"
+                @action="
+                  (action) => handleRowAction(action, row as PageDesignRecord)
+                "
+              />
+            </div>
           </template>
         </ElTableColumn>
       </ElTable>
@@ -520,9 +620,78 @@ onMounted(initPage);
   width: 160px;
 }
 
-.page-cell {
+.effective-strip {
+  margin-bottom: 12px;
+}
+
+.effective-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+
+.effective-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.effective-cards {
   display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 12px;
+}
+
+.effective-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  background: var(--el-bg-color);
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 8px;
+}
+
+.effective-card.is-empty {
+  border-style: dashed;
+}
+
+.card-head {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.card-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  white-space: nowrap;
+}
+
+.card-name.is-placeholder {
+  font-weight: 400;
+  color: var(--el-text-color-secondary);
+}
+
+.card-meta {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+.card-actions {
+  display: flex;
   gap: 4px;
+  align-items: center;
+}
+
+.page-cell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  align-items: center;
 }
 
 .page-cell strong {
@@ -530,19 +699,15 @@ onMounted(initPage);
   color: var(--el-text-color-primary);
 }
 
-.page-cell span,
 .muted {
   font-size: 12px;
   color: var(--el-text-color-secondary);
 }
 
-.version-id {
-  display: block;
-  max-width: 140px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: var(--el-text-color-regular);
-  white-space: nowrap;
+.row-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  justify-content: center;
 }
 </style>

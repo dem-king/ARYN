@@ -57,6 +57,12 @@
             <groupId>com.aryn</groupId>
             <artifactId>aryn-user-api</artifactId>
         </dependency>
+        <!-- 靠港申报/排产生效后，把该船「无靠港归属或挂已结束靠港」的购物车行顺延到新靠港；
+             shopping_cart 在 order 库，跨模块只允许走 order-api 定义的 Dubbo 接口 -->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-order-api</artifactId>
+        </dependency>
         <dependency>
             <groupId>com.aryn</groupId>
             <artifactId>aryn-common-security</artifactId>
@@ -82,6 +88,11 @@
         <dependency>
             <groupId>com.aryn</groupId>
             <artifactId>aryn-common-swagger</artifactId>
+        </dependency>
+        <!-- 靠港状态流转定时任务依赖 xxl-job 执行器（与秒杀状态任务同套基建） -->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-common-job</artifactId>
         </dependency>
         <dependency>
             <groupId>com.aryn</groupId>

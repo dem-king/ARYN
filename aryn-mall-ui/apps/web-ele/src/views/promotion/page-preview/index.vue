@@ -1,16 +1,19 @@
 <script setup lang="ts">
 import type { DecorationDocument } from '../page-designer/schema/types';
 
+import type { PageDesignTheme } from '#/api/promotion/page-design';
+
 import { computed, shallowRef, watch } from 'vue';
 import { useRoute } from 'vue-router';
 
 import { Refresh } from '@element-plus/icons-vue';
 import { ElButton, ElResult, ElSkeleton } from 'element-plus';
 
-import { getPreview } from '#/api/promotion/page-design';
+import { getPreview, getThemes } from '#/api/promotion/page-design';
 
 import { createDefaultDecorationDocument } from '../page-designer/schema/defaults';
 import { migratePageContent } from '../page-designer/schema/migrate';
+import { buildCanvasThemeVars } from '../page-designer/schema/theme-presets';
 import PreviewCanvas from './components/preview-canvas.vue';
 
 const route = useRoute();
@@ -24,6 +27,31 @@ const token = computed(() =>
   typeof route.params.token === 'string' ? route.params.token : '',
 );
 const isWeappShell = computed(() => route.query.terminal === 'weapp');
+
+/**
+ * 预览的有效主题（与编辑器画布、C 端 diy 渲染器同口径）：
+ * 页面引用主题（themeRef，发布后固化为 themeSnapshot）优先，
+ * 未引用时跟随商城默认主题，主题库不可用时退回内置默认配色。
+ * 注：引用的主题已被删除时只能退回商城默认——草稿上没有快照颜色可查。
+ */
+const themes = shallowRef<PageDesignTheme[]>([]);
+const previewThemeVars = computed(() => {
+  const themeRef = document.value.themeRef;
+  const theme =
+    (themeRef
+      ? themes.value.find((item) => item.id === themeRef)
+      : undefined) ?? themes.value.find((item) => item.mallDefaultFlag === '1');
+  return buildCanvasThemeVars(theme);
+});
+
+async function loadThemesQuietly() {
+  try {
+    themes.value = await getThemes();
+  } catch {
+    themes.value = [];
+  }
+}
+void loadThemesQuietly();
 
 async function loadPreview() {
   loading.value = true;
@@ -69,7 +97,11 @@ watch(token, loadPreview, { immediate: true });
           <i class="weapp-dot"></i>
         </span>
       </div>
-      <PreviewCanvas :document="document" :page-name="pageName" />
+      <PreviewCanvas
+        :document="document"
+        :page-name="pageName"
+        :theme-vars="previewThemeVars"
+      />
     </div>
   </div>
 </template>

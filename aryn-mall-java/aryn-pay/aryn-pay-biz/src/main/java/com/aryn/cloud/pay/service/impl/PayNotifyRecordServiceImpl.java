@@ -12,10 +12,12 @@ import com.github.binarywang.wxpay.bean.notify.SignatureHeader;
 import com.github.binarywang.wxpay.bean.notify.WxPayNotifyV3Response;
 import com.github.binarywang.wxpay.bean.notify.WxPayNotifyV3Result;
 import com.github.binarywang.wxpay.bean.notify.WxPayRefundNotifyV3Result;
+import com.github.binarywang.wxpay.bean.result.WxPayOrderQueryV3Result;
 import com.github.binarywang.wxpay.exception.WxPayException;
 import com.aryn.cloud.common.core.constant.CommonConstants;
 import com.aryn.cloud.common.core.constant.RocketMqConstants;
 import com.aryn.cloud.pay.api.constants.PayConstants;
+import com.aryn.cloud.pay.api.dto.PaySettlementResult;
 import com.aryn.cloud.pay.api.entity.PayNotifyRecord;
 import com.aryn.cloud.pay.api.entity.PayRefundOrder;
 import com.aryn.cloud.pay.api.entity.PayTradeOrder;
@@ -115,6 +117,97 @@ public class PayNotifyRecordServiceImpl extends ServiceImpl<PayNotifyRecordMappe
 				JSON.toJSONString(decryptNotifyResult), WxPayNotifyV3Response.success("成功"), PayConstants.PAY_NOTIFY_TYPE);
 		sendPaySuccess(orderInfo);
 		return WxPayNotifyV3Response.success("成功");
+	}
+
+	/**
+	 * 主动向渠道查单并落账：与回调共用同一段落账+广播逻辑，只是结论来源从
+	 * 「渠道推来的回调」变成「我们主动去问渠道」。
+	 *
+	 * <p>回调未达而用户已付款时，业务侧的待支付单据必须能靠这一路径收敛，
+	 * 否则用户会长时间停在「处理中」。因此这里不新造落账代码 —— 任何偏移
+	 * 都会让「查单确认」与「回调确认」产生两种后果。
+	 *
+	 * <p>租户上下文由调用层负责（本方法经 Dubbo 暴露，过滤器会透传租户），
+	 * 与 {@link #wxPayNotify} 等回调方法保持同一约定；tenantId 仅用于
+	 * 条件更新时的租户隔离。
+	 */
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public PaySettlementResult queryAndSettlePayOrder(String tenantId, String outTradeNo) {
+		if (!StringUtils.hasText(tenantId) || !StringUtils.hasText(outTradeNo)) {
+			return PaySettlementResult.unpaid();
+		}
+		PayTradeOrder orderInfo = payTradeOrderMapper.selectOne(Wrappers.<PayTradeOrder>lambdaQuery()
+			.eq(PayTradeOrder::getOutTradeNo, outTradeNo)
+			.last("LIMIT 1"));
+		if (orderInfo == null) {
+			return PaySettlementResult.unpaid();
+		}
+		// 已被回调（或上一次查单）落账：直接返回成功，不再打扰渠道
+		if (CommonConstants.YES.equals(orderInfo.getPayStatus())) {
+			return PaySettlementResult.paid(orderInfo.getChannelOrderNo());
+		}
+		// 只对微信交易查单；其余渠道没有可用的主动查询实现
+		if (!StringUtils.hasText(orderInfo.getTradeType())
+				|| !orderInfo.getTradeType().startsWith("WX_")) {
+			return PaySettlementResult.unpaid();
+		}
+		return queryAndSettleWxPayOrder(tenantId, orderInfo);
+	}
+
+	/**
+	 * 向微信查询单笔交易并按结果落账。
+	 *
+	 * <p>取到 SUCCESS 才落账，且金额、商户号与本地支付单逐项核对后再落账 ——
+	 * 与回调校验同一套口径，避免「查单」成为校验较弱的旁路。
+	 */
+	private PaySettlementResult queryAndSettleWxPayOrder(String tenantId, PayTradeOrder orderInfo) {
+		WxPayOrderQueryV3Result queryResult;
+		try {
+			queryResult = queryWxOrder(orderInfo.getTerminalType(), orderInfo.getOutTradeNo());
+		}
+		catch (Exception e) {
+			// 渠道不可用/订单在渠道不存在：保持原状态，交由业务侧继续等待或人工处理
+			log.warn("微信查单失败, tenantId: {}, orderNo: {}, msg: {}", tenantId, orderInfo.getOutTradeNo(),
+					e.getMessage());
+			return PaySettlementResult.unpaid();
+		}
+		String tradeState = queryResult == null ? null : queryResult.getTradeState();
+		if (queryResult == null || !"SUCCESS".equals(tradeState)) {
+			return PaySettlementResult.unpaid(tradeState);
+		}
+		PayConfigVO payConfig = payConfigService.getConfig(PayConstants.PAY_TYPE_1, orderInfo.getTerminalType());
+		if (payConfig == null
+				|| !Objects.equals(payConfig.getAppId(), queryResult.getAppid())
+				|| !Objects.equals(payConfig.getMchId(), queryResult.getMchid())
+				|| queryResult.getAmount() == null
+				|| !PayConstants.CURRENCY.equals(queryResult.getAmount().getCurrency())
+				|| !matchesCents(orderInfo.getAmount(), queryResult.getAmount().getTotal())) {
+			log.warn("微信查单业务字段校验失败, tenantId: {}, orderNo: {}", tenantId, orderInfo.getOutTradeNo());
+			return PaySettlementResult.unpaid(tradeState);
+		}
+		LocalDateTime paySuccessTime = parseOffsetDateTime(queryResult.getSuccessTime());
+		if (paySuccessTime == null || !StringUtils.hasText(queryResult.getTransactionId())) {
+			log.warn("微信查单缺少支付时间或渠道单号, tenantId: {}, orderNo: {}", tenantId, orderInfo.getOutTradeNo());
+			return PaySettlementResult.unpaid(tradeState);
+		}
+		// 与回调一致：条件更新抢占，只有真正推进状态的那一次才广播
+		int updated = payTradeOrderMapper.markPaidIfPending(tenantId, orderInfo.getId(),
+				queryResult.getTransactionId(), paySuccessTime);
+		if (updated == 0) {
+			PayTradeOrder current = payTradeOrderMapper.selectById(orderInfo.getId());
+			if (current != null && CommonConstants.YES.equals(current.getPayStatus())) {
+				return PaySettlementResult.paid(current.getChannelOrderNo());
+			}
+			return PaySettlementResult.unpaid(tradeState);
+		}
+		orderInfo.setChannelOrderNo(queryResult.getTransactionId());
+		orderInfo.setPayStatus(CommonConstants.YES);
+		orderInfo.setPaySuccessTime(paySuccessTime);
+		saveNotifyRecord(tenantId, orderInfo.getOutTradeNo(), queryResult.getTransactionId(),
+				JSON.toJSONString(queryResult), "query-settled", PayConstants.PAY_NOTIFY_TYPE);
+		sendPaySuccess(orderInfo);
+		return PaySettlementResult.paid(queryResult.getTransactionId());
 	}
 
 	@Override
@@ -228,6 +321,13 @@ public class PayNotifyRecordServiceImpl extends ServiceImpl<PayNotifyRecordMappe
 				WxPayNotifyV3Response.success("成功"), PayConstants.REFUND_NOTIFY_TYPE);
 		sendRefundSuccess(payRefundOrder);
 		return WxPayNotifyV3Response.success("成功");
+	}
+
+	/**
+	 * 向微信查询单笔交易（可覆写以便单元测试与后续替换实现）。
+	 */
+	protected WxPayOrderQueryV3Result queryWxOrder(String terminalType, String outTradeNo) throws WxPayException {
+		return WxPayConfiguration.wxPayService(terminalType).queryOrderV3(null, outTradeNo);
 	}
 
 	protected WxPayNotifyV3Result parseWxPayNotify(String terminalType, String notifyData) throws WxPayException {

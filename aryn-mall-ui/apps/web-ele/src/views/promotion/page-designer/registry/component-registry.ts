@@ -17,13 +17,17 @@ import {
 import {
   createBottomNavDefaults,
   createCouponComboDefaults,
+  createGoodsRecommendDefaults,
   createGoodsWaterfallDefaults,
+  createImageCubeDefaults,
   createMemberBenefitsDefaults,
   createServicePromiseDefaults,
   createVideoLiveDefaults,
   validateBottomNav,
   validateCouponCombo,
+  validateGoodsRecommend,
   validateGoodsWaterfall,
+  validateImageCube,
   validateMemberBenefits,
   validateServicePromise,
   validateVideoLive,
@@ -101,11 +105,13 @@ export type RetailComponentType = (typeof retailComponentTypes)[number];
 
 export const extensionComponentTypes = [
   'goods-waterfall',
+  'goods-recommend',
   'coupon-combo',
   'member-benefits',
   'service-promise',
   'bottom-nav',
   'video-live',
+  'image-cube',
 ] as const;
 
 export type ExtensionComponentType = (typeof extensionComponentTypes)[number];
@@ -585,31 +591,49 @@ export const componentRegistry: Record<
     () =>
       import('../../page-design/components/extension/video-live/setting.vue'),
   ),
+  'goods-recommend': defineExtensionComponent(
+    'goods-recommend',
+    '商品推荐',
+    '商品经营',
+    createGoodsRecommendDefaults(),
+    validateGoodsRecommend,
+    () =>
+      import('../../page-design/components/extension/goods-recommend/index.vue'),
+    () =>
+      import('../../page-design/components/extension/goods-recommend/setting.vue'),
+  ),
+  'image-cube': defineExtensionComponent(
+    'image-cube',
+    '图片魔方',
+    '导航广告',
+    createImageCubeDefaults(),
+    validateImageCube,
+    () => import('../../page-design/components/extension/image-cube/index.vue'),
+    () =>
+      import('../../page-design/components/extension/image-cube/setting.vue'),
+  ),
 };
 
 /**
  * 商品详情页（pageType='2'）允许装修的组件白名单：
- * 商品类 + 图片类 + 文本类 + 营销类 + 辅助类。
- * 导航/搜索/底部导航/分类导航等页面级组件不在此列。
+ * 商详导购类（推荐位/优惠券/服务）+ 商品承载类 + 文本类 + 辅助类。
+ * 首页/列表页语义的组件（轮播图/图片广告/公告/秒杀/折扣/限时活动）不属于
+ * 单个商品的详情上下文，2026-10-07 起移出；详见 docs/50-需求文档
+ * 2026-10-04-装修组件扩容与商详装修语义化。
  */
 export const detailPageAllowedComponents: ReadonlySet<RegisteredComponentType> =
   new Set([
     'coupon-combo',
     'coupon-receive',
     'custom-html',
-    'discount',
     'gap',
     'goods',
     'goods-group',
     'goods-ranking',
+    'goods-recommend',
     'goods-scroll',
     'goods-waterfall',
-    'image-ad',
-    'limited-activity',
-    'notice',
     'rich-text',
-    'seckill',
-    'swiper-banner',
     'title-text',
   ]);
 
@@ -632,6 +656,7 @@ export const categoryPageAllowedComponents: ReadonlySet<RegisteredComponentType>
     'goods-scroll',
     'goods-waterfall',
     'image-ad',
+    'image-cube',
     'limited-activity',
     'notice',
     'rich-text',

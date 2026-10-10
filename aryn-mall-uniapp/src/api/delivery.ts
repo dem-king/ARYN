@@ -34,6 +34,87 @@ export interface PickGroup {
   items: PickItem[]
 }
 
+/** 司机工作台的一站：只带列表上判断所需的字段，不含取货明细 */
+export interface DeliveryTripTaskBrief {
+  id: string
+  taskNo: string
+  orderNo: string
+  /** 趟车内送货顺序，1 起 */
+  sortNo: number
+  status: DeliveryTaskStatus
+  recipientName: string
+  recipientPhone: string
+  recipientAddress: string
+  vesselName?: string
+  portName?: string
+  berth?: string
+  deliveryWindowStart?: string
+  deliveryWindowEnd?: string
+  arriveTime?: string
+}
+
+/** 工作台的一张趟次卡片（含该趟全部订单，按送货顺序） */
+export interface DeliveryTripBrief {
+  id: string
+  tripNo: string
+  status: TripStatus
+  warehouseName?: string
+  warehouseAddress?: string
+  taskCount: number
+  totalItemCount: number
+  pickedItemCount: number
+  arrivedTaskCount: number
+  departTime?: string
+  taskList: DeliveryTripTaskBrief[]
+}
+
+/** 工作台首页数据：一次请求拿齐统计与全部在途趟次 */
+export interface DeliveryWorkbench {
+  /** 待处理单数（待取货+配货中+待送达） */
+  pendingTaskCount: number
+  /** 今日已完成单数（今天送达或签收） */
+  todayDoneCount: number
+  trips: DeliveryTripBrief[]
+}
+
+/** 候选订单的商品摘要行 */
+export interface DeliveryCandidateItem {
+  spuName?: string
+  specsInfo?: string
+  quantity?: number
+  picUrl?: string
+}
+
+/** 可拉进当前趟次的候选订单（配货页选单面板一行） */
+export interface DeliveryCandidateOrder {
+  orderId: string
+  orderNo: string
+  /** MINE 我的未完成任务；UNASSIGNED 未派送订单 */
+  source: 'MINE' | 'UNASSIGNED'
+  taskId?: string
+  taskStatus?: string
+  /** 已有任务所在出车单（挂在哪趟车上，便于司机判断） */
+  tripId?: string
+  tripNo?: string
+  recipientName?: string
+  recipientPhone?: string
+  recipientAddress?: string
+  vesselName?: string
+  portName?: string
+  berth?: string
+  paymentPrice?: number
+  deliveryWay?: string
+  /** 3 货到付款：司机送达时要收款 */
+  paymentType?: string
+  payStatus?: string
+  createTime?: string
+  itemCount?: number
+  items?: DeliveryCandidateItem[]
+}
+
+/** 候选来源 */
+export type DeliveryCandidateSource = 'MINE' | 'UNASSIGNED'
+
 /** 配送任务 */
 export interface DeliveryTask {
   id: string
@@ -115,6 +196,11 @@ export interface DeliveryTrip {
   completeTime?: string
   /** 创建时间 */
   createTime: string
+  /**
+   * 本租户是否开放司机自助拉未派送订单（后端派生自 order_config）。
+   * false 时隐藏「未派送订单」入口：该池子已关闭，点进去也是空的。
+   */
+  selfPullUnassignedAllowed?: boolean
   /** 任务列表 */
   taskList: DeliveryTask[]
 }
@@ -238,11 +324,13 @@ export function exchangeDeliveryIdentity() {
 }
 
 /**
- * 获取当前进行中的出车单
- * 配送员工作台首页调用，返回当前未完成的出车单
+ * 工作台首页数据：统计 + 在途趟次（每趟含按顺序排列的订单摘要）。
+ *
+ * 一个司机一辆车 = 一张在途出车单，所以正常只会有一张；历史遗留多张时也全部返回，
+ * 由司机在配货页用「加单」手动拉合。
  */
-export function getActiveTrip() {
-  return alovaInstance.Get<DeliveryTrip | null>(`${DELIVERY_API_BASE}/trip/active`)
+export function getDeliveryWorkbench() {
+  return alovaInstance.Get<DeliveryWorkbench>(`${DELIVERY_API_BASE}/trip/workbench`)
 }
 
 /**
@@ -275,6 +363,19 @@ export function pickItem(tripId: string, itemId: string) {
 }
 
 /**
+ * 批量确认/取消取货。
+ *
+ * 配货汇总行是「商品 + 规格」合并后的合计，一次勾选命中整趟车里该货的多条明细；
+ * 逐条调用 `pickItem` 会把一次勾选放大成几十个请求。
+ */
+export function batchPickItems(tripId: string, itemIds: string[], picked = true) {
+  return alovaInstance.Post<number>(`${DELIVERY_API_BASE}/trip/${tripId}/items/batch-pick`, {
+    itemIds,
+    picked,
+  })
+}
+
+/**
  * 取消确认取货
  */
 export function unpickItem(tripId: string, itemId: string) {
@@ -297,6 +398,32 @@ export function sortTripTasks(tripId: string, taskSort: Array<{ taskId: string, 
   return alovaInstance.Put<any>(`${DELIVERY_API_BASE}/trip/${tripId}/sort`, {
     taskIds: taskSort.map(t => t.taskId),
   })
+}
+
+/**
+ * 可拉进本趟的候选订单。
+ *
+ * @param tripId 出车单ID
+ * @param source MINE 我的未完成任务；UNASSIGNED 未派送订单（受租户开关控制）
+ * @param keyword 订单号/收货人/电话模糊匹配
+ */
+export function getPullCandidates(tripId: string, source?: DeliveryCandidateSource, keyword?: string) {
+  const params: Record<string, string> = {}
+  if (source)
+    params.source = source
+  if (keyword)
+    params.keyword = keyword
+  return alovaInstance.Get<DeliveryCandidateOrder[]>(`${DELIVERY_API_BASE}/trip/${tripId}/pull-candidates`, { params })
+}
+
+/**
+ * 把订单拉进本趟（配货页加单入口共用：我的任务 / 未派送订单）。
+ *
+ * 订单商品、收货人、地址全部来自订单本身，司机不手填任何字段。
+ * 未派送订单受租户开关约束，关闭时后端会拒绝拉入。
+ */
+export function pullOrdersIntoTrip(tripId: string, orderIds: string[]) {
+  return alovaInstance.Post<number>(`${DELIVERY_API_BASE}/trip/${tripId}/pull-orders`, { orderIds })
 }
 
 /**

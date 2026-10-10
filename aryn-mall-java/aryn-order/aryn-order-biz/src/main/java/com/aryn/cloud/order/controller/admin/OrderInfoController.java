@@ -18,6 +18,7 @@ import com.aryn.cloud.common.core.constant.CommonConstants;
 import com.aryn.cloud.common.core.enums.MallErrorCodeEnum;
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.log.annotation.SysLog;
+import com.aryn.cloud.order.api.dto.OrderDeliverAssignDTO;
 import com.aryn.cloud.order.api.dto.OrderDeliveryDTO;
 import com.aryn.cloud.order.api.dto.OrderStatisticsDTO;
 import com.aryn.cloud.order.api.dto.PayConfirmDTO;
@@ -127,6 +128,14 @@ public class OrderInfoController {
 	@PostMapping("/deliver")
 	public Result<Boolean> deliverOrder(@RequestBody @Valid OrderDeliveryDTO request) {
 		return Result.success(orderInfoService.deliverOrder(request));
+	}
+
+	@Operation(summary = "订单发货并派单（商城配送/内部配送，无需物流单号）")
+	@SysLog("订单发货派单")
+	@SaCheckPermission("order:orderinfo:deliver")
+	@PostMapping("/deliver-assign")
+	public Result<Boolean> deliverAndAssign(@RequestBody @Valid OrderDeliverAssignDTO request) {
+		return Result.success(orderInfoService.deliverAndAssignOrder(request));
 	}
 
 	@Operation(summary = "订单自提")

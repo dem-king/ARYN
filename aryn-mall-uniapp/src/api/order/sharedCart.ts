@@ -19,6 +19,14 @@ export interface SharedCart {
   berth?: string
   deliveryWindowStart?: string
   deliveryWindowEnd?: string
+  /**
+   * 该车的靠港是否仍可作为新订单的配送计划。
+   *
+   * 展示字段（vesselName/portName）取自展示快照，靠港结束后**照样有值**，
+   * 因此不能用「船名为空」反推靠港已失效（2026-10-09 修正：历史单的船名由此恢复）。
+   * false 表示提交时会被服务端顺延到本船最新可用靠港；undefined 表示未取到快照。
+   */
+  callOrderable?: boolean
   ownerUserId: string
   confirmerUserId: string
   /** 1草稿 2收集中 3待确认 4已提交 5已关闭 6已完成（送达归档） */
@@ -35,13 +43,6 @@ export interface SharedCart {
   viewerIsOwner?: boolean
   itemCount?: number
   memberCount?: number
-  /**
-   * 补给进度汇总（服务端按项数算，未排计划的行不计入百分比）。
-   *
-   * 与首页补给单卡片、详情页同一口径；无任何计划时 `progressPercent` 为 null，
-   * 前端显示「尚未排计划」而不是 0%（0% 会被读成「有计划但一项没采」）。
-   */
-  progress?: ReplenishSummaryProgress | null
   /** 仅创建接口返回：命中了该船已有的收集中购物车（被复用的实例，非新建） */
   adoptedExisting?: boolean
   /** 分享令牌（发起人可生成，随购物车过期失效） */
@@ -61,46 +62,50 @@ export interface SharedCartMember {
   joinedTime?: string
 }
 
+/**
+ * 购物车明细（服务端下发 SharedCartItemVO）。
+ *
+ * 商品名/规格/图片/单价由服务端经商品域批量补齐 —— 明细表只存 SPU/SKU ID，
+ * 前端再单独查一次商品会多一个请求且两边口径可能不一致。
+ *
+ * 金额口径：收集阶段没有核定数量，行金额 = 单价 × 申请数量（提交后改用核定数量）。
+ * `unitPrice` 为 null 表示商品域查不到该 SKU（下架/已删除），界面显示「待核价」，
+ * 不能当成 0 元。
+ */
 export interface SharedCartItem {
   id: string
   cartId: string
   userId: string
+  /** 归属人姓名快照（接龙代报场景；空表示归属就是 userId 本人） */
+  attributedName?: string | null
   spuId: string
   skuId: string
+  /** 商品名称；商品域查询失败时为 null */
+  spuName?: string
+  /** 规格信息 */
+  specsInfo?: string
+  /** 商品图片（SKU 图 → SPU 主图回落） */
+  picUrl?: string
+  /** 成员申请数量（采购单位）：我报了多少 */
   requestedQuantity: number
-  approvedQuantity?: number
   /**
-   * 计划采购量（采购单位）；null/undefined 表示未设计划。
+   * 确认人核定数量：NULL 未核定；> 0 改定的采购量；0 表示「本次不采」。
    *
-   * 未设计划的行不参与进度统计，也不能回落成 requestedQuantity ——
-   * 「成员报的需求量」与「本次计划采购多少」不是一回事（77 号脚本加列）。
+   * 收集阶段恒为 null（只在提交那一刻写入），因此不能拿它当"已买多少"。
    */
-  plannedQuantity?: number | null
-  /** 已采量（采购单位，收集期间由确认人回填）；存量行为 null 时按 0 展示 */
-  fulfilledQuantity?: number | null
+  approvedQuantity?: number | null
+  /** SKU 当前售价（未含促销）；null = 取不到价，界面显示「待核价」 */
+  unitPrice?: number | null
   memberRemark?: string
   /** 1待确认 2已确认 3已移除 */
   status: string
   createTime?: string
 }
 
-/** 单行进度：与后端 ReplenishProgressVO 同口径（未设计划时只剩 plannedQuantity 为空） */
-export interface ReplenishRowProgress {
-  plannedQuantity?: number | null
-  fulfilledQuantity: number
-  remainingQuantity?: number | null
-  completed?: boolean | null
-}
-
-/** 整单进度：按项数算百分比，与数量单位无关 */
-export interface ReplenishSummaryProgress {
+/** 整单预估：仅项数与金额，实付以结算页为准 */
+export interface SharedCartEstimate {
   totalItems: number
-  plannedItems: number
-  fulfilledItems: number
-  remainingItems: number
-  unplannedItems: number
-  /** 无任何计划时为 null -> 前端显示「—」，不是 0% */
-  progressPercent?: number | null
+  /** SKU 当前售价 × 申请数量；未含促销，仅量级参考 */
   totalAmount: number
 }
 
@@ -119,6 +124,7 @@ export interface SharedCartItemPayload {
 }
 
 export interface SharedCartConfirmPayload {
+  /** 核定数量调整；quantity=0 表示本次不采该行（不进订单） */
   approvedQuantities?: Array<{ itemId: string, quantity: number }>
   recipientName?: string
   recipientPhone?: string
@@ -134,9 +140,8 @@ export interface SharedCartSummary {
   cart: SharedCart | null
   itemCount: number
   memberCount: number
+  /** 预估金额（SKU 当前售价 × 申请数量；未含促销，实付以结算页为准） */
   totalAmount: number
-  /** 进度汇总（未设计划的行只计入 unplannedItems，不参与百分比） */
-  progress?: ReplenishSummaryProgress | null
   previewItems: Array<{
     itemId: string
     spuId: string
@@ -144,14 +149,6 @@ export interface SharedCartSummary {
     spuName?: string
     specsInfo?: string
     quantity: number
-    /** 计划量；null 表示未设计划 */
-    plannedQuantity?: number | null
-    /** 已采量 */
-    fulfilledQuantity?: number | null
-    /** 还差量（未设计划时为 null） */
-    remainingQuantity?: number | null
-    /** 是否已采满（未设计划时为 null） */
-    completed?: boolean | null
     picUrl?: string
     amount: number
   }>
@@ -169,8 +166,6 @@ export function getMySharedCarts() {
  * 当前进行中的共享购物车摘要（首页补给单卡片）。
  *
  * 无进行中的购物车时 cart 为 null（首页渲染空态引导），不抛异常。
- * 进度来自 `shared_cart_item.planned_quantity / fulfilled_quantity`
- * （77 号双模式脚本），未设计划的行不参与百分比。
  */
 export function getActiveSharedCartSummary(vesselCallId?: string) {
   return alovaInstance.Get<SharedCartSummary>(`${BASE}/active-summary`, {
@@ -232,18 +227,6 @@ export function updateSharedCartItem(id: string, itemId: string, data: SharedCar
   return alovaInstance.Put<SharedCartItem>(`${BASE}/${id}/items/${itemId}`, data)
 }
 
-/**
- * 设置明细的计划量/已采量（确认人/发起人；补给单排计划与回填进度）。
- *
- * 两个数量的语义由 `clearPlanned` 区分，避免误清计划：
- * - `plannedQuantity = null` 且 `clearPlanned = true` -> 取消该行计划；
- * - `plannedQuantity = null` 且不传 `clearPlanned` -> 本次不改计划；
- * - `fulfilledQuantity = null` -> 本次不改已采量。
- */
-export function updateSharedCartItemPlan(id: string, data: SharedCartPlanPayload) {
-  return alovaInstance.Put<SharedCartItem>(`${BASE}/${id}/items/plan`, data)
-}
-
 /** 移除自己的明细 */
 export function removeSharedCartItem(id: string, itemId: string) {
   return alovaInstance.Delete<void>(`${BASE}/${id}/items/${itemId}`)
@@ -270,17 +253,6 @@ export interface SharedCartReuseResult {
   /** 跳过的项数 */
   skippedCount: number
   skipped: Array<{ skuId: string, reason: string }>
-}
-
-/** 计划量/已采量编辑入参（确认人操作，可操作任意成员的明细行） */
-export interface SharedCartPlanPayload {
-  itemId: string
-  /** 计划采购量；null 表示取消计划（需配合 clearPlanned）或不改（不传） */
-  plannedQuantity?: number | null
-  /** 已采量；null/不传表示本次不改 */
-  fulfilledQuantity?: number | null
-  /** 显式清除计划量：区分「取消计划」与「本次不改已采量」 */
-  clearPlanned?: boolean
 }
 
 /* -------------------------------------------------------------------------
@@ -326,6 +298,8 @@ export interface SharedCartImportCandidate {
 /** 导入报告行 */
 export interface SharedCartImportRow {
   rowNo: number
+  /** 接龙人名原文（接龙导入来源；Excel 导入为 null） */
+  personName?: string
   rawCode?: string
   rawName?: string
   rawSpec?: string
@@ -339,7 +313,8 @@ export interface SharedCartImportRow {
   matchedUnit?: string
   matchedPrice?: number
   matchedStock?: number
-  plannedQuantity?: number
+  /** 本次采购数量 */
+  quantity?: number
   resultType: SharedCartImportResultType
   resultMessage?: string
   resolvedAction?: SharedCartImportAction
@@ -381,6 +356,8 @@ export interface SharedCartImportActionPayload {
   skuId?: string
   /** action=ADJUST_QTY 时必填 */
   quantity?: number
+  /** 修正后的归属人名（接龙导入；空表示沿用解析结果） */
+  personName?: string
 }
 
 /** 取回导入报告（「稍后处理」后回来继续） */
@@ -404,6 +381,16 @@ export function confirmSharedCartImport(
   rows: SharedCartImportActionPayload[],
 ) {
   return alovaInstance.Post<SharedCartImport>(`${BASE}/${id}/imports/${importId}/confirm`, { rows })
+}
+
+/**
+ * 粘贴微信群接龙，解析成「人×商品×数量」并返回导入报告（确认人/发起人）。
+ *
+ * 报告与确认沿用 Excel 导入的同两个接口（imports/{importId}、confirm），
+ * 行上多带 personName（接龙人名原文）。
+ */
+export function previewChainImport(id: string, text: string) {
+  return alovaInstance.Post<SharedCartImport>(`${BASE}/${id}/chain-import/preview`, { text })
 }
 
 /**

@@ -37,9 +37,14 @@ export async function delObj(id: string) {
 
 /**
  * 绑定权益等级
+ *
+ * 后端签名为 bindLevels(@RequestParam benefitId, @RequestBody List<String> levelIds)：
+ * body 必须是等级 ID 数组，benefitId 走查询参数。
  */
-export async function bindLevels(data: any) {
-  return requestClient.post('/mall-user/memberbenefit/bindLevels', data);
+export async function bindLevels(benefitId: string, levelIds: string[]) {
+  return requestClient.post('/mall-user/memberbenefit/bindLevels', levelIds, {
+    params: { benefitId },
+  });
 }
 
 /**

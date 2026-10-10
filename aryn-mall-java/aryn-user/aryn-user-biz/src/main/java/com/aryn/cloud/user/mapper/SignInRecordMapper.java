@@ -19,6 +19,7 @@ public interface SignInRecordMapper extends BaseMapper<SignInRecord> {
 	IPage<SignInRecordVO> selectRecordPage(Page page, @Param("nickname") String nickname,
 			@Param("beginDate") String beginDate, @Param("endDate") String endDate);
 
-	IPage<SignInRecordVO> selectUserRecordPage(Page page, @Param("userId") String userId);
+	IPage<SignInRecordVO> selectUserRecordPage(Page page, @Param("userId") String userId,
+			@Param("beginDate") String beginDate, @Param("endDate") String endDate);
 
 }

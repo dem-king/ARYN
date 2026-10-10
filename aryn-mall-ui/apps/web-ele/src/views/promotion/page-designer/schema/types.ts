@@ -43,6 +43,11 @@ export interface PageSettings {
   backgroundColor: string;
   backgroundImage: string;
   enablePullDownRefresh: boolean;
+  /**
+   * 是否跟随商城默认主题配色（页面背景/导航），缺省视为跟随；
+   * false 表示页面设置里关闭了跟随，页面自存配色直接生效（自定义配色）。
+   */
+  followMallTheme?: boolean;
   navigation: NavigationSettings;
   share: ShareSettings;
 }
@@ -51,6 +56,12 @@ export interface DecorationDocument {
   page: PageSettings;
   schemaVersion: typeof DECORATION_SCHEMA_VERSION_V3;
   sections: DecorationSection[];
+  /**
+   * 页面引用的主题令牌（v3 文档携带，迁移器透传）：
+   * 预览画布据此应用「页面指定主题 > 商城默认主题」的有效主题色。
+   * 编辑器工作态不走此字段（themeRef 由编辑器单独持有，保存时经 toV3Document 写入）。
+   */
+  themeRef?: string;
 }
 
 /**

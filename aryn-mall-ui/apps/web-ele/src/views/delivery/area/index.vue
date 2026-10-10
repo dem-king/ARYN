@@ -59,12 +59,13 @@ const regionOptions = ref<RegionNode[]>([]);
 /** 级联选中值（省市区编码数组） */
 const regionValue = ref<string[]>([]);
 
-/** ElCascader 配置：按 code 取值、按 name 展示 */
+/** ElCascader 配置：按 code 取值、按 name 展示；checkStrictly 允许只选到省或市 */
 const cascaderProps = {
   label: 'name',
   value: 'code',
   children: 'children',
   expandTrigger: 'hover' as const,
+  checkStrictly: true,
 };
 
 /**
@@ -99,19 +100,29 @@ const findRegionPath = (codes: string[]): RegionNode[] => {
 
 /**
  * 省市区级联变化，回填编码与名称
+ * 未选中的下级置为空串：编辑时降级（区级改市级）必须以空串提交，
+ * 全局 update-strategy: not_null 会跳过 null，导致旧值清不掉
  */
 const handleRegionChange = (value: any) => {
-  if (Array.isArray(value) && value.length === 3) {
-    const [province, city, area] = findRegionPath(value as string[]);
-    if (province && city && area) {
-      form.provinceCode = province.code ?? '';
-      form.provinceName = province.name;
-      form.cityCode = city.code ?? '';
-      form.cityName = city.name;
-      form.areaCode = area.code ?? '';
-      form.areaName = area.name;
-    }
+  if (!Array.isArray(value) || value.length === 0) {
+    form.provinceCode = '';
+    form.provinceName = '';
+    form.cityCode = '';
+    form.cityName = '';
+    form.areaCode = '';
+    form.areaName = '';
+    return;
   }
+  const [province, city, area] = findRegionPath(value as string[]);
+  if (!province) {
+    return;
+  }
+  form.provinceCode = province.code ?? '';
+  form.provinceName = province.name;
+  form.cityCode = city?.code ?? '';
+  form.cityName = city?.name ?? '';
+  form.areaCode = area?.code ?? '';
+  form.areaName = area?.name ?? '';
 };
 
 const statusMap: Record<string, { label: string; type: any }> = {
@@ -149,11 +160,19 @@ const handleAdd = () => {
 
 const handleEdit = (row: any) => {
   dialogTitle.value = '编辑配送范围';
-  Object.assign(form, row);
-  regionValue.value =
-    row.provinceCode && row.cityCode && row.areaCode
-      ? [row.provinceCode, row.cityCode, row.areaCode]
-      : [];
+  Object.assign(form, {
+    id: row.id,
+    provinceCode: row.provinceCode ?? '',
+    provinceName: row.provinceName ?? '',
+    cityCode: row.cityCode ?? '',
+    cityName: row.cityName ?? '',
+    areaCode: row.areaCode ?? '',
+    areaName: row.areaName ?? '',
+    enabled: row.enabled ?? '1',
+  });
+  regionValue.value = [row.provinceCode, row.cityCode, row.areaCode].filter(
+    (code) => !!code,
+  );
   dialogVisible.value = true;
 };
 
@@ -169,8 +188,8 @@ const handleDelete = (row: any) => {
 };
 
 const handleSubmit = () => {
-  if (!form.provinceCode || !form.cityCode || !form.areaCode) {
-    ElMessage.warning('请选择省/市/区县');
+  if (!form.provinceCode) {
+    ElMessage.warning('请选择所在地区（可只选到省或市）');
     return;
   }
   submitting.value = true;
@@ -209,8 +228,16 @@ onMounted(() => {
           </template>
           <ElTable :data="tableData" border style="width: 100%">
             <ElTableColumn label="省" prop="provinceName" />
-            <ElTableColumn label="市" prop="cityName" />
-            <ElTableColumn label="区县" prop="areaName" />
+            <ElTableColumn label="市" min-width="100">
+              <template #default="{ row }">
+                {{ row.cityName || '全省' }}
+              </template>
+            </ElTableColumn>
+            <ElTableColumn label="区县" min-width="100">
+              <template #default="{ row }">
+                {{ row.areaName || (row.cityName ? '全市' : '全省') }}
+              </template>
+            </ElTableColumn>
             <ElTableColumn label="状态" width="100">
               <template #default="{ row }">
                 <ElTag :type="statusMap[row.enabled]?.type || 'info'">
@@ -248,7 +275,7 @@ onMounted(() => {
             v-model="regionValue"
             :options="regionOptions"
             :props="cascaderProps"
-            placeholder="请选择省/市/区县"
+            placeholder="请选择省/市/区县（可只选到省或市）"
             style="width: 100%"
             @change="handleRegionChange"
           />

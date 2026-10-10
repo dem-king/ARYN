@@ -5,6 +5,7 @@ import process from 'node:process';
 import { describe, expect, it } from 'vitest';
 
 import {
+  extensionComponentTypes,
   legacyComponentTypes,
   retailComponentTypes,
 } from './registry/component-registry';
@@ -22,7 +23,11 @@ function readMobileFile(relativePath: string) {
 describe('mobile decoration renderer contract', () => {
   it('registers every admin fixture component', () => {
     const registry = readMobileFile('registry.ts');
-    const expectedTypes = [...legacyComponentTypes, ...retailComponentTypes];
+    const expectedTypes = [
+      ...legacyComponentTypes,
+      ...retailComponentTypes,
+      ...extensionComponentTypes,
+    ];
 
     for (const type of expectedTypes) {
       expect(registry, `missing mobile registry entry: ${type}`).toContain(
@@ -33,7 +38,11 @@ describe('mobile decoration renderer contract', () => {
 
   it('migrates legacy content and renders every component through static branches', () => {
     const renderer = readMobileFile('index.vue');
-    const expectedTypes = [...legacyComponentTypes, ...retailComponentTypes];
+    const expectedTypes = [
+      ...legacyComponentTypes,
+      ...retailComponentTypes,
+      ...extensionComponentTypes,
+    ];
 
     expect(renderer).toContain('migratePageContent');
     for (const type of expectedTypes) {

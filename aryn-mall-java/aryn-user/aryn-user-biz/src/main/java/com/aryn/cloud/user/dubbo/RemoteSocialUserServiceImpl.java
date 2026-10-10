@@ -10,13 +10,14 @@ import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.user.api.dto.SocialUserBindDTO;
 import com.aryn.cloud.user.api.dto.SocialUserUnbindDTO;
 import com.aryn.cloud.user.api.dto.UserLoginReqDTO;
+import com.aryn.cloud.user.api.entity.SocialAccount;
 import com.aryn.cloud.user.api.entity.SocialUser;
 import com.aryn.cloud.user.api.remote.RemoteSocialUserService;
-import com.aryn.cloud.user.api.vo.SocialAccountVO;
 import com.aryn.cloud.user.config.WxMiniAppConfiguration;
 import com.aryn.cloud.user.mapper.SocialUserMapper;
 import com.aryn.cloud.user.service.ISocialAccountService;
 import com.aryn.cloud.user.service.ISocialUserService;
+import com.aryn.cloud.user.service.MiniAppBindingResolver;
 import lombok.RequiredArgsConstructor;
 import me.chanjar.weixin.common.error.WxErrorException;
 import org.apache.dubbo.config.annotation.DubboService;
@@ -30,20 +31,20 @@ import java.util.Objects;
 @RequiredArgsConstructor
 public class RemoteSocialUserServiceImpl implements RemoteSocialUserService {
 
-	private final ISocialAccountService socialAccountService;
-
 	private final ISocialUserService socialUserService;
 
 	private final SocialUserMapper socialUserMapper;
 
+	private final MiniAppBindingResolver miniAppBindingResolver;
+
 	@Override
 	public SocialUser socialLogin(UserLoginReqDTO userLoginReqDTO) {
-		SocialAccountVO socialAccount = socialAccountService.selectByAppId(userLoginReqDTO.getAppId());
-		if (Objects.isNull(socialAccount)) {
-			throw new ArynBusinessException("三方账号配置不存在");
-		}
+		// 微信消费前权威重查 AppID↔租户绑定并刷新本实例缓存；消费该次解析得到的配置快照，
+		// 不信任进程内旧缓存（可能已被其它实例/直接 SQL 修改淘汰）。
+		SocialAccount socialAccount = miniAppBindingResolver.requireBinding(
+				userLoginReqDTO.getAppId(), userLoginReqDTO.getRequestTenantId());
 		ArynTenantContextHolder.setTenantId(socialAccount.getTenantId());
-		final WxMaService wxService = WxMiniAppConfiguration.getMaService(socialAccount.getAppId());
+		final WxMaService wxService = WxMiniAppConfiguration.createMaService(socialAccount);
 		try {
 			WxMaJscode2SessionResult session = wxService.getUserService().getSessionInfo(userLoginReqDTO.getJsCode());
 			// 查询三方用户
@@ -80,6 +81,12 @@ public class RemoteSocialUserServiceImpl implements RemoteSocialUserService {
 				throw new ArynBusinessException("用户不存在");
 			}
 			restoreTenantContext(socialUser);
+		}
+		// 绑定双方必须同属已验证租户：反查回来的记录若与期望租户不一致直接拒绝，
+		// 不允许借主键反查把三方账号绑到其它租户的用户上。
+		if (StringUtils.hasText(dto.getExpectedTenantId())
+				&& !dto.getExpectedTenantId().equals(socialUser.getTenantId())) {
+			throw new ArynBusinessException(403, "三方账号与用户租户不一致");
 		}
 		socialUser.setMallUserId(dto.getMallUserId());
 		return socialUserService.updateById(socialUser);
@@ -119,7 +126,10 @@ public class RemoteSocialUserServiceImpl implements RemoteSocialUserService {
 
 	@Override
 	public String getPhoneNumberInfo(UserLoginReqDTO request) {
-		final WxMaService wxService = WxMiniAppConfiguration.getMaService(request.getAppId());
+		// 手机号解密同样走权威快照：先验证 AppID↔租户绑定，再构造 SDK
+		SocialAccount socialAccount = miniAppBindingResolver.requireBinding(
+				request.getAppId(), request.getRequestTenantId());
+		final WxMaService wxService = WxMiniAppConfiguration.createMaService(socialAccount);
 		// 解密
 		WxMaPhoneNumberInfo phoneNoInfo = null;
 		try {

@@ -6,6 +6,8 @@ import com.aryn.cloud.promotion.api.dto.PageDesignDraftDTO;
 import com.aryn.cloud.promotion.api.entity.PageDesign;
 import com.aryn.cloud.promotion.api.vo.PageDesignEditorVO;
 
+import java.util.List;
+
 /**
  * 页面设计
  *
@@ -41,6 +43,13 @@ public interface IPageDesignService extends IService<PageDesign> {
 	 * @return 是否切换成功（目标已是首页时视为成功）
 	 */
 	boolean setAsHome(String pageId);
+
+	/**
+	 * 各类型当前生效的装修页汇总（商城首页→分类页→个人中心页→商品详情页），
+	 * 供管理端「当前生效」卡片区渲染，未配置的类型不返回。
+	 * @return 生效页面列表
+	 */
+	List<PageDesign> listEffectivePages();
 
 
 	/**

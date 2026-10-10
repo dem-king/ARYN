@@ -19,10 +19,9 @@ import type { ReplenishCardProps } from '@/components/diy/retail-types'
  * | 纯零售租户 business_mode=2    | 不渲染                                 |
  * | 共享购物车/商品服务异常        | 不渲染（摘要失败按无数据处理）            |
  *
- * 进度口径（与后端 ReplenishProgressCalculator 一致）：
- * 只有排了计划的行才参与统计，未排计划的行只提示「尚未排计划」；
- * 无任何计划时不给百分比（显示「—」），而不是 0% —— 后者会被误读成
- * 「有计划但一项没采」。
+ * 展示口径：只回答「几项、几个人、大概多少钱、都有什么」。
+ * 不做「已采 / 还差 / 进度条」——系统里没有采购执行的实施反馈来源，
+ * 靠人工回填的进度会立刻过期，比不显示更容易误事。
  */
 import { computed, ref } from 'vue'
 import { getActiveSharedCartSummary } from '@/api/order/sharedCart'
@@ -32,7 +31,6 @@ import { usePageShowLoad } from '@/composables/usePageShowLoad'
 import { useAuthStore } from '@/store/authStore'
 import { useShipContextStore } from '@/store/shipContextStore'
 import { useTenantCapabilityStore } from '@/store/tenantCapabilityStore'
-import { buildReplenishProgressView } from '@/utils/replenish-progress'
 
 const props = withDefaults(defineProps<{ showData?: Partial<ReplenishCardProps> }>(), {
   showData: () => ({}),
@@ -106,19 +104,32 @@ const locationText = computed(() => {
   return cart.vesselName || ''
 })
 
-/** 概览文案：N 项 · M 人参与 · 合计 ¥X */
+/** 概览文案：N 项 · M 人参与 · 预估 ¥X */
 const overviewText = computed(() => {
   const data = summary.value
   if (!data)
     return ''
   const parts = [`${data.itemCount} 项`, `${data.memberCount} 人参与`]
   if (data.totalAmount > 0)
-    parts.push(`合计 ¥${data.totalAmount}`)
+    parts.push(`预估 ¥${data.totalAmount}`)
   return parts.join(' · ')
 })
 
-/** 进度视图（文案与进度条宽度统一由纯函数产出，便于单测守口径） */
-const progressView = computed(() => buildReplenishProgressView(summary.value))
+/**
+ * 明细预览：只列成员报的商品与数量。
+ *
+ * 这里刻意不显示「还差 N」——系统里没有"已买多少"的事实来源，
+ * 编一个进度出来会让确认人误以为有人在跟踪采购执行。
+ */
+const previewLineText = computed(() => {
+  const data = summary.value
+  if (!data || data.previewItems.length === 0)
+    return ''
+  const text = data.previewItems
+    .map(item => `${item.spuName || item.skuId} ${item.quantity}`)
+    .join(' · ')
+  return data.previewTruncated ? `${text} …` : text
+})
 
 async function loadSummary() {
   try {
@@ -208,24 +219,12 @@ usePageShowLoad(loadSummary)
         </view>
       </view>
 
-      <view v-if="progressView.hasPlan" class="card-progress">
-        <view class="progress-track">
-          <view class="progress-bar" :style="`width:${progressView.percent}%`" />
-        </view>
-        <text class="progress-text">
-          {{ progressView.progressText }}
-        </text>
-      </view>
-      <text v-else-if="progressView.progressText" class="card-progress-hint">
-        {{ progressView.progressText }}
-      </text>
-
       <view
-        v-if="showData.showPreview && progressView.previewLineText"
+        v-if="showData.showPreview && previewLineText"
         class="card-preview"
       >
         <text class="flex-1 truncate">
-          {{ progressView.previewLineText }}
+          {{ previewLineText }}
         </text>
         <text class="i-carbon:chevron-right ml-8rpx flex-none text-24rpx" />
       </view>
@@ -303,38 +302,6 @@ usePageShowLoad(loadSummary)
   color: #0a4da3;
   font-size: 26rpx;
   font-weight: 700;
-}
-
-.card-progress {
-  margin-top: 16rpx;
-}
-
-.progress-track {
-  overflow: hidden;
-  height: 10rpx;
-  border-radius: 999rpx;
-  background: rgba(255, 255, 255, 0.24);
-}
-
-.progress-bar {
-  height: 100%;
-  border-radius: 999rpx;
-  background: linear-gradient(90deg, #ffb25c, #f2741d);
-  transition: width 0.3s ease;
-}
-
-.progress-text {
-  display: block;
-  margin-top: 10rpx;
-  font-size: 22rpx;
-  opacity: 0.9;
-}
-
-.card-progress-hint {
-  display: block;
-  margin-top: 14rpx;
-  font-size: 22rpx;
-  opacity: 0.8;
 }
 
 .card-preview {

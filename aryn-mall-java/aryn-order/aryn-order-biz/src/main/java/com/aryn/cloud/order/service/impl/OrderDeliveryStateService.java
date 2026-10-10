@@ -6,8 +6,10 @@ import com.aryn.cloud.order.api.constant.MallOrderConstants;
 import com.aryn.cloud.order.api.entity.DeliveryTask;
 import com.aryn.cloud.order.api.entity.OrderInfo;
 import com.aryn.cloud.order.api.entity.OrderItemEntity;
+import com.aryn.cloud.order.api.enums.DeliveryTaskStatusEnum;
 import com.aryn.cloud.order.api.enums.OrderItemStatusEnum;
 import com.aryn.cloud.order.api.enums.OrderStatusEnum;
+import com.aryn.cloud.order.mapper.DeliveryTaskMapper;
 import com.aryn.cloud.order.mapper.OrderInfoMapper;
 import com.aryn.cloud.order.mapper.OrderItemMapper;
 import com.aryn.cloud.order.service.IOrderDeliveryStateService;
@@ -44,6 +46,14 @@ public class OrderDeliveryStateService implements IOrderDeliveryStateService {
 	private final OrderItemMapper orderItemMapper;
 
 	private final OrderWxDeliveryService orderWxDeliveryService;
+
+	/**
+	 * 直接用 Mapper 而非 IDeliveryTaskService：后者与 DeliveryTripServiceImpl 相互依赖，
+	 * 本服务又被 DeliveryTripServiceImpl 依赖，注入 IDeliveryTaskService 会形成
+	 * deliveryTaskService → deliveryTripService → orderDeliveryStateService → deliveryTaskService 环。
+	 * isDelivered 只需要按 orderId 查一行任务，Mapper 足够且不参与 bean 环。
+	 */
+	private final DeliveryTaskMapper deliveryTaskMapper;
 
 	/**
 	 * 该配送方式是否由配送任务驱动订单状态（区别于第三方快递的发货单驱动）。
@@ -129,5 +139,73 @@ public class OrderDeliveryStateService implements IOrderDeliveryStateService {
 		}
 		OrderInfo orderInfo = orderInfoMapper.selectById(orderId);
 		return orderInfo != null && isTaskDrivenDeliveryWay(orderInfo.getDeliveryWay());
+	}
+
+	@Override
+	public boolean isDelivered(OrderInfo orderInfo) {
+		if (orderInfo == null) {
+			return Boolean.FALSE;
+		}
+		// 已完成：买家确认收货或超时自动收货，一定已送达
+		if (OrderStatusEnum.COMPLETED.getCode().equals(orderInfo.getStatus())) {
+			return Boolean.TRUE;
+		}
+		// 仅待收货阶段谈「已送达但买家未确认」，其余状态（待付款/待发货/取消）均未送达
+		if (!OrderStatusEnum.WAITING_FOR_RECEIPT.getCode().equals(orderInfo.getStatus())) {
+			return Boolean.FALSE;
+		}
+		String deliveryWay = orderInfo.getDeliveryWay();
+		// 上门自提：到店取货即交付，订单进入待收货就是买家已提货
+		if (MallOrderConstants.DELIVERY_WAY_2.equals(deliveryWay)) {
+			return Boolean.TRUE;
+		}
+		// 商城配送/内部配送：以配送任务送达或签收为准（任务未回填时按订单ID实时查询，避免依赖调用方组装）
+		if (isTaskDrivenDeliveryWay(deliveryWay)) {
+			DeliveryTask task = orderInfo.getDeliveryTask();
+			if (task == null && orderInfo.getId() != null) {
+				task = deliveryTaskMapper.selectOne(Wrappers.<DeliveryTask>lambdaQuery()
+					.eq(DeliveryTask::getOrderId, orderInfo.getId())
+					.last("LIMIT 1"));
+			}
+			return isTaskDelivered(task);
+		}
+		// 第三方快递：无客观妥投信号，只能等买家确认收货（即已完成）
+		return Boolean.FALSE;
+	}
+
+	/**
+	 * 配送任务是否已送达（已送达=有送达凭证，已签收=买家签收）。
+	 * 待派单/待取货/配货中/待送达/异常/待退回均不算送达。
+	 */
+	private boolean isTaskDelivered(DeliveryTask task) {
+		if (task == null || task.getStatus() == null) {
+			return Boolean.FALSE;
+		}
+		return DeliveryTaskStatusEnum.ARRIVED.getCode().equals(task.getStatus())
+				|| DeliveryTaskStatusEnum.SIGNED.getCode().equals(task.getStatus());
+	}
+
+	@Override
+	public boolean isReadyToReceive(OrderInfo orderInfo) {
+		if (orderInfo == null) {
+			return Boolean.FALSE;
+		}
+		// 已完成：幂等放行，重复确认不再报错
+		if (OrderStatusEnum.COMPLETED.getCode().equals(orderInfo.getStatus())) {
+			return Boolean.TRUE;
+		}
+		String deliveryWay = orderInfo.getDeliveryWay();
+		// 商城配送/内部配送：必须有配送任务且已送达/已签收（fail-closed）
+		if (isTaskDrivenDeliveryWay(deliveryWay)) {
+			DeliveryTask task = orderInfo.getDeliveryTask();
+			if (task == null && orderInfo.getId() != null) {
+				task = deliveryTaskMapper.selectOne(Wrappers.<DeliveryTask>lambdaQuery()
+					.eq(DeliveryTask::getOrderId, orderInfo.getId())
+					.last("LIMIT 1"));
+			}
+			return isTaskDelivered(task);
+		}
+		// 上门自提：到店即交付；第三方快递：无内部妥投信号，由买家自行核对
+		return Boolean.TRUE;
 	}
 }

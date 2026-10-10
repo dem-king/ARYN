@@ -7,6 +7,7 @@ import com.aryn.cloud.order.api.entity.OrderConfig;
 import com.aryn.cloud.order.api.entity.OrderInfo;
 import com.aryn.cloud.order.event.ArynOrderCreateAfterEvent;
 import com.aryn.cloud.order.service.IOrderConfigService;
+import com.aryn.cloud.order.support.OrderCancelTimeoutHelper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
@@ -14,7 +15,6 @@ import org.springframework.messaging.support.GenericMessage;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
-import org.springframework.util.StringUtils;
 
 import java.util.Objects;
 
@@ -34,7 +34,7 @@ public class ArynOrderCreateAfterEventListener {
 	private final IOrderConfigService orderConfigService;
 
 	/**
-	 * rocketmq 延迟消息 30分钟取消订单
+	 * rocketmq 延迟消息：按订单配置的延迟级别超时取消订单
 	 * @param event
 	 */
 	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
@@ -45,16 +45,7 @@ public class ArynOrderCreateAfterEventListener {
 		}
 
 		final OrderInfo orderInfo = event.getOrderInfo();
-		int level = RocketMqConstants.ORDER_CANCEL_LEVEL;
-		if (StringUtils.hasText(orderConfig.getOrderCancelTimeout())) {
-			try {
-				level = Integer.parseInt(orderConfig.getOrderCancelTimeout());
-			}
-			catch (NumberFormatException exception) {
-				log.warn("订单取消延迟等级配置不合法，使用默认值, orderId={}, value={}",
-					orderInfo.getId(), orderConfig.getOrderCancelTimeout());
-			}
-		}
+		int level = OrderCancelTimeoutHelper.resolveDelayLevel(orderConfig);
 		OrderConsumerDTO orderConsumerDTO = new OrderConsumerDTO();
 		orderConsumerDTO.setOrderId(orderInfo.getId());
 		orderConsumerDTO.setTenantId(orderInfo.getTenantId());

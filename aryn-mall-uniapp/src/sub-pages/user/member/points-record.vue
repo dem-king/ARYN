@@ -13,7 +13,8 @@ definePage({
 
 interface PointsRecord {
   id: string
-  changeType: number
+  // 后端 AppPointsRecordVO.changeType 是字符串：1-获取；2-消耗
+  changeType: string
   changePoint: number
   balanceAfter: number
   triggerScene: string
@@ -40,27 +41,34 @@ async function queryList(pageNo: number, pageSize: number) {
     })
     pagingRef.value?.complete(response.records)
   }
+  catch (error) {
+    // 失败必须告知 z-paging，否则列表永远停在加载态
+    console.error('加载积分记录失败:', error)
+    pagingRef.value?.complete(false)
+  }
   finally {
     globalLoading.close()
   }
 }
 
-function getChangeTypeText(type: number): string {
-  return type === 1 ? '获取' : '消耗'
+function getChangeTypeText(type: string): string {
+  return type === '1' ? '获取' : '消耗'
 }
 
-function getChangeTypeClass(type: number): string {
-  return type === 1 ? 'text-green-500' : 'text-red-500'
+function getChangeTypeClass(type: string): string {
+  return type === '1' ? 'text-green-500' : 'text-red-500'
 }
 
 function getSceneText(scene: string): string {
   const sceneMap: Record<string, string> = {
     ORDER: '下单',
+    ORDER_COMPLETE: '订单完成',
     SIGN_IN: '签到',
     EXCHANGE: '兑换',
     RECHARGE: '充值',
     REFUND: '退款',
     ADMIN: '后台调整',
+    ADMIN_ADJUST: '后台调整',
   }
   return sceneMap[scene] || scene
 }
@@ -76,7 +84,7 @@ function getSceneText(scene: string): string {
         <view class="flex-1">
           <view class="flex items-center">
             <text class="text-14px font-bold">{{ getSceneText(item.triggerScene) }}</text>
-            <text class="ml-2 text-12px rounded px-1 py-0.5" :class="item.changeType === 1 ? 'bg-green-50 text-green-500' : 'bg-red-50 text-red-500'">
+            <text class="ml-2 text-12px rounded px-1 py-0.5" :class="item.changeType === '1' ? 'bg-green-50 text-green-500' : 'bg-red-50 text-red-500'">
               {{ getChangeTypeText(item.changeType) }}
             </text>
           </view>
@@ -89,7 +97,7 @@ function getSceneText(scene: string): string {
         </view>
         <view class="text-right">
           <view class="text-16px font-bold" :class="getChangeTypeClass(item.changeType)">
-            {{ item.changeType === 1 ? '+' : '-' }}{{ item.changePoint }}
+            {{ item.changeType === '1' ? '+' : '-' }}{{ item.changePoint }}
           </view>
           <view class="mt-1 text-11px text-gray-400">
             余额 {{ item.balanceAfter }}

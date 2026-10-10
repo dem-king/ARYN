@@ -4,7 +4,6 @@ import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.order.api.dto.CreateOrderDTO;
 import com.aryn.cloud.order.api.dto.CreateOrderSkuReqDTO;
 import com.aryn.cloud.order.api.dto.SharedCartItemDTO;
-import com.aryn.cloud.order.api.dto.SharedCartPlanDTO;
 import com.aryn.cloud.order.api.dto.SharedCartReuseDTO;
 import com.aryn.cloud.order.api.dto.SharedCartConfirmDTO;
 import com.aryn.cloud.order.api.dto.SharedCartCreateDTO;
@@ -235,6 +234,90 @@ class SharedCartServiceTest {
 				() -> service.joinByShareToken(TENANT, "new-user", "bad-token"));
 	}
 
+	/*
+	 * 管理端成员权限开关（2026-10-09 补）。
+	 *
+	 * 开关本身只是写 can_edit，关键是它写下的值必须真的生效、且不能写出矛盾状态：
+	 * 发起人天然可编辑（写了也是静默无效）、成员不存在要给明确报错。
+	 */
+
+	@Test
+	@DisplayName("管理端收回成员编辑权：落库 can_edit=0，该成员随即不能再加购")
+	void adminCanRevokeMemberEditPermission() {
+		SharedCart cart = cart(SharedCart.STATUS_COLLECTING);
+		when(cartMapper.selectOne(any())).thenReturn(cart);
+		SharedCartMember member = member(CART_ID, MEMBER, SharedCartMember.ROLE_MEMBER, "1", "0");
+		member.setId("member-row-1");
+		when(memberMapper.selectOne(any())).thenReturn(member);
+
+		SharedCartMember updated = service.updateMemberCanEdit(TENANT, CART_ID, "member-row-1", "0");
+
+		assertEquals("0", updated.getCanEdit());
+		verify(memberMapper).updateById(member);
+
+		// 写进去的值必须真的挡住加购：同一成员行重新读出后加购被拒
+		when(memberMapper.selectOne(any())).thenReturn(updated);
+		SharedCartItemDTO dto = new SharedCartItemDTO();
+		dto.setSkuId("sku-1");
+		dto.setRequestedQuantity(1);
+		assertThrows(ArynBusinessException.class, () -> service.addItem(TENANT, MEMBER, CART_ID, dto));
+	}
+
+	@Test
+	@DisplayName("管理端恢复成员编辑权：落库 can_edit=1")
+	void adminCanRestoreMemberEditPermission() {
+		SharedCart cart = cart(SharedCart.STATUS_COLLECTING);
+		when(cartMapper.selectOne(any())).thenReturn(cart);
+		SharedCartMember member = member(CART_ID, MEMBER, SharedCartMember.ROLE_MEMBER, "0", "0");
+		member.setId("member-row-1");
+		when(memberMapper.selectOne(any())).thenReturn(member);
+
+		SharedCartMember updated = service.updateMemberCanEdit(TENANT, CART_ID, "member-row-1", "1");
+
+		assertEquals("1", updated.getCanEdit());
+		verify(memberMapper).updateById(member);
+	}
+
+	@Test
+	@DisplayName("发起人不接受收回：他天然可编辑，写了也是静默无效，直接报错更诚实")
+	void adminCannotRevokeOwnerEditPermission() {
+		SharedCart cart = cart(SharedCart.STATUS_COLLECTING);
+		when(cartMapper.selectOne(any())).thenReturn(cart);
+		SharedCartMember ownerRow = member(CART_ID, OWNER, SharedCartMember.ROLE_OWNER, "1", "1");
+		ownerRow.setId("member-row-owner");
+		when(memberMapper.selectOne(any())).thenReturn(ownerRow);
+
+		ArynBusinessException exception = assertThrows(ArynBusinessException.class,
+				() -> service.updateMemberCanEdit(TENANT, CART_ID, "member-row-owner", "0"));
+		assertTrue(exception.getMsg().contains("发起人"));
+		verify(memberMapper, never()).updateById(any(SharedCartMember.class));
+	}
+
+	@Test
+	@DisplayName("成员不存在时给出明确报错，不静默成功")
+	void adminCannotSetPermissionForUnknownMember() {
+		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
+		when(memberMapper.selectOne(any())).thenReturn(null);
+
+		ArynBusinessException exception = assertThrows(ArynBusinessException.class,
+				() -> service.updateMemberCanEdit(TENANT, CART_ID, "ghost", "0"));
+		assertTrue(exception.getMsg().contains("成员不存在"));
+		verify(memberMapper, never()).updateById(any(SharedCartMember.class));
+	}
+
+	@Test
+	@DisplayName("开关也接受已提交的车：归档后仍在改权限只能是无害操作，不因状态被拒")
+	void adminCanSetPermissionOnSubmittedCart() {
+		// 已提交车的成员明细不会被 requireCanEdit 用到（requireEditable 先拦下），
+		// 所以这里刻意不加状态校验：加了只会让运营在历史单上看到无意义的报错。
+		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_SUBMITTED));
+		SharedCartMember member = member(CART_ID, MEMBER, SharedCartMember.ROLE_MEMBER, "1", "0");
+		member.setId("member-row-1");
+		when(memberMapper.selectOne(any())).thenReturn(member);
+
+		assertEquals("0", service.updateMemberCanEdit(TENANT, CART_ID, "member-row-1", "0").getCanEdit());
+	}
+
 	@Test
 	@DisplayName("已提交的购物车不接受新成员加入")
 	void joinByShareTokenRejectsSubmittedCart() {
@@ -294,12 +377,134 @@ class SharedCartServiceTest {
 		assertThrows(ArynBusinessException.class, () -> service.addItem(TENANT, OWNER, CART_ID, dto));
 	}
 
+	/*
+	 * can_edit 约束力（2026-10-09 补）：
+	 *
+	 * 这四条守的是一个曾经**只在前端生效**的标记。此前服务端完全不看 can_edit，
+	 * 于是「加购弹层里选不到共享车」与「直接调接口能写进去」同时成立，
+	 * 演示数据把确认人写成 can_edit=0 时，用户看到的就是
+	 * 「明明在车里，加购只能进个人购物车」。四条分别覆盖三个写入入口
+	 * （加购/改数量/移除）与一个侧门（历史复用）。
+	 */
+
+	@Test
+	@DisplayName("can_edit=0 的成员不能加购：只读是服务端约束，不是前端隐藏")
+	void readOnlyMemberCannotAddItem() {
+		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
+		when(memberMapper.selectOne(any()))
+			.thenReturn(member(CART_ID, MEMBER, SharedCartMember.ROLE_CONFIRMATOR, "0", "1"));
+		SharedCartItemDTO dto = new SharedCartItemDTO();
+		dto.setSkuId("sku-1");
+		dto.setRequestedQuantity(1);
+
+		ArynBusinessException exception = assertThrows(ArynBusinessException.class,
+				() -> service.addItem(TENANT, MEMBER, CART_ID, dto));
+		assertTrue(exception.getMsg().contains("权限"), "报错要说清是权限问题，而不是商品或库存");
+		verify(itemMapper, never()).insert(any(SharedCartItem.class));
+	}
+
+	@Test
+	@DisplayName("can_edit=0 的成员不能改自己已加的行")
+	void readOnlyMemberCannotUpdateOwnItem() {
+		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
+		when(itemMapper.selectOne(any())).thenReturn(item("item-1", MEMBER, "sku-1", 5));
+		when(memberMapper.selectOne(any())).thenReturn(member(CART_ID, MEMBER, SharedCartMember.ROLE_MEMBER, "0", "0"));
+		SharedCartItemDTO dto = new SharedCartItemDTO();
+		dto.setSkuId("sku-1");
+		dto.setRequestedQuantity(8);
+
+		assertThrows(ArynBusinessException.class,
+				() -> service.updateItem(TENANT, MEMBER, CART_ID, "item-1", dto));
+		verify(itemMapper, never()).updateById(any(SharedCartItem.class));
+	}
+
+	@Test
+	@DisplayName("can_edit=0 的成员不能移除自己的行")
+	void readOnlyMemberCannotRemoveOwnItem() {
+		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
+		when(itemMapper.selectOne(any())).thenReturn(item("item-1", MEMBER, "sku-1", 5));
+		when(memberMapper.selectOne(any())).thenReturn(member(CART_ID, MEMBER, SharedCartMember.ROLE_MEMBER, "0", "0"));
+
+		assertThrows(ArynBusinessException.class,
+				() -> service.removeItem(TENANT, MEMBER, CART_ID, "item-1"));
+		verify(itemMapper, never()).updateById(any(SharedCartItem.class));
+	}
+
+	@Test
+	@DisplayName("can_edit=1 的成员照常加购：约束只挡只读成员，不误伤普通成员")
+	void editableMemberCanAddItem() {
+		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
+		when(memberMapper.selectOne(any())).thenReturn(member(CART_ID, MEMBER, SharedCartMember.ROLE_MEMBER, "1", "0"));
+		SharedCartItemDTO dto = new SharedCartItemDTO();
+		dto.setSkuId("sku-1");
+		dto.setRequestedQuantity(2);
+
+		SharedCartItem added = service.addItem(TENANT, MEMBER, CART_ID, dto);
+
+		assertEquals(MEMBER, added.getUserId(), "明细归属应是加购者自己");
+		verify(itemMapper).insert(any(SharedCartItem.class));
+	}
+
+	@Test
+	@DisplayName("发起人不查成员行即可加购：他创建车时就承担了维护职责")
+	void ownerCanAddItemWithoutMemberRow() {
+		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
+		// 成员表里查不到发起人（历史数据/异常场景）也不该拦住他自己
+		when(memberMapper.selectOne(any())).thenReturn(null);
+		SharedCartItemDTO dto = new SharedCartItemDTO();
+		dto.setSkuId("sku-1");
+		dto.setRequestedQuantity(1);
+
+		SharedCartItem added = service.addItem(TENANT, OWNER, CART_ID, dto);
+
+		assertEquals(OWNER, added.getUserId());
+		verify(itemMapper).insert(any(SharedCartItem.class));
+	}
+
+	@Test
+	@DisplayName("can_edit=0 的成员不能靠历史复用侧门给自己添行")
+	void readOnlyMemberCannotReuseFromHistory() {
+		SharedCart source = cart(SharedCart.STATUS_COMPLETED);
+		SharedCart target = cart(SharedCart.STATUS_COLLECTING);
+		target.setOwnerUserId("someone-else");
+		when(cartMapper.selectOne(any())).thenReturn(source, target);
+		// requireMembership(源单) -> 成员；目标车里已有该成员行且 can_edit=0
+		when(memberMapper.selectCount(any())).thenReturn(1L);
+		when(memberMapper.selectOne(any())).thenReturn(member(CART_ID, MEMBER, SharedCartMember.ROLE_MEMBER, "0", "0"));
+		givenItemQueries(List.of(), List.of(item("a", MEMBER, "sku-1", 2)));
+
+		SharedCartReuseDTO dto = new SharedCartReuseDTO();
+		dto.setVesselId("vessel-1");
+		dto.setVesselCallId("call-new");
+
+		assertThrows(ArynBusinessException.class,
+				() -> service.reuseFromHistory(TENANT, MEMBER, CART_ID, dto));
+		verify(itemMapper, never()).insert(any(SharedCartItem.class));
+	}
+
+	@Test
+	@DisplayName("非成员加购报「无权访问」，不与只读区分开")
+	void nonMemberCannotAddItem() {
+		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
+		when(memberMapper.selectOne(any())).thenReturn(null);
+		SharedCartItemDTO dto = new SharedCartItemDTO();
+		dto.setSkuId("sku-1");
+		dto.setRequestedQuantity(1);
+
+		ArynBusinessException exception = assertThrows(ArynBusinessException.class,
+				() -> service.addItem(TENANT, "stranger", CART_ID, dto));
+		assertTrue(exception.getMsg().contains("无权访问"));
+		verify(itemMapper, never()).insert(any(SharedCartItem.class));
+	}
+
 	@Test
 	@DisplayName("确认人提交时按 SKU 聚合并生成整船订单")
 	void confirmAggregatesAndCreatesOrder() {
 		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
 		when(itemMapper.selectList(any())).thenReturn(List.of(item("item-1", OWNER, "sku-1", 5),
 				item("item-2", MEMBER, "sku-1", 3), item("item-3", MEMBER, "sku-2", 2)));
+		// 提交前会校验靠港可用性（ensureOrderableCall）：没有可用靠港会被拒绝整车提交
+		when(remoteVesselService.getVesselCallContext(TENANT, "call-1")).thenReturn(vesselContext());
 		OrderInfo createdOrder = new OrderInfo();
 		createdOrder.setId("order-1");
 		when(orderInfoService.createOrder(any(CreateOrderDTO.class))).thenReturn(createdOrder);
@@ -337,6 +542,7 @@ class SharedCartServiceTest {
 		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING),
 				cart(SharedCart.STATUS_COLLECTING));
 		when(itemMapper.selectList(any())).thenReturn(List.of(item("item-1", OWNER, "sku-1", 5)));
+		when(remoteVesselService.getVesselCallContext(TENANT, "call-1")).thenReturn(vesselContext());
 		OrderInfo createdOrder = new OrderInfo();
 		createdOrder.setId("order-1");
 		when(orderInfoService.createOrder(any(CreateOrderDTO.class))).thenReturn(createdOrder);
@@ -383,6 +589,7 @@ class SharedCartServiceTest {
 	void confirmAppliesApprovedQuantities() {
 		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
 		when(itemMapper.selectList(any())).thenReturn(List.of(item("item-1", OWNER, "sku-1", 12)));
+		when(remoteVesselService.getVesselCallContext(TENANT, "call-1")).thenReturn(vesselContext());
 		OrderInfo createdOrder = new OrderInfo();
 		createdOrder.setId("order-2");
 		when(orderInfoService.createOrder(any(CreateOrderDTO.class))).thenReturn(createdOrder);
@@ -424,7 +631,7 @@ class SharedCartServiceTest {
 			.thenReturn(List.of(member(CART_ID, OWNER, SharedCartMember.ROLE_OWNER, "1", "1")));
 		when(cartMapper.selectList(any())).thenReturn(List.of(cart(SharedCart.STATUS_COLLECTING)));
 		givenItemQueries(List.of(), List.of());
-		when(remoteVesselService.getVesselCallContext(TENANT, "call-1")).thenReturn(vesselContext());
+		when(remoteVesselService.getVesselCallSnapshot(TENANT, "call-1")).thenReturn(vesselContext());
 
 		List<SharedCartVO> result = service.listMyCarts(TENANT, OWNER);
 
@@ -440,6 +647,49 @@ class SharedCartServiceTest {
 		assertTrue(vo.getViewerCanConfirm());
 		assertEquals(1, vo.getMemberCount());
 		assertEquals(0, vo.getItemCount());
+	}
+
+	@Test
+	@DisplayName("已结束靠港的历史单照样返回船名与港口：靠港离港不等于查不到名字")
+	void listMyCartsKeepsVesselNameForFinishedCall() {
+		// 历史单（已提交/已完成）绑定的靠港必然已经结束。若用「可下单」查询补展示字段，
+		// 这些卡片会永久退化成「船舶信息加载中」——正是本次要修的缺陷。
+		// 展示字段必须走不受可下单过滤的快照查询。
+		when(memberMapper.selectList(any()))
+			.thenReturn(List.of(member(CART_ID, OWNER, SharedCartMember.ROLE_OWNER, "1", "1")));
+		when(cartMapper.selectList(any())).thenReturn(List.of(cart(SharedCart.STATUS_SUBMITTED)));
+		when(itemMapper.selectList(any())).thenReturn(List.of());
+		when(remoteVesselService.getVesselCallSnapshot(TENANT, "call-1")).thenReturn(staleVesselContext());
+
+		SharedCartVO vo = service.listMyCarts(TENANT, OWNER).get(0);
+
+		assertEquals("悦航2号", vo.getVesselName());
+		assertEquals("福建港", vo.getPortName());
+		assertEquals("321", vo.getBerth());
+		// 靠港是否仍可下单要单独下发：展示字段有值不代表还能下单（详情页据此提示顺延）
+		assertEquals(Boolean.FALSE, vo.getCallOrderable());
+	}
+
+	@Test
+	@DisplayName("同一靠港的多个购物车只查一次快照")
+	void listMyCartsDeduplicatesSnapshotLookups() {
+		// 同一航次的多次采购挂在同一个靠港上，列表一次取数不该按车重复查远程
+		SharedCart first = cart(SharedCart.STATUS_SUBMITTED);
+		SharedCart second = cart(SharedCart.STATUS_COMPLETED);
+		second.setId("cart-2");
+		when(memberMapper.selectList(any()))
+			.thenReturn(List.of(member(CART_ID, OWNER, SharedCartMember.ROLE_OWNER, "1", "1"),
+					member("cart-2", OWNER, SharedCartMember.ROLE_OWNER, "1", "1")));
+		when(cartMapper.selectList(any())).thenReturn(List.of(first, second));
+		when(itemMapper.selectList(any())).thenReturn(List.of());
+		when(remoteVesselService.getVesselCallSnapshot(TENANT, "call-1")).thenReturn(vesselContext());
+
+		List<SharedCartVO> result = service.listMyCarts(TENANT, OWNER);
+
+		assertEquals(2, result.size());
+		assertEquals("悦航1号", result.get(0).getVesselName());
+		assertEquals("悦航1号", result.get(1).getVesselName());
+		verify(remoteVesselService, times(1)).getVesselCallSnapshot(TENANT, "call-1");
 	}
 
 	@Test
@@ -481,44 +731,18 @@ class SharedCartServiceTest {
 	}
 
 	@Test
-	@DisplayName("列表卡片带出补给进度，未排计划的行不编造百分比")
-	void listMyCartsCarriesProgress() {
+	@DisplayName("列表卡片按有效明细计数，已移除的不计入")
+	void listMyCartsCountsActiveItems() {
 		when(memberMapper.selectList(any()))
 			.thenReturn(List.of(member(CART_ID, OWNER, SharedCartMember.ROLE_OWNER, "1", "1")));
 		when(cartMapper.selectList(any())).thenReturn(List.of(cart(SharedCart.STATUS_COLLECTING)));
-		SharedCartItem done = item("item-1", OWNER, "sku-1", 5);
-		done.setPlannedQuantity(4);
-		done.setFulfilledQuantity(4);
-		SharedCartItem partial = item("item-2", OWNER, "sku-2", 3);
-		partial.setPlannedQuantity(4);
-		partial.setFulfilledQuantity(1);
-		SharedCartItem unplanned = item("item-3", OWNER, "sku-3", 2);
-		when(itemMapper.selectList(any())).thenReturn(List.of(done, partial, unplanned));
+		SharedCartItem first = item("item-1", OWNER, "sku-1", 5);
+		SharedCartItem second = item("item-2", OWNER, "sku-2", 3);
+		when(itemMapper.selectList(any())).thenReturn(List.of(first, second));
 
 		SharedCartVO vo = service.listMyCarts(TENANT, OWNER).get(0);
 
-		assertEquals(3, vo.getProgress().getTotalItems());
-		assertEquals(2, vo.getProgress().getPlannedItems());
-		assertEquals(1, vo.getProgress().getFulfilledItems());
-		assertEquals(1, vo.getProgress().getRemainingItems());
-		assertEquals(1, vo.getProgress().getUnplannedItems());
-		assertEquals(50, vo.getProgress().getProgressPercent());
-	}
-
-	@Test
-	@DisplayName("完全没有排计划时进度百分比为 null，而不是 0%")
-	void listMyCartsReportsNullPercentWithoutPlan() {
-		// 0% 会被读成「有计划但一项没采」，与「根本没排计划」是两回事。
-		when(memberMapper.selectList(any()))
-			.thenReturn(List.of(member(CART_ID, OWNER, SharedCartMember.ROLE_OWNER, "1", "1")));
-		when(cartMapper.selectList(any())).thenReturn(List.of(cart(SharedCart.STATUS_COLLECTING)));
-		when(itemMapper.selectList(any())).thenReturn(List.of(item("item-1", OWNER, "sku-1", 5)));
-
-		SharedCartVO vo = service.listMyCarts(TENANT, OWNER).get(0);
-
-		assertEquals(1, vo.getProgress().getTotalItems());
-		assertEquals(0, vo.getProgress().getPlannedItems());
-		assertNull(vo.getProgress().getProgressPercent());
+		assertEquals(2, vo.getItemCount());
 	}
 
 	@Test
@@ -555,7 +779,7 @@ class SharedCartServiceTest {
 			.thenReturn(List.of(member(CART_ID, OWNER, SharedCartMember.ROLE_OWNER, "1", "1")));
 		when(cartMapper.selectList(any())).thenReturn(List.of(cart(SharedCart.STATUS_COLLECTING)));
 		when(itemMapper.selectList(any())).thenReturn(List.of());
-		when(remoteVesselService.getVesselCallContext(anyString(), anyString()))
+		when(remoteVesselService.getVesselCallSnapshot(anyString(), anyString()))
 			.thenThrow(new RuntimeException("vessel service down"));
 
 		List<SharedCartVO> result = service.listMyCarts(TENANT, OWNER);
@@ -583,7 +807,7 @@ class SharedCartServiceTest {
 		when(memberMapper.selectList(any()))
 			.thenReturn(List.of(member(CART_ID, MEMBER, SharedCartMember.ROLE_CONFIRMATOR, "1", "1")));
 		when(itemMapper.selectList(any())).thenReturn(List.of());
-		when(remoteVesselService.getVesselCallContext(TENANT, "call-1")).thenReturn(vesselContext());
+		when(remoteVesselService.getVesselCallSnapshot(TENANT, "call-1")).thenReturn(vesselContext());
 
 		SharedCartVO vo = service.getCartDetail(TENANT, MEMBER, CART_ID);
 
@@ -594,180 +818,92 @@ class SharedCartServiceTest {
 	}
 
 	@Test
-	@DisplayName("排计划：确认人可给任意成员的明细行排计划")
-	void updateItemPlanAllowsConfirmer() {
+	@DisplayName("核定 0 = 本次不采：该行不生成订单明细")
+	void confirmSkipsRowsApprovedAsZero() {
 		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
-		SharedCartItem target = item("item-1", MEMBER, "sku-1", 6);
-		when(itemMapper.selectOne(any())).thenReturn(target);
+		when(memberMapper.selectCount(any())).thenReturn(1L);
+		SharedCartItem buy = item("item-1", MEMBER, "sku-1", 2);
+		SharedCartItem skip = item("item-2", MEMBER, "sku-2", 3);
+		givenItemQueries(List.of(buy, skip), List.of(buy, skip));
+		when(remoteVesselService.getVesselCallContext(TENANT, "call-1")).thenReturn(vesselContext());
+		OrderInfo createdOrder = new OrderInfo();
+		createdOrder.setId("order-1");
+		when(orderInfoService.createOrder(any(CreateOrderDTO.class))).thenReturn(createdOrder);
 
-		SharedCartPlanDTO dto = new SharedCartPlanDTO();
-		dto.setItemId("item-1");
-		dto.setPlannedQuantity(4);
-		dto.setFulfilledQuantity(1);
+		SharedCartConfirmDTO dto = new SharedCartConfirmDTO();
+		SharedCartConfirmDTO.ApprovedQuantity buyQty = new SharedCartConfirmDTO.ApprovedQuantity();
+		buyQty.setItemId("item-1");
+		buyQty.setQuantity(2);
+		SharedCartConfirmDTO.ApprovedQuantity skipQty = new SharedCartConfirmDTO.ApprovedQuantity();
+		skipQty.setItemId("item-2");
+		skipQty.setQuantity(0);
+		dto.setApprovedQuantities(List.of(buyQty, skipQty));
 
-		SharedCartItem updated = service.updateItemPlan(TENANT, OWNER, CART_ID, dto);
+		service.confirmAndCreateOrder(TENANT, OWNER, CART_ID, dto);
 
-		assertEquals(4, updated.getPlannedQuantity());
-		assertEquals(1, updated.getFulfilledQuantity());
-		verify(itemMapper).updateById(target);
+		ArgumentCaptor<CreateOrderDTO> captor = ArgumentCaptor.forClass(CreateOrderDTO.class);
+		verify(orderInfoService).createOrder(captor.capture());
+		List<CreateOrderSkuReqDTO> skuReqs = captor.getValue().getSkuReqList();
+		assertEquals(1, skuReqs.size());
+		assertEquals("sku-1", skuReqs.get(0).getSkuId());
+		// 被排除的那行仍落库核定结果，成员端能看到「报的这项没买」
+		assertEquals(0, skip.getApprovedQuantity());
+		assertEquals(SharedCartItem.ITEM_CONFIRMED, skip.getStatus());
 	}
 
 	@Test
-	@DisplayName("排计划：普通成员是有效成员但无确认权时仍无权排计划")
-	void updateItemPlanRejectsPlainMember() {
+	@DisplayName("核定 0：全部行都排除时给出可读报错，不落到下单去抛底层异常")
+	void confirmRejectsWhenEveryRowExcluded() {
 		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
-		when(itemMapper.selectOne(any())).thenReturn(item("item-1", MEMBER, "sku-1", 6));
-		// 该成员是有效成员（成员关系查得到），但成员行的 canConfirm=0：
-		// 这两个查询都走 selectCount，靠 SQL 里是否带 can_confirm 区分，
-		// 否则用 any() 一把梭会让「权限收紧」和「权限放宽」得到同样结果。
-		when(memberMapper.selectCount(any())).thenAnswer(invocation -> {
-			Wrapper<SharedCartMember> wrapper = invocation.getArgument(0);
-			return wrapper.getSqlSegment().contains("can_confirm") ? 0L : 1L;
-		});
+		when(memberMapper.selectCount(any())).thenReturn(1L);
+		SharedCartItem only = item("item-1", MEMBER, "sku-1", 2);
+		givenItemQueries(List.of(only), List.of(only));
+		when(remoteVesselService.getVesselCallContext(TENANT, "call-1")).thenReturn(vesselContext());
 
-		SharedCartPlanDTO dto = new SharedCartPlanDTO();
-		dto.setItemId("item-1");
-		dto.setPlannedQuantity(4);
+		SharedCartConfirmDTO dto = new SharedCartConfirmDTO();
+		SharedCartConfirmDTO.ApprovedQuantity zero = new SharedCartConfirmDTO.ApprovedQuantity();
+		zero.setItemId("item-1");
+		zero.setQuantity(0);
+		dto.setApprovedQuantities(List.of(zero));
+
+		ArynBusinessException ex = assertThrows(ArynBusinessException.class,
+				() -> service.confirmAndCreateOrder(TENANT, OWNER, CART_ID, dto));
+		assertTrue(ex.getMsg().contains("本次不采"), "报错要说清原因，实际：" + ex.getMsg());
+		verify(orderInfoService, never()).createOrder(any());
+	}
+
+	@Test
+	@DisplayName("核定数量不能为负数")
+	void confirmRejectsNegativeApprovedQuantity() {
+		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
+		when(memberMapper.selectCount(any())).thenReturn(1L);
+		SharedCartItem buy = item("item-1", MEMBER, "sku-1", 2);
+		givenItemQueries(List.of(buy), List.of(buy));
+		when(remoteVesselService.getVesselCallContext(TENANT, "call-1")).thenReturn(vesselContext());
+
+		SharedCartConfirmDTO dto = new SharedCartConfirmDTO();
+		SharedCartConfirmDTO.ApprovedQuantity negative = new SharedCartConfirmDTO.ApprovedQuantity();
+		negative.setItemId("item-1");
+		negative.setQuantity(-1);
+		dto.setApprovedQuantities(List.of(negative));
 
 		assertThrows(ArynBusinessException.class,
-				() -> service.updateItemPlan(TENANT, MEMBER, CART_ID, dto));
-		verify(itemMapper, never()).updateById(any(SharedCartItem.class));
+				() -> service.confirmAndCreateOrder(TENANT, OWNER, CART_ID, dto));
+		verify(orderInfoService, never()).createOrder(any());
 	}
 
 	@Test
-	@DisplayName("排计划：clearPlanned=true 才清空计划量")
-	void updateItemPlanClearsOnlyWhenExplicit() {
-		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
-		SharedCartItem target = item("item-1", MEMBER, "sku-1", 6);
-		target.setPlannedQuantity(4);
-		target.setFulfilledQuantity(2);
-		when(itemMapper.selectOne(any())).thenReturn(target);
-
-		SharedCartPlanDTO dto = new SharedCartPlanDTO();
-		dto.setItemId("item-1");
-		// plannedQuantity 为空但未显式 clearPlanned：应保持原计划不动
-		dto.setFulfilledQuantity(3);
-
-		SharedCartItem updated = service.updateItemPlan(TENANT, OWNER, CART_ID, dto);
-
-		assertEquals(4, updated.getPlannedQuantity());
-		assertEquals(3, updated.getFulfilledQuantity());
-	}
-
-	@Test
-	@DisplayName("排计划：只改已采量不会抹掉计划（clearPlanned 缺席时的语义）")
-	void updateItemPlanOnlyFulfilledKeepsPlan() {
-		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
-		SharedCartItem target = item("item-1", MEMBER, "sku-1", 6);
-		target.setPlannedQuantity(4);
-		when(itemMapper.selectOne(any())).thenReturn(target);
-
-		SharedCartPlanDTO dto = new SharedCartPlanDTO();
-		dto.setItemId("item-1");
-		dto.setPlannedQuantity(4);
-		dto.setFulfilledQuantity(4);
-
-		SharedCartItem updated = service.updateItemPlan(TENANT, OWNER, CART_ID, dto);
-
-		assertEquals(4, updated.getPlannedQuantity());
-		assertEquals(4, updated.getFulfilledQuantity());
-	}
-
-	@Test
-	@DisplayName("排计划：显式 clearPlanned=true 清空计划，行退出进度统计")
-	void updateItemPlanClearsPlanWhenRequested() {
-		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
-		SharedCartItem target = item("item-1", MEMBER, "sku-1", 6);
-		target.setPlannedQuantity(4);
-		target.setFulfilledQuantity(2);
-		when(itemMapper.selectOne(any())).thenReturn(target);
-
-		SharedCartPlanDTO dto = new SharedCartPlanDTO();
-		dto.setItemId("item-1");
-		dto.setClearPlanned(true);
-
-		SharedCartItem updated = service.updateItemPlan(TENANT, OWNER, CART_ID, dto);
-
-		assertNull(updated.getPlannedQuantity());
-		// 清计划不该顺手把已采量清零（已采是既成事实）
-		assertEquals(2, updated.getFulfilledQuantity());
-	}
-
-	@Test
-	@DisplayName("取计划必须真的写库：updateById 会跳过 null，需走 lambdaUpdate")
-	void updateItemPlanClearWritesNullToDatabase() {
-		// 缺陷注入实测：全库配了 update-strategy: not_null，updateById 会**跳过 null 字段**。
-		// 只断言返回对象的 plannedQuantity 是 null 完全看不出来 —— 内存里被置空、
-		// 接口也照 200 返回，但库里该列纹丝不动，用户「清空输入框保存」后计划还在。
-		// 因此这里断言真正执行的写操作是 lambdaUpdate（显式 set null）而不是 updateById。
-		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
-		SharedCartItem target = item("item-1", MEMBER, "sku-1", 6);
-		target.setPlannedQuantity(4);
-		target.setFulfilledQuantity(2);
-		when(itemMapper.selectOne(any())).thenReturn(target);
-
-		SharedCartPlanDTO dto = new SharedCartPlanDTO();
-		dto.setItemId("item-1");
-		dto.setClearPlanned(true);
-
-		service.updateItemPlan(TENANT, OWNER, CART_ID, dto);
-
-		// 走 update(entity, wrapper) 而非 updateById：前者能把 null 显式写进列
-		ArgumentCaptor<Wrapper<SharedCartItem>> captor = ArgumentCaptor.forClass(Wrapper.class);
-		verify(itemMapper).update(isNull(), captor.capture());
-		String sqlSet = captor.getValue().getSqlSet();
-		assertNotNull(sqlSet);
-		assertTrue(sqlSet.contains("planned_quantity"),
-				"清空计划必须显式 set planned_quantity，实际 SET 段：" + sqlSet);
-		// 清计划这条路径不应再调 updateById，否则等于什么都没写
-		verify(itemMapper, never()).updateById(any(SharedCartItem.class));
-	}
-
-	@Test
-	@DisplayName("排计划：存量行的已采量为 null 时补 0，保证进度口径统一")
-	void updateItemPlanBackfillsNullFulfilled() {
-		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
-		SharedCartItem target = item("item-1", MEMBER, "sku-1", 6);
-		target.setPlannedQuantity(4);
-		target.setFulfilledQuantity(null);
-		when(itemMapper.selectOne(any())).thenReturn(target);
-
-		SharedCartPlanDTO dto = new SharedCartPlanDTO();
-		dto.setItemId("item-1");
-
-		SharedCartItem updated = service.updateItemPlan(TENANT, OWNER, CART_ID, dto);
-
-		assertEquals(0, updated.getFulfilledQuantity());
-	}
-
-	@Test
-	@DisplayName("排计划：已提交的购物车不能再改计划")
-	void updateItemPlanRejectsReadonlyCart() {
-		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_SUBMITTED));
-		when(itemMapper.selectOne(any())).thenReturn(item("item-1", MEMBER, "sku-1", 6));
-
-		SharedCartPlanDTO dto = new SharedCartPlanDTO();
-		dto.setItemId("item-1");
-		dto.setPlannedQuantity(4);
-
-		assertThrows(ArynBusinessException.class,
-				() -> service.updateItemPlan(TENANT, OWNER, CART_ID, dto));
-	}
-
-	@Test
-	@DisplayName("历史复用：计划量优先，同一 SKU 多行合并为一行")
-	void reuseFromHistoryMergesBySkuAndPrefersPlannedQuantity() {
+	@DisplayName("历史复用：核定数量优先，同一 SKU 多行合并为一行")
+	void reuseFromHistoryMergesBySkuAndPrefersApprovedQuantity() {
 		// 源单：已完成的历史单，同一 SKU 因「按人拆行」出现两行
 		SharedCart source = cart(SharedCart.STATUS_COMPLETED);
 		when(cartMapper.selectOne(any())).thenReturn(source, null);
 		when(memberMapper.selectCount(any())).thenReturn(1L, 0L);
 		SharedCartItem rowA = item("a", MEMBER, "sku-1", 5);
-		rowA.setPlannedQuantity(2);
-		rowA.setFulfilledQuantity(2);
+		rowA.setApprovedQuantity(2);
 		SharedCartItem rowB = item("b", OWNER, "sku-1", 3);
-		rowB.setPlannedQuantity(1);
-		rowB.setFulfilledQuantity(0);
-		// 第二行没有计划量，应回落申请量
+		rowB.setApprovedQuantity(1);
+		// 第二行没有核定数量，应回落申请量
 		SharedCartItem rowC = item("c", OWNER, "sku-2", 4);
 		givenItemQueries(List.of(), List.of(rowA, rowB, rowC));
 
@@ -777,7 +913,7 @@ class SharedCartServiceTest {
 
 		SharedCartReuseVO result = service.reuseFromHistory(TENANT, MEMBER, CART_ID, dto);
 
-		// sku-1: 计划量 2+1=3；sku-2: 回落申请量 4
+		// sku-1: 核定 2+1=3；sku-2: 回落申请量 4
 		assertEquals(2, result.getReusedCount());
 		assertEquals(0, result.getSkippedCount());
 		ArgumentCaptor<SharedCartItem> captor = ArgumentCaptor.forClass(SharedCartItem.class);
@@ -785,34 +921,35 @@ class SharedCartServiceTest {
 		List<SharedCartItem> inserted = captor.getAllValues();
 		SharedCartItem first = inserted.stream().filter(i -> "sku-1".equals(i.getSkuId())).findFirst().orElseThrow();
 		assertEquals(3, first.getRequestedQuantity());
-		assertEquals(3, first.getPlannedQuantity());
 		SharedCartItem second = inserted.stream().filter(i -> "sku-2".equals(i.getSkuId())).findFirst().orElseThrow();
 		assertEquals(4, second.getRequestedQuantity());
-		// 源单没排计划 -> 目标行也不许拿申请量充数
-		assertNull(second.getPlannedQuantity());
 	}
 
 	@Test
-	@DisplayName("历史复用：不继承已采量（否则新一轮进度一上来就是满的）")
-	void reuseFromHistoryDoesNotCarryFulfilledQuantity() {
+	@DisplayName("历史复用：上一轮核定为「本次不采」（0）的行不搬过来")
+	void reuseFromHistorySkipsRowsApprovedAsZero() {
+		// 核定为 0 是「那次没买」，属于既成事实；搬过来会凭空多出一项没人要的商品
 		SharedCart source = cart(SharedCart.STATUS_SUBMITTED);
 		when(cartMapper.selectOne(any())).thenReturn(source, null);
 		when(memberMapper.selectCount(any())).thenReturn(1L, 0L);
-		SharedCartItem row = item("a", MEMBER, "sku-1", 5);
-		row.setPlannedQuantity(5);
-		row.setFulfilledQuantity(5);
-		givenItemQueries(List.of(), List.of(row));
+		SharedCartItem skipped = item("a", MEMBER, "sku-1", 5);
+		skipped.setApprovedQuantity(0);
+		SharedCartItem kept = item("b", MEMBER, "sku-2", 3);
+		kept.setApprovedQuantity(2);
+		givenItemQueries(List.of(), List.of(skipped, kept));
 
 		SharedCartReuseDTO dto = new SharedCartReuseDTO();
 		dto.setVesselId("vessel-1");
 		dto.setVesselCallId("call-new");
 
-		service.reuseFromHistory(TENANT, MEMBER, CART_ID, dto);
+		SharedCartReuseVO result = service.reuseFromHistory(TENANT, MEMBER, CART_ID, dto);
 
+		assertEquals(1, result.getReusedCount());
+		assertEquals(1, result.getSkippedCount());
 		ArgumentCaptor<SharedCartItem> captor = ArgumentCaptor.forClass(SharedCartItem.class);
 		verify(itemMapper).insert(captor.capture());
-		assertEquals(0, captor.getValue().getFulfilledQuantity());
-		assertEquals(SharedCartItem.ITEM_PENDING, captor.getValue().getStatus());
+		assertEquals("sku-2", captor.getValue().getSkuId());
+		assertEquals(2, captor.getValue().getRequestedQuantity());
 	}
 
 	@Test
@@ -982,6 +1119,20 @@ class SharedCartServiceTest {
 		context.setPortCode("CNSHA");
 		context.setPortName("上海港");
 		context.setBerth("洋山1号泊位");
+		context.setCallOrderable(Boolean.TRUE);
+		return context;
+	}
+
+	/** 已结束（离港）的靠港：展示字段齐全，但不可再下单 */
+	private VesselContextDTO staleVesselContext() {
+		VesselContextDTO context = new VesselContextDTO();
+		context.setVesselId("vessel-1");
+		context.setVesselName("悦航2号");
+		context.setVesselCallId("call-1");
+		context.setPortCode("CNFZH");
+		context.setPortName("福建港");
+		context.setBerth("321");
+		context.setCallOrderable(Boolean.FALSE);
 		return context;
 	}
 

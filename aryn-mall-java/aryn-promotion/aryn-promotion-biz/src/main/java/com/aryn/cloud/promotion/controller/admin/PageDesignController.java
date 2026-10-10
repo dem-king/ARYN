@@ -83,6 +83,13 @@ public class PageDesignController {
 		return Result.success(iPage);
 	}
 
+	@Operation(summary = "各类型当前生效装修页汇总")
+	@SaCheckPermission("promotion:pagedesign:page")
+	@GetMapping("/effective-summary")
+	public Result<List<PageDesign>> effectiveSummary() {
+		return Result.success(pageDesignService.listEffectivePages());
+	}
+
 	@Operation(summary = "页面设计查询")
 	@SaCheckPermission("promotion:pagedesign:get")
 	@GetMapping("/{id}")

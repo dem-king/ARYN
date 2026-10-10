@@ -36,4 +36,22 @@ public class PurchaseSceneValidator {
 		}
 	}
 
+	/**
+	 * 归一购买场景：未声明的订单按海员个人购买落库。
+	 *
+	 * <p>场景是订单固有属性，不是内部配送的附属参数：船供采购必须走内部配送，
+	 * 但内部配送也可能是个人的到船订单，反向不成立。历史实现只在内部配送时携带场景，
+	 * 商城配送/快递订单的场景恒为空，导致管理端列表、导出与场景筛选都失去意义。
+	 *
+	 * <p>调用前须先经 {@link #validate} 校验，本方法只负责补默认值。
+	 * @param purchaseScene 客户端声明的场景，可为空
+	 * @return 归一后的场景：1 海员个人购买 / 2 船供采购
+	 */
+	public String normalize(String purchaseScene) {
+		if (!StringUtils.hasText(purchaseScene)) {
+			return PurchaseSceneEnum.PERSONAL.getCode();
+		}
+		return purchaseScene;
+	}
+
 }

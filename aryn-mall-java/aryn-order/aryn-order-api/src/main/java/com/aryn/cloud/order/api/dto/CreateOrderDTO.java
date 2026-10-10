@@ -57,6 +57,10 @@ public class CreateOrderDTO {
 	@Schema(description = "用户优惠券id")
 	private String couponUserId;
 
+	@Size(max = 64, message = "拼团记录ID长度不能超过64")
+	@Schema(description = "拼团记录ID（拼团下单时携带，服务端按拼团价成交；普通下单为空）")
+	private String groupBuyRecordId;
+
 	@Size(max = 64, message = "请求幂等号长度不能超过64")
 	@Schema(description = "客户端请求幂等号")
 	private String requestId;

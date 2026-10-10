@@ -1,10 +1,15 @@
 package com.aryn.cloud.user.service.impl;
 
+import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
+import com.aryn.cloud.common.security.entity.ArynUser;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
+import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.user.api.entity.MemberTag;
 import com.aryn.cloud.user.api.entity.UserTagRel;
 import com.aryn.cloud.user.mapper.MemberTagMapper;
@@ -17,6 +22,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.LinkedHashSet;
@@ -39,8 +45,12 @@ public class MemberTagServiceImpl extends ServiceImpl<MemberTagMapper, MemberTag
 
 	@Override
 	public IPage<MemberTag> getPage(Page page, MemberTag memberTag) {
-		return this.page(page,
-				Wrappers.<MemberTag>lambdaQuery().orderByAsc(MemberTag::getSortOrder).orderByDesc(MemberTag::getCreateTime));
+		return this.page(page, Wrappers.<MemberTag>lambdaQuery()
+				.like(memberTag != null && StrUtil.isNotBlank(memberTag.getTagName()),
+						MemberTag::getTagName, memberTag == null ? null : memberTag.getTagName())
+				.eq(memberTag != null && StrUtil.isNotBlank(memberTag.getStatus()),
+						MemberTag::getStatus, memberTag == null ? null : memberTag.getStatus())
+				.orderByAsc(MemberTag::getSortOrder).orderByDesc(MemberTag::getCreateTime));
 	}
 
 	@Override
@@ -103,14 +113,26 @@ public class MemberTagServiceImpl extends ServiceImpl<MemberTagMapper, MemberTag
 		for (String tagId : uniqueTagIds) {
 			if (!existTagIds.contains(tagId)) {
 				UserTagRel rel = new UserTagRel();
+				// 自定义批量 SQL 不走 MyBatis-Plus 自动填充，主键与审计字段在此显式赋值
+				rel.setId(IdWorker.getIdStr());
 				rel.setUserId(userId);
 				rel.setTagId(tagId);
+				rel.setTenantId(ArynTenantContextHolder.getTenantId());
+				rel.setCreateBy(currentUsername());
+				rel.setCreateTime(LocalDateTime.now());
 				newRels.add(rel);
 			}
 		}
 		if (!newRels.isEmpty()) {
-			userTagRelMapper.insert(newRels);
+			// 并发下「先查后插」会同时通过查重，靠唯一键 + INSERT IGNORE 幂等跳过
+			userTagRelMapper.insertIgnoreBatch(newRels);
 		}
+	}
+
+	/** 取当前登录用户名作为审计字段；定时任务/无登录态场景返回 null */
+	private String currentUsername() {
+		ArynUser user = SecurityUtils.getUser();
+		return user == null ? null : user.getUsername();
 	}
 
 	@Override

@@ -1,6 +1,7 @@
 package com.aryn.cloud.vessel.service.impl;
 
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
+import com.aryn.cloud.order.api.remote.RemoteShoppingCartService;
 import com.aryn.cloud.vessel.api.dto.VesselContextDTO;
 import com.aryn.cloud.vessel.api.entity.VesselCall;
 import com.aryn.cloud.vessel.api.entity.VesselInfo;
@@ -14,6 +15,7 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -63,6 +65,11 @@ public class VesselServiceImpl implements VesselService {
 	private final com.aryn.cloud.vessel.mapper.VesselCallChangeLogMapper vesselCallChangeLogMapper;
 
 	private final org.apache.rocketmq.spring.core.RocketMQTemplate rocketMQTemplate;
+
+	/** 购物车归属迁移（shopping_cart 在 order 库）：靠港生效后把该船无归属/挂已结束靠港的行顺延。
+	 *  刻意非构造器注入：远程接口的引用代理与本地实现 bean 双候选，构造器注入会炸 boot 启动 */
+	@DubboReference
+	private RemoteShoppingCartService remoteShoppingCartService;
 
 	@Override
 	public IPage<VesselInfo> pageVessels(String tenantId, IPage<VesselInfo> page, VesselInfo query) {
@@ -172,6 +179,7 @@ public class VesselServiceImpl implements VesselService {
 			call.setStatus(CALL_STATUS_PLANNED);
 		}
 		vesselCallMapper.insert(call);
+		reattachCartRows(tenantId, call);
 		return call;
 	}
 
@@ -194,6 +202,8 @@ public class VesselServiceImpl implements VesselService {
 				.stream().findFirst().orElse(null);
 			if (existing != null) {
 				log.info("船舶[{}]已存在相近靠港计划[{}]，复用而非新建申报", call.getVesselId(), existing.getId());
+				// 复用的可能是上线前申报的靠港：借这次申报把滞留的无归属行顺延过去（迁移口径幂等）
+				reattachCartRows(tenantId, existing);
 				return existing;
 			}
 		}
@@ -211,7 +221,37 @@ public class VesselServiceImpl implements VesselService {
 		vesselCallMapper.insert(call);
 		log.info("海员[{}]申报靠港：vessel={} port={} eta={} etd={}", userId, call.getVesselId(),
 				call.getPortCode(), call.getEta(), call.getEtd());
+		reattachCartRows(tenantId, call);
 		return call;
+	}
+
+	/**
+	 * 新靠港生效后顺延购物车行归属：该船「无靠港归属」与「挂在已结束靠港」的行都迁到新靠港。
+	 *
+	 * <p>shopping_cart 在 order 库，跨模块走 Dubbo（接口定义在 order-api）。失败只记日志
+	 * 不回滚靠港：申报是主业务，且迁移口径幂等——该船下一次申报时会自动补迁。
+	 * 新靠港本身不可用（已完成/已取消/ETD 已过）时不迁移，避免把行挂上不可达的靠港。
+	 */
+	private void reattachCartRows(String tenantId, VesselCall call) {
+		if (!isOrderableCall(call, LocalDateTime.now())) {
+			return;
+		}
+		try {
+			List<String> staleCallIds = vesselCallMapper.selectList(Wrappers.lambdaQuery(VesselCall.class)
+					.eq(VesselCall::getTenantId, tenantId)
+					.eq(VesselCall::getVesselId, call.getVesselId())
+					.ne(VesselCall::getId, call.getId()))
+				.stream()
+				.filter(existing -> !isOrderableCall(existing, LocalDateTime.now()))
+				.map(VesselCall::getId)
+				.toList();
+			int rows = remoteShoppingCartService.reattachRowsToVesselCall(tenantId, call.getVesselId(),
+					call.getId(), staleCallIds);
+			log.info("靠港[{}]生效：船舶[{}]购物车归属顺延 {} 行", call.getId(), call.getVesselId(), rows);
+		}
+		catch (Exception exception) {
+			log.warn("靠港[{}]购物车归属迁移失败，待该船下次申报时自动补迁", call.getId(), exception);
+		}
 	}
 
 	@Override
@@ -221,6 +261,28 @@ public class VesselServiceImpl implements VesselService {
 				.eq(VesselCall::getSource, VesselCall.SOURCE_CREW)
 				.in(VesselCall::getStatus, List.of(CALL_STATUS_PLANNED, CALL_STATUS_BERTHED))
 				.orderByAsc(VesselCall::getEta));
+	}
+
+	@Override
+	public int refreshCallStatus(String tenantId) {
+		LocalDateTime now = LocalDateTime.now();
+		// 计划中 → 靠泊中：已到 ETA 且未过 ETD（eta 为空的记录自然不命中）
+		int toBerthed = vesselCallMapper.update(null, Wrappers.lambdaUpdate(VesselCall.class)
+				.eq(VesselCall::getTenantId, tenantId)
+				.eq(VesselCall::getStatus, CALL_STATUS_PLANNED)
+				.le(VesselCall::getEta, now)
+				.gt(VesselCall::getEtd, now)
+				.set(VesselCall::getStatus, CALL_STATUS_BERTHED));
+		// 计划中/靠泊中 → 已完成：已过 ETD（覆盖任务停摆导致跳过靠泊中的场景）
+		int toCompleted = vesselCallMapper.update(null, Wrappers.lambdaUpdate(VesselCall.class)
+				.eq(VesselCall::getTenantId, tenantId)
+				.in(VesselCall::getStatus, List.of(CALL_STATUS_PLANNED, CALL_STATUS_BERTHED))
+				.le(VesselCall::getEtd, now)
+				.set(VesselCall::getStatus, CALL_STATUS_COMPLETED));
+		if (toBerthed + toCompleted > 0) {
+			log.info("租户[{}]靠港状态推进：靠泊中 {} 条，已完成 {} 条", tenantId, toBerthed, toCompleted);
+		}
+		return toBerthed + toCompleted;
 	}
 
 	@Override
@@ -404,6 +466,45 @@ public class VesselServiceImpl implements VesselService {
 				.eq(VesselInfo::getId, call.getVesselId())));
 	}
 
+	@Override
+	public VesselContextDTO snapshotByCallId(String tenantId, String vesselCallId) {
+		if (!StringUtils.hasText(vesselCallId)) {
+			return null;
+		}
+		// 不做可下单过滤：历史单据要显示当时的船名与港口，靠港结束不是「查不到」的理由。
+		// 可下单性由 callOrderable 标记带给调用方（详情页据此提示提交时会顺延）。
+		VesselCall call = vesselCallMapper.selectOne(Wrappers.lambdaQuery(VesselCall.class)
+				.eq(VesselCall::getTenantId, tenantId)
+				.eq(VesselCall::getId, vesselCallId));
+		if (call == null) {
+			return null;
+		}
+		return toContext(call, vesselInfoMapper.selectOne(Wrappers.lambdaQuery(VesselInfo.class)
+				.eq(VesselInfo::getTenantId, tenantId)
+				.eq(VesselInfo::getId, call.getVesselId())));
+	}
+
+	@Override
+	public VesselContextDTO resolveAvailableCall(String tenantId, String vesselId) {
+		if (!StringUtils.hasText(vesselId)) {
+			return null;
+		}
+		LocalDateTime now = LocalDateTime.now();
+		return vesselCallMapper.selectList(Wrappers.lambdaQuery(VesselCall.class)
+				.eq(VesselCall::getTenantId, tenantId)
+				.eq(VesselCall::getVesselId, vesselId)
+				.in(VesselCall::getStatus, List.of(CALL_STATUS_PLANNED, CALL_STATUS_BERTHED))
+				.gt(VesselCall::getEtd, now)
+				.orderByAsc(VesselCall::getEta))
+			.stream()
+			.filter(call -> isOrderableCall(call, now))
+			.findFirst()
+			.map(call -> toContext(call, vesselInfoMapper.selectOne(Wrappers.lambdaQuery(VesselInfo.class)
+					.eq(VesselInfo::getTenantId, tenantId)
+					.eq(VesselInfo::getId, call.getVesselId()))))
+			.orElse(null);
+	}
+
 	private VesselInfo requireVessel(String tenantId, String vesselId) {
 		if (!StringUtils.hasText(vesselId)) {
 			throw new ArynBusinessException("船舶ID不能为空");
@@ -471,6 +572,8 @@ public class VesselServiceImpl implements VesselService {
 		context.setEtd(call.getEtd());
 		context.setDeliveryWindowStart(call.getDeliveryWindowStart());
 		context.setDeliveryWindowEnd(call.getDeliveryWindowEnd());
+		// 统一在此计算，快照查询才能把「已失效但仍有名称」的靠港带回去
+		context.setCallOrderable(isOrderableCall(call, LocalDateTime.now()));
 		return context;
 	}
 

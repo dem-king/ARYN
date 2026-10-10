@@ -1,5 +1,6 @@
 package com.aryn.cloud.vessel;
 
+import com.aryn.cloud.common.job.annotation.ArynEnableXxlJob;
 import org.apache.dubbo.config.spring.context.annotation.EnableDubbo;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -10,6 +11,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * @author aryn
  * @since 2026/9/11
  */
+@ArynEnableXxlJob
 @EnableDubbo
 @SpringBootApplication
 public class ArynVesselApplication {

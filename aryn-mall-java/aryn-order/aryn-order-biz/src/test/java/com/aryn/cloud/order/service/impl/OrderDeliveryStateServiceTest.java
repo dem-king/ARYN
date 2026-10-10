@@ -5,6 +5,7 @@ import com.aryn.cloud.order.api.constant.MallOrderConstants;
 import com.aryn.cloud.order.api.entity.DeliveryTask;
 import com.aryn.cloud.order.api.entity.OrderInfo;
 import com.aryn.cloud.order.api.entity.OrderItemEntity;
+import com.aryn.cloud.order.api.enums.DeliveryTaskStatusEnum;
 import com.aryn.cloud.order.api.enums.OrderItemStatusEnum;
 import com.aryn.cloud.order.api.enums.OrderStatusEnum;
 import com.aryn.cloud.order.mapper.OrderInfoMapper;
@@ -39,14 +40,17 @@ class OrderDeliveryStateServiceTest {
 
 	private OrderDeliveryStateService service;
 
+	private com.aryn.cloud.order.mapper.DeliveryTaskMapper deliveryTaskMapper;
+
 	@BeforeEach
 	void setUp() {
 		TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new Configuration(), ""), OrderInfo.class);
 		TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new Configuration(), ""), OrderItemEntity.class);
 		orderInfoMapper = mock(OrderInfoMapper.class);
 		orderItemMapper = mock(OrderItemMapper.class);
+		deliveryTaskMapper = mock(com.aryn.cloud.order.mapper.DeliveryTaskMapper.class);
 		service = new OrderDeliveryStateService(orderInfoMapper, orderItemMapper,
-				mock(OrderWxDeliveryService.class));
+				mock(OrderWxDeliveryService.class), deliveryTaskMapper);
 	}
 
 	private DeliveryTask task(String orderId) {
@@ -138,6 +142,136 @@ class OrderDeliveryStateServiceTest {
 		assertThat(OrderDeliveryStateService.isTaskDrivenDeliveryWay(MallOrderConstants.DELIVERY_WAY_2)).isFalse();
 		assertThat(OrderItemStatusEnum.SHIPPED.getCode()).isEqualTo("2");
 		assertThat(List.of(OrderStatusEnum.WAITING_FOR_RECEIPT.getCode())).containsExactly("3");
+	}
+
+	private OrderInfo orderWithTask(String way, String status, DeliveryTask task) {
+		OrderInfo orderInfo = order(way, status);
+		orderInfo.setDeliveryTask(task);
+		return orderInfo;
+	}
+
+	private DeliveryTask taskWithStatus(String status) {
+		DeliveryTask task = task("order-1");
+		task.setStatus(status);
+		return task;
+	}
+
+	@Test
+	@DisplayName("已完成订单视为已送达")
+	void completedOrderIsDelivered() {
+		assertThat(service.isDelivered(order(MallOrderConstants.DELIVERY_WAY_1, OrderStatusEnum.COMPLETED.getCode())))
+				.isTrue();
+	}
+
+	@Test
+	@DisplayName("待发货/待付款/已取消一律未送达")
+	void nonReceiptStatesAreNotDelivered() {
+		assertThat(service.isDelivered(order(MallOrderConstants.DELIVERY_WAY_3,
+				OrderStatusEnum.WAITING_FOR_DELIVERY.getCode()))).isFalse();
+		assertThat(service.isDelivered(order(MallOrderConstants.DELIVERY_WAY_3,
+				OrderStatusEnum.WAITING_FOR_PAYMENT.getCode()))).isFalse();
+		assertThat(service.isDelivered(order(MallOrderConstants.DELIVERY_WAY_3,
+				OrderStatusEnum.CANCELED.getCode()))).isFalse();
+	}
+
+	@Test
+	@DisplayName("待收货时：配送任务已送达或已签收即为已送达")
+	void deliveredWhenTaskArrivedOrSigned() {
+		assertThat(service.isDelivered(orderWithTask(MallOrderConstants.DELIVERY_WAY_4,
+				OrderStatusEnum.WAITING_FOR_RECEIPT.getCode(),
+				taskWithStatus(DeliveryTaskStatusEnum.ARRIVED.getCode())))).isTrue();
+		assertThat(service.isDelivered(orderWithTask(MallOrderConstants.DELIVERY_WAY_4,
+				OrderStatusEnum.WAITING_FOR_RECEIPT.getCode(),
+				taskWithStatus(DeliveryTaskStatusEnum.SIGNED.getCode())))).isTrue();
+	}
+
+	@Test
+	@DisplayName("待收货但配送任务仍在途（待送达/配货中）不算已送达")
+	void inTransitTaskIsNotDelivered() {
+		assertThat(service.isDelivered(orderWithTask(MallOrderConstants.DELIVERY_WAY_4,
+				OrderStatusEnum.WAITING_FOR_RECEIPT.getCode(),
+				taskWithStatus(DeliveryTaskStatusEnum.WAITING_ARRIVE.getCode())))).isFalse();
+		assertThat(service.isDelivered(orderWithTask(MallOrderConstants.DELIVERY_WAY_4,
+				OrderStatusEnum.WAITING_FOR_RECEIPT.getCode(),
+				taskWithStatus(DeliveryTaskStatusEnum.PICKING.getCode())))).isFalse();
+	}
+
+	@Test
+	@DisplayName("待收货且任务未回填时按订单ID实时查询配送任务")
+	void loadsTaskWhenNotPrefilled() {
+		OrderInfo orderInfo = order(MallOrderConstants.DELIVERY_WAY_4, OrderStatusEnum.WAITING_FOR_RECEIPT.getCode());
+		when(deliveryTaskMapper.selectOne(any()))
+				.thenReturn(taskWithStatus(DeliveryTaskStatusEnum.ARRIVED.getCode()));
+
+		assertThat(service.isDelivered(orderInfo)).isTrue();
+	}
+
+	@Test
+	@DisplayName("上门自提到店即已送达；第三方快递只能等买家确认收货")
+	void pickupAndExpressWays() {
+		assertThat(service.isDelivered(order(MallOrderConstants.DELIVERY_WAY_2,
+				OrderStatusEnum.WAITING_FOR_RECEIPT.getCode()))).isTrue();
+		// 快递无客观妥投信号，待收货阶段不算送达
+		assertThat(service.isDelivered(order(MallOrderConstants.DELIVERY_WAY_1,
+				OrderStatusEnum.WAITING_FOR_RECEIPT.getCode()))).isFalse();
+	}
+
+	// ---------------- 确认收货守卫 isReadyToReceive ----------------
+
+	@Test
+	@DisplayName("守卫：商城配送/内部配送必须等配送任务已送达或已签收")
+	void readyToReceiveRequiresTaskDelivered() {
+		assertThat(service.isReadyToReceive(orderWithTask(MallOrderConstants.DELIVERY_WAY_4,
+				OrderStatusEnum.WAITING_FOR_RECEIPT.getCode(),
+				taskWithStatus(DeliveryTaskStatusEnum.ARRIVED.getCode())))).isTrue();
+		assertThat(service.isReadyToReceive(orderWithTask(MallOrderConstants.DELIVERY_WAY_3,
+				OrderStatusEnum.WAITING_FOR_RECEIPT.getCode(),
+				taskWithStatus(DeliveryTaskStatusEnum.SIGNED.getCode())))).isTrue();
+	}
+
+	@Test
+	@DisplayName("守卫：司机尚未送达（待送达/配货中）时不得确认收货")
+	void readyToReceiveRejectedWhileInTransit() {
+		assertThat(service.isReadyToReceive(orderWithTask(MallOrderConstants.DELIVERY_WAY_4,
+				OrderStatusEnum.WAITING_FOR_RECEIPT.getCode(),
+				taskWithStatus(DeliveryTaskStatusEnum.WAITING_ARRIVE.getCode())))).isFalse();
+		assertThat(service.isReadyToReceive(orderWithTask(MallOrderConstants.DELIVERY_WAY_4,
+				OrderStatusEnum.WAITING_FOR_RECEIPT.getCode(),
+				taskWithStatus(DeliveryTaskStatusEnum.PICKING.getCode())))).isFalse();
+	}
+
+	@Test
+	@DisplayName("守卫 fail-closed：任务缺失时不得确认收货")
+	void readyToReceiveRejectedWhenTaskMissing() {
+		OrderInfo orderInfo = order(MallOrderConstants.DELIVERY_WAY_4, OrderStatusEnum.WAITING_FOR_RECEIPT.getCode());
+		assertThat(service.isReadyToReceive(orderInfo)).isFalse();
+	}
+
+	@Test
+	@DisplayName("守卫：未回填任务时按订单ID实时查询，查到已送达则放行")
+	void readyToReceiveLoadsTaskWhenNotPrefilled() {
+		OrderInfo orderInfo = order(MallOrderConstants.DELIVERY_WAY_4, OrderStatusEnum.WAITING_FOR_RECEIPT.getCode());
+		when(deliveryTaskMapper.selectOne(any()))
+				.thenReturn(taskWithStatus(DeliveryTaskStatusEnum.ARRIVED.getCode()));
+
+		assertThat(service.isReadyToReceive(orderInfo)).isTrue();
+	}
+
+	@Test
+	@DisplayName("守卫：快递与自提不受配送任务限制，可确认收货")
+	void readyToReceiveAllowsExpressAndPickup() {
+		assertThat(service.isReadyToReceive(order(MallOrderConstants.DELIVERY_WAY_1,
+				OrderStatusEnum.WAITING_FOR_RECEIPT.getCode()))).isTrue();
+		assertThat(service.isReadyToReceive(order(MallOrderConstants.DELIVERY_WAY_2,
+				OrderStatusEnum.WAITING_FOR_RECEIPT.getCode()))).isTrue();
+	}
+
+	@Test
+	@DisplayName("守卫：空订单拒绝，已完成订单幂等放行")
+	void readyToReceiveNullOrCompleted() {
+		assertThat(service.isReadyToReceive(null)).isFalse();
+		assertThat(service.isReadyToReceive(order(MallOrderConstants.DELIVERY_WAY_4,
+				OrderStatusEnum.COMPLETED.getCode()))).isTrue();
 	}
 
 }

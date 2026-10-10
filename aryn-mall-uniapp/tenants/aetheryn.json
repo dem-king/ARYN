@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "key": "aetheryn",
+  "name": "悦航购",
+  "tenantId": "1590229800633634816",
+  "wxAppId": "wx0a8242ea59f3e6b4",
+  "defaultProfile": "production",
+  "defaultDeployment": "boot",
+  "profiles": {
+    "production": {
+      "boot": {
+        "apiBaseUrl": ""
+      },
+      "cloud": {
+        "apiBaseUrl": ""
+      }
+    },
+    "staging": {
+      "boot": {
+        "apiBaseUrl": ""
+      },
+      "cloud": {
+        "apiBaseUrl": ""
+      }
+    }
+  }
+}

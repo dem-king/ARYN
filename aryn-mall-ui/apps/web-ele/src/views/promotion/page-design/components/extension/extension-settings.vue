@@ -183,6 +183,72 @@ function updateTargetIds(value: string) {
       </template>
     </template>
 
+    <template v-else-if="type === 'goods-recommend'">
+      <ElFormItem label="标题">
+        <ElInput
+          v-model="form.title as string"
+          maxlength="10"
+          placeholder="留空则不显示标题行"
+          @update:model-value="commit"
+        />
+      </ElFormItem>
+      <ElFormItem label="数据来源">
+        <ElRadioGroup
+          :model-value="
+            (form.dataSource as unknown as Record<string, unknown> | undefined)
+              ?.mode as string
+          "
+          @update:model-value="updateDataSource({ mode: $event as string })"
+        >
+          <ElRadio value="automatic">同分类自动推荐</ElRadio>
+          <ElRadio value="manual">手选商品</ElRadio>
+        </ElRadioGroup>
+      </ElFormItem>
+      <ElFormItem
+        v-if="(form.dataSource as Record<string, unknown>)?.mode === 'manual'"
+        label="手选商品 ID（逗号分隔）"
+      >
+        <ElInput
+          :model-value="targetIdsText()"
+          @update:model-value="updateTargetIds"
+        />
+      </ElFormItem>
+      <ElFormItem label="展示数量">
+        <ElInputNumber
+          :model-value="form.count as number"
+          :min="1"
+          :max="20"
+          @update:model-value="
+            form.count = $event;
+            commit();
+          "
+        />
+      </ElFormItem>
+      <ElFormItem label="数据缓存（秒，0 不缓存）">
+        <ElInputNumber
+          :model-value="
+            Number(
+              (
+                form.dataSource as unknown as
+                  Record<string, unknown> | undefined
+              )?.cacheTtl ?? 0,
+            )
+          "
+          :min="0"
+          @update:model-value="updateDataSource({ cacheTtl: $event })"
+        />
+      </ElFormItem>
+      <ElFormItem label="显示价格">
+        <ElSwitch v-model="form.showPrice as boolean" @change="commit" />
+      </ElFormItem>
+      <ElFormItem label="显示划线原价">
+        <ElSwitch
+          v-model="form.showOriginalPrice as boolean"
+          @change="commit"
+        />
+      </ElFormItem>
+    </template>
+
     <template
       v-else-if="type === 'member-benefits' || type === 'service-promise'"
     >

@@ -4,12 +4,10 @@ import { defineAsyncComponent, reactive, ref } from 'vue';
 import { Refresh, Search } from '@element-plus/icons-vue';
 import {
   ElButton,
-  ElCol,
   ElForm,
   ElFormItem,
   ElImage,
   ElOption,
-  ElRow,
   ElSelect,
   ElTable,
   ElTableColumn,
@@ -128,17 +126,15 @@ initPage();
       <ElTable v-loading="loading" :data="state.tableData" border>
         <ElTableColumn prop="orderItemList" label="商品信息" width="450">
           <template #default="scope">
-            <ElRow v-if="scope.row.orderItem">
-              <ElCol :span="6">
-                <ElImage
-                  style="width: 60px; height: 60px"
-                  :src="scope.row.orderItem.picUrl"
-                  fit="cover"
-                  :preview-teleported="true"
-                />
-              </ElCol>
-              <ElCol :span="18">
-                <div class="overflow-line-clamp-2 name">
+            <div v-if="scope.row.orderItem" class="order-item">
+              <ElImage
+                style="width: 60px; height: 60px"
+                :src="scope.row.orderItem.picUrl"
+                fit="cover"
+                :preview-teleported="true"
+              />
+              <div class="main">
+                <div class="name line-clamp-2">
                   {{ scope.row.orderItem.spuName }}
                 </div>
                 <p>{{ scope.row.orderItem.specsInfo }}</p>
@@ -148,8 +144,8 @@ initPage();
                   </span>
                   x{{ scope.row.orderItem.buyQuantity }}
                 </div>
-              </ElCol>
-            </ElRow>
+              </div>
+            </div>
           </template>
         </ElTableColumn>
         <ElTableColumn prop="status" label="状态" width="220">
@@ -190,3 +186,19 @@ initPage();
     </div>
   </div>
 </template>
+<style lang="scss" scoped>
+/* 图片固定宽、文字区自适应：避免窄列下图片压住商品名 */
+.order-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+
+  .main {
+    min-width: 0;
+  }
+
+  .name {
+    overflow-wrap: anywhere;
+  }
+}
+</style>

@@ -22,7 +22,6 @@ import ShipContextPicker from '@/components/ship-context-picker/index.vue'
 import { useCountdownTicker } from '@/composables/useCountdown'
 import { useAuthStore } from '@/store/authStore'
 import { useShipContextStore } from '@/store/shipContextStore'
-import { buildReplenishSummaryView } from '@/utils/replenish-progress'
 import {
   cartActionLabel,
   cartDeadlineView,
@@ -77,7 +76,6 @@ const showEmpty = computed(() =>
 interface CardView {
   action: string
   deadline: null | { expired: boolean, text: string, urgent: boolean }
-  progress: ReturnType<typeof buildReplenishSummaryView>
   /** 收集截止的绝对时刻，用于核对「几点截止」 */
   expiresPoint: string
 }
@@ -89,7 +87,6 @@ const cardViews = computed<Record<string, CardView>>(() => {
     map[cart.id] = {
       action: cartActionLabel(cart, now),
       deadline: cartDeadlineView(cart, now),
-      progress: buildReplenishSummaryView(cart.progress),
       expiresPoint: isCartCollecting(cart.status) && cart.expiresAt
         ? formatCallTime(cart.expiresAt, now)
         : '',
@@ -265,22 +262,6 @@ onPullDownRefresh(() => {
         <view class="card__location">
           <text class="i-carbon:location card__icon" />
           <text>{{ cart.portName || '港口待定' }} {{ cart.berth }}</text>
-        </view>
-
-        <!--
-          进度条：只对排过计划的单画。没排计划时画一条空槽再配「—」会被读成
-          「加载失败」，因此那种情况只出一行文字。
-        -->
-        <view v-if="cardViews[cart.id]?.progress.text" class="card__progress">
-          <view v-if="cardViews[cart.id]?.progress.hasPlan" class="card__track">
-            <view
-              class="card__bar"
-              :style="`width:${cardViews[cart.id]?.progress.percent}%`"
-            />
-          </view>
-          <text class="card__progress-text">
-            {{ cardViews[cart.id]?.progress.text }}
-          </text>
         </view>
 
         <!--
@@ -578,31 +559,6 @@ onPullDownRefresh(() => {
   margin-right: 6rpx;
   font-size: 24rpx;
   color: #9aa4b2;
-}
-
-.card__progress {
-  margin-top: 18rpx;
-}
-
-.card__track {
-  overflow: hidden;
-  height: 10rpx;
-  border-radius: 999rpx;
-  background: #eef0f3;
-}
-
-.card__bar {
-  height: 10rpx;
-  border-radius: 999rpx;
-  background: linear-gradient(90deg, #ffb25c, #f2741d);
-  transition: width 0.3s ease;
-}
-
-.card__progress-text {
-  display: block;
-  margin-top: 10rpx;
-  font-size: 22rpx;
-  color: #7a8699;
 }
 
 .card__deadline {

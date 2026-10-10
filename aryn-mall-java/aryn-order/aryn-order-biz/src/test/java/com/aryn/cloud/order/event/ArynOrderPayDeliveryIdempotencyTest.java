@@ -71,7 +71,9 @@ class ArynOrderPayDeliveryIdempotencyTest {
 		deliveryTaskService = spy(new DeliveryTaskServiceImpl(mock(IDeliveryTripService.class),
 				mock(IDeliveryTaskItemService.class), mock(IDeliveryStaffService.class),
 				mock(IDeliveryWarehouseConfigService.class), mock(IDeliveryTaskLogService.class),
-				mock(IDeliveryEvidenceService.class), mock(RocketMQTemplate.class)));
+				mock(IDeliveryEvidenceService.class), mock(com.aryn.cloud.order.service.IOrderItemService.class),
+				mock(com.aryn.cloud.order.service.IOrderConfigService.class),
+				mock(com.aryn.cloud.order.mapper.OrderInfoMapper.class), mock(RocketMQTemplate.class)));
 		orderInfoService = mock(IOrderInfoService.class);
 		orderItemService = mock(IOrderItemService.class);
 		deliveryTaskServiceMock = mock(IDeliveryTaskService.class);

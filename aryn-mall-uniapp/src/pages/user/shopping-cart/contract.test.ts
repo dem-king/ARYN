@@ -64,6 +64,28 @@ describe('shopping cart vessel grouping contract', () => {
     expect(cart).toContain('cartGroups')
   })
 
+  it('distinguishes vessel-without-active-call rows from unattributed rows', () => {
+    const cart = source(CART_PAGE)
+    // 靠港结束（ETD 过点/已完成）后快照只带船不带靠港：行 vesselId 有值、
+    // vesselCallId 为空。这与「从未归属过船舶」的行同组（分组键都是 ''），
+    // 但前者是设计内回落（配送改走常规方式），不能同样显示「未指定配送计划」
+    // 让用户误以为归属又丢了（2026-10-04 实测：靠港 11:30 过点后重加购恒显未指定）
+    expect(cart).toContain('row.vesselId')
+    expect(cart).toContain('暂无进行中的靠港计划')
+  })
+
+  it('shows the vessel call status without requiring cart rows', () => {
+    const cart = source(CART_PAGE)
+    // 状态行挂在列表之外：空购物车也能看到靠港状态并直达申报入口；
+    // 加购才暴露「没有靠港计划」的旧路径已由该行取代（2026-10-04）
+    expect(cart).toContain('showShipStatusBar')
+    expect(cart).toContain('capabilityStore.shipSupplyEnabled')
+    expect(cart).toContain('!!shipContextStore.vesselId')
+    // 申报成功（chooseCall → emit change）后必须刷新列表，
+    // 否则服务端顺延过的行仍按旧分组渲染
+    expect(cart).toContain('@change="getCartPage"')
+  })
+
   it('loads the ship context before snapshotting it onto a new cart row', () => {
     const api = source('src/api/order/shoppingCart.ts')
     // 归属快照由 shipContextStore 写入，而它不持久化、冷启动为空。

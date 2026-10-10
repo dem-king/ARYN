@@ -44,16 +44,25 @@ export async function delObj(id: string) {
 
 /**
  * 给用户打标签
+ *
+ * 后端签名为 tagUser(@RequestParam userId, @RequestBody List<String> tagIds)：
+ * body 必须是标签 ID 数组，userId 走查询参数。
  */
-export async function tagUser(data: any) {
-  return requestClient.post('/mall-user/membertag/tagUser', data);
+export async function tagUser(userId: string, tagIds: string[]) {
+  return requestClient.post('/mall-user/membertag/tagUser', tagIds, {
+    params: { userId },
+  });
 }
 
 /**
  * 取消用户标签
+ *
+ * 后端签名为 untagUser(@RequestParam userId, @RequestBody List<String> tagIds)。
  */
-export async function untagUser(data: any) {
-  return requestClient.post('/mall-user/membertag/untagUser', data);
+export async function untagUser(userId: string, tagIds: string[]) {
+  return requestClient.post('/mall-user/membertag/untagUser', tagIds, {
+    params: { userId },
+  });
 }
 
 /**

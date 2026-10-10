@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { onLoad } from '@dcloudio/uni-app'
 import { computed, reactive, ref } from 'vue'
-import { prepay } from '@/sub-pages/utils/pay'
 import { getByOrderNo, orderPrepay } from '@/api/order/orderInfo'
 import { useGlobalLoading } from '@/composables/useGlobalLoading'
+import { prepay } from '@/sub-pages/utils/pay'
+import { formatPayTimeout } from '@/sub-pages/utils/pay-timeout'
 
 definePage({
   name: 'order-pay',
@@ -37,6 +38,7 @@ const amountText = computed(() => {
   const val = Number(paymentPrice.value || 0)
   return val.toFixed(2)
 })
+const payTimeoutText = computed(() => formatPayTimeout(state.order?.payTimeoutMinutes))
 onLoad((options) => {
   getOrder(options?.orderNo)
 })
@@ -60,7 +62,7 @@ async function onPrepay() {
     // #ifdef H5
     if (paymentType.value === '1') {
       payParams
-          = `${payParams
+        = `${payParams
         }&redirect_url=${encodeURIComponent(`${window.location.origin}/sub-pages/order/pay-result/index?orderNo=${orderNo}`)}`
     }
     // #endif
@@ -124,7 +126,7 @@ function buildPrepayParams(orderNo: string, paymentType: PaymentType): PrepayPar
         </text>
       </view>
       <view class="cashier-tip">
-        请在30分钟内付款，超时订单自动取消
+        请在{{ payTimeoutText }}内付款，超时订单自动取消
       </view>
     </view>
 

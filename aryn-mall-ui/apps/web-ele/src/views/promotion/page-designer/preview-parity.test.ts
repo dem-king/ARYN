@@ -472,6 +472,49 @@ describe('装修预览与小程序视觉一致性', () => {
     }
   });
 
+  it('图片魔方：格距与格位高度换算两端一致（1rpx = 0.5px）', () => {
+    // 预览画布渲染在共享的 extension-preview.vue 里（组件壳只是转发）
+    const admin = readFileSync(
+      resolve(adminComponentsRoot, 'extension/extension-preview.vue'),
+      'utf8',
+    );
+    const mobile = readMobile('diy-image-cube');
+
+    expect(value(declarations(admin, '.preview-cube'), 'gap')).toBe('4px');
+    expect(value(declarations(mobile, '.cube-grid'), 'gap')).toBe('8rpx');
+    // 格位高度：大格 376rpx↔188px、小格 184rpx↔92px、三分格 120rpx↔60px
+    expect(admin).toContain('188');
+    expect(admin).toContain('92');
+    expect(admin).toContain('60');
+    expect(mobile).toContain('376');
+    expect(mobile).toContain('184');
+    expect(mobile).toContain('120');
+    // 图片裁切铺满格位，两端同口径
+    expect(admin).toContain('object-fit: cover');
+    expect(mobile).toContain('aspectFill');
+  });
+
+  it('商品推荐：横滑卡尺寸与留白两端一致（1rpx = 0.5px）', () => {
+    const admin = readFileSync(
+      resolve(adminComponentsRoot, 'extension/extension-preview.vue'),
+      'utf8',
+    );
+    const mobile = readMobile('diy-goods-recommend');
+
+    expect(value(declarations(admin, '.preview-recommend'), 'gap')).toBe('8px');
+    expect(value(declarations(mobile, '.gr-track'), 'gap')).toBe('16rpx');
+    expect(
+      value(declarations(admin, '.preview-recommend__pic'), 'height'),
+    ).toBe('100px');
+    expect(value(declarations(mobile, '.gr-pic'), 'height')).toBe('200rpx');
+    expect(
+      value(declarations(admin, '.preview-recommend__pic'), 'border-radius'),
+    ).toBe('8px');
+    expect(value(declarations(mobile, '.gr-card'), 'border-radius')).toBe(
+      '16rpx',
+    );
+  });
+
   it('区块容器：两端都按 px 输出留白与圆角', () => {
     // 管理端画布与草稿预览共用 buildSectionStyle，这里锁住它本身；
     // C 端渲染器 diy/index.vue 是第二套实现，必须逐项对齐。
@@ -504,6 +547,50 @@ describe('装修预览与小程序视觉一致性', () => {
       // 但横滑区块不能裁（内联 overflow 会盖掉 overflow-x 滚动），两端都要有这层守卫
       expect(source).toContain("overflow = 'hidden'");
       expect(source).toMatch(/if \(!.*horizontalScroll\)/);
+    }
+  });
+
+  it('页面主题继承：两端有效主题解析同源，三处渲染面统一消费', () => {
+    // 页面背景/导航颜色的主题继承是三套实现（编辑画布 / 草稿预览 / C 端 diy），
+    // 各自解析就会出现「管理端已换主题色、实机仍是模板写死的旧品牌色」。
+    // 纯解析函数在两端各留一份拷贝（避免跨仓 import 别名问题），
+    // 用 EFFECTIVE-THEME 标记圈出函数体，去掉空白与分号后必须逐字一致。
+    const extractCore = (source: string, label: string) => {
+      const match =
+        /\/\* EFFECTIVE-THEME-BEGIN \*\/([\s\S]*?)\/\* EFFECTIVE-THEME-END \*\//.exec(
+          source,
+        );
+      expect(match, `${label} 缺少 EFFECTIVE-THEME 标记`).toBeTruthy();
+      return (match?.[1] ?? '').replaceAll(/[\s;]/g, '');
+    };
+    const adminCore = extractCore(
+      readFileSync(resolve(adminSchemaRoot, 'effective-theme.ts'), 'utf8'),
+      '管理端 effective-theme.ts',
+    );
+    const mobileCore = extractCore(
+      readFileSync(resolve(mobileDiyRoot, 'schema/effective-theme.ts'), 'utf8'),
+      'C 端 effective-theme.ts',
+    );
+    expect(adminCore).toBe(mobileCore);
+
+    // 三处渲染面都必须走同一解析器，并消费解析出的导航配色
+    // （页面背景若绕过解析器直接读 page，模板写死的品牌色会遮住商城默认主题）
+    for (const source of [
+      readFileSync(resolve(mobileDiyRoot, 'index.vue'), 'utf8'),
+      readFileSync(
+        resolve(adminSchemaRoot, '../components/phone-canvas.vue'),
+        'utf8',
+      ),
+      readFileSync(
+        resolve(
+          adminSchemaRoot,
+          '../../page-preview/components/preview-canvas.vue',
+        ),
+        'utf8',
+      ),
+    ]) {
+      expect(source).toContain('resolveEffectivePageTheme');
+      expect(source).toContain('navigationBackgroundColor');
     }
   });
 });

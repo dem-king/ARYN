@@ -233,6 +233,15 @@
           }
         },
         {
+          "path": "order/shared-cart/chain-import",
+          "type": "page",
+          "name": "shared-cart-chain-import",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "粘贴接龙报货"
+          }
+        },
+        {
           "path": "order/shared-cart/import-entry",
           "type": "page",
           "name": "shared-cart-import-entry",
@@ -491,6 +500,15 @@
           "style": {
             "navigationStyle": "custom",
             "navigationBarTitleText": "充值"
+          }
+        },
+        {
+          "path": "user/member/recharge-result",
+          "type": "page",
+          "name": "member-recharge-result",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "充值结果"
           }
         },
         {

@@ -112,4 +112,8 @@ public class DeliveryTrip extends Model<DeliveryTrip> {
 	@TableField(exist = false)
 	private String keyword;
 
+	@Schema(description = "本租户是否开放司机自助拉未派送订单（派生值，来自 order_config）")
+	@TableField(exist = false)
+	private Boolean selfPullUnassignedAllowed;
+
 }

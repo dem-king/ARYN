@@ -59,6 +59,16 @@ export async function deliverOrder(data: any) {
 }
 
 /**
+ * 商城配送/内部配送订单发货并派单（无需物流单号，直接派给司机）
+ */
+export async function deliverAssignOrder(data: {
+  orderId: string;
+  staffId: string;
+}) {
+  return requestClient.post('/mall-order/orderinfo/deliver-assign', data);
+}
+
+/**
  * 取消订单
  */
 export async function cancelObj(id: string) {

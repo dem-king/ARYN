@@ -130,6 +130,9 @@ public class OrderInfo extends Model<OrderInfo> {
 	@Schema(description = "用户优惠券id")
 	private String couponUserId;
 
+	@Schema(description = "拼团记录ID（拼团单关联开团/参团记录，用于成团判定与取消释放；普通订单为NULL）")
+	private String groupBuyRecordId;
+
 	@Schema(description = "租户id")
 	private String tenantId;
 
@@ -210,6 +213,10 @@ public class OrderInfo extends Model<OrderInfo> {
 	@TableField(exist = false)
 	private String keyword;
 
+	@Schema(description = "订单ID集合（管理端导出所选订单）")
+	@TableField(exist = false)
+	private List<String> ids;
+
 	@Schema(description = "支付时间范围[开始时间,结束时间]")
 	@TableField(exist = false)
 	@DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss")
@@ -218,5 +225,18 @@ public class OrderInfo extends Model<OrderInfo> {
 	@Schema(description = "发货单")
 	@TableField(exist = false)
 	private OrderDelivery orderDelivery;
+
+	@Schema(description = "配送任务（商城配送/内部配送订单详情回填，快递订单为空）")
+	@TableField(exist = false)
+	private DeliveryTask deliveryTask;
+
+	@Schema(description = "支付时限（分钟）：按订单配置的超时取消延迟级别换算，仅待付款订单下发，供 C 端提示文案使用")
+	@TableField(exist = false)
+	private Integer payTimeoutMinutes;
+
+	@Schema(description = "货物是否已送达：已收货(完成)按已送达，配送中按 delivery_task 送达/签收判定，"
+			+ "快递按发货单签收判定。货到付款确认收款以此为前提")
+	@TableField(exist = false)
+	private Boolean delivered;
 
 }

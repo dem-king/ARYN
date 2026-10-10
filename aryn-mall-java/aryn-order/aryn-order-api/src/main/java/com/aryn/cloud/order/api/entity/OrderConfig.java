@@ -37,6 +37,12 @@ public class OrderConfig extends Model<OrderConfig> {
 	@Schema(description = "订单评价时间（天）")
 	private Integer orderAutoCommentDays;
 
+	@Schema(description = "货到付款收款提醒时间点（收货后小时数，逗号分隔升序，如 72,168；空串关闭提醒）")
+	private String codPayRemindHours;
+
+	@Schema(description = "司机可否自助拉未派送订单：1允许（默认）0仅可拉管理端已派给自己的任务")
+	private String driverSelfPullUnassigned;
+
 	@Schema(description = "快递100AppKey")
 	private String kuaidi100AppKey;
 

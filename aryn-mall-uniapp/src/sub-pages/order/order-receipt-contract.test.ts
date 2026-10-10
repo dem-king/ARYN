@@ -32,7 +32,7 @@ describe('order receipt contracts', () => {
 
   it('renders a vessel delivery card for internal delivery orders', () => {
     const detail = source('src/sub-pages/order/order-detail/index.vue')
-    expect(detail).toContain("state.order.deliveryWay === '4'")
+    expect(detail).toContain('state.order.deliveryWay === \'4\'')
     expect(detail).toContain('state.order.vesselName')
     expect(detail).toContain('state.order.portName')
   })
@@ -41,5 +41,23 @@ describe('order receipt contracts', () => {
     const detail = source('src/sub-pages/order/order-detail/index.vue')
     expect(detail).toMatch(/DeliveryProgress/)
     expect(detail).toMatch(/['"]4['"]/)
+  })
+
+  it('maps order status 5 to refunding and 11 to canceled in the detail title', () => {
+    const detail = source('src/sub-pages/order/order-detail/index.vue')
+    const titleSwitch = detail.match(/const navbarTitle[\s\S]*?\n\}\)/)?.[0] ?? ''
+    expect(titleSwitch).not.toBe('')
+    // 后端 OrderStatusEnum: 5=退款中, 11=已取消；历史上 5 被错标为「订单已取消」
+    expect(titleSwitch).toMatch(/case '5':\s*return '退款中'/)
+    expect(titleSwitch).toMatch(/case '11':\s*return '订单已取消'/)
+    expect(titleSwitch).not.toMatch(/case '5':\s*return '订单已取消'/)
+  })
+
+  it('gates confirm-receipt on delivered for task-driven delivery ways', () => {
+    // 司机未点「已送达」前，商城配送/内部配送不得展示确认收货按钮
+    // （订单在司机出发时就进入待收货，缺此条件会出现"未送达却能收货"）
+    expect(orderOperation).toMatch(/showReceiver[\s\S]{0,600}delivered === true/)
+    // 快递（way=1）无内部妥投信号，必须继续放行，不能被 delivered 条件误伤
+    expect(orderOperation).toMatch(/deliveryWay === '1'[\s\S]{0,80}return true/)
   })
 })

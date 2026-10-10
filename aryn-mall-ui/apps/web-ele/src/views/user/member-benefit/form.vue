@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
 
 import {
   ElButton,
@@ -24,6 +24,8 @@ const loading = ref(false);
 const title = ref('');
 const formRef = ref();
 const levelList = ref<any[]>([]);
+// 编辑回填与新增初始化期间抑制 benefitType 监听，避免覆盖已回填的 benefitValue
+let suppressTypeWatch = false;
 const state = reactive({
   form: {
     id: '',
@@ -67,21 +69,33 @@ onMounted(() => {
 watch(
   () => state.form.benefitType,
   (type) => {
+    // 编辑回填/新增初始化期间不重置，见 initForm
+    if (suppressTypeWatch) {
+      return;
+    }
     state.form.benefitValue = ['1', '2', '4'].includes(type) ? '1' : '';
   },
 );
 
+// 仅在用户主动切换权益类型时重置权益值；编辑回显时 Object.assign 也会改 benefitType，
+// 但那是回填而不是切换，若一并重置会把后端回填的 benefitValue 冲掉
+// （编辑折扣 0.85 会显示成 1，编辑专属优惠券会清空模板 ID）。
 const initForm = async (row?: any) => {
   visible.value = true;
   if (row?.id) {
     title.value = '编辑会员权益';
     const res = await getById(row.id);
+    // 先摘掉监听，避免回填过程把 benefitValue 覆盖成默认值
+    suppressTypeWatch = true;
     Object.assign(state.form, res);
+    await nextTick();
+    suppressTypeWatch = false;
     if (!state.form.levelIds) {
       state.form.levelIds = [];
     }
   } else {
     title.value = '新增会员权益';
+    suppressTypeWatch = true;
     state.form = {
       id: '',
       benefitName: '',
@@ -91,6 +105,8 @@ const initForm = async (row?: any) => {
       status: '0',
       levelIds: [],
     };
+    await nextTick();
+    suppressTypeWatch = false;
   }
 };
 

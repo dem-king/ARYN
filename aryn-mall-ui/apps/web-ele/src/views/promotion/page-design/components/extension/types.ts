@@ -183,3 +183,74 @@ export function validateVideoLive(props: Record<string, unknown>) {
   if (props.mode === 'video' && !props.videoUrl) return ['请填写视频地址'];
   return [];
 }
+
+/** 图片魔方布局：格数由布局决定，items 长度必须与之一致 */
+export type ImageCubeLayout = '1' | '1+2' | '1+3' | '2h' | '2v' | '4';
+
+/** 各布局对应的格子数量 */
+export const IMAGE_CUBE_LAYOUT_CELLS: Record<ImageCubeLayout, number> = {
+  '1': 1,
+  '1+2': 3,
+  '1+3': 4,
+  '2h': 2,
+  '2v': 2,
+  '4': 4,
+};
+
+export interface ImageCubeItem {
+  id: string;
+  link: DecorationLink;
+  url: string;
+}
+
+export function createImageCubeDefaults() {
+  return {
+    commonStyle: { ...extensionCommonStyle },
+    items: [1, 2, 3, 4].map((index) => ({
+      id: `cube-${index}`,
+      link: emptyLink(),
+      url: '',
+    })),
+    layout: '4' as ImageCubeLayout,
+  };
+}
+
+export function validateImageCube(props: Record<string, unknown>) {
+  const layout = props.layout as ImageCubeLayout | undefined;
+  if (!layout || !(layout in IMAGE_CUBE_LAYOUT_CELLS))
+    return ['图片魔方布局不合法'];
+  const items = (props.items ?? []) as ImageCubeItem[];
+  if (!Array.isArray(items) || items.length !== IMAGE_CUBE_LAYOUT_CELLS[layout])
+    return [`当前布局需要 ${IMAGE_CUBE_LAYOUT_CELLS[layout]} 张图片配置`];
+  if (!items.some((item) => item.url)) return ['请至少为一张图片填入地址'];
+  return [];
+}
+
+export function createGoodsRecommendDefaults() {
+  return {
+    commonStyle: { ...extensionCommonStyle },
+    count: 6,
+    dataSource: {
+      cacheTtl: 60,
+      mode: 'automatic' as const,
+      targetIds: [] as string[],
+    },
+    showOriginalPrice: true,
+    showPrice: true,
+    title: '看了又看',
+  };
+}
+
+export function validateGoodsRecommend(props: Record<string, unknown>) {
+  const errors: string[] = [];
+  const dataSource = props.dataSource as ExtensionDataSourceConfig | undefined;
+  if (!props.count || Number(props.count) <= 0)
+    errors.push('展示数量必须大于 0');
+  if (
+    dataSource?.mode === 'manual' &&
+    (dataSource.targetIds ?? []).length === 0
+  ) {
+    errors.push('手选商品不能为空');
+  }
+  return errors;
+}

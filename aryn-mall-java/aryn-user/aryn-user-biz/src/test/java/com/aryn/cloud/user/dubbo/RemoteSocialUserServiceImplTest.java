@@ -6,8 +6,8 @@ import com.aryn.cloud.user.api.dto.SocialUserBindDTO;
 import com.aryn.cloud.user.api.dto.SocialUserUnbindDTO;
 import com.aryn.cloud.user.api.entity.SocialUser;
 import com.aryn.cloud.user.mapper.SocialUserMapper;
-import com.aryn.cloud.user.service.ISocialAccountService;
 import com.aryn.cloud.user.service.ISocialUserService;
+import com.aryn.cloud.user.service.MiniAppBindingResolver;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -24,10 +24,10 @@ import static org.mockito.Mockito.when;
 class RemoteSocialUserServiceImplTest {
 
 	@Mock
-	private ISocialAccountService socialAccountService;
+	private ISocialUserService socialUserService;
 
 	@Mock
-	private ISocialUserService socialUserService;
+	private MiniAppBindingResolver miniAppBindingResolver;
 
 	@Mock
 	private SocialUserMapper socialUserMapper;
@@ -135,7 +135,7 @@ class RemoteSocialUserServiceImplTest {
 	}
 
 	private RemoteSocialUserServiceImpl service() {
-		return new RemoteSocialUserServiceImpl(socialAccountService, socialUserService, socialUserMapper);
+		return new RemoteSocialUserServiceImpl(socialUserService, socialUserMapper, miniAppBindingResolver);
 	}
 
 }

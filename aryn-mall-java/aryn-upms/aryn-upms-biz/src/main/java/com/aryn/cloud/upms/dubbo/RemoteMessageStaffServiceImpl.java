@@ -1,15 +1,19 @@
 package com.aryn.cloud.upms.dubbo;
 
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.upms.api.dto.StaffMessageAudienceRequest;
+import com.aryn.cloud.upms.api.entity.SysRole;
 import com.aryn.cloud.upms.api.remote.RemoteMessageStaffService;
 import com.aryn.cloud.upms.api.vo.StaffMessageAudiencePageVO;
 import com.aryn.cloud.upms.api.vo.StaffMessageRecipientVO;
+import com.aryn.cloud.upms.mapper.SysRoleMapper;
 import com.aryn.cloud.upms.mapper.SysUserMapper;
 import lombok.RequiredArgsConstructor;
 import org.apache.dubbo.config.annotation.DubboService;
 import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -27,6 +31,8 @@ public class RemoteMessageStaffServiceImpl implements RemoteMessageStaffService 
 
 	private final SysUserMapper sysUserMapper;
 
+	private final SysRoleMapper sysRoleMapper;
+
 	@Override
 	public StaffMessageAudiencePageVO queryRecipients(StaffMessageAudienceRequest request) {
 		requireTenant(request == null ? null : request.getTenantId());
@@ -42,6 +48,37 @@ public class RemoteMessageStaffServiceImpl implements RemoteMessageStaffService 
 		result.setHasMore(hasMore);
 		result.setNextCursor(records.isEmpty() ? null : records.get(records.size() - 1).getId());
 		return result;
+	}
+
+	@Override
+	public List<StaffMessageRecipientVO> queryRecipientsByRoleCode(String tenantId, String roleCode) {
+		requireTenant(tenantId);
+		List<StaffMessageRecipientVO> recipients = new ArrayList<>();
+		if (roleCode == null || roleCode.isBlank()) {
+			return recipients;
+		}
+		List<SysRole> roles = sysRoleMapper.selectList(Wrappers.<SysRole>lambdaQuery()
+			.select(SysRole::getId)
+			.eq(SysRole::getRoleCode, roleCode)
+			.eq(SysRole::getTenantId, tenantId));
+		if (CollectionUtils.isEmpty(roles)) {
+			return recipients;
+		}
+		List<String> roleIds = roles.stream().map(SysRole::getId).toList();
+		String cursor = null;
+		while (true) {
+			StaffMessageAudienceRequest request = new StaffMessageAudienceRequest();
+			request.setTenantId(tenantId);
+			request.setRoleIds(roleIds);
+			request.setLimit(MAX_LIMIT);
+			request.setCursor(cursor);
+			StaffMessageAudiencePageVO page = queryRecipients(request);
+			recipients.addAll(page.getRecords());
+			if (!page.isHasMore()) {
+				return recipients;
+			}
+			cursor = page.getNextCursor();
+		}
 	}
 
 	@Override

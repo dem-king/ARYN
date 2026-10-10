@@ -31,6 +31,8 @@ class TenantInterceptorBypassAuditTest {
 			"aryn-upms/aryn-upms-biz/src/main/java/com/aryn/cloud/upms/mapper/SysUserMapper.java#selectUserByName",
 			"aryn-upms/aryn-upms-biz/src/main/java/com/aryn/cloud/upms/mapper/SysUserMapper.java#selectUserByPhone",
 			"aryn-user/aryn-user-biz/src/main/java/com/aryn/cloud/user/mapper/SocialAccountMapper.java#selectByAppId",
+			"aryn-user/aryn-user-biz/src/main/java/com/aryn/cloud/user/mapper/SocialAccountMapper.java#selectValidWxMaByAppId",
+			"aryn-user/aryn-user-biz/src/main/java/com/aryn/cloud/user/mapper/SocialAccountMapper.java#countValidWxMaByAppIdExcluding",
 			"aryn-user/aryn-user-biz/src/main/java/com/aryn/cloud/user/mapper/SocialUserMapper.java#selectByIdInAnyTenant",
 			"aryn-user/aryn-user-biz/src/main/java/com/aryn/cloud/user/mapper/SocialUserMapper.java#selectByAppIdAndOpenIdInAnyTenant",
 			"aryn-promotion/aryn-promotion-biz/src/main/java/com/aryn/cloud/promotion/mapper/PageDesignTemplateMapper.java#selectMarketTemplatePage",

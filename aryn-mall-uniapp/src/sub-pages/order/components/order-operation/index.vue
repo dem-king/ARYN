@@ -112,12 +112,21 @@ const showLogistics = computed(() =>
   ['3', '4', '7'].includes(props.orderInfo.status) && props.orderInfo.deliveryWay === '1',
 )
 
-// 确认收货：第三方快递与商城配送/公司内部配送在「待收货」时都可确认。
+// 确认收货：第三方快递在「待收货」时即可确认（无内部妥投信号，由买家自行核对）。
+// 商城配送/公司内部配送（way=3/4）必须等司机的配送任务「已送达」后才出现按钮——
+// 订单在司机出发时就已进入待收货，若不加此条件，司机未送达买家便能确认收货。
 // 上门自提（way=2）走提货二维码，不在此列。
-const showReceiver = computed(() =>
-  props.orderInfo.status === '3'
-  && ['1', '3', '4'].includes(props.orderInfo.deliveryWay),
-)
+const showReceiver = computed(() => {
+  const { status, deliveryWay, delivered } = props.orderInfo
+  if (status !== '3' || !['1', '3', '4'].includes(deliveryWay)) {
+    return false
+  }
+  // 任务驱动的配送方式需已送达；快递放行
+  if (deliveryWay === '1') {
+    return true
+  }
+  return delivered === true
+})
 
 const showAppraise = computed(() =>
   props.orderInfo.status === '4' && props.orderInfo.appraiseStatus === '0',

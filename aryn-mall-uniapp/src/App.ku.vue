@@ -3,6 +3,47 @@ import { pendingChoice } from '@/composables/useCartDestination'
 import { useMallThemeSync } from '@/composables/useMallThemeSync'
 import { useTabBarBadge } from '@/composables/useTabBarBadge'
 import { useMallThemeStore } from '@/store/mallThemeStore'
+import {
+  getTenantGuardError,
+  getTenantGuardState,
+  isTenantBuild,
+  onTenantGuardStateChange,
+  retryTenantBinding,
+} from '@/api/core/tenant-identity'
+import type { TenantGuardState } from '@/api/core/tenant-identity'
+
+// 租户构建的启动守卫 UI：安全边界在各请求入口（instance/file/socket/pay），
+// 这里只负责最早发起校验、在 blocked 时给全屏阻断界面与重试入口。
+// 默认开发（generated=null）isTenantBuild() 为 false，零开销放行。
+const tenantEnabled = isTenantBuild()
+const tenantState = ref<TenantGuardState>(getTenantGuardState())
+const tenantError = computed(() => getTenantGuardError())
+
+const tenantErrorDescription = computed(() => {
+  const error = tenantError.value
+  if (!error) {
+    return ''
+  }
+  // buildId 仅守卫错误携带（preflight 错误带 endpoint/分类），对用户只显示类型与可追溯 ID
+  const buildId = (error as { buildId?: string }).buildId
+  return `${error.type}${buildId ? ` · ${buildId}` : ''}`
+})
+
+if (tenantEnabled) {
+  void retryTenantBinding().finally(() => {
+    tenantState.value = getTenantGuardState()
+  })
+  // 回前台刷新在 App.vue 的应用级 onShow（App.ku.vue 是页面包装层，App 级
+  // 生命周期不保证触发）；这里只订阅状态变化驱动阻断 UI
+  onUnmounted(onTenantGuardStateChange((next) => {
+    tenantState.value = next
+  }))
+}
+
+async function onTenantRetry() {
+  await retryTenantBinding()
+  tenantState.value = getTenantGuardState()
+}
 
 // 底部 tabBar 购物车角标：根组件全局挂一份，watch 共享的 cartCount 即可，
 // 各加购入口/页面不需要（也不允许）自己打角标。
@@ -51,5 +92,52 @@ const themeVars = computed(() => mallThemeStore.themeVars)
     <!-- #ifdef MP-WEIXIN -->
     <privacy-popup />
     <!-- #endif -->
+
+    <!-- 租户身份被阻断（本地一致/AppID/服务端映射任一失败）：全屏阻断，附 buildId 供追溯 -->
+    <view v-if="tenantEnabled && tenantState === 'blocked'" class="tenant-blocked">
+      <text class="tenant-blocked__title">应用配置暂不可用</text>
+      <text class="tenant-blocked__desc">请联系管理员确认小程序与租户配置，稍后重试</text>
+      <text class="tenant-blocked__meta">{{ tenantErrorDescription }}</text>
+      <button class="tenant-blocked__retry" type="primary" @tap="onTenantRetry">
+        重试
+      </button>
+    </view>
   </wd-config-provider>
 </template>
+
+<style scoped>
+.tenant-blocked {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16rpx;
+  padding: 0 64rpx;
+  background: #f6f7f9;
+}
+
+.tenant-blocked__title {
+  font-size: 36rpx;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.tenant-blocked__desc {
+  font-size: 26rpx;
+  color: #6b7280;
+  text-align: center;
+}
+
+.tenant-blocked__meta {
+  font-size: 22rpx;
+  color: #9ca3af;
+}
+
+.tenant-blocked__retry {
+  margin-top: 24rpx;
+  width: 320rpx;
+}
+</style>

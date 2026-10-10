@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { CanvasThemeVars } from '../schema/theme-presets';
 import type { DecorationSection, PageSettings } from '../schema/types';
 
 import type { PageDesignType } from '#/api/promotion/page-design';
@@ -7,6 +8,7 @@ import { computed } from 'vue';
 
 import { ElEmpty } from 'element-plus';
 
+import { resolveEffectivePageTheme } from '../schema/effective-theme';
 import CanvasPageShell from './canvas-page-shell.vue';
 import CanvasSectionList from './canvas-section-list.vue';
 
@@ -22,8 +24,10 @@ const props = defineProps<{
    * 主题 CSS 变量（页面引用主题 > 商城默认主题 > 内置默认红），
    * 与 C 端 App.ku.vue / diy 页面级覆盖使用同一套 `--wot-color-theme-*` 变量名，
    * 画布组件用 var() 消费即可与管理端预览、小程序实机三端同源。
+   * 除主色/辅色外还包含页面底色与导航配色：画布用它们覆盖页面自存的
+   * 品牌色（含模板种子写死的颜色），与 C 端 diy 渲染器有效主题口径一致。
    */
-  themeVars?: { primaryColor?: string; secondaryColor?: string };
+  themeVars?: CanvasThemeVars;
   zoom: number;
 }>();
 
@@ -52,11 +56,22 @@ const showNavigation = computed(
 const showShell = computed(() => isEmbeddedPage.value && props.showPageShell);
 
 /**
+ * 页面有效主题色：编辑器传入了主题（页面指定主题或商城默认主题）时覆盖
+ * 页面自存配色，未传（主题库不可用）时保留页面原色。
+ * 与 C 端 diy 渲染器同一解析函数（preview-parity.test.ts 守卫两端同源）。
+ */
+const effectivePage = computed(() =>
+  resolveEffectivePageTheme(props.page, props.themeVars),
+);
+
+/**
  * 页面背景色/图在**整页 DIY**（微页面/首页）下铺满整个手机壳；
  * 内嵌页型下改由骨架内的装修段落承接（见 embeddedStyle）。
  */
 const canvasStyle = computed(() => ({
-  backgroundColor: showShell.value ? undefined : props.page.backgroundColor,
+  backgroundColor: showShell.value
+    ? undefined
+    : effectivePage.value.backgroundColor,
   backgroundImage:
     !showShell.value && props.page.backgroundImage
       ? `url(${props.page.backgroundImage})`
@@ -74,7 +89,7 @@ const canvasStyle = computed(() => ({
  * 内嵌场景该节点只包住装修区块，整页底色仍由各页面自己决定（分类页是 #f4f5f7）。
  */
 const embeddedStyle = computed(() => ({
-  backgroundColor: props.page.backgroundColor,
+  backgroundColor: effectivePage.value.backgroundColor,
   backgroundImage: props.page.backgroundImage
     ? `url(${props.page.backgroundImage})`
     : undefined,
@@ -95,8 +110,8 @@ const isEmpty = computed(() =>
         v-if="showNavigation"
         class="phone-navigation"
         :style="{
-          backgroundColor: page.navigation.backgroundColor,
-          color: page.navigation.textColor,
+          backgroundColor: effectivePage.navigationBackgroundColor,
+          color: effectivePage.navigationTextColor,
         }"
       >
         {{ page.navigation.title || pageName }}

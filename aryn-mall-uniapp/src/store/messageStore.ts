@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { buildWebSocketUrl, getPageOrigin } from '@/api/core/api-base-url'
 import { parseOpenBoot, rewriteBootUrl } from '@/api/core/boot-url'
+import { ensureSessionTenant, ensureTenantReady } from '@/api/core/tenant-identity'
 import { getConversationInbox } from '@/api/message/conversation'
 import { getNoticeUnreadCount } from '@/api/message/notice'
 
@@ -61,7 +62,7 @@ export const useMessageStore = defineStore('message', {
         0,
       )
     },
-    connect() {
+    async connect() {
       if (this.socketState === 'connecting' || this.socketState === 'open')
         return
       const authStore = useAuthStore()
@@ -71,11 +72,25 @@ export const useMessageStore = defineStore('message', {
         if (!reconnectTimer) {
           reconnectTimer = setTimeout(() => {
             reconnectTimer = undefined
-            this.connect()
+            void this.connect()
           }, RECONNECT_DELAY)
         }
         return
       }
+      // 建连前守卫：绑定/会话租户校验失败不得创建 socket。
+      // 守卫错误在此终止（不进入 onClose 重连循环），由调用方的 await/void 语义消化。
+      try {
+        await ensureTenantReady()
+        await ensureSessionTenant('mall', authStore.getToken)
+      }
+      catch {
+        this.socketState = 'closed'
+        return
+      }
+      // await 之后 TS 控制流仍把 socketState 窄化成 'closed'，断言回全集避免误报
+      const stateAfterGuard = this.socketState as 'closed' | 'connecting' | 'open'
+      if (stateAfterGuard === 'connecting' || stateAfterGuard === 'open')
+        return
       this.socketState = 'connecting'
       const path = rewriteBootUrl(
         '/message/ws/app',
@@ -107,7 +122,7 @@ export const useMessageStore = defineStore('message', {
         if (!reconnectTimer) {
           reconnectTimer = setTimeout(() => {
             reconnectTimer = undefined
-            this.connect()
+            void this.connect()
           }, RECONNECT_DELAY)
         }
       })

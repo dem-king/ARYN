@@ -53,6 +53,7 @@ import { useDict } from '#/utils/dict';
 import { downloadBlobFile } from '#/utils/util';
 
 import OrderItemsCell from './order-items-cell.vue';
+import { purchaseSceneText } from './purchase-scene';
 
 const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
@@ -76,7 +77,7 @@ const { pay_type, delivery_way, order_status } = useDict(
 const state = reactive({
   queryParams: {
     deliveryWay: '',
-    payType: '',
+    paymentType: '',
     paymentQueryTimes: '',
     orderNo: '',
     purchaseScene: '',
@@ -187,6 +188,23 @@ const resetQuery = (formEl: FormInstance | undefined) => {
 const detail = (row: any) => {
   $route.push({ path: '/order/detail', query: { id: row.id } });
 };
+// 商城配送/内部配送派单后订单仍为待发货（司机出发才转待收货），
+// 列表需要副标签展示派单进度，避免误以为没有点过发货
+const DISPATCHED_TASK_LABELS: Record<string, string> = {
+  '2': '已派单·待取货',
+  '3': '已派单·配货中',
+  '4': '已派单·待送达',
+  '8': '已派单·异常',
+};
+const dispatchedTaskLabel = (row: any) => {
+  if (row.status !== '2') {
+    return '';
+  }
+  if (row.deliveryWay !== '3' && row.deliveryWay !== '4') {
+    return '';
+  }
+  return DISPATCHED_TASK_LABELS[row.deliveryTask?.status] ?? '';
+};
 /**
  * 删除按钮
  */
@@ -268,6 +286,18 @@ const payConfirmState = reactive({
   actualPayPrice: 0,
   voucherFiles: [] as PayVoucherFile[],
 });
+/**
+ * 确认收款入口判据：货到付款 + 未收款 + 货物已送达。
+ *
+ * delivered 由后端下发（onDelivery 判定）：已完成、自提到店、或配送任务已送达/签收。
+ * 不能只认 status=4——客户常当面付款却不在小程序点确认收货，只认完成会把入口
+ * 拖到超时自动收货之后（默认 7 天）；也不能只看待发货/待收货，否则货未到就收款。
+ */
+const canConfirmPay = (row: any) =>
+  row.paymentType === '3' &&
+  row.payStatus === '0' &&
+  row.delivered === true &&
+  row.status !== '11';
 const openPayConfirm = (row: any) => {
   payConfirmState.orderId = row.id;
   payConfirmState.orderNo = row.orderNo || row.id;
@@ -322,7 +352,7 @@ const confirmPaySubmit = () => {
     actualPayPrice: payConfirmState.actualPayPrice,
     voucherMaterialIds: payConfirmState.voucherFiles
       .map((file) => file.materialId)
-      .filter(Boolean),
+      .filter((id): id is string => id !== undefined),
   })
     .then(() => {
       ElMessage.success('确认收款成功');
@@ -336,9 +366,14 @@ const confirmPaySubmit = () => {
 };
 
 /**
- * 按当前筛选条件导出订单明细（商品行按分类分组、含分类小计与汇总）
+ * 导出订单明细（商品行按分类分组、含分类小计与汇总）：
+ * 已勾选订单时仅导出所选订单，否则按当前筛选条件导出
  */
 const exporting = ref(false);
+const selectedRows = ref<any[]>([]);
+const handleSelectionChange = (rows: any[]) => {
+  selectedRows.value = rows;
+};
 const localTimestamp = () => {
   const now = new Date();
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -348,8 +383,12 @@ const localTimestamp = () => {
   );
 };
 const handleExport = () => {
+  const selectedIds = selectedRows.value.map((row) => row.id);
+  const exportSelected = selectedIds.length > 0;
   ElMessageBox.confirm(
-    '将按当前筛选条件导出订单明细（商品按分类分组），是否继续?',
+    exportSelected
+      ? `已选择 ${selectedIds.length} 个订单，将导出所选订单明细（商品按分类分组），是否继续?`
+      : '将按当前筛选条件导出订单明细（商品按分类分组），是否继续?',
     '订单导出',
     {
       confirmButtonText: '导出',
@@ -360,7 +399,9 @@ const handleExport = () => {
     exporting.value = true;
     downloadBlobFile(
       '/mall-order/orderinfo/export',
-      { ...state.queryParams, status: activeType.value },
+      exportSelected
+        ? { ids: selectedIds.join(',') }
+        : { ...state.queryParams, status: activeType.value },
       `订单明细_${localTimestamp()}.xlsx`,
     ).finally(() => {
       exporting.value = false;
@@ -379,9 +420,9 @@ initPage();
         :inline="true"
         v-show="showSearch"
       >
-        <ElFormItem label="支付类型" prop="payType">
+        <ElFormItem label="支付类型" prop="paymentType">
           <ElSelect
-            v-model="state.queryParams.payType"
+            v-model="state.queryParams.paymentType"
             clearable
             placeholder="请选择支付类型"
             style="width: 200px"
@@ -494,16 +535,12 @@ initPage();
         v-loading="loading"
         :data="state.tableData"
         border
+        @selection-change="handleSelectionChange"
       >
+        <ElTableColumn type="selection" width="55" align="center" />
         <ElTableColumn label="购买场景" width="110" align="center">
           <template #default="scope">
-            {{
-              scope.row.purchaseScene === '2'
-                ? '船供采购'
-                : scope.row.purchaseScene === '1'
-                  ? '个人购买'
-                  : '—'
-            }}
+            {{ purchaseSceneText(scope.row.purchaseScene) }}
           </template>
         </ElTableColumn>
         <ElTableColumn prop="orderItemList" label="订单信息" width="420">
@@ -549,6 +586,11 @@ initPage();
               待自提
             </ElTag>
             <DictTag v-else :options="order_status" :value="scope.row.status" />
+            <div v-if="dispatchedTaskLabel(scope.row)" class="mt-1">
+              <ElTag size="small" type="warning">
+                {{ dispatchedTaskLabel(scope.row) }}
+              </ElTag>
+            </div>
           </template>
         </ElTableColumn>
         <ElTableColumn prop="createTime" label="时间" width="240">
@@ -629,6 +671,22 @@ initPage();
               link
               type="primary"
               v-access:code="'order:orderinfo:deliver'"
+              v-if="
+                scope.row.status === '2' &&
+                (scope.row.deliveryWay === '3' ||
+                  scope.row.deliveryWay === '4') &&
+                (!scope.row.deliveryTask ||
+                  scope.row.deliveryTask.status === '1')
+              "
+              @click="deliverOrder(scope.row)"
+              :icon="Van"
+            >
+              派单发货
+            </ElButton>
+            <ElButton
+              link
+              type="primary"
+              v-access:code="'order:orderinfo:deliver'"
               v-if="scope.row.status === '3' && scope.row.deliveryWay === '2'"
               @click="selffetchOrder(scope.row)"
               :icon="Box"
@@ -639,11 +697,7 @@ initPage();
               link
               type="primary"
               v-access:code="'order:orderinfo:payconfirm'"
-              v-if="
-                scope.row.paymentType === '3' &&
-                scope.row.payStatus === '0' &&
-                scope.row.status !== '11'
-              "
+              v-if="canConfirmPay(scope.row)"
               @click="openPayConfirm(scope.row)"
               :icon="Money"
             >

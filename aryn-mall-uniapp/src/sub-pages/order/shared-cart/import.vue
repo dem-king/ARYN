@@ -570,7 +570,7 @@ async function reopenLatestImport() {
             {{ row.matchedName || row.rawName || `第 ${row.rowNo} 行` }}
           </text>
           <text class="text-22rpx text-gray-400">
-            {{ row.resultType === 'OK' ? `× ${row.plannedQuantity ?? row.rawQuantity ?? '—'}` : '' }}
+            {{ row.resultType === 'OK' ? `× ${row.quantity ?? row.rawQuantity ?? '—'}` : '' }}
           </text>
         </view>
       </view>

@@ -35,6 +35,8 @@ const state = reactive({
     orderCancelTimeout: '',
     orderAutoConfirmDays: 1,
     orderAutoCommentDays: 1,
+    codPayRemindHours: '72,168',
+    driverSelfPullUnassigned: '1',
     kuaidi100AppKey: '',
     remark: '',
     wxDeliveryStatus: '1',
@@ -50,7 +52,7 @@ const state = reactive({
     orderCancelTimeout: [
       {
         required: true,
-        message: '请输入订单超时取消时间（分钟）',
+        message: '请选择订单超时取消时间',
         trigger: 'change',
       },
     ],
@@ -65,6 +67,25 @@ const state = reactive({
       {
         required: true,
         message: '请输入订单评价时间（天）',
+        trigger: 'change',
+      },
+    ],
+    codPayRemindHours: [
+      {
+        validator: (
+          _rule: any,
+          value: string,
+          callback: (error?: Error) => void,
+        ) => {
+          const text = (value ?? '').trim();
+          if (text === '' || /^\d+(?:\s*,\s*\d+)*$/.test(text)) {
+            callback();
+            return;
+          }
+          callback(
+            new Error('格式应为逗号分隔的小时数，如 72,168；留空关闭提醒'),
+          );
+        },
         trigger: 'change',
       },
     ],
@@ -202,7 +223,7 @@ defineExpose({
           show-word-limit
         />
       </ElFormItem>
-      <ElFormItem label="订单超时取消时间（分钟）" prop="orderCancelTimeout">
+      <ElFormItem label="订单超时取消时间" prop="orderCancelTimeout">
         <ElSelect v-model="state.form.orderCancelTimeout" style="width: 260px">
           <ElOption
             v-for="item in mq_delay_time_level"
@@ -211,6 +232,10 @@ defineExpose({
             :value="item.value"
           />
         </ElSelect>
+        <div class="form-field-tip">
+          待付款订单超过该时长未支付将自动取消（MQ
+          延迟级别，固定档位），保存后对新创建的订单生效
+        </div>
       </ElFormItem>
       <ElFormItem label="订单确认收货时间（天）" prop="orderAutoConfirmDays">
         <ElInputNumber
@@ -229,6 +254,26 @@ defineExpose({
           style="width: 260px"
           :min="1"
         />
+      </ElFormItem>
+      <ElFormItem label="货到付款收款提醒（小时）" prop="codPayRemindHours">
+        <ElInput
+          v-model="state.form.codPayRemindHours"
+          maxlength="100"
+          show-word-limit
+          style="width: 260px"
+          placeholder="如 72,168；留空关闭提醒"
+        />
+      </ElFormItem>
+      <ElFormItem label="司机自助拉单" prop="driverSelfPullUnassigned">
+        <ElSwitch
+          v-model="state.form.driverSelfPullUnassigned"
+          active-value="1"
+          inactive-value="0"
+        />
+        <div class="form-field-tip">
+          开启后司机可在配货页把「未派送订单」自行拉上本趟车（先到先得，不经管理端派单）；
+          关闭后司机只能拉管理端已派给自己的任务，未派送单必须由管理端派单。保存后即时生效。
+        </div>
       </ElFormItem>
       <ElFormItem label="快递100AppKey" prop="kuaidi100AppKey">
         <ElInput
@@ -267,3 +312,13 @@ defineExpose({
     </template>
   </ElDialog>
 </template>
+
+<style scoped>
+.form-field-tip {
+  width: 260px;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--el-text-color-secondary);
+}
+</style>

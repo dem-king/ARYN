@@ -533,7 +533,8 @@ public class DefaultPageDesignDocumentValidator implements PageDesignDocumentVal
 		}
 		if (hasTargets) {
 			switch (context.componentType) {
-				case PageDesignComponentTypes.GOODS_GROUP, PageDesignComponentTypes.GOODS_RANKING ->
+				case PageDesignComponentTypes.GOODS_GROUP, PageDesignComponentTypes.GOODS_RANKING,
+						PageDesignComponentTypes.GOODS_RECOMMEND ->
 					context.goodsIds.addAll(targetIds.toJavaList(String.class));
 				case PageDesignComponentTypes.LIMITED_ACTIVITY, PageDesignComponentTypes.SECKILL,
 						PageDesignComponentTypes.DISCOUNT ->

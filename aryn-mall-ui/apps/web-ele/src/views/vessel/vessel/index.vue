@@ -1,9 +1,12 @@
 <script lang="ts" setup>
-import { defineAsyncComponent, onMounted, reactive, ref } from 'vue';
+import type { FormInstance, FormRules } from 'element-plus';
+
+import { computed, defineAsyncComponent, onMounted, reactive, ref } from 'vue';
 
 import {
   ElAlert,
   ElButton,
+  ElDatePicker,
   ElDialog,
   ElForm,
   ElFormItem,
@@ -16,6 +19,7 @@ import {
   ElTableColumn,
   ElTabPane,
   ElTabs,
+  ElTag,
 } from 'element-plus';
 
 import {
@@ -63,7 +67,9 @@ const memberVessel = ref<any>({});
 // 靠港计划
 const callDialogVisible = ref(false);
 const callTableData = ref<any[]>([]);
+const callTableLoading = ref(false);
 const callVessel = ref<any>({});
+const callFormRef = ref<FormInstance>();
 const callForm = reactive<any>({
   berth: '',
   deliveryWindowEnd: '',
@@ -74,7 +80,43 @@ const callForm = reactive<any>({
   portName: '',
   remark: '',
 });
+/** 配送时间窗在表单里以区间选择器编辑，保存时拆回 start/end 两个字段 */
+const callWindowRange = ref<[string, string] | null>(null);
 const editingCallId = ref('');
+const callSaving = ref(false);
+
+const callCount = computed(() => callTableData.value.length);
+const editingCall = computed(() =>
+  callTableData.value.find((item) => item.id === editingCallId.value),
+);
+
+const callRules: FormRules = {
+  eta: [{ required: true, message: '请选择到港时间 ETA', trigger: 'change' }],
+  etd: [
+    { required: true, message: '请选择离港时间 ETD', trigger: 'change' },
+    {
+      trigger: 'change',
+      validator: (_rule, value: string, callback) => {
+        if (value && callForm.eta && value <= callForm.eta) {
+          callback(new Error('离港时间需晚于到港时间'));
+        } else {
+          callback();
+        }
+      },
+    },
+  ],
+  portCode: [{ required: true, message: '请输入港口编码', trigger: 'blur' }],
+};
+
+const callStatusMeta: Record<
+  string,
+  { label: string; type: 'danger' | 'info' | 'primary' | 'success' }
+> = {
+  '1': { label: '计划中', type: 'primary' },
+  '2': { label: '靠泊中', type: 'success' },
+  '3': { label: '已完成', type: 'info' },
+  '4': { label: '已取消', type: 'danger' },
+};
 
 const initPage = async () => {
   loading.value = true;
@@ -160,39 +202,99 @@ const saveMember = () => {
     .catch(() => {});
 };
 
+const resetCallForm = () => {
+  Object.assign(callForm, {
+    berth: '',
+    deliveryWindowEnd: '',
+    deliveryWindowStart: '',
+    eta: '',
+    etd: '',
+    portCode: '',
+    portName: '',
+    remark: '',
+  });
+  callWindowRange.value = null;
+  callFormRef.value?.clearValidate();
+};
+
+const exitCallEdit = () => {
+  editingCallId.value = '';
+  resetCallForm();
+};
+
+const loadCalls = async () => {
+  if (!callVessel.value.id) return;
+  callTableLoading.value = true;
+  try {
+    callTableData.value = await getVesselCalls(callVessel.value.id);
+  } finally {
+    callTableLoading.value = false;
+  }
+};
+
 const openCalls = (row: any) => {
   callVessel.value = row;
+  exitCallEdit();
   callDialogVisible.value = true;
-  getVesselCalls(row.id).then((list) => {
-    callTableData.value = list;
-  });
+  loadCalls();
 };
 
 const saveCall = () => {
-  if (!callForm.portCode || !callForm.eta || !callForm.etd) {
-    ElMessage.warning('港口、ETA 和 ETD 必填');
-    return;
-  }
-  const payload = { ...callForm, vesselId: callVessel.value.id };
-  const request = editingCallId.value
-    ? updateVesselCall(editingCallId.value, payload)
-    : addVesselCall(callVessel.value.id, payload);
-  request
-    .then(() => {
-      ElMessage.success('保存成功');
-      editingCallId.value = '';
-      return getVesselCalls(callVessel.value.id);
-    })
-    .then((list) => {
-      callTableData.value = list;
-    })
-    .catch(() => {});
+  callFormRef.value?.validate((valid) => {
+    if (!valid) return;
+    const [windowStart = '', windowEnd = ''] = callWindowRange.value ?? [];
+    const payload = {
+      ...callForm,
+      deliveryWindowEnd: windowEnd,
+      deliveryWindowStart: windowStart,
+      vesselId: callVessel.value.id,
+    };
+    const isEdit = Boolean(editingCallId.value);
+    callSaving.value = true;
+    const request = isEdit
+      ? updateVesselCall(editingCallId.value, payload)
+      : addVesselCall(callVessel.value.id, payload);
+    request
+      .then(() => {
+        ElMessage.success(
+          isEdit
+            ? '靠港计划已更新，受影响用户将收到站内信提醒'
+            : '靠港计划已新增',
+        );
+        exitCallEdit();
+        return loadCalls();
+      })
+      .catch(() => {})
+      .finally(() => {
+        callSaving.value = false;
+      });
+  });
 };
 
 const editCall = (row: any) => {
   editingCallId.value = row.id;
-  Object.assign(callForm, row);
+  Object.assign(callForm, {
+    berth: row.berth ?? '',
+    deliveryWindowEnd: row.deliveryWindowEnd ?? '',
+    deliveryWindowStart: row.deliveryWindowStart ?? '',
+    eta: row.eta ?? '',
+    etd: row.etd ?? '',
+    portCode: row.portCode ?? '',
+    portName: row.portName ?? '',
+    remark: row.remark ?? '',
+  });
+  callWindowRange.value =
+    row.deliveryWindowStart && row.deliveryWindowEnd
+      ? [row.deliveryWindowStart, row.deliveryWindowEnd]
+      : null;
+  callFormRef.value?.clearValidate();
 };
+
+/** 展示时间统一截断到分钟 */
+const fmtMin = (value?: string) => (value ? value.slice(0, 16) : '');
+
+const callRowClass = ({ row }: { row: any }) =>
+  row.id === editingCallId.value ? 'row-editing' : '';
 
 // 变更影响查询
 const impactDialogVisible = ref(false);
@@ -204,13 +306,6 @@ const viewImpact = (row: any) => {
       impactDialogVisible.value = true;
     })
     .catch(() => {});
-};
-
-const callStatusLabel: Record<string, string> = {
-  '1': '计划中',
-  '2': '靠泊中',
-  '3': '已完成',
-  '4': '已取消',
 };
 
 onMounted(initPage);
@@ -376,110 +471,210 @@ onMounted(initPage);
         </ElTable>
       </ElDialog>
 
-      <!-- 靠港计划 -->
-      <ElDialog v-model="callDialogVisible" title="靠港计划" width="860px">
-        <ElAlert
-          :title="`船舶：${callVessel.vesselName ?? ''}`"
-          :closable="false"
-          class="mb10"
-        />
-        <ElForm :inline="true" class="mb10">
-          <ElFormItem label="港口编码">
-            <ElInput v-model="callForm.portCode" style="width: 110px" />
-          </ElFormItem>
-          <ElFormItem label="港口名称">
-            <ElInput v-model="callForm.portName" style="width: 120px" />
-          </ElFormItem>
-          <ElFormItem label="泊位">
-            <ElInput v-model="callForm.berth" style="width: 110px" />
-          </ElFormItem>
-          <ElFormItem label="ETA">
-            <ElInput
-              v-model="callForm.eta"
-              placeholder="2026-09-15 08:00:00"
-              style="width: 190px"
-            />
-          </ElFormItem>
-          <ElFormItem label="ETD">
-            <ElInput
-              v-model="callForm.etd"
-              placeholder="2026-09-15 20:00:00"
-              style="width: 190px"
-            />
-          </ElFormItem>
-          <ElFormItem label="时间窗">
-            <ElInput
-              v-model="callForm.deliveryWindowStart"
-              placeholder="开始"
-              style="width: 170px"
-            />
-            <span> ~ </span>
-            <ElInput
-              v-model="callForm.deliveryWindowEnd"
-              placeholder="结束"
-              style="width: 170px"
-            />
-          </ElFormItem>
-          <ElFormItem>
+      <!-- 靠港计划：上下文 → 新增/编辑表单卡片 → 靠港列表卡片 -->
+      <ElDialog
+        v-model="callDialogVisible"
+        title="靠港计划"
+        width="960px"
+        top="6vh"
+        class="vessel-call-dialog"
+      >
+        <div class="call-context">
+          <div class="call-context-name">
+            <span class="call-context-label">船舶</span>
+            {{ callVessel.vesselName ?? '—' }}
+          </div>
+          <div class="call-context-sub">共 {{ callCount }} 个靠港计划</div>
+        </div>
+
+        <div class="call-card">
+          <div class="call-card-head">
+            <span class="call-card-title">
+              {{
+                editingCallId
+                  ? `编辑靠港 · ${editingCall?.portName || editingCall?.portCode || '原记录'}`
+                  : '新增靠港'
+              }}
+            </span>
+            <span v-if="editingCallId" class="call-card-tip">
+              修改 ETA/ETD/泊位/时间窗并保存后，系统将自动提醒受影响用户
+            </span>
+          </div>
+          <ElForm
+            ref="callFormRef"
+            :model="callForm"
+            :rules="callRules"
+            class="call-form"
+            label-position="top"
+            @submit.prevent
+          >
+            <div class="call-form-grid">
+              <ElFormItem class="is-span2" label="港口编码" prop="portCode">
+                <ElInput v-model="callForm.portCode" placeholder="如 CNSHA" />
+              </ElFormItem>
+              <ElFormItem class="is-span2" label="港口名称" prop="portName">
+                <ElInput v-model="callForm.portName" placeholder="如 上海港" />
+              </ElFormItem>
+              <ElFormItem class="is-span2" label="泊位" prop="berth">
+                <ElInput v-model="callForm.berth" placeholder="选填" />
+              </ElFormItem>
+              <ElFormItem class="is-span3" label="到港时间 ETA" prop="eta">
+                <ElDatePicker
+                  v-model="callForm.eta"
+                  format="YYYY-MM-DD HH:mm:ss"
+                  placeholder="选择到港时间"
+                  style="width: 100%"
+                  type="datetime"
+                  value-format="YYYY-MM-DD HH:mm:ss"
+                />
+              </ElFormItem>
+              <ElFormItem class="is-span3" label="离港时间 ETD" prop="etd">
+                <ElDatePicker
+                  v-model="callForm.etd"
+                  format="YYYY-MM-DD HH:mm:ss"
+                  placeholder="选择离港时间"
+                  style="width: 100%"
+                  type="datetime"
+                  value-format="YYYY-MM-DD HH:mm:ss"
+                />
+              </ElFormItem>
+              <ElFormItem class="is-span6" label="配送时间窗">
+                <ElDatePicker
+                  v-model="callWindowRange"
+                  end-placeholder="窗口结束"
+                  format="YYYY-MM-DD HH:mm:ss"
+                  range-separator="~"
+                  start-placeholder="窗口开始"
+                  style="width: 100%"
+                  type="datetimerange"
+                  value-format="YYYY-MM-DD HH:mm:ss"
+                />
+              </ElFormItem>
+            </div>
+          </ElForm>
+          <div class="call-card-actions">
+            <ElButton v-if="editingCallId" @click="exitCallEdit">
+              取消修改
+            </ElButton>
             <ElButton
               type="primary"
               v-access:code="'vessel:call:save'"
+              :loading="callSaving"
               @click="saveCall"
             >
               {{ editingCallId ? '保存修改' : '新增靠港' }}
             </ElButton>
-          </ElFormItem>
-        </ElForm>
-        <ElTable :data="callTableData" border>
-          <ElTableColumn prop="portName" label="港口" width="130" />
-          <ElTableColumn prop="berth" label="泊位" width="110" />
-          <ElTableColumn prop="eta" label="ETA" width="170" />
-          <ElTableColumn prop="etd" label="ETD" width="170" />
-          <ElTableColumn
-            prop="deliveryWindowStart"
-            label="配送窗口"
-            width="220"
+          </div>
+        </div>
+
+        <div class="call-card call-list-card">
+          <div class="call-card-head">
+            <span class="call-card-title">靠港列表（{{ callCount }}）</span>
+            <span v-if="editingCallId" class="call-card-tip is-highlight">
+              正在编辑下方高亮行，保存或取消后恢复
+            </span>
+          </div>
+          <ElTable
+            v-loading="callTableLoading"
+            :data="callTableData"
+            :row-class-name="callRowClass"
+            border
+            empty-text="暂无靠港计划，填写上方表单新增"
+            max-height="280"
           >
-            <template #default="scope">
-              {{ scope.row.deliveryWindowStart }} ~
-              {{ scope.row.deliveryWindowEnd }}
-            </template>
-          </ElTableColumn>
-          <ElTableColumn label="来源" width="100">
-            <template #default="scope">
-              <!-- 海员申报的靠港需要运营补配送时间窗并排产；
-                   运营自建的多为已知船期的大客户，两者处理方式不同 -->
-              <ElTag
-                v-if="scope.row.source === '2'"
-                type="warning"
-                size="small"
-              >
-                海员申报
-              </ElTag>
-              <span v-else>运营维护</span>
-            </template>
-          </ElTableColumn>
-          <ElTableColumn label="状态" width="90">
-            <template #default="scope">
-              {{ callStatusLabel[scope.row.status] ?? scope.row.status }}
-            </template>
-          </ElTableColumn>
-          <ElTableColumn label="操作" width="80">
-            <template #default="scope">
-              <ElButton
-                link
-                type="primary"
-                v-access:code="'vessel:call:update'"
-                @click="editCall(scope.row)"
-              >
-                修改
-              </ElButton>
-              <ElButton link type="warning" @click="viewImpact(scope.row)">
-                影响面
-              </ElButton>
-            </template>
-          </ElTableColumn>
-        </ElTable>
+            <ElTableColumn label="港口" min-width="120">
+              <template #default="scope">
+                <div class="call-cell-port">
+                  <span>
+                    {{ scope.row.portName || scope.row.portCode || '—' }}
+                  </span>
+                  <span
+                    v-if="scope.row.portName && scope.row.portCode"
+                    class="call-cell-sub"
+                  >
+                    {{ scope.row.portCode }}
+                  </span>
+                </div>
+              </template>
+            </ElTableColumn>
+            <ElTableColumn label="泊位" min-width="70">
+              <template #default="scope">
+                {{ scope.row.berth || '—' }}
+              </template>
+            </ElTableColumn>
+            <ElTableColumn label="靠港时间" min-width="175">
+              <template #default="scope">
+                <div class="call-cell-time">
+                  <span>到 {{ fmtMin(scope.row.eta) || '—' }}</span>
+                  <span>离 {{ fmtMin(scope.row.etd) || '—' }}</span>
+                </div>
+              </template>
+            </ElTableColumn>
+            <ElTableColumn label="配送窗口" min-width="175">
+              <template #default="scope">
+                <span
+                  v-if="
+                    scope.row.deliveryWindowStart && scope.row.deliveryWindowEnd
+                  "
+                >
+                  {{ fmtMin(scope.row.deliveryWindowStart) }} ~
+                  {{ fmtMin(scope.row.deliveryWindowEnd) }}
+                </span>
+                <ElTag
+                  v-else-if="scope.row.source === '2'"
+                  size="small"
+                  type="warning"
+                >
+                  待排产
+                </ElTag>
+                <span v-else>—</span>
+              </template>
+            </ElTableColumn>
+            <ElTableColumn label="来源" min-width="88">
+              <template #default="scope">
+                <!-- 海员申报的靠港需要运营补配送时间窗并排产；
+                     运营自建的多为已知船期的大客户，两者处理方式不同 -->
+                <ElTag
+                  v-if="scope.row.source === '2'"
+                  size="small"
+                  type="warning"
+                >
+                  海员申报
+                </ElTag>
+                <ElTag v-else effect="plain" size="small" type="info">
+                  运营维护
+                </ElTag>
+              </template>
+            </ElTableColumn>
+            <ElTableColumn label="状态" min-width="80">
+              <template #default="scope">
+                <ElTag
+                  :type="callStatusMeta[scope.row.status]?.type ?? 'info'"
+                  size="small"
+                >
+                  {{
+                    callStatusMeta[scope.row.status]?.label ?? scope.row.status
+                  }}
+                </ElTag>
+              </template>
+            </ElTableColumn>
+            <ElTableColumn label="操作" min-width="120">
+              <template #default="scope">
+                <ElButton
+                  link
+                  type="primary"
+                  v-access:code="'vessel:call:update'"
+                  @click="editCall(scope.row)"
+                >
+                  修改
+                </ElButton>
+                <ElButton link type="warning" @click="viewImpact(scope.row)">
+                  影响面
+                </ElButton>
+              </template>
+            </ElTableColumn>
+          </ElTable>
+        </div>
       </ElDialog>
 
       <!-- 变更影响面 -->
@@ -518,3 +713,138 @@ onMounted(initPage);
     </div>
   </div>
 </template>
+
+<style scoped>
+/* 靠港计划弹窗：上下文条 + 录入卡片 + 列表卡片的三段式结构 */
+.call-context {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  background: var(--el-fill-color-light);
+  border-radius: 6px;
+}
+
+.call-context-name {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.call-context-label {
+  padding: 1px 6px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
+  border-radius: 4px;
+}
+
+.call-context-sub {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+
+.call-card {
+  padding: 14px 16px 16px;
+  margin-bottom: 14px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+}
+
+.call-list-card {
+  margin-bottom: 0;
+}
+
+.call-card-head {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  margin-bottom: 14px;
+}
+
+.call-card-title {
+  position: relative;
+  padding-left: 10px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.call-card-title::before {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 3px;
+  height: 14px;
+  content: '';
+  background: var(--el-color-primary);
+  border-radius: 2px;
+  transform: translateY(-50%);
+}
+
+.call-card-tip {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+.call-card-tip.is-highlight {
+  color: var(--el-color-primary);
+}
+
+.call-form-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0 16px;
+}
+
+.call-form-grid :deep(.el-form-item) {
+  margin-bottom: 14px;
+}
+
+.is-span2 {
+  grid-column: span 2;
+}
+
+.is-span3 {
+  grid-column: span 3;
+}
+
+.is-span6 {
+  grid-column: span 6;
+}
+
+.call-card-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding-top: 10px;
+  border-top: 1px solid var(--el-border-color-lighter);
+}
+
+/* 编辑中的靠港行高亮，与上方表单卡片联动 */
+.call-list-card :deep(tr.row-editing > td.el-table__cell) {
+  background-color: var(--el-color-primary-light-9) !important;
+}
+
+.call-cell-port {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.4;
+}
+
+.call-cell-sub {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+.call-cell-time {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+</style>

@@ -4,9 +4,13 @@ package com.aryn.cloud.order.controller.app;
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.log.annotation.SysLog;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
+import com.aryn.cloud.order.api.dto.DeliveryBatchPickDTO;
+import com.aryn.cloud.order.api.dto.DeliveryPullOrdersDTO;
 import com.aryn.cloud.order.api.dto.DeliverySortDTO;
 import com.aryn.cloud.order.api.entity.DeliveryTask;
 import com.aryn.cloud.order.api.entity.DeliveryTrip;
+import com.aryn.cloud.order.api.vo.DeliveryCandidateOrderVO;
+import com.aryn.cloud.order.api.vo.DeliveryWorkbenchVO;
 import com.aryn.cloud.order.security.DeliveryAccessGuard;
 import com.aryn.cloud.order.service.IDeliveryTaskItemService;
 import com.aryn.cloud.order.service.IDeliveryTaskService;
@@ -46,6 +50,17 @@ public class AppDeliveryTripController {
 	public Result<DeliveryTrip> active() {
 		String staffId = getCurrentStaffId();
 		return Result.success(deliveryTripService.getActiveTrip(staffId));
+	}
+
+	@Operation(summary = "工作台首页数据（统计+全部在途趟次）")
+	@GetMapping("/workbench")
+	public Result<DeliveryWorkbenchVO> workbench() {
+		String staffId = getCurrentStaffId();
+		DeliveryWorkbenchVO vo = new DeliveryWorkbenchVO();
+		vo.setPendingTaskCount(deliveryTaskService.countPendingTasks(staffId));
+		vo.setTodayDoneCount(deliveryTaskService.countTodayDoneTasks(staffId));
+		vo.setTrips(deliveryTripService.listActiveTripBriefs(staffId));
+		return Result.success(vo);
 	}
 
 	@Operation(summary = "出车单详情")
@@ -93,6 +108,15 @@ public class AppDeliveryTripController {
 		return Result.success(deliveryTaskItemService.unpick(itemId, staffId));
 	}
 
+	@Operation(summary = "批量确认/取消取货（配货汇总行一次勾选多条明细）")
+	@SysLog("批量确认取货")
+	@PostMapping("/{id}/items/batch-pick")
+	public Result<Integer> batchPick(@PathVariable String id,
+			@RequestBody @Valid DeliveryBatchPickDTO dto) {
+		String staffId = getCurrentStaffId();
+		return Result.success(deliveryTaskItemService.batchPick(id, dto.getItemIds(), dto.isPicked(), staffId));
+	}
+
 	@Operation(summary = "装货完毕出发")
 	@SysLog("装货完毕出发")
 	@PostMapping("/{id}/depart")
@@ -107,6 +131,23 @@ public class AppDeliveryTripController {
 	public Result<Boolean> sort(@PathVariable String id, @RequestBody @Valid DeliverySortDTO dto) {
 		String staffId = getCurrentStaffId();
 		return Result.success(deliveryTripService.adjustSort(id, staffId, dto.getTaskIds()));
+	}
+
+	@Operation(summary = "可拉进本趟的候选订单（我的未完成 / 未派送订单）")
+	@GetMapping("/{id}/pull-candidates")
+	public Result<List<DeliveryCandidateOrderVO>> pullCandidates(@PathVariable String id,
+			@RequestParam(required = false) String source,
+			@RequestParam(required = false) String keyword) {
+		String staffId = getCurrentStaffId();
+		return Result.success(deliveryTaskService.listPullCandidates(id, staffId, source, keyword));
+	}
+
+	@Operation(summary = "把订单拉进本趟（今日已有未完成 / 未派送订单 / 临时新增共用）")
+	@SysLog("拉单并入出车单")
+	@PostMapping("/{id}/pull-orders")
+	public Result<Integer> pullOrders(@PathVariable String id, @RequestBody @Valid DeliveryPullOrdersDTO dto) {
+		String staffId = getCurrentStaffId();
+		return Result.success(deliveryTaskService.pullOrdersIntoTrip(id, staffId, dto.getOrderIds()));
 	}
 
 	/**

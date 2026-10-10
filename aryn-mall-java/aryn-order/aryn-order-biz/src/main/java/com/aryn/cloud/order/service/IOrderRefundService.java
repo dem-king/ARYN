@@ -63,4 +63,16 @@ public interface IOrderRefundService extends IService<OrderRefund> {
 	 */
 	IPage<OrderRefund> getPage(Page page, OrderRefund orderRefund);
 
+	/**
+	 * 整单自动退款（系统侧发起，跳过售后审核）。
+	 *
+	 * <p>当前场景：拼团成团失败，对已付款成员整单退款。仅处理已支付、未取消的订单；
+	 * 按订单项逐项创建退款单并发起支付退款，按订单项幂等（已有退款单的项跳过）。
+	 *
+	 * @param orderId 订单ID
+	 * @param reason  退款原因（写入退款单）
+	 * @return true=已发起至少一项退款；false=无需退款（未支付/已取消/均已退款）
+	 */
+	boolean refundWholeOrder(String orderId, String reason);
+
 }

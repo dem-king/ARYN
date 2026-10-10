@@ -5,6 +5,7 @@ import com.alibaba.excel.ExcelWriter;
 import com.alibaba.excel.write.metadata.WriteSheet;
 import com.aryn.cloud.order.api.entity.OrderInfo;
 import com.aryn.cloud.order.api.entity.OrderItemEntity;
+import com.aryn.cloud.order.api.enums.PurchaseSceneEnum;
 
 import java.io.OutputStream;
 import java.math.BigDecimal;
@@ -21,11 +22,12 @@ import java.util.Set;
 /**
  * 管理端订单导出（按分类分组）。
  *
- * <p>两个工作表：
+ * <p>三个工作表：
  * <ul>
  *   <li><b>订单明细</b>：一行一个商品，订单维度列逐行重复（便于筛选/透视）；
  *       订单内商品按分类分组排列，每个分类块尾部跟一行「小计」，订单末尾跟一行「订单合计」。</li>
  *   <li><b>分类汇总</b>：跨订单按分类聚合的件数/金额，供按分类备货、装箱用。</li>
+ *   <li><b>订单分类小计</b>：每单 × 每分类一行的小计长表，供按订单对账、核对单笔订单的分类构成。</li>
  * </ul>
  *
  * <p>表头与数据行都走动态 {@code List<List<...>>}，因为明细表混合了
@@ -47,6 +49,9 @@ public final class OrderCategoryExportExcel {
 
 	private static final List<String> SUMMARY_HEAD = List.of("分类", "商品种数", "总数量", "总金额（元）");
 
+	private static final List<String> ORDER_SUMMARY_HEAD = List.of("订单号", "下单时间", "收货人", "分类",
+			"商品种数", "总数量", "总金额（元）");
+
 	private OrderCategoryExportExcel() {
 	}
 
@@ -62,6 +67,11 @@ public final class OrderCategoryExportExcel {
 
 			WriteSheet summarySheet = EasyExcel.writerSheet(1, "分类汇总").head(summaryHead()).build();
 			excelWriter.write(summaryRows(orders), summarySheet);
+
+			WriteSheet orderSummarySheet = EasyExcel.writerSheet(2, "订单分类小计")
+				.head(orderSummaryHead())
+				.build();
+			excelWriter.write(orderSummaryRows(orders), orderSummarySheet);
 		}
 	}
 
@@ -71,6 +81,10 @@ public final class OrderCategoryExportExcel {
 
 	private static List<List<String>> summaryHead() {
 		return SUMMARY_HEAD.stream().map(List::of).toList();
+	}
+
+	private static List<List<String>> orderSummaryHead() {
+		return ORDER_SUMMARY_HEAD.stream().map(List::of).toList();
 	}
 
 	private static List<List<Object>> detailRows(List<OrderInfo> orders) {
@@ -206,6 +220,38 @@ public final class OrderCategoryExportExcel {
 				? UNCATEGORIZED : item.getCategoryName();
 	}
 
+	/**
+	 * 每单 × 每分类一行的小计长表：行序 = 订单序（入参序，SQL 已按下单时间倒序），
+	 * 单内分类序与明细表同口径（拼音序，「未分类」最后）。
+	 */
+	private static List<List<Object>> orderSummaryRows(List<OrderInfo> orders) {
+		List<List<Object>> rows = new ArrayList<>();
+		for (OrderInfo order : orders) {
+			List<OrderItemEntity> items = order.getOrderItemList() == null
+					? List.of() : order.getOrderItemList();
+			for (Map.Entry<String, List<OrderItemEntity>> entry : groupByCategory(items).entrySet()) {
+				int quantity = 0;
+				BigDecimal amount = BigDecimal.ZERO;
+				Set<String> spuIds = new LinkedHashSet<>();
+				for (OrderItemEntity item : entry.getValue()) {
+					quantity = quantity + nullSafeQuantity(item);
+					amount = amount.add(nullSafeTotalPrice(item));
+					spuIds.add(item.getSpuId());
+				}
+				List<Object> row = new ArrayList<>(ORDER_SUMMARY_HEAD.size());
+				row.add(order.getOrderNo());
+				row.add(formatTime(order.getCreateTime()));
+				row.add(order.getRecipientName());
+				row.add(entry.getKey());
+				row.add(spuIds.size());
+				row.add(quantity);
+				row.add(amount);
+				rows.add(row);
+			}
+		}
+		return rows;
+	}
+
 	private static int nullSafeQuantity(OrderItemEntity item) {
 		return item.getBuyQuantity() == null ? 0 : item.getBuyQuantity();
 	}
@@ -225,15 +271,14 @@ public final class OrderCategoryExportExcel {
 		return address.toString();
 	}
 
-	/** 购买场景：1 海员个人购买 / 2 船供采购（order_item.purchase_scene 同口径） */
+	/**
+	 * 购买场景：2 船供采购，其余（含历史版本未落场景的空值）为海员个人购买。
+	 *
+	 * <p>与管理端列表、订单详情页共用同一口径：场景是订单固有属性，空值等价于个人购买，
+	 * 导出不得留空，否则同一张订单在管理端显示「个人购买」、在 Excel 里却是空单元格。
+	 */
 	private static String sceneText(String scene) {
-		if ("1".equals(scene)) {
-			return "个人购买";
-		}
-		if ("2".equals(scene)) {
-			return "船供采购";
-		}
-		return "";
+		return PurchaseSceneEnum.SHIP_SUPPLY.getCode().equals(scene) ? "船供采购" : "个人购买";
 	}
 
 	/** 配送方式：与 delivery_way 字典对齐（1 普通快递 / 2 上门自提 / 4 公司港口/船舶内部配送） */

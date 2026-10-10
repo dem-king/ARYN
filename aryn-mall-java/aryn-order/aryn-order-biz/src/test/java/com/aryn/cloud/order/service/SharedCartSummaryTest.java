@@ -120,10 +120,6 @@ class SharedCartSummaryTest {
 	}
 
 	private SharedCartItem item(String itemId, String skuId, int qty) {
-		return item(itemId, skuId, qty, null, null);
-	}
-
-	private SharedCartItem item(String itemId, String skuId, int qty, Integer planned, Integer fulfilled) {
 		SharedCartItem item = new SharedCartItem();
 		item.setId(itemId);
 		item.setCartId(CART_ID);
@@ -131,8 +127,6 @@ class SharedCartSummaryTest {
 		item.setSpuId("spu-" + skuId);
 		item.setSkuId(skuId);
 		item.setRequestedQuantity(qty);
-		item.setPlannedQuantity(planned);
-		item.setFulfilledQuantity(fulfilled);
 		item.setStatus(SharedCartItem.ITEM_PENDING);
 		return item;
 	}
@@ -262,7 +256,7 @@ class SharedCartSummaryTest {
 	}
 
 	@Test
-	@DisplayName("明细为空：仍返回购物车本体，金额为零、进度为全 0")
+	@DisplayName("明细为空：仍返回购物车本体，金额为零")
 	void emptyCartStillReturnsCart() {
 		when(memberMapper.selectList(any())).thenReturn(List.of(membership()));
 		when(cartMapper.selectOne(any())).thenReturn(collectingCart());
@@ -276,67 +270,37 @@ class SharedCartSummaryTest {
 	}
 
 	@Test
-	@DisplayName("进度：有计划的行参与统计，百分比按项数算")
-	void reportsProgressByItemCount() {
-		// 1 项采满 + 2 项未采满 = 33%
+	@DisplayName("预估金额一律按成员申请量算（收集阶段还没有核定数量）")
+	void totalUsesRequestedQuantity() {
 		when(memberMapper.selectList(any())).thenReturn(List.of(membership()));
 		when(cartMapper.selectOne(any())).thenReturn(collectingCart());
 		when(itemMapper.selectList(any())).thenReturn(List.of(
-				item("i1", "sku-1", 2, 2, 2),
-				item("i2", "sku-2", 5, 5, 0),
-				item("i3", "sku-3", 3, 3, 1)));
-		when(remoteGoodsSkuService.getSkuByIds(anyList()))
-				.thenReturn(List.of(sku("sku-1", "10"), sku("sku-2", "10"), sku("sku-3", "10")));
-
-		SharedCartSummaryVO summary = service.getActiveSummary(TENANT, USER, null);
-
-		assertNotNull(summary.getProgress());
-		assertEquals(3, summary.getProgress().getPlannedItems());
-		assertEquals(1, summary.getProgress().getFulfilledItems());
-		assertEquals(2, summary.getProgress().getRemainingItems());
-		assertEquals(33, summary.getProgress().getProgressPercent());
-	}
-
-	@Test
-	@DisplayName("进度：未设计划的行不计入百分比，单独归类")
-	void unplannedRowsAreExcluded() {
-		when(memberMapper.selectList(any())).thenReturn(List.of(membership()));
-		when(cartMapper.selectOne(any())).thenReturn(collectingCart());
-		when(itemMapper.selectList(any())).thenReturn(List.of(
-				item("i1", "sku-1", 2, 2, 2),
-				item("i2", "sku-2", 4, null, null)));
-		when(remoteGoodsSkuService.getSkuByIds(anyList()))
-				.thenReturn(List.of(sku("sku-1", "10"), sku("sku-2", "10")));
-
-		SharedCartSummaryVO summary = service.getActiveSummary(TENANT, USER, null);
-
-		assertEquals(1, summary.getProgress().getPlannedItems());
-		assertEquals(1, summary.getProgress().getUnplannedItems());
-		// 未设计划不把 100% 拉成 50%
-		assertEquals(100, summary.getProgress().getProgressPercent());
-		// 未设计划的预览行 remaining/completed 为 null，前端显示"未设计划"
-		SharedCartSummaryVO.SummaryItem unplanned = summary.getPreviewItems().stream()
-				.filter(row -> "i2".equals(row.getItemId())).findFirst().orElseThrow();
-		assertNull(unplanned.getRemainingQuantity());
-		assertNull(unplanned.getCompleted());
-	}
-
-	@Test
-	@DisplayName("合计按计划量算钱（未设计划才回落需求量）")
-	void totalUsesPlannedQuantity() {
-		when(memberMapper.selectList(any())).thenReturn(List.of(membership()));
-		when(cartMapper.selectOne(any())).thenReturn(collectingCart());
-		// i1 计划 10 件（需求 1 件）：应按 10 算；i2 未设计划，按需求 3 算
-		when(itemMapper.selectList(any())).thenReturn(List.of(
-				item("i1", "sku-1", 1, 10, 0),
-				item("i2", "sku-2", 3, null, null)));
+				item("i1", "sku-1", 1),
+				item("i2", "sku-2", 3)));
 		when(remoteGoodsSkuService.getSkuByIds(anyList()))
 				.thenReturn(List.of(sku("sku-1", "10.00"), sku("sku-2", "2.00")));
 
 		SharedCartSummaryVO summary = service.getActiveSummary(TENANT, USER, null);
 
-		// 10*10.00 + 3*2.00 = 106.00
-		assertEquals(0, new BigDecimal("106.00").compareTo(summary.getTotalAmount()));
+		// 1*10.00 + 3*2.00 = 16.00
+		assertEquals(0, new BigDecimal("16.00").compareTo(summary.getTotalAmount()));
+	}
+
+	@Test
+	@DisplayName("明细已带核定数量：预估金额仍按申请量算，不拿核定数量冒充已定金额")
+	void totalIgnoresApprovedQuantity() {
+		// 核定数量只在提交那一刻写入，收集中不该出现在预估里；
+		// 若哪天有人把核定数量接进合计，这条会红。
+		when(memberMapper.selectList(any())).thenReturn(List.of(membership()));
+		when(cartMapper.selectOne(any())).thenReturn(collectingCart());
+		SharedCartItem priced = item("i1", "sku-1", 1);
+		priced.setApprovedQuantity(10);
+		when(itemMapper.selectList(any())).thenReturn(List.of(priced));
+		when(remoteGoodsSkuService.getSkuByIds(anyList())).thenReturn(List.of(sku("sku-1", "10.00")));
+
+		SharedCartSummaryVO summary = service.getActiveSummary(TENANT, USER, null);
+
+		assertEquals(0, new BigDecimal("10.00").compareTo(summary.getTotalAmount()));
 	}
 
 }

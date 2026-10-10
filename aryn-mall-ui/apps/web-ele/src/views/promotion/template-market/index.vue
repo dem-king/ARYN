@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import type { DecorationDocument } from '../page-designer/schema/types';
 
-import type { TemplateMarketItem } from '#/api/promotion/page-design';
+import type {
+  PageDesignTheme,
+  TemplateMarketItem,
+} from '#/api/promotion/page-design';
 
 import { computed, defineAsyncComponent, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
@@ -26,10 +29,12 @@ import {
   downloadTemplateFromMarket,
   getTemplateMarketDetail,
   getTemplateMarketList,
+  getThemes,
   pageTypeLabel,
 } from '#/api/promotion/page-design';
 
 import { migratePageContent } from '../page-designer/schema/migrate';
+import { buildCanvasThemeVars } from '../page-designer/schema/theme-presets';
 
 const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
@@ -107,6 +112,26 @@ const previewHasContent = computed(() =>
   ),
 );
 
+/**
+ * 模板预览的有效主题：模板不引用主题（下载后跟随商城默认主题渲染），
+ * 预览按当前租户的商城默认主题覆盖模板写死的品牌色，与下载后的实机一致。
+ * 主题库加载失败退回内置默认配色，不阻塞预览。
+ */
+const themes = ref<PageDesignTheme[]>([]);
+const previewThemeVars = computed(() =>
+  buildCanvasThemeVars(
+    themes.value.find((theme) => theme.mallDefaultFlag === '1'),
+  ),
+);
+
+async function loadThemesQuietly() {
+  try {
+    themes.value = await getThemes();
+  } catch {
+    themes.value = [];
+  }
+}
+
 async function handlePreview(item: TemplateMarketItem) {
   try {
     preview.detail = await getTemplateMarketDetail(item.id);
@@ -131,7 +156,10 @@ async function handleDownload(item: TemplateMarketItem) {
   return newTemplateId;
 }
 
-onMounted(initList);
+onMounted(() => {
+  initList();
+  void loadThemesQuietly();
+});
 </script>
 
 <template>
@@ -266,6 +294,7 @@ onMounted(initList);
             :full-height="false"
             :page-name="preview.detail.templateName"
             :page-type="preview.detail.pageType"
+            :theme-vars="previewThemeVars"
           />
           <span v-else class="preview-stage-empty">
             该模板暂无装修内容，下载后可在微页面搭建器中查看

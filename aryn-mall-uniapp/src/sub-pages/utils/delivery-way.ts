@@ -34,25 +34,33 @@ export const DELIVERY_WAY_LABEL: Record<string, string> = {
  * 未识别取值返回「未知配送方式」而非静默兜底为普通快递，避免误导用户。
  */
 export function deliveryWayLabel(way?: null | string): string {
-  if (!way) return ''
+  if (!way)
+    return ''
   return DELIVERY_WAY_LABEL[way] ?? '未知配送方式'
 }
 
 /**
  * 结算页可选的配送方式。
- * 内部配送仅在当前已绑定船舶+靠港上下文时可选，否则用户选了也无法履约。
+ *
+ * 入口统一：已绑定船舶+靠港上下文（即服务端认可的在船成员，上下文由
+ * useShipContextLoad 自动装载）只提供内部配送一种方式——个人购买与船供
+ * 采购都由公司司机按靠港计划送达，地址簿类配送方式对在船成员是伪选项
+ * （手填码头地址会丢失船期/泊位/时间窗，服务端也无法校验离港）。
+ * 未绑定上下文（纯零售租户、无船舶、靠港计划不可用）维持原三种方式，
+ * 供真正的岸上地址场景使用。
  */
 export function deliveryWayOptions(options: { withVesselInternal?: boolean } = {}) {
-  const base = [
+  if (options.withVesselInternal) {
+    return [
+      {
+        value: DELIVERY_WAY_VESSEL_INTERNAL,
+        name: DELIVERY_WAY_LABEL[DELIVERY_WAY_VESSEL_INTERNAL],
+      },
+    ]
+  }
+  return [
     { value: DELIVERY_WAY_EXPRESS, name: DELIVERY_WAY_LABEL[DELIVERY_WAY_EXPRESS] },
     { value: DELIVERY_WAY_SELF_PICKUP, name: DELIVERY_WAY_LABEL[DELIVERY_WAY_SELF_PICKUP] },
     { value: DELIVERY_WAY_MALL_DELIVERY, name: DELIVERY_WAY_LABEL[DELIVERY_WAY_MALL_DELIVERY] },
   ]
-  if (options.withVesselInternal) {
-    base.unshift({
-      value: DELIVERY_WAY_VESSEL_INTERNAL,
-      name: DELIVERY_WAY_LABEL[DELIVERY_WAY_VESSEL_INTERNAL],
-    })
-  }
-  return base
 }

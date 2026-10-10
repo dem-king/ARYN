@@ -5,9 +5,9 @@ import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.entity.ArynUser;
 import com.aryn.cloud.common.security.util.SecurityUtils;
+import com.aryn.cloud.order.api.dto.SharedCartChainImportDTO;
 import com.aryn.cloud.order.api.dto.SharedCartImportConfirmDTO;
 import com.aryn.cloud.order.api.dto.SharedCartItemDTO;
-import com.aryn.cloud.order.api.dto.SharedCartPlanDTO;
 import com.aryn.cloud.order.api.dto.SharedCartReuseDTO;
 import com.aryn.cloud.order.api.dto.SharedCartMemberNameDTO;
 import com.aryn.cloud.order.api.dto.SharedCartConfirmDTO;
@@ -16,6 +16,7 @@ import com.aryn.cloud.order.api.entity.SharedCart;
 import com.aryn.cloud.order.api.entity.SharedCartItem;
 import com.aryn.cloud.order.api.entity.SharedCartMember;
 import com.aryn.cloud.order.api.vo.SharedCartImportVO;
+import com.aryn.cloud.order.api.vo.SharedCartItemVO;
 import com.aryn.cloud.order.api.vo.SharedCartReuseVO;
 import com.aryn.cloud.order.api.vo.SharedCartSummaryVO;
 import com.aryn.cloud.order.api.vo.SharedCartVO;
@@ -134,12 +135,19 @@ public class AppSharedCartController {
 				user.getUserId(), id, dto.getDisplayName()));
 	}
 
-	@Operation(summary = "购物车明细列表")
+	/**
+	 * 明细列表下发的是视图对象（含商品名与金额），不是实体。
+	 *
+	 * <p>明细表只存 SPU/SKU ID，名称与价格都要经商品域补齐；直接回实体的话，
+	 * 客户端拿到的是一串 ID 和数量，既显示不出商品也显示不出金额。
+	 * 列表页/挑货清单继续用实体的 {@code listItems}，两者口径不同、各自保留。
+	 */
+	@Operation(summary = "购物车明细列表（含商品名与金额）")
 	@GetMapping("/{id}/items")
-	public Result<List<SharedCartItem>> items(@PathVariable String id) {
+	public Result<List<SharedCartItemVO>> items(@PathVariable String id) {
 		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
 		sharedCartService.getCartForUser(ArynTenantContextHolder.getTenantId(), user.getUserId(), id);
-		return Result.success(sharedCartService.listItems(ArynTenantContextHolder.getTenantId(), id));
+		return Result.success(sharedCartService.listItemVOs(ArynTenantContextHolder.getTenantId(), id));
 	}
 
 	@Operation(summary = "邀请成员（发起人）")
@@ -166,15 +174,6 @@ public class AppSharedCartController {
 		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
 		return Result.success(sharedCartService.updateItem(ArynTenantContextHolder.getTenantId(), user.getUserId(), id,
 				itemId, itemDTO));
-	}
-
-	@Operation(summary = "设置明细的计划量与已采量（确认人/发起人，补给单排计划与回填进度）")
-	@PutMapping("/{id}/items/plan")
-	public Result<SharedCartItem> updateItemPlan(@PathVariable String id,
-			@Valid @RequestBody SharedCartPlanDTO planDTO) {
-		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
-		return Result.success(sharedCartService.updateItemPlan(ArynTenantContextHolder.getTenantId(),
-				user.getUserId(), id, planDTO));
 	}
 
 	@Operation(summary = "移除自己的明细")
@@ -231,6 +230,15 @@ public class AppSharedCartController {
 		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
 		return Result.success(sharedCartService.previewImport(ArynTenantContextHolder.getTenantId(), user.getUserId(),
 				id, file.getOriginalFilename(), file.getSize(), file.getBytes()));
+	}
+
+	@Operation(summary = "粘贴微信群接龙，解析成「人×商品×数量」并返回导入报告（确认人/发起人）")
+	@PostMapping("/{id}/chain-import/preview")
+	public Result<SharedCartImportVO> previewChainImport(@PathVariable String id,
+			@Valid @RequestBody SharedCartChainImportDTO dto) {
+		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
+		return Result.success(sharedCartService.previewChainImport(ArynTenantContextHolder.getTenantId(),
+				user.getUserId(), id, dto.getText()));
 	}
 
 	@Operation(summary = "取回导入报告（稍后处理）")

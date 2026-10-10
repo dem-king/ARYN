@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 import { deliveryLogin, getMyDeliveryStaff } from '@/api/delivery'
+import { ensureSessionTenant, isTenantIdentityError } from '@/api/core/tenant-identity'
 import { Local } from '@/utils/storage'
 
 definePage({
@@ -43,6 +44,8 @@ async function handleLogin() {
     // 存储配送员token（使用独立的存储key，与普通用户token隔离）
     const token = response?.tokenValue || response?.data?.tokenValue
     if (token) {
+      // 候选 token 先过 delivery session 校验，再保存/进工作台；身份错误不落盘不导航
+      await ensureSessionTenant('delivery', token)
       Local.set('deliveryToken', token)
       const staffResponse: any = await getMyDeliveryStaff().send()
       Local.set('deliveryStaffInfo', staffResponse?.data || staffResponse || {})
@@ -55,7 +58,13 @@ async function handleLogin() {
     }
   }
   catch (error: any) {
-    showToast(error?.msg || '登录失败')
+    if (isTenantIdentityError(error)) {
+      // 身份配置类失败：保留 token 语义由守卫决定，这里只提示，不伪装登录成功
+      showToast('应用配置暂不可用，请联系管理员')
+    }
+    else {
+      showToast(error?.msg || '登录失败')
+    }
   }
   finally {
     submitting.value = false

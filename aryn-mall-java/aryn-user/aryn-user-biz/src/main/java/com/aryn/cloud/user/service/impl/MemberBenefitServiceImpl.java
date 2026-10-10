@@ -1,5 +1,6 @@
 package com.aryn.cloud.user.service.impl;
 
+import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -51,8 +52,14 @@ public class MemberBenefitServiceImpl extends ServiceImpl<MemberBenefitMapper, M
 
 	@Override
 	public IPage<MemberBenefit> getPage(Page page, MemberBenefit memberBenefit) {
-		return this.page(page,
-				Wrappers.<MemberBenefit>lambdaQuery().orderByDesc(MemberBenefit::getCreateTime));
+		return this.page(page, Wrappers.<MemberBenefit>lambdaQuery()
+				.like(memberBenefit != null && StrUtil.isNotBlank(memberBenefit.getBenefitName()),
+						MemberBenefit::getBenefitName, memberBenefit == null ? null : memberBenefit.getBenefitName())
+				.eq(memberBenefit != null && StrUtil.isNotBlank(memberBenefit.getBenefitType()),
+						MemberBenefit::getBenefitType, memberBenefit == null ? null : memberBenefit.getBenefitType())
+				.eq(memberBenefit != null && StrUtil.isNotBlank(memberBenefit.getStatus()),
+						MemberBenefit::getStatus, memberBenefit == null ? null : memberBenefit.getStatus())
+				.orderByDesc(MemberBenefit::getCreateTime));
 	}
 
 	@Override
@@ -163,7 +170,12 @@ public class MemberBenefitServiceImpl extends ServiceImpl<MemberBenefitMapper, M
 		result.setLevelId(level.getId());
 		result.setLevelName(level.getLevelName());
 		for (MemberBenefit benefit : getLevelBenefits(level.getId())) {
-			validateBenefit(benefit);
+			// 读取链路只做降级处理：单条脏权益不能拖垮整个「我的权益」接口
+			if (!isUsableBenefit(benefit)) {
+				log.warn("会员权益配置不合法，已跳过：benefitId={}, benefitType={}, benefitValue={}",
+						benefit.getId(), benefit.getBenefitType(), benefit.getBenefitValue());
+				continue;
+			}
 			switch (benefit.getBenefitType()) {
 				case "1" -> result.setDiscountRate(result.getDiscountRate()
 						.min(new BigDecimal(benefit.getBenefitValue())));
@@ -171,7 +183,8 @@ public class MemberBenefitServiceImpl extends ServiceImpl<MemberBenefitMapper, M
 				case "3" -> result.getExclusiveCouponTemplateIds().add(benefit.getBenefitValue());
 				case "4" -> result.setPointsMultiplier(result.getPointsMultiplier()
 						.max(new BigDecimal(benefit.getBenefitValue())));
-				default -> throw new ArynBusinessException("会员权益类型不合法");
+				default -> log.warn("会员权益类型未知，已跳过：benefitId={}, benefitType={}",
+						benefit.getId(), benefit.getBenefitType());
 			}
 		}
 		return result;
@@ -208,6 +221,29 @@ public class MemberBenefitServiceImpl extends ServiceImpl<MemberBenefitMapper, M
 				Wrappers.<MemberBenefitLevelRel>lambdaQuery().eq(MemberBenefitLevelRel::getBenefitId, id))
 				.stream().map(MemberBenefitLevelRel::getLevelId).toList());
 		return benefit;
+	}
+
+	/**
+	 * 判断权益配置是否可用于读取聚合（读取链路的降级判定，不抛异常）
+	 */
+	private boolean isUsableBenefit(MemberBenefit benefit) {
+		if (benefit == null || benefit.getBenefitType() == null || benefit.getBenefitValue() == null
+				|| benefit.getBenefitValue().isBlank()) {
+			return false;
+		}
+		if (!Set.of("1", "2", "3", "4").contains(benefit.getBenefitType())) {
+			return false;
+		}
+		if ("3".equals(benefit.getBenefitType())) {
+			return true;
+		}
+		try {
+			new BigDecimal(benefit.getBenefitValue());
+			return true;
+		}
+		catch (NumberFormatException exception) {
+			return false;
+		}
 	}
 
 	private void validateBenefit(MemberBenefit benefit) {

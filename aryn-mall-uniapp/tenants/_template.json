@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "key": "_template",
+  "name": "",
+  "tenantId": "",
+  "wxAppId": "",
+  "defaultProfile": "production",
+  "defaultDeployment": "boot",
+  "profiles": {
+    "production": {
+      "boot": { "apiBaseUrl": "" },
+      "cloud": { "apiBaseUrl": "" }
+    },
+    "staging": {
+      "boot": { "apiBaseUrl": "" },
+      "cloud": { "apiBaseUrl": "" }
+    }
+  }
+}

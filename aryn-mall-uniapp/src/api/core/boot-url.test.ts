@@ -14,6 +14,16 @@ describe('boot URL rewriting', () => {
     expect(rewriteBootUrl(cloudPath, true)).toBe('/boot/app/delivery/task/page')
   })
 
+  it('routes the delivery workbench and batch-pick APIs in both deployment modes', () => {
+    const workbench = '/mall-order/app/delivery/trip/workbench'
+    expect(rewriteBootUrl(workbench, false)).toBe(workbench)
+    expect(rewriteBootUrl(workbench, true)).toBe('/boot/app/delivery/trip/workbench')
+
+    const batchPick = '/mall-order/app/delivery/trip/trip-1/items/batch-pick'
+    expect(rewriteBootUrl(batchPick, false)).toBe(batchPick)
+    expect(rewriteBootUrl(batchPick, true)).toBe('/boot/app/delivery/trip/trip-1/items/batch-pick')
+  })
+
   it('routes the quick-cart API in both deployment modes', () => {
     const cloudPath = '/product/app/goodsspu/quick-cart/spu-1'
     expect(rewriteBootUrl(cloudPath, false)).toBe(cloudPath)

@@ -12,9 +12,9 @@ import {
  * （/mall-order/app/shared-cart/active-summary），内容由
  * 「谁在看 + 当前靠港」决定，因此没有可手选数据源。
  *
- * 刻意不提供「已采/还差/进度」配置：现有 shared_cart_item 没有
- * planned_quantity，approved_quantity 只在提交整船订单时写入，
- * 收集阶段没有目标量可算。给出进度配置项等于让运营配一个假数据。
+ * 刻意不提供「已采/还差/进度」配置：提单只是一份需求清单，
+ * 采没采、采到什么程度由线下沟通，系统里没有这个事实来源。
+ * 给出进度配置项等于让运营配一个假数据。
  */
 export interface ReplenishCardProps extends RetailComponentBaseProps {
   showBatchAdd: boolean;

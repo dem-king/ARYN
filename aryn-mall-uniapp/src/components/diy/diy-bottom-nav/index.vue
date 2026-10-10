@@ -42,7 +42,11 @@ const dynamicStyles = useDiyStyle(computed(() => componentProps.value.commonStyl
         <image v-if="item.iconUrl" class="bottomnav-icon" :src="item.iconUrl" />
         <text
           class="bottomnav-text"
-          :style="{ color: componentProps.activeColor || '#ff5000' }"
+          :style="{
+            color:
+              componentProps.activeColor
+              || 'var(--wot-color-theme-primary, #ff5000)',
+          }"
         >
           {{ item.text }}
         </text>

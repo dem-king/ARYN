@@ -1,5 +1,6 @@
 package com.aryn.cloud.promotion.api.constant;
 
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -84,6 +85,17 @@ public final class PageDesignComponentTypes {
 	public static final String VIDEO_LIVE = "video-live";
 
 	/**
+	 * 商品推荐（商详「看了又看」）：automatic 按当前商品分类销量取数，
+	 * manual 为手选商品 ID；server 端校验同 goods-group 口径。
+	 */
+	public static final String GOODS_RECOMMEND = "goods-recommend";
+
+	/**
+	 * 图片魔方（多宫格模板排版，纯静态图片 + 链接）。
+	 */
+	public static final String IMAGE_CUBE = "image-cube";
+
+	/**
 	 * 船舶工作台（单个，展示当前船舶与靠港状态）。
 	 * <p>
 	 * 该组件原先硬编码在首页 diy-page 的 below-navbar 插槽中，运营既不能调整位置也不能隐藏，
@@ -113,13 +125,14 @@ public final class PageDesignComponentTypes {
 	public static final Set<String> KNOWN_TYPES = Set.of(CATEGORY_NAV, COUPON_RECEIVE, GAP, GOODS, IMAGE_AD, NOTICE,
 			RICH_TEXT, SEARCH_BAR, SWIPER_BANNER, TAB_NAV, TITLE_TEXT, GOODS_GROUP, GOODS_RANKING, GOODS_SCROLL,
 			LIMITED_ACTIVITY, COUNTDOWN, MARKETING_ENTRY, SHOP_INFO, GOODS_WATERFALL, COUPON_COMBO, MEMBER_BENEFITS,
-			SERVICE_PROMISE, BOTTOM_NAV, VIDEO_LIVE, SHIP_WORKBENCH, REPLENISH_CARD, CUSTOM_HTML, SECKILL, DISCOUNT);
+			SERVICE_PROMISE, BOTTOM_NAV, VIDEO_LIVE, SHIP_WORKBENCH, REPLENISH_CARD, CUSTOM_HTML, SECKILL, DISCOUNT,
+			GOODS_RECOMMEND, IMAGE_CUBE);
 
 	/**
 	 * 依赖数据源拉取业务数据的组件（手动数据源为空时发布阻断）。
 	 */
 	public static final Set<String> DATA_DRIVEN_TYPES = Set.of(GOODS_GROUP, GOODS_RANKING, GOODS_SCROLL, LIMITED_ACTIVITY,
-			COUNTDOWN, MARKETING_ENTRY, SHOP_INFO, GOODS_WATERFALL, COUPON_COMBO, SECKILL, DISCOUNT);
+			COUNTDOWN, MARKETING_ENTRY, SHOP_INFO, GOODS_WATERFALL, COUPON_COMBO, SECKILL, DISCOUNT, GOODS_RECOMMEND);
 
 	/**
 	 * 全页面唯一组件：同一页最多出现一次，出现多个即发布阻断。
@@ -155,21 +168,35 @@ public final class PageDesignComponentTypes {
 	public static final String PAGE_TYPE_USER_CENTER = "4";
 
 	/**
+	 * C 端可枚举的装修槽位类型，按管理端「当前生效」卡片顺序排列。
+	 * <p>
+	 * 微页面（{@link #PAGE_TYPE_MICRO}）不在其中：它只能通过链接被指定访问，
+	 * C 端没有任何「按类型取微页面」的入口，因此不存在「生效」语义。
+	 * 列表打标与卡片汇总必须共用本集合，否则微页面会被误标为「生效中」。
+	 */
+	public static final List<String> EFFECTIVE_SLOT_PAGE_TYPES = List.of(PAGE_TYPE_HOME, PAGE_TYPE_CATEGORY,
+			PAGE_TYPE_USER_CENTER, PAGE_TYPE_DETAIL);
+
+	/**
 	 * 商品详情页（pageType=2）允许的组件。
 	 * <p>
 	 * 与 {@code aryn-mall-ui .../registry/component-registry.ts} 的
 	 * {@code detailPageAllowedComponents} 一一对应；两处必须同步维护。
+	 * <p>
+	 * 2026-10-07 语义化收窄：首页/列表页语义的组件（轮播图/图片广告/公告/
+	 * 秒杀/折扣/限时活动）与单个商品的详情上下文无关，移出白名单；
+	 * 商详导购组件 {@link #GOODS_RECOMMEND} 加入。
 	 */
 	private static final Set<String> DETAIL_PAGE_ALLOWED_TYPES = Set.of(GOODS, GOODS_GROUP, GOODS_SCROLL,
-			GOODS_WATERFALL, GOODS_RANKING, IMAGE_AD, SWIPER_BANNER, TITLE_TEXT, RICH_TEXT, COUPON_RECEIVE,
-			COUPON_COMBO, LIMITED_ACTIVITY, SECKILL, DISCOUNT, CUSTOM_HTML, GAP, NOTICE);
+			GOODS_WATERFALL, GOODS_RANKING, TITLE_TEXT, RICH_TEXT, COUPON_RECEIVE, COUPON_COMBO, CUSTOM_HTML, GAP,
+			GOODS_RECOMMEND);
 
 	/**
 	 * 分类页（pageType=3）允许的组件；对应管理端 {@code categoryPageAllowedComponents}。
 	 */
 	private static final Set<String> CATEGORY_PAGE_ALLOWED_TYPES = Set.of(IMAGE_AD, SWIPER_BANNER, GOODS, GOODS_GROUP,
 			GOODS_SCROLL, GOODS_WATERFALL, GOODS_RANKING, COUPON_RECEIVE, COUPON_COMBO, LIMITED_ACTIVITY, SECKILL,
-			DISCOUNT, COUNTDOWN, TITLE_TEXT, RICH_TEXT, CUSTOM_HTML, GAP, NOTICE);
+			DISCOUNT, COUNTDOWN, TITLE_TEXT, RICH_TEXT, CUSTOM_HTML, GAP, NOTICE, IMAGE_CUBE);
 
 	/**
 	 * 个人中心页（pageType=4）允许的组件；对应管理端 {@code userCenterAllowedComponents}。

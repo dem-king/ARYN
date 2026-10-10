@@ -36,6 +36,15 @@ public class SharedCartItem extends Model<SharedCartItem> {
 	/** 添加成员用户ID（订单明细保留贡献者来源） */
 	private String userId;
 
+	/**
+	 * 归属人姓名快照（接龙代报场景）。
+	 *
+	 * <p>工作人员替没注册的船员报货时，明细挂在操作者名下，接龙里的人名
+	 * 原文落在这里——配送贴标签、按人分装认的是这个名字，不是用户账号。
+	 * 空串表示行归属就是 {@code userId} 本人。
+	 */
+	private String attributedName;
+
 	/** 商品SPU ID */
 	private String spuId;
 
@@ -45,26 +54,18 @@ public class SharedCartItem extends Model<SharedCartItem> {
 	/** 成员申请数量（采购单位） */
 	private Integer requestedQuantity;
 
-	/** 确认人核定数量（采购单位，确认时填写） */
+	/**
+	 * 确认人核定数量（采购单位）。三种取值：
+	 * <ul>
+	 *   <li>NULL：未核定，下单时按成员申请量采购；</li>
+	 *   <li>&gt; 0：确认人改定的采购量；</li>
+	 *   <li>0：确认人标记「本次不采」，该行不进整船订单。</li>
+	 * </ul>
+	 *
+	 * <p>成员报多少（{@code requestedQuantity}）与买多少（本字段）分成两列：
+	 * 收集期间成员可反复改自己的申请量，确认人在提交前才做最终核定。
+	 */
 	private Integer approvedQuantity;
-
-	/**
-	 * 计划采购量（采购单位）。
-	 *
-	 * <p>NULL 表示未设计划；此时**不做进度计算**，也不能回落成
-	 * {@code requestedQuantity} 假造进度 —— 后者是"成员报的需求量"，
-	 * 与"本次计划采购多少"不是一回事。
-	 */
-	private Integer plannedQuantity;
-
-	/**
-	 * 已采量（采购单位）。
-	 *
-	 * <p>与 {@code approvedQuantity} 的分工：核定数量是确认人提交整船订单时
-	 * 一次性写入的；已采量是收集期间由采购/运营逐步回填的执行进度，
-	 * 因此收集阶段就能展示「已采 N 项」。
-	 */
-	private Integer fulfilledQuantity;
 
 	/** 成员备注 */
 	private String memberRemark;

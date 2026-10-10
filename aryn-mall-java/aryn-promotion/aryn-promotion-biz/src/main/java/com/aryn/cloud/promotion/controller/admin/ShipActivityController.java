@@ -12,6 +12,7 @@ import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.promotion.api.entity.PromotionActivity;
 import com.aryn.cloud.promotion.mapper.PromotionActivityMapper;
 import com.aryn.cloud.promotion.service.impl.ActivityPublishGovernanceService;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -57,23 +58,42 @@ public class ShipActivityController {
 	@SaCheckPermission("promotion:shipactivity:page")
 	@GetMapping("/page")
 	public Result<IPage<PromotionActivity>> page(Page<PromotionActivity> page, PromotionActivity query) {
-		return Result.success(promotionActivityMapper.selectPage(page, Wrappers.lambdaQuery(PromotionActivity.class)
+		LocalDateTime now = LocalDateTime.now();
+		LambdaQueryWrapper<PromotionActivity> wrapper = Wrappers.lambdaQuery(PromotionActivity.class)
 				.eq(PromotionActivity::getTenantId, SecurityUtils.getTenantId())
-				.eq(StringUtils.hasText(query.getStatus()), PromotionActivity::getStatus, query.getStatus())
 				.eq(StringUtils.hasText(query.getActivityType()), PromotionActivity::getActivityType,
 						query.getActivityType())
 				.like(StringUtils.hasText(query.getActivityName()), PromotionActivity::getActivityName,
-						query.getActivityName())
-				.orderByDesc(PromotionActivity::getCreateTime)));
+						query.getActivityName());
+		// 已结束/待开始是展示态，筛选时翻译为时间窗条件（库内仅存 1草稿/2发布/3暂停）
+		if (PromotionActivity.STATUS_ENDED.equals(query.getStatus())) {
+			wrapper.eq(PromotionActivity::getStatus, PromotionActivity.STATUS_PUBLISHED)
+					.lt(PromotionActivity::getEndTime, now);
+		}
+		else if (PromotionActivity.STATUS_UPCOMING.equals(query.getStatus())) {
+			wrapper.eq(PromotionActivity::getStatus, PromotionActivity.STATUS_PUBLISHED)
+					.gt(PromotionActivity::getStartTime, now);
+		}
+		else {
+			wrapper.eq(StringUtils.hasText(query.getStatus()), PromotionActivity::getStatus, query.getStatus());
+		}
+		wrapper.orderByDesc(PromotionActivity::getCreateTime);
+		IPage<PromotionActivity> result = promotionActivityMapper.selectPage(page, wrapper);
+		result.getRecords().forEach(activity -> activity.setStatus(deriveDisplayStatus(activity, now)));
+		return Result.success(result);
 	}
 
 	@Operation(summary = "活动详情")
 	@SaCheckPermission("promotion:shipactivity:page")
 	@GetMapping("/{id}")
 	public Result<PromotionActivity> getById(@PathVariable String id) {
-		return Result.success(promotionActivityMapper.selectOne(Wrappers.lambdaQuery(PromotionActivity.class)
+		PromotionActivity activity = promotionActivityMapper.selectOne(Wrappers.lambdaQuery(PromotionActivity.class)
 				.eq(PromotionActivity::getTenantId, SecurityUtils.getTenantId())
-				.eq(PromotionActivity::getId, id)));
+				.eq(PromotionActivity::getId, id));
+		if (activity != null) {
+			activity.setStatus(deriveDisplayStatus(activity, LocalDateTime.now()));
+		}
+		return Result.success(activity);
 	}
 
 	@SysLog("创建船供营销活动")
@@ -133,6 +153,9 @@ public class ShipActivityController {
 				|| !activity.getStartTime().isBefore(activity.getEndTime())) {
 			throw new ArynBusinessException("活动开始时间必须早于结束时间");
 		}
+		if (!activity.getEndTime().isAfter(LocalDateTime.now())) {
+			throw new ArynBusinessException("活动结束时间已过，请先调整活动时间再发布");
+		}
 		if (!force) {
 			List<PromotionActivity> conflicts = publishGovernanceService
 					.listPublishConflicts(SecurityUtils.getTenantId(), activity);
@@ -148,24 +171,27 @@ public class ShipActivityController {
 	}
 
 	@SysLog("暂停船供营销活动")
-	@Operation(summary = "暂停活动")
+	@Operation(summary = "暂停活动（仅进行中的已发布活动）")
 	@SaCheckPermission("promotion:shipactivity:publish")
 	@PostMapping("/{id}/pause")
 	public Result<Void> pause(@PathVariable String id) {
 		PromotionActivity activity = requireActivity(id);
+		if (!isRunning(activity, LocalDateTime.now())) {
+			throw new ArynBusinessException("仅进行中的已发布活动可暂停");
+		}
 		activity.setStatus(PromotionActivity.STATUS_PAUSED);
 		promotionActivityMapper.updateById(activity);
 		return Result.success();
 	}
 
 	@SysLog("删除船供营销活动")
-	@Operation(summary = "删除活动（草稿/暂停）")
+	@Operation(summary = "删除活动（进行中的已发布活动需先暂停）")
 	@SaCheckPermission("promotion:shipactivity:save")
 	@DeleteMapping("/{id}")
 	public Result<Void> delete(@PathVariable String id) {
 		PromotionActivity activity = requireActivity(id);
-		if (PromotionActivity.STATUS_PUBLISHED.equals(activity.getStatus())) {
-			throw new ArynBusinessException("已发布活动请先暂停后再删除");
+		if (isRunning(activity, LocalDateTime.now())) {
+			throw new ArynBusinessException("进行中的已发布活动请先暂停后再删除");
 		}
 		promotionActivityMapper.deleteById(id);
 		return Result.success();
@@ -179,6 +205,30 @@ public class ShipActivityController {
 			throw new ArynBusinessException("活动不存在");
 		}
 		return activity;
+	}
+
+	/** 是否进行中：已发布且当前时间在时间窗内（暂停/删除守卫与展示态派生的基准） */
+	private boolean isRunning(PromotionActivity activity, LocalDateTime now) {
+		if (!PromotionActivity.STATUS_PUBLISHED.equals(activity.getStatus())) {
+			return false;
+		}
+		boolean started = activity.getStartTime() == null || !activity.getStartTime().isAfter(now);
+		boolean notEnded = activity.getEndTime() == null || activity.getEndTime().isAfter(now);
+		return started && notEnded;
+	}
+
+	/** 管理端展示态派生：已发布活动按时间窗映射为「待开始/已结束」，库内仅存人工操作态 */
+	private String deriveDisplayStatus(PromotionActivity activity, LocalDateTime now) {
+		if (!PromotionActivity.STATUS_PUBLISHED.equals(activity.getStatus())) {
+			return activity.getStatus();
+		}
+		if (activity.getEndTime() != null && !activity.getEndTime().isAfter(now)) {
+			return PromotionActivity.STATUS_ENDED;
+		}
+		if (activity.getStartTime() != null && activity.getStartTime().isAfter(now)) {
+			return PromotionActivity.STATUS_UPCOMING;
+		}
+		return PromotionActivity.STATUS_PUBLISHED;
 	}
 
 	private boolean changed(String before, String after) {

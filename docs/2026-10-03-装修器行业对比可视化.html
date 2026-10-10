@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>电商商城装修器能力横向对比 · 悦航购 vs 主流平台（2026-10）</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; margin: 0; padding: 24px 28px; background: #f7f8fa; color: #1f2329; }
+  h1 { font-size: 20px; margin: 0 0 6px; }
+  .meta { font-size: 13px; color: #4e5969; line-height: 1.7; margin: 0 0 4px; }
+  .meta b { color: #1f2329; }
+  .card { background: #fff; border-radius: 10px; box-shadow: 0 1px 4px rgba(31,35,41,.08); padding: 16px 18px 8px; margin-top: 16px; }
+  .card h2 { font-size: 15px; margin: 0 0 4px; }
+  .card p { font-size: 12.5px; color: #4e5969; margin: 0 0 6px; line-height: 1.6; }
+  #heatmap, #bar { width: 100%; }
+  table { border-collapse: collapse; width: 100%; font-size: 12px; margin-top: 8px; }
+  th, td { border: 1px solid #e5e6eb; padding: 6px 8px; text-align: center; }
+  th { background: #f2f3f5; font-weight: 600; }
+  td:first-child, th:first-child { text-align: left; }
+  .me { background: #fff7e6; font-weight: 600; }
+  .v0 { color: #d54941; } .v1 { color: #f7ba1e; } .v2 { color: #00b42a; }
+  .foot { font-size: 12px; color: #86909c; margin-top: 14px; line-height: 1.7; }
+</style>
+</head>
+<body>
+
+<h1>电商商城装修器（DIY 页面设计器）能力横向对比 · 悦航购 vs 主流平台</h1>
+<p class="meta">
+  调研日期 2026-10-03。外部依据：各平台官方帮助中心/开发者文档（[官方]）与第三方评测（[第三方]），详见合并报告《2026-10-03-装修器行业对比调研报告.md》；
+  悦航购行依据 aryn-mall-ui `page-designer/` 与 aryn-mall-uniapp `src/components/diy/` 代码取证。评分口径：<b>0=缺失/未公开，1=部分支持，2=完整支持</b>（7 个维度，满分 14）。
+</p>
+
+<div class="card">
+  <h2>图 1 · 装修器能力矩阵（行=平台，列=能力维度，格=0/1/2 分）</h2>
+  <p>横向看：<b>三栏拖拽编辑形态、多页面类型、组件库、模板市场、发布链路</b>是主流标配（多数拿满 2 分）；<b>多端适配</b>国内普遍"分端维护"（H5/小程序分开配），仅店匠/悦航购做到一套装修多端生效；<b>数据模型开放度</b>仅 Shopify、店匠、悦航购公开「页面→区块→组件」JSON 模型。</p>
+  <div id="heatmap" style="height:470px"></div>
+</div>
+
+<div class="card">
+  <h2>图 2 · 装修器能力总分排名（满分 14）</h2>
+  <p>悦航购 12/14，与店匠并列第二、仅次于 Shopify（13），领先微盟/淘宝/京东（11）、有赞/抖店（10）；丢分集中在<b>模板市场/生态（无组件市场）</b>与<b>发布链路（无定时发布/扫码真机预览）</b>两个维度。</p>
+  <div id="bar" style="height:380px"></div>
+</div>
+
+<div class="card">
+  <h2>附 · 评分明细表</h2>
+  <table>
+    <tr><th>平台</th><th>编辑形态</th><th>页面类型</th><th>组件库</th><th>模板市场</th><th>发布链路</th><th>多端适配</th><th>数据模型</th><th>总分</th></tr>
+    <tr><td>Shopify OS2.0</td><td class="v2">2</td><td class="v2">2</td><td class="v2">2</td><td class="v2">2</td><td class="v2">2</td><td class="v1">1</td><td class="v2">2</td><td><b>13</b></td></tr>
+    <tr class="me"><td>悦航购（本项目）</td><td class="v2">2</td><td class="v2">2</td><td class="v2">2</td><td class="v1">1</td><td class="v1">1</td><td class="v2">2</td><td class="v2">2</td><td><b>12</b></td></tr>
+    <tr><td>店匠 Shoplazza</td><td class="v2">2</td><td class="v2">2</td><td class="v2">2</td><td class="v1">1</td><td class="v1">1</td><td class="v2">2</td><td class="v2">2</td><td><b>12</b></td></tr>
+    <tr><td>微盟</td><td class="v2">2</td><td class="v2">2</td><td class="v2">2</td><td class="v2">2</td><td class="v2">2</td><td class="v1">1</td><td class="v0">0</td><td><b>11</b></td></tr>
+    <tr><td>淘宝（旺铺）</td><td class="v2">2</td><td class="v2">2</td><td class="v2">2</td><td class="v2">2</td><td class="v2">2</td><td class="v1">1</td><td class="v0">0</td><td><b>11</b></td></tr>
+    <tr><td>京东（智铺）</td><td class="v2">2</td><td class="v2">2</td><td class="v2">2</td><td class="v2">2</td><td class="v2">2</td><td class="v1">1</td><td class="v0">0</td><td><b>11</b></td></tr>
+    <tr><td>有赞（微页面）</td><td class="v2">2</td><td class="v2">2</td><td class="v2">2</td><td class="v1">1</td><td class="v2">2</td><td class="v1">1</td><td class="v0">0</td><td><b>10</b></td></tr>
+    <tr><td>抖店</td><td class="v2">2</td><td class="v2">2</td><td class="v2">2</td><td class="v1">1</td><td class="v2">2</td><td class="v1">1</td><td class="v0">0</td><td><b>10</b></td></tr>
+    <tr><td>拼多多</td><td class="v1">1</td><td class="v1">1</td><td class="v1">1</td><td class="v2">2</td><td class="v1">1</td><td class="v1">1</td><td class="v0">0</td><td><b>7</b></td></tr>
+    <tr><td>商派 ShopEX</td><td class="v1">1</td><td class="v1">1</td><td class="v1">1</td><td class="v1">1</td><td class="v0">0</td><td class="v1">1</td><td class="v0">0</td><td><b>5</b></td></tr>
+  </table>
+  <p style="margin-top:6px;color:#86909c">悦航购各行依据：arym-mall-ui `page-designer/`（组件注册表 29 组件、schema/types.ts v3 数据模型、template-market）、arym-mall-uniapp `src/components/diy/`（同名注册表渲染、/app/pagedesign 下发）代码取证；其余平台依据官方文档/第三方评测（详见合并报告来源清单）。</p>
+</div>
+
+<div class="foot">
+  说明：SaaS 平台（有赞/微盟/Shopify/店匠/商派）评分基于商家侧装修器能力；C 端平台（淘宝/京东/拼多多/抖店）基于商家装修器公开能力。「多端适配」：淘宝 PC/无线两套编辑器=1，微盟 H5/小程序分开配置=1，Shopify 单一响应式 Web=1，店匠一键移动版+三端预览=2，悦航购 uniapp 单代码库多端+两端注册表一一对应=2。
+  悦航购「模板市场=1」：有官方模板库+一键套用，但无第三方组件市场/生态；「发布链路=1」：预览/草稿自动保存/版本/审批/回滚齐全，但无定时发布、无扫码真机预览、无运行时推送。评分 1 与 2 以官方文档可证实能力为准，无法证实按 0 计。
+</div>
+
+<script>
+var platforms = ['有赞','微盟','Shopify','店匠','商派','淘宝','京东','拼多多','抖店','悦航购★'];
+var dims = ['编辑形态','页面类型','组件库','模板市场','发布链路','多端适配','数据模型'];
+var scores = [
+  [2,2,2,1,2,1,0],  // 有赞
+  [2,2,2,2,2,1,0],  // 微盟
+  [2,2,2,2,2,1,2],  // Shopify
+  [2,2,2,1,1,2,2],  // 店匠
+  [1,1,1,1,0,1,0],  // 商派
+  [2,2,2,2,2,1,0],  // 淘宝
+  [2,2,2,2,2,1,0],  // 京东
+  [1,1,1,2,1,1,0],  // 拼多多
+  [2,2,2,1,2,1,0],  // 抖店
+  [2,2,2,1,1,2,2]   // 悦航购
+];
+var heatData = [];
+for (var p = 0; p < platforms.length; p++) {
+  for (var d = 0; d < dims.length; d++) {
+    heatData.push([d, p, scores[p][d]]);
+  }
+}
+
+var heatOption = {
+  title: { text: '装修器能力矩阵（0=缺失 · 1=部分 · 2=完整）', left: 'center', top: 8, textStyle: { fontSize: 15 } },
+  tooltip: { trigger: 'item', triggerOn: 'mousemove|click', renderMode: 'richText', confine: true,
+    formatter: function (p) {
+      return platforms[p.value[1]] + ' · ' + dims[p.value[0]] + String.fromCharCode(10) + '得分：' + p.value[2] + '（0=缺失 1=部分 2=完整）';
+    } },
+  grid: { left: 88, right: 20, top: 54, bottom: 62, containLabel: false },
+  xAxis: { type: 'category', data: dims, splitArea: { show: true }, axisLabel: { fontSize: 11 }, axisLine: { show: false } },
+  yAxis: { type: 'category', data: platforms, splitArea: { show: true }, axisLabel: { fontSize: 11 }, axisLine: { show: false } },
+  visualMap: {
+    min: 0, max: 2, calculable: false, orient: 'horizontal', left: 'center', bottom: 8,
+    text: ['完整 2', '缺失 0'], textStyle: { fontSize: 10 }
+  },
+  series: [{
+    type: 'heatmap', data: heatData,
+    label: { show: true, fontSize: 11, formatter: function (p) { return p.value[2]; } },
+    itemStyle: { borderWidth: 1, borderColor: '#ffffff' },
+    emphasis: { itemStyle: { shadowBlur: 8, shadowColor: 'rgba(0,0,0,0.35)' } }
+  }]
+};
+
+var barOption = {
+  title: { text: '装修器能力总分排名（满分 14）', left: 'center', top: 8, textStyle: { fontSize: 15 } },
+  tooltip: { trigger: 'axis', triggerOn: 'mousemove|click', renderMode: 'richText', confine: true },
+  grid: { left: 12, right: 16, top: 48, bottom: 30, containLabel: true },
+  xAxis: { type: 'category', data: ['Shopify','悦航购★','店匠','微盟','淘宝','京东','有赞','抖店','拼多多','商派'], axisLabel: { fontSize: 11, interval: 0 } },
+  yAxis: { type: 'value', min: 0, max: 14, interval: 2, axisLabel: { fontSize: 11 } },
+  series: [{
+    type: 'bar', barWidth: 36,
+    data: [13, 12, 12, 11, 11, 11, 10, 10, 7, 5],
+    label: { show: true, position: 'top', fontSize: 11 }
+  }]
+};
+
+var heatEl = document.getElementById('heatmap');
+var barEl = document.getElementById('bar');
+var heatChart = echarts.init(heatEl);
+var barChart = echarts.init(barEl);
+heatChart.setOption(heatOption);
+barChart.setOption(barOption);
+window.addEventListener('resize', function () { heatChart.resize(); barChart.resize(); });
+</script>
+</body>
+</html>

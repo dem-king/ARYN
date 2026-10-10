@@ -72,6 +72,7 @@ const statusLabel: Record<string, string> = {
   '2': '已发布',
   '3': '已暂停',
   '4': '已结束',
+  '5': '待开始',
 };
 const scopeLabel: Record<string, string> = {
   '1': '全场',

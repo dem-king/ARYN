@@ -13,6 +13,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.aryn.cloud.common.core.constant.CacheConstants;
 import com.aryn.cloud.common.core.desensitization.KeyDesensitization;
+import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.user.api.entity.SocialAccount;
 import com.aryn.cloud.user.api.vo.SocialAccountVO;
@@ -23,6 +24,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import java.util.Objects;
 
@@ -59,7 +61,14 @@ public class SocialAccountServiceImpl extends ServiceImpl<SocialAccountMapper, S
 	}
 
 	@Override
+	@CacheEvict(value = CacheConstants.SOCIAL_ACCOUNT_CACHE, allEntries = true)
 	public boolean saveSocialAccount(SocialAccount socialAccount) {
+		// 写入侧强制当前租户上下文，不能信任 body.tenantId 跨租户写；全局重复 AppID 预检
+		if (socialAccount.getTenantId() != null
+				&& !socialAccount.getTenantId().equals(ArynTenantContextHolder.getTenantId())) {
+			throw new ArynBusinessException("不允许跨租户维护三方账号");
+		}
+		assertNoDuplicateAppId(socialAccount.getAppId(), null);
 		boolean saved = this.save(socialAccount);
 		if (saved) {
 			SocialAccount reloaded = baseMapper.selectById(socialAccount.getId());
@@ -77,7 +86,13 @@ public class SocialAccountServiceImpl extends ServiceImpl<SocialAccountMapper, S
 		if (Objects.isNull(target)) {
 			throw new ArynBusinessException("三方账号不存在");
 		}
+		if (socialAccount.getTenantId() != null
+				&& !socialAccount.getTenantId().equals(ArynTenantContextHolder.getTenantId())) {
+			throw new ArynBusinessException("不允许跨租户维护三方账号");
+		}
 		String oldAppId = target.getAppId();
+		String newAppId = socialAccount.getAppId() != null ? socialAccount.getAppId() : oldAppId;
+		assertNoDuplicateAppId(newAppId, target.getId());
 		if (target.getAppSecret() != null
 				&& keyDesensitization.serialize(target.getAppSecret()).equals(socialAccount.getAppSecret())) {
 			socialAccount.setAppSecret(null);
@@ -93,6 +108,15 @@ public class SocialAccountServiceImpl extends ServiceImpl<SocialAccountMapper, S
 			}
 		}
 		return updated;
+	}
+
+	private void assertNoDuplicateAppId(String appId, String excludeId) {
+		if (!StringUtils.hasText(appId)) {
+			return;
+		}
+		if (baseMapper.countValidWxMaByAppIdExcluding(appId, excludeId) > 0) {
+			throw new ArynBusinessException("该微信 AppID 已被其它三方账号配置使用");
+		}
 	}
 
 	@Override

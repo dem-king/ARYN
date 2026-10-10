@@ -30,12 +30,24 @@ public class WxMiniAppConfiguration {
 		if (ObjectUtil.isNull(socialAccount)) {
 			throw new RuntimeException("三方账号配置不存在");
 		}
+		return createMaService(socialAccount, stringRedisTemplate);
+	}
+
+	/**
+	 * 用权威解析得到的配置快照直接构造 SDK：guard 与实际微信 RPC 不依赖缓存路由到同一实例；
+	 * secret 只进内存比较与 SDK 构造，绝不日志/返回。
+	 */
+	public static WxMaService createMaService(SocialAccount validatedConfig) {
+		StringRedisTemplate stringRedisTemplate = SpringUtils.getBean(StringRedisTemplate.class);
+		return createMaService(validatedConfig, stringRedisTemplate);
+	}
+
+	private static WxMaService createMaService(SocialAccount socialAccount, StringRedisTemplate stringRedisTemplate) {
 		WxMiniAppRedisConfigStorage configStorage = new WxMiniAppRedisConfigStorage(stringRedisTemplate);
 		configStorage.setAppid(socialAccount.getAppId());
 		configStorage.setSecret(socialAccount.getAppSecret());
 		WxMaService wxMaService = new WxMaServiceImpl();
 		wxMaService.setWxMaConfig(configStorage);
-
 		return wxMaService;
 	}
 

@@ -17,8 +17,10 @@ import com.aryn.cloud.order.api.entity.OrderInfo;
 import com.aryn.cloud.order.api.entity.OrderRefund;
 import com.aryn.cloud.order.api.enums.OrderRefundEnum;
 import com.aryn.cloud.order.api.enums.OrderStatusEnum;
+import com.aryn.cloud.order.service.IOrderConfigService;
 import com.aryn.cloud.order.service.IOrderInfoService;
 import com.aryn.cloud.order.service.IOrderRefundService;
+import com.aryn.cloud.order.support.OrderCancelTimeoutHelper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
@@ -47,6 +49,8 @@ public class AppOrderInfoController {
 
 	private final IOrderRefundService orderRefundService;
 
+	private final IOrderConfigService orderConfigService;
+
 	@Operation(summary = "订单列表")
 	@GetMapping("/page")
 	public Result<IPage<OrderInfo>> page(Page page, OrderInfo orderInfo) {
@@ -60,7 +64,7 @@ public class AppOrderInfoController {
 	@GetMapping("/{id}")
 	public Result<OrderInfo> getById(@PathVariable String id) {
 		String userId = SecurityUtils.getUser().getUserId();
-		return Result.success(maskPayVouchers(orderInfoService.getUserOrderById(id, userId)));
+		return Result.success(maskPayVouchers(withPayTimeout(orderInfoService.getUserOrderById(id, userId))));
 	}
 
 	@Operation(summary = "结算订单")
@@ -151,13 +155,25 @@ public class AppOrderInfoController {
 	@GetMapping("/getByOrderNo/{orderNo}")
 	public Result<OrderInfo> getOrderByOrderNo(@PathVariable String orderNo) {
 		String userId = SecurityUtils.getUser().getUserId();
-		return Result.success(maskPayVouchers(orderInfoService.getUserOrderByOrderNo(orderNo, userId)));
+		return Result.success(maskPayVouchers(withPayTimeout(orderInfoService.getUserOrderByOrderNo(orderNo, userId))));
 	}
 
 	/** 付款凭证为管理端线下收款材料，C 端不下发（实收金额字段保留展示）。 */
 	private static OrderInfo maskPayVouchers(OrderInfo orderInfo) {
 		if (orderInfo != null) {
 			orderInfo.setPayVouchers(null);
+		}
+		return orderInfo;
+	}
+
+	/**
+	 * 待付款提示时限：按订单配置延迟级别换算分钟数下发，仅待付款订单需要。
+	 * 与 MQ 延迟取消、兜底扫描共用同一口径（OrderCancelTimeoutHelper）。
+	 */
+	private OrderInfo withPayTimeout(OrderInfo orderInfo) {
+		if (orderInfo != null && OrderStatusEnum.WAITING_FOR_PAYMENT.getCode().equals(orderInfo.getStatus())) {
+			orderInfo.setPayTimeoutMinutes(OrderCancelTimeoutHelper.delayLevelToMinutes(
+					OrderCancelTimeoutHelper.resolveDelayLevel(orderConfigService.getConfig())));
 		}
 		return orderInfo;
 	}

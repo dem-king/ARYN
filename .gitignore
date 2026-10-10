@@ -32,7 +32,12 @@ yarn.lock
 package-lock.json
 dist/
 build/
+!aryn-mall-uniapp/build/
 *.tsbuildinfo
+
+# C 端多租户构建：本地副本/锁/日志与租户上传私钥（产物 dist 已忽略）
+aryn-mall-uniapp/.tenant-build/
+aryn-mall-uniapp/tenants/.private/
 
 # UniApp/HBuilderX
 unpackage/

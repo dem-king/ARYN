@@ -62,13 +62,28 @@ public class OrderPriceComputeService {
 	private final RemotePromotionEngine remotePromotionEngine;
 
 	/**
-	 * 促销价格处理：秒杀价 > 限时折扣 > 原价。
+	 * 促销价格处理：拼团价 > 秒杀价 > 限时折扣 > 原价。
 	 *
 	 * <p>由下单/结算主流程在会员折扣与优惠券之前显式调用：券与会员折扣必须基于促销后
 	 * 金额计算，若仍按原价基数抵扣，券额会超过商品实际应付（历史实现即在运费分支内调用，
 	 * 导致自提/内配不生效、且券按原价抵扣）。
+	 *
+	 * @param orderItemEntityList 订单明细
 	 */
 	public void orderPromotionPriceHandler(List<OrderItemEntity> orderItemEntityList) {
+		orderPromotionPriceHandler(orderItemEntityList, null);
+	}
+
+	/**
+	 * 促销价格处理（带拼团上下文）：拼团价 > 秒杀价 > 限时折扣 > 原价。
+	 *
+	 * <p>拼团价仅对拼团记录绑定的 SKU 生效，由下单/结算主流程按拼团记录预取，
+	 * 保证确认页与提交后金额一致；普通商品仍走秒杀/折扣链路。
+	 *
+	 * @param groupBuyPriceBySku 拼团 SKU → 拼团单价（可为 null，表示非拼团单）
+	 */
+	public void orderPromotionPriceHandler(List<OrderItemEntity> orderItemEntityList,
+			Map<String, BigDecimal> groupBuyPriceBySku) {
 		for (OrderItemEntity item : orderItemEntityList) {
 			BigDecimal originalUnitPrice = item.getSalesPrice();
 			if (originalUnitPrice == null) {
@@ -76,14 +91,23 @@ public class OrderPriceComputeService {
 				continue;
 			}
 			BigDecimal promotionUnitPrice = null;
-			// 优先秒杀价
-			try {
-				BigDecimal seckillPrice = remoteSeckillService.getSeckillPrice(item.getSkuId());
-				if (seckillPrice != null && seckillPrice.compareTo(BigDecimal.ZERO) > 0) {
-					promotionUnitPrice = seckillPrice;
+			// 优先拼团价（拼团单）
+			if (groupBuyPriceBySku != null) {
+				BigDecimal groupBuyPrice = groupBuyPriceBySku.get(item.getSkuId());
+				if (groupBuyPrice != null && groupBuyPrice.compareTo(BigDecimal.ZERO) > 0) {
+					promotionUnitPrice = groupBuyPrice;
 				}
-			} catch (Exception e) {
-				// Dubbo 调用失败不阻断下单，降级用折扣/原价
+			}
+			// 其次秒杀价
+			if (promotionUnitPrice == null) {
+				try {
+					BigDecimal seckillPrice = remoteSeckillService.getSeckillPrice(item.getSkuId());
+					if (seckillPrice != null && seckillPrice.compareTo(BigDecimal.ZERO) > 0) {
+						promotionUnitPrice = seckillPrice;
+					}
+				} catch (Exception e) {
+					// Dubbo 调用失败不阻断下单，降级用折扣/原价
+				}
 			}
 			// 其次限时折扣
 			if (promotionUnitPrice == null) {

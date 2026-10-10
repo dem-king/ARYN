@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>电商商城主题色能力横向对比 · 悦航购 vs 主流平台（2026-10）</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; margin: 0; padding: 24px 28px; background: #f7f8fa; color: #1f2329; }
+  h1 { font-size: 20px; margin: 0 0 6px; }
+  .meta { font-size: 13px; color: #4e5969; line-height: 1.7; margin: 0 0 4px; }
+  .meta b { color: #1f2329; }
+  .card { background: #fff; border-radius: 10px; box-shadow: 0 1px 4px rgba(31,35,41,.08); padding: 16px 18px 8px; margin-top: 16px; }
+  .card h2 { font-size: 15px; margin: 0 0 4px; }
+  .card p { font-size: 12.5px; color: #4e5969; margin: 0 0 6px; line-height: 1.6; }
+  #heatmap, #bar { width: 100%; }
+  table { border-collapse: collapse; width: 100%; font-size: 12px; margin-top: 8px; }
+  th, td { border: 1px solid #e5e6eb; padding: 6px 8px; text-align: center; }
+  th { background: #f2f3f5; font-weight: 600; }
+  td:first-child, th:first-child { text-align: left; }
+  .me { background: #fff7e6; font-weight: 600; }
+  .v0 { color: #d54941; } .v1 { color: #f7ba1e; } .v2 { color: #00b42a; }
+  .foot { font-size: 12px; color: #86909c; margin-top: 14px; line-height: 1.7; }
+</style>
+</head>
+<body>
+
+<h1>电商商城主题色能力横向对比 · 悦航购 vs 主流平台</h1>
+<p class="meta">
+  调研日期 2026-10-03。外部依据：各平台官方帮助中心/开发者文档（[官方]）与第三方评测（[第三方]），详见合并报告《2026-10-03-主题色行业对比调研报告.md》；
+  悦航购行依据 aryn-mall-ui / aryn-mall-uniapp 代码取证。评分口径：<b>0=缺失/未公开，1=部分支持，2=完整支持</b>（6 个维度，满分 12）。
+</p>
+
+<div class="card">
+  <h2>图 1 · 主题色能力矩阵（行=平台，列=能力维度，格=0/1/2 分）</h2>
+  <p>横向看：<b>商家自定义主题色、自由选色、应用范围</b>已成为主流标配（多数平台拿满 2 分）；<b>暗黑模式</b>国内 C 端 App 已标配而 SaaS 买家端普遍缺失；<b>多主题/动态切换</b>仅 Shopify（定时发布/回滚/A-B）与淘宝（皮肤广场）领先；<b>技术开放度</b>（design tokens 公开）仅 Shopify、店匠与悦航购达标。</p>
+  <div id="heatmap" style="height:470px"></div>
+</div>
+
+<div class="card">
+  <h2>图 2 · 主题色能力总分排名（满分 12）</h2>
+  <p>悦航购与 Shopify 并列第一（10/12），领先国内 SaaS 同行（有赞 6、微盟 7）与 C 端平台（京东 9、淘宝 6）；丢分集中在 C 端暗黑模式不完整与多主题缺少动态化能力。</p>
+  <div id="bar" style="height:380px"></div>
+</div>
+
+<div class="card">
+  <h2>附 · 评分明细表</h2>
+  <table>
+    <tr><th>平台</th><th>自定义主题色</th><th>自由选色</th><th>应用范围</th><th>暗黑模式</th><th>多主题/动态切换</th><th>技术开放度</th><th>总分</th></tr>
+    <tr class="me"><td>悦航购（本项目）</td><td class="v2">2</td><td class="v2">2</td><td class="v2">2</td><td class="v1">1</td><td class="v1">1</td><td class="v2">2</td><td><b>10</b></td></tr>
+    <tr><td>Shopify</td><td class="v2">2</td><td class="v2">2</td><td class="v2">2</td><td class="v0">0</td><td class="v2">2</td><td class="v2">2</td><td><b>10</b></td></tr>
+    <tr><td>京东（智铺）</td><td class="v2">2</td><td class="v2">2</td><td class="v2">2</td><td class="v2">2</td><td class="v1">1</td><td class="v0">0</td><td><b>9</b></td></tr>
+    <tr><td>店匠 Shoplazza</td><td class="v2">2</td><td class="v2">2</td><td class="v2">2</td><td class="v0">0</td><td class="v1">1</td><td class="v2">2</td><td><b>9</b></td></tr>
+    <tr><td>微盟</td><td class="v2">2</td><td class="v2">2</td><td class="v2">2</td><td class="v0">0</td><td class="v1">1</td><td class="v0">0</td><td><b>7</b></td></tr>
+    <tr><td>有赞</td><td class="v2">2</td><td class="v1">1</td><td class="v2">2</td><td class="v0">0</td><td class="v1">1</td><td class="v0">0</td><td><b>6</b></td></tr>
+    <tr><td>淘宝（旺铺）</td><td class="v1">1</td><td class="v0">0</td><td class="v1">1</td><td class="v2">2</td><td class="v2">2</td><td class="v0">0</td><td><b>6</b></td></tr>
+    <tr><td>抖音商城（抖店）</td><td class="v1">1</td><td class="v0">0</td><td class="v1">1</td><td class="v2">2</td><td class="v1">1</td><td class="v0">0</td><td><b>5</b></td></tr>
+    <tr><td>商派 ShopEX</td><td class="v1">1</td><td class="v1">1</td><td class="v1">1</td><td class="v0">0</td><td class="v1">1</td><td class="v0">0</td><td><b>4</b></td></tr>
+    <tr><td>拼多多</td><td class="v1">1</td><td class="v1">1</td><td class="v1">1</td><td class="v1">1</td><td class="v0">0</td><td class="v0">0</td><td><b>4</b></td></tr>
+  </table>
+  <p style="margin-top:6px;color:#86909c">悦航购各行依据：arym-mall-ui（管理端商城主题页 + @vben design tokens）、aryn-mall-uniapp（mallThemeStore + uno.config.ts + wot ConfigProvider）代码取证；其余平台依据官方文档/第三方评测（详见合并报告来源清单）。</p>
+</div>
+
+<div class="foot">
+  说明：SaaS 平台（有赞/微盟/Shopify/店匠/商派）评分基于商家侧店铺装修能力；C 端平台（淘宝/京东/拼多多/抖音）评分基于商家店铺装修能力 + App 客户端换肤能力；「暗黑模式」对 C 端指 App 全局深色模式，对 SaaS 指买家端跟随系统暗黑。
+  评分 1 与 2 的区分以官方文档可证实的功能范围为准，无法证实项按 0 计。悦航购「暗黑模式=1」：管理端完整、C 端仅跟随系统且页面级适配未全量；「多主题=1」：多套主题 CRUD + 页面级 themeRef，但无定时发布/顾客侧切换/运行时推送。
+</div>
+
+<script>
+var platforms = ['有赞','微盟','Shopify','店匠','商派','淘宝','京东','拼多多','抖音商城','悦航购★'];
+var dims = ['自定义主题色','自由选色','应用范围','暗黑模式','多主题/切换','技术开放度'];
+var scores = [
+  [2,1,2,0,1,0],  // 有赞
+  [2,2,2,0,1,0],  // 微盟
+  [2,2,2,0,2,2],  // Shopify
+  [2,2,2,0,1,2],  // 店匠
+  [1,1,1,0,1,0],  // 商派
+  [1,0,1,2,2,0],  // 淘宝
+  [2,2,2,2,1,0],  // 京东
+  [1,1,1,1,0,0],  // 拼多多
+  [1,0,1,2,1,0],  // 抖音
+  [2,2,2,1,1,2]   // 悦航购
+];
+var heatData = [];
+for (var p = 0; p < platforms.length; p++) {
+  for (var d = 0; d < dims.length; d++) {
+    heatData.push([d, p, scores[p][d]]);
+  }
+}
+
+var heatOption = {
+  title: { text: '主题色能力矩阵（0=缺失 · 1=部分 · 2=完整）', left: 'center', top: 8, textStyle: { fontSize: 15 } },
+  tooltip: { trigger: 'item', triggerOn: 'mousemove|click', renderMode: 'richText', confine: true,
+    formatter: function (p) {
+      return platforms[p.value[1]] + ' · ' + dims[p.value[0]] + String.fromCharCode(10) + '得分：' + p.value[2] + '（0=缺失 1=部分 2=完整）';
+    } },
+  grid: { left: 92, right: 20, top: 54, bottom: 62, containLabel: false },
+  xAxis: { type: 'category', data: dims, splitArea: { show: true }, axisLabel: { fontSize: 11 }, axisLine: { show: false } },
+  yAxis: { type: 'category', data: platforms, splitArea: { show: true }, axisLabel: { fontSize: 11 }, axisLine: { show: false } },
+  visualMap: {
+    min: 0, max: 2, calculable: false, orient: 'horizontal', left: 'center', bottom: 8,
+    text: ['完整 2', '缺失 0'], textStyle: { fontSize: 10 }
+  },
+  series: [{
+    type: 'heatmap', data: heatData,
+    label: { show: true, fontSize: 11, formatter: function (p) { return p.value[2]; } },
+    itemStyle: { borderWidth: 1, borderColor: '#ffffff' },
+    emphasis: { itemStyle: { shadowBlur: 8, shadowColor: 'rgba(0,0,0,0.35)' } }
+  }]
+};
+
+var barOption = {
+  title: { text: '主题色能力总分排名（满分 12）', left: 'center', top: 8, textStyle: { fontSize: 15 } },
+  tooltip: { trigger: 'axis', triggerOn: 'mousemove|click', renderMode: 'richText', confine: true },
+  grid: { left: 12, right: 16, top: 48, bottom: 30, containLabel: true },
+  xAxis: { type: 'category', data: ['悦航购★','Shopify','京东','店匠','微盟','有赞','淘宝','抖音商城','商派','拼多多'], axisLabel: { fontSize: 11, interval: 0 } },
+  yAxis: { type: 'value', min: 0, max: 12, interval: 2, axisLabel: { fontSize: 11 } },
+  series: [{
+    type: 'bar', barWidth: 36,
+    data: [10, 10, 9, 9, 7, 6, 6, 5, 4, 4],
+    label: { show: true, position: 'top', fontSize: 11 }
+  }]
+};
+
+var heatEl = document.getElementById('heatmap');
+var barEl = document.getElementById('bar');
+var heatChart = echarts.init(heatEl);
+var barChart = echarts.init(barEl);
+heatChart.setOption(heatOption);
+barChart.setOption(barOption);
+window.addEventListener('resize', function () { heatChart.resize(); barChart.resize(); });
+</script>
+</body>
+</html>

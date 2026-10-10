@@ -3,13 +3,13 @@ package com.aryn.cloud.order.service;
 import com.aryn.cloud.order.api.dto.SharedCartImportConfirmDTO;
 import com.aryn.cloud.order.api.dto.SharedCartItemDTO;
 import com.aryn.cloud.order.api.dto.SharedCartReuseDTO;
-import com.aryn.cloud.order.api.dto.SharedCartPlanDTO;
 import com.aryn.cloud.order.api.dto.SharedCartConfirmDTO;
 import com.aryn.cloud.order.api.dto.SharedCartCreateDTO;
 import com.aryn.cloud.order.api.entity.SharedCart;
 import com.aryn.cloud.order.api.entity.SharedCartItem;
 import com.aryn.cloud.order.api.entity.SharedCartMember;
 import com.aryn.cloud.order.api.vo.SharedCartImportVO;
+import com.aryn.cloud.order.api.vo.SharedCartItemVO;
 import com.aryn.cloud.order.api.vo.SharedCartReuseVO;
 import com.aryn.cloud.order.api.vo.SharedCartSummaryVO;
 import com.aryn.cloud.order.api.vo.SharedCartVO;
@@ -56,11 +56,20 @@ public interface ISharedCartService {
 	/**
 	 * 补给单 Excel 导入预览：解析 + 匹配 + 落任务与解析行，返回导入报告。
 	 *
-	 * <p>权限与排计划一致（确认人/发起人）。解析与匹配全部在服务端完成，
+	 * <p>权限与提交整船订单一致（确认人/发起人）。解析与匹配全部在服务端完成，
 	 * 客户端后续只回传「行号 → 处置动作」，不信任客户端回传的行内容。
 	 */
 	SharedCartImportVO previewImport(String tenantId, String userId, String cartId, String fileName, long fileSize,
 			byte[] fileBytes);
+
+	/**
+	 * 微信群接龙粘贴导入预览：解析「人 × 商品 × 数量」+ 匹配 + 落任务与解析行。
+	 *
+	 * <p>与 Excel 导入共用报告与确认端点；行上多带 {@code personName}（接龙人名
+	 * 原文）。确认并入时人名精确匹配成员自填姓名的归到真实成员，匹配不上的
+	 * 作为归属姓名标签挂在操作者明细上——接龙里的很多人不是系统用户。
+	 */
+	SharedCartImportVO previewChainImport(String tenantId, String userId, String cartId, String text);
 
 	/**
 	 * 取回导入报告（「稍后处理」后回来继续）。
@@ -79,16 +88,6 @@ public interface ISharedCartService {
 	 */
 	SharedCartImportVO confirmImport(String tenantId, String userId, String cartId, String importId,
 			SharedCartImportConfirmDTO dto);
-
-	/**
-	 * 确认人/发起人设置某条明细的计划量与已采量（B 版补给单的"排计划/回填进度"）。
-	 *
-	 * <p>权限与提交整船订单一致（requireConfirmer）：计划量决定整船采购目标，
-	 * 属确认人职责，普通成员只能报自己的需求量。
-	 *
-	 * @return 更新后的明细
-	 */
-	SharedCartItem updateItemPlan(String tenantId, String userId, String cartId, SharedCartPlanDTO planDTO);
 
 	/**
 	 * 历史补给单一键复用：把源单明细复制到「当前靠港计划」下的购物车。
@@ -151,9 +150,31 @@ public interface ISharedCartService {
 	SharedCartMember updateMemberDisplayName(String tenantId, String userId, String cartId, String displayName);
 
 	/**
-	 * 查询购物车有效明细。
+	 * 设置成员的明细维护权限（管理端运营操作）。
+	 *
+	 * <p>收回后该成员只能查看清单：加购/改数量/移除以及导入、历史复用都会被
+	 * {@code requireCanEdit} 拒绝。用于处理误报、代报等运营场景。
+	 *
+	 * @param canEdit 1 可维护，0 只读
+	 */
+	SharedCartMember updateMemberCanEdit(String tenantId, String cartId, String memberId, String canEdit);
+
+	/**
+	 * 查询购物车有效明细（实体）。
+	 *
+	 * <p>供服务内部计算使用，不补齐商品名与价格；C 端展示请用
+	 * {@link #listItemVOs(String, String)}。
 	 */
 	List<SharedCartItem> listItems(String tenantId, String cartId);
+
+	/**
+	 * 查询购物车有效明细（C 端视图）。
+	 *
+	 * <p>在实体字段之外补齐商品名、规格、图片与金额：单价取 SKU 当前售价，
+	 * 行小计按**成员申请量**计算（收集阶段没有核定数量）。商品域不可用时
+	 * 价格字段为 null，前端显示「待核价」，绝不能把缺失的金额当成 0。
+	 */
+	List<SharedCartItemVO> listItemVOs(String tenantId, String cartId);
 
 	/**
 	 * 生成/复用分享令牌（发起人）。令牌随购物车过期失效，用于微信群转发自助加入。

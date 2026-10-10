@@ -15,6 +15,7 @@ import {
   getAuditLogs,
   getById,
   getEditor,
+  getEffectivePages,
   getMetrics,
   getPreview,
   getReleases,
@@ -75,6 +76,14 @@ describe('page design transport API', () => {
     expect(requestClient.put).toHaveBeenCalledWith(
       '/promotion/pagedesign/page-1/draft',
       draft,
+    );
+  });
+
+  it('loads the effective page summary from a dedicated endpoint', async () => {
+    await getEffectivePages();
+
+    expect(requestClient.get).toHaveBeenCalledWith(
+      '/promotion/pagedesign/effective-summary',
     );
   });
 

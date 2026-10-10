@@ -156,4 +156,25 @@ class OrderDeliveryContextTest {
 				DeliveryWayEnum.INTERNAL_PORT.getCode()));
 	}
 
+	@Test
+	@DisplayName("未声明场景归一为个人购买，已声明场景原样保留")
+	void normalizeFallsBackToPersonal() {
+		assertEquals(PurchaseSceneEnum.PERSONAL.getCode(), purchaseSceneValidator.normalize(null));
+		assertEquals(PurchaseSceneEnum.PERSONAL.getCode(), purchaseSceneValidator.normalize(""));
+		assertEquals(PurchaseSceneEnum.PERSONAL.getCode(), purchaseSceneValidator.normalize("   "));
+		// 已声明场景不得被覆盖：船供采购经归一后仍是船供采购
+		assertEquals(PurchaseSceneEnum.PERSONAL.getCode(),
+				purchaseSceneValidator.normalize(PurchaseSceneEnum.PERSONAL.getCode()));
+		assertEquals(PurchaseSceneEnum.SHIP_SUPPLY.getCode(),
+				purchaseSceneValidator.normalize(PurchaseSceneEnum.SHIP_SUPPLY.getCode()));
+	}
+
+	@Test
+	@DisplayName("普通零售可选内部配送，归一后场景按个人购买落库")
+	void retailInternalDeliveryKeepsPersonalScene() {
+		// 内部配送不隐含船供：个人到船订单同样走内部配送，场景需显式声明后才可能是船供
+		purchaseSceneValidator.validate(null, DeliveryWayEnum.INTERNAL_PORT.getCode());
+		assertEquals(PurchaseSceneEnum.PERSONAL.getCode(), purchaseSceneValidator.normalize(null));
+	}
+
 }

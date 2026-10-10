@@ -2,6 +2,7 @@
 package com.aryn.cloud.order.controller.admin;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import cn.dev33.satoken.stp.StpUtil;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.common.core.util.Result;
@@ -105,6 +106,17 @@ public class DeliveryTaskController {
 	@GetMapping("/{id}/evidence")
 	public Result<List<DeliveryEvidence>> evidence(@PathVariable String id) {
 		return Result.success(deliveryTaskService.listEvidence(id));
+	}
+
+	@Operation(summary = "管理端补录送达凭证（司机已送达却漏点送达）")
+	@SysLog("补录送达凭证")
+	@SaCheckPermission("delivery:task:backfill-arrive")
+	@PostMapping("/{id}/backfill-arrive")
+	public Result<Boolean> backfillArrive(@PathVariable String id,
+			@RequestParam List<String> materialIds,
+			@RequestParam(required = false) String remark) {
+		String operatorId = StpUtil.getLoginIdAsString();
+		return Result.success(deliveryTaskService.backfillArriveByAdmin(id, materialIds, remark, operatorId));
 	}
 
 	@Operation(summary = "查询任务操作日志")

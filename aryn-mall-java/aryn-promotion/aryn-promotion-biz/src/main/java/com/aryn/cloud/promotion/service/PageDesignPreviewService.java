@@ -54,10 +54,7 @@ public class PageDesignPreviewService {
 	 * @param pageType 页面类型：0.微页面；1.首页；2.商品详情页；3.分类页；4.个人中心页
 	 */
 	public AppPageDesignVO getPublishedByType(String pageType) {
-		PageDesign page = pageDesignMapper.selectOne(Wrappers.<PageDesign>lambdaQuery()
-			.eq(PageDesign::getPageType, pageType)
-			.eq(PageDesign::getPublishedStatus, "1")
-			.last("limit 1"));
+		PageDesign page = findEffectivePage(pageType);
 		// 按类型查询的是「可选装修」（分类页/商详页/个人中心页等可嵌入的装修区）：
 		// 该类型尚未发布装修属正常空态，返回 null 由 C 端降级为无装修，
 		// 不抛业务异常——否则 C 端会把「没配装修」误当成接口错误弹出红错 toast。
@@ -65,6 +62,23 @@ public class PageDesignPreviewService {
 			return null;
 		}
 		return getPublishedPage(page);
+	}
+
+	/**
+	 * 定位某类型下 C 端实际生效的已发布装修。
+	 * <p>
+	 * 同类型存在多条已发布页面时按「首页标记优先、最近发布优先」取唯一一条，
+	 * 保证 C 端读取结果确定；管理端列表的「生效中」标记必须复用本规则，两端口径才一致。
+	 * @param pageType 页面类型
+	 * @return 生效页面，该类型无已发布页面时返回 null
+	 */
+	public PageDesign findEffectivePage(String pageType) {
+		return pageDesignMapper.selectOne(Wrappers.<PageDesign>lambdaQuery()
+			.eq(PageDesign::getPageType, pageType)
+			.eq(PageDesign::getPublishedStatus, "1")
+			.orderByDesc(PageDesign::getHomeStatus)
+			.orderByDesc(PageDesign::getPublishedAt)
+			.last("limit 1"));
 	}
 
 	public AppPageDesignVO getPublished(String pageId) {

@@ -14,7 +14,7 @@ definePage({
 
 const userStore = useUserStore()
 const globalLoading = useGlobalLoading()
-const { success: showSuccess, error: showError } = useGlobalToast()
+const { success: showSuccess } = useGlobalToast()
 
 const isSigned = ref(false)
 const consecutiveDay = ref(0)
@@ -27,6 +27,8 @@ onLoad(() => {
 })
 
 onShow(() => {
+  // 先用已有数据渲染日历，再拉取当月记录后覆盖刷新
+  refreshCalendar()
   loadSignInRecord()
   userStore.refreshPointsInfo()
 })
@@ -44,11 +46,12 @@ async function loadSignInConfig() {
 async function loadSignInRecord() {
   try {
     const now = new Date()
-    const year = now.getFullYear()
-    const month = now.getMonth() + 1
+    const range = currentMonthRange(now)
     const response = await getSignInRecordPage({
       current: 1,
       size: 31,
+      beginDate: range.begin,
+      endDate: range.end,
     })
     const records = response.records || []
     signedDates.value = records.map((r: any) => r.signDate)
@@ -58,14 +61,26 @@ async function loadSignInRecord() {
     if (records.length > 0) {
       consecutiveDay.value = records[0].consecutiveDay || 0
     }
+    refreshCalendar()
   }
   catch (error) {
     console.error('加载签到记录失败:', error)
   }
 }
 
+/** 当月首末日，用于按当前月拉取签到记录（后端按 sign_date 过滤） */
+function currentMonthRange(now: Date): { begin: string, end: string } {
+  const year = now.getFullYear()
+  const month = now.getMonth()
+  return {
+    begin: formatDate(new Date(year, month, 1)),
+    end: formatDate(new Date(year, month + 1, 0)),
+  }
+}
+
 async function handleSignIn() {
-  if (isSigned.value) return
+  if (isSigned.value)
+    return
   globalLoading.loading('签到中...')
   try {
     const result = await signInApi()
@@ -74,11 +89,14 @@ async function handleSignIn() {
     rewardPoint.value = result.rewardPoint
     const today = formatDate(new Date())
     signedDates.value.unshift(today)
+    // 签到成功后立即刷新日历，否则当日格子要等下次 onShow 才打勾
+    refreshCalendar()
     showSuccess(`签到成功！获得${result.rewardPoint}积分`)
     userStore.refreshPointsInfo()
   }
-  catch (error: any) {
-    showError(error?.message || '签到失败')
+  catch (error) {
+    // 错误提示由请求层全局拦截器统一弹出，这里只记录日志避免重复 toast
+    console.error('签到失败:', error)
   }
   finally {
     globalLoading.close()
@@ -99,7 +117,6 @@ function getCalendarDays(): { date: string, day: number, isSigned: boolean, isTo
   const month = now.getMonth()
   const today = now.getDate()
   const daysInMonth = new Date(year, month + 1, 0).getDate()
-  const todayStr = formatDate(now)
 
   const days: { date: string, day: number, isSigned: boolean, isToday: boolean, isFuture: boolean }[] = []
   for (let d = 1; d <= daysInMonth; d++) {

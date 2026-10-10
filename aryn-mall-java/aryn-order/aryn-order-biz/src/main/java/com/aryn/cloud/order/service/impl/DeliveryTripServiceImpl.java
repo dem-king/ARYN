@@ -16,6 +16,8 @@ import com.aryn.cloud.order.api.entity.DeliveryWarehouseConfig;
 import com.aryn.cloud.order.api.enums.DeliveryTaskStatusEnum;
 import com.aryn.cloud.order.api.enums.DeliveryTripStatusEnum;
 import com.aryn.cloud.order.api.vo.DeliveryPickupSummaryVO;
+import com.aryn.cloud.order.api.vo.DeliveryTripBriefVO;
+import com.aryn.cloud.order.api.vo.DeliveryTripTaskBriefVO;
 import com.aryn.cloud.order.mapper.DeliveryTripMapper;
 import com.aryn.cloud.order.service.IDeliveryStaffService;
 import com.aryn.cloud.order.service.IDeliveryTaskItemService;
@@ -33,6 +35,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * 出车单
@@ -142,26 +145,39 @@ public class DeliveryTripServiceImpl extends ServiceImpl<DeliveryTripMapper, Del
 	@Transactional(rollbackFor = Exception.class)
 	public boolean depart(String tripId, String staffId) {
 		DeliveryTrip trip = getAndCheckActiveTrip(tripId, staffId);
-		if (!DeliveryTripStatusEnum.LOADING.getCode().equals(trip.getStatus())) {
-			throw new ArynBusinessException("当前出车单状态不允许出发");
-		}
-		// 校验该 trip 下所有 task 的所有 item 都 picked=1
-		if (!deliveryTaskItemService.allPicked(tripId)) {
-			throw new ArynBusinessException("存在未确认取货的明细，无法出发");
-		}
+		boolean alreadyDeparted = DeliveryTripStatusEnum.DELIVERING.getCode().equals(trip.getStatus());
 		LocalDateTime now = LocalDateTime.now();
-		int updated = baseMapper.update(null, Wrappers.<DeliveryTrip>lambdaUpdate()
-			.eq(DeliveryTrip::getId, tripId)
-			.eq(DeliveryTrip::getStatus, DeliveryTripStatusEnum.LOADING.getCode())
-			.set(DeliveryTrip::getStatus, DeliveryTripStatusEnum.DELIVERING.getCode())
-			.set(DeliveryTrip::getDepartTime, now));
-		if (updated == 0) {
-			throw new ArynBusinessException("出车单状态已变化，无法出发");
+		if (!alreadyDeparted) {
+			if (!DeliveryTripStatusEnum.LOADING.getCode().equals(trip.getStatus())) {
+				throw new ArynBusinessException("当前出车单状态不允许出发");
+			}
+			// 首次出发：整趟必须配齐（已出发后新增的单由下面的增量分支单独校验）
+			if (!deliveryTaskItemService.allPicked(tripId)) {
+				throw new ArynBusinessException("存在未确认取货的明细，无法出发");
+			}
+			int updated = baseMapper.update(null, Wrappers.<DeliveryTrip>lambdaUpdate()
+				.eq(DeliveryTrip::getId, tripId)
+				.eq(DeliveryTrip::getStatus, DeliveryTripStatusEnum.LOADING.getCode())
+				.set(DeliveryTrip::getStatus, DeliveryTripStatusEnum.DELIVERING.getCode())
+				.set(DeliveryTrip::getDepartTime, now));
+			if (updated == 0) {
+				throw new ArynBusinessException("出车单状态已变化，无法出发");
+			}
 		}
-		// 所有 task 状态变为待送达
+		// 把「配货中」的任务推到「待送达」。已出发的趟次重复点出发时，
+		// 这里只会命中后来新并入、还没送出去的单 —— 让补加的单也能上路。
+		//
+		// 单张的取货校验只在重复出发分支做：首次出发已在上面按整趟校验过。
 		List<DeliveryTask> departedTasks = deliveryTaskService.list(Wrappers.<DeliveryTask>lambdaQuery()
 			.eq(DeliveryTask::getTripId, tripId)
 			.eq(DeliveryTask::getStatus, DeliveryTaskStatusEnum.PICKING.getCode()));
+		if (alreadyDeparted && CollUtil.isNotEmpty(departedTasks)) {
+			for (DeliveryTask task : departedTasks) {
+				if (!deliveryTaskItemService.allPickedByTask(task.getId())) {
+					throw new ArynBusinessException("订单[" + task.getOrderNo() + "]还有未确认取货的明细，无法出发");
+				}
+			}
+		}
 		deliveryTaskService.update(Wrappers.<DeliveryTask>lambdaUpdate()
 			.eq(DeliveryTask::getTripId, tripId)
 			.eq(DeliveryTask::getStatus, DeliveryTaskStatusEnum.PICKING.getCode())
@@ -188,6 +204,16 @@ public class DeliveryTripServiceImpl extends ServiceImpl<DeliveryTripMapper, Del
 			throw new ArynBusinessException("任务ID列表不能为空");
 		}
 		getAndCheckActiveTrip(tripId, staffId);
+		// 必须交出本趟全部任务的一个排列：司机端列表可能基于旧快照，
+		// 只提交部分任务会把未提交的留在原序号上，路线静默错乱
+		List<String> tripTaskIds = deliveryTaskService.list(Wrappers.<DeliveryTask>lambdaQuery()
+			.eq(DeliveryTask::getTripId, tripId))
+			.stream()
+			.map(DeliveryTask::getId)
+			.toList();
+		if (taskIds.size() != tripTaskIds.size() || !taskIds.containsAll(tripTaskIds)) {
+			throw new ArynBusinessException("送货顺序与当前趟次不一致，请刷新后重试");
+		}
 		for (int i = 0; i < taskIds.size(); i++) {
 			deliveryTaskService.update(Wrappers.<DeliveryTask>lambdaUpdate()
 				.eq(DeliveryTask::getId, taskIds.get(i))
@@ -256,6 +282,88 @@ public class DeliveryTripServiceImpl extends ServiceImpl<DeliveryTripMapper, Del
 			.set(DeliveryTrip::getCompleteTime, LocalDateTime.now())) > 0;
 	}
 
+	@Override
+	public List<DeliveryTripBriefVO> listActiveTripBriefs(String staffId) {
+		if (StrUtil.isBlank(staffId)) {
+			return List.of();
+		}
+		List<DeliveryTrip> trips = list(Wrappers.<DeliveryTrip>lambdaQuery()
+			.eq(DeliveryTrip::getStaffId, staffId)
+			.in(DeliveryTrip::getStatus, DeliveryTripStatusEnum.WAITING_LOAD.getCode(),
+					DeliveryTripStatusEnum.LOADING.getCode(), DeliveryTripStatusEnum.DELIVERING.getCode())
+			.orderByAsc(DeliveryTrip::getCreateTime));
+		if (CollUtil.isEmpty(trips)) {
+			return List.of();
+		}
+		List<String> tripIds = trips.stream().map(DeliveryTrip::getId).toList();
+		// 一次取出所有在途趟次的任务，避免逐趟查询
+		List<DeliveryTask> allTasks = deliveryTaskService.list(Wrappers.<DeliveryTask>lambdaQuery()
+			.in(DeliveryTask::getTripId, tripIds)
+			.orderByAsc(DeliveryTask::getSortNo));
+		Map<String, List<DeliveryTask>> tasksByTripId = allTasks.stream()
+			.collect(Collectors.groupingBy(DeliveryTask::getTripId, LinkedHashMap::new, Collectors.toList()));
+		// 明细只用于统计件数，不返回给工作台（首屏要装下整趟车）
+		Map<String, List<DeliveryTaskItem>> itemsByTaskId = CollUtil.isEmpty(allTasks)
+				? Map.of()
+				: deliveryTaskItemService.list(Wrappers.<DeliveryTaskItem>lambdaQuery()
+					.in(DeliveryTaskItem::getTaskId, allTasks.stream().map(DeliveryTask::getId).toList()))
+					.stream()
+					.collect(Collectors.groupingBy(DeliveryTaskItem::getTaskId));
+
+		DeliveryWarehouseConfig warehouseConfig = deliveryWarehouseConfigService.getConfig();
+		String warehouseName = warehouseConfig == null ? null : warehouseConfig.getWarehouseName();
+		List<DeliveryTripBriefVO> briefs = new ArrayList<>(trips.size());
+		for (DeliveryTrip trip : trips) {
+			List<DeliveryTask> tasks = tasksByTripId.getOrDefault(trip.getId(), List.of());
+			DeliveryTripBriefVO brief = new DeliveryTripBriefVO();
+			brief.setId(trip.getId());
+			brief.setTripNo(trip.getTripNo());
+			brief.setStatus(trip.getStatus());
+			brief.setWarehouseName(warehouseName);
+			brief.setWarehouseAddress(trip.getWarehouseAddress());
+			brief.setDepartTime(trip.getDepartTime());
+			brief.setTaskCount(tasks.size());
+			brief.setArrivedTaskCount((int) tasks.stream().filter(task -> task.getArriveTime() != null).count());
+			int totalItemCount = 0;
+			int pickedItemCount = 0;
+			for (DeliveryTask task : tasks) {
+				for (DeliveryTaskItem item : itemsByTaskId.getOrDefault(task.getId(), List.of())) {
+					totalItemCount++;
+					if ("1".equals(item.getPicked())) {
+						pickedItemCount++;
+					}
+				}
+			}
+			brief.setTotalItemCount(totalItemCount);
+			brief.setPickedItemCount(pickedItemCount);
+			brief.setTaskList(tasks.stream().map(this::toTaskBrief).toList());
+			briefs.add(brief);
+		}
+		return briefs;
+	}
+
+	/**
+	 * 任务行转工作台摘要行：只带司机在列表上做判断需要的字段。
+	 */
+	private DeliveryTripTaskBriefVO toTaskBrief(DeliveryTask task) {
+		DeliveryTripTaskBriefVO brief = new DeliveryTripTaskBriefVO();
+		brief.setId(task.getId());
+		brief.setTaskNo(task.getTaskNo());
+		brief.setOrderNo(task.getOrderNo());
+		brief.setSortNo(task.getSortNo());
+		brief.setStatus(task.getStatus());
+		brief.setRecipientName(task.getRecipientName());
+		brief.setRecipientPhone(task.getRecipientPhone());
+		brief.setRecipientAddress(task.getRecipientAddress());
+		brief.setVesselName(task.getVesselName());
+		brief.setPortName(task.getPortName());
+		brief.setBerth(task.getBerth());
+		brief.setDeliveryWindowStart(task.getDeliveryWindowStart());
+		brief.setDeliveryWindowEnd(task.getDeliveryWindowEnd());
+		brief.setArriveTime(task.getArriveTime());
+		return brief;
+	}
+
 	/**
 	 * 填充响应派生字段：件数统计、取货清单汇总与仓库名称。均不入库。
 	 */
@@ -286,6 +394,8 @@ public class DeliveryTripServiceImpl extends ServiceImpl<DeliveryTripMapper, Del
 		if (warehouseConfig != null) {
 			trip.setWarehouseName(warehouseConfig.getWarehouseName());
 		}
+		// 司机端据此决定是否显示「未派送订单」入口：关掉后该入口拉不到任何单
+		trip.setSelfPullUnassignedAllowed(deliveryTaskService.isDriverSelfPullUnassignedAllowed());
 	}
 
 	/**

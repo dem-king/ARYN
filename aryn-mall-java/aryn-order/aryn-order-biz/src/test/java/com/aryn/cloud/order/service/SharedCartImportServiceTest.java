@@ -141,7 +141,7 @@ class SharedCartImportServiceTest {
 		return job;
 	}
 
-	private SharedCartImportRow row(int rowNo, String resultType, Integer plannedQuantity) {
+	private SharedCartImportRow row(int rowNo, String resultType, Integer quantity) {
 		SharedCartImportRow entity = new SharedCartImportRow();
 		entity.setId("row-" + rowNo);
 		entity.setImportId(IMPORT_ID);
@@ -151,7 +151,7 @@ class SharedCartImportServiceTest {
 		entity.setMatchType("CODE");
 		entity.setMatchedSkuId(SKU_ID);
 		entity.setMatchedSpuId("spu-1");
-		entity.setPlannedQuantity(plannedQuantity);
+		entity.setQuantity(quantity);
 		entity.setResultType(resultType);
 		return entity;
 	}
@@ -229,8 +229,6 @@ class SharedCartImportServiceTest {
 		assertEquals(SKU_ID, saved.getSkuId());
 		assertEquals(OWNER, saved.getUserId());
 		assertEquals(6, saved.getRequestedQuantity());
-		assertEquals(6, saved.getPlannedQuantity());
-		assertEquals(0, saved.getFulfilledQuantity());
 		assertEquals(SharedCartItem.ITEM_PENDING, saved.getStatus());
 	}
 
@@ -260,10 +258,10 @@ class SharedCartImportServiceTest {
 		removed.setId("item-removed");
 		removed.setCartId(CART_ID);
 		removed.setTenantId(TENANT);
+		removed.setUserId(OWNER);
 		removed.setSkuId(SKU_ID);
 		removed.setStatus(SharedCartItem.ITEM_REMOVED);
 		removed.setRequestedQuantity(3);
-		removed.setPlannedQuantity(3);
 
 		when(cartMapper.selectOne(any(Wrapper.class))).thenReturn(collectingCart());
 		when(importMapper.selectOne(any(Wrapper.class))).thenReturn(pendingImport());
@@ -291,10 +289,10 @@ class SharedCartImportServiceTest {
 		existing.setId("item-existing");
 		existing.setCartId(CART_ID);
 		existing.setTenantId(TENANT);
+		existing.setUserId(OWNER);
 		existing.setSkuId(SKU_ID);
 		existing.setStatus(SharedCartItem.ITEM_PENDING);
 		existing.setRequestedQuantity(2);
-		existing.setPlannedQuantity(2);
 
 		when(cartMapper.selectOne(any(Wrapper.class))).thenReturn(collectingCart());
 		when(importMapper.selectOne(any(Wrapper.class))).thenReturn(pendingImport());
@@ -310,7 +308,6 @@ class SharedCartImportServiceTest {
 		ArgumentCaptor<SharedCartItem> captor = ArgumentCaptor.forClass(SharedCartItem.class);
 		verify(itemMapper).updateById(captor.capture());
 		assertEquals(8, captor.getValue().getRequestedQuantity());
-		assertEquals(8, captor.getValue().getPlannedQuantity());
 	}
 
 	@Test
@@ -330,6 +327,84 @@ class SharedCartImportServiceTest {
 		ArgumentCaptor<SharedCartItem> captor = ArgumentCaptor.forClass(SharedCartItem.class);
 		verify(itemMapper, times(1)).insert(captor.capture());
 		assertEquals(10, captor.getValue().getRequestedQuantity());
+	}
+
+	private SharedCartImportRow chainRow(int rowNo, Integer quantity, String personName) {
+		SharedCartImportRow entity = row(rowNo, SharedCartImportRow.RESULT_OK, quantity);
+		entity.setSourceType(SharedCartImportRow.SOURCE_CHAIN);
+		entity.setPersonName(personName);
+		return entity;
+	}
+
+	@Test
+	@DisplayName("接龙人名命中成员自填姓名：明细挂真实成员，不带归属标签")
+	void confirmChainRowResolvesRealMember() {
+		SharedCartMember member = new SharedCartMember();
+		member.setCartId(CART_ID);
+		member.setUserId(MEMBER);
+		member.setDisplayName("任化东");
+		when(cartMapper.selectOne(any(Wrapper.class))).thenReturn(collectingCart());
+		when(importMapper.selectOne(any(Wrapper.class))).thenReturn(pendingImport());
+		when(importRowMapper.selectList(any(Wrapper.class)))
+			.thenReturn(List.of(chainRow(1, 4, "任化东")));
+		when(memberMapper.selectList(any(Wrapper.class))).thenReturn(List.of(member));
+		when(itemMapper.selectList(any(Wrapper.class))).thenReturn(List.of());
+		when(remoteReplenishImportMatchService.matchSkuIds(anyString(), anyList()))
+			.thenReturn(List.of(currentSku(100, 4, 2, "0", "1")));
+
+		service.confirmImport(TENANT, OWNER, CART_ID, IMPORT_ID,
+				confirmAction(1, SharedCartImportRow.ACTION_ACCEPT_SPEC));
+
+		ArgumentCaptor<SharedCartItem> captor = ArgumentCaptor.forClass(SharedCartItem.class);
+		verify(itemMapper).insert(captor.capture());
+		assertEquals(MEMBER, captor.getValue().getUserId());
+		assertEquals("", captor.getValue().getAttributedName());
+	}
+
+	@Test
+	@DisplayName("接龙人名不是系统用户：明细挂操作者 + 归属姓名标签")
+	void confirmChainRowFallsBackToAttributedName() {
+		when(cartMapper.selectOne(any(Wrapper.class))).thenReturn(collectingCart());
+		when(importMapper.selectOne(any(Wrapper.class))).thenReturn(pendingImport());
+		when(importRowMapper.selectList(any(Wrapper.class)))
+			.thenReturn(List.of(chainRow(1, 4, "水手长")));
+		// 成员词典里没有「水手长」
+		when(memberMapper.selectList(any(Wrapper.class))).thenReturn(List.of());
+		when(itemMapper.selectList(any(Wrapper.class))).thenReturn(List.of());
+		when(remoteReplenishImportMatchService.matchSkuIds(anyString(), anyList()))
+			.thenReturn(List.of(currentSku(100, 4, 2, "0", "1")));
+
+		service.confirmImport(TENANT, OWNER, CART_ID, IMPORT_ID,
+				confirmAction(1, SharedCartImportRow.ACTION_ACCEPT_SPEC));
+
+		ArgumentCaptor<SharedCartItem> captor = ArgumentCaptor.forClass(SharedCartItem.class);
+		verify(itemMapper).insert(captor.capture());
+		assertEquals(OWNER, captor.getValue().getUserId());
+		assertEquals("水手长", captor.getValue().getAttributedName());
+	}
+
+	@Test
+	@DisplayName("两个接龙人订同一种商品：按归属姓名各占一行，数量不串")
+	void confirmChainTwoPersonsSameSkuStaySeparate() {
+		when(cartMapper.selectOne(any(Wrapper.class))).thenReturn(collectingCart());
+		when(importMapper.selectOne(any(Wrapper.class))).thenReturn(pendingImport());
+		when(importRowMapper.selectList(any(Wrapper.class)))
+			.thenReturn(List.of(chainRow(1, 4, "任化东"), chainRow(2, 6, "汤伟杰")));
+		when(memberMapper.selectList(any(Wrapper.class))).thenReturn(List.of());
+		when(itemMapper.selectList(any(Wrapper.class))).thenReturn(List.of());
+		when(remoteReplenishImportMatchService.matchSkuIds(anyString(), anyList()))
+			.thenReturn(List.of(currentSku(100, 4, 2, "0", "1")));
+
+		service.confirmImport(TENANT, OWNER, CART_ID, IMPORT_ID,
+				confirmAction(1, SharedCartImportRow.ACTION_ACCEPT_SPEC));
+
+		ArgumentCaptor<SharedCartItem> captor = ArgumentCaptor.forClass(SharedCartItem.class);
+		verify(itemMapper, times(2)).insert(captor.capture());
+		List<SharedCartItem> saved = captor.getAllValues();
+		assertEquals("任化东", saved.get(0).getAttributedName());
+		assertEquals(4, saved.get(0).getRequestedQuantity());
+		assertEquals("汤伟杰", saved.get(1).getAttributedName());
+		assertEquals(6, saved.get(1).getRequestedQuantity());
 	}
 
 	@Test

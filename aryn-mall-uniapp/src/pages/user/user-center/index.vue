@@ -12,6 +12,7 @@ import {
 import DiyPage from '@/components/diy/index.vue'
 import WaterfallGoods from '@/components/waterfall-goods/index.vue'
 import { usePageDecoration } from '@/composables/usePageDecoration'
+import { ensureSessionTenant, isTenantIdentityError } from '@/api/core/tenant-identity'
 import { useMessageStore } from '@/store/messageStore'
 import { useTenantCapabilityStore } from '@/store/tenantCapabilityStore'
 import { Local } from '@/utils/storage'
@@ -285,6 +286,9 @@ function clearDeliveryAuth() {
  * 保存配送登录态并进入工作台
  */
 async function saveDeliveryAuthAndEnter(token: string) {
+  // 候选 token 先过 delivery session 校验，再保存/拉资料/进入；
+  // 身份校验失败（错租户/配置错误）不得被下面的资料空 catch 降级为「保存空资料并导航」
+  await ensureSessionTenant('delivery', token)
   Local.set('deliveryToken', token)
   try {
     const staffResponse = await getMyDeliveryStaff().send()
@@ -333,18 +337,24 @@ async function enterDeliveryWorkspace() {
     if (hasDeliveryToken.value) {
       try {
         // 轻量探活：避免资格正常时重复换取
+        await ensureSessionTenant('delivery', String(Local.get('deliveryToken') || ''))
         await getMyDeliveryStaff().send()
         router.push({ path: '/pages/delivery/index' })
         return
       }
       catch (error: any) {
-        // 探活失败（token 过期/权限回收）：清理后自动换取一次
-        clearDeliveryAuth()
+        // 仅 401（旧 token 真失效）清理后重新换取；403（身份配置/权限）保留 token
+        // 不自动换取；网络/守卫错误保留 token 停止进入，避免把配置错误洗成重登
+        if (isTenantIdentityError(error)) {
+          showToast('应用配置暂不可用，请稍后重试')
+          return
+        }
         const code = error?.code
-        if (code !== 401 && code !== 403) {
+        if (code !== 401) {
           showToast('暂时无法进入配送工作台，请稍后重试')
           return
         }
+        clearDeliveryAuth()
       }
     }
     await exchangeAndEnter()

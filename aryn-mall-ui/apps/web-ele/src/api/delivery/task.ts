@@ -159,6 +159,23 @@ export async function getDeliveryTaskEvidence(id: string) {
 }
 
 /**
+ * 管理端补录送达凭证（司机已送达却漏点送达时使用，须上传 1-6 张凭证）
+ */
+export async function backfillDeliveryTaskArrive(
+  id: string,
+  materialIds: string[],
+  remark?: string,
+) {
+  const query = materialIds
+    .map((mid) => `materialIds=${encodeURIComponent(mid)}`)
+    .join('&');
+  const url = `/mall-order/delivery/task/${id}/backfill-arrive?${query}`;
+  return requestClient.post(
+    remark ? `${url}&remark=${encodeURIComponent(remark)}` : url,
+  );
+}
+
+/**
  * 查询任务操作日志
  */
 export async function getDeliveryTaskLogs(id: string) {

@@ -71,6 +71,15 @@
             <groupId>com.aryn</groupId>
             <artifactId>aryn-promotion-api</artifactId>
         </dependency>
+        <!--充值与订单支付走同一支付链路，需要支付下单 DTO 与订单配置回调域名-->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-pay-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-order-api</artifactId>
+        </dependency>
         <dependency>
             <groupId>com.aryn</groupId>
             <artifactId>aryn-common-sentinel</artifactId>

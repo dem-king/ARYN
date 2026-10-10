@@ -42,4 +42,23 @@
             AND shopping_cart.`del_flag` = '0'
         </where>
     </select>
+
+    <!-- 靠港生效后顺延购物车行归属：无归属行与挂在已结束靠港上的行迁到新靠港。
+         租户/船舶/删除标记显式过滤，不依赖调用链路上的租户上下文；
+         staleCallIds 用 OR 链而非 IN，空列表时条件退化为仅「无归属」，不产生非法 SQL。 -->
+    <update id="reattachRowsToVesselCall">
+        UPDATE shopping_cart
+        SET vessel_call_id = #{vesselCallId},
+            update_time    = NOW()
+        WHERE tenant_id = #{tenantId}
+          AND vessel_id = #{vesselId}
+          AND del_flag = '0'
+          AND (vessel_call_id IS NULL OR vessel_call_id = ''
+        <if test="staleCallIds != null and staleCallIds.size() > 0">
+            <foreach collection="staleCallIds" item="stale" separator="">
+                OR vessel_call_id = #{stale}
+            </foreach>
+        </if>
+          )
+    </update>
 </mapper>

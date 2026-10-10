@@ -16,6 +16,7 @@ import {
 } from 'element-plus';
 
 import { getPage } from '#/api/user/balance-record';
+import { formatTriggerScene } from '#/utils/trigger-scene';
 
 const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
@@ -161,7 +162,11 @@ initPage();
           </template>
         </ElTableColumn>
         <ElTableColumn prop="balanceAfter" label="变动后余额" width="100" />
-        <ElTableColumn prop="triggerScene" label="触发场景" width="80" />
+        <ElTableColumn prop="triggerScene" label="触发场景" width="100">
+          <template #default="scope">
+            {{ formatTriggerScene(scope.row.triggerScene) }}
+          </template>
+        </ElTableColumn>
         <ElTableColumn prop="remark" label="备注" />
         <ElTableColumn prop="createTime" label="创建时间" width="170" />
       </ElTable>

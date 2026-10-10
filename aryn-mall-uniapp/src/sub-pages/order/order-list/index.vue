@@ -200,6 +200,13 @@ onUnload(() => {
               <view v-if="order.deliveryWay === '2' && order.status === '3'" class="text-22rpx">
                 待自提
               </view>
+              <!-- 自配送（way=3）/内部配送（way=4）在司机出发前订单状态恒为待发货，按详情页口径显示备货中 -->
+              <view
+                v-else-if="order.status === '2' && (order.deliveryWay === '3' || order.deliveryWay === '4')"
+                class="text-22rpx"
+              >
+                备货中
+              </view>
               <dict-tag v-else :options="order_status" :value="order.status" />
             </view>
           </view>

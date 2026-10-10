@@ -13,7 +13,8 @@ definePage({
 
 interface BalanceRecord {
   id: string
-  changeType: number
+  // 后端 AppBalanceRecordVO.changeType 是字符串：1-充值；2-消费；3-调整
+  changeType: string
   changeAmount: number
   balanceAfter: number
   triggerScene: string
@@ -40,17 +41,29 @@ async function queryList(pageNo: number, pageSize: number) {
     })
     pagingRef.value?.complete(response.records)
   }
+  catch (error) {
+    // 失败必须告知 z-paging，否则列表永远停在加载态
+    console.error('加载余额记录失败:', error)
+    pagingRef.value?.complete(false)
+  }
   finally {
     globalLoading.close()
   }
 }
 
-function getChangeTypeText(type: number): string {
-  return type === 1 ? '充值' : type === 2 ? '消费' : '调整'
+function getChangeTypeText(type: string): string {
+  return type === '1' ? '充值' : type === '2' ? '消费' : '调整'
 }
 
-function getChangeTypeClass(type: number): string {
-  return type === 1 ? 'text-green-500' : 'text-red-500'
+function getChangeTypeClass(type: string): string {
+  return type === '2' ? 'text-red-500' : 'text-green-500'
+}
+
+// 金额符号由变动类型决定，调整单（3）按其正负号展示
+function formatChangeAmount(item: BalanceRecord): string {
+  const amount = Number(item.changeAmount ?? 0)
+  const sign = item.changeType === '2' || amount < 0 ? '-' : '+'
+  return `${sign}${Math.abs(amount)}`
 }
 
 function getSceneText(scene: string): string {
@@ -59,6 +72,7 @@ function getSceneText(scene: string): string {
     CONSUME: '消费',
     REFUND: '退款',
     ADMIN: '后台调整',
+    ADMIN_ADJUST: '后台调整',
     GIFT: '赠送',
   }
   return sceneMap[scene] || scene
@@ -75,7 +89,7 @@ function getSceneText(scene: string): string {
         <view class="flex-1">
           <view class="flex items-center">
             <text class="text-14px font-bold">{{ getSceneText(item.triggerScene) }}</text>
-            <text class="ml-2 text-12px rounded px-1 py-0.5" :class="item.changeType === 1 ? 'bg-green-50 text-green-500' : 'bg-red-50 text-red-500'">
+            <text class="ml-2 text-12px rounded px-1 py-0.5" :class="item.changeType === '1' ? 'bg-green-50 text-green-500' : 'bg-red-50 text-red-500'">
               {{ getChangeTypeText(item.changeType) }}
             </text>
           </view>
@@ -88,7 +102,7 @@ function getSceneText(scene: string): string {
         </view>
         <view class="text-right">
           <view class="text-16px font-bold" :class="getChangeTypeClass(item.changeType)">
-            {{ item.changeType === 1 ? '+' : '-' }}{{ item.changeAmount }}
+            {{ formatChangeAmount(item) }}
           </view>
           <view class="mt-1 text-11px text-gray-400">
             余额 {{ item.balanceAfter }}

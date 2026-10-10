@@ -110,7 +110,7 @@ describe('ship context picker contract', () => {
     // 离港下限跟随到港，避免用户选出一个提交时才被拒的组合；
     // 且必须比 ETA 晚一分钟——后端要求严格早于，取 ETA 本身仍能选出相等时刻
     expect(picker).toContain('const etdMinDate')
-    expect(picker).toMatch(/etdMinDate = computed\(\(\) =>\s*\n?\s*typeof declareState\.value\.eta === 'number' \? declareState\.value\.eta \+ 60_000/)
+    expect(picker).toMatch(/etdMinDate = computed\(\(\) =>\s*typeof declareState\.value\.eta === 'number' \? declareState\.value\.eta \+ 60_000/)
     expect(picker).toMatch(/:min-date="etdMinDate"/)
     // 先选离港再改到港时，失效的离港值要当场清掉而不是留到提交才报错
     expect(picker).toMatch(/watch\(\(\) => declareState\.value\.eta[\s\S]{0,400}declareState\.value\.etd = null/)
@@ -141,7 +141,9 @@ describe('ship context picker contract', () => {
 describe('no dead-end guidance remains', () => {
   it('makes the cross-port-call cart hint actionable', () => {
     const cart = source('src/pages/user/shopping-cart/index.vue')
-    expect(cart).toContain('结算前请点此切换船舶')
+    // 文案在 2026-10-04 的 UI 重排中去掉了括号（分组头已改细窄说明行，读起来更顺），
+    // 但「提示必须是可点的入口」这条不变：它必须与 openShipPicker 同屏出现
+    expect(cart).toContain('结算前请切换船舶')
     expect(cart).toContain('openShipPicker')
     // 旧的纯文案提示必须已被替换
     expect(cart).not.toContain('（结算前请切换船舶）')

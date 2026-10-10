@@ -2,7 +2,14 @@
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
 import { Delete, Edit, Plus } from '@element-plus/icons-vue';
-import { ElButton, ElTable, ElTableColumn, ElTag } from 'element-plus';
+import {
+  ElButton,
+  ElMessage,
+  ElMessageBox,
+  ElTable,
+  ElTableColumn,
+  ElTag,
+} from 'element-plus';
 
 import { delObj, getPage } from '#/api/user/member-benefit';
 import { useDict } from '#/utils/dict';
@@ -60,9 +67,47 @@ const handleEdit = (row: any) => {
   formRef.value.initForm(row);
 };
 
-const handleDelete = async (row: any) => {
-  await delObj(row.id);
-  initPage();
+/** 权益值按类型格式化：折扣显示折、专属券显示模板 ID，避免列表直出原始值 */
+const formatBenefitValue = (row: any) => {
+  switch (row.benefitType) {
+    case '1': {
+      const rate = Number(row.benefitValue);
+      return Number.isFinite(rate)
+        ? `${(rate * 10).toFixed(1)}折`
+        : row.benefitValue;
+    }
+    case '2': {
+      return '包邮';
+    }
+    case '3': {
+      return `模板 ${row.benefitValue}`;
+    }
+    case '4': {
+      return `${row.benefitValue}倍积分`;
+    }
+    default: {
+      return row.benefitValue;
+    }
+  }
+};
+
+const handleDelete = (row: any) => {
+  ElMessageBox.confirm(
+    `此操作将删除会员权益「${row.benefitName}」并解除等级关联，是否继续?`,
+    '提示',
+    {
+      confirmButtonText: '确认',
+      cancelButtonText: '取消',
+      type: 'warning',
+    },
+  ).then(() => {
+    delObj(row.id)
+      .then(() => {
+        ElMessage.success('删除成功');
+        initPage();
+      })
+      .catch(() => {});
+  });
 };
 
 initPage();
@@ -109,7 +154,11 @@ initPage();
             </ElTag>
           </template>
         </ElTableColumn>
-        <ElTableColumn prop="benefitValue" label="权益值" width="100" />
+        <ElTableColumn prop="benefitValue" label="权益值" width="110">
+          <template #default="scope">
+            {{ formatBenefitValue(scope.row) }}
+          </template>
+        </ElTableColumn>
         <ElTableColumn prop="description" label="描述" />
         <ElTableColumn prop="status" label="状态" width="80">
           <template #default="scope">

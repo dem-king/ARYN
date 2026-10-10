@@ -34,6 +34,8 @@ interface Props {
   /** 支付方式：''=在线支付；'3'=货到付款（仅商城配送/内部配送可选） */
   paymentWay: string
   couponUserList: any[]
+  /** 是否拼团单：拼团单仅支持在线支付（成团判定依赖支付回调），隐藏支付方式选择 */
+  groupBuyOrder?: boolean
 }
 
 const props = defineProps<Props>()
@@ -90,14 +92,18 @@ watch(() => props.paymentWay, (way) => {
   }
 })
 
-// 配送方式选项。内部配送（way=4）仅在已绑定船舶+靠港上下文时可选——
-// 未绑定时选中它也无法履约，故不展示。文案与取值统一来自 @/sub-pages/utils/delivery-way。
+// 配送方式选项。已绑定船舶+靠港上下文（在船成员）只走内部配送（入口统一），
+// 未绑定时提供快递/自提/商城配送三种岸上方式。文案与取值统一来自 @/sub-pages/utils/delivery-way。
 const shipContextStore = useShipContextStore()
 const deliveryMethodColumns = computed(() =>
   deliveryWayOptions({ withVesselInternal: shipContextStore.hasVesselContext }),
 )
 
 function openDeliverySheet() {
+  // 仅一种方式时行是静态说明，不弹选择层（上方上下文卡片已解释配送规则）
+  if (deliveryMethodColumns.value.length <= 1) {
+    return
+  }
   deliveryWayDraft.value = deliveryWay.value
   deliveryShow.value = true
 }
@@ -236,13 +242,14 @@ function saveRemark() {
             <text class="pr-4rpx text-26rpx" @click="openDeliverySheet">
               {{ deliveryWayLabel(deliveryWay) }}
             </text>
-            <text class="i-carbon:chevron-right text-14px" />
+            <!-- 绑定船舶上下文后只剩内部配送一种方式，行转为静态说明、不再给切换箭头 -->
+            <text v-if="deliveryMethodColumns.length > 1" class="i-carbon:chevron-right text-14px" />
           </view>
         </view>
 
-        <!-- 支付方式：仅商城配送（3）/内部配送（4）可选货到付款 -->
+        <!-- 支付方式：仅商城配送（3）/内部配送（4）可选货到付款；拼团单恒为在线支付，不展示选择入口 -->
         <view
-          v-if="deliveryWay === '3' || deliveryWay === '4'"
+          v-if="(deliveryWay === '3' || deliveryWay === '4') && !groupBuyOrder"
           class="flex items-center justify-between pb-20rpx"
         >
           <text class="text-14px">
@@ -254,6 +261,19 @@ function saveRemark() {
             </text>
             <text class="i-carbon:chevron-right text-14px" />
           </view>
+        </view>
+
+        <!-- 拼团单固定在线支付说明 -->
+        <view
+          v-if="groupBuyOrder"
+          class="flex items-center justify-between pb-20rpx"
+        >
+          <text class="text-14px">
+            支付方式
+          </text>
+          <text class="text-26rpx color-[#07c160]">
+            在线支付（拼团需先付款成团）
+          </text>
         </view>
 
         <!-- 修改：备注展示为可点击行，弹出层内再输入 -->

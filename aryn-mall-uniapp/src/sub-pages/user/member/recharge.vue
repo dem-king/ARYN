@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
-import { getRechargeConfigList, createRechargeOrder } from '@/sub-pages/api/user/recharge'
+import { createRechargeOrder, getRechargeConfigList, rechargePrepay } from '@/sub-pages/api/user/recharge'
+import { prepay } from '@/sub-pages/utils/pay'
 
 definePage({
   name: 'member-recharge',
@@ -16,17 +17,14 @@ interface RechargeConfig {
   rechargeAmount: number
   giftAmount: number
   giftPoint: number
-  name: string
   status: string
 }
 
 const userStore = useUserStore()
 const globalLoading = useGlobalLoading()
-const { success: showSuccess, error: showError } = useGlobalToast()
 
 const configList = ref<RechargeConfig[]>([])
 const selectedId = ref<string>('')
-const toastRef = ref()
 
 onLoad(() => {
   loadRechargeConfig()
@@ -51,20 +49,50 @@ async function loadRechargeConfig() {
 }
 
 async function handleRecharge(config: RechargeConfig) {
+  if (selectedId.value)
+    return
   selectedId.value = config.id
   globalLoading.loading('创建订单中...')
   try {
-    const result = await createRechargeOrder(config.id)
-    showSuccess(`订单创建成功！订单号：${result.orderNo || result}`)
-    userStore.refreshPointsInfo()
+    const order = await createRechargeOrder(config.id)
+    const orderNo = order?.orderNo
+    if (!orderNo) {
+      throw new Error('创建充值订单失败')
+    }
+    // 创建订单后立即发起支付，避免只建单不入账
+    const response = await rechargePrepay(buildPrepayParams(orderNo))
+    prepay(response.payParams, Number(config.rechargeAmount), `/sub-pages/user/member/recharge-result?orderNo=${orderNo}`, '1')
   }
-  catch (error: any) {
-    showError(error?.message || '创建订单失败')
+  catch (error) {
+    // 错误提示由请求层全局拦截器统一弹出
+    console.error('充值下单失败:', error)
   }
   finally {
     selectedId.value = ''
     globalLoading.close()
   }
+}
+
+function buildPrepayParams(orderNo: string) {
+  const params = {
+    orderNo,
+    paymentType: '1',
+    tradeType: 'WX_JSAPI_PAY',
+    returnUrl: '',
+    quitUrl: '',
+  }
+  // #ifdef MP-WEIXIN
+  params.tradeType = 'WX_JSAPI_PAY'
+  // #endif
+  // #ifdef H5
+  params.tradeType = 'WX_H5_PAY'
+  params.returnUrl = `${window.location.origin}/sub-pages/user/member/recharge-result?orderNo=${orderNo}`
+  params.quitUrl = `${window.location.origin}/sub-pages/user/member/recharge`
+  // #endif
+  // #ifdef APP-PLUS
+  params.tradeType = 'WX_APP_PAY'
+  // #endif
+  return params
 }
 </script>
 
@@ -97,9 +125,6 @@ async function handleRecharge(config: RechargeConfig) {
           <text class="gift-tag">赠{{ config.giftPoint }}积分</text>
         </view>
       </view>
-      <view v-if="config.name" class="text-12px text-gray-400 mt-1">
-        {{ config.name }}
-      </view>
       <wd-button
         type="primary"
         size="small"
@@ -114,8 +139,6 @@ async function handleRecharge(config: RechargeConfig) {
       暂无充值方案
     </view>
   </view>
-
-  <wd-toast ref="toastRef" />
 </template>
 
 <style lang="scss" scoped>

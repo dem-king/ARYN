@@ -3,6 +3,7 @@ import type { DecorationSection } from './schema/types'
 
 import { computed } from 'vue'
 import { useAuthStore } from '@/store/authStore'
+import { useMallThemeStore } from '@/store/mallThemeStore'
 
 import { useUserStore } from '@/store/userStore'
 import DiyBottomNav from './diy-bottom-nav/index.vue'
@@ -15,9 +16,11 @@ import DiyDiscount from './diy-discount/index.vue'
 import DiyGap from './diy-gap/index.vue'
 import DiyGoodsGroup from './diy-goods-group/index.vue'
 import DiyGoodsRanking from './diy-goods-ranking/index.vue'
+import DiyGoodsRecommend from './diy-goods-recommend/index.vue'
 import DiyGoodsScroll from './diy-goods-scroll/index.vue'
 import DiyGoodsWaterfall from './diy-goods-waterfall/index.vue'
 import DiyGoods from './diy-goods/index.vue'
+import DiyImageCube from './diy-image-cube/index.vue'
 import DiyImage from './diy-image/index.vue'
 import DiyLimitedActivity from './diy-limited-activity/index.vue'
 import DiyMarketingEntry from './diy-marketing-entry/index.vue'
@@ -35,6 +38,7 @@ import DiyTabnav from './diy-tabnav/index.vue'
 import DiyTitleText from './diy-titletext/index.vue'
 import DiyVideoLive from './diy-video-live/index.vue'
 import { evaluateCondition } from './schema/condition'
+import { resolveEffectivePageTheme } from './schema/effective-theme'
 import { migratePageContent } from './schema/migrate'
 import UnknownComponent from './unknown-component.vue'
 
@@ -57,6 +61,7 @@ const props = defineProps<{
 }>()
 
 const authStore = useAuthStore()
+const mallThemeStore = useMallThemeStore()
 const userStore = useUserStore()
 const document = computed(() => migratePageContent(props.pageContentData))
 // 空区块（没有组件）不渲染：删空组件的区块只剩一张空样式卡（背景/圆角/内边距），
@@ -70,8 +75,25 @@ const sections = computed(() =>
 const title = computed(
   () => document.value.page.navigation.title || props.pageName || '',
 )
+// 页面有效主题：页面引用过主题（快照已被 migrate 合并进 page 配置）时保持
+// 页面自身颜色；未引用主题的页面跟随商城默认主题——模板/存量页面写死的
+// 品牌色（如种子模板的蓝色导航）不再遮住管理端的全局换肤。
+// 「页面设置」关闭跟随（followMallTheme=false）同样走页面自存色，在解析器内处理
+const effectiveTheme = computed(() =>
+  resolveEffectivePageTheme(
+    document.value.page,
+    // 页面引用过主题：快照颜色已合并进 page 配置，不再叠加商城默认主题
+    document.value.themePrimaryColor
+      ? undefined
+      : {
+          navigationColor: mallThemeStore.navigationColor,
+          navigationTextColor: mallThemeStore.navigationTextColor,
+          pageBackgroundColor: mallThemeStore.pageBackgroundColor,
+        },
+  ),
+)
 const pageStyle = computed(() => ({
-  backgroundColor: document.value.page.backgroundColor,
+  backgroundColor: effectiveTheme.value.backgroundColor,
   backgroundImage: document.value.page.backgroundImage
     ? `url(${document.value.page.backgroundImage})`
     : undefined,
@@ -139,8 +161,8 @@ function sectionStyle(section: DecorationSection) {
       v-if="!embedded && document.page.navigation.visible"
       :title="title"
       :left-arrow="false"
-      :background-color="document.page.navigation.backgroundColor"
-      :text-color="document.page.navigation.textColor"
+      :background-color="effectiveTheme.navigationBackgroundColor"
+      :text-color="effectiveTheme.navigationTextColor"
     />
     <view class="diy-components">
       <view
@@ -264,6 +286,15 @@ function sectionStyle(section: DecorationSection) {
           />
           <DiyVideoLive
             v-else-if="item.type === 'video-live'"
+            :show-data="item.props"
+          />
+          <DiyGoodsRecommend
+            v-else-if="item.type === 'goods-recommend'"
+            :show-data="item.props"
+            :goods-id="goodsId"
+          />
+          <DiyImageCube
+            v-else-if="item.type === 'image-cube'"
             :show-data="item.props"
           />
           <UnknownComponent

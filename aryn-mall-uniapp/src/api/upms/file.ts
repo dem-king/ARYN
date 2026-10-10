@@ -1,6 +1,7 @@
 import { buildApiUrl } from '@/api/core/api-base-url'
 import { parseOpenBoot, rewriteBootUrl } from '@/api/core/boot-url'
 import { alovaInstance } from '@/api/core/instance'
+import { ensureSessionTenant, ensureTenantReady } from '@/api/core/tenant-identity'
 import { Local } from '@/utils/storage'
 
 interface UploadResponse {
@@ -21,12 +22,18 @@ export function uploadImg(filePath: string) {
   )
 }
 
-export function uploadFile(filePath: string) {
+export async function uploadFile(filePath: string) {
   const authStore = useAuthStore()
   const uploadPath = rewriteBootUrl(
     '/upms/file/app/upload',
     parseOpenBoot(import.meta.env.VITE_OPEN_BOOT),
   ) ?? '/upms/file/app/upload'
+  // 旁路 uni.uploadFile 与 alova 请求同权：守卫失败零传输（不挂起 Promise，直接 reject）
+  await ensureTenantReady()
+  const token = authStore.getToken
+  if (token) {
+    await ensureSessionTenant('mall', token)
+  }
   return new Promise<UploadResponse>((resolve, reject) => {
     uni.uploadFile({
       url: buildApiUrl(uploadPath),
@@ -34,7 +41,7 @@ export function uploadFile(filePath: string) {
       name: 'file',
       header: {
         'tenant-id': import.meta.env.VITE_TENANT_ID,
-        'satoken': authStore.getToken,
+        'satoken': token,
       },
       success(res) {
         const data = JSON.parse(res.data) as UploadResponse
@@ -46,14 +53,31 @@ export function uploadFile(filePath: string) {
 }
 
 /** 上传配送凭证并返回受控素材 ID。 */
-export function uploadDeliveryEvidence(filePath: string): Promise<string> {
+export async function uploadDeliveryEvidence(filePath: string): Promise<string> {
   const uploadPath = rewriteBootUrl(
     '/upms/file/staff/delivery-evidence/upload',
     parseOpenBoot(import.meta.env.VITE_OPEN_BOOT),
   ) ?? '/upms/file/staff/delivery-evidence/upload'
+  await ensureTenantReady()
+  const deliveryToken = String(Local.get('deliveryToken') || '')
+  if (deliveryToken) {
+    try {
+      await ensureSessionTenant('delivery', deliveryToken)
+    }
+    catch (error) {
+      // 401 才清配送 scope（比对该 token 仍有效）；403/网络故障保留 token、拒绝上传、不跳登录
+      if (isUnauthorizedPreflight(error)
+        && String(Local.get('deliveryToken') || '') === (error as { checkedToken?: string }).checkedToken) {
+        Local.remove('deliveryToken')
+        Local.remove('deliveryStaffInfo')
+        uni.reLaunch({ url: '/pages/delivery/login' })
+      }
+      throw error instanceof Error ? error : new Error('配送身份校验未通过')
+    }
+  }
   const header: Record<string, string> = {
     'tenant-id': import.meta.env.VITE_TENANT_ID,
-    'satoken': String(Local.get('deliveryToken') || ''),
+    'satoken': deliveryToken,
     'authScope': 'delivery',
   }
   // #ifdef MP
@@ -77,7 +101,8 @@ export function uploadDeliveryEvidence(filePath: string): Promise<string> {
       success(res) {
         try {
           const payload = JSON.parse(res.data) as { data?: string, msg?: string, code?: number }
-          if ([401, 403].includes(res.statusCode) || [401, 403].includes(payload.code ?? 0)) {
+          // 仅 401 清配送登录态；403 保留 token 拒绝上传（身份配置类 403 与普通业务 403 都不清）
+          if ([401].includes(res.statusCode) || [401].includes(payload.code ?? 0)) {
             Local.remove('deliveryToken')
             Local.remove('deliveryStaffInfo')
             uni.reLaunch({ url: '/pages/delivery/login' })
@@ -97,4 +122,8 @@ export function uploadDeliveryEvidence(filePath: string): Promise<string> {
       fail: reject,
     })
   })
+}
+
+function isUnauthorizedPreflight(error: unknown): boolean {
+  return (error as { type?: string })?.type === 'unauthorized'
 }

@@ -27,22 +27,23 @@ import {
 
   shareSharedCart,
   updateSharedCartItem,
-  updateSharedCartItemPlan,
 } from '@/api/order/sharedCart'
-import { getByIds } from '@/api/product/spu'
 import hrNavbar from '@/components/hr-navbar/index.vue'
 import { useCountdownTicker } from '@/composables/useCountdown'
 import { useShipContextStore } from '@/store/shipContextStore'
 import { useUserStore } from '@/store/userStore'
 import { resolveImageSrc } from '@/utils/image'
-import { buildReplenishRowView, summarizeReplenishItems } from '@/utils/replenish-progress'
 import {
+  amountText,
   cartStatusLabel,
   cartStatusTheme,
   isCartCollecting,
   isCartReadonly,
+  itemAmountOf,
   MEMBER_ROLE_MEMBER,
   memberRoleLabel,
+  summarizeCartAmount,
+  unitPriceText,
 } from '@/utils/shared-cart'
 import { formatCallTime, formatExpiryCountdown } from '@/utils/vessel-call-time'
 
@@ -70,10 +71,6 @@ const joinFailed = ref(false)
 const cart = ref<SharedCart | null>(null)
 const members = ref<SharedCartMember[]>([])
 const items = ref<SharedCartItem[]>([])
-/** spuId → 商品名 */
-const spuNames = reactive<Record<string, string>>({})
-/** spuId → 主图，明细行左侧缩略图用；缺图时渲染占位图 */
-const spuImages = reactive<Record<string, string>>({})
 
 const currentUserId = computed(() => userStore.getUserId)
 const collecting = computed(() => isCartCollecting(cart.value?.status))
@@ -97,49 +94,109 @@ const expiryUrgent = computed(() =>
 )
 
 /**
- * 排计划与回填已采量是确认人（或发起人）职责，普通成员只能维护自己的需求量，
- * 因此按钮可见性以服务端 viewerCanConfirm 为准，前端不自行推断角色。
+ * 明细进度只用「申请数量」一个口径（已提交的单改用核定数量）：
+ * 成员报多少就是多少，确认人在提交弹层里最终核定买多少（核定为 0 = 本次不采）。
+ * 这里只统计项数与总量，不编造"已买多少"——系统里没有这个事实来源。
  *
- * 状态上只排除已提交/已关闭/已完成（`cartReadonly`）。后端 `requireEditable`
- * 只拦已提交/已关闭；前端对「已完成」也隐藏，因为订单已送达归档，
- * 此时再排计划没有意义。「待确认」阶段仍可能要补最后几项，不提前锁死。
+ * 金额另起一行（见 cartAmount / cartAmountText）：它回答的是「这批大概多少钱」，
+ * 与数量不是同一个问题，混成一句话会让两边的口径都变模糊。
  */
-const canPlan = computed(() => !cartReadonly.value && !!cart.value?.viewerCanConfirm)
+const itemSummaryText = computed(() => {
+  const list = items.value
+  if (list.length === 0)
+    return ''
+  // 已提交的单：核定数量已落库，报「核定合计」才是这批实际要买多少；
+  // 收集中还没核定，只能报成员申请量。
+  if (cartReadonly.value) {
+    const totalApproved = list.reduce((sum, item) => sum + (item.approvedQuantity ?? item.requestedQuantity ?? 0), 0)
+    return `${list.length} 项 · 核定合计 ${totalApproved}`
+  }
+  const totalRequested = list.reduce((sum, item) => sum + (item.requestedQuantity ?? 0), 0)
+  return `${list.length} 项 · 申请合计 ${totalRequested}`
+})
 
-/** 整单进度：详情接口只返回原始明细，汇总口径与卡片保持一致（按项数） */
-const progressSummary = computed(() => summarizeReplenishItems(items.value))
+/** 整批金额：各明细单价 × 计价数量之和（未含促销，实付以订单为准） */
+const cartAmount = computed(() => summarizeCartAmount(items.value))
 
 /**
- * 明细行进度视图：itemId -> 结构化进度。
- * 列表里渲染时不能对每行反复建对象，这里一次算好。
- * 取结构化字段（planned/fulfilled/remaining/completed）而不是拼好的 text，
- * 是为了让每行能分别强调数字并配状态标签，口径仍由同一个纯函数给出。
+ * 预估总额文案。
+ *
+ * 有取不到价的明细时仍显示已算出的部分，并靠 `cartAmountIncomplete` 追加说明 ——
+ * 直接省略金额会让用户以为这个页面不算钱，显示一个偏小的数却不说清楚更糟。
+ *
+ * 已提交的单不再叫「预估」：那是这批订单的构成金额，叫预估会让人以为还没定。
+ * 但它按**当前**售价算，与下单时刻的价格可能不同，故不写成「实付」。
  */
-const rowViews = computed<Record<string, ReturnType<typeof buildReplenishRowView>>>(() => {
-  const map: Record<string, ReturnType<typeof buildReplenishRowView>> = {}
-  for (const item of items.value)
-    map[item.id] = buildReplenishRowView(item)
-  return map
-})
-
-/** 整单进度文案；无计划时显示「未排计划」而不是 0% */
-const progressSummaryText = computed(() => {
-  const summary = progressSummary.value
-  if (summary.totalItems === 0)
+const cartAmountText = computed(() => {
+  if (cartAmount.value.pricedCount === 0)
     return ''
-  if (summary.plannedItems === 0)
-    return `尚未排计划 · ${summary.totalItems} 项待安排`
-  const parts = [
-    `已采 ${summary.fulfilledItems} / ${summary.plannedItems} 项`,
-    `还差 ${summary.remainingItems} 项`,
-  ]
-  if (summary.unplannedItems > 0)
-    parts.push(`${summary.unplannedItems} 项未排计划`)
-  return parts.join(' · ')
+  const prefix = collecting.value ? '预估' : '合计'
+  return `${prefix} ¥${amountText(cartAmount.value.amount)}`
 })
 
-/** 是否已排计划：只有排过计划才画进度条，避免无计划时渲染成一条空槽 */
-const hasPlan = computed(() => progressSummary.value.plannedItems > 0)
+/** 有商品取不到价（下架/已删除）：合计不完整，必须显式说明 */
+const cartAmountIncomplete = computed(() => cartAmount.value.unpricedCount > 0)
+
+/** 待核价的明细描述，如「2 项商品」 */
+const unpricedItemText = computed(() => `${cartAmount.value.unpricedCount} 项商品`)
+
+/**
+ * 明细行金额文案（含「待核价」），列表与操作面板共用同一份口径。
+ *
+ * 被核定为「本次不采」的行返回空串：紧邻的徽标已经写明它不买，
+ * 再补一个「¥0.00」或「不计入」都是同一件事说两遍。
+ */
+function itemAmountText(item: SharedCartItem): string {
+  if (item.approvedQuantity === 0)
+    return ''
+  const amount = itemAmountOf(item)
+  return amount === null ? '待核价' : `¥${amountText(amount)}`
+}
+
+/**
+ * 成员加购汇总：每个成员报了几项、合计多少钱。
+ *
+ * 归集键是明细的 userId 而不是成员列表 —— 成员列表理论上覆盖全部归属，
+ * 但两者的数据来源不同（成员行 vs 明细行），若有明细落在列表之外，
+ * 按成员遍历会让它的金额从「成员合计」里凭空消失，用户对不上账。
+ * 因此这里以明细为准分组，成员行只用来取展示名与角色。
+ */
+const memberSummaries = computed(() => {
+  const byUser = new Map<string, { userId: string, attributedName: string, items: SharedCartItem[] }>()
+  for (const item of items.value) {
+    // 接龙代报的行挂在操作者名下、按归属姓名互相区分：同一人订同一种商品
+    // 也各占一行，汇总必须按「userId + 归属姓名」分组，否则所有人的报货
+    // 会并进操作者一栏
+    const attributedName = item.attributedName || ''
+    const key = attributedName ? `${item.userId}|${attributedName}` : item.userId
+    const entry = byUser.get(key)
+    if (entry)
+      entry.items.push(item)
+    else
+      byUser.set(key, { userId: item.userId, attributedName, items: [item] })
+  }
+  // 先按成员列表顺序（加入时间）排列，再补上列表里没有的归属者，避免漏项
+  const ordered = [
+    ...members.value.map(member => member.userId),
+    ...[...byUser.keys()].filter(key => !members.value.some(member => member.userId === key)),
+  ]
+  return ordered.flatMap((key) => {
+    const group = byUser.get(key)
+    if (!group)
+      return []
+    const summary = summarizeCartAmount(group.items)
+    return [{
+      key,
+      userId: group.userId,
+      attributedName: group.attributedName,
+      member: group.attributedName ? null : members.value.find(item => item.userId === group.userId) ?? null,
+      itemCount: group.items.length,
+      quantity: group.items.reduce((sum, item) => sum + (item.requestedQuantity ?? 0), 0),
+      amountText: summary.pricedCount === 0 ? '' : `¥${amountText(summary.amount)}`,
+      unpricedCount: summary.unpricedCount,
+    }]
+  })
+})
 
 /** 成员 userId → 展示姓名，供「来自 XX」使用（列表里不暴露原始用户 ID） */
 const memberNames = computed<Record<string, string>>(() => {
@@ -163,11 +220,29 @@ function memberLabel(member: SharedCartMember) {
   return member.userId ? `成员 ${member.userId.slice(-4)}` : '成员'
 }
 
-/** 明细来源：本人 / 成员姓名 / 短标识，同样不暴露原始用户 ID */
+/** 明细来源：归属姓名（接龙代报）/ 本人 / 成员姓名 / 短标识，不暴露原始用户 ID */
 function contributorLabel(item: SharedCartItem) {
+  // 接龙代报的行即使操作者是自己也不能写「我」：货是接龙里那个人的
+  if (item.attributedName)
+    return item.attributedName
   if (isMine(item))
     return '我'
   return memberNames.value[item.userId] || (item.userId ? `成员 ${item.userId.slice(-4)}` : '成员')
+}
+
+/**
+ * 成员汇总行的展示名。
+ *
+ * 与「来自 XX」分开是因为这里还有明细归属者可能不在成员列表里的情况：
+ * 那种行没有成员资料可读，只能同样回落到短标识，而不是渲染空行。
+ */
+function memberSummaryLabel(row: { member: null | SharedCartMember, userId: string, attributedName: string }) {
+  // 接龙代报的人可能不是系统用户，标签就是接龙原文里那个名字
+  if (row.attributedName)
+    return row.attributedName
+  if (row.member)
+    return memberLabel(row.member)
+  return row.userId ? `成员 ${row.userId.slice(-4)}` : '成员'
 }
 
 /**
@@ -211,6 +286,17 @@ const needDisplayName = computed(() =>
   !!myMember.value && !myMember.value.displayName,
 )
 
+/**
+ * 明细维护权被收回：加购/改数量/移除入口会一并消失。
+ *
+ * 不解释的话，用户看到的是「按钮凭空没了」，只会反复重进或找客服。
+ * 判据用服务端下发的 viewerCanEdit（本页权限一律以 viewer* 为准，不自行推断）；
+ * 发起人在服务端天然可编辑、拿不到 false，因此无需额外排除。
+ */
+const editRevoked = computed(() =>
+  collecting.value && cart.value?.viewerCanEdit === false,
+)
+
 function openSetName() {
   nameState.displayName = myMember.value?.displayName || ''
   nameState.visible = true
@@ -252,32 +338,16 @@ const confirmState = reactive({
   submitting: false,
   /** itemId → 核定数量（字符串，便于输入框绑定） */
   approved: {} as Record<string, string>,
+  /** itemId → 本次不采（提交时核定 0，该行不进订单） */
+  skipped: {} as Record<string, boolean>,
   recipientName: '',
   recipientPhone: '',
   agentName: '',
   agentPhone: '',
   remark: '',
-  /** 支付方式：''=在线支付；'3'=货到付款（共享车固定内部配送，可选拍后线下结算） */
-  paymentType: '',
+  /** 支付方式：''=在线支付；'3'=货到付款（共享车固定内部配送，默认货到付款、收货后线下结算） */
+  paymentType: '3',
 })
-
-function loadSpuNames(spuIds: string[]) {
-  const pending = spuIds.filter(id => id && spuNames[id] === undefined)
-  if (pending.length === 0)
-    return
-  getByIds(pending)
-    .then((list) => {
-      ;(list ?? []).forEach((spu: any) => {
-        if (spu?.id) {
-          spuNames[spu.id] = spu.name ?? ''
-          spuImages[spu.id] = spu.spuUrls?.[0] ?? ''
-        }
-      })
-    })
-    .catch(() => {
-      // 商品名与图片仅用于展示，失败不阻断购物车操作
-    })
-}
 
 function fetchDetail() {
   if (!cartId.value)
@@ -303,7 +373,6 @@ function fetchDetail() {
             // 令牌获取失败仅影响分享，不阻断购物车查看与加购
           })
       }
-      loadSpuNames([...new Set(items.value.map(item => item.spuId))])
     })
     .catch(() => {
       loadFailed.value = true
@@ -334,8 +403,9 @@ function copyCartNo() {
 /**
  * 明细行操作面板。
  *
- * 一行的可用动作由「我的 / 别人的」与 viewer 标记共同决定：成员只能改自己的，
- * 确认人可对任意行排计划。面板按条件渲染，不去呈现点了会被服务端拒绝的项。
+ * 成员只能改自己报的那一行（服务端 updateItem 同样校验归属）。
+ * 「这一项本次不采」不放这里：那由确认人在提交弹层里核定 0 表达 ——
+ * 移除是删掉别人的需求且不可追溯，核定为 0 则留痕，成员能看到自己的申请被怎么处理。
  */
 const rowActionState = reactive<{ item: null | SharedCartItem, visible: boolean }>({
   item: null,
@@ -344,13 +414,26 @@ const rowActionState = reactive<{ item: null | SharedCartItem, visible: boolean 
 
 function openRowActions(item: SharedCartItem) {
   // 无可执行动作时不弹空面板
-  if (!canPlan.value && !canEditItem(item))
+  if (!canEditItem(item))
     return
   rowActionState.item = item
   rowActionState.visible = true
 }
 
+/**
+ * 收起明细操作面板，并把里面挂的那一行一起放掉。
+ *
+ * 面板里的两个动作（改数量、移除）都会让这一行数据变样，留着旧 item 只会让
+ * 重新打开时先闪一帧过期文案。收起一律走这里，避免只改 visible 漏掉 item。
+ */
+function closeRowActions() {
+  rowActionState.visible = false
+  rowActionState.item = null
+}
+
 function openEditItem(item: SharedCartItem) {
+  // 编辑面板叠在明细操作面板之上，先把下面那层收掉再开，避免两个弹层叠着
+  closeRowActions()
   editState.itemId = item.id
   editState.quantity = String(item.requestedQuantity ?? '')
   editState.remark = item.memberRemark ?? ''
@@ -372,6 +455,8 @@ function submitEditItem() {
     memberRemark: editState.remark || undefined,
   })
     .then(() => {
+      // 先收起弹层再拉详情：fetchDetail 会把明细行重建一遍，
+      // 若此时弹层还开着，用户在等待期间点到的那一行 item 已经指向被替换掉的旧对象
       editState.visible = false
       uni.showToast({ title: '已更新', icon: 'success' })
       return fetchDetail()
@@ -382,68 +467,15 @@ function submitEditItem() {
     })
 }
 
-/** 排计划/回填已采量表单（确认人操作，可改任意成员的明细行） */
-const planState = reactive({
-  visible: false,
-  submitting: false,
-  itemId: '',
-  /** 计划量字符串，便于输入框绑定；空串表示取消计划 */
-  planned: '',
-  fulfilled: '',
-  itemName: '',
-})
-
-function openPlanItem(item: SharedCartItem) {
-  planState.itemId = item.id
-  planState.itemName = spuNames[item.spuId] || item.skuId
-  planState.planned = item.plannedQuantity == null ? '' : String(item.plannedQuantity)
-  planState.fulfilled = String(item.fulfilledQuantity ?? 0)
-  planState.visible = true
-}
-
-/** 空串视为「取消计划」；否则必须是 >= 0 的整数 */
-function parseQuantityInput(raw: string): number | null | undefined {
-  const trimmed = raw.trim()
-  if (trimmed === '')
-    return null
-  const value = Number(trimmed)
-  if (!Number.isInteger(value) || value < 0) {
-    uni.showToast({ title: '请填写非负整数', icon: 'none' })
-    return undefined
-  }
-  return value
-}
-
-function submitPlanItem() {
-  const planned = parseQuantityInput(planState.planned)
-  if (planned === undefined)
-    return
-  const fulfilled = parseQuantityInput(planState.fulfilled)
-  if (fulfilled === undefined)
-    return
-  if (planState.submitting)
-    return
-  planState.submitting = true
-  updateSharedCartItemPlan(cartId.value, {
-    itemId: planState.itemId,
-    // 清空输入框 -> 显式取消计划；否则写入新计划量
-    plannedQuantity: planned,
-    clearPlanned: planned === null,
-    // 已采量留空 -> 本次不改（后端仅在非 null 时写入）
-    fulfilledQuantity: fulfilled,
-  })
-    .then(() => {
-      planState.visible = false
-      uni.showToast({ title: '已保存', icon: 'success' })
-      return fetchDetail()
-    })
-    .catch(() => {})
-    .finally(() => {
-      planState.submitting = false
-    })
-}
-
+/**
+ * 移除明细前先收起操作面板，再弹确认框。
+ *
+ * 确认框（原生 modal）会盖在弹层之上，弹层不先收就会出现「面板停在屏幕上、
+ * 用户点确定、明细已经删掉，面板还留着」——这时面板里挂的 item 已不在列表里，
+ * 点「修改我的申请数量」会基于一条不存在的明细发请求。
+ */
 function handleRemoveItem(item: SharedCartItem) {
+  closeRowActions()
   uni.showModal({
     title: '移除明细',
     content: '确定移除这条明细吗？',
@@ -464,6 +496,13 @@ function handleRemoveItem(item: SharedCartItem) {
 function goImport() {
   uni.navigateTo({
     url: `/sub-pages/order/shared-cart/import?cartId=${cartId.value}`,
+  })
+}
+
+/** 粘贴接龙报货：微信群接龙整段粘贴 → 解析报告 → 并入明细 */
+function goChainImport() {
+  uni.navigateTo({
+    url: `/sub-pages/order/shared-cart/chain-import?cartId=${cartId.value}`,
   })
 }
 
@@ -547,6 +586,21 @@ const canReuse = computed(() => {
 })
 
 /**
+ * 靠港快照失效：整车的 vesselCallId 是创建时刻的快照，收集中可能跨越靠港 ETD。
+ * 仅收集中的车提示（已提交/关闭的车顺延无意义）；提交时服务端会自动顺延到本船
+ * 最新可用靠港，这里预告避免用户在提交时才撞到报错。
+ *
+ * 判据用服务端下发的 callOrderable，**不能**用「vesselName 为空」反推：
+ * 展示字段取自展示快照，靠港结束后照样有船名（2026-10-09 修正），
+ * 用名称判断会让真正失效的清单反而不提示。undefined 视为未知，不提示。
+ */
+const callSnapshotStale = computed(() =>
+  !!cart.value
+  && !cartReadonly.value
+  && cart.value.callOrderable === false,
+)
+
+/**
  * 一键复用历史补给单。
  *
  * 复用出来的是**本轮**采购，因此靠港计划取当前上下文，而不是源单那个已结束的靠港；
@@ -591,14 +645,77 @@ function handleReuse() {
 }
 
 function openConfirm() {
-  // 核定数量默认取成员申请数量
+  // 核定数量默认取成员申请数量；默认全部参与本次采购
   confirmState.approved = {}
+  confirmState.skipped = {}
   items.value.forEach((item) => {
     confirmState.approved[item.id] = String(item.requestedQuantity ?? '')
+    confirmState.skipped[item.id] = false
   })
   confirmState.remark = ''
-  confirmState.paymentType = ''
+  confirmState.paymentType = '3'
   confirmState.visible = true
+}
+
+/** 切换「本次不采」：采与不采互斥，不采时数量输入框置灰（提交按 0 走） */
+function toggleSkipped(item: SharedCartItem) {
+  confirmState.skipped[item.id] = !confirmState.skipped[item.id]
+}
+
+/** 参与本次采购的项数：底部按钮与提示都用它，避免用户提交了才知道全被排除 */
+const confirmBuyCount = computed(() =>
+  items.value.filter(item => !confirmState.skipped[item.id]).length,
+)
+
+/**
+ * 提交弹层里某一行最终的计价数量。
+ *
+ * 输入框是字符串，可能为空或非法；这两种情况与提交逻辑同口径地回落到申请量
+ * （见 submitConfirm），否则弹层里的金额会和实际下单数量对不上。
+ */
+function confirmQuantityOf(item: SharedCartItem): number {
+  if (confirmState.skipped[item.id])
+    return 0
+  const raw = Number(confirmState.approved[item.id])
+  return Number.isFinite(raw) && raw > 0 ? raw : (item.requestedQuantity ?? 0)
+}
+
+/**
+ * 提交前的预估金额：跟随核定数量与「本次不采」实时变化。
+ *
+ * 这正是用户提交时最想知道的那个数 —— 改完数量却看不到总额变化，
+ * 只能点提交之后去订单里才发现金额不对。
+ */
+const confirmAmount = computed(() => {
+  let amount = 0
+  let unpricedCount = 0
+  for (const item of items.value) {
+    const quantity = confirmQuantityOf(item)
+    if (quantity <= 0)
+      continue
+    if (item.unitPrice === null || item.unitPrice === undefined) {
+      unpricedCount += 1
+      continue
+    }
+    amount += Number(item.unitPrice) * quantity
+  }
+  return { amount: Math.round(amount * 100) / 100, unpricedCount }
+})
+
+const confirmAmountText = computed(() =>
+  confirmAmount.value.amount > 0 || confirmAmount.value.unpricedCount === 0
+    ? `¥${amountText(confirmAmount.value.amount)}`
+    : '',
+)
+
+/** 提交弹层里某行的金额文案，跟随核定数量；排除与待核价分别标示，不留空 */
+function confirmLineAmountText(item: SharedCartItem): string {
+  const quantity = confirmQuantityOf(item)
+  if (quantity <= 0)
+    return ''
+  if (item.unitPrice === null || item.unitPrice === undefined)
+    return '待核价'
+  return `¥${amountText(Number(item.unitPrice) * quantity)}`
 }
 
 /**
@@ -617,6 +734,28 @@ const primaryAction = computed<null | { handler: () => void, text: string }>(() 
   return null
 })
 
+/**
+ * 底部条左侧的金额数值：用户不必点开提交弹层就知道这批大概多少钱。
+ *
+ * 只在收集中显示（已提交的单实付在订单里，再挂一个按申请量算的数会打架），
+ * 且一项都算不出时不占位（宁可空着，也不显示一个骗人的 0）。
+ */
+const footerAmountValue = computed(() => {
+  if (!collecting.value || cartAmount.value.pricedCount === 0)
+    return ''
+  return `¥${amountText(cartAmount.value.amount)}`
+})
+
+/**
+ * 底部金额的标签：有商品取不到价时写明「部分待核价」。
+ *
+ * 不加这句的话，偏小的合计在底部条上完全没有解释，
+ * 而底部条恰恰是用户最后看到金额的地方。
+ */
+const footerAmountLabel = computed(() =>
+  cartAmountIncomplete.value ? '预估 · 部分待核价' : '预估',
+)
+
 /** 底部次要操作：历史单的一键复用（进行中的单不给，复用会命中同一张车） */
 const secondaryAction = computed<null | { disabled: boolean, handler: () => void, text: string }>(() => {
   if (canReuse.value) {
@@ -628,11 +767,18 @@ const secondaryAction = computed<null | { disabled: boolean, handler: () => void
 function submitConfirm() {
   if (confirmState.submitting)
     return
-  const approvedQuantities = items.value.map((item) => {
-    const raw = confirmState.approved[item.id]
-    const quantity = Number(raw)
-    return { itemId: item.id, quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : item.requestedQuantity }
-  })
+  // 「本次不采」的行显式提交核定 0，由服务端从订单里剔除并留痕；
+  // 已提交前再兜一次：全部排除时服务端也会拒绝，但本地先拦住能少一次无效请求。
+  if (confirmBuyCount.value === 0) {
+    uni.showToast({ title: '至少要保留一项', icon: 'none' })
+    return
+  }
+  // 数量口径统一走 confirmQuantityOf（弹层金额也是同一份实现），
+  // 否则「界面显示 3 件 × 单价」和「实际提交 5 件」会各自算各自的。
+  const approvedQuantities = items.value.map(item => ({
+    itemId: item.id,
+    quantity: confirmQuantityOf(item),
+  }))
   confirmState.submitting = true
   confirmSharedCart(cartId.value, {
     approvedQuantities,
@@ -795,6 +941,18 @@ onShow(() => {
           </view>
 
           <!--
+            靠港快照失效预告：整车的靠港是创建时刻的快照，收集中可能跨越靠港 ETD；
+            快照失效时服务端补不出上下文（船舶/港口显示占位文案），提交时后端会自动
+            顺延到本船最新可用靠港。这里提前说明，别等提交报「靠港计划不可用」才暴露。
+          -->
+          <view
+            v-if="callSnapshotStale"
+            class="mt-24rpx rounded-16rpx bg-orange-50 px-24rpx py-18rpx text-24rpx text-orange-600"
+          >
+            该车的靠港计划已结束或暂不可用，提交时将自动顺延到本船最新可用靠港
+          </view>
+
+          <!--
             收集截止是全页最时效的信息，单独成块：
             倒计时回答「还有多久」，绝对时刻用于核对「几点截止」。
             不足 1 小时转警示色（含「即将截止」），提示马上要关门。
@@ -874,6 +1032,23 @@ onShow(() => {
       </view>
 
       <!--
+        明细维护权被收回：入口被隐藏是最容易被当成故障的一种，必须给出原因，
+        否则用户只会反复重进或找客服（无「去处理」按钮，本人无法自助恢复）。
+      -->
+      <view
+        v-if="editRevoked"
+        class="mx-24rpx mt-20rpx rounded-20rpx px-24rpx py-20rpx"
+        style="background:#F1EFE8"
+      >
+        <view class="text-26rpx font-bold" style="color:#5F5E5A">
+          你当前只能查看清单
+        </view>
+        <view class="mt-4rpx text-22rpx" style="color:#888780">
+          明细维护权限已被收回，暂时不能加购或修改数量；如需恢复请联系发起人
+        </view>
+      </view>
+
+      <!--
         明细是本页主内容，因此排在成员之前：成员是行政信息，
         不该把清单挤到首屏之外（原来 12 行明细要滚动才看得到）。
       -->
@@ -892,6 +1067,13 @@ onShow(() => {
             <text
               v-if="collecting && cart.viewerCanConfirm"
               class="text-26rpx text-emerald-600"
+              @tap="goChainImport"
+            >
+              粘贴接龙
+            </text>
+            <text
+              v-if="collecting && cart.viewerCanConfirm"
+              class="text-26rpx text-emerald-600"
               @tap="goImport"
             >
               导入 Excel
@@ -903,24 +1085,22 @@ onShow(() => {
         </view>
 
         <!--
-          进度：只有排过计划才画条。没排计划时画一条空槽再配「—」会被读成
-          「加载失败」，因此那种情况只留一句「尚未排计划」。
+          数量与金额分两行：数量回答「买了多少」，金额回答「大概多少钱」。
+          合计行只在能算出金额时出现（全部待核价时给空字符串，不留一个孤零零的「预估」）。
         -->
-        <view v-if="progressSummaryText" class="mt-24rpx">
-          <view v-if="hasPlan" class="flex items-center">
-            <view class="h-14rpx flex-1 overflow-hidden rounded-full bg-gray-100">
-              <view
-                class="h-14rpx rounded-full"
-                :style="`width:${progressSummary.progressPercent ?? 0}%;background:linear-gradient(90deg,#FFB25C,#F2741D)`"
-              />
-            </view>
-            <text class="ml-16rpx flex-none text-26rpx text-gray-700 font-bold">
-              {{ progressSummary.progressPercent }}%
-            </text>
-          </view>
-          <view class="mt-10rpx text-24rpx text-gray-500">
-            {{ progressSummaryText }}
-          </view>
+        <view v-if="itemSummaryText" class="mt-20rpx flex items-baseline justify-between">
+          <text class="text-24rpx text-gray-500">
+            {{ itemSummaryText }}
+          </text>
+          <text v-if="cartAmountText" class="text-26rpx font-bold" style="color:#C2410C">
+            {{ cartAmountText }}
+          </text>
+        </view>
+        <!--
+          有商品取不到价时合计偏小：必须说出来，否则用户会把这个数当成真实总价。
+        -->
+        <view v-if="cartAmountIncomplete" class="mt-8rpx text-22rpx" style="color:#B45309">
+          {{ unpricedItemText }}暂时取不到售价，未计入预估金额
         </view>
 
         <view v-if="items.length === 0" class="py-48rpx text-center text-26rpx text-gray-400">
@@ -934,9 +1114,8 @@ onShow(() => {
             暂无明细
           </template>
         </view>
-
         <!--
-          行内只保留确认人最高频的「排计划」；编辑/移除收进行操作面板，
+          明细行只展示「谁报了什么、报了多少」。行内操作收进「···」面板，
           否则 12 行 × 3 个彩色文字按钮会把清单刷成一片噪声。
         -->
         <view v-else class="mt-12rpx">
@@ -950,49 +1129,45 @@ onShow(() => {
             <image
               class="h-104rpx w-104rpx flex-none rounded-16rpx bg-gray-100"
               mode="aspectFill"
-              :src="resolveImageSrc(spuImages[item.spuId])"
+              :src="resolveImageSrc(item.picUrl)"
             />
             <view class="ml-24rpx min-w-0 flex-1">
               <view class="flex items-start justify-between">
                 <view class="row-name">
-                  {{ spuNames[item.spuId] || `SKU ${item.skuId}` }}
+                  {{ item.spuName || `SKU ${item.skuId}` }}
                 </view>
-                <!-- 状态标签只补充文案里没有的信息：采满与否一眼可见 -->
+                <!--
+                  行金额放品名右侧：这是用户扫清单时最想看的数，
+                  埋在数量行里要逐行读才知道多少钱。
+                -->
                 <text
-                  v-if="rowViews[item.id]?.completed"
-                  class="ml-12rpx flex-none rounded-8rpx px-12rpx py-4rpx text-22rpx"
-                  style="background:#E1F5EE;color:#0F6E56"
+                  v-if="itemAmountText(item)"
+                  class="ml-12rpx flex-none text-26rpx font-bold"
+                  :style="itemAmountOf(item) === null ? 'color:#9AA4B2' : 'color:#111827'"
                 >
-                  已采满
+                  {{ itemAmountText(item) }}
                 </text>
+                <!-- 已被核定为「本次不采」的行：标出来，成员才知道自己报的这项没买 -->
                 <text
-                  v-else-if="rowViews[item.id]?.planned != null"
+                  v-if="item.approvedQuantity === 0"
                   class="ml-12rpx flex-none rounded-8rpx px-12rpx py-4rpx text-22rpx"
-                  style="background:#FAEEDA;color:#854F0B"
+                  style="background:#F1EFE8;color:#5F5E5A"
                 >
-                  还差 {{ rowViews[item.id]?.remaining }}
+                  本次不采
                 </text>
               </view>
 
-              <view class="mt-10rpx text-24rpx text-gray-500">
-                {{ rowViews[item.id]?.text }}
-                <text v-if="item.approvedQuantity != null" class="text-amber-600">
-                  · 核定 {{ item.approvedQuantity }}
+              <view class="mt-10rpx flex items-center text-24rpx text-gray-500">
+                <text>
+                  申请 {{ item.requestedQuantity }}
+                  <text v-if="item.approvedQuantity != null && item.approvedQuantity > 0" class="text-amber-600">
+                    · 核定 {{ item.approvedQuantity }}
+                  </text>
                 </text>
-              </view>
-
-              <!--
-                行内进度条：只对已排计划的行画。整单百分比回答「这船采了多少」，
-                行内这条回答「这一项还差几件」，是确认人扫清单时最想先看到的。
-              -->
-              <view
-                v-if="rowViews[item.id]?.planned != null"
-                class="mt-12rpx h-8rpx overflow-hidden rounded-full bg-gray-100"
-              >
-                <view
-                  class="h-8rpx rounded-full"
-                  :style="`width:${rowViews[item.id]?.percent ?? 0}%;background:${rowViews[item.id]?.completed ? '#0B8A6B' : 'linear-gradient(90deg,#FFB25C,#F2741D)'}`"
-                />
+                <!-- 单价与行金额并列，用户能自己核对「这个数是怎麼来的」 -->
+                <text class="ml-16rpx text-gray-400">
+                  单价 {{ unitPriceText(item) }}
+                </text>
               </view>
               <view v-if="item.memberRemark" class="mt-10rpx text-24rpx text-gray-400">
                 备注：{{ item.memberRemark }}
@@ -1003,17 +1178,8 @@ onShow(() => {
                   来自 {{ contributorLabel(item) }}
                 </text>
                 <view class="ml-16rpx flex flex-none items-center gap-28rpx">
-                  <!-- 排计划/回填已采量：确认人职责，与提交整船订单同权限 -->
                   <text
-                    v-if="canPlan"
-                    class="text-26rpx font-medium"
-                    style="color:#0B8A6B"
-                    @tap.stop="openPlanItem(item)"
-                  >
-                    {{ item.plannedQuantity == null ? '排计划' : '改进度' }}
-                  </text>
-                  <text
-                    v-if="canPlan || canEditItem(item)"
+                    v-if="canEditItem(item)"
                     class="text-26rpx text-gray-400"
                     @tap.stop="openRowActions(item)"
                   >
@@ -1042,37 +1208,61 @@ onShow(() => {
           </text>
         </view>
         <view
-          v-for="member in members"
-          :key="member.id"
+          v-for="row in memberSummaries"
+          :key="row.key"
           class="mt-20rpx flex items-center justify-between"
         >
           <view class="mr-16rpx min-w-0 flex flex-1 items-center">
             <!-- 姓名首字做头像：成员通常只有 2~3 人，头像比一行纯文字更好辨认 -->
             <view
               class="mr-20rpx h-64rpx w-64rpx flex flex-none items-center justify-center rounded-full text-26rpx text-white font-bold"
-              :style="`background:${member.userId === currentUserId ? '#378ADD' : '#9AA4B2'}`"
+              :style="`background:${row.userId === currentUserId ? '#378ADD' : '#9AA4B2'}`"
             >
-              {{ memberAvatarText(member) }}
+              {{ row.attributedName ? row.attributedName.slice(-1) : (row.member ? memberAvatarText(row.member) : '员') }}
             </view>
             <view class="min-w-0 flex-1">
               <view class="truncate text-28rpx text-gray-700">
-                {{ memberLabel(member) }}
-                <text v-if="member.userId === currentUserId" class="text-blue-500">
+                {{ memberSummaryLabel(row) }}
+                <text v-if="!row.attributedName && row.userId === currentUserId" class="text-blue-500">
                   （我）
                 </text>
               </view>
+              <!--
+                每人加购了几项、多少钱：人数相同的清单，真正要对比的是
+                「谁报了多少」；只显示角色，发起人得自己数明细行才知道。
+              -->
               <view class="mt-4rpx text-22rpx text-gray-400">
-                {{ memberRoleLabel(member.memberRole) }}
+                <text v-if="row.attributedName">
+                  接龙代报
+                </text>
+                <text v-else-if="row.member">
+                  {{ memberRoleLabel(row.member.memberRole) }}
+                </text>
+                <text v-if="row.itemCount > 0" class="ml-8rpx">
+                  · {{ row.itemCount }} 项
+                </text>
+                <text v-if="row.quantity > 0" class="ml-8rpx">
+                  · 共 {{ row.quantity }}
+                </text>
+                <!-- 该成员有商品取不到价：金额偏小，别让用户以为他报得少 -->
+                <text v-if="row.unpricedCount > 0" class="ml-8rpx" style="color:#B45309">
+                  · {{ row.unpricedCount }} 项待核价
+                </text>
               </view>
             </view>
           </view>
-          <text
-            v-if="member.canConfirm === '1'"
-            class="flex-none rounded-8rpx px-12rpx py-4rpx text-22rpx"
-            style="background:#E1F5EE;color:#0F6E56"
-          >
-            可提交
-          </text>
+          <view class="flex flex-none items-center gap-12rpx">
+            <text v-if="row.amountText" class="text-26rpx text-gray-700">
+              {{ row.amountText }}
+            </text>
+            <text
+              v-if="row.member && row.member.canConfirm === '1'"
+              class="flex-none rounded-8rpx px-12rpx py-4rpx text-22rpx"
+              style="background:#E1F5EE;color:#0F6E56"
+            >
+              可提交
+            </text>
+          </view>
         </view>
       </view>
 
@@ -1145,6 +1335,18 @@ onShow(() => {
         {{ secondaryAction.text }}
       </button>
       <!--
+        金额放主 CTA 左侧：这是全页最想让人看到的一个数（这批多少钱），
+        又不用和「提交」抢注意力 —— 点它不触发任何操作。
+      -->
+      <view v-if="footerAmountValue" class="mr-20rpx flex-none">
+        <view class="action-bar__amount">
+          {{ footerAmountValue }}
+        </view>
+        <view class="action-bar__amount-label">
+          {{ footerAmountLabel }}
+        </view>
+      </view>
+      <!--
         主 CTA 用品牌橙红渐变，与购物车「去结算」同款：
         原生 button 的 type=primary 走 uni 默认蓝，与全站品牌色不一致。
       -->
@@ -1157,34 +1359,36 @@ onShow(() => {
       </view>
     </view>
 
-    <!-- 明细行操作面板：按行归属与服务端权限动态生成，不呈现不可用的动作 -->
+    <!--
+      明细行操作面板：按行归属与服务端权限动态生成，不呈现不可用的动作。
+      它是叠在编辑面板下面的一层，两个动作都会把自己收掉（见 closeRowActions），
+      面板本身不提供确认语义，因此这里的「收起」只表示放弃操作。
+    -->
     <wd-popup
       v-model="rowActionState.visible"
       position="bottom"
       :safe-area-inset-bottom="true"
       custom-style="border-radius: 24rpx 24rpx 0 0; overflow: hidden;"
+      @close="rowActionState.item = null"
     >
       <view class="px-32rpx pb-32rpx pt-28rpx">
         <view class="text-32rpx font-bold">
           明细操作
         </view>
         <view class="mt-8rpx truncate text-24rpx text-gray-500">
-          {{ rowActionState.item ? (spuNames[rowActionState.item.spuId] || `SKU ${rowActionState.item.skuId}`) : '' }}
+          {{ rowActionState.item ? (rowActionState.item.spuName || `SKU ${rowActionState.item.skuId}`) : '' }}
         </view>
         <view
-          v-if="rowActionState.item && rowViews[rowActionState.item.id]"
+          v-if="rowActionState.item"
           class="mt-4rpx text-22rpx text-gray-400"
         >
-          {{ rowViews[rowActionState.item.id]?.text }}
+          申请 {{ rowActionState.item.requestedQuantity }}
+          · 单价 {{ unitPriceText(rowActionState.item) }}
+          <text v-if="itemAmountText(rowActionState.item)">
+            · {{ itemAmountText(rowActionState.item) }}
+          </text>
         </view>
         <view class="mt-24rpx">
-          <view
-            v-if="canPlan && rowActionState.item"
-            class="sheet-row"
-            @tap="openPlanItem(rowActionState.item)"
-          >
-            {{ rowActionState.item.plannedQuantity == null ? '排计划' : '改进度 / 回填已采量' }}
-          </view>
           <view
             v-if="rowActionState.item && canEditItem(rowActionState.item)"
             class="sheet-row"
@@ -1287,57 +1491,6 @@ onShow(() => {
       </view>
     </wd-popup>
 
-    <!-- 排计划 / 回填已采量（确认人） -->
-    <wd-popup
-      v-model="planState.visible"
-      position="bottom"
-      :safe-area-inset-bottom="true"
-      custom-style="border-radius: 24rpx 24rpx 0 0; overflow: hidden;"
-    >
-      <view class="px-32rpx pb-32rpx pt-28rpx">
-        <view class="text-32rpx font-bold">
-          排计划 · 回填进度
-        </view>
-        <view class="mt-8rpx truncate text-24rpx text-gray-600">
-          {{ planState.itemName }}
-        </view>
-        <view class="mt-8rpx text-22rpx text-gray-500">
-          计划量是本船这次要采多少，留空表示取消计划；未排计划的行不计入进度。
-        </view>
-        <view class="mt-20rpx text-24rpx text-gray-600">
-          计划采购量
-        </view>
-        <input
-          v-model="planState.planned"
-          class="mt-8rpx h-80rpx rounded-12rpx bg-gray-50 px-24rpx text-28rpx"
-          type="number"
-          placeholder="留空 = 取消计划"
-        >
-        <view class="mt-16rpx text-24rpx text-gray-600">
-          已采量
-        </view>
-        <input
-          v-model="planState.fulfilled"
-          class="mt-8rpx h-80rpx rounded-12rpx bg-gray-50 px-24rpx text-28rpx"
-          type="number"
-          placeholder="留空 = 本次不修改"
-        >
-        <view class="sheet-actions">
-          <wd-button type="info" custom-class="sheet-actions__cancel" @click="planState.visible = false">
-            取消
-          </wd-button>
-          <wd-button
-            type="primary"
-            :loading="planState.submitting"
-            custom-class="sheet-actions__ok"
-            @click="submitPlanItem"
-          >
-            保存
-          </wd-button>
-        </view>
-      </view>
-    </wd-popup>
-
     <!-- 编辑明细 -->
     <wd-popup
       v-model="editState.visible"
@@ -1394,27 +1547,72 @@ onShow(() => {
           核定数量并提交
         </view>
         <view class="mt-8rpx text-22rpx text-gray-500">
-          按成员分别生成订单明细，配送时可为每人单独贴标签
+          按成员分别生成订单明细，配送时可为每人单独贴标签。这次不买的，点「本次不采」。
         </view>
       </view>
       <scroll-view scroll-y class="confirm-body">
         <view class="px-32rpx">
           <view v-for="item in items" :key="item.id" class="mt-20rpx">
-            <view class="text-26rpx text-gray-700">
-              {{ spuNames[item.spuId] || `SKU ${item.skuId}` }}
+            <view class="flex items-center justify-between">
+              <view class="min-w-0 flex-1 truncate text-26rpx text-gray-700">
+                {{ item.spuName || `SKU ${item.skuId}` }}
+              </view>
+              <!-- 显式排除项：不留空、不猜，点一下就是"这次不买" -->
+              <view
+                class="ml-16rpx flex-none rounded-30rpx px-20rpx py-6rpx text-22rpx"
+                :style="confirmState.skipped[item.id]
+                  ? 'background:#F1EFE8;color:#5F5E5A'
+                  : 'background:#E6F1FB;color:#185FA5'"
+                @click="toggleSkipped(item)"
+              >
+                {{ confirmState.skipped[item.id] ? '已排除' : '本次不采' }}
+              </view>
             </view>
-            <view class="mt-4rpx text-22rpx text-gray-400">
-              {{ rowViews[item.id]?.text }} · 来自 {{ contributorLabel(item) }}
+            <view class="mt-4rpx flex items-center justify-between text-22rpx text-gray-400">
+              <text class="min-w-0 flex-1 truncate">
+                申请 {{ item.requestedQuantity }} · 单价 {{ unitPriceText(item) }} · 来自 {{ contributorLabel(item) }}
+              </text>
+              <!-- 行金额跟着核定数量实时走，确认人改完数量立刻能核对 -->
+              <text
+                v-if="confirmLineAmountText(item)"
+                class="ml-12rpx flex-none font-bold"
+                :style="item.unitPrice == null ? 'color:#B45309' : 'color:#111827'"
+              >
+                {{ confirmLineAmountText(item) }}
+              </text>
             </view>
             <input
               v-model="confirmState.approved[item.id]"
-              class="mt-8rpx h-76rpx rounded-12rpx bg-gray-50 px-24rpx text-28rpx"
+              class="mt-8rpx h-76rpx rounded-12rpx px-24rpx text-28rpx"
+              :class="confirmState.skipped[item.id] ? 'bg-gray-100 text-gray-400' : 'bg-gray-50'"
+              :disabled="confirmState.skipped[item.id]"
               type="number"
-              placeholder="核定数量"
+              :placeholder="confirmState.skipped[item.id] ? '本次不采' : '核定数量'"
             >
           </view>
 
-          <!-- 支付方式：共享车固定内部配送（way=4），可选货到付款；选 COD 下单即进待发货，无 30 分钟付款限制 -->
+          <!--
+            整单预估金额：下单前必须能回答「这批多少钱」。实付以订单/结算页为准，
+            这里明确写「预估」，避免用户把它当成最终扣款金额。
+          -->
+          <view class="mt-28rpx rounded-16rpx bg-gray-50 px-24rpx py-20rpx">
+            <view class="flex items-baseline justify-between">
+              <text class="text-26rpx text-gray-600">
+                本次采购预估金额
+              </text>
+              <text v-if="confirmAmountText" class="text-34rpx font-bold" style="color:#C2410C">
+                {{ confirmAmountText }}
+              </text>
+            </view>
+            <view v-if="confirmAmount.unpricedCount > 0" class="mt-6rpx text-22rpx" style="color:#B45309">
+              {{ confirmAmount.unpricedCount }} 项商品暂时取不到售价，未计入；实付以订单为准
+            </view>
+            <view v-else class="mt-6rpx text-22rpx text-gray-400">
+              未含促销与运费，实付以订单为准
+            </view>
+          </view>
+
+          <!-- 支付方式：共享车固定内部配送（way=4），默认货到付款；选 COD 下单即进待发货，无 30 分钟付款限制 -->
           <view class="mt-28rpx text-24rpx text-gray-500">
             支付方式
           </view>
@@ -1479,6 +1677,10 @@ onShow(() => {
         </view>
       </scroll-view>
       <view class="px-32rpx pb-32rpx pt-20rpx">
+        <!-- 提交前把「买几项」说清：全部排除时按钮置灰并给原因，不让人点完才报错 -->
+        <view v-if="confirmBuyCount < items.length" class="mb-16rpx text-22rpx text-gray-500">
+          本次采购 {{ confirmBuyCount }} 项，{{ items.length - confirmBuyCount }} 项已排除
+        </view>
         <view class="sheet-actions">
           <wd-button type="info" custom-class="sheet-actions__cancel" @click="confirmState.visible = false">
             取消
@@ -1486,6 +1688,7 @@ onShow(() => {
           <wd-button
             type="primary"
             :loading="confirmState.submitting"
+            :disabled="confirmBuyCount === 0"
             custom-class="sheet-actions__ok"
             @click="submitConfirm"
           >
@@ -1531,6 +1734,23 @@ onShow(() => {
   &[disabled] {
     color: #c0c4cc;
   }
+}
+
+// 底部条金额：数字为主、标签为辅，标签用灰色小字说明它是预估
+.action-bar__amount {
+  font-size: 32rpx;
+  font-weight: 700;
+  line-height: 1.1;
+  color: #c2410c;
+  text-align: center;
+}
+
+.action-bar__amount-label {
+  margin-top: 2rpx;
+  font-size: 20rpx;
+  line-height: 1.2;
+  color: #9aa4b2;
+  text-align: center;
 }
 
 // 与全站主 CTA 同款（购物车「去结算」、拼团「立即拼团」均为这套橙红渐变）

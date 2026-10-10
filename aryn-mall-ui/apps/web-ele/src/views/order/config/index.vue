@@ -159,10 +159,7 @@ initPage();
       <!-- 列表 -->
       <ElTable v-loading="loading" :data="state.tableData" border>
         <ElTableColumn prop="notifyUrl" label="通知地址" />
-        <ElTableColumn
-          prop="orderCancelTimeout"
-          label="订单超时取消时间（分钟）"
-        >
+        <ElTableColumn prop="orderCancelTimeout" label="订单超时取消时间">
           <template #default="scope">
             <DictTag
               :options="mq_delay_time_level"

@@ -1,6 +1,7 @@
 package com.aryn.cloud.order.api.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -58,6 +59,12 @@ public class SharedCartImportRow extends Model<SharedCartImportRow> {
 
 	public static final String ACTION_SKIP = "SKIP";
 
+	/** 来源：Excel 文件导入 */
+	public static final String SOURCE_EXCEL = "EXCEL";
+
+	/** 来源：微信群接龙文本粘贴 */
+	public static final String SOURCE_CHAIN = "CHAIN";
+
 	@TableId(type = IdType.ASSIGN_ID)
 	private String id;
 
@@ -67,6 +74,17 @@ public class SharedCartImportRow extends Model<SharedCartImportRow> {
 
 	/** 行号（从1开始，不含表头） */
 	private Integer rowNo;
+
+	/** 来源：EXCEL 补给清单文件 / CHAIN 接龙文本粘贴 */
+	private String sourceType;
+
+	/**
+	 * 接龙人名原文（CHAIN 来源；EXCEL 为 null）。
+	 *
+	 * <p>纯职务称呼（水手长/三管）按原文保留；确认并入时按成员自填姓名
+	 * 精确匹配成真实成员，匹配不上就作为归属标签写在明细上。
+	 */
+	private String personName;
 
 	private String rawCode;
 
@@ -97,8 +115,14 @@ public class SharedCartImportRow extends Model<SharedCartImportRow> {
 
 	private Integer matchedStock;
 
-	/** 本次计划采购量（确认后写入 shared_cart_item） */
-	private Integer plannedQuantity;
+	/**
+	 * 本次采购数量（Excel 数量列解析值，确认后写入 shared_cart_item）。
+	 *
+	 * <p>列名沿用 {@code planned_quantity}：该列随「计划量」模型一并落地，
+	 * 而增量脚本禁止 DROP 存量列，故在此显式映射到原列名。
+	 */
+	@TableField("planned_quantity")
+	private Integer quantity;
 
 	/** 服务端建议数量（超库存调减 / 数量异常就近取整；无建议时为空） */
 	private Integer suggestedQuantity;

@@ -27,6 +27,7 @@ import { getById as getUserById } from '#/api/user/user-info';
 import { useDict } from '#/utils/dict';
 
 import { buildGroupedDisplayItems } from '../category-group';
+import { purchaseSceneText } from '../purchase-scene';
 
 const DictTag = defineAsyncComponent(
   () => import('#/components/dict-tag/index.vue'),
@@ -154,6 +155,17 @@ const payVoucherList = computed<{ materialId: string; materialUrl: string }[]>(
     }
   },
 );
+// 货到付款订单在确认收款前（payStatus=0）买家尚未付款，文案不能宣称「买家已付款」
+const isCodUnpaid = computed(
+  () =>
+    state.orderInfo.paymentType === '3' && state.orderInfo.payStatus !== '1',
+);
+// 步骤条第 3 步口径：仅上门自提（way=2）由买家自取为「买家待提货」，
+// 快递（1）/商城配送（3）/内部配送（4）均由承运方送达、买家确认收货，
+// 与左侧状态文案（商家已发货等待签收 / 司机配送中）保持一致
+const receiveStepTitle = computed(() =>
+  state.orderInfo.deliveryWay === '2' ? '买家待提货' : '买家待收货',
+);
 const getDetail = () => {
   const { id }: any = route.query;
   if (id) {
@@ -251,7 +263,7 @@ getDetail();
           {{ state.orderInfo.deliveryWindowEnd }}）
         </template>
         <ElDivider direction="vertical" />
-        {{ state.orderInfo.purchaseScene === '2' ? '船供采购' : '个人购买' }}
+        {{ purchaseSceneText(state.orderInfo.purchaseScene) }}
       </div>
       <div
         v-if="
@@ -279,17 +291,44 @@ getDetail();
           <div v-if="state.orderInfo.status === '2'">
             <div class="title">
               <div v-if="state.orderInfo.deliveryWay === '1'">
-                买家已付款，等待商家发货
+                {{
+                  isCodUnpaid
+                    ? '买家已下单（货到付款），等待商家发货'
+                    : '买家已付款，等待商家发货'
+                }}
               </div>
               <div v-if="state.orderInfo.deliveryWay === '2'">
-                买家已付款，请尽快备货
+                {{
+                  isCodUnpaid
+                    ? '买家已下单（货到付款），请尽快备货'
+                    : '买家已付款，请尽快备货'
+                }}
+              </div>
+              <div
+                v-if="
+                  state.orderInfo.deliveryWay === '3' ||
+                  state.orderInfo.deliveryWay === '4'
+                "
+              >
+                {{
+                  isCodUnpaid
+                    ? '买家已下单（货到付款），等待安排司机配送（无需快递单号）'
+                    : '买家已付款，等待安排司机配送（无需快递单号）'
+                }}
               </div>
               <p style="font-size: 14px; color: rgb(150 151 153)">
-                买家已付款至待结算账户，{{
-                  state.orderInfo.deliveryWay === '1'
-                    ? '请尽快发货'
-                    : '请尽快备货'
-                }}，否则买家有权申请退款。
+                <template v-if="isCodUnpaid">
+                  该订单为货到付款，买家将在收货时支付货款，请尽快{{
+                    state.orderInfo.deliveryWay === '1' ? '发货' : '安排配送'
+                  }}，收款到账后请及时确认收款。
+                </template>
+                <template v-else>
+                  买家已付款至待结算账户，{{
+                    state.orderInfo.deliveryWay === '1'
+                      ? '请尽快发货'
+                      : '请尽快安排配送'
+                  }}，否则买家有权申请退款。
+                </template>
               </p>
             </div>
             <div>
@@ -298,7 +337,11 @@ getDetail();
                 v-access:code="'order:orderinfo:deliver'"
                 @click="deliverOrder(state.orderInfo)"
               >
-                发货
+                {{
+                  ['3', '4'].includes(state.orderInfo.deliveryWay)
+                    ? '派单发货'
+                    : '发货'
+                }}
               </ElButton>
             </div>
           </div>
@@ -309,6 +352,14 @@ getDetail();
               </div>
               <div v-if="state.orderInfo.deliveryWay === '2'">
                 商家已备货，等待提货。
+              </div>
+              <div
+                v-if="
+                  state.orderInfo.deliveryWay === '3' ||
+                  state.orderInfo.deliveryWay === '4'
+                "
+              >
+                司机配送中，请等待买家确认收货。
               </div>
               <ElButton
                 type="primary"
@@ -325,7 +376,9 @@ getDetail();
             </div>
           </div>
           <div v-if="state.orderInfo.status === '4'">
-            <div class="title">交易完成</div>
+            <div class="title">
+              {{ isCodUnpaid ? '交易完成，货款待确认收款' : '交易完成' }}
+            </div>
           </div>
           <div v-if="state.orderInfo.status === '11'">
             <div class="title">交易已关闭</div>
@@ -339,7 +392,7 @@ getDetail();
             "
           >
             <ElSteps :active="state.stepActive" finish-status="success">
-              <ElStep title="买家待付款" />
+              <ElStep :title="isCodUnpaid ? '买家已下单' : '买家待付款'" />
               <ElStep
                 :title="
                   state.orderInfo.deliveryWay === '1'
@@ -347,13 +400,7 @@ getDetail();
                     : '商家待备货'
                 "
               />
-              <ElStep
-                :title="
-                  state.orderInfo.deliveryWay === '1'
-                    ? '买家待收货'
-                    : '买家待提货'
-                "
-              />
+              <ElStep :title="receiveStepTitle" />
               <ElStep title="交易完成" />
             </ElSteps>
           </div>
@@ -409,7 +456,7 @@ getDetail();
 
           <div class="content">
             <p>
-              <span>实付金额:</span>
+              <span>{{ isCodUnpaid ? '应付金额:' : '实付金额:' }}</span>
               <span style="color: red">
                 ￥{{ state.orderInfo.paymentPrice }}
               </span>
@@ -694,7 +741,7 @@ getDetail();
             <span>￥{{ state.orderInfo.paymentPrice }}</span>
           </p>
           <p class="pay-price">
-            <span>实收金额：</span>
+            <span>{{ isCodUnpaid ? '应收金额：' : '实收金额：' }}</span>
             <span>
               ￥{{
                 state.orderInfo.actualPayPrice ?? state.orderInfo.paymentPrice

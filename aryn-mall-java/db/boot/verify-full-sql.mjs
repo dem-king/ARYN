@@ -45,6 +45,8 @@ const required = [
   "'promotion:pagedesign:theme'",
   'INSERT INTO page_design_version',
   'CREATE TABLE `xxl_job_info`',
+  'ADD COLUMN `cod_pay_remind_hours`',
+  "'codPayRemindJobHandler'",
   'CREATE TABLE `seckill_activity`',
   'CREATE TABLE `seckill_session`',
   'CREATE TABLE `seckill_goods`',

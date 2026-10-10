@@ -1,5 +1,6 @@
 package com.aryn.cloud.user.service.impl;
 
+import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -51,8 +52,14 @@ public class MemberLevelServiceImpl extends ServiceImpl<MemberLevelMapper, Membe
 
 	@Override
 	public IPage<MemberLevel> getPage(Page page, MemberLevel memberLevel) {
-		return this.page(page,
-				Wrappers.<MemberLevel>lambdaQuery().orderByAsc(MemberLevel::getSortOrder).orderByDesc(MemberLevel::getCreateTime));
+		return this.page(page, Wrappers.<MemberLevel>lambdaQuery()
+				.like(memberLevel != null && StrUtil.isNotBlank(memberLevel.getLevelName()),
+						MemberLevel::getLevelName, memberLevel == null ? null : memberLevel.getLevelName())
+				.eq(memberLevel != null && StrUtil.isNotBlank(memberLevel.getConditionType()),
+						MemberLevel::getConditionType, memberLevel == null ? null : memberLevel.getConditionType())
+				.eq(memberLevel != null && StrUtil.isNotBlank(memberLevel.getStatus()),
+						MemberLevel::getStatus, memberLevel == null ? null : memberLevel.getStatus())
+				.orderByAsc(MemberLevel::getSortOrder).orderByDesc(MemberLevel::getCreateTime));
 	}
 
 	@Override
@@ -128,7 +135,12 @@ public class MemberLevelServiceImpl extends ServiceImpl<MemberLevelMapper, Membe
 		// 根据等级的升级条件类型匹配，取满足条件的最高等级
 		MemberLevel matchedLevel = null;
 		for (MemberLevel level : levels) {
-			validateLevel(level);
+			// 读取链路只做降级处理：单条脏配置不能拖垮全体会员的等级重算
+			if (!isUsableCondition(level)) {
+				log.warn("会员等级配置不完整，跳过参与重算：levelId={}, conditionType={}, conditionValue={}",
+						level.getId(), level.getConditionType(), level.getConditionValue());
+				continue;
+			}
 			BigDecimal compareValue;
 			if ("1".equals(level.getConditionType())) {
 				compareValue = userInfo.getTotalConsume() == null ? BigDecimal.ZERO : userInfo.getTotalConsume();
@@ -189,6 +201,17 @@ public class MemberLevelServiceImpl extends ServiceImpl<MemberLevelMapper, Membe
 		if (memberLevel.getSortOrder() == null || memberLevel.getSortOrder() < 0) {
 			throw new ArynBusinessException("等级排序号不能小于0");
 		}
+	}
+
+	/**
+	 * 判断等级配置是否可用于成长值匹配（读取链路的降级判定，不抛异常）
+	 */
+	private boolean isUsableCondition(MemberLevel memberLevel) {
+		return memberLevel != null
+				&& ("1".equals(memberLevel.getConditionType()) || "2".equals(memberLevel.getConditionType()))
+				&& memberLevel.getConditionValue() != null
+				&& memberLevel.getConditionValue().compareTo(BigDecimal.ZERO) >= 0
+				&& memberLevel.getSortOrder() != null;
 	}
 
 	private void clearSystemFields(MemberLevel memberLevel) {

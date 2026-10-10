@@ -13,6 +13,84 @@ const entries = computed(
     >,
 );
 const title = computed(() => (props.showData.title ?? '') as string);
+
+/**
+ * 图片魔方：各布局的格位结构（编辑器画布 px；小程序端 1rpx = 0.5px）。
+ * cells 与 C 端 diy-image-cube 的 items 顺序一致：一左多右布局时首格是大图。
+ */
+interface ImageCubePreviewCell {
+  height: number;
+  isBig?: boolean;
+}
+
+interface ImageCubePreviewSpec {
+  bigSpan: number;
+  cells: ImageCubePreviewCell[];
+  cols: number;
+  rows: string;
+}
+
+const imageCubeLayouts: Record<string, ImageCubePreviewSpec> = {
+  '1': {
+    bigSpan: 0,
+    cells: [{ height: 188 }],
+    cols: 1,
+    rows: '188px',
+  },
+  '1+2': {
+    bigSpan: 2,
+    cells: [{ height: 188, isBig: true }, { height: 92 }, { height: 92 }],
+    cols: 2,
+    rows: '92px 92px',
+  },
+  '1+3': {
+    bigSpan: 3,
+    cells: [
+      { height: 188, isBig: true },
+      { height: 60 },
+      { height: 60 },
+      { height: 60 },
+    ],
+    cols: 2,
+    rows: 'repeat(3, 60px)',
+  },
+  '2h': {
+    bigSpan: 0,
+    cells: [{ height: 92 }, { height: 92 }],
+    cols: 1,
+    rows: 'repeat(2, 92px)',
+  },
+  '2v': {
+    bigSpan: 0,
+    cells: [{ height: 188 }, { height: 188 }],
+    cols: 2,
+    rows: '188px',
+  },
+  '4': {
+    bigSpan: 0,
+    cells: [{ height: 92 }, { height: 92 }, { height: 92 }, { height: 92 }],
+    cols: 2,
+    rows: 'repeat(2, 92px)',
+  },
+};
+const imageCube = computed(() => {
+  const layout = String(props.showData.layout ?? '4');
+  const spec = imageCubeLayouts[layout] ?? imageCubeLayouts['4']!;
+  const items = (props.showData.items ?? []) as Array<{
+    url?: string;
+  }>;
+  const cells = spec.cells.map((cell, index) => ({
+    ...cell,
+    url: items[index]?.url ?? '',
+  }));
+  return {
+    cells,
+    cols: spec.cols,
+    bigSpan: spec.bigSpan,
+    rows: spec.rows,
+  };
+});
+const recommendCount = computed(() => Number(props.showData.count) || 6);
 </script>
 
 <template>
@@ -78,6 +156,42 @@ const title = computed(() => (props.showData.title ?? '') as string);
     <div v-else-if="type === 'video-live'" class="preview-block">
       <p v-if="title" class="preview-title">{{ title }}</p>
       <div class="preview-video" :data-mode="showData.mode">视频 / 直播</div>
+    </div>
+    <div v-else-if="type === 'image-cube'" class="preview-block">
+      <div
+        class="preview-cube"
+        :style="{
+          gridTemplateColumns: `repeat(${imageCube.cols}, minmax(0, 1fr))`,
+          gridTemplateRows: imageCube.rows,
+        }"
+      >
+        <div
+          v-for="(cell, index) in imageCube.cells"
+          :key="index"
+          class="preview-cube__cell"
+          :style="
+            cell.isBig
+              ? { gridRow: `span ${imageCube.bigSpan}` }
+              : { height: `${cell.height}px` }
+          "
+        >
+          <img v-if="cell.url" :src="cell.url" alt="" />
+        </div>
+      </div>
+    </div>
+    <div v-else-if="type === 'goods-recommend'" class="preview-block">
+      <p v-if="title" class="preview-title">{{ title }}</p>
+      <div class="preview-recommend">
+        <div
+          v-for="index in recommendCount"
+          :key="index"
+          class="preview-recommend__card"
+        >
+          <div class="preview-recommend__pic"></div>
+          <div class="preview-recommend__name"></div>
+          <div class="preview-recommend__price"></div>
+        </div>
+      </div>
     </div>
     <div v-else class="preview-block">{{ type }}</div>
   </div>
@@ -250,5 +364,58 @@ const title = computed(() => (props.showData.title ?? '') as string);
   color: var(--el-text-color-secondary);
   background: var(--el-fill-color);
   border-radius: 6px;
+}
+
+/* 与小程序 diy-image-cube 同源（1rpx = 0.5px）：格距 8rpx→4px，格高 376/184/120rpx→188/92/60px */
+.preview-cube {
+  display: grid;
+  gap: 4px;
+
+  &__cell {
+    overflow: hidden;
+    background: var(--el-fill-color);
+
+    img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+  }
+}
+
+/* 与小程序 diy-goods-recommend 同源：卡片 200rpx 宽→100px，圆角 16rpx→8px */
+.preview-recommend {
+  display: flex;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.preview-recommend__card {
+  flex: 0 0 100px;
+  width: 100px;
+}
+
+.preview-recommend__pic {
+  width: 100px;
+  height: 100px;
+  background: var(--el-fill-color);
+  border-radius: 8px;
+}
+
+.preview-recommend__name {
+  width: 80%;
+  height: 12px;
+  margin: 6px auto 0;
+  background: var(--el-fill-color);
+  border-radius: 3px;
+}
+
+.preview-recommend__price {
+  width: 50%;
+  height: 10px;
+  margin: 4px auto 0;
+  background: var(--el-fill-color-darker);
+  border-radius: 3px;
 }
 </style>

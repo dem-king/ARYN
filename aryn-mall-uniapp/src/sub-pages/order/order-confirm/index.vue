@@ -85,8 +85,16 @@ const state = reactive<State>({
 onLoad(async (options) => {
   state.createWay = options?.createWay || '2'
   state.orderParams.requestId = createOrderRequestId()
+  // 拼团单：活动 SKU 由拼团详情页写入 goodsStore，此处只记录拼团记录 ID，
+  // 服务端按记录校验资格并以拼团价成交（前端不传价格，防篡改）
+  if (options?.groupBuyRecordId) {
+    state.orderParams.groupBuyRecordId = options.groupBuyRecordId
+  }
   getDefaultAddress()
 })
+
+/** 是否拼团单：拼团价由服务端重算，支付方式必须在线（成团判定依赖支付回调） */
+const isGroupBuyOrder = computed(() => !!state.orderParams.groupBuyRecordId)
 
 function createOrderRequestId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`
@@ -106,13 +114,20 @@ function initData() {
     })
   })
   if (shipContextStore.hasVesselContext) {
-    // 公司港口/船舶内部配送：上下文来自船舶工作台，服务端结算时再次校验
+    // 入口统一：在船成员只走内部配送（way=4），结算页不再提供地址簿类配送方式；
+    // 上下文来自船舶工作台，服务端结算时再次校验
     state.orderParams.deliveryWay = '4'
     Object.assign(state.orderParams, shipContextStore.deliveryContextParams)
   }
   else {
-    // 默认商城配送（deliveryWay=3），用户可在结算页弹层里改选
+    // 未绑定上下文（岸上场景）：默认商城配送（deliveryWay=3），用户可在结算页弹层里改选
     state.orderParams.deliveryWay = '3'
+  }
+  // 商城配送（3）/内部配送（4）默认货到付款，收货后线下结算；用户仍可在支付方式行切回在线支付。
+  // 拼团单例外：必须在线支付（成团判定依赖支付回调），不默认、也不允许切货到付款
+  if (!isGroupBuyOrder.value
+    && (state.orderParams.deliveryWay === '3' || state.orderParams.deliveryWay === '4')) {
+    state.orderParams.paymentType = '3'
   }
   state.orderParams.skuReqList = orderItemList
   toSettlement()
@@ -128,10 +143,22 @@ function getDefaultAddress() {
 }
 // 配送方式切换
 function deliveryWayChange(item: any) {
+  const previousWay = state.orderParams.deliveryWay
   state.orderParams.deliveryWay = item.deliveryWay
-  // 货到付款仅商城配送（3）/内部配送（4）可用，切走时重置为在线支付
-  if (item.deliveryWay !== '3' && item.deliveryWay !== '4') {
+  // 货到付款仅商城配送（3）/内部配送（4）可用：切走时重置为在线支付，
+  // 从其它方式切入时默认货到付款；3/4 之间互切保留用户已选的支付方式。
+  // 拼团单恒为在线支付（成团判定依赖支付回调）
+  if (isGroupBuyOrder.value) {
     state.orderParams.paymentType = ''
+  }
+  else {
+    const codAvailable = item.deliveryWay === '3' || item.deliveryWay === '4'
+    if (!codAvailable) {
+      state.orderParams.paymentType = ''
+    }
+    else if (previousWay !== '3' && previousWay !== '4') {
+      state.orderParams.paymentType = '3'
+    }
   }
   toSettlement()
 }
@@ -205,6 +232,11 @@ async function toPay() {
 
   if (state.orderParams.deliveryWay === '1' && !selectedAddress.value?.id) {
     return useGlobalToast().warning('请选择收货地址')
+  }
+
+  // 拼团单兜底：支付方式只允许在线支付（服务端同样校验，防前端状态残留）
+  if (isGroupBuyOrder.value) {
+    state.orderParams.paymentType = ''
   }
 
   // 商城配送（deliveryWay=3）同样需要收货地址
@@ -376,12 +408,17 @@ onUnload(() => {
       :coupon-user-list="state.couponUserList"
       :delivery-way="state.orderParams.deliveryWay"
       :payment-way="state.orderParams.paymentType"
+      :group-buy-order="isGroupBuyOrder"
       @delivery-way-change="deliveryWayChange" @payment-way-change="paymentWayChange" @remark-change="remarkChange" @show-coupon="showCoupon"
     />
 
     <wd-gap :height="60" />
-    <!-- 支付底部 -->
-    <PaymentFooter :payment-price="state.orderInfo.paymentPrice" @to-pay="toPay" />
+    <!-- 支付底部：货到付款时按钮为「提交订单」，下单后直接进详情不再拉起收银台 -->
+    <PaymentFooter
+      :payment-price="state.orderInfo.paymentPrice"
+      :payment-way="state.orderParams.paymentType"
+      @to-pay="toPay"
+    />
     <!-- 优惠券选择 -->
     <CouponSelector
       :coupon-popup="couponState.couponPopup" :coupon-user-list="state.couponUserList"

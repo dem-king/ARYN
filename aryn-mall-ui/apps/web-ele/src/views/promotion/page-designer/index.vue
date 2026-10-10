@@ -46,11 +46,7 @@ import { usePageDesigner } from './composables/use-page-designer';
 import { getComponentDefinition } from './registry/component-registry';
 import { createDefaultDecorationDocument } from './schema/defaults';
 import { migratePageContent } from './schema/migrate';
-import {
-  DEFAULT_PRIMARY_COLOR,
-  DEFAULT_SECONDARY_COLOR,
-  deriveSecondaryColor,
-} from './schema/theme-presets';
+import { buildCanvasThemeVars } from './schema/theme-presets';
 import { toV3Document } from './schema/v3';
 
 const route = useRoute();
@@ -107,16 +103,14 @@ onMounted(() => {
   void loadThemesQuietly();
 });
 
-/** 画布根节点下发的主题 CSS 变量（phone-canvas 内联到手机壳上，两端同款变量名） */
-const canvasThemeVars = computed(() => {
-  const theme = activeTheme.value;
-  const primary = theme?.primaryColor || DEFAULT_PRIMARY_COLOR;
-  return {
-    primaryColor: primary,
-    secondaryColor: theme?.primaryColor
-      ? deriveSecondaryColor(theme.primaryColor)
-      : DEFAULT_SECONDARY_COLOR,
-  };
+/** 画布根节点下发的主题 CSS 变量（phone-canvas 内联到手机壳上，两端同款变量名）；
+ * 除主色/辅色外还带页面底色与导航配色，画布据此覆盖页面自存品牌色 */
+const canvasThemeVars = computed(() => buildCanvasThemeVars(activeTheme.value));
+
+/** 页面引用的主题名：页面设置面板据此停用取色器并提示配色来源 */
+const pageThemeName = computed(() => {
+  if (!themeRef.value) return undefined;
+  return themes.value.find((theme) => theme.id === themeRef.value)?.themeName;
 });
 
 const designer = usePageDesigner({
@@ -339,6 +333,13 @@ function applyTemplate(document: DecorationDocument) {
 
 function applyTheme(id: string) {
   themeRef.value = id;
+  // 改选主题后配色来源切换为该主题：复位页面级「自定义配色」标记，
+  // 否则残留的 followMallTheme=false 会让新主题在画布/实机均不生效
+  if (designer.document.value.page.followMallTheme === false) {
+    changed(() =>
+      designer.patchPage({ followMallTheme: true }, 'page-settings'),
+    );
+  }
   draftSave.markDirty();
   ElMessage.success(
     id
@@ -515,6 +516,8 @@ onBeforeUnmount(() => {
           <ElTabPane label="页面设置">
             <PageSettingsPanel
               :model-value="designer.document.value.page"
+              :page-theme-name="pageThemeName"
+              :theme-vars="canvasThemeVars"
               @update:model-value="patchPage"
             />
           </ElTabPane>

@@ -33,10 +33,26 @@ public class WxMiniAppConfigLoader implements ApplicationRunner {
 		List<SysTenant> tenants = remoteTenantService.list();
 		if (!CollectionUtils.isEmpty(tenants)) {
 			tenants.forEach(tenant -> {
-				ArynTenantContextHolder.setTenantId(tenant.getId());
-				List<SocialAccount> configs = socialAccountService.list();
-				configCache.addConfigs(configs);
-				ArynTenantContextHolder.removeTenantId();
+				try {
+					ArynTenantContextHolder.setTenantId(tenant.getId());
+					List<SocialAccount> configs = socialAccountService.list();
+					// 只缓存有效 WX_MA 记录；重复 AppID 不相互覆盖，启动时记录明确错误。
+					for (SocialAccount config : configs) {
+						if (!"WX_MA".equals(config.getType())) {
+							continue;
+						}
+						SocialAccount existing = configCache.getByAppId(config.getAppId());
+						if (existing != null && !existing.getId().equals(config.getId())) {
+							log.error("三方账号配置 AppID 重复：appId={}，tenantId={} 与 tenantId={} 冲突，后者跳过",
+									config.getAppId(), existing.getTenantId(), config.getTenantId());
+							continue;
+						}
+						configCache.updateConfig(config);
+					}
+				}
+				finally {
+					ArynTenantContextHolder.removeTenantId();
+				}
 			});
 			log.info("全部三方账号配置信息条数：{} 条", configCache.getAllConfigs().size());
 

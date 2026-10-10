@@ -9,6 +9,7 @@ import com.aryn.cloud.order.api.entity.OrderInfo;
 import com.aryn.cloud.order.api.enums.OrderStatusEnum;
 import com.aryn.cloud.order.service.IOrderConfigService;
 import com.aryn.cloud.order.service.IOrderInfoService;
+import com.aryn.cloud.order.support.OrderCancelTimeoutHelper;
 import com.aryn.cloud.upms.api.entity.SysTenant;
 import com.aryn.cloud.upms.api.remote.RemoteTenantService;
 import com.xxl.job.core.context.XxlJobHelper;
@@ -56,10 +57,13 @@ public class OrderJobHandler {
 			listSysTenant.forEach(sysTenant -> {
 				try {
 					ArynTenantContextHolder.setTenantId(sysTenant.getId());
+					// 与下单时的延迟取消消息共用同一级别口径：MQ 发送失败的单据由本扫描按相同时限兜底
+					int timeoutMinutes = OrderCancelTimeoutHelper.delayLevelToMinutes(
+							OrderCancelTimeoutHelper.resolveDelayLevel(orderConfigService.getConfig()));
 					List<OrderInfo> orderList = orderInfoService.list(Wrappers.<OrderInfo>lambdaQuery()
 						.eq(OrderInfo::getStatus, OrderStatusEnum.WAITING_FOR_PAYMENT.getCode())
 						.eq(OrderInfo::getPayStatus, CommonConstants.NO)
-						.lt(OrderInfo::getCreateTime, LocalDateTime.now().minusMinutes(30)));
+						.lt(OrderInfo::getCreateTime, LocalDateTime.now().minusMinutes(timeoutMinutes)));
 					orderList.forEach(orderInfoService::cancelOrder);
 				}
 				finally {

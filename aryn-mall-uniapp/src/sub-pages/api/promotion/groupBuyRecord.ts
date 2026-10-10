@@ -13,6 +13,10 @@ export interface GroupBuyRecord {
   expireAt?: string
   successAt?: string
   isJoined?: boolean
+  /** 当前用户参团状态：0待付款,1已付款,2已取消 */
+  myMemberStatus?: string
+  /** 当前用户已创建的订单ID（待付款时用于继续支付） */
+  myOrderId?: string
 }
 
 export interface GroupBuyMember {

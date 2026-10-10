@@ -7,7 +7,6 @@ import com.aryn.cloud.order.api.dto.CreateOrderSkuReqDTO;
 import com.aryn.cloud.order.api.dto.SharedCartImportConfirmDTO;
 import com.aryn.cloud.order.api.dto.SharedCartItemDTO;
 import com.aryn.cloud.order.api.dto.SharedCartReuseDTO;
-import com.aryn.cloud.order.api.dto.SharedCartPlanDTO;
 import com.aryn.cloud.order.api.dto.SharedCartConfirmDTO;
 import com.aryn.cloud.order.api.dto.SharedCartCreateDTO;
 import com.aryn.cloud.order.api.entity.SharedCart;
@@ -15,10 +14,9 @@ import com.aryn.cloud.order.api.entity.SharedCartImport;
 import com.aryn.cloud.order.api.entity.SharedCartImportRow;
 import com.aryn.cloud.order.api.entity.SharedCartItem;
 import com.aryn.cloud.order.api.entity.SharedCartMember;
-import com.aryn.cloud.order.api.support.ReplenishProgressCalculator;
-import com.aryn.cloud.order.api.vo.ReplenishProgressVO;
 import com.aryn.cloud.order.api.vo.SharedCartImportRowVO;
 import com.aryn.cloud.order.api.vo.SharedCartImportVO;
+import com.aryn.cloud.order.api.vo.SharedCartItemVO;
 import com.aryn.cloud.order.api.vo.SharedCartReuseVO;
 import com.aryn.cloud.order.api.vo.SharedCartSummaryVO;
 import com.aryn.cloud.order.api.vo.SharedCartVO;
@@ -31,6 +29,7 @@ import com.aryn.cloud.order.service.IOrderInfoService;
 import com.aryn.cloud.order.service.ISharedCartService;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.aryn.cloud.order.support.ChainOrderTextParser;
 import com.aryn.cloud.order.support.ReplenishImportClassifier;
 import com.aryn.cloud.order.support.ReplenishImportExcel;
 import com.aryn.cloud.product.api.dto.ReplenishImportMatchDTO;
@@ -54,6 +53,7 @@ import org.springframework.util.StringUtils;
 
 import java.io.ByteArrayInputStream;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
@@ -204,9 +204,10 @@ public class SharedCartServiceImpl implements ISharedCartService {
 	@Transactional(rollbackFor = Exception.class)
 	public SharedCartItem addItem(String tenantId, String userId, String cartId, SharedCartItemDTO itemDTO) {
 		SharedCart cart = requireCart(tenantId, cartId);
-		requireMembership(cart, userId);
 		requireEditable(cart);
 		requireNotExpired(cart);
+		// 成员身份与明细写入权一次判完（非成员报「无权访问」，只读成员报缺编辑权）
+		requireCanEdit(cart, userId);
 		SharedCartItem item = new SharedCartItem();
 		item.setId(IdWorker.getIdStr());
 		item.setCartId(cartId);
@@ -230,60 +231,18 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		SharedCart cart = requireCart(tenantId, cartId);
 		SharedCartItem item = requireItem(tenantId, cartId, itemId);
 		requireEditable(cart);
+		// 归属先判：不是自己的行直接说清，不必再解释编辑权。
+		// 是自己的行才轮到 can_edit —— 两句话对应两种不同的"不能改"。
 		if (!Objects.equals(item.getUserId(), userId)) {
 			throw new ArynBusinessException("只能修改自己添加的明细");
 		}
+		requireCanEdit(cart, userId);
 		if (itemDTO.getRequestedQuantity() != null) {
 			item.setRequestedQuantity(itemDTO.getRequestedQuantity());
 		}
 		if (itemDTO.getMemberRemark() != null) {
 			item.setMemberRemark(itemDTO.getMemberRemark());
 		}
-		sharedCartItemMapper.updateById(item);
-		return item;
-	}
-
-	@Override
-	@Transactional(rollbackFor = Exception.class)
-	public SharedCartItem updateItemPlan(String tenantId, String userId, String cartId, SharedCartPlanDTO planDTO) {
-		SharedCart cart = requireCart(tenantId, cartId);
-		SharedCartItem item = requireItem(tenantId, cartId, planDTO.getItemId());
-		// 排计划与提交整船订单同权限：计划量决定采购目标，属确认人职责，
-		// 普通成员只能报自己的需求量（见 updateItem 的"只能改自己的明细"）。
-		requireEditable(cart);
-		requireConfirmer(cart, userId);
-
-		// plannedQuantity 传 null 有两种语义：显式取消计划，或"本次不动计划"。
-		// 由 clearPlanned 区分，避免"只想改已采量"却把计划抹掉。
-		//
-		// 取消计划必须走 lambdaUpdate 显式 set(null)：全局
-		// `mybatis-plus.global-config.db-config.update-strategy: not_null` 会让
-		// updateById 跳过 null 字段，setPlannedQuantity(null) 后 updateById 实际不写这一列，
-		// 接口照 200 返回、传出的对象也是 null，但库里计划量纹丝不动 ——
-		// 用户「清空输入框保存」后会发现计划还在（实测复现）。
-		boolean clearPlanned = Boolean.TRUE.equals(planDTO.getClearPlanned());
-		if (!clearPlanned && planDTO.getPlannedQuantity() != null) {
-			item.setPlannedQuantity(planDTO.getPlannedQuantity());
-		}
-
-		if (planDTO.getFulfilledQuantity() != null) {
-			item.setFulfilledQuantity(planDTO.getFulfilledQuantity());
-		}
-		else if (item.getFulfilledQuantity() == null) {
-			// 存量行可能为 null（加列前的老数据），补 0 让进度计算口径统一
-			item.setFulfilledQuantity(0);
-		}
-
-		if (clearPlanned) {
-			item.setPlannedQuantity(null);
-			sharedCartItemMapper.update(null, Wrappers.<SharedCartItem>lambdaUpdate()
-				.eq(SharedCartItem::getId, item.getId())
-				.set(SharedCartItem::getPlannedQuantity, null)
-				.set(SharedCartItem::getFulfilledQuantity, item.getFulfilledQuantity())
-				.set(SharedCartItem::getUpdateTime, LocalDateTime.now()));
-			return item;
-		}
-
 		sharedCartItemMapper.updateById(item);
 		return item;
 	}
@@ -297,6 +256,7 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		if (!Objects.equals(item.getUserId(), userId)) {
 			throw new ArynBusinessException("只能移除自己添加的明细");
 		}
+		requireCanEdit(cart, userId);
 		item.setStatus(SharedCartItem.ITEM_REMOVED);
 		sharedCartItemMapper.updateById(item);
 	}
@@ -328,7 +288,9 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		createDTO.setVesselCallId(dto.getVesselCallId());
 		createDTO.setRemark(StringUtils.hasText(dto.getRemark()) ? dto.getRemark() : source.getRemark());
 		SharedCart target = create(tenantId, userId, createDTO);
-		ensureReuseMembership(tenantId, target, userId);
+		// 复用写入的是**目标车**里、归属操作者自己的明细：先确认他在目标车里有写入权
+		// （非成员则补一行可编辑的成员关系），被设为只读的成员不能靠这条侧门添行。
+		requireReuseEditable(tenantId, target, userId);
 
 		// 目标清单里已有的 SKU 不再搬：重复点「历史复用」时数量不能翻倍。
 		Set<String> existingSkuIds = listItems(tenantId, target.getId()).stream()
@@ -358,12 +320,6 @@ public class SharedCartServiceImpl implements ISharedCartService {
 			ReuseAggregate aggregate = merged.computeIfAbsent(skuId,
 					key -> new ReuseAggregate(item.getSpuId()));
 			aggregate.quantity += quantity;
-			// 计划量只继承**真实排过计划**的部分；源单没排计划就保持 null，
-			// 不拿申请量充数 —— 与 ReplenishProgressCalculator 同一口径。
-			if (item.getPlannedQuantity() != null) {
-				aggregate.plannedQuantity = (aggregate.plannedQuantity == null ? 0 : aggregate.plannedQuantity)
-						+ item.getPlannedQuantity();
-			}
 		}
 
 		int reused = 0;
@@ -381,9 +337,6 @@ public class SharedCartServiceImpl implements ISharedCartService {
 			item.setSpuId(aggregate.spuId);
 			item.setSkuId(skuId);
 			item.setRequestedQuantity(aggregate.quantity);
-			item.setPlannedQuantity(aggregate.plannedQuantity);
-			// 已采量不继承：那是上一轮的既成事实，继承过来进度条一上来就是满的。
-			item.setFulfilledQuantity(0);
 			item.setStatus(SharedCartItem.ITEM_PENDING);
 			item.setTenantId(tenantId);
 			item.setCreateTime(LocalDateTime.now());
@@ -401,21 +354,28 @@ public class SharedCartServiceImpl implements ISharedCartService {
 	}
 
 	/**
-	 * 复用时确认操作者在目标车里有成员关系。
+	 * 复用时确认操作者在目标车里可以维护自己的明细；非成员则补一行可编辑的成员关系。
 	 *
 	 * <p>{@code create} 命中「同船已有收集中购物车」时只回传该车、不补成员行，
 	 * 若非成员就会被写进一张自己打不开的清单（详情接口按成员校验）。
 	 * 复用者既然能读同一艘船的历史单，就该能参与本轮的同一张车。
+	 *
+	 * <p>但「补成员」只适用于原本就不是成员的人：已经是成员、只是被设为只读
+	 * （{@code can_edit=0}）的，复用就是他绕过只读限制给自己添行的侧门，
+	 * 必须在这里挡住（与 {@code addItem} 同一道门槛）。
 	 */
-	private void ensureReuseMembership(String tenantId, SharedCart cart, String userId) {
+	private void requireReuseEditable(String tenantId, SharedCart cart, String userId) {
 		if (Objects.equals(cart.getOwnerUserId(), userId)) {
 			return;
 		}
-		Long count = sharedCartMemberMapper.selectCount(Wrappers.lambdaQuery(SharedCartMember.class)
+		SharedCartMember existing = sharedCartMemberMapper.selectOne(Wrappers.lambdaQuery(SharedCartMember.class)
 				.eq(SharedCartMember::getTenantId, tenantId)
 				.eq(SharedCartMember::getCartId, cart.getId())
 				.eq(SharedCartMember::getUserId, userId));
-		if (count != null && count > 0) {
+		if (existing != null) {
+			if (!"1".equals(existing.getCanEdit())) {
+				throw new ArynBusinessException("你没有维护该购物车明细的权限");
+			}
 			return;
 		}
 		SharedCartMember member = new SharedCartMember();
@@ -447,15 +407,13 @@ public class SharedCartServiceImpl implements ISharedCartService {
 	}
 
 	/**
-	 * 复用时的数量口径：计划量 → 核定数量 → 申请数量。
+	 * 复用时的数量口径：核定数量 → 申请数量。
 	 *
-	 * <p>计划量排在最前，因为它是本轮「打算采多少」的明确表述；没有计划才回落到
-	 * 上一轮实际下单的核定/申请数量。三者都没有时返回 null，由调用方计入跳过。
+	 * <p>核定数量优先，因为它是上一轮确认人最终拍板的采购量；没有核定过（收集一半
+	 * 就关掉的单）才回落到成员申请量。返回 0 表示上一轮把该行核定为「本次不采」，
+	 * 由调用方跳过。
 	 */
 	private Integer reuseQuantity(SharedCartItem item) {
-		if (item.getPlannedQuantity() != null) {
-			return item.getPlannedQuantity();
-		}
 		if (item.getApprovedQuantity() != null) {
 			return item.getApprovedQuantity();
 		}
@@ -468,8 +426,6 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		private final String spuId;
 
 		private int quantity;
-
-		private Integer plannedQuantity;
 
 		private ReuseAggregate(String spuId) {
 			this.spuId = spuId;
@@ -488,6 +444,7 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		requireEditable(cart);
 		requireNotExpired(cart);
 		requireConfirmer(cart, userId);
+		ensureOrderableCall(tenantId, cart);
 
 		List<SharedCartItem> items = listItems(tenantId, cartId);
 		if (items.isEmpty()) {
@@ -495,7 +452,14 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		}
 		applyApprovedQuantities(tenantId, confirmDTO, items);
 
-		CreateOrderDTO createOrderDTO = buildCreateOrder(cart, items, confirmDTO);
+		// 全部行都被核定为「本次不采」时，下单会因没有商品明细而失败，
+		// 报错还得让人看懂是「你把每一样都排除了」，而不是系统故障。
+		List<CreateOrderSkuReqDTO> skuReqList = splitByMember(items);
+		if (skuReqList.isEmpty()) {
+			throw new ArynBusinessException("所有明细都被标记为本次不采，请至少保留一项后再提交");
+		}
+
+		CreateOrderDTO createOrderDTO = buildCreateOrder(cart, skuReqList, confirmDTO);
 		var orderInfo = orderInfoService.createOrder(createOrderDTO);
 
 		cart.setStatus(SharedCart.STATUS_SUBMITTED);
@@ -504,6 +468,31 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		sharedCartMapper.updateById(cart);
 		log.info("共享购物车[{}]确认提交，生成订单[{}]，确认人[{}]", cartId, orderInfo.getId(), userId);
 		return orderInfo.getId();
+	}
+
+	/**
+	 * 提交前顺延整车的靠港归属。
+	 *
+	 * <p>整车的 vessel_call_id 是创建时刻的快照，而收集中会持续数天，靠港 ETD 过点后
+	 * 快照即失效——下单校验会以「靠港计划不可用（不存在或已离港）」拒绝整车提交，
+	 * 且共享车没有切换靠港的出路，全员明细被扣死（成员端查找有回退、加购照常，
+	 * 问题直到提交才暴露，更加隐蔽）。这里与个人购物车的顺延口径一致：
+	 * 快照不可用（含创建时未挂上靠港）时自动改挂该船当前可用靠港（ETA 最早一班），
+	 * 随 {@code sharedCartMapper.updateById(cart)} 一起落库；没有可用靠港时给出
+	 * 可读报错引导先申报靠港，而不是让用户面对底层校验的模糊文案。
+	 */
+	private void ensureOrderableCall(String tenantId, SharedCart cart) {
+		if (StringUtils.hasText(cart.getVesselCallId())
+				&& remoteVesselService.getVesselCallContext(tenantId, cart.getVesselCallId()) != null) {
+			return;
+		}
+		VesselContextDTO available = remoteVesselService.resolveAvailableCall(tenantId, cart.getVesselId());
+		if (available == null) {
+			throw new ArynBusinessException("该船暂无可用靠港计划，请先申报靠港后再提交整船订单");
+		}
+		log.info("共享购物车[{}]的靠港[{}]已失效，提交时顺延到可用靠港[{}]",
+				cart.getId(), cart.getVesselCallId(), available.getVesselCallId());
+		cart.setVesselCallId(available.getVesselCallId());
 	}
 
 	@Override
@@ -575,31 +564,25 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		// 商品名单独按 SPU 批量取：SKU 查询的 resultMap 不回填 goodsSpu（见字段注释）
 		Map<String, GoodsSpu> spuMap = loadSpuMap(items);
 		List<SharedCartSummaryVO.SummaryItem> preview = new ArrayList<>();
+		BigDecimal totalAmount = BigDecimal.ZERO;
 		for (SharedCartItem item : items) {
 			GoodsSku sku = skuMap.get(item.getSkuId());
-			// 有计划的按计划量算钱（用户关心"这次要花多少"，不是"谁报了多少"）；
-			// 未设计划才回落需求量，避免出现 ¥0 的假合计。
-			int quantity = item.getPlannedQuantity() != null
-					? item.getPlannedQuantity()
-					: (item.getRequestedQuantity() == null ? 0 : item.getRequestedQuantity());
+			// 预估金额按成员申请量算：收集阶段还没有核定数量，
+			// 申请量就是当前已知的"这次要买多少"。促销价下单时才计算，
+			// 因此这里只是量级参考，前端文案用「预估」而非「合计」。
+			int quantity = item.getRequestedQuantity() == null ? 0 : item.getRequestedQuantity();
 			BigDecimal unitPrice = sku == null || sku.getSalesPrice() == null
 					? BigDecimal.ZERO
 					: sku.getSalesPrice();
 			BigDecimal amount = unitPrice.multiply(BigDecimal.valueOf(quantity));
+			totalAmount = totalAmount.add(amount);
 
 			SharedCartSummaryVO.SummaryItem row = new SharedCartSummaryVO.SummaryItem();
 			row.setItemId(item.getId());
 			row.setSpuId(item.getSpuId());
 			row.setSkuId(item.getSkuId());
-			row.setQuantity(item.getRequestedQuantity() == null ? 0 : item.getRequestedQuantity());
+			row.setQuantity(quantity);
 			row.setAmount(amount);
-			// 行级进度与整单进度用同一套计算器，避免两处口径漂移
-			ReplenishProgressVO rowProgress = ReplenishProgressCalculator.ofRow(
-					item.getPlannedQuantity(), item.getFulfilledQuantity());
-			row.setPlannedQuantity(rowProgress.getPlannedQuantity());
-			row.setFulfilledQuantity(rowProgress.getFulfilledQuantity());
-			row.setRemainingQuantity(rowProgress.getRemainingQuantity());
-			row.setCompleted(rowProgress.getCompleted());
 			// 名称来自 SPU 表；图片优先 SKU 图，缺省回落 SPU 主图（sku 可能因下架查不到）
 			GoodsSpu spu = spuMap.get(item.getSpuId());
 			row.setSpuName(spu == null ? null : spu.getName());
@@ -612,22 +595,9 @@ public class SharedCartServiceImpl implements ISharedCartService {
 			}
 			preview.add(row);
 		}
+		summary.setTotalAmount(totalAmount);
 
-		// 整单进度与合计：统一由计算器汇总（按项数算百分比，不按数量）
-		ReplenishProgressVO.Summary progress = ReplenishProgressCalculator.summarize(items, item -> {
-			GoodsSku sku = skuMap.get(item.getSkuId());
-			if (sku == null || sku.getSalesPrice() == null) {
-				return BigDecimal.ZERO;
-			}
-			int quantity = item.getPlannedQuantity() != null
-					? item.getPlannedQuantity()
-					: (item.getRequestedQuantity() == null ? 0 : item.getRequestedQuantity());
-			return sku.getSalesPrice().multiply(BigDecimal.valueOf(quantity));
-		});
-		summary.setProgress(progress);
-		summary.setTotalAmount(progress.getTotalAmount());
-
-		// 预览只取前 N 条，并显式告知是否被截断，避免前端自行猜测「还差…」是否完整
+		// 预览只取前 N 条，并显式告知是否被截断，避免前端自行猜测预览是否完整
 		boolean truncated = preview.size() > SharedCartSummaryVO.MAX_PREVIEW_ITEMS;
 		summary.setPreviewTruncated(truncated);
 		summary.setPreviewItems(truncated
@@ -754,6 +724,39 @@ public class SharedCartServiceImpl implements ISharedCartService {
 	}
 
 	/**
+	 * 批量取靠港展示快照（含已结束的靠港）。
+	 *
+	 * <p>用展示快照而非可下单查询：历史单的船名/港口必须照常显示，靠港结束不该让卡片
+	 * 退化成「船舶信息加载中」。是否仍可下单由 {@code callOrderable} 标记单独下发。
+	 *
+	 * <p>按 vesselCallId 去重：同一航次的多次采购挂在同一个靠港上，一次列表只查一次。
+	 * 远程失败降级为空表——列表仍要能打开，缺失的那张卡退回占位文案而不是整页报错。
+	 */
+	private Map<String, VesselContextDTO> loadVesselCallSnapshots(List<SharedCart> carts, String tenantId) {
+		List<String> callIds = carts.stream()
+			.map(SharedCart::getVesselCallId)
+			.filter(StringUtils::hasText)
+			.distinct()
+			.toList();
+		if (callIds.isEmpty()) {
+			return Map.of();
+		}
+		Map<String, VesselContextDTO> snapshots = new HashMap<>();
+		for (String callId : callIds) {
+			try {
+				VesselContextDTO context = remoteVesselService.getVesselCallSnapshot(tenantId, callId);
+				if (context != null) {
+					snapshots.put(callId, context);
+				}
+			}
+			catch (Exception exception) {
+				log.warn("靠港[{}]展示快照获取失败，相关卡片降级为仅返回ID", callId, exception);
+			}
+		}
+		return snapshots;
+	}
+
+	/**
 	 * 批量组装 C 端视图：成员与明细计数各查一次后内存分组，避免逐车 N+1。
 	 */
 	private List<SharedCartVO> buildVOs(List<SharedCart> carts, String tenantId, String userId) {
@@ -775,6 +778,8 @@ public class SharedCartServiceImpl implements ISharedCartService {
 				.ne(SharedCartItem::getStatus, SharedCartItem.ITEM_REMOVED))
 			.stream()
 			.collect(Collectors.groupingBy(SharedCartItem::getCartId));
+
+		Map<String, VesselContextDTO> snapshotsByCall = loadVesselCallSnapshots(carts, tenantId);
 
 		List<SharedCartVO> result = new ArrayList<>(carts.size());
 		for (SharedCart cart : carts) {
@@ -800,10 +805,6 @@ public class SharedCartServiceImpl implements ISharedCartService {
 			vo.setMemberCount(members.size());
 			List<SharedCartItem> cartItems = itemsByCart.getOrDefault(cart.getId(), List.of());
 			vo.setItemCount(cartItems.size());
-			// 进度与首页卡片/详情页同一个计算器：列表卡片要回答「这单还差多少」，
-			// 三处各写一套除法必然漂移。金额传 null —— 列表卡片不显示合计金额，
-			// 没必要为每个车再查一遍 SKU 售价。
-			vo.setProgress(ReplenishProgressCalculator.summarize(cartItems, null));
 
 			// 查看者权限：发起人天然可编辑可提交，其余按成员行标记
 			boolean isOwner = Objects.equals(cart.getOwnerUserId(), userId);
@@ -812,22 +813,19 @@ public class SharedCartServiceImpl implements ISharedCartService {
 			vo.setViewerCanEdit(isOwner || (viewer != null && "1".equals(viewer.getCanEdit())));
 			vo.setViewerCanConfirm(isOwner || (viewer != null && "1".equals(viewer.getCanConfirm())));
 
-			// 船舶/靠港展示字段：远程服务不可用或靠港已失效时降级为仅返回 ID，不影响列表可用
-			if (StringUtils.hasText(cart.getVesselCallId())) {
-				try {
-					VesselContextDTO context = remoteVesselService.getVesselCallContext(tenantId, cart.getVesselCallId());
-					if (context != null) {
-						vo.setVesselName(context.getVesselName());
-						vo.setPortCode(context.getPortCode());
-						vo.setPortName(context.getPortName());
-						vo.setBerth(context.getBerth());
-						vo.setDeliveryWindowStart(context.getDeliveryWindowStart());
-						vo.setDeliveryWindowEnd(context.getDeliveryWindowEnd());
-					}
-				}
-				catch (Exception ex) {
-					log.warn("共享购物车[{}]补齐船舶上下文失败，降级为仅返回ID", cart.getId(), ex);
-				}
+			// 船舶/靠港展示字段取自快照：靠港已结束的历史单照样有船名与港口。
+			// 快照缺失（靠港记录不存在或远程不可用）时才降级为仅返回 ID。
+			VesselContextDTO context = StringUtils.hasText(cart.getVesselCallId())
+				? snapshotsByCall.get(cart.getVesselCallId())
+				: null;
+			if (context != null) {
+				vo.setVesselName(context.getVesselName());
+				vo.setPortCode(context.getPortCode());
+				vo.setPortName(context.getPortName());
+				vo.setBerth(context.getBerth());
+				vo.setDeliveryWindowStart(context.getDeliveryWindowStart());
+				vo.setDeliveryWindowEnd(context.getDeliveryWindowEnd());
+				vo.setCallOrderable(context.getCallOrderable());
 			}
 			result.add(vo);
 		}
@@ -863,6 +861,31 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		member.setDisplayName(displayName.trim());
 		member.setUpdateTime(LocalDateTime.now());
 		sharedCartMemberMapper.updateById(member);
+		return member;
+	}
+
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public SharedCartMember updateMemberCanEdit(String tenantId, String cartId, String memberId, String canEdit) {
+		SharedCart cart = requireCart(tenantId, cartId);
+		SharedCartMember member = sharedCartMemberMapper.selectOne(Wrappers.lambdaQuery(SharedCartMember.class)
+				.eq(SharedCartMember::getTenantId, tenantId)
+				.eq(SharedCartMember::getCartId, cartId)
+				.eq(SharedCartMember::getId, memberId));
+		if (member == null) {
+			throw new ArynBusinessException("成员不存在");
+		}
+		// 发起人在 requireCanEdit 里天然放行（他创建车时就承担了维护职责），
+		// 写这个标记不会生效——拒绝比静默无效好：运营看到"已保存"却依旧能加购，
+		// 只会怀疑开关坏了。
+		if (Objects.equals(member.getUserId(), cart.getOwnerUserId())) {
+			throw new ArynBusinessException("发起人始终可维护明细，无需设置");
+		}
+		member.setCanEdit("1".equals(canEdit) ? "1" : "0");
+		member.setUpdateTime(LocalDateTime.now());
+		sharedCartMemberMapper.updateById(member);
+		log.info("管理端设置共享购物车[{}]成员[{}]明细权限为 can_edit={}", cartId, member.getUserId(),
+				member.getCanEdit());
 		return member;
 	}
 
@@ -1003,6 +1026,59 @@ public class SharedCartServiceImpl implements ISharedCartService {
 				.orderByAsc(SharedCartItem::getCreateTime));
 	}
 
+	@Override
+	public List<SharedCartItemVO> listItemVOs(String tenantId, String cartId) {
+		// 刻意不复用 listItems：它只取 ITEM_PENDING，服务于提交/加购等写入路径；
+		// 而明细的**展示**必须覆盖已提交的单 —— 提交时行会被置为 ITEM_CONFIRMED，
+		// 只查待确认会让「已提交」的车看起来一条明细都没有（列表卡片早已按同一口径修正）。
+		List<SharedCartItem> items = sharedCartItemMapper.selectList(Wrappers.lambdaQuery(SharedCartItem.class)
+				.eq(SharedCartItem::getTenantId, tenantId)
+				.eq(SharedCartItem::getCartId, cartId)
+				.ne(SharedCartItem::getStatus, SharedCartItem.ITEM_REMOVED)
+				.orderByAsc(SharedCartItem::getCreateTime));
+		if (items.isEmpty()) {
+			return List.of();
+		}
+		Map<String, GoodsSku> skuMap = loadSkuMap(items);
+		Map<String, GoodsSpu> spuMap = loadSpuMap(items);
+
+		List<SharedCartItemVO> result = new ArrayList<>(items.size());
+		for (SharedCartItem item : items) {
+			GoodsSku sku = skuMap.get(item.getSkuId());
+			GoodsSpu spu = spuMap.get(item.getSpuId());
+
+			SharedCartItemVO vo = new SharedCartItemVO();
+			vo.setId(item.getId());
+			vo.setCartId(item.getCartId());
+			vo.setUserId(item.getUserId());
+			vo.setAttributedName(item.getAttributedName());
+			vo.setSpuId(item.getSpuId());
+			vo.setSkuId(item.getSkuId());
+			vo.setSpuName(spu == null ? null : spu.getName());
+			vo.setSpecsInfo(sku == null ? null : joinSpecs(sku));
+			vo.setPicUrl(resolvePicUrl(sku, spu));
+			vo.setRequestedQuantity(item.getRequestedQuantity());
+			vo.setApprovedQuantity(item.getApprovedQuantity());
+			vo.setMemberRemark(item.getMemberRemark());
+			vo.setStatus(item.getStatus());
+			vo.setCreateTime(item.getCreateTime());
+
+			// 单价缺失（商品已下架/被删、商品域抖动）时留 null 而不是 0：
+			// 用 0 冒充已定价会把「没算到的钱」藏起来，用户以为整单就这么多。
+			// 行小计不在这里下发：单价与数量都已给出，金额由前端按同一份口径
+			// 现算（还要跟随确认人改核定数量实时变化），多一个后端快照只会让
+			// 弹层里的数字和列表对不上。
+			vo.setUnitPrice(sku == null ? null : sku.getSalesPrice());
+			result.add(vo);
+		}
+		return result;
+	}
+
+	/** 明细行的计价数量：收集阶段没有核定数量，一律按成员申请量算 */
+	private int quantityOf(SharedCartItem item) {
+		return item.getRequestedQuantity() == null ? 0 : item.getRequestedQuantity();
+	}
+
 	// ---------------------------------------------------------------------
 	// 内部方法
 	// ---------------------------------------------------------------------
@@ -1072,6 +1148,41 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		}
 	}
 
+	/**
+	 * 明细写入权：往清单里写「自己的行」必须 {@code can_edit=1}。
+	 *
+	 * <p>这个标记同时被 {@code buildVOs} 下发成 {@code viewerCanEdit}，C 端据此
+	 * 隐藏加购入口。校验必须在这里也做一遍：否则前端隐藏入口、服务端照单全收，
+	 * 同一个成员会被两套事实描述（界面上没有共享车可选，直接调接口却能写进去）。
+	 *
+	 * <p>发起人天然可编辑，不查成员行（他创建车时就承担了维护职责）。
+	 * 与 {@code can_confirm} 分开：确认人可核定数量、提交整船订单，
+	 * 不代表可以往清单里加自己的货——两者是不同职责，见 {@code requireConfirmer}。
+	 */
+	private void requireCanEdit(SharedCart cart, String userId) {
+		if (Objects.equals(cart.getOwnerUserId(), userId)) {
+			return;
+		}
+		SharedCartMember member = sharedCartMemberMapper.selectOne(Wrappers.lambdaQuery(SharedCartMember.class)
+				.eq(SharedCartMember::getTenantId, cart.getTenantId())
+				.eq(SharedCartMember::getCartId, cart.getId())
+				.eq(SharedCartMember::getUserId, userId));
+		if (member == null) {
+			throw new ArynBusinessException("无权访问该共享购物车");
+		}
+		if (!"1".equals(member.getCanEdit())) {
+			throw new ArynBusinessException("你没有维护该购物车明细的权限");
+		}
+	}
+
+	/**
+	 * 写入确认人的核定数量：0 表示「本次不采」，该行不进整船订单。
+	 *
+	 * <p>批量操作时经常出现「几十项里有两三样这次不买」，若只允许正数，
+	 * 确认人只能先把成员报的那几行移除 —— 但那会连带删掉别人报的需求，
+	 * 且成员端看不到「为什么我的商品没了」。核定 0 把"不采"表达成一次
+	 * 可追溯的核定结果，成员在详情里能看到自己报的那项被核定为不采。
+	 */
 	private void applyApprovedQuantities(String tenantId, SharedCartConfirmDTO confirmDTO, List<SharedCartItem> items) {
 		if (confirmDTO == null || confirmDTO.getApprovedQuantities() == null) {
 			return;
@@ -1082,8 +1193,8 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		for (SharedCartItem item : items) {
 			Integer approved = adjustments.get(item.getId());
 			if (approved != null) {
-				if (approved < 1) {
-					throw new ArynBusinessException("核定数量必须大于0");
+				if (approved < 0) {
+					throw new ArynBusinessException("核定数量不能为负数");
 				}
 				item.setApprovedQuantity(approved);
 				item.setStatus(SharedCartItem.ITEM_CONFIRMED);
@@ -1092,7 +1203,7 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		}
 	}
 
-	private CreateOrderDTO buildCreateOrder(SharedCart cart, List<SharedCartItem> items,
+	private CreateOrderDTO buildCreateOrder(SharedCart cart, List<CreateOrderSkuReqDTO> skuReqList,
 			SharedCartConfirmDTO confirmDTO) {
 		CreateOrderDTO createOrderDTO = new CreateOrderDTO();
 		createOrderDTO.setUserId(cart.getConfirmerUserId() != null ? cart.getConfirmerUserId() : cart.getOwnerUserId());
@@ -1112,7 +1223,7 @@ public class SharedCartServiceImpl implements ISharedCartService {
 			// 选 COD 时下单即进待发货并直接创建配送任务，不产生待付款单
 			createOrderDTO.setPaymentType(confirmDTO.getPaymentType());
 		}
-		createOrderDTO.setSkuReqList(splitByMember(items));
+		createOrderDTO.setSkuReqList(skuReqList);
 		return createOrderDTO;
 	}
 
@@ -1125,6 +1236,8 @@ public class SharedCartServiceImpl implements ISharedCartService {
 	 *
 	 * <p>同一成员对同一 SKU 多次加购的明细仍各自成行（保留其原始备注），
 	 * 营销引擎侧由 buildPromotionContext 按 SKU 聚合数量保证阶梯价档位正确。
+	 *
+	 * <p>核定数量为 0 的行（确认人标记「本次不采」）不生成订单明细。
 	 */
 	private List<CreateOrderSkuReqDTO> splitByMember(List<SharedCartItem> items) {
 		Map<String, String> memberNames = loadMemberDisplayNames(items.get(0).getCartId(), items);
@@ -1132,12 +1245,18 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		for (SharedCartItem item : items) {
 			int quantity = item.getApprovedQuantity() != null ? item.getApprovedQuantity()
 					: item.getRequestedQuantity();
+			if (quantity <= 0) {
+				continue;
+			}
 			CreateOrderSkuReqDTO skuReq = new CreateOrderSkuReqDTO();
 			skuReq.setSkuId(item.getSkuId());
 			skuReq.setSpuId(item.getSpuId());
 			skuReq.setQuantity(quantity);
 			skuReq.setContributorUserId(item.getUserId());
-			skuReq.setContributorName(resolveContributorName(item.getUserId(), memberNames));
+			// 归属姓名（接龙代报）优先于成员姓名链：标签贴的是接龙里那个人
+			skuReq.setContributorName(StringUtils.hasText(item.getAttributedName())
+					? item.getAttributedName()
+					: resolveContributorName(item.getUserId(), memberNames));
 			skuReq.setMemberRemark(item.getMemberRemark());
 			requests.add(skuReq);
 		}
@@ -1307,7 +1426,7 @@ public class SharedCartServiceImpl implements ISharedCartService {
 			entity.setMatchedUnit(null);
 			entity.setMatchedPrice(match == null ? null : match.getSalesPrice());
 			entity.setMatchedStock(match == null ? null : match.getStock());
-			entity.setPlannedQuantity(quantity);
+			entity.setQuantity(quantity);
 			entity.setSuggestedQuantity(classified.suggestedQuantity());
 			entity.setResultType(classified.resultType());
 			entity.setResultMessage(classified.message());
@@ -1342,6 +1461,145 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		return toImportVO(job, entities);
 	}
 
+	/**
+	 * 接龙粘贴导入：解析「人 × 商品 × 数量」后走与 Excel 导入同一套报告/确认链路。
+	 *
+	 * <p>接龙里的人大多不是系统用户，因此解析出的人名先按**原文**落行：
+	 * 确认并入时才尝试按成员自填姓名精确匹配成真实成员，匹配不上就作为
+	 * 归属姓名标签挂在操作者明细上（{@code shared_cart_item.attributed_name}）。
+	 * 数量解析失败的行默认按 1 处理——报错会让人卡死在粘贴这一步，
+	 * 而默认值有解析疑点提示兜着，报告页一眼能核对。
+	 */
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public SharedCartImportVO previewChainImport(String tenantId, String userId, String cartId, String text) {
+		SharedCart cart = requireCart(tenantId, cartId);
+		requireEditable(cart);
+		requireNotExpired(cart);
+		// 与 Excel 导入同口径：导入是「排计划」的批量形态，确认人/发起人职责
+		requireConfirmer(cart, userId);
+
+		List<ChainOrderTextParser.ParsedItem> parsed = ChainOrderTextParser.parse(text);
+		if (parsed.isEmpty()) {
+			throw new ArynBusinessException("没有从文本中解析出报货内容，请检查接龙格式");
+		}
+		if (parsed.size() > ReplenishImportExcel.MAX_ROWS) {
+			throw new ArynBusinessException("接龙内容最多支持 " + ReplenishImportExcel.MAX_ROWS + " 项报货");
+		}
+
+		List<ReplenishImportMatchDTO> requests = new ArrayList<>(parsed.size());
+		for (int index = 0; index < parsed.size(); index++) {
+			ChainOrderTextParser.ParsedItem item = parsed.get(index);
+			ReplenishImportMatchDTO request = new ReplenishImportMatchDTO();
+			request.setRowNo(index + 1);
+			request.setName(item.goodsName());
+			request.setQuantity(item.quantity() == null ? 1 : item.quantity());
+			requests.add(request);
+		}
+
+		Map<Integer, ReplenishImportMatchVO> matchByRowNo = new LinkedHashMap<>();
+		try {
+			List<ReplenishImportMatchVO> matches = remoteReplenishImportMatchService.matchRows(tenantId, requests);
+			for (int index = 0; index < matches.size(); index++) {
+				ReplenishImportMatchVO match = matches.get(index);
+				if (match == null) {
+					continue;
+				}
+				// 商品域按契约回显 rowNo；万一没回显，按返回顺序对齐
+				Integer rowNo = match.getRowNo() != null ? match.getRowNo() : index + 1;
+				matchByRowNo.put(rowNo, match);
+			}
+		}
+		catch (Exception exception) {
+			// 商品域抖动时按「全部未匹配」出报告：用户仍能人工补选
+			log.warn("接龙导入商品匹配失败，按未匹配处理 cart={}", cartId, exception);
+		}
+
+		SharedCartImport job = new SharedCartImport();
+		job.setId(IdWorker.getIdStr());
+		job.setCartId(cartId);
+		job.setFileName("微信群接龙粘贴");
+		job.setFileSize((long) text.getBytes(StandardCharsets.UTF_8).length);
+		job.setFileSha256(sha256(text.getBytes(StandardCharsets.UTF_8)));
+		job.setTotalRows(parsed.size());
+		job.setStatus(SharedCartImport.STATUS_PENDING);
+		job.setOperatorUserId(userId);
+		job.setTenantId(tenantId);
+		job.setCreateTime(LocalDateTime.now());
+		job.setDelFlag("0");
+
+		int matched = 0;
+		int unmatched = 0;
+		int specChanged = 0;
+		int overStock = 0;
+		int invalid = 0;
+		int offShelf = 0;
+		List<SharedCartImportRow> entities = new ArrayList<>(parsed.size());
+		for (int index = 0; index < parsed.size(); index++) {
+			ChainOrderTextParser.ParsedItem item = parsed.get(index);
+			int rowNo = index + 1;
+			ReplenishImportMatchVO match = matchByRowNo.get(rowNo);
+			int quantity = item.quantity() == null ? 1 : item.quantity();
+			// 接龙没有规格列，规格比对恒放行；数量解析失败已在 quantity 兜底为 1
+			ReplenishImportClassifier.Result classified = ReplenishImportClassifier.classify(match, null,
+					String.valueOf(quantity));
+			// 解析疑点（默认数量/「各」/连写合并）随结果说明带出，报告页核对就靠它
+			String message = item.warning() == null ? classified.message()
+					: classified.message() + "；解析疑点：" + item.warning();
+
+			SharedCartImportRow entity = new SharedCartImportRow();
+			entity.setId(IdWorker.getIdStr());
+			entity.setImportId(job.getId());
+			entity.setCartId(cartId);
+			entity.setRowNo(rowNo);
+			entity.setSourceType(SharedCartImportRow.SOURCE_CHAIN);
+			entity.setPersonName(item.personName());
+			entity.setRawName(item.goodsName());
+			entity.setRawQuantity(quantity);
+			entity.setRawUnit(item.unit());
+			entity.setRawRemark(item.rawSegment());
+			entity.setMatchType(match == null ? "NONE" : match.getMatchType());
+			entity.setMatchedSkuId(match == null ? null : match.getSkuId());
+			entity.setMatchedSpuId(match == null ? null : match.getSpuId());
+			entity.setMatchedName(match == null ? null : match.getName());
+			entity.setMatchedSpec(match == null ? null : match.getSpec());
+			entity.setMatchedPrice(match == null ? null : match.getSalesPrice());
+			entity.setMatchedStock(match == null ? null : match.getStock());
+			entity.setQuantity(quantity);
+			entity.setSuggestedQuantity(classified.suggestedQuantity());
+			entity.setResultType(classified.resultType());
+			entity.setResultMessage(message);
+			entity.setTenantId(tenantId);
+			entity.setCreateTime(LocalDateTime.now());
+			entity.setDelFlag("0");
+			sharedCartImportRowMapper.insert(entity);
+			entities.add(entity);
+
+			switch (classified.resultType()) {
+				case SharedCartImportRow.RESULT_OK -> matched++;
+				case SharedCartImportRow.RESULT_UNMATCHED -> unmatched++;
+				case SharedCartImportRow.RESULT_SPEC_CHANGED -> specChanged++;
+				case SharedCartImportRow.RESULT_OVER_STOCK -> overStock++;
+				case SharedCartImportRow.RESULT_INVALID_QTY -> invalid++;
+				case SharedCartImportRow.RESULT_OFF_SHELF -> offShelf++;
+				default -> invalid++;
+			}
+		}
+
+		job.setMatchedRows(matched);
+		job.setUnmatchedRows(unmatched);
+		job.setSpecChangedRows(specChanged);
+		job.setOverStockRows(overStock);
+		job.setInvalidRows(invalid);
+		job.setOffShelfRows(offShelf);
+		job.setNotFilledRows(0);
+		sharedCartImportMapper.insert(job);
+		log.info("接龙导入解析完成 cart={} import={} 行数={} 匹配={} 未匹配={} 人名缺失={}", cartId, job.getId(),
+				parsed.size(), matched, unmatched,
+				parsed.stream().filter(item -> item.personName() == null).count());
+		return toImportVO(job, entities);
+	}
+
 	@Override
 	public SharedCartImportVO getImport(String tenantId, String userId, String cartId, String importId) {
 		SharedCart cart = requireCart(tenantId, cartId);
@@ -1372,9 +1630,11 @@ public class SharedCartServiceImpl implements ISharedCartService {
 	 * <p>幂等靠任务状态：已并入直接返回首次报告，不重复累加数量 ——
 	 * 重复点「确认并入」时用户最容易察觉的缺陷就是数量翻倍。
 	 *
-	 * <p>同一 SKU 的多行在此合并；已存在的活动明细累加数量；被逻辑移除
-	 * （status=3）的明细**复活**，否则会撞 uk_shared_cart_item 唯一键
-	 * （该唯一键不含 status，物理上只允许一行）。
+	 * <p>归属键是「成员用户 + 归属姓名」：Excel 导入行全部归属操作者（与既有
+	 * 口径一致）；接龙导入行按人名归到真实成员或操作者+姓名标签。同一归属键的
+	 * 多行在此合并；已存在的活动明细累加数量；被逻辑移除（status=3）的明细
+	 * **复活**，否则会撞 uk_shared_cart_item 唯一键（该唯一键不含 status，
+	 * 物理上只允许一行）。
 	 */
 	@Override
 	@Transactional(rollbackFor = Exception.class)
@@ -1384,6 +1644,10 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		requireEditable(cart);
 		requireNotExpired(cart);
 		requireConfirmer(cart, userId);
+		// 并入写的也是**操作者自己的**明细行（mergeIntoCartItems 按 userId 归属），
+		// 所以只读成员不能拿"导入"当绕过 can_edit 的后门。正常配置下确认人
+		// can_edit=1（见 create/inviteMember），这里只挡住手工改小的例外。
+		requireCanEdit(cart, userId);
 		SharedCartImport job = requireImport(tenantId, cartId, importId);
 		if (SharedCartImport.STATUS_IMPORTED.equals(job.getStatus())) {
 			return toImportVO(job, listImportRows(tenantId, job.getId()));
@@ -1405,9 +1669,9 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		// 确认时重新取一次商品现状：报告页停留期间商品可能已下架或库存变化
 		Map<String, ReplenishImportMatchVO> currentBySkuId = loadCurrentSkus(tenantId, rows, actionByRowNo);
 
-		Map<String, Integer> quantityBySku = new LinkedHashMap<>();
-		Map<String, String> spuBySku = new LinkedHashMap<>();
-		Map<String, String> remarkBySku = new LinkedHashMap<>();
+		List<PendingCartMerge> merges = new ArrayList<>();
+		// 接龙人名 → 成员：确认时解析一次，整份导入共用同一份词典
+		Map<String, String> memberUserIdByName = loadMemberUserIdByName(cartId);
 		int skipped = 0;
 		for (SharedCartImportRow row : rows) {
 			// 未填数量的行是「本次不采购」，不是被跳过的异常行：
@@ -1423,7 +1687,7 @@ public class SharedCartServiceImpl implements ISharedCartService {
 				action = null;
 			}
 			Integer quantity = action == null && SharedCartImportRow.RESULT_OK.equals(row.getResultType())
-					? row.getPlannedQuantity()
+					? row.getQuantity()
 					: resolvedQuantity(row, action);
 			String skuId = action == null && SharedCartImportRow.RESULT_OK.equals(row.getResultType())
 					? row.getMatchedSkuId()
@@ -1445,24 +1709,44 @@ public class SharedCartServiceImpl implements ISharedCartService {
 				continue;
 			}
 
+			// 接龙行的归属人名：处置动作可修正（「水手长」→ 真实姓名），修正值落回解析行留痕
+			String personName = row.getPersonName();
+			if (action != null && StringUtils.hasText(action.getPersonName())) {
+				personName = action.getPersonName().strip();
+				row.setPersonName(personName);
+			}
 			row.setResolvedAction(action == null ? SharedCartImportRow.ACTION_ACCEPT_SPEC : action.getAction());
 			row.setResolvedSkuId(skuId);
 			row.setResolvedQuantity(quantity);
-			row.setPlannedQuantity(quantity);
+			row.setQuantity(quantity);
 			row.setMatchedSkuId(current.getSkuId());
 			row.setMatchedSpuId(current.getSpuId());
 			row.setMatchedSpec(current.getSpec());
 			row.setResolvedTime(LocalDateTime.now());
 			sharedCartImportRowMapper.updateById(row);
 
-			quantityBySku.merge(skuId, quantity, Integer::sum);
-			spuBySku.putIfAbsent(skuId, current.getSpuId());
-			if (StringUtils.hasText(row.getRawRemark())) {
-				remarkBySku.putIfAbsent(skuId, row.getRawRemark());
+			// 归属解析：人名精确命中成员自填姓名 → 挂真实成员（他自己能看到并修改这行）；
+			// 否则挂操作者 + 归属姓名标签——接龙里的很多人不是系统用户，
+			// 配送贴标签、按人分装认的是这个名字，不是用户账号。
+			String itemUserId = userId;
+			String attributedName = "";
+			if (StringUtils.hasText(personName)) {
+				String memberUserId = memberUserIdByName.get(personName);
+				if (StringUtils.hasText(memberUserId)) {
+					itemUserId = memberUserId;
+				}
+				else {
+					attributedName = personName;
+				}
 			}
+			merges.add(new PendingCartMerge(itemUserId, skuId, current.getSpuId(), quantity,
+					SharedCartImportRow.SOURCE_EXCEL.equals(row.getSourceType()) && StringUtils.hasText(row.getRawRemark())
+							? row.getRawRemark()
+							: null,
+					attributedName));
 		}
 
-		int imported = mergeIntoCartItems(tenantId, userId, cartId, quantityBySku, spuBySku, remarkBySku);
+		int imported = mergeIntoCartItems(tenantId, cartId, merges);
 		job.setStatus(SharedCartImport.STATUS_IMPORTED);
 		job.setImportedRows(imported);
 		job.setSkippedRows(skipped);
@@ -1472,65 +1756,112 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		return toImportVO(job, listImportRows(tenantId, job.getId()));
 	}
 
-	/** 把「SKU → 数量」合并写进补给单明细，返回实际写入的明细项数 */
-	private int mergeIntoCartItems(String tenantId, String userId, String cartId, Map<String, Integer> quantityBySku,
-			Map<String, String> spuBySku, Map<String, String> remarkBySku) {
-		if (quantityBySku.isEmpty()) {
+	/** 待并入明细：确认阶段逐行产出，同键（归属人+SKU）在写入前合并数量 */
+	private record PendingCartMerge(String userId, String skuId, String spuId, Integer quantity, String remark,
+			String attributedName) {
+	}
+
+	/** 明细归并键：归属人 + SKU + 归属姓名（空姓名归一为空串，与列默认值一致） */
+	private static String cartItemKey(String userId, String skuId, String attributedName) {
+		return userId + "|" + skuId + "|" + (StringUtils.hasText(attributedName) ? attributedName : "");
+	}
+
+	/**
+	 * 成员自填姓名 → 用户ID。同名成员多于一个时该名字放弃自动归属
+	 * （归属错人比归属成姓名标签更难察觉，交给报告页人工指定）。
+	 */
+	private Map<String, String> loadMemberUserIdByName(String cartId) {
+		List<SharedCartMember> members = sharedCartMemberMapper.selectList(Wrappers.lambdaQuery(SharedCartMember.class)
+			.eq(SharedCartMember::getCartId, cartId));
+		Map<String, List<String>> userIdsByName = new LinkedHashMap<>();
+		for (SharedCartMember member : members) {
+			if (!StringUtils.hasText(member.getDisplayName()) || !StringUtils.hasText(member.getUserId())) {
+				continue;
+			}
+			userIdsByName.computeIfAbsent(member.getDisplayName().strip(), key -> new ArrayList<>())
+				.add(member.getUserId());
+		}
+		Map<String, String> result = new HashMap<>(userIdsByName.size());
+		userIdsByName.forEach((name, userIds) -> {
+			if (userIds.size() == 1) {
+				result.put(name, userIds.get(0));
+			}
+		});
+		return result;
+	}
+
+	/**
+	 * 把待并入明细写进补给单，返回实际写入的明细项数。
+	 *
+	 * <p>归属键是「成员用户 + 归属姓名」：Excel 导入与本人加购的行归属姓名为空，
+	 * 行为与既有口径完全一致；接龙代报的行挂在操作者名下、按归属姓名互相区分，
+	 * 同一车同一种商品两个人各占一行（uk_shared_cart_item 已扩列）。
+	 *
+	 * <p>同一键的多行先合并数量；已存在的活动明细累加数量；被逻辑移除
+	 * （status=3）的明细**复活**，否则会撞 uk_shared_cart_item 唯一键
+	 * （该唯一键不含 status，物理上只允许一行）。
+	 */
+	private int mergeIntoCartItems(String tenantId, String cartId, List<PendingCartMerge> merges) {
+		if (merges.isEmpty()) {
 			return 0;
 		}
-		// 已有的活动/已移除明细一次取出按 SKU 归并，避免逐条查询
+		// 同键合并数量（Excel 同 SKU 多行、接龙同人同品多行都走到这里）
+		Map<String, PendingCartMerge> mergedBykey = new LinkedHashMap<>();
+		for (PendingCartMerge merge : merges) {
+			mergedBykey.merge(cartItemKey(merge.userId(), merge.skuId(), merge.attributedName()), merge,
+					(first, second) -> new PendingCartMerge(first.userId(), first.skuId(), first.spuId(),
+							first.quantity() + second.quantity(),
+							StringUtils.hasText(second.remark()) ? second.remark() : first.remark(),
+							first.attributedName()));
+		}
+
+		// 已有的活动/已移除明细一次取出按归属键归并，避免逐条查询
 		List<SharedCartItem> existing = sharedCartItemMapper.selectList(Wrappers.lambdaQuery(SharedCartItem.class)
 			.eq(SharedCartItem::getTenantId, tenantId)
 			.eq(SharedCartItem::getCartId, cartId)
-			.in(SharedCartItem::getSkuId, new ArrayList<>(quantityBySku.keySet())));
-		Map<String, SharedCartItem> existingBySku = new LinkedHashMap<>();
+			.in(SharedCartItem::getSkuId, mergedBykey.values().stream().map(PendingCartMerge::skuId).toList()));
+		Map<String, SharedCartItem> existingByKey = new LinkedHashMap<>();
 		for (SharedCartItem item : existing) {
-			existingBySku.putIfAbsent(item.getSkuId(), item);
+			existingByKey.putIfAbsent(cartItemKey(item.getUserId(), item.getSkuId(), item.getAttributedName()), item);
 		}
 
 		int imported = 0;
-		for (Map.Entry<String, Integer> entry : quantityBySku.entrySet()) {
-			String skuId = entry.getKey();
-			int quantity = entry.getValue();
-			SharedCartItem item = existingBySku.get(skuId);
+		for (PendingCartMerge merge : mergedBykey.values()) {
+			int quantity = merge.quantity();
+			SharedCartItem item = existingByKey.get(cartItemKey(merge.userId(), merge.skuId(), merge.attributedName()));
 			if (item == null) {
 				item = new SharedCartItem();
 				item.setId(IdWorker.getIdStr());
 				item.setCartId(cartId);
-				item.setUserId(userId);
-				item.setSpuId(spuBySku.get(skuId));
-				item.setSkuId(skuId);
+				item.setUserId(merge.userId());
+				item.setAttributedName(StringUtils.hasText(merge.attributedName()) ? merge.attributedName() : "");
+				item.setSpuId(merge.spuId());
+				item.setSkuId(merge.skuId());
 				item.setRequestedQuantity(quantity);
-				item.setPlannedQuantity(quantity);
-				item.setFulfilledQuantity(0);
 				item.setStatus(SharedCartItem.ITEM_PENDING);
-				item.setMemberRemark(remarkBySku.get(skuId));
+				item.setMemberRemark(merge.remark());
 				item.setTenantId(tenantId);
 				item.setCreateTime(LocalDateTime.now());
 				item.setDelFlag("0");
 				sharedCartItemMapper.insert(item);
 			}
 			else if (SharedCartItem.ITEM_REMOVED.equals(item.getStatus())) {
-				// 复活已移除明细：唯一键 (tenant, cart, user, sku) 不含 status，
-				// 插入新行会直接撞键；且复活后归属改为本次导入的操作者
-				item.setUserId(userId);
-				item.setSpuId(spuBySku.get(skuId));
+				// 复活已移除明细：唯一键不含 status，插入新行会直接撞键
+				item.setUserId(merge.userId());
+				item.setAttributedName(StringUtils.hasText(merge.attributedName()) ? merge.attributedName() : "");
+				item.setSpuId(merge.spuId());
 				item.setStatus(SharedCartItem.ITEM_PENDING);
 				item.setRequestedQuantity(quantity);
-				item.setPlannedQuantity(quantity);
-				item.setFulfilledQuantity(0);
-				if (StringUtils.hasText(remarkBySku.get(skuId))) {
-					item.setMemberRemark(remarkBySku.get(skuId));
+				if (StringUtils.hasText(merge.remark())) {
+					item.setMemberRemark(merge.remark());
 				}
 				item.setUpdateTime(LocalDateTime.now());
 				sharedCartItemMapper.updateById(item);
 			}
 			else {
-				// 与已有明细合并数量：需求量与计划量同口径累加（口径见需求确认单 §4）
+				// 与已有明细合并数量：导入数量累加进成员申请量
 				int currentRequested = item.getRequestedQuantity() == null ? 0 : item.getRequestedQuantity();
-				int currentPlanned = item.getPlannedQuantity() == null ? 0 : item.getPlannedQuantity();
 				item.setRequestedQuantity(currentRequested + quantity);
-				item.setPlannedQuantity(currentPlanned + quantity);
 				item.setUpdateTime(LocalDateTime.now());
 				sharedCartItemMapper.updateById(item);
 			}
@@ -1547,7 +1878,7 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		if (SharedCartImportRow.ACTION_ADJUST_QTY.equals(action.getAction())) {
 			return action.getQuantity();
 		}
-		return row.getPlannedQuantity();
+		return row.getQuantity();
 	}
 
 	/** 行最终 SKU：人工补选取客户端 SKU，其余动作沿用匹配结果；未处置动作返回 null */
@@ -1645,6 +1976,7 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		for (SharedCartImportRow row : rows) {
 			SharedCartImportRowVO rowVO = new SharedCartImportRowVO();
 			rowVO.setRowNo(row.getRowNo());
+			rowVO.setPersonName(row.getPersonName());
 			rowVO.setRawCode(row.getRawCode());
 			rowVO.setRawName(row.getRawName());
 			rowVO.setRawSpec(row.getRawSpec());
@@ -1658,7 +1990,7 @@ public class SharedCartServiceImpl implements ISharedCartService {
 			rowVO.setMatchedUnit(row.getMatchedUnit());
 			rowVO.setMatchedPrice(row.getMatchedPrice());
 			rowVO.setMatchedStock(row.getMatchedStock());
-			rowVO.setPlannedQuantity(row.getPlannedQuantity());
+			rowVO.setQuantity(row.getQuantity());
 			rowVO.setResultType(row.getResultType());
 			rowVO.setResultMessage(row.getResultMessage());
 			rowVO.setResolvedAction(row.getResolvedAction());

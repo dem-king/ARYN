@@ -96,31 +96,39 @@ describe('replenish semantics contract', () => {
     expect(annotationLines.some(line => line.includes('@Transactional'))).toBe(false)
   })
 
-  it('quantity rule errors are surfaced as readable failure reasons', () => {
+  it('quantity rules stay client-side and batch failures stay readable', () => {
+    // 数量规则（MOQ/步长）随船供包装资料下线（2026-09-29，见 ShoppingCartServiceImpl
+    // batchAdd 内注释）：服务端不再做 MOQ/步长拦截，口径收敛在 C 端 utils/quick-cart，
+    // 与单条加购一致。反向断言当哨兵——若服务端重新引入数量拦截，必须显式更新本契约。
     const impl = repoSource(
       `${ORDER_BIZ}/service/impl/ShoppingCartServiceImpl.java`,
     )
-    expect(impl).toContain('最小起订量')
-    expect(impl).toContain('整数倍')
-    // 失败原因走业务异常 msg，不能把异常类名透给用户
+    expect(impl).not.toContain('最小起订量')
+    expect(impl).not.toContain('整数倍')
+    // 失败原因仍走业务异常 msg（readableReason），不能把异常类名透给用户
     expect(impl).toContain('readableReason')
   })
 
-  it('summary carries progress only from the real planned/fulfilled columns', () => {
-    // 77 号脚本给 shared_cart_item 加了 planned_quantity / fulfilled_quantity，
-    // 收集阶段因此可以算真实进度。守两条底线：
-    //   1. 进度字段确实来自这两个列（不是前端拿需求量凑的）；
-    //   2. 未设计划的行不得回落成需求量，否则就是假进度。
+  it('summary no longer fabricates any purchase progress', () => {
+    // 契约反转（2026-10-09）：计划量/已采量模型整体删除。
+    // 摘要只回答「项数/人数/预估金额/预览明细」，不再下发任何进度字段；
+    // 计算器文件本身也必须消失。
     const vo = repoSource(
       'aryn-mall-java/aryn-order/aryn-order-api/src/main/java/com/aryn/cloud/order/api/vo/SharedCartSummaryVO.java',
     )
-    expect(vo).toContain('ReplenishProgressVO.Summary progress')
+    expect(vo).not.toContain('ReplenishProgressVO')
+    expect(vo).not.toContain('progress')
 
-    const calculator = repoSource(
+    expect(() => repoSource(
       'aryn-mall-java/aryn-order/aryn-order-api/src/main/java/com/aryn/cloud/order/api/support/ReplenishProgressCalculator.java',
-    )
-    // 未设计划 => plannedQuantity 空、remaining/completed 空，绝不回落 requestedQuantity
-    expect(calculator).toContain('plannedQuantity == null')
-    expect(calculator).not.toContain('getRequestedQuantity')
+    )).toThrow()
+
+    // 预估金额只按成员申请量算，不碰核定数量（那是提交那一刻才定的）
+    const impl = repoSource(`${ORDER_BIZ}/service/impl/SharedCartServiceImpl.java`)
+    const summaryStart = impl.indexOf('public SharedCartSummaryVO getActiveSummary')
+    const summaryBody = impl.slice(summaryStart, impl.indexOf('private SharedCart findActiveCart', summaryStart))
+    expect(summaryBody).toContain('getRequestedQuantity')
+    expect(summaryBody).not.toContain('getPlannedQuantity')
+    expect(summaryBody).not.toContain('getFulfilledQuantity')
   })
 })

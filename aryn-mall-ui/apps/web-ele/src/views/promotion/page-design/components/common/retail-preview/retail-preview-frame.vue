@@ -48,7 +48,11 @@ const stateMeta = computed(() => {
 </script>
 
 <template>
-  <section class="retail-frame" :style="frameStyle">
+  <section
+    class="retail-frame"
+    :class="{ 'is-state': status !== 'data' }"
+    :style="frameStyle"
+  >
     <header v-if="title" class="retail-frame__header">
       <strong>{{ title }}</strong>
       <slot name="header-extra"></slot>
@@ -72,10 +76,19 @@ const stateMeta = computed(() => {
 
 <style scoped>
 .retail-frame {
-  min-height: 116px;
   overflow: hidden;
   color: #172033;
   border: 1px solid rgb(17 24 39 / 8%);
+}
+
+/**
+ * min-height 只给占位态（加载/空/错误/待配置），保证占位卡片有视觉重量；
+ * 真实数据态按内容自然高：船舶工作台 44px、倒计时 38px、营销入口 42px
+ * 这类细条组件与小程序实机 1rpx=0.5px 等高，统一撑到 116px 会在组件
+ * 下方多出一大块空白（编辑器画布里看起来「组件高度太高」）。
+ */
+.retail-frame.is-state {
+  min-height: 116px;
 }
 
 .retail-frame__header {

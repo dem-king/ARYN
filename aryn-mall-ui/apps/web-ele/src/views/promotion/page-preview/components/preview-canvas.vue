@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { CanvasThemeVars } from '../../page-designer/schema/theme-presets';
 import type { DecorationDocument } from '../../page-designer/schema/types';
 
 import type { PageDesignType } from '#/api/promotion/page-design';
@@ -7,6 +8,7 @@ import { computed } from 'vue';
 
 import CanvasPageShell from '../../page-designer/components/canvas-page-shell.vue';
 import { getComponentDefinition } from '../../page-designer/registry/component-registry';
+import { resolveEffectivePageTheme } from '../../page-designer/schema/effective-theme';
 import { buildSectionStyle } from '../../page-designer/schema/section-style';
 
 const props = withDefaults(
@@ -23,8 +25,13 @@ const props = withDefaults(
      * 与编辑器画布（phone-canvas）同构；缺省按微页面整页渲染。
      */
     pageType?: PageDesignType;
+    /**
+     * 有效主题色（页面指定主题 > 商城默认主题，调用方解析后传入）：
+     * 覆盖页面自存的品牌色，与编辑器画布、C 端实机三方一致；缺省保留页面原色。
+     */
+    themeVars?: CanvasThemeVars;
   }>(),
-  { fullHeight: true, pageType: '0' },
+  { fullHeight: true, pageType: '0', themeVars: undefined },
 );
 
 /**
@@ -33,8 +40,13 @@ const props = withDefaults(
  */
 const isEmbeddedPage = computed(() => ['2', '3', '4'].includes(props.pageType));
 
+/** 与 phone-canvas、C 端 diy 渲染器同一解析函数（preview-parity.test.ts 守卫同源） */
+const effectivePage = computed(() =>
+  resolveEffectivePageTheme(props.document.page, props.themeVars),
+);
+
 const pageStyle = computed(() => ({
-  backgroundColor: props.document.page.backgroundColor,
+  backgroundColor: effectivePage.value.backgroundColor,
   backgroundImage: props.document.page.backgroundImage
     ? `url(${props.document.page.backgroundImage})`
     : undefined,
@@ -45,7 +57,7 @@ const pageStyle = computed(() => ({
  * 口径与 phone-canvas 的 embeddedStyle 一致。
  */
 const embeddedStyle = computed(() => ({
-  backgroundColor: props.document.page.backgroundColor,
+  backgroundColor: effectivePage.value.backgroundColor,
   backgroundImage: props.document.page.backgroundImage
     ? `url(${props.document.page.backgroundImage})`
     : undefined,
@@ -83,8 +95,8 @@ function sectionStyle(section: DecorationDocument['sections'][number]) {
       v-if="!isEmbeddedPage && document.page.navigation.visible"
       class="preview-navigation"
       :style="{
-        backgroundColor: document.page.navigation.backgroundColor,
-        color: document.page.navigation.textColor,
+        backgroundColor: effectivePage.navigationBackgroundColor,
+        color: effectivePage.navigationTextColor,
       }"
     >
       {{ document.page.navigation.title || pageName }}
@@ -139,8 +151,6 @@ function sectionStyle(section: DecorationDocument['sections'][number]) {
 </template>
 
 <style scoped>
-
-
 @media (max-width: 375px) {
   .preview-canvas {
     width: 100%;

@@ -1,6 +1,11 @@
 server:
   port: 6700
 
+xxl:
+  job:
+    # 执行器通讯端口，与 promotion(9010)、默认(9009) 错开；adminAddresses 走 Nacos 共享配置
+    port: 9011
+
 spring:
   application:
     name: @artifactId@
