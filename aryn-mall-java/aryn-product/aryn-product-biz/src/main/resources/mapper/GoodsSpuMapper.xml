@@ -176,6 +176,17 @@
         COALESCE(NULLIF(sku.pic_url, ''), NULLIF(SUBSTRING_INDEX(spu.spu_urls, ',', 1), '')) AS pic_url,
         sku.stock,
         sku.sales_price,
+        <!--
+          规格串在 SQL 里拼好：specs_arr 是 json 列，直接选回来要经
+          SpecsListTypeHandler 转成 List<Specs> 才能在 Java 侧 join，
+          而 resultType 是 VO 不是实体、单个字段挂不了 TypeHandler。
+          口径与 QuickCartServiceImpl.toSpecsInfo / SharedCartServiceImpl.joinSpecs
+          一致：取 specsValueName、丢弃空值、用「；」连接，无值返回 NULL。
+        -->
+        (SELECT NULLIF(GROUP_CONCAT(jt.specs_value_name SEPARATOR '；'), '')
+           FROM JSON_TABLE(IFNULL(sku.specs_arr, JSON_ARRAY()), '$[*]'
+                COLUMNS (specs_value_name VARCHAR(255) PATH '$.specsValueName')) AS jt
+          WHERE jt.specs_value_name IS NOT NULL AND jt.specs_value_name &lt;&gt; '') AS specs_info,
         spu.`status`
         FROM goods_spu spu
         LEFT JOIN goods_sku sku
@@ -190,6 +201,19 @@
                  OR spu.sub_title LIKE CONCAT('%', #{keyword}, '%'))
         </if>
         ORDER BY spu.create_time DESC
+    </select>
+
+    <!-- 搜索联想候选：与结果页 selectApiPage 同口径（只匹配 name、仅上架），
+         大小写不敏感；ESCAPE '!' 配合服务层 escapeLikeKeyword，让 %/_ 按字面量匹配 -->
+    <select id="selectSuggestNames" resultType="java.lang.String">
+        SELECT spu.`name`
+        FROM goods_spu spu
+        WHERE spu.tenant_id = #{tenantId}
+          AND spu.del_flag = '0'
+          AND spu.`status` = '1'
+          AND LOWER(spu.`name`) LIKE CONCAT('%', LOWER(#{keyword}), '%') ESCAPE '!'
+        ORDER BY spu.sales_volume DESC
+        LIMIT #{limit}
     </select>
 
 </mapper>

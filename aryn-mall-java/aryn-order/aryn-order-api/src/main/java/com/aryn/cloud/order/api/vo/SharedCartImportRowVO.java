@@ -30,6 +30,9 @@ public class SharedCartImportRowVO implements Serializable {
 	@Schema(description = "接龙人名原文（接龙导入来源；Excel 导入为 null）")
 	private String personName;
 
+	@Schema(description = "AI 从候选中推荐的 SKU ID（仅候选行有；采用与否由人在报告页决定）")
+	private String aiPickedSkuId;
+
 	@Schema(description = "Excel 商品编码原文")
 	private String rawCode;
 

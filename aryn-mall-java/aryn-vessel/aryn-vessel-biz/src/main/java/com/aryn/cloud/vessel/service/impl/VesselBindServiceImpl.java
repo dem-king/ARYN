@@ -92,14 +92,8 @@ public class VesselBindServiceImpl implements IVesselBindService {
 		if (!VesselBindApply.ROLE_CREW.equals(role) && !VesselBindApply.ROLE_SALES.equals(role)) {
 			throw new ArynBusinessException("申请角色不合法");
 		}
-		// 已是某船成员时不再允许提交：业务员/船员都已在船上，没有申请的必要
-		Long existingMembership = vesselMemberMapper.selectCount(Wrappers.lambdaQuery(VesselMember.class)
-			.eq(VesselMember::getTenantId, tenantId)
-			.eq(VesselMember::getUserId, userId)
-			.eq(VesselMember::getStatus, VesselMember.STATUS_ONBOARD));
-		if (existingMembership != null && existingMembership > 0) {
-			throw new ArynBusinessException("您已绑定船舶，无需重复申请");
-		}
+		// 一人多船模型下，已在船的用户同样可能申请加入其他船或认领新船；
+		// 是否放行由运营审核把关，这里只拦同一用户重复的待审核申请
 		Long pending = vesselBindApplyMapper.selectCount(Wrappers.lambdaQuery(VesselBindApply.class)
 			.eq(VesselBindApply::getTenantId, tenantId)
 			.eq(VesselBindApply::getUserId, userId)
@@ -221,6 +215,31 @@ public class VesselBindServiceImpl implements IVesselBindService {
 			throw new ArynBusinessException("不能移除发起人");
 		}
 		vesselMemberMapper.deleteById(memberId);
+	}
+
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public void leaveShip(String tenantId, String userId, String vesselId) {
+		VesselMember member = vesselMemberMapper.selectOne(Wrappers.lambdaQuery(VesselMember.class)
+			.eq(VesselMember::getTenantId, tenantId)
+			.eq(VesselMember::getVesselId, vesselId)
+			.eq(VesselMember::getUserId, userId)
+			.eq(VesselMember::getStatus, VesselMember.STATUS_ONBOARD));
+		if (member == null) {
+			throw new ArynBusinessException("您不是该船舶成员");
+		}
+		if (VesselMember.ROLE_OWNER.equals(member.getMemberRole())) {
+			// 与 removeMember 的「不能移除发起人」对称：发起人退出后该船将没有管理角色
+			throw new ArynBusinessException("发起人暂不支持退出，请联系平台客服处理");
+		}
+		vesselMemberMapper.deleteById(member.getId());
+		// 本人离开后邀请码不能再被他人使用
+		vesselInviteCodeMapper.delete(Wrappers.lambdaQuery(VesselInviteCode.class)
+			.eq(VesselInviteCode::getTenantId, tenantId)
+			.eq(VesselInviteCode::getVesselId, vesselId)
+			.eq(VesselInviteCode::getOwnerUserId, userId)
+			.eq(VesselInviteCode::getStatus, VesselInviteCode.STATUS_ACTIVE));
+		log.info("成员退出船舶 tenant={} vessel={} user={}", tenantId, vesselId, userId);
 	}
 
 	@Override
@@ -468,13 +487,20 @@ public class VesselBindServiceImpl implements IVesselBindService {
 			throw new ArynBusinessException("系统内没有名为「" + apply.getApplyVesselName()
 					+ "」的在营船舶，请选择已有船舶或填写新船名称后通过");
 		}
-		// 船还没录入系统 —— 先建船再绑定
+		// 船还没录入系统 —— 先建船再绑定；申请里能确认的信息（呼号、常靠港）一并落进档案，
+		// 避免「审核建出的船只有名称和 IMO」还要运营二次补录
 		VesselInfo vessel = new VesselInfo();
 		vessel.setVesselName(newName.trim());
 		vessel.setImoCode(dto.getNewVesselImo());
+		vessel.setCallSign(dto.getNewVesselCallSign());
 		vessel.setVesselType(StringUtils.hasText(dto.getNewVesselType()) ? dto.getNewVesselType() : "5");
 		vessel.setStatus(VESSEL_STATUS_ACTIVE);
-		vessel.setRemark("由绑定申请审核创建（申请单 " + apply.getApplyNo() + "）");
+		StringBuilder remark = new StringBuilder("由绑定申请审核创建（申请单 ").append(apply.getApplyNo()).append("）");
+		if (StringUtils.hasText(apply.getApplyPortName())) {
+			// 档案表没有常靠港字段，先随备注留存；运营维护靠港计划时可作为参照
+			remark.append("；申请人常靠港：").append(apply.getApplyPortName());
+		}
+		vessel.setRemark(remark.toString());
 		vessel.setTenantId(tenantId);
 		vesselInfoMapper.insert(vessel);
 		log.info("审核通过时新建船舶 tenant={} vessel={} name={}", tenantId, vessel.getId(), vessel.getVesselName());

@@ -54,7 +54,7 @@ class PublicEndpointWhitelistContractTest {
 			"/sms/1/13800000000",
 			// 租户门店信息
 			"/app/tenant/shop-info",
-			// 商品域：分类树 / 品牌列表与品牌筛选项 / 商品列表与详情 / 快捷加购
+			// 商品域：分类树 / 品牌列表与品牌筛选项 / 商品列表与详情 / 快捷加购 / 搜索联想
 			"/app/goodscategory/tree",
 			"/app/goodsbrand/list",
 			"/app/goodsbrand/filter-list",
@@ -63,6 +63,7 @@ class PublicEndpointWhitelistContractTest {
 			"/app/goodsspu/list/1,2",
 			"/app/goodsspu/hot-search/top10",
 			"/app/goodsspu/quick-cart/123",
+			"/app/goodsspu/suggest",
 			// 营销域：装修页 / 商城默认主题换肤 / 拼团 / 优惠券 / 秒杀 / 折扣
 			"/app/pagedesign",
 			"/app/pagedesign/2102572931049308162",

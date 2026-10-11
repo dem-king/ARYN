@@ -9,7 +9,8 @@ import type { PageSettings } from './types';
  *   · 页面 followMallTheme === false（页面设置关闭「跟随商城主题」）——无视
  *     theme 入参，页面自存配色直接生效（自定义配色脱离全局换肤）；
  *   · 页面引用过主题（发布固化为 themeSnapshot）——快照颜色已由 migrate
- *     合并进 page 配置，调用方传 theme=undefined，保持发布时视觉；
+ *     合并进 page 配置并暴露 themePrimaryColor，调用方传 theme=undefined
+ *     保持发布时视觉（预览画布据该字段自动处理；编辑画布草稿不携带快照）；
  *   · 页面未引用主题——传商城默认主题（mallThemeStore）覆盖页面配色，
  *     字段为空串时逐字段回落页面自存值。
  * 管理端画布/预览使用同一函数（见 page-designer/schema/effective-theme.ts），

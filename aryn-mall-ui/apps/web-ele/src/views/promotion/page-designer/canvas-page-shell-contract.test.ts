@@ -93,6 +93,46 @@ describe('page designer canvas contract', () => {
     expect(shell).toContain('data-shell="detail"');
   });
 
+  it('mirrors the user-center native modules in the personal center shell', () => {
+    const shell = readAdmin('canvas-page-shell.vue');
+    const userCenter = readFileSync(
+      resolve(mobileSourceRoot, 'pages/user/user-center/index.vue'),
+      'utf8',
+    );
+
+    // 个人中心骨架的常驻模块（订单 5 入口 / 服务 8 宫格 / 猜你喜欢 / 页头设置
+    // 入口）必须与 C 端 user-center 页逐项对齐：曾漏掉「我的服务」「猜你喜欢」
+    // 整块、订单入口不带文字标签，运营会误以为实机少了内容。
+    // 角色条件入口（配送工作台/我的船舶）按登录与租户能力出现，示意骨架不画。
+    for (const label of [
+      '待付款',
+      '待发货',
+      '待收货',
+      '待评价',
+      '退款/售后',
+      '我的服务',
+      '猜你喜欢',
+      '消息中心',
+      '会员中心',
+      '收货地址',
+      '我的评价',
+      '浏览记录',
+      '我的收藏',
+      '我的优惠券',
+      '分销中心',
+    ]) {
+      expect(shell).toContain(label);
+      expect(userCenter).toContain(label);
+    }
+    expect(shell).toContain('uc-hero__setting');
+    expect(userCenter).toContain('uc-hero__setting');
+    // 未登录提示文案与实机一致（曾写成「登录后查看权益」）
+    expect(shell).toContain('登录后同步订单、优惠券与积分');
+    expect(userCenter).toContain('登录后同步订单、优惠券与积分');
+    expect(shell).not.toContain('配送工作台');
+    expect(shell).not.toContain('我的船舶');
+  });
+
   it('draws the decoration navigation bar only for full-page DIY', () => {
     const canvas = readAdmin('phone-canvas.vue');
     const script = scriptBlock(canvas);

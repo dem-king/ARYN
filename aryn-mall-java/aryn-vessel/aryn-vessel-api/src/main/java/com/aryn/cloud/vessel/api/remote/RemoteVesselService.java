@@ -23,6 +23,15 @@ public interface RemoteVesselService {
 	boolean isVesselMember(String tenantId, String vesselId, String userId);
 
 	/**
+	 * 查询用户在指定船舶的在船成员角色。
+	 * @param tenantId 租户ID
+	 * @param vesselId 船舶ID
+	 * @param userId 商城用户ID
+	 * @return 角色编码（1发起人/2普通船员/3采购确认人/4业务员）；非在船成员返回 null
+	 */
+	String getVesselMemberRole(String tenantId, String vesselId, String userId);
+
+	/**
 	 * 凭分享加入时自动补建船舶成员关系（幂等：已是成员则直接返回）。
 	 *
 	 * <p>场景：船员通过微信群分享卡片首次进入商城，此前没有船舶成员关系。

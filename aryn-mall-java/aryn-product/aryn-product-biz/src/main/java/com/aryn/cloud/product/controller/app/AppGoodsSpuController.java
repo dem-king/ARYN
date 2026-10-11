@@ -87,4 +87,10 @@ public class AppGoodsSpuController {
 		return Result.success(goodsSpuService.getTop10HotSearchGoods());
 	}
 
+	@Operation(summary = "搜索联想词（在售商品名，前缀优先，最多10条；输入无效返回空列表）")
+	@GetMapping("/suggest")
+	public Result<List<String>> suggest(@RequestParam(value = "keyword", required = false) String keyword) {
+		return Result.success(goodsSpuService.suggestNames(ArynTenantContextHolder.getTenantId(), keyword));
+	}
+
 }

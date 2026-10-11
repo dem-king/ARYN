@@ -104,6 +104,14 @@ public class VesselBindAppController {
 				vesselBindService.searchCandidates(user.getTenantId(), user.getUserId(), vesselId, keyword));
 	}
 
+	@Operation(summary = "本人退出船舶（发起人除外）")
+	@PostMapping("/{vesselId}/leave")
+	public Result<Void> leaveShip(@PathVariable String vesselId) {
+		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
+		vesselBindService.leaveShip(user.getTenantId(), user.getUserId(), vesselId);
+		return Result.success();
+	}
+
 	// ---------------------------------------------------------------------
 	// 邀请码
 	// ---------------------------------------------------------------------

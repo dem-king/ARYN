@@ -91,7 +91,7 @@ const statusLabel = computed(() => {
       </ElTag>
     </div>
 
-    <ElSpace :size="4" class="toolbar-group">
+    <ElSpace :size="4" class="toolbar-group toolbar-center">
       <ElTooltip content="撤销">
         <ElButton
           :disabled="!canUndo"
@@ -174,7 +174,7 @@ const statusLabel = computed(() => {
 <style scoped>
 .designer-toolbar {
   display: grid;
-  grid-template-columns: minmax(300px, 1fr) auto minmax(300px, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 16px;
   align-items: center;
   height: 56px;
@@ -191,6 +191,12 @@ const statusLabel = computed(() => {
 
 .toolbar-leading {
   gap: 8px;
+}
+
+/* 中列弹性收缩，缩放控件在剩余空间内居中；窗口过窄时裁切而非压到两侧按钮上 */
+.toolbar-center {
+  justify-self: center;
+  overflow: hidden;
 }
 
 .toolbar-actions {

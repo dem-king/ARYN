@@ -245,6 +245,7 @@ hx:
       - vessel_call_change_log
       - vessel_invite_code
       - vessel_bind_apply
+      - vessel_port_vehicle
       - shared_cart
       - shared_cart_member
       - shared_cart_item
@@ -287,3 +288,27 @@ gen:
 distribution:
   withdraw:
     account-key: ${DISTRIBUTION_WITHDRAW_ACCOUNT_KEY:}
+
+# 接龙报货 AI 助手（OpenAI 兼容协议，默认 DeepSeek；GLM 等同协议供应商换 base-url/model 即可）。
+# api-key 留空时 isAvailable=false，整条链路自动走纯规则解析/匹配，零影响。
+# key 建议经环境变量注入（compose-boot.yml 已透传 AI_API_KEY，可放 aryn-mall-java/.env）。
+aryn:
+  chain-ai:
+    enabled: ${AI_ENABLED:true}
+    # AI 别名召回（缺品备胎，默认关）：缺品候选主路径是商品域向量召回
+    alias-recall-enabled: ${AI_ALIAS_RECALL_ENABLED:false}
+    api-key: ${AI_API_KEY:}
+    model: ${AI_MODEL:deepseek-chat}
+    base-url: ${AI_BASE_URL:https://api.deepseek.com}
+    timeout-ms: ${AI_TIMEOUT_MS:20000}
+  # 目录向量召回（缺品主路径）：与 product-biz 同配置，DeepSeek 无 embeddings 接口，默认智谱
+  embedding:
+    enabled: ${AI_EMBEDDING_ENABLED:true}
+    api-key: ${AI_EMBEDDING_API_KEY:}
+    model: ${AI_EMBEDDING_MODEL:embedding-3}
+    base-url: ${AI_EMBEDDING_BASE_URL:https://open.bigmodel.cn/api/paas/v4}
+    dimensions: ${AI_EMBEDDING_DIMENSIONS:1024}
+    timeout-ms: ${AI_EMBEDDING_TIMEOUT_MS:20000}
+    recall-top-k: ${AI_EMBEDDING_TOP_K:6}
+    score-threshold: ${AI_EMBEDDING_SCORE_THRESHOLD:0.55}
+    catalog-ttl-minutes: ${AI_EMBEDDING_CATALOG_TTL_MINUTES:60}

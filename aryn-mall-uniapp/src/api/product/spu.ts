@@ -31,6 +31,14 @@ export function getTop10HotSearchGoods() {
   })
 }
 
+// 搜索联想词（在售商品名，前缀优先，最多10条；免登）
+export function getSuggestWords(keyword: string) {
+  return alovaInstance.Get<string[]>('/product/app/goodsspu/suggest', {
+    params: { keyword },
+    headers: { skipToken: true },
+  })
+}
+
 // 快捷加购信息（列表页加购按钮按需查询 SKU/库存/MOQ，不写浏览足迹）
 export function getQuickCartInfo(id: string) {
   return alovaInstance.Get<any>(`/product/app/goodsspu/quick-cart/${id}`, {

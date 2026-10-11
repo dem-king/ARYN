@@ -27,6 +27,11 @@ public class RemoteVesselServiceImpl implements RemoteVesselService {
 	}
 
 	@Override
+	public String getVesselMemberRole(String tenantId, String vesselId, String userId) {
+		return vesselService.memberRole(tenantId, vesselId, userId);
+	}
+
+	@Override
 	public boolean bindMemberByShare(String tenantId, String vesselId, String userId) {
 		if (isVesselMember(tenantId, vesselId, userId)) {
 			return true;

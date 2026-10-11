@@ -104,6 +104,12 @@ public interface VesselService {
 	boolean isVesselMember(String tenantId, String vesselId, String userId);
 
 	/**
+	 * 查询用户在指定船舶的在船成员角色（供远程调用方按角色区分权限）。
+	 * @return 角色编码（1发起人/2普通船员/3采购确认人/4业务员）；非在船成员返回 null
+	 */
+	String memberRole(String tenantId, String vesselId, String userId);
+
+	/**
 	 * 按靠港计划 ID 查询可配送上下文（船舶+港口+时间窗）；不存在或已过期返回 null。
 	 */
 	VesselContextDTO contextByCallId(String tenantId, String vesselCallId);

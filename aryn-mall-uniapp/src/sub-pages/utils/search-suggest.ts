@@ -1,9 +1,10 @@
 /**
  * 搜索联想（纯函数，便于单测）。
  *
- * 背景：后端目前**没有** suggestion 接口（检索能力见可行性分析 §4.2），
- * 因此这里先用「热搜词 + 用户历史」在本地做前缀/包含匹配兜底，
- * 等后端出词表后把 `suggestWords` 的入参换成接口返回即可，调用方不用改。
+ * 词源分两层：
+ *   1. 接口词 —— 后端 `/app/goodsspu/suggest` 返回的**真实在售商品名**（主词源）；
+ *   2. 本地词 —— 用户历史 + 热销商品名（buildSearchSuggest），在接口词不足时兜底，
+ *      也是接口失败/超时时的降级层，保证面板永远有内容可出（除非真没有）。
  *
  * 刻意不做的两件事：
  *   · 不做错别字纠错 —— 没有词表与拼音数据，硬做只会给出更差的联想；
@@ -14,8 +15,15 @@
 /** 单个联想结果 */
 export interface SuggestItem {
   word: string
-  /** 来源：热度排行 / 用户历史，用于分组或标注 */
-  from: 'history' | 'hot'
+  /**
+   * 来源：goods=接口返回的真实商品名（主词源，不展示来源标签）；
+   * history/hot=本地兜底词。
+   */
+  from: 'goods' | 'history' | 'hot'
+  /** 命中区间起点（word 内下标，左闭右开），用于高亮渲染 */
+  hitStart?: number
+  /** 命中区间终点（不含） */
+  hitEnd?: number
 }
 
 /** 最多返回多少条联想词 */
@@ -82,7 +90,55 @@ export function buildSearchSuggest(
 
 /**
  * 联想词来源标签，用于给用户一点上下文（避免"这些词哪来的"）。
+ * 商品名联想（goods）是主词源，用户能理解「这是搜出来的商品」，不展示标签。
  */
 export function suggestFromLabel(from: SuggestItem['from']): string {
+  if (from === 'goods')
+    return ''
   return from === 'history' ? '历史' : '热搜'
+}
+
+/**
+ * 合并联想词：接口词（真实商品名）优先，不足 MAX_SUGGEST 用本地历史/热搜兜底补齐。
+ *
+ * 全流程忽略大小写去重，并为每个词计算命中区间（hitStart/hitEnd）供高亮渲染。
+ * 接口词来自服务端 LIKE 匹配，正常必然命中关键词；若某条意外不含关键词
+ * （数据在两次请求间隙被改），直接丢弃而不是渲染一条无高亮、点了也搜不出的词。
+ *
+ * @param apiWords 接口返回的联想词（可能为空 = 接口失败或无匹配）
+ * @param keyword 用户当前输入
+ * @param historyWords 搜索历史（新→旧）
+ * @param hotWords 热搜/推荐词
+ */
+export function mergeSuggestWords(
+  apiWords: string[] = [],
+  keyword: string,
+  historyWords: string[] = [],
+  hotWords: string[] = [],
+): SuggestItem[] {
+  const query = (keyword || '').trim().toLowerCase()
+  if (!query)
+    return []
+
+  const seen = new Set<string>()
+  const result: SuggestItem[] = []
+
+  const push = (raw: string, from: SuggestItem['from']) => {
+    const word = (raw || '').trim()
+    if (!word)
+      return
+    const lower = word.toLowerCase()
+    if (seen.has(lower))
+      return
+    const index = lower.indexOf(query)
+    if (index < 0)
+      return
+    seen.add(lower)
+    result.push({ word, from, hitStart: index, hitEnd: index + query.length })
+  }
+
+  for (const word of apiWords) push(word, 'goods')
+  for (const item of buildSearchSuggest(keyword, historyWords, hotWords)) push(item.word, item.from)
+
+  return result.slice(0, MAX_SUGGEST)
 }

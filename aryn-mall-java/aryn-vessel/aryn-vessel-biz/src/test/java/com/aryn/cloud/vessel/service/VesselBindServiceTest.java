@@ -223,24 +223,62 @@ class VesselBindServiceTest {
 	}
 
 	// ---------------------------------------------------------------------
+	// 退出船舶
+	// ---------------------------------------------------------------------
+
+	@Test
+	@DisplayName("普通成员可自助退出船舶，退出后本人有效邀请码一并作废")
+	void crewCanLeaveShip() {
+		when(vesselMemberMapper.selectOne(any())).thenReturn(member(CREW, VesselMember.ROLE_CREW));
+
+		service.leaveShip(TENANT, CREW, VESSEL_ID);
+
+		verify(vesselMemberMapper).deleteById("m-" + CREW);
+		verify(vesselInviteCodeMapper).delete(any());
+	}
+
+	@Test
+	@DisplayName("发起人不允许自助退出——退出后该船将没有管理角色")
+	void ownerCannotLeaveShip() {
+		when(vesselMemberMapper.selectOne(any())).thenReturn(member("owner-user", VesselMember.ROLE_OWNER));
+
+		ArynBusinessException ex = assertThrows(ArynBusinessException.class,
+				() -> service.leaveShip(TENANT, "owner-user", VESSEL_ID));
+		assertTrue(ex.getMsg().contains("发起人"));
+		verify(vesselMemberMapper, never()).deleteById(any(String.class));
+		verify(vesselInviteCodeMapper, never()).delete(any());
+	}
+
+	@Test
+	@DisplayName("非成员不能调用退出接口")
+	void nonMemberCannotLeaveShip() {
+		when(vesselMemberMapper.selectOne(any())).thenReturn(null);
+
+		assertThrows(ArynBusinessException.class, () -> service.leaveShip(TENANT, "stranger", VESSEL_ID));
+		verify(vesselMemberMapper, never()).deleteById(any(String.class));
+	}
+
+	// ---------------------------------------------------------------------
 	// 申请
 	// ---------------------------------------------------------------------
 
 	@Test
-	@DisplayName("已是成员时不允许重复提交申请")
-	void submitApplyRejectedWhenAlreadyMember() {
-		when(vesselMemberMapper.selectCount(any())).thenReturn(1L);
+	@DisplayName("已在船上的用户也可以提交申请——加入其他船或认领新船，由运营审核把关")
+	void submitApplyAllowedWhenAlreadyMember() {
+		when(vesselBindApplyMapper.selectCount(any())).thenReturn(0L);
 		VesselBindApplyDTO dto = new VesselBindApplyDTO();
-		dto.setApplyVesselName("悦航1号");
+		dto.setApplyVesselName("悦航3号");
 
-		assertThrows(ArynBusinessException.class, () -> service.submitApply(TENANT, CREW, dto));
-		verify(vesselBindApplyMapper, never()).insert(any(VesselBindApply.class));
+		service.submitApply(TENANT, CREW, dto);
+
+		ArgumentCaptor<VesselBindApply> captor = ArgumentCaptor.forClass(VesselBindApply.class);
+		verify(vesselBindApplyMapper).insert(captor.capture());
+		assertEquals(VesselBindApply.STATUS_PENDING, captor.getValue().getStatus());
 	}
 
 	@Test
 	@DisplayName("已有待审核申请时不允许重复提交")
 	void submitApplyRejectedWhenPendingExists() {
-		when(vesselMemberMapper.selectCount(any())).thenReturn(0L);
 		when(vesselBindApplyMapper.selectCount(any())).thenReturn(1L);
 		VesselBindApplyDTO dto = new VesselBindApplyDTO();
 		dto.setApplyVesselName("悦航1号");
@@ -251,8 +289,6 @@ class VesselBindServiceTest {
 	@Test
 	@DisplayName("申请角色只允许普通船员(2)与业务员(4)")
 	void submitApplyRejectsUnknownRole() {
-		when(vesselMemberMapper.selectCount(any())).thenReturn(0L);
-		when(vesselBindApplyMapper.selectCount(any())).thenReturn(0L);
 		VesselBindApplyDTO dto = new VesselBindApplyDTO();
 		dto.setApplyVesselName("悦航1号");
 		dto.setApplyRole("9");
@@ -263,7 +299,6 @@ class VesselBindServiceTest {
 	@Test
 	@DisplayName("业务员认领船舶：applyRole=4 的申请被原样落库")
 	void submitApplySupportsSalesClaim() {
-		when(vesselMemberMapper.selectCount(any())).thenReturn(0L);
 		when(vesselBindApplyMapper.selectCount(any())).thenReturn(0L);
 		VesselBindApplyDTO dto = new VesselBindApplyDTO();
 		dto.setApplyVesselName("悦航2号");
@@ -311,6 +346,7 @@ class VesselBindServiceTest {
 		VesselBindAuditDTO audit = new VesselBindAuditDTO();
 		audit.setNewVesselName("悦航新船");
 		audit.setNewVesselImo("9800099");
+		audit.setNewVesselCallSign("A3K9MP");
 		audit.setMemberRole(VesselMember.ROLE_SALES);
 
 		service.approveApply(TENANT, "admin-1", "apply-1", audit);
@@ -318,6 +354,8 @@ class VesselBindServiceTest {
 		ArgumentCaptor<VesselInfo> vesselCaptor = ArgumentCaptor.forClass(VesselInfo.class);
 		verify(vesselInfoMapper).insert(vesselCaptor.capture());
 		assertEquals("悦航新船", vesselCaptor.getValue().getVesselName());
+		assertEquals("9800099", vesselCaptor.getValue().getImoCode());
+		assertEquals("A3K9MP", vesselCaptor.getValue().getCallSign());
 		assertEquals("1", vesselCaptor.getValue().getStatus());
 
 		ArgumentCaptor<VesselMember> memberCaptor = ArgumentCaptor.forClass(VesselMember.class);
@@ -325,6 +363,29 @@ class VesselBindServiceTest {
 		assertEquals(VesselMember.ROLE_SALES, memberCaptor.getValue().getMemberRole());
 		assertEquals("1", memberCaptor.getValue().getCanEdit());
 		assertEquals("0", memberCaptor.getValue().getCanConfirm());
+	}
+
+	@Test
+	@DisplayName("审核建船时申请单的常靠港随备注落进档案，运营不必回查申请单")
+	void approveCreatesVesselCarriesApplyPortInRemark() {
+		VesselBindApply apply = new VesselBindApply();
+		apply.setId("apply-1");
+		apply.setTenantId(TENANT);
+		apply.setUserId(CREW);
+		apply.setApplyVesselName("悦航新船");
+		apply.setApplyPortName("上海港");
+		apply.setStatus(VesselBindApply.STATUS_PENDING);
+		when(vesselBindApplyMapper.selectOne(any())).thenReturn(apply);
+		when(vesselMemberMapper.selectCount(any())).thenReturn(0L);
+
+		VesselBindAuditDTO audit = new VesselBindAuditDTO();
+		audit.setNewVesselName("悦航新船");
+
+		service.approveApply(TENANT, "admin-1", "apply-1", audit);
+
+		ArgumentCaptor<VesselInfo> vesselCaptor = ArgumentCaptor.forClass(VesselInfo.class);
+		verify(vesselInfoMapper).insert(vesselCaptor.capture());
+		assertTrue(vesselCaptor.getValue().getRemark().contains("申请人常靠港：上海港"));
 	}
 
 	@Test
@@ -668,7 +729,6 @@ class VesselBindServiceTest {
 	@Test
 	@DisplayName("任何写入都带租户条件，不跨租户读写")
 	void writesAreTenantScoped() {
-		when(vesselMemberMapper.selectCount(any())).thenReturn(0L);
 		when(vesselBindApplyMapper.selectCount(any())).thenReturn(0L);
 		VesselBindApplyDTO dto = new VesselBindApplyDTO();
 		dto.setApplyVesselName("悦航2号");

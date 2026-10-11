@@ -63,6 +63,9 @@ public class SharedCartImportVO implements Serializable {
 	@Schema(description = "确认时跳过的行数")
 	private Integer skippedRows;
 
+	@Schema(description = "解析来源：AI / RULE（仅预览响应携带，重开历史报告时为空）")
+	private String parserSource;
+
 	@Schema(description = "创建时间")
 	private LocalDateTime createTime;
 

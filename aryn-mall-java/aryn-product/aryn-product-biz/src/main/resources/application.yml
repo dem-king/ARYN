@@ -16,3 +16,19 @@ spring:
     import:
       - optional:nacos:application-@profiles.active@.yml
       - optional:nacos:${spring.application.name}-@profiles.active@.yml
+
+# 目录向量召回（OpenAI 兼容 /embeddings 协议，默认智谱 embedding-3；阿里等同协议供应商换 base-url/model 即可）。
+# api-key 留空时向量召回整体跳过，matchRows 走纯字面匹配，零影响。
+# key 建议经环境变量注入（compose-boot.yml 已透传 AI_EMBEDDING_API_KEY，可放 aryn-mall-java/.env）。
+# 注意：DeepSeek 没有 embeddings 接口，这里不能用接龙助手的 AI_API_KEY。
+aryn:
+  embedding:
+    enabled: ${AI_EMBEDDING_ENABLED:true}
+    api-key: ${AI_EMBEDDING_API_KEY:}
+    model: ${AI_EMBEDDING_MODEL:embedding-3}
+    base-url: ${AI_EMBEDDING_BASE_URL:https://open.bigmodel.cn/api/paas/v4}
+    dimensions: ${AI_EMBEDDING_DIMENSIONS:1024}
+    timeout-ms: ${AI_EMBEDDING_TIMEOUT_MS:20000}
+    recall-top-k: ${AI_EMBEDDING_TOP_K:6}
+    score-threshold: ${AI_EMBEDDING_SCORE_THRESHOLD:0.55}
+    catalog-ttl-minutes: ${AI_EMBEDDING_CATALOG_TTL_MINUTES:60}

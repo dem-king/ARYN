@@ -48,7 +48,9 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 	@Override
 	public IPage<GoodsCatalogSummaryVO> catalogPage(String tenantId, Page<GoodsCatalogSummaryVO> page, String keyword,
 			String status) {
-		return baseMapper.selectCatalogPage(page, tenantId, keyword, status);
+		// LIKE 通配符按字面量匹配：用户输入 %/_ 不再当通配符（与联想词同口径）
+		String escapedKeyword = StringUtils.hasText(keyword) ? escapeLikeKeyword(keyword) : keyword;
+		return baseMapper.selectCatalogPage(page, tenantId, escapedKeyword, status);
 	}
 
 	@Override
@@ -287,6 +289,10 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 
 	@Override
 	public IPage<GoodsSpu> apiPage(Page page, GoodsSpu goodsSpu) {
+		if (Objects.nonNull(goodsSpu) && StringUtils.hasText(goodsSpu.getName())) {
+			// 结果页按名称搜索：通配符按字面量匹配（XML 直接读 #{query.name}，原地改写查询对象）
+			goodsSpu.setName(escapeLikeKeyword(goodsSpu.getName()));
+		}
 		IPage<GoodsSpu> result = baseMapper.selectApiPage(page, goodsSpu);
 		// C 端出参脱敏：成本价是内部经营数据，不下发（详见 GoodsCostPriceMasker）
 		if (Objects.nonNull(result)) {
@@ -387,6 +393,100 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 		List<GoodsSpu> goodsSpuList = baseMapper.getTop10HotSearchGoods();
 		goodsSpuList.forEach(GoodsCostPriceMasker::maskSpu);
 		return goodsSpuList;
+	}
+
+	@Override
+	public List<String> suggestNames(String tenantId, String keyword) {
+		// fail-closed：租户缺失宁可不出词，也绝不能退化成跨租户联想
+		if (!StringUtils.hasText(tenantId)) {
+			return Collections.emptyList();
+		}
+		String cleaned = sanitizeSuggestKeyword(keyword);
+		if (cleaned.isEmpty()) {
+			return Collections.emptyList();
+		}
+		List<String> candidates = baseMapper.selectSuggestNames(tenantId, escapeLikeKeyword(cleaned),
+				SUGGEST_CANDIDATE_LIMIT);
+		return rankSuggestWords(candidates, cleaned);
+	}
+
+	/** 联想词最长输出条数（与前端 MAX_SUGGEST 对齐） */
+	private static final int SUGGEST_MAX_WORDS = 10;
+
+	/** 联想候选上限：输出截断前多取一些，给去重/精排留余量 */
+	private static final int SUGGEST_CANDIDATE_LIMIT = 50;
+
+	/** 联想关键词最大长度，超长视为无意义输入直接返回空（不抛错，前端无感） */
+	private static final int SUGGEST_KEYWORD_MAX_LENGTH = 20;
+
+	/** LIKE 转义符：用 '!' 而非默认反斜杠，避开 MySQL 字符串转义语义的方言歧义 */
+	private static final char LIKE_ESCAPE_CHAR = '!';
+
+	/**
+	 * LIKE 通配符转义：%/_/转义符本身转成字面量，SQL 侧需配 {@code ESCAPE '!'}。
+	 * 不转义时用户输入 % 即可绕过联想语义、触发全租户 LIKE 扫描。
+	 */
+	static String escapeLikeKeyword(String keyword) {
+		StringBuilder escaped = new StringBuilder(keyword.length() + 8);
+		for (int i = 0; i < keyword.length(); i++) {
+			char c = keyword.charAt(i);
+			if (c == LIKE_ESCAPE_CHAR || c == '%' || c == '_') {
+				escaped.append(LIKE_ESCAPE_CHAR);
+			}
+			escaped.append(c);
+		}
+		return escaped.toString();
+	}
+
+	/**
+	 * 联想关键词清洗：剔除控制字符与首尾空白，超长判空。返回空串表示无有效输入。
+	 */
+	private static String sanitizeSuggestKeyword(String keyword) {
+		if (!StringUtils.hasText(keyword)) {
+			return "";
+		}
+		StringBuilder visible = new StringBuilder(keyword.length());
+		for (int i = 0; i < keyword.length(); i++) {
+			char c = keyword.charAt(i);
+			if (c > 0x1F && c != 0x7F) {
+				visible.append(c);
+			}
+		}
+		String trimmed = visible.toString().trim();
+		return trimmed.length() > SUGGEST_KEYWORD_MAX_LENGTH ? "" : trimmed;
+	}
+
+	/**
+	 * 联想精排：前缀命中优先于包含命中（与前端本地兜底 buildSearchSuggest 同规则），
+	 * 忽略大小写去重，与输入完全相同的词不重复推荐。
+	 */
+	private static List<String> rankSuggestWords(List<String> candidates, String query) {
+		if (CollectionUtils.isEmpty(candidates)) {
+			return Collections.emptyList();
+		}
+		String lowerQuery = query.toLowerCase(Locale.ROOT);
+		List<String> prefixHits = new ArrayList<>();
+		List<String> containsHits = new ArrayList<>();
+		Set<String> seen = new HashSet<>();
+		for (String candidate : candidates) {
+			if (!StringUtils.hasText(candidate)) {
+				continue;
+			}
+			String lower = candidate.toLowerCase(Locale.ROOT);
+			if (!seen.add(lower) || lower.equals(lowerQuery)) {
+				continue;
+			}
+			if (lower.startsWith(lowerQuery)) {
+				prefixHits.add(candidate);
+			}
+			else if (lower.contains(lowerQuery)) {
+				containsHits.add(candidate);
+			}
+		}
+		List<String> merged = new ArrayList<>(prefixHits.size() + containsHits.size());
+		merged.addAll(prefixHits);
+		merged.addAll(containsHits);
+		return merged.size() <= SUGGEST_MAX_WORDS ? merged : new ArrayList<>(merged.subList(0, SUGGEST_MAX_WORDS));
 	}
 
 }

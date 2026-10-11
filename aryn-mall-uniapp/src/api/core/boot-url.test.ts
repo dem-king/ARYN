@@ -32,6 +32,13 @@ describe('boot URL rewriting', () => {
     )
   })
 
+  it('routes the search suggest API in both deployment modes', () => {
+    // 搜索联想词接口：cloud 走 /product 域，boot 剥首段加 /boot 前缀
+    const cloudPath = '/product/app/goodsspu/suggest'
+    expect(rewriteBootUrl(cloudPath, false)).toBe(cloudPath)
+    expect(rewriteBootUrl(cloudPath, true)).toBe('/boot/app/goodsspu/suggest')
+  })
+
   it('routes the replenish batch-add and summary APIs in both deployment modes', () => {
     // 新增补给单接口的 boot/cloud 双模式输出必须显式锁定：
     // cloud 走网关的 /mall-order 域，boot 去掉首段加 /boot 前缀。

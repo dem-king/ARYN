@@ -300,6 +300,8 @@ export interface SharedCartImportRow {
   rowNo: number
   /** 接龙人名原文（接龙导入来源；Excel 导入为 null） */
   personName?: string
+  /** AI 从候选中推荐的 SKU ID（仅候选行有；采用与否由人在报告页决定） */
+  aiPickedSkuId?: string
   rawCode?: string
   rawName?: string
   rawSpec?: string
@@ -343,6 +345,8 @@ export interface SharedCartImport {
   notFilledRows?: number
   importedRows?: number
   skippedRows?: number
+  /** 解析来源：AI / RULE（仅粘贴预览响应携带，重开历史报告为空） */
+  parserSource?: 'AI' | 'RULE'
   createTime?: string
   confirmedTime?: string
   rows?: SharedCartImportRow[]

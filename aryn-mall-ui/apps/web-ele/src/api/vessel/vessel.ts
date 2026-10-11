@@ -127,6 +127,7 @@ export interface VesselBindApply {
 export interface VesselBindAudit {
   auditRemark?: string;
   matchedVesselId?: string;
+  newVesselCallSign?: string;
   newVesselImo?: string;
   newVesselName?: string;
   newVesselType?: string;

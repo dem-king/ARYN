@@ -118,8 +118,19 @@ export interface CanvasThemeVars {
   secondaryColor: string;
 }
 
-/** 画布/预览主题色统一构建：主题缺失或字段为空时逐项回落内置默认 */
-export function buildCanvasThemeVars(theme?: PageDesignTheme): CanvasThemeVars {
+/**
+ * 画布/预览主题色统一构建：主题缺失或字段为空时逐项回落内置默认。
+ * 入参只结构化取四个颜色字段，完整主题行与表单 payload 都能传入。
+ */
+export function buildCanvasThemeVars(
+  theme?: Pick<
+    PageDesignTheme,
+    | 'navigationColor'
+    | 'navigationTextColor'
+    | 'pageBackgroundColor'
+    | 'primaryColor'
+  >,
+): CanvasThemeVars {
   const primary = theme?.primaryColor || DEFAULT_PRIMARY_COLOR;
   return {
     primaryColor: primary,

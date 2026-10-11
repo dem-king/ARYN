@@ -32,6 +32,15 @@ public class GoodsCatalogSummaryVO implements Serializable {
 	@Schema(description = "商品名称")
 	private String name;
 
+	/**
+	 * SKU 规格描述，多个规格值用「；」连接（与 QuickCartInfoVO/SharedCartItemVO 同口径）。
+	 *
+	 * <p>同名 SPU 下多个 SKU 靠它区分（「国产香蕉 500g/份」与「进口香蕉 1kg/把」）：
+	 * 接龙报告页的补选候选只有名称和价格时，用户无法判断选中的是哪一件。
+	 */
+	@Schema(description = "规格描述，如「500ml；红色」")
+	private String specsInfo;
+
 	@Schema(description = "列表缩略图（SKU 图优先，回退 SPU 首图）")
 	private String picUrl;
 

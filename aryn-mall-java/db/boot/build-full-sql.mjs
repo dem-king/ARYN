@@ -101,6 +101,7 @@ const sections = [
   ['司机自助拉单开关', '120driver_self_pull_unassigned_incremental.sql'],
   ['共享购物车接龙粘贴导入（归属人姓名快照）', '121chain_import_attributed_name_incremental.sql'],
   ['平台管理员配送与船供菜单授权修复', '122platform_admin_menu_grant_fix.sql'],
+  ['港口报备车辆电话簿', '123vessel_port_vehicle_incremental.sql'],
 ];
 
 const normalize = (content) => content.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim();
@@ -162,6 +163,7 @@ DROP TABLE IF EXISTS \`vessel_invite_code\`;
 DROP TABLE IF EXISTS \`vessel_bind_apply\`;
 DROP TABLE IF EXISTS \`shared_cart_import\`;
 DROP TABLE IF EXISTS \`shared_cart_import_row\`;
+DROP TABLE IF EXISTS \`vessel_port_vehicle\`;
 `;
 
 const output = sections.reduce((sql, [title, file]) => {

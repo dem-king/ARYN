@@ -126,4 +126,17 @@ public interface IGoodsSpuService extends IService<GoodsSpu> {
 	 */
 	List<GoodsSpu> getTop10HotSearchGoods();
 
+	/**
+	 * 搜索联想词（C 端搜索页「猜你想搜」）。
+	 *
+	 * <p>词源=当前租户在售商品名，与结果页（selectApiPage）同口径只匹配名称，
+	 * 前缀命中优先于包含命中，忽略大小写去重后最多 10 条。出参只含名称，
+	 * 不回 ID/价格（最窄白名单）。输入无效（空/超长）或租户缺失时返回空列表，
+	 * 不抛异常——联想是加速项，任何异常都不应打断搜索主流程。
+	 * @param tenantId 租户（缺失时 fail-closed 返回空）
+	 * @param keyword 用户输入
+	 * @return 联想词列表
+	 */
+	List<String> suggestNames(String tenantId, String keyword);
+
 }

@@ -1,12 +1,25 @@
 <script setup lang="ts">
+import type { CanvasThemeVars } from '../page-designer/schema/theme-presets';
+import type { DecorationDocument } from '../page-designer/schema/types';
+
 import type {
+  PageDesignRecord,
   PageDesignTheme,
   PageDesignThemePayload,
 } from '#/api/promotion/page-design';
 
-import { computed, onMounted, reactive, ref } from 'vue';
+import {
+  computed,
+  defineAsyncComponent,
+  onMounted,
+  reactive,
+  ref,
+  shallowRef,
+} from 'vue';
+import { useRouter } from 'vue-router';
 
 import { Plus, Refresh, Star } from '@element-plus/icons-vue';
+import { useElementSize } from '@vueuse/core';
 import {
   ElButton,
   ElColorPicker,
@@ -25,17 +38,24 @@ import {
 import {
   createTheme,
   deleteTheme,
+  getEffectivePages,
   getThemes,
   setDefaultTheme,
   updateTheme,
 } from '#/api/promotion/page-design';
 
+import { migratePageContent } from '../page-designer/schema/migrate';
 import {
+  buildCanvasThemeVars,
   buildThemePayloadFromPrimary,
   derivePageBackgroundColor,
   deriveSecondaryColor,
   THEME_PRESETS,
 } from '../page-designer/schema/theme-presets';
+
+const PreviewCanvas = defineAsyncComponent(
+  () => import('../page-preview/components/preview-canvas.vue'),
+);
 
 /**
  * 商城主题管理（租户级全局配置）。
@@ -47,12 +67,56 @@ import {
  * 抽取自原 page-designer/components/theme-dialog.vue：逻辑一致，
  * 但作用域从「单页编辑器的弹窗」提升为独立菜单，「设为默认」的全局语义
  * 因此不再被单页容器误导。
+ *
+ * 效果预览直接渲染商城首页的发布版快照（effective-summary 与 C 端同源），
+ * 手机壳按真机 375:812 比例等比缩放，换肤由 PreviewCanvas 的主题变量完成，
+ * 所见即用户打开小程序看到的样子。
  */
+
+const router = useRouter();
 
 const loading = ref(false);
 const themes = ref<PageDesignTheme[]>([]);
 /** 预览用的主题：默认展示选中的行，未选中时展示商城默认（再退首个） */
 const previewId = ref('');
+
+/** 预览用的商城首页发布版快照；未发布/加载失败时退回空态引导 */
+const homePage = shallowRef<null | PageDesignRecord>(null);
+const homeLoading = shallowRef(false);
+
+/** 首页快照迁移到当前装修协议；解析失败按未发布处理 */
+const homeDocument = computed<DecorationDocument | null>(() => {
+  const content = homePage.value?.pageContent;
+  if (!content) return null;
+  try {
+    const raw = typeof content === 'string' ? JSON.parse(content) : content;
+    return migratePageContent(raw);
+  } catch {
+    return null;
+  }
+});
+
+/** 首页是否跟随商城主题：页面设置里关掉后全局换肤对它无效，预览须如实说明 */
+const homeFollowsTheme = computed(
+  () => homeDocument.value?.page.followMallTheme !== false,
+);
+
+/**
+ * 首页是否自带固化主题（发布时「本页主题」固化为快照）：预览画布对这类页面
+ * 不叠加商城默认主题、直接用页面固化配色，与 C 端实机一致，预览须如实说明。
+ */
+const homeHasOwnTheme = computed(() =>
+  Boolean(homeDocument.value?.themePrimaryColor),
+);
+
+/** 手机屏体测宽：画布按 375px 设计宽绘制，用 zoom 等比缩放塞进屏体 */
+const screenRef = ref<HTMLElement>();
+const screenWidth = useElementSize(screenRef).width;
+/** zoom 参与布局（滚动范围随之缩放）且不产生 transform 包含块，区块 sticky 不受影响 */
+const previewZoom = computed(() => {
+  const scale = screenWidth.value > 0 ? screenWidth.value / 375 : 1;
+  return `${scale}`;
+});
 
 const editing = ref<null | PageDesignTheme>(null);
 const formVisible = ref(false);
@@ -82,18 +146,16 @@ const previewTheme = computed<PageDesignThemePayload & { id?: string }>(() => {
   );
 });
 
-/** 预览用的衍生色（辅色/底色），与后端与 C 端口径一致 */
-const previewColors = computed(() => {
-  const primary = previewTheme.value.primaryColor || '#FF2237';
-  return {
-    background: previewTheme.value.pageBackgroundColor || '#F5F5F5',
-    navigation: previewTheme.value.navigationColor || '#FFFFFF',
-    navigationText: previewTheme.value.navigationTextColor || '#222222',
-    primary,
-    radius: previewTheme.value.radius ?? 8,
-    secondary: deriveSecondaryColor(primary),
-  };
-});
+/** 预览手机壳底色与 tabBar 选中色（装修内容配色由画布按主题变量解析） */
+const previewColors = computed(() => ({
+  background: previewTheme.value.pageBackgroundColor || '#F5F5F5',
+  primary: previewTheme.value.primaryColor || '#FF2237',
+}));
+
+/** 预览主题 → 画布主题变量：首页快照按该主题换肤（与编辑器画布同口径） */
+const previewThemeVars = computed<CanvasThemeVars>(() =>
+  buildCanvasThemeVars(previewTheme.value),
+);
 
 /** 当前预览的主题名（无来源时标注「预设示例」） */
 const previewLabel = computed(() => {
@@ -110,6 +172,29 @@ async function loadThemes() {
   } finally {
     loading.value = false;
   }
+}
+
+/** 拉取各类型生效装修汇总，取商城首页的发布版快照供预览渲染 */
+async function loadHomePage() {
+  homeLoading.value = true;
+  try {
+    const pages = await getEffectivePages();
+    homePage.value = pages.find((page) => page.pageType === '1') ?? null;
+  } catch {
+    // 生效汇总不可用（无列表权限/后端未升级）时退回空态，不阻塞主题库
+    homePage.value = null;
+  } finally {
+    homeLoading.value = false;
+  }
+}
+
+function refreshAll() {
+  void loadThemes();
+  void loadHomePage();
+}
+
+function goPageDesign() {
+  void router.push('/promotion/page-design');
 }
 
 function openCreate() {
@@ -218,7 +303,10 @@ function selectPreview(theme: PageDesignTheme) {
   previewId.value = theme.id;
 }
 
-onMounted(loadThemes);
+onMounted(() => {
+  void loadThemes();
+  void loadHomePage();
+});
 </script>
 
 <template>
@@ -236,7 +324,7 @@ onMounted(loadThemes);
               </p>
             </div>
             <div class="panel-actions">
-              <ElButton :icon="Refresh" plain @click="loadThemes">
+              <ElButton :icon="Refresh" plain @click="refreshAll">
                 刷新
               </ElButton>
               <ElButton
@@ -376,80 +464,65 @@ onMounted(loadThemes);
           </div>
         </section>
 
-        <!-- 右：效果预览（口径与 C 端一致：主色 / 辅色 / 底色 / 圆角） -->
+        <!-- 右：效果预览（商城首页发布版快照 + 预览主题换肤，与 C 端实机同构） -->
         <aside class="preview-panel">
           <header class="panel-head">
             <h3 class="panel-title">效果预览</h3>
             <p class="panel-tip">{{ previewLabel }}</p>
           </header>
-          <div
-            class="preview-phone"
-            :style="{ background: previewColors.background }"
-          >
+          <div v-loading="homeLoading" class="preview-stage">
             <div
-              class="preview-nav"
-              :style="{
-                background: previewColors.navigation,
-                color: previewColors.navigationText,
-              }"
+              v-if="homeDocument"
+              class="preview-phone"
+              :style="{ background: previewColors.background }"
             >
-              悦航购商城
+              <div ref="screenRef" class="preview-screen">
+                <div class="preview-zoom" :style="{ zoom: previewZoom }">
+                  <PreviewCanvas
+                    :document="homeDocument"
+                    :full-height="false"
+                    page-name="商城首页"
+                    page-type="1"
+                    :theme-vars="previewThemeVars"
+                  />
+                </div>
+              </div>
+              <div class="preview-tabbar-zoom" :style="{ zoom: previewZoom }">
+                <div class="preview-tabbar">
+                  <span
+                    class="tabbar-item is-active"
+                    :style="{ color: previewColors.primary }"
+                  >
+                    <i
+                      :style="{ background: previewColors.primary }"
+                      class="tabbar-dot"
+                    ></i>
+                    首页
+                  </span>
+                  <span class="tabbar-item">
+                    <i class="tabbar-dot"></i>
+                    分类
+                  </span>
+                  <span class="tabbar-item">
+                    <i class="tabbar-dot"></i>
+                    我的
+                  </span>
+                </div>
+              </div>
             </div>
-            <div class="preview-body">
-              <div
-                class="preview-card"
-                :style="{ borderRadius: `${previewColors.radius}px` }"
-              >
-                <div
-                  class="preview-tag"
-                  :style="{ background: previewColors.primary }"
-                >
-                  限时秒杀
-                </div>
-                <div class="preview-goods">
-                  <span class="preview-thumb"></span>
-                  <div class="preview-info">
-                    <span class="preview-name">示例商品名称</span>
-                    <span
-                      class="preview-price"
-                      :style="{ color: previewColors.primary }"
-                    >
-                      ¥ 19.90
-                    </span>
-                  </div>
-                </div>
-                <div
-                  class="preview-btn"
-                  :style="{
-                    background: previewColors.primary,
-                    borderRadius: `${previewColors.radius}px`,
-                  }"
-                >
-                  立即购买
-                </div>
-              </div>
-              <div class="preview-tabbar">
-                <span
-                  class="tabbar-item is-active"
-                  :style="{ color: previewColors.primary }"
-                >
-                  <i
-                    :style="{ background: previewColors.primary }"
-                    class="tabbar-dot"
-                  ></i>
-                  首页
-                </span>
-                <span class="tabbar-item">
-                  <i class="tabbar-dot"></i>
-                  分类
-                </span>
-                <span class="tabbar-item">
-                  <i class="tabbar-dot"></i>
-                  我的
-                </span>
-              </div>
+            <div v-else class="preview-fallback">
+              <ElEmpty description="商城首页暂无已发布的装修" />
+              <ElButton plain type="primary" @click="goPageDesign">
+                去装修首页
+              </ElButton>
             </div>
           </div>
+          <p v-if="homeDocument && !homeFollowsTheme" class="preview-note">
+            该首页已关闭「跟随商城主题」，实际显示页面自存配色
+          </p>
+          <p v-else-if="homeDocument && homeHasOwnTheme" class="preview-note">
+            该首页已指定「本页主题」，实际显示页面固化的主题配色
+          </p>
         </aside>
       </div>
     </div>
@@ -505,7 +578,7 @@ onMounted(loadThemes);
 
 .theme-body {
   display: grid;
-  grid-template-columns: minmax(520px, 1fr) 360px;
+  grid-template-columns: minmax(520px, 1fr) 415px;
   gap: 16px;
   height: calc(100vh - 130px);
 }
@@ -658,95 +731,66 @@ onMounted(loadThemes);
   align-items: center;
 }
 
+/* 预览舞台居中放一部完整手机：高度吃满可用空间，宽度按真机 375:812 比例
+   由 aspect-ratio 推出；画布按 375px 设计宽绘制后用 zoom 等比缩放塞进屏体 */
+.preview-stage {
+  display: flex;
+  flex: 1;
+  justify-content: center;
+  min-height: 0;
+}
+
 .preview-phone {
   display: flex;
-  flex: 1;
+  flex: none;
   flex-direction: column;
-  min-height: 0;
-  margin-top: 12px;
+  max-width: calc(375px + 12px);
+  aspect-ratio: 375 / 812;
   overflow: hidden;
-  border: 1px solid var(--el-border-color);
-  border-radius: 20px;
-  box-shadow: 0 8px 24px rgb(15 23 42 / 10%);
+  background: #fff;
+  border: 6px solid #1f2937;
+  border-radius: 24px;
+  box-shadow: 0 12px 32px rgb(15 23 42 / 18%);
 }
 
-.preview-nav {
+.preview-screen {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden auto;
+  scrollbar-width: none;
+}
+
+.preview-screen::-webkit-scrollbar {
+  display: none;
+}
+
+.preview-zoom,
+.preview-tabbar-zoom {
+  width: 375px;
+}
+
+.preview-tabbar-zoom {
+  flex: none;
+}
+
+.preview-fallback {
   display: flex;
+  flex-direction: column;
+  gap: 12px;
   align-items: center;
   justify-content: center;
-  height: 52px;
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.preview-body {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  justify-content: space-between;
-  min-height: 0;
-  padding: 14px;
-}
-
-.preview-card {
-  padding: 14px;
-  background: #fff;
-}
-
-.preview-tag {
-  display: inline-block;
-  padding: 2px 8px;
-  font-size: 11px;
-  color: #fff;
-  border-radius: 4px;
-}
-
-.preview-goods {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  margin-top: 12px;
-}
-
-.preview-thumb {
-  width: 56px;
-  height: 56px;
-  background: linear-gradient(135deg, #f0f0f0, #e0e0e0);
-  border-radius: 6px;
-}
-
-.preview-info {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.preview-name {
-  font-size: 13px;
-  color: #333;
-}
-
-.preview-price {
-  font-size: 16px;
-  font-weight: 700;
-}
-
-.preview-btn {
-  padding: 10px 0;
-  margin-top: 14px;
-  font-size: 14px;
-  color: #fff;
-  text-align: center;
+  width: 100%;
+  height: 100%;
 }
 
 .preview-tabbar {
   display: flex;
   align-items: center;
   justify-content: space-around;
-  padding-top: 12px;
-  margin-top: 12px;
+  height: 50px;
   font-size: 12px;
   color: #999;
+  background: #fff;
   border-top: 1px solid rgb(0 0 0 / 6%);
 }
 
@@ -766,6 +810,13 @@ onMounted(loadThemes);
 
 .tabbar-item.is-active .tabbar-dot {
   background: currentcolor;
+}
+
+.preview-note {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--el-text-color-secondary);
 }
 
 .color-row {

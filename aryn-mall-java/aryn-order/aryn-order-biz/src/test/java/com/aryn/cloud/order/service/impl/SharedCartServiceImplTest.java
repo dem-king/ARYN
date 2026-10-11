@@ -8,6 +8,7 @@ import com.aryn.cloud.order.api.entity.SharedCartItem;
 import com.aryn.cloud.order.mapper.SharedCartImportMapper;
 import com.aryn.cloud.order.mapper.SharedCartImportRowMapper;
 import com.aryn.cloud.order.mapper.SharedCartItemMapper;
+import com.aryn.cloud.order.support.ChainAiAssistant;
 import com.aryn.cloud.order.mapper.SharedCartMapper;
 import com.aryn.cloud.order.mapper.SharedCartMemberMapper;
 import com.aryn.cloud.order.service.IOrderInfoService;
@@ -58,7 +59,7 @@ class SharedCartServiceImplTest {
 		remoteVesselService = mock(RemoteVesselService.class);
 		service = new SharedCartServiceImpl(sharedCartMapper, mock(SharedCartMemberMapper.class),
 				sharedCartItemMapper, mock(SharedCartImportMapper.class),
-				mock(SharedCartImportRowMapper.class), orderInfoService);
+				mock(SharedCartImportRowMapper.class), orderInfoService, mock(ChainAiAssistant.class));
 		// @DubboReference 字段不走构造器，测试里反射注入
 		ReflectionTestUtils.setField(service, "remoteVesselService", remoteVesselService);
 		ReflectionTestUtils.setField(service, "remoteMallUserService", mock(RemoteMallUserService.class));

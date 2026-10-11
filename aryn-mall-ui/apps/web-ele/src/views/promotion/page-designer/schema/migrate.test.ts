@@ -296,4 +296,48 @@ describe('migratePageContent', () => {
       version: 1,
     });
   });
+
+  it('merges the published theme snapshot into page colors and exposes brand colors', () => {
+    // 与 C 端 diy/schema/migrate.ts 同一规则：发布固化的 themeSnapshot
+    // 覆盖页面自存配色（实机按快照渲染，预览必须同源），主色/辅色透传给
+    // 预览画布判定「页面自带主题、不再叠加商城默认主题」
+    const result = migratePageContent({
+      page: {
+        backgroundColor: '#F8F8F8',
+        navigation: { backgroundColor: '#ffffff', textColor: '#000000' },
+      },
+      schemaVersion: 3,
+      sections: [],
+      themeSnapshot: {
+        navigationColor: '#ff5500',
+        navigationTextColor: '#ffffff',
+        pageBackgroundColor: '#f5f5f5',
+        primaryColor: '#ff5500',
+        secondaryColor: '#ff8a5c',
+      },
+    });
+
+    expect(result.page.backgroundColor).toBe('#f5f5f5');
+    expect(result.page.navigation.backgroundColor).toBe('#ff5500');
+    expect(result.page.navigation.textColor).toBe('#ffffff');
+    expect(result.themePrimaryColor).toBe('#ff5500');
+    expect(result.themeSecondaryColor).toBe('#ff8a5c');
+  });
+
+  it('drops malformed theme snapshot values and keeps page colors', () => {
+    const result = migratePageContent({
+      page: { backgroundColor: '#F8F8F8' },
+      schemaVersion: 3,
+      sections: [],
+      themeSnapshot: {
+        navigationColor: 42,
+        primaryColor: 'blue',
+        secondaryColor: '#12',
+      },
+    });
+
+    expect(result.page.backgroundColor).toBe('#F8F8F8');
+    expect(result.themePrimaryColor).toBeUndefined();
+    expect(result.themeSecondaryColor).toBeUndefined();
+  });
 });

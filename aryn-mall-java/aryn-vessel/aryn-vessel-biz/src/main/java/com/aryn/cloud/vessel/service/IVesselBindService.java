@@ -78,6 +78,12 @@ public interface IVesselBindService {
 	 */
 	List<VesselMemberVO> searchCandidates(String tenantId, String userId, String vesselId, String keyword);
 
+	/**
+	 * 本人退出船舶（换船跑船的自助出路）。发起人不允许自助退出，
+	 * 退出后本人在该船生成的有效邀请码一并作废。
+	 */
+	void leaveShip(String tenantId, String userId, String vesselId);
+
 	// ---------------------------------------------------------------------
 	// 邀请码
 	// ---------------------------------------------------------------------

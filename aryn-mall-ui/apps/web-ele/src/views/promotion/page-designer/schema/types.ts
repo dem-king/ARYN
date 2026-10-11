@@ -62,6 +62,13 @@ export interface DecorationDocument {
    * 编辑器工作态不走此字段（themeRef 由编辑器单独持有，保存时经 toV3Document 写入）。
    */
   themeRef?: string;
+  /**
+   * 发布时固化的主题快照主色/辅色（迁移器从 themeSnapshot 提取，仅发布版内容携带）。
+   * 与 C 端 diy 渲染器同一规则：字段存在表示页面自带主题，预览画布改用快照色、
+   * 不再叠加调用方注入的商城默认主题；编辑器草稿不携带（toV3Document 不序列化）。
+   */
+  themePrimaryColor?: string;
+  themeSecondaryColor?: string;
 }
 
 /**

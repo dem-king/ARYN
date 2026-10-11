@@ -26,8 +26,9 @@ const props = withDefaults(
      */
     pageType?: PageDesignType;
     /**
-     * 有效主题色（页面指定主题 > 商城默认主题，调用方解析后传入）：
+     * 注入的有效主题色（商城默认主题/候选主题，调用方解析后传入）：
      * 覆盖页面自存的品牌色，与编辑器画布、C 端实机三方一致；缺省保留页面原色。
+     * 页面自带固化主题（themeSnapshot）时不参与，见 hasPageTheme。
      */
     themeVars?: CanvasThemeVars;
   }>(),
@@ -40,9 +41,20 @@ const props = withDefaults(
  */
 const isEmbeddedPage = computed(() => ['2', '3', '4'].includes(props.pageType));
 
+/**
+ * 页面自带固化主题（发布时 themeRef 固化为 themeSnapshot，migrate 已把快照色
+ * 合并进 page 配置并暴露 themePrimaryColor）：与 C 端 diy 渲染器同一规则，
+ * 不再叠加调用方注入的主题（生效卡片传商城默认、商城主题页传候选主题），
+ * CSS 变量也改挂快照主色/辅色，区块内 var(--wot-color-theme-*) 取色与实机一致。
+ */
+const hasPageTheme = computed(() => Boolean(props.document.themePrimaryColor));
+
 /** 与 phone-canvas、C 端 diy 渲染器同一解析函数（preview-parity.test.ts 守卫同源） */
 const effectivePage = computed(() =>
-  resolveEffectivePageTheme(props.document.page, props.themeVars),
+  resolveEffectivePageTheme(
+    props.document.page,
+    hasPageTheme.value ? undefined : props.themeVars,
+  ),
 );
 
 const pageStyle = computed(() => ({
@@ -50,6 +62,28 @@ const pageStyle = computed(() => ({
   backgroundImage: props.document.page.backgroundImage
     ? `url(${props.document.page.backgroundImage})`
     : undefined,
+}));
+
+/**
+ * 画布根节点同时挂主题 CSS 变量：装修组件预览用 var(--wot-color-theme-*)
+ * 取色（与编辑器画布 phone-canvas 同一套变量名）。页面自带固化主题时挂快照
+ * 主色/辅色（C 端 diy 的 pageStyle 同款），否则挂调用方注入的主题变量；
+ * 内嵌页型背景下沉到骨架内，根节点只挂变量不挂页面背景。
+ */
+const canvasRootStyle = computed(() => ({
+  ...(isEmbeddedPage.value ? {} : pageStyle.value),
+  ...(hasPageTheme.value
+    ? {
+        '--wot-color-theme-primary': props.document.themePrimaryColor,
+        '--wot-color-theme-secondary':
+          props.document.themeSecondaryColor ??
+          props.document.themePrimaryColor,
+      }
+    : {
+        '--wot-color-theme-primary': props.themeVars?.primaryColor || undefined,
+        '--wot-color-theme-secondary':
+          props.themeVars?.secondaryColor || undefined,
+      }),
 }));
 
 /**
@@ -89,7 +123,7 @@ function sectionStyle(section: DecorationDocument['sections'][number]) {
   <main
     class="preview-canvas"
     :class="{ 'preview-canvas--inline': !fullHeight }"
-    :style="isEmbeddedPage ? undefined : pageStyle"
+    :style="canvasRootStyle"
   >
     <header
       v-if="!isEmbeddedPage && document.page.navigation.visible"

@@ -39,4 +39,14 @@ public class ReplenishImportMatchDTO implements Serializable {
 	@Schema(description = "数量原文（是否合法由订单域按 MOQ/步长判定）")
 	private Integer quantity;
 
+	/**
+	 * 是否启用二字组模糊匹配（接龙粘贴专用；Excel 导入不启用，行为不变）。
+	 *
+	 * <p>精确与包含匹配都落空后，把品名拆成相邻二字组召回候选并按重叠率
+	 * 打分：重叠强且唯一最佳自动命中，中等重叠返回候选供人工一键确认。
+	 * 「青香蕉」对「国产香蕉」这类修饰词夹心的品名只有这条路能对上。
+	 */
+	@Schema(description = "启用二字组模糊匹配（接龙粘贴来源）")
+	private Boolean fuzzy;
+
 }

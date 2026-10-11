@@ -19,11 +19,13 @@ import com.aryn.cloud.order.mapper.SharedCartItemMapper;
 import com.aryn.cloud.order.mapper.SharedCartMapper;
 import com.aryn.cloud.order.mapper.SharedCartMemberMapper;
 import com.aryn.cloud.order.service.impl.SharedCartServiceImpl;
+import com.aryn.cloud.order.support.ChainAiAssistant;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import com.aryn.cloud.vessel.api.dto.VesselContextDTO;
+import com.aryn.cloud.vessel.api.entity.VesselMember;
 import com.aryn.cloud.user.api.remote.RemoteMallUserService;
 import com.aryn.cloud.vessel.api.remote.RemoteVesselService;
 import org.junit.jupiter.api.BeforeEach;
@@ -100,7 +102,7 @@ class SharedCartServiceTest {
 		// 不初始化就只能用 any()，无法区分两者——而那正是"复用漏掉已确认行"的缺陷点
 		TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), SharedCartItem.class);
 		service = new SharedCartServiceImpl(cartMapper, memberMapper, itemMapper, importMapper, importRowMapper,
-				orderInfoService);
+				orderInfoService, mock(ChainAiAssistant.class));
 		ReflectionTestUtils.setField(service, "remoteVesselService", remoteVesselService);
 		ReflectionTestUtils.setField(service, "remoteMallUserService", remoteMallUserService);
 	}
@@ -133,6 +135,7 @@ class SharedCartServiceTest {
 	@DisplayName("发起人创建购物车并成为成员，状态进入收集中")
 	void createInitializesOwnerMembership() {
 		when(cartMapper.selectOne(any())).thenReturn(null);
+		when(remoteVesselService.getVesselMemberRole(TENANT, "vessel-1", OWNER)).thenReturn("2");
 		SharedCartCreateDTO dto = new SharedCartCreateDTO();
 		dto.setVesselId("vessel-1");
 		dto.setVesselCallId("call-1");
@@ -146,6 +149,7 @@ class SharedCartServiceTest {
 	@DisplayName("有效期由服务端计算为 24 小时，忽略客户端传值")
 	void createComputesExpiryServerSide() {
 		when(cartMapper.selectOne(any())).thenReturn(null);
+		when(remoteVesselService.getVesselMemberRole(TENANT, "vessel-1", OWNER)).thenReturn("2");
 		SharedCartCreateDTO dto = new SharedCartCreateDTO();
 		dto.setVesselId("vessel-1");
 		dto.setVesselCallId("call-1");
@@ -160,11 +164,12 @@ class SharedCartServiceTest {
 	}
 
 	@Test
-	@DisplayName("同一船舶已有收集中购物车时复用该车并标记 adoptedExisting")
+	@DisplayName("同一船舶已有收集中购物车时复用该车并自动并入为可编辑成员")
 	void createReusesExistingCollectingCart() {
 		SharedCart existing = cart(SharedCart.STATUS_COLLECTING);
 		existing.setId("existing-cart");
 		when(cartMapper.selectOne(any())).thenReturn(existing);
+		when(remoteVesselService.getVesselMemberRole(TENANT, "vessel-1", OWNER)).thenReturn("2");
 
 		SharedCartCreateDTO dto = new SharedCartCreateDTO();
 		dto.setVesselId("vessel-1");
@@ -173,7 +178,75 @@ class SharedCartServiceTest {
 
 		assertEquals("existing-cart", result.getId());
 		assertEquals(Boolean.TRUE, result.getAdoptedExisting());
-		// 不应新建购物车，也不应重复插入发起人成员行
+		// 不应新建购物车，但应把发起人自动并入为可编辑成员（普通船员无确认权）
+		verify(cartMapper, never()).insert(any(SharedCart.class));
+		ArgumentCaptor<SharedCartMember> captor = ArgumentCaptor.forClass(SharedCartMember.class);
+		verify(memberMapper).insert(captor.capture());
+		assertEquals("1", captor.getValue().getCanEdit());
+		assertEquals("0", captor.getValue().getCanConfirm());
+	}
+
+	@Test
+	@DisplayName("船舶管理角色（业务员）并入收集中车时天然获得确认权")
+	void createAdoptsVesselManagerWithConfirmRight() {
+		SharedCart existing = cart(SharedCart.STATUS_COLLECTING);
+		existing.setId("existing-cart");
+		when(cartMapper.selectOne(any())).thenReturn(existing);
+		when(remoteVesselService.getVesselMemberRole(TENANT, "vessel-1", MEMBER))
+				.thenReturn(VesselMember.ROLE_SALES);
+
+		SharedCartCreateDTO dto = new SharedCartCreateDTO();
+		dto.setVesselId("vessel-1");
+		dto.setVesselCallId("call-1");
+		service.create(TENANT, MEMBER, dto);
+
+		ArgumentCaptor<SharedCartMember> captor = ArgumentCaptor.forClass(SharedCartMember.class);
+		verify(memberMapper).insert(captor.capture());
+		assertEquals("1", captor.getValue().getCanEdit());
+		assertEquals("1", captor.getValue().getCanConfirm());
+	}
+
+	@Test
+	@DisplayName("已在收集中车里的成员再次发起时不被提权，管理角色仅补确认权")
+	void createAdoptUpgradesExistingMemberRow() {
+		SharedCart existing = cart(SharedCart.STATUS_COLLECTING);
+		existing.setId("existing-cart");
+		when(cartMapper.selectOne(any())).thenReturn(existing);
+		when(remoteVesselService.getVesselMemberRole(TENANT, "vessel-1", MEMBER))
+				.thenReturn(VesselMember.ROLE_SALES);
+		SharedCartMember revoked = new SharedCartMember();
+		revoked.setId("member-1");
+		revoked.setCartId("existing-cart");
+		revoked.setUserId(MEMBER);
+		revoked.setCanEdit("0");
+		revoked.setCanConfirm("0");
+		when(memberMapper.selectOne(any())).thenReturn(revoked);
+
+		SharedCartCreateDTO dto = new SharedCartCreateDTO();
+		dto.setVesselId("vessel-1");
+		dto.setVesselCallId("call-1");
+		service.create(TENANT, MEMBER, dto);
+
+		// can_edit=0 是车主显式收回，不能借「再次发起」绕过；业务员只补确认权
+		verify(memberMapper, never()).insert(any(SharedCartMember.class));
+		assertEquals("0", revoked.getCanEdit());
+		assertEquals("1", revoked.getCanConfirm());
+		verify(memberMapper).updateById(revoked);
+	}
+
+	@Test
+	@DisplayName("非在船成员不能发起共享购物车（即使同船已有收集中车也不放行）")
+	void createRejectsNonVesselMember() {
+		// 故意让同船去重命中已有车：成员校验必须先于去重，
+		// 否则非成员会先拿到一张自己无权查看的详情（详情接口只对成员开放）。
+		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
+		when(remoteVesselService.getVesselMemberRole(TENANT, "vessel-1", MEMBER)).thenReturn(null);
+
+		SharedCartCreateDTO dto = new SharedCartCreateDTO();
+		dto.setVesselId("vessel-1");
+		dto.setVesselCallId("call-1");
+
+		assertThrows(ArynBusinessException.class, () -> service.create(TENANT, MEMBER, dto));
 		verify(cartMapper, never()).insert(any(SharedCart.class));
 		verify(memberMapper, never()).insert(any(SharedCartMember.class));
 	}
@@ -495,6 +568,50 @@ class SharedCartServiceTest {
 				() -> service.addItem(TENANT, "stranger", CART_ID, dto));
 		assertTrue(exception.getMsg().contains("无权访问"));
 		verify(itemMapper, never()).insert(any(SharedCartItem.class));
+	}
+
+	@Test
+	@DisplayName("同 SKU 已有待确认行时再加购：累加数量而不是撞 uk_shared_cart_item")
+	void addItemAccumulatesQuantityForExistingPendingItem() {
+		// 选货页对已加入的商品仍展示「加入共享车」，后端必须自己兜住同键行：
+		// 唯一键只认 (tenant,cart,user,sku,attributed_name)，盲插第二次必 500
+		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
+		when(memberMapper.selectOne(any())).thenReturn(member(CART_ID, MEMBER, SharedCartMember.ROLE_MEMBER, "1", "0"));
+		SharedCartItem existing = item("item-1", MEMBER, "sku-1", 5);
+		when(itemMapper.selectOne(any())).thenReturn(existing);
+		SharedCartItemDTO dto = new SharedCartItemDTO();
+		dto.setSkuId("sku-1");
+		dto.setRequestedQuantity(2);
+
+		SharedCartItem added = service.addItem(TENANT, MEMBER, CART_ID, dto);
+
+		assertEquals("item-1", added.getId(), "应回到既有行上合并数量");
+		assertEquals(7, added.getRequestedQuantity());
+		verify(itemMapper, never()).insert(any(SharedCartItem.class));
+		verify(itemMapper).updateById(existing);
+	}
+
+	@Test
+	@DisplayName("重新加购已移除的商品：复活原行而不是插入新行撞唯一键")
+	void addItemRevivesRemovedItem() {
+		// 已移除行（status=3）仍占着 uk_shared_cart_item 键位（唯一键不含 status），
+		// 上线接龙导入后该约束扩到了 5 列，C 端重加同款就报了 Duplicate entry
+		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
+		when(memberMapper.selectOne(any())).thenReturn(member(CART_ID, MEMBER, SharedCartMember.ROLE_MEMBER, "1", "0"));
+		SharedCartItem removed = item("item-1", MEMBER, "sku-1", 3);
+		removed.setStatus(SharedCartItem.ITEM_REMOVED);
+		when(itemMapper.selectOne(any())).thenReturn(removed);
+		SharedCartItemDTO dto = new SharedCartItemDTO();
+		dto.setSpuId("spu-1");
+		dto.setSkuId("sku-1");
+		dto.setRequestedQuantity(6);
+
+		SharedCartItem added = service.addItem(TENANT, MEMBER, CART_ID, dto);
+
+		assertEquals(SharedCartItem.ITEM_PENDING, added.getStatus(), "复活后回到待确认");
+		assertEquals(6, added.getRequestedQuantity(), "复活行数量按本次加购重计，不背上次移除前的旧账");
+		verify(itemMapper, never()).insert(any(SharedCartItem.class));
+		verify(itemMapper).updateById(removed);
 	}
 
 	@Test
@@ -899,6 +1016,7 @@ class SharedCartServiceTest {
 		SharedCart source = cart(SharedCart.STATUS_COMPLETED);
 		when(cartMapper.selectOne(any())).thenReturn(source, null);
 		when(memberMapper.selectCount(any())).thenReturn(1L, 0L);
+		when(remoteVesselService.getVesselMemberRole(TENANT, "vessel-1", MEMBER)).thenReturn("2");
 		SharedCartItem rowA = item("a", MEMBER, "sku-1", 5);
 		rowA.setApprovedQuantity(2);
 		SharedCartItem rowB = item("b", OWNER, "sku-1", 3);
@@ -932,6 +1050,7 @@ class SharedCartServiceTest {
 		SharedCart source = cart(SharedCart.STATUS_SUBMITTED);
 		when(cartMapper.selectOne(any())).thenReturn(source, null);
 		when(memberMapper.selectCount(any())).thenReturn(1L, 0L);
+		when(remoteVesselService.getVesselMemberRole(TENANT, "vessel-1", MEMBER)).thenReturn("2");
 		SharedCartItem skipped = item("a", MEMBER, "sku-1", 5);
 		skipped.setApprovedQuantity(0);
 		SharedCartItem kept = item("b", MEMBER, "sku-2", 3);
@@ -960,6 +1079,7 @@ class SharedCartServiceTest {
 		SharedCart source = cart(SharedCart.STATUS_SUBMITTED);
 		when(cartMapper.selectOne(any())).thenReturn(source, null);
 		when(memberMapper.selectCount(any())).thenReturn(1L, 0L);
+		when(remoteVesselService.getVesselMemberRole(TENANT, "vessel-1", MEMBER)).thenReturn("2");
 		SharedCartItem confirmed = item("a", MEMBER, "sku-1", 5);
 		confirmed.setStatus(SharedCartItem.ITEM_CONFIRMED);
 		givenItemQueries(List.of(), List.of(confirmed));
@@ -980,6 +1100,7 @@ class SharedCartServiceTest {
 		SharedCart target = cart(SharedCart.STATUS_COLLECTING);
 		when(cartMapper.selectOne(any())).thenReturn(source, target);
 		when(memberMapper.selectCount(any())).thenReturn(1L, 0L);
+		when(remoteVesselService.getVesselMemberRole(TENANT, "vessel-1", MEMBER)).thenReturn("2");
 		SharedCartItem sourceRow = item("a", MEMBER, "sku-1", 5);
 		SharedCartItem existingRow = item("b", MEMBER, "sku-1", 9);
 		// 目标车已有 sku-1，源单也含 sku-1 -> 应跳过
@@ -995,6 +1116,36 @@ class SharedCartServiceTest {
 		assertEquals(1, result.getSkippedCount());
 		assertEquals("本次清单中已有该商品", result.getSkipped().get(0).getReason());
 		verify(itemMapper, never()).insert(any(SharedCartItem.class));
+	}
+
+	@Test
+	@DisplayName("历史复用：目标车里自己已移除的同品行复活，而不是撞唯一键")
+	void reuseFromHistoryRevivesOwnRemovedItem() {
+		// 已移除行不进 listItems（只取 PENDING），绕过「已有该商品」跳过后若直接
+		// 插入新行，会撞上那行仍占着的 uk_shared_cart_item
+		SharedCart source = cart(SharedCart.STATUS_COMPLETED);
+		when(cartMapper.selectOne(any())).thenReturn(source, null);
+		when(memberMapper.selectCount(any())).thenReturn(1L, 0L);
+		when(remoteVesselService.getVesselMemberRole(TENANT, "vessel-1", MEMBER)).thenReturn("2");
+		SharedCartItem sourceRow = item("a", MEMBER, "sku-1", 4);
+		givenItemQueries(List.of(), List.of(sourceRow));
+		SharedCartItem removed = item("item-1", MEMBER, "sku-1", 3);
+		removed.setStatus(SharedCartItem.ITEM_REMOVED);
+		when(itemMapper.selectOne(any())).thenReturn(removed);
+
+		SharedCartReuseDTO dto = new SharedCartReuseDTO();
+		dto.setVesselId("vessel-1");
+		dto.setVesselCallId("call-new");
+
+		SharedCartReuseVO result = service.reuseFromHistory(TENANT, MEMBER, CART_ID, dto);
+
+		assertEquals(1, result.getReusedCount());
+		assertEquals(0, result.getSkippedCount());
+		verify(itemMapper, never()).insert(any(SharedCartItem.class));
+		ArgumentCaptor<SharedCartItem> captor = ArgumentCaptor.forClass(SharedCartItem.class);
+		verify(itemMapper).updateById(captor.capture());
+		assertEquals(SharedCartItem.ITEM_PENDING, captor.getValue().getStatus());
+		assertEquals(4, captor.getValue().getRequestedQuantity(), "复活行的数量取源单数量");
 	}
 
 	@Test
@@ -1047,12 +1198,21 @@ class SharedCartServiceTest {
 	@DisplayName("历史复用：并入侵已有进行中车时，复用者补成员关系（否则写进一张自己打不开的清单）")
 	void reuseFromHistoryBindsMemberWhenAdoptingExistingCart() {
 		SharedCart source = cart(SharedCart.STATUS_COMPLETED);
-		// create() 命中同船已有收集中购物车 -> 直接回传该车，不补成员行
+		// create() 命中同船已有收集中购物车 -> adopt 自动并入成员行（insert），
+		// requireReuseEditable 再查该行已存在（can_edit=1）-> 不再重复插入
 		SharedCart target = cart(SharedCart.STATUS_COLLECTING);
 		target.setOwnerUserId("someone-else");
 		when(cartMapper.selectOne(any())).thenReturn(source, target);
-		// requireMembership(源) -> 1；ensureReuseMembership 查目标 -> 0；requireConfirmer 不用
-		when(memberMapper.selectCount(any())).thenReturn(1L, 0L);
+		// requireMembership(源) -> 1；requireConfirmer 不用
+		when(memberMapper.selectCount(any())).thenReturn(1L);
+		SharedCartMember adopted = new SharedCartMember();
+		adopted.setCartId(target.getId());
+		adopted.setUserId(MEMBER);
+		adopted.setCanEdit("1");
+		adopted.setCanConfirm("0");
+		// 第一次 selectOne（adopt 时）查无 -> 插入；第二次（requireReuseEditable）查到 -> 跳过
+		when(memberMapper.selectOne(any())).thenReturn(null, adopted);
+		when(remoteVesselService.getVesselMemberRole(TENANT, "vessel-1", MEMBER)).thenReturn("2");
 		SharedCartItem sourceRow = item("a", MEMBER, "sku-1", 2);
 		givenItemQueries(List.of(), List.of(sourceRow));
 
@@ -1063,7 +1223,7 @@ class SharedCartServiceTest {
 		SharedCartReuseVO result = service.reuseFromHistory(TENANT, MEMBER, CART_ID, dto);
 
 		assertEquals(Boolean.TRUE, result.getAdoptedExisting());
-		verify(memberMapper).insert(any(SharedCartMember.class));
+		verify(memberMapper, times(1)).insert(any(SharedCartMember.class));
 	}
 
 	@Test
@@ -1073,6 +1233,7 @@ class SharedCartServiceTest {
 		source.setRemark("上航次备注");
 		when(cartMapper.selectOne(any())).thenReturn(source, null);
 		when(memberMapper.selectCount(any())).thenReturn(1L, 0L);
+		when(remoteVesselService.getVesselMemberRole(TENANT, "vessel-1", MEMBER)).thenReturn("2");
 		when(itemMapper.selectList(any())).thenReturn(List.of());
 
 		SharedCartReuseDTO dto = new SharedCartReuseDTO();

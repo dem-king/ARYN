@@ -43,6 +43,7 @@ aryn-mall-uniapp/tenants/.private/
 unpackage/
 
 # Environment
+/aryn-mall-java/.env
 .env.local
 .env.*.local
 

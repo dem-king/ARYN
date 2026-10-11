@@ -132,6 +132,11 @@ export function removeVesselMember(vesselId: string, memberId: string) {
   return alovaInstance.Delete<void>(`/vessel/app/${vesselId}/members/${memberId}`)
 }
 
+/** 本人退出船舶（发起人除外）；退出后本人在该船生成的有效邀请码一并失效 */
+export function leaveVessel(vesselId: string) {
+  return alovaInstance.Post<void>(`/vessel/app/${vesselId}/leave`)
+}
+
 /** 检索可添加的商城用户（手机号/昵称/用户ID）；status=1 表示已在船上 */
 export function searchMemberCandidates(vesselId: string, keyword: string) {
   return alovaInstance.Get<VesselMember[]>(`/vessel/app/${vesselId}/member-candidates`, {
@@ -159,4 +164,33 @@ export function redeemInviteCode(code: string) {
   return alovaInstance.Post<VesselMember>('/vessel/app/invite-codes/redeem', undefined, {
     params: { code },
   })
+}
+
+// ---------------------------------------------------------------------------
+// 港口报备车辆（船员靠港外出打车电话簿，纯只读）
+// 名单由船务公司在管理后台按港口维护，C 端只做查询与拨打。
+// ---------------------------------------------------------------------------
+
+export interface PortVehicle {
+  id: string
+  portName: string
+  plateNo: string
+  driverName?: string
+  driverPhone: string
+  seatCount?: number
+  vehicleDesc?: string
+  pickupPoint?: string
+  remark?: string
+}
+
+/** 某港口启用中的报备车辆（sort 升序） */
+export function getPortVehicles(portName: string) {
+  return alovaInstance.Get<PortVehicle[]>('/vessel/app/port-vehicles', {
+    params: { portName },
+  })
+}
+
+/** 已登记车辆的港口清单（启用中） */
+export function getPortVehiclePorts() {
+  return alovaInstance.Get<string[]>('/vessel/app/port-vehicles/ports')
 }

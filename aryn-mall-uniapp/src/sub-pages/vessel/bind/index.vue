@@ -8,7 +8,10 @@ import type { VesselBindApply, VesselInviteCode, VesselMember } from '@/api/vess
  *
  * 页面按用户状态分两种形态：
  *  · 未绑定 → 「加入船舶」：输邀请码 或 提交绑定申请（业务员认领船舶也走这里）
- *  · 已绑定 → 「成员管理」：业务员现场拉人、生成邀请码给同事
+ *  · 已绑定 → 「成员管理」：业务员现场拉人、生成邀请码给同事；
+ *    同时保留「加入其他船舶」（邀请码 / 没码时提交申请）与「退出本船」——
+ *    跑船换船的自助出路，不再依赖运营在管理端手工移除；
+ *    多船模型下已绑定用户申请加入其他船也走同一申请通道（运营审核）。
  *
  * 成员管理权限与后端一致：发起人(1) / 采购确认人(3) / 业务员(4)；普通船员(2) 只能看。
  *
@@ -30,6 +33,7 @@ import {
   getMyInviteCodes,
   getMyVessels,
   getVesselMembers,
+  leaveVessel,
   redeemInviteCode,
   removeVesselMember,
   revokeInviteCode,
@@ -38,6 +42,7 @@ import {
 
 } from '@/api/vessel'
 import hrNavbar from '@/components/hr-navbar/index.vue'
+import { ensureShipContextLoaded } from '@/composables/useShipContextLoad'
 import { useAuthStore } from '@/store/authStore'
 import { useShipContextStore } from '@/store/shipContextStore'
 import { useUserStore } from '@/store/userStore'
@@ -207,7 +212,8 @@ function fetchMemberData() {
 }
 
 function refreshAll() {
-  return fetchVessels().then(() => (hasVessel.value ? fetchMemberData() : fetchJoinData()))
+  // 已绑定也要拉申请列表：多船模型下已绑定用户同样可能有待审核的加船申请
+  return fetchVessels().then(() => Promise.all([hasVessel.value ? fetchMemberData() : Promise.resolve(), fetchJoinData()]))
 }
 
 // ---------------------------------------------------------------------------
@@ -245,6 +251,30 @@ function openApply() {
 
 function closeApply() {
   applyState.visible = false
+}
+
+/** 已绑定后用其他船的邀请码继续加船（跑船换船场景） */
+const joinAnother = reactive({ code: '', submitting: false })
+
+function submitJoinAnother() {
+  const code = joinAnother.code.trim().toUpperCase()
+  if (!code) {
+    uni.showToast({ title: '请输入邀请码', icon: 'none' })
+    return
+  }
+  if (joinAnother.submitting)
+    return
+  joinAnother.submitting = true
+  redeemInviteCode(code)
+    .then(() => {
+      joinAnother.code = ''
+      uni.showToast({ title: '已加入新船，可在上方切换', icon: 'none' })
+      return fetchVessels()
+    })
+    .catch(() => {})
+    .finally(() => {
+      joinAnother.submitting = false
+    })
 }
 
 function submitApply() {
@@ -374,6 +404,33 @@ function handleRemoveMember(member: VesselMember) {
   })
 }
 
+/** 本人退出当前浏览的船舶（发起人由后端拒绝，前端直接不显示入口） */
+function handleLeaveVessel() {
+  const vessel = activeVessel.value
+  if (!vessel)
+    return
+  uni.showModal({
+    title: '退出本船',
+    content: `退出后将无法以船供方式在「${vessel.vesselName}」下单，确定退出吗？`,
+    success: (res) => {
+      if (!res.confirm)
+        return
+      leaveVessel(vessel.id)
+        .then(() => {
+          uni.showToast({ title: '已退出', icon: 'success' })
+          activeVesselId.value = ''
+          members.value = []
+          inviteCodes.value = []
+          // 退出的是当前购物船时强制重装上下文：剩余船舶自动回落，无船则清空
+          if (shipContextStore.vesselId === vessel.id)
+            return ensureShipContextLoaded(true)
+        })
+        .then(() => refreshAll())
+        .catch(() => {})
+    },
+  })
+}
+
 function handleGenerateCode() {
   generateInviteCode(activeVesselId.value, { expireHours: 24 })
     .then(() => {
@@ -412,6 +469,11 @@ function switchVessel(vesselId: string) {
   candidateState.list = []
   candidateState.keyword = ''
   void fetchMemberData()
+}
+
+/** 港口报备车辆：靠港外出打车的司机电话簿 */
+function goPortVehicles() {
+  uni.navigateTo({ url: '/sub-pages/vessel/port-vehicles/index' })
 }
 
 /** 加入成功后把该船设为当前上下文，用户可直接开始采购 */
@@ -534,48 +596,6 @@ onShow(() => {
           填写申请
         </view>
       </view>
-
-      <!-- 我的申请 -->
-      <view v-if="myApplies.length > 0" class="mx-20rpx mt-20rpx rounded-24rpx bg-white p-32rpx">
-        <view class="flex items-center gap-10rpx text-30rpx font-bold">
-          <text class="i-carbon-time text-32rpx" style="color: #378ADD" />
-          我的申请
-        </view>
-        <view
-          v-for="apply in myApplies"
-          :key="apply.id"
-          class="mt-20rpx rounded-16rpx p-24rpx"
-          style="background: #F7F8FA"
-        >
-          <view class="flex items-center justify-between">
-            <view class="text-28rpx font-medium">
-              {{ apply.applyVesselName }}
-            </view>
-            <view class="rounded-full px-16rpx py-4rpx text-22rpx" :style="APPLY_STATUS_STYLES[apply.status] || APPLY_STATUS_STYLES['4']">
-              {{ APPLY_STATUS_LABEL[apply.status] || apply.status }}
-            </view>
-          </view>
-          <view class="mt-8rpx text-22rpx" style="color: #86909C">
-            申请单 {{ apply.applyNo }} · {{ apply.createTime }}
-          </view>
-          <view
-            v-if="apply.auditRemark"
-            class="mt-12rpx rounded-8rpx px-16rpx py-10rpx text-22rpx"
-            style="background: #FBF0E1; color: #C87D2A"
-          >
-            审核意见：{{ apply.auditRemark }}
-          </view>
-          <view v-if="apply.status === '1'" class="mt-16rpx flex justify-end">
-            <view
-              class="h-60rpx flex items-center rounded-full px-28rpx text-24rpx"
-              style="background: #FDEEEE; color: #D54941"
-              @tap="handleCancelApply(apply)"
-            >
-              撤回申请
-            </view>
-          </view>
-        </view>
-      </view>
     </template>
 
     <!-- ================= 已绑定：成员管理 ================= -->
@@ -618,6 +638,23 @@ onShow(() => {
         </view>
       </view>
 
+      <!-- 港口报备车辆：靠港外出打车电话簿 -->
+      <view
+        class="mx-20rpx mt-20rpx rounded-24rpx bg-white p-32rpx"
+        @tap="goPortVehicles"
+      >
+        <view class="flex items-center justify-between">
+          <view class="flex items-center gap-10rpx text-30rpx font-bold">
+            <text class="i-carbon-taxi text-32rpx" style="color: #378ADD" />
+            港口报备车辆
+          </view>
+          <text class="i-carbon-chevron-right text-28rpx" style="color: #A8ABB2" />
+        </view>
+        <view class="mt-8rpx text-24rpx" style="color: #86909C">
+          靠港外出打车：查看当前港口已报备车辆，一键拨打司机电话
+        </view>
+      </view>
+
       <!-- 多船切换 -->
       <view v-if="vessels.length > 1" class="mx-20rpx mt-20rpx rounded-24rpx bg-white p-24rpx">
         <view class="text-24rpx" style="color: #86909C">
@@ -633,6 +670,46 @@ onShow(() => {
           >
             {{ vessel.vesselName }}
           </view>
+        </view>
+      </view>
+
+      <!-- 加入其他船舶：跑船换船时用新船邀请码继续加船 -->
+      <view class="mx-20rpx mt-20rpx rounded-24rpx bg-white p-32rpx">
+        <view class="flex items-center gap-10rpx text-30rpx font-bold">
+          <text class="i-carbon-qr-code text-32rpx" style="color: #378ADD" />
+          加入其他船舶
+        </view>
+        <view class="mt-8rpx text-24rpx" style="color: #86909C">
+          经常换船跑？输入新船的邀请码加入，加入后可在上方随时切换
+        </view>
+        <view class="mt-24rpx flex items-center gap-16rpx">
+          <view class="flex-1 rounded-16rpx" style="background: #F7F8FA">
+            <input
+              v-model="joinAnother.code"
+              class="h-88rpx px-24rpx text-30rpx tracking-widest"
+              style="text-transform: uppercase"
+              placeholder="新船邀请码"
+              placeholder-style="color: #A8ABB2"
+              :maxlength="12"
+            >
+          </view>
+          <button
+            class="h-88rpx rounded-16rpx text-28rpx leading-88rpx !m-0"
+            style="width: 176rpx"
+            type="primary"
+            :disabled="joinAnother.submitting"
+            @tap="submitJoinAnother"
+          >
+            {{ joinAnother.submitting ? '加入中…' : '加入' }}
+          </button>
+        </view>
+        <view
+          class="mt-20rpx h-80rpx flex items-center justify-center gap-8rpx rounded-16rpx text-26rpx"
+          style="border: 1rpx dashed #8FBBE3; color: #378ADD"
+          @tap="openApply"
+        >
+          <text class="i-carbon-edit text-28rpx" />
+          没有邀请码？提交申请，由运营审核加入
         </view>
       </view>
 
@@ -743,7 +820,70 @@ onShow(() => {
           暂无有效邀请码，点上方「生成新码」创建
         </view>
       </view>
+
+      <!-- 退出本船：发起人除外（后端同口径拒绝，避免该船失去管理角色） -->
+      <view v-if="myRole && myRole !== '1'" class="mx-20rpx mt-20rpx rounded-24rpx bg-white p-32rpx">
+        <view class="flex items-center justify-between">
+          <view class="min-w-0 flex-1">
+            <view class="text-28rpx font-medium">
+              退出「{{ activeVessel?.vesselName || '本船' }}」
+            </view>
+            <view class="mt-6rpx text-22rpx" style="color: #86909C">
+              退出后不能再以该船下单，历史订单不受影响；换船时退出后可加入其他船
+            </view>
+          </view>
+          <view
+            class="ml-16rpx h-64rpx flex flex-none items-center rounded-full px-32rpx text-26rpx"
+            style="background: #FDEEEE; color: #D54941"
+            @tap="handleLeaveVessel"
+          >
+            退出
+          </view>
+        </view>
+      </view>
     </template>
+
+    <!-- 我的申请：未绑定/已绑定共用（已绑定时是待审核的加船申请） -->
+    <view v-if="myApplies.length > 0" class="mx-20rpx mt-20rpx rounded-24rpx bg-white p-32rpx">
+      <view class="flex items-center gap-10rpx text-30rpx font-bold">
+        <text class="i-carbon-time text-32rpx" style="color: #378ADD" />
+        我的申请
+      </view>
+      <view
+        v-for="apply in myApplies"
+        :key="apply.id"
+        class="mt-20rpx rounded-16rpx p-24rpx"
+        style="background: #F7F8FA"
+      >
+        <view class="flex items-center justify-between">
+          <view class="text-28rpx font-medium">
+            {{ apply.applyVesselName }}
+          </view>
+          <view class="rounded-full px-16rpx py-4rpx text-22rpx" :style="APPLY_STATUS_STYLES[apply.status] || APPLY_STATUS_STYLES['4']">
+            {{ APPLY_STATUS_LABEL[apply.status] || apply.status }}
+          </view>
+        </view>
+        <view class="mt-8rpx text-22rpx" style="color: #86909C">
+          申请单 {{ apply.applyNo }} · {{ apply.createTime }}
+        </view>
+        <view
+          v-if="apply.auditRemark"
+          class="mt-12rpx rounded-8rpx px-16rpx py-10rpx text-22rpx"
+          style="background: #FBF0E1; color: #C87D2A"
+        >
+          审核意见：{{ apply.auditRemark }}
+        </view>
+        <view v-if="apply.status === '1'" class="mt-16rpx flex justify-end">
+          <view
+            class="h-60rpx flex items-center rounded-full px-28rpx text-24rpx"
+            style="background: #FDEEEE; color: #D54941"
+            @tap="handleCancelApply(apply)"
+          >
+            撤回申请
+          </view>
+        </view>
+      </view>
+    </view>
 
     <view style="height: calc(40rpx + env(safe-area-inset-bottom))" />
 
@@ -931,7 +1071,7 @@ onShow(() => {
           </view>
           <view class="mx-30rpx mt-16rpx flex gap-16rpx">
             <view
-              v-for="option in [{ label: '船上人员', value: '2' }, { label: '公司业务员', value: '4' }]"
+              v-for="option in [{ label: '船上人员', value: '2' }, { label: '商城业务员', value: '4' }]"
               :key="option.value"
               class="rounded-full px-28rpx py-14rpx text-26rpx"
               :style="applyState.form.applyRole === option.value ? 'background:#378ADD;color:#fff' : 'background:#F2F3F5;color:#4E5969'"

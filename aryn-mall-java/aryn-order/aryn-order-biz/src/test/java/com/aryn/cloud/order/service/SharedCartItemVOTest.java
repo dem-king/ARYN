@@ -10,6 +10,7 @@ import com.aryn.cloud.order.mapper.SharedCartItemMapper;
 import com.aryn.cloud.order.mapper.SharedCartMapper;
 import com.aryn.cloud.order.mapper.SharedCartMemberMapper;
 import com.aryn.cloud.order.service.impl.SharedCartServiceImpl;
+import com.aryn.cloud.order.support.ChainAiAssistant;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.aryn.cloud.product.api.entity.GoodsSku;
 import com.aryn.cloud.product.api.entity.GoodsSpu;
@@ -72,7 +73,7 @@ class SharedCartItemVOTest {
 		when(memberMapper.selectList(any())).thenReturn(List.of());
 		service = new SharedCartServiceImpl(mock(SharedCartMapper.class), memberMapper, itemMapper,
 				mock(SharedCartImportMapper.class), mock(SharedCartImportRowMapper.class),
-				mock(IOrderInfoService.class));
+				mock(IOrderInfoService.class), mock(ChainAiAssistant.class));
 		ReflectionTestUtils.setField(service, "remoteGoodsSkuService", remoteGoodsSkuService);
 		ReflectionTestUtils.setField(service, "remoteGoodsSpuService", remoteGoodsSpuService);
 		ReflectionTestUtils.setField(service, "remoteVesselService", mock(RemoteVesselService.class));

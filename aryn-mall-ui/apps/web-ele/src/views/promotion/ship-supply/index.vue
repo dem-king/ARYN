@@ -3,6 +3,7 @@ import { defineAsyncComponent, onMounted, reactive, ref } from 'vue';
 
 import {
   ElButton,
+  ElDatePicker,
   ElDialog,
   ElForm,
   ElFormItem,
@@ -376,13 +377,22 @@ onMounted(initPage);
             </ElSelect>
           </ElFormItem>
           <ElFormItem label="开始时间" required>
-            <ElInput
+            <ElDatePicker
               v-model="form.startTime"
-              placeholder="2026-09-20 00:00:00"
+              type="datetime"
+              placeholder="选择开始时间"
+              value-format="YYYY-MM-DD HH:mm:ss"
+              style="width: 100%"
             />
           </ElFormItem>
           <ElFormItem label="结束时间" required>
-            <ElInput v-model="form.endTime" placeholder="2026-10-20 23:59:59" />
+            <ElDatePicker
+              v-model="form.endTime"
+              type="datetime"
+              placeholder="选择结束时间"
+              value-format="YYYY-MM-DD HH:mm:ss"
+              style="width: 100%"
+            />
           </ElFormItem>
 
           <template v-if="form.activityType === '4'">

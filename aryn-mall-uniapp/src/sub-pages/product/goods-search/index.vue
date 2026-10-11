@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import type { SuggestItem } from '@/sub-pages/utils/search-suggest'
 import { onLoad } from '@dcloudio/uni-app'
-import { computed, reactive, ref } from 'vue'
-import { getPage, getTop10HotSearchGoods } from '@/api/product/spu'
+import { computed, onUnmounted, reactive, ref, watch } from 'vue'
+import { getPage, getSuggestWords, getTop10HotSearchGoods } from '@/api/product/spu'
 import HrSearchNavbar from '@/components/hr-search-navbar/index.vue'
 import { useSearchHistory } from '@/sub-pages/composables/useSearchHistory'
-import { buildSearchSuggest, suggestFromLabel } from '@/sub-pages/utils/search-suggest'
+import { mergeSuggestWords, suggestFromLabel } from '@/sub-pages/utils/search-suggest'
 
 definePage({
   name: 'goods-search',
@@ -18,6 +18,8 @@ interface State {
   hotTopList: any[]
   hotSearchList: any[]
   keyword: string
+  /** 接口返回的联想词（真实商品名）；失败/无匹配为空数组 */
+  apiSuggestWords: string[]
 }
 // 前三名高亮色必须写成静态字符串：运行时模板字符串拼出的类名 UnoCSS 提取不到，样式永远不会生成
 const RANK_COLORS = ['text-red-500', 'text-orange-500', 'text-amber-500'] as const
@@ -31,20 +33,77 @@ const state = reactive<State>({
   hotTopList: [],
   hotSearchList: [],
   keyword: '',
+  apiSuggestWords: [],
 })
 
 /**
- * 联想词：本地用「历史 + 热搜商品名」做前缀/包含匹配。
- * 后端暂无 suggestion 接口，词源先由本页已有数据拼出，接口就绪后替换词源即可。
+ * 联想词 = 接口词（真实在售商品名）+ 本地历史/热搜兜底，合并去重后展示。
+ * 接口失败或无匹配时自然退化为纯本地联想，面板不白屏。
  */
-const suggestList = computed<SuggestItem[]>(() => buildSearchSuggest(
+const suggestList = computed<SuggestItem[]>(() => mergeSuggestWords(
+  state.apiSuggestWords,
   state.keyword,
   historyList.value,
   state.hotTopList.map(item => item.name).filter(Boolean),
 ))
 
+/**
+ * 高亮分段在 script 里预切成三段，模板保持单行渲染——text 内的换行缩进
+ * 会被当成文本渲染出多余空格，不能让格式化工具把嵌套 text 拆成多行。
+ */
+const suggestRows = computed(() => suggestList.value.map((item) => {
+  const hit = item.hitStart !== undefined && item.hitEnd !== undefined
+  return {
+    item,
+    before: hit ? item.word.slice(0, item.hitStart) : item.word,
+    hitText: hit ? item.word.slice(item.hitStart, item.hitEnd) : '',
+    after: hit ? item.word.slice(item.hitEnd) : '',
+  }
+}))
+
 /** 是否处于「输入中」：有输入且没在展示联想以外的面板 */
 const showSuggest = computed(() => state.keyword.trim().length > 0)
+
+/** 联想请求竞态守卫：只采纳最后一次输入的响应，快速输入不闪旧词 */
+let suggestSeq = 0
+let suggestTimer: ReturnType<typeof setTimeout> | null = null
+
+watch(() => state.keyword, (rawKeyword) => {
+  if (suggestTimer)
+    clearTimeout(suggestTimer)
+  const keyword = rawKeyword.trim()
+  if (!keyword) {
+    suggestSeq++
+    state.apiSuggestWords = []
+    return
+  }
+  // 250ms 防抖：停止输入后才请求，键入到出词体感约 300ms（对标小象）
+  suggestTimer = setTimeout(() => {
+    void fetchSuggestWords(keyword)
+  }, 250)
+})
+
+async function fetchSuggestWords(keyword: string) {
+  const seq = ++suggestSeq
+  try {
+    const words = await getSuggestWords(keyword)
+    if (seq !== suggestSeq)
+      return
+    state.apiSuggestWords = Array.isArray(words) ? words : []
+  }
+  catch {
+    // 静默降级：置空后由本地历史/热搜兜底出词，不打断搜索主流程
+    if (seq !== suggestSeq)
+      return
+    state.apiSuggestWords = []
+  }
+}
+
+onUnmounted(() => {
+  if (suggestTimer)
+    clearTimeout(suggestTimer)
+  suggestSeq++
+})
 
 function applySuggest(item: SuggestItem) {
   state.keyword = item.word
@@ -149,22 +208,33 @@ onMounted(() => {
       </view>
       <view v-if="suggestList.length > 0" class="pt-2">
         <view
-          v-for="item in suggestList"
-          :key="`${item.from}-${item.word}`"
+          v-for="row in suggestRows"
+          :key="`${row.item.from}-${row.item.word}`"
           class="suggest-row"
-          @click="applySuggest(item)"
+          @click="applySuggest(row.item)"
         >
           <wd-icon name="search" size="28rpx" color="#999" />
-          <text class="suggest-word">
-            {{ item.word }}
-          </text>
-          <text class="suggest-from">
-            {{ suggestFromLabel(item.from) }}
+          <!-- 命中片段三段渲染并高亮（不拼 HTML，规避 XSS 与小程序 v-html 兼容坑）。
+               用 flex 容器 + 兄弟 text 分段：嵌套 text 会被格式化拆行，
+               拆行产生的空白文本节点会渲染成多余空格，flex 下则不会。 -->
+          <view class="suggest-word">
+            <text class="suggest-seg">
+              {{ row.before }}
+            </text>
+            <text v-if="row.hitText" class="suggest-seg suggest-hit">
+              {{ row.hitText }}
+            </text>
+            <text class="suggest-seg suggest-seg--tail">
+              {{ row.after }}
+            </text>
+          </view>
+          <text v-if="suggestFromLabel(row.item.from)" class="suggest-from">
+            {{ suggestFromLabel(row.item.from) }}
           </text>
         </view>
       </view>
       <view v-else class="flex items-center justify-center pt-2 text-xs">
-        暂无相关联想词
+        没找到相关联想，直接搜索试试
       </view>
     </view>
 
@@ -274,14 +344,31 @@ onMounted(() => {
 }
 
 .suggest-word {
+  display: flex;
   flex: 1;
   min-width: 0;
   margin-left: 12rpx;
   overflow: hidden;
   color: #303133;
   font-size: 28rpx;
-  text-overflow: ellipsis;
+}
+
+.suggest-seg {
+  flex: none;
   white-space: nowrap;
+}
+
+/* 尾段允许收缩并出省略号：超长商品名从词尾截断 */
+.suggest-seg--tail {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 命中片段高亮：跟随商城主题色（与商品价签等主色口径一致，带兜底色） */
+.suggest-hit {
+  color: var(--wot-color-theme-primary, #ff2237);
 }
 
 .suggest-from {

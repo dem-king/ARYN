@@ -451,6 +451,20 @@ public class VesselServiceImpl implements VesselService {
 	}
 
 	@Override
+	public String memberRole(String tenantId, String vesselId, String userId) {
+		if (!StringUtils.hasText(tenantId) || !StringUtils.hasText(vesselId) || !StringUtils.hasText(userId)) {
+			return null;
+		}
+		VesselMember member = vesselMemberMapper.selectOne(Wrappers.lambdaQuery(VesselMember.class)
+				.eq(VesselMember::getTenantId, tenantId)
+				.eq(VesselMember::getVesselId, vesselId)
+				.eq(VesselMember::getUserId, userId)
+				.eq(VesselMember::getStatus, MEMBER_STATUS_ONBOARD)
+				.last("LIMIT 1"));
+		return member != null ? member.getMemberRole() : null;
+	}
+
+	@Override
 	public VesselContextDTO contextByCallId(String tenantId, String vesselCallId) {
 		if (!StringUtils.hasText(vesselCallId)) {
 			return null;

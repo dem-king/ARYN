@@ -97,6 +97,7 @@ const approveForm = reactive<any>({
   matchedVesselId: '',
   newVesselName: '',
   newVesselImo: '',
+  newVesselCallSign: '',
   newVesselType: '5',
   memberRole: '',
   auditRemark: '',
@@ -106,10 +107,14 @@ const vesselOptions = ref<any[]>([]);
 const openApprove = async (row: any) => {
   currentApply.value = row;
   approveMode.value = 'auto';
+  // 申请单里 IMO/呼号是同一个字段：7 位纯数字视为 IMO，其余按呼号预填，避免呼号被错落进 IMO 列
+  const applyImo = (row.applyVesselImo ?? '').trim();
+  const imoLike = /^\d{7}$/.test(applyImo);
   Object.assign(approveForm, {
     matchedVesselId: '',
     newVesselName: row.applyVesselName ?? '',
-    newVesselImo: row.applyVesselImo ?? '',
+    newVesselImo: imoLike ? applyImo : '',
+    newVesselCallSign: imoLike ? '' : applyImo,
     newVesselType: '5',
     memberRole: row.applyRole ?? '2',
     auditRemark: '',
@@ -137,6 +142,7 @@ const submitApprove = () => {
     }
     payload.newVesselName = approveForm.newVesselName;
     payload.newVesselImo = approveForm.newVesselImo;
+    payload.newVesselCallSign = approveForm.newVesselCallSign;
     payload.newVesselType = approveForm.newVesselType;
   }
   // auto 模式两个字段都不传，由服务端按申请船名精确匹配
@@ -315,6 +321,9 @@ onMounted(initPage);
             </ElFormItem>
             <ElFormItem label="IMO 编号">
               <ElInput v-model="approveForm.newVesselImo" />
+            </ElFormItem>
+            <ElFormItem label="呼号">
+              <ElInput v-model="approveForm.newVesselCallSign" />
             </ElFormItem>
           </template>
 

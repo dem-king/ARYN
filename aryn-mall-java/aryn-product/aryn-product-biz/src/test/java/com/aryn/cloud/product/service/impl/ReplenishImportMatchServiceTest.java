@@ -22,6 +22,8 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -43,10 +45,14 @@ class ReplenishImportMatchServiceTest {
 
 	private ReplenishImportMatchServiceImpl service;
 
+	private com.aryn.cloud.product.support.CatalogVectorRecallService catalogVectorRecallService;
+
 	@BeforeEach
 	void setUp() {
 		replenishImportMatchMapper = mock(ReplenishImportMatchMapper.class);
-		service = new ReplenishImportMatchServiceImpl(replenishImportMatchMapper);
+		// 默认 mock isAvailable=false：既有字面匹配用例不受向量层影响
+		catalogVectorRecallService = mock(com.aryn.cloud.product.support.CatalogVectorRecallService.class);
+		service = new ReplenishImportMatchServiceImpl(replenishImportMatchMapper, catalogVectorRecallService);
 	}
 
 	private ReplenishImportSkuRow skuRow(String skuId, String name) {
@@ -157,6 +163,199 @@ class ReplenishImportMatchServiceTest {
 		// 无规格值返回 null：空规格与「无规格」同义，不能拼成空串去比对
 		ReplenishImportSkuRow empty = skuRow("sku-2", "无规格商品");
 		assertNull(ReplenishImportMatchServiceImpl.joinSpecs(empty));
+	}
+
+	/**
+	 * 关键词查询按入参区分桩：全名关键词（如「青香蕉」）与二字组关键词
+	 * （如「青香」「香蕉」）走同一个 mapper 方法，按包含关系分辨。
+	 */
+	private void stubKeywordQuery(List<ReplenishImportSkuRow> fullNameHits,
+			List<ReplenishImportSkuRow> bigramHits, String fullName) {
+		when(replenishImportMatchMapper.selectRowsByKeywords(anyString(), anyList())).thenAnswer(invocation -> {
+			List<String> keywords = invocation.getArgument(1);
+			return keywords.contains(fullName) ? fullNameHits : bigramHits;
+		});
+	}
+
+	private ReplenishImportMatchDTO fuzzyRequest(String name) {
+		ReplenishImportMatchDTO dto = request(null, name);
+		dto.setFuzzy(true);
+		return dto;
+	}
+
+	@Test
+	@DisplayName("模糊匹配：修饰词夹心（青香蕉→国产香蕉）给一键候选，不自动定品")
+	void fuzzySuggestsSandwichName() {
+		ReplenishImportSkuRow banana = skuRow("sku-banana", "国产香蕉");
+		when(replenishImportMatchMapper.selectRowsBySkuIds(anyString(), anyList())).thenReturn(List.of());
+		when(replenishImportMatchMapper.selectRowsByExactNames(anyString(), anyList())).thenReturn(List.of());
+		stubKeywordQuery(List.of(), List.of(banana), "青香蕉");
+
+		List<ReplenishImportMatchVO> results = service.matchRows(TENANT, List.of(fuzzyRequest("青香蕉")));
+
+		// 0.5 的重叠混着「老冰糖→黄冰糖」这类真不同的商品，自动定品会错单；
+		// 候选一键采用足够顺手，判断留给人
+		assertEquals("AMBIGUOUS", results.get(0).getMatchType(), "夹心品名必须进候选让人一键确认");
+		assertEquals("sku-banana", results.get(0).getCandidates().get(0).getSkuId());
+	}
+
+	@Test
+	@DisplayName("模糊匹配：强重叠且唯一最佳 → 自动命中（红富士冰糖心→红富士苹果冰糖心）")
+	void fuzzyAutoMatchesStrongOverlap() {
+		ReplenishImportSkuRow apple = skuRow("sku-apple", "红富士苹果冰糖心 4斤装");
+		when(replenishImportMatchMapper.selectRowsBySkuIds(anyString(), anyList())).thenReturn(List.of());
+		when(replenishImportMatchMapper.selectRowsByExactNames(anyString(), anyList())).thenReturn(List.of());
+		stubKeywordQuery(List.of(), List.of(apple), "红富士冰糖心");
+
+		List<ReplenishImportMatchVO> results = service.matchRows(TENANT, List.of(fuzzyRequest("红富士冰糖心")));
+
+		assertEquals("NAME", results.get(0).getMatchType(), "0.8 的核心词重叠是同一商品，不该再让人点一遍");
+		assertEquals("sku-apple", results.get(0).getSkuId());
+	}
+
+	@Test
+	@DisplayName("模糊匹配：重叠不够自动阈值（小番茄→番茄酱）只给候选，不替人定品")
+	void fuzzyBelowAutoThresholdGivesCandidates() {
+		when(replenishImportMatchMapper.selectRowsBySkuIds(anyString(), anyList())).thenReturn(List.of());
+		when(replenishImportMatchMapper.selectRowsByExactNames(anyString(), anyList())).thenReturn(List.of());
+		stubKeywordQuery(List.of(), List.of(skuRow("sku-sauce", "番茄酱")), "小番茄");
+
+		List<ReplenishImportMatchVO> results = service.matchRows(TENANT, List.of(fuzzyRequest("小番茄")));
+
+		assertEquals("AMBIGUOUS", results.get(0).getMatchType(), "0.5 的重叠自动定品会错到别的商品上");
+		assertEquals(1, results.get(0).getCandidates().size());
+		assertEquals("sku-sauce", results.get(0).getCandidates().get(0).getSkuId());
+	}
+
+	@Test
+	@DisplayName("模糊匹配：多候选同分（同品名多规格）不自动定品")
+	void fuzzyTieDoesNotAutoMatch() {
+		when(replenishImportMatchMapper.selectRowsBySkuIds(anyString(), anyList())).thenReturn(List.of());
+		when(replenishImportMatchMapper.selectRowsByExactNames(anyString(), anyList())).thenReturn(List.of());
+		stubKeywordQuery(List.of(),
+				List.of(skuRow("sku-1", "手抓卷饼皮"), skuRow("sku-2", "手抓卷饼皮")), "卷饼皮");
+
+		List<ReplenishImportMatchVO> results = service.matchRows(TENANT, List.of(fuzzyRequest("卷饼皮")));
+
+		assertEquals("AMBIGUOUS", results.get(0).getMatchType(), "同分说明规格没收敛，必须人工选");
+		assertEquals(2, results.get(0).getCandidates().size());
+	}
+
+	@Test
+	@DisplayName("Excel 导入不受模糊匹配影响：未启用 fuzzy 的行为与原来一致")
+	void nonFuzzyRowsSkipFuzzyTier() {
+		when(replenishImportMatchMapper.selectRowsBySkuIds(anyString(), anyList())).thenReturn(List.of());
+		when(replenishImportMatchMapper.selectRowsByExactNames(anyString(), anyList())).thenReturn(List.of());
+		// 二字组召回查到了候选，但行未启用 fuzzy：必须维持「未匹配」原判
+		stubKeywordQuery(List.of(), List.of(skuRow("sku-banana", "国产香蕉")), "青香蕉");
+
+		List<ReplenishImportMatchVO> results = service.matchRows(TENANT, List.of(request(null, "青香蕉")));
+
+		assertEquals("NONE", results.get(0).getMatchType(), "fuzzy 未启用时不得悄悄改 Excel 行为");
+		assertNull(results.get(0).getSkuId());
+	}
+
+	@Test
+	@DisplayName("变体剥离：尾部形容词不参与匹配（卤牛腱子优质 → 原切牛腱子肉候选）")
+	void fuzzyStripsTrailingAdjective() {
+		ReplenishImportSkuRow beef = skuRow("sku-beef", "原切牛腱子肉");
+		when(replenishImportMatchMapper.selectRowsBySkuIds(anyString(), anyList())).thenReturn(List.of());
+		when(replenishImportMatchMapper.selectRowsByExactNames(anyString(), anyList())).thenReturn(List.of());
+		stubKeywordQuery(List.of(), List.of(beef), "卤牛腱子优质");
+
+		List<ReplenishImportMatchVO> results = service.matchRows(TENANT, List.of(fuzzyRequest("卤牛腱子优质")));
+
+		// 剥出「卤牛腱子」后与「原切牛腱子肉」核心词重叠 0.67：给候选不自动定品
+		// （卤味和原切是不是同一款，人判断）
+		assertEquals("AMBIGUOUS", results.get(0).getMatchType());
+		assertEquals("sku-beef", results.get(0).getCandidates().get(0).getSkuId());
+	}
+
+	@Test
+	@DisplayName("变体剥离：尾部规格不参与匹配（上海盐汽水600ml*24瓶 → 上海盐汽水可命中）")
+	void fuzzyStripsTrailingSpec() {
+		ReplenishImportSkuRow soda = skuRow("sku-soda", "上海盐汽水");
+		when(replenishImportMatchMapper.selectRowsBySkuIds(anyString(), anyList())).thenReturn(List.of());
+		when(replenishImportMatchMapper.selectRowsByExactNames(anyString(), anyList())).thenReturn(List.of());
+		stubKeywordQuery(List.of(), List.of(soda), "上海盐汽水600ml*24瓶");
+
+		List<ReplenishImportMatchVO> results = service.matchRows(TENANT, List.of(fuzzyRequest("上海盐汽水600ml*24瓶")));
+
+		// 剥出「上海盐汽水」后与同名商品 1.0 重叠：唯一最高分自动命中
+		assertEquals("NAME", results.get(0).getMatchType(), "规格尾巴不该挡住同名商品");
+		assertEquals("sku-soda", results.get(0).getSkuId());
+	}
+
+	@Test
+	@DisplayName("单字兜底：口语短名零二字组重叠时按共享汉字给候选（橙子 → 赣南脐橙）")
+	void charFallbackSuggestsForColloquialShortName() {
+		ReplenishImportSkuRow orange = skuRow("sku-orange", "赣南脐橙");
+		when(replenishImportMatchMapper.selectRowsBySkuIds(anyString(), anyList())).thenReturn(List.of());
+		when(replenishImportMatchMapper.selectRowsByExactNames(anyString(), anyList())).thenReturn(List.of());
+		// 召回区分：全名关键词「橙子」查不到任何商品；单字「橙」召回脐橙与橙汁家族
+		when(replenishImportMatchMapper.selectRowsByKeywords(anyString(), anyList())).thenAnswer(invocation -> {
+			List<String> keywords = invocation.getArgument(1);
+			return keywords.contains("橙") ? List.of(orange) : List.of();
+		});
+
+		List<ReplenishImportMatchVO> results = service.matchRows(TENANT, List.of(fuzzyRequest("橙子")));
+
+		// 「橙子」与「赣南脐橙」连二字组都不共享，靠共享汉字「橙」给候选；
+		// 单字重叠噪声大（橙汁/橙味全家桶都会进来），只建议不自动
+		assertEquals("AMBIGUOUS", results.get(0).getMatchType());
+		assertEquals("sku-orange", results.get(0).getCandidates().get(0).getSkuId());
+	}
+
+	@Test
+	@DisplayName("向量召回：字面层全落空的模糊行用语义相似度补候选，matchType 保持 NONE")
+	void vectorRecallFillsLexicallyHopelessRows() {
+		// 小番茄与西红柿零共享字符，字面层必然 NONE
+		when(replenishImportMatchMapper.selectRowsBySkuIds(anyString(), anyList())).thenReturn(List.of());
+		when(replenishImportMatchMapper.selectRowsByExactNames(anyString(), anyList())).thenReturn(List.of());
+		when(replenishImportMatchMapper.selectRowsByKeywords(anyString(), anyList())).thenReturn(List.of());
+		ReplenishImportSkuRow tomato = skuRow("sku-tomato", "普罗旺斯西红柿");
+		com.aryn.cloud.product.support.CatalogVectorRecallService.VectorMatch match =
+				new com.aryn.cloud.product.support.CatalogVectorRecallService.VectorMatch(tomato, 0.82);
+		when(catalogVectorRecallService.isAvailable()).thenReturn(true);
+		when(catalogVectorRecallService.recall(anyString(), anyList())).thenReturn(List.of(List.of(match)));
+
+		List<ReplenishImportMatchVO> results = service.matchRows(TENANT, List.of(fuzzyRequest("小番茄")));
+
+		// 候选落到报告行但行本身仍是未匹配：语义相近 ≠ 同一种商品，定品由人
+		assertEquals("NONE", results.get(0).getMatchType());
+		assertEquals("sku-tomato", results.get(0).getCandidates().get(0).getSkuId());
+	}
+
+	@Test
+	@DisplayName("向量召回：未配置（isAvailable=false）时整层跳过，不发起召回")
+	void vectorRecallSkippedWhenUnavailable() {
+		when(replenishImportMatchMapper.selectRowsBySkuIds(anyString(), anyList())).thenReturn(List.of());
+		when(replenishImportMatchMapper.selectRowsByExactNames(anyString(), anyList())).thenReturn(List.of());
+		when(replenishImportMatchMapper.selectRowsByKeywords(anyString(), anyList())).thenReturn(List.of());
+
+		List<ReplenishImportMatchVO> results = service.matchRows(TENANT, List.of(fuzzyRequest("小番茄")));
+
+		assertEquals("NONE", results.get(0).getMatchType());
+		assertNull(results.get(0).getCandidates());
+		verify(catalogVectorRecallService, times(0)).recall(anyString(), anyList());
+	}
+
+	@Test
+	@DisplayName("向量召回：Excel 行（fuzzy=false）不参与，编码命中的行不受影响")
+	void vectorRecallOnlyForFuzzyRows() {
+		// 编码列即 SKU 编号：skuRow 的 skuId 必须与编码值一致，才能被编码反查命中
+		ReplenishImportSkuRow hit = skuRow("975000000000000009", "船用洗手液");
+		when(replenishImportMatchMapper.selectRowsBySkuIds(anyString(), anyList())).thenReturn(List.of(hit));
+		when(catalogVectorRecallService.isAvailable()).thenReturn(true);
+		when(catalogVectorRecallService.recall(anyString(), anyList())).thenReturn(List.of(List.of()));
+
+		ReplenishImportMatchDTO excelRow = request("975000000000000009", null);
+		List<ReplenishImportMatchVO> results = service.matchRows(TENANT, List.of(excelRow));
+
+		// 编码唯一命中：不需要也不应该走向量
+		assertEquals("CODE", results.get(0).getMatchType());
+		assertEquals("975000000000000009", results.get(0).getSkuId());
+		verify(catalogVectorRecallService, times(0)).recall(anyString(), anyList());
 	}
 
 }

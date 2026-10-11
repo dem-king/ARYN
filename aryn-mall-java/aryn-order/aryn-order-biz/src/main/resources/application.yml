@@ -20,3 +20,16 @@ spring:
       - optional:nacos:${spring.application.name}-@profiles.active@.yml
   profiles:
     active: @profiles.active@
+
+# 接龙报货 AI 助手（OpenAI 兼容协议，默认 DeepSeek；GLM 等同协议供应商换 base-url/model 即可）。
+# api-key 留空时 isAvailable=false，整条链路自动走纯规则解析/匹配，零影响。
+# key 建议经环境变量注入（compose-boot.yml 已透传 AI_API_KEY，可放 aryn-mall-java/.env）。
+aryn:
+  chain-ai:
+    enabled: ${AI_ENABLED:true}
+    # AI 别名召回（缺品备胎，默认关）：缺品候选主路径是商品域向量召回
+    alias-recall-enabled: ${AI_ALIAS_RECALL_ENABLED:false}
+    api-key: ${AI_API_KEY:}
+    model: ${AI_MODEL:deepseek-chat}
+    base-url: ${AI_BASE_URL:https://api.deepseek.com}
+    timeout-ms: ${AI_TIMEOUT_MS:20000}

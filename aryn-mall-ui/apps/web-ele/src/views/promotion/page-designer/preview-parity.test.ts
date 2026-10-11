@@ -593,4 +593,23 @@ describe('装修预览与小程序视觉一致性', () => {
       expect(source).toContain('navigationBackgroundColor');
     }
   });
+
+  it('页面固化主题：预览画布与 C 端 diy 都按快照主色停止叠加注入主题', () => {
+    // 生效卡片/商城主题预览会给画布注入商城默认主题变量；页面发布时固化过
+    // themeSnapshot（migrate 暴露 themePrimaryColor）的页面实机用快照色，
+    // 两端渲染器必须同样判定，否则卡片/换肤预览会盖掉页面发布时的固有色
+    // （曾因此出现生效卡片配色与小程序不一致）。
+    const admin = readFileSync(
+      resolve(
+        adminSchemaRoot,
+        '../../page-preview/components/preview-canvas.vue',
+      ),
+      'utf8',
+    );
+    const mobile = readFileSync(resolve(mobileDiyRoot, 'index.vue'), 'utf8');
+    for (const source of [admin, mobile]) {
+      expect(source).toContain('themePrimaryColor');
+      expect(source).toContain('themeSecondaryColor');
+    }
+  });
 });

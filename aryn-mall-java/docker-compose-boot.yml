@@ -96,6 +96,21 @@ services:
       SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_URL: jdbc:mysql://aryn-boot-mysql:3306/aryn_boot?characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=false&useJDBCCompliantTimezoneShift=true&useLegacyDatetimeCode=false&serverTimezone=GMT%2B8&allowMultiQueries=true&allowPublicKeyRetrieval=true
       SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_USERNAME: root
       SPRING_DATASOURCE_DYNAMIC_DATASOURCE_MASTER_PASSWORD: wqy123456
+      # 接龙报货 AI 助手（OpenAI 兼容，默认 DeepSeek）：在 aryn-mall-java/.env 里放 AI_API_KEY=xxx 即启用
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_ENABLED: ${AI_ENABLED:-true}
+      AI_MODEL: ${AI_MODEL:-deepseek-chat}
+      AI_BASE_URL: ${AI_BASE_URL:-https://api.deepseek.com}
+      # AI 别名召回（缺品备胎）：向量召回未生效时用它兜底，走同一个 DeepSeek key
+      AI_ALIAS_RECALL_ENABLED: ${AI_ALIAS_RECALL_ENABLED:-false}
+      # 目录向量召回（缺品主路径，默认智谱 embedding-3）：AI_EMBEDDING_API_KEY 留空时走纯字面匹配
+      AI_EMBEDDING_API_KEY: ${AI_EMBEDDING_API_KEY:-}
+      AI_EMBEDDING_ENABLED: ${AI_EMBEDDING_ENABLED:-true}
+      AI_EMBEDDING_BASE_URL: ${AI_EMBEDDING_BASE_URL:-https://open.bigmodel.cn/api/paas/v4}
+      AI_EMBEDDING_MODEL: ${AI_EMBEDDING_MODEL:-embedding-3}
+      # 相似度阈值用 2026-10-11 真实目录标定值：应召回对 0.80+，无关对 P50=0.62/P90=0.68/最高 0.785
+      AI_EMBEDDING_SCORE_THRESHOLD: ${AI_EMBEDDING_SCORE_THRESHOLD:-0.68}
+      AI_EMBEDDING_TOP_K: ${AI_EMBEDDING_TOP_K:-6}
       SPRING_DATA_REDIS_HOST: aryn-boot-redis
       SPRING_DATA_REDIS_PORT: 6379
       SPRING_DATA_REDIS_PASSWORD: redis

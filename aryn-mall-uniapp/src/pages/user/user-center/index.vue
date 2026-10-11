@@ -1,18 +1,18 @@
 <script setup lang="ts">
+import type { DeliveryEligibility } from '@/api/delivery'
 import { onShow } from '@dcloudio/uni-app'
 import { computed, ref } from 'vue'
-import { getCount as getOrderCount } from '@/api/order/orderInfo'
+import { ensureSessionTenant, isTenantIdentityError } from '@/api/core/tenant-identity'
 import {
-  type DeliveryEligibility,
   exchangeDeliveryIdentity,
   getDeliveryEligibility,
   getMyDeliveryStaff,
 } from '@/api/delivery'
+import { getCount as getOrderCount } from '@/api/order/orderInfo'
 // 引入组件
 import DiyPage from '@/components/diy/index.vue'
 import WaterfallGoods from '@/components/waterfall-goods/index.vue'
 import { usePageDecoration } from '@/composables/usePageDecoration'
-import { ensureSessionTenant, isTenantIdentityError } from '@/api/core/tenant-identity'
 import { useMessageStore } from '@/store/messageStore'
 import { useTenantCapabilityStore } from '@/store/tenantCapabilityStore'
 import { Local } from '@/utils/storage'
@@ -161,9 +161,13 @@ const vesselEntranceVisible = computed(() => {
   return tenantCapabilityStore.shipSupplyEnabled
 })
 
+/**
+ * 副标题枚举页内主要能力：入口名叫「我的船舶」，看不出来里面还有
+ * 港口报备车辆（靠港打车拨司机电话）这类与绑定无关的功能，只能靠这里预告。
+ */
 const vesselEntranceSubtitle = computed(() =>
   vesselBound.value
-    ? `${vesselName.value || '已关联船舶'} · 查看靠港与成员`
+    ? `${vesselName.value || '已关联船舶'} · 靠港、成员与港口车辆`
     : '未关联船舶，加入后可用靠港配送',
 )
 
@@ -179,6 +183,15 @@ function loadVesselState() {
       vesselName.value = ''
     })
 }
+
+// ===================== 配送工作台入口 =====================
+
+/** 配送资格（服务端判断，资格请求完成前不渲染入口，避免先显示后隐藏跳动） */
+const deliveryEligibility = ref<DeliveryEligibility | null>(null)
+/** 本地是否已有配送员 token（仅作减少换取次数的提示，不作为授权依据） */
+const hasDeliveryToken = ref(false)
+/** 换取/探活请求进行中，防止连续点击重复换取 */
+const deliveryEntering = ref(false)
 
 onShow(() => {
   fetchDecoration()
@@ -214,15 +227,6 @@ onShow(() => {
     vesselName.value = ''
   }
 })
-
-// ===================== 配送工作台入口 =====================
-
-/** 配送资格（服务端判断，资格请求完成前不渲染入口，避免先显示后隐藏跳动） */
-const deliveryEligibility = ref<DeliveryEligibility | null>(null)
-/** 本地是否已有配送员 token（仅作减少换取次数的提示，不作为授权依据） */
-const hasDeliveryToken = ref(false)
-/** 换取/探活请求进行中，防止连续点击重复换取 */
-const deliveryEntering = ref(false)
 
 /**
  * 查询配送资格：请求失败或无资格时一律隐藏入口（token 不能作为授权依据）
@@ -591,53 +595,54 @@ function toLogin() {
         </text>
       </view>
     </view>
-  </view>
-  <!-- 配送工作台入口：仅已登录且具备配送资格的用户可见 -->
-  <view
-    v-if="deliveryEntranceVisible"
-    class="uc-entry"
-    :class="{
-      'uc-entry--muted': deliveryEligibility && !deliveryEligibility.eligible,
-      'uc-entry--busy': deliveryEntering,
-    }"
-    hover-class="uc-entry--pressed"
-    @click="enterDeliveryWorkspace"
-  >
-    <view class="uc-entry__icon">
-      <text class="i-carbon:delivery-truck uc-entry__glyph" />
-    </view>
-    <view class="uc-entry__body">
-      <text class="uc-entry__title">
-        配送工作台
+    <!-- 角色入口并入服务卡：两张独立横幅卡会把页面中段切成多张白卡、连出灰缝，行间只留发丝线 -->
+    <!-- 配送工作台入口：仅已登录且具备配送资格的用户可见 -->
+    <view
+      v-if="deliveryEntranceVisible"
+      class="uc-entry"
+      :class="{
+        'uc-entry--muted': deliveryEligibility && !deliveryEligibility.eligible,
+        'uc-entry--busy': deliveryEntering,
+      }"
+      hover-class="uc-entry--pressed"
+      @click="enterDeliveryWorkspace"
+    >
+      <view class="uc-entry__icon">
+        <text class="i-carbon:delivery-truck uc-entry__glyph" />
+      </view>
+      <view class="uc-entry__body">
+        <text class="uc-entry__title">
+          配送工作台
+        </text>
+        <text class="uc-entry__desc">
+          {{ deliveryEntranceSubtitle }}
+        </text>
+      </view>
+      <text v-if="deliveryEntranceBadge" class="uc-entry__count">
+        {{ deliveryEntranceBadge }}
       </text>
-      <text class="uc-entry__desc">
-        {{ deliveryEntranceSubtitle }}
-      </text>
+      <text class="i-carbon:chevron-right uc-entry__arrow" />
     </view>
-    <text v-if="deliveryEntranceBadge" class="uc-entry__count">
-      {{ deliveryEntranceBadge }}
-    </text>
-    <text class="i-carbon:chevron-right uc-entry__arrow" />
-  </view>
-  <!-- 船舶入口：首页状态条只服务「有船用户」，未绑定用户的出路收进这里 -->
-  <view
-    v-if="vesselEntranceVisible"
-    class="uc-entry"
-    hover-class="uc-entry--pressed"
-    @click="toRoute('/sub-pages/vessel/bind/index')"
-  >
-    <view class="uc-entry__icon">
-      <text class="i-carbon:sailboat-coastal uc-entry__glyph" />
+    <!-- 船舶入口：首页状态条只服务「有船用户」，未绑定用户的出路收进这里 -->
+    <view
+      v-if="vesselEntranceVisible"
+      class="uc-entry"
+      hover-class="uc-entry--pressed"
+      @click="toRoute('/sub-pages/vessel/bind/index')"
+    >
+      <view class="uc-entry__icon">
+        <text class="i-carbon:sailboat-coastal uc-entry__glyph" />
+      </view>
+      <view class="uc-entry__body">
+        <text class="uc-entry__title">
+          我的船舶
+        </text>
+        <text class="uc-entry__desc">
+          {{ vesselEntranceSubtitle }}
+        </text>
+      </view>
+      <text class="i-carbon:chevron-right uc-entry__arrow" />
     </view>
-    <view class="uc-entry__body">
-      <text class="uc-entry__title">
-        我的船舶
-      </text>
-      <text class="uc-entry__desc">
-        {{ vesselEntranceSubtitle }}
-      </text>
-    </view>
-    <text class="i-carbon:chevron-right uc-entry__arrow" />
   </view>
   <view class="uc-like">
     <view class="uc-like__rule" />
@@ -918,19 +923,17 @@ $uc-gutter: 20rpx;
   }
 }
 
-/* ===================== 横幅入口（配送工作台 / 我的船舶） ===================== */
+/* ===================== 角色入口行（配送工作台 / 我的船舶） ===================== */
 
+/* 行样式而非独立卡：宿主是「我的服务」白卡，这里只负责行内布局与发丝分隔线 */
 .uc-entry {
   display: flex;
   align-items: center;
-  margin: 20rpx $uc-gutter 0;
-  padding: 28rpx 32rpx;
-  border-radius: 24rpx;
-  background: #fff;
-  box-shadow: 0 8rpx 24rpx rgba(31, 44, 65, 0.04);
+  padding: 24rpx 32rpx;
+  border-top: 1rpx solid $uc-hairline;
 
   &--pressed {
-    background: #fafbfc;
+    opacity: 0.6;
   }
 
   /* 停用/换取中只降透明度，不隐藏：入口本身仍要看得见、点得到 */

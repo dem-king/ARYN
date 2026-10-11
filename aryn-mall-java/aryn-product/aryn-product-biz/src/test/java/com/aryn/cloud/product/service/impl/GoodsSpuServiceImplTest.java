@@ -8,6 +8,7 @@ import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.product.api.entity.GoodsSku;
 import com.aryn.cloud.product.api.entity.GoodsSpu;
+import com.aryn.cloud.product.api.vo.GoodsCatalogSummaryVO;
 import com.aryn.cloud.product.mapper.GoodsCategoryMapper;
 import com.aryn.cloud.product.mapper.GoodsCollectMapper;
 import com.aryn.cloud.product.mapper.GoodsFootprintMapper;
@@ -19,12 +20,16 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -212,6 +217,98 @@ class GoodsSpuServiceImplTest {
 		ArgumentCaptor<Wrapper<GoodsSpu>> wrapperCaptor = ArgumentCaptor.forClass(Wrapper.class);
 		verify(spuMapper).selectList(wrapperCaptor.capture());
 		assertTrue(wrapperCaptor.getValue().getSqlSegment().contains("status"));
+	}
+
+	@Test
+	void escapeLikeKeywordEscapesWildcardsAndEscapeChar() {
+		assertThat(GoodsSpuServiceImpl.escapeLikeKeyword("a%b_c!d")).isEqualTo("a!%b!_c!!d");
+		// 反斜杠不是特殊字符（ESCAPE '!'），按字面量透传
+		assertThat(GoodsSpuServiceImpl.escapeLikeKeyword("红富士\\苹果")).isEqualTo("红富士\\苹果");
+		assertThat(GoodsSpuServiceImpl.escapeLikeKeyword("苹果")).isEqualTo("苹果");
+	}
+
+	@Test
+	void suggestNamesFailsClosedWithoutTenant() {
+		assertThat(service.suggestNames(null, "苹果")).isEmpty();
+		assertThat(service.suggestNames("  ", "苹果")).isEmpty();
+		verify(spuMapper, never()).selectSuggestNames(anyString(), anyString(), anyInt());
+	}
+
+	@Test
+	void suggestNamesRejectsInvalidKeywordWithoutQuerying() {
+		assertThat(service.suggestNames("t-1", null)).isEmpty();
+		assertThat(service.suggestNames("t-1", "   ")).isEmpty();
+		// 纯控制字符清洗后为空
+		assertThat(service.suggestNames("t-1", "\u0001\t\n")).isEmpty();
+		// 超长（>20）直接判空，不报错
+		assertThat(service.suggestNames("t-1", "a".repeat(21))).isEmpty();
+		verify(spuMapper, never()).selectSuggestNames(anyString(), anyString(), anyInt());
+	}
+
+	@Test
+	void suggestNamesStripsControlCharsAndClampsLength() {
+		when(spuMapper.selectSuggestNames(anyString(), anyString(), anyInt())).thenReturn(List.of());
+		String twentyChars = "苹".repeat(20);
+
+		service.suggestNames("t-1", " 苹\u0001果\t\n");
+		service.suggestNames("t-1", twentyChars);
+
+		verify(spuMapper).selectSuggestNames(eq("t-1"), eq("苹果"), anyInt());
+		verify(spuMapper).selectSuggestNames(eq("t-1"), eq(twentyChars), anyInt());
+	}
+
+	@Test
+	void suggestNamesEscapesWildcardsAndPassesTenantExplicitly() {
+		when(spuMapper.selectSuggestNames(anyString(), anyString(), anyInt())).thenReturn(List.of());
+
+		service.suggestNames("tenant-1", "苹果%_x!");
+
+		verify(spuMapper).selectSuggestNames(eq("tenant-1"), eq("苹果!%!_x!!"), anyInt());
+	}
+
+	@Test
+	void suggestNamesRanksPrefixFirstDedupesAndExcludesExactInput() {
+		when(spuMapper.selectSuggestNames(anyString(), anyString(), anyInt()))
+			.thenReturn(List.of("红富士苹果", "苹果醋", "苹果汁", "苹果醋", "苹果"));
+
+		List<String> result = service.suggestNames("t-1", "苹果");
+
+		// 前缀命中（苹果醋/苹果汁）优先于包含命中（红富士苹果）；
+		// 重名去重；与输入完全相同的「苹果」不重复推荐
+		assertThat(result).containsExactly("苹果醋", "苹果汁", "红富士苹果");
+	}
+
+	@Test
+	void suggestNamesCapsAtTenWords() {
+		List<String> candidates = new ArrayList<>();
+		for (int i = 0; i < 12; i++) {
+			candidates.add("苹果" + i);
+		}
+		when(spuMapper.selectSuggestNames(anyString(), anyString(), anyInt())).thenReturn(candidates);
+
+		assertThat(service.suggestNames("t-1", "苹果")).hasSize(10);
+	}
+
+	@Test
+	void apiPageEscapesNameWildcards() {
+		Page<GoodsSpu> page = new Page<>(1, 10);
+		when(spuMapper.selectApiPage(any(Page.class), any(GoodsSpu.class))).thenReturn(page);
+		GoodsSpu query = new GoodsSpu();
+		query.setName("50%off_1");
+
+		service.apiPage(page, query);
+
+		assertThat(query.getName()).isEqualTo("50!%off!_1");
+	}
+
+	@Test
+	void catalogPageEscapesKeywordWildcards() {
+		Page<GoodsCatalogSummaryVO> page = new Page<>(1, 10);
+		when(spuMapper.selectCatalogPage(any(), anyString(), anyString(), anyString())).thenReturn(page);
+
+		service.catalogPage("t-1", page, "苹果%", "1");
+
+		verify(spuMapper).selectCatalogPage(any(), eq("t-1"), eq("苹果!%"), eq("1"));
 	}
 
 	private GoodsSpu product(String id, List<GoodsSku> skus) {

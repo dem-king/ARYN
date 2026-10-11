@@ -7,6 +7,7 @@ import com.aryn.cloud.product.api.vo.ReplenishCatalogVO;
 import com.aryn.cloud.product.api.vo.ReplenishImportMatchVO;
 import com.aryn.cloud.product.mapper.ReplenishImportMatchMapper;
 import com.aryn.cloud.product.service.IReplenishImportMatchService;
+import com.aryn.cloud.product.support.CatalogVectorRecallService;
 import com.aryn.cloud.product.support.ReplenishImportSkuRow;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -14,9 +15,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 补给单导入行匹配实现。
@@ -58,6 +61,9 @@ public class ReplenishImportMatchServiceImpl implements IReplenishImportMatchSer
 	private static final int DEFAULT_CATALOG_LIMIT = MAX_ROWS;
 
 	private final ReplenishImportMatchMapper replenishImportMatchMapper;
+
+	/** 目录向量召回（未配 embedding key 时 isAvailable=false，matchRows 跳过向量步） */
+	private final CatalogVectorRecallService catalogVectorRecallService;
 
 	@Override
 	public List<ReplenishImportMatchVO> matchRows(String tenantId, List<ReplenishImportMatchDTO> rows) {
@@ -107,12 +113,101 @@ public class ReplenishImportMatchServiceImpl implements IReplenishImportMatchSer
 			nameIndex.putIfAbsent(row.getSkuId(), row);
 		}
 
+		// 模糊行（接龙粘贴）的额外召回：品名拆成相邻二字组再做一次 LIKE。
+		// 「青香蕉」对「国产香蕉」这类修饰词夹心的品名双向包含必失败，
+		// 只有把重叠的核心词拆出来才能进候选池。单独建索引——混进 nameIndex
+		// 会放大 Excel 行包含匹配的候选池，等于顺手改了既有行为。
+		// 口语短名（剥完修饰/规格后 ≤3 个汉字，如「橙子」）再补**单字**召回：
+		// 它与商城名可能连二字组都不共享（橙子/赣南脐橙），共享汉字是最后的线索。
+		List<String> recallKeywords = new ArrayList<>();
+		for (ReplenishImportMatchDTO dto : rows) {
+			if (!Boolean.TRUE.equals(dto.getFuzzy()) || !StringUtils.hasText(dto.getName())) {
+				continue;
+			}
+			recallKeywords.addAll(ReplenishMatchRules.characterBigrams(dto.getName()));
+			List<String> variants = ReplenishMatchRules.nameVariants(dto.getName());
+			String probe = variants.get(variants.size() - 1);
+			List<String> chars = ReplenishMatchRules.distinctCjkChars(probe);
+			if (chars.size() <= 3) {
+				recallKeywords.addAll(chars);
+			}
+		}
+		Map<String, ReplenishImportSkuRow> fuzzyIndex = new LinkedHashMap<>();
+		if (!recallKeywords.isEmpty()) {
+			List<String> distinctKeywords = recallKeywords.stream().distinct().limit(300).toList();
+			for (ReplenishImportSkuRow row : replenishImportMatchMapper.selectRowsByKeywords(tenantId, distinctKeywords)) {
+				if (StringUtils.hasText(row.getSkuId())) {
+					fuzzyIndex.putIfAbsent(row.getSkuId(), row);
+				}
+			}
+		}
+
 		// 三、逐行归约
 		List<ReplenishImportMatchVO> results = new ArrayList<>(rows.size());
 		for (ReplenishImportMatchDTO dto : rows) {
-			results.add(matchOne(dto, rowByCode, nameIndex));
+			results.add(matchOne(dto, rowByCode, nameIndex, fuzzyIndex));
 		}
+		// 四、向量语义召回：字面层全军覆没的模糊行用余弦相似度补候选（确定性，失败降级）
+		recallByVectors(tenantId, rows, results);
 		return results;
+	}
+
+	/**
+	 * 向量语义召回（{@code fuzzy=true} 的接龙行专用，Excel 行不受影响）。
+	 *
+	 * <p>精确/包含/二字组/单字全是字面匹配，叫法与商城名**零共享字符**时
+	 * （小番茄 vs 西红柿）候选池为空——这是字面层的原理性边界，不是 bug。
+	 * 向量召回用语义相似度补候选：同一品名永远同一份候选（编码器无采样），
+	 * 「时灵时不灵」的采样波动不存在。候选仍只能来自数据库在售商品，
+	 * matchType 保持 NONE——语义相近 ≠ 同一种商品（小番茄≠西红柿是品种差异），
+	 * 定品永远由人在报告页完成；本步失败只降级不抛出。
+	 */
+	private void recallByVectors(String tenantId, List<ReplenishImportMatchDTO> rows,
+			List<ReplenishImportMatchVO> results) {
+		if (!catalogVectorRecallService.isAvailable()) {
+			return;
+		}
+		Map<Integer, String> missingByIndex = new LinkedHashMap<>();
+		for (int index = 0; index < results.size() && index < rows.size(); index++) {
+			ReplenishImportMatchVO result = results.get(index);
+			ReplenishImportMatchDTO dto = rows.get(index);
+			if (!Boolean.TRUE.equals(dto.getFuzzy()) || !StringUtils.hasText(dto.getName())) {
+				continue;
+			}
+			if (result == null || StringUtils.hasText(result.getSkuId())
+					|| (result.getCandidates() != null && !result.getCandidates().isEmpty())) {
+				continue;
+			}
+			missingByIndex.put(index, dto.getName().trim());
+		}
+		if (missingByIndex.isEmpty()) {
+			return;
+		}
+		// 同名行共享一份召回（一次粘贴常见同人同品多行），embedding 也只算一次
+		List<String> distinctNames = missingByIndex.values().stream().distinct().toList();
+		List<List<CatalogVectorRecallService.VectorMatch>> recalled;
+		try {
+			recalled = catalogVectorRecallService.recall(tenantId, distinctNames);
+		}
+		catch (Exception exception) {
+			log.warn("向量召回失败，缺品行维持字面候选/人工搜索 tenant={}", tenantId, exception);
+			return;
+		}
+		Map<String, List<CatalogVectorRecallService.VectorMatch>> matchesByName = new LinkedHashMap<>();
+		for (int index = 0; index < distinctNames.size() && index < recalled.size(); index++) {
+			matchesByName.put(distinctNames.get(index), recalled.get(index));
+		}
+		for (Map.Entry<Integer, String> entry : missingByIndex.entrySet()) {
+			List<CatalogVectorRecallService.VectorMatch> matches = matchesByName.get(entry.getValue());
+			if (matches == null || matches.isEmpty()) {
+				continue;
+			}
+			ReplenishImportMatchVO result = results.get(entry.getKey());
+			result.setCandidates(matches.stream()
+				.limit(MAX_CANDIDATES)
+				.map(match -> toCandidate(match.row()))
+				.toList());
+		}
 	}
 
 	/**
@@ -197,13 +292,17 @@ public class ReplenishImportMatchServiceImpl implements IReplenishImportMatchSer
 
 	private ReplenishImportMatchVO matchOne(ReplenishImportMatchDTO dto,
 			Map<String, ReplenishImportSkuRow> rowByCode,
-			Map<String, ReplenishImportSkuRow> nameRows) {
+			Map<String, ReplenishImportSkuRow> nameRows,
+			Map<String, ReplenishImportSkuRow> fuzzyRows) {
 		List<ReplenishImportSkuRow> byCode = resolveByCode(dto, rowByCode);
 		List<ReplenishImportSkuRow> candidates = byCode.isEmpty()
 				? resolveByName(dto, nameRows)
 				: byCode;
 		String matchType = byCode.isEmpty() ? "NAME" : "CODE";
 		if (candidates.isEmpty()) {
+			if (Boolean.TRUE.equals(dto.getFuzzy())) {
+				return fuzzyMatch(dto, fuzzyRows);
+			}
 			return notMatched(dto);
 		}
 
@@ -262,6 +361,101 @@ public class ReplenishImportMatchServiceImpl implements IReplenishImportMatchSer
 				return !candidate.isEmpty() && (candidate.contains(target) || target.contains(candidate));
 			})
 			.toList();
+	}
+
+	/** 模糊打分中间态：候选行 + 二字组覆盖率 */
+	private record ScoredSku(ReplenishImportSkuRow row, double score) {
+	}
+
+	/**
+	 * 二字组模糊匹配（{@code fuzzy=true}，接龙粘贴专用）。
+	 *
+	 * <p>打分口径见 {@link ReplenishMatchRules#bigramScore}，且按
+	 * {@link ReplenishMatchRules#nameVariants} 的各变体（原文/剥修饰词/剥规格）
+	 * 取最高分——「卤牛腱子优质」要剥出「卤牛腱子」、「上海盐汽水600ml*24瓶」
+	 * 要剥出「上海盐汽水」才对得上商城名。重叠强
+	 * （≥ {@link ReplenishMatchRules#FUZZY_AUTO_THRESHOLD}）且唯一最高分才自动
+	 * 命中；中等重叠（≥ 建议阈值）按分数降序返回候选，交报告页一键确认。
+	 * 多个 SKU 同分（常见于同 SPU 多规格）一律不自动定品——规格选择本来
+	 * 就该人来。
+	 */
+	private ReplenishImportMatchVO fuzzyMatch(ReplenishImportMatchDTO dto,
+			Map<String, ReplenishImportSkuRow> fuzzyRows) {
+		List<String> variants = ReplenishMatchRules.nameVariants(dto.getName());
+		if (variants.isEmpty()) {
+			return notMatched(dto);
+		}
+		List<ScoredSku> scored = new ArrayList<>();
+		for (ReplenishImportSkuRow row : fuzzyRows.values()) {
+			double best = 0.0;
+			for (String variant : variants) {
+				best = Math.max(best, ReplenishMatchRules.bigramScore(variant, row.getName()));
+			}
+			if (best >= ReplenishMatchRules.FUZZY_SUGGEST_THRESHOLD) {
+				scored.add(new ScoredSku(row, best));
+			}
+		}
+		if (scored.isEmpty()) {
+			return charFallbackMatch(dto, fuzzyRows, variants);
+		}
+		scored.sort((left, right) -> {
+			int byScore = Double.compare(right.score(), left.score());
+			return byScore != 0 ? byScore
+					: ReplenishMatchRules.normalizeName(left.row().getName())
+						.compareTo(ReplenishMatchRules.normalizeName(right.row().getName()));
+		});
+		ScoredSku best = scored.get(0);
+		boolean uniqueBest = scored.size() == 1 || best.score() > scored.get(1).score();
+		if (uniqueBest && best.score() >= ReplenishMatchRules.FUZZY_AUTO_THRESHOLD) {
+			return toMatched(dto, best.row(), "NAME");
+		}
+		return ambiguousOf(dto, scored);
+	}
+
+	/**
+	 * 单字兜底（只建议，绝不自动）：口语短名（≤3 个汉字）与商城名**零二字组
+	 * 重叠**时的最后一步——「橙子」与「赣南脐橙」连二字组都不共享，
+	 * 共享汉字「橙」是唯一检索线索。单字重叠噪声大（橙汁/橙味全家桶都会进
+	 * 候选），必须由人在报告页把关，所以这一层只出候选、不自动定品。
+	 */
+	private ReplenishImportMatchVO charFallbackMatch(ReplenishImportMatchDTO dto,
+			Map<String, ReplenishImportSkuRow> fuzzyRows, List<String> variants) {
+		// 用剥得最干净的变体探测：修饰词/规格汉字不该参与共享计数
+		Set<String> targetChars = new HashSet<>(ReplenishMatchRules.distinctCjkChars(
+				variants.get(variants.size() - 1)));
+		if (targetChars.isEmpty() || targetChars.size() > 3) {
+			return notMatched(dto);
+		}
+		List<ScoredSku> scored = new ArrayList<>();
+		for (ReplenishImportSkuRow row : fuzzyRows.values()) {
+			long shared = ReplenishMatchRules.distinctCjkChars(row.getName()).stream()
+				.filter(targetChars::contains)
+				.count();
+			double score = shared / (double) targetChars.size();
+			if (score >= ReplenishMatchRules.FUZZY_SUGGEST_THRESHOLD) {
+				scored.add(new ScoredSku(row, score));
+			}
+		}
+		if (scored.isEmpty()) {
+			return notMatched(dto);
+		}
+		scored.sort((left, right) -> {
+			int byScore = Double.compare(right.score(), left.score());
+			return byScore != 0 ? byScore
+					: ReplenishMatchRules.normalizeName(left.row().getName())
+						.compareTo(ReplenishMatchRules.normalizeName(right.row().getName()));
+		});
+		return ambiguousOf(dto, scored);
+	}
+
+	private ReplenishImportMatchVO ambiguousOf(ReplenishImportMatchDTO dto, List<ScoredSku> scored) {
+		ReplenishImportMatchVO ambiguous = notMatched(dto);
+		ambiguous.setMatchType("AMBIGUOUS");
+		ambiguous.setCandidates(scored.stream()
+			.limit(MAX_CANDIDATES)
+			.map(scoredSku -> toCandidate(scoredSku.row()))
+			.toList());
+		return ambiguous;
 	}
 
 	private ReplenishImportMatchVO toMatched(ReplenishImportMatchDTO dto, ReplenishImportSkuRow row,

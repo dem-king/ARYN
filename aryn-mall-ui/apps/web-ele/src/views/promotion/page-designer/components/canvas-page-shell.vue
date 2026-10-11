@@ -1,6 +1,28 @@
 <script setup lang="ts">
 import type { PageDesignType } from '#/api/promotion/page-design';
 
+import {
+  Bell,
+  Box,
+  ChatDotRound,
+  Clock,
+  EditPen,
+  Location,
+  RefreshLeft,
+  Setting,
+  Share,
+  Star,
+  Ticket,
+  User,
+  Van,
+  Wallet,
+} from '@element-plus/icons-vue';
+import { ElIcon } from 'element-plus';
+
+defineProps<{
+  pageType: PageDesignType;
+}>();
+
 /**
  * 内嵌页型（商详/分类/个人中心）的原生页面示意骨架。
  *
@@ -13,14 +35,35 @@ import type { PageDesignType } from '#/api/promotion/page-design';
  * 各处取自 C 端真实样式（分类页 `.category-rail` 176rpx、
  * `.sort-bar` 88rpx、`.icon-strip` 圆 96rpx 等）。
  * 骨架是**示意**：商品流、主图墙这类超长区域压缩展示，只保证位置、
- * 列宽与关键块高一致，不追求逐像素还原。
+ * 列宽与关键块高一致，不追求逐像素还原；但**常驻模块必须画全**——
+ * 个人中心骨架曾漏掉「我的服务」「猜你喜欢」整块、订单入口不带文字标签，
+ * 运营会误以为装修丢了内容（模块清单照抄 C 端 user-center 页；
+ * 角色条件入口按登录与租户能力出现，示意骨架不画）。
  *
  * 原生导航栏标题用页面自己的固定文案（各页 C 端写死的 title），
  * 不能用管理端的 `pageName`——那是「分类页装修」这类后台命名，实机不显示。
  */
-defineProps<{
-  pageType: PageDesignType;
-}>();
+
+/** 我的订单 5 入口：名称与图标对应 C 端 user-center 的 myOrder 列表 */
+const orderEntries = [
+  { icon: Wallet, label: '待付款' },
+  { icon: Box, label: '待发货' },
+  { icon: Van, label: '待收货' },
+  { icon: ChatDotRound, label: '待评价' },
+  { icon: RefreshLeft, label: '退款/售后' },
+];
+
+/** 我的服务 8 宫格：名称与图标对应 C 端 user-center 的 myService 列表 */
+const serviceEntries = [
+  { icon: Bell, label: '消息中心' },
+  { icon: User, label: '会员中心' },
+  { icon: Location, label: '收货地址' },
+  { icon: EditPen, label: '我的评价' },
+  { icon: Clock, label: '浏览记录' },
+  { icon: Star, label: '我的收藏' },
+  { icon: Ticket, label: '我的优惠券' },
+  { icon: Share, label: '分销中心' },
+];
 </script>
 
 <template>
@@ -84,15 +127,21 @@ defineProps<{
     </div>
   </div>
 
-  <!-- 个人中心页：品牌页头 + 资产条 + 装修区 + 订单卡片 -->
+  <!-- 个人中心页：品牌页头（设置入口）+ 资产条 + 装修区 + 订单/服务宫格 + 猜你喜欢 -->
   <div v-else-if="pageType === '4'" class="shell" data-shell="usercenter">
     <div class="uc-navbar">个人中心</div>
     <div class="uc-hero">
-      <span class="uc-hero__avatar"></span>
-      <div class="uc-hero__meta">
-        <span class="uc-hero__name">用户名</span>
-        <span class="uc-hero__hint">登录后查看权益</span>
+      <div class="uc-hero__profile">
+        <span class="uc-hero__avatar"></span>
+        <div class="uc-hero__meta">
+          <span class="uc-hero__name">用户名</span>
+          <span class="uc-hero__hint">登录后同步订单、优惠券与积分</span>
+        </div>
       </div>
+      <!-- 右上角设置入口：C 端页头齿轮（36px 半透明白圆） -->
+      <span class="uc-hero__setting">
+        <ElIcon :size="18" class="uc-hero__gear"><Setting /></ElIcon>
+      </span>
     </div>
     <div class="uc-assets">
       <div
@@ -114,8 +163,51 @@ defineProps<{
         <span class="uc-card__title">我的订单</span>
         <span class="uc-card__more">查看全部</span>
       </div>
-      <div class="uc-grid">
-        <span v-for="index in 5" :key="index" class="uc-grid__icon"></span>
+      <div class="uc-grid uc-grid--5">
+        <div
+          v-for="item in orderEntries"
+          :key="item.label"
+          class="uc-grid__item"
+        >
+          <span class="uc-grid__icon">
+            <ElIcon :size="18" class="uc-grid__glyph">
+              <component :is="item.icon" />
+            </ElIcon>
+          </span>
+          <span class="uc-grid__label">{{ item.label }}</span>
+        </div>
+      </div>
+    </div>
+    <div class="uc-card">
+      <div class="uc-card__head">
+        <span class="uc-card__title">我的服务</span>
+      </div>
+      <div class="uc-grid uc-grid--4">
+        <div
+          v-for="item in serviceEntries"
+          :key="item.label"
+          class="uc-grid__item"
+        >
+          <span class="uc-grid__icon">
+            <ElIcon :size="18" class="uc-grid__glyph">
+              <component :is="item.icon" />
+            </ElIcon>
+          </span>
+          <span class="uc-grid__label">{{ item.label }}</span>
+        </div>
+      </div>
+    </div>
+    <!-- 猜你喜欢分隔线 + 商品流占位：实机是瀑布流，这里压缩成两列示意 -->
+    <div class="uc-like">
+      <span class="uc-like__rule"></span>
+      <span class="uc-like__text">猜你喜欢</span>
+      <span class="uc-like__rule"></span>
+    </div>
+    <div class="uc-goods">
+      <div v-for="index in 4" :key="index" class="uc-goods__card">
+        <div class="uc-goods__pic"></div>
+        <span class="uc-goods__line"></span>
+        <span class="uc-goods__line uc-goods__line--short"></span>
       </div>
     </div>
   </div>
@@ -148,6 +240,12 @@ defineProps<{
 .shell-slot {
   position: relative;
   background: #fff;
+}
+
+/* 个人中心装修区落在页面窗口底色上（theme.json light bgColor #F8F8F8），
+   实机公告卡两侧露出的是灰底而非白底；分类页右栏/商详内容区仍为白底 */
+.shell[data-shell='usercenter'] .shell-slot {
+  background: #f8f8f8;
 }
 
 .shell-hint {
@@ -376,6 +474,7 @@ defineProps<{
 .uc-hero {
   display: flex;
   align-items: center;
+  justify-content: space-between;
 
   /* 底部 104rpx=52px 留给资产条上移压盖 */
   padding: 12px 10px 52px;
@@ -384,6 +483,13 @@ defineProps<{
     var(--wot-color-theme-primary, #ff2237) 0%,
     var(--wot-color-theme-secondary, #ff6b7a) 100%
   );
+}
+
+.uc-hero__profile {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  min-width: 0;
 }
 
 .uc-hero__avatar {
@@ -413,6 +519,19 @@ defineProps<{
   color: rgb(255 255 255 / 82%);
 }
 
+/* 设置入口：72rpx=36px 半透明白圆 + 齿轮，压在页头右上角 */
+.uc-hero__setting {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  color: #fff;
+  background: rgb(255 255 255 / 18%);
+  border-radius: 50%;
+}
+
 /* 资产条：-72rpx 上移压盖页头 */
 .uc-assets {
   display: flex;
@@ -430,6 +549,11 @@ defineProps<{
   align-items: center;
 }
 
+/* C 端资产项之间有发丝分隔线（1rpx=0.5px） */
+.uc-assets__item + .uc-assets__item {
+  border-left: 0.5px solid #eef0f3;
+}
+
 .uc-assets__value {
   font-size: 20px;
   font-weight: 700;
@@ -443,7 +567,7 @@ defineProps<{
 }
 
 .uc-card {
-  padding: 0 10px 4px;
+  padding: 4px 10px 2px;
   margin: 10px 10px 0;
   background: #fff;
   border-radius: 12px;
@@ -467,16 +591,100 @@ defineProps<{
   color: #9aa1ac;
 }
 
+/* 宫格：订单 5 列 / 服务 4 列，图标方块 76rpx=38px、标签 24rpx=12px */
 .uc-grid {
   display: flex;
+  flex-wrap: wrap;
   padding-bottom: 10px;
 }
 
-.uc-grid__icon {
+.uc-grid__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 0 10px;
+}
+
+.uc-grid--5 .uc-grid__item {
   width: 20%;
-  height: 34px;
+}
+
+.uc-grid--4 .uc-grid__item {
+  width: 25%;
+}
+
+.uc-grid__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  background: #f5f6f8;
+  border-radius: 12px;
+}
+
+.uc-grid__glyph {
+  color: #4e5969;
+}
+
+.uc-grid__label {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #4e5969;
+}
+
+/* 猜你喜欢：发丝分隔线夹标题；商品流实机是瀑布流，压缩成两列示意 */
+.uc-like {
+  display: flex;
+  align-items: center;
+  padding: 20px 30px 4px;
+}
+
+.uc-like__rule {
+  flex: 1;
+  height: 0.5px;
+  background: #e4e6eb;
+}
+
+.uc-like__text {
+  margin: 0 12px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #1f2329;
+}
+
+.uc-goods {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px;
+}
+
+.uc-goods__card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* 两列高度错落示意瀑布流 */
+.uc-goods__card:nth-child(even) .uc-goods__pic {
+  height: 64px;
+}
+
+.uc-goods__pic {
+  height: 90px;
   background: #f1f2f4;
   border-radius: 8px;
+}
+
+.uc-goods__line {
+  height: 10px;
+  background: #f1f2f4;
+  border-radius: 5px;
+}
+
+.uc-goods__line--short {
+  width: 60%;
 }
 
 /* ===================== 商品详情页 ===================== */

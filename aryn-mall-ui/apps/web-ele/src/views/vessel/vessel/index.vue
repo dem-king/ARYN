@@ -50,12 +50,23 @@ const activeTab = ref('vessel');
 const vesselDialogVisible = ref(false);
 const vesselForm = reactive<any>({
   callSign: '',
+  crewCapacity: '',
+  dwt: '',
+  flagState: '',
   imoCode: '',
   remark: '',
   vesselName: '',
   vesselNameEn: '',
   vesselType: '5',
 });
+/** 船舶类型字典，口径与 VesselInfo 实体注释一致 */
+const vesselTypeOptions = [
+  { label: '集装箱', value: '1' },
+  { label: '散货', value: '2' },
+  { label: '油轮', value: '3' },
+  { label: '杂货', value: '4' },
+  { label: '其他', value: '5' },
+];
 const editingVesselId = ref('');
 
 // 成员
@@ -137,6 +148,9 @@ const openVesselDialog = (row?: any) => {
   editingVesselId.value = row?.id ?? '';
   Object.assign(vesselForm, {
     callSign: row?.callSign ?? '',
+    crewCapacity: row?.crewCapacity ?? '',
+    dwt: row?.dwt ?? '',
+    flagState: row?.flagState ?? '',
     imoCode: row?.imoCode ?? '',
     remark: row?.remark ?? '',
     vesselName: row?.vesselName ?? '',
@@ -405,11 +419,36 @@ onMounted(initPage);
           <ElFormItem label="英文名">
             <ElInput v-model="vesselForm.vesselNameEn" />
           </ElFormItem>
+          <ElFormItem label="船舶类型">
+            <ElSelect v-model="vesselForm.vesselType" style="width: 100%">
+              <ElOption
+                v-for="item in vesselTypeOptions"
+                :key="item.value"
+                :label="item.label"
+                :value="item.value"
+              />
+            </ElSelect>
+          </ElFormItem>
           <ElFormItem label="IMO 编号">
             <ElInput v-model="vesselForm.imoCode" />
           </ElFormItem>
           <ElFormItem label="呼号">
             <ElInput v-model="vesselForm.callSign" />
+          </ElFormItem>
+          <ElFormItem label="船旗国">
+            <ElInput
+              v-model="vesselForm.flagState"
+              placeholder="选填，如 巴拿马"
+            />
+          </ElFormItem>
+          <ElFormItem label="载重吨">
+            <ElInput v-model="vesselForm.dwt" placeholder="选填，如 25000" />
+          </ElFormItem>
+          <ElFormItem label="定员">
+            <ElInput
+              v-model="vesselForm.crewCapacity"
+              placeholder="选填，如 20"
+            />
           </ElFormItem>
           <ElFormItem label="备注">
             <ElInput v-model="vesselForm.remark" type="textarea" :rows="2" />

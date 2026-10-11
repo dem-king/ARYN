@@ -479,6 +479,9 @@ onMounted(() => {
               </div>
             </template>
             <template v-else>
+              <div class="card-thumb-placeholder">
+                <div class="card-thumb-ghost">暂无预览</div>
+              </div>
               <div class="card-name is-placeholder">未配置</div>
               <div class="card-meta">
                 {{
@@ -655,6 +658,30 @@ onMounted(() => {
 
 .effective-card.is-empty {
   border-style: dashed;
+}
+
+/* 与 effective-page-thumb 舞台同高（396 = 380 视口 + 上下留白），保证整行对齐 */
+.card-thumb-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 396px;
+  background: var(--el-fill-color-light);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 6px;
+}
+
+/* 手机轮廓呼应生效卡片的视口缩略图 */
+.card-thumb-ghost {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 188px;
+  height: 380px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  border: 1px dashed var(--el-border-color);
+  border-radius: 12px;
 }
 
 .card-head {

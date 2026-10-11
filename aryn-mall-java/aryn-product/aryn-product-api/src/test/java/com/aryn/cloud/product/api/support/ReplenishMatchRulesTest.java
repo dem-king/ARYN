@@ -3,6 +3,8 @@ package com.aryn.cloud.product.api.support;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -68,6 +70,42 @@ class ReplenishMatchRulesTest {
 		assertNull(ReplenishMatchRules.parseQuantity("abc"));
 		assertNull(ReplenishMatchRules.parseQuantity(""));
 		assertNull(ReplenishMatchRules.parseQuantity(null));
+	}
+
+	@Test
+	@DisplayName("二字组打分：修饰词夹心品名靠核心词重叠对上")
+	void bigramScoreSandwichNames() {
+		// 接龙写「青香蕉」、商城叫「国产香蕉」：核心词「香蕉」重叠，双向取大 0.5
+		assertEquals(0.5, ReplenishMatchRules.bigramScore("青香蕉", "国产香蕉"), 1e-9);
+		// 长品名强重叠：「红富士冰糖心」5 组重叠 4 组 = 0.8，够自动命中
+		assertEquals(0.8, ReplenishMatchRules.bigramScore("红富士冰糖心", "红富士苹果冰糖心 4斤装"), 1e-9);
+		// 候选侧覆盖：「麒麟无籽西瓜」对「麒麟西瓜」，目标 0.4 但候选 0.67
+		assertEquals(2.0 / 3.0, ReplenishMatchRules.bigramScore("麒麟无籽西瓜", "麒麟西瓜"), 1e-9);
+		// 「小番茄」对「番茄酱」只有 0.5：低于自动阈值，降级为人工候选
+		assertEquals(0.5, ReplenishMatchRules.bigramScore("小番茄", "番茄酱"), 1e-9);
+	}
+
+	@Test
+	@DisplayName("二字组打分：无重叠、单字、空白都是 0 分")
+	void bigramScoreNoOverlap() {
+		assertEquals(0.0, ReplenishMatchRules.bigramScore("土豆", "西红柿"), 1e-9);
+		assertEquals(0.0, ReplenishMatchRules.bigramScore("盐", "盐汽水"), 1e-9);
+		assertEquals(0.0, ReplenishMatchRules.bigramScore("", "香蕉"), 1e-9);
+		assertEquals(0.0, ReplenishMatchRules.bigramScore("香蕉", null), 1e-9);
+	}
+
+	@Test
+	@DisplayName("品名匹配变体：剥尾部形容词与规格，名字本身是规格串时不产出空变体")
+	void nameVariantsStripAdjectiveAndSpec() {
+		assertEquals(List.of("卤牛腱子优质", "卤牛腱子"), ReplenishMatchRules.nameVariants("卤牛腱子优质"));
+		assertEquals(List.of("上海盐汽水600ml*24瓶", "上海盐汽水"),
+				ReplenishMatchRules.nameVariants("上海盐汽水600ml*24瓶"));
+		assertEquals(List.of("青岛啤酒（冰淳）500ML12罐", "青岛啤酒（冰淳）"),
+				ReplenishMatchRules.nameVariants("青岛啤酒（冰淳）500ML12罐"));
+		assertEquals(List.of("青岛清爽24罐装", "青岛清爽"), ReplenishMatchRules.nameVariants("青岛清爽24罐装"));
+		// 剥完不足 2 字符：保留原样，不产出空/残缺变体
+		assertEquals(List.of("600ml*24瓶"), ReplenishMatchRules.nameVariants("600ml*24瓶"));
+		assertEquals(List.of("橙子"), ReplenishMatchRules.nameVariants("橙子"));
 	}
 
 }

@@ -15,6 +15,10 @@ import com.aryn.cloud.order.mapper.SharedCartItemMapper;
 import com.aryn.cloud.order.mapper.SharedCartMapper;
 import com.aryn.cloud.order.mapper.SharedCartMemberMapper;
 import com.aryn.cloud.order.service.impl.SharedCartServiceImpl;
+import com.aryn.cloud.order.support.ChainAiAssistant;
+import static org.mockito.ArgumentMatchers.anyMap;
+import com.aryn.cloud.order.support.ChainOrderTextParser;
+import java.util.Map;
 import com.aryn.cloud.product.api.dto.ReplenishImportMatchDTO;
 import com.aryn.cloud.product.api.remote.RemoteGoodsSkuService;
 import com.aryn.cloud.product.api.remote.RemoteReplenishImportMatchService;
@@ -86,6 +90,8 @@ class SharedCartImportServiceTest {
 
 	private RemoteReplenishImportMatchService remoteReplenishImportMatchService;
 
+	private ChainAiAssistant chainAiAssistant;
+
 	private SharedCartServiceImpl service;
 
 	@BeforeEach
@@ -96,6 +102,7 @@ class SharedCartImportServiceTest {
 		importMapper = mock(SharedCartImportMapper.class);
 		importRowMapper = mock(SharedCartImportRowMapper.class);
 		remoteReplenishImportMatchService = mock(RemoteReplenishImportMatchService.class);
+		chainAiAssistant = mock(ChainAiAssistant.class);
 
 		TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), SharedCart.class);
 		TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), SharedCartMember.class);
@@ -105,7 +112,7 @@ class SharedCartImportServiceTest {
 				SharedCartImportRow.class);
 
 		service = new SharedCartServiceImpl(cartMapper, memberMapper, itemMapper, importMapper, importRowMapper,
-				mock(IOrderInfoService.class));
+				mock(IOrderInfoService.class), chainAiAssistant);
 		ReflectionTestUtils.setField(service, "remoteReplenishImportMatchService", remoteReplenishImportMatchService);
 		ReflectionTestUtils.setField(service, "remoteGoodsSkuService", mock(RemoteGoodsSkuService.class));
 		ReflectionTestUtils.setField(service, "remoteVesselService", mock(RemoteVesselService.class));
@@ -405,6 +412,163 @@ class SharedCartImportServiceTest {
 		assertEquals(4, saved.get(0).getRequestedQuantity());
 		assertEquals("汤伟杰", saved.get(1).getAttributedName());
 		assertEquals(6, saved.get(1).getRequestedQuantity());
+	}
+
+	@Test
+	@DisplayName("接龙预览：启用商品域模糊匹配并把歧义候选透传到报告行")
+	@SuppressWarnings("unchecked")
+	void previewChainImportEnablesFuzzyAndSurfacesCandidates() {
+		ReplenishImportMatchVO.Candidate candidate = new ReplenishImportMatchVO.Candidate();
+		candidate.setSkuId(SKU_ID);
+		candidate.setName("国产香蕉");
+		ReplenishImportMatchVO match = new ReplenishImportMatchVO();
+		match.setRowNo(1);
+		match.setMatchType("AMBIGUOUS");
+		match.setCandidates(List.of(candidate));
+		when(cartMapper.selectOne(any(Wrapper.class))).thenReturn(collectingCart());
+		when(memberMapper.selectCount(any(Wrapper.class))).thenReturn(1L);
+		when(remoteReplenishImportMatchService.matchRows(anyString(), anyList())).thenReturn(List.of(match));
+
+		SharedCartImportVO vo = service.previewChainImport(TENANT, OWNER, CART_ID, "1. 任化东 青香蕉3斤");
+
+		// 接龙口语品名依赖二字组模糊匹配：请求必须带 fuzzy 标记
+		ArgumentCaptor<List<ReplenishImportMatchDTO>> dtoCaptor = ArgumentCaptor.forClass(List.class);
+		verify(remoteReplenishImportMatchService).matchRows(anyString(), dtoCaptor.capture());
+		assertEquals(Boolean.TRUE, dtoCaptor.getValue().get(0).getFuzzy());
+
+		// 候选必须出现在报告行上：否则「匹配到多个规格」的行只剩一句报错，
+		// 用户以为没匹配上，还要自己再打一遍关键字搜索
+		assertEquals(1, vo.getRows().size());
+		assertEquals("国产香蕉", vo.getRows().get(0).getCandidates().get(0).getName());
+		assertEquals(1, vo.getUnmatchedRows());
+	}
+
+	@Test
+	@DisplayName("AI 解析优先但可失败：解析抛异常时整体回退规则解析，不白屏")
+	void previewChainImportFallsBackWhenAiFails() {
+		when(cartMapper.selectOne(any(Wrapper.class))).thenReturn(collectingCart());
+		when(memberMapper.selectCount(any(Wrapper.class))).thenReturn(1L);
+		when(chainAiAssistant.isAvailable()).thenReturn(true);
+		when(chainAiAssistant.parseChain(anyString())).thenThrow(new IllegalStateException("AI 超时"));
+		when(remoteReplenishImportMatchService.matchRows(anyString(), anyList())).thenReturn(List.of());
+
+		SharedCartImportVO vo = service.previewChainImport(TENANT, OWNER, CART_ID, "1. 任化东 青香蕉3斤");
+
+		// 规则解析器接住：同一行文本仍解析出行，报告照常出
+		assertEquals(1, vo.getTotalRows());
+		assertEquals("青香蕉", vo.getRows().get(0).getRawName());
+	}
+
+	@Test
+	@DisplayName("AI 选品：推荐回填 aiPickedSkuId 且候选排到首位，未推荐的保持分数序")
+	void previewChainImportAiPickReordersCandidates() {
+		ChainOrderTextParser.ParsedItem aiItem = new ChainOrderTextParser.ParsedItem(
+				1, "任化东", "橙子", 4, "斤", "橙子4斤", null);
+		ReplenishImportMatchVO.Candidate navel = new ReplenishImportMatchVO.Candidate();
+		navel.setSkuId("sku-navel");
+		navel.setName("赣南脐橙");
+		ReplenishImportMatchVO.Candidate juice = new ReplenishImportMatchVO.Candidate();
+		juice.setSkuId("sku-juice");
+		juice.setName("农夫NFC橙汁");
+		ReplenishImportMatchVO match = new ReplenishImportMatchVO();
+		match.setRowNo(1);
+		match.setMatchType("AMBIGUOUS");
+		match.setCandidates(new ArrayList<>(List.of(navel, juice)));
+		when(cartMapper.selectOne(any(Wrapper.class))).thenReturn(collectingCart());
+		when(memberMapper.selectCount(any(Wrapper.class))).thenReturn(1L);
+		when(chainAiAssistant.isAvailable()).thenReturn(true);
+		when(chainAiAssistant.parseChain(anyString())).thenReturn(List.of(aiItem));
+		when(remoteReplenishImportMatchService.matchRows(anyString(), anyList())).thenReturn(List.of(match));
+		when(chainAiAssistant.pickSkus(anyMap())).thenReturn(Map.of(1, "sku-juice"));
+
+		SharedCartImportVO vo = service.previewChainImport(TENANT, OWNER, CART_ID, "1. 任化东 橙子4斤");
+
+		assertEquals("sku-juice", vo.getRows().get(0).getAiPickedSkuId(), "AI 推荐要落到报告行上");
+		assertEquals("sku-juice", vo.getRows().get(0).getCandidates().get(0).getSkuId(), "推荐候选排首位");
+		assertEquals("sku-navel", vo.getRows().get(0).getCandidates().get(1).getSkuId(), "其余候选保持原序");
+	}
+
+	@Test
+	@DisplayName("缺品别名召回：零候选行经 AI 别名二次匹配后补上候选，仍按未匹配出报告")
+	@SuppressWarnings("unchecked")
+	void previewChainImportAliasRecallFillsMissingRows() {
+		ChainOrderTextParser.ParsedItem aiItem = new ChainOrderTextParser.ParsedItem(
+				1, "任化东", "西红柿", 2, "斤", "西红柿2斤", null);
+		// 第一轮：西红柿与商城名零字面重叠，匹配域给 NONE（无候选）
+		ReplenishImportMatchVO none = new ReplenishImportMatchVO();
+		none.setRowNo(1);
+		none.setMatchType("NONE");
+		// 第二轮：AI 别名「番茄」召回到候选
+		ReplenishImportMatchVO.Candidate tomato = new ReplenishImportMatchVO.Candidate();
+		tomato.setSkuId("sku-tomato");
+		tomato.setName("普罗旺斯番茄");
+		ReplenishImportMatchVO aliasMatch = new ReplenishImportMatchVO();
+		aliasMatch.setRowNo(2);
+		aliasMatch.setMatchType("AMBIGUOUS");
+		aliasMatch.setCandidates(List.of(tomato));
+		when(cartMapper.selectOne(any(Wrapper.class))).thenReturn(collectingCart());
+		when(memberMapper.selectCount(any(Wrapper.class))).thenReturn(1L);
+		when(chainAiAssistant.isAvailable()).thenReturn(true);
+		// 别名召回已是默认关闭的备胎，本用例专门测它，须显式打开
+		when(chainAiAssistant.isAliasRecallEnabled()).thenReturn(true);
+		when(chainAiAssistant.parseChain(anyString())).thenReturn(List.of(aiItem));
+		when(remoteReplenishImportMatchService.matchRows(anyString(), anyList()))
+			.thenReturn(List.of(none))
+			.thenReturn(List.of(aliasMatch));
+		when(chainAiAssistant.suggestSearchTerms(anyMap())).thenReturn(Map.of(1, List.of("番茄")));
+		when(chainAiAssistant.pickSkus(anyMap())).thenReturn(Map.of(1, "sku-tomato"));
+
+		SharedCartImportVO vo = service.previewChainImport(TENANT, OWNER, CART_ID, "1. 任化东 西红柿2斤");
+
+		// 两次批量匹配：原文一次、别名一次；别名行号起编在真实行之后，不与真实行号串台
+		ArgumentCaptor<List<ReplenishImportMatchDTO>> dtoCaptor = ArgumentCaptor.forClass(List.class);
+		verify(remoteReplenishImportMatchService, times(2)).matchRows(anyString(), dtoCaptor.capture());
+		assertEquals("西红柿", dtoCaptor.getAllValues().get(0).get(0).getName());
+		assertEquals("番茄", dtoCaptor.getAllValues().get(1).get(0).getName());
+		assertEquals(2, dtoCaptor.getAllValues().get(1).get(0).getRowNo());
+
+		// 召回的候选落到报告行并打上 AI 推荐；行本身仍是未匹配（别名不改写匹配结果）
+		assertEquals(SharedCartImportRow.RESULT_UNMATCHED, vo.getRows().get(0).getResultType());
+		assertEquals("sku-tomato", vo.getRows().get(0).getCandidates().get(0).getSkuId());
+		assertEquals("sku-tomato", vo.getRows().get(0).getAiPickedSkuId());
+		// 别名唯一命中时匹配域给的是带 skuId 的结果，同样只降级为候选
+		assertEquals("NONE", vo.getRows().get(0).getMatchType());
+	}
+
+	@Test
+	@DisplayName("缺品别名召回：AI 建议失败静默降级，缺品行维持无候选的人工搜索态")
+	void previewChainImportAliasRecallFailsSilently() {
+		ChainOrderTextParser.ParsedItem aiItem = new ChainOrderTextParser.ParsedItem(
+				1, "任化东", "西红柿", 2, "斤", "西红柿2斤", null);
+		ReplenishImportMatchVO none = new ReplenishImportMatchVO();
+		none.setRowNo(1);
+		none.setMatchType("NONE");
+		when(cartMapper.selectOne(any(Wrapper.class))).thenReturn(collectingCart());
+		when(memberMapper.selectCount(any(Wrapper.class))).thenReturn(1L);
+		when(chainAiAssistant.isAvailable()).thenReturn(true);
+		when(chainAiAssistant.isAliasRecallEnabled()).thenReturn(true);
+		when(chainAiAssistant.parseChain(anyString())).thenReturn(List.of(aiItem));
+		when(remoteReplenishImportMatchService.matchRows(anyString(), anyList())).thenReturn(List.of(none));
+		when(chainAiAssistant.suggestSearchTerms(anyMap())).thenThrow(new IllegalStateException("AI 超时"));
+
+		SharedCartImportVO vo = service.previewChainImport(TENANT, OWNER, CART_ID, "1. 任化东 西红柿2斤");
+
+		assertEquals(1, vo.getTotalRows());
+		assertEquals(SharedCartImportRow.RESULT_UNMATCHED, vo.getRows().get(0).getResultType());
+		// 没有候选就没有可挑的，选品也不该被调用
+		verify(chainAiAssistant, never()).pickSkus(anyMap());
+	}
+
+	@Test
+	@DisplayName("缺品别名召回：AI 未配置时整层跳过，不发起建议调用")
+	void previewChainImportAliasRecallSkippedWhenAiUnavailable() {
+		when(cartMapper.selectOne(any(Wrapper.class))).thenReturn(collectingCart());
+		when(memberMapper.selectCount(any(Wrapper.class))).thenReturn(1L);
+		when(remoteReplenishImportMatchService.matchRows(anyString(), anyList())).thenReturn(List.of());
+
+		service.previewChainImport(TENANT, OWNER, CART_ID, "1. 任化东 西红柿2斤");
+
+		verify(chainAiAssistant, never()).suggestSearchTerms(anyMap());
 	}
 
 	@Test

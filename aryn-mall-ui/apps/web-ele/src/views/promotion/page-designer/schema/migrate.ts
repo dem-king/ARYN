@@ -215,13 +215,54 @@ export function migratePageContent(input: unknown): DecorationDocument {
   const source = parseContent(input);
   const record = isRecord(source) ? source : {};
 
+  const page = migratePageSettings(record.page);
+
+  // 发布固化的主题快照：颜色合并进 page 配置并暴露主色/辅色，规则与
+  // C 端 `diy/schema/migrate.ts` 逐条一致——快照色覆盖页面自存色，
+  // 预览画布据 themePrimaryColor 判定「页面自带主题」，停止叠加商城默认主题。
+  const theme = isRecord(record.themeSnapshot) ? record.themeSnapshot : {};
+  const themePageBackground =
+    typeof theme.pageBackgroundColor === 'string' && theme.pageBackgroundColor
+      ? theme.pageBackgroundColor
+      : undefined;
+  const themeNavigationColor =
+    typeof theme.navigationColor === 'string' && theme.navigationColor
+      ? theme.navigationColor
+      : undefined;
+  const themeNavigationTextColor =
+    typeof theme.navigationTextColor === 'string' && theme.navigationTextColor
+      ? theme.navigationTextColor
+      : undefined;
+  if (themePageBackground) {
+    page.backgroundColor = themePageBackground;
+  }
+  if (themeNavigationColor) {
+    page.navigation.backgroundColor = themeNavigationColor;
+  }
+  if (themeNavigationTextColor) {
+    page.navigation.textColor = themeNavigationTextColor;
+  }
+  // 品牌主色/辅色只在合法 hex 时透传，预览画布据此在页面内容区覆盖全局主题 CSS 变量
+  const themePrimaryColor =
+    typeof theme.primaryColor === 'string' &&
+    /^#[0-9a-f]{6}$/i.test(theme.primaryColor)
+      ? theme.primaryColor
+      : undefined;
+  const themeSecondaryColor =
+    typeof theme.secondaryColor === 'string' &&
+    /^#[0-9a-f]{6}$/i.test(theme.secondaryColor)
+      ? theme.secondaryColor
+      : undefined;
+
   return {
-    page: migratePageSettings(record.page),
+    page,
     schemaVersion: DECORATION_SCHEMA_VERSION_V3,
     sections: migrateSections(record),
     // 页面引用的主题令牌透传：预览画布据此应用页面级主题（未引用时不产出该字段）
     ...(typeof record.themeRef === 'string' && record.themeRef
       ? { themeRef: record.themeRef }
       : {}),
+    ...(themePrimaryColor ? { themePrimaryColor } : {}),
+    ...(themeSecondaryColor ? { themeSecondaryColor } : {}),
   };
 }

@@ -583,6 +583,14 @@
             "navigationStyle": "custom",
             "navigationBarTitleText": "船舶绑定"
           }
+        },
+        {
+          "path": "vessel/port-vehicles/index",
+          "type": "page",
+          "name": "vessel-port-vehicles",
+          "style": {
+            "navigationBarTitleText": "港口报备车辆"
+          }
         }
       ]
     }
