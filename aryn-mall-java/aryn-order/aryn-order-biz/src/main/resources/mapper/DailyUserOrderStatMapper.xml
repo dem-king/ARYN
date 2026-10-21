@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aryn.cloud.order.mapper.DailyUserOrderStatMapper">
+
+    <delete id="deleteDay">
+        DELETE FROM stat_daily_user_order
+        WHERE tenant_id = #{tenantId}
+        AND stat_date = #{statDate}
+    </delete>
+
+    <insert id="aggregateDay">
+        INSERT INTO stat_daily_user_order (
+            id, tenant_id, stat_date, user_id, order_count, paid_amount, last_payment_time, create_time, update_time
+        )
+        SELECT
+            REPLACE(UUID(), '-', ''),
+            #{tenantId},
+            #{statDate},
+            user_id,
+            COUNT(1),
+            IFNULL(SUM(payment_price), 0),
+            MAX(payment_time),
+            NOW(),
+            NOW()
+        FROM order_info
+        WHERE tenant_id = #{tenantId}
+        AND del_flag = '0'
+        AND pay_status = '1'
+        AND payment_time &gt;= #{startTime}
+        AND payment_time &lt; #{endTime}
+        GROUP BY user_id
+        ON DUPLICATE KEY UPDATE
+            order_count = VALUES(order_count),
+            paid_amount = VALUES(paid_amount),
+            last_payment_time = VALUES(last_payment_time),
+            update_time = NOW()
+    </insert>
+
+    <select id="countAggregateDays" resultType="java.lang.Long">
+        SELECT COUNT(DISTINCT stat_date)
+        FROM stat_daily_user_order
+        WHERE stat_date BETWEEN #{startDate} AND #{endDate}
+    </select>
+
+    <select id="getAggregateTrend" resultType="com.aryn.cloud.order.api.vo.OrderTrendVO">
+        SELECT
+        DATE_FORMAT(stat_date, '%Y-%m-%d') AS timePoint,
+        IFNULL(SUM(paid_amount), 0) AS gmv,
+        IFNULL(SUM(order_count), 0) AS payOrderCount,
+        COUNT(DISTINCT user_id) AS payBuyerCount
+        FROM stat_daily_user_order
+        WHERE stat_date BETWEEN #{startDate} AND #{endDate}
+        GROUP BY stat_date
+        ORDER BY stat_date
+    </select>
+
+    <select id="getAggregateSummary" resultType="com.aryn.cloud.order.api.vo.DailyReconcileRawVO">
+        SELECT
+            IFNULL(SUM(paid_amount), 0) AS gmv,
+            IFNULL(SUM(order_count), 0) AS orderCount,
+            COUNT(DISTINCT user_id) AS buyerCount
+        FROM stat_daily_user_order
+        WHERE stat_date BETWEEN #{startDate} AND #{endDate}
+    </select>
+
+</mapper>

@@ -123,6 +123,19 @@ describe('ship supply page structure contract', () => {
     expect(page).toContain('选择船舶和靠港计划')
     expect(page).toContain('ShipContextPicker')
   })
+
+  it('offers a category-based picking entry in the shared context card', () => {
+    const page = source(PAGE)
+    const topSlot = slotOf(page, 'top')
+    // 入口必须在常驻上下文卡里（滚动区外），选货途中随时可切到分类浏览
+    expect(topSlot).toContain('goCategoryPicker')
+    expect(topSlot).toContain('分类选货')
+    expect(page).toContain('/sub-pages/order/shared-cart/category?id=')
+    // 不能直接切分类 Tab：tabBar 跳转会清空「详情 → 选货」栈，
+    // 回来后既找不到共享车，加购也不再是给这张车选货。
+    expect(page).not.toMatch(/switchTab\([^)]*product\/category/)
+    expect(page).not.toMatch(/reLaunch\([^)]*product\/category/)
+  })
 })
 
 describe('ship supply row view contract', () => {

@@ -6,14 +6,19 @@ import type { PageDesignType } from '#/api/promotion/page-design';
 
 import { computed } from 'vue';
 
+import { isEmbeddedPageType } from '#/api/promotion/page-design';
+
 import CanvasPageShell from '../../page-designer/components/canvas-page-shell.vue';
 import { getComponentDefinition } from '../../page-designer/registry/component-registry';
 import { resolveEffectivePageTheme } from '../../page-designer/schema/effective-theme';
+import { resolveNavigationAppearance } from '../../page-designer/schema/navigation-style';
 import { buildSectionStyle } from '../../page-designer/schema/section-style';
 
 const props = withDefaults(
   defineProps<{
     document: DecorationDocument;
+    /** 空装修占位文案；生效卡片给未配置的槽位传「未配置装修」 */
+    emptyText?: string;
     /**
      * 传 false 时画布高度随内容收缩（弹窗内嵌用）；
      * 默认撑满视口，供草稿预览整页使用。
@@ -32,14 +37,19 @@ const props = withDefaults(
      */
     themeVars?: CanvasThemeVars;
   }>(),
-  { fullHeight: true, pageType: '0', themeVars: undefined },
+  {
+    emptyText: undefined,
+    fullHeight: true,
+    pageType: '0',
+    themeVars: undefined,
+  },
 );
 
 /**
  * 内嵌页型（商详/分类/个人中心）：装修块只是页面中的一段内容，
  * C 端 `DiyPage` 传 `embedded` 时不渲染装修自带导航栏，预览必须同构。
  */
-const isEmbeddedPage = computed(() => ['2', '3', '4'].includes(props.pageType));
+const isEmbeddedPage = computed(() => isEmbeddedPageType(props.pageType));
 
 /**
  * 页面自带固化主题（发布时 themeRef 固化为 themeSnapshot，migrate 已把快照色
@@ -62,6 +72,33 @@ const pageStyle = computed(() => ({
   backgroundImage: props.document.page.backgroundImage
     ? `url(${props.document.page.backgroundImage})`
     : undefined,
+}));
+
+/**
+ * 导航栏外观：与编辑器画布、C 端 diy 渲染器共用「跟随首个区块」解析函数，
+ * 页面设置里把导航背景切到跟随首个区块后，预览必须与实机同样取区块顶边起色。
+ */
+const navigationAppearance = computed(() =>
+  resolveNavigationAppearance(
+    props.document.page,
+    effectivePage.value,
+    props.document.sections,
+  ),
+);
+
+const navigationStyle = computed(() => ({
+  backgroundColor: navigationAppearance.value.backgroundColor,
+  backgroundImage: navigationAppearance.value.backgroundImage,
+  backgroundPosition: navigationAppearance.value.backgroundImage
+    ? 'top center'
+    : undefined,
+  backgroundRepeat: navigationAppearance.value.backgroundImage
+    ? 'no-repeat'
+    : undefined,
+  backgroundSize: navigationAppearance.value.backgroundImage
+    ? '100% 100%'
+    : undefined,
+  color: navigationAppearance.value.textColor,
 }));
 
 /**
@@ -128,10 +165,7 @@ function sectionStyle(section: DecorationDocument['sections'][number]) {
     <header
       v-if="!isEmbeddedPage && document.page.navigation.visible"
       class="preview-navigation"
-      :style="{
-        backgroundColor: effectivePage.navigationBackgroundColor,
-        color: effectivePage.navigationTextColor,
-      }"
+      :style="navigationStyle"
     >
       {{ document.page.navigation.title || pageName }}
     </header>
@@ -139,7 +173,9 @@ function sectionStyle(section: DecorationDocument['sections'][number]) {
     <!-- 内嵌页型套原生骨架：装修块的真实落点与列宽在骨架里才看得见 -->
     <CanvasPageShell v-if="isEmbeddedPage" :page-type="pageType">
       <div class="preview-embedded" :style="embeddedStyle">
-        <div v-if="isEmpty" class="preview-empty">该页面还没有装修内容</div>
+        <div v-if="isEmpty" class="preview-empty">
+          {{ emptyText ?? '该页面还没有装修内容' }}
+        </div>
         <div
           v-for="section in visibleSections"
           :key="section.id"
@@ -161,7 +197,9 @@ function sectionStyle(section: DecorationDocument['sections'][number]) {
     </CanvasPageShell>
 
     <template v-else>
-      <div v-if="isEmpty" class="preview-empty">当前草稿还没有组件</div>
+      <div v-if="isEmpty" class="preview-empty">
+        {{ emptyText ?? '当前草稿还没有组件' }}
+      </div>
 
       <div
         v-for="section in visibleSections"
@@ -226,17 +264,25 @@ function sectionStyle(section: DecorationDocument['sections'][number]) {
   background-size: 100% auto;
 }
 
-.preview-empty,
-.preview-unknown {
-  padding: 48px 20px;
+/* 空装修位用虚线 + 浅底占位：纯文字/纯 --el-fill-color 在白色画布上等同白屏 */
+.preview-empty {
+  padding: 28px 12px;
+  margin: 12px;
   font-size: 14px;
   color: var(--el-text-color-secondary);
   text-align: center;
+  background: var(--el-fill-color-lighter);
+  border: 1px dashed var(--el-border-color-darker, #cbd5e1);
+  border-radius: 8px;
 }
 
 .preview-unknown {
+  /* 合并原重复选择器：保留后一条规则的最终生效值，避免样式优先级歧义 */
   padding: 16px;
   margin: 12px;
+  font-size: 14px;
+  color: var(--el-text-color-secondary);
+  text-align: center;
   border: 1px dashed var(--el-border-color);
 }
 </style>

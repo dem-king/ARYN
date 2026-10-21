@@ -67,4 +67,73 @@ class UploadFileValidatorTest {
 					exception -> assertThat(exception.getMsg()).isEqualTo("仅支持 JPG、PNG、GIF、BMP、WEBP 图片"));
 	}
 
+	@Test
+	void acceptsMp4ByContentSignatureForVideoType() {
+		MockMultipartFile file = new MockMultipartFile("file", "clip.mp4", "video/mp4", mp4Header());
+
+		assertThatCode(() -> validator.validate(file, "2")).doesNotThrowAnyException();
+	}
+
+	@Test
+	void acceptsMovAndWebmForVideoType() {
+		MockMultipartFile mov = new MockMultipartFile("file", "clip.mov", "video/quicktime", mp4Header());
+		MockMultipartFile webm = new MockMultipartFile("file", "clip.webm", "video/webm",
+				new byte[] { 0x1A, 0x45, (byte) 0xDF, (byte) 0xA3, 0x00, 0x00 });
+
+		assertThatCode(() -> validator.validate(mov, "2")).doesNotThrowAnyException();
+		assertThatCode(() -> validator.validate(webm, "2")).doesNotThrowAnyException();
+	}
+
+	@Test
+	void rejectsMp4WhenTypeIsNotVideo() {
+		MockMultipartFile file = new MockMultipartFile("file", "clip.mp4", "video/mp4", mp4Header());
+
+		// C 端上传与配送凭证仍限图片
+		assertThatThrownBy(() -> validator.validate(file)).isInstanceOf(ArynBusinessException.class)
+			.isInstanceOfSatisfying(ArynBusinessException.class,
+					exception -> assertThat(exception.getMsg()).isEqualTo("仅支持 JPG、PNG、GIF、BMP、WEBP 图片"));
+		assertThatThrownBy(() -> validator.validate(file, "1")).isInstanceOf(ArynBusinessException.class)
+			.isInstanceOfSatisfying(ArynBusinessException.class,
+					exception -> assertThat(exception.getMsg()).isEqualTo("仅支持 JPG、PNG、GIF、BMP、WEBP 图片"));
+	}
+
+	@Test
+	void rejectsHtmlRenamedAsMp4ForVideoType() {
+		MockMultipartFile file = new MockMultipartFile("file", "attack.mp4", "video/mp4",
+				"<html><script>alert(1)</script></html>".getBytes());
+
+		assertThatThrownBy(() -> validator.validate(file, "2")).isInstanceOf(ArynBusinessException.class)
+			.isInstanceOfSatisfying(ArynBusinessException.class,
+					exception -> assertThat(exception.getMsg()).isEqualTo("仅支持 MP4、MOV、M4V、WEBM 视频"));
+	}
+
+	@Test
+	void rejectsMalformedMp4WithoutFtypBox() {
+		MockMultipartFile file = new MockMultipartFile("file", "broken.mp4", "video/mp4",
+				new byte[] { 0x00, 0x00, 0x00, 0x20, 0x6D, 0x6F, 0x6F, 0x76 });
+
+		assertThatThrownBy(() -> validator.validate(file, "2")).isInstanceOf(ArynBusinessException.class)
+			.isInstanceOfSatisfying(ArynBusinessException.class,
+					exception -> assertThat(exception.getMsg()).isEqualTo("仅支持 MP4、MOV、M4V、WEBM 视频"));
+	}
+
+	@Test
+	void rejectsVideoLargerThanOneHundredMegabytes() throws Exception {
+		MultipartFile file = mock(MultipartFile.class);
+		when(file.isEmpty()).thenReturn(false);
+		when(file.getSize()).thenReturn(100L * 1024 * 1024 + 1);
+		when(file.getOriginalFilename()).thenReturn("large.mp4");
+		when(file.getContentType()).thenReturn("video/mp4");
+		when(file.getInputStream()).thenReturn(InputStream.nullInputStream());
+
+		assertThatThrownBy(() -> validator.validate(file, "2")).isInstanceOf(ArynBusinessException.class)
+			.isInstanceOfSatisfying(ArynBusinessException.class,
+					exception -> assertThat(exception.getMsg()).isEqualTo("上传视频不能超过100MB"));
+	}
+
+	private byte[] mp4Header() {
+		// ISO BMFF：4 字节长度 + "ftyp" + brand
+		return new byte[] { 0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6F, 0x6D };
+	}
+
 }

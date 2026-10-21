@@ -1,16 +1,26 @@
 package com.aryn.cloud.promotion.service.impl;
 
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.aryn.cloud.promotion.api.entity.SeckillActivity;
 import com.aryn.cloud.promotion.api.entity.SeckillSession;
+import com.aryn.cloud.promotion.api.vo.SeckillSessionVO;
+import com.aryn.cloud.promotion.mapper.SeckillActivityMapper;
 import com.aryn.cloud.promotion.mapper.SeckillSessionMapper;
 import com.aryn.cloud.promotion.service.ISeckillSessionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -18,11 +28,46 @@ import java.util.List;
 public class SeckillSessionServiceImpl extends ServiceImpl<SeckillSessionMapper, SeckillSession>
 		implements ISeckillSessionService {
 
+	private final SeckillActivityMapper seckillActivityMapper;
+
 	@Override
 	public List<SeckillSession> listByActivityId(String activityId) {
 		return this.list(Wrappers.<SeckillSession>lambdaQuery()
 				.eq(SeckillSession::getActivityId, activityId)
 				.orderByAsc(SeckillSession::getStartTime));
+	}
+
+	@Override
+	public IPage<SeckillSessionVO> getAdminPage(Page page, List<String> ids, String sessionName) {
+		IPage<SeckillSessionVO> sessionPage = this.page(page, Wrappers.<SeckillSession>lambdaQuery()
+				.in(!CollectionUtils.isEmpty(ids), SeckillSession::getId, ids)
+				.like(StringUtils.hasText(sessionName), SeckillSession::getSessionName, sessionName)
+				.orderByDesc(SeckillSession::getCreateTime))
+			.convert(session -> {
+				SeckillSessionVO vo = new SeckillSessionVO();
+				BeanUtils.copyProperties(session, vo);
+				return vo;
+			});
+		fillActivityNames(sessionPage.getRecords());
+		return sessionPage;
+	}
+
+	/** 场次列表带出所属活动名称（选择器靠它区分同名场次） */
+	private void fillActivityNames(List<SeckillSessionVO> sessions) {
+		List<String> activityIds = sessions.stream()
+			.map(SeckillSessionVO::getActivityId)
+			.filter(StringUtils::hasText)
+			.distinct()
+			.toList();
+		if (activityIds.isEmpty()) {
+			return;
+		}
+		Map<String, String> nameById = seckillActivityMapper.selectList(Wrappers.<SeckillActivity>lambdaQuery()
+				.select(SeckillActivity::getId, SeckillActivity::getActivityName)
+				.in(SeckillActivity::getId, activityIds))
+			.stream()
+			.collect(Collectors.toMap(SeckillActivity::getId, SeckillActivity::getActivityName, (a, b) -> a));
+		sessions.forEach(session -> session.setActivityName(nameById.get(session.getActivityId())));
 	}
 
 	@Override

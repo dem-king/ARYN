@@ -143,6 +143,29 @@ const sortedTaskList = computed(() => {
   return [...tasks].sort((a, b) => (a.sortNo ?? 0) - (b.sortNo ?? 0))
 })
 
+/**
+ * 当前配送站：送货顺序里第一个「待送达」的任务。
+ *
+ * 顺序就是司机实际要走的路线，所以第一个未送到的就是下一家；
+ * 已送达/异常/待退回都跳过。未出发或已收车时没有当前站。
+ */
+const currentTask = computed<DeliveryTask | null>(() => {
+  if (trip.value?.status !== '3')
+    return null
+  return sortedTaskList.value.find(task => task.status === '4') ?? null
+})
+
+/** 当前站序号（1 起）；没有当前站时为 0 */
+const currentTaskIndex = computed(() => {
+  const id = currentTask.value?.id
+  return id ? sortedTaskList.value.findIndex(task => task.id === id) + 1 : 0
+})
+
+/** 是否为当前站（卡片描边 + 「当前配送」角标） */
+function isCurrentTask(task: DeliveryTask): boolean {
+  return currentTask.value?.id === task.id
+}
+
 // ===================== 拖拽排序 =====================
 
 /** 排序面板是否展开（默认收起：多数时候顺序由派单决定，司机不天天调） */
@@ -734,6 +757,21 @@ async function confirmArrive() {
             :style="{ width: `${totalTaskCount > 0 ? (arrivedCount / totalTaskCount) * 100 : 0}%` }"
           />
         </view>
+        <!-- 当前站摘要：即使当前卡片在屏幕外，司机也能立刻知道下一家送哪 -->
+        <view
+          v-if="currentTask"
+          class="mt-16rpx flex items-center justify-between rounded-12rpx bg-orange-50 px-20rpx py-14rpx"
+        >
+          <view class="flex flex-1 items-center overflow-hidden">
+            <text class="i-carbon:location mr-8rpx flex-none text-28rpx text-orange-500" />
+            <text class="truncate text-24rpx text-orange-600">
+              当前第 {{ currentTaskIndex }} 站 · {{ currentTask.recipientName || '未填收货人' }}
+            </text>
+          </view>
+          <text class="ml-10rpx flex-none text-22rpx text-orange-500">
+            待送达
+          </text>
+        </view>
         <!-- 顺序调整入口：默认收起，需要时展开 -->
         <view class="mt-20rpx flex items-center justify-between border-t border-gray-100 pt-20rpx">
           <text class="text-24rpx text-gray-500">
@@ -889,7 +927,10 @@ async function confirmArrive() {
         v-for="(task, index) in sortedTaskList"
         :key="task.id"
         class="mx-20rpx mb-20rpx rounded-20rpx bg-white p-30rpx"
-        :class="{ 'task-done': task.status === '5' || task.status === '6' }"
+        :class="{
+          'task-done': task.status === '5' || task.status === '6',
+          'task-current': isCurrentTask(task),
+        }"
       >
         <!-- 卡片头部：序号 + 状态 -->
         <view class="mb-20rpx flex items-center justify-between">
@@ -899,6 +940,9 @@ async function confirmArrive() {
             </view>
             <text class="ml-20rpx text-28rpx font-bold">
               {{ task.recipientName }}
+            </text>
+            <text v-if="isCurrentTask(task)" class="task-current-tag">
+              当前配送
             </text>
           </view>
           <!--
@@ -911,6 +955,13 @@ async function confirmArrive() {
             class="text-24rpx text-gray-400"
           >
             {{ getTaskStatusName(task.status as DeliveryTaskStatus) }}
+          </text>
+          <text
+            v-else
+            class="text-24rpx"
+            :class="isCurrentTask(task) ? 'text-orange-500 font-bold' : 'text-gray-400'"
+          >
+            待送达
           </text>
         </view>
 
@@ -961,7 +1012,10 @@ async function confirmArrive() {
           >
             已送达
           </wd-button>
-          <text class="ml-auto text-22rpx text-gray-400">
+          <text
+            class="ml-auto text-22rpx"
+            :class="isCurrentTask(task) ? 'text-orange-500 font-bold' : 'text-gray-400'"
+          >
             第 {{ index + 1 }} 站
           </text>
         </view>
@@ -1236,6 +1290,26 @@ async function confirmArrive() {
 .task-done {
   opacity: 0.7;
   background-color: #f7f8fa;
+}
+
+/* 当前配送站：描边 + 轻投影，和已送达的置灰卡形成明确层级 */
+.task-current {
+  border: 2rpx solid rgba(242, 107, 58, 0.5);
+  box-shadow: 0 10rpx 28rpx rgba(242, 107, 58, 0.1);
+}
+
+.task-current .task-index {
+  box-shadow: 0 0 0 6rpx rgba(242, 107, 58, 0.16);
+}
+
+.task-current-tag {
+  margin-left: 12rpx;
+  padding: 2rpx 10rpx;
+  color: #fff;
+  font-size: 20rpx;
+  line-height: 28rpx;
+  border-radius: 6rpx;
+  background-color: var(--wot-color-theme, #f26b3a);
 }
 
 .task-index {

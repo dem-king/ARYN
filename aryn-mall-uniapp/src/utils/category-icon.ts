@@ -7,23 +7,33 @@
  * 保证首屏不会是一片空白圆；运营在管理后台补图后自动切换为真实图片。
  */
 
-/** 兜底色板：低饱和、明度接近，避免同屏出现刺眼的高饱和色块 */
-export const CATEGORY_FALLBACK_COLORS = [
-  '#7BA88F', // 苔绿
-  '#8FA6C4', // 灰蓝
-  '#C49A86', // 陶土
-  '#9C93C4', // 雾紫
-  '#C4A96E', // 麦黄
-  '#86B4B8', // 青灰
-  '#C08C9A', // 藕粉
-  '#93A97D', // 橄榄
+/**
+ * 兜底色板：浅底 + 同色系深字。
+ *
+ * 原先的白字压在中等明度色块上，缺图时像一块突兀的彩色头像；
+ * 改成低饱和浅底、深色首字后，和实拍图标混排更接近主流的「类目字母块」。
+ */
+const CATEGORY_FALLBACK_PALETTES = [
+  { bgColor: '#FFF1E8', color: '#C2410C' }, // 暖橙
+  { bgColor: '#EAF6EC', color: '#15803D' }, // 苔绿
+  { bgColor: '#EAF2FF', color: '#1D4ED8' }, // 灰蓝
+  { bgColor: '#F5EEFF', color: '#7E22CE' }, // 雾紫
+  { bgColor: '#FFF7E6', color: '#B45309' }, // 麦黄
+  { bgColor: '#E8F6F6', color: '#0F766E' }, // 青灰
+  { bgColor: '#FDEEF2', color: '#BE185D' }, // 藕粉
+  { bgColor: '#F1F5E9', color: '#4D7C0F' }, // 橄榄
 ] as const
+
+/** 只导出背景色，保持既有引用与单测的稳定校验口径 */
+export const CATEGORY_FALLBACK_COLORS = CATEGORY_FALLBACK_PALETTES.map(palette => palette.bgColor)
 
 export interface CategoryIconFallback {
   /** 色块上显示的文字（类目名首字） */
   text: string
   /** 色块背景色 */
   bgColor: string
+  /** 文字色：与浅底同色系，保证对比度 */
+  color: string
 }
 
 /**
@@ -40,9 +50,11 @@ export function resolveCategoryFallback(
   // 取首字：emoji 等代理对用 Array.from 才不会截断成半个字符
   const chars = Array.from(trimmed)
   const text = chars[0] ?? '类'
+  const palette = CATEGORY_FALLBACK_PALETTES[hashIndex(id ?? trimmed)]
   return {
     text,
-    bgColor: CATEGORY_FALLBACK_COLORS[hashIndex(id ?? trimmed)],
+    bgColor: palette.bgColor,
+    color: palette.color,
   }
 }
 
@@ -52,5 +64,5 @@ function hashIndex(value: string): number {
   for (let i = 0; i < value.length; i += 1) {
     hash = (hash * 31 + value.charCodeAt(i)) | 0
   }
-  return Math.abs(hash) % CATEGORY_FALLBACK_COLORS.length
+  return Math.abs(hash) % CATEGORY_FALLBACK_PALETTES.length
 }

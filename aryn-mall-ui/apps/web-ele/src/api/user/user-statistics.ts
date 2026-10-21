@@ -1,5 +1,33 @@
 import { requestClient } from '#/api/request';
 
+export interface UserOverviewVO {
+  monthNewUserCount: number;
+  sevenDayNewUserCount: number;
+  thirtyDayNewUserCount: number;
+  todayNewUserCount: number;
+  totalUserCount: number;
+  yesterdayNewUserCount?: number;
+}
+
+export interface UserSourceStatisticsVO {
+  count?: number;
+  title: string;
+}
+
+export interface UserDashboardStatisticsVO {
+  overview: UserOverviewVO;
+  sourceStatistics: UserSourceStatisticsVO[];
+}
+
+/**
+ * 用户侧概览聚合数据 (用户规模 + 流量来源)
+ */
+export async function getUserDashboardStatistics() {
+  return requestClient.get<UserDashboardStatisticsVO>(
+    '/mall-user/user/statistics/dashboard',
+  );
+}
+
 /**
  * 用户统计-用户来源
  */

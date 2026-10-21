@@ -70,10 +70,13 @@ class PublicEndpointWhitelistContractTest {
 			"/app/pagedesign/mall-theme",
 			"/app/groupbuy/activity/page",
 			"/app/couponinfo/page",
+			"/app/couponinfo/byIds/1,2",
 			"/app/seckill/sessions",
 			"/app/seckill/sessions/1/goods",
 			"/app/seckill/goods/sku1",
 			"/app/discount/activities",
+			"/app/newbie/current",
+			"/app/newbie/prices",
 			// 本机存储文件（装修图标等）
 			"/file/local/1590229800633634816/icon.jpg");
 

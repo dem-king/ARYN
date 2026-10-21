@@ -31,6 +31,20 @@ class NoticeMapperContractTest {
 	}
 
 	@Test
+	void adminNoticeMutationsAreStatusGuarded() throws IOException {
+		String noticeXml = Files.readString(Path.of("src/main/resources/mapper/MessageNoticeMapper.xml"));
+		String taskXml = Files.readString(Path.of("src/main/resources/mapper/MessageDispatchTaskMapper.xml"));
+
+		assertTrue(noticeXml.contains("status = 'DRAFT'"));
+		assertTrue(noticeXml.contains("del_flag = '1'"));
+		assertTrue(taskXml.contains("error_summary = NULL"));
+		assertTrue(taskXml.contains("status IN ('FAILED', 'PARTIAL_FAILED')"));
+		assertTrue(taskXml.contains("status = 'CANCELED'"));
+		assertTrue(taskXml.contains("status &lt;&gt; 'SUCCEEDED'"));
+		assertTrue(taskXml.contains("resetTasksForRepublish"));
+	}
+
+	@Test
 	void dispatchRecoveryIgnoresTenantInterceptorOnlyForCrossTenantScan() throws IOException {
 		String mapper = Files.readString(Path.of("src/main/java/com/aryn/cloud/message/mapper/MessageDispatchTaskMapper.java"));
 		String xml = Files.readString(Path.of("src/main/resources/mapper/MessageDispatchTaskMapper.xml"));

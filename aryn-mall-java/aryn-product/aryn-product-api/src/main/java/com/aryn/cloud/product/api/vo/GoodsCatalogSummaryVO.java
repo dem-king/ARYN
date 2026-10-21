@@ -50,6 +50,9 @@ public class GoodsCatalogSummaryVO implements Serializable {
 	@Schema(description = "售价")
 	private BigDecimal salesPrice;
 
+	@Schema(description = "原价（划线价，可能为空）")
+	private BigDecimal originalPrice;
+
 	@Schema(description = "商品状态：1上架 0下架")
 	private String status;
 

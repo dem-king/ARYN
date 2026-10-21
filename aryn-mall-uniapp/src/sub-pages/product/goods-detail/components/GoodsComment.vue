@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, getCurrentInstance, ref, watch } from 'vue'
-import { formatTime } from '@/utils/index'
 import { getPage as getAppraisePage, getCount } from '@/sub-pages/api/product/appraise'
+import { formatTime } from '@/utils/index'
 
 interface Props {
   spuId: string
@@ -13,44 +13,110 @@ interface AppraiseCount {
   negativeCount: number
   imageCount: number
 }
+interface Emits {
+  (e: 'loaded'): void
+}
 
 const props = defineProps<Props>()
+const emit = defineEmits<Emits>()
 const router = useRouter()
-// Create local reactive state for rateType
-const rateType = ref()
 const goodsAppraiseList = ref<any[]>([])
-// 评价数量
-const appraiseCount = ref<AppraiseCount>({
-  allCount: 0,
-  goodCount: 0,
-  badCount: 0,
-  negativeCount: 0,
-  imageCount: 0,
-})
-// Watch for changes in the prop and update local state
+const appraiseCount = ref<AppraiseCount>(emptyCount())
+
+function emptyCount(): AppraiseCount {
+  return {
+    allCount: 0,
+    goodCount: 0,
+    badCount: 0,
+    negativeCount: 0,
+    imageCount: 0,
+  }
+}
+
 watch(
   () => props.spuId,
   (newValue) => {
-    getAppraiseCount(newValue)
-    getGoodsAppraise(newValue)
+    appraiseCount.value = emptyCount()
+    goodsAppraiseList.value = []
+    if (newValue)
+      loadReviews(newValue)
   },
-  { immediate: true }, // 如果一开始goodsId就有值，也会立即加载
+  { immediate: true },
 )
 
-// Handle rate type change
-function onRateTypeChange(value: string) {
-  rateType.value = value
-  toAppraise()
+/**
+ * 评价数量与列表并行拉取：两者互不依赖，任一失败都只影响自己那一块，
+ * 不把整段评价打成空白。加载结束通知父页面重新量测锚点——
+ * 评价卡高度会随「有评价/空态」变化，父页面首次量测可能发生在数据回来之前。
+ */
+async function loadReviews(id: string) {
+  const [countResult, pageResult] = await Promise.allSettled([
+    getCount({ spuId: id }),
+    getAppraisePage({
+      spuId: id,
+      current: 1,
+      size: 2,
+      desc: 'create_time',
+    }),
+  ])
+  if (countResult.status === 'fulfilled') {
+    const count = countResult.value || {}
+    appraiseCount.value = {
+      allCount: Number(count.allCount) || 0,
+      goodCount: Number(count.goodCount) || 0,
+      badCount: Number(count.badCount) || 0,
+      negativeCount: Number(count.negativeCount) || 0,
+      imageCount: Number(count.imageCount) || 0,
+    }
+  }
+  if (pageResult.status === 'fulfilled')
+    goodsAppraiseList.value = pageResult.value?.records || []
+  emit('loaded')
 }
 
-// 使用计算属性来确保rateOptions响应appraiseCount的变化
-const rateOptions = computed(() => [
-  { value: 'all', label: '全部', count: appraiseCount.value.allCount || 0 },
-  { value: 'good', label: '好评', count: appraiseCount.value.goodCount || 0 },
-  { value: 'neutral', label: '中评', count: appraiseCount.value.badCount || 0 },
-  { value: 'bad', label: '差评', count: appraiseCount.value.negativeCount || 0 },
-  { value: 'pic', label: '有图', count: appraiseCount.value.imageCount || 0 },
+const reviewTotal = computed(() => {
+  const total = Number(appraiseCount.value.allCount) || 0
+  return total || goodsAppraiseList.value.length
+})
+
+const hasReviews = computed(() => reviewTotal.value > 0)
+
+/** 好评率保留一位小数，整数不补 .0；数量接口缺失时显示占位符 */
+const positiveRateText = computed(() => {
+  const total = Number(appraiseCount.value.allCount) || 0
+  const good = Number(appraiseCount.value.goodCount) || 0
+  if (total <= 0)
+    return '—'
+  const rate = Math.round((good / total) * 1000) / 10
+  return `${Number.isInteger(rate) ? rate : rate.toFixed(1)}%`
+})
+
+const filterOptions = computed(() => [
+  { value: 'good', label: '好评', count: Number(appraiseCount.value.goodCount) || 0 },
+  { value: 'neutral', label: '中评', count: Number(appraiseCount.value.badCount) || 0 },
+  { value: 'bad', label: '差评', count: Number(appraiseCount.value.negativeCount) || 0 },
+  { value: 'pic', label: '有图', count: Number(appraiseCount.value.imageCount) || 0 },
 ])
+
+function formatCount(value: number | string | null | undefined) {
+  const count = Number(value) || 0
+  if (count >= 10000)
+    return `${(count / 10000).toFixed(1).replace(/\.0$/, '')}万`
+  return String(count)
+}
+
+function scoreOf(value: any) {
+  const score = Number(value)
+  return Number.isFinite(score) ? score : 0
+}
+
+function avatarText(nickname: string) {
+  return String(nickname || '匿').slice(0, 1)
+}
+
+function onRateTypeChange(value: string) {
+  toAppraise(value)
+}
 
 const proxy = getCurrentInstance()?.proxy
 
@@ -77,39 +143,25 @@ function getScrollCommentRect() {
   })
 }
 
-function getImageRadius(index: number, total: number) {
-  if (index === 0)
-    return '10px 0 0 10px' // 最左边
-  if (index === total - 1)
-    return '0 10px 10px 0' // 最右边
-  return '0' // 中间无圆角
-}
-// 通过id查询商品评价
-function getGoodsAppraise(id: string) {
-  getAppraisePage({
-    spuId: id,
-    current: 1,
-    size: 2,
-    desc: 'create_time',
-  }).then((response) => {
-    goodsAppraiseList.value = response.records
-  })
-}
-// 通过商品id查询评价数量
-function getAppraiseCount(id: string) {
-  getCount({ spuId: id }).then((response) => {
-    appraiseCount.value = response
-  })
-}
-function toAppraise() {
+function toAppraise(type = 'all') {
   router.push({
     name: 'goods-appraise',
     params: {
       spuId: props.spuId,
-      rateType: rateType.value,
+      rateType: type,
     },
   })
 }
+
+function previewImage(index: number, urls: string[]) {
+  if (!urls?.length)
+    return
+  uni.previewImage({
+    current: index,
+    urls,
+  })
+}
+
 // 暴露方法给父组件
 defineExpose({
   getScrollCommentRect,
@@ -117,98 +169,434 @@ defineExpose({
 </script>
 
 <template>
-  <view id="scroll-comment" class="m-2 rounded-xl bg-white p-2 dark:bg-[var(--wot-dark-background2)]">
-    <view class="my-2 flex items-center justify-between">
-      <view class="text-sm">
-        评价 ({{ appraiseCount.allCount || 0 }})
+  <view id="scroll-comment" class="comment-card bg-white dark:bg-[var(--wot-dark-background2)]">
+    <view class="comment-head">
+      <view class="comment-head__title">
+        <text>用户评价</text>
+        <text class="comment-head__count">({{ formatCount(reviewTotal) }})</text>
       </view>
-      <view class="flex items-center justify-center text-gray-400" @click="toAppraise">
-        <view class="text-12px">
-          查看更多
-        </view>
+      <view v-if="hasReviews" class="comment-head__more" @click="toAppraise()">
+        <text>查看全部</text>
         <wd-icon :size="12" name="arrow-right" color="var(--wot-cell-arrow-color)" />
       </view>
     </view>
-    <!-- 自定义 radio group -->
-    <view class="no-scrollbar flex overflow-x-auto">
-      <view
-        v-for="option in rateOptions"
-        :key="option.value"
-        class="mx-10rpx my-1 flex cursor-pointer items-center justify-center whitespace-nowrap rounded-lg bg-theme-bg px-3 py-1 text-14px text-secondary transition-all"
-        @click="onRateTypeChange(option.value)"
-      >
-        {{ option.label }} <text class="pl-1">
-          {{ option.count }}
-        </text>
+
+    <template v-if="hasReviews">
+      <view v-if="reviewTotal > 0" class="comment-summary">
+        <view class="comment-summary__rate">
+          <view class="comment-summary__rate-line">
+            <wd-icon name="star-filled" size="20rpx" color="var(--theme-color-primary, var(--wot-color-theme-primary, #ff2237))" />
+            <text class="comment-summary__rate-value">
+              {{ positiveRateText }}
+            </text>
+          </view>
+          <text class="comment-summary__rate-label">好评率</text>
+        </view>
+        <view class="comment-summary__grid">
+          <view
+            v-for="option in filterOptions"
+            :key="option.value"
+            class="comment-chip"
+            hover-class="comment-chip--pressed"
+            @click="onRateTypeChange(option.value)"
+          >
+            <text class="comment-chip__label">{{ option.label }}</text>
+            <text class="comment-chip__count">{{ formatCount(option.count) }}</text>
+          </view>
+        </view>
       </view>
-    </view>
-    <view v-for="(item, index) in goodsAppraiseList" :key="index" class="mt-20px">
-      <view class="flex items-center justify-between">
-        <view class="flex items-center">
-          <wd-img width="40px" height="40px" round :src="item.avatarUrl" />
-          <view class="px-10rpx">
-            <view>
-              {{ item.nickname }}
+
+      <view class="comment-list">
+        <view
+          v-for="(item, index) in goodsAppraiseList"
+          :key="item.id || index"
+          class="comment-item"
+        >
+          <view class="comment-item__head">
+            <view class="comment-item__user">
+              <view class="comment-item__avatar">
+                <wd-img
+                  v-if="item.avatarUrl" width="32px" height="32px" round
+                  :src="item.avatarUrl"
+                />
+                <text v-else class="comment-item__avatar-text">
+                  {{ avatarText(item.nickname) }}
+                </text>
+              </view>
+              <view class="comment-item__user-meta">
+                <text class="comment-item__nickname">
+                  {{ item.nickname || '匿名用户' }}
+                </text>
+                <view v-if="scoreOf(item.goodsScore) > 0" class="comment-item__stars">
+                  <wd-rate :model-value="scoreOf(item.goodsScore)" :num="5" readonly size="12px" />
+                </view>
+              </view>
+            </view>
+            <text class="comment-item__time">{{ formatTime(item.createTime) }}</text>
+          </view>
+
+          <view class="comment-item__content-row">
+            <view class="comment-item__content">
+              {{ item.content || '该用户未填写评价' }}
+            </view>
+            <!-- 1~2 张图放在文字右侧，避免短评被拉成一大块空白 -->
+            <view
+              v-if="item.picUrls && item.picUrls.length > 0 && item.picUrls.length <= 2"
+              class="comment-item__side-pics"
+            >
+              <view
+                v-for="(pic, picIndex) in item.picUrls.slice(0, 2)"
+                :key="picIndex"
+                class="comment-item__side-pic"
+              >
+                <wd-img
+                  width="100%" height="100%" mode="aspectFill" radius="12rpx"
+                  :src="pic" @click="previewImage(picIndex, item.picUrls)"
+                />
+              </view>
+            </view>
+          </view>
+
+          <!-- 3 张及以上：一行三张，最后一张叠加剩余数量 -->
+          <view
+            v-if="item.picUrls && item.picUrls.length >= 3"
+            class="comment-item__grid-pics"
+          >
+            <view
+              v-for="(pic, picIndex) in item.picUrls.slice(0, 3)"
+              :key="picIndex"
+              class="comment-item__grid-pic"
+            >
+              <wd-img
+                width="100%" height="100%" mode="aspectFill" radius="12rpx"
+                :src="pic" @click="previewImage(picIndex, item.picUrls)"
+              />
+              <view
+                v-if="picIndex === 2 && item.picUrls.length > 3"
+                class="comment-item__grid-more"
+              >
+                +{{ item.picUrls.length - 3 }}
+              </view>
             </view>
           </view>
         </view>
-        <view class="text-14px text-gray-400">
-          {{ formatTime(item.createTime) }}
-        </view>
       </view>
 
-      <!-- 1张 或 2张：只显示第一张 -->
       <view
-        v-if="item.picUrls && (item.picUrls.length === 1 || item.picUrls.length === 2)"
-        class="flex items-start justify-between"
+        v-if="reviewTotal > 2"
+        class="comment-all"
+        hover-class="comment-all--pressed"
+        @click="toAppraise()"
       >
-        <view class="my-16rpx mr-2 flex-1 whitespace-pre-wrap break-words text-14px">
-          {{ item.content }}
-        </view>
-        <view class="h-[50px] w-[50px] flex-shrink-0">
-          <wd-img width="100%" height="100%" :src="item.picUrls[0]" radius="10px" />
-        </view>
+        <text>查看全部 {{ formatCount(reviewTotal) }} 条评价</text>
+        <wd-icon :size="12" name="arrow-right" color="var(--wot-cell-arrow-color)" />
       </view>
+    </template>
 
-      <!-- 3张及以上：一行显示 -->
-      <view v-else>
-        <view class="my-16rpx whitespace-pre-wrap break-words text-14px">
-          {{ item.content }}
-        </view>
-
-        <view
-          v-if="item.picUrls && item.picUrls.length >= 3"
-          class="flex items-center justify-center gap-3rpx"
-        >
-          <view
-            v-for="(pic, picIndex) in item.picUrls.slice(0, 4)"
-            :key="picIndex"
-            class="h-[86px] overflow-hidden"
-            :style="{
-              width: `calc(${100 / Math.min(item.picUrls.length, 4)}% - ${item.picUrls.length <= 4 ? 4 : 10}rpx)`,
-            }"
-          >
-            <wd-img
-              v-if="pic"
-              width="100%"
-              height="100%"
-              mode="aspectFill"
-              :src="pic"
-              :radius="getImageRadius(picIndex, Math.min(item.picUrls.length, 4))"
-            />
-          </view>
-        </view>
+    <view v-else class="comment-empty">
+      <view class="comment-empty__icon">
+        <wd-icon name="chat" size="44rpx" color="#b5bac3" />
+      </view>
+      <view class="comment-empty__title">
+        还没有评价
+      </view>
+      <view class="comment-empty__desc">
+        购买后可以在这里分享真实体验
       </view>
     </view>
   </view>
 </template>
 
 <style lang="scss" scoped>
-.no-scrollbar {
-  scrollbar-width: none; /* Firefox */
-  -ms-overflow-style: none; /* IE & Edge */
+.comment-card {
+  margin: 16rpx 24rpx;
+  padding: 24rpx;
+  border-radius: 24rpx;
 }
-.no-scrollbar::-webkit-scrollbar {
-  display: none; /* Chrome、Safari */
+
+.comment-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  &__title {
+    display: flex;
+    align-items: baseline;
+    gap: 8rpx;
+    color: #1f2329;
+    font-size: 28rpx;
+    font-weight: 600;
+  }
+
+  &__count {
+    color: #8a8f99;
+    font-size: 22rpx;
+    font-weight: 400;
+  }
+
+  &__more {
+    display: flex;
+    align-items: center;
+    gap: 4rpx;
+    color: #8a8f99;
+    font-size: 22rpx;
+  }
+}
+
+/**
+ * 好评率区：左侧大数字承担「一眼可信」，右侧 2x2 标签承担「快速筛选」。
+ * 浅灰底把评价摘要与下方纯白评价正文分开，避免整张卡没有层级。
+ */
+.comment-summary {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  margin-top: 20rpx;
+  padding: 20rpx;
+  border-radius: 16rpx;
+  background: #f7f8fa;
+
+  &__rate {
+    display: flex;
+    width: 148rpx;
+    flex: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4rpx;
+  }
+
+  &__rate-line {
+    display: flex;
+    align-items: center;
+    gap: 4rpx;
+  }
+
+  &__rate-value {
+    color: var(--theme-color-primary, var(--wot-color-theme-primary, #ff2237));
+    font-size: 36rpx;
+    font-weight: 700;
+    line-height: 1.1;
+  }
+
+  &__rate-label {
+    color: #8a8f99;
+    font-size: 22rpx;
+  }
+
+  &__grid {
+    display: grid;
+    flex: 1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10rpx;
+  }
+}
+
+.comment-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10rpx 16rpx;
+  border: 1rpx solid #eef0f3;
+  border-radius: 10rpx;
+  background: #fff;
+  transition: transform 120ms ease, opacity 120ms ease;
+
+  &__label {
+    color: #5f6673;
+    font-size: 22rpx;
+  }
+
+  &__count {
+    color: var(--theme-color-primary, var(--wot-color-theme-primary, #ff2237));
+    font-size: 22rpx;
+    font-weight: 600;
+  }
+
+  &--pressed {
+    opacity: 0.72;
+    transform: scale(0.97);
+  }
+}
+
+.comment-list {
+  margin-top: 24rpx;
+}
+
+.comment-item {
+  & + & {
+    margin-top: 24rpx;
+    padding-top: 24rpx;
+    border-top: 1rpx solid #f2f3f5;
+  }
+
+  &__head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16rpx;
+  }
+
+  &__user {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 14rpx;
+  }
+
+  &__avatar {
+    display: flex;
+    width: 32px;
+    height: 32px;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border-radius: 50%;
+    background: #f0f2f5;
+  }
+
+  &__avatar-text {
+    color: #8a8f99;
+    font-size: 24rpx;
+    font-weight: 600;
+  }
+
+  &__user-meta {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 2rpx;
+  }
+
+  &__nickname {
+    overflow: hidden;
+    color: #3a3f47;
+    font-size: 24rpx;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__stars {
+    transform: scale(0.86);
+    transform-origin: left center;
+  }
+
+  &__time {
+    flex: none;
+    color: #a8abb2;
+    font-size: 20rpx;
+    line-height: 32px;
+  }
+
+  &__content-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 16rpx;
+    margin-top: 14rpx;
+  }
+
+  &__content {
+    display: -webkit-box;
+    overflow: hidden;
+    flex: 1;
+    color: #3a3f47;
+    font-size: 26rpx;
+    line-height: 1.6;
+    word-break: break-word;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    white-space: pre-wrap;
+  }
+
+  &__side-pics {
+    display: flex;
+    flex: none;
+    gap: 8rpx;
+  }
+
+  &__side-pic {
+    width: 64px;
+    height: 64px;
+    overflow: hidden;
+    border-radius: 12rpx;
+    background: #f5f6f8;
+  }
+
+  &__grid-pics {
+    display: flex;
+    gap: 8rpx;
+    margin-top: 16rpx;
+  }
+
+  &__grid-pic {
+    position: relative;
+    width: 72px;
+    height: 72px;
+    overflow: hidden;
+    border-radius: 12rpx;
+    background: #f5f6f8;
+  }
+
+  &__grid-more {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgb(0 0 0 / 42%);
+    color: #fff;
+    font-size: 24rpx;
+    font-weight: 600;
+  }
+}
+
+.comment-all {
+  display: flex;
+  height: 64rpx;
+  align-items: center;
+  justify-content: center;
+  gap: 4rpx;
+  margin-top: 24rpx;
+  border-radius: 999rpx;
+  background: #f7f8fa;
+  color: #5f6673;
+  font-size: 22rpx;
+  transition: opacity 120ms ease;
+
+  &--pressed {
+    opacity: 0.72;
+  }
+}
+
+.comment-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 36rpx 0 40rpx;
+
+  &__icon {
+    display: flex;
+    width: 88rpx;
+    height: 88rpx;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: #f5f6f8;
+  }
+
+  &__title {
+    margin-top: 16rpx;
+    color: #3a3f47;
+    font-size: 26rpx;
+    font-weight: 500;
+  }
+
+  &__desc {
+    margin-top: 6rpx;
+    color: #a8abb2;
+    font-size: 22rpx;
+  }
 }
 </style>

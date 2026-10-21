@@ -5,6 +5,7 @@ import com.aryn.cloud.message.api.dto.notice.NoticeSaveRequest;
 import com.aryn.cloud.message.api.enums.MessageIdentityType;
 import com.aryn.cloud.message.api.vo.notice.NoticeInboxItemVO;
 import com.aryn.cloud.message.api.vo.notice.NoticeInboxPageVO;
+import com.aryn.cloud.message.api.vo.notice.NoticeRecipientItemVO;
 import com.aryn.cloud.message.api.vo.notice.NoticeVO;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -18,11 +19,20 @@ public interface NoticeService {
 
 	NoticeVO get(String tenantId, String noticeId);
 
-	IPage<NoticeVO> page(String tenantId, String status, Page<?> page);
+	IPage<NoticeVO> page(String tenantId, String status, String keyword, Page<?> page);
+
+	IPage<NoticeRecipientItemVO> recipients(String tenantId, String noticeId, String readStatus,
+			String recipientType, String keyword, Page<?> page);
 
 	void publish(String tenantId, String operatorId, String noticeId);
 
 	void revoke(String tenantId, String operatorId, String noticeId);
+
+	void republish(String tenantId, String operatorId, String noticeId);
+
+	void deleteDraft(String tenantId, String operatorId, String noticeId);
+
+	void retryDispatch(String tenantId, String operatorId, String noticeId);
 
 	NoticeInboxPageVO inbox(String tenantId, MessageIdentityType identityType, String identityId,
 			NoticeInboxQuery query);

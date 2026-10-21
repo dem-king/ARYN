@@ -54,17 +54,23 @@ describe('retail admin component source contract', () => {
     expect(readComponent(type, 'index.vue')).toContain('#error');
   });
 
-  it.each(retailTypes)('%s exposes real settings and common style', (type) => {
+  it.each(retailTypes)('%s exposes real content settings', (type) => {
     const source = readComponent(type, 'setting.vue');
 
     expect(source).toContain("'update:modelValue'");
-    expect(source).toContain('CommonStyle');
     expect(source).toContain('cloneDesignerValue');
     expect(source).toContain('emptyStrategy');
     expect(source).toContain('invalidStrategy');
     expect(source).toContain('isSameDesignerValue');
     expect(source).toContain('watch(');
   });
+
+  it.each(retailTypes)(
+    '%s keeps common style out of the content panel',
+    (type) => {
+      expect(readComponent(type, 'setting.vue')).not.toContain('CommonStyle');
+    },
+  );
 
   it('uses structured links for every marketing entry', () => {
     expect(readComponent('marketing-entry', 'setting.vue')).toContain(

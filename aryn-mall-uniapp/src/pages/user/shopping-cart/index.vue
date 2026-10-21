@@ -1,17 +1,30 @@
 <script setup lang="ts">
+import type { NewbiePriceDisplay } from '@/utils/newbie-price'
 import { onShow } from '@dcloudio/uni-app'
 import { computed, reactive, ref } from 'vue'
 
 import { delShoppingCart, editShoppingCart, getPage } from '@/api/order/shoppingCart'
 import { saveBatch } from '@/api/product/collect'
 import { getById } from '@/api/product/spu'
+import { getNewbieSkuPrices } from '@/api/promotion'
 // 引入组件
+import { shouldShowOriginalPrice } from '@/components/diy/price-display'
+import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
 import ShipContextPicker from '@/components/ship-context-picker/index.vue'
 import WaterfallGoods from '@/components/waterfall-goods/index.vue'
 import { useShipContextLoad } from '@/composables/useShipContextLoad'
 import { useShipContextStore } from '@/store/shipContextStore'
 import { useTenantCapabilityStore } from '@/store/tenantCapabilityStore'
 import { initGoodsSpecs } from '@/utils/goods-specs'
+import {
+  clampNewbieQuantity,
+  effectiveUnitPrice,
+  emptyNewbieDisplay,
+  hasNewbiePrice,
+  NEWBIE_BADGE_TEXT,
+  newbieLimitHint,
+  resolveNewbiePriceDisplay,
+} from '@/utils/newbie-price'
 
 definePage({
   name: 'shopping-cart',
@@ -134,6 +147,49 @@ const state = reactive<ShoppingCartState>({
   isEdit: false, // 编辑按钮
   goodsSpu: {},
   selectArr: [],
+})
+
+/**
+ * 新人价展示：`skuId → display`。
+ *
+ * 用 `ref<Record<...>>` 而不是 Map：整份对象直接替换即可触发依赖它的
+ * 行价/合计/限购计算，不必处理 Map 的响应式代理与就地 set。
+ * 未命中/接口失败时保持空对象，所有读取都回落到原价（降级无需额外分支）。
+ */
+const newbieDisplays = ref<Record<string, NewbiePriceDisplay>>({})
+
+/** 取某行的新人价展示；无活动/未命中时返回共享的空展示（不新建对象，避免每行一个） */
+function newbieDisplayOf(row: any): NewbiePriceDisplay {
+  return newbieDisplays.value[String(row?.skuId ?? '')] || emptyNewbieDisplay()
+}
+
+/**
+ * 行内划线价：优先划 SKU 原价（与售价同一数据源），存量商品没维护原价时，
+ * 新人价场景退回划当前售价 —— 原本的对比提示不能凭空消失。
+ * 普通场景无原价则不划线，与商详/列表的 shouldShowOriginalPrice 口径一致。
+ */
+function strikePriceOf(row: any): number | string | undefined {
+  const sku = row?.goodsSku
+  if (!sku)
+    return undefined
+  const display = newbieDisplayOf(row)
+  if (display.showNewbiePrice) {
+    return shouldShowOriginalPrice(display.newbiePrice, sku.originalPrice)
+      ? sku.originalPrice
+      : sku.salesPrice
+  }
+  return shouldShowOriginalPrice(sku.salesPrice, sku.originalPrice) ? sku.originalPrice : undefined
+}
+
+/** 页面是否存在可享新人价的行（决定顶部说明条是否渲染） */
+const cartHasNewbiePrice = computed(() =>
+  hasNewbiePrice(Object.values(newbieDisplays.value)),
+)
+
+/** 新人价说明条文案：任取一个可享行即可，限购数由活动统一（后端固定 1 件） */
+const cartNewbieHint = computed(() => {
+  const hit = Object.values(newbieDisplays.value).find(display => display.showNewbiePrice)
+  return hit ? newbieLimitHint(hit) : ''
 })
 
 /**
@@ -269,16 +325,91 @@ function toggleAllCheck() {
   }
   computePrice()
 }
+/**
+ * 步进器上限：可享新人价的行取 `min(库存, 限购数)`，其余行沿用库存。
+ *
+ * 提前在步进器上拦住「+」比让用户点完再被后端拒绝友好得多；库存仍要参与取小，
+ * 否则限购 1 件、库存 0 时上限不会是 0（虽然这类行本身不渲染步进器）。
+ */
+function quantityMax(row: any): number {
+  const stock = Number(row?.goodsSku?.stock) || 0
+  const display = newbieDisplayOf(row)
+  if (!display.showNewbiePrice)
+    return stock
+  return Math.min(stock, display.limitPerUser)
+}
+
 // 计算合计金额
 function computePrice() {
   selectedAll()
   let amount = 0
   state.checkedList.forEach((val: any) => {
     if (val.checked && val.goodsSku) {
-      amount += val.goodsSku.salesPrice * val.quantity
+      // 走共享的 effectiveUnitPrice：可享新人价时用新人价，否则回落售价。
+      // 不能继续写 salesPrice —— 否则行价显示新人价、合计按原价，两个数字对不上
+      amount += effectiveUnitPrice(val.goodsSku.salesPrice, newbieDisplayOf(val)) * val.quantity
     }
   })
   state.totalAmount = amount.toFixed(2)
+}
+
+/**
+ * 批量查询购物车行的新人价。
+ *
+ * 必须整页一次查询（一次带上所有 skuId）：逐行请求会把购物车首屏放大成 N 个请求，
+ * 且各请求的资格判定可能落在活动切换的边界上，出现同一屏里一部分行是新人价、
+ * 一部分不是。
+ *
+ * 失败静默：新人价只是价格标注，接口异常绝不能影响购物车列表与结算主流程。
+ */
+async function loadNewbiePrices() {
+  const skuIds = state.cartList
+    .map((row: any) => String(row?.skuId || '').trim())
+    .filter(Boolean)
+  if (!skuIds.length) {
+    newbieDisplays.value = {}
+    return
+  }
+  try {
+    const vo = await getNewbieSkuPrices(skuIds)
+    const next: Record<string, NewbiePriceDisplay> = {}
+    // 按行的 skuId 逐个解析（同一 SKU 可能有多行，如共享购物车按成员拆行），
+    // 保证行价、限购、合计三处读的是同一份判定结果
+    for (const skuId of skuIds) {
+      next[skuId] = resolveNewbiePriceDisplay(vo, skuId)
+    }
+    newbieDisplays.value = next
+  }
+  catch {
+    // 接口失败按原价展示（空表即全部回落 salesPrice）
+    newbieDisplays.value = {}
+  }
+  clampOverLimitQuantities()
+}
+
+/**
+ * 历史超限数量收敛（只改展示层，不写回后端）。
+ *
+ * 活动上线前用户可能已加了 2 件同款，此时步进器上限会小于当前值，
+ * 若不处理，输入框会显示 2 而「+」是灰的、合计却按 2 件算——用户点结算
+ * 才被后端以「限购 1 件」拒绝，是最差的一种体验。
+ *
+ * 取舍：只把本地 `row.quantity` 收敛到限购数并以此计算合计，**不调用
+ * editShoppingCart 写回**。理由是写回属于用户购物数据的静默变更：
+ * 用户可能只是暂时超量、之后还想按原数量改买其他活动商品，
+ * 而活动结束后这份限制也不复存在。真正的拦截仍在提交订单链路（后端硬校验），
+ * 这里只保证「页面显示的数量 / 合计 / 提交数量」三者一致。
+ */
+function clampOverLimitQuantities() {
+  for (const row of state.cartList) {
+    if (!row?.goodsSku)
+      continue
+    const clamped = clampNewbieQuantity(row.quantity, newbieDisplayOf(row))
+    if (clamped !== Number(row.quantity)) {
+      row.quantity = clamped
+    }
+  }
+  computePrice()
 }
 
 async function getCartPage() {
@@ -300,6 +431,9 @@ async function getCartPage() {
     state.checkedList = []
     computePrice()
     shoppingCartStore.fetchCartCount()
+    // 不 await：新人价是增强展示，让它晚一帧回来即可，
+    // 购物车列表/勾选/结算不该为了价格标注多等一个请求
+    void loadNewbiePrices()
   }
   finally {
     loading.value = false
@@ -542,6 +676,19 @@ onShow(async () => {
         </view>
       </view>
       <!--
+        新人价说明条：只有真的存在可享行才出现（否则新人限购与用户无关）。
+        放在列表头而非底部结算条：底栏高度紧张，且用户是在逐行核对价格时
+        才会产生「为什么这么便宜/为什么限 1 件」的疑问。
+      -->
+      <view v-if="cartHasNewbiePrice" class="newbie-tip">
+        <text class="newbie-tip-badge">
+          {{ NEWBIE_BADGE_TEXT }}
+        </text>
+        <text class="newbie-tip-text">
+          {{ cartNewbieHint }}
+        </text>
+      </view>
+      <!--
         防串船分组头：商品归属哪条船由上方船舶卡回答（分组头不再重复船名），
         这里只保留「跨靠港结算会被拦截」这一条商品列表信息，且做成细窄说明行，
         避免与船舶卡争夺视觉层级（此前是同款灰底圆角条，读起来像第二张卡片）。
@@ -589,6 +736,11 @@ onShow(async () => {
             :lines="2" :text="goods.spuName" size="26rpx"
             :color="goods.goodsSku && goods.goodsSku.stock > 0 ? '#303133' : '#c0c4cc'"
           />
+          <!-- 商品卖点：后端按 spuId 从 SPU 子标题补齐，缺失时不占位 -->
+          <wd-text
+            v-if="shouldShowSubtitle(goods.spuName, goods.subTitle)" :lines="1" :text="goods.subTitle" size="22rpx"
+            color="#909399"
+          />
           <view v-if="goods.specsInfo" class="spec-tag" @tap.stop="openSkuPopup(goods)">
             <wd-text
               :text="goods.goodsSku ? goods.specsInfo : '规格不存在请重新选择'" size="21rpx"
@@ -603,13 +755,27 @@ onShow(async () => {
             仅剩{{ goods.goodsSku.stock }}件
           </view>
           <view v-if="goods.goodsSku" class="goods-bottom">
-            <wd-text
-              :text="goods.goodsSku.salesPrice" size="30rpx" color="var(--wot-color-theme-primary, #ff2e4d)" mode="price"
-              prefix="￥"
-            />
+            <view class="goods-price">
+              <!-- 主价走新人价或售价；划线价优先取原价，无原价时新人场景退回划售价 -->
+              <view class="goods-price-main">
+                <wd-text
+                  :text="newbieDisplayOf(goods).showNewbiePrice ? newbieDisplayOf(goods).newbiePrice : goods.goodsSku.salesPrice"
+                  size="30rpx" color="var(--wot-color-theme-primary, #ff2e4d)" mode="price"
+                  prefix="￥"
+                />
+                <text v-if="newbieDisplayOf(goods).showNewbiePrice" class="newbie-badge">
+                  {{ NEWBIE_BADGE_TEXT }}
+                </text>
+              </view>
+              <wd-text
+                v-if="strikePriceOf(goods) !== undefined"
+                :text="strikePriceOf(goods)" size="22rpx" color="#a8abb2" mode="price"
+                prefix="￥" decoration="line-through"
+              />
+            </view>
             <wd-input-number
               v-if="goods.goodsSku && goods.goodsSku.stock > 0" v-model="goods.quantity" :min="1" :index="goods.id"
-              step-strictly :max="goods.goodsSku.stock" :step="1"
+              step-strictly :max="quantityMax(goods)" :step="1"
               @change="quantityChange($event, goods.id)" @tap.stop=""
             />
           </view>
@@ -836,6 +1002,38 @@ onShow(async () => {
   padding-bottom: 20rpx;
 }
 
+/*
+ * 新人价说明条：与 stock-tip 同一视觉层级（细窄、浅色底、小字号），
+ * 不做重卡片——它只解释规则，不该与商品卡或船舶卡争夺注意力。
+ * 颜色沿用价格色的浅底，保证与行价的「新人价」角标同源可联想。
+ */
+.newbie-tip {
+  display: flex;
+  align-items: center;
+  margin: 20rpx 20rpx 0;
+  padding: 12rpx 20rpx;
+  border-radius: 12rpx;
+  background: rgba(255, 46, 77, 0.06);
+
+  .newbie-tip-badge {
+    flex-shrink: 0;
+    margin-right: 12rpx;
+    padding: 2rpx 12rpx;
+    border-radius: 999rpx;
+    background: var(--wot-color-theme-primary, #ff2e4d);
+    color: #fff;
+    font-size: 20rpx;
+    font-weight: 600;
+  }
+
+  .newbie-tip-text {
+    min-width: 0;
+    color: #8a4b3a;
+    font-size: 22rpx;
+    line-height: 32rpx;
+  }
+}
+
 /* 分组说明行：细窄、无底色块，靠左侧色条表达「这一组归属同一靠港」 */
 .group-label {
   display: flex;
@@ -907,6 +1105,33 @@ onShow(async () => {
       align-items: center;
       justify-content: space-between;
       margin-top: 16rpx;
+    }
+
+    /* 价格块：主价 + 角标一行，划线原价另起一行，避免与步进器抢横向空间 */
+    .goods-price {
+      display: flex;
+      min-width: 0;
+      flex-direction: column;
+      align-items: flex-start;
+
+      .goods-price-main {
+        display: flex;
+        align-items: center;
+        min-width: 0;
+      }
+    }
+
+    /* 新人价角标：与商详页同款圆角胶囊，行内尺寸更小以适应卡片密度 */
+    .newbie-badge {
+      flex-shrink: 0;
+      margin-left: 8rpx;
+      padding: 2rpx 10rpx;
+      border-radius: 999rpx;
+      background: rgba(255, 46, 77, 0.1);
+      color: var(--wot-color-theme-primary, #ff2e4d);
+      font-size: 18rpx;
+      font-weight: 600;
+      line-height: 1.6;
     }
   }
 }

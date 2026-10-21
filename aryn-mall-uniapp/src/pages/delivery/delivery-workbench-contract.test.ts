@@ -88,6 +88,25 @@ describe('delivery workbench multi-trip contract', () => {
     expect(page).toContain('待退回')
   })
 
+  it('工作台站点行可直接进入详情，并高亮当前配送站', () => {
+    const indexPage = source('src/pages/delivery/index.vue')
+    const detailPage = source('src/pages/delivery/trip-detail.vue')
+
+    // 站点行本身就是入口：司机点哪一单都能进详情，不用先找底部按钮
+    expect(indexPage).toMatch(/v-for="\(stop, stopIndex\) in trip\.taskList"[\s\S]{0,600}?@click="toTripDetail\(trip\.id\)"/)
+    // 当前站 = 送货顺序里第一个待送达；列表高亮、角标、趟次副标题共用同一判定
+    expect(indexPage).toContain('function currentStop(')
+    expect(indexPage).toMatch(/function currentStop[\s\S]*?status === '4'/)
+    expect(indexPage).toContain('stop-row-current')
+    expect(indexPage).toContain('当前站')
+    // 详情页同样标出当前站，送达刷新后自动切到下一单
+    expect(detailPage).toContain('const currentTask = computed')
+    expect(detailPage).toMatch(/const currentTask = computed[\s\S]*?status === '4'/)
+    expect(detailPage).toContain('task-current')
+    expect(detailPage).toContain('当前配送')
+    expect(detailPage).toContain('当前第')
+  })
+
   it('配货视图按「分类 + 商品 + 规格」合并整趟车明细', () => {
     const page = source('src/pages/delivery/trip-detail.vue')
 

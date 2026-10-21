@@ -43,6 +43,7 @@ import {
   getEffectivePages,
   getPage,
   getThemes,
+  isEmbeddedPageType,
   pageTypeLabel,
   pageTypeToQueryToken,
   setAsHome,
@@ -326,6 +327,19 @@ function handleSlotAction(action: PageDesignRowAction, slot: EffectiveSlot) {
   handleRowAction(action, slot.page);
 }
 
+/**
+ * 未配置槽位的说明文案。
+ *
+ * 内嵌页型（商详/分类/个人中心）即使没有装修，C 端原生页面依然存在，
+ * 不能写成「未配置页面」；只有整页 DIY 的首页才需要发布微页面后晋升。
+ */
+function emptySlotHint(slot: EffectiveSlot) {
+  if (slot.type === '1') {
+    return '发布微页面后可「设为首页」';
+  }
+  return `未配置装修，C 端展示原生${slot.label}`;
+}
+
 function formatTime(value?: string) {
   return value ? dayjs(value).format('YYYY-MM-DD HH:mm') : '-';
 }
@@ -438,10 +452,19 @@ onMounted(() => {
               >
                 {{ effectiveLabel(slot.page) }}
               </ElTag>
+              <ElTag
+                v-else-if="isEmbeddedPageType(slot.type)"
+                effect="plain"
+                size="small"
+                type="info"
+              >
+                原生页面
+              </ElTag>
             </div>
             <template v-if="slot.page">
               <EffectivePageThumb
                 :page="slot.page"
+                :page-type="slot.type"
                 :theme-vars="previewThemeVars"
               />
               <div class="card-name" :title="slot.page.pageName">
@@ -479,16 +502,26 @@ onMounted(() => {
               </div>
             </template>
             <template v-else>
-              <div class="card-thumb-placeholder">
+              <EffectivePageThumb
+                v-if="isEmbeddedPageType(slot.type)"
+                :page-type="slot.type"
+                :theme-vars="previewThemeVars"
+              />
+              <div v-else class="card-thumb-placeholder">
                 <div class="card-thumb-ghost">暂无预览</div>
               </div>
-              <div class="card-name is-placeholder">未配置</div>
-              <div class="card-meta">
+              <div
+                class="card-name"
+                :class="{ 'is-placeholder': !isEmbeddedPageType(slot.type) }"
+              >
                 {{
-                  slot.type === '1'
-                    ? '发布微页面后可「设为首页」'
-                    : `发布${slot.label}装修后自动生效`
+                  isEmbeddedPageType(slot.type)
+                    ? `${slot.label}（原生）`
+                    : '未配置'
                 }}
+              </div>
+              <div class="card-meta">
+                {{ emptySlotHint(slot) }}
               </div>
               <div v-if="slot.type !== '1'" class="card-actions">
                 <ElButton

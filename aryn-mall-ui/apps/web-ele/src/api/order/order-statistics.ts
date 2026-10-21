@@ -6,6 +6,29 @@ export interface OrderStatisticsQuery {
   startTime?: string;
 }
 
+export interface OrderDashboardQuery extends OrderStatisticsQuery {
+  compareEndTime?: string;
+  compareStartTime?: string;
+  includeUserAnalytics?: boolean;
+}
+
+export interface DashboardTargetDTO {
+  gmvTarget: number;
+  newUserTarget: number;
+  orderTarget: number;
+  targetMonth: string;
+}
+
+export interface DashboardTargetVO {
+  gmvActual: number;
+  gmvTarget: number;
+  newUserActual: number;
+  newUserTarget: number;
+  orderActual: number;
+  orderTarget: number;
+  targetMonth: string;
+}
+
 /**
  * 订单交易数据 VO
  */
@@ -23,7 +46,7 @@ export interface OrderTradeStatisticsVO {
    */
   payBuyerCount: number;
   /**
-   * 客单价
+   * 客单价 (GMV / 支付订单数)
    */
   averageTicketSize: number;
   /**
@@ -67,7 +90,7 @@ export interface OrderRefundRateVO {
    */
   spuName: string;
   /**
-   * 退款率 (百分比数值，如 12.5)
+   * 退款率 (0-1 小数，如 0.125)
    */
   refundRate: number;
   /**
@@ -89,11 +112,11 @@ export interface OrderUserStatisticsVO {
    */
   payBuyerCount: number;
   /**
-   * 复购率 (百分比)
+   * 复购率 (0-1 小数)
    */
   repurchaseRate: number;
   /**
-   * 老客成交占比 (百分比)
+   * 老客成交占比 (0-1 小数)
    */
   oldCustomerGmvRate: number;
   /**
@@ -285,13 +308,123 @@ export interface ProductSalesAnalysisVO {
    */
   averageTicketSize: number;
   /**
-   * 动销率 (动销商品数 / 在售商品数)
+   * 动销率 (0-1 小数，动销商品数 / 在售商品数)
    */
   activeProductRate: number;
   /**
    * 订单数
    */
   orderCount: number;
+}
+
+export interface OrderFunnelVO {
+  completedCount: number;
+  createdCount: number;
+  deliveredCount: number;
+  paidCount: number;
+  refundedCount: number;
+}
+
+export interface UserRfmSegmentVO {
+  gmv: number;
+  segment: string;
+  userCount: number;
+}
+
+export interface TrafficFunnelVO {
+  createdBuyerCount: number;
+  paidBuyerCount: number;
+  visitorCount: number;
+}
+
+export interface ChannelContributionVO {
+  buyerCount: number;
+  gmv: number;
+  orderCount: number;
+  source: string;
+  sourceName: string;
+}
+
+export interface UserCohortRetentionVO {
+  cohortMonth: string;
+  cohortSize: number;
+  month0: number;
+  month1: number;
+  month2: number;
+  month3: number;
+  month4: number;
+  month5: number;
+}
+
+export interface OrderDashboardStatisticsVO {
+  accumulatedTransactionUserCount?: number;
+  cohortRetention?: UserCohortRetentionVO[];
+  compareConsumption?: UserConsumptionAnalysisVO;
+  compareTrade?: OrderTradeStatisticsVO;
+  consumption?: UserConsumptionAnalysisVO;
+  consumptionAmount?: UserConsumptionAmountVO;
+  consumptionFrequency?: UserConsumptionFrequencyVO;
+  funnel: OrderFunnelVO;
+  overview: OrderOverviewVO;
+  refundTop10: OrderRefundRateVO[];
+  rfmSegments?: UserRfmSegmentVO[];
+  salesTop10: OrderProductSalesRankVO[];
+  status: OrderStatusOverviewVO;
+  trade: OrderTradeStatisticsVO;
+  trafficFunnel: TrafficFunnelVO;
+  tradeTrend: OrderTrendVO[];
+  user: OrderUserStatisticsVO;
+  userGrowthTrend?: UserGrowthTrendVO[];
+}
+
+/**
+ * 获取月度目标与实际达成
+ * @param month yyyy-MM
+ */
+export function getDashboardTarget(month: string) {
+  return requestClient.get<DashboardTargetVO>(
+    '/mall-order/order/statistics/target',
+    {
+      params: { month },
+    },
+  );
+}
+
+/**
+ * 保存月度目标
+ * @param data
+ */
+export function saveDashboardTarget(data: DashboardTargetDTO) {
+  return requestClient.post<DashboardTargetVO>(
+    '/mall-order/order/statistics/target',
+    data,
+  );
+}
+
+/**
+ * 获取渠道贡献
+ * @param params
+ */
+export function getChannelContribution(params: OrderStatisticsQuery) {
+  return requestClient.get<ChannelContributionVO[]>(
+    '/mall-order/order/statistics/channel',
+    {
+      params,
+    },
+  );
+}
+
+/**
+ * 获取订单侧概览聚合数据 (一次请求返回交易、趋势、状态、消费与增长)
+ * @param params
+ */
+export function getOrderDashboardStatistics(params: OrderDashboardQuery) {
+  return requestClient.get<OrderDashboardStatisticsVO>(
+    '/mall-order/order/statistics/dashboard',
+    {
+      params,
+    },
+  );
 }
 
 /**

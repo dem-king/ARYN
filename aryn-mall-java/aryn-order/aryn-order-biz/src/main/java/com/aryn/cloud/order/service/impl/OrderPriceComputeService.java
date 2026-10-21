@@ -71,7 +71,7 @@ public class OrderPriceComputeService {
 	 * @param orderItemEntityList 订单明细
 	 */
 	public void orderPromotionPriceHandler(List<OrderItemEntity> orderItemEntityList) {
-		orderPromotionPriceHandler(orderItemEntityList, null);
+		orderPromotionPriceHandler(orderItemEntityList, null, null);
 	}
 
 	/**
@@ -84,12 +84,28 @@ public class OrderPriceComputeService {
 	 */
 	public void orderPromotionPriceHandler(List<OrderItemEntity> orderItemEntityList,
 			Map<String, BigDecimal> groupBuyPriceBySku) {
+		orderPromotionPriceHandler(orderItemEntityList, groupBuyPriceBySku, null);
+	}
+
+	/**
+	 * 促销价格处理（完整上下文）：拼团价 > 秒杀价 > 新人价 > 限时折扣 > 原价。
+	 *
+	 * <p>{@code newbieSkuIds} 中的 SKU 已被营销引擎写入新人价基价，
+	 * 限时折扣分支必须跳过（折扣会无条件覆盖 salesPrice），否则新人价被冲掉；
+	 * 秒杀仍优先覆盖（平台级爆款活动优先保护）。
+	 *
+	 * @param groupBuyPriceBySku 拼团 SKU → 拼团单价（可为 null，表示非拼团单）
+	 * @param newbieSkuIds 命中新人价的 SKU 集合（可为 null/空，表示无新人价订单）
+	 */
+	public void orderPromotionPriceHandler(List<OrderItemEntity> orderItemEntityList,
+			Map<String, BigDecimal> groupBuyPriceBySku, Set<String> newbieSkuIds) {
 		for (OrderItemEntity item : orderItemEntityList) {
 			BigDecimal originalUnitPrice = item.getSalesPrice();
 			if (originalUnitPrice == null) {
 				// 未定价商品不做促销价处理，避免空指针
 				continue;
 			}
+			boolean newbiePriced = newbieSkuIds != null && newbieSkuIds.contains(item.getSkuId());
 			BigDecimal promotionUnitPrice = null;
 			// 优先拼团价（拼团单）
 			if (groupBuyPriceBySku != null) {
@@ -98,7 +114,7 @@ public class OrderPriceComputeService {
 					promotionUnitPrice = groupBuyPrice;
 				}
 			}
-			// 其次秒杀价
+			// 其次秒杀价（秒杀优先于新人价：平台级爆款活动优先保护）
 			if (promotionUnitPrice == null) {
 				try {
 					BigDecimal seckillPrice = remoteSeckillService.getSeckillPrice(item.getSkuId());
@@ -109,8 +125,8 @@ public class OrderPriceComputeService {
 					// Dubbo 调用失败不阻断下单，降级用折扣/原价
 				}
 			}
-			// 其次限时折扣
-			if (promotionUnitPrice == null) {
+			// 其次限时折扣（新人价 SKU 跳过：新人价已作为基价写入，折扣不得覆盖）
+			if (promotionUnitPrice == null && !newbiePriced) {
 				try {
 					promotionUnitPrice = remoteDiscountService.calculatePrice(item.getSkuId(), originalUnitPrice);
 				} catch (Exception e) {
@@ -407,6 +423,76 @@ public class OrderPriceComputeService {
 	}
 
 	/**
+	 * 从营销试算结果中提取命中新人价的 SKU 集合（供促销价处理跳过折扣分支与限购校验）。
+	 */
+	public Set<String> newbiePriceSkuIds(PromotionCalculationVO calculation) {
+		if (calculation == null || calculation.getLadderOverrides() == null) {
+			return Set.of();
+		}
+		return calculation.getLadderOverrides().stream()
+			.filter(override -> override.getActivityType() != null
+					&& override.getActivityType().equals(com.aryn.cloud.promotion.api.entity.PromotionActivity.TYPE_NEWBIE_PRICE))
+			.map(PromotionCalculationVO.UnitPriceOverride::getSkuId)
+			.collect(Collectors.toSet());
+	}
+
+	/**
+	 * 新人价限购校验：命中新人价的 SKU 在整单内合计数量必须为 1。
+	 *
+	 * <p>按 SKU 聚合数量（共享购物车按成员拆行后同一 SKU 会有多条明细），
+	 * 超量直接拦截整单；仅在提交订单时调用，结算页不拦（用户改数量时才提示）。
+	 */
+	public void assertNewbieQuantityLimit(PromotionCalculationVO calculation, List<OrderItemEntity> orderItemEntityList) {
+		Set<String> newbieSkuIds = newbiePriceSkuIds(calculation);
+		if (newbieSkuIds.isEmpty()) {
+			return;
+		}
+		Map<String, Integer> quantityBySku = orderItemEntityList.stream()
+			.filter(item -> newbieSkuIds.contains(item.getSkuId()))
+			.collect(Collectors.toMap(OrderItemEntity::getSkuId, OrderItemEntity::getBuyQuantity, Integer::sum));
+		boolean overLimit = quantityBySku.values().stream().anyMatch(quantity -> quantity != null && quantity > 1);
+		if (overLimit) {
+			throw new ArynBusinessException("新人专享商品每人限购 1 件");
+		}
+	}
+
+	/**
+	 * 买赠赠品按真实库存过滤：库存不足的赠品不赠（结算页同步不展示），
+	 * 并回填商品名/图片供确认页展示。库存查询失败按无赠品处理（fail-closed），
+	 * 不再以伪造库存放行赠品。
+	 */
+	public List<PromotionCalculationVO.GiftItem> availableGifts(PromotionCalculationVO calculation) {
+		if (calculation == null || calculation.getGifts() == null || calculation.getGifts().isEmpty()) {
+			return List.of();
+		}
+		List<String> skuIds = calculation.getGifts().stream()
+			.map(PromotionCalculationVO.GiftItem::getSkuId)
+			.distinct()
+			.toList();
+		Map<String, GoodsSku> skuMap;
+		try {
+			skuMap = remoteGoodsSkuService.getBySkuIds(skuIds).stream()
+				.collect(Collectors.toMap(GoodsSku::getId, sku -> sku, (a, b) -> a));
+		}
+		catch (Exception ex) {
+			log.warn("赠品库存查询失败，本次按无赠品处理", ex);
+			return List.of();
+		}
+		List<PromotionCalculationVO.GiftItem> available = new ArrayList<>();
+		for (PromotionCalculationVO.GiftItem gift : calculation.getGifts()) {
+			GoodsSku sku = skuMap.get(gift.getSkuId());
+			if (sku == null || sku.getStock() == null || sku.getStock() < gift.getQuantity()) {
+				log.warn("赠品SKU[{}]不存在或库存不足，本次不赠", gift.getSkuId());
+				continue;
+			}
+			gift.setSpuName(sku.getGoodsSpu() != null ? sku.getGoodsSpu().getName() : null);
+			gift.setPicUrl(sku.getPicUrl());
+			available.add(gift);
+		}
+		return available;
+	}
+
+	/**
 	 * 订单明细图片三级兜底：请求快照 → SKU 图 → SPU 主图首张。
 	 *
 	 * <p>请求 DTO 的 picUrl 由购物车链路带入；共享购物车按成员拆分下单等链路不带该字段，
@@ -551,6 +637,9 @@ public class OrderPriceComputeService {
 
 	/**
 	 * 营销锁定：下单时预留（订单+活动幂等）。营销服务不可用时按无优惠继续下单。
+	 *
+	 * <p>业务异常（如新人价在途唯一拦截）必须向上抛出：此处若一并吞掉，
+	 * 订单会带着已写入的新人价继续创建，拦截形同虚设；仅基础设施异常降级放行。
 	 */
 	public PromotionCalculationVO reservePromotion(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList) {
 		try {
@@ -559,6 +648,9 @@ public class OrderPriceComputeService {
 				return null;
 			}
 			return remotePromotionEngine.reserve(context);
+		}
+		catch (ArynBusinessException ex) {
+			throw ex;
 		}
 		catch (Exception ex) {
 			log.warn("订单[{}]营销锁定失败，按无优惠继续", orderInfo.getId(), ex);

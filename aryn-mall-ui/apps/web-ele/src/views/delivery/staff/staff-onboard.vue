@@ -20,6 +20,8 @@ import {
   ElFormItem,
   ElInput,
   ElMessage,
+  ElOption,
+  ElSelect,
   ElStep,
   ElSteps,
   ElTag,

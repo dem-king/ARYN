@@ -5,10 +5,12 @@ import com.baomidou.mybatisplus.annotation.*;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.baomidou.mybatisplus.extension.activerecord.Model;
 import com.aryn.cloud.common.myabtis.handler.JsonArrayStringTypeHandler;
+import com.aryn.cloud.product.api.hanlder.GoodsAttrTagListTypeHandler;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.experimental.Accessors;
+import org.apache.ibatis.type.JdbcType;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -36,6 +38,10 @@ public class GoodsSpu extends Model<GoodsSpu> {
 
 	@Schema(description = "子标题")
 	private String subTitle;
+
+	@Schema(description = "商品属性标签（商详首屏属性卡）")
+	@TableField(value = "attr_tags", typeHandler = GoodsAttrTagListTypeHandler.class, jdbcType = JdbcType.VARCHAR)
+	private List<GoodsAttrTag> attrTags;
 
 	@Schema(description = "商品图地址")
 	@TableField(typeHandler = JsonArrayStringTypeHandler.class)

@@ -1,7 +1,12 @@
 import type { DiscountProps } from '../../discount/types';
+import type {
+  GoodsRecommendProps,
+  GoodsWaterfallProps,
+} from '../../extension/types';
 import type { GoodsGroupProps } from '../../goods-group/types';
 import type { GoodsRankingProps } from '../../goods-ranking/types';
 import type { LimitedActivityProps } from '../../limited-activity/types';
+import type { NewbieFloorProps } from '../../newbie-floor/types';
 import type { SeckillProps } from '../../seckill/types';
 
 import {
@@ -14,6 +19,7 @@ import {
   getById as getActivityById,
   getPage as getActivityPage,
 } from '#/api/promotion/group-buy-activity';
+import { getCurrentNewbieFloor } from '#/api/promotion/newbie-activity';
 import { getAppSessionGoods, getAppSessions } from '#/api/promotion/seckill';
 import { getById as getTenantById } from '#/api/upms/tenant';
 
@@ -21,6 +27,8 @@ export interface RetailGoodsItem {
   id: string;
   imageUrl: string;
   name: string;
+  /** 商品子标题（商品介绍），来源 goods_spu.sub_title */
+  subTitle?: string;
   price: number;
   /**
    * 商品原价（划线价），来源 `goods_spu.original_price`。
@@ -96,6 +104,27 @@ export interface RetailShopInfo {
   siteUrl: string;
 }
 
+export interface RetailNewbieGoodsItem {
+  goodsImage: string;
+  goodsName: string;
+  /** 新人专享价 */
+  newbiePrice: number;
+  /** 划线原价（当前售价） */
+  originalPrice: number;
+  skuId: string;
+  spuId: string;
+}
+
+export interface RetailNewbieFloorItem {
+  activityId: string;
+  activityName: string;
+  endTime: string;
+  goodsList: RetailNewbieGoodsItem[];
+  /** 每人每 SKU 限购件数（固定 1） */
+  limitPerUser: number;
+  registerWithinDays: number;
+}
+
 export interface RetailDataDependencies {
   activityById: (id: string) => Promise<unknown>;
   activityPage: (query: Record<string, unknown>) => Promise<unknown>;
@@ -156,6 +185,7 @@ function normalizeGoods(value: unknown): RetailGoodsItem[] {
         id: toText(record.id),
         imageUrl: firstImage(record),
         name: toText(record.name ?? record.spuName),
+        subTitle: toText(record.subTitle).trim() || undefined,
         price: toNumber(record.salesPrice ?? record.price),
         originalPrice: toNumber(record.originalPrice),
         sales: toNumber(record.salesVolume),
@@ -216,6 +246,55 @@ export async function loadGoodsRanking(
           size: props.count,
         });
   return normalizeGoods(response).slice(0, props.count);
+}
+
+/**
+ * 商品瀑布流取数：与 C 端 diy-goods-waterfall 的 loadGoodsWaterfall 同口径。
+ *
+ * 画布预览不做无限滚动（C 端由 z-paging 分页追加），一次取 count 条即停；
+ * 缓存只在 C 端生效，管理端配置一改立即重取，所见即最新配置。
+ */
+export async function loadGoodsWaterfall(
+  props: GoodsWaterfallProps,
+  dependencies: RetailDataDependencies = defaultDependencies,
+): Promise<RetailGoodsItem[]> {
+  if (props.dataSource.mode === 'manual') {
+    const ids = props.dataSource.targetIds ?? [];
+    const result = normalizeGoods(await dependencies.goodsByIds(ids));
+    return restoreConfiguredOrder(result, ids).slice(0, props.count);
+  }
+  const response = await dependencies.goodsPage({
+    categorySecondId: props.dataSource.categoryId || undefined,
+    current: 1,
+    ...createGoodsSortParams(props.dataSource.sort || 'sales'),
+    size: props.count,
+  });
+  return normalizeGoods(response).slice(0, props.count);
+}
+
+/**
+ * 商品推荐取数：与 C 端 diy-goods-recommend 的 loadGoodsRecommend 同口径。
+ *
+ * 差异：画布没有「当前商品」上下文，不做商详场景的排除当前商品与
+ * 按当前商品分类兜底，automatic 模式固定按销量取全站（或已配置分类）Top。
+ */
+export async function loadGoodsRecommend(
+  props: GoodsRecommendProps,
+  dependencies: RetailDataDependencies = defaultDependencies,
+): Promise<RetailGoodsItem[]> {
+  const count = Math.max(1, Number(props.count) || 6);
+  if (props.dataSource.mode === 'manual') {
+    const ids = props.dataSource.targetIds ?? [];
+    const result = normalizeGoods(await dependencies.goodsByIds(ids));
+    return restoreConfiguredOrder(result, ids).slice(0, count);
+  }
+  const response = await dependencies.goodsPage({
+    categorySecondId: props.dataSource.categoryId || undefined,
+    current: 1,
+    ...createGoodsSortParams('sales'),
+    size: count,
+  });
+  return normalizeGoods(response).slice(0, count);
 }
 
 function normalizeActivities(value: unknown): RetailActivityItem[] {
@@ -406,6 +485,53 @@ export async function loadDiscounts(
       .slice(0, props.count);
   }
   return activities.slice(0, props.count);
+}
+
+/**
+ * 新人专享楼层取数：固定读「当前进行中的新人价活动」，无活动返回空数组。
+ *
+ * 与小程序 retail-data.loadNewbieFloor 同源口径；管理端预览同样不做按人出价，
+ * 展示的就是活动配置价（与 C 端楼层一致，非新人也能看到该价）。
+ */
+export async function loadNewbieFloor(
+  props: NewbieFloorProps,
+): Promise<RetailNewbieFloorItem[]> {
+  return normalizeNewbieFloor(await getCurrentNewbieFloor())
+    .slice(0, 1)
+    .map((floor) => ({
+      ...floor,
+      goodsList: floor.goodsList.slice(0, props.count),
+    }));
+}
+
+/** 新人专享活动归一化（单对象响应） */
+export function normalizeNewbieFloor(value: unknown): RetailNewbieFloorItem[] {
+  const record = asRecord(value);
+  const activityId = toText(record.activityId);
+  if (!activityId) return [];
+  const goods = Array.isArray(record.goodsList) ? record.goodsList : [];
+  return [
+    {
+      activityId,
+      activityName: toText(record.activityName),
+      endTime: toText(record.endTime),
+      goodsList: goods
+        .map((goodsItem) => {
+          const goodsRecord = asRecord(goodsItem);
+          return {
+            goodsImage: firstImage(goodsRecord),
+            goodsName: toText(goodsRecord.goodsName),
+            newbiePrice: toNumber(goodsRecord.newbiePrice),
+            originalPrice: toNumber(goodsRecord.originalPrice),
+            skuId: toText(goodsRecord.skuId),
+            spuId: toText(goodsRecord.spuId),
+          };
+        })
+        .filter((goodsItem) => Boolean(goodsItem.skuId)),
+      limitPerUser: toNumber(record.limitPerUser) || 1,
+      registerWithinDays: toNumber(record.registerWithinDays),
+    },
+  ];
 }
 
 export async function loadShopInfo(

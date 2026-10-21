@@ -8,6 +8,13 @@ import java.util.List;
 public interface IOrderStatisticsService {
 
 	/**
+	 * 订单侧概览聚合数据
+	 * @param dto 统计参数
+	 * @return OrderDashboardStatisticsVO
+	 */
+	OrderDashboardStatisticsVO getOrderDashboardStatistics(OrderStatisticsDTO dto);
+
+	/**
 	 * 统计订单交易数据：成交额、支付订单数、支付买家数、客单价、售后订单数、退款金额
 	 * @param dto 统计参数
 	 * @return OrderTradeStatisticsVO
@@ -97,5 +104,12 @@ public interface IOrderStatisticsService {
 	 * @return ProductSalesAnalysisVO
 	 */
 	ProductSalesAnalysisVO getProductSalesAnalysis(OrderStatisticsDTO dto);
+
+	/**
+	 * 渠道贡献：按用户来源聚合周期内买家数、订单数与 GMV
+	 * @param dto 统计参数
+	 * @return List<ChannelContributionVO>
+	 */
+	List<ChannelContributionVO> getChannelContribution(OrderStatisticsDTO dto);
 
 }

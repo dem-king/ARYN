@@ -9,6 +9,7 @@ import {
   resolveQuantityRule,
   resolveQuantityRuleForSku,
   resolveQuickAddMode,
+  resolveQuickAddPrice,
   resolveQuickAddQuantity,
   validateQuantity,
 } from './quick-cart'
@@ -70,6 +71,40 @@ describe('resolveQuickAddQuantity', () => {
   it('忽略非法 MOQ/步长，回落为 1', () => {
     expect(resolveQuickAddQuantity({ moq: 0, stepQty: -3 })).toBe(1)
     expect(resolveQuickAddQuantity({ moq: 'abc', stepQty: '' })).toBe(1)
+  })
+})
+
+describe('resolveQuickAddPrice', () => {
+  const info = { mode: 'direct', skuId: 'sku-1', salesPrice: 12.9 }
+
+  it('活动 SKU 一致时采用活动价，并带上限购说明', () => {
+    expect(resolveQuickAddPrice(info, {
+      skuId: 'sku-1',
+      unitPrice: 0.01,
+      maxQuantity: 1,
+      hint: '新人专享价每人限购 1 件',
+    })).toEqual({ unitPrice: 0.01, maxQuantity: 1, hint: '新人专享价每人限购 1 件' })
+  })
+
+  it('活动 SKU 与快捷加购选中的 SKU 不一致时回落售价（不拿 A 的价标 B 的货）', () => {
+    expect(resolveQuickAddPrice(info, {
+      skuId: 'sku-other',
+      unitPrice: 0.01,
+      maxQuantity: 1,
+    })).toEqual({ unitPrice: 12.9, maxQuantity: null, hint: '' })
+  })
+
+  it('未传活动价 / 活动价非法时回落售价', () => {
+    expect(resolveQuickAddPrice(info, null).unitPrice).toBe(12.9)
+    expect(resolveQuickAddPrice(info, { skuId: 'sku-1', unitPrice: 0 }).unitPrice).toBe(12.9)
+    expect(resolveQuickAddPrice(info, { skuId: 'sku-1', unitPrice: 'abc' }).unitPrice).toBe(12.9)
+  })
+
+  it('限购件数归一化：非法/缺省值不封顶', () => {
+    expect(resolveQuickAddPrice(info, { skuId: 'sku-1', unitPrice: 1 }).maxQuantity).toBeNull()
+    expect(resolveQuickAddPrice(info, { skuId: 'sku-1', unitPrice: 1, maxQuantity: 0 }).maxQuantity).toBeNull()
+    expect(resolveQuickAddPrice(info, { skuId: 'sku-1', unitPrice: 1, maxQuantity: 'abc' }).maxQuantity).toBeNull()
+    expect(resolveQuickAddPrice(info, { skuId: 'sku-1', unitPrice: 1, maxQuantity: 2 }).maxQuantity).toBe(2)
   })
 })
 

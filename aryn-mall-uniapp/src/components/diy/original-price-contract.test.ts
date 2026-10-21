@@ -60,3 +60,46 @@ describe('商品卡片划线原价', () => {
     expect(code).toContain('showOriginalPrice === true')
   })
 })
+
+/**
+ * 分类页与商品列表页共用同一份商品卡片（goods-list-panel），
+ * 没有装修开关，口径直接跟随商详：原价严格大于售价才划线。
+ */
+describe('分类/列表商品卡片划线原价', () => {
+  const panel = 'src/components/goods-list-panel/index.vue'
+
+  it('共用 shouldShowOriginalPrice 判定，存量商品原价为 0 时不划出「¥0」', () => {
+    const code = source(panel)
+    expect(code).toContain("from '@/components/diy/price-display'")
+    expect(code).toContain('shouldShowOriginalPrice(item.salesPrice, item.originalPrice)')
+    expect(code).toContain('v-if="showOriginalPrice(item)"')
+  })
+
+  it('使用删除线样式，而非仅置灰', () => {
+    const code = source(panel)
+    const rule = code.slice(code.indexOf('.goods-price-original'))
+    expect(rule.slice(0, rule.indexOf('}'))).toMatch(/text-decoration:\s*line-through/)
+  })
+})
+
+/**
+ * 购物车、收藏、足迹、推荐、选货等商品展示位：都必须按同一口径
+ * （原价严格大于售价）展示划线价，避免同一商品在不同页面价格口径不一致。
+ */
+describe('其他商品展示位划线原价', () => {
+  const SURFACES = [
+    'src/pages/user/shopping-cart/index.vue',
+    'src/components/waterfall-goods/index.vue',
+    'src/sub-pages/user/collect/index.vue',
+    'src/sub-pages/user/footprint/index.vue',
+    'src/sub-pages/product/ship-supply/index.vue',
+  ]
+
+  it.each(SURFACES)('%s 使用 shouldShowOriginalPrice 判定', (file) => {
+    expect(source(file)).toContain('shouldShowOriginalPrice')
+  })
+
+  it.each(SURFACES)('%s 使用删除线样式', (file) => {
+    expect(source(file)).toMatch(/decoration="line-through"|text-decoration:\s*line-through/)
+  })
+})

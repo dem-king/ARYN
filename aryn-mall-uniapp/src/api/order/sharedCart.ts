@@ -205,9 +205,25 @@ export function shareSharedCart(id: string) {
   return alovaInstance.Post<string>(`${BASE}/${id}/share`)
 }
 
-/** 凭分享令牌自助加入（点击群卡片后调用，服务端自动补建船舶成员关系） */
+/** 凭分享令牌自助加入的结果（后端 `SharedCartJoinVO`，契约 3.9） */
+export interface SharedCartJoinVO {
+  /** 加入后的购物车 ID */
+  cartId: string
+  /** 船舶名（提示用，服务端取不到时为空） */
+  vesselName?: string
+  /** 本次是否自动补建了船舶成员关系（补建失败 fail-open 时为 false） */
+  vesselMemberBound?: boolean
+}
+
+/**
+ * 凭分享令牌自助加入（点击群卡片后调用，服务端自动补建船舶成员关系）。
+ *
+ * 返回体已从裸 cartId 字符串改为 `SharedCartJoinVO`：服务端会顺带告知船名与
+ * 「本次是否补建了成员关系」，前端据此在成功提示里明说「同时加入了哪条船」——
+ * 分享链接把点开的人直接加成船员，用户此前对此毫不知情。
+ */
 export function joinSharedCartByToken(token: string) {
-  return alovaInstance.Post<string>(`${BASE}/join`, undefined, {
+  return alovaInstance.Post<SharedCartJoinVO>(`${BASE}/join`, undefined, {
     params: { token },
   })
 }

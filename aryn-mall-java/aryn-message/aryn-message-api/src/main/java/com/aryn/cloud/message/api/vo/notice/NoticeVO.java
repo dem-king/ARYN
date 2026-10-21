@@ -4,6 +4,7 @@ import lombok.Data;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
+import java.util.List;
 
 /** 通知管理视图。 */
 @Data
@@ -18,6 +19,7 @@ public class NoticeVO implements Serializable {
 	private String priority;
 	private String targetTypes;
 	private String status;
+	private String senderType;
 	private String senderName;
 	private LocalDateTime publishTime;
 	private LocalDateTime expireTime;
@@ -25,5 +27,10 @@ public class NoticeVO implements Serializable {
 	private String jumpType;
 	private String jumpPayload;
 	private LocalDateTime createTime;
+	private String dispatchStatus;
+	private List<NoticeDispatchTaskVO> dispatchTasks = List.of();
+	private Long recipientCount = 0L;
+	private Long readCount = 0L;
+	private Long hiddenCount = 0L;
 
 }

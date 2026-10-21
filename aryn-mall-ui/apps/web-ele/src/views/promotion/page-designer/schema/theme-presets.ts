@@ -85,12 +85,13 @@ export const THEME_PRESETS: ThemePreset[] = PRESET_PRIMARIES.map(
   }),
 );
 
-/** 由主色一键生成一套主题表单值（导航保持白底黑字） */
+/** 由主色一键生成一套主题表单值（导航保持白底黑字，自动动效默认开启） */
 export function buildThemePayloadFromPrimary(
   primaryColor: string,
   themeName: string,
 ): PageDesignThemePayload {
   return {
+    autoMotionEnabled: '1',
     navigationColor: '#FFFFFF',
     navigationTextColor: '#222222',
     pageBackgroundColor: derivePageBackgroundColor(primaryColor),

@@ -12,6 +12,7 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Update;
 
 import java.io.Serializable;
+import java.util.List;
 
 @Mapper
 public interface CouponInfoMapper extends BaseMapper<CouponInfo> {
@@ -26,6 +27,11 @@ public interface CouponInfoMapper extends BaseMapper<CouponInfo> {
 	 */
 	IPage<CouponInfo> selectCouponPage(Page page, @Param("query") CouponInfo couponInfo,
 			@Param("couponGoods") CouponGoods couponGoods, @Param("couponUser") CouponUser couponUser);
+
+	/**
+	 * 按ID批量查询优惠券（C 端口径：领取时间窗/状态/库存或本人已领取，与列表页可见性一致）
+	 */
+	List<CouponInfo> selectCouponByIds(@Param("ids") List<String> ids, @Param("couponUser") CouponUser couponUser);
 
 	CouponInfo selectCouponById(Serializable id);
 

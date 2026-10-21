@@ -1,17 +1,25 @@
 package com.aryn.cloud.vessel.service;
 
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
+import com.aryn.cloud.vessel.api.constant.VesselMemberBindSource;
+import com.aryn.cloud.vessel.api.constant.VesselMemberRole;
+import com.aryn.cloud.vessel.api.constant.VesselType;
 import com.aryn.cloud.vessel.api.dto.VesselContextDTO;
 import com.aryn.cloud.vessel.api.entity.VesselCall;
 import com.aryn.cloud.vessel.api.entity.VesselInfo;
 import com.aryn.cloud.vessel.api.entity.VesselMember;
+import com.aryn.cloud.vessel.api.entity.VesselMemberAuditLog;
 import com.aryn.cloud.vessel.mapper.VesselCallMapper;
 import com.aryn.cloud.vessel.mapper.VesselInfoMapper;
+import com.aryn.cloud.vessel.mapper.VesselMemberAuditLogMapper;
 import com.aryn.cloud.vessel.mapper.VesselMemberMapper;
 import com.aryn.cloud.vessel.service.impl.VesselServiceImpl;
+import com.aryn.cloud.vessel.support.VesselMemberRegistrar;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -24,6 +32,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -145,6 +156,72 @@ class VesselContextServiceTest {
 		vessel.setVesselName("新船");
 		vessel.setImoCode("IMO1234567");
 		assertThrows(ArynBusinessException.class, () -> service.saveVessel(TENANT, vessel));
+	}
+
+	@Test
+	@DisplayName("新增船舶时空白 IMO 归一化为 null：唯一键对 NULL 放行，对空串会互相撞键")
+	void saveVesselNormalizesBlankImoToNull() {
+		when(vesselInfoMapper.selectCount(any())).thenReturn(0L);
+		VesselInfo vessel = new VesselInfo();
+		vessel.setVesselName("  新船  ");
+		vessel.setImoCode("   ");
+		vessel.setCallSign("");
+		vessel.setVesselNameEn(" ");
+		service.saveVessel(TENANT, vessel);
+
+		// uk_vessel_info_imo(tenant_id, imo_code) 允许重复 NULL、不允许重复 ''：
+		// 空串必须落成 null，否则第二条「没填 IMO」的船就会撞唯一键 1062
+		assertNull(vessel.getImoCode());
+		assertNull(vessel.getCallSign());
+		assertNull(vessel.getVesselNameEn());
+		assertEquals("新船", vessel.getVesselName());
+	}
+
+	@Test
+	@DisplayName("修改船舶时同样归一化空白，且不允许把船名改成空白")
+	void updateVesselNormalizesAndRejectsBlankName() {
+		VesselInfo exists = vessel(VESSEL_ID);
+		when(vesselInfoMapper.selectOne(any())).thenReturn(exists);
+
+		VesselInfo rename = new VesselInfo();
+		rename.setId(VESSEL_ID);
+		rename.setVesselName("  改名后的船  ");
+		rename.setImoCode("  ");
+		VesselInfo updated = service.updateVessel(TENANT, rename);
+		assertEquals("改名后的船", updated.getVesselName());
+		assertNull(updated.getImoCode());
+
+		// 只改状态（不动船名）必须放行：不能把「未传」也当成「改成空」
+		VesselInfo statusOnly = new VesselInfo();
+		statusOnly.setId(VESSEL_ID);
+		statusOnly.setStatus("0");
+		assertEquals("0", service.updateVessel(TENANT, statusOnly).getStatus());
+
+		// 显式传空白船名则拒绝（NOT NULL 列被写成空串后，列表与下拉全变空白）
+		VesselInfo blankName = new VesselInfo();
+		blankName.setId(VESSEL_ID);
+		blankName.setVesselName("   ");
+		assertThrows(ArynBusinessException.class, () -> service.updateVessel(TENANT, blankName));
+	}
+
+	@Test
+	@DisplayName("船型缺省落「其他」，非法码值拒绝（DTO 旧口径会传出错值）")
+	void saveVesselNormalizesVesselType() {
+		when(vesselInfoMapper.selectCount(any())).thenReturn(0L);
+
+		VesselInfo defaulted = new VesselInfo();
+		defaulted.setVesselName("没选船型");
+		assertEquals(VesselType.DEFAULT, service.saveVessel(TENANT, defaulted).getVesselType());
+
+		VesselInfo explicit = new VesselInfo();
+		explicit.setVesselName("油轮");
+		explicit.setVesselType(VesselType.TANKER);
+		assertEquals(VesselType.TANKER, service.saveVessel(TENANT, explicit).getVesselType());
+
+		VesselInfo invalid = new VesselInfo();
+		invalid.setVesselName("错船型");
+		invalid.setVesselType("9");
+		assertThrows(ArynBusinessException.class, () -> service.saveVessel(TENANT, invalid));
 	}
 
 	@Test
@@ -317,6 +394,79 @@ class VesselContextServiceTest {
 		member.setVesselId(VESSEL_ID);
 		member.setUserId(USER);
 		assertThrows(ArynBusinessException.class, () -> service.addMember(TENANT, member));
+	}
+
+	// ---------------------------------------------------------------------
+	// 管理端绑定成员：在营校验 + 角色白名单 + 来源标记
+	// ---------------------------------------------------------------------
+
+	/** VesselServiceImpl 的 registrar 是字段注入（历史原因），单测需反射塞入 */
+	private VesselMemberRegistrar injectRegistrar(VesselMemberAuditLogMapper auditLogMapper) {
+		VesselMemberRegistrar registrar = new VesselMemberRegistrar(vesselMemberMapper, auditLogMapper);
+		ReflectionTestUtils.setField(service, "memberRegistrar", registrar);
+		return registrar;
+	}
+
+	@Test
+	@DisplayName("停用船不能添加成员——停用船无法下单，却会让人看到成员与靠港数据")
+	void addMemberRejectsInactiveVessel() {
+		VesselInfo disabled = vessel(VESSEL_ID);
+		disabled.setStatus("0");
+		when(vesselInfoMapper.selectOne(any())).thenReturn(disabled);
+		VesselMember member = new VesselMember();
+		member.setVesselId(VESSEL_ID);
+		member.setUserId(USER);
+
+		ArynBusinessException ex = assertThrows(ArynBusinessException.class, () -> service.addMember(TENANT, member));
+		assertTrue(ex.getMsg().contains("停用"));
+		verify(vesselMemberMapper, never()).insert(any(VesselMember.class));
+	}
+
+	@Test
+	@DisplayName("管理端绑定成员时角色传「1」（发起人）→ 拒绝")
+	void addMemberRejectsOwnerRole() {
+		when(vesselInfoMapper.selectOne(any())).thenReturn(vessel(VESSEL_ID));
+		when(vesselMemberMapper.selectCount(any())).thenReturn(0L);
+		VesselMember member = new VesselMember();
+		member.setVesselId(VESSEL_ID);
+		member.setUserId(USER);
+		member.setMemberRole(VesselMember.ROLE_OWNER);
+
+		ArynBusinessException ex = assertThrows(ArynBusinessException.class, () -> service.addMember(TENANT, member));
+		assertTrue(ex.getMsg().contains("成员角色不合法"));
+		verify(vesselMemberMapper, never()).insert(any(VesselMember.class));
+	}
+
+	@Test
+	@DisplayName("管理端直接绑定来源记 ADMIN_ADD，分享链接补建记 SHARE_CART——两条路径不能混")
+	void addMemberMarksBindSource() {
+		VesselMemberAuditLogMapper auditLogMapper = mock(VesselMemberAuditLogMapper.class);
+		injectRegistrar(auditLogMapper);
+		when(vesselInfoMapper.selectOne(any())).thenReturn(vessel(VESSEL_ID));
+		when(vesselMemberMapper.selectCount(any())).thenReturn(0L);
+		when(vesselMemberMapper.selectOne(any())).thenReturn(null);
+
+		VesselMember adminMember = new VesselMember();
+		adminMember.setVesselId(VESSEL_ID);
+		adminMember.setUserId(USER);
+		adminMember.setMemberRole(VesselMemberRole.CREW);
+		service.addMember(TENANT, adminMember);
+
+		ArgumentCaptor<VesselMember> adminCaptor = ArgumentCaptor.forClass(VesselMember.class);
+		verify(vesselMemberMapper).insert(adminCaptor.capture());
+		assertEquals(VesselMemberBindSource.ADMIN_ADD, adminCaptor.getValue().getBindSource());
+
+		VesselMember shareMember = new VesselMember();
+		shareMember.setVesselId(VESSEL_ID);
+		shareMember.setUserId("share-user");
+		shareMember.setMemberRole(VesselMemberRole.CREW);
+		service.addMember(TENANT, shareMember, VesselMemberBindSource.SHARE_CART);
+
+		ArgumentCaptor<VesselMember> shareCaptor = ArgumentCaptor.forClass(VesselMember.class);
+		verify(vesselMemberMapper, times(2)).insert(shareCaptor.capture());
+		assertEquals(VesselMemberBindSource.SHARE_CART, shareCaptor.getAllValues().get(1).getBindSource());
+		// 每次绑定都必须留 BIND 审计：没有审计的绑定在误绑事故里等于没发生过
+		verify(auditLogMapper, times(2)).insert(any(VesselMemberAuditLog.class));
 	}
 
 	@Test

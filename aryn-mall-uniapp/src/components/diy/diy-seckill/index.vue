@@ -136,7 +136,9 @@ function openGoods(spuId: string, skuId: string) {
 .session-time { color: var(--wot-color-theme-primary, #ff2237); font-size: 22rpx; }
 .goods-list { display: flex; flex-direction: column; gap: 14rpx; }
 .goods-card { display: flex; overflow: hidden; min-height: 140rpx; gap: 18rpx; border: 1rpx solid #ffe1dc; border-radius: 8rpx; background: #fff; }
-.goods-image { display: flex; width: 150rpx; min-height: 140rpx; flex: 0 0 auto; align-items: center; justify-content: center; background: var(--wot-color-theme-background, #fff1ee); color: var(--wot-color-theme-primary, #ff2237); font-size: 22rpx; }
+/* 缩略图必须显式给 rpx 高度：小程序 <image> 基座自带 height:240px，
+   只给宽度会让图片竖着撑开整张卡片（H5 端按宽高比自适应，不会暴露此问题） */
+.goods-image { display: flex; width: 150rpx; height: 150rpx; flex: 0 0 auto; align-items: center; justify-content: center; background: var(--wot-color-theme-background, #fff1ee); color: var(--wot-color-theme-primary, #ff2237); font-size: 22rpx; }
 .goods-content { min-width: 0; flex: 1; padding: 16rpx 16rpx 16rpx 0; }
 .goods-name { overflow: hidden; color: #303133; font-size: 27rpx; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .goods-progress { display: flex; margin-top: 10rpx; align-items: center; gap: 10rpx; }

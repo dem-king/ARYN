@@ -19,13 +19,14 @@ const expectedRetailComponentTypes = [
   'shop-info',
   'ship-workbench',
   'replenish-card',
+  'newbie-floor',
 ] as const;
 
 /** legacy 组件数：P1 起 custom-html 纳入基础组件 */
 const LEGACY_COMPONENT_COUNT = 12;
 
-/** retail 组件数：P1 起含 goods-scroll；本轮新增 seckill / discount */
-const RETAIL_COMPONENT_COUNT = 11;
+/** retail 组件数：P1 起含 goods-scroll；本轮新增 seckill / discount / newbie-floor */
+const RETAIL_COMPONENT_COUNT = 12;
 
 describe('legacy component registry', () => {
   it('registers every legacy component exactly once', () => {
@@ -85,8 +86,8 @@ describe('retail component registry', () => {
     );
   });
 
-  it('registers all eight extension components exactly once', () => {
-    expect(new Set(extensionComponentTypes).size).toBe(8);
+  it('registers all nine extension components exactly once', () => {
+    expect(new Set(extensionComponentTypes).size).toBe(9);
     for (const type of extensionComponentTypes) {
       const definition = componentRegistry[type];
       expect(definition).toBeDefined();
@@ -174,5 +175,42 @@ describe('retail component registry', () => {
 
     expect(remaining).toBeGreaterThanOrEqual(23 * 60 * 60 * 1000);
     expect(remaining).toBeLessThanOrEqual(25 * 60 * 60 * 1000);
+  });
+});
+
+describe('component style settings registry', () => {
+  const typesWithSpecificStyleSettings = [
+    'category-nav',
+    'gap',
+    'goods',
+    'image-ad',
+    'notice',
+    'rich-text',
+    'search-bar',
+    'swiper-banner',
+    'tab-nav',
+    'title-text',
+    'newbie-floor',
+    'bottom-nav',
+  ] as const;
+
+  it.each(typesWithSpecificStyleSettings)(
+    '%s exposes a dedicated style settings panel',
+    (type) => {
+      expect(componentRegistry[type].styleSettings).toBeTruthy();
+    },
+  );
+
+  it('components without specific style fields rely on the shared common style', () => {
+    expect(componentRegistry['coupon-receive'].styleSettings).toBeUndefined();
+    expect(componentRegistry['goods-group'].styleSettings).toBeUndefined();
+    expect(componentRegistry['image-cube'].styleSettings).toBeUndefined();
+  });
+
+  it('custom-html has neither common style nor a style panel', () => {
+    const defaults = componentRegistry['custom-html'].createDefaultProps();
+
+    expect(defaults).not.toHaveProperty('commonStyle');
+    expect(componentRegistry['custom-html'].styleSettings).toBeUndefined();
   });
 });

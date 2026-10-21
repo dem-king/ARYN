@@ -10,6 +10,7 @@ import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -436,7 +437,12 @@ public class DefaultPageDesignDocumentValidator implements PageDesignDocumentVal
 		}
 		ValidationContext context = new ValidationContext(componentId, componentType);
 		walk(props, basePath + ".props", context, result);
-		validateDataSource(props, context, result);
+		if (PageDesignComponentTypes.GOODS_TABS.equals(componentType)) {
+			validateGoodsTabs(props, context, result);
+		}
+		else {
+			validateDataSource(props, context, result);
+		}
 		validateCustomHtml(props, componentId, componentType, basePath, result);
 		result.getReferences().getGoodsIds().addAll(context.goodsIds);
 		result.getReferences().getCouponIds().addAll(context.couponIds);
@@ -545,6 +551,67 @@ public class DefaultPageDesignDocumentValidator implements PageDesignDocumentVal
 		}
 		if (!MANUAL_MODE.equals(mode)) {
 			context.requestCount++;
+		}
+	}
+
+	/**
+	 * 多 Tab 商品流的数据源校验。
+	 * <p>
+	 * 数据源挂在每个 Tab 上，不能复用根节点 dataSource 的通用校验：
+	 * 手选 Tab 必须选商品，自动 Tab 计入页面请求预算，手选商品进入引用清单。
+	 */
+	private void validateGoodsTabs(JSONObject props, ValidationContext context, PageDesignValidationVO result) {
+		JSONArray tabs = props.getJSONArray("tabs");
+		if (tabs == null || tabs.isEmpty()) {
+			result.getErrors()
+				.add(issue("DATASOURCE_EMPTY", "多Tab商品流至少需要配置一个Tab", context.componentId,
+						context.componentType, "props.tabs"));
+			return;
+		}
+		if (tabs.size() > 6) {
+			result.getErrors()
+				.add(issue("DATASOURCE_INVALID", "多Tab商品流最多配置 6 个 Tab", context.componentId,
+						context.componentType, "props.tabs"));
+		}
+		Set<String> tabIds = new HashSet<>();
+		for (int index = 0; index < tabs.size(); index++) {
+			JSONObject tab = tabs.getJSONObject(index);
+			if (tab == null) {
+				continue;
+			}
+			String path = "props.tabs[" + index + "]";
+			if (!StringUtils.hasText(tab.getString("title"))) {
+				result.getErrors()
+					.add(issue("DATASOURCE_INVALID", "Tab 标题不能为空", context.componentId, context.componentType,
+							path + ".title"));
+			}
+			String tabId = tab.getString("id");
+			if (StringUtils.hasText(tabId) && !tabIds.add(tabId)) {
+				result.getErrors()
+					.add(issue("DATASOURCE_INVALID", "Tab 标识重复：" + tabId, context.componentId,
+							context.componentType, path + ".id"));
+			}
+			JSONObject dataSource = tab.getJSONObject("dataSource");
+			if (dataSource == null) {
+				result.getErrors()
+					.add(issue("DATASOURCE_EMPTY", "Tab 数据源不能为空", context.componentId, context.componentType,
+							path + ".dataSource"));
+				continue;
+			}
+			String mode = dataSource.getString("mode");
+			JSONArray targetIds = dataSource.getJSONArray("targetIds");
+			boolean hasTargets = targetIds != null && !targetIds.isEmpty();
+			if (MANUAL_MODE.equals(mode) && !hasTargets) {
+				result.getErrors()
+					.add(issue("DATASOURCE_EMPTY", "手选数据源不能为空，请选择具体数据", context.componentId,
+							context.componentType, path + ".dataSource.targetIds"));
+			}
+			if (hasTargets) {
+				context.goodsIds.addAll(targetIds.toJavaList(String.class));
+			}
+			if (!MANUAL_MODE.equals(mode)) {
+				context.requestCount++;
+			}
 		}
 	}
 

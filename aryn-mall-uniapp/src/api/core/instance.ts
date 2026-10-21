@@ -1,12 +1,12 @@
 import { uniappRequestAdapter } from '@alova/adapter-uniapp'
 import { createAlova } from 'alova'
 import vueHook from 'alova/vue'
+import { Local } from '@/utils/storage'
 import { apiBaseUrl } from './api-base-url'
 import { parseOpenBoot, rewriteBootUrl } from './boot-url'
 import { handleAlovaError, handleAlovaResponse } from './handlers'
 import { ensureSessionTenant, ensureTenantReady } from './tenant-identity'
 import { TenantPreflightError } from './tenant-preflight'
-import { Local } from '@/utils/storage'
 
 const openBoot = parseOpenBoot(import.meta.env.VITE_OPEN_BOOT)
 
@@ -32,7 +32,13 @@ export const alovaInstance = createAlova({
     // 免登请求不带任何凭证，响应侧若收到 401/403 只能说明该接口未开通公开访问，
     // 与登录态是否过期无关。这里把标记透传给响应处理器，避免一次白名单漏配
     // 就把已登录用户清掉 token 并跳回登录页（金刚区→商品列表的品牌接口曾如此）。
-    method.config.meta = { ...(method.config.meta as object | undefined), publicRequest: skipToken }
+    // deliveryRequest 同理透传：响应侧判 401 归属时 authScope 头已被删除，
+    // 只能靠这个标记区分「清配送登录态」还是「清商城登录态」。
+    method.config.meta = {
+      ...(method.config.meta as object | undefined),
+      deliveryRequest,
+      publicRequest: skipToken,
+    }
     if (!skipToken) {
       const token = deliveryRequest ? Local.get('deliveryToken') : authState?.token
       if (token) {

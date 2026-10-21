@@ -1,12 +1,18 @@
 <script lang="ts" setup>
 import type { EchartsUIType } from '@vben/plugins/echarts';
 
-import { onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 
 import { EchartsUI, useEcharts } from '@vben/plugins/echarts';
 
 import { TrendCharts } from '@element-plus/icons-vue';
 import { ElCard, ElIcon } from 'element-plus';
+
+import {
+  formatAxisCurrency,
+  formatCurrency,
+  formatNumber,
+} from '../../shared/chart';
 
 const props = defineProps<{
   data: {
@@ -20,6 +26,8 @@ const props = defineProps<{
 
 const chartRef = ref<EchartsUIType>();
 const { renderEcharts } = useEcharts(chartRef);
+
+const hasData = computed(() => props.data.dates.length > 0);
 
 const updateChart = () => {
   if (!props.data || !props.data.dates) return;
@@ -37,6 +45,18 @@ const updateChart = () => {
       axisPointer: {
         type: 'cross',
       },
+      formatter: (params: any) => {
+        const items = Array.isArray(params) ? params : [params];
+        const title = items[0]?.axisValueLabel ?? '';
+        const lines = items.map((item: any) => {
+          const value =
+            item.seriesName === '成交额'
+              ? formatCurrency(Number(item.value))
+              : formatNumber(Number(item.value));
+          return `${item.marker}${item.seriesName}: ${value}`;
+        });
+        return [title, ...lines].join('<br/>');
+      },
     },
     legend: {
       data: ['成交额', '订单数', '支付买家数'],
@@ -51,11 +71,17 @@ const updateChart = () => {
         type: 'value',
         name: '金额',
         position: 'left',
+        axisLabel: {
+          formatter: (value: number) => formatAxisCurrency(value),
+        },
       },
       {
         type: 'value',
         name: '数量',
         position: 'right',
+        axisLabel: {
+          formatter: (value: number) => formatNumber(value),
+        },
       },
     ],
     series: [
@@ -115,8 +141,14 @@ onMounted(() => {
         <span>交易趋势</span>
       </div>
     </template>
-    <div class="h-80 w-full">
+    <div class="relative h-80 w-full">
       <EchartsUI ref="chartRef" />
+      <div
+        v-if="!loading && !hasData"
+        class="absolute inset-0 flex items-center justify-center text-sm text-gray-400"
+      >
+        暂无数据
+      </div>
     </div>
   </ElCard>
 </template>

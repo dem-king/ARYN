@@ -31,8 +31,11 @@ public class VesselBindApplyDTO implements Serializable {
 	@NotBlank(message = "船名不能为空")
 	private String applyVesselName;
 
-	@Schema(description = "IMO 或呼号（选填，有助于运营匹配）")
+	@Schema(description = "IMO 编号（选填，有助于运营匹配）")
 	private String applyVesselImo;
+
+	@Schema(description = "呼号（选填）。与 IMO 分列采集，不再合并成一个输入框靠位数猜测")
+	private String applyVesselCallSign;
 
 	@Schema(description = "常靠港口（选填）")
 	private String applyPortName;

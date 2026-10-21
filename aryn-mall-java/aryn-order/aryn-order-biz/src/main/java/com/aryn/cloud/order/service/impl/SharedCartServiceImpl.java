@@ -17,6 +17,7 @@ import com.aryn.cloud.order.api.entity.SharedCartMember;
 import com.aryn.cloud.order.api.vo.SharedCartImportRowVO;
 import com.aryn.cloud.order.api.vo.SharedCartImportVO;
 import com.aryn.cloud.order.api.vo.SharedCartItemVO;
+import com.aryn.cloud.order.api.vo.SharedCartJoinVO;
 import com.aryn.cloud.order.api.vo.SharedCartReuseVO;
 import com.aryn.cloud.order.api.vo.SharedCartSummaryVO;
 import com.aryn.cloud.order.api.vo.SharedCartVO;
@@ -963,7 +964,7 @@ public class SharedCartServiceImpl implements ISharedCartService {
 
 	@Override
 	@Transactional(rollbackFor = Exception.class)
-	public SharedCart joinByShareToken(String tenantId, String userId, String shareToken) {
+	public SharedCartJoinVO joinByShareToken(String tenantId, String userId, String shareToken) {
 		if (!StringUtils.hasText(shareToken)) {
 			throw new ArynBusinessException("分享链接无效");
 		}
@@ -984,7 +985,9 @@ public class SharedCartServiceImpl implements ISharedCartService {
 				.eq(SharedCartMember::getCartId, cart.getId())
 				.eq(SharedCartMember::getUserId, userId));
 		if (existingMember != null && existingMember > 0) {
-			return cart;
+			// 幂等分支没有发生成员关系补建：本次是否「成为船员」的答案必须是 false，
+			// 否则老成员每次点链接都会被重复告知「你已加入本船成员」。
+			return toJoinVO(cart, tenantId, false);
 		}
 
 		// 自动补建船舶成员关系：船员扫码进群即获得该船的船员身份，无需后台配置。
@@ -996,9 +999,12 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		catch (Exception e) {
 			log.warn("校验船舶成员关系失败，继续加入共享购物车：cartId={} userId={}", cart.getId(), userId, e);
 		}
+		// bound 记录**本次**是否真的补建了成员关系（原本就在船上 / 补建失败都为 false）：
+		// 前端据此决定是否提示「已同时加入本船成员」，不能把「无需补建」说成「刚加入」。
+		boolean bound = false;
 		if (!member) {
 			try {
-				remoteVesselService.bindMemberByShare(tenantId, cart.getVesselId(), userId);
+				bound = remoteVesselService.bindMemberByShare(tenantId, cart.getVesselId(), userId);
 			}
 			catch (Exception e) {
 				log.warn("自动绑定船舶成员失败：cartId={} userId={}", cart.getId(), userId, e);
@@ -1016,8 +1022,41 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		newMember.setCreateTime(LocalDateTime.now());
 		newMember.setDelFlag("0");
 		sharedCartMemberMapper.insert(newMember);
-		log.info("用户[{}]凭分享令牌加入共享购物车[{}]", userId, cart.getId());
-		return cart;
+		log.info("用户[{}]凭分享令牌加入共享购物车[{}]，本次补建船舶成员={}", userId, cart.getId(), bound);
+		return toJoinVO(cart, tenantId, bound);
+	}
+
+	/**
+	 * 组装分享加入结果：只回传提示所需的购物车 ID / 船名 / 是否本次补建了成员关系。
+	 *
+	 * <p>船名走靠港展示快照（{@code getVesselCallSnapshot}），与列表/详情同一口径：
+	 * 靠港已结束的历史单照样有名字；船舶域不可用时降级为 null，绝不阻断加入。
+	 */
+	private SharedCartJoinVO toJoinVO(SharedCart cart, String tenantId, boolean vesselMemberBound) {
+		SharedCartJoinVO vo = new SharedCartJoinVO();
+		vo.setCartId(cart.getId());
+		vo.setVesselMemberBound(vesselMemberBound);
+		vo.setVesselName(resolveVesselNameForJoin(tenantId, cart));
+		return vo;
+	}
+
+	/**
+	 * 取加入提示用的船名，查不到（未挂靠港 / 远程不可用 / 上下文缺失）返回 null。
+	 */
+	private String resolveVesselNameForJoin(String tenantId, SharedCart cart) {
+		if (cart == null || !StringUtils.hasText(cart.getVesselCallId())) {
+			return null;
+		}
+		try {
+			VesselContextDTO snapshot = remoteVesselService.getVesselCallSnapshot(tenantId, cart.getVesselCallId());
+			if (snapshot != null && StringUtils.hasText(snapshot.getVesselName())) {
+				return snapshot.getVesselName();
+			}
+		}
+		catch (Exception e) {
+			log.warn("分享加入时查询船名失败，提示中省略船名：cartId={}", cart.getId(), e);
+		}
+		return null;
 	}
 
 	@Override

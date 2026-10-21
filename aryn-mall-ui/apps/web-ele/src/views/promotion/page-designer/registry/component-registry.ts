@@ -18,6 +18,7 @@ import {
   createBottomNavDefaults,
   createCouponComboDefaults,
   createGoodsRecommendDefaults,
+  createGoodsTabsDefaults,
   createGoodsWaterfallDefaults,
   createImageCubeDefaults,
   createMemberBenefitsDefaults,
@@ -26,6 +27,7 @@ import {
   validateBottomNav,
   validateCouponCombo,
   validateGoodsRecommend,
+  validateGoodsTabs,
   validateGoodsWaterfall,
   validateImageCube,
   validateMemberBenefits,
@@ -52,6 +54,10 @@ import {
   createMarketingEntryDefaults,
   validateMarketingEntry,
 } from '../../page-design/components/marketing-entry/types';
+import {
+  createNewbieFloorDefaults,
+  validateNewbieFloor,
+} from '../../page-design/components/newbie-floor/types';
 import {
   createReplenishCardDefaults,
   validateReplenishCard,
@@ -99,12 +105,14 @@ export const retailComponentTypes = [
   'shop-info',
   'ship-workbench',
   'replenish-card',
+  'newbie-floor',
 ] as const;
 
 export type RetailComponentType = (typeof retailComponentTypes)[number];
 
 export const extensionComponentTypes = [
   'goods-waterfall',
+  'goods-tabs',
   'goods-recommend',
   'coupon-combo',
   'member-benefits',
@@ -123,6 +131,8 @@ export interface RegisteredComponentDefinition extends ComponentDefinition<
 > {
   preview: Component;
   settings: Component;
+  /** 组件专有样式面板；通用样式由属性面板统一渲染 */
+  styleSettings?: Component;
   supportedTerminals: ['admin', 'uniapp'];
 }
 
@@ -152,6 +162,7 @@ function defineLegacyComponent(
   defaults: Record<string, unknown>,
   preview: () => Promise<unknown>,
   settings: () => Promise<unknown>,
+  styleSettings?: () => Promise<unknown>,
 ): RegisteredComponentDefinition {
   return {
     category,
@@ -159,6 +170,9 @@ function defineLegacyComponent(
     label,
     preview: defineAsyncComponent(preview as never),
     settings: defineAsyncComponent(settings as never),
+    styleSettings: styleSettings
+      ? defineAsyncComponent(styleSettings as never)
+      : undefined,
     supportedTerminals: ['admin', 'uniapp'],
     type,
     validate: (props) =>
@@ -175,6 +189,7 @@ function defineRetailComponent<TProps extends Record<string, unknown>>(
   validate: (props: TProps) => string[],
   preview: () => Promise<unknown>,
   settings: () => Promise<unknown>,
+  styleSettings?: () => Promise<unknown>,
 ): RegisteredComponentDefinition {
   return {
     category,
@@ -182,6 +197,9 @@ function defineRetailComponent<TProps extends Record<string, unknown>>(
     label,
     preview: defineAsyncComponent(preview as never),
     settings: defineAsyncComponent(settings as never),
+    styleSettings: styleSettings
+      ? defineAsyncComponent(styleSettings as never)
+      : undefined,
     supportedTerminals: ['admin', 'uniapp'],
     type,
     validate: (props) => validate(props as TProps),
@@ -197,6 +215,7 @@ function defineExtensionComponent<TProps extends Record<string, unknown>>(
   validate: (props: TProps) => string[],
   preview: () => Promise<unknown>,
   settings: () => Promise<unknown>,
+  styleSettings?: () => Promise<unknown>,
 ): RegisteredComponentDefinition {
   return {
     category,
@@ -204,6 +223,9 @@ function defineExtensionComponent<TProps extends Record<string, unknown>>(
     label,
     preview: defineAsyncComponent(preview as never),
     settings: defineAsyncComponent(settings as never),
+    styleSettings: styleSettings
+      ? defineAsyncComponent(styleSettings as never)
+      : undefined,
     supportedTerminals: ['admin', 'uniapp'],
     type,
     validate: (props) => validate(props as TProps),
@@ -234,6 +256,7 @@ export const componentRegistry: Record<
     },
     () => import('../../page-design/components/category-nav/index.vue'),
     () => import('../../page-design/components/category-nav/setting.vue'),
+    () => import('../../page-design/components/category-nav/style-setting.vue'),
   ),
   'coupon-receive': defineLegacyComponent(
     'coupon-receive',
@@ -283,6 +306,7 @@ export const componentRegistry: Record<
     },
     () => import('../../page-design/components/gap/index.vue'),
     () => import('../../page-design/components/gap/setting.vue'),
+    () => import('../../page-design/components/gap/style-setting.vue'),
   ),
   goods: defineLegacyComponent(
     'goods',
@@ -298,6 +322,7 @@ export const componentRegistry: Record<
     },
     () => import('../../page-design/components/goods/index.vue'),
     () => import('../../page-design/components/goods/setting.vue'),
+    () => import('../../page-design/components/goods/style-setting.vue'),
   ),
   'image-ad': defineLegacyComponent(
     'image-ad',
@@ -310,6 +335,7 @@ export const componentRegistry: Record<
     },
     () => import('../../page-design/components/image-ad/index.vue'),
     () => import('../../page-design/components/image-ad/setting.vue'),
+    () => import('../../page-design/components/image-ad/style-setting.vue'),
   ),
   notice: defineLegacyComponent(
     'notice',
@@ -324,6 +350,7 @@ export const componentRegistry: Record<
     },
     () => import('../../page-design/components/notice/index.vue'),
     () => import('../../page-design/components/notice/setting.vue'),
+    () => import('../../page-design/components/notice/style-setting.vue'),
   ),
   'rich-text': defineLegacyComponent(
     'rich-text',
@@ -335,6 +362,7 @@ export const componentRegistry: Record<
     },
     () => import('../../page-design/components/rich-text/index.vue'),
     () => import('../../page-design/components/rich-text/setting.vue'),
+    () => import('../../page-design/components/rich-text/style-setting.vue'),
   ),
   'search-bar': defineLegacyComponent(
     'search-bar',
@@ -350,6 +378,7 @@ export const componentRegistry: Record<
     },
     () => import('../../page-design/components/search-bar/index.vue'),
     () => import('../../page-design/components/search-bar/setting.vue'),
+    () => import('../../page-design/components/search-bar/style-setting.vue'),
   ),
   'swiper-banner': defineLegacyComponent(
     'swiper-banner',
@@ -371,6 +400,8 @@ export const componentRegistry: Record<
     },
     () => import('../../page-design/components/swiper-banner/index.vue'),
     () => import('../../page-design/components/swiper-banner/setting.vue'),
+    () =>
+      import('../../page-design/components/swiper-banner/style-setting.vue'),
   ),
   'tab-nav': defineLegacyComponent(
     'tab-nav',
@@ -399,6 +430,7 @@ export const componentRegistry: Record<
     },
     () => import('../../page-design/components/tab-nav/index.vue'),
     () => import('../../page-design/components/tab-nav/setting.vue'),
+    () => import('../../page-design/components/tab-nav/style-setting.vue'),
   ),
   'title-text': defineLegacyComponent(
     'title-text',
@@ -427,6 +459,7 @@ export const componentRegistry: Record<
     },
     () => import('../../page-design/components/title-text/index.vue'),
     () => import('../../page-design/components/title-text/setting.vue'),
+    () => import('../../page-design/components/title-text/style-setting.vue'),
   ),
   'goods-group': defineRetailComponent(
     'goods-group',
@@ -472,6 +505,16 @@ export const componentRegistry: Record<
     validateDiscount,
     () => import('../../page-design/components/discount/index.vue'),
     () => import('../../page-design/components/discount/setting.vue'),
+  ),
+  'newbie-floor': defineRetailComponent(
+    'newbie-floor',
+    '新人专享',
+    '营销活动',
+    createNewbieFloorDefaults(),
+    validateNewbieFloor,
+    () => import('../../page-design/components/newbie-floor/index.vue'),
+    () => import('../../page-design/components/newbie-floor/setting.vue'),
+    () => import('../../page-design/components/newbie-floor/style-setting.vue'),
   ),
   seckill: defineRetailComponent(
     'seckill',
@@ -538,6 +581,16 @@ export const componentRegistry: Record<
     () =>
       import('../../page-design/components/extension/goods-waterfall/setting.vue'),
   ),
+  'goods-tabs': defineExtensionComponent(
+    'goods-tabs',
+    '多Tab商品流',
+    '商品经营',
+    createGoodsTabsDefaults(),
+    validateGoodsTabs,
+    () => import('../../page-design/components/extension/goods-tabs/index.vue'),
+    () =>
+      import('../../page-design/components/extension/goods-tabs/setting.vue'),
+  ),
   'coupon-combo': defineExtensionComponent(
     'coupon-combo',
     '优惠券组合',
@@ -580,6 +633,8 @@ export const componentRegistry: Record<
     () => import('../../page-design/components/extension/bottom-nav/index.vue'),
     () =>
       import('../../page-design/components/extension/bottom-nav/setting.vue'),
+    () =>
+      import('../../page-design/components/extension/bottom-nav/style-setting.vue'),
   ),
   'video-live': defineExtensionComponent(
     'video-live',
@@ -632,6 +687,7 @@ export const detailPageAllowedComponents: ReadonlySet<RegisteredComponentType> =
     'goods-ranking',
     'goods-recommend',
     'goods-scroll',
+    'goods-tabs',
     'goods-waterfall',
     'rich-text',
     'title-text',
@@ -654,6 +710,7 @@ export const categoryPageAllowedComponents: ReadonlySet<RegisteredComponentType>
     'goods-group',
     'goods-ranking',
     'goods-scroll',
+    'goods-tabs',
     'goods-waterfall',
     'image-ad',
     'image-cube',

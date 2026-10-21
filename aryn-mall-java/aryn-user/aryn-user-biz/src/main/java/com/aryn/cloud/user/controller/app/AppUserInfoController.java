@@ -2,9 +2,9 @@
 package com.aryn.cloud.user.controller.app;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.aryn.cloud.common.core.constant.CacheConstants;
 import com.aryn.cloud.common.core.constant.MallCommonConstants;
 import com.aryn.cloud.common.core.util.Result;
+import com.aryn.cloud.common.security.service.SmsCodeVerifier;
 import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.user.api.dto.UserCreateDTO;
 import com.aryn.cloud.user.api.dto.UserPasswordUpdateDTO;
@@ -19,12 +19,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.core.script.DefaultRedisScript;
-import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
 
 /**
  * 商城用户
@@ -39,17 +34,9 @@ import java.util.List;
 @Tag(description = "userinfo", name = "商城用户-API")
 public class AppUserInfoController {
 
-	private static final RedisScript<Long> CONSUME_SMS_CODE_SCRIPT = new DefaultRedisScript<>("""
-			local value = redis.call('get', KEYS[1])
-			if value and value == ARGV[1] then
-				return redis.call('del', KEYS[1])
-			end
-			return 0
-			""", Long.class);
-
 	private final IUserInfoService userInfoService;
 
-	private final RedisTemplate<String, String> redisTemplate;
+	private final SmsCodeVerifier smsCodeVerifier;
 
 	@Operation(summary = "注册用户")
 	@PostMapping("/register")
@@ -73,11 +60,13 @@ public class AppUserInfoController {
 	@Operation(summary = "用户修改手机号")
 	@PostMapping("/update/phone")
 	public Result updatePhone(@RequestBody @Valid UserPhoneUpdateDTO userInfoDTO) {
-		String randomStr = userInfoDTO.getPhone();
-		String key = CacheConstants.SMS_CODE_KEY + randomStr;
-		Long consumed = redisTemplate.execute(CONSUME_SMS_CODE_SCRIPT, List.of(key), userInfoDTO.getCode());
-
-		if (!Long.valueOf(1L).equals(consumed)) {
+		// 换绑手机号验证码：原子校验 + 一次性消费 + 失败计数（同一验证码错误 5 次即作废）
+		SmsCodeVerifier.Result verifyResult = smsCodeVerifier.verifyAndConsume(userInfoDTO.getPhone(),
+				userInfoDTO.getCode());
+		if (verifyResult == SmsCodeVerifier.Result.TOO_MANY_ATTEMPTS) {
+			return Result.fail("验证码错误次数过多，请重新获取验证码");
+		}
+		if (verifyResult != SmsCodeVerifier.Result.SUCCESS) {
 			return Result.fail("验证码不合法");
 		}
 		String userId = SecurityUtils.getUser().getUserId();

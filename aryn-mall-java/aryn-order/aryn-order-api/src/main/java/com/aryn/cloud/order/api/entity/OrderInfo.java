@@ -76,6 +76,10 @@ public class OrderInfo extends Model<OrderInfo> {
 	@TableField(exist = false)
 	private List<com.aryn.cloud.promotion.api.vo.PromotionCalculationVO.ActivityDetail> promotionDetails;
 
+	@Schema(description = "买赠赠品预览（结算页展示；已按真实库存过滤）")
+	@TableField(exist = false)
+	private List<com.aryn.cloud.promotion.api.vo.PromotionCalculationVO.GiftItem> giftItems;
+
 	@Schema(description = "会员折扣优惠金额（元）")
 	private BigDecimal memberDiscountPrice;
 

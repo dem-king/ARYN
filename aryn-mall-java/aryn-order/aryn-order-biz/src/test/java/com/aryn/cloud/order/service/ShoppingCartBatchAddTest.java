@@ -10,6 +10,7 @@ import com.aryn.cloud.order.service.impl.ShoppingCartServiceImpl;
 import com.aryn.cloud.product.api.entity.GoodsSku;
 import com.aryn.cloud.product.api.entity.GoodsSpu;
 import com.aryn.cloud.product.api.remote.RemoteGoodsSkuService;
+import com.aryn.cloud.product.api.remote.RemoteGoodsSpuService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -51,7 +52,8 @@ class ShoppingCartBatchAddTest {
 	@BeforeEach
 	void setUp() {
 		remoteGoodsSkuService = mock(RemoteGoodsSkuService.class);
-		ShoppingCartServiceImpl impl = new ShoppingCartServiceImpl(remoteGoodsSkuService);
+		ShoppingCartServiceImpl impl = new ShoppingCartServiceImpl(remoteGoodsSkuService,
+				mock(RemoteGoodsSpuService.class));
 		cartMapper = mock(ShoppingCartMapper.class);
 		ReflectionTestUtils.setField(impl, "baseMapper", cartMapper);
 		service = spy(impl);

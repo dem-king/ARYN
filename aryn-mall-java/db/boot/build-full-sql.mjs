@@ -102,6 +102,19 @@ const sections = [
   ['共享购物车接龙粘贴导入（归属人姓名快照）', '121chain_import_attributed_name_incremental.sql'],
   ['平台管理员配送与船供菜单授权修复', '122platform_admin_menu_grant_fix.sql'],
   ['港口报备车辆电话簿', '123vessel_port_vehicle_incremental.sql'],
+  ['船供活动熔断字段（预算/每人限享/赠品总量）', '124promotion_activity_fuse_incremental.sql'],
+  ['新人专享价活动（营销锁用户列与菜单）', '125newbie_price_activity_incremental.sql'],
+  ['营销锁释放补偿定时任务注册', '126promotion_lock_compensate_job.sql'],
+  ['全站自动动效总开关（商城主题）', '127page_design_theme_auto_motion.sql'],
+  ['船舶绑定申请 IMO 与呼号分列', '131vessel_bind_call_sign_incremental.sql'],
+  ['船舶成员关系安全加固（绑定来源列与审计日志）', '132vessel_member_security_incremental.sql'],
+  ['管理端概览统计索引', '133dashboard_statistics_index_incremental.sql'],
+  ['商品足迹按用户+商品去重索引', '134goods_footprint_user_spu_index_incremental.sql'],
+  ['管理端概览月度目标', '135dashboard_target_incremental.sql'],
+  ['用户日订单汇总表', '136stat_daily_user_order_incremental.sql'],
+  ['用户日订单汇总定时任务', '137order_daily_stat_job.sql'],
+  ['通知管理草稿删除与分发重试权限', '138message_notice_admin_incremental.sql'],
+  ['商品属性标签', '142goods_attr_tags_incremental.sql'],
 ];
 
 const normalize = (content) => content.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim();
@@ -144,6 +157,7 @@ DROP TABLE IF EXISTS \`delivery_account_binding\`;
 DROP TABLE IF EXISTS \`delivery_qualification_operation\`;
 DROP TABLE IF EXISTS \`vessel_info\`;
 DROP TABLE IF EXISTS \`vessel_member\`;
+DROP TABLE IF EXISTS \`vessel_member_audit_log\`;
 DROP TABLE IF EXISTS \`vessel_call\`;
 DROP TABLE IF EXISTS \`shared_cart\`;
 DROP TABLE IF EXISTS \`shared_cart_member\`;
@@ -164,6 +178,8 @@ DROP TABLE IF EXISTS \`vessel_bind_apply\`;
 DROP TABLE IF EXISTS \`shared_cart_import\`;
 DROP TABLE IF EXISTS \`shared_cart_import_row\`;
 DROP TABLE IF EXISTS \`vessel_port_vehicle\`;
+DROP TABLE IF EXISTS \`dashboard_target\`;
+DROP TABLE IF EXISTS \`stat_daily_user_order\`;
 `;
 
 const output = sections.reduce((sql, [title, file]) => {

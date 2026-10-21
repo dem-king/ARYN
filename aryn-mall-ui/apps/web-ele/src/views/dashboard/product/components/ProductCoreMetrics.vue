@@ -12,24 +12,42 @@ import {
 } from '@element-plus/icons-vue';
 import { ElCard, ElIcon } from 'element-plus';
 
-defineProps<{
-  loading?: boolean;
-  sales: {
-    avgPrice: number;
-    salesAmount: number;
-    salesItemCount: number;
-    salesProductCount: number;
-    sellThroughRate: number;
-  };
-  scale: {
-    lowStock: number;
-    offShelf: number;
-    onSale: number;
-    pendingReview: number;
-    total: number;
-    totalStock: number;
-  };
-}>();
+import { toPercent } from '#/utils/percent';
+
+import { calculateDelta } from '../../shared/compare';
+import DeltaBadge from '../../shared/DeltaBadge.vue';
+
+interface SalesMetrics {
+  avgPrice: number;
+  salesAmount: number;
+  salesItemCount: number;
+  salesProductCount: number;
+  sellThroughRate: number;
+}
+
+const props = withDefaults(
+  defineProps<{
+    deltaLabel?: string;
+    loading?: boolean;
+    previous?: null | SalesMetrics;
+    sales: SalesMetrics;
+    scale: {
+      lowStock: number;
+      offShelf: number;
+      onSale: number;
+      total: number;
+      totalStock: number;
+    };
+  }>(),
+  {
+    deltaLabel: '较上期',
+    loading: false,
+    previous: null,
+  },
+);
+
+const delta = (key: keyof SalesMetrics) =>
+  calculateDelta(props.sales[key], props.previous?.[key]);
 </script>
 
 <template>
@@ -117,6 +135,7 @@ defineProps<{
           <div class="mt-1 flex items-center gap-1 text-xs text-gray-500">
             <ElIcon><Goods /></ElIcon> 动销商品数
           </div>
+          <DeltaBadge :delta="delta('salesProductCount')" :label="deltaLabel" />
         </div>
         <div
           class="flex flex-col items-center justify-center rounded-lg bg-orange-50 p-4 dark:bg-orange-900/20"
@@ -127,6 +146,7 @@ defineProps<{
           <div class="mt-1 flex items-center gap-1 text-xs text-gray-500">
             <ElIcon><Box /></ElIcon> 销售件数
           </div>
+          <DeltaBadge :delta="delta('salesItemCount')" :label="deltaLabel" />
         </div>
         <div
           class="col-span-2 flex flex-col items-center justify-center rounded-lg bg-red-50 p-4 sm:col-span-1 dark:bg-red-900/20"
@@ -137,6 +157,7 @@ defineProps<{
           <div class="mt-1 flex items-center gap-1 text-xs text-gray-500">
             <ElIcon><Money /></ElIcon> 销售额
           </div>
+          <DeltaBadge :delta="delta('salesAmount')" :label="deltaLabel" />
         </div>
         <div
           class="flex flex-col items-center justify-center rounded-lg bg-teal-50 p-4 dark:bg-teal-900/20"
@@ -147,13 +168,14 @@ defineProps<{
           <div class="mt-1 flex items-center gap-1 text-xs text-gray-500">
             <ElIcon><Money /></ElIcon> 客单价
           </div>
+          <DeltaBadge :delta="delta('avgPrice')" :label="deltaLabel" />
         </div>
         <div
           class="flex flex-col items-center justify-center rounded-lg bg-cyan-50 p-4 dark:bg-cyan-900/20"
         >
           <div class="text-2xl font-bold text-cyan-500">
             <CountTo
-              :end-val="sales.sellThroughRate"
+              :end-val="toPercent(sales.sellThroughRate)"
               suffix="%"
               :decimals="1"
             />
@@ -161,6 +183,7 @@ defineProps<{
           <div class="mt-1 flex items-center gap-1 text-xs text-gray-500">
             <ElIcon><TrendCharts /></ElIcon> 动销率
           </div>
+          <DeltaBadge :delta="delta('sellThroughRate')" :label="deltaLabel" />
         </div>
       </div>
     </ElCard>

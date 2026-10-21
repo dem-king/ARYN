@@ -21,6 +21,7 @@ import lombok.RequiredArgsConstructor;
 import org.apache.dubbo.config.annotation.DubboService;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -47,6 +48,11 @@ public class RemoteGoodsSpuServiceImpl implements RemoteGoodsSpuService {
 	@Override
 	public ProductOverviewVO getProductOverview() {
 		return productStatisticsService.getProductOverview();
+	}
+
+	@Override
+	public Long countVisitors(LocalDateTime startTime, LocalDateTime endTime) {
+		return productStatisticsService.countVisitors(startTime, endTime);
 	}
 
 	@Override

@@ -6,6 +6,8 @@ import { computed } from 'vue';
 import { Picture } from '@element-plus/icons-vue';
 import { ElCarousel, ElCarouselItem, ElIcon, ElImage } from 'element-plus';
 
+import { commonStyleRadiusOverflow } from '../common/common-style-clip';
+
 interface ShowData {
   commonStyle?: DiyCommonStyle | null;
   commonImageStyle: DiyCommonStyle | null;
@@ -65,6 +67,8 @@ const dynamicStyles = computed(() => {
     borderBottomLeftRadius: `${commonStyle.styleLbRadius}px`,
     borderBottomRightRadius: `${commonStyle.styleRbRadius}px`,
     minHeight: `${Math.max(totalHeight, 0)}px`,
+    // 圆角 > 0 时裁切子内容：图片贴满根节点，直角会盖住圆角（与 C 端 getCommonStyle 同口径）
+    ...commonStyleRadiusOverflow(commonStyle),
     ...(commonStyle.bgPicUrl && {
       background: `url(${commonStyle.bgPicUrl})`,
       backgroundRepeat: 'no-repeat',
@@ -99,6 +103,8 @@ const dynamicImageStyles = computed(() => {
     borderTopRightRadius: `${commonStyle.styleRtRadius}px`,
     borderBottomLeftRadius: `${commonStyle.styleLbRadius}px`,
     borderBottomRightRadius: `${commonStyle.styleRbRadius}px`,
+    // 图片级通用样式同理：图片铺满格位，圆角需裁切（与 C 端 commonImageStyle 同口径）
+    ...commonStyleRadiusOverflow(commonStyle),
     ...(commonStyle.bgPicUrl && {
       background: `url(${commonStyle.bgPicUrl})`,
       backgroundRepeat: 'no-repeat',

@@ -58,42 +58,44 @@ async function receive(couponId: string) {
 
 <template>
   <view class="diy-coupon-combo" :style="dynamicStyles">
-    <view v-if="loading" class="combo-empty">
-      加载中…
-    </view>
-    <view v-else-if="coupons.length === 0" class="combo-empty">
-      暂无可领优惠券
-    </view>
-    <view v-else class="combo-list">
-      <view v-for="coupon in coupons" :key="coupon.id" class="combo-card">
-        <view class="combo-face">
-          <view class="combo-notch combo-notch--left" />
-          <view class="combo-notch combo-notch--right" />
-          <view class="combo-value">
-            {{ coupon.value }}
-          </view>
-          <view class="combo-info">
-            <view class="combo-pill">
-              {{ coupon.typeLabel }}
+    <view class="combo-inner">
+      <view v-if="loading" class="combo-empty">
+        加载中…
+      </view>
+      <view v-else-if="coupons.length === 0" class="combo-empty">
+        暂无可领优惠券
+      </view>
+      <view v-else class="combo-list">
+        <view v-for="coupon in coupons" :key="coupon.id" class="combo-card">
+          <view class="combo-face">
+            <view class="combo-notch combo-notch--left" />
+            <view class="combo-notch combo-notch--right" />
+            <view class="combo-value">
+              {{ coupon.value }}
             </view>
-            <view class="combo-title">
-              {{ coupon.title }}
+            <view class="combo-info">
+              <view class="combo-pill">
+                {{ coupon.typeLabel }}
+              </view>
+              <view class="combo-title">
+                {{ coupon.title }}
+              </view>
+              <view v-if="componentProps.showThreshold !== false" class="combo-threshold">
+                {{ coupon.thresholdText }}
+              </view>
             </view>
-            <view v-if="componentProps.showThreshold !== false" class="combo-threshold">
-              {{ coupon.thresholdText }}
+            <!--
+              按钮放在票面内部：放到票面外会直接压在描边渐变上，
+              红色按钮叠红色描边既看不出形状也削弱可点暗示。
+            -->
+            <view
+              v-if="componentProps.showReceiveBtn !== false"
+              class="combo-receive"
+              :class="{ 'combo-received': isReceived(coupon.id) }"
+              @click.stop="receive(coupon.id)"
+            >
+              {{ isReceived(coupon.id) ? '已领取' : '领取' }}
             </view>
-          </view>
-          <!--
-            按钮放在票面内部：放到票面外会直接压在描边渐变上，
-            红色按钮叠红色描边既看不出形状也削弱可点暗示。
-          -->
-          <view
-            v-if="componentProps.showReceiveBtn !== false"
-            class="combo-receive"
-            :class="{ 'combo-received': isReceived(coupon.id) }"
-            @click.stop="receive(coupon.id)"
-          >
-            {{ isReceived(coupon.id) ? '已领取' : '领取' }}
           </view>
         </view>
       </view>
@@ -104,7 +106,9 @@ async function receive(couponId: string) {
 <style lang="scss" scoped>
 @import '@/styles/coupon-ticket.scss';
 
-.diy-coupon-combo {
+/* 留白放在内层而不是根节点：根节点的 padding 会被装修 commonStyle 的
+   内联样式覆盖成 0（配置缺省即零值），挂根上会让票面直接顶到屏幕边缘 */
+.combo-inner {
   padding: 20rpx;
 }
 

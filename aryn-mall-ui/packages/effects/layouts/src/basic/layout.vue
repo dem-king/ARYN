@@ -34,6 +34,14 @@ import { LayoutTabbar } from './tabbar';
 
 defineOptions({ name: 'BasicLayout' });
 
+const props = withDefaults(
+  defineProps<{
+    appName?: string;
+    logoSource?: string;
+  }>(),
+  { appName: '', logoSource: '' },
+);
+
 const emit = defineEmits<{ clearPreferencesAndLogout: []; clickLogo: [] }>();
 
 const {
@@ -51,6 +59,9 @@ const {
 } = usePreferences();
 const accessStore = useAccessStore();
 const { refresh } = useRefresh();
+
+const brandName = computed(() => props.appName || preferences.app.name);
+const brandLogo = computed(() => props.logoSource || preferences.logo.source);
 
 const sidebarTheme = computed(() => {
   const dark = isDark.value || preferences.theme.semiDarkSidebar;
@@ -237,8 +248,8 @@ const headerSlots = computed(() => {
         :fit="preferences.logo.fit"
         :class="logoClass"
         :collapsed="logoCollapsed"
-        :src="preferences.logo.source"
-        :text="preferences.app.name"
+        :src="brandLogo"
+        :text="brandName"
         :theme="showHeaderNav ? headerTheme : theme"
         @click="clickLogo"
       >
@@ -329,7 +340,7 @@ const headerSlots = computed(() => {
       <VbenLogo
         v-if="preferences.logo.enable"
         :fit="preferences.logo.fit"
-        :text="preferences.app.name"
+        :text="brandName"
         :theme="theme"
       >
         <template v-if="$slots['logo-text']" #text>

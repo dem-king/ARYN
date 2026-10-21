@@ -21,6 +21,24 @@ public class ProductStatisticsServiceImpl implements IProductStatisticsService {
 	private final ProductStatisticsMapper productStatisticsMapper;
 
 	@Override
+	public Long countVisitors(LocalDateTime startTime, LocalDateTime endTime) {
+		Long count = productStatisticsMapper.countVisitors(startTime, endTime);
+		return count != null ? count : 0L;
+	}
+
+	@Override
+	public ProductDashboardStatisticsVO getProductDashboard(ProductStatisticsDTO dto) {
+		ProductDashboardStatisticsVO dashboard = new ProductDashboardStatisticsVO();
+		dashboard.setOverview(getProductOverview());
+		dashboard.setVisitTrend(getProductVisitTrend(dto));
+		dashboard.setVisitTop10(getProductVisitTop10(dto));
+		dashboard.setPraiseTop10(getProductPraiseTop10(dto));
+		dashboard.setLowStockTop10(getLowStockTop10());
+		dashboard.setLifecycle(productStatisticsMapper.getProductLifecycle());
+		return dashboard;
+	}
+
+	@Override
 	public List<ProductSalesRankVO> getProductSalesTop10() {
 		return productStatisticsMapper.getProductSalesTop10();
 	}

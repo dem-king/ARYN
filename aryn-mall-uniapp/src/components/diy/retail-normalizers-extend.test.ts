@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { normalizeCoupons, normalizeRetailGoods } from './retail-normalizers'
+import { normalizeCoupons, normalizeRetailGoods, normalizeRetailNewbieFloor } from './retail-normalizers'
 
 describe('normalizeRetailGoods 扩展字段', () => {
   it('保留原有 6 个字段（不破坏既有调用方）', () => {
@@ -33,6 +33,20 @@ describe('normalizeRetailGoods 扩展字段', () => {
     expect(free.freeShipping).toBe(true)
     expect(paid.freeShipping).toBeUndefined()
     expect(none.freeShipping).toBeUndefined()
+  })
+
+  it('保留商品子标题，供卡片介绍行渲染', () => {
+    const [item] = normalizeRetailGoods([{ id: 'a', subTitle: '低温冷藏 每日直送' }])
+    expect(item.subTitle).toBe('低温冷藏 每日直送')
+  })
+
+  it('子标题缺失、为空或仅空白时不生成空介绍行', () => {
+    const [absent] = normalizeRetailGoods([{ id: 'a' }])
+    const [empty] = normalizeRetailGoods([{ id: 'b', subTitle: '' }])
+    const [blank] = normalizeRetailGoods([{ id: 'c', subTitle: '   ' }])
+    expect(absent.subTitle).toBeUndefined()
+    expect(empty.subTitle).toBeUndefined()
+    expect(blank.subTitle).toBeUndefined()
   })
 
   it('优先取 specsInfo 字段', () => {
@@ -97,5 +111,47 @@ describe('normalizeCoupons 已领取状态透传', () => {
       title: '折扣券',
       value: '8折',
     })
+  })
+})
+
+describe('normalizeRetailNewbieFloor', () => {
+  it('单对象响应归一化为单元素列表并保留新人价与划线原价', () => {
+    const items = normalizeRetailNewbieFloor({
+      activityId: 'act-1',
+      activityName: '新人专享',
+      endTime: '2026-11-01 00:00:00',
+      limitPerUser: 1,
+      registerWithinDays: 30,
+      goodsList: [{
+        spuId: 'spu-1',
+        skuId: 'sku-1',
+        goodsName: '黄豆芽500g',
+        goodsImage: 'a.jpg',
+        newbiePrice: 3.5,
+        originalPrice: 4.55,
+      }],
+    })
+
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      activityId: 'act-1',
+      limitPerUser: 1,
+      registerWithinDays: 30,
+    })
+    expect(items[0].goodsList[0]).toMatchObject({
+      skuId: 'sku-1',
+      newbiePrice: 3.5,
+      originalPrice: 4.55,
+    })
+  })
+
+  it('无进行中活动（null）返回空列表', () => {
+    expect(normalizeRetailNewbieFloor(null)).toEqual([])
+    expect(normalizeRetailNewbieFloor({})).toEqual([])
+  })
+
+  it('限购数缺失时兜底为 1（与后端固定值口径一致）', () => {
+    const items = normalizeRetailNewbieFloor({ activityId: 'act-1' })
+    expect(items[0].limitPerUser).toBe(1)
   })
 })

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { reactive } from 'vue'
 import { getPage } from '@/api/product/spu'
+import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 
 // 定义变量
 const state = reactive<any>({
@@ -50,8 +51,14 @@ function toDetail(id: string) {
                   包邮
                 </view>
               </view>
-              <view class="flex items-center justify-between pt-10rpx">
+              <view class="flex items-baseline pt-10rpx">
                 <wd-text mode="price" :text="item.salesPrice" prefix="￥" color="red" />
+                <text
+                  v-if="shouldShowOriginalPrice(item.salesPrice, item.originalPrice)"
+                  class="price-original"
+                >
+                  ￥{{ item.originalPrice }}
+                </text>
               </view>
             </view>
           </view>
@@ -60,3 +67,12 @@ function toDetail(id: string) {
     </z-paging>
   </view>
 </template>
+
+<style lang="scss" scoped>
+.price-original {
+  margin-left: 8rpx;
+  font-size: 20rpx;
+  color: #999;
+  text-decoration: line-through;
+}
+</style>

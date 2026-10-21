@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import type { EchartsUIType } from '@vben/plugins/echarts';
 
-import { onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 
 import { CountTo } from '@vben/common-ui';
 import { EchartsUI, useEcharts } from '@vben/plugins/echarts';
@@ -9,21 +9,49 @@ import { EchartsUI, useEcharts } from '@vben/plugins/echarts';
 import { DataLine, Money, ShoppingCart, User } from '@element-plus/icons-vue';
 import { ElCard, ElIcon } from 'element-plus';
 
-const props = defineProps<{
-  amountData: Array<{ name: string; value: number }>;
-  frequencyData: {
-    categories: string[];
-    values: number[];
-  };
-  loading?: boolean;
-  overview: {
-    aov: number;
-    perCapitaConsumption: number;
-    totalAmount: number;
-    totalOrders: number;
-    transactionUsers: number;
-  };
-}>();
+import { formatNumber } from '../../shared/chart';
+import { calculateDelta } from '../../shared/compare';
+import DeltaBadge from '../../shared/DeltaBadge.vue';
+
+interface ConsumptionOverview {
+  aov: number;
+  perCapitaConsumption: number;
+  totalAmount: number;
+  totalOrders: number;
+  transactionUsers: number;
+}
+
+const props = withDefaults(
+  defineProps<{
+    amountData: Array<{ name: string; value: number }>;
+    deltaLabel?: string;
+    frequencyData: {
+      categories: string[];
+      values: number[];
+    };
+    loading?: boolean;
+    overview: ConsumptionOverview;
+    previous?: ConsumptionOverview | null;
+  }>(),
+  {
+    deltaLabel: '较上期',
+    loading: false,
+    previous: null,
+  },
+);
+
+const delta = (key: keyof ConsumptionOverview) =>
+  calculateDelta(props.overview[key], props.previous?.[key]);
+
+const hasFrequencyData = computed(
+  () =>
+    props.frequencyData.categories.length > 0 &&
+    props.frequencyData.values.some((value) => value > 0),
+);
+
+const hasAmountData = computed(() =>
+  props.amountData.some((item) => item.value > 0),
+);
 
 const freqChartRef = ref<EchartsUIType>();
 const amountChartRef = ref<EchartsUIType>();
@@ -36,6 +64,7 @@ const updateCharts = () => {
       tooltip: {
         trigger: 'axis',
         axisPointer: { type: 'shadow' },
+        valueFormatter: (value: any) => formatNumber(Number(value) || 0),
       },
       grid: {
         left: '3%',
@@ -50,6 +79,9 @@ const updateCharts = () => {
       yAxis: {
         type: 'value',
         name: '用户数',
+        axisLabel: {
+          formatter: (value: number) => formatNumber(value),
+        },
       },
       series: [
         {
@@ -67,6 +99,7 @@ const updateCharts = () => {
     renderAmountChart({
       tooltip: {
         trigger: 'item',
+        valueFormatter: (value: any) => formatNumber(Number(value) || 0),
       },
       legend: {
         bottom: '1%',
@@ -80,7 +113,7 @@ const updateCharts = () => {
           avoidLabelOverlap: false,
           itemStyle: {
             borderRadius: 10,
-            borderColor: '#fff',
+            borderColor: 'transparent',
             borderWidth: 2,
           },
           label: {
@@ -133,6 +166,7 @@ onMounted(() => {
         <div class="mt-1 flex items-center gap-1 text-xs text-gray-500">
           <ElIcon><User /></ElIcon> 成交用户数
         </div>
+        <DeltaBadge :delta="delta('transactionUsers')" :label="deltaLabel" />
       </div>
       <div
         class="flex flex-col items-center justify-center rounded-lg bg-red-50 p-4 dark:bg-red-900/20"
@@ -143,6 +177,7 @@ onMounted(() => {
         <div class="mt-1 flex items-center gap-1 text-xs text-gray-500">
           <ElIcon><Money /></ElIcon> 总消费金额
         </div>
+        <DeltaBadge :delta="delta('totalAmount')" :label="deltaLabel" />
       </div>
       <div
         class="flex flex-col items-center justify-center rounded-lg bg-purple-50 p-4 dark:bg-purple-900/20"
@@ -157,6 +192,10 @@ onMounted(() => {
         <div class="mt-1 flex items-center gap-1 text-xs text-gray-500">
           <ElIcon><Money /></ElIcon> 人均消费
         </div>
+        <DeltaBadge
+          :delta="delta('perCapitaConsumption')"
+          :label="deltaLabel"
+        />
       </div>
       <div
         class="flex flex-col items-center justify-center rounded-lg bg-indigo-50 p-4 dark:bg-indigo-900/20"
@@ -167,6 +206,7 @@ onMounted(() => {
         <div class="mt-1 flex items-center gap-1 text-xs text-gray-500">
           <ElIcon><Money /></ElIcon> 客单价
         </div>
+        <DeltaBadge :delta="delta('aov')" :label="deltaLabel" />
       </div>
       <div
         class="flex flex-col items-center justify-center rounded-lg bg-blue-50 p-4 dark:bg-blue-900/20"
@@ -177,6 +217,7 @@ onMounted(() => {
         <div class="mt-1 flex items-center gap-1 text-xs text-gray-500">
           <ElIcon><ShoppingCart /></ElIcon> 总订单数
         </div>
+        <DeltaBadge :delta="delta('totalOrders')" :label="deltaLabel" />
       </div>
     </div>
 
@@ -186,16 +227,28 @@ onMounted(() => {
         <div class="mb-2 text-center text-sm font-bold text-gray-600">
           用户消费次数分布
         </div>
-        <div class="min-h-0 w-full flex-1">
+        <div class="relative min-h-0 w-full flex-1">
           <EchartsUI ref="freqChartRef" />
+          <div
+            v-if="!loading && !hasFrequencyData"
+            class="absolute inset-0 flex items-center justify-center text-sm text-gray-400"
+          >
+            暂无数据
+          </div>
         </div>
       </div>
       <div class="flex h-96 flex-col">
         <div class="mb-2 text-center text-sm font-bold text-gray-600">
           用户消费金额分层
         </div>
-        <div class="min-h-0 w-full flex-1">
+        <div class="relative min-h-0 w-full flex-1">
           <EchartsUI ref="amountChartRef" />
+          <div
+            v-if="!loading && !hasAmountData"
+            class="absolute inset-0 flex items-center justify-center text-sm text-gray-400"
+          >
+            暂无数据
+          </div>
         </div>
       </div>
     </div>

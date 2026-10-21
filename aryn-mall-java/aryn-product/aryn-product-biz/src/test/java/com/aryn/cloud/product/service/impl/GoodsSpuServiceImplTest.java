@@ -5,7 +5,12 @@ import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.aryn.cloud.common.security.entity.ArynUser;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
+import com.aryn.cloud.common.security.util.SecurityUtils;
+import com.aryn.cloud.product.api.entity.GoodsAttrTag;
+import com.aryn.cloud.product.api.entity.GoodsCollect;
+import com.aryn.cloud.product.api.entity.GoodsFootprint;
 import com.aryn.cloud.product.api.entity.GoodsSku;
 import com.aryn.cloud.product.api.entity.GoodsSpu;
 import com.aryn.cloud.product.api.vo.GoodsCatalogSummaryVO;
@@ -18,8 +23,10 @@ import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -31,6 +38,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -41,15 +49,20 @@ class GoodsSpuServiceImplTest {
 
 	private GoodsSkuMapper skuMapper;
 
+	private GoodsFootprintMapper footprintMapper;
+
 	private GoodsSpuServiceImpl service;
 
 	@BeforeEach
 	void setUp() {
 		TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), GoodsSpu.class);
 		TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), GoodsSku.class);
+		TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), GoodsCollect.class);
+		TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), GoodsFootprint.class);
 		spuMapper = mock(GoodsSpuMapper.class);
 		skuMapper = mock(GoodsSkuMapper.class);
-		service = new TestGoodsSpuService(skuMapper, mock(GoodsCollectMapper.class), mock(GoodsFootprintMapper.class),
+		footprintMapper = mock(GoodsFootprintMapper.class);
+		service = new TestGoodsSpuService(skuMapper, mock(GoodsCollectMapper.class), footprintMapper,
 				mock(GoodsCategoryMapper.class), spuMapper);
 	}
 
@@ -93,6 +106,41 @@ class GoodsSpuServiceImplTest {
 		assertThatThrownBy(() -> service.saveGoods(request)).isInstanceOf(ArynBusinessException.class)
 			.satisfies(exception -> assertThat(((ArynBusinessException) exception).getMsg()).contains("SKU"));
 		verify(spuMapper, never()).insert(any(GoodsSpu.class));
+	}
+
+	@Test
+	void saveGoodsRejectsMoreThanSixAttrTags() {
+		GoodsSpu request = product(null, List.of());
+		request.setAttrTags(attrTags(7));
+
+		assertThatThrownBy(() -> service.saveGoods(request)).isInstanceOf(ArynBusinessException.class)
+			.satisfies(
+					exception -> assertThat(((ArynBusinessException) exception).getMsg()).contains("最多配置 6 个"));
+		verify(spuMapper, never()).insert(any(GoodsSpu.class));
+	}
+
+	@Test
+	void saveGoodsNormalizesAttrTagsBeforePersisting() {
+		when(spuMapper.insert(any(GoodsSpu.class))).thenAnswer(invocation -> {
+			GoodsSpu saved = invocation.getArgument(0);
+			saved.setId("spu-attr");
+			return 1;
+		});
+		when(skuMapper.insert(any(GoodsSku.class))).thenReturn(1);
+		GoodsSpu request = product(null, List.of(sku(null, 20, 100, 60, 3, 0)));
+		GoodsAttrTag location = attrTag("  地标  ", " 系列 ");
+		location.setTone("purple");
+		request.setAttrTags(List.of(location, new GoodsAttrTag()));
+
+		assertThat(service.saveGoods(request)).isTrue();
+
+		// 保存前归一化：去空白、丢弃空占位行、未知色调收敛为 gray、key 按展示顺序重排
+		assertThat(request.getAttrTags()).singleElement().satisfies(saved -> {
+			assertThat(saved.getKey()).isEqualTo("attr-1");
+			assertThat(saved.getValue()).isEqualTo("地标");
+			assertThat(saved.getLabel()).isEqualTo("系列");
+			assertThat(saved.getTone()).isEqualTo("gray");
+		});
 	}
 
 	@Test
@@ -203,6 +251,45 @@ class GoodsSpuServiceImplTest {
 	}
 
 	@Test
+	void getApiSpuByIdRefreshesExistingFootprintInsteadOfInserting() {
+		when(spuMapper.selectApiSpuById("spu-1")).thenReturn(product("spu-1", List.of()));
+		GoodsFootprint existing = new GoodsFootprint()
+			.setId("footprint-1")
+			.setUserId("user-1")
+			.setSpuId("spu-1")
+			.setCreateTime(LocalDateTime.of(2026, 10, 1, 9, 0));
+		when(footprintMapper.selectOne(any(Wrapper.class))).thenReturn(existing);
+
+		try (MockedStatic<SecurityUtils> security = mockStatic(SecurityUtils.class)) {
+			security.when(SecurityUtils::getUser).thenReturn(loginUser("user-1"));
+			service.getApiSpuById("spu-1");
+		}
+
+		ArgumentCaptor<GoodsFootprint> captor = ArgumentCaptor.forClass(GoodsFootprint.class);
+		verify(footprintMapper).updateById(captor.capture());
+		// 同一商品再次浏览：只刷新时间，不新增记录
+		assertThat(captor.getValue().getCreateTime()).isAfter(LocalDateTime.of(2026, 10, 1, 9, 0));
+		verify(footprintMapper, never()).insert(any(GoodsFootprint.class));
+	}
+
+	@Test
+	void getApiSpuByIdInsertsFootprintOnFirstView() {
+		when(spuMapper.selectApiSpuById("spu-2")).thenReturn(product("spu-2", List.of()));
+		when(footprintMapper.selectOne(any(Wrapper.class))).thenReturn(null);
+
+		try (MockedStatic<SecurityUtils> security = mockStatic(SecurityUtils.class)) {
+			security.when(SecurityUtils::getUser).thenReturn(loginUser("user-1"));
+			service.getApiSpuById("spu-2");
+		}
+
+		ArgumentCaptor<GoodsFootprint> captor = ArgumentCaptor.forClass(GoodsFootprint.class);
+		verify(footprintMapper).insert(captor.capture());
+		assertThat(captor.getValue().getUserId()).isEqualTo("user-1");
+		assertThat(captor.getValue().getSpuId()).isEqualTo("spu-2");
+		verify(footprintMapper, never()).updateById(any(GoodsFootprint.class));
+	}
+
+	@Test
 	void apiListByIdsReturnsOnlyPublishedGoodsAndMasksCostPrice() {
 		GoodsSpu published = product("spu-1", List.of());
 		published.setSalesPrice(BigDecimal.valueOf(20));
@@ -309,6 +396,27 @@ class GoodsSpuServiceImplTest {
 		service.catalogPage("t-1", page, "苹果%", "1");
 
 		verify(spuMapper).selectCatalogPage(any(), eq("t-1"), eq("苹果!%"), eq("1"));
+	}
+
+	private static ArynUser loginUser(String userId) {
+		ArynUser user = new ArynUser();
+		user.setUserId(userId);
+		return user;
+	}
+
+	private GoodsAttrTag attrTag(String value, String label) {
+		GoodsAttrTag tag = new GoodsAttrTag();
+		tag.setValue(value);
+		tag.setLabel(label);
+		return tag;
+	}
+
+	private List<GoodsAttrTag> attrTags(int count) {
+		List<GoodsAttrTag> tags = new ArrayList<>();
+		for (int i = 0; i < count; i++) {
+			tags.add(attrTag("值" + i, "名" + i));
+		}
+		return tags;
 	}
 
 	private GoodsSpu product(String id, List<GoodsSku> skus) {

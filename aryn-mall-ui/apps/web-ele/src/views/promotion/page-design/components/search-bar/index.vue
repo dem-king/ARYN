@@ -3,6 +3,8 @@ import type { DiyCommonStyle } from '@vben/types';
 
 import { computed } from 'vue';
 
+import { commonStyleRadiusOverflow } from '../common/common-style-clip';
+
 interface ShowData {
   commonStyle?: DiyCommonStyle | null;
   placeholder: string;
@@ -48,6 +50,8 @@ const dynamicStyles = computed(() => {
     borderTopRightRadius: `${commonStyle.styleRtRadius}px`,
     borderBottomLeftRadius: `${commonStyle.styleLbRadius}px`,
     borderBottomRightRadius: `${commonStyle.styleRbRadius}px`,
+    // 通用圆角 > 0 时裁切子内容（与 C 端 getCommonStyle 同口径）
+    ...commonStyleRadiusOverflow(commonStyle),
     ...(commonStyle.bgPicUrl && {
       background: `url(${commonStyle.bgPicUrl})`,
       backgroundRepeat: 'no-repeat',

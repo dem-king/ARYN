@@ -10,6 +10,7 @@ import com.aryn.cloud.order.api.entity.SharedCartItem;
 import com.aryn.cloud.order.api.entity.SharedCartMember;
 import com.aryn.cloud.order.api.vo.SharedCartImportVO;
 import com.aryn.cloud.order.api.vo.SharedCartItemVO;
+import com.aryn.cloud.order.api.vo.SharedCartJoinVO;
 import com.aryn.cloud.order.api.vo.SharedCartReuseVO;
 import com.aryn.cloud.order.api.vo.SharedCartSummaryVO;
 import com.aryn.cloud.order.api.vo.SharedCartVO;
@@ -184,9 +185,13 @@ public interface ISharedCartService {
 
 	/**
 	 * 凭分享令牌自助加入：校验令牌与购物车有效期，自动补建船舶成员关系后写入成员行。
-	 * @return 加入后的购物车（供前端直接跳转详情）
+	 *
+	 * <p>返回视图对象而非购物车实体：加入成功还意味着「顺手成为了该船船员」，
+	 * 前端需要据此提示用户；回传实体则会连 {@code share_token} 等字段一起抛给客户端。
+	 *
+	 * @return 加入结果（购物车 ID + 船舶名 + 本次是否补建了船舶成员关系）
 	 */
-	SharedCart joinByShareToken(String tenantId, String userId, String shareToken);
+	SharedCartJoinVO joinByShareToken(String tenantId, String userId, String shareToken);
 
 	/**
 	 * 关闭已过期的收集/待确认购物车，返回处理条数（定时任务调用，按租户执行）。

@@ -1,12 +1,14 @@
 <script lang="ts" setup>
 import type { EchartsUIType } from '@vben/plugins/echarts';
 
-import { onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 
 import { EchartsUI, useEcharts } from '@vben/plugins/echarts';
 
 import { TrendCharts } from '@element-plus/icons-vue';
 import { ElCard, ElIcon } from 'element-plus';
+
+import { formatNumber } from '../../shared/chart';
 
 const props = defineProps<{
   data: {
@@ -19,6 +21,8 @@ const props = defineProps<{
 
 const chartRef = ref<EchartsUIType>();
 const { renderEcharts } = useEcharts(chartRef);
+
+const hasData = computed(() => props.data.dates.length > 0);
 
 const updateChart = () => {
   if (!props.data || !props.data.dates) return;
@@ -36,6 +40,7 @@ const updateChart = () => {
       axisPointer: {
         type: 'cross',
       },
+      valueFormatter: (value: any) => formatNumber(Number(value) || 0),
     },
     legend: {
       data: ['浏览量(PV)', '访客数(UV)'],
@@ -50,11 +55,17 @@ const updateChart = () => {
         type: 'value',
         name: '浏览量',
         position: 'left',
+        axisLabel: {
+          formatter: (value: number) => formatNumber(value),
+        },
       },
       {
         type: 'value',
         name: '访客数',
         position: 'right',
+        axisLabel: {
+          formatter: (value: number) => formatNumber(value),
+        },
       },
     ],
     series: [
@@ -109,8 +120,14 @@ onMounted(() => {
         </span>
       </div>
     </template>
-    <div class="h-80 w-full">
+    <div class="relative h-80 w-full">
       <EchartsUI ref="chartRef" />
+      <div
+        v-if="!loading && !hasData"
+        class="absolute inset-0 flex items-center justify-center text-sm text-gray-400"
+      >
+        暂无数据
+      </div>
     </div>
   </ElCard>
 </template>

@@ -11,6 +11,7 @@ import {
   ElForm,
   ElFormItem,
   ElInput,
+  ElInputNumber,
   ElMessage,
   ElMessageBox,
   ElOption,
@@ -30,9 +31,18 @@ import {
   getVesselCalls,
   getVesselMembers,
   getVesselPage,
+  unbindVesselMember,
   updateVessel,
   updateVesselCall,
 } from '#/api/vessel/vessel';
+
+import {
+  VESSEL_TYPE_DEFAULT,
+  VESSEL_TYPE_OPTIONS,
+  vesselMemberBindSourceLabel,
+  vesselMemberBindSourceTagType,
+  vesselTypeLabel,
+} from '../constants';
 
 const Pagination = defineAsyncComponent(
   () => import('#/components/pagination/index.vue'),
@@ -50,23 +60,15 @@ const activeTab = ref('vessel');
 const vesselDialogVisible = ref(false);
 const vesselForm = reactive<any>({
   callSign: '',
-  crewCapacity: '',
-  dwt: '',
+  crewCapacity: undefined,
+  dwt: undefined,
   flagState: '',
   imoCode: '',
   remark: '',
   vesselName: '',
   vesselNameEn: '',
-  vesselType: '5',
+  vesselType: VESSEL_TYPE_DEFAULT,
 });
-/** 船舶类型字典，口径与 VesselInfo 实体注释一致 */
-const vesselTypeOptions = [
-  { label: '集装箱', value: '1' },
-  { label: '散货', value: '2' },
-  { label: '油轮', value: '3' },
-  { label: '杂货', value: '4' },
-  { label: '其他', value: '5' },
-];
 const editingVesselId = ref('');
 
 // 成员
@@ -74,6 +76,66 @@ const memberDialogVisible = ref(false);
 const memberForm = reactive<any>({ memberRole: '2', userId: '' });
 const memberTableData = ref<any[]>([]);
 const memberVessel = ref<any>({});
+const memberLoading = ref(false);
+
+/**
+ * 管理端可授予的成员角色（保持原有选项，只补校验）。
+ *
+ * 与后端 `VesselMemberRole.ASSIGNABLE` 同口径：**发起人（"1"）不可授予**。
+ * 发起人是「谁创建了这条船关系」的身份标记，从管理端凭空造一个发起人会绕过
+ * 「船内最高管理角色」的语义，也让「发起人不显示解绑」的保护失效。
+ * 业务员（"4"）是 C 端销售自助认领的角色，管理端不代授，故这里不出现。
+ */
+const MEMBER_ASSIGNABLE_ROLE_OPTIONS = [
+  { label: '普通船员', value: '2' },
+  { label: '采购确认人', value: '3' },
+];
+
+const loadMembers = async () => {
+  if (!memberVessel.value.id) return;
+  memberLoading.value = true;
+  try {
+    memberTableData.value =
+      (await getVesselMembers(memberVessel.value.id)) ?? [];
+  } finally {
+    memberLoading.value = false;
+  }
+};
+
+/**
+ * 回收成员（误绑纠错 / 低信任来源清理）。
+ *
+ * 这里与「绑定申请 → 解绑」是两条入口：那边按申请单回收，这边是运营在成员列表
+ * 看到来源异常（`SHARE_CART` 分享链接自动补建、`APPLY_AUDIT_MISMATCH` 跨船背书）
+ * 后的主动回收。原因必填——它既进站内信正文，也进服务端审计表的 reason。
+ */
+const unbindMember = (row: any) => {
+  const name = row.nickname ?? row.userId ?? '该成员';
+  const sourceLabel = vesselMemberBindSourceLabel(
+    row.bindSource,
+    row.bindSourceLabel,
+  );
+  ElMessageBox.prompt(
+    `将把 ${name} 从「${memberVessel.value.vesselName ?? ''}」移出（来源：${sourceLabel}）。原因会随站内信告知本人。`,
+    '解绑成员',
+    {
+      confirmButtonText: '确认解绑',
+      cancelButtonText: '取消',
+      inputPlaceholder: '例如：分享链接自动加入，非本船人员',
+      inputValidator: (value: string) =>
+        (value && value.trim().length > 0) || '解绑必须填写原因',
+    },
+  )
+    .then(({ value }) =>
+      unbindVesselMember(memberVessel.value.id, row.userId, value.trim()).then(
+        async () => {
+          ElMessage.success('已解绑');
+          await loadMembers();
+        },
+      ),
+    )
+    .catch(() => {});
+};
 
 // 靠港计划
 const callDialogVisible = ref(false);
@@ -148,14 +210,16 @@ const openVesselDialog = (row?: any) => {
   editingVesselId.value = row?.id ?? '';
   Object.assign(vesselForm, {
     callSign: row?.callSign ?? '',
-    crewCapacity: row?.crewCapacity ?? '',
-    dwt: row?.dwt ?? '',
+    // 后端 dwt / crewCapacity 是数字列：回填时保留 null 语义，
+    // 不能塞 ''（ElInputNumber 会把 '' 当成非法值，提交时可能变成字符串）
+    crewCapacity: row?.crewCapacity ?? undefined,
+    dwt: row?.dwt ?? undefined,
     flagState: row?.flagState ?? '',
     imoCode: row?.imoCode ?? '',
     remark: row?.remark ?? '',
     vesselName: row?.vesselName ?? '',
     vesselNameEn: row?.vesselNameEn ?? '',
-    vesselType: row?.vesselType ?? '5',
+    vesselType: row?.vesselType ?? VESSEL_TYPE_DEFAULT,
   });
   vesselDialogVisible.value = true;
 };
@@ -194,9 +258,7 @@ const toggleVesselStatus = (row: any) => {
 const openMembers = (row: any) => {
   memberVessel.value = row;
   memberDialogVisible.value = true;
-  getVesselMembers(row.id).then((list) => {
-    memberTableData.value = list;
-  });
+  loadMembers();
 };
 
 const saveMember = () => {
@@ -204,14 +266,21 @@ const saveMember = () => {
     ElMessage.warning('用户ID不能为空');
     return;
   }
+  // 角色白名单（与后端同口径）：管理端只允许授予 普通船员/采购确认人，
+  // 「发起人」不可由后台凭空造出来
+  if (
+    !MEMBER_ASSIGNABLE_ROLE_OPTIONS.some(
+      (r) => r.value === memberForm.memberRole,
+    )
+  ) {
+    ElMessage.warning('该成员角色不可由管理端授予');
+    return;
+  }
   addVesselMember(memberVessel.value.id, memberForm)
     .then(() => {
       ElMessage.success('绑定成功');
       memberDialogVisible.value = false;
-      return getVesselMembers(memberVessel.value.id);
-    })
-    .then((list) => {
-      memberTableData.value = list;
+      return loadMembers();
     })
     .catch(() => {});
 };
@@ -352,6 +421,13 @@ onMounted(initPage);
           <ElTable v-loading="loading" :data="state.tableData" border>
             <ElTableColumn prop="vesselName" label="船舶名称" min-width="140" />
             <ElTableColumn prop="vesselNameEn" label="英文名" min-width="140" />
+            <ElTableColumn label="船型" width="90" align="center">
+              <!-- 船型此前只在弹窗里可写、列表看不到：改了也验证不了，
+                   而审核建船产出的船型全是「其他」也无人察觉 -->
+              <template #default="scope">
+                {{ vesselTypeLabel(scope.row.vesselType) }}
+              </template>
+            </ElTableColumn>
             <ElTableColumn prop="imoCode" label="IMO" width="120" />
             <ElTableColumn prop="callSign" label="呼号" width="100" />
             <ElTableColumn prop="dwt" label="载重吨" width="100" />
@@ -422,7 +498,7 @@ onMounted(initPage);
           <ElFormItem label="船舶类型">
             <ElSelect v-model="vesselForm.vesselType" style="width: 100%">
               <ElOption
-                v-for="item in vesselTypeOptions"
+                v-for="item in VESSEL_TYPE_OPTIONS"
                 :key="item.value"
                 :label="item.label"
                 :value="item.value"
@@ -442,12 +518,27 @@ onMounted(initPage);
             />
           </ElFormItem>
           <ElFormItem label="载重吨">
-            <ElInput v-model="vesselForm.dwt" placeholder="选填，如 25000" />
+            <!-- 后端列是 decimal(12,2)：用文本输入框会把「约两万五」这类脏值直接送进库，
+                 数字控件在来源上拦住非数字。min=0：载重吨/定员不可能是负数 -->
+            <ElInputNumber
+              v-model="vesselForm.dwt"
+              :min="0"
+              :precision="2"
+              :step="1000"
+              controls-position="right"
+              placeholder="选填，如 25000"
+              style="width: 100%"
+            />
           </ElFormItem>
           <ElFormItem label="定员">
-            <ElInput
+            <ElInputNumber
               v-model="vesselForm.crewCapacity"
+              :min="0"
+              :precision="0"
+              :step="1"
+              controls-position="right"
               placeholder="选填，如 20"
+              style="width: 100%"
             />
           </ElFormItem>
           <ElFormItem label="备注">
@@ -477,8 +568,14 @@ onMounted(initPage);
             v-model="memberForm.memberRole"
             style="width: 160px; margin-right: 8px"
           >
-            <ElOption label="普通船员" value="2" />
-            <ElOption label="采购确认人" value="3" />
+            <!-- 角色白名单与后端一致：管理端只授予 船员/确认人，
+                 不提供「发起人」，避免从这个入口造出最高管理角色 -->
+            <ElOption
+              v-for="role in MEMBER_ASSIGNABLE_ROLE_OPTIONS"
+              :key="role.value"
+              :label="role.label"
+              :value="role.value"
+            />
           </ElSelect>
           <ElButton
             type="primary"
@@ -488,7 +585,22 @@ onMounted(initPage);
             绑定
           </ElButton>
         </div>
-        <ElTable :data="memberTableData" border>
+        <!-- 成员列表服务端只允许「在营船」操作：停用船上的成员既不能解绑
+             （服务端 requireVesselActive 会拒绝），来源列也失去了回收的意义 -->
+        <ElAlert
+          v-if="memberVessel.status === '0'"
+          type="info"
+          :closable="false"
+          show-icon
+          class="mb-3"
+          title="该船舶已停用：成员关系只能查看，解绑需先恢复在营。"
+        />
+        <ElTable
+          v-loading="memberLoading"
+          :data="memberTableData"
+          border
+          empty-text="暂无成员"
+        >
           <ElTableColumn prop="userId" label="用户ID" min-width="180" />
           <ElTableColumn label="角色" width="120">
             <template #default="scope">
@@ -501,12 +613,55 @@ onMounted(initPage);
               }}
             </template>
           </ElTableColumn>
+          <!-- 来源列：让「怎么绑上的」在列表里可见。
+               此前所有成员关系长一个样，运营看到一条记录无法判断它是审核通过、
+               邀请码、还是分享链接自动补建的；误绑后也无从按来源识别并回收。 -->
+          <ElTableColumn label="来源" min-width="170">
+            <template #default="scope">
+              <ElTag
+                size="small"
+                :type="vesselMemberBindSourceTagType(scope.row.bindSource)"
+              >
+                {{
+                  vesselMemberBindSourceLabel(
+                    scope.row.bindSource,
+                    scope.row.bindSourceLabel,
+                  )
+                }}
+              </ElTag>
+              <!-- 绑定理由（跨船审核的偏离说明等）跟在来源下面，构成可追溯证据 -->
+              <div
+                v-if="scope.row.bindReason"
+                class="mt-1 text-xs text-gray-500"
+              >
+                {{ scope.row.bindReason }}
+              </div>
+            </template>
+          </ElTableColumn>
           <ElTableColumn label="在船" width="80">
             <template #default="scope">
               {{ scope.row.status === '1' ? '是' : '否' }}
             </template>
           </ElTableColumn>
           <ElTableColumn prop="joinTime" label="加入时间" width="170" />
+          <ElTableColumn label="操作" width="100" align="center">
+            <template #default="scope">
+              <!-- 发起人是船内最高管理角色：移出会把船变成没人管的孤儿关系，
+                   必须走「停船/换发起人」流程，不在这里一键解绑 -->
+              <ElButton
+                v-if="
+                  scope.row.memberRole !== '1' && memberVessel.status !== '0'
+                "
+                v-access:code="'vessel:member:save'"
+                link
+                type="danger"
+                @click="unbindMember(scope.row)"
+              >
+                解绑
+              </ElButton>
+              <span v-else class="text-xs text-gray-400">发起人</span>
+            </template>
+          </ElTableColumn>
         </ElTable>
       </ElDialog>
 

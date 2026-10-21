@@ -19,6 +19,7 @@
  * z-index 1020：本弹层常在用户刚点完「加入购物车」后出现，必须压住
  * SKU 规格弹层（990）与商详快捷面板（1000），见同仓两处的层级注释。
  */
+import type { QuantityRule } from '@/utils/quick-cart'
 import { onHide, onUnload } from '@dcloudio/uni-app'
 import { computed, ref, watch } from 'vue'
 
@@ -53,6 +54,11 @@ onUnload(abortOnPageLeave)
 
 const cart = computed(() => pendingChoice.value?.cart ?? null)
 const rule = computed(() => pendingChoice.value?.rule ?? null)
+/**
+ * 目的地锁定（共享车分类选货页）：只确认数量，不提供「个人购物车」分叉。
+ * 这类页面本身就是"给这张共享车选货"，再问一次去向既多余也容易点错。
+ */
+const lockDestination = computed(() => pendingChoice.value?.lockDestination === true)
 const statusTheme = computed(() => cartStatusTheme(cart.value?.status))
 
 /** 数量输入值：字符串以便用户清空重输，具体数值在交互时归一化 */
@@ -84,22 +90,58 @@ const subtotalText = computed(() => {
 
 const ruleHint = computed(() => (rule.value ? quantityRuleHint(rule.value) : ''))
 
-/** 减到起订量就不能再减；库存封顶时加号禁用，与后端规则一致 */
-const minQuantity = computed(() => rule.value?.moq ?? 1)
-const maxQuantity = computed(() => rule.value?.stock ?? Number.MAX_SAFE_INTEGER)
-const canDecrease = computed(() => Number(quantityInput.value) > minQuantity.value)
-const canIncrease = computed(() => Number(quantityInput.value) < maxQuantity.value)
+/** 活动限购说明（如「新人专享价每人限购 1 件」）；无活动限制时为空串 */
+const quantityHint = computed(() => pendingChoice.value?.payload.quantityHint || '')
 
-/** 按步长增减一步（结果仍走归一化，保证库存边界处也合法） */
+function toPositiveInt(value: unknown): number | null {
+  const parsed = Math.floor(Number(value))
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+}
+
+/**
+ * 数量上限：库存与本次加购的活动限购取小。
+ *
+ * 新人价每人每 SKU 限购 1 件，超量不是「恢复原价」而是整单被后端拒绝
+ * （OrderPriceComputeService.assertNewbieQuantityLimit），因此必须在加购确认
+ * 这一步就封顶，不能让用户加 2 件到提交订单才看到失败。
+ */
+const quantityLimit = computed(() => {
+  const stock = rule.value?.stock ?? null
+  const activityLimit = toPositiveInt(pendingChoice.value?.payload.maxQuantity)
+  if (stock === null)
+    return activityLimit
+  if (activityLimit === null)
+    return stock
+  return Math.min(stock, activityLimit)
+})
+
+/** 归一化用规则：把活动限购折进库存上限，与后端校验同一口径 */
+const normalizeRule = computed<QuantityRule | null>(() => {
+  if (!rule.value)
+    return null
+  if (quantityLimit.value === null)
+    return rule.value
+  return { ...rule.value, stock: quantityLimit.value }
+})
+
+/** 减到起订量就不能再减；库存/限购封顶时加号禁用，与后端规则一致 */
+const minQuantity = computed(() => normalizeRule.value?.moq ?? 1)
+const canDecrease = computed(() => Number(quantityInput.value) > minQuantity.value)
+const canIncrease = computed(
+  () => quantityLimit.value === null || Number(quantityInput.value) < quantityLimit.value,
+)
+
+/** 按步长增减一步（结果仍走归一化，保证库存/限购边界处也合法） */
 function stepQuantity(direction: 1 | -1) {
   const current = pendingChoice.value
-  if (!current || !rule.value)
+  const currentRule = normalizeRule.value
+  if (!current || !currentRule)
     return
-  const step = rule.value.stepQty
+  const step = currentRule.stepQty
   const next = Number(quantityInput.value) + direction * step
-  const normalized = normalizeQuantity(next, rule.value)
+  const normalized = normalizeQuantity(next, currentRule)
   if (normalized <= 0) {
-    uni.showToast({ title: `库存不足，最少起订 ${rule.value.moq}${rule.value.purchaseUnit}`, icon: 'none' })
+    uni.showToast({ title: `库存不足，最少起订 ${currentRule.moq}${currentRule.purchaseUnit}`, icon: 'none' })
     return
   }
   quantityInput.value = String(normalized)
@@ -116,10 +158,11 @@ function onQuantityInput(event: any) {
 /** 失焦时把输入落到合法值，让用户立刻看到最终会提交多少 */
 function normalizeInput() {
   const current = pendingChoice.value
-  if (!current || !rule.value)
+  const currentRule = normalizeRule.value
+  if (!current || !currentRule)
     return
-  const normalized = normalizeQuantity(quantityInput.value, rule.value)
-  quantityInput.value = String(normalized > 0 ? normalized : rule.value.moq)
+  const normalized = normalizeQuantity(quantityInput.value, currentRule)
+  quantityInput.value = String(normalized > 0 ? normalized : currentRule.moq)
   current.touch()
 }
 
@@ -136,10 +179,13 @@ function confirm(dest: 'shared' | 'personal') {
     answerDestination(dest)
     return
   }
-  const normalized = normalizeQuantity(quantityInput.value, rule.value)
+  const currentRule = normalizeRule.value
+  if (!currentRule)
+    return
+  const normalized = normalizeQuantity(quantityInput.value, currentRule)
   if (normalized <= 0) {
     uni.showToast({
-      title: `库存不足，最少起订 ${rule.value.moq}${rule.value.purchaseUnit}`,
+      title: `库存不足，最少起订 ${currentRule.moq}${currentRule.purchaseUnit}`,
       icon: 'none',
     })
     return
@@ -161,7 +207,7 @@ function confirm(dest: 'shared' | 'personal') {
   >
     <view class="px-32rpx pb-32rpx pt-28rpx">
       <view class="text-32rpx font-bold">
-        {{ rule ? '确认采购数量' : '选择加入哪里' }}
+        {{ rule ? '确认采购数量' : (lockDestination ? '加入共享购物车' : '选择加入哪里') }}
       </view>
 
       <!-- 商品信息：确认加的是哪一件，避免在长列表里点错商品 -->
@@ -202,6 +248,9 @@ function confirm(dest: 'shared' | 'personal') {
         <view v-if="ruleHint" class="mt-10rpx text-22rpx text-gray-500">
           {{ ruleHint }}
         </view>
+        <view v-if="quantityHint" class="mt-6rpx text-22rpx text-amber-600">
+          {{ quantityHint }}
+        </view>
         <view v-if="subtotalText" class="mt-8rpx text-24rpx text-gray-600">
           小计 ¥{{ subtotalText }}
         </view>
@@ -238,7 +287,9 @@ function confirm(dest: 'shared' | 'personal') {
       <view v-if="cart" class="mt-10rpx text-center text-22rpx text-gray-400">
         与同船成员合并，由采购确认人统一提交整船订单
       </view>
+      <!-- 锁定向导只保留共享车入口：分类选货页不存在「加进个人车」的语义 -->
       <view
+        v-if="!lockDestination"
         class="h-80rpx flex items-center justify-center rounded-full text-28rpx font-medium"
         :class="cart
           ? 'mt-16rpx bg-gray-100 text-gray-700'

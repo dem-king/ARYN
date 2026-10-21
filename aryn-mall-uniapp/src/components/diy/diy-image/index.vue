@@ -3,6 +3,7 @@ import { computed } from 'vue'
 
 import { followDecorationLink } from '@/components/diy/link-resolver'
 import { useDiyStyle } from '@/composables/useDiyStyle'
+import { useMallThemeStore } from '@/store/mallThemeStore'
 
 const props = defineProps({
   showData: {
@@ -10,6 +11,9 @@ const props = defineProps({
     default: () => { },
   },
 })
+
+/** 全站自动动效总开关（商城主题配置）；关闭时停止自动切换、保留手动滑动 */
+const mallThemeStore = useMallThemeStore()
 
 const baseStyle = useDiyStyle(computed(() => props.showData.commonStyle))
 const dynamicStyles = computed(() => {
@@ -53,7 +57,7 @@ function handleSwiper(obj: any) {
         <view v-else class="card-swiper">
           <!-- 轮播图  uniapp swiper -->
           <swiper
-            :class="showData.swiperType === '2' ? 'card-swiper-container' : ''" circular autoplay
+            :class="showData.swiperType === '2' ? 'card-swiper-container' : ''" circular :autoplay="mallThemeStore.autoMotionEnabled"
             :interval="showData.interval * 1000" :indicator-dots="showData.indicatorDots"
             :indicator-color="showData.indicatorColor"
             :indicator-active-color="showData.indicatorActiveColor"

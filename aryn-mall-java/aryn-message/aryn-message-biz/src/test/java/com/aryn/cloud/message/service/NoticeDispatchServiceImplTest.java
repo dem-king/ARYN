@@ -3,6 +3,7 @@ package com.aryn.cloud.message.service;
 import com.aryn.cloud.message.api.entity.MessageDispatchTask;
 import com.aryn.cloud.message.api.enums.DispatchTaskStatus;
 import com.aryn.cloud.message.mapper.MessageDispatchTaskMapper;
+import com.aryn.cloud.message.mapper.MessageNoticeMapper;
 import com.aryn.cloud.message.mapper.MessageRecipientMapper;
 import com.aryn.cloud.message.service.impl.NoticeDispatchServiceImpl;
 import com.aryn.cloud.upms.api.remote.RemoteMessageStaffService;
@@ -31,6 +32,7 @@ class NoticeDispatchServiceImplTest {
 	void repeatedDispatchDoesNotInsertRecipientsAgain() {
 		MessageDispatchTaskMapper taskMapper = mock(MessageDispatchTaskMapper.class);
 		MessageRecipientMapper recipientMapper = mock(MessageRecipientMapper.class);
+		MessageNoticeMapper noticeMapper = mock(MessageNoticeMapper.class);
 		RemoteMessageAudienceService audienceService = mock(RemoteMessageAudienceService.class);
 		RemoteMessageStaffService staffService = mock(RemoteMessageStaffService.class);
 		TransactionTemplate transactionTemplate = mock(TransactionTemplate.class);
@@ -40,6 +42,7 @@ class NoticeDispatchServiceImplTest {
 		});
 		MessageDispatchTask task = task();
 		when(taskMapper.selectByIdForUpdate("tenant-1", "task-1")).thenReturn(task);
+		when(noticeMapper.selectStatus("tenant-1", "notice-1")).thenReturn("PUBLISHED");
 		UserMessageRecipientVO member = new UserMessageRecipientVO();
 		member.setId("member-1");
 		member.setNickname("会员");
@@ -48,7 +51,7 @@ class NoticeDispatchServiceImplTest {
 		page.setHasMore(false);
 		when(audienceService.queryRecipients(any())).thenReturn(page);
 		when(recipientMapper.insertIgnoreBatch(any())).thenReturn(1);
-		NoticeDispatchServiceImpl service = new NoticeDispatchServiceImpl(taskMapper, recipientMapper,
+		NoticeDispatchServiceImpl service = new NoticeDispatchServiceImpl(taskMapper, recipientMapper, noticeMapper,
 				new ObjectMapper(), transactionTemplate, audienceService, staffService);
 
 		service.dispatch("tenant-1", "task-1");
@@ -63,6 +66,7 @@ class NoticeDispatchServiceImplTest {
 	void unsupportedTargetEventuallyFailsWithoutLeakingRecipients() {
 		MessageDispatchTaskMapper taskMapper = mock(MessageDispatchTaskMapper.class);
 		MessageRecipientMapper recipientMapper = mock(MessageRecipientMapper.class);
+		MessageNoticeMapper noticeMapper = mock(MessageNoticeMapper.class);
 		TransactionTemplate transactionTemplate = mock(TransactionTemplate.class);
 		when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
 			TransactionCallback<?> callback = invocation.getArgument(0);
@@ -72,7 +76,8 @@ class NoticeDispatchServiceImplTest {
 		task.setTargetType("SYSTEM");
 		task.setRetryCount(2);
 		when(taskMapper.selectByIdForUpdate("tenant-1", "task-1")).thenReturn(task);
-		NoticeDispatchServiceImpl service = new NoticeDispatchServiceImpl(taskMapper, recipientMapper,
+		when(noticeMapper.selectStatus("tenant-1", "notice-1")).thenReturn("PUBLISHED");
+		NoticeDispatchServiceImpl service = new NoticeDispatchServiceImpl(taskMapper, recipientMapper, noticeMapper,
 				new ObjectMapper(), transactionTemplate, mock(RemoteMessageAudienceService.class),
 				mock(RemoteMessageStaffService.class));
 
@@ -80,6 +85,63 @@ class NoticeDispatchServiceImplTest {
 
 		assertEquals(DispatchTaskStatus.FAILED.name(), task.getStatus());
 		verify(recipientMapper, never()).insertIgnoreBatch(any());
+	}
+
+	@Test
+	void revokedNoticeCancelsTaskBeforeDispatch() {
+		MessageDispatchTaskMapper taskMapper = mock(MessageDispatchTaskMapper.class);
+		MessageRecipientMapper recipientMapper = mock(MessageRecipientMapper.class);
+		MessageNoticeMapper noticeMapper = mock(MessageNoticeMapper.class);
+		TransactionTemplate transactionTemplate = mock(TransactionTemplate.class);
+		when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+			TransactionCallback<?> callback = invocation.getArgument(0);
+			return callback.doInTransaction(mock(TransactionStatus.class));
+		});
+		MessageDispatchTask task = task();
+		when(taskMapper.selectByIdForUpdate("tenant-1", "task-1")).thenReturn(task);
+		when(noticeMapper.selectStatus("tenant-1", "notice-1")).thenReturn("REVOKED");
+		NoticeDispatchServiceImpl service = new NoticeDispatchServiceImpl(taskMapper, recipientMapper, noticeMapper,
+				new ObjectMapper(), transactionTemplate, mock(RemoteMessageAudienceService.class),
+				mock(RemoteMessageStaffService.class));
+
+		service.dispatch("tenant-1", "task-1");
+
+		verify(taskMapper).markCanceled("tenant-1", "task-1");
+		verify(recipientMapper, never()).insertIgnoreBatch(any());
+	}
+
+	@Test
+	void revokeDuringDispatchStopsBeforeInsert() {
+		MessageDispatchTaskMapper taskMapper = mock(MessageDispatchTaskMapper.class);
+		MessageRecipientMapper recipientMapper = mock(MessageRecipientMapper.class);
+		MessageNoticeMapper noticeMapper = mock(MessageNoticeMapper.class);
+		RemoteMessageAudienceService audienceService = mock(RemoteMessageAudienceService.class);
+		TransactionTemplate transactionTemplate = mock(TransactionTemplate.class);
+		when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+			TransactionCallback<?> callback = invocation.getArgument(0);
+			return callback.doInTransaction(mock(TransactionStatus.class));
+		});
+		MessageDispatchTask task = task();
+		when(taskMapper.selectByIdForUpdate("tenant-1", "task-1")).thenReturn(task);
+		when(noticeMapper.selectStatus("tenant-1", "notice-1")).thenReturn("PUBLISHED", "REVOKED");
+		UserMessageAudiencePageVO page = new UserMessageAudiencePageVO();
+		page.setRecords(List.of(member()));
+		page.setHasMore(false);
+		when(audienceService.queryRecipients(any())).thenReturn(page);
+		NoticeDispatchServiceImpl service = new NoticeDispatchServiceImpl(taskMapper, recipientMapper, noticeMapper,
+				new ObjectMapper(), transactionTemplate, audienceService, mock(RemoteMessageStaffService.class));
+
+		service.dispatch("tenant-1", "task-1");
+
+		verify(taskMapper).markCanceled("tenant-1", "task-1");
+		verify(recipientMapper, never()).insertIgnoreBatch(any());
+	}
+
+	private UserMessageRecipientVO member() {
+		UserMessageRecipientVO member = new UserMessageRecipientVO();
+		member.setId("member-1");
+		member.setNickname("会员");
+		return member;
 	}
 
 	private MessageDispatchTask task() {

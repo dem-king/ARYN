@@ -51,7 +51,10 @@ export interface VesselBindApply {
   applyNo: string
   applyRole: string
   applyVesselName: string
+  /** IMO 编号（7 位数字），与呼号是两个独立字段 */
   applyVesselImo?: string
+  /** 船舶呼号（如 3EABC），与 IMO 编号是两个独立字段 */
+  applyVesselCallSign?: string
   applyPortName?: string
   realName?: string
   phone?: string
@@ -61,6 +64,13 @@ export interface VesselBindApply {
   status: string
   matchedVesselId?: string
   matchedVesselName?: string
+  /**
+   * 申请船名与最终绑定船名不一致（服务端按与后端相同的归一化规则判定）。
+   *
+   * 只在 `matchedVesselName` 有值时才有意义：审核通过后申请单冻结，
+   * 但绑定的可能是另一条船（运营确认过的跨船绑定），列表必须能让用户看出差异。
+   */
+  vesselMismatch?: boolean
   auditRemark?: string
   auditTime?: string
   createTime?: string
@@ -76,6 +86,15 @@ export interface VesselMember {
   status: string
   remark?: string
   joinTime?: string
+  /**
+   * 绑定来源：APPLY_AUDIT / APPLY_AUDIT_MISMATCH / INVITE_CODE / MEMBER_ADD /
+   * ADMIN_ADD / SHARE_CART / MANUAL（与后端 `VesselMemberBindSource` 一致）。
+   */
+  bindSource?: string
+  /** 绑定来源中文名（服务端映射，未知回退「手工/历史」） */
+  bindSourceLabel?: string
+  /** 绑定补充原因（审核偏离理由等） */
+  bindReason?: string
 }
 
 export interface VesselInviteCode {
@@ -94,7 +113,10 @@ export interface VesselBindApplyPayload {
   /** 2普通船员 4业务员（销售认领船舶） */
   applyRole: string
   applyVesselName: string
+  /** IMO 编号（7 位数字），与呼号是两个独立字段 */
   applyVesselImo?: string
+  /** 船舶呼号（如 3EABC），与 IMO 编号是两个独立字段 */
+  applyVesselCallSign?: string
   applyPortName?: string
   realName?: string
   phone?: string

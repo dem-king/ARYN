@@ -64,6 +64,23 @@
         LIMIT 10
     </select>
 
+    <select id="countVisitors" resultType="java.lang.Long">
+        SELECT COUNT(DISTINCT user_id)
+        FROM goods_footprint
+        WHERE del_flag = '0'
+        AND create_time BETWEEN #{startTime} AND #{endTime}
+    </select>
+
+    <select id="getProductLifecycle" resultType="com.aryn.cloud.product.api.vo.ProductLifecycleVO">
+        SELECT
+        COUNT(CASE WHEN create_time >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 END) AS newCount,
+        COUNT(CASE WHEN sales_volume > 0 THEN 1 END) AS activeCount,
+        COUNT(CASE WHEN sales_volume = 0 AND create_time &lt; DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 END) AS slowMovingCount,
+        COUNT(CASE WHEN stock &lt;= 0 THEN 1 END) AS outOfStockCount
+        FROM goods_spu
+        WHERE del_flag = '0'
+    </select>
+
     <select id="getProductPraiseTop10" resultType="com.aryn.cloud.product.api.vo.ProductPraiseRankVO">
         SELECT
         g.name AS spuName,

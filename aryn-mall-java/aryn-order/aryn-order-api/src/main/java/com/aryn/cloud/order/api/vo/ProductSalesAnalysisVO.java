@@ -24,7 +24,7 @@ public class ProductSalesAnalysisVO {
 	@Schema(description = "客单价 (销售额 / 订单数)")
 	private BigDecimal averageTicketSize;
 
-	@Schema(description = "动销率 (动销商品数 / 在售商品数)")
+	@Schema(description = "动销率 (0-1 小数，动销商品数 / 在售商品数)")
 	private BigDecimal activeProductRate;
 
 	@Schema(description = "订单数 (内部使用)")

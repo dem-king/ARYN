@@ -4,8 +4,8 @@ import { getCurrentInstance, onBeforeUnmount, onMounted } from 'vue'
 
 import { DIY_REACH_BOTTOM_CHECK_EVENT } from './useDecorationInfiniteScroll'
 
-/** 距视口底部多少 px 内就提前加载下一页（约一屏，滚动过程中完成续页） */
-const PRELOAD_DISTANCE_PX = 900
+/** 距视口底部多少 px 内就提前加载下一页（约半屏；过大时会在用户看到楼层前连翻多页） */
+const PRELOAD_DISTANCE_PX = 400
 /** 加载完成后自愈重测的延迟（ms）：等 z-paging 把新数据渲染出来再测，避免拿到旧布局 */
 const SELF_HEAL_DELAY_MS = 200
 /** 自愈触发前等待 z-paging 空闲的重试参数：z-paging 清内部 loading 晚于数据生效，触发太早会被丢弃 */
@@ -13,7 +13,7 @@ const BUSY_POLL_INTERVAL_MS = 120
 const BUSY_POLL_MAX_ATTEMPTS = 8
 
 /**
- * 分页商品楼层（goods-group / goods-waterfall）的自动续页。
+ * 分页商品楼层（goods-group / goods-waterfall / goods-tabs）的自动续页。
  *
  * 页面滚动时收到检查广播后，测组件自身底边与视口底的距离：进入预加载区就调
  * z-paging 提前加载下一页。加载完成后若仍在预加载区（用户停在底部、或上一次
@@ -26,11 +26,18 @@ const BUSY_POLL_MAX_ATTEMPTS = 8
 export function useDiyPagedLoadMore(pagingRef: Ref<any>, rootSelector: string) {
   // getCurrentInstance 只能在 setup 同步阶段取，事件回调里拿到的是 null
   const instance = getCurrentInstance()
-  let queryInFlight = false
+  // 滚动广播是 uni.$emit 全局事件：记录所属页面，避免后台页面（如 tabbar 首页）
+  // 响应前台 DIY 页的滚动而偷偷加载下一页
+  const ownerPage = getCurrentPages().at(-1)
+  let queryInFlight = 0
   let disposed = false
 
+  function ownedByActivePage() {
+    return !ownerPage || getCurrentPages().at(-1) === ownerPage
+  }
+
   function scheduleLoad(attempt = 0) {
-    if (queryInFlight || disposed)
+    if (queryInFlight > 0 || disposed || !ownedByActivePage())
       return
     // z-paging 内部清 loading 晚于数据生效（_refresherEnd 带 100ms+10ms 延迟），
     // 触发太早会被它的 loading 守卫静默丢弃，等它空闲后再触发
@@ -66,23 +73,30 @@ export function useDiyPagedLoadMore(pagingRef: Ref<any>, rootSelector: string) {
       .exec()
   }
 
-  /** 供 @query 处理器包装：标记查询生命周期，成功结束后自愈续页 */
-  async function runQuery(task: () => Promise<void>) {
-    queryInFlight = true
+  /**
+   * 供 @query 处理器包装：标记查询生命周期，成功结束后自愈续页。
+   *
+   * `isCurrent` 供多 Tab 商品流使用：快速切 Tab 后旧请求可能后返回，
+   * 此时不得用旧结果结束新 Tab 的分页或渲染错误态。
+   */
+  async function runQuery(task: () => Promise<void>, isCurrent: () => boolean = () => true) {
+    queryInFlight++
     let failed = false
     try {
       await task()
     }
     catch {
       failed = true
+      if (!isCurrent())
+        return
       // completeByError 的 promise 按 callNetworkReject 配置可能永远 pending，
       // 只触发不等待；错误视图由 z-paging 渲染为「加载失败，点击重新加载」
       const result = pagingRef.value?.completeByError('加载失败')
       result?.catch?.(() => {})
     }
     finally {
-      queryInFlight = false
-      if (!failed && !disposed)
+      queryInFlight = Math.max(0, queryInFlight - 1)
+      if (!failed && !disposed && isCurrent())
         setTimeout(scheduleLoad, SELF_HEAL_DELAY_MS)
     }
   }

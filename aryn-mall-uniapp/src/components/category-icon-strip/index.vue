@@ -7,7 +7,7 @@
  *
  * 未配图的类目走 `resolveCategoryFallback` 的首字色块兜底，不渲染空白圆。
  */
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { resolveCategoryFallback } from '@/utils/category-icon'
 
 interface CategoryItem {
@@ -20,11 +20,13 @@ interface CategoryItem {
 interface Props {
   categories?: CategoryItem[]
   activeIndex?: number
+  loading?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   categories: () => [],
   activeIndex: 0,
+  loading: false,
 })
 
 const emit = defineEmits<{
@@ -48,14 +50,34 @@ function handleImageError(index: number) {
 function showFallback(item: CategoryItem, index: number) {
   return !item.categoryPic || failedImages.value[index] === true
 }
+
+const activeItemId = computed(() => {
+  const item = props.categories[props.activeIndex]
+  return item ? `category-icon-${item.id ?? props.activeIndex}` : ''
+})
 </script>
 
 <template>
   <view class="icon-strip">
-    <scroll-view class="icon-strip-scroll" scroll-x :show-scrollbar="false">
+    <view v-if="props.loading && props.categories.length === 0" class="icon-strip-skeleton">
+      <view v-for="n in 5" :key="n" class="icon-strip-skeleton-item">
+        <view class="icon-strip-skeleton-circle skeleton-shimmer" />
+        <view class="icon-strip-skeleton-label skeleton-shimmer" />
+      </view>
+    </view>
+
+    <scroll-view
+      v-else
+      class="icon-strip-scroll"
+      scroll-x
+      :show-scrollbar="false"
+      :scroll-into-view="activeItemId"
+      scroll-with-animation
+    >
       <view class="icon-strip-inner">
         <view
           v-for="(item, index) in props.categories"
+          :id="`category-icon-${item.id ?? index}`"
           :key="item.id ?? index"
           class="icon-strip-item"
           :class="index === props.activeIndex ? 'icon-strip-item--active' : ''"
@@ -74,7 +96,10 @@ function showFallback(item: CategoryItem, index: number) {
             <view
               v-if="showFallback(item, index)"
               class="icon-strip-fallback"
-              :style="{ backgroundColor: resolveCategoryFallback(item.name, item.id).bgColor }"
+              :style="{
+                backgroundColor: resolveCategoryFallback(item.name, item.id).bgColor,
+                color: resolveCategoryFallback(item.name, item.id).color,
+              }"
             >
               {{ resolveCategoryFallback(item.name, item.id).text }}
             </view>
@@ -89,8 +114,7 @@ function showFallback(item: CategoryItem, index: number) {
       </view>
     </scroll-view>
 
-    <view class="icon-strip-expand" @click="emit('expand')">
-      <view class="icon-strip-mask" />
+    <view v-if="props.categories.length > 0" class="icon-strip-expand" @click="emit('expand')">
       <view class="icon-strip-expand-btn">
         <view class="icon-strip-expand-text">
           展开
@@ -112,7 +136,8 @@ function showFallback(item: CategoryItem, index: number) {
 }
 
 .icon-strip-scroll {
-  width: 100%;
+  /* 右侧「展开」独立成列，滚动区提前收窄，最后一个类目不再被覆盖层压住 */
+  width: calc(100% - 96rpx);
   white-space: nowrap;
 }
 
@@ -126,14 +151,15 @@ function showFallback(item: CategoryItem, index: number) {
    * 这份余量从 .icon-strip 的 padding 让出，两者相加仍等于原来的 24rpx：
    * 图标位置与图标条总高都不变，只是滚动容器上沿上移、多出这段不裁切的空间。
    */
-  padding: 20rpx 120rpx 0 20rpx;
+  padding: 20rpx 24rpx 0 20rpx;
 }
 
 .icon-strip-item {
   display: inline-flex;
   flex-direction: column;
   align-items: center;
-  width: 140rpx;
+  /* 124rpx：5 个完整类目 + 展开列刚好落在 750rpx 内，不再靠渐隐遮住第 5 个 */
+  width: 124rpx;
   flex: none;
   transition: transform 180ms ease;
 
@@ -196,15 +222,14 @@ function showFallback(item: CategoryItem, index: number) {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
-  font-size: 40rpx;
+  font-size: 38rpx;
   font-weight: 600;
 }
 
 .icon-strip-name {
   margin-top: 12rpx;
-  max-width: 132rpx;
-  font-size: 23rpx;
+  max-width: 120rpx;
+  font-size: 24rpx;
   line-height: 32rpx;
   color: #737985;
   transition: color 180ms ease, font-weight 180ms ease;
@@ -223,14 +248,9 @@ function showFallback(item: CategoryItem, index: number) {
   top: 0;
   right: 0;
   bottom: 0;
+  width: 96rpx;
   display: flex;
   align-items: center;
-}
-
-.icon-strip-mask {
-  width: 40rpx;
-  height: 100%;
-  background: linear-gradient(to right, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.96) 78%);
 }
 
 .icon-strip-expand-btn {
@@ -241,6 +261,8 @@ function showFallback(item: CategoryItem, index: number) {
   align-items: center;
   justify-content: center;
   background: #fff;
+  /* 用白色外阴影做边缘渐隐；box-shadow 不接收点击，不会抢最后一个类目的 tap */
+  box-shadow: -16rpx 0 16rpx rgba(255, 255, 255, 0.96);
   transition: opacity 160ms ease, transform 160ms ease;
 }
 
@@ -250,16 +272,60 @@ function showFallback(item: CategoryItem, index: number) {
 }
 
 .icon-strip-expand-text {
-  font-size: 22rpx;
+  font-size: 24rpx;
   line-height: 30rpx;
   color: #4b5360;
+}
+
+.icon-strip-skeleton {
+  display: flex;
+  padding: 20rpx 20rpx 0;
+  overflow: hidden;
+}
+
+.icon-strip-skeleton-item {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  width: 124rpx;
+}
+
+.icon-strip-skeleton-circle {
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: 50%;
+}
+
+.icon-strip-skeleton-label {
+  width: 80rpx;
+  height: 32rpx;
+  margin-top: 12rpx;
+  border-radius: 8rpx;
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(90deg, #f2f3f5 25%, #e9ebef 37%, #f2f3f5 63%);
+  background-size: 400% 100%;
+  animation: icon-strip-shimmer 1.4s ease infinite;
+}
+
+@keyframes icon-strip-shimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+
+  100% {
+    background-position: 0 50%;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .icon-strip-item,
   .icon-strip-circle,
   .icon-strip-circle--active,
-  .icon-strip-expand-btn {
+  .icon-strip-expand-btn,
+  .skeleton-shimmer {
     animation: none;
     transition: none;
   }

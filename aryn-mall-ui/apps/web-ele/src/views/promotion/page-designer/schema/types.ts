@@ -28,6 +28,16 @@ export interface DecorationLink {
 
 export interface NavigationSettings {
   backgroundColor: string;
+  /**
+   * 导航栏背景来源：
+   *   · 'custom'（缺省）—— 用 backgroundColor / 商城主题导航色；
+   *   · 'followFirstSection' —— 跟随首个有内容的区块：渐变取顶边起始色，
+   *     左右（to right）渐变整段复用；文字颜色默认按背景自动取黑/白。
+   * 用于让导航栏与首屏区块的渐变连成一条，不必两处手动对齐色值。
+   */
+  backgroundMode?: 'custom' | 'followFirstSection';
+  /** 跟随首个区块时是否自动取对比文字色；false 时用 textColor */
+  textColorAuto?: boolean;
   textColor: string;
   title: string;
   visible: boolean;
@@ -104,11 +114,25 @@ export type SectionConditionRule =
   | { type: 'userTag'; userTagIds: string[] };
 
 /**
+ * 区块背景渐变。与组件通用样式（commonStyle 的 bgColorDirection /
+ * bgStartColor / bgEndColor）同语义，供运营把区块底色做成渐变色带。
+ * 优先级：backgroundImage（背景图）> backgroundGradient > backgroundColor。
+ */
+export interface SectionBackgroundGradient {
+  /** CSS 渐变方向，只接受白名单值：'to right' | 'to bottom' | '135deg' | '225deg' */
+  direction: string;
+  endColor: string;
+  startColor: string;
+}
+
+/**
  * 区块容器样式。长度单位一律为 px，与画布（375px 手机壳）一致，
  * 也与 C 端 `diy/schema/types.ts` 的 SectionStyle 保持同构。
  */
 export interface SectionStyle {
   backgroundColor: string;
+  /** 背景渐变；起止色都为空视为未启用（回退 backgroundColor） */
+  backgroundGradient?: SectionBackgroundGradient;
   backgroundImage: string;
   condition: SectionCondition;
   horizontalScroll: boolean;

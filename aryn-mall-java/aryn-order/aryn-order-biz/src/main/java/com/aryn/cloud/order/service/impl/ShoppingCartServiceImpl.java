@@ -19,7 +19,9 @@ import com.aryn.cloud.product.api.entity.GoodsSku;
 import com.aryn.cloud.product.api.util.GoodsCostPriceMasker;
 import com.aryn.cloud.product.api.entity.GoodsSpu;
 import com.aryn.cloud.product.api.remote.RemoteGoodsSkuService;
+import com.aryn.cloud.product.api.remote.RemoteGoodsSpuService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -39,6 +41,7 @@ import java.util.stream.Collectors;
  * @author 雨滴kian
  * @since 2022/3/17 14:51
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, ShoppingCart>
@@ -47,12 +50,17 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
 	@DubboReference
 	private final RemoteGoodsSkuService remoteGoodsSkuService;
 
+	@DubboReference
+	private final RemoteGoodsSpuService remoteGoodsSpuService;
+
 	@Override
 	public List<ShoppingCart> apiPage(Page page, ShoppingCart shoppingCart) {
 		IPage<ShoppingCart> iPage = baseMapper.selectApiPage(page, shoppingCart);
 		if (CollectionUtils.isEmpty(iPage.getRecords())) {
 			return null;
 		}
+		// 商品卖点是 SPU 字段，购物车行只落 SKU 快照，整页一次补齐
+		fillSpuSubTitles(iPage.getRecords());
 		// 从List中提取SKUID
 		List<String> skuIds = iPage.getRecords()
 			.stream()
@@ -78,6 +86,33 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
 			s.setGoodsSku(goodsSku);
 		});
 		return iPage.getRecords();
+	}
+
+	/**
+	 * 按 spuId 批量补齐商品卖点（SPU 子标题）。
+	 *
+	 * <p>卖点只用于卡片展示，不是下单必需信息：商品服务超时/异常时降级为不展示，
+	 * 不能让整车列表跟着失败。下架商品查不到 SPU 属正常情况，留空即可。
+	 */
+	private void fillSpuSubTitles(List<ShoppingCart> rows) {
+		List<String> spuIds = rows.stream()
+			.map(ShoppingCart::getSpuId)
+			.filter(StringUtils::hasText)
+			.distinct()
+			.toList();
+		if (spuIds.isEmpty()) {
+			return;
+		}
+		try {
+			Map<String, String> subTitleBySpuId = remoteGoodsSpuService.getSpuByIds(spuIds)
+				.stream()
+				.filter(spu -> StringUtils.hasText(spu.getSubTitle()))
+				.collect(Collectors.toMap(GoodsSpu::getId, GoodsSpu::getSubTitle, (first, second) -> first));
+			rows.forEach(row -> row.setSubTitle(subTitleBySpuId.get(row.getSpuId())));
+		}
+		catch (Exception exception) {
+			log.warn("购物车商品卖点查询失败，降级为不展示: spuCount={}", spuIds.size(), exception);
+		}
 	}
 
 	@Override

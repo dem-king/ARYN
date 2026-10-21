@@ -93,6 +93,9 @@ public class AppPageDesignController {
 		vo.setNavigationColor(theme.getNavigationColor());
 		vo.setNavigationTextColor(theme.getNavigationTextColor());
 		vo.setRadius(theme.getRadius());
+		// 存量主题行该列由 DDL 默认 '1' 补齐；读取侧再兜一层，避免为空时 C 端误判为关闭
+		vo.setAutoMotionEnabled(PageDesignTheme.AUTO_MOTION_OFF.equals(theme.getAutoMotionEnabled())
+			? PageDesignTheme.AUTO_MOTION_OFF : PageDesignTheme.AUTO_MOTION_ON);
 		return vo;
 	}
 

@@ -12,10 +12,6 @@ import {
   ElMessageBox,
   ElRadio,
   ElRadioGroup,
-  ElSlider,
-  ElSwitch,
-  ElTabPane,
-  ElTabs,
 } from 'element-plus';
 import draggable from 'vuedraggable';
 
@@ -28,15 +24,8 @@ const SelectMaterial = defineAsyncComponent(
 const LinkUrl = defineAsyncComponent(
   () => import('../common/link-url/index.vue'),
 );
-const CommonStyle = defineAsyncComponent(
-  () => import('../common/common-style/index.vue'),
-);
-const ColorPicker = defineAsyncComponent(
-  () => import('../common/common-color-picker/index.vue'),
-);
 // 定义变量内容
 const limitNum = ref(10);
-const active = ref('0');
 const dragOptions = {
   animation: 300,
   group: 'description',
@@ -127,113 +116,76 @@ const del = (index: number) => {
     </div>
     <div class="setting-form">
       <ElForm :model="form" label-width="95px">
-        <ElTabs type="border-card" v-model="active">
-          <ElTabPane label="组件内容" name="0">
-            <ElFormItem label="图片类型">
-              <ElRadioGroup v-model="form.type">
-                <ElRadio value="1">一行一个 </ElRadio>
-                <ElRadio value="2">轮播海报</ElRadio>
-              </ElRadioGroup>
-            </ElFormItem>
-            <ElFormItem label="轮播类型" v-if="form.type === '2'">
-              <ElRadioGroup v-model="form.swiperType">
-                <ElRadio value="1">类型一 </ElRadio>
-                <ElRadio value="2">类型二</ElRadio>
-                <ElRadio value="3">类型三</ElRadio>
-              </ElRadioGroup>
-            </ElFormItem>
-            <ElFormItem
-              label="轮播间隔时间"
-              v-if="form.type === '2'"
-              label-width="100px"
-            >
-              <ElInputNumber
-                v-model="form.interval"
-                :min="1"
-                :controls="false"
-              />
-            </ElFormItem>
+        <ElFormItem label="图片类型">
+          <ElRadioGroup v-model="form.type">
+            <ElRadio value="1">一行一个 </ElRadio>
+            <ElRadio value="2">轮播海报</ElRadio>
+          </ElRadioGroup>
+        </ElFormItem>
+        <ElFormItem label="轮播类型" v-if="form.type === '2'">
+          <ElRadioGroup v-model="form.swiperType">
+            <ElRadio value="1">类型一 </ElRadio>
+            <ElRadio value="2">类型二</ElRadio>
+            <ElRadio value="3">类型三</ElRadio>
+          </ElRadioGroup>
+        </ElFormItem>
+        <ElFormItem
+          label="轮播间隔时间"
+          v-if="form.type === '2'"
+          label-width="100px"
+        >
+          <ElInputNumber v-model="form.interval" :min="1" :controls="false" />
+        </ElFormItem>
 
-            <ElFormItem label="高度设置">
-              <ElInputNumber v-model="form.height" :min="1" :controls="false" />
-            </ElFormItem>
-            <ElDivider />
-            <ElFormItem label="图片设置">
-              <p class="form-tip">可以上下拖动更改顺序</p>
-            </ElFormItem>
-            <draggable
-              v-model="form.imageList"
-              v-bind="dragOptions"
-              animation="700"
-              item-key="id"
-              @dragover.prevent
-            >
-              <template #item="{ element, index }">
-                <div class="content-item">
-                  <ElIcon size="24px" style="cursor: move"><DCaret /></ElIcon>
-                  <div class="left-img">
-                    <SelectMaterial
-                      v-model="element.url"
-                      :can-choose-images-num="1"
-                    />
-                  </div>
-                  <div class="img-info">
-                    <div class="info-top">
-                      <div>
-                        <p>链接配置</p>
-                      </div>
-                    </div>
-                    <LinkUrl v-model="element.link" />
-                  </div>
-                  <div class="delete-btn">
-                    <ElButton link @click="del(index)">
-                      <ElIcon><CircleCloseFilled /></ElIcon>
-                    </ElButton>
+        <ElFormItem label="高度设置">
+          <ElInputNumber v-model="form.height" :min="1" :controls="false" />
+        </ElFormItem>
+        <ElDivider />
+        <ElFormItem label="图片设置">
+          <p class="form-tip">可以上下拖动更改顺序</p>
+        </ElFormItem>
+        <draggable
+          v-model="form.imageList"
+          v-bind="dragOptions"
+          animation="700"
+          item-key="id"
+          @dragover.prevent
+        >
+          <template #item="{ element, index }">
+            <div class="content-item">
+              <ElIcon size="24px" style="cursor: move"><DCaret /></ElIcon>
+              <div class="left-img">
+                <SelectMaterial
+                  v-model="element.url"
+                  :can-choose-images-num="1"
+                />
+              </div>
+              <div class="img-info">
+                <div class="info-top">
+                  <div>
+                    <p>链接配置</p>
                   </div>
                 </div>
-              </template>
-            </draggable>
-            <div class="add-btn">
-              <ElButton
-                @click="add"
-                v-if="form.imageList && form.imageList.length < limitNum"
-              >
-                <ElIcon :size="20"> <Plus /> </ElIcon>添加图片（{{
-                  form.imageList.length
-                }}/{{ limitNum }}）
-              </ElButton>
-            </div>
-          </ElTabPane>
-          <ElTabPane label="组件样式" name="1">
-            <ElFormItem label="指示点" v-if="form.type === '2'">
-              <ElSwitch v-model="form.indicatorDots" />
-            </ElFormItem>
-            <ElFormItem label="指示点颜色" v-if="form.indicatorDots">
-              <ColorPicker v-model="form.indicatorColor" />
-            </ElFormItem>
-            <ElFormItem label="选中颜色" v-if="form.indicatorDots">
-              <ColorPicker v-model="form.indicatorActiveColor" />
-            </ElFormItem>
-            <ElFormItem label="图片圆角">
-              <ElSlider
-                v-model="form.imgRadius"
-                show-input
-                :show-input-controls="false"
-                :min="0"
-              />
-            </ElFormItem>
-            <div v-if="form.type === '1'">
-              <h4>图片样式</h4>
-              <div class="content-item">
-                <CommonStyle v-model="form.commonImageStyle" />
+                <LinkUrl v-model="element.link" />
+              </div>
+              <div class="delete-btn">
+                <ElButton link @click="del(index)">
+                  <ElIcon><CircleCloseFilled /></ElIcon>
+                </ElButton>
               </div>
             </div>
-            <h4>通用样式</h4>
-            <div class="content-item">
-              <CommonStyle v-model="form.commonStyle" />
-            </div>
-          </ElTabPane>
-        </ElTabs>
+          </template>
+        </draggable>
+        <div class="add-btn">
+          <ElButton
+            @click="add"
+            v-if="form.imageList && form.imageList.length < limitNum"
+          >
+            <ElIcon :size="20"> <Plus /> </ElIcon>添加图片（{{
+              form.imageList.length
+            }}/{{ limitNum }}）
+          </ElButton>
+        </div>
       </ElForm>
     </div>
   </div>

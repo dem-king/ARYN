@@ -62,4 +62,15 @@ public class VesselMember extends AbstractVesselEntity {
 	/** 备注 */
 	private String remark;
 
+	/**
+	 * 绑定来源，取值见 {@link com.aryn.cloud.vessel.api.constant.VesselMemberBindSource}。
+	 *
+	 * <p>DB 默认 {@code MANUAL}（历史数据兜底）；业务写入必须显式标记真实来源，
+	 * 否则运营无法在成员列表按来源识别并回收「分享链接自动补建」这类低信任关系。
+	 */
+	private String bindSource;
+
+	/** 绑定补充原因（审核偏离理由、解绑说明等），与来源一起构成可追溯证据 */
+	private String bindReason;
+
 }

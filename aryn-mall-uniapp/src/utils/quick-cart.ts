@@ -85,6 +85,62 @@ export function resolveQuickAddQuantity(info: QuickCartInfo | null | undefined):
   return quantity
 }
 
+/**
+ * 页面已知的活动成交价（新人价 / 秒杀价）。
+ *
+ * 加购确认弹层只能从 quick-cart 拿到普通售价，而楼层/商详上标的可能是活动价；
+ * 不把活动价带进去，就会出现「卡片 ¥0.01、确认弹层小计 ¥12.90」的价差。
+ */
+export interface QuickAddPromotion {
+  /** 活动价归属的 SKU：与 quick-cart 选中的 SKU 不一致时不采用 */
+  skuId: string
+  /** 成交单价（元） */
+  unitPrice?: number | string | null
+  /** 每人限购件数：确认弹层据此封顶，避免加购超量到提交订单才被拒 */
+  maxQuantity?: number | string | null
+  /** 限购/活动说明（如「新人专享价每人限购 1 件」） */
+  hint?: string
+}
+
+/** 确认弹层的成交价口径 */
+export interface QuickAddPrice {
+  /** 展示与计算小计用的单价 */
+  unitPrice: number | string | undefined
+  /** 数量上限；null 表示活动不限制（仍受库存约束） */
+  maxQuantity: number | null
+  /** 限购/活动说明；空串表示不展示 */
+  hint: string
+}
+
+/**
+ * 解析确认弹层应展示的成交价。
+ *
+ * 活动价只在「活动 SKU == quick-cart 选中的 SKU」时生效：后端快捷加购按库存
+ * 最充足的可用 SKU 挑一行，单规格 SPU 存在历史下架 SKU 时可能不是活动配的那一行；
+ * 拿 A 的价格标 B 的货，比不标活动价更糟。
+ */
+export function resolveQuickAddPrice(
+  info: QuickCartInfo | null | undefined,
+  promotion: QuickAddPromotion | null | undefined,
+): QuickAddPrice {
+  const fallback: QuickAddPrice = {
+    unitPrice: info?.salesPrice,
+    maxQuantity: null,
+    hint: '',
+  }
+  const skuId = String(info?.skuId ?? '').trim()
+  if (!promotion || !skuId || String(promotion.skuId ?? '').trim() !== skuId)
+    return fallback
+  const unitPrice = Number(promotion.unitPrice)
+  if (!Number.isFinite(unitPrice) || unitPrice <= 0)
+    return fallback
+  return {
+    unitPrice,
+    maxQuantity: toPositiveInt(promotion.maxQuantity),
+    hint: typeof promotion.hint === 'string' ? promotion.hint : '',
+  }
+}
+
 /** 数量规则（MOQ/步长/库存），采购量输入的约束口径 */
 export interface QuantityRule {
   /** 最小起订量，缺省 1 */

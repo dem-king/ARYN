@@ -1,9 +1,12 @@
 package com.aryn.cloud.user.service.impl;
 
 import com.aryn.cloud.user.api.dto.UserStatisticsDTO;
+import com.aryn.cloud.user.api.entity.UserInfo;
+import com.aryn.cloud.user.api.vo.UserDashboardStatisticsVO;
 import com.aryn.cloud.user.api.vo.UserOverviewVO;
 import com.aryn.cloud.user.api.vo.UserTrendVO;
 import com.aryn.cloud.user.mapper.UserStatisticsMapper;
+import com.aryn.cloud.user.service.IUserInfoService;
 import com.aryn.cloud.user.service.IUserStatisticsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -20,6 +23,16 @@ import java.util.stream.Collectors;
 public class UserStatisticsServiceImpl implements IUserStatisticsService {
 
 	private final UserStatisticsMapper userStatisticsMapper;
+
+	private final IUserInfoService userInfoService;
+
+	@Override
+	public UserDashboardStatisticsVO getUserDashboard() {
+		UserDashboardStatisticsVO dashboard = new UserDashboardStatisticsVO();
+		dashboard.setOverview(getUserOverview());
+		dashboard.setSourceStatistics(userInfoService.sourceStatistics(new UserInfo()));
+		return dashboard;
+	}
 
 	@Override
 	public UserOverviewVO getUserOverview() {

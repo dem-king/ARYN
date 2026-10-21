@@ -5,6 +5,7 @@ import com.aryn.cloud.product.api.vo.*;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -53,5 +54,19 @@ public interface ProductStatisticsMapper {
 	 * @return List<ProductPraiseRankVO>
 	 */
 	List<ProductPraiseRankVO> getProductPraiseTop10(@Param("dto") ProductStatisticsDTO dto);
+
+	/**
+	 * 商品生命周期概览（基于累计销量与库存）
+	 * @return ProductLifecycleVO
+	 */
+	ProductLifecycleVO getProductLifecycle();
+
+	/**
+	 * 统计周期内商品访问去重用户数
+	 * @param startTime 开始时间
+	 * @param endTime 结束时间
+	 * @return 访客数
+	 */
+	Long countVisitors(@Param("startTime") LocalDateTime startTime, @Param("endTime") LocalDateTime endTime);
 
 }

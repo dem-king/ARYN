@@ -20,6 +20,8 @@ function createDefaultPageSettings(): PageSettings {
     enablePullDownRefresh: true,
     navigation: {
       backgroundColor: '#ffffff',
+      backgroundMode: 'custom',
+      textColorAuto: true,
       textColor: '#000000',
       title: '',
       visible: true,

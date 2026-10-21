@@ -31,6 +31,15 @@ describe('goods detail purchase contract', () => {
     expect(page).toContain('quickAdd(')
   })
 
+  it('passes the price shown on the detail page (seckill/newbie) into add confirmation', () => {
+    const page = source(DETAIL_PAGE)
+    // 商详价格区标的是活动价，单规格直加的确认弹层不能回落到 salesPrice
+    expect(page).toContain('quickAddPromotion')
+    expect(page).toMatch(/quickAdd\(spuIdValue, \{ promotion: quickAddPromotion\.value \}\)/)
+    // 秒杀优先于新人价，与价格区、后端结算口径一致
+    expect(page).toMatch(/seckill\.seckillPrice[\s\S]{0,400}display\.newbiePrice/)
+  })
+
   it('detail page falls back to the SKU popup when direct add is not possible', () => {
     const page = source(DETAIL_PAGE)
     // 前后端判定不一致（需选规格）或查询异常 → 退回弹层，避免点击无响应

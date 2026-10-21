@@ -18,7 +18,7 @@ public class OrderRefundRateVO {
 	@Schema(description = "商品图片")
 	private String picUrl;
 
-	@Schema(description = "退款率 (退款金额 / 销售金额)")
+	@Schema(description = "退款率 (0-1 小数，退款金额 / 销售金额)")
 	private BigDecimal refundRate;
 
 	@Schema(description = "退款金额")

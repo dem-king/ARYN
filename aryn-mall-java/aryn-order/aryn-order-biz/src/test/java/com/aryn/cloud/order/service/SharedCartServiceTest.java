@@ -11,6 +11,7 @@ import com.aryn.cloud.order.api.entity.OrderInfo;
 import com.aryn.cloud.order.api.entity.SharedCart;
 import com.aryn.cloud.order.api.entity.SharedCartItem;
 import com.aryn.cloud.order.api.entity.SharedCartMember;
+import com.aryn.cloud.order.api.vo.SharedCartJoinVO;
 import com.aryn.cloud.order.api.vo.SharedCartReuseVO;
 import com.aryn.cloud.order.api.vo.SharedCartVO;
 import com.aryn.cloud.order.mapper.SharedCartImportMapper;
@@ -271,32 +272,103 @@ class SharedCartServiceTest {
 	}
 
 	@Test
-	@DisplayName("凭分享令牌加入：写入成员行并自动补建船舶成员关系")
+	@DisplayName("凭分享令牌加入：写入成员行并自动补建船舶成员关系，返回体标记 vesselMemberBound=true 且带船名")
 	void joinByShareTokenAddsMemberAndBindsVessel() {
 		SharedCart collecting = cart(SharedCart.STATUS_COLLECTING);
 		collecting.setShareToken("token-1");
 		when(cartMapper.selectOne(any())).thenReturn(collecting);
 		when(memberMapper.selectCount(any())).thenReturn(0L);
 		when(remoteVesselService.isVesselMember(TENANT, "vessel-1", "new-user")).thenReturn(false);
+		when(remoteVesselService.bindMemberByShare(TENANT, "vessel-1", "new-user")).thenReturn(true);
+		when(remoteVesselService.getVesselCallSnapshot(TENANT, "call-1")).thenReturn(vesselContext());
 
-		SharedCart joined = service.joinByShareToken(TENANT, "new-user", "token-1");
+		SharedCartJoinVO joined = service.joinByShareToken(TENANT, "new-user", "token-1");
 
-		assertEquals(CART_ID, joined.getId());
+		// 返回体是提示用的视图对象：购物车 ID + 船名 + 本次是否真的补建了成员关系
+		assertEquals(CART_ID, joined.getCartId());
+		assertEquals("悦航1号", joined.getVesselName());
+		assertEquals(Boolean.TRUE, joined.getVesselMemberBound(), "本次补建成功必须标记为 true，前端据此提示已加入本船成员");
 		verify(remoteVesselService).bindMemberByShare(TENANT, "vessel-1", "new-user");
 		verify(memberMapper).insert(any(SharedCartMember.class));
 	}
 
 	@Test
-	@DisplayName("已是成员时凭令牌加入为幂等，不重复插入")
+	@DisplayName("自动补建船舶成员失败：加入仍成功，只降级 vesselMemberBound=false（fail-open）")
+	void joinByShareTokenFailsOpenWhenBindThrows() {
+		// 船舶域不可用时不能把用户挡在购物车外：加入本身成功，仅提示降级。
+		// 这正是「分享即用」体验的底线，也是既有 fail-open 语义的回归护栏。
+		SharedCart collecting = cart(SharedCart.STATUS_COLLECTING);
+		collecting.setShareToken("token-1");
+		when(cartMapper.selectOne(any())).thenReturn(collecting);
+		when(memberMapper.selectCount(any())).thenReturn(0L);
+		when(remoteVesselService.isVesselMember(TENANT, "vessel-1", "new-user")).thenReturn(false);
+		when(remoteVesselService.bindMemberByShare(TENANT, "vessel-1", "new-user"))
+			.thenThrow(new RuntimeException("vessel service down"));
+		when(remoteVesselService.getVesselCallSnapshot(TENANT, "call-1")).thenReturn(vesselContext());
+
+		SharedCartJoinVO joined = service.joinByShareToken(TENANT, "new-user", "token-1");
+
+		assertEquals(CART_ID, joined.getCartId());
+		assertEquals(Boolean.FALSE, joined.getVesselMemberBound(), "补建失败不能谎报已加入本船成员");
+		// 加入不能因补建失败被回滚/阻断：成员行照常写入
+		verify(memberMapper).insert(any(SharedCartMember.class));
+	}
+
+	@Test
+	@DisplayName("原本就是船舶成员时无需补建：加入成功但 vesselMemberBound=false")
+	void joinByShareTokenDoesNotReportBindWhenAlreadyVesselMember() {
+		// 老船员点分享链接：isVesselMember=true 会跳过 bindMemberByShare，
+		// 此时「你已加入本船成员」是假新闻，标记必须为 false。
+		SharedCart collecting = cart(SharedCart.STATUS_COLLECTING);
+		collecting.setShareToken("token-1");
+		when(cartMapper.selectOne(any())).thenReturn(collecting);
+		when(memberMapper.selectCount(any())).thenReturn(0L);
+		when(remoteVesselService.isVesselMember(TENANT, "vessel-1", "old-sailor")).thenReturn(true);
+
+		SharedCartJoinVO joined = service.joinByShareToken(TENANT, "old-sailor", "token-1");
+
+		assertEquals(CART_ID, joined.getCartId());
+		assertEquals(Boolean.FALSE, joined.getVesselMemberBound());
+		verify(remoteVesselService, never()).bindMemberByShare(anyString(), anyString(), anyString());
+		verify(memberMapper).insert(any(SharedCartMember.class));
+	}
+
+	@Test
+	@DisplayName("已是成员时凭令牌加入为幂等，返回体 vesselMemberBound=false 且不重复插入")
 	void joinByShareTokenIsIdempotentForExistingMember() {
 		SharedCart collecting = cart(SharedCart.STATUS_COLLECTING);
 		collecting.setShareToken("token-1");
 		when(cartMapper.selectOne(any())).thenReturn(collecting);
 		when(memberMapper.selectCount(any())).thenReturn(1L);
+		when(remoteVesselService.getVesselCallSnapshot(TENANT, "call-1")).thenReturn(vesselContext());
 
-		service.joinByShareToken(TENANT, OWNER, "token-1");
+		SharedCartJoinVO joined = service.joinByShareToken(TENANT, OWNER, "token-1");
 
+		// 幂等早返回分支同样要给 VO：老成员不能借重复点击被反复提示「已加入本船成员」
+		assertEquals(CART_ID, joined.getCartId());
+		assertEquals(Boolean.FALSE, joined.getVesselMemberBound());
+		assertEquals("悦航1号", joined.getVesselName());
 		verify(memberMapper, never()).insert(any(SharedCartMember.class));
+		verify(remoteVesselService, never()).bindMemberByShare(anyString(), anyString(), anyString());
+	}
+
+	@Test
+	@DisplayName("车名查询失败不影响加入：vesselName 降级为 null，加入照常成功")
+	void joinByShareTokenDegradesVesselNameWhenLookupFails() {
+		SharedCart collecting = cart(SharedCart.STATUS_COLLECTING);
+		collecting.setShareToken("token-1");
+		when(cartMapper.selectOne(any())).thenReturn(collecting);
+		when(memberMapper.selectCount(any())).thenReturn(0L);
+		when(remoteVesselService.isVesselMember(TENANT, "vessel-1", "new-user")).thenReturn(false);
+		when(remoteVesselService.bindMemberByShare(TENANT, "vessel-1", "new-user")).thenReturn(true);
+		when(remoteVesselService.getVesselCallSnapshot(anyString(), anyString()))
+			.thenThrow(new RuntimeException("vessel service down"));
+
+		SharedCartJoinVO joined = service.joinByShareToken(TENANT, "new-user", "token-1");
+
+		assertEquals(CART_ID, joined.getCartId());
+		assertNull(joined.getVesselName(), "船名取不到时置 null，提示文案由前端降级");
+		assertEquals(Boolean.TRUE, joined.getVesselMemberBound(), "船名查询失败不等于补建失败");
 	}
 
 	@Test

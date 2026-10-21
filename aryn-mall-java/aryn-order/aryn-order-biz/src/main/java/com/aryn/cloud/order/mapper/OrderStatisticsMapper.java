@@ -6,6 +6,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -98,5 +99,65 @@ public interface OrderStatisticsMapper {
 	 * @return ProductSalesAnalysisVO
 	 */
 	ProductSalesAnalysisVO getProductSalesAnalysis(@Param("dto") OrderStatisticsDTO dto);
+
+	/**
+	 * 按下单时间统计的订单履约漏斗
+	 * @param dto 统计参数
+	 * @return OrderFunnelVO
+	 */
+	OrderFunnelVO getOrderFunnel(@Param("dto") OrderStatisticsDTO dto);
+
+	/**
+	 * 用户 RFM 分层统计 (以周期结束时间为价值判断基准)
+	 * @param dto 统计参数
+	 * @return List<UserRfmSegmentVO>
+	 */
+	List<UserRfmSegmentVO> getUserRfmSegments(@Param("dto") OrderStatisticsDTO dto);
+
+	/**
+	 * 按首购月份统计最近 6 个 Cohort 的月度留存
+	 * @param dto 统计参数
+	 * @return List<UserCohortRetentionVO>
+	 */
+	List<UserCohortRetentionVO> getUserCohortRetention(@Param("dto") OrderStatisticsDTO dto);
+
+	/**
+	 * 月度实际成交指标
+	 * @param startTime 月开始
+	 * @param endTime 月截止（当前月取当前时间）
+	 * @return DashboardMonthlyActualVO
+	 */
+	DashboardMonthlyActualVO getMonthlyActual(@Param("startTime") LocalDateTime startTime,
+			@Param("endTime") LocalDateTime endTime);
+
+	/**
+	 * 明细侧日汇总对账指标
+	 * @param startTime 开始时间
+	 * @param endTime 结束时间
+	 * @return DailyReconcileRawVO
+	 */
+	DailyReconcileRawVO getRawDailySummary(@Param("startTime") LocalDateTime startTime,
+			@Param("endTime") LocalDateTime endTime);
+
+	/**
+	 * 访问转化漏斗：下单用户与支付用户
+	 * @param dto 统计参数
+	 * @return TrafficFunnelVO
+	 */
+	TrafficFunnelVO getBuyerFunnel(@Param("dto") OrderStatisticsDTO dto);
+
+	/**
+	 * 渠道归因：周期内单用户成交
+	 * @param dto 统计参数
+	 * @return List<ChannelUserStatVO>
+	 */
+	List<ChannelUserStatVO> getChannelUserStats(@Param("dto") OrderStatisticsDTO dto);
+
+	/**
+	 * 退款侧汇总（售后订单数、已到账退款金额）
+	 * @param dto 统计参数
+	 * @return OrderRefundSummaryVO
+	 */
+	OrderRefundSummaryVO getRefundSummary(@Param("dto") OrderStatisticsDTO dto);
 
 }

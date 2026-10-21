@@ -87,4 +87,8 @@ public class ShoppingCart extends Model<ShoppingCart> {
 	@TableField(exist = false)
 	private GoodsSku goodsSku;
 
+	/** 商品卖点（SPU 子标题）：非购物车表字段，列表出参时按 spuId 批量补齐 */
+	@TableField(exist = false)
+	private String subTitle;
+
 }

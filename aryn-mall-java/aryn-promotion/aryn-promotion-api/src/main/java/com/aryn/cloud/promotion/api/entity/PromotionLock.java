@@ -43,6 +43,9 @@ public class PromotionLock extends Model<PromotionLock> {
 	/** 活动类型快照 */
 	private String activityType;
 
+	/** 下单用户ID（新人价「在途唯一」查询用；历史行可为空） */
+	private String userId;
+
 	/** 活动名称快照 */
 	private String activityName;
 

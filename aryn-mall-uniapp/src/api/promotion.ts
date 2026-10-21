@@ -164,3 +164,104 @@ export function getGoodsDiscountInfo(skuId: string) {
     },
   )
 }
+
+// ============ 新人专享 ============
+
+/** C端新人专享商品项 */
+export interface AppNewbieGoodsVO {
+  spuId: string
+  skuId: string
+  goodsName: string
+  goodsImage: string
+  /** 新人专享价 */
+  newbiePrice: number
+  /** 划线原价（当前售价） */
+  originalPrice: number
+}
+
+/** C端新人专享楼层 VO */
+export interface AppNewbieFloorVO {
+  activityId: string
+  activityName: string
+  /** 注册时效（天），null 表示不限 */
+  registerWithinDays: number | null
+  /** 每人每 SKU 限购件数（固定 1） */
+  limitPerUser: number
+  endTime: string
+  goodsList: AppNewbieGoodsVO[]
+}
+
+/**
+ * 获取当前进行中的新人专享活动（含新人价商品）
+ * GET /promotion/app/newbie/current
+ *
+ * 免登可访问：楼层对所有人展示新人价做营销吸引，资格在下单链路硬校验。
+ */
+export function getCurrentNewbieFloor() {
+  return alovaInstance.Get<AppNewbieFloorVO | null>(
+    '/promotion/app/newbie/current',
+    {
+      headers: { skipToken: true },
+    },
+  )
+}
+
+/**
+ * C 端指定 SKU 的新人价商品项（只包含请求且被活动覆盖的 SKU）。
+ *
+ * 与楼层商品项的口径差异：楼层项带名称/图片（楼层要自己渲染卡片），
+ * 商详/购物车已经掌握了商品信息，这里只补价格与活动元数据。
+ */
+export interface AppNewbieSkuPriceVO {
+  skuId: string
+  spuId: string
+  /** 新人专享价 */
+  newbiePrice: number
+  /** 划线原价（当前售价） */
+  originalPrice: number
+}
+
+/**
+ * C 端指定 SKU 的新人价查询结果。
+ *
+ * `eligible` 三态语义（后端只从登录态取用户，不接受请求参数传入）：
+ * - `true`  —— 当前用户可享新人价；
+ * - `false` —— 已登录但确定不符合资格，此时**不要展示新人价**，按原价并给出 `ineligibleReason` 说明；
+ * - `null`  —— 未登录/未知，按可享新人价展示（资格在下单链路硬校验）。
+ */
+export interface AppNewbiePriceVO {
+  activityId: string
+  activityName: string
+  /** 注册时效（天），null 表示不限 */
+  registerWithinDays: number | null
+  /** 每人每 SKU 限购件数（固定 1） */
+  limitPerUser: number
+  endTime: string
+  eligible: boolean | null
+  /** 不满足资格的原因：ALREADY_PAID/REGISTER_TIMEOUT/PARAM_INVALID/ERROR */
+  ineligibleReason?: string | null
+  items: AppNewbieSkuPriceVO[]
+}
+
+/**
+ * 批量查询指定 SKU 的新人价（商详 / 购物车等已聚焦商品的页面用）
+ * GET /promotion/app/newbie/prices?skuIds=1,2
+ *
+ * **可选登录**：接口本身在免登白名单里（未登录也能看到活动价），但这里**故意不传
+ * `skipToken`** —— 带上登录态时后端才会判定当前用户资格，页面据此在用户确定不符合
+ * 资格时直接按原价展示并说明原因，消除「页面标新人价、结算按原价」的价差观感。
+ *
+ * 未登录时中间件不带 token，请求等价免登，不会 401（接口已双端登记白名单）。
+ */
+export function getNewbieSkuPrices(skuIds: string[]) {
+  const ids = skuIds.filter(Boolean)
+  if (!ids.length) {
+    return Promise.resolve<AppNewbiePriceVO | null>(null)
+  }
+  return alovaInstance.Get<AppNewbiePriceVO | null>(
+    '/promotion/app/newbie/prices',
+    {
+      params: { skuIds: ids.join(',') },
+    },
+  )
+}

@@ -1,11 +1,18 @@
 <script setup lang="ts">
+import type { NewbiePriceDisplay } from '@/utils/newbie-price'
 import { onLoad, onUnload } from '@dcloudio/uni-app'
 import { storeToRefs } from 'pinia'
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { orderCreate, orderSettlement } from '@/api/order/orderInfo'
+import { getNewbieSkuPrices } from '@/api/promotion'
 import { getPage as getCouponList } from '@/api/promotion/couponUser'
 import { getDefault } from '@/api/user/address'
 import { useShipContextStore } from '@/store/shipContextStore'
+import {
+  hasNewbiePrice,
+  newbieIneligibleNotice,
+  resolveNewbiePriceDisplay,
+} from '@/utils/newbie-price'
 import AddressSelector from './components/AddressSelector.vue'
 import CouponSelector from './components/CouponSelector.vue'
 import PaymentFooter from './components/PaymentFooter.vue'
@@ -95,6 +102,79 @@ onLoad(async (options) => {
 
 /** 是否拼团单：拼团价由服务端重算，支付方式必须在线（成团判定依赖支付回调） */
 const isGroupBuyOrder = computed(() => !!state.orderParams.groupBuyRecordId)
+
+/**
+ * 新人价资格提示。
+ *
+ * 只做提示、**不参与算价**：应付金额一律以 orderSettlement 返回的权威值为准
+ * （后端已按「拼团 > 秒杀 > 新人价 > 折扣」重算并校验资格），前端再算一遍
+ * 只会引入第二套口径，改错时反而与真实扣款不一致。
+ *
+ * 提示存在的意义是解释价差：用户从新人价楼层点进来，结算若按原价收，
+ * 没有说明就是「页面标 0.01、结算收 5.90」的观感来源（验收用例 11）。
+ */
+const newbieNotice = ref('')
+
+/**
+ * 本单是否真的按新人价成交。
+ *
+ * 用「服务端返回的明细成交单价 == 新人价」来判定，而不是看 promotionDetails：
+ * `applyShipWholeDiscount` 在整单优惠为 0 时会提前 return（不写 promotionDetails），
+ * 因此新人价订单大多数情况下 _没有_ detail 可比，用 detail 判定会永远为假。
+ * 明细单价则是后端改价后的权威结果，比对它不存在口径漂移。
+ *
+ * @param priceBySku  本单 skuId → display（与明细按 skuId 对齐，不依赖数组顺序）
+ */
+function isNewbieApplied(priceBySku: Record<string, NewbiePriceDisplay>) {
+  const items: any[] = state.orderInfo?.orderItemList || []
+  if (!items.length)
+    return false
+  return items.some((item: any) => {
+    const display = priceBySku[String(item?.skuId ?? '')]
+    if (!display?.showNewbiePrice || display.newbiePrice === null)
+      return false
+    // 金额比对留 1 分钱余量：后端是 BigDecimal，前端是二进制浮点
+    return Math.abs(Number(item?.salesPrice) - display.newbiePrice) < 0.01
+  })
+}
+
+/**
+ * 查询本单 SKU 的新人价与当前用户资格，生成提示文案。
+ *
+ * 失败静默：提示属增强信息，接口异常时页面照常按服务端金额展示与提交。
+ */
+async function loadNewbieHint() {
+  const skuIds = (createGoodsList.value || [])
+    .map((item: any) => String(item?.skuId || '').trim())
+    .filter(Boolean)
+  if (!skuIds.length) {
+    newbieNotice.value = ''
+    return
+  }
+  try {
+    const vo = await getNewbieSkuPrices(skuIds)
+    const priceBySku: Record<string, NewbiePriceDisplay> = {}
+    const displays = skuIds.map((skuId) => {
+      const display = resolveNewbiePriceDisplay(vo, skuId)
+      priceBySku[skuId] = display
+      return display
+    })
+    // 「已登录但确定不符合」优先于正向提示：这是用户最需要解释的一种情况
+    const ineligible = newbieIneligibleNotice(displays)
+    if (ineligible) {
+      newbieNotice.value = `${ineligible}，本单已按原价结算`
+      return
+    }
+    // 正向提示只在「资格可享」且「服务端确实按新人价成交」时出现：
+    // 只满足其一都说明两边判定不一致，此时不提示比提示错更好
+    newbieNotice.value = hasNewbiePrice(displays) && isNewbieApplied(priceBySku)
+      ? '本单已享新人专享价'
+      : ''
+  }
+  catch {
+    newbieNotice.value = ''
+  }
+}
 
 function createOrderRequestId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`
@@ -210,6 +290,9 @@ async function toSettlement() {
   try {
     const response = await orderSettlement(state.orderParams)
     Object.assign(state.orderInfo, response)
+    // 资格提示依赖登录态与活动，不 await：结算金额已是权威值，
+    // 提示晚到一帧不影响用户看到正确金额
+    void loadNewbieHint()
     // 查询优惠券
     getCouponList({ status: '0' }).then((res) => {
       state.couponUserList = res.records
@@ -360,6 +443,16 @@ onUnload(() => {
       @to-address="toAddress"
     />
 
+    <!--
+      新人价资格提示：价格本身由服务端结算重算，这里只解释「为什么是这个价」。
+      放在营销优惠明细之前——它是对整单价格的说明，不是某条优惠的明细。
+    -->
+    <view v-if="newbieNotice" class="newbie-notice">
+      <text class="newbie-notice-text">
+        {{ newbieNotice }}
+      </text>
+    </view>
+
     <!-- 营销优惠明细（阶梯价/整船优惠，结算返回） -->
     <view
       v-if="
@@ -402,6 +495,29 @@ onUnload(() => {
       </view>
     </view>
 
+    <!-- 买赠赠品预览（结算已按真实库存过滤；库存不足的赠品不展示即不赠） -->
+    <view
+      v-if="state.orderInfo.giftItems && state.orderInfo.giftItems.length"
+      class="hx-mb10"
+      style="
+        background: #fff;
+        border-radius: 12rpx;
+        margin: 20rpx;
+        padding: 24rpx;
+      "
+    >
+      <view style="font-weight: bold">
+        赠品
+      </view>
+      <view
+        v-for="gift in state.orderInfo.giftItems"
+        :key="gift.skuId"
+        style="color: #e67e22; font-size: 24rpx; margin-top: 8rpx"
+      >
+        {{ gift.spuName || gift.skuId }} ×{{ gift.quantity }}（随单赠送，0 元）
+      </view>
+    </view>
+
     <!-- 订单列表 -->
     <ShopOrderItem
       :order="state.orderInfo"
@@ -428,3 +544,26 @@ onUnload(() => {
     />
   </view>
 </template>
+
+<style scoped lang="scss">
+/*
+ * 新人价提示条。
+ *
+ * 本页其余卡片都是内联样式（白底圆角、margin 20rpx），这里跟随同一节奏，
+ * 但用浅暖底 + 左侧色条区分「说明」与「可操作区域」：
+ * 它是解释性信息，不该读起来像第二张营销优惠卡片。
+ */
+.newbie-notice {
+  margin: 20rpx;
+  padding: 18rpx 24rpx;
+  border-left: 6rpx solid var(--wot-color-theme-primary, #ff2237);
+  border-radius: 12rpx;
+  background: #fff7e8;
+
+  .newbie-notice-text {
+    color: #8a4b3a;
+    font-size: 24rpx;
+    line-height: 36rpx;
+  }
+}
+</style>

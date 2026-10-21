@@ -27,6 +27,8 @@ export interface ShipSupplyRow {
   picUrl?: string
   stock?: number | null
   salesPrice?: number | string | null
+  /** 划线原价；存量商品可能未维护（0/空），展示前需判定 */
+  originalPrice?: number | string | null
 }
 
 /** 数量规则（船供包装资料下线后恒为 1/1，保留结构兼容步进器） */

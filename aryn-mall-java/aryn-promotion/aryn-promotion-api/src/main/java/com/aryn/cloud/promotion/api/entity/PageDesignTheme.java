@@ -55,6 +55,19 @@ public class PageDesignTheme extends Model<PageDesignTheme> {
 	 */
 	public static final String MALL_DEFAULT_YES = "1";
 
+	/**
+	 * 自动动效总开关：开启（默认）。含自动轮播/自动前进等持续动效。
+	 */
+	public static final String AUTO_MOTION_ON = "1";
+
+	/**
+	 * 自动动效总开关：关闭。
+	 * <p>
+	 * 兜底「系统已开启减弱动效」与「运营希望整站安静」两类诉求：小程序（微信）
+	 * 无 prefers-reduced-motion 等价能力，只能由运营显式关闭。
+	 */
+	public static final String AUTO_MOTION_OFF = "0";
+
 	@TableId(type = IdType.ASSIGN_ID)
 	@Schema(description = "主键（同时作为 v3 文档 themeRef 令牌）")
 	private String id;
@@ -76,6 +89,9 @@ public class PageDesignTheme extends Model<PageDesignTheme> {
 
 	@Schema(description = "全局圆角（px）")
 	private Integer radius;
+
+	@Schema(description = "自动动效总开关：1.开启（默认）；0.关闭（C 端停止自动轮播/前进）")
+	private String autoMotionEnabled;
 
 	@Schema(description = "系统主题：0.否；1.是；")
 	private String systemFlag;

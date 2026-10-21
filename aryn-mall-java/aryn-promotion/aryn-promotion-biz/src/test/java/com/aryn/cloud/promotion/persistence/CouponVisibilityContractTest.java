@@ -54,6 +54,23 @@ class CouponVisibilityContractTest {
 	}
 
 	/**
+	 * 装修「优惠券组合」手选模式按ID取券（selectCouponByIds）必须与列表页同一可见性口径：
+	 * 游客不得看到领光的券；登录用户保留本人已领取的券；未在领取时间窗/已停用的券不投放。
+	 * 若这里失败，说明按ID取券绕过了列表页的可见性规则，属于对游客的券泄露。
+	 */
+	@Test
+	void couponByIdsKeepsTheSameVisibilityRulesAsThePage() throws IOException {
+		String sql = selectStatement("selectCouponByIds");
+
+		assertThat(sql).contains("coupon_info.`receive_ended_at` > now()");
+		assertThat(sql).contains("now()> coupon_info.`receive_started_at`");
+		assertThat(sql).contains("coupon_info.`status` = '0'");
+		assertThat(sql).contains("couponUser.userId == null or couponUser.userId == ''");
+		assertThat(sql).contains("AND coupon_info.`remain_num` > 0");
+		assertThat(sql).contains("coupon_user.user_id = #{couponUser.userId}");
+	}
+
+	/**
 	 * 领取记录的 EXISTS 子查询按 (coupon_id, user_id) 匹配；
 	 * coupon_user 原只有 uk_coupon_user_source(tenant_id, user_id, ...)，
 	 * 前缀对不上 coupon_id，缺索引会退化成全表扫描。

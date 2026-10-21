@@ -63,6 +63,18 @@
             <groupId>com.aryn</groupId>
             <artifactId>aryn-order-api</artifactId>
         </dependency>
+        <!-- 绑定申请审核结果 / 解绑要通知申请人本人（站内信）：跨模块下发 MessageSendCommand 到 MQ，
+             与订单域 OrderStaffNotifyServiceImpl 同一套命令约定 -->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-message-api</artifactId>
+        </dependency>
+        <!-- 新绑定申请按「审核权限」筛运营收件人（RemoteMessageStaffService），
+             直接 import 了 upms-api，显式声明避免只靠 message-api 的传递依赖 -->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-upms-api</artifactId>
+        </dependency>
         <dependency>
             <groupId>com.aryn</groupId>
             <artifactId>aryn-common-security</artifactId>

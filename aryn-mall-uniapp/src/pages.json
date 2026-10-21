@@ -144,6 +144,16 @@
     {
       "path": "pages/delivery/exception-report",
       "type": "page"
+    },
+    {
+      "path": "pages/delivery/message",
+      "type": "page",
+      "name": "delivery-message",
+      "style": {
+        "enablePullDownRefresh": true,
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "消息"
+      }
     }
   ],
   "subPackages": [
@@ -267,6 +277,15 @@
           "style": {
             "navigationStyle": "custom",
             "navigationBarTitleText": "共享购物车详情"
+          }
+        },
+        {
+          "path": "order/shared-cart/category",
+          "type": "page",
+          "name": "shared-cart-category",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "分类选货"
           }
         },
         {
@@ -591,7 +610,18 @@
           "style": {
             "navigationBarTitleText": "港口报备车辆"
           }
+        },
+        // #ifdef H5 || MP-WEIXIN
+        {
+          "path": "product/category-browse/index",
+          "type": "page",
+          "name": "category-browse",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "分类"
+          }
         }
+        // #endif
       ]
     }
   ],

@@ -46,4 +46,14 @@ public class AppMallThemeVO implements Serializable {
 	@Schema(description = "全局圆角（px）")
 	private Integer radius;
 
+	/**
+	 * 自动动效总开关：'1' 开启（默认）、'0' 关闭。
+	 * <p>
+	 * C 端据此决定是否启动自动轮播/自动前进等持续动效。挂在商城默认主题上
+	 * 是为了「同一趟请求、同一份缓存」——开关随主题在首帧就位，不会先动再停。
+	 * 兜底的是小程序没有 prefers-reduced-motion 等价能力这一缺口。
+	 */
+	@Schema(description = "自动动效总开关：1.开启；0.关闭")
+	private String autoMotionEnabled;
+
 }

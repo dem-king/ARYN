@@ -98,6 +98,10 @@ function handleSearch(val: string) {
 function handleFocus() {
   emit('focus')
 }
+function handleDisabledClick() {
+  if (props.disabled)
+    handleSearch(searchValue.value)
+}
 function handleLeftClick() {
   if (isCanBack.value) {
     router.back()
@@ -148,9 +152,8 @@ defineExpose({ placeholderHeight })
 <template>
   <view class="fixed left-0 right-0 top-0 z-1000" :style="dynamicStyle">
     <view :style="{ paddingTop: `${statusBarHeight + capsuleCenterOffset}px`, height: `${navBarHeight}px`, paddingRight: `${capsulePaddingRight}px` }" class="flex items-center justify-between px-12rpx">
-      <view class="w-68rpx flex items-center justify-center">
+      <view v-if="leftArrow" class="w-68rpx flex items-center justify-center">
         <wd-icon
-          v-if="leftArrow"
           :color="titleColor"
           :name="isCanBack ? 'arrow-left' : 'home1'"
           size="22px"
@@ -159,7 +162,10 @@ defineExpose({ placeholderHeight })
       </view>
 
       <view class="mx-10rpx min-w-0 flex-1">
-        <view class="h-30px min-w-0 flex items-center border border-primary rounded-18rpx border-solid bg-white/90 py-4rpx pl-16rpx pr-8rpx">
+        <view
+          class="box-border h-36px min-w-0 flex items-center border border-[#ececf0] rounded-20rpx border-solid bg-[#f5f6f8] py-4rpx pl-20rpx pr-8rpx"
+          @click="handleDisabledClick"
+        >
           <text class="i-carbon:search mr-8rpx text-16px text-gray-500" />
           <input
             v-if="!disabled"
@@ -173,10 +179,7 @@ defineExpose({ placeholderHeight })
             @confirm="handleSearch(searchValue)"
             @focus="handleFocus"
           >
-          <view
-            v-else class="min-w-0 flex flex-1"
-            @click="handleSearch(searchValue)"
-          >
+          <view v-else class="min-w-0 flex flex-1">
             <view
               class="min-w-0 py-6rpx"
               :class="searchValue ? 'text-[#333]' : 'text-gray-400'"
@@ -185,9 +188,9 @@ defineExpose({ placeholderHeight })
                 <view class="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
                   {{ searchValue }}
                 </view>
-                <wd-icon name="close" size="20rpx" custom-class="ml-4rpx flex-none" :color="searchValue ? 'text-[#333]' : 'text-gray-400'" />
+                <wd-icon name="close" size="20rpx" custom-class="ml-4rpx flex-none" color="#6b7280" />
               </view>
-              <view v-else class="text-28rpx text-[#333]">
+              <view v-else class="text-28rpx">
                 {{ placeholder }}
               </view>
             </view>
@@ -195,8 +198,8 @@ defineExpose({ placeholderHeight })
 
           <view
             v-if="searchBtn"
-            class="ml-8rpx flex-none rounded-16rpx bg-primary px-20rpx py-10rpx text-26rpx text-white"
-            @click="handleSearch(searchValue)"
+            class="ml-8rpx h-28px flex flex-none items-center rounded-14rpx bg-primary px-24rpx text-26rpx text-white"
+            @click.stop="handleSearch(searchValue)"
           >
             搜索
           </view>

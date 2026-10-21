@@ -63,6 +63,11 @@ public final class PageDesignComponentTypes {
 	 */
 	public static final String DISCOUNT = "discount";
 
+	/**
+	 * 新人专享楼层（自动读当前进行中的新人价活动，无需运营手配活动ID）。
+	 */
+	public static final String NEWBIE_FLOOR = "newbie-floor";
+
 	public static final String COUNTDOWN = "countdown";
 
 	public static final String MARKETING_ENTRY = "marketing-entry";
@@ -73,6 +78,14 @@ public final class PageDesignComponentTypes {
 	 * 扩展运营组件（6 个，Phase 3）。
 	 */
 	public static final String GOODS_WATERFALL = "goods-waterfall";
+
+	/**
+	 * 多 Tab 商品流：一个容器内切换多个独立数据源的商品列表。
+	 * <p>
+	 * 数据源挂在 {@code props.tabs[].dataSource} 上，而不是组件根节点的 dataSource；
+	 * 发布校验见 {@code DefaultPageDesignDocumentValidator#validateGoodsTabs}。
+	 */
+	public static final String GOODS_TABS = "goods-tabs";
 
 	public static final String COUPON_COMBO = "coupon-combo";
 
@@ -124,15 +137,16 @@ public final class PageDesignComponentTypes {
 	 */
 	public static final Set<String> KNOWN_TYPES = Set.of(CATEGORY_NAV, COUPON_RECEIVE, GAP, GOODS, IMAGE_AD, NOTICE,
 			RICH_TEXT, SEARCH_BAR, SWIPER_BANNER, TAB_NAV, TITLE_TEXT, GOODS_GROUP, GOODS_RANKING, GOODS_SCROLL,
-			LIMITED_ACTIVITY, COUNTDOWN, MARKETING_ENTRY, SHOP_INFO, GOODS_WATERFALL, COUPON_COMBO, MEMBER_BENEFITS,
-			SERVICE_PROMISE, BOTTOM_NAV, VIDEO_LIVE, SHIP_WORKBENCH, REPLENISH_CARD, CUSTOM_HTML, SECKILL, DISCOUNT,
-			GOODS_RECOMMEND, IMAGE_CUBE);
+			LIMITED_ACTIVITY, COUNTDOWN, MARKETING_ENTRY, SHOP_INFO, GOODS_WATERFALL, GOODS_TABS, COUPON_COMBO,
+			MEMBER_BENEFITS, SERVICE_PROMISE, BOTTOM_NAV, VIDEO_LIVE, SHIP_WORKBENCH, REPLENISH_CARD, CUSTOM_HTML,
+			SECKILL, DISCOUNT, GOODS_RECOMMEND, IMAGE_CUBE, NEWBIE_FLOOR);
 
 	/**
 	 * 依赖数据源拉取业务数据的组件（手动数据源为空时发布阻断）。
 	 */
 	public static final Set<String> DATA_DRIVEN_TYPES = Set.of(GOODS_GROUP, GOODS_RANKING, GOODS_SCROLL, LIMITED_ACTIVITY,
-			COUNTDOWN, MARKETING_ENTRY, SHOP_INFO, GOODS_WATERFALL, COUPON_COMBO, SECKILL, DISCOUNT, GOODS_RECOMMEND);
+			COUNTDOWN, MARKETING_ENTRY, SHOP_INFO, GOODS_WATERFALL, GOODS_TABS, COUPON_COMBO, SECKILL, DISCOUNT,
+			GOODS_RECOMMEND, NEWBIE_FLOOR);
 
 	/**
 	 * 全页面唯一组件：同一页最多出现一次，出现多个即发布阻断。
@@ -188,15 +202,15 @@ public final class PageDesignComponentTypes {
 	 * 商详导购组件 {@link #GOODS_RECOMMEND} 加入。
 	 */
 	private static final Set<String> DETAIL_PAGE_ALLOWED_TYPES = Set.of(GOODS, GOODS_GROUP, GOODS_SCROLL,
-			GOODS_WATERFALL, GOODS_RANKING, TITLE_TEXT, RICH_TEXT, COUPON_RECEIVE, COUPON_COMBO, CUSTOM_HTML, GAP,
-			GOODS_RECOMMEND);
+			GOODS_WATERFALL, GOODS_TABS, GOODS_RANKING, TITLE_TEXT, RICH_TEXT, COUPON_RECEIVE, COUPON_COMBO, CUSTOM_HTML,
+			GAP, GOODS_RECOMMEND);
 
 	/**
 	 * 分类页（pageType=3）允许的组件；对应管理端 {@code categoryPageAllowedComponents}。
 	 */
 	private static final Set<String> CATEGORY_PAGE_ALLOWED_TYPES = Set.of(IMAGE_AD, SWIPER_BANNER, GOODS, GOODS_GROUP,
-			GOODS_SCROLL, GOODS_WATERFALL, GOODS_RANKING, COUPON_RECEIVE, COUPON_COMBO, LIMITED_ACTIVITY, SECKILL,
-			DISCOUNT, COUNTDOWN, TITLE_TEXT, RICH_TEXT, CUSTOM_HTML, GAP, NOTICE, IMAGE_CUBE);
+			GOODS_SCROLL, GOODS_WATERFALL, GOODS_TABS, GOODS_RANKING, COUPON_RECEIVE, COUPON_COMBO, LIMITED_ACTIVITY,
+			SECKILL, DISCOUNT, COUNTDOWN, TITLE_TEXT, RICH_TEXT, CUSTOM_HTML, GAP, NOTICE, IMAGE_CUBE);
 
 	/**
 	 * 个人中心页（pageType=4）允许的组件；对应管理端 {@code userCenterAllowedComponents}。

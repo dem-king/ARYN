@@ -19,7 +19,8 @@ import {
   cloneDesignerValue,
   isSameDesignerValue,
 } from '../../../page-designer/schema/clone';
-import CommonStyle from '../common/common-style/index.vue';
+import CategoryPicker from '../common/category-picker/index.vue';
+import IdPickerField from '../common/id-picker-field/index.vue';
 
 const props = defineProps<{ modelValue: GoodsScrollProps }>();
 const emit = defineEmits<{ 'update:modelValue': [value: GoodsScrollProps] }>();
@@ -78,23 +79,16 @@ watch(
         <ElRadio value="manual">手动选择</ElRadio>
       </ElRadioGroup>
     </ElFormItem>
-    <ElFormItem v-if="form.dataSource.mode === 'manual'" label="商品 ID">
-      <ElSelect
+    <ElFormItem v-if="form.dataSource.mode === 'manual'" label="手选商品">
+      <IdPickerField
         v-model="form.dataSource.targetIds"
-        allow-create
-        default-first-option
-        filterable
-        multiple
-        placeholder="输入商品 ID 后回车"
+        kind="goods"
+        :limit="20"
       />
     </ElFormItem>
     <template v-else>
-      <ElFormItem label="分类 ID">
-        <ElInput
-          v-model="form.dataSource.categoryId"
-          clearable
-          placeholder="留空表示全部分类"
-        />
+      <ElFormItem label="分类">
+        <CategoryPicker v-model="form.dataSource.categoryId" />
       </ElFormItem>
       <ElFormItem label="排序">
         <ElSelect v-model="form.dataSource.sort">
@@ -125,8 +119,6 @@ watch(
         <ElOption label="显示占位" value="placeholder" />
       </ElSelect>
     </ElFormItem>
-    <div class="retail-setting__section">通用样式</div>
-    <CommonStyle v-model="form.commonStyle" />
   </ElForm>
 </template>
 
@@ -134,11 +126,5 @@ watch(
 .retail-setting :deep(.el-select),
 .retail-setting :deep(.el-input-number) {
   width: 100%;
-}
-
-.retail-setting__section {
-  padding: 12px 0 6px;
-  font-weight: 600;
-  border-top: 1px solid var(--el-border-color-lighter);
 }
 </style>

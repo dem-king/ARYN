@@ -44,12 +44,42 @@ describe('shared cart routing contract', () => {
     expect(detail).toContain('/sub-pages/product/ship-supply/index')
   })
 
+  it('lets the detail page choose category-based picking', () => {
+    const detail = source('src/sub-pages/order/shared-cart/detail.vue')
+    // 详情页是首页补给单箭头等入口的汇合点：添加商品必须先给分类入口
+    expect(detail).toContain('openAddGoods')
+    expect(detail).toContain('addGoodsVisible')
+    expect(detail).toContain('/sub-pages/order/shared-cart/category?id=')
+    // 原有的全部商品入口仍在
+    expect(detail).toContain('/sub-pages/product/ship-supply/index')
+  })
+
   it('keeps ship supply supporting shared-cart picking mode', () => {
     const shipSupply = source('src/sub-pages/product/ship-supply/index.vue')
     expect(shipSupply).toContain('sharedCartId')
     expect(shipSupply).toContain('addSharedCartItem')
     // 共享车模式下不得再写入个人购物车，否则同一件商品会进两处
     expect(shipSupply).toContain('isSharedMode')
+  })
+
+  it('registers the shared-cart category picker and keeps it bound to the cart', () => {
+    const pages = source('src/pages.json')
+    expect(pages).toContain('"path": "order/shared-cart/category"')
+    expect(pages).toContain('"name": "shared-cart-category"')
+
+    const picker = source('src/sub-pages/order/shared-cart/category.vue')
+    // 复用分类页的浏览结构与快捷加购
+    expect(picker).toContain('category-icon-strip')
+    expect(picker).toContain('goods-list-panel')
+    // 目的地锁到当前共享车，且保留回清单的出口
+    expect(picker).toContain(':shared-cart="cart"')
+    // 看清单必须压新页：回退会把分类选货页一起弹掉，用户没法返回继续挑
+    const detailNavStart = picker.indexOf('function goSharedCartDetail')
+    const detailNav = picker.slice(detailNavStart, picker.indexOf('\n}', detailNavStart))
+    expect(detailNav).toContain('uni.navigateTo')
+    expect(detailNav).not.toContain('navigateBack')
+    // 分类选货页不允许直写个人购物车（目的地已锁定）
+    expect(picker).not.toContain('addShoppingCart')
   })
 
   it('removed the plan/fulfil model end to end', () => {

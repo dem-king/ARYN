@@ -1,12 +1,19 @@
 package com.aryn.cloud.user.service;
 
 import com.aryn.cloud.user.api.dto.UserStatisticsDTO;
+import com.aryn.cloud.user.api.vo.UserDashboardStatisticsVO;
 import com.aryn.cloud.user.api.vo.UserOverviewVO;
 import com.aryn.cloud.user.api.vo.UserTrendVO;
 
 import java.util.List;
 
 public interface IUserStatisticsService {
+
+	/**
+	 * 用户侧概览聚合数据
+	 * @return UserDashboardStatisticsVO
+	 */
+	UserDashboardStatisticsVO getUserDashboard();
 
 	/**
 	 * 获取用户概览统计

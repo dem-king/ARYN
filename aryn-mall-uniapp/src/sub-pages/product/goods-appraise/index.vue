@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
+import { reactive, ref } from 'vue'
 import { getCount, getPage } from '@/sub-pages/api/product/appraise'
 import { formatTime } from '@/utils/index'
 
@@ -55,6 +55,12 @@ function switchTab(key: string) {
 
 onLoad(async (options) => {
   spuId.value = options?.spuId
+  // 详情页评价标签带着 rateType 进来；只接受接口认识的枚举，避免 URL 传参把列表查空
+  const allowedRateTypes = ['all', 'good', 'neutral', 'bad', 'pic']
+  const requestedRateType = String(options?.rateType || '')
+  state.queryParam.rateType = allowedRateTypes.includes(requestedRateType)
+    ? requestedRateType
+    : 'all'
   nextTick(() => {
     pagingRef.value?.reload()
     getAppraiseCount()

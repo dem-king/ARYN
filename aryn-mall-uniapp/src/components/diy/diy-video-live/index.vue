@@ -29,43 +29,47 @@ function enterLive() {
 
 <template>
   <view class="diy-video-live" :style="dynamicStyles">
-    <view v-if="componentProps.title" class="videolive-title">
-      {{ componentProps.title }}
-    </view>
-    <template v-if="componentProps.mode === 'video' && componentProps.videoUrl">
-      <video
-        class="videolive-video"
-        :src="componentProps.videoUrl"
-        :poster="componentProps.coverUrl || undefined"
-        controls
-      />
-    </template>
-    <view
-      v-else-if="componentProps.mode === 'live' || (!componentProps.videoUrl && componentProps.coverUrl)"
-      class="videolive-cover"
-      @click="enterLive"
-    >
-      <image
-        v-if="componentProps.coverUrl"
-        class="videolive-cover-img"
-        :src="componentProps.coverUrl"
-        mode="aspectFill"
-      />
-      <view v-else class="videolive-cover-fallback">
-        直播入口
+    <view class="videolive-inner">
+      <view v-if="componentProps.title" class="videolive-title">
+        {{ componentProps.title }}
       </view>
-      <view class="videolive-live-tag">
-        直播
+      <template v-if="componentProps.mode === 'video' && componentProps.videoUrl">
+        <video
+          class="videolive-video"
+          :src="componentProps.videoUrl"
+          :poster="componentProps.coverUrl || undefined"
+          controls
+        />
+      </template>
+      <view
+        v-else-if="componentProps.mode === 'live' || (!componentProps.videoUrl && componentProps.coverUrl)"
+        class="videolive-cover"
+        @click="enterLive"
+      >
+        <image
+          v-if="componentProps.coverUrl"
+          class="videolive-cover-img"
+          :src="componentProps.coverUrl"
+          mode="aspectFill"
+        />
+        <view v-else class="videolive-cover-fallback">
+          直播入口
+        </view>
+        <view class="videolive-live-tag">
+          直播
+        </view>
       </view>
-    </view>
-    <view v-else class="videolive-empty">
-      请在装修中配置视频地址或直播入口
+      <view v-else class="videolive-empty">
+        请在装修中配置视频地址或直播入口
+      </view>
     </view>
   </view>
 </template>
 
 <style lang="scss" scoped>
-.diy-video-live {
+/* 留白放在内层而不是根节点：根节点的 padding 会被装修 commonStyle 的
+   内联样式覆盖成 0（配置缺省即零值），挂根上会让封面直接顶到屏幕边缘 */
+.videolive-inner {
   padding: 20rpx;
 }
 

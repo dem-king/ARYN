@@ -143,7 +143,8 @@ class OrderInfoCodPaymentTest {
 				remoteSeckillService, mock(com.aryn.cloud.promotion.api.remote.RemoteGroupBuyService.class), rocketMQTemplate, callbackPrefixProperties, deliveryTaskService,
 				orderDeliveryStateService,
 				deliveryAreaService, promotionSnapshotMapper, purchaseSceneValidator, deliveryContextValidator,
-				orderPaySuccessNotifier, promotionEngine, remoteMaterialService, sharedCartServiceProvider);
+				orderPaySuccessNotifier, promotionEngine, remoteMaterialService, sharedCartServiceProvider,
+				mock(com.aryn.cloud.order.service.OrderStaffNotifyService.class));
 
 		orderInfoMapper = mock(OrderInfoMapper.class);
 		ReflectionTestUtils.setField(service, "baseMapper", orderInfoMapper);

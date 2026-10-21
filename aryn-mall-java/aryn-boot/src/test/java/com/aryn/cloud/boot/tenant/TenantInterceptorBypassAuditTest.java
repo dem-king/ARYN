@@ -35,6 +35,8 @@ class TenantInterceptorBypassAuditTest {
 			"aryn-user/aryn-user-biz/src/main/java/com/aryn/cloud/user/mapper/SocialAccountMapper.java#countValidWxMaByAppIdExcluding",
 			"aryn-user/aryn-user-biz/src/main/java/com/aryn/cloud/user/mapper/SocialUserMapper.java#selectByIdInAnyTenant",
 			"aryn-user/aryn-user-biz/src/main/java/com/aryn/cloud/user/mapper/SocialUserMapper.java#selectByAppIdAndOpenIdInAnyTenant",
+			"aryn-order/aryn-order-biz/src/main/java/com/aryn/cloud/order/mapper/DailyUserOrderStatMapper.java#deleteDay",
+			"aryn-order/aryn-order-biz/src/main/java/com/aryn/cloud/order/mapper/DailyUserOrderStatMapper.java#aggregateDay",
 			"aryn-promotion/aryn-promotion-biz/src/main/java/com/aryn/cloud/promotion/mapper/PageDesignTemplateMapper.java#selectMarketTemplatePage",
 			"aryn-promotion/aryn-promotion-biz/src/main/java/com/aryn/cloud/promotion/mapper/PageDesignTemplateMapper.java#selectMarketTemplateById",
 			"aryn-promotion/aryn-promotion-biz/src/main/java/com/aryn/cloud/promotion/mapper/PageDesignTemplateMapper.java#increaseMarketDownloadCount");

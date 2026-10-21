@@ -31,6 +31,7 @@ import {
   ElInputNumber,
   ElMessage,
   ElMessageBox,
+  ElSwitch,
   ElTag,
   ElTooltip,
 } from 'element-plus';
@@ -123,6 +124,7 @@ const formVisible = ref(false);
 const saving = ref(false);
 const settingDefaultId = ref('');
 const form = reactive<PageDesignThemePayload>({
+  autoMotionEnabled: '1',
   navigationColor: '#ffffff',
   navigationTextColor: '#222222',
   pageBackgroundColor: '#f5f5f5',
@@ -211,6 +213,8 @@ function openEdit(theme: PageDesignTheme) {
   form.navigationColor = theme.navigationColor;
   form.navigationTextColor = theme.navigationTextColor;
   form.radius = theme.radius;
+  // 历史主题行没有该字段（后端读取侧兜 '1'）：此处同步兜底为开启
+  form.autoMotionEnabled = theme.autoMotionEnabled ?? '1';
   formVisible.value = true;
 }
 
@@ -560,6 +564,17 @@ onMounted(() => {
             controls-position="right"
           />
         </ElFormItem>
+        <ElFormItem label="自动动效（轮播 / 自动前进）">
+          <ElSwitch
+            v-model="form.autoMotionEnabled"
+            active-value="1"
+            inactive-value="0"
+          />
+          <span class="auto-motion-hint">
+            关闭后小程序内所有自动轮播 / 自动前进停止（用户仍可手动滑动）；
+            适用于需要尊重系统「减弱动效」偏好、或希望页面安静的场景。
+          </span>
+        </ElFormItem>
       </ElForm>
       <template #footer>
         <ElButton @click="formVisible = false">取消</ElButton>
@@ -822,5 +837,13 @@ onMounted(() => {
 .color-row {
   display: flex;
   gap: 8px;
+}
+
+/* 自动动效开关的说明文字：换行贴开关下方，不挤开关本身 */
+.auto-motion-hint {
+  margin-left: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--el-text-color-secondary);
 }
 </style>

@@ -1,11 +1,15 @@
 package com.aryn.cloud.message.service.impl;
 
+import com.aryn.cloud.message.api.constant.MessageJumpConstants;
 import com.aryn.cloud.message.api.dto.MessageSendCommand;
 import com.aryn.cloud.message.config.WechatSubscribeProperties;
 import com.aryn.cloud.message.service.WechatSubscribeChannelService;
 import com.aryn.cloud.upms.api.remote.RemoteWechatBindingService;
 import com.aryn.cloud.user.api.dto.WechatSubscribeMsgDTO;
 import com.aryn.cloud.user.api.remote.RemoteWechatSubscribeService;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.dubbo.config.annotation.DubboReference;
@@ -26,6 +30,8 @@ import java.util.Map;
 public class WechatSubscribeChannelServiceImpl implements WechatSubscribeChannelService {
 
 	private final WechatSubscribeProperties properties;
+
+	private final ObjectMapper objectMapper;
 
 	@DubboReference
 	private final RemoteWechatSubscribeService wechatSubscribeService;
@@ -62,10 +68,20 @@ public class WechatSubscribeChannelServiceImpl implements WechatSubscribeChannel
 		if (!StringUtils.hasText(jumpPayload)) {
 			return null;
 		}
-		if (jumpPayload.startsWith("/")) {
-			return jumpPayload;
+		// jumpPayload 是 JSON 对象（json 列），微信 page 取其中的 route；非 JSON 时按裸路由兜底
+		String route;
+		try {
+			JsonNode node = objectMapper.readTree(jumpPayload).get(MessageJumpConstants.ROUTE);
+			route = node == null || node.isNull() ? null : node.asText();
 		}
-		return jumpPayload;
+		catch (JsonProcessingException exception) {
+			route = jumpPayload.startsWith("/") ? jumpPayload : null;
+		}
+		if (!StringUtils.hasText(route)) {
+			return null;
+		}
+		// 微信 page 要求不带前导斜杠的页面路径
+		return route.startsWith("/") ? route.substring(1) : route;
 	}
 
 	private List<Map<String, String>> buildTemplateData(MessageSendCommand command) {

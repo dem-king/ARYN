@@ -1,4 +1,9 @@
-import type { CursorPage, NoticeInboxItem, NoticeRecord } from './types';
+import type {
+  CursorPage,
+  NoticeInboxItem,
+  NoticeRecipientItem,
+  NoticeRecord,
+} from './types';
 
 import { requestClient } from '#/api/request';
 
@@ -41,6 +46,25 @@ export function publishNotice(id: string) {
 
 export function revokeNotice(id: string) {
   return requestClient.delete(`/message/admin/notice/${id}/publish`);
+}
+
+export function deleteNotice(id: string) {
+  return requestClient.delete(`/message/admin/notice/${id}`);
+}
+
+export function retryNoticeDispatch(id: string) {
+  return requestClient.post(`/message/admin/notice/${id}/dispatch/retry`);
+}
+
+export function republishNotice(id: string) {
+  return requestClient.post(`/message/admin/notice/${id}/republish`);
+}
+
+export function getNoticeRecipients(id: string, params: Record<string, any>) {
+  return requestClient.get<{ records: NoticeRecipientItem[]; total: number }>(
+    `/message/admin/notice/${id}/recipients`,
+    { params },
+  );
 }
 
 export function getStaffNoticeInbox(params: {

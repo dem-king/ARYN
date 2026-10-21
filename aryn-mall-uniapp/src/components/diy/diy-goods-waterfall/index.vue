@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import type { GoodsWaterfallProps } from '@/components/diy/retail-types'
 
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 import {
   loadGoodsWaterfall,
   loadGoodsWaterfallPage,
 } from '@/components/diy/retail-data'
+import { mergePagedItems } from '@/components/diy/retail-paged-list'
+import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
 import QuickCartButton from '@/components/quick-cart-button/index.vue'
 import { useDiyPagedLoadMore } from '@/composables/useDiyPagedLoadMore'
 import { useDiyStyle } from '@/composables/useDiyStyle'
@@ -46,21 +48,33 @@ async function queryList(pageNo: number, pageSize: number) {
       pageNo,
       pageSize,
     )
-    // 注意：complete 的第二参是 success(布尔)，传总数必须用 completeByTotal，
-    // 否则 z-paging 拿不到 total，会退化成“按返回条数<每页条数”猜测是否到底，导致自动续页中途停在“点击加载更多”
-    await pagingRef.value?.completeByTotal(list, total)
+    // 按 id 去重并限制单楼层条数：销量并列或翻页期间数据变化都可能返回重复商品
+    const { items, reachedLimit } = mergePagedItems(goodsList.value, list)
+    const loadedCount = goodsList.value.length + items.length
+    const nomore = reachedLimit || list.length === 0 || (total > 0 && loadedCount >= total)
+    await pagingRef.value?.completeByNoMore(items, nomore)
   })
 }
+
+// 下拉刷新会重新下发页面 JSON，但组件实例按 id 复用；显式 reload 才能重置列表和价格
+watch(
+  () => [componentProps.value.dataSource, componentProps.value.count],
+  () => {
+    pagingRef.value?.reload?.()?.catch?.(() => {})
+  },
+  { deep: true },
+)
 
 function openGoods(id: string) {
   uni.navigateTo({ url: `/sub-pages/product/goods-detail/index?id=${id}` })
 }
 
 /**
- * 卡片信息 chip：规格 / 现货 / 免配送费。
+ * 卡片信息 chip：规格 / 现货。
  *
- * 只在这三类信息确实存在时才渲染对应 chip —— 接口没返回就不编造，
+ * 只在这两类信息确实存在时才渲染对应 chip —— 接口没返回就不编造，
  * 避免出现「现货 0」这类误导性文案。字段来源见 retail-normalizers。
+ * 运费（免配送费）不在商品卡片上展示，口径统一以商详 / 结算页为准。
  */
 function cardTags(item: any): string[] {
   const tags: string[] = []
@@ -68,90 +82,95 @@ function cardTags(item: any): string[] {
     tags.push(String(item.specsInfo))
   if (item.stock > 0)
     tags.push(`现货 ${item.stock}`)
-  if (item.freeShipping === true)
-    tags.push('免配送费')
   return tags
 }
 </script>
 
 <template>
   <view class="diy-waterfall" :style="dynamicStyles">
-    <view v-if="componentProps.title" class="waterfall-title">
-      {{ componentProps.title }}
-    </view>
-    <!--
-      use-page-scroll：复用装修页页面滚动，由 useDiyPagedLoadMore 测自身底边位置，
-      接近底部前自动加载下一页（无感浏览，不出现「点击加载更多」）。
-      refresher-enabled=false：装修页整体已有下拉刷新，避免与 z-paging 下拉冲突。
-      loading-more-default-text 置空：默认状态不渲染任何可点击文案。
-    -->
-    <z-paging
-      ref="pagingRef"
-      v-model="goodsList"
-      use-page-scroll
-      :refresher-enabled="false"
-      :default-page-size="pageSize"
-      loading-more-default-text=""
-      @query="queryList"
-    >
-      <view class="waterfall-columns" :style="{ columnCount: componentProps.columns || 2 }">
-        <view
-          v-for="item in goodsList"
-          :key="item.id"
-          class="waterfall-card"
-          @click="openGoods(item.id)"
-        >
-          <image class="waterfall-pic" :src="item.imageUrl" mode="widthFix" lazy-load />
-          <view class="waterfall-name">
-            {{ item.name }}
-          </view>
-          <!-- 信息 chip：规格 / 现货 / 免配送费（字段缺失时整行不渲染） -->
-          <view v-if="cardTags(item).length > 0" class="waterfall-tags">
-            <text
-              v-for="tag in cardTags(item)"
-              :key="tag"
-              class="waterfall-tag"
-            >
-              {{ tag }}
-            </text>
-          </view>
-          <view class="waterfall-meta">
-            <view class="waterfall-meta-text">
-              <view class="waterfall-price-line">
-                <text v-if="componentProps.showPrice !== false" class="waterfall-price">
-                  ¥{{ item.price }}
-                </text>
-                <!-- 划线原价：仅原价严格高于售价时显示（存量商品原价多为 0，会划出￥0） -->
-                <text
-                  v-if="componentProps.showOriginalPrice
-                    && shouldShowOriginalPrice(item.price, item.originalPrice)"
-                  class="waterfall-price-original"
-                >
-                  ¥{{ item.originalPrice }}
-                </text>
-              </view>
-              <text v-if="componentProps.showSales" class="waterfall-sales">
-                已售{{ item.sales }}
+    <view class="waterfall-inner">
+      <view v-if="componentProps.title" class="waterfall-title">
+        {{ componentProps.title }}
+      </view>
+      <!--
+        use-page-scroll：复用装修页页面滚动，由 useDiyPagedLoadMore 测自身底边位置，
+        接近底部前自动加载下一页（无感浏览，不出现「点击加载更多」）。
+        refresher-enabled=false：装修页整体已有下拉刷新，避免与 z-paging 下拉冲突。
+        loading-more-default-text 置空：默认状态不渲染任何可点击文案。
+      -->
+      <z-paging
+        ref="pagingRef"
+        v-model="goodsList"
+        use-page-scroll
+        :refresher-enabled="false"
+        :default-page-size="pageSize"
+        loading-more-default-text=""
+        @query="queryList"
+      >
+        <view class="waterfall-columns" :style="{ columnCount: componentProps.columns || 2 }">
+          <view
+            v-for="item in goodsList"
+            :key="item.id"
+            class="waterfall-card"
+            @click="openGoods(item.id)"
+          >
+            <image class="waterfall-pic" :src="item.imageUrl" mode="widthFix" lazy-load />
+            <view class="waterfall-name">
+              {{ item.name }}
+            </view>
+            <view v-if="shouldShowSubtitle(item.name, item.subTitle)" class="waterfall-subtitle">
+              {{ item.subTitle }}
+            </view>
+            <!-- 信息 chip：规格 / 现货（字段缺失时整行不渲染） -->
+            <view v-if="cardTags(item).length > 0" class="waterfall-tags">
+              <text
+                v-for="tag in cardTags(item)"
+                :key="tag"
+                class="waterfall-tag"
+              >
+                {{ tag }}
               </text>
             </view>
-            <!-- 快捷加购（单规格直加，多规格弹层） -->
-            <view class="waterfall-actions">
-              <quick-cart-button v-if="item.stock > 0" :spu-id="item.id" size="40rpx" />
+            <view class="waterfall-meta">
+              <view class="waterfall-meta-text">
+                <view class="waterfall-price-line">
+                  <text v-if="componentProps.showPrice !== false" class="waterfall-price">
+                    ¥{{ item.price }}
+                  </text>
+                  <!-- 划线原价：仅原价严格高于售价时显示（存量商品原价多为 0，会划出￥0） -->
+                  <text
+                    v-if="componentProps.showOriginalPrice
+                      && shouldShowOriginalPrice(item.price, item.originalPrice)"
+                    class="waterfall-price-original"
+                  >
+                    ¥{{ item.originalPrice }}
+                  </text>
+                </view>
+                <text v-if="componentProps.showSales" class="waterfall-sales">
+                  已售{{ item.sales }}
+                </text>
+              </view>
+              <!-- 快捷加购（单规格直加，多规格弹层） -->
+              <view class="waterfall-actions">
+                <quick-cart-button v-if="item.stock > 0" :spu-id="item.id" size="40rpx" />
+              </view>
             </view>
           </view>
         </view>
-      </view>
-      <template #empty>
-        <view class="waterfall-empty">
-          暂无商品
-        </view>
-      </template>
-    </z-paging>
+        <template #empty>
+          <view class="waterfall-empty">
+            暂无商品
+          </view>
+        </template>
+      </z-paging>
+    </view>
   </view>
 </template>
 
 <style lang="scss" scoped>
-.diy-waterfall {
+/* 留白放在内层而不是根节点：根节点的 padding 会被装修 commonStyle 的
+   内联样式覆盖成 0（配置缺省即零值），挂根上会让卡片直接顶到屏幕边缘 */
+.waterfall-inner {
   padding: 20rpx;
 }
 
@@ -185,6 +204,16 @@ function cardTags(item: any): string[] {
   overflow: hidden;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
+}
+
+.waterfall-subtitle {
+  padding: 4rpx 12rpx 0;
+  overflow: hidden;
+  color: #909399;
+  font-size: 21rpx;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .waterfall-tags {

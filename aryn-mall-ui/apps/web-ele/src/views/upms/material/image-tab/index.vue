@@ -42,6 +42,7 @@ const Preview = defineAsyncComponent(
 interface MaterialObj {
   id: string;
   name: string;
+  type?: string;
   url: string;
 }
 interface DataState {
@@ -144,7 +145,10 @@ const initPage = () => {
     groupId: state.queryParams.groupId || '-1',
   })
     .then((response: any) => {
-      state.materialList = response.records;
+      // 视频素材（type=2）只供视频字段上传使用，不进入图片素材库/选择弹窗
+      state.materialList = ((response.records ?? []) as MaterialObj[]).filter(
+        (item) => String(item.type) !== '2',
+      );
       state.page.total = response.total;
       loading.value = false;
     })

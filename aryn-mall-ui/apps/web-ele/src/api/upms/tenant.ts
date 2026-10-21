@@ -1,5 +1,18 @@
 import { requestClient } from '#/api/request';
 
+export interface TenantShopInfo {
+  id: string;
+  logoUrl?: string;
+  name: string;
+}
+
+/**
+ * 获取当前租户门店公开信息
+ */
+export async function getShopInfo() {
+  return requestClient.get<null | TenantShopInfo>('/upms/app/tenant/shop-info');
+}
+
 /**
  * 获取租户分页
  */

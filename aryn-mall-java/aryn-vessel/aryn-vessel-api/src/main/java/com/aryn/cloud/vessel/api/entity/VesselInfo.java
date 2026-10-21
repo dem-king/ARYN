@@ -29,7 +29,7 @@ public class VesselInfo extends AbstractVesselEntity {
 	/** 呼号 */
 	private String callSign;
 
-	/** 船舶类型：1集装箱 2散货 3油轮 4杂货 5其他 */
+	/** 船舶类型：取值见 {@link com.aryn.cloud.vessel.api.constant.VesselType}（1集装箱 2散货 3油轮 4杂货 5其他） */
 	private String vesselType;
 
 	/** 船旗国 */

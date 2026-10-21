@@ -12,6 +12,7 @@ import com.aryn.cloud.order.mapper.ShoppingCartMapper;
 import com.aryn.cloud.product.api.entity.GoodsSku;
 import com.aryn.cloud.product.api.entity.GoodsSpu;
 import com.aryn.cloud.product.api.remote.RemoteGoodsSkuService;
+import com.aryn.cloud.product.api.remote.RemoteGoodsSpuService;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -32,6 +33,7 @@ class ShoppingCartServiceImplTest {
 
 	private ShoppingCartMapper mapper;
 	private RemoteGoodsSkuService remoteGoodsSkuService;
+	private RemoteGoodsSpuService remoteGoodsSpuService;
 	private ShoppingCartServiceImpl service;
 
 	@BeforeEach
@@ -39,7 +41,8 @@ class ShoppingCartServiceImplTest {
 		TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), ShoppingCart.class);
 		mapper = mock(ShoppingCartMapper.class);
 		remoteGoodsSkuService = mock(RemoteGoodsSkuService.class);
-		service = new TestShoppingCartService(remoteGoodsSkuService, mapper);
+		remoteGoodsSpuService = mock(RemoteGoodsSpuService.class);
+		service = new TestShoppingCartService(remoteGoodsSkuService, remoteGoodsSpuService, mapper);
 	}
 
 	@Test
@@ -169,6 +172,39 @@ class ShoppingCartServiceImplTest {
 		assertThat(result.get(0).getGoodsSku().getSalesPrice()).isEqualByComparingTo("19.90");
 	}
 
+	@Test
+	void cartPageCarriesSpuSubTitleForCardIntro() {
+		ShoppingCart row = cartRow("cart-1", "sku-1");
+		row.setSpuId("spu-1");
+		Page<ShoppingCart> page = pageOf(row);
+		when(mapper.selectApiPage(any(Page.class), any(ShoppingCart.class))).thenReturn(page);
+		when(remoteGoodsSkuService.getSkuByIds(List.of("sku-1"))).thenReturn(List.of(saleSku(10)));
+		when(remoteGoodsSpuService.getSpuByIds(List.of("spu-1")))
+			.thenReturn(List.of(new GoodsSpu().setId("spu-1").setSubTitle("酸酸甜甜｜个大会爆浆")));
+
+		List<ShoppingCart> result = service.apiPage(page, new ShoppingCart());
+
+		assertThat(result.get(0).getSubTitle()).isEqualTo("酸酸甜甜｜个大会爆浆");
+	}
+
+	/**
+	 * 卖点只是展示信息：商品服务超时不能把整车列表拖垮，降级为不展示即可。
+	 */
+	@Test
+	void cartPageDegradesWhenSubTitleLookupFails() {
+		ShoppingCart row = cartRow("cart-1", "sku-1");
+		row.setSpuId("spu-1");
+		Page<ShoppingCart> page = pageOf(row);
+		when(mapper.selectApiPage(any(Page.class), any(ShoppingCart.class))).thenReturn(page);
+		when(remoteGoodsSpuService.getSpuByIds(List.of("spu-1"))).thenThrow(new RuntimeException("dubbo timeout"));
+		when(remoteGoodsSkuService.getSkuByIds(List.of("sku-1"))).thenReturn(List.of(saleSku(10)));
+
+		List<ShoppingCart> result = service.apiPage(page, new ShoppingCart());
+
+		assertThat(result).hasSize(1);
+		assertThat(result.get(0).getSubTitle()).isNull();
+	}
+
 	private GoodsSku saleSku(int stock) {
 		GoodsSpu spu = new GoodsSpu().setId("spu-1").setName("服务端商品")
 			.setStatus("1").setSpuUrls(new String[] { "spu.png" });
@@ -180,8 +216,9 @@ class ShoppingCartServiceImplTest {
 
 	private static final class TestShoppingCartService extends ShoppingCartServiceImpl {
 
-		private TestShoppingCartService(RemoteGoodsSkuService remoteGoodsSkuService, ShoppingCartMapper mapper) {
-			super(remoteGoodsSkuService);
+		private TestShoppingCartService(RemoteGoodsSkuService remoteGoodsSkuService,
+				RemoteGoodsSpuService remoteGoodsSpuService, ShoppingCartMapper mapper) {
+			super(remoteGoodsSkuService, remoteGoodsSpuService);
 			this.baseMapper = mapper;
 		}
 	}

@@ -8,7 +8,9 @@ import com.aryn.cloud.message.api.entity.MessageRecipient;
 import com.aryn.cloud.message.api.enums.DispatchTaskStatus;
 import com.aryn.cloud.message.api.enums.InboxStatus;
 import com.aryn.cloud.message.api.enums.MessageIdentityType;
+import com.aryn.cloud.message.api.enums.NoticeStatus;
 import com.aryn.cloud.message.mapper.MessageDispatchTaskMapper;
+import com.aryn.cloud.message.mapper.MessageNoticeMapper;
 import com.aryn.cloud.message.mapper.MessageRecipientMapper;
 import com.aryn.cloud.message.service.NoticeDispatchService;
 import com.aryn.cloud.upms.api.dto.StaffMessageAudienceRequest;
@@ -45,6 +47,7 @@ public class NoticeDispatchServiceImpl implements NoticeDispatchService {
 
 	private final MessageDispatchTaskMapper taskMapper;
 	private final MessageRecipientMapper recipientMapper;
+	private final MessageNoticeMapper noticeMapper;
 	private final ObjectMapper objectMapper;
 	private final TransactionTemplate transactionTemplate;
 
@@ -77,6 +80,10 @@ public class NoticeDispatchServiceImpl implements NoticeDispatchService {
 			}
 			finishSuccess(task);
 		}
+		catch (NoticeDispatchCanceledException exception) {
+			taskMapper.markCanceled(tenantId, taskId);
+			log.info("通知已撤回，分发任务取消 tenantId={}, taskId={}", tenantId, taskId);
+		}
 		catch (Exception exception) {
 			log.error("通知分发失败 tenantId={}, taskId={}", tenantId, taskId, exception);
 			finishFailure(tenantId, taskId, task, exception);
@@ -89,9 +96,11 @@ public class NoticeDispatchServiceImpl implements NoticeDispatchService {
 	private MessageDispatchTask claimTask(String tenantId, String taskId) {
 		return transactionTemplate.execute(status -> {
 			MessageDispatchTask task = taskMapper.selectByIdForUpdate(tenantId, taskId);
-			if (task == null || DispatchTaskStatus.SUCCEEDED.name().equals(task.getStatus())
-					|| DispatchTaskStatus.PARTIAL_FAILED.name().equals(task.getStatus())
-					|| DispatchTaskStatus.FAILED.name().equals(task.getStatus())) {
+			if (task == null || isTerminal(task.getStatus())) {
+				return null;
+			}
+			if (!isNoticePublished(task.getTenantId(), task.getMessageId())) {
+				taskMapper.markCanceled(tenantId, taskId);
 				return null;
 			}
 			task.setStatus(DispatchTaskStatus.RUNNING.name());
@@ -101,6 +110,23 @@ public class NoticeDispatchServiceImpl implements NoticeDispatchService {
 			taskMapper.updateById(task);
 			return task;
 		});
+	}
+
+	private boolean isTerminal(String status) {
+		return DispatchTaskStatus.SUCCEEDED.name().equals(status)
+				|| DispatchTaskStatus.PARTIAL_FAILED.name().equals(status)
+				|| DispatchTaskStatus.FAILED.name().equals(status)
+				|| DispatchTaskStatus.CANCELED.name().equals(status);
+	}
+
+	private boolean isNoticePublished(String tenantId, String messageId) {
+		return NoticeStatus.PUBLISHED.name().equals(noticeMapper.selectStatus(tenantId, messageId));
+	}
+
+	private void ensureNoticePublished(MessageDispatchTask task) {
+		if (!isNoticePublished(task.getTenantId(), task.getMessageId())) {
+			throw new NoticeDispatchCanceledException();
+		}
 	}
 
 	private void dispatchMallUsers(MessageDispatchTask task, NoticeAudienceSnapshot audience) {
@@ -116,6 +142,7 @@ public class NoticeDispatchServiceImpl implements NoticeDispatchService {
 			request.setMemberTagId(audience.getMemberTagId());
 			UserMessageAudiencePageVO page = audienceService.queryRecipients(request);
 			List<UserMessageRecipientVO> records = page == null ? List.of() : page.getRecords();
+			ensureNoticePublished(task);
 			int inserted = insertMallRecipients(task, records);
 			cursor = page == null ? null : page.getNextCursor();
 			hasMore = page != null && page.isHasMore();
@@ -139,6 +166,7 @@ public class NoticeDispatchServiceImpl implements NoticeDispatchService {
 			request.setDeptIds(audience.getDeptIds());
 			StaffMessageAudiencePageVO page = staffService.queryRecipients(request);
 			List<StaffMessageRecipientVO> records = page == null ? List.of() : page.getRecords();
+			ensureNoticePublished(task);
 			int inserted = insertStaffRecipients(task, records);
 			cursor = page == null ? null : page.getNextCursor();
 			hasMore = page != null && page.isHasMore();
@@ -242,6 +270,9 @@ public class NoticeDispatchServiceImpl implements NoticeDispatchService {
 			return "未知分发错误";
 		}
 		return message.length() <= maxLength ? message : message.substring(0, maxLength);
+	}
+
+	private static class NoticeDispatchCanceledException extends RuntimeException {
 	}
 
 }

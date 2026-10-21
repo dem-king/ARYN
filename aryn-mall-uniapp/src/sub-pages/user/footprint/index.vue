@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onLoad } from '@dcloudio/uni-app'
 import { ref } from 'vue'
+import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 import { getPage } from '@/sub-pages/api/product/footprint'
 
 definePage({
@@ -61,7 +62,15 @@ function toGoodsDetail(id: string) {
             <view class="ml-5 flex flex-1 flex-col overflow-hidden">
               <wd-text :lines="2" size="26rpx" color="inherit" :text="g.name" />
               <view class="mt-2 flex items-center justify-between">
-                <wd-text :text="g.salesPrice" color="red" mode="price" prefix="￥" />
+                <view class="flex items-baseline">
+                  <wd-text :text="g.salesPrice" color="red" mode="price" prefix="￥" />
+                  <text
+                    v-if="shouldShowOriginalPrice(g.salesPrice, g.originalPrice)"
+                    class="price-original"
+                  >
+                    ￥{{ g.originalPrice }}
+                  </text>
+                </view>
                 <wd-text size="22rpx" :text="`库存 ${g.stock}`" />
               </view>
               <view class="mt-2 flex justify-end">
@@ -74,3 +83,12 @@ function toGoodsDetail(id: string) {
     </view>
   </z-paging>
 </template>
+
+<style lang="scss" scoped>
+.price-original {
+  margin-left: 8rpx;
+  font-size: 20rpx;
+  color: #a8abb2;
+  text-decoration: line-through;
+}
+</style>

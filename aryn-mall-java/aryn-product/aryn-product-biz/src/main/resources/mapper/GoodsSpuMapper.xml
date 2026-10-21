@@ -10,12 +10,16 @@
     <resultMap id="goodsSpuMap" type="com.aryn.cloud.product.api.entity.GoodsSpu">
         <id column="id" property="id"/>
         <result column="name" property="name"/>
+        <result column="attr_tags" property="attrTags"
+                typeHandler="com.aryn.cloud.product.api.hanlder.GoodsAttrTagListTypeHandler"/>
         <collection property="goodsSkus" column="{spuId=id}"
                     ofType="com.aryn.cloud.product.api.entity.GoodsSku"
                     select="com.aryn.cloud.product.mapper.GoodsSkuMapper.selectBySpuId"></collection>
     </resultMap>
 
     <resultMap id="resultMap2" type="com.aryn.cloud.product.api.entity.GoodsSpu">
+        <result column="attr_tags" property="attrTags"
+                typeHandler="com.aryn.cloud.product.api.hanlder.GoodsAttrTagListTypeHandler"/>
         <collection property="goodsSkus" column="{spuId=id}"
                     ofType="com.aryn.cloud.product.api.entity.GoodsSku"
                     select="com.aryn.cloud.product.mapper.GoodsSkuMapper.selectBySpuId"></collection>
@@ -96,7 +100,8 @@
 
     <select id="selectSpuById" resultMap="goodsSpuMap">
         SELECT
-        <include refid="goodsSpuSql"/>
+        <include refid="goodsSpuSql"/>,
+        goods_spu.attr_tags
         FROM
         goods_spu as `goods_spu`
         WHERE goods_spu.`id` =#{id} AND goods_spu.`del_flag` = '0'
@@ -142,7 +147,8 @@
     </select>
     <select id="selectApiSpuById" resultMap="resultMap2">
         SELECT
-        <include refid="goodsSpuSql"/>
+        <include refid="goodsSpuSql"/>,
+        goods_spu.attr_tags
         FROM
         goods_spu AS goods_spu
         where goods_spu.id = #{id}
@@ -176,6 +182,7 @@
         COALESCE(NULLIF(sku.pic_url, ''), NULLIF(SUBSTRING_INDEX(spu.spu_urls, ',', 1), '')) AS pic_url,
         sku.stock,
         sku.sales_price,
+        sku.original_price,
         <!--
           规格串在 SQL 里拼好：specs_arr 是 json 列，直接选回来要经
           SpecsListTypeHandler 转成 List<Specs> 才能在 Java 侧 join，

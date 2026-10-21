@@ -1,4 +1,7 @@
 export type IdentityType = 'MALL_USER' | 'SYS_USER';
+export type NoticeStatus = 'DRAFT' | 'PUBLISHED' | 'REVOKED';
+export type NoticeDispatchStatus =
+  'FAILED' | 'NONE' | 'PARTIAL_FAILED' | 'RUNNING' | 'SUCCEEDED';
 export type ConversationStatus = 'ACTIVE' | 'ASSIGNED' | 'CLOSED' | 'WAITING';
 export type ChatMessageType =
   | 'IMAGE'
@@ -35,21 +38,51 @@ export interface CursorPage<T> {
   records: T[];
 }
 
+export interface NoticeDispatchTask {
+  audienceType: string;
+  errorSummary?: string;
+  estimatedCount?: number;
+  failureCount?: number;
+  id: string;
+  lastHeartbeatTime?: string;
+  retryCount?: number;
+  status: string;
+  successCount?: number;
+  targetType: string;
+}
+
+export interface NoticeRecipientItem {
+  inboxStatus: 'HIDDEN' | 'VISIBLE';
+  readStatus: '0' | '1';
+  readTime?: string;
+  receivedTime: string;
+  recipientId: string;
+  recipientName?: string;
+  recipientRecordId: string;
+  recipientType: IdentityType;
+}
+
 export interface NoticeRecord {
   cardPayload?: string;
   audienceSnapshot?: string;
   category: string;
   content: string;
   createTime: string;
+  dispatchStatus?: NoticeDispatchStatus;
+  dispatchTasks?: NoticeDispatchTask[];
   expireTime?: string;
+  hiddenCount?: number;
   id: string;
   jumpPayload?: string;
   jumpType?: string;
   priority: string;
   publishTime?: string;
+  readCount?: number;
+  recipientCount?: number;
   senderName?: string;
+  senderType?: string;
   sourceType?: string;
-  status: 'DRAFT' | 'PUBLISHED' | 'REVOKED';
+  status: NoticeStatus;
   summary?: string;
   targetTypes: string;
   title: string;

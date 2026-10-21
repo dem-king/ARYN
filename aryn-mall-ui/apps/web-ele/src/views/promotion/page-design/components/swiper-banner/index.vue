@@ -5,6 +5,8 @@ import { computed } from 'vue';
 
 import { ElCarousel, ElCarouselItem } from 'element-plus';
 
+import { commonStyleRadiusOverflow } from '../common/common-style-clip';
+
 interface ShowData {
   commonStyle?: DiyCommonStyle | null;
   imageList: any[];
@@ -18,27 +20,10 @@ interface ShowData {
 
 const props = defineProps<{ showData: ShowData }>();
 
-const defaultCommonStyle: DiyCommonStyle = {
-  styleTopMargin: 0,
-  styleBottomMargin: 0,
-  styleLeftMargin: 0,
-  styleRightMargin: 0,
-  styleTopPadding: 0,
-  styleBottomPadding: 0,
-  styleLeftPadding: 0,
-  styleRightPadding: 0,
-  styleLtRadius: 0,
-  styleRtRadius: 0,
-  styleLbRadius: 0,
-  styleRbRadius: 0,
-  bgColorDirection: 'to right',
-  bgStartColor: '',
-  bgEndColor: '',
-  bgPicUrl: '',
-};
-
 const dynamicStyles = computed(() => {
-  const commonStyle = props.showData.commonStyle ?? defaultCommonStyle;
+  // 老数据没有 commonStyle：不绑内联样式，保留 CSS 的 12px 留白兜底（与 C 端同口径）
+  if (!props.showData.commonStyle) return {};
+  const commonStyle = props.showData.commonStyle;
   return {
     marginTop: `${commonStyle.styleTopMargin}px`,
     marginLeft: `${commonStyle.styleLeftMargin}px`,
@@ -52,6 +37,8 @@ const dynamicStyles = computed(() => {
     borderTopRightRadius: `${commonStyle.styleRtRadius}px`,
     borderBottomLeftRadius: `${commonStyle.styleLbRadius}px`,
     borderBottomRightRadius: `${commonStyle.styleRbRadius}px`,
+    // 通用圆角 > 0 时裁切：轮播图铺满根节点，直角会盖住圆角（与 C 端 getCommonStyle 同口径）
+    ...commonStyleRadiusOverflow(commonStyle),
     ...(commonStyle.bgPicUrl && {
       background: `url(${commonStyle.bgPicUrl})`,
       backgroundRepeat: 'no-repeat',

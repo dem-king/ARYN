@@ -111,7 +111,10 @@ const activeAnchor = computed(() => `all-sheet-anchor-${props.activeIndex}`)
               <view
                 v-if="showFallback(item, index)"
                 class="all-sheet-fallback"
-                :style="{ backgroundColor: resolveCategoryFallback(item.name, item.id).bgColor }"
+                :style="{
+                  backgroundColor: resolveCategoryFallback(item.name, item.id).bgColor,
+                  color: resolveCategoryFallback(item.name, item.id).color,
+                }"
               >
                 {{ resolveCategoryFallback(item.name, item.id).text }}
               </view>
@@ -261,8 +264,7 @@ const activeAnchor = computed(() => `all-sheet-anchor-${props.activeIndex}`)
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
-  font-size: 42rpx;
+  font-size: 40rpx;
   font-weight: 600;
 }
 

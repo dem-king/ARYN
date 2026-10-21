@@ -11,6 +11,7 @@ import com.aryn.cloud.order.service.IOrderConfigService;
 import com.aryn.cloud.order.service.IOrderInfoService;
 import com.aryn.cloud.upms.api.remote.RemoteMessageStaffService;
 import com.aryn.cloud.upms.api.vo.StaffMessageRecipientVO;
+import com.aryn.cloud.message.api.constant.MessageJumpConstants;
 import com.aryn.cloud.message.api.dto.MessageSendCommand;
 import com.aryn.cloud.message.api.enums.MessageIdentityType;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -50,6 +51,9 @@ public class CodPayRemindServiceImpl implements ICodPayRemindService {
 	private static final String BIZ_TYPE = "COD_PAY_REMIND";
 
 	private static final String CATEGORY = "ORDER";
+
+	/** 订单详情静态路由：管理端按 route.query.id 调 getById 取详情。 */
+	private static final String ORDER_DETAIL_ROUTE = "/order/detail";
 
 	/** 单租户单轮扫描上限，防止积压时一次发爆；未处理订单由下次调度继续兜。 */
 	private static final int SCAN_LIMIT = 500;
@@ -173,7 +177,9 @@ public class CodPayRemindServiceImpl implements ICodPayRemindService {
 			adminCommand.setContent("货到付款订单 " + order.getOrderNo() + "（应收 " + amountText
 					+ " 元）已于 " + receivedAt + " 确认收货，已收货 " + elapsedHours + " 小时仍未确认收款（第 "
 					+ round + " 轮提醒），请尽快到订单管理确认收款。");
-			adminCommand.setJumpPayload("/order/order-info");
+			// jump_payload 落 json 列：站内路由也必须包成 JSON 对象，裸串会被消费端校验拒绝
+			adminCommand
+				.setJumpPayload(json(Map.of(MessageJumpConstants.ROUTE, ORDER_DETAIL_ROUTE + "?id=" + order.getId())));
 			sent += publish(adminCommand);
 		}
 		return sent;

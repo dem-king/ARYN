@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AppSeckillGoodsVO } from '@/api/promotion'
+import type { AppNewbiePriceVO, AppSeckillGoodsVO } from '@/api/promotion'
 import type { PurchaseDecision } from '@/utils/goods-purchase'
 import { onLoad, onPageScroll, onShareAppMessage } from '@dcloudio/uni-app'
 // @ts-expect-error: mp-html type declaration issue
@@ -14,7 +14,7 @@ import {
 } from 'vue'
 import { addObj as addCollect, deleteObj as deleteCollect } from '@/api/product/collect'
 import { getById as getSpuById } from '@/api/product/spu'
-import { getGoodsSeckillInfo } from '@/api/promotion'
+import { getGoodsSeckillInfo, getNewbieSkuPrices } from '@/api/promotion'
 import { getPage as getCouponPage } from '@/api/promotion/couponInfo'
 import { getDefault } from '@/api/user/address'
 import DiyPage from '@/components/diy/index.vue'
@@ -29,6 +29,8 @@ import { useQuickCart } from '@/composables/useQuickCart'
 import { resolvePurchaseDecision, resolveSpecRow } from '@/utils/goods-purchase'
 import { initGoodsSpecs } from '@/utils/goods-specs'
 import { customerServiceRoute } from '@/utils/message'
+import { emptyNewbieDisplay, newbieLimitHint, resolveNewbiePriceDisplay } from '@/utils/newbie-price'
+import GoodsCategoryEntry from './components/GoodsCategoryEntry.vue'
 import GoodsComment from './components/GoodsComment.vue'
 import GoodsFooter from './components/GoodsFooter.vue'
 import GoodsInfo from './components/GoodsInfo.vue'
@@ -57,6 +59,16 @@ interface State {
   rateType: string
   /** 当前 SKU 的秒杀信息；null 表示无进行中的秒杀 */
   seckillInfo: AppSeckillGoodsVO | null
+  /** 本 SPU 各 SKU 的新人价（含当前用户资格三态）；null 表示无活动/接口失败 */
+  newbiePriceVO: AppNewbiePriceVO | null
+  /**
+   * 多规格商品「用户当前看着的 SKU」。
+   *
+   * 不能只靠 selectArr 反查：弹层选完规格点加购时是**程序化关闭**（页面把
+   * skuKey 置 false），不会触发 `@close` 回传规格数组，只靠 selectArr 会让价格区
+   * 停在旧 SKU 上。这里用「弹层加购回传的 skuId」+「关闭时按规格反查」两路共同维护。
+   */
+  selectSkuId: string
 }
 
 // 定义变量
@@ -107,6 +119,8 @@ const state = reactive<State>({
   couponList: [],
   rateType: '',
   seckillInfo: null,
+  newbiePriceVO: null,
+  selectSkuId: '',
 })
 const router = useRouter()
 const authStore = useAuthStore()
@@ -174,6 +188,116 @@ onLoad(async (options) => {
 })
 
 /**
+ * 加载本 SPU 各 SKU 的新人价（含当前用户资格）。
+ *
+ * 与秒杀同口径：失败静默、只影响价格标注，不影响加购/下单主流程。
+ *
+ * 注意这里**必须**带上登录态（接口故意不传 skipToken）——未登录时后端返回
+ * `eligible=null`（按可享展示，做营销吸引），已登录且确定不符合时返回
+ * `eligible=false`，页面据此回落到原价并说明原因，避免「商详标新人价、
+ * 结算按原价」的价差观感（用户投诉的正是这里）。
+ */
+async function loadNewbiePrices() {
+  const skuIds = (state.goodsSpu?.goodsSkus || [])
+    .map((sku: any) => sku.id)
+    .filter(Boolean)
+  if (!skuIds.length)
+    return
+  try {
+    state.newbiePriceVO = await getNewbieSkuPrices(skuIds)
+  }
+  catch {
+    // 新人价属增强展示，接口失败按原价展示
+    state.newbiePriceVO = null
+  }
+}
+
+/**
+ * 当前聚焦的 SKU。
+ *
+ * 单规格（98% 在架商品）直接取唯一 SKU——否则用户进商详永远看不到新人价，
+ * 这正是「楼层点进来还是原价」的直接原因。
+ *
+ * 多规格优先用「最近一次选中的 SKU」：
+ *   · 弹层加购时回传的 skuId 最准（用户确实在点哪个规格）；
+ *   · 关闭弹层时回传的规格数组反查（未选完为空 → 价格区维持原价，
+ *     不做「选着 A 规格、按 B 规格标新人价」的错误标注）。
+ * 两者都没有时保持原价。
+ */
+const currentSkuId = computed(() => {
+  const skus = state.goodsSpu?.goodsSkus || []
+  if (!skus.length)
+    return ''
+  if (!purchaseDecision.value.needChoose)
+    return String(skus[0]?.id || '')
+  // 弹层加购回传的 SKU 优先：程序化关闭不会回传规格数组，这是多规格唯一可靠信号
+  if (state.selectSkuId && skus.some((sku: any) => String(sku?.id) === state.selectSkuId))
+    return state.selectSkuId
+  // 关闭弹层回传的规格数组：join(' ') 后未选完的位会留下连续空格，
+  // 统一按空白切分只比较实际选中的规格值
+  const selectedParts = String(state.selectArr || '')
+    .split(/\s+/)
+    .filter(Boolean)
+  if (!selectedParts.length)
+    return ''
+  const hit = skus.find((sku: any) => {
+    const values = (sku?.specsArr || [])
+      .map((spec: any) => spec?.specsValueName)
+      .filter((name: string) => typeof name === 'string' && name.length > 0)
+    return values.length === selectedParts.length
+      && values.every((value: string, index: number) => value === selectedParts[index])
+  })
+  return String(hit?.id || '')
+})
+
+/**
+ * 当前 SKU 的新人价展示。
+ *
+ * 优先级与后端 `OrderPriceComputeService` 一致：**秒杀 > 新人价**。
+ * 秒杀进行中时整块新人价展示（含限购/资格提示）都关掉——两个活动同时挂着价，
+ * 页面标一个、结算按另一个，价差观感只会更严重。
+ */
+const newbieDisplay = computed(() => {
+  if (state.seckillInfo)
+    return emptyNewbieDisplay()
+  return resolveNewbiePriceDisplay(state.newbiePriceVO, currentSkuId.value)
+})
+
+/**
+ * 单规格直加时交给加购确认弹层的成交价。
+ *
+ * 与价格区同一优先级（秒杀 > 新人价 > 售价），否则弹层会出现「页面 ¥0.01、
+ * 小计 ¥12.90」的价差；活动价必须绑定当前 SKU——快捷加购由后端按库存挑 SKU，
+ * 标错规格的价比不标更糟。活动限购同时下发，让弹层提前封顶数量。
+ */
+const quickAddPromotion = computed(() => {
+  const skuId = currentSkuId.value
+  if (!skuId)
+    return null
+  const seckill = state.seckillInfo
+  if (seckill && String(seckill.skuId || '') === skuId) {
+    const limit = Math.floor(Number(seckill.limitPerUser))
+    const maxQuantity = Number.isFinite(limit) && limit > 0 ? limit : null
+    return {
+      skuId,
+      unitPrice: seckill.seckillPrice,
+      maxQuantity,
+      hint: maxQuantity ? `秒杀价每人限购 ${maxQuantity} 件` : '',
+    }
+  }
+  const display = newbieDisplay.value
+  if (display.showNewbiePrice) {
+    return {
+      skuId,
+      unitPrice: display.newbiePrice,
+      maxQuantity: display.limitPerUser,
+      hint: newbieLimitHint(display),
+    }
+  }
+  return null
+})
+
+/**
  * 加载当前 SKU 的秒杀信息。
  *
  * 秒杀价由服务端在下单时实时重算，商详页只做展示与提示；活动结束或库存抢完时
@@ -231,8 +355,8 @@ onMounted(async () => {
     state.isCanBack = true
   }
 })
-// 富文本渲染完成
-function readyHandel() {
+// 商品详情/推荐锚点：富文本渲染完成、评价异步加载后都要重新量，否则点击顶部 tab 会偏
+function measureDetailSections() {
   getBoundingClientRect('#scroll-description')
     .then((data: any) => {
       tabList.value[2].top = data.top
@@ -249,6 +373,10 @@ function readyHandel() {
     .catch((error: any) => {
       console.error('获取推荐位置失败:', error)
     })
+}
+// 富文本渲染完成
+function readyHandel() {
+  measureDetailSections()
 }
 function goBack() {
   if (state.isCanBack) {
@@ -273,7 +401,7 @@ function handleBuyAction(value: number) {
   const spuIdValue = String(spuId.value || '')
   if (!spuIdValue)
     return
-  quickAdd(spuIdValue).then((result) => {
+  quickAdd(spuIdValue, { promotion: quickAddPromotion.value }).then((result) => {
     if (result.added)
       return
     // 前后端判定不一致（需选规格）或查询异常时退回弹层，避免点击无响应；
@@ -349,6 +477,8 @@ async function getSpu(id: string) {
     if (response) {
       queryCoupon()
       loadSeckillInfo()
+      // 与秒杀并行、互不等待：两者都是增强展示，任一失败都不影响商详主流程
+      loadNewbiePrices()
       // 在注入「默认」占位规格前取原始规格口径：单规格商品的规格行要展示真实规格值
       purchaseDecision.value = resolvePurchaseDecision(response)
       // 规格结构初始化与 goods-detail-sheet / quick-cart-button 共用同一份工具
@@ -428,6 +558,8 @@ async function updateTabListPositions() {
         console.error('获取评论位置失败:', error)
       })
   }
+
+  measureDetailSections()
 }
 // 添加购物车（弹层回传路径；单规格直加路径在 handleBuyAction → useQuickCart）。
 // 去向由统一入口决定：有进行中的共享购物车时先询问，提示与角标也由它处理
@@ -445,6 +577,20 @@ async function addCart(data: any) {
   catch {
     // 请求异常已由统一拦截器提示，弹层保持打开让用户重试
   }
+}
+
+/**
+ * 弹层加购的旁观者：只记录用户实际选中的 SKU，不改变加购行为。
+ *
+ * 单独一层而不是写进 addCart：弹层程序化关闭不会回传规格数组，
+ * 价格区需要知道「用户刚选的是哪个规格」才能把新人价标对；
+ * 但加购本身涉及共享车去向等多方逻辑，不适合在这里再挂展示职责。
+ */
+function onSkuAddCart(data: any) {
+  const skuId = String(data?.skuId || '').trim()
+  if (skuId)
+    state.selectSkuId = skuId
+  return addCart(data)
 }
 // 收藏
 async function handleCollect() {
@@ -565,6 +711,7 @@ async function handleReceive(coupon: any) {
       :spec-row="specRow"
       :address="state.address"
       :seckill-info="state.seckillInfo"
+      :newbie-display="newbieDisplay"
       @swiper="handleSwiper"
       @show-coupon="showCoupon"
       @open-sku-popup="handleBuyAction"
@@ -581,28 +728,39 @@ async function handleReceive(coupon: any) {
     </view>
     <view v-else-if="decorationLoading" class="decoration-skeleton" />
     <!-- 评论组件 -->
-    <GoodsComment ref="goodsCommentRef" :spu-id="state.goodsSpu.id" />
+    <GoodsComment ref="goodsCommentRef" :spu-id="state.goodsSpu.id" @loaded="updateTabListPositions" />
+    <!-- 评价下方的分类回流：去逛逛会落到当前商品所属分类 -->
+    <GoodsCategoryEntry
+      :spu-id="String(state.goodsSpu.id || '')"
+      :category-first-id="state.goodsSpu.categoryFirstId || ''"
+      :category-second-id="state.goodsSpu.categorySecondId || ''"
+      :category-name="state.goodsSpu.categoryName || ''"
+    />
     <!-- 商品介绍 -->
     <view
       id="scroll-description"
-      class="m-2 rounded-xl bg-white p-2 dark:bg-[var(--wot-dark-background2)]"
+      class="detail-section bg-white dark:bg-[var(--wot-dark-background2)]"
     >
-      <wd-divider custom-class="px-26! text-[#333333]!">
-        商品详情
-      </wd-divider>
-      <view>
+      <view class="detail-section__head">
+        <view class="detail-section__bar" />
+        <text class="detail-section__title">
+          商品详情
+        </text>
+      </view>
+      <view class="detail-section__body">
         <mp-html :content="state.goodsSpu.description" @ready="readyHandel" />
       </view>
     </view>
     <!-- 猜你喜欢 -->
-    <view
-      id="scroll-like"
-      class="my-2 flex items-center justify-center text-sm"
-    >
-      你可能还会喜欢
+    <view id="scroll-like" class="detail-rec-head">
+      <view class="detail-section__bar" />
+      <text class="detail-section__title">
+        你可能还会喜欢
+      </text>
     </view>
     <WaterfallGoods />
-    <wd-gap :height="40" />
+    <!-- 与固定底栏等高的留白：避免最后一行商品被操作栏压住 -->
+    <view class="detail-bottom-space" />
     <GoodsFooter
       :shopping-cart-count="shoppingCartStore.getCartCount"
       @to-home="toHome"
@@ -623,7 +781,7 @@ async function handleReceive(coupon: any) {
     :mode="skuMode"
     @open="onOpenSkuPopup"
     @close="onCloseSkuPopup"
-    @add-cart="addCart"
+    @add-cart="onSkuAddCart"
   />
 
   <!-- 领券弹窗 -->
@@ -661,6 +819,53 @@ async function handleReceive(coupon: any) {
 </template>
 
 <style lang="scss">
+/**
+ * 商详区块标题：主题色竖条 + 标题。
+ * 与底部推荐区共用同一套视觉，避免「商品详情」是一条分割线、
+ * 「你可能还会喜欢」是一行居中灰字的两种语言。
+ */
+.detail-section {
+  margin: 16rpx 24rpx;
+  padding: 24rpx;
+  overflow: hidden;
+  border-radius: 24rpx;
+}
+
+.detail-section__head {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.detail-section__bar {
+  width: 6rpx;
+  height: 28rpx;
+  flex: none;
+  border-radius: 999rpx;
+  background: var(--theme-color-primary, var(--wot-color-theme-primary, #ff2237));
+}
+
+.detail-section__title {
+  color: #1f2329;
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
+.detail-section__body {
+  margin-top: 16rpx;
+}
+
+.detail-rec-head {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin: 24rpx 24rpx 8rpx;
+}
+
+.wot-theme-dark .detail-section__title {
+  color: #f2f3f5;
+}
+
 .wd-popup-title {
   color: var(--wot-action-sheet-color, rgba(0, 0, 0, 0.85));
   position: relative;
@@ -680,8 +885,12 @@ async function handleReceive(coupon: any) {
     border-radius: 0px !important;
   }
   .wd-swiper-nav--bottom {
-    bottom: 30rpx !important;
+    bottom: 48rpx !important;
   }
+}
+
+.detail-bottom-space {
+  height: calc(140rpx + env(safe-area-inset-bottom));
 }
 
 .decoration-skeleton {

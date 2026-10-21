@@ -17,7 +17,13 @@ function source(relativePath: string) {
  * 装修位/优惠券跳转失效——三者都不会被类型检查发现。
  */
 describe('category page structure', () => {
-  const page = 'src/pages/product/category/index.vue'
+  const page = 'src/components/category-browser/index.vue'
+
+  it('same category UI feeds both the tab page and the stack page', () => {
+    expect(source('src/pages/product/category/index.vue')).toContain('<CategoryBrowser />')
+    expect(source('src/sub-pages/product/category-browse/index.vue')).toContain('<CategoryBrowser show-back')
+    expect(source(page)).toContain(':left-arrow="props.showBack"')
+  })
 
   it('组合搜索导航栏、一级图标条与全部分类浮层', () => {
     const pageSource = source(page)
@@ -77,7 +83,7 @@ describe('category page structure', () => {
     // 分类少时面板随宫格收窄（不得写死 bottom 撑满到固定高度）；
     // 分类多时由内联 max-height 上限截断为内部滚动，防止退化成铺满全屏
     expect(sheet).toContain('maxHeight')
-    expect(sheet).toContain('calc(86.5% - ${props.topOffset}px)')
+    expect(sheet).toMatch(/calc\(86\.5% - \$\{props\.topOffset\}px\)/)
     expect(styleBlock).not.toMatch(/bottom:\s*13\.5%/)
     expect(styleBlock).toContain('border-bottom-left-radius')
   })
@@ -133,11 +139,31 @@ describe('category page structure', () => {
     expect(source('src/components/goods-list-panel/index.vue')).toContain('categoryFirstId')
   })
 
+  it('商品卡片展示商品子标题作为介绍行，而不是只有库存/运费 chip', () => {
+    const panel = source('src/components/goods-list-panel/index.vue')
+    // 数据源与首页楼层、商详一致：goods_spu.sub_title
+    expect(panel).toContain('item.subTitle')
+    expect(panel).toContain('goods-desc')
+  })
+
+  it('分类页支持双列/单列切换，并记住上次选择', () => {
+    const pageSource = source(page)
+    // 布局状态由页面持有（需要跨分类保留并持久化），面板只负责渲染与切换事件
+    expect(pageSource).toContain('v-model:grid="gridLayout"')
+    expect(pageSource).toContain('show-layout-toggle')
+    expect(pageSource).toContain('Local.get(\'category-goods-grid\')')
+
+    const panel = source('src/components/goods-list-panel/index.vue')
+    expect(panel).toMatch(/emit\('update:grid'/)
+    // 单列复用卡片现有的 row 布局（图左信息右），不另写一套模板
+    expect(panel).toContain('goods-card--row')
+  })
+
   it('访客不请求购物车数量（分类页在白名单内，401 会把访客踢到登录页）', () => {
     const pageSource = source(page)
     expect(pageSource).toContain('authStore.isLoggedIn')
     // 守卫必须紧贴调用，避免退化成「判断了但照样请求」
-    expect(pageSource).toContain('if (authStore.isLoggedIn)\n    shoppingCartStore.fetchCartCount()')
+    expect(pageSource).toMatch(/if \(authStore\.isLoggedIn\)\s+await shoppingCartStore\.fetchCartCount\(\)/)
   })
 
   it('页面高度不按平台手算导航栏，避免与 hr-search-navbar 等高占位冲突', () => {

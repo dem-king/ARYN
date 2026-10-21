@@ -18,6 +18,7 @@ import DiyGoodsGroup from './diy-goods-group/index.vue'
 import DiyGoodsRanking from './diy-goods-ranking/index.vue'
 import DiyGoodsRecommend from './diy-goods-recommend/index.vue'
 import DiyGoodsScroll from './diy-goods-scroll/index.vue'
+import DiyGoodsTabs from './diy-goods-tabs/index.vue'
 import DiyGoodsWaterfall from './diy-goods-waterfall/index.vue'
 import DiyGoods from './diy-goods/index.vue'
 import DiyImageCube from './diy-image-cube/index.vue'
@@ -25,6 +26,7 @@ import DiyImage from './diy-image/index.vue'
 import DiyLimitedActivity from './diy-limited-activity/index.vue'
 import DiyMarketingEntry from './diy-marketing-entry/index.vue'
 import DiyMemberBenefits from './diy-member-benefits/index.vue'
+import DiyNewbieFloor from './diy-newbie-floor/index.vue'
 import DiyNotice from './diy-notice/index.vue'
 import DiyReplenishCard from './diy-replenish-card/index.vue'
 import DiyRichText from './diy-rich-text/index.vue'
@@ -40,6 +42,8 @@ import DiyVideoLive from './diy-video-live/index.vue'
 import { evaluateCondition } from './schema/condition'
 import { resolveEffectivePageTheme } from './schema/effective-theme'
 import { migratePageContent } from './schema/migrate'
+import { resolveNavigationAppearance } from './schema/navigation-style'
+import { buildSectionGradient } from './schema/section-gradient'
 import UnknownComponent from './unknown-component.vue'
 
 const props = defineProps<{
@@ -92,11 +96,32 @@ const effectiveTheme = computed(() =>
         },
   ),
 )
+// 导航栏外观：页面设置可选「跟随首个区块」，把首区块背景（渐变顶边起色 /
+// 纯色）直接用作导航背景，运营不必再手动对齐导航色和区块渐变。
+// 与编辑器画布、草稿预览共用同一解析函数（schema/navigation-style.ts）。
+// 注意传入未过滤的 document.sections：导航取首个有内容的区块，不随登录态/
+// 会员条件变化，避免同一页面不同用户看到不同导航色。
+const navigationAppearance = computed(() =>
+  resolveNavigationAppearance(
+    document.value.page,
+    effectiveTheme.value,
+    document.value.sections,
+  ),
+)
+const stickyTop = computed(() => {
+  if (props.embedded || !document.value.page.navigation.visible)
+    return 0
+  const { statusBarHeight = 0 } = uni.getSystemInfoSync()
+  return statusBarHeight + 44
+})
 const pageStyle = computed(() => ({
   backgroundColor: effectiveTheme.value.backgroundColor,
   backgroundImage: document.value.page.backgroundImage
     ? `url(${document.value.page.backgroundImage})`
     : undefined,
+  // Tab 商品流的吸顶偏移：整页装修有固定导航栏，sticky 需要让出状态栏 + 导航高度；
+  // 内嵌页/隐藏导航栏时为 0
+  '--diy-sticky-top': `${stickyTop.value}px`,
   // 页面级主题（发布固化的 themeSnapshot）在 diy 内容区覆盖全局商城主题：
   // 内联 CSS 变量沿节点树继承，区块内组件的 var(--wot-color-theme-*) 会读到页面值；
   // 未引用主题时不下发，回落 App.ku.vue 的全局商城默认主题
@@ -118,11 +143,17 @@ function sectionVisible(section: DecorationSection) {
 }
 
 function sectionStyle(section: DecorationSection) {
+  const hasBackgroundImage = Boolean(section.style.backgroundImage)
+  // 背景图优先；其次渐变；最后纯色。渐变塞进 backgroundImage 而不是
+  // background 简写，保留 backgroundColor 作为半透明渐变的垫底色。
+  const gradient = hasBackgroundImage
+    ? undefined
+    : buildSectionGradient(section.style.backgroundGradient)
   const style: Record<string, string | number | undefined> = {
     backgroundColor: section.style.backgroundColor || undefined,
-    backgroundImage: section.style.backgroundImage
+    backgroundImage: hasBackgroundImage
       ? `url(${section.style.backgroundImage})`
-      : undefined,
+      : gradient,
     // 长度字段口径为 px（见 SectionStyle 注释），与管理端画布一致
     marginBottom: `${section.style.marginY}px`,
     marginLeft: `${section.style.marginX}px`,
@@ -136,19 +167,28 @@ function sectionStyle(section: DecorationSection) {
   if (section.style.radius > 0) {
     style.borderRadius = `${section.style.radius}px`
     // 圆角需要裁掉子元素溢出的直角背景（轮播图/图片类组件自带白底）；
-    // 横滑区块靠 overflow-x: auto 滚动，裁切会禁掉横滑，故跳过。
-    if (!section.style.horizontalScroll)
+    // 横滑区块靠 overflow-x: auto 滚动，裁切会禁掉横滑，故跳过；
+    // 含吸顶 Tab 的区块同样跳过：overflow 会创建滚动容器，position: sticky 失效
+    const hasStickyTabs = section.components.some(
+      item =>
+        item.type === 'goods-tabs'
+        && Boolean((item.props as Record<string, unknown> | undefined)?.stickyTabs),
+    )
+    if (!hasStickyTabs && !section.style.horizontalScroll)
       style.overflow = 'hidden'
   }
   // 区块背景图可能自带圆角/留白，补齐平铺属性，否则会按默认 tile 重复
-  if (section.style.backgroundImage) {
+  if (hasBackgroundImage) {
     style.backgroundPosition = 'top center'
     style.backgroundRepeat = 'no-repeat'
     style.backgroundSize = '100% auto'
   }
   if (section.style.sticky) {
     style.position = 'sticky'
-    style.top = '0'
+    // 让出固定导航栏：整页 DIY 的 wd-navbar 是 fixed 覆盖层（状态栏 + 44px），
+    // top:0 会把区块吸到导航栏底下、顶部内容（如品牌区搜索栏）被永久遮住；
+    // 内嵌页/隐藏导航栏时 stickyTop 为 0，行为与之前一致。
+    style.top = `${stickyTop.value}px`
     style.zIndex = '10'
   }
   return style
@@ -161,8 +201,9 @@ function sectionStyle(section: DecorationSection) {
       v-if="!embedded && document.page.navigation.visible"
       :title="title"
       :left-arrow="false"
-      :background-color="effectiveTheme.navigationBackgroundColor"
-      :text-color="effectiveTheme.navigationTextColor"
+      :background-color="navigationAppearance.backgroundColor"
+      :background-image="navigationAppearance.backgroundImage"
+      :text-color="navigationAppearance.textColor"
     />
     <view class="diy-components">
       <view
@@ -248,6 +289,10 @@ function sectionStyle(section: DecorationSection) {
             v-else-if="item.type === 'discount'"
             :show-data="item.props"
           />
+          <DiyNewbieFloor
+            v-else-if="item.type === 'newbie-floor'"
+            :show-data="item.props"
+          />
           <DiyMarketingEntry
             v-else-if="item.type === 'marketing-entry'"
             :show-data="item.props"
@@ -266,6 +311,10 @@ function sectionStyle(section: DecorationSection) {
           />
           <DiyGoodsWaterfall
             v-else-if="item.type === 'goods-waterfall'"
+            :show-data="item.props"
+          />
+          <DiyGoodsTabs
+            v-else-if="item.type === 'goods-tabs'"
             :show-data="item.props"
           />
           <DiyCouponCombo

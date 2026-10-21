@@ -47,6 +47,19 @@ export function isEffectiveSlotPageType(pageType: string | undefined): boolean {
   return EFFECTIVE_SLOT_PAGE_TYPES.includes(pageType as PageDesignType);
 }
 
+/** 内嵌装修页型：装修区只是 C 端原生页面中的一段内容（商详/分类/个人中心）。 */
+export const EMBEDDED_PAGE_TYPES: PageDesignType[] = ['2', '3', '4'];
+
+/**
+ * 该页型是否为内嵌装修。
+ *
+ * 内嵌页型即使没有发布装修，C 端原生页面依然存在，管理端预览应回落到
+ * 原生骨架；整页 DIY（首页/微页面）没有装修则没有可预览的页面。
+ */
+export function isEmbeddedPageType(pageType: string | undefined): boolean {
+  return EMBEDDED_PAGE_TYPES.includes(pageType as PageDesignType);
+}
+
 /** 页面类型中文名；未知值原样回显，避免渲染出 undefined。 */
 export function pageTypeLabel(pageType: string | undefined): string {
   if (!pageType) {
@@ -290,6 +303,12 @@ export interface PageDesignAuditLog {
 /** 装修主题（id 同时作为 v3 文档 themeRef 令牌） */
 export interface PageDesignTheme {
   id: string;
+  /**
+   * 自动动效总开关：'1' 开启（默认）、'0' 关闭。
+   * 关闭后 C 端停止自动轮播/自动前进等持续动效——兜底小程序（微信）没有
+   * prefers-reduced-motion 等价能力的缺口。
+   */
+  autoMotionEnabled?: '0' | '1';
   /** 商城默认主题标记：'1' 表示当前租户的商城默认主题（至多一个） */
   mallDefaultFlag?: '0' | '1';
   navigationColor?: string;
@@ -315,6 +334,7 @@ export interface PageDesignMetricDaily {
 }
 
 export interface PageDesignThemePayload {
+  autoMotionEnabled?: '0' | '1';
   navigationColor?: string;
   navigationTextColor?: string;
   pageBackgroundColor?: string;

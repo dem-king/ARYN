@@ -4,7 +4,7 @@ import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.stp.StpUtil;
 import com.alibaba.excel.EasyExcel;
 import com.aryn.cloud.common.core.util.Result;
-import com.aryn.cloud.common.security.util.SecurityUtils;
+import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.product.api.entity.ProductImportError;
 import com.aryn.cloud.product.api.vo.ProductImportPreviewVO;
 import com.aryn.cloud.product.service.ProductImportService;
@@ -58,7 +58,7 @@ public class ProductImportController {
 	@SaCheckPermission("product:import:preview")
 	@PostMapping("/upload")
 	public Result<ProductImportPreviewVO> upload(@RequestParam("file") MultipartFile file) throws IOException {
-		return Result.success(productImportService.previewExcel(SecurityUtils.getTenantId(), file.getOriginalFilename(),
+		return Result.success(productImportService.previewExcel(ArynTenantContextHolder.getTenantId(), file.getOriginalFilename(),
 				file.getInputStream()));
 	}
 
@@ -67,7 +67,7 @@ public class ProductImportController {
 	@PostMapping("/{jobId}/confirm")
 	public Result<Integer> confirm(@PathVariable String jobId) {
 		String operatorId = StpUtil.getLoginIdAsString();
-		int imported = productImportService.confirmImport(SecurityUtils.getTenantId(), jobId, operatorId, operatorId);
+		int imported = productImportService.confirmImport(ArynTenantContextHolder.getTenantId(), jobId, operatorId, operatorId);
 		return Result.success(imported);
 	}
 
@@ -75,7 +75,7 @@ public class ProductImportController {
 	@SaCheckPermission("product:import:preview")
 	@GetMapping("/{jobId}/errors")
 	public Result<List<ProductImportError>> errors(@PathVariable String jobId) {
-		return Result.success(productImportService.listErrors(SecurityUtils.getTenantId(), jobId));
+		return Result.success(productImportService.listErrors(ArynTenantContextHolder.getTenantId(), jobId));
 	}
 
 }

@@ -27,8 +27,10 @@ import com.aryn.cloud.order.mapper.OrderInfoMapper;
 import com.aryn.cloud.order.service.*;
 import com.aryn.cloud.common.core.constant.CommonConstants;
 import com.aryn.cloud.common.core.constant.RocketMqConstants;
+import com.aryn.cloud.message.api.constant.MessageJumpConstants;
 import com.aryn.cloud.message.api.dto.MessageSendCommand;
 import com.aryn.cloud.upms.api.remote.RemoteMaterialService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.dubbo.config.annotation.DubboReference;
@@ -89,6 +91,8 @@ public class DeliveryTaskServiceImpl extends ServiceImpl<DeliveryTaskMapper, Del
 	private final OrderInfoMapper orderInfoMapper;
 
 	private final RocketMQTemplate rocketMQTemplate;
+
+	private final ObjectMapper objectMapper;
 
 	private static final DateTimeFormatter TRIP_NO_FORMAT = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
 
@@ -1445,13 +1449,24 @@ public class DeliveryTaskServiceImpl extends ServiceImpl<DeliveryTaskMapper, Del
 						+ "，订单号：" + task.getOrderNo() + "，收货人：" + task.getRecipientName());
 			command.setBizType("ORDER_DELIVERY_TASK");
 			command.setBizId(task.getId());
-			command.setJumpPayload("/delivery/task-detail?id=" + task.getId());
+			// jump_payload 落 json 列：站内路由必须包成 JSON 对象，裸串会被消费端校验拒绝
+			command.setJumpPayload(json(Map.of(MessageJumpConstants.ROUTE,
+					"/pages/delivery/task-detail?id=" + task.getId())));
 			command.setChannels(java.util.List.of("IN_APP", "WECHAT_SUBSCRIBE"));
 			rocketMQTemplate.convertAndSend(RocketMqConstants.MESSAGE_SEND_COMMAND_TOPIC, command);
 			}
 		}
 		catch (Exception e) {
 			log.warn("派单通知发送失败，不影响派单事实: {}", e.getMessage());
+		}
+	}
+
+	private String json(Object value) {
+		try {
+			return objectMapper.writeValueAsString(value);
+		}
+		catch (com.fasterxml.jackson.core.JsonProcessingException exception) {
+			throw new IllegalStateException("配送通知序列化失败", exception);
 		}
 	}
 

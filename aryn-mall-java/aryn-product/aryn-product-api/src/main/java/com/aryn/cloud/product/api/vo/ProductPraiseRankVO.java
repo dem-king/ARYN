@@ -21,7 +21,7 @@ public class ProductPraiseRankVO {
 	@Schema(description = "好评数")
 	private Integer goodAppraiseCount;
 
-	@Schema(description = "好评率")
+	@Schema(description = "好评率 (0-1 小数)")
 	private BigDecimal goodAppraiseRate;
 
 }

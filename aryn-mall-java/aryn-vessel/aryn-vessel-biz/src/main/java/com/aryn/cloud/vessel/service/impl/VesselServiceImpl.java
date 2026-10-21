@@ -2,6 +2,9 @@ package com.aryn.cloud.vessel.service.impl;
 
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.order.api.remote.RemoteShoppingCartService;
+import com.aryn.cloud.vessel.api.constant.VesselMemberBindSource;
+import com.aryn.cloud.vessel.api.constant.VesselMemberRole;
+import com.aryn.cloud.vessel.api.constant.VesselType;
 import com.aryn.cloud.vessel.api.dto.VesselContextDTO;
 import com.aryn.cloud.vessel.api.entity.VesselCall;
 import com.aryn.cloud.vessel.api.entity.VesselInfo;
@@ -71,6 +74,10 @@ public class VesselServiceImpl implements VesselService {
 	@DubboReference
 	private RemoteShoppingCartService remoteShoppingCartService;
 
+	/** 成员关系落库统一入口（新建/复活）。字段注入与上面同理：避免改动既有构造器签名波及单测 */
+	@org.springframework.beans.factory.annotation.Autowired
+	private com.aryn.cloud.vessel.support.VesselMemberRegistrar memberRegistrar;
+
 	@Override
 	public IPage<VesselInfo> pageVessels(String tenantId, IPage<VesselInfo> page, VesselInfo query) {
 		LambdaQueryWrapper<VesselInfo> wrapper = Wrappers.lambdaQuery(VesselInfo.class)
@@ -85,6 +92,7 @@ public class VesselServiceImpl implements VesselService {
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public VesselInfo saveVessel(String tenantId, VesselInfo vessel) {
+		normalizeVessel(vessel);
 		if (!StringUtils.hasText(vessel.getVesselName())) {
 			throw new ArynBusinessException("船舶名称不能为空");
 		}
@@ -109,6 +117,14 @@ public class VesselServiceImpl implements VesselService {
 	@Transactional(rollbackFor = Exception.class)
 	public VesselInfo updateVessel(String tenantId, VesselInfo vessel) {
 		VesselInfo exists = requireVessel(tenantId, vessel.getId());
+		// 必须在归一化之前判断：归一化会把「未传」和「传了空串」都变成 null，
+		// 之后就无法区分「这次只想停用、不动船名」和「把船名改成空白」。
+		// 新增时校验船名、修改时不校验，是既有缺口 —— update 能把 NOT NULL 的
+		// vessel_name 改成空串，随后列表与下拉全变空白。两条路径口径统一。
+		if (vessel.getVesselName() != null && !StringUtils.hasText(vessel.getVesselName())) {
+			throw new ArynBusinessException("船舶名称不能为空");
+		}
+		normalizeVessel(vessel);
 		if (StringUtils.hasText(vessel.getImoCode()) && !Objects.equals(vessel.getImoCode(), exists.getImoCode())) {
 			Long duplicated = vesselInfoMapper.selectCount(Wrappers.lambdaQuery(VesselInfo.class)
 					.eq(VesselInfo::getTenantId, tenantId)
@@ -123,6 +139,53 @@ public class VesselServiceImpl implements VesselService {
 		return vessel;
 	}
 
+	/**
+	 * 船舶档案文本字段归一化：去首尾空白，空白串统一转 null。
+	 *
+	 * <p>必须在写库前调用，原因是「空串 vs null」在两条写入路径上的行为不一致：
+	 * <ul>
+	 *   <li>{@code insert-strategy: not_empty} —— 新增时空串被省略成 NULL；</li>
+	 *   <li>{@code update-strategy: not_null} —— 修改时 {@code ""} 会真的写进库。</li>
+	 * </ul>
+	 * 而 {@code vessel_info} 上有唯一键 {@code uk_vessel_info_imo(tenant_id, imo_code)}，
+	 * MySQL 唯一索引允许多个 NULL、但不允许多个 {@code ""}。管理端修改弹窗提交的是
+	 * 全量表单（未填的 IMO 是空串），于是「连续修改两条没有 IMO 的船」第二条必然撞键 1062。
+	 * 这里把空白统一成 null，新增/修改两条路径就都回到「未填即 NULL」的同一语义。
+	 *
+	 * <p><b>已知限制</b>：update-strategy 为 not_null，所以传 null 不会清空已有值 ——
+	 * 即「把已填的 IMO 改成空」目前做不到。这是既有行为，不是本次引入；要支持清空需改
+	 * 字段级 updateStrategy，属于独立改动。
+	 */
+	private void normalizeVessel(VesselInfo vessel) {
+		if (vessel == null) {
+			return;
+		}
+		vessel.setVesselName(trimToNull(vessel.getVesselName()));
+		vessel.setVesselNameEn(trimToNull(vessel.getVesselNameEn()));
+		vessel.setImoCode(trimToNull(vessel.getImoCode()));
+		vessel.setCallSign(trimToNull(vessel.getCallSign()));
+		vessel.setFlagState(trimToNull(vessel.getFlagState()));
+		vessel.setRemark(trimToNull(vessel.getRemark()));
+		// 船型：空白回落缺省值；给了非法码值直接拒绝，避免把 DTO 注释里那套旧口径写进库
+		String vesselType = trimToNull(vessel.getVesselType());
+		if (vesselType == null) {
+			vessel.setVesselType(VesselType.DEFAULT);
+		}
+		else if (!VesselType.isValid(vesselType)) {
+			throw new ArynBusinessException("船舶类型不合法：" + vesselType);
+		}
+		else {
+			vessel.setVesselType(vesselType);
+		}
+	}
+
+	private String trimToNull(String value) {
+		if (!StringUtils.hasText(value)) {
+			return null;
+		}
+		return value.trim();
+	}
+
 	@Override
 	public List<VesselMember> listMembers(String tenantId, String vesselId) {
 		requireVessel(tenantId, vesselId);
@@ -135,7 +198,21 @@ public class VesselServiceImpl implements VesselService {
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public VesselMember addMember(String tenantId, VesselMember member) {
-		requireVessel(tenantId, member.getVesselId());
+		// 管理端直接绑定：来源固定 ADMIN_ADD。其他入口（分享链接自动补建等）必须带来源调下面的重载，
+		// 否则会被错标成「管理端绑定」，来源标记就失去区分度。
+		return addMember(tenantId, member, VesselMemberBindSource.ADMIN_ADD);
+	}
+
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public VesselMember addMember(String tenantId, VesselMember member, String bindSource) {
+		// 必须在营船才能加成员：此前只校验「船存在」，运营可以往停用船里塞人——
+		// 停用船本来就无法下单，成员却仍能看到成员列表（昵称+脱敏手机号）与靠港计划，
+		// 等于给了一条没有业务价值却泄露数据的通道。与 adminUnbindMember/requireVesselActive 同口径。
+		VesselInfo vessel = requireVessel(tenantId, member.getVesselId());
+		if (!VESSEL_STATUS_ACTIVE.equals(vessel.getStatus())) {
+			throw new ArynBusinessException("船舶不存在或已停用");
+		}
 		if (!StringUtils.hasText(member.getUserId())) {
 			throw new ArynBusinessException("成员用户ID不能为空");
 		}
@@ -146,17 +223,19 @@ public class VesselServiceImpl implements VesselService {
 		if (duplicated != null && duplicated > 0) {
 			throw new ArynBusinessException("该用户已是船舶成员");
 		}
-		member.setId(null);
-		member.setTenantId(tenantId);
-		if (!StringUtils.hasText(member.getStatus())) {
-			member.setStatus(MEMBER_STATUS_ONBOARD);
+		String role = StringUtils.hasText(member.getMemberRole()) ? member.getMemberRole() : VesselMemberRole.CREW;
+		// 角色白名单：本接口直接接原始实体，此前 memberRole 传什么就落什么，
+		// 传 "1" 即可让被绑定人成为该船「发起人」。Registrar 内仍有一层兜底。
+		if (!VesselMemberRole.isAssignable(role)) {
+			throw new ArynBusinessException("成员角色不合法：" + role);
 		}
-		if (!StringUtils.hasText(member.getMemberRole())) {
-			member.setMemberRole("2");
-		}
-		member.setJoinTime(LocalDateTime.now());
-		vesselMemberMapper.insert(member);
-		return member;
+		// 走统一入口：被移出过的用户重新绑定会复用历史行（唯一键不含 del_flag，直接 insert 必撞键 1062）
+		memberRegistrar.ensureOnboard(tenantId, member.getVesselId(), member.getUserId(), role, "1",
+				VesselMemberRole.CONFIRMER.equals(role) ? "1" : "0", member.getRemark(), bindSource);
+		return vesselMemberMapper.selectOne(Wrappers.lambdaQuery(VesselMember.class)
+				.eq(VesselMember::getTenantId, tenantId)
+				.eq(VesselMember::getVesselId, member.getVesselId())
+				.eq(VesselMember::getUserId, member.getUserId()));
 	}
 
 	@Override

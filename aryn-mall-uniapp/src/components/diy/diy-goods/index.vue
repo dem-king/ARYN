@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { getByIds } from '@/api/product/spu'
 import { shouldShowOriginalPrice } from '@/components/diy/price-display'
+import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
 import QuickCartButton from '@/components/quick-cart-button/index.vue'
 import { useDiyStyle } from '@/composables/useDiyStyle'
 
@@ -74,13 +75,17 @@ const originalPriceStyle = computed(() => {
       >
         <view class="goods-li-box" @click="toJumpUrl(`/sub-pages/product/goods-detail/index?id=${item.id}`)">
           <view class="goods-item" :style="dynamicGoodsStyles">
-            <image
-              class="goods-img-one"
-              :src="resolveImageSrc(item.spuUrls[0])"
-              mode="aspectFill"
-              lazy-load
-              :style="{ borderRadius: `${showData.imageBorderSize}px` }"
-            />
+            <!-- 小程序 <image> 基座自带显式默认高，width:100% + aspect-ratio 不生效，
+                 用外层 padding-top 百分比（相对卡片宽度计算）把图片区锁成 1:1 -->
+            <view class="goods-img-box">
+              <image
+                class="goods-img-one"
+                :src="resolveImageSrc(item.spuUrls[0])"
+                mode="aspectFill"
+                lazy-load
+                :style="{ borderRadius: `${showData.imageBorderSize}px` }"
+              />
+            </view>
             <view class="goods-box-info">
               <view
                 v-if="showData.showName" class="goods-info-title"
@@ -89,7 +94,7 @@ const originalPriceStyle = computed(() => {
                 {{ item.name }}
               </view>
               <view
-                v-if="showData.showDesc && item.subTitle" class="goods-info-desc"
+                v-if="showData.showDesc && shouldShowSubtitle(item.name, item.subTitle)" class="goods-info-desc"
                 :style="{ 'color': showData.descColor, 'fontSize': `${showData.descSize}px`, 'font-weight': showData.descStyle === '1' ? 'bold' : '' }"
               >
                 {{ item.subTitle }}
@@ -186,11 +191,23 @@ const originalPriceStyle = computed(() => {
         .goods-item {
           position: relative;
           padding: 10px;
-          .goods-img-one {
+          /* 小程序 <image> 组件自带默认宽高，aspect-ratio 写在它上面不生效；
+             用 padding-top 百分比把图片区锁成 1:1（与 diy-goods-group 同口径） */
+          .goods-img-box {
+            position: relative;
             width: 100%;
-            aspect-ratio: 1;
-            display: block;
+            padding-top: 100%;
+            overflow: hidden;
             background-color: #f5f5f5;
+          }
+
+          .goods-img-one {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: block;
           }
 
           .goods-box-info {

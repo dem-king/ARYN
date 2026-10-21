@@ -142,6 +142,31 @@ export async function updateStatus(id: string, status: number): Promise<void> {
   });
 }
 
+/** 秒杀场次查询记录（管理端列表 / 装修器场次选择器） */
+export interface SeckillSessionRecord {
+  activityId: string;
+  activityName: string;
+  endTime: string;
+  id: string;
+  sessionName: string;
+  startTime: string;
+  status: number;
+}
+
+/**
+ * 分页查询秒杀场次（跨活动；ids 用于按 ID 批量回填已选场次，此时 size 传 ids 长度）
+ */
+export async function getSessionPage(query: {
+  current?: number;
+  ids?: string;
+  sessionName?: string;
+  size?: number;
+}): Promise<{ records: SeckillSessionRecord[]; total: number }> {
+  return requestClient.get('/promotion/seckill/session/page', {
+    params: query,
+  });
+}
+
 /**
  * C端秒杀场次（进行中）——装修预览与「手动选择场次」共用
  * 对应后端 AppSeckillController#getSessions

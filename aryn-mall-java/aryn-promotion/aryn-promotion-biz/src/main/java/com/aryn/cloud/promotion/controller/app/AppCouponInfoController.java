@@ -15,8 +15,11 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 @Slf4j
 @AllArgsConstructor
@@ -35,6 +38,16 @@ public class AppCouponInfoController {
 			couponUser.setUserId(SecurityUtils.getUser().getUserId());
 		}
 		return Result.success(couponInfoService.getPage(page, couponInfo, couponGoods, couponUser));
+	}
+
+	@Operation(summary = "按ids批量查询优惠券")
+	@GetMapping("/byIds/{ids}")
+	public Result<List<CouponInfo>> byIds(@PathVariable List<String> ids) {
+		CouponUser couponUser = new CouponUser();
+		if (StpUtil.isLogin()) {
+			couponUser.setUserId(SecurityUtils.getUser().getUserId());
+		}
+		return Result.success(couponInfoService.listByIds(ids, couponUser));
 	}
 
 }

@@ -15,6 +15,23 @@ public interface MessageDispatchTaskMapper extends BaseMapper<MessageDispatchTas
 
 	MessageDispatchTask selectByIdForUpdate(@Param("tenantId") String tenantId, @Param("id") String id);
 
+	List<MessageDispatchTask> selectByMessageIds(@Param("tenantId") String tenantId,
+			@Param("messageIds") List<String> messageIds);
+
+	List<MessageDispatchTask> selectByMessageId(@Param("tenantId") String tenantId,
+			@Param("messageId") String messageId);
+
+	int resetFailedTasks(@Param("tenantId") String tenantId, @Param("taskIds") List<String> taskIds,
+			@Param("operatorId") String operatorId);
+
+	int resetTasksForRepublish(@Param("tenantId") String tenantId, @Param("taskIds") List<String> taskIds,
+			@Param("operatorId") String operatorId);
+
+	int cancelPendingTasks(@Param("tenantId") String tenantId, @Param("messageId") String messageId,
+			@Param("operatorId") String operatorId);
+
+	int markCanceled(@Param("tenantId") String tenantId, @Param("taskId") String taskId);
+
 	@InterceptorIgnore(tenantLine = "true")
 	List<MessageDispatchTask> selectRecoveryTasks(@Param("staleBefore") LocalDateTime staleBefore,
 			@Param("limit") int limit);

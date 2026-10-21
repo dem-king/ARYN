@@ -131,12 +131,17 @@ class CodPayRemindServiceImplTest {
 		assertThat(buyer.getTitle()).isEqualTo("货到付款订单待付款");
 		assertThat(buyer.getContent()).contains("1800").contains("1001");
 		assertThat(buyer.getJumpPayload()).contains("\"bizType\"").contains("\"ORDER\"").contains("1001");
+		// 买家侧卡片负载不随管理端深链调整
+		assertThat(buyer.getCardPayload()).contains("\"orderId\":\"1001\"").contains("\"amount\":\"1800\"");
 		MessageSendCommand admin = (MessageSendCommand) commands.get(1);
 		assertThat(admin.getEventId()).isEqualTo("cod-pay-remind:admin:1001:R1");
 		assertThat(admin.getRecipientType()).isEqualTo(MessageIdentityType.SYS_USER.name());
 		assertThat(admin.getRecipientId()).isEqualTo("9001");
 		assertThat(admin.getRecipientName()).isEqualTo("张管理");
 		assertThat(admin.getContent()).contains("第 1 轮");
+		// jump_payload 落 json 列且消费端要求 JSON 对象，裸路由会整条消息被拒（DLQ）
+		assertThat(admin.getJumpPayload()).startsWith("{").endsWith("}")
+			.contains("\"route\":\"/order/detail?id=1001\"");
 	}
 
 	@Test

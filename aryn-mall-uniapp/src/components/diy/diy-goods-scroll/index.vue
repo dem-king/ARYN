@@ -7,6 +7,7 @@ import RetailState from '@/components/diy/retail-state.vue'
 import { retailCommonStyle } from '@/components/diy/retail-types'
 import { useDiyStyle } from '@/composables/useDiyStyle'
 import { useRetailData } from '@/composables/useRetailData'
+import { useMallThemeStore } from '@/store/mallThemeStore'
 
 interface GoodsScrollProps {
   commonStyle?: any
@@ -59,6 +60,9 @@ const showData = computed(() => ({
 const dynamicStyles = useDiyStyle(computed(() => showData.value.commonStyle))
 // 与商品排行/活动等零售组件一致：加载中出骨架屏，空态与失败态按后台选的兜底策略决定是否渲染
 const { items: goodsList, shouldRender, status } = useRetailData(showData, loadGoodsGroup)
+
+/** 全站自动动效总开关（商城主题配置）；关闭时轮播页停止自动播放 */
+const mallThemeStore = useMallThemeStore()
 
 // 横向留白与卡片间距（rpx），对齐原型设计令牌的 12px 页边距与 10px 卡间距。
 // 留白放在内层而不是根节点：根节点的 padding 会被装修的 commonStyle 以内联样式
@@ -210,12 +214,12 @@ function originalPriceText(item: { price: number, originalPrice: number }) {
       </view>
     </scroll-view>
 
-    <!-- 自动轮播模式：每页 perView 个商品 -->
+    <!-- 自动轮播模式：每页 perView 个商品；全站关自动动效时退化为手动横滑 -->
     <swiper
       v-else
       class="gs-swiper"
       circular
-      :autoplay="true"
+      :autoplay="mallThemeStore.autoMotionEnabled"
       :interval="showData.interval"
       :duration="400"
       :indicator-dots="false"

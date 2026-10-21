@@ -119,7 +119,8 @@ public class OrderInfoController {
 		if (CommonConstants.YES.equals(orderInfo.getPayStatus())) {
 			return Result.fail(MallErrorCodeEnum.ERROR_60006.getCode(), MallErrorCodeEnum.ERROR_60006.getMsg());
 		}
-		return Result.success(orderInfoService.cancelOrder(orderInfo));
+		return Result.success(orderInfoService.cancelOrder(orderInfo,
+				com.aryn.cloud.order.service.OrderStaffNotifyService.CancelSource.ADMIN));
 	}
 
 	@Operation(summary = "订单发货")

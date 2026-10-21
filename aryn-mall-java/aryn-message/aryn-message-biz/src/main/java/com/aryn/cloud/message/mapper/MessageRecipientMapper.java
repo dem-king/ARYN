@@ -2,6 +2,7 @@ package com.aryn.cloud.message.mapper;
 
 import com.aryn.cloud.message.api.entity.MessageRecipient;
 import com.aryn.cloud.message.api.vo.notice.NoticeInboxItemVO;
+import com.aryn.cloud.message.api.vo.notice.NoticeRecipientStatsVO;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -37,4 +38,7 @@ public interface MessageRecipientMapper extends BaseMapper<MessageRecipient> {
 	MessageRecipient selectRecipient(@Param("tenantId") String tenantId,
 			@Param("recipientType") String recipientType, @Param("recipientId") String recipientId,
 			@Param("messageId") String messageId);
+
+	List<NoticeRecipientStatsVO> selectStatsByMessageIds(@Param("tenantId") String tenantId,
+			@Param("messageIds") List<String> messageIds);
 }

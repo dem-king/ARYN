@@ -40,6 +40,12 @@ function expireDeliveryAuthentication() {
 }
 
 export function isDeliveryRequest(method?: Method) {
+  // beforeRequest 已按 URL/authScope 判定过一次并写进 meta：响应侧再判时 authScope
+  // 头已被删除，必须读 meta。否则 /message/staff/** 这类 URL 不带配送特征的配送请求
+  // 会被当成商城请求，401 时错清商城登录态并把司机踢到商城登录页。
+  if ((method?.config?.meta as { deliveryRequest?: boolean } | undefined)?.deliveryRequest === true) {
+    return true
+  }
   const url = method?.url || ''
   return url.includes('/app/delivery/')
     || url.includes('/staff/delivery-evidence/')

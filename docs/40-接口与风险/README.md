@@ -7,6 +7,7 @@
 - [多租户 SQL 硬约束](#多租户-sql-硬约束)：改 Mapper 前必读。
 - [租户上下文线程规则](#租户上下文线程规则)：改 Dubbo 过滤器或 `ArynTenantContextHolder` 前必读。
 - [免登白名单与 401 语义](#免登白名单与-401-语义)：新增 C 端公开接口或排查「登录已过期」误报前必读。
+- [免登登录端点的凭证自校验](#免登登录端点的凭证自校验)：改登录端点 / 验证码过滤器前必读。
 - [C 端接口权限与 403 语义](#c-端接口权限与-403-语义)：C 端页面调接口、排查「登录一直过期」前必读。
 
 接口状态来自静态路径与 Controller 对照，不代表真实服务、权限和数据库联调通过。
@@ -65,6 +66,64 @@ ERROR 1052 (23000): Column 'tenant_id' in on clause is ambiguous
 把「前端 skipToken 接口清单」与「boot/cloud 白名单」绑成契约，并反查需登录接口
 未被过宽白名单顺带放开；前端 `src/api/core/public-request.test.ts` 直接驱动
 `handleAlovaResponse`，断言免登 401 不清登录态、带凭证 401 仍照旧清态跳登录。
+
+## 免登登录端点的凭证自校验
+
+**`/token/**`、`/toc-token/**` 在免登白名单内，只是让登录请求能进 Controller，不是免认证承诺**：
+凭证校验必须由登录端点自己完成（密码 / 图形验证码 / 短信验证码）。新增或改名登录端点时，
+务必同步验证码过滤器匹配的路径常量，否则等于「知道账号即可登录」。
+
+**踩坑记录（P0，2026-10-21 修复并重新部署）**：管理端短信登录真实路径是
+`POST /token/sms/login`（`TobTokenController.smsLogin`），而 `SmsValidateCodeFilter` 只匹配
+`/token/phone/login`、`/toc-token/sms/login`、`/tenant/register`；`LoginService.smsLogin`
+又只按手机号查用户、从不读 `code`。结果：`POST /token/sms/login?phone=<管理员手机号>`
+**无需任何凭证即签发管理端 TOB token**（实测返回 `loginDeviceType=TOB`，攻击者可完全接管后台）。
+
+修复内容：
+
+1. `SecurityConstants.TOB_SMS_TOKEN` 常量纳入过滤器匹配；验证码在 Redis
+   `sms_code_<phone>`（5 分钟 TTL）比对，校验通过即删除。
+2. 顺带修掉历史 bug：原实现 `redisTemplate.delete(key)` 删的是 **code 值本身**而不是
+   `sms_code_<phone>`，验证码实际未消费、5 分钟内可重放；改为删缓存 key。
+3. 过滤器在 DispatcherServlet 之前执行，抛异常会返回裸 500（绕过全局异常处理）→
+   改为按项目出参约定写 `Result.fail(msg)` JSON（HTTP 200 + 业务码），前端可提示
+   「验证码为空 / 验证码不合法」。
+4. 管理端 `mobileLoginApi` 改为表单提交：原实现发 JSON body，后端
+   `smsLogin(String phone)` 与过滤器 `getParameter("code")` 都读不到参数。该 UI 入口
+   因此一直不可用，但 **API 层的绕过仍可被直接利用**（本次实测可签发 token）。
+
+**守门测试**：`aryn-auth/.../filter/SmsValidateCodeFilterTest`（缺码/错码/过期码拒绝、
+正确码放行且按 `sms_code_<phone>` 消费、C 端路径同防、密码登录路径不受影响）；
+管理端 `login-security.test.ts` 锁住 `mobileLoginApi` 必须使用
+`application/x-www-form-urlencoded`。
+
+**短信发送端点频控（2026-10-21 晚补齐）**：`GET /sms/{type}/{mobile}` 免登可调，已加 Redis 三级频控
+（同手机号 60 秒冷却 / 同手机号 5 次每小时 / 同 IP 20 次每小时，只作用于真正发短信的
+`login`/`update`；验证码在 5 分钟有效期内时直接返回成功、不重发也不消耗配额）。
+实现见 `SysSmsServiceImpl#assertSendAllowed`，IP 解析见 `SysSmsController#resolveClientIp`，
+守门测试 `SysSmsServiceImplTest` / `SysSmsControllerTest`。
+
+**三项加固（2026-10-21 晚第二轮，均已部署验证）**：
+
+1. **验证码校验失败计数**：`SmsCodeVerifier`（common-security 自动装配）用一段 Lua 原子完成
+   「比对 + 一次性消费 + 失败计数 + 超限作废」，同一条验证码累计错误 5 次即删除并提示
+   「验证码错误次数过多，请重新获取验证码」。管理端/C 端短信登录过滤器与小程序换绑手机号
+   共用该组件，不再各写一份 Lua（旧的换绑脚本只做校验+删除、没有失败计数）。
+2. **发送前图形验证码**：`type=login` 必须携带 `captchaVerification`（管理端 `Verify` 滑动拼图 →
+   `/code/check` 生成的一次性票据），后端校验共享 Redis 中的
+   `RUNNING:CAPTCHA:second-<captchaVerification>`（aj-captcha 1.4.0 内部 key 格式，
+   由 `CaptchaSecondVerificationKeyContractTest` 反射比对库常量守住），命中即删除。
+   管理端 `code-login.vue` 点「获取验证码」先拉起滑块，验证成功且短信发送成功后才启动倒计时。
+   `type=update`（小程序换绑手机号）是登录态流程，改为**必须已登录**（未登录返回业务码 401），
+   避免给 C 端强行引入滑块 SDK。
+3. **IP 频控防伪造**：新增 `sms.rate-limit.trust-forwarded-headers` 配置。boot 单体直连置 `false`
+   （只用 `remoteAddr`，伪造 `X-Forwarded-For` 无效）；cloud 在 upms 的 nacos 配置里置 `true`
+   （取 XFF **最后一跳**，即网关追加的真实客户端 IP）。另加全局小时上限（Redis 共享，
+   默认 300 次/小时）作为换号 + 伪造 IP 的最终成本兜底。
+
+**仍未做 / 已知边界**：① 全局上限是固定常量（不是按租户/环境可配），如需按环境调参可升为配置项；
+② 图形验证码目前只覆盖管理端 `type=login`，C 端 `update` 用登录态 + 频控替代；
+③ 短信发送仍依赖阿里云模板/签名配置（当前 dev/prod yml 为占位值，真实发送需注入有效 AK/模板）。
 
 ## C 端接口权限与 403 语义
 

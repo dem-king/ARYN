@@ -190,6 +190,54 @@ export interface DiscountActivityItem {
   status: number
 }
 
+/**
+ * 新人专享楼层。
+ *
+ * 数据源固定为「当前进行中的新人价活动」，无需运营手配活动 ID；
+ * 仍继承 RetailBaseProps 以复用取数、空态与样式机制（dataSource 不参与取数）。
+ */
+export interface NewbieFloorProps extends RetailBaseProps {
+  /** 是否展示活动结束倒计时 */
+  showCountdown: boolean
+  /** 是否展示「新人」角标 */
+  showTag: boolean
+  /**
+   * 自动前进（分页式：一次一张卡）。
+   * 字段名沿用 autoScroll 以兼容已发布页面的存量数据；
+   * 语义已由「连续跑马灯」改为「分页步进 + 触摸暂停」。
+   */
+  autoScroll: boolean
+  /** 每张卡片的停留时长（毫秒） */
+  interval: number
+  /** 区块主色（6 位 hex）用于淡色底纹，空串跟随页面主题色 */
+  mainColor: string
+  title: string
+}
+
+/** 新人价商品项（已归一化） */
+export interface NewbieGoodsItem {
+  goodsImage: string
+  goodsName: string
+  /** 新人专享价 */
+  newbiePrice: number
+  /** 划线原价（当前售价） */
+  originalPrice: number
+  skuId: string
+  spuId: string
+}
+
+/** 新人专享活动（已归一化，单活动） */
+export interface NewbieFloorItem {
+  activityId: string
+  activityName: string
+  endTime: string
+  /** 每人每 SKU 限购件数（固定 1） */
+  limitPerUser: number
+  /** 注册时效（天），0 表示不限 */
+  registerWithinDays: number
+  goodsList: NewbieGoodsItem[]
+}
+
 export interface GoodsWaterfallProps extends RetailBaseProps {
   columns: 2 | 3
   /** 是否展示划线原价（仅当商品原价高于售价时可见） */
@@ -197,6 +245,34 @@ export interface GoodsWaterfallProps extends RetailBaseProps {
   showPrice: boolean
   showSales: boolean
   title: string
+}
+
+/**
+ * 多 Tab 商品流中的单个 Tab。
+ *
+ * 每个 Tab 拥有独立数据源与分页状态：首次切换才取数，切回直接复用缓存，
+ * 触底加载只作用于当前 Tab。数据源语义与其它零售组件一致：
+ * automatic 按分类/排序取数，manual 只展示运营手选商品。
+ */
+export interface GoodsTabConfig {
+  dataSource: RetailDataSource
+  id: string
+  title: string
+}
+
+export interface GoodsTabsProps {
+  columns: 2 | 3
+  commonStyle: RetailCommonStyle
+  count: number
+  emptyStrategy: RetailFallbackStrategy
+  invalidStrategy: RetailFallbackStrategy
+  /** 是否展示划线原价（仅当商品原价高于售价时可见） */
+  showOriginalPrice: boolean
+  showPrice: boolean
+  showSales: boolean
+  /** Tab 栏是否吸顶（随页面滚动停在导航栏下方） */
+  stickyTabs: boolean
+  tabs: GoodsTabConfig[]
 }
 
 export interface CouponComboProps extends RetailBaseProps {

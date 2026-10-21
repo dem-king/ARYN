@@ -1,44 +1,67 @@
 <script lang="ts" setup>
-import { onMounted, ref, watch } from 'vue';
+import type { ProductLifecycleVO } from '#/api/product/goods-statistics';
+
+import { computed, onMounted, ref, watch } from 'vue';
 
 import { useDebounceFn } from '@vueuse/core';
 import dayjs from 'dayjs';
+import { ElAlert } from 'element-plus';
 
 import { getProductSalesAnalysis } from '#/api/order/order-statistics';
-import {
-  getLowStockTop10,
-  getProductOverview,
-  getProductPraiseTop10,
-  getProductVisitTop10,
-  getProductVisitTrend,
-} from '#/api/product/goods-statistics';
+import { getProductDashboardStatistics } from '#/api/product/goods-statistics';
+import { formatPercent } from '#/utils/percent';
 
-import AnalyticsHeader from '../analytics/components/AnalyticsHeader.vue';
-import ProductCategoryAnalysis from './components/ProductCategoryAnalysis.vue';
+import { downloadCsv } from '../shared/csv';
+import DashboardHeader from '../shared/DashboardHeader.vue';
+import DashboardSkeleton from '../shared/DashboardSkeleton.vue';
+import { settle } from '../shared/settle';
+import { useDashboardRange } from '../shared/use-dashboard-range';
 import ProductCoreMetrics from './components/ProductCoreMetrics.vue';
+import ProductLifecycle from './components/ProductLifecycle.vue';
+import ProductPraiseRanking from './components/ProductPraiseRanking.vue';
 import ProductSalesRanking from './components/ProductSalesRanking.vue';
 import ProductTrend from './components/ProductTrend.vue';
 
-const timeRange = ref<string>('30d');
-const loading = ref(false);
+interface SalesData {
+  avgPrice: number;
+  salesAmount: number;
+  salesItemCount: number;
+  salesProductCount: number;
+  sellThroughRate: number;
+}
 
-// Reactive data objects
+const {
+  compare,
+  compareMode,
+  currentRange,
+  customEnd,
+  customStart,
+  previousRange,
+  rangeKey,
+} = useDashboardRange();
+
+const loading = ref(false);
+const hasLoaded = ref(false);
+const lastUpdated = ref('');
+const loadError = ref('');
+
 const scaleData = ref({
   total: 0,
   onSale: 0,
   offShelf: 0,
-  pendingReview: 0,
   totalStock: 0,
   lowStock: 0,
 });
 
-const salesData = ref({
+const salesData = ref<SalesData>({
   salesProductCount: 0,
   salesItemCount: 0,
   salesAmount: 0,
   avgPrice: 0,
   sellThroughRate: 0,
 });
+const previousSalesData = ref<null | SalesData>(null);
+const lifecycleData = ref<null | ProductLifecycleVO>(null);
 
 const trendData = ref({
   dates: [] as string[],
@@ -48,125 +71,186 @@ const trendData = ref({
 
 const visitRankData = ref<any[]>([]);
 const stockWarningData = ref<any[]>([]);
-const reviewRankData = ref<any[]>([]);
+const praiseRankData = ref<any[]>([]);
+
+const rangeLabel = computed(
+  () =>
+    ({
+      '30d': '近30天',
+      '7d': '近7天',
+      custom: '自定义',
+      today: '今日',
+    })[rangeKey.value] ?? '商品分析',
+);
+
+const deltaLabel = computed(() =>
+  compareMode.value === 'year' ? '较去年同期' : '较上期',
+);
 
 const fetchData = useDebounceFn(async () => {
   loading.value = true;
+  loadError.value = '';
   try {
-    const format = 'YYYY-MM-DD HH:mm:ss';
-    let startTime = '';
-    let endTime = dayjs().format(format);
-
-    switch (timeRange.value) {
-      case '7d': {
-        startTime = dayjs().subtract(7, 'day').startOf('day').format(format);
-        break;
-      }
-      case '30d': {
-        startTime = dayjs().subtract(30, 'day').startOf('day').format(format);
-        break;
-      }
-      case 'today': {
-        startTime = dayjs().startOf('day').format(format);
-        break;
-      }
-      // 保留兼容性，如果还有其他地方用到 yesterday
-      case 'yesterday': {
-        startTime = dayjs().subtract(1, 'day').startOf('day').format(format);
-        endTime = dayjs().subtract(1, 'day').endOf('day').format(format);
-        break;
-      }
-    }
-
-    const commonParams = {
-      startTime,
-      endTime,
-    };
-
-    const [
-      overviewRes,
-      trendRes,
-      visitTop10Res,
-      praiseTop10Res,
-      lowStockRes,
-      salesAnalysisRes,
-    ] = await Promise.all([
-      getProductOverview({}),
-      getProductVisitTrend(commonParams),
-      getProductVisitTop10(commonParams),
-      getProductPraiseTop10(commonParams),
-      getLowStockTop10(),
-      getProductSalesAnalysis(commonParams),
+    const [productRes, salesRes, previousSalesRes] = await Promise.all([
+      settle(getProductDashboardStatistics(currentRange.value)),
+      settle(getProductSalesAnalysis(currentRange.value)),
+      compare.value
+        ? settle(getProductSalesAnalysis(previousRange.value))
+        : Promise.resolve({ data: undefined, error: undefined }),
     ]);
 
-    // 1. 商品概览
-    if (overviewRes) {
-      scaleData.value = {
-        total:
-          (overviewRes.onSaleCount || 0) +
-          (overviewRes.offShelfCount || 0) +
-          (overviewRes.pendingReviewCount || 0),
-        onSale: overviewRes.onSaleCount || 0,
-        offShelf: overviewRes.offShelfCount || 0,
-        pendingReview: overviewRes.pendingReviewCount || 0,
-        totalStock: overviewRes.totalStock || 0, // 接口暂无
-        lowStock: overviewRes.lowStockCount || 0,
+    const failed: string[] = [];
+
+    if (productRes.error) {
+      failed.push('商品统计');
+    } else if (productRes.data) {
+      const dashboard = productRes.data;
+
+      if (dashboard.overview) {
+        scaleData.value = {
+          total:
+            (dashboard.overview.onSaleCount || 0) +
+            (dashboard.overview.offShelfCount || 0),
+          onSale: dashboard.overview.onSaleCount || 0,
+          offShelf: dashboard.overview.offShelfCount || 0,
+          totalStock: dashboard.overview.totalStock || 0,
+          lowStock: dashboard.overview.lowStockCount || 0,
+        };
+      }
+
+      if (Array.isArray(dashboard.visitTrend)) {
+        trendData.value = {
+          dates: dashboard.visitTrend.map((item) => item.timePoint),
+          pv: dashboard.visitTrend.map((item) => item.pv),
+          uv: dashboard.visitTrend.map((item) => item.uv),
+        };
+      }
+
+      visitRankData.value = Array.isArray(dashboard.visitTop10)
+        ? dashboard.visitTop10.map((item, index) => ({
+            id: String(index),
+            name: item.spuName,
+            cover: item.picUrl,
+            pv: item.pv,
+            uv: item.uv,
+          }))
+        : [];
+
+      praiseRankData.value = Array.isArray(dashboard.praiseTop10)
+        ? dashboard.praiseTop10.map((item, index) => ({
+            id: String(index),
+            name: item.spuName,
+            rate: Number(item.goodAppraiseRate) || 0,
+            count: item.goodAppraiseCount || 0,
+          }))
+        : [];
+
+      stockWarningData.value = Array.isArray(dashboard.lowStockTop10)
+        ? dashboard.lowStockTop10.map((item, index) => ({
+            id: item.id || String(index),
+            name: item.name,
+            cover: item.picUrl,
+            stock: item.stock,
+            status: '库存紧张',
+          }))
+        : [];
+
+      lifecycleData.value = dashboard.lifecycle || null;
+    }
+
+    if (salesRes.error) {
+      failed.push('销售能力');
+    } else if (salesRes.data) {
+      salesData.value = {
+        salesProductCount: salesRes.data.activeProductCount || 0,
+        salesItemCount: salesRes.data.salesCount || 0,
+        salesAmount: salesRes.data.salesAmount || 0,
+        avgPrice: salesRes.data.averageTicketSize || 0,
+        sellThroughRate: salesRes.data.activeProductRate || 0,
       };
     }
 
-    // 2. 访问趋势
-    const trendList = trendRes || [];
-    trendData.value = {
-      dates: trendList.map((item) => item.timePoint),
-      pv: trendList.map((item) => item.pv),
-      uv: trendList.map((item) => item.uv),
-    };
+    if (compare.value && previousSalesRes.error) {
+      failed.push('对比数据');
+    }
+    previousSalesData.value =
+      salesRes.data && previousSalesRes.data
+        ? {
+            salesProductCount: previousSalesRes.data.activeProductCount || 0,
+            salesItemCount: previousSalesRes.data.salesCount || 0,
+            salesAmount: previousSalesRes.data.salesAmount || 0,
+            avgPrice: previousSalesRes.data.averageTicketSize || 0,
+            sellThroughRate: previousSalesRes.data.activeProductRate || 0,
+          }
+        : null;
 
-    // 3. 浏览排行 Top10
-    const visitList = visitTop10Res || [];
-    visitRankData.value = visitList.map((item, index) => ({
-      id: String(index),
-      name: item.spuName,
-      cover: item.picUrl,
-      pv: item.pv,
-      uv: item.uv,
-    }));
-
-    // 4. 好评榜 Top10
-    const praiseList = praiseTop10Res || [];
-    reviewRankData.value = praiseList.map((item, index) => ({
-      id: String(index),
-      name: item.spuName,
-      score: item.goodAppraiseRate ? Number(item.goodAppraiseRate) : 0,
-    }));
-
-    // 5. 库存预警
-    const lowStockList = lowStockRes || [];
-    stockWarningData.value = lowStockList.map((item, index) => ({
-      id: item.id || String(index),
-      name: item.name,
-      cover: item.picUrl,
-      stock: item.stock,
-      status: '库存紧张',
-    }));
-
-    // Simulate API calls with mock data
-    salesData.value = {
-      salesProductCount: salesAnalysisRes?.activeProductCount || 0,
-      salesItemCount: salesAnalysisRes?.salesCount || 0,
-      salesAmount: salesAnalysisRes?.salesAmount || 0,
-      avgPrice: salesAnalysisRes?.averageTicketSize || 0,
-      sellThroughRate: salesAnalysisRes?.activeProductRate || 0,
-    };
+    loadError.value =
+      failed.length > 0 ? `部分数据加载失败：${failed.join('、')}` : '';
+    lastUpdated.value = dayjs().format('HH:mm:ss');
+    hasLoaded.value = true;
   } catch (error) {
     console.error('Failed to fetch product analytics data', error);
-    loading.value = false;
+    loadError.value = '商品分析数据加载失败，请稍后重试';
   } finally {
     loading.value = false;
   }
 }, 100);
 
-watch([timeRange], () => {
+const handleExport = () => {
+  const rows: unknown[][] = [
+    ['商品规模', '数值'],
+    ['商品总数', scaleData.value.total],
+    ['在售商品', scaleData.value.onSale],
+    ['下架商品', scaleData.value.offShelf],
+    ['库存总量', scaleData.value.totalStock],
+    ['库存预警', scaleData.value.lowStock],
+    [],
+    ['商品生命周期', '数量'],
+    ['近30天新品', lifecycleData.value?.newCount || 0],
+    ['动销商品', lifecycleData.value?.activeCount || 0],
+    ['滞销商品', lifecycleData.value?.slowMovingCount || 0],
+    ['缺货商品', lifecycleData.value?.outOfStockCount || 0],
+    [],
+    ['销售能力', '数值'],
+    ['动销商品数', salesData.value.salesProductCount],
+    ['销售件数', salesData.value.salesItemCount],
+    ['销售额', salesData.value.salesAmount],
+    ['客单价', salesData.value.avgPrice],
+    ['动销率', formatPercent(salesData.value.sellThroughRate)],
+    [],
+    ['日期', '浏览量(PV)', '访客数(UV)'],
+    ...trendData.value.dates.map((date, index) => [
+      date,
+      trendData.value.pv[index] ?? 0,
+      trendData.value.uv[index] ?? 0,
+    ]),
+    [],
+    ['浏览排行 TOP10', '商品名称', '浏览量(PV)', '访客数(UV)'],
+    ...visitRankData.value.map((item, index) => [
+      index + 1,
+      item.name,
+      item.pv,
+      item.uv,
+    ]),
+    [],
+    ['库存预警', '剩余库存'],
+    ...stockWarningData.value.map((item) => [item.name, item.stock]),
+    [],
+    ['好评榜 TOP10', '商品名称', '好评率', '好评数'],
+    ...praiseRankData.value.map((item, index) => [
+      index + 1,
+      item.name,
+      formatPercent(item.rate, 1),
+      item.count,
+    ]),
+  ];
+  downloadCsv(
+    `商品分析_${rangeLabel.value}_${dayjs().format('YYYYMMDD_HHmm')}.csv`,
+    rows,
+  );
+};
+
+watch([rangeKey, customStart, customEnd, compare], () => {
   fetchData();
 });
 
@@ -177,38 +261,58 @@ onMounted(() => {
 
 <template>
   <div class="p-4">
-    <AnalyticsHeader
-      v-model:time-range="timeRange"
-      @change="fetchData"
-      @init="fetchData"
+    <DashboardHeader
+      v-model:range-key="rangeKey"
+      v-model:custom-start="customStart"
+      v-model:custom-end="customEnd"
+      v-model:compare="compare"
+      v-model:compare-mode="compareMode"
+      :loading="loading"
+      :last-updated="lastUpdated"
+      exportable
+      @refresh="fetchData"
+      @export="handleExport"
     />
 
-    <!-- 核心指标卡片 -->
-    <div class="mb-4">
-      <ProductCoreMetrics
-        :scale="scaleData"
-        :sales="salesData"
-        :loading="loading"
-      />
-    </div>
+    <ElAlert
+      v-if="loadError"
+      :title="loadError"
+      type="warning"
+      show-icon
+      :closable="false"
+      class="mb-4"
+    />
 
-    <!-- 商品访问趋势图 -->
-    <ProductTrend :data="trendData" :loading="loading" />
+    <DashboardSkeleton v-if="loading && !hasLoaded" />
 
-    <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
-      <!-- 销量排行 & 滞销商品 (占 2/3 宽度) -->
-      <div class="lg:col-span-2">
-        <ProductSalesRanking
-          :visit-rank="visitRankData"
-          :stock-warning="stockWarningData"
+    <template v-else>
+      <div class="mb-4">
+        <ProductCoreMetrics
+          :scale="scaleData"
+          :sales="salesData"
+          :previous="previousSalesData"
+          :delta-label="deltaLabel"
           :loading="loading"
         />
       </div>
 
-      <!-- 商品好评榜 (占 1/3 宽度) -->
-      <div class="lg:col-span-1">
-        <ProductCategoryAnalysis :data="reviewRankData" :loading="loading" />
+      <ProductLifecycle :data="lifecycleData" :loading="loading" />
+
+      <ProductTrend :data="trendData" :loading="loading" />
+
+      <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div class="lg:col-span-2">
+          <ProductSalesRanking
+            :visit-rank="visitRankData"
+            :stock-warning="stockWarningData"
+            :loading="loading"
+          />
+        </div>
+
+        <div class="lg:col-span-1">
+          <ProductPraiseRanking :data="praiseRankData" :loading="loading" />
+        </div>
       </div>
-    </div>
+    </template>
   </div>
 </template>

@@ -17,6 +17,8 @@ import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @Slf4j
 @AllArgsConstructor
 @RestController
@@ -40,6 +42,13 @@ public class CouponInfoController {
 	@GetMapping("/{id}")
 	public Result getById(@PathVariable("id") String id) {
 		return Result.success(couponInfoService.getCouponById(id));
+	}
+
+	@Operation(summary = "通过ids批量查询优惠券")
+	@SaCheckPermission("promotion:couponinfo:get")
+	@GetMapping("/byIds/{ids}")
+	public Result getByIds(@PathVariable List<String> ids) {
+		return Result.success(couponInfoService.listForAdminByIds(ids));
 	}
 
 	@SysLog("新增优惠券")

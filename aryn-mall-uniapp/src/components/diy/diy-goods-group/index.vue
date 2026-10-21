@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import type { GoodsGroupProps } from '@/components/diy/retail-types'
 
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { followDecorationLink } from '@/components/diy/link-resolver'
+import { mergePagedItems } from '@/components/diy/retail-paged-list'
 import { shouldShowOriginalPrice } from '@/components/diy/price-display'
+import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
 import {
   loadGoodsGroup,
   loadGoodsGroupPage,
@@ -57,11 +59,22 @@ async function queryList(pageNo: number, pageSize: number) {
       return
     }
     const { list, total } = await loadGoodsGroupPage(showData.value, pageNo, pageSize)
-    // 注意：complete 的第二参是 success(布尔)，传总数必须用 completeByTotal，
-    // 否则 z-paging 拿不到 total，会退化成“按返回条数<每页条数”猜测是否到底，导致自动续页中途停在“点击加载更多”
-    await pagingRef.value?.completeByTotal(list, total)
+    // 按 id 去重并限制单楼层条数：销量并列或翻页期间数据变化都可能返回重复商品
+    const { items, reachedLimit } = mergePagedItems(goodsList.value, list)
+    const loadedCount = goodsList.value.length + items.length
+    const nomore = reachedLimit || list.length === 0 || (total > 0 && loadedCount >= total)
+    await pagingRef.value?.completeByNoMore(items, nomore)
   })
 }
+
+// 下拉刷新会重新下发页面 JSON，但组件实例按 id 复用；显式 reload 才能重置列表和价格
+watch(
+  () => [showData.value.dataSource, showData.value.count],
+  () => {
+    pagingRef.value?.reload?.()?.catch?.(() => {})
+  },
+  { deep: true },
+)
 
 function openGoods(id: string) {
   followDecorationLink({ params: {}, path: '', targetId: id, type: 'goods' })
@@ -103,6 +116,9 @@ function openGoods(id: string) {
           </view>
           <view class="goods-name">
             {{ item.name }}
+          </view>
+          <view v-if="shouldShowSubtitle(item.name, item.subTitle)" class="goods-subtitle">
+            {{ item.subTitle }}
           </view>
           <view class="goods-meta">
             <view class="goods-meta-text">
@@ -150,6 +166,7 @@ function openGoods(id: string) {
 .goods-image { position: absolute; top: 0; left: 0; display: flex; width: 100%; height: 100%; align-items: center; justify-content: center; color: #a8abb2; font-size: 24rpx; }
 .goods-image--empty { background: #f3f4f6; }
 .goods-name { overflow: hidden; margin: 14rpx 14rpx 8rpx; color: #303133; font-size: 26rpx; text-overflow: ellipsis; white-space: nowrap; }
+.goods-subtitle { overflow: hidden; margin: 0 14rpx 8rpx; color: #909399; font-size: 22rpx; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
 .goods-meta { display: flex; margin: 0 14rpx 14rpx; align-items: center; justify-content: space-between; gap: 8rpx; }
 .goods-meta-text { min-width: 0; display: flex; flex-direction: column; }
 .goods-price-line { display: flex; align-items: baseline; gap: 6rpx; min-width: 0; }

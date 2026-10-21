@@ -33,9 +33,11 @@ export interface UseDraftSaveOptions<TPayload> {
  * 判定是否为草稿修订号冲突。
  *
  * 后端 `ArynBusinessException` 走的是 **HTTP 200 + body.code=1**，
- * 由 `defaultResponseInterceptor` 抛出，错误对象形状为
- * `{ response: { status: 200, data: { code: 1, msg: '草稿已被其他人修改，请重新加载' } } }`
- * ——既不是 409，也没有 `DRAFT_CONFLICT` 码。因此这里必须按响应体判定，
+ * 由 `defaultResponseInterceptor` 抛出。注意 `RequestClient.request` 在
+ * catch 中会做解包（`throw error.response ? error.response.data : error`），
+ * 因此到达这里的错误通常是**裸响应体** `{ code, msg }`；
+ * 未经解包的 `{ response: { status: 200, data: { code: 1, msg } } }`
+ * 形状（拦截器链直接抛出时）也要兼容。两种形状都必须按响应体文案判定，
  * 否则冲突会被误判成普通失败，状态停在"保存失败"而非"版本冲突"。
  */
 const DRAFT_CONFLICT_HINTS = [
@@ -48,6 +50,7 @@ function isConflict(error: unknown) {
   if (!error || typeof error !== 'object') return false;
   const candidate = error as {
     code?: unknown;
+    msg?: unknown;
     response?: { data?: { msg?: unknown }; status?: unknown };
     status?: unknown;
   };
@@ -56,7 +59,7 @@ function isConflict(error: unknown) {
   }
   if (candidate.response?.status === 409) return true;
 
-  const message = candidate.response?.data?.msg;
+  const message = candidate.response?.data?.msg ?? candidate.msg;
   return (
     typeof message === 'string' &&
     DRAFT_CONFLICT_HINTS.some((hint) => message.includes(hint))

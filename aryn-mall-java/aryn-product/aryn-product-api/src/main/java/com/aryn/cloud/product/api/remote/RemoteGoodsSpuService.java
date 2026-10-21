@@ -12,6 +12,7 @@ package com.aryn.cloud.product.api.remote;
 import com.aryn.cloud.product.api.entity.GoodsSpu;
 import com.aryn.cloud.product.api.vo.ProductOverviewVO;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -31,5 +32,13 @@ public interface RemoteGoodsSpuService {
 	 * @return 存在的 SPU 列表，含名称
 	 */
 	List<GoodsSpu> getSpuByIds(List<String> ids);
+
+	/**
+	 * 统计周期内商品访问去重用户数
+	 * @param startTime 开始时间
+	 * @param endTime 结束时间
+	 * @return 访客数
+	 */
+	Long countVisitors(LocalDateTime startTime, LocalDateTime endTime);
 
 }

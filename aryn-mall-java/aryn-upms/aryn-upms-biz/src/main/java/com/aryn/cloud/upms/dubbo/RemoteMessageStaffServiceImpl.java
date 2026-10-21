@@ -82,6 +82,33 @@ public class RemoteMessageStaffServiceImpl implements RemoteMessageStaffService 
 	}
 
 	@Override
+	public List<StaffMessageRecipientVO> queryRecipientsByPermission(String tenantId, List<String> permissions) {
+		requireTenant(tenantId);
+		List<StaffMessageRecipientVO> recipients = new ArrayList<>();
+		if (CollectionUtils.isEmpty(permissions)) {
+			return recipients;
+		}
+		List<String> codes = permissions.stream().filter(Objects::nonNull).filter(code -> !code.isBlank()).toList();
+		if (codes.isEmpty()) {
+			return recipients;
+		}
+		String cursor = null;
+		while (true) {
+			StaffMessageAudienceRequest request = new StaffMessageAudienceRequest();
+			request.setTenantId(tenantId);
+			request.setPermissions(codes);
+			request.setLimit(MAX_LIMIT);
+			request.setCursor(cursor);
+			StaffMessageAudiencePageVO page = queryRecipients(request);
+			recipients.addAll(page.getRecords());
+			if (!page.isHasMore()) {
+				return recipients;
+			}
+			cursor = page.getNextCursor();
+		}
+	}
+
+	@Override
 	public boolean isCustomerServiceStaff(String tenantId, String staffId) {
 		requireTenant(tenantId);
 		if (staffId == null || staffId.isBlank()) {

@@ -1,3 +1,5 @@
+import type { DiyCommonStyle } from '@vben/types';
+
 import type { DecorationLink } from '../../../page-designer/schema/types';
 
 const emptyLink = (): DecorationLink => ({
@@ -33,7 +35,47 @@ export interface ExtensionDataSourceConfig {
   targetIds?: string[];
 }
 
-export function createGoodsWaterfallDefaults() {
+export interface GoodsWaterfallProps extends Record<string, unknown> {
+  columns: 2 | 3;
+  commonStyle: DiyCommonStyle;
+  count: number;
+  dataSource: ExtensionDataSourceConfig;
+  showOriginalPrice: boolean;
+  showPrice: boolean;
+  showSales: boolean;
+  title: string;
+}
+
+export interface GoodsRecommendProps extends Record<string, unknown> {
+  commonStyle: DiyCommonStyle;
+  count: number;
+  dataSource: ExtensionDataSourceConfig;
+  showOriginalPrice: boolean;
+  showPrice: boolean;
+  title: string;
+}
+
+/** 多 Tab 商品流中的单个 Tab：每个 Tab 拥有独立的数据源与分页状态 */
+export interface GoodsTabConfig {
+  dataSource: ExtensionDataSourceConfig;
+  id: string;
+  title: string;
+}
+
+export interface GoodsTabsProps extends Record<string, unknown> {
+  columns: 2 | 3;
+  commonStyle: DiyCommonStyle;
+  count: number;
+  emptyStrategy: 'hide' | 'placeholder';
+  invalidStrategy: 'hide' | 'placeholder';
+  showOriginalPrice: boolean;
+  showPrice: boolean;
+  showSales: boolean;
+  stickyTabs: boolean;
+  tabs: GoodsTabConfig[];
+}
+
+export function createGoodsWaterfallDefaults(): GoodsWaterfallProps {
   return {
     columns: 2 as 2 | 3,
     commonStyle: { ...extensionCommonStyle },
@@ -180,7 +222,7 @@ export function createVideoLiveDefaults() {
 }
 
 export function validateVideoLive(props: Record<string, unknown>) {
-  if (props.mode === 'video' && !props.videoUrl) return ['请填写视频地址'];
+  if (props.mode === 'video' && !props.videoUrl) return ['请上传视频'];
   return [];
 }
 
@@ -226,7 +268,7 @@ export function validateImageCube(props: Record<string, unknown>) {
   return [];
 }
 
-export function createGoodsRecommendDefaults() {
+export function createGoodsRecommendDefaults(): GoodsRecommendProps {
   return {
     commonStyle: { ...extensionCommonStyle },
     count: 6,
@@ -252,5 +294,84 @@ export function validateGoodsRecommend(props: Record<string, unknown>) {
   ) {
     errors.push('手选商品不能为空');
   }
+  return errors;
+}
+
+export function createGoodsTabsDefaults(): GoodsTabsProps {
+  return {
+    columns: 2,
+    commonStyle: { ...extensionCommonStyle },
+    count: 10,
+    emptyStrategy: 'placeholder',
+    invalidStrategy: 'hide',
+    showOriginalPrice: true,
+    showPrice: true,
+    showSales: true,
+    stickyTabs: true,
+    tabs: [
+      {
+        dataSource: {
+          cacheTtl: 0,
+          categoryId: '',
+          mode: 'automatic',
+          sort: 'sales',
+          targetIds: [],
+        },
+        id: 'recommend',
+        title: '猜你喜欢',
+      },
+      {
+        dataSource: {
+          cacheTtl: 0,
+          categoryId: '',
+          mode: 'automatic',
+          sort: 'sales_price',
+          targetIds: [],
+        },
+        id: 'bargain',
+        title: '低价捡漏',
+      },
+      {
+        dataSource: {
+          cacheTtl: 0,
+          categoryId: '',
+          mode: 'automatic',
+          sort: 'create_time',
+          targetIds: [],
+        },
+        id: 'member',
+        title: '会员专区',
+      },
+    ],
+  };
+}
+
+export function validateGoodsTabs(props: Record<string, unknown>) {
+  const errors: string[] = [];
+  const tabs = (props.tabs ?? []) as GoodsTabConfig[];
+  if (!props.count || Number(props.count) <= 0)
+    errors.push('展示数量必须大于 0');
+  if (!Array.isArray(tabs) || tabs.length === 0)
+    errors.push('请至少配置一个 Tab');
+  if (tabs.length > 6) errors.push('最多配置 6 个 Tab');
+  const ids = new Set<string>();
+  tabs.forEach((tab, index) => {
+    if (!tab.title) errors.push(`第 ${index + 1} 个 Tab 标题不能为空`);
+    if (tab.id) {
+      if (ids.has(tab.id)) errors.push(`Tab 标识重复：${tab.id}`);
+      ids.add(tab.id);
+    }
+    const dataSource = tab.dataSource;
+    if (!dataSource || !['automatic', 'manual'].includes(dataSource.mode)) {
+      errors.push(`「${tab.title || `Tab ${index + 1}`}」数据源无效`);
+      return;
+    }
+    if (
+      dataSource.mode === 'manual' &&
+      (dataSource.targetIds ?? []).length === 0
+    ) {
+      errors.push(`「${tab.title || `Tab ${index + 1}`}」手选商品不能为空`);
+    }
+  });
   return errors;
 }

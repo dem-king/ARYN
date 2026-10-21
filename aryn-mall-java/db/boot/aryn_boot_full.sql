@@ -2,7 +2,7 @@
 -- 生成方式: node db/boot/build-full-sql.mjs
 -- 适用环境: MySQL 8.0.13+
 -- 警告: 本文件面向空库初始化，包含 DROP TABLE IF EXISTS，请勿用于存量生产库。
--- 生成日期: 2026-10-11
+-- 生成日期: 2026-10-21
 
 -- ============================================================================
 -- 创建数据库
@@ -37,6 +37,7 @@ DROP TABLE IF EXISTS `delivery_account_binding`;
 DROP TABLE IF EXISTS `delivery_qualification_operation`;
 DROP TABLE IF EXISTS `vessel_info`;
 DROP TABLE IF EXISTS `vessel_member`;
+DROP TABLE IF EXISTS `vessel_member_audit_log`;
 DROP TABLE IF EXISTS `vessel_call`;
 DROP TABLE IF EXISTS `shared_cart`;
 DROP TABLE IF EXISTS `shared_cart_member`;
@@ -57,6 +58,8 @@ DROP TABLE IF EXISTS `vessel_bind_apply`;
 DROP TABLE IF EXISTS `shared_cart_import`;
 DROP TABLE IF EXISTS `shared_cart_import_row`;
 DROP TABLE IF EXISTS `vessel_port_vehicle`;
+DROP TABLE IF EXISTS `dashboard_target`;
+DROP TABLE IF EXISTS `stat_daily_user_order`;
 USE aryn_boot;
 
 SET NAMES utf8mb4;
@@ -21068,5 +21071,879 @@ SELECT m.`id`, m.`name`, m.`permission`, m.`type`,
 FROM `sys_menu` m
 WHERE m.`id` BETWEEN '2110000000000000730' AND '2110000000000000734'
 ORDER BY m.`id`;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 船供活动熔断字段（预算/每人限享/赠品总量）
+-- Source: db/boot/124promotion_activity_fuse_incremental.sql
+-- ============================================================================
+-- 悦航购船供活动熔断字段（Boot 单体模式）
+-- 目标库：aryn_boot
+-- 背景：船供活动治理一期。promotion_activity 增三个熔断字段：预算金额、每人限享次数、
+--       买赠赠品总量；reserve 锁定时按存量锁聚合扣减，超限整单拦截，
+--       避免配错价/赠品无限量被薅且只能靠暂停止损。
+-- 特性：可重复执行，不执行 DROP/TRUNCATE，不覆盖已有业务数据；
+--       新列默认 0=不限，与存量行为逐行等价。
+-- 关联：cloud 模式同名增量 125promotion_activity_fuse_incremental.sql 内容一致。
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+SET @add_total_budget = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `promotion_activity` ADD COLUMN `total_budget` decimal(12,2) NOT NULL DEFAULT ''0.00'' COMMENT ''预算金额（元），0=不限；reserve 按锁定折扣聚合扣减，超限整单拦截'' AFTER `priority`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'promotion_activity' AND COLUMN_NAME = 'total_budget'
+);
+PREPARE stmt FROM @add_total_budget; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @add_per_user_limit = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `promotion_activity` ADD COLUMN `per_user_limit` int NOT NULL DEFAULT ''0'' COMMENT ''每人限享次数，0=不限；按该用户活动锁定数计'' AFTER `total_budget`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'promotion_activity' AND COLUMN_NAME = 'per_user_limit'
+);
+PREPARE stmt FROM @add_per_user_limit; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @add_gift_stock = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `promotion_activity` ADD COLUMN `gift_stock` int NOT NULL DEFAULT ''0'' COMMENT ''买赠赠品总量，0=不限；按锁定快照赠品数量聚合扣减'' AFTER `per_user_limit`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'promotion_activity' AND COLUMN_NAME = 'gift_stock'
+);
+PREPARE stmt FROM @add_gift_stock; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 新人专享价活动（营销锁用户列与菜单）
+-- Source: db/boot/125newbie_price_activity_incremental.sql
+-- ============================================================================
+-- 悦航购新人专享价活动（Boot 单体模式）
+-- 目标库：aryn_boot
+-- 背景：新人专享定价需求。复用 promotion_activity 通用引擎（activityType=9），
+--       不建新表；本脚本补齐两处结构性变更：
+--         1) promotion_lock 增加 user_id：新人价「在途唯一」判定
+--            （同用户已有 LOCKED 的新人价锁时拒绝重复下单）需要按用户查询；
+--            对货到付款尤其关键——COD 单的 pay_status 要等确认收款才翻 1，
+--            身份判定在此之前仍视其为新人，长窗口只能靠在途锁兜住。
+--         2) 新人专享活动管理菜单与按钮权限（树挂在船供运营目录下）。
+-- 特性：可重复执行，不执行 DROP/TRUNCATE，不覆盖已有业务数据；
+--       存量 promotion_lock 行为 user_id=NULL，天然被在途唯一查询排除（不等于任何用户）。
+-- 关联：cloud 模式同名增量 126newbie_price_activity_incremental.sql 内容一致。
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- 1. promotion_lock.user_id（新人价在途唯一查询用）
+SET @add_lock_user_id = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `promotion_lock` ADD COLUMN `user_id` varchar(32) DEFAULT NULL COMMENT ''下单用户ID（新人价在途唯一查询用；历史行可为空）'' AFTER `activity_type`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'promotion_lock' AND COLUMN_NAME = 'user_id'
+);
+PREPARE stmt FROM @add_lock_user_id; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @add_lock_user_idx = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `promotion_lock` ADD INDEX `idx_lock_user` (`tenant_id`,`user_id`,`status`)',
+    'SELECT 1')
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'promotion_lock' AND INDEX_NAME = 'idx_lock_user'
+);
+PREPARE stmt FROM @add_lock_user_idx; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 2. 新人专享活动管理菜单与按钮权限（挂在船供运营目录 2110000000000000000 下）
+--    编辑页路由注册在前端动态路由模块 routes/modules/promotion.ts（hideInMenu + activePath），
+--    此处仅配置列表页与按钮权限。
+INSERT IGNORE INTO `sys_menu` (`id`,`name`,`permission`,`path`,`redirect`,`parent_id`,`icon`,`component`,`sort`,`type`,`create_time`,`outer_status`,`del_flag`,`application_key`,`create_by`) VALUES
+('2110000000000000140','新人专享活动',NULL,'/promotion/newbie-activity',NULL,'2110000000000000000','lucide:gift','promotion/newbie-activity/index',5,'0',NOW(),'0','0','app_base','system'),
+('2110000000000000141','新人活动分页','promotion:newbieactivity:page',NULL,NULL,'2110000000000000140','',NULL,1,'1',NOW(),'0','0','app_base','system'),
+('2110000000000000142','新人活动保存','promotion:newbieactivity:save',NULL,NULL,'2110000000000000140','',NULL,2,'1',NOW(),'0','0','app_base','system'),
+('2110000000000000143','新人活动发布','promotion:newbieactivity:publish',NULL,NULL,'2110000000000000140','',NULL,3,'1',NOW(),'0','0','app_base','system');
+
+-- 授权推导：以「船供运营」目录（2110000000000000000）为锚点。
+-- 关键点：新按钮的 parent 是新建的页面菜单 140，它没有任何已授权 peer，
+-- 若按「与本按钮同 parent 的菜单授权」推导会命中 0 行（INSERT IGNORE 静默跳过）；
+-- 目录本身已有授权（平台与试点租户 ROLE_ADMIN），故按目录推导页面与按钮。
+-- 租户菜单行 id 统一用 MD5(tenant:menu:id)，重复执行走主键去重，避免同一菜单插两行。
+INSERT IGNORE INTO `sys_role_menu` (`id`,`role_id`,`menu_id`,`create_time`,`tenant_id`)
+SELECT MD5(CONCAT(gr.`role_id`, ':menu:', m.`id`)), gr.`role_id`, m.`id`, NOW(), gr.`tenant_id`
+FROM `sys_menu` m
+JOIN `sys_role_menu` gr ON gr.`menu_id` = '2110000000000000000'
+WHERE m.`id` IN ('2110000000000000140','2110000000000000141','2110000000000000142','2110000000000000143')
+  AND m.`del_flag` = '0';
+
+INSERT IGNORE INTO `sys_tenant_menu` (`id`,`tenant_id`,`menu_id`,`create_time`,`create_by`)
+SELECT MD5(CONCAT(gt.`tenant_id`, ':menu:', m.`id`)), gt.`tenant_id`, m.`id`, NOW(), 'system'
+FROM `sys_menu` m
+JOIN `sys_tenant_menu` gt ON gt.`menu_id` = '2110000000000000000'
+WHERE m.`id` IN ('2110000000000000140','2110000000000000141','2110000000000000142','2110000000000000143')
+  AND m.`del_flag` = '0';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 营销锁释放补偿定时任务注册
+-- Source: db/boot/126promotion_lock_compensate_job.sql
+-- ============================================================================
+-- 营销锁释放补偿任务注册（Boot 单体模式）
+--
+-- 目标库：aryn_boot_job（xxl-job 调度库）
+-- 特性：可重复执行；不 DROP/TRUNCATE；按 executor_handler 判重，已注册则跳过。
+--
+-- 背景（2026-10-14 · 船供活动治理三期）：
+--   取消/超时关单释放营销锁失败时仅 log.warn「等待补偿」，并无补偿动作；
+--   泄漏的 LOCKED 锁会冻住新人价「在途唯一」判定。新增
+--   promotionLockCompensateJobHandler（OrderJobHandler）扫描近 7 天已取消
+--   订单幂等补释放，此处注册调度（10 分钟一次）。
+--
+-- 幂等与安全：只 INSERT 缺失的调度记录，不触碰既有任务；trigger_status=1 自动起调。
+
+USE aryn_boot_job;
+
+INSERT INTO `xxl_job_info` (
+    `job_group`, `job_desc`, `add_time`, `update_time`, `author`, `alarm_email`,
+    `schedule_type`, `schedule_conf`, `misfire_strategy`, `executor_route_strategy`,
+    `executor_handler`, `executor_param`, `executor_block_strategy`, `executor_timeout`,
+    `executor_fail_retry_count`, `glue_type`, `glue_source`, `glue_remark`,
+    `glue_updatetime`, `child_jobid`, `trigger_status`, `trigger_last_time`, `trigger_next_time`
+)
+SELECT 1, '营销锁释放补偿（已取消订单补释放）', NOW(), NOW(), 'admin', '',
+       'FIX_RATE', '600', 'DO_NOTHING', 'FIRST',
+       'promotionLockCompensateJobHandler', '', 'SERIAL_EXECUTION', 0,
+       0, 'BEAN', '', 'GLUE代码初始化',
+       NOW(), '', 1, 0, 0
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM `xxl_job_info` WHERE `executor_handler` = 'promotionLockCompensateJobHandler'
+);
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 全站自动动效总开关（商城主题）
+-- Source: db/boot/127page_design_theme_auto_motion.sql
+-- ============================================================================
+-- 全站自动动效总开关（Boot 单体模式）
+-- 目标库：aryn_boot
+-- 背景（2026-10-16）：
+--   小程序端有多处自动播放/自动前进的动效（新人专享分页前进、商品横滑条、
+--   轮播图、图片组件、搜索栏热词），此前只能逐个组件关闭。对「系统开启了
+--   减弱动效」「运营希望整站安静」两类诉求缺少一个总开关。
+--   WCAG 2.2 SC 2.2.2 要求自动移动的内容必须可暂停；H5 可用媒体查询
+--   prefers-reduced-motion 自动感知，但小程序（微信）没有等价能力，
+--   因此需要一个运营可配的总开关作为兜底。
+--
+--   开关挂在「商城默认主题」行上而非新建配置表：
+--   C 端启动时已有一趟免登主题请求（/app/pagedesign/mall-theme）且带本地
+--   缓存防闪色，开关随主题一起下发即可在首帧生效，不新增请求、不新增菜单。
+--
+-- 特性：可重复执行，不执行 DROP/TRUNCATE；存量主题行默认 '1'（保留现状：
+--       自动动效继续开启），运营显式关闭后才变 '0'。
+-- 关联：cloud 模式同名增量 130page_design_theme_auto_motion.sql 内容一致。
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ---------------------------------------------------------------------------
+-- page_design_theme 增加自动动效总开关
+-- ---------------------------------------------------------------------------
+SET @add_auto_motion = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE `page_design_theme` ADD COLUMN `auto_motion_enabled` char(2) NOT NULL DEFAULT ''1'' COMMENT ''自动动效总开关：1.开启（默认，含自动轮播/前进）；0.关闭（尊重减弱动效偏好）'' AFTER `radius`',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'page_design_theme'
+    AND COLUMN_NAME = 'auto_motion_enabled'
+);
+PREPARE stmt FROM @add_auto_motion; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 自检：列已就位（应输出 1）
+SELECT COUNT(*) AS auto_motion_column_ready
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE()
+  AND TABLE_NAME = 'page_design_theme'
+  AND COLUMN_NAME = 'auto_motion_enabled';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 船舶绑定申请 IMO 与呼号分列
+-- Source: db/boot/131vessel_bind_call_sign_incremental.sql
+-- ============================================================================
+-- 船舶绑定申请单：IMO 与呼号分列采集（Boot 单体模式）
+-- 目标库：aryn_boot
+--
+-- 背景（2026-10-18）：
+--   申请单此前只有一个 `apply_vessel_imo` 字段，注释写的是「IMO 或呼号」——
+--   小程序里就是一个输入框，用户填的东西到底是 IMO 还是呼号，系统从来不知道。
+--   管理端审核时只好用「7 位纯数字」这个启发式去猜，猜中才预填进 IMO 列。
+--
+--   问题在于 IMO/呼号是审核链路里**最高优先级的认船强身份键**（高于船名）：
+--   审核预检会拿它去比 `vessel_info.imo_code` / `vessel_info.call_sign`，
+--   命中即建议直接绑定。入口处靠猜，强身份键必然失真：
+--     · 7 位纯数字的呼号 → 被当成 IMO 塞进 IMO 列；
+--     · 填的其实是呼号，却按 IMO 列报「已存在」，审核员看到的是误导性结论；
+--     · 两者混在一个字段，审核通过后没有任何一处能还原用户本意。
+--
+--   本脚本把呼号拆成独立列 `apply_vessel_call_sign`，与 IMO 各自采集、各自比对。
+--
+-- 特性：可重复执行，不做 DROP/TRUNCATE，不修改存量数据。
+--       存量申请单的 `apply_vessel_imo` 保持原样（它本来就是「用户填的一串标识」，
+--       按 7 位纯数字回填到新列反而可能写错，因此不做自动拆分的回填）：
+--       存量单在管理端仍按「IMO 列有值」展示，新单起两列独立。
+--
+-- 双模式：cloud 同名增量 132vessel_bind_call_sign_incremental.sql 内容一致。
+--
+-- 执行：mysql -u root -p aryn_boot < 131vessel_bind_call_sign_incremental.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ---------------------------------------------------------------------------
+-- vessel_bind_apply 增加呼号列
+-- ---------------------------------------------------------------------------
+SET @add_call_sign = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE `vessel_bind_apply` ADD COLUMN `apply_vessel_call_sign` varchar(32) DEFAULT NULL COMMENT ''申请人填写的呼号（与 apply_vessel_imo 分列，不再混装）'' AFTER `apply_vessel_imo`',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'vessel_bind_apply'
+    AND COLUMN_NAME = 'apply_vessel_call_sign'
+);
+PREPARE stmt FROM @add_call_sign; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ---------------------------------------------------------------------------
+-- 存量 IMO 列语义收紧（仅改注释，不动数据）
+-- ---------------------------------------------------------------------------
+SET @imo_comment = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'SELECT 1',
+    'ALTER TABLE `vessel_bind_apply` MODIFY COLUMN `apply_vessel_imo` varchar(32) DEFAULT NULL COMMENT ''申请人填写的 IMO 编号（呼号已拆至 apply_vessel_call_sign）'''
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'vessel_bind_apply'
+    AND COLUMN_NAME = 'apply_vessel_imo'
+);
+PREPARE stmt2 FROM @imo_comment; EXECUTE stmt2; DEALLOCATE PREPARE stmt2;
+
+-- ---------------------------------------------------------------------------
+-- 呼号检索索引
+--
+-- 审核预检按「IMO 只比 imo_code、呼号只比 call_sign」，自动匹配也会按呼号查
+-- vessel_info.call_sign。vessel_info 现有索引只有 (tenant_id, imo_code)、
+-- (tenant_id, vessel_name)、(tenant_id, status)——呼号查询会走全表。
+-- 大租户下预检是「打开审核弹窗就触发」的高频只读路径，补索引值回成本。
+-- ---------------------------------------------------------------------------
+SET @add_call_sign_idx = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE `vessel_info` ADD KEY `idx_vessel_info_call_sign` (`tenant_id`, `call_sign`)',
+    'SELECT 1'
+  )
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'vessel_info'
+    AND INDEX_NAME = 'idx_vessel_info_call_sign'
+);
+PREPARE stmt3 FROM @add_call_sign_idx; EXECUTE stmt3; DEALLOCATE PREPARE stmt3;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ---------------------------------------------------------------------------
+-- 自检：两列/索引都应就位（各输出 1）
+-- ---------------------------------------------------------------------------
+SELECT 'apply_vessel_call_sign' AS item, COUNT(*) AS cnt
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = 'aryn_boot' AND TABLE_NAME = 'vessel_bind_apply' AND COLUMN_NAME = 'apply_vessel_call_sign'
+UNION ALL
+SELECT 'idx_vessel_info_call_sign', COUNT(*)
+FROM information_schema.STATISTICS
+WHERE TABLE_SCHEMA = 'aryn_boot' AND TABLE_NAME = 'vessel_info' AND INDEX_NAME = 'idx_vessel_info_call_sign';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 船舶成员关系安全加固（绑定来源列与审计日志）
+-- Source: db/boot/132vessel_member_security_incremental.sql
+-- ============================================================================
+-- 船舶成员关系安全加固：绑定来源列 + 成员审计日志（Boot 单体模式）
+-- 目标库：aryn_boot
+--
+-- 背景（2026-10-19）：
+--   管理端「绑定申请」审核弹窗里，小程序申请的「悦航8号」被绑到了「悦航7号」，
+--   全程没有提示、没有校验、没有留痕。追查后确认这不是单点缺陷——
+--   `vessel_member`（船舶成员关系）有 5 条写入通道，信任级别各不相同：
+--     1. approveApply 审核通过（运营）
+--     2. redeemInviteCode 邀请码（持码人）
+--     3. addMember C 端船管拉人
+--     4. VesselServiceImpl.addMember 管理端直接绑定
+--     5. bindMemberByShare 分享购物车链接自动补建（任何拿到链接的人）
+--
+--   而 `vessel_member` 不只是一张展示表，它是多个下游域的数据权限基线：
+--   成员列表、靠港计划查看/申报、内部配送下单、共享购物车管理都以「是不是该船成员」授权。
+--   一条误绑 = 把另一条船的采购、配送与人员信息交给不相关的人。
+--
+--   本脚本补两块基础设施：
+--     · vessel_member.bind_source / bind_reason —— 让「这个人是怎么进船的」可区分、可回收；
+--     · vessel_member_audit_log —— 绑定/换角色/解绑全留痕，事后可追溯。
+--
+-- 特性：可重复执行，不做 DROP/TRUNCATE，不覆盖已有业务数据。
+--       存量成员行按「能判定才回填、判不出就留 MANUAL」处理，不猜测。
+--
+-- 双模式：cloud 同名增量 133vessel_member_security_incremental.sql 内容一致，
+--         目标库为 aryn_vessel。
+--
+-- 执行：mysql -u root -p aryn_boot < 132vessel_member_security_incremental.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ---------------------------------------------------------------------------
+-- 1. vessel_member 增加绑定来源列
+--
+-- DEFAULT 'MANUAL' 而不是 NULL：历史行与新行的语义都是「来源未知/手工绑定」，
+-- 用 NOT NULL 让「来源」成为必填语义，避免后续代码写出空来源的成员行。
+-- ---------------------------------------------------------------------------
+SET @add_bind_source = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE `vessel_member` ADD COLUMN `bind_source` varchar(32) NOT NULL DEFAULT ''MANUAL'' COMMENT ''绑定来源：APPLY_AUDIT/APPLY_AUDIT_MISMATCH/INVITE_CODE/MEMBER_ADD/ADMIN_ADD/SHARE_CART/MANUAL'' AFTER `remark`',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'vessel_member'
+    AND COLUMN_NAME = 'bind_source'
+);
+PREPARE stmt_bind_source FROM @add_bind_source; EXECUTE stmt_bind_source; DEALLOCATE PREPARE stmt_bind_source;
+
+SET @add_bind_reason = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE `vessel_member` ADD COLUMN `bind_reason` varchar(500) DEFAULT NULL COMMENT ''绑定补充原因（审核跨船偏离理由等）'' AFTER `bind_source`',
+    'SELECT 1'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'vessel_member'
+    AND COLUMN_NAME = 'bind_reason'
+);
+PREPARE stmt_bind_reason FROM @add_bind_reason; EXECUTE stmt_bind_reason; DEALLOCATE PREPARE stmt_bind_reason;
+
+-- ---------------------------------------------------------------------------
+-- 2. 按来源筛查成员的索引
+--
+-- 管理端「成员来源」列与「按来源回收」是运营处理误绑的入口：
+-- SHARE_CART 来源（分享链接自动补建，未经任何审核）是最需要定期巡检的一类。
+-- 不加索引时按来源筛选会退化成「取出该船全部成员再过滤」。
+-- ---------------------------------------------------------------------------
+SET @add_bind_source_idx = (
+  SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE `vessel_member` ADD KEY `idx_vessel_member_bind_source` (`tenant_id`, `vessel_id`, `bind_source`)',
+    'SELECT 1'
+  )
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'vessel_member'
+    AND INDEX_NAME = 'idx_vessel_member_bind_source'
+);
+PREPARE stmt_bind_source_idx FROM @add_bind_source_idx; EXECUTE stmt_bind_source_idx; DEALLOCATE PREPARE stmt_bind_source_idx;
+
+-- ---------------------------------------------------------------------------
+-- 3. 存量回填：只回填能判定的来源
+--
+-- 能判定的只有一类：成员关系可以关联到一条「已通过」的绑定申请单
+-- （vessel_bind_apply.status='2' 且 matched_vessel_id 指向同一艘船、user_id 同一人）。
+-- 这类成员几乎必然是该申请审核通过时写入的。
+--
+-- 其余通道（邀请码/分享链接/船管加人/管理端绑定）历史上没有留痕，
+-- 任何回填都只是猜测 —— 保持 MANUAL，让运营在界面上看到「来源不明」比看到错误来源更有价值。
+-- ---------------------------------------------------------------------------
+UPDATE `vessel_member` m
+JOIN `vessel_bind_apply` a
+  ON a.`tenant_id` = m.`tenant_id`
+ AND a.`matched_vessel_id` = m.`vessel_id`
+ AND a.`user_id` = m.`user_id`
+ AND a.`status` = '2'
+ AND a.`del_flag` = '0'
+SET m.`bind_source` = 'APPLY_AUDIT'
+WHERE m.`bind_source` = 'MANUAL';
+
+-- ---------------------------------------------------------------------------
+-- 4. 成员关系审计日志（追加写，不提供业务更新）
+--
+-- 与靠港计划变更日志（vessel_call_change_log）同构：只记「谁在什么时候把谁怎么改了」。
+-- 之所以单独建表而不是打日志：误绑的追查常常发生在几个月后，日志早已滚动掉，
+-- 而「为什么把 8 号绑到了 7 号」必须能给出操作人、时间与理由。
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `vessel_member_audit_log` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `vessel_id` varchar(32) NOT NULL COMMENT '船舶ID',
+  `user_id` varchar(32) NOT NULL COMMENT '商城用户ID',
+  `action` varchar(32) NOT NULL COMMENT '动作：BIND新建绑定/REBIND复活历史行/ROLE_CHANGE角色变更/UNBIND解绑',
+  `bind_source` varchar(32) DEFAULT NULL COMMENT '本次动作对应的绑定来源',
+  `old_member_role` char(2) DEFAULT NULL COMMENT '原成员角色',
+  `new_member_role` char(2) DEFAULT NULL COMMENT '新成员角色',
+  `reason` varchar(500) DEFAULT NULL COMMENT '原因（跨船偏离理由、解绑原因等）',
+  `operator_id` varchar(32) DEFAULT NULL COMMENT '操作人ID（用户自助操作时为本人）',
+  `operator_name` varchar(64) DEFAULT NULL COMMENT '操作人姓名快照',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人', `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间', `update_time` datetime DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  PRIMARY KEY (`id`),
+  KEY `idx_vessel_member_audit_target` (`tenant_id`, `vessel_id`, `user_id`, `create_time`),
+  KEY `idx_vessel_member_audit_action` (`tenant_id`, `action`, `create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='船舶成员关系审计日志';
+
+-- ---------------------------------------------------------------------------
+-- 自检：两列 + 索引应就位，审计表应存在
+-- ---------------------------------------------------------------------------
+SELECT 'vessel_member.bind_source' AS item, COUNT(*) AS cnt
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = 'aryn_boot' AND TABLE_NAME = 'vessel_member' AND COLUMN_NAME = 'bind_source'
+UNION ALL
+SELECT 'vessel_member.bind_reason', COUNT(*)
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = 'aryn_boot' AND TABLE_NAME = 'vessel_member' AND COLUMN_NAME = 'bind_reason'
+UNION ALL
+SELECT 'idx_vessel_member_bind_source', COUNT(*)
+FROM information_schema.STATISTICS
+WHERE TABLE_SCHEMA = 'aryn_boot' AND TABLE_NAME = 'vessel_member' AND INDEX_NAME = 'idx_vessel_member_bind_source'
+UNION ALL
+SELECT 'vessel_member_audit_log', COUNT(*)
+FROM information_schema.TABLES
+WHERE TABLE_SCHEMA = 'aryn_boot' AND TABLE_NAME = 'vessel_member_audit_log';
+
+-- 来源分布：回填后应看到 APPLY_AUDIT（可判定的）+ MANUAL（历史不可判定）
+SELECT `bind_source`, COUNT(*) AS cnt
+FROM `vessel_member`
+WHERE `del_flag` = '0'
+GROUP BY `bind_source`
+ORDER BY cnt DESC;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 管理端概览统计索引
+-- Source: db/boot/133dashboard_statistics_index_incremental.sql
+-- ============================================================================
+-- 管理端概览统计索引（Boot 单体模式）
+-- 目标库：aryn_boot
+-- 背景：概览页的交易、趋势、用户、商品、退款与好评统计均按 tenant_id + 时间范围过滤，
+--       原表只有主键/业务唯一键，时间字段缺少可用索引。本脚本补齐统计查询索引。
+-- 特性：可重复执行，不执行 DROP/TRUNCATE，不覆盖已有业务数据。
+-- 执行：mysql -u root -p aryn_boot < 133dashboard_statistics_index_incremental.sql
+
+USE `aryn_boot`;
+
+SET NAMES utf8mb4;
+
+SET @index_exists := (
+  SELECT COUNT(*) FROM information_schema.statistics
+  WHERE table_schema = DATABASE() AND table_name = 'order_info'
+    AND index_name = 'idx_order_stats_pay_time'
+);
+SET @index_sql := IF(@index_exists = 0,
+  'ALTER TABLE `order_info` ADD INDEX `idx_order_stats_pay_time` (`tenant_id`, `del_flag`, `pay_status`, `payment_time`)',
+  'SELECT 1');
+PREPARE stmt FROM @index_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @index_exists := (
+  SELECT COUNT(*) FROM information_schema.statistics
+  WHERE table_schema = DATABASE() AND table_name = 'order_info'
+    AND index_name = 'idx_order_stats_status_create'
+);
+SET @index_sql := IF(@index_exists = 0,
+  'ALTER TABLE `order_info` ADD INDEX `idx_order_stats_status_create` (`tenant_id`, `del_flag`, `status`, `create_time`)',
+  'SELECT 1');
+PREPARE stmt FROM @index_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @index_exists := (
+  SELECT COUNT(*) FROM information_schema.statistics
+  WHERE table_schema = DATABASE() AND table_name = 'order_info'
+    AND index_name = 'idx_order_stats_user_pay'
+);
+SET @index_sql := IF(@index_exists = 0,
+  'ALTER TABLE `order_info` ADD INDEX `idx_order_stats_user_pay` (`tenant_id`, `user_id`, `pay_status`, `payment_time`)',
+  'SELECT 1');
+PREPARE stmt FROM @index_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @index_exists := (
+  SELECT COUNT(*) FROM information_schema.statistics
+  WHERE table_schema = DATABASE() AND table_name = 'order_item'
+    AND index_name = 'idx_order_item_order'
+);
+SET @index_sql := IF(@index_exists = 0,
+  'ALTER TABLE `order_item` ADD INDEX `idx_order_item_order` (`tenant_id`, `order_id`)',
+  'SELECT 1');
+PREPARE stmt FROM @index_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @index_exists := (
+  SELECT COUNT(*) FROM information_schema.statistics
+  WHERE table_schema = DATABASE() AND table_name = 'order_item'
+    AND index_name = 'idx_order_item_spu'
+);
+SET @index_sql := IF(@index_exists = 0,
+  'ALTER TABLE `order_item` ADD INDEX `idx_order_item_spu` (`tenant_id`, `spu_id`)',
+  'SELECT 1');
+PREPARE stmt FROM @index_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @index_exists := (
+  SELECT COUNT(*) FROM information_schema.statistics
+  WHERE table_schema = DATABASE() AND table_name = 'order_refund'
+    AND index_name = 'idx_order_refund_create'
+);
+SET @index_sql := IF(@index_exists = 0,
+  'ALTER TABLE `order_refund` ADD INDEX `idx_order_refund_create` (`tenant_id`, `del_flag`, `create_time`)',
+  'SELECT 1');
+PREPARE stmt FROM @index_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @index_exists := (
+  SELECT COUNT(*) FROM information_schema.statistics
+  WHERE table_schema = DATABASE() AND table_name = 'order_refund'
+    AND index_name = 'idx_order_refund_arrival_update'
+);
+SET @index_sql := IF(@index_exists = 0,
+  'ALTER TABLE `order_refund` ADD INDEX `idx_order_refund_arrival_update` (`tenant_id`, `del_flag`, `arrival_status`, `update_time`)',
+  'SELECT 1');
+PREPARE stmt FROM @index_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @index_exists := (
+  SELECT COUNT(*) FROM information_schema.statistics
+  WHERE table_schema = DATABASE() AND table_name = 'order_refund'
+    AND index_name = 'idx_order_refund_item_arrival'
+);
+SET @index_sql := IF(@index_exists = 0,
+  'ALTER TABLE `order_refund` ADD INDEX `idx_order_refund_item_arrival` (`tenant_id`, `order_item_id`, `del_flag`, `arrival_status`)',
+  'SELECT 1');
+PREPARE stmt FROM @index_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @index_exists := (
+  SELECT COUNT(*) FROM information_schema.statistics
+  WHERE table_schema = DATABASE() AND table_name = 'goods_footprint'
+    AND index_name = 'idx_goods_footprint_create'
+);
+SET @index_sql := IF(@index_exists = 0,
+  'ALTER TABLE `goods_footprint` ADD INDEX `idx_goods_footprint_create` (`tenant_id`, `del_flag`, `create_time`)',
+  'SELECT 1');
+PREPARE stmt FROM @index_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @index_exists := (
+  SELECT COUNT(*) FROM information_schema.statistics
+  WHERE table_schema = DATABASE() AND table_name = 'goods_appraise'
+    AND index_name = 'idx_goods_appraise_create'
+);
+SET @index_sql := IF(@index_exists = 0,
+  'ALTER TABLE `goods_appraise` ADD INDEX `idx_goods_appraise_create` (`tenant_id`, `del_flag`, `create_time`)',
+  'SELECT 1');
+PREPARE stmt FROM @index_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @index_exists := (
+  SELECT COUNT(*) FROM information_schema.statistics
+  WHERE table_schema = DATABASE() AND table_name = 'goods_spu'
+    AND index_name = 'idx_goods_spu_status'
+);
+SET @index_sql := IF(@index_exists = 0,
+  'ALTER TABLE `goods_spu` ADD INDEX `idx_goods_spu_status` (`tenant_id`, `del_flag`, `status`)',
+  'SELECT 1');
+PREPARE stmt FROM @index_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @index_exists := (
+  SELECT COUNT(*) FROM information_schema.statistics
+  WHERE table_schema = DATABASE() AND table_name = 'goods_spu'
+    AND index_name = 'idx_goods_spu_stock'
+);
+SET @index_sql := IF(@index_exists = 0,
+  'ALTER TABLE `goods_spu` ADD INDEX `idx_goods_spu_stock` (`tenant_id`, `del_flag`, `stock`)',
+  'SELECT 1');
+PREPARE stmt FROM @index_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @index_exists := (
+  SELECT COUNT(*) FROM information_schema.statistics
+  WHERE table_schema = DATABASE() AND table_name = 'goods_spu'
+    AND index_name = 'idx_goods_spu_sales'
+);
+SET @index_sql := IF(@index_exists = 0,
+  'ALTER TABLE `goods_spu` ADD INDEX `idx_goods_spu_sales` (`tenant_id`, `del_flag`, `sales_volume`)',
+  'SELECT 1');
+PREPARE stmt FROM @index_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @index_exists := (
+  SELECT COUNT(*) FROM information_schema.statistics
+  WHERE table_schema = DATABASE() AND table_name = 'user_info'
+    AND index_name = 'idx_user_info_create'
+);
+SET @index_sql := IF(@index_exists = 0,
+  'ALTER TABLE `user_info` ADD INDEX `idx_user_info_create` (`tenant_id`, `del_flag`, `create_time`)',
+  'SELECT 1');
+PREPARE stmt FROM @index_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 商品足迹按用户+商品去重索引
+-- Source: db/boot/134goods_footprint_user_spu_index_incremental.sql
+-- ============================================================================
+-- 商品足迹按用户+商品去重索引（Boot 单体模式）
+-- 目标库：aryn_boot
+-- 背景：商详每次浏览都按 tenant_id + user_id + spu_id 查询是否已有足迹，
+--       足迹列表按 tenant_id + user_id 取每个商品的最近一次；
+--       原表仅有 (tenant_id, del_flag, create_time) 索引，缺少 user_id/spu_id，
+--       数据量增大后会退化为租户级全表扫描。
+-- 特性：可重复执行，不执行 DROP/TRUNCATE，不覆盖已有业务数据。
+-- 执行：mysql -u root -p aryn_boot < 134goods_footprint_user_spu_index_incremental.sql
+
+USE `aryn_boot`;
+
+SET NAMES utf8mb4;
+
+SET @index_exists := (
+  SELECT COUNT(*) FROM information_schema.statistics
+  WHERE table_schema = DATABASE() AND table_name = 'goods_footprint'
+    AND index_name = 'idx_goods_footprint_user_spu'
+);
+SET @index_sql := IF(@index_exists = 0,
+  'ALTER TABLE `goods_footprint` ADD INDEX `idx_goods_footprint_user_spu` (`tenant_id`, `user_id`, `del_flag`, `spu_id`, `create_time`)',
+  'SELECT 1');
+PREPARE stmt FROM @index_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 管理端概览月度目标
+-- Source: db/boot/135dashboard_target_incremental.sql
+-- ============================================================================
+-- 管理端概览月度目标（Boot 单体模式）
+-- 目标库：aryn_boot
+-- 特性：可重复执行，不执行 DROP/TRUNCATE，不覆盖已有业务数据。
+-- 执行：mysql -u root -p aryn_boot < 135dashboard_target_incremental.sql
+
+USE `aryn_boot`;
+
+SET NAMES utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `dashboard_target` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户id',
+  `target_month` char(7) NOT NULL COMMENT '目标月份 yyyy-MM',
+  `gmv_target` decimal(12, 2) NOT NULL DEFAULT 0.00 COMMENT 'GMV 目标',
+  `order_target` int NOT NULL DEFAULT 0 COMMENT '支付订单目标',
+  `new_user_target` int NOT NULL DEFAULT 0 COMMENT '新增用户目标',
+  `create_time` datetime NULL DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime NULL DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.显示；1.隐藏；',
+  `create_by` varchar(60) NULL DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) NULL DEFAULT NULL COMMENT '修改人',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_dashboard_target_tenant_month` (`tenant_id`, `target_month`) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '管理端概览月度目标' ROW_FORMAT = DYNAMIC;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 用户日订单汇总表
+-- Source: db/boot/136stat_daily_user_order_incremental.sql
+-- ============================================================================
+-- 用户日订单汇总表（Boot 单体模式）
+-- 目标库：aryn_boot
+-- 特性：可重复执行，不执行 DROP/TRUNCATE，不覆盖已有业务数据。
+-- 执行：mysql -u root -p aryn_boot < 136stat_daily_user_order_incremental.sql
+
+USE `aryn_boot`;
+
+SET NAMES utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `stat_daily_user_order` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户id',
+  `stat_date` date NOT NULL COMMENT '统计日期',
+  `user_id` varchar(32) NOT NULL COMMENT '用户id',
+  `order_count` int NOT NULL DEFAULT 0 COMMENT '当日支付订单数',
+  `paid_amount` decimal(12, 2) NOT NULL DEFAULT 0.00 COMMENT '当日支付金额',
+  `last_payment_time` datetime NULL DEFAULT NULL COMMENT '当日最后一次支付时间',
+  `create_time` datetime NULL DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime NULL DEFAULT NULL COMMENT '更新时间',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_daily_user_order` (`tenant_id`, `stat_date`, `user_id`) USING BTREE,
+  KEY `idx_daily_user_order_user` (`tenant_id`, `user_id`, `stat_date`) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '用户日订单汇总' ROW_FORMAT = DYNAMIC;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 用户日订单汇总定时任务
+-- Source: db/boot/137order_daily_stat_job.sql
+-- ============================================================================
+-- 用户日订单汇总定时任务注册（Boot 单体模式）
+-- 目标库：aryn_boot_job
+-- 特性：可重复执行；按 executor_handler 判重，已注册则跳过。
+-- 默认参数 1 汇总昨天；手动传 1-90 可回填最近 N 天。
+
+USE aryn_boot_job;
+
+INSERT INTO `xxl_job_info` (
+    `job_group`, `job_desc`, `add_time`, `update_time`, `author`, `alarm_email`,
+    `schedule_type`, `schedule_conf`, `misfire_strategy`, `executor_route_strategy`,
+    `executor_handler`, `executor_param`, `executor_block_strategy`, `executor_timeout`,
+    `executor_fail_retry_count`, `glue_type`, `glue_source`, `glue_remark`,
+    `glue_updatetime`, `child_jobid`, `trigger_status`, `trigger_last_time`, `trigger_next_time`
+)
+SELECT 1, '用户日订单汇总与回填', NOW(), NOW(), 'admin', '',
+       'CRON', '0 10 1 * * ?', 'DO_NOTHING', 'FIRST',
+       'orderDailyStatJobHandler', '', 'SERIAL_EXECUTION', 0,
+       0, 'BEAN', '', 'GLUE代码初始化',
+       NOW(), '', 1, 0, 0
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM `xxl_job_info` WHERE `executor_handler` = 'orderDailyStatJobHandler'
+);
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 通知管理草稿删除与分发重试权限
+-- Source: db/boot/138message_notice_admin_incremental.sql
+-- ============================================================================
+-- ============================================================================
+-- 通知管理可用性增强：草稿删除、失败重试与收件人明细按钮权限（Boot 单体模式）
+-- 目标库：aryn_boot
+-- 背景（2026-10-21）：
+--   通知管理此前只能编辑/发布/撤回，草稿无法删除；分发任务失败后也没有
+--   可见状态与重试入口，发布后也看不到逐人收件情况。本次新增
+--   DELETE /admin/notice/{id}、POST /admin/notice/{id}/dispatch/retry 与
+--   GET /admin/notice/{id}/recipients，本脚本登记对应按钮权限：
+--     message:notice:delete、message:notice:retry、message:notice:recipient
+-- 授权：向已拥有「通知管理」页面菜单的角色/租户推导式补授。
+-- 特性：INSERT IGNORE + MD5 固定授权 ID，可重复执行；无 DROP/TRUNCATE。
+-- 注意：菜单权限在登录时快照，执行后需重新登录管理端才能看到新按钮。
+--
+-- 执行：mysql -u root -p aryn_boot < 138message_notice_admin_incremental.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+-- 一、登记按钮权限（挂在「通知管理」页面节点下，type=1 为按钮）
+INSERT IGNORE INTO `sys_menu`
+(`id`,`name`,`permission`,`path`,`redirect`,`parent_id`,`icon`,`component`,`sort`,`type`,
+ `create_time`,`outer_status`,`del_flag`,`application_key`,`create_by`)
+VALUES
+('2070000000000000017','删除通知草稿','message:notice:delete',NULL,NULL,
+ '2070000000000000010','',NULL,7,'1',NOW(),'0','0','app_base','system'),
+('2070000000000000018','重试通知分发','message:notice:retry',NULL,NULL,
+ '2070000000000000010','',NULL,8,'1',NOW(),'0','0','app_base','system'),
+('2070000000000000019','通知收件人明细','message:notice:recipient',NULL,NULL,
+ '2070000000000000010','',NULL,9,'1',NOW(),'0','0','app_base','system');
+
+-- 二、角色推导：向已拥有「通知管理」页面的角色补授
+INSERT IGNORE INTO `sys_role_menu` (`id`,`role_id`,`menu_id`,`create_time`,`tenant_id`)
+SELECT MD5(CONCAT(gr.`role_id`, ':menu:', m.`id`)), gr.`role_id`, m.`id`, NOW(), gr.`tenant_id`
+FROM `sys_menu` m
+JOIN `sys_role_menu` gr ON gr.`menu_id` = '2070000000000000010'
+WHERE m.`id` IN ('2070000000000000017', '2070000000000000018', '2070000000000000019')
+  AND m.`del_flag` = '0';
+
+-- 三、租户推导：向已拥有「通知管理」页面的租户补授
+INSERT IGNORE INTO `sys_tenant_menu` (`id`,`tenant_id`,`menu_id`,`create_time`,`create_by`)
+SELECT MD5(CONCAT(gt.`tenant_id`, ':menu:', m.`id`)), gt.`tenant_id`, m.`id`, NOW(), 'system'
+FROM `sys_menu` m
+JOIN `sys_tenant_menu` gt ON gt.`menu_id` = '2070000000000000010'
+WHERE m.`id` IN ('2070000000000000017', '2070000000000000018', '2070000000000000019')
+  AND m.`del_flag` = '0';
+
+-- 四、自检：应返回 3 行
+SELECT m.`id`, m.`name`, m.`permission`, m.`parent_id`
+FROM `sys_menu` m
+WHERE m.`id` IN ('2070000000000000017', '2070000000000000018', '2070000000000000019');
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 商品属性标签
+-- Source: db/boot/142goods_attr_tags_incremental.sql
+-- ============================================================================
+-- 商品属性标签（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 背景：商详首屏需要运营可配置的属性卡条（系列/储存条件/地标品种/榜单等）。
+-- 结构：goods_spu.attr_tags JSON 数组；元素字段见 GoodsAttrTag：
+--       {key,label,value,icon,tone,linkType,popupTitle,popupContent,linkUrl}
+-- 特性：可重复执行（information_schema 守卫），不触碰存量数据。
+-- 配套：aryn-product-api GoodsSpu.attrTags / GoodsAttrTagListTypeHandler。
+--
+-- 执行：mysql -u root -p aryn_boot < 142goods_attr_tags_incremental.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+SET @attr_tags_column_exists := (
+  SELECT COUNT(*)
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'goods_spu'
+    AND COLUMN_NAME = 'attr_tags'
+);
+
+SET @attr_tags_ddl := IF(
+  @attr_tags_column_exists = 0,
+  'ALTER TABLE `goods_spu` ADD COLUMN `attr_tags` JSON NULL COMMENT ''商品属性标签（JSON 数组，商详首屏属性卡）'' AFTER `cost_price`',
+  'SELECT 1'
+);
+
+PREPARE attr_tags_stmt FROM @attr_tags_ddl;
+EXECUTE attr_tags_stmt;
+DEALLOCATE PREPARE attr_tags_stmt;
 
 SET FOREIGN_KEY_CHECKS = 1;

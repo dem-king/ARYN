@@ -2,6 +2,7 @@
 import { onLoad } from '@dcloudio/uni-app'
 import { ref } from 'vue'
 import { getPage } from '@/api/product/collect'
+import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 
 definePage({
   name: 'user-collect',
@@ -15,6 +16,7 @@ interface Spu {
   spuUrls: string[]
   name: string
   salesPrice: number
+  originalPrice?: number
   stock: number
 }
 interface List {
@@ -69,7 +71,15 @@ function toGoodsDetail(id: string) {
         <view class="ml-5 flex flex-1 flex-col overflow-hidden">
           <wd-text :lines="2" size="26rpx" color="inherit" :text="item.goodsSpu.name" />
           <view class="mt-2 flex items-center justify-between">
-            <wd-text :text="item.goodsSpu.salesPrice" color="red" mode="price" prefix="￥" />
+            <view class="flex items-baseline">
+              <wd-text :text="item.goodsSpu.salesPrice" color="red" mode="price" prefix="￥" />
+              <text
+                v-if="shouldShowOriginalPrice(item.goodsSpu.salesPrice, item.goodsSpu.originalPrice)"
+                class="price-original"
+              >
+                ￥{{ item.goodsSpu.originalPrice }}
+              </text>
+            </view>
             <wd-text size="22rpx" :text="`库存 ${item.goodsSpu.stock}`" />
           </view>
           <view class="mt-2 flex justify-end">
@@ -80,3 +90,12 @@ function toGoodsDetail(id: string) {
     </view>
   </z-paging>
 </template>
+
+<style lang="scss" scoped>
+.price-original {
+  margin-left: 8rpx;
+  font-size: 20rpx;
+  color: #a8abb2;
+  text-decoration: line-through;
+}
+</style>

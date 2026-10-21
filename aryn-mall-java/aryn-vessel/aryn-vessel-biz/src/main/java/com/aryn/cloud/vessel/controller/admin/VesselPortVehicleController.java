@@ -2,7 +2,7 @@ package com.aryn.cloud.vessel.controller.admin;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.aryn.cloud.common.core.util.Result;
-import com.aryn.cloud.common.security.util.SecurityUtils;
+import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.vessel.api.entity.VesselPortVehicle;
 import com.aryn.cloud.vessel.service.VesselPortVehicleService;
 import com.baomidou.mybatisplus.core.metadata.IPage;
@@ -46,7 +46,7 @@ public class VesselPortVehicleController {
 			@RequestParam(value = "plateNo", required = false) String plateNo,
 			@RequestParam(value = "driverName", required = false) String driverName,
 			@RequestParam(value = "status", required = false) String status) {
-		return Result.success(portVehicleService.pageVehicles(SecurityUtils.getTenantId(), page,
+		return Result.success(portVehicleService.pageVehicles(ArynTenantContextHolder.getTenantId(), page,
 				portName, plateNo, driverName, status));
 	}
 
@@ -54,14 +54,14 @@ public class VesselPortVehicleController {
 	@SaCheckPermission("vessel:portvehicle:page")
 	@GetMapping("/port-vehicles/port-options")
 	public Result<List<String>> portOptions() {
-		return Result.success(portVehicleService.listPortOptions(SecurityUtils.getTenantId()));
+		return Result.success(portVehicleService.listPortOptions(ArynTenantContextHolder.getTenantId()));
 	}
 
 	@Operation(summary = "新增报备车辆")
 	@SaCheckPermission("vessel:portvehicle:save")
 	@PostMapping("/port-vehicles")
 	public Result<VesselPortVehicle> save(@RequestBody VesselPortVehicle vehicle) {
-		return Result.success(portVehicleService.saveVehicle(SecurityUtils.getTenantId(), vehicle));
+		return Result.success(portVehicleService.saveVehicle(ArynTenantContextHolder.getTenantId(), vehicle));
 	}
 
 	@Operation(summary = "修改报备车辆")
@@ -69,14 +69,14 @@ public class VesselPortVehicleController {
 	@PutMapping("/port-vehicles/{id}")
 	public Result<VesselPortVehicle> update(@PathVariable String id, @RequestBody VesselPortVehicle vehicle) {
 		vehicle.setId(id);
-		return Result.success(portVehicleService.updateVehicle(SecurityUtils.getTenantId(), vehicle));
+		return Result.success(portVehicleService.updateVehicle(ArynTenantContextHolder.getTenantId(), vehicle));
 	}
 
 	@Operation(summary = "删除报备车辆")
 	@SaCheckPermission("vessel:portvehicle:delete")
 	@DeleteMapping("/port-vehicles/{id}")
 	public Result<Void> delete(@PathVariable String id) {
-		portVehicleService.deleteVehicle(SecurityUtils.getTenantId(), id);
+		portVehicleService.deleteVehicle(ArynTenantContextHolder.getTenantId(), id);
 		return Result.success();
 	}
 

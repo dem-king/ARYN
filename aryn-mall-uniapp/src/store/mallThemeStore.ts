@@ -34,6 +34,8 @@ export const DEFAULT_MALL_THEME = {
   navigationColor: '#FFFFFF',
   navigationTextColor: '#222222',
   radius: 8,
+  /** 自动动效总开关默认开启：未拉取到配置前保持现状（会动的继续动） */
+  autoMotionEnabled: true,
 }
 
 /**
@@ -60,6 +62,16 @@ interface MallThemeCache {
   navigationColor?: string
   navigationTextColor?: string
   radius?: number
+  /** 自动动效总开关：false 时 C 端不启动自动轮播/自动前进 */
+  autoMotionEnabled?: boolean
+}
+
+/**
+ * sanitize 的入参形态：既接受本地缓存（autoMotionEnabled 为 boolean），
+ * 也接受接口响应（后端下发 '0'/'1' 字符串）——两者的其余字段完全同形。
+ */
+type MallThemeInput = Omit<MallThemeCache, 'autoMotionEnabled'> & {
+  autoMotionEnabled?: boolean | string
 }
 
 function isHex(value: unknown): value is string {
@@ -67,7 +79,7 @@ function isHex(value: unknown): value is string {
 }
 
 /** 只保留合法字段：缓存可能来自旧版本或被手改，逐字段校验防脏值渗进 CSS 变量 */
-function sanitize(theme: MallThemeCache | null): MallThemeCache {
+function sanitize(theme: MallThemeInput | null): MallThemeCache {
   if (!theme) {
     return {}
   }
@@ -92,6 +104,16 @@ function sanitize(theme: MallThemeCache | null): MallThemeCache {
   }
   if (typeof theme.radius === 'number' && theme.radius >= 0 && theme.radius <= 28) {
     clean.radius = theme.radius
+  }
+  if (typeof theme.autoMotionEnabled === 'boolean') {
+    clean.autoMotionEnabled = theme.autoMotionEnabled
+  }
+  // 接口下发的是 '0'/'1' 字符串（缓存里存 boolean）：此处统一归一
+  else if (theme.autoMotionEnabled === '0') {
+    clean.autoMotionEnabled = false
+  }
+  else if (theme.autoMotionEnabled === '1') {
+    clean.autoMotionEnabled = true
   }
   return clean
 }
@@ -200,6 +222,8 @@ export const useMallThemeStore = defineStore('mallTheme', {
             this.navigationColor = clean.navigationColor ?? DEFAULT_MALL_THEME.navigationColor
             this.navigationTextColor = clean.navigationTextColor ?? DEFAULT_MALL_THEME.navigationTextColor
             this.radius = clean.radius ?? DEFAULT_MALL_THEME.radius
+            // 后端下发 '0'/'1'，sanitize 后为 boolean；缺失（老后端/老缓存）保持开启
+            this.autoMotionEnabled = clean.autoMotionEnabled ?? DEFAULT_MALL_THEME.autoMotionEnabled
             writeCache({
               themeId: this.themeId,
               primaryColor: this.primaryColor,
@@ -208,6 +232,7 @@ export const useMallThemeStore = defineStore('mallTheme', {
               navigationColor: this.navigationColor,
               navigationTextColor: this.navigationTextColor,
               radius: this.radius,
+              autoMotionEnabled: this.autoMotionEnabled,
             })
           }
         })

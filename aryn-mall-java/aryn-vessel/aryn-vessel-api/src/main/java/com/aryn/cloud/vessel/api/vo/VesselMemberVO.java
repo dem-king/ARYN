@@ -47,4 +47,17 @@ public class VesselMemberVO implements Serializable {
 	@Schema(description = "加入时间")
 	private LocalDateTime joinTime;
 
+	/**
+	 * 绑定来源。管理端成员列表据此显示来源标签，运营可以按来源识别并回收低信任关系
+	 * （尤其是 SHARE_CART：任何拿到分享链接的人都会被自动补建）。
+	 */
+	@Schema(description = "绑定来源：APPLY_AUDIT/APPLY_AUDIT_MISMATCH/INVITE_CODE/MEMBER_ADD/ADMIN_ADD/SHARE_CART/MANUAL")
+	private String bindSource;
+
+	@Schema(description = "绑定来源中文名")
+	private String bindSourceLabel;
+
+	@Schema(description = "绑定补充原因")
+	private String bindReason;
+
 }

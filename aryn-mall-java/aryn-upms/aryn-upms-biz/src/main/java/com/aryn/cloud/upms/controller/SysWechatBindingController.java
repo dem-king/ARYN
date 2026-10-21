@@ -1,6 +1,7 @@
 package com.aryn.cloud.upms.controller;
 
 import com.aryn.cloud.common.core.util.Result;
+import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.upms.service.ISysUserWechatBindingService;
 import com.aryn.cloud.user.api.dto.UserLoginReqDTO;
@@ -42,7 +43,7 @@ public class SysWechatBindingController {
 			return Result.fail("获取openid失败");
 		}
 		String userId = SecurityUtils.getUserId();
-		String tenantId = SecurityUtils.getTenantId();
+		String tenantId = ArynTenantContextHolder.getTenantId();
 		wechatBindingService.bindOrUpdate(tenantId, userId, appId, socialUser.getOpenId());
 		return Result.success(true);
 	}
@@ -51,7 +52,7 @@ public class SysWechatBindingController {
 	@PostMapping("/bind")
 	public Result<Boolean> bind(@RequestParam String appId, @RequestParam String openid) {
 		String userId = SecurityUtils.getUserId();
-		String tenantId = SecurityUtils.getTenantId();
+		String tenantId = ArynTenantContextHolder.getTenantId();
 		wechatBindingService.bindOrUpdate(tenantId, userId, appId, openid);
 		return Result.success(true);
 	}
@@ -60,7 +61,7 @@ public class SysWechatBindingController {
 	@PostMapping("/status")
 	public Result<Boolean> status() {
 		String userId = SecurityUtils.getUserId();
-		String tenantId = SecurityUtils.getTenantId();
+		String tenantId = ArynTenantContextHolder.getTenantId();
 		return Result.success(wechatBindingService.getActiveBinding(tenantId, userId) != null);
 	}
 }

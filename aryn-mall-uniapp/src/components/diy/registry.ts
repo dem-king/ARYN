@@ -12,6 +12,7 @@ import DiyGoodsGroup from './diy-goods-group/index.vue'
 import DiyGoodsRanking from './diy-goods-ranking/index.vue'
 import DiyGoodsRecommend from './diy-goods-recommend/index.vue'
 import DiyGoodsScroll from './diy-goods-scroll/index.vue'
+import DiyGoodsTabs from './diy-goods-tabs/index.vue'
 import DiyGoodsWaterfall from './diy-goods-waterfall/index.vue'
 import DiyGoods from './diy-goods/index.vue'
 import DiyImageCube from './diy-image-cube/index.vue'
@@ -19,6 +20,7 @@ import DiyImage from './diy-image/index.vue'
 import DiyLimitedActivity from './diy-limited-activity/index.vue'
 import DiyMarketingEntry from './diy-marketing-entry/index.vue'
 import DiyMemberBenefits from './diy-member-benefits/index.vue'
+import DiyNewbieFloor from './diy-newbie-floor/index.vue'
 import DiyNotice from './diy-notice/index.vue'
 import DiyReplenishCard from './diy-replenish-card/index.vue'
 import DiyRichText from './diy-rich-text/index.vue'
@@ -55,6 +57,7 @@ export const mobileComponentTypes = [
   'marketing-entry',
   'shop-info',
   'goods-waterfall',
+  'goods-tabs',
   'coupon-combo',
   'member-benefits',
   'service-promise',
@@ -64,6 +67,7 @@ export const mobileComponentTypes = [
   'image-cube',
   'ship-workbench',
   'replenish-card',
+  'newbie-floor',
 ] as const
 
 export type MobileComponentType = typeof mobileComponentTypes[number]
@@ -91,6 +95,7 @@ const componentRegistry: Record<MobileComponentType, Component> = {
   'marketing-entry': DiyMarketingEntry,
   'shop-info': DiyShopInfo,
   'goods-waterfall': DiyGoodsWaterfall,
+  'goods-tabs': DiyGoodsTabs,
   'coupon-combo': DiyCouponCombo,
   'member-benefits': DiyMemberBenefits,
   'service-promise': DiyServicePromise,
@@ -100,6 +105,7 @@ const componentRegistry: Record<MobileComponentType, Component> = {
   'image-cube': DiyImageCube,
   'ship-workbench': DiyShipWorkbench,
   'replenish-card': DiyReplenishCard,
+  'newbie-floor': DiyNewbieFloor,
 }
 
 export function getDiyComponent(type: string): Component | undefined {

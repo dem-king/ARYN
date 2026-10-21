@@ -27,6 +27,7 @@ import { computed, reactive, ref } from 'vue'
 import { alovaInstance } from '@/api/core/instance'
 import { addSharedCartItem, getSharedCart, getSharedCartItems } from '@/api/order/sharedCart'
 import { addShoppingCart } from '@/api/order/shoppingCart'
+import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 import hrNavbar from '@/components/hr-navbar/index.vue'
 import ShipContextPicker from '@/components/ship-context-picker/index.vue'
 import { useShipContextStore } from '@/store/shipContextStore'
@@ -156,6 +157,21 @@ function clearSearch() {
 /** 进入共享购物车列表 */
 function goSharedCartList() {
   uni.navigateTo({ url: '/sub-pages/order/shared-cart/list' })
+}
+
+/**
+ * 按分类选货。
+ *
+ * 不直接 switchTab 到分类页：分类页是 tabBar 页，会把「详情 → 选货」整条栈
+ * 清掉，回来时既找不到共享车，加购也不再是给这张车选货。
+ * 这里进入同构的分包页，保留共享车目的地与返回路径。
+ */
+function goCategoryPicker() {
+  if (!sharedCartId.value)
+    return
+  uni.navigateTo({
+    url: `/sub-pages/order/shared-cart/category?id=${sharedCartId.value}`,
+  })
 }
 
 /** 回到共享购物车详情（加完货交回确认人） */
@@ -297,6 +313,17 @@ onShow(() => {
             <text class="context__badge">
               共享购物车选货
             </text>
+            <!-- 分类入口：常驻上下文卡，选货中途随时切换按类目浏览 -->
+            <view
+              class="context__category"
+              hover-class="context__category--pressed"
+              :hover-stay-time="100"
+              @tap="goCategoryPicker"
+            >
+              <wd-icon name="apps" size="13px" color="#185FA5" />
+              <text>分类选货</text>
+              <wd-icon name="chevron-right" size="12px" color="#185FA5" />
+            </view>
           </view>
           <view class="context__vessel">
             {{ contextVesselName }}
@@ -382,6 +409,12 @@ onShow(() => {
               </text>
               <text class="row__price-value">
                 {{ salesPriceText(row) }}
+              </text>
+              <text
+                v-if="shouldShowOriginalPrice(row.salesPrice, row.originalPrice)"
+                class="row__price-original"
+              >
+                ￥{{ row.originalPrice }}
               </text>
             </view>
             <!-- 库存文案与档位分开：颜色只是补充，文字本身已说明情况 -->
@@ -503,9 +536,38 @@ onShow(() => {
   }
 
   &__badge {
+    flex: none;
+    font-size: 24rpx;
+    font-weight: 600;
+    white-space: nowrap;
+    color: #185fa5;
+  }
+
+  /**
+   * 分类选货入口：白底胶囊压在蓝卡上，与上下文形成层次。
+   * 不放搜索行：搜索行已有一个主操作「搜索」，再加一个入口会把输入框挤窄。
+   */
+  &__category {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 4rpx;
+    /* 64rpx ≈ 32px，与选货页加购按钮同一触控高度 */
+    height: 64rpx;
+    margin-left: auto;
+    padding: 0 20rpx;
+    border-radius: 32rpx;
+    background: #fff;
+    box-shadow: 0 4rpx 10rpx rgb(24 95 165 / 14%);
     font-size: 24rpx;
     font-weight: 600;
     color: #185fa5;
+    transition: transform 160ms ease, opacity 160ms ease;
+
+    &--pressed {
+      opacity: 0.72;
+      transform: scale(0.96);
+    }
   }
 
   &__vessel {
@@ -672,8 +734,9 @@ onShow(() => {
 
   &__price {
     display: flex;
-    align-items: baseline;
     flex: 1;
+    flex-wrap: wrap;
+    align-items: baseline;
     min-width: 0;
     color: var(--wot-color-theme-primary, #ff2237);
     font-weight: 600;
@@ -685,6 +748,14 @@ onShow(() => {
 
   &__price-value {
     font-size: 34rpx;
+  }
+
+  &__price-original {
+    margin-left: 10rpx;
+    font-size: 22rpx;
+    font-weight: 400;
+    color: #9aa2ae;
+    text-decoration: line-through;
   }
 
   &__stock {

@@ -114,4 +114,19 @@
           AND del_flag = '0'
         LIMIT 1
     </select>
+    <select id="selectStatsByMessageIds"
+            resultType="com.aryn.cloud.message.api.vo.notice.NoticeRecipientStatsVO">
+        SELECT message_id,
+               COUNT(1) AS recipient_count,
+               COALESCE(SUM(CASE WHEN read_status = '1' THEN 1 ELSE 0 END), 0) AS read_count,
+               COALESCE(SUM(CASE WHEN inbox_status = 'HIDDEN' THEN 1 ELSE 0 END), 0) AS hidden_count
+        FROM message_recipient
+        WHERE tenant_id = #{tenantId}
+          AND del_flag = '0'
+          AND message_id IN
+        <foreach collection="messageIds" item="messageId" open="(" separator="," close=")">
+            #{messageId}
+        </foreach>
+        GROUP BY message_id
+    </select>
 </mapper>

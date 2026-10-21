@@ -163,4 +163,40 @@ describe('mallThemeStore', () => {
     expect(store.resolved).toBe(false)
     expect(storage.has('mall-theme-cache:tenant-test')).toBe(false)
   })
+
+  it("自动动效开关：接口下发 '0' 关闭、'1' 开启、缺失保持开启", async () => {
+    vi.mocked(getMallTheme).mockResolvedValue({
+      ...themeServer,
+      autoMotionEnabled: '0',
+    })
+    const store = useMallThemeStore()
+    await store.ensureLoaded()
+    expect(store.autoMotionEnabled).toBe(false)
+    // 缓存同步落盘：下次冷启动首帧就是「不动」的
+    expect(storage.get('mall-theme-cache:tenant-test')).toMatchObject({
+      autoMotionEnabled: false,
+    })
+
+    vi.mocked(getMallTheme).mockResolvedValue({
+      ...themeServer,
+      autoMotionEnabled: '1',
+    })
+    await store.refresh()
+    expect(store.autoMotionEnabled).toBe(true)
+
+    // 老后端不下发该字段：保持开启，避免误停全站动效
+    vi.mocked(getMallTheme).mockResolvedValue({ ...themeServer })
+    store.autoMotionEnabled = false
+    await store.refresh()
+    expect(store.autoMotionEnabled).toBe(true)
+  })
+
+  it('自动动效开关：缓存中的脏值不渗进状态', async () => {
+    storage.set('mall-theme-cache:tenant-test', {
+      autoMotionEnabled: 'no',
+      primaryColor: '#FF5500',
+    })
+    const store = useMallThemeStore()
+    expect(store.autoMotionEnabled).toBe(DEFAULT_MALL_THEME.autoMotionEnabled)
+  })
 })

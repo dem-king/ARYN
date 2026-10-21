@@ -7,6 +7,7 @@ public enum DispatchTaskStatus {
 	RUNNING,
 	SUCCEEDED,
 	PARTIAL_FAILED,
-	FAILED
+	FAILED,
+	CANCELED
 
 }

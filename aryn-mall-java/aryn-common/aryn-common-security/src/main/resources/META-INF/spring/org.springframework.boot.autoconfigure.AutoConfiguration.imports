@@ -3,3 +3,4 @@ com.aryn.cloud.common.security.config.SaTokenConfigure
 com.aryn.cloud.common.security.config.UserSupplierConfiguration
 com.aryn.cloud.common.security.service.impl.ArynPermissionsImpl
 com.aryn.cloud.common.security.aspect.ArynInnerAopAspect
+com.aryn.cloud.common.security.config.SmsCodeVerifyConfiguration

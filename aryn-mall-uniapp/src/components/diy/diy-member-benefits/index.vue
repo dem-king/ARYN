@@ -19,27 +19,29 @@ const dynamicStyles = useDiyStyle(computed(() => componentProps.value.commonStyl
 
 <template>
   <view class="diy-member-benefits" :style="dynamicStyles">
-    <view v-if="componentProps.title" class="benefits-title">
-      {{ componentProps.title }}
-    </view>
-    <view v-if="entries.length === 0" class="benefits-empty">
-      暂无会员权益，请在装修中配置
-    </view>
-    <view v-else class="benefits-grid">
-      <view
-        v-for="entry in entries"
-        :key="entry.id"
-        class="benefit-item"
-        @click="followDecorationLink(entry.link)"
-      >
-        <image v-if="entry.iconUrl" class="benefit-icon" :src="entry.iconUrl" />
-        <view v-else class="benefit-icon benefit-icon-fallback">礼</view>
-        <view class="benefit-text">
-          <view class="benefit-name">
-            {{ entry.title }}
-          </view>
-          <view v-if="entry.description" class="benefit-desc">
-            {{ entry.description }}
+    <view class="benefits-inner">
+      <view v-if="componentProps.title" class="benefits-title">
+        {{ componentProps.title }}
+      </view>
+      <view v-if="entries.length === 0" class="benefits-empty">
+        暂无会员权益，请在装修中配置
+      </view>
+      <view v-else class="benefits-grid">
+        <view
+          v-for="entry in entries"
+          :key="entry.id"
+          class="benefit-item"
+          @click="followDecorationLink(entry.link)"
+        >
+          <image v-if="entry.iconUrl" class="benefit-icon" :src="entry.iconUrl" />
+          <view v-else class="benefit-icon benefit-icon-fallback">礼</view>
+          <view class="benefit-text">
+            <view class="benefit-name">
+              {{ entry.title }}
+            </view>
+            <view v-if="entry.description" class="benefit-desc">
+              {{ entry.description }}
+            </view>
           </view>
         </view>
       </view>
@@ -48,7 +50,9 @@ const dynamicStyles = useDiyStyle(computed(() => componentProps.value.commonStyl
 </template>
 
 <style lang="scss" scoped>
-.diy-member-benefits {
+/* 留白放在内层而不是根节点：根节点的 padding 会被装修 commonStyle 的
+   内联样式覆盖成 0（配置缺省即零值），挂根上会让卡片直接顶到屏幕边缘 */
+.benefits-inner {
   padding: 20rpx;
 }
 

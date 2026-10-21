@@ -1,5 +1,7 @@
 package com.aryn.cloud.message.api.entity;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -23,6 +25,8 @@ public class MessageDispatchTask extends AbstractMessageEntity {
 	private Long failureCount;
 	private Integer retryCount;
 	private LocalDateTime lastHeartbeatTime;
+
+	@TableField(updateStrategy = FieldStrategy.ALWAYS)
 	private String errorSummary;
 
 }

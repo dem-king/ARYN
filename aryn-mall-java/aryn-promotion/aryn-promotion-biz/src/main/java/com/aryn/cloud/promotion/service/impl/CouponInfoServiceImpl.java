@@ -84,4 +84,28 @@ public class CouponInfoServiceImpl extends ServiceImpl<CouponInfoMapper, CouponI
 		return baseMapper.selectAdminPage(page, couponInfo);
 	}
 
+	@Override
+	public List<CouponInfo> listByIds(List<String> ids, CouponUser couponUser) {
+		if (CollectionUtils.isEmpty(ids)) {
+			return List.of();
+		}
+		List<CouponInfo> coupons = baseMapper.selectCouponByIds(ids, couponUser);
+		if (Objects.nonNull(couponUser.getUserId()) && !CollectionUtils.isEmpty(coupons)) {
+			coupons.forEach(coupon -> coupon.setUserReceiveCount(couponUserMapper.selectCount(
+				Wrappers.<CouponUser>lambdaQuery()
+					.eq(CouponUser::getCouponId, coupon.getId())
+					.eq(CouponUser::getUserId, couponUser.getUserId()))));
+		}
+		return coupons;
+	}
+
+	@Override
+	public List<CouponInfo> listForAdminByIds(List<String> ids) {
+		if (CollectionUtils.isEmpty(ids)) {
+			return List.of();
+		}
+		return this.list(Wrappers.<CouponInfo>lambdaQuery()
+			.in(CouponInfo::getId, ids));
+	}
+
 }

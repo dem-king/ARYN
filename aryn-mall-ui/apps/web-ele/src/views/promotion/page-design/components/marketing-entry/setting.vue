@@ -22,7 +22,6 @@ import {
   cloneDesignerValue,
   isSameDesignerValue,
 } from '../../../page-designer/schema/clone';
-import CommonStyle from '../common/common-style/index.vue';
 import LinkUrl from '../common/link-url/index.vue';
 
 const props = defineProps<{ modelValue: MarketingEntryProps }>();
@@ -129,8 +128,6 @@ function removeEntry(index: number) {
         />
       </ElSelect>
     </ElFormItem>
-    <div class="retail-setting__section">通用样式</div>
-    <CommonStyle v-model="form.commonStyle" />
   </ElForm>
 </template>
 
@@ -158,12 +155,5 @@ function removeEntry(index: number) {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 10px;
-}
-
-.retail-setting__section {
-  padding: 12px 0 6px;
-  margin-top: 12px;
-  font-weight: 600;
-  border-top: 1px solid var(--el-border-color-lighter);
 }
 </style>

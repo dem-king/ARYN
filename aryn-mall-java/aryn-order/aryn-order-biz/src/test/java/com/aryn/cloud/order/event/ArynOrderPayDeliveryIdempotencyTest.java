@@ -73,7 +73,8 @@ class ArynOrderPayDeliveryIdempotencyTest {
 				mock(IDeliveryWarehouseConfigService.class), mock(IDeliveryTaskLogService.class),
 				mock(IDeliveryEvidenceService.class), mock(com.aryn.cloud.order.service.IOrderItemService.class),
 				mock(com.aryn.cloud.order.service.IOrderConfigService.class),
-				mock(com.aryn.cloud.order.mapper.OrderInfoMapper.class), mock(RocketMQTemplate.class)));
+				mock(com.aryn.cloud.order.mapper.OrderInfoMapper.class), mock(RocketMQTemplate.class),
+				new com.fasterxml.jackson.databind.ObjectMapper()));
 		orderInfoService = mock(IOrderInfoService.class);
 		orderItemService = mock(IOrderItemService.class);
 		deliveryTaskServiceMock = mock(IDeliveryTaskService.class);

@@ -19,7 +19,7 @@ import {
   cloneDesignerValue,
   isSameDesignerValue,
 } from '../../../page-designer/schema/clone';
-import CommonStyle from '../common/common-style/index.vue';
+import IdPickerField from '../common/id-picker-field/index.vue';
 
 const props = defineProps<{ modelValue: SeckillProps }>();
 const emit = defineEmits<{
@@ -56,14 +56,11 @@ watch(
         <ElRadio value="manual">手动选择</ElRadio>
       </ElRadioGroup>
     </ElFormItem>
-    <ElFormItem v-if="form.dataSource.mode === 'manual'" label="秒杀场次 ID">
-      <ElSelect
+    <ElFormItem v-if="form.dataSource.mode === 'manual'" label="秒杀场次">
+      <IdPickerField
         v-model="form.dataSource.targetIds"
-        allow-create
-        default-first-option
-        filterable
-        multiple
-        placeholder="输入场次 ID 后回车"
+        kind="seckill-session"
+        :limit="5"
       />
     </ElFormItem>
     <ElFormItem label="展示场次数">
@@ -91,8 +88,6 @@ watch(
         />
       </ElSelect>
     </ElFormItem>
-    <div class="retail-setting__section">通用样式</div>
-    <CommonStyle v-model="form.commonStyle" />
   </ElForm>
 </template>
 
@@ -100,11 +95,5 @@ watch(
 .retail-setting :deep(.el-select),
 .retail-setting :deep(.el-input-number) {
   width: 100%;
-}
-
-.retail-setting__section {
-  padding: 12px 0 6px;
-  font-weight: 600;
-  border-top: 1px solid var(--el-border-color-lighter);
 }
 </style>

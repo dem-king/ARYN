@@ -126,6 +126,30 @@ describe('useDraftSave', () => {
     expect(draft.isDirty.value).toBe(true);
   });
 
+  it('detects a revision conflict from the unwrapped response body', async () => {
+    vi.useFakeTimers();
+    const revision = ref(4);
+    // RequestClient.request 在 catch 中解包后抛出的是响应体本身，
+    // 即裸 { code, msg } 对象，没有 response 属性可挖
+    const conflict = {
+      code: 1,
+      data: null,
+      msg: '草稿已被其他人修改，请重新加载',
+    };
+    const save = vi.fn().mockRejectedValue(conflict);
+    const draft = useDraftSave({
+      buildPayload: () => ({}),
+      revision,
+      save,
+    });
+
+    draft.markDirty();
+    await expect(draft.saveNow()).rejects.toBe(conflict);
+
+    expect(draft.status.value).toBe('conflict');
+    expect(draft.isDirty.value).toBe(true);
+  });
+
   it('exposes stale revision conflicts and protects unsaved unloads', async () => {
     const revision = ref(4);
     const save = vi

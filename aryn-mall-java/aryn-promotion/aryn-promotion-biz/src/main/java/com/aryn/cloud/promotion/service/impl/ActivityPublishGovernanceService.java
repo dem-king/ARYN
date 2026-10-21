@@ -32,7 +32,8 @@ public class ActivityPublishGovernanceService {
 
 	/**
 	 * 发布前规则结构校验：
-	 * 阶梯价 ladders[{minQty,unitPrice}]（minQty 不得重复，且数量越大单价必须越低）；
+	 * 阶梯价 skuLadders[{skuId,ladders[{minQty,unitPrice}]}]（须指定SKU/常购用户范围且与 scopeValue 一一对应；
+	 * 每 SKU 内 minQty 不得重复，且数量越大单价必须越低）；
 	 * 整船优惠 tiers[{minAmount,discountAmount}]（minAmount 不得重复，金额越大优惠不得减少）；
 	 * 买赠 gifts[{skuId,quantity,minAmount}]；常购专属价 skuPrices[{skuId,unitPrice}]。
 	 */
@@ -43,9 +44,10 @@ public class ActivityPublishGovernanceService {
 		try {
 			JSONObject rules = JSONUtil.parseObj(activity.getRules());
 			switch (activity.getActivityType() == null ? "" : activity.getActivityType()) {
-				case PromotionActivity.TYPE_LADDER_PRICE -> validateLadders(rules);
+				case PromotionActivity.TYPE_LADDER_PRICE -> validateSkuLadders(activity, rules);
 				case PromotionActivity.TYPE_SHIP_WHOLE_DISCOUNT -> validateTiers(rules);
 				case PromotionActivity.TYPE_GIFT -> validateGifts(rules);
+				case PromotionActivity.TYPE_NEWBIE_PRICE -> validateNewbiePrice(activity, rules);
 				default -> throw new ArynBusinessException("暂不支持的活动类型：" + activity.getActivityType());
 			}
 		}
@@ -57,11 +59,44 @@ public class ActivityPublishGovernanceService {
 		}
 	}
 
-	private void validateLadders(JSONObject rules) {
-		JSONArray ladders = rules.getJSONArray("ladders");
-		if (ladders == null || ladders.isEmpty()) {
-			throw new ArynBusinessException("阶梯价活动必须配置 ladders 档位");
+	/**
+	 * 阶梯价必须使用「指定SKU」或「常购用户」范围（全场单档价会串到所有商品），
+	 * rules.skuLadders 与 scopeValue 按 SKU 一一对应。
+	 */
+	private void validateSkuLadders(PromotionActivity activity, JSONObject rules) {
+		if (!"2".equals(activity.getScopeType()) && !"8".equals(activity.getScopeType())) {
+			throw new ArynBusinessException("阶梯价活动必须使用「指定SKU」或「常购用户」范围");
 		}
+		JSONArray skuLadders = rules.getJSONArray("skuLadders");
+		if (skuLadders == null || skuLadders.isEmpty()) {
+			throw new ArynBusinessException("阶梯价活动必须配置 skuLadders 逐 SKU 档位");
+		}
+		Set<String> skuIds = new HashSet<>();
+		for (Object element : skuLadders) {
+			JSONObject skuLadder = (JSONObject) element;
+			String skuId = skuLadder.getStr("skuId");
+			if (!StringUtils.hasText(skuId)) {
+				throw new ArynBusinessException("阶梯价 skuLadders 必须包含 skuId");
+			}
+			if (!skuIds.add(skuId)) {
+				throw new ArynBusinessException("阶梯价 SKU 重复：" + skuId);
+			}
+			JSONArray ladders = skuLadder.getJSONArray("ladders");
+			if (ladders == null || ladders.isEmpty()) {
+				throw new ArynBusinessException("阶梯价 SKU " + skuId + " 必须配置档位");
+			}
+			validateLadderEntries(ladders);
+		}
+		if (!StringUtils.hasText(activity.getScopeValue())) {
+			throw new ArynBusinessException("阶梯价活动必须配置指定商品范围");
+		}
+		Set<String> scopeSkuIds = new HashSet<>(List.of(activity.getScopeValue().split(",")));
+		if (!scopeSkuIds.equals(skuIds)) {
+			throw new ArynBusinessException("阶梯价 skuLadders 与指定商品范围必须一一对应");
+		}
+	}
+
+	private void validateLadderEntries(JSONArray ladders) {
 		List<JSONObject> sorted = ladders.stream()
 				.map(element -> (JSONObject) element)
 				.sorted(Comparator.comparingInt(ladder -> nullSafe(ladder.getInt("minQty"))))
@@ -134,6 +169,48 @@ public class ActivityPublishGovernanceService {
 			if (!skuIds.add(skuId)) {
 				throw new ArynBusinessException("买赠赠品 SKU 重复：" + skuId);
 			}
+		}
+	}
+
+	/**
+	 * 新人专享价：registerWithinDays 为正整数（可空=不限时效）、limitPerUser 必须为 1、
+	 * rules.skus 与 scopeValue（指定 SKU 范围）必须一一对应且不重复、每个 price 为正数。
+	 * 价格与 SKU 售价的相对关系在引擎侧跳过（命中价不低于基价不产生覆盖），发布时不查商品库。
+	 */
+	private void validateNewbiePrice(PromotionActivity activity, JSONObject rules) {
+		if (!"2".equals(activity.getScopeType())) {
+			throw new ArynBusinessException("新人专享价必须使用「指定商品」范围");
+		}
+		Integer registerWithinDays = rules.getInt("registerWithinDays");
+		if (registerWithinDays != null && registerWithinDays < 1) {
+			throw new ArynBusinessException("新人专享价 registerWithinDays 必须为正整数");
+		}
+		Integer limitPerUser = rules.getInt("limitPerUser");
+		if (limitPerUser == null || limitPerUser != 1) {
+			throw new ArynBusinessException("新人专享价每人限购固定为 1 件");
+		}
+		JSONArray skus = rules.getJSONArray("skus");
+		if (skus == null || skus.isEmpty()) {
+			throw new ArynBusinessException("新人专享价必须配置 skus 单价列表");
+		}
+		Set<String> ruleSkuIds = new HashSet<>();
+		for (Object element : skus) {
+			JSONObject sku = (JSONObject) element;
+			String skuId = sku.getStr("skuId");
+			BigDecimal price = sku.getBigDecimal("price");
+			if (!StringUtils.hasText(skuId) || price == null || price.signum() <= 0) {
+				throw new ArynBusinessException("新人专享价 skus 必须包含 skuId 与正数 price");
+			}
+			if (!ruleSkuIds.add(skuId)) {
+				throw new ArynBusinessException("新人专享价 SKU 重复：" + skuId);
+			}
+		}
+		if (!StringUtils.hasText(activity.getScopeValue())) {
+			throw new ArynBusinessException("新人专享价必须配置指定商品范围");
+		}
+		Set<String> scopeSkuIds = new HashSet<>(List.of(activity.getScopeValue().split(",")));
+		if (!scopeSkuIds.equals(ruleSkuIds)) {
+			throw new ArynBusinessException("新人专享价 skus 与指定商品范围必须一一对应");
 		}
 	}
 

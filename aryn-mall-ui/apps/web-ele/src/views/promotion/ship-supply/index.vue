@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { defineAsyncComponent, onMounted, reactive, ref } from 'vue';
+import { computed, defineAsyncComponent, onMounted, reactive, ref } from 'vue';
 
 import {
   ElButton,
@@ -19,18 +19,24 @@ import {
   ElTableColumn,
 } from 'element-plus';
 
+import { getById as getSpuById } from '#/api/product/goods-spu';
 import {
   addActivity,
   deleteActivity,
+  dryRunActivity,
   getActivityPage,
   getPublishConflicts,
   pauseActivity,
   publishActivity,
   updateActivity,
 } from '#/api/promotion/ship-activity';
+import { getDeclaredVesselCalls, getVesselPage } from '#/api/vessel/vessel';
 
 const Pagination = defineAsyncComponent(
   () => import('#/components/pagination/index.vue'),
+);
+const SelectGoods = defineAsyncComponent(
+  () => import('#/components/select-goods/index.vue'),
 );
 
 const state = reactive({
@@ -46,27 +52,70 @@ const form = reactive<any>({
   activityName: '',
   activityType: '4',
   endTime: '',
+  giftStock: 0,
+  perUserLimit: 0,
   priority: 0,
   purchaseScene: '',
   scopeType: '1',
   scopeValue: '',
   startTime: '',
+  totalBudget: 0,
 });
-const ladders = ref<Array<{ minQty: number; unitPrice: number }>>([
-  { minQty: 10, unitPrice: 0 },
-]);
+const skuLadders = ref<
+  Array<{
+    ladders: Array<{ minQty: number; unitPrice: number }>;
+    salesPrice: number | string;
+    skuId: string;
+    skuName: string;
+    spuName: string;
+  }>
+>([]);
 const tiers = ref<Array<{ discountAmount: number; minAmount: number }>>([
   { discountAmount: 0, minAmount: 0 },
 ]);
 const giftThreshold = ref(0);
-const gifts = ref<Array<{ quantity: number; skuId: string }>>([
-  { quantity: 1, skuId: '' },
-]);
+const newbieSkus = ref<
+  Array<{
+    price: number;
+    salesPrice: number | string;
+    skuId: string;
+    skuName: string;
+    spuName: string;
+  }>
+>([]);
+const registerWithinDays = ref<null | number>(null);
+const gifts = ref<
+  Array<{ quantity: number; skuId: string; skuName: string; spuName: string }>
+>([]);
+const vesselOptions = ref<Array<{ id: string; vesselName: string }>>([]);
+const callOptions = ref<any[]>([]);
+const portOptions = ref<Array<{ code: string; name: string }>>([]);
+const isPublished = ref(false);
+const selectMode = ref<'dry' | 'gift' | 'ladder' | 'newbie' | 'scope'>(
+  'ladder',
+);
+const dryVisible = ref(false);
+const dryLoading = ref(false);
+const dryResult = ref<any>(null);
+const dryForm = reactive<any>({
+  items: [] as Array<{
+    quantity: number;
+    salesPrice: number | string;
+    skuId: string;
+    skuName: string;
+    spuName: string;
+  }>,
+  portCode: '',
+  purchaseScene: '2',
+  vesselCallId: '',
+  vesselId: '',
+});
 
 const typeLabel: Record<string, string> = {
   '4': '阶梯价',
   '5': '买赠',
   '7': '整船优惠',
+  '9': '新人价',
 };
 const statusLabel: Record<string, string> = {
   '1': '草稿',
@@ -78,7 +127,6 @@ const statusLabel: Record<string, string> = {
 const scopeLabel: Record<string, string> = {
   '1': '全场',
   '2': '指定SKU',
-  '4': '指定场景',
   '5': '指定船舶',
   '6': '指定靠港',
   '7': '指定港口',
@@ -103,46 +151,126 @@ const initPage = async () => {
 
 const openDialog = (row?: any) => {
   editingId.value = row?.id ?? '';
+  isPublished.value = row?.status === '2';
   form.activityName = row?.activityName ?? '';
   form.activityType = row?.activityType ?? '4';
   form.scopeType = row?.scopeType ?? '1';
   form.scopeValue = row?.scopeValue ?? '';
   form.purchaseScene = row?.purchaseScene ?? '';
   form.priority = row?.priority ?? 0;
+  form.totalBudget = row?.totalBudget ?? 0;
+  form.perUserLimit = row?.perUserLimit ?? 0;
+  form.giftStock = row?.giftStock ?? 0;
   form.startTime = row?.startTime ?? '';
   form.endTime = row?.endTime ?? '';
   try {
     const rules = row ? JSON.parse(row.rules) : {};
-    ladders.value = rules.ladders ?? [{ minQty: 10, unitPrice: 0 }];
+    skuLadders.value = rules.skuLadders ?? [];
     tiers.value = rules.tiers ?? [{ discountAmount: 0, minAmount: 0 }];
     giftThreshold.value = rules.minAmount ?? 0;
-    gifts.value = rules.gifts ?? [{ quantity: 1, skuId: '' }];
+    gifts.value = rules.gifts ?? [];
+    newbieSkus.value = rules.skus ?? [];
+    registerWithinDays.value = rules.registerWithinDays ?? null;
   } catch {
-    ladders.value = [{ minQty: 10, unitPrice: 0 }];
+    skuLadders.value = [];
     tiers.value = [{ discountAmount: 0, minAmount: 0 }];
     giftThreshold.value = 0;
-    gifts.value = [{ quantity: 1, skuId: '' }];
+    gifts.value = [];
+    newbieSkus.value = [];
+    registerWithinDays.value = null;
   }
+  dryResult.value = null;
+  loadVesselData();
   dialogVisible.value = true;
 };
 
 const buildPayload = () => {
   let rules: Record<string, any> = { tiers: tiers.value };
-  if (form.activityType === '4') {
-    rules = { ladders: ladders.value };
-  } else if (form.activityType === '5') {
-    rules = { minAmount: giftThreshold.value, gifts: gifts.value };
+  switch (form.activityType) {
+    case '4': {
+      rules = {
+        skuLadders: skuLadders.value.map((row) => ({
+          skuId: row.skuId,
+          spuName: row.spuName,
+          skuName: row.skuName,
+          ladders: row.ladders,
+        })),
+      };
+
+      break;
+    }
+    case '5': {
+      rules = { minAmount: giftThreshold.value, gifts: gifts.value };
+
+      break;
+    }
+    case '9': {
+      rules = {
+        limitPerUser: 1,
+        registerWithinDays: registerWithinDays.value,
+        skus: newbieSkus.value.map((row) => ({
+          price: row.price,
+          skuId: row.skuId,
+          skuName: row.skuName,
+          spuName: row.spuName,
+        })),
+      };
+
+      break;
+    }
+    // No default
   }
-  return {
+  const payload: Record<string, any> = {
     ...form,
     rules: JSON.stringify(rules),
   };
+  if (form.activityType === '4' || form.activityType === '9') {
+    payload.scopeType = '2';
+    payload.scopeValue = (
+      form.activityType === '4'
+        ? skuLadders.value.map((row) => row.skuId)
+        : newbieSkus.value.map((row) => row.skuId)
+    ).join(',');
+  }
+  return payload;
 };
 
 const handleSave = () => {
   if (!form.activityName || !form.startTime || !form.endTime) {
     ElMessage.warning('请完善活动名称与时间');
     return;
+  }
+  if (form.activityType === '4') {
+    if (skuLadders.value.length === 0) {
+      ElMessage.warning('请添加活动商品并配置档位');
+      return;
+    }
+    const bad = skuLadders.value.find(
+      (row) =>
+        row.ladders.length === 0 ||
+        row.ladders.some((ladder) => !ladder.minQty || ladder.unitPrice <= 0),
+    );
+    if (bad) {
+      ElMessage.warning(
+        `商品【${bad.spuName}】的档位数量与档价需完整且档价大于 0`,
+      );
+      return;
+    }
+  }
+  if (form.activityType === '5' && gifts.value.length === 0) {
+    ElMessage.warning('请添加赠品');
+    return;
+  }
+  if (form.activityType === '9') {
+    if (newbieSkus.value.length === 0) {
+      ElMessage.warning('请添加新人价商品');
+      return;
+    }
+    const bad = newbieSkus.value.find((row) => !row.price || row.price <= 0);
+    if (bad) {
+      ElMessage.warning(`商品【${bad.spuName}】的新人价需大于 0`);
+      return;
+    }
   }
   const request = editingId.value
     ? updateActivity(editingId.value, buildPayload())
@@ -206,8 +334,212 @@ const handleDelete = (row: any) => {
     .catch(() => {});
 };
 
-const addLadder = () => {
-  ladders.value.push({ minQty: 1, unitPrice: 0 });
+const selectGoodsRef = ref();
+const openSelect = (mode: 'dry' | 'gift' | 'ladder' | 'newbie' | 'scope') => {
+  selectMode.value = mode;
+  selectGoodsRef.value?.initPage();
+};
+const openSelectGoods = () => openSelect('ladder');
+
+const resolveSkuRows = async (spuList: any[]) => {
+  const rows: Array<{
+    ladders?: Array<{ minQty: number; unitPrice: number }>;
+    quantity?: number;
+    salesPrice: number | string;
+    skuId: string;
+    skuName: string;
+    spuName: string;
+  }> = [];
+  for (const spu of spuList) {
+    try {
+      const detail: any = await getSpuById(spu.id);
+      const skus = detail?.goodsSkus ?? [];
+      if (skus.length === 0) {
+        ElMessage.warning(`商品【${spu.name}】无可用 SKU，已跳过`);
+        continue;
+      }
+      for (const sku of skus) {
+        rows.push({
+          skuId: sku.id,
+          spuName: spu.name,
+          skuName:
+            (sku.specsArr ?? []).map((spec: any) => spec.specsName).join(' ') ||
+            '单规格',
+          salesPrice: sku.salesPrice,
+        });
+      }
+    } catch {
+      ElMessage.error(`商品【${spu.name}】加载失败`);
+    }
+  }
+  return rows;
+};
+
+const onGoodsSelected = async (spuList: any[]) => {
+  const rows = await resolveSkuRows(spuList);
+  switch (selectMode.value) {
+    case 'gift': {
+      for (const row of rows) {
+        if (gifts.value.some((gift) => gift.skuId === row.skuId)) continue;
+        gifts.value.push({ ...row, quantity: 1 });
+      }
+
+      break;
+    }
+    case 'ladder': {
+      for (const row of rows) {
+        if (skuLadders.value.some((item) => item.skuId === row.skuId)) continue;
+        skuLadders.value.push({
+          ...row,
+          ladders: [{ minQty: 10, unitPrice: 0 }],
+        });
+      }
+
+      break;
+    }
+    case 'newbie': {
+      for (const row of rows) {
+        if (newbieSkus.value.some((sku) => sku.skuId === row.skuId)) continue;
+        newbieSkus.value.push({ ...row, price: 0 });
+      }
+
+      break;
+    }
+    case 'scope': {
+      const existing = new Set(
+        (form.scopeValue || '').split(',').filter(Boolean),
+      );
+      rows.forEach((row) => existing.add(row.skuId));
+      form.scopeValue = [...existing].join(',');
+
+      break;
+    }
+    default: {
+      for (const row of rows) {
+        if (dryForm.items.some((item: any) => item.skuId === row.skuId))
+          continue;
+        dryForm.items.push({ ...row, quantity: 1 });
+      }
+    }
+  }
+};
+
+const scopeSkuCount = () =>
+  (form.scopeValue || '').split(',').filter(Boolean).length;
+
+const scopeValueOptions = computed(() => {
+  if (form.scopeType === '5') {
+    return vesselOptions.value.map((vessel) => ({
+      value: vessel.id,
+      label: vessel.vesselName,
+    }));
+  }
+  if (form.scopeType === '6') {
+    return callOptions.value.map((call) => ({
+      value: call.id,
+      label: `${call.portName} ${String(call.eta).slice(0, 10)}`,
+    }));
+  }
+  if (form.scopeType === '7') {
+    return portOptions.value.map((port) => ({
+      value: port.code,
+      label: `${port.name}（${port.code}）`,
+    }));
+  }
+  return [];
+});
+
+const loadVesselData = async () => {
+  if (vesselOptions.value.length > 0) return;
+  try {
+    const [vessels, calls] = await Promise.all([
+      getVesselPage({ current: 1, size: 200 }),
+      getDeclaredVesselCalls(),
+    ]);
+    vesselOptions.value = vessels.records ?? [];
+    callOptions.value = calls ?? [];
+    const seen = new Set<string>();
+    portOptions.value = (calls ?? [])
+      .filter(
+        (call: any) =>
+          call.portCode && !seen.has(call.portCode) && seen.add(call.portCode),
+      )
+      .map((call: any) => ({ code: call.portCode, name: call.portName }));
+  } catch {
+    // 下拉数据加载失败时降级为空选项，不阻断活动配置
+  }
+};
+
+const scopeText = (row: any) => {
+  const label = scopeLabel[row.scopeType] ?? row.scopeType;
+  if (row.scopeType === '2' || row.scopeType === '8') {
+    return `${label}(${(row.scopeValue || '').split(',').filter(Boolean).length})`;
+  }
+  if (row.scopeType === '5') {
+    return (
+      vesselOptions.value.find((vessel) => vessel.id === row.scopeValue)
+        ?.vesselName ?? label
+    );
+  }
+  if (row.scopeType === '6') {
+    const call = callOptions.value.find((item) => item.id === row.scopeValue);
+    return call ? `${call.portName} ${String(call.eta).slice(0, 10)}` : label;
+  }
+  if (row.scopeType === '7') {
+    return (
+      portOptions.value.find((port) => port.code === row.scopeValue)?.name ??
+      label
+    );
+  }
+  return label;
+};
+
+const openDry = () => {
+  loadVesselData();
+  if (dryForm.items.length === 0 && skuLadders.value.length > 0) {
+    dryForm.items = skuLadders.value.map((row) => ({
+      skuId: row.skuId,
+      spuName: row.spuName,
+      skuName: row.skuName,
+      salesPrice: row.salesPrice,
+      quantity: row.ladders[0]?.minQty ?? 1,
+    }));
+  }
+  dryResult.value = null;
+  dryVisible.value = true;
+};
+
+const runDry = async () => {
+  if (dryForm.items.length === 0) {
+    ElMessage.warning('请添加试算购物车商品');
+    return;
+  }
+  dryLoading.value = true;
+  try {
+    dryResult.value = await dryRunActivity({
+      purchaseScene: dryForm.purchaseScene,
+      vesselId: dryForm.vesselId || null,
+      vesselCallId: dryForm.vesselCallId || null,
+      portCode: dryForm.portCode || null,
+      skuItems: dryForm.items.map((item: any) => ({
+        skuId: item.skuId,
+        quantity: item.quantity,
+        salesPrice: item.salesPrice,
+      })),
+    });
+  } finally {
+    dryLoading.value = false;
+  }
+};
+
+const onDryCallChange = (callId: string) => {
+  const call = callOptions.value.find((item) => item.id === callId);
+  dryForm.portCode = call?.portCode ?? '';
+  dryForm.vesselId = call?.vesselId ?? dryForm.vesselId;
+};
+
+const addLadder = (row: (typeof skuLadders.value)[number]) => {
+  row.ladders.push({ minQty: 1, unitPrice: 0 });
 };
 const addTier = () => {
   tiers.value.push({ discountAmount: 0, minAmount: 0 });
@@ -263,9 +595,9 @@ onMounted(initPage);
             {{ typeLabel[scope.row.activityType] ?? scope.row.activityType }}
           </template>
         </ElTableColumn>
-        <ElTableColumn label="范围" width="100">
+        <ElTableColumn label="范围" width="140">
           <template #default="scope">
-            {{ scopeLabel[scope.row.scopeType] ?? scope.row.scopeType }}
+            {{ scopeText(scope.row) }}
           </template>
         </ElTableColumn>
         <ElTableColumn prop="startTime" label="开始" width="170" />
@@ -336,13 +668,18 @@ onMounted(initPage);
               <ElRadioButton value="4">船供阶梯价</ElRadioButton>
               <ElRadioButton value="7">船供整船优惠</ElRadioButton>
               <ElRadioButton value="5">买赠</ElRadioButton>
+              <ElRadioButton value="9">新人专享价</ElRadioButton>
             </ElRadioGroup>
           </ElFormItem>
-          <ElFormItem label="适用范围">
+          <ElFormItem
+            v-if="form.activityType !== '4' && form.activityType !== '9'"
+            label="适用范围"
+          >
             <ElSelect
               v-model="form.scopeType"
               :disabled="!!editingId"
               style="width: 130px"
+              @change="loadVesselData"
             >
               <ElOption
                 v-for="(label, value) in scopeLabel"
@@ -351,19 +688,44 @@ onMounted(initPage);
                 :value="value"
               />
             </ElSelect>
-            <ElInput
-              v-if="form.scopeType !== '1'"
-              v-model="form.scopeValue"
-              class="ml-10px"
-              :placeholder="
-                form.scopeType === '4'
-                  ? '场景：1 或 2'
-                  : form.scopeType === '7'
-                    ? '港口编码，如 CNSHA'
-                    : 'SKU ID 逗号分隔'
+            <ElSelect
+              v-if="
+                form.scopeType === '5' ||
+                form.scopeType === '6' ||
+                form.scopeType === '7'
               "
+              v-model="form.scopeValue"
+              :disabled="!!editingId || isPublished"
+              class="ml-10px"
+              clearable
+              filterable
+              placeholder="请选择"
               style="width: 260px"
-            />
+            >
+              <ElOption
+                v-for="option in scopeValueOptions"
+                :key="option.value"
+                :label="option.label"
+                :value="option.value"
+              />
+            </ElSelect>
+            <template
+              v-else-if="form.scopeType === '2' || form.scopeType === '8'"
+            >
+              <ElButton
+                class="ml-10px"
+                :disabled="isPublished"
+                @click="openSelect('scope')"
+              >
+                选择SKU
+              </ElButton>
+              <span class="ml-8px">已选 {{ scopeSkuCount() }} 个 SKU</span>
+            </template>
+          </ElFormItem>
+          <ElFormItem v-else label="适用范围">
+            <span style="color: var(--el-text-color-secondary)">
+              指定SKU（由活动商品自动带出，无需手填）
+            </span>
           </ElFormItem>
           <ElFormItem label="限定场景">
             <ElSelect
@@ -375,6 +737,31 @@ onMounted(initPage);
               <ElOption label="仅个人购买" value="1" />
               <ElOption label="仅船供采购" value="2" />
             </ElSelect>
+          </ElFormItem>
+          <ElFormItem label="预算金额">
+            <ElInputNumber
+              v-model="form.totalBudget"
+              :min="0"
+              :precision="2"
+              controls-position="right"
+            />
+            <span class="ml-8px">元，0 为不限；超限后新订单整单拦截</span>
+          </ElFormItem>
+          <ElFormItem label="每人限享">
+            <ElInputNumber
+              v-model="form.perUserLimit"
+              :min="0"
+              controls-position="right"
+            />
+            <span class="ml-8px">次，0 为不限</span>
+          </ElFormItem>
+          <ElFormItem v-if="form.activityType === '5'" label="赠品总量">
+            <ElInputNumber
+              v-model="form.giftStock"
+              :min="0"
+              controls-position="right"
+            />
+            <span class="ml-8px">件，0 为不限；超限后新订单整单拦截</span>
           </ElFormItem>
           <ElFormItem label="开始时间" required>
             <ElDatePicker
@@ -396,27 +783,78 @@ onMounted(initPage);
           </ElFormItem>
 
           <template v-if="form.activityType === '4'">
+            <ElFormItem label="活动商品">
+              <ElButton
+                type="primary"
+                :disabled="isPublished"
+                @click="openSelectGoods"
+              >
+                添加商品
+              </ElButton>
+              <span
+                class="ml-10px"
+                style="color: var(--el-text-color-secondary)"
+              >
+                按 SKU 配置满件档位与档价（满件 = 单内同一 SKU
+                合计），档价需低于当前售价
+              </span>
+            </ElFormItem>
             <ElFormItem
-              v-for="(ladder, index) in ladders"
-              :key="index"
-              :label="`档位 ${index + 1}`"
+              v-for="(row, rowIndex) in skuLadders"
+              :key="row.skuId"
+              :label="row.spuName"
             >
-              <span>满</span>
-              <ElInputNumber
-                v-model="ladder.minQty"
-                :min="1"
-                controls-position="right"
-                style="width: 110px; margin: 0 8px"
-              />
-              <span>件，单价</span>
-              <ElInputNumber
-                v-model="ladder.unitPrice"
-                :min="0"
-                :precision="2"
-                controls-position="right"
-                style="width: 120px; margin: 0 8px"
-              />
-              <ElButton link type="primary" @click="addLadder"> 加档 </ElButton>
+              <div style="width: 100%">
+                <div style="margin-bottom: 6px">
+                  <span>{{ row.skuName }}</span>
+                  <span
+                    class="ml-10px"
+                    style="color: var(--el-text-color-secondary)"
+                  >
+                    售价 ￥{{ row.salesPrice }}
+                  </span>
+                  <ElButton
+                    link
+                    type="danger"
+                    class="ml-10px"
+                    :disabled="isPublished"
+                    @click="skuLadders.splice(rowIndex, 1)"
+                  >
+                    移除
+                  </ElButton>
+                </div>
+                <div
+                  v-for="(ladder, ladderIndex) in row.ladders"
+                  :key="ladderIndex"
+                  style="margin-bottom: 6px"
+                >
+                  <span>档位 {{ ladderIndex + 1 }} 满</span>
+                  <ElInputNumber
+                    v-model="ladder.minQty"
+                    :min="1"
+                    :disabled="isPublished"
+                    controls-position="right"
+                    style="width: 110px; margin: 0 8px"
+                  />
+                  <span>件，单价</span>
+                  <ElInputNumber
+                    v-model="ladder.unitPrice"
+                    :min="0"
+                    :precision="2"
+                    :disabled="isPublished"
+                    controls-position="right"
+                    style="width: 120px; margin: 0 8px"
+                  />
+                </div>
+                <ElButton
+                  link
+                  type="primary"
+                  :disabled="isPublished"
+                  @click="addLadder(row)"
+                >
+                  加档
+                </ElButton>
+              </div>
             </ElFormItem>
           </template>
           <template v-else-if="form.activityType === '5'">
@@ -425,32 +863,99 @@ onMounted(initPage);
                 v-model="giftThreshold"
                 :min="0"
                 :precision="2"
+                :disabled="isPublished"
                 controls-position="right"
               />
               <span class="ml-8px">元</span>
             </ElFormItem>
+            <ElFormItem label="赠品">
+              <ElButton
+                type="primary"
+                :disabled="isPublished"
+                @click="openSelect('gift')"
+              >
+                添加赠品
+              </ElButton>
+              <span
+                class="ml-10px"
+                style="color: var(--el-text-color-secondary)"
+              >
+                赠品随单追加 0 元明细，结算按真实库存校验
+              </span>
+            </ElFormItem>
             <ElFormItem
               v-for="(gift, index) in gifts"
-              :key="index"
+              :key="gift.skuId"
               :label="`赠品 ${index + 1}`"
             >
-              <ElInput
-                v-model="gift.skuId"
-                placeholder="赠品 SKU ID"
-                style="width: 200px; margin-right: 8px"
-              />
+              <span style="min-width: 220px">
+                {{ gift.spuName || gift.skuId }} {{ gift.skuName }}
+              </span>
               <ElInputNumber
                 v-model="gift.quantity"
                 :min="1"
+                :disabled="isPublished"
                 controls-position="right"
-                style="width: 110px; margin-right: 8px"
+                style="width: 110px; margin: 0 8px"
               />
               <ElButton
                 link
-                type="primary"
-                @click="gifts.push({ skuId: '', quantity: 1 })"
+                type="danger"
+                :disabled="isPublished"
+                @click="gifts.splice(index, 1)"
               >
-                加赠品
+                移除
+              </ElButton>
+            </ElFormItem>
+          </template>
+          <template v-else-if="form.activityType === '9'">
+            <ElFormItem label="注册时限">
+              <ElInputNumber
+                v-model="registerWithinDays"
+                :min="1"
+                :disabled="isPublished"
+                controls-position="right"
+              />
+              <span class="ml-8px">天内注册的新用户可见，清空为不限</span>
+            </ElFormItem>
+            <ElFormItem label="活动商品">
+              <ElButton
+                type="primary"
+                :disabled="isPublished"
+                @click="openSelect('newbie')"
+              >
+                添加商品
+              </ElButton>
+              <span
+                class="ml-10px"
+                style="color: var(--el-text-color-secondary)"
+              >
+                每人每 SKU 限购 1 件，新人价需低于当前售价
+              </span>
+            </ElFormItem>
+            <ElFormItem
+              v-for="(row, rowIndex) in newbieSkus"
+              :key="row.skuId"
+              :label="row.spuName"
+            >
+              <span style="min-width: 220px">
+                {{ row.skuName }} 售价 ￥{{ row.salesPrice }}
+              </span>
+              <ElInputNumber
+                v-model="row.price"
+                :min="0"
+                :precision="2"
+                :disabled="isPublished"
+                controls-position="right"
+                style="width: 120px; margin: 0 8px"
+              />
+              <ElButton
+                link
+                type="danger"
+                :disabled="isPublished"
+                @click="newbieSkus.splice(rowIndex, 1)"
+              >
+                移除
               </ElButton>
             </ElFormItem>
           </template>
@@ -465,6 +970,7 @@ onMounted(initPage);
                 v-model="tier.minAmount"
                 :min="0"
                 :precision="2"
+                :disabled="isPublished"
                 controls-position="right"
                 style="width: 130px; margin: 0 8px"
               />
@@ -473,18 +979,127 @@ onMounted(initPage);
                 v-model="tier.discountAmount"
                 :min="0"
                 :precision="2"
+                :disabled="isPublished"
                 controls-position="right"
                 style="width: 120px; margin: 0 8px"
               />
-              <ElButton link type="primary" @click="addTier">加档</ElButton>
+              <ElButton
+                link
+                type="primary"
+                :disabled="isPublished"
+                @click="addTier"
+              >
+                加档
+              </ElButton>
             </ElFormItem>
           </template>
         </ElForm>
         <template #footer>
+          <ElButton @click="openDry">试算</ElButton>
           <ElButton @click="dialogVisible = false">取消</ElButton>
           <ElButton type="primary" @click="handleSave">保存</ElButton>
         </template>
       </ElDialog>
+
+      <ElDialog v-model="dryVisible" title="命中试算（不落库）" width="640px">
+        <ElForm label-width="90px">
+          <ElFormItem label="购买场景">
+            <ElSelect v-model="dryForm.purchaseScene" style="width: 160px">
+              <ElOption label="个人购买" value="1" />
+              <ElOption label="船供采购" value="2" />
+            </ElSelect>
+          </ElFormItem>
+          <ElFormItem label="靠港">
+            <ElSelect
+              v-model="dryForm.vesselCallId"
+              clearable
+              filterable
+              placeholder="不限"
+              style="width: 320px"
+              @change="onDryCallChange"
+            >
+              <ElOption
+                v-for="call in callOptions"
+                :key="call.id"
+                :label="`${call.portName} ${String(call.eta).slice(0, 10)}`"
+                :value="call.id"
+              />
+            </ElSelect>
+          </ElFormItem>
+          <ElFormItem label="购物车">
+            <ElButton type="primary" @click="openSelect('dry')">
+              添加商品
+            </ElButton>
+          </ElFormItem>
+          <ElFormItem
+            v-for="(item, index) in dryForm.items"
+            :key="item.skuId"
+            :label="item.spuName"
+          >
+            <span style="min-width: 160px">{{ item.skuName }}</span>
+            <ElInputNumber
+              v-model="item.quantity"
+              :min="1"
+              controls-position="right"
+              style="width: 110px; margin: 0 8px"
+            />
+            <ElButton
+              link
+              type="danger"
+              @click="dryForm.items.splice(index, 1)"
+            >
+              移除
+            </ElButton>
+          </ElFormItem>
+        </ElForm>
+        <template v-if="dryResult">
+          <div style="font-weight: bold">
+            合计优惠：￥{{ dryResult.totalDiscount ?? 0 }}
+          </div>
+          <div
+            v-for="detail in dryResult.details || []"
+            :key="detail.activityId"
+            style="margin-top: 4px; color: #e67e22"
+          >
+            {{ detail.activityName }}：优惠 ￥{{ detail.discountAmount }}
+          </div>
+          <div
+            v-for="override in dryResult.ladderOverrides || []"
+            :key="override.skuId"
+            style="margin-top: 4px; color: #e67e22"
+          >
+            阶梯价 {{ override.skuId }} → ￥{{ override.unitPrice }}
+          </div>
+          <div
+            v-for="gift in dryResult.gifts || []"
+            :key="gift.skuId"
+            style="margin-top: 4px; color: #e67e22"
+          >
+            赠品 {{ gift.skuId }} ×{{ gift.quantity }}
+          </div>
+          <div
+            v-if="
+              (dryResult.details || []).length === 0 &&
+              (dryResult.gifts || []).length === 0
+            "
+            style="margin-top: 4px; color: var(--el-text-color-secondary)"
+          >
+            无命中活动
+          </div>
+        </template>
+        <template #footer>
+          <ElButton @click="dryVisible = false">关闭</ElButton>
+          <ElButton :loading="dryLoading" type="primary" @click="runDry">
+            试算
+          </ElButton>
+        </template>
+      </ElDialog>
+
+      <SelectGoods
+        ref="selectGoodsRef"
+        :limit-num="50"
+        @current-row="onGoodsSelected"
+      />
     </div>
   </div>
 </template>

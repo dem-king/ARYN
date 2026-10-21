@@ -11,10 +11,10 @@ export function getPage(params: object) {
 }
 
 // 通过id查询商品
+// 必须携带登录态（不传 skipToken）：后端据此写入浏览足迹并回填收藏状态，
+// 免登请求拿不到用户，足迹会一直是空的。
 export function getById(id: string) {
-  return alovaInstance.Get<any>(`/product/app/goodsspu/${id}`, {
-    headers: { skipToken: true },
-  })
+  return alovaInstance.Get<any>(`/product/app/goodsspu/${id}`)
 }
 
 // 通过ids查询商品列表

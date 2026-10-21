@@ -19,7 +19,8 @@ import {
   cloneDesignerValue,
   isSameDesignerValue,
 } from '../../../page-designer/schema/clone';
-import CommonStyle from '../common/common-style/index.vue';
+import CategoryPicker from '../common/category-picker/index.vue';
+import IdPickerField from '../common/id-picker-field/index.vue';
 
 const props = defineProps<{ modelValue: GoodsGroupProps }>();
 const emit = defineEmits<{ 'update:modelValue': [value: GoodsGroupProps] }>();
@@ -55,23 +56,16 @@ watch(
         <ElRadio value="manual">手动选择</ElRadio>
       </ElRadioGroup>
     </ElFormItem>
-    <ElFormItem v-if="form.dataSource.mode === 'manual'" label="商品 ID">
-      <ElSelect
+    <ElFormItem v-if="form.dataSource.mode === 'manual'" label="手选商品">
+      <IdPickerField
         v-model="form.dataSource.targetIds"
-        allow-create
-        default-first-option
-        filterable
-        multiple
-        placeholder="输入商品 ID 后回车"
+        kind="goods"
+        :limit="20"
       />
     </ElFormItem>
     <template v-else>
-      <ElFormItem label="分类 ID">
-        <ElInput
-          v-model="form.dataSource.categoryId"
-          clearable
-          placeholder="留空表示全部分类"
-        />
+      <ElFormItem label="分类">
+        <CategoryPicker v-model="form.dataSource.categoryId" />
       </ElFormItem>
       <ElFormItem label="排序">
         <ElSelect v-model="form.dataSource.sort">
@@ -82,8 +76,19 @@ watch(
         </ElSelect>
       </ElFormItem>
     </template>
-    <ElFormItem label="展示数量">
+    <ElFormItem
+      :label="
+        form.dataSource.mode === 'manual' ? '最多展示数量' : '每页加载数量'
+      "
+    >
       <ElInputNumber v-model="form.count" :min="1" :max="20" />
+      <div class="retail-setting__hint">
+        {{
+          form.dataSource.mode === 'manual'
+            ? '手选商品超过该数量时，前台只展示前 N 个'
+            : '自动规则模式下前台按该数量分批加载，滚动会继续加载'
+        }}
+      </div>
     </ElFormItem>
     <ElFormItem label="每行列数">
       <ElRadioGroup v-model="form.columns">
@@ -112,8 +117,6 @@ watch(
         />
       </ElSelect>
     </ElFormItem>
-    <div class="retail-setting__section">通用样式</div>
-    <CommonStyle v-model="form.commonStyle" />
   </ElForm>
 </template>
 
@@ -123,9 +126,11 @@ watch(
   width: 100%;
 }
 
-.retail-setting__section {
-  padding: 12px 0 6px;
-  font-weight: 600;
-  border-top: 1px solid var(--el-border-color-lighter);
+.retail-setting__hint {
+  width: 100%;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--el-text-color-secondary);
 }
 </style>

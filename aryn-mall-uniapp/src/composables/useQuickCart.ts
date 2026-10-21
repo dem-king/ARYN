@@ -1,4 +1,5 @@
-import type { QuickCartInfo } from '@/utils/quick-cart'
+import type { SharedCart } from '@/api/order/sharedCart'
+import type { QuickAddPromotion, QuickCartInfo } from '@/utils/quick-cart'
 
 /**
  * 快捷加购 composable。
@@ -23,6 +24,7 @@ import {
   quickAddBlockedText,
   resolveQuantityRule,
   resolveQuickAddMode,
+  resolveQuickAddPrice,
   resolveQuickAddQuantity,
 } from '@/utils/quick-cart'
 
@@ -33,6 +35,19 @@ export interface QuickCartResult {
   needChoose: boolean
   /** 后端返回的加购信息（needChoose 时携带 goodsSkus） */
   info: QuickCartInfo | null
+}
+
+export interface QuickAddOptions {
+  /**
+   * 页面已解析出的活动成交价（新人价 / 秒杀价）：确认弹层用它展示单价，
+   * 并按活动限购封顶数量。只在 quick-cart 选中的 SKU 与活动 SKU 一致时生效。
+   */
+  promotion?: QuickAddPromotion | null
+  /**
+   * 共享购物车分类选货页传入：目的地锁定到该车，跳过去向询问，
+   * 避免同一页里的加购被误投进个人购物车。
+   */
+  sharedCart?: SharedCart | null
 }
 
 export function useQuickCart() {
@@ -48,9 +63,10 @@ export function useQuickCart() {
    * 执行快捷加购。
    *
    * @param spuId 商品 SPU ID
+   * @param options.promotion 页面已知的活动价（新人价/秒杀价），仅用于确认弹层展示与限购封顶
    * @returns 加购结果；需要选规格时由调用方接管后续交互
    */
-  async function quickAdd(spuId: string): Promise<QuickCartResult> {
+  async function quickAdd(spuId: string, options: QuickAddOptions = {}): Promise<QuickCartResult> {
     if (!spuId) {
       return { added: false, needChoose: false, info: null }
     }
@@ -84,18 +100,32 @@ export function useQuickCart() {
         return { added: false, needChoose: false, info }
       }
 
+      const rule = resolveQuantityRule(info)
+      const pricing = resolveQuickAddPrice(info, options.promotion)
+      // 限购件数低于起订量时，任何合法数量都享不到活动价：不展示活动价也不封顶，
+      // 交给弹层按常规商品处理（楼层入口已提前把这种冲突挡到商详）
+      const promotionUsable = pricing.maxQuantity === null || pricing.maxQuantity >= rule.moq
+      const finalPricing = promotionUsable
+        ? pricing
+        : { unitPrice: info.salesPrice, maxQuantity: null, hint: '' }
+      const finalQuantity = finalPricing.maxQuantity === null
+        ? quantity
+        : Math.min(quantity, finalPricing.maxQuantity)
+
       // 去向与数量由统一入口决定：数量按 MOQ/步长预填并允许用户改大
       // （采购量大时一次输入到位，不必反复点击加购）；有进行中的共享车时
       // 在同一次确认里选择加入哪张车。skuId 已由 DIRECT 分支保证存在。
       const dest = await submitCartAdd(
         {
           skuId: String(info.skuId),
-          quantity,
+          quantity: finalQuantity,
           spuId,
           goodsName: info.name,
-          unitPrice: info.salesPrice,
+          unitPrice: finalPricing.unitPrice,
+          maxQuantity: finalPricing.maxQuantity,
+          quantityHint: finalPricing.hint,
         },
-        { rule: resolveQuantityRule(info) },
+        { rule, sharedCart: options.sharedCart },
       )
       if (dest === 'abort') {
         // 用户关闭了确认弹层，本次不加

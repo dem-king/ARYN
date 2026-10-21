@@ -1,27 +1,55 @@
 <script lang="ts" setup>
-import { onMounted, ref, watch } from 'vue';
+import type {
+  UserCohortRetentionVO,
+  UserRfmSegmentVO,
+} from '#/api/order/order-statistics';
+
+import { computed, onMounted, ref, watch } from 'vue';
 
 import { useDebounceFn } from '@vueuse/core';
 import dayjs from 'dayjs';
+import { ElAlert } from 'element-plus';
 
-import {
-  getAccumulatedTransactionUserCount,
-  getUserConsumptionAmount,
-  getUserConsumptionAnalysis,
-  getUserConsumptionFrequency,
-  getUserGrowthTrend,
-} from '#/api/order/order-statistics';
-import { getUserOverview } from '#/api/user/user-statistics';
+import { getOrderDashboardStatistics } from '#/api/order/order-statistics';
+import { getUserDashboardStatistics } from '#/api/user/user-statistics';
 
-import AnalyticsHeader from '../analytics/components/AnalyticsHeader.vue';
+import { downloadCsv } from '../shared/csv';
+import DashboardHeader from '../shared/DashboardHeader.vue';
+import DashboardSkeleton from '../shared/DashboardSkeleton.vue';
+import { settle } from '../shared/settle';
+import { useDashboardRange } from '../shared/use-dashboard-range';
+import UserCohortRetention from './components/UserCohortRetention.vue';
 import UserConsumptionAnalysis from './components/UserConsumptionAnalysis.vue';
 import UserGrowthTrend from './components/UserGrowthTrend.vue';
+import UserRfmSegmentation from './components/UserRfmSegmentation.vue';
 import UserScaleCards from './components/UserScaleCards.vue';
 
-const timeRange = ref<string>('30d');
-const loading = ref(false);
+interface ConsumptionOverview {
+  aov: number;
+  perCapitaConsumption: number;
+  totalAmount: number;
+  totalOrders: number;
+  transactionUsers: number;
+}
 
-// Reactive data
+const {
+  compare,
+  compareMode,
+  currentRange,
+  customEnd,
+  customStart,
+  previousRange,
+  rangeKey,
+} = useDashboardRange();
+
+const loading = ref(false);
+const hasLoaded = ref(false);
+const lastUpdated = ref('');
+const loadError = ref('');
+const previousConsumptionOverview = ref<ConsumptionOverview | null>(null);
+const rfmSegments = ref<UserRfmSegmentVO[]>([]);
+const cohortRetention = ref<UserCohortRetentionVO[]>([]);
+
 const scaleData = ref({
   totalUserCount: 0,
   todayNewUserCount: 0,
@@ -37,7 +65,14 @@ const trendData = ref({
   transactionUsers: [] as number[],
 });
 
-const consumptionData = ref({
+const consumptionData = ref<{
+  amountData: Array<{ name: string; value: number }>;
+  frequencyData: {
+    categories: string[];
+    values: number[];
+  };
+  overview: ConsumptionOverview;
+}>({
   overview: {
     transactionUsers: 0,
     totalAmount: 0,
@@ -46,146 +81,218 @@ const consumptionData = ref({
     totalOrders: 0,
   },
   frequencyData: {
-    categories: [] as string[],
-    values: [] as number[],
+    categories: [],
+    values: [],
   },
-  amountData: [] as Array<{ name: string; value: number }>,
+  amountData: [],
 });
+
+const rangeLabel = computed(
+  () =>
+    ({
+      '30d': '近30天',
+      '7d': '近7天',
+      custom: '自定义',
+      today: '今日',
+    })[rangeKey.value] ?? '用户分析',
+);
+
+const deltaLabel = computed(() =>
+  compareMode.value === 'year' ? '较去年同期' : '较上期',
+);
 
 const fetchData = useDebounceFn(async () => {
   loading.value = true;
+  loadError.value = '';
   try {
-    const format = 'YYYY-MM-DD HH:mm:ss';
-    let startTime = '';
-    let endTime = dayjs().format(format);
-
-    switch (timeRange.value) {
-      case '7d': {
-        startTime = dayjs().subtract(7, 'day').startOf('day').format(format);
-        break;
-      }
-      case '30d': {
-        startTime = dayjs().subtract(30, 'day').startOf('day').format(format);
-        break;
-      }
-      case 'today': {
-        startTime = dayjs().startOf('day').format(format);
-        break;
-      }
-      // 保留兼容性，如果还有其他地方用到 yesterday
-      case 'yesterday': {
-        startTime = dayjs().subtract(1, 'day').startOf('day').format(format);
-        endTime = dayjs().subtract(1, 'day').endOf('day').format(format);
-        break;
-      }
-    }
-
-    const commonParams = {
-      startTime,
-      endTime,
+    const orderParams = {
+      ...currentRange.value,
+      includeUserAnalytics: true,
+      ...(compare.value
+        ? {
+            compareEndTime: previousRange.value.endTime,
+            compareStartTime: previousRange.value.startTime,
+          }
+        : {}),
     };
-
-    const [
-      trendRes,
-      overviewRes,
-      consumptionRes,
-      consumptionFrequencyRes,
-      consumptionAmountRes,
-      accumulatedTransactionUserCount,
-    ] = await Promise.all([
-      getUserGrowthTrend(commonParams),
-      getUserOverview(commonParams),
-      getUserConsumptionAnalysis(commonParams),
-      getUserConsumptionFrequency(commonParams),
-      getUserConsumptionAmount(commonParams),
-      getAccumulatedTransactionUserCount(commonParams),
+    const [orderRes, userRes] = await Promise.all([
+      settle(getOrderDashboardStatistics(orderParams)),
+      settle(getUserDashboardStatistics()),
     ]);
 
-    const trendList = trendRes || [];
-    const overview = overviewRes || {};
+    const failed: string[] = [];
 
-    scaleData.value = {
-      totalUserCount: overview.totalUserCount || 0,
-      todayNewUserCount: overview.todayNewUserCount || 0,
-      sevenDayNewUserCount: overview.sevenDayNewUserCount || 0,
-      thirtyDayNewUserCount: overview.thirtyDayNewUserCount || 0,
-      monthNewUserCount: overview.monthNewUserCount || 0,
-      totalTransactionUsers: accumulatedTransactionUserCount || 0,
-    };
+    if (orderRes.error) {
+      failed.push('用户消费与增长');
+    } else if (orderRes.data) {
+      const dashboard = orderRes.data;
 
-    trendData.value = {
-      dates: trendList.map((item: any) => item.timePoint),
-      newUsers: trendList.map((item: any) => item.newUserCount),
-      transactionUsers: trendList.map(
-        (item: any) => item.transactingUserCount || 0,
-      ),
-    };
-
-    consumptionData.value.overview = consumptionRes
-      ? {
-          transactionUsers: consumptionRes.transactingUserCount || 0,
-          totalAmount: consumptionRes.totalConsumptionAmount || 0,
-          perCapitaConsumption: consumptionRes.averageConsumptionPerUser || 0,
-          aov: consumptionRes.averageOrderValue || 0,
-          totalOrders: consumptionRes.totalOrderCount || 0,
-        }
-      : {
-          transactionUsers: 0,
-          totalAmount: 0,
-          perCapitaConsumption: 0,
-          aov: 0,
-          totalOrders: 0,
+      if (Array.isArray(dashboard.userGrowthTrend)) {
+        trendData.value = {
+          dates: dashboard.userGrowthTrend.map((item) => item.timePoint),
+          newUsers: dashboard.userGrowthTrend.map((item) => item.newUserCount),
+          transactionUsers: dashboard.userGrowthTrend.map(
+            (item) => item.transactingUserCount || 0,
+          ),
         };
+      }
 
-    consumptionData.value.frequencyData = consumptionFrequencyRes
-      ? {
+      if (dashboard.consumption) {
+        consumptionData.value.overview = {
+          transactionUsers: dashboard.consumption.transactingUserCount || 0,
+          totalAmount: dashboard.consumption.totalConsumptionAmount || 0,
+          perCapitaConsumption:
+            dashboard.consumption.averageConsumptionPerUser || 0,
+          aov: dashboard.consumption.averageOrderValue || 0,
+          totalOrders: dashboard.consumption.totalOrderCount || 0,
+        };
+      }
+
+      if (dashboard.consumptionFrequency) {
+        consumptionData.value.frequencyData = {
           categories: ['1次', '2-3次', '4-5次', '6次以上'],
           values: [
-            consumptionFrequencyRes.oneTimeCount || 0,
-            consumptionFrequencyRes.twoToThreeTimesCount || 0,
-            consumptionFrequencyRes.fourToFiveTimesCount || 0,
-            consumptionFrequencyRes.sixPlusTimesCount || 0,
+            dashboard.consumptionFrequency.oneTimeCount || 0,
+            dashboard.consumptionFrequency.twoToThreeTimesCount || 0,
+            dashboard.consumptionFrequency.fourToFiveTimesCount || 0,
+            dashboard.consumptionFrequency.sixPlusTimesCount || 0,
           ],
-        }
-      : {
-          categories: ['1次', '2-3次', '4-5次', '6次以上'],
-          values: [0, 0, 0, 0],
         };
+      }
 
-    consumptionData.value.amountData = consumptionAmountRes
-      ? [
+      if (dashboard.consumptionAmount) {
+        consumptionData.value.amountData = [
           {
             name: '0-100元',
-            value: consumptionAmountRes.amount0To100Count || 0,
+            value: dashboard.consumptionAmount.amount0To100Count || 0,
           },
           {
             name: '100-500元',
-            value: consumptionAmountRes.amount100To500Count || 0,
+            value: dashboard.consumptionAmount.amount100To500Count || 0,
           },
           {
             name: '500-2000元',
-            value: consumptionAmountRes.amount500To2000Count || 0,
+            value: dashboard.consumptionAmount.amount500To2000Count || 0,
           },
           {
             name: '2000元+',
-            value: consumptionAmountRes.amount2000PlusCount || 0,
+            value: dashboard.consumptionAmount.amount2000PlusCount || 0,
           },
-        ]
-      : [
-          { name: '0-100元', value: 0 },
-          { name: '100-500元', value: 0 },
-          { name: '500-2000元', value: 0 },
-          { name: '2000元+', value: 0 },
         ];
+      }
+
+      previousConsumptionOverview.value =
+        dashboard.consumption && dashboard.compareConsumption
+          ? {
+              transactionUsers:
+                dashboard.compareConsumption.transactingUserCount || 0,
+              totalAmount:
+                dashboard.compareConsumption.totalConsumptionAmount || 0,
+              perCapitaConsumption:
+                dashboard.compareConsumption.averageConsumptionPerUser || 0,
+              aov: dashboard.compareConsumption.averageOrderValue || 0,
+              totalOrders: dashboard.compareConsumption.totalOrderCount || 0,
+            }
+          : null;
+
+      rfmSegments.value = Array.isArray(dashboard.rfmSegments)
+        ? dashboard.rfmSegments
+        : [];
+      cohortRetention.value = Array.isArray(dashboard.cohortRetention)
+        ? dashboard.cohortRetention
+        : [];
+
+      if (dashboard.accumulatedTransactionUserCount !== undefined) {
+        scaleData.value.totalTransactionUsers =
+          dashboard.accumulatedTransactionUserCount || 0;
+      }
+    }
+
+    if (userRes.error) {
+      failed.push('用户规模');
+    } else if (userRes.data?.overview) {
+      const overview = userRes.data.overview;
+      scaleData.value = {
+        totalUserCount: overview.totalUserCount || 0,
+        todayNewUserCount: overview.todayNewUserCount || 0,
+        sevenDayNewUserCount: overview.sevenDayNewUserCount || 0,
+        thirtyDayNewUserCount: overview.thirtyDayNewUserCount || 0,
+        monthNewUserCount: overview.monthNewUserCount || 0,
+        totalTransactionUsers: scaleData.value.totalTransactionUsers,
+      };
+    }
+
+    loadError.value =
+      failed.length > 0 ? `部分数据加载失败：${failed.join('、')}` : '';
+    lastUpdated.value = dayjs().format('HH:mm:ss');
+    hasLoaded.value = true;
   } catch (error) {
     console.error('Failed to fetch user analytics data', error);
-    loading.value = false;
+    loadError.value = '用户分析数据加载失败，请稍后重试';
   } finally {
     loading.value = false;
   }
 }, 100);
 
-watch([timeRange], () => {
+const handleExport = () => {
+  const rows: unknown[][] = [
+    ['用户规模', '数值'],
+    ['用户总数', scaleData.value.totalUserCount],
+    ['今日新增', scaleData.value.todayNewUserCount],
+    ['7日新增', scaleData.value.sevenDayNewUserCount],
+    ['30日新增', scaleData.value.thirtyDayNewUserCount],
+    ['本月新增', scaleData.value.monthNewUserCount],
+    ['累计成交用户', scaleData.value.totalTransactionUsers],
+    [],
+    ['消费概览', '数值'],
+    ['成交用户数', consumptionData.value.overview.transactionUsers],
+    ['总消费金额', consumptionData.value.overview.totalAmount],
+    ['人均消费', consumptionData.value.overview.perCapitaConsumption],
+    ['客单价', consumptionData.value.overview.aov],
+    ['总订单数', consumptionData.value.overview.totalOrders],
+    [],
+    ['日期', '新增用户', '成交用户'],
+    ...trendData.value.dates.map((date, index) => [
+      date,
+      trendData.value.newUsers[index] ?? 0,
+      trendData.value.transactionUsers[index] ?? 0,
+    ]),
+    [],
+    ['消费次数分布', '用户数'],
+    ...consumptionData.value.frequencyData.categories.map((category, index) => [
+      category,
+      consumptionData.value.frequencyData.values[index] ?? 0,
+    ]),
+    [],
+    ['消费金额分层', '用户数'],
+    ...consumptionData.value.amountData.map((item) => [item.name, item.value]),
+    [],
+    ['用户价值分层（RFM）', '用户数', '累计成交金额'],
+    ...rfmSegments.value.map((item) => [
+      item.segment,
+      item.userCount,
+      item.gmv,
+    ]),
+    [],
+    ['首购月份', '用户数', '当月', '+1月', '+2月', '+3月', '+4月', '+5月'],
+    ...cohortRetention.value.map((item) => [
+      item.cohortMonth,
+      item.cohortSize,
+      item.month0,
+      item.month1,
+      item.month2,
+      item.month3,
+      item.month4,
+      item.month5,
+    ]),
+  ];
+  downloadCsv(
+    `用户分析_${rangeLabel.value}_${dayjs().format('YYYYMMDD_HHmm')}.csv`,
+    rows,
+  );
+};
+
+watch([rangeKey, customStart, customEnd, compare], () => {
   fetchData();
 });
 
@@ -196,22 +303,50 @@ onMounted(() => {
 
 <template>
   <div class="p-4">
-    <AnalyticsHeader
-      v-model:time-range="timeRange"
-      @change="fetchData"
-      @init="fetchData"
-    />
-
-    <!-- 一、用户规模 -->
-    <UserScaleCards :data="scaleData" :loading="loading" />
-    <UserGrowthTrend :data="trendData" :loading="loading" />
-
-    <!-- 二、用户消费 -->
-    <UserConsumptionAnalysis
-      :overview="consumptionData.overview"
-      :frequency-data="consumptionData.frequencyData"
-      :amount-data="consumptionData.amountData"
+    <DashboardHeader
+      v-model:range-key="rangeKey"
+      v-model:custom-start="customStart"
+      v-model:custom-end="customEnd"
+      v-model:compare="compare"
+      v-model:compare-mode="compareMode"
       :loading="loading"
+      :last-updated="lastUpdated"
+      exportable
+      @refresh="fetchData"
+      @export="handleExport"
     />
+
+    <ElAlert
+      v-if="loadError"
+      :title="loadError"
+      type="warning"
+      show-icon
+      :closable="false"
+      class="mb-4"
+    />
+
+    <DashboardSkeleton v-if="loading && !hasLoaded" />
+
+    <template v-else>
+      <UserScaleCards :data="scaleData" :loading="loading" />
+      <UserGrowthTrend :data="trendData" :loading="loading" />
+
+      <UserConsumptionAnalysis
+        :overview="consumptionData.overview"
+        :previous="previousConsumptionOverview"
+        :delta-label="deltaLabel"
+        :frequency-data="consumptionData.frequencyData"
+        :amount-data="consumptionData.amountData"
+        :loading="loading"
+      />
+
+      <UserRfmSegmentation :data="rfmSegments" :loading="loading" />
+
+      <UserCohortRetention
+        :data="cohortRetention"
+        :end-month="currentRange.endTime.slice(0, 7)"
+        :loading="loading"
+      />
+    </template>
   </div>
 </template>

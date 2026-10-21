@@ -9,6 +9,7 @@ import { ElIcon, ElImage } from 'element-plus';
 import { shouldShowOriginalPrice } from '../common/retail-preview/price-display';
 import { loadGoodsGroup } from '../common/retail-preview/retail-data';
 import RetailPreviewFrame from '../common/retail-preview/retail-preview-frame.vue';
+import { shouldShowSubtitle } from '../common/retail-preview/subtitle-display';
 import { createRetailPreviewController } from '../common/retail-preview/use-retail-preview';
 import { validateGoodsGroup } from './types';
 
@@ -60,6 +61,9 @@ watch(
           <ElIcon><Picture /></ElIcon>
         </div>
         <div class="goods-name">{{ item.name }}</div>
+        <div v-if="shouldShowSubtitle(item)" class="goods-subtitle">
+          {{ item.subTitle }}
+        </div>
         <div class="goods-meta">
           <div class="goods-meta-text">
             <span class="goods-price-line">
@@ -139,6 +143,16 @@ watch(
   text-overflow: ellipsis;
   font-size: 13px;
   color: #303133;
+  white-space: nowrap;
+}
+
+.goods-subtitle {
+  margin: 0 7px 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #909399;
   white-space: nowrap;
 }
 

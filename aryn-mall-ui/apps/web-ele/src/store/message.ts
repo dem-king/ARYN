@@ -1,11 +1,15 @@
 import type { NotificationItem } from '@vben/layouts';
 
-import type { ConversationAttention } from '#/api/message/types';
+import type {
+  ConversationAttention,
+  NoticeInboxItem,
+} from '#/api/message/types';
 
 import { computed, onScopeDispose, ref } from 'vue';
 
 import { useAppConfig } from '@vben/hooks';
 import { useAccessStore } from '@vben/stores';
+import { parseNoticeTime } from '@vben/utils';
 
 import { defineStore } from 'pinia';
 
@@ -17,6 +21,27 @@ import {
   markAllStaffNoticesRead,
   markStaffNoticeRead,
 } from '#/api/message/notice';
+import {
+  ALERT_DESKTOP_KEY,
+  ALERT_SOUND_KEY,
+  ALERT_VOICE_KEY,
+  armAudioUnlock,
+  buildAlert,
+  buildSpeech,
+  detachAudioUnlock,
+  isAudioPlayable,
+  parseCardAmount,
+  playChime,
+  queueAudioReplay,
+  readToggle,
+  requestDesktopPermission,
+  shouldSpeak,
+  showDesktopNotification,
+  speak,
+  unreadIncrease,
+  writeToggle,
+} from '#/composables/use-message-alert';
+import { resolveNoticeLink } from '#/utils/notice-link';
 
 export interface MessagePushSignal {
   conversationId?: string;
@@ -93,6 +118,15 @@ export const useMessageStore = defineStore('message', () => {
   const conversationUnread = ref(0);
   const socketState = ref<'closed' | 'connecting' | 'open'>('closed');
   const lastConversationPush = ref<MessagePushSignal>();
+  /** 新消息强提醒开关：声音/语音/桌面通知各自独立，缺省开启（存储里显式存 '0' 才关闭）。 */
+  const soundEnabled = ref(readToggle(ALERT_SOUND_KEY));
+  const voiceEnabled = ref(readToggle(ALERT_VOICE_KEY));
+  const desktopEnabled = ref(readToggle(ALERT_DESKTOP_KEY));
+  /** 上一次的未读快照：只在上升沿提醒，首次拉取只用来定基线。 */
+  let lastAlertCounts:
+    undefined | { conversationUnread: number; noticeUnread: number };
+  /** 上次语音播报时间：连单高峰节流，避免逐条朗读刷屏。 */
+  let lastSpokenAt = 0;
   /**
    * 铃铛点击后要定位的会话。
    *
@@ -130,16 +164,38 @@ export const useMessageStore = defineStore('message', () => {
       return {
         avatar: '',
         avatarText: item.conversationType === 'STAFF_DIRECT' ? '内' : '客',
+        category: 'conversation',
         conversationId: item.id,
         date: item.lastMessageTime || '',
         isRead: !waiting && !item.unreadCount,
         kind: 'conversation',
+        link: '/message/service',
         message: item.lastMessageSummary || '暂无新消息',
         tag: waiting ? '待领取' : undefined,
+        timestamp: parseNoticeTime(item.lastMessageTime),
         title: name,
         unreadCount: waiting ? 0 : item.unreadCount,
       };
     });
+  }
+
+  /** 站内信条目：补上分类、金额与点击跳转路由，铃铛和收件箱共用同一套解析。 */
+  function noticeNotification(item: NoticeInboxItem): NotificationItem {
+    return {
+      amount: parseCardAmount(item.cardPayload),
+      avatar: '/favicon.ico',
+      category: item.category,
+      date: item.publishTime || item.receivedTime,
+      isRead: item.readStatus === '1',
+      kind: 'notice',
+      link: resolveNoticeLink(item),
+      message: item.summary || item.content,
+      messageId: item.messageId,
+      priority: item.priority,
+      sourceType: item.sourceType,
+      timestamp: parseNoticeTime(item.publishTime || item.receivedTime),
+      title: item.title,
+    };
   }
 
   async function refreshNotifications() {
@@ -153,32 +209,113 @@ export const useMessageStore = defineStore('message', () => {
     ]);
     if (requestGeneration !== sessionGeneration) return;
     unreadCount.value = count;
-    const notices = page.records.map((item) => ({
-      avatar: '/favicon.ico',
-      date: item.publishTime || item.receivedTime,
-      isRead: item.readStatus === '1',
-      kind: 'notice' as const,
-      message: item.summary || item.content,
-      title: item.title,
-      ...({ messageId: item.messageId } as Record<string, string>),
-    }));
+    const notices = page.records.map((item) => noticeNotification(item));
     conversationUnread.value = attention
       ? attention.unreadConversations + attention.waitingTotal
       : 0;
     notifications.value = attention
       ? [...conversationNotifications(attention), ...notices]
       : notices;
+    alertOnUnreadIncrease();
+  }
+
+  /**
+   * 未读上升沿提醒：提示音 + 语音播报 + 桌面通知。
+   *
+   * 必须在 refreshNotifications 末尾调用：此时 notifications 已是最新列表，
+   * 提醒文案才能带上「谁发来的 / 多少钱」。首次调用只定基线（登录后的存量未读不提醒）。
+   */
+  function alertOnUnreadIncrease() {
+    const current = {
+      conversationUnread: conversationUnread.value,
+      noticeUnread: unreadCount.value,
+    };
+    const increase = unreadIncrease(lastAlertCounts, current);
+    lastAlertCounts = current;
+    if (!increase) return;
+    const payload = buildAlert(increase, notifications.value);
+    // 语音走 Web Speech：Chrome 同样要求页面获得过用户手势（无手势 speak 会
+    // error=not-allowed 且不抛异常）。这里仍然立刻尝试，被拦时 speak() 内部会
+    // 排队等首次手势补播，不会像以前那样永久静默。
+    if (voiceEnabled.value) {
+      const now = Date.now();
+      if (shouldSpeak(now, lastSpokenAt)) {
+        lastSpokenAt = now;
+        speak(buildSpeech(payload));
+      }
+    }
+    if (soundEnabled.value) {
+      if (isAudioPlayable()) {
+        playChime();
+      } else {
+        // 提示音靠 WebAudio，上下文仍被自动播放策略挂起时不会报错、只是没声。
+        // 排队等首次手势补响，否则「打开后台还没点过任何东西」时这一段彻底静默。
+        queueAudioReplay(playChime);
+      }
+    }
+    if (desktopEnabled.value) showDesktopNotification(payload);
+  }
+
+  /**
+   * 把未读基线重新对齐到当前显示值。
+   *
+   * 已读会让计数**下降**，而基线只在 refresh 里更新——若不在本地已读时同步，
+   * 下一条新消息把计数顶回原值时，上升沿判定看到的是「没变」而静默。
+   * 这正是「点掉一条通知后，下一单就没有声音」的成因，必须显式对齐。
+   */
+  function syncAlertBaseline() {
+    lastAlertCounts = {
+      conversationUnread: conversationUnread.value,
+      noticeUnread: unreadCount.value,
+    };
+  }
+
+  /**
+   * 开关切换：打开桌面通知时才申请权限（浏览器要求用户手势），
+   * 权限被拒就把开关落回关闭，避免出现「开着但永远不会响」。
+   */
+  async function setDesktopEnabled(enabled: boolean) {
+    if (!enabled) {
+      desktopEnabled.value = false;
+      writeToggle(ALERT_DESKTOP_KEY, false);
+      return;
+    }
+    const permission = await requestDesktopPermission();
+    if (permission === 'granted') {
+      desktopEnabled.value = true;
+      writeToggle(ALERT_DESKTOP_KEY, true);
+      return;
+    }
+    desktopEnabled.value = false;
+    writeToggle(ALERT_DESKTOP_KEY, false);
+  }
+
+  function setSoundEnabled(enabled: boolean) {
+    soundEnabled.value = enabled;
+    writeToggle(ALERT_SOUND_KEY, enabled);
+    // 开关本身就是一次用户手势：顺手解锁音频上下文，立即让用户听到效果
+    if (enabled) playChime();
+  }
+
+  function setVoiceEnabled(enabled: boolean) {
+    voiceEnabled.value = enabled;
+    writeToggle(ALERT_VOICE_KEY, enabled);
+    if (enabled) {
+      // 试播一句：既解锁音频，也让用户确认本机有可用音色（无音色时会静默）
+      speak('语音播报已开启');
+    }
   }
 
   async function markRead(item: NotificationItem) {
-    const messageId = (item as NotificationItem & { messageId?: string })
-      .messageId;
+    const { messageId } = item;
     if (!messageId || item.isRead) return;
     const requestGeneration = sessionGeneration;
     await markStaffNoticeRead(messageId);
     if (requestGeneration !== sessionGeneration) return;
     item.isRead = true;
     unreadCount.value = Math.max(0, unreadCount.value - 1);
+    // 已读是同一次「读掉」的事实：基线必须跟着降，否则下一条新消息顶回原值时不响
+    syncAlertBaseline();
   }
 
   /**
@@ -195,6 +332,8 @@ export const useMessageStore = defineStore('message', () => {
       if (item.kind !== 'conversation') item.isRead = true;
     });
     unreadCount.value = 0;
+    // 同 markRead：全部已读后基线归零，否则下一条新消息只是把计数顶回原值
+    syncAlertBaseline();
   }
 
   function websocketUrl() {
@@ -271,6 +410,23 @@ export const useMessageStore = defineStore('message', () => {
     notifications.value = [];
     lastConversationPush.value = undefined;
     pendingConversationId.value = undefined;
+    // 清掉未读基线：下次登录后的首个快照只用来定基线，不会把存量未读当新消息提醒
+    lastAlertCounts = undefined;
+    lastSpokenAt = 0;
+    detachAudioUnlock();
+  }
+
+  /**
+   * 建立实时提醒链路：连接推送 + 挂首次手势解锁音频。
+   *
+   * 手势解锁必须在这里挂上（而不是等用户点开关）：浏览器 autoplay 策略下，
+   * 未解锁的音频不会发声——只靠开关解锁会让「打开后台后什么都没点」的管理员
+   * 静默漏掉第一条新订单。
+   */
+  function start() {
+    armAudioUnlock();
+    refreshNotifications();
+    connect();
   }
 
   onScopeDispose(disconnect);
@@ -280,6 +436,7 @@ export const useMessageStore = defineStore('message', () => {
     clearPendingConversation,
     connect,
     conversationUnread,
+    desktopEnabled,
     disconnect,
     lastConversationPush,
     markAllRead,
@@ -288,9 +445,15 @@ export const useMessageStore = defineStore('message', () => {
     pendingConversationId,
     refreshNotifications,
     requestConversation,
+    setDesktopEnabled,
+    setSoundEnabled,
+    setVoiceEnabled,
     showDot,
     socketState,
+    soundEnabled,
+    start,
     totalUnread,
     unreadCount,
+    voiceEnabled,
   };
 });

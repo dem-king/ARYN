@@ -15,6 +15,13 @@ export async function getById(id: string) {
 }
 
 /**
+ * 根据多个ID批量获取优惠券（装修器等面板回填已选项名称）
+ */
+export async function getByIds(ids: string[]) {
+  return requestClient.get(`/promotion/couponinfo/byIds/${ids.join(',')}`);
+}
+
+/**
  * 添加优惠券信息
  */
 export async function addObj(data: any) {

@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import type { AppSeckillGoodsVO } from '@/api/promotion'
 import type { SpecRowView } from '@/utils/goods-purchase'
+import type { NewbiePriceDisplay } from '@/utils/newbie-price'
 
 import { computed, getCurrentInstance, onBeforeUnmount, ref, watch } from 'vue'
 import { useShipContextStore } from '@/store/shipContextStore'
 import { resolveDeliveryRow } from '@/utils/goods-purchase'
+import { NEWBIE_BADGE_TEXT, newbieLimitHint } from '@/utils/newbie-price'
+import GoodsAttrTags from './GoodsAttrTags.vue'
 
 interface Props {
   goodsSpu: any
@@ -14,6 +17,11 @@ interface Props {
   address: any
   /** 当前 SKU 的秒杀信息；null 表示无进行中的秒杀 */
   seckillInfo?: AppSeckillGoodsVO | null
+  /**
+   * 当前 SKU 的新人价展示：父级已按「秒杀 > 新人价」的优先级算好，
+   * 秒杀进行中时传的是空展示，这里不用再重复判定优先级。
+   */
+  newbieDisplay: NewbiePriceDisplay
 }
 
 interface Emits {
@@ -30,6 +38,63 @@ const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
 
 const shipContextStore = useShipContextStore()
+
+/** 轮播页码：参考商超详情页的 1/5 角标，用户能感知还有多少张图 */
+const currentImage = ref(0)
+const imageCount = computed(() => props.goodsSpu?.spuUrls?.length || 0)
+const isFreeShipping = computed(() => props.goodsSpu?.freightType === '0')
+
+function onSwiperChange(event: any) {
+  currentImage.value = Number(event?.current) || 0
+}
+
+/**
+ * 价格区主价：秒杀 > 新人价 > 销售价（与后端 OrderPriceComputeService 的
+ * 「拼团 > 秒杀 > 新人价 > 限时折扣 > 原价」同向，前端只覆盖到这个页面能拿到的三层）。
+ */
+const mainPrice = computed(() => {
+  if (props.seckillInfo)
+    return props.seckillInfo.seckillPrice
+  if (props.newbieDisplay.showNewbiePrice)
+    return props.newbieDisplay.newbiePrice
+  return props.goodsSpu?.salesPrice
+})
+
+/**
+ * 价格区划线价：
+ * - 秒杀：划当前售价（后端口径：秒杀价基于 salesPrice 降）；
+ * - 新人价：划新人价里的 originalPrice（后端回填的当前售价），
+ *   没有则不划——自己划自己只会制造噪音；
+ * - 无活动：沿用既有「售价 < 原价」的划线口径（与 diy/price-display 同源）。
+ */
+const strikePrice = computed(() => {
+  if (props.seckillInfo)
+    return props.goodsSpu?.salesPrice
+  if (props.newbieDisplay.showNewbiePrice)
+    return props.newbieDisplay.originalPrice
+  return props.goodsSpu?.salesPrice < props.goodsSpu?.originalPrice
+    ? props.goodsSpu?.originalPrice
+    : null
+})
+
+/** 「省 ¥x」：有划线价才展示，给价格区一个正向的成交理由 */
+const savingAmount = computed(() => {
+  const main = Number(mainPrice.value)
+  const strike = Number(strikePrice.value)
+  if (!Number.isFinite(main) || !Number.isFinite(strike) || strike <= main)
+    return ''
+  return (strike - main).toFixed(2)
+})
+
+/** 副标题与商品名重复时整行隐藏：重复的灰字只会让首屏更空 */
+const showSubtitle = computed(() => {
+  const subtitle = String(props.goodsSpu?.subTitle || '').trim()
+  const name = String(props.goodsSpu?.name || '').trim()
+  return subtitle.length > 0 && subtitle !== name
+})
+
+/** 可享新人价时的限购提示；不适用时为空串（避免渲染空条） */
+const newbieLimitText = computed(() => newbieLimitHint(props.newbieDisplay))
 
 /** 秒杀剩余库存：后端 Redis 缺失时以「总量-已售」兜底 */
 const seckillRemaining = computed(() => {
@@ -182,23 +247,37 @@ defineExpose({
 
 <template>
   <view id="scroll-pic">
-    <wd-swiper
-      height="820rpx" :list="goodsSpu?.spuUrls" autoplay :indicator="{ type: 'dots-bar' }"
-      @click="handleSwiper"
-    />
+    <view class="goods-swiper">
+      <wd-swiper
+        height="750rpx" :list="goodsSpu?.spuUrls" autoplay :indicator="{ type: 'dots-bar' }"
+        @click="handleSwiper" @change="onSwiperChange"
+      />
+      <view v-if="imageCount > 1" class="goods-swiper__counter">
+        {{ currentImage + 1 }}/{{ imageCount }}
+      </view>
+    </view>
     <view
-      class="relative h-68px rounded-t-xl from-primary to-secondary bg-gradient-to-r p-2 -top-10px"
+      class="relative h-72px rounded-t-xl from-primary to-secondary bg-gradient-to-r px-3 py-2 -top-10px"
     >
       <view class="flex items-center justify-between pt-1">
-        <!-- 价格：秒杀进行中时以秒杀价为主价，销售价划线 -->
+        <!-- 价格：秒杀 > 新人价 > 销售价；主价旁的划线价随主价口径切换 -->
         <view class="flex-1">
+          <view class="flex flex-wrap items-center">
+            <wd-text
+              size="44rpx" prefix="￥" mode="price" color="white" bold
+              :text="mainPrice"
+            />
+            <!-- 新人价角标：白字底上用白色描边胶囊，不引入额外色块压住渐变主色 -->
+            <text v-if="newbieDisplay.showNewbiePrice" class="newbie-badge">
+              {{ NEWBIE_BADGE_TEXT }}
+            </text>
+            <text v-if="savingAmount" class="saving-badge">
+              省￥{{ savingAmount }}
+            </text>
+          </view>
           <wd-text
-            size="38rpx" prefix="￥" mode="price" color="white" bold
-            :text="seckillInfo ? seckillInfo.seckillPrice : goodsSpu?.salesPrice"
-          />
-          <wd-text
-            v-if="seckillInfo || goodsSpu?.salesPrice < goodsSpu?.originalPrice" color="white" custom-class="pl-5px" size="28rpx" prefix="￥"
-            mode="price" :text="seckillInfo ? goodsSpu?.salesPrice : goodsSpu?.originalPrice" decoration="line-through"
+            v-if="strikePrice != null" color="white" custom-class="pl-5px" size="28rpx" prefix="￥"
+            mode="price" :text="strikePrice" decoration="line-through"
           />
         </view>
         <!-- 收藏分享 -->
@@ -247,31 +326,59 @@ defineExpose({
         </text>
       </view>
     </view>
-    <view class="relative rounded-xl bg-white p-2" style="margin-top: -32px;">
-      <view class="py-10rpx">
+    <!--
+      新人价条：只承载「为什么价格是这样」的信息，不做第二个活动入口。
+      两种情况互斥：
+        · 可享 → 限购提示（后端硬校验每人 1 件，提前说明避免结算才被拒）；
+        · 确定不符合 → 说明原因，价格区已回落原价，否则用户会以为页面标错价。
+      未登录时后端 eligible=null，display 按可享处理，不出现「你没有资格」这类误伤文案。
+    -->
+    <view v-if="newbieLimitText || newbieDisplay.ineligibleText" class="newbie-strip">
+      <text v-if="newbieLimitText" class="newbie-strip-text">
+        {{ newbieLimitText }}
+      </text>
+      <text v-else class="newbie-strip-text is-muted">
+        {{ newbieDisplay.ineligibleText }}
+      </text>
+    </view>
+    <view class="goods-title-card relative rounded-xl bg-white dark:bg-[var(--wot-dark-background2)]" style="margin-top: -32px;">
+      <view class="goods-title-card__main">
         <!--  商品标题 -->
-        <wd-text :lines="2" size="28rpx" color="inherit" bold :text="goodsSpu?.name" />
+        <wd-text :lines="2" size="32rpx" color="inherit" bold :text="goodsSpu?.name" />
         <!-- 副标题 -->
-        <view v-if="goodsSpu?.subTitle" class="my-10rpx">
-          <wd-text :lines="2" size="22rpx" :text="goodsSpu?.subTitle" />
+        <view v-if="showSubtitle" class="goods-title-card__subtitle">
+          <wd-text :lines="2" size="24rpx" color="#8a8f99" :text="goodsSpu?.subTitle" />
+        </view>
+        <view v-if="isFreeShipping" class="goods-title-card__tags">
+          <text class="goods-tag">
+            包邮
+          </text>
         </view>
       </view>
-      <view class="mt-10px flex justify-between px-4px">
-        <view class="text-13px">
-          库存<text class="px-4rpx">
-            {{ goodsSpu.stock }}
-          </text>件
-        </view>
-        <text class="text-13px">
-          已售<text class="px-4rpx">
-            {{ goodsSpu.salesVolume }}
-          </text>件
+      <!--
+        运营配置的属性标签（地标/冷藏/上榜…）：横滑卡条，放在标题之后、
+        库存已售之前。后端未部署或旧数据无 attrTags 时组件内部整块不渲染，
+        首屏与改动前完全一致。
+      -->
+      <GoodsAttrTags :attr-tags="goodsSpu?.attrTags" />
+      <view class="goods-title-card__meta">
+        <text class="goods-title-card__meta-item">
+          库存 <text class="goods-title-card__meta-value">{{ goodsSpu.stock || 0 }}</text> 件
+        </text>
+        <text class="goods-title-card__meta-divider" />
+        <text class="goods-title-card__meta-item">
+          已售 <text class="goods-title-card__meta-value">{{ goodsSpu.salesVolume || 0 }}</text> 件
         </text>
       </view>
     </view>
-    <view class="m-2 rounded-xl bg-white p-2">
+    <view class="goods-cells mx-3 my-2 rounded-xl bg-white p-3 dark:bg-[var(--wot-dark-background2)]">
       <view class="overflow-hidden rounded-lg">
-        <view v-if="couponList && couponList.length > 0" class="flex items-center py-3" @click="showCoupon">
+        <view
+          v-if="couponList && couponList.length > 0"
+          class="goods-cell goods-cell--border flex items-center py-3"
+          hover-class="goods-cell--pressed"
+          @click="showCoupon"
+        >
           <view class="w-80rpx flex-shrink-0 text-28rpx text-gray-800">
             优惠
           </view>
@@ -292,7 +399,12 @@ defineExpose({
           规格行：多规格是「选择规格」入口；单规格显示真实规格值（没有规格值时整行隐藏，
           规格信息在商品名/船供箱规里），点击只调数量——弹层对单规格不渲染规格选择区。
         -->
-        <view v-if="specRow.visible" class="flex items-center py-3" @click="openSkuPopup(2)">
+        <view
+          v-if="specRow.visible"
+          class="goods-cell goods-cell--border flex items-center py-3"
+          hover-class="goods-cell--pressed"
+          @click="openSkuPopup(2)"
+        >
           <view class="w-80rpx flex-shrink-0 text-28rpx text-gray-800">
             规格
           </view>
@@ -303,7 +415,11 @@ defineExpose({
             <wd-icon :size="16" name="arrow-right" color="var(--wot-cell-arrow-color)" />
           </view>
         </view>
-        <view class="flex items-center py-3" @click="onDeliveryRowTap">
+        <view
+          class="goods-cell flex items-center py-3"
+          :hover-class="deliveryRow.tappable ? 'goods-cell--pressed' : 'none'"
+          @click="onDeliveryRowTap"
+        >
           <view class="w-80rpx flex-shrink-0 text-28rpx text-gray-800">
             配送
           </view>
@@ -323,6 +439,89 @@ defineExpose({
 </template>
 
 <style lang="scss" scoped>
+.goods-swiper {
+  position: relative;
+
+  // 与参考商详一致：页码常驻右下，图片再少也能一眼看到总张数
+  &__counter {
+    position: absolute;
+    right: 24rpx;
+    bottom: 44rpx;
+    padding: 4rpx 16rpx;
+    border-radius: 999rpx;
+    background: rgb(0 0 0 / 34%);
+    color: #fff;
+    font-size: 22rpx;
+    line-height: 1.5;
+  }
+}
+
+.goods-title-card {
+  padding: 24rpx;
+  box-shadow: 0 6rpx 18rpx rgb(22 34 51 / 5%);
+
+  &__main {
+    min-width: 0;
+  }
+
+  &__subtitle {
+    margin-top: 8rpx;
+  }
+
+  &__tags {
+    display: flex;
+    align-items: center;
+    gap: 8rpx;
+    margin-top: 12rpx;
+  }
+
+  &__meta {
+    display: flex;
+    align-items: center;
+    gap: 16rpx;
+    margin-top: 16rpx;
+    padding-top: 16rpx;
+    border-top: 1rpx solid #f5f6f8;
+    color: #8a8f99;
+    font-size: 22rpx;
+  }
+
+  &__meta-value {
+    color: #3a3f47;
+    font-size: 24rpx;
+    font-weight: 600;
+  }
+
+  &__meta-divider {
+    width: 1rpx;
+    height: 18rpx;
+    background: #e8eaf0;
+  }
+}
+
+.goods-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2rpx 12rpx;
+  border-radius: 6rpx;
+  background: #f5f6f8;
+  color: var(--theme-color-primary, var(--wot-color-theme-primary, #ff2237));
+  font-size: 20rpx;
+  font-weight: 500;
+}
+
+.goods-cell {
+  transition: opacity 120ms ease;
+
+  &--border {
+    border-bottom: 1rpx solid #f5f6f8;
+  }
+
+  &--pressed {
+    opacity: 0.66;
+  }
+}
+
 // 秒杀条：紧贴价格渐变区下方，展示倒计时与限购信息
 .seckill-strip {
   position: relative;
@@ -369,6 +568,58 @@ defineExpose({
 
     .seckill-remaining {
       color: var(--wot-color-theme-primary, #ff2237);
+    }
+  }
+}
+
+/**
+ * 新人价角标。
+ *
+ * 价格区底色是 primary→secondary 渐变、文字全白：角标若用高饱和实色块会在白字旁
+ * 形成两个互相争夺注意力的色块，且小屏上易与主价糊成一片。
+ * 因此用「半透明白底 + 白字 + 细白描边」，只靠形状区分层级，保持白字可读。
+ */
+.newbie-badge {
+  margin-left: 12rpx;
+  padding: 2rpx 12rpx;
+  border: 1rpx solid rgb(255 255 255 / 70%);
+  border-radius: 999rpx;
+  background: rgb(255 255 255 / 18%);
+  color: #fff;
+  font-size: 20rpx;
+  font-weight: 600;
+  line-height: 1.6;
+}
+
+// 「省￥x」与新人价角标同一套白描边语言，避免在渐变区再引入第二个色块
+.saving-badge {
+  margin-left: 10rpx;
+  padding: 2rpx 12rpx;
+  border: 1rpx solid rgb(255 255 255 / 55%);
+  border-radius: 999rpx;
+  background: rgb(255 255 255 / 12%);
+  color: #fff;
+  font-size: 20rpx;
+  line-height: 1.6;
+}
+
+// 新人价条：与秒杀条同位置同节奏，但独立 class——两类活动不能共用样式，
+// 否则以后改秒杀样式会顺带改掉新人价（二者语义与后续迭代都不同）
+.newbie-strip {
+  position: relative;
+  z-index: 1;
+  margin: -20rpx 16rpx 12rpx;
+  padding: 14rpx 20rpx;
+  border-radius: 12rpx;
+  background: #fff7e8;
+
+  .newbie-strip-text {
+    color: #b25a00;
+    font-size: 22rpx;
+
+    // 「不符合资格」是解释性文案，弱化一级：不需要用户采取任何动作
+    &.is-muted {
+      color: #8a6d4b;
     }
   }
 }

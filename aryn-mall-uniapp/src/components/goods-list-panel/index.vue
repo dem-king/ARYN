@@ -13,9 +13,12 @@
  * 面板只负责「展示与请求」，不持有左侧 rail / 顶部图标条的状态；
  * 父组件通过 props 变化或 `refresh()` 驱动重新查询。
  */
+import type { SharedCart } from '@/api/order/sharedCart'
 import { computed, ref, watch } from 'vue'
 
 import { getPage } from '@/api/product/spu'
+import { shouldShowOriginalPrice } from '@/components/diy/price-display'
+import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
 import GoodsDetailSheet from '@/components/goods-detail-sheet/index.vue'
 import QuickCartButton from '@/components/quick-cart-button/index.vue'
 
@@ -33,6 +36,13 @@ interface Props {
   /** 栅格 / 列表两种卡片布局 */
   grid?: boolean
   /**
+   * 是否在排序条右侧显示「双列 / 单列」切换按钮。
+   *
+   * 默认关闭：商品列表页已有独立的布局开关，重复展示会让用户面对两个入口；
+   * 分类页没有那一行头部，由本按钮就地切换。
+   */
+  showLayoutToggle?: boolean
+  /**
    * 点击商品时在**本面板区域内**从底部弹出详情弹层（参考小象超市：弹层与遮罩
    * 只盖住商品流，宿主页面的分类栏等保持可点），而非跳转整页详情。
    * 默认 false 保持整页跳转；分类页等需要快捷加购的场景开启。
@@ -45,6 +55,13 @@ interface Props {
    * 因此只能由父组件清空并触发展开重查。分类页不传该项、也就没有这个入口。
    */
   clearFilter?: () => void
+  /**
+   * 共享购物车分类选货模式：卡片与详情弹层的加购都锁到该车，
+   * 不再询问加入共享车还是个人车。为空时保持统一目的地弹层的行为。
+   */
+  sharedCart?: SharedCart | null
+  /** 已成功加入当前共享车的 SPU：卡片左上角标「已加入」，减少重复加购 */
+  addedSpuIds?: string[]
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -54,9 +71,26 @@ const props = withDefaults(defineProps<Props>(), {
   brandId: '',
   showSort: true,
   grid: true,
+  showLayoutToggle: false,
   detailSheet: false,
   clearFilter: undefined,
+  sharedCart: null,
+  addedSpuIds: () => [],
 })
+
+const emit = defineEmits<{
+  (e: 'added', spuId: string): void
+  (e: 'update:grid', value: boolean): void
+}>()
+
+function handleAdded(spuId: string) {
+  emit('added', spuId)
+}
+
+/** 双列 / 单列切换：布局只影响卡片样式，不触发重新查询 */
+function toggleLayout() {
+  emit('update:grid', !props.grid)
+}
 
 const router = useRouter()
 const pagingRef = ref()
@@ -141,21 +175,27 @@ function sortHandler(val: 'default' | 'sales' | 'price' | 'newGoods') {
 }
 
 /**
- * 卡片信息 chip：规格 / 现货 / 免配送费。
+ * 卡片信息 chip：规格 / 低库存。
  *
- * 列表接口只返回 SPU 字段，规格与库存不一定有；有才显示，不编造。
- * `freightType === '0'` 是商品级包邮，文案用「免配送费」而非「包邮」，
- * 避免与运费模板/满额免运费规则混淆。
+ * 不再展示「现货」：能出现在商品流的都是上架在售商品，这枚 chip 没有信息量；
+ * 商品介绍由后台「商品子标题」（subTitle）单独成行呈现，对齐参考产品的卡片结构。
+ * 不再展示「免配送费」：运费口径统一以商详 / 结算页为准，卡片只留会直接影响
+ * 下单决策的信息（低库存提醒），避免「卡片看着包邮、结算却收运费」的误导。
+ * 列表接口只返回 SPU 字段，规格不一定有；有才显示，不编造。
  */
 function cardTags(item: any): string[] {
   const tags: string[] = []
   if (item.specsInfo)
     tags.push(String(item.specsInfo))
-  if (Number(item.stock) > 0)
-    tags.push(`现货 ${item.stock}`)
-  if (item.freightType === '0')
-    tags.push('免配送费')
+  const stock = Number(item.stock)
+  if (stock > 0 && stock <= 10)
+    tags.push(`仅剩 ${stock} 件`)
   return tags
+}
+
+/** 划线原价：存量商品常缺省为 0，只有严格高于售价时才展示（与商详/首页楼层同口径） */
+function showOriginalPrice(item: any): boolean {
+  return shouldShowOriginalPrice(item.salesPrice, item.originalPrice)
 }
 
 function toDetail(id: string) {
@@ -207,7 +247,8 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
           <wd-sort-button v-model="salesSort" title="销量" @change="sortHandler('sales')" />
         </view>
         <view class="sort-item">
-          <wd-sort-button v-model="priceSort" title="价格" @change="sortHandler('price')" />
+          <!-- 价格首次点击按电商习惯走低→高；desc-first 让首次值为 -1，落到 sortHandler 的 asc 分支 -->
+          <wd-sort-button v-model="priceSort" title="价格" desc-first @change="sortHandler('price')" />
         </view>
         <view
           class="sort-item"
@@ -215,6 +256,16 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
           @click="sortHandler('newGoods')"
         >
           新品
+        </view>
+        <!-- 布局切换：图标沿用商品列表页的 app / server 口径，仅分类页开启 -->
+        <view
+          v-if="showLayoutToggle"
+          class="sort-layout-toggle"
+          hover-class="sort-layout-toggle--pressed"
+          :hover-stay-time="120"
+          @click="toggleLayout"
+        >
+          <wd-icon :name="grid ? 'app' : 'server'" size="36rpx" color="#666" />
         </view>
       </view>
 
@@ -238,12 +289,20 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
           -->
           <view class="goods-pic-box" :class="grid ? 'goods-pic-box--grid' : 'goods-pic-box--row'">
             <image class="goods-pic" :src="item.spuUrls?.[0]" mode="aspectFit" lazy-load />
+            <!-- 共享选货页：已加购的商品留一个角标，长列表里避免同款重复加 -->
+            <view v-if="addedSpuIds.includes(item.id)" class="goods-added-flag">
+              已加入
+            </view>
           </view>
           <view class="goods-meta" :class="grid ? '' : 'goods-meta--row'">
             <view class="goods-name">
               {{ item.name }}
             </view>
-            <!-- 信息 chip：规格 / 现货 / 免配送费（字段缺失时不渲染） -->
+            <!-- 商品介绍：后台「商品子标题」字段，与首页楼层/商详同一数据源 -->
+            <view v-if="shouldShowSubtitle(item.name, item.subTitle)" class="goods-desc">
+              {{ item.subTitle }}
+            </view>
+            <!-- 信息 chip：规格 / 低库存（字段缺失时不渲染） -->
             <view v-if="cardTags(item).length > 0" class="goods-tags">
               <text v-for="tag in cardTags(item)" :key="tag" class="goods-tag">
                 {{ tag }}
@@ -251,15 +310,25 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
             </view>
             <view class="goods-bottom">
               <view class="goods-price">
-                <text class="goods-price-symbol">
-                  ¥
-                </text>
-                <text class="goods-price-value">
-                  {{ item.salesPrice }}
+                <view class="goods-price-main">
+                  <text class="goods-price-symbol">
+                    ¥
+                  </text>
+                  <text class="goods-price-value">
+                    {{ item.salesPrice }}
+                  </text>
+                </view>
+                <text v-if="showOriginalPrice(item)" class="goods-price-original">
+                  ¥{{ item.originalPrice }}
                 </text>
               </view>
               <view class="goods-actions">
-                <quick-cart-button :spu-id="item.id" size="44rpx" />
+                <quick-cart-button
+                  :spu-id="item.id"
+                  :shared-cart="sharedCart"
+                  size="56rpx"
+                  @added="handleAdded"
+                />
               </view>
             </view>
           </view>
@@ -290,7 +359,12 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
       </template>
     </z-paging>
 
-    <goods-detail-sheet v-model="detailVisible" :spu-id="currentSpuId" />
+    <goods-detail-sheet
+      v-model="detailVisible"
+      :spu-id="currentSpuId"
+      :shared-cart="sharedCart"
+      @added="handleAdded"
+    />
   </view>
 </template>
 
@@ -339,6 +413,7 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
   height: 88rpx;
   padding: 0 8rpx;
   background: #fff;
+  border-bottom: 1rpx solid #f2f3f5;
   font-size: 28rpx;
   color: #666;
   /* 排序条排在滚动区内（见模板注释），靠 sticky 常驻顶部 */
@@ -356,6 +431,24 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
       color: var(--theme-color-primary, var(--wot-color-theme-primary));
       font-weight: 600;
     }
+  }
+
+  /* 固定宽度、不参与 flex 均分：四项排序文案不能被压到换行 */
+  .sort-layout-toggle {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 56rpx;
+    height: 56rpx;
+    margin-left: 2rpx;
+    border-radius: 12rpx;
+    transition: background-color 160ms ease, transform 160ms ease;
+  }
+
+  .sort-layout-toggle--pressed {
+    background: #f2f3f5;
+    transform: scale(0.94);
   }
 }
 
@@ -388,6 +481,8 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
 }
 
 .goods-card--grid {
+  display: flex;
+  flex-direction: column;
   border-radius: 16rpx;
   box-shadow: 0 4rpx 14rpx rgba(22, 34, 51, 0.05);
   transition: transform 160ms ease, box-shadow 160ms ease;
@@ -395,6 +490,25 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
   &:active {
     transform: scale(0.98);
     box-shadow: 0 2rpx 8rpx rgba(22, 34, 51, 0.06);
+  }
+
+  /* 图片锁方，标题预留两行、底部信息贴底，保证同一行两张卡的价格/加购对齐 */
+  .goods-pic-box {
+    flex: none;
+  }
+
+  .goods-meta {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+  }
+
+  .goods-name {
+    min-height: 2.8em;
+  }
+
+  .goods-bottom {
+    margin-top: auto;
   }
 }
 
@@ -464,6 +578,20 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
   height: 100%;
 }
 
+/* 已加入角标：共享选货页专用（其他宿主不传 addedSpuIds，不渲染） */
+.goods-added-flag {
+  position: absolute;
+  top: 10rpx;
+  left: 10rpx;
+  padding: 4rpx 12rpx;
+  border-radius: 999rpx;
+  background: rgb(15 110 86 / 92%);
+  box-shadow: 0 2rpx 8rpx rgb(15 110 86 / 24%);
+  font-size: 20rpx;
+  line-height: 1.5;
+  color: #fff;
+}
+
 .goods-meta {
   padding: 16rpx;
 }
@@ -478,12 +606,24 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
 
 .goods-name {
   font-size: 28rpx;
+  line-height: 1.4;
   color: #333;
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
+}
+
+/* 商品介绍单行省略：卡片高度有限，完整卖点留给商详 */
+.goods-desc {
+  padding-top: 6rpx;
+  overflow: hidden;
+  font-size: 22rpx;
+  line-height: 1.4;
+  color: #909399;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .goods-bottom {
@@ -501,12 +641,12 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
 }
 
 .goods-tag {
-  padding: 2rpx 8rpx;
-  border-radius: 4rpx;
-  background: #f2f3f5;
-  color: #8a97a6;
-  font-size: 20rpx;
-  line-height: 1.5;
+  padding: 4rpx 10rpx;
+  border-radius: 6rpx;
+  background: #f5f6f8;
+  color: #5f6b7a;
+  font-size: 24rpx;
+  line-height: 1.4;
 }
 
 .goods-actions {
@@ -516,9 +656,25 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
   gap: 12rpx;
 }
 
+/**
+ * 价格区：售价与划线原价同排。
+ *
+ * 卡片（尤其分类页右栏两列）内宽有限，原价必须允许换行：售价位数多时
+ * 整行放不下，宁可让原价掉到下一行，也不能把加购按钮挤出卡片。
+ */
 .goods-price {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 10rpx;
+  min-width: 0;
   color: var(--wot-color-theme-primary, #ff2237);
   font-weight: 600;
+
+  .goods-price-main {
+    display: flex;
+    align-items: baseline;
+  }
 
   .goods-price-symbol {
     font-size: 22rpx;
@@ -526,6 +682,13 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
 
   .goods-price-value {
     font-size: 32rpx;
+  }
+
+  .goods-price-original {
+    color: #999;
+    font-size: 22rpx;
+    font-weight: 400;
+    text-decoration: line-through;
   }
 }
 

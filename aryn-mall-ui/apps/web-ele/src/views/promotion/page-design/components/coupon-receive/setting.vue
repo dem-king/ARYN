@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { defineAsyncComponent, ref, watch } from 'vue';
+import { ref, watch } from 'vue';
 
 import {
   ElForm,
@@ -8,18 +8,10 @@ import {
   ElRadioGroup,
   ElSlider,
   ElSwitch,
-  ElTabPane,
-  ElTabs,
 } from 'element-plus';
 
 const props = defineProps<{ modelValue: any }>();
 const emit = defineEmits(['update:modelValue']);
-
-const CommonStyle = defineAsyncComponent(
-  () => import('../common/common-style/index.vue'),
-);
-
-const active = ref('0');
 
 const defaultConfig = {
   showStyle: '2',
@@ -64,34 +56,24 @@ watch(
     </div>
     <div class="setting-form">
       <ElForm :model="form" label-width="80px">
-        <ElTabs type="border-card" v-model="active">
-          <ElTabPane label="组件内容" name="0">
-            <ElFormItem label="展示样式">
-              <ElRadioGroup v-model="form.showStyle">
-                <ElRadio value="1">列表</ElRadio>
-                <ElRadio value="2">卡片</ElRadio>
-              </ElRadioGroup>
-            </ElFormItem>
-            <ElFormItem label="显示数量">
-              <ElSlider
-                v-model="form.showNum"
-                :min="1"
-                :max="10"
-                show-input
-                :show-input-controls="false"
-              />
-            </ElFormItem>
-            <ElFormItem label="领取按钮">
-              <ElSwitch v-model="form.showReceiveBtn" />
-            </ElFormItem>
-          </ElTabPane>
-          <ElTabPane label="组件样式" name="1">
-            <h4>通用样式</h4>
-            <div class="content-item">
-              <CommonStyle v-model="form.commonStyle" />
-            </div>
-          </ElTabPane>
-        </ElTabs>
+        <ElFormItem label="展示样式">
+          <ElRadioGroup v-model="form.showStyle">
+            <ElRadio value="1">列表</ElRadio>
+            <ElRadio value="2">卡片</ElRadio>
+          </ElRadioGroup>
+        </ElFormItem>
+        <ElFormItem label="显示数量">
+          <ElSlider
+            v-model="form.showNum"
+            :min="1"
+            :max="10"
+            show-input
+            :show-input-controls="false"
+          />
+        </ElFormItem>
+        <ElFormItem label="领取按钮">
+          <ElSwitch v-model="form.showReceiveBtn" />
+        </ElFormItem>
       </ElForm>
     </div>
   </div>

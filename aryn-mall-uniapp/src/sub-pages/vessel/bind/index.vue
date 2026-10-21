@@ -46,6 +46,13 @@ import { ensureShipContextLoaded } from '@/composables/useShipContextLoad'
 import { useAuthStore } from '@/store/authStore'
 import { useShipContextStore } from '@/store/shipContextStore'
 import { useUserStore } from '@/store/userStore'
+import { OVERLAY_Z_INDEX } from '@/utils/overlay'
+import {
+  findPendingApply,
+  mismatchTip,
+  pendingApplyTip,
+  resolveApplyErrorMessage,
+} from '@/utils/vessel-bind-apply'
 
 definePage({
   name: 'vessel-bind',
@@ -139,10 +146,20 @@ const joinState = reactive({ code: '', submitting: false })
 const applyState = reactive({
   visible: false,
   submitting: false,
+  /**
+   * 提交失败的可见原因。
+   *
+   * 必须落在弹层内部：失败时后端返回业务错误（最常见的正是「您有一条待审核的
+   * 申请」防重），而全局 toast 在小程序里可能被本页 900/901 的弹层盖住 ——
+   * 2026-10-18 用户反馈「点提交申请没反应」就是这条链路。内联文案不依赖任何
+   * 浮层层级，弹层是否关闭都不影响用户看到原因。
+   */
+  error: '',
   form: {
     applyRole: '2',
     applyVesselName: '',
     applyVesselImo: '',
+    applyVesselCallSign: '',
     applyPortName: '',
     realName: '',
     phone: '',
@@ -151,6 +168,29 @@ const applyState = reactive({
   },
 })
 const myApplies = ref<VesselBindApply[]>([])
+
+/**
+ * 当前待审核的申请（后端「同一用户仅一条待审核」防重的数据来源）。
+ *
+ * 有这个值时提交必然被后端拒绝，因此提前在本地拦下并把「撤回」入口摆出来：
+ * 让用户能自己解开死结，而不是反复点提交等一条看不见的报错。
+ */
+const pendingApply = computed(() => findPendingApply(myApplies.value))
+
+/** 与后端 `VesselBindApply.STATUS_APPROVED` 对齐 */
+const APPROVED_APPLY_STATUS = '2'
+
+/**
+ * 已通过申请与实际绑定船名不一致时的警示文案（一致 / 未通过返回空串）。
+ *
+ * 审核通过后申请单就冻结了，但运营可以把申请「悦航8号」绑到另一条船
+ * （跨船绑定需人工确认并填写理由）。卡片此前只渲染申请船名，用户看不出
+ * 自己实际进了哪条船 —— 而船舶成员身份决定了他能看谁的成员、靠港计划与
+ * 配送单，必须显式说清。判定与归一化规则见 `utils/vessel-bind-apply`。
+ */
+function applyMismatchTip(apply: VesselBindApply): string {
+  return apply.status === APPROVED_APPLY_STATUS ? mismatchTip(apply) : ''
+}
 
 /** 邀请码 */
 const inviteCodes = ref<VesselInviteCode[]>([])
@@ -165,6 +205,8 @@ const addState = reactive({
   memberRole: '2',
   remark: '',
   submitting: false,
+  /** 加人失败原因：与申请弹层同理，底部弹层里的错误不能只靠全局 toast */
+  error: '',
 })
 
 function goLogin() {
@@ -195,6 +237,18 @@ function fetchJoinData() {
       myApplies.value = res ?? []
     })
     .catch(() => {})
+}
+
+/**
+ * 主动刷新「我的申请」状态（弹层里的「刷新状态」按钮 / 打开弹层时）。
+ *
+ * 必须同时清掉内联错误：`fetchJoinData` 只同步列表，如果运营刚审核通过，
+ * 列表更新后横幅消失、但上一次提交失败留下的红块会继续常驻 —— 用户会被
+ * 自己看到的旧错误劝退，而这次提交其实已经能成功。
+ */
+function refreshPendingState() {
+  applyState.error = ''
+  return fetchJoinData()
 }
 
 function fetchMemberData() {
@@ -246,11 +300,17 @@ function openApply() {
     goLogin()
     return
   }
+  // 每次打开都清掉上一次的提交错误：否则用户改了船名重进，旧错误还挂在表单上
+  applyState.error = ''
   applyState.visible = true
+  // 待审核拦截依赖「我的申请」列表：打开时重拉一次，避免运营刚审核完、
+  // 本地还拿着旧列表把本可以成功的提交挡住（旧数据最多停留到本次打开为止）
+  void refreshPendingState()
 }
 
 function closeApply() {
   applyState.visible = false
+  applyState.error = ''
 }
 
 /** 已绑定后用其他船的邀请码继续加船（跑船换船场景） */
@@ -279,16 +339,26 @@ function submitJoinAnother() {
 
 function submitApply() {
   if (!applyState.form.applyVesselName.trim()) {
+    applyState.error = '请填写船名'
     uni.showToast({ title: '请填写船名', icon: 'none' })
+    return
+  }
+  // 已有待审核申请时后端必然拒绝（同一用户仅一条待审核）：本地先拦下。
+  // 头部横幅已经解释了原因与出路，这里只在操作点补一句**动作指引**，
+  // 不重复整段文案（同屏出现两句一样的话会让用户以为点了两次都没用）。
+  if (pendingApply.value) {
+    applyState.error = '请先撤回上面那条待审核申请，或点「刷新状态」确认是否已审核通过'
     return
   }
   if (applyState.submitting)
     return
+  applyState.error = ''
   applyState.submitting = true
   submitBindApply({
     applyRole: applyState.form.applyRole,
     applyVesselName: applyState.form.applyVesselName.trim(),
     applyVesselImo: applyState.form.applyVesselImo || undefined,
+    applyVesselCallSign: applyState.form.applyVesselCallSign || undefined,
     applyPortName: applyState.form.applyPortName || undefined,
     realName: applyState.form.realName || undefined,
     phone: applyState.form.phone || undefined,
@@ -297,28 +367,42 @@ function submitApply() {
   })
     .then(() => {
       applyState.visible = false
+      applyState.error = ''
       uni.showToast({ title: '已提交，等待运营审核', icon: 'success' })
       return fetchJoinData()
     })
-    .catch(() => {})
+    .catch((error) => {
+      // 空 catch 是这次「点了没反应」的直接原因之一：错误只发给了全局 toast。
+      // 现在同时写进弹层内联状态（不依赖任何浮层层级），并刷新申请列表，
+      // 让待审核拦截能立刻带出真实的申请单号与撤回入口。
+      applyState.error = resolveApplyErrorMessage(error, pendingApply.value)
+      void fetchJoinData()
+    })
     .finally(() => {
       applyState.submitting = false
     })
 }
 
-function handleCancelApply(apply: VesselBindApply) {
+function handleCancelApply(apply: null | VesselBindApply | undefined) {
+  if (!apply)
+    return
   uni.showModal({
     title: '撤回申请',
-    content: '确定撤回这条申请吗？',
+    content: `确定撤回「${apply.applyVesselName || '这条申请'}」的绑定申请吗？撤回后可重新提交。`,
     success: (res) => {
       if (!res.confirm)
         return
       cancelBindApply(apply.id)
         .then(() => {
+          // 撤回成功即解除「仅一条待审核」的死结：清掉内联拦截文案，
+          // 用户可以就地改船名重新提交，不必先退出弹层再进来
+          applyState.error = ''
           uni.showToast({ title: '已撤回', icon: 'success' })
           return fetchJoinData()
         })
-        .catch(() => {})
+        .catch((error) => {
+          applyState.error = resolveApplyErrorMessage(error, null)
+        })
     },
   })
 }
@@ -331,6 +415,7 @@ function openAddFlow() {
   candidateState.keyword = ''
   candidateState.list = []
   addState.mode = 'search'
+  addState.error = ''
   addState.visible = true
 }
 
@@ -359,16 +444,20 @@ function openAdd(candidate: VesselMember) {
   addState.target = candidate
   addState.memberRole = '2'
   addState.remark = ''
+  // 换了个人就把上一位的失败原因清掉，否则会显示成「这个人也加不进来」
+  addState.error = ''
   addState.mode = 'confirm'
 }
 
 function backToSearch() {
   addState.mode = 'search'
+  addState.error = ''
 }
 
 function submitAdd() {
   if (!addState.target || addState.submitting)
     return
+  addState.error = ''
   addState.submitting = true
   addVesselMember(activeVesselId.value, {
     userId: addState.target.userId,
@@ -381,7 +470,10 @@ function submitAdd() {
       uni.showToast({ title: '已添加', icon: 'success' })
       return fetchMemberData()
     })
-    .catch(() => {})
+    .catch((error) => {
+      // 与绑定申请同一类问题：底部弹层里的失败必须就地可见，不能只发全局 toast
+      addState.error = resolveApplyErrorMessage(error, null)
+    })
     .finally(() => {
       addState.submitting = false
     })
@@ -866,6 +958,22 @@ onShow(() => {
         <view class="mt-8rpx text-22rpx" style="color: #86909C">
           申请单 {{ apply.applyNo }} · {{ apply.createTime }}
         </view>
+        <!-- 实际绑定船：审核通过后单独一行展示，避免只看申请船名误以为绑的是同一条 -->
+        <view
+          v-if="apply.status === '2' && apply.matchedVesselName"
+          class="mt-8rpx text-22rpx"
+          style="color: #4E5969"
+        >
+          实际绑定：{{ apply.matchedVesselName }}
+        </view>
+        <!-- 申请船名与实际绑定船名不一致：审核通过后申请单不再变化，必须显式告知 -->
+        <view
+          v-if="applyMismatchTip(apply)"
+          class="mt-12rpx rounded-8rpx px-16rpx py-10rpx text-22rpx"
+          style="background: #FBF0E1; color: #C87D2A"
+        >
+          {{ applyMismatchTip(apply) }}
+        </view>
         <view
           v-if="apply.auditRemark"
           class="mt-12rpx rounded-8rpx px-16rpx py-10rpx text-22rpx"
@@ -889,10 +997,10 @@ onShow(() => {
 
     <!-- ================= 添加成员弹层：搜人 → 定角色 ================= -->
     <view v-if="addState.visible">
-      <view class="fixed bottom-0 left-0 right-0 top-0" style="z-index: 900; background: rgba(0, 0, 0, 0.45)" @tap="addState.visible = false" />
+      <view class="fixed bottom-0 left-0 right-0 top-0" :style="`z-index: ${OVERLAY_Z_INDEX.sheetMask}; background: rgba(0, 0, 0, 0.45)`" @tap="addState.visible = false" />
       <view
         class="fixed bottom-0 left-0 right-0 flex flex-col rounded-t-24rpx bg-white"
-        style="z-index: 901; height: 80vh"
+        :style="`z-index: ${OVERLAY_Z_INDEX.sheet}; height: 80vh`"
       >
         <view class="mx-auto mt-14rpx h-8rpx w-72rpx rounded-full" style="background: #E5E6EB" />
         <view class="flex items-center px-24rpx pb-16rpx pt-18rpx">
@@ -1027,6 +1135,16 @@ onShow(() => {
             <view style="height: 24rpx" />
           </scroll-view>
 
+          <!-- 加人失败原因：与绑定申请同口径，放在操作区上方，弹层开着就一定可见 -->
+          <view
+            v-if="addState.error"
+            class="mx-30rpx mt-8rpx rounded-16rpx px-24rpx py-20rpx text-26rpx"
+            style="background: #FDEEEE; color: #D54941"
+          >
+            <text class="i-carbon-error mr-8rpx text-28rpx" />
+            {{ addState.error }}
+          </view>
+
           <view class="flex items-center px-30rpx pt-16rpx" style="padding-bottom: calc(24rpx + env(safe-area-inset-bottom))">
             <button
               class="mr-20rpx h-88rpx flex-1 rounded-16rpx text-28rpx leading-88rpx !m-0"
@@ -1050,10 +1168,10 @@ onShow(() => {
 
     <!-- ================= 绑定申请弹层 ================= -->
     <view v-if="applyState.visible">
-      <view class="fixed bottom-0 left-0 right-0 top-0" style="z-index: 900; background: rgba(0, 0, 0, 0.45)" @tap="closeApply" />
+      <view class="fixed bottom-0 left-0 right-0 top-0" :style="`z-index: ${OVERLAY_Z_INDEX.sheetMask}; background: rgba(0, 0, 0, 0.45)`" @tap="closeApply" />
       <view
         class="fixed bottom-0 left-0 right-0 flex flex-col rounded-t-24rpx bg-white"
-        style="z-index: 901; height: 85vh"
+        :style="`z-index: ${OVERLAY_Z_INDEX.sheet}; height: 85vh`"
       >
         <view class="mx-auto mt-14rpx h-8rpx w-72rpx rounded-full" style="background: #E5E6EB" />
         <view class="flex items-center px-24rpx pb-16rpx pt-18rpx">
@@ -1063,6 +1181,60 @@ onShow(() => {
           <view class="h-56rpx w-56rpx flex items-center justify-center" @tap="closeApply">
             <text class="i-carbon-close text-28rpx" style="color: #86909C" />
           </view>
+        </view>
+
+        <!--
+          提交前的可见拦截：后端「同一用户仅一条待审核申请」是刻意保留的防重，
+          用户从这里点提交必然失败。把原因和「撤回」出口放在头部（不随表单滚动，
+          始终可见），用户不用先失败一次才知道被什么卡住。
+        -->
+        <view
+          v-if="pendingApply"
+          class="mx-30rpx rounded-16rpx px-24rpx py-20rpx"
+          style="background: #FBF0E1"
+        >
+          <view class="text-26rpx" style="color: #C87D2A">
+            <text class="i-carbon-warning-alt mr-8rpx text-28rpx" />
+            {{ pendingApplyTip(pendingApply) }}
+          </view>
+          <view class="mt-8rpx text-22rpx" style="color: #A8ABB2">
+            申请单 {{ pendingApply.applyNo }}
+          </view>
+          <view class="mt-16rpx flex items-center gap-16rpx">
+            <view
+              class="h-64rpx flex items-center rounded-full px-32rpx text-24rpx"
+              style="background: #FDEEEE; color: #D54941"
+              @tap="handleCancelApply(pendingApply)"
+            >
+              撤回这条申请
+            </view>
+            <!--
+              拦截依赖本地缓存的申请列表：运营刚审核完时这里可能还是旧状态。
+              给一个就地刷新入口，避免用户被过期状态挡住却无路可走。
+            -->
+            <view
+              class="h-64rpx flex items-center rounded-full px-28rpx text-24rpx"
+              style="background: #F2F3F5; color: #4E5969"
+              @tap="refreshPendingState()"
+            >
+              刷新状态
+            </view>
+          </view>
+        </view>
+
+        <!--
+          提交失败的内联原因。
+          不依赖全局 toast：小程序里 wd-toast 的层级与页面弹层的层级是两套体系，
+          一旦页面浮层更高，提示就被盖住（2026-10-18「提交申请没反应」）。
+          内联文案与弹层同层，弹窗开着就一定看得见。
+        -->
+        <view
+          v-if="applyState.error"
+          class="mx-30rpx mt-16rpx rounded-16rpx px-24rpx py-20rpx text-26rpx"
+          style="background: #FDEEEE; color: #D54941"
+        >
+          <text class="i-carbon-error mr-8rpx text-28rpx" />
+          {{ applyState.error }}
         </view>
 
         <scroll-view scroll-y style="flex: 1; min-height: 0">
@@ -1102,12 +1274,24 @@ onShow(() => {
             </view>
             <view class="flex items-center" style="min-height: 96rpx; border-bottom: 1rpx solid #EDEEF0">
               <view class="w-190rpx text-26rpx">
-                IMO / 呼号
+                IMO 编号
               </view>
               <input
                 v-model="applyState.form.applyVesselImo"
                 class="h-96rpx flex-1 bg-transparent text-right text-26rpx"
-                placeholder="选填，便于运营匹配"
+                placeholder="选填，IMO 为 7 位数字"
+                placeholder-style="color: #A8ABB2"
+                :maxlength="30"
+              >
+            </view>
+            <view class="flex items-center" style="min-height: 96rpx; border-bottom: 1rpx solid #EDEEF0">
+              <view class="w-190rpx text-26rpx">
+                呼号
+              </view>
+              <input
+                v-model="applyState.form.applyVesselCallSign"
+                class="h-96rpx flex-1 bg-transparent text-right text-26rpx"
+                placeholder="选填，如 3EABC"
                 placeholder-style="color: #A8ABB2"
                 :maxlength="30"
               >

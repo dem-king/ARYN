@@ -1,12 +1,14 @@
 <script lang="ts" setup>
 import type { EchartsUIType } from '@vben/plugins/echarts';
 
-import { onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 
 import { EchartsUI, useEcharts } from '@vben/plugins/echarts';
 
 import { DataAnalysis, InfoFilled } from '@element-plus/icons-vue';
 import { ElCard, ElIcon, ElTooltip } from 'element-plus';
+
+import { formatNumber } from '../../shared/chart';
 
 const props = defineProps<{
   data: Array<{ name: string; value: number }>;
@@ -16,12 +18,15 @@ const props = defineProps<{
 const chartRef = ref<EchartsUIType>();
 const { renderEcharts } = useEcharts(chartRef);
 
+const hasData = computed(() => props.data.some((item) => item.value > 0));
+
 const updateChart = () => {
   if (!props.data) return;
 
   renderEcharts({
     tooltip: {
       trigger: 'item',
+      valueFormatter: (value: any) => formatNumber(Number(value) || 0),
     },
     legend: {
       bottom: '8%',
@@ -40,7 +45,7 @@ const updateChart = () => {
           },
         },
         itemStyle: {
-          borderColor: '#fff',
+          borderColor: 'transparent',
           borderRadius: 10,
           borderWidth: 2,
         },
@@ -82,8 +87,14 @@ onMounted(() => {
         </ElTooltip>
       </div>
     </template>
-    <div class="h-64 w-full">
+    <div class="relative h-64 w-full">
       <EchartsUI ref="chartRef" />
+      <div
+        v-if="!loading && !hasData"
+        class="absolute inset-0 flex items-center justify-center text-sm text-gray-400"
+      >
+        暂无数据
+      </div>
     </div>
   </ElCard>
 </template>

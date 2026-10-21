@@ -25,7 +25,9 @@ import com.aryn.cloud.order.service.IDeliveryTripService;
 import com.aryn.cloud.order.service.IDeliveryWarehouseConfigService;
 import com.aryn.cloud.order.service.IOrderConfigService;
 import com.aryn.cloud.order.service.IOrderItemService;
+import com.aryn.cloud.message.api.dto.MessageSendCommand;
 import com.aryn.cloud.upms.api.remote.RemoteMaterialService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.apache.ibatis.session.Configuration;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
@@ -70,6 +72,8 @@ class DeliveryTaskServiceImplTest {
 
 	private RemoteMaterialService remoteMaterialService;
 
+	private RocketMQTemplate rocketMQTemplate;
+
 	@BeforeEach
 	void setUp() {
 		TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new Configuration(), ""), DeliveryTask.class);
@@ -87,11 +91,12 @@ class DeliveryTaskServiceImplTest {
 		orderItemService = mock(IOrderItemService.class);
 		orderInfoMapper = mock(OrderInfoMapper.class);
 		orderConfigService = mock(IOrderConfigService.class);
+		rocketMQTemplate = mock(RocketMQTemplate.class);
 		// 默认打开自助拉单开关：多数用例测的是「允许」路径，收紧路径单独造桩
 		when(orderConfigService.getConfig()).thenReturn(null);
 		service = new DeliveryTaskServiceImpl(tripService, itemService, staffService, warehouseService, logService,
 				evidenceService, orderItemService, orderConfigService, orderInfoMapper,
-				mock(RocketMQTemplate.class));
+				rocketMQTemplate, new ObjectMapper());
 		remoteMaterialService = mock(RemoteMaterialService.class);
 		ReflectionTestUtils.setField(service, "remoteMaterialService", remoteMaterialService);
 	}
@@ -466,6 +471,39 @@ class DeliveryTaskServiceImplTest {
 		assertThat(tripCaptor.getValue().getTaskCount()).isEqualTo(1);
 		verify(mapper).update(any(), any());
 		verify(logService).save(any());
+	}
+
+	@Test
+	void assignNotificationCarriesJsonObjectJumpPayload() {
+		DeliveryTask task = new DeliveryTask();
+		task.setId("task-1");
+		task.setTaskNo("DT-1");
+		task.setStatus(DeliveryTaskStatusEnum.WAITING_ASSIGN.getCode());
+		task.setTenantId("t1");
+		DeliveryTaskMapper mapper = mock(DeliveryTaskMapper.class);
+		when(mapper.selectOne(any())).thenReturn(task);
+		when(mapper.selectOne(any(), anyBoolean())).thenReturn(task);
+		when(mapper.selectList(any())).thenReturn(List.of(task));
+		when(mapper.update(any(), any())).thenReturn(1);
+		ReflectionTestUtils.setField(service, "baseMapper", mapper);
+		DeliveryStaff staff = new DeliveryStaff();
+		staff.setId("staff-1");
+		staff.setUserId("u1");
+		staff.setStaffName("张三");
+		staff.setTenantId("t1");
+		staff.setStatus("1");
+		when(staffService.getById("staff-1")).thenReturn(staff);
+		when(tripService.getOne(any())).thenReturn(null);
+
+		service.assignByOrderId("order-1", "staff-1");
+
+		// 派单通知走 MQ，jump_payload 落 json 列且消费端要求 JSON 对象：
+		// 裸路由（/delivery/task-detail?id=...）会被整条拒收进 DLQ
+		ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
+		verify(rocketMQTemplate).convertAndSend(any(String.class), captor.capture());
+		MessageSendCommand command = (MessageSendCommand) captor.getValue();
+		assertThat(command.getJumpPayload()).startsWith("{").endsWith("}")
+			.contains("route").contains("/pages/delivery/task-detail").contains("task-1");
 	}
 
 	@Test

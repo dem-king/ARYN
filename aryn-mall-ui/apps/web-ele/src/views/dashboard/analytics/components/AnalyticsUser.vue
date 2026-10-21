@@ -10,6 +10,8 @@ import {
 } from '@element-plus/icons-vue';
 import { ElCard, ElIcon, ElTooltip } from 'element-plus';
 
+import { toPercent } from '#/utils/percent';
+
 defineProps<{
   data: {
     newUsers: number;
@@ -72,7 +74,7 @@ defineProps<{
               class="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400"
             >
               新增用户
-              <ElTooltip content="统计周期内首次访问店铺的用户" placement="top">
+              <ElTooltip content="统计周期内新注册的用户" placement="top">
                 <ElIcon class="cursor-help"><InfoFilled /></ElIcon>
               </ElTooltip>
             </div>
@@ -106,7 +108,7 @@ defineProps<{
             </div>
             <div class="text-xl font-bold dark:text-gray-100">
               <CountTo
-                :end-val="data.repurchaseRate"
+                :end-val="toPercent(data.repurchaseRate)"
                 :decimals="2"
                 suffix="%"
               />
@@ -138,7 +140,7 @@ defineProps<{
             </div>
             <div class="text-xl font-bold dark:text-gray-100">
               <CountTo
-                :end-val="data.returningCustomerShare"
+                :end-val="toPercent(data.returningCustomerShare)"
                 :decimals="2"
                 suffix="%"
               />

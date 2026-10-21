@@ -13,6 +13,7 @@
  *   · 未登录 → 本地拦截跳登录（避免 401 把访客踢出当前页）
  *   · SKU 主键字段直接复用 getById 返回的 `id`（详情页同口径，不做字段映射）
  */
+import type { SharedCart } from '@/api/order/sharedCart'
 import type { PurchaseDecision, SpecRowView } from '@/utils/goods-purchase'
 // @ts-expect-error: mp-html type declaration issue
 import mpHtml from 'mp-html/dist/uni-app/components/mp-html/mp-html'
@@ -29,10 +30,16 @@ interface Props {
   modelValue: boolean
   /** 当前商品 SPU ID */
   spuId?: string
+  /**
+   * 目的地锁定到这张共享购物车（分类选货页）：
+   * 弹层里的加购与列表卡片同一口径，不再询问加入哪里。
+   */
+  sharedCart?: SharedCart | null
 }
 
 const props = withDefaults(defineProps<Props>(), {
   spuId: '',
+  sharedCart: null,
 })
 
 const emit = defineEmits<{
@@ -144,7 +151,7 @@ async function handleAddCart() {
     goLogin()
     return
   }
-  const result = await quickAdd(String(goodsSpu.value.id))
+  const result = await quickAdd(String(goodsSpu.value.id), { sharedCart: props.sharedCart })
   if (result.added) {
     emit('added', String(goodsSpu.value.id))
     return
@@ -161,7 +168,7 @@ async function handleSkuAdd(data: any) {
       skuId: data.skuId,
       quantity: data.quantity,
       spuId: data.spuId || goodsSpu.value.id,
-    })
+    }, { sharedCart: props.sharedCart })
     if (dest === 'abort')
       return
     skuKey.value = false

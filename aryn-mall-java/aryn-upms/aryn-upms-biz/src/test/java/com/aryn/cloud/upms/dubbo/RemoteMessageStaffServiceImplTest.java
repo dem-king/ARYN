@@ -99,6 +99,49 @@ class RemoteMessageStaffServiceImplTest {
 		assertThat(service.queryRecipientsByRoleCode("tenant-1", "ROLE_ADMIN")).isEmpty();
 	}
 
+	@Test
+	void queriesRecipientsByPermission() {
+		ArynTenantContextHolder.setTenantId("tenant-1");
+		StaffMessageAudienceRequest captured = new StaffMessageAudienceRequest();
+		when(sysUserMapper.selectMessageRecipients(any(), org.mockito.ArgumentMatchers.eq(1001)))
+			.thenAnswer(invocation -> {
+				StaffMessageAudienceRequest request = invocation.getArgument(0, StaffMessageAudienceRequest.class);
+				captured.setTenantId(request.getTenantId());
+				captured.setPermissions(request.getPermissions());
+				captured.setCursor(request.getCursor());
+				return List.of(recipient("10"), recipient("11"));
+			});
+
+		RemoteMessageStaffServiceImpl service = new RemoteMessageStaffServiceImpl(sysUserMapper, sysRoleMapper);
+		List<StaffMessageRecipientVO> recipients = service.queryRecipientsByPermission("tenant-1",
+				List.of("vessel:bindapply:audit"));
+
+		// 两页合并：1000 条为上限，两条结果一页返回即停止翻页
+		assertThat(recipients).extracting(StaffMessageRecipientVO::getId).containsExactly("10", "11");
+		assertThat(captured.getTenantId()).isEqualTo("tenant-1");
+		// 按权限筛人：审核通知必须发给真正持审核权限的人，按角色码猜会漏人
+		assertThat(captured.getPermissions()).containsExactly("vessel:bindapply:audit");
+		assertThat(captured.getCursor()).isNull();
+	}
+
+	@Test
+	void returnsEmptyWhenPermissionCodesMissing() {
+		ArynTenantContextHolder.setTenantId("tenant-1");
+		RemoteMessageStaffServiceImpl service = new RemoteMessageStaffServiceImpl(sysUserMapper, sysRoleMapper);
+
+		assertThat(service.queryRecipientsByPermission("tenant-1", List.of(" "))).isEmpty();
+		assertThat(service.queryRecipientsByPermission("tenant-1", List.of())).isEmpty();
+	}
+
+	@Test
+	void rejectsCrossTenantPermissionAudience() {
+		ArynTenantContextHolder.setTenantId("tenant-1");
+
+		assertThatThrownBy(() -> new RemoteMessageStaffServiceImpl(sysUserMapper, sysRoleMapper)
+			.queryRecipientsByPermission("tenant-2", List.of("vessel:bindapply:audit")))
+			.isInstanceOf(ArynBusinessException.class);
+	}
+
 	private StaffMessageRecipientVO recipient(String id) {
 		StaffMessageRecipientVO recipient = new StaffMessageRecipientVO();
 		recipient.setId(id);

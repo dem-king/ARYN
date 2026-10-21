@@ -35,6 +35,20 @@ function readAdmin(file: string) {
   return readFileSync(resolve(adminComponentsRoot, file), 'utf8');
 }
 
+function readMobile(file: string) {
+  return readFileSync(resolve(mobileSourceRoot, file), 'utf8');
+}
+
+/**
+ * 分类页 UI 自 2026-10-21 起抽成共享组件 `category-browser`：
+ * tab 分类页与「去逛逛」压栈分类页复用同一份左栏 rail + 右栏商品流，
+ * 因此 rail 宽度 / 装修挂载点的权威源码在共享组件里，改结构时不要只改页面壳。
+ */
+const MOBILE_CATEGORY_BROWSER = 'components/category-browser/index.vue';
+const MOBILE_CATEGORY_TAB_PAGE = 'pages/product/category/index.vue';
+const MOBILE_CATEGORY_BROWSE_PAGE =
+  'sub-pages/product/category-browse/index.vue';
+
 /**
  * 取最后一个 <style> 块并剥掉注释：说明性注释里会引用旧写法
  * （如「原先定位在盒子右侧外 44px」），断言只针对真实声明。
@@ -146,30 +160,30 @@ describe('page designer canvas contract', () => {
 
   it('matches the category page right-column width against the mobile rail', () => {
     const shell = readAdmin('canvas-page-shell.vue');
-    const categoryPage = readFileSync(
-      resolve(mobileSourceRoot, 'pages/product/category/index.vue'),
-      'utf8',
-    );
+    const categoryBrowser = readMobile(MOBILE_CATEGORY_BROWSER);
 
     // 左栏 rail 宽度是本契约的关键数值：C 端 176rpx（= 88px），
     // 右栏可用宽度 = 375 - 88 = 287px。任一端改动都必须同步另一端。
-    expect(categoryPage).toContain('width: 176rpx');
+    expect(categoryBrowser).toContain('width: 176rpx');
     expect(shell).toContain('width: 88px');
 
     // 排序条 88rpx = 44px，同样两端对齐
-    expect(categoryPage).toContain('height: 88rpx');
+    expect(categoryBrowser).toContain('height: 88rpx');
     expect(shell).toContain('height: 44px');
+
+    // 两个使用方都必须实际复用共享组件，否则共享口径会与页面壳漂移
+    expect(readMobile(MOBILE_CATEGORY_TAB_PAGE)).toContain('<CategoryBrowser');
+    expect(readMobile(MOBILE_CATEGORY_BROWSE_PAGE)).toContain(
+      '<CategoryBrowser show-back',
+    );
   });
 
   it('keeps the decoration slot at the mobile mount point', () => {
-    const categoryPage = readFileSync(
-      resolve(mobileSourceRoot, 'pages/product/category/index.vue'),
-      'utf8',
-    );
+    const categoryBrowser = readMobile(MOBILE_CATEGORY_BROWSER);
 
     // C 端装修区嵌在右栏商品流顶部（goods-list-panel 的 #banner 插槽），
     // 骨架的插槽位置必须与之一致：在右栏内、排序条之前。
-    expect(categoryPage).toContain('<template #banner>');
-    expect(categoryPage).toContain('<goods-list-panel');
+    expect(categoryBrowser).toContain('<template #banner>');
+    expect(categoryBrowser).toContain('<goods-list-panel');
   });
 });

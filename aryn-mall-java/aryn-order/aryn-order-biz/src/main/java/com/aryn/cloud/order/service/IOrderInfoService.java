@@ -80,6 +80,18 @@ public interface IOrderInfoService extends IService<OrderInfo> {
 	String cancelOrder(OrderInfo orderInfo);
 
 	/**
+	 * 订单取消（带来源）：在原有取消逻辑之上，取消成功后向租户工作人员发站内通知。
+	 *
+	 * <p>调用方必须显式传来源，工作人员才能区分是买家取消、超时自动取消
+	 * 还是管理端取消。
+	 *
+	 * @param orderInfo 订单实体
+	 * @param source 取消来源
+	 * @return 订单 ID
+	 */
+	String cancelOrder(OrderInfo orderInfo, OrderStaffNotifyService.CancelSource source);
+
+	/**
 	 * 货到付款订单确认收款（线下收款到账后由管理端操作，视同支付成功）
 	 * @param id 订单ID
 	 * @param payConfirmDTO 实收金额与付款凭证

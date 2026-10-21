@@ -1,6 +1,8 @@
 <script lang="ts" setup>
 import type { FormInstance } from 'element-plus';
 
+import type { GoodsAttrTagFormValue } from './goods-spu-form-validation';
+
 import { defineAsyncComponent, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
@@ -30,7 +32,10 @@ import { getList as getSpecsList } from '#/api/product/goods-specs';
 import { addObj, editObj, getById } from '#/api/product/goods-spu';
 import { useDict } from '#/utils/dict';
 
-import { validateGoodsSkus } from './goods-spu-form-validation';
+import {
+  validateGoodsAttrTags,
+  validateGoodsSkus,
+} from './goods-spu-form-validation';
 
 const Editor = defineAsyncComponent(
   () => import('#/components/editor/index.vue'),
@@ -42,6 +47,7 @@ const Sku = defineAsyncComponent(() => import('#/components/sku/index.vue'));
 
 interface DataState {
   form: {
+    attrTags: Array<GoodsAttrTagFormValue>;
     brandId: string;
     categoryFirstId: string;
     categoryIds: Array<string>;
@@ -82,6 +88,7 @@ const state = reactive<DataState>({
     id: undefined,
     name: '',
     subTitle: '',
+    attrTags: [],
     spuUrls: [],
     salesVolume: 0,
     enableSpecs: '0',
@@ -206,6 +213,29 @@ const defaultProps = {
   value: 'id',
   children: 'children',
 };
+const MAX_ATTR_TAGS = 6;
+const attrIconOptions = [
+  { label: '无图标', value: 'none' },
+  { label: '定位/地标', value: 'location' },
+  { label: '雪花/冷藏', value: 'snowflake' },
+  { label: '奖杯/榜单', value: 'trophy' },
+  { label: '包装/箱规', value: 'package' },
+  { label: '保障/认证', value: 'security' },
+  { label: '时间/时效', value: 'time' },
+  { label: '购物袋/系列', value: 'shopping-bag' },
+  { label: '推荐/精选', value: 'star-filled' },
+];
+const attrToneOptions = [
+  { label: '绿色', value: 'green' },
+  { label: '蓝色', value: 'blue' },
+  { label: '灰色', value: 'gray' },
+  { label: '橙色', value: 'orange' },
+];
+const attrLinkTypeOptions = [
+  { label: '无跳转', value: 'none' },
+  { label: '弹窗说明', value: 'popup' },
+  { label: '页面跳转', value: 'page' },
+];
 
 /**
  * 下一步
@@ -229,6 +259,7 @@ const resetForm = (formEl: FormInstance | undefined) => {
     id: undefined,
     name: '',
     subTitle: '',
+    attrTags: [],
     spuUrls: [],
     salesVolume: 0,
     enableSpecs: '0',
@@ -255,6 +286,39 @@ const resetForm = (formEl: FormInstance | undefined) => {
   loading.value = false;
   // formEl.resetFields();
 };
+const createEmptyAttrTag = (): GoodsAttrTagFormValue => ({
+  icon: 'none',
+  label: '',
+  linkType: 'none',
+  linkUrl: '',
+  popupContent: '',
+  popupTitle: '',
+  tone: 'gray',
+  value: '',
+});
+/**
+ * 属性标签回显：兼容历史商品 attrTags 为 null/undefined 或字段缺失
+ */
+const normalizeAttrTags = (attrTags: unknown): GoodsAttrTagFormValue[] => {
+  if (!Array.isArray(attrTags)) return [];
+  return (attrTags as GoodsAttrTagFormValue[]).map((tag) => ({
+    icon: tag?.icon || 'none',
+    label: tag?.label ?? '',
+    linkType: tag?.linkType || 'none',
+    linkUrl: tag?.linkUrl ?? '',
+    popupContent: tag?.popupContent ?? '',
+    popupTitle: tag?.popupTitle ?? '',
+    tone: tag?.tone || 'gray',
+    value: tag?.value ?? '',
+  }));
+};
+const addAttrTag = () => {
+  if (state.form.attrTags.length >= MAX_ATTR_TAGS) return;
+  state.form.attrTags.push(createEmptyAttrTag());
+};
+const removeAttrTag = (index: number) => {
+  state.form.attrTags.splice(index, 1);
+};
 /**
  * 提交按钮
  */
@@ -272,6 +336,13 @@ const submitForm = async (formEl: FormInstance | undefined) => {
       );
       if (skuValidationMessage) {
         ElMessage.warning(skuValidationMessage);
+        return;
+      }
+      const attrTagValidationMessage = validateGoodsAttrTags(
+        state.form.attrTags,
+      );
+      if (attrTagValidationMessage) {
+        ElMessage.warning(attrTagValidationMessage);
         return;
       }
       loading.value = true;
@@ -448,6 +519,7 @@ const initForm = () => {
       .then((response) => {
         loading.value = false;
         state.form = response;
+        state.form.attrTags = normalizeAttrTags(response.attrTags);
 
         const categoryIds: string[] = [];
 
@@ -500,6 +572,124 @@ initForm();
                   show-word-limit
                   :rows="2"
                 />
+              </ElFormItem>
+              <ElFormItem label="商品属性标签">
+                <div class="attr-tag-editor">
+                  <div class="attr-tag-editor__tip">
+                    商详首屏属性卡，按顺序展示，最多 6 个；属性名和值必填。
+                  </div>
+                  <div
+                    v-for="(tag, index) in state.form.attrTags"
+                    :key="index"
+                    class="attr-tag-row"
+                  >
+                    <div class="attr-tag-row__fields">
+                      <div class="attr-tag-row__text-fields">
+                        <ElInput
+                          v-model="tag.value"
+                          class="attr-tag-row__value"
+                          maxlength="24"
+                          placeholder="属性值，如 地标"
+                          show-word-limit
+                        />
+                        <ElInput
+                          v-model="tag.label"
+                          class="attr-tag-row__label"
+                          maxlength="12"
+                          placeholder="属性名，如 系列"
+                          show-word-limit
+                        />
+                      </div>
+                      <div class="attr-tag-row__meta-fields">
+                        <ElSelect
+                          v-model="tag.icon"
+                          class="attr-tag-row__select"
+                          placeholder="图标"
+                        >
+                          <ElOption
+                            v-for="item in attrIconOptions"
+                            :key="item.value"
+                            :label="item.label"
+                            :value="item.value"
+                          />
+                        </ElSelect>
+                        <ElSelect
+                          v-model="tag.tone"
+                          class="attr-tag-row__select"
+                          placeholder="色调"
+                        >
+                          <ElOption
+                            v-for="item in attrToneOptions"
+                            :key="item.value"
+                            :label="item.label"
+                            :value="item.value"
+                          />
+                        </ElSelect>
+                        <ElSelect
+                          v-model="tag.linkType"
+                          class="attr-tag-row__select"
+                          placeholder="点击行为"
+                        >
+                          <ElOption
+                            v-for="item in attrLinkTypeOptions"
+                            :key="item.value"
+                            :label="item.label"
+                            :value="item.value"
+                          />
+                        </ElSelect>
+                        <ElButton
+                          class="attr-tag-row__remove"
+                          link
+                          type="danger"
+                          @click="removeAttrTag(index)"
+                        >
+                          删除
+                        </ElButton>
+                      </div>
+                    </div>
+                    <div
+                      v-if="tag.linkType === 'popup'"
+                      class="attr-tag-row__extra"
+                    >
+                      <ElInput
+                        v-model="tag.popupTitle"
+                        class="attr-tag-row__popup-title"
+                        maxlength="30"
+                        placeholder="弹窗标题（可空，默认取属性值）"
+                        show-word-limit
+                      />
+                      <ElInput
+                        v-model="tag.popupContent"
+                        class="attr-tag-row__popup-content"
+                        maxlength="500"
+                        type="textarea"
+                        :rows="2"
+                        placeholder="弹窗内容（必填）"
+                        show-word-limit
+                      />
+                    </div>
+                    <div
+                      v-else-if="tag.linkType === 'page'"
+                      class="attr-tag-row__extra"
+                    >
+                      <ElInput
+                        v-model="tag.linkUrl"
+                        class="attr-tag-row__link-url"
+                        maxlength="500"
+                        placeholder="站内路径，如 /pages/product/category/index"
+                      />
+                      <span class="attr-tag-row__hint">
+                        仅支持 /pages/ 或 /sub-pages/ 开头的站内路径
+                      </span>
+                    </div>
+                  </div>
+                  <ElButton
+                    :disabled="state.form.attrTags.length >= MAX_ATTR_TAGS"
+                    @click="addAttrTag"
+                  >
+                    添加属性标签
+                  </ElButton>
+                </div>
               </ElFormItem>
               <ElFormItem label="商品图" prop="spuUrls">
                 <SelectMaterial
@@ -720,6 +910,90 @@ initForm();
 
     .form {
       margin-bottom: 38px;
+    }
+
+    .attr-tag-editor {
+      width: 100%;
+
+      &__tip {
+        margin-bottom: 8px;
+        font-size: 12px;
+        color: var(--el-text-color-secondary);
+      }
+    }
+
+    .attr-tag-row {
+      padding: 10px 12px;
+      margin-bottom: 10px;
+      border: 1px solid var(--el-border-color-lighter);
+      border-radius: 8px;
+
+      &__fields {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+
+      // 属性名/值需要完整展示输入提示和字数统计，独占一组并均分剩余宽度；
+      // 空间不足时整组换行，避免文字说明被截断。
+      &__text-fields {
+        display: flex;
+        flex: 1 1 370px;
+        gap: 8px;
+        align-items: center;
+        min-width: 0;
+      }
+
+      &__meta-fields {
+        display: flex;
+        flex: 0 0 auto;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+
+      &__value,
+      &__label {
+        flex: 1 1 0;
+        min-width: 180px;
+      }
+
+      &__select {
+        flex: 0 0 auto;
+        width: 130px;
+      }
+
+      &__remove {
+        flex: 0 0 auto;
+      }
+
+      &__extra {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: flex-start;
+        margin-top: 8px;
+      }
+
+      &__popup-title {
+        width: 320px;
+      }
+
+      &__popup-content {
+        flex: 1;
+        min-width: 280px;
+      }
+
+      &__link-url {
+        width: 360px;
+      }
+
+      &__hint {
+        font-size: 12px;
+        line-height: 32px;
+        color: var(--el-text-color-secondary);
+      }
     }
 
     .goods-footer {

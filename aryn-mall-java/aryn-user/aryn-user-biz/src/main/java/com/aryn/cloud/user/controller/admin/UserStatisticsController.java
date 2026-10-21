@@ -2,6 +2,7 @@ package com.aryn.cloud.user.controller.admin;
 
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.user.api.dto.UserStatisticsDTO;
+import com.aryn.cloud.user.api.vo.UserDashboardStatisticsVO;
 import com.aryn.cloud.user.api.vo.UserOverviewVO;
 import com.aryn.cloud.user.api.vo.UserTrendVO;
 import com.aryn.cloud.user.service.IUserStatisticsService;
@@ -21,6 +22,12 @@ import java.util.List;
 public class UserStatisticsController {
 
 	private final IUserStatisticsService userStatisticsService;
+
+	@GetMapping("/dashboard")
+	@Operation(summary = "用户侧概览聚合数据")
+	public Result<UserDashboardStatisticsVO> getUserDashboard() {
+		return Result.success(userStatisticsService.getUserDashboard());
+	}
 
 	@GetMapping("/overview")
 	@Operation(summary = "用户概览统计")

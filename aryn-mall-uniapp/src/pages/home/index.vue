@@ -29,7 +29,7 @@ const { canPullDownRefresh, title } = useDecorationPage({
 })
 const requestRunner = createLatestRequestRunner()
 
-// 滚动接近底部时提前通知装修里的分页商品组件（goods-group / goods-waterfall）加载下一页
+// 滚动接近底部时提前通知装修里的分页商品组件（goods-group / goods-waterfall / goods-tabs）加载下一页
 useDecorationInfiniteScroll()
 
 async function initPageDesign() {

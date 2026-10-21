@@ -7,12 +7,17 @@ import com.aryn.cloud.message.api.dto.notice.NoticeInboxQuery;
 import com.aryn.cloud.message.api.dto.notice.NoticeSaveRequest;
 import com.aryn.cloud.message.api.entity.MessageDispatchTask;
 import com.aryn.cloud.message.api.entity.MessageNotice;
+import com.aryn.cloud.message.api.entity.MessageRecipient;
 import com.aryn.cloud.message.api.enums.DispatchTaskStatus;
 import com.aryn.cloud.message.api.enums.MessageIdentityType;
+import com.aryn.cloud.message.api.enums.NoticeDispatchStatus;
 import com.aryn.cloud.message.api.enums.NoticeJumpType;
 import com.aryn.cloud.message.api.enums.NoticeStatus;
+import com.aryn.cloud.message.api.vo.notice.NoticeDispatchTaskVO;
 import com.aryn.cloud.message.api.vo.notice.NoticeInboxItemVO;
 import com.aryn.cloud.message.api.vo.notice.NoticeInboxPageVO;
+import com.aryn.cloud.message.api.vo.notice.NoticeRecipientItemVO;
+import com.aryn.cloud.message.api.vo.notice.NoticeRecipientStatsVO;
 import com.aryn.cloud.message.api.vo.notice.NoticeVO;
 import com.aryn.cloud.message.mapper.MessageDispatchTaskMapper;
 import com.aryn.cloud.message.mapper.MessageNoticeMapper;
@@ -38,6 +43,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -97,18 +103,54 @@ public class NoticeServiceImpl implements NoticeService {
 		if (notice == null) {
 			throw new ArynBusinessException("通知不存在");
 		}
-		return toVO(notice);
+		NoticeVO vo = toVO(notice);
+		enrichDelivery(List.of(vo), tenantId);
+		return vo;
 	}
 
 	@Override
-	public IPage<NoticeVO> page(String tenantId, String status, Page<?> page) {
+	public IPage<NoticeVO> page(String tenantId, String status, String keyword, Page<?> page) {
+		String trimmedKeyword = StringUtils.hasText(keyword) ? keyword.trim() : null;
 		Page<MessageNotice> sourcePage = new Page<>(page.getCurrent(), page.getSize());
 		IPage<MessageNotice> source = noticeMapper.selectPage(sourcePage, Wrappers.<MessageNotice>lambdaQuery()
 			.eq(MessageNotice::getTenantId, tenantId)
 			.eq(StringUtils.hasText(status), MessageNotice::getStatus, status)
+			.and(trimmedKeyword != null, wrapper -> wrapper
+				.like(MessageNotice::getTitle, trimmedKeyword)
+				.or().like(MessageNotice::getSummary, trimmedKeyword)
+				.or().like(MessageNotice::getContent, trimmedKeyword))
 			.orderByDesc(MessageNotice::getCreateTime));
+		List<NoticeVO> records = source.getRecords().stream().map(this::toVO).toList();
+		enrichDelivery(records, tenantId);
 		Page<NoticeVO> result = new Page<>(source.getCurrent(), source.getSize(), source.getTotal());
-		result.setRecords(source.getRecords().stream().map(this::toVO).toList());
+		result.setRecords(records);
+		return result;
+	}
+
+	@Override
+	public IPage<NoticeRecipientItemVO> recipients(String tenantId, String noticeId, String readStatus,
+			String recipientType, String keyword, Page<?> page) {
+		MessageNotice notice = noticeMapper.selectOne(Wrappers.<MessageNotice>lambdaQuery()
+			.eq(MessageNotice::getTenantId, tenantId)
+			.eq(MessageNotice::getId, noticeId));
+		if (notice == null) {
+			throw new ArynBusinessException("通知不存在");
+		}
+		String trimmedKeyword = StringUtils.hasText(keyword) ? keyword.trim() : null;
+		Page<MessageRecipient> sourcePage = new Page<>(page.getCurrent(), page.getSize());
+		IPage<MessageRecipient> source = recipientMapper.selectPage(sourcePage,
+				Wrappers.<MessageRecipient>lambdaQuery()
+					.eq(MessageRecipient::getTenantId, tenantId)
+					.eq(MessageRecipient::getMessageId, noticeId)
+					.eq(StringUtils.hasText(readStatus), MessageRecipient::getReadStatus, readStatus)
+					.eq(StringUtils.hasText(recipientType), MessageRecipient::getRecipientType, recipientType)
+					.and(trimmedKeyword != null, wrapper -> wrapper
+						.like(MessageRecipient::getRecipientName, trimmedKeyword)
+						.or().like(MessageRecipient::getRecipientId, trimmedKeyword))
+					.orderByDesc(MessageRecipient::getReceivedTime)
+					.orderByAsc(MessageRecipient::getId));
+		Page<NoticeRecipientItemVO> result = new Page<>(source.getCurrent(), source.getSize(), source.getTotal());
+		result.setRecords(source.getRecords().stream().map(this::toRecipientVO).toList());
 		return result;
 	}
 
@@ -166,6 +208,75 @@ public class NoticeServiceImpl implements NoticeService {
 		notice.setUpdateBy(operatorId);
 		notice.setUpdateTime(LocalDateTime.now());
 		noticeMapper.updateById(notice);
+		// 撤销尚未开始的任务，运行中的任务由分发循环在下一页检查到撤回后自行取消
+		dispatchTaskMapper.cancelPendingTasks(tenantId, noticeId, operatorId);
+	}
+
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public void republish(String tenantId, String operatorId, String noticeId) {
+		MessageNotice notice = requireLockedNotice(tenantId, noticeId);
+		if (!NoticeStatus.REVOKED.name().equals(notice.getStatus())) {
+			throw new ArynBusinessException("只有已撤回通知可以重新发布");
+		}
+		if (notice.getExpireTime() != null && !notice.getExpireTime().isAfter(LocalDateTime.now())) {
+			throw new ArynBusinessException("通知已过期，无法重新发布");
+		}
+		List<MessageDispatchTask> tasks = dispatchTaskMapper.selectByMessageId(tenantId, noticeId);
+		if (tasks.stream().anyMatch(task -> DispatchTaskStatus.RUNNING.name().equals(task.getStatus()))) {
+			throw new ArynBusinessException("仍有分发任务在运行，请稍后再重新发布");
+		}
+		notice.setStatus(NoticeStatus.PUBLISHED.name());
+		notice.setPublishTime(LocalDateTime.now());
+		notice.setUpdateBy(operatorId);
+		notice.setUpdateTime(LocalDateTime.now());
+		noticeMapper.updateById(notice);
+
+		List<String> taskIds = tasks.stream()
+			.filter(task -> !DispatchTaskStatus.SUCCEEDED.name().equals(task.getStatus()))
+			.map(MessageDispatchTask::getId)
+			.toList();
+		if (taskIds.isEmpty()) {
+			return;
+		}
+		if (dispatchTaskMapper.resetTasksForRepublish(tenantId, taskIds, operatorId) == 0) {
+			throw new ArynBusinessException("分发任务状态已变化，请刷新后重试");
+		}
+		runAfterCommit(() -> taskIds.forEach(taskId -> dispatchService.dispatch(tenantId, taskId)));
+	}
+
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public void deleteDraft(String tenantId, String operatorId, String noticeId) {
+		MessageNotice notice = requireLockedNotice(tenantId, noticeId);
+		if (!NoticeStatus.DRAFT.name().equals(notice.getStatus())) {
+			throw new ArynBusinessException("只有草稿通知可以删除");
+		}
+		if (noticeMapper.logicDeleteDraft(tenantId, noticeId, operatorId) == 0) {
+			throw new ArynBusinessException("通知不存在或状态已变化");
+		}
+	}
+
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public void retryDispatch(String tenantId, String operatorId, String noticeId) {
+		MessageNotice notice = requireLockedNotice(tenantId, noticeId);
+		if (!NoticeStatus.PUBLISHED.name().equals(notice.getStatus())) {
+			throw new ArynBusinessException("只有已发布通知可以重试分发");
+		}
+		List<MessageDispatchTask> failedTasks = dispatchTaskMapper.selectByMessageId(tenantId, noticeId).stream()
+			.filter(task -> DispatchTaskStatus.FAILED.name().equals(task.getStatus())
+					|| DispatchTaskStatus.PARTIAL_FAILED.name().equals(task.getStatus()))
+			.toList();
+		if (failedTasks.isEmpty()) {
+			throw new ArynBusinessException("没有可重试的分发任务");
+		}
+		List<String> taskIds = failedTasks.stream().map(MessageDispatchTask::getId).toList();
+		// 专用 SQL 重置：MyBatis-Plus 默认不更新 null 字段，error_summary 必须显式置空
+		if (dispatchTaskMapper.resetFailedTasks(tenantId, taskIds, operatorId) == 0) {
+			throw new ArynBusinessException("没有可重试的分发任务");
+		}
+		runAfterCommit(() -> taskIds.forEach(taskId -> dispatchService.dispatch(tenantId, taskId)));
 	}
 
 	@Override
@@ -321,6 +432,79 @@ public class NoticeServiceImpl implements NoticeService {
 		catch (JsonProcessingException exception) {
 			throw new ArynBusinessException("通知受众快照保存失败");
 		}
+	}
+
+	private void enrichDelivery(List<NoticeVO> records, String tenantId) {
+		if (records.isEmpty()) {
+			return;
+		}
+		List<String> messageIds = records.stream().map(NoticeVO::getId).toList();
+		Map<String, List<MessageDispatchTask>> tasksByMessage = dispatchTaskMapper
+			.selectByMessageIds(tenantId, messageIds)
+			.stream()
+			.collect(Collectors.groupingBy(MessageDispatchTask::getMessageId));
+		Map<String, NoticeRecipientStatsVO> statsByMessage = recipientMapper
+			.selectStatsByMessageIds(tenantId, messageIds)
+			.stream()
+			.collect(Collectors.toMap(NoticeRecipientStatsVO::getMessageId, stats -> stats));
+		for (NoticeVO record : records) {
+			List<MessageDispatchTask> tasks = tasksByMessage.getOrDefault(record.getId(), List.of());
+			record.setDispatchTasks(tasks.stream().map(this::toDispatchTaskVO).toList());
+			record.setDispatchStatus(resolveDispatchStatus(record.getStatus(), tasks).name());
+			NoticeRecipientStatsVO stats = statsByMessage.get(record.getId());
+			record.setRecipientCount(stats == null ? 0L : valueOrZero(stats.getRecipientCount()));
+			record.setReadCount(stats == null ? 0L : valueOrZero(stats.getReadCount()));
+			record.setHiddenCount(stats == null ? 0L : valueOrZero(stats.getHiddenCount()));
+		}
+	}
+
+	private NoticeDispatchStatus resolveDispatchStatus(String noticeStatus, List<MessageDispatchTask> tasks) {
+		if (NoticeStatus.DRAFT.name().equals(noticeStatus) || tasks.isEmpty()) {
+			return NoticeDispatchStatus.NONE;
+		}
+		boolean running = tasks.stream().anyMatch(task -> DispatchTaskStatus.PENDING.name().equals(task.getStatus())
+				|| DispatchTaskStatus.RUNNING.name().equals(task.getStatus()));
+		if (running) {
+			return NoticeDispatchStatus.RUNNING;
+		}
+		long succeeded = tasks.stream()
+			.filter(task -> DispatchTaskStatus.SUCCEEDED.name().equals(task.getStatus()))
+			.count();
+		if (succeeded == 0 && tasks.stream()
+			.allMatch(task -> DispatchTaskStatus.CANCELED.name().equals(task.getStatus()))) {
+			return NoticeDispatchStatus.NONE;
+		}
+		boolean unsuccessful = tasks.stream()
+			.anyMatch(task -> DispatchTaskStatus.FAILED.name().equals(task.getStatus())
+					|| DispatchTaskStatus.PARTIAL_FAILED.name().equals(task.getStatus())
+					|| DispatchTaskStatus.CANCELED.name().equals(task.getStatus()));
+		if (unsuccessful) {
+			return succeeded > 0 ? NoticeDispatchStatus.PARTIAL_FAILED : NoticeDispatchStatus.FAILED;
+		}
+		return succeeded == tasks.size() ? NoticeDispatchStatus.SUCCEEDED : NoticeDispatchStatus.NONE;
+	}
+
+	private NoticeDispatchTaskVO toDispatchTaskVO(MessageDispatchTask task) {
+		NoticeDispatchTaskVO vo = new NoticeDispatchTaskVO();
+		BeanUtils.copyProperties(task, vo);
+		return vo;
+	}
+
+	private NoticeRecipientItemVO toRecipientVO(MessageRecipient recipient) {
+		NoticeRecipientItemVO vo = new NoticeRecipientItemVO();
+		vo.setRecipientRecordId(recipient.getId());
+		vo.setRecipientType(recipient.getRecipientType());
+		vo.setRecipientId(recipient.getRecipientId());
+		vo.setRecipientName(recipient.getRecipientName());
+		vo.setReadStatus(recipient.getReadStatus());
+		vo.setReadTime(recipient.getReadTime());
+		vo.setReceivedTime(recipient.getReceivedTime());
+		vo.setInboxStatus(recipient.getInboxStatus());
+		return vo;
+	}
+
+	private long valueOrZero(Long value) {
+		return value == null ? 0L : value;
 	}
 
 	private NoticeVO toVO(MessageNotice notice) {

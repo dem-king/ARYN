@@ -16,6 +16,9 @@ public class SeckillSessionVO {
 	@Schema(description = "活动ID")
 	private String activityId;
 
+	@Schema(description = "活动名称（管理端场次列表/选择器带出，活动详情内为 null）")
+	private String activityName;
+
 	@Schema(description = "场次名称")
 	private String sessionName;
 

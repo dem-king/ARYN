@@ -38,3 +38,16 @@ export function getPage(params: object) {
     params,
   })
 }
+
+/**
+ * 按 ID 批量查询优惠券（装修「优惠券组合」手选模式专用）。
+ *
+ * 手选楼层只认配置的券 ID，不能拉第一页再过滤 —— 被选中的券排在列表
+ * 第一页之外时会整个楼层漏渲染；该接口与分页列表一样对游客开放。
+ *
+ * 与分页列表同口径：不传 skipToken，服务端才能按登录态回填 userReceiveCount，
+ * 刷新后「已领取」状态才不会丢。
+ */
+export function getByIds(ids: string[]) {
+  return alovaInstance.Get<CouponInfo[]>(`/promotion/app/couponinfo/byIds/${ids.join(',')}`)
+}

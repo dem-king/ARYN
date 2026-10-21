@@ -8,6 +8,35 @@ export interface ProductStatisticsQuery {
 
 export type ShopStatisticsQuery = Pick<ProductStatisticsQuery, 'shopId'>;
 
+export interface ProductLifecycleVO {
+  activeCount: number;
+  newCount: number;
+  outOfStockCount: number;
+  slowMovingCount: number;
+}
+
+export interface ProductDashboardStatisticsVO {
+  lifecycle: ProductLifecycleVO;
+  lowStockTop10: ProductLowStockVO[];
+  overview: ProductOverviewVO;
+  praiseTop10: ProductPraiseRankVO[];
+  visitTop10: ProductVisitRankVO[];
+  visitTrend: ProductVisitTrendVO[];
+}
+
+/**
+ * 获取商品侧概览聚合数据 (商品概览、访问趋势、浏览/好评排行、库存预警)
+ * @param params
+ */
+export function getProductDashboardStatistics(params: ProductStatisticsQuery) {
+  return requestClient.get<ProductDashboardStatisticsVO>(
+    '/product/product/statistics/dashboard',
+    {
+      params,
+    },
+  );
+}
+
 /**
  * 商品销量排行 VO
  */
@@ -46,10 +75,6 @@ export interface ProductOverviewVO {
    * 库存预警数量
    */
   lowStockCount: number;
-  /**
-   * 待审核数量
-   */
-  pendingReviewCount: number;
   /**
    * 总库存数量
    */
@@ -161,7 +186,7 @@ export interface ProductPraiseRankVO {
    */
   goodAppraiseCount: number;
   /**
-   * 好评率
+   * 好评率 (0-1 小数)
    */
   goodAppraiseRate: number;
 }

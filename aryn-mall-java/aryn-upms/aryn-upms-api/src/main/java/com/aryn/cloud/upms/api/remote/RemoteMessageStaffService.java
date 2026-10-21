@@ -19,6 +19,18 @@ public interface RemoteMessageStaffService {
 	 */
 	List<StaffMessageRecipientVO> queryRecipientsByRoleCode(String tenantId, String roleCode);
 
+	/**
+	 * 按菜单权限码查询租户内正常状态工作人员（命中任一权限即算收件人）。
+	 *
+	 * <p>用于「发给真正持该审核权限的人」这类场景：权限授权是从菜单树推导的，
+	 * 可能挂在运营角色而非管理员角色上，只按角色码筛会漏人。
+	 *
+	 * @param tenantId 租户（须与当前租户上下文一致）
+	 * @param permissions 权限码列表（如 vessel:bindapply:audit）
+	 * @return 收件人列表（id/nickname），无匹配时返回空列表
+	 */
+	List<StaffMessageRecipientVO> queryRecipientsByPermission(String tenantId, List<String> permissions);
+
 	boolean isCustomerServiceStaff(String tenantId, String staffId);
 
 }

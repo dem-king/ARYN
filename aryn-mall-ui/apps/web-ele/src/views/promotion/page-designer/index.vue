@@ -10,6 +10,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router';
 
 import {
+  ElButton,
   ElLoading,
   ElMessage,
   ElMessageBox,
@@ -125,6 +126,15 @@ const selectedComponent = computed(() =>
 const selectedSection = computed(() =>
   designer.document.value.sections.find(
     (section) => section.id === designer.activeSectionId.value,
+  ),
+);
+/**
+ * 首个有内容的区块：页面设置里「导航背景跟随首个区块」的预览与 C 端同口径
+ * （空区块不渲染，不能把它的背景当成导航底色）。
+ */
+const firstContentSection = computed(() =>
+  designer.document.value.sections.find(
+    (section) => section.components.length > 0,
   ),
 );
 const selectedIds = ref<string[]>([]);
@@ -515,7 +525,9 @@ onBeforeUnmount(() => {
           </ElTabPane>
           <ElTabPane label="页面设置">
             <PageSettingsPanel
+              :first-section="firstContentSection"
               :model-value="designer.document.value.page"
+              :page-name="pageName"
               :page-theme-name="pageThemeName"
               :theme-vars="canvasThemeVars"
               @update:model-value="patchPage"

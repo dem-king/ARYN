@@ -56,6 +56,12 @@ public class PromotionCalculationVO implements Serializable {
 		@Schema(description = "命中活动ID")
 		private String activityId;
 
+		@Schema(description = "赠品商品名（订单侧按真实 SKU 回填，供确认页展示）")
+		private String spuName;
+
+		@Schema(description = "赠品图片（订单侧按真实 SKU 回填）")
+		private String picUrl;
+
 	}
 
 	@Data
@@ -76,6 +82,9 @@ public class PromotionCalculationVO implements Serializable {
 
 		@Schema(description = "命中活动ID")
 		private String activityId;
+
+		@Schema(description = "命中活动类型（订单侧据此识别新人价并施加保护，老数据可为空）")
+		private String activityType;
 
 	}
 

@@ -7,16 +7,11 @@ import {
   ElForm,
   ElFormItem,
   ElIcon,
-  ElInputNumber,
   ElMessageBox,
   ElOption,
   ElRadio,
   ElRadioGroup,
   ElSelect,
-  ElSlider,
-  ElSwitch,
-  ElTabPane,
-  ElTabs,
 } from 'element-plus';
 import draggable from 'vuedraggable';
 
@@ -31,14 +26,7 @@ const SelectMaterial = defineAsyncComponent(
 const LinkUrl = defineAsyncComponent(
   () => import('../common/link-url/index.vue'),
 );
-const CommonStyle = defineAsyncComponent(
-  () => import('../common/common-style/index.vue'),
-);
-const ColorPicker = defineAsyncComponent(
-  () => import('../common/common-color-picker/index.vue'),
-);
 
-const active = ref('0');
 // 导航数量上限：分页模式下每页最多 5 列 × 3 行 = 15 个，预留两页共 30 个
 const limitNum = ref(30);
 const dragOptions = {
@@ -198,145 +186,106 @@ const onNavTitleChange = (item: any, val: string) => {
     </div>
     <div class="setting-form">
       <ElForm :model="form" label-width="80px">
-        <ElTabs type="border-card" v-model="active">
-          <ElTabPane label="组件内容" name="0">
-            <ElFormItem label="导航类型">
-              <ElRadioGroup v-model="form.type">
-                <ElRadio value="1">图片导航 </ElRadio>
-                <ElRadio value="2">文字导航</ElRadio>
-                <ElRadio value="3">图文导航</ElRadio>
-              </ElRadioGroup>
-            </ElFormItem>
-            <ElFormItem label="显示方式" v-if="form.type !== '2'">
-              <ElRadioGroup v-model="effectiveDisplayMode">
-                <ElRadio value="grid">平铺</ElRadio>
-                <ElRadio value="scroll">横向滚动</ElRadio>
-                <ElRadio value="pager">分页滑动</ElRadio>
-              </ElRadioGroup>
-            </ElFormItem>
-            <ElFormItem
-              label="一行显示"
-              v-if="form.type !== '2' && effectiveDisplayMode !== 'scroll'"
-            >
-              <ElRadioGroup v-model="form.showNum">
-                <ElRadio :value="4">4个导航 </ElRadio>
-                <ElRadio :value="5">5个导航</ElRadio>
-              </ElRadioGroup>
-            </ElFormItem>
-            <template
-              v-if="form.type !== '2' && effectiveDisplayMode === 'pager'"
-            >
-              <ElFormItem label="每页行数">
-                <ElRadioGroup v-model="form.pageRows">
-                  <ElRadio :value="2">2行</ElRadio>
-                  <ElRadio :value="3">3行</ElRadio>
-                </ElRadioGroup>
-                <p class="form-tip">
-                  高度自适应：铺不满整页时按当前页实际行数收缩高度
-                </p>
-              </ElFormItem>
-              <ElFormItem label="指示器">
-                <ElSwitch v-model="form.indicatorDots" />
-              </ElFormItem>
-              <ElFormItem label="指示器颜色" v-if="form.indicatorDots">
-                <ColorPicker v-model="form.indicatorColor" />
-              </ElFormItem>
-              <ElFormItem label="激活颜色" v-if="form.indicatorDots">
-                <ColorPicker v-model="form.indicatorActiveColor" />
-              </ElFormItem>
-            </template>
-            <ElFormItem label="导航设置">
-              <p class="form-tip">
-                可以上下拖动更改顺序；标题支持选择一级分类或手动输入，选中分类后自动带出该分类的图片和链接
-              </p>
-            </ElFormItem>
-            <draggable
-              v-model="form.navList"
-              v-bind="dragOptions"
-              animation="700"
-              item-key="id"
-              @dragover.prevent
-            >
-              <template #item="{ element, index }">
-                <div class="content-item">
-                  <ElIcon size="24px" style="cursor: move"><DCaret /></ElIcon>
-                  <div class="left-nav" v-if="form.type !== '2'">
-                    <SelectMaterial
-                      v-model="element.url"
-                      :can-choose-images-num="1"
-                    />
-                  </div>
-                  <div class="right-nav">
-                    <ElFormItem
-                      label="标题"
-                      label-width="40"
-                      v-if="form.type !== '1'"
-                    >
-                      <ElSelect
-                        v-model="element.title"
-                        filterable
-                        allow-create
-                        default-first-option
-                        clearable
-                        placeholder="选择分类或输入标题"
-                        @change="onNavTitleChange(element, $event)"
-                      >
-                        <ElOption
-                          v-for="opt in categoryOptions"
-                          :key="opt.id"
-                          :label="opt.name"
-                          :value="opt.name"
-                        />
-                      </ElSelect>
-                    </ElFormItem>
-                    <ElFormItem label="链接" class="mt10" label-width="40">
-                      <LinkUrl v-model="element.link" />
-                    </ElFormItem>
-                  </div>
-                  <div class="delete-btn">
-                    <ElButton link @click="del(index)">
-                      <ElIcon><CircleCloseFilled /></ElIcon>
-                    </ElButton>
-                  </div>
-                </div>
-              </template>
-            </draggable>
-            <div class="add-btn">
-              <ElButton
-                @click="add"
-                v-if="form.navList && form.navList.length < limitNum"
-              >
-                <ElIcon :size="20"> <Plus /> </ElIcon>添加导航（{{
-                  form.navList.length
-                }}/{{ limitNum }}）
-              </ElButton>
-            </div>
-          </ElTabPane>
-          <ElTabPane label="组件样式" name="1">
-            <ElFormItem label="文字颜色" v-if="form.type !== '1'">
-              <ColorPicker v-model="form.fontColor" />
-            </ElFormItem>
-            <ElFormItem label="图片大小">
-              <ElInputNumber
-                v-model="form.imgSize"
-                :min="1"
-                :controls="false"
-              />
-            </ElFormItem>
-            <ElFormItem label="图片圆角">
-              <ElSlider
-                v-model="form.imgRadius"
-                show-input
-                :show-input-controls="false"
-                :min="0"
-              />
-            </ElFormItem>
-            <h4>通用样式</h4>
+        <ElFormItem label="导航类型">
+          <ElRadioGroup v-model="form.type">
+            <ElRadio value="1">图片导航 </ElRadio>
+            <ElRadio value="2">文字导航</ElRadio>
+            <ElRadio value="3">图文导航</ElRadio>
+          </ElRadioGroup>
+        </ElFormItem>
+        <ElFormItem label="显示方式" v-if="form.type !== '2'">
+          <ElRadioGroup v-model="effectiveDisplayMode">
+            <ElRadio value="grid">平铺</ElRadio>
+            <ElRadio value="scroll">横向滚动</ElRadio>
+            <ElRadio value="pager">分页滑动</ElRadio>
+          </ElRadioGroup>
+        </ElFormItem>
+        <ElFormItem
+          label="一行显示"
+          v-if="form.type !== '2' && effectiveDisplayMode !== 'scroll'"
+        >
+          <ElRadioGroup v-model="form.showNum">
+            <ElRadio :value="4">4个导航 </ElRadio>
+            <ElRadio :value="5">5个导航</ElRadio>
+          </ElRadioGroup>
+        </ElFormItem>
+        <template v-if="form.type !== '2' && effectiveDisplayMode === 'pager'">
+          <ElFormItem label="每页行数">
+            <ElRadioGroup v-model="form.pageRows">
+              <ElRadio :value="2">2行</ElRadio>
+              <ElRadio :value="3">3行</ElRadio>
+            </ElRadioGroup>
+            <p class="form-tip">
+              高度自适应：铺不满整页时按当前页实际行数收缩高度
+            </p>
+          </ElFormItem>
+        </template>
+        <ElFormItem label="导航设置">
+          <p class="form-tip">
+            可以上下拖动更改顺序；标题支持选择一级分类或手动输入，选中分类后自动带出该分类的图片和链接
+          </p>
+        </ElFormItem>
+        <draggable
+          v-model="form.navList"
+          v-bind="dragOptions"
+          animation="700"
+          item-key="id"
+          @dragover.prevent
+        >
+          <template #item="{ element, index }">
             <div class="content-item">
-              <CommonStyle v-model="form.commonStyle" />
+              <ElIcon size="24px" style="cursor: move"><DCaret /></ElIcon>
+              <div class="left-nav" v-if="form.type !== '2'">
+                <SelectMaterial
+                  v-model="element.url"
+                  :can-choose-images-num="1"
+                />
+              </div>
+              <div class="right-nav">
+                <ElFormItem
+                  label="标题"
+                  label-width="40"
+                  v-if="form.type !== '1'"
+                >
+                  <ElSelect
+                    v-model="element.title"
+                    filterable
+                    allow-create
+                    default-first-option
+                    clearable
+                    placeholder="选择分类或输入标题"
+                    @change="onNavTitleChange(element, $event)"
+                  >
+                    <ElOption
+                      v-for="opt in categoryOptions"
+                      :key="opt.id"
+                      :label="opt.name"
+                      :value="opt.name"
+                    />
+                  </ElSelect>
+                </ElFormItem>
+                <ElFormItem label="链接" class="mt10" label-width="40">
+                  <LinkUrl v-model="element.link" />
+                </ElFormItem>
+              </div>
+              <div class="delete-btn">
+                <ElButton link @click="del(index)">
+                  <ElIcon><CircleCloseFilled /></ElIcon>
+                </ElButton>
+              </div>
             </div>
-          </ElTabPane>
-        </ElTabs>
+          </template>
+        </draggable>
+        <div class="add-btn">
+          <ElButton
+            @click="add"
+            v-if="form.navList && form.navList.length < limitNum"
+          >
+            <ElIcon :size="20"> <Plus /> </ElIcon>添加导航（{{
+              form.navList.length
+            }}/{{ limitNum }}）
+          </ElButton>
+        </div>
       </ElForm>
     </div>
   </div>

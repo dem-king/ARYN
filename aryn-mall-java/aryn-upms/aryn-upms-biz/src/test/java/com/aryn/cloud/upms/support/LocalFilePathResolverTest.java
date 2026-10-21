@@ -28,6 +28,25 @@ class LocalFilePathResolverTest {
 	}
 
 	@Test
+	void resolvesGeneratedVideoFileInsideTenantDirectory() throws Exception {
+		Path tenantDirectory = Files.createDirectories(root.resolve("1590229800633634816"));
+		Path video = Files.write(tenantDirectory.resolve("27ad703a-9685-4937-afc0-0e92972bd93e.mp4"),
+				new byte[] { 1 });
+
+		assertThat(resolver.resolve(root.toString(), "1590229800633634816",
+				"27ad703a-9685-4937-afc0-0e92972bd93e.mp4")).isEqualTo(video.toRealPath());
+	}
+
+	@Test
+	void rejectsUnexpectedExtension() {
+		assertThatThrownBy(() -> resolver.resolve(root.toString(), "1590229800633634816",
+				"c3e7b91e-e58b-4942-b640-f5905db2394b.exe"))
+			.isInstanceOf(ArynBusinessException.class)
+			.isInstanceOfSatisfying(ArynBusinessException.class,
+					exception -> assertThat(exception.getMsg()).isEqualTo("非法文件路径"));
+	}
+
+	@Test
 	void rejectsTenantPathTraversal() {
 		assertThatThrownBy(() -> resolver.resolve(root.toString(), "..", "secret.jpeg"))
 			.isInstanceOf(ArynBusinessException.class)

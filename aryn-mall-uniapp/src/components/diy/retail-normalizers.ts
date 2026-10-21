@@ -1,6 +1,8 @@
 import type {
   DiscountActivityItem,
   DiscountGoodsItem,
+  NewbieFloorItem,
+  NewbieGoodsItem,
   SeckillGoodsItem,
   SeckillSessionItem,
 } from './retail-types'
@@ -9,6 +11,8 @@ export interface RetailGoodsItem {
   id: string
   imageUrl: string
   name: string
+  /** 商品子标题（商品介绍），来源 `goods_spu.sub_title`；缺失时不渲染副标题行 */
+  subTitle?: string
   price: number
   /**
    * 商品原价（划线价），来源 `goods_spu.original_price`。
@@ -30,9 +34,9 @@ export interface RetailGoodsItem {
   /**
    * 是否免配送费。
    *
-   * 来源 `goods_spu.freight_type === '0'`（包邮）。注意语义是「商品级包邮」，
-   * 与"满额免运费"这类订单级规则不是一回事，文案上不写「包邮」以免与
-   * 运费模板规则混淆。
+   * 来源 `goods_spu.freight_type === '0'`（商品级包邮，与"满额免运费"这类
+   * 订单级规则不是一回事）。商品卡片已不再展示运费信息（口径以商详 / 结算页
+   * 为准），字段保留在归一化结果中，供后续筛选 / 排序等数据侧复用。
    */
   freeShipping?: boolean
 }
@@ -116,6 +120,7 @@ export function normalizeRetailGoods(value: unknown): RetailGoodsItem[] {
         id: toText(record.id),
         imageUrl: firstImage(record),
         name: toText(record.name ?? record.spuName),
+        subTitle: toText(record.subTitle).trim() || undefined,
         price: toNumber(record.salesPrice ?? record.price),
         originalPrice: toNumber(record.originalPrice),
         sales: toNumber(record.salesVolume),
@@ -253,6 +258,44 @@ export function normalizeRetailShop(value: unknown): RetailShopInfo[] {
     phone: toText(record.phone),
     siteUrl: toText(record.siteUrl),
   }]
+}
+
+/**
+ * 新人专享楼层归一化。
+ *
+ * <p>后端该接口返回单对象（非分页列表）或 null；无活动时返回空数组，
+ * 由取数层转为空态，不渲染空楼层。
+ */
+export function normalizeRetailNewbieFloor(value: unknown): NewbieFloorItem[] {
+  const record = asRecord(value)
+  const activityId = toText(record.activityId)
+  if (!activityId)
+    return []
+  return [{
+    activityId,
+    activityName: toText(record.activityName),
+    endTime: toText(record.endTime),
+    limitPerUser: toNumber(record.limitPerUser) || 1,
+    registerWithinDays: toNumber(record.registerWithinDays),
+    goodsList: normalizeNewbieGoods(record.goodsList),
+  }]
+}
+
+/** 新人价商品项归一化：缺失值兜底 0，由渲染侧跳过无价商品 */
+function normalizeNewbieGoods(value: unknown): NewbieGoodsItem[] {
+  return extractItems(value)
+    .map((item) => {
+      const record = asRecord(item)
+      return {
+        goodsImage: toText(record.goodsImage ?? record.picUrl),
+        goodsName: toText(record.goodsName),
+        newbiePrice: toNumber(record.newbiePrice),
+        originalPrice: toNumber(record.originalPrice),
+        skuId: toText(record.skuId),
+        spuId: toText(record.spuId),
+      } as NewbieGoodsItem
+    })
+    .filter(item => Boolean(item.skuId || item.spuId))
 }
 
 export function mergeActivityGoods(

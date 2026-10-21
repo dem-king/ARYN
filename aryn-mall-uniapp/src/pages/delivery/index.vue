@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import type { DeliveryTripBrief } from '@/api/delivery'
-import { onShow } from '@dcloudio/uni-app'
+import { onShow, onUnload } from '@dcloudio/uni-app'
 import { computed, ref } from 'vue'
 import {
   getDeliveryWorkbench,
   getTripStatusColor,
   getTripStatusName,
 } from '@/api/delivery'
+import { useDeliveryMessageStore } from '@/store/deliveryMessageStore'
 import { resolveDeliveryDestination } from '@/utils/delivery-navigation'
 
 definePage({
@@ -30,6 +31,7 @@ definePage({
 const globalLoading = useGlobalLoading()
 const { show: showToast } = useGlobalToast()
 const router = useRouter()
+const messageStore = useDeliveryMessageStore()
 
 const loading = ref(true)
 /** 待处理单数（待取货+配货中+待送达） */
@@ -43,6 +45,15 @@ const expandedTripId = ref<string>('')
 
 onShow(() => {
   fetchData()
+  // 消息角标与实时通道：司机不开消息页也要能知道有新单/新通知。
+  // 用配送端自己的 store（配送 TOB token），不能借用商城端 messageStore——
+  // 两者 token 不同，混用会互相覆盖未读数。
+  void messageStore.refreshUnread()
+  void messageStore.connect()
+})
+
+onUnload(() => {
+  messageStore.disconnect()
 })
 
 async function fetchData() {
@@ -80,6 +91,23 @@ const waitingDeliverCount = computed(() => trips.value
 const remainingPickCount = computed(() => trips.value
   .reduce((sum, trip) => sum + Math.max(0, (trip.totalItemCount ?? 0) - (trip.pickedItemCount ?? 0)), 0))
 
+/**
+ * 当前配送站：送货顺序里第一个「待送达」的站点。
+ *
+ * 只有配送中（status=3）才有当前站；还在配货或已收车时返回 null，
+ * 避免把「装车顺序第一站」误当成「现在该送这家」。
+ */
+function currentStop(trip: DeliveryTripBrief): DeliveryTripBrief['taskList'][number] | null {
+  if (trip.status !== '3')
+    return null
+  return (trip.taskList ?? []).find(task => task.status === '4') ?? null
+}
+
+/** 该站点是否为当前要送的一家 */
+function isCurrentStop(trip: DeliveryTripBrief, stopId: string): boolean {
+  return currentStop(trip)?.id === stopId
+}
+
 /** 趟次卡副标题：这趟车现在该干什么 */
 function tripHint(trip: DeliveryTripBrief): string {
   const total = trip.totalItemCount ?? 0
@@ -97,9 +125,12 @@ function tripHint(trip: DeliveryTripBrief): string {
     const pendingPick = (trip.taskList ?? [])
       .filter(task => task.status === '2' || task.status === '3')
       .length
+    const current = currentStop(trip)
+    const currentText = current ? `当前送「${current.recipientName || '未填收货人'}」` : ''
     if (pendingPick > 0)
-      return `配送中，有 ${pendingPick} 单新加货待配货`
-    return `配送中，还剩 ${Math.max(0, (trip.taskCount ?? 0) - arrived)} 单未送达`
+      return currentText ? `${currentText}，有 ${pendingPick} 单新加货待配货` : `配送中，有 ${pendingPick} 单新加货待配货`
+    const remainingText = `还剩 ${Math.max(0, (trip.taskCount ?? 0) - arrived)} 单未送达`
+    return currentText ? `配送中，${currentText}，${remainingText}` : `配送中，${remainingText}`
   }
   return '已收车'
 }
@@ -165,6 +196,11 @@ function toTaskList() {
 /** 跳转到个人中心 */
 function toProfile() {
   router.push({ name: 'delivery-profile' })
+}
+
+/** 跳转到消息中心 */
+function toMessage() {
+  router.push({ name: 'delivery-message' })
 }
 
 /** 下拉刷新 */
@@ -278,7 +314,11 @@ function onRefresh() {
           v-for="(stop, stopIndex) in trip.taskList"
           :key="stop.id"
           class="stop-row"
-          :class="{ 'stop-row-done': stop.status === '5' || stop.status === '6' }"
+          :class="{
+            'stop-row-done': stop.status === '5' || stop.status === '6',
+            'stop-row-current': isCurrentStop(trip, stop.id),
+          }"
+          @click="toTripDetail(trip.id)"
         >
           <view class="stop-index" :class="{ 'stop-index-done': stop.status === '5' || stop.status === '6' }">
             {{ stop.status === '5' || stop.status === '6' ? '✓' : stopIndex + 1 }}
@@ -287,6 +327,9 @@ function onRefresh() {
             <view class="flex items-center">
               <text class="text-26rpx font-bold">
                 {{ stop.recipientName || '未填收货人' }}
+              </text>
+              <text v-if="isCurrentStop(trip, stop.id)" class="stop-current-tag">
+                当前站
               </text>
               <text v-if="stop.vesselName" class="ml-10rpx text-22rpx text-gray-400">
                 {{ stop.vesselName }}
@@ -299,12 +342,15 @@ function onRefresh() {
               {{ stopHint(stop) }}
             </view>
           </view>
-          <text
-            class="ml-10rpx flex-none text-22rpx"
-            :style="{ color: stopStatusColor(stop.status) }"
-          >
-            {{ stopStatusLabel(stop.status) }}
-          </text>
+          <view class="ml-10rpx flex flex-none items-center">
+            <text
+              class="text-22rpx"
+              :style="{ color: stopStatusColor(stop.status) }"
+            >
+              {{ stopStatusLabel(stop.status) }}
+            </text>
+            <text class="i-carbon:chevron-right ml-4rpx text-24rpx text-gray-300" />
+          </view>
         </view>
 
         <view class="mt-20rpx flex items-center gap-20rpx">
@@ -327,6 +373,20 @@ function onRefresh() {
             我的任务
           </text>
         </view>
+        <view class="quick-entry" @click="toMessage">
+          <view class="relative">
+            <text class="i-carbon:notification text-60rpx text-primary" />
+            <!-- 未读角标：司机不点进来也能看到有新消息 -->
+            <text v-if="messageStore.noticeUnread > 0" class="quick-entry__badge">
+              {{ messageStore.noticeUnread > 99 ? '99+' : messageStore.noticeUnread }}
+            </text>
+          </view>
+          <text class="mt-10rpx text-26rpx">
+            消息
+          </text>
+        </view>
+      </view>
+      <view class="mt-20rpx">
         <view class="quick-entry" @click="onRefresh">
           <text class="i-carbon:renew text-60rpx text-primary" />
           <text class="mt-10rpx text-26rpx">
@@ -394,6 +454,29 @@ function onRefresh() {
   background-color: #07c160;
 }
 
+/* 当前配送站：整行描边高亮，司机不用数序号就知道现在送哪家 */
+.stop-row.stop-row-current {
+  margin: 0 -16rpx;
+  padding: 20rpx 16rpx;
+  border: 2rpx solid rgba(242, 107, 58, 0.45);
+  border-radius: 16rpx;
+  background: linear-gradient(90deg, rgba(242, 107, 58, 0.12), rgba(242, 107, 58, 0.03));
+}
+
+.stop-row-current .stop-index {
+  box-shadow: 0 0 0 6rpx rgba(242, 107, 58, 0.16);
+}
+
+.stop-current-tag {
+  margin-left: 10rpx;
+  padding: 2rpx 10rpx;
+  color: #fff;
+  font-size: 20rpx;
+  line-height: 28rpx;
+  border-radius: 6rpx;
+  background-color: var(--wot-color-theme, #f26b3a);
+}
+
 .quick-entry {
   display: flex;
   flex-direction: column;
@@ -402,6 +485,21 @@ function onRefresh() {
   padding: 30rpx 0;
   border-radius: 12rpx;
   background-color: #f7f8fa;
+}
+
+.quick-entry__badge {
+  position: absolute;
+  top: -12rpx;
+  right: -28rpx;
+  min-width: 32rpx;
+  height: 32rpx;
+  padding: 0 8rpx;
+  color: #fff;
+  font-size: 20rpx;
+  line-height: 32rpx;
+  text-align: center;
+  border-radius: 16rpx;
+  background-color: #f56c6c;
 }
 
 .delivery-tabbar {

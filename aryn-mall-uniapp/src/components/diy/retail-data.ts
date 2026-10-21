@@ -2,8 +2,10 @@ import type {
   DiscountActivityItem,
   DiscountProps,
   GoodsRankingProps,
+  GoodsTabConfig,
   GoodsWaterfallProps,
   LimitedActivityProps,
+  NewbieFloorItem,
   RetailBaseProps,
   SeckillProps,
   SeckillSessionItem,
@@ -11,6 +13,7 @@ import type {
 
 import { getById, getByIds, getPage as getGoodsPage } from '@/api/product/spu'
 import {
+  getCurrentNewbieFloor,
   getDiscountActivities,
   getSeckillSessions,
   getSessionGoods,
@@ -26,11 +29,12 @@ import {
   normalizeRetailActivities,
   normalizeRetailDiscounts,
   normalizeRetailGoods,
+  normalizeRetailNewbieFloor,
   normalizeRetailSeckillSessions,
   normalizeRetailShop,
   restoreConfiguredOrder,
 } from './retail-normalizers'
-import { createRetailSortParams } from './retail-query'
+import { createGoodsSortParams, createRetailSortParams } from './retail-query'
 
 /**
  * 商品取数：只读取数据源与条数，故参数用基础契约，
@@ -45,7 +49,7 @@ export async function loadGoodsGroup(props: RetailBaseProps) {
   const response = await getGoodsPage({
     categorySecondId: props.dataSource.categoryId || undefined,
     current: 1,
-    ...createRetailSortParams(props.dataSource.sort || 'sales', true),
+    ...createGoodsSortParams(props.dataSource.sort || 'sales', true),
     size: props.count,
   })
   return normalizeRetailGoods(response).slice(0, props.count)
@@ -63,7 +67,7 @@ export async function loadGoodsGroupPage(
   const response: any = await getGoodsPage({
     categorySecondId: props.dataSource.categoryId || undefined,
     current,
-    ...createRetailSortParams(props.dataSource.sort || 'sales', true),
+    ...createGoodsSortParams(props.dataSource.sort || 'sales', true),
     size,
   })
   const list = normalizeRetailGoods(response)
@@ -71,10 +75,45 @@ export async function loadGoodsGroupPage(
   return { list, total }
 }
 
+/**
+ * 多 Tab 商品流取数：与商品分组保持同一套排序/归一化口径。
+ *
+ * manual 一次性取回并保持运营配置顺序，按展示上限截断；
+ * automatic 按 current/size 分页，滚动加载只影响当前 Tab。
+ */
+export async function loadGoodsTabPage(
+  tab: GoodsTabConfig,
+  current: number,
+  size: number,
+) {
+  if (tab.dataSource.mode === 'manual') {
+    const ids = tab.dataSource.targetIds || []
+    if (ids.length === 0)
+      return { list: [], manual: true, total: 0 }
+    const items = restoreConfiguredOrder(
+      normalizeRetailGoods(await getByIds(ids)),
+      ids,
+    ).slice(0, Math.max(1, size))
+    return { list: items, manual: true, total: items.length }
+  }
+  const response: any = await getGoodsPage({
+    categorySecondId: tab.dataSource.categoryId || undefined,
+    current,
+    ...createGoodsSortParams(tab.dataSource.sort || 'sales', true),
+    size,
+  })
+  const list = normalizeRetailGoods(response)
+  return {
+    list,
+    manual: false,
+    total: Number(response?.total ?? list.length),
+  }
+}
+
 export async function loadGoodsRanking(props: GoodsRankingProps) {
   const response = await getGoodsPage({
     current: 1,
-    ...createRetailSortParams(props.dataSource.metric || 'sales'),
+    ...createGoodsSortParams(props.dataSource.metric || 'sales'),
     size: props.count,
   })
   return normalizeRetailGoods(response).slice(0, props.count)
@@ -160,6 +199,17 @@ export async function loadDiscounts(props: DiscountProps): Promise<DiscountActiv
   return activities.slice(0, props.count)
 }
 
+/**
+ * 新人专享楼层取数。
+ *
+ * 数据源固定读「当前进行中的新人价活动」，不做手动选活动（运营只需建活动即生效）；
+ * 无进行中活动时返回空数组，走组件空态策略。响应不含用户维度数据（免登可访问），
+ * 因此不需要按 userId 键缓存。
+ */
+export async function loadNewbieFloor(): Promise<NewbieFloorItem[]> {
+  return normalizeRetailNewbieFloor(await getCurrentNewbieFloor())
+}
+
 export async function loadCurrentShop() {
   return normalizeRetailShop(await getCurrentShop())
 }
@@ -206,7 +256,7 @@ export async function loadGoodsWaterfall(
     const response = await getGoodsPage({
       categorySecondId: props.dataSource.categoryId || undefined,
       current: 1,
-      ...createRetailSortParams(props.dataSource.sort || 'sales', true),
+      ...createGoodsSortParams(props.dataSource.sort || 'sales', true),
       size: props.count,
     })
     return normalizeRetailGoods(response).slice(0, props.count)
@@ -226,7 +276,7 @@ export async function loadGoodsWaterfallPage(
   const response: any = await getGoodsPage({
     categorySecondId: props.dataSource.categoryId || undefined,
     current,
-    ...createRetailSortParams(props.dataSource.sort || 'sales', true),
+    ...createGoodsSortParams(props.dataSource.sort || 'sales', true),
     size,
   })
   const list = normalizeRetailGoods(response)
@@ -234,20 +284,28 @@ export async function loadGoodsWaterfallPage(
   return { list, total }
 }
 
+/**
+ * 优惠券组合取数。
+ *
+ * · automatic：领取列表第一页前 N 张。
+ * · manual：按 targetIds 逐张取（byIds 接口），不拉第一页再过滤——
+ *   被选中的券排在列表第一页之外时，过滤式实现会让整个楼层漏渲染。
+ */
 export async function loadCouponCombo(
   props: import('./retail-types').CouponComboProps,
 ) {
-  const { getPage: getCouponPage } = await import('@/api/promotion/couponInfo')
+  const { getPage: getCouponPage, getByIds: getCouponsByIds } = await import('@/api/promotion/couponInfo')
   const { normalizeCoupons } = await import('./retail-normalizers')
   return withDataSourceCache(dataSourceKey('coupon-combo', props), props.dataSource.cacheTtl ?? 0, async () => {
-    const response = await getCouponPage({ current: 1, size: Math.max(props.count, 20) })
-    const coupons = normalizeCoupons(response)
-    if (props.dataSource.mode === 'manual' && (props.dataSource.targetIds || []).length > 0) {
+    if (props.dataSource.mode === 'manual') {
       const ids = props.dataSource.targetIds || []
-      const filtered = coupons.filter(coupon => ids.includes(coupon.id))
-      return restoreConfiguredOrder(filtered, ids).slice(0, props.count)
+      if (!ids.length)
+        return []
+      const coupons = normalizeCoupons(await getCouponsByIds(ids))
+      return restoreConfiguredOrder(coupons, ids).slice(0, props.count)
     }
-    return coupons.slice(0, props.count)
+    const response = await getCouponPage({ current: 1, size: Math.max(props.count, 20) })
+    return normalizeCoupons(response).slice(0, props.count)
   })
 }
 
@@ -289,7 +347,7 @@ export async function loadGoodsRecommend(
     const response = await getGoodsPage({
       categorySecondId: categorySecondId || undefined,
       current: 1,
-      ...createRetailSortParams('sales', true),
+      ...createGoodsSortParams('sales', true),
       size: count + (selfId ? 1 : 0),
     })
     const items = normalizeRetailGoods(response)

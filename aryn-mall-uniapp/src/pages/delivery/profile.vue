@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
+import { bindWechatByCode, getWechatBindStatus, getWxLoginCode, requestSubscribeMessage } from '@/api/delivery'
+import { useDeliveryMessageStore } from '@/store/deliveryMessageStore'
 import { Local } from '@/utils/storage'
-import { getWechatBindStatus, bindWechatByCode, getWxLoginCode, requestSubscribeMessage } from '@/api/delivery'
 
 definePage({
   name: 'delivery-profile',
@@ -13,6 +14,7 @@ definePage({
 
 const router = useRouter()
 const { show: showToast } = useGlobalToast()
+const messageStore = useDeliveryMessageStore()
 
 /** 配送员信息 */
 const staffInfo = ref<any>({})
@@ -30,10 +32,18 @@ if (storedInfo) {
 onMounted(async () => {
   try {
     wechatBound.value = await getWechatBindStatus()
-  } catch {
+  }
+  catch {
     // 忽略
   }
+  // 顺手刷一次未读：从消息页返回时角标同步
+  void messageStore.refreshUnread()
 })
+
+/** 跳转到消息中心 */
+function toMessage() {
+  router.push({ name: 'delivery-message' })
+}
 
 /** 跳转到工作台 */
 function toWorkbench() {
@@ -47,7 +57,8 @@ function toTaskList() {
 
 /** 绑定微信订阅消息 */
 async function handleWechatBind() {
-  if (wechatBound.value || subscribing.value) return
+  if (wechatBound.value || subscribing.value)
+    return
   subscribing.value = true
   try {
     const code = await getWxLoginCode()
@@ -63,9 +74,11 @@ async function handleWechatBind() {
     await bindWechatByCode(appId, code)
     wechatBound.value = true
     showToast('绑定成功')
-  } catch (e: any) {
+  }
+  catch (e: any) {
     showToast(e?.message || '绑定失败')
-  } finally {
+  }
+  finally {
     subscribing.value = false
   }
 }
@@ -79,9 +92,10 @@ async function handleSubscribeAuth() {
       return
     }
     const res = await requestSubscribeMessage(templateIds)
-    const accepted = Object.values(res).filter((v) => v === 'accept').length
+    const accepted = Object.values(res).filter(v => v === 'accept').length
     showToast(`已授权 ${accepted} 条订阅消息`)
-  } catch {
+  }
+  catch {
     showToast('授权失败')
   }
 }
@@ -93,6 +107,8 @@ function handleLogout() {
     content: '确定要退出登录吗？',
     success: (res) => {
       if (res.confirm) {
+        // 先断消息通道再清 token：断线重连会拿着旧 token 反复尝试
+        messageStore.disconnect()
         Local.remove('deliveryToken')
         Local.remove('deliveryStaffInfo')
         showToast('已退出登录')
@@ -107,7 +123,7 @@ function handleLogout() {
   <hr-navbar title="配送员中心" />
   <view class="min-h-screen bg-gray-50 pb-100rpx">
     <!-- 配送员信息卡片 -->
-    <view class="m-20rpx rounded-20rpx bg-gradient-to-r from-primary to-primary-light p-30rpx text-white">
+    <view class="to-primary-light m-20rpx rounded-20rpx from-primary bg-gradient-to-r p-30rpx text-white">
       <view class="flex items-center">
         <view class="staff-avatar">
           <text class="i-carbon:user-avatar text-60rpx text-white" />
@@ -138,6 +154,16 @@ function handleLogout() {
           我的任务
         </text>
         <text class="i-carbon:chevron-right text-28rpx text-gray-400" />
+      </view>
+      <view class="menu-item" @click="toMessage">
+        <text class="i-carbon:notification mr-20rpx text-40rpx text-primary" />
+        <text class="flex-1 text-28rpx">
+          消息
+        </text>
+        <text v-if="messageStore.noticeUnread > 0" class="menu-item__badge">
+          {{ messageStore.noticeUnread > 99 ? '99+' : messageStore.noticeUnread }}
+        </text>
+        <text v-else class="i-carbon:chevron-right text-28rpx text-gray-400" />
       </view>
       <view class="menu-item" @click="handleWechatBind">
         <text class="i-carbon:logo-wechat mr-20rpx text-40rpx text-primary" />
@@ -214,6 +240,18 @@ function handleLogout() {
   &:last-child {
     border-bottom: none;
   }
+}
+
+.menu-item__badge {
+  min-width: 36rpx;
+  height: 36rpx;
+  padding: 0 10rpx;
+  color: #fff;
+  font-size: 22rpx;
+  line-height: 36rpx;
+  text-align: center;
+  border-radius: 18rpx;
+  background-color: #f56c6c;
 }
 
 .delivery-tabbar {

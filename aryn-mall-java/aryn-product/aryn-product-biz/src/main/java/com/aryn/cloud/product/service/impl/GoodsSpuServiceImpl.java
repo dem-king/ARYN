@@ -14,12 +14,14 @@ import com.aryn.cloud.product.api.util.GoodsCostPriceMasker;
 import com.aryn.cloud.product.api.vo.GoodsCatalogSummaryVO;
 import com.aryn.cloud.product.mapper.*;
 import com.aryn.cloud.product.service.IGoodsSpuService;
+import com.aryn.cloud.product.support.GoodsAttrTagNormalizer;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
+import java.time.LocalDateTime;
 import java.util.*;
 
 /**
@@ -87,6 +89,7 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 		if (storedSpu == null) {
 			throw new ArynBusinessException("商品不存在或无权操作");
 		}
+		goodsSpu.setAttrTags(GoodsAttrTagNormalizer.normalize(goodsSpu.getAttrTags()));
 		List<GoodsSku> goodsSkuList = validateGoodsSkus(goodsSpu);
 		Map<String, GoodsSku> storedSkuMap = Optional.ofNullable(goodsSkuMapper.selectBySpuId(goodsSpu.getId()))
 			.orElseGet(Collections::emptyList)
@@ -139,6 +142,7 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public boolean saveGoods(GoodsSpu goodsSpu) {
+		goodsSpu.setAttrTags(GoodsAttrTagNormalizer.normalize(goodsSpu.getAttrTags()));
 		List<GoodsSku> goodsSkuList = validateGoodsSkus(goodsSpu);
 		applyAggregatePrices(goodsSpu, goodsSkuList);
 		goodsSpu.setStock(calculateTotalStock(goodsSkuList));
@@ -313,11 +317,22 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 				if (Objects.nonNull(goodsCollect)) {
 					goodsSpu.setCollectId(goodsCollect.getId());
 				}
-				// 保存浏览记录
-				GoodsFootprint goodsFootprint = new GoodsFootprint();
-				goodsFootprint.setSpuId(id);
-				goodsFootprint.setUserId(hxUser.getUserId());
-				goodsFootprintMapper.insert(goodsFootprint);
+				// 保存浏览记录：同一商品只保留最近一次，重复浏览刷新时间而不是新增
+				GoodsFootprint goodsFootprint = goodsFootprintMapper.selectOne(Wrappers.<GoodsFootprint>lambdaQuery()
+					.eq(GoodsFootprint::getUserId, hxUser.getUserId())
+					.eq(GoodsFootprint::getSpuId, id)
+					.orderByDesc(GoodsFootprint::getCreateTime)
+					.last("LIMIT 1"));
+				if (Objects.nonNull(goodsFootprint)) {
+					goodsFootprint.setCreateTime(LocalDateTime.now());
+					goodsFootprintMapper.updateById(goodsFootprint);
+				}
+				else {
+					goodsFootprint = new GoodsFootprint();
+					goodsFootprint.setSpuId(id);
+					goodsFootprint.setUserId(hxUser.getUserId());
+					goodsFootprintMapper.insert(goodsFootprint);
+				}
 			}
 
 		}

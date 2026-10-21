@@ -35,8 +35,18 @@ export interface CartAddPayload {
   addType?: string
   /** 商品名（仅用于确认弹层展示，让用户确认加的是哪件商品） */
   goodsName?: string
-  /** 单价（元，仅用于确认弹层展示小计与合计） */
+  /** 单价（元，仅用于确认弹层展示小计，应传成交价而不是商品原价） */
   unitPrice?: number | string | null
+  /** 数量上限（如新人价每人限购 1 件）；确认弹层与库存取小后封顶 */
+  maxQuantity?: number | null
+  /** 上限说明（如「新人专享价每人限购 1 件」），仅在确认弹层回显 */
+  quantityHint?: string
+}
+
+/** 正整数上限；非法/缺省返回 null（表示不做上限约束） */
+function toPositiveInt(value: unknown): number | null {
+  const parsed = Math.floor(Number(value))
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
 }
 
 export type CartAddDestination = 'shared' | 'personal' | 'abort'
@@ -51,6 +61,11 @@ export interface PendingAddConfirm {
   rule: QuantityRule | null
   /** 采购数量，由弹层编辑后回传 */
   quantity: number
+  /**
+   * 目的地已锁定为 cart（共享购物车分类选货页）：
+   * 弹层只确认数量，不再给「个人购物车」选项，避免误投。
+   */
+  lockDestination: boolean
   /** 展示用：本次要加的商品与单价 */
   payload: CartAddPayload
   /** 用户仍在操作：重置兜底超时，避免数量输到一半被判超时 */
@@ -90,6 +105,8 @@ export function useCartDestination() {
   function askConfirmation(init: {
     cart: SharedCart | null
     rule: QuantityRule | null
+    /** 目的地已锁定：只确认数量，不再提供个人购物车选项 */
+    lockDestination?: boolean
     payload: CartAddPayload
   }): Promise<CartAddAnswer> {
     return new Promise((resolve) => {
@@ -119,6 +136,7 @@ export function useCartDestination() {
         cart: init.cart,
         rule: init.rule,
         quantity: init.payload.quantity,
+        lockDestination: init.lockDestination === true,
         payload: init.payload,
         touch: () => {
           if (!timer)
@@ -165,22 +183,41 @@ export function useCartDestination() {
    *   无论有没有共享购物车都会停下来确认一次——这正是「一次买几十斤」需要的那一步；
    * - 不传 `rule`：数量已由上游确定（SKU 弹层已选规格与数量），行为与原先一致——
    *   有共享车时问去向，没有则直接入个人购物车，零打扰；
+   * - 传 `sharedCart`：目的地锁定到这张共享车（分类选货页），弹层只确认数量，
+   *   不再出现「加入个人购物车」的分叉；
    * - 'abort'：用户关闭了弹层/超时未操作，未写任何购物车；
    * - 失败时抛出，由调用方的既有 catch 兜底（请求拦截器已提示具体原因）。
    */
   async function submitCartAdd(
     payload: CartAddPayload,
-    options: { rule?: QuantityRule | null } = {},
+    options: {
+      rule?: QuantityRule | null
+      /**
+       * 已锁定的共享购物车（分类选货页）：目的地不再询问，但数量确认仍走同一弹层。
+       * 不传时保持原行为 —— 刷新进行中单据并由用户选择去向。
+       */
+      sharedCart?: SharedCart | null
+    } = {},
   ): Promise<CartAddDestination> {
     const rule = options.rule ?? null
+    const forcedCart = options.sharedCart ?? null
     // 入口预填值先归一化一次：上游算出的值通常已合法，这里防调用方传错；
     // 用户后续改动由弹层按同一份 normalizeQuantity 处理。
+    // 活动限购（新人价每人 1 件）在这里也封一次顶：超量不是恢复原价，而是整单被
+    // 后端拒绝，不能让用户带着 2 件一路走到提交订单才失败。
+    const maxQuantity = toPositiveInt(payload.maxQuantity)
     const initialPayload = rule
-      ? { ...payload, quantity: normalizeQuantity(payload.quantity, rule) }
+      ? {
+          ...payload,
+          quantity: Math.min(normalizeQuantity(payload.quantity, rule), maxQuantity ?? Number.MAX_SAFE_INTEGER),
+        }
       : payload
 
-    await sharedCartStore.refreshActive()
-    const cart = sharedCartStore.activeCart
+    let cart = forcedCart
+    if (!forcedCart) {
+      await sharedCartStore.refreshActive()
+      cart = sharedCartStore.activeCart
+    }
 
     // 无需选去向、也无需改数量：保持原来的零打扰直加
     if (!cart && !rule) {
@@ -188,7 +225,12 @@ export function useCartDestination() {
       return 'personal'
     }
 
-    const answer = await askConfirmation({ cart, rule, payload: initialPayload })
+    const answer = await askConfirmation({
+      cart,
+      rule,
+      lockDestination: !!forcedCart,
+      payload: initialPayload,
+    })
     if (answer.dest === 'abort')
       return 'abort'
 

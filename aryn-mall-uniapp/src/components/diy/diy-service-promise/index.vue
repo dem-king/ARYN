@@ -18,21 +18,23 @@ const dynamicStyles = useDiyStyle(computed(() => componentProps.value.commonStyl
 
 <template>
   <view class="diy-service-promise" :style="dynamicStyles">
-    <view v-if="componentProps.title" class="promise-title">
-      {{ componentProps.title }}
-    </view>
-    <view v-if="items.length === 0" class="promise-empty">
-      暂无服务承诺，请在装修中配置
-    </view>
-    <view v-else class="promise-row">
-      <view v-for="item in items" :key="item.id" class="promise-item">
-        <image v-if="item.iconUrl" class="promise-icon" :src="item.iconUrl" />
-        <view class="promise-text">
-          <view class="promise-name">
-            {{ item.title }}
-          </view>
-          <view v-if="item.description" class="promise-desc">
-            {{ item.description }}
+    <view class="promise-inner">
+      <view v-if="componentProps.title" class="promise-title">
+        {{ componentProps.title }}
+      </view>
+      <view v-if="items.length === 0" class="promise-empty">
+        暂无服务承诺，请在装修中配置
+      </view>
+      <view v-else class="promise-row">
+        <view v-for="item in items" :key="item.id" class="promise-item">
+          <image v-if="item.iconUrl" class="promise-icon" :src="item.iconUrl" />
+          <view class="promise-text">
+            <view class="promise-name">
+              {{ item.title }}
+            </view>
+            <view v-if="item.description" class="promise-desc">
+              {{ item.description }}
+            </view>
           </view>
         </view>
       </view>
@@ -41,7 +43,9 @@ const dynamicStyles = useDiyStyle(computed(() => componentProps.value.commonStyl
 </template>
 
 <style lang="scss" scoped>
-.diy-service-promise {
+/* 留白放在内层而不是根节点：根节点的 padding 会被装修 commonStyle 的
+   内联样式覆盖成 0（配置缺省即零值），挂根上会让卡片直接顶到屏幕边缘 */
+.promise-inner {
   padding: 20rpx;
 }
 

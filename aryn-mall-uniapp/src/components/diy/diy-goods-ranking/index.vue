@@ -6,6 +6,7 @@ import { followDecorationLink } from '@/components/diy/link-resolver'
 import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 import { loadGoodsRanking } from '@/components/diy/retail-data'
 import RetailState from '@/components/diy/retail-state.vue'
+import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
 import { retailCommonStyle } from '@/components/diy/retail-types'
 import { useDiyStyle } from '@/composables/useDiyStyle'
 import { useRetailData } from '@/composables/useRetailData'
@@ -51,6 +52,9 @@ function openGoods(id: string) {
           <view class="ranking-name">
             {{ item.name }}
           </view>
+          <view v-if="shouldShowSubtitle(item.name, item.subTitle)" class="ranking-subtitle">
+            {{ item.subTitle }}
+          </view>
           <view class="ranking-stats">
             销量 {{ item.sales }} · 库存 {{ item.stock }}
           </view>
@@ -80,6 +84,7 @@ function openGoods(id: string) {
 .ranking-image { display: flex; width: 104rpx; height: 104rpx; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 8rpx; background: #f3f4f6; color: #a8abb2; font-size: 22rpx; }
 .ranking-content { min-width: 0; flex: 1; }
 .ranking-name { overflow: hidden; color: #303133; font-size: 26rpx; text-overflow: ellipsis; white-space: nowrap; }
+.ranking-subtitle { margin-top: 4rpx; overflow: hidden; color: #909399; font-size: 21rpx; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
 .ranking-stats { margin-top: 8rpx; color: #909399; font-size: 21rpx; }
 .ranking-price { margin-top: 6rpx; color: var(--wot-color-theme-primary, #ff2237); font-size: 27rpx; font-weight: 600; }
 /* 划线原价：灰字小一号，仅作价格锚点，不与售价抢视觉层级 */

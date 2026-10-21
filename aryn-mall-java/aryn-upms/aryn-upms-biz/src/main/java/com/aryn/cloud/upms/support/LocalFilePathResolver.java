@@ -15,7 +15,7 @@ public class LocalFilePathResolver {
 	private static final Pattern TENANT_ID_PATTERN = Pattern.compile("^[0-9]{1,32}$");
 
 	private static final Pattern GENERATED_FILE_PATTERN = Pattern
-		.compile("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\.(?i:jpg|jpeg|png|gif|bmp|webp)$");
+		.compile("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\.(?i:jpg|jpeg|png|gif|bmp|webp|mp4|mov|m4v|webm)$");
 
 	public Path resolve(String rootPath, String tenantId, String fileName) {
 		if (!StringUtils.hasText(tenantId) || !TENANT_ID_PATTERN.matcher(tenantId).matches()) {

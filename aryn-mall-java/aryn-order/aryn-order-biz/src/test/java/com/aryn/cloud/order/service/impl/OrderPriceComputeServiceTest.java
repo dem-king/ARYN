@@ -14,6 +14,7 @@ import com.aryn.cloud.promotion.api.remote.RemoteCouponUserService;
 import com.aryn.cloud.promotion.api.remote.RemoteDiscountService;
 import com.aryn.cloud.promotion.api.remote.RemoteSeckillService;
 import com.aryn.cloud.promotion.api.vo.CouponUserRespVO;
+import com.aryn.cloud.promotion.api.vo.PromotionCalculationVO;
 import com.aryn.cloud.user.api.vo.MemberBenefitsVO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -200,6 +201,92 @@ class OrderPriceComputeServiceTest {
 		org.assertj.core.api.Assertions.assertThatThrownBy(
 				() -> service.orderStockHandler(List.of(sku), List.of(first, second)))
 			.isInstanceOf(com.aryn.cloud.common.security.handler.ArynBusinessException.class);
+	}
+
+	/**
+	 * 新人价命中的 SKU 必须跳过限时折扣分支：折扣会无条件覆盖 salesPrice，
+	 * 把营销引擎已写入的新人价基价冲掉（实测新人价 19.9 会被折扣价 30 覆盖）。
+	 * 折扣服务不应被调用（本用例不为其打桩，多余调用会以严格桩校验暴露）。
+	 */
+	@Test
+	void discountBranchSkipsNewbiePricedSku() {
+		OrderItemEntity item = new OrderItemEntity().setSkuId("sku-1").setBuyQuantity(1)
+			.setSalesPrice(new BigDecimal("19.90"));
+
+		service.orderPromotionPriceHandler(List.of(item), null, java.util.Set.of("sku-1"));
+
+		assertThat(item.getSalesPrice()).isEqualByComparingTo("19.90");
+		org.mockito.Mockito.verify(remoteDiscountService, org.mockito.Mockito.never())
+			.calculatePrice(any(), any());
+	}
+
+	/**
+	 * 未命中新人价的普通 SKU 不受保护影响，折扣照常生效。
+	 */
+	@Test
+	void discountBranchStillAppliesToOrdinarySku() {
+		OrderItemEntity item = new OrderItemEntity().setSkuId("sku-2").setBuyQuantity(1)
+			.setSalesPrice(new BigDecimal("40.00"));
+		when(remoteDiscountService.calculatePrice("sku-2", new BigDecimal("40.00")))
+			.thenReturn(new BigDecimal("32.00"));
+
+		service.orderPromotionPriceHandler(List.of(item), null, java.util.Set.of("sku-1"));
+
+		assertThat(item.getSalesPrice()).isEqualByComparingTo("32.00");
+	}
+
+	/**
+	 * 秒杀优先于新人价：同一 SKU 既命中秒杀又命中新人价时，秒杀价照旧覆盖。
+	 */
+	@Test
+	void seckillWinsOverNewbiePrice() {
+		OrderItemEntity item = new OrderItemEntity().setSkuId("sku-1").setBuyQuantity(1)
+			.setSalesPrice(new BigDecimal("19.90"));
+		when(remoteSeckillService.getSeckillPrice("sku-1")).thenReturn(new BigDecimal("12.00"));
+
+		service.orderPromotionPriceHandler(List.of(item), null, java.util.Set.of("sku-1"));
+
+		assertThat(item.getSalesPrice()).isEqualByComparingTo("12.00");
+	}
+
+	/**
+	 * 限购硬校验：命中新人价的 SKU 整单合计数量必须为 1；
+	 * 共享购物车拆行后同一 SKU 两条明细各 1 件合计 2 件也应拦截。
+	 */
+	@Test
+	void newbieQuantityLimitRejectsAggregatedOverOne() {
+		PromotionCalculationVO calculation = newbieCalculation("sku-1");
+		OrderItemEntity first = new OrderItemEntity().setSkuId("sku-1").setBuyQuantity(1);
+		OrderItemEntity second = new OrderItemEntity().setSkuId("sku-1").setBuyQuantity(1);
+
+		org.assertj.core.api.Assertions.assertThatThrownBy(
+				() -> service.assertNewbieQuantityLimit(calculation, List.of(first, second)))
+			.isInstanceOf(com.aryn.cloud.common.security.handler.ArynBusinessException.class)
+			// ArynBusinessException 的真实原因在 msg 字段，getMessage() 为 null
+			.satisfies(ex -> assertThat(((com.aryn.cloud.common.security.handler.ArynBusinessException) ex).getMsg())
+				.contains("每人限购 1 件"));
+	}
+
+	@Test
+	void newbieQuantityLimitPassesAtExactlyOne() {
+		PromotionCalculationVO calculation = newbieCalculation("sku-1");
+		OrderItemEntity item = new OrderItemEntity().setSkuId("sku-1").setBuyQuantity(1);
+		OrderItemEntity other = new OrderItemEntity().setSkuId("sku-2").setBuyQuantity(5);
+
+		// 非新人价 SKU 数量不受限
+		service.assertNewbieQuantityLimit(calculation, List.of(item, other));
+	}
+
+	private PromotionCalculationVO newbieCalculation(String skuId) {
+		PromotionCalculationVO calculation = new PromotionCalculationVO();
+		PromotionCalculationVO.UnitPriceOverride override = new PromotionCalculationVO.UnitPriceOverride();
+		override.setSkuId(skuId);
+		override.setUnitPrice(new BigDecimal("19.90"));
+		override.setOriginalPrice(new BigDecimal("28.50"));
+		override.setActivityId("act-newbie");
+		override.setActivityType(com.aryn.cloud.promotion.api.entity.PromotionActivity.TYPE_NEWBIE_PRICE);
+		calculation.setLadderOverrides(new java.util.ArrayList<>(List.of(override)));
+		return calculation;
 	}
 
 	private CreateOrderSkuReqDTO skuReq(String skuId, String spuId, int quantity, String contributorId, String name) {

@@ -48,6 +48,11 @@ export async function deleteActivity(id: string) {
   return requestClient.delete(`/promotion/ship-activity/${id}`);
 }
 
+/** 命中试算：模拟购物车与上下文，返回命中活动与金额（不落库） */
+export async function dryRunActivity(data: any) {
+  return requestClient.post('/promotion/ship-activity/dry-run', data);
+}
+
 /** 靠港日历 */
 export async function getCallCalendar(start: string, end: string) {
   return requestClient.get('/vessel/admin/calls/calendar', {

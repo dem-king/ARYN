@@ -12,10 +12,7 @@ import {
   ElInput,
   ElRadio,
   ElRadioGroup,
-  ElSlider,
   ElSwitch,
-  ElTabPane,
-  ElTabs,
 } from 'element-plus';
 import draggable from 'vuedraggable';
 
@@ -26,14 +23,7 @@ const emit = defineEmits(['update:modelValue']);
 const SelectGoods = defineAsyncComponent(
   () => import('#/components/select-goods/index.vue'),
 );
-const CommonStyle = defineAsyncComponent(
-  () => import('../common/common-style/index.vue'),
-);
-const ColorPicker = defineAsyncComponent(
-  () => import('../common/common-color-picker/index.vue'),
-);
 
-const active = ref('0');
 const dragOptions = {
   animation: 300,
   group: 'description',
@@ -150,228 +140,64 @@ const deleteGoods = (index: number) => {
     </div>
     <div class="setting-form">
       <ElForm :model="form" label-width="80px">
-        <ElTabs type="border-card" v-model="active">
-          <ElTabPane label="组件内容" name="0">
-            <ElFormItem label="列表样式">
-              <ElRadioGroup v-model="form.showType">
-                <ElRadio value="1">大图模式 </ElRadio>
-                <ElRadio value="2">一行两个</ElRadio>
-                <ElRadio value="3">一行三个</ElRadio>
-              </ElRadioGroup>
-            </ElFormItem>
+        <ElFormItem label="列表样式">
+          <ElRadioGroup v-model="form.showType">
+            <ElRadio value="1">大图模式 </ElRadio>
+            <ElRadio value="2">一行两个</ElRadio>
+            <ElRadio value="3">一行三个</ElRadio>
+          </ElRadioGroup>
+        </ElFormItem>
 
-            <ElFormItem label="显示内容">
-              <ElCheckbox v-model="form.showName" label="商品名称" />
-              <ElCheckbox v-model="form.showDesc" label="商品描述" />
-              <ElCheckbox v-model="form.showTag" label="商品标签" />
-              <ElCheckbox v-model="form.showSalesPrice" label="商品售价" />
-              <ElCheckbox v-model="form.showOriginalPrice" label="商品原价" />
-              <ElCheckbox v-model="form.showSalesVolume" label="商品销量" />
-              <ElCheckbox v-model="form.showStock" label="商品库存" />
-            </ElFormItem>
-            <ElFormItem label="购买按钮">
-              <ElSwitch v-model="form.showBuyBtn" />
-            </ElFormItem>
-            <ElFormItem>
-              <ElRadioGroup v-model="form.buyBtnStyle" v-if="form.showBuyBtn">
-                <ElRadio value="1">样式一 </ElRadio>
-                <ElRadio value="2">样式二</ElRadio>
-                <ElRadio value="3">样式三</ElRadio>
-              </ElRadioGroup>
-            </ElFormItem>
-            <ElFormItem v-if="form.showBuyBtn && form.buyBtnStyle === '3'">
-              <ElInput v-model="form.buyBtnText" />
-            </ElFormItem>
-            <ElFormItem label="商品设置">
-              <p class="form-tip">商品可以上下拖动更改顺序</p>
-            </ElFormItem>
-            <draggable
-              v-model="form.goodsList"
-              v-bind="dragOptions"
-              animation="700"
-              item-key="id"
-              @dragover.prevent
-            >
-              <template #item="{ element, index }">
-                <div class="goods-list">
-                  <div class="goods-item">
-                    <ElImage
-                      :src="element.spuUrls[0]"
-                      style="width: 40px; height: 40px; object-fit: cover"
-                    />
-                    <div>{{ element.name }}</div>
-                  </div>
-                  <div class="delete-btn">
-                    <ElButton link @click="deleteGoods(index)">
-                      <ElIcon><CircleCloseFilled /></ElIcon>
-                    </ElButton>
-                  </div>
-                </div>
-              </template>
-            </draggable>
-            <ElButton style="width: 100%" @click="chooseGoods">添加</ElButton>
-          </ElTabPane>
-          <ElTabPane label="组件样式" name="1">
-            <div v-if="form.showName">
-              <h4>商品名称</h4>
-              <div class="content-item">
-                <ElFormItem label="字体颜色">
-                  <ColorPicker v-model="form.nameColor" />
-                </ElFormItem>
-                <ElFormItem label="字体样式">
-                  <ElRadioGroup v-model="form.nameStyle">
-                    <ElRadio value="0">正常</ElRadio>
-                    <ElRadio value="1">加粗</ElRadio>
-                  </ElRadioGroup>
-                </ElFormItem>
-                <ElFormItem label="字体大小">
-                  <ElSlider
-                    v-model="form.nameSize"
-                    show-input
-                    :show-input-controls="false"
-                    :min="0"
-                  />
-                </ElFormItem>
+        <ElFormItem label="显示内容">
+          <ElCheckbox v-model="form.showName" label="商品名称" />
+          <ElCheckbox v-model="form.showDesc" label="商品描述" />
+          <ElCheckbox v-model="form.showTag" label="商品标签" />
+          <ElCheckbox v-model="form.showSalesPrice" label="商品售价" />
+          <ElCheckbox v-model="form.showOriginalPrice" label="商品原价" />
+          <ElCheckbox v-model="form.showSalesVolume" label="商品销量" />
+          <ElCheckbox v-model="form.showStock" label="商品库存" />
+        </ElFormItem>
+        <ElFormItem label="购买按钮">
+          <ElSwitch v-model="form.showBuyBtn" />
+        </ElFormItem>
+        <ElFormItem>
+          <ElRadioGroup v-model="form.buyBtnStyle" v-if="form.showBuyBtn">
+            <ElRadio value="1">样式一 </ElRadio>
+            <ElRadio value="2">样式二</ElRadio>
+            <ElRadio value="3">样式三</ElRadio>
+          </ElRadioGroup>
+        </ElFormItem>
+        <ElFormItem v-if="form.showBuyBtn && form.buyBtnStyle === '3'">
+          <ElInput v-model="form.buyBtnText" />
+        </ElFormItem>
+        <ElFormItem label="商品设置">
+          <p class="form-tip">商品可以上下拖动更改顺序</p>
+        </ElFormItem>
+        <draggable
+          v-model="form.goodsList"
+          v-bind="dragOptions"
+          animation="700"
+          item-key="id"
+          @dragover.prevent
+        >
+          <template #item="{ element, index }">
+            <div class="goods-list">
+              <div class="goods-item">
+                <ElImage
+                  :src="element.spuUrls[0]"
+                  style="width: 40px; height: 40px; object-fit: cover"
+                />
+                <div>{{ element.name }}</div>
+              </div>
+              <div class="delete-btn">
+                <ElButton link @click="deleteGoods(index)">
+                  <ElIcon><CircleCloseFilled /></ElIcon>
+                </ElButton>
               </div>
             </div>
-            <div v-if="form.showDesc">
-              <h4>商品描述</h4>
-              <div class="content-item">
-                <ElFormItem label="字体颜色">
-                  <ColorPicker v-model="form.descColor" />
-                </ElFormItem>
-                <ElFormItem label="字体样式">
-                  <ElRadioGroup v-model="form.descStyle">
-                    <ElRadio value="0">正常</ElRadio>
-                    <ElRadio value="1">加粗</ElRadio>
-                  </ElRadioGroup>
-                </ElFormItem>
-                <ElFormItem label="字体大小">
-                  <ElSlider
-                    v-model="form.descSize"
-                    show-input
-                    :show-input-controls="false"
-                    :min="0"
-                  />
-                </ElFormItem>
-              </div>
-            </div>
-            <div v-if="form.showSalesPrice">
-              <h4>商品售价</h4>
-              <div class="content-item">
-                <ElFormItem label="字体颜色">
-                  <ColorPicker v-model="form.salesPriceColor" />
-                </ElFormItem>
-                <ElFormItem label="字体样式">
-                  <ElRadioGroup v-model="form.salesPriceStyle">
-                    <ElRadio value="0">正常</ElRadio>
-                    <ElRadio value="1">加粗</ElRadio>
-                  </ElRadioGroup>
-                </ElFormItem>
-                <ElFormItem label="字体大小">
-                  <ElSlider
-                    v-model="form.salesPriceSize"
-                    show-input
-                    :show-input-controls="false"
-                    :min="0"
-                  />
-                </ElFormItem>
-              </div>
-            </div>
-            <div v-if="form.showOriginalPrice">
-              <h4>商品原价</h4>
-              <div class="content-item">
-                <ElFormItem label="字体颜色">
-                  <ColorPicker v-model="form.originalPriceColor" />
-                </ElFormItem>
-                <ElFormItem label="字体样式">
-                  <ElRadioGroup v-model="form.originalPriceStyle">
-                    <ElRadio value="0">正常</ElRadio>
-                    <ElRadio value="1">加粗</ElRadio>
-                  </ElRadioGroup>
-                </ElFormItem>
-                <ElFormItem label="字体大小">
-                  <ElSlider
-                    v-model="form.originalPriceSize"
-                    show-input
-                    :show-input-controls="false"
-                    :min="0"
-                  />
-                </ElFormItem>
-              </div>
-            </div>
-            <div v-if="form.showSalesVolume">
-              <h4>商品销量</h4>
-              <div class="content-item">
-                <ElFormItem label="字体颜色">
-                  <ColorPicker v-model="form.salesVolumeColor" />
-                </ElFormItem>
-                <ElFormItem label="字体样式">
-                  <ElRadioGroup v-model="form.salesVolumeStyle">
-                    <ElRadio value="0">正常</ElRadio>
-                    <ElRadio value="1">加粗</ElRadio>
-                  </ElRadioGroup>
-                </ElFormItem>
-                <ElFormItem label="字体大小">
-                  <ElSlider
-                    v-model="form.salesVolumeSize"
-                    show-input
-                    :show-input-controls="false"
-                    :min="0"
-                  />
-                </ElFormItem>
-              </div>
-            </div>
-            <div v-if="form.showStock">
-              <h4>商品库存</h4>
-              <div class="content-item">
-                <ElFormItem label="字体颜色">
-                  <ColorPicker v-model="form.stockColor" />
-                </ElFormItem>
-                <ElFormItem label="字体样式">
-                  <ElRadioGroup v-model="form.stockStyle">
-                    <ElRadio value="0">正常</ElRadio>
-                    <ElRadio value="1">加粗</ElRadio>
-                  </ElRadioGroup>
-                </ElFormItem>
-                <ElFormItem label="字体大小">
-                  <ElSlider
-                    v-model="form.stockSize"
-                    show-input
-                    :show-input-controls="false"
-                    :min="0"
-                  />
-                </ElFormItem>
-              </div>
-            </div>
-            <div v-if="form.showBuyBtn">
-              <h4>购买按钮</h4>
-              <div class="content-item">
-                <ElFormItem label="字体颜色">
-                  <ColorPicker v-model="form.buyBtnColor" />
-                </ElFormItem>
-                <ElFormItem label="字体大小">
-                  <ElSlider
-                    v-model="form.buyBtnSize"
-                    show-input
-                    :show-input-controls="false"
-                    :min="0"
-                  />
-                </ElFormItem>
-              </div>
-            </div>
-            <div>
-              <h4>商品样式</h4>
-              <div class="content-item">
-                <CommonStyle v-model="form.goodsCommonStyle" />
-              </div>
-            </div>
-            <h4>通用样式</h4>
-            <div class="content-item">
-              <CommonStyle v-model="form.commonStyle" />
-            </div>
-          </ElTabPane>
-        </ElTabs>
+          </template>
+        </draggable>
+        <ElButton style="width: 100%" @click="chooseGoods">添加</ElButton>
       </ElForm>
     </div>
     <SelectGoods

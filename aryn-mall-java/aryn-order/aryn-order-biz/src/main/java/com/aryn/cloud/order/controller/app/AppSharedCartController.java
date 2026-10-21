@@ -17,6 +17,7 @@ import com.aryn.cloud.order.api.entity.SharedCartItem;
 import com.aryn.cloud.order.api.entity.SharedCartMember;
 import com.aryn.cloud.order.api.vo.SharedCartImportVO;
 import com.aryn.cloud.order.api.vo.SharedCartItemVO;
+import com.aryn.cloud.order.api.vo.SharedCartJoinVO;
 import com.aryn.cloud.order.api.vo.SharedCartReuseVO;
 import com.aryn.cloud.order.api.vo.SharedCartSummaryVO;
 import com.aryn.cloud.order.api.vo.SharedCartVO;
@@ -118,12 +119,12 @@ public class AppSharedCartController {
 
 	@Operation(summary = "凭分享令牌加入（群成员点击卡片后调用，自动补建船舶成员关系）")
 	@PostMapping("/join")
-	public Result<String> joinByToken(@RequestParam("token") String token) {
+	public Result<SharedCartJoinVO> joinByToken(@RequestParam("token") String token) {
 		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
-		// 只回传购物车 ID 供前端跳转，不回显实体（避免把 share_token 等字段回抛）
-		SharedCart cart = sharedCartService.joinByShareToken(ArynTenantContextHolder.getTenantId(),
-				user.getUserId(), token);
-		return Result.success(cart.getId());
+		// 回传视图对象而非实体：前端要据此提示「已同时加入本船成员」，
+		// 又不能把 share_token 等字段回抛给客户端。
+		return Result.success(sharedCartService.joinByShareToken(ArynTenantContextHolder.getTenantId(),
+				user.getUserId(), token));
 	}
 
 	@Operation(summary = "设置我的展示姓名（加入时填写，用于配送贴标签）")

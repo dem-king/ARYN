@@ -16,6 +16,7 @@ import org.apache.dubbo.config.annotation.DubboService;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -51,6 +52,19 @@ public class RemoteMallUserServiceImpl implements RemoteMallUserService {
 			return null;
 		}
 		return BeanUtil.copyProperties(userInfo, UserInfoVO.class);
+	}
+
+	@Override
+	public LocalDateTime getUserRegisterTime(String userId) {
+		if (StrUtil.isBlank(userId)) {
+			return null;
+		}
+		// 只取注册时间列，避免把整行（含密码等敏感字段）带出
+		UserInfo userInfo = userInfoService.getOne(Wrappers.<UserInfo>lambdaQuery()
+			.select(UserInfo::getId, UserInfo::getCreateTime)
+			.eq(UserInfo::getId, userId)
+			.last("LIMIT 1"));
+		return userInfo == null ? null : userInfo.getCreateTime();
 	}
 
 	@Override

@@ -134,6 +134,7 @@ function handleClick(item: any) {
               height: `${imgSize}px`,
               borderRadius: `${imgRadius}px`,
               backgroundColor: resolveCategoryFallback(item.text, item.id).bgColor,
+              color: resolveCategoryFallback(item.text, item.id).color,
               fontSize: `${fallbackFontSize}px`,
             }"
           >
@@ -172,6 +173,7 @@ function handleClick(item: any) {
             height: `${imgSize}px`,
             borderRadius: `${imgRadius}px`,
             backgroundColor: resolveCategoryFallback(item.text, item.id).bgColor,
+            color: resolveCategoryFallback(item.text, item.id).color,
             fontSize: `${fallbackFontSize}px`,
           }"
         >
@@ -222,7 +224,6 @@ function handleClick(item: any) {
         overflow: hidden;
         font-weight: 600;
         line-height: 1;
-        color: #fff;
       }
 
       .category-nav-text {

@@ -38,8 +38,28 @@ public interface VesselService {
 
 	/**
 	 * 管理端绑定船舶成员（后台邀请/授权）。
+	 *
+	 * <p><b>仅供管理端直接绑定使用</b>：来源固定记为 {@code ADMIN_ADD}。
+	 * 其他入口（分享购物车自动补建、审核、邀请码等）请改用
+	 * {@link #addMember(String, VesselMember, String)} 并显式传来源，
+	 * 否则会在成员列表里被错标成「管理端绑定」，来源标记随之失去区分价值。
 	 */
 	VesselMember addMember(String tenantId, VesselMember member);
+
+	/**
+	 * 绑定船舶成员并显式标记来源。
+	 *
+	 * <p>必须使用本重载的场景：分享购物车链接自动补建（{@code SHARE_CART}）等
+	 * 由非管理端通道触发、但复用本落库路径的写入。来源会落进
+	 * {@code vessel_member.bind_source}，并在审计表留痕。
+	 *
+	 * <p>约束：船舶必须存在且在营；角色只允许
+	 * {@link com.aryn.cloud.vessel.api.constant.VesselMemberRole#ASSIGNABLE} 内的取值。
+	 *
+	 * @param bindSource 绑定来源，取值见
+	 * {@link com.aryn.cloud.vessel.api.constant.VesselMemberBindSource}
+	 */
+	VesselMember addMember(String tenantId, VesselMember member, String bindSource);
 
 	/**
 	 * 管理端查看靠港计划。

@@ -76,6 +76,11 @@ export interface MallTheme {
   navigationColor?: string
   navigationTextColor?: string
   radius?: number
+  /**
+   * 自动动效总开关：'1' 开启（默认）、'0' 关闭。
+   * 关闭后停止自动轮播/自动前进；缺失（老后端）按开启处理。
+   */
+  autoMotionEnabled?: string
 }
 
 /**

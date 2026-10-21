@@ -1,5 +1,12 @@
 <script setup lang="ts">
+import type { DiyCommonStyle } from '@vben/types';
+
 import { computed } from 'vue';
+
+import { Picture } from '@element-plus/icons-vue';
+import { ElIcon } from 'element-plus';
+
+import { commonStyleRadiusOverflow } from '../common/common-style-clip';
 
 const props = defineProps<{
   showData: Record<string, unknown>;
@@ -90,139 +97,170 @@ const imageCube = computed(() => {
     rows: spec.rows,
   };
 });
-const recommendCount = computed(() => Number(props.showData.count) || 6);
+
+/**
+ * 通用样式 → 画布框：与 C 端 `utils/common-style.ts` 的 getCommonStyle 同源
+ * （commonStyle 长度值两端都按 px 直出，不涉及 rpx 换算）。
+ * 圆角 > 0 时必须同时裁切子内容，否则贴满框的图片/色块直角会盖住圆角弧线，
+ * 运营在画布上看不到自己设置的圆角（与 C 端 getCommonStyle 同一守卫）。
+ */
+const frameStyle = computed(() => {
+  const style = (props.showData.commonStyle ?? {}) as Record<string, unknown>;
+  const number = (value: unknown) => Number(value) || 0;
+  const radius = [
+    style.styleLtRadius,
+    style.styleRtRadius,
+    style.styleLbRadius,
+    style.styleRbRadius,
+  ].map((value) => number(value));
+  const bgStart = String(style.bgStartColor ?? '');
+  const bgEnd = String(style.bgEndColor ?? '');
+  const bgPicUrl = String(style.bgPicUrl ?? '');
+
+  // 背景口径与 C 端 getCommonStyle 一致：背景图 > 渐变 > 透明
+  let background = 'transparent';
+  if (bgPicUrl) background = `url(${bgPicUrl}) center / 100% 100% no-repeat`;
+  else if (bgStart || bgEnd)
+    background = `linear-gradient(${String(style.bgColorDirection || 'to right')}, ${bgStart || bgEnd}, ${bgEnd || bgStart})`;
+
+  return {
+    background,
+    borderTopLeftRadius: `${radius[0]}px`,
+    borderTopRightRadius: `${radius[1]}px`,
+    borderBottomLeftRadius: `${radius[2]}px`,
+    borderBottomRightRadius: `${radius[3]}px`,
+    margin: `${number(style.styleTopMargin)}px ${number(style.styleRightMargin)}px ${number(style.styleBottomMargin)}px ${number(style.styleLeftMargin)}px`,
+    padding: `${number(style.styleTopPadding)}px ${number(style.styleRightPadding)}px ${number(style.styleBottomPadding)}px ${number(style.styleLeftPadding)}px`,
+    ...commonStyleRadiusOverflow(
+      props.showData.commonStyle as DiyCommonStyle | null,
+    ),
+  };
+});
+
+/**
+ * 内层留白：多数组件的 C 端把 20rpx 留白挂内容内层（根节点 padding 会被
+ * commonStyle 内联零值覆盖），画布以 10px 对应；底部导航/图片魔方在 C 端
+ * 满宽贴边，画布同样不加假留白。
+ */
+const flushInner = computed(
+  () => props.type === 'bottom-nav' || props.type === 'image-cube',
+);
 </script>
 
 <template>
   <div class="extension-preview">
-    <div v-if="type === 'goods-waterfall'" class="preview-block">
-      <p v-if="title" class="preview-title">{{ title }}</p>
-      <div class="preview-waterfall">
-        <div
-          v-for="index in Number(showData.count) || 4"
-          :key="index"
-          class="preview-goods"
-        ></div>
-      </div>
-    </div>
-    <div v-else-if="type === 'coupon-combo'" class="preview-block">
+    <div class="preview-frame" :style="frameStyle">
       <div
-        v-for="index in Number(showData.count) || 3"
-        :key="index"
-        class="preview-coupon"
+        class="preview-inner"
+        :class="{ 'preview-inner--flush': flushInner }"
       >
-        <div class="preview-coupon__face">
-          <div class="preview-coupon__notch preview-coupon__notch--left"></div>
-          <div class="preview-coupon__notch preview-coupon__notch--right"></div>
-          <span class="preview-coupon__value">¥10</span>
-          <div class="preview-coupon__info">
-            <span class="preview-coupon__pill">满减券</span>
-            <span class="preview-coupon__title">优惠券</span>
-            <span class="preview-coupon__threshold">满100元可用</span>
+        <template v-if="type === 'coupon-combo'">
+          <div
+            v-for="index in Number(showData.count) || 3"
+            :key="index"
+            class="preview-coupon"
+          >
+            <div class="preview-coupon__face">
+              <div
+                class="preview-coupon__notch preview-coupon__notch--left"
+              ></div>
+              <div
+                class="preview-coupon__notch preview-coupon__notch--right"
+              ></div>
+              <span class="preview-coupon__value">¥10</span>
+              <div class="preview-coupon__info">
+                <span class="preview-coupon__pill">满减券</span>
+                <span class="preview-coupon__title">优惠券</span>
+                <span class="preview-coupon__threshold">满100元可用</span>
+              </div>
+            </div>
+            <span class="preview-coupon__btn">领取</span>
           </div>
-        </div>
-        <span class="preview-coupon__btn">领取</span>
-      </div>
-    </div>
-    <div
-      v-else-if="type === 'member-benefits' || type === 'service-promise'"
-      class="preview-block"
-    >
-      <p v-if="title" class="preview-title">{{ title }}</p>
-      <div class="preview-grid">
-        <div
-          v-for="(entry, index) in entries"
-          :key="index"
-          class="preview-entry"
+        </template>
+        <template
+          v-else-if="type === 'member-benefits' || type === 'service-promise'"
         >
-          <span class="entry-icon"></span>
-          <span class="entry-text">{{ entry.title }}</span>
-        </div>
+          <p v-if="title" class="preview-title">{{ title }}</p>
+          <div class="preview-grid">
+            <div
+              v-for="(entry, index) in entries"
+              :key="index"
+              class="preview-entry"
+            >
+              <span class="entry-icon"></span>
+              <span class="entry-text">{{ entry.title }}</span>
+            </div>
+          </div>
+        </template>
+        <template v-else-if="type === 'bottom-nav'">
+          <div class="preview-bottomnav">
+            <div
+              v-for="(item, index) in entries"
+              :key="index"
+              class="preview-bottomnav-item"
+              :style="{ color: (showData.activeColor as string) || '#ff5000' }"
+            >
+              {{ item.text }}
+            </div>
+          </div>
+        </template>
+        <template v-else-if="type === 'video-live'">
+          <p v-if="title" class="preview-title">{{ title }}</p>
+          <div class="preview-video" :data-mode="showData.mode">
+            视频 / 直播
+          </div>
+        </template>
+        <template v-else-if="type === 'image-cube'">
+          <div
+            class="preview-cube"
+            :style="{
+              gridTemplateColumns: `repeat(${imageCube.cols}, minmax(0, 1fr))`,
+              gridTemplateRows: imageCube.rows,
+            }"
+          >
+            <div
+              v-for="(cell, index) in imageCube.cells"
+              :key="index"
+              class="preview-cube__cell"
+              :style="
+                cell.isBig
+                  ? { gridRow: `span ${imageCube.bigSpan}` }
+                  : { height: `${cell.height}px` }
+              "
+            >
+              <img v-if="cell.url" :src="cell.url" alt="" />
+              <!-- 空格位：画布底色与格位填充色几乎同色，纯色格位看起来是「白屏」，
+                   必须给出可见的空位提示（与 RetailPreviewFrame 占位态同一套视觉语言） -->
+              <div v-else class="preview-cube__empty">
+                <ElIcon><Picture /></ElIcon>
+                <span>图片</span>
+              </div>
+            </div>
+          </div>
+        </template>
+        <template v-else>{{ type }}</template>
       </div>
     </div>
-    <div
-      v-else-if="type === 'bottom-nav'"
-      class="preview-block preview-bottomnav"
-    >
-      <div
-        v-for="(item, index) in entries"
-        :key="index"
-        class="preview-bottomnav-item"
-        :style="{ color: (showData.activeColor as string) || '#ff5000' }"
-      >
-        {{ item.text }}
-      </div>
-    </div>
-    <div v-else-if="type === 'video-live'" class="preview-block">
-      <p v-if="title" class="preview-title">{{ title }}</p>
-      <div class="preview-video" :data-mode="showData.mode">视频 / 直播</div>
-    </div>
-    <div v-else-if="type === 'image-cube'" class="preview-block">
-      <div
-        class="preview-cube"
-        :style="{
-          gridTemplateColumns: `repeat(${imageCube.cols}, minmax(0, 1fr))`,
-          gridTemplateRows: imageCube.rows,
-        }"
-      >
-        <div
-          v-for="(cell, index) in imageCube.cells"
-          :key="index"
-          class="preview-cube__cell"
-          :style="
-            cell.isBig
-              ? { gridRow: `span ${imageCube.bigSpan}` }
-              : { height: `${cell.height}px` }
-          "
-        >
-          <img v-if="cell.url" :src="cell.url" alt="" />
-        </div>
-      </div>
-    </div>
-    <div v-else-if="type === 'goods-recommend'" class="preview-block">
-      <p v-if="title" class="preview-title">{{ title }}</p>
-      <div class="preview-recommend">
-        <div
-          v-for="index in recommendCount"
-          :key="index"
-          class="preview-recommend__card"
-        >
-          <div class="preview-recommend__pic"></div>
-          <div class="preview-recommend__name"></div>
-          <div class="preview-recommend__price"></div>
-        </div>
-      </div>
-    </div>
-    <div v-else class="preview-block">{{ type }}</div>
   </div>
 </template>
 
 <style scoped>
-.extension-preview {
+/* 通用样式（外边距/内边距/背景/圆角）由 .preview-frame 的内联样式承载，
+   壳本身不垫留白，否则会叠出 C 端不存在的偏移 */
+.preview-inner {
+  /* 与 C 端内容内层 20rpx 同口径（1rpx = 0.5px） */
   padding: 10px;
 }
 
-.preview-block {
-  padding: 8px;
+.preview-inner--flush {
+  /* 底部导航/图片魔方在 C 端满宽贴边，画布同样不加假留白 */
+  padding: 0;
 }
 
 .preview-title {
   margin: 0 0 8px;
   font-size: 14px;
   font-weight: 600;
-}
-
-.preview-waterfall {
-  column-count: 2;
-  column-gap: 8px;
-}
-
-.preview-goods {
-  height: 88px;
-  margin-bottom: 8px;
-  background: var(--el-fill-color);
-  border-radius: 6px;
-  break-inside: avoid;
 }
 
 /* 与小程序 diy-coupon-combo 票面同源（1rpx = 0.5px） */
@@ -373,7 +411,6 @@ const recommendCount = computed(() => Number(props.showData.count) || 6);
 
   &__cell {
     overflow: hidden;
-    background: var(--el-fill-color);
 
     img {
       display: block;
@@ -382,40 +419,18 @@ const recommendCount = computed(() => Number(props.showData.count) || 6);
       object-fit: cover;
     }
   }
-}
 
-/* 与小程序 diy-goods-recommend 同源：卡片 200rpx 宽→100px，圆角 16rpx→8px */
-.preview-recommend {
-  display: flex;
-  gap: 8px;
-  overflow: hidden;
-}
-
-.preview-recommend__card {
-  flex: 0 0 100px;
-  width: 100px;
-}
-
-.preview-recommend__pic {
-  width: 100px;
-  height: 100px;
-  background: var(--el-fill-color);
-  border-radius: 8px;
-}
-
-.preview-recommend__name {
-  width: 80%;
-  height: 12px;
-  margin: 6px auto 0;
-  background: var(--el-fill-color);
-  border-radius: 3px;
-}
-
-.preview-recommend__price {
-  width: 50%;
-  height: 10px;
-  margin: 4px auto 0;
-  background: var(--el-fill-color-darker);
-  border-radius: 3px;
+  &__empty {
+    display: grid;
+    gap: 2px;
+    place-items: center;
+    align-content: center;
+    width: 100%;
+    height: 100%;
+    font-size: 11px;
+    color: #94a3b8;
+    background: rgb(248 250 252);
+    border: 1px dashed #cbd5e1;
+  }
 }
 </style>

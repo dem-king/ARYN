@@ -10,7 +10,7 @@
         IFNULL(r.afterSalesOrderCount,0) afterSalesOrderCount,
         IFNULL(r.refundAmount,0) refundAmount,
         CASE
-        WHEN o.payBuyerCount > 0 THEN o.gmv / o.payBuyerCount
+        WHEN o.payOrderCount > 0 THEN o.gmv / o.payOrderCount
         ELSE 0
         END AS averageTicketSize
         FROM
@@ -179,6 +179,179 @@
         <if test="dto.endTime != null">
             AND payment_time &lt;= #{dto.endTime}
         </if>
+    </select>
+
+    <select id="getOrderFunnel" resultType="com.aryn.cloud.order.api.vo.OrderFunnelVO">
+        SELECT
+        COUNT(1) AS createdCount,
+        IFNULL(SUM(CASE WHEN pay_status = '1' THEN 1 ELSE 0 END), 0) AS paidCount,
+        IFNULL(SUM(CASE WHEN pay_status = '1' AND deliver_time IS NOT NULL THEN 1 ELSE 0 END), 0) AS deliveredCount,
+        IFNULL(SUM(CASE WHEN pay_status = '1' AND receiver_time IS NOT NULL THEN 1 ELSE 0 END), 0) AS completedCount,
+        (
+            SELECT COUNT(DISTINCT r.order_id)
+            FROM order_refund r
+            INNER JOIN order_info o2 ON r.order_id = o2.id
+            WHERE r.del_flag = '0'
+            AND r.arrival_status = '2'
+            AND o2.del_flag = '0'
+            AND o2.create_time BETWEEN #{dto.startTime} AND #{dto.endTime}
+        ) AS refundedCount
+        FROM order_info
+        WHERE del_flag = '0'
+        AND create_time BETWEEN #{dto.startTime} AND #{dto.endTime}
+    </select>
+
+    <select id="getUserRfmSegments" resultType="com.aryn.cloud.order.api.vo.UserRfmSegmentVO">
+        SELECT
+        segment,
+        COUNT(1) AS userCount,
+        IFNULL(SUM(monetary), 0) AS gmv
+        FROM (
+            SELECT
+            user_id,
+            monetary,
+            CASE
+                WHEN r_score >= 4 AND f_score >= 4 AND m_score >= 4 THEN '重要价值客户'
+                WHEN r_score >= 4 AND f_score >= 4 THEN '重要发展客户'
+                WHEN r_score >= 4 AND m_score >= 4 THEN '重要保持客户'
+                WHEN f_score >= 4 AND m_score >= 4 THEN '重要挽留客户'
+                WHEN r_score >= 4 THEN '新客/潜力客户'
+                WHEN f_score >= 4 THEN '高频低额客户'
+                WHEN m_score >= 4 THEN '高额低频客户'
+                ELSE '一般客户'
+            END AS segment
+            FROM (
+                SELECT
+                user_id,
+                monetary,
+                CASE
+                    WHEN recency_days &lt;= 7 THEN 5
+                    WHEN recency_days &lt;= 30 THEN 4
+                    WHEN recency_days &lt;= 90 THEN 3
+                    WHEN recency_days &lt;= 180 THEN 2
+                    ELSE 1
+                END AS r_score,
+                CASE
+                    WHEN frequency >= 10 THEN 5
+                    WHEN frequency >= 6 THEN 4
+                    WHEN frequency >= 3 THEN 3
+                    WHEN frequency >= 2 THEN 2
+                    ELSE 1
+                END AS f_score,
+                CASE
+                    WHEN monetary >= 5000 THEN 5
+                    WHEN monetary >= 2000 THEN 4
+                    WHEN monetary >= 1000 THEN 3
+                    WHEN monetary >= 500 THEN 2
+                    ELSE 1
+                END AS m_score
+                FROM (
+                    SELECT
+                    user_id,
+                    DATEDIFF(#{dto.endTime}, MAX(payment_time)) AS recency_days,
+                    COUNT(1) AS frequency,
+                    SUM(payment_price) AS monetary
+                    FROM order_info
+                    WHERE del_flag = '0'
+                    AND pay_status = '1'
+                    AND payment_time IS NOT NULL
+                    AND payment_time &lt;= #{dto.endTime}
+                    GROUP BY user_id
+                ) stats
+            ) scored
+        ) segmented
+        GROUP BY segment
+        ORDER BY FIELD(segment, '重要价值客户', '重要发展客户', '重要保持客户', '重要挽留客户',
+        '新客/潜力客户', '高频低额客户', '高额低频客户', '一般客户')
+    </select>
+
+    <select id="getUserCohortRetention" resultType="com.aryn.cloud.order.api.vo.UserCohortRetentionVO">
+        SELECT
+        cohort_month AS cohortMonth,
+        COUNT(DISTINCT user_id) AS cohortSize,
+        COUNT(DISTINCT CASE WHEN period_diff = 0 THEN user_id END) AS month0,
+        COUNT(DISTINCT CASE WHEN period_diff = 1 THEN user_id END) AS month1,
+        COUNT(DISTINCT CASE WHEN period_diff = 2 THEN user_id END) AS month2,
+        COUNT(DISTINCT CASE WHEN period_diff = 3 THEN user_id END) AS month3,
+        COUNT(DISTINCT CASE WHEN period_diff = 4 THEN user_id END) AS month4,
+        COUNT(DISTINCT CASE WHEN period_diff = 5 THEN user_id END) AS month5
+        FROM (
+            SELECT
+            o.user_id,
+            DATE_FORMAT(first_order.first_paid_month, '%Y-%m') AS cohort_month,
+            PERIOD_DIFF(DATE_FORMAT(o.payment_time, '%Y%m'),
+                        DATE_FORMAT(first_order.first_paid_month, '%Y%m')) AS period_diff
+            FROM order_info o
+            INNER JOIN (
+                SELECT
+                user_id,
+                MIN(payment_time) AS first_paid_month
+                FROM order_info
+                WHERE del_flag = '0'
+                AND pay_status = '1'
+                AND payment_time IS NOT NULL
+                AND payment_time &lt;= #{dto.endTime}
+                GROUP BY user_id
+            ) first_order ON o.user_id = first_order.user_id
+            WHERE o.del_flag = '0'
+            AND o.pay_status = '1'
+            AND o.payment_time IS NOT NULL
+            AND o.payment_time &lt;= #{dto.endTime}
+        ) t
+        WHERE cohort_month >= DATE_FORMAT(DATE_SUB(#{dto.endTime}, INTERVAL 5 MONTH), '%Y-%m')
+        GROUP BY cohort_month
+        ORDER BY cohort_month DESC
+    </select>
+
+    <select id="getMonthlyActual" resultType="com.aryn.cloud.order.api.vo.DashboardMonthlyActualVO">
+        SELECT
+        IFNULL(SUM(payment_price), 0) AS gmv,
+        COUNT(1) AS orderCount
+        FROM order_info
+        WHERE del_flag = '0'
+        AND pay_status = '1'
+        AND payment_time BETWEEN #{startTime} AND #{endTime}
+    </select>
+
+    <select id="getRawDailySummary" resultType="com.aryn.cloud.order.api.vo.DailyReconcileRawVO">
+        SELECT
+        IFNULL(SUM(payment_price), 0) AS gmv,
+        COUNT(1) AS orderCount,
+        COUNT(DISTINCT user_id) AS buyerCount
+        FROM order_info
+        WHERE del_flag = '0'
+        AND pay_status = '1'
+        AND payment_time BETWEEN #{startTime} AND #{endTime}
+    </select>
+
+    <select id="getBuyerFunnel" resultType="com.aryn.cloud.order.api.vo.TrafficFunnelVO">
+        SELECT
+        COUNT(DISTINCT user_id) AS createdBuyerCount,
+        COUNT(DISTINCT CASE WHEN pay_status = '1' THEN user_id END) AS paidBuyerCount
+        FROM order_info
+        WHERE del_flag = '0'
+        AND create_time BETWEEN #{dto.startTime} AND #{dto.endTime}
+    </select>
+
+    <select id="getChannelUserStats" resultType="com.aryn.cloud.order.api.vo.ChannelUserStatVO">
+        SELECT
+        user_id AS userId,
+        COUNT(1) AS orderCount,
+        IFNULL(SUM(payment_price), 0) AS gmv
+        FROM order_info
+        WHERE del_flag = '0'
+        AND pay_status = '1'
+        AND payment_time BETWEEN #{dto.startTime} AND #{dto.endTime}
+        GROUP BY user_id
+    </select>
+
+    <select id="getRefundSummary" resultType="com.aryn.cloud.order.api.vo.OrderRefundSummaryVO">
+        SELECT
+        COUNT(DISTINCT order_id) AS afterSalesOrderCount,
+        IFNULL(SUM(CASE WHEN arrival_status = '2' THEN refund_amount ELSE 0 END), 0) AS refundAmount
+        FROM order_refund
+        WHERE del_flag = '0'
+        AND create_time BETWEEN #{dto.startTime} AND #{dto.endTime}
     </select>
 
     <select id="getProductSalesAnalysis" resultType="com.aryn.cloud.order.api.vo.ProductSalesAnalysisVO">

@@ -72,6 +72,9 @@ class OrderInfoCategoryBackfillTest {
 		orderItemMapper = mock(OrderItemMapper.class);
 		remoteGoodsSpuService = mock(RemoteGoodsSpuService.class);
 
+		com.aryn.cloud.order.service.OrderStaffNotifyService staffNotifyService = mock(com.aryn.cloud.order.service.OrderStaffNotifyService.class);
+		@SuppressWarnings("unchecked")
+		ObjectProvider<com.aryn.cloud.order.service.ISharedCartService> sharedCartProvider = mock(ObjectProvider.class);
 		service = new OrderInfoServiceImpl(mock(IOrderConfigService.class), mock(Kuaidi100Utils.class),
 				orderItemMapper, mock(RemoteGoodsSkuService.class), remoteGoodsSpuService,
 				mock(com.aryn.cloud.user.api.remote.RemoteMallUserService.class), mock(IOrderItemService.class),
@@ -89,7 +92,7 @@ class OrderInfoCategoryBackfillTest {
 				mock(PurchaseSceneValidator.class), mock(DeliveryContextValidator.class),
 				mock(OrderPaySuccessNotifier.class), mock(RemotePromotionEngine.class),
 				mock(com.aryn.cloud.upms.api.remote.RemoteMaterialService.class),
-				mock(ObjectProvider.class));
+				sharedCartProvider, staffNotifyService);
 		ReflectionTestUtils.setField(service, "baseMapper", orderInfoMapper);
 	}
 

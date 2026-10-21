@@ -1,5 +1,9 @@
 <script lang="ts" setup>
-import type { FormInstance } from 'element-plus';
+import type {
+  FormInstance,
+  UploadProps,
+  UploadRequestOptions,
+} from 'element-plus';
 
 import { reactive, ref } from 'vue';
 
@@ -17,10 +21,12 @@ import {
   ElRadioGroup,
   ElRow,
   ElSelect,
+  ElUpload,
 } from 'element-plus';
 
 import { addObj, editObj, getById } from '#/api/upms/tenant';
 import { getList } from '#/api/upms/tenant-package';
+import { uploadFile } from '#/api/upms/upload';
 import { useDict } from '#/utils/dict';
 
 const emit = defineEmits(['initPage']);
@@ -33,6 +39,7 @@ interface State {
     datatimes: Array<string>;
     email: string;
     id: string;
+    logoUrl: string;
     name: string;
     packageId: string;
     password: string;
@@ -52,6 +59,7 @@ const state = reactive<State>({
   form: {
     id: '',
     name: '',
+    logoUrl: '',
     status: '1',
     // 默认综合模式：与 db 中 sys_tenant.business_mode 的默认值一致
     businessMode: '1',
@@ -234,6 +242,29 @@ const getTenantPackageList = () => {
     state.tenantPackageList = response;
   });
 };
+
+const LOGO_MAX_SIZE_MB = 2;
+
+const beforeLogoUpload: UploadProps['beforeUpload'] = (rawFile) => {
+  if (!rawFile.type.startsWith('image/')) {
+    ElMessage.error('Logo 必须是图片文件！');
+    return false;
+  }
+  if (rawFile.size / 1024 / 1024 > LOGO_MAX_SIZE_MB) {
+    ElMessage.error(`Logo 大小不能超过 ${LOGO_MAX_SIZE_MB}MB！`);
+    return false;
+  }
+  return true;
+};
+
+const handleLogoUpload = async (options: UploadRequestOptions) => {
+  const formData = new FormData();
+  formData.append('file', options.file);
+  formData.append('type', '1');
+  const material = (await uploadFile(formData)) as undefined | { url?: string };
+  state.form.logoUrl = material?.url ?? '';
+};
+
 defineExpose({
   initForm,
 });
@@ -256,6 +287,42 @@ defineExpose({
         <ElCol :span="12">
           <ElFormItem label="租户名" prop="name">
             <ElInput v-model="state.form.name" show-word-limit maxlength="50" />
+          </ElFormItem>
+          <ElFormItem label="租户 Logo">
+            <div class="tenant-logo">
+              <img
+                v-if="state.form.logoUrl"
+                :src="state.form.logoUrl"
+                alt="租户 Logo"
+                class="tenant-logo__preview"
+              />
+              <div class="tenant-logo__actions">
+                <ElUpload
+                  action="#"
+                  accept="image/*"
+                  :show-file-list="false"
+                  :before-upload="beforeLogoUpload"
+                  :http-request="handleLogoUpload"
+                >
+                  <ElButton size="small" type="primary">
+                    {{ state.form.logoUrl ? '重新上传' : '上传 Logo' }}
+                  </ElButton>
+                </ElUpload>
+                <ElButton
+                  v-if="state.form.logoUrl"
+                  size="small"
+                  text
+                  type="danger"
+                  @click="state.form.logoUrl = ''"
+                >
+                  清除
+                </ElButton>
+              </div>
+            </div>
+            <div class="tenant-logo__tip">
+              用于管理端顶部品牌展示，建议 1:1、200×200，支持
+              JPG/PNG/WEBP，不超过 2MB
+            </div>
           </ElFormItem>
           <ElFormItem label="官网" prop="siteUrl">
             <ElInput v-model="state.form.siteUrl" />
@@ -345,3 +412,33 @@ defineExpose({
     </template>
   </ElDialog>
 </template>
+
+<style scoped>
+.tenant-logo {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.tenant-logo__preview {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  background: var(--el-fill-color-lighter);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+}
+
+.tenant-logo__actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.tenant-logo__tip {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--el-text-color-secondary);
+}
+</style>

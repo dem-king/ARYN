@@ -7,6 +7,7 @@ import { Handbag, ShoppingCart } from '@element-plus/icons-vue';
 import { ElButton, ElIcon, ElTag } from 'element-plus';
 
 import { shouldShowOriginalPrice as showOriginalPrice } from '../common/retail-preview/price-display';
+import { shouldShowSubtitle } from '../common/retail-preview/subtitle-display';
 
 interface ShowData {
   commonStyle?: DiyCommonStyle | null;
@@ -163,7 +164,7 @@ const dynamicGoodsStyles = computed(() => {
                 </div>
                 <div
                   class="goods-info-desc"
-                  v-if="showData.showDesc"
+                  v-if="showData.showDesc && shouldShowSubtitle(item)"
                   :style="{
                     color: showData.descColor,
                     fontSize: `${showData.descSize}px`,

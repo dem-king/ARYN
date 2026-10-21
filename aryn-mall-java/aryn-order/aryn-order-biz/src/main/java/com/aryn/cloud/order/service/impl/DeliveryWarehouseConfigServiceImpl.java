@@ -4,7 +4,7 @@ package com.aryn.cloud.order.service.impl;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.aryn.cloud.common.security.util.SecurityUtils;
+import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.order.api.entity.DeliveryWarehouseConfig;
 import com.aryn.cloud.order.mapper.DeliveryWarehouseConfigMapper;
 import com.aryn.cloud.order.service.IDeliveryWarehouseConfigService;
@@ -36,7 +36,7 @@ public class DeliveryWarehouseConfigServiceImpl extends ServiceImpl<DeliveryWare
 		DeliveryWarehouseConfig existing = getConfig();
 		if (existing == null) {
 			if (StrUtil.isBlank(config.getTenantId())) {
-				config.setTenantId(SecurityUtils.getTenantId());
+				config.setTenantId(ArynTenantContextHolder.getTenantId());
 			}
 			return save(config);
 		}

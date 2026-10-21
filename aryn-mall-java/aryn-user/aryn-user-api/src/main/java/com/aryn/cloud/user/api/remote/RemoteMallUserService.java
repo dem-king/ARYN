@@ -5,6 +5,7 @@ import com.aryn.cloud.user.api.entity.UserInfo;
 import com.aryn.cloud.user.api.vo.UserInfoVO;
 import com.aryn.cloud.user.api.vo.MemberBenefitsVO;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 public interface RemoteMallUserService {
@@ -40,5 +41,12 @@ public interface RemoteMallUserService {
 	 * @return 用户信息列表（不含密码）
 	 */
 	List<UserInfoVO> searchUsersForBinding(String keyword, int limit);
+
+	/**
+	 * 查询用户注册时间（新人资格时效判定用；createTime 不随通用 VO 出参）。
+	 * @param userId 用户ID
+	 * @return 注册时间；用户不存在返回 null
+	 */
+	LocalDateTime getUserRegisterTime(String userId);
 
 }

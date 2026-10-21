@@ -18,4 +18,76 @@
         ORDER BY create_time ASC
         LIMIT #{limit}
     </select>
+    <select id="selectByMessageIds" resultType="com.aryn.cloud.message.api.entity.MessageDispatchTask">
+        SELECT *
+        FROM message_dispatch_task
+        WHERE tenant_id = #{tenantId}
+          AND del_flag = '0'
+          AND message_id IN
+        <foreach collection="messageIds" item="messageId" open="(" separator="," close=")">
+            #{messageId}
+        </foreach>
+        ORDER BY create_time ASC
+    </select>
+    <select id="selectByMessageId" resultType="com.aryn.cloud.message.api.entity.MessageDispatchTask">
+        SELECT *
+        FROM message_dispatch_task
+        WHERE tenant_id = #{tenantId}
+          AND message_id = #{messageId}
+          AND del_flag = '0'
+        ORDER BY create_time ASC
+    </select>
+    <update id="resetFailedTasks">
+        UPDATE message_dispatch_task
+        SET status = 'PENDING',
+            failure_count = 0,
+            retry_count = 0,
+            error_summary = NULL,
+            last_heartbeat_time = NOW(),
+            update_by = #{operatorId},
+            update_time = NOW()
+        WHERE tenant_id = #{tenantId}
+          AND del_flag = '0'
+          AND status IN ('FAILED', 'PARTIAL_FAILED')
+          AND id IN
+        <foreach collection="taskIds" item="taskId" open="(" separator="," close=")">
+            #{taskId}
+        </foreach>
+    </update>
+    <update id="resetTasksForRepublish">
+        UPDATE message_dispatch_task
+        SET status = 'PENDING',
+            failure_count = 0,
+            retry_count = 0,
+            error_summary = NULL,
+            last_heartbeat_time = NOW(),
+            update_by = #{operatorId},
+            update_time = NOW()
+        WHERE tenant_id = #{tenantId}
+          AND del_flag = '0'
+          AND status &lt;&gt; 'SUCCEEDED'
+          AND id IN
+        <foreach collection="taskIds" item="taskId" open="(" separator="," close=")">
+            #{taskId}
+        </foreach>
+    </update>
+    <update id="cancelPendingTasks">
+        UPDATE message_dispatch_task
+        SET status = 'CANCELED',
+            update_by = #{operatorId},
+            update_time = NOW()
+        WHERE tenant_id = #{tenantId}
+          AND message_id = #{messageId}
+          AND del_flag = '0'
+          AND status = 'PENDING'
+    </update>
+    <update id="markCanceled">
+        UPDATE message_dispatch_task
+        SET status = 'CANCELED',
+            update_time = NOW()
+        WHERE tenant_id = #{tenantId}
+          AND id = #{taskId}
+          AND del_flag = '0'
+          AND status IN ('PENDING', 'RUNNING')
+    </update>
 </mapper>

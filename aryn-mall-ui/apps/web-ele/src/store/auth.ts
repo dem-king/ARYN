@@ -118,8 +118,12 @@ export const useAuthStore = defineStore('auth', () => {
       userInfo,
     };
   }
-  async function sendSmsCode(type: string, phone: string) {
-    await sendCode(type, phone);
+  async function sendSmsCode(
+    type: string,
+    phone: string,
+    captchaVerification?: string,
+  ) {
+    await sendCode(type, phone, captchaVerification);
   }
   async function logout(redirect: boolean = true) {
     try {

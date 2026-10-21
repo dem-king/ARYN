@@ -100,6 +100,19 @@ describe('cart destination contract', () => {
     expect(sheet).toContain('normalizeQuantity')
   })
 
+  it('uses the caller-known promotional price and caps the quantity at its limit', () => {
+    // 确认弹层只认识 quick-cart 的售价；楼层/商详标的是活动价，调用方必须把
+    // 成交价与限购传进来，否则会出现「卡片 ¥0.01、弹层小计 ¥12.90」。
+    const sheet = source('src/components/shared-cart-destination-sheet/index.vue')
+    expect(sheet).toContain('payload.unitPrice')
+    expect(sheet).toContain('payload.maxQuantity')
+    expect(sheet).toContain('payload.quantityHint')
+
+    const quickCart = source('src/composables/useQuickCart.ts')
+    expect(quickCart).toContain('resolveQuickAddPrice')
+    expect(quickCart).toContain('maxQuantity: finalPricing.maxQuantity')
+  })
+
   it('lets the buyer type a large quantity instead of tapping add repeatedly', () => {
     // 这一条是这个需求的核心回归点：船供采购一次几十上百（青菜几十斤），
     // 若只是「点一次加 MOQ 件」，用户必须反复点击凑数量，共享车还会堆重复行。
@@ -110,9 +123,11 @@ describe('cart destination contract', () => {
     expect(sheet).toContain('quantity-input')
 
     const quickCart = source('src/composables/useQuickCart.ts')
-    // 单规格快捷加购把数量规则交给确认弹层（否则弹层没有数量输入）
+    // 单规格快捷加购把数量规则交给确认弹层（否则弹层没有数量输入）；
+    // 分类选货页还会在同一处带上已锁定的共享车，不能因此丢掉 rule
     expect(quickCart).toContain('resolveQuantityRule')
-    expect(quickCart).toContain('{ rule:')
+    expect(quickCart).toMatch(/\{\s*rule[,\s}]/)
+    expect(quickCart).toContain('sharedCart: options.sharedCart')
   })
 
   it('aborts the pending confirmation when the page hosting it is left', () => {
@@ -142,5 +157,20 @@ describe('cart destination contract', () => {
     expect(shipSupply).toContain('addSharedCartItem')
     // 选货页上下文明确，不需要也不应该再弹目的地选择
     expect(shipSupply.includes('submitCartAdd')).toBe(false)
+  })
+
+  it('locks the destination on the shared category picker without skipping quantity confirm', () => {
+    const composable = source('src/composables/useCartDestination.ts')
+    // 传了明确的共享车时不再刷新「进行中单据」并询问去向
+    expect(composable).toContain('options.sharedCart')
+    expect(composable).toMatch(/lockDestination:\s*!!forcedCart/)
+
+    const sheet = source('src/components/shared-cart-destination-sheet/index.vue')
+    // 锁定时只保留共享车按钮：分类选货页没有「加进个人车」的语义
+    expect(sheet).toContain('lockDestination')
+    const personalButtonAt = sheet.indexOf('v-if="!lockDestination"')
+    const personalAnswerAt = sheet.indexOf('confirm(\'personal\')')
+    expect(personalButtonAt).toBeGreaterThan(-1)
+    expect(personalAnswerAt).toBeGreaterThan(personalButtonAt)
   })
 })

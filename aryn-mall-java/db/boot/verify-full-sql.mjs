@@ -110,6 +110,7 @@ const required = [
   'uk_vessel_member_unique',
   'idx_order_info_scene',
   'uk_fulfillment_pick_item',
+  'ADD COLUMN `attr_tags`',
 ];
 
 for (const token of required) {

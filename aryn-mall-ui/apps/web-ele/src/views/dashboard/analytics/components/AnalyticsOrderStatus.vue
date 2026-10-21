@@ -125,7 +125,7 @@ const handleRefund = (status: string) => {
         <div class="text-2xl font-bold">
           <CountTo :end-val="data.afterSales" />
         </div>
-        <div class="text-xs text-gray-500">售后中</div>
+        <div class="text-xs text-gray-500">售后待审核</div>
       </div>
 
       <div

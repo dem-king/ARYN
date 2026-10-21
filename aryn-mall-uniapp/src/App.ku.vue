@@ -11,6 +11,7 @@ import {
   retryTenantBinding,
 } from '@/api/core/tenant-identity'
 import type { TenantGuardState } from '@/api/core/tenant-identity'
+import { OVERLAY_Z_INDEX } from '@/utils/overlay'
 
 // 租户构建的启动守卫 UI：安全边界在各请求入口（instance/file/socket/pay），
 // 这里只负责最早发起校验、在 blocked 时给全屏阻断界面与重试入口。
@@ -64,9 +65,22 @@ const themeVars = computed(() => mallThemeStore.themeVars)
     :theme-vars="themeVars"
   >
     <ku-root-view />
-    <wd-notify />
+    <!--
+      全局反馈层显式定级（见 @/utils/overlay）：库默认只有 99/100，页面里的
+      底部弹层普遍 900/901（最高 1020），提示会被盖住 → 用户看到「点了没反应」。
+      这里保留 wd-toast / wd-message-box 的默认 selector 实例，并一并抬高层级。
+
+      注意（2026-10-18 复核结论）：**不要**指望「页面里裸调 useToast()/useMessage()」
+      能命中根组件这两个实例——wot-design-uni 的 useToast 在没有可 inject 的祖先时
+      会自己 provide 一个新 ref，根组件这两个实例属于另一条组件树分支，收不到。
+      页面里要用全局提示请走 `useGlobalToast` / `useGlobalLoading` / `useGlobalMessage`；
+      现存 `pages/delivery/exception-report.vue`、`pages/user/shopping-cart/index.vue`
+      的裸调用是历史遗留（前者无入口、后者「移入收藏夹」确认框可能无反应），
+      与本轮改动无关，待后续统一收敛。
+    -->
+    <wd-notify :z-index="OVERLAY_Z_INDEX.notify" />
     <wd-message-box />
-    <wd-toast />
+    <wd-toast :z-index="OVERLAY_Z_INDEX.toast" />
     <global-loading />
     <global-toast />
     <global-message />

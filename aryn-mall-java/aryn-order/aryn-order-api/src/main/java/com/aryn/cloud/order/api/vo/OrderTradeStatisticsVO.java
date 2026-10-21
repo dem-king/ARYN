@@ -21,7 +21,7 @@ public class OrderTradeStatisticsVO {
 	@Schema(description = "支付买家数")
 	private Integer payBuyerCount;
 
-	@Schema(description = "客单价 (GMV / 支付买家数)")
+	@Schema(description = "客单价 (GMV / 支付订单数)")
 	private BigDecimal averageTicketSize;
 
 	@Schema(description = "售后订单数")

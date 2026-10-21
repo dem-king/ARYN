@@ -44,6 +44,7 @@ import com.aryn.cloud.order.service.IOrderInfoService;
 import com.aryn.cloud.order.service.IOrderItemService;
 import com.aryn.cloud.order.service.ISharedCartService;
 import com.aryn.cloud.order.service.IShoppingCartService;
+import com.aryn.cloud.order.service.OrderStaffNotifyService;
 import com.aryn.cloud.pay.api.constants.PayConstants;
 import com.aryn.cloud.pay.api.dto.CreateOrderReqDTO;
 import com.aryn.cloud.pay.api.enums.PayTradeTypeEnum;
@@ -178,6 +179,9 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 	 * ObjectProvider 注入的是提供者本身，调用 {@code getObject()} 时才解析目标 Bean。
 	 */
 	private final ObjectProvider<ISharedCartService> sharedCartServiceProvider;
+
+	/** 订单事件工作人员通知（新单/取消/退款申请），失败只告警不阻断业务 */
+	private final OrderStaffNotifyService orderStaffNotifyService;
 
 	@Override
 	public IPage<OrderInfo> adminPage(Page page, OrderInfo orderInfo) {
@@ -426,6 +430,30 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 	@GlobalTransactional(rollbackFor = Exception.class)
 	@Transactional(rollbackFor = Exception.class)
 	public String cancelOrder(OrderInfo orderInfo) {
+		return cancelOrder(orderInfo, OrderStaffNotifyService.CancelSource.OTHER);
+	}
+
+	@Override
+	@GlobalTransactional(rollbackFor = Exception.class)
+	@Transactional(rollbackFor = Exception.class)
+	public String cancelOrder(OrderInfo orderInfo, OrderStaffNotifyService.CancelSource source) {
+		String canceledOrderId = doCancelOrder(orderInfo);
+		// 工作人员通知挂事务提交后：回滚时不留「订单没取消却收到消息」的误报；
+		// 通知失败只告警，不影响取消事实（幂等由站内信来源唯一键兜底）
+		OrderStaffNotifyService.CancelSource cancelSource = source == null ? OrderStaffNotifyService.CancelSource.OTHER
+				: source;
+		TransactionalMqUtils.sendAfterCommit(() -> {
+			try {
+				orderStaffNotifyService.notifyOrderCanceled(orderInfo, cancelSource);
+			}
+			catch (RuntimeException exception) {
+				log.warn("订单[" + orderInfo.getId() + "]取消通知发送失败: " + exception.getMessage());
+			}
+		});
+		return canceledOrderId;
+	}
+
+	private String doCancelOrder(OrderInfo orderInfo) {
 		// 货到付款单在待发货阶段可取消：先关待派单任务再取消订单，任务已派单/配送中直接拒绝
 		boolean cashOnDeliveryCancel = MallOrderConstants.PAYMENT_TYPE_3.equals(orderInfo.getPaymentType())
 				&& OrderStatusEnum.WAITING_FOR_DELIVERY.getCode().equals(orderInfo.getStatus())
@@ -499,7 +527,7 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 			throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60003.getCode(),
 					MallErrorCodeEnum.ERROR_60003.getMsg());
 		}
-		return cancelOrder(orderInfo);
+		return cancelOrder(orderInfo, OrderStaffNotifyService.CancelSource.BUYER);
 	}
 
 	@Override
@@ -703,9 +731,12 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 				createOrderDTO.getUserId(), orderItemEntityList);
 		// 营销阶梯价改基价（会员/券之前）
 		PromotionCalculationVO promoCalculation = orderPriceComputeService.applyPromotionLadder(orderInfo, orderItemEntityList);
-		// 促销价（拼团 > 秒杀 > 限时折扣 > 原价）须在会员折扣与优惠券之前落到成交基价，
+		// 新人价限购硬校验：命中新人价的 SKU 整单合计数量必须为 1，超量拒绝下单
+		orderPriceComputeService.assertNewbieQuantityLimit(promoCalculation, orderItemEntityList);
+		// 促销价（拼团 > 秒杀 > 新人价 > 限时折扣 > 原价）须在会员折扣与优惠券之前落到成交基价，
 		// 否则券与会员折扣按原价基数抵扣；历史实现藏在运费分支内，自提/内配恒不生效
-		orderPriceComputeService.orderPromotionPriceHandler(orderItemEntityList, groupBuyPriceBySku);
+		orderPriceComputeService.orderPromotionPriceHandler(orderItemEntityList, groupBuyPriceBySku,
+				orderPriceComputeService.newbiePriceSkuIds(promoCalculation));
 
 		orderPriceComputeService.computeOrderPrice(orderInfo, orderItemEntityList);
 		MemberBenefitsVO memberBenefits = remoteMallUserService.getMemberBenefits(createOrderDTO.getUserId());
@@ -776,8 +807,10 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		}
 		// 营销锁定（须在库存扣减与明细落库前完成：买赠赠品要追加为 0 元明细并参与扣减）
 		PromotionCalculationVO reserved = orderPriceComputeService.reservePromotion(orderInfo, orderItemEntityList);
-		if (reserved != null && reserved.getGifts() != null && !reserved.getGifts().isEmpty()) {
-			appendGiftItems(orderInfo, reserved.getGifts(), orderItemEntityList, goodsSkuList);
+		// 赠品按真实库存过滤：库存不足不赠（确认页同口径已不展示），不阻断付费商品
+		List<PromotionCalculationVO.GiftItem> availableGifts = orderPriceComputeService.availableGifts(reserved);
+		if (!availableGifts.isEmpty()) {
+			appendGiftItems(orderInfo, availableGifts, orderItemEntityList, goodsSkuList);
 		}
 		orderPriceComputeService.orderStockHandler(goodsSkuList, orderItemEntityList);
 		// 秒杀预扣：Redis 秒杀库存扣减 + 单人限购校验，库存不足/超限购阻断整单。
@@ -1077,9 +1110,10 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 				settlementOrderDTO.getUserId(), orderItemEntityList);
 		// 营销阶梯价改基价（会员/券之前）
 		PromotionCalculationVO promoCalculation = orderPriceComputeService.applyPromotionLadder(orderInfo, orderItemEntityList);
-		// 促销价（拼团 > 秒杀 > 限时折扣 > 原价）与下单口径一致，须在会员折扣与优惠券之前应用，
-		// 否则确认页展示金额与提交后的实际应付不一致
-		orderPriceComputeService.orderPromotionPriceHandler(orderItemEntityList, groupBuyPriceBySku);
+		// 促销价（拼团 > 秒杀 > 新人价 > 限时折扣 > 原价）与下单口径一致，须在会员折扣与优惠券之前应用，
+		// 否则确认页展示金额与提交后的实际应付不一致；限购拦截只在提交订单时做，结算页不提前拦
+		orderPriceComputeService.orderPromotionPriceHandler(orderItemEntityList, groupBuyPriceBySku,
+				orderPriceComputeService.newbiePriceSkuIds(promoCalculation));
 
 		orderPriceComputeService.computeOrderPrice(orderInfo, orderItemEntityList);
 		MemberBenefitsVO memberBenefits = remoteMallUserService.getMemberBenefits(settlementOrderDTO.getUserId());
@@ -1087,6 +1121,8 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		orderPriceComputeService.orderCouponHandler(orderInfo, orderItemEntityList);
 		// 整船/整单优惠分摊（券之后）
 		orderPriceComputeService.applyShipWholeDiscount(orderInfo, orderItemEntityList, promoCalculation);
+		// 买赠赠品预览（按真实库存过滤后给确认页展示，与提交同口径）
+		orderInfo.setGiftItems(orderPriceComputeService.availableGifts(promoCalculation));
 		// 5.计算运费（普通快递和商城配送均需收货地址与运费）
 		if (MallOrderConstants.DELIVERY_WAY_1.equals(orderInfo.getDeliveryWay())
 				|| MallOrderConstants.DELIVERY_WAY_3.equals(orderInfo.getDeliveryWay())) {
@@ -1127,13 +1163,16 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 
 	/**
 	 * 买赠赠品追加为 0 元明细（不混入付费数量）；赠品 SKU 参与库存扣减。
+	 *
+	 * <p>赠品独立成行：与付费明细同 SKU 时也并存（订单明细支持同 SKU 多行，
+	 * 库存按 SKU 聚合校验），历史实现把同车赠品静默丢弃导致「买 A 赠 A」不成立。
+	 * 真实库存在 {@code availableGifts} 已校验，此处合成库存仅用于通过扣减口径。
 	 */
 	private void appendGiftItems(OrderInfo orderInfo, List<PromotionCalculationVO.GiftItem> gifts,
 			List<OrderItemEntity> orderItemEntityList, List<GoodsSku> goodsSkuList) {
 		List<String> giftSkuIds = gifts.stream()
 			.map(PromotionCalculationVO.GiftItem::getSkuId)
 			.distinct()
-			.filter(giftSkuId -> orderItemEntityList.stream().noneMatch(item -> giftSkuId.equals(item.getSkuId())))
 			.toList();
 		if (giftSkuIds.isEmpty()) {
 			return;

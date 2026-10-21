@@ -21,6 +21,12 @@ public class ProductStatisticsController {
 
 	private final IProductStatisticsService productStatisticsService;
 
+	@GetMapping("/dashboard")
+	@Operation(summary = "商品侧概览聚合数据")
+	public Result<ProductDashboardStatisticsVO> getProductDashboard(ProductStatisticsDTO dto) {
+		return Result.success(productStatisticsService.getProductDashboard(dto));
+	}
+
 	@GetMapping("/sales/top10")
 	@Operation(summary = "商品销量TOP10")
 	public Result<List<ProductSalesRankVO>> getProductSalesTop10() {

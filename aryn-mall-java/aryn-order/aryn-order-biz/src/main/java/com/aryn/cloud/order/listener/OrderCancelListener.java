@@ -39,7 +39,8 @@ public class OrderCancelListener implements RocketMQListener<OrderConsumerDTO> {
 			OrderInfo orderInfo = orderInfoService.getById(orderConsumerDTO.getOrderId());
 			if (ObjectUtil.isNotNull(orderInfo) && CommonConstants.NO.equals(orderInfo.getPayStatus())
 					&& OrderStatusEnum.WAITING_FOR_PAYMENT.getCode().equals(orderInfo.getStatus())) {
-				orderInfoService.cancelOrder(orderInfo);
+				orderInfoService.cancelOrder(orderInfo,
+						com.aryn.cloud.order.service.OrderStaffNotifyService.CancelSource.TIMEOUT);
 			}
 		}
 		finally {

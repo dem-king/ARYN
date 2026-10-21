@@ -135,6 +135,23 @@
                   AND sys_menu.permission IN ('message:service:agent', 'message:service:supervisor')
             )
         </if>
+        <if test="query.permissions != null and query.permissions.size() > 0">
+            AND EXISTS (
+                SELECT 1
+                FROM sys_user_role AS sys_user_role
+                INNER JOIN sys_role_menu AS sys_role_menu ON sys_role_menu.tenant_id = #{query.tenantId}
+                    AND sys_role_menu.role_id = sys_user_role.role_id
+                INNER JOIN sys_menu ON sys_menu.id = sys_role_menu.menu_id
+                    AND sys_menu.del_flag = '0'
+                WHERE sys_user_role.tenant_id = #{query.tenantId}
+                  AND sys_user_role.del_flag = '0'
+                  AND sys_user_role.user_id = sys_user.id
+                  AND sys_menu.permission IN
+                <foreach collection="query.permissions" item="permission" open="(" separator="," close=")">
+                    #{permission}
+                </foreach>
+            )
+        </if>
         ORDER BY sys_user.id ASC
         LIMIT #{fetchSize}
     </select>

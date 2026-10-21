@@ -12,6 +12,12 @@ interface Props {
   backgroundColor?: string
   /** 底色非白时的前景色（标题/图标），如品牌色页头配白字 */
   textColor?: string
+  /**
+   * 导航栏背景图/渐变：装修页「导航栏背景跟随首个区块」在左右渐变时
+   * 整段复用首区块的 linear-gradient，接缝两侧逐列同色。
+   * 缺省不注入，其余调用方行为不变。
+   */
+  backgroundImage?: string
 }
 const props = withDefaults(defineProps<Props>(), {
   title: '',
@@ -19,15 +25,26 @@ const props = withDefaults(defineProps<Props>(), {
   leftArrow: true,
   backgroundColor: '',
   textColor: '',
+  backgroundImage: '',
 })
 
 const isCanBack = ref(true)
 const router = useRouter()
 
-const tinted = computed(() => !!props.backgroundColor)
-const navbarStyle = computed(() =>
-  props.backgroundColor ? `background-color:${props.backgroundColor};` : '',
-)
+const tinted = computed(() => !!props.backgroundColor || !!props.backgroundImage)
+const navbarStyle = computed(() => {
+  const style: string[] = []
+  if (props.backgroundColor) {
+    style.push(`background-color:${props.backgroundColor};`)
+  }
+  if (props.backgroundImage) {
+    // 100% 100% 让渐变正好铺满导航条；左右渐变方向不受拉伸影响
+    style.push(`background-image:${props.backgroundImage};`)
+    style.push('background-repeat:no-repeat;')
+    style.push('background-size:100% 100%;')
+  }
+  return style.join('')
+})
 const foreground = computed(() => (tinted.value ? props.textColor || '#ffffff' : ''))
 const titleStyle = computed(() =>
   tinted.value ? `color:${foreground.value};` : '',

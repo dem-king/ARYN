@@ -5,8 +5,8 @@ import type {
   UploadUserFile,
 } from 'element-plus';
 
-import { defineAsyncComponent, reactive, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { defineAsyncComponent, reactive, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 
 import {
   ArrowRightBold,
@@ -150,11 +150,28 @@ const shortcuts = [
   },
 ];
 const $route = useRouter();
+const route = useRoute();
 const showSearch = ref(true);
 const loading = ref(false);
 const deliverRef = ref();
 const printRef = ref();
 const activeType = ref('');
+
+const applyRouteStatus = () => {
+  const raw = route.query.status;
+  const status = Array.isArray(raw) ? raw[0] : raw;
+  const next =
+    typeof status === 'string' &&
+    activeTypeOptions.value.some((item) => item.value === status)
+      ? status
+      : '';
+  if (activeType.value === next) {
+    return false;
+  }
+  activeType.value = next;
+  state.page.currentPage = 1;
+  return true;
+};
 
 const initPage = async () => {
   loading.value = true;
@@ -245,6 +262,13 @@ const cancel = (id: string) => {
  */
 const tabHandle = (event: any) => {
   activeType.value = event;
+  const query = { ...route.query };
+  if (event) {
+    query.status = event;
+  } else {
+    delete query.status;
+  }
+  $route.replace({ path: route.path, query });
   initPage();
 };
 /**
@@ -408,7 +432,17 @@ const handleExport = () => {
     });
   });
 };
+applyRouteStatus();
 initPage();
+
+watch(
+  () => route.query.status,
+  () => {
+    if (applyRouteStatus()) {
+      initPage();
+    }
+  },
+);
 </script>
 <template>
   <div class="hx-layout-container">

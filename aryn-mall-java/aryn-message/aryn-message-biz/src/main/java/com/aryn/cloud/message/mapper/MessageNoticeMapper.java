@@ -14,5 +14,10 @@ public interface MessageNoticeMapper extends BaseMapper<MessageNotice> {
 	MessageNotice selectBySource(@Param("tenantId") String tenantId, @Param("sourceType") String sourceType,
 			@Param("sourceKey") String sourceKey);
 
+	String selectStatus(@Param("tenantId") String tenantId, @Param("id") String id);
+
 	int insertIgnoreSource(MessageNotice notice);
+
+	int logicDeleteDraft(@Param("tenantId") String tenantId, @Param("id") String id,
+			@Param("operatorId") String operatorId);
 }

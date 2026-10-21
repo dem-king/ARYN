@@ -5,6 +5,7 @@ import { computed, ref, watch } from 'vue'
 
 import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 import { loadGoodsRecommend } from '@/components/diy/retail-data'
+import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
 import { useDiyStyle } from '@/composables/useDiyStyle'
 
 const props = defineProps({
@@ -57,55 +58,62 @@ function originalPriceText(item: any) {
 
 <template>
   <view v-if="goodsList.length > 0" class="gr-box" :style="dynamicStyles">
-    <view v-if="componentProps.title" class="gr-head">
-      <view class="gr-bar" />
-      <text class="gr-title">
-        {{ componentProps.title }}
-      </text>
-    </view>
-    <scroll-view class="gr-scroll" scroll-x :scroll-with-animation="true">
-      <view class="gr-track">
-        <view
-          v-for="item in goodsList"
-          :key="item.id"
-          class="gr-card"
-          @click="openGoods(item.id)"
-        >
-          <image
-            v-if="item.imageUrl"
-            class="gr-pic"
-            :src="resolveImageSrc(item.imageUrl)"
-            mode="aspectFill"
-            lazy-load
-          />
-          <view v-else class="gr-pic gr-pic--empty">
-            商品
-          </view>
-          <view class="gr-name">
-            {{ item.name }}
-          </view>
-          <view class="gr-price-line">
-            <text v-if="componentProps.showPrice !== false" class="gr-price">
-              <text class="gr-price-symbol">
-                ¥
-              </text>{{ item.price.toFixed(2) }}
-            </text>
-            <text
-              v-if="componentProps.showOriginalPrice
-                && shouldShowOriginalPrice(item.price, item.originalPrice)"
-              class="gr-price-original"
-            >
-              {{ originalPriceText(item) }}
-            </text>
+    <view class="gr-inner">
+      <view v-if="componentProps.title" class="gr-head">
+        <view class="gr-bar" />
+        <text class="gr-title">
+          {{ componentProps.title }}
+        </text>
+      </view>
+      <scroll-view class="gr-scroll" scroll-x :scroll-with-animation="true">
+        <view class="gr-track">
+          <view
+            v-for="item in goodsList"
+            :key="item.id"
+            class="gr-card"
+            @click="openGoods(item.id)"
+          >
+            <image
+              v-if="item.imageUrl"
+              class="gr-pic"
+              :src="resolveImageSrc(item.imageUrl)"
+              mode="aspectFill"
+              lazy-load
+            />
+            <view v-else class="gr-pic gr-pic--empty">
+              商品
+            </view>
+            <view class="gr-name">
+              {{ item.name }}
+            </view>
+            <view v-if="shouldShowSubtitle(item.name, item.subTitle)" class="gr-subtitle">
+              {{ item.subTitle }}
+            </view>
+            <view class="gr-price-line">
+              <text v-if="componentProps.showPrice !== false" class="gr-price">
+                <text class="gr-price-symbol">
+                  ¥
+                </text>{{ item.price.toFixed(2) }}
+              </text>
+              <text
+                v-if="componentProps.showOriginalPrice
+                  && shouldShowOriginalPrice(item.price, item.originalPrice)"
+                class="gr-price-original"
+              >
+                {{ originalPriceText(item) }}
+              </text>
+            </view>
           </view>
         </view>
-      </view>
-    </scroll-view>
+      </scroll-view>
+    </view>
   </view>
 </template>
 
 <style lang="scss" scoped>
-.gr-box {
+/* 留白放在内层而不是根节点：根节点的 padding 会被装修 commonStyle 的
+   内联样式覆盖成 0（配置缺省即零值），挂根上会让卡片直接顶到屏幕边缘 */
+.gr-inner {
   padding: 20rpx;
 }
 
@@ -171,8 +179,22 @@ function originalPriceText(item: any) {
   height: 74rpx;
   display: -webkit-box;
   overflow: hidden;
+  /* 复位横滑轨道的 nowrap（.gr-scroll），否则商品名不换行会被卡片硬切成半截 */
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: break-word;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
+}
+
+.gr-subtitle {
+  padding: 2rpx 12rpx 0;
+  overflow: hidden;
+  color: #909399;
+  font-size: 20rpx;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .gr-price-line {

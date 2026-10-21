@@ -6,10 +6,15 @@ import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
-import com.aryn.cloud.common.security.util.SecurityUtils;
+import com.aryn.cloud.product.api.entity.GoodsSku;
+import com.aryn.cloud.product.api.remote.RemoteGoodsSkuService;
+import com.aryn.cloud.promotion.api.dto.PromotionContextDTO;
 import com.aryn.cloud.promotion.api.entity.PromotionActivity;
+import com.aryn.cloud.promotion.api.vo.PromotionCalculationVO;
 import com.aryn.cloud.promotion.mapper.PromotionActivityMapper;
+import com.aryn.cloud.promotion.service.PromotionEngineService;
 import com.aryn.cloud.promotion.service.impl.ActivityPublishGovernanceService;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.AfterEach;
@@ -20,17 +25,17 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
-import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.io.Serializable;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -48,9 +53,13 @@ class ShipActivityControllerTest {
 	@Mock
 	private ActivityPublishGovernanceService governanceService;
 
-	private ShipActivityController controller;
+	@Mock
+	private PromotionEngineService engineService;
 
-	private MockedStatic<SecurityUtils> securityUtils;
+	@Mock
+	private RemoteGoodsSkuService goodsSkuService;
+
+	private ShipActivityController controller;
 
 	@BeforeAll
 	static void initTableMeta() {
@@ -60,14 +69,14 @@ class ShipActivityControllerTest {
 
 	@BeforeEach
 	void setUp() {
-		controller = new ShipActivityController(activityMapper, governanceService);
-		securityUtils = mockStatic(SecurityUtils.class);
-		securityUtils.when(SecurityUtils::getTenantId).thenReturn("tenant-1");
+		controller = new ShipActivityController(activityMapper, governanceService, engineService);
+		ReflectionTestUtils.setField(controller, "remoteGoodsSkuService", goodsSkuService);
+		ArynTenantContextHolder.setTenantId("tenant-1");
 	}
 
 	@AfterEach
 	void tearDown() {
-		securityUtils.close();
+		ArynTenantContextHolder.removeTenantId();
 	}
 
 	private PromotionActivity activity(String status, LocalDateTime start, LocalDateTime end) {
@@ -191,6 +200,37 @@ class ShipActivityControllerTest {
 		verify(activityMapper).updateById(captor.capture());
 		assertThat(captor.getValue().getStatus()).isEqualTo(PromotionActivity.STATUS_PUBLISHED);
 		assertThat(captor.getValue().getPublishTime()).isNotNull();
+	}
+
+	@Test
+	@DisplayName("发布拒绝档价不低于售价的阶梯价活动")
+	void publishRejectsLadderPriceNotBelowSales() {
+		PromotionActivity ladder = activity(PromotionActivity.STATUS_DRAFT, LocalDateTime.now().minusDays(1),
+				LocalDateTime.now().plusDays(1));
+		ladder.setActivityType(PromotionActivity.TYPE_LADDER_PRICE);
+		ladder.setScopeType("2");
+		ladder.setScopeValue("sku-1");
+		ladder.setRules("{\"skuLadders\":[{\"skuId\":\"sku-1\",\"ladders\":[{\"minQty\":10,\"unitPrice\":30}]}]}");
+		when(activityMapper.selectOne(any())).thenReturn(ladder);
+		GoodsSku sku = new GoodsSku();
+		sku.setId("sku-1");
+		sku.setSalesPrice(new BigDecimal("28.5"));
+		when(goodsSkuService.getBySkuIds(List.of("sku-1"))).thenReturn(List.of(sku));
+
+		assertThatThrownBy(() -> controller.publish("act-1", false))
+			.isInstanceOfSatisfying(ArynBusinessException.class,
+					ex -> assertThat(ex.getMsg()).contains("不低于当前售价"));
+		verify(activityMapper, never()).updateById(any(PromotionActivity.class));
+	}
+
+	@Test
+	@DisplayName("试算委托引擎预览并返回结果")
+	void dryRunDelegatesToEngine() {
+		PromotionCalculationVO vo = new PromotionCalculationVO();
+		when(engineService.preview(any(PromotionContextDTO.class))).thenReturn(vo);
+
+		assertThat(controller.dryRun(new PromotionContextDTO()).getData()).isSameAs(vo);
+		verify(engineService).preview(any(PromotionContextDTO.class));
 	}
 
 	@Test

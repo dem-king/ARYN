@@ -60,7 +60,7 @@ public class SysUploadController {
 	public Result upload(@RequestPart("file") MultipartFile file,
 			@RequestParam(value = "groupId", required = false) String groupId,
 			@RequestParam(value = "type", required = false) String type) throws Exception {
-		uploadFileValidator.validate(file);
+		uploadFileValidator.validate(file, type);
 		SysStorageConfigDTO sysStorageConfig = sysStorageConfigService.getConfig();
 		if (ObjectUtil.isNull(sysStorageConfig)) {
 			throw new ArynBusinessException("当前租户未配置启用的文件存储，请前往系统设置-文件存储配置新增或启用配置");

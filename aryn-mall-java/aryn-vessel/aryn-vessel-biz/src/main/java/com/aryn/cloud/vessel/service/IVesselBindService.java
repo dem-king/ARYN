@@ -5,6 +5,8 @@ import com.aryn.cloud.vessel.api.dto.VesselBindAuditDTO;
 import com.aryn.cloud.vessel.api.dto.VesselMemberAddDTO;
 import com.aryn.cloud.vessel.api.entity.VesselInviteCode;
 import com.aryn.cloud.vessel.api.vo.VesselBindApplyVO;
+import com.aryn.cloud.vessel.api.vo.VesselBindPrecheckVO;
+import com.aryn.cloud.vessel.api.vo.VesselBindVesselOptionVO;
 import com.aryn.cloud.vessel.api.vo.VesselMemberVO;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -119,6 +121,22 @@ public interface IVesselBindService {
 	IPage<VesselBindApplyVO> adminPage(Page<VesselBindApplyVO> page, String tenantId, String status, String vesselName);
 
 	/**
+	 * 审核预检：打开审核弹窗时告诉运营「这条申请的船在不在系统里」。
+	 *
+	 * <p>按申请单填写的 IMO/呼号、船名依次在在营船舶里检索，返回一句话结论与候选列表，
+	 * 供前端预选审核方式。只读，不写库。
+	 */
+	VesselBindPrecheckVO precheckApply(String tenantId, String applyId);
+
+	/**
+	 * 候选船舶检索（审核弹窗「绑定已有船舶」下拉用）。
+	 *
+	 * <p>仅返回在营船舶，且只带认船需要的字段（不下发整份档案）。
+	 * 关键字为空时返回最近创建的若干条，便于直接点选。
+	 */
+	List<VesselBindVesselOptionVO> searchVesselOptions(String tenantId, String keyword);
+
+	/**
 	 * 审核通过。船舶不存在时可先建船再绑定（对应「船还没录入系统」的场景）。
 	 *
 	 * @return 实际绑定的船舶ID
@@ -129,5 +147,16 @@ public interface IVesselBindService {
 	 * 审核驳回。
 	 */
 	void rejectApply(String tenantId, String adminUserId, String applyId, String auditRemark);
+
+	/**
+	 * 管理端解绑：把某个用户从船上移除。
+	 *
+	 * <p>存在的理由是「误绑需要退路」：审核通过后此前没有任何管理端解绑入口，
+	 * 绑错了只能让用户自己去 C 端退出（而用户往往正是不会操作的那个人）。
+	 *
+	 * <p>约束与 C 端退出对称：不能移除发起人（否则该船没有管理角色），
+	 * 被移除后本人的有效邀请码一并作废（与 {@link #leaveShip} 同口径）。
+	 */
+	void adminUnbindMember(String tenantId, String adminUserId, String vesselId, String userId, String reason);
 
 }

@@ -1,14 +1,13 @@
 <script setup lang="ts">
 import type { ImageCubeItem, ImageCubeLayout } from '../types';
 
-import { ref, watch } from 'vue';
+import { defineAsyncComponent, ref, watch } from 'vue';
 
 import { Delete } from '@element-plus/icons-vue';
 import {
   ElButton,
   ElForm,
   ElFormItem,
-  ElInput,
   ElRadio,
   ElRadioGroup,
   ElTooltip,
@@ -18,7 +17,6 @@ import {
   cloneDesignerValue,
   isSameDesignerValue,
 } from '../../../../page-designer/schema/clone';
-import CommonStyle from '../../common/common-style/index.vue';
 import LinkUrl from '../../common/link-url/index.vue';
 import { IMAGE_CUBE_LAYOUT_CELLS } from '../types';
 
@@ -26,6 +24,10 @@ const props = defineProps<{ modelValue: Record<string, unknown> }>();
 const emit = defineEmits<{
   'update:modelValue': [value: Record<string, unknown>];
 }>();
+
+const SelectMaterial = defineAsyncComponent(
+  () => import('#/components/select-material/index.vue'),
+);
 
 const form = ref(cloneDesignerValue(props.modelValue));
 
@@ -116,23 +118,17 @@ function onRemoveItem(index: number) {
             />
           </ElTooltip>
         </header>
-        <ElFormItem label="图片地址">
-          <ElInput
-            v-model="item.url"
-            clearable
-            placeholder="建议尺寸与格位比例接近"
-          />
+        <ElFormItem label="图片">
+          <div class="cube-image-field">
+            <SelectMaterial v-model="item.url" :can-choose-images-num="1" />
+            <p class="cube-image-tip">建议尺寸与格位比例接近</p>
+          </div>
         </ElFormItem>
         <ElFormItem label="跳转链接">
           <LinkUrl v-model="item.link" />
         </ElFormItem>
       </section>
     </div>
-    <div class="retail-setting__section">通用样式</div>
-    <CommonStyle
-      :model-value="form.commonStyle as never"
-      @update:model-value="form.commonStyle = $event"
-    />
   </ElForm>
 </template>
 
@@ -160,10 +156,13 @@ function onRemoveItem(index: number) {
   margin-bottom: 10px;
 }
 
-.retail-setting__section {
-  padding: 12px 0 6px;
-  margin-top: 12px;
-  font-weight: 600;
-  border-top: 1px solid var(--el-border-color-lighter);
+.cube-image-field {
+  display: flex;
+  flex-direction: column;
+}
+
+.cube-image-tip {
+  margin-top: 6px;
+  color: #a8abb2;
 }
 </style>

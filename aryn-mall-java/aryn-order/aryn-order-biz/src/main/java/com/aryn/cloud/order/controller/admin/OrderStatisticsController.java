@@ -4,6 +4,7 @@ import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.order.api.dto.OrderStatisticsDTO;
 import com.aryn.cloud.order.api.vo.*;
 import com.aryn.cloud.order.service.IOrderStatisticsService;
+import com.aryn.cloud.order.service.impl.OrderDashboardCacheService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -20,6 +21,21 @@ import java.util.List;
 public class OrderStatisticsController {
 
 	private final IOrderStatisticsService orderStatisticsService;
+
+	private final OrderDashboardCacheService orderDashboardCacheService;
+
+	@GetMapping("/dashboard")
+	@Operation(summary = "订单侧概览聚合数据")
+	public Result<OrderDashboardStatisticsVO> getOrderDashboardStatistics(OrderStatisticsDTO dto) {
+		return Result.success(orderDashboardCacheService.getOrLoad(dto,
+				() -> orderStatisticsService.getOrderDashboardStatistics(dto)));
+	}
+
+	@GetMapping("/channel")
+	@Operation(summary = "渠道贡献")
+	public Result<List<ChannelContributionVO>> getChannelContribution(OrderStatisticsDTO dto) {
+		return Result.success(orderStatisticsService.getChannelContribution(dto));
+	}
 
 	@GetMapping("/trade")
 	@Operation(summary = "统计订单交易数据")

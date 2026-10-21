@@ -7,6 +7,7 @@ import com.aryn.cloud.common.log.annotation.SysLog;
 import com.aryn.cloud.common.security.entity.ArynUser;
 import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.message.api.dto.notice.NoticeSaveRequest;
+import com.aryn.cloud.message.api.vo.notice.NoticeRecipientItemVO;
 import com.aryn.cloud.message.api.vo.notice.NoticeVO;
 import com.aryn.cloud.message.service.NoticeService;
 import com.baomidou.mybatisplus.core.metadata.IPage;
@@ -37,9 +38,22 @@ public class NoticeAdminController {
 	@GetMapping("/page")
 	@Operation(summary = "通知分页")
 	@SaCheckPermission("message:notice:page")
-	public Result<IPage<NoticeVO>> page(Page<?> page, @RequestParam(required = false) String status) {
+	public Result<IPage<NoticeVO>> page(Page<?> page, @RequestParam(required = false) String status,
+			@RequestParam(required = false) String keyword) {
 		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOB);
-		return Result.success(noticeService.page(user.getTenantId(), status, page));
+		return Result.success(noticeService.page(user.getTenantId(), status, keyword, page));
+	}
+
+	@GetMapping("/{id}/recipients")
+	@Operation(summary = "通知收件人明细")
+	@SaCheckPermission("message:notice:recipient")
+	public Result<IPage<NoticeRecipientItemVO>> recipients(@PathVariable String id, Page<?> page,
+			@RequestParam(required = false) String readStatus,
+			@RequestParam(required = false) String recipientType,
+			@RequestParam(required = false) String keyword) {
+		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOB);
+		return Result.success(noticeService.recipients(user.getTenantId(), id, readStatus, recipientType, keyword,
+				page));
 	}
 
 	@GetMapping("/{id}")
@@ -85,6 +99,36 @@ public class NoticeAdminController {
 	public Result<Void> revoke(@PathVariable String id) {
 		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOB);
 		noticeService.revoke(user.getTenantId(), user.getUserId(), id);
+		return Result.success();
+	}
+
+	@PostMapping("/{id}/republish")
+	@SysLog("重新发布通知")
+	@Operation(summary = "重新发布通知")
+	@SaCheckPermission("message:notice:publish")
+	public Result<Void> republish(@PathVariable String id) {
+		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOB);
+		noticeService.republish(user.getTenantId(), user.getUserId(), id);
+		return Result.success();
+	}
+
+	@DeleteMapping("/{id}")
+	@SysLog("删除通知草稿")
+	@Operation(summary = "删除通知草稿")
+	@SaCheckPermission("message:notice:delete")
+	public Result<Void> deleteDraft(@PathVariable String id) {
+		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOB);
+		noticeService.deleteDraft(user.getTenantId(), user.getUserId(), id);
+		return Result.success();
+	}
+
+	@PostMapping("/{id}/dispatch/retry")
+	@SysLog("重试通知分发")
+	@Operation(summary = "重试通知分发")
+	@SaCheckPermission("message:notice:retry")
+	public Result<Void> retryDispatch(@PathVariable String id) {
+		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOB);
+		noticeService.retryDispatch(user.getTenantId(), user.getUserId(), id);
 		return Result.success();
 	}
 

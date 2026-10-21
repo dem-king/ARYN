@@ -12,10 +12,6 @@ import {
   ElRadio,
   ElRadioGroup,
   ElSelect,
-  ElSlider,
-  ElSwitch,
-  ElTabPane,
-  ElTabs,
 } from 'element-plus';
 import draggable from 'vuedraggable';
 
@@ -30,14 +26,7 @@ const SelectMaterial = defineAsyncComponent(
 const LinkUrl = defineAsyncComponent(
   () => import('../common/link-url/index.vue'),
 );
-const CommonStyle = defineAsyncComponent(
-  () => import('../common/common-style/index.vue'),
-);
-const ColorPicker = defineAsyncComponent(
-  () => import('../common/common-color-picker/index.vue'),
-);
 
-const active = ref('0');
 const dragOptions = {
   animation: 300,
   group: 'description',
@@ -162,130 +151,96 @@ const onNavTextChange = (item: any, val: string) => {
     </div>
     <div class="setting-form">
       <ElForm :model="form" label-width="80px">
-        <ElTabs type="border-card" v-model="active">
-          <ElTabPane label="组件内容" name="0">
-            <ElFormItem label="数据来源">
-              <ElRadioGroup v-model="form.source">
-                <ElRadio value="static">手动配置</ElRadio>
-                <ElRadio value="category">跟随分类</ElRadio>
-              </ElRadioGroup>
-            </ElFormItem>
-            <template v-if="form.source === 'category'">
-              <ElFormItem label="最多显示">
-                <ElInputNumber
-                  v-model="form.categoryMax"
-                  :min="1"
-                  :max="50"
-                  :step="1"
-                  step-strictly
-                />
-              </ElFormItem>
-              <p class="form-tip">
-                自动展示启用中的一级分类（按排序号排序），未配图的分类显示首字色块。
-                分类变更后小程序端实时生效，无需重新发布装修页。
-              </p>
-            </template>
-            <ElFormItem label="每行数量">
-              <ElRadioGroup v-model="form.showNum">
-                <ElRadio :value="4">4个</ElRadio>
-                <ElRadio :value="5">5个</ElRadio>
-              </ElRadioGroup>
-            </ElFormItem>
-            <template v-if="form.source !== 'category'">
-              <ElFormItem label="导航设置">
-                <p class="form-tip">
-                  可以上下拖动更改顺序；文字支持选择一级分类或手动输入，选中分类后自动带出该分类的图片和链接
-                </p>
-              </ElFormItem>
-              <draggable
-                v-model="form.navList"
-                v-bind="dragOptions"
-                animation="700"
-                item-key="id"
-                @dragover.prevent
-              >
-                <template #item="{ element, index }">
-                  <div class="content-item">
-                    <ElIcon size="24px" style="cursor: move"><DCaret /></ElIcon>
-                    <div class="nav-item-info">
-                      <div class="nav-item-row">
-                        <span class="nav-label">图标</span>
-                        <SelectMaterial
-                          v-model="element.url"
-                          :can-choose-images-num="1"
-                        />
-                      </div>
-                      <div class="nav-item-row">
-                        <span class="nav-label">文字</span>
-                        <ElSelect
-                          v-model="element.text"
-                          class="nav-text-select"
-                          size="small"
-                          filterable
-                          allow-create
-                          default-first-option
-                          placeholder="选择分类或输入名称"
-                          @change="onNavTextChange(element, $event)"
-                        >
-                          <ElOption
-                            v-for="opt in categoryOptions"
-                            :key="opt.id"
-                            :label="opt.name"
-                            :value="opt.name"
-                          />
-                        </ElSelect>
-                      </div>
-                      <div class="nav-item-row">
-                        <span class="nav-label">链接</span>
-                        <LinkUrl v-model="element.linkUrl" />
-                      </div>
-                    </div>
-                    <div class="delete-btn">
-                      <ElButton link @click="del(index)">
-                        <ElIcon><CircleCloseFilled /></ElIcon>
-                      </ElButton>
-                    </div>
+        <ElFormItem label="数据来源">
+          <ElRadioGroup v-model="form.source">
+            <ElRadio value="static">手动配置</ElRadio>
+            <ElRadio value="category">跟随分类</ElRadio>
+          </ElRadioGroup>
+        </ElFormItem>
+        <template v-if="form.source === 'category'">
+          <ElFormItem label="最多显示">
+            <ElInputNumber
+              v-model="form.categoryMax"
+              :min="1"
+              :max="50"
+              :step="1"
+              step-strictly
+            />
+          </ElFormItem>
+          <p class="form-tip">
+            自动展示启用中的一级分类（按排序号排序），未配图的分类显示首字色块。
+            分类变更后小程序端实时生效，无需重新发布装修页。
+          </p>
+        </template>
+        <ElFormItem label="每行数量">
+          <ElRadioGroup v-model="form.showNum">
+            <ElRadio :value="4">4个</ElRadio>
+            <ElRadio :value="5">5个</ElRadio>
+          </ElRadioGroup>
+        </ElFormItem>
+        <template v-if="form.source !== 'category'">
+          <ElFormItem label="导航设置">
+            <p class="form-tip">
+              可以上下拖动更改顺序；文字支持选择一级分类或手动输入，选中分类后自动带出该分类的图片和链接
+            </p>
+          </ElFormItem>
+          <draggable
+            v-model="form.navList"
+            v-bind="dragOptions"
+            animation="700"
+            item-key="id"
+            @dragover.prevent
+          >
+            <template #item="{ element, index }">
+              <div class="content-item">
+                <ElIcon size="24px" style="cursor: move"><DCaret /></ElIcon>
+                <div class="nav-item-info">
+                  <div class="nav-item-row">
+                    <span class="nav-label">图标</span>
+                    <SelectMaterial
+                      v-model="element.url"
+                      :can-choose-images-num="1"
+                    />
                   </div>
-                </template>
-              </draggable>
-              <div class="add-btn">
-                <ElButton @click="add">
-                  <ElIcon :size="20"><Plus /></ElIcon>添加导航
-                </ElButton>
+                  <div class="nav-item-row">
+                    <span class="nav-label">文字</span>
+                    <ElSelect
+                      v-model="element.text"
+                      class="nav-text-select"
+                      size="small"
+                      filterable
+                      allow-create
+                      default-first-option
+                      placeholder="选择分类或输入名称"
+                      @change="onNavTextChange(element, $event)"
+                    >
+                      <ElOption
+                        v-for="opt in categoryOptions"
+                        :key="opt.id"
+                        :label="opt.name"
+                        :value="opt.name"
+                      />
+                    </ElSelect>
+                  </div>
+                  <div class="nav-item-row">
+                    <span class="nav-label">链接</span>
+                    <LinkUrl v-model="element.linkUrl" />
+                  </div>
+                </div>
+                <div class="delete-btn">
+                  <ElButton link @click="del(index)">
+                    <ElIcon><CircleCloseFilled /></ElIcon>
+                  </ElButton>
+                </div>
               </div>
             </template>
-          </ElTabPane>
-          <ElTabPane label="组件样式" name="1">
-            <ElFormItem label="图标大小">
-              <ElSlider
-                v-model="form.imgSize"
-                :min="20"
-                :max="60"
-                show-input
-                :show-input-controls="false"
-              />
-            </ElFormItem>
-            <ElFormItem label="图标圆角">
-              <ElSlider
-                v-model="form.imgRadius"
-                :min="0"
-                :max="30"
-                show-input
-                :show-input-controls="false"
-              />
-            </ElFormItem>
-            <ElFormItem label="文字颜色">
-              <ColorPicker v-model="form.fontColor" />
-            </ElFormItem>
-            <ElFormItem label="横向滚动">
-              <ElSwitch v-model="form.scrollShow" />
-            </ElFormItem>
-            <h4>通用样式</h4>
-            <div class="content-item">
-              <CommonStyle v-model="form.commonStyle" />
-            </div>
-          </ElTabPane>
-        </ElTabs>
+          </draggable>
+          <div class="add-btn">
+            <ElButton @click="add">
+              <ElIcon :size="20"><Plus /></ElIcon>添加导航
+            </ElButton>
+          </div>
+        </template>
       </ElForm>
     </div>
   </div>

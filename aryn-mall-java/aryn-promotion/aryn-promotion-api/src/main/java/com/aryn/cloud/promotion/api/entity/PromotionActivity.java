@@ -8,13 +8,14 @@ import com.baomidou.mybatisplus.extension.activerecord.Model;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
  * 统一营销活动（二期：4 阶梯价 / 7 船供整船优惠）。
  *
- * <p>规则以受控 JSON 存储：阶梯价 [{minQty,unitPrice}]；
- * 整船优惠 [{minAmount,discountAmount}]。发布后核心规则不可修改，只能暂停或新建版本。
+ * <p>规则以受控 JSON 存储：阶梯价 skuLadders:[{skuId,ladders:[{minQty,unitPrice}]}]；
+ * 整船优惠 tiers:[{minAmount,discountAmount}]。发布后核心规则不可修改，只能暂停或新建版本。
  *
  * @author aryn
  * @since 2026/9/12
@@ -30,6 +31,9 @@ public class PromotionActivity extends Model<PromotionActivity> {
 
 	/** 买赠 */
 	public static final String TYPE_GIFT = "5";
+
+	/** 新人专享价（每人每 SKU 限购 1 件，资格=本租户未成功支付过订单且注册 N 天内） */
+	public static final String TYPE_NEWBIE_PRICE = "9";
 
 	/** 人工操作态（落库）：草稿 */
 	public static final String STATUS_DRAFT = "1";
@@ -52,7 +56,7 @@ public class PromotionActivity extends Model<PromotionActivity> {
 	/** 活动名称 */
 	private String activityName;
 
-	/** 活动类型：4阶梯价 7船供整船优惠 */
+	/** 活动类型：4阶梯价 5买赠 7船供整船优惠 9新人专享价 */
 	private String activityType;
 
 	/** 范围类型：1全场 2指定SKU 4指定购买场景 5指定船舶 6指定靠港计划 7指定港口 */
@@ -69,6 +73,15 @@ public class PromotionActivity extends Model<PromotionActivity> {
 
 	/** 优先级（大者先） */
 	private Integer priority;
+
+	/** 预算金额（元），0/空=不限；reserve 按锁定折扣聚合扣减，超限整单拦截 */
+	private BigDecimal totalBudget;
+
+	/** 每人限享次数，0/空=不限；按该用户活动锁定数计 */
+	private Integer perUserLimit;
+
+	/** 买赠赠品总量，0/空=不限；按锁定快照赠品数量聚合扣减 */
+	private Integer giftStock;
 
 	/** 是否可叠加：0否 1是 */
 	private String stackable;

@@ -35,7 +35,7 @@ function customerService() {
 
 <template>
   <view
-    class="fixed bottom-0 left-0 right-0 flex justify-between border-t border-t-[rgba(255,255,255,0.33)] bg-white p-20rpx pb-[max(env(safe-area-inset-bottom),16rpx)]"
+    class="goods-footer fixed bottom-0 left-0 right-0 flex justify-between bg-white p-20rpx pb-[max(env(safe-area-inset-bottom),16rpx)] dark:bg-[var(--wot-dark-background2)]"
   >
     <view class="flex flex-shrink-0 text-center text-20rpx">
       <view class="ml-20rpx mr-30rpx" @click="toHome">
@@ -65,7 +65,8 @@ function customerService() {
     </view>
     <view class="ml-20rpx flex-1">
       <view
-        class="h-68rpx w-full rounded-[38rpx] text-center text-28rpx text-white font-500 leading-[68rpx] bg-primary!"
+        class="goods-footer__action"
+        hover-class="goods-footer__action--pressed"
         @click="openSkuPopup(2)"
       >
         加入购物车
@@ -75,6 +76,28 @@ function customerService() {
 </template>
 
 <style lang="scss" scoped>
+.goods-footer {
+  border-top: 1rpx solid #f0f1f3;
+  box-shadow: 0 -6rpx 24rpx rgb(22 34 51 / 6%);
+}
+
+.goods-footer__action {
+  height: 76rpx;
+  border-radius: 999rpx;
+  background: var(--theme-color-primary, var(--wot-color-theme-primary, #ff2237));
+  color: #fff;
+  font-size: 28rpx;
+  font-weight: 500;
+  line-height: 76rpx;
+  text-align: center;
+  transition: transform 120ms ease, opacity 120ms ease;
+
+  &--pressed {
+    opacity: 0.88;
+    transform: scale(0.99);
+  }
+}
+
 .kf-btn {
   background: none;
   border: none;

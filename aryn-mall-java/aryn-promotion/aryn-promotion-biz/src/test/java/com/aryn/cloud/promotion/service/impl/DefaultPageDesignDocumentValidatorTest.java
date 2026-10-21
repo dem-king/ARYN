@@ -128,6 +128,38 @@ class DefaultPageDesignDocumentValidatorTest {
 	}
 
 	@Test
+	void rejectsEmptyManualDataSourceInsideGoodsTabs() {
+		String content = """
+				{"schemaVersion":2,"components":[
+				  {"id":"c1","type":"goods-tabs","version":1,"props":{"tabs":[
+				    {"id":"t1","title":"会员专区","dataSource":{"mode":"manual","targetIds":[]}}]}}]}
+				""";
+
+		PageDesignValidationVO result = validator.validateStructured(content);
+
+		assertTrue(result.getErrors()
+			.stream()
+			.anyMatch(issue -> "DATASOURCE_EMPTY".equals(issue.getCode())
+					&& "props.tabs[0].dataSource.targetIds".equals(issue.getField())));
+	}
+
+	@Test
+	void collectsGoodsTabsManualTargetsAndCountsAutomaticRequests() {
+		String content = """
+				{"schemaVersion":2,"components":[
+				  {"id":"c1","type":"goods-tabs","version":1,"props":{"tabs":[
+				    {"id":"t1","title":"猜你喜欢","dataSource":{"mode":"automatic","sort":"sales"}},
+				    {"id":"t2","title":"会员专区","dataSource":{"mode":"manual","targetIds":["spu-1","spu-2"]}}]}}]}
+				""";
+
+		PageDesignValidationVO result = validator.validateStructured(content);
+
+		assertFalse(result.hasErrors());
+		assertEquals(List.of("spu-1", "spu-2"), List.copyOf(result.getReferences().getGoodsIds()));
+		assertEquals(1, result.getPerformance().getRequestCount());
+	}
+
+	@Test
 	void countsImagesAcrossNestedProps() {
 		String content = """
 				{"schemaVersion":2,"components":[

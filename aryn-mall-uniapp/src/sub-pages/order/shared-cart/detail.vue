@@ -276,6 +276,9 @@ const nameState = reactive({
   displayName: '',
 })
 
+/** 添加商品方式选择：按分类选货 / 全部商品 */
+const addGoodsVisible = ref(false)
+
 /** 当前用户在本购物车的成员记录 */
 const myMember = computed(() =>
   members.value.find(member => member.userId === currentUserId.value),
@@ -506,8 +509,22 @@ function goChainImport() {
   })
 }
 
-/** 添加商品：进入船供目录的「共享购物车选货」模式 */
+/** 添加商品：先让用户选挑货方式，不再只能进平铺目录 */
+function openAddGoods() {
+  addGoodsVisible.value = true
+}
+
+/** 按分类选货：与选货页的分类入口同一页面，目的地锁定当前共享车 */
+function goCategoryPicker() {
+  addGoodsVisible.value = false
+  uni.navigateTo({
+    url: `/sub-pages/order/shared-cart/category?id=${cartId.value}`,
+  })
+}
+
+/** 全部商品：进入船供目录的「共享购物车选货」模式 */
 function goAddGoods() {
+  addGoodsVisible.value = false
   uni.navigateTo({
     url: `/sub-pages/product/ship-supply/index?scene=2&sharedCartId=${cartId.value}`,
   })
@@ -833,11 +850,21 @@ onLoad((options) => {
   if (token && !cartId.value) {
     joining.value = true
     joinSharedCartByToken(token)
-      .then((joinedCartId) => {
-        if (joinedCartId) {
-          cartId.value = joinedCartId
+      .then((joined) => {
+        if (joined?.cartId) {
+          cartId.value = joined.cartId
           shareToken.value = token
-          uni.showToast({ title: '已加入本次采购', icon: 'success' })
+          // 分享链接会自动把点开的人补建成该船船员（契约 2.2/3.9）：此前用户对此
+          // 一无所知，莫名其妙就成了某条船的成员（能看到成员名单、靠港计划）。
+          // 服务端明确告知本次是否补建成功时，必须在成功提示里说清是哪条船；
+          // 补建失败是 fail-open 的，加入本身仍成功，此时保持原有提示。
+          const boundVesselName = joined.vesselMemberBound && joined.vesselName ? joined.vesselName : ''
+          // 带 icon 的 toast 在微信端只显示 7 个汉字，长文案必须用 icon:'none' 才不会被截断
+          uni.showToast(
+            boundVesselName
+              ? { title: `已加入本次采购，同时加入「${boundVesselName}」船舶成员`, icon: 'none' }
+              : { title: '已加入本次采购', icon: 'success' },
+          )
         }
       })
       .catch(() => {
@@ -1078,7 +1105,7 @@ onShow(() => {
             >
               导入 Excel
             </text>
-            <text v-if="collecting && cart.viewerCanEdit" class="text-26rpx text-blue-500" @tap="goAddGoods">
+            <text v-if="collecting && cart.viewerCanEdit" class="text-26rpx text-blue-500" @tap="openAddGoods">
               添加商品
             </text>
           </view>
@@ -1358,6 +1385,59 @@ onShow(() => {
         {{ primaryAction.text }}
       </view>
     </view>
+
+    <!--
+      添加商品方式：详情页是所有入口的汇合点（首页补给单箭头、共享车列表、分享加入），
+      「添加商品」不能只给平铺目录 —— 采购员需要按分类快速找货。
+    -->
+    <wd-popup
+      v-model="addGoodsVisible"
+      position="bottom"
+      :safe-area-inset-bottom="true"
+      custom-style="border-radius: 24rpx 24rpx 0 0; overflow: hidden;"
+    >
+      <view class="px-32rpx pb-32rpx pt-28rpx">
+        <view class="text-32rpx font-bold">
+          添加商品
+        </view>
+        <view class="mt-8rpx text-24rpx text-gray-500">
+          选择挑货方式
+        </view>
+
+        <view class="add-way" @tap="goCategoryPicker">
+          <view class="add-way__icon add-way__icon--category">
+            <wd-icon name="apps" size="24px" color="#185FA5" />
+          </view>
+          <view class="add-way__body">
+            <view class="add-way__title">
+              按分类选货
+              <text class="add-way__tag">
+                推荐
+              </text>
+            </view>
+            <view class="add-way__desc">
+              按水果、蔬菜、水产等分类挑选，找货更快
+            </view>
+          </view>
+          <wd-icon name="chevron-right" size="16px" color="#9aa2ae" />
+        </view>
+
+        <view class="add-way" @tap="goAddGoods">
+          <view class="add-way__icon add-way__icon--all">
+            <wd-icon name="search" size="24px" color="#B45309" />
+          </view>
+          <view class="add-way__body">
+            <view class="add-way__title">
+              全部商品
+            </view>
+            <view class="add-way__desc">
+              浏览完整目录，也可直接搜索商品名称
+            </view>
+          </view>
+          <wd-icon name="chevron-right" size="16px" color="#9aa2ae" />
+        </view>
+      </view>
+    </wd-popup>
 
     <!--
       明细行操作面板：按行归属与服务端权限动态生成，不呈现不可用的动作。
@@ -1776,6 +1856,75 @@ onShow(() => {
   font-size: 26rpx;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+/**
+ * 添加商品的两种挑货方式。
+ * 选项做成整行大热区（最小 88rpx 高），而不是两个小 chip：
+ * 这是选货主路径，点错一次就要多退一层页面。
+ */
+.add-way {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  margin-top: 20rpx;
+  padding: 24rpx;
+  border-radius: 20rpx;
+  background: #f7f8fa;
+  transition: background-color 160ms ease;
+
+  &:active {
+    background: #eef1f5;
+  }
+
+  &__icon {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 88rpx;
+    height: 88rpx;
+    border-radius: 24rpx;
+
+    &--category {
+      background: #e8f2fd;
+    }
+
+    &--all {
+      background: #fff4e6;
+    }
+  }
+
+  &__body {
+    flex: 1;
+    min-width: 0;
+  }
+
+  &__title {
+    display: flex;
+    align-items: center;
+    gap: 8rpx;
+    font-size: 29rpx;
+    font-weight: 600;
+    color: #1b2739;
+  }
+
+  &__tag {
+    padding: 2rpx 10rpx;
+    border-radius: 6rpx;
+    background: #185fa5;
+    font-size: 18rpx;
+    font-weight: 500;
+    line-height: 1.6;
+    color: #fff;
+  }
+
+  &__desc {
+    margin-top: 6rpx;
+    font-size: 23rpx;
+    line-height: 1.4;
+    color: #7a8699;
+  }
 }
 
 .sheet-row {

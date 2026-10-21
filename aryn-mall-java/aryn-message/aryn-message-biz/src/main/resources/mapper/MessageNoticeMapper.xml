@@ -18,6 +18,13 @@
           AND del_flag = '0'
         LIMIT 1
     </select>
+    <select id="selectStatus" resultType="java.lang.String">
+        SELECT status
+        FROM message_notice
+        WHERE tenant_id = #{tenantId}
+          AND id = #{id}
+          AND del_flag = '0'
+    </select>
     <insert id="insertIgnoreSource">
         INSERT IGNORE INTO message_notice
         (id, title, summary, content, category, priority, source_type, source_key, target_types,
@@ -29,4 +36,12 @@
          #{publishTime}, #{expireTime}, #{cardPayload}, #{jumpType}, #{jumpPayload}, #{tenantId}, #{createBy},
          #{createTime}, #{delFlag})
     </insert>
+    <update id="logicDeleteDraft">
+        UPDATE message_notice
+        SET del_flag = '1', update_by = #{operatorId}, update_time = NOW()
+        WHERE tenant_id = #{tenantId}
+          AND id = #{id}
+          AND status = 'DRAFT'
+          AND del_flag = '0'
+    </update>
 </mapper>

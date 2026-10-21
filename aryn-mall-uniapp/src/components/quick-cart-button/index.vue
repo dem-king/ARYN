@@ -16,6 +16,7 @@
  * 让同屏出现 N 份弹层（遮罩叠成全黑、动画抖动、按钮冒泡跳商详）。弹层统一
  * 挂在根组件 src/App.ku.vue，每页恰好一份。
  */
+import type { SharedCart } from '@/api/order/sharedCart'
 import { nextTick, ref } from 'vue'
 
 import { useCartDestination } from '@/composables/useCartDestination'
@@ -27,8 +28,14 @@ const props = withDefaults(defineProps<{
   spuId: string
   /** 默认圆形按钮直径（rpx），使用插槽时不生效 */
   size?: string
+  /**
+   * 目的地锁定到这张共享购物车（分类选货页）：加购不再询问去向，
+   * 数量确认仍保留。为空时保持统一入口的原行为。
+   */
+  sharedCart?: SharedCart | null
 }>(), {
-  size: '44rpx',
+  size: '56rpx',
+  sharedCart: null,
 })
 
 const emit = defineEmits<{
@@ -70,7 +77,7 @@ function openSkuPopup(info: any) {
 }
 
 async function handleAdd() {
-  const result = await quickAdd(props.spuId)
+  const result = await quickAdd(props.spuId, { sharedCart: props.sharedCart })
   if (result.added) {
     emit('added', props.spuId)
     return
@@ -87,7 +94,7 @@ async function handleSkuAdd(data: any) {
       skuId: data.skuId,
       quantity: data.quantity,
       spuId: data.spuId || props.spuId,
-    })
+    }, { sharedCart: props.sharedCart })
     if (dest === 'abort')
       return
     skuKey.value = false
@@ -103,15 +110,17 @@ async function handleSkuAdd(data: any) {
   <view
     class="quick-cart-btn"
     :class="{ 'quick-cart-btn--pending': pending }"
+    hover-class="quick-cart-btn--pressed"
+    :hover-stay-time="80"
     @tap.stop="handleAdd"
   >
     <!-- 有插槽时由调用方决定外观（装修组件的「购买按钮样式」） -->
     <slot>
       <view
-        class="flex items-center justify-center rounded-full bg-primary text-white"
+        class="quick-cart-default flex items-center justify-center rounded-full bg-primary text-white"
         :style="{ width: size, height: size }"
       >
-        <wd-icon name="cart" :size="`calc(${size} * 0.55)`" color="#ffffff" />
+        <wd-icon name="add" :size="`calc(${size} * 0.55)`" color="#ffffff" />
       </view>
     </slot>
   </view>
@@ -139,10 +148,21 @@ async function handleSkuAdd(data: any) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: opacity 0.2s;
+  /* 56rpx 圆 + 16rpx 内边距 = 88rpx（44pt）热区；负外边距保证卡片排版不变 */
+  padding: 16rpx;
+  margin: -16rpx;
+  transition: opacity 0.2s, transform 160ms ease;
 
   &--pending {
     opacity: 0.6;
   }
+}
+
+.quick-cart-btn--pressed {
+  transform: scale(0.92);
+}
+
+.quick-cart-default {
+  box-shadow: 0 4rpx 12rpx rgba(22, 34, 51, 0.12);
 }
 </style>

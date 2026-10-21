@@ -10,9 +10,11 @@
  *
  * 消息角标：显示未读总数，未登录或未读为 0 时不渲染。
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
+import { useDiyStyle } from '@/composables/useDiyStyle'
 import { useAuthStore } from '@/store/authStore'
+import { useMallThemeStore } from '@/store/mallThemeStore'
 import { useMessageStore } from '@/store/messageStore'
 
 const props = defineProps({
@@ -24,6 +26,8 @@ const props = defineProps({
 
 const authStore = useAuthStore()
 const messageStore = useMessageStore()
+/** 全站自动动效总开关（商城主题配置）；关闭时热词不轮换，固定展示首个 */
+const mallThemeStore = useMallThemeStore()
 
 const placeholder = computed(() => props.showData.placeholder || '搜索商品')
 const style = computed(() => props.showData.style || '1')
@@ -31,6 +35,9 @@ const bgColor = computed(() => props.showData.bgColor || '#f5f5f5')
 const showScan = computed(() => props.showData.showScan !== false)
 
 const borderRadius = computed(() => (style.value === '1' ? '20px' : '4px'))
+
+/** 通用样式（外边距/内边距/背景/圆角）挂根节点，与设置面板「通用样式」同源 */
+const dynamicStyles = useDiyStyle(computed(() => props.showData.commonStyle))
 
 /** 热词列表：兼容后台给字符串数组或逗号分隔字符串两种写法 */
 const hotWords = computed<string[]>(() => {
@@ -64,53 +71,75 @@ function goMessage() {
 }
 
 onMounted(() => {
+  startRotation()
+})
+
+// 总开关可能异步到达（主题拉取晚于挂载）：到达后再决定启停
+watch([() => mallThemeStore.autoMotionEnabled, hotWords], () => {
+  startRotation()
+})
+
+onBeforeUnmount(() => {
+  stopRotation()
+})
+
+/** 启停热词轮换：需同时满足「配置了 2 个及以上热词」与「全站允许自动动效」 */
+function startRotation() {
+  stopRotation()
   if (hotWords.value.length < 2)
+    return
+  if (!mallThemeStore.autoMotionEnabled)
     return
   hotTimer = setInterval(() => {
     hotIndex.value = (hotIndex.value + 1) % hotWords.value.length
   }, 3000)
-})
+}
 
-onBeforeUnmount(() => {
+function stopRotation() {
   if (hotTimer) {
     clearInterval(hotTimer)
     hotTimer = null
   }
-})
+}
 </script>
 
 <template>
-  <view class="search-bar">
-    <view
-      class="search-bar-inner"
-      :style="{ backgroundColor: bgColor, borderRadius }"
-      @click="handleSearch"
-    >
-      <wd-icon name="search" size="16px" color="#999" />
-      <text class="search-bar-placeholder">
-        {{ displayText }}
-      </text>
-    </view>
-
-    <!-- 消息角标：未读为 0 或未登录时不渲染 -->
-    <view class="search-bar-bell" @click.stop="goMessage">
-      <wd-icon name="notification" size="22px" color="#333" />
-      <view v-if="unreadCount > 0" class="search-bar-bell-dot">
-        {{ unreadText }}
+  <view class="search-bar" :style="dynamicStyles">
+    <view class="search-bar-row">
+      <view
+        class="search-bar-inner"
+        :style="{ backgroundColor: bgColor, borderRadius }"
+        @click="handleSearch"
+      >
+        <wd-icon name="search" size="16px" color="#999" />
+        <text class="search-bar-placeholder">
+          {{ displayText }}
+        </text>
       </view>
-    </view>
 
-    <view v-if="showScan" class="search-bar-scan" @click.stop="handleSearch">
-      <wd-icon name="scan" size="22px" color="#333" />
+      <!-- 消息角标：未读为 0 或未登录时不渲染 -->
+      <view class="search-bar-bell" @click.stop="goMessage">
+        <wd-icon name="notification" size="22px" color="#333" />
+        <view v-if="unreadCount > 0" class="search-bar-bell-dot">
+          {{ unreadText }}
+        </view>
+      </view>
+
+      <view v-if="showScan" class="search-bar-scan" @click.stop="handleSearch">
+        <wd-icon name="scan" size="22px" color="#333" />
+      </view>
     </view>
   </view>
 </template>
 
 <style lang="scss" scoped>
 .search-bar {
-  display: flex;
-  align-items: center;
-  padding: 6px 12px;
+  /* 留白挂内层行容器：根节点 padding 会被通用样式的内联零值覆盖（仓库统一口径） */
+  .search-bar-row {
+    display: flex;
+    align-items: center;
+    padding: 6px 12px;
+  }
 
   .search-bar-inner {
     flex: 1;

@@ -4,6 +4,8 @@ import { CountTo } from '@vben/common-ui';
 import { Trophy } from '@element-plus/icons-vue';
 import { ElCard, ElEmpty, ElIcon } from 'element-plus';
 
+import { formatPercent } from '#/utils/percent';
+
 defineProps<{
   loading?: boolean;
   rankings: {
@@ -96,7 +98,7 @@ const getRankBg = (index: number) => {
                 {{ item.name }}
               </span>
               <span class="shrink-0 font-mono font-bold text-red-500">
-                {{ item.value }}%
+                {{ formatPercent(item.value) }}
               </span>
             </div>
           </div>

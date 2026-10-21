@@ -42,6 +42,8 @@ public class OrderJobHandler {
 
 	private final com.aryn.cloud.order.service.IDeliveryTaskService deliveryTaskService;
 
+	private final com.aryn.cloud.order.service.impl.OrderPriceComputeService orderPriceComputeService;
+
 	/**
 	 * 扫描超时未支付订单
 	 *
@@ -64,7 +66,8 @@ public class OrderJobHandler {
 						.eq(OrderInfo::getStatus, OrderStatusEnum.WAITING_FOR_PAYMENT.getCode())
 						.eq(OrderInfo::getPayStatus, CommonConstants.NO)
 						.lt(OrderInfo::getCreateTime, LocalDateTime.now().minusMinutes(timeoutMinutes)));
-					orderList.forEach(orderInfoService::cancelOrder);
+					orderList.forEach(order -> orderInfoService.cancelOrder(order,
+							com.aryn.cloud.order.service.OrderStaffNotifyService.CancelSource.TIMEOUT));
 				}
 				finally {
 					ArynTenantContextHolder.removeTenantId();
@@ -149,6 +152,43 @@ public class OrderJobHandler {
 						.lt(OrderInfo::getReceiverTime,
 								LocalDateTime.now().minusDays(orderConfig.getOrderAutoCommentDays())));
 					orderList.forEach(orderInfoService::autoAppraiseOrder);
+				}
+				finally {
+					ArynTenantContextHolder.removeTenantId();
+				}
+			});
+		}
+	}
+
+	/**
+	 * 营销锁释放补偿：取消/超时关单时释放失败仅留日志，
+	 * 本任务扫描近 7 天已取消订单幂等补释放（release 本身幂等，无锁订单空转），
+	 * 防止新人价等在途锁泄漏冻住用户营销资格。
+	 */
+	@XxlJob("promotionLockCompensateJobHandler")
+	public void promotionLockCompensateJobHandler() throws Exception {
+		XxlJobHelper.log("扫描已取消订单补偿释放营销锁, promotionLockCompensateJobHandler.");
+		List<SysTenant> listSysTenant = remoteTenantService.list();
+		if (!CollectionUtils.isEmpty(listSysTenant)) {
+			listSysTenant.forEach(sysTenant -> {
+				try {
+					ArynTenantContextHolder.setTenantId(sysTenant.getId());
+					List<OrderInfo> canceled = orderInfoService.list(Wrappers.<OrderInfo>lambdaQuery()
+						.eq(OrderInfo::getStatus, OrderStatusEnum.CANCELED.getCode())
+						.ge(OrderInfo::getCancelTime, LocalDateTime.now().minusDays(7))
+						.last("LIMIT 200"));
+					for (OrderInfo order : canceled) {
+						try {
+							orderPriceComputeService.releasePromotion(
+									org.springframework.util.StringUtils.hasText(order.getTenantId())
+											? order.getTenantId() : sysTenant.getId(),
+									order.getId(), "COMPENSATE");
+						}
+						catch (Exception ex) {
+							XxlJobHelper.log("订单[" + order.getId() + "]营销锁补偿释放失败，下次扫描重试: "
+									+ ex.getMessage());
+						}
+					}
 				}
 				finally {
 					ArynTenantContextHolder.removeTenantId();

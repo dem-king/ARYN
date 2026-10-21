@@ -56,8 +56,17 @@ public class VesselBindApply extends AbstractVesselEntity {
 	/** 申请人填写的船名 */
 	private String applyVesselName;
 
-	/** IMO 或呼号（选填） */
+	/**
+	 * IMO 编号（选填）。
+	 *
+	 * <p>此前本字段是「IMO 或呼号」的合并输入，审核时靠「7 位纯数字」猜它到底是哪一个，
+	 * 而审核预检把 IMO/呼号当作最高优先级的认船强身份键——入口就靠猜，强身份键必然失真。
+	 * 现在拆成 {@link #applyVesselImo} 与 {@link #applyVesselCallSign} 两列。
+	 */
 	private String applyVesselImo;
+
+	/** 呼号（选填）。与 {@link #applyVesselImo} 分开采集，不再靠位数猜测。 */
+	private String applyVesselCallSign;
 
 	/** 常靠港口（选填） */
 	private String applyPortName;

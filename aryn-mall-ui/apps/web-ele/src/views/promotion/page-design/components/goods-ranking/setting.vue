@@ -17,7 +17,6 @@ import {
   cloneDesignerValue,
   isSameDesignerValue,
 } from '../../../page-designer/schema/clone';
-import CommonStyle from '../common/common-style/index.vue';
 
 const props = defineProps<{ modelValue: GoodsRankingProps }>();
 const emit = defineEmits<{ 'update:modelValue': [value: GoodsRankingProps] }>();
@@ -79,8 +78,6 @@ watch(
         />
       </ElSelect>
     </ElFormItem>
-    <div class="retail-setting__section">通用样式</div>
-    <CommonStyle v-model="form.commonStyle" />
   </ElForm>
 </template>
 
@@ -88,11 +85,5 @@ watch(
 .retail-setting :deep(.el-select),
 .retail-setting :deep(.el-input-number) {
   width: 100%;
-}
-
-.retail-setting__section {
-  padding: 12px 0 6px;
-  font-weight: 600;
-  border-top: 1px solid var(--el-border-color-lighter);
 }
 </style>

@@ -44,6 +44,15 @@ export function getCommonStyle(
     borderBottomRightRadius: `${s.styleRbRadius}px`,
   }
 
+  // 圆角必须同时裁掉子内容溢出，否则贴满根节点的图片/色块的直角会盖住圆角
+  // 弧线，运营设置的「圆角」在实机看起来完全不生效（图片魔方等即此根因）。
+  // 与管理端画布（RetailPreviewFrame / 区块 style）同口径；四角全 0 时不裁，
+  // 避免误裁子元素本身设计上的溢出（如阴影）。
+  const hasRadius = [s.styleLtRadius, s.styleRtRadius, s.styleLbRadius, s.styleRbRadius]
+    .some(radius => Number(radius) > 0)
+  if (hasRadius)
+    styles.overflow = 'hidden'
+
   // 背景图或渐变背景
   if (s.bgPicUrl) {
     styles.background = `url(${s.bgPicUrl})`

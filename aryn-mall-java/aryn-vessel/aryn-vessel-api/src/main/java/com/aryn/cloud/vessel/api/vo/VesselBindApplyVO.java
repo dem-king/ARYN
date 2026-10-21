@@ -41,8 +41,11 @@ public class VesselBindApplyVO implements Serializable {
 	@Schema(description = "申请船名")
 	private String applyVesselName;
 
-	@Schema(description = "IMO 或呼号")
+	@Schema(description = "IMO 编号")
 	private String applyVesselImo;
+
+	@Schema(description = "呼号")
+	private String applyVesselCallSign;
 
 	@Schema(description = "常靠港口")
 	private String applyPortName;
@@ -67,6 +70,27 @@ public class VesselBindApplyVO implements Serializable {
 
 	@Schema(description = "审核通过后绑定的船舶名称")
 	private String matchedVesselName;
+
+	/**
+	 * 申请船名与最终绑定船名不一致（归一化后仍不同）。
+	 *
+	 * <p>存在的理由：C 端「我的申请」此前只显示「已通过」，用户看到的是自己申请时填的船名，
+	 * 实际绑上的可能是另一条船（误绑事故的现场）。这个标记让不一致在用户侧可见，
+	 * 管理端也据此在列表里提示运营复核。
+	 */
+	@Schema(description = "申请船名与最终绑定船名不一致（归一化后仍不同）")
+	private Boolean vesselMismatch;
+
+	/**
+	 * 申请人当前是否仍在该船在船成员中。
+	 *
+	 * <p>存在的理由：审核单一旦置为「已通过」就不再变化，解绑后申请单仍是「已通过」，
+	 * 管理端据此渲染的「解绑」按钮会残留，再点只能报「该用户不是本船在船成员」。
+	 * 由服务端批量给出真实在船状态，前端据此决定按钮是否可用。
+	 * 未通过 / 未绑定船舶的申请为 null。
+	 */
+	@Schema(description = "申请人是否仍在绑定船舶的在船成员中（未通过/未绑定时为 null）")
+	private Boolean memberActive;
 
 	@Schema(description = "审核意见 / 驳回原因")
 	private String auditRemark;

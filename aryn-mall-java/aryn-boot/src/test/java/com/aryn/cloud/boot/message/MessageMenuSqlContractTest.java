@@ -42,6 +42,27 @@ class MessageMenuSqlContractTest {
 				"INSERT INTO sys_tenant_menu", "tenant.id <> '1881232176465358849'");
 	}
 
+	@Test
+	void noticeAdminIncrementalPermissionsExistInBothModes() throws IOException {
+		Path bootPath = projectRoot.resolve("db/boot/138message_notice_admin_incremental.sql");
+		Path cloudPath = projectRoot.resolve("db/cloud/141message_notice_admin_incremental.sql");
+		assertThat(Files.exists(bootPath)).isTrue();
+		assertThat(Files.exists(cloudPath)).isTrue();
+
+		String boot = Files.readString(bootPath);
+		String cloud = Files.readString(cloudPath);
+		assertThat(boot).contains("'message:notice:delete'", "'message:notice:retry'",
+				"'message:notice:recipient'", "INSERT IGNORE INTO `sys_menu`",
+				"INSERT IGNORE INTO `sys_role_menu`", "INSERT IGNORE INTO `sys_tenant_menu`");
+		String bootBody = withoutComments(boot).replaceFirst("USE `aryn_boot`;", "USE `aryn_upms`;");
+		assertThat(bootBody).as("Boot 与 Cloud 通知管理权限脚本除目标数据库外必须保持一致")
+			.isEqualTo(withoutComments(cloud));
+	}
+
+	private static String withoutComments(String sql) {
+		return sql.replaceAll("(?m)^\\s*--.*(?:\\R|$)", "").trim();
+	}
+
 	private static Path findProjectRoot() {
 		Path current = Path.of(System.getProperty("user.dir")).toAbsolutePath();
 		while (current != null && !Files.isDirectory(current.resolve("db/cloud"))) {

@@ -9,6 +9,7 @@ import { computed } from 'vue';
 import { ElEmpty } from 'element-plus';
 
 import { resolveEffectivePageTheme } from '../schema/effective-theme';
+import { resolveNavigationAppearance } from '../schema/navigation-style';
 import CanvasPageShell from './canvas-page-shell.vue';
 import CanvasSectionList from './canvas-section-list.vue';
 
@@ -65,6 +66,31 @@ const effectivePage = computed(() =>
 );
 
 /**
+ * 导航栏外观：页面设置可选「跟随首个区块」，把首区块的背景（渐变顶边起色 /
+ * 纯色）直接用作导航背景，运营不必再手动对齐导航色与区块渐变。
+ * 解析函数与草稿预览、C 端实机同源（见 schema/navigation-style.ts）。
+ */
+const navigationAppearance = computed(() =>
+  resolveNavigationAppearance(props.page, effectivePage.value, props.sections),
+);
+
+/** 导航栏内联样式：左右渐变整段复用；其余方向就是纯色顶边起色 */
+const navigationStyle = computed(() => ({
+  backgroundColor: navigationAppearance.value.backgroundColor,
+  backgroundImage: navigationAppearance.value.backgroundImage,
+  backgroundPosition: navigationAppearance.value.backgroundImage
+    ? 'top center'
+    : undefined,
+  backgroundRepeat: navigationAppearance.value.backgroundImage
+    ? 'no-repeat'
+    : undefined,
+  backgroundSize: navigationAppearance.value.backgroundImage
+    ? '100% 100%'
+    : undefined,
+  color: navigationAppearance.value.textColor,
+}));
+
+/**
  * 页面背景色/图在**整页 DIY**（微页面/首页）下铺满整个手机壳；
  * 内嵌页型下改由骨架内的装修段落承接（见 embeddedStyle）。
  */
@@ -109,10 +135,7 @@ const isEmpty = computed(() =>
       <div
         v-if="showNavigation"
         class="phone-navigation"
-        :style="{
-          backgroundColor: effectivePage.navigationBackgroundColor,
-          color: effectivePage.navigationTextColor,
-        }"
+        :style="navigationStyle"
       >
         {{ page.navigation.title || pageName }}
       </div>

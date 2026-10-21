@@ -3,6 +3,7 @@ import type { DiyCommonStyle } from '@vben/types';
 
 import { computed } from 'vue';
 
+import { commonStyleRadiusOverflow } from '../common/common-style-clip';
 import { sanitizeRichTextHtml } from './sanitize-rich-text';
 
 interface ShowData {
@@ -45,6 +46,8 @@ const dynamicStyles = computed(() => {
     borderTopRightRadius: `${commonStyle.styleRtRadius}px`,
     borderBottomLeftRadius: `${commonStyle.styleLbRadius}px`,
     borderBottomRightRadius: `${commonStyle.styleRbRadius}px`,
+    // 圆角 > 0 时裁切子内容：富文本首图/块可贴满根节点，直角会盖住圆角（与 C 端 getCommonStyle 同口径）
+    ...commonStyleRadiusOverflow(commonStyle),
     ...(commonStyle.bgPicUrl && {
       background: `url(${commonStyle.bgPicUrl})`,
       backgroundRepeat: 'no-repeat',

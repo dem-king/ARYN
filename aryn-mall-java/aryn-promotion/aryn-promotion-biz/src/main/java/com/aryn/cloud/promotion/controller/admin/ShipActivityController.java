@@ -8,9 +8,13 @@ import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.log.annotation.SysLog;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
-import com.aryn.cloud.common.security.util.SecurityUtils;
+import com.aryn.cloud.product.api.entity.GoodsSku;
+import com.aryn.cloud.product.api.remote.RemoteGoodsSkuService;
+import com.aryn.cloud.promotion.api.dto.PromotionContextDTO;
 import com.aryn.cloud.promotion.api.entity.PromotionActivity;
+import com.aryn.cloud.promotion.api.vo.PromotionCalculationVO;
 import com.aryn.cloud.promotion.mapper.PromotionActivityMapper;
+import com.aryn.cloud.promotion.service.PromotionEngineService;
 import com.aryn.cloud.promotion.service.impl.ActivityPublishGovernanceService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
@@ -20,6 +24,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.RequestParam;
 
@@ -34,6 +39,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
+import java.math.BigDecimal;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * 船供营销中心：统一活动（阶梯价/整船优惠）配置与发布。
@@ -50,9 +58,14 @@ import java.time.LocalDateTime;
 @Tag(description = "ship-activity", name = "船供营销活动")
 public class ShipActivityController {
 
+	@DubboReference
+	private RemoteGoodsSkuService remoteGoodsSkuService;
+
 	private final PromotionActivityMapper promotionActivityMapper;
 
 	private final ActivityPublishGovernanceService publishGovernanceService;
+
+	private final PromotionEngineService promotionEngineService;
 
 	@Operation(summary = "活动分页")
 	@SaCheckPermission("promotion:shipactivity:page")
@@ -60,7 +73,7 @@ public class ShipActivityController {
 	public Result<IPage<PromotionActivity>> page(Page<PromotionActivity> page, PromotionActivity query) {
 		LocalDateTime now = LocalDateTime.now();
 		LambdaQueryWrapper<PromotionActivity> wrapper = Wrappers.lambdaQuery(PromotionActivity.class)
-				.eq(PromotionActivity::getTenantId, SecurityUtils.getTenantId())
+				.eq(PromotionActivity::getTenantId, ArynTenantContextHolder.getTenantId())
 				.eq(StringUtils.hasText(query.getActivityType()), PromotionActivity::getActivityType,
 						query.getActivityType())
 				.like(StringUtils.hasText(query.getActivityName()), PromotionActivity::getActivityName,
@@ -88,7 +101,7 @@ public class ShipActivityController {
 	@GetMapping("/{id}")
 	public Result<PromotionActivity> getById(@PathVariable String id) {
 		PromotionActivity activity = promotionActivityMapper.selectOne(Wrappers.lambdaQuery(PromotionActivity.class)
-				.eq(PromotionActivity::getTenantId, SecurityUtils.getTenantId())
+				.eq(PromotionActivity::getTenantId, ArynTenantContextHolder.getTenantId())
 				.eq(PromotionActivity::getId, id));
 		if (activity != null) {
 			activity.setStatus(deriveDisplayStatus(activity, LocalDateTime.now()));
@@ -127,7 +140,7 @@ public class ShipActivityController {
 			publishGovernanceService.validateRules(activity);
 		}
 		activity.setId(id);
-		activity.setTenantId(SecurityUtils.getTenantId());
+		activity.setTenantId(ArynTenantContextHolder.getTenantId());
 		promotionActivityMapper.updateById(activity);
 		return Result.success(activity);
 	}
@@ -139,7 +152,15 @@ public class ShipActivityController {
 	public Result<List<PromotionActivity>> conflicts(@PathVariable String id) {
 		PromotionActivity activity = requireActivity(id);
 		return Result.success(
-				publishGovernanceService.listPublishConflicts(SecurityUtils.getTenantId(), activity));
+				publishGovernanceService.listPublishConflicts(ArynTenantContextHolder.getTenantId(), activity));
+	}
+
+	@Operation(summary = "试算：输入模拟购物车与上下文，返回命中活动与金额（不落库）")
+	@SaCheckPermission("promotion:shipactivity:page")
+	@PostMapping("/dry-run")
+	public Result<PromotionCalculationVO> dryRun(@RequestBody PromotionContextDTO context) {
+		context.setTenantId(ArynTenantContextHolder.getTenantId());
+		return Result.success(promotionEngineService.preview(context));
 	}
 
 	@Operation(summary = "发布活动（force=true 时忽略同类型时间重叠提示）")
@@ -149,6 +170,7 @@ public class ShipActivityController {
 			@RequestParam(required = false, defaultValue = "false") boolean force) {
 		PromotionActivity activity = requireActivity(id);
 		publishGovernanceService.validateRules(activity);
+		assertLadderPricesBelowSales(activity);
 		if (activity.getStartTime() == null || activity.getEndTime() == null
 				|| !activity.getStartTime().isBefore(activity.getEndTime())) {
 			throw new ArynBusinessException("活动开始时间必须早于结束时间");
@@ -158,7 +180,7 @@ public class ShipActivityController {
 		}
 		if (!force) {
 			List<PromotionActivity> conflicts = publishGovernanceService
-					.listPublishConflicts(SecurityUtils.getTenantId(), activity);
+					.listPublishConflicts(ArynTenantContextHolder.getTenantId(), activity);
 			if (!conflicts.isEmpty()) {
 				throw new ArynBusinessException("与已发布活动时间重叠：" + conflicts.stream()
 						.map(PromotionActivity::getActivityName).toList() + "；运行时同类取最优，确认后可强制发布");
@@ -199,7 +221,7 @@ public class ShipActivityController {
 
 	private PromotionActivity requireActivity(String id) {
 		PromotionActivity activity = promotionActivityMapper.selectOne(Wrappers.lambdaQuery(PromotionActivity.class)
-				.eq(PromotionActivity::getTenantId, SecurityUtils.getTenantId())
+				.eq(PromotionActivity::getTenantId, ArynTenantContextHolder.getTenantId())
 				.eq(PromotionActivity::getId, id));
 		if (activity == null) {
 			throw new ArynBusinessException("活动不存在");
@@ -235,6 +257,54 @@ public class ShipActivityController {
 		String a = before == null ? "" : before;
 		String b = after == null ? "" : after;
 		return !a.equals(b);
+	}
+
+	/**
+	 * 发布时校验阶梯价每档低于 SKU 当前售价：引擎对不低于基价的档价静默跳过，
+	 * 不查商品库会出现「已发布但永不生效」的活动。商品库不可用时阻断发布（fail-closed）。
+	 */
+	private void assertLadderPricesBelowSales(PromotionActivity activity) {
+		if (!PromotionActivity.TYPE_LADDER_PRICE.equals(activity.getActivityType())
+				|| !StringUtils.hasText(activity.getRules())) {
+			return;
+		}
+		JSONArray skuLadders = JSONUtil.parseObj(activity.getRules()).getJSONArray("skuLadders");
+		if (skuLadders == null || skuLadders.isEmpty()) {
+			return;
+		}
+		List<String> skuIds = skuLadders.stream()
+			.map(element -> ((JSONObject) element).getStr("skuId"))
+			.filter(StringUtils::hasText)
+			.distinct()
+			.toList();
+		Map<String, BigDecimal> salesBySku;
+		try {
+			salesBySku = remoteGoodsSkuService.getBySkuIds(skuIds).stream()
+				.collect(Collectors.toMap(GoodsSku::getId, GoodsSku::getSalesPrice, (a, b) -> a));
+		}
+		catch (Exception ex) {
+			throw new ArynBusinessException("商品服务不可用，无法校验阶梯价与售价关系，请稍后重试");
+		}
+		for (Object element : skuLadders) {
+			JSONObject skuLadder = (JSONObject) element;
+			String skuId = skuLadder.getStr("skuId");
+			BigDecimal salesPrice = salesBySku.get(skuId);
+			if (salesPrice == null) {
+				throw new ArynBusinessException("阶梯价 SKU " + skuId + " 不存在，无法发布");
+			}
+			JSONArray ladders = skuLadder.getJSONArray("ladders");
+			if (ladders == null) {
+				continue;
+			}
+			for (Object ladderElement : ladders) {
+				JSONObject ladder = (JSONObject) ladderElement;
+				BigDecimal unitPrice = ladder.getBigDecimal("unitPrice");
+				if (unitPrice != null && unitPrice.compareTo(salesPrice) >= 0) {
+					throw new ArynBusinessException("SKU " + skuId + " 档价 " + unitPrice + " 不低于当前售价 "
+							+ salesPrice + "，发布后不会生效，请先调整");
+				}
+			}
+		}
 	}
 
 }

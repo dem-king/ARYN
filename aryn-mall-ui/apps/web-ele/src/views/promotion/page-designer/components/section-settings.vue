@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type {
   DecorationSection,
+  SectionBackgroundGradient,
   SectionCondition,
   SectionConditionGroup,
   SectionConditionRule,
@@ -32,6 +33,7 @@ import { getList as getMemberTagList } from '#/api/user/member-tag';
 import { cloneDesignerValue } from '../schema/clone';
 import { sanitizeCondition } from '../schema/condition';
 import { CARD_SECTION_PRESET } from '../schema/defaults';
+import { buildSectionGradient } from '../schema/section-style';
 
 const props = defineProps<{ section?: DecorationSection }>();
 
@@ -47,6 +49,11 @@ const emit = defineEmits<{
 
 const form = reactive({
   backgroundColor: '',
+  backgroundGradient: {
+    direction: 'to right',
+    endColor: '',
+    startColor: '',
+  } as SectionBackgroundGradient,
   backgroundImage: '',
   horizontalScroll: false,
   marginX: 0,
@@ -57,6 +64,12 @@ const form = reactive({
   radius: 0,
   sticky: false,
 });
+
+type BackgroundMode = 'gradient' | 'none' | 'solid';
+const backgroundMode = ref<BackgroundMode>('none');
+const gradientPreview = computed(
+  () => buildSectionGradient(form.backgroundGradient) ?? 'transparent',
+);
 
 // ---- 条件显示：登录态三态（字符串简写） + 高级组合条件（对象） ----
 type LoginScope = 'always' | 'guest' | 'login';
@@ -103,6 +116,21 @@ watch(
   (section) => {
     if (!section) return;
     form.backgroundColor = section.style.backgroundColor;
+    const gradient = section.style.backgroundGradient;
+    form.backgroundGradient = {
+      direction: gradient?.direction || 'to right',
+      endColor: gradient?.endColor || '',
+      startColor: gradient?.startColor || '',
+    };
+    // 起止色都为空且无纯色即视为无背景，兼容没有该字段的历史草稿
+    const hasGradient = Boolean(
+      form.backgroundGradient.startColor || form.backgroundGradient.endColor,
+    );
+    if (hasGradient) {
+      backgroundMode.value = 'gradient';
+    } else {
+      backgroundMode.value = form.backgroundColor ? 'solid' : 'none';
+    }
     form.backgroundImage = section.style.backgroundImage;
     form.horizontalScroll = section.style.horizontalScroll;
     form.marginX = section.style.marginX;
@@ -181,6 +209,7 @@ const ruleRows = computed(() => group.value.rules);
 function emitPatch(groupKey: string) {
   const style: Partial<SectionStyle> = cloneDesignerValue({
     backgroundColor: form.backgroundColor,
+    backgroundGradient: form.backgroundGradient,
     backgroundImage: form.backgroundImage,
     condition: resolveCondition(),
     horizontalScroll: form.horizontalScroll,
@@ -199,6 +228,40 @@ function emitPatch(groupKey: string) {
     },
     groupKey,
   );
+}
+
+/**
+ * 无背景 / 纯色 / 渐变三态。
+ * 无背景会同时清空纯色与渐变，让下层页面背景透出——区块背景画在页面上层，
+ * 不透明时会盖住页面背景，这是运营最容易误解的一层顺序。
+ */
+function onBackgroundModeChange(value: boolean | number | string | undefined) {
+  let mode: BackgroundMode = 'none';
+  if (value === 'gradient') {
+    mode = 'gradient';
+  } else if (value === 'solid') {
+    mode = 'solid';
+  }
+  backgroundMode.value = mode;
+  if (mode === 'gradient') {
+    if (
+      !form.backgroundGradient.startColor &&
+      !form.backgroundGradient.endColor
+    ) {
+      form.backgroundGradient.startColor =
+        form.backgroundColor || 'rgba(255, 255, 255, 1)';
+      form.backgroundGradient.endColor = '#f5f7fa';
+    }
+  } else if (mode === 'solid') {
+    form.backgroundGradient.startColor = '';
+    form.backgroundGradient.endColor = '';
+    form.backgroundColor = form.backgroundColor || '#ffffff';
+  } else {
+    form.backgroundGradient.startColor = '';
+    form.backgroundGradient.endColor = '';
+    form.backgroundColor = '';
+  }
+  emitPatch('section-background');
 }
 
 /** 一键套用卡片预设：通栏色带 → 带留白的圆角卡片 */
@@ -224,12 +287,60 @@ function applyCardPreset() {
         />
       </ElFormItem>
       <ElFormItem label="区块背景色">
+        <ElRadioGroup
+          :model-value="backgroundMode"
+          @change="onBackgroundModeChange"
+        >
+          <ElRadioButton value="none">无背景</ElRadioButton>
+          <ElRadioButton value="solid">纯色</ElRadioButton>
+          <ElRadioButton value="gradient">渐变</ElRadioButton>
+        </ElRadioGroup>
+        <div class="form-tip">
+          区块背景画在页面背景之上：不透明时会盖住页面背景，选「无背景」才透出页面背景/主题底色
+        </div>
+      </ElFormItem>
+      <ElFormItem v-if="backgroundMode === 'solid'" label="颜色">
         <ElColorPicker
           v-model="form.backgroundColor"
           show-alpha
           @update:model-value="emitPatch('section-background')"
         />
       </ElFormItem>
+      <template v-else-if="backgroundMode === 'gradient'">
+        <ElFormItem label="渐变颜色">
+          <div class="gradient-colors">
+            <ElColorPicker
+              v-model="form.backgroundGradient.startColor"
+              show-alpha
+              @update:model-value="emitPatch('section-background')"
+            />
+            <span class="gradient-arrow">→</span>
+            <ElColorPicker
+              v-model="form.backgroundGradient.endColor"
+              show-alpha
+              @update:model-value="emitPatch('section-background')"
+            />
+          </div>
+        </ElFormItem>
+        <ElFormItem label="渐变方向">
+          <ElSelect
+            v-model="form.backgroundGradient.direction"
+            class="gradient-direction"
+            @update:model-value="emitPatch('section-background')"
+          >
+            <ElOption label="从左到右" value="to right" />
+            <ElOption label="从上到下" value="to bottom" />
+            <ElOption label="左上到右下" value="135deg" />
+            <ElOption label="右上到左下" value="225deg" />
+          </ElSelect>
+        </ElFormItem>
+        <ElFormItem label="渐变预览">
+          <div
+            class="gradient-preview"
+            :style="{ background: gradientPreview }"
+          ></div>
+        </ElFormItem>
+      </template>
       <ElFormItem label="区块背景图">
         <ElInput
           v-model="form.backgroundImage"
@@ -237,6 +348,7 @@ function applyCardPreset() {
           placeholder="图片地址"
           @update:model-value="emitPatch('section-background')"
         />
+        <div class="form-tip">填写后优先于背景色/渐变</div>
       </ElFormItem>
       <ElFormItem label="左右内边距（px）">
         <ElInputNumber
@@ -301,6 +413,9 @@ function applyCardPreset() {
           v-model="form.sticky"
           @update:model-value="emitPatch('section-sticky')"
         />
+        <div class="form-tip">
+          吸顶适合较矮的区块（如 Tab 栏）；区块过高会长期占屏、遮挡后续内容
+        </div>
       </ElFormItem>
       <ElFormItem label="条件显示（登录态）">
         <ElRadioGroup
@@ -421,6 +536,35 @@ function applyCardPreset() {
   padding: 24px 12px;
   color: var(--el-text-color-secondary);
   text-align: center;
+}
+
+.gradient-colors {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.gradient-arrow {
+  color: var(--el-text-color-secondary);
+}
+
+.gradient-direction {
+  width: 100%;
+}
+
+.gradient-preview {
+  width: 100%;
+  height: 24px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 4px;
+}
+
+.form-tip {
+  width: 100%;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--el-text-color-secondary);
 }
 
 .rule-row {
