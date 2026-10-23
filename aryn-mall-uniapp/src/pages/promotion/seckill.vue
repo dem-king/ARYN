@@ -3,7 +3,7 @@ import type { AppSeckillGoodsVO, AppSeckillVO } from '@/api/promotion'
 import { onLoad, onUnload } from '@dcloudio/uni-app'
 import { computed, reactive, ref } from 'vue'
 import { getSeckillSessions, getSessionGoods } from '@/api/promotion'
-import { useGlobalLoading } from '@/composables/useGlobalLoading'
+import { navigateToUrl } from '@/utils/tab-bar'
 
 definePage({
   name: 'seckill',
@@ -13,19 +13,42 @@ definePage({
   },
 })
 
-const globalLoading = useGlobalLoading()
+/**
+ * 导航条取主色、信息条以主色起手：
+ * 两者同为 --wot-color-theme-primary，衔接处不会出现一条异色带。
+ */
+const THEME_PRIMARY = 'var(--wot-color-theme-primary)'
+/** 信息条钩子句：与首页秒杀楼层默认副标同源 */
+const HEAD_SUBTITLE = '整点开抢 · 限量特价 · 手慢无'
+/** 空态「去首页逛逛」目标：与折扣会场同源 */
+const HOME_PATH = '/pages/home/index'
+/** 「仅剩 N 件」口径的剩余量阈值：低于此值不再输出百分比，避免「已抢 0% · 仅剩 1 件」自相矛盾 */
+const LOW_STOCK_THRESHOLD = 5
+/** 价差占原价比例超过此值时，图上角标不再喊具体省额，改「限量特价」 */
+const DEEP_DISCOUNT_RATIO = 0.7
 
 /** 场次列表 */
 const sessionList = ref<AppSeckillVO[]>([])
-/** 当前选中场次索引 */
+/** 当前选中场次在 sessionList 中的索引（Tab 过滤掉已结束场次后仍可定位） */
 const currentSessionIndex = ref(0)
 /** 当前场次商品列表 */
 const goodsList = ref<AppSeckillGoodsVO[]>([])
-/** 是否还有更多商品（上拉加载） */
+/** 是否还有更多商品（后端一次性下发全部商品，保留模板契约） */
 const noMore = ref(true)
+/** 首屏骨架：仅在还没有场次数据时展示 */
+const loading = ref(true)
+/** 商品区骨架：切场次时占位，避免上一场商品短暂闪现 */
+const goodsLoading = ref(false)
+/** 下拉刷新状态：驱动 scroll-view 的 refresher 收起 */
+const refreshing = ref(false)
+/** 已触发过「倒计时结束自动刷新」的场次：后端状态未及时翻转时不反复重载 */
+const refreshedSessionIds = new Set<string>()
+/** 商品请求序号：快速切场次时丢弃过期响应，防止串场 */
+let goodsRequestSeq = 0
 
-/** 倒计时状态 */
+/** 倒计时数值（深色分格用）；天为 0 时不出天格 */
 const countdown = reactive({
+  days: 0,
   hours: 0,
   minutes: 0,
   seconds: 0,
@@ -38,14 +61,28 @@ const currentSession = computed<AppSeckillVO | null>(() => {
   return sessionList.value[currentSessionIndex.value] || null
 })
 
-/** 倒计时标签 */
-const countdownLabel = computed(() => {
-  const session = currentSession.value
-  if (!session)
-    return ''
-  // 进行中 → 距结束；未开始 → 距开始
-  return session.status === 1 ? '距本场结束' : '距本场开始'
+/** 场次轴条目：已结束场次不进轴（进行中 → 未开始，顺序沿用后端下发） */
+const tabSessions = computed(() => {
+  return sessionList.value
+    .map((session, index) => ({ index, session }))
+    .filter(item => item.session.status !== 2)
 })
+
+/** 倒计时标签：进行中看结束、未开始看开始 */
+const countdownLabel = computed(() => {
+  return currentSession.value?.status === 1 ? '距本场结束' : '距本场开始'
+})
+
+/** 已结束场次不渲染倒计时（轴里选不到，仅作兜底） */
+const showCountdown = computed(() => {
+  return !!currentSession.value && currentSession.value.status !== 2
+})
+
+/** 未开始场次：整场尚未开抢，进度不成立 */
+const isPendingSession = computed(() => currentSession.value?.status === 0)
+
+/** 空态文案：没有可展示场次 vs 当前场次暂未上架商品 */
+const noSession = computed(() => tabSessions.value.length === 0)
 
 onLoad(async () => {
   await loadSessions()
@@ -55,56 +92,80 @@ onUnload(() => {
   stopCountdown()
 })
 
-/** 加载场次列表 */
+/** 加载场次列表：优先落到进行中，其次未开始；全部结束则走空态 */
 async function loadSessions() {
-  globalLoading.loading('加载中...')
+  if (sessionList.value.length === 0)
+    loading.value = true
   try {
     const data = await getSeckillSessions()
     sessionList.value = data || []
-    if (sessionList.value.length > 0) {
-      // 默认选中第一个进行中的场次，否则选第一个
-      const activeIndex = sessionList.value.findIndex(s => s.status === 1)
-      currentSessionIndex.value = activeIndex >= 0 ? activeIndex : 0
-      await selectSession(currentSessionIndex.value)
+    // 默认选中第一个进行中场次，没有进行中则选第一个未开始场次
+    const activeIndex = sessionList.value.findIndex(session => session.status === 1)
+    const pendingIndex = sessionList.value.findIndex(session => session.status === 0)
+    const nextIndex = activeIndex >= 0 ? activeIndex : pendingIndex
+    if (nextIndex >= 0) {
+      await selectSession(nextIndex)
     }
     else {
+      currentSessionIndex.value = 0
       goodsList.value = []
+      noMore.value = true
+      stopCountdown()
+      countdown.finished = true
     }
   }
   catch {
     uni.showToast({ title: '加载失败', icon: 'none' })
   }
   finally {
-    globalLoading.close()
+    loading.value = false
   }
 }
 
-/** 选择场次 */
+/** 选择场次：拉取该场商品并重启倒计时 */
 async function selectSession(index: number) {
-  currentSessionIndex.value = index
   const session = sessionList.value[index]
   if (!session)
     return
+  currentSessionIndex.value = index
   goodsList.value = []
-  await loadSessionGoods(session.sessionId)
-  startCountdown()
+  noMore.value = true
+  goodsLoading.value = true
+  const seq = ++goodsRequestSeq
+  try {
+    await loadSessionGoods(session.sessionId, seq)
+  }
+  finally {
+    if (seq === goodsRequestSeq)
+      goodsLoading.value = false
+  }
+  if (seq === goodsRequestSeq)
+    startCountdown()
 }
 
-/** 加载场次商品（后端返回全部商品，无分页） */
-async function loadSessionGoods(sessionId: string) {
+/** 加载场次商品（后端一次性返回全部商品，无分页） */
+async function loadSessionGoods(sessionId: string, seq: number) {
   try {
     const session = await getSessionGoods(sessionId)
+    if (seq !== goodsRequestSeq)
+      return
     goodsList.value = session.goodsList || []
-    noMore.value = true
   }
   catch {
-    uni.showToast({ title: '加载商品失败', icon: 'none' })
+    if (seq === goodsRequestSeq)
+      uni.showToast({ title: '加载商品失败', icon: 'none' })
   }
 }
 
-/** 下拉刷新 */
+/** 下拉刷新：重取场次并刷新当前场商品 */
 async function onRefresh() {
-  await loadSessions()
+  refreshing.value = true
+  try {
+    await loadSessions()
+  }
+  finally {
+    refreshing.value = false
+  }
 }
 
 /** 上拉加载更多（后端无分页，保留空实现以兼容模板事件） */
@@ -127,74 +188,185 @@ function stopCountdown() {
   }
 }
 
-/** 更新倒计时数值 */
+/**
+ * 后端时间串兼容 `yyyy-MM-dd HH:mm:ss`：
+ * iOS 部分内核直接 Date.parse 会得到 NaN，退化成 ISO 形式再解析。
+ */
+function parseTime(value: string) {
+  if (!value)
+    return Number.NaN
+  const direct = Date.parse(value)
+  if (!Number.isNaN(direct))
+    return direct
+  return Date.parse(value.replace(' ', 'T'))
+}
+
+/** 每秒推进倒计时；归零后自动刷新场次（同一场次只触发一次，避免服务端状态滞后时死循环） */
 function updateCountdown() {
   const session = currentSession.value
-  if (!session) {
+  if (!session || session.status === 2) {
     countdown.finished = true
     return
   }
   // 进行中算距结束时间，未开始算距开始时间
   const targetTime = session.status === 1 ? session.endTime : session.startTime
-  if (!targetTime) {
+  const target = parseTime(targetTime)
+  if (Number.isNaN(target)) {
     countdown.finished = true
     return
   }
-  const target = new Date(targetTime).getTime()
   const diff = target - Date.now()
   if (diff <= 0) {
+    countdown.days = 0
     countdown.hours = 0
     countdown.minutes = 0
     countdown.seconds = 0
     countdown.finished = true
     stopCountdown()
-    // 倒计时结束，刷新场次列表
-    loadSessions()
+    if (session.sessionId && !refreshedSessionIds.has(session.sessionId)) {
+      refreshedSessionIds.add(session.sessionId)
+      void loadSessions()
+    }
     return
   }
-  countdown.hours = Math.floor(diff / (1000 * 60 * 60))
-  countdown.minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
-  countdown.seconds = Math.floor((diff % (1000 * 60)) / 1000)
+  const totalSeconds = Math.floor(diff / 1000)
+  // 天单独一格：只有跨天场次才出现（盒马/京东同款口径）
+  countdown.days = Math.floor(totalSeconds / 86400)
+  countdown.hours = Math.floor((totalSeconds % 86400) / 3600)
+  countdown.minutes = Math.floor((totalSeconds % 3600) / 60)
+  countdown.seconds = totalSeconds % 60
   countdown.finished = false
 }
 
-/** 库存进度百分比 */
-function stockPercent(goods: AppSeckillGoodsVO): number {
-  if (!goods.seckillStock || goods.seckillStock <= 0)
-    return 0
-  const remaining = goods.remainingStock || 0
-  const percent = Math.round((remaining / goods.seckillStock) * 100)
-  return Math.max(0, Math.min(100, percent))
+/** 两位补零（倒计时分格） */
+function pad(value: number) {
+  return String(Math.max(0, value)).padStart(2, '0')
 }
 
-/** 是否已抢完 */
-function isSoldOut(goods: AppSeckillGoodsVO): boolean {
-  return (goods.remainingStock || 0) <= 0
+/** 场次起始整点「HH:00」；startTime 缺失/无法解析时返回空串 */
+function startHourLabel(session: AppSeckillVO) {
+  const start = parseTime(session.startTime)
+  if (Number.isNaN(start))
+    return ''
+  return `${pad(new Date(start).getHours())}:00`
 }
 
-/** 抢购按钮文本：秒杀商品走加购动线（与全网商超业态一致），文案随之改为加购口径 */
-function buyButtonText(goods: AppSeckillGoodsVO): string {
+/**
+ * 场次轴文案：进行中「10:00 抢购中」、未开始「14:00 开抢」。
+ * 时间解析失败时退化成纯状态词，绝不回落后端 sessionName（
+ * 「午间场 / 明日晚场20点」这类运营命名与「HH:00」混排会让整条轴失去节奏）。
+ */
+function sessionAxisLabel(session: AppSeckillVO) {
+  const hour = startHourLabel(session)
+  if (session.status === 1)
+    return hour ? `${hour} 抢购中` : '抢购中'
+  return hour ? `${hour} 开抢` : '即将开抢'
+}
+
+/**
+ * 立省角标：价差 > 0 才出现。
+ * 价差占原价超过 70%（如 ¥0.01 对 ¥19.90）时不再喊具体省额 —— 该场景下
+ * 「立省¥19.89」与巨石价、划线价互相抢，改「限量特价」把「省」让给价格表达。
+ */
+function offBadgeText(goods: AppSeckillGoodsVO) {
+  const diff = Number(goods.originalPrice) - Number(goods.seckillPrice)
+  if (!Number.isFinite(diff) || diff <= 0)
+    return ''
+  const original = Number(goods.originalPrice)
+  if (original > 0 && diff / original > DEEP_DISCOUNT_RATIO)
+    return '限量特价'
+  return `立省¥${diff.toFixed(2)}`
+}
+
+/** 划线原价：仅原价大于到手价时展示 */
+function hasOriginalPrice(goods: AppSeckillGoodsVO) {
+  return Number(goods.originalPrice) > Number(goods.seckillPrice)
+}
+
+/** 金额统一两位小数 */
+function formatPrice(value: number) {
+  const price = Number(value)
+  return Number.isFinite(price) ? price.toFixed(2) : '0.00'
+}
+
+/**
+ * 库存数字归一化：后端用 -1 / null 表示「库存未知」，统一折成 NaN 按未知处理。
+ * 不能直接用 Number(null) —— 它等于 0，会把「未知」误判成售罄。
+ */
+function stockNumber(value: unknown) {
+  if (value === null || value === undefined || value === '')
+    return Number.NaN
+  const num = Number(value)
+  return Number.isFinite(num) ? num : Number.NaN
+}
+
+/**
+ * 已抢进度：轨道（h12）+ 文案双出。
+ * 文案口径：售罄「已抢光」；剩余 ≤5 件或 pct 取整为 0 → 「仅剩 N 件」
+ * （避免「已抢 0% · 仅剩 1 件」这种自相矛盾）；其余「已抢 pct% · 仅剩 N 件」。
+ * remainingStock < 0（后端未知哨兵）或 seckillStock <= 0 时隐藏整块。
+ */
+function stockInfo(goods: AppSeckillGoodsVO) {
+  const stock = stockNumber(goods.seckillStock)
+  const remaining = stockNumber(goods.remainingStock)
+  if (!Number.isFinite(stock) || !Number.isFinite(remaining))
+    return null
+  if (remaining < 0 || stock <= 0)
+    return null
+  const sold = Math.min(stock, Math.max(0, stock - remaining))
+  const pct = Math.round((sold / stock) * 100)
+  if (remaining <= 0)
+    return { pct: 100, text: '已抢光' }
+  if (pct <= 0 || remaining <= LOW_STOCK_THRESHOLD)
+    return { pct, text: `仅剩 ${remaining} 件` }
+  return { pct, text: `已抢 ${pct}% · 仅剩 ${remaining} 件` }
+}
+
+/** 未开始场次：不出进度轨道，只出「限量 N 件」文字 */
+function pendingStockText(goods: AppSeckillGoodsVO) {
+  const stock = stockNumber(goods.seckillStock)
+  if (!Number.isFinite(stock) || stock <= 0)
+    return ''
+  return `限量 ${stock} 件`
+}
+
+/** 是否已抢完（库存未知不判售罄，仍允许进详情） */
+function isSoldOut(goods: AppSeckillGoodsVO) {
+  const remaining = stockNumber(goods.remainingStock)
+  return Number.isFinite(remaining) && remaining <= 0
+}
+
+/**
+ * CTA 文案：进行中「抢」、未开始「14:00 开抢」、售罄「已抢光」。
+ * 未开始用起始整点而不是「即将开始」，让用户知道几点回来。
+ */
+function ctaText(goods: AppSeckillGoodsVO) {
   const session = currentSession.value
   if (!session)
     return '不可购买'
-  if (session.status === 0)
-    return '即将开始'
+  if (session.status === 0) {
+    const hour = startHourLabel(session)
+    return hour ? `${hour} 开抢` : '即将开始'
+  }
   if (session.status === 2)
     return '已结束'
   if (isSoldOut(goods))
-    return '已抢完'
-  return '加入购物车'
+    return '已抢光'
+  return '抢'
 }
 
-/** 抢购按钮是否可点击 */
-function canBuy(goods: AppSeckillGoodsVO): boolean {
+/** CTA 是否可点：仅进行中且未售罄 */
+function canBuy(goods: AppSeckillGoodsVO) {
   const session = currentSession.value
   if (!session || session.status !== 1)
     return false
   return !isSoldOut(goods)
 }
 
-/** 处理抢购：跳转商品详情页加购，由服务端在下单时按秒杀价结算 */
+/**
+ * 抢购：跳商品详情加购，由服务端在下单时按秒杀价结算。
+ * D1 已拍板：CTA 文案改「抢」，但下单动线保持「进详情加购」不变。
+ */
 function handleBuy(goods: AppSeckillGoodsVO) {
   if (!canBuy(goods))
     return
@@ -203,372 +375,733 @@ function handleBuy(goods: AppSeckillGoodsVO) {
   })
 }
 
-/** 跳转商品详情 */
+/** 跳转商品详情（整卡可点，保留原有无 from 参数的行为） */
 function goGoodsDetail(goods: AppSeckillGoodsVO) {
   uni.navigateTo({
     url: `/sub-pages/product/goods-detail/index?id=${goods.spuId}`,
   })
 }
+
+/** 空态主按钮：没有场次时回首页商品流 */
+function goHome() {
+  navigateToUrl(HOME_PATH)
+}
+
+/** 当前场无商品：链到其它可展示场次（有则切场，只有一场则隐藏文字链） */
+const otherSessionIndex = computed(() => {
+  return tabSessions.value.find(item => item.index !== currentSessionIndex.value)?.index ?? -1
+})
+
+function goOtherSession() {
+  if (otherSessionIndex.value >= 0)
+    void selectSession(otherSessionIndex.value)
+}
 </script>
 
 <template>
   <view class="seckill-page">
-    <hr-navbar title="限时秒杀" />
+    <!-- 导航承载活动名：信息条不再重复写一遍标题 -->
+    <hr-navbar
+      title="限时秒杀"
+      :bordered="false"
+      :background-color="THEME_PRIMARY"
+      text-color="#ffffff"
+    />
 
-    <!-- 场次标签栏 -->
-    <scroll-view scroll-x class="session-bar" :show-scrollbar="false">
-      <view class="session-list">
-        <view
-          v-for="(session, index) in sessionList"
-          :key="session.sessionId"
-          class="session-item"
-          :class="{ active: index === currentSessionIndex }"
-          @click="selectSession(index)"
+    <!-- 首屏骨架：信息条 + 白色面板（场次轴 / 倒计时）+ 2 行商品 -->
+    <template v-if="loading">
+      <view class="hero-skeleton" />
+      <view class="panel-skeleton">
+        <view class="sk-tabs">
+          <view v-for="n in 3" :key="`sk-tab-${n}`" class="sk-tab" />
+        </view>
+      </view>
+      <view class="goods-scroll">
+        <view v-for="n in 2" :key="`sk-card-${n}`" class="card-skeleton">
+          <view class="sk-media" />
+          <view class="sk-lines">
+            <view class="sk-line sk-line--lg" />
+            <view class="sk-line" />
+            <view class="sk-line sk-line--sm" />
+          </view>
+        </view>
+      </view>
+    </template>
+
+    <template v-else>
+      <!-- 信息条（176rpx）：线性图标 + 钩子句 + 右侧深色分格倒计时（天单独一格） -->
+      <view class="hero">
+        <view class="hero-main">
+          <view class="hero-icon">
+            <image class="hero-icon-img" src="/static/promotion/icon-flash.svg" mode="aspectFit" />
+          </view>
+          <text class="hero-sub">
+            {{ HEAD_SUBTITLE }}
+          </text>
+        </view>
+        <view v-if="showCountdown" class="hero-cd">
+          <text class="cd-label">
+            {{ countdownLabel }}
+          </text>
+          <view class="cd-blocks">
+            <text v-if="countdown.days > 0" class="cd-block cd-block--days">{{ countdown.days }}天</text>
+            <text class="cd-block">{{ pad(countdown.hours) }}</text>
+            <text class="cd-colon">:</text>
+            <text class="cd-block">{{ pad(countdown.minutes) }}</text>
+            <text class="cd-colon">:</text>
+            <text class="cd-block">{{ pad(countdown.seconds) }}</text>
+          </view>
+        </view>
+      </view>
+
+      <!-- 白色面板：场次轴一行（已结束场次不渲染） -->
+      <view v-if="tabSessions.length > 0" class="hall-panel">
+        <scroll-view
+          scroll-x
+          class="hall-tabs"
+          :show-scrollbar="false"
         >
-          <view class="session-name">
-            {{ session.sessionName }}
+          <view class="hall-tabs-track">
+            <view
+              v-for="item in tabSessions"
+              :key="item.session.sessionId"
+              class="hall-tab"
+              :class="item.session.status === 1 ? 'is-live' : 'is-pending'"
+              @click="selectSession(item.index)"
+            >
+              <text class="hall-tab-label">
+                {{ sessionAxisLabel(item.session) }}
+              </text>
+            </view>
           </view>
-          <view class="session-status">
-            {{ session.status === 0 ? '即将开始' : session.status === 1 ? '抢购中' : '已结束' }}
-          </view>
-        </view>
-      </view>
-    </scroll-view>
-
-    <!-- 倒计时区域 -->
-    <view v-if="currentSession" class="countdown-bar">
-      <view class="countdown-label">
-        {{ countdownLabel }}
-      </view>
-      <view class="countdown-time">
-        <text class="time-block">
-          {{ String(countdown.hours).padStart(2, '0') }}
-        </text>
-        <text class="time-sep">
-          :
-        </text>
-        <text class="time-block">
-          {{ String(countdown.minutes).padStart(2, '0') }}
-        </text>
-        <text class="time-sep">
-          :
-        </text>
-        <text class="time-block">
-          {{ String(countdown.seconds).padStart(2, '0') }}
-        </text>
-      </view>
-    </view>
-
-    <!-- 商品列表 -->
-    <scroll-view
-      scroll-y
-      class="goods-scroll"
-      refresher-enabled
-      :refresher-triggered="false"
-      @refresherrefresh="onRefresh"
-      @scrolltolower="onLoadMore"
-    >
-      <!-- 空状态 -->
-      <view v-if="goodsList.length === 0" class="empty-state">
-        <view class="empty-text">
-          暂无秒杀商品
-        </view>
+        </scroll-view>
       </view>
 
-      <!-- 商品卡片 -->
-      <view
-        v-for="goods in goodsList"
-        :key="goods.skuId"
-        class="goods-card"
-        @click="goGoodsDetail(goods)"
+      <scroll-view
+        scroll-y
+        class="goods-scroll"
+        refresher-enabled
+        :refresher-triggered="refreshing"
+        @refresherrefresh="onRefresh"
+        @scrolltolower="onLoadMore"
       >
-        <image
-          class="goods-image"
-          :src="goods.goodsImage"
-          mode="aspectFill"
-        />
-        <view class="goods-info">
-          <view class="goods-name">
-            {{ goods.goodsName }}
-          </view>
-          <view class="price-row">
-            <view class="seckill-price">
-              <text class="price-symbol">
-                ¥
-              </text>
-              <text class="price-value">
-                {{ goods.seckillPrice }}
-              </text>
-            </view>
-            <view class="original-price">
-              ¥{{ goods.originalPrice }}
+        <!-- 切场次骨架：2 行商品 -->
+        <template v-if="goodsLoading">
+          <view v-for="n in 2" :key="`sk-${n}`" class="card-skeleton">
+            <view class="sk-media" />
+            <view class="sk-lines">
+              <view class="sk-line sk-line--lg" />
+              <view class="sk-line" />
+              <view class="sk-line sk-line--sm" />
             </view>
           </view>
-          <!-- 库存进度条 -->
-          <view class="stock-bar">
-            <view class="stock-track">
-              <view
-                class="stock-fill"
-                :style="{ width: `${stockPercent(goods)}%` }"
-              />
-            </view>
-            <view class="stock-text">
-              <text v-if="isSoldOut(goods)">
-                已抢完
-              </text>
-              <text v-else>
-                剩{{ goods.remainingStock }}件
-              </text>
-            </view>
-          </view>
-          <!-- 抢购按钮 -->
-          <view
-            class="buy-btn"
-            :class="{ disabled: !canBuy(goods) }"
-            @click.stop="handleBuy(goods)"
-          >
-            {{ buyButtonText(goods) }}
-          </view>
-        </view>
-      </view>
+        </template>
 
-      <!-- 加载更多提示 -->
-      <view v-if="goodsList.length > 0" class="load-more">
-        <text v-if="noMore">
-          没有更多了
-        </text>
-        <text v-else>
-          加载中...
-        </text>
-      </view>
-    </scroll-view>
+        <!-- 空态：没有可展示场次，或当前场次尚未上架商品 -->
+        <hall-state
+          v-else-if="noSession"
+          art="seckill"
+          title="暂无进行中的秒杀场次"
+          desc="整点开抢，先去逛逛看有没有想买的"
+          action-text="去首页逛逛"
+          @action="goHome"
+        />
+        <hall-state
+          v-else-if="goodsList.length === 0"
+          art="seckill"
+          title="本场暂无秒杀商品"
+          :desc="otherSessionIndex >= 0 ? '其它场次可能还有货' : '换个时间再来看看'"
+          :link-text="otherSessionIndex >= 0 ? '切换其它场次' : ''"
+          @link="goOtherSession"
+        />
+
+        <template v-else>
+          <!-- 商品行卡：左图（唯一角标）+ 右侧品名/双价·CTA 同行/已抢轨道 -->
+          <view
+            v-for="goods in goodsList"
+            :key="goods.skuId"
+            class="goods-card"
+            :class="{ 'is-out': isSoldOut(goods) }"
+            hover-class="goods-card--pressed"
+            @click="goGoodsDetail(goods)"
+          >
+            <view class="goods-media">
+              <image
+                v-if="goods.goodsImage"
+                class="goods-img"
+                :src="resolveImageSrc(goods.goodsImage)"
+                mode="aspectFill"
+                lazy-load
+              />
+              <view v-else class="goods-img goods-img--empty">
+                <text>秒杀</text>
+              </view>
+              <text v-if="offBadgeText(goods)" class="goods-off">
+                {{ offBadgeText(goods) }}
+              </text>
+              <view v-if="isSoldOut(goods)" class="goods-cover">
+                <text class="goods-cover-text">已抢光</text>
+              </view>
+            </view>
+
+            <view class="goods-info">
+              <view class="goods-name">
+                {{ goods.goodsName || '秒杀商品' }}
+              </view>
+
+              <!-- 价格与 CTA 同一行：CTA 不再独占一条竖直通道 -->
+              <view class="goods-price-row">
+                <view class="goods-price">
+                  <text class="price-sym">¥</text>
+                  <text class="price-val">{{ formatPrice(goods.seckillPrice) }}</text>
+                  <text v-if="hasOriginalPrice(goods)" class="price-orig">
+                    ¥{{ formatPrice(goods.originalPrice) }}
+                  </text>
+                </view>
+                <view class="cta-hit" @click.stop="handleBuy(goods)">
+                  <view class="goods-cta" :class="{ 'is-disabled': !canBuy(goods) }">
+                    {{ ctaText(goods) }}
+                  </view>
+                </view>
+              </view>
+
+              <!-- 进度：进行中出轨道 + 文案；未开始只出「限量 N 件」 -->
+              <view v-if="stockInfo(goods) && !isPendingSession" class="prog">
+                <view class="prog-track">
+                  <view
+                    class="prog-fill"
+                    :class="{ 'is-out': isSoldOut(goods) }"
+                    :style="{ width: `${stockInfo(goods)?.pct ?? 0}%` }"
+                  />
+                </view>
+                <text class="prog-text" :class="{ 'is-out': isSoldOut(goods) }">
+                  {{ stockInfo(goods)?.text }}
+                </text>
+              </view>
+              <view v-else-if="isPendingSession && pendingStockText(goods)" class="prog prog--pending">
+                <text class="prog-text">{{ pendingStockText(goods) }}</text>
+              </view>
+            </view>
+          </view>
+
+          <view class="load-more">
+            <text v-if="noMore">
+              —— 没有更多了 ——
+            </text>
+            <text v-else>
+              加载中...
+            </text>
+          </view>
+        </template>
+      </scroll-view>
+    </template>
   </view>
 </template>
 
+<!--
+  2026-10-23 第二轮重构：把「加元素表达促销」换成「删元素 + 主色面积当稀缺资源」。
+  头部由四段压成两段（导航承载标题 → 信息条 + 场次轴），场次改横滑 pill 三态
+  （进行中实心主色、未开始浅底、已结束不渲染），价格与 CTA 同行，已抢恢复
+  h12 真实轨道 + 文案双出，并新增两条降噪规则（见 stockInfo / offBadgeText）。
+  空态统一走 HallState（品牌渐变圆 + 白色线性图标），不再用中文单字方块。
+  颜色一律走 --wot-color-theme-* token，跟随多租户主题换肤。
+-->
 <style lang="scss" scoped>
 .seckill-page {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  background: #f5f5f5;
+  background: #f5f6f8;
 }
 
-// 场次标签栏
-.session-bar {
-  background: linear-gradient(135deg, var(--wot-color-theme-secondary, #ff6b35), var(--wot-color-theme-primary, #ff4500));
-  white-space: nowrap;
-  padding: 16rpx 0;
-
-  .session-list {
-    display: inline-flex;
-    padding: 0 16rpx;
-  }
-
-  .session-item {
-    display: inline-flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    min-width: 160rpx;
-    padding: 12rpx 24rpx;
-    margin-right: 16rpx;
-    border-radius: 12rpx;
-    opacity: 0.7;
-    transition: all 0.2s;
-
-    &.active {
-      opacity: 1;
-      background: rgba(255, 255, 255, 0.25);
-    }
-
-    .session-name {
-      font-size: 28rpx;
-      font-weight: 600;
-      color: #fff;
-    }
-
-    .session-status {
-      font-size: 22rpx;
-      color: #fff;
-      margin-top: 4rpx;
-    }
-  }
-}
-
-// 倒计时区域
-.countdown-bar {
+/* ---- 信息条：品牌渐变 + 钩子句 + 深色分格倒计时 ---- */
+.hero {
   display: flex;
+  padding: 20rpx 24rpx 52rpx;
   align-items: center;
-  justify-content: center;
   gap: 16rpx;
-  background: #fff;
-  padding: 24rpx 32rpx;
-
-  .countdown-label {
-    font-size: 26rpx;
-    color: #666;
-  }
-
-  .countdown-time {
-    display: flex;
-    align-items: center;
-    gap: 4rpx;
-
-    .time-block {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-width: 48rpx;
-      height: 48rpx;
-      background: #333;
-      color: #fff;
-      font-size: 28rpx;
-      font-weight: 700;
-      border-radius: 8rpx;
-      padding: 0 8rpx;
-    }
-
-    .time-sep {
-      font-size: 28rpx;
-      font-weight: 700;
-      color: #333;
-    }
-  }
+  color: #fff;
+  background: linear-gradient(180deg, var(--wot-color-theme-primary, #ff2237) 0%, var(--wot-color-theme-secondary, #ff6b35) 100%);
 }
 
-// 商品列表
-.goods-scroll {
-  flex: 1;
-  padding: 16rpx;
-}
-
-// 空状态
-.empty-state {
+.hero-main {
   display: flex;
+  overflow: hidden;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 14rpx;
+}
+
+/* 图形位：白 22% 底 + 白色闪电图标（线性语义，替代「秒」字方块） */
+.hero-icon {
+  display: flex;
+  width: 48rpx;
+  height: 48rpx;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  padding: 120rpx 0;
-
-  .empty-text {
-    font-size: 28rpx;
-    color: #999;
-  }
+  background: rgb(255 255 255 / 22%);
+  border-radius: 50%;
 }
 
-// 商品卡片
+.hero-icon-img {
+  width: 28rpx;
+  height: 28rpx;
+}
+
+.hero-sub {
+  overflow: hidden;
+  color: rgb(255 255 255 / 90%);
+  font-size: 24rpx;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hero-cd {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6rpx;
+}
+
+.cd-label {
+  color: rgb(255 255 255 / 82%);
+  font-size: 20rpx;
+  font-weight: 500;
+}
+
+.cd-blocks {
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+}
+
+/* 深色分格固定 #1F2329（不随主题），倒计时数字等宽 */
+.cd-block {
+  display: flex;
+  min-width: 44rpx;
+  height: 44rpx;
+  padding: 0 8rpx;
+  align-items: center;
+  justify-content: center;
+  background: #1f2329;
+  border-radius: 8rpx;
+  color: #fff;
+  font-size: 23rpx;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 天单独一格：宽度自适应，不与时:分:秒 同宽 */
+.cd-block--days {
+  min-width: 0;
+  padding: 0 10rpx;
+}
+
+.cd-colon {
+  color: rgb(255 255 255 / 85%);
+  font-size: 23rpx;
+  font-weight: 700;
+}
+
+/* ---- 白色面板：只放场次轴一行，上圆角叠压信息条 28rpx ---- */
+.hall-panel {
+  position: relative;
+  z-index: 2;
+  margin-top: -28rpx;
+  background: #fff;
+  border-radius: 28rpx 28rpx 0 0;
+}
+
+.hall-tabs {
+  width: 100%;
+  white-space: nowrap;
+}
+
+.hall-tabs-track {
+  display: inline-flex;
+  padding: 20rpx 24rpx;
+  gap: 12rpx;
+}
+
+/* 场次 pill：视觉 60rpx、热区 76rpx（padding 撑高） */
+.hall-tab {
+  display: inline-flex;
+  height: 60rpx;
+  padding: 0 24rpx;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999rpx;
+}
+
+/* 进行中：实心主色 + 白字（强促销：主色只给「现在」这一场） */
+.hall-tab.is-live {
+  background: linear-gradient(135deg, var(--wot-color-theme-secondary, #ff6b7a), var(--wot-color-theme-primary, #ff2237));
+}
+
+.hall-tab.is-live .hall-tab-label {
+  color: #fff;
+  font-size: 26rpx;
+  font-weight: 700;
+}
+
+/* 未开始：浅底 + 常规字重 */
+.hall-tab.is-pending {
+  background: #f5f6f8;
+}
+
+.hall-tab.is-pending .hall-tab-label {
+  color: #8a8f99;
+  font-size: 24rpx;
+  font-weight: 600;
+}
+
+.hall-tab-label {
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* ---- 商品列表 ---- */
+.goods-scroll {
+  /* H5 端 uni-scroll-view 基座自带 width:100%，默认 content-box 会把左右 padding
+     额外加到 100% 之外（真机 H5 实测卡片右缘被挤出视口、CTA 与进度文案被裁掉）。
+     显式 border-box 让 padding 收进宽度内，小程序端行为不变。 */
+  box-sizing: border-box;
+  flex: 1;
+  padding: 20rpx 24rpx 0;
+}
+
 .goods-card {
   display: flex;
+  padding: 20rpx;
+  margin-bottom: 20rpx;
   background: #fff;
-  border-radius: 16rpx;
-  padding: 24rpx;
-  margin-bottom: 16rpx;
-  box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.06);
+  border-radius: 20rpx;
+  box-shadow: 0 8rpx 24rpx rgba(0, 0, 0, 0.05);
+}
 
-  .goods-image {
-    width: 200rpx;
-    height: 200rpx;
-    border-radius: 12rpx;
-    flex-shrink: 0;
-    background: #f5f5f5;
+.goods-card--pressed {
+  background: #fafafa;
+}
+
+/* 售罄整卡置灰：图降透明度、文字压成辅助色 */
+.goods-card.is-out {
+  .goods-img {
+    opacity: 0.55;
   }
 
-  .goods-info {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    margin-left: 24rpx;
-    min-width: 0;
-  }
-
-  .goods-name {
-    font-size: 28rpx;
-    color: #333;
-    line-height: 1.4;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-  }
-
-  .price-row {
-    display: flex;
-    align-items: baseline;
-    gap: 16rpx;
-    margin-top: 12rpx;
-
-    .seckill-price {
-      color: var(--wot-color-theme-primary, #ff2237);
-
-      .price-symbol {
-        font-size: 24rpx;
-      }
-
-      .price-value {
-        font-size: 40rpx;
-        font-weight: 700;
-      }
-    }
-
-    .original-price {
-      font-size: 24rpx;
-      color: #999;
-      text-decoration: line-through;
-    }
-  }
-
-  // 库存进度条
-  .stock-bar {
-    display: flex;
-    align-items: center;
-    gap: 12rpx;
-    margin-top: 12rpx;
-
-    .stock-track {
-      flex: 1;
-      height: 12rpx;
-      background: #f0f0f0;
-      border-radius: 6rpx;
-      overflow: hidden;
-
-      .stock-fill {
-        height: 100%;
-        background: linear-gradient(90deg, var(--wot-color-theme-secondary, #ff6b35), var(--wot-color-theme-primary, #ff4500));
-        border-radius: 6rpx;
-        transition: width 0.3s;
-      }
-    }
-
-    .stock-text {
-      font-size: 22rpx;
-      color: var(--wot-color-theme-primary, #ff2237);
-      white-space: nowrap;
-    }
-  }
-
-  // 抢购按钮
-  .buy-btn {
-    align-self: flex-end;
-    background: linear-gradient(135deg, var(--wot-color-theme-secondary, #ff6b35), var(--wot-color-theme-primary, #ff4500));
-    color: #fff;
-    font-size: 26rpx;
-    font-weight: 600;
-    padding: 12rpx 40rpx;
-    border-radius: 32rpx;
-    margin-top: 16rpx;
-
-    &.disabled {
-      background: #ccc;
-      color: #fff;
-    }
+  .goods-name,
+  .price-sym,
+  .price-val {
+    color: #8a8f99;
   }
 }
 
-// 加载更多
-.load-more {
-  text-align: center;
-  padding: 32rpx 0;
+.goods-media {
+  position: relative;
+  overflow: hidden;
+  width: 200rpx;
+  height: 200rpx;
+  flex: 0 0 auto;
+  background: #f3f4f6;
+  border-radius: 16rpx;
+}
+
+.goods-img {
+  display: block;
+  width: 200rpx;
+  height: 200rpx;
+}
+
+.goods-img--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--wot-color-theme-primary, #ff2237);
   font-size: 24rpx;
-  color: #999;
+}
+
+/* 图上唯一角标：实心主色小块（价差过深时文案降噪为「限量特价」） */
+.goods-off {
+  position: absolute;
+  top: 12rpx;
+  left: 12rpx;
+  display: flex;
+  height: 36rpx;
+  padding: 0 12rpx;
+  align-items: center;
+  background: var(--wot-color-theme-primary, #ff2237);
+  border-radius: 8rpx;
+  color: #fff;
+  font-size: 20rpx;
+  font-weight: 700;
+}
+
+/* 售罄蒙层：图上居中半透明「已抢光」 */
+.goods-cover {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(255 255 255 / 42%);
+}
+
+.goods-cover-text {
+  display: flex;
+  width: 108rpx;
+  height: 108rpx;
+  align-items: center;
+  justify-content: center;
+  background: rgb(31 35 41 / 62%);
+  border-radius: 50%;
+  color: #fff;
+  font-size: 22rpx;
+  font-weight: 700;
+}
+
+.goods-info {
+  display: flex;
+  overflow: hidden;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  padding: 2rpx 0 0 20rpx;
+}
+
+.goods-name {
+  display: -webkit-box;
+  overflow: hidden;
+  height: 68rpx;
+  color: #1f2329;
+  font-size: 25rpx;
+  font-weight: 500;
+  line-height: 34rpx;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* 价格与 CTA 同一行：价格左、CTA 右，行高由 CTA 撑到 64rpx */
+.goods-price-row {
+  display: flex;
+  margin-top: 8rpx;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+}
+
+.goods-price {
+  display: flex;
+  overflow: hidden;
+  align-items: baseline;
+  gap: 8rpx;
+  white-space: nowrap;
+}
+
+.price-sym {
+  color: var(--wot-color-theme-primary, #ff2237);
+  font-size: 20rpx;
+  font-weight: 700;
+}
+
+.price-val {
+  color: var(--wot-color-theme-primary, #ff2237);
+  font-size: 42rpx;
+  font-weight: 800;
+  letter-spacing: -0.8rpx;
+  line-height: 1;
+}
+
+.price-orig {
+  overflow: hidden;
+  color: #b6b9c0;
+  font-size: 20rpx;
+  text-decoration: line-through;
+  text-overflow: ellipsis;
+}
+
+/* 触控热区 ≥88rpx；视觉按钮 64rpx 高胶囊 */
+.cta-hit {
+  display: flex;
+  min-width: 104rpx;
+  min-height: 88rpx;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.goods-cta {
+  display: flex;
+  min-width: 104rpx;
+  height: 64rpx;
+  padding: 0 24rpx;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--wot-color-theme-secondary, #ff6b35), var(--wot-color-theme-primary, #ff2237));
+  border-radius: 999rpx;
+  color: #fff;
+  font-size: 28rpx;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* 未开始/已结束/售罄：浅底主色字 vs 灰底灰字（四字文案缩到 22rpx 保证不折行） */
+.goods-cta.is-disabled {
+  background: #f1f2f4;
+  color: #8a8f99;
+  font-size: 22rpx;
+  letter-spacing: 0;
+}
+
+/* ---- 已抢进度：真实轨道 + 文案双出 ---- */
+.prog {
+  display: flex;
+  margin-top: 14rpx;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.prog-track {
+  overflow: hidden;
+  height: 12rpx;
+  min-width: 120rpx;
+  flex: 1;
+  background: #f1f2f4;
+  border-radius: 999rpx;
+}
+
+.prog-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--wot-color-theme-secondary, #ff6b35), var(--wot-color-theme-primary, #ff2237));
+  border-radius: 999rpx;
+}
+
+/* 售罄：轨道同步转中性色 */
+.prog-fill.is-out {
+  background: #d7dae0;
+}
+
+.prog-text {
+  overflow: hidden;
+  flex: 0 0 auto;
+  color: var(--wot-color-theme-primary, #ff2237);
+  font-size: 22rpx;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.prog-text.is-out {
+  color: #8a8f99;
+}
+
+/* 未开始：只出文字，不出轨道 */
+.prog--pending {
+  height: 36rpx;
+}
+
+.prog--pending .prog-text {
+  color: #8a8f99;
+  font-weight: 500;
+}
+
+/* ---- 骨架 ---- */
+@keyframes sk-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.hero-skeleton {
+  height: 176rpx;
+  background: #e9ebef;
+  animation: sk-pulse 1.4s ease-in-out infinite;
+}
+
+/* 面板骨架：与真实面板同形（28rpx 圆角、叠压信息条 28rpx） */
+.panel-skeleton {
+  position: relative;
+  z-index: 2;
+  margin-top: -28rpx;
+  padding: 28rpx 24rpx;
+  background: #fff;
+  border-radius: 28rpx 28rpx 0 0;
+  animation: sk-pulse 1.4s ease-in-out infinite;
+}
+
+.sk-tabs {
+  display: flex;
+  height: 60rpx;
+  align-items: center;
+  gap: 24rpx;
+}
+
+.sk-tab {
+  width: 132rpx;
+  height: 60rpx;
+  background: #edeff3;
+  border-radius: 999rpx;
+}
+
+.sk-line {
+  height: 24rpx;
+  background: #edeff3;
+  border-radius: 8rpx;
+}
+
+.sk-line--lg {
+  width: 72%;
+  height: 28rpx;
+}
+
+.sk-line--sm {
+  width: 42%;
+}
+
+.card-skeleton {
+  display: flex;
+  padding: 20rpx;
+  margin-bottom: 20rpx;
+  background: #fff;
+  border-radius: 20rpx;
+  box-shadow: 0 8rpx 24rpx rgba(0, 0, 0, 0.05);
+  animation: sk-pulse 1.4s ease-in-out infinite;
+}
+
+.sk-media {
+  width: 200rpx;
+  height: 200rpx;
+  flex: 0 0 auto;
+  background: #edeff3;
+  border-radius: 16rpx;
+}
+
+.sk-lines {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  padding-left: 20rpx;
+  gap: 18rpx;
+}
+
+/* ---- 加载更多 ---- */
+.load-more {
+  padding: 24rpx 0 40rpx;
+  color: #b6b9c0;
+  font-size: 22rpx;
+  text-align: center;
 }
 </style>

@@ -4,9 +4,10 @@ import type {
   AppDiscountGoodsVO,
 } from '@/api/promotion'
 import { onLoad, onUnload } from '@dcloudio/uni-app'
-import { reactive, ref } from 'vue'
+import { nextTick, reactive, ref } from 'vue'
 import { getDiscountActivities } from '@/api/promotion'
-import { useGlobalLoading } from '@/composables/useGlobalLoading'
+import QuickCartButton from '@/components/quick-cart-button/index.vue'
+import { navigateToUrl } from '@/utils/tab-bar'
 
 definePage({
   name: 'discount',
@@ -16,7 +17,8 @@ definePage({
   },
 })
 
-const globalLoading = useGlobalLoading()
+/** 全场型活动没有商品清单，折扣在商详生效：整卡「去逛逛」回首页商品流 */
+const HOME_PATH = '/pages/home/index'
 
 /** 折扣活动列表 */
 const activityList = ref<AppDiscountActivityVO[]>([])
@@ -25,6 +27,14 @@ const noMore = ref(false)
 /** 分页参数 */
 const currentPage = ref(1)
 const PAGE_SIZE = 10
+/** 首屏骨架：只在还没有活动数据时展示 */
+const loading = ref(true)
+/** 下拉刷新状态：驱动 scroll-view 的 refresher 收起 */
+const refreshing = ref(false)
+/** 上拉加载中 */
+const loadingMore = ref(false)
+/** scroll-view 滚动定位目标：活动头「去逛逛」滚到本活动商品区 */
+const scrollIntoView = ref('')
 
 /**
  * 倒计时状态映射（按活动ID）。
@@ -40,6 +50,17 @@ const countdownMap = reactive<Record<string, {
   seconds: number
   finished: boolean
 }>>({})
+
+let countdownTimer: ReturnType<typeof setInterval> | null = null
+
+onLoad(async () => {
+  await loadActivities(true)
+  startCountdown()
+})
+
+onUnload(() => {
+  stopCountdown()
+})
 
 /** 由剩余秒数派生 h/m/s 与结束标记 */
 function applyRemaining(activityId: string) {
@@ -60,16 +81,27 @@ function applyRemaining(activityId: string) {
   state.finished = false
 }
 
-let countdownTimer: ReturnType<typeof setInterval> | null = null
+/** 用后端下发秒数初始化单个活动的倒计时 */
+function initCountdown(activity: AppDiscountActivityVO) {
+  const total = Math.max(0, Number(activity.countdown) || 0)
+  countdownMap[activity.activityId] = {
+    finished: total <= 0,
+    hours: 0,
+    minutes: 0,
+    remaining: total,
+    seconds: 0,
+  }
+  applyRemaining(activity.activityId)
+}
 
-onLoad(async () => {
-  await loadActivities(true)
-  startCountdown()
-})
-
-onUnload(() => {
-  stopCountdown()
-})
+/** 清理已不在列表里的倒计时状态，避免刷新后残留 */
+function pruneCountdowns() {
+  const validIds = new Set(activityList.value.map(activity => activity.activityId))
+  Object.keys(countdownMap).forEach((id) => {
+    if (!validIds.has(id))
+      delete countdownMap[id]
+  })
+}
 
 /** 加载折扣活动列表 */
 async function loadActivities(isRefresh = false) {
@@ -80,8 +112,11 @@ async function loadActivities(isRefresh = false) {
   if (noMore.value && !isRefresh)
     return
 
-  if (isRefresh)
-    globalLoading.loading('加载中...')
+  // 首屏用骨架占位；下拉刷新沿用手势自带 spinner，不再盖一层全局 loading
+  if (isRefresh && activityList.value.length === 0)
+    loading.value = true
+  if (!isRefresh)
+    loadingMore.value = true
 
   try {
     const response = await getDiscountActivities({
@@ -89,41 +124,34 @@ async function loadActivities(isRefresh = false) {
       size: PAGE_SIZE,
     })
     const records = response.records || []
-    if (isRefresh) {
-      activityList.value = records
-    }
-    else {
-      activityList.value = [...activityList.value, ...records]
-    }
-    if (records.length < PAGE_SIZE || activityList.value.length >= response.total) {
+    activityList.value = isRefresh
+      ? records
+      : [...activityList.value, ...records]
+    if (records.length < PAGE_SIZE || activityList.value.length >= response.total)
       noMore.value = true
-    }
-    // 初始化倒计时：以后端下发秒数为准，避免客户端与服务端时钟漂移
-    activityList.value.forEach((activity) => {
-      const total = Number(activity.countdown) || 0
-      countdownMap[activity.activityId] = {
-        finished: total <= 0,
-        hours: 0,
-        minutes: 0,
-        remaining: total,
-        seconds: 0,
-      }
-      applyRemaining(activity.activityId)
-    })
+    // 倒计时以后端下发秒数为准，避免客户端与服务端时钟漂移
+    records.forEach(initCountdown)
+    pruneCountdowns()
     updateAllCountdowns()
   }
   catch {
     uni.showToast({ title: '加载失败', icon: 'none' })
   }
   finally {
-    if (isRefresh)
-      globalLoading.close()
+    loading.value = false
+    loadingMore.value = false
   }
 }
 
 /** 下拉刷新 */
 async function onRefresh() {
-  await loadActivities(true)
+  refreshing.value = true
+  try {
+    await loadActivities(true)
+  }
+  finally {
+    refreshing.value = false
+  }
 }
 
 /** 上拉加载更多 */
@@ -160,27 +188,64 @@ function updateAllCountdowns() {
   })
 }
 
-/** 获取活动倒计时显示文本 */
-function getCountdownText(activity: AppDiscountActivityVO): string {
-  const state = countdownMap[activity.activityId]
-  if (!state || state.finished)
-    return '已结束'
-  const h = String(state.hours).padStart(2, '0')
-  const m = String(state.minutes).padStart(2, '0')
-  const s = String(state.seconds).padStart(2, '0')
-  return `${h}:${m}:${s}`
+/** 两位补零（倒计时分格） */
+function pad(value: number) {
+  return String(Math.max(0, value)).padStart(2, '0')
 }
 
-/** 倒计时标签 */
-function getCountdownLabel(activity: AppDiscountActivityVO): string {
+/** 倒计时是否仍在本地递减（已结束活动不再跳动） */
+function hasLiveCountdown(activity: AppDiscountActivityVO) {
+  const state = countdownMap[activity.activityId]
+  return activity.status !== 2 && !!state && !state.finished
+}
+
+/**
+ * 倒计时文案：单行文字（`tabular-nums`），不再用实心分格。
+ * 超 24 小时一律走「N 天 HH:MM:SS」，禁止出现三位数小时分格
+ * （旧实现把 923 小时塞进分格，格宽不齐且读数无意义）。
+ */
+function countdownText(activity: AppDiscountActivityVO) {
+  const state = countdownMap[activity.activityId]
+  if (!state)
+    return '00:00:00'
+  const days = Math.floor(state.hours / 24)
+  const hours = state.hours % 24
+  const clock = `${pad(hours)}:${pad(state.minutes)}:${pad(state.seconds)}`
+  return days > 0 ? `${days}天 ${clock}` : clock
+}
+
+/**
+ * 倒计时前导词：进行中是「距结束」；
+ * 未开始的倒计时语义是距开抢时间，用「距开始」避免误导。
+ */
+function getCountdownLabel(activity: AppDiscountActivityVO) {
   return activity.status === 1 ? '距结束' : '距开始'
 }
 
-/** 折扣标签文本 */
-function discountTagText(activity: AppDiscountActivityVO): string {
+/** 倒计时归零/活动结束时的兜底文案 */
+function countdownFallbackText(activity: AppDiscountActivityVO) {
+  // status 1 但倒计时归零：服务端状态尚未翻转，按已结束展示更贴近事实
+  if (activity.status === 1 || activity.status === 2)
+    return '已结束'
+  return '即将开始'
+}
+
+/**
+ * 折扣口径（修复 D1）：0.95 → 9.5折、0.8 → 8折。
+ * 旧实现 `Math.round(value * 10)` 会把 0.95 舍成「10 折」，
+ * 与首页折扣楼层的 `Math.round(value * 100) / 10` 口径分叉。
+ */
+function discountTagText(activity: AppDiscountActivityVO) {
   switch (activity.discountType) {
-    case 1:
-      return `${Math.round(activity.discountValue * 10)}折`
+    case 1: {
+      const zhe = Math.round(Number(activity.discountValue) * 100) / 10
+      if (!Number.isFinite(zhe) || zhe <= 0)
+        return '折扣'
+      // 力度等于原价（10 折）没有折扣语义，退回「折扣」而不是展示「10折」
+      if (zhe >= 10)
+        return '折扣'
+      return `${Number.isInteger(zhe) ? zhe : zhe.toFixed(1)}折`
+    }
     case 2:
       return `减¥${activity.discountValue}`
     case 3:
@@ -190,30 +255,89 @@ function discountTagText(activity: AppDiscountActivityVO): string {
   }
 }
 
-/** 折扣标签颜色类 */
-function discountTagClass(activity: AppDiscountActivityVO): string {
-  switch (activity.discountType) {
-    case 1:
-      return 'tag-discount'
-    case 2:
-      return 'tag-reduce'
-    case 3:
-      return 'tag-fixed'
-    default:
-      return 'tag-default'
-  }
+/**
+ * 折扣大牌字号随文案长度降级。
+ * 原型大牌是 128×128rpx 方块里的「8折」（44rpx/800）：
+ * 2 字直接用 44rpx；3 字（一口价/折扣）与 4 字以上（9.5折、减¥999）降一档，
+ * 保证口径完整不被裁切，也不出现「9.5」掉行。
+ */
+function ratioTextClass(text: string) {
+  if (text.length >= 4)
+    return 'act-ratio-text--sm'
+  if (text.length === 3)
+    return 'act-ratio-text--md'
+  return ''
 }
 
-/** 跳转商品详情 */
+/** 形态 A：全场型活动（goodsList 为空），用权益卡替代旧的灰字说明 */
+function isFullScope(activity: AppDiscountActivityVO) {
+  return !activity.goodsList || activity.goodsList.length === 0
+}
+
+/** 全场权益卡说明：打折活动换算出等价的「下单立减 X%」，其余类型不编造比例 */
+function fullDesc(activity: AppDiscountActivityVO) {
+  if (activity.discountType !== 1)
+    return '全场商品参与 · 下单立减'
+  const percent = Math.round((1 - Number(activity.discountValue)) * 100)
+  if (!Number.isFinite(percent) || percent <= 0)
+    return '全场商品参与 · 下单立减'
+  return `全场商品参与 · 下单立减 ${percent}%`
+}
+
+/**
+ * 活动卡副行（原型 p6）：全场型展示权益换算，商品型展示参与件数。
+ * 只使用接口已下发的真实字段，不编造比例/人气。
+ */
+function activitySubtitle(activity: AppDiscountActivityVO) {
+  if (isFullScope(activity))
+    return fullDesc(activity)
+  const count = activity.goodsList?.length || 0
+  return count > 0 ? `${count}件商品参与` : '指定商品参与'
+}
+
+/** 原价严格大于折后价才划线；否则原价与省额整块隐藏 */
+function hasOriginalPrice(goods: AppDiscountGoodsVO) {
+  return Number(goods.originalPrice) > Number(goods.discountPrice)
+}
+
+/** 省额徽章：只在真实有价差时展示（原价 − 折后价） */
+function savedText(goods: AppDiscountGoodsVO) {
+  const diff = Number(goods.originalPrice) - Number(goods.discountPrice)
+  if (!Number.isFinite(diff) || diff <= 0)
+    return ''
+  return `省¥${diff.toFixed(2)}`
+}
+
+/** 金额统一两位小数 */
+function formatPrice(value: number) {
+  const price = Number(value)
+  return Number.isFinite(price) ? price.toFixed(2) : '0.00'
+}
+
+/** 活动头「去逛逛」：商品型活动滚到本活动商品区，全场型活动回首页商品流 */
+function onBrowse(activity: AppDiscountActivityVO) {
+  if (isFullScope(activity)) {
+    navigateToUrl(HOME_PATH)
+    return
+  }
+  const target = `goods-${activity.activityId}`
+  // 先清空再设置，保证连续点击同一个活动也能再次触发滚动
+  scrollIntoView.value = ''
+  nextTick(() => {
+    scrollIntoView.value = target
+  })
+}
+
+/** 空态主按钮：无折扣活动时回首页商品流 */
+function goHome() {
+  navigateToUrl(HOME_PATH)
+}
+
+/** 跳转商品详情（整卡可点，加购按钮单独 stop 冒泡） */
 function goGoodsDetail(goods: AppDiscountGoodsVO) {
   uni.navigateTo({
     url: `/sub-pages/product/goods-detail/index?id=${goods.spuId}`,
   })
-}
-
-/** 活动状态文本 */
-function statusText(status: number): string {
-  return status === 0 ? '即将开始' : status === 1 ? '进行中' : '已结束'
 }
 </script>
 
@@ -225,312 +349,557 @@ function statusText(status: number): string {
       scroll-y
       class="content-scroll"
       refresher-enabled
-      :refresher-triggered="false"
+      :refresher-triggered="refreshing"
+      :scroll-into-view="scrollIntoView"
       @refresherrefresh="onRefresh"
       @scrolltolower="onLoadMore"
     >
-      <!-- 空状态 -->
-      <view v-if="activityList.length === 0" class="empty-state">
-        <view class="empty-text">
-          暂无折扣活动
-        </view>
-      </view>
-
-      <!-- 按活动分组展示 -->
-      <view
-        v-for="activity in activityList"
-        :key="activity.activityId"
-        class="activity-section"
-      >
-        <!-- 活动头部 -->
-        <view class="activity-header">
-          <view class="activity-title-row">
-            <view class="activity-name">
-              {{ activity.activityName }}
-            </view>
-            <view class="discount-tag" :class="discountTagClass(activity)">
-              {{ discountTagText(activity) }}
-            </view>
-            <view class="activity-status" :class="`status-${activity.status}`">
-              {{ statusText(activity.status) }}
+      <!-- 首屏骨架：1 张活动卡 + 2 列 × 2 行商品卡，形状与真实内容一致 -->
+      <template v-if="loading">
+        <view class="sk-page">
+          <view class="act-skeleton">
+            <view class="sk-ratio" />
+            <view class="sk-head-lines">
+              <view class="sk-line sk-line--lg" />
+              <view class="sk-line sk-line--md" />
+              <view class="sk-line sk-line--sm" />
             </view>
           </view>
-          <view class="activity-countdown">
-            <text class="countdown-label">
-              {{ getCountdownLabel(activity) }}
-            </text>
-            <text class="countdown-value">
-              {{ getCountdownText(activity) }}
-            </text>
+          <view class="goods-grid">
+            <view v-for="n in 4" :key="n" class="goods-card">
+              <view class="sk-img" />
+              <view class="sk-body">
+                <view class="sk-line sk-line--lg" />
+                <view class="sk-line sk-line--md" />
+                <view class="sk-line sk-line--sm" />
+              </view>
+            </view>
           </view>
         </view>
+      </template>
 
-        <!-- 折扣商品列表 -->
-        <view class="goods-list">
-          <!-- 全场活动没有指定商品清单，折扣在商品详情页生效；给出说明避免看起来是坏数据 -->
-          <view
-            v-if="!activity.goodsList || activity.goodsList.length === 0"
-            class="goods-empty"
-          >
-            全场商品参与，进入商品详情查看折扣价
-          </view>
-          <view
-            v-for="goods in activity.goodsList"
-            :key="goods.skuId"
-            class="goods-card"
-            @click="goGoodsDetail(goods)"
-          >
-            <image
-              class="goods-image"
-              :src="goods.goodsImage"
-              mode="aspectFill"
-            />
-            <view class="goods-info">
-              <view class="goods-name">
-                {{ goods.goodsName }}
-              </view>
-              <view class="price-row">
-                <view class="discount-price">
-                  <text class="price-symbol">
-                    ¥
-                  </text>
-                  <text class="price-value">
-                    {{ goods.discountPrice }}
-                  </text>
-                </view>
-                <view class="original-price">
-                  ¥{{ goods.originalPrice }}
-                </view>
-              </view>
-              <view class="goods-tag" :class="discountTagClass(activity)">
+      <!-- 空态：品牌渐变圆 + 白色折扣图标 + 主按钮（统一走 HallState） -->
+      <hall-state
+        v-else-if="activityList.length === 0"
+        art="discount"
+        title="暂无折扣活动"
+        desc="换个时间再来，或先去逛逛商品"
+        action-text="去首页逛逛"
+        @action="goHome"
+      />
+
+      <template v-else>
+        <view
+          v-for="activity in activityList"
+          :key="activity.activityId"
+          class="act-group"
+        >
+          <!--
+            活动卡（第二轮重构）：白底**无描边** + 左侧实心折扣大牌
+            + 活动名/副行 + 一行倒计时文字（`tabular-nums`）+ 右侧「去逛逛 ›」文字链。
+            描边是「没有阴影就拿描边凑」的妥协，叠上大牌/圆钮会在同一张卡出现三次，故删除。
+          -->
+          <view class="act-card">
+            <view class="act-ratio">
+              <text
+                class="act-ratio-text"
+                :class="ratioTextClass(discountTagText(activity))"
+              >
                 {{ discountTagText(activity) }}
+              </text>
+            </view>
+
+            <view class="act-main">
+              <text class="act-name">
+                {{ activity.activityName || '限时折扣' }}
+              </text>
+
+              <!-- 副行：全场型显示权益换算，商品型显示参与件数 -->
+              <text class="act-sub">
+                {{ activitySubtitle(activity) }}
+              </text>
+
+              <!-- 倒计时：一行文字，超 24h 走「N 天 HH:MM:SS」 -->
+              <text v-if="hasLiveCountdown(activity)" class="act-cd">
+                {{ getCountdownLabel(activity) }} {{ countdownText(activity) }}
+              </text>
+              <text v-else class="act-cd act-cd--end">
+                {{ countdownFallbackText(activity) }}
+              </text>
+            </view>
+
+            <view class="act-btn-hit" @click.stop="onBrowse(activity)">
+              <text class="act-btn">去逛逛 ›</text>
+            </view>
+          </view>
+
+          <!--
+            商品型活动：双列网格。
+            单张卡 = 方图 + 图上折角标（折扣力度全卡只此一处）+ 品名两行
+            + 到手价/划线 + 省额胶囊 + 右下快捷加购；
+            第二轮去掉「到手价」label（图上角标已表达力度，卡内不再重复文案）。
+          -->
+          <view
+            v-if="!isFullScope(activity)"
+            :id="`goods-${activity.activityId}`"
+            class="goods-grid"
+          >
+            <view
+              v-for="goods in activity.goodsList"
+              :key="goods.skuId"
+              class="goods-card"
+              hover-class="goods-card--pressed"
+              :hover-stay-time="120"
+              @click="goGoodsDetail(goods)"
+            >
+              <view class="goods-media">
+                <image
+                  v-if="goods.goodsImage"
+                  class="goods-img"
+                  :src="resolveImageSrc(goods.goodsImage)"
+                  mode="aspectFill"
+                  lazy-load
+                />
+                <view v-else class="goods-img goods-img--empty">
+                  <text>折扣</text>
+                </view>
+                <text class="goods-off">
+                  {{ discountTagText(activity) }}
+                </text>
+              </view>
+
+              <view class="goods-body">
+                <view class="goods-name">
+                  {{ goods.goodsName || '折扣商品' }}
+                </view>
+                <view class="goods-price">
+                  <text class="price-sym">¥</text>
+                  <text class="price-val">{{ formatPrice(goods.discountPrice) }}</text>
+                  <text v-if="hasOriginalPrice(goods)" class="price-orig">
+                    ¥{{ formatPrice(goods.originalPrice) }}
+                  </text>
+                </view>
+                <view class="goods-bottom">
+                  <text v-if="savedText(goods)" class="goods-save">
+                    {{ savedText(goods) }}
+                  </text>
+                </view>
+
+                <!--
+                  加购复用 QuickCartButton（未登录跳登录 / 多规格唤起 SKU 弹层 /
+                  加购去向确认都在组件内，弹层由 App.ku.vue 全局挂载一份）。
+                  外观改为「浅主色底实心圆钮」，不再用描边圆钮（同卡描边只留 0 处）。
+                -->
+                <view class="goods-cart" @click.stop>
+                  <QuickCartButton :spu-id="goods.spuId" size="64rpx">
+                    <view class="goods-cart-btn">
+                      <wd-icon name="cart" size="34rpx" />
+                    </view>
+                  </QuickCartButton>
+                </view>
               </view>
             </view>
           </view>
         </view>
-      </view>
 
-      <!-- 加载更多提示 -->
-      <view v-if="activityList.length > 0" class="load-more">
-        <text v-if="noMore">
-          没有更多了
-        </text>
-        <text v-else>
-          加载中...
-        </text>
-      </view>
+        <view class="load-more">
+          <text v-if="noMore">
+            —— 没有更多了 ——
+          </text>
+          <text v-else-if="loadingMore">
+            加载中...
+          </text>
+          <text v-else>
+            上拉加载更多
+          </text>
+        </view>
+      </template>
     </scroll-view>
   </view>
 </template>
 
+<!--
+  2026-10-22 营销会场页视觉重设计（轻促销级），2026-10-23 按原型 p6 全面对齐：
+  - 活动卡：白底 + 2rpx 主色描边 + 实心折扣大牌（128rpx）+ 活动名/副行 +
+    「剩」+ 三个 primary 实心倒计时分格 + 描边胶囊「去逛逛」；
+  - 商品区：两列网格（方图 + 左上折角标 + 到手价 label + 到手价/划线 +
+    省额胶囊 + 右下快捷加购），单卡白底圆角 20rpx，无阴影；
+  - 折扣=轻促销：主色只出现在大牌/倒计时/价格/省额/按钮上，其余大量留白，
+    与秒杀会场的强促销拉开层级。
+  颜色一律走 --wot-color-theme-* token，跟随多租户主题换肤。
+-->
 <style lang="scss" scoped>
 .discount-page {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  background: #f5f5f5;
+  background: #f5f6f8;
 }
 
 .content-scroll {
+  box-sizing: border-box;
   flex: 1;
-  padding: 16rpx;
+  padding: 20rpx 0 0;
 }
 
-// 空状态
-.goods-empty {
-  padding: 24rpx 0;
-  color: #909399;
-  font-size: 24rpx;
+/* ---- 活动卡（白底无描边；轻促销：主色只给大牌与文字链） ---- */
+.act-group {
+  display: block;
+}
+
+.act-card {
+  display: flex;
+  margin: 0 24rpx 20rpx;
+  padding: 24rpx;
+  align-items: center;
+  gap: 20rpx;
+  background: #fff;
+  border-radius: 20rpx;
+}
+
+/* 折扣大牌：实心 primary 方块 112×112rpx、圆角 20rpx、白字 40rpx/800
+   （原 128rpx/44rpx，缩一档让价格与商品成为主角） */
+.act-ratio {
+  display: flex;
+  box-sizing: border-box;
+  width: 112rpx;
+  height: 112rpx;
+  padding: 0 8rpx;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  background: var(--wot-color-theme-primary, #ff2237);
+  border-radius: 20rpx;
+}
+
+.act-ratio-text {
+  color: #fff;
+  font-size: 40rpx;
+  font-weight: 800;
+  letter-spacing: -1rpx;
+  line-height: 1.05;
   text-align: center;
+  word-break: break-all;
 }
 
-.empty-state {
+/* 长文案（9.5折 / 减¥999 / 一口价）降一档字号，保证 112rpx 方块内完整展示 */
+.act-ratio-text--md {
+  font-size: 30rpx;
+}
+
+.act-ratio-text--sm {
+  font-size: 24rpx;
+}
+
+.act-main {
+  display: flex;
+  overflow: hidden;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 6rpx;
+}
+
+.act-name {
+  display: block;
+  overflow: hidden;
+  color: #1f2329;
+  font-size: 28rpx;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 副行：24rpx/500 muted，单行省略 */
+.act-sub {
+  overflow: hidden;
+  color: #8a8f99;
+  font-size: 22rpx;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 倒计时：一行文字（等宽数字），不出分格 */
+.act-cd {
+  color: #8a8f99;
+  font-size: 22rpx;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.act-cd--end {
+  color: #b6b9c0;
+}
+
+/* 「去逛逛」：文字链（不再用描边胶囊，卡片内描边归零）；热区 88rpx */
+.act-btn-hit {
+  display: flex;
+  min-height: 88rpx;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.act-btn {
+  padding: 12rpx 0 12rpx 12rpx;
+  color: var(--wot-color-theme-primary, #ff2237);
+  font-size: 24rpx;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* ---- 商品双列网格 ---- */
+.goods-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16rpx;
+  padding: 0 24rpx 24rpx;
+}
+
+.goods-card {
+  position: relative;
+  overflow: hidden;
+  background: #fff;
+  border-radius: 20rpx;
+  transition: transform 160ms ease;
+}
+
+.goods-card--pressed {
+  transform: scale(0.98);
+}
+
+/* 方图：小程序 <image> 自带默认宽高，比例用 padding-top 撑框、图片绝对铺满 */
+.goods-media {
+  position: relative;
+  width: 100%;
+  padding-top: 100%;
+  background: #f6f7f9;
+}
+
+.goods-img {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.goods-img--empty {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 120rpx 0;
-
-  .empty-text {
-    font-size: 28rpx;
-    color: #999;
-  }
-}
-
-// 活动分组
-.activity-section {
-  margin-bottom: 24rpx;
-  background: #fff;
-  border-radius: 16rpx;
-  overflow: hidden;
-  box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.06);
-}
-
-// 活动头部
-.activity-header {
-  background: linear-gradient(135deg, var(--wot-color-theme-secondary, #ff9a56), var(--wot-color-theme-primary, #ff6b35));
-  padding: 24rpx 32rpx;
-  color: #fff;
-
-  .activity-title-row {
-    display: flex;
-    align-items: center;
-    gap: 12rpx;
-
-    .activity-name {
-      font-size: 30rpx;
-      font-weight: 700;
-      flex: 1;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .discount-tag {
-      font-size: 22rpx;
-      padding: 4rpx 16rpx;
-      border-radius: 20rpx;
-      background: rgba(255, 255, 255, 0.25);
-      white-space: nowrap;
-    }
-
-    .activity-status {
-      font-size: 22rpx;
-      padding: 4rpx 16rpx;
-      border-radius: 4rpx;
-      white-space: nowrap;
-
-      &.status-0 {
-        background: rgba(255, 255, 255, 0.25);
-      }
-
-      &.status-1 {
-        background: #fff;
-        color: var(--wot-color-theme-primary, #ff2237);
-      }
-
-      &.status-2 {
-        background: rgba(0, 0, 0, 0.2);
-      }
-    }
-  }
-
-  .activity-countdown {
-    display: flex;
-    align-items: center;
-    gap: 12rpx;
-    margin-top: 12rpx;
-    font-size: 24rpx;
-    opacity: 0.9;
-
-    .countdown-value {
-      font-weight: 700;
-    }
-  }
-}
-
-// 商品列表
-.goods-list {
-  padding: 16rpx;
-}
-
-// 商品卡片
-.goods-card {
-  display: flex;
-  padding: 20rpx;
-  border-bottom: 1rpx solid #f5f5f5;
-
-  &:last-child {
-    border-bottom: none;
-  }
-
-  .goods-image {
-    width: 180rpx;
-    height: 180rpx;
-    border-radius: 12rpx;
-    flex-shrink: 0;
-    background: #f5f5f5;
-  }
-
-  .goods-info {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    margin-left: 24rpx;
-    min-width: 0;
-  }
-
-  .goods-name {
-    font-size: 28rpx;
-    color: #333;
-    line-height: 1.4;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-  }
-
-  .price-row {
-    display: flex;
-    align-items: baseline;
-    gap: 16rpx;
-    margin-top: 12rpx;
-
-    .discount-price {
-      color: var(--wot-color-theme-primary, #ff2237);
-
-      .price-symbol {
-        font-size: 24rpx;
-      }
-
-      .price-value {
-        font-size: 36rpx;
-        font-weight: 700;
-      }
-    }
-
-    .original-price {
-      font-size: 24rpx;
-      color: #999;
-      text-decoration: line-through;
-    }
-  }
-
-  // 折扣标签
-  .goods-tag {
-    align-self: flex-start;
-    font-size: 20rpx;
-    padding: 4rpx 12rpx;
-    border-radius: 4rpx;
-    margin-top: 12rpx;
-
-    &.tag-discount {
-      color: var(--wot-color-theme-primary, #ff2237);
-      background: #fff2f0;
-    }
-
-    &.tag-reduce {
-      color: #ff8c00;
-      background: #fff7e6;
-    }
-
-    &.tag-fixed {
-      color: #1890ff;
-      background: #e6f7ff;
-    }
-
-    &.tag-default {
-      color: #666;
-      background: #f5f5f5;
-    }
-  }
-}
-
-// 加载更多
-.load-more {
-  text-align: center;
-  padding: 32rpx 0;
+  color: var(--wot-color-theme-primary, #ff2237);
   font-size: 24rpx;
-  color: #999;
+}
+
+/* 左上折角标：实心 primary 底白字，圆角只在右下 */
+.goods-off {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  height: 34rpx;
+  padding: 0 12rpx;
+  align-items: center;
+  background: var(--wot-color-theme-primary, #ff2237);
+  border-radius: 0 0 10rpx 0;
+  color: #fff;
+  font-size: 20rpx;
+  font-weight: 700;
+}
+
+.goods-body {
+  position: relative;
+  padding: 16rpx 16rpx 20rpx;
+}
+
+.goods-name {
+  display: -webkit-box;
+  overflow: hidden;
+  height: 68rpx;
+  color: #1f2329;
+  font-size: 25rpx;
+  font-weight: 500;
+  line-height: 34rpx;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* 到手价：36rpx/700（比秒杀的 42rpx/800 降一档 —— 轻促销不与强促销抢字号） */
+.goods-price {
+  display: flex;
+  overflow: hidden;
+  margin-top: 10rpx;
+  align-items: baseline;
+  gap: 8rpx;
+  white-space: nowrap;
+}
+
+.price-sym {
+  color: var(--wot-color-theme-primary, #ff2237);
+  font-size: 20rpx;
+  font-weight: 700;
+}
+
+.price-val {
+  color: var(--wot-color-theme-primary, #ff2237);
+  font-size: 36rpx;
+  font-weight: 700;
+  letter-spacing: -0.6rpx;
+  line-height: 1;
+}
+
+.price-orig {
+  overflow: hidden;
+  color: #b6b9c0;
+  font-size: 20rpx;
+  text-decoration: line-through;
+  text-overflow: ellipsis;
+}
+
+/* 底部行：省额胶囊靠左，右下角留给绝对定位的加购按钮 */
+.goods-bottom {
+  display: flex;
+  min-height: 64rpx;
+  padding: 4rpx 72rpx 0 0;
+  align-items: center;
+}
+
+/* 省额徽章：浅橙底 + 主色字、999rpx 胶囊、宽度自适应 */
+.goods-save {
+  display: inline-flex;
+  height: 34rpx;
+  padding: 0 12rpx;
+  align-items: center;
+  background: var(--wot-color-theme-background, #fff1ee);
+  border-radius: 999rpx;
+  color: var(--wot-color-theme-primary, #ff2237);
+  font-size: 19rpx;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* 加购按钮绝对定位在卡身右下，与省额行同一视觉行 */
+.goods-cart {
+  position: absolute;
+  right: 16rpx;
+  bottom: 20rpx;
+  display: flex;
+}
+
+/* 描边购物车圆钮改为「浅主色底实心圆钮」：卡片内描边归零。
+   底色用 primary 低透明度叠层而非 --wot-color-theme-background ——
+   租户 pageBackgroundColor 可能是中性灰，会把浅底洗成灰底。 */
+.goods-cart-btn {
+  position: relative;
+  display: flex;
+  box-sizing: border-box;
+  overflow: hidden;
+  width: 64rpx;
+  height: 64rpx;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: var(--wot-color-theme-primary, #ff2237);
+}
+
+.goods-cart-btn::before {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  content: '';
+  background: var(--wot-color-theme-primary, #ff2237);
+  opacity: 0.1;
+}
+
+.goods-cart-btn :deep(.wd-icon) {
+  position: relative;
+  z-index: 1;
+}
+
+/* ---- 骨架：形状与真实内容一致（1 活动卡 + 2 列 × 2 行商品卡） ---- */
+@keyframes sk-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.sk-page {
+  animation: sk-pulse 1.4s ease-in-out infinite;
+}
+
+.act-skeleton {
+  display: flex;
+  margin: 0 24rpx 20rpx;
+  padding: 24rpx;
+  align-items: center;
+  gap: 20rpx;
+  background: #fff;
+  border-radius: 20rpx;
+}
+
+.sk-ratio {
+  width: 112rpx;
+  height: 112rpx;
+  flex: 0 0 auto;
+  background: #edeff3;
+  border-radius: 20rpx;
+}
+
+.sk-head-lines {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+.sk-line {
+  height: 24rpx;
+  background: #edeff3;
+  border-radius: 8rpx;
+}
+
+.sk-line--lg {
+  width: 72%;
+  height: 28rpx;
+}
+
+.sk-line--md {
+  width: 56%;
+}
+
+.sk-line--sm {
+  width: 38%;
+}
+
+.sk-img {
+  width: 100%;
+  padding-top: 100%;
+  background: #edeff3;
+}
+
+.sk-body {
+  display: flex;
+  padding: 16rpx 16rpx 20rpx;
+  flex-direction: column;
+  gap: 14rpx;
+}
+
+/* ---- 收尾 ---- */
+.load-more {
+  padding: 24rpx 0 40rpx;
+  color: #b6b9c0;
+  font-size: 22rpx;
+  text-align: center;
 }
 </style>
