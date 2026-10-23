@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { GroupBuyActivity } from '@/api/promotion/groupBuyActivity'
 import { computed, ref, watch } from 'vue'
+import { stripGroupBadgePrefix } from '@/utils/activity-name'
 
 const props = defineProps<{
   activity: GroupBuyActivity
@@ -35,12 +36,9 @@ const badgeLabel = computed(() =>
  * 仅在 groupNum > 0（徽标确实会渲染成团人数）时剥离，避免误伤把
  * 「3人份」「2人份」这类规格写进名称的活动。
  */
-const displayName = computed(() => {
-  const raw = props.activity.activityName || '拼团活动'
-  if ((props.activity.groupNum ?? 0) <= 0)
-    return raw
-  return raw.replace(/^\s*\d+\s*人成团\s*[·•・.\-—]?\s*/, '').trim() || raw
-})
+const displayName = computed(() =>
+  stripGroupBadgePrefix(props.activity.activityName || '拼团活动', props.activity.groupNum ?? 0),
+)
 
 function formatPrice(value?: number) {
   if (typeof value !== 'number' || !Number.isFinite(value))

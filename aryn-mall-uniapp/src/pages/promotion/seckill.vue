@@ -3,6 +3,7 @@ import type { AppSeckillGoodsVO, AppSeckillVO } from '@/api/promotion'
 import { onLoad, onUnload } from '@dcloudio/uni-app'
 import { computed, nextTick, reactive, ref } from 'vue'
 import { getSeckillSessions, getSessionGoods } from '@/api/promotion'
+import { normalizeStock, resolveSeckillProgress } from '@/utils/seckill-progress'
 import { navigateToUrl } from '@/utils/tab-bar'
 
 definePage({
@@ -22,8 +23,6 @@ const THEME_PRIMARY = 'var(--wot-color-theme-primary)'
 const HEAD_SUBTITLE = '整点开抢 · 限量特价 · 手慢无'
 /** 空态「去首页逛逛」目标：与折扣会场同源 */
 const HOME_PATH = '/pages/home/index'
-/** 「仅剩 N 件」口径的剩余量阈值：低于此值不再输出百分比，避免「已抢 0% · 仅剩 1 件」自相矛盾 */
-const LOW_STOCK_THRESHOLD = 5
 /** 价差占原价比例超过此值时，图上角标不再喊具体省额，改「限量特价」 */
 const DEEP_DISCOUNT_RATIO = 0.7
 
@@ -311,41 +310,17 @@ function formatPrice(value: number) {
 }
 
 /**
- * 库存数字归一化：后端用 -1 / null 表示「库存未知」，统一折成 NaN 按未知处理。
- * 不能直接用 Number(null) —— 它等于 0，会把「未知」误判成售罄。
- */
-function stockNumber(value: unknown) {
-  if (value === null || value === undefined || value === '')
-    return Number.NaN
-  const num = Number(value)
-  return Number.isFinite(num) ? num : Number.NaN
-}
-
-/**
  * 已抢进度：轨道（h12）+ 文案双出。
- * 文案口径：售罄「已抢光」；剩余 ≤5 件或 pct 取整为 0 → 「仅剩 N 件」
- * （避免「已抢 0% · 仅剩 1 件」这种自相矛盾）；其余「已抢 pct% · 仅剩 N 件」。
- * remainingStock < 0（后端未知哨兵）或 seckillStock <= 0 时隐藏整块。
+ * 判定规则集中在 utils/seckill-progress —— 会场页、首页秒杀楼层、管理端预览
+ * 三处必须同一口径，这里只取长文案（会场卡片够宽）。
  */
 function stockInfo(goods: AppSeckillGoodsVO) {
-  const stock = stockNumber(goods.seckillStock)
-  const remaining = stockNumber(goods.remainingStock)
-  if (!Number.isFinite(stock) || !Number.isFinite(remaining))
-    return null
-  if (remaining < 0 || stock <= 0)
-    return null
-  const sold = Math.min(stock, Math.max(0, stock - remaining))
-  const pct = Math.round((sold / stock) * 100)
-  if (remaining <= 0)
-    return { pct: 100, text: '已抢光' }
-  if (pct <= 0 || remaining <= LOW_STOCK_THRESHOLD)
-    return { pct, text: `仅剩 ${remaining} 件` }
-  return { pct, text: `已抢 ${pct}% · 仅剩 ${remaining} 件` }
+  return resolveSeckillProgress(goods.seckillStock, goods.remainingStock)
 }
 
 /** 未开始场次：不出进度轨道，只出「限量 N 件」文字 */
 function pendingStockText(goods: AppSeckillGoodsVO) {
-  const stock = stockNumber(goods.seckillStock)
+  const stock = normalizeStock(goods.seckillStock)
   if (!Number.isFinite(stock) || stock <= 0)
     return ''
   return `限量 ${stock} 件`
@@ -353,7 +328,7 @@ function pendingStockText(goods: AppSeckillGoodsVO) {
 
 /** 是否已抢完（库存未知不判售罄，仍允许进详情） */
 function isSoldOut(goods: AppSeckillGoodsVO) {
-  const remaining = stockNumber(goods.remainingStock)
+  const remaining = normalizeStock(goods.remainingStock)
   return Number.isFinite(remaining) && remaining <= 0
 }
 
@@ -605,7 +580,7 @@ function goOtherSession() {
                   />
                 </view>
                 <text class="prog-text" :class="{ 'is-out': isSoldOut(goods) }">
-                  {{ stockInfo(goods)?.text }}
+                  {{ stockInfo(goods)?.fullText }}
                 </text>
               </view>
               <view v-else-if="isPendingSession && pendingStockText(goods)" class="prog prog--pending">
