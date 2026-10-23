@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 /**
  * 营销会场三态（空 / 错误 / 无数据）统一组件。
  *
@@ -8,8 +9,8 @@
  * 图标是白色实心，落在品牌渐变底上，因此任何租户主题都成立。
  */
 const props = withDefaults(defineProps<{
-  /** 图形语义：秒杀 / 拼团 / 折扣 / 失败 */
-  art?: 'discount' | 'error' | 'group' | 'seckill'
+  /** 图形语义：秒杀插画 / 购物车插画 / 订单插画 / 拼团图标 / 折扣图标 / 失败 */
+  art?: 'discount' | 'empty-cart' | 'empty-order' | 'error' | 'group' | 'seckill'
   title: string
   desc?: string
   actionText?: string
@@ -30,14 +31,29 @@ const ART_ICON: Record<string, string> = {
   discount: '/static/promotion/icon-discount.svg',
   error: '/static/promotion/icon-flash.svg',
   group: '/static/promotion/icon-group.svg',
-  seckill: '/static/promotion/icon-flash.svg',
 }
+
+/** 插画位：空态使用交付的扁平插画（280rpx），比渐变圆 + 矢量图标更有质感 */
+const ART_ILLUSTRATION: Record<string, string> = {
+  'empty-cart': '/static/promotion/empty/empty-cart.png',
+  'empty-order': '/static/promotion/empty/empty-order.png',
+  'seckill': '/static/promotion/empty/empty-seckill.png',
+}
+
+const illustration = computed(() => ART_ILLUSTRATION[props.art] ?? '')
+const icon = computed(() => ART_ICON[props.art] ?? ART_ICON.group)
 </script>
 
 <template>
   <view class="hall-state">
-    <view class="state-art">
-      <image class="state-art-icon" :src="ART_ICON[props.art]" mode="aspectFit" />
+    <image
+      v-if="illustration"
+      class="state-illustration"
+      :src="illustration"
+      mode="aspectFit"
+    />
+    <view v-else class="state-art">
+      <image class="state-art-icon" :src="icon" mode="aspectFit" />
     </view>
     <text class="state-title">
       {{ title }}
@@ -66,6 +82,12 @@ const ART_ICON: Record<string, string> = {
   align-items: center;
 }
 
+/* 插画位：交付的扁平插画，280rpx（上下留白由页面 padding 负责） */
+.state-illustration {
+  width: 280rpx;
+  height: 280rpx;
+}
+
 /* 图形位：品牌渐变圆 + 白色图标（无 emoji、无单字方块） */
 .state-art {
   display: flex;
@@ -84,7 +106,7 @@ const ART_ICON: Record<string, string> = {
 }
 
 .state-title {
-  margin-top: 28rpx;
+  margin-top: 20rpx;
   color: #1f2329;
   font-size: 28rpx;
   font-weight: 600;

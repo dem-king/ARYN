@@ -173,6 +173,12 @@ onUnload(() => {
     ref="pagingRef" v-model="state.orderList" :auto="false" @query="queryList" @touchstart="handleTouchStart"
     @touchend="handleTouchEnd"
   >
+    <template #empty>
+      <view class="order-empty">
+        <image class="order-empty-img" src="/static/promotion/empty/empty-order.png" mode="aspectFit" />
+        <text class="order-empty-tip">还没有相关订单</text>
+      </view>
+    </template>
     <template #top>
       <hr-navbar title="我的订单" />
       <wd-tabs
@@ -274,4 +280,22 @@ onUnload(() => {
 
 <style lang="scss">
 /* 已使用UnoCSS重构样式，移除原有样式 */
+
+.order-empty {
+  display: flex;
+  padding-top: 120rpx;
+  flex-direction: column;
+  align-items: center;
+}
+
+.order-empty-img {
+  width: 280rpx;
+  height: 280rpx;
+}
+
+.order-empty-tip {
+  margin-top: 12rpx;
+  color: #8a8f99;
+  font-size: 24rpx;
+}
 </style>

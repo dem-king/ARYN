@@ -783,7 +783,8 @@ onShow(async () => {
       </view>
     </view>
     <view v-else class="cart-empty">
-      <wd-status-tip image="content" tip="购物车还是空的" />
+      <image class="cart-empty-img" src="/static/promotion/empty/empty-cart.png" mode="aspectFit" />
+      <text class="cart-empty-title">购物车还是空的</text>
       <!-- 空态给两条出路：主操作回商品列表，次操作去常购清单。
            原先只有「去逛逛」，常购用户每次都要从分类页重新翻一遍 -->
       <view class="cart-empty-actions">
@@ -1285,6 +1286,17 @@ onShow(async () => {
 }
 
 /* 空态：两条出路并排，主次分明；补一句分组说明让用户知道加购后会发生什么 */
+.cart-empty-img {
+  width: 280rpx;
+  height: 280rpx;
+}
+
+.cart-empty-title {
+  color: #1f2329;
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
 .cart-empty {
   padding: 120rpx 60rpx 0;
   display: flex;

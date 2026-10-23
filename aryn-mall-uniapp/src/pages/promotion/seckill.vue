@@ -389,6 +389,11 @@ function goGoodsDetail(goods: AppSeckillGoodsVO) {
   })
 }
 
+/** 活动规则页（独立静态页，文案由运营/产品维护在页面内） */
+function goRulePage() {
+  uni.navigateTo({ url: '/pages/promotion/seckill-rule' })
+}
+
 /** 空态主按钮：没有场次时回首页商品流 */
 function goHome() {
   navigateToUrl(HOME_PATH)
@@ -413,7 +418,13 @@ function goOtherSession() {
       :bordered="false"
       :background-color="THEME_PRIMARY"
       text-color="#ffffff"
-    />
+    >
+      <template #right>
+        <text class="nav-rule" @tap="goRulePage">
+          活动规则
+        </text>
+      </template>
+    </hr-navbar>
 
     <!-- 首屏骨架：信息条 + 白色面板（场次轴 / 倒计时）+ 2 行商品 -->
     <template v-if="loading">
@@ -641,6 +652,14 @@ function goOtherSession() {
   flex-direction: column;
   overflow: hidden;
   background: #f5f6f8;
+}
+
+/* 导航右侧「活动规则」：主色头白字，热区靠上下 padding 撑到 88rpx */
+.nav-rule {
+  padding: 24rpx 8rpx;
+  color: #fff;
+  font-size: 24rpx;
+  font-weight: 500;
 }
 
 /* ---- 信息条：品牌渐变 + 钩子句 + 深色分格倒计时 ---- */

@@ -154,7 +154,18 @@
         "navigationStyle": "custom",
         "navigationBarTitleText": "消息"
       }
+    },
+    // #ifdef H5 || MP-WEIXIN
+    {
+      "path": "pages/promotion/seckill-rule",
+      "type": "page",
+      "name": "seckill-rule",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "限时秒杀活动规则"
+      }
     }
+    // #endif
   ],
   "subPackages": [
     {
