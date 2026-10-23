@@ -32,6 +32,15 @@ public class DiscountActivityVO {
 	@Schema(description = "适用范围:1全场 2指定商品")
 	private Integer scope;
 
+	/** 活动级限量：null = 不限量（仅全场型） */
+	private Integer stock;
+
+	/** 活动级已占用数量 */
+	private Integer soldCount;
+
+	/** 剩余可售 = stock − soldCount；stock 为 null 时为 null */
+	private Integer remainingStock;
+
 	@Schema(description = "状态:0未开始 1进行中 2已结束 3已暂停")
 	private Integer status;
 

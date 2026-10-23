@@ -1,6 +1,8 @@
 package com.aryn.cloud.promotion.service.impl;
 
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
+import com.aryn.cloud.product.api.entity.GoodsSku;
+import com.aryn.cloud.product.api.remote.RemoteGoodsSkuService;
 import com.aryn.cloud.promotion.api.dto.DiscountStockItemDTO;
 import com.aryn.cloud.promotion.api.dto.DiscountStockReserveResultDTO;
 import com.aryn.cloud.promotion.api.entity.DiscountActivity;
@@ -13,34 +15,44 @@ import com.aryn.cloud.promotion.service.DiscountStockService;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
- * 折扣商品库存占用实现。
+ * 折扣库存占用实现（商品级 + 全场活动级）。
  *
- * <p>占用顺序：先写占用明细（唯一键挡重复/并发）→ 再原子扣减 sold_count；
- * 扣减失败抛回滚，明细一并撤销。释放顺序相反但要先回补、再置明细为已释放。
- * 租户全部显式传入与过滤：Dubbo 提供方线程上的租户上下文不可靠。
+ * <p>额度归属按「实际生效的活动」判断：指定商品活动（scope=2）扣 discount_goods 行，
+ * 全场活动（scope=1）扣 discount_activity 行——后者没有商品行，额度只能挂在活动上。
+ * 一个 SKU 可能同时被多个活动覆盖（全场 + 指定商品，取最优价），因此必须先用与
+ * {@code getGoodsDiscountInfo} 相同的规则选出真正生效的那一个，否则会扣错活动。
+ *
+ * <p>占用顺序：先写占用明细（唯一键挡重复/并发）→ 再原子扣减；扣减失败抛回滚，
+ * 明细一并撤销。租户全部显式传入与过滤：Dubbo 提供方线程上的租户上下文不可靠。
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class DiscountStockServiceImpl implements DiscountStockService {
 
+	private final DiscountActivityMapper discountActivityMapper;
+
 	private final DiscountGoodsMapper discountGoodsMapper;
 
 	private final DiscountStockLockMapper discountStockLockMapper;
 
-	private final DiscountActivityMapper discountActivityMapper;
+	/**
+	 * 商品域：选「最优活动」需要与定价同源的销售价，取不到时按未享受折扣处理（不占用）。
+	 */
+	@DubboReference
+	private RemoteGoodsSkuService remoteGoodsSkuService;
 
 	@Override
 	@Transactional(rollbackFor = Exception.class)
@@ -68,14 +80,14 @@ public class DiscountStockServiceImpl implements DiscountStockService {
 			if (locked != null && locked > 0) {
 				continue;
 			}
-			DiscountGoods goods = findActiveGoods(tenantId, item.getSkuId());
+			ActiveDiscount active = resolveActiveDiscount(tenantId, item.getSkuId());
 			// 无进行中的折扣 / 未配置限量：不占用，行为与改造前一致
-			if (goods == null || goods.getStock() == null) {
+			if (active == null || active.stock() == null) {
 				continue;
 			}
 			DiscountStockLock lock = new DiscountStockLock()
 				.setTenantId(tenantId)
-				.setActivityId(goods.getActivityId())
+				.setActivityId(active.activity().getId())
 				.setSkuId(item.getSkuId())
 				.setOrderId(orderId)
 				.setOrderItemId(item.getOrderItemId())
@@ -88,7 +100,10 @@ public class DiscountStockServiceImpl implements DiscountStockService {
 				log.info("折扣库存占用并发命中唯一键，幂等跳过, orderId={}, skuId={}", orderId, item.getSkuId());
 				continue;
 			}
-			if (discountGoodsMapper.tryReserveStock(goods.getId(), quantity) == 0) {
+			int updated = active.isFullScope()
+					? discountActivityMapper.tryReserveStock(active.activity().getId(), quantity)
+					: discountGoodsMapper.tryReserveStock(active.goods().getId(), quantity);
+			if (updated == 0) {
 				// 抛出让整个事务回滚（含刚写入的占用明细）
 				throw new ArynBusinessException("折扣商品库存不足，请调整数量后重试");
 			}
@@ -114,15 +129,7 @@ public class DiscountStockServiceImpl implements DiscountStockService {
 			return 0;
 		}
 		for (DiscountStockLock lock : locks) {
-			DiscountGoods goods = discountGoodsMapper.selectOne(Wrappers.<DiscountGoods>lambdaQuery()
-					.eq(DiscountGoods::getTenantId, tenantId)
-					.eq(DiscountGoods::getActivityId, lock.getActivityId())
-					.eq(DiscountGoods::getSkuId, lock.getSkuId())
-					.last("LIMIT 1"));
-			if (goods == null || goods.getStock() == null) {
-				continue;
-			}
-			discountGoodsMapper.restoreStock(goods.getId(), lock.getQuantity() == null ? 0 : lock.getQuantity());
+			restoreLock(tenantId, lock);
 		}
 		int released = partial
 				? discountStockLockMapper.releaseByOrderItem(tenantId, orderId, orderItemId, reasonOrDefault(reason))
@@ -132,41 +139,102 @@ public class DiscountStockServiceImpl implements DiscountStockService {
 		return released;
 	}
 
+	/**
+	 * 回补一条占用：按占用时归属的活动形态决定退回活动额度还是商品额度。
+	 * 活动被删/改形态时退回商品行（若还存在），保证不漏退。
+	 */
+	private void restoreLock(String tenantId, DiscountStockLock lock) {
+		int quantity = lock.getQuantity() == null ? 0 : lock.getQuantity();
+		if (quantity <= 0) {
+			return;
+		}
+		DiscountActivity activity = discountActivityMapper.selectById(lock.getActivityId());
+		if (activity != null && activity.getScope() != null && activity.getScope() == 1) {
+			discountActivityMapper.restoreStock(activity.getId(), quantity);
+			return;
+		}
+		DiscountGoods goods = discountGoodsMapper.selectOne(Wrappers.<DiscountGoods>lambdaQuery()
+				.eq(DiscountGoods::getTenantId, tenantId)
+				.eq(DiscountGoods::getActivityId, lock.getActivityId())
+				.eq(DiscountGoods::getSkuId, lock.getSkuId())
+				.last("LIMIT 1"));
+		if (goods != null && goods.getStock() != null) {
+			discountGoodsMapper.restoreStock(goods.getId(), quantity);
+		}
+	}
+
+	/**
+	 * 选出该 SKU 当前**实际生效**的折扣活动：与 {@code getGoodsDiscountInfo} 同规则
+	 * （进行中 + 命中范围 + 最低价），保证占用与定价指向同一个活动。
+	 * 取不到商品售价时按「未享受折扣」处理，不占用额度。
+	 */
+	private ActiveDiscount resolveActiveDiscount(String tenantId, String skuId) {
+		List<DiscountActivity> activities = discountActivityMapper.selectList(
+				Wrappers.<DiscountActivity>lambdaQuery()
+					.eq(DiscountActivity::getTenantId, tenantId)
+					.eq(DiscountActivity::getStatus, 1)
+					.le(DiscountActivity::getStartTime, LocalDateTime.now())
+					.gt(DiscountActivity::getEndTime, LocalDateTime.now()));
+		if (CollectionUtils.isEmpty(activities)) {
+			return null;
+		}
+		BigDecimal originalPrice = loadSalesPrice(skuId);
+		if (originalPrice == null) {
+			return null;
+		}
+		ActiveDiscount best = null;
+		BigDecimal bestPrice = originalPrice;
+		for (DiscountActivity activity : activities) {
+			DiscountGoods goods = null;
+			if (activity.getScope() == null || activity.getScope() != 1) {
+				goods = discountGoodsMapper.selectOne(Wrappers.<DiscountGoods>lambdaQuery()
+						.eq(DiscountGoods::getTenantId, tenantId)
+						.eq(DiscountGoods::getActivityId, activity.getId())
+						.eq(DiscountGoods::getSkuId, skuId)
+						.last("LIMIT 1"));
+				if (goods == null) {
+					continue;
+				}
+			}
+			BigDecimal price = DiscountActivityServiceImpl.calculateDiscountPrice(
+					originalPrice, activity.getDiscountType(), activity.getDiscountValue());
+			if (price.compareTo(bestPrice) < 0) {
+				bestPrice = price;
+				best = new ActiveDiscount(activity, goods);
+			}
+		}
+		return best;
+	}
+
+	private BigDecimal loadSalesPrice(String skuId) {
+		try {
+			List<GoodsSku> skus = remoteGoodsSkuService.getBySkuIds(List.of(skuId));
+			if (CollectionUtils.isEmpty(skus) || skus.get(0).getSalesPrice() == null) {
+				return null;
+			}
+			return skus.get(0).getSalesPrice();
+		} catch (Exception e) {
+			log.warn("查询 SKU 售价失败，跳过折扣库存占用, skuId={}", skuId, e);
+			return null;
+		}
+	}
+
 	private String reasonOrDefault(String reason) {
 		return StringUtils.hasText(reason) ? reason : "cancel";
 	}
 
 	/**
-	 * 找出该 SKU 当前进行中的折扣商品行（含总限量配置）。
-	 * 同一 SKU 可能挂在多个历史活动上，只认「活动进行中 + 商品行存在」的那一条。
+	 * 生效中的折扣：全场型没有 goods 行（额度在活动上），指定商品型两者都有。
 	 */
-	private DiscountGoods findActiveGoods(String tenantId, String skuId) {
-		List<DiscountGoods> rows = discountGoodsMapper.selectList(Wrappers.<DiscountGoods>lambdaQuery()
-				.eq(DiscountGoods::getTenantId, tenantId)
-				.eq(DiscountGoods::getSkuId, skuId));
-		if (CollectionUtils.isEmpty(rows)) {
-			return null;
+	private record ActiveDiscount(DiscountActivity activity, DiscountGoods goods) {
+
+		boolean isFullScope() {
+			return goods == null;
 		}
-		List<String> activityIds = rows.stream()
-			.map(DiscountGoods::getActivityId)
-			.distinct()
-			.collect(Collectors.toList());
-		LocalDateTime now = LocalDateTime.now();
-		List<DiscountActivity> activities = discountActivityMapper.selectList(
-				Wrappers.<DiscountActivity>lambdaQuery()
-					.in(DiscountActivity::getId, activityIds)
-					.eq(DiscountActivity::getTenantId, tenantId)
-					.eq(DiscountActivity::getStatus, 1)
-					.le(DiscountActivity::getStartTime, now)
-					.ge(DiscountActivity::getEndTime, now));
-		if (CollectionUtils.isEmpty(activities)) {
-			return null;
+
+		Integer stock() {
+			return isFullScope() ? activity.getStock() : goods.getStock();
 		}
-		Set<String> activeIds = activities.stream().map(DiscountActivity::getId).collect(Collectors.toSet());
-		return rows.stream()
-			.filter(row -> activeIds.contains(row.getActivityId()))
-			.findFirst()
-			.orElse(null);
 	}
 
 }

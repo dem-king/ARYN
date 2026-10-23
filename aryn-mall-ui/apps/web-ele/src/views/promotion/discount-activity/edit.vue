@@ -380,6 +380,20 @@ if (editId) {
               </ElRadio>
             </ElRadioGroup>
           </ElFormItem>
+          <ElFormItem v-if="state.form.scope === 1" label="活动限量">
+            <ElInputNumber
+              v-model="state.form.stock"
+              :min="1"
+              :step="1"
+              :precision="0"
+              placeholder="不限量"
+              controls-position="right"
+              style="width: 160px"
+            />
+            <div class="stock-hint">
+              留空 = 不限量；填写后整个活动共限 N 件，下单占用、取消/退款回补
+            </div>
+          </ElFormItem>
         </PageSection>
 
         <!-- 指定商品列表（仅 scope=2 时显示） -->

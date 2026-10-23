@@ -47,6 +47,9 @@ public class DiscountActivityDTO {
 	@Schema(description = "适用范围:1全场 2指定商品")
 	private Integer scope;
 
+	/** 活动级限量：仅全场型(scope=1)生效，null=不限量 */
+	private Integer stock;
+
 	@Schema(description = "活动描述")
 	private String description;
 

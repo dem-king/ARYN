@@ -64,6 +64,8 @@ export interface DiscountActivityForm {
   discountValue: number;
   /** 适用范围 */
   scope: DiscountScope;
+  /** 活动级限量：仅全场型生效，null/不填 = 不限量 */
+  stock?: null | number;
   /** 参与折扣的商品列表（scope=2 时使用） */
   goodsList: DiscountGoodsForm[];
 }

@@ -126,6 +126,7 @@ const sections = [
   ['积分闭环（规则发放/下单抵扣/退款返还）', '148points_closed_loop_incremental.sql'],
   ['折扣商品级限量库存与占用', '153discount_goods_stock_incremental.sql'],
   ['折扣库存占用补齐订单明细维度', '154discount_stock_lock_order_item.sql'],
+  ['全场型折扣活动级限量', '155discount_activity_stock_incremental.sql'],
 ];
 
 const normalize = (content) => content.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim();

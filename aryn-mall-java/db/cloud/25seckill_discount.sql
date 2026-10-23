@@ -102,6 +102,8 @@ CREATE TABLE `discount_activity` (
     `discount_type`  tinyint      NOT NULL COMMENT '折扣类型:1打折 2减价 3固定价',
     `discount_value` decimal(10,2) NOT NULL COMMENT '折扣值',
     `scope`          tinyint      NOT NULL DEFAULT 1 COMMENT '适用范围:1全场 2指定商品',
+    `stock`          int          DEFAULT NULL COMMENT '活动级限量（仅全场型 scope=1），NULL=不限量',
+    `sold_count`     int          NOT NULL DEFAULT 0 COMMENT '活动级已占用数量',
     `status`         tinyint      NOT NULL DEFAULT 0 COMMENT '状态:0未开始 1进行中 2已结束 3已暂停',
     `description`    varchar(512) DEFAULT NULL,
     `create_by`      varchar(64)  DEFAULT NULL,

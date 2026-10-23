@@ -296,10 +296,29 @@ function fullDesc(activity: AppDiscountActivityVO) {
  * 只使用接口已下发的真实字段，不编造比例/人气。
  */
 function activitySubtitle(activity: AppDiscountActivityVO) {
-  if (isFullScope(activity))
-    return fullDesc(activity)
+  if (isFullScope(activity)) {
+    const desc = fullDesc(activity)
+    const quota = activityQuotaText(activity)
+    return quota ? `${desc} · ${quota}` : desc
+  }
   const count = activity.goodsList?.length || 0
   return count > 0 ? `${count}件商品参与` : '指定商品参与'
+}
+
+/**
+ * 全场型活动的额度文案：剩余为 0 显示「已售罄」，紧张时显示「仅剩 N 件」，
+ * 其余显示「限量 N 件」（活动总量，供用户判断促销规模）。
+ */
+function activityQuotaText(activity: AppDiscountActivityVO) {
+  const remaining = activity.remainingStock
+  if (remaining === null || remaining === undefined || !Number.isFinite(Number(remaining)))
+    return ''
+  const count = Math.max(0, Math.floor(Number(remaining)))
+  if (count <= 0)
+    return '已售罄'
+  if (count <= 10)
+    return `仅剩 ${count} 件`
+  return `限量 ${(activity.stock ?? count)} 件`
 }
 
 /** 原价严格大于折后价才划线；否则原价与省额整块隐藏 */

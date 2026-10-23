@@ -64,6 +64,10 @@ public class DiscountActivityServiceImpl extends ServiceImpl<DiscountActivityMap
 		}
 		DiscountActivityVO vo = new DiscountActivityVO();
 		BeanUtils.copyProperties(activity, vo);
+		if (activity.getStock() != null) {
+			vo.setRemainingStock(activity.getStock()
+					- (activity.getSoldCount() == null ? 0 : activity.getSoldCount()));
+		}
 		List<DiscountGoods> goodsList = discountGoodsService.listByActivityId(id);
 		vo.setGoodsCount((long) goodsList.size());
 		List<DiscountGoodsVO> goodsVOs = goodsList.stream().map(goods -> {
@@ -111,6 +115,11 @@ public class DiscountActivityServiceImpl extends ServiceImpl<DiscountActivityMap
 			throw new ArynBusinessException("折扣活动不存在");
 		}
 		BeanUtils.copyProperties(dto, activity);
+		// 活动级限量不能低于已售：否则剩余为负，且删掉的额度无处追回
+		if (activity.getStock() != null && activity.getSoldCount() != null
+				&& activity.getStock() < activity.getSoldCount()) {
+			throw new ArynBusinessException("活动限量不能小于已售数量（已售 " + activity.getSoldCount() + " 件）");
+		}
 		boolean updated = this.updateById(activity);
 		if (!updated) {
 			throw new ArynBusinessException("更新折扣活动失败");
@@ -306,6 +315,11 @@ public class DiscountActivityServiceImpl extends ServiceImpl<DiscountActivityMap
 		AppDiscountActivityVO vo = new AppDiscountActivityVO();
 		BeanUtils.copyProperties(activity, vo);
 		vo.setActivityId(activity.getId());
+		// 全场型活动的额度挂在活动上（指定商品型由商品项各自带 remainingStock）
+		if (activity.getScope() != null && activity.getScope() == 1 && activity.getStock() != null) {
+			vo.setRemainingStock(Math.max(0, activity.getStock()
+					- (activity.getSoldCount() == null ? 0 : activity.getSoldCount())));
+		}
 		vo.setCountdown(countdownSeconds(activity, now));
 		List<DiscountGoods> goodsList = goodsByActivity.getOrDefault(activity.getId(), List.of());
 		vo.setGoodsList(goodsList.stream()

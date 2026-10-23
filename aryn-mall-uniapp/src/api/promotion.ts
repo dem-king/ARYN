@@ -114,6 +114,10 @@ export interface AppDiscountActivityVO {
   status: number
   /** 倒计时(秒) */
   countdown: number
+  /** 活动级限量：仅全场型，null/缺失 = 不限量 */
+  stock?: number | null
+  /** 活动级剩余可售（全场型） */
+  remainingStock?: number | null
   /** 参与折扣的商品；全场活动为空 */
   goodsList: AppDiscountGoodsVO[]
 }
