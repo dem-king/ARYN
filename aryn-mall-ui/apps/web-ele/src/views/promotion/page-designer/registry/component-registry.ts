@@ -15,10 +15,6 @@ import {
   validateCountdown,
 } from '../../page-design/components/countdown/types';
 import {
-  createDiscountDefaults,
-  validateDiscount,
-} from '../../page-design/components/discount/types';
-import {
   createBottomNavDefaults,
   createCouponComboDefaults,
   createGoodsRecommendDefaults,
@@ -51,10 +47,6 @@ import {
   validateGoodsScroll,
 } from '../../page-design/components/goods-scroll/types';
 import {
-  createLimitedActivityDefaults,
-  validateLimitedActivity,
-} from '../../page-design/components/limited-activity/types';
-import {
   createMarketingEntryDefaults,
   validateMarketingEntry,
 } from '../../page-design/components/marketing-entry/types';
@@ -66,10 +58,6 @@ import {
   createReplenishCardDefaults,
   validateReplenishCard,
 } from '../../page-design/components/replenish-card/types';
-import {
-  createSeckillDefaults,
-  validateSeckill,
-} from '../../page-design/components/seckill/types';
 import {
   createShipWorkbenchDefaults,
   validateShipWorkbench,
@@ -101,9 +89,6 @@ export const retailComponentTypes = [
   'goods-group',
   'goods-ranking',
   'goods-scroll',
-  'limited-activity',
-  'seckill',
-  'discount',
   'countdown',
   'marketing-entry',
   'shop-info',
@@ -493,24 +478,6 @@ export const componentRegistry: Record<
     () => import('../../page-design/components/goods-ranking/index.vue'),
     () => import('../../page-design/components/goods-ranking/setting.vue'),
   ),
-  'limited-activity': defineRetailComponent(
-    'limited-activity',
-    '拼团',
-    '营销活动',
-    createLimitedActivityDefaults(),
-    validateLimitedActivity,
-    () => import('../../page-design/components/limited-activity/index.vue'),
-    () => import('../../page-design/components/limited-activity/setting.vue'),
-  ),
-  discount: defineRetailComponent(
-    'discount',
-    '折扣',
-    '营销活动',
-    createDiscountDefaults(),
-    validateDiscount,
-    () => import('../../page-design/components/discount/index.vue'),
-    () => import('../../page-design/components/discount/setting.vue'),
-  ),
   'newbie-floor': defineRetailComponent(
     'newbie-floor',
     '新人专享',
@@ -529,15 +496,6 @@ export const componentRegistry: Record<
     validateActivityStrip,
     () => import('../../page-design/components/activity-strip/index.vue'),
     () => import('../../page-design/components/activity-strip/setting.vue'),
-  ),
-  seckill: defineRetailComponent(
-    'seckill',
-    '秒杀',
-    '营销活动',
-    createSeckillDefaults(),
-    validateSeckill,
-    () => import('../../page-design/components/seckill/index.vue'),
-    () => import('../../page-design/components/seckill/setting.vue'),
   ),
   countdown: defineRetailComponent(
     'countdown',
@@ -718,7 +676,6 @@ export const categoryPageAllowedComponents: ReadonlySet<RegisteredComponentType>
     'coupon-combo',
     'coupon-receive',
     'custom-html',
-    'discount',
     'gap',
     'goods',
     'goods-group',
@@ -728,10 +685,8 @@ export const categoryPageAllowedComponents: ReadonlySet<RegisteredComponentType>
     'goods-waterfall',
     'image-ad',
     'image-cube',
-    'limited-activity',
     'notice',
     'rich-text',
-    'seckill',
     'swiper-banner',
     'title-text',
   ]);
@@ -747,13 +702,10 @@ export const userCenterAllowedComponents: ReadonlySet<RegisteredComponentType> =
     'coupon-combo',
     'coupon-receive',
     'custom-html',
-    'discount',
     'gap',
     'image-ad',
-    'limited-activity',
     'notice',
     'rich-text',
-    'seckill',
     'swiper-banner',
     'title-text',
   ]);

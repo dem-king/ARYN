@@ -11,9 +11,6 @@ const expectedRetailComponentTypes = [
   'goods-group',
   'goods-ranking',
   'goods-scroll',
-  'limited-activity',
-  'seckill',
-  'discount',
   'countdown',
   'marketing-entry',
   'shop-info',
@@ -26,8 +23,8 @@ const expectedRetailComponentTypes = [
 /** legacy 组件数：P1 起 custom-html 纳入基础组件 */
 const LEGACY_COMPONENT_COUNT = 12;
 
-/** retail 组件数：P1 起含 goods-scroll；本轮新增 seckill / discount / newbie-floor / activity-strip */
-const RETAIL_COMPONENT_COUNT = 13;
+/** retail 组件数：旧版秒杀/拼团/折扣楼层已下线（由会场页承接），当前 10 个 */
+const RETAIL_COMPONENT_COUNT = 10;
 
 /** 活动入口条按实际卡数自动排布，不设「展示数量」，不参与 count 契约 */
 const countConfiguredRetailTypes = expectedRetailComponentTypes.filter(
@@ -155,7 +152,6 @@ describe('retail component registry', () => {
     const cases = [
       ['goods-group', { dataSource: { mode: 'manual', targetIds: [] } }],
       ['goods-ranking', { dataSource: { metric: '', mode: 'ranking' } }],
-      ['limited-activity', { dataSource: { mode: 'manual', targetIds: [] } }],
       ['countdown', { targetTime: '' }],
       ['marketing-entry', { entries: [] }],
     ] as const;

@@ -79,12 +79,6 @@ describe('mobile decoration renderer contract', () => {
   it.each([
     ['goods-group', ['dataSource', 'count', 'columns', 'showSales']],
     ['goods-ranking', ['dataSource', 'count', 'showRankNumber']],
-    [
-      'limited-activity',
-      ['dataSource', 'count', 'showCountdown', 'layout', 'subtitle'],
-    ],
-    ['seckill', ['showCountdown', 'showProgress', 'subtitle']],
-    ['discount', ['showCountdown', 'subtitle', 'goodsLimit']],
     ['countdown', ['targetTime', 'completedText']],
     ['marketing-entry', ['entries', 'columns']],
     ['shop-info', ['showContact', 'showDescription']],
@@ -103,9 +97,6 @@ describe('mobile decoration renderer contract', () => {
   it.each([
     'goods-group',
     'goods-ranking',
-    'limited-activity',
-    'seckill',
-    'discount',
     'countdown',
     'marketing-entry',
     'shop-info',
@@ -124,7 +115,6 @@ describe('mobile decoration renderer contract', () => {
 
   it.each([
     'diy-goods-ranking/index.vue',
-    'diy-limited-activity/index.vue',
     'diy-shop-info/index.vue',
     'diy-activity-strip/index.vue',
   ])('%s uses shared async retail state', (file) => {

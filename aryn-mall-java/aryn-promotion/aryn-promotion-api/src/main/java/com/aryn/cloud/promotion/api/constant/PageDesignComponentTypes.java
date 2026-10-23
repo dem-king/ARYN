@@ -218,8 +218,8 @@ public final class PageDesignComponentTypes {
 	 * 分类页（pageType=3）允许的组件；对应管理端 {@code categoryPageAllowedComponents}。
 	 */
 	private static final Set<String> CATEGORY_PAGE_ALLOWED_TYPES = Set.of(IMAGE_AD, SWIPER_BANNER, GOODS, GOODS_GROUP,
-			GOODS_SCROLL, GOODS_WATERFALL, GOODS_TABS, GOODS_RANKING, COUPON_RECEIVE, COUPON_COMBO, LIMITED_ACTIVITY,
-			SECKILL, DISCOUNT, COUNTDOWN, TITLE_TEXT, RICH_TEXT, CUSTOM_HTML, GAP, NOTICE, IMAGE_CUBE);
+			GOODS_SCROLL, GOODS_WATERFALL, GOODS_TABS, GOODS_RANKING, COUPON_RECEIVE, COUPON_COMBO, COUNTDOWN,
+			TITLE_TEXT, RICH_TEXT, CUSTOM_HTML, GAP, NOTICE, IMAGE_CUBE);
 
 	/**
 	 * 个人中心页（pageType=4）允许的组件；对应管理端 {@code userCenterAllowedComponents}。
@@ -227,8 +227,7 @@ public final class PageDesignComponentTypes {
 	 * 个人中心页不展示商品流，故排除全部商品类组件。
 	 */
 	private static final Set<String> USER_CENTER_ALLOWED_TYPES = Set.of(IMAGE_AD, SWIPER_BANNER, COUPON_RECEIVE,
-			COUPON_COMBO, LIMITED_ACTIVITY, SECKILL, DISCOUNT, COUNTDOWN, TITLE_TEXT, RICH_TEXT, CUSTOM_HTML, GAP,
-			NOTICE);
+			COUPON_COMBO, COUNTDOWN, TITLE_TEXT, RICH_TEXT, CUSTOM_HTML, GAP, NOTICE);
 
 	/**
 	 * 取指定页面类型允许的组件白名单；微页面/首页无限制返回 {@code null}。

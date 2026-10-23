@@ -12,9 +12,6 @@ const componentsRoot = resolve(
 const retailTypes = [
   'goods-group',
   'goods-ranking',
-  'limited-activity',
-  'seckill',
-  'discount',
   'countdown',
   'marketing-entry',
   'shop-info',
@@ -37,9 +34,6 @@ describe('retail admin component source contract', () => {
   it.each([
     ['goods-group', 'loadGoodsGroup'],
     ['goods-ranking', 'loadGoodsRanking'],
-    ['limited-activity', 'loadLimitedActivities'],
-    ['seckill', 'loadSeckillSessions'],
-    ['discount', 'loadDiscounts'],
     ['shop-info', 'loadShopInfo'],
   ] as const)('%s isolates its async request through %s', (type, loader) => {
     const source = readComponent(type, 'index.vue');
@@ -49,16 +43,12 @@ describe('retail admin component source contract', () => {
     expect(source).toContain('watch(');
   });
 
-  it.each([
-    'goods-group',
-    'goods-ranking',
-    'limited-activity',
-    'seckill',
-    'discount',
-    'marketing-entry',
-  ] as const)('%s replaces broken images with an icon fallback', (type) => {
-    expect(readComponent(type, 'index.vue')).toContain('#error');
-  });
+  it.each(['goods-group', 'goods-ranking', 'marketing-entry'] as const)(
+    '%s replaces broken images with an icon fallback',
+    (type) => {
+      expect(readComponent(type, 'index.vue')).toContain('#error');
+    },
+  );
 
   it.each(retailTypes)('%s exposes real content settings', (type) => {
     const source = readComponent(type, 'setting.vue');

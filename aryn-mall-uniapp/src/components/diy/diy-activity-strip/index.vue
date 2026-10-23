@@ -224,7 +224,7 @@ function onImageError(index: number) {
   height: 64rpx;
 }
 
-/* 小程序 <image> 基座自带 height:240px，必须显式给 rpx 宽高（同 diy-limited-activity 的坑） */
+/* 小程序 <image> 基座自带 height:240px，必须显式给 rpx 宽高（同其它横滑楼层的坑） */
 .strip-thumb__img {
   display: block;
   width: 64rpx;

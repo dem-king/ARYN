@@ -4,8 +4,6 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { createGoodsGroupDefaults } from '../../goods-group/types';
 import { createGoodsRankingDefaults } from '../../goods-ranking/types';
-import { createLimitedActivityDefaults } from '../../limited-activity/types';
-import { createSeckillDefaults } from '../../seckill/types';
 import {
   loadGoodsGroup,
   loadGoodsRanking,
@@ -14,6 +12,10 @@ import {
   loadShopInfo,
   normalizeDiscountActivities,
 } from './retail-data';
+import {
+  createLimitedActivityDefaults,
+  createSeckillDefaults,
+} from './retail-legacy-props';
 
 function createDependencies(
   overrides: Partial<RetailDataDependencies> = {},

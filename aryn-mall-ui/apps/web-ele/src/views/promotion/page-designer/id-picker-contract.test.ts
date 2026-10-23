@@ -61,9 +61,6 @@ describe('装修手选数据选择器契约', () => {
   const manualPanelCases = [
     { kind: 'goods', name: 'goods-group' },
     { kind: 'goods', name: 'goods-scroll' },
-    { kind: 'seckill-session', name: 'seckill' },
-    { kind: 'discount-activity', name: 'discount' },
-    { kind: 'groupbuy-activity', name: 'limited-activity' },
   ];
 
   it.each(manualPanelCases)(

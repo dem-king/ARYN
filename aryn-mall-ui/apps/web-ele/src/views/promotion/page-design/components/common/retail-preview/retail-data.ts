@@ -1,13 +1,15 @@
-import type { DiscountProps } from '../../discount/types';
 import type {
   GoodsRecommendProps,
   GoodsWaterfallProps,
 } from '../../extension/types';
 import type { GoodsGroupProps } from '../../goods-group/types';
 import type { GoodsRankingProps } from '../../goods-ranking/types';
-import type { LimitedActivityProps } from '../../limited-activity/types';
 import type { NewbieFloorProps } from '../../newbie-floor/types';
-import type { SeckillProps } from '../../seckill/types';
+import type {
+  DiscountProps,
+  LimitedActivityProps,
+  SeckillProps,
+} from './retail-legacy-props';
 
 import {
   getByIds as getGoodsByIds,

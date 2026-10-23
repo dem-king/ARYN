@@ -7,7 +7,6 @@ import DiyCountdown from './diy-countdown/index.vue'
 import DiyCouponCombo from './diy-coupon-combo/index.vue'
 import DiyCouponReceive from './diy-coupon-receive/index.vue'
 import DiyCustomHtml from './diy-custom-html/index.vue'
-import DiyDiscount from './diy-discount/index.vue'
 import DiyGap from './diy-gap/index.vue'
 import DiyGoodsGroup from './diy-goods-group/index.vue'
 import DiyGoodsRanking from './diy-goods-ranking/index.vue'
@@ -18,7 +17,6 @@ import DiyGoodsWaterfall from './diy-goods-waterfall/index.vue'
 import DiyGoods from './diy-goods/index.vue'
 import DiyImageCube from './diy-image-cube/index.vue'
 import DiyImage from './diy-image/index.vue'
-import DiyLimitedActivity from './diy-limited-activity/index.vue'
 import DiyMarketingEntry from './diy-marketing-entry/index.vue'
 import DiyMemberBenefits from './diy-member-benefits/index.vue'
 import DiyNewbieFloor from './diy-newbie-floor/index.vue'
@@ -26,7 +24,6 @@ import DiyNotice from './diy-notice/index.vue'
 import DiyReplenishCard from './diy-replenish-card/index.vue'
 import DiyRichText from './diy-rich-text/index.vue'
 import DiySearchBar from './diy-search-bar/index.vue'
-import DiySeckill from './diy-seckill/index.vue'
 import DiyServicePromise from './diy-service-promise/index.vue'
 import DiyShipWorkbench from './diy-ship-workbench/index.vue'
 import DiyShopInfo from './diy-shop-info/index.vue'
@@ -45,16 +42,13 @@ export const mobileComponentTypes = [
   'notice',
   'rich-text',
   'search-bar',
-  'seckill',
   'swiper-banner',
   'tab-nav',
   'title-text',
   'goods-group',
   'goods-ranking',
   'goods-scroll',
-  'limited-activity',
   'countdown',
-  'discount',
   'marketing-entry',
   'shop-info',
   'goods-waterfall',
@@ -84,16 +78,13 @@ const componentRegistry: Record<MobileComponentType, Component> = {
   'notice': DiyNotice,
   'rich-text': DiyRichText,
   'search-bar': DiySearchBar,
-  'seckill': DiySeckill,
   'swiper-banner': DiySwiperBanner,
   'tab-nav': DiyTabnav,
   'title-text': DiyTitleText,
   'goods-group': DiyGoodsGroup,
   'goods-ranking': DiyGoodsRanking,
   'goods-scroll': DiyGoodsScroll,
-  'limited-activity': DiyLimitedActivity,
   'countdown': DiyCountdown,
-  'discount': DiyDiscount,
   'marketing-entry': DiyMarketingEntry,
   'shop-info': DiyShopInfo,
   'goods-waterfall': DiyGoodsWaterfall,
