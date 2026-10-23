@@ -423,16 +423,23 @@ if (editId) {
                 <div class="stock-hint">不填 = 不限量</div>
               </template>
             </ElTableColumn>
-            <ElTableColumn label="操作" width="100" align="center">
+            <ElTableColumn label="操作" width="150" align="center">
               <template #default="scope">
                 <ElButton
                   link
                   type="danger"
                   :icon="Delete"
+                  :disabled="(scope.row.soldCount ?? 0) > 0"
+                  :title="
+                    (scope.row.soldCount ?? 0) > 0 ? '已有销量，不能移除' : ''
+                  "
                   @click="removeGoods(scope.$index)"
                 >
                   移除
                 </ElButton>
+                <div v-if="(scope.row.soldCount ?? 0) > 0" class="stock-hint">
+                  已售 {{ scope.row.soldCount }} 件
+                </div>
               </template>
             </ElTableColumn>
           </ElTable>

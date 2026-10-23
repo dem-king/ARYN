@@ -40,6 +40,8 @@ export interface DiscountGoodsForm {
   spuUrls?: string[];
   /** 限量库存：null/不填 = 不限量；填了即开启超卖拦截 */
   stock?: null | number;
+  /** 已占用数量（只读；>0 时不允许移除该商品） */
+  soldCount?: null | number;
 }
 
 /** 折扣活动表单 */

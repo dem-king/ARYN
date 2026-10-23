@@ -321,10 +321,18 @@ function formatPrice(value: number) {
   return Number.isFinite(price) ? price.toFixed(2) : '0.00'
 }
 
+/** 是否已售罄：仅对配置了限量的商品成立（remaining 为空 = 不限量，永远可买） */
+function isSoldOut(goods: AppDiscountGoodsVO) {
+  const remaining = goods.remainingStock
+  if (remaining === null || remaining === undefined || !Number.isFinite(Number(remaining)))
+    return false
+  return Number(remaining) <= 0
+}
+
 /**
  * 库存紧迫文案：只在真的紧张时出现，避免每张卡都挂一个数字。
  * remaining 为空 = 不限量（不展示）；0 = 已售罄；≤10 件才提示「仅剩 N 件」。
- * 真实拦截在下单侧（折扣商品级真限量），这里只做前置提示。
+ * 售罄时加购入口同步禁用（P3-02）：真实拦截在下单侧，但不该让用户先加进购物车。
  */
 function stockHint(goods: AppDiscountGoodsVO) {
   const remaining = goods.remainingStock
@@ -546,11 +554,17 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
                   外观改为「浅主色底实心圆钮」，不再用描边圆钮（同卡描边只留 0 处）。
                 -->
                 <view class="goods-cart" @click.stop>
-                  <QuickCartButton :spu-id="goods.spuId" size="64rpx">
+                  <QuickCartButton v-if="!isSoldOut(goods)" :spu-id="goods.spuId" size="64rpx">
                     <view class="goods-cart-btn">
                       <wd-icon name="cart" size="34rpx" />
                     </view>
                   </QuickCartButton>
+                  <!-- 售罄：不再唤起加购（避免进车后到下单才被拦），整卡仍可进详情 -->
+                  <view v-else class="goods-cart-btn goods-cart-btn--out">
+                    <text class="goods-cart-out">
+                      售罄
+                    </text>
+                  </view>
                 </view>
               </view>
             </view>
@@ -897,6 +911,23 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
 .goods-cart-btn :deep(.wd-icon) {
   position: relative;
   z-index: 1;
+}
+
+/* 售罄：灰底灰字，不可点（无按压态） */
+.goods-cart-btn--out {
+  color: #b6b9c0;
+}
+
+.goods-cart-btn--out::before {
+  background: #f1f2f4;
+  opacity: 1;
+}
+
+.goods-cart-out {
+  position: relative;
+  z-index: 1;
+  font-size: 18rpx;
+  font-weight: 600;
 }
 
 /* ---- 骨架：形状与真实内容一致（1 活动卡 + 2 列 × 2 行商品卡） ---- */

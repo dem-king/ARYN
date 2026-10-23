@@ -677,8 +677,8 @@ P0 的降噪规则写的是「`pct === 0` → 仅剩 N 件」，P2 收敛后改�
 | ID | 事项 | 现状/风险 | 涉及 | 估时 | 验收 |
 |----|------|----------|------|------|------|
 | P3-01 ✅ | **部分退款按 SKU 精确回补** | 已实现：`discount_stock_lock` 增 `order_item_id`（增量 154 + 基线，boot/cloud 各一份），下单前预置明细 ID，退款按明细释放 | `DiscountStockLock`/`DiscountStockItemDTO`/`release(…, orderItemId, …)`/`DiscountRefundHandler`/`OrderInfoServiceImpl` | 已完成 | **E2E 实测**：两件商品的订单只退一件 → 退的 SKU `sold 1→0`、另一件仍 `1`；占用行一个 `status=0/REFUND`、一个仍占用 |
-| P3-02 | **已售罄商品禁止加购** | 折扣卡显示「已售罄」但右下加购按钮仍可点，商品进车后要到下单才被拦 | `discount.vue`（`QuickCartButton` 包裹层） | 0.5 人日 | `remainingStock<=0` 时加购按钮禁用/隐藏，整卡仍可进详情 |
-| P3-03 | **编辑活动移除「已有占用」商品的处理** | `updateWithGoods` 删光重建商品行；若某 SKU 已被下单占用又被移除，占用明细会指向不存在的商品行，释放时回补不到 | `DiscountActivityServiceImpl.updateWithGoods` | 0.5 人日 | 二选一并落地：① 禁止移除/替换已售 SKU（推荐，提示「该商品已有 N 件售出」）；② 占用明细保留活动+SKU 快照，释放按快照回补 |
+| P3-02 ✅ | **已售罄商品禁止加购** | 已实现：`remainingStock<=0` 时不渲染 `QuickCartButton`，改灰底「售罄」不可点；整卡仍可进详情 | `discount.vue` | 已完成 | H5 注入 `remainingStock=0` 实测：售罄卡无加购按钮、显示「售罄」；正常卡按钮不受影响 |
+| P3-03 ✅ | **编辑活动移除「已有占用」商品的处理** | 已实现方案①：移除已售 SKU（或把已售活动改成全场）直接拒绝，提示「已有 N 件售出，不能移除」；限量低于已售同样拒绝；管理端移除按钮对已售商品禁用并显示已售件数 | `DiscountActivityServiceImpl.updateWithGoods`、管理端编辑页 | 已完成 | 单测 3 例通过（移除已售拒绝 / 移除未售放行 / 限量低于已售拒绝） |
 
 ### 18.2 体验缺口
 

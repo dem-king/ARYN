@@ -32,6 +32,7 @@ import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -119,6 +120,21 @@ public class DiscountActivityServiceImpl extends ServiceImpl<DiscountActivityMap
 			.filter(row -> row.getSkuId() != null)
 			.collect(Collectors.toMap(DiscountGoods::getSkuId,
 					row -> row.getSoldCount() == null ? 0 : row.getSoldCount(), (a, b) -> a));
+		// 已产生销量的商品不能被移除：占用明细还指向它，删掉后取消/退款回补不到（P3-03）
+		Set<String> incomingSkuIds = new HashSet<>();
+		if (activity.getScope() == 2 && !CollectionUtils.isEmpty(dto.getGoodsList())) {
+			dto.getGoodsList().stream()
+				.map(DiscountGoodsDTO::getSkuId)
+				.filter(Objects::nonNull)
+				.forEach(incomingSkuIds::add);
+		}
+		soldBySku.forEach((skuId, sold) -> {
+			if (sold > 0 && !incomingSkuIds.contains(skuId)) {
+				String tail = skuId.length() > 6 ? skuId.substring(skuId.length() - 6) : skuId;
+				throw new ArynBusinessException("商品（SKU 尾号 " + tail + "）已有 " + sold
+						+ " 件售出，不能移除或转为全场活动；请等活动结束后再调整");
+			}
+		});
 		// 删除原有商品关联
 		discountGoodsService.remove(Wrappers.<DiscountGoods>lambdaQuery()
 				.eq(DiscountGoods::getActivityId, activity.getId()));
