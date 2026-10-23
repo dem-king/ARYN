@@ -49,6 +49,11 @@ public class DiscountStockServiceImpl implements DiscountStockService {
 		if (!StringUtils.hasText(orderId) || CollectionUtils.isEmpty(items)) {
 			return DiscountStockReserveResultDTO.ok();
 		}
+		if (!StringUtils.hasText(tenantId)) {
+			// 租户为空时无法定位商品行：记录告警并按不限量放行，避免带 null 条件做无意义查询
+			log.warn("折扣库存占用缺少租户，跳过, orderId={}", orderId);
+			return DiscountStockReserveResultDTO.ok();
+		}
 		for (DiscountStockItemDTO item : items) {
 			if (item == null || !StringUtils.hasText(item.getSkuId())
 					|| item.getQuantity() == null || item.getQuantity() <= 0) {

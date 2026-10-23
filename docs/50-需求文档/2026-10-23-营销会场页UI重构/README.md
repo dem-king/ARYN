@@ -640,3 +640,27 @@ P0 的降噪规则写的是「`pct === 0` → 仅剩 N 件」，P2 收敛后改�
 - **下单拦截/回补的端到端验证**：需要重建 boot 容器（Java 变更）并真实下单、取消、超时、退款各走一遍；本轮只做到单测 + 编译 + SQL 实库执行。
 - **退款分支**：退款走的是 `releasePromotion`（与取消/超时同一入口），已确认调用点存在；若后续新增退款旁路，需要同步调用 `releaseStock`。
 - 秒杀在抢人数用的是**当前购物车**口径，买完即减；若产品要"本场累计加购人数"，需要加购事件表（当前没有）。
+
+### 17.5 端到端验证（真实 boot 容器 + 真实订单链路）
+
+> 重建 `aryn-boot` 镜像并重启容器（jar + 镜像两次重建），用真实 C 端令牌调用接口，逐项核对 DB。
+
+| 场景 | 操作 | 结果 |
+|------|------|------|
+| ① 下单占用 | `POST /app/orderinfo/create`（SKU 1074…0355，折扣价 23.92） | 成功；`discount_goods.sold_count 0→1`，`discount_stock_lock` 新增 1 行 `status=1` |
+| ② 取消回补 | `GET /app/orderinfo/cancel/{id}` | 成功；`sold_count 1→0`，占用行 `status=0 / release_reason=CANCEL` |
+| ③ 超卖拦截 | 库存置 1，下第一单成功后再下第二单 | 第一单成功；第二单返回 `折扣商品库存不足，请调整数量后重试`，库存仍为 1 |
+| ④ 支付 | 向 `pay-notify-topic` 投递模拟网关回调（真实 MQ + 真实监听器） | 订单 `status 1→2`、`pay_status→1`、明细 `→PAID`，库存保持占用（未支付不释放） |
+| ⑤ 退款申请 | `POST /app/orderrefund`（需带 `refundType`） | 退款单 `待审核`、明细 `→售后处理中`，库存仍占用 |
+| ⑥ 退款成功 | 向 `order-refund-success-notify-topic` 投递退款成功事件 | `sold_count 1→0`、占用行 `status=0 / release_reason=REFUND`，日志 `折扣退款释放库存 rows=1` |
+| ⑦ 秒杀在抢人数 | 购物车放入该场次 SKU 后请求场次接口 | `cartUserCount=1`（去重人数口径生效） |
+
+**本轮实跑发现并修掉的两个真问题**
+
+1. **下单时 `orderInfo.getTenantId()` 为空**：新建订单实体的租户列由拦截器在 insert 时补写，内存对象上为 null，导致占位查询带上 `tenant_id = null`、查不到折扣商品而**静默跳过**（不报错、不占库存）。修法：租户为空时回落到 `ArynTenantContextHolder`，二者都取不到才记录告警并跳过；`DiscountStockService` 侧同样拒绝空租户查询。
+2. **退款链路没有接线**：原有 release 只在取消/超时调用，退款成功后库存不会回补。新增 `DiscountRefundHandler`（`PromotionRefundEventHandler`），消费退款成功事件按订单释放，与取消释放共用幂等明细。
+3. 启动期还暴露：多租户 schema 校验要求新表登记白名单 —— 已补 boot `application.yml` 与 cloud Nacos 配置（含 md5 同步）。
+
+**已知无关失败**：`TenantConfigurationConsistencyTest` 里 `aryn-upms-biz-dev.yml` 的 md5 与 `aryn-vessel-biz-dev.yml` 的表清单不一致，属既有未提交改动造成，与本轮无关（本轮相关用例已通过）。
+
+**测试数据已还原**：折扣商品恢复 `stock=NULL/sold=0`，占用明细、临时加购行、临时地址均已删除，秒杀场次时间已还原为 20:00 场。

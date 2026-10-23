@@ -1090,9 +1090,19 @@ public class OrderPriceComputeService {
 		if (items.isEmpty()) {
 			return;
 		}
+		// 新建订单实体的 tenantId 由租户拦截器在 insert 时补写，内存对象上可能为空：
+		// 为空时回落到当前线程的租户上下文，二者都取不到才放弃（记录告警，不静默放行超卖）
+		String tenantId = orderInfo.getTenantId();
+		if (tenantId == null || tenantId.isBlank()) {
+			tenantId = ArynTenantContextHolder.getTenantId();
+		}
+		if (tenantId == null || tenantId.isBlank()) {
+			log.warn("订单[{}]缺少租户上下文，跳过折扣库存占用", orderInfo.getId());
+			return;
+		}
 		try {
 			DiscountStockReserveResultDTO result = remoteDiscountService.reserveStock(
-					orderInfo.getTenantId(), orderInfo.getId(), items);
+					tenantId, orderInfo.getId(), items);
 			if (result != null && !result.isSuccess()) {
 				throw new ArynBusinessException(result.getMessage() == null
 						? "折扣商品库存不足，请调整数量后重试" : result.getMessage());

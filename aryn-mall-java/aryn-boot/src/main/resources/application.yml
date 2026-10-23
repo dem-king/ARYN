@@ -216,6 +216,7 @@ hx:
       - seckill_order
       - discount_activity
       - discount_goods
+      - discount_stock_lock
       - pay_config
       - pay_trade_order
       - pay_notify_record
