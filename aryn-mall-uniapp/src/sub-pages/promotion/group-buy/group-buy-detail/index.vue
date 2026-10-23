@@ -736,6 +736,35 @@ function handleBottomSecondary() {
           </view>
         </view>
       </view>
+
+      <!-- 玩法说明：三步流程图，填补记录区之后的空白并降低理解成本 -->
+      <view class="how-card">
+        <view class="how-title">
+          怎么拼
+        </view>
+        <view class="how-steps">
+          <view class="how-step">
+            <view class="how-num">
+              1
+            </view>
+            <text class="how-label">发起拼单</text>
+          </view>
+          <view class="how-arrow" />
+          <view class="how-step">
+            <view class="how-num">
+              2
+            </view>
+            <text class="how-label">邀请好友</text>
+          </view>
+          <view class="how-arrow" />
+          <view class="how-step">
+            <view class="how-num">
+              3
+            </view>
+            <text class="how-label">拼成发货</text>
+          </view>
+        </view>
+      </view>
     </template>
 
     <!-- 接口异常：不白屏，给重试入口 -->
@@ -1273,6 +1302,74 @@ function handleBottomSecondary() {
   border-radius: 20rpx;
   margin: 20rpx 24rpx 0;
   overflow: hidden;
+}
+
+/* ---------- 玩法说明（三步） ---------- */
+.how-card {
+  margin: 20rpx 24rpx 0;
+  padding: 24rpx;
+  background: #fff;
+  border-radius: 20rpx;
+  box-shadow: 0 8rpx 24rpx rgba(15, 23, 42, 0.05);
+}
+
+.how-title {
+  color: #1f2329;
+  font-size: 26rpx;
+  font-weight: 700;
+}
+
+.how-steps {
+  display: flex;
+  margin-top: 20rpx;
+  align-items: center;
+}
+
+.how-step {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  gap: 10rpx;
+}
+
+.how-num {
+  display: flex;
+  width: 44rpx;
+  height: 44rpx;
+  align-items: center;
+  justify-content: center;
+  background: var(--wot-color-theme-background, #fff1ee);
+  border-radius: 50%;
+  color: var(--wot-color-theme-primary, #ff2237);
+  font-size: 22rpx;
+  font-weight: 700;
+}
+
+.how-label {
+  color: #5b616e;
+  font-size: 22rpx;
+}
+
+/* 步骤之间的细箭头：与序号行对齐 */
+.how-arrow {
+  position: relative;
+  width: 28rpx;
+  height: 2rpx;
+  margin-bottom: 34rpx;
+  background: #e5e7eb;
+}
+
+.how-arrow::after {
+  position: absolute;
+  top: -4rpx;
+  right: 0;
+  width: 8rpx;
+  height: 8rpx;
+  content: '';
+  border-top: 2rpx solid #e5e7eb;
+  border-right: 2rpx solid #e5e7eb;
+  transform: rotate(45deg);
 }
 
 /* ---------- 底部固定 CTA ---------- */

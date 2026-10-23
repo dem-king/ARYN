@@ -4,7 +4,7 @@ import type {
   AppDiscountGoodsVO,
 } from '@/api/promotion'
 import { onLoad, onUnload } from '@dcloudio/uni-app'
-import { nextTick, reactive, ref } from 'vue'
+import { computed, nextTick, reactive, ref } from 'vue'
 import { getDiscountActivities } from '@/api/promotion'
 import QuickCartButton from '@/components/quick-cart-button/index.vue'
 import { navigateToUrl } from '@/utils/tab-bar'
@@ -33,8 +33,15 @@ const loading = ref(true)
 const refreshing = ref(false)
 /** 上拉加载中 */
 const loadingMore = ref(false)
-/** scroll-view 滚动定位目标：活动头「去逛逛」滚到本活动商品区 */
+/** scroll-view 滚动定位目标：活动头「去逛逛」滚到本活动商品区 / 回顶 */
 const scrollIntoView = ref('')
+/** 悬浮回顶：滚动超过约 2 屏才出现 */
+const showBackTop = ref(false)
+
+const authStore = useAuthStore()
+const shoppingCartStore = useShoppingCartStore()
+/** 购物车角标：未登录不展示（与分类页同源口径） */
+const cartCount = computed(() => (authStore.isLoggedIn ? shoppingCartStore.getCartCount : 0))
 
 /**
  * 倒计时状态映射（按活动ID）。
@@ -333,6 +340,25 @@ function goHome() {
   navigateToUrl(HOME_PATH)
 }
 
+/** 导航栏购物车入口 */
+function toCart() {
+  navigateToUrl('/pages/user/shopping-cart/index')
+}
+
+/** 页面滚动：驱动悬浮回顶显隐（阈值按 px，约 2 屏） */
+function onPageScroll(event: { detail: { scrollTop: number } }) {
+  const top = event?.detail?.scrollTop ?? 0
+  showBackTop.value = top > 600
+}
+
+/** 回顶：复用 scroll-into-view（改 scroll-top 在用户手动滚动后不生效） */
+function backTop() {
+  scrollIntoView.value = ''
+  nextTick(() => {
+    scrollIntoView.value = 'discount-top'
+  })
+}
+
 /** 跳转商品详情（整卡可点，加购按钮单独 stop 冒泡） */
 function goGoodsDetail(goods: AppDiscountGoodsVO) {
   uni.navigateTo({
@@ -343,7 +369,16 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
 
 <template>
   <view class="discount-page">
-    <hr-navbar title="限时折扣" />
+    <hr-navbar title="限时折扣">
+      <!-- 购物车入口放导航栏（与分类页同源），不做悬浮圆钮：右下角会和网格卡的加购按钮叠在一起 -->
+      <template #right>
+        <view class="nav-cart" @tap="toCart">
+          <wd-badge :model-value="cartCount">
+            <wd-icon name="cart" size="44rpx" />
+          </wd-badge>
+        </view>
+      </template>
+    </hr-navbar>
 
     <scroll-view
       scroll-y
@@ -352,8 +387,10 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
       :refresher-triggered="refreshing"
       :scroll-into-view="scrollIntoView"
       @refresherrefresh="onRefresh"
+      @scroll="onPageScroll"
       @scrolltolower="onLoadMore"
     >
+      <view id="discount-top" />
       <!-- 首屏骨架：1 张活动卡 + 2 列 × 2 行商品卡，形状与真实内容一致 -->
       <template v-if="loading">
         <view class="sk-page">
@@ -515,6 +552,11 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
         </view>
       </template>
     </scroll-view>
+
+    <!-- 悬浮回顶：滚动超过约 2 屏才出现 -->
+    <view v-if="showBackTop" class="back-top" @tap="backTop">
+      <view class="back-top-glyph" />
+    </view>
   </view>
 </template>
 
@@ -531,13 +573,17 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
 <style lang="scss" scoped>
 .discount-page {
   display: flex;
+  /* 固定视口高度 + 内部 scroll-view 滚动：min-height 会被内容撑高，
+     使 scroll-view 不产生内部滚动（下拉刷新与 @scroll 全部失效）。 */
+  height: 100vh;
   flex-direction: column;
-  min-height: 100vh;
+  overflow: hidden;
   background: #f5f6f8;
 }
 
 .content-scroll {
   box-sizing: border-box;
+  min-height: 0;
   flex: 1;
   padding: 20rpx 0 0;
 }
@@ -897,9 +943,44 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
 
 /* ---- 收尾 ---- */
 .load-more {
-  padding: 24rpx 0 40rpx;
+  padding: 24rpx 0 60rpx;
   color: #b6b9c0;
   font-size: 22rpx;
   text-align: center;
+}
+
+/* ---- 导航栏购物车入口（热区 ≥88rpx） ---- */
+.nav-cart {
+  display: flex;
+  min-width: 88rpx;
+  min-height: 88rpx;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+/* ---- 悬浮回顶 ---- */
+.back-top {
+  position: fixed;
+  /* 放左下：网格卡右下是加购按钮，右下角悬浮会压住它 */
+  left: 24rpx;
+  bottom: calc(48rpx + env(safe-area-inset-bottom));
+  z-index: 20;
+  display: flex;
+  width: 80rpx;
+  height: 80rpx;
+  align-items: center;
+  justify-content: center;
+  background: rgb(255 255 255 / 94%);
+  border-radius: 50%;
+  box-shadow: 0 8rpx 24rpx rgba(15, 23, 42, 0.14);
+}
+
+.back-top-glyph {
+  width: 22rpx;
+  height: 22rpx;
+  margin-top: 6rpx;
+  border-top: 3rpx solid #5b616e;
+  border-left: 3rpx solid #5b616e;
+  transform: rotate(45deg);
 }
 </style>

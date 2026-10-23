@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { AppSeckillGoodsVO, AppSeckillVO } from '@/api/promotion'
 import { onLoad, onUnload } from '@dcloudio/uni-app'
-import { computed, reactive, ref } from 'vue'
+import { computed, nextTick, reactive, ref } from 'vue'
 import { getSeckillSessions, getSessionGoods } from '@/api/promotion'
 import { navigateToUrl } from '@/utils/tab-bar'
 
@@ -41,6 +41,12 @@ const loading = ref(true)
 const goodsLoading = ref(false)
 /** 下拉刷新状态：驱动 scroll-view 的 refresher 收起 */
 const refreshing = ref(false)
+/** 场次轴是否已吸顶（吸顶后加阴影，与内容分层） */
+const axisStuck = ref(false)
+/** 悬浮回顶：滚动超过约 2 屏才出现 */
+const showBackTop = ref(false)
+/** 回顶锚点（scroll-into-view 比改 scroll-top 可靠：后者在用户手动滚动后不重置） */
+const scrollInto = ref('')
 /** 已触发过「倒计时结束自动刷新」的场次：后端状态未及时翻转时不反复重载 */
 const refreshedSessionIds = new Set<string>()
 /** 商品请求序号：快速切场次时丢弃过期响应，防止串场 */
@@ -171,6 +177,21 @@ async function onRefresh() {
 /** 上拉加载更多（后端无分页，保留空实现以兼容模板事件） */
 async function onLoadMore() {
   // 后端一次性返回全部商品，无需分页加载
+}
+
+/** 页面滚动：驱动场次轴阴影与悬浮回顶的显隐（阈值按 px，约 2 屏） */
+function onPageScroll(event: { detail: { scrollTop: number } }) {
+  const top = event?.detail?.scrollTop ?? 0
+  axisStuck.value = top > 16
+  showBackTop.value = top > 600
+}
+
+/** 回顶：走 scroll-into-view 锚点，避免 scroll-top 在手动滚动后不生效 */
+function backTop() {
+  scrollInto.value = ''
+  nextTick(() => {
+    scrollInto.value = 'seckill-top'
+  })
 }
 
 /** 启动倒计时 */
@@ -416,7 +437,7 @@ function goOtherSession() {
           <view v-for="n in 3" :key="`sk-tab-${n}`" class="sk-tab" />
         </view>
       </view>
-      <view class="goods-scroll">
+      <view class="goods-list">
         <view v-for="n in 2" :key="`sk-card-${n}`" class="card-skeleton">
           <view class="sk-media" />
           <view class="sk-lines">
@@ -428,7 +449,23 @@ function goOtherSession() {
       </view>
     </template>
 
-    <template v-else>
+    <!--
+      整页滚动（信息条也在滚动区内）：信息条随内容滚走，场次轴吸顶 ——
+      即主流会场的「高矮版头动态切换」；吸顶后轴条加阴影与页面分层。
+      场次轴用 position: sticky，小程序端不支持时退化为随页滚动，不破坏布局。
+    -->
+    <scroll-view
+      v-else
+      scroll-y
+      class="page-scroll"
+      refresher-enabled
+      :refresher-triggered="refreshing"
+      :scroll-into-view="scrollInto"
+      @refresherrefresh="onRefresh"
+      @scroll="onPageScroll"
+      @scrolltolower="onLoadMore"
+    >
+      <view id="seckill-top" />
       <!-- 信息条（176rpx）：线性图标 + 钩子句 + 右侧深色分格倒计时（天单独一格） -->
       <view class="hero">
         <view class="hero-main">
@@ -454,8 +491,8 @@ function goOtherSession() {
         </view>
       </view>
 
-      <!-- 白色面板：场次轴一行（已结束场次不渲染） -->
-      <view v-if="tabSessions.length > 0" class="hall-panel">
+      <!-- 场次轴：吸顶（已结束场次不渲染） -->
+      <view v-if="tabSessions.length > 0" class="hall-panel" :class="{ 'is-stuck': axisStuck }">
         <scroll-view
           scroll-x
           class="hall-tabs"
@@ -477,14 +514,7 @@ function goOtherSession() {
         </scroll-view>
       </view>
 
-      <scroll-view
-        scroll-y
-        class="goods-scroll"
-        refresher-enabled
-        :refresher-triggered="refreshing"
-        @refresherrefresh="onRefresh"
-        @scrolltolower="onLoadMore"
-      >
+      <view class="goods-list">
         <!-- 切场次骨架：2 行商品 -->
         <template v-if="goodsLoading">
           <view v-for="n in 2" :key="`sk-${n}`" class="card-skeleton">
@@ -593,8 +623,13 @@ function goOtherSession() {
             </text>
           </view>
         </template>
-      </scroll-view>
-    </template>
+      </view>
+    </scroll-view>
+
+    <!-- 悬浮回顶：滚动超过约 2 屏才出现 -->
+    <view v-if="showBackTop" class="back-top" @tap="backTop">
+      <view class="back-top-glyph" />
+    </view>
   </view>
 </template>
 
@@ -609,15 +644,18 @@ function goOtherSession() {
 <style lang="scss" scoped>
 .seckill-page {
   display: flex;
+  /* 固定视口高度 + 内部 scroll-view 滚动：min-height 会让内容撑高整页，
+     导致 scroll-view 不产生内部滚动（下拉刷新与 @scroll 全部失效）。 */
+  height: 100vh;
   flex-direction: column;
-  min-height: 100vh;
+  overflow: hidden;
   background: #f5f6f8;
 }
 
 /* ---- 信息条：品牌渐变 + 钩子句 + 深色分格倒计时 ---- */
 .hero {
   display: flex;
-  padding: 20rpx 24rpx 52rpx;
+  padding: 20rpx 24rpx 24rpx;
   align-items: center;
   gap: 16rpx;
   color: #fff;
@@ -707,13 +745,17 @@ function goOtherSession() {
   font-weight: 700;
 }
 
-/* ---- 白色面板：只放场次轴一行，上圆角叠压信息条 28rpx ---- */
+/* ---- 场次轴：吸顶（信息条滚走后仍可切场次）；不支持 sticky 时随页滚动 ---- */
 .hall-panel {
-  position: relative;
-  z-index: 2;
-  margin-top: -28rpx;
+  position: sticky;
+  top: 0;
+  z-index: 3;
   background: #fff;
-  border-radius: 28rpx 28rpx 0 0;
+  transition: box-shadow 0.2s;
+}
+
+.hall-panel.is-stuck {
+  box-shadow: 0 8rpx 20rpx rgba(15, 23, 42, 0.08);
 }
 
 .hall-tabs {
@@ -766,12 +808,16 @@ function goOtherSession() {
 }
 
 /* ---- 商品列表 ---- */
-.goods-scroll {
-  /* H5 端 uni-scroll-view 基座自带 width:100%，默认 content-box 会把左右 padding
-     额外加到 100% 之外（真机 H5 实测卡片右缘被挤出视口、CTA 与进度文案被裁掉）。
-     显式 border-box 让 padding 收进宽度内，小程序端行为不变。 */
+.page-scroll {
+  /* H5 端 uni-scroll-view 基座自带 width:100%，显式 border-box 让内层 padding
+     收进宽度内，避免卡片右缘被挤出视口。min-height:0 让滚动区能被压缩，
+     否则 flex 子项按内容高度撑开、不产生内部滚动。 */
   box-sizing: border-box;
+  min-height: 0;
   flex: 1;
+}
+
+.goods-list {
   padding: 20rpx 24rpx 0;
 }
 
@@ -1031,14 +1077,10 @@ function goOtherSession() {
   animation: sk-pulse 1.4s ease-in-out infinite;
 }
 
-/* 面板骨架：与真实面板同形（28rpx 圆角、叠压信息条 28rpx） */
+/* 面板骨架：与真实面板同形（白底条 + 场次 pill） */
 .panel-skeleton {
-  position: relative;
-  z-index: 2;
-  margin-top: -28rpx;
   padding: 28rpx 24rpx;
   background: #fff;
-  border-radius: 28rpx 28rpx 0 0;
   animation: sk-pulse 1.4s ease-in-out infinite;
 }
 
@@ -1099,9 +1141,35 @@ function goOtherSession() {
 
 /* ---- 加载更多 ---- */
 .load-more {
-  padding: 24rpx 0 40rpx;
+  padding: 24rpx 0 60rpx;
   color: #b6b9c0;
   font-size: 22rpx;
   text-align: center;
+}
+
+/* ---- 悬浮回顶（滚动约 2 屏后出现，纯 CSS 箭头，不引图标） ---- */
+.back-top {
+  position: fixed;
+  /* 放左下：卡片右下是「抢」主按钮，右下角悬浮必然压住 CTA */
+  left: 24rpx;
+  bottom: calc(48rpx + env(safe-area-inset-bottom));
+  z-index: 20;
+  display: flex;
+  width: 80rpx;
+  height: 80rpx;
+  align-items: center;
+  justify-content: center;
+  background: rgb(255 255 255 / 94%);
+  border-radius: 50%;
+  box-shadow: 0 8rpx 24rpx rgba(15, 23, 42, 0.14);
+}
+
+.back-top-glyph {
+  width: 22rpx;
+  height: 22rpx;
+  margin-top: 6rpx;
+  border-top: 3rpx solid #5b616e;
+  border-left: 3rpx solid #5b616e;
+  transform: rotate(45deg);
 }
 </style>
