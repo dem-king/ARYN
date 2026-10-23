@@ -121,6 +121,21 @@ class OrderCategoryExportExcelTest {
 	}
 
 	@Test
+	void deliveryWayColumnUsesUnifiedCompanyDeliveryLabels() {
+		// 导出文案必须与 delivery_way 字典一致：3/4 都是公司配送，按目的地区分
+		OrderInfo shore = order("NO-1", item("spu-1", "矿泉水", "饮品/水", 1, "9.00"));
+		shore.setDeliveryWay("3");
+		OrderInfo vessel = order("NO-2", item("spu-2", "缆绳", "五金", 1, "100.00"));
+		vessel.setDeliveryWay("4");
+
+		List<Map<Integer, String>> detail = writeAndRead(shore, vessel).get(0);
+
+		// 每单：商品行 + 分类小计行 + 订单合计行；配送方式仅商品行展示
+		assertThat(detail).extracting(row -> row.get(3))
+			.containsExactly("公司配送（岸上）", null, null, "公司配送（到船）", null, null);
+	}
+
+	@Test
 	void summarySheetAggregatesAcrossOrders() {
 		OrderInfo orderA = order("NO-1",
 				item("spu-2", "可乐", "饮品/碳酸", 2, "10.00"),

@@ -1,10 +1,9 @@
 <script lang="ts" setup>
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
-import { Edit, Plus, Refresh, Search } from '@element-plus/icons-vue';
+import { Edit, Plus } from '@element-plus/icons-vue';
 import {
   ElButton,
-  ElForm,
   ElFormItem,
   ElInput,
   ElTable,
@@ -12,6 +11,8 @@ import {
 } from 'element-plus';
 
 import { getPage } from '#/api/upms/tenant';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 import { useDict } from '#/utils/dict';
 
 const RightToolbar = defineAsyncComponent(
@@ -30,7 +31,6 @@ const TenantMenu = defineAsyncComponent(() => import('./tenantmenu.vue'));
 const { status } = useDict('status');
 // 业务模式：1 综合（个人+船供并存）；2 纯零售
 const { business_mode: businessModeOptions } = useDict('business_mode');
-const queryRef = ref();
 const state = reactive({
   queryParams: {
     name: '',
@@ -80,12 +80,6 @@ const edit = (row: any) => {
   refForm.value.initForm(row);
 };
 initPage();
-/**
- * 重置搜索表单
- */
-const resetQuery = () => {
-  queryRef.value.resetFields();
-};
 const upMenu = (id: string) => {
   tenantMenuRef.value.initMenu(id);
 };
@@ -94,29 +88,24 @@ const upMenu = (id: string) => {
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 搜索 -->
-      <ElForm
+      <PageFilterPanel
         :model="state.queryParams"
-        ref="queryRef"
-        :inline="true"
-        v-show="showSearch"
+        :visible="showSearch"
+        @reset="initPage"
+        @search="initPage"
       >
         <ElFormItem label="租户名称" prop="name">
           <ElInput
             v-model="state.queryParams.name"
             clearable
             placeholder="请输入租户名称"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
-        <ElFormItem>
-          <ElButton type="primary" @click="initPage" :icon="Search">
-            搜索
-          </ElButton>
-          <ElButton @click="resetQuery" :icon="Refresh"> 重置 </ElButton>
-        </ElFormItem>
-      </ElForm>
+      </PageFilterPanel>
       <!-- 工具栏 -->
-      <div class="hx-table-toolbar">
-        <div>
+      <PageToolbar :total="state.page.total" total-label="个租户">
+        <template #left>
           <ElButton
             type="primary"
             v-access:code="'upms:systenant:add'"
@@ -125,18 +114,26 @@ const upMenu = (id: string) => {
           >
             新增
           </ElButton>
-        </div>
-        <RightToolbar
-          :search-btn="true"
-          :refresh-btn="true"
-          @search="showSearch = !showSearch"
-          @refresh="initPage"
-        />
-      </div>
+        </template>
+        <template #right>
+          <RightToolbar
+            :search-btn="true"
+            :refresh-btn="true"
+            @search="showSearch = !showSearch"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
       <Form ref="refForm" @init-page="initPage" />
       <TenantMenu ref="tenantMenuRef" @init-page="initPage" />
       <!-- 列表 -->
-      <ElTable v-loading="loading" :data="state.tableData" border>
+      <ElTable
+        v-loading="loading"
+        :data="state.tableData"
+        class="hx-data-table"
+        border
+        empty-text="暂无租户"
+      >
         <ElTableColumn prop="id" label="租户ID" />
         <ElTableColumn prop="name" label="租户名" />
         <ElTableColumn prop="siteUrl" label="官网" />

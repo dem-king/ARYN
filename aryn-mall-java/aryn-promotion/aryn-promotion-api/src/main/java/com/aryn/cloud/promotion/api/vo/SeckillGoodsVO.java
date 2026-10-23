@@ -21,6 +21,12 @@ public class SeckillGoodsVO {
 	@Schema(description = "商品SPU ID")
 	private String spuId;
 
+	@Schema(description = "商品名称（商品域按 SPU 回填，seckill_goods 不存名称快照）")
+	private String spuName;
+
+	@Schema(description = "商品图片地址列表（商品域按 SPU 回填）")
+	private String[] spuUrls;
+
 	@Schema(description = "商品SKU ID")
 	private String skuId;
 

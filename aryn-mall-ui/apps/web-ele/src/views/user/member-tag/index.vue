@@ -12,6 +12,7 @@ import {
 } from 'element-plus';
 
 import { delObj, getPage } from '#/api/user/member-tag';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 import { useDict } from '#/utils/dict';
 
 const RightToolbar = defineAsyncComponent(
@@ -92,8 +93,8 @@ initPage();
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 工具栏 -->
-      <div class="hx-table-toolbar">
-        <div>
+      <PageToolbar :total="state.page.total" total-label="个标签">
+        <template #left>
           <ElButton
             type="primary"
             v-access:code="'user:membertag:add'"
@@ -102,24 +103,33 @@ initPage();
           >
             新增
           </ElButton>
-        </div>
-        <RightToolbar
-          :search-btn="false"
-          :refresh-btn="true"
-          @refresh="initPage"
-        />
-      </div>
+        </template>
+        <template #right>
+          <RightToolbar
+            :search-btn="false"
+            :refresh-btn="true"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
       <Form ref="formRef" @init-page="initPage" />
 
       <!-- 列表 -->
-      <ElTable v-loading="loading" :data="state.tableData" border>
+      <ElTable
+        v-loading="loading"
+        class="hx-data-table"
+        :data="state.tableData"
+        row-key="id"
+        border
+        empty-text="暂无会员标签"
+      >
         <ElTableColumn prop="tagName" label="标签名称" />
         <ElTableColumn prop="tagColor" label="标签颜色" width="100">
           <template #default="scope">
             <ElTag
               v-if="scope.row.tagColor"
               :color="scope.row.tagColor"
-              style="color: #fff; border: none"
+              style="color: var(--el-color-white); border: none"
             >
               {{ scope.row.tagName }}
             </ElTag>

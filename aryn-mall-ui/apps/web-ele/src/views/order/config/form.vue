@@ -212,7 +212,7 @@ defineExpose({
     <ElForm
       ref="formRef"
       :model="state.form"
-      label-width="240px"
+      label-width="auto"
       :rules="state.rules"
     >
       <ElFormItem label="通知地址" prop="notifyUrl">
@@ -299,23 +299,24 @@ defineExpose({
       </ElFormItem>
     </ElForm>
     <template #footer>
-      <span class="dialog-footer">
-        <ElButton @click="handleClose">关 闭</ElButton>
+      <div class="hx-form-footer">
+        <ElButton @click="handleClose">取消</ElButton>
         <ElButton
           type="primary"
           :loading="loading"
           @click="submitForm(formRef)"
         >
-          确 认
+          确定
         </ElButton>
-      </span>
+      </div>
     </template>
   </ElDialog>
 </template>
 
 <style scoped>
 .form-field-tip {
-  width: 260px;
+  flex: 1 0 100%;
+  width: 100%;
   margin-top: 4px;
   font-size: 12px;
   line-height: 1.5;

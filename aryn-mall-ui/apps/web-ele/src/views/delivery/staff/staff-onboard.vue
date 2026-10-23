@@ -386,7 +386,7 @@ const submit = async (formEl: FormInstance | undefined) => {
       <ElForm
         ref="formRef"
         :model="state.form"
-        label-width="110px"
+        label-width="auto"
         class="step-form"
       >
         <ElFormItem label="配送员姓名" required prop="staffName">
@@ -489,7 +489,7 @@ const submit = async (formEl: FormInstance | undefined) => {
 
 .step-toolbar-tip {
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .step-search {
@@ -504,7 +504,7 @@ const submit = async (formEl: FormInstance | undefined) => {
   min-height: 120px;
   max-height: 300px;
   overflow: auto;
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--el-border-color-lighter);
   border-radius: 6px;
 }
 
@@ -514,7 +514,7 @@ const submit = async (formEl: FormInstance | undefined) => {
   align-items: center;
   padding: 10px 12px;
   cursor: pointer;
-  border-bottom: 1px solid #f5f5f5;
+  border-bottom: 1px solid var(--el-border-color-extra-light);
 }
 
 .option-row:last-child {
@@ -526,7 +526,7 @@ const submit = async (formEl: FormInstance | undefined) => {
 }
 
 .option-row-disabled {
-  color: #c0c4cc;
+  color: var(--el-text-color-placeholder);
   cursor: not-allowed;
   opacity: 0.7;
 }
@@ -539,12 +539,12 @@ const submit = async (formEl: FormInstance | undefined) => {
 .option-sub {
   margin-left: 8px;
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .option-empty {
   padding: 32px 0;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   text-align: center;
 }
 
@@ -557,7 +557,7 @@ const submit = async (formEl: FormInstance | undefined) => {
   margin-top: 12px;
   font-size: 13px;
   line-height: 1.9;
-  background: #f8f8f9;
+  background: var(--el-fill-color-lighter);
   border-radius: 6px;
 }
 

@@ -11,7 +11,6 @@ import lombok.experimental.Accessors;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.List;
 
 @Data
 @Schema(description = "拼团记录")
@@ -82,9 +81,11 @@ public class GroupBuyRecord extends Model<GroupBuyRecord> {
 
 	private String tenantId;
 
-	@TableField(exist = false)
-	private List<GroupBuyMember> memberList;
-
+	/**
+	 * 成员列表不在实体上承载：原先的非表字段 {@code List<GroupBuyMember> memberList}
+	 * 在仓库中从无人填充（永远是 null），2026-10-22 移到 {@code GroupBuyRecordVO#memberList}
+	 * 承载昵称头像出参，同时避免父子类同签名 {@code getMemberList()} 冲突。
+	 */
 	@TableField(exist = false)
 	private GroupBuyActivity activity;
 }

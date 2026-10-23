@@ -6,7 +6,14 @@ import type {
 
 import { reactive, ref } from 'vue';
 
-import { ElButton, ElDialog, ElInput, ElMessage, ElTag } from 'element-plus';
+import {
+  ElButton,
+  ElDialog,
+  ElEmpty,
+  ElInput,
+  ElMessage,
+  ElTag,
+} from 'element-plus';
 
 import {
   bindDeliveryStaffMallUser,
@@ -123,20 +130,20 @@ const confirm = () => {
           }}
         </ElTag>
       </div>
-      <div
+      <ElEmpty
         v-if="!state.loading && state.options.length === 0"
         class="bind-empty"
-      >
-        未找到商城用户
-      </div>
+        description="未找到商城用户"
+        :image-size="72"
+      />
     </div>
     <template #footer>
-      <span class="dialog-footer">
-        <ElButton @click="dialog = false">取 消</ElButton>
+      <div class="hx-form-footer">
+        <ElButton @click="dialog = false">取消</ElButton>
         <ElButton type="primary" :loading="submitting" @click="confirm">
           确认绑定
         </ElButton>
-      </span>
+      </div>
     </template>
   </ElDialog>
 </template>
@@ -146,7 +153,7 @@ const confirm = () => {
   max-height: 320px;
   margin-top: 12px;
   overflow: auto;
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--el-border-color-lighter);
   border-radius: 6px;
 }
 
@@ -156,7 +163,7 @@ const confirm = () => {
   align-items: center;
   padding: 10px 12px;
   cursor: pointer;
-  border-bottom: 1px solid #f5f5f5;
+  border-bottom: 1px solid var(--el-border-color-extra-light);
 }
 
 .bind-row:last-child {
@@ -168,7 +175,7 @@ const confirm = () => {
 }
 
 .bind-row-disabled {
-  color: #c0c4cc;
+  color: var(--el-text-color-placeholder);
   cursor: not-allowed;
   opacity: 0.7;
 }
@@ -181,12 +188,12 @@ const confirm = () => {
 .bind-sub {
   margin-left: 8px;
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .bind-empty {
   padding: 32px 0;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   text-align: center;
 }
 </style>

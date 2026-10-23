@@ -26,6 +26,11 @@ interface Order {
   couponUserId: string
   couponUserList: any[]
   remark: string
+  pointsDeductMax?: number
+  pointsDeductMaxPrice?: number
+  pointsDeductPrice?: number
+  pointsDeductRate?: number
+  pointsUsed?: number
 }
 
 interface Props {
@@ -36,6 +41,8 @@ interface Props {
   couponUserList: any[]
   /** 是否拼团单：拼团单仅支持在线支付（成团判定依赖支付回调），隐藏支付方式选择 */
   groupBuyOrder?: boolean
+  /** 是否已开启积分抵扣（由父组件持有提交值） */
+  pointsEnabled?: boolean
 }
 
 const props = defineProps<Props>()
@@ -45,6 +52,7 @@ const emit = defineEmits<{
   (e: 'paymentWayChange', paymentWay: string): void
   (e: 'remarkChange', order: Order): void
   (e: 'showCoupon', order: Order): void
+  (e: 'pointsToggle', enabled: boolean): void
 }>()
 
 const PAYMENT_TYPE_COD = '3'
@@ -140,6 +148,11 @@ function showCoupon() {
   emit('showCoupon', localOrder.value)
 }
 
+function onPointsChange(event: any) {
+  const enabled = typeof event === 'boolean' ? event : Boolean(event?.value)
+  emit('pointsToggle', enabled)
+}
+
 // 新增：备注弹窗开关与草稿
 const remarkPopupShow = ref(false)
 const remarkDraft = ref('')
@@ -226,6 +239,20 @@ function saveRemark() {
             />
             <text v-if="hasSelectedCoupon || hasAvailableCoupons" class="i-carbon:chevron-right text-14px" />
           </view>
+        </view>
+        <view
+          v-if="Number(localOrder.pointsDeductMax) > 0 || Number(localOrder.pointsDeductPrice) > 0"
+          class="flex items-center justify-between pb-20rpx"
+        >
+          <view class="flex flex-col">
+            <text class="text-14px">
+              积分抵扣
+            </text>
+            <text class="text-22rpx color-[#909090]">
+              可用{{ localOrder.pointsDeductMax || 0 }}积分<text v-if="Number(localOrder.pointsDeductPrice) > 0">，已抵￥{{ localOrder.pointsDeductPrice }}</text>
+            </text>
+          </view>
+          <wd-switch :model-value="pointsEnabled" size="36rpx" @change="onPointsChange" />
         </view>
         <view class="flex items-center justify-end pb-20rpx">
           <wd-text size="22rpx" color="#909090" :text="`共${localOrder.orderItemList.length}件`" />

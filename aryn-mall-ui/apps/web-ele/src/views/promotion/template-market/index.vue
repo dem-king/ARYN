@@ -217,7 +217,7 @@ onMounted(() => {
         <article v-for="item in list" v-else :key="item.id" class="market-card">
           <div class="card-head">
             <strong class="card-name">{{ item.templateName }}</strong>
-            <ElTag effect="plain" size="small" type="warning">
+            <ElTag effect="plain" size="small" type="primary">
               {{ pageTypeLabel(item.pageType) }}
             </ElTag>
           </div>
@@ -272,7 +272,7 @@ onMounted(() => {
           <strong class="preview-name">
             {{ preview.detail.templateName }}
           </strong>
-          <ElTag effect="plain" size="small" type="warning">
+          <ElTag effect="plain" size="small" type="primary">
             {{ pageTypeLabel(preview.detail.pageType) }}
           </ElTag>
           <ElTag
@@ -296,9 +296,11 @@ onMounted(() => {
             :page-type="preview.detail.pageType"
             :theme-vars="previewThemeVars"
           />
-          <span v-else class="preview-stage-empty">
-            该模板暂无装修内容，下载后可在微页面搭建器中查看
-          </span>
+          <ElEmpty
+            v-else
+            :image-size="72"
+            description="该模板暂无装修内容，下载后可在微页面搭建器中查看"
+          />
         </div>
         <ul class="preview-list">
           <li>下载量：{{ preview.detail.downloadCount ?? 0 }}</li>
@@ -342,7 +344,7 @@ onMounted(() => {
 
 .market-card:hover {
   border-color: var(--el-color-primary-light-5);
-  box-shadow: 0 4px 12px rgb(0 0 0 / 6%);
+  box-shadow: var(--el-box-shadow-light);
 }
 
 .card-head {
@@ -415,14 +417,6 @@ onMounted(() => {
   overflow: auto;
   background: var(--el-fill-color-light);
   border-radius: 8px;
-}
-
-.preview-stage-empty {
-  display: block;
-  padding: 48px 0;
-  font-size: 13px;
-  color: var(--el-text-color-secondary);
-  text-align: center;
 }
 
 .preview-list {

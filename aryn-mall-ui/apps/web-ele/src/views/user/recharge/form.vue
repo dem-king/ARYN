@@ -13,6 +13,7 @@ import {
 } from 'element-plus';
 
 import { addObj, editObj, getById } from '#/api/user/recharge-config';
+import PageSection from '#/components/page/page-section.vue';
 
 const emit = defineEmits(['initPage']);
 const visible = ref(false);
@@ -81,55 +82,56 @@ defineExpose({ initForm });
 </script>
 <template>
   <ElDialog v-model="visible" :title="title" width="500px" draggable>
-    <ElForm
-      ref="formRef"
-      :model="state.form"
-      :rules="rules"
-      label-width="100px"
-    >
-      <ElFormItem label="充值金额" prop="rechargeAmount">
-        <ElInputNumber
-          v-model="state.form.rechargeAmount"
-          :min="0.01"
-          :precision="2"
-          :step="1"
-          style="width: 100%"
-        />
-      </ElFormItem>
-      <ElFormItem label="赠送金额" prop="giftAmount">
-        <ElInputNumber
-          v-model="state.form.giftAmount"
-          :min="0"
-          :precision="2"
-          style="width: 100%"
-        />
-      </ElFormItem>
-      <ElFormItem label="赠送积分" prop="giftPoint">
-        <ElInputNumber
-          v-model="state.form.giftPoint"
-          :min="0"
-          style="width: 100%"
-        />
-      </ElFormItem>
-      <ElFormItem label="排序号" prop="sortOrder">
-        <ElInputNumber
-          v-model="state.form.sortOrder"
-          :min="0"
-          style="width: 100%"
-        />
-      </ElFormItem>
-      <ElFormItem label="状态" prop="status">
-        <ElRadioGroup v-model="state.form.status">
-          <ElRadio value="0">启用</ElRadio>
-          <ElRadio value="1">禁用</ElRadio>
-        </ElRadioGroup>
-      </ElFormItem>
+    <ElForm ref="formRef" :model="state.form" :rules="rules" label-width="auto">
+      <PageSection title="储值规则" :bordered="false">
+        <ElFormItem label="充值金额" prop="rechargeAmount">
+          <ElInputNumber
+            v-model="state.form.rechargeAmount"
+            :min="0.01"
+            :precision="2"
+            :step="1"
+            style="width: 100%"
+          />
+        </ElFormItem>
+        <ElFormItem label="赠送金额" prop="giftAmount">
+          <ElInputNumber
+            v-model="state.form.giftAmount"
+            :min="0"
+            :precision="2"
+            style="width: 100%"
+          />
+        </ElFormItem>
+        <ElFormItem label="赠送积分" prop="giftPoint">
+          <ElInputNumber
+            v-model="state.form.giftPoint"
+            :min="0"
+            style="width: 100%"
+          />
+        </ElFormItem>
+        <ElFormItem label="排序号" prop="sortOrder">
+          <ElInputNumber
+            v-model="state.form.sortOrder"
+            :min="0"
+            style="width: 100%"
+          />
+        </ElFormItem>
+      </PageSection>
+      <PageSection title="状态设置" :bordered="false">
+        <ElFormItem label="状态" prop="status">
+          <ElRadioGroup v-model="state.form.status">
+            <ElRadio value="0">启用</ElRadio>
+            <ElRadio value="1">禁用</ElRadio>
+          </ElRadioGroup>
+        </ElFormItem>
+      </PageSection>
     </ElForm>
     <template #footer>
-      <ElButton @click="visible = false">取消</ElButton>
-      <ElButton type="primary" :loading="loading" @click="submitForm">
-        确定
-      </ElButton>
+      <div class="hx-form-footer">
+        <ElButton @click="visible = false">取消</ElButton>
+        <ElButton type="primary" :loading="loading" @click="submitForm">
+          确定
+        </ElButton>
+      </div>
     </template>
   </ElDialog>
 </template>

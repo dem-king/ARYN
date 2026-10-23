@@ -20,13 +20,19 @@ const expectedRetailComponentTypes = [
   'ship-workbench',
   'replenish-card',
   'newbie-floor',
+  'activity-strip',
 ] as const;
 
 /** legacy 组件数：P1 起 custom-html 纳入基础组件 */
 const LEGACY_COMPONENT_COUNT = 12;
 
-/** retail 组件数：P1 起含 goods-scroll；本轮新增 seckill / discount / newbie-floor */
-const RETAIL_COMPONENT_COUNT = 12;
+/** retail 组件数：P1 起含 goods-scroll；本轮新增 seckill / discount / newbie-floor / activity-strip */
+const RETAIL_COMPONENT_COUNT = 13;
+
+/** 活动入口条按实际卡数自动排布，不设「展示数量」，不参与 count 契约 */
+const countConfiguredRetailTypes = expectedRetailComponentTypes.filter(
+  (type) => type !== 'activity-strip',
+);
 
 describe('legacy component registry', () => {
   it('registers every legacy component exactly once', () => {
@@ -106,7 +112,7 @@ describe('retail component registry', () => {
     }
   });
 
-  it.each(expectedRetailComponentTypes)(
+  it.each(countConfiguredRetailTypes)(
     '%s has complete dynamic-data defaults',
     (type) => {
       const definition = componentRegistry[type];
@@ -133,20 +139,17 @@ describe('retail component registry', () => {
     },
   );
 
-  it.each(expectedRetailComponentTypes)(
-    '%s rejects an invalid count',
-    (type) => {
-      const definition = componentRegistry[type];
-      const defaults = definition.createDefaultProps();
+  it.each(countConfiguredRetailTypes)('%s rejects an invalid count', (type) => {
+    const definition = componentRegistry[type];
+    const defaults = definition.createDefaultProps();
 
-      expect(definition.validate({ ...defaults, count: 0 })).toContain(
-        '展示数量必须大于 0',
-      );
-      expect(
-        definition.validate({ ...defaults, count: 999 }).length,
-      ).toBeGreaterThan(0);
-    },
-  );
+    expect(definition.validate({ ...defaults, count: 0 })).toContain(
+      '展示数量必须大于 0',
+    );
+    expect(
+      definition.validate({ ...defaults, count: 999 }).length,
+    ).toBeGreaterThan(0);
+  });
 
   it('rejects missing component-specific targets', () => {
     const cases = [

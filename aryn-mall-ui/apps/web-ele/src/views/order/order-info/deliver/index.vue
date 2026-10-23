@@ -5,7 +5,6 @@ import { computed, defineAsyncComponent, nextTick, reactive, ref } from 'vue';
 
 import {
   ElButton,
-  ElCard,
   ElDescriptions,
   ElDescriptionsItem,
   ElDrawer,
@@ -28,6 +27,7 @@ import {
   getById,
 } from '#/api/order/order-info';
 import { getList as getLogisticsList } from '#/api/upms/logistics-company';
+import PageSection from '#/components/page/page-section.vue';
 import { useDict } from '#/utils/dict';
 
 const emit = defineEmits(['handleSuccess']);
@@ -251,20 +251,17 @@ defineExpose({
     size="60%"
     :before-close="handleClose"
   >
-    <div style="padding: 20px">
-      <ElCard class="box-card">
-        <template #header>
-          <div class="card-header">
-            <span>商品信息</span>
-          </div>
-        </template>
+    <div class="deliver-body">
+      <PageSection title="商品信息">
         <ElTable
           ref="tableRef"
           row-key="id"
           v-if="orderInfo"
           :data="orderInfo.orderItemList"
+          class="hx-data-table"
           style="width: 100%"
           border
+          empty-text="暂无商品"
         >
           <ElTableColumn prop="spuName" label="商品信息" min-width="220">
             <template #default="scope">
@@ -301,14 +298,9 @@ defineExpose({
             </template>
           </ElTableColumn>
         </ElTable>
-      </ElCard>
+      </PageSection>
 
-      <ElCard class="box-card margin-top">
-        <template #header>
-          <div class="card-header">
-            <span>收货人信息</span>
-          </div>
-        </template>
+      <PageSection title="收货人信息">
         <!-- 收货人信息展示 -->
         <div v-if="orderInfo">
           <ElDescriptions :column="1" border>
@@ -323,13 +315,13 @@ defineExpose({
               {{ orderInfo.recipientArea }} {{ orderInfo.recipientAddress }}
             </ElDescriptionsItem>
           </ElDescriptions>
-          <!-- 内部配送：收货地址常为空，展示船舶/靠港快照 -->
+          <!-- 公司配送（到船）：收货地址常为空，展示船舶/靠港快照 -->
           <ElDescriptions
             v-if="orderInfo.deliveryWay === '4' && orderInfo.vesselName"
             :column="1"
             border
             class="margin-top"
-            title="内部配送信息"
+            title="公司配送（到船）信息"
           >
             <ElDescriptionsItem width="150px" label="配送船舶">
               {{ orderInfo.vesselName }}
@@ -347,13 +339,8 @@ defineExpose({
             </ElDescriptionsItem>
           </ElDescriptions>
         </div>
-      </ElCard>
-      <ElCard class="box-card margin-top">
-        <template #header>
-          <div class="card-header">
-            <span>{{ isTaskDriven ? '配送派单' : '物流信息' }}</span>
-          </div>
-        </template>
+      </PageSection>
+      <PageSection :title="isTaskDriven ? '配送派单' : '物流信息'">
         <!-- 商城配送/内部配送：直接派单给司机，无需快递单号 -->
         <template v-if="isTaskDriven">
           <ElForm
@@ -436,8 +423,8 @@ defineExpose({
             <ElInput v-model="state.form.logisticsNo" />
           </ElFormItem>
         </ElForm>
-        <span class="dialog-footer" style="padding: 20px">
-          <ElButton @click="state.dialog = false">关闭</ElButton>
+        <div class="hx-form-footer deliver-actions">
+          <ElButton @click="state.dialog = false">取消</ElButton>
           <ElButton
             v-if="!isTaskDriven || taskAssignable"
             type="primary"
@@ -446,12 +433,16 @@ defineExpose({
           >
             {{ isTaskDriven ? '派单发货' : '发货' }}
           </ElButton>
-        </span>
-      </ElCard>
+        </div>
+      </PageSection>
     </div>
   </ElDrawer>
 </template>
 <style lang="scss" scoped>
+.deliver-body {
+  padding: 20px;
+}
+
 /* 图片固定宽、文字区自适应：避免窄抽屉下百分比栅格被 60px 图片压住 */
 .order-item {
   display: flex;
@@ -475,27 +466,22 @@ defineExpose({
   .specs {
     margin: 4px 0 0;
     font-size: 12px;
-    color: #a8abb2;
+    color: var(--el-text-color-secondary);
     overflow-wrap: anywhere;
   }
 }
 
-.margin-top {
-  margin-top: 40px;
-}
-
-.dialog-footer {
-  display: flex;
-  justify-content: center;
+.deliver-actions {
+  margin-top: 8px;
 }
 
 .assign-tip {
   margin: 8px 0 0;
   font-size: 12px;
-  color: #a8abb2;
+  color: var(--el-text-color-secondary);
 
   &.warn {
-    color: #e6a23c;
+    color: var(--el-color-warning);
   }
 }
 </style>

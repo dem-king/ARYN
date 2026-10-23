@@ -8,10 +8,11 @@ import {
   ElMessageBox,
   ElTable,
   ElTableColumn,
-  ElTag,
 } from 'element-plus';
 
 import { delObj, getPage } from '#/api/upms/dict-value';
+import PageToolbar from '#/components/page/page-toolbar.vue';
+import { useDict } from '#/utils/dict';
 
 const props = defineProps({
   dictId: {
@@ -25,7 +26,13 @@ const RightToolbar = defineAsyncComponent(
 const Pagination = defineAsyncComponent(
   () => import('#/components/pagination/index.vue'),
 );
+const DictTag = defineAsyncComponent(
+  () => import('#/components/dict-tag/index.vue'),
+);
 const Form = defineAsyncComponent(() => import('./form.vue'));
+
+// 字典
+const { status } = useDict('status');
 const state = reactive({
   queryParams: {},
   page: {
@@ -98,8 +105,8 @@ initPage();
 <template>
   <div class="layout-padding-auto layout-padding-view">
     <!-- 工具栏 -->
-    <div class="hx-table-toolbar">
-      <div>
+    <PageToolbar :total="state.page.total" total-label="个字典值">
+      <template #left>
         <ElButton
           type="primary"
           v-access:code="'upms:sysdictvalue:edit'"
@@ -108,25 +115,33 @@ initPage();
         >
           新增
         </ElButton>
-      </div>
-      <RightToolbar
-        :search-btn="false"
-        :refresh-btn="true"
-        @search="showSearch = !showSearch"
-        @refresh="initPage"
-      />
-    </div>
+      </template>
+      <template #right>
+        <RightToolbar
+          :search-btn="false"
+          :refresh-btn="true"
+          @search="showSearch = !showSearch"
+          @refresh="initPage"
+        />
+      </template>
+    </PageToolbar>
     <Form ref="formRef" @init-page="initPage" />
     <!-- 列表 -->
-    <ElTable v-loading="loading" :data="state.tableData" border>
+    <ElTable
+      v-loading="loading"
+      :data="state.tableData"
+      class="hx-data-table"
+      row-key="id"
+      border
+      empty-text="暂无字典值"
+    >
       <ElTableColumn prop="dictLabel" label="字典标签" align="center" />
       <ElTableColumn prop="dictValue" label="字典键值" align="center" />
       <ElTableColumn prop="remarks" label="备注" align="center" />
 
       <ElTableColumn prop="status" label="状态" align="center">
         <template #default="scope">
-          <ElTag v-if="scope.row.status === '0'" type="success">正常</ElTag>
-          <ElTag v-if="scope.row.status === '1'" type="danger">停用</ElTag>
+          <DictTag :options="status" :value="scope.row.status" />
         </template>
       </ElTableColumn>
       <ElTableColumn prop="sort" label="排序" align="center" />

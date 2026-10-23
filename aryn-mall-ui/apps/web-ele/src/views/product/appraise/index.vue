@@ -1,12 +1,10 @@
 <script lang="ts" setup>
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
-import { Refresh, Search } from '@element-plus/icons-vue';
 import {
   ElAvatar,
   ElButton,
   ElCol,
-  ElForm,
   ElFormItem,
   ElImage,
   ElInput,
@@ -19,6 +17,8 @@ import {
 } from 'element-plus';
 
 import { getPage, replyObj } from '#/api/product/appraise';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 
 const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
@@ -42,7 +42,6 @@ const state = reactive({
 });
 const showSearch = ref(true);
 const loading = ref(false);
-const queryRef = ref();
 const initPage = async () => {
   loading.value = true;
   const params = {
@@ -62,12 +61,6 @@ const initPage = async () => {
     });
 };
 
-/**
- * 重置搜索表单
- */
-const resetQuery = () => {
-  queryRef.value.resetFields();
-};
 // 商家回复
 const handleReply = (id: string) => {
   ElMessageBox.prompt('请输入回复的内容', '回复', {
@@ -96,38 +89,40 @@ initPage();
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 搜索 -->
-      <ElForm
+      <PageFilterPanel
         :model="state.queryParams"
-        ref="queryRef"
-        :inline="true"
-        v-show="showSearch"
+        :visible="showSearch"
+        @reset="initPage"
+        @search="initPage"
       >
         <ElFormItem label="用户昵称" prop="nickname">
           <ElInput
             v-model="state.queryParams.nickname"
             clearable
             placeholder="请输入用户昵称"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
-        <ElFormItem>
-          <ElButton type="primary" @click="initPage" :icon="Search">
-            搜索
-          </ElButton>
-          <ElButton @click="resetQuery" :icon="Refresh"> 重置 </ElButton>
-        </ElFormItem>
-      </ElForm>
+      </PageFilterPanel>
       <!-- 工具栏 -->
-      <div class="hx-table-toolbar">
-        <div></div>
-        <RightToolbar
-          :search-btn="true"
-          :refresh-btn="true"
-          @search="showSearch = !showSearch"
-          @refresh="initPage"
-        />
-      </div>
+      <PageToolbar :total="state.page.total" total-label="条评价">
+        <template #right>
+          <RightToolbar
+            :search-btn="true"
+            :refresh-btn="true"
+            @search="showSearch = !showSearch"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
       <!-- 列表 -->
-      <ElTable v-loading="loading" :data="state.tableData" border>
+      <ElTable
+        v-loading="loading"
+        class="hx-data-table"
+        :data="state.tableData"
+        border
+        empty-text="暂无评价"
+      >
         <ElTableColumn prop="name" label="评价用户" width="200">
           <template #default="scope">
             <div style="display: flex; align-items: center">
@@ -159,7 +154,7 @@ initPage();
               v-model="scope.row.goodsScore"
               disabled
               show-score
-              text-color="#ff9900"
+              text-color="var(--el-color-warning)"
               score-template="{value} 评分"
             />
           </template>

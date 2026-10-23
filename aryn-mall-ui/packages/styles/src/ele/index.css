@@ -50,6 +50,49 @@ html .el-loading-mask {
   margin-bottom: 10px;
 }
 
+/* 管理端标准数据表格：页面在 ElTable 上加 class="hx-data-table" 即可 */
+.hx-data-table {
+  --el-table-border-color: var(--el-border-color-lighter);
+  --el-table-header-bg-color: var(--el-fill-color-light);
+}
+
+.hx-data-table th.el-table__cell {
+  height: 44px;
+  font-weight: 600;
+  color: var(--el-text-color-regular);
+}
+
+.hx-data-table .el-table__body tr:hover > td.el-table__cell {
+  background: var(--el-color-primary-light-9);
+}
+
+.hx-data-table .el-table__cell .el-button + .el-button {
+  margin-left: 8px;
+}
+
+/* 金额统一：等宽数字，避免同列 9.5 / 9.50 混排时宽度抖动 */
+.hx-money {
+  font-variant-numeric: tabular-nums;
+}
+
+.hx-money--strong {
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+/* 弹窗/抽屉底部按钮：右对齐、间距统一 */
+.hx-form-footer {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+/* Element 默认给相邻按钮加 margin-left，flex gap 下会叠加成双倍间距 */
+.hx-form-footer .el-button + .el-button {
+  margin-left: 0;
+}
+
 .hx-layout-container {
   position: absolute;
   top: 0;

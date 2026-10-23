@@ -60,6 +60,9 @@ const { createGoodsList } = storeToRefs(goodsStore)
 const globalLoading = useGlobalLoading()
 const loading = ref(true)
 const submitting = ref(false)
+const pointsEnabled = ref(false)
+const userStore = useUserStore()
+let settlementSeq = 0
 const selectedAddress = ref<Address>({
   id: '',
   detailAddress: '',
@@ -272,8 +275,28 @@ function closeCouponPopup() {
   couponState.couponPopup = false
 }
 
+function pointsToggle(enabled: boolean) {
+  if (enabled && Number(state.orderInfo?.pointsDeductMax) <= 0) {
+    useGlobalToast().warning('当前订单暂无可抵扣积分')
+    return
+  }
+  pointsEnabled.value = enabled
+  toSettlement()
+}
+
 // 去结算
 async function toSettlement() {
+  const seq = ++settlementSeq
+  if (pointsEnabled.value) {
+    // 开关语义为「使用全部可用积分」：由服务端按最新优惠与余额重新计算额度，
+    // 避免优惠变化后前端仍按旧额度抵扣导致确认金额与实际扣款不一致
+    state.orderParams.useMaxPoints = true
+    delete state.orderParams.usePoints
+  }
+  else {
+    delete state.orderParams.useMaxPoints
+    delete state.orderParams.usePoints
+  }
   globalLoading.loading('加载中...')
   state.orderParams.createWay = state.createWay
   state.orderParams.userAddressId = selectedAddress.value ? selectedAddress.value.id : ''
@@ -289,7 +312,14 @@ async function toSettlement() {
   // 结算订单
   try {
     const response = await orderSettlement(state.orderParams)
-    Object.assign(state.orderInfo, response)
+    // 快速切换积分/优惠券会并发多次结算，只应用最后一次响应
+    if (seq !== settlementSeq)
+      return
+    state.orderInfo = response
+    if (pointsEnabled.value && Number(response?.pointsUsed) <= 0) {
+      pointsEnabled.value = false
+      delete state.orderParams.useMaxPoints
+    }
     // 资格提示依赖登录态与活动，不 await：结算金额已是权威值，
     // 提示晚到一帧不影响用户看到正确金额
     void loadNewbieHint()
@@ -299,8 +329,10 @@ async function toSettlement() {
     })
   }
   finally {
-    loading.value = false
-    globalLoading.close()
+    if (seq === settlementSeq) {
+      loading.value = false
+      globalLoading.close()
+    }
   }
 }
 // 去支付
@@ -356,8 +388,18 @@ async function toPay() {
   globalLoading.loading('加载中...')
 
   try {
-  // 创建订单
+    // 携带确认页金额：服务端重算不一致时会拒绝成单，避免优惠额度变化后静默涨价
+    const expectedPaymentPrice = Number(state.orderInfo?.paymentPrice)
+    if (Number.isFinite(expectedPaymentPrice)) {
+      state.orderParams.expectedPaymentPrice = expectedPaymentPrice
+    }
+    else {
+      delete state.orderParams.expectedPaymentPrice
+    }
+    // 创建订单
     const response = await orderCreate(state.orderParams)
+    // 下单后刷新积分余额；刷新属增强信息，失败不打断下单成功流程
+    userStore.refreshPointsInfo().catch(() => {})
     if (state.orderParams.paymentType === '3') {
       // 货到付款：无需在线支付，直接进订单详情
       useGlobalToast().success('下单成功，收货后请线下支付货款')
@@ -525,7 +567,8 @@ onUnload(() => {
       :delivery-way="state.orderParams.deliveryWay"
       :payment-way="state.orderParams.paymentType"
       :group-buy-order="isGroupBuyOrder"
-      @delivery-way-change="deliveryWayChange" @payment-way-change="paymentWayChange" @remark-change="remarkChange" @show-coupon="showCoupon"
+      :points-enabled="pointsEnabled"
+      @delivery-way-change="deliveryWayChange" @payment-way-change="paymentWayChange" @remark-change="remarkChange" @show-coupon="showCoupon" @points-toggle="pointsToggle"
     />
 
     <wd-gap :height="60" />

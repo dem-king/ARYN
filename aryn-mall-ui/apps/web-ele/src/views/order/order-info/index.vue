@@ -1,22 +1,20 @@
 <script lang="ts" setup name="order">
-import type {
-  FormInstance,
-  UploadRequestOptions,
-  UploadUserFile,
-} from 'element-plus';
+import type { UploadRequestOptions, UploadUserFile } from 'element-plus';
 
 import { defineAsyncComponent, reactive, ref, watch } from 'vue';
+import useClipboard from 'vue-clipboard3';
 import { useRoute, useRouter } from 'vue-router';
 
 import {
   ArrowRightBold,
   Box,
+  CircleClose,
+  CopyDocument,
   Delete,
   Download,
   Money,
   Plus,
-  Refresh,
-  Search,
+  User,
   Van,
   View,
 } from '@element-plus/icons-vue';
@@ -49,8 +47,10 @@ import {
   selffetchObj,
 } from '#/api/order/order-info';
 import { uploadFile } from '#/api/upms/upload';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 import { useDict } from '#/utils/dict';
-import { downloadBlobFile } from '#/utils/util';
+import { downloadBlobFile, formatMoney } from '#/utils/util';
 
 import OrderItemsCell from './order-items-cell.vue';
 import { purchaseSceneText } from './purchase-scene';
@@ -68,7 +68,6 @@ const DictTag = defineAsyncComponent(
 const Deliver = defineAsyncComponent(() => import('./deliver/index.vue'));
 
 // 字典
-const queryRef = ref<FormInstance>();
 const { pay_type, delivery_way, order_status } = useDict(
   'pay_type',
   'delivery_way',
@@ -157,6 +156,34 @@ const deliverRef = ref();
 const printRef = ref();
 const activeType = ref('');
 
+const { toClipboard } = useClipboard();
+const copyText = async (text?: string, label = '内容') => {
+  if (!text) return;
+  try {
+    await toClipboard(String(text));
+    ElMessage.success(`${label}已复制`);
+  } catch {
+    ElMessage.error('复制失败，请手动选择复制');
+  }
+};
+/** 列表只保留到分钟，秒级精度在详情页查看 */
+const formatDateTime = (value?: string) =>
+  value ? String(value).replace('T', ' ').slice(0, 16) : '';
+const amountLabel = (row: any) =>
+  row.payStatus === '1' ? '实付金额' : '应付金额';
+const deliverTimeLabel = (row: any) => {
+  if (row.deliveryWay === '2') {
+    return '自提';
+  }
+  return row.deliveryWay === '3' || row.deliveryWay === '4' ? '出发' : '发货';
+};
+const sceneTagType = (scene?: string): 'info' | 'primary' =>
+  scene === '2' ? 'primary' : 'info';
+const vesselText = (row: any) =>
+  [row.vesselName, row.portName].filter(Boolean).join(' · ');
+const vesselTitle = (row: any) =>
+  [row.vesselName, row.portName, row.berth].filter(Boolean).join(' / ');
+
 const applyRouteStatus = () => {
   const raw = route.query.status;
   const status = Array.isArray(raw) ? raw[0] : raw;
@@ -191,13 +218,6 @@ const initPage = async () => {
     .catch(() => {
       loading.value = false;
     });
-};
-/**
- * 重置搜索表单
- */
-const resetQuery = (formEl: FormInstance | undefined) => {
-  if (!formEl) return;
-  formEl.resetFields();
 };
 /**
  * 订单详情
@@ -448,18 +468,17 @@ watch(
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 搜索 -->
-      <ElForm
+      <PageFilterPanel
         :model="state.queryParams"
-        ref="queryRef"
-        :inline="true"
-        v-show="showSearch"
+        :visible="showSearch"
+        @reset="initPage"
+        @search="initPage"
       >
         <ElFormItem label="支付类型" prop="paymentType">
           <ElSelect
             v-model="state.queryParams.paymentType"
             clearable
             placeholder="请选择支付类型"
-            style="width: 200px"
           >
             <ElOption
               v-for="item in pay_type"
@@ -474,7 +493,6 @@ watch(
             v-model="state.queryParams.purchaseScene"
             clearable
             placeholder="全部场景"
-            style="width: 160px"
           >
             <ElOption label="海员个人购买" value="1" />
             <ElOption label="船供采购" value="2" />
@@ -485,7 +503,6 @@ watch(
             v-model="state.queryParams.deliveryWay"
             clearable
             placeholder="请选择配送方式"
-            style="width: 200px"
           >
             <ElOption
               v-for="item in delivery_way"
@@ -495,9 +512,16 @@ watch(
             />
           </ElSelect>
         </ElFormItem>
+        <ElFormItem label="订单号" prop="orderNo">
+          <ElInput
+            v-model="state.queryParams.orderNo"
+            clearable
+            placeholder="请输入订单号"
+            @keyup.enter="initPage"
+          />
+        </ElFormItem>
         <ElFormItem label="支付时间" prop="paymentQueryTimes">
           <ElDatePicker
-            style="width: 360px"
             v-model="state.queryParams.paymentQueryTimes"
             type="datetimerange"
             :shortcuts="shortcuts"
@@ -507,18 +531,12 @@ watch(
             end-placeholder="结束时间"
           />
         </ElFormItem>
-        <ElFormItem label="订单号" prop="orderNo">
-          <ElInput
-            v-model="state.queryParams.orderNo"
-            clearable
-            placeholder="请输入订单号"
-          />
-        </ElFormItem>
         <ElFormItem label="收货人姓名" prop="recipientName">
           <ElInput
             v-model="state.queryParams.recipientName"
             clearable
             placeholder="请输入收货人姓名"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
         <ElFormItem label="收货人电话" prop="recipientPhone">
@@ -526,80 +544,135 @@ watch(
             v-model="state.queryParams.recipientPhone"
             clearable
             placeholder="请输入收货人电话"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
-        <ElFormItem>
-          <ElButton type="primary" @click="initPage" :icon="Search">
-            搜索
-          </ElButton>
-          <ElButton @click="resetQuery(queryRef)" :icon="Refresh">
-            重置
-          </ElButton>
-        </ElFormItem>
-      </ElForm>
+      </PageFilterPanel>
       <!-- 工具栏 -->
-      <div class="hx-table-toolbar">
-        <ElSegmented
-          v-model="activeType"
-          :options="activeTypeOptions"
-          @change="tabHandle"
-        />
-        <ElButton
-          type="warning"
-          plain
-          :icon="Download"
-          :loading="exporting"
-          v-access:code="'order:orderinfo:export'"
-          @click="handleExport"
-        >
-          导出
-        </ElButton>
-        <RightToolbar
-          :search-btn="true"
-          :refresh-btn="true"
-          @search="showSearch = !showSearch"
-          @refresh="initPage"
-        />
-      </div>
+      <PageToolbar :total="state.page.total" total-label="笔订单">
+        <template #left>
+          <ElSegmented
+            v-model="activeType"
+            :options="activeTypeOptions"
+            @change="tabHandle"
+          />
+        </template>
+        <template #right>
+          <ElButton
+            type="warning"
+            plain
+            :icon="Download"
+            :loading="exporting"
+            v-access:code="'order:orderinfo:export'"
+            @click="handleExport"
+          >
+            导出
+          </ElButton>
+          <RightToolbar
+            :search-btn="true"
+            :refresh-btn="true"
+            @search="showSearch = !showSearch"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
       <Deliver ref="deliverRef" @handle-success="initPage" />
 
       <!-- 列表 -->
       <ElTable
         ref="printRef"
         v-loading="loading"
+        class="hx-data-table"
         :data="state.tableData"
+        row-key="id"
         border
+        empty-text="暂无订单"
         @selection-change="handleSelectionChange"
       >
-        <ElTableColumn type="selection" width="55" align="center" />
+        <ElTableColumn type="selection" width="44" align="center" />
         <ElTableColumn label="购买场景" width="110" align="center">
           <template #default="scope">
-            {{ purchaseSceneText(scope.row.purchaseScene) }}
+            <div class="oi-scene">
+              <ElTag
+                :type="sceneTagType(scope.row.purchaseScene)"
+                effect="plain"
+                size="small"
+                :disable-transitions="true"
+              >
+                {{ purchaseSceneText(scope.row.purchaseScene) }}
+              </ElTag>
+              <span
+                v-if="scope.row.purchaseScene === '2' && vesselText(scope.row)"
+                class="oi-scene-sub"
+                :title="vesselTitle(scope.row)"
+              >
+                {{ vesselText(scope.row) }}
+              </span>
+            </div>
           </template>
         </ElTableColumn>
-        <ElTableColumn prop="orderItemList" label="订单信息" width="420">
+        <ElTableColumn label="订单信息" min-width="364">
           <template #default="scope">
-            <OrderItemsCell :row="scope.row" />
+            <div class="oi-order-cell">
+              <div class="oi-order-head">
+                <span v-if="scope.row.orderNo" class="oi-order-no">
+                  <span class="oi-order-no-label">单号</span>
+                  <span class="oi-mono">{{ scope.row.orderNo }}</span>
+                  <ElButton
+                    class="oi-copy"
+                    link
+                    :icon="CopyDocument"
+                    title="复制订单号"
+                    @click.stop="copyText(scope.row.orderNo, '订单号')"
+                  />
+                </span>
+                <span v-else class="oi-order-no is-empty">单号 —</span>
+                <span
+                  v-if="scope.row.recipientName || scope.row.recipientPhone"
+                  class="oi-recipient"
+                  :title="scope.row.recipientAddress"
+                >
+                  <ElIcon class="oi-recipient-icon" :size="12">
+                    <User />
+                  </ElIcon>
+                  <span
+                    v-if="scope.row.recipientName"
+                    class="oi-recipient-name"
+                  >
+                    {{ scope.row.recipientName }}
+                  </span>
+                  <span
+                    v-if="scope.row.recipientPhone"
+                    class="oi-recipient-phone"
+                  >
+                    {{ scope.row.recipientPhone }}
+                  </span>
+                </span>
+              </div>
+              <OrderItemsCell :row="scope.row" />
+            </div>
           </template>
         </ElTableColumn>
         <ElTableColumn
           prop="deliveryWay"
           label="配送方式"
           align="center"
-          width="120"
+          width="116"
         >
           <template #default="scope">
-            <DictTag :options="delivery_way" :value="scope.row.deliveryWay" />
+            <div class="oi-delivery">
+              <DictTag :options="delivery_way" :value="scope.row.deliveryWay" />
+            </div>
           </template>
         </ElTableColumn>
         <ElTableColumn
           prop="paymentType"
           label="支付方式"
           align="center"
-          width="110"
+          width="96"
         >
           <template #default="scope">
-            <span v-if="!scope.row.paymentType">—</span>
+            <span v-if="!scope.row.paymentType" class="oi-muted">—</span>
             <DictTag
               v-else
               :options="pay_type"
@@ -614,67 +687,143 @@ watch(
           width="120"
         >
           <template #default="scope">
-            <ElTag
-              v-if="scope.row.deliveryWay === '2' && scope.row.status === '3'"
-            >
-              待自提
-            </ElTag>
-            <DictTag v-else :options="order_status" :value="scope.row.status" />
-            <div v-if="dispatchedTaskLabel(scope.row)" class="mt-1">
-              <ElTag size="small" type="warning">
+            <div class="oi-status">
+              <ElTag
+                v-if="scope.row.deliveryWay === '2' && scope.row.status === '3'"
+                :disable-transitions="true"
+              >
+                待自提
+              </ElTag>
+              <DictTag
+                v-else
+                :options="order_status"
+                :value="scope.row.status"
+              />
+              <ElTag
+                v-if="dispatchedTaskLabel(scope.row)"
+                size="small"
+                type="warning"
+                :disable-transitions="true"
+              >
                 {{ dispatchedTaskLabel(scope.row) }}
               </ElTag>
             </div>
           </template>
         </ElTableColumn>
-        <ElTableColumn prop="createTime" label="时间" width="240">
+        <ElTableColumn prop="createTime" label="时间" width="160">
           <template #default="scope">
-            <div>创建时间：{{ scope.row.createTime }}</div>
-            <div v-if="scope.row.paymentTime">
-              付款时间：{{ scope.row.paymentTime }}
-            </div>
-            <div v-if="scope.row.deliverTime">
-              {{
-                scope.row.deliveryWay === '2'
-                  ? '自提时间：'
-                  : scope.row.deliveryWay === '3' ||
-                      scope.row.deliveryWay === '4'
-                    ? '配送出发时间：'
-                    : '发货时间：'
-              }}{{ scope.row.deliverTime }}
+            <div class="oi-time">
+              <div class="oi-time-row is-main">
+                <span class="oi-time-label">创建</span>
+                <span class="oi-time-value">
+                  {{ formatDateTime(scope.row.createTime) }}
+                </span>
+              </div>
+              <div v-if="scope.row.paymentTime" class="oi-time-row">
+                <span class="oi-time-label">付款</span>
+                <span class="oi-time-value">
+                  {{ formatDateTime(scope.row.paymentTime) }}
+                </span>
+              </div>
+              <div v-if="scope.row.deliverTime" class="oi-time-row">
+                <span class="oi-time-label">
+                  {{ deliverTimeLabel(scope.row) }}
+                </span>
+                <span class="oi-time-value">
+                  {{ formatDateTime(scope.row.deliverTime) }}
+                </span>
+              </div>
             </div>
           </template>
         </ElTableColumn>
-        <ElTableColumn prop="totalPrice" label="订单金额（元）" width="240">
+        <ElTableColumn prop="paymentPrice" label="金额（元）" width="136">
           <template #default="scope">
-            <div>订单金额：￥{{ scope.row.totalPrice }}</div>
-            <ElPopover placement="right" :width="400" trigger="click">
+            <ElPopover
+              placement="left"
+              :width="268"
+              trigger="click"
+              :show-arrow="false"
+            >
               <template #reference>
-                <div style="display: flex; align-items: center">
-                  <span style="color: red">
-                    实付金额：￥{{ scope.row.paymentPrice }}
+                <button type="button" class="oi-amount" title="查看金额明细">
+                  <span class="oi-amount-main">
+                    <span class="oi-currency">¥</span>
+                    <span>{{ formatMoney(scope.row.paymentPrice) }}</span>
                   </span>
-                  <ElIcon style="font-size: 12px; color: red">
-                    <ArrowRightBold />
-                  </ElIcon>
-                </div>
+                  <span class="oi-amount-sub">
+                    商品 ¥{{ formatMoney(scope.row.totalPrice) }}
+                    <ElIcon :size="10"><ArrowRightBold /></ElIcon>
+                  </span>
+                </button>
               </template>
-              <div>订单金额：￥{{ scope.row.totalPrice }}</div>
-              <div>运费金额：￥{{ scope.row.freightPrice }}</div>
-              <div style="color: red">
-                优惠券：-￥{{
-                  scope.row.couponPrice ? scope.row.couponPrice : 0
-                }}
-              </div>
-              <div style="color: red">
-                实付金额：￥{{ scope.row.paymentPrice }}
+              <div class="oi-breakdown">
+                <div class="oi-breakdown-title">金额明细</div>
+                <div class="oi-breakdown-row">
+                  <span>商品总价</span>
+                  <span>¥{{ formatMoney(scope.row.totalPrice) }}</span>
+                </div>
+                <div class="oi-breakdown-row">
+                  <span>运费</span>
+                  <span>
+                    {{
+                      Number(scope.row.freightPrice) > 0
+                        ? `+¥${formatMoney(scope.row.freightPrice)}`
+                        : '包邮'
+                    }}
+                  </span>
+                </div>
+                <div
+                  v-if="Number(scope.row.couponPrice) > 0"
+                  class="oi-breakdown-row is-discount"
+                >
+                  <span>优惠券</span>
+                  <span>-¥{{ formatMoney(scope.row.couponPrice) }}</span>
+                </div>
+                <div
+                  v-if="Number(scope.row.promoPrice) > 0"
+                  class="oi-breakdown-row is-discount"
+                >
+                  <span>活动优惠</span>
+                  <span>-¥{{ formatMoney(scope.row.promoPrice) }}</span>
+                </div>
+                <div
+                  v-if="Number(scope.row.memberDiscountPrice) > 0"
+                  class="oi-breakdown-row is-discount"
+                >
+                  <span>会员优惠</span>
+                  <span
+                    >-¥{{ formatMoney(scope.row.memberDiscountPrice) }}</span
+                  >
+                </div>
+                <div
+                  v-if="Number(scope.row.pointsDeductPrice) > 0"
+                  class="oi-breakdown-row is-discount"
+                >
+                  <span>积分抵扣（{{ scope.row.pointsUsed || 0 }}积分）</span>
+                  <span>-¥{{ formatMoney(scope.row.pointsDeductPrice) }}</span>
+                </div>
+                <div class="oi-breakdown-row is-total">
+                  <span>{{ amountLabel(scope.row) }}</span>
+                  <span>¥{{ formatMoney(scope.row.paymentPrice) }}</span>
+                </div>
+                <div
+                  v-if="
+                    Number(scope.row.actualPayPrice) > 0 &&
+                    Number(scope.row.actualPayPrice) !==
+                      Number(scope.row.paymentPrice)
+                  "
+                  class="oi-breakdown-row"
+                >
+                  <span>实收金额</span>
+                  <span>¥{{ formatMoney(scope.row.actualPayPrice) }}</span>
+                </div>
               </div>
             </ElPopover>
           </template>
         </ElTableColumn>
         <ElTableColumn
           label="操作"
-          min-width="200"
+          min-width="176"
           align="center"
           fixed="right"
         >
@@ -753,6 +902,7 @@ watch(
               v-access:code="'order:orderinfo:cancel'"
               v-if="scope.row.status === '1' && scope.row.payStatus === '0'"
               @click="cancel(scope.row.id)"
+              :icon="CircleClose"
             >
               取消
             </ElButton>
@@ -819,3 +969,222 @@ watch(
     </ElDialog>
   </div>
 </template>
+
+<style scoped lang="scss">
+.oi-scene {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+  min-width: 0;
+}
+
+.oi-scene-sub {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+  white-space: nowrap;
+}
+
+.oi-delivery {
+  word-break: keep-all;
+}
+
+.oi-order-cell {
+  min-width: 0;
+}
+
+.oi-order-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: center;
+  padding-bottom: 7px;
+  margin-bottom: 8px;
+  border-bottom: 1px dashed var(--el-border-color-lighter);
+}
+
+.oi-order-no {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--el-text-color-secondary);
+
+  &.is-empty {
+    color: var(--el-text-color-placeholder);
+  }
+}
+
+.oi-order-no-label {
+  color: var(--el-text-color-placeholder);
+}
+
+.oi-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--el-text-color-regular);
+  letter-spacing: 0.2px;
+}
+
+.oi-copy {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  color: var(--el-text-color-placeholder);
+  transition: color 0.15s;
+
+  &:hover {
+    color: var(--el-color-primary);
+  }
+}
+
+.oi-recipient {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--el-text-color-regular);
+}
+
+.oi-recipient-icon {
+  flex: none;
+  color: var(--el-text-color-placeholder);
+}
+
+.oi-recipient-name {
+  font-weight: 500;
+}
+
+.oi-recipient-phone {
+  font-variant-numeric: tabular-nums;
+  color: var(--el-text-color-secondary);
+}
+
+.oi-status {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+}
+
+.oi-time {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.oi-time-row {
+  display: flex;
+  gap: 6px;
+  color: var(--el-text-color-secondary);
+
+  &.is-main {
+    color: var(--el-text-color-regular);
+  }
+}
+
+.oi-time-label {
+  flex: none;
+  width: 26px;
+  color: var(--el-text-color-placeholder);
+}
+
+.oi-time-value {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 金额 ---------- */
+.oi-amount {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+  width: 100%;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  background: none;
+  border: 0;
+}
+
+.oi-amount-main {
+  display: inline-flex;
+  align-items: baseline;
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+  color: var(--el-color-danger);
+}
+
+.oi-currency {
+  margin-right: 1px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.oi-amount-sub {
+  display: inline-flex;
+  gap: 2px;
+  align-items: center;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--el-text-color-secondary);
+  transition: color 0.15s;
+}
+
+.oi-amount:hover .oi-amount-sub {
+  color: var(--el-color-primary);
+}
+
+.oi-breakdown {
+  font-size: 13px;
+}
+
+.oi-breakdown-title {
+  padding-bottom: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--el-text-color-secondary);
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+
+.oi-breakdown-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 3px 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--el-text-color-regular);
+
+  &.is-discount span:last-child {
+    color: var(--el-color-danger);
+  }
+
+  &.is-total {
+    padding-top: 8px;
+    margin-top: 6px;
+    font-weight: 600;
+    border-top: 1px dashed var(--el-border-color-lighter);
+
+    span:last-child {
+      font-size: 15px;
+      color: var(--el-color-danger);
+    }
+  }
+}
+
+.oi-muted {
+  color: var(--el-text-color-placeholder);
+}
+</style>

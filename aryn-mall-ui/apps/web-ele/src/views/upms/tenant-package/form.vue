@@ -181,7 +181,7 @@ defineExpose({
     <ElForm
       ref="formRef"
       :model="state.form"
-      label-width="120px"
+      label-width="auto"
       :rules="state.rules"
       status-icon
     >
@@ -231,10 +231,10 @@ defineExpose({
       </ElFormItem>
     </ElForm>
     <template #footer>
-      <span class="dialog-footer">
-        <ElButton @click="handleClose">关 闭</ElButton>
-        <ElButton type="primary" @click="submitForm(formRef)">确 认</ElButton>
-      </span>
+      <div class="hx-form-footer">
+        <ElButton @click="handleClose">取消</ElButton>
+        <ElButton type="primary" @click="submitForm(formRef)">确定</ElButton>
+      </div>
     </template>
   </ElDialog>
 </template>

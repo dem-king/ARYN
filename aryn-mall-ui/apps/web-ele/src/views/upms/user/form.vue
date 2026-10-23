@@ -405,6 +405,6 @@ defineExpose({
 .role-tip {
   font-size: 12px;
   line-height: 1.6;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 </style>

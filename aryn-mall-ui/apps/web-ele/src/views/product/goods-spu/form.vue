@@ -555,7 +555,7 @@ initForm();
           ref="formRef"
           class="form"
           :model="state.form"
-          label-width="120px"
+          label-width="auto"
           :rules="state.rules"
           status-icon
         >
@@ -792,11 +792,7 @@ initForm();
                 </div>
               </ElFormItem>
               <div v-if="state.form.enableSpecs === '0'">
-                <ElFormItem
-                  label="商品原价（元）"
-                  prop="sku.originalPrice"
-                  label-width="140px"
-                >
+                <ElFormItem label="商品原价（元）" prop="sku.originalPrice">
                   <ElInputNumber
                     v-model="state.form.sku.originalPrice"
                     :min="0.01"
@@ -805,11 +801,7 @@ initForm();
                     controls-position="right"
                   />
                 </ElFormItem>
-                <ElFormItem
-                  label="商品成本价（元）"
-                  prop="sku.costPrice"
-                  label-width="140px"
-                >
+                <ElFormItem label="商品成本价（元）" prop="sku.costPrice">
                   <ElInputNumber
                     v-model="state.form.sku.costPrice"
                     :min="0.01"
@@ -818,11 +810,7 @@ initForm();
                     controls-position="right"
                   />
                 </ElFormItem>
-                <ElFormItem
-                  label="商品售价（元）"
-                  prop="sku.salesPrice"
-                  label-width="140px"
-                >
+                <ElFormItem label="商品售价（元）" prop="sku.salesPrice">
                   <ElInputNumber
                     v-model="state.form.sku.salesPrice"
                     :min="0.01"
@@ -831,11 +819,7 @@ initForm();
                     controls-position="right"
                   />
                 </ElFormItem>
-                <ElFormItem
-                  label="商品库存"
-                  prop="sku.stock"
-                  label-width="140px"
-                >
+                <ElFormItem label="商品库存" prop="sku.stock">
                   <ElInputNumber
                     v-model="state.form.sku.stock"
                     :min="0"
@@ -844,11 +828,7 @@ initForm();
                     controls-position="right"
                   />
                 </ElFormItem>
-                <ElFormItem
-                  label="重量（kg）"
-                  prop="sku.weight"
-                  label-width="140px"
-                >
+                <ElFormItem label="重量（kg）" prop="sku.weight">
                   <ElInputNumber
                     v-model="state.form.sku.weight"
                     :min="0"
@@ -857,11 +837,7 @@ initForm();
                     controls-position="right"
                   />
                 </ElFormItem>
-                <ElFormItem
-                  label="体积（m³）"
-                  prop="sku.volume"
-                  label-width="140px"
-                >
+                <ElFormItem label="体积（m³）" prop="sku.volume">
                   <ElInputNumber
                     v-model="state.form.sku.volume"
                     :min="0"
@@ -884,7 +860,7 @@ initForm();
           </ElTabs>
         </ElForm>
         <div class="goods-footer">
-          <div class="button">
+          <div class="hx-form-footer">
             <ElButton @click="handleClose">关 闭</ElButton>
             <ElButton @click="handleNext" v-if="active < 2"> 下一步 </ElButton>
             <ElButton
@@ -1011,11 +987,6 @@ initForm();
 
       .el-button {
         width: 100px;
-      }
-
-      .button {
-        display: flex;
-        justify-content: center;
       }
     }
   }

@@ -3,6 +3,7 @@ import type { FormInstance, FormRules } from 'element-plus';
 
 import { computed, defineAsyncComponent, onMounted, reactive, ref } from 'vue';
 
+import { Plus } from '@element-plus/icons-vue';
 import {
   ElAlert,
   ElButton,
@@ -35,6 +36,8 @@ import {
   updateVessel,
   updateVesselCall,
 } from '#/api/vessel/vessel';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 
 import {
   VESSEL_TYPE_DEFAULT,
@@ -47,14 +50,29 @@ import {
 const Pagination = defineAsyncComponent(
   () => import('#/components/pagination/index.vue'),
 );
+const RightToolbar = defineAsyncComponent(
+  () => import('#/components/right-toolbar/index.vue'),
+);
+const DictTag = defineAsyncComponent(
+  () => import('#/components/dict-tag/index.vue'),
+);
 
 const state = reactive({
   page: { total: 0, currentPage: 1, pageSize: 10 },
   query: { vesselName: '' },
   tableData: [] as any[],
 });
+const vesselStatusOptions: {
+  label: string;
+  showClass: 'info' | 'success';
+  value: string;
+}[] = [
+  { label: '在营', value: '1', showClass: 'success' },
+  { label: '停用', value: '0', showClass: 'info' },
+];
 const loading = ref(false);
 const activeTab = ref('vessel');
+const showSearch = ref(true);
 
 // 船舶编辑
 const vesselDialogVisible = ref(false);
@@ -399,26 +417,49 @@ onMounted(initPage);
     <div class="hx-layout-container-auto hx-layout-container-view">
       <ElTabs v-model="activeTab">
         <ElTabPane label="船舶档案" name="vessel">
-          <ElForm :inline="true" :model="state.query">
+          <PageFilterPanel
+            :model="state.query"
+            :visible="showSearch"
+            @reset="initPage"
+            @search="initPage"
+          >
             <ElFormItem label="船舶名称">
               <ElInput
                 v-model="state.query.vesselName"
                 clearable
                 placeholder="请输入船舶名称"
+                @keyup.enter="initPage"
               />
             </ElFormItem>
-            <ElFormItem>
-              <ElButton type="primary" @click="initPage">搜索</ElButton>
+          </PageFilterPanel>
+          <PageToolbar :total="state.page.total" total-label="艘船舶">
+            <template #left>
               <ElButton
-                type="success"
+                type="primary"
                 v-access:code="'vessel:vessel:save'"
                 @click="openVesselDialog()"
+                :icon="Plus"
               >
                 新增船舶
               </ElButton>
-            </ElFormItem>
-          </ElForm>
-          <ElTable v-loading="loading" :data="state.tableData" border>
+            </template>
+            <template #right>
+              <RightToolbar
+                :search-btn="true"
+                :refresh-btn="true"
+                @search="showSearch = !showSearch"
+                @refresh="initPage"
+              />
+            </template>
+          </PageToolbar>
+          <ElTable
+            v-loading="loading"
+            class="hx-data-table"
+            :data="state.tableData"
+            row-key="id"
+            border
+            empty-text="暂无船舶"
+          >
             <ElTableColumn prop="vesselName" label="船舶名称" min-width="140" />
             <ElTableColumn prop="vesselNameEn" label="英文名" min-width="140" />
             <ElTableColumn label="船型" width="90" align="center">
@@ -434,7 +475,10 @@ onMounted(initPage);
             <ElTableColumn prop="crewCapacity" label="定员" width="80" />
             <ElTableColumn label="状态" width="90" align="center">
               <template #default="scope">
-                {{ scope.row.status === '1' ? '在营' : '停用' }}
+                <DictTag
+                  :options="vesselStatusOptions"
+                  :value="scope.row.status"
+                />
               </template>
             </ElTableColumn>
             <ElTableColumn label="操作" width="240" align="center">
@@ -597,6 +641,7 @@ onMounted(initPage);
         />
         <ElTable
           v-loading="memberLoading"
+          class="hx-data-table"
           :data="memberTableData"
           border
           empty-text="暂无成员"
@@ -770,6 +815,7 @@ onMounted(initPage);
           </div>
           <ElTable
             v-loading="callTableLoading"
+            class="hx-data-table"
             :data="callTableData"
             :row-class-name="callRowClass"
             border
@@ -884,22 +930,18 @@ onMounted(initPage);
           class="mb10"
         />
         <div v-if="(impactData.orderNos ?? []).length > 0" class="mb10">
-          <div style="margin-bottom: 4px; font-weight: bold">
-            涉及订单（前 10）
-          </div>
-          <div style="color: #606266">
+          <div class="impact-title">涉及订单（前 10）</div>
+          <div class="impact-text">
             {{ (impactData.orderNos ?? []).join('、') }}
           </div>
         </div>
         <div v-if="(impactData.waveNos ?? []).length > 0">
-          <div style="margin-bottom: 4px; font-weight: bold">
-            涉及波次（前 10）
-          </div>
-          <div style="color: #606266">
+          <div class="impact-title">涉及波次（前 10）</div>
+          <div class="impact-text">
             {{ (impactData.waveNos ?? []).join('、') }}
           </div>
         </div>
-        <div style="margin-top: 8px; color: #909399">
+        <div class="impact-note">
           修改
           ETA/ETD/泊位/时间窗并保存后，系统将自动站内信提醒受影响用户重新确认配送安排。
         </div>
@@ -1040,5 +1082,19 @@ onMounted(initPage);
   flex-direction: column;
   line-height: 1.5;
   white-space: nowrap;
+}
+
+.impact-title {
+  margin-bottom: 4px;
+  font-weight: bold;
+}
+
+.impact-text {
+  color: var(--el-text-color-regular);
+}
+
+.impact-note {
+  margin-top: 8px;
+  color: var(--el-text-color-secondary);
 }
 </style>

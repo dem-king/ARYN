@@ -45,6 +45,8 @@ public class PromotionReservationServiceImpl implements PromotionReservationServ
 
 	private final PromotionLockMapper promotionLockMapper;
 
+	private final PromotionLockUsage promotionLockUsage;
+
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public PromotionCalculationVO reserve(PromotionContextDTO context) {
@@ -60,31 +62,48 @@ public class PromotionReservationServiceImpl implements PromotionReservationServ
 			}
 			return rebuildFromLocks(findLocks(context.getTenantId(), context.getOrderId()));
 		}
+		// preview 已剔除额度不足的活动；此处只处理竞态兜底与落锁
 		PromotionCalculationVO calculation = promotionEngineService.preview(context);
 		assertNewbieInFlightUnique(context, calculation);
-		assertFuseLimits(context, calculation);
+		assertPerUserLimit(context, calculation);
+		dropUnavailableGifts(context, calculation);
 		for (PromotionCalculationVO.ActivityDetail detail : calculation.getDetails()) {
-			PromotionLock lock = new PromotionLock();
-			lock.setOrderId(context.getOrderId());
-			lock.setOrderNo(context.getOrderNo());
-			lock.setActivityId(detail.getActivityId());
-			lock.setActivityType(detail.getActivityType());
-			lock.setUserId(context.getUserId());
-			lock.setActivityName(detail.getActivityName());
-			lock.setDiscountAmount(detail.getDiscountAmount() != null ? detail.getDiscountAmount() : BigDecimal.ZERO);
-			lock.setRuleSnapshot(detail.getRuleSnapshot());
-			lock.setStatus(PromotionLock.STATUS_LOCKED);
-			lock.setTenantId(context.getTenantId());
-			lock.setCreateTime(LocalDateTime.now());
-			lock.setDelFlag("0");
-			try {
-				promotionLockMapper.insert(lock);
+			if (!insertLock(context, detail)) {
+				continue;
 			}
-			catch (DuplicateKeyException ex) {
-				log.info("订单[{}]活动[{}]并发锁定命中唯一约束，幂等跳过", context.getOrderId(), detail.getActivityId());
+			BigDecimal discount = detail.getDiscountAmount() != null ? detail.getDiscountAmount() : BigDecimal.ZERO;
+			if (discount.compareTo(BigDecimal.ZERO) > 0 && promotionActivityMapper.consumeBudget(
+					context.getTenantId(), detail.getActivityId(), discount) == 0) {
+				// 试算后额度被并发订单抢完：整单回滚，让用户看到最新价格后再提交，避免静默涨价
+				throw new ArynBusinessException("活动[" + detail.getActivityName() + "]优惠名额已用完，请刷新价格后重新提交");
 			}
 		}
 		return calculation;
+	}
+
+	/** 落锁；并发命中唯一约束说明同单已被处理，跳过且不再重复占预算。 */
+	private boolean insertLock(PromotionContextDTO context, PromotionCalculationVO.ActivityDetail detail) {
+		PromotionLock lock = new PromotionLock();
+		lock.setOrderId(context.getOrderId());
+		lock.setOrderNo(context.getOrderNo());
+		lock.setActivityId(detail.getActivityId());
+		lock.setActivityType(detail.getActivityType());
+		lock.setUserId(context.getUserId());
+		lock.setActivityName(detail.getActivityName());
+		lock.setDiscountAmount(detail.getDiscountAmount() != null ? detail.getDiscountAmount() : BigDecimal.ZERO);
+		lock.setRuleSnapshot(detail.getRuleSnapshot());
+		lock.setStatus(PromotionLock.STATUS_LOCKED);
+		lock.setTenantId(context.getTenantId());
+		lock.setCreateTime(LocalDateTime.now());
+		lock.setDelFlag("0");
+		try {
+			promotionLockMapper.insert(lock);
+			return true;
+		}
+		catch (DuplicateKeyException ex) {
+			log.info("订单[{}]活动[{}]并发锁定命中唯一约束，幂等跳过", context.getOrderId(), detail.getActivityId());
+			return false;
+		}
 	}
 
 	/**
@@ -125,87 +144,47 @@ public class PromotionReservationServiceImpl implements PromotionReservationServ
 		}
 	}
 
-	/**
-	 * 熔断：活动预算、每人限享次数、买赠赠品总量超限时整单拦截。
-	 * 聚合口径为存量锁（LOCKED/CONFIRMED）+ 本次命中；赠品数量从锁 ruleSnapshot 恢复。
-	 */
-	private void assertFuseLimits(PromotionContextDTO context, PromotionCalculationVO calculation) {
-		if (calculation.getDetails() == null || calculation.getDetails().isEmpty()) {
+	/** 每人限享竞态兜底：preview 已按占用次数剔除，这里只防并发双单同时通过试算。 */
+	private void assertPerUserLimit(PromotionContextDTO context, PromotionCalculationVO calculation) {
+		if (!StringUtils.hasText(context.getUserId()) || calculation.getDetails().isEmpty()) {
 			return;
 		}
 		for (PromotionCalculationVO.ActivityDetail detail : calculation.getDetails()) {
 			PromotionActivity activity = promotionActivityMapper.selectById(detail.getActivityId());
-			if (activity == null) {
+			if (activity == null || activity.getPerUserLimit() == null || activity.getPerUserLimit() <= 0) {
 				continue;
 			}
-			BigDecimal current = detail.getDiscountAmount() != null ? detail.getDiscountAmount() : BigDecimal.ZERO;
-			if (activity.getTotalBudget() != null && activity.getTotalBudget().compareTo(BigDecimal.ZERO) > 0) {
-				BigDecimal used = sumLockedDiscount(context.getTenantId(), detail.getActivityId());
-				if (used.add(current).compareTo(activity.getTotalBudget()) > 0) {
-					throw new ArynBusinessException("活动[" + activity.getActivityName() + "]预算不足，本次优惠不可用");
-				}
-			}
-			if (activity.getPerUserLimit() != null && activity.getPerUserLimit() > 0
-					&& StringUtils.hasText(context.getUserId())) {
-				Long locked = promotionLockMapper.selectCount(Wrappers.lambdaQuery(PromotionLock.class)
-					.eq(PromotionLock::getTenantId, context.getTenantId())
-					.eq(PromotionLock::getUserId, context.getUserId())
-					.eq(PromotionLock::getActivityId, detail.getActivityId())
-					.in(PromotionLock::getStatus,
-							List.of(PromotionLock.STATUS_LOCKED, PromotionLock.STATUS_CONFIRMED)));
-				if (locked != null && locked >= activity.getPerUserLimit()) {
-					throw new ArynBusinessException("活动[" + activity.getActivityName() + "]每人限享次数已用完");
-				}
-			}
-			if (PromotionActivity.TYPE_GIFT.equals(detail.getActivityType())
-					&& activity.getGiftStock() != null && activity.getGiftStock() > 0) {
-				int currentQty = calculation.getGifts().stream()
-					.filter(gift -> detail.getActivityId().equals(gift.getActivityId()))
-					.mapToInt(PromotionCalculationVO.GiftItem::getQuantity)
-					.sum();
-				int usedQty = sumLockedGiftQuantity(context.getTenantId(), detail.getActivityId());
-				if (usedQty + currentQty > activity.getGiftStock()) {
-					throw new ArynBusinessException("活动[" + activity.getActivityName() + "]赠品总量不足，本次赠品不可用");
-				}
+			long used = promotionLockUsage.countUserLocks(context.getTenantId(), context.getUserId(),
+					detail.getActivityId());
+			if (used >= activity.getPerUserLimit()) {
+				throw new ArynBusinessException("活动[" + detail.getActivityName() + "]每人限享次数已用完，请刷新价格后重新提交");
 			}
 		}
 	}
 
-	private BigDecimal sumLockedDiscount(String tenantId, String activityId) {
-		List<PromotionLock> locks = promotionLockMapper.selectList(Wrappers.lambdaQuery(PromotionLock.class)
-			.eq(PromotionLock::getTenantId, tenantId)
-			.eq(PromotionLock::getActivityId, activityId)
-			.in(PromotionLock::getStatus,
-					List.of(PromotionLock.STATUS_LOCKED, PromotionLock.STATUS_CONFIRMED)));
-		return locks.stream()
-			.map(lock -> lock.getDiscountAmount() != null ? lock.getDiscountAmount() : BigDecimal.ZERO)
-			.reduce(BigDecimal.ZERO, BigDecimal::add);
-	}
-
-	private int sumLockedGiftQuantity(String tenantId, String activityId) {
-		List<PromotionLock> locks = promotionLockMapper.selectList(Wrappers.lambdaQuery(PromotionLock.class)
-			.eq(PromotionLock::getTenantId, tenantId)
-			.eq(PromotionLock::getActivityId, activityId)
-			.eq(PromotionLock::getActivityType, PromotionActivity.TYPE_GIFT)
-			.in(PromotionLock::getStatus,
-					List.of(PromotionLock.STATUS_LOCKED, PromotionLock.STATUS_CONFIRMED)));
-		return locks.stream().mapToInt(this::lockedGiftQuantity).sum();
-	}
-
-	private int lockedGiftQuantity(PromotionLock lock) {
-		try {
-			JSONArray giftArray = JSONUtil.parseObj(lock.getRuleSnapshot()).getJSONArray("gifts");
-			if (giftArray == null) {
-				return 0;
+	/**
+	 * 赠品额度竞态兜底：并发把赠品抢完后本次降级为不赠，
+	 * 赠品金额为 0，不影响订单应付，也不阻断付费商品成交。
+	 */
+	private void dropUnavailableGifts(PromotionContextDTO context, PromotionCalculationVO calculation) {
+		for (PromotionCalculationVO.ActivityDetail detail : new ArrayList<>(calculation.getDetails())) {
+			if (!PromotionActivity.TYPE_GIFT.equals(detail.getActivityType())) {
+				continue;
 			}
-			return giftArray.stream()
-				.map(element -> (JSONObject) element)
-				.mapToInt(gift -> gift.getInt("quantity") == null ? 0 : gift.getInt("quantity"))
+			PromotionActivity activity = promotionActivityMapper.selectById(detail.getActivityId());
+			if (activity == null || activity.getGiftStock() == null || activity.getGiftStock() <= 0) {
+				continue;
+			}
+			int current = calculation.getGifts().stream()
+				.filter(gift -> detail.getActivityId().equals(gift.getActivityId()))
+				.mapToInt(PromotionCalculationVO.GiftItem::getQuantity)
 				.sum();
-		}
-		catch (Exception ex) {
-			log.warn("锁定[订单{}]赠品快照解析失败，按 0 计", lock.getOrderId(), ex);
-			return 0;
+			int used = promotionLockUsage.sumGiftQuantity(context.getTenantId(), detail.getActivityId());
+			if (used + current > activity.getGiftStock()) {
+				calculation.getDetails().remove(detail);
+				calculation.getGifts().removeIf(gift -> detail.getActivityId().equals(gift.getActivityId()));
+				log.info("活动[{}]赠品额度已被并发占用，本次不赠 order={}", detail.getActivityId(), context.getOrderId());
+			}
 		}
 	}
 
@@ -228,6 +207,11 @@ public class PromotionReservationServiceImpl implements PromotionReservationServ
 		List<PromotionLock> locks = findLocks(tenantId, orderId);
 		for (PromotionLock lock : locks) {
 			if (!PromotionLock.STATUS_RELEASED.equals(lock.getStatus())) {
+				BigDecimal discount = lock.getDiscountAmount() != null ? lock.getDiscountAmount() : BigDecimal.ZERO;
+				if (discount.compareTo(BigDecimal.ZERO) > 0) {
+					// 仅本次真正从 LOCKED/CONFIRMED 转 RELEASED 时归还一次，避免重复释放重复归还额度
+					promotionActivityMapper.releaseBudget(tenantId, lock.getActivityId(), discount);
+				}
 				lock.setStatus(PromotionLock.STATUS_RELEASED);
 				lock.setReleaseReason(reason);
 				lock.setUpdateTime(LocalDateTime.now());

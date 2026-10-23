@@ -4,7 +4,7 @@
     line-height: 1.15;
   }
 
-  .loading {
+  .aryn-boot-loading {
     position: fixed;
     top: 0;
     left: 0;
@@ -17,97 +17,198 @@
     height: 100%;
     overflow: hidden;
     background-color: #f4f7f9;
-
-    /* transition: all 0.8s ease-out; */
   }
 
-  .loading.hidden {
+  .aryn-boot-loading.hidden {
     visibility: hidden;
     pointer-events: none;
     opacity: 0;
-    transition: all 0.8s ease-out;
+    transition: all 0.5s ease-out;
   }
 
-  .dark .loading {
-    background: #0d0d10;
-  }
-
-  .title {
-    margin-top: 66px;
-    font-size: 28px;
-    font-weight: 600;
-    color: rgb(0 0 0 / 85%);
-  }
-
-  .dark .title {
-    color: #fff;
-  }
-
-  .loader {
-    position: relative;
-    width: 48px;
-    height: 48px;
-  }
-
-  .loader::before {
+  .aryn-boot-loading__glow {
     position: absolute;
-    top: 60px;
-    left: 0;
-    width: 48px;
-    height: 5px;
-    content: '';
-    background: hsl(var(--primary, 210 100% 50%) / 50%);
+    width: 420px;
+    height: 420px;
+    pointer-events: none;
+    background: radial-gradient(
+      circle,
+      rgb(0 107 230 / 8%) 0%,
+      transparent 68%
+    );
     border-radius: 50%;
-    animation: shadow-ani 0.5s linear infinite;
   }
 
-  .loader::after {
+  .aryn-boot-loading__mark {
+    position: relative;
+    width: 96px;
+    height: 96px;
+    color: #006be6;
+  }
+
+  .aryn-boot-loading__porthole {
+    width: 96px;
+    height: 96px;
+    overflow: visible;
+  }
+
+  .aryn-boot-loading__sea {
+    fill: rgb(0 107 230 / 6%);
+  }
+
+  .aryn-boot-loading__ring {
+    fill: none;
+    stroke: rgb(0 107 230 / 24%);
+    stroke-width: 1.5;
+  }
+
+  .aryn-boot-loading__water {
+    animation: aryn-boot-bob 4.6s ease-in-out infinite;
+  }
+
+  .aryn-boot-loading__wave {
+    fill: rgb(0 107 230 / 26%);
+  }
+
+  .aryn-boot-loading__wave--back {
+    fill: rgb(0 107 230 / 16%);
+    animation: aryn-boot-sail 3.8s linear infinite;
+  }
+
+  .aryn-boot-loading__wave--front {
+    animation: aryn-boot-sail 2.8s linear infinite;
+  }
+
+  .aryn-boot-loading__anchor {
     position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    content: '';
-    background: hsl(var(--primary, 210 100% 50%));
-    border-radius: 4px;
-    animation: jump-ani 0.5s linear infinite;
+    top: 50%;
+    left: 50%;
+    width: 32px;
+    height: 32px;
+    margin-top: -16px;
+    margin-left: -16px;
+    animation: aryn-boot-anchor-bob 3.4s ease-in-out infinite;
   }
 
-  @keyframes jump-ani {
-    15% {
-      border-bottom-right-radius: 3px;
-    }
+  .aryn-boot-loading__title {
+    position: relative;
+    margin-top: 28px;
+    font-family:
+      -apple-system, blinkmacsystemfont, 'Segoe UI', roboto, 'Helvetica Neue',
+      arial, 'Noto Sans', sans-serif;
+    font-size: 18px;
+    font-weight: 600;
+    color: rgb(0 0 0 / 78%);
+    letter-spacing: 0.12em;
+  }
 
-    25% {
-      transform: translateY(9px) rotate(22.5deg);
-    }
+  .dark .aryn-boot-loading {
+    background-color: #0d0d10;
+  }
 
-    50% {
-      border-bottom-right-radius: 40px;
-      transform: translateY(18px) scale(1, 0.9) rotate(45deg);
-    }
+  .dark .aryn-boot-loading__glow {
+    background: radial-gradient(
+      circle,
+      rgb(0 107 230 / 16%) 0%,
+      transparent 68%
+    );
+  }
 
-    75% {
-      transform: translateY(9px) rotate(67.5deg);
-    }
+  .dark .aryn-boot-loading__sea {
+    fill: rgb(0 107 230 / 10%);
+  }
 
-    100% {
-      transform: translateY(0) rotate(90deg);
+  .dark .aryn-boot-loading__ring {
+    stroke: rgb(0 107 230 / 30%);
+  }
+
+  .dark .aryn-boot-loading__wave--back {
+    fill: rgb(0 107 230 / 18%);
+  }
+
+  .dark .aryn-boot-loading__title {
+    color: rgb(255 255 255 / 82%);
+  }
+
+  @keyframes aryn-boot-sail {
+    to {
+      transform: translateX(-64px);
     }
   }
 
-  @keyframes shadow-ani {
+  @keyframes aryn-boot-bob {
     0%,
     100% {
-      transform: scale(1, 1);
+      transform: translateY(0);
     }
 
     50% {
-      transform: scale(1.2, 1);
+      transform: translateY(-1.6px);
+    }
+  }
+
+  @keyframes aryn-boot-anchor-bob {
+    0%,
+    100% {
+      transform: translateY(-2px);
+    }
+
+    50% {
+      transform: translateY(-4px);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .aryn-boot-loading__anchor,
+    .aryn-boot-loading__water,
+    .aryn-boot-loading__wave {
+      animation: none !important;
     }
   }
 </style>
-<div class="loading" id="__app-loading__">
-  <div class="loader"></div>
-  <div class="title"><%= VITE_APP_TITLE %></div>
+<div class="aryn-boot-loading" id="__app-loading__">
+  <div class="aryn-boot-loading__glow"></div>
+  <div class="aryn-boot-loading__mark">
+    <svg
+      aria-hidden="true"
+      class="aryn-boot-loading__porthole"
+      viewBox="0 0 64 64"
+    >
+      <defs>
+        <clipPath id="aryn-boot-water-clip">
+          <circle cx="32" cy="32" r="25.5"></circle>
+        </clipPath>
+      </defs>
+      <circle class="aryn-boot-loading__sea" cx="32" cy="32" r="26.5"></circle>
+      <g clip-path="url(#aryn-boot-water-clip)">
+        <g class="aryn-boot-loading__water">
+          <path
+            class="aryn-boot-loading__wave aryn-boot-loading__wave--back"
+            d="M-64 40Q-48 34-32 40T0 40T32 40T64 40T96 40T128 40V72H-64Z"
+          ></path>
+          <path
+            class="aryn-boot-loading__wave aryn-boot-loading__wave--front"
+            d="M-64 45Q-48 40-32 45T0 45T32 45T64 45T96 45T128 45V72H-64Z"
+          ></path>
+        </g>
+      </g>
+      <circle class="aryn-boot-loading__ring" cx="32" cy="32" r="30"></circle>
+    </svg>
+    <svg
+      aria-hidden="true"
+      class="aryn-boot-loading__anchor"
+      fill="none"
+      stroke="currentColor"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width="1.6"
+      viewBox="0 0 24 24"
+    >
+      <circle cx="12" cy="5" r="2.4"></circle>
+      <path d="M12 7.6V21"></path>
+      <path d="M7.8 10.4h8.4"></path>
+      <path d="M4.6 14.2c.55 4 3.6 6.8 7.4 6.8s6.85-2.8 7.4-6.8"></path>
+    </svg>
+  </div>
+  <div class="aryn-boot-loading__title"><%= VITE_APP_TITLE %></div>
 </div>

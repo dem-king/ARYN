@@ -41,7 +41,7 @@ public class DeliveryContextValidator {
 			return null;
 		}
 		if (!StringUtils.hasText(vesselId) || !StringUtils.hasText(vesselCallId)) {
-			throw new ArynBusinessException("内部配送必须选择船舶和靠港计划");
+			throw new ArynBusinessException("公司配送（到船）必须选择船舶和靠港计划");
 		}
 		if (!remoteVesselService.isVesselMember(tenantId, vesselId, userId)) {
 			throw new ArynBusinessException("您不是该船舶成员，无法选择该配送计划");

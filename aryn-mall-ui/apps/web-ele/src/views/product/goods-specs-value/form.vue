@@ -126,22 +126,27 @@ defineExpose({
     width="40%"
     :before-close="handleClose"
   >
-    <ElForm ref="formRef" :model="state.form" :rules="state.rules">
+    <ElForm
+      ref="formRef"
+      :model="state.form"
+      :rules="state.rules"
+      label-width="auto"
+    >
       <ElFormItem label="规格名" prop="name">
         <ElInput v-model="state.form.name" placeholder="请输入属性值" />
       </ElFormItem>
     </ElForm>
     <template #footer>
-      <span class="dialog-footer">
-        <ElButton @click="handleClose">关 闭</ElButton>
+      <div class="hx-form-footer">
+        <ElButton @click="handleClose">取消</ElButton>
         <ElButton
           type="primary"
           :loading="loading"
           @click="submitForm(formRef)"
         >
-          确 认
+          确定
         </ElButton>
-      </span>
+      </div>
     </template>
   </ElDialog>
 </template>

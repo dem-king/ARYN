@@ -25,6 +25,7 @@ import { getById, selffetchObj } from '#/api/order/order-info';
 import { getPromotionSnapshots } from '#/api/order/shared-cart';
 import { getById as getUserById } from '#/api/user/user-info';
 import { useDict } from '#/utils/dict';
+import { formatMoney } from '#/utils/util';
 
 import { buildGroupedDisplayItems } from '../category-group';
 import { purchaseSceneText } from '../purchase-scene';
@@ -44,6 +45,7 @@ interface DataState {
     deliveryWindowStart?: string;
     freightPrice: number;
     id: string;
+    memberDiscountPrice?: number;
     orderDelivery: any;
     orderItemList: any[];
     orderNo: string;
@@ -52,6 +54,9 @@ interface DataState {
     paymentType: string;
     payStatus: string;
     payVouchers?: string;
+    pointsDeductPrice?: number;
+    pointsMultiplier?: number;
+    pointsUsed?: number;
     portCode?: string;
     portName?: string;
     promoPrice?: number;
@@ -246,17 +251,8 @@ getDetail();
           收货时间：{{ state.orderInfo.receiverTime }}
         </span>
       </div>
-      <div
-        v-if="state.orderInfo.vesselId"
-        style="
-          padding: 8px 12px;
-          margin-bottom: 12px;
-          color: #67c23a;
-          background: #f0f9eb;
-          border-radius: 4px;
-        "
-      >
-        内部配送：{{ state.orderInfo.vesselName }} ·
+      <div v-if="state.orderInfo.vesselId" class="vessel-tip">
+        公司配送（到船）：{{ state.orderInfo.vesselName }} ·
         {{ state.orderInfo.portName }} {{ state.orderInfo.berth }}
         <template v-if="state.orderInfo.deliveryWindowStart">
           （{{ state.orderInfo.deliveryWindowStart }} ~
@@ -269,18 +265,21 @@ getDetail();
         v-if="
           promotionSnapshots.length > 0 || (state.orderInfo.promoPrice ?? 0) > 0
         "
-        class="mb10"
-        style="padding: 8px 12px; background: #fdf6ec; border-radius: 4px"
+        class="mb10 promo-tip"
       >
-        <div style="font-weight: bold; color: #e67e22">
-          营销优惠（整单优惠 ¥{{ state.orderInfo.promoPrice ?? 0 }}）
+        <div class="promo-tip__title">
+          营销优惠（整单优惠 ¥{{
+            formatMoney(state.orderInfo.promoPrice ?? 0)
+          }}）
         </div>
         <div
           v-for="snapshot in promotionSnapshots"
           :key="snapshot.id"
-          style="font-size: 12px; color: #e67e22"
+          class="promo-tip__item"
         >
-          {{ snapshot.promotionName }}：-¥{{ snapshot.discountAmount }}
+          {{ snapshot.promotionName }}：-¥{{
+            formatMoney(snapshot.discountAmount)
+          }}
         </div>
       </div>
       <div class="order-status-row">
@@ -316,7 +315,7 @@ getDetail();
                     : '买家已付款，等待安排司机配送（无需快递单号）'
                 }}
               </div>
-              <p style="font-size: 14px; color: rgb(150 151 153)">
+              <p class="status-note">
                 <template v-if="isCodUnpaid">
                   该订单为货到付款，买家将在收货时支付货款，请尽快{{
                     state.orderInfo.deliveryWay === '1' ? '发货' : '安排配送'
@@ -457,8 +456,8 @@ getDetail();
           <div class="content">
             <p>
               <span>{{ isCodUnpaid ? '应付金额:' : '实付金额:' }}</span>
-              <span style="color: red">
-                ￥{{ state.orderInfo.paymentPrice }}
+              <span class="amount-strong hx-money">
+                ￥{{ formatMoney(state.orderInfo.paymentPrice) }}
               </span>
             </p>
             <p v-if="state.orderInfo.paymentType">
@@ -478,8 +477,8 @@ getDetail();
             </p>
             <p v-if="state.orderInfo.actualPayPrice != null">
               <span>实收金额:</span>
-              <span style="color: red">
-                ￥{{ state.orderInfo.actualPayPrice }}
+              <span class="amount-strong hx-money">
+                ￥{{ formatMoney(state.orderInfo.actualPayPrice) }}
                 <span
                   v-if="
                     state.orderInfo.paymentPrice != null &&
@@ -488,7 +487,7 @@ getDetail();
                   "
                   class="text-12px text-gray-400"
                 >
-                  （应收 ￥{{ state.orderInfo.paymentPrice }}）
+                  （应收 ￥{{ formatMoney(state.orderInfo.paymentPrice) }}）
                 </span>
               </span>
             </p>
@@ -600,7 +599,13 @@ getDetail();
           </div>
         </div>
       </div>
-      <ElTable :data="displayItemList" border :span-method="categorySpanMethod">
+      <ElTable
+        :data="displayItemList"
+        class="hx-data-table"
+        border
+        empty-text="暂无商品"
+        :span-method="categorySpanMethod"
+      >
         <ElTableColumn label="分类" width="140">
           <template #default="scope">
             <span
@@ -702,17 +707,33 @@ getDetail();
         <div>
           <p>
             <span>商品总价：</span>
-            <span>￥{{ state.orderInfo.totalPrice }}</span>
+            <span class="hx-money">
+              ￥{{ formatMoney(state.orderInfo.totalPrice) }}
+            </span>
           </p>
           <p>
             <span>运费：</span>
-            <span style="color: red">
-              +￥{{ state.orderInfo.freightPrice }}
+            <span class="amount-strong hx-money">
+              +￥{{ formatMoney(state.orderInfo.freightPrice) }}
             </span>
           </p>
           <p>
             <span>优惠券：</span>
-            <span style="color: red">-￥{{ state.orderInfo.couponPrice }}</span>
+            <span class="amount-strong hx-money">
+              -￥{{ formatMoney(state.orderInfo.couponPrice) }}
+            </span>
+          </p>
+          <p v-if="Number(state.orderInfo.memberDiscountPrice) > 0">
+            <span>会员优惠：</span>
+            <span class="amount-strong hx-money">
+              -￥{{ formatMoney(state.orderInfo.memberDiscountPrice) }}
+            </span>
+          </p>
+          <p v-if="Number(state.orderInfo.pointsDeductPrice) > 0">
+            <span>积分抵扣（{{ state.orderInfo.pointsUsed || 0 }}积分）：</span>
+            <span class="amount-strong hx-money">
+              -￥{{ formatMoney(state.orderInfo.pointsDeductPrice) }}
+            </span>
           </p>
           <p
             v-if="
@@ -738,13 +759,18 @@ getDetail();
             "
           >
             <span>应收金额：</span>
-            <span>￥{{ state.orderInfo.paymentPrice }}</span>
+            <span class="hx-money">
+              ￥{{ formatMoney(state.orderInfo.paymentPrice) }}
+            </span>
           </p>
           <p class="pay-price">
             <span>{{ isCodUnpaid ? '应收金额：' : '实收金额：' }}</span>
-            <span>
+            <span class="hx-money">
               ￥{{
-                state.orderInfo.actualPayPrice ?? state.orderInfo.paymentPrice
+                formatMoney(
+                  state.orderInfo.actualPayPrice ??
+                    state.orderInfo.paymentPrice,
+                )
               }}
             </span>
           </p>
@@ -755,18 +781,52 @@ getDetail();
   </div>
 </template>
 <style scoped lang="scss">
+/* 到船配送提示：语义色走 Element 令牌，深色模式可跟随 */
+.vessel-tip {
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  color: var(--el-color-success);
+  background: var(--el-color-success-light-9);
+  border-radius: 4px;
+}
+
+.promo-tip {
+  padding: 8px 12px;
+  background: var(--el-color-warning-light-9);
+  border-radius: 4px;
+
+  &__title {
+    font-weight: 700;
+    color: var(--el-color-warning);
+  }
+
+  &__item {
+    font-size: 12px;
+    color: var(--el-color-warning);
+  }
+}
+
+.status-note {
+  font-size: 14px;
+  color: var(--el-text-color-secondary);
+}
+
+.amount-strong {
+  color: var(--el-color-danger);
+}
+
 .order-status-row {
   display: flex;
   padding: 30px;
   margin-top: 20px;
-  border: 1px solid #ebedf0;
+  border: 1px solid var(--el-border-color-lighter);
 
   .title {
     margin-bottom: 20px;
     font-size: 20px;
     font-weight: 700;
     line-height: 28px;
-    color: #323233;
+    color: var(--el-text-color-primary);
   }
 }
 
@@ -781,7 +841,7 @@ getDetail();
   flex: 1;
   align-items: center;
   justify-content: center;
-  border-left: 1px solid #ebedf0;
+  border-left: 1px solid var(--el-border-color-lighter);
 }
 
 .order-item {
@@ -800,14 +860,14 @@ getDetail();
   }
 
   .name {
-    color: #409eff;
+    color: var(--el-color-primary);
     overflow-wrap: anywhere;
   }
 
   .specs {
     margin-top: 4px;
     font-size: 12px;
-    color: #a8abb2;
+    color: var(--el-text-color-secondary);
     overflow-wrap: anywhere;
   }
 }
@@ -816,7 +876,7 @@ getDetail();
   display: inline-block;
   width: 100%;
   font-weight: 600;
-  color: #323233;
+  color: var(--el-text-color-primary);
   text-align: center;
   word-break: break-all;
 }
@@ -824,7 +884,7 @@ getDetail();
 .logistics-title {
   margin-bottom: 16px;
   font-weight: 700;
-  color: #323233;
+  color: var(--el-text-color-primary);
 }
 
 .top-order-info {
@@ -839,20 +899,20 @@ getDetail();
 .order-info {
   display: flex;
   margin-bottom: 16px;
-  background-color: #f7f8fa;
-  border: 1px solid #fefef0;
+  background-color: var(--el-fill-color-light);
+  border: 1px solid var(--el-border-color-lighter);
 
   .item {
     flex: 1;
     padding: 16px 12px;
     font-size: 14px;
-    color: #646566;
+    color: var(--el-text-color-regular);
   }
 
   .title {
     margin-bottom: 16px;
     font-weight: 700;
-    color: #323233;
+    color: var(--el-text-color-primary);
   }
 
   .content {
@@ -860,7 +920,7 @@ getDetail();
       display: flex;
       margin-bottom: 8px;
       font-size: 12px;
-      color: #646566;
+      color: var(--el-text-color-regular);
 
       span {
         &:first-child {
@@ -880,25 +940,25 @@ getDetail();
   -ms-flex-pack: end;
   justify-content: flex-end;
   padding: 16px 32px 16px 0;
-  color: #646566;
+  color: var(--el-text-color-regular);
 
   p {
     display: flex;
     margin-bottom: 8px;
     font-size: 12px;
-    color: #646566;
+    color: var(--el-text-color-regular);
 
     &.pay-price {
       margin-top: 20px;
       font-size: 14px;
       font-weight: 600;
-      color: #323233;
+      color: var(--el-text-color-primary);
 
       span {
         &:last-child {
           font-size: 18px;
           font-weight: bold;
-          color: #d40000;
+          color: var(--el-color-danger);
         }
       }
     }
@@ -907,7 +967,7 @@ getDetail();
       margin-top: 20px;
       font-size: 14px;
       font-weight: 600;
-      color: #323233;
+      color: var(--el-text-color-primary);
 
       span {
         &:last-child {
@@ -935,7 +995,7 @@ getDetail();
       .item {
         padding-bottom: 20px;
         margin-bottom: 20px;
-        border-bottom: 1px solid #ebedf0;
+        border-bottom: 1px solid var(--el-border-color-lighter);
 
         &:last-child {
           margin-bottom: 0;
@@ -958,7 +1018,7 @@ getDetail();
           .logistics-track {
             flex: 1;
             padding-left: 40px;
-            border-left: 1px solid #ebedf0;
+            border-left: 1px solid var(--el-border-color-lighter);
 
             .title {
               margin-bottom: 15px;

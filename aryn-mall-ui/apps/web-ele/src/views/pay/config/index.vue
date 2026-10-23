@@ -1,10 +1,9 @@
 <script lang="ts" setup>
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
-import { Delete, Edit, Plus, Refresh, Search } from '@element-plus/icons-vue';
+import { Delete, Edit, Plus } from '@element-plus/icons-vue';
 import {
   ElButton,
-  ElForm,
   ElFormItem,
   ElInput,
   ElMessage,
@@ -14,6 +13,8 @@ import {
 } from 'element-plus';
 
 import { delObj, getPage } from '#/api/pay/config';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 import { useDict } from '#/utils/dict';
 
 const Form = defineAsyncComponent(() => import('./form.vue'));
@@ -26,7 +27,10 @@ const Pagination = defineAsyncComponent(
 const DictTag = defineAsyncComponent(
   () => import('#/components/dict-tag/index.vue'),
 );
-const { pay_terminal_type } = useDict('pay_terminal_type');
+const { pay_terminal_type, pay_type } = useDict(
+  'pay_terminal_type',
+  'pay_type',
+);
 const state = reactive({
   queryParams: {
     mchId: '',
@@ -43,7 +47,6 @@ const state = reactive({
 const showSearch = ref(true);
 const loading = ref(false);
 const formRef = ref();
-const queryRef = ref();
 
 const initPage = async () => {
   loading.value = true;
@@ -67,12 +70,6 @@ const initPage = async () => {
   } finally {
     loading.value = false;
   }
-};
-/**
- * 重置搜索表单
- */
-const resetQuery = () => {
-  queryRef.value.resetFields();
 };
 /**
  * 新增按钮
@@ -109,29 +106,24 @@ initPage();
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 搜索 -->
-      <ElForm
+      <PageFilterPanel
         :model="state.queryParams"
-        ref="queryRef"
-        :inline="true"
-        v-show="showSearch"
+        :visible="showSearch"
+        @reset="initPage"
+        @search="initPage"
       >
         <ElFormItem label="商户号" prop="mchId">
           <ElInput
             v-model="state.queryParams.mchId"
             clearable
             placeholder="请输入商户号"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
-        <ElFormItem>
-          <ElButton type="primary" @click="initPage" :icon="Search">
-            搜索
-          </ElButton>
-          <ElButton @click="resetQuery" :icon="Refresh"> 重置 </ElButton>
-        </ElFormItem>
-      </ElForm>
+      </PageFilterPanel>
       <!-- 工具栏 -->
-      <div class="hx-table-toolbar">
-        <div>
+      <PageToolbar :total="state.page.total" total-label="条配置">
+        <template #left>
           <ElButton
             type="primary"
             v-access:code="'pay:payconfig:add'"
@@ -140,28 +132,30 @@ initPage();
           >
             新增
           </ElButton>
-        </div>
-        <RightToolbar
-          :search-btn="true"
-          :refresh-btn="true"
-          @search="showSearch = !showSearch"
-          @refresh="initPage"
-        />
-      </div>
+        </template>
+        <template #right>
+          <RightToolbar
+            :search-btn="true"
+            :refresh-btn="true"
+            @search="showSearch = !showSearch"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
       <Form ref="formRef" @init-page="initPage" />
       <!-- 列表 -->
-      <ElTable v-loading="loading" :data="state.tableData" border>
+      <ElTable
+        v-loading="loading"
+        class="hx-data-table"
+        :data="state.tableData"
+        border
+        empty-text="暂无支付配置"
+      >
         <ElTableColumn prop="mchId" label="商户号" />
         <ElTableColumn prop="appId" label="应用ID" />
         <ElTableColumn prop="type" label="支付类型" width="100">
           <template #default="scope">
-            {{
-              scope.row.type === '1'
-                ? '微信'
-                : scope.row.type === '2'
-                  ? '支付宝'
-                  : '未知'
-            }}
+            <DictTag :options="pay_type" :value="scope.row.type" />
           </template>
         </ElTableColumn>
         <ElTableColumn prop="terminalType" label="支付端类型" width="100">

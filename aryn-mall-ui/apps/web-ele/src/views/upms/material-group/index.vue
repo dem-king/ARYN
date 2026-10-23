@@ -87,7 +87,13 @@ defineExpose({
 </script>
 <template>
   <div class="hx-layout-container-auto hx-layout-container-view">
-    <ElTable v-loading="loading" border :data="state.tableData">
+    <ElTable
+      v-loading="loading"
+      class="hx-data-table"
+      border
+      :data="state.tableData"
+      empty-text="暂无分组"
+    >
       <ElTableColumn prop="name" label="分组名" />
       <ElTableColumn label="操作" width="200" align="center">
         <template #default="scope">

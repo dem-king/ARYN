@@ -7,6 +7,9 @@ const triggerSceneMap: Record<string, string> = {
   SIGN_IN: '签到',
   RECHARGE: '充值',
   ADMIN_ADJUST: '后台调整',
+  REGISTER: '注册奖励',
+  ORDER_DEDUCT: '积分抵现',
+  ORDER_REFUND: '退款返还',
 };
 
 export function formatTriggerScene(scene?: null | string): string {

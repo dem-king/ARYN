@@ -18,6 +18,7 @@ import {
   ElCheckboxGroup,
   ElDialog,
   ElDrawer,
+  ElEmpty,
   ElForm,
   ElFormItem,
   ElInput,
@@ -525,7 +526,14 @@ onMounted(load);
         </div>
         <span class="record-count">{{ total }} 条通知</span>
       </div>
-      <ElTable v-loading="loading" :data="records" class="message-table">
+      <ElTable
+        v-loading="loading"
+        :data="records"
+        class="message-table hx-data-table"
+      >
+        <template #empty>
+          <ElEmpty description="暂无通知" :image-size="80" />
+        </template>
         <ElTableColumn label="通知" min-width="320">
           <template #default="{ row }">
             <div class="notice-title-row">
@@ -980,8 +988,11 @@ onMounted(load);
               v-loading="recipientLoading"
               :data="recipients"
               size="small"
-              class="recipient-table"
+              class="recipient-table hx-data-table"
             >
+              <template #empty>
+                <ElEmpty description="暂无收件人" :image-size="80" />
+              </template>
               <ElTableColumn label="收件人" min-width="160">
                 <template #default="{ row }">
                   <div class="recipient-name">
@@ -1088,12 +1099,23 @@ onMounted(load);
 
 <style scoped>
 .notice-command {
-  --ink: #102a43;
-  --signal: #0f766e;
+  --ink: var(--el-text-color-primary);
+  --signal: var(--el-color-primary);
+
+  /* 品牌视觉：通知编排 hero 的深色渐变与 hero 内文字集中在这里 */
+  --hero-bg: linear-gradient(125deg, #102a43 0%, #173f5f 62%, #0f766e 100%);
+  --hero-text: #fff;
+  --hero-text-soft: rgb(255 255 255 / 68%);
+  --hero-accent: #5eead4;
+  --hero-shadow: 0 18px 55px rgb(16 42 67 / 20%);
 
   background:
-    radial-gradient(circle at 88% 4%, rgb(15 118 110 / 12%), transparent 26%),
-    #f4f7f8;
+    radial-gradient(
+      circle at 88% 4%,
+      var(--el-color-primary-light-9),
+      transparent 26%
+    ),
+    var(--el-bg-color-page);
 }
 
 .hero-panel {
@@ -1102,10 +1124,10 @@ onMounted(load);
   align-items: end;
   justify-content: space-between;
   padding: 34px;
-  color: white;
-  background: linear-gradient(125deg, #102a43 0%, #173f5f 62%, #0f766e 100%);
+  color: var(--hero-text);
+  background: var(--hero-bg);
   border-radius: 18px;
-  box-shadow: 0 18px 55px rgb(16 42 67 / 20%);
+  box-shadow: var(--hero-shadow);
 }
 
 .hero-panel h1 {
@@ -1120,19 +1142,19 @@ onMounted(load);
 .eyebrow {
   font-size: 12px;
   font-weight: 700;
-  color: #5eead4;
+  color: var(--hero-accent);
   letter-spacing: 0.18em;
 }
 
 .hero-copy {
-  color: rgb(255 255 255 / 68%);
+  color: var(--hero-text-soft);
 }
 
 .data-panel {
   padding: 22px;
   margin-top: 18px;
-  background: rgb(255 255 255 / 92%);
-  border: 1px solid rgb(15 118 110 / 12%);
+  background: var(--el-bg-color);
+  border: 1px solid var(--el-border-color-lighter);
   border-radius: 16px;
 }
 
@@ -1152,7 +1174,7 @@ onMounted(load);
 
 .record-count {
   font-size: 13px;
-  color: #627d98;
+  color: var(--el-text-color-secondary);
 }
 
 .notice-title-row {
@@ -1184,7 +1206,7 @@ onMounted(load);
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: 12px;
-  color: #829ab1;
+  color: var(--el-text-color-secondary);
   white-space: nowrap;
 }
 
@@ -1197,11 +1219,11 @@ onMounted(load);
 
 .read-count {
   font-size: 12px;
-  color: #627d98;
+  color: var(--el-text-color-regular);
 }
 
 .notice-detail {
-  color: #102a43;
+  color: var(--ink);
 }
 
 .detail-tags {
@@ -1220,25 +1242,25 @@ onMounted(load);
 
 .detail-grid dt {
   font-size: 12px;
-  color: #829ab1;
+  color: var(--el-text-color-secondary);
 }
 
 .detail-grid dd {
   margin: 4px 0 0;
   font-size: 13px;
-  color: #102a43;
+  color: var(--ink);
 }
 
 .detail-section {
   padding-top: 16px;
   margin-top: 18px;
-  border-top: 1px solid #e3ebf3;
+  border-top: 1px solid var(--el-border-color-lighter);
 }
 
 .detail-section h3 {
   margin: 0 0 10px;
   font-size: 14px;
-  color: #102a43;
+  color: var(--ink);
 }
 
 .detail-content {
@@ -1248,9 +1270,9 @@ onMounted(load);
   font-family: inherit;
   font-size: 13px;
   line-height: 1.7;
-  color: #334155;
+  color: var(--el-text-color-regular);
   white-space: pre-wrap;
-  background: #f7f9fb;
+  background: var(--el-fill-color-lighter);
   border-radius: 10px;
 }
 
@@ -1258,20 +1280,20 @@ onMounted(load);
   display: flex;
   gap: 28px;
   font-size: 13px;
-  color: #627d98;
+  color: var(--el-text-color-secondary);
 }
 
 .detail-stats strong {
   margin-right: 4px;
   font-size: 20px;
-  color: #102a43;
+  color: var(--ink);
 }
 
 .dispatch-error {
   margin: 10px 0 0;
   font-size: 12px;
   line-height: 1.6;
-  color: #b91c1c;
+  color: var(--el-color-danger);
   overflow-wrap: anywhere;
 }
 
@@ -1279,13 +1301,13 @@ onMounted(load);
   margin: 0;
   font-size: 13px;
   line-height: 1.7;
-  color: #627d98;
+  color: var(--el-text-color-secondary);
 }
 
 .audience-hint {
   font-size: 12px;
   line-height: 1.6;
-  color: #829ab1;
+  color: var(--el-text-color-placeholder);
 }
 
 .recipient-toolbar {
@@ -1298,18 +1320,18 @@ onMounted(load);
 
 .recipient-count {
   font-size: 12px;
-  color: #829ab1;
+  color: var(--el-text-color-placeholder);
 }
 
 .recipient-name {
   font-weight: 600;
-  color: #102a43;
+  color: var(--ink);
 }
 
 .recipient-id {
   margin-top: 2px;
   font-size: 11px;
-  color: #9aabb8;
+  color: var(--el-text-color-placeholder);
   overflow-wrap: anywhere;
 }
 

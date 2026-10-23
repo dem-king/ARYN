@@ -11,6 +11,7 @@ import {
 } from 'element-plus';
 
 import { delObj, getList } from '#/api/upms/online-user';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 
 const state = reactive({
   tableData: [],
@@ -55,17 +56,24 @@ initPage();
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 工具栏 -->
-      <div class="hx-table-toolbar">
-        <div></div>
-        <RightToolbar
-          :search-btn="true"
-          :refresh-btn="true"
-          @search="showSearch = !showSearch"
-          @refresh="initPage"
-        />
-      </div>
+      <PageToolbar>
+        <template #right>
+          <RightToolbar
+            :search-btn="true"
+            :refresh-btn="true"
+            @search="showSearch = !showSearch"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
       <!-- 列表 -->
-      <ElTable v-loading="loading" :data="state.tableData" border>
+      <ElTable
+        v-loading="loading"
+        class="hx-data-table"
+        :data="state.tableData"
+        border
+        empty-text="暂无在线用户"
+      >
         <ElTableColumn prop="tokenId" label="token" width="180" />
         <ElTableColumn prop="tokenTimeout" label="过期时间" />
         <ElTableColumn prop="userName" label="登录用户" />

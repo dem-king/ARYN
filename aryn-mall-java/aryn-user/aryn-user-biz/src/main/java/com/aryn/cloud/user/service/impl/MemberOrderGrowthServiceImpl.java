@@ -5,11 +5,12 @@ import com.aryn.cloud.common.core.entity.OrderCompleteEvent;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.user.api.entity.MemberOrderGrowth;
 import com.aryn.cloud.user.api.entity.UserInfo;
+import com.aryn.cloud.user.api.enums.PointsSceneEnum;
 import com.aryn.cloud.user.mapper.MemberOrderGrowthMapper;
 import com.aryn.cloud.user.mapper.UserInfoMapper;
 import com.aryn.cloud.user.service.IMemberLevelService;
 import com.aryn.cloud.user.service.IMemberOrderGrowthService;
-import com.aryn.cloud.user.service.IPointsRecordService;
+import com.aryn.cloud.user.service.IPointsGrantService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,7 +27,7 @@ public class MemberOrderGrowthServiceImpl implements IMemberOrderGrowthService {
 
 	private final UserInfoMapper userInfoMapper;
 
-	private final IPointsRecordService pointsRecordService;
+	private final IPointsGrantService pointsGrantService;
 
 	private final IMemberLevelService memberLevelService;
 
@@ -34,8 +35,11 @@ public class MemberOrderGrowthServiceImpl implements IMemberOrderGrowthService {
 	@Transactional(rollbackFor = Exception.class)
 	public void processOrderComplete(OrderCompleteEvent event) {
 		validateEvent(event);
-		int points = event.getGoodsPaymentAmount().multiply(event.getPointsMultiplier())
-				.setScale(0, RoundingMode.DOWN).intValueExact();
+		int points = event.getGoodsPaymentAmount()
+			.multiply(BigDecimal.valueOf(pointsGrantService.getOrderCompleteRate()))
+			.multiply(event.getPointsMultiplier())
+			.setScale(0, RoundingMode.DOWN)
+			.intValueExact();
 		MemberOrderGrowth growth = new MemberOrderGrowth()
 				.setId(IdWorker.getIdStr())
 				.setOrderId(event.getOrderId())
@@ -54,8 +58,8 @@ public class MemberOrderGrowthServiceImpl implements IMemberOrderGrowthService {
 			throw new ArynBusinessException("会员订单成长累计失败");
 		}
 		if (points > 0) {
-			pointsRecordService.recordPointsChange(event.getUserId(), "1", points, "ORDER_COMPLETE",
-					"订单完成积分奖励：" + event.getOrderNo());
+			pointsGrantService.grant(event.getUserId(), PointsSceneEnum.ORDER_COMPLETE,
+					"ORDER_COMPLETE:" + event.getOrderNo(), points, "订单完成积分奖励：" + event.getOrderNo());
 		}
 		else {
 			memberLevelService.recalculateLevel(event.getUserId());

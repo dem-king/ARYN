@@ -50,6 +50,14 @@ watch(
     <ElFormItem label="区块标题">
       <ElInput v-model="form.title" maxlength="20" show-word-limit />
     </ElFormItem>
+    <ElFormItem label="副标题">
+      <ElInput
+        v-model="form.subtitle"
+        maxlength="20"
+        placeholder="限时特惠 · 折扣价直接买"
+        show-word-limit
+      />
+    </ElFormItem>
     <ElFormItem label="数据来源">
       <ElRadioGroup v-model="form.dataSource.mode">
         <ElRadio value="automatic">自动读取进行中活动</ElRadio>
@@ -65,6 +73,9 @@ watch(
     </ElFormItem>
     <ElFormItem label="展示活动数">
       <ElInputNumber v-model="form.count" :min="1" :max="5" />
+    </ElFormItem>
+    <ElFormItem label="每活动商品数">
+      <ElInputNumber v-model="form.goodsLimit" :min="1" :max="8" />
     </ElFormItem>
     <ElFormItem label="显示活动倒计时">
       <ElSwitch v-model="form.showCountdown" />

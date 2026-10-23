@@ -102,9 +102,14 @@ const canvasStyle = computed(() => ({
     !showShell.value && props.page.backgroundImage
       ? `url(${props.page.backgroundImage})`
       : undefined,
-  // 主题变量沿手机壳节点树继承，画布组件里的 var(--wot-color-theme-*) 由此取值
+  // 主题变量沿手机壳节点树继承，画布组件里的 var(--wot-color-theme-*) 由此取值。
+  // -background 是页面底色（主色混白 92%），C 端由 wd-config-provider 的
+  // colorThemeBackground 下发；画布此前漏挂，导致促销组件的浅色面在非暖色主题
+  // 下落到 #fff1ee 兜底（蓝/绿主题预览偏粉），这里补齐同口径变量。
   '--wot-color-theme-primary': props.themeVars?.primaryColor || undefined,
   '--wot-color-theme-secondary': props.themeVars?.secondaryColor || undefined,
+  '--wot-color-theme-background':
+    props.themeVars?.pageBackgroundColor || undefined,
   transform: `scale(${props.zoom})`,
 }));
 
@@ -207,11 +212,13 @@ const isEmpty = computed(() =>
   overflow: visible;
   outline: 1px solid var(--el-border-color);
   outline-offset: -1px;
-  background: #fff;
+
+  /* 屏体兜底底色：行内会按页面有效主题色覆盖，这里保持中性令牌 */
+  background: var(--el-bg-color);
   background-repeat: no-repeat;
   background-position: top center;
   background-size: 100% auto;
-  box-shadow: 0 12px 32px rgb(15 23 42 / 12%);
+  box-shadow: var(--el-box-shadow);
   transform-origin: top center;
 }
 

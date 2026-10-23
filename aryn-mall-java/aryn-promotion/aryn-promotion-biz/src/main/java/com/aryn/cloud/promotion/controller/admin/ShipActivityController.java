@@ -16,6 +16,7 @@ import com.aryn.cloud.promotion.api.vo.PromotionCalculationVO;
 import com.aryn.cloud.promotion.mapper.PromotionActivityMapper;
 import com.aryn.cloud.promotion.service.PromotionEngineService;
 import com.aryn.cloud.promotion.service.impl.ActivityPublishGovernanceService;
+import com.aryn.cloud.promotion.service.impl.PromotionLockUsage;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -67,6 +68,8 @@ public class ShipActivityController {
 
 	private final PromotionEngineService promotionEngineService;
 
+	private final PromotionLockUsage promotionLockUsage;
+
 	@Operation(summary = "活动分页")
 	@SaCheckPermission("promotion:shipactivity:page")
 	@GetMapping("/page")
@@ -92,7 +95,13 @@ public class ShipActivityController {
 		}
 		wrapper.orderByDesc(PromotionActivity::getCreateTime);
 		IPage<PromotionActivity> result = promotionActivityMapper.selectPage(page, wrapper);
-		result.getRecords().forEach(activity -> activity.setStatus(deriveDisplayStatus(activity, now)));
+		String tenantId = ArynTenantContextHolder.getTenantId();
+		result.getRecords().forEach(activity -> {
+			activity.setStatus(deriveDisplayStatus(activity, now));
+			if (PromotionActivity.TYPE_GIFT.equals(activity.getActivityType())) {
+				activity.setConsumedGiftStock(promotionLockUsage.sumGiftQuantity(tenantId, activity.getId()));
+			}
+		});
 		return Result.success(result);
 	}
 
@@ -117,6 +126,7 @@ public class ShipActivityController {
 		publishGovernanceService.validateRules(activity);
 		activity.setId(null);
 		activity.setStatus(PromotionActivity.STATUS_DRAFT);
+		activity.setConsumedBudget(BigDecimal.ZERO);
 		activity.setTenantId(ArynTenantContextHolder.getTenantId());
 		activity.setCreateTime(LocalDateTime.now());
 		activity.setDelFlag("0");

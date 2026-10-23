@@ -10,6 +10,8 @@ export interface SeckillProps extends RetailComponentBaseProps {
   showCountdown: boolean;
   /** 是否展示已售进度条 */
   showProgress: boolean;
+  /** 楼层头副标题，空串使用模块默认文案 */
+  subtitle: string;
   title: string;
 }
 
@@ -23,6 +25,7 @@ export function createSeckillDefaults(): SeckillProps {
     invalidStrategy: 'hide',
     showCountdown: true,
     showProgress: true,
+    subtitle: '',
     title: '限时秒杀',
   };
 }

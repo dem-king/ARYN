@@ -1,12 +1,9 @@
 <script lang="ts" setup>
-import type { FormInstance } from 'element-plus';
-
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
-import { Delete, Edit, Plus, Refresh, Search } from '@element-plus/icons-vue';
+import { Delete, Edit, Plus } from '@element-plus/icons-vue';
 import {
   ElButton,
-  ElForm,
   ElFormItem,
   ElInput,
   ElMessage,
@@ -19,6 +16,9 @@ import {
 } from 'element-plus';
 
 import { delObj, getPage } from '#/api/promotion/group-buy-activity';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
+import { formatMoney } from '#/utils/util';
 
 const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
@@ -28,8 +28,6 @@ const Pagination = defineAsyncComponent(
 );
 
 const Form = defineAsyncComponent(() => import('./form.vue'));
-
-const queryRef = ref<FormInstance>();
 
 const state = reactive({
   queryParams: {
@@ -70,11 +68,6 @@ const initPage = async () => {
     .catch(() => {
       loading.value = false;
     });
-};
-
-const resetQuery = (formEl: FormInstance | undefined) => {
-  if (!formEl) return;
-  formEl.resetFields();
 };
 
 const add = () => {
@@ -118,25 +111,24 @@ initPage();
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 搜索 -->
-      <ElForm
+      <PageFilterPanel
         :model="state.queryParams"
-        ref="queryRef"
-        :inline="true"
-        v-show="showSearch"
+        :visible="showSearch"
+        @reset="initPage"
+        @search="initPage"
       >
         <ElFormItem label="活动名称" prop="activityName">
           <ElInput
             v-model="state.queryParams.activityName"
             clearable
-            style="width: 200px"
             placeholder="请输入活动名称"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
         <ElFormItem label="活动状态" prop="activityStatus">
           <ElSelect
             v-model="state.queryParams.activityStatus"
             clearable
-            style="width: 200px"
             placeholder="请选择活动状态"
           >
             <ElOption
@@ -147,19 +139,11 @@ initPage();
             />
           </ElSelect>
         </ElFormItem>
-        <ElFormItem>
-          <ElButton type="primary" @click="initPage" :icon="Search">
-            搜索
-          </ElButton>
-          <ElButton @click="resetQuery(queryRef)" :icon="Refresh">
-            重置
-          </ElButton>
-        </ElFormItem>
-      </ElForm>
+      </PageFilterPanel>
       <Form ref="formRef" @init-page="initPage" />
       <!-- 工具栏 -->
-      <div class="hx-table-toolbar">
-        <div>
+      <PageToolbar :total="state.page.total" total-label="个活动">
+        <template #left>
           <ElButton
             type="primary"
             @click="add"
@@ -168,16 +152,24 @@ initPage();
           >
             新增
           </ElButton>
-        </div>
-        <RightToolbar
-          :search-btn="true"
-          :refresh-btn="true"
-          @search="showSearch = !showSearch"
-          @refresh="initPage"
-        />
-      </div>
+        </template>
+        <template #right>
+          <RightToolbar
+            :search-btn="true"
+            :refresh-btn="true"
+            @search="showSearch = !showSearch"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
       <!-- 列表 -->
-      <ElTable v-loading="loading" :data="state.tableData" border>
+      <ElTable
+        v-loading="loading"
+        class="hx-data-table"
+        :data="state.tableData"
+        border
+        empty-text="暂无拼团活动"
+      >
         <ElTableColumn
           prop="activityName"
           label="活动名称"
@@ -189,13 +181,25 @@ initPage();
           label="商品原价"
           align="center"
           width="100"
-        />
+        >
+          <template #default="scope">
+            <span class="hx-money">
+              ¥{{ formatMoney(scope.row.originalPrice) }}
+            </span>
+          </template>
+        </ElTableColumn>
         <ElTableColumn
           prop="groupPrice"
           label="拼团价"
           align="center"
           width="100"
-        />
+        >
+          <template #default="scope">
+            <span class="hx-money">
+              ¥{{ formatMoney(scope.row.groupPrice) }}
+            </span>
+          </template>
+        </ElTableColumn>
         <ElTableColumn
           prop="groupNum"
           label="成团人数"

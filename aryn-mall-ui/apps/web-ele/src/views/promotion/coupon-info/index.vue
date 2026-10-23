@@ -1,12 +1,9 @@
 <script lang="ts" setup>
-import type { FormInstance } from 'element-plus';
-
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
-import { Delete, Edit, Plus, Refresh, Search } from '@element-plus/icons-vue';
+import { Delete, Edit, Plus } from '@element-plus/icons-vue';
 import {
   ElButton,
-  ElForm,
   ElFormItem,
   ElInput,
   ElMessage,
@@ -19,6 +16,8 @@ import {
 } from 'element-plus';
 
 import { delObj, getPage } from '#/api/promotion/coupon-info';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 import { useDict } from '#/utils/dict';
 
 const RightToolbar = defineAsyncComponent(
@@ -33,7 +32,6 @@ const DictTag = defineAsyncComponent(
 
 const Form = defineAsyncComponent(() => import('./form.vue'));
 
-const queryRef = ref<FormInstance>();
 // 字典
 const { status } = useDict('status');
 const state = reactive({
@@ -70,13 +68,6 @@ const initPage = async () => {
     });
 };
 /**
- * 重置搜索表单
- */
-const resetQuery = (formEl: FormInstance | undefined) => {
-  if (!formEl) return;
-  formEl.resetFields();
-};
-/**
  * 新增按钮
  */
 const add = () => {
@@ -111,25 +102,24 @@ initPage();
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 搜索 -->
-      <ElForm
+      <PageFilterPanel
         :model="state.queryParams"
-        ref="queryRef"
-        :inline="true"
-        v-show="showSearch"
+        :visible="showSearch"
+        @reset="initPage"
+        @search="initPage"
       >
         <ElFormItem label="优惠券名称" prop="couponName">
           <ElInput
             v-model="state.queryParams.couponName"
             clearable
-            style="width: 200px"
             placeholder="请输入优惠券名称"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
         <ElFormItem label="优惠券状态" prop="status">
           <ElSelect
             v-model="state.queryParams.status"
             clearable
-            style="width: 200px"
             placeholder="请选择优惠券状态"
           >
             <ElOption
@@ -140,19 +130,11 @@ initPage();
             />
           </ElSelect>
         </ElFormItem>
-        <ElFormItem>
-          <ElButton type="primary" @click="initPage" :icon="Search">
-            搜索
-          </ElButton>
-          <ElButton @click="resetQuery(queryRef)" :icon="Refresh">
-            重置
-          </ElButton>
-        </ElFormItem>
-      </ElForm>
+      </PageFilterPanel>
       <Form ref="formRef" @init-page="initPage" />
       <!-- 工具栏 -->
-      <div class="hx-table-toolbar">
-        <div>
+      <PageToolbar :total="state.page.total" total-label="张优惠券">
+        <template #left>
           <ElButton
             type="primary"
             @click="add"
@@ -161,16 +143,25 @@ initPage();
           >
             新增
           </ElButton>
-        </div>
-        <RightToolbar
-          :search-btn="true"
-          :refresh-btn="true"
-          @search="showSearch = !showSearch"
-          @refresh="initPage"
-        />
-      </div>
+        </template>
+        <template #right>
+          <RightToolbar
+            :search-btn="true"
+            :refresh-btn="true"
+            @search="showSearch = !showSearch"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
       <!-- 列表 -->
-      <ElTable v-loading="loading" :data="state.tableData" border>
+      <ElTable
+        v-loading="loading"
+        class="hx-data-table"
+        :data="state.tableData"
+        row-key="id"
+        border
+        empty-text="暂无优惠券"
+      >
         <ElTableColumn
           prop="couponName"
           label="优惠券名称"

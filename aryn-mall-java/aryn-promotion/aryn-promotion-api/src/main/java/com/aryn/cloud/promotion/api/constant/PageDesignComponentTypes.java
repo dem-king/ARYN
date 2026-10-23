@@ -68,6 +68,15 @@ public final class PageDesignComponentTypes {
 	 */
 	public static final String NEWBIE_FLOOR = "newbie-floor";
 
+	/**
+	 * 活动入口条：金刚区下一排等宽活动小卡（秒杀/拼团/折扣各取进行中一个）。
+	 * <p>
+	 * automatic 模式由前端各自 loader 实时取数，运营无需手配数据源 ID，一页可出现多处，
+	 * 因此加入 {@link #KNOWN_TYPES} 但不进 {@link #DATA_DRIVEN_TYPES} / {@link #SINGLETON_TYPES}。
+	 * 对应 C 端装修组件 {@code diy-activity-strip}（见 2026-10-22 营销会场页方案 §5.5）。
+	 */
+	public static final String ACTIVITY_STRIP = "activity-strip";
+
 	public static final String COUNTDOWN = "countdown";
 
 	public static final String MARKETING_ENTRY = "marketing-entry";
@@ -139,7 +148,7 @@ public final class PageDesignComponentTypes {
 			RICH_TEXT, SEARCH_BAR, SWIPER_BANNER, TAB_NAV, TITLE_TEXT, GOODS_GROUP, GOODS_RANKING, GOODS_SCROLL,
 			LIMITED_ACTIVITY, COUNTDOWN, MARKETING_ENTRY, SHOP_INFO, GOODS_WATERFALL, GOODS_TABS, COUPON_COMBO,
 			MEMBER_BENEFITS, SERVICE_PROMISE, BOTTOM_NAV, VIDEO_LIVE, SHIP_WORKBENCH, REPLENISH_CARD, CUSTOM_HTML,
-			SECKILL, DISCOUNT, GOODS_RECOMMEND, IMAGE_CUBE, NEWBIE_FLOOR);
+			SECKILL, DISCOUNT, GOODS_RECOMMEND, IMAGE_CUBE, NEWBIE_FLOOR, ACTIVITY_STRIP);
 
 	/**
 	 * 依赖数据源拉取业务数据的组件（手动数据源为空时发布阻断）。

@@ -281,7 +281,7 @@ public final class OrderCategoryExportExcel {
 		return PurchaseSceneEnum.SHIP_SUPPLY.getCode().equals(scene) ? "船供采购" : "个人购买";
 	}
 
-	/** 配送方式：与 delivery_way 字典对齐（1 普通快递 / 2 上门自提 / 4 公司港口/船舶内部配送） */
+	/** 配送方式：与 delivery_way 字典对齐（1 普通快递 / 2 上门自提 / 3 公司配送（岸上）/ 4 公司配送（到船）） */
 	private static String deliveryWayText(String way) {
 		if ("1".equals(way)) {
 			return "普通快递";
@@ -289,8 +289,11 @@ public final class OrderCategoryExportExcel {
 		if ("2".equals(way)) {
 			return "上门自提";
 		}
+		if ("3".equals(way)) {
+			return "公司配送（岸上）";
+		}
 		if ("4".equals(way)) {
-			return "公司港口/船舶内部配送";
+			return "公司配送（到船）";
 		}
 		return way == null ? "" : way;
 	}

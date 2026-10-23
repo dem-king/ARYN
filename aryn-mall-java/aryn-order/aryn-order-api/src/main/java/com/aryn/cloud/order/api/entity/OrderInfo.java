@@ -86,6 +86,24 @@ public class OrderInfo extends Model<OrderInfo> {
 	@Schema(description = "下单时会员积分倍率")
 	private BigDecimal pointsMultiplier;
 
+	@Schema(description = "本单使用积分数量")
+	private Integer pointsUsed;
+
+	@Schema(description = "积分抵扣金额（元）")
+	private BigDecimal pointsDeductPrice;
+
+	@Schema(description = "本单最大可用积分（结算/下单返回，非表字段）")
+	@TableField(exist = false)
+	private Integer pointsDeductMax;
+
+	@Schema(description = "本单最大可抵扣金额（元，结算/下单返回，非表字段）")
+	@TableField(exist = false)
+	private BigDecimal pointsDeductMaxPrice;
+
+	@Schema(description = "每抵扣1元所需积分（结算/下单返回，非表字段）")
+	@TableField(exist = false)
+	private Integer pointsDeductRate;
+
 	@Schema(description = "支付金额（总金额-优惠券优惠金额+运费 = 支付金额）")
 	private BigDecimal paymentPrice;
 
@@ -230,7 +248,7 @@ public class OrderInfo extends Model<OrderInfo> {
 	@TableField(exist = false)
 	private OrderDelivery orderDelivery;
 
-	@Schema(description = "配送任务（商城配送/内部配送订单详情回填，快递订单为空）")
+	@Schema(description = "配送任务（公司配送订单详情回填，快递订单为空）")
 	@TableField(exist = false)
 	private DeliveryTask deliveryTask;
 

@@ -74,12 +74,16 @@ export async function getTeamPage(query: any) {
  * 调整积分
  */
 export async function adjustPoint(data: any) {
-  return requestClient.post('/mall-user/userinfo/adjustPoint', data);
+  return requestClient.post('/mall-user/userinfo/adjustPoint', null, {
+    params: data,
+  });
 }
 
 /**
  * 调整余额
  */
 export async function adjustBalance(data: any) {
-  return requestClient.post('/mall-user/userinfo/adjustBalance', data);
+  return requestClient.post('/mall-user/userinfo/adjustBalance', null, {
+    params: data,
+  });
 }

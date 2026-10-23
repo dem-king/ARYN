@@ -17,6 +17,7 @@ import {
   ElSelect,
   ElTable,
   ElTableColumn,
+  ElTag,
 } from 'element-plus';
 
 import { getById as getSpuById } from '#/api/product/goods-spu';
@@ -31,6 +32,9 @@ import {
   updateActivity,
 } from '#/api/promotion/ship-activity';
 import { getDeclaredVesselCalls, getVesselPage } from '#/api/vessel/vessel';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
+import { formatMoney } from '#/utils/util';
 
 const Pagination = defineAsyncComponent(
   () => import('#/components/pagination/index.vue'),
@@ -51,6 +55,7 @@ const editingId = ref('');
 const form = reactive<any>({
   activityName: '',
   activityType: '4',
+  consumedGiftStock: 0,
   endTime: '',
   giftStock: 0,
   perUserLimit: 0,
@@ -124,6 +129,16 @@ const statusLabel: Record<string, string> = {
   '4': '已结束',
   '5': '待开始',
 };
+
+/** 活动状态标签语义色（标签文案沿用 statusLabel，不改变含义） */
+const statusTagType = (
+  status: string,
+): 'danger' | 'info' | 'primary' | 'success' | 'warning' => {
+  if (status === '2') return 'success';
+  if (status === '3') return 'warning';
+  if (status === '5') return 'primary';
+  return 'info';
+};
 const scopeLabel: Record<string, string> = {
   '1': '全场',
   '2': '指定SKU',
@@ -161,6 +176,7 @@ const openDialog = (row?: any) => {
   form.totalBudget = row?.totalBudget ?? 0;
   form.perUserLimit = row?.perUserLimit ?? 0;
   form.giftStock = row?.giftStock ?? 0;
+  form.consumedGiftStock = row?.consumedGiftStock ?? 0;
   form.startTime = row?.startTime ?? '';
   form.endTime = row?.endTime ?? '';
   try {
@@ -551,12 +567,17 @@ onMounted(initPage);
 <template>
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
-      <ElForm :inline="true" :model="state.query">
-        <ElFormItem label="活动类型">
+      <!-- 搜索 -->
+      <PageFilterPanel
+        :model="state.query"
+        @reset="initPage"
+        @search="initPage"
+      >
+        <ElFormItem label="活动类型" prop="activityType">
           <ElSelect
             v-model="state.query.activityType"
             clearable
-            style="width: 130px"
+            placeholder="请选择活动类型"
           >
             <ElOption
               v-for="(label, value) in typeLabel"
@@ -566,8 +587,12 @@ onMounted(initPage);
             />
           </ElSelect>
         </ElFormItem>
-        <ElFormItem label="状态">
-          <ElSelect v-model="state.query.status" clearable style="width: 120px">
+        <ElFormItem label="状态" prop="status">
+          <ElSelect
+            v-model="state.query.status"
+            clearable
+            placeholder="请选择状态"
+          >
             <ElOption
               v-for="(label, value) in statusLabel"
               :key="value"
@@ -576,19 +601,29 @@ onMounted(initPage);
             />
           </ElSelect>
         </ElFormItem>
-        <ElFormItem>
-          <ElButton type="primary" @click="initPage">搜索</ElButton>
+      </PageFilterPanel>
+
+      <!-- 工具栏 -->
+      <PageToolbar :total="state.page.total" total-label="个船供活动">
+        <template #left>
           <ElButton
-            type="success"
+            type="primary"
             v-access:code="'promotion:shipactivity:save'"
             @click="openDialog()"
           >
             新建活动
           </ElButton>
-        </ElFormItem>
-      </ElForm>
+        </template>
+      </PageToolbar>
 
-      <ElTable v-loading="loading" :data="state.tableData" border>
+      <ElTable
+        v-loading="loading"
+        :data="state.tableData"
+        class="hx-data-table"
+        row-key="id"
+        border
+        empty-text="暂无船供活动"
+      >
         <ElTableColumn prop="activityName" label="活动名称" min-width="160" />
         <ElTableColumn label="类型" width="100">
           <template #default="scope">
@@ -600,11 +635,39 @@ onMounted(initPage);
             {{ scopeText(scope.row) }}
           </template>
         </ElTableColumn>
+        <ElTableColumn label="额度使用" width="190">
+          <template #default="scope">
+            <template v-if="scope.row.activityType === '5'">
+              <span v-if="Number(scope.row.giftStock) > 0">
+                赠品 {{ scope.row.consumedGiftStock ?? 0 }} /
+                {{ scope.row.giftStock }} 件
+              </span>
+              <span v-else
+                >赠品不限（已赠
+                {{ scope.row.consumedGiftStock ?? 0 }} 件）</span
+              >
+            </template>
+            <template v-else>
+              <span v-if="Number(scope.row.totalBudget) > 0" class="hx-money">
+                ¥{{ formatMoney(scope.row.consumedBudget) }} / ¥{{
+                  formatMoney(scope.row.totalBudget)
+                }}
+              </span>
+              <span v-else class="hx-money"
+                >预算不限（已用 ¥{{
+                  formatMoney(scope.row.consumedBudget)
+                }}）</span
+              >
+            </template>
+          </template>
+        </ElTableColumn>
         <ElTableColumn prop="startTime" label="开始" width="170" />
         <ElTableColumn prop="endTime" label="结束" width="170" />
         <ElTableColumn label="状态" width="90">
           <template #default="scope">
-            {{ statusLabel[scope.row.status] ?? scope.row.status }}
+            <ElTag :type="statusTagType(scope.row.status)">
+              {{ statusLabel[scope.row.status] ?? scope.row.status }}
+            </ElTag>
           </template>
         </ElTableColumn>
         <ElTableColumn label="操作" width="220">
@@ -659,7 +722,7 @@ onMounted(initPage);
         :title="editingId ? '编辑活动' : '新建活动'"
         width="720px"
       >
-        <ElForm label-width="110px">
+        <ElForm label-width="auto">
           <ElFormItem label="活动名称" required>
             <ElInput v-model="form.activityName" />
           </ElFormItem>
@@ -745,7 +808,10 @@ onMounted(initPage);
               :precision="2"
               controls-position="right"
             />
-            <span class="ml-8px">元，0 为不限；超限后新订单整单拦截</span>
+            <span class="ml-8px"
+              >元，0
+              为不限；额度用尽后活动自动失效，订单按剩余优惠或原价成交</span
+            >
           </ElFormItem>
           <ElFormItem label="每人限享">
             <ElInputNumber
@@ -761,7 +827,12 @@ onMounted(initPage);
               :min="0"
               controls-position="right"
             />
-            <span class="ml-8px">件，0 为不限；超限后新订单整单拦截</span>
+            <span class="ml-8px">
+              件，0 为不限；赠品领完后本单自动不赠，订单继续成交
+              <template v-if="editingId"
+                >（已赠 {{ form.consumedGiftStock ?? 0 }} 件）</template
+              >
+            </span>
           </ElFormItem>
           <ElFormItem label="开始时间" required>
             <ElDatePicker
@@ -808,10 +879,10 @@ onMounted(initPage);
                 <div style="margin-bottom: 6px">
                   <span>{{ row.skuName }}</span>
                   <span
-                    class="ml-10px"
+                    class="ml-10px hx-money"
                     style="color: var(--el-text-color-secondary)"
                   >
-                    售价 ￥{{ row.salesPrice }}
+                    售价 ¥{{ formatMoney(row.salesPrice) }}
                   </span>
                   <ElButton
                     link
@@ -938,8 +1009,8 @@ onMounted(initPage);
               :key="row.skuId"
               :label="row.spuName"
             >
-              <span style="min-width: 220px">
-                {{ row.skuName }} 售价 ￥{{ row.salesPrice }}
+              <span class="hx-money" style="min-width: 220px">
+                {{ row.skuName }} 售价 ¥{{ formatMoney(row.salesPrice) }}
               </span>
               <ElInputNumber
                 v-model="row.price"
@@ -995,14 +1066,16 @@ onMounted(initPage);
           </template>
         </ElForm>
         <template #footer>
-          <ElButton @click="openDry">试算</ElButton>
-          <ElButton @click="dialogVisible = false">取消</ElButton>
-          <ElButton type="primary" @click="handleSave">保存</ElButton>
+          <div class="hx-form-footer">
+            <ElButton @click="openDry">试算</ElButton>
+            <ElButton @click="dialogVisible = false">取消</ElButton>
+            <ElButton type="primary" @click="handleSave">确定</ElButton>
+          </div>
         </template>
       </ElDialog>
 
       <ElDialog v-model="dryVisible" title="命中试算（不落库）" width="640px">
-        <ElForm label-width="90px">
+        <ElForm label-width="auto">
           <ElFormItem label="购买场景">
             <ElSelect v-model="dryForm.purchaseScene" style="width: 160px">
               <ElOption label="个人购买" value="1" />
@@ -1053,27 +1126,31 @@ onMounted(initPage);
           </ElFormItem>
         </ElForm>
         <template v-if="dryResult">
-          <div style="font-weight: bold">
-            合计优惠：￥{{ dryResult.totalDiscount ?? 0 }}
+          <div class="hx-money" style="font-weight: bold">
+            合计优惠：¥{{ formatMoney(dryResult.totalDiscount ?? 0) }}
           </div>
           <div
             v-for="detail in dryResult.details || []"
             :key="detail.activityId"
-            style="margin-top: 4px; color: #e67e22"
+            class="hx-money"
+            style="margin-top: 4px; color: var(--el-color-warning)"
           >
-            {{ detail.activityName }}：优惠 ￥{{ detail.discountAmount }}
+            {{ detail.activityName }}：优惠 ¥{{
+              formatMoney(detail.discountAmount)
+            }}
           </div>
           <div
             v-for="override in dryResult.ladderOverrides || []"
             :key="override.skuId"
-            style="margin-top: 4px; color: #e67e22"
+            class="hx-money"
+            style="margin-top: 4px; color: var(--el-color-warning)"
           >
-            阶梯价 {{ override.skuId }} → ￥{{ override.unitPrice }}
+            阶梯价 {{ override.skuId }} → ¥{{ formatMoney(override.unitPrice) }}
           </div>
           <div
             v-for="gift in dryResult.gifts || []"
             :key="gift.skuId"
-            style="margin-top: 4px; color: #e67e22"
+            style="margin-top: 4px; color: var(--el-color-warning)"
           >
             赠品 {{ gift.skuId }} ×{{ gift.quantity }}
           </div>
@@ -1088,10 +1165,12 @@ onMounted(initPage);
           </div>
         </template>
         <template #footer>
-          <ElButton @click="dryVisible = false">关闭</ElButton>
-          <ElButton :loading="dryLoading" type="primary" @click="runDry">
-            试算
-          </ElButton>
+          <div class="hx-form-footer">
+            <ElButton @click="dryVisible = false">取消</ElButton>
+            <ElButton :loading="dryLoading" type="primary" @click="runDry">
+              确定
+            </ElButton>
+          </div>
         </template>
       </ElDialog>
 

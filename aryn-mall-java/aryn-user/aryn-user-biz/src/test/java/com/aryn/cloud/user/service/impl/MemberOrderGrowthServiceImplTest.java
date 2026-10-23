@@ -3,10 +3,11 @@ package com.aryn.cloud.user.service.impl;
 import com.aryn.cloud.common.core.entity.OrderCompleteEvent;
 import com.aryn.cloud.user.api.entity.MemberOrderGrowth;
 import com.aryn.cloud.user.api.entity.UserInfo;
+import com.aryn.cloud.user.api.enums.PointsSceneEnum;
 import com.aryn.cloud.user.mapper.MemberOrderGrowthMapper;
 import com.aryn.cloud.user.mapper.UserInfoMapper;
 import com.aryn.cloud.user.service.IMemberLevelService;
-import com.aryn.cloud.user.service.IPointsRecordService;
+import com.aryn.cloud.user.service.IPointsGrantService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -16,6 +17,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.math.BigDecimal;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -25,14 +27,14 @@ class MemberOrderGrowthServiceImplTest {
 
 	@Mock private MemberOrderGrowthMapper growthMapper;
 	@Mock private UserInfoMapper userInfoMapper;
-	@Mock private IPointsRecordService pointsRecordService;
+	@Mock private IPointsGrantService pointsGrantService;
 	@Mock private IMemberLevelService memberLevelService;
 
 	private MemberOrderGrowthServiceImpl service;
 
 	@BeforeEach
 	void setUp() {
-		service = new MemberOrderGrowthServiceImpl(growthMapper, userInfoMapper, pointsRecordService,
+		service = new MemberOrderGrowthServiceImpl(growthMapper, userInfoMapper, pointsGrantService,
 				memberLevelService);
 	}
 
@@ -43,7 +45,7 @@ class MemberOrderGrowthServiceImplTest {
 		service.processOrderComplete(event());
 
 		verify(userInfoMapper, never()).increaseTotalConsume(any(), any());
-		verify(pointsRecordService, never()).recordPointsChange(any(), any(), any(), any(), any());
+		verify(pointsGrantService, never()).grant(anyString(), any(), anyString(), any(), anyString());
 	}
 
 	@Test
@@ -51,10 +53,12 @@ class MemberOrderGrowthServiceImplTest {
 		when(growthMapper.insertIfAbsent(any(MemberOrderGrowth.class))).thenReturn(1);
 		when(userInfoMapper.selectById("user-1")).thenReturn(new UserInfo().setId("user-1"));
 		when(userInfoMapper.increaseTotalConsume("user-1", new BigDecimal("100.00"))).thenReturn(1);
+		when(pointsGrantService.getOrderCompleteRate()).thenReturn(1);
 
 		service.processOrderComplete(event());
 
-		verify(pointsRecordService).recordPointsChange("user-1", "1", 200, "ORDER_COMPLETE", "订单完成积分奖励：NO-1");
+		verify(pointsGrantService).grant("user-1", PointsSceneEnum.ORDER_COMPLETE, "ORDER_COMPLETE:NO-1", 200,
+				"订单完成积分奖励：NO-1");
 		verify(userInfoMapper).increaseTotalConsume("user-1", new BigDecimal("100.00"));
 	}
 

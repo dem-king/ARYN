@@ -66,7 +66,7 @@ public class DeliveryCandidateOrderVO {
 	@Schema(description = "订单金额")
 	private BigDecimal paymentPrice;
 
-	@Schema(description = "配送方式：3商城配送 4公司内部配送")
+	@Schema(description = "配送方式：3公司配送（岸上） 4公司配送（到船）")
 	private String deliveryWay;
 
 	@Schema(description = "支付方式：3货到付款（司机需收款）")

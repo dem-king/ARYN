@@ -354,6 +354,12 @@ onMounted(async () => {
         </button>
       </div>
       <div class="conversation-list">
+        <ElEmpty
+          v-if="conversations.length === 0"
+          class="rail-empty"
+          description="暂无会话"
+          :image-size="60"
+        />
         <button
           v-for="item in conversations"
           :key="item.id"
@@ -407,6 +413,12 @@ onMounted(async () => {
         </div>
       </header>
       <div ref="timeline" class="timeline">
+        <ElEmpty
+          v-if="messages.length === 0"
+          class="timeline-empty"
+          description="还没有消息"
+          :image-size="70"
+        />
         <div
           v-for="message in messages"
           :key="message.id"
@@ -457,6 +469,48 @@ onMounted(async () => {
 
 <style scoped>
 .service-desk {
+  /* 品牌视觉：客服调度台是深色工作台，整套深色配色集中在这里，
+     浅色/深色模式下都保持同一块深色大屏，避免色值散落在各条规则里 */
+  --desk-bg: #081723;
+  --desk-canvas: #0a1822;
+  --desk-surface: #0b1d28;
+  --desk-segment-bg: #06121c;
+  --desk-rail-bg: linear-gradient(180deg, #0c2233, #091923);
+  --desk-line: #16324f;
+  --desk-line-soft: rgb(125 211 252 / 12%);
+  --desk-line-faint: rgb(125 211 252 / 10%);
+  --desk-text: #dbeafe;
+  --desk-muted: #8eb2c8;
+  --desk-dim: #607f92;
+  --desk-faint: #547387;
+  --desk-shadow: 0 24px 70px rgb(4 19 30 / 28%);
+  --desk-accent: #2dd4bf;
+  --desk-accent-strong: #5eead4;
+  --desk-accent-contrast: #ecfeff;
+  --desk-accent-soft: rgb(20 184 166 / 9%);
+  --desk-accent-soft-hover: rgb(20 184 166 / 18%);
+  --desk-accent-line: rgb(45 212 191 / 24%);
+  --desk-accent-line-hover: rgb(94 234 212 / 48%);
+  --desk-glow: rgb(13 148 136 / 12%);
+  --desk-hover: rgb(56 189 248 / 9%);
+  --desk-avatar-bg: #0c2c38;
+  --desk-avatar-line: #1d5364;
+  --desk-segment-text: #6f91a6;
+  --desk-segment-active-text: #dffcf8;
+  --desk-segment-active-bg: #123b49;
+  --desk-bubble-bg: #102735;
+  --desk-bubble-line: #1a3a4b;
+  --desk-bubble-text: #c7dce8;
+  --desk-bubble-dim: #6d93a8;
+  --desk-mine-bg: #0f4948;
+  --desk-mine-line: #176b66;
+  --desk-mine-text: #e6fffb;
+  --desk-system-bg: #0b202c;
+  --desk-system-text: #7395a8;
+  --desk-warning: #fbbf24;
+  --desk-warning-soft: rgb(251 191 36 / 10%);
+  --desk-warning-line: rgb(251 191 36 / 32%);
+
   display: grid;
 
   /* 缺省行是 auto，会按内容撑高、顶破固定高度容器把输入区挤到可视区外 */
@@ -465,19 +519,19 @@ onMounted(async () => {
   height: calc(100vh - 112px);
   min-height: 620px;
   overflow: hidden;
-  color: #dbeafe;
-  background: #081723;
-  border: 1px solid #16324f;
+  color: var(--desk-text);
+  background: var(--desk-bg);
+  border: 1px solid var(--desk-line);
   border-radius: 16px;
-  box-shadow: 0 24px 70px rgb(4 19 30 / 28%);
+  box-shadow: var(--desk-shadow);
 }
 
 .conversation-rail {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  background: linear-gradient(180deg, #0c2233, #091923);
-  border-right: 1px solid rgb(125 211 252 / 12%);
+  background: var(--desk-rail-bg);
+  border-right: 1px solid var(--desk-line-soft);
 }
 
 .desk-brand {
@@ -486,7 +540,7 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
   padding: 24px;
-  border-bottom: 1px solid rgb(125 211 252 / 10%);
+  border-bottom: 1px solid var(--desk-line-faint);
 }
 
 .desk-brand-copy {
@@ -503,31 +557,31 @@ onMounted(async () => {
 
 .desk-brand small {
   font-size: 9px;
-  color: #5f8198;
+  color: var(--desk-dim);
   letter-spacing: 0.18em;
 }
 
 .config-trigger {
   flex: none;
-  color: #99f6e4;
-  background: rgb(20 184 166 / 9%);
-  border-color: rgb(45 212 191 / 24%);
+  color: var(--desk-accent-strong);
+  background: var(--desk-accent-soft);
+  border-color: var(--desk-accent-line);
 }
 
 .config-trigger:hover {
-  color: #ecfeff;
-  background: rgb(20 184 166 / 18%);
-  border-color: rgb(94 234 212 / 48%);
+  color: var(--desk-accent-contrast);
+  background: var(--desk-accent-soft-hover);
+  border-color: var(--desk-accent-line-hover);
 }
 
 .pulse {
   width: 12px;
   height: 12px;
-  background: #2dd4bf;
+  background: var(--desk-accent);
   border-radius: 50%;
   box-shadow:
-    0 0 0 6px rgb(45 212 191 / 12%),
-    0 0 22px #2dd4bf;
+    0 0 0 6px var(--desk-accent-soft),
+    0 0 22px var(--desk-accent);
 }
 
 .presence-row {
@@ -536,7 +590,7 @@ onMounted(async () => {
   justify-content: space-between;
   padding: 14px 20px;
   font-size: 12px;
-  color: #8eb2c8;
+  color: var(--desk-muted);
 }
 
 .offline-tip {
@@ -547,9 +601,9 @@ onMounted(async () => {
   padding: 9px 12px;
   margin: 0 16px 12px;
   font-size: 12px;
-  color: #fbbf24;
-  background: rgb(251 191 36 / 10%);
-  border: 1px solid rgb(251 191 36 / 32%);
+  color: var(--desk-warning);
+  background: var(--desk-warning-soft);
+  border: 1px solid var(--desk-warning-line);
   border-radius: 10px;
 }
 
@@ -558,24 +612,28 @@ onMounted(async () => {
   grid-template-columns: 1fr 1fr;
   padding: 4px;
   margin: 4px 16px 12px;
-  background: #06121c;
+  background: var(--desk-segment-bg);
   border-radius: 10px;
 }
 
 .segment button {
   padding: 9px;
-  color: #6f91a6;
+  color: var(--desk-segment-text);
   border-radius: 8px;
 }
 
 .segment button.active {
-  color: #dffcf8;
-  background: #123b49;
+  color: var(--desk-segment-active-text);
+  background: var(--desk-segment-active-bg);
 }
 
 .conversation-list {
   padding: 0 10px 20px;
   overflow: auto;
+}
+
+.rail-empty {
+  padding: 8px 0 14px;
 }
 
 .conversation-item {
@@ -590,7 +648,7 @@ onMounted(async () => {
 
 .conversation-item:hover,
 .conversation-item.active {
-  background: rgb(56 189 248 / 9%);
+  background: var(--desk-hover);
 }
 
 .avatar {
@@ -599,9 +657,9 @@ onMounted(async () => {
   place-items: center;
   width: 38px;
   height: 38px;
-  color: #5eead4;
-  background: #0c2c38;
-  border: 1px solid #1d5364;
+  color: var(--desk-accent-strong);
+  background: var(--desk-avatar-bg);
+  border: 1px solid var(--desk-avatar-line);
   border-radius: 11px;
 }
 
@@ -620,13 +678,13 @@ onMounted(async () => {
 
 .copy strong {
   font-size: 13px;
-  color: #dbeafe;
+  color: var(--desk-text);
 }
 
 .copy small {
   margin-top: 5px;
   font-size: 11px;
-  color: #607f92;
+  color: var(--desk-dim);
 }
 
 .chat-stage {
@@ -634,8 +692,8 @@ onMounted(async () => {
   grid-template-rows: auto 1fr auto;
   min-width: 0;
   background:
-    radial-gradient(circle at 100% 0, rgb(13 148 136 / 12%), transparent 30%),
-    #0a1822;
+    radial-gradient(circle at 100% 0, var(--desk-glow), transparent 30%),
+    var(--desk-canvas);
 }
 
 .chat-stage header {
@@ -643,12 +701,12 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
   padding: 20px 24px;
-  border-bottom: 1px solid rgb(125 211 252 / 10%);
+  border-bottom: 1px solid var(--desk-line-faint);
 }
 
 .chat-stage header p {
   font-size: 10px;
-  color: #2dd4bf;
+  color: var(--desk-accent);
   letter-spacing: 0.16em;
 }
 
@@ -660,6 +718,10 @@ onMounted(async () => {
 .timeline {
   padding: 28px 6%;
   overflow: auto;
+}
+
+.timeline-empty {
+  padding: 24px 0;
 }
 
 .message-row {
@@ -678,30 +740,30 @@ onMounted(async () => {
 .bubble {
   max-width: min(68%, 680px);
   padding: 12px 15px;
-  color: #c7dce8;
-  background: #102735;
-  border: 1px solid #1a3a4b;
+  color: var(--desk-bubble-text);
+  background: var(--desk-bubble-bg);
+  border: 1px solid var(--desk-bubble-line);
   border-radius: 5px 15px 15px;
 }
 
 .mine .bubble {
-  color: #e6fffb;
-  background: #0f4948;
-  border-color: #176b66;
+  color: var(--desk-mine-text);
+  background: var(--desk-mine-bg);
+  border-color: var(--desk-mine-line);
   border-radius: 15px 5px 15px 15px;
 }
 
 .system .bubble {
   padding: 7px 13px;
-  color: #7395a8;
-  background: #0b202c;
+  color: var(--desk-system-text);
+  background: var(--desk-system-bg);
   border: 0;
   border-radius: 20px;
 }
 
 .bubble small {
   font-size: 10px;
-  color: #6d93a8;
+  color: var(--desk-bubble-dim);
 }
 
 .bubble p {
@@ -711,13 +773,13 @@ onMounted(async () => {
 
 .bubble time {
   font-size: 9px;
-  color: #547387;
+  color: var(--desk-faint);
 }
 
 .chat-stage footer {
   padding: 16px 22px;
-  background: #0b1d28;
-  border-top: 1px solid rgb(125 211 252 / 10%);
+  background: var(--desk-surface);
+  border-top: 1px solid var(--desk-line-faint);
 }
 
 .send-row {
@@ -726,12 +788,19 @@ onMounted(async () => {
   justify-content: space-between;
   margin-top: 10px;
   font-size: 10px;
-  color: #547387;
+  color: var(--desk-faint);
 }
 
 .empty-stage {
   display: grid;
   place-items: center;
-  background: #0a1822;
+  background: var(--desk-canvas);
+}
+
+/* 深色工作台里的空态文字跟随工作台配色，避免浅色模式默认灰字对比不足 */
+.rail-empty :deep(.el-empty__description p),
+.timeline-empty :deep(.el-empty__description p),
+.empty-stage :deep(.el-empty__description p) {
+  color: var(--desk-muted);
 }
 </style>

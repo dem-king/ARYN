@@ -161,7 +161,7 @@ public class RechargeOrderServiceImpl extends ServiceImpl<RechargeOrderMapper, R
 		// 如果有赠送积分，增加积分
 		if (order.getGiftPoint() != null && order.getGiftPoint() > 0) {
 			pointsRecordService.recordPointsChange(order.getUserId(), "1", order.getGiftPoint(), "RECHARGE",
-					"充值赠送积分：" + orderNo);
+					"充值赠送积分：" + orderNo, "RECHARGE:" + orderNo);
 		}
 	}
 

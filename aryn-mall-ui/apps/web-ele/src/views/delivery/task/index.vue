@@ -1,11 +1,8 @@
 <script lang="ts" setup name="deliveryTask">
-import type { FormInstance } from 'element-plus';
-
 import type { DeliveryTask, DeliveryTaskStatus } from '#/api/delivery/task';
 
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
-import { Refresh, Search } from '@element-plus/icons-vue';
 import {
   ElButton,
   ElDialog,
@@ -22,6 +19,8 @@ import {
 
 import { getDeliveryStaffList } from '#/api/delivery/staff';
 import { assignDeliveryTasks, getDeliveryTaskPage } from '#/api/delivery/task';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 
 import { resolveDeliveryDestination } from '../delivery-destination';
 
@@ -61,7 +60,6 @@ interface DeliveryStaffOption {
   status: string;
 }
 
-const queryRef = ref<FormInstance>();
 const taskDetailRef = ref();
 const loading = ref(false);
 const showSearch = ref(true);
@@ -119,14 +117,6 @@ const initPage = async () => {
     .catch(() => {
       loading.value = false;
     });
-};
-
-/**
- * 重置搜索表单
- */
-const resetQuery = (formEl: FormInstance | undefined) => {
-  if (!formEl) return;
-  formEl.resetFields();
 };
 
 /**
@@ -216,17 +206,18 @@ initPage();
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 搜索 -->
-      <ElForm
+      <PageFilterPanel
         :model="state.queryParams"
-        ref="queryRef"
-        :inline="true"
-        v-show="showSearch"
+        :visible="showSearch"
+        @reset="initPage"
+        @search="initPage"
       >
         <ElFormItem label="任务编号" prop="taskNo">
           <ElInput
             v-model="state.queryParams.taskNo"
             clearable
             placeholder="请输入任务编号"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
         <ElFormItem label="订单号" prop="orderNo">
@@ -234,6 +225,7 @@ initPage();
             v-model="state.queryParams.orderNo"
             clearable
             placeholder="请输入订单号"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
         <ElFormItem label="收货人" prop="recipientName">
@@ -241,6 +233,7 @@ initPage();
             v-model="state.queryParams.recipientName"
             clearable
             placeholder="请输入收货人姓名"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
         <ElFormItem label="收货电话" prop="recipientPhone">
@@ -248,6 +241,7 @@ initPage();
             v-model="state.queryParams.recipientPhone"
             clearable
             placeholder="请输入收货人电话"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
         <ElFormItem label="任务状态" prop="status">
@@ -255,7 +249,6 @@ initPage();
             v-model="state.queryParams.status"
             clearable
             placeholder="请选择任务状态"
-            style="width: 200px"
           >
             <ElOption
               v-for="item in statusOptions"
@@ -270,20 +263,13 @@ initPage();
             v-model="state.queryParams.staffId"
             clearable
             placeholder="请输入配送员ID"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
-        <ElFormItem>
-          <ElButton type="primary" @click="initPage" :icon="Search">
-            搜索
-          </ElButton>
-          <ElButton @click="resetQuery(queryRef)" :icon="Refresh">
-            重置
-          </ElButton>
-        </ElFormItem>
-      </ElForm>
+      </PageFilterPanel>
       <!-- 工具栏 -->
-      <div class="hx-table-toolbar">
-        <div>
+      <PageToolbar :total="state.page.total" total-label="个任务">
+        <template #left>
           <ElButton
             type="primary"
             v-access:code="'delivery:task:assign'"
@@ -295,23 +281,27 @@ initPage();
               （已选 {{ selectedTaskIds.length }}）
             </span>
           </ElButton>
-        </div>
-        <RightToolbar
-          :search-btn="true"
-          :refresh-btn="true"
-          @search="showSearch = !showSearch"
-          @refresh="initPage"
-        />
-      </div>
+        </template>
+        <template #right>
+          <RightToolbar
+            :search-btn="true"
+            :refresh-btn="true"
+            @search="showSearch = !showSearch"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
       <TaskDetail ref="taskDetailRef" @init-page="initPage" />
 
       <!-- 列表 -->
       <ElTable
         ref="tableRef"
         v-loading="loading"
+        class="hx-data-table"
         :data="state.tableData"
         border
         row-key="id"
+        empty-text="暂无配送任务"
         @selection-change="handleSelectionChange"
       >
         <ElTableColumn

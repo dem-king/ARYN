@@ -8,7 +8,7 @@ import { EchartsUI, useEcharts } from '@vben/plugins/echarts';
 import { TrendCharts } from '@element-plus/icons-vue';
 import { ElCard, ElIcon } from 'element-plus';
 
-import { formatNumber } from '../../shared/chart';
+import { areaGradient, CHART_PALETTE, formatNumber } from '../../shared/chart';
 
 const props = defineProps<{
   data: {
@@ -75,19 +75,9 @@ const updateChart = () => {
         smooth: true,
         data: props.data.pv,
         yAxisIndex: 0,
-        itemStyle: { color: '#409EFF' },
+        itemStyle: { color: CHART_PALETTE.primary },
         areaStyle: {
-          color: {
-            type: 'linear',
-            x: 0,
-            y: 0,
-            x2: 0,
-            y2: 1,
-            colorStops: [
-              { offset: 0, color: 'rgba(64,158,255, 0.5)' },
-              { offset: 1, color: 'rgba(64,158,255, 0)' },
-            ],
-          },
+          color: areaGradient(CHART_PALETTE.primary),
         },
       },
       {
@@ -96,7 +86,7 @@ const updateChart = () => {
         smooth: true,
         data: props.data.uv,
         yAxisIndex: 1,
-        itemStyle: { color: '#67C23A' },
+        itemStyle: { color: CHART_PALETTE.success },
       },
     ],
   });
@@ -115,7 +105,9 @@ onMounted(() => {
       <div class="flex items-center gap-2 font-bold">
         <ElIcon class="text-blue-500"><TrendCharts /></ElIcon>
         <span>商品访问趋势</span>
-        <span class="ml-2 text-xs font-normal text-gray-400">
+        <span
+          class="ml-2 text-xs font-normal text-[var(--el-text-color-secondary)]"
+        >
           (统计周期内数据)
         </span>
       </div>
@@ -124,7 +116,7 @@ onMounted(() => {
       <EchartsUI ref="chartRef" />
       <div
         v-if="!loading && !hasData"
-        class="absolute inset-0 flex items-center justify-center text-sm text-gray-400"
+        class="absolute inset-0 flex items-center justify-center text-sm text-[var(--el-text-color-secondary)]"
       >
         暂无数据
       </div>

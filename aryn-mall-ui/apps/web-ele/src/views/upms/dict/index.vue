@@ -1,18 +1,10 @@
 <script lang="ts" setup>
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
-import {
-  Delete,
-  Edit,
-  Plus,
-  Refresh,
-  Search,
-  View,
-} from '@element-plus/icons-vue';
+import { Delete, Edit, Plus, Refresh, View } from '@element-plus/icons-vue';
 import {
   ElButton,
   ElDrawer,
-  ElForm,
   ElFormItem,
   ElInput,
   ElMessage,
@@ -21,18 +13,24 @@ import {
   ElSelect,
   ElTable,
   ElTableColumn,
-  ElTag,
 } from 'element-plus';
 
 import { delObj, getPage, refresh } from '#/api/upms/dict';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
+import { useDict } from '#/utils/dict';
 
 const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
+);
+const DictTag = defineAsyncComponent(
+  () => import('#/components/dict-tag/index.vue'),
 );
 const Pagination = defineAsyncComponent(
   () => import('#/components/pagination/index.vue'),
 );
 const Form = defineAsyncComponent(() => import('./form.vue'));
+const { status } = useDict('status');
 const DictValue = defineAsyncComponent(() => import('../dict-value/index.vue'));
 const state = reactive({
   queryParams: {
@@ -53,7 +51,6 @@ const loading = ref(false);
 const refForm = ref();
 const dictId = ref('');
 const dictValueDrawer = ref(false);
-const queryRef = ref();
 
 const initPage = async () => {
   loading.value = true;
@@ -103,12 +100,6 @@ const del = (id: string) => {
   });
 };
 
-/**
- * 重置搜索表单
- */
-const resetQuery = () => {
-  queryRef.value.resetFields();
-};
 const refreshCache = () => {
   refresh().then(() => {
     ElMessage.success('刷新成功');
@@ -120,16 +111,17 @@ initPage();
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 搜索 -->
-      <ElForm
+      <PageFilterPanel
         :model="state.queryParams"
-        ref="queryRef"
-        :inline="true"
-        v-show="showSearch"
+        :visible="showSearch"
+        @reset="initPage"
+        @search="initPage"
       >
         <ElFormItem label="字典类型" prop="type">
           <ElInput
             v-model="state.queryParams.type"
             placeholder="请输入字典类型"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
         <ElFormItem label="字典状态" prop="status">
@@ -137,22 +129,15 @@ initPage();
             v-model="state.queryParams.status"
             clearable
             placeholder="请选择字典状态"
-            style="width: 200px"
           >
             <ElOption label="正常" value="0" />
             <ElOption label="停用" value="1" />
           </ElSelect>
         </ElFormItem>
-        <ElFormItem>
-          <ElButton type="primary" @click="initPage" :icon="Search">
-            搜索
-          </ElButton>
-          <ElButton @click="resetQuery" :icon="Refresh"> 重置 </ElButton>
-        </ElFormItem>
-      </ElForm>
+      </PageFilterPanel>
       <!-- 工具栏 -->
-      <div class="hx-table-toolbar">
-        <div>
+      <PageToolbar :total="state.page.total" total-label="个字典">
+        <template #left>
           <ElButton
             type="primary"
             v-access:code="'upms:sysdict:add'"
@@ -162,24 +147,32 @@ initPage();
             新增
           </ElButton>
           <ElButton @click="refreshCache" :icon="Refresh"> 刷新缓存 </ElButton>
-        </div>
-        <RightToolbar
-          :search-btn="true"
-          :refresh-btn="true"
-          @search="showSearch = !showSearch"
-          @refresh="initPage"
-        />
-      </div>
+        </template>
+        <template #right>
+          <RightToolbar
+            :search-btn="true"
+            :refresh-btn="true"
+            @search="showSearch = !showSearch"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
       <Form ref="refForm" @init-page="initPage" />
       <!-- 列表 -->
-      <ElTable v-loading="loading" :data="state.tableData" border>
+      <ElTable
+        v-loading="loading"
+        class="hx-data-table"
+        :data="state.tableData"
+        row-key="id"
+        border
+        empty-text="暂无字典"
+      >
         <ElTableColumn prop="type" label="字典类型" />
         <ElTableColumn prop="description" label="字典描述" />
         <ElTableColumn prop="remarks" label="备注" />
         <ElTableColumn prop="status" label="状态">
           <template #default="scope">
-            <ElTag v-if="scope.row.status === '0'" type="success">正常</ElTag>
-            <ElTag v-if="scope.row.status === '1'" type="danger">停用</ElTag>
+            <DictTag :options="status" :value="scope.row.status" />
           </template>
         </ElTableColumn>
         <ElTableColumn prop="createTime" label="创建时间" />

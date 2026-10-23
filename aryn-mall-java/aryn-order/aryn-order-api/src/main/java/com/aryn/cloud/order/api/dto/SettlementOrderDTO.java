@@ -17,7 +17,7 @@ public class SettlementOrderDTO {
 	@Schema(description = "用户ID")
 	private String userId;
 
-	@Schema(description = "配送方式：1.普通快递；2.上门自提；3.商城配送；4.公司港口/船舶内部配送")
+	@Schema(description = "配送方式：1.普通快递；2.上门自提；3.公司配送（岸上）；4.公司配送（到船）")
 	@NotBlank(message = "配送方式不能为空")
 	@Pattern(regexp = "[1-4]", message = "配送方式不合法")
 	private String deliveryWay;
@@ -39,6 +39,12 @@ public class SettlementOrderDTO {
 	@Schema(description = "用户优惠券id")
 	private String couponUserId;
 
+	@Schema(description = "使用积分数量（积分抵现；0或空表示不使用）")
+	private Integer usePoints;
+
+	@Schema(description = "是否使用全部可用积分（确认页开关；优先于 usePoints）")
+	private Boolean useMaxPoints;
+
 	@Schema(description = "拼团记录ID（拼团下单预览时携带，与下单口径一致；普通结算为空）")
 	private String groupBuyRecordId;
 
@@ -51,22 +57,22 @@ public class SettlementOrderDTO {
 	@Pattern(regexp = "[12]", message = "购买场景不合法")
 	private String purchaseScene;
 
-	@Schema(description = "配送船舶ID（内部配送必填）")
+	@Schema(description = "配送船舶ID（到船配送必填）")
 	private String vesselId;
 
-	@Schema(description = "靠港计划ID（内部配送必填）")
+	@Schema(description = "靠港计划ID（到船配送必填）")
 	private String vesselCallId;
 
-	@Schema(description = "收货人姓名（内部配送）")
+	@Schema(description = "收货人姓名（到船配送）")
 	private String recipientName;
 
-	@Schema(description = "收货人电话（内部配送）")
+	@Schema(description = "收货人电话（到船配送）")
 	private String recipientPhone;
 
-	@Schema(description = "船上代理/经办人姓名（内部配送）")
+	@Schema(description = "船上代理/经办人姓名（到船配送）")
 	private String agentName;
 
-	@Schema(description = "船上代理/经办人电话（内部配送）")
+	@Schema(description = "船上代理/经办人电话（到船配送）")
 	private String agentPhone;
 
 }

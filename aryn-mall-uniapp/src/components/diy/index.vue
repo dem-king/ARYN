@@ -6,6 +6,7 @@ import { useAuthStore } from '@/store/authStore'
 import { useMallThemeStore } from '@/store/mallThemeStore'
 
 import { useUserStore } from '@/store/userStore'
+import DiyActivityStrip from './diy-activity-strip/index.vue'
 import DiyBottomNav from './diy-bottom-nav/index.vue'
 import DiyCategoryNav from './diy-category-nav/index.vue'
 import DiyCountdown from './diy-countdown/index.vue'
@@ -295,6 +296,10 @@ function sectionStyle(section: DecorationSection) {
           />
           <DiyMarketingEntry
             v-else-if="item.type === 'marketing-entry'"
+            :show-data="item.props"
+          />
+          <DiyActivityStrip
+            v-else-if="item.type === 'activity-strip'"
             :show-data="item.props"
           />
           <DiyShipWorkbench

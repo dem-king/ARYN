@@ -16,6 +16,7 @@ import com.aryn.cloud.promotion.api.remote.RemoteSeckillService;
 import com.aryn.cloud.promotion.api.vo.CouponUserRespVO;
 import com.aryn.cloud.promotion.api.vo.PromotionCalculationVO;
 import com.aryn.cloud.user.api.vo.MemberBenefitsVO;
+import com.aryn.cloud.user.api.vo.PointsDeductContextVO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -250,6 +251,69 @@ class OrderPriceComputeServiceTest {
 	}
 
 	/**
+	 * 已享限时折扣的 SKU 必须标记为活动价：整船优惠的门槛与分摊都要排除它。
+	 */
+	@Test
+	void activityPlanMarksDiscountPricedSku() {
+		OrderItemEntity item = new OrderItemEntity().setSkuId("sku-1").setBuyQuantity(1)
+			.setSalesPrice(new BigDecimal("40.00"));
+		when(remoteDiscountService.calculatePrice("sku-1", new BigDecimal("40.00")))
+			.thenReturn(new BigDecimal("30.00"));
+
+		OrderPriceComputeService.PromotionPricePlan plan = service.resolvePromotionPricePlan(List.of(item), null);
+		service.applyPromotionPricePlan(List.of(item), java.util.Set.of(), plan);
+
+		assertThat(item.getSalesPrice()).isEqualByComparingTo("30.00");
+		assertThat(plan.isActivityPriced("sku-1")).isTrue();
+	}
+
+	/**
+	 * 整船优惠只分摊给未享活动价的明细：折扣价商品不承接整船优惠。
+	 */
+	@Test
+	void shipWholeDiscountSkipsActivityPricedSku() {
+		OrderInfo order = new OrderInfo();
+		OrderItemEntity activityItem = item("100.00").setSkuId("sku-1").setSalesPrice(new BigDecimal("100.00"));
+		OrderItemEntity normalItem = item("100.00").setSkuId("sku-2");
+		when(remoteDiscountService.calculatePrice("sku-1", new BigDecimal("100.00")))
+			.thenReturn(new BigDecimal("80.00"));
+		OrderPriceComputeService.PromotionPricePlan plan = service
+			.resolvePromotionPricePlan(List.of(activityItem), null);
+
+		PromotionCalculationVO calculation = new PromotionCalculationVO();
+		calculation.setWholeDiscount(new BigDecimal("30.00"));
+		calculation.setLadderOverrides(new java.util.ArrayList<>());
+		calculation.setDetails(new java.util.ArrayList<>());
+		service.applyShipWholeDiscount(order, List.of(activityItem, normalItem), calculation, plan);
+
+		assertThat(activityItem.getPromoPrice()).isEqualByComparingTo("0.00");
+		assertThat(normalItem.getPromoPrice()).isEqualByComparingTo("30.00");
+		assertThat(order.getPromoPrice()).isEqualByComparingTo("30.00");
+	}
+
+	/**
+	 * 阶梯价/新人价由营销引擎覆盖，订单侧分摊也要排除对应 SKU。
+	 */
+	@Test
+	void shipWholeDiscountSkipsEnginePricedSku() {
+		OrderInfo order = new OrderInfo();
+		OrderItemEntity ladderItem = item("100.00").setSkuId("sku-1");
+		OrderItemEntity normalItem = item("100.00").setSkuId("sku-2");
+		PromotionCalculationVO calculation = new PromotionCalculationVO();
+		calculation.setWholeDiscount(new BigDecimal("30.00"));
+		PromotionCalculationVO.UnitPriceOverride override = new PromotionCalculationVO.UnitPriceOverride();
+		override.setSkuId("sku-1");
+		override.setUnitPrice(new BigDecimal("80.00"));
+		calculation.setLadderOverrides(new java.util.ArrayList<>(List.of(override)));
+		calculation.setDetails(new java.util.ArrayList<>());
+
+		service.applyShipWholeDiscount(order, List.of(ladderItem, normalItem), calculation, null);
+
+		assertThat(ladderItem.getPromoPrice()).isEqualByComparingTo("0.00");
+		assertThat(normalItem.getPromoPrice()).isEqualByComparingTo("30.00");
+	}
+
+	/**
 	 * 限购硬校验：命中新人价的 SKU 整单合计数量必须为 1；
 	 * 共享购物车拆行后同一 SKU 两条明细各 1 件合计 2 件也应拦截。
 	 */
@@ -277,6 +341,86 @@ class OrderPriceComputeServiceTest {
 		service.assertNewbieQuantityLimit(calculation, List.of(item, other));
 	}
 
+	/**
+	 * 第二次 preview（reserve）必须按 SKU 原价重建上下文：
+	 * 下单前 applyPromotionLadder 已把阶梯价写进明细 salesPrice，
+	 * 若沿用改后价，活动价等于基价会判为未命中，锁与预算都不会落库。
+	 */
+	@Test
+	void reservePromotionRebuildsContextWithOriginalSkuPrice() {
+		com.aryn.cloud.promotion.api.remote.RemotePromotionEngine remoteEngine
+			= mock(com.aryn.cloud.promotion.api.remote.RemotePromotionEngine.class);
+		OrderPriceComputeService local = new OrderPriceComputeService(remoteGoodsSkuService, remoteCouponUserService,
+				remoteDiscountService, remoteSeckillService, remoteEngine);
+		PromotionCalculationVO reserved = new PromotionCalculationVO();
+		reserved.setTotalDiscount(new BigDecimal("60.00"));
+		when(remoteEngine.reserve(any())).thenReturn(reserved);
+
+		OrderInfo order = new OrderInfo().setId("order-1").setTenantId("tenant-1");
+		// 明细价已被阶梯价改成 24，原价应为 30
+		OrderItemEntity orderItem = new OrderItemEntity().setSkuId("sku-1").setBuyQuantity(10)
+			.setSalesPrice(new BigDecimal("24.00"));
+		GoodsSku sku = new GoodsSku().setId("sku-1").setSalesPrice(new BigDecimal("30.00"));
+		PromotionCalculationVO expected = new PromotionCalculationVO();
+		expected.setTotalDiscount(new BigDecimal("60.00"));
+
+		local.reservePromotion(order, List.of(orderItem), List.of(sku), expected);
+
+		org.mockito.ArgumentCaptor<com.aryn.cloud.promotion.api.dto.PromotionContextDTO> captor
+			= org.mockito.ArgumentCaptor.forClass(com.aryn.cloud.promotion.api.dto.PromotionContextDTO.class);
+		org.mockito.Mockito.verify(remoteEngine).reserve(captor.capture());
+		assertThat(captor.getValue().getSkuItems()).singleElement()
+			.satisfies(item -> assertThat(item.getSalesPrice()).isEqualByComparingTo("30.00"));
+	}
+
+	/** 试算与锁定让利额不一致（额度被并发抢完等）时拒绝成单，避免静默涨价。 */
+	@Test
+	void reservePromotionRejectsWhenDiscountChanged() {
+		com.aryn.cloud.promotion.api.remote.RemotePromotionEngine remoteEngine
+			= mock(com.aryn.cloud.promotion.api.remote.RemotePromotionEngine.class);
+		OrderPriceComputeService local = new OrderPriceComputeService(remoteGoodsSkuService, remoteCouponUserService,
+				remoteDiscountService, remoteSeckillService, remoteEngine);
+		PromotionCalculationVO reserved = new PromotionCalculationVO();
+		reserved.setTotalDiscount(BigDecimal.ZERO);
+		when(remoteEngine.reserve(any())).thenReturn(reserved);
+
+		OrderInfo order = new OrderInfo().setId("order-1").setTenantId("tenant-1");
+		OrderItemEntity orderItem = new OrderItemEntity().setSkuId("sku-1").setBuyQuantity(1)
+			.setSalesPrice(new BigDecimal("30.00"));
+		PromotionCalculationVO expected = new PromotionCalculationVO();
+		expected.setTotalDiscount(new BigDecimal("10.00"));
+
+		org.assertj.core.api.Assertions.assertThatThrownBy(
+				() -> local.reservePromotion(order, List.of(orderItem), List.of(), expected))
+			.isInstanceOf(com.aryn.cloud.common.security.handler.ArynBusinessException.class)
+			.satisfies(ex -> assertThat(
+					((com.aryn.cloud.common.security.handler.ArynBusinessException) ex).getMsg())
+				.contains("优惠已变更"));
+	}
+
+	/** 锁定服务不可用但下单已按优惠价算价：拒绝成单，避免「优惠价成交却没有锁」。 */
+	@Test
+	void reservePromotionRejectsFreeDiscountWhenReserveUnavailable() {
+		com.aryn.cloud.promotion.api.remote.RemotePromotionEngine remoteEngine
+			= mock(com.aryn.cloud.promotion.api.remote.RemotePromotionEngine.class);
+		OrderPriceComputeService local = new OrderPriceComputeService(remoteGoodsSkuService, remoteCouponUserService,
+				remoteDiscountService, remoteSeckillService, remoteEngine);
+		when(remoteEngine.reserve(any())).thenThrow(new RuntimeException("dubbo timeout"));
+
+		OrderInfo order = new OrderInfo().setId("order-1").setTenantId("tenant-1");
+		OrderItemEntity orderItem = new OrderItemEntity().setSkuId("sku-1").setBuyQuantity(1)
+			.setSalesPrice(new BigDecimal("30.00"));
+		PromotionCalculationVO expected = new PromotionCalculationVO();
+		expected.setTotalDiscount(new BigDecimal("10.00"));
+
+		org.assertj.core.api.Assertions.assertThatThrownBy(
+				() -> local.reservePromotion(order, List.of(orderItem), List.of(), expected))
+			.isInstanceOf(com.aryn.cloud.common.security.handler.ArynBusinessException.class)
+			.satisfies(ex -> assertThat(
+					((com.aryn.cloud.common.security.handler.ArynBusinessException) ex).getMsg())
+				.contains("优惠服务暂不可用"));
+	}
+
 	private PromotionCalculationVO newbieCalculation(String skuId) {
 		PromotionCalculationVO calculation = new PromotionCalculationVO();
 		PromotionCalculationVO.UnitPriceOverride override = new PromotionCalculationVO.UnitPriceOverride();
@@ -297,6 +441,116 @@ class OrderPriceComputeServiceTest {
 		req.setContributorUserId(contributorId);
 		req.setContributorName(name);
 		return req;
+	}
+
+	/**
+	 * 积分抵现：抵扣基数为商品应付（不含运费），按明细比例分摊，订单与明细金额同步下降。
+	 */
+	@Test
+	void pointsDeductionAllocatesAcrossItemsAndUpdatesPayable() {
+		OrderInfo order = new OrderInfo();
+		OrderItemEntity first = item("100.00").setSkuId("sku-1")
+			.setFreightPrice(new BigDecimal("10.00"))
+			.setPaymentPrice(new BigDecimal("110.00"));
+		OrderItemEntity second = item("50.00").setSkuId("sku-2");
+
+		service.orderPointsDeductHandler(order, List.of(first, second), 1000, false, pointsContext(5000, 100),
+				false);
+
+		assertThat(order.getPointsUsed()).isEqualTo(1000);
+		assertThat(order.getPointsDeductPrice()).isEqualByComparingTo("10.00");
+		assertThat(order.getPaymentPrice()).isEqualByComparingTo("150.00");
+		assertThat(order.getPointsDeductMax()).isEqualTo(3000);
+		assertThat(order.getPointsDeductMaxPrice()).isEqualByComparingTo("30.00");
+		assertThat(first.getPointsPrice()).isEqualByComparingTo("6.67");
+		assertThat(second.getPointsPrice()).isEqualByComparingTo("3.33");
+		assertThat(first.getPaymentPrice()).isEqualByComparingTo("103.33");
+		assertThat(second.getPaymentPrice()).isEqualByComparingTo("46.67");
+	}
+
+	/**
+	 * 下单严格模式：请求积分超过可用额度（余额或单笔上限）时拒绝，防止确认页金额与实际扣款不一致。
+	 */
+	@Test
+	void pointsDeductionStrictModeRejectsWhenRequestedExceedsCap() {
+		OrderInfo order = new OrderInfo();
+		OrderItemEntity item = item("100.00");
+
+		org.assertj.core.api.Assertions
+			.assertThatThrownBy(() -> service.orderPointsDeductHandler(order, List.of(item), 3000, false,
+					pointsContext(5000, 100), true))
+			.isInstanceOf(com.aryn.cloud.common.security.handler.ArynBusinessException.class);
+	}
+
+	/**
+	 * 积分抵现未启用时不改变应付金额，仅返回 0 额度。
+	 */
+	@Test
+	void pointsDeductionDisabledLeavesAmountUnchanged() {
+		OrderInfo order = new OrderInfo();
+		OrderItemEntity item = item("100.00");
+		PointsDeductContextVO context = new PointsDeductContextVO();
+		context.setEnabled(false);
+		context.setAvailablePoints(5000);
+		context.setPointsPerYuan(0);
+
+		service.orderPointsDeductHandler(order, List.of(item), 1000, false, context, false);
+
+		assertThat(order.getPointsUsed()).isZero();
+		assertThat(order.getPointsDeductPrice()).isEqualByComparingTo("0.00");
+		assertThat(order.getPointsDeductMax()).isZero();
+		assertThat(order.getPaymentPrice()).isEqualByComparingTo("100.00");
+	}
+
+	/**
+	 * 分摊守恒：抵扣金额必须被完整、准确地分摊到明细。
+	 *
+	 * <p>旧实现按末位明细兜底并在越界时 clamp，这里 100 条 1.00 元明细 / 抵扣 19.50
+	 * 会让前 99 条按 HALF_EVEN 各分摊 0.20、末位剩余为负被归零，合计 19.80 反而超额。
+	 */
+	@Test
+	void pointsDeductionAllocationSumsToDeductedAmount() {
+		OrderInfo order = new OrderInfo();
+		List<OrderItemEntity> items = new java.util.ArrayList<>();
+		for (int index = 0; index < 100; index++) {
+			items.add(item("1.00").setSkuId("sku-" + index));
+		}
+
+		service.orderPointsDeductHandler(order, items, 1950, false, pointsContext(5000, 100), false);
+
+		assertThat(order.getPointsUsed()).isEqualTo(1950);
+		assertThat(order.getPointsDeductPrice()).isEqualByComparingTo("19.50");
+		BigDecimal allocated = items.stream()
+			.map(OrderItemEntity::getPointsPrice)
+			.reduce(BigDecimal.ZERO, BigDecimal::add);
+		assertThat(allocated).isEqualByComparingTo("19.50");
+		assertThat(items.stream()
+			.allMatch(orderItem -> orderItem.getPaymentPrice().compareTo(BigDecimal.ZERO) >= 0)).isTrue();
+	}
+
+	/**
+	 * 船供采购使用 B 端成本价，不允许叠加积分抵现（仅海员个人购买可抵）。
+	 */
+	@Test
+	void pointsDeductionRejectedForShipSupplyPurchase() {
+		OrderInfo order = new OrderInfo().setPurchaseScene("2");
+		OrderItemEntity orderItem = item("100.00");
+
+		org.assertj.core.api.Assertions
+			.assertThatThrownBy(() -> service.orderPointsDeductHandler(order, List.of(orderItem), 1000, false,
+					pointsContext(5000, 100), true))
+			.isInstanceOf(com.aryn.cloud.common.security.handler.ArynBusinessException.class)
+			.satisfies(exception -> assertThat(
+					((com.aryn.cloud.common.security.handler.ArynBusinessException) exception).getMsg())
+				.contains("船供采购订单不支持积分抵现"));
+	}
+
+	private PointsDeductContextVO pointsContext(int availablePoints, int pointsPerYuan) {
+		PointsDeductContextVO context = new PointsDeductContextVO();
+		context.setEnabled(true);
+		context.setAvailablePoints(availablePoints);
+		context.setPointsPerYuan(pointsPerYuan);
+		return context;
 	}
 
 	private OrderItemEntity item(String totalPrice) {

@@ -1,17 +1,11 @@
 <script lang="ts" setup name="SocialUser">
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
-import { Refresh, Search } from '@element-plus/icons-vue';
-import {
-  ElButton,
-  ElForm,
-  ElFormItem,
-  ElInput,
-  ElTable,
-  ElTableColumn,
-} from 'element-plus';
+import { ElFormItem, ElInput, ElTable, ElTableColumn } from 'element-plus';
 
 import { getPage } from '#/api/user/social-user';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 
 const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
@@ -36,7 +30,6 @@ const state = reactive({
 });
 const showSearch = ref(true);
 const loading = ref(false);
-const queryRef = ref();
 const initPage = async () => {
   loading.value = true;
   const params = {
@@ -55,51 +48,47 @@ const initPage = async () => {
       loading.value = false;
     });
 };
-/**
- * 重置搜索表单
- */
-const resetQuery = () => {
-  queryRef.value.resetFields();
-  initPage();
-};
 initPage();
 </script>
 <template>
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 搜索 -->
-      <ElForm
+      <PageFilterPanel
         :model="state.queryParams"
-        ref="queryRef"
-        :inline="true"
-        v-show="showSearch"
+        :visible="showSearch"
+        @reset="initPage"
+        @search="initPage"
       >
         <ElFormItem label="openId" prop="openId">
           <ElInput
             v-model="state.queryParams.openId"
             placeholder="请输入openid"
             clearable
+            @keyup.enter="initPage"
           />
         </ElFormItem>
-        <ElFormItem>
-          <ElButton type="primary" @click="initPage" :icon="Search">
-            搜索
-          </ElButton>
-          <ElButton @click="resetQuery" :icon="Refresh"> 重置</ElButton>
-        </ElFormItem>
-      </ElForm>
+      </PageFilterPanel>
       <!-- 工具栏 -->
-      <div class="hx-table-toolbar">
-        <div></div>
-        <RightToolbar
-          :search-btn="true"
-          :refresh-btn="true"
-          @search="showSearch = !showSearch"
-          @refresh="initPage"
-        />
-      </div>
+      <PageToolbar :total="state.page.total" total-label="个三方用户">
+        <template #right>
+          <RightToolbar
+            :search-btn="true"
+            :refresh-btn="true"
+            @search="showSearch = !showSearch"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
       <!-- 列表 -->
-      <ElTable v-loading="loading" :data="state.tableData" border>
+      <ElTable
+        v-loading="loading"
+        class="hx-data-table"
+        :data="state.tableData"
+        row-key="id"
+        border
+        empty-text="暂无三方用户"
+      >
         <ElTableColumn label="openId" align="center" prop="openId" />
         <ElTableColumn label="会话密钥" align="center" prop="sessionKey" />
         <ElTableColumn label="创建时间" align="center" prop="createTime" />

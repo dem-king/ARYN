@@ -361,6 +361,7 @@ onMounted(fetchCalls);
           <ElSelect
             v-model="statusFilter"
             class="filter-select"
+            clearable
             placeholder="全部状态"
           >
             <ElOption label="全部状态" value="" />
@@ -374,6 +375,7 @@ onMounted(fetchCalls);
           <ElSelect
             v-model="vesselFilter"
             class="filter-select"
+            clearable
             placeholder="全部船舶"
           >
             <ElOption label="全部船舶" value="" />
@@ -552,8 +554,10 @@ onMounted(fetchCalls);
           <!-- 列表视图 -->
           <ElTable
             v-else
+            class="hx-data-table"
             :data="filteredList"
             border
+            empty-text="暂无靠港计划"
             :row-key="
               (row: VesselCall) => row.callId ?? `${row.vesselName}-${row.eta}`
             "
@@ -666,6 +670,9 @@ onMounted(fetchCalls);
 
 <style scoped>
 .toolbar {
+  /* toolbar 控件统一宽度，避免各筛选框宽度参差 */
+  --toolbar-select-width: 140px;
+
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
@@ -679,7 +686,7 @@ onMounted(fetchCalls);
 }
 
 .filter-select {
-  width: 130px;
+  width: var(--toolbar-select-width);
 }
 
 .month-nav {
@@ -883,7 +890,7 @@ onMounted(fetchCalls);
   padding: 0 6px;
   font-size: 10px;
   line-height: 16px;
-  color: #fff;
+  color: var(--el-color-white);
   background: var(--el-color-primary);
   border-radius: 8px;
 }
@@ -1027,7 +1034,7 @@ onMounted(fetchCalls);
   padding: 0 6px;
   overflow: hidden;
   line-height: 20px;
-  color: #fff;
+  color: var(--el-color-white);
   white-space: nowrap;
   cursor: default;
   background: var(--st);

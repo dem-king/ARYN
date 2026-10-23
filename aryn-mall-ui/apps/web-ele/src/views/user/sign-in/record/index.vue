@@ -1,11 +1,8 @@
 <script lang="ts" setup>
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
-import { Refresh, Search } from '@element-plus/icons-vue';
 import {
-  ElButton,
   ElDatePicker,
-  ElForm,
   ElFormItem,
   ElInput,
   ElTable,
@@ -13,6 +10,8 @@ import {
 } from 'element-plus';
 
 import { getPage } from '#/api/user/sign-in-record';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 
 const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
@@ -34,7 +33,6 @@ const state = reactive({
 });
 const showSearch = ref(true);
 const loading = ref(false);
-const queryRef = ref();
 
 const initPage = async () => {
   loading.value = true;
@@ -60,27 +58,24 @@ const initPage = async () => {
     });
 };
 
-const resetQuery = () => {
-  queryRef.value.resetFields();
-  initPage();
-};
-
 initPage();
 </script>
 <template>
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
-      <ElForm
+      <!-- 搜索 -->
+      <PageFilterPanel
         :model="state.queryParams"
-        ref="queryRef"
-        :inline="true"
-        v-show="showSearch"
+        :visible="showSearch"
+        @reset="initPage"
+        @search="initPage"
       >
         <ElFormItem label="会员昵称" prop="nickname">
           <ElInput
             v-model="state.queryParams.nickname"
             placeholder="请输入会员昵称"
             clearable
+            @keyup.enter="initPage"
           />
         </ElFormItem>
         <ElFormItem label="签到日期" prop="dateRange">
@@ -93,28 +88,33 @@ initPage();
             value-format="YYYY-MM-DD"
           />
         </ElFormItem>
-        <ElFormItem>
-          <ElButton type="primary" @click="initPage" :icon="Search">
-            搜索
-          </ElButton>
-          <ElButton @click="resetQuery" :icon="Refresh">重置</ElButton>
-        </ElFormItem>
-      </ElForm>
-      <div class="hx-table-toolbar">
-        <div></div>
-        <RightToolbar
-          :search-btn="true"
-          :refresh-btn="true"
-          @search="showSearch = !showSearch"
-          @refresh="initPage"
-        />
-      </div>
-      <ElTable v-loading="loading" :data="state.tableData" border>
+      </PageFilterPanel>
+      <!-- 工具栏 -->
+      <PageToolbar :total="state.page.total" total-label="条签到记录">
+        <template #right>
+          <RightToolbar
+            :search-btn="true"
+            :refresh-btn="true"
+            @search="showSearch = !showSearch"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
+      <!-- 列表 -->
+      <ElTable
+        v-loading="loading"
+        class="hx-data-table"
+        :data="state.tableData"
+        row-key="id"
+        border
+        empty-text="暂无签到记录"
+      >
         <ElTableColumn prop="nickname" label="会员昵称" />
         <ElTableColumn prop="signDate" label="签到日期" width="120" />
         <ElTableColumn prop="consecutiveDay" label="连续签到天数" width="130" />
         <ElTableColumn prop="rewardPoint" label="获得积分" width="100" />
       </ElTable>
+      <!-- 分页 -->
       <Pagination
         :total="state.page.total"
         v-model:current="state.page.currentPage"

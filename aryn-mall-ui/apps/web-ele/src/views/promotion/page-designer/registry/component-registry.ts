@@ -7,6 +7,10 @@ import type { PageDesignType } from '#/api/promotion/page-design';
 import { defineAsyncComponent } from 'vue';
 
 import {
+  createActivityStripDefaults,
+  validateActivityStrip,
+} from '../../page-design/components/activity-strip/types';
+import {
   createCountdownDefaults,
   validateCountdown,
 } from '../../page-design/components/countdown/types';
@@ -106,6 +110,7 @@ export const retailComponentTypes = [
   'ship-workbench',
   'replenish-card',
   'newbie-floor',
+  'activity-strip',
 ] as const;
 
 export type RetailComponentType = (typeof retailComponentTypes)[number];
@@ -515,6 +520,15 @@ export const componentRegistry: Record<
     () => import('../../page-design/components/newbie-floor/index.vue'),
     () => import('../../page-design/components/newbie-floor/setting.vue'),
     () => import('../../page-design/components/newbie-floor/style-setting.vue'),
+  ),
+  'activity-strip': defineRetailComponent(
+    'activity-strip',
+    '活动入口条',
+    '营销活动',
+    createActivityStripDefaults(),
+    validateActivityStrip,
+    () => import('../../page-design/components/activity-strip/index.vue'),
+    () => import('../../page-design/components/activity-strip/setting.vue'),
   ),
   seckill: defineRetailComponent(
     'seckill',

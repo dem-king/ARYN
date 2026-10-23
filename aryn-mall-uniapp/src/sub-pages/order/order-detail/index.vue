@@ -55,9 +55,7 @@ const navbarTitle = computed(() => {
     case '2':
       if (way === DELIVERY_WAY_EXPRESS)
         return '等待发货'
-      if (way === DELIVERY_WAY_MALL_DELIVERY)
-        return '商城备货中'
-      if (way === DELIVERY_WAY_VESSEL_INTERNAL)
+      if (way === DELIVERY_WAY_MALL_DELIVERY || way === DELIVERY_WAY_VESSEL_INTERNAL)
         return '备货中'
       return '商家备货中'
     case '3':
@@ -90,7 +88,7 @@ const navbarSubTitle = computed(() => {
       if (way === DELIVERY_WAY_EXPRESS)
         return `${paidPrefix}等待商家发货`
       if (way === DELIVERY_WAY_MALL_DELIVERY)
-        return `${paidPrefix}商城正在备货配货`
+        return `${paidPrefix}公司正在备货配货`
       if (way === DELIVERY_WAY_VESSEL_INTERNAL)
         return `${paidPrefix}仓库正在备货`
       return `${paidPrefix}商家备货中`
@@ -99,7 +97,7 @@ const navbarSubTitle = computed(() => {
       if (way === DELIVERY_WAY_EXPRESS)
         return '商家已发货，等待签收'
       if (way === DELIVERY_WAY_MALL_DELIVERY)
-        return '商城配送员正在为您配送'
+        return '公司配送员正在为您配送'
       if (way === DELIVERY_WAY_VESSEL_INTERNAL)
         return '公司司机正在配送至船舶'
       return '商家已备货，等待提货中'
@@ -427,6 +425,38 @@ function toCustomerService() {
             <wd-text
               size="26rpx"
               :text="state.order.couponPrice"
+              color="red"
+              mode="price"
+              prefix="-￥"
+            />
+          </view>
+          <!-- 会员优惠 -->
+          <view
+            v-if="showMoreInfo && Number(state.order.memberDiscountPrice) > 0"
+            class="flex items-center justify-between pb-20rpx"
+          >
+            <text class="text-14px">
+              会员优惠
+            </text>
+            <wd-text
+              size="26rpx"
+              :text="state.order.memberDiscountPrice"
+              color="red"
+              mode="price"
+              prefix="-￥"
+            />
+          </view>
+          <!-- 积分抵扣 -->
+          <view
+            v-if="showMoreInfo && Number(state.order.pointsDeductPrice) > 0"
+            class="flex items-center justify-between pb-20rpx"
+          >
+            <text class="text-14px">
+              积分抵扣（{{ state.order.pointsUsed || 0 }}积分）
+            </text>
+            <wd-text
+              size="26rpx"
+              :text="state.order.pointsDeductPrice"
               color="red"
               mode="price"
               prefix="-￥"

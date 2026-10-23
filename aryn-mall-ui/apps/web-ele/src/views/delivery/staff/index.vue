@@ -1,6 +1,4 @@
 <script lang="ts" setup name="deliveryStaff">
-import type { FormInstance } from 'element-plus';
-
 import type {
   DeliveryBindingStatus,
   DeliveryStaffManager,
@@ -9,10 +7,9 @@ import type {
 
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
-import { Delete, Edit, Plus, Refresh, Search } from '@element-plus/icons-vue';
+import { Delete, Edit, Plus } from '@element-plus/icons-vue';
 import {
   ElButton,
-  ElForm,
   ElFormItem,
   ElInput,
   ElMessage,
@@ -31,6 +28,8 @@ import {
   updateDeliveryStaffAvailability,
   updateDeliveryStaffQualification,
 } from '#/api/delivery/staff';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 
 const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
@@ -62,7 +61,6 @@ const bindingStatusOptions: {
   { value: 'unbound', label: '未绑定', type: 'info' },
 ];
 
-const queryRef = ref<FormInstance>();
 const staffFormRef = ref();
 const staffOnboardRef = ref();
 const bindMallUserRef = ref();
@@ -139,15 +137,6 @@ const initStats = async () => {
 const refreshAll = () => {
   initPage();
   initStats();
-};
-
-/**
- * 重置搜索表单
- */
-const resetQuery = (formEl: FormInstance | undefined) => {
-  if (!formEl) return;
-  formEl.resetFields();
-  refreshAll();
 };
 
 /**
@@ -309,17 +298,18 @@ refreshAll();
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 搜索 -->
-      <ElForm
+      <PageFilterPanel
         :model="state.queryParams"
-        ref="queryRef"
-        :inline="true"
-        v-show="showSearch"
+        :visible="showSearch"
+        @reset="refreshAll"
+        @search="initPage"
       >
         <ElFormItem label="姓名/手机号" prop="keyword">
           <ElInput
             v-model="state.queryParams.keyword"
             clearable
             placeholder="请输入配送员姓名或手机号"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
         <ElFormItem label="绑定状态" prop="bindingStatus">
@@ -327,7 +317,6 @@ refreshAll();
             v-model="state.queryParams.bindingStatus"
             clearable
             placeholder="请选择绑定状态"
-            style="width: 200px"
           >
             <ElOption
               v-for="item in bindingStatusOptions"
@@ -342,7 +331,6 @@ refreshAll();
             v-model="state.queryParams.status"
             clearable
             placeholder="请选择接单状态"
-            style="width: 200px"
           >
             <ElOption
               v-for="item in statusOptions"
@@ -352,18 +340,10 @@ refreshAll();
             />
           </ElSelect>
         </ElFormItem>
-        <ElFormItem>
-          <ElButton type="primary" @click="initPage" :icon="Search">
-            搜索
-          </ElButton>
-          <ElButton @click="resetQuery(queryRef)" :icon="Refresh">
-            重置
-          </ElButton>
-        </ElFormItem>
-      </ElForm>
+      </PageFilterPanel>
       <!-- 工具栏 -->
-      <div class="hx-table-toolbar">
-        <div>
+      <PageToolbar>
+        <template #left>
           <ElButton
             type="primary"
             v-access:code="'delivery:staff:add'"
@@ -376,20 +356,29 @@ refreshAll();
             已绑定商城账号 {{ state.stats.bound }} 人 · 待绑定
             {{ state.stats.unbound }} 人
           </span>
-        </div>
-        <RightToolbar
-          :search-btn="true"
-          :refresh-btn="true"
-          @search="showSearch = !showSearch"
-          @refresh="refreshAll"
-        />
-      </div>
+        </template>
+        <template #right>
+          <RightToolbar
+            :search-btn="true"
+            :refresh-btn="true"
+            @search="showSearch = !showSearch"
+            @refresh="refreshAll"
+          />
+        </template>
+      </PageToolbar>
       <StaffForm ref="staffFormRef" @init-page="refreshAll" />
       <StaffOnboard ref="staffOnboardRef" @init-page="refreshAll" />
       <BindMallUser ref="bindMallUserRef" @init-page="refreshAll" />
 
       <!-- 列表 -->
-      <ElTable v-loading="loading" :data="state.tableData" border>
+      <ElTable
+        v-loading="loading"
+        class="hx-data-table"
+        :data="state.tableData"
+        row-key="id"
+        border
+        empty-text="暂无配送员"
+      >
         <ElTableColumn
           prop="staffName"
           label="配送员"
@@ -538,12 +527,12 @@ refreshAll();
 .hx-table-toolbar-stat {
   margin-left: 16px;
   font-size: 13px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .hx-cell-sub {
   font-size: 12px;
   line-height: 1.4;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 </style>

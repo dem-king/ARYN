@@ -64,7 +64,9 @@ const metrics = computed(() => [
           content="基于商品累计销量与当前库存；滞销=30 天前创建且累计销量为 0"
           placement="top"
         >
-          <ElIcon class="cursor-help text-gray-400"><InfoFilled /></ElIcon>
+          <ElIcon class="cursor-help text-[var(--el-text-color-placeholder)]">
+            <InfoFilled />
+          </ElIcon>
         </ElTooltip>
       </div>
     </template>
@@ -78,7 +80,9 @@ const metrics = computed(() => [
         <div class="text-2xl font-bold">
           <CountTo :end-val="item.value" />
         </div>
-        <div class="mt-1 flex items-center gap-1 text-xs text-gray-500">
+        <div
+          class="mt-1 flex items-center gap-1 text-xs text-[var(--el-text-color-secondary)]"
+        >
           <ElIcon><component :is="item.icon" /></ElIcon>
           {{ item.label }}
         </div>

@@ -24,12 +24,14 @@ import com.aryn.cloud.user.api.dto.UserProfileUpdateDTO;
 import com.aryn.cloud.user.api.entity.SocialUser;
 import com.aryn.cloud.user.api.entity.UserInfo;
 import com.aryn.cloud.user.api.entity.UserTagRel;
+import com.aryn.cloud.user.api.enums.PointsSceneEnum;
 import com.aryn.cloud.user.api.vo.UserRespVO;
 import com.aryn.cloud.user.api.vo.UserStatisticsVO;
 import com.aryn.cloud.user.mapper.SocialUserMapper;
 import com.aryn.cloud.user.mapper.UserInfoMapper;
 import com.aryn.cloud.user.mapper.UserTagRelMapper;
 import com.aryn.cloud.user.service.IBalanceRecordService;
+import com.aryn.cloud.user.service.IPointsGrantService;
 import com.aryn.cloud.user.service.IPointsRecordService;
 import com.aryn.cloud.user.service.IUserInfoService;
 import lombok.RequiredArgsConstructor;
@@ -59,6 +61,8 @@ public class UserInfoServiceImpl extends ServiceImpl<UserInfoMapper, UserInfo> i
 	private final IPointsRecordService pointsRecordService;
 
 	private final IBalanceRecordService balanceRecordService;
+
+	private final IPointsGrantService pointsGrantService;
 
 	private final SocialUserMapper socialUserMapper;
 
@@ -104,6 +108,8 @@ public class UserInfoServiceImpl extends ServiceImpl<UserInfoMapper, UserInfo> i
 		userInfo.setNickname(mobilePhoneDesensitization.serialize(userInfo.getPhone()));
 		userInfo.setCreateBy(phone);
 		this.save(userInfo);
+		pointsGrantService.grant(userInfo.getId(), PointsSceneEnum.REGISTER, "REGISTER:" + userInfo.getId(), null,
+				"注册奖励");
 		return userInfo;
 	}
 
@@ -163,6 +169,7 @@ public class UserInfoServiceImpl extends ServiceImpl<UserInfoMapper, UserInfo> i
 	}
 
 	@Override
+	@Transactional(rollbackFor = Exception.class)
 	public UserInfo createUserByOpenId(String openid, String platformType) {
 		UserInfo userInfo = new UserInfo();
 		userInfo.setOpenId(openid);
@@ -188,6 +195,8 @@ public class UserInfoServiceImpl extends ServiceImpl<UserInfoMapper, UserInfo> i
 			throw new ArynBusinessException("租户上下文缺失，无法创建用户");
 		}
 		this.save(userInfo);
+		pointsGrantService.grant(userInfo.getId(), PointsSceneEnum.REGISTER, "REGISTER:" + userInfo.getId(), null,
+				"注册奖励");
 		return userInfo;
 	}
 

@@ -40,6 +40,8 @@
 	order_info.promo_price,
 	order_info.member_discount_price,
 	order_info.points_multiplier,
+	order_info.points_used,
+	order_info.points_deduct_price,
 	order_info.payment_price,
 	order_info.actual_pay_price,
 	order_info.pay_vouchers,

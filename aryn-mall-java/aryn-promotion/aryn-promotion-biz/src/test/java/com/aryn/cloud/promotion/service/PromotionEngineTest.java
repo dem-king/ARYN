@@ -8,6 +8,7 @@ import com.aryn.cloud.promotion.api.vo.PromotionCalculationVO;
 import com.aryn.cloud.promotion.mapper.PromotionActivityMapper;
 import com.aryn.cloud.promotion.mapper.PromotionLockMapper;
 import com.aryn.cloud.promotion.service.impl.PromotionEngineServiceImpl;
+import com.aryn.cloud.promotion.service.impl.PromotionLockUsage;
 import com.aryn.cloud.promotion.service.impl.PromotionReservationServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -47,6 +48,8 @@ class PromotionEngineTest {
 
 	private PromotionReservationServiceImpl reservation;
 
+	private PromotionLockUsage lockUsage;
+
 	private com.aryn.cloud.promotion.service.impl.ActivityPublishGovernanceService governanceService;
 
 	@BeforeEach
@@ -54,15 +57,15 @@ class PromotionEngineTest {
 		activityMapper = mock(PromotionActivityMapper.class);
 		lockMapper = mock(PromotionLockMapper.class);
 		buyerProfileService = mock(com.aryn.cloud.promotion.api.remote.RemoteBuyerProfileService.class);
-		engine = new PromotionEngineServiceImpl(activityMapper);
+		lockUsage = new PromotionLockUsage(lockMapper);
+		engine = new PromotionEngineServiceImpl(activityMapper, lockUsage);
 		ReflectionTestUtils.setField(engine, "remoteBuyerProfileService", buyerProfileService);
 		goodsSkuService = mock(com.aryn.cloud.product.api.remote.RemoteGoodsSkuService.class);
 		ReflectionTestUtils.setField(engine, "remoteGoodsSkuService", goodsSkuService);
 		governanceService = new com.aryn.cloud.promotion.service.impl.ActivityPublishGovernanceService(activityMapper);
-		reservation = new PromotionReservationServiceImpl(engine, activityMapper, lockMapper);
-		ReflectionTestUtils.setField(reservation, "promotionEngineService", engine);
-		ReflectionTestUtils.setField(reservation, "promotionActivityMapper", activityMapper);
-		ReflectionTestUtils.setField(reservation, "promotionLockMapper", lockMapper);
+		reservation = new PromotionReservationServiceImpl(engine, activityMapper, lockMapper, lockUsage);
+		// 默认额度充足；竞态用例单独覆盖为 0
+		when(activityMapper.consumeBudget(any(), any(), any())).thenReturn(1);
 	}
 
 	private PromotionContextDTO context(String scene, String vesselId, String callId, String portCode) {
@@ -156,8 +159,8 @@ class PromotionEngineTest {
 	}
 
 	@Test
-	@DisplayName("跨类型按固定顺序叠加：阶梯价 + 整船优惠")
-	void crossTypeStacksInOrder() {
+	@DisplayName("已享阶梯价的 SKU 不计入整船优惠门槛")
+	void ladderPricedSkuIsExcludedFromWholeDiscountBase() {
 		String ladder = "{\"skuLadders\":[{\"skuId\":\"sku-1\",\"ladders\":[{\"minQty\":50,\"unitPrice\":24}]}]}";
 		String whole = "{\"tiers\":[{\"minAmount\":1000,\"discountAmount\":100}]}";
 		when(activityMapper.selectList(any())).thenReturn(List.of(
@@ -165,9 +168,42 @@ class PromotionEngineTest {
 				activity("act-whole", PromotionActivity.TYPE_SHIP_WHOLE_DISCOUNT, "1", null, "2", whole)));
 
 		PromotionCalculationVO result = engine.preview(context("2", "vessel-1", "call-1", "CNSHA"));
-		assertEquals(2, result.getDetails().size());
-		// 阶梯价节省 (28.5-24)*60=270；整单优惠 100（基价口径）
+		// 阶梯价 SKU 原价 1710 被排除，仅剩 sku-2 的 60 参与门槛，未达 1000
+		assertEquals(1, result.getDetails().size());
 		assertEquals(0, result.getLadderOverrides().get(0).getUnitPrice().compareTo(new BigDecimal("24")));
+		assertEquals(0, result.getWholeDiscount().compareTo(BigDecimal.ZERO));
+	}
+
+	@Test
+	@DisplayName("外部活动价标记的 SKU 不计入整船优惠门槛")
+	void externallyActivityPricedSkuIsExcludedFromWholeDiscountBase() {
+		String whole = "{\"tiers\":[{\"minAmount\":1000,\"discountAmount\":100}]}";
+		when(activityMapper.selectList(any())).thenReturn(List.of(
+				activity("act-whole", PromotionActivity.TYPE_SHIP_WHOLE_DISCOUNT, "1", null, "2", whole)));
+
+		PromotionContextDTO context = context("2", "vessel-1", "call-1", "CNSHA");
+		// sku-1 已享秒杀/折扣等价，原价 1710 退出门槛；sku-2 的 60 不足以命中
+		context.getSkuItems().get(0).setActivityPriced(true);
+		PromotionCalculationVO result = engine.preview(context);
+
+		assertTrue(result.getDetails().isEmpty());
+		assertEquals(0, result.getWholeDiscount().compareTo(BigDecimal.ZERO));
+	}
+
+	@Test
+	@DisplayName("整船优惠仍按未享活动价的商品金额命中档位")
+	void wholeDiscountUsesOnlyNonActivityBase() {
+		String whole = "{\"tiers\":[{\"minAmount\":1000,\"discountAmount\":100}]}";
+		when(activityMapper.selectList(any())).thenReturn(List.of(
+				activity("act-whole", PromotionActivity.TYPE_SHIP_WHOLE_DISCOUNT, "1", null, "2", whole)));
+
+		PromotionContextDTO context = context("2", "vessel-1", "call-1", "CNSHA");
+		PromotionContextDTO.SkuItem activityPriced = skuItem("sku-1", 60, "28.5");
+		activityPriced.setActivityPriced(true);
+		// 排除 sku-1 后，sku-2(60) + sku-3(1000) 仍达到 1000 档
+		context.setSkuItems(List.of(activityPriced, skuItem("sku-2", 5, "12"), skuItem("sku-3", 10, "100")));
+
+		PromotionCalculationVO result = engine.preview(context);
 		assertEquals(0, result.getWholeDiscount().compareTo(new BigDecimal("100")));
 	}
 
@@ -222,8 +258,8 @@ class PromotionEngineTest {
 	}
 
 	@Test
-	@DisplayName("熔断：每人限享次数用完时 reserve 整单拦截")
-	void reserveRejectsWhenPerUserLimitExhausted() {
+	@DisplayName("每人限享用完：活动不参与试算，订单可继续按其他优惠成交")
+	void perUserLimitExhaustedActivityIsSkipped() {
 		String whole = "{\"tiers\":[{\"minAmount\":1000,\"discountAmount\":100}]}";
 		PromotionActivity limited = activity("act-1", PromotionActivity.TYPE_SHIP_WHOLE_DISCOUNT, "1", null, "2", whole);
 		limited.setPerUserLimit(1);
@@ -234,23 +270,66 @@ class PromotionEngineTest {
 
 		PromotionContextDTO context = context("2", "vessel-1", "call-1", "CNSHA");
 		context.setOrderId("order-1");
-		assertThrows(ArynBusinessException.class, () -> reservation.reserve(context));
+		PromotionCalculationVO result = reservation.reserve(context);
+
+		assertTrue(result.getDetails().isEmpty());
+		assertEquals(0, result.getTotalDiscount().compareTo(BigDecimal.ZERO));
+		verify(lockMapper, org.mockito.Mockito.never()).insert(any(PromotionLock.class));
 	}
 
 	@Test
-	@DisplayName("熔断：活动预算不足时 reserve 整单拦截")
-	void reserveRejectsWhenBudgetExhausted() {
+	@DisplayName("预算不足：活动不参与试算，订单按原价继续，不再整单拦截")
+	void budgetExhaustedActivityIsSkipped() {
 		String whole = "{\"tiers\":[{\"minAmount\":1000,\"discountAmount\":100}]}";
 		PromotionActivity budgeted = activity("act-1", PromotionActivity.TYPE_SHIP_WHOLE_DISCOUNT, "1", null, "2", whole);
 		budgeted.setTotalBudget(new BigDecimal("50"));
+		budgeted.setConsumedBudget(BigDecimal.ZERO);
 		when(activityMapper.selectList(any())).thenReturn(List.of(budgeted));
 		when(activityMapper.selectById("act-1")).thenReturn(budgeted);
 		when(lockMapper.selectOne(any())).thenReturn(null);
-		when(lockMapper.selectList(any())).thenReturn(List.of());
+
+		PromotionContextDTO context = context("2", "vessel-1", "call-1", "CNSHA");
+		context.setOrderId("order-1");
+		PromotionCalculationVO result = reservation.reserve(context);
+
+		assertTrue(result.getDetails().isEmpty());
+		assertEquals(0, result.getTotalDiscount().compareTo(BigDecimal.ZERO));
+		verify(lockMapper, org.mockito.Mockito.never()).insert(any(PromotionLock.class));
+	}
+
+	@Test
+	@DisplayName("预算已被并发订单用尽：reserve 拒绝并提示刷新价格")
+	void reserveRejectsWhenBudgetConsumedConcurrently() {
+		String whole = "{\"tiers\":[{\"minAmount\":1000,\"discountAmount\":100}]}";
+		PromotionActivity budgeted = activity("act-1", PromotionActivity.TYPE_SHIP_WHOLE_DISCOUNT, "1", null, "2", whole);
+		budgeted.setTotalBudget(new BigDecimal("500"));
+		budgeted.setConsumedBudget(BigDecimal.ZERO);
+		when(activityMapper.selectList(any())).thenReturn(List.of(budgeted));
+		when(activityMapper.selectById("act-1")).thenReturn(budgeted);
+		when(lockMapper.selectOne(any())).thenReturn(null);
+		when(activityMapper.consumeBudget(any(), any(), any())).thenReturn(0);
 
 		PromotionContextDTO context = context("2", "vessel-1", "call-1", "CNSHA");
 		context.setOrderId("order-1");
 		assertThrows(ArynBusinessException.class, () -> reservation.reserve(context));
+	}
+
+	@Test
+	@DisplayName("预算充足的锁定会原子占用让利额")
+	void reserveConsumesBudget() {
+		String whole = "{\"tiers\":[{\"minAmount\":1000,\"discountAmount\":100}]}";
+		PromotionActivity budgeted = activity("act-1", PromotionActivity.TYPE_SHIP_WHOLE_DISCOUNT, "1", null, "2", whole);
+		budgeted.setTotalBudget(new BigDecimal("500"));
+		budgeted.setConsumedBudget(BigDecimal.ZERO);
+		when(activityMapper.selectList(any())).thenReturn(List.of(budgeted));
+		when(activityMapper.selectById("act-1")).thenReturn(budgeted);
+		when(lockMapper.selectOne(any())).thenReturn(null);
+
+		PromotionContextDTO context = context("2", "vessel-1", "call-1", "CNSHA");
+		context.setOrderId("order-1");
+		reservation.reserve(context);
+
+		verify(activityMapper).consumeBudget(TENANT, "act-1", new BigDecimal("100"));
 	}
 
 	@Test
@@ -287,6 +366,8 @@ class PromotionEngineTest {
 	void confirmAndReleaseIdempotent() {
 		PromotionLock locked = new PromotionLock();
 		locked.setOrderId("order-1");
+		locked.setActivityId("act-1");
+		locked.setDiscountAmount(new BigDecimal("100"));
 		locked.setStatus(PromotionLock.STATUS_LOCKED);
 		when(lockMapper.selectList(any())).thenReturn(List.of(locked));
 
@@ -296,10 +377,13 @@ class PromotionEngineTest {
 		reservation.release(TENANT, "order-1", "CANCEL");
 		assertEquals(PromotionLock.STATUS_RELEASED, locked.getStatus());
 		assertEquals("CANCEL", locked.getReleaseReason());
+		verify(activityMapper).releaseBudget(TENANT, "act-1", new BigDecimal("100"));
 
-		// 再次 release 已释放记录：状态不变（幂等）
+		// 再次 release 已释放记录：状态与预算归还都不重复（幂等）
 		reservation.release(TENANT, "order-1", "TIMEOUT");
 		assertEquals("CANCEL", locked.getReleaseReason());
+		verify(activityMapper, org.mockito.Mockito.times(1)).releaseBudget(TENANT, "act-1",
+				new BigDecimal("100"));
 	}
 
 	@Test
@@ -501,6 +585,22 @@ class PromotionEngineTest {
 		assertEquals(1, result.getDetails().size());
 		// 60 件 * (28.5-19.9) = 516
 		assertEquals(0, result.getTotalDiscount().compareTo(new BigDecimal("516.0")));
+	}
+
+	@Test
+	@DisplayName("新人价 SKU 不计入整船优惠门槛")
+	void newbiePricedSkuIsExcludedFromWholeDiscountBase() {
+		String newbie = newbieRules("{\"skuId\":\"sku-1\",\"price\":19.9}");
+		String whole = "{\"tiers\":[{\"minAmount\":1000,\"discountAmount\":100}]}";
+		when(activityMapper.selectList(any())).thenReturn(List.of(
+				activity("act-newbie", PromotionActivity.TYPE_NEWBIE_PRICE, "2", "sku-1", null, newbie),
+				activity("act-whole", PromotionActivity.TYPE_SHIP_WHOLE_DISCOUNT, "1", null, null, whole)));
+		newbieEligible(true);
+
+		PromotionCalculationVO result = engine.preview(context("1", null, null, null));
+		// 新人价 SKU 原价 1710 被排除，仅 sku-2 的 60 参与门槛，未达 1000
+		assertEquals(1, result.getDetails().size());
+		assertEquals(0, result.getWholeDiscount().compareTo(BigDecimal.ZERO));
 	}
 
 	@Test

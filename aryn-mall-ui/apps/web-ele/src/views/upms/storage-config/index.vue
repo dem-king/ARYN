@@ -1,10 +1,9 @@
 <script lang="ts" setup>
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
-import { Delete, Edit, Plus, Refresh, Search } from '@element-plus/icons-vue';
+import { Delete, Edit, Plus } from '@element-plus/icons-vue';
 import {
   ElButton,
-  ElForm,
   ElFormItem,
   ElMessage,
   ElMessageBox,
@@ -15,6 +14,8 @@ import {
 } from 'element-plus';
 
 import { delObj, getPage } from '#/api/upms/storage-config';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 import { useDict } from '#/utils/dict';
 
 const Form = defineAsyncComponent(() => import('./form.vue'));
@@ -44,7 +45,6 @@ const state = reactive({
 const showSearch = ref(true);
 const loading = ref(false);
 const formRef = ref();
-const queryRef = ref();
 
 const initPage = async () => {
   loading.value = true;
@@ -68,13 +68,6 @@ const initPage = async () => {
   } finally {
     loading.value = false;
   }
-};
-/**
- * 重置搜索表单
- */
-const resetQuery = () => {
-  queryRef.value.resetFields();
-  initPage();
 };
 /**
  * 新增按钮
@@ -111,15 +104,14 @@ initPage();
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 搜索 -->
-      <ElForm
+      <PageFilterPanel
         :model="state.queryParams"
-        ref="queryRef"
-        :inline="true"
-        v-show="showSearch"
+        :visible="showSearch"
+        @reset="initPage"
+        @search="initPage"
       >
         <ElFormItem label="存储类型" prop="type">
           <ElSelect
-            style="width: 200px"
             v-model="state.queryParams.type"
             clearable
             placeholder="请选择存储类型"
@@ -132,16 +124,10 @@ initPage();
             />
           </ElSelect>
         </ElFormItem>
-        <ElFormItem>
-          <ElButton type="primary" @click="initPage" :icon="Search">
-            搜索
-          </ElButton>
-          <ElButton @click="resetQuery" :icon="Refresh"> 重置 </ElButton>
-        </ElFormItem>
-      </ElForm>
+      </PageFilterPanel>
       <!-- 工具栏 -->
-      <div class="hx-table-toolbar">
-        <div>
+      <PageToolbar :total="state.page.total" total-label="条存储配置">
+        <template #left>
           <ElButton
             type="primary"
             v-access:code="'upms:storageconfig:add'"
@@ -150,20 +136,28 @@ initPage();
           >
             新增
           </ElButton>
-          <span style="padding-left: 10px; font-size: 14px">
+          <span class="toolbar-hint">
             当前仅支持启用一种文件存储服务。启用新配置将自动禁用原有存储配置，以确保系统唯一性。
           </span>
-        </div>
-        <RightToolbar
-          :search-btn="true"
-          :refresh-btn="true"
-          @search="showSearch = !showSearch"
-          @refresh="initPage"
-        />
-      </div>
+        </template>
+        <template #right>
+          <RightToolbar
+            :search-btn="true"
+            :refresh-btn="true"
+            @search="showSearch = !showSearch"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
       <Form ref="formRef" @init-page="initPage" />
       <!-- 列表 -->
-      <ElTable v-loading="loading" :data="state.tableData" border>
+      <ElTable
+        v-loading="loading"
+        :data="state.tableData"
+        class="hx-data-table"
+        border
+        empty-text="暂无存储配置"
+      >
         <ElTableColumn prop="accessKey" label="accessKey" min-width="180" />
         <ElTableColumn
           prop="accessSecret"
@@ -220,3 +214,10 @@ initPage();
     </div>
   </div>
 </template>
+<style lang="scss" scoped>
+.toolbar-hint {
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--el-text-color-secondary);
+}
+</style>

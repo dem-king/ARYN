@@ -50,6 +50,14 @@ watch(
     <ElFormItem label="区块标题">
       <ElInput v-model="form.title" maxlength="20" show-word-limit />
     </ElFormItem>
+    <ElFormItem label="副标题">
+      <ElInput
+        v-model="form.subtitle"
+        maxlength="20"
+        placeholder="留空使用默认：整点开抢 · 限量特价，手慢无"
+        show-word-limit
+      />
+    </ElFormItem>
     <ElFormItem label="数据来源">
       <ElRadioGroup v-model="form.dataSource.mode">
         <ElRadio value="automatic">自动读取进行中/即将开始场次</ElRadio>

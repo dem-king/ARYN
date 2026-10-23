@@ -49,6 +49,7 @@ import {
   rejectBindApply,
   unbindVesselMemberByApply,
 } from '#/api/vessel/vessel';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
 
 import {
   isSameVesselIdentity,
@@ -66,6 +67,7 @@ const state = reactive({
   tableData: [] as any[],
 });
 const loading = ref(false);
+const showSearch = ref(true);
 
 const statusLabel: Record<string, string> = {
   '1': '待审核',
@@ -98,12 +100,6 @@ const initPage = async () => {
   } finally {
     loading.value = false;
   }
-};
-
-const resetQuery = () => {
-  state.query.vesselName = '';
-  state.page.currentPage = 1;
-  initPage();
 };
 
 // ---------------------------------------------------------------------------
@@ -453,9 +449,15 @@ onMounted(initPage);
 <template>
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
-      <ElForm :inline="true" :model="state.query">
-        <ElFormItem label="状态">
-          <ElSelect v-model="state.query.status" style="width: 140px">
+      <!-- 搜索 -->
+      <PageFilterPanel
+        :model="state.query"
+        :visible="showSearch"
+        @reset="initPage"
+        @search="initPage"
+      >
+        <ElFormItem label="状态" prop="status">
+          <ElSelect v-model="state.query.status">
             <ElOption label="待审核" value="1" />
             <ElOption label="已通过" value="2" />
             <ElOption label="已驳回" value="3" />
@@ -463,25 +465,29 @@ onMounted(initPage);
             <ElOption label="全部" value="" />
           </ElSelect>
         </ElFormItem>
-        <ElFormItem label="船舶名称">
+        <ElFormItem label="船舶名称" prop="vesselName">
           <ElInput
             v-model="state.query.vesselName"
             clearable
             placeholder="按申请填写船名搜索"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
-        <ElFormItem>
-          <ElButton type="primary" @click="initPage">搜索</ElButton>
-          <ElButton @click="resetQuery">重置</ElButton>
-        </ElFormItem>
-      </ElForm>
+      </PageFilterPanel>
 
-      <ElTable v-loading="loading" :data="state.tableData" border>
+      <ElTable
+        v-loading="loading"
+        class="hx-data-table"
+        :data="state.tableData"
+        row-key="id"
+        border
+        empty-text="暂无绑定申请"
+      >
         <ElTableColumn prop="applyNo" label="申请单号" min-width="180" />
         <ElTableColumn label="申请人" min-width="150">
           <template #default="scope">
             <div>{{ scope.row.userNickname ?? scope.row.userId }}</div>
-            <div style="font-size: 12px; color: #909399">
+            <div class="apply-user-phone">
               {{ scope.row.userPhone ?? '—' }}
             </div>
           </template>
@@ -515,11 +521,11 @@ onMounted(initPage);
           <template #default="scope">
             <template v-if="scope.row.vesselMismatch">
               <div>
-                <span class="text-gray-500">
+                <span class="mismatch-name">
                   {{ scope.row.applyVesselName ?? '—' }}
                 </span>
-                <span class="px-1 text-gray-400">→</span>
-                <span class="font-medium text-orange-600">
+                <span class="mismatch-arrow">→</span>
+                <span class="mismatch-target">
                   {{ scope.row.matchedVesselName ?? '—' }}
                 </span>
               </div>
@@ -563,7 +569,7 @@ onMounted(initPage);
             >
               解绑
             </ElButton>
-            <span v-else style="color: #909399">
+            <span v-else class="apply-handled">
               {{ scope.row.status === '2' ? '已解绑' : '已处理' }}
             </span>
           </template>
@@ -601,19 +607,18 @@ onMounted(initPage);
             class="mb-3"
           />
           <div v-if="precheck.candidates?.length" class="mb-3">
-            <div class="mb-1 text-xs text-gray-500">
+            <div class="precheck-hint mb-1 text-xs">
               可能相关的在营船舶（点击即选中）
             </div>
             <div class="flex flex-wrap gap-2">
               <div
                 v-for="candidate in precheck.candidates"
                 :key="candidate.id"
-                class="cursor-pointer rounded px-2 py-1"
-                :class="
-                  approveForm.matchedVesselId === candidate.id
-                    ? 'bg-blue-50 ring-1 ring-blue-400'
-                    : 'bg-gray-50'
-                "
+                class="candidate-chip cursor-pointer rounded px-2 py-1"
+                :class="{
+                  'candidate-chip--active':
+                    approveForm.matchedVesselId === candidate.id,
+                }"
                 @click="pickCandidate(candidate)"
               >
                 <span class="text-sm font-medium">{{
@@ -621,7 +626,7 @@ onMounted(initPage);
                 }}</span>
                 <span
                   v-if="candidate.imoCode || candidate.callSign"
-                  class="ml-1 text-xs text-gray-500"
+                  class="candidate-identity ml-1 text-xs"
                 >
                   {{
                     [candidate.imoCode, candidate.callSign]
@@ -648,7 +653,7 @@ onMounted(initPage);
           <ElRadio value="auto">按船名自动匹配</ElRadio>
         </ElRadioGroup>
 
-        <ElForm label-width="110px">
+        <ElForm label-width="auto">
           <ElFormItem
             v-if="approveMode === 'existing'"
             label="选择船舶"
@@ -763,12 +768,64 @@ onMounted(initPage);
         </ElForm>
 
         <template #footer>
-          <ElButton @click="approveVisible = false">取消</ElButton>
-          <ElButton type="primary" :loading="approving" @click="submitApprove">
-            确认通过
-          </ElButton>
+          <div class="hx-form-footer">
+            <ElButton @click="approveVisible = false">取消</ElButton>
+            <ElButton
+              type="primary"
+              :loading="approving"
+              @click="submitApprove"
+            >
+              确定
+            </ElButton>
+          </div>
         </template>
       </ElDialog>
     </div>
   </div>
 </template>
+
+<style scoped lang="scss">
+/* 申请人手机号：次要信息弱化 */
+.apply-user-phone {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+/* 已处理状态文案 */
+.apply-handled {
+  color: var(--el-text-color-secondary);
+}
+
+/* 「申请船名 → 实际绑定船名」渲染：来源弱化、目标提示色 */
+.mismatch-name {
+  color: var(--el-text-color-secondary);
+}
+
+.mismatch-arrow {
+  padding: 0 4px;
+  color: var(--el-text-color-placeholder);
+}
+
+.mismatch-target {
+  font-weight: 500;
+  color: var(--el-color-warning);
+}
+
+/* 预检结论里的候选船舶提示 */
+.precheck-hint {
+  color: var(--el-text-color-secondary);
+}
+
+.candidate-chip {
+  background: var(--el-fill-color-light);
+}
+
+.candidate-chip--active {
+  background: var(--el-color-primary-light-9);
+  box-shadow: 0 0 0 1px var(--el-color-primary);
+}
+
+.candidate-identity {
+  color: var(--el-text-color-secondary);
+}
+</style>

@@ -1,10 +1,7 @@
 <script lang="ts" setup>
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
-import { Refresh, Search } from '@element-plus/icons-vue';
 import {
-  ElButton,
-  ElForm,
   ElFormItem,
   ElInput,
   ElTable,
@@ -13,6 +10,9 @@ import {
 } from 'element-plus';
 
 import { getPage } from '#/api/pay/refund-order';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
+import { formatMoney } from '#/utils/util';
 
 const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
@@ -33,7 +33,6 @@ const state = reactive({
 });
 const showSearch = ref(true);
 const loading = ref(false);
-const queryRef = ref();
 const initPage = async () => {
   loading.value = true;
   const params = {
@@ -51,67 +50,76 @@ const initPage = async () => {
       loading.value = false;
     });
 };
-/**
- * 重置搜索表单
- */
-const resetQuery = () => {
-  queryRef.value.resetFields();
-};
 initPage();
 </script>
 <template>
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 搜索 -->
-      <ElForm
+      <PageFilterPanel
         :model="state.queryParams"
-        ref="queryRef"
-        :inline="true"
-        v-show="showSearch"
+        :visible="showSearch"
+        @reset="initPage"
+        @search="initPage"
       >
         <ElFormItem label="退款单号" prop="refundTradeNo">
           <ElInput
             v-model="state.queryParams.refundTradeNo"
             clearable
             placeholder="请输入退款单号"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
-        <ElFormItem>
-          <ElButton type="primary" @click="initPage" :icon="Search">
-            搜索
-          </ElButton>
-          <ElButton @click="resetQuery" :icon="Refresh"> 重置 </ElButton>
-        </ElFormItem>
-      </ElForm>
+      </PageFilterPanel>
       <!-- 工具栏 -->
-      <div class="hx-table-toolbar">
-        <div></div>
-        <RightToolbar
-          :search-btn="true"
-          :refresh-btn="true"
-          @search="showSearch = !showSearch"
-          @refresh="initPage"
-        />
-      </div>
+      <PageToolbar :total="state.page.total" total-label="笔退单">
+        <template #right>
+          <RightToolbar
+            :search-btn="true"
+            :refresh-btn="true"
+            @search="showSearch = !showSearch"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
       <!-- 列表 -->
-      <ElTable v-loading="loading" :data="state.tableData" border>
+      <ElTable
+        v-loading="loading"
+        class="hx-data-table"
+        :data="state.tableData"
+        row-key="id"
+        border
+        empty-text="暂无退款单"
+      >
         <ElTableColumn prop="refundTradeNo" label="退款单号" />
         <ElTableColumn prop="outTradeNo" label="支付单号" />
-        <ElTableColumn prop="payAmount" label="支付金额" />
-        <ElTableColumn prop="refundAmount" label="退款金额" />
+        <ElTableColumn prop="payAmount" label="支付金额" width="120">
+          <template #default="scope">
+            <span class="hx-money"
+              >¥{{ formatMoney(scope.row.payAmount) }}</span
+            >
+          </template>
+        </ElTableColumn>
+        <ElTableColumn prop="refundAmount" label="退款金额" width="120">
+          <template #default="scope">
+            <span class="hx-money">
+              ¥{{ formatMoney(scope.row.refundAmount) }}
+            </span>
+          </template>
+        </ElTableColumn>
         <ElTableColumn prop="extra" label="额外参数" />
         <ElTableColumn prop="refundStatus" label="退款状态">
           <template #default="scope">
             <ElTag v-if="scope.row.refundStatus === '0'" type="info">
               待退款
             </ElTag>
-            <ElTag v-if="scope.row.refundStatus === '1'" type="success">
+            <ElTag v-else-if="scope.row.refundStatus === '1'" type="primary">
               退款中
             </ElTag>
-            <ElTag v-if="scope.row.refundStatus === '2'" type="success">
+            <ElTag v-else-if="scope.row.refundStatus === '2'" type="success">
               已退款
             </ElTag>
-            <ElTag v-if="scope.row.refundStatus === '3'" type="danger">
+            <ElTag v-else-if="scope.row.refundStatus === '3'" type="danger">
               退款失败
             </ElTag>
           </template>

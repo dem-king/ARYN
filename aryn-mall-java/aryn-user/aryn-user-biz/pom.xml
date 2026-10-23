@@ -84,6 +84,11 @@
             <groupId>com.aryn</groupId>
             <artifactId>aryn-common-sentinel</artifactId>
         </dependency>
+        <!--        seata分布式事务模块：积分扣减/返还作为订单全局事务的分支参与回滚-->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-common-seata</artifactId>
+        </dependency>
         <dependency>
             <groupId>com.aryn</groupId>
             <artifactId>aryn-common-dubbo</artifactId>

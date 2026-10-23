@@ -5,6 +5,7 @@ import { Delete, Edit, Plus } from '@element-plus/icons-vue';
 import { ElButton, ElTable, ElTableColumn } from 'element-plus';
 
 import { delObj, getPage } from '#/api/user/sign-in-config';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 import { useDict } from '#/utils/dict';
 
 const RightToolbar = defineAsyncComponent(
@@ -67,8 +68,9 @@ initPage();
 <template>
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
-      <div class="hx-table-toolbar">
-        <div>
+      <!-- 工具栏 -->
+      <PageToolbar :total="state.page.total" total-label="条规则">
+        <template #left>
           <ElButton
             type="primary"
             v-access:code="'user:signinconfig:add'"
@@ -77,15 +79,24 @@ initPage();
           >
             新增
           </ElButton>
-        </div>
-        <RightToolbar
-          :search-btn="false"
-          :refresh-btn="true"
-          @refresh="initPage"
-        />
-      </div>
+        </template>
+        <template #right>
+          <RightToolbar
+            :search-btn="false"
+            :refresh-btn="true"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
       <Form ref="formRef" @init-page="initPage" />
-      <ElTable v-loading="loading" :data="state.tableData" border>
+      <!-- 列表 -->
+      <ElTable
+        v-loading="loading"
+        class="hx-data-table"
+        :data="state.tableData"
+        border
+        empty-text="暂无签到配置"
+      >
         <ElTableColumn prop="consecutiveDay" label="连续签到天数" />
         <ElTableColumn prop="rewardPoint" label="奖励积分" />
         <ElTableColumn prop="sortOrder" label="排序" width="80" />

@@ -1,10 +1,7 @@
 <script lang="ts" setup>
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
-import { Refresh, Search } from '@element-plus/icons-vue';
 import {
-  ElButton,
-  ElForm,
   ElFormItem,
   ElInput,
   ElTable,
@@ -13,6 +10,9 @@ import {
 } from 'element-plus';
 
 import { getPage } from '#/api/pay/trade-order';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
+import { formatMoney } from '#/utils/util';
 
 const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
@@ -34,7 +34,6 @@ const state = reactive({
 });
 const showSearch = ref(true);
 const loading = ref(false);
-const queryRef = ref();
 const initPage = async () => {
   loading.value = true;
   const params = {
@@ -51,12 +50,6 @@ const initPage = async () => {
     .catch(() => {
       loading.value = false;
     });
-};
-/**
- * 重置搜索表单
- */
-const resetQuery = () => {
-  queryRef.value.resetFields();
 };
 const getPayTypeDesc = (extra: any): string => {
   if (!extra) {
@@ -80,42 +73,50 @@ initPage();
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 搜索 -->
-      <ElForm
+      <PageFilterPanel
         :model="state.queryParams"
-        ref="queryRef"
-        :inline="true"
-        v-show="showSearch"
+        :visible="showSearch"
+        @reset="initPage"
+        @search="initPage"
       >
         <ElFormItem label="订单编号" prop="outTradeNo">
           <ElInput
             v-model="state.queryParams.outTradeNo"
             clearable
             placeholder="请输入订单编号"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
-
-        <ElFormItem>
-          <ElButton type="primary" @click="initPage" :icon="Search">
-            搜索
-          </ElButton>
-          <ElButton @click="resetQuery" :icon="Refresh"> 重置 </ElButton>
-        </ElFormItem>
-      </ElForm>
+      </PageFilterPanel>
       <!-- 工具栏 -->
-      <div class="hx-table-toolbar">
-        <div></div>
-        <RightToolbar
-          :search-btn="true"
-          :refresh-btn="true"
-          @search="showSearch = !showSearch"
-          @refresh="initPage"
-        />
-      </div>
+      <PageToolbar :total="state.page.total" total-label="笔交易">
+        <template #right>
+          <RightToolbar
+            :search-btn="true"
+            :refresh-btn="true"
+            @search="showSearch = !showSearch"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
       <!-- 列表 -->
-      <ElTable v-loading="loading" :data="state.tableData" border>
+      <ElTable
+        v-loading="loading"
+        class="hx-data-table"
+        :data="state.tableData"
+        row-key="id"
+        border
+        empty-text="暂无交易订单"
+      >
         <ElTableColumn prop="outTradeNo" label="订单编号" />
         <ElTableColumn prop="description" label="订单描述" />
-        <ElTableColumn prop="amount" label="支付金额" />
+        <ElTableColumn prop="amount" label="支付金额（元）" width="150">
+          <template #default="scope">
+            <span class="trade-amount">
+              ¥{{ formatMoney(scope.row.amount) }}
+            </span>
+          </template>
+        </ElTableColumn>
         <ElTableColumn prop="payStatus" label="支付状态">
           <template #default="scope">
             <ElTag v-if="scope.row.payStatus === '0'" type="danger">
@@ -146,3 +147,10 @@ initPage();
     </div>
   </div>
 </template>
+
+<style scoped lang="scss">
+.trade-amount {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+</style>

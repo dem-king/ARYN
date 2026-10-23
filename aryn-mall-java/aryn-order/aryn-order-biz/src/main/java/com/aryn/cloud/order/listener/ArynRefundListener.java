@@ -19,11 +19,14 @@ import com.aryn.cloud.order.service.IOrderItemService;
 import com.aryn.cloud.order.service.IOrderRefundService;
 import com.aryn.cloud.pay.api.constants.PayConstants;
 import com.aryn.cloud.pay.api.utils.TransactionalMqUtils;
+import com.aryn.cloud.user.api.remote.RemotePointsService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.dubbo.config.annotation.DubboReference;
 import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
 import org.apache.rocketmq.spring.core.RocketMQListener;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
+import org.apache.seata.spring.annotation.GlobalTransactional;
 import org.springframework.beans.BeanUtils;
 import org.springframework.messaging.support.GenericMessage;
 import org.springframework.stereotype.Component;
@@ -52,7 +55,11 @@ public class ArynRefundListener implements RocketMQListener<String> {
 
 	private final com.aryn.cloud.order.service.IDeliveryTaskService deliveryTaskService;
 
+	@DubboReference
+	private final RemotePointsService remotePointsService;
+
 	@Override
+	@GlobalTransactional(rollbackFor = Exception.class)
 	@Transactional(rollbackFor = Exception.class)
 	public void onMessage(String message) {
 		ArynTenantContextHolder.removeTenantId();
@@ -102,10 +109,15 @@ public class ArynRefundListener implements RocketMQListener<String> {
 				}
 			}
 
+			// 买赠赠品（gift_flag=1，0 元）不走现金退款，不能参与「是否全部退款」判定：
+			// 否则含赠品的订单永远判定不了全退，积分/优惠券不返还、订单也不会关闭
 			List<OrderItemEntity> orderItemEntityList = orderItemService.list(Wrappers.<OrderItemEntity>lambdaQuery()
-				.eq(OrderItemEntity::getOrderId, orderRefund.getOrderId())
-				.ne(OrderItemEntity::getId, orderItemEntity.getId())
-				.ne(OrderItemEntity::getStatus, OrderItemStatusEnum.REFUNDED.getCode()));
+					.eq(OrderItemEntity::getOrderId, orderRefund.getOrderId())
+					.ne(OrderItemEntity::getId, orderItemEntity.getId())
+					.ne(OrderItemEntity::getStatus, OrderItemStatusEnum.REFUNDED.getCode()))
+				.stream()
+				.filter(item -> !com.aryn.cloud.common.core.constant.CommonConstants.YES.equals(item.getGiftFlag()))
+				.toList();
 
 			OrderRefundSuccessEvent orderRefundSuccessEvent = new OrderRefundSuccessEvent();
 			BeanUtils.copyProperties(orderRefund, orderRefundSuccessEvent);
@@ -133,6 +145,13 @@ public class ArynRefundListener implements RocketMQListener<String> {
 					} catch (Exception e) {
 						log.warn("退款完成关闭配送任务失败: {}", e.getMessage());
 					}
+				}
+				// 积分返还放在全退链路最后（bizNo 幂等，MQ 重投安全）：
+				// 与取消路径共用 ORDER_REFUND:{订单号}，保证两条路只退一次
+				if (orderInfo.getPointsUsed() != null && orderInfo.getPointsUsed() > 0) {
+					remotePointsService.refundPoints(orderInfo.getUserId(), orderInfo.getPointsUsed(),
+							"ORDER_REFUND:" + orderInfo.getOrderNo(),
+							"订单退款返还积分：" + orderInfo.getOrderNo());
 				}
 				orderRefundSuccessEvent.setCouponUserId(orderInfo.getCouponUserId());
 			}

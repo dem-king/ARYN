@@ -13,6 +13,8 @@ const retailTypes = [
   'goods-group',
   'goods-ranking',
   'limited-activity',
+  'seckill',
+  'discount',
   'countdown',
   'marketing-entry',
   'shop-info',
@@ -36,6 +38,8 @@ describe('retail admin component source contract', () => {
     ['goods-group', 'loadGoodsGroup'],
     ['goods-ranking', 'loadGoodsRanking'],
     ['limited-activity', 'loadLimitedActivities'],
+    ['seckill', 'loadSeckillSessions'],
+    ['discount', 'loadDiscounts'],
     ['shop-info', 'loadShopInfo'],
   ] as const)('%s isolates its async request through %s', (type, loader) => {
     const source = readComponent(type, 'index.vue');
@@ -49,6 +53,8 @@ describe('retail admin component source contract', () => {
     'goods-group',
     'goods-ranking',
     'limited-activity',
+    'seckill',
+    'discount',
     'marketing-entry',
   ] as const)('%s replaces broken images with an icon fallback', (type) => {
     expect(readComponent(type, 'index.vue')).toContain('#error');

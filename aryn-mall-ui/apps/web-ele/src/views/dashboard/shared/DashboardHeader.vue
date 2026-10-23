@@ -85,10 +85,12 @@ watch(rangeKey, (value) => {
 
 <template>
   <div
-    class="mb-4 flex flex-col items-start justify-between gap-3 rounded-lg bg-white p-4 shadow-sm md:flex-row md:items-center dark:bg-zinc-900"
+    class="mb-4 flex flex-col items-start justify-between gap-3 rounded-lg bg-[var(--el-bg-color-overlay)] p-4 shadow-sm md:flex-row md:items-center"
   >
     <div class="flex w-full flex-wrap items-center gap-3 md:w-auto">
-      <span class="text-sm font-bold text-gray-700">时间范围</span>
+      <span class="text-sm font-bold text-[var(--el-text-color-primary)]">
+        时间范围
+      </span>
       <ElRadioGroup v-model="rangeKey" size="default">
         <ElRadioButton value="today">今日</ElRadioButton>
         <ElRadioButton value="7d">近7天</ElRadioButton>
@@ -114,8 +116,16 @@ watch(rangeKey, (value) => {
       </ElSelect>
     </div>
     <ElSpace class="shrink-0" wrap>
-      <span v-if="loading" class="text-xs text-gray-400">加载中…</span>
-      <span v-else-if="lastUpdated" class="text-xs text-gray-400">
+      <span
+        v-if="loading"
+        class="text-xs text-[var(--el-text-color-secondary)]"
+      >
+        加载中…
+      </span>
+      <span
+        v-else-if="lastUpdated"
+        class="text-xs text-[var(--el-text-color-secondary)]"
+      >
         更新于 {{ lastUpdated }}
       </span>
       <ElTooltip content="刷新数据" placement="top">

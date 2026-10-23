@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
-import { Edit, Plus, Refresh, Search } from '@element-plus/icons-vue';
+import { Edit, Plus } from '@element-plus/icons-vue';
 import {
   ElButton,
-  ElForm,
   ElFormItem,
   ElInput,
   ElOption,
@@ -14,6 +13,8 @@ import {
 } from 'element-plus';
 
 import { getPage } from '#/api/upms/tenant-package';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 import { useDict } from '#/utils/dict';
 
 const RightToolbar = defineAsyncComponent(
@@ -47,7 +48,6 @@ const { application_key, status } = useDict('application_key', 'status');
 const showSearch = ref(true);
 const loading = ref(false);
 const formRef = ref();
-const queryRef = ref();
 const initPage = async () => {
   loading.value = true;
   const params = {
@@ -78,36 +78,30 @@ const add = () => {
 const edit = (row: any) => {
   formRef.value.initForm(row);
 };
-/**
- * 重置搜索表单
- */
-const resetQuery = () => {
-  queryRef.value.resetFields();
-};
 initPage();
 </script>
 <template>
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 搜索 -->
-      <ElForm
+      <PageFilterPanel
         :model="state.queryParams"
-        ref="queryRef"
-        :inline="true"
-        v-show="showSearch"
+        :visible="showSearch"
+        @reset="initPage"
+        @search="initPage"
       >
         <ElFormItem label="套餐名称" prop="name">
           <ElInput
             v-model="state.queryParams.name"
             clearable
             placeholder="请输入套餐名称"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
         <ElFormItem label="套餐状态" prop="status">
           <ElSelect
             v-model="state.queryParams.status"
             clearable
-            style="width: 200px"
             placeholder="请选择套餐状态"
           >
             <ElOption
@@ -118,16 +112,10 @@ initPage();
             />
           </ElSelect>
         </ElFormItem>
-        <ElFormItem>
-          <ElButton type="primary" @click="initPage" :icon="Search">
-            搜索
-          </ElButton>
-          <ElButton @click="resetQuery" :icon="Refresh"> 重置 </ElButton>
-        </ElFormItem>
-      </ElForm>
+      </PageFilterPanel>
       <!-- 工具栏 -->
-      <div class="hx-table-toolbar">
-        <div>
+      <PageToolbar :total="state.page.total" total-label="个套餐">
+        <template #left>
           <ElButton
             type="primary"
             v-access:code="'upms:tenantpackage:add'"
@@ -136,17 +124,25 @@ initPage();
           >
             新增
           </ElButton>
-        </div>
-        <RightToolbar
-          :search-btn="true"
-          :refresh-btn="true"
-          @search="showSearch = !showSearch"
-          @refresh="initPage"
-        />
-      </div>
+        </template>
+        <template #right>
+          <RightToolbar
+            :search-btn="true"
+            :refresh-btn="true"
+            @search="showSearch = !showSearch"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
       <Form ref="formRef" @init-page="initPage" />
       <!-- 列表 -->
-      <ElTable v-loading="loading" :data="state.tableData" border>
+      <ElTable
+        v-loading="loading"
+        :data="state.tableData"
+        class="hx-data-table"
+        border
+        empty-text="暂无租户套餐"
+      >
         <ElTableColumn prop="name" label="套餐名称" />
         <ElTableColumn prop="originalPrice" label="原价（元）" width="150" />
         <ElTableColumn prop="salesPrice" label="销售价格（元）" width="150" />

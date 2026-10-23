@@ -11,6 +11,7 @@ import {
 } from 'element-plus';
 
 import { delObj, getTreeList } from '#/api/upms/dept';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 import { useDict } from '#/utils/dict';
 
 const RightToolbar = defineAsyncComponent(
@@ -25,7 +26,6 @@ const { status } = useDict('status');
 const state = reactive({
   tableData: [],
 });
-const showSearch = ref(true);
 const loading = ref(false);
 const formRef = ref();
 
@@ -75,8 +75,8 @@ const del = (id: string) => {
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 工具栏 -->
-      <div class="hx-table-toolbar">
-        <div>
+      <PageToolbar>
+        <template #left>
           <ElButton
             type="primary"
             v-access:code="'upms:sysdept:add'"
@@ -85,22 +85,25 @@ const del = (id: string) => {
           >
             新增
           </ElButton>
-        </div>
-        <RightToolbar
-          :search-btn="false"
-          :refresh-btn="true"
-          @search="showSearch = !showSearch"
-          @refresh="initPage"
-        />
-      </div>
+        </template>
+        <template #right>
+          <RightToolbar
+            :search-btn="false"
+            :refresh-btn="true"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
       <Form ref="formRef" @init-page="initPage" />
       <!-- 列表 -->
       <ElTable
         row-key="id"
         default-expand-all
         v-loading="loading"
+        class="hx-data-table"
         :data="state.tableData"
         border
+        empty-text="暂无部门"
       >
         <ElTableColumn prop="name" label="部门名称" />
         <ElTableColumn prop="leader" label="负责人" />

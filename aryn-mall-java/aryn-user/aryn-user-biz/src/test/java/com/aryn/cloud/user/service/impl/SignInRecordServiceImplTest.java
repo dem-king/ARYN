@@ -91,7 +91,8 @@ class SignInRecordServiceImplTest {
 						&& record.getConsecutiveDay() == 1
 						&& record.getRewardPoint() == 5
 						&& record.getSignDate().equals(LocalDate.now())));
-		verify(pointsRecordService).recordPointsChange(userId, "1", 5, "SIGN_IN", "签到奖励");
+		verify(pointsRecordService).recordPointsChange(eq(userId), eq("1"), eq(5), eq("SIGN_IN"), eq("签到奖励"),
+				eq("SIGN_IN:" + userId + ":" + LocalDate.now()));
 	}
 
 	@Test
@@ -119,7 +120,8 @@ class SignInRecordServiceImplTest {
 		assertEquals(4, result.getConsecutiveDay());
 		assertEquals(15, result.getRewardPoint());
 		verify(signInRecordMapper).insert(argThat((SignInRecord record) -> record.getConsecutiveDay() == 4));
-		verify(pointsRecordService).recordPointsChange(userId, "1", 15, "SIGN_IN", "签到奖励");
+		verify(pointsRecordService).recordPointsChange(eq(userId), eq("1"), eq(15), eq("SIGN_IN"), eq("签到奖励"),
+				eq("SIGN_IN:" + userId + ":" + LocalDate.now()));
 	}
 
 	@Test
@@ -134,7 +136,8 @@ class SignInRecordServiceImplTest {
 				signInRecordService.signIn(userId));
 
 		assertEquals("今日已签到", exception.getMsg());
-		verify(pointsRecordService, never()).recordPointsChange(anyString(), anyString(), anyInt(), anyString(), anyString());
+		verify(pointsRecordService, never()).recordPointsChange(anyString(), anyString(), anyInt(), anyString(),
+				anyString(), anyString());
 	}
 
 	@Test
@@ -153,7 +156,8 @@ class SignInRecordServiceImplTest {
 		// then
 		assertEquals(1, result.getConsecutiveDay());
 		assertEquals(0, result.getRewardPoint());
-		verify(pointsRecordService, never()).recordPointsChange(anyString(), anyString(), anyInt(), anyString(), anyString());
+		verify(pointsRecordService, never()).recordPointsChange(anyString(), anyString(), anyInt(), anyString(),
+				anyString(), anyString());
 	}
 
 	@Test
@@ -177,7 +181,8 @@ class SignInRecordServiceImplTest {
 		// then
 		assertEquals(7, result.getConsecutiveDay());
 		assertEquals(50, result.getRewardPoint());
-		verify(pointsRecordService).recordPointsChange(userId, "1", 50, "SIGN_IN", "签到奖励");
+		verify(pointsRecordService).recordPointsChange(eq(userId), eq("1"), eq(50), eq("SIGN_IN"), eq("签到奖励"),
+				eq("SIGN_IN:" + userId + ":" + LocalDate.now()));
 	}
 
 	@Test

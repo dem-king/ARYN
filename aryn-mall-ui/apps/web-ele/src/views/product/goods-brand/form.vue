@@ -74,7 +74,7 @@ defineExpose({ open });
     :title="form.id ? '修改品牌' : '新增品牌'"
     width="560px"
   >
-    <ElForm ref="formRef" :model="form" :rules="rules" label-width="100px">
+    <ElForm ref="formRef" :model="form" :rules="rules" label-width="auto">
       <ElFormItem label="品牌名称" prop="name">
         <ElInput v-model="form.name" maxlength="50" show-word-limit />
       </ElFormItem>
@@ -106,10 +106,12 @@ defineExpose({ open });
       </ElFormItem>
     </ElForm>
     <template #footer>
-      <ElButton @click="visible = false">取消</ElButton>
-      <ElButton type="primary" :loading="loading" @click="submit">
-        确认
-      </ElButton>
+      <div class="hx-form-footer">
+        <ElButton @click="visible = false">取消</ElButton>
+        <ElButton type="primary" :loading="loading" @click="submit">
+          确定
+        </ElButton>
+      </div>
     </template>
   </ElDialog>
 </template>

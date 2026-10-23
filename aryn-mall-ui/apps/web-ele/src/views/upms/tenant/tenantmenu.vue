@@ -125,12 +125,12 @@ defineExpose({
       </ElTree>
     </div>
     <template #footer>
-      <span class="dialog-footer">
-        <ElButton @click="dialog = false">取 消</ElButton>
+      <div class="hx-form-footer">
+        <ElButton @click="dialog = false">取消</ElButton>
         <ElButton type="primary" @click="onsubmit" :loading="loading">
-          确 认
+          确定
         </ElButton>
-      </span>
+      </div>
     </template>
   </ElDialog>
 </template>
@@ -140,7 +140,7 @@ defineExpose({
   height: 500px;
   padding: 4px;
   overflow-y: auto;
-  border: 1px solid #dcdee0;
+  border: 1px solid var(--el-border-color-lighter);
   border-radius: 4px;
 }
 </style>

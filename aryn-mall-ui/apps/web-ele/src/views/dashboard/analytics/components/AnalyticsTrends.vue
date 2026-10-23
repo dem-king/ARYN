@@ -9,6 +9,8 @@ import { TrendCharts } from '@element-plus/icons-vue';
 import { ElCard, ElIcon } from 'element-plus';
 
 import {
+  areaGradient,
+  CHART_PALETTE,
   formatAxisCurrency,
   formatCurrency,
   formatNumber,
@@ -91,19 +93,9 @@ const updateChart = () => {
         smooth: true,
         data: props.data.gmv,
         yAxisIndex: 0,
-        itemStyle: { color: '#409EFF' },
+        itemStyle: { color: CHART_PALETTE.primary },
         areaStyle: {
-          color: {
-            type: 'linear',
-            x: 0,
-            y: 0,
-            x2: 0,
-            y2: 1,
-            colorStops: [
-              { offset: 0, color: 'rgba(64,158,255, 0.5)' },
-              { offset: 1, color: 'rgba(64,158,255, 0)' },
-            ],
-          },
+          color: areaGradient(CHART_PALETTE.primary),
         },
       },
       {
@@ -112,7 +104,7 @@ const updateChart = () => {
         smooth: true,
         data: props.data.orders,
         yAxisIndex: 1,
-        itemStyle: { color: '#67C23A' },
+        itemStyle: { color: CHART_PALETTE.success },
       },
       {
         name: '支付买家数',
@@ -120,7 +112,7 @@ const updateChart = () => {
         smooth: true,
         data: props.data.paidBuyers,
         yAxisIndex: 1,
-        itemStyle: { color: '#E6A23C' },
+        itemStyle: { color: CHART_PALETTE.warning },
       },
     ],
   });
@@ -145,7 +137,7 @@ onMounted(() => {
       <EchartsUI ref="chartRef" />
       <div
         v-if="!loading && !hasData"
-        class="absolute inset-0 flex items-center justify-center text-sm text-gray-400"
+        class="absolute inset-0 flex items-center justify-center text-sm text-[var(--el-text-color-secondary)]"
       >
         暂无数据
       </div>

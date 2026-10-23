@@ -1,6 +1,8 @@
 package com.aryn.cloud.promotion.api.entity;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -74,14 +76,22 @@ public class PromotionActivity extends Model<PromotionActivity> {
 	/** 优先级（大者先） */
 	private Integer priority;
 
-	/** 预算金额（元），0/空=不限；reserve 按锁定折扣聚合扣减，超限整单拦截 */
+	/** 预算金额（元），0/空=不限；额度不足时活动不参与试算，订单按原价成交 */
 	private BigDecimal totalBudget;
+
+	/** 已占用让利金额（元）：LOCKED+CONFIRMED 锁定汇总，reserve 原子累加、release 归还 */
+	@TableField(updateStrategy = FieldStrategy.NEVER)
+	private BigDecimal consumedBudget;
 
 	/** 每人限享次数，0/空=不限；按该用户活动锁定数计 */
 	private Integer perUserLimit;
 
-	/** 买赠赠品总量，0/空=不限；按锁定快照赠品数量聚合扣减 */
+	/** 买赠赠品总量，0/空=不限；额度领完后本单自动不赠，订单继续成交 */
 	private Integer giftStock;
+
+	/** 已赠出数量（展示用，不落库）：从 LOCKED+CONFIRMED 锁定快照聚合 */
+	@TableField(exist = false)
+	private Integer consumedGiftStock;
 
 	/** 是否可叠加：0否 1是 */
 	private String stackable;

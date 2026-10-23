@@ -1,10 +1,9 @@
 <script lang="ts" setup>
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
-import { Delete, Edit, Plus, Refresh, Search } from '@element-plus/icons-vue';
+import { Delete, Edit, Plus } from '@element-plus/icons-vue';
 import {
   ElButton,
-  ElForm,
   ElFormItem,
   ElInput,
   ElMessage,
@@ -14,6 +13,8 @@ import {
 } from 'element-plus';
 
 import { delObj, getPage } from '#/api/upms/logistics-company';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 import { useDict } from '#/utils/dict';
 
 const RightToolbar = defineAsyncComponent(
@@ -50,7 +51,6 @@ const state = reactive({
   },
   loading: false,
 });
-const queryRef = ref();
 const showSearch = ref(true);
 const formRef = ref();
 const initPage = async () => {
@@ -99,29 +99,24 @@ const del = (id: string) => {
     });
   });
 };
-/**
- * 重置搜索表单
- */
-const resetQuery = () => {
-  queryRef.value.resetFields();
-};
 initPage();
 </script>
 <template>
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 搜索 -->
-      <ElForm
+      <PageFilterPanel
         :model="state.queryParams"
-        ref="queryRef"
-        :inline="true"
-        v-show="showSearch"
+        :visible="showSearch"
+        @reset="initPage"
+        @search="initPage"
       >
         <ElFormItem label="物流名称" prop="name">
           <ElInput
             v-model="state.queryParams.name"
             clearable
             placeholder="请输入物流名称"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
         <ElFormItem label="物流编码" prop="code">
@@ -129,19 +124,14 @@ initPage();
             v-model="state.queryParams.code"
             clearable
             placeholder="请输入物流编码"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
-        <ElFormItem>
-          <ElButton type="primary" @click="initPage" :icon="Search">
-            搜索
-          </ElButton>
-          <ElButton @click="resetQuery" :icon="Refresh"> 重置 </ElButton>
-        </ElFormItem>
-      </ElForm>
+      </PageFilterPanel>
       <Form ref="formRef" @init-page="initPage" />
       <!-- 工具栏 -->
-      <div class="hx-table-toolbar">
-        <div>
+      <PageToolbar :total="state.page.total" total-label="家物流公司">
+        <template #left>
           <ElButton
             v-access:code="'upms:logisticscompany:add'"
             type="primary"
@@ -150,15 +140,23 @@ initPage();
           >
             新增
           </ElButton>
-        </div>
-        <RightToolbar
-          :search-btn="true"
-          :refresh-btn="true"
-          @search="showSearch = !showSearch"
-          @refresh="initPage"
-        />
-      </div>
-      <ElTable :data="state.tableData" v-loading="state.loading" border>
+        </template>
+        <template #right>
+          <RightToolbar
+            :search-btn="true"
+            :refresh-btn="true"
+            @search="showSearch = !showSearch"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
+      <ElTable
+        :data="state.tableData"
+        v-loading="state.loading"
+        class="hx-data-table"
+        border
+        empty-text="暂无物流公司"
+      >
         <ElTableColumn prop="name" label="物流名称" />
         <ElTableColumn prop="code" label="物流编码" />
         <ElTableColumn prop="status" label="状态">

@@ -98,7 +98,13 @@ initPage();
       />
     </div>
     <!-- 列表 -->
-    <ElTable v-loading="loading" :data="state.tableData" border>
+    <ElTable
+      v-loading="loading"
+      class="hx-data-table"
+      :data="state.tableData"
+      border
+      empty-text="暂无操作日志"
+    >
       <ElTableColumn prop="userName" label="操作用户" />
       <ElTableColumn prop="title" label="操作标题" />
       <ElTableColumn prop="ipAddr" label="操作地址" />

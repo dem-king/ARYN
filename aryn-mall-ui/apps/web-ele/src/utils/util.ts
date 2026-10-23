@@ -63,6 +63,14 @@ export const findArray = (array: any, value: string) => {
   });
 };
 
+/**
+ * 金额统一保留两位小数，避免同一列表里 9.5 / 9.50 混排
+ */
+export const formatMoney = (value: any) => {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? amount.toFixed(2) : '0.00';
+};
+
 export function downloadBlobFile(url: string, query: any, fileName: string) {
   return requestClient
     .download(url, { params: query })

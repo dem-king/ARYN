@@ -79,10 +79,14 @@ const toneStyles = computed(() => TONES[props.tone] ?? TONES.blue);
   >
     <div class="flex items-start justify-between gap-2">
       <div class="min-w-0">
-        <div class="flex items-center gap-1 text-sm text-gray-500">
+        <div
+          class="flex items-center gap-1 text-sm text-[var(--el-text-color-secondary)]"
+        >
           <span class="truncate">{{ title }}</span>
           <ElTooltip v-if="tooltip" :content="tooltip" placement="top">
-            <ElIcon class="cursor-help text-gray-400"><InfoFilled /></ElIcon>
+            <ElIcon class="cursor-help text-[var(--el-text-color-placeholder)]">
+              <InfoFilled />
+            </ElIcon>
           </ElTooltip>
         </div>
         <div class="mt-2 text-2xl font-bold" :class="toneStyles.valueClass">

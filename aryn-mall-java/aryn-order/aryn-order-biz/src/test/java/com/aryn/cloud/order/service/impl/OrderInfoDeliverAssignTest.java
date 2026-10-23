@@ -96,7 +96,8 @@ class OrderInfoDeliverAssignTest {
 		service = new OrderInfoServiceImpl(orderConfigService, mock(Kuaidi100Utils.class),
 				mock(OrderItemMapper.class), mock(RemoteGoodsSkuService.class),
 				mock(com.aryn.cloud.product.api.remote.RemoteGoodsSpuService.class),
-				mock(RemoteMallUserService.class), orderItemService, mock(IShoppingCartService.class),
+				mock(RemoteMallUserService.class), mock(com.aryn.cloud.user.api.remote.RemotePointsService.class),
+				orderItemService, mock(IShoppingCartService.class),
 				mock(com.aryn.cloud.pay.api.remote.RemotePayService.class), mock(ApplicationEventPublisher.class),
 				mock(OrderPriceComputeService.class), mock(OrderWxDeliveryService.class),
 				mock(OrderStatisticsQueryService.class), mock(OrderAppraiseService.class),
@@ -142,7 +143,7 @@ class OrderInfoDeliverAssignTest {
 
 		assertThatThrownBy(() -> service.deliverOrder(request))
 				.isInstanceOf(ArynBusinessException.class)
-				.hasFieldOrPropertyWithValue("msg", "商城配送/内部配送订单无需物流单号，请直接派单给司机");
+				.hasFieldOrPropertyWithValue("msg", "公司配送订单无需物流单号，请直接派单给司机");
 		// 快递发货单不能创建，避免任务与订单双轨不一致
 		verify(orderDeliveryMapper, never()).insert(any(com.aryn.cloud.order.api.entity.OrderDelivery.class));
 	}

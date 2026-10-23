@@ -1,11 +1,8 @@
 <script lang="ts" setup>
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
-import { Refresh, Search } from '@element-plus/icons-vue';
 import {
-  ElButton,
   ElDatePicker,
-  ElForm,
   ElFormItem,
   ElInput,
   ElOption,
@@ -16,6 +13,9 @@ import {
 } from 'element-plus';
 
 import { getPage } from '#/api/user/recharge-order';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
+import { formatMoney } from '#/utils/util';
 
 const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
@@ -41,7 +41,6 @@ const state = reactive({
 });
 const showSearch = ref(true);
 const loading = ref(false);
-const queryRef = ref();
 
 const initPage = async () => {
   loading.value = true;
@@ -69,28 +68,24 @@ const initPage = async () => {
     });
 };
 
-const resetQuery = () => {
-  queryRef.value.resetFields();
-  initPage();
-};
-
 initPage();
 </script>
 <template>
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 搜索 -->
-      <ElForm
+      <PageFilterPanel
         :model="state.queryParams"
-        ref="queryRef"
-        :inline="true"
-        v-show="showSearch"
+        :visible="showSearch"
+        @reset="initPage"
+        @search="initPage"
       >
         <ElFormItem label="订单号" prop="orderNo">
           <ElInput
             v-model="state.queryParams.orderNo"
             placeholder="请输入订单号"
             clearable
+            @keyup.enter="initPage"
           />
         </ElFormItem>
         <ElFormItem label="支付状态" prop="payStatus">
@@ -98,7 +93,6 @@ initPage();
             v-model="state.queryParams.payStatus"
             placeholder="请选择"
             clearable
-            style="width: 120px"
           >
             <ElOption label="待支付" value="0" />
             <ElOption label="已支付" value="1" />
@@ -115,31 +109,45 @@ initPage();
             value-format="YYYY-MM-DD HH:mm:ss"
           />
         </ElFormItem>
-        <ElFormItem>
-          <ElButton type="primary" @click="initPage" :icon="Search">
-            搜索
-          </ElButton>
-          <ElButton @click="resetQuery" :icon="Refresh">重置</ElButton>
-        </ElFormItem>
-      </ElForm>
+      </PageFilterPanel>
       <!-- 工具栏 -->
-      <div class="hx-table-toolbar">
-        <div></div>
-        <RightToolbar
-          :search-btn="true"
-          :refresh-btn="true"
-          @search="showSearch = !showSearch"
-          @refresh="initPage"
-        />
-      </div>
+      <PageToolbar :total="state.page.total" total-label="笔充值订单">
+        <template #right>
+          <RightToolbar
+            :search-btn="true"
+            :refresh-btn="true"
+            @search="showSearch = !showSearch"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
       <!-- 列表 -->
-      <ElTable v-loading="loading" :data="state.tableData" border>
+      <ElTable
+        v-loading="loading"
+        class="hx-data-table"
+        :data="state.tableData"
+        row-key="id"
+        border
+        empty-text="暂无充值订单"
+      >
         <ElTableColumn prop="orderNo" label="订单号" />
         <ElTableColumn prop="nickname" label="用户昵称" />
-        <ElTableColumn prop="rechargeAmount" label="充值金额" width="100" />
-        <ElTableColumn prop="giftAmount" label="赠送金额" width="100" />
+        <ElTableColumn prop="rechargeAmount" label="充值金额" width="110">
+          <template #default="scope">
+            <span class="hx-money">
+              ¥{{ formatMoney(scope.row.rechargeAmount) }}
+            </span>
+          </template>
+        </ElTableColumn>
+        <ElTableColumn prop="giftAmount" label="赠送金额" width="110">
+          <template #default="scope">
+            <span class="hx-money">
+              ¥{{ formatMoney(scope.row.giftAmount) }}
+            </span>
+          </template>
+        </ElTableColumn>
         <ElTableColumn prop="giftPoint" label="赠送积分" width="100" />
-        <ElTableColumn prop="payStatus" label="支付状态" width="80">
+        <ElTableColumn prop="payStatus" label="支付状态" width="100">
           <template #default="scope">
             <ElTag v-if="scope.row.payStatus === '0'" type="info">
               待支付

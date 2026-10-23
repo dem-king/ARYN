@@ -1,10 +1,9 @@
 <script lang="ts" setup>
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
-import { Delete, Edit, Plus, Refresh, Search } from '@element-plus/icons-vue';
+import { Delete, Edit, Plus } from '@element-plus/icons-vue';
 import {
   ElButton,
-  ElForm,
   ElFormItem,
   ElInput,
   ElMessage,
@@ -15,6 +14,8 @@ import {
 } from 'element-plus';
 
 import { delObj, getPage } from '#/api/order/config';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 import { useDict } from '#/utils/dict';
 
 const RightToolbar = defineAsyncComponent(
@@ -48,7 +49,6 @@ const state = reactive({
 const showSearch = ref(true);
 const loading = ref(false);
 const formRef = ref();
-const queryRef = ref();
 const initPage = async () => {
   loading.value = true;
   const params = {
@@ -97,29 +97,24 @@ const del = (id: string) => {
   });
 };
 
-/**
- * 重置搜索表单
- */
-const resetQuery = () => {
-  queryRef.value.resetFields();
-};
 initPage();
 </script>
 <template>
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 搜索 -->
-      <ElForm
+      <PageFilterPanel
         :model="state.queryParams"
-        ref="queryRef"
-        :inline="true"
-        v-show="showSearch"
+        :visible="showSearch"
+        @reset="initPage"
+        @search="initPage"
       >
         <ElFormItem label="通知地址" prop="notifyUrl">
           <ElInput
             v-model="state.queryParams.notifyUrl"
             clearable
             placeholder="请输入通知地址"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
         <ElFormItem label="快递100AppKey" prop="kuaidi100AppKey">
@@ -127,18 +122,13 @@ initPage();
             v-model="state.queryParams.kuaidi100AppKey"
             clearable
             placeholder="请输入快递100AppKey"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
-        <ElFormItem>
-          <ElButton type="primary" @click="initPage" :icon="Search">
-            搜索
-          </ElButton>
-          <ElButton @click="resetQuery" :icon="Refresh"> 重置 </ElButton>
-        </ElFormItem>
-      </ElForm>
+      </PageFilterPanel>
       <!-- 工具栏 -->
-      <div class="hx-table-toolbar">
-        <div>
+      <PageToolbar :total="state.page.total" total-label="条配置">
+        <template #left>
           <ElButton
             type="primary"
             v-access:code="'order:config:add'"
@@ -147,17 +137,25 @@ initPage();
           >
             新增
           </ElButton>
-        </div>
-        <RightToolbar
-          :search-btn="true"
-          :refresh-btn="true"
-          @search="showSearch = !showSearch"
-          @refresh="initPage"
-        />
-      </div>
+        </template>
+        <template #right>
+          <RightToolbar
+            :search-btn="true"
+            :refresh-btn="true"
+            @search="showSearch = !showSearch"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
       <Form ref="formRef" @init-page="initPage" />
       <!-- 列表 -->
-      <ElTable v-loading="loading" :data="state.tableData" border>
+      <ElTable
+        v-loading="loading"
+        class="hx-data-table"
+        :data="state.tableData"
+        border
+        empty-text="暂无订单配置"
+      >
         <ElTableColumn prop="notifyUrl" label="通知地址" />
         <ElTableColumn prop="orderCancelTimeout" label="订单超时取消时间">
           <template #default="scope">

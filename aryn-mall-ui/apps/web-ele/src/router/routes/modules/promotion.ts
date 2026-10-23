@@ -28,16 +28,6 @@ const routes: RouteRecordRaw[] = [
       title: '折扣活动编辑',
     },
   },
-  {
-    name: 'NewbieActivityEdit',
-    path: '/promotion/newbie-activity/edit',
-    component: () => import('#/views/promotion/newbie-activity/edit.vue'),
-    meta: {
-      activePath: '/promotion/newbie-activity/index',
-      hideInMenu: true,
-      title: '新人专享活动编辑',
-    },
-  },
 ];
 
 export default routes;

@@ -2,22 +2,13 @@
 import { defineAsyncComponent, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-import {
-  Delete,
-  Edit,
-  InfoFilled,
-  Key,
-  Plus,
-  Refresh,
-  Search,
-} from '@element-plus/icons-vue';
+import { Delete, Edit, InfoFilled, Key, Plus } from '@element-plus/icons-vue';
 import {
   ElAlert,
   ElAvatar,
   ElButton,
   ElCol,
   ElDialog,
-  ElForm,
   ElFormItem,
   ElInput,
   ElMessage,
@@ -31,6 +22,8 @@ import {
 
 import { getTreeList } from '#/api/upms/dept';
 import { delObj, getPage } from '#/api/upms/user';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 import { useDict } from '#/utils/dict';
 
 const RightToolbar = defineAsyncComponent(
@@ -74,7 +67,6 @@ const treeRef = ref<InstanceType<typeof ElTree>>();
 const dialog = ref(false);
 const dialogLogin = ref(false);
 const formRef = ref();
-const queryRef = ref();
 const defaultProps = ref({
   children: 'children',
   label: 'name',
@@ -120,13 +112,6 @@ const initPage = async () => {
     .catch(() => {
       loading.value = false;
     });
-};
-/**
- * 重置搜索表单
- */
-const resetQuery = () => {
-  queryRef.value.resetFields();
-  initPage();
 };
 /**
  * 新增按钮
@@ -221,34 +206,30 @@ initPage();
             </template>
           </ElAlert>
           <!-- 搜索 -->
-          <ElForm
+          <PageFilterPanel
             :model="state.queryParams"
-            ref="queryRef"
-            :inline="true"
-            v-show="showSearch"
+            :visible="showSearch"
+            @reset="initPage"
+            @search="initPage"
           >
             <ElFormItem label="登录用户名" prop="username">
               <ElInput
                 v-model="state.queryParams.username"
                 placeholder="请输入登录用户名"
+                @keyup.enter="initPage"
               />
             </ElFormItem>
             <ElFormItem label="手机号" prop="phone">
               <ElInput
                 v-model="state.queryParams.phone"
                 placeholder="请输入手机号"
+                @keyup.enter="initPage"
               />
             </ElFormItem>
-            <ElFormItem>
-              <ElButton type="primary" @click="initPage" :icon="Search">
-                搜索
-              </ElButton>
-              <ElButton @click="resetQuery" :icon="Refresh"> 重置 </ElButton>
-            </ElFormItem>
-          </ElForm>
+          </PageFilterPanel>
           <!-- 工具栏 -->
-          <div class="hx-table-toolbar">
-            <div>
+          <PageToolbar :total="state.page.total" total-label="个员工账号">
+            <template #left>
               <ElButton
                 type="primary"
                 v-access:code="'upms:sysuser:add'"
@@ -257,14 +238,16 @@ initPage();
               >
                 新增
               </ElButton>
-            </div>
-            <RightToolbar
-              :search-btn="true"
-              :refresh-btn="true"
-              @search="showSearch = !showSearch"
-              @refresh="initPage"
-            />
-          </div>
+            </template>
+            <template #right>
+              <RightToolbar
+                :search-btn="true"
+                :refresh-btn="true"
+                @search="showSearch = !showSearch"
+                @refresh="initPage"
+              />
+            </template>
+          </PageToolbar>
           <!-- 新增修改弹窗 -->
           <Form ref="formRef" @init-page="initPage" />
           <!-- 修改密码 -->
@@ -290,15 +273,22 @@ initPage();
             <LoginLog v-if="dialogLogin" :user-id="state.userInfo.id" />
           </ElDialog>
           <!-- table列表 -->
-          <ElTable v-loading="loading" :data="state.tableData" border>
-            <ElTableColumn prop="username" label="登录用户名" />
+          <ElTable
+            v-loading="loading"
+            class="hx-data-table"
+            :data="state.tableData"
+            row-key="id"
+            border
+            empty-text="暂无员工账号"
+          >
+            <ElTableColumn prop="username" label="登录用户名" min-width="130" />
             <ElTableColumn prop="avatar" label="头像">
               <template #default="scope">
                 <ElAvatar shape="square" :size="50" :src="scope.row.avatar" />
               </template>
             </ElTableColumn>
             <ElTableColumn prop="nickname" label="员工昵称" />
-            <ElTableColumn prop="phone" label="手机号" />
+            <ElTableColumn prop="phone" label="手机号" width="130" />
             <ElTableColumn prop="deptName" label="部门" />
             <ElTableColumn prop="status" label="状态">
               <template #default="scope">

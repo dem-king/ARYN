@@ -311,7 +311,7 @@ onBeforeUnmount(() => {
   padding: 4px;
   background: var(--el-bg-color);
   border-radius: 999px;
-  box-shadow: 0 4px 12px rgb(15 23 42 / 18%);
+  box-shadow: var(--el-box-shadow-light);
 }
 
 .unknown-component {

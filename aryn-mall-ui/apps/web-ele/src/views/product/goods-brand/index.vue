@@ -1,10 +1,9 @@
 <script lang="ts" setup>
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
-import { Delete, Edit, Plus, Refresh, Search } from '@element-plus/icons-vue';
+import { Delete, Edit, Plus } from '@element-plus/icons-vue';
 import {
   ElButton,
-  ElForm,
   ElFormItem,
   ElImage,
   ElInput,
@@ -19,6 +18,8 @@ import {
 } from 'element-plus';
 
 import { delObj, getPage } from '#/api/product/goods-brand';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 
 const Form = defineAsyncComponent(() => import('./form.vue'));
 const formRef = ref();
@@ -26,6 +27,7 @@ const loading = ref(false);
 const rows = ref<any[]>([]);
 const total = ref(0);
 const query = reactive({ current: 1, size: 10, name: '', status: '' });
+const showSearch = ref(true);
 
 async function load() {
   loading.value = true;
@@ -56,41 +58,49 @@ load();
 <template>
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
-      <ElForm :model="query" inline>
-        <ElFormItem label="品牌名称">
+      <!-- 搜索 -->
+      <PageFilterPanel
+        :model="query"
+        :visible="showSearch"
+        @reset="resetQuery"
+        @search="load"
+      >
+        <ElFormItem label="品牌名称" prop="name">
           <ElInput
             v-model="query.name"
             clearable
             placeholder="请输入品牌名称"
+            @keyup.enter="load"
           />
         </ElFormItem>
-        <ElFormItem label="状态">
-          <ElSelect
-            v-model="query.status"
-            clearable
-            placeholder="请选择状态"
-            style="width: 160px"
-          >
+        <ElFormItem label="状态" prop="status">
+          <ElSelect v-model="query.status" clearable placeholder="请选择状态">
             <ElOption label="启用" value="0" />
             <ElOption label="停用" value="1" />
           </ElSelect>
         </ElFormItem>
-        <ElFormItem>
-          <ElButton type="primary" :icon="Search" @click="load">搜索</ElButton>
-          <ElButton :icon="Refresh" @click="resetQuery">重置</ElButton>
-        </ElFormItem>
-      </ElForm>
-      <div class="hx-table-toolbar mb10">
-        <ElButton
-          v-access:code="'product:goodsbrand:add'"
-          type="primary"
-          :icon="Plus"
-          @click="formRef.open()"
-        >
-          新增
-        </ElButton>
-      </div>
-      <ElTable v-loading="loading" :data="rows" border>
+      </PageFilterPanel>
+      <!-- 工具栏 -->
+      <PageToolbar :total="total" total-label="条品牌">
+        <template #left>
+          <ElButton
+            v-access:code="'product:goodsbrand:add'"
+            type="primary"
+            :icon="Plus"
+            @click="formRef.open()"
+          >
+            新增
+          </ElButton>
+        </template>
+      </PageToolbar>
+      <!-- 列表 -->
+      <ElTable
+        v-loading="loading"
+        class="hx-data-table"
+        :data="rows"
+        border
+        empty-text="暂无品牌"
+      >
         <ElTableColumn prop="name" label="品牌名称" min-width="160" />
         <ElTableColumn prop="logoUrl" label="Logo" width="100" align="center">
           <template #default="scope">

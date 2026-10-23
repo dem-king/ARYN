@@ -1,5 +1,6 @@
 import type { Component } from 'vue'
 
+import DiyActivityStrip from './diy-activity-strip/index.vue'
 import DiyBottomNav from './diy-bottom-nav/index.vue'
 import DiyCategoryNav from './diy-category-nav/index.vue'
 import DiyCountdown from './diy-countdown/index.vue'
@@ -68,6 +69,7 @@ export const mobileComponentTypes = [
   'ship-workbench',
   'replenish-card',
   'newbie-floor',
+  'activity-strip',
 ] as const
 
 export type MobileComponentType = typeof mobileComponentTypes[number]
@@ -106,6 +108,7 @@ const componentRegistry: Record<MobileComponentType, Component> = {
   'ship-workbench': DiyShipWorkbench,
   'replenish-card': DiyReplenishCard,
   'newbie-floor': DiyNewbieFloor,
+  'activity-strip': DiyActivityStrip,
 }
 
 export function getDiyComponent(type: string): Component | undefined {

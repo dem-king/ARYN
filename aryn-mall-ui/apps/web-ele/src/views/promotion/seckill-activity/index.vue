@@ -1,6 +1,4 @@
 <script lang="ts" setup>
-import type { FormInstance } from 'element-plus';
-
 import type {
   SeckillActivityQuery,
   SeckillActivityRecord,
@@ -9,10 +7,9 @@ import type {
 import { defineAsyncComponent, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
-import { Delete, Edit, Plus, Refresh, Search } from '@element-plus/icons-vue';
+import { Delete, Edit, Plus } from '@element-plus/icons-vue';
 import {
   ElButton,
-  ElForm,
   ElFormItem,
   ElInput,
   ElMessage,
@@ -25,6 +22,8 @@ import {
 } from 'element-plus';
 
 import { delObj, getPage, updateStatus } from '#/api/promotion/seckill';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 
 import {
   activityStatusOptions,
@@ -40,7 +39,6 @@ const Pagination = defineAsyncComponent(
 );
 
 const router = useRouter();
-const queryRef = ref<FormInstance>();
 
 const state = reactive<{
   page: {
@@ -83,11 +81,6 @@ const initPage = async () => {
     .catch(() => {
       loading.value = false;
     });
-};
-
-const resetQuery = (formEl: FormInstance | undefined) => {
-  if (!formEl) return;
-  formEl.resetFields();
 };
 
 /** 跳转到新增页 */
@@ -150,25 +143,24 @@ initPage();
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 搜索 -->
-      <ElForm
+      <PageFilterPanel
         :model="state.queryParams"
-        ref="queryRef"
-        :inline="true"
-        v-show="showSearch"
+        :visible="showSearch"
+        @reset="initPage"
+        @search="initPage"
       >
         <ElFormItem label="活动名称" prop="activityName">
           <ElInput
             v-model="state.queryParams.activityName"
             clearable
-            style="width: 200px"
             placeholder="请输入活动名称"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
         <ElFormItem label="活动状态" prop="status">
           <ElSelect
             v-model="state.queryParams.status"
             clearable
-            style="width: 200px"
             placeholder="请选择活动状态"
           >
             <ElOption
@@ -179,18 +171,10 @@ initPage();
             />
           </ElSelect>
         </ElFormItem>
-        <ElFormItem>
-          <ElButton type="primary" @click="initPage" :icon="Search">
-            搜索
-          </ElButton>
-          <ElButton @click="resetQuery(queryRef)" :icon="Refresh">
-            重置
-          </ElButton>
-        </ElFormItem>
-      </ElForm>
+      </PageFilterPanel>
       <!-- 工具栏 -->
-      <div class="hx-table-toolbar">
-        <div>
+      <PageToolbar :total="state.page.total" total-label="个活动">
+        <template #left>
           <ElButton
             type="primary"
             @click="add"
@@ -199,16 +183,25 @@ initPage();
           >
             新增活动
           </ElButton>
-        </div>
-        <RightToolbar
-          :search-btn="true"
-          :refresh-btn="true"
-          @search="showSearch = !showSearch"
-          @refresh="initPage"
-        />
-      </div>
+        </template>
+        <template #right>
+          <RightToolbar
+            :search-btn="true"
+            :refresh-btn="true"
+            @search="showSearch = !showSearch"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
       <!-- 列表 -->
-      <ElTable v-loading="loading" :data="state.tableData" border>
+      <ElTable
+        v-loading="loading"
+        class="hx-data-table"
+        :data="state.tableData"
+        row-key="id"
+        border
+        empty-text="暂无秒杀活动"
+      >
         <ElTableColumn
           prop="activityName"
           label="活动名称"

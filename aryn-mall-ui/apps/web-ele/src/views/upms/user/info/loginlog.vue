@@ -105,7 +105,13 @@ initPage();
       />
     </div>
     <!-- 列表 -->
-    <ElTable v-loading="loading" :data="state.tableData">
+    <ElTable
+      v-loading="loading"
+      class="hx-data-table"
+      :data="state.tableData"
+      border
+      empty-text="暂无登录日志"
+    >
       <ElTableColumn prop="userName" label="登录用户" />
       <ElTableColumn prop="ipAddr" label="登录地址" />
       <ElTableColumn prop="location" label="登录地点" />

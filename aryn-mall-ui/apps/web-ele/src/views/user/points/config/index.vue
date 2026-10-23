@@ -2,10 +2,20 @@
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
 import { Delete, Edit, Plus } from '@element-plus/icons-vue';
-import { ElButton, ElTable, ElTableColumn, ElTag } from 'element-plus';
+import {
+  ElButton,
+  ElMessage,
+  ElMessageBox,
+  ElTable,
+  ElTableColumn,
+  ElTag,
+} from 'element-plus';
 
 import { delObj, getPage } from '#/api/user/points-config';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 import { useDict } from '#/utils/dict';
+
+import { getPointsSceneOption } from '../scene-options';
 
 const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
@@ -32,13 +42,8 @@ const state = reactive({
 const loading = ref(false);
 const formRef = ref();
 
-const sceneMap: Record<string, string> = {
-  REGISTER: '注册',
-  CONSUME: '消费',
-  SIGN_IN: '签到',
-  REVIEW: '评价',
-  EXCHANGE: '兑换',
-};
+const sceneLabel = (value?: string) =>
+  getPointsSceneOption(value)?.label || value || '';
 
 const initPage = async () => {
   loading.value = true;
@@ -65,9 +70,25 @@ const handleAdd = () => {
 const handleEdit = (row: any) => {
   formRef.value.initForm(row);
 };
-const handleDelete = async (row: any) => {
-  await delObj(row.id);
-  initPage();
+const handleDelete = (row: any) => {
+  ElMessageBox.confirm(
+    `删除后「${row.ruleName}」不再参与积分发放/抵扣，是否继续?`,
+    '提示',
+    {
+      confirmButtonText: '确认',
+      cancelButtonText: '取消',
+      type: 'warning',
+    },
+  )
+    .then(() => {
+      delObj(row.id)
+        .then(() => {
+          ElMessage.success('删除成功');
+          initPage();
+        })
+        .catch(() => {});
+    })
+    .catch(() => {});
 };
 
 initPage();
@@ -75,8 +96,9 @@ initPage();
 <template>
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
-      <div class="hx-table-toolbar">
-        <div>
+      <!-- 工具栏 -->
+      <PageToolbar :total="state.page.total" total-label="条规则">
+        <template #left>
           <ElButton
             type="primary"
             v-access:code="'user:pointsconfig:add'"
@@ -85,15 +107,24 @@ initPage();
           >
             新增
           </ElButton>
-        </div>
-        <RightToolbar
-          :search-btn="false"
-          :refresh-btn="true"
-          @refresh="initPage"
-        />
-      </div>
+        </template>
+        <template #right>
+          <RightToolbar
+            :search-btn="false"
+            :refresh-btn="true"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
       <Form ref="formRef" @init-page="initPage" />
-      <ElTable v-loading="loading" :data="state.tableData" border>
+      <!-- 列表 -->
+      <ElTable
+        v-loading="loading"
+        class="hx-data-table"
+        :data="state.tableData"
+        border
+        empty-text="暂无积分配置"
+      >
         <ElTableColumn prop="ruleName" label="规则名称" />
         <ElTableColumn prop="ruleType" label="规则类型" width="100">
           <template #default="scope">
@@ -103,12 +134,12 @@ initPage();
             </ElTag>
           </template>
         </ElTableColumn>
-        <ElTableColumn prop="triggerScene" label="触发场景" width="100">
+        <ElTableColumn prop="triggerScene" label="触发场景" width="120">
           <template #default="scope">
-            {{ sceneMap[scope.row.triggerScene] || scope.row.triggerScene }}
+            {{ sceneLabel(scope.row.triggerScene) }}
           </template>
         </ElTableColumn>
-        <ElTableColumn prop="pointValue" label="积分值" width="80" />
+        <ElTableColumn prop="pointValue" label="积分值" width="100" />
         <ElTableColumn prop="status" label="状态" width="80">
           <template #default="scope">
             <DictTag :options="status" :value="scope.row.status" />

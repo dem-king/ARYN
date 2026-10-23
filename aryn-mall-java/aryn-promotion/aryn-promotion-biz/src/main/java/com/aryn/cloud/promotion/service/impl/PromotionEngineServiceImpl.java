@@ -43,23 +43,26 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 
 	private final PromotionActivityMapper promotionActivityMapper;
 
+	private final PromotionLockUsage promotionLockUsage;
+
 	@DubboReference
 	private com.aryn.cloud.promotion.api.remote.RemoteBuyerProfileService remoteBuyerProfileService;
 
 	@DubboReference
 	private com.aryn.cloud.product.api.remote.RemoteGoodsSkuService remoteGoodsSkuService;
 
+	/**
+	 * 试算：额度（预算/每人限享/赠品总量）不足的活动不参与计算。
+	 *
+	 * <p>剔除后重新计算，保证「确认页展示的价格 = 下单可成交的价格」；
+	 * 额度不再是整单拦截器，活动失效后订单按其余优惠或原价继续。
+	 * 并发窗口由 reserve 的原子扣减兜底。
+	 */
 	@Override
 	public PromotionCalculationVO preview(PromotionContextDTO context) {
-		PromotionCalculationVO result = new PromotionCalculationVO();
-		result.setTotalDiscount(BigDecimal.ZERO);
-		result.setWholeDiscount(BigDecimal.ZERO);
-		result.setLadderOverrides(new ArrayList<>());
-		result.setDetails(new ArrayList<>());
-		result.setGifts(new ArrayList<>());
 		if (context == null || context.getTenantId() == null || context.getSkuItems() == null
 				|| context.getSkuItems().isEmpty()) {
-			return result;
+			return emptyResult();
 		}
 		LocalDateTime now = context.getActivityTime() != null ? context.getActivityTime() : LocalDateTime.now();
 		List<PromotionActivity> activities = promotionActivityMapper.selectList(
@@ -71,7 +74,36 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 						.in(PromotionActivity::getActivityType,
 								List.of(PromotionActivity.TYPE_LADDER_PRICE, PromotionActivity.TYPE_SHIP_WHOLE_DISCOUNT,
 										PromotionActivity.TYPE_GIFT, PromotionActivity.TYPE_NEWBIE_PRICE)));
+		Map<String, PromotionActivity> activityById = activities.stream()
+			.collect(Collectors.toMap(PromotionActivity::getId, activity -> activity, (left, right) -> left));
+		Set<String> excluded = new HashSet<>();
+		Map<String, Long> userUsage = new HashMap<>();
+		Map<String, Integer> giftUsage = new HashMap<>();
+		while (true) {
+			List<PromotionActivity> candidates = activities.stream()
+				.filter(activity -> !excluded.contains(activity.getId()))
+				.toList();
+			PromotionCalculationVO result = calculate(context, candidates);
+			PromotionActivity exhausted = firstExhausted(context, result, activityById, userUsage, giftUsage);
+			if (exhausted == null || !excluded.add(exhausted.getId())) {
+				return result;
+			}
+			log.info("活动[{}]额度已用尽，本次试算不参与 userId={}", exhausted.getId(), context.getUserId());
+		}
+	}
 
+	private PromotionCalculationVO emptyResult() {
+		PromotionCalculationVO result = new PromotionCalculationVO();
+		result.setTotalDiscount(BigDecimal.ZERO);
+		result.setWholeDiscount(BigDecimal.ZERO);
+		result.setLadderOverrides(new ArrayList<>());
+		result.setDetails(new ArrayList<>());
+		result.setGifts(new ArrayList<>());
+		return result;
+	}
+
+	private PromotionCalculationVO calculate(PromotionContextDTO context, List<PromotionActivity> activities) {
+		PromotionCalculationVO result = emptyResult();
 		List<PromotionActivity> ladderHits = new ArrayList<>();
 		List<PromotionActivity> wholeHits = new ArrayList<>();
 		List<PromotionActivity> giftHits = new ArrayList<>();
@@ -95,10 +127,70 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 		}
 
 		applyBestLadderPrice(context, ladderHits, result);
+		// 新人价必须先于整船优惠落定：整船门槛要排除已享新人价的 SKU
+		applyBestNewbiePrice(context, newbieHits, result, new HashMap<>());
 		applyBestWholeDiscount(context, wholeHits, result);
 		applyBestGift(context, giftHits, result);
-		applyBestNewbiePrice(context, newbieHits, result, new HashMap<>());
 		return result;
+	}
+
+	private PromotionActivity firstExhausted(PromotionContextDTO context, PromotionCalculationVO result,
+			Map<String, PromotionActivity> activityById, Map<String, Long> userUsage, Map<String, Integer> giftUsage) {
+		for (PromotionCalculationVO.ActivityDetail detail : result.getDetails()) {
+			PromotionActivity activity = activityById.get(detail.getActivityId());
+			if (activity == null) {
+				continue;
+			}
+			if (budgetExhausted(activity, detail.getDiscountAmount())) {
+				return activity;
+			}
+			if (perUserExhausted(context, activity, userUsage)) {
+				return activity;
+			}
+			if (giftStockExhausted(context, activity, result, giftUsage)) {
+				return activity;
+			}
+		}
+		return null;
+	}
+
+	private boolean budgetExhausted(PromotionActivity activity, BigDecimal currentDiscount) {
+		if (activity.getTotalBudget() == null || activity.getTotalBudget().compareTo(BigDecimal.ZERO) <= 0) {
+			return false;
+		}
+		BigDecimal current = currentDiscount == null ? BigDecimal.ZERO : currentDiscount;
+		if (current.compareTo(BigDecimal.ZERO) <= 0) {
+			// 买赠/重放场景本次不再新增让利，不占预算
+			return false;
+		}
+		BigDecimal consumed = activity.getConsumedBudget() == null ? BigDecimal.ZERO : activity.getConsumedBudget();
+		return consumed.add(current).compareTo(activity.getTotalBudget()) > 0;
+	}
+
+	private boolean perUserExhausted(PromotionContextDTO context, PromotionActivity activity,
+			Map<String, Long> userUsage) {
+		if (activity.getPerUserLimit() == null || activity.getPerUserLimit() <= 0
+				|| !StringUtils.hasText(context.getUserId())) {
+			return false;
+		}
+		long used = userUsage.computeIfAbsent(activity.getId(),
+				id -> promotionLockUsage.countUserLocks(context.getTenantId(), context.getUserId(), id));
+		return used >= activity.getPerUserLimit();
+	}
+
+	private boolean giftStockExhausted(PromotionContextDTO context, PromotionActivity activity,
+			PromotionCalculationVO result, Map<String, Integer> giftUsage) {
+		if (!PromotionActivity.TYPE_GIFT.equals(activity.getActivityType())
+				|| activity.getGiftStock() == null || activity.getGiftStock() <= 0) {
+			return false;
+		}
+		int current = result.getGifts().stream()
+			.filter(gift -> activity.getId().equals(gift.getActivityId()))
+			.mapToInt(PromotionCalculationVO.GiftItem::getQuantity)
+			.sum();
+		int used = giftUsage.computeIfAbsent(activity.getId(),
+				id -> promotionLockUsage.sumGiftQuantity(context.getTenantId(), id));
+		return used + current > activity.getGiftStock();
 	}
 
 	/**
@@ -194,10 +286,19 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 
 	/**
 	 * 整船优惠：同类型取优惠金额最大者，按订单商品基价总额命中档位。
+	 *
+	 * <p>已享活动价（拼团/秒杀/限时折扣等外部活动价，以及本引擎产生的阶梯价/新人价）
+	 * 的 SKU 不计入门槛、也不参与后续分摊，避免活动价商品被整船优惠二次让利。
 	 */
 	private void applyBestWholeDiscount(PromotionContextDTO context, List<PromotionActivity> activities,
 			PromotionCalculationVO result) {
+		Set<String> activityPricedSkuIds = context.getSkuItems().stream()
+			.filter(item -> Boolean.TRUE.equals(item.getActivityPriced()))
+			.map(PromotionContextDTO.SkuItem::getSkuId)
+			.collect(Collectors.toSet());
+		result.getLadderOverrides().forEach(override -> activityPricedSkuIds.add(override.getSkuId()));
 		BigDecimal baseAmount = context.getSkuItems().stream()
+			.filter(item -> !activityPricedSkuIds.contains(item.getSkuId()))
 			.map(item -> item.getSalesPrice().multiply(BigDecimal.valueOf(item.getQuantity())))
 			.reduce(BigDecimal.ZERO, BigDecimal::add);
 
@@ -237,15 +338,18 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 			if (bestDiscount.compareTo(baseAmount) > 0) {
 				bestDiscount = baseAmount;
 			}
-			result.setWholeDiscount(bestDiscount);
-			PromotionCalculationVO.ActivityDetail detail = new PromotionCalculationVO.ActivityDetail();
-			detail.setActivityId(best.getId());
-			detail.setActivityType(best.getActivityType());
-			detail.setActivityName(best.getActivityName());
-			detail.setDiscountAmount(bestDiscount);
-			detail.setRuleSnapshot(JSONUtil.toJsonStr(bestRules));
-			result.getDetails().add(detail);
-			result.setTotalDiscount(result.getTotalDiscount().add(bestDiscount));
+			// 可参与商品为 0 时不产生整船优惠明细，避免落一条 0 元锁
+			if (bestDiscount.compareTo(BigDecimal.ZERO) > 0) {
+				result.setWholeDiscount(bestDiscount);
+				PromotionCalculationVO.ActivityDetail detail = new PromotionCalculationVO.ActivityDetail();
+				detail.setActivityId(best.getId());
+				detail.setActivityType(best.getActivityType());
+				detail.setActivityName(best.getActivityName());
+				detail.setDiscountAmount(bestDiscount);
+				detail.setRuleSnapshot(JSONUtil.toJsonStr(bestRules));
+				result.getDetails().add(detail);
+				result.setTotalDiscount(result.getTotalDiscount().add(bestDiscount));
+			}
 		}
 	}
 

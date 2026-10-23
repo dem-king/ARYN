@@ -6,6 +6,8 @@ import type {
   SeckillGoodsItem,
   SeckillSessionItem,
 } from './retail-types'
+// 相对路径：该文件会被管理端 typecheck 直接引用，管理端的别名是 #/* 不认 @/*
+import { stripGroupBadgePrefix } from '../../utils/activity-name'
 
 export interface RetailGoodsItem {
   id: string
@@ -44,6 +46,12 @@ export interface RetailGoodsItem {
 export interface RetailActivityItem {
   activityPrice: number
   endTime: string
+  /**
+   * 成团人数（group_buy_activity.group_num）。
+   * 后端实体与 C 端 GroupBuyActivityVO 均已下发，历史归一化漏映射，
+   * 导致楼层无法表达「2 人成团」。缺失/非法时为 0，渲染侧降级为「拼团」。
+   */
+  groupNum: number
   id: string
   imageUrl: string
   name: string
@@ -145,9 +153,11 @@ export function normalizeRetailActivities(value: unknown): RetailActivityItem[] 
       return {
         activityPrice: toNumber(record.groupPrice ?? record.activityPrice),
         endTime: toText(record.endedAt ?? record.endTime),
+        groupNum: toNumber(record.groupNum),
         id: toText(record.id),
         imageUrl: firstImage(record),
-        name: toText(record.activityName ?? record.name),
+        // 名称里的「N人成团·」与图上徽标重复，按人数徽标是否显示来剥离
+        name: stripGroupBadgePrefix(toText(record.activityName ?? record.name), toNumber(record.groupNum)),
         originalPrice: toNumber(record.originalPrice),
         spuId: toText(record.spuId),
         status,

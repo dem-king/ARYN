@@ -31,7 +31,9 @@ defineProps<{
         <div class="flex items-center gap-2 font-bold">
           <ElIcon class="text-red-500"><Rank /></ElIcon>
           <span>商品浏览排行 TOP 10</span>
-          <span class="ml-2 text-xs font-normal text-gray-400">
+          <span
+            class="ml-2 text-xs font-normal text-[var(--el-text-color-secondary)]"
+          >
             (统计周期内数据)
           </span>
         </div>
@@ -45,12 +47,13 @@ defineProps<{
         <ElTableColumn type="index" label="排名" width="60" align="center">
           <template #default="{ $index }">
             <div
-              class="mx-auto flex size-5 items-center justify-center rounded-full text-xs text-white"
+              class="mx-auto flex size-5 items-center justify-center rounded-full text-xs"
               :class="{
-                'bg-red-500': $index === 0,
-                'bg-orange-500': $index === 1,
-                'bg-yellow-500': $index === 2,
-                'bg-gray-300': $index > 2,
+                'bg-red-500 text-white': $index === 0,
+                'bg-orange-500 text-white': $index === 1,
+                'bg-yellow-500 text-white': $index === 2,
+                'bg-[var(--el-fill-color-darker)] text-[var(--el-text-color-secondary)]':
+                  $index > 2,
               }"
             >
               {{ $index + 1 }}
@@ -67,12 +70,12 @@ defineProps<{
             <div class="flex items-center gap-2">
               <img
                 :src="row.cover"
-                class="size-8 rounded bg-gray-100 object-cover"
+                class="size-8 rounded bg-[var(--el-fill-color)] object-cover"
                 alt=""
                 v-if="row.cover"
               />
               <div
-                class="flex size-8 items-center justify-center rounded bg-gray-100 text-xs text-gray-400"
+                class="flex size-8 items-center justify-center rounded bg-[var(--el-fill-color)] text-xs text-[var(--el-text-color-secondary)]"
                 v-else
               >
                 无图

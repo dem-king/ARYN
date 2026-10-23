@@ -1,6 +1,4 @@
 <script lang="ts" setup>
-import type { FormInstance } from 'element-plus';
-
 import type {
   DistributionConfigPayload,
   DistributionConfigRecord,
@@ -8,7 +6,7 @@ import type {
 
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
-import { Delete, Edit, Plus, Refresh, Search } from '@element-plus/icons-vue';
+import { Delete, Edit, Plus } from '@element-plus/icons-vue';
 import {
   ElButton,
   ElDialog,
@@ -29,7 +27,10 @@ import {
   editObj,
   getPage,
 } from '#/api/promotion/distribution-config';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 import { useDict } from '#/utils/dict';
+import { formatMoney } from '#/utils/util';
 
 const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
@@ -41,7 +42,6 @@ const DictTag = defineAsyncComponent(
   () => import('#/components/dict-tag/index.vue'),
 );
 
-const queryRef = ref<FormInstance>();
 const { distribution_config_status } = useDict('distribution_config_status');
 const loading = ref(false);
 const showSearch = ref(true);
@@ -85,11 +85,6 @@ const initPage = async () => {
     .catch(() => {
       loading.value = false;
     });
-};
-
-const resetQuery = (formEl: FormInstance | undefined) => {
-  if (!formEl) return;
-  formEl.resetFields();
 };
 
 const openAdd = () => {
@@ -154,201 +149,210 @@ initPage();
 </script>
 
 <template>
-  <div>
-    <div class="hx-layout-container">
-      <div class="hx-layout-container-auto hx-layout-container-view">
-        <!-- 搜索 -->
-        <ElForm
-          :model="state.queryParams"
-          ref="queryRef"
-          :inline="true"
-          v-show="showSearch"
-        >
-          <ElFormItem label="配置名称" prop="configName">
-            <ElInput
-              v-model="state.queryParams.configName"
-              clearable
-              style="width: 200px"
-              placeholder="请输入配置名称"
-            />
-          </ElFormItem>
-          <ElFormItem>
-            <ElButton type="primary" @click="initPage" :icon="Search">
-              搜索
-            </ElButton>
-            <ElButton @click="resetQuery(queryRef)" :icon="Refresh">
-              重置
-            </ElButton>
-          </ElFormItem>
-        </ElForm>
+  <div class="hx-layout-container">
+    <div class="hx-layout-container-auto hx-layout-container-view">
+      <!-- 搜索 -->
+      <PageFilterPanel
+        :model="state.queryParams"
+        :visible="showSearch"
+        @reset="initPage"
+        @search="initPage"
+      >
+        <ElFormItem label="配置名称" prop="configName">
+          <ElInput
+            v-model="state.queryParams.configName"
+            clearable
+            placeholder="请输入配置名称"
+            @keyup.enter="initPage"
+          />
+        </ElFormItem>
+      </PageFilterPanel>
 
-        <!-- 工具栏 -->
-        <div class="hx-table-toolbar">
-          <div>
-            <ElButton
-              type="primary"
-              @click="openAdd"
-              v-access:code="'promotion:distributionconfig:add'"
-              :icon="Plus"
-            >
-              新增
-            </ElButton>
-          </div>
+      <!-- 工具栏 -->
+      <PageToolbar :total="state.page.total" total-label="条配置">
+        <template #left>
+          <ElButton
+            type="primary"
+            @click="openAdd"
+            v-access:code="'promotion:distributionconfig:add'"
+            :icon="Plus"
+          >
+            新增
+          </ElButton>
+        </template>
+        <template #right>
           <RightToolbar
             :search-btn="true"
             :refresh-btn="true"
             @search="showSearch = !showSearch"
             @refresh="initPage"
           />
-        </div>
+        </template>
+      </PageToolbar>
 
-        <!-- 列表 -->
-        <ElTable v-loading="loading" :data="state.tableData" border>
-          <ElTableColumn
-            prop="configName"
-            label="配置名称"
-            align="center"
-            show-overflow-tooltip
-          />
-          <ElTableColumn prop="commissionRate" label="佣金比例" align="center">
-            <template #default="scope">
-              {{
-                scope.row.commissionRate != null
-                  ? `${(scope.row.commissionRate * 100).toFixed(2)}%`
-                  : '-'
-              }}
-            </template>
-          </ElTableColumn>
-          <ElTableColumn
-            prop="commissionRateLevel2"
-            label="二级佣金比例"
-            align="center"
-          >
-            <template #default="scope">
-              {{
-                `${(Number(scope.row.commissionRateLevel2 || 0) * 100).toFixed(2)}%`
-              }}
-            </template>
-          </ElTableColumn>
-          <ElTableColumn
-            prop="minWithdrawAmount"
-            label="最低提现金额"
-            align="center"
-          />
-          <ElTableColumn
-            prop="settleCycleDays"
-            label="结算周期(天)"
-            align="center"
-          />
-          <ElTableColumn prop="status" label="状态" align="center">
-            <template #default="scope">
-              <DictTag
-                :options="distribution_config_status"
-                :value="scope.row.status"
-              />
-            </template>
-          </ElTableColumn>
-          <ElTableColumn prop="createTime" label="创建时间" width="180" />
-          <ElTableColumn label="操作" width="200" align="center" fixed="right">
-            <template #default="scope">
-              <ElButton
-                link
-                type="primary"
-                @click="openEdit(scope.row as DistributionConfigRecord)"
-                v-access:code="'promotion:distributionconfig:edit'"
-                :icon="Edit"
-              >
-                修改
-              </ElButton>
-              <ElButton
-                link
-                type="danger"
-                @click="del(scope.row.id)"
-                v-access:code="'promotion:distributionconfig:del'"
-                :icon="Delete"
-              >
-                删除
-              </ElButton>
-            </template>
-          </ElTableColumn>
-        </ElTable>
-
-        <!-- 分页 -->
-        <Pagination
-          :total="state.page.total"
-          v-model:current="state.page.currentPage"
-          v-model:size="state.page.pageSize"
-          @change="initPage"
+      <!-- 列表 -->
+      <ElTable
+        v-loading="loading"
+        class="hx-data-table"
+        :data="state.tableData"
+        row-key="id"
+        border
+        empty-text="暂无分销配置"
+      >
+        <ElTableColumn
+          prop="configName"
+          label="配置名称"
+          align="center"
+          show-overflow-tooltip
         />
-      </div>
-    </div>
+        <ElTableColumn prop="commissionRate" label="佣金比例" align="center">
+          <template #default="scope">
+            {{
+              scope.row.commissionRate != null
+                ? `${(scope.row.commissionRate * 100).toFixed(2)}%`
+                : '-'
+            }}
+          </template>
+        </ElTableColumn>
+        <ElTableColumn
+          prop="commissionRateLevel2"
+          label="二级佣金比例"
+          align="center"
+        >
+          <template #default="scope">
+            {{
+              `${(Number(scope.row.commissionRateLevel2 || 0) * 100).toFixed(2)}%`
+            }}
+          </template>
+        </ElTableColumn>
+        <ElTableColumn
+          prop="minWithdrawAmount"
+          label="最低提现金额"
+          align="center"
+        >
+          <template #default="scope">
+            <span class="hx-money">
+              ¥{{ formatMoney(scope.row.minWithdrawAmount) }}
+            </span>
+          </template>
+        </ElTableColumn>
+        <ElTableColumn
+          prop="settleCycleDays"
+          label="结算周期(天)"
+          align="center"
+        />
+        <ElTableColumn prop="status" label="状态" align="center">
+          <template #default="scope">
+            <DictTag
+              :options="distribution_config_status"
+              :value="scope.row.status"
+            />
+          </template>
+        </ElTableColumn>
+        <ElTableColumn prop="createTime" label="创建时间" width="180" />
+        <ElTableColumn label="操作" width="200" align="center" fixed="right">
+          <template #default="scope">
+            <ElButton
+              link
+              type="primary"
+              @click="openEdit(scope.row as DistributionConfigRecord)"
+              v-access:code="'promotion:distributionconfig:edit'"
+              :icon="Edit"
+            >
+              修改
+            </ElButton>
+            <ElButton
+              link
+              type="danger"
+              @click="del(scope.row.id)"
+              v-access:code="'promotion:distributionconfig:del'"
+              :icon="Delete"
+            >
+              删除
+            </ElButton>
+          </template>
+        </ElTableColumn>
+      </ElTable>
 
-    <!-- 新增/编辑表单 -->
-    <ElDialog v-model="showForm" title="分销配置" width="560px">
-      <ElForm ref="formRef" :model="state.formData" label-width="120px">
-        <ElFormItem label="配置名称" prop="configName" required>
-          <ElInput
-            v-model="state.formData.configName"
-            maxlength="32"
-            show-word-limit
-            placeholder="请输入配置名称"
-          />
-        </ElFormItem>
-        <ElFormItem label="佣金比例" prop="commissionRate" required>
-          <ElInputNumber
-            v-model="state.formData.commissionRate"
-            :max="1"
-            :min="0"
-            :step="0.01"
-            :precision="4"
-          />
-          <span style="margin-left: 8px; font-size: 12px; color: #909399">
-            如0.10表示10%
-          </span>
-        </ElFormItem>
-        <ElFormItem label="二级佣金比例" prop="commissionRateLevel2" required>
-          <ElInputNumber
-            v-model="state.formData.commissionRateLevel2"
-            :max="1"
-            :min="0"
-            :step="0.01"
-            :precision="4"
-          />
-        </ElFormItem>
-        <ElFormItem label="最低提现金额" prop="minWithdrawAmount" required>
-          <ElInputNumber
-            v-model="state.formData.minWithdrawAmount"
-            :min="0"
-            :precision="2"
-          />
-          <span style="margin-left: 8px; font-size: 12px; color: #909399">
-            元
-          </span>
-        </ElFormItem>
-        <ElFormItem label="结算周期" prop="settleCycleDays" required>
-          <ElInputNumber
-            v-model="state.formData.settleCycleDays"
-            :max="365"
-            :min="0"
-            :precision="0"
-          />
-          <span style="margin-left: 8px; font-size: 12px; color: #909399">
-            天
-          </span>
-        </ElFormItem>
-        <ElFormItem label="启用状态">
-          <ElSwitch
-            :model-value="state.formData.status === '0'"
-            @update:model-value="
-              (val) => (state.formData.status = val === true ? '0' : '1')
-            "
-          />
-        </ElFormItem>
-      </ElForm>
-      <template #footer>
-        <ElButton @click="showForm = false">取消</ElButton>
-        <ElButton type="primary" @click="submitForm">保存</ElButton>
-      </template>
-    </ElDialog>
+      <!-- 分页 -->
+      <Pagination
+        :total="state.page.total"
+        v-model:current="state.page.currentPage"
+        v-model:size="state.page.pageSize"
+        @change="initPage"
+      />
+
+      <!-- 新增/编辑表单 -->
+      <ElDialog v-model="showForm" title="分销配置" width="560px">
+        <ElForm ref="formRef" :model="state.formData" label-width="auto">
+          <ElFormItem label="配置名称" prop="configName" required>
+            <ElInput
+              v-model="state.formData.configName"
+              maxlength="32"
+              show-word-limit
+              placeholder="请输入配置名称"
+            />
+          </ElFormItem>
+          <ElFormItem label="佣金比例" prop="commissionRate" required>
+            <ElInputNumber
+              v-model="state.formData.commissionRate"
+              :max="1"
+              :min="0"
+              :step="0.01"
+              :precision="4"
+            />
+            <span class="form-unit">如0.10表示10%</span>
+          </ElFormItem>
+          <ElFormItem label="二级佣金比例" prop="commissionRateLevel2" required>
+            <ElInputNumber
+              v-model="state.formData.commissionRateLevel2"
+              :max="1"
+              :min="0"
+              :step="0.01"
+              :precision="4"
+            />
+          </ElFormItem>
+          <ElFormItem label="最低提现金额" prop="minWithdrawAmount" required>
+            <ElInputNumber
+              v-model="state.formData.minWithdrawAmount"
+              :min="0"
+              :precision="2"
+            />
+            <span class="form-unit">元</span>
+          </ElFormItem>
+          <ElFormItem label="结算周期" prop="settleCycleDays" required>
+            <ElInputNumber
+              v-model="state.formData.settleCycleDays"
+              :max="365"
+              :min="0"
+              :precision="0"
+            />
+            <span class="form-unit">天</span>
+          </ElFormItem>
+          <ElFormItem label="启用状态">
+            <ElSwitch
+              :model-value="state.formData.status === '0'"
+              @update:model-value="
+                (val) => (state.formData.status = val === true ? '0' : '1')
+              "
+            />
+          </ElFormItem>
+        </ElForm>
+        <template #footer>
+          <div class="hx-form-footer">
+            <ElButton @click="showForm = false">取消</ElButton>
+            <ElButton type="primary" @click="submitForm">确定</ElButton>
+          </div>
+        </template>
+      </ElDialog>
+    </div>
   </div>
 </template>
+
+<style scoped>
+.form-unit {
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+</style>

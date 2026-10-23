@@ -79,11 +79,17 @@ describe('mobile decoration renderer contract', () => {
   it.each([
     ['goods-group', ['dataSource', 'count', 'columns', 'showSales']],
     ['goods-ranking', ['dataSource', 'count', 'showRankNumber']],
-    ['limited-activity', ['dataSource', 'count', 'showCountdown']],
+    [
+      'limited-activity',
+      ['dataSource', 'count', 'showCountdown', 'layout', 'subtitle'],
+    ],
+    ['seckill', ['showCountdown', 'showProgress', 'subtitle']],
+    ['discount', ['showCountdown', 'subtitle', 'goodsLimit']],
     ['countdown', ['targetTime', 'completedText']],
     ['marketing-entry', ['entries', 'columns']],
     ['shop-info', ['showContact', 'showDescription']],
     ['ship-workbench', ['showFrequent']],
+    ['activity-strip', ['dataSource']],
   ] as const)('%s implements its mobile props contract', (type, fields) => {
     const file = `${type === 'shop-info' ? 'diy-shop-info' : `diy-${type}`}/index.vue`;
     const source = readMobileFile(file);
@@ -98,10 +104,13 @@ describe('mobile decoration renderer contract', () => {
     'goods-group',
     'goods-ranking',
     'limited-activity',
+    'seckill',
+    'discount',
     'countdown',
     'marketing-entry',
     'shop-info',
     'ship-workbench',
+    'activity-strip',
   ])('registers the %s renderer instead of the unknown fallback', (type) => {
     const registry = readMobileFile('registry.ts');
     const componentName = type
@@ -117,6 +126,7 @@ describe('mobile decoration renderer contract', () => {
     'diy-goods-ranking/index.vue',
     'diy-limited-activity/index.vue',
     'diy-shop-info/index.vue',
+    'diy-activity-strip/index.vue',
   ])('%s uses shared async retail state', (file) => {
     expect(readMobileFile(file)).toContain('useRetailData');
   });

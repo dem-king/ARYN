@@ -2,22 +2,13 @@
 import { defineAsyncComponent, reactive, ref, toRefs } from 'vue';
 import { useRouter } from 'vue-router';
 
-import {
-  Bottom,
-  Delete,
-  Edit,
-  Plus,
-  Refresh,
-  Search,
-  Top,
-} from '@element-plus/icons-vue';
+import { Bottom, Delete, Edit, Plus, Top } from '@element-plus/icons-vue';
 import {
   ElAlert,
   ElButton,
   ElCascader,
   ElCol,
   ElDialog,
-  ElForm,
   ElFormItem,
   ElImage,
   ElInput,
@@ -44,7 +35,10 @@ import {
   previewImport,
   uploadImport,
 } from '#/api/product/product-import';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 import { useDict } from '#/utils/dict';
+import { formatMoney } from '#/utils/util';
 
 const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
@@ -88,7 +82,6 @@ const multipleSelection = ref<any>([]);
 const showSearch = ref(true);
 const $route = useRouter();
 const loading = ref(false);
-const queryRef = ref();
 const { tableData, queryParams, page } = toRefs(state);
 
 // 商品统一（2026-09-20）：不再区分「船供目录 / 普通列表」两套视图。
@@ -184,12 +177,6 @@ const initPage = async () => {
     });
 };
 /**
- * 重置搜索表单
- */
-const resetQuery = () => {
-  queryRef.value.resetFields();
-};
-/**
  * 新增按钮
  */
 const add = () => {
@@ -253,24 +240,25 @@ initPage();
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 搜索 -->
-      <ElForm
-        :model="queryParams"
-        ref="queryRef"
-        :inline="true"
-        v-show="showSearch"
+      <PageFilterPanel
+        :model="state.queryParams"
+        :visible="showSearch"
+        @reset="initPage"
+        @search="initPage"
       >
         <ElFormItem label="商品名称" prop="name">
           <ElInput
-            v-model="queryParams.name"
+            v-model="state.queryParams.name"
             clearable
             placeholder="请输入商品名称"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
         <ElFormItem label="商品类目" prop="categorySecondId">
           <ElCascader
             style="width: 200px"
             :options="goodsCategoryList"
-            v-model="queryParams.categorySecondId"
+            v-model="state.queryParams.categorySecondId"
             placeholder="请选择商品类目"
             clearable
             :props="defaultProps"
@@ -278,11 +266,10 @@ initPage();
         </ElFormItem>
         <ElFormItem label="商品品牌" prop="brandId">
           <ElSelect
-            v-model="queryParams.brandId"
+            v-model="state.queryParams.brandId"
             clearable
             filterable
             placeholder="请选择商品品牌"
-            style="width: 200px"
           >
             <ElOption
               v-for="item in goodsBrandList"
@@ -294,7 +281,6 @@ initPage();
         </ElFormItem>
         <ElFormItem label="商品规格" prop="enableSpecs">
           <ElSelect
-            style="width: 200px"
             v-model="state.queryParams.enableSpecs"
             clearable
             placeholder="请选择商品规格"
@@ -309,7 +295,6 @@ initPage();
         </ElFormItem>
         <ElFormItem label="商品状态" prop="status">
           <ElSelect
-            style="width: 200px"
             v-model="state.queryParams.status"
             clearable
             placeholder="请选择商品状态"
@@ -322,16 +307,10 @@ initPage();
             />
           </ElSelect>
         </ElFormItem>
-        <ElFormItem>
-          <ElButton type="primary" @click="initPage" :icon="Search">
-            搜索
-          </ElButton>
-          <ElButton @click="resetQuery" :icon="Refresh"> 重置 </ElButton>
-        </ElFormItem>
-      </ElForm>
+      </PageFilterPanel>
       <!-- 工具栏 -->
-      <div class="hx-table-toolbar mb10">
-        <div>
+      <PageToolbar :total="state.page.total" total-label="件商品">
+        <template #left>
           <ElButton
             type="primary"
             v-access:code="'product:goodsspu:add'"
@@ -365,21 +344,25 @@ initPage();
           >
             批量导入
           </ElButton>
-        </div>
-        <RightToolbar
-          :search-btn="true"
-          :refresh-btn="true"
-          @search="showSearch = !showSearch"
-          @refresh="initPage"
-        />
-      </div>
+        </template>
+        <template #right>
+          <RightToolbar
+            :search-btn="true"
+            :refresh-btn="true"
+            @search="showSearch = !showSearch"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
       <!-- 列表 -->
       <ElTable
         v-loading="loading"
+        class="hx-data-table"
         :data="tableData"
+        row-key="id"
         border
+        empty-text="暂无商品"
         @selection-change="handleSelectionChange"
-        style="width: 100%"
       >
         <ElTableColumn type="selection" width="50" align="center" />
         <ElTableColumn prop="spu" label="商品信息" width="320">
@@ -397,10 +380,7 @@ initPage();
               </ElCol>
               <ElCol :span="18" style="float: left">
                 <span class="line-clamp-2">{{ scope.row.name }}</span>
-                <div
-                  class="line-clamp-2"
-                  style="font-size: 13px; color: #909399"
-                >
+                <div class="goods-subtitle line-clamp-2">
                   {{ scope.row.subTitle }}
                 </div>
               </ElCol>
@@ -426,7 +406,9 @@ initPage();
           width="140"
         >
           <template #default="scope">
-            <span style="color: red">￥{{ scope.row.salesPrice }}</span>
+            <span class="goods-price">
+              ¥{{ formatMoney(scope.row.salesPrice) }}
+            </span>
           </template>
         </ElTableColumn>
         <ElTableColumn
@@ -547,3 +529,16 @@ initPage();
     </div>
   </div>
 </template>
+
+<style scoped lang="scss">
+.goods-subtitle {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+
+.goods-price {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--el-color-danger);
+}
+</style>

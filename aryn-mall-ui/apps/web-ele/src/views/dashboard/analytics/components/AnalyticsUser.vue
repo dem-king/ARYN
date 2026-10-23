@@ -33,7 +33,7 @@ defineProps<{
     </template>
     <div class="grid grid-cols-2 gap-4 xl:grid-cols-4">
       <div
-        class="flex flex-col justify-between rounded-lg bg-gray-50 p-4 transition-all hover:-translate-y-1 hover:shadow-md dark:bg-gray-800"
+        class="flex flex-col justify-between rounded-lg bg-[var(--el-fill-color-light)] p-4 transition-all hover:-translate-y-1 hover:shadow-md"
       >
         <div class="flex items-center gap-4">
           <div
@@ -43,7 +43,7 @@ defineProps<{
           </div>
           <div>
             <div
-              class="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400"
+              class="flex items-center gap-1 text-xs text-[var(--el-text-color-secondary)]"
             >
               成交用户数
               <ElTooltip
@@ -53,7 +53,7 @@ defineProps<{
                 <ElIcon class="cursor-help"><InfoFilled /></ElIcon>
               </ElTooltip>
             </div>
-            <div class="text-xl font-bold dark:text-gray-100">
+            <div class="text-xl font-bold text-[var(--el-text-color-primary)]">
               <CountTo :end-val="data.transactingUsers" />
             </div>
           </div>
@@ -61,7 +61,7 @@ defineProps<{
       </div>
 
       <div
-        class="flex flex-col justify-between rounded-lg bg-gray-50 p-4 transition-all hover:-translate-y-1 hover:shadow-md dark:bg-gray-800"
+        class="flex flex-col justify-between rounded-lg bg-[var(--el-fill-color-light)] p-4 transition-all hover:-translate-y-1 hover:shadow-md"
       >
         <div class="flex items-center gap-4">
           <div
@@ -71,7 +71,7 @@ defineProps<{
           </div>
           <div>
             <div
-              class="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400"
+              class="flex items-center gap-1 text-xs text-[var(--el-text-color-secondary)]"
             >
               新增用户
               <ElTooltip content="统计周期内新注册的用户" placement="top">
@@ -86,7 +86,7 @@ defineProps<{
       </div>
 
       <div
-        class="flex flex-col justify-between rounded-lg bg-gray-50 p-4 transition-all hover:-translate-y-1 hover:shadow-md dark:bg-gray-800"
+        class="flex flex-col justify-between rounded-lg bg-[var(--el-fill-color-light)] p-4 transition-all hover:-translate-y-1 hover:shadow-md"
       >
         <div class="flex items-center gap-4">
           <div
@@ -96,7 +96,7 @@ defineProps<{
           </div>
           <div>
             <div
-              class="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400"
+              class="flex items-center gap-1 text-xs text-[var(--el-text-color-secondary)]"
             >
               复购率
               <ElTooltip
@@ -106,7 +106,7 @@ defineProps<{
                 <ElIcon class="cursor-help"><InfoFilled /></ElIcon>
               </ElTooltip>
             </div>
-            <div class="text-xl font-bold dark:text-gray-100">
+            <div class="text-xl font-bold text-[var(--el-text-color-primary)]">
               <CountTo
                 :end-val="toPercent(data.repurchaseRate)"
                 :decimals="2"
@@ -118,7 +118,7 @@ defineProps<{
       </div>
 
       <div
-        class="flex flex-col justify-between rounded-lg bg-gray-50 p-4 transition-all hover:-translate-y-1 hover:shadow-md dark:bg-gray-800"
+        class="flex flex-col justify-between rounded-lg bg-[var(--el-fill-color-light)] p-4 transition-all hover:-translate-y-1 hover:shadow-md"
       >
         <div class="flex items-center gap-4">
           <div
@@ -128,7 +128,7 @@ defineProps<{
           </div>
           <div>
             <div
-              class="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400"
+              class="flex items-center gap-1 text-xs text-[var(--el-text-color-secondary)]"
             >
               老客成交占比
               <ElTooltip
@@ -138,7 +138,7 @@ defineProps<{
                 <ElIcon class="cursor-help"><InfoFilled /></ElIcon>
               </ElTooltip>
             </div>
-            <div class="text-xl font-bold dark:text-gray-100">
+            <div class="text-xl font-bold text-[var(--el-text-color-primary)]">
               <CountTo
                 :end-val="toPercent(data.returningCustomerShare)"
                 :decimals="2"

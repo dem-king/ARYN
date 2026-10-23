@@ -141,8 +141,10 @@ defineExpose({
           </div>
         </template>
         <ElTable
+          class="hx-data-table"
           :data="detail.taskList ?? []"
           border
+          empty-text="暂无关联配送任务"
           row-key="id"
           style="width: 100%"
         >
@@ -192,8 +194,10 @@ defineExpose({
           </div>
         </template>
         <ElTable
+          class="hx-data-table"
           :data="detail.pickupSummary ?? []"
           border
+          empty-text="暂无取货明细"
           row-key="spuName"
           style="width: 100%"
         >

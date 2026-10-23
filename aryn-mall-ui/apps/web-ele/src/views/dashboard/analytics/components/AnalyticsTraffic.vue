@@ -83,7 +83,9 @@ onMounted(() => {
           content="该统计数据为全局数据，不随店铺和时间筛选变化"
           placement="top"
         >
-          <ElIcon class="cursor-help text-gray-400"><InfoFilled /></ElIcon>
+          <ElIcon class="cursor-help text-[var(--el-text-color-placeholder)]">
+            <InfoFilled />
+          </ElIcon>
         </ElTooltip>
       </div>
     </template>
@@ -91,7 +93,7 @@ onMounted(() => {
       <EchartsUI ref="chartRef" />
       <div
         v-if="!loading && !hasData"
-        class="absolute inset-0 flex items-center justify-center text-sm text-gray-400"
+        class="absolute inset-0 flex items-center justify-center text-sm text-[var(--el-text-color-secondary)]"
       >
         暂无数据
       </div>

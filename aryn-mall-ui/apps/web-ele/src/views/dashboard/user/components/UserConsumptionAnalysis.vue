@@ -9,7 +9,7 @@ import { EchartsUI, useEcharts } from '@vben/plugins/echarts';
 import { DataLine, Money, ShoppingCart, User } from '@element-plus/icons-vue';
 import { ElCard, ElIcon } from 'element-plus';
 
-import { formatNumber } from '../../shared/chart';
+import { CHART_PALETTE, formatNumber } from '../../shared/chart';
 import { calculateDelta } from '../../shared/compare';
 import DeltaBadge from '../../shared/DeltaBadge.vue';
 
@@ -89,7 +89,7 @@ const updateCharts = () => {
           type: 'bar',
           barWidth: '40%',
           data: props.frequencyData.values,
-          itemStyle: { color: '#409EFF' },
+          itemStyle: { color: CHART_PALETTE.primary },
         },
       ],
     });
@@ -163,7 +163,9 @@ onMounted(() => {
         <div class="text-xl font-bold text-orange-500">
           <CountTo :end-val="overview.transactionUsers" />
         </div>
-        <div class="mt-1 flex items-center gap-1 text-xs text-gray-500">
+        <div
+          class="mt-1 flex items-center gap-1 text-xs text-[var(--el-text-color-secondary)]"
+        >
           <ElIcon><User /></ElIcon> 成交用户数
         </div>
         <DeltaBadge :delta="delta('transactionUsers')" :label="deltaLabel" />
@@ -174,7 +176,9 @@ onMounted(() => {
         <div class="text-xl font-bold text-red-500">
           <CountTo :end-val="overview.totalAmount" prefix="¥" :decimals="2" />
         </div>
-        <div class="mt-1 flex items-center gap-1 text-xs text-gray-500">
+        <div
+          class="mt-1 flex items-center gap-1 text-xs text-[var(--el-text-color-secondary)]"
+        >
           <ElIcon><Money /></ElIcon> 总消费金额
         </div>
         <DeltaBadge :delta="delta('totalAmount')" :label="deltaLabel" />
@@ -189,7 +193,9 @@ onMounted(() => {
             :decimals="2"
           />
         </div>
-        <div class="mt-1 flex items-center gap-1 text-xs text-gray-500">
+        <div
+          class="mt-1 flex items-center gap-1 text-xs text-[var(--el-text-color-secondary)]"
+        >
           <ElIcon><Money /></ElIcon> 人均消费
         </div>
         <DeltaBadge
@@ -203,7 +209,9 @@ onMounted(() => {
         <div class="text-xl font-bold text-indigo-500">
           <CountTo :end-val="overview.aov" prefix="¥" :decimals="2" />
         </div>
-        <div class="mt-1 flex items-center gap-1 text-xs text-gray-500">
+        <div
+          class="mt-1 flex items-center gap-1 text-xs text-[var(--el-text-color-secondary)]"
+        >
           <ElIcon><Money /></ElIcon> 客单价
         </div>
         <DeltaBadge :delta="delta('aov')" :label="deltaLabel" />
@@ -214,7 +222,9 @@ onMounted(() => {
         <div class="text-xl font-bold text-blue-500">
           <CountTo :end-val="overview.totalOrders" />
         </div>
-        <div class="mt-1 flex items-center gap-1 text-xs text-gray-500">
+        <div
+          class="mt-1 flex items-center gap-1 text-xs text-[var(--el-text-color-secondary)]"
+        >
           <ElIcon><ShoppingCart /></ElIcon> 总订单数
         </div>
         <DeltaBadge :delta="delta('totalOrders')" :label="deltaLabel" />
@@ -224,28 +234,32 @@ onMounted(() => {
     <!-- Charts -->
     <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
       <div class="flex h-96 flex-col">
-        <div class="mb-2 text-center text-sm font-bold text-gray-600">
+        <div
+          class="mb-2 text-center text-sm font-bold text-[var(--el-text-color-regular)]"
+        >
           用户消费次数分布
         </div>
         <div class="relative min-h-0 w-full flex-1">
           <EchartsUI ref="freqChartRef" />
           <div
             v-if="!loading && !hasFrequencyData"
-            class="absolute inset-0 flex items-center justify-center text-sm text-gray-400"
+            class="absolute inset-0 flex items-center justify-center text-sm text-[var(--el-text-color-secondary)]"
           >
             暂无数据
           </div>
         </div>
       </div>
       <div class="flex h-96 flex-col">
-        <div class="mb-2 text-center text-sm font-bold text-gray-600">
+        <div
+          class="mb-2 text-center text-sm font-bold text-[var(--el-text-color-regular)]"
+        >
           用户消费金额分层
         </div>
         <div class="relative min-h-0 w-full flex-1">
           <EchartsUI ref="amountChartRef" />
           <div
             v-if="!loading && !hasAmountData"
-            class="absolute inset-0 flex items-center justify-center text-sm text-gray-400"
+            class="absolute inset-0 flex items-center justify-center text-sm text-[var(--el-text-color-secondary)]"
           >
             暂无数据
           </div>

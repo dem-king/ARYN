@@ -43,6 +43,9 @@ public class PointsRecord extends Model<PointsRecord> {
 	@Schema(description = "备注")
 	private String remark;
 
+	@Schema(description = "业务单号（积分发放/扣减/返还幂等键）")
+	private String bizNo;
+
 	@TableField(fill = FieldFill.INSERT)
 	@Schema(description = "创建人")
 	private String createBy;

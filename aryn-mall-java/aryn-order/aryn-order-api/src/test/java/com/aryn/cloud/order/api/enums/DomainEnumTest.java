@@ -33,10 +33,10 @@ class DomainEnumTest {
 	}
 
 	@Test
-	@DisplayName("delivery_way=4 表示公司港口/船舶内部配送")
+	@DisplayName("delivery_way=4 表示公司配送（到船）")
 	void deliveryWayInternalPort() {
 		assertEquals("4", DeliveryWayEnum.INTERNAL_PORT.getCode());
-		assertEquals("公司港口/船舶内部配送", DeliveryWayEnum.getValue("4"));
+		assertEquals("公司配送（到船）", DeliveryWayEnum.getValue("4"));
 	}
 
 	@DisplayName("delivery_way 原有取值保持兼容")
@@ -44,7 +44,7 @@ class DomainEnumTest {
 	void deliveryWayLegacyValues() {
 		assertEquals("普通快递", DeliveryWayEnum.getValue("1"));
 		assertEquals("上门自提", DeliveryWayEnum.getValue("2"));
-		assertEquals("商城配送", DeliveryWayEnum.getValue("3"));
+		assertEquals("公司配送（岸上）", DeliveryWayEnum.getValue("3"));
 	}
 
 	@DisplayName("无效枚举值返回空，不能静默转成普通快递")

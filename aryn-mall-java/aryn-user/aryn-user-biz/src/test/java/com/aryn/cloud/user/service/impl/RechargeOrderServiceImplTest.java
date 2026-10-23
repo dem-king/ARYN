@@ -163,7 +163,8 @@ class RechargeOrderServiceImplTest {
 		// 验证积分增加
 		verify(pointsRecordService).recordPointsChange(
 				"user001", "1", 50, "RECHARGE",
-				"充值赠送积分：20240101120000000123456");
+				"充值赠送积分：20240101120000000123456",
+				"RECHARGE:20240101120000000123456");
 	}
 
 	@Test
@@ -188,7 +189,7 @@ class RechargeOrderServiceImplTest {
 		verify(balanceRecordService, never()).recordBalanceChange(anyString(), anyString(), any(), anyString(),
 				anyString());
 		verify(pointsRecordService, never()).recordPointsChange(anyString(), anyString(), anyInt(), anyString(),
-				anyString());
+				anyString(), anyString());
 	}
 
 	@Test
@@ -263,7 +264,8 @@ class RechargeOrderServiceImplTest {
 
 		// then
 		verify(balanceRecordService).recordBalanceChange(eq("user001"), eq("1"), any(), eq("RECHARGE"), anyString());
-		verify(pointsRecordService, never()).recordPointsChange(anyString(), anyString(), anyInt(), anyString(), anyString());
+		verify(pointsRecordService, never()).recordPointsChange(anyString(), anyString(), anyInt(), anyString(),
+				anyString(), anyString());
 	}
 
 	@Test
@@ -286,7 +288,8 @@ class RechargeOrderServiceImplTest {
 		rechargeOrderService.paySuccess("orderNo001", "payOrder123");
 
 		// then
-		verify(pointsRecordService, never()).recordPointsChange(anyString(), anyString(), anyInt(), anyString(), anyString());
+		verify(pointsRecordService, never()).recordPointsChange(anyString(), anyString(), anyInt(), anyString(),
+				anyString(), anyString());
 	}
 
 	@Test

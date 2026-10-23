@@ -14,6 +14,7 @@ import {
   ElCollapse,
   ElCollapseItem,
   ElContainer,
+  ElEmpty,
   ElHeader,
   ElIcon,
   ElLink,
@@ -490,7 +491,10 @@ initForm();
                         >
                           <div class="btn-item">
                             <ElLink
-                              style="font-size: 16px; color: #fff"
+                              style="
+                                font-size: 16px;
+                                color: var(--el-color-white);
+                              "
                               @click="delComponent(index)"
                             >
                               <ElIcon>
@@ -500,7 +504,10 @@ initForm();
                           </div>
                           <div class="btn-item">
                             <ElLink
-                              style="font-size: 16px; color: #fff"
+                              style="
+                                font-size: 16px;
+                                color: var(--el-color-white);
+                              "
                               :disabled="index <= 0"
                               @click="upComponent(index)"
                             >
@@ -511,7 +518,10 @@ initForm();
                           </div>
                           <div class="btn-item">
                             <ElLink
-                              style="font-size: 16px; color: #fff"
+                              style="
+                                font-size: 16px;
+                                color: var(--el-color-white);
+                              "
                               :disabled="index === components.length - 1"
                               @click="downComponent(index)"
                             >
@@ -544,7 +554,11 @@ initForm();
                     v-model="selectedComponent.formData"
                   />
                 </div>
-                <div v-else class="empty-text">请选择一个组件进行设置</div>
+                <ElEmpty
+                  v-else
+                  :image-size="64"
+                  description="请选择一个组件进行设置"
+                />
               </div>
             </div>
           </div>
@@ -590,7 +604,7 @@ initForm();
   white-space: nowrap;
   background-color: hsl(var(--card));
   border: 1px solid hsl(var(--overlay-content));
-  box-shadow: 0 0 6px rgb(0 0 0 / 10%);
+  box-shadow: var(--el-box-shadow-lighter);
 
   .sub-btn {
     display: flex;
@@ -622,7 +636,7 @@ initForm();
     }
 
     .group-item:hover {
-      background-color: #e5e5e5;
+      background-color: var(--el-fill-color-light);
     }
   }
 }
@@ -636,7 +650,7 @@ initForm();
   .title {
     padding: 10px;
     font-weight: bold;
-    border-bottom: 1px solid #e5e5e5;
+    border-bottom: 1px solid var(--el-border-color-lighter);
   }
 
   .selected-item {
@@ -665,7 +679,7 @@ initForm();
   }
 
   .selected-item:hover {
-    background-color: #e5e5e5;
+    background-color: var(--el-fill-color-light);
 
     .selected-del {
       opacity: 1;
@@ -673,7 +687,7 @@ initForm();
   }
 
   .selected-active {
-    background-color: #e5e5e5;
+    background-color: var(--el-color-primary-light-9);
 
     .selected-del {
       opacity: 1;
@@ -686,7 +700,7 @@ initForm();
   width: 375px;
   min-height: 667px;
   overflow: hidden;
-  box-shadow: 0 0 20px rgb(0 0 0 / 10%);
+  box-shadow: var(--el-box-shadow-light);
 }
 
 .component-item {
@@ -723,7 +737,7 @@ initForm();
 }
 
 .component-item:hover {
-  background: #f9fafb;
+  background: var(--el-fill-color-lighter);
 }
 
 .right-panel {
@@ -733,7 +747,7 @@ initForm();
   white-space: nowrap;
   background-color: hsl(var(--card));
   border: 1px solid var(--el-card-border-color);
-  box-shadow: 0 0 6px rgb(0 0 0 / 10%);
+  box-shadow: var(--el-box-shadow-lighter);
 
   .preview-page-config {
     padding: 20px;
@@ -750,10 +764,6 @@ initForm();
       }
     }
   }
-}
-
-.empty-text {
-  color: #9ca3af;
 }
 
 :deep(.el-collapse) {
@@ -777,14 +787,14 @@ initForm();
     max-width: 375px;
     min-height: 667px;
     margin: 60px auto;
-    background-color: var(--color-white);
-    box-shadow: 0 0 28px 0 var(--color-white);
+    background-color: var(--el-bg-color);
+    box-shadow: var(--el-box-shadow);
 
     .content-warp {
       width: 100%;
       min-height: 667px;
       padding-bottom: 30px;
-      background-color: #fff;
+      background-color: var(--el-bg-color);
       background-repeat: no-repeat;
       background-position: center;
       background-size: 100% 100%;
@@ -862,7 +872,7 @@ initForm();
           text-align: center;
           background-color: var(--el-color-primary);
           border-radius: 5px;
-          box-shadow: 0 0 14px 0 rgb(0 0 0 / 10%);
+          box-shadow: var(--el-box-shadow-light);
 
           .btn-item {
             padding-top: 8px;
@@ -877,7 +887,7 @@ initForm();
           inset: 0;
           z-index: 1;
           content: '';
-          border: 2px solid #155bd4;
+          border: 2px solid var(--el-color-primary);
         }
       }
 
@@ -886,7 +896,7 @@ initForm();
         inset: 0;
         z-index: 1;
         content: '';
-        border: 2px solid #155bd4;
+        border: 2px solid var(--el-color-primary);
       }
 
       .footer {

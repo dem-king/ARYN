@@ -41,9 +41,29 @@ export interface RetailGoodsItem {
   stock: number;
 }
 
+/**
+ * 拼团活动名去重：与 C 端 `aryn-mall-uniapp/src/utils/activity-name.ts` 同一规则。
+ * 名称里的「N人成团·」与图上人数徽标重复；仅当 groupNum > 0 时剥离，
+ * 避免误伤「3人份」「2人套餐」这类规格词，剥离后为空则回退原名。
+ */
+const GROUP_BADGE_PREFIX = /^\s*\d+\s*人成团\s*[·•・.\-—]?\s*/;
+
+function stripGroupBadgePrefix(name: string, groupNum: number): string {
+  const raw = (name || '').trim();
+  if (!raw || !(groupNum > 0)) return raw;
+  const stripped = raw.replace(GROUP_BADGE_PREFIX, '').trim();
+  return stripped || raw;
+}
+
 export interface RetailActivityItem {
   activityPrice: number;
   endTime: string;
+  /**
+   * 成团人数（group_buy_activity.group_num）。
+   * 管理端分页返回实体、C 端分页返回 GroupBuyActivityVO，均带该字段；
+   * 历史归一化漏映射，导致楼层无法表达「2 人成团」。
+   */
+  groupNum: number;
   id: string;
   imageUrl: string;
   name: string;
@@ -308,9 +328,13 @@ function normalizeActivities(value: unknown): RetailActivityItem[] {
       return {
         activityPrice: toNumber(record.groupPrice ?? record.activityPrice),
         endTime: toText(record.endedAt ?? record.endTime),
+        groupNum: toNumber(record.groupNum),
         id: toText(record.id),
         imageUrl: firstImage(record),
-        name: toText(record.activityName ?? record.name),
+        name: stripGroupBadgePrefix(
+          toText(record.activityName ?? record.name),
+          toNumber(record.groupNum),
+        ),
         originalPrice: toNumber(record.originalPrice),
         spuId: toText(record.spuId),
         status,
@@ -404,11 +428,7 @@ export function normalizeSeckillSessions(
         status: toNumber(record.status),
       };
     })
-    .filter((item) => Boolean(item.sessionId))
-    .filter((item) => {
-      // 与 C 端一致：已结束场次不进楼层
-      return item.status !== 2;
-    });
+    .filter((item) => Boolean(item.sessionId));
 }
 
 /** 秒杀会场取数；manual 模式 targetIds 存场次 ID */
@@ -424,9 +444,18 @@ export async function loadSeckillSessions(
     );
     return normalizeSeckillSessions(sessions).slice(0, props.count);
   }
+  // 进行中优先、未开始次之（不能直接按 status 升序，否则 count=1 时取到未开始场次）
+  const rank = (status: number) => {
+    if (status === 1) return 0;
+    if (status === 0) return 1;
+    return 2;
+  };
   const sessions = normalizeSeckillSessions(
     await dependencies.seckillSessions(),
-  ).sort((a, b) => a.status - b.status);
+  )
+    // 自动模式：已结束场次不进楼层；手动模式保留（画布显示「本场已结束」，与 C 端一致）
+    .filter((session) => session.status !== 2)
+    .sort((a, b) => rank(a.status) - rank(b.status) || a.status - b.status);
   return sessions.slice(0, props.count);
 }
 

@@ -37,7 +37,11 @@ export interface GoodsRankingProps extends RetailBaseProps {
 }
 
 export interface LimitedActivityProps extends RetailBaseProps {
+  /** 展示样式：list=单列横排（默认，匹配 1 活动=1 商品）；grid=双列货架式 */
+  layout: 'grid' | 'list'
   showCountdown: boolean
+  /** 楼层头副标题，空串使用模块默认文案 */
+  subtitle: string
   title: string
 }
 
@@ -62,6 +66,56 @@ export interface MarketingEntryProps extends RetailBaseProps {
 export interface ShopInfoProps extends RetailBaseProps {
   showContact: boolean
   showDescription: boolean
+}
+
+/**
+ * 活动入口条的单张小卡（已组装好，渲染侧只做展示）。
+ *
+ * 与纯图标宫格的 `MarketingEntry` 的区别：这里带缩略图/钩子/角标，
+ * 表达的是「我有活动在进行」而不是「这里有个频道」。
+ */
+export interface ActivityStripEntry {
+  /** 卡片类型：内置三类固定跳对应会场，custom 走 link */
+  key: 'custom' | 'discount' | 'group-buy' | 'seckill'
+  /** 活动名，如「限时秒杀」；缺图时取首字做色块兜底 */
+  title: string
+  /** 钩子文案，如「午间场·整点开抢」；空则不渲染该行 */
+  hook: string
+  /** 角标文字，如「抢」「省¥4」「9.5折」；空则不渲染角标 */
+  badge: string
+  /** 缩略图，空或远程加载失败走首字色块兜底 */
+  imageUrl: string
+  /** 跳转：内置三类的 link 在自动模式下填固定会场路由，统一走 followDecorationLink */
+  link: DecorationLink
+}
+
+/**
+ * 活动入口条数据源。
+ *
+ * · automatic：并行取「进行中的秒杀/拼团/折扣各一条」自动组装，钩子与图随活动刷新，
+ *   入口固定指向会场聚合页，因此活动轮换后入口不会失效（本期默认）；
+ * · manual：运营手配 `ActivityStripEntry[]`，不实时拉活动，可放领券中心等任意装修链接。
+ *   管理端配置面板按需求 R7 后置，本期 C 端先支持读取。
+ */
+export type ActivityStripDataSource
+  = | { mode: 'automatic' }
+    | { entries: ActivityStripEntry[], mode: 'manual' }
+
+/**
+ * 首页活动入口条（金刚区正下方一排等宽活动小卡，盒马式）。
+ *
+ * 首页不再让秒杀/拼团/折扣三个通栏楼层纵向堆叠：这里只做「入口」，
+ * 完整促销氛围（场次、倒计时、抢购进度）由各会场页承接。
+ * 某类没有进行中活动时该卡隐藏、剩余卡按实际数量等宽重排；
+ * 三类全无时整条不渲染（默认 emptyStrategy=hide），不留空白占位。
+ *
+ * 不再提供「每行列数 / 展示数量」：自动模式最多三类活动各一张，
+ * 手配卡片数就是运营添加的数量；渲染侧按实际卡数排布（一行最多三张）。
+ */
+export interface ActivityStripProps
+  extends Omit<RetailBaseProps, 'count' | 'dataSource'> {
+  /** 自动取数（本期默认）或运营手配卡片 */
+  dataSource: ActivityStripDataSource
 }
 
 export const retailCommonStyle: RetailCommonStyle = {
@@ -122,6 +176,8 @@ export interface SeckillProps extends RetailBaseProps {
   showCountdown: boolean
   /** 是否展示已售进度条 */
   showProgress: boolean
+  /** 楼层头副标题，空串使用模块默认文案 */
+  subtitle: string
   title: string
 }
 
@@ -161,8 +217,12 @@ export interface SeckillSessionItem {
  * 与秒杀同样按活动分组，但只有一层（活动 → 商品），没有场次概念。
  */
 export interface DiscountProps extends RetailBaseProps {
+  /** 每个活动最多展示的商品数（防止楼层过高） */
+  goodsLimit: number
   /** 是否展示活动倒计时 */
   showCountdown: boolean
+  /** 楼层头副标题，空串使用模块默认文案 */
+  subtitle: string
   title: string
 }
 

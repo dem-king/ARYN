@@ -8,6 +8,8 @@ import com.aryn.cloud.promotion.service.IGroupBuyMemberService;
 import lombok.AllArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 
 @Service
@@ -20,6 +22,17 @@ public class GroupBuyMemberServiceImpl extends ServiceImpl<GroupBuyMemberMapper,
 		return list(Wrappers.<GroupBuyMember>lambdaQuery()
 				.eq(GroupBuyMember::getRecordId, recordId)
 				.orderByDesc(GroupBuyMember::getCreateTime));
+	}
+
+	@Override
+	public List<GroupBuyMember> getByRecordIds(Collection<String> recordIds) {
+		if (recordIds == null || recordIds.isEmpty()) {
+			return Collections.emptyList();
+		}
+		return list(Wrappers.<GroupBuyMember>lambdaQuery()
+				.in(GroupBuyMember::getRecordId, recordIds)
+				.orderByAsc(GroupBuyMember::getCreateTime)
+				.orderByAsc(GroupBuyMember::getId));
 	}
 
 	@Override

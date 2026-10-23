@@ -50,6 +50,20 @@ watch(
     <ElFormItem label="区块标题">
       <ElInput v-model="form.title" maxlength="20" show-word-limit />
     </ElFormItem>
+    <ElFormItem label="副标题">
+      <ElInput
+        v-model="form.subtitle"
+        maxlength="20"
+        placeholder="留空使用默认：邀好友一起拼 · 人越多越划算"
+        show-word-limit
+      />
+    </ElFormItem>
+    <ElFormItem label="展示样式">
+      <ElRadioGroup v-model="form.layout">
+        <ElRadio value="list">单列横排</ElRadio>
+        <ElRadio value="grid">双列货架</ElRadio>
+      </ElRadioGroup>
+    </ElFormItem>
     <ElFormItem label="数据来源">
       <ElRadioGroup v-model="form.dataSource.mode">
         <ElRadio value="automatic">自动读取进行中拼团</ElRadio>

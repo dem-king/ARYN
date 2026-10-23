@@ -8,7 +8,7 @@ import { EchartsUI, useEcharts } from '@vben/plugins/echarts';
 import { TrendCharts } from '@element-plus/icons-vue';
 import { ElCard, ElIcon } from 'element-plus';
 
-import { formatNumber } from '../../shared/chart';
+import { areaGradient, CHART_PALETTE, formatNumber } from '../../shared/chart';
 
 const props = defineProps<{
   data: {
@@ -63,19 +63,9 @@ const updateChart = () => {
         type: 'line',
         smooth: true,
         data: props.data.newUsers,
-        itemStyle: { color: '#409EFF' },
+        itemStyle: { color: CHART_PALETTE.primary },
         areaStyle: {
-          color: {
-            type: 'linear',
-            x: 0,
-            y: 0,
-            x2: 0,
-            y2: 1,
-            colorStops: [
-              { offset: 0, color: 'rgba(64,158,255, 0.5)' },
-              { offset: 1, color: 'rgba(64,158,255, 0)' },
-            ],
-          },
+          color: areaGradient(CHART_PALETTE.primary),
         },
       },
       {
@@ -83,19 +73,9 @@ const updateChart = () => {
         type: 'line',
         smooth: true,
         data: props.data.transactionUsers,
-        itemStyle: { color: '#67C23A' },
+        itemStyle: { color: CHART_PALETTE.success },
         areaStyle: {
-          color: {
-            type: 'linear',
-            x: 0,
-            y: 0,
-            x2: 0,
-            y2: 1,
-            colorStops: [
-              { offset: 0, color: 'rgba(103,194,58, 0.5)' },
-              { offset: 1, color: 'rgba(103,194,58, 0)' },
-            ],
-          },
+          color: areaGradient(CHART_PALETTE.success),
         },
       },
     ],
@@ -121,7 +101,7 @@ onMounted(() => {
       <EchartsUI ref="chartRef" />
       <div
         v-if="!loading && !hasData"
-        class="absolute inset-0 flex items-center justify-center text-sm text-gray-400"
+        class="absolute inset-0 flex items-center justify-center text-sm text-[var(--el-text-color-secondary)]"
       >
         暂无数据
       </div>

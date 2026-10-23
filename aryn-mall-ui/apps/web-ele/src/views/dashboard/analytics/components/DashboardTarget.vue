@@ -22,8 +22,9 @@ import {
   getDashboardTarget,
   saveDashboardTarget,
 } from '#/api/order/order-statistics';
+import { formatMoney } from '#/utils/util';
 
-import { formatCurrency, formatNumber } from '../../shared/chart';
+import { CHART_PALETTE, formatNumber } from '../../shared/chart';
 
 const loading = ref(false);
 const saving = ref(false);
@@ -42,22 +43,25 @@ const form = reactive({
 const metrics = computed(() => [
   {
     actual: target.value?.gmvActual || 0,
-    color: '#409EFF',
-    format: formatCurrency,
+    color: CHART_PALETTE.primary,
+    format: (value: number) => `¥${formatMoney(value)}`,
+    isMoney: true,
     label: 'GMV',
     target: target.value?.gmvTarget || 0,
   },
   {
     actual: target.value?.orderActual || 0,
-    color: '#67C23A',
+    color: CHART_PALETTE.success,
     format: formatNumber,
+    isMoney: false,
     label: '支付订单',
     target: target.value?.orderTarget || 0,
   },
   {
     actual: target.value?.newUserActual || 0,
-    color: '#E6A23C',
+    color: CHART_PALETTE.warning,
     format: formatNumber,
+    isMoney: false,
     label: '新增用户',
     target: target.value?.newUserTarget || 0,
   },
@@ -175,7 +179,7 @@ onMounted(loadTarget);
 
     <div
       v-if="!hasTarget"
-      class="mb-3 rounded-lg bg-gray-50 p-3 text-xs text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+      class="mb-3 rounded-lg bg-[var(--el-fill-color-light)] p-3 text-xs text-[var(--el-text-color-secondary)]"
     >
       尚未设置 {{ selectedMonth }} 的目标，点击右上角“设置目标”开始跟踪。
     </div>
@@ -196,7 +200,7 @@ onMounted(loadTarget);
       </span>
       <span v-else>当前进度正常。</span>
     </div>
-    <div v-else class="mb-3 text-xs text-gray-400">
+    <div v-else class="mb-3 text-xs text-[var(--el-text-color-secondary)]">
       {{ isPastMonth ? '历史月份，目标已结算。' : '未来月份，尚未开始。' }}
     </div>
 
@@ -204,18 +208,26 @@ onMounted(loadTarget);
       <div
         v-for="item in metrics"
         :key="item.label"
-        class="rounded-lg bg-gray-50 p-4 dark:bg-gray-800"
+        class="rounded-lg bg-[var(--el-fill-color-light)] p-4"
       >
         <div class="flex items-center justify-between">
-          <span class="text-sm text-gray-500">{{ item.label }}</span>
-          <span class="text-xs text-gray-400">
+          <span class="text-sm text-[var(--el-text-color-secondary)]">
+            {{ item.label }}
+          </span>
+          <span class="text-xs text-[var(--el-text-color-secondary)]">
             {{ percent(item).toFixed(1) }}%
           </span>
         </div>
-        <div class="mt-2 text-xl font-bold">
+        <div
+          class="mt-2 text-xl font-bold"
+          :class="{ 'hx-money': item.isMoney }"
+        >
           {{ item.format(item.actual) }}
         </div>
-        <div class="text-xs text-gray-400">
+        <div
+          class="text-xs text-[var(--el-text-color-secondary)]"
+          :class="{ 'hx-money': item.isMoney }"
+        >
           目标 {{ item.format(item.target) }}
         </div>
         <ElProgress

@@ -9,7 +9,6 @@ import { Plus } from '@element-plus/icons-vue';
 import {
   ElAlert,
   ElButton,
-  ElCard,
   ElCol,
   ElDescriptions,
   ElDescriptionsItem,
@@ -44,6 +43,7 @@ import {
   returnPendingDeliveryTask,
 } from '#/api/delivery/task';
 import { uploadFile } from '#/api/upms/upload';
+import PageSection from '#/components/page/page-section.vue';
 
 import { resolveDeliveryDestination } from '../delivery-destination';
 
@@ -325,14 +325,11 @@ defineExpose({
   <div class="task-detail-root">
     <ElDrawer v-model="drawerVisible" title="配送任务详情" size="55%">
       <div v-if="detail" v-loading="loading" style="padding: 0 8px">
-        <ElCard class="box-card">
-          <template #header>
-            <div class="card-header">
-              <span>基本信息</span>
-              <ElTag :type="getStatusType(detail.status)">
-                {{ getStatusLabel(detail.status) }}
-              </ElTag>
-            </div>
+        <PageSection title="基本信息">
+          <template #extra>
+            <ElTag :type="getStatusType(detail.status)">
+              {{ getStatusLabel(detail.status) }}
+            </ElTag>
           </template>
           <ElDescriptions :column="2" border>
             <ElDescriptionsItem label="任务编号">
@@ -366,12 +363,9 @@ defineExpose({
               {{ detail.createTime ?? '—' }}
             </ElDescriptionsItem>
           </ElDescriptions>
-        </ElCard>
+        </PageSection>
 
-        <ElCard class="box-card margin-top">
-          <template #header>
-            <div class="card-header"><span>收货信息</span></div>
-          </template>
+        <PageSection title="收货信息">
           <ElDescriptions :column="1" border>
             <ElDescriptionsItem label="收货人">
               {{ detail.recipientName }}
@@ -386,15 +380,12 @@ defineExpose({
               {{ detail.vesselName }}
             </ElDescriptionsItem>
           </ElDescriptions>
-        </ElCard>
+        </PageSection>
 
-        <ElCard
+        <PageSection
           v-if="detail.status === '8' || detail.status === '9'"
-          class="box-card margin-top"
+          title="异常信息"
         >
-          <template #header>
-            <div class="card-header"><span>异常信息</span></div>
-          </template>
           <ElDescriptions :column="1" border>
             <ElDescriptionsItem label="异常时间">
               {{ detail.exceptionTime ?? '—' }}
@@ -406,13 +397,12 @@ defineExpose({
               {{ detail.exceptionDesc ?? '—' }}
             </ElDescriptionsItem>
           </ElDescriptions>
-        </ElCard>
+        </PageSection>
 
-        <ElCard class="box-card margin-top">
-          <template #header>
-            <div class="card-header"><span>订单明细</span></div>
-          </template>
+        <PageSection title="订单明细">
           <ElTable
+            class="hx-data-table"
+            empty-text="暂无商品明细"
             :data="detail.itemList ?? []"
             border
             row-key="id"
@@ -433,7 +423,12 @@ defineExpose({
                     <div class="overflow-line-clamp-2 name">
                       {{ scope.row.spuName }}
                     </div>
-                    <p style="font-size: 12px; color: #a8abb2">
+                    <p
+                      style="
+                        font-size: 12px;
+                        color: var(--el-text-color-secondary);
+                      "
+                    >
                       {{ scope.row.skuName }}
                     </p>
                   </ElCol>
@@ -454,12 +449,9 @@ defineExpose({
               </template>
             </ElTableColumn>
           </ElTable>
-        </ElCard>
+        </PageSection>
 
-        <ElCard v-if="evidenceList.length > 0" class="box-card margin-top">
-          <template #header>
-            <div class="card-header"><span>送达凭证</span></div>
-          </template>
+        <PageSection v-if="evidenceList.length > 0" title="送达凭证">
           <div style="display: flex; flex-wrap: wrap; gap: 12px">
             <ElImage
               v-for="item in evidenceList"
@@ -471,12 +463,9 @@ defineExpose({
               :preview-src-list="evidenceList.map((e: any) => e.materialUrl)"
             />
           </div>
-        </ElCard>
+        </PageSection>
 
-        <ElCard v-if="logList.length > 0" class="box-card margin-top">
-          <template #header>
-            <div class="card-header"><span>操作日志</span></div>
-          </template>
+        <PageSection v-if="logList.length > 0" title="操作日志">
           <ElTimeline>
             <ElTimelineItem
               v-for="log in logList"
@@ -487,7 +476,7 @@ defineExpose({
               <span style="margin-left: 8px">{{ log.reasonDesc ?? '' }}</span>
             </ElTimelineItem>
           </ElTimeline>
-        </ElCard>
+        </PageSection>
       </div>
 
       <template #footer>
@@ -694,7 +683,7 @@ defineExpose({
   justify-content: space-between;
 
   .name {
-    color: #409eff;
+    color: var(--el-color-primary);
   }
 }
 </style>

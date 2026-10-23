@@ -13,6 +13,7 @@ import {
 } from 'element-plus';
 
 import { delObj, getPage } from '#/api/user/member-level';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 import { useDict } from '#/utils/dict';
 
 const RightToolbar = defineAsyncComponent(
@@ -93,8 +94,8 @@ initPage();
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 工具栏 -->
-      <div class="hx-table-toolbar">
-        <div>
+      <PageToolbar :total="state.page.total" total-label="个等级">
+        <template #left>
           <ElButton
             type="primary"
             v-access:code="'user:memberlevel:add'"
@@ -103,19 +104,28 @@ initPage();
           >
             新增
           </ElButton>
-        </div>
-        <RightToolbar
-          :search-btn="false"
-          :refresh-btn="true"
-          @refresh="initPage"
-        />
-      </div>
+        </template>
+        <template #right>
+          <RightToolbar
+            :search-btn="false"
+            :refresh-btn="true"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
       <Form ref="formRef" @init-page="initPage" />
 
       <!-- 列表 -->
-      <ElTable v-loading="loading" :data="state.tableData" border>
+      <ElTable
+        v-loading="loading"
+        class="hx-data-table"
+        :data="state.tableData"
+        row-key="id"
+        border
+        empty-text="暂无会员等级"
+      >
         <ElTableColumn prop="levelName" label="等级名称" />
-        <ElTableColumn prop="levelIcon" label="等级图标" width="80">
+        <ElTableColumn prop="levelIcon" label="等级图标" width="100">
           <template #default="scope">
             <ElImage
               v-if="scope.row.levelIcon"

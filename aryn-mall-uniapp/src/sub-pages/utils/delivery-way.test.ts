@@ -13,18 +13,18 @@ describe('deliveryWayLabel', () => {
   it('covers all four backend delivery ways', () => {
     expect(deliveryWayLabel(DELIVERY_WAY_EXPRESS)).toBe('普通快递')
     expect(deliveryWayLabel(DELIVERY_WAY_SELF_PICKUP)).toBe('上门自提')
-    expect(deliveryWayLabel(DELIVERY_WAY_MALL_DELIVERY)).toBe('商城配送')
-    expect(deliveryWayLabel(DELIVERY_WAY_VESSEL_INTERNAL)).toBe('公司港口/船舶内部配送')
+    expect(deliveryWayLabel(DELIVERY_WAY_MALL_DELIVERY)).toBe('公司配送（岸上）')
+    expect(deliveryWayLabel(DELIVERY_WAY_VESSEL_INTERNAL)).toBe('公司配送（到船）')
   })
 
   it('labels way=4 explicitly instead of falling through to a default branch', () => {
     // 回归守门：历史上 way=4 被三处三元链的 else 兜底显示成
-    // 「普通快递」「无需配送」「等待提货」，且都不是内部配送的正确文案。
+    // 「普通快递」「无需配送」「等待提货」，且都不是到船配送的正确文案。
     const internal = deliveryWayLabel(DELIVERY_WAY_VESSEL_INTERNAL)
     expect(internal).not.toBe('普通快递')
     expect(internal).not.toBe('无需配送')
     expect(internal).not.toBe('等待提货')
-    expect(internal).toContain('内部配送')
+    expect(internal).toContain('公司配送')
   })
 
   it('returns empty string for missing value and an explicit label for unknown ones', () => {
@@ -53,7 +53,7 @@ describe('deliveryWayOptions', () => {
     expect(options.map(option => option.value)).toEqual([DELIVERY_WAY_VESSEL_INTERNAL])
     expect(options[0]).toEqual({
       value: DELIVERY_WAY_VESSEL_INTERNAL,
-      name: '公司港口/船舶内部配送',
+      name: '公司配送（到船）',
     })
   })
 

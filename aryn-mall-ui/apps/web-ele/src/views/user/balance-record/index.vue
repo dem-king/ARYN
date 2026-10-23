@@ -1,11 +1,8 @@
 <script lang="ts" setup>
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
-import { Refresh, Search } from '@element-plus/icons-vue';
 import {
-  ElButton,
   ElDatePicker,
-  ElForm,
   ElFormItem,
   ElInput,
   ElOption,
@@ -16,7 +13,10 @@ import {
 } from 'element-plus';
 
 import { getPage } from '#/api/user/balance-record';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 import { formatTriggerScene } from '#/utils/trigger-scene';
+import { formatMoney } from '#/utils/util';
 
 const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
@@ -42,7 +42,6 @@ const state = reactive({
 });
 const showSearch = ref(true);
 const loading = ref(false);
-const queryRef = ref();
 
 const initPage = async () => {
   loading.value = true;
@@ -70,28 +69,24 @@ const initPage = async () => {
     });
 };
 
-const resetQuery = () => {
-  queryRef.value.resetFields();
-  initPage();
-};
-
 initPage();
 </script>
 <template>
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 搜索 -->
-      <ElForm
+      <PageFilterPanel
         :model="state.queryParams"
-        ref="queryRef"
-        :inline="true"
-        v-show="showSearch"
+        :visible="showSearch"
+        @reset="initPage"
+        @search="initPage"
       >
         <ElFormItem label="会员昵称" prop="nickname">
           <ElInput
             v-model="state.queryParams.nickname"
             placeholder="请输入会员昵称"
             clearable
+            @keyup.enter="initPage"
           />
         </ElFormItem>
         <ElFormItem label="变动类型" prop="changeType">
@@ -99,7 +94,6 @@ initPage();
             v-model="state.queryParams.changeType"
             placeholder="请选择"
             clearable
-            style="width: 120px"
           >
             <ElOption label="充值" value="1" />
             <ElOption label="消费" value="2" />
@@ -116,27 +110,29 @@ initPage();
             value-format="YYYY-MM-DD HH:mm:ss"
           />
         </ElFormItem>
-        <ElFormItem>
-          <ElButton type="primary" @click="initPage" :icon="Search">
-            搜索
-          </ElButton>
-          <ElButton @click="resetQuery" :icon="Refresh">重置</ElButton>
-        </ElFormItem>
-      </ElForm>
+      </PageFilterPanel>
       <!-- 工具栏 -->
-      <div class="hx-table-toolbar">
-        <div></div>
-        <RightToolbar
-          :search-btn="true"
-          :refresh-btn="true"
-          @search="showSearch = !showSearch"
-          @refresh="initPage"
-        />
-      </div>
+      <PageToolbar :total="state.page.total" total-label="条余额记录">
+        <template #right>
+          <RightToolbar
+            :search-btn="true"
+            :refresh-btn="true"
+            @search="showSearch = !showSearch"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
       <!-- 列表 -->
-      <ElTable v-loading="loading" :data="state.tableData" border>
+      <ElTable
+        v-loading="loading"
+        class="hx-data-table"
+        :data="state.tableData"
+        row-key="id"
+        border
+        empty-text="暂无余额记录"
+      >
         <ElTableColumn prop="nickname" label="用户昵称" />
-        <ElTableColumn prop="changeType" label="变动类型" width="80">
+        <ElTableColumn prop="changeType" label="变动类型" width="100">
           <template #default="scope">
             <ElTag v-if="scope.row.changeType === '1'" type="success">
               充值
@@ -149,19 +145,25 @@ initPage();
             </ElTag>
           </template>
         </ElTableColumn>
-        <ElTableColumn prop="changeAmount" label="变动金额" width="100">
+        <ElTableColumn prop="changeAmount" label="变动金额" width="110">
           <template #default="scope">
             <span
-              :style="{
-                color: scope.row.changeType === '2' ? '#f56c6c' : '#67c23a',
-              }"
+              class="hx-money"
+              :class="scope.row.changeType === '2' ? 'amount-out' : 'amount-in'"
             >
-              {{ scope.row.changeType === '2' ? '-' : '+'
-              }}{{ scope.row.changeAmount }}
+              {{ scope.row.changeType === '2' ? '-' : '+' }}¥{{
+                formatMoney(scope.row.changeAmount)
+              }}
             </span>
           </template>
         </ElTableColumn>
-        <ElTableColumn prop="balanceAfter" label="变动后余额" width="100" />
+        <ElTableColumn prop="balanceAfter" label="变动后余额" width="110">
+          <template #default="scope">
+            <span class="hx-money">
+              ¥{{ formatMoney(scope.row.balanceAfter) }}
+            </span>
+          </template>
+        </ElTableColumn>
         <ElTableColumn prop="triggerScene" label="触发场景" width="100">
           <template #default="scope">
             {{ formatTriggerScene(scope.row.triggerScene) }}
@@ -180,3 +182,13 @@ initPage();
     </div>
   </div>
 </template>
+
+<style scoped lang="scss">
+.amount-in {
+  color: var(--el-color-success);
+}
+
+.amount-out {
+  color: var(--el-color-danger);
+}
+</style>

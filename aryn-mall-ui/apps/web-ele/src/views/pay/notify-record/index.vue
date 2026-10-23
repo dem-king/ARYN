@@ -1,10 +1,7 @@
 <script lang="ts" setup>
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
-import { Refresh, Search } from '@element-plus/icons-vue';
 import {
-  ElButton,
-  ElForm,
   ElFormItem,
   ElInput,
   ElTable,
@@ -13,6 +10,8 @@ import {
 } from 'element-plus';
 
 import { getPage } from '#/api/pay/notify-record';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 
 const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
@@ -33,7 +32,6 @@ const state = reactive({
 });
 const showSearch = ref(true);
 const loading = ref(false);
-const queryRef = ref();
 const initPage = async () => {
   loading.value = true;
   const params = {
@@ -51,51 +49,47 @@ const initPage = async () => {
       loading.value = false;
     });
 };
-/**
- * 重置搜索表单
- */
-const resetQuery = () => {
-  queryRef.value.resetFields();
-};
 initPage();
 </script>
 <template>
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 搜索 -->
-      <ElForm
+      <PageFilterPanel
         :model="state.queryParams"
-        ref="queryRef"
-        :inline="true"
-        v-show="showSearch"
+        :visible="showSearch"
+        @reset="initPage"
+        @search="initPage"
       >
         <ElFormItem label="商户订单号" prop="outTradeNo">
           <ElInput
             v-model="state.queryParams.outTradeNo"
             clearable
             placeholder="请输入商户订单号"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
-
-        <ElFormItem>
-          <ElButton type="primary" @click="initPage" :icon="Search">
-            搜索
-          </ElButton>
-          <ElButton @click="resetQuery" :icon="Refresh"> 重置 </ElButton>
-        </ElFormItem>
-      </ElForm>
+      </PageFilterPanel>
       <!-- 工具栏 -->
-      <div class="hx-table-toolbar">
-        <div></div>
-        <RightToolbar
-          :search-btn="true"
-          :refresh-btn="true"
-          @search="showSearch = !showSearch"
-          @refresh="initPage"
-        />
-      </div>
+      <PageToolbar :total="state.page.total" total-label="条回调记录">
+        <template #right>
+          <RightToolbar
+            :search-btn="true"
+            :refresh-btn="true"
+            @search="showSearch = !showSearch"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
       <!-- 列表 -->
-      <ElTable v-loading="loading" :data="state.tableData" border>
+      <ElTable
+        v-loading="loading"
+        class="hx-data-table"
+        :data="state.tableData"
+        row-key="id"
+        border
+        empty-text="暂无回调记录"
+      >
         <ElTableColumn
           prop="outTradeNo"
           label="商户订单号"
@@ -110,7 +104,7 @@ initPage();
         <ElTableColumn prop="response" label="响应报文" show-overflow-tooltip />
         <ElTableColumn prop="type" label="回调类型">
           <template #default="scope">
-            <ElTag v-if="scope.row.type === '1'" type="danger">支付回调</ElTag>
+            <ElTag v-if="scope.row.type === '1'" type="primary">支付回调</ElTag>
             <ElTag v-if="scope.row.type === '2'" type="success">退款回调</ElTag>
           </template>
         </ElTableColumn>

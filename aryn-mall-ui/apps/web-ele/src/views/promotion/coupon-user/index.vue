@@ -1,10 +1,7 @@
 <script lang="ts" setup>
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
-import { Refresh, Search } from '@element-plus/icons-vue';
 import {
-  ElButton,
-  ElForm,
   ElFormItem,
   ElInput,
   ElOption,
@@ -15,6 +12,8 @@ import {
 } from 'element-plus';
 
 import { getPage } from '#/api/promotion/coupon-user';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 
 const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
@@ -36,7 +35,6 @@ const state = reactive({
   },
   tableData: [],
 });
-const queryRef = ref();
 const showSearch = ref(true);
 const loading = ref(false);
 
@@ -57,36 +55,30 @@ const initPage = async () => {
       loading.value = false;
     });
 };
-/**
- * 重置搜索表单
- */
-const resetQuery = () => {
-  queryRef.value.resetFields();
-};
 initPage();
 </script>
 <template>
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 搜索 -->
-      <ElForm
+      <PageFilterPanel
         :model="state.queryParams"
-        ref="queryRef"
-        :inline="true"
-        v-show="showSearch"
+        :visible="showSearch"
+        @reset="initPage"
+        @search="initPage"
       >
         <ElFormItem label="优惠券名称" prop="couponName">
           <ElInput
             v-model="state.queryParams.couponName"
             clearable
             placeholder="请输入优惠券名称"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
         <ElFormItem label="优惠券状态" prop="status">
           <ElSelect
             v-model="state.queryParams.status"
             clearable
-            style="width: 200px"
             placeholder="请选择优惠券状态"
           >
             <ElOption label="未使用" value="0" />
@@ -94,25 +86,26 @@ initPage();
             <ElOption label="已过期" value="2" />
           </ElSelect>
         </ElFormItem>
-        <ElFormItem>
-          <ElButton type="primary" @click="initPage" :icon="Search">
-            搜索
-          </ElButton>
-          <ElButton @click="resetQuery" :icon="Refresh"> 重置 </ElButton>
-        </ElFormItem>
-      </ElForm>
+      </PageFilterPanel>
       <!-- 工具栏 -->
-      <div class="hx-table-toolbar">
-        <div></div>
-        <RightToolbar
-          :search-btn="true"
-          :refresh-btn="true"
-          @search="showSearch = !showSearch"
-          @refresh="initPage"
-        />
-      </div>
+      <PageToolbar :total="state.page.total" total-label="条领券记录">
+        <template #right>
+          <RightToolbar
+            :search-btn="true"
+            :refresh-btn="true"
+            @search="showSearch = !showSearch"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
       <!-- 列表 -->
-      <ElTable v-loading="loading" :data="state.tableData">
+      <ElTable
+        v-loading="loading"
+        class="hx-data-table"
+        :data="state.tableData"
+        border
+        empty-text="暂无领券记录"
+      >
         <ElTableColumn
           prop="userInfoVO"
           label="用户信息"
@@ -138,14 +131,16 @@ initPage();
         <ElTableColumn prop="usedTime" label="使用时间" align="center" />
         <ElTableColumn prop="status" label="状态" align="center">
           <template #default="scope">
-            <ElTag v-if="scope.row.status === '0'" type="info">未使用</ElTag>
-            <ElTag v-else-if="scope.row.status === '1'" type="danger">
+            <ElTag v-if="scope.row.status === '0'" type="primary">
+              未使用
+            </ElTag>
+            <ElTag v-else-if="scope.row.status === '1'" type="success">
               已使用
             </ElTag>
-            <ElTag v-else-if="scope.row.status === '2'" type="danger">
+            <ElTag v-else-if="scope.row.status === '2'" type="info">
               已过期
             </ElTag>
-            <ElTag v-else-if="scope.row.status === '3'" type="danger">
+            <ElTag v-else-if="scope.row.status === '3'" type="warning">
               冻结
             </ElTag>
           </template>

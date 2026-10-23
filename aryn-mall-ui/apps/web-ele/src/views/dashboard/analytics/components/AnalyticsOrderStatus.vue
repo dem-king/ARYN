@@ -44,11 +44,11 @@ const handleRefund = (status: string) => {
     </template>
     <div class="grid grid-cols-3 gap-4 text-center md:grid-cols-3">
       <div
-        class="hover:text-primary group flex cursor-pointer flex-col items-center justify-center rounded-lg p-2 transition-all hover:bg-gray-50"
+        class="hover:text-primary group flex cursor-pointer flex-col items-center justify-center rounded-lg p-2 transition-all hover:bg-[var(--el-fill-color-light)]"
         @click="handleNavigate('1')"
       >
         <div
-          class="mb-2 flex size-10 items-center justify-center rounded-full bg-blue-50 text-blue-500 transition-transform group-hover:scale-110"
+          class="mb-2 flex size-10 items-center justify-center rounded-full bg-blue-50 text-blue-500 transition-transform group-hover:scale-110 dark:bg-blue-900/20 dark:text-blue-400"
         >
           <ElIcon :size="20">
             <CreditCard />
@@ -57,15 +57,15 @@ const handleRefund = (status: string) => {
         <div class="text-2xl font-bold">
           <CountTo :end-val="data.pendingPayment" />
         </div>
-        <div class="text-xs text-gray-500">待付款</div>
+        <div class="text-xs text-[var(--el-text-color-secondary)]">待付款</div>
       </div>
 
       <div
-        class="hover:text-primary group flex cursor-pointer flex-col items-center justify-center rounded-lg p-2 transition-all hover:bg-gray-50"
+        class="hover:text-primary group flex cursor-pointer flex-col items-center justify-center rounded-lg p-2 transition-all hover:bg-[var(--el-fill-color-light)]"
         @click="handleNavigate('2')"
       >
         <div
-          class="mb-2 flex size-10 items-center justify-center rounded-full bg-red-50 text-red-500 transition-transform group-hover:scale-110"
+          class="mb-2 flex size-10 items-center justify-center rounded-full bg-red-50 text-red-500 transition-transform group-hover:scale-110 dark:bg-red-900/20 dark:text-red-400"
         >
           <ElIcon :size="20">
             <Box />
@@ -74,15 +74,15 @@ const handleRefund = (status: string) => {
         <div class="text-2xl font-bold text-red-500">
           <CountTo :end-val="data.pendingShipment" />
         </div>
-        <div class="text-xs text-gray-500">待发货</div>
+        <div class="text-xs text-[var(--el-text-color-secondary)]">待发货</div>
       </div>
 
       <div
-        class="hover:text-primary group flex cursor-pointer flex-col items-center justify-center rounded-lg p-2 transition-all hover:bg-gray-50"
+        class="hover:text-primary group flex cursor-pointer flex-col items-center justify-center rounded-lg p-2 transition-all hover:bg-[var(--el-fill-color-light)]"
         @click="handleNavigate('3')"
       >
         <div
-          class="mb-2 flex size-10 items-center justify-center rounded-full bg-orange-50 text-orange-500 transition-transform group-hover:scale-110"
+          class="mb-2 flex size-10 items-center justify-center rounded-full bg-orange-50 text-orange-500 transition-transform group-hover:scale-110 dark:bg-orange-900/20 dark:text-orange-400"
         >
           <ElIcon :size="20">
             <Truck />
@@ -91,15 +91,15 @@ const handleRefund = (status: string) => {
         <div class="text-2xl font-bold">
           <CountTo :end-val="data.shipped" />
         </div>
-        <div class="text-xs text-gray-500">已发货</div>
+        <div class="text-xs text-[var(--el-text-color-secondary)]">已发货</div>
       </div>
 
       <div
-        class="hover:text-primary group flex cursor-pointer flex-col items-center justify-center rounded-lg p-2 transition-all hover:bg-gray-50"
+        class="hover:text-primary group flex cursor-pointer flex-col items-center justify-center rounded-lg p-2 transition-all hover:bg-[var(--el-fill-color-light)]"
         @click="handleNavigate('4')"
       >
         <div
-          class="mb-2 flex size-10 items-center justify-center rounded-full bg-green-50 text-green-500 transition-transform group-hover:scale-110"
+          class="mb-2 flex size-10 items-center justify-center rounded-full bg-green-50 text-green-500 transition-transform group-hover:scale-110 dark:bg-green-900/20 dark:text-green-400"
         >
           <ElIcon :size="20">
             <CircleCheck />
@@ -108,15 +108,15 @@ const handleRefund = (status: string) => {
         <div class="text-2xl font-bold">
           <CountTo :end-val="data.completed" />
         </div>
-        <div class="text-xs text-gray-500">已完成</div>
+        <div class="text-xs text-[var(--el-text-color-secondary)]">已完成</div>
       </div>
 
       <div
-        class="hover:text-primary group flex cursor-pointer flex-col items-center justify-center rounded-lg p-2 transition-all hover:bg-gray-50"
+        class="hover:text-primary group flex cursor-pointer flex-col items-center justify-center rounded-lg p-2 transition-all hover:bg-[var(--el-fill-color-light)]"
         @click="handleRefund('1')"
       >
         <div
-          class="mb-2 flex size-10 items-center justify-center rounded-full bg-purple-50 text-purple-500 transition-transform group-hover:scale-110"
+          class="mb-2 flex size-10 items-center justify-center rounded-full bg-purple-50 text-purple-500 transition-transform group-hover:scale-110 dark:bg-purple-900/20 dark:text-purple-400"
         >
           <ElIcon :size="20">
             <Headset />
@@ -125,15 +125,17 @@ const handleRefund = (status: string) => {
         <div class="text-2xl font-bold">
           <CountTo :end-val="data.afterSales" />
         </div>
-        <div class="text-xs text-gray-500">售后待审核</div>
+        <div class="text-xs text-[var(--el-text-color-secondary)]">
+          售后待审核
+        </div>
       </div>
 
       <div
-        class="hover:text-primary group flex cursor-pointer flex-col items-center justify-center rounded-lg p-2 transition-all hover:bg-gray-50"
+        class="hover:text-primary group flex cursor-pointer flex-col items-center justify-center rounded-lg p-2 transition-all hover:bg-[var(--el-fill-color-light)]"
         @click="handleRefund('6')"
       >
         <div
-          class="mb-2 flex size-10 items-center justify-center rounded-full bg-gray-50 text-gray-500 transition-transform group-hover:scale-110"
+          class="mb-2 flex size-10 items-center justify-center rounded-full bg-[var(--el-fill-color-light)] text-[var(--el-text-color-secondary)] transition-transform group-hover:scale-110"
         >
           <ElIcon :size="20">
             <Money />
@@ -142,7 +144,7 @@ const handleRefund = (status: string) => {
         <div class="text-2xl font-bold">
           <CountTo :end-val="data.refunded" />
         </div>
-        <div class="text-xs text-gray-500">已退款</div>
+        <div class="text-xs text-[var(--el-text-color-secondary)]">已退款</div>
       </div>
     </div>
   </ElCard>

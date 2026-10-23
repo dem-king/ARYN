@@ -15,7 +15,7 @@ import type { PortVehicle } from '#/api/vessel/portVehicle';
 
 import { defineAsyncComponent, nextTick, onMounted, reactive, ref } from 'vue';
 
-import { Plus, Refresh, Search } from '@element-plus/icons-vue';
+import { Plus } from '@element-plus/icons-vue';
 import {
   ElButton,
   ElDialog,
@@ -42,6 +42,8 @@ import {
   getPortVehiclePortOptions,
   updatePortVehicle,
 } from '#/api/vessel/portVehicle';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 
 const Pagination = defineAsyncComponent(
   () => import('#/components/pagination/index.vue'),
@@ -85,13 +87,14 @@ const state = reactive({
   tableData: [] as PortVehicle[],
 });
 const loading = ref(false);
+const showSearch = ref(true);
 const portOptions = ref<string[]>([]);
 
 const statusLabel: Record<string, string> = {
   '0': '停用',
   '1': '启用',
 };
-const statusTag: Record<string, string> = {
+const statusTag: Record<string, 'info' | 'success'> = {
   '0': 'info',
   '1': 'success',
 };
@@ -345,14 +348,18 @@ onMounted(() => {
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 查询区 -->
-      <ElForm :inline="true" :model="state.query" @submit.prevent>
-        <ElFormItem label="港口">
+      <PageFilterPanel
+        :model="state.query"
+        :visible="showSearch"
+        @reset="resetQuery"
+        @search="handleSearch"
+      >
+        <ElFormItem label="港口" prop="portName">
           <ElSelect
             v-model="state.query.portName"
             clearable
             filterable
             placeholder="全部港口"
-            style="width: 190px"
           >
             <ElOption
               v-for="port in portOptions"
@@ -362,64 +369,65 @@ onMounted(() => {
             />
           </ElSelect>
         </ElFormItem>
-        <ElFormItem label="车牌号">
+        <ElFormItem label="车牌号" prop="plateNo">
           <ElInput
             v-model="state.query.plateNo"
             clearable
             placeholder="按车牌模糊搜索"
-            style="width: 170px"
             @clear="handleSearch"
             @keyup.enter="handleSearch"
           />
         </ElFormItem>
-        <ElFormItem label="司机">
+        <ElFormItem label="司机" prop="driverName">
           <ElInput
             v-model="state.query.driverName"
             clearable
             placeholder="按司机姓名模糊搜索"
-            style="width: 170px"
             @clear="handleSearch"
             @keyup.enter="handleSearch"
           />
         </ElFormItem>
-        <ElFormItem label="状态">
+        <ElFormItem label="状态" prop="status">
           <ElSelect
             v-model="state.query.status"
             clearable
             placeholder="全部状态"
-            style="width: 120px"
             @change="handleSearch"
           >
             <ElOption label="启用" value="1" />
             <ElOption label="停用" value="0" />
           </ElSelect>
         </ElFormItem>
-        <ElFormItem>
-          <ElButton type="primary" :icon="Search" @click="handleSearch">
-            搜索
-          </ElButton>
-          <ElButton :icon="Refresh" @click="resetQuery">重置</ElButton>
-        </ElFormItem>
-      </ElForm>
+      </PageFilterPanel>
 
       <!-- 工具栏 -->
-      <div class="hx-table-toolbar">
-        <div class="page-tip">
-          只有完成港口报备的车辆才能进入港区；名单按港口展示在小程序「港口报备车辆」页，船员可直接拨打司机电话。
-        </div>
-        <ElButton
-          v-access:code="'vessel:portvehicle:save'"
-          :icon="Plus"
-          type="primary"
-          @click="openCreate"
-        >
-          新增车辆
-        </ElButton>
-      </div>
+      <PageToolbar :total="state.page.total" total-label="辆报备车辆">
+        <template #left>
+          <div class="page-tip">
+            只有完成港口报备的车辆才能进入港区；名单按港口展示在小程序「港口报备车辆」页，船员可直接拨打司机电话。
+          </div>
+        </template>
+        <template #right>
+          <ElButton
+            v-access:code="'vessel:portvehicle:save'"
+            :icon="Plus"
+            type="primary"
+            @click="openCreate"
+          >
+            新增车辆
+          </ElButton>
+        </template>
+      </PageToolbar>
 
       <!-- 列表：窄屏下靠「车辆」「司机」两列的上下叠放容纳全部信息，
            避免横向滚动把「操作」列挤出可视区 -->
-      <ElTable v-loading="loading" :data="state.tableData" border>
+      <ElTable
+        v-loading="loading"
+        class="hx-data-table"
+        :data="state.tableData"
+        border
+        empty-text="暂无报备车辆"
+      >
         <ElTableColumn
           label="港口"
           min-width="100"
@@ -457,7 +465,7 @@ onMounted(() => {
         <ElTableColumn align="center" label="排序" prop="sort" width="70" />
         <ElTableColumn align="center" label="状态" width="80">
           <template #default="scope">
-            <ElTag :type="(statusTag[scope.row.status] as any) ?? 'info'">
+            <ElTag :type="statusTag[scope.row.status] ?? 'info'">
               {{ statusLabel[scope.row.status] ?? scope.row.status }}
             </ElTag>
           </template>
@@ -531,7 +539,7 @@ onMounted(() => {
           ref="formRef"
           :model="form"
           :rules="rules"
-          label-width="96px"
+          label-width="auto"
           @submit.prevent
         >
           <ElFormItem label="港口名称" prop="portName">
@@ -621,12 +629,14 @@ onMounted(() => {
           </ElFormItem>
         </ElForm>
         <template #footer>
-          <ElButton :disabled="submitting" @click="closeDialog()">
-            取消
-          </ElButton>
-          <ElButton :loading="submitting" type="primary" @click="submitForm">
-            保存
-          </ElButton>
+          <div class="hx-form-footer">
+            <ElButton :disabled="submitting" @click="closeDialog()">
+              取消
+            </ElButton>
+            <ElButton :loading="submitting" type="primary" @click="submitForm">
+              确定
+            </ElButton>
+          </div>
         </template>
       </ElDialog>
     </div>
@@ -640,7 +650,7 @@ onMounted(() => {
   margin-right: 12px;
   font-size: 13px;
   line-height: 22px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .cell-main {

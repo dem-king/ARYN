@@ -4,8 +4,11 @@
  * 后端取值：
  *   1 普通快递
  *   2 上门自提
- *   3 商城配送
- *   4 公司港口/船舶内部配送（船供采购强制使用，由公司司机按靠港计划送达）
+ *   3 公司配送（岸上）
+ *   4 公司配送（到船）
+ *
+ * 3 与 4 同为公司自有运力：3 送到收货地址并受配送范围限制，
+ * 4 由公司司机按靠港计划送到港口或船舶。
  *
  * 约束：页面禁止再用 `way === '1' ? ... : way === '3' ? ... : '兜底'` 的三元链。
  * 历史上正是这种兜底写法把 way=4 显示成了「普通快递」「无需配送」「等待提货」
@@ -17,16 +20,16 @@
 export const DELIVERY_WAY_EXPRESS = '1'
 /** 上门自提 */
 export const DELIVERY_WAY_SELF_PICKUP = '2'
-/** 商城配送 */
+/** 公司配送（岸上） */
 export const DELIVERY_WAY_MALL_DELIVERY = '3'
-/** 公司港口/船舶内部配送 */
+/** 公司配送（到船） */
 export const DELIVERY_WAY_VESSEL_INTERNAL = '4'
 
 export const DELIVERY_WAY_LABEL: Record<string, string> = {
   [DELIVERY_WAY_EXPRESS]: '普通快递',
   [DELIVERY_WAY_SELF_PICKUP]: '上门自提',
-  [DELIVERY_WAY_MALL_DELIVERY]: '商城配送',
-  [DELIVERY_WAY_VESSEL_INTERNAL]: '公司港口/船舶内部配送',
+  [DELIVERY_WAY_MALL_DELIVERY]: '公司配送（岸上）',
+  [DELIVERY_WAY_VESSEL_INTERNAL]: '公司配送（到船）',
 }
 
 /**

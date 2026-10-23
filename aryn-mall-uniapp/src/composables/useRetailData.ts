@@ -1,12 +1,21 @@
 import type { MaybeRefOrGetter } from 'vue'
 
-import { computed, readonly, shallowRef, toValue, watch } from 'vue'
-
 import type { RetailBaseProps } from '@/components/diy/retail-types'
+
+import { computed, readonly, shallowRef, toValue, watch } from 'vue'
 
 export type RetailLoadStatus = 'empty' | 'error' | 'loading' | 'ready'
 
-export function useRetailData<TProps extends RetailBaseProps, TItem>(
+/** 降级策略是取数状态的唯一依赖；count 等展示字段不参与，入口条可不带 count */
+type RetailFallbackProps = Pick<
+  RetailBaseProps,
+  'emptyStrategy' | 'invalidStrategy'
+>
+
+export function useRetailData<
+  TProps extends RetailFallbackProps,
+  TItem,
+>(
   source: MaybeRefOrGetter<TProps>,
   loader: (props: TProps) => Promise<TItem[]>,
 ) {

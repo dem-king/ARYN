@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
-import { Delete, Edit, Plus, Refresh, Search } from '@element-plus/icons-vue';
+import { Delete, Edit, Plus } from '@element-plus/icons-vue';
 import {
   ElButton,
-  ElForm,
   ElFormItem,
   ElInput,
   ElMessage,
@@ -14,6 +13,8 @@ import {
 } from 'element-plus';
 
 import { delObj, getPage } from '#/api/upms/sys-role';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 
 const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
@@ -39,7 +40,6 @@ const showSearch = ref(true);
 const loading = ref(false);
 const formRef = ref();
 const roleMenuRef = ref();
-const queryRef = ref();
 const initPage = async () => {
   loading.value = true;
   const params = {
@@ -55,12 +55,6 @@ const initPage = async () => {
     .catch(() => {
       loading.value = false;
     });
-};
-/**
- * 重置搜索表单
- */
-const resetQuery = () => {
-  queryRef.value.resetFields();
 };
 /**
  * 新增按钮
@@ -106,17 +100,18 @@ initPage();
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 搜索 -->
-      <ElForm
+      <PageFilterPanel
         :model="state.queryParams"
-        ref="queryRef"
-        :inline="true"
-        v-show="showSearch"
+        :visible="showSearch"
+        @reset="initPage"
+        @search="initPage"
       >
         <ElFormItem label="角色名称" prop="roleName">
           <ElInput
             v-model="state.queryParams.roleName"
             clearable
             placeholder="请输入角色名称"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
         <ElFormItem label="角色编码" prop="roleCode">
@@ -124,18 +119,13 @@ initPage();
             v-model="state.queryParams.roleCode"
             clearable
             placeholder="请输入角色编码"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
-        <ElFormItem>
-          <ElButton type="primary" @click="initPage" :icon="Search">
-            搜索
-          </ElButton>
-          <ElButton @click="resetQuery" :icon="Refresh"> 重置 </ElButton>
-        </ElFormItem>
-      </ElForm>
+      </PageFilterPanel>
       <!-- 工具栏 -->
-      <div class="hx-table-toolbar">
-        <div>
+      <PageToolbar :total="state.page.total" total-label="个角色">
+        <template #left>
           <ElButton
             type="primary"
             v-access:code="'upms:sysrole:add'"
@@ -144,24 +134,33 @@ initPage();
           >
             新增
           </ElButton>
-        </div>
-        <RightToolbar
-          :search-btn="true"
-          :refresh-btn="true"
-          @search="showSearch = !showSearch"
-          @refresh="initPage"
-        />
-      </div>
+        </template>
+        <template #right>
+          <RightToolbar
+            :search-btn="true"
+            :refresh-btn="true"
+            @search="showSearch = !showSearch"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
       <!-- 新增/编辑表单 -->
       <Form ref="formRef" @init-page="initPage" />
       <RoleMenu ref="roleMenuRef" @init-page="initPage" />
       <!-- table列表 -->
-      <ElTable v-loading="loading" :data="state.tableData" border>
+      <ElTable
+        v-loading="loading"
+        class="hx-data-table"
+        :data="state.tableData"
+        row-key="id"
+        border
+        empty-text="暂无角色"
+      >
         <ElTableColumn prop="roleName" label="角色名称" />
         <ElTableColumn prop="roleCode" label="角色编码" />
         <ElTableColumn prop="roleDesc" label="角色描述" />
         <ElTableColumn prop="createTime" label="创建时间" />
-        <ElTableColumn label="操作" align="center" fixed="right" width="300">
+        <ElTableColumn label="操作" align="center" fixed="right" width="240">
           <template #default="scope">
             <ElButton
               link

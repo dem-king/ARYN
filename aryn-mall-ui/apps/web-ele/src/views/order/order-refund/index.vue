@@ -9,10 +9,8 @@ import {
 } from 'vue';
 import { useRoute } from 'vue-router';
 
-import { Refresh, Search } from '@element-plus/icons-vue';
 import {
   ElButton,
-  ElForm,
   ElFormItem,
   ElImage,
   ElOption,
@@ -22,7 +20,10 @@ import {
 } from 'element-plus';
 
 import { getPage } from '#/api/order/order-refund';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 import { useDict } from '#/utils/dict';
+import { formatMoney } from '#/utils/util';
 
 const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
@@ -53,7 +54,6 @@ const state = reactive({
 const refundRef = ref();
 const loading = ref(false);
 const showSearch = ref(true);
-const queryRef = ref();
 const route = useRoute();
 
 const applyRouteStatus = () => {
@@ -93,12 +93,6 @@ const initPage = async () => {
 };
 const doRefund = (id: string) => {
   refundRef.value.initPage(id);
-};
-/**
- * 重置搜索表单
- */
-const resetQuery = () => {
-  queryRef.value.resetFields();
 };
 /**
  * 站内信等入口可能带 `?refundId=xxx` 直达退单详情。
@@ -150,15 +144,14 @@ watch(
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 搜索 -->
-      <ElForm
+      <PageFilterPanel
         :model="state.queryParams"
-        ref="queryRef"
-        :inline="true"
-        v-show="showSearch"
+        :visible="showSearch"
+        @reset="initPage"
+        @search="initPage"
       >
         <ElFormItem label="退款状态" prop="status">
           <ElSelect
-            style="width: 200px"
             v-model="state.queryParams.status"
             clearable
             placeholder="请选择退款状态"
@@ -171,63 +164,87 @@ watch(
             />
           </ElSelect>
         </ElFormItem>
-        <ElFormItem>
-          <ElButton type="primary" @click="initPage" :icon="Search">
-            搜索
-          </ElButton>
-          <ElButton @click="resetQuery" :icon="Refresh"> 重置 </ElButton>
-        </ElFormItem>
-      </ElForm>
+      </PageFilterPanel>
       <!-- 工具栏 -->
-      <div class="hx-table-toolbar">
-        <div></div>
-        <RightToolbar
-          :search-btn="true"
-          :refresh-btn="true"
-          @search="showSearch = !showSearch"
-          @refresh="initPage"
-        />
-      </div>
+      <PageToolbar :total="state.page.total" total-label="笔退单">
+        <template #right>
+          <RightToolbar
+            :search-btn="true"
+            :refresh-btn="true"
+            @search="showSearch = !showSearch"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
       <Refund ref="refundRef" @init-page="initPage" />
 
       <!-- 列表 -->
-      <ElTable v-loading="loading" :data="state.tableData" border>
+      <ElTable
+        v-loading="loading"
+        class="hx-data-table"
+        :data="state.tableData"
+        row-key="id"
+        border
+        empty-text="暂无退款单"
+      >
         <ElTableColumn prop="orderItemList" label="商品信息" width="450">
           <template #default="scope">
-            <div v-if="scope.row.orderItem" class="order-item">
+            <div v-if="scope.row.orderItem" class="refund-item">
               <ElImage
-                style="width: 60px; height: 60px"
+                class="refund-item__pic"
                 :src="scope.row.orderItem.picUrl"
+                :preview-src-list="[scope.row.orderItem.picUrl]"
                 fit="cover"
                 :preview-teleported="true"
               />
-              <div class="main">
-                <div class="name line-clamp-2">
+              <div class="refund-item__main">
+                <div
+                  class="refund-item__name"
+                  :title="scope.row.orderItem.spuName"
+                >
                   {{ scope.row.orderItem.spuName }}
                 </div>
-                <p>{{ scope.row.orderItem.specsInfo }}</p>
-                <div style="display: flex; justify-content: space-between">
-                  <span style="color: red">
-                    ￥{{ scope.row.orderItem.paymentPrice }}
+                <p
+                  v-if="scope.row.orderItem.specsInfo"
+                  class="refund-item__spec"
+                >
+                  {{ scope.row.orderItem.specsInfo }}
+                </p>
+                <div class="refund-item__meta">
+                  <span class="refund-item__price">
+                    ¥{{ formatMoney(scope.row.orderItem.paymentPrice) }}
                   </span>
-                  x{{ scope.row.orderItem.buyQuantity }}
+                  <span class="refund-item__qty">
+                    ×{{ scope.row.orderItem.buyQuantity }}
+                  </span>
                 </div>
               </div>
             </div>
           </template>
         </ElTableColumn>
-        <ElTableColumn prop="status" label="状态" width="220">
+        <ElTableColumn prop="status" label="状态" width="150" align="center">
           <template #default="scope">
             <DictTag :options="refund_status" :value="scope.row.status" />
           </template>
         </ElTableColumn>
-        <ElTableColumn prop="refundType" label="退款类型" width="220">
+        <ElTableColumn
+          prop="refundType"
+          label="退款类型"
+          width="160"
+          align="center"
+        >
           <template #default="scope">
             <DictTag :options="refund_type" :value="scope.row.refundType" />
           </template>
         </ElTableColumn>
-        <ElTableColumn prop="refundAmount" label="退款金额" />
-        <ElTableColumn prop="refundReason" label="退款原因" />
+        <ElTableColumn prop="refundAmount" label="退款金额" width="140">
+          <template #default="scope">
+            <span class="refund-amount">
+              ¥{{ formatMoney(scope.row.refundAmount) }}
+            </span>
+          </template>
+        </ElTableColumn>
+        <ElTableColumn prop="refundReason" label="退款原因" min-width="200" />
         <ElTableColumn label="操作" width="200" align="center" fixed="right">
           <template #default="scope">
             <ElButton link type="primary" @click="doRefund(scope.row.id)">
@@ -255,18 +272,69 @@ watch(
   </div>
 </template>
 <style lang="scss" scoped>
-/* 图片固定宽、文字区自适应：避免窄列下图片压住商品名 */
-.order-item {
+.refund-item {
   display: flex;
   gap: 10px;
   align-items: flex-start;
+  min-width: 0;
+}
 
-  .main {
-    min-width: 0;
-  }
+.refund-item__pic {
+  flex: none;
+  width: 56px;
+  height: 56px;
+  overflow: hidden;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+}
 
-  .name {
-    overflow-wrap: anywhere;
-  }
+.refund-item__main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.refund-item__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--el-text-color-primary);
+  white-space: nowrap;
+}
+
+.refund-item__spec {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  white-space: nowrap;
+}
+
+.refund-item__meta {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  font-size: 12px;
+}
+
+.refund-item__price {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--el-color-danger);
+}
+
+.refund-item__qty {
+  font-variant-numeric: tabular-nums;
+  color: var(--el-text-color-secondary);
+}
+
+.refund-amount {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 </style>

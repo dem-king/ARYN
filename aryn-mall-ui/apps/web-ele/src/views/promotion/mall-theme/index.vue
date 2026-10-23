@@ -719,7 +719,12 @@ onMounted(() => {
 }
 
 .swatch-nav {
-  background-image: linear-gradient(45deg, #ddd 25%, transparent 25%);
+  /* 导航色可能带透明度，棋盘格占位用中性边框色令牌 */
+  background-image: linear-gradient(
+    45deg,
+    var(--el-border-color-lighter) 25%,
+    transparent 25%
+  );
 }
 
 .card-main {
@@ -762,10 +767,14 @@ onMounted(() => {
   max-width: calc(375px + 12px);
   aspect-ratio: 375 / 812;
   overflow: hidden;
-  background: #fff;
+
+  /* 屏体底色：行内会再按主题数据色覆盖，这里只兜底中性底色 */
+  background: var(--el-bg-color);
+
+  /* 深色机身边框是刻意还原真机的装饰，保留固定色值、不随管理端换肤 */
   border: 6px solid #1f2937;
   border-radius: 24px;
-  box-shadow: 0 12px 32px rgb(15 23 42 / 18%);
+  box-shadow: var(--el-box-shadow);
 }
 
 .preview-screen {
@@ -798,15 +807,17 @@ onMounted(() => {
   height: 100%;
 }
 
+/* 预览 tabBar 是模拟 C 端底栏的编辑器装饰：中性色全部走 Element 令牌，
+   深色模式下不会残留一块固定白底 */
 .preview-tabbar {
   display: flex;
   align-items: center;
   justify-content: space-around;
   height: 50px;
   font-size: 12px;
-  color: #999;
-  background: #fff;
-  border-top: 1px solid rgb(0 0 0 / 6%);
+  color: var(--el-text-color-secondary);
+  background: var(--el-bg-color);
+  border-top: 1px solid var(--el-border-color-lighter);
 }
 
 .tabbar-item {
@@ -819,7 +830,7 @@ onMounted(() => {
 .tabbar-dot {
   width: 16px;
   height: 16px;
-  background: #c0c4cc;
+  background: var(--el-text-color-placeholder);
   border-radius: 50%;
 }
 

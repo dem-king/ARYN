@@ -8,6 +8,7 @@ import { Plus, Upload } from '@element-plus/icons-vue';
 import {
   ElButton,
   ElDrawer,
+  ElEmpty,
   ElImage,
   ElInput,
   ElMessage,
@@ -360,7 +361,12 @@ initPage();
       </div>
       <div class="media-list" v-loading="loading">
         <h1 class="title">{{ groupTitle }}</h1>
-        <div class="image-list">
+        <ElEmpty
+          v-if="!loading && state.materialList.length === 0"
+          description="暂无素材"
+          :image-size="90"
+        />
+        <div v-else class="image-list">
           <div
             class="image-item"
             v-for="(item, index) in state.materialList"
@@ -471,7 +477,7 @@ initPage();
     width: 240px;
     margin-right: -1px;
     overflow: hidden;
-    border: 1px solid #dcdee0;
+    border: 1px solid var(--el-border-color-lighter);
 
     .category-tree {
       padding: 20px;
@@ -485,7 +491,7 @@ initPage();
       height: 56px;
       padding: 12px 0;
       text-align: center;
-      box-shadow: 0 -1px 4px 0 rgb(0 0 0 / 10%);
+      box-shadow: var(--el-box-shadow-light);
     }
   }
 
@@ -494,13 +500,13 @@ initPage();
     flex: auto;
     padding: 12px;
     overflow-y: auto;
-    border: 1px solid #dcdee0;
+    border: 1px solid var(--el-border-color-lighter);
 
     .title {
       font-size: 16px;
       font-weight: 700;
       line-height: 24px;
-      color: #323233;
+      color: var(--el-text-color-primary);
     }
   }
 }
@@ -564,7 +570,7 @@ initPage();
         .selected-icon {
           font-size: 32px;
           font-weight: bold;
-          color: #fff;
+          color: var(--el-color-white);
         }
       }
     }
@@ -577,7 +583,7 @@ initPage();
       text-overflow: ellipsis;
       font-size: 14px;
       line-height: 20px;
-      color: #333;
+      color: var(--el-text-color-primary);
       text-align: center;
       white-space: nowrap;
     }

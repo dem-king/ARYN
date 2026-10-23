@@ -49,6 +49,19 @@ public interface UserInfoMapper extends BaseMapper<UserInfo> {
 			""")
 	int acquirePoints(@Param("userId") String userId, @Param("changePoint") Integer changePoint);
 
+	/**
+	 * 返还积分：只恢复可用积分，不增加累计积分（total_point）。
+	 *
+	 * <p>total_point 语义是「累计获得」，用于积分线等级；退款/取消返还不是新获得，
+	 * 若复用 {@link #acquirePoints} 会虚增累计积分（反复下单-取消即可刷等级）。
+	 */
+	@Update("""
+			UPDATE user_info
+			SET point = COALESCE(point, 0) + #{changePoint}
+			WHERE id = #{userId} AND del_flag = '0'
+			""")
+	int refundPoints(@Param("userId") String userId, @Param("changePoint") Integer changePoint);
+
 	@Update("""
 			UPDATE user_info
 			SET point = COALESCE(point, 0) - #{changePoint}

@@ -71,6 +71,9 @@ public class PromotionContextDTO implements Serializable {
 		@Schema(description = "结算基价（未优惠单价）")
 		private BigDecimal salesPrice;
 
+		@Schema(description = "是否已享活动价（拼团/秒杀/限时折扣等），已享活动价的 SKU 不参与整船优惠")
+		private Boolean activityPriced;
+
 	}
 
 }

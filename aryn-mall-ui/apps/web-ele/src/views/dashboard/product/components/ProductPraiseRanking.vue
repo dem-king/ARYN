@@ -23,7 +23,9 @@ defineProps<{
       <div class="flex items-center gap-2 font-bold">
         <ElIcon class="text-yellow-500"><Medal /></ElIcon>
         <span>商品好评榜 TOP 10</span>
-        <span class="ml-2 text-xs font-normal text-gray-400">
+        <span
+          class="ml-2 text-xs font-normal text-[var(--el-text-color-secondary)]"
+        >
           (统计周期内数据)
         </span>
       </div>
@@ -37,7 +39,8 @@ defineProps<{
               'bg-red-500 text-white': $index === 0,
               'bg-orange-500 text-white': $index === 1,
               'bg-yellow-500 text-white': $index === 2,
-              'bg-gray-100 text-gray-500': $index > 2,
+              'bg-[var(--el-fill-color)] text-[var(--el-text-color-secondary)]':
+                $index > 2,
             }"
           >
             {{ $index + 1 }}

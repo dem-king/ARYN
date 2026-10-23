@@ -16,6 +16,7 @@ import com.aryn.cloud.promotion.api.vo.PromotionCalculationVO;
 import com.aryn.cloud.promotion.mapper.PromotionActivityMapper;
 import com.aryn.cloud.promotion.service.PromotionEngineService;
 import com.aryn.cloud.promotion.service.impl.ActivityPublishGovernanceService;
+import com.aryn.cloud.promotion.service.impl.PromotionLockUsage;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -59,6 +60,9 @@ class ShipActivityControllerTest {
 	@Mock
 	private RemoteGoodsSkuService goodsSkuService;
 
+	@Mock
+	private PromotionLockUsage promotionLockUsage;
+
 	private ShipActivityController controller;
 
 	@BeforeAll
@@ -69,7 +73,7 @@ class ShipActivityControllerTest {
 
 	@BeforeEach
 	void setUp() {
-		controller = new ShipActivityController(activityMapper, governanceService, engineService);
+		controller = new ShipActivityController(activityMapper, governanceService, engineService, promotionLockUsage);
 		ReflectionTestUtils.setField(controller, "remoteGoodsSkuService", goodsSkuService);
 		ArynTenantContextHolder.setTenantId("tenant-1");
 	}
@@ -112,6 +116,25 @@ class ShipActivityControllerTest {
 				.containsExactly(PromotionActivity.STATUS_PUBLISHED, PromotionActivity.STATUS_ENDED,
 						PromotionActivity.STATUS_UPCOMING, PromotionActivity.STATUS_PAUSED,
 						PromotionActivity.STATUS_DRAFT);
+	}
+
+	@Test
+	@DisplayName("分页出参带出买赠活动已赠数量")
+	void pagePopulatesConsumedGiftStock() {
+		PromotionActivity gift = activity(PromotionActivity.STATUS_PUBLISHED, LocalDateTime.now().minusDays(1),
+				LocalDateTime.now().plusDays(1));
+		gift.setId("act-gift");
+		gift.setActivityType(PromotionActivity.TYPE_GIFT);
+		gift.setGiftStock(10);
+		Page<PromotionActivity> result = new Page<>();
+		result.setRecords(List.of(gift));
+		when(activityMapper.selectPage(any(), any())).thenReturn(result);
+		when(promotionLockUsage.sumGiftQuantity("tenant-1", "act-gift")).thenReturn(3);
+
+		IPage<PromotionActivity> out = controller.page(new Page<>(), new PromotionActivity()).getData();
+
+		assertThat(out.getRecords()).singleElement()
+			.satisfies(activity -> assertThat(activity.getConsumedGiftStock()).isEqualTo(3));
 	}
 
 	@Test

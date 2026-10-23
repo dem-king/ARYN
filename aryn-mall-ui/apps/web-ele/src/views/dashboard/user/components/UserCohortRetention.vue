@@ -3,9 +3,9 @@ import type { UserCohortRetentionVO } from '#/api/order/order-statistics';
 
 import { DataAnalysis, InfoFilled } from '@element-plus/icons-vue';
 import dayjs from 'dayjs';
-import { ElCard, ElIcon, ElTooltip } from 'element-plus';
+import { ElCard, ElEmpty, ElIcon, ElTooltip } from 'element-plus';
 
-import { formatNumber } from '../../shared/chart';
+import { CHART_PALETTE, formatNumber, withAlpha } from '../../shared/chart';
 
 const props = withDefaults(
   defineProps<{
@@ -45,8 +45,9 @@ const rate = (row: UserCohortRetentionVO, offset: number) =>
 const cellStyle = (row: UserCohortRetentionVO, offset: number) => {
   const ratio = rate(row, offset) / 100;
   return {
-    backgroundColor: `rgba(64, 158, 255, ${0.08 + ratio * 0.72})`,
-    color: ratio > 0.55 ? '#fff' : '#303133',
+    backgroundColor: withAlpha(CHART_PALETTE.primary, 0.08 + ratio * 0.72),
+    color:
+      ratio > 0.55 ? 'var(--el-color-white)' : 'var(--el-text-color-primary)',
   };
 };
 </script>
@@ -63,21 +64,22 @@ const cellStyle = (row: UserCohortRetentionVO, offset: number) => {
           content="按首笔支付月份分组；留存=该 Cohort 在对应月份有支付行为的用户占比"
           placement="top"
         >
-          <ElIcon class="cursor-help text-gray-400"><InfoFilled /></ElIcon>
+          <ElIcon class="cursor-help text-[var(--el-text-color-placeholder)]">
+            <InfoFilled />
+          </ElIcon>
         </ElTooltip>
       </div>
     </template>
 
-    <div
+    <ElEmpty
       v-if="!loading && data.length === 0"
-      class="py-8 text-center text-sm text-gray-400"
-    >
-      暂无数据
-    </div>
+      :image-size="60"
+      description="暂无数据"
+    />
     <div v-else class="overflow-x-auto">
       <table class="w-full min-w-[640px] border-collapse text-center text-sm">
         <thead>
-          <tr class="text-xs text-gray-500">
+          <tr class="text-xs text-[var(--el-text-color-secondary)]">
             <th class="p-2 text-left">首购月份</th>
             <th class="p-2">用户数</th>
             <th v-for="label in COLUMN_LABELS" :key="label" class="p-2">
@@ -89,7 +91,7 @@ const cellStyle = (row: UserCohortRetentionVO, offset: number) => {
           <tr
             v-for="row in data"
             :key="row.cohortMonth"
-            class="border-t border-gray-100 dark:border-gray-800"
+            class="border-t border-[var(--el-border-color-lighter)]"
           >
             <td class="p-2 text-left font-medium">{{ row.cohortMonth }}</td>
             <td class="p-2">{{ formatNumber(row.cohortSize) }}</td>
@@ -110,7 +112,9 @@ const cellStyle = (row: UserCohortRetentionVO, offset: number) => {
                   {{ rate(row, offset).toFixed(0) }}%
                 </div>
               </div>
-              <span v-else class="text-gray-300">—</span>
+              <span v-else class="text-[var(--el-text-color-placeholder)]">
+                —
+              </span>
             </td>
           </tr>
         </tbody>

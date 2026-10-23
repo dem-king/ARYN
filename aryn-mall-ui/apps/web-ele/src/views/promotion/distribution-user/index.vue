@@ -1,20 +1,11 @@
 <script lang="ts" setup>
-import type { FormInstance } from 'element-plus';
-
 import type { DistributionUserRecord } from '#/api/promotion/distribution-user';
 
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
-import {
-  CircleCheck,
-  CircleClose,
-  Delete,
-  Refresh,
-  Search,
-} from '@element-plus/icons-vue';
+import { CircleCheck, CircleClose, Delete } from '@element-plus/icons-vue';
 import {
   ElButton,
-  ElForm,
   ElFormItem,
   ElInput,
   ElMessage,
@@ -29,7 +20,10 @@ import {
   enable,
   getPage,
 } from '#/api/promotion/distribution-user';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 import { useDict } from '#/utils/dict';
+import { formatMoney } from '#/utils/util';
 
 const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
@@ -41,7 +35,6 @@ const DictTag = defineAsyncComponent(
   () => import('#/components/dict-tag/index.vue'),
 );
 
-const queryRef = ref<FormInstance>();
 const { distribution_user_status } = useDict('distribution_user_status');
 const loading = ref(false);
 const showSearch = ref(true);
@@ -75,11 +68,6 @@ const initPage = async () => {
     .catch(() => {
       loading.value = false;
     });
-};
-
-const resetQuery = (formEl: FormInstance | undefined) => {
-  if (!formEl) return;
-  formEl.resetFields();
 };
 
 async function doEnable(row: DistributionUserRecord) {
@@ -126,51 +114,50 @@ initPage();
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 搜索 -->
-      <ElForm
+      <PageFilterPanel
         :model="state.queryParams"
-        ref="queryRef"
-        :inline="true"
-        v-show="showSearch"
+        :visible="showSearch"
+        @reset="initPage"
+        @search="initPage"
       >
         <ElFormItem label="分销员ID" prop="userId">
           <ElInput
             v-model="state.queryParams.userId"
             clearable
-            style="width: 200px"
             placeholder="请输入用户ID"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
         <ElFormItem label="邀请人ID" prop="inviterUserId">
           <ElInput
             v-model="state.queryParams.inviterUserId"
             clearable
-            style="width: 200px"
             placeholder="请输入邀请人ID"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
-        <ElFormItem>
-          <ElButton type="primary" @click="initPage" :icon="Search">
-            搜索
-          </ElButton>
-          <ElButton @click="resetQuery(queryRef)" :icon="Refresh">
-            重置
-          </ElButton>
-        </ElFormItem>
-      </ElForm>
+      </PageFilterPanel>
 
       <!-- 工具栏 -->
-      <div class="hx-table-toolbar">
-        <div></div>
-        <RightToolbar
-          :search-btn="true"
-          :refresh-btn="true"
-          @search="showSearch = !showSearch"
-          @refresh="initPage"
-        />
-      </div>
+      <PageToolbar :total="state.page.total" total-label="个分销员">
+        <template #right>
+          <RightToolbar
+            :search-btn="true"
+            :refresh-btn="true"
+            @search="showSearch = !showSearch"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
 
       <!-- 列表 -->
-      <ElTable v-loading="loading" :data="state.tableData" border>
+      <ElTable
+        v-loading="loading"
+        class="hx-data-table"
+        :data="state.tableData"
+        border
+        empty-text="暂无分销员"
+      >
         <ElTableColumn
           prop="userId"
           label="分销员ID"
@@ -189,23 +176,49 @@ initPage();
           align="center"
           show-overflow-tooltip
         />
-        <ElTableColumn prop="totalCommission" label="累计佣金" align="center" />
+        <ElTableColumn prop="totalCommission" label="累计佣金" align="center">
+          <template #default="scope">
+            <span class="hx-money">
+              ¥{{ formatMoney(scope.row.totalCommission) }}
+            </span>
+          </template>
+        </ElTableColumn>
         <ElTableColumn
           prop="availableCommission"
           label="可提现佣金"
           align="center"
-        />
-        <ElTableColumn
-          prop="frozenCommission"
-          label="冻结佣金"
-          align="center"
-        />
+        >
+          <template #default="scope">
+            <span class="hx-money">
+              ¥{{ formatMoney(scope.row.availableCommission) }}
+            </span>
+          </template>
+        </ElTableColumn>
+        <ElTableColumn prop="frozenCommission" label="冻结佣金" align="center">
+          <template #default="scope">
+            <span class="hx-money">
+              ¥{{ formatMoney(scope.row.frozenCommission) }}
+            </span>
+          </template>
+        </ElTableColumn>
         <ElTableColumn
           prop="pendingCommission"
           label="待结算佣金"
           align="center"
-        />
-        <ElTableColumn prop="commissionDebt" label="佣金欠款" align="center" />
+        >
+          <template #default="scope">
+            <span class="hx-money">
+              ¥{{ formatMoney(scope.row.pendingCommission) }}
+            </span>
+          </template>
+        </ElTableColumn>
+        <ElTableColumn prop="commissionDebt" label="佣金欠款" align="center">
+          <template #default="scope">
+            <span class="hx-money">
+              ¥{{ formatMoney(scope.row.commissionDebt) }}
+            </span>
+          </template>
+        </ElTableColumn>
         <ElTableColumn
           prop="subordinateCount"
           label="邀请人数"

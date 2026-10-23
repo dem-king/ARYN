@@ -62,12 +62,14 @@ const delta = (key: keyof SalesMetrics) =>
       </template>
       <div class="grid grid-cols-2 gap-4 sm:grid-cols-3">
         <div
-          class="flex flex-col items-center justify-center rounded-lg bg-gray-50 p-4 dark:bg-gray-800"
+          class="flex flex-col items-center justify-center rounded-lg bg-[var(--el-fill-color-light)] p-4"
         >
-          <div class="text-2xl font-bold text-gray-700 dark:text-gray-300">
+          <div class="text-2xl font-bold text-[var(--el-text-color-primary)]">
             <CountTo :end-val="scale.total" />
           </div>
-          <div class="mt-1 flex items-center gap-1 text-xs text-gray-500">
+          <div
+            class="mt-1 flex items-center gap-1 text-xs text-[var(--el-text-color-secondary)]"
+          >
             <ElIcon><Goods /></ElIcon> 商品总数
           </div>
         </div>
@@ -77,17 +79,21 @@ const delta = (key: keyof SalesMetrics) =>
           <div class="text-2xl font-bold text-green-500">
             <CountTo :end-val="scale.onSale" />
           </div>
-          <div class="mt-1 flex items-center gap-1 text-xs text-gray-500">
+          <div
+            class="mt-1 flex items-center gap-1 text-xs text-[var(--el-text-color-secondary)]"
+          >
             <ElIcon><Goods /></ElIcon> 上架商品
           </div>
         </div>
         <div
-          class="flex flex-col items-center justify-center rounded-lg bg-gray-50 p-4 dark:bg-gray-800"
+          class="flex flex-col items-center justify-center rounded-lg bg-[var(--el-fill-color-light)] p-4"
         >
-          <div class="text-2xl font-bold text-gray-400">
+          <div class="text-2xl font-bold text-[var(--el-text-color-secondary)]">
             <CountTo :end-val="scale.offShelf" />
           </div>
-          <div class="mt-1 flex items-center gap-1 text-xs text-gray-500">
+          <div
+            class="mt-1 flex items-center gap-1 text-xs text-[var(--el-text-color-secondary)]"
+          >
             <ElIcon><SoldOut /></ElIcon> 下架商品
           </div>
         </div>
@@ -97,7 +103,9 @@ const delta = (key: keyof SalesMetrics) =>
           <div class="text-2xl font-bold text-indigo-500">
             <CountTo :end-val="scale.totalStock" />
           </div>
-          <div class="mt-1 flex items-center gap-1 text-xs text-gray-500">
+          <div
+            class="mt-1 flex items-center gap-1 text-xs text-[var(--el-text-color-secondary)]"
+          >
             <ElIcon><Box /></ElIcon> 库存总量
           </div>
         </div>
@@ -107,7 +115,9 @@ const delta = (key: keyof SalesMetrics) =>
           <div class="text-2xl font-bold text-red-500">
             <CountTo :end-val="scale.lowStock" />
           </div>
-          <div class="mt-1 flex items-center gap-1 text-xs text-gray-500">
+          <div
+            class="mt-1 flex items-center gap-1 text-xs text-[var(--el-text-color-secondary)]"
+          >
             <ElIcon><Warning /></ElIcon> 库存预警
           </div>
         </div>
@@ -120,7 +130,9 @@ const delta = (key: keyof SalesMetrics) =>
         <div class="flex items-center gap-2 font-bold">
           <ElIcon><DataLine /></ElIcon>
           <span>销售能力</span>
-          <span class="ml-2 text-xs font-normal text-gray-400">
+          <span
+            class="ml-2 text-xs font-normal text-[var(--el-text-color-secondary)]"
+          >
             (统计周期内数据)
           </span>
         </div>
@@ -132,7 +144,9 @@ const delta = (key: keyof SalesMetrics) =>
           <div class="text-2xl font-bold text-purple-500">
             <CountTo :end-val="sales.salesProductCount" />
           </div>
-          <div class="mt-1 flex items-center gap-1 text-xs text-gray-500">
+          <div
+            class="mt-1 flex items-center gap-1 text-xs text-[var(--el-text-color-secondary)]"
+          >
             <ElIcon><Goods /></ElIcon> 动销商品数
           </div>
           <DeltaBadge :delta="delta('salesProductCount')" :label="deltaLabel" />
@@ -143,7 +157,9 @@ const delta = (key: keyof SalesMetrics) =>
           <div class="text-2xl font-bold text-orange-500">
             <CountTo :end-val="sales.salesItemCount" />
           </div>
-          <div class="mt-1 flex items-center gap-1 text-xs text-gray-500">
+          <div
+            class="mt-1 flex items-center gap-1 text-xs text-[var(--el-text-color-secondary)]"
+          >
             <ElIcon><Box /></ElIcon> 销售件数
           </div>
           <DeltaBadge :delta="delta('salesItemCount')" :label="deltaLabel" />
@@ -154,7 +170,9 @@ const delta = (key: keyof SalesMetrics) =>
           <div class="text-2xl font-bold text-red-500">
             <CountTo :end-val="sales.salesAmount" prefix="¥" :decimals="2" />
           </div>
-          <div class="mt-1 flex items-center gap-1 text-xs text-gray-500">
+          <div
+            class="mt-1 flex items-center gap-1 text-xs text-[var(--el-text-color-secondary)]"
+          >
             <ElIcon><Money /></ElIcon> 销售额
           </div>
           <DeltaBadge :delta="delta('salesAmount')" :label="deltaLabel" />
@@ -165,7 +183,9 @@ const delta = (key: keyof SalesMetrics) =>
           <div class="text-2xl font-bold text-teal-500">
             <CountTo :end-val="sales.avgPrice" prefix="¥" :decimals="2" />
           </div>
-          <div class="mt-1 flex items-center gap-1 text-xs text-gray-500">
+          <div
+            class="mt-1 flex items-center gap-1 text-xs text-[var(--el-text-color-secondary)]"
+          >
             <ElIcon><Money /></ElIcon> 客单价
           </div>
           <DeltaBadge :delta="delta('avgPrice')" :label="deltaLabel" />
@@ -180,7 +200,9 @@ const delta = (key: keyof SalesMetrics) =>
               :decimals="1"
             />
           </div>
-          <div class="mt-1 flex items-center gap-1 text-xs text-gray-500">
+          <div
+            class="mt-1 flex items-center gap-1 text-xs text-[var(--el-text-color-secondary)]"
+          >
             <ElIcon><TrendCharts /></ElIcon> 动销率
           </div>
           <DeltaBadge :delta="delta('sellThroughRate')" :label="deltaLabel" />

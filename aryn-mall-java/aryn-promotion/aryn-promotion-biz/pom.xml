@@ -86,6 +86,11 @@
             <groupId>com.aryn</groupId>
             <artifactId>aryn-common-sentinel</artifactId>
         </dependency>
+        <!--        seata分布式事务模块：下单锁券/营销预占、取消释放作为订单全局事务的分支参与回滚-->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-common-seata</artifactId>
+        </dependency>
         <dependency>
             <groupId>com.aryn</groupId>
             <artifactId>aryn-common-dubbo</artifactId>

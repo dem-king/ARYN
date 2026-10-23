@@ -1,9 +1,9 @@
 <script lang="ts" setup name="deliveryArea">
 import { onMounted, reactive, ref } from 'vue';
 
+import { Plus } from '@element-plus/icons-vue';
 import {
   ElButton,
-  ElCard,
   ElCascader,
   ElDialog,
   ElForm,
@@ -24,6 +24,7 @@ import {
   updateDeliveryArea,
 } from '#/api/delivery/area';
 import { getRegionTree } from '#/api/delivery/config';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 
 /** 省市区级联数据节点 */
 interface RegionNode {
@@ -216,91 +217,98 @@ onMounted(() => {
 });
 </script>
 <template>
-  <div class="delivery-area-root">
-    <div class="hx-layout-container">
-      <div class="hx-layout-container-auto hx-layout-container-view">
-        <ElCard v-loading="loading">
-          <template #header>
-            <div class="card-header">
-              <span>配送范围管理</span>
-              <ElButton type="primary" @click="handleAdd">新增</ElButton>
-            </div>
+  <div class="hx-layout-container">
+    <div class="hx-layout-container-auto hx-layout-container-view">
+      <!-- 工具栏 -->
+      <PageToolbar :total="total" total-label="个配送范围">
+        <template #left>
+          <ElButton type="primary" @click="handleAdd" :icon="Plus">
+            新增
+          </ElButton>
+        </template>
+      </PageToolbar>
+      <!-- 列表 -->
+      <ElTable
+        v-loading="loading"
+        class="hx-data-table"
+        :data="tableData"
+        border
+        empty-text="暂无配送范围"
+        style="width: 100%"
+      >
+        <ElTableColumn label="省" prop="provinceName" />
+        <ElTableColumn label="市" min-width="100">
+          <template #default="{ row }">
+            {{ row.cityName || '全省' }}
           </template>
-          <ElTable :data="tableData" border style="width: 100%">
-            <ElTableColumn label="省" prop="provinceName" />
-            <ElTableColumn label="市" min-width="100">
-              <template #default="{ row }">
-                {{ row.cityName || '全省' }}
-              </template>
-            </ElTableColumn>
-            <ElTableColumn label="区县" min-width="100">
-              <template #default="{ row }">
-                {{ row.areaName || (row.cityName ? '全市' : '全省') }}
-              </template>
-            </ElTableColumn>
-            <ElTableColumn label="状态" width="100">
-              <template #default="{ row }">
-                <ElTag :type="statusMap[row.enabled]?.type || 'info'">
-                  {{ statusMap[row.enabled]?.label || '未知' }}
-                </ElTag>
-              </template>
-            </ElTableColumn>
-            <ElTableColumn label="创建时间" prop="createTime" width="180" />
-            <ElTableColumn label="操作" width="180" fixed="right">
-              <template #default="{ row }">
-                <ElButton type="primary" link @click="handleEdit(row)">
-                  编辑
-                </ElButton>
-                <ElButton type="danger" link @click="handleDelete(row)">
-                  删除
-                </ElButton>
-              </template>
-            </ElTableColumn>
-          </ElTable>
-          <ElPagination
-            :current-page="queryParams.current"
-            :page-size="queryParams.size"
-            :total="total"
-            layout="total, prev, pager, next"
-            @current-change="handlePageChange"
-          />
-        </ElCard>
-      </div>
-    </div>
+        </ElTableColumn>
+        <ElTableColumn label="区县" min-width="100">
+          <template #default="{ row }">
+            {{ row.areaName || (row.cityName ? '全市' : '全省') }}
+          </template>
+        </ElTableColumn>
+        <ElTableColumn label="状态" width="100">
+          <template #default="{ row }">
+            <ElTag :type="statusMap[row.enabled]?.type || 'info'">
+              {{ statusMap[row.enabled]?.label || '未知' }}
+            </ElTag>
+          </template>
+        </ElTableColumn>
+        <ElTableColumn label="创建时间" prop="createTime" width="180" />
+        <ElTableColumn label="操作" width="180" fixed="right">
+          <template #default="{ row }">
+            <ElButton type="primary" link @click="handleEdit(row)">
+              编辑
+            </ElButton>
+            <ElButton type="danger" link @click="handleDelete(row)">
+              删除
+            </ElButton>
+          </template>
+        </ElTableColumn>
+      </ElTable>
+      <!-- 分页 -->
+      <ElPagination
+        :current-page="queryParams.current"
+        :page-size="queryParams.size"
+        :total="total"
+        layout="total, prev, pager, next"
+        @current-change="handlePageChange"
+      />
 
-    <ElDialog v-model="dialogVisible" :title="dialogTitle" width="500px">
-      <ElForm :model="form" label-width="100px">
-        <ElFormItem label="所在地区">
-          <ElCascader
-            v-model="regionValue"
-            :options="regionOptions"
-            :props="cascaderProps"
-            placeholder="请选择省/市/区县（可只选到省或市）"
-            style="width: 100%"
-            @change="handleRegionChange"
-          />
-        </ElFormItem>
-        <ElFormItem label="启用状态">
-          <ElSwitch
-            v-model="form.enabled"
-            active-value="1"
-            inactive-value="0"
-          />
-        </ElFormItem>
-      </ElForm>
-      <template #footer>
-        <ElButton @click="dialogVisible = false">取消</ElButton>
-        <ElButton type="primary" :loading="submitting" @click="handleSubmit">
-          保存
-        </ElButton>
-      </template>
-    </ElDialog>
+      <!-- 新增/编辑弹窗 -->
+      <ElDialog v-model="dialogVisible" :title="dialogTitle" width="500px">
+        <ElForm :model="form" label-width="auto">
+          <ElFormItem label="所在地区">
+            <ElCascader
+              v-model="regionValue"
+              :options="regionOptions"
+              :props="cascaderProps"
+              placeholder="请选择省/市/区县（可只选到省或市）"
+              style="width: 100%"
+              @change="handleRegionChange"
+            />
+          </ElFormItem>
+          <ElFormItem label="启用状态">
+            <ElSwitch
+              v-model="form.enabled"
+              active-value="1"
+              inactive-value="0"
+            />
+          </ElFormItem>
+        </ElForm>
+        <template #footer>
+          <div class="hx-form-footer">
+            <ElButton @click="dialogVisible = false">取消</ElButton>
+            <ElButton
+              type="primary"
+              :loading="submitting"
+              @click="handleSubmit"
+            >
+              确定
+            </ElButton>
+          </div>
+        </template>
+      </ElDialog>
+    </div>
   </div>
 </template>
-<style lang="scss" scoped>
-.card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-</style>

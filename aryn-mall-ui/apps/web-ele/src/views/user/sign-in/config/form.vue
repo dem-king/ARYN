@@ -13,6 +13,7 @@ import {
 } from 'element-plus';
 
 import { addObj, editObj, getById } from '#/api/user/sign-in-config';
+import PageSection from '#/components/page/page-section.vue';
 
 const emit = defineEmits(['initPage']);
 const visible = ref(false);
@@ -76,45 +77,46 @@ defineExpose({ initForm });
 </script>
 <template>
   <ElDialog v-model="visible" :title="title" width="500px" draggable>
-    <ElForm
-      ref="formRef"
-      :model="state.form"
-      :rules="rules"
-      label-width="120px"
-    >
-      <ElFormItem label="连续签到天数" prop="consecutiveDay">
-        <ElInputNumber
-          v-model="state.form.consecutiveDay"
-          :min="1"
-          style="width: 100%"
-        />
-      </ElFormItem>
-      <ElFormItem label="奖励积分" prop="rewardPoint">
-        <ElInputNumber
-          v-model="state.form.rewardPoint"
-          :min="1"
-          style="width: 100%"
-        />
-      </ElFormItem>
-      <ElFormItem label="排序号" prop="sortOrder">
-        <ElInputNumber
-          v-model="state.form.sortOrder"
-          :min="0"
-          style="width: 100%"
-        />
-      </ElFormItem>
-      <ElFormItem label="状态" prop="status">
-        <ElRadioGroup v-model="state.form.status">
-          <ElRadio value="0">启用</ElRadio>
-          <ElRadio value="1">禁用</ElRadio>
-        </ElRadioGroup>
-      </ElFormItem>
+    <ElForm ref="formRef" :model="state.form" :rules="rules" label-width="auto">
+      <PageSection title="签到规则" :bordered="false">
+        <ElFormItem label="连续签到天数" prop="consecutiveDay">
+          <ElInputNumber
+            v-model="state.form.consecutiveDay"
+            :min="1"
+            style="width: 100%"
+          />
+        </ElFormItem>
+        <ElFormItem label="奖励积分" prop="rewardPoint">
+          <ElInputNumber
+            v-model="state.form.rewardPoint"
+            :min="1"
+            style="width: 100%"
+          />
+        </ElFormItem>
+        <ElFormItem label="排序号" prop="sortOrder">
+          <ElInputNumber
+            v-model="state.form.sortOrder"
+            :min="0"
+            style="width: 100%"
+          />
+        </ElFormItem>
+      </PageSection>
+      <PageSection title="状态设置" :bordered="false">
+        <ElFormItem label="状态" prop="status">
+          <ElRadioGroup v-model="state.form.status">
+            <ElRadio value="0">启用</ElRadio>
+            <ElRadio value="1">禁用</ElRadio>
+          </ElRadioGroup>
+        </ElFormItem>
+      </PageSection>
     </ElForm>
     <template #footer>
-      <ElButton @click="visible = false">取消</ElButton>
-      <ElButton type="primary" :loading="loading" @click="submitForm">
-        确定
-      </ElButton>
+      <div class="hx-form-footer">
+        <ElButton @click="visible = false">取消</ElButton>
+        <ElButton type="primary" :loading="loading" @click="submitForm">
+          确定
+        </ElButton>
+      </div>
     </template>
   </ElDialog>
 </template>

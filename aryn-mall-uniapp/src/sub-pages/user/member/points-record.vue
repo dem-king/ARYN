@@ -69,6 +69,9 @@ function getSceneText(scene: string): string {
     REFUND: '退款',
     ADMIN: '后台调整',
     ADMIN_ADJUST: '后台调整',
+    REGISTER: '注册奖励',
+    ORDER_DEDUCT: '积分抵现',
+    ORDER_REFUND: '退款返还',
   }
   return sceneMap[scene] || scene
 }

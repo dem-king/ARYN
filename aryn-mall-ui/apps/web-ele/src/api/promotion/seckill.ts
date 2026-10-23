@@ -135,11 +135,17 @@ export async function delObj(id: string): Promise<void> {
   return requestClient.delete(`/promotion/seckill/activity/${id}`);
 }
 
-/** 更新秒杀活动状态（0未开始 1进行中 2已结束 3已暂停） */
+/**
+ * 更新秒杀活动状态（0未开始 1进行中 2已结束 3已暂停）
+ *
+ * 后端 SeckillActivityController#updateStatus 用 @RequestParam 接收 status，
+ * 必须带在 query 上；放进请求体会被 Spring 判为缺失，报
+ * `Required request parameter 'status' for method parameter type Integer is not present`。
+ */
 export async function updateStatus(id: string, status: number): Promise<void> {
-  return requestClient.put(`/promotion/seckill/activity/${id}/status`, {
-    status,
-  });
+  return requestClient.put(
+    `/promotion/seckill/activity/${id}/status?status=${status}`,
+  );
 }
 
 /** 秒杀场次查询记录（管理端列表 / 装修器场次选择器） */

@@ -14,6 +14,7 @@ import { CircleClose, Plus } from '@element-plus/icons-vue';
 import {
   ElButton,
   ElColorPicker,
+  ElEmpty,
   ElForm,
   ElFormItem,
   ElInput,
@@ -248,6 +249,8 @@ function onBackgroundModeChange(value: boolean | number | string | undefined) {
       !form.backgroundGradient.startColor &&
       !form.backgroundGradient.endColor
     ) {
+      // 以下 hex/rgba 是写进装修文档的区块背景默认值（C 端渲染数据），
+      // 不是管理端装饰色，因此保持固定色值、不换 Element 令牌
       form.backgroundGradient.startColor =
         form.backgroundColor || 'rgba(255, 255, 255, 1)';
       form.backgroundGradient.endColor = '#f5f7fa';
@@ -528,16 +531,10 @@ function applyCardPreset() {
       </template>
     </ElForm>
   </div>
-  <div v-else class="section-empty">请选择一个区块</div>
+  <ElEmpty v-else :image-size="64" description="请选择一个区块" />
 </template>
 
 <style scoped>
-.section-empty {
-  padding: 24px 12px;
-  color: var(--el-text-color-secondary);
-  text-align: center;
-}
-
 .gradient-colors {
   display: flex;
   gap: 8px;

@@ -12,6 +12,7 @@ import {
 } from 'element-plus';
 
 import { delObj, getPage } from '#/api/product/goods-category';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 import { useDict } from '#/utils/dict';
 
 const RightToolbar = defineAsyncComponent(
@@ -50,7 +51,6 @@ const state = reactive({
   tableData: [],
   queryParams: {},
 });
-const showSearch = ref(true);
 const refreshTable = ref(true);
 const isDefaultExpand = ref(false);
 const loading = ref(false);
@@ -112,8 +112,8 @@ initPage();
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 工具栏 -->
-      <div class="hx-table-toolbar">
-        <div>
+      <PageToolbar>
+        <template #left>
           <ElButton
             type="primary"
             v-access:code="'product:goodscategory:add'"
@@ -122,25 +122,28 @@ initPage();
           >
             新增
           </ElButton>
-          <ElButton @click="onExpand" :icon="Sort"> 展开/折叠 </ElButton>
-        </div>
-        <RightToolbar
-          :search-btn="false"
-          :refresh-btn="true"
-          @search="showSearch = !showSearch"
-          @refresh="initPage"
-        />
-      </div>
+          <ElButton @click="onExpand" :icon="Sort">展开/折叠</ElButton>
+        </template>
+        <template #right>
+          <RightToolbar
+            :search-btn="false"
+            :refresh-btn="true"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
       <Form ref="formRef" @init-page="initPage" />
       <!-- 列表 -->
       <ElTable
         v-if="refreshTable"
         v-loading="loading"
+        class="hx-data-table"
         :data="state.tableData"
         row-key="id"
         style="width: 100%"
         :default-expand-all="isDefaultExpand"
         border
+        empty-text="暂无类目"
       >
         <ElTableColumn prop="name" label="类目名称" width="200" />
         <ElTableColumn prop="description" label="类目描述" />

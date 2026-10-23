@@ -13,6 +13,7 @@ import {
   ElSelect,
   ElTable,
   ElTableColumn,
+  ElTag,
 } from 'element-plus';
 
 import {
@@ -27,6 +28,8 @@ import {
   scanPick,
 } from '#/api/fulfillment/wave';
 import { uploadFile } from '#/api/upms/upload';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 
 const Pagination = defineAsyncComponent(
   () => import('#/components/pagination/index.vue'),
@@ -110,6 +113,27 @@ const pickStatusLabel: Record<string, string> = {
   '2': '已拣',
   '3': '短装',
   '4': '替代',
+};
+
+/** 波次状态标签语义色（标签文案沿用 statusLabel，不改变含义） */
+const statusTagType = (
+  status: string,
+): 'danger' | 'info' | 'primary' | 'success' | 'warning' => {
+  if (status === '2') return 'warning';
+  if (status === '3') return 'primary';
+  if (status === '4' || status === '5') return 'success';
+  if (status === '6') return 'danger';
+  return 'info';
+};
+
+/** 商品拣货状态标签语义色 */
+const pickStatusTagType = (
+  status: string,
+): 'danger' | 'info' | 'primary' | 'success' | 'warning' => {
+  if (status === '1') return 'warning';
+  if (status === '2') return 'success';
+  if (status === '3') return 'danger';
+  return 'info';
 };
 
 const initPage = async () => {
@@ -222,16 +246,26 @@ onMounted(initPage);
 <template>
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
-      <ElForm :inline="true" :model="state.query">
-        <ElFormItem label="港口">
+      <!-- 搜索 -->
+      <PageFilterPanel
+        :model="state.query"
+        @reset="initPage"
+        @search="initPage"
+      >
+        <ElFormItem label="港口" prop="portCode">
           <ElInput
             v-model="state.query.portCode"
             clearable
             placeholder="港口编码"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
-        <ElFormItem label="状态">
-          <ElSelect v-model="state.query.status" clearable style="width: 130px">
+        <ElFormItem label="状态" prop="status">
+          <ElSelect
+            v-model="state.query.status"
+            clearable
+            placeholder="请选择状态"
+          >
             <ElOption
               v-for="(label, value) in statusLabel"
               :key="value"
@@ -240,25 +274,36 @@ onMounted(initPage);
             />
           </ElSelect>
         </ElFormItem>
-        <ElFormItem>
-          <ElButton type="primary" @click="initPage">搜索</ElButton>
+      </PageFilterPanel>
+
+      <!-- 工具栏 -->
+      <PageToolbar :total="state.page.total" total-label="个拣货波次">
+        <template #left>
           <ElButton
-            type="success"
+            type="primary"
             v-access:code="'fulfillment:wave:save'"
             @click="waveDialogVisible = true"
           >
             新建波次
           </ElButton>
-        </ElFormItem>
-      </ElForm>
+        </template>
+      </PageToolbar>
 
-      <ElTable v-loading="loading" :data="state.tableData" border>
+      <ElTable
+        v-loading="loading"
+        :data="state.tableData"
+        class="hx-data-table"
+        border
+        empty-text="暂无拣货波次"
+      >
         <ElTableColumn prop="waveNo" label="波次编号" width="180" />
         <ElTableColumn prop="portName" label="港口" width="130" />
         <ElTableColumn prop="planDeliveryTime" label="计划交付" width="170" />
         <ElTableColumn label="状态" width="100">
           <template #default="scope">
-            {{ statusLabel[scope.row.status] ?? scope.row.status }}
+            <ElTag :type="statusTagType(scope.row.status)">
+              {{ statusLabel[scope.row.status] ?? scope.row.status }}
+            </ElTag>
           </template>
         </ElTableColumn>
         <ElTableColumn prop="operatorName" label="操作员" width="110" />
@@ -302,7 +347,7 @@ onMounted(initPage);
 
       <!-- 新建波次 -->
       <ElDialog v-model="waveDialogVisible" title="新建拣货波次" width="520px">
-        <ElForm label-width="110px">
+        <ElForm label-width="auto">
           <ElFormItem label="港口编码" required>
             <ElInput v-model="waveForm.portCode" placeholder="CNSHA" />
           </ElFormItem>
@@ -320,8 +365,10 @@ onMounted(initPage);
           </ElFormItem>
         </ElForm>
         <template #footer>
-          <ElButton @click="waveDialogVisible = false">取消</ElButton>
-          <ElButton type="primary" @click="saveWave">创建</ElButton>
+          <div class="hx-form-footer">
+            <ElButton @click="waveDialogVisible = false">取消</ElButton>
+            <ElButton type="primary" @click="saveWave">确定</ElButton>
+          </div>
         </template>
       </ElDialog>
 
@@ -339,7 +386,12 @@ onMounted(initPage);
           />
           <ElButton type="primary" @click="handleAddOrder">加入订单</ElButton>
         </div>
-        <ElTable :data="itemTableData" border class="mb10">
+        <ElTable
+          :data="itemTableData"
+          class="hx-data-table mb10"
+          border
+          empty-text="暂无拣货明细"
+        >
           <ElTableColumn prop="spuName" label="商品" min-width="160" />
           <ElTableColumn prop="skuName" label="规格" min-width="120" />
           <ElTableColumn
@@ -362,13 +414,15 @@ onMounted(initPage);
           />
           <ElTableColumn label="状态" width="90">
             <template #default="scope">
-              {{
-                pickStatusLabel[scope.row.pickStatus] ?? scope.row.pickStatus
-              }}
+              <ElTag :type="pickStatusTagType(scope.row.pickStatus)">
+                {{
+                  pickStatusLabel[scope.row.pickStatus] ?? scope.row.pickStatus
+                }}
+              </ElTag>
             </template>
           </ElTableColumn>
         </ElTable>
-        <ElForm :inline="true" class="mb10">
+        <ElForm :inline="true" class="mb10" label-width="auto">
           <ElFormItem label="明细ID">
             <ElInput
               v-model="scanForm.itemId"
@@ -400,7 +454,7 @@ onMounted(initPage);
             </ElButton>
           </ElFormItem>
         </ElForm>
-        <ElForm :inline="true">
+        <ElForm :inline="true" label-width="auto">
           <ElFormItem label="明细ID">
             <ElInput v-model="shortForm.itemId" style="width: 200px" />
           </ElFormItem>
@@ -447,7 +501,7 @@ onMounted(initPage);
         title="履约异常上报"
         width="560px"
       >
-        <ElForm label-width="90px">
+        <ElForm label-width="auto">
           <ElFormItem label="异常类型">
             <ElSelect
               v-model="exceptionForm.exceptionType"
@@ -489,8 +543,10 @@ onMounted(initPage);
           </ElFormItem>
         </ElForm>
         <template #footer>
-          <ElButton @click="exceptionDialogVisible = false">取消</ElButton>
-          <ElButton type="primary" @click="submitException">上报</ElButton>
+          <div class="hx-form-footer">
+            <ElButton @click="exceptionDialogVisible = false">取消</ElButton>
+            <ElButton type="primary" @click="submitException">确定</ElButton>
+          </div>
         </template>
       </ElDialog>
     </div>

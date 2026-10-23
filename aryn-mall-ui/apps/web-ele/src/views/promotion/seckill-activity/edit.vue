@@ -12,7 +12,6 @@ import { useRoute, useRouter } from 'vue-router';
 import { ArrowLeft, Delete, Plus } from '@element-plus/icons-vue';
 import {
   ElButton,
-  ElCard,
   ElDatePicker,
   ElForm,
   ElFormItem,
@@ -27,6 +26,7 @@ import {
 
 import { getById as getSpuById } from '#/api/product/goods-spu';
 import { addObj, editObj, getById } from '#/api/promotion/seckill';
+import PageSection from '#/components/page/page-section.vue';
 
 import { createDefaultForm, createDefaultSessionItem, formRules } from './data';
 
@@ -291,7 +291,7 @@ if (editId) {
         <div>
           <ElButton :icon="ArrowLeft" @click="goBack">返回列表</ElButton>
         </div>
-        <div>
+        <div class="hx-form-footer">
           <ElButton @click="goBack">取 消</ElButton>
           <ElButton
             type="primary"
@@ -312,10 +312,7 @@ if (editId) {
         v-loading="loading"
       >
         <!-- 活动基本信息 -->
-        <ElCard shadow="never" style="margin-bottom: 16px">
-          <template #header>
-            <span>活动基本信息</span>
-          </template>
+        <PageSection title="活动基本信息">
           <ElFormItem label="活动名称" prop="activityName">
             <ElInput
               v-model="state.form.activityName"
@@ -345,23 +342,14 @@ if (editId) {
               placeholder="请输入活动描述（可选）"
             />
           </ElFormItem>
-        </ElCard>
+        </PageSection>
 
         <!-- 场次管理 -->
-        <ElCard shadow="never" style="margin-bottom: 16px">
-          <template #header>
-            <div
-              style="
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-              "
-            >
-              <span>场次与商品管理</span>
-              <ElButton type="primary" :icon="Plus" @click="addSession">
-                添加场次
-              </ElButton>
-            </div>
+        <PageSection title="场次与商品管理">
+          <template #extra>
+            <ElButton type="primary" :icon="Plus" @click="addSession">
+              添加场次
+            </ElButton>
           </template>
 
           <div
@@ -426,7 +414,12 @@ if (editId) {
                   + 添加商品
                 </ElButton>
               </div>
-              <ElTable :data="session.goodsList" border size="small">
+              <ElTable
+                :data="session.goodsList"
+                class="hx-data-table"
+                border
+                size="small"
+              >
                 <ElTableColumn label="商品信息" min-width="240">
                   <template #default="scope">
                     <div style="display: flex; gap: 8px; align-items: center">
@@ -494,7 +487,7 @@ if (editId) {
               </div>
             </div>
           </div>
-        </ElCard>
+        </PageSection>
       </ElForm>
 
       <!-- 商品选择器 -->

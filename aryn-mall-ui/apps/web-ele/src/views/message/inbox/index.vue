@@ -11,15 +11,10 @@ import { useRouter } from 'vue-router';
 
 import { formatNoticeDateTime, noticeTypeOf } from '@vben/utils';
 
-import {
-  ArrowRight,
-  Check,
-  Message,
-  Refresh,
-  Search,
-} from '@element-plus/icons-vue';
+import { ArrowRight, Check, Refresh, Search } from '@element-plus/icons-vue';
 import {
   ElButton,
+  ElEmpty,
   ElIcon,
   ElInput,
   ElMessage,
@@ -35,6 +30,7 @@ import {
 } from '#/api/message/notice';
 import { useMessageStore } from '#/store/message';
 import { resolveNoticeLink } from '#/utils/notice-link';
+import { formatMoney } from '#/utils/util';
 
 import {
   filterInbox,
@@ -131,6 +127,18 @@ const unreadTotal = computed(() =>
 const hasActiveQuery = computed(
   () => activeFilter.value !== 'all' || searchQuery.value.trim() !== '',
 );
+
+/** 空态文案：沿用原来的业务说明，搜索/筛选/初始三种口径分别给出原因。 */
+const emptyDescription = computed(() => {
+  if (hasActiveQuery.value) {
+    const keyword = searchQuery.value.trim();
+    if (keyword) {
+      return `已加载的 ${stats.value.total} 条通知里没有包含「${keyword}」的内容，换个关键词试试。`;
+    }
+    return '当前筛选下还没有已加载的通知，可以切换分类或加载更早通知。';
+  }
+  return '新的订单、退款与船舶提醒会出现在这里，处理完记得标记已读。';
+});
 
 /** 渲染行：把分类/跳转/卡片文案/时间一次算好，模板不再重复解析 JSON。 */
 interface InboxRow {
@@ -413,8 +421,8 @@ onMounted(() => load(true));
               <span v-if="row.cardTitle" class="chip chip-title">
                 {{ row.cardTitle }}
               </span>
-              <span v-if="row.amount" class="chip chip-amount">
-                ￥{{ row.amount }}
+              <span v-if="row.amount" class="chip chip-amount hx-money">
+                ￥{{ formatMoney(row.amount) }}
               </span>
             </div>
 
@@ -460,24 +468,7 @@ onMounted(() => load(true));
         </div>
       </template>
 
-      <div v-else class="inbox-empty">
-        <div class="empty-icon" aria-hidden="true">
-          <ElIcon>
-            <component :is="hasActiveQuery ? Search : Message" />
-          </ElIcon>
-        </div>
-        <h2>{{ hasActiveQuery ? '没有匹配的通知' : '收件箱很安静' }}</h2>
-        <p v-if="hasActiveQuery">
-          <template v-if="searchQuery.trim()">
-            已加载的 {{ stats.total }} 条通知里没有包含「{{
-              searchQuery.trim()
-            }}」的内容，换个关键词试试。
-          </template>
-          <template v-else>
-            当前筛选下还没有已加载的通知，可以切换分类或加载更早通知。
-          </template>
-        </p>
-        <p v-else>新的订单、退款与船舶提醒会出现在这里，处理完记得标记已读。</p>
+      <ElEmpty v-else :description="emptyDescription" :image-size="88">
         <div class="empty-actions">
           <ElButton v-if="hasActiveQuery" @click="clearQuery">
             清除筛选
@@ -493,24 +484,46 @@ onMounted(() => load(true));
             刷新
           </ElButton>
         </div>
-      </div>
+      </ElEmpty>
     </section>
   </main>
 </template>
 
 <style scoped>
 .inbox-page {
-  --inbox-ink: #102a43;
-  --inbox-muted: #627d98;
-  --inbox-line: #e3ebf3;
-  --inbox-primary: #2563eb;
-  --inbox-primary-soft: rgb(37 99 235 / 8%);
+  --inbox-ink: var(--el-text-color-primary);
+  --inbox-muted: var(--el-text-color-secondary);
+  --inbox-line: var(--el-border-color-lighter);
+  --inbox-primary: var(--el-color-primary);
+  --inbox-primary-soft: var(--el-color-primary-light-9);
+
+  /* 品牌视觉：深色 hero 的渐变、白色文字与半透明覆盖层集中在这里 */
+  --hero-bg:
+    radial-gradient(circle at 85% 0, rgb(56 189 248 / 22%), transparent 40%),
+    linear-gradient(125deg, #0f1e3d 0%, #173f5f 55%, #2563eb 100%);
+  --hero-text: #fff;
+  --hero-text-soft: rgb(255 255 255 / 72%);
+  --hero-eyebrow: #93c5fd;
+  --hero-quiet: #86efac;
+  --hero-chip-bg: rgb(255 255 255 / 12%);
+  --hero-chip-border: rgb(255 255 255 / 18%);
+  --hero-chip-text-soft: rgb(255 255 255 / 68%);
+  --hero-cta-bg: #fff;
+  --hero-cta-text: #173f5f;
+  --hero-cta-hover-bg: #f0f6ff;
+  --hero-cta-shadow: 0 10px 24px rgb(8 25 48 / 26%);
+  --hero-cta-shadow-hover: 0 12px 26px rgb(8 25 48 / 32%);
+  --hero-shadow: 0 18px 45px rgb(16 42 67 / 18%);
 
   min-height: 100%;
   padding: 20px;
   background:
-    radial-gradient(circle at 88% 0, rgb(37 99 235 / 8%), transparent 28%),
-    linear-gradient(180deg, #f4f7f8 0%, #f7f9fb 320px);
+    radial-gradient(
+      circle at 88% 0,
+      var(--inbox-primary-soft),
+      transparent 28%
+    ),
+    var(--el-bg-color-page);
 }
 
 /* ---------- 头部 ---------- */
@@ -522,18 +535,16 @@ onMounted(() => load(true));
   max-width: 1080px;
   padding: 30px 32px;
   margin: 0 auto 16px;
-  color: #fff;
-  background:
-    radial-gradient(circle at 85% 0, rgb(56 189 248 / 22%), transparent 40%),
-    linear-gradient(125deg, #0f1e3d 0%, #173f5f 55%, #2563eb 100%);
+  color: var(--hero-text);
+  background: var(--hero-bg);
   border-radius: 18px;
-  box-shadow: 0 18px 45px rgb(16 42 67 / 18%);
+  box-shadow: var(--hero-shadow);
 }
 
 .eyebrow {
   font-size: 12px;
   font-weight: 700;
-  color: #93c5fd;
+  color: var(--hero-eyebrow);
   letter-spacing: 0.2em;
 }
 
@@ -549,7 +560,7 @@ onMounted(() => load(true));
   max-width: 620px;
   font-size: 13px;
   line-height: 1.7;
-  color: rgb(255 255 255 / 72%);
+  color: var(--hero-text-soft);
 }
 
 .hero-side {
@@ -564,8 +575,8 @@ onMounted(() => load(true));
   flex-direction: column;
   align-items: flex-start;
   padding: 10px 18px;
-  background: rgb(255 255 255 / 12%);
-  border: 1px solid rgb(255 255 255 / 18%);
+  background: var(--hero-chip-bg);
+  border: 1px solid var(--hero-chip-border);
   border-radius: 12px;
   backdrop-filter: blur(6px);
 }
@@ -579,22 +590,22 @@ onMounted(() => load(true));
 .unread-stat span {
   margin-top: 4px;
   font-size: 11px;
-  color: rgb(255 255 255 / 68%);
+  color: var(--hero-chip-text-soft);
   letter-spacing: 0.08em;
 }
 
 .unread-stat.quiet strong {
-  color: #86efac;
+  color: var(--hero-quiet);
 }
 
 .read-all-btn {
   height: 42px;
   padding: 0 22px;
   font-weight: 600;
-  color: #173f5f !important;
-  background: #fff !important;
+  color: var(--hero-cta-text) !important;
+  background: var(--hero-cta-bg) !important;
   border-color: transparent !important;
-  box-shadow: 0 10px 24px rgb(8 25 48 / 26%);
+  box-shadow: var(--hero-cta-shadow);
   transition:
     transform 0.18s,
     background 0.18s,
@@ -602,15 +613,15 @@ onMounted(() => load(true));
 }
 
 .read-all-btn:hover:not(.is-disabled) {
-  background: #f0f6ff !important;
-  box-shadow: 0 12px 26px rgb(8 25 48 / 32%);
+  background: var(--hero-cta-hover-bg) !important;
+  box-shadow: var(--hero-cta-shadow-hover);
   transform: translateY(-1px);
 }
 
 .read-all-btn.is-disabled,
 .read-all-btn.is-disabled:hover {
-  color: rgb(255 255 255 / 62%) !important;
-  background: rgb(255 255 255 / 12%) !important;
+  color: var(--hero-chip-text-soft) !important;
+  background: var(--hero-chip-bg) !important;
   box-shadow: none;
   transform: none;
 }
@@ -625,10 +636,10 @@ onMounted(() => load(true));
   max-width: 1080px;
   padding: 14px 18px;
   margin: 0 auto 14px;
-  background: rgb(255 255 255 / 94%);
+  background: var(--el-bg-color);
   border: 1px solid var(--inbox-line);
   border-radius: 14px;
-  box-shadow: 0 8px 24px rgb(16 42 67 / 5%);
+  box-shadow: var(--el-box-shadow-light);
 }
 
 .filter-tabs {
@@ -643,7 +654,7 @@ onMounted(() => load(true));
   align-items: center;
   padding: 7px 13px;
   font-size: 13px;
-  color: #486581;
+  color: var(--inbox-muted);
   cursor: pointer;
   background: transparent;
   border: 1px solid transparent;
@@ -663,11 +674,11 @@ onMounted(() => load(true));
   font-weight: 600;
   color: var(--inbox-primary);
   background: var(--inbox-primary-soft);
-  border-color: rgb(37 99 235 / 24%);
+  border-color: var(--el-color-primary-light-7);
 }
 
 .filter-tab.empty {
-  color: #aab8c6;
+  color: var(--el-text-color-placeholder);
 }
 
 .filter-tab:focus-visible {
@@ -682,19 +693,19 @@ onMounted(() => load(true));
 }
 
 .filter-dot.order {
-  background: #2563eb;
+  background: var(--el-color-primary);
 }
 
 .filter-dot.refund {
-  background: #d97706;
+  background: var(--el-color-warning);
 }
 
 .filter-dot.system {
-  background: #64748b;
+  background: var(--el-color-info);
 }
 
 .filter-dot.vessel {
-  background: #0d9488;
+  background: var(--el-color-success);
 }
 
 .filter-count {
@@ -702,14 +713,14 @@ onMounted(() => load(true));
   padding: 0 6px;
   font-size: 11px;
   line-height: 18px;
-  color: #829ab1;
+  color: var(--el-text-color-secondary);
   text-align: center;
-  background: #eef2f7;
+  background: var(--el-fill-color-light);
   border-radius: 999px;
 }
 
 .filter-tab.active .filter-count {
-  color: #fff;
+  color: var(--el-color-white);
   background: var(--inbox-primary);
 }
 
@@ -732,7 +743,7 @@ onMounted(() => load(true));
 
 .load-hint {
   font-size: 12px;
-  color: #829ab1;
+  color: var(--el-text-color-secondary);
   white-space: nowrap;
 }
 
@@ -753,10 +764,10 @@ onMounted(() => load(true));
   margin-bottom: 12px;
   overflow: hidden;
   cursor: pointer;
-  background: #fff;
+  background: var(--el-bg-color);
   border: 1px solid var(--inbox-line);
   border-radius: 14px;
-  box-shadow: 0 2px 8px rgb(16 42 67 / 4%);
+  box-shadow: var(--el-box-shadow-lighter);
   transition:
     transform 0.2s ease,
     box-shadow 0.2s ease,
@@ -778,18 +789,26 @@ onMounted(() => load(true));
 }
 
 .notice-card.is-unread {
-  background: linear-gradient(180deg, #f5f9ff 0%, #fff 60%);
-  border-color: rgb(37 99 235 / 20%);
+  background: linear-gradient(
+    180deg,
+    var(--el-color-primary-light-9) 0%,
+    var(--el-bg-color) 60%
+  );
+  border-color: var(--el-color-primary-light-7);
 }
 
 .notice-card.is-unread::before {
-  background: linear-gradient(180deg, #2563eb, #60a5fa);
+  background: linear-gradient(
+    180deg,
+    var(--el-color-primary),
+    var(--el-color-primary-light-3)
+  );
 }
 
 .notice-card:not(.is-static):hover,
 .notice-card:not(.is-static):focus-visible {
-  border-color: rgb(37 99 235 / 35%);
-  box-shadow: 0 14px 32px rgb(16 42 67 / 10%);
+  border-color: var(--el-color-primary-light-5);
+  box-shadow: var(--el-box-shadow-light);
   transform: translateY(-2px);
 }
 
@@ -809,7 +828,7 @@ onMounted(() => load(true));
 
 .skeleton-card:hover {
   border-color: var(--inbox-line);
-  box-shadow: 0 2px 8px rgb(16 42 67 / 4%);
+  box-shadow: var(--el-box-shadow-lighter);
   transform: none;
 }
 
@@ -856,7 +875,7 @@ onMounted(() => load(true));
   height: 8px;
   background: var(--inbox-primary);
   border-radius: 50%;
-  box-shadow: 0 0 0 3px rgb(37 99 235 / 14%);
+  box-shadow: 0 0 0 3px var(--el-color-primary-light-9);
 }
 
 .notice-tags {
@@ -874,9 +893,9 @@ onMounted(() => load(true));
 .tag-priority {
   padding: 2px 8px;
   font-size: 11px;
-  color: #b45309;
-  background: #fef3c7;
-  border: 1px solid #fde68a;
+  color: var(--el-color-warning-dark-2);
+  background: var(--el-color-warning-light-9);
+  border: 1px solid var(--el-color-warning-light-7);
   border-radius: 999px;
 }
 
@@ -910,16 +929,16 @@ onMounted(() => load(true));
 }
 
 .chip-title {
-  color: #334155;
-  background: #f1f5f9;
-  border: 1px solid #e2e8f0;
+  color: var(--el-text-color-regular);
+  background: var(--el-fill-color-light);
+  border: 1px solid var(--el-border-color-lighter);
 }
 
 .chip-amount {
   font-weight: 600;
-  color: #b91c1c;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
+  color: var(--el-color-danger);
+  background: var(--el-color-danger-light-9);
+  border: 1px solid var(--el-color-danger-light-7);
 }
 
 .notice-foot {
@@ -929,11 +948,11 @@ onMounted(() => load(true));
   align-items: center;
   margin-top: 10px;
   font-size: 12px;
-  color: #9aabb8;
+  color: var(--el-text-color-placeholder);
 }
 
 .dot-sep {
-  color: #cbd5e1;
+  color: var(--el-border-color);
 }
 
 .notice-actions {
@@ -994,50 +1013,14 @@ onMounted(() => load(true));
 
 .list-end {
   font-size: 12px;
-  color: #9aabb8;
-}
-
-.inbox-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 64px 24px;
-  text-align: center;
-  background: #fff;
-  border: 1px dashed #d6e2ec;
-  border-radius: 16px;
-}
-
-.empty-icon {
-  display: grid;
-  place-items: center;
-  width: 64px;
-  height: 64px;
-  font-size: 28px;
-  color: var(--inbox-primary);
-  background: var(--inbox-primary-soft);
-  border-radius: 20px;
-}
-
-.inbox-empty h2 {
-  margin: 16px 0 6px;
-  font-family: 'Noto Serif SC', serif;
-  font-size: 18px;
-  color: var(--inbox-ink);
-}
-
-.inbox-empty p {
-  max-width: 460px;
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.7;
-  color: var(--inbox-muted);
+  color: var(--el-text-color-placeholder);
 }
 
 .empty-actions {
   display: flex;
   gap: 10px;
-  margin-top: 18px;
+  justify-content: center;
+  margin-top: 4px;
 }
 
 /* ---------- 响应式：窄屏工具栏换行、操作区移到内容下方 ---------- */

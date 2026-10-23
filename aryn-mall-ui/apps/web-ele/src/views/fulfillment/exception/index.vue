@@ -8,6 +8,7 @@ import {
   ElMessageBox,
   ElTable,
   ElTableColumn,
+  ElTag,
 } from 'element-plus';
 
 import { closeException, getExceptionPage } from '#/api/fulfillment/wave';
@@ -35,6 +36,13 @@ const statusLabel: Record<string, string> = {
   '1': '待处理',
   '2': '处理中',
   '3': '已关闭',
+};
+
+/** 异常状态着色：待处理橙、处理中蓝、已关闭绿 */
+const statusTag: Record<string, string> = {
+  '1': 'warning',
+  '2': 'primary',
+  '3': 'success',
 };
 
 const initPage = async () => {
@@ -81,7 +89,14 @@ onMounted(initPage);
 <template>
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
-      <ElTable v-loading="loading" :data="state.tableData" border>
+      <ElTable
+        v-loading="loading"
+        class="hx-data-table"
+        :data="state.tableData"
+        row-key="id"
+        border
+        empty-text="暂无履约异常"
+      >
         <ElTableColumn prop="exceptionType" label="异常类型" width="120">
           <template #default="scope">
             {{ typeLabel[scope.row.exceptionType] ?? scope.row.exceptionType }}
@@ -90,9 +105,11 @@ onMounted(initPage);
         <ElTableColumn prop="orderId" label="订单" min-width="180" />
         <ElTableColumn prop="description" label="描述" min-width="220" />
         <ElTableColumn prop="waveId" label="波次" min-width="160" />
-        <ElTableColumn label="状态" width="90">
+        <ElTableColumn label="状态" width="100" align="center">
           <template #default="scope">
-            {{ statusLabel[scope.row.status] ?? scope.row.status }}
+            <ElTag :type="(statusTag[scope.row.status] as any) ?? 'info'">
+              {{ statusLabel[scope.row.status] ?? scope.row.status }}
+            </ElTag>
           </template>
         </ElTableColumn>
         <ElTableColumn label="证据" width="140">

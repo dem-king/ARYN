@@ -88,7 +88,8 @@ public class SignInRecordServiceImpl extends ServiceImpl<SignInRecordMapper, Sig
 
 		// 发放积分
 		if (rewardPoint > 0) {
-			pointsRecordService.recordPointsChange(userId, "1", rewardPoint, "SIGN_IN", "签到奖励");
+			pointsRecordService.recordPointsChange(userId, "1", rewardPoint, "SIGN_IN", "签到奖励",
+					"SIGN_IN:" + userId + ":" + today);
 		}
 
 		// 返回签到结果

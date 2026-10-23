@@ -827,7 +827,9 @@ onMounted(initPage);
   justify-content: center;
   width: 44px;
   height: 44px;
-  color: #fff;
+
+  /* 主色渐变块上的图标，用 Element 固定白色令牌（不随深色模式翻转） */
+  color: var(--el-color-white);
   background: linear-gradient(
     135deg,
     var(--el-color-primary),

@@ -1,12 +1,7 @@
 <script lang="ts" setup>
-import type { FormInstance } from 'element-plus';
-
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
-import { Refresh, Search } from '@element-plus/icons-vue';
 import {
-  ElButton,
-  ElForm,
   ElFormItem,
   ElInput,
   ElOption,
@@ -17,6 +12,9 @@ import {
 } from 'element-plus';
 
 import { getRecordPage } from '#/api/promotion/group-buy-activity';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
+import { formatMoney } from '#/utils/util';
 
 const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
@@ -24,8 +22,6 @@ const RightToolbar = defineAsyncComponent(
 const Pagination = defineAsyncComponent(
   () => import('#/components/pagination/index.vue'),
 );
-
-const queryRef = ref<FormInstance>();
 
 const state = reactive({
   queryParams: {
@@ -71,11 +67,6 @@ const initPage = async () => {
     });
 };
 
-const resetQuery = (formEl: FormInstance | undefined) => {
-  if (!formEl) return;
-  formEl.resetFields();
-};
-
 const statusTagType = (status: string) => {
   if (status === '0') return 'warning';
   if (status === '1') return 'success';
@@ -92,25 +83,24 @@ const statusLabel = (status: string) => {
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 搜索 -->
-      <ElForm
+      <PageFilterPanel
         :model="state.queryParams"
-        ref="queryRef"
-        :inline="true"
-        v-show="showSearch"
+        :visible="showSearch"
+        @reset="initPage"
+        @search="initPage"
       >
         <ElFormItem label="拼团活动ID" prop="activityId">
           <ElInput
             v-model="state.queryParams.activityId"
             clearable
-            style="width: 200px"
             placeholder="请输入拼团活动ID"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
         <ElFormItem label="拼团状态" prop="groupStatus">
           <ElSelect
             v-model="state.queryParams.groupStatus"
             clearable
-            style="width: 200px"
             placeholder="请选择拼团状态"
           >
             <ElOption
@@ -121,27 +111,26 @@ const statusLabel = (status: string) => {
             />
           </ElSelect>
         </ElFormItem>
-        <ElFormItem>
-          <ElButton type="primary" @click="initPage" :icon="Search">
-            搜索
-          </ElButton>
-          <ElButton @click="resetQuery(queryRef)" :icon="Refresh">
-            重置
-          </ElButton>
-        </ElFormItem>
-      </ElForm>
+      </PageFilterPanel>
       <!-- 工具栏 -->
-      <div class="hx-table-toolbar">
-        <div></div>
-        <RightToolbar
-          :search-btn="true"
-          :refresh-btn="true"
-          @search="showSearch = !showSearch"
-          @refresh="initPage"
-        />
-      </div>
+      <PageToolbar :total="state.page.total" total-label="条拼团记录">
+        <template #right>
+          <RightToolbar
+            :search-btn="true"
+            :refresh-btn="true"
+            @search="showSearch = !showSearch"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
       <!-- 列表 -->
-      <ElTable v-loading="loading" :data="state.tableData" border>
+      <ElTable
+        v-loading="loading"
+        class="hx-data-table"
+        :data="state.tableData"
+        border
+        empty-text="暂无拼团记录"
+      >
         <ElTableColumn
           prop="id"
           label="拼团记录ID"
@@ -159,7 +148,13 @@ const statusLabel = (status: string) => {
           label="拼团价"
           align="center"
           width="100"
-        />
+        >
+          <template #default="scope">
+            <span class="hx-money">
+              ¥{{ formatMoney(scope.row.groupPrice) }}
+            </span>
+          </template>
+        </ElTableColumn>
         <ElTableColumn
           prop="groupNum"
           label="成团人数"

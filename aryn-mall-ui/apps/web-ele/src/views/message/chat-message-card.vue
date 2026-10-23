@@ -73,11 +73,23 @@ function open() {
 </template>
 
 <style scoped>
+/* 结构消息卡片是深色“终端卡片”品牌视觉：整套深色配色集中在根选择器变量里，
+   在浅色私信气泡与深色客服工作台里都保持同一套卡片配色，文字对比一致 */
+.chat-image,
+.chat-card {
+  --chat-card-bg: #0b202c;
+  --chat-card-border: #1d4356;
+  --chat-card-border-hover: rgb(45 212 191 / 40%);
+  --chat-card-text: #e6fffb;
+  --chat-card-muted: #6d93a8;
+  --chat-card-accent: #5eead4;
+}
+
 .chat-image {
   display: block;
   max-width: 260px;
   margin: 7px 0;
-  border: 1px solid #1a3a4b;
+  border: 1px solid var(--chat-card-border);
   border-radius: 10px;
 }
 
@@ -90,8 +102,8 @@ function open() {
   padding: 10px 12px;
   margin: 7px 0;
   text-align: left;
-  background: #0b202c;
-  border: 1px solid #1d4356;
+  background: var(--chat-card-bg);
+  border: 1px solid var(--chat-card-border);
   border-radius: 10px;
 }
 
@@ -100,7 +112,7 @@ function open() {
 }
 
 .chat-card.clickable:hover {
-  border-color: rgb(45 212 191 / 40%);
+  border-color: var(--chat-card-border-hover);
 }
 
 .chat-card-cover {
@@ -122,7 +134,7 @@ function open() {
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: 13px;
-  color: #e6fffb;
+  color: var(--chat-card-text);
   white-space: nowrap;
 }
 
@@ -130,12 +142,12 @@ function open() {
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: 10px;
-  color: #6d93a8;
+  color: var(--chat-card-muted);
   white-space: nowrap;
 }
 
 .chat-card-arrow {
   flex: none;
-  color: #5eead4;
+  color: var(--chat-card-accent);
 }
 </style>

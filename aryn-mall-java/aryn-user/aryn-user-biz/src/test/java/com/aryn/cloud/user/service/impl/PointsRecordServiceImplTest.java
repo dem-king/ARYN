@@ -109,6 +109,26 @@ class PointsRecordServiceImplTest {
 				() -> service.recordPointsChange("user001", "1", 50, "ORDER_REWARD", "下单奖励"));
 	}
 
+	/**
+	 * 退款/取消返还：只恢复可用积分，不增加 total_point（累计获得），也不触发等级重算，
+	 * 避免「下单-取消」循环刷高累计积分与积分线等级。
+	 */
+	@Test
+	void refundSceneRestoresPointWithoutIncreasingTotalPoint() {
+		UserInfo before = user(10, 500);
+		UserInfo after = user(110, 500);
+		when(userInfoMapper.selectById("user001")).thenReturn(before, after);
+		when(userInfoMapper.refundPoints("user001", 100)).thenReturn(1);
+		when(pointsRecordMapper.insert(any(PointsRecord.class))).thenReturn(1);
+
+		service.recordPointsChange("user001", "1", 100, "ORDER_REFUND", "订单取消返还积分",
+				"ORDER_REFUND:NO-1");
+
+		verify(userInfoMapper).refundPoints("user001", 100);
+		verify(userInfoMapper, never()).acquirePoints(any(), any());
+		verify(memberLevelService, never()).recalculateLevel("user001");
+	}
+
 	private UserInfo user(int point, int totalPoint) {
 		return new UserInfo().setId("user001").setPoint(point).setTotalPoint(totalPoint);
 	}

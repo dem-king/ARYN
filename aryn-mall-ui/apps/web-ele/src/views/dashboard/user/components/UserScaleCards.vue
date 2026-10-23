@@ -38,7 +38,9 @@ defineProps<{
         <div class="text-2xl font-bold text-blue-500">
           <CountTo :end-val="data.totalUserCount" />
         </div>
-        <div class="mt-1 flex items-center gap-1 text-xs text-gray-500">
+        <div
+          class="mt-1 flex items-center gap-1 text-xs text-[var(--el-text-color-secondary)]"
+        >
           <ElIcon><UserFilled /></ElIcon> 用户总数
         </div>
       </div>
@@ -48,7 +50,9 @@ defineProps<{
         <div class="text-2xl font-bold text-green-500">
           <CountTo :end-val="data.todayNewUserCount" />
         </div>
-        <div class="mt-1 flex items-center gap-1 text-xs text-gray-500">
+        <div
+          class="mt-1 flex items-center gap-1 text-xs text-[var(--el-text-color-secondary)]"
+        >
           <ElIcon><Calendar /></ElIcon> 今日新增
         </div>
       </div>
@@ -58,7 +62,9 @@ defineProps<{
         <div class="text-2xl font-bold text-teal-500">
           <CountTo :end-val="data.sevenDayNewUserCount" />
         </div>
-        <div class="mt-1 flex items-center gap-1 text-xs text-gray-500">
+        <div
+          class="mt-1 flex items-center gap-1 text-xs text-[var(--el-text-color-secondary)]"
+        >
           <ElIcon><TrendCharts /></ElIcon> 7日新增
         </div>
       </div>
@@ -68,7 +74,9 @@ defineProps<{
         <div class="text-2xl font-bold text-cyan-500">
           <CountTo :end-val="data.thirtyDayNewUserCount" />
         </div>
-        <div class="mt-1 flex items-center gap-1 text-xs text-gray-500">
+        <div
+          class="mt-1 flex items-center gap-1 text-xs text-[var(--el-text-color-secondary)]"
+        >
           <ElIcon><TrendCharts /></ElIcon> 30日新增
         </div>
       </div>
@@ -78,7 +86,9 @@ defineProps<{
         <div class="text-2xl font-bold text-indigo-500">
           <CountTo :end-val="data.monthNewUserCount" />
         </div>
-        <div class="mt-1 flex items-center gap-1 text-xs text-gray-500">
+        <div
+          class="mt-1 flex items-center gap-1 text-xs text-[var(--el-text-color-secondary)]"
+        >
           <ElIcon><Calendar /></ElIcon> 本月新增
         </div>
       </div>
@@ -88,7 +98,9 @@ defineProps<{
         <div class="text-2xl font-bold text-purple-500">
           <CountTo :end-val="data.totalTransactionUsers" />
         </div>
-        <div class="mt-1 flex items-center gap-1 text-xs text-gray-500">
+        <div
+          class="mt-1 flex items-center gap-1 text-xs text-[var(--el-text-color-secondary)]"
+        >
           <ElIcon><DataAnalysis /></ElIcon> 累计成交用户
         </div>
       </div>

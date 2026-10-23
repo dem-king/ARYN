@@ -1,14 +1,10 @@
 <script lang="ts" setup name="deliveryTrip">
-import type { FormInstance } from 'element-plus';
-
 import type { DeliveryTrip, DeliveryTripStatus } from '#/api/delivery/trip';
 
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
-import { Refresh, Search } from '@element-plus/icons-vue';
 import {
   ElButton,
-  ElForm,
   ElFormItem,
   ElInput,
   ElOption,
@@ -19,6 +15,8 @@ import {
 } from 'element-plus';
 
 import { getDeliveryTripPage } from '#/api/delivery/trip';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 
 const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
@@ -43,7 +41,6 @@ const statusOptions: {
   { value: '4', label: '已完成', type: 'success' },
 ];
 
-const queryRef = ref<FormInstance>();
 const tripDetailRef = ref();
 const loading = ref(false);
 const showSearch = ref(true);
@@ -90,14 +87,6 @@ const initPage = async () => {
 };
 
 /**
- * 重置搜索表单
- */
-const resetQuery = (formEl: FormInstance | undefined) => {
-  if (!formEl) return;
-  formEl.resetFields();
-};
-
-/**
  * 获取状态标签类型
  */
 const getStatusType = (status: DeliveryTripStatus) => {
@@ -124,17 +113,18 @@ initPage();
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 搜索 -->
-      <ElForm
+      <PageFilterPanel
         :model="state.queryParams"
-        ref="queryRef"
-        :inline="true"
-        v-show="showSearch"
+        :visible="showSearch"
+        @reset="initPage"
+        @search="initPage"
       >
         <ElFormItem label="出车单号" prop="tripNo">
           <ElInput
             v-model="state.queryParams.tripNo"
             clearable
             placeholder="请输入出车单号"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
         <ElFormItem label="配送员ID" prop="staffId">
@@ -142,6 +132,7 @@ initPage();
             v-model="state.queryParams.staffId"
             clearable
             placeholder="请输入配送员ID"
+            @keyup.enter="initPage"
           />
         </ElFormItem>
         <ElFormItem label="状态" prop="status">
@@ -149,7 +140,6 @@ initPage();
             v-model="state.queryParams.status"
             clearable
             placeholder="请选择状态"
-            style="width: 200px"
           >
             <ElOption
               v-for="item in statusOptions"
@@ -159,29 +149,29 @@ initPage();
             />
           </ElSelect>
         </ElFormItem>
-        <ElFormItem>
-          <ElButton type="primary" @click="initPage" :icon="Search">
-            搜索
-          </ElButton>
-          <ElButton @click="resetQuery(queryRef)" :icon="Refresh">
-            重置
-          </ElButton>
-        </ElFormItem>
-      </ElForm>
+      </PageFilterPanel>
       <!-- 工具栏 -->
-      <div class="hx-table-toolbar">
-        <div></div>
-        <RightToolbar
-          :search-btn="true"
-          :refresh-btn="true"
-          @search="showSearch = !showSearch"
-          @refresh="initPage"
-        />
-      </div>
+      <PageToolbar :total="state.page.total" total-label="张出车单">
+        <template #right>
+          <RightToolbar
+            :search-btn="true"
+            :refresh-btn="true"
+            @search="showSearch = !showSearch"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
       <TripDetail ref="tripDetailRef" />
 
       <!-- 列表 -->
-      <ElTable v-loading="loading" :data="state.tableData" border>
+      <ElTable
+        v-loading="loading"
+        class="hx-data-table"
+        :data="state.tableData"
+        row-key="id"
+        border
+        empty-text="暂无出车单"
+      >
         <ElTableColumn
           prop="tripNo"
           label="出车单号"

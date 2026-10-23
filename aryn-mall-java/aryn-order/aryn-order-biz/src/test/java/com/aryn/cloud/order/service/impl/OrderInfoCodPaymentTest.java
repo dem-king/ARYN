@@ -136,7 +136,8 @@ class OrderInfoCodPaymentTest {
 
 		service = new OrderInfoServiceImpl(orderConfigService, kuaidi100Utils, orderItemMapper, remoteGoodsSkuService,
 				mock(com.aryn.cloud.product.api.remote.RemoteGoodsSpuService.class),
-				remoteMallUserService, orderItemService, shoppingCartService,
+				remoteMallUserService, mock(com.aryn.cloud.user.api.remote.RemotePointsService.class),
+				orderItemService, shoppingCartService,
 				mock(com.aryn.cloud.pay.api.remote.RemotePayService.class), applicationEventPublisher,
 				orderPriceComputeService, orderWxDeliveryService, orderStatisticsQueryService, orderAppraiseService,
 				remoteUserAddressService, orderDeliveryMapper, orderRefundMapper, remoteCouponUserService,

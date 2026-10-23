@@ -32,7 +32,7 @@ const deltaClass = computed(() => {
     const isGood = trend.value === (props.invert ? 'down' : 'up');
     return isGood ? 'text-green-600' : 'text-red-500';
   }
-  return 'text-gray-400';
+  return 'text-[var(--el-text-color-secondary)]';
 });
 </script>
 
@@ -46,6 +46,6 @@ const deltaClass = computed(() => {
     <ElIcon v-else-if="trend === 'down'"><CaretBottom /></ElIcon>
     <span v-else>—</span>
     <span>{{ Math.abs(delta).toFixed(1) }}%</span>
-    <span class="text-gray-400">{{ label }}</span>
+    <span class="text-[var(--el-text-color-secondary)]">{{ label }}</span>
   </div>
 </template>

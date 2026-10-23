@@ -5,7 +5,9 @@ import { Delete, Edit, Plus } from '@element-plus/icons-vue';
 import { ElButton, ElTable, ElTableColumn } from 'element-plus';
 
 import { delObj, getPage } from '#/api/user/recharge-config';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 import { useDict } from '#/utils/dict';
+import { formatMoney } from '#/utils/util';
 
 const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
@@ -67,8 +69,9 @@ initPage();
 <template>
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
-      <div class="hx-table-toolbar">
-        <div>
+      <!-- 工具栏 -->
+      <PageToolbar :total="state.page.total" total-label="个档位">
+        <template #left>
           <ElButton
             type="primary"
             v-access:code="'user:rechargeconfig:add'"
@@ -77,18 +80,41 @@ initPage();
           >
             新增
           </ElButton>
-        </div>
-        <RightToolbar
-          :search-btn="false"
-          :refresh-btn="true"
-          @refresh="initPage"
-        />
-      </div>
+        </template>
+        <template #right>
+          <RightToolbar
+            :search-btn="false"
+            :refresh-btn="true"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
       <Form ref="formRef" @init-page="initPage" />
-      <ElTable v-loading="loading" :data="state.tableData" border>
-        <ElTableColumn prop="rechargeAmount" label="充值金额" />
-        <ElTableColumn prop="giftAmount" label="赠送金额" />
-        <ElTableColumn prop="giftPoint" label="赠送积分" />
+      <!-- 列表 -->
+      <ElTable
+        v-loading="loading"
+        class="hx-data-table"
+        :data="state.tableData"
+        border
+        empty-text="暂无储值配置"
+      >
+        <!-- 数据列使用 min-width 形成弹性列，列宽合计不足容器宽度时表格才能撑满，
+             否则 Element Plus 只按固定列宽渲染表头/行，表格右侧会留出空白 -->
+        <ElTableColumn prop="rechargeAmount" label="充值金额" min-width="140">
+          <template #default="scope">
+            <span class="hx-money">
+              ¥{{ formatMoney(scope.row.rechargeAmount) }}
+            </span>
+          </template>
+        </ElTableColumn>
+        <ElTableColumn prop="giftAmount" label="赠送金额" min-width="140">
+          <template #default="scope">
+            <span class="hx-money">
+              ¥{{ formatMoney(scope.row.giftAmount) }}
+            </span>
+          </template>
+        </ElTableColumn>
+        <ElTableColumn prop="giftPoint" label="赠送积分" min-width="120" />
         <ElTableColumn prop="sortOrder" label="排序" width="80" />
         <ElTableColumn prop="status" label="状态" width="80">
           <template #default="scope">

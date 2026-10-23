@@ -84,7 +84,7 @@ const go = (to: string) => {
           <div class="text-sm font-bold" :class="tone(item.tone).text">
             {{ item.title }}
           </div>
-          <div class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          <div class="mt-1 text-xs text-[var(--el-text-color-secondary)]">
             {{ item.description }}
           </div>
         </div>

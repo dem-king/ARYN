@@ -1,10 +1,9 @@
 <script lang="ts" setup name="SocialAccount">
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
-import { Delete, Edit, Plus, Refresh, Search } from '@element-plus/icons-vue';
+import { Delete, Edit, Plus } from '@element-plus/icons-vue';
 import {
   ElButton,
-  ElForm,
   ElFormItem,
   ElInput,
   ElMessage,
@@ -14,6 +13,8 @@ import {
 } from 'element-plus';
 
 import { delObj, getPage } from '#/api/user/social-account';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import PageToolbar from '#/components/page/page-toolbar.vue';
 
 const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
@@ -47,7 +48,6 @@ const state = reactive({
 const showSearch = ref(true);
 const loading = ref(false);
 const formRef = ref();
-const queryRef = ref();
 const initPage = async () => {
   loading.value = true;
   const params = {
@@ -65,13 +65,6 @@ const initPage = async () => {
     .catch(() => {
       loading.value = false;
     });
-};
-/**
- * 重置搜索表单
- */
-const resetQuery = () => {
-  queryRef.value.resetFields();
-  initPage();
 };
 /**
  * 新增按钮
@@ -108,17 +101,18 @@ initPage();
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 搜索 -->
-      <ElForm
+      <PageFilterPanel
         :model="state.queryParams"
-        ref="queryRef"
-        :inline="true"
-        v-show="showSearch"
+        :visible="showSearch"
+        @reset="initPage"
+        @search="initPage"
       >
         <ElFormItem label="注册" prop="id">
           <ElInput
             v-model="state.queryParams.id"
             placeholder="请输入注册"
             clearable
+            @keyup.enter="initPage"
           />
         </ElFormItem>
         <ElFormItem label="账号" prop="appId">
@@ -126,6 +120,7 @@ initPage();
             v-model="state.queryParams.appId"
             placeholder="请输入账号"
             clearable
+            @keyup.enter="initPage"
           />
         </ElFormItem>
         <ElFormItem label="密钥" prop="appSecret">
@@ -133,6 +128,7 @@ initPage();
             v-model="state.queryParams.appSecret"
             placeholder="请输入密钥"
             clearable
+            @keyup.enter="initPage"
           />
         </ElFormItem>
         <ElFormItem label="创建人" prop="createBy">
@@ -140,6 +136,7 @@ initPage();
             v-model="state.queryParams.createBy"
             placeholder="请输入创建人"
             clearable
+            @keyup.enter="initPage"
           />
         </ElFormItem>
         <ElFormItem label="修改人" prop="updateBy">
@@ -147,18 +144,13 @@ initPage();
             v-model="state.queryParams.updateBy"
             placeholder="请输入修改人"
             clearable
+            @keyup.enter="initPage"
           />
         </ElFormItem>
-        <ElFormItem>
-          <ElButton type="primary" @click="initPage" :icon="Search">
-            搜索
-          </ElButton>
-          <ElButton @click="resetQuery" :icon="Refresh"> 重置</ElButton>
-        </ElFormItem>
-      </ElForm>
+      </PageFilterPanel>
       <!-- 工具栏 -->
-      <div class="hx-table-toolbar">
-        <div>
+      <PageToolbar :total="state.page.total" total-label="个三方账号">
+        <template #left>
           <ElButton
             type="primary"
             v-access:code="'user:socialAccount:add'"
@@ -167,17 +159,26 @@ initPage();
           >
             新增
           </ElButton>
-        </div>
-        <RightToolbar
-          :search-btn="true"
-          :refresh-btn="true"
-          @search="showSearch = !showSearch"
-          @refresh="initPage"
-        />
-      </div>
+        </template>
+        <template #right>
+          <RightToolbar
+            :search-btn="true"
+            :refresh-btn="true"
+            @search="showSearch = !showSearch"
+            @refresh="initPage"
+          />
+        </template>
+      </PageToolbar>
       <Form ref="formRef" @init-page="initPage" />
       <!-- 列表 -->
-      <ElTable v-loading="loading" :data="state.tableData" border>
+      <ElTable
+        v-loading="loading"
+        class="hx-data-table"
+        :data="state.tableData"
+        row-key="id"
+        border
+        empty-text="暂无三方账号"
+      >
         <ElTableColumn label="账号类型" align="center" prop="type">
           <template #default="scope">
             <span>{{ scope.row.type === 'WX_MA' ? '微信小程序' : '' }}</span>

@@ -14,10 +14,16 @@ defineProps<{
   };
 }>();
 const getRankBg = (index: number) => {
-  if (index === 0) return 'bg-yellow-100 text-yellow-600';
-  if (index === 1) return 'bg-gray-100 text-gray-600';
-  if (index === 2) return 'bg-orange-100 text-orange-600';
-  return 'bg-gray-50 text-gray-500';
+  if (index === 0) {
+    return 'bg-yellow-100 text-yellow-600 dark:bg-yellow-900/30 dark:text-yellow-400';
+  }
+  if (index === 1) {
+    return 'bg-[var(--el-fill-color)] text-[var(--el-text-color-regular)]';
+  }
+  if (index === 2) {
+    return 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400';
+  }
+  return 'bg-[var(--el-fill-color-light)] text-[var(--el-text-color-secondary)]';
 };
 </script>
 
@@ -48,7 +54,7 @@ const getRankBg = (index: number) => {
             <div
               v-for="(item, index) in rankings.salesTop10"
               :key="index"
-              class="flex items-center justify-between gap-4 rounded p-2 transition-colors hover:bg-gray-50"
+              class="flex items-center justify-between gap-4 rounded p-2 transition-colors hover:bg-[var(--el-fill-color-light)]"
             >
               <div
                 class="flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-bold"
@@ -59,7 +65,9 @@ const getRankBg = (index: number) => {
               <span class="min-w-0 flex-1 truncate text-sm" :title="item.name">
                 {{ item.name }}
               </span>
-              <span class="shrink-0 font-mono font-bold text-gray-700">
+              <span
+                class="shrink-0 font-mono font-bold text-[var(--el-text-color-primary)]"
+              >
                 <CountTo :end-val="item.value" />
               </span>
             </div>
@@ -86,7 +94,7 @@ const getRankBg = (index: number) => {
             <div
               v-for="(item, index) in rankings.refundTop10"
               :key="index"
-              class="flex items-center justify-between gap-4 rounded p-2 transition-colors hover:bg-gray-50"
+              class="flex items-center justify-between gap-4 rounded p-2 transition-colors hover:bg-[var(--el-fill-color-light)]"
             >
               <div
                 class="flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-bold"

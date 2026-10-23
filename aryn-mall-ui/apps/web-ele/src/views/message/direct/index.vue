@@ -183,6 +183,12 @@ onMounted(async () => {
         </button>
       </div>
       <div class="conversation-heading">最近私信</div>
+      <ElEmpty
+        v-if="conversations.length === 0"
+        class="rail-empty"
+        description="暂无最近私信"
+        :image-size="60"
+      />
       <button
         v-for="item in conversations"
         :key="item.id"
@@ -207,6 +213,12 @@ onMounted(async () => {
         <h2>一对一私信</h2>
       </header>
       <div ref="timeline" class="direct-timeline">
+        <ElEmpty
+          v-if="messages.length === 0"
+          class="timeline-empty"
+          description="还没有消息"
+          :image-size="70"
+        />
         <article
           v-for="message in messages"
           :key="message.id"
@@ -252,6 +264,14 @@ onMounted(async () => {
 
 <style scoped>
 .direct-page {
+  /* 本地语义变量统一指向 Element 令牌，页面其余样式自动跟随 */
+  --direct-ink: var(--el-text-color-primary);
+  --direct-muted: var(--el-text-color-secondary);
+  --direct-line: var(--el-border-color-lighter);
+  --direct-surface: var(--el-bg-color);
+  --direct-accent: var(--el-color-primary);
+  --direct-accent-soft: var(--el-color-primary-light-9);
+
   display: grid;
 
   /* 缺省行是 auto，会按内容撑高、顶破固定高度容器把输入区挤到可视区外 */
@@ -260,17 +280,21 @@ onMounted(async () => {
   height: calc(100vh - 112px);
   min-height: 620px;
   overflow: hidden;
-  background: #f4f8f7;
-  border: 1px solid #d7e4e2;
+  background: var(--el-bg-color-page);
+  border: 1px solid var(--direct-line);
   border-radius: 18px;
-  box-shadow: 0 22px 60px rgb(28 55 68 / 13%);
+  box-shadow: var(--el-box-shadow-light);
 }
 
 .direct-sidebar {
   padding: 24px;
   overflow: auto;
-  background: linear-gradient(180deg, #edf7f4, #f8faf9);
-  border-right: 1px solid #d8e6e3;
+  background: linear-gradient(
+    180deg,
+    var(--el-fill-color-lighter),
+    var(--direct-surface)
+  );
+  border-right: 1px solid var(--direct-line);
 }
 
 .sidebar-heading {
@@ -280,7 +304,7 @@ onMounted(async () => {
 .sidebar-heading p {
   font-size: 10px;
   font-weight: 800;
-  color: #0f766e;
+  color: var(--direct-accent);
   letter-spacing: 0.18em;
 }
 
@@ -288,12 +312,12 @@ onMounted(async () => {
   margin: 5px 0;
   font-family: 'Noto Serif SC', serif;
   font-size: 25px;
-  color: #173f5f;
+  color: var(--direct-ink);
 }
 
 .sidebar-heading span {
   font-size: 12px;
-  color: #78909c;
+  color: var(--direct-muted);
 }
 
 .staff-grid {
@@ -310,8 +334,8 @@ onMounted(async () => {
   min-width: 0;
   padding: 10px;
   text-align: left;
-  background: #fff;
-  border: 1px solid #d7e7e3;
+  background: var(--direct-surface);
+  border: 1px solid var(--direct-line);
   border-radius: 11px;
 }
 
@@ -322,8 +346,8 @@ onMounted(async () => {
   place-items: center;
   width: 32px;
   height: 32px;
-  color: #0f766e;
-  background: #dff3ee;
+  color: var(--direct-accent);
+  background: var(--direct-accent-soft);
   border-radius: 9px;
 }
 
@@ -341,20 +365,24 @@ onMounted(async () => {
 
 .staff-chip strong {
   font-size: 12px;
-  color: #244a60;
+  color: var(--direct-ink);
 }
 
 .staff-chip small {
   font-size: 9px;
-  color: #9aabb4;
+  color: var(--el-text-color-placeholder);
 }
 
 .conversation-heading {
   margin: 8px 0;
   font-size: 11px;
   font-weight: 700;
-  color: #8399a4;
+  color: var(--direct-muted);
   letter-spacing: 0.12em;
+}
+
+.rail-empty {
+  padding: 4px 0 14px;
 }
 
 .direct-item {
@@ -370,7 +398,7 @@ onMounted(async () => {
 
 .direct-item:hover,
 .direct-item.active {
-  background: #e0f0ed;
+  background: var(--direct-accent-soft);
 }
 
 .direct-copy {
@@ -388,13 +416,13 @@ onMounted(async () => {
 
 .direct-copy strong {
   font-size: 13px;
-  color: #244a60;
+  color: var(--direct-ink);
 }
 
 .direct-copy small {
   margin-top: 4px;
   font-size: 11px;
-  color: #8aa0ab;
+  color: var(--direct-muted);
 }
 
 .direct-chat {
@@ -402,30 +430,38 @@ onMounted(async () => {
   grid-template-rows: auto 1fr auto;
   min-width: 0;
   background:
-    radial-gradient(circle at 92% 0, rgb(15 118 110 / 10%), transparent 30%),
-    #fbfdfc;
+    radial-gradient(
+      circle at 92% 0,
+      var(--el-color-primary-light-9),
+      transparent 30%
+    ),
+    var(--direct-surface);
 }
 
 .direct-chat header {
   padding: 23px 28px;
-  border-bottom: 1px solid #dfebe8;
+  border-bottom: 1px solid var(--direct-line);
 }
 
 .direct-chat header p {
   font-size: 9px;
-  color: #0f766e;
+  color: var(--direct-accent);
   letter-spacing: 0.18em;
 }
 
 .direct-chat h2 {
   margin-top: 4px;
   font-size: 18px;
-  color: #173f5f;
+  color: var(--direct-ink);
 }
 
 .direct-timeline {
   padding: 28px 7%;
   overflow: auto;
+}
+
+.timeline-empty {
+  padding: 24px 0;
 }
 
 .direct-timeline article {
@@ -440,17 +476,17 @@ onMounted(async () => {
 .direct-bubble {
   max-width: min(70%, 680px);
   padding: 12px 15px;
-  color: #435f6e;
-  background: white;
-  border: 1px solid #dbe8e5;
+  color: var(--el-text-color-regular);
+  background: var(--direct-surface);
+  border: 1px solid var(--direct-line);
   border-radius: 5px 15px 15px;
-  box-shadow: 0 7px 20px rgb(32 63 74 / 7%);
+  box-shadow: var(--el-box-shadow-lighter);
 }
 
 .mine .direct-bubble {
-  color: #eafffb;
-  background: #0f766e;
-  border-color: #0f766e;
+  color: var(--el-color-white);
+  background: var(--direct-accent);
+  border-color: var(--direct-accent);
   border-radius: 15px 5px 15px 15px;
 }
 
@@ -471,8 +507,8 @@ onMounted(async () => {
 
 .direct-chat footer {
   padding: 17px 24px;
-  background: white;
-  border-top: 1px solid #dfebe8;
+  background: var(--direct-surface);
+  border-top: 1px solid var(--direct-line);
 }
 
 .direct-chat footer div {
@@ -481,7 +517,7 @@ onMounted(async () => {
   justify-content: space-between;
   margin-top: 10px;
   font-size: 10px;
-  color: #8aa0ab;
+  color: var(--direct-muted);
 }
 
 .direct-empty {

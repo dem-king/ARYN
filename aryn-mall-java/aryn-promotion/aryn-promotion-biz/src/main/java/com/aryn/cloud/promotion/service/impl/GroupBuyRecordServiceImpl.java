@@ -16,12 +16,15 @@ import com.aryn.cloud.promotion.api.entity.GroupBuyRecord;
 import com.aryn.cloud.promotion.api.enums.GroupBuyActivityStatusEnum;
 import com.aryn.cloud.promotion.api.enums.GroupBuyMemberStatusEnum;
 import com.aryn.cloud.promotion.api.enums.GroupBuyRecordStatusEnum;
+import com.aryn.cloud.promotion.api.vo.GroupBuyMemberVO;
 import com.aryn.cloud.promotion.api.vo.GroupBuyOrderContextVO;
 import com.aryn.cloud.promotion.api.vo.GroupBuyRecordVO;
 import com.aryn.cloud.promotion.mapper.GroupBuyActivityMapper;
 import com.aryn.cloud.promotion.mapper.GroupBuyRecordMapper;
 import com.aryn.cloud.promotion.service.IGroupBuyMemberService;
 import com.aryn.cloud.promotion.service.IGroupBuyRecordService;
+import com.aryn.cloud.user.api.remote.RemoteMallUserService;
+import com.aryn.cloud.user.api.vo.UserInfoVO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.dubbo.config.annotation.DubboReference;
@@ -31,9 +34,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -53,9 +62,17 @@ public class GroupBuyRecordServiceImpl extends ServiceImpl<GroupBuyRecordMapper,
 	@DubboReference
 	private final RemoteGoodsSkuService remoteGoodsSkuService;
 
+	@DubboReference
+	private final RemoteMallUserService remoteMallUserService;
+
 	private static final long LOCK_WAIT_SECONDS = 5;
 
 	private static final long LOCK_LEASE_SECONDS = 10;
+
+	/**
+	 * 远程用户服务查不到用户时的昵称兜底文案（头像留空，由前端灰圆兜底）。
+	 */
+	private static final String MEMBER_NICKNAME_FALLBACK = "拼友";
 
 	@Override
 	public GroupBuyRecord openGroup(String activityId, String userId) {
@@ -208,36 +225,139 @@ public class GroupBuyRecordServiceImpl extends ServiceImpl<GroupBuyRecordMapper,
 	@Override
 	public IPage<GroupBuyRecordVO> getPageByActivityId(Page page, String activityId, String userId) {
 		IPage<GroupBuyRecord> recordPage = baseMapper.selectPageByActivityId(page, activityId);
-		IPage<GroupBuyRecordVO> voPage = recordPage.convert(record -> {
-			GroupBuyRecordVO vo = new GroupBuyRecordVO();
-			vo.setId(record.getId());
-			vo.setActivityId(record.getActivityId());
-			vo.setSpuId(record.getSpuId());
-			vo.setSkuId(record.getSkuId());
-			vo.setGroupPrice(record.getGroupPrice());
-			vo.setGroupNum(record.getGroupNum());
-			vo.setCurrentNum(record.getCurrentNum());
-			vo.setLeaderUserId(record.getLeaderUserId());
-			vo.setGroupStatus(record.getGroupStatus());
-			vo.setExpireAt(record.getExpireAt());
-			vo.setSuccessAt(record.getSuccessAt());
-			vo.setCreateTime(record.getCreateTime());
-			if (userId != null) {
-				GroupBuyMember myMember = groupBuyMemberService.getOne(Wrappers.<GroupBuyMember>lambdaQuery()
-						.eq(GroupBuyMember::getRecordId, record.getId())
-						.eq(GroupBuyMember::getUserId, userId));
-				vo.setIsJoined(myMember != null);
-				if (myMember != null) {
-					vo.setMyMemberStatus(myMember.getMemberStatus());
-					vo.setMyOrderId(myMember.getOrderId());
-				}
-			}
-			else {
-				vo.setIsJoined(false);
-			}
+		List<GroupBuyRecord> records = recordPage.getRecords();
+		if (records == null || records.isEmpty()) {
+			return recordPage.convert(this::convertToRecordVO);
+		}
+
+		// 本页成员一次查出（recordId in (...)）：既用于成员头像环，也用于当前用户的参团状态，
+		// 替代原先「逐条 record 查 myMember」的 N 次查询
+		Map<String, List<GroupBuyMember>> membersByRecordId = groupBuyMemberService
+				.getByRecordIds(records.stream().map(GroupBuyRecord::getId).toList())
+				.stream()
+				.collect(Collectors.groupingBy(GroupBuyMember::getRecordId));
+
+		// 团长 + 成员 userId 去重后一次远程批量取昵称头像；远程异常只降级不阻断（见 loadUserInfoMap）
+		Map<String, UserInfoVO> userInfoMap = loadUserInfoMap(activityId, records, membersByRecordId);
+
+		return recordPage.convert(record -> {
+			GroupBuyRecordVO vo = convertToRecordVO(record);
+			fillMemberProfile(vo, record, membersByRecordId.getOrDefault(record.getId(), List.of()), userId,
+					userInfoMap);
 			return vo;
 		});
-		return voPage;
+	}
+
+	private GroupBuyRecordVO convertToRecordVO(GroupBuyRecord record) {
+		GroupBuyRecordVO vo = new GroupBuyRecordVO();
+		vo.setId(record.getId());
+		vo.setActivityId(record.getActivityId());
+		vo.setSpuId(record.getSpuId());
+		vo.setSkuId(record.getSkuId());
+		vo.setGroupPrice(record.getGroupPrice());
+		vo.setGroupNum(record.getGroupNum());
+		vo.setCurrentNum(record.getCurrentNum());
+		vo.setLeaderUserId(record.getLeaderUserId());
+		vo.setGroupStatus(record.getGroupStatus());
+		vo.setExpireAt(record.getExpireAt());
+		vo.setSuccessAt(record.getSuccessAt());
+		vo.setCreateTime(record.getCreateTime());
+		return vo;
+	}
+
+	/**
+	 * 装配单条拼团记录的成员信息：当前用户参团状态、团长昵称头像、成员列表（团长置首）。
+	 * <p>
+	 * 用户资料查不到时：头像为空（前端灰圆兜底）、成员昵称回落「拼友」；
+	 * 团长昵称保持为空，由详情页展示占位文案。全程不抛异常，不影响列表主流程。
+	 */
+	private void fillMemberProfile(GroupBuyRecordVO vo, GroupBuyRecord record, List<GroupBuyMember> members,
+			String userId, Map<String, UserInfoVO> userInfoMap) {
+		// 保留原有 isJoined/myMemberStatus/myOrderId 语义：未登录=未参与；登录则取本团中当前用户的成员行
+		GroupBuyMember myMember = null;
+		if (userId != null) {
+			myMember = members.stream().filter(member -> userId.equals(member.getUserId())).findFirst().orElse(null);
+		}
+		vo.setIsJoined(myMember != null);
+		if (myMember != null) {
+			vo.setMyMemberStatus(myMember.getMemberStatus());
+			vo.setMyOrderId(myMember.getOrderId());
+		}
+
+		String leaderUserId = record.getLeaderUserId();
+		UserInfoVO leaderInfo = leaderUserId == null ? null : userInfoMap.get(leaderUserId);
+		vo.setLeaderNickname(leaderInfo == null || StrUtil.isBlank(leaderInfo.getNickname()) ? null
+				: leaderInfo.getNickname());
+		vo.setLeaderAvatar(leaderInfo == null ? null : leaderInfo.getAvatarUrl());
+
+		// 团长置首，其余按 createTime/id 稳定升序（与批量查询排序一致，避免同批数据顺序漂移）
+		vo.setMemberList(members.stream()
+				.sorted(memberOrder(leaderUserId))
+				.map(member -> convertToMemberVO(member, leaderUserId, userInfoMap))
+				.toList());
+	}
+
+	private Comparator<GroupBuyMember> memberOrder(String leaderUserId) {
+		return Comparator.comparing((GroupBuyMember member) -> !isLeaderMember(member, leaderUserId))
+				.thenComparing(GroupBuyMember::getCreateTime,
+						Comparator.nullsLast(Comparator.<LocalDateTime>naturalOrder()))
+				.thenComparing(GroupBuyMember::getId, Comparator.nullsLast(Comparator.<String>naturalOrder()));
+	}
+
+	private GroupBuyMemberVO convertToMemberVO(GroupBuyMember member, String leaderUserId,
+			Map<String, UserInfoVO> userInfoMap) {
+		GroupBuyMemberVO vo = new GroupBuyMemberVO();
+		vo.setUserId(member.getUserId());
+		vo.setIsLeader(isLeaderMember(member, leaderUserId) ? "1" : "0");
+		vo.setMemberStatus(member.getMemberStatus());
+		UserInfoVO userInfo = userInfoMap.get(member.getUserId());
+		String nickname = userInfo == null ? null : userInfo.getNickname();
+		// 查不到用户（或昵称为空）回落「拼友」；只取 nickname/avatarUrl，phone/password 不下发
+		vo.setNickname(StrUtil.isBlank(nickname) ? MEMBER_NICKNAME_FALLBACK : nickname);
+		vo.setAvatarUrl(userInfo == null ? null : userInfo.getAvatarUrl());
+		return vo;
+	}
+
+	private boolean isLeaderMember(GroupBuyMember member, String leaderUserId) {
+		return "1".equals(member.getIsLeader())
+				|| (leaderUserId != null && leaderUserId.equals(member.getUserId()));
+	}
+
+	/**
+	 * 一次远程批量取本页团长 + 成员的用户资料，建 userId → UserInfoVO 索引。
+	 * <p>
+	 * 远程用户服务超时/异常时只记 warn 并返回空 Map：拼团列表主流程不阻断，
+	 * 头像留空由前端灰圆兜底、昵称回落「拼友」（R1 降级）。
+	 */
+	private Map<String, UserInfoVO> loadUserInfoMap(String activityId, List<GroupBuyRecord> records,
+			Map<String, List<GroupBuyMember>> membersByRecordId) {
+		Set<String> userIds = new LinkedHashSet<>();
+		for (GroupBuyRecord record : records) {
+			if (StrUtil.isNotBlank(record.getLeaderUserId())) {
+				userIds.add(record.getLeaderUserId());
+			}
+			for (GroupBuyMember member : membersByRecordId.getOrDefault(record.getId(), List.of())) {
+				if (StrUtil.isNotBlank(member.getUserId())) {
+					userIds.add(member.getUserId());
+				}
+			}
+		}
+		if (userIds.isEmpty()) {
+			return Collections.emptyMap();
+		}
+		try {
+			List<UserInfoVO> userInfos = remoteMallUserService.getUserByIds(new ArrayList<>(userIds));
+			if (userInfos == null || userInfos.isEmpty()) {
+				return Collections.emptyMap();
+			}
+			return userInfos.stream()
+					.filter(userInfo -> userInfo != null && StrUtil.isNotBlank(userInfo.getId()))
+					.collect(Collectors.toMap(UserInfoVO::getId, userInfo -> userInfo, (existing, ignored) -> existing));
+		}
+		catch (Exception e) {
+			log.warn("拼团列表批量查询用户昵称头像失败，跳过回填, activityId={}, userCount={}", activityId, userIds.size(), e);
+			return Collections.emptyMap();
+		}
 	}
 
 	@Override

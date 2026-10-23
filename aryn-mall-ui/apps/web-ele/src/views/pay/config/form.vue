@@ -6,7 +6,6 @@ import { defineAsyncComponent, reactive, ref } from 'vue';
 import {
   ElAlert,
   ElButton,
-  ElCard,
   ElCol,
   ElDialog,
   ElDivider,
@@ -20,6 +19,7 @@ import {
 } from 'element-plus';
 
 import { addObj, editObj, getById } from '#/api/pay/config';
+import PageSection from '#/components/page/page-section.vue';
 import { useDict } from '#/utils/dict';
 
 const emit = defineEmits(['initPage']);
@@ -272,20 +272,12 @@ defineExpose({
   >
     <div class="form-container">
       <!-- 基本信息 -->
-      <ElCard class="form-section">
-        <template #header>
-          <div class="section-header">
-            <h3>基本信息</h3>
-            <p>配置支付的基本参数信息</p>
-          </div>
-        </template>
-
+      <PageSection title="基本信息" description="配置支付的基本参数信息">
         <ElForm
           ref="formRef"
           :model="state.form"
-          label-width="140px"
+          label-width="auto"
           :rules="state.rules"
-          class="pay-form"
         >
           <ElRow :gutter="20">
             <ElCol :span="12">
@@ -353,23 +345,15 @@ defineExpose({
             </ElCol>
           </ElRow>
         </ElForm>
-      </ElCard>
+      </PageSection>
 
       <!-- 密钥配置 -->
-      <ElCard class="form-section">
-        <template #header>
-          <div class="section-header">
-            <h3>密钥配置</h3>
-            <p>配置支付相关的密钥和证书信息</p>
-          </div>
-        </template>
-
+      <PageSection title="密钥配置" description="配置支付相关的密钥和证书信息">
         <ElForm
           ref="formRef"
           :model="state.form"
-          label-width="140px"
+          label-width="auto"
           :rules="state.rules"
-          class="pay-form"
         >
           <!-- 微信支付特有字段 -->
           <div v-if="state.form.type === '1'" class="wechat-fields">
@@ -448,7 +432,6 @@ defineExpose({
             <ElFormItem
               label="公钥证书"
               prop="publicKeyPath"
-              label-width="200px"
               v-if="state.form.type === '1'"
             >
               <div class="upload-group">
@@ -457,7 +440,6 @@ defineExpose({
                   v-model="state.form.publicKeyPath"
                   class="upload-input"
                   placeholder="公钥证书文件路径"
-                  style="min-width: 400px"
                 />
               </div>
             </ElFormItem>
@@ -469,7 +451,6 @@ defineExpose({
                   : '应用公钥证书(AppCertPath)'
               "
               prop="privateCertPath"
-              label-width="200px"
             >
               <!-- appCertPublicKey.crt -->
               <div class="upload-group">
@@ -478,7 +459,6 @@ defineExpose({
                   v-model="state.form.privateCertPath"
                   class="upload-input"
                   placeholder="证书文件路径"
-                  style="min-width: 400px"
                 />
               </div>
             </ElFormItem>
@@ -490,7 +470,6 @@ defineExpose({
                   : '支付宝公钥证书(AlipayPublicCertPat)'
               "
               prop="privateKeyPath"
-              label-width="200px"
             >
               <div class="upload-group">
                 <CertUpload @handle-success="privateKeyPathHandle" />
@@ -498,7 +477,6 @@ defineExpose({
                   v-model="state.form.privateKeyPath"
                   class="upload-input"
                   placeholder="证书文件路径"
-                  style="min-width: 400px"
                 />
               </div>
             </ElFormItem>
@@ -510,7 +488,6 @@ defineExpose({
                   : '支付宝根证书(RootCertPath)'
               "
               prop="keyPath"
-              label-width="200px"
             >
               <div class="upload-group">
                 <CertUpload @handle-success="keyPathHandle" />
@@ -518,24 +495,23 @@ defineExpose({
                   v-model="state.form.keyPath"
                   class="upload-input"
                   placeholder="证书文件路径"
-                  style="min-width: 400px"
                 />
               </div>
             </ElFormItem>
           </div>
         </ElForm>
-      </ElCard>
+      </PageSection>
     </div>
 
     <template #footer>
-      <div class="dialog-footer">
-        <ElButton @click="handleClose">关 闭</ElButton>
+      <div class="hx-form-footer">
+        <ElButton @click="handleClose">取消</ElButton>
         <ElButton
           type="primary"
           :loading="loading"
           @click="submitForm(formRef)"
         >
-          {{ state.form.id ? '修改' : '新增' }}
+          确定
         </ElButton>
       </div>
     </template>
@@ -545,10 +521,6 @@ defineExpose({
 <style scoped>
 /* 响应式设计 */
 @media (max-width: 768px) {
-  .form-section {
-    margin: 16px;
-  }
-
   .radio-group {
     flex-direction: column;
     gap: 8px;
@@ -571,31 +543,6 @@ defineExpose({
   overflow-y: auto;
 }
 
-.form-section {
-  margin-bottom: 24px;
-}
-
-.section-header {
-  margin-bottom: 0;
-}
-
-.section-header h3 {
-  margin: 0 0 8px;
-  font-size: 16px;
-  font-weight: 600;
-  color: #303133;
-}
-
-.section-header p {
-  margin: 0;
-  font-size: 12px;
-  color: #909399;
-}
-
-.pay-form {
-  margin-top: 16px;
-}
-
 .radio-group {
   display: flex;
   flex-wrap: wrap;
@@ -612,34 +559,12 @@ defineExpose({
   align-items: center;
 }
 
-.radio-icon {
-  font-size: 16px;
-}
-
 .radio-label {
   font-weight: 500;
 }
 
 .form-input {
   width: 100%;
-}
-
-.form-tip {
-  margin-top: 8px;
-}
-
-.form-tip :deep(.el-alert) {
-  padding: 8px 12px;
-}
-
-.form-tip :deep(.el-alert__title) {
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.form-tip :deep(.el-alert__content) {
-  font-size: 12px;
-  line-height: 1.5;
 }
 
 .field-alert {
@@ -665,7 +590,7 @@ defineExpose({
 
 .upload-input {
   flex: 1;
-  min-width: 400px;
+  min-width: 240px;
 }
 
 /* 确保上传组件有合适的宽度 */
@@ -678,32 +603,8 @@ defineExpose({
   height: 40px;
 }
 
-/* 证书文件上传区域样式优化 */
-
-/* 证书文件上传区域样式优化 */
+/* 证书文件上传区域：标签较长，逐项留出更宽松的行距 */
 .cert-upload-section .el-form-item {
   margin-bottom: 24px;
-}
-
-.cert-upload-section .el-form-item__label {
-  min-width: 220px;
-  padding-right: 16px;
-  font-weight: 500;
-  line-height: 1.4;
-  color: #606266;
-  text-align: right;
-}
-
-.cert-upload-section .el-form-item__content {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  min-width: 0;
-}
-
-.dialog-footer {
-  display: flex;
-  gap: 12px;
-  justify-content: flex-end;
 }
 </style>

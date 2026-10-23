@@ -19,6 +19,18 @@ export interface RetailComponentBaseProps extends Record<string, unknown> {
   invalidStrategy: RetailInvalidStrategy;
 }
 
+/**
+ * 不含 count 的零售组件公共字段。
+ *
+ * 活动入口条的卡片数由实际活动/手配卡片决定，不提供「展示数量」，
+ * 但仍需保留 commonStyle / 降级策略与 Record 索引签名。
+ */
+export type RetailCommonProps = Pick<
+  RetailComponentBaseProps,
+  'commonStyle' | 'emptyStrategy' | 'invalidStrategy'
+> &
+  Record<string, unknown>;
+
 export function createRetailCommonStyle(): DiyCommonStyle {
   return {
     bgColorDirection: 'to right',
@@ -40,6 +52,20 @@ export function createRetailCommonStyle(): DiyCommonStyle {
   };
 }
 
+export function validateRetailCommon(
+  props: Pick<
+    RetailComponentBaseProps,
+    'commonStyle' | 'dataSource' | 'emptyStrategy' | 'invalidStrategy'
+  >,
+): string[] {
+  const errors: string[] = [];
+  if (!props.dataSource?.mode) errors.push('请选择数据来源');
+  if (!props.emptyStrategy) errors.push('请选择无数据策略');
+  if (!props.invalidStrategy) errors.push('请选择失效数据策略');
+  if (!props.commonStyle) errors.push('请配置通用样式');
+  return errors;
+}
+
 export function validateRetailBase(
   props: RetailComponentBaseProps,
   maxCount: number,
@@ -50,9 +76,5 @@ export function validateRetailBase(
   } else if (props.count > maxCount) {
     errors.push(`展示数量不能超过 ${maxCount}`);
   }
-  if (!props.dataSource?.mode) errors.push('请选择数据来源');
-  if (!props.emptyStrategy) errors.push('请选择无数据策略');
-  if (!props.invalidStrategy) errors.push('请选择失效数据策略');
-  if (!props.commonStyle) errors.push('请配置通用样式');
-  return errors;
+  return [...errors, ...validateRetailCommon(props)];
 }

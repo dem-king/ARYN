@@ -22,6 +22,8 @@ import {
 
 import { getById as getSpuById } from '#/api/product/goods-spu';
 import { addObj, editObj, getById } from '#/api/promotion/group-buy-activity';
+import PageSection from '#/components/page/page-section.vue';
+import { formatMoney } from '#/utils/util';
 
 const emit = defineEmits(['initPage']);
 
@@ -244,140 +246,151 @@ defineExpose({
       ref="formRef"
       class="form"
       :model="state.form"
-      label-width="140px"
+      label-width="auto"
       :rules="state.rules"
       status-icon
       label-position="left"
       v-loading="loading"
     >
-      <ElFormItem label="活动名称" prop="activityName">
-        <ElInput
-          v-model="state.form.activityName"
-          maxlength="128"
-          show-word-limit
-        />
-      </ElFormItem>
-      <ElFormItem label="拼团商品" prop="spuId">
-        <div style="display: flex; gap: 8px; align-items: center">
-          <ElButton
-            type="success"
-            v-if="!state.form.id"
-            link
-            @click="selectSpu"
-          >
-            选择商品
-          </ElButton>
-          <span v-if="state.form.spuName" style="color: #409eff">{{
-            state.form.spuName
-          }}</span>
-          <ElImage
-            v-if="state.form.spuUrls && state.form.spuUrls.length > 0"
-            style="width: 40px; height: 40px"
-            :src="state.form.spuUrls[0]"
-            :preview-src-list="state.form.spuUrls"
-            fit="cover"
-            :preview-teleported="true"
+      <PageSection title="活动信息" :bordered="false">
+        <ElFormItem label="活动名称" prop="activityName">
+          <ElInput
+            v-model="state.form.activityName"
+            maxlength="128"
+            show-word-limit
           />
-        </div>
-        <SelectGoods
-          ref="selectGoods"
-          :limit-num="1"
-          @current-row="spuCurrent"
-        />
-      </ElFormItem>
-      <ElFormItem label="商品原价" prop="originalPrice">
-        <ElInputNumber
-          v-model="state.form.originalPrice"
-          :disabled="!!state.form.id"
-          :min="0.01"
-          :precision="2"
-          :controls="false"
-        />
-      </ElFormItem>
-      <ElFormItem label="拼团价" prop="groupPrice">
-        <ElInputNumber
-          v-model="state.form.groupPrice"
-          :disabled="!!state.form.id"
-          :min="0.01"
-          :precision="2"
-          :controls="false"
-        />
-      </ElFormItem>
-      <ElFormItem label="成团人数" prop="groupNum">
-        <ElInputNumber
-          v-model="state.form.groupNum"
-          :disabled="!!state.form.id"
-          :min="2"
-          :precision="0"
-          :controls="false"
-        />
-      </ElFormItem>
-      <ElFormItem label="限购数量" prop="limitNum">
-        <div style="display: flex; gap: 8px; align-items: center">
+        </ElFormItem>
+        <ElFormItem label="拼团商品" prop="spuId">
+          <div style="display: flex; gap: 8px; align-items: center">
+            <ElButton
+              type="success"
+              v-if="!state.form.id"
+              link
+              @click="selectSpu"
+            >
+              选择商品
+            </ElButton>
+            <span
+              v-if="state.form.spuName"
+              style="color: var(--el-color-primary)"
+              >{{ state.form.spuName }}</span
+            >
+            <ElImage
+              v-if="state.form.spuUrls && state.form.spuUrls.length > 0"
+              style="width: 40px; height: 40px"
+              :src="state.form.spuUrls[0]"
+              :preview-src-list="state.form.spuUrls"
+              fit="cover"
+              :preview-teleported="true"
+            />
+          </div>
+          <SelectGoods
+            ref="selectGoods"
+            :limit-num="1"
+            @current-row="spuCurrent"
+          />
+        </ElFormItem>
+        <ElFormItem label="商品原价" prop="originalPrice">
           <ElInputNumber
-            v-model="state.form.limitNum"
-            :min="0"
+            v-model="state.form.originalPrice"
+            :disabled="!!state.form.id"
+            :min="0.01"
+            :precision="2"
+            :controls="false"
+          />
+        </ElFormItem>
+        <ElFormItem label="拼团价" prop="groupPrice">
+          <ElInputNumber
+            v-model="state.form.groupPrice"
+            :disabled="!!state.form.id"
+            :min="0.01"
+            :precision="2"
+            :controls="false"
+          />
+        </ElFormItem>
+        <ElFormItem label="成团人数" prop="groupNum">
+          <ElInputNumber
+            v-model="state.form.groupNum"
+            :disabled="!!state.form.id"
+            :min="2"
             :precision="0"
             :controls="false"
           />
-          <span style="color: #909399">0表示不限购</span>
-        </div>
-      </ElFormItem>
-      <ElFormItem label="虚拟成团人数" prop="virtualNum">
-        <div style="display: flex; gap: 8px; align-items: center">
+        </ElFormItem>
+        <ElFormItem label="限购数量" prop="limitNum">
+          <div style="display: flex; gap: 8px; align-items: center">
+            <ElInputNumber
+              v-model="state.form.limitNum"
+              :min="0"
+              :precision="0"
+              :controls="false"
+            />
+            <span style="color: var(--el-text-color-secondary)"
+              >0表示不限购</span
+            >
+          </div>
+        </ElFormItem>
+        <ElFormItem label="虚拟成团人数" prop="virtualNum">
+          <div style="display: flex; gap: 8px; align-items: center">
+            <ElInputNumber
+              v-model="state.form.virtualNum"
+              :min="0"
+              :precision="0"
+              :controls="false"
+            />
+            <span style="color: var(--el-text-color-secondary)"
+              >展示用，0表示不虚增</span
+            >
+          </div>
+        </ElFormItem>
+      </PageSection>
+      <PageSection title="活动时间与状态" :bordered="false">
+        <ElFormItem label="活动时间" prop="datatimes">
+          <ElDatePicker
+            v-model="state.form.datatimes"
+            :disabled="!!state.form.id"
+            type="datetimerange"
+            range-separator="-"
+            start-placeholder="活动开始时间"
+            end-placeholder="活动结束时间"
+            value-format="YYYY-MM-DD HH:mm:ss"
+          />
+        </ElFormItem>
+        <ElFormItem label="拼团时效(小时)" prop="groupExpireHours">
           <ElInputNumber
-            v-model="state.form.virtualNum"
-            :min="0"
+            v-model="state.form.groupExpireHours"
+            :min="1"
+            :max="720"
             :precision="0"
             :controls="false"
           />
-          <span style="color: #909399">展示用，0表示不虚增</span>
-        </div>
-      </ElFormItem>
-      <ElFormItem label="活动时间" prop="datatimes">
-        <ElDatePicker
-          v-model="state.form.datatimes"
-          :disabled="!!state.form.id"
-          type="datetimerange"
-          range-separator="-"
-          start-placeholder="活动开始时间"
-          end-placeholder="活动结束时间"
-          value-format="YYYY-MM-DD HH:mm:ss"
-        />
-      </ElFormItem>
-      <ElFormItem label="拼团时效(小时)" prop="groupExpireHours">
-        <ElInputNumber
-          v-model="state.form.groupExpireHours"
-          :min="1"
-          :max="720"
-          :precision="0"
-          :controls="false"
-        />
-      </ElFormItem>
-      <ElFormItem label="活动状态" prop="activityStatus">
-        <ElRadioGroup v-model="state.form.activityStatus">
-          <ElRadio value="0">草稿</ElRadio>
-          <ElRadio value="1">进行中</ElRadio>
-          <ElRadio value="2">已结束</ElRadio>
-        </ElRadioGroup>
-      </ElFormItem>
+        </ElFormItem>
+        <ElFormItem label="活动状态" prop="activityStatus">
+          <ElRadioGroup v-model="state.form.activityStatus">
+            <ElRadio value="0">草稿</ElRadio>
+            <ElRadio value="1">进行中</ElRadio>
+            <ElRadio value="2">已结束</ElRadio>
+          </ElRadioGroup>
+        </ElFormItem>
+      </PageSection>
     </ElForm>
     <template #footer>
-      <span class="dialog-footer">
-        <ElButton @click="handleClose">关 闭</ElButton>
+      <div class="hx-form-footer">
+        <ElButton @click="handleClose">取消</ElButton>
         <ElButton
           type="primary"
           :loading="loading"
           @click="submitForm(formRef)"
         >
-          确 认
+          确定
         </ElButton>
-      </span>
+      </div>
     </template>
   </ElDrawer>
   <ElDialog v-model="skuDialog" title="选择商品规格" width="640px">
     <ElTable
       :data="skuList"
+      class="hx-data-table"
       highlight-current-row
       style="width: 100%"
       @current-change="handleSkuCurrentChange"
@@ -392,15 +405,25 @@ defineExpose({
           <span v-else>默认规格</span>
         </template>
       </ElTableColumn>
-      <ElTableColumn prop="salesPrice" label="销售价" width="120" />
-      <ElTableColumn prop="originalPrice" label="原价" width="120" />
+      <ElTableColumn label="销售价" width="120">
+        <template #default="scope">
+          <span class="hx-money">{{ formatMoney(scope.row.salesPrice) }}</span>
+        </template>
+      </ElTableColumn>
+      <ElTableColumn label="原价" width="120">
+        <template #default="scope">
+          <span class="hx-money">{{
+            formatMoney(scope.row.originalPrice)
+          }}</span>
+        </template>
+      </ElTableColumn>
       <ElTableColumn prop="stock" label="库存" width="100" />
     </ElTable>
     <template #footer>
-      <span class="dialog-footer">
-        <ElButton @click="skuDialog = false">取 消</ElButton>
-        <ElButton type="primary" @click="onSkuSelect">确 认</ElButton>
-      </span>
+      <div class="hx-form-footer">
+        <ElButton @click="skuDialog = false">取消</ElButton>
+        <ElButton type="primary" @click="onSkuSelect">确定</ElButton>
+      </div>
     </template>
   </ElDialog>
 </template>

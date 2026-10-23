@@ -129,7 +129,7 @@ defineExpose({
       <ElForm
         ref="formRef"
         :model="state.form"
-        label-width="120px"
+        label-width="auto"
         :rules="state.rules"
       >
         <ElFormItem label="账号类型" prop="type">
@@ -146,16 +146,16 @@ defineExpose({
         </ElFormItem>
       </ElForm>
       <template #footer>
-        <span class="dialog-footer">
-          <ElButton @click="handleClose">关 闭</ElButton>
+        <div class="hx-form-footer">
+          <ElButton @click="handleClose">取消</ElButton>
           <ElButton
             type="primary"
             :loading="loading"
             @click="submitForm(formRef)"
           >
-            确 认
+            确定
           </ElButton>
-        </span>
+        </div>
       </template>
     </ElDialog>
   </div>

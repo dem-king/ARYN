@@ -13,6 +13,7 @@ import { getComponentDefinition } from '../../page-designer/registry/component-r
 import { resolveEffectivePageTheme } from '../../page-designer/schema/effective-theme';
 import { resolveNavigationAppearance } from '../../page-designer/schema/navigation-style';
 import { buildSectionStyle } from '../../page-designer/schema/section-style';
+import { derivePageBackgroundColor } from '../../page-designer/schema/theme-presets';
 
 const props = withDefaults(
   defineProps<{
@@ -115,11 +116,17 @@ const canvasRootStyle = computed(() => ({
         '--wot-color-theme-secondary':
           props.document.themeSecondaryColor ??
           props.document.themePrimaryColor,
+        // 页面固化主题的浅色面：主色混白 92%（与 C 端主题衍生同口径）
+        '--wot-color-theme-background': derivePageBackgroundColor(
+          props.document.themePrimaryColor || '',
+        ),
       }
     : {
         '--wot-color-theme-primary': props.themeVars?.primaryColor || undefined,
         '--wot-color-theme-secondary':
           props.themeVars?.secondaryColor || undefined,
+        '--wot-color-theme-background':
+          props.themeVars?.pageBackgroundColor || undefined,
       }),
 }));
 

@@ -7,7 +7,6 @@ import { onMounted, reactive, ref } from 'vue';
 
 import {
   ElButton,
-  ElCard,
   ElCascader,
   ElForm,
   ElFormItem,
@@ -20,6 +19,7 @@ import {
   getWarehouseConfig,
   updateWarehouseConfig,
 } from '#/api/delivery/config';
+import PageSection from '#/components/page/page-section.vue';
 
 /** 省市区级联数据节点 */
 interface RegionNode {
@@ -179,14 +179,10 @@ onMounted(() => {
 <template>
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
-      <ElCard v-loading="loading">
-        <template #header>
-          <div class="card-header">
-            <span>仓库配置</span>
-          </div>
-        </template>
+      <PageSection title="仓库配置">
         <ElForm
           ref="formRef"
+          v-loading="loading"
           :model="state.form"
           :rules="state.rules"
           label-width="120px"
@@ -234,25 +230,18 @@ onMounted(() => {
               show-word-limit
             />
           </ElFormItem>
-          <ElFormItem>
+          <div class="hx-form-footer">
+            <ElButton @click="resetForm(formRef)">重置</ElButton>
             <ElButton
               type="primary"
               :loading="saving"
               @click="submitForm(formRef)"
             >
-              保 存
+              保存
             </ElButton>
-            <ElButton @click="resetForm(formRef)"> 重 置 </ElButton>
-          </ElFormItem>
+          </div>
         </ElForm>
-      </ElCard>
+      </PageSection>
     </div>
   </div>
 </template>
-<style lang="scss" scoped>
-.card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-</style>

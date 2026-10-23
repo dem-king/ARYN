@@ -36,7 +36,7 @@ defineProps<{
           <CountTo :end-val="data.applications" />
         </div>
         <div
-          class="mt-1 flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400"
+          class="mt-1 flex items-center gap-1 text-sm text-[var(--el-text-color-secondary)]"
         >
           <ElIcon><Warning /></ElIcon> 售后申请
         </div>
@@ -48,7 +48,7 @@ defineProps<{
           <CountTo :end-val="data.successCount" />
         </div>
         <div
-          class="mt-1 flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400"
+          class="mt-1 flex items-center gap-1 text-sm text-[var(--el-text-color-secondary)]"
         >
           <ElIcon><CircleCheck /></ElIcon> 退款完成
         </div>
@@ -60,7 +60,7 @@ defineProps<{
           <CountTo :end-val="data.overdueShipment" />
         </div>
         <div
-          class="mt-1 flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400"
+          class="mt-1 flex items-center gap-1 text-sm text-[var(--el-text-color-secondary)]"
         >
           <ElIcon><Timer /></ElIcon> 超时24小时未发货
         </div>
@@ -72,7 +72,7 @@ defineProps<{
           <CountTo :end-val="data.negativeReviews" />
         </div>
         <div
-          class="mt-1 flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400"
+          class="mt-1 flex items-center gap-1 text-sm text-[var(--el-text-color-secondary)]"
         >
           <ElIcon><ChatDotSquare /></ElIcon> 负面评价
         </div>

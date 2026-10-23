@@ -77,7 +77,8 @@ class OrderInfoCategoryBackfillTest {
 		ObjectProvider<com.aryn.cloud.order.service.ISharedCartService> sharedCartProvider = mock(ObjectProvider.class);
 		service = new OrderInfoServiceImpl(mock(IOrderConfigService.class), mock(Kuaidi100Utils.class),
 				orderItemMapper, mock(RemoteGoodsSkuService.class), remoteGoodsSpuService,
-				mock(com.aryn.cloud.user.api.remote.RemoteMallUserService.class), mock(IOrderItemService.class),
+				mock(com.aryn.cloud.user.api.remote.RemoteMallUserService.class),
+				mock(com.aryn.cloud.user.api.remote.RemotePointsService.class), mock(IOrderItemService.class),
 				mock(IShoppingCartService.class), mock(com.aryn.cloud.pay.api.remote.RemotePayService.class),
 				mock(ApplicationEventPublisher.class), mock(OrderPriceComputeService.class),
 				mock(OrderWxDeliveryService.class), mock(OrderStatisticsQueryService.class),

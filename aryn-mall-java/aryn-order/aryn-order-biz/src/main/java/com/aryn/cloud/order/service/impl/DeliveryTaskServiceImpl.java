@@ -753,7 +753,7 @@ public class DeliveryTaskServiceImpl extends ServiceImpl<DeliveryTaskMapper, Del
 		}
 		if (!(MallOrderConstants.DELIVERY_WAY_3.equals(order.getDeliveryWay())
 				|| MallOrderConstants.DELIVERY_WAY_4.equals(order.getDeliveryWay()))) {
-			throw new ArynBusinessException("订单[" + order.getOrderNo() + "]不是商城配送订单");
+			throw new ArynBusinessException("订单[" + order.getOrderNo() + "]不是公司配送订单");
 		}
 		DeliveryTask task = new DeliveryTask();
 		task.setTaskNo(generateTaskNo(order.getOrderNo()));

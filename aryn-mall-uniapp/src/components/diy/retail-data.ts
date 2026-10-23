@@ -164,10 +164,19 @@ export async function loadSeckillSessions(props: SeckillProps): Promise<SeckillS
     return normalizeRetailSeckillSessions(sessions).slice(0, props.count)
   }
   const sessions = normalizeRetailSeckillSessions(await getSeckillSessions())
-  // 进行中优先、未开始次之；已结束的场次不进楼层，避免运营看到过期数据
+  // 进行中优先、未开始次之；已结束的场次不进楼层，避免运营看到过期数据。
+  // 注意不能直接按 status 升序：0=未开始会排在 1=进行中前面，
+  // count=1 时楼层会取到未开始的场次，运营看到的是「即将开始」而不是正在抢。
+  const rank = (status: number) => {
+    if (status === 1)
+      return 0
+    if (status === 0)
+      return 1
+    return 2
+  }
   const ranked = sessions
     .filter(session => session.status !== 2)
-    .sort((a, b) => a.status - b.status)
+    .sort((a, b) => rank(a.status) - rank(b.status) || a.status - b.status)
   return ranked.slice(0, props.count)
 }
 

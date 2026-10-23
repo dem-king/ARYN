@@ -61,6 +61,9 @@ public class OrderItemEntity extends Model<OrderItemEntity> {
 	@Schema(description = "会员折扣优惠金额（元）")
 	private BigDecimal memberDiscountPrice;
 
+	@Schema(description = "积分抵扣分摊金额（元）")
+	private BigDecimal pointsPrice;
+
 	@Schema(description = "支付金额（总金额-优惠券优惠金额+运费 = 支付金额）")
 	private BigDecimal paymentPrice;
 
