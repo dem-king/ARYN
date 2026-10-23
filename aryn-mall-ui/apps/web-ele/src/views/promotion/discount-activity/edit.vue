@@ -12,7 +12,6 @@ import { useRoute, useRouter } from 'vue-router';
 import { ArrowLeft, Delete } from '@element-plus/icons-vue';
 import {
   ElButton,
-  ElCard,
   ElDatePicker,
   ElForm,
   ElFormItem,
@@ -28,6 +27,7 @@ import {
 
 import { getById as getSpuById } from '#/api/product/goods-spu';
 import { addObj, editObj, getById } from '#/api/promotion/discount';
+import PageSection from '#/components/page/page-section.vue';
 
 import { discountTypeOptions, formRules, scopeOptions } from './data';
 
@@ -286,7 +286,7 @@ if (editId) {
         <div>
           <ElButton :icon="ArrowLeft" @click="goBack">返回列表</ElButton>
         </div>
-        <div>
+        <div class="hx-form-footer">
           <ElButton @click="goBack">取 消</ElButton>
           <ElButton
             type="primary"
@@ -307,10 +307,7 @@ if (editId) {
         v-loading="loading"
       >
         <!-- 活动基本信息 -->
-        <ElCard shadow="never" style="margin-bottom: 16px">
-          <template #header>
-            <span>活动基本信息</span>
-          </template>
+        <PageSection title="活动基本信息">
           <ElFormItem label="活动名称" prop="activityName">
             <ElInput
               v-model="state.form.activityName"
@@ -340,13 +337,10 @@ if (editId) {
               placeholder="请输入活动描述（可选）"
             />
           </ElFormItem>
-        </ElCard>
+        </PageSection>
 
         <!-- 折扣配置 -->
-        <ElCard shadow="never" style="margin-bottom: 16px">
-          <template #header>
-            <span>折扣配置</span>
-          </template>
+        <PageSection title="折扣配置">
           <ElFormItem label="折扣类型" prop="discountType">
             <ElRadioGroup v-model="state.form.discountType">
               <ElRadio
@@ -367,7 +361,9 @@ if (editId) {
                 :controls="false"
                 style="width: 200px"
               />
-              <span style="color: #909399">{{ discountHint }}</span>
+              <span style="color: var(--el-text-color-secondary)">{{
+                discountHint
+              }}</span>
             </div>
           </ElFormItem>
           <ElFormItem label="适用范围" prop="scope">
@@ -384,27 +380,14 @@ if (editId) {
               </ElRadio>
             </ElRadioGroup>
           </ElFormItem>
-        </ElCard>
+        </PageSection>
 
         <!-- 指定商品列表（仅 scope=2 时显示） -->
-        <ElCard
-          v-if="state.form.scope === 2"
-          shadow="never"
-          style="margin-bottom: 16px"
-        >
-          <template #header>
-            <div
-              style="
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-              "
-            >
-              <span>参与折扣的商品</span>
-              <ElButton type="primary" @click="selectSpu">+ 添加商品</ElButton>
-            </div>
+        <PageSection v-if="state.form.scope === 2" title="参与折扣的商品">
+          <template #extra>
+            <ElButton type="primary" @click="selectSpu">+ 添加商品</ElButton>
           </template>
-          <ElTable :data="state.form.goodsList" border>
+          <ElTable :data="state.form.goodsList" class="hx-data-table" border>
             <ElTableColumn label="商品信息" min-width="300">
               <template #default="scope">
                 <div style="display: flex; gap: 8px; align-items: center">
@@ -426,6 +409,20 @@ if (editId) {
               align="center"
               width="200"
             />
+            <ElTableColumn label="限量库存" align="center" width="200">
+              <template #default="scope">
+                <ElInputNumber
+                  v-model="scope.row.stock"
+                  :min="1"
+                  :step="1"
+                  :precision="0"
+                  placeholder="不限量"
+                  controls-position="right"
+                  style="width: 130px"
+                />
+                <div class="stock-hint">不填 = 不限量</div>
+              </template>
+            </ElTableColumn>
             <ElTableColumn label="操作" width="100" align="center">
               <template #default="scope">
                 <ElButton
@@ -445,7 +442,7 @@ if (editId) {
           >
             暂未选择商品，请点击"添加商品"
           </div>
-        </ElCard>
+        </PageSection>
       </ElForm>
 
       <!-- 商品选择器 -->

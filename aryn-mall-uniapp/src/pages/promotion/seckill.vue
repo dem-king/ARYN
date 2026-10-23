@@ -46,6 +46,8 @@ const axisStuck = ref(false)
 const showBackTop = ref(false)
 /** 回顶锚点（scroll-into-view 比改 scroll-top 可靠：后者在用户手动滚动后不重置） */
 const scrollInto = ref('')
+/** 本场在抢人数：场次内 SKU 当前仍在购物车里的去重人数（后端只读统计，失败为空） */
+const cartUserCount = ref<number | null>(null)
 /** 已触发过「倒计时结束自动刷新」的场次：后端状态未及时翻转时不反复重载 */
 const refreshedSessionIds = new Set<string>()
 /** 商品请求序号：快速切场次时丢弃过期响应，防止串场 */
@@ -64,6 +66,12 @@ let countdownTimer: ReturnType<typeof setInterval> | null = null
 /** 当前场次 */
 const currentSession = computed<AppSeckillVO | null>(() => {
   return sessionList.value[currentSessionIndex.value] || null
+})
+
+/** 「N 人在抢」文案：拿不到或为 0 时不展示（不伪造氛围） */
+const cartUserText = computed(() => {
+  const count = cartUserCount.value ?? 0
+  return count > 0 ? `${count} 人在抢` : ''
 })
 
 /** 场次轴条目：已结束场次不进轴（进行中 → 未开始，顺序沿用后端下发） */
@@ -113,6 +121,7 @@ async function loadSessions() {
     }
     else {
       currentSessionIndex.value = 0
+      cartUserCount.value = null
       goodsList.value = []
       noMore.value = true
       stopCountdown()
@@ -133,6 +142,7 @@ async function selectSession(index: number) {
   if (!session)
     return
   currentSessionIndex.value = index
+  cartUserCount.value = session.cartUserCount ?? null
   goodsList.value = []
   noMore.value = true
   goodsLoading.value = true
@@ -155,6 +165,7 @@ async function loadSessionGoods(sessionId: string, seq: number) {
     if (seq !== goodsRequestSeq)
       return
     goodsList.value = session.goodsList || []
+    cartUserCount.value = session.cartUserCount ?? cartUserCount.value
   }
   catch {
     if (seq === goodsRequestSeq)
@@ -447,9 +458,14 @@ function goOtherSession() {
           <view class="hero-icon">
             <image class="hero-icon-img" src="/static/promotion/icon-flash.svg" mode="aspectFit" />
           </view>
-          <text class="hero-sub">
-            {{ HEAD_SUBTITLE }}
-          </text>
+          <view class="hero-text">
+            <text class="hero-sub">
+              {{ HEAD_SUBTITLE }}
+            </text>
+            <text v-if="cartUserText" class="hero-live">
+              {{ cartUserText }}
+            </text>
+          </view>
         </view>
         <view v-if="showCountdown" class="hero-cd">
           <text class="cd-label">
@@ -663,11 +679,30 @@ function goOtherSession() {
   height: 28rpx;
 }
 
+.hero-text {
+  display: flex;
+  overflow: hidden;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2rpx;
+}
+
 .hero-sub {
   overflow: hidden;
   color: rgb(255 255 255 / 90%);
   font-size: 24rpx;
   font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 「N 人在抢」：真实购物车去重人数，后端拿不到时不渲染该行 */
+.hero-live {
+  overflow: hidden;
+  color: #fff;
+  font-size: 20rpx;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

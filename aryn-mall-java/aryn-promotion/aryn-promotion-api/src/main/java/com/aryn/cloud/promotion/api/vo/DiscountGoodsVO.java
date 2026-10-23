@@ -26,4 +26,13 @@ public class DiscountGoodsVO {
 
 	@Schema(description = "商品销售价")
 	private BigDecimal salesPrice;
+
+	/** 限量库存：null = 不限量 */
+	private Integer stock;
+
+	/** 已占用数量 */
+	private Integer soldCount;
+
+	/** 剩余可售 = stock − soldCount；stock 为 null 时为 null（不限量） */
+	private Integer remainingStock;
 }

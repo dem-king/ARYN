@@ -5,10 +5,12 @@ import cn.hutool.core.util.StrUtil;
 import com.aryn.cloud.common.core.constant.CommonConstants;
 import com.aryn.cloud.common.core.enums.MallErrorCodeEnum;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
+import com.aryn.cloud.order.api.constant.MallOrderConstants;
 import com.aryn.cloud.order.api.dto.CreateOrderSkuReqDTO;
 import com.aryn.cloud.order.api.entity.OrderInfo;
 import com.aryn.cloud.order.api.entity.OrderItemEntity;
 import com.aryn.cloud.order.api.enums.OrderItemStatusEnum;
+import com.aryn.cloud.order.api.enums.PurchaseSceneEnum;
 import com.aryn.cloud.product.api.constant.ProductConstants;
 import com.aryn.cloud.product.api.dto.GoodsSkuStockReqDTO;
 import com.aryn.cloud.product.api.entity.GoodsSku;
@@ -23,10 +25,13 @@ import com.aryn.cloud.promotion.api.dto.PromotionContextDTO;
 import com.aryn.cloud.promotion.api.remote.RemoteCouponUserService;
 import com.aryn.cloud.promotion.api.remote.RemotePromotionEngine;
 import com.aryn.cloud.promotion.api.vo.PromotionCalculationVO;
+import com.aryn.cloud.promotion.api.dto.DiscountStockItemDTO;
+import com.aryn.cloud.promotion.api.dto.DiscountStockReserveResultDTO;
 import com.aryn.cloud.promotion.api.remote.RemoteDiscountService;
 import com.aryn.cloud.promotion.api.remote.RemoteSeckillService;
 import com.aryn.cloud.promotion.api.vo.CouponUserRespVO;
 import com.aryn.cloud.user.api.vo.MemberBenefitsVO;
+import com.aryn.cloud.user.api.vo.PointsDeductContextVO;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 
 import lombok.RequiredArgsConstructor;
@@ -99,6 +104,19 @@ public class OrderPriceComputeService {
 	 */
 	public void orderPromotionPriceHandler(List<OrderItemEntity> orderItemEntityList,
 			Map<String, BigDecimal> groupBuyPriceBySku, Set<String> newbieSkuIds) {
+		PromotionPricePlan plan = resolvePromotionPricePlan(orderItemEntityList, groupBuyPriceBySku, newbieSkuIds);
+		applyPromotionPricePlan(orderItemEntityList, newbieSkuIds, plan);
+	}
+
+	/**
+	 * 按下单前预取的活动价计划落价。
+	 *
+	 * <p>下单/结算主流程先调用 {@link #resolvePromotionPricePlan} 再走营销试算，
+	 * 试算、落价与整船分摊必须共用同一份计划：既避免同一请求重复查询营销服务，
+	 * 也保证整船门槛排除的 SKU 与实际成交价来源一致。
+	 */
+	public void applyPromotionPricePlan(List<OrderItemEntity> orderItemEntityList,
+			Set<String> newbieSkuIds, PromotionPricePlan plan) {
 		for (OrderItemEntity item : orderItemEntityList) {
 			BigDecimal originalUnitPrice = item.getSalesPrice();
 			if (originalUnitPrice == null) {
@@ -106,32 +124,14 @@ public class OrderPriceComputeService {
 				continue;
 			}
 			boolean newbiePriced = newbieSkuIds != null && newbieSkuIds.contains(item.getSkuId());
-			BigDecimal promotionUnitPrice = null;
-			// 优先拼团价（拼团单）
-			if (groupBuyPriceBySku != null) {
-				BigDecimal groupBuyPrice = groupBuyPriceBySku.get(item.getSkuId());
-				if (groupBuyPrice != null && groupBuyPrice.compareTo(BigDecimal.ZERO) > 0) {
-					promotionUnitPrice = groupBuyPrice;
-				}
-			}
+			BigDecimal promotionUnitPrice = plan.groupBuyPrice(item.getSkuId());
 			// 其次秒杀价（秒杀优先于新人价：平台级爆款活动优先保护）
 			if (promotionUnitPrice == null) {
-				try {
-					BigDecimal seckillPrice = remoteSeckillService.getSeckillPrice(item.getSkuId());
-					if (seckillPrice != null && seckillPrice.compareTo(BigDecimal.ZERO) > 0) {
-						promotionUnitPrice = seckillPrice;
-					}
-				} catch (Exception e) {
-					// Dubbo 调用失败不阻断下单，降级用折扣/原价
-				}
+				promotionUnitPrice = plan.seckillPrice(item.getSkuId());
 			}
 			// 其次限时折扣（新人价 SKU 跳过：新人价已作为基价写入，折扣不得覆盖）
 			if (promotionUnitPrice == null && !newbiePriced) {
-				try {
-					promotionUnitPrice = remoteDiscountService.calculatePrice(item.getSkuId(), originalUnitPrice);
-				} catch (Exception e) {
-					promotionUnitPrice = originalUnitPrice;
-				}
+				promotionUnitPrice = plan.discountPrice(item.getSkuId());
 			}
 			if (promotionUnitPrice == null) {
 				promotionUnitPrice = originalUnitPrice;
@@ -143,6 +143,128 @@ public class OrderPriceComputeService {
 			item.setSalesPrice(promotionUnitPrice);
 			item.setTotalPrice(promotionUnitPrice.multiply(BigDecimal.valueOf(item.getBuyQuantity())));
 		}
+	}
+
+	/**
+	 * 预取拼团/秒杀/限时折扣价，并标记已享活动价的 SKU。
+	 *
+	 * <p>查询顺序与落价优先级一致：拼团命中后不再查秒杀/折扣，秒杀命中后不再查折扣。
+	 * 营销试算用该标记把活动价 SKU 排除出整船门槛，订单分摊也据此排除；
+	 * 例外是新人价：它由营销引擎在试算中落定，订单侧只需保证折扣不再覆盖。
+	 */
+	public PromotionPricePlan resolvePromotionPricePlan(List<OrderItemEntity> orderItemEntityList,
+			Map<String, BigDecimal> groupBuyPriceBySku) {
+		return resolvePromotionPricePlan(orderItemEntityList, groupBuyPriceBySku, null);
+	}
+
+	private PromotionPricePlan resolvePromotionPricePlan(List<OrderItemEntity> orderItemEntityList,
+			Map<String, BigDecimal> groupBuyPriceBySku, Set<String> newbieSkuIds) {
+		PromotionPricePlan plan = new PromotionPricePlan(groupBuyPriceBySku);
+		for (OrderItemEntity item : orderItemEntityList) {
+			BigDecimal originalUnitPrice = item.getSalesPrice();
+			if (originalUnitPrice == null) {
+				continue;
+			}
+			BigDecimal groupBuyPrice = plan.groupBuyPrice(item.getSkuId());
+			if (groupBuyPrice != null) {
+				if (groupBuyPrice.compareTo(originalUnitPrice) < 0) {
+					plan.markActivityPriced(item.getSkuId());
+				}
+				continue;
+			}
+			BigDecimal seckillPrice = querySeckillPrice(item.getSkuId());
+			if (seckillPrice != null) {
+				plan.putSeckillPrice(item.getSkuId(), seckillPrice);
+				if (seckillPrice.compareTo(originalUnitPrice) < 0) {
+					plan.markActivityPriced(item.getSkuId());
+				}
+				continue;
+			}
+			if (newbieSkuIds != null && newbieSkuIds.contains(item.getSkuId())) {
+				continue;
+			}
+			BigDecimal discountPrice = queryDiscountPrice(item.getSkuId(), originalUnitPrice);
+			if (discountPrice != null) {
+				plan.putDiscountPrice(item.getSkuId(), discountPrice);
+				if (discountPrice.compareTo(originalUnitPrice) < 0) {
+					plan.markActivityPriced(item.getSkuId());
+				}
+			}
+		}
+		return plan;
+	}
+
+	private BigDecimal querySeckillPrice(String skuId) {
+		try {
+			BigDecimal seckillPrice = remoteSeckillService.getSeckillPrice(skuId);
+			return seckillPrice != null && seckillPrice.compareTo(BigDecimal.ZERO) > 0 ? seckillPrice : null;
+		}
+		catch (Exception e) {
+			// Dubbo 调用失败不阻断下单，降级用折扣/原价
+			return null;
+		}
+	}
+
+	private BigDecimal queryDiscountPrice(String skuId, BigDecimal originalUnitPrice) {
+		try {
+			BigDecimal discountPrice = remoteDiscountService.calculatePrice(skuId, originalUnitPrice);
+			return discountPrice != null && discountPrice.compareTo(BigDecimal.ZERO) > 0 ? discountPrice : null;
+		}
+		catch (Exception e) {
+			return null;
+		}
+	}
+
+	/**
+	 * 本次下单的活动价计划：对外部活动价（拼团/秒杀/限时折扣）的预取结果。
+	 */
+	public static class PromotionPricePlan {
+
+		private final Map<String, BigDecimal> groupBuyPriceBySku;
+
+		private final Map<String, BigDecimal> seckillPriceBySku = new HashMap<>();
+
+		private final Map<String, BigDecimal> discountPriceBySku = new HashMap<>();
+
+		private final Set<String> activityPricedSkuIds = new HashSet<>();
+
+		private PromotionPricePlan(Map<String, BigDecimal> groupBuyPriceBySku) {
+			this.groupBuyPriceBySku = groupBuyPriceBySku == null ? Map.of() : groupBuyPriceBySku;
+		}
+
+		boolean isActivityPriced(String skuId) {
+			return activityPricedSkuIds.contains(skuId);
+		}
+
+		Set<String> activityPricedSkuIds() {
+			return Collections.unmodifiableSet(activityPricedSkuIds);
+		}
+
+		private BigDecimal groupBuyPrice(String skuId) {
+			BigDecimal price = groupBuyPriceBySku.get(skuId);
+			return price != null && price.compareTo(BigDecimal.ZERO) > 0 ? price : null;
+		}
+
+		private BigDecimal seckillPrice(String skuId) {
+			return seckillPriceBySku.get(skuId);
+		}
+
+		private BigDecimal discountPrice(String skuId) {
+			return discountPriceBySku.get(skuId);
+		}
+
+		private void putSeckillPrice(String skuId, BigDecimal price) {
+			seckillPriceBySku.put(skuId, price);
+		}
+
+		private void putDiscountPrice(String skuId, BigDecimal price) {
+			discountPriceBySku.put(skuId, price);
+		}
+
+		private void markActivityPriced(String skuId) {
+			activityPricedSkuIds.add(skuId);
+		}
+
 	}
 
 	public void orderFreightHandler(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
@@ -246,6 +368,170 @@ public class OrderPriceComputeService {
 
 		orderItemEntity.setPaymentPrice(itemRealPrice.add(orderItemEntity.getFreightPrice()));
 
+	}
+
+	/**
+	 * 积分抵现：在运费计算完成、应付金额校验之前调用。
+	 *
+	 * <p>抵扣基数为商品应付金额（不含运费），单笔最多抵扣 {@link MallOrderConstants#POINTS_DEDUCT_MAX_RATIO}；
+	 * 抵扣金额按明细商品应付比例分摊到 {@code order_item.pointsPrice}，
+	 * 使逐行退款时不会把积分抵扣部分重复退给用户。
+	 *
+	 * <p>仅海员个人购买（{@code purchaseScene=1}）可抵现：船供采购是 B 端成本价，
+	 * 叠加积分会侵蚀毛利并污染船供对账口径。
+	 *
+	 * @param orderInfo 订单
+	 * @param orderItemEntityList 订单明细
+	 * @param requestedPoints 用户请求使用的积分
+	 * @param useMaxPoints 是否使用全部可用积分（确认页开关）
+	 * @param context 用户域返回的抵扣上下文（可用积分、每元所需积分）
+	 * @param strict 下单时传 true：请求额度与可用额度不一致直接拒绝，避免用户确认金额与实际扣款不一致
+	 */
+	public void orderPointsDeductHandler(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
+			Integer requestedPoints, boolean useMaxPoints, PointsDeductContextVO context, boolean strict) {
+		clearPointsDeduct(orderInfo, orderItemEntityList);
+		computeOrderPrice(orderInfo, orderItemEntityList);
+
+		// 船供采购不参与积分抵现（仅显式声明场景时拦截，历史空场景仍按个人购买处理）
+		if (PurchaseSceneEnum.SHIP_SUPPLY.getCode().equals(orderInfo.getPurchaseScene())) {
+			orderInfo.setPointsDeductRate(0);
+			orderInfo.setPointsDeductMax(0);
+			orderInfo.setPointsDeductMaxPrice(BigDecimal.ZERO);
+			int shipSupplyRequested = useMaxPoints ? 0
+					: (requestedPoints == null ? 0 : Math.max(requestedPoints, 0));
+			if (strict && shipSupplyRequested > 0) {
+				throw new ArynBusinessException("船供采购订单不支持积分抵现");
+			}
+			return;
+		}
+
+		int rate = context != null && context.isEnabled() && context.getPointsPerYuan() != null
+				&& context.getPointsPerYuan() > 0 ? context.getPointsPerYuan() : 0;
+		int available = context == null || context.getAvailablePoints() == null ? 0
+				: Math.max(context.getAvailablePoints(), 0);
+		BigDecimal goodsPayable = orderItemEntityList.stream()
+			.map(this::itemGoodsPayable)
+			.reduce(BigDecimal.ZERO, BigDecimal::add);
+		BigDecimal maxDeductAmount = goodsPayable.multiply(MallOrderConstants.POINTS_DEDUCT_MAX_RATIO)
+			.setScale(2, RoundingMode.DOWN);
+		int maxPointsByCap = maxDeductAmount.multiply(BigDecimal.valueOf(rate))
+			.setScale(0, RoundingMode.DOWN)
+			.intValue();
+		int maxUsable = Math.min(available, maxPointsByCap);
+		orderInfo.setPointsDeductRate(rate);
+		orderInfo.setPointsDeductMax(maxUsable);
+		orderInfo.setPointsDeductMaxPrice(rate > 0
+				? BigDecimal.valueOf(maxUsable).divide(BigDecimal.valueOf(rate), 2, RoundingMode.DOWN)
+				: BigDecimal.ZERO);
+
+		int requested = useMaxPoints ? maxUsable : (requestedPoints == null ? 0 : Math.max(requestedPoints, 0));
+		if (requested <= 0) {
+			return;
+		}
+		if (rate <= 0 || maxUsable <= 0) {
+			if (strict) {
+				throw new ArynBusinessException("当前订单不可使用积分");
+			}
+			return;
+		}
+		int actualPoints = Math.min(requested, maxUsable);
+		if (strict && actualPoints != requested) {
+			throw new ArynBusinessException("积分可用额度已变化，请返回确认页核对最新价格后重新提交");
+		}
+		BigDecimal deductAmount = BigDecimal.valueOf(actualPoints)
+			.divide(BigDecimal.valueOf(rate), 2, RoundingMode.DOWN);
+		// 除不尽时按实际抵扣金额反算积分，再回算金额，保证「积分 × 兑换比例 = 抵扣金额」
+		actualPoints = deductAmount.multiply(BigDecimal.valueOf(rate))
+			.setScale(0, RoundingMode.DOWN)
+			.intValue();
+		if (actualPoints <= 0) {
+			return;
+		}
+		deductAmount = BigDecimal.valueOf(actualPoints).divide(BigDecimal.valueOf(rate), 2, RoundingMode.DOWN);
+		orderInfo.setPointsUsed(actualPoints).setPointsDeductPrice(deductAmount);
+		allocatePointsDeduct(orderItemEntityList, deductAmount);
+		computeOrderPrice(orderInfo, orderItemEntityList);
+	}
+
+	private void clearPointsDeduct(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList) {
+		orderInfo.setPointsUsed(0).setPointsDeductPrice(BigDecimal.ZERO);
+		for (OrderItemEntity item : orderItemEntityList) {
+			BigDecimal previous = item.getPointsPrice();
+			if (previous != null && previous.compareTo(BigDecimal.ZERO) > 0 && item.getPaymentPrice() != null) {
+				item.setPaymentPrice(item.getPaymentPrice().add(previous));
+			}
+			item.setPointsPrice(BigDecimal.ZERO);
+		}
+	}
+
+	/**
+	 * 把抵扣金额按各明细商品应付占比分摊到 {@code order_item.pointsPrice}。
+	 *
+	 * <p>先按比例向下取整到分，再把尾差逐分补到小数部分最大的明细上（不超过该明细商品应付），
+	 * 保证「Σ明细分摊 == 订单抵扣金额」。旧实现按末位明细兜底并在越界时 clamp，
+	 * 遇到极低价明细会静默丢失抵扣金额，导致「扣了积分但应付没减够」。
+	 */
+	private void allocatePointsDeduct(List<OrderItemEntity> orderItemEntityList, BigDecimal deductAmount) {
+		List<OrderItemEntity> eligible = orderItemEntityList.stream()
+			.filter(item -> itemGoodsPayable(item).compareTo(BigDecimal.ZERO) > 0)
+			.toList();
+		BigDecimal total = eligible.stream()
+			.map(this::itemGoodsPayable)
+			.reduce(BigDecimal.ZERO, BigDecimal::add);
+		if (total.compareTo(BigDecimal.ZERO) <= 0 || deductAmount.compareTo(BigDecimal.ZERO) <= 0) {
+			return;
+		}
+		int size = eligible.size();
+		BigDecimal[] shares = new BigDecimal[size];
+		BigDecimal[] remainders = new BigDecimal[size];
+		BigDecimal allocated = BigDecimal.ZERO;
+		for (int index = 0; index < size; index++) {
+			BigDecimal exact = deductAmount.multiply(itemGoodsPayable(eligible.get(index)))
+				.divide(total, 4, RoundingMode.DOWN);
+			shares[index] = exact.setScale(2, RoundingMode.DOWN);
+			remainders[index] = exact.subtract(shares[index]);
+			allocated = allocated.add(shares[index]);
+		}
+		Integer[] indexes = new Integer[size];
+		for (int index = 0; index < size; index++) {
+			indexes[index] = index;
+		}
+		Arrays.sort(indexes, (left, right) -> {
+			int compared = remainders[right].compareTo(remainders[left]);
+			return compared != 0 ? compared : Integer.compare(right, left);
+		});
+		BigDecimal cent = new BigDecimal("0.01");
+		BigDecimal leftover = deductAmount.subtract(allocated);
+		while (leftover.compareTo(BigDecimal.ZERO) > 0) {
+			boolean progressed = false;
+			for (Integer index : indexes) {
+				if (leftover.compareTo(BigDecimal.ZERO) <= 0) {
+					break;
+				}
+				if (shares[index].add(cent).compareTo(itemGoodsPayable(eligible.get(index))) > 0) {
+					continue;
+				}
+				shares[index] = shares[index].add(cent);
+				leftover = leftover.subtract(cent);
+				progressed = true;
+			}
+			if (!progressed) {
+				// 单笔上限 20% ≤ 商品应付总额，理论上不可达；防御性抛错避免账实不一致
+				throw new ArynBusinessException("积分抵扣分摊失败，请重试");
+			}
+		}
+		for (int index = 0; index < size; index++) {
+			OrderItemEntity item = eligible.get(index);
+			BigDecimal paymentPrice = item.getPaymentPrice() == null ? BigDecimal.ZERO : item.getPaymentPrice();
+			item.setPointsPrice(shares[index]);
+			item.setPaymentPrice(paymentPrice.subtract(shares[index]).max(BigDecimal.ZERO));
+		}
+	}
+
+	private BigDecimal itemGoodsPayable(OrderItemEntity item) {
+		BigDecimal paymentPrice = item.getPaymentPrice() == null ? BigDecimal.ZERO : item.getPaymentPrice();
+		BigDecimal freightPrice = item.getFreightPrice() == null ? BigDecimal.ZERO : item.getFreightPrice();
+		return paymentPrice.subtract(freightPrice).max(BigDecimal.ZERO);
 	}
 
 	public void orderMemberBenefitHandler(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
@@ -524,9 +810,10 @@ public class OrderPriceComputeService {
 	 * 营销试算与阶梯价改价：在会员折扣/优惠券之前调用（改 SKU 成交基价）。
 	 * 返回计算结果供券后整单优惠分摊；营销服务不可用时按无优惠处理，不阻断交易。
 	 */
-	public PromotionCalculationVO applyPromotionLadder(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList) {
+	public PromotionCalculationVO applyPromotionLadder(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
+			PromotionPricePlan plan) {
 		try {
-			PromotionContextDTO context = buildPromotionContext(orderInfo, orderItemEntityList);
+			PromotionContextDTO context = buildPromotionContext(orderInfo, orderItemEntityList, plan);
 			if (context == null) {
 				return null;
 			}
@@ -553,52 +840,114 @@ public class OrderPriceComputeService {
 	}
 
 	/**
-	 * 整船/整单优惠分摊：在优惠券之后调用，按可折金额占比分摊到明细（最后一条兜底）。
+	 * 整船/整单优惠分摊：在优惠券之后调用，只分摊给未享活动价的明细。
+	 *
+	 * <p>已享活动价（拼团/秒杀/新人价/阶梯价/限时折扣）的 SKU 不参与门槛也不参与分摊，
+	 * 否则活动价商品会被整船优惠二次让利；判定集合与营销试算保持同一口径。
 	 */
 	public void applyShipWholeDiscount(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
 			PromotionCalculationVO calculation) {
+		applyShipWholeDiscount(orderInfo, orderItemEntityList, calculation, null);
+	}
+
+	public void applyShipWholeDiscount(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
+			PromotionCalculationVO calculation, PromotionPricePlan plan) {
 		if (calculation == null || calculation.getWholeDiscount() == null
 				|| calculation.getWholeDiscount().compareTo(BigDecimal.ZERO) <= 0) {
 			return;
 		}
-		BigDecimal wholeDiscount = calculation.getWholeDiscount();
-		BigDecimal discountableBase = orderItemEntityList.stream()
+		Set<String> activityPricedSkuIds = new HashSet<>();
+		if (plan != null) {
+			activityPricedSkuIds.addAll(plan.activityPricedSkuIds());
+		}
+		if (calculation.getLadderOverrides() != null) {
+			calculation.getLadderOverrides().forEach(override -> activityPricedSkuIds.add(override.getSkuId()));
+		}
+		List<OrderItemEntity> eligibleItems = orderItemEntityList.stream()
+			.filter(item -> !activityPricedSkuIds.contains(item.getSkuId()))
+			.toList();
+		BigDecimal discountableBase = eligibleItems.stream()
 			.map(this::discountedGoodsPrice)
 			.reduce(BigDecimal.ZERO, BigDecimal::add);
 		if (discountableBase.compareTo(BigDecimal.ZERO) <= 0) {
 			return;
 		}
+		BigDecimal wholeDiscount = calculation.getWholeDiscount().setScale(2, RoundingMode.DOWN);
 		if (wholeDiscount.compareTo(discountableBase) > 0) {
 			wholeDiscount = discountableBase;
 		}
-		BigDecimal remaining = wholeDiscount;
-		for (int i = 0; i < orderItemEntityList.size(); i++) {
-			OrderItemEntity item = orderItemEntityList.get(i);
-			BigDecimal itemBase = discountedGoodsPrice(item);
-			BigDecimal promo;
-			if (i == orderItemEntityList.size() - 1) {
-				promo = remaining;
+		allocateWholeDiscount(eligibleItems, discountableBase, wholeDiscount);
+		for (OrderItemEntity item : orderItemEntityList) {
+			if (activityPricedSkuIds.contains(item.getSkuId())) {
+				// 活动价明细不承接整船优惠，显式清零避免历史分摊残留
+				item.setPromoPrice(BigDecimal.ZERO);
+				computeItemPayPrice(item);
 			}
-			else {
-				promo = itemBase.divide(discountableBase, 4, RoundingMode.HALF_EVEN)
-					.multiply(wholeDiscount)
-					.setScale(2, RoundingMode.HALF_EVEN);
-			}
-			if (promo.compareTo(itemBase) > 0) {
-				promo = itemBase;
-			}
-			if (promo.compareTo(BigDecimal.ZERO) < 0) {
-				promo = BigDecimal.ZERO;
-			}
-			item.setPromoPrice(promo);
-			remaining = remaining.subtract(promo);
-			computeItemPayPrice(item);
 		}
 		orderInfo.setPromotionDetails(calculation.getDetails());
 		computeOrderPrice(orderInfo, orderItemEntityList);
 	}
 
-	private PromotionContextDTO buildPromotionContext(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList) {
+	/**
+	 * 按可折金额占比分摊：分币向下取整后把尾差补到余数最大的明细，
+	 * 保证「Σ明细整船优惠 == 活动优惠金额」且单行不超过该行可折金额。
+	 */
+	private void allocateWholeDiscount(List<OrderItemEntity> eligibleItems, BigDecimal discountableBase,
+			BigDecimal wholeDiscount) {
+		int size = eligibleItems.size();
+		BigDecimal[] shares = new BigDecimal[size];
+		BigDecimal[] remainders = new BigDecimal[size];
+		BigDecimal allocated = BigDecimal.ZERO;
+		for (int i = 0; i < size; i++) {
+			BigDecimal exact = discountedGoodsPrice(eligibleItems.get(i))
+				.divide(discountableBase, 6, RoundingMode.DOWN)
+				.multiply(wholeDiscount);
+			shares[i] = exact.setScale(2, RoundingMode.DOWN);
+			remainders[i] = exact.subtract(shares[i]);
+			allocated = allocated.add(shares[i]);
+		}
+		Integer[] indexes = new Integer[size];
+		for (int i = 0; i < size; i++) {
+			indexes[i] = i;
+		}
+		Arrays.sort(indexes, (left, right) -> {
+			int compared = remainders[right].compareTo(remainders[left]);
+			return compared != 0 ? compared : Integer.compare(right, left);
+		});
+		BigDecimal cent = new BigDecimal("0.01");
+		BigDecimal leftover = wholeDiscount.subtract(allocated);
+		while (leftover.compareTo(BigDecimal.ZERO) > 0) {
+			boolean progressed = false;
+			for (Integer index : indexes) {
+				if (leftover.compareTo(BigDecimal.ZERO) <= 0) {
+					break;
+				}
+				if (shares[index].add(cent).compareTo(discountedGoodsPrice(eligibleItems.get(index))) > 0) {
+					continue;
+				}
+				shares[index] = shares[index].add(cent);
+				leftover = leftover.subtract(cent);
+				progressed = true;
+			}
+			if (!progressed) {
+				// 优惠已按可折金额封顶，理论上不可达；防御性退出避免死循环
+				break;
+			}
+		}
+		for (int i = 0; i < size; i++) {
+			OrderItemEntity item = eligibleItems.get(i);
+			item.setPromoPrice(shares[i]);
+			computeItemPayPrice(item);
+		}
+	}
+
+	private PromotionContextDTO buildPromotionContext(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
+			PromotionPricePlan plan) {
+		return buildPromotionContext(orderInfo, orderItemEntityList, Map.of(), plan);
+	}
+
+	private PromotionContextDTO buildPromotionContext(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
+			Map<String, BigDecimal> originalPriceBySku, PromotionPricePlan plan) {
 		String tenantId = StringUtils.hasText(orderInfo.getTenantId()) ? orderInfo.getTenantId()
 				: ArynTenantContextHolder.getTenantId();
 		if (!StringUtils.hasText(tenantId) || CollUtil.isEmpty(orderItemEntityList)) {
@@ -623,7 +972,12 @@ public class OrderPriceComputeService {
 				skuItem = new PromotionContextDTO.SkuItem();
 				skuItem.setSkuId(item.getSkuId());
 				skuItem.setQuantity(item.getBuyQuantity());
-				skuItem.setSalesPrice(item.getSalesPrice());
+				// 已改价的明细（阶梯价/新人价）必须按原价重算：否则第二次 preview 看到
+				// 活动价等于基价，命中判定失败，锁不落库，预算也就永远不扣
+				BigDecimal originalPrice = originalPriceBySku.get(item.getSkuId());
+				skuItem.setSalesPrice(originalPrice != null ? originalPrice : item.getSalesPrice());
+				// 外部活动价（拼团/秒杀/限时折扣）由订单侧预取；阶梯价/新人价由引擎自行覆盖
+				skuItem.setActivityPriced(plan != null && plan.isActivityPriced(item.getSkuId()));
 				mergedBySku.put(item.getSkuId(), skuItem);
 			}
 			else {
@@ -638,24 +992,74 @@ public class OrderPriceComputeService {
 	/**
 	 * 营销锁定：下单时预留（订单+活动幂等）。营销服务不可用时按无优惠继续下单。
 	 *
-	 * <p>业务异常（如新人价在途唯一拦截）必须向上抛出：此处若一并吞掉，
-	 * 订单会带着已写入的新人价继续创建，拦截形同虚设；仅基础设施异常降级放行。
+	 * <p>锁定时用 SKU 原价重建上下文：下单前的 preview 已把阶梯价/新人价写进明细
+	 * salesPrice，若按改后价再次试算，活动价与基价相等会判为未命中，锁与预算都不会落库。
+	 *
+	 * <p>业务异常（额度竞态、新人价在途唯一）必须向上抛出；若锁定结果与下单试算
+	 * 的让利额不一致，说明优惠在确认后发生变化，同样拒绝成单，避免静默涨价。
 	 */
-	public PromotionCalculationVO reservePromotion(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList) {
+	public PromotionCalculationVO reservePromotion(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
+			List<GoodsSku> goodsSkuList, PromotionCalculationVO expected) {
+		return reservePromotion(orderInfo, orderItemEntityList, goodsSkuList, expected, null);
+	}
+
+	public PromotionCalculationVO reservePromotion(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
+			List<GoodsSku> goodsSkuList, PromotionCalculationVO expected, PromotionPricePlan plan) {
+		PromotionCalculationVO reserved = null;
 		try {
-			PromotionContextDTO context = buildPromotionContext(orderInfo, orderItemEntityList);
-			if (context == null) {
-				return null;
+			Map<String, BigDecimal> originalPriceBySku = new HashMap<>();
+			if (goodsSkuList != null) {
+				for (GoodsSku sku : goodsSkuList) {
+					if (sku.getId() != null && sku.getSalesPrice() != null) {
+						originalPriceBySku.put(sku.getId(), sku.getSalesPrice());
+					}
+				}
 			}
-			return remotePromotionEngine.reserve(context);
+			PromotionContextDTO context = buildPromotionContext(orderInfo, orderItemEntityList, originalPriceBySku,
+					plan);
+			if (context != null) {
+				reserved = remotePromotionEngine.reserve(context);
+			}
+			// 折扣商品级限量：与营销锁定同事务窗口占用；失败直接拦单，不放行超卖
+			reserveDiscountStock(orderInfo, orderItemEntityList);
 		}
 		catch (ArynBusinessException ex) {
 			throw ex;
 		}
 		catch (Exception ex) {
 			log.warn("订单[{}]营销锁定失败，按无优惠继续", orderInfo.getId(), ex);
-			return null;
 		}
+		assertPromotionUnchanged(expected, reserved);
+		return reserved;
+	}
+
+	private void assertPromotionUnchanged(PromotionCalculationVO expected, PromotionCalculationVO reserved) {
+		// 一侧失败而另一侧已产生让利：价格与锁定不一致，继续成单会出现
+		// 「按优惠价成交但没有锁」或「按原价成交却占用了预算」，两者都不可接受
+		if (reserved == null) {
+			if (hasDiscount(expected)) {
+				throw new ArynBusinessException("优惠服务暂不可用，请稍后重新提交订单");
+			}
+			return;
+		}
+		if (expected == null) {
+			if (hasDiscount(reserved)) {
+				throw new ArynBusinessException("优惠服务暂不可用，请稍后重新提交订单");
+			}
+			return;
+		}
+		BigDecimal expectedDiscount = expected.getTotalDiscount() != null ? expected.getTotalDiscount()
+				: BigDecimal.ZERO;
+		BigDecimal reservedDiscount = reserved.getTotalDiscount() != null ? reserved.getTotalDiscount()
+				: BigDecimal.ZERO;
+		if (expectedDiscount.compareTo(reservedDiscount) != 0) {
+			throw new ArynBusinessException("优惠已变更，请返回订单确认页核对最新价格后重新提交");
+		}
+	}
+
+	private boolean hasDiscount(PromotionCalculationVO calculation) {
+		return calculation != null && calculation.getTotalDiscount() != null
+				&& calculation.getTotalDiscount().compareTo(BigDecimal.ZERO) > 0;
 	}
 
 	/**
@@ -663,6 +1067,41 @@ public class OrderPriceComputeService {
 	 */
 	public void releasePromotion(String tenantId, String orderId, String reason) {
 		remotePromotionEngine.release(tenantId, orderId, reason);
+		try {
+			remoteDiscountService.releaseStock(tenantId, orderId, reason);
+		} catch (Exception ex) {
+			// 释放失败不能阻塞取消/退款：库存由补偿任务与明细幂等兜底，这里只告警
+			log.warn("订单[{}]折扣库存释放失败, reason={}", orderId, reason, ex);
+		}
+	}
+
+	/**
+	 * 折扣库存占用：只把有折扣价的 SKU 送过去（无折扣的 SKU 营销侧直接跳过）。
+	 * 远程调用失败按「营销服务不可用」处理（告警放行），返回 success=false 则拦单。
+	 */
+	private void reserveDiscountStock(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList) {
+		if (orderItemEntityList == null || orderItemEntityList.isEmpty()) {
+			return;
+		}
+		List<DiscountStockItemDTO> items = orderItemEntityList.stream()
+			.filter(item -> item.getSkuId() != null && item.getBuyQuantity() != null && item.getBuyQuantity() > 0)
+			.map(item -> new DiscountStockItemDTO(item.getSkuId(), item.getBuyQuantity()))
+			.collect(Collectors.toList());
+		if (items.isEmpty()) {
+			return;
+		}
+		try {
+			DiscountStockReserveResultDTO result = remoteDiscountService.reserveStock(
+					orderInfo.getTenantId(), orderInfo.getId(), items);
+			if (result != null && !result.isSuccess()) {
+				throw new ArynBusinessException(result.getMessage() == null
+						? "折扣商品库存不足，请调整数量后重试" : result.getMessage());
+			}
+		} catch (ArynBusinessException business) {
+			throw business;
+		} catch (Exception ex) {
+			log.warn("订单[{}]折扣库存占用失败，按无折扣库存限制继续", orderInfo.getId(), ex);
+		}
 	}
 
 }

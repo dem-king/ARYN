@@ -38,6 +38,8 @@ export interface DiscountGoodsForm {
   spuName?: string;
   /** 商品图片地址列表 */
   spuUrls?: string[];
+  /** 限量库存：null/不填 = 不限量；填了即开启超卖拦截 */
+  stock?: null | number;
 }
 
 /** 折扣活动表单 */
@@ -127,11 +129,17 @@ export async function delObj(id: string): Promise<void> {
   return requestClient.delete(`/promotion/discount/activity/${id}`);
 }
 
-/** 更新折扣活动状态（0未开始 1进行中 2已结束 3已暂停） */
+/**
+ * 更新折扣活动状态（0未开始 1进行中 2已结束 3已暂停）
+ *
+ * 后端 DiscountActivityController#updateStatus 用 @RequestParam 接收 status，
+ * 必须带在 query 上；放进请求体会被 Spring 判为缺失，报
+ * `Required request parameter 'status' for method parameter type Integer is not present`。
+ */
 export async function updateStatus(id: string, status: number): Promise<void> {
-  return requestClient.put(`/promotion/discount/activity/${id}/status`, {
-    status,
-  });
+  return requestClient.put(
+    `/promotion/discount/activity/${id}/status?status=${status}`,
+  );
 }
 
 /** C端折扣商品项（装修预览用） */
@@ -144,6 +152,10 @@ export interface AppDiscountGoodsVO {
   originalPrice: number;
   skuId: string;
   spuId: string;
+  /** 限量库存：null = 不限量 */
+  stock?: null | number;
+  /** 剩余可售（stock − 已占用） */
+  remainingStock?: null | number;
 }
 
 /** C端折扣活动（装修预览用，按活动分组） */

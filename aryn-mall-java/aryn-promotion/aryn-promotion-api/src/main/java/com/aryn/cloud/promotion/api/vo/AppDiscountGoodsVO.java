@@ -46,4 +46,10 @@ public class AppDiscountGoodsVO implements Serializable {
 
 	@Schema(description = "折扣值")
 	private BigDecimal discountValue;
+
+	/** 限量库存：null = 不限量（C 端据此隐藏「仅剩 N 件」） */
+	private Integer stock;
+
+	/** 剩余可售 = stock − soldCount；stock 为 null 时为 null */
+	private Integer remainingStock;
 }

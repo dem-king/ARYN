@@ -4,9 +4,13 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
+import com.aryn.cloud.order.api.remote.RemoteShoppingCartService;
 import com.aryn.cloud.product.api.entity.GoodsSku;
+import com.aryn.cloud.product.api.entity.GoodsSpu;
 import com.aryn.cloud.product.api.remote.RemoteGoodsSkuService;
+import com.aryn.cloud.product.api.remote.RemoteGoodsSpuService;
 import com.aryn.cloud.promotion.api.dto.SeckillActivityDTO;
 import com.aryn.cloud.promotion.api.dto.SeckillGoodsDTO;
 import com.aryn.cloud.promotion.api.dto.SeckillSessionDTO;
@@ -32,12 +36,14 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -55,6 +61,23 @@ public class SeckillActivityServiceImpl extends ServiceImpl<SeckillActivityMappe
 
 	@DubboReference
 	private final RemoteGoodsSkuService remoteGoodsSkuService;
+
+	/**
+	 * 商品域：管理端详情需按 SPU 回填商品名称与主图（秒杀商品表只存 SPU/SKU ID）。
+	 *
+	 * <p>不用 {@code sku.getGoodsSpu()} 的关联：{@code getBySkuIds} 只返回在售 SKU，
+	 * 活动内的下架商品会整行查不到；这里按 spuId 批量查，不走在售状态过滤。
+	 * 非 final 字段由 Dubbo 注解处理器做字段注入，避免构造器注入在 cloud 模式找不到本地 Bean。
+	 */
+	@DubboReference
+	private RemoteGoodsSpuService remoteGoodsSpuService;
+
+	/**
+	 * 秒杀「N 人在抢」的购物车去重人数来源（order 域）。
+	 * 非 final：与上面两个远程引用一致，由 Dubbo 字段注入，cloud 模式找不到本地 Bean 时不影响启动。
+	 */
+	@DubboReference
+	private RemoteShoppingCartService remoteShoppingCartService;
 
 	@Override
 	public IPage<SeckillActivity> getAdminPage(Page page, SeckillActivity activity) {
@@ -85,8 +108,46 @@ public class SeckillActivityServiceImpl extends ServiceImpl<SeckillActivityMappe
 			sessionVO.setGoodsList(goodsVOs);
 			return sessionVO;
 		}).collect(Collectors.toList());
+		// 跨场次一次性回填商品名称/主图，避免编辑页「商品信息」只显示 SPU ID
+		fillGoodsSpuInfo(sessionVOs);
 		vo.setSessions(sessionVOs);
 		return vo;
+	}
+
+	/**
+	 * 回填秒杀商品的 SPU 名称与图片。商品域不可用时降级为仅返回 ID，不影响活动详情加载。
+	 */
+	private void fillGoodsSpuInfo(List<SeckillSessionVO> sessions) {
+		List<SeckillGoodsVO> goodsList = sessions.stream()
+			.map(SeckillSessionVO::getGoodsList)
+			.filter(Objects::nonNull)
+			.flatMap(List::stream)
+			.toList();
+		List<String> spuIds = goodsList.stream()
+			.map(SeckillGoodsVO::getSpuId)
+			.filter(StringUtils::hasText)
+			.distinct()
+			.toList();
+		if (spuIds.isEmpty()) {
+			return;
+		}
+		Map<String, GoodsSpu> spuMap;
+		try {
+			List<GoodsSpu> spus = remoteGoodsSpuService.getSpuByIds(spuIds);
+			spuMap = CollectionUtils.isEmpty(spus) ? Map.of()
+					: spus.stream().collect(Collectors.toMap(GoodsSpu::getId, spu -> spu, (a, b) -> a));
+		}
+		catch (Exception exception) {
+			log.warn("秒杀活动详情回填商品名称失败，降级为仅返回商品ID, spuIds={}", spuIds, exception);
+			return;
+		}
+		goodsList.forEach(goods -> {
+			GoodsSpu spu = spuMap.get(goods.getSpuId());
+			if (spu != null) {
+				goods.setSpuName(spu.getName());
+				goods.setSpuUrls(spu.getSpuUrls());
+			}
+		});
 	}
 
 	@Override
@@ -342,6 +403,28 @@ public class SeckillActivityServiceImpl extends ServiceImpl<SeckillActivityMappe
 			goodsVOs.add(goodsVO);
 		}
 		vo.setGoodsList(goodsVOs);
+		vo.setCartUserCount(countCartUsers(skuIds, session.getStartTime()));
 		return vo;
+	}
+
+	/**
+	 * 本场「N 人在抢」：场次内 SKU 当前仍在购物车里的去重人数。
+	 *
+	 * <p>只做氛围展示，失败一律降级为 null（C 端隐藏该行）——不因为一个统计查询
+	 * 拖垮整个会场页；也不参与库存/下单任何判定。
+	 */
+	private Integer countCartUsers(List<String> skuIds, LocalDateTime since) {
+		if (CollectionUtils.isEmpty(skuIds) || since == null || remoteShoppingCartService == null) {
+			// 远程引用为空 = 单测环境未注入或 order 域不可用：直接不展示
+			return null;
+		}
+		try {
+			int count = remoteShoppingCartService.countDistinctSkuUsersSince(
+					ArynTenantContextHolder.getTenantId(), skuIds, since);
+			return count > 0 ? count : null;
+		} catch (Exception e) {
+			log.warn("秒杀在抢人数统计失败，降级为不展示, skuCount={}", skuIds.size(), e);
+			return null;
+		}
 	}
 }

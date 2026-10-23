@@ -61,4 +61,23 @@
         </if>
           )
     </update>
+    <!-- 秒杀会场「N 人在抢」：统计一批 SKU 在当前购物车中的去重人数。
+         口径 = 租户内、未删除、加购时间不早于场次开始时刻的去重 user_id 数。
+         只读统计，不参与下单链路。 -->
+    <select id="countDistinctSkuUsersSince" resultType="int">
+        SELECT COUNT(DISTINCT user_id)
+        FROM shopping_cart
+        WHERE tenant_id = #{tenantId}
+          AND del_flag = '0'
+          AND create_time &gt;= #{since}
+        <if test="skuIds != null and skuIds.size() > 0">
+            AND sku_id IN
+            <foreach collection="skuIds" item="skuId" open="(" separator="," close=")">
+                #{skuId}
+            </foreach>
+        </if>
+        <if test="skuIds == null or skuIds.size() == 0">
+            AND 1 = 0
+        </if>
+    </select>
 </mapper>

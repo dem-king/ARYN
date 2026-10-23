@@ -15,4 +15,7 @@ public class DiscountGoodsDTO {
 	@Schema(description = "商品SKU ID")
 	@NotBlank(message = "商品SKU不能为空")
 	private String skuId;
+
+	/** 限量库存：null/不传 = 不限量；保存后按此值开启超卖拦截 */
+	private Integer stock;
 }

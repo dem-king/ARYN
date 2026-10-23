@@ -1,5 +1,6 @@
 package com.aryn.cloud.order.api.remote;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -28,5 +29,19 @@ public interface RemoteShoppingCartService {
 	 * @return 迁移的行数
 	 */
 	int reattachRowsToVesselCall(String tenantId, String vesselId, String vesselCallId, List<String> staleCallIds);
+
+	/**
+	 * 统计一批 SKU 在购物车中的去重人数，供秒杀会场展示「N 人在抢」。
+	 *
+	 * <p>口径：租户内、未删除、加购时间不早于 {@code since} 的**去重 user_id 数**。
+	 * 不是加购件数、也不是下单数 —— 购物车里当前还放着的才算"在抢"，买完行被清掉后自然减一。
+	 * 只读统计，不参与下单/库存链路；调用方需容忍失败（降级为不展示）。
+	 *
+	 * @param tenantId 租户ID（显式传入：Dubbo 调用链路不依赖调用方线程上下文）
+	 * @param skuIds 秒杀场次内的 SKU 集合（空集合直接返回 0，不发起 SQL）
+	 * @param since 统计起点，通常取场次开始时间
+	 * @return 去重人数
+	 */
+	int countDistinctSkuUsersSince(String tenantId, List<String> skuIds, LocalDateTime since);
 
 }

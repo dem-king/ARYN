@@ -31,6 +31,13 @@ public class AppSeckillVO {
 	@Schema(description = "倒计时(秒)")
 	private Long countdown;
 
+	/**
+	 * 本场「N 人在抢」的去重人数：场次内 SKU 当前仍在购物车里的人数。
+	 * 只读统计（order 域远程查询），拿不到时为 null，C 端据此隐藏该行。
+	 */
+	@Schema(description = "本场在抢人数（购物车去重人数，可能为空）")
+	private Integer cartUserCount;
+
 	@Schema(description = "商品列表")
 	private List<AppSeckillGoodsVO> goodsList;
 }

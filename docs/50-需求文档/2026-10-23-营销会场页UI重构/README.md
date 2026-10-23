@@ -580,3 +580,63 @@ P2 的可做项（口径一致性）已在 §十六 落地；秒杀「在抢人�
 ### 16.4 与 P0 的差异
 
 P0 的降噪规则写的是「`pct === 0` → 仅剩 N 件」，P2 收敛后改为「0% → **限量 N 件**」（与首页楼层、管理端预览一致）。理由是"开场还没卖出去"说"仅剩"是假紧迫，且三端必须同词；§6.1 的规格行已同步更新。
+
+---
+
+## 十七、P2 数据能力落地（2026-10-23 第四批）
+
+### 17.1 秒杀「N 人在抢」= 购物车去重人数
+
+| 项 | 内容 |
+|----|------|
+| 口径 | 租户内、未删除、加购时间 ≥ 场次开始时刻的**去重 user_id 数**。不是加购件数、不是下单数；购物车里当前还放着的才算"在抢"，买完行被清掉后自然减一 |
+| 链路 | `RemoteShoppingCartService.countDistinctSkuUsersSince`（order-api）→ `shopping_cart` 聚合查询（order-biz，XML `countDistinctSkuUsersSince`）→ `SeckillActivityServiceImpl.countCartUsers` 回填 `AppSeckillVO.cartUserCount`（promotion-biz，每场次 1 次 RPC，不按商品 N+1） |
+| 降级 | 远程失败/未注入/无数据 → `null`，C 端整行不渲染；统计不参与库存与下单任何判定 |
+| 展示 | 秒杀信息条副标下一行「N 人在抢」（20rpx/600 白字），与「整点开抢 · 限量特价」同列，不占卡片空间（避免每卡多一个促销数字） |
+| 安全 | 租户/时间窗全部显式传参，不依赖 Dubbo 调用链路的线程上下文 |
+
+### 17.2 折扣「仅剩 N 件」= 商品级真限量 + 超卖拦截
+
+**数据模型**（`153discount_goods_stock_incremental.sql`，boot/cloud 各一份，可重复执行）
+
+| 对象 | 变更 |
+|------|------|
+| `discount_goods` | `stock int NULL`（限量，NULL=不限量，存量行保持 NULL → 行为不变）、`sold_count int NOT NULL DEFAULT 0` |
+| `discount_stock_lock`（新表） | `tenant_id, activity_id, sku_id, order_id, quantity, status(1占用/0释放), release_reason`；唯一键 `(tenant_id, order_id, sku_id)` 保证幂等与并发安全 |
+
+**占用/释放**
+
+| 时机 | 行为 |
+|------|------|
+| 下单（`OrderPriceComputeService.reservePromotion`） | 逐 SKU：未配置 stock → 跳过；已有占用明细 → 幂等跳过；否则先写明细（唯一键挡重复）再 `UPDATE ... WHERE sold_count + qty <= stock` 原子扣减；扣减失败整单回滚并抛「折扣商品库存不足」 |
+| 取消/超时/退款（`releasePromotion`） | 按订单查占用明细 → `sold_count = GREATEST(sold_count - qty, 0)` 回补 → 明细置 `status=0` 并记原因；释放失败只告警，不阻塞取消 |
+| 支付确认 | 无需处理：库存在**下单时**已占用（与秒杀预扣同思路，避免未支付订单不占库存导致超卖） |
+
+**关键取舍**
+
+1. 远程返回 `DiscountStockReserveResultDTO` 而不是抛异常：Dubbo 会把跨进程异常包成 `RpcException`，下单侧只认 `ArynBusinessException` 时会把"库存不足"当成"服务不可用"而放行，拦截就失效了。
+2. 不用 Redis：折扣是长周期活动、并发远低于秒杀，行级锁 `UPDATE ... WHERE sold_count + qty <= stock` 足够，少一层缓存一致性。
+3. 编辑活动不清零已售：`updateWithGoods` 是"删光重建"商品行，重建前先把各 SKU 的 `sold_count` 抄回来，并校验「限量不能小于已售」。
+
+**管理端**：折扣活动编辑页商品表格新增「限量库存」列（留空 = 不限量），随表单一起提交。
+
+**C 端**：折扣商品卡在省额旁显示——剩余 ≤10 件「仅剩 N 件」、剩余 0「已售罄」，其余不展示（避免每张卡都挂一个数字）。
+
+### 17.3 验证（2026-10-23 真实执行）
+
+| 项 | 方式 | 结果 |
+|----|------|------|
+| 后端编译 | `mvn compile -pl aryn-promotion-biz,aryn-order-biz -am` | 通过 |
+| 折扣库存单测 | `DiscountStockServiceImplTest` | 7 例通过（不限量跳过/正常扣减/幂等跳过/库存不足拦截/非法入参/释放回补/无锁释放） |
+| 秒杀在抢人数单测 | `SeckillActivityServiceImplTest` 新增 2 例 + `RemoteShoppingCartServiceImplTest` 新增 3 例 | 6 + 5 例通过 |
+| SQL 可执行与幂等 | 本地 boot 库 `docker exec aryn-boot-mysql` 连续执行两次增量 | 均 exit 0；列/表创建正确；第二次走 `SELECT 1` 无操作分支 |
+| 全量 SQL | `node db/boot/build-full-sql.mjs` + `verify-full-sql.mjs` | 静态校验通过（24237 行 / 2.35MB），新增段已合并 |
+| 管理端 | `pnpm check:type` + `pnpm test:unit` | 通过；111 文件 / 911 用例全绿 |
+| C 端 | `pnpm type-check` + `test:unit` + `build:mp-weixin` | 通过；912 用例全绿；构建 DONE |
+| C 端渲染 | H5 + 拦截响应注入 remainingStock | 「仅剩 3 件」「已售罄」渲染正确，0 console error |
+
+### 17.4 未覆盖（需要真实下单链路才能验）
+
+- **下单拦截/回补的端到端验证**：需要重建 boot 容器（Java 变更）并真实下单、取消、超时、退款各走一遍；本轮只做到单测 + 编译 + SQL 实库执行。
+- **退款分支**：退款走的是 `releasePromotion`（与取消/超时同一入口），已确认调用点存在；若后续新增退款旁路，需要同步调用 `releaseStock`。
+- 秒杀在抢人数用的是**当前购物车**口径，买完即减；若产品要"本场累计加购人数"，需要加购事件表（当前没有）。

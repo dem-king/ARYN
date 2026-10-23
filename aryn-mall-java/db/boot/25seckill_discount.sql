@@ -11,6 +11,7 @@ DROP TABLE IF EXISTS `seckill_goods`;
 DROP TABLE IF EXISTS `seckill_order`;
 DROP TABLE IF EXISTS `discount_activity`;
 DROP TABLE IF EXISTS `discount_goods`;
+DROP TABLE IF EXISTS `discount_stock_lock`;
 
 -- ============ 限时秒杀 ============
 
@@ -119,9 +120,29 @@ CREATE TABLE `discount_goods` (
     `activity_id` bigint       NOT NULL COMMENT '活动ID',
     `spu_id`      varchar(64)  NOT NULL COMMENT '商品SPU ID',
     `sku_id`      varchar(64)  NOT NULL COMMENT '商品SKU ID',
+    `stock`       int          DEFAULT NULL COMMENT '限量库存，NULL=不限量；下单占用、取消/退款回补',
+    `sold_count`  int          NOT NULL DEFAULT 0 COMMENT '已占用数量（下单占位，取消/退款回补）',
     `create_time` datetime     DEFAULT CURRENT_TIMESTAMP,
     `del_flag`    varchar(1)   NOT NULL DEFAULT '0',
     PRIMARY KEY (`id`),
     KEY `idx_activity` (`activity_id`),
     KEY `idx_sku` (`sku_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='折扣商品关联';
+
+CREATE TABLE IF NOT EXISTS `discount_stock_lock` (
+    `id`             bigint      NOT NULL COMMENT '主键',
+    `tenant_id`      varchar(64) NOT NULL DEFAULT '0' COMMENT '租户ID',
+    `activity_id`    bigint      NOT NULL COMMENT '活动ID',
+    `sku_id`         varchar(64) NOT NULL COMMENT '商品SKU ID',
+    `order_id`       varchar(64) NOT NULL COMMENT '订单ID',
+    `quantity`       int         NOT NULL DEFAULT 0 COMMENT '占用数量',
+    `status`         varchar(1)  NOT NULL DEFAULT '1' COMMENT '1占用 0已释放',
+    `release_reason` varchar(64) DEFAULT NULL COMMENT '释放原因（取消/超时/退款）',
+    `create_time`    datetime    DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`    datetime    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `del_flag`       varchar(1)  NOT NULL DEFAULT '0' COMMENT '逻辑删除:0正常 1删除',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_tenant_order_sku` (`tenant_id`, `order_id`, `sku_id`),
+    KEY `idx_activity_sku` (`activity_id`, `sku_id`),
+    KEY `idx_order` (`order_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='折扣商品库存占用';

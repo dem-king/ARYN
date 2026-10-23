@@ -4,6 +4,7 @@ import com.aryn.cloud.order.mapper.ShoppingCartMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -55,6 +56,27 @@ class RemoteShoppingCartServiceImplTest {
 		int rows = service.reattachRowsToVesselCall("tenant-1", " ", "call-2", List.of("call-1"));
 
 		assertThat(rows).isZero();
+		verifyNoInteractions(mapper);
+	}
+
+	@Test
+	void cartUserCountDelegatesWithExplicitTenantAndSince() {
+		LocalDateTime since = LocalDateTime.of(2026, 10, 23, 11, 0);
+		when(mapper.countDistinctSkuUsersSince("tenant-1", List.of("sku-1", "sku-2"), since)).thenReturn(23);
+
+		int count = service.countDistinctSkuUsersSince("tenant-1", List.of("sku-1", "sku-2"), since);
+
+		assertThat(count).isEqualTo(23);
+		verify(mapper).countDistinctSkuUsersSince("tenant-1", List.of("sku-1", "sku-2"), since);
+	}
+
+	@Test
+	void cartUserCountSkipsQueryOnBlankTenantNullOrEmptySkus() {
+		LocalDateTime since = LocalDateTime.of(2026, 10, 23, 11, 0);
+
+		assertThat(service.countDistinctSkuUsersSince(" ", List.of("sku-1"), since)).isZero();
+		assertThat(service.countDistinctSkuUsersSince("tenant-1", List.of("sku-1"), null)).isZero();
+		assertThat(service.countDistinctSkuUsersSince("tenant-1", List.of(), since)).isZero();
 		verifyNoInteractions(mapper);
 	}
 

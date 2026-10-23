@@ -9,6 +9,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Update;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -48,5 +49,15 @@ public interface ShoppingCartMapper extends BaseMapper<ShoppingCart> {
 	 */
 	int reattachRowsToVesselCall(@Param("tenantId") String tenantId, @Param("vesselId") String vesselId,
 			@Param("vesselCallId") String vesselCallId, @Param("staleCallIds") List<String> staleCallIds);
+
+	/**
+	 * 一批 SKU 在购物车中的去重人数（秒杀会场「N 人在抢」）。
+	 *
+	 * <p>与 {@link com.aryn.cloud.order.api.remote.RemoteShoppingCartService#countDistinctSkuUsersSince}
+	 * 同口径：租户内、未删除、加购时间不早于 since 的去重 user_id；只读。
+	 * SQL 在 XML（countDistinctSkuUsersSince），skuIds 为空时强制 1=0，不产生全表统计。
+	 */
+	int countDistinctSkuUsersSince(@Param("tenantId") String tenantId, @Param("skuIds") List<String> skuIds,
+			@Param("since") LocalDateTime since);
 
 }

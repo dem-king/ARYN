@@ -68,6 +68,10 @@ public class DiscountActivityServiceImpl extends ServiceImpl<DiscountActivityMap
 		List<DiscountGoodsVO> goodsVOs = goodsList.stream().map(goods -> {
 			DiscountGoodsVO goodsVO = new DiscountGoodsVO();
 			BeanUtils.copyProperties(goods, goodsVO);
+			// 剩余 = 限量 − 已占用；未配置限量（stock=null）时保持 null，前端按「不限量」展示
+			if (goods.getStock() != null) {
+				goodsVO.setRemainingStock(goods.getStock() - (goods.getSoldCount() == null ? 0 : goods.getSoldCount()));
+			}
 			return goodsVO;
 		}).collect(Collectors.toList());
 		vo.setGoodsList(goodsVOs);
@@ -89,7 +93,7 @@ public class DiscountActivityServiceImpl extends ServiceImpl<DiscountActivityMap
 		}
 		// scope=2 时保存指定商品
 		if (activity.getScope() == 2 && !CollectionUtils.isEmpty(dto.getGoodsList())) {
-			saveGoods(activity.getId(), dto.getGoodsList());
+			saveGoods(activity.getId(), dto.getGoodsList(), Map.of());
 		}
 		log.info("折扣活动创建成功, activityId={}, activityName={}", activity.getId(), dto.getActivityName());
 		return true;
@@ -110,12 +114,17 @@ public class DiscountActivityServiceImpl extends ServiceImpl<DiscountActivityMap
 		if (!updated) {
 			throw new ArynBusinessException("更新折扣活动失败");
 		}
+		// 删除前记下各 SKU 的已占用数量：编辑活动只改配置，不能把已售清零（会凭空多卖）
+		Map<String, Integer> soldBySku = discountGoodsService.listByActivityId(activity.getId()).stream()
+			.filter(row -> row.getSkuId() != null)
+			.collect(Collectors.toMap(DiscountGoods::getSkuId,
+					row -> row.getSoldCount() == null ? 0 : row.getSoldCount(), (a, b) -> a));
 		// 删除原有商品关联
 		discountGoodsService.remove(Wrappers.<DiscountGoods>lambdaQuery()
 				.eq(DiscountGoods::getActivityId, activity.getId()));
-		// 重新保存商品
+		// 重新保存商品：沿用已占用数量
 		if (activity.getScope() == 2 && !CollectionUtils.isEmpty(dto.getGoodsList())) {
-			saveGoods(activity.getId(), dto.getGoodsList());
+			saveGoods(activity.getId(), dto.getGoodsList(), soldBySku);
 		}
 		log.info("折扣活动更新成功, activityId={}", dto.getId());
 		return true;
@@ -224,12 +233,17 @@ public class DiscountActivityServiceImpl extends ServiceImpl<DiscountActivityMap
 
 	// ==================== 私有方法 ====================
 
-	private void saveGoods(String activityId, List<DiscountGoodsDTO> goodsList) {
+	private void saveGoods(String activityId, List<DiscountGoodsDTO> goodsList, Map<String, Integer> soldBySku) {
 		List<DiscountGoods> list = new ArrayList<>();
 		for (DiscountGoodsDTO dto : goodsList) {
 			DiscountGoods goods = new DiscountGoods();
 			BeanUtils.copyProperties(dto, goods);
 			goods.setActivityId(activityId);
+			// 编辑活动时沿用已占用数量；新建活动为 0
+			goods.setSoldCount(soldBySku.getOrDefault(dto.getSkuId(), 0));
+			if (goods.getStock() != null && goods.getStock() < goods.getSoldCount()) {
+				throw new ArynBusinessException("折扣商品限量不能小于已售数量");
+			}
 			list.add(goods);
 		}
 		discountGoodsService.saveBatch(list);
@@ -302,6 +316,12 @@ public class DiscountActivityServiceImpl extends ServiceImpl<DiscountActivityMap
 		vo.setOriginalPrice(originalPrice);
 		vo.setDiscountPrice(calculateDiscountPrice(originalPrice,
 				activity.getDiscountType(), activity.getDiscountValue()));
+		// 商品级限量：stock 为 null 表示不限量，C 端隐藏「仅剩 N 件」
+		vo.setStock(goods.getStock());
+		if (goods.getStock() != null) {
+			vo.setRemainingStock(Math.max(0, goods.getStock()
+					- (goods.getSoldCount() == null ? 0 : goods.getSoldCount())));
+		}
 		return vo;
 	}
 

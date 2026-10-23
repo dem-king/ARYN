@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.dubbo.config.annotation.DubboService;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -41,6 +42,16 @@ public class RemoteShoppingCartServiceImpl implements RemoteShoppingCartService 
 			log.info("靠港[{}]生效：船舶[{}]的 {} 行购物车归属顺延到新靠港", vesselCallId, vesselId, rows);
 		}
 		return rows;
+	}
+
+	@Override
+	public int countDistinctSkuUsersSince(String tenantId, List<String> skuIds, LocalDateTime since) {
+		if (StrUtil.isBlank(tenantId) || since == null || skuIds == null || skuIds.isEmpty()) {
+			return 0;
+		}
+		// 只读统计：失败时由调用方降级为不展示，不抛异常影响会场加载。
+		// 聚合查询恒返回一行（无匹配时为 0），mapper 返回原始 int，不做 null 兜底。
+		return shoppingCartMapper.countDistinctSkuUsersSince(tenantId, skuIds, since);
 	}
 
 }

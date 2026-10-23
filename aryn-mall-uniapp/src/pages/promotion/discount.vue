@@ -321,6 +321,21 @@ function formatPrice(value: number) {
   return Number.isFinite(price) ? price.toFixed(2) : '0.00'
 }
 
+/**
+ * 库存紧迫文案：只在真的紧张时出现，避免每张卡都挂一个数字。
+ * remaining 为空 = 不限量（不展示）；0 = 已售罄；≤10 件才提示「仅剩 N 件」。
+ * 真实拦截在下单侧（折扣商品级真限量），这里只做前置提示。
+ */
+function stockHint(goods: AppDiscountGoodsVO) {
+  const remaining = goods.remainingStock
+  if (remaining === null || remaining === undefined || !Number.isFinite(Number(remaining)))
+    return ''
+  const count = Math.max(0, Math.floor(Number(remaining)))
+  if (count <= 0)
+    return '已售罄'
+  return count <= 10 ? `仅剩 ${count} 件` : ''
+}
+
 /** 活动头「去逛逛」：商品型活动滚到本活动商品区，全场型活动回首页商品流 */
 function onBrowse(activity: AppDiscountActivityVO) {
   if (isFullScope(activity)) {
@@ -519,6 +534,9 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
                 <view class="goods-bottom">
                   <text v-if="savedText(goods)" class="goods-save">
                     {{ savedText(goods) }}
+                  </text>
+                  <text v-if="stockHint(goods)" class="goods-stock" :class="{ 'is-out': stockHint(goods) === '已售罄' }">
+                    {{ stockHint(goods) }}
                   </text>
                 </view>
 
@@ -826,6 +844,19 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
   font-size: 19rpx;
   font-weight: 600;
   white-space: nowrap;
+}
+
+/* 库存提示：与省额同排，已售罄用弱化灰 */
+.goods-stock {
+  margin-left: 8rpx;
+  color: var(--wot-color-theme-primary, #ff2237);
+  font-size: 20rpx;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.goods-stock.is-out {
+  color: #b6b9c0;
 }
 
 /* 加购按钮绝对定位在卡身右下，与省额行同一视觉行 */

@@ -115,6 +115,16 @@ const sections = [
   ['用户日订单汇总定时任务', '137order_daily_stat_job.sql'],
   ['通知管理草稿删除与分发重试权限', '138message_notice_admin_incremental.sql'],
   ['商品属性标签', '142goods_attr_tags_incremental.sql'],
+  ['下线新人专享活动独立菜单（收敛到船供活动）', '143hide_newbie_activity_menu.sql'],
+  ['船供活动预算原子消耗（额度不足活动自动失效）', '144promotion_activity_consumed_budget.sql'],
+  ['统一公司配送方式对外名称', '145unify_delivery_way_label.sql'],
+  ['通用状态字典回显样式', '146status_dict_show_class.sql'],
+  ['会员等级成长体系种子', '147member_level_seed.sql'],
+  ['会员等级图标回填', '149member_level_icon.sql'],
+  ['营销活动种子（优惠券/拼团/秒杀/折扣）', '150marketing_activities_seed.sql'],
+  ['商品评价种子数据（在售商品回填评价）', '151goods_appraise_seed.sql'],
+  ['积分闭环（规则发放/下单抵扣/退款返还）', '148points_closed_loop_incremental.sql'],
+  ['折扣商品级限量库存与占用', '153discount_goods_stock_incremental.sql'],
 ];
 
 const normalize = (content) => content.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim();

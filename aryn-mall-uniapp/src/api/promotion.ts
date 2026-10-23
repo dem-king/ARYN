@@ -34,6 +34,8 @@ export interface AppSeckillVO {
   status: number
   /** 倒计时(秒) */
   countdown: number
+  /** 本场「N 人在抢」的去重人数（场次内 SKU 仍在购物车里的人数；拿不到时为空） */
+  cartUserCount?: number | null
   goodsList: AppSeckillGoodsVO[]
 }
 
@@ -86,6 +88,10 @@ export interface AppDiscountGoodsVO {
   /** 折扣类型: 1打折 2减价 3固定价 */
   discountType: number
   discountValue: number
+  /** 限量库存：null/缺失 = 不限量 */
+  stock?: number | null
+  /** 剩余可售 = 限量 − 已占用；stock 为空时为 null */
+  remainingStock?: number | null
 }
 
 /**

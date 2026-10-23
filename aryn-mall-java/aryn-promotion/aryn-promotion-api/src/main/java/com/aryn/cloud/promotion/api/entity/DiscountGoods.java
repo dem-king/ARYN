@@ -33,6 +33,15 @@ public class DiscountGoods extends Model<DiscountGoods> {
 	@NotBlank(message = "商品SKU不能为空")
 	private String skuId;
 
+	/**
+	 * 限量库存：NULL = 不限量（存量行保持 NULL，行为与改造前一致）。
+	 * 下单占用（sold_count 增加）、取消/退款回补；见 DiscountStockService。
+	 */
+	private Integer stock;
+
+	/** 已占用数量：仅 stock 非空时维护，stock 为 NULL 时恒为 0 */
+	private Integer soldCount;
+
 	@TableField(fill = FieldFill.INSERT)
 	@Schema(description = "创建时间")
 	private LocalDateTime createTime;
