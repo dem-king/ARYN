@@ -37,6 +37,22 @@ const loadingMore = ref(false)
 const scrollIntoView = ref('')
 /** 悬浮回顶：滚动超过约 2 屏才出现 */
 const showBackTop = ref(false)
+/** 活动 Tab：仅多活动时出现；点击定位到对应活动区 */
+const activeActivityId = ref('')
+const tabScrollInto = ref('')
+
+const showActivityTabs = computed(() => activityList.value.length > 1)
+
+/** 点击活动 Tab：高亮、内容滚到该活动卡片，并让 Tab 自身保持可见 */
+function selectActivity(activityId: string) {
+  activeActivityId.value = activityId
+  scrollIntoView.value = ''
+  tabScrollInto.value = ''
+  nextTick(() => {
+    scrollIntoView.value = 'act-' + activityId
+    tabScrollInto.value = 'tab-' + activityId
+  })
+}
 
 const authStore = useAuthStore()
 const shoppingCartStore = useShoppingCartStore()
@@ -140,6 +156,8 @@ async function loadActivities(isRefresh = false) {
     records.forEach(initCountdown)
     pruneCountdowns()
     updateAllCountdowns()
+    if (!activeActivityId.value && activityList.value.length > 0)
+      activeActivityId.value = activityList.value[0].activityId
   }
   catch {
     uni.showToast({ title: '加载失败', icon: 'none' })
@@ -422,6 +440,34 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
       </template>
     </hr-navbar>
 
+    <!-- 多活动时的活动切换条：放在滚动区外，翻到列表深处也始终可点 -->
+    <scroll-view
+      v-if="showActivityTabs"
+      scroll-x
+      class="act-tabs"
+      :show-scrollbar="false"
+      :scroll-into-view="tabScrollInto"
+      scroll-with-animation
+    >
+      <view class="act-tabs-track">
+        <view
+          v-for="activity in activityList"
+          :id="'tab-' + activity.activityId"
+          :key="'tab-' + activity.activityId"
+          class="act-tab"
+          :class="{ 'is-on': activity.activityId === activeActivityId }"
+          @tap="selectActivity(activity.activityId)"
+        >
+          <text class="act-tab-ratio">
+            {{ discountTagText(activity) }}
+          </text>
+          <text class="act-tab-name">
+            {{ activity.activityName || '限时折扣' }}
+          </text>
+        </view>
+      </view>
+    </scroll-view>
+
     <scroll-view
       scroll-y
       class="content-scroll"
@@ -470,6 +516,7 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
       <template v-else>
         <view
           v-for="activity in activityList"
+          :id="'act-' + activity.activityId"
           :key="activity.activityId"
           class="act-group"
         >
@@ -637,6 +684,58 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
   min-height: 0;
   flex: 1;
   padding: 20rpx 0 0;
+}
+
+/* ---- 活动切换条（多活动时） ---- */
+.act-tabs {
+  width: 100%;
+  flex: 0 0 auto;
+  padding: 12rpx 0;
+  background: #fff;
+  white-space: nowrap;
+}
+
+.act-tabs-track {
+  display: inline-flex;
+  padding: 0 24rpx;
+  gap: 16rpx;
+}
+
+.act-tab {
+  display: inline-flex;
+  height: 64rpx;
+  max-width: 420rpx;
+  padding: 0 20rpx;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8rpx;
+  background: #f5f6f8;
+  border-radius: 999rpx;
+}
+
+.act-tab.is-on {
+  background: var(--wot-color-theme-primary, #ff2237);
+}
+
+.act-tab-ratio {
+  color: var(--wot-color-theme-primary, #ff2237);
+  font-size: 22rpx;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.act-tab-name {
+  overflow: hidden;
+  color: #5b616e;
+  font-size: 22rpx;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.act-tab.is-on .act-tab-ratio,
+.act-tab.is-on .act-tab-name {
+  color: #fff;
 }
 
 /* ---- 活动卡（白底无描边；轻促销：主色只给大牌与文字链） ---- */
