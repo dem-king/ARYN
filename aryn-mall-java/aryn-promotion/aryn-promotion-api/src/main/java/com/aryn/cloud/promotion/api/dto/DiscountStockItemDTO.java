@@ -22,12 +22,21 @@ public class DiscountStockItemDTO implements Serializable {
 	@Schema(description = "购买数量")
 	private Integer quantity;
 
+	@Schema(description = "订单明细ID；用于退款时按明细精确回补")
+	private String orderItemId;
+
 	public DiscountStockItemDTO() {
 	}
 
 	public DiscountStockItemDTO(String skuId, Integer quantity) {
 		this.skuId = skuId;
 		this.quantity = quantity;
+	}
+
+	public DiscountStockItemDTO(String skuId, Integer quantity, String orderItemId) {
+		this.skuId = skuId;
+		this.quantity = quantity;
+		this.orderItemId = orderItemId;
 	}
 
 }

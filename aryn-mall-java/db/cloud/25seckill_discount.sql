@@ -87,6 +87,7 @@ CREATE TABLE `seckill_order` (
     `del_flag`         varchar(1)   NOT NULL DEFAULT '0',
     PRIMARY KEY (`id`),
     KEY `idx_order` (`order_id`),
+    KEY `idx_order_item` (`order_id`, `order_item_id`),
     KEY `idx_user_session` (`user_id`, `session_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='秒杀订单记录';
 
@@ -135,6 +136,7 @@ CREATE TABLE IF NOT EXISTS `discount_stock_lock` (
     `activity_id`    bigint      NOT NULL COMMENT '活动ID',
     `sku_id`         varchar(64) NOT NULL COMMENT '商品SKU ID',
     `order_id`       varchar(64) NOT NULL COMMENT '订单ID',
+    `order_item_id`  varchar(64) DEFAULT NULL COMMENT '订单明细ID；退款按明细精确回补',
     `quantity`       int         NOT NULL DEFAULT 0 COMMENT '占用数量',
     `status`         varchar(1)  NOT NULL DEFAULT '1' COMMENT '1占用 0已释放',
     `release_reason` varchar(64) DEFAULT NULL COMMENT '释放原因（取消/超时/退款）',

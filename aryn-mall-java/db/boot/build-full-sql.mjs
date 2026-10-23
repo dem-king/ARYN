@@ -125,6 +125,7 @@ const sections = [
   ['商品评价种子数据（在售商品回填评价）', '151goods_appraise_seed.sql'],
   ['积分闭环（规则发放/下单抵扣/退款返还）', '148points_closed_loop_incremental.sql'],
   ['折扣商品级限量库存与占用', '153discount_goods_stock_incremental.sql'],
+  ['折扣库存占用补齐订单明细维度', '154discount_stock_lock_order_item.sql'],
 ];
 
 const normalize = (content) => content.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim();

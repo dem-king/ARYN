@@ -42,6 +42,9 @@ public class DiscountStockLock extends Model<DiscountStockLock> {
 	@Schema(description = "订单ID")
 	private String orderId;
 
+	@Schema(description = "订单明细ID；退款按明细精确回补")
+	private String orderItemId;
+
 	@Schema(description = "占用数量")
 	private Integer quantity;
 

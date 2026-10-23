@@ -43,9 +43,10 @@ public interface RemoteDiscountService {
 	DiscountStockReserveResultDTO reserveStock(String tenantId, String orderId, List<DiscountStockItemDTO> items);
 
 	/**
-	 * 释放订单占用的折扣库存（取消/超时/退款），幂等。
+	 * 释放订单占用的折扣库存，幂等。
 	 *
+	 * @param orderItemId 非空时只释放该明细（部分退款）；为空时释放整单（取消/超时）
 	 * @return 实际释放的明细行数
 	 */
-	int releaseStock(String tenantId, String orderId, String reason);
+	int releaseStock(String tenantId, String orderId, String orderItemId, String reason);
 }

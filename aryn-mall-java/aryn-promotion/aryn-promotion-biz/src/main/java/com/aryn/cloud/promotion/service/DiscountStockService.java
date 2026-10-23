@@ -25,10 +25,11 @@ public interface DiscountStockService {
 	DiscountStockReserveResultDTO reserve(String tenantId, String orderId, List<DiscountStockItemDTO> items);
 
 	/**
-	 * 取消/超时/退款释放：按占用明细回补 sold_count，并把明细置为已释放（幂等）。
+	 * 释放占用：按占用明细回补 sold_count，并把明细置为已释放（幂等）。
 	 *
+	 * @param orderItemId 非空时只释放该订单明细（部分退款）；为空时释放整单（取消/超时）
 	 * @return 实际释放的明细行数
 	 */
-	int release(String tenantId, String orderId, String reason);
+	int release(String tenantId, String orderId, String orderItemId, String reason);
 
 }

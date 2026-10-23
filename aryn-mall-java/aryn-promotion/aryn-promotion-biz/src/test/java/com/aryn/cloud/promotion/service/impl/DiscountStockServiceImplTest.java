@@ -127,7 +127,7 @@ class DiscountStockServiceImplTest {
 		when(goodsMapper.selectOne(any())).thenReturn(goods);
 		when(lockMapper.releaseByOrder("tenant-1", "order-1", "cancel")).thenReturn(1);
 
-		int released = service.release("tenant-1", "order-1", "cancel");
+		int released = service.release("tenant-1", "order-1", null, "cancel");
 
 		assertThat(released).isEqualTo(1);
 		verify(goodsMapper).restoreStock("goods-1", 2);
@@ -138,8 +138,30 @@ class DiscountStockServiceImplTest {
 	void releaseWithoutLocksIsNoop() {
 		when(lockMapper.selectList(any())).thenReturn(List.of());
 
-		assertThat(service.release("tenant-1", "order-1", "cancel")).isZero();
+		assertThat(service.release("tenant-1", "order-1", null, "cancel")).isZero();
 		verify(goodsMapper, never()).restoreStock(anyString(), anyInt());
+	}
+
+	@Test
+	void partialRefundReleasesOnlyThatOrderItem() {
+		// 一单两件，SQL 只返回被退那条（按 order_item_id 过滤在 SQL 里；这里模拟其返回）
+		DiscountStockLock item1 = new DiscountStockLock()
+			.setActivityId("act-1").setSkuId("sku-1").setOrderItemId("item-1")
+			.setQuantity(1).setStatus(DiscountStockLock.STATUS_LOCKED);
+		when(lockMapper.selectList(any())).thenReturn(List.of(item1));
+		when(goodsMapper.selectOne(any())).thenAnswer(invocation -> {
+			// 每次回补都返回可用的商品行
+			return new DiscountGoods().setId("goods-x").setStock(10).setSoldCount(2);
+		});
+		when(lockMapper.releaseByOrderItem("tenant-1", "order-1", "item-1", "REFUND")).thenReturn(1);
+
+		int released = service.release("tenant-1", "order-1", "item-1", "REFUND");
+
+		assertThat(released).isEqualTo(1);
+		// 只回补该明细对应的 SKU
+		verify(goodsMapper).restoreStock("goods-x", 1);
+		verify(lockMapper).releaseByOrderItem("tenant-1", "order-1", "item-1", "REFUND");
+		verify(lockMapper, never()).releaseByOrder(anyString(), anyString(), anyString());
 	}
 
 }

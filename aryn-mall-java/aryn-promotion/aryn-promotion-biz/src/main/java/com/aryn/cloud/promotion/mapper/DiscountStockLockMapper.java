@@ -24,4 +24,16 @@ public interface DiscountStockLockMapper extends BaseMapper<DiscountStockLock> {
 	int releaseByOrder(@Param("tenantId") String tenantId, @Param("orderId") String orderId,
 			@Param("reason") String reason);
 
+	/**
+	 * 只释放某一订单明细的占用（部分退款）：同订单其它明细保持占用。
+	 */
+	@Update("""
+		UPDATE discount_stock_lock
+		SET status = '0', release_reason = #{reason}, update_time = NOW()
+		WHERE tenant_id = #{tenantId} AND order_id = #{orderId} AND order_item_id = #{orderItemId}
+		  AND status = '1' AND del_flag = '0'
+		""")
+	int releaseByOrderItem(@Param("tenantId") String tenantId, @Param("orderId") String orderId,
+			@Param("orderItemId") String orderItemId, @Param("reason") String reason);
+
 }

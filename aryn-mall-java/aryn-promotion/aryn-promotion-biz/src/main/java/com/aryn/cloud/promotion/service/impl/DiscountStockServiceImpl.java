@@ -78,6 +78,7 @@ public class DiscountStockServiceImpl implements DiscountStockService {
 				.setActivityId(goods.getActivityId())
 				.setSkuId(item.getSkuId())
 				.setOrderId(orderId)
+				.setOrderItemId(item.getOrderItemId())
 				.setQuantity(quantity)
 				.setStatus(DiscountStockLock.STATUS_LOCKED);
 			try {
@@ -97,14 +98,17 @@ public class DiscountStockServiceImpl implements DiscountStockService {
 
 	@Override
 	@Transactional(rollbackFor = Exception.class)
-	public int release(String tenantId, String orderId, String reason) {
+	public int release(String tenantId, String orderId, String orderItemId, String reason) {
 		if (!StringUtils.hasText(orderId)) {
 			return 0;
 		}
+		// 部分退款只释放该明细：同订单其它商品的占用必须保留，否则会超卖
+		boolean partial = StringUtils.hasText(orderItemId);
 		List<DiscountStockLock> locks = discountStockLockMapper.selectList(
 				Wrappers.<DiscountStockLock>lambdaQuery()
 					.eq(DiscountStockLock::getTenantId, tenantId)
 					.eq(DiscountStockLock::getOrderId, orderId)
+					.eq(partial, DiscountStockLock::getOrderItemId, orderItemId)
 					.eq(DiscountStockLock::getStatus, DiscountStockLock.STATUS_LOCKED));
 		if (CollectionUtils.isEmpty(locks)) {
 			return 0;
@@ -120,10 +124,16 @@ public class DiscountStockServiceImpl implements DiscountStockService {
 			}
 			discountGoodsMapper.restoreStock(goods.getId(), lock.getQuantity() == null ? 0 : lock.getQuantity());
 		}
-		int released = discountStockLockMapper.releaseByOrder(tenantId, orderId,
-				StringUtils.hasText(reason) ? reason : "cancel");
-		log.info("折扣库存释放完成, orderId={}, rows={}, reason={}", orderId, released, reason);
+		int released = partial
+				? discountStockLockMapper.releaseByOrderItem(tenantId, orderId, orderItemId, reasonOrDefault(reason))
+				: discountStockLockMapper.releaseByOrder(tenantId, orderId, reasonOrDefault(reason));
+		log.info("折扣库存释放完成, orderId={}, orderItemId={}, rows={}, reason={}",
+				orderId, orderItemId, released, reason);
 		return released;
+	}
+
+	private String reasonOrDefault(String reason) {
+		return StringUtils.hasText(reason) ? reason : "cancel";
 	}
 
 	/**

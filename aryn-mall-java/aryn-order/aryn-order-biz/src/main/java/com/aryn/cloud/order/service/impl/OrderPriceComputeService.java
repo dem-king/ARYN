@@ -1068,7 +1068,7 @@ public class OrderPriceComputeService {
 	public void releasePromotion(String tenantId, String orderId, String reason) {
 		remotePromotionEngine.release(tenantId, orderId, reason);
 		try {
-			remoteDiscountService.releaseStock(tenantId, orderId, reason);
+			remoteDiscountService.releaseStock(tenantId, orderId, null, reason);
 		} catch (Exception ex) {
 			// 释放失败不能阻塞取消/退款：库存由补偿任务与明细幂等兜底，这里只告警
 			log.warn("订单[{}]折扣库存释放失败, reason={}", orderId, reason, ex);
@@ -1085,7 +1085,7 @@ public class OrderPriceComputeService {
 		}
 		List<DiscountStockItemDTO> items = orderItemEntityList.stream()
 			.filter(item -> item.getSkuId() != null && item.getBuyQuantity() != null && item.getBuyQuantity() > 0)
-			.map(item -> new DiscountStockItemDTO(item.getSkuId(), item.getBuyQuantity()))
+			.map(item -> new DiscountStockItemDTO(item.getSkuId(), item.getBuyQuantity(), item.getId()))
 			.collect(Collectors.toList());
 		if (items.isEmpty()) {
 			return;

@@ -49,7 +49,7 @@ public class RemoteDiscountServiceImpl implements RemoteDiscountService {
 	}
 
 	@Override
-	public int releaseStock(String tenantId, String orderId, String reason) {
-		return discountStockService.release(tenantId, orderId, reason);
+	public int releaseStock(String tenantId, String orderId, String orderItemId, String reason) {
+		return discountStockService.release(tenantId, orderId, orderItemId, reason);
 	}
 }

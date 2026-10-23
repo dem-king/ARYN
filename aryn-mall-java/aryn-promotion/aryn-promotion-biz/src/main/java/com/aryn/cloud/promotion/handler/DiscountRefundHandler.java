@@ -26,7 +26,8 @@ public class DiscountRefundHandler implements PromotionRefundEventHandler {
 		if (!StringUtils.hasText(orderId)) {
 			return;
 		}
-		int released = discountStockService.release(event.getTenantId(), orderId, "REFUND");
+		// 按明细释放：一单多件时只回补被退的那一件，避免把其它件的库存也还回去
+		int released = discountStockService.release(event.getTenantId(), orderId, event.getOrderItemId(), "REFUND");
 		if (released > 0) {
 			log.info("折扣退款释放库存, orderId={}, rows={}", orderId, released);
 		}

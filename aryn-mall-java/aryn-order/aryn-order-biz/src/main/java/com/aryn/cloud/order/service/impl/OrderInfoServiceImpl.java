@@ -63,9 +63,11 @@ import com.aryn.cloud.promotion.api.remote.RemoteSeckillService;
 import com.aryn.cloud.promotion.api.vo.GroupBuyOrderContextVO;
 import com.aryn.cloud.user.api.entity.UserAddress;
 import com.aryn.cloud.user.api.remote.RemoteMallUserService;
+import com.aryn.cloud.user.api.remote.RemotePointsService;
 import com.aryn.cloud.user.api.remote.RemoteUserAddressService;
 import com.aryn.cloud.user.api.vo.UserInfoVO;
 import com.aryn.cloud.user.api.vo.MemberBenefitsVO;
+import com.aryn.cloud.user.api.vo.PointsDeductContextVO;
 import lombok.RequiredArgsConstructor;
 import org.apache.dubbo.config.annotation.DubboReference;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
@@ -110,6 +112,9 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 
 	@DubboReference
 	private final RemoteMallUserService remoteMallUserService;
+
+	@DubboReference
+	private final RemotePointsService remotePointsService;
 
 	private final IOrderItemService orderItemService;
 
@@ -347,7 +352,7 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		}
 		if (OrderDeliveryStateService.isTaskDrivenDeliveryWay(orderInfo.getDeliveryWay())) {
 			// 商城配送/内部配送由配送任务状态机驱动，快递发货单会造成任务与订单双轨不一致
-			throw new ArynBusinessException("商城配送/内部配送订单无需物流单号，请直接派单给司机");
+			throw new ArynBusinessException("公司配送订单无需物流单号，请直接派单给司机");
 		}
 		List<OrderItemEntity> orderItemEntityList = orderItemService
 			.list(Wrappers.<OrderItemEntity>lambdaQuery().eq(OrderItemEntity::getOrderId, orderInfo.getId()));
@@ -512,6 +517,12 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		}
 		catch (Exception ex) {
 			log.warn("订单[" + orderInfo.getId() + "]拼团占坑释放失败，等待超时任务兜底: " + ex.getMessage());
+		}
+		// 返还积分放在取消链路最后：券释放/库存回滚等前置步骤失败时整单先回滚，
+		// 避免 cloud 模式（积分库独立提交）出现「订单取消失败但积分已退回」
+		if (orderInfo.getPointsUsed() != null && orderInfo.getPointsUsed() > 0) {
+			remotePointsService.refundPoints(orderInfo.getUserId(), orderInfo.getPointsUsed(),
+					"ORDER_REFUND:" + orderInfo.getOrderNo(), "订单取消返还积分：" + orderInfo.getOrderNo());
 		}
 		return orderInfo.getId();
 	}
@@ -729,21 +740,26 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		// 拼团价优先级最高，须在会员折扣与优惠券之前落到成交基价
 		Map<String, BigDecimal> groupBuyPriceBySku = resolveGroupBuyPrice(createOrderDTO.getGroupBuyRecordId(),
 				createOrderDTO.getUserId(), orderItemEntityList);
+		// 活动价预取：整船优惠需排除已享拼团/秒杀/限时折扣的 SKU
+		OrderPriceComputeService.PromotionPricePlan promotionPricePlan = orderPriceComputeService
+			.resolvePromotionPricePlan(orderItemEntityList, groupBuyPriceBySku);
 		// 营销阶梯价改基价（会员/券之前）
-		PromotionCalculationVO promoCalculation = orderPriceComputeService.applyPromotionLadder(orderInfo, orderItemEntityList);
+		PromotionCalculationVO promoCalculation = orderPriceComputeService.applyPromotionLadder(orderInfo,
+				orderItemEntityList, promotionPricePlan);
 		// 新人价限购硬校验：命中新人价的 SKU 整单合计数量必须为 1，超量拒绝下单
 		orderPriceComputeService.assertNewbieQuantityLimit(promoCalculation, orderItemEntityList);
 		// 促销价（拼团 > 秒杀 > 新人价 > 限时折扣 > 原价）须在会员折扣与优惠券之前落到成交基价，
 		// 否则券与会员折扣按原价基数抵扣；历史实现藏在运费分支内，自提/内配恒不生效
-		orderPriceComputeService.orderPromotionPriceHandler(orderItemEntityList, groupBuyPriceBySku,
-				orderPriceComputeService.newbiePriceSkuIds(promoCalculation));
+		orderPriceComputeService.applyPromotionPricePlan(orderItemEntityList,
+				orderPriceComputeService.newbiePriceSkuIds(promoCalculation), promotionPricePlan);
 
 		orderPriceComputeService.computeOrderPrice(orderInfo, orderItemEntityList);
 		MemberBenefitsVO memberBenefits = remoteMallUserService.getMemberBenefits(createOrderDTO.getUserId());
 		orderPriceComputeService.orderMemberBenefitHandler(orderInfo, orderItemEntityList, memberBenefits);
 		orderPriceComputeService.orderCouponHandler(orderInfo, orderItemEntityList);
-		// 整船/整单优惠分摊（券之后）
-		orderPriceComputeService.applyShipWholeDiscount(orderInfo, orderItemEntityList, promoCalculation);
+		// 整船/整单优惠分摊（券之后；活动价商品不参与）
+		orderPriceComputeService.applyShipWholeDiscount(orderInfo, orderItemEntityList, promoCalculation,
+				promotionPricePlan);
 
 		// 5. 物流运费计算（普通快递和商城配送均需收货地址与运费）
 		if (MallOrderConstants.DELIVERY_WAY_1.equals(orderInfo.getDeliveryWay())
@@ -773,8 +789,19 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 			if (MallOrderConstants.DELIVERY_WAY_3.equals(orderInfo.getDeliveryWay())
 					&& !deliveryAreaService.isAddressInDeliveryArea(userAddress.getProvinceCode(),
 							userAddress.getCityCode(), userAddress.getAreaCode())) {
-				throw new ArynBusinessException("当前收货地址不在商城配送范围内");
+				throw new ArynBusinessException("当前收货地址不在公司配送（岸上）范围内");
 			}
+		}
+		// 积分抵现：基数与优惠顺序固定为「会员折扣 -> 优惠券 -> 积分抵扣 -> 运费」，须在金额校验前完成
+		PointsDeductContextVO pointsContext = remotePointsService.getDeductContext(createOrderDTO.getUserId());
+		orderPriceComputeService.orderPointsDeductHandler(orderInfo, orderItemEntityList,
+				createOrderDTO.getUsePoints(), Boolean.TRUE.equals(createOrderDTO.getUseMaxPoints()), pointsContext,
+				true);
+		// 确认页金额校验：优惠额度可能在结算后变化，价格不一致要求用户重新确认，禁止静默涨价
+		if (createOrderDTO.getExpectedPaymentPrice() != null
+				&& (orderInfo.getPaymentPrice() == null || orderInfo.getPaymentPrice()
+					.compareTo(createOrderDTO.getExpectedPaymentPrice()) != 0)) {
+			throw new ArynBusinessException("订单金额已变动，请返回确认页核对最新价格后重新提交");
 		}
 		// 创建订单
 		try {
@@ -805,8 +832,16 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 						createOrderDTO.getUserId(), orderInfo.getId())) {
 			throw new ArynBusinessException("拼团资格已被占用，请重新开团或参团");
 		}
+		// 明细ID提前固定：折扣库存按明细占用，退款时要能按 order_item_id 精确回补；
+		// 原先是 MyBatis 在 insert 时才生成，占用阶段拿不到。
+		orderItemEntityList.forEach(item -> {
+			if (!StringUtils.hasText(item.getId())) {
+				item.setId(IdUtil.getSnowflakeNextIdStr());
+			}
+		});
 		// 营销锁定（须在库存扣减与明细落库前完成：买赠赠品要追加为 0 元明细并参与扣减）
-		PromotionCalculationVO reserved = orderPriceComputeService.reservePromotion(orderInfo, orderItemEntityList);
+		PromotionCalculationVO reserved = orderPriceComputeService.reservePromotion(orderInfo, orderItemEntityList,
+				goodsSkuList, promoCalculation, promotionPricePlan);
 		// 赠品按真实库存过滤：库存不足不赠（确认页同口径已不展示），不阻断付费商品
 		List<PromotionCalculationVO.GiftItem> availableGifts = orderPriceComputeService.availableGifts(reserved);
 		if (!availableGifts.isEmpty()) {
@@ -858,6 +893,13 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		}
 		applicationEventPublisher.publishEvent(
 				new ArynOrderCreateAfterEvent(this, orderInfo, orderItemEntityList, createOrderDTO.getCreateWay()));
+		// 积分扣减放在下单链路最后一步：此前券/营销/库存/明细任一失败都会回滚订单，
+		// 提前扣减会在 cloud 模式（积分库独立提交）留下「订单没建成却扣了积分」的缺口。
+		// 事件监听为 AFTER_COMMIT，不会在本事务内抛错；扣减失败则整单回滚（余额已被并发消耗）。
+		if (orderInfo.getPointsUsed() != null && orderInfo.getPointsUsed() > 0) {
+			remotePointsService.deductPoints(orderInfo.getUserId(), orderInfo.getPointsUsed(),
+					"ORDER_DEDUCT:" + orderInfo.getOrderNo(), "订单积分抵现：" + orderInfo.getOrderNo());
+		}
 		return orderInfo;
 	}
 
@@ -901,6 +943,8 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		orderInfo.setCouponPrice(BigDecimal.ZERO);
 		orderInfo.setMemberDiscountPrice(BigDecimal.ZERO);
 		orderInfo.setPointsMultiplier(BigDecimal.ONE);
+		orderInfo.setPointsUsed(0);
+		orderInfo.setPointsDeductPrice(BigDecimal.ZERO);
 		orderInfo.setPayStatus(CommonConstants.NO);
 		orderInfo.setCouponUserId(createOrderDTO.getCouponUserId());
 		orderInfo.setOpenId(createOrderDTO.getOpenId());
@@ -1108,19 +1152,24 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		// 拼团价预取（拼团单）：与下单同口径，保证确认页展示金额与提交后一致
 		Map<String, BigDecimal> groupBuyPriceBySku = resolveGroupBuyPrice(settlementOrderDTO.getGroupBuyRecordId(),
 				settlementOrderDTO.getUserId(), orderItemEntityList);
+		// 活动价预取：与下单同口径，整船优惠排除已享拼团/秒杀/限时折扣的 SKU
+		OrderPriceComputeService.PromotionPricePlan promotionPricePlan = orderPriceComputeService
+			.resolvePromotionPricePlan(orderItemEntityList, groupBuyPriceBySku);
 		// 营销阶梯价改基价（会员/券之前）
-		PromotionCalculationVO promoCalculation = orderPriceComputeService.applyPromotionLadder(orderInfo, orderItemEntityList);
+		PromotionCalculationVO promoCalculation = orderPriceComputeService.applyPromotionLadder(orderInfo,
+				orderItemEntityList, promotionPricePlan);
 		// 促销价（拼团 > 秒杀 > 新人价 > 限时折扣 > 原价）与下单口径一致，须在会员折扣与优惠券之前应用，
 		// 否则确认页展示金额与提交后的实际应付不一致；限购拦截只在提交订单时做，结算页不提前拦
-		orderPriceComputeService.orderPromotionPriceHandler(orderItemEntityList, groupBuyPriceBySku,
-				orderPriceComputeService.newbiePriceSkuIds(promoCalculation));
+		orderPriceComputeService.applyPromotionPricePlan(orderItemEntityList,
+				orderPriceComputeService.newbiePriceSkuIds(promoCalculation), promotionPricePlan);
 
 		orderPriceComputeService.computeOrderPrice(orderInfo, orderItemEntityList);
 		MemberBenefitsVO memberBenefits = remoteMallUserService.getMemberBenefits(settlementOrderDTO.getUserId());
 		orderPriceComputeService.orderMemberBenefitHandler(orderInfo, orderItemEntityList, memberBenefits);
 		orderPriceComputeService.orderCouponHandler(orderInfo, orderItemEntityList);
-		// 整船/整单优惠分摊（券之后）
-		orderPriceComputeService.applyShipWholeDiscount(orderInfo, orderItemEntityList, promoCalculation);
+		// 整船/整单优惠分摊（券之后；活动价商品不参与）
+		orderPriceComputeService.applyShipWholeDiscount(orderInfo, orderItemEntityList, promoCalculation,
+				promotionPricePlan);
 		// 买赠赠品预览（按真实库存过滤后给确认页展示，与提交同口径）
 		orderInfo.setGiftItems(orderPriceComputeService.availableGifts(promoCalculation));
 		// 5.计算运费（普通快递和商城配送均需收货地址与运费）
@@ -1152,9 +1201,15 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 			if (MallOrderConstants.DELIVERY_WAY_3.equals(orderInfo.getDeliveryWay())
 					&& !deliveryAreaService.isAddressInDeliveryArea(userAddress.getProvinceCode(),
 							userAddress.getCityCode(), userAddress.getAreaCode())) {
-				throw new ArynBusinessException("当前收货地址不在商城配送范围内");
+				throw new ArynBusinessException("当前收货地址不在公司配送（岸上）范围内");
 			}
 		}
+		// 积分抵现：与下单同口径，保证确认页金额与提交后一致
+		PointsDeductContextVO pointsContext = remotePointsService
+			.getDeductContext(settlementOrderDTO.getUserId());
+		orderPriceComputeService.orderPointsDeductHandler(orderInfo, orderItemEntityList,
+				settlementOrderDTO.getUsePoints(), Boolean.TRUE.equals(settlementOrderDTO.getUseMaxPoints()),
+				pointsContext, false);
 		orderInfo.setOrderItemList(orderItemEntityList);
 		orderItemEntityList.forEach(item -> item.setPurchaseScene(orderInfo.getPurchaseScene()));
 		return orderInfo;
@@ -1197,6 +1252,7 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 			giftItem.setFreightPrice(BigDecimal.ZERO);
 			giftItem.setCouponPrice(BigDecimal.ZERO);
 			giftItem.setMemberDiscountPrice(BigDecimal.ZERO);
+			giftItem.setPointsPrice(BigDecimal.ZERO);
 			giftItem.setPromoPrice(BigDecimal.ZERO);
 			giftItem.setPaymentPrice(BigDecimal.ZERO);
 			giftItem.setGiftFlag("1");
