@@ -24,6 +24,7 @@
 	order_item.coupon_price,
 	order_item.member_discount_price,
 	order_item.points_price,
+	order_item.points_excluded,
 	order_item.payment_price,
 	order_item.create_time,
 	order_item.update_time,

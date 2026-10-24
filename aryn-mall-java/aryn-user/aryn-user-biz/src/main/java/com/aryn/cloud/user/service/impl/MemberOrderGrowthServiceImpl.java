@@ -35,7 +35,11 @@ public class MemberOrderGrowthServiceImpl implements IMemberOrderGrowthService {
 	@Transactional(rollbackFor = Exception.class)
 	public void processOrderComplete(OrderCompleteEvent event) {
 		validateEvent(event);
-		int points = event.getGoodsPaymentAmount()
+		// 返积分基数：优先用 order 侧按明细剔除积分黑名单（points_excluded）后的实付基数；
+		// 事件未携带（存量消息/灰度期）回退全口径 goodsPaymentAmount，消费累计两口径都走全量不受影响
+		BigDecimal grantBaseAmount = event.getGrantBaseAmount() != null ? event.getGrantBaseAmount()
+				: event.getGoodsPaymentAmount();
+		int points = grantBaseAmount
 			.multiply(BigDecimal.valueOf(pointsGrantService.getOrderCompleteRate()))
 			.multiply(event.getPointsMultiplier())
 			.setScale(0, RoundingMode.DOWN)
@@ -73,6 +77,12 @@ public class MemberOrderGrowthServiceImpl implements IMemberOrderGrowthService {
 		if (event.getGoodsPaymentAmount() == null
 				|| event.getGoodsPaymentAmount().compareTo(BigDecimal.ZERO) < 0) {
 			throw new ArynBusinessException("订单实付商品金额不合法");
+		}
+		if (event.getGrantBaseAmount() != null
+				&& (event.getGrantBaseAmount().compareTo(BigDecimal.ZERO) < 0
+						|| event.getGrantBaseAmount().compareTo(event.getGoodsPaymentAmount()) > 0)) {
+			// 剔除黑名单后的基数只会小于等于全口径实付，越界说明事件数据异常
+			throw new ArynBusinessException("订单返积分基数不合法");
 		}
 		if (event.getPointsMultiplier() == null || event.getPointsMultiplier().compareTo(BigDecimal.ONE) < 0) {
 			throw new ArynBusinessException("订单积分倍率不合法");

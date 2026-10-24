@@ -45,4 +45,7 @@ public class PointsRecordVO implements Serializable {
 	@Schema(description = "创建时间")
 	private LocalDateTime createTime;
 
+	@Schema(description = "过期时间（仅获取类流水；NULL=永不过期）")
+	private LocalDateTime expireTime;
+
 }

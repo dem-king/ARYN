@@ -799,9 +799,13 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		// 积分抵现：基数与优惠顺序固定为「会员折扣 -> 优惠券 -> 积分抵扣 -> 运费」，须在金额校验前完成；
 		// 叠加策略下积分基数只统计允许积分的明细，不可叠仍请求积分则拒绝
 		PointsDeductContextVO pointsContext = remotePointsService.getDeductContext(createOrderDTO.getUserId());
+		// 积分黑名单：由用户域上下文（类目/商品）与商品快照解析命中 SPU，
+		// 抵扣基数过滤、明细 points_excluded 落库共用同一口径（返积分按该标记剔除）
+		Set<String> pointsExcludedSpuIds = orderPriceComputeService.resolvePointsExcludedSpuIds(goodsSkuList,
+				pointsContext);
 		orderPriceComputeService.orderPointsDeductHandler(orderInfo, orderItemEntityList,
 				createOrderDTO.getUsePoints(), Boolean.TRUE.equals(createOrderDTO.getUseMaxPoints()), pointsContext,
-				true, promotionPricePlan);
+				true, promotionPricePlan, pointsExcludedSpuIds);
 		// 确认页金额校验：优惠额度可能在结算后变化，价格不一致要求用户重新确认，禁止静默涨价
 		if (createOrderDTO.getExpectedPaymentPrice() != null
 				&& (orderInfo.getPaymentPrice() == null || orderInfo.getPaymentPrice()
@@ -996,6 +1000,9 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		orderPaySuccessEvent.setUserId(orderInfo.getUserId());
 		orderPaySuccessEvent.setOrderNo(orderInfo.getOrderNo());
 		orderPaySuccessEvent.setGoodsPaymentAmount(orderInfo.getPaymentPrice().subtract(orderInfo.getFreightPrice()));
+		// 返积分基数：按明细剔除积分黑名单（points_excluded=1）后的商品实付，事件中下发到用户域，
+		// 消费累计（growth/goodsPaymentAmount）仍走全口径——成长值不受黑名单影响，只有积分发放剔除
+		orderPaySuccessEvent.setGrantBaseAmount(resolveGrantBaseAmount(orderItemEntityList));
 		orderPaySuccessEvent.setPointsMultiplier(orderInfo.getPointsMultiplier() == null
 				? BigDecimal.ONE : orderInfo.getPointsMultiplier());
 
@@ -1025,6 +1032,26 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 			log.error("共享购物车签收归档失败: " + orderInfo.getId(), e);
 		}
 		return Boolean.TRUE;
+	}
+
+	/**
+	 * 订单完成返积分基数：剔除命中积分黑名单（{@code points_excluded=1}）明细的商品实付金额。
+	 *
+	 * <p>明细商品实付 = {@code paymentPrice - freightPrice}（下限 0），与订单级
+	 * {@code goodsPaymentAmount} 同构（仅按明细粒度拆分）；赠品为 0 元明细自然不产生基数。
+	 * 存量订单（列上线前）points_excluded 为空，等价于全额计入，保持向后兼容。
+	 */
+	private BigDecimal resolveGrantBaseAmount(List<OrderItemEntity> orderItemEntityList) {
+		BigDecimal grantBaseAmount = BigDecimal.ZERO;
+		for (OrderItemEntity item : orderItemEntityList) {
+			if (CommonConstants.YES.equals(item.getPointsExcluded())) {
+				continue;
+			}
+			BigDecimal paymentPrice = item.getPaymentPrice() == null ? BigDecimal.ZERO : item.getPaymentPrice();
+			BigDecimal freightPrice = item.getFreightPrice() == null ? BigDecimal.ZERO : item.getFreightPrice();
+			grantBaseAmount = grantBaseAmount.add(paymentPrice.subtract(freightPrice).max(BigDecimal.ZERO));
+		}
+		return grantBaseAmount;
 	}
 
 	@Override
@@ -1214,14 +1241,19 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		// 积分抵现：与下单同口径，保证确认页金额与提交后一致；叠加策略下积分只作用于允许积分的明细
 		PointsDeductContextVO pointsContext = remotePointsService
 			.getDeductContext(settlementOrderDTO.getUserId());
+		// 积分黑名单与下单同口径解析：确认页 pointsStackable 置灰提示与提交后过滤一致
+		Set<String> pointsExcludedSpuIds = orderPriceComputeService.resolvePointsExcludedSpuIds(goodsSkuList,
+				pointsContext);
 		orderPriceComputeService.orderPointsDeductHandler(orderInfo, orderItemEntityList,
 				settlementOrderDTO.getUsePoints(), Boolean.TRUE.equals(settlementOrderDTO.getUseMaxPoints()),
-				pointsContext, false, promotionPricePlan);
+				pointsContext, false, promotionPricePlan, pointsExcludedSpuIds);
 		// 确认页划线价 / 活动优惠：成交价已覆盖原价，展示字段在金额全部算完后统一回填，
 		// 与提交订单后的实际成交价同源，避免前端按商品页价格自行推算形成第二套口径
 		orderPriceComputeService.fillOriginalPriceDisplay(orderInfo, orderItemEntityList, goodsSkuList);
-		// 叠加策略展示：明细活动标签 + 券门槛可计算金额（券/积分不可用原因已由各 handler 写入）
-		orderPriceComputeService.fillStackPolicyDisplay(orderInfo, orderItemEntityList, promotionPricePlan);
+		// 叠加策略展示：明细活动标签 + 券门槛可计算金额（券/积分不可用原因已由各 handler 写入）；
+		// 传入黑名单让命中明细 pointsStackable 置 false，确认页提示「部分商品不参与积分抵扣」
+		orderPriceComputeService.fillStackPolicyDisplay(orderInfo, orderItemEntityList, promotionPricePlan,
+				pointsExcludedSpuIds);
 		orderInfo.setOrderItemList(orderItemEntityList);
 		orderItemEntityList.forEach(item -> item.setPurchaseScene(orderInfo.getPurchaseScene()));
 		return orderInfo;

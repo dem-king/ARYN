@@ -9,6 +9,7 @@ const triggerSceneMap: Record<string, string> = {
   ADMIN_ADJUST: '后台调整',
   REGISTER: '注册奖励',
   ORDER_DEDUCT: '积分抵现',
+  POINTS_EXPIRE: '积分过期',
   ORDER_REFUND: '退款返还',
 };
 

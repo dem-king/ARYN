@@ -46,6 +46,12 @@ public class PointsRecord extends Model<PointsRecord> {
 	@Schema(description = "业务单号（积分发放/扣减/返还幂等键）")
 	private String bizNo;
 
+	@Schema(description = "过期时间（发放类流水；NULL=永不过期，如有效期配置为 0）")
+	private LocalDateTime expireTime;
+
+	@Schema(description = "剩余可用积分（发放类流水，FIFO 扣减与过期清零的记账位；NULL=存量未回填行）")
+	private Integer remainPoint;
+
 	@TableField(fill = FieldFill.INSERT)
 	@Schema(description = "创建人")
 	private String createBy;

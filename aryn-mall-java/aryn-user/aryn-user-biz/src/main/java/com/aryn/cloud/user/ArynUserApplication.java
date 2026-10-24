@@ -1,6 +1,7 @@
 
 package com.aryn.cloud.user;
 
+import com.aryn.cloud.common.job.annotation.ArynEnableXxlJob;
 import org.apache.dubbo.config.spring.context.annotation.EnableDubbo;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -12,6 +13,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * @since 2022/2/26 16:38
  */
 @EnableDubbo
+@ArynEnableXxlJob
 @SpringBootApplication
 public class ArynUserApplication {
 

@@ -24,6 +24,8 @@ public enum PointsSceneEnum {
 
 	ORDER_DEDUCT("ORDER_DEDUCT", "积分抵现", "2"),
 
+	POINTS_EXPIRE("POINTS_EXPIRE", "积分过期", "2"),
+
 	ADMIN_ADJUST("ADMIN_ADJUST", "后台调整", null);
 
 	private final String code;

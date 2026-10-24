@@ -117,6 +117,16 @@ const required = [
   '2160000000000000001',
   '2170000000000000001',
   '2050000000000000136',
+  'CREATE TABLE IF NOT EXISTS `points_global_config`',
+  'CREATE TABLE IF NOT EXISTS `points_exclude`',
+  'ADD COLUMN `expire_time`',
+  'ADD COLUMN `remain_point`',
+  'ADD COLUMN `points_excluded`',
+  'idx_points_record_expire',
+  "'pointsExpireJobHandler'",
+  // 存量发放行 FIFO 回填（新老积分衔接：存量批次补 365 天窗口）
+  'running_sum',
+  'unbackfilled_income_rows',
 ];
 
 for (const token of required) {
@@ -158,6 +168,7 @@ const sourceFiles = [
   '148points_closed_loop_incremental.sql',
   '149member_level_icon.sql',
   '158member_management_incremental.sql',
+  '160points_global_config_incremental.sql',
   '3aryn_boot_job.sql',
 ];
 for (const file of sourceFiles) {

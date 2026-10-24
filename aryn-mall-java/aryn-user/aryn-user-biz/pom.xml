@@ -84,6 +84,16 @@
             <groupId>com.aryn</groupId>
             <artifactId>aryn-common-sentinel</artifactId>
         </dependency>
+        <!--        积分过期清零定时任务（pointsExpireJobHandler）-->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-common-job</artifactId>
+        </dependency>
+        <!--        过期任务按租户迭代需要租户列表远程服务-->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-upms-api</artifactId>
+        </dependency>
         <!--        seata分布式事务模块：积分扣减/返还作为订单全局事务的分支参与回滚-->
         <dependency>
             <groupId>com.aryn</groupId>

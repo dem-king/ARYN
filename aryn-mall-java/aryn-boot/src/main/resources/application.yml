@@ -157,6 +157,8 @@ hx:
       - member_level_record
       - points_config
       - points_record
+      - points_global_config
+      - points_exclude
       - sign_in_config
       - sign_in_record
       - recharge_config

@@ -52,6 +52,8 @@ interface Order {
   couponEligibleAmount?: number | null
   /** 积分可计算金额（允许积分明细的商品应付合计，结算接口回填，非表字段） */
   pointsEligibleAmount?: number | null
+  /** 积分不可用原因（结算接口回填，非表字段）：门槛/黑名单/场景不可用整单时下发，null=可用 */
+  pointsStackReason?: string | null
 }
 
 interface Props {
@@ -111,6 +113,12 @@ const couponBlockReason = computed(() => {
 })
 
 /**
+ * 积分整单不可用原因：直接展示服务端下发的 pointsStackReason
+ * （后端已按门槛/黑名单/购买场景生成口径文案，前端只做展示，不自造第二套判断）。
+ */
+const pointsBlockReason = computed(() => localOrder.value.pointsStackReason || '')
+
+/**
  * 至少一张券可用（门槛 + 范围 + 活动可叠）：只看券数量会把「有券但全部不可用」
  * 误显示成「选择优惠券」，用户点进去发现没有可用券。
  */
@@ -130,7 +138,10 @@ const hasUsableCoupon = computed(() => {
 
 const hasAvailableCoupons = computed(() => hasUsableCoupon.value && !localOrder.value.couponUserId)
 
-/** 混合单部分商品不参与积分：积分只作用于可叠明细，副文案注明口径 */
+/**
+ * 混合单部分商品不参与积分：活动禁叠或命中积分黑名单（后端均以 pointsStackable=false
+ * 下发，非前端自造口径），积分只作用于可叠明细，副文案注明口径。
+ */
 const pointsPartialStack = computed(() => {
   const items = localOrder.value.orderItemList || []
   return items.some(item => item.pointsStackable === false)
@@ -385,25 +396,35 @@ function saveRemark() {
             <text v-if="!couponBlockReason && (hasSelectedCoupon || hasAvailableCoupons)" class="i-carbon:chevron-right text-14px" />
           </view>
         </view>
+        <!-- 积分抵扣：整单不可用（门槛/黑名单/场景）时置灰展示服务端原因，不提供开关 -->
         <view
-          v-if="Number(localOrder.pointsDeductMax) > 0 || Number(localOrder.pointsDeductPrice) > 0"
+          v-if="pointsBlockReason || Number(localOrder.pointsDeductMax) > 0 || Number(localOrder.pointsDeductPrice) > 0"
           class="flex items-center justify-between pb-20rpx"
         >
           <view class="flex flex-col">
             <text class="text-14px">
               积分抵扣
             </text>
-            <text class="text-22rpx color-[#909090]">
-              可用{{ localOrder.pointsDeductMax || 0 }}积分<text v-if="Number(localOrder.pointsDeductPrice) > 0">
-                ，已抵￥{{ localOrder.pointsDeductPrice }}
+            <!-- 不可用原因：后端按门槛/黑名单/场景生成口径文案，前端只展示不自造 -->
+            <wd-text
+              v-if="pointsBlockReason"
+              size="22rpx"
+              color="#909090"
+              :text="pointsBlockReason"
+            />
+            <template v-else>
+              <text class="text-22rpx color-[#909090]">
+                可用{{ localOrder.pointsDeductMax || 0 }}积分<text v-if="Number(localOrder.pointsDeductPrice) > 0">
+                  ，已抵￥{{ localOrder.pointsDeductPrice }}
+                </text>
               </text>
-            </text>
-            <!-- 混合单：活动商品不参与积分抵扣，最多可抵按可叠部分计算 -->
-            <text v-if="pointsPartialStack" class="text-22rpx color-[#909090]">
-              活动商品不参与积分抵扣
-            </text>
+              <!-- 混合单：活动/黑名单商品不参与积分抵扣，最多可抵按可叠部分计算 -->
+              <text v-if="pointsPartialStack" class="text-22rpx color-[#909090]">
+                部分商品不参与积分抵扣
+              </text>
+            </template>
           </view>
-          <wd-switch :model-value="pointsEnabled" size="36rpx" @change="onPointsChange" />
+          <wd-switch v-if="!pointsBlockReason" :model-value="pointsEnabled" size="36rpx" @change="onPointsChange" />
         </view>
         <view class="flex items-center justify-end pb-20rpx">
           <wd-text size="22rpx" color="#909090" :text="`共${localOrder.orderItemList.length}件`" />

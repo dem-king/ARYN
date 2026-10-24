@@ -1337,10 +1337,17 @@ describe('装修预览与小程序视觉一致性', () => {
       'utf8',
     );
     const mobilePreview = readMobile('diy-activity-strip');
-    const mobileLogic = readFileSync(
-      resolve(mobileDiyRoot, 'diy-activity-strip/activity-strip.ts'),
-      'utf8',
-    );
+    // 折扣力度/省额口径已抽到 utils/discount-price.ts（带独立单测），契约跟随实现位置
+    const mobileLogic = [
+      readFileSync(
+        resolve(mobileDiyRoot, 'diy-activity-strip/activity-strip.ts'),
+        'utf8',
+      ),
+      readFileSync(
+        resolve(mobileDiyRoot, '../../utils/discount-price.ts'),
+        'utf8',
+      ),
+    ].join('\n');
     const mobileTypes = readFileSync(
       resolve(mobileDiyRoot, 'retail-types.ts'),
       'utf8',

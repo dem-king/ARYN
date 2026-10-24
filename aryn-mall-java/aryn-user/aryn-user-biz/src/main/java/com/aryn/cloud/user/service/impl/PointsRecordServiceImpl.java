@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
+import com.aryn.cloud.user.api.entity.PointsGlobalConfig;
 import com.aryn.cloud.user.api.entity.PointsRecord;
 import com.aryn.cloud.user.api.entity.UserInfo;
 import com.aryn.cloud.user.api.enums.PointsSceneEnum;
@@ -12,17 +13,23 @@ import com.aryn.cloud.user.api.vo.PointsRecordVO;
 import com.aryn.cloud.user.mapper.PointsRecordMapper;
 import com.aryn.cloud.user.mapper.UserInfoMapper;
 import com.aryn.cloud.user.service.IMemberLevelService;
+import com.aryn.cloud.user.service.IPointsGlobalConfigService;
 import com.aryn.cloud.user.service.IPointsRecordService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
+
+import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 积分记录
  *
  * @author 雨滴kian
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class PointsRecordServiceImpl extends ServiceImpl<PointsRecordMapper, PointsRecord>
@@ -31,6 +38,8 @@ public class PointsRecordServiceImpl extends ServiceImpl<PointsRecordMapper, Poi
 	private final UserInfoMapper userInfoMapper;
 
 	private final IMemberLevelService memberLevelService;
+
+	private final IPointsGlobalConfigService pointsGlobalConfigService;
 
 	@Override
 	public IPage<PointsRecordVO> getPage(Page page, String nickname, String changeType, String beginTime,
@@ -104,10 +113,76 @@ public class PointsRecordServiceImpl extends ServiceImpl<PointsRecordMapper, Poi
 		record.setTriggerScene(triggerScene);
 		record.setRemark(remark);
 		record.setBizNo(bizNo);
+		if ("1".equals(changeType)) {
+			// 发放/返还类流水按批次记账：expire_time + remain_point 供 FIFO 消耗与到期清零
+			record.setExpireTime(resolveExpireTime());
+			record.setRemainPoint(changePoint);
+		}
+		else {
+			allocateConsumeRemain(userId, changePoint);
+		}
 		this.save(record);
 
 		if ("1".equals(changeType) && !refundScene) {
 			memberLevelService.recalculateLevel(userId);
+		}
+	}
+
+	/**
+	 * 消耗时按「最早到期优先、永不过期批次垫底」扣减各发放批次的剩余量（FIFO）。
+	 *
+	 * <p>用户行锁（selectPointForUpdate）已串行化同用户积分变动，批次扣减按
+	 * 条件 UPDATE 原子递减即可；批次剩余量不足时不阻断主流程（余额已够），
+	 * 只记告警——存量未回填/历史账实漂移时消耗侧以余额为准，记账尽力而为。
+	 */
+	private void allocateConsumeRemain(String userId, int changePoint) {
+		int remaining = changePoint;
+		List<PointsRecord> batches = this.list(Wrappers.<PointsRecord>lambdaQuery()
+			.select(PointsRecord::getId, PointsRecord::getRemainPoint)
+			.eq(PointsRecord::getUserId, userId)
+			.gt(PointsRecord::getRemainPoint, 0)
+			.and(wrapper -> wrapper.isNull(PointsRecord::getExpireTime)
+				.or()
+				.gt(PointsRecord::getExpireTime, LocalDateTime.now()))
+			// MySQL ASC 排序 NULL 在前，须显式把「永不过期」批次排到最后
+			.last("ORDER BY expire_time IS NULL, expire_time ASC, create_time ASC, id ASC"));
+		for (PointsRecord batch : batches) {
+			if (remaining <= 0) {
+				return;
+			}
+			int take = Math.min(remaining, batch.getRemainPoint() == null ? 0 : batch.getRemainPoint());
+			if (take <= 0) {
+				continue;
+			}
+			boolean decreased = this.update(Wrappers.<PointsRecord>lambdaUpdate()
+				.eq(PointsRecord::getId, batch.getId())
+				.ge(PointsRecord::getRemainPoint, take)
+				.setSql("remain_point = remain_point - " + take));
+			if (decreased) {
+				remaining -= take;
+			}
+		}
+		if (remaining > 0) {
+			log.warn("积分批次剩余量不足以覆盖消耗 userId={} 缺口={}（存量未回填或账实漂移，按余额口径放行）", userId,
+					remaining);
+		}
+	}
+
+	/**
+	 * 新发放批次的有效期：配置 0 或缺省异常时视为永不过期（expire_time 置 NULL）。
+	 */
+	private LocalDateTime resolveExpireTime() {
+		try {
+			PointsGlobalConfig config = pointsGlobalConfigService.getEffectiveConfig();
+			Integer days = config == null ? null : config.getValidityDays();
+			if (days == null || days <= 0) {
+				return null;
+			}
+			return LocalDateTime.now().plusDays(days);
+		}
+		catch (Exception e) {
+			log.warn("读取积分有效期配置失败，本批次按永不过期记账", e);
+			return null;
 		}
 	}
 

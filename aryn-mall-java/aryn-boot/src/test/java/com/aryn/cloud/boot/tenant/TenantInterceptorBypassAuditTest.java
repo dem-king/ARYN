@@ -30,6 +30,10 @@ class TenantInterceptorBypassAuditTest {
 			"aryn-upms/aryn-upms-biz/src/main/java/com/aryn/cloud/upms/mapper/SysUserMapper.java#selectCount",
 			"aryn-upms/aryn-upms-biz/src/main/java/com/aryn/cloud/upms/mapper/SysUserMapper.java#selectUserByName",
 			"aryn-upms/aryn-upms-biz/src/main/java/com/aryn/cloud/upms/mapper/SysUserMapper.java#selectUserByPhone",
+			// JSON_TABLE 手写 SQL 打挂租户拦截器（2026-10-11）：selectCatalogPage/selectSuggestNames
+			// 显式过滤 tenant_id 并经多租户 curl 验证隔离，属已审计旁路
+			"aryn-product/aryn-product-biz/src/main/java/com/aryn/cloud/product/mapper/GoodsSpuMapper.java#selectCatalogPage",
+			"aryn-product/aryn-product-biz/src/main/java/com/aryn/cloud/product/mapper/GoodsSpuMapper.java#selectSuggestNames",
 			"aryn-user/aryn-user-biz/src/main/java/com/aryn/cloud/user/mapper/SocialAccountMapper.java#selectByAppId",
 			"aryn-user/aryn-user-biz/src/main/java/com/aryn/cloud/user/mapper/SocialAccountMapper.java#selectValidWxMaByAppId",
 			"aryn-user/aryn-user-biz/src/main/java/com/aryn/cloud/user/mapper/SocialAccountMapper.java#countValidWxMaByAppIdExcluding",

@@ -3,11 +3,15 @@ package com.aryn.cloud.user.service.impl;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.user.api.entity.PointsConfig;
+import com.aryn.cloud.user.api.entity.PointsExclude;
+import com.aryn.cloud.user.api.entity.PointsGlobalConfig;
 import com.aryn.cloud.user.api.entity.UserInfo;
 import com.aryn.cloud.user.api.enums.PointsSceneEnum;
 import com.aryn.cloud.user.api.vo.PointsDeductContextVO;
 import com.aryn.cloud.user.mapper.UserInfoMapper;
 import com.aryn.cloud.user.service.IPointsConfigService;
+import com.aryn.cloud.user.service.IPointsExcludeService;
+import com.aryn.cloud.user.service.IPointsGlobalConfigService;
 import com.aryn.cloud.user.service.IPointsGrantService;
 import com.aryn.cloud.user.service.IPointsRecordService;
 import lombok.RequiredArgsConstructor;
@@ -16,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * 积分统一发放/抵扣服务。
@@ -34,6 +39,10 @@ public class PointsGrantServiceImpl implements IPointsGrantService {
 	private final IPointsRecordService pointsRecordService;
 
 	private final UserInfoMapper userInfoMapper;
+
+	private final IPointsGlobalConfigService pointsGlobalConfigService;
+
+	private final IPointsExcludeService pointsExcludeService;
 
 	@Override
 	public int grant(String userId, PointsSceneEnum scene, String bizNo, Integer overridePoints, String remark) {
@@ -100,7 +109,40 @@ public class PointsGrantServiceImpl implements IPointsGrantService {
 		}
 		context.setEnabled(true);
 		context.setPointsPerYuan(enabled.getPointValue());
+		fillRiskControlConfig(context);
 		return context;
+	}
+
+	/**
+	 * 抵扣风控配置（比例/门槛/封顶）与品类黑名单一并随上下文下发，
+	 * 订单域只做一次远程调用即可完成过滤，避免黑名单走第二条 RPC 链路。
+	 */
+	private void fillRiskControlConfig(PointsDeductContextVO context) {
+		try {
+			PointsGlobalConfig global = pointsGlobalConfigService.getEffectiveConfig();
+			if (global != null) {
+				context.setDeductMaxRatio(global.getDeductMaxRatio());
+				context.setMinUseAmount(global.getMinUseAmount());
+				context.setMaxDeductAmount(global.getMaxDeductAmount());
+			}
+			List<PointsExclude> excludes = pointsExcludeService.listAll();
+			if (excludes != null && !excludes.isEmpty()) {
+				context.setExcludeCategoryIds(excludes.stream()
+					.filter(rule -> PointsExclude.TYPE_CATEGORY.equals(rule.getTargetType()))
+					.map(PointsExclude::getTargetId)
+					.filter(Objects::nonNull)
+					.toList());
+				context.setExcludeSpuIds(excludes.stream()
+					.filter(rule -> PointsExclude.TYPE_GOODS.equals(rule.getTargetType()))
+					.map(PointsExclude::getTargetId)
+					.filter(Objects::nonNull)
+					.toList());
+			}
+		}
+		catch (Exception e) {
+			// 风控配置读取失败按缺省（20%/无门槛/不封顶/无黑名单）继续，不阻断下单
+			log.error("读取积分风控配置失败，按默认规则继续", e);
+		}
 	}
 
 	@Override

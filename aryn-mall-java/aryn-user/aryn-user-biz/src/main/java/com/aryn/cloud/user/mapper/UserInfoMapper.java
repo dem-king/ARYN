@@ -72,6 +72,16 @@ public interface UserInfoMapper extends BaseMapper<UserInfo> {
 	int consumePoints(@Param("userId") String userId, @Param("changePoint") Integer changePoint);
 
 	/**
+	 * 积分过期清零：余额侧按到期剩余量扣减，地板 0 防御历史账实漂移把余额扣负。
+	 */
+	@Update("""
+			UPDATE user_info
+			SET point = GREATEST(COALESCE(point, 0) - #{changePoint}, 0)
+			WHERE id = #{userId} AND del_flag = '0'
+			""")
+	int expirePoints(@Param("userId") String userId, @Param("changePoint") Integer changePoint);
+
+	/**
 	 * 锁定用户积分行，保证并发积分流水中的 balance_after 与最终余额一致。
 	 */
 	@Select("""

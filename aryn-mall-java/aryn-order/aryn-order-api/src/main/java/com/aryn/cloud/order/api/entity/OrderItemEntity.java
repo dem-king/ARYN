@@ -76,6 +76,9 @@ public class OrderItemEntity extends Model<OrderItemEntity> {
 	@Schema(description = "积分抵扣分摊金额（元）")
 	private BigDecimal pointsPrice;
 
+	@Schema(description = "积分排除标记：1=命中积分黑名单（品类/商品），不参与积分抵扣与返积分")
+	private String pointsExcluded;
+
 	@Schema(description = "支付金额（总金额-优惠券优惠金额+运费 = 支付金额）")
 	private BigDecimal paymentPrice;
 

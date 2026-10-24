@@ -1,6 +1,38 @@
 import { requestClient } from '#/api/request';
 
 /**
+ * 积分全局规则（每租户一行，抵扣风控四参数）。
+ *
+ * 后端口径：deductMaxRatio 为百分数（20 表示 20%，区间 (0,100]，必填）；
+ * validityDays 取值 0-3650（0 表示永不过期）；minUseAmount/maxDeductAmount
+ * 单位为元，0 表示不限制。空值提交时统一转 0。
+ */
+export interface PointsGlobalConfig {
+  id?: string;
+  /** 积分有效天数，0=永不过期 */
+  validityDays?: null | number;
+  /** 单笔抵扣上限比例（百分数，20 表示 20%） */
+  deductMaxRatio?: null | number;
+  /** 最低使用门槛（元），0=无门槛 */
+  minUseAmount?: null | number;
+  /** 单笔抵扣金额封顶（元），0=不封顶 */
+  maxDeductAmount?: null | number;
+}
+
+/**
+ * 积分排除清单项：命中类目/商品不参与积分抵扣与返积分（黑名单）。
+ */
+export interface PointsExclude {
+  id?: string;
+  /** 排除类型：1-类目；2-商品（SPU） */
+  targetType: string;
+  /** 类目ID / 商品（SPU）ID */
+  targetId: string;
+  /** 名称快照（展示用，必填便于运营辨认） */
+  targetName: string;
+}
+
+/**
  * 获取积分配置分页
  */
 export async function getPage(query: any) {
@@ -33,4 +65,43 @@ export async function editObj(data: any) {
  */
 export async function delObj(id: string) {
   return requestClient.delete(`/mall-user/pointsconfig/${id}`);
+}
+
+/**
+ * 获取积分全局规则（有效期/抵扣上限/门槛/封顶）
+ */
+export async function getGlobalConfig() {
+  return requestClient.get<PointsGlobalConfig>(
+    '/mall-user/pointsconfig/global',
+  );
+}
+
+/**
+ * 保存积分全局规则（每租户一行）
+ */
+export async function saveGlobalConfig(data: PointsGlobalConfig) {
+  return requestClient.put<boolean>('/mall-user/pointsconfig/global', data);
+}
+
+/**
+ * 获取积分排除清单
+ */
+export async function listExclude() {
+  return requestClient.get<PointsExclude[]>(
+    '/mall-user/pointsconfig/exclude/list',
+  );
+}
+
+/**
+ * 新增积分排除规则
+ */
+export async function addExclude(data: PointsExclude) {
+  return requestClient.post<boolean>('/mall-user/pointsconfig/exclude', data);
+}
+
+/**
+ * 移除积分排除规则
+ */
+export async function delExclude(id: string) {
+  return requestClient.delete<boolean>(`/mall-user/pointsconfig/exclude/${id}`);
 }

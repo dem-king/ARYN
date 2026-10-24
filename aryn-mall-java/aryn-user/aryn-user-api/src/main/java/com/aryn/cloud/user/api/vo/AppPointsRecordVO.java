@@ -41,6 +41,9 @@ public class AppPointsRecordVO implements Serializable {
 	@Schema(description = "创建时间")
 	private LocalDateTime createTime;
 
+	@Schema(description = "过期时间（仅获取类流水；NULL=永不过期）")
+	private LocalDateTime expireTime;
+
 	public static AppPointsRecordVO from(PointsRecordVO source) {
 		AppPointsRecordVO vo = new AppPointsRecordVO();
 		vo.setId(source.getId());
@@ -50,6 +53,7 @@ public class AppPointsRecordVO implements Serializable {
 		vo.setTriggerScene(source.getTriggerScene());
 		vo.setRemark(source.getRemark());
 		vo.setCreateTime(source.getCreateTime());
+		vo.setExpireTime(source.getExpireTime());
 		return vo;
 	}
 

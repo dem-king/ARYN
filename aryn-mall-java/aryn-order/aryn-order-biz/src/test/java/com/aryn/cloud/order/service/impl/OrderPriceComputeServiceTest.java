@@ -77,8 +77,10 @@ class OrderPriceComputeServiceTest {
 	@Test
 	void memberDiscountSkipsActivityPricedItems() {
 		OrderInfo order = new OrderInfo();
-		OrderItemEntity normal = item("100.00").setSkuId("sku-normal").setSalesPrice(new BigDecimal("100.00"));
-		OrderItemEntity seckill = item("100.00").setSkuId("sku-seckill").setSalesPrice(new BigDecimal("100.00"));
+		OrderItemEntity normal = item("100.00").setSkuId("sku-normal").setSalesPrice(new BigDecimal("100.00"))
+				.setBuyQuantity(1);
+		OrderItemEntity seckill = item("100.00").setSkuId("sku-seckill").setSalesPrice(new BigDecimal("100.00"))
+				.setBuyQuantity(1);
 		SeckillPriceContextVO context = new SeckillPriceContextVO();
 		context.setSkuId("sku-seckill");
 		context.setActivityId("seckill-1");
@@ -891,6 +893,154 @@ class OrderPriceComputeServiceTest {
 			.satisfies(exception -> assertThat(
 					((com.aryn.cloud.common.security.handler.ArynBusinessException) exception).getMsg())
 				.contains("船供采购订单不支持积分抵现"));
+	}
+
+
+	// ==================== 积分风控四参数（P0 止血） ====================
+
+	/**
+	 * 抵扣上限比例可配：用户域下发 10% 时，100 元基数最多抵 10 元 = 1000 分。
+	 */
+	@Test
+	void pointsDeductUsesConfigurableMaxRatio() {
+		OrderInfo order = new OrderInfo();
+		OrderItemEntity orderItem = item("100.00").setSpuId("spu-1");
+		PointsDeductContextVO context = pointsContext(5000, 100);
+		context.setDeductMaxRatio(new BigDecimal("10.00"));
+
+		service.orderPointsDeductHandler(order, List.of(orderItem), 5000, true, context, false, null, null);
+
+		assertThat(order.getPointsDeductMax()).isEqualTo(1000);
+		assertThat(order.getPointsDeductMaxPrice()).isEqualByComparingTo("10.00");
+		assertThat(order.getPointsUsed()).isEqualTo(1000);
+		assertThat(order.getPointsDeductPrice()).isEqualByComparingTo("10.00");
+	}
+
+	/**
+	 * 非法比例（0 / 负数 / >100）回退代码常量 20%：配置脏数据不放大抵扣。
+	 */
+	@Test
+	void pointsDeductFallsBackToDefaultRatioOnInvalidConfig() {
+		OrderInfo order = new OrderInfo();
+		OrderItemEntity orderItem = item("100.00").setSpuId("spu-1");
+		PointsDeductContextVO context = pointsContext(5000, 100);
+		context.setDeductMaxRatio(new BigDecimal("120.00"));
+
+		service.orderPointsDeductHandler(order, List.of(orderItem), 5000, true, context, false, null, null);
+
+		assertThat(order.getPointsUsed()).isEqualTo(2000);
+	}
+
+	/**
+	 * 最低使用门槛：可抵基数不满门槛时整单不可用积分，结算页展示原因，
+	 * 提交侧显式请求积分直接拒绝。
+	 */
+	@Test
+	void pointsDeductBlockedByMinUseAmount() {
+		OrderInfo settlement = new OrderInfo();
+		OrderItemEntity settlementItem = item("8.00").setSpuId("spu-1");
+		PointsDeductContextVO context = pointsContext(5000, 100);
+		context.setMinUseAmount(new BigDecimal("10"));
+
+		service.orderPointsDeductHandler(settlement, List.of(settlementItem), null, true, context, false, null, null);
+		assertThat(settlement.getPointsDeductMax()).isZero();
+		assertThat(settlement.getPointsStackReason()).isEqualTo("满10元可用积分抵扣");
+
+		OrderInfo submit = new OrderInfo();
+		OrderItemEntity submitItem = item("8.00").setSpuId("spu-1");
+		org.assertj.core.api.Assertions
+			.assertThatThrownBy(() -> service.orderPointsDeductHandler(submit, List.of(submitItem), 100, false,
+					context, true, null, null))
+			.isInstanceOf(com.aryn.cloud.common.security.handler.ArynBusinessException.class)
+			.satisfies(exception -> assertThat(
+					((com.aryn.cloud.common.security.handler.ArynBusinessException) exception).getMsg())
+				.contains("暂不可使用积分"));
+	}
+
+	/**
+	 * 单笔金额封顶：比例算出的额度超过硬封顶时按封顶收敛（永辉式 5 元封顶口径）。
+	 */
+	@Test
+	void pointsDeductCappedByHardAmount() {
+		OrderInfo order = new OrderInfo();
+		OrderItemEntity orderItem = item("100.00").setSpuId("spu-1");
+		PointsDeductContextVO context = pointsContext(50000, 100);
+		context.setMaxDeductAmount(new BigDecimal("5.00"));
+
+		service.orderPointsDeductHandler(order, List.of(orderItem), 50000, true, context, false, null, null);
+
+		assertThat(order.getPointsDeductMax()).isEqualTo(500);
+		assertThat(order.getPointsDeductPrice()).isEqualByComparingTo("5.00");
+	}
+
+	/**
+	 * 品类黑名单：命中 SPU 被剔出抵扣基数（不参与分摊、标记 points_excluded=1），
+	 * 混合单上限只按未命中部分计算。
+	 */
+	@Test
+	void pointsDeductExcludesBlacklistedSpu() {
+		OrderInfo order = new OrderInfo();
+		OrderItemEntity normal = item("100.00").setSpuId("spu-normal").setSkuId("sku-normal");
+		OrderItemEntity blacklisted = item("100.00").setSpuId("spu-black").setSkuId("sku-black");
+
+		service.orderPointsDeductHandler(order, List.of(normal, blacklisted), 5000, true, pointsContext(5000, 100),
+				false, null, java.util.Set.of("spu-black"));
+
+		assertThat(order.getPointsEligibleAmount()).isEqualByComparingTo("100.00");
+		// 基数 100 元 × 默认 20% = 20 元 = 2000 分，全部落在未命中明细上
+		assertThat(order.getPointsDeductMax()).isEqualTo(2000);
+		assertThat(blacklisted.getPointsExcluded()).isEqualTo("1");
+		assertThat(normal.getPointsExcluded()).isEqualTo("0");
+		assertThat(blacklisted.getPointsPrice()).isEqualByComparingTo("0.00");
+		assertThat(normal.getPointsPrice()).isEqualByComparingTo("20.00");
+	}
+
+	/**
+	 * 整单命中黑名单：与活动不可叠同口径，额度归零 + 原因文案，显式请求拒绝 60068。
+	 */
+	@Test
+	void pointsDeductAllBlacklistedMarksReason() {
+		OrderInfo settlement = new OrderInfo();
+		OrderItemEntity settlementItem = item("100.00").setSpuId("spu-black");
+
+		service.orderPointsDeductHandler(settlement, List.of(settlementItem), null, true, pointsContext(5000, 100),
+				false, null, java.util.Set.of("spu-black"));
+		assertThat(settlement.getPointsDeductMax()).isZero();
+		assertThat(settlement.getPointsStackReason()).isEqualTo("本单商品不参与积分抵扣");
+
+		OrderInfo submit = new OrderInfo();
+		OrderItemEntity submitItem = item("100.00").setSpuId("spu-black");
+		org.assertj.core.api.Assertions
+			.assertThatThrownBy(() -> service.orderPointsDeductHandler(submit, List.of(submitItem), 100, false,
+					pointsContext(5000, 100), true, null, java.util.Set.of("spu-black")))
+			.isInstanceOf(com.aryn.cloud.common.security.handler.ArynBusinessException.class);
+	}
+
+	/**
+	 * 黑名单 SPU 解析：商品黑名单直命中，类目黑名单匹配一级/二级类目。
+	 */
+	@Test
+	void resolvePointsExcludedSpuIdsMatchesGoodsAndCategory() {
+		GoodsSpu spuGoods = new GoodsSpu();
+		spuGoods.setId("spu-1");
+		GoodsSku skuGoods = new GoodsSku();
+		skuGoods.setId("sku-1");
+		skuGoods.setGoodsSpu(spuGoods);
+
+		GoodsSpu spuCategory = new GoodsSpu();
+		spuCategory.setId("spu-2");
+		spuCategory.setCategorySecondId("cat-2");
+		GoodsSku skuCategory = new GoodsSku();
+		skuCategory.setId("sku-2");
+		skuCategory.setGoodsSpu(spuCategory);
+
+		PointsDeductContextVO context = pointsContext(1000, 100);
+		context.setExcludeSpuIds(List.of("spu-1"));
+		context.setExcludeCategoryIds(List.of("cat-2"));
+
+		java.util.Set<String> excluded = service.resolvePointsExcludedSpuIds(List.of(skuGoods, skuCategory), context);
+
+		assertThat(excluded).containsExactlyInAnyOrder("spu-1", "spu-2");
 	}
 
 	private PointsDeductContextVO pointsContext(int availablePoints, int pointsPerYuan) {

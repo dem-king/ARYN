@@ -2,12 +2,18 @@ package com.aryn.cloud.user.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.aryn.cloud.user.api.entity.PointsConfig;
+import com.aryn.cloud.user.api.entity.PointsExclude;
+import com.aryn.cloud.user.api.entity.PointsGlobalConfig;
 import com.aryn.cloud.user.api.entity.UserInfo;
 import com.aryn.cloud.user.api.enums.PointsSceneEnum;
 import com.aryn.cloud.user.api.vo.PointsDeductContextVO;
 import com.aryn.cloud.user.mapper.UserInfoMapper;
 import com.aryn.cloud.user.service.IPointsConfigService;
+import com.aryn.cloud.user.service.IPointsExcludeService;
+import com.aryn.cloud.user.service.IPointsGlobalConfigService;
 import com.aryn.cloud.user.service.IPointsRecordService;
+
+import java.math.BigDecimal;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -32,12 +38,57 @@ class PointsGrantServiceImplTest {
 	@Mock private IPointsConfigService pointsConfigService;
 	@Mock private IPointsRecordService pointsRecordService;
 	@Mock private UserInfoMapper userInfoMapper;
+	@Mock private IPointsGlobalConfigService pointsGlobalConfigService;
+	@Mock private IPointsExcludeService pointsExcludeService;
 
 	private PointsGrantServiceImpl service;
 
 	@BeforeEach
 	void setUp() {
-		service = new PointsGrantServiceImpl(pointsConfigService, pointsRecordService, userInfoMapper);
+		service = new PointsGrantServiceImpl(pointsConfigService, pointsRecordService, userInfoMapper,
+				pointsGlobalConfigService, pointsExcludeService);
+	}
+
+	/**
+	 * 抵扣上下文携带风控四参数与品类黑名单：订单域一次 RPC 拿全，
+	 * 风控配置读取失败时按缺省继续（不阻断下单）。
+	 */
+	@Test
+	void deductContextCarriesRiskControlConfigAndExclusions() {
+		stubRules(List.of(rule("ORDER_DEDUCT", "2", 100, "0")));
+		when(userInfoMapper.selectById("user-1")).thenReturn(new UserInfo().setId("user-1").setPoint(5000));
+		PointsGlobalConfig global = new PointsGlobalConfig().setValidityDays(365)
+				.setDeductMaxRatio(new BigDecimal("10.00"))
+				.setMinUseAmount(new BigDecimal("10"))
+				.setMaxDeductAmount(new BigDecimal("5.00"));
+		when(pointsGlobalConfigService.getEffectiveConfig()).thenReturn(global);
+		when(pointsExcludeService.listAll()).thenReturn(List.of(
+				new PointsExclude().setTargetType(PointsExclude.TYPE_CATEGORY).setTargetId("cat-1"),
+				new PointsExclude().setTargetType(PointsExclude.TYPE_GOODS).setTargetId("spu-1")));
+
+		PointsDeductContextVO context = service.getDeductContext("user-1");
+
+		assertThat(context.isEnabled()).isTrue();
+		assertThat(context.getAvailablePoints()).isEqualTo(5000);
+		assertThat(context.getPointsPerYuan()).isEqualTo(100);
+		assertThat(context.getDeductMaxRatio()).isEqualByComparingTo("10.00");
+		assertThat(context.getMinUseAmount()).isEqualByComparingTo("10");
+		assertThat(context.getMaxDeductAmount()).isEqualByComparingTo("5.00");
+		assertThat(context.getExcludeCategoryIds()).containsExactly("cat-1");
+		assertThat(context.getExcludeSpuIds()).containsExactly("spu-1");
+	}
+
+	@Test
+	void deductContextKeepsWorkingWhenRiskControlConfigFails() {
+		stubRules(List.of(rule("ORDER_DEDUCT", "2", 100, "0")));
+		when(userInfoMapper.selectById("user-1")).thenReturn(new UserInfo().setId("user-1").setPoint(5000));
+		when(pointsGlobalConfigService.getEffectiveConfig()).thenThrow(new IllegalStateException("配置库不可用"));
+
+		PointsDeductContextVO context = service.getDeductContext("user-1");
+
+		assertThat(context.isEnabled()).isTrue();
+		assertThat(context.getDeductMaxRatio()).isNull();
+		assertThat(context.getExcludeCategoryIds()).isNull();
 	}
 
 	@Test

@@ -505,7 +505,17 @@ public class OrderPriceComputeService {
 	 */
 	public void fillStackPolicyDisplay(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
 			PromotionPricePlan plan) {
+		fillStackPolicyDisplay(orderInfo, orderItemEntityList, plan, null);
+	}
+
+	/**
+	 * 结算页叠加策略展示回填（带积分黑名单）：黑名单明细的 {@code pointsStackable}
+	 * 置 false，确认页据此提示「部分商品不参与积分抵扣」（活动不可叠与黑名单同口径展示）。
+	 */
+	public void fillStackPolicyDisplay(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
+			PromotionPricePlan plan, Set<String> pointsExcludedSpuIds) {
 		BigDecimal couponEligibleAmount = BigDecimal.ZERO;
+		Set<String> excludedSpus = pointsExcludedSpuIds == null ? Set.of() : pointsExcludedSpuIds;
 		for (OrderItemEntity item : orderItemEntityList) {
 			PromotionPricePlan.ActivityPriceHit hit = plan == null ? null : plan.hit(item.getSkuId());
 			if (hit != null) {
@@ -519,6 +529,9 @@ public class OrderPriceComputeService {
 				item.setActivityId(null);
 				item.setCouponStackable(null);
 				item.setPointsStackable(null);
+			}
+			if (item.getSpuId() != null && excludedSpus.contains(item.getSpuId())) {
+				item.setPointsStackable(Boolean.FALSE);
 			}
 			if (plan == null || plan.couponStackable(item.getSkuId())) {
 				couponEligibleAmount = couponEligibleAmount.add(discountedGoodsPrice(item));
@@ -562,29 +575,45 @@ public class OrderPriceComputeService {
 	 */
 	public void orderPointsDeductHandler(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
 			Integer requestedPoints, boolean useMaxPoints, PointsDeductContextVO context, boolean strict) {
-		orderPointsDeductHandler(orderInfo, orderItemEntityList, requestedPoints, useMaxPoints, context, strict, null);
+		orderPointsDeductHandler(orderInfo, orderItemEntityList, requestedPoints, useMaxPoints, context, strict, null,
+				null);
 	}
 
 	/**
 	 * 积分抵现（带叠加策略）：在运费计算完成、应付金额校验之前调用。
 	 *
-	 * <p>抵扣基数与分摊范围只统计「允许积分」的明细（秒杀/新人价等强制不可叠）；
-	 * 20% 上限按该基数计算，确认页 {@code pointsDeductMax} 随之收敛，开关行自然隐藏。
+	 * <p>抵扣基数与分摊范围只统计「允许积分」的明细（秒杀/新人价等强制不可叠，
+	 * 以及 {@code pointsExcludedSpuIds} 命中积分黑名单的品类/商品）；
+	 * 上限按用户域下发的可配比例（缺省 20%）计算，叠加「最低使用门槛」与
+	 * 「单笔金额封顶」双重风控（京东 &gt;500 豆起用、永辉单笔 5 元封顶口径）。
 	 * eligible 为空时：结算（strict=false）返回 0 额度并记录 {@code pointsStackReason}；
 	 * 提交（strict=true）且用户显式请求积分则直接拒绝 60068。
 	 *
 	 * @param plan   活动价计划（null 时所有明细视为可叠，等同现网行为）
 	 * @param strict 下单时传 true：请求额度与可用额度不一致直接拒绝，避免用户确认金额与实际扣款不一致
+	 * @param pointsExcludedSpuIds 积分黑名单命中的 SPU 集合（null 视为无黑名单）
 	 */
 	public void orderPointsDeductHandler(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
 			Integer requestedPoints, boolean useMaxPoints, PointsDeductContextVO context, boolean strict,
 			PromotionPricePlan plan) {
+		orderPointsDeductHandler(orderInfo, orderItemEntityList, requestedPoints, useMaxPoints, context, strict, plan,
+				null);
+	}
+
+	/**
+	 * 积分抵现（完整参数）：黑名单明细被打上 {@code points_excluded=1} 落库，
+	 * 供订单完成返积分按明细剔除黑名单基数（发放侧排除）。
+	 */
+	public void orderPointsDeductHandler(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
+			Integer requestedPoints, boolean useMaxPoints, PointsDeductContextVO context, boolean strict,
+			PromotionPricePlan plan, Set<String> pointsExcludedSpuIds) {
 		clearPointsDeduct(orderInfo, orderItemEntityList);
 		computeOrderPrice(orderInfo, orderItemEntityList);
 		orderInfo.setPointsStackReason(null);
+		markPointsExcluded(orderItemEntityList, pointsExcludedSpuIds);
 
 		// 非个人购买不参与积分抵现（仅显式声明场景时拦截，历史空场景仍按个人购买处理）：
-		// 船供采购（2）与企业采购（3）都是 B 端成本价，叠加积分会侵蚀毛利并污染对账口径
+		// 船供采购（2）与企业采购（3）都是 B 端成本价，叠加积分会侵蚀毛利并污染船供对账口径
 		boolean personalPurchase = PurchaseSceneEnum.PERSONAL.getCode().equals(orderInfo.getPurchaseScene())
 				|| !StringUtils.hasText(orderInfo.getPurchaseScene());
 		if (!personalPurchase) {
@@ -600,17 +629,18 @@ public class OrderPriceComputeService {
 			return;
 		}
 
-		// 叠加策略：积分只作用于允许积分的明细
-		List<OrderItemEntity> pointsEligibleItems = plan == null ? orderItemEntityList
-				: orderItemEntityList.stream()
-					.filter(item -> plan.pointsStackable(item.getSkuId()))
-					.collect(Collectors.toList());
+		// 叠加策略 + 品类黑名单：积分只作用于允许积分且未命中黑名单的明细
+		Set<String> excludedSpus = pointsExcludedSpuIds == null ? Set.of() : pointsExcludedSpuIds;
+		List<OrderItemEntity> pointsEligibleItems = orderItemEntityList.stream()
+			.filter(item -> item.getSpuId() == null || !excludedSpus.contains(item.getSpuId()))
+			.filter(item -> plan == null || plan.pointsStackable(item.getSkuId()))
+			.collect(Collectors.toList());
 		if (pointsEligibleItems.isEmpty()) {
 			orderInfo.setPointsDeductRate(0);
 			orderInfo.setPointsDeductMax(0);
 			orderInfo.setPointsDeductMaxPrice(BigDecimal.ZERO);
 			orderInfo.setPointsEligibleAmount(BigDecimal.ZERO);
-			orderInfo.setPointsStackReason("本单商品不支持积分抵现");
+			orderInfo.setPointsStackReason(excludedSpus.isEmpty() ? "本单商品不支持积分抵现" : "本单商品不参与积分抵扣");
 			int requested = useMaxPoints ? 0 : (requestedPoints == null ? 0 : Math.max(requestedPoints, 0));
 			if (strict && requested > 0) {
 				throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60068.getCode(),
@@ -626,8 +656,31 @@ public class OrderPriceComputeService {
 		BigDecimal goodsPayable = pointsEligibleItems.stream()
 			.map(this::itemGoodsPayable)
 			.reduce(BigDecimal.ZERO, BigDecimal::add);
-		BigDecimal maxDeductAmount = goodsPayable.multiply(MallOrderConstants.POINTS_DEDUCT_MAX_RATIO)
-			.setScale(2, RoundingMode.DOWN);
+
+		// 最低使用门槛：可抵基数不达标时整单不可用积分（缺省无门槛，保持现网行为）
+		BigDecimal minUseAmount = context == null || context.getMinUseAmount() == null ? BigDecimal.ZERO
+				: context.getMinUseAmount().max(BigDecimal.ZERO);
+		if (minUseAmount.compareTo(BigDecimal.ZERO) > 0 && goodsPayable.compareTo(minUseAmount) < 0) {
+			orderInfo.setPointsDeductRate(rate);
+			orderInfo.setPointsDeductMax(0);
+			orderInfo.setPointsDeductMaxPrice(BigDecimal.ZERO);
+			orderInfo.setPointsEligibleAmount(goodsPayable);
+			orderInfo.setPointsStackReason("满" + stripTrailingZeros(minUseAmount) + "元可用积分抵扣");
+			int requested = useMaxPoints ? 0 : (requestedPoints == null ? 0 : Math.max(requestedPoints, 0));
+			if (strict && requested > 0) {
+				throw new ArynBusinessException("订单不满" + stripTrailingZeros(minUseAmount) + "元，暂不可使用积分");
+			}
+			return;
+		}
+
+		// 抵扣上限：比例（用户域可配，缺省 20%）与单笔金额封顶取小（永辉式硬封顶口径）
+		BigDecimal maxRatio = resolveDeductMaxRatio(context);
+		BigDecimal maxDeductAmount = goodsPayable.multiply(maxRatio).setScale(2, RoundingMode.DOWN);
+		BigDecimal hardCap = context == null || context.getMaxDeductAmount() == null ? BigDecimal.ZERO
+				: context.getMaxDeductAmount().max(BigDecimal.ZERO);
+		if (hardCap.compareTo(BigDecimal.ZERO) > 0 && maxDeductAmount.compareTo(hardCap) > 0) {
+			maxDeductAmount = hardCap;
+		}
 		int maxPointsByCap = maxDeductAmount.multiply(BigDecimal.valueOf(rate))
 			.setScale(0, RoundingMode.DOWN)
 			.intValue();
@@ -666,6 +719,73 @@ public class OrderPriceComputeService {
 		orderInfo.setPointsUsed(actualPoints).setPointsDeductPrice(deductAmount);
 		allocatePointsDeduct(pointsEligibleItems, deductAmount);
 		computeOrderPrice(orderInfo, orderItemEntityList);
+	}
+
+	/**
+	 * 把积分黑名单命中结果落到明细（{@code points_excluded}），下单落库后供
+	 * 订单完成返积分剔除黑名单基数；结算页仅回显，不落库。
+	 */
+	private void markPointsExcluded(List<OrderItemEntity> orderItemEntityList, Set<String> pointsExcludedSpuIds) {
+		Set<String> excluded = pointsExcludedSpuIds == null ? Set.of() : pointsExcludedSpuIds;
+		for (OrderItemEntity item : orderItemEntityList) {
+			// spuId 为空视为未命中（不可变 Set.contains(null) 会抛 NPE）
+			item.setPointsExcluded(
+					item.getSpuId() != null && excluded.contains(item.getSpuId()) ? CommonConstants.YES
+							: CommonConstants.NO);
+		}
+	}
+
+	/**
+	 * 抵扣上限比例：用户域配置（百分数）优先，缺省/非法回退代码常量 20%。
+	 */
+	private BigDecimal resolveDeductMaxRatio(PointsDeductContextVO context) {
+		if (context == null || context.getDeductMaxRatio() == null) {
+			return MallOrderConstants.POINTS_DEDUCT_MAX_RATIO;
+		}
+		BigDecimal percent = context.getDeductMaxRatio();
+		if (percent.compareTo(BigDecimal.ZERO) <= 0 || percent.compareTo(BigDecimal.valueOf(100)) > 0) {
+			return MallOrderConstants.POINTS_DEDUCT_MAX_RATIO;
+		}
+		return percent.divide(BigDecimal.valueOf(100), 4, RoundingMode.DOWN);
+	}
+
+	private String stripTrailingZeros(BigDecimal value) {
+		return value.stripTrailingZeros().toPlainString();
+	}
+
+	/**
+	 * 由抵扣上下文（类目/商品黑名单）与商品快照解析命中黑名单的 SPU 集合。
+	 *
+	 * <p>类目匹配 SPU 的一级/二级类目（{@code goods_spu.category_first_id/category_second_id}），
+	 * 供抵扣处理器过滤基数、确认页提示与明细落库标记共用同一口径。
+	 */
+	public Set<String> resolvePointsExcludedSpuIds(List<GoodsSku> goodsSkuList, PointsDeductContextVO context) {
+		if (context == null || goodsSkuList == null || goodsSkuList.isEmpty()) {
+			return Set.of();
+		}
+		Set<String> excludeCategories = context.getExcludeCategoryIds() == null ? Set.of()
+				: new HashSet<>(context.getExcludeCategoryIds());
+		Set<String> excludeSpus = context.getExcludeSpuIds() == null ? Set.of()
+				: new HashSet<>(context.getExcludeSpuIds());
+		if (excludeCategories.isEmpty() && excludeSpus.isEmpty()) {
+			return Set.of();
+		}
+		Set<String> excludedSpuIds = new HashSet<>();
+		for (GoodsSku sku : goodsSkuList) {
+			if (sku == null || sku.getGoodsSpu() == null || sku.getGoodsSpu().getId() == null) {
+				continue;
+			}
+			GoodsSpu spu = sku.getGoodsSpu();
+			if (excludeSpus.contains(spu.getId())) {
+				excludedSpuIds.add(spu.getId());
+				continue;
+			}
+			if ((spu.getCategoryFirstId() != null && excludeCategories.contains(spu.getCategoryFirstId()))
+					|| (spu.getCategorySecondId() != null && excludeCategories.contains(spu.getCategorySecondId()))) {
+				excludedSpuIds.add(spu.getId());
+			}
+		}
+		return excludedSpuIds;
 	}
 
 	private void clearPointsDeduct(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList) {

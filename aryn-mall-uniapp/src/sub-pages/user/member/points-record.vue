@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { getPointsRecordPage } from '@/api/user/points'
+import type { PointsRecord } from '@/api/user/points'
 
 definePage({
   name: 'member-points-record',
@@ -11,20 +12,25 @@ definePage({
   },
 })
 
-interface PointsRecord {
-  id: string
-  // 后端 AppPointsRecordVO.changeType 是字符串：1-获取；2-消耗
-  changeType: string
-  changePoint: number
-  balanceAfter: number
-  triggerScene: string
-  remark: string
-  createTime: string
-}
-
 const list = ref<PointsRecord[]>([])
 const globalLoading = useGlobalLoading()
+const userStore = useUserStore()
 const pagingRef = ref()
+
+/** 积分总览（余额 + 即将过期汇总）：复用 store 缓存并保持与其他页面同步 */
+const pointsOverview = computed(() => userStore.pointsInfo)
+
+/**
+ * 30 天内即将过期提醒：后端 UserPointsInfoVO 按剩余可用口径汇总，
+ * expiringPoints>0 且有最近到期批次（nearestExpireTime）时才展示。
+ */
+const expiringNotice = computed(() => {
+  const expiring = Number(pointsOverview.value?.expiringPoints)
+  const nearest = pointsOverview.value?.nearestExpireTime
+  if (!Number.isFinite(expiring) || expiring <= 0 || !nearest)
+    return ''
+  return `${expiring} 积分将于 ${formatDate(nearest)} 到期，请注意使用`
+})
 
 onLoad(() => {
   nextTick(() => {
@@ -40,6 +46,10 @@ async function queryList(pageNo: number, pageSize: number) {
       size: pageSize,
     })
     pagingRef.value?.complete(response.records)
+    // 首页/下拉刷新时同步总览（去重 Promise，失败静默不影响明细列表）
+    if (pageNo === 1) {
+      userStore.refreshPointsInfo().catch(() => {})
+    }
   }
   catch (error) {
     // 失败必须告知 z-paging，否则列表永远停在加载态
@@ -49,6 +59,16 @@ async function queryList(pageNo: number, pageSize: number) {
   finally {
     globalLoading.close()
   }
+}
+
+/** 后端 LocalDateTime 序列化为 yyyy-MM-dd HH:mm:ss，取前 10 位为 YYYY-MM-DD */
+function formatDate(dateStr: string): string {
+  return dateStr ? dateStr.slice(0, 10) : ''
+}
+
+/** 单条记录到期提示：仅获取类流水下发 expireTime，null=永久不展示 */
+function expireNotice(item: PointsRecord): string {
+  return item.expireTime ? `将于 ${formatDate(item.expireTime)} 到期` : ''
 }
 
 function getChangeTypeText(type: string): string {
@@ -71,6 +91,7 @@ function getSceneText(scene: string): string {
     ADMIN_ADJUST: '后台调整',
     REGISTER: '注册奖励',
     ORDER_DEDUCT: '积分抵现',
+    POINTS_EXPIRE: '积分过期',
     ORDER_REFUND: '退款返还',
   }
   return sceneMap[scene] || scene
@@ -82,6 +103,16 @@ function getSceneText(scene: string): string {
     <template #top>
       <hr-navbar title="积分记录" />
     </template>
+    <!-- 积分总览：余额 + 30 天内即将过期提醒（增强信息，缺失时不渲染） -->
+    <view v-if="pointsOverview" class="m-2 rounded-xl bg-white px-4 py-3">
+      <view class="flex items-center justify-between">
+        <text class="text-14px font-bold">当前积分</text>
+        <text class="text-20px font-bold">{{ pointsOverview.point }}</text>
+      </view>
+      <view v-if="expiringNotice" class="mt-1 text-12px text-orange-500">
+        {{ expiringNotice }}
+      </view>
+    </view>
     <view v-for="(item, index) in list" :key="index" class="m-2 rounded-xl bg-white px-4 py-3">
       <view class="flex items-center justify-between">
         <view class="flex-1">
@@ -96,6 +127,10 @@ function getSceneText(scene: string): string {
           </view>
           <view class="mt-1 text-11px text-gray-300">
             {{ item.createTime }}
+          </view>
+          <!-- 该批次积分到期提示：永久积分（null）不展示 -->
+          <view v-if="expireNotice(item)" class="mt-1 text-11px text-orange-500">
+            {{ expireNotice(item) }}
           </view>
         </view>
         <view class="text-right">

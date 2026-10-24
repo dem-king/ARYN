@@ -244,9 +244,11 @@ class MemberTagServiceImplTest {
 		MemberTag tag1 = new MemberTag();
 		tag1.setId("tag001");
 		tag1.setTagName("VIP");
+		tag1.setStatus("0");
 		MemberTag tag2 = new MemberTag();
 		tag2.setId("tag002");
 		tag2.setTagName("活跃");
+		tag2.setStatus("0");
 		when(memberTagMapper.selectByIds(anyCollection())).thenReturn(Arrays.asList(tag1, tag2));
 
 		// when

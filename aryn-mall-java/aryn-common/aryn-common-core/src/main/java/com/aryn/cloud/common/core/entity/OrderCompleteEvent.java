@@ -40,6 +40,9 @@ public class OrderCompleteEvent {
 	@Schema(description = "实付商品金额，不含运费")
 	private BigDecimal goodsPaymentAmount;
 
+	@Schema(description = "返积分基数：按明细剔除积分黑名单（points_excluded=1）后的商品实付；空=未携带（存量消息回退全口径）")
+	private BigDecimal grantBaseAmount;
+
 	@Schema(description = "下单时会员积分倍率")
 	private BigDecimal pointsMultiplier;
 

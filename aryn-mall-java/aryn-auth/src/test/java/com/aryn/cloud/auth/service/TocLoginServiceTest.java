@@ -9,6 +9,7 @@ import com.aryn.cloud.user.api.entity.SocialUser;
 import com.aryn.cloud.user.api.entity.UserInfo;
 import com.aryn.cloud.user.api.remote.RemoteMallUserService;
 import com.aryn.cloud.user.api.remote.RemoteSocialUserService;
+import com.aryn.cloud.user.api.vo.UserInfoVO;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -57,6 +58,14 @@ class TocLoginServiceTest {
 		ArynTenantContextHolder.removeTenantId();
 	}
 
+	/** UserInfoVO 非链式 setter，测试桩统一走本工厂 */
+	private static UserInfoVO userVo(String userId, String tenantId) {
+		UserInfoVO vo = new UserInfoVO();
+		vo.setId(userId);
+		vo.setTenantId(tenantId);
+		return vo;
+	}
+
 	private UserLoginReqDTO wxMaRequest(String tenantId) {
 		UserLoginReqDTO request = new UserLoginReqDTO();
 		request.setAppId("wx0a8242ea59f3e6b4");
@@ -78,6 +87,9 @@ class TocLoginServiceTest {
 				assertThat(ArynTenantContextHolder.getTenantId()).isEqualTo("tenant-1");
 				return new UserInfo().setId("user-1").setTenantId("tenant-1");
 			});
+		// loginMallUser 在签发 token 前按 userId 复核会员状态（b287bd22 会员闭环新增）
+		when(remoteMallUserService.getUserById("user-1"))
+			.thenReturn(userVo("user-1", "tenant-1"));
 
 		TocLoginService service = new TocLoginService(remoteSocialUserService, remoteMallUserService, loginTenantGuard);
 		service.maLogin(wxMaRequest("tenant-1"));
