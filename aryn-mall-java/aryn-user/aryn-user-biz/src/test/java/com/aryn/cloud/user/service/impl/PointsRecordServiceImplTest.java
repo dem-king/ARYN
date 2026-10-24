@@ -4,12 +4,17 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.user.api.entity.PointsGlobalConfig;
+import com.aryn.cloud.user.api.vo.PointsLiabilityDailyVO;
+import com.aryn.cloud.user.api.vo.PointsLiabilityReportVO;
 import com.aryn.cloud.user.api.entity.PointsRecord;
 import com.aryn.cloud.user.api.entity.UserInfo;
 import com.aryn.cloud.user.mapper.PointsRecordMapper;
 import com.aryn.cloud.user.mapper.UserInfoMapper;
 import com.aryn.cloud.user.service.IMemberLevelService;
 import com.aryn.cloud.user.service.IPointsGlobalConfigService;
+import com.aryn.cloud.user.service.IPointsGrantService;
+import org.mockito.Mockito;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,6 +45,9 @@ class PointsRecordServiceImplTest {
 	@Mock
 	private IPointsGlobalConfigService pointsGlobalConfigService;
 
+	@Mock
+	private IPointsGrantService pointsGrantService;
+
 	private PointsRecordServiceImpl service;
 
 	@BeforeEach
@@ -50,6 +58,8 @@ class PointsRecordServiceImplTest {
 				PointsRecord.class);
 		service = new TestPointsRecordService(userInfoMapper, memberLevelService, pointsRecordMapper,
 				pointsGlobalConfigService);
+		// 负债报表取抵现汇率走字段注入（打破与发放服务的构造循环），测试用反射注入 mock
+		ReflectionTestUtils.setField(service, "pointsGrantService", pointsGrantService);
 	}
 
 	@Test
@@ -210,6 +220,61 @@ class PointsRecordServiceImplTest {
 		// 30 + 20：两批都被递减，第二批只扣剩余 20
 		verify(pointsRecordMapper, org.mockito.Mockito.times(2))
 			.update(any(), any(com.baomidou.mybatisplus.core.conditions.Wrapper.class));
+	}
+
+	/**
+	 * 负债报表组装：日报金额按汇率面值折算、区间合计与全量累计、期末负债取用户积分合计；
+	 * 汇率未配置（0）时金额列全部为 null 不折算。
+	 */
+	@Test
+	void liabilityReportConvertsAmountsByRateAndSumsRanges() {
+		Mockito.when(pointsGrantService.getPointsPerYuan()).thenReturn(100);
+		PointsLiabilityDailyVO day = new PointsLiabilityDailyVO();
+		day.setStatDate(java.time.LocalDate.of(2026, 10, 24));
+		day.setGrantPoints(1000);
+		day.setRefundReturnPoints(100);
+		day.setDeductPoints(300);
+		day.setExchangePoints(200);
+		day.setExpirePoints(50);
+		day.setAdminDeductPoints(10);
+		when(pointsRecordMapper.selectLiabilityDaily("2026-10-01", "2026-10-31")).thenReturn(java.util.List.of(day));
+		when(userInfoMapper.sumPoints()).thenReturn(5500L);
+		PointsLiabilityReportVO.Summary summary = new PointsLiabilityReportVO.Summary();
+		summary.setTotalGrantPoints(10000L);
+		summary.setTotalDeductPoints(3000L);
+		summary.setTotalExchangePoints(2000L);
+		summary.setTotalExpirePoints(500L);
+		summary.setTotalRefundReturnPoints(1000L);
+		when(pointsRecordMapper.selectLiabilitySummary()).thenReturn(summary);
+
+		PointsLiabilityReportVO report = service.getLiabilityReport("2026-10-01", "2026-10-31");
+
+		assertEquals(100, report.getPointsPerYuan());
+		assertEquals(1, report.getDays().size());
+		org.junit.jupiter.api.Assertions.assertEquals(new java.math.BigDecimal("10.00"),
+				report.getDays().get(0).getGrantAmount());
+		org.junit.jupiter.api.Assertions.assertEquals(new java.math.BigDecimal("3.00"),
+				report.getDays().get(0).getDeductAmount());
+		assertEquals(5500L, report.getBalancePoints());
+		org.junit.jupiter.api.Assertions.assertEquals(new java.math.BigDecimal("55.00"), report.getBalanceAmount());
+		assertEquals(10000L, report.getTotalGrantPoints());
+		assertEquals(510L, report.getRangeConsumePoints());
+		assertEquals(1000L, report.getRangeGrantPoints());
+		assertEquals(50L, report.getRangeExpirePoints());
+	}
+
+	@Test
+	void liabilityReportSkipsAmountsWhenRateMissing() {
+		Mockito.when(pointsGrantService.getPointsPerYuan()).thenReturn(0);
+		when(pointsRecordMapper.selectLiabilityDaily(null, null)).thenReturn(java.util.List.of());
+		when(userInfoMapper.sumPoints()).thenReturn(0L);
+		when(pointsRecordMapper.selectLiabilitySummary()).thenReturn(null);
+
+		PointsLiabilityReportVO report = service.getLiabilityReport(null, null);
+
+		assertEquals(0, report.getPointsPerYuan());
+		org.junit.jupiter.api.Assertions.assertNull(report.getBalanceAmount());
+		org.junit.jupiter.api.Assertions.assertNull(report.getTotalGrantPoints());
 	}
 
 	private static final class TestPointsRecordService extends PointsRecordServiceImpl {

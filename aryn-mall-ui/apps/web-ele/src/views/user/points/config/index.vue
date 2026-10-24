@@ -34,6 +34,9 @@ const Form = defineAsyncComponent(() => import('./form.vue'));
 const GlobalConfig = defineAsyncComponent(() => import('./global-config.vue'));
 const ExcludeList = defineAsyncComponent(() => import('./exclude-list.vue'));
 const ExchangeList = defineAsyncComponent(() => import('./exchange-list.vue'));
+const LiabilityReport = defineAsyncComponent(
+  () => import('./liability-report.vue'),
+);
 
 const { status } = useDict('status');
 const activeTab = ref('rules');
@@ -116,6 +119,10 @@ initPage();
         <!-- Tab C：积分兑换（积分兑优惠券） -->
         <ElTabPane label="积分兑换" name="exchange" lazy>
           <ExchangeList />
+        </ElTabPane>
+        <!-- Tab D：负债报表（财务递延口径） -->
+        <ElTabPane label="负债报表" name="liability" lazy>
+          <LiabilityReport />
         </ElTabPane>
         <!-- Tab C：按场景的积分规则（原有功能） -->
         <ElTabPane label="积分规则" name="rules">

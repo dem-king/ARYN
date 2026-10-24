@@ -8,7 +8,9 @@ import com.aryn.cloud.user.api.entity.PointsConfig;
 import com.aryn.cloud.user.api.entity.PointsExchange;
 import com.aryn.cloud.user.api.entity.PointsExclude;
 import com.aryn.cloud.user.api.entity.PointsGlobalConfig;
+import com.aryn.cloud.user.api.vo.PointsLiabilityReportVO;
 import com.aryn.cloud.user.service.IPointsConfigService;
+import com.aryn.cloud.user.service.IPointsRecordService;
 import com.aryn.cloud.user.service.IPointsExchangeService;
 import com.aryn.cloud.user.service.IPointsExcludeService;
 import com.aryn.cloud.user.service.IPointsGlobalConfigService;
@@ -39,6 +41,8 @@ public class PointsConfigController {
 	private final IPointsExcludeService pointsExcludeService;
 
 	private final IPointsExchangeService pointsExchangeService;
+
+	private final IPointsRecordService pointsRecordService;
 
 	@Operation(summary = "积分全局规则（有效期/抵扣上限/门槛/封顶）")
 	@SaCheckPermission("user:pointsconfig:page")
@@ -99,6 +103,15 @@ public class PointsConfigController {
 	@DeleteMapping("/exchange/{id}")
 	public Result<Boolean> removeExchange(@PathVariable("id") String id) {
 		return Result.success(pointsExchangeService.removeExchange(id));
+	}
+
+	@Operation(summary = "积分负债报表（区间日报 + 全量累计 + 期末负债）")
+	@SaCheckPermission("user:pointsconfig:page")
+	@GetMapping("/liability-report")
+	public Result<PointsLiabilityReportVO> liabilityReport(
+			@RequestParam(value = "beginDate", required = false) String beginDate,
+			@RequestParam(value = "endDate", required = false) String endDate) {
+		return Result.success(pointsRecordService.getLiabilityReport(beginDate, endDate));
 	}
 
 	@Operation(summary = "积分配置分页列表")

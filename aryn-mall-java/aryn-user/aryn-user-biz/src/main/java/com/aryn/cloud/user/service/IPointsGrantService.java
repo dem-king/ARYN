@@ -21,6 +21,12 @@ public interface IPointsGrantService {
 	int grant(String userId, PointsSceneEnum scene, String bizNo, Integer overridePoints, String remark);
 
 	/**
+	 * 抵现汇率：每抵扣 1 元所需积分（ORDER_DEDUCT 启用规则 pointValue）；
+	 * 未配置/被禁用时返回 0（负债报表不折算金额）。
+	 */
+	int getPointsPerYuan();
+
+	/**
 	 * 订单完成积分倍率配置：每 1 元商品实付金额获得的基础积分。
 	 * 配置不存在时回退为 1（兼容未执行增量脚本的存量库）；配置被禁用时返回 0。
 	 */

@@ -9,12 +9,16 @@ import com.aryn.cloud.user.api.entity.PointsGlobalConfig;
 import com.aryn.cloud.user.api.entity.PointsRecord;
 import com.aryn.cloud.user.api.entity.UserInfo;
 import com.aryn.cloud.user.api.enums.PointsSceneEnum;
+import com.aryn.cloud.user.api.vo.PointsLiabilityDailyVO;
+import com.aryn.cloud.user.api.vo.PointsLiabilityReportVO;
 import com.aryn.cloud.user.api.vo.PointsRecordVO;
 import com.aryn.cloud.user.mapper.PointsRecordMapper;
 import com.aryn.cloud.user.mapper.UserInfoMapper;
 import com.aryn.cloud.user.service.IMemberLevelService;
 import com.aryn.cloud.user.service.IPointsGlobalConfigService;
+import com.aryn.cloud.user.service.IPointsGrantService;
 import com.aryn.cloud.user.service.IPointsRecordService;
+import org.springframework.beans.factory.annotation.Autowired;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -41,6 +45,11 @@ public class PointsRecordServiceImpl extends ServiceImpl<PointsRecordMapper, Poi
 
 	private final IPointsGlobalConfigService pointsGlobalConfigService;
 
+	// PointsGrantService 构造依赖本服务（账本写入），此处反向取汇率只能字段注入打破循环；
+	// 极端情况下（独立装配无积分发放服务）按未配置汇率处理，金额列不折算
+	@Autowired(required = false)
+	private IPointsGrantService pointsGrantService;
+
 	@Override
 	public IPage<PointsRecordVO> getPage(Page page, String nickname, String changeType, String beginTime,
 			String endTime) {
@@ -50,6 +59,61 @@ public class PointsRecordServiceImpl extends ServiceImpl<PointsRecordMapper, Poi
 	@Override
 	public IPage<PointsRecordVO> getUserPage(Page page, String userId) {
 		return baseMapper.selectUserRecordPage(page, userId);
+	}
+
+	/**
+	 * 积分负债报表（读侧聚合，零 DDL）：区间日报按日拆解，金额按抵现汇率面值折算；
+	 * 期末负债 = 全体用户未消耗积分合计。汇率未配置（返回 0）时金额列全部为 null。
+	 */
+	@Override
+	public PointsLiabilityReportVO getLiabilityReport(String beginDate, String endDate) {
+		int rate = pointsGrantService == null ? 0 : pointsGrantService.getPointsPerYuan();
+		List<PointsLiabilityDailyVO> days = baseMapper.selectLiabilityDaily(beginDate, endDate);
+		long rangeGrant = 0;
+		long rangeConsume = 0;
+		long rangeExpire = 0;
+		for (PointsLiabilityDailyVO day : days) {
+			if (rate > 0) {
+				day.setGrantAmount(toAmount(day.getGrantPoints(), rate));
+				day.setDeductAmount(toAmount(day.getDeductPoints(), rate));
+				day.setExchangeAmount(toAmount(day.getExchangePoints(), rate));
+				day.setExpireAmount(toAmount(day.getExpirePoints(), rate));
+			}
+			rangeGrant += nvl(day.getGrantPoints());
+			rangeConsume += nvl(day.getDeductPoints()) + nvl(day.getExchangePoints())
+					+ nvl(day.getAdminDeductPoints());
+			rangeExpire += nvl(day.getExpirePoints());
+		}
+		PointsLiabilityReportVO report = new PointsLiabilityReportVO();
+		report.setPointsPerYuan(rate);
+		report.setDays(days);
+		report.setBalancePoints(userInfoMapper.sumPoints());
+		report.setBalanceAmount(toAmount(report.getBalancePoints() == null ? 0 : report.getBalancePoints().intValue(),
+				rate));
+		PointsLiabilityReportVO.Summary summary = baseMapper.selectLiabilitySummary();
+		if (summary != null) {
+			report.setTotalGrantPoints(summary.getTotalGrantPoints());
+			report.setTotalDeductPoints(summary.getTotalDeductPoints());
+			report.setTotalExchangePoints(summary.getTotalExchangePoints());
+			report.setTotalExpirePoints(summary.getTotalExpirePoints());
+			report.setTotalRefundReturnPoints(summary.getTotalRefundReturnPoints());
+		}
+		report.setRangeGrantPoints(rangeGrant);
+		report.setRangeConsumePoints(rangeConsume);
+		report.setRangeExpirePoints(rangeExpire);
+		return report;
+	}
+
+	private java.math.BigDecimal toAmount(Integer points, int rate) {
+		if (rate <= 0 || points == null) {
+			return null;
+		}
+		return java.math.BigDecimal.valueOf(points)
+			.divide(java.math.BigDecimal.valueOf(rate), 2, java.math.RoundingMode.DOWN);
+	}
+
+	private long nvl(Integer value) {
+		return value == null ? 0L : value;
 	}
 
 	@Override

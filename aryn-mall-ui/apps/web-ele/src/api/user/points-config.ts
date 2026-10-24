@@ -151,3 +151,52 @@ export async function delExchange(id: string) {
     `/mall-user/pointsconfig/exchange/${id}`,
   );
 }
+
+/**
+ * 积分负债日报行（财务递延负债口径：发放确认/消耗结转/过期核销）。
+ */
+export interface PointsLiabilityDaily {
+  statDate: string;
+  grantPoints: number;
+  refundReturnPoints: number;
+  deductPoints: number;
+  exchangePoints: number;
+  expirePoints: number;
+  adminDeductPoints: number;
+  /** 新发放折算金额（元，面值口径），null=汇率未配置不折算 */
+  grantAmount?: null | number;
+  deductAmount?: null | number;
+  exchangeAmount?: null | number;
+  expireAmount?: null | number;
+}
+
+/**
+ * 积分负债报表：区间日报 + 全量累计 + 期末负债。
+ */
+export interface PointsLiabilityReport {
+  pointsPerYuan: number;
+  days: PointsLiabilityDaily[];
+  balancePoints: number;
+  balanceAmount?: null | number;
+  totalGrantPoints: number;
+  totalDeductPoints: number;
+  totalExchangePoints: number;
+  totalExpirePoints: number;
+  totalRefundReturnPoints: number;
+  rangeGrantPoints: number;
+  rangeConsumePoints: number;
+  rangeExpirePoints: number;
+}
+
+/**
+ * 获取积分负债报表（日期参数 yyyy-MM-dd，缺省不限）
+ */
+export function getLiabilityReport(params: {
+  beginDate?: string;
+  endDate?: string;
+}) {
+  return requestClient.get<PointsLiabilityReport>(
+    '/mall-user/pointsconfig/liability-report',
+    { params },
+  );
+}

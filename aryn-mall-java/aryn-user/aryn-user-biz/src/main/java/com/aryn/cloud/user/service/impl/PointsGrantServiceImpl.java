@@ -80,6 +80,17 @@ public class PointsGrantServiceImpl implements IPointsGrantService {
 	}
 
 	@Override
+	public int getPointsPerYuan() {
+		List<PointsConfig> rules = listRules(PointsSceneEnum.ORDER_DEDUCT, "2");
+		return rules.stream()
+			.filter(rule -> "0".equals(rule.getStatus()))
+			.map(PointsConfig::getPointValue)
+			.filter(value -> value != null && value > 0)
+			.findFirst()
+			.orElse(0);
+	}
+
+	@Override
 	public int getOrderCompleteRate() {
 		List<PointsConfig> rules = listRules(PointsSceneEnum.ORDER_COMPLETE, "1");
 		if (rules.isEmpty()) {

@@ -82,6 +82,14 @@ public interface UserInfoMapper extends BaseMapper<UserInfo> {
 	int expirePoints(@Param("userId") String userId, @Param("changePoint") Integer changePoint);
 
 	/**
+	 * 当前租户全体用户未消耗积分合计（负债报表期末余额，租户拦截器自动过滤）。
+	 */
+	@Select("""
+			SELECT COALESCE(SUM(point), 0) FROM user_info WHERE del_flag = '0'
+			""")
+	Long sumPoints();
+
+	/**
 	 * 锁定用户积分行，保证并发积分流水中的 balance_after 与最终余额一致。
 	 */
 	@Select("""
