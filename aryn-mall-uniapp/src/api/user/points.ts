@@ -41,3 +41,43 @@ export function getPointsRecordPage(params: object) {
     params,
   })
 }
+
+/** 积分兑换项（后端 PointsExchangeVO）：积分兑换优惠券 */
+export interface PointsExchangeItem {
+  id: string
+  title: string
+  iconUrl?: null | string
+  pointsCost: number
+  /** 每人限兑次数，0=不限 */
+  perUserLimit: number
+  couponName?: null | string
+  /** 券类型：1-满减券；2-折扣券 */
+  couponType?: null | string
+  couponAmount?: null | number
+  couponDiscount?: null | number
+  /** 使用门槛（元，0=无门槛） */
+  couponThreshold?: null | number
+  couponRemainNum?: null | number
+  exchangedCount?: number
+  exchangeable: boolean
+  unexchangeableReason?: null | string
+}
+
+/** 兑换结果（后端 PointsExchangeRecord）：记录 ID 即扣积分幂等键 */
+export interface PointsExchangeResult {
+  id: string
+  exchangeId: string
+  exchangeTitle?: null | string
+  pointsCost: number
+  couponId: string
+}
+
+// 积分兑换列表（券模板信息 + 本人已兑次数；无启用项返回空数组）
+export function getPointsExchanges() {
+  return alovaInstance.Get<PointsExchangeItem[]>('/mall-user/app/points/exchanges')
+}
+
+// 积分兑换优惠券（余额不足/已达上限/库存不足由后端校验并提示）
+export function redeemPointsExchange(exchangeId: string) {
+  return alovaInstance.Post<PointsExchangeResult>(`/mall-user/app/points/exchanges/${exchangeId}/redeem`)
+}

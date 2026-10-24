@@ -102,7 +102,7 @@ class AppRecordEndpointAuthorizationTest {
 	@Test
 	@DisplayName("积分记录只查当前登录用户")
 	void pointsRecordsUseLoginUser() {
-		AppPointsController controller = new AppPointsController(null, null, null, pointsRecordService);
+		AppPointsController controller = new AppPointsController(null, null, null, pointsRecordService, null);
 
 		PointsRecordVO row = new PointsRecordVO();
 		row.setId("pr-1");

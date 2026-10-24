@@ -338,7 +338,9 @@ class MemberBenefitServiceImplTest {
 				benefit("shipping", "2", "1"),
 				benefit("coupon", "3", "coupon-template-uuid"),
 				benefit("points-1", "4", "2"),
-				benefit("points-2", "4", "3"));
+				benefit("points-2", "4", "3"),
+				benefit("ratio-1", "5", "30"),
+				benefit("ratio-2", "5", "50"));
 		when(memberBenefitLevelRelMapper.selectList(any())).thenReturn(benefits.stream()
 				.map(benefit -> new MemberBenefitLevelRel().setBenefitId(benefit.getId()).setLevelId(levelId))
 				.toList());
@@ -350,6 +352,41 @@ class MemberBenefitServiceImplTest {
 		assertTrue(result.isFreeShipping());
 		assertEquals(new BigDecimal("3"), result.getPointsMultiplier());
 		assertEquals(List.of("coupon-template-uuid"), result.getExclusiveCouponTemplateIds());
+		// 等级专属抵扣上限：多档取最大（等级越高抵得越多），与积分倍率同口径
+		assertEquals(new BigDecimal("50"), result.getDeductMaxRatio());
+	}
+
+	@Test
+	@DisplayName("聚合用户权益 - 未配置抵扣上限时 deductMaxRatio 为 null（回落全局配置）")
+	void getUserBenefits_deductRatioNullWhenNotConfigured() {
+		String levelId = "level001";
+		when(userInfoMapper.selectById("user001"))
+				.thenReturn(new UserInfo().setId("user001").setMemberLevelId(levelId));
+		when(memberLevelMapper.selectById(levelId))
+				.thenReturn(new MemberLevel().setId(levelId).setLevelName("银卡").setStatus("0"));
+		List<MemberBenefit> benefits = List.of(benefit("discount-1", "1", "0.9"));
+		when(memberBenefitLevelRelMapper.selectList(any())).thenReturn(benefits.stream()
+				.map(benefit -> new MemberBenefitLevelRel().setBenefitId(benefit.getId()).setLevelId(levelId))
+				.toList());
+		when(memberBenefitMapper.selectList(any())).thenReturn(benefits);
+
+		MemberBenefitsVO result = memberBenefitService.getUserBenefits("user001");
+
+		assertNull(result.getDeductMaxRatio());
+	}
+
+	@Test
+	@DisplayName("保存权益 - 抵扣上限必须在 (0, 100]")
+	void saveBenefit_deductRatioOutOfRangeRejected() {
+		MemberBenefit benefit = new MemberBenefit();
+		benefit.setBenefitName("白金抵扣上限");
+		benefit.setBenefitType("5");
+		benefit.setBenefitValue("120");
+		benefit.setLevelIds(List.of("level001"));
+
+		ArynBusinessException exception = assertThrows(ArynBusinessException.class,
+				() -> memberBenefitService.saveBenefit(benefit));
+		assertEquals("积分抵扣上限必须大于0且不大于100（百分数）", exception.getMsg());
 	}
 
 	@Test

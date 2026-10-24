@@ -131,6 +131,7 @@ const sections = [
   ['会员管理闭环补齐（启停用/权益/签到/充值种子）', '158member_management_incremental.sql'],
   ['共享购物车岸上企业车（车类型/地址快照/岸上唯一性）', '159shared_cart_shore_enterprise_incremental.sql'],
   ['积分体系增强（全局配置/排除清单/过期记账与清零任务）', '160points_global_config_incremental.sql'],
+  ['积分兑换（积分兑优惠券）', '161points_exchange_incremental.sql'],
 ];
 
 const normalize = (content) => content.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim();
@@ -198,6 +199,8 @@ DROP TABLE IF EXISTS \`dashboard_target\`;
 DROP TABLE IF EXISTS \`stat_daily_user_order\`;
 DROP TABLE IF EXISTS \`points_global_config\`;
 DROP TABLE IF EXISTS \`points_exclude\`;
+DROP TABLE IF EXISTS \`points_exchange\`;
+DROP TABLE IF EXISTS \`points_exchange_record\`;
 `;
 
 const output = sections.reduce((sql, [title, file]) => {

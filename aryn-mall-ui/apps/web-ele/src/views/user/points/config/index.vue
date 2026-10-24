@@ -30,9 +30,10 @@ const DictTag = defineAsyncComponent(
 );
 const Form = defineAsyncComponent(() => import('./form.vue'));
 
-// 全局规则/排除清单 Tab 懒加载：切到对应 Tab 才发起请求
+// 全局规则/排除清单/积分兑换 Tab 懒加载：切到对应 Tab 才发起请求
 const GlobalConfig = defineAsyncComponent(() => import('./global-config.vue'));
 const ExcludeList = defineAsyncComponent(() => import('./exclude-list.vue'));
+const ExchangeList = defineAsyncComponent(() => import('./exchange-list.vue'));
 
 const { status } = useDict('status');
 const activeTab = ref('rules');
@@ -111,6 +112,10 @@ initPage();
         <!-- Tab B：排除清单（类目/商品黑名单） -->
         <ElTabPane label="排除清单" name="exclude" lazy>
           <ExcludeList />
+        </ElTabPane>
+        <!-- Tab C：积分兑换（积分兑优惠券） -->
+        <ElTabPane label="积分兑换" name="exchange" lazy>
+          <ExchangeList />
         </ElTabPane>
         <!-- Tab C：按场景的积分规则（原有功能） -->
         <ElTabPane label="积分规则" name="rules">

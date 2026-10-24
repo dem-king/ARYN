@@ -105,3 +105,49 @@ export async function addExclude(data: PointsExclude) {
 export async function delExclude(id: string) {
   return requestClient.delete<boolean>(`/mall-user/pointsconfig/exclude/${id}`);
 }
+
+/**
+ * 积分兑换项：积分兑换优惠券（消耗侧「兑券」形态）。
+ */
+export interface PointsExchange {
+  id?: string;
+  /** 兑换项标题（如「5 元无门槛券」） */
+  title: string;
+  /** 图标URL（可选） */
+  iconUrl?: null | string;
+  /** 所需积分 */
+  pointsCost: number;
+  /** 优惠券模板ID（coupon_info.id） */
+  couponId: string;
+  /** 每人限兑次数，0=不限 */
+  perUserLimit?: null | number;
+  /** 状态：0-启用；1-下架 */
+  status?: null | string;
+  /** 排序号（小在前） */
+  sortOrder?: null | number;
+}
+
+/**
+ * 获取积分兑换项列表（含下架）
+ */
+export async function listExchange() {
+  return requestClient.get<PointsExchange[]>(
+    '/mall-user/pointsconfig/exchange/list',
+  );
+}
+
+/**
+ * 保存积分兑换项（新增/编辑）
+ */
+export async function saveExchange(data: PointsExchange) {
+  return requestClient.put<boolean>('/mall-user/pointsconfig/exchange', data);
+}
+
+/**
+ * 删除积分兑换项
+ */
+export async function delExchange(id: string) {
+  return requestClient.delete<boolean>(
+    `/mall-user/pointsconfig/exchange/${id}`,
+  );
+}

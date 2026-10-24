@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
-import { getPointsRecordPage } from '@/api/user/points'
-import type { PointsRecord } from '@/api/user/points'
+import { getPointsExchanges, getPointsRecordPage, redeemPointsExchange } from '@/api/user/points'
+import type { PointsExchangeItem, PointsRecord } from '@/api/user/points'
 
 definePage({
   name: 'member-points-record',
@@ -13,6 +13,8 @@ definePage({
 })
 
 const list = ref<PointsRecord[]>([])
+const exchanges = ref<PointsExchangeItem[]>([])
+const redeeming = ref(false)
 const globalLoading = useGlobalLoading()
 const userStore = useUserStore()
 const pagingRef = ref()
@@ -38,6 +40,81 @@ onLoad(() => {
   })
 })
 
+/** 兑换列表与明细同页加载：无启用项时整块隐藏 */
+async function loadExchanges() {
+  try {
+    exchanges.value = (await getPointsExchanges()) ?? []
+  }
+  catch (error) {
+    console.error('加载积分兑换失败:', error)
+    exchanges.value = []
+  }
+}
+
+/** 券面额描述：满减/折扣/无门槛，附限兑与已兑次数 */
+function exchangeDesc(ex: PointsExchangeItem): string {
+  const parts: string[] = []
+  if (ex.couponType === '2' && ex.couponDiscount) {
+    parts.push(`${ex.couponDiscount} 折券`)
+  }
+  else if (ex.couponAmount) {
+    parts.push(ex.couponThreshold && ex.couponThreshold > 0
+      ? `满 ${ex.couponThreshold} 减 ${ex.couponAmount} 元`
+      : `${ex.couponAmount} 元无门槛券`)
+  }
+  else {
+    parts.push(ex.title)
+  }
+  if (ex.perUserLimit > 0) {
+    parts.push(`每人限兑 ${ex.perUserLimit} 次`)
+  }
+  const exchanged = ex.exchangedCount ?? 0
+  if (ex.perUserLimit > 0) {
+    parts.push(`已兑 ${exchanged}/${ex.perUserLimit}`)
+  }
+  else if (exchanged > 0) {
+    parts.push(`已兑 ${exchanged} 次`)
+  }
+  return parts.join(' · ')
+}
+
+function onRedeem(ex: PointsExchangeItem) {
+  if (!ex.exchangeable || redeeming.value) {
+    if (!ex.exchangeable && ex.unexchangeableReason) {
+      uni.showToast({ title: ex.unexchangeableReason, icon: 'none' })
+    }
+    return
+  }
+  uni.showModal({
+    title: '积分兑换',
+    content: `确认用 ${ex.pointsCost} 积分兑换「${ex.couponName || ex.title}」？兑换后发放至「我的优惠券」。`,
+    success: (res) => {
+      if (!res.confirm)
+        return
+      doRedeem(ex)
+    },
+  })
+}
+
+async function doRedeem(ex: PointsExchangeItem) {
+  redeeming.value = true
+  globalLoading.loading('兑换中...')
+  try {
+    await redeemPointsExchange(ex.id)
+    uni.showToast({ title: '兑换成功', icon: 'success' })
+    // 兑换改变积分余额/兑换次数/明细，三处同步刷新
+    await Promise.allSettled([loadExchanges(), userStore.refreshPointsInfo()])
+    pagingRef.value?.reload()
+  }
+  catch (error) {
+    console.error('积分兑换失败:', error)
+  }
+  finally {
+    globalLoading.close()
+    redeeming.value = false
+  }
+}
+
 async function queryList(pageNo: number, pageSize: number) {
   globalLoading.loading('加载中...')
   try {
@@ -46,9 +123,10 @@ async function queryList(pageNo: number, pageSize: number) {
       size: pageSize,
     })
     pagingRef.value?.complete(response.records)
-    // 首页/下拉刷新时同步总览（去重 Promise，失败静默不影响明细列表）
+    // 首页/下拉刷新时同步总览与兑换列表（失败静默不影响明细列表）
     if (pageNo === 1) {
       userStore.refreshPointsInfo().catch(() => {})
+      loadExchanges()
     }
   }
   catch (error) {
@@ -92,6 +170,7 @@ function getSceneText(scene: string): string {
     REGISTER: '注册奖励',
     ORDER_DEDUCT: '积分抵现',
     POINTS_EXPIRE: '积分过期',
+    POINTS_EXCHANGE: '积分兑换',
     ORDER_REFUND: '退款返还',
   }
   return sceneMap[scene] || scene
@@ -111,6 +190,36 @@ function getSceneText(scene: string): string {
       </view>
       <view v-if="expiringNotice" class="mt-1 text-12px text-orange-500">
         {{ expiringNotice }}
+      </view>
+    </view>
+    <!-- 积分兑换：无启用项整块隐藏；不可兑置灰并提示原因 -->
+    <view v-if="exchanges.length" class="m-2 rounded-xl bg-white px-4 py-3">
+      <view class="flex items-center justify-between">
+        <text class="text-14px font-bold">积分兑换</text>
+        <text class="text-11px text-gray-400">兑换后发放至「我的优惠券」</text>
+      </view>
+      <view
+        v-for="ex in exchanges" :key="ex.id"
+        class="mt-2 flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2"
+      >
+        <view class="flex-1">
+          <view class="text-13px font-bold">
+            {{ ex.couponName || ex.title }}
+          </view>
+          <view class="mt-1 text-11px text-gray-400">
+            {{ exchangeDesc(ex) }}
+          </view>
+        </view>
+        <view class="ml-2 flex flex-col items-end">
+          <text class="text-14px font-bold text-orange-500">{{ ex.pointsCost }} 积分</text>
+          <view
+            class="mt-1 rounded-full px-3 py-1 text-12px"
+            :class="ex.exchangeable ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-400'"
+            @tap="onRedeem(ex)"
+          >
+            {{ ex.exchangeable ? '兑换' : (ex.unexchangeableReason || '不可兑换') }}
+          </view>
+        </view>
       </view>
     </view>
     <view v-for="(item, index) in list" :key="index" class="m-2 rounded-xl bg-white px-4 py-3">

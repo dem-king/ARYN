@@ -127,6 +127,8 @@ const required = [
   // 存量发放行 FIFO 回填（新老积分衔接：存量批次补 365 天窗口）
   'running_sum',
   'unbackfilled_income_rows',
+  'CREATE TABLE IF NOT EXISTS `points_exchange`',
+  'CREATE TABLE IF NOT EXISTS `points_exchange_record`',
 ];
 
 for (const token of required) {

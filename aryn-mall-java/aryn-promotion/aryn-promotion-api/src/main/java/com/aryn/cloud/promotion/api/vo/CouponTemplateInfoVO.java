@@ -23,6 +23,14 @@ public class CouponTemplateInfoVO implements Serializable {
 	@Schema(description = "优惠券名称")
 	private String couponName;
 
+	private String couponType;
+
+	private java.math.BigDecimal amount;
+
+	private java.math.BigDecimal discount;
+
+	private java.math.BigDecimal threshold;
+
 	@Schema(description = "状态：0-正常；1-禁用")
 	private String status;
 

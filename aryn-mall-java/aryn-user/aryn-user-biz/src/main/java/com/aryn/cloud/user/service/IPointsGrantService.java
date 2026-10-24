@@ -37,6 +37,12 @@ public interface IPointsGrantService {
 	void deduct(String userId, Integer points, String bizNo, String remark);
 
 	/**
+	 * 按场景扣减积分（业务单号幂等）：积分兑换等非订单消耗场景使用，
+	 * 流水 triggerScene 记录为传入场景便于 C 端/管理端按场景筛选。
+	 */
+	void consume(String userId, Integer points, PointsSceneEnum scene, String bizNo, String remark);
+
+	/**
 	 * 返还积分（业务单号幂等）。
 	 */
 	void refund(String userId, Integer points, String bizNo, String remark);

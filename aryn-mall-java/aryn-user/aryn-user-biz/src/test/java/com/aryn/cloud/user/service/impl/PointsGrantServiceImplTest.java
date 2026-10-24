@@ -6,8 +6,10 @@ import com.aryn.cloud.user.api.entity.PointsExclude;
 import com.aryn.cloud.user.api.entity.PointsGlobalConfig;
 import com.aryn.cloud.user.api.entity.UserInfo;
 import com.aryn.cloud.user.api.enums.PointsSceneEnum;
+import com.aryn.cloud.user.api.vo.MemberBenefitsVO;
 import com.aryn.cloud.user.api.vo.PointsDeductContextVO;
 import com.aryn.cloud.user.mapper.UserInfoMapper;
+import com.aryn.cloud.user.service.IMemberBenefitService;
 import com.aryn.cloud.user.service.IPointsConfigService;
 import com.aryn.cloud.user.service.IPointsExcludeService;
 import com.aryn.cloud.user.service.IPointsGlobalConfigService;
@@ -40,13 +42,62 @@ class PointsGrantServiceImplTest {
 	@Mock private UserInfoMapper userInfoMapper;
 	@Mock private IPointsGlobalConfigService pointsGlobalConfigService;
 	@Mock private IPointsExcludeService pointsExcludeService;
+	@Mock private IMemberBenefitService memberBenefitService;
 
 	private PointsGrantServiceImpl service;
 
 	@BeforeEach
 	void setUp() {
 		service = new PointsGrantServiceImpl(pointsConfigService, pointsRecordService, userInfoMapper,
-				pointsGlobalConfigService, pointsExcludeService);
+				pointsGlobalConfigService, pointsExcludeService, memberBenefitService);
+	}
+
+	/**
+	 * 等级专属抵扣上限覆盖全局默认（京东分档口径）：权益取到合法比例时覆盖，
+	 * 非法区间不覆盖；等级服务异常按全局配置降级。
+	 */
+	@Test
+	void deductContextOverridesRatioByMemberLevel() {
+		stubRules(List.of(rule("ORDER_DEDUCT", "2", 100, "0")));
+		when(userInfoMapper.selectById("user-1")).thenReturn(new UserInfo().setId("user-1").setPoint(5000));
+		when(pointsGlobalConfigService.getEffectiveConfig())
+			.thenReturn(new PointsGlobalConfig().setDeductMaxRatio(new BigDecimal("20.00")));
+		MemberBenefitsVO benefits = new MemberBenefitsVO();
+		benefits.setDeductMaxRatio(new BigDecimal("30.00"));
+		when(memberBenefitService.getUserBenefits("user-1")).thenReturn(benefits);
+
+		PointsDeductContextVO context = service.getDeductContext("user-1");
+
+		assertThat(context.getDeductMaxRatio()).isEqualByComparingTo("30.00");
+	}
+
+	@Test
+	void deductContextIgnoresInvalidLevelRatio() {
+		stubRules(List.of(rule("ORDER_DEDUCT", "2", 100, "0")));
+		when(userInfoMapper.selectById("user-1")).thenReturn(new UserInfo().setId("user-1").setPoint(5000));
+		when(pointsGlobalConfigService.getEffectiveConfig())
+			.thenReturn(new PointsGlobalConfig().setDeductMaxRatio(new BigDecimal("20.00")));
+		MemberBenefitsVO benefits = new MemberBenefitsVO();
+		benefits.setDeductMaxRatio(new BigDecimal("120"));
+		when(memberBenefitService.getUserBenefits("user-1")).thenReturn(benefits);
+
+		PointsDeductContextVO context = service.getDeductContext("user-1");
+
+		assertThat(context.getDeductMaxRatio()).isEqualByComparingTo("20.00");
+	}
+
+	@Test
+	void deductContextFallsBackWhenBenefitServiceFails() {
+		stubRules(List.of(rule("ORDER_DEDUCT", "2", 100, "0")));
+		when(userInfoMapper.selectById("user-1")).thenReturn(new UserInfo().setId("user-1").setPoint(5000));
+		when(pointsGlobalConfigService.getEffectiveConfig())
+			.thenReturn(new PointsGlobalConfig().setDeductMaxRatio(new BigDecimal("20.00")));
+		when(memberBenefitService.getUserBenefits("user-1")).thenThrow(new IllegalStateException("权益库抖动"));
+
+		PointsDeductContextVO context = service.getDeductContext("user-1");
+
+		assertThat(context.isEnabled()).isTrue();
+		assertThat(context.getDeductMaxRatio()).isEqualByComparingTo("20.00");
 	}
 
 	/**

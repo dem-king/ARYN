@@ -7,8 +7,10 @@ import com.aryn.cloud.user.api.entity.PointsExclude;
 import com.aryn.cloud.user.api.entity.PointsGlobalConfig;
 import com.aryn.cloud.user.api.entity.UserInfo;
 import com.aryn.cloud.user.api.enums.PointsSceneEnum;
+import com.aryn.cloud.user.api.vo.MemberBenefitsVO;
 import com.aryn.cloud.user.api.vo.PointsDeductContextVO;
 import com.aryn.cloud.user.mapper.UserInfoMapper;
+import com.aryn.cloud.user.service.IMemberBenefitService;
 import com.aryn.cloud.user.service.IPointsConfigService;
 import com.aryn.cloud.user.service.IPointsExcludeService;
 import com.aryn.cloud.user.service.IPointsGlobalConfigService;
@@ -19,6 +21,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Objects;
 
@@ -43,6 +46,8 @@ public class PointsGrantServiceImpl implements IPointsGrantService {
 	private final IPointsGlobalConfigService pointsGlobalConfigService;
 
 	private final IPointsExcludeService pointsExcludeService;
+
+	private final IMemberBenefitService memberBenefitService;
 
 	@Override
 	public int grant(String userId, PointsSceneEnum scene, String bizNo, Integer overridePoints, String remark) {
@@ -110,7 +115,29 @@ public class PointsGrantServiceImpl implements IPointsGrantService {
 		context.setEnabled(true);
 		context.setPointsPerYuan(enabled.getPointValue());
 		fillRiskControlConfig(context);
+		overrideDeductMaxRatioByLevel(userId, context);
 		return context;
+	}
+
+	/**
+	 * 等级专属抵扣上限覆盖全局默认（京东京享值分档口径：等级越高抵得越多）。
+	 * 多档配置在权益解析侧已取最大；非法区间不覆盖，交由订单侧回落全局/常量。
+	 */
+	private void overrideDeductMaxRatioByLevel(String userId, PointsDeductContextVO context) {
+		try {
+			MemberBenefitsVO benefits = memberBenefitService.getUserBenefits(userId);
+			if (benefits == null || benefits.getDeductMaxRatio() == null) {
+				return;
+			}
+			BigDecimal levelRatio = benefits.getDeductMaxRatio();
+			if (levelRatio.compareTo(BigDecimal.ZERO) > 0 && levelRatio.compareTo(BigDecimal.valueOf(100)) <= 0) {
+				context.setDeductMaxRatio(levelRatio);
+			}
+		}
+		catch (Exception e) {
+			// 等级权益读取失败按全局配置继续，不阻断下单
+			log.error("读取等级专属抵扣上限失败，按全局配置继续 userId={}", userId, e);
+		}
 	}
 
 	/**
@@ -150,6 +177,17 @@ public class PointsGrantServiceImpl implements IPointsGrantService {
 		validatePoints(points);
 		validateBizNo(bizNo);
 		pointsRecordService.recordPointsChange(userId, "2", points, PointsSceneEnum.ORDER_DEDUCT.getCode(), remark,
+				bizNo);
+	}
+
+	@Override
+	public void consume(String userId, Integer points, PointsSceneEnum scene, String bizNo, String remark) {
+		if (scene == null || !scene.isSpendScene()) {
+			throw new ArynBusinessException("积分消耗场景不合法");
+		}
+		validatePoints(points);
+		validateBizNo(bizNo);
+		pointsRecordService.recordPointsChange(userId, scene.getChangeType(), points, scene.getCode(), remark,
 				bizNo);
 	}
 

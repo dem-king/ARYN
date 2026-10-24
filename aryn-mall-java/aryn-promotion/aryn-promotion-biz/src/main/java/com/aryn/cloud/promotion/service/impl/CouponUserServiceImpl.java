@@ -202,11 +202,25 @@ public class CouponUserServiceImpl extends ServiceImpl<CouponUserMapper, CouponU
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public boolean grantMemberBenefitCoupon(String couponTemplateId, String userId, String sourceId) {
-		String sourceType = "MEMBER_BENEFIT";
+		return grantSourceCoupon(couponTemplateId, userId, sourceId, "MEMBER_BENEFIT", "会员专属优惠券");
+	}
+
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public boolean grantPointsExchangeCoupon(String couponTemplateId, String userId, String sourceId) {
+		return grantSourceCoupon(couponTemplateId, userId, sourceId, "POINTS_EXCHANGE", "积分兑换优惠券");
+	}
+
+	/**
+	 * 来源单号幂等发券：同一 (userId, sourceType, sourceId) 只发一张，
+	 * 券库存随发随扣（不足抛错，调用方事务回滚）。
+	 */
+	private boolean grantSourceCoupon(String couponTemplateId, String userId, String sourceId, String sourceType,
+			String label) {
 		String tenantId = ArynTenantContextHolder.getTenantId();
 		if (!StringUtils.hasText(couponTemplateId) || !StringUtils.hasText(userId)
 				|| !StringUtils.hasText(sourceId) || !StringUtils.hasText(tenantId)) {
-			throw new ArynBusinessException("会员专属优惠券发放参数不完整");
+			throw new ArynBusinessException(label + "发放参数不完整");
 		}
 		long existing = this.count(Wrappers.<CouponUser>lambdaQuery()
 				.eq(CouponUser::getUserId, userId)
@@ -217,7 +231,7 @@ public class CouponUserServiceImpl extends ServiceImpl<CouponUserMapper, CouponU
 		}
 		CouponInfo couponInfo = couponInfoMapper.selectCouponById(couponTemplateId);
 		if (couponInfo == null) {
-			throw new ArynBusinessException("会员专属优惠券模板不存在");
+			throw new ArynBusinessException(label + "模板不存在");
 		}
 		CouponUser couponUser = new CouponUser()
 				.setId(IdWorker.getIdStr())
@@ -233,7 +247,7 @@ public class CouponUserServiceImpl extends ServiceImpl<CouponUserMapper, CouponU
 			return true;
 		}
 		if (couponInfoMapper.allocateOne(couponTemplateId) == 0) {
-			throw new ArynBusinessException("会员专属优惠券库存不足");
+			throw new ArynBusinessException(label + "库存不足");
 		}
 		return true;
 	}

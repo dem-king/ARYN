@@ -29,4 +29,12 @@ public interface RemoteCouponUserService {
 
 	boolean grantMemberBenefitCoupon(String couponTemplateId, String userId, String sourceId);
 
+	/**
+	 * 积分兑换发券：sourceType=POINTS_EXCHANGE，按 (userId, sourceType, sourceId) 幂等。
+	 * @param couponTemplateId 券模板ID
+	 * @param userId 用户ID
+	 * @param sourceId 兑换记录ID
+	 */
+	boolean grantPointsExchangeCoupon(String couponTemplateId, String userId, String sourceId);
+
 }

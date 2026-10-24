@@ -31,6 +31,8 @@ public interface ICouponUserService extends IService<CouponUser> {
 
 	boolean grantMemberBenefitCoupon(String couponTemplateId, String userId, String sourceId);
 
+	boolean grantPointsExchangeCoupon(String couponTemplateId, String userId, String sourceId);
+
 	List<CouponUser> getExpireCouponList();
 
 	/**

@@ -46,4 +46,9 @@ public class RemoteCouponUserServiceImpl implements RemoteCouponUserService {
 		return couponUserService.grantMemberBenefitCoupon(couponTemplateId, userId, sourceId);
 	}
 
+	@Override
+	public boolean grantPointsExchangeCoupon(String couponTemplateId, String userId, String sourceId) {
+		return couponUserService.grantPointsExchangeCoupon(couponTemplateId, userId, sourceId);
+	}
+
 }

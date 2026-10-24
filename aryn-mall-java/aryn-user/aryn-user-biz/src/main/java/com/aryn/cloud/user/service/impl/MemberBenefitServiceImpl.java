@@ -218,6 +218,10 @@ public class MemberBenefitServiceImpl extends ServiceImpl<MemberBenefitMapper, M
 				case "3" -> result.getExclusiveCouponTemplateIds().add(benefit.getBenefitValue());
 				case "4" -> result.setPointsMultiplier(result.getPointsMultiplier()
 						.max(new BigDecimal(benefit.getBenefitValue())));
+				// 等级专属抵扣上限（百分数）：多档取最大（等级越高抵得越多），null=未配置回落全局
+				case "5" -> result.setDeductMaxRatio(result.getDeductMaxRatio() == null
+						? new BigDecimal(benefit.getBenefitValue())
+						: result.getDeductMaxRatio().max(new BigDecimal(benefit.getBenefitValue())));
 				default -> log.warn("会员权益类型未知，已跳过：benefitId={}, benefitType={}",
 						benefit.getId(), benefit.getBenefitType());
 			}
@@ -309,7 +313,7 @@ public class MemberBenefitServiceImpl extends ServiceImpl<MemberBenefitMapper, M
 				|| benefit.getBenefitValue().isBlank()) {
 			return false;
 		}
-		if (!Set.of("1", "2", "3", "4").contains(benefit.getBenefitType())) {
+		if (!Set.of("1", "2", "3", "4", "5").contains(benefit.getBenefitType())) {
 			return false;
 		}
 		if ("3".equals(benefit.getBenefitType())) {
@@ -332,7 +336,7 @@ public class MemberBenefitServiceImpl extends ServiceImpl<MemberBenefitMapper, M
 			throw new ArynBusinessException("会员权益状态不合法");
 		}
 		if (benefit.getBenefitType() == null
-				|| !Set.of("1", "2", "3", "4").contains(benefit.getBenefitType())) {
+				|| !Set.of("1", "2", "3", "4", "5").contains(benefit.getBenefitType())) {
 			throw new ArynBusinessException("会员权益类型不合法");
 		}
 		if (benefit.getBenefitValue() == null || benefit.getBenefitValue().isBlank()) {
@@ -356,6 +360,10 @@ public class MemberBenefitServiceImpl extends ServiceImpl<MemberBenefitMapper, M
 			}
 			if ("4".equals(benefit.getBenefitType()) && value.compareTo(BigDecimal.ONE) < 0) {
 				throw new ArynBusinessException("积分倍率不能小于1");
+			}
+			if ("5".equals(benefit.getBenefitType())
+					&& (value.compareTo(BigDecimal.ZERO) <= 0 || value.compareTo(new BigDecimal("100")) > 0)) {
+				throw new ArynBusinessException("积分抵扣上限必须大于0且不大于100（百分数）");
 			}
 		}
 		catch (NumberFormatException exception) {

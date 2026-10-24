@@ -194,6 +194,7 @@ defineExpose({ initForm });
           <ElRadio value="2">免运费</ElRadio>
           <ElRadio value="3">专属优惠券</ElRadio>
           <ElRadio value="4">积分倍率</ElRadio>
+          <ElRadio value="5">积分抵扣上限</ElRadio>
         </ElRadioGroup>
       </ElFormItem>
       <ElFormItem label="权益值" prop="benefitValue">
@@ -225,6 +226,14 @@ defineExpose({ initForm });
           />
         </ElSelect>
         <ElInputNumber
+          v-else-if="state.form.benefitType === '5'"
+          v-model="numericBenefitValue"
+          :min="0.01"
+          :max="100"
+          :step="1"
+          :precision="2"
+        />
+        <ElInputNumber
           v-else
           v-model="numericBenefitValue"
           :min="1"
@@ -236,6 +245,10 @@ defineExpose({ initForm });
         </div>
         <div v-else-if="state.form.benefitType === '3'" class="form-tip">
           仅可选择启用且有余量的优惠券模板
+        </div>
+        <div v-else-if="state.form.benefitType === '5'" class="form-tip">
+          百分数：20 表示该等级单笔最多抵
+          20%；等级配置优先于积分全局配置（等级越高抵得越多）
         </div>
       </ElFormItem>
       <ElFormItem label="描述" prop="description">
