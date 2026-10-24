@@ -391,7 +391,7 @@ export interface ActivityStripProps extends Omit<RetailBaseProps, 'count'> {
 | 元素 | 规格 |
 |------|------|
 | 卡片 | 等宽 1/卡数（一行最多三张，手配超出三张自动换行），白底，浅描边 `#F1F2F4`，圆角 16rpx，内边距 12rpx |
-| 首行 | 缩略图 64×64rpx 圆角 12rpx + 活动名，缺图首字色块（沿用 `resolveCategoryFallback` 色板） |
+| 首行 | 缩略图 64×64rpx 圆角 12rpx + 活动名；指定商品活动取首件商品图，全场折扣没有商品清单时取「全店销量 Top1」真实商品图作代表（该商品确实参与全场折扣，不伪造数据），仍缺图才回落首字色块（沿用 `resolveCategoryFallback` 色板） |
 | 活动名 | 24rpx/700 ink，与缩略图同一行，单行省略 |
 | 钩子 | 20rpx/500 muted，独占整卡宽的第二行，单行省略（三张卡时也能完整显示「午间场·整点开抢」） |
 | 角标 | 18rpx/700 小胶囊贴卡角：秒杀红「抢」、拼团橙「省¥X」、折扣橙「X折」，色值走 §4.2 token |
@@ -401,6 +401,9 @@ export interface ActivityStripProps extends Omit<RetailBaseProps, 'count'> {
 
 - 三类活动都无进行中：整条不渲染（`invalidStrategy:'hide'`），不留空白占位。
 - 单个 loader 失败：该卡隐藏，其余两卡照常；不报错、不阻断页面。
+- 全场折扣无商品清单 → 缩略图取数层补「全店销量 Top1」真实商品图（`loadDiscounts` 的 `coverImage`），
+  不退回「限」字色块；代表图查询失败/店内无商品时再回落首字色块，不阻断入口条。
+  实测见 [activity-strip-discount-cover.png](./screenshots/activity-strip-discount-cover.png)（2026-10-23 H5 真实数据）。
 - 远程图/头像加载失败走首字色块/默认灰圆兜底。
 
 #### 5.5.7 管理端与本期边界

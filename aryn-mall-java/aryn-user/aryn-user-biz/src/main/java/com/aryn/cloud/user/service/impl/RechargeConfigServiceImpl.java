@@ -12,6 +12,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
+
 /**
  * 储值配置
  *
@@ -36,20 +38,28 @@ public class RechargeConfigServiceImpl extends ServiceImpl<RechargeConfigMapper,
 
 	@Override
 	public boolean saveConfig(RechargeConfig rechargeConfig) {
-		if (rechargeConfig.getRechargeAmount() == null
-				|| rechargeConfig.getRechargeAmount().doubleValue() <= 0) {
-			throw new ArynBusinessException("充值金额必须大于0");
-		}
+		validateConfig(rechargeConfig);
 		return this.save(rechargeConfig);
 	}
 
 	@Override
 	public boolean updateConfig(RechargeConfig rechargeConfig) {
+		validateConfig(rechargeConfig);
+		return this.updateById(rechargeConfig);
+	}
+
+	private void validateConfig(RechargeConfig rechargeConfig) {
 		if (rechargeConfig.getRechargeAmount() == null
-				|| rechargeConfig.getRechargeAmount().doubleValue() <= 0) {
+				|| rechargeConfig.getRechargeAmount().compareTo(BigDecimal.ZERO) <= 0) {
 			throw new ArynBusinessException("充值金额必须大于0");
 		}
-		return this.updateById(rechargeConfig);
+		if (rechargeConfig.getGiftAmount() != null
+				&& rechargeConfig.getGiftAmount().compareTo(BigDecimal.ZERO) < 0) {
+			throw new ArynBusinessException("赠送金额不能小于0");
+		}
+		if (rechargeConfig.getGiftPoint() != null && rechargeConfig.getGiftPoint() < 0) {
+			throw new ArynBusinessException("赠送积分不能小于0");
+		}
 	}
 
 	@Override

@@ -108,34 +108,6 @@ export function validateGoodsWaterfall(props: Record<string, unknown>) {
   return errors;
 }
 
-export function createCouponComboDefaults() {
-  return {
-    commonStyle: { ...extensionCommonStyle },
-    count: 3,
-    dataSource: {
-      cacheTtl: 60,
-      mode: 'automatic' as const,
-      targetIds: [] as string[],
-    },
-    showReceiveBtn: true,
-    showThreshold: true,
-  };
-}
-
-export function validateCouponCombo(props: Record<string, unknown>) {
-  const errors: string[] = [];
-  const dataSource = props.dataSource as ExtensionDataSourceConfig | undefined;
-  if (!props.count || Number(props.count) <= 0)
-    errors.push('展示数量必须大于 0');
-  if (
-    dataSource?.mode === 'manual' &&
-    (dataSource.targetIds ?? []).length === 0
-  ) {
-    errors.push('手选优惠券不能为空');
-  }
-  return errors;
-}
-
 export function createMemberBenefitsDefaults() {
   return {
     commonStyle: { ...extensionCommonStyle },
@@ -186,28 +158,6 @@ export function validateServicePromise(props: Record<string, unknown>) {
   if (!Array.isArray(items) || items.length === 0)
     return ['请至少配置一条服务承诺'];
   return items.some((item) => !item.title) ? ['服务承诺标题不能为空'] : [];
-}
-
-export function createBottomNavDefaults() {
-  return {
-    activeColor: '#ff5000',
-    backgroundColor: '#ffffff',
-    commonStyle: { ...extensionCommonStyle },
-    items: [
-      { iconUrl: '', id: 'nav-1', link: emptyLink(), text: '首页' },
-      { iconUrl: '', id: 'nav-2', link: emptyLink(), text: '分类' },
-      { iconUrl: '', id: 'nav-3', link: emptyLink(), text: '购物车' },
-      { iconUrl: '', id: 'nav-4', link: emptyLink(), text: '我的' },
-    ],
-    textColor: '#333333',
-  };
-}
-
-export function validateBottomNav(props: Record<string, unknown>) {
-  const items = (props.items ?? []) as Array<{ text?: string }>;
-  if (!Array.isArray(items) || items.length === 0)
-    return ['请至少配置一个导航项'];
-  return items.some((item) => !item.text) ? ['导航项文字不能为空'] : [];
 }
 
 export function createVideoLiveDefaults() {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  PURCHASE_SCENE_ENTERPRISE,
   PURCHASE_SCENE_PERSONAL,
   PURCHASE_SCENE_SHIP_SUPPLY,
   purchaseSceneText,
@@ -14,6 +15,10 @@ import {
 describe('purchase scene text', () => {
   it('船供采购原样展示', () => {
     expect(purchaseSceneText(PURCHASE_SCENE_SHIP_SUPPLY)).toBe('船供采购');
+  });
+
+  it('企业采购（岸上共享购物车订单）原样展示', () => {
+    expect(purchaseSceneText(PURCHASE_SCENE_ENTERPRISE)).toBe('企业采购');
   });
 
   it('个人购买与历史空值都展示个人购买，不出现占位符', () => {

@@ -33,3 +33,11 @@ aryn:
     model: ${AI_MODEL:deepseek-chat}
     base-url: ${AI_BASE_URL:https://api.deepseek.com}
     timeout-ms: ${AI_TIMEOUT_MS:20000}
+
+# 营销优惠叠加策略（活动价 × 优惠券 × 积分抵现）：enabled=false 时所有活动商品视为可叠（灰度回滚开关）。
+# cloud 模式的覆盖值放 nacos（order 服务的 {spring.application.name}-{profile}.yml），此处仅放默认值。
+promotion:
+  stack-policy:
+    enabled: ${PROMOTION_STACK_POLICY_ENABLED:true}
+    min-payable-enabled: ${PROMOTION_MIN_PAYABLE_ENABLED:true}
+    min-payable-amount: ${PROMOTION_MIN_PAYABLE_AMOUNT:0.01}

@@ -227,6 +227,7 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 						if (override != null) {
 							override.setActivityId(activity.getId());
 							override.setActivityType(activity.getActivityType());
+							fillStackPolicy(override, activity);
 							overrides.add(override);
 							saving = saving.add(override.getOriginalPrice().subtract(override.getUnitPrice())
 									.multiply(BigDecimal.valueOf(item.getQuantity())));
@@ -640,6 +641,7 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 				override.setOriginalPrice(item.getSalesPrice());
 				override.setActivityId(activity.getId());
 				override.setActivityType(activity.getActivityType());
+				fillStackPolicy(override, activity);
 				result.getLadderOverrides().add(override);
 				saving = saving.add(item.getSalesPrice().subtract(price)
 						.multiply(BigDecimal.valueOf(item.getQuantity())));
@@ -659,6 +661,22 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 			result.setTotalDiscount(result.getTotalDiscount().add(saving));
 		}
 		return true;
+	}
+
+	/**
+	 * 按活动实体填充单价的叠加策略：新人专享（type=9）空值回落「不可叠」，
+	 * 其余类型（阶梯价等）回落「可叠」以维持现网行为。
+	 */
+	private void fillStackPolicy(PromotionCalculationVO.UnitPriceOverride override, PromotionActivity activity) {
+		com.aryn.cloud.promotion.api.enums.StackActivityTypeEnum type =
+				PromotionActivity.TYPE_NEWBIE_PRICE.equals(activity.getActivityType())
+						? com.aryn.cloud.promotion.api.enums.StackActivityTypeEnum.NEWBIE : null;
+		boolean couponDefault = type == null || type.isDefaultCouponStackable();
+		boolean pointsDefault = type == null || type.isDefaultPointsStackable();
+		override.setCouponStackable(com.aryn.cloud.promotion.api.enums.StackActivityTypeEnum.resolve(
+				activity.getCouponStackable(), couponDefault));
+		override.setPointsStackable(com.aryn.cloud.promotion.api.enums.StackActivityTypeEnum.resolve(
+				activity.getPointsStackable(), pointsDefault));
 	}
 
 	/**

@@ -72,6 +72,21 @@ describe('legacy component registry', () => {
       );
     },
   );
+
+  it('coupon-receive 缺省走自动领券，手选为空时不允许发布', () => {
+    const definition = componentRegistry['coupon-receive'];
+    const defaults = definition.createDefaultProps();
+
+    expect(defaults).toMatchObject({
+      dataSource: { mode: 'automatic', targetIds: [] },
+    });
+    expect(
+      definition.validate({
+        ...defaults,
+        dataSource: { mode: 'manual', targetIds: [] },
+      }),
+    ).toEqual(['手选优惠券不能为空']);
+  });
 });
 
 describe('retail component registry', () => {
@@ -89,8 +104,8 @@ describe('retail component registry', () => {
     );
   });
 
-  it('registers all nine extension components exactly once', () => {
-    expect(new Set(extensionComponentTypes).size).toBe(9);
+  it('registers all seven extension components exactly once', () => {
+    expect(new Set(extensionComponentTypes).size).toBe(7);
     for (const type of extensionComponentTypes) {
       const definition = componentRegistry[type];
       expect(definition).toBeDefined();
@@ -190,7 +205,6 @@ describe('component style settings registry', () => {
     'tab-nav',
     'title-text',
     'newbie-floor',
-    'bottom-nav',
   ] as const;
 
   it.each(typesWithSpecificStyleSettings)(

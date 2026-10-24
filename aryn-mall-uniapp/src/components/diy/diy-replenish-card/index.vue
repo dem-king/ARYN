@@ -93,11 +93,13 @@ function goImportEntry() {
   uni.navigateTo({ url: '/sub-pages/order/shared-cart/import-entry' })
 }
 
-/** 靠港/泊位文案：优先泊位，其次港口，都没有时回落船舶名 */
+/** 位置文案：岸上车显示地址快照；船供车优先泊位/港口，都没有时回落船舶名 */
 const locationText = computed(() => {
   const cart = summary.value?.cart
   if (!cart)
     return ''
+  if (cart.cartType === '2')
+    return cart.addressSnapshot || '收货地址待同步'
   const parts = [cart.portName, cart.berth].filter(Boolean)
   if (parts.length > 0)
     return parts.join(' ')

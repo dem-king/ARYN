@@ -41,4 +41,7 @@ public class UserInfoVO implements Serializable {
 	@Schema(description = "租户id")
 	private String tenantId;
 
+	@Schema(description = "状态：0-启用；1-禁用")
+	private String status;
+
 }

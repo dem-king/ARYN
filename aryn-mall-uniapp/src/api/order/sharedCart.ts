@@ -1,19 +1,33 @@
 /**
- * 共享购物车 API（同船多海员分别加购，授权人员统一确认提交整船订单）。
+ * 共享购物车 API（多成员分别加购，授权人员统一确认提交合并订单）。
  *
  * 后端契约（AppSharedCartController，C 端网关域 mall-order）：
- * - 创建后绑定船舶与靠港计划，不可变更；已提交/已关闭不可编辑
+ * - 车类型两种：cartType=1 船供整车（绑定船舶+靠港计划，提交走公司配送到船）；
+ *   cartType=2 岸上企业（绑定发起人收货地址，提交走公司配送岸上；港口附近工厂等无船客户）
+ * - 创建后绑定不可变更；已提交/已关闭不可编辑
  * - 成员只能维护自己的明细；发起人可邀请成员、关闭购物车
  * - 确认人（默认发起人）可调整核定数量后统一提交，按购物车维度幂等
  */
 import { alovaInstance } from '@/api/core/instance'
 
+/** 车类型：船供整车 */
+export const SHARED_CART_TYPE_SHIP = '1'
+
+/** 车类型：岸上企业（收货地址配送） */
+export const SHARED_CART_TYPE_SHORE = '2'
+
 export interface SharedCart {
   id: string
   cartNo: string
-  vesselId: string
+  /** 车类型：1船供整车；2岸上企业（后端对存量空值归一为 1） */
+  cartType?: string
+  vesselId?: string
   vesselName?: string
-  vesselCallId: string
+  vesselCallId?: string
+  /** 岸上车收货地址ID；船供车为空 */
+  userAddressId?: string
+  /** 岸上车收货地址快照（「省市区+详址 收货人 电话」）；船供车为空 */
+  addressSnapshot?: string
   portCode?: string
   portName?: string
   berth?: string
@@ -110,8 +124,14 @@ export interface SharedCartEstimate {
 }
 
 export interface SharedCartCreatePayload {
-  vesselId: string
-  vesselCallId: string
+  /** 车类型：缺省船供（1）；岸上企业传 2 */
+  cartType?: string
+  /** 船供车必填 */
+  vesselId?: string
+  /** 船供车必填 */
+  vesselCallId?: string
+  /** 岸上车必填：发起人地址簿中的收货地址ID */
+  userAddressId?: string
   expiresAt?: string
   remark?: string
 }
@@ -248,12 +268,17 @@ export function removeSharedCartItem(id: string, itemId: string) {
   return alovaInstance.Delete<void>(`${BASE}/${id}/items/${itemId}`)
 }
 
-/** 历史补给单复用入参（把历史明细复制到当前靠港计划下的购物车） */
+/**
+ * 历史补给单复用入参。
+ *
+ * 船供车复用必须传 vesselId/vesselCallId（船与源单一致，靠港取当前上下文）；
+ * 岸上企业车复用不传船舶字段——服务端按源单的收货地址重建。
+ */
 export interface SharedCartReusePayload {
-  /** 船舶ID（必须与源单一致；跨船复用无业务意义） */
-  vesselId: string
-  /** 本次采购的靠港计划ID（取当前上下文，不是源单那个历史靠港） */
-  vesselCallId: string
+  /** 船舶ID（船供车必填；必须与源单一致，跨船复用无业务意义） */
+  vesselId?: string
+  /** 本次采购的靠港计划ID（船供车必填；取当前上下文，不是源单那个历史靠港） */
+  vesselCallId?: string
   /** 备注；不传则沿用源单备注 */
   remark?: string
 }

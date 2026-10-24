@@ -11,6 +11,11 @@
         <collection property="couponInfo" column="{id=coupon_id}"
                     ofType="com.aryn.cloud.promotion.api.entity.CouponInfo"
                     select="com.aryn.cloud.promotion.mapper.CouponInfoMapper.selectById"></collection>
+        <!-- 指定商品券的适用商品明细：C 端确认页券弹层据此判断「本单是否有可用商品」，
+             历史只嵌套 couponInfo 导致该判断恒空（前端恒判不可用） -->
+        <collection property="couponGoodsList" column="{couponId=coupon_id}"
+                    ofType="com.aryn.cloud.promotion.api.entity.CouponGoods"
+                    select="com.aryn.cloud.promotion.mapper.CouponGoodsMapper.selectByCouponId"></collection>
     </resultMap>
     <sql id="couponUserSql">
         coupon_user

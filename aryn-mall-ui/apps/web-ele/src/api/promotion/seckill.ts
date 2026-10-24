@@ -70,6 +70,10 @@ export interface SeckillActivityForm {
   startTime?: string;
   /** 活动结束时间 */
   endTime?: string;
+  /** 活动商品是否可用优惠券：秒杀平台级硬互斥，恒 '0'（只读展示） */
+  couponStackable?: string;
+  /** 活动商品是否可积分抵现：秒杀平台级硬互斥，恒 '0'（只读展示） */
+  pointsStackable?: string;
   /** 场次列表 */
   sessions: SeckillSessionForm[];
 }
@@ -88,6 +92,10 @@ export interface SeckillActivityRecord {
   sessionCount: number;
   /** 活动状态 */
   status: SeckillActivityStatus;
+  /** 活动商品是否可用优惠券：恒 '0'（平台硬互斥） */
+  couponStackable?: string;
+  /** 活动商品是否可积分抵现：恒 '0'（平台硬互斥） */
+  pointsStackable?: string;
   /** 创建时间 */
   createTime?: string;
 }

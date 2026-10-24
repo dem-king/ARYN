@@ -86,6 +86,12 @@ public class PromotionCalculationVO implements Serializable {
 		@Schema(description = "命中活动类型（订单侧据此识别新人价并施加保护，老数据可为空）")
 		private String activityType;
 
+		@Schema(description = "活动商品是否可用优惠券（引擎按活动表填充；空按类型默认值处理，老数据可为空）")
+		private Boolean couponStackable;
+
+		@Schema(description = "活动商品是否可积分抵现（引擎按活动表填充；空按类型默认值处理，老数据可为空）")
+		private Boolean pointsStackable;
+
 	}
 
 	@Data

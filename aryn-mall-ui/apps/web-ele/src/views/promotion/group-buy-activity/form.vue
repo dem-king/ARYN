@@ -16,6 +16,7 @@ import {
   ElMessage,
   ElRadio,
   ElRadioGroup,
+  ElSwitch,
   ElTable,
   ElTableColumn,
 } from 'element-plus';
@@ -35,6 +36,7 @@ interface DataState {
   form: {
     activityName: string;
     activityStatus: string;
+    couponStackable: string;
     datatimes: Array<any>;
     endedAt: string;
     groupExpireHours: number;
@@ -43,6 +45,7 @@ interface DataState {
     id: string | undefined;
     limitNum: number;
     originalPrice: number;
+    pointsStackable: string;
     skuId: string;
     spuId: string;
     spuName: string;
@@ -67,6 +70,9 @@ const state = reactive<DataState>({
     limitNum: 0,
     virtualNum: 0,
     activityStatus: '0',
+    // 优惠叠加默认按拼团类型默认值带出：默认可叠券/可积分
+    couponStackable: '1',
+    pointsStackable: '1',
     datatimes: [],
     startedAt: '',
     endedAt: '',
@@ -225,11 +231,18 @@ const getDetail = (id: string) => {
       loading.value = false;
       state.form = response;
       state.form.datatimes = [state.form.startedAt, state.form.endedAt];
+      // 存量数据可能未带叠加字段：缺省按拼团默认（可叠）补齐，保证编辑回显与提交口径一致
+      if (!state.form.couponStackable) state.form.couponStackable = '1';
+      if (!state.form.pointsStackable) state.form.pointsStackable = '1';
     })
     .catch(() => {
       loading.value = false;
     });
 };
+
+/** 开关值与 '1'/'0' 互转 */
+const asSwitch = (val: null | string | undefined) => val !== '0';
+const fromSwitch = (val: boolean | number | string) => (val ? '1' : '0');
 
 defineExpose({
   initForm,
@@ -340,6 +353,32 @@ defineExpose({
             />
             <span style="color: var(--el-text-color-secondary)"
               >展示用，0表示不虚增</span
+            >
+          </div>
+        </ElFormItem>
+        <ElFormItem label="可用优惠券">
+          <div style="display: flex; gap: 8px; align-items: center">
+            <ElSwitch
+              :model-value="asSwitch(state.form.couponStackable)"
+              @update:model-value="
+                state.form.couponStackable = fromSwitch($event as boolean)
+              "
+            />
+            <span style="color: var(--el-text-color-secondary)"
+              >开启后拼团商品可使用优惠券</span
+            >
+          </div>
+        </ElFormItem>
+        <ElFormItem label="可用积分抵现">
+          <div style="display: flex; gap: 8px; align-items: center">
+            <ElSwitch
+              :model-value="asSwitch(state.form.pointsStackable)"
+              @update:model-value="
+                state.form.pointsStackable = fromSwitch($event as boolean)
+              "
+            />
+            <span style="color: var(--el-text-color-secondary)"
+              >开启后拼团商品可参与积分抵现</span
             >
           </div>
         </ElFormItem>

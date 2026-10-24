@@ -17,8 +17,10 @@ import com.aryn.cloud.pay.api.remote.RemotePayService;
 import com.aryn.cloud.user.api.dto.RechargePrepayDTO;
 import com.aryn.cloud.user.api.entity.RechargeConfig;
 import com.aryn.cloud.user.api.entity.RechargeOrder;
+import com.aryn.cloud.user.api.entity.UserInfo;
 import com.aryn.cloud.user.api.vo.AppRechargeOrderVO;
 import com.aryn.cloud.user.mapper.RechargeOrderMapper;
+import com.aryn.cloud.user.mapper.UserInfoMapper;
 import com.aryn.cloud.user.service.IBalanceRecordService;
 import com.aryn.cloud.user.service.IPointsRecordService;
 import com.aryn.cloud.user.service.IRechargeConfigService;
@@ -33,7 +35,9 @@ import org.springframework.util.StringUtils;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * 充值订单
@@ -52,6 +56,8 @@ public class RechargeOrderServiceImpl extends ServiceImpl<RechargeOrderMapper, R
 
 	private final IPointsRecordService pointsRecordService;
 
+	private final UserInfoMapper userInfoMapper;
+
 	@DubboReference
 	private RemotePayService remotePayService;
 
@@ -60,8 +66,29 @@ public class RechargeOrderServiceImpl extends ServiceImpl<RechargeOrderMapper, R
 
 	@Override
 	public IPage<RechargeOrder> getPage(Page page, RechargeOrder rechargeOrder) {
-		return this.page(page,
-				Wrappers.<RechargeOrder>lambdaQuery().orderByDesc(RechargeOrder::getCreateTime));
+		IPage<RechargeOrder> result = this.page(page, Wrappers.<RechargeOrder>lambdaQuery()
+				.like(StringUtils.hasText(rechargeOrder.getOrderNo()), RechargeOrder::getOrderNo,
+						rechargeOrder.getOrderNo())
+				.eq(StringUtils.hasText(rechargeOrder.getPayStatus()), RechargeOrder::getPayStatus,
+						rechargeOrder.getPayStatus())
+				.ge(StringUtils.hasText(rechargeOrder.getBeginTime()), RechargeOrder::getCreateTime,
+						rechargeOrder.getBeginTime())
+				.le(StringUtils.hasText(rechargeOrder.getEndTime()), RechargeOrder::getCreateTime,
+						rechargeOrder.getEndTime())
+				.orderByDesc(RechargeOrder::getCreateTime));
+		List<String> userIds = result.getRecords().stream()
+			.map(RechargeOrder::getUserId)
+			.filter(StringUtils::hasText)
+			.distinct()
+			.toList();
+		if (!userIds.isEmpty()) {
+			Map<String, String> nicknameMap = userInfoMapper.selectBatchIds(userIds).stream()
+				.collect(Collectors.toMap(UserInfo::getId,
+						user -> StringUtils.hasText(user.getNickname()) ? user.getNickname() : "",
+						(first, second) -> first));
+			result.getRecords().forEach(order -> order.setNickname(nicknameMap.getOrDefault(order.getUserId(), "")));
+		}
+		return result;
 	}
 
 	@Override

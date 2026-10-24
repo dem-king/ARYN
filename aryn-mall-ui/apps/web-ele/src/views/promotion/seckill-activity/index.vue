@@ -227,6 +227,11 @@ initPage();
             </ElTag>
           </template>
         </ElTableColumn>
+        <ElTableColumn label="叠加策略" align="center" width="150">
+          <template #default>
+            <span title="秒杀平台级硬互斥，不支持配置">券✗ · 积分✗</span>
+          </template>
+        </ElTableColumn>
         <ElTableColumn
           prop="createTime"
           label="创建时间"

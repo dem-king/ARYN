@@ -174,7 +174,7 @@ function clearVideo() {
 
 <template>
   <ElForm label-position="top" class="extension-settings" @submit.prevent>
-    <template v-if="type === 'goods-waterfall' || type === 'coupon-combo'">
+    <template v-if="type === 'goods-waterfall'">
       <ElFormItem label="数据来源">
         <ElRadioGroup
           :model-value="
@@ -183,24 +183,22 @@ function clearVideo() {
           "
           @update:model-value="updateDataSource({ mode: $event as string })"
         >
-          <ElRadio value="automatic">
-            {{ type === 'coupon-combo' ? '自动领取列表' : '按分类/排行自动' }}
-          </ElRadio>
+          <ElRadio value="automatic">按分类/排行自动</ElRadio>
           <ElRadio value="manual">手选数据</ElRadio>
         </ElRadioGroup>
       </ElFormItem>
       <ElFormItem
         v-if="(form.dataSource as Record<string, unknown>)?.mode === 'manual'"
-        :label="type === 'coupon-combo' ? '手选优惠券' : '手选商品'"
+        label="手选商品"
       >
         <IdPickerField
-          :kind="type === 'coupon-combo' ? 'coupon' : 'goods'"
+          kind="goods"
           :limit="30"
           :model-value="targetIds()"
           @update:model-value="updateTargetIds"
         />
       </ElFormItem>
-      <ElFormItem v-if="type === 'goods-waterfall'" label="分类（自动模式）">
+      <ElFormItem label="分类（自动模式）">
         <CategoryPicker
           :model-value="
             (form.dataSource as unknown as Record<string, unknown> | undefined)
@@ -234,7 +232,7 @@ function clearVideo() {
           "
         />
       </ElFormItem>
-      <ElFormItem v-if="type === 'goods-waterfall'" label="列数">
+      <ElFormItem label="列数">
         <ElRadioGroup
           :model-value="form.columns as number"
           @update:model-value="
@@ -246,28 +244,18 @@ function clearVideo() {
           <ElRadio :value="3">三列</ElRadio>
         </ElRadioGroup>
       </ElFormItem>
-      <template v-if="type === 'goods-waterfall'">
-        <ElFormItem label="显示价格">
-          <ElSwitch v-model="form.showPrice as boolean" @change="commit" />
-        </ElFormItem>
-        <ElFormItem label="显示销量">
-          <ElSwitch v-model="form.showSales as boolean" @change="commit" />
-        </ElFormItem>
-        <ElFormItem label="商品原价">
-          <ElSwitch
-            v-model="form.showOriginalPrice as boolean"
-            @change="commit"
-          />
-        </ElFormItem>
-      </template>
-      <template v-else>
-        <ElFormItem label="显示领取按钮">
-          <ElSwitch v-model="form.showReceiveBtn as boolean" @change="commit" />
-        </ElFormItem>
-        <ElFormItem label="显示使用门槛">
-          <ElSwitch v-model="form.showThreshold as boolean" @change="commit" />
-        </ElFormItem>
-      </template>
+      <ElFormItem label="显示价格">
+        <ElSwitch v-model="form.showPrice as boolean" @change="commit" />
+      </ElFormItem>
+      <ElFormItem label="显示销量">
+        <ElSwitch v-model="form.showSales as boolean" @change="commit" />
+      </ElFormItem>
+      <ElFormItem label="商品原价">
+        <ElSwitch
+          v-model="form.showOriginalPrice as boolean"
+          @change="commit"
+        />
+      </ElFormItem>
     </template>
 
     <template v-else-if="type === 'goods-tabs'">
@@ -522,44 +510,6 @@ function clearVideo() {
             "
           >
             添加一项
-          </ElButton>
-        </div>
-      </ElFormItem>
-    </template>
-
-    <template v-else-if="type === 'bottom-nav'">
-      <ElFormItem label="导航项">
-        <div class="entry-editor">
-          <div
-            v-for="(item, index) in entryList('items')"
-            :key="index"
-            class="entry-row"
-          >
-            <ElInput
-              v-model="item.text as string"
-              placeholder="文字"
-              @update:model-value="commit"
-            />
-            <ElButton
-              size="small"
-              text
-              type="danger"
-              @click="removeEntry('items', index)"
-            >
-              删除
-            </ElButton>
-          </div>
-          <ElButton
-            size="small"
-            @click="
-              addEntry('items', {
-                iconUrl: '',
-                link: { params: {}, path: '', type: 'custom' },
-                text: '',
-              })
-            "
-          >
-            添加导航项
           </ElButton>
         </div>
       </ElFormItem>

@@ -21,10 +21,14 @@ import com.aryn.cloud.promotion.api.dto.CouponUserReqDTO;
 import com.aryn.cloud.promotion.api.entity.CouponGoods;
 import com.aryn.cloud.promotion.api.entity.CouponInfo;
 import com.aryn.cloud.promotion.api.enums.CouponUserStatusEnum;
+import com.aryn.cloud.promotion.api.enums.StackActivityTypeEnum;
 import com.aryn.cloud.promotion.api.dto.PromotionContextDTO;
 import com.aryn.cloud.promotion.api.remote.RemoteCouponUserService;
 import com.aryn.cloud.promotion.api.remote.RemotePromotionEngine;
 import com.aryn.cloud.promotion.api.vo.PromotionCalculationVO;
+import com.aryn.cloud.promotion.api.vo.GroupBuyOrderContextVO;
+import com.aryn.cloud.promotion.api.vo.SeckillPriceContextVO;
+import com.aryn.cloud.promotion.api.vo.DiscountPriceContextVO;
 import com.aryn.cloud.promotion.api.dto.DiscountStockItemDTO;
 import com.aryn.cloud.promotion.api.dto.DiscountStockReserveResultDTO;
 import com.aryn.cloud.promotion.api.remote.RemoteDiscountService;
@@ -37,6 +41,7 @@ import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.dubbo.config.annotation.DubboReference;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -67,6 +72,23 @@ public class OrderPriceComputeService {
 	private final RemotePromotionEngine remotePromotionEngine;
 
 	/**
+	 * 叠加策略总开关（灰度/回滚用）：false 时所有 SKU 视为可叠，等同现网行为，不读活动配置。
+	 * 字段级默认 true（无 Spring 注入的纯构造场景，如单元测试，与生产默认一致）。
+	 */
+	@Value("${promotion.stack-policy.enabled:true}")
+	private boolean stackPolicyEnabled = true;
+
+	/**
+	 * 最低实付兜底开关：券额封顶后保证商品实付 ≥ 最低支付金额，避免叠加击穿出 0 元单。
+	 */
+	@Value("${promotion.stack-policy.min-payable-enabled:true}")
+	private boolean minPayableEnabled = true;
+
+	/** 最低实付金额（元），业务自定策略（有赞口径为 0 元，不可对外声称行业惯例）。 */
+	@Value("${promotion.stack-policy.min-payable-amount:0.01}")
+	private BigDecimal minPayableAmount = new BigDecimal("0.01");
+
+	/**
 	 * 促销价格处理：拼团价 > 秒杀价 > 限时折扣 > 原价。
 	 *
 	 * <p>由下单/结算主流程在会员折扣与优惠券之前显式调用：券与会员折扣必须基于促销后
@@ -85,11 +107,11 @@ public class OrderPriceComputeService {
 	 * <p>拼团价仅对拼团记录绑定的 SKU 生效，由下单/结算主流程按拼团记录预取，
 	 * 保证确认页与提交后金额一致；普通商品仍走秒杀/折扣链路。
 	 *
-	 * @param groupBuyPriceBySku 拼团 SKU → 拼团单价（可为 null，表示非拼团单）
+	 * @param groupBuyContext 拼团下单上下文（可为 null，表示非拼团单）
 	 */
 	public void orderPromotionPriceHandler(List<OrderItemEntity> orderItemEntityList,
-			Map<String, BigDecimal> groupBuyPriceBySku) {
-		orderPromotionPriceHandler(orderItemEntityList, groupBuyPriceBySku, null);
+			GroupBuyOrderContextVO groupBuyContext) {
+		orderPromotionPriceHandler(orderItemEntityList, groupBuyContext, null);
 	}
 
 	/**
@@ -99,12 +121,12 @@ public class OrderPriceComputeService {
 	 * 限时折扣分支必须跳过（折扣会无条件覆盖 salesPrice），否则新人价被冲掉；
 	 * 秒杀仍优先覆盖（平台级爆款活动优先保护）。
 	 *
-	 * @param groupBuyPriceBySku 拼团 SKU → 拼团单价（可为 null，表示非拼团单）
+	 * @param groupBuyContext 拼团下单上下文（可为 null，表示非拼团单）
 	 * @param newbieSkuIds 命中新人价的 SKU 集合（可为 null/空，表示无新人价订单）
 	 */
 	public void orderPromotionPriceHandler(List<OrderItemEntity> orderItemEntityList,
-			Map<String, BigDecimal> groupBuyPriceBySku, Set<String> newbieSkuIds) {
-		PromotionPricePlan plan = resolvePromotionPricePlan(orderItemEntityList, groupBuyPriceBySku, newbieSkuIds);
+			GroupBuyOrderContextVO groupBuyContext, Set<String> newbieSkuIds) {
+		PromotionPricePlan plan = resolvePromotionPricePlan(orderItemEntityList, groupBuyContext, newbieSkuIds);
 		applyPromotionPricePlan(orderItemEntityList, newbieSkuIds, plan);
 	}
 
@@ -146,20 +168,21 @@ public class OrderPriceComputeService {
 	}
 
 	/**
-	 * 预取拼团/秒杀/限时折扣价，并标记已享活动价的 SKU。
+	 * 预取拼团/秒杀/限时折扣价，并标记已享活动价的 SKU（命中记录含活动类型与叠加策略）。
 	 *
 	 * <p>查询顺序与落价优先级一致：拼团命中后不再查秒杀/折扣，秒杀命中后不再查折扣。
 	 * 营销试算用该标记把活动价 SKU 排除出整船门槛，订单分摊也据此排除；
-	 * 例外是新人价：它由营销引擎在试算中落定，订单侧只需保证折扣不再覆盖。
+	 * 例外是新人价：它由营销引擎在试算中落定，订单侧只需保证折扣不再覆盖，
+	 * 其命中信息在试算后经 {@link #mergeStackPolicyHits} 补入计划。
 	 */
 	public PromotionPricePlan resolvePromotionPricePlan(List<OrderItemEntity> orderItemEntityList,
-			Map<String, BigDecimal> groupBuyPriceBySku) {
-		return resolvePromotionPricePlan(orderItemEntityList, groupBuyPriceBySku, null);
+			GroupBuyOrderContextVO groupBuyContext) {
+		return resolvePromotionPricePlan(orderItemEntityList, groupBuyContext, null);
 	}
 
 	private PromotionPricePlan resolvePromotionPricePlan(List<OrderItemEntity> orderItemEntityList,
-			Map<String, BigDecimal> groupBuyPriceBySku, Set<String> newbieSkuIds) {
-		PromotionPricePlan plan = new PromotionPricePlan(groupBuyPriceBySku);
+			GroupBuyOrderContextVO groupBuyContext, Set<String> newbieSkuIds) {
+		PromotionPricePlan plan = new PromotionPricePlan(groupBuyContext, stackPolicyEnabled);
 		for (OrderItemEntity item : orderItemEntityList) {
 			BigDecimal originalUnitPrice = item.getSalesPrice();
 			if (originalUnitPrice == null) {
@@ -169,35 +192,67 @@ public class OrderPriceComputeService {
 			if (groupBuyPrice != null) {
 				if (groupBuyPrice.compareTo(originalUnitPrice) < 0) {
 					plan.markActivityPriced(item.getSkuId());
+					plan.putHit(item.getSkuId(), StackActivityTypeEnum.GROUP_BUY, groupBuyContext.getActivityId(),
+							groupBuyContext.getCouponStackable(), groupBuyContext.getPointsStackable());
 				}
 				continue;
 			}
-			BigDecimal seckillPrice = querySeckillPrice(item.getSkuId());
-			if (seckillPrice != null) {
-				plan.putSeckillPrice(item.getSkuId(), seckillPrice);
-				if (seckillPrice.compareTo(originalUnitPrice) < 0) {
+			SeckillPriceContextVO seckillContext = querySeckillContext(item.getSkuId());
+			if (seckillContext != null && seckillContext.getSeckillPrice() != null) {
+				plan.putSeckillPrice(item.getSkuId(), seckillContext.getSeckillPrice());
+				if (seckillContext.getSeckillPrice().compareTo(originalUnitPrice) < 0) {
 					plan.markActivityPriced(item.getSkuId());
+					// 秒杀是平台级硬互斥：无论远程/配置给什么值，订单侧一律强制不可叠
+					plan.putHit(item.getSkuId(), StackActivityTypeEnum.SECKILL, seckillContext.getActivityId(),
+							false, false);
 				}
 				continue;
 			}
 			if (newbieSkuIds != null && newbieSkuIds.contains(item.getSkuId())) {
 				continue;
 			}
-			BigDecimal discountPrice = queryDiscountPrice(item.getSkuId(), originalUnitPrice);
-			if (discountPrice != null) {
-				plan.putDiscountPrice(item.getSkuId(), discountPrice);
-				if (discountPrice.compareTo(originalUnitPrice) < 0) {
+			DiscountPriceContextVO discountContext = queryDiscountContext(item.getSkuId(), originalUnitPrice);
+			if (discountContext != null && discountContext.getDiscountPrice() != null) {
+				plan.putDiscountPrice(item.getSkuId(), discountContext.getDiscountPrice());
+				if (discountContext.getDiscountPrice().compareTo(originalUnitPrice) < 0) {
 					plan.markActivityPriced(item.getSkuId());
+					plan.putHit(item.getSkuId(), StackActivityTypeEnum.DISCOUNT, discountContext.getActivityId(),
+							discountContext.getCouponStackable(), discountContext.getPointsStackable());
 				}
 			}
 		}
 		return plan;
 	}
 
-	private BigDecimal querySeckillPrice(String skuId) {
+	/**
+	 * 把营销引擎的新人价命中补入叠加策略计划（在 applyPromotionLadder 之后调用）。
+	 *
+	 * <p>新人价的成交基价由引擎写入，订单侧预取计划时未知，必须从试算结果的
+	 * ladderOverrides（activityType=9）回填：叠加策略取引擎填充值，
+	 * 老数据缺省按新人类型默认（不可叠）处理。
+	 */
+	public void mergeStackPolicyHits(PromotionPricePlan plan, PromotionCalculationVO calculation) {
+		if (plan == null || calculation == null || calculation.getLadderOverrides() == null) {
+			return;
+		}
+		for (PromotionCalculationVO.UnitPriceOverride override : calculation.getLadderOverrides()) {
+			if (override.getSkuId() == null || !com.aryn.cloud.promotion.api.entity.PromotionActivity.TYPE_NEWBIE_PRICE
+					.equals(override.getActivityType())) {
+				continue;
+			}
+			plan.putHit(override.getSkuId(), StackActivityTypeEnum.NEWBIE, override.getActivityId(),
+					override.getCouponStackable() == null ? StackActivityTypeEnum.NEWBIE.isDefaultCouponStackable()
+							: override.getCouponStackable(),
+					override.getPointsStackable() == null ? StackActivityTypeEnum.NEWBIE.isDefaultPointsStackable()
+							: override.getPointsStackable());
+		}
+	}
+
+	private SeckillPriceContextVO querySeckillContext(String skuId) {
 		try {
-			BigDecimal seckillPrice = remoteSeckillService.getSeckillPrice(skuId);
-			return seckillPrice != null && seckillPrice.compareTo(BigDecimal.ZERO) > 0 ? seckillPrice : null;
+			SeckillPriceContextVO context = remoteSeckillService.getPriceContext(skuId);
+			return context != null && context.getSeckillPrice() != null
+					&& context.getSeckillPrice().compareTo(BigDecimal.ZERO) > 0 ? context : null;
 		}
 		catch (Exception e) {
 			// Dubbo 调用失败不阻断下单，降级用折扣/原价
@@ -205,10 +260,11 @@ public class OrderPriceComputeService {
 		}
 	}
 
-	private BigDecimal queryDiscountPrice(String skuId, BigDecimal originalUnitPrice) {
+	private DiscountPriceContextVO queryDiscountContext(String skuId, BigDecimal originalUnitPrice) {
 		try {
-			BigDecimal discountPrice = remoteDiscountService.calculatePrice(skuId, originalUnitPrice);
-			return discountPrice != null && discountPrice.compareTo(BigDecimal.ZERO) > 0 ? discountPrice : null;
+			DiscountPriceContextVO context = remoteDiscountService.getPriceContext(skuId, originalUnitPrice);
+			return context != null && context.getDiscountPrice() != null
+					&& context.getDiscountPrice().compareTo(BigDecimal.ZERO) > 0 ? context : null;
 		}
 		catch (Exception e) {
 			return null;
@@ -216,11 +272,11 @@ public class OrderPriceComputeService {
 	}
 
 	/**
-	 * 本次下单的活动价计划：对外部活动价（拼团/秒杀/限时折扣）的预取结果。
+	 * 本次下单的活动价计划：对外部活动价（拼团/秒杀/限时折扣/新人价）的预取结果与叠加策略。
 	 */
 	public static class PromotionPricePlan {
 
-		private final Map<String, BigDecimal> groupBuyPriceBySku;
+		private final GroupBuyOrderContextVO groupBuyContext;
 
 		private final Map<String, BigDecimal> seckillPriceBySku = new HashMap<>();
 
@@ -228,8 +284,38 @@ public class OrderPriceComputeService {
 
 		private final Set<String> activityPricedSkuIds = new HashSet<>();
 
-		private PromotionPricePlan(Map<String, BigDecimal> groupBuyPriceBySku) {
-			this.groupBuyPriceBySku = groupBuyPriceBySku == null ? Map.of() : groupBuyPriceBySku;
+		/** 已享活动价 SKU → 命中信息（活动类型 + 叠加策略） */
+		private final Map<String, ActivityPriceHit> hits = new HashMap<>();
+
+		/** 叠加策略总开关：false 时所有 SKU 视为可叠（灰度回滚，等同现网行为） */
+		private final boolean stackPolicyEnabled;
+
+		private PromotionPricePlan(GroupBuyOrderContextVO groupBuyContext, boolean stackPolicyEnabled) {
+			this.groupBuyContext = groupBuyContext;
+			this.stackPolicyEnabled = stackPolicyEnabled;
+		}
+
+		/** 命中的活动价信息（类型/活动ID/叠加策略），null=非活动价 SKU。 */
+		public ActivityPriceHit hit(String skuId) {
+			return hits.get(skuId);
+		}
+
+		/** 券 eligible 判定：非活动价或活动允许叠券即 true；总开关关闭恒 true。 */
+		public boolean couponStackable(String skuId) {
+			if (!stackPolicyEnabled) {
+				return true;
+			}
+			ActivityPriceHit hit = hits.get(skuId);
+			return hit == null || hit.couponStackable();
+		}
+
+		/** 积分 eligible 判定：非活动价或活动允许积分即 true；总开关关闭恒 true。 */
+		public boolean pointsStackable(String skuId) {
+			if (!stackPolicyEnabled) {
+				return true;
+			}
+			ActivityPriceHit hit = hits.get(skuId);
+			return hit == null || hit.pointsStackable();
 		}
 
 		boolean isActivityPriced(String skuId) {
@@ -241,7 +327,10 @@ public class OrderPriceComputeService {
 		}
 
 		private BigDecimal groupBuyPrice(String skuId) {
-			BigDecimal price = groupBuyPriceBySku.get(skuId);
+			if (groupBuyContext == null || !Objects.equals(groupBuyContext.getSkuId(), skuId)) {
+				return null;
+			}
+			BigDecimal price = groupBuyContext.getGroupPrice();
 			return price != null && price.compareTo(BigDecimal.ZERO) > 0 ? price : null;
 		}
 
@@ -263,6 +352,18 @@ public class OrderPriceComputeService {
 
 		private void markActivityPriced(String skuId) {
 			activityPricedSkuIds.add(skuId);
+		}
+
+		private void putHit(String skuId, StackActivityTypeEnum activityType, String activityId,
+				Boolean couponStackable, Boolean pointsStackable) {
+			hits.put(skuId, new ActivityPriceHit(activityType, activityId,
+					couponStackable == null ? activityType.isDefaultCouponStackable() : couponStackable,
+					pointsStackable == null ? activityType.isDefaultPointsStackable() : pointsStackable));
+		}
+
+		/** 单 SKU 的活动价命中（活动类型 + 叠加策略）。 */
+		public record ActivityPriceHit(StackActivityTypeEnum activityType, String activityId,
+				boolean couponStackable, boolean pointsStackable) {
 		}
 
 	}
@@ -354,6 +455,78 @@ public class OrderPriceComputeService {
 
 	}
 
+	/**
+	 * 结算页价格展示：回填「原价 / 活动优惠」（非表字段，仅结算响应下发）。
+	 *
+	 * <p>促销落价时成交价已覆盖 {@code salesPrice/totalPrice}，这两个字段是退款、统计与
+	 * 对账口径，不能为展示而改写；确认页的划线价要显示「被活动价取代的原价」，
+	 * 否则出现「划线价 = 实付价」的假折扣（拼团单截图即 25.90 划 25.90）。
+	 *
+	 * <p>原价取 SKU 当前售价（与拼团详情页「单独购买 ¥xx」同口径）：拼团/秒杀/限时折扣/
+	 * 新人价都以 salesPrice 为让利基准，原价小计与成交小计之差即活动让利。成交小计
+	 * （{@code totalPrice}）只受活动价影响，券/会员折扣/积分只改 paymentPrice，
+	 * 因此该差额不会与券行、积分行重复计数。
+	 */
+	public void fillOriginalPriceDisplay(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
+			List<GoodsSku> goodsSkuList) {
+		Map<String, GoodsSku> skuMap = goodsSkuList == null ? Map.of() : goodsSkuList.stream()
+			.filter(sku -> sku.getId() != null)
+			.collect(Collectors.toMap(GoodsSku::getId, sku -> sku, (first, second) -> first));
+		BigDecimal originalTotalPrice = BigDecimal.ZERO;
+		BigDecimal activityDiscountPrice = BigDecimal.ZERO;
+		for (OrderItemEntity item : orderItemEntityList) {
+			BigDecimal actualTotalPrice = item.getTotalPrice() == null ? BigDecimal.ZERO : item.getTotalPrice();
+			BigDecimal quantity = BigDecimal.valueOf(item.getBuyQuantity() == null ? 0 : item.getBuyQuantity());
+			GoodsSku sku = skuMap.get(item.getSkuId());
+			BigDecimal originalUnitPrice = sku != null && sku.getSalesPrice() != null
+					? sku.getSalesPrice() : item.getSalesPrice();
+			if (originalUnitPrice == null) {
+				originalUnitPrice = actualTotalPrice;
+			}
+			BigDecimal originalTotal = originalUnitPrice.multiply(quantity).setScale(2, RoundingMode.HALF_UP);
+			BigDecimal discount = originalTotal.subtract(actualTotalPrice).max(BigDecimal.ZERO)
+				.setScale(2, RoundingMode.HALF_UP);
+			item.setOriginalPrice(originalUnitPrice);
+			item.setOriginalTotalPrice(originalTotal);
+			item.setActivityDiscountPrice(discount);
+			originalTotalPrice = originalTotalPrice.add(originalTotal);
+			activityDiscountPrice = activityDiscountPrice.add(discount);
+		}
+		orderInfo.setOriginalTotalPrice(originalTotalPrice.setScale(2, RoundingMode.HALF_UP));
+		orderInfo.setActivityDiscountPrice(activityDiscountPrice.setScale(2, RoundingMode.HALF_UP));
+	}
+
+	/**
+	 * 结算页叠加策略展示回填：明细活动类型/叠加标记 + 订单级券门槛可计算金额。
+	 *
+	 * <p>在会员折扣与券处理之后调用：券门槛基数 = Σ「允许叠券明细」的
+	 * {@code totalPrice - memberDiscountPrice}（指定商品券由前端再按券 SPU 交集收敛）。
+	 * {@code pointsEligibleAmount} 由积分处理器按券后商品应付写入，此处不重复计算。
+	 */
+	public void fillStackPolicyDisplay(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
+			PromotionPricePlan plan) {
+		BigDecimal couponEligibleAmount = BigDecimal.ZERO;
+		for (OrderItemEntity item : orderItemEntityList) {
+			PromotionPricePlan.ActivityPriceHit hit = plan == null ? null : plan.hit(item.getSkuId());
+			if (hit != null) {
+				item.setActivityType(hit.activityType().getCode());
+				item.setActivityId(hit.activityId());
+				item.setCouponStackable(plan.couponStackable(item.getSkuId()));
+				item.setPointsStackable(plan.pointsStackable(item.getSkuId()));
+			}
+			else {
+				item.setActivityType(null);
+				item.setActivityId(null);
+				item.setCouponStackable(null);
+				item.setPointsStackable(null);
+			}
+			if (plan == null || plan.couponStackable(item.getSkuId())) {
+				couponEligibleAmount = couponEligibleAmount.add(discountedGoodsPrice(item));
+			}
+		}
+		orderInfo.setCouponEligibleAmount(couponEligibleAmount);
+	}
+
 	public void computeItemPayPrice(OrderItemEntity orderItemEntity) {
 		BigDecimal promoPrice = orderItemEntity.getPromoPrice() != null ? orderItemEntity.getPromoPrice()
 				: BigDecimal.ZERO;
@@ -389,18 +562,59 @@ public class OrderPriceComputeService {
 	 */
 	public void orderPointsDeductHandler(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
 			Integer requestedPoints, boolean useMaxPoints, PointsDeductContextVO context, boolean strict) {
+		orderPointsDeductHandler(orderInfo, orderItemEntityList, requestedPoints, useMaxPoints, context, strict, null);
+	}
+
+	/**
+	 * 积分抵现（带叠加策略）：在运费计算完成、应付金额校验之前调用。
+	 *
+	 * <p>抵扣基数与分摊范围只统计「允许积分」的明细（秒杀/新人价等强制不可叠）；
+	 * 20% 上限按该基数计算，确认页 {@code pointsDeductMax} 随之收敛，开关行自然隐藏。
+	 * eligible 为空时：结算（strict=false）返回 0 额度并记录 {@code pointsStackReason}；
+	 * 提交（strict=true）且用户显式请求积分则直接拒绝 60068。
+	 *
+	 * @param plan   活动价计划（null 时所有明细视为可叠，等同现网行为）
+	 * @param strict 下单时传 true：请求额度与可用额度不一致直接拒绝，避免用户确认金额与实际扣款不一致
+	 */
+	public void orderPointsDeductHandler(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
+			Integer requestedPoints, boolean useMaxPoints, PointsDeductContextVO context, boolean strict,
+			PromotionPricePlan plan) {
 		clearPointsDeduct(orderInfo, orderItemEntityList);
 		computeOrderPrice(orderInfo, orderItemEntityList);
+		orderInfo.setPointsStackReason(null);
 
-		// 船供采购不参与积分抵现（仅显式声明场景时拦截，历史空场景仍按个人购买处理）
-		if (PurchaseSceneEnum.SHIP_SUPPLY.getCode().equals(orderInfo.getPurchaseScene())) {
+		// 非个人购买不参与积分抵现（仅显式声明场景时拦截，历史空场景仍按个人购买处理）：
+		// 船供采购（2）与企业采购（3）都是 B 端成本价，叠加积分会侵蚀毛利并污染对账口径
+		boolean personalPurchase = PurchaseSceneEnum.PERSONAL.getCode().equals(orderInfo.getPurchaseScene())
+				|| !StringUtils.hasText(orderInfo.getPurchaseScene());
+		if (!personalPurchase) {
 			orderInfo.setPointsDeductRate(0);
 			orderInfo.setPointsDeductMax(0);
 			orderInfo.setPointsDeductMaxPrice(BigDecimal.ZERO);
-			int shipSupplyRequested = useMaxPoints ? 0
+			int sceneRequested = useMaxPoints ? 0
 					: (requestedPoints == null ? 0 : Math.max(requestedPoints, 0));
-			if (strict && shipSupplyRequested > 0) {
-				throw new ArynBusinessException("船供采购订单不支持积分抵现");
+			if (strict && sceneRequested > 0) {
+				throw new ArynBusinessException(PurchaseSceneEnum.ENTERPRISE.getCode()
+						.equals(orderInfo.getPurchaseScene()) ? "企业采购订单不支持积分抵现" : "船供采购订单不支持积分抵现");
+			}
+			return;
+		}
+
+		// 叠加策略：积分只作用于允许积分的明细
+		List<OrderItemEntity> pointsEligibleItems = plan == null ? orderItemEntityList
+				: orderItemEntityList.stream()
+					.filter(item -> plan.pointsStackable(item.getSkuId()))
+					.collect(Collectors.toList());
+		if (pointsEligibleItems.isEmpty()) {
+			orderInfo.setPointsDeductRate(0);
+			orderInfo.setPointsDeductMax(0);
+			orderInfo.setPointsDeductMaxPrice(BigDecimal.ZERO);
+			orderInfo.setPointsEligibleAmount(BigDecimal.ZERO);
+			orderInfo.setPointsStackReason("本单商品不支持积分抵现");
+			int requested = useMaxPoints ? 0 : (requestedPoints == null ? 0 : Math.max(requestedPoints, 0));
+			if (strict && requested > 0) {
+				throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60068.getCode(),
+						MallErrorCodeEnum.ERROR_60068.getMsg());
 			}
 			return;
 		}
@@ -409,7 +623,7 @@ public class OrderPriceComputeService {
 				&& context.getPointsPerYuan() > 0 ? context.getPointsPerYuan() : 0;
 		int available = context == null || context.getAvailablePoints() == null ? 0
 				: Math.max(context.getAvailablePoints(), 0);
-		BigDecimal goodsPayable = orderItemEntityList.stream()
+		BigDecimal goodsPayable = pointsEligibleItems.stream()
 			.map(this::itemGoodsPayable)
 			.reduce(BigDecimal.ZERO, BigDecimal::add);
 		BigDecimal maxDeductAmount = goodsPayable.multiply(MallOrderConstants.POINTS_DEDUCT_MAX_RATIO)
@@ -423,6 +637,7 @@ public class OrderPriceComputeService {
 		orderInfo.setPointsDeductMaxPrice(rate > 0
 				? BigDecimal.valueOf(maxUsable).divide(BigDecimal.valueOf(rate), 2, RoundingMode.DOWN)
 				: BigDecimal.ZERO);
+		orderInfo.setPointsEligibleAmount(goodsPayable);
 
 		int requested = useMaxPoints ? maxUsable : (requestedPoints == null ? 0 : Math.max(requestedPoints, 0));
 		if (requested <= 0) {
@@ -449,7 +664,7 @@ public class OrderPriceComputeService {
 		}
 		deductAmount = BigDecimal.valueOf(actualPoints).divide(BigDecimal.valueOf(rate), 2, RoundingMode.DOWN);
 		orderInfo.setPointsUsed(actualPoints).setPointsDeductPrice(deductAmount);
-		allocatePointsDeduct(orderItemEntityList, deductAmount);
+		allocatePointsDeduct(pointsEligibleItems, deductAmount);
 		computeOrderPrice(orderInfo, orderItemEntityList);
 	}
 
@@ -536,6 +751,15 @@ public class OrderPriceComputeService {
 
 	public void orderMemberBenefitHandler(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
 			MemberBenefitsVO benefits) {
+		orderMemberBenefitHandler(orderInfo, orderItemEntityList, benefits, null);
+	}
+
+	/**
+	 * 会员权益落价：会员折扣不与活动价叠加，活动价明细只享受活动价。
+	 * 积分倍率与免邮不受此限制（免邮在运费处理器中生效）。
+	 */
+	public void orderMemberBenefitHandler(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
+			MemberBenefitsVO benefits, PromotionPricePlan plan) {
 		BigDecimal discountRate = benefits == null ? BigDecimal.ONE : benefits.getDiscountRate();
 		BigDecimal pointsMultiplier = benefits == null || benefits.getPointsMultiplier() == null
 				? BigDecimal.ONE : benefits.getPointsMultiplier();
@@ -548,8 +772,10 @@ public class OrderPriceComputeService {
 		}
 		orderInfo.setPointsMultiplier(pointsMultiplier);
 		for (OrderItemEntity item : orderItemEntityList) {
-			BigDecimal discountPrice = item.getTotalPrice().multiply(BigDecimal.ONE.subtract(discountRate))
-					.setScale(2, RoundingMode.HALF_UP);
+			boolean activityPriced = plan != null && plan.hit(item.getSkuId()) != null;
+			BigDecimal discountPrice = activityPriced ? BigDecimal.ZERO
+					: item.getTotalPrice().multiply(BigDecimal.ONE.subtract(discountRate))
+						.setScale(2, RoundingMode.HALF_UP);
 			item.setMemberDiscountPrice(discountPrice);
 			computeItemPayPrice(item);
 		}
@@ -557,6 +783,26 @@ public class OrderPriceComputeService {
 	}
 
 	public void orderCouponHandler(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList) {
+		orderCouponHandler(orderInfo, orderItemEntityList, null, false);
+	}
+
+	/**
+	 * 优惠券处理（带叠加策略与严格模式）。
+	 *
+	 * <p>活动叠加规则：门槛基数与分摊范围只统计「允许叠券」的明细（券范围 ∩ 可叠 SKU）；
+	 * 不可叠明细的券额恒为 0。eligible 为空时：结算（strict=false）不抛错、
+	 * 记录 {@code couponStackReason} 供确认页置灰提示；提交（strict=true）直接拒绝 60067，
+	 * 防止绕过确认页强行用券。
+	 *
+	 * <p>最低实付兜底：券额上限 = 可叠基数 − 最低实付金额，保证券后商品应付不低于
+	 * 最低支付金额（叠加链路不出 0 元单）；关闭开关时回退为「券额 ≤ 可叠基数」。
+	 *
+	 * @param plan   活动价计划（null 时所有明细视为可叠，等同现网行为）
+	 * @param strict 提交订单时传 true：不可叠仍用券直接拒绝
+	 */
+	public void orderCouponHandler(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
+			PromotionPricePlan plan, boolean strict) {
+		orderInfo.setCouponStackReason(null);
 		if (!StringUtils.hasText(orderInfo.getCouponUserId())) {
 			return;
 		}
@@ -571,6 +817,7 @@ public class OrderPriceComputeService {
 		}
 		CouponInfo couponInfo = couponUserRespVO.getCouponInfo();
 		couponUseRange = couponInfo.getUseRange();
+		List<OrderItemEntity> scopeItems;
 		if (MallEventConstants.USE_RANGE_2.equals(couponInfo.getUseRange())) {
 			List<CouponGoods> couponGoodsList = couponUserRespVO.getCouponGoodsList();
 			if (CollUtil.isEmpty(couponGoodsList)) {
@@ -587,18 +834,32 @@ public class OrderPriceComputeService {
 					.orElse(null))
 				.filter(Objects::nonNull)
 				.collect(Collectors.toList());
-			totalPrice = this.verifyCoupon(listCouponGoods, couponUserRespVO);
+			scopeItems = listCouponGoods;
 		}
 		else {
-			totalPrice = this.verifyCoupon(orderItemEntityList, couponUserRespVO);
+			scopeItems = orderItemEntityList;
 		}
-		couponTotalAmount = this.couponCompute(totalPrice, couponUserRespVO, couponInfo).min(totalPrice);
+		// 叠加策略：券只作用于「券范围 ∩ 允许叠券」的明细（秒杀/新人价等强制不可叠）
+		List<OrderItemEntity> couponEligibleItems = scopeItems.stream()
+			.filter(item -> plan == null || plan.couponStackable(item.getSkuId()))
+			.collect(Collectors.toList());
+		if (couponEligibleItems.isEmpty()) {
+			orderInfo.setCouponStackReason("本单商品不支持使用优惠券");
+			clearCouponAllocations(orderInfo, orderItemEntityList);
+			if (strict) {
+				throw new ArynBusinessException(MallErrorCodeEnum.ERROR_60067.getCode(),
+						MallErrorCodeEnum.ERROR_60067.getMsg());
+			}
+			return;
+		}
+		totalPrice = this.verifyCoupon(couponEligibleItems, couponUserRespVO);
+		couponTotalAmount = this.couponCompute(totalPrice, couponUserRespVO, couponInfo).min(couponCap(totalPrice));
 		for (OrderItemEntity orderItemEntity : orderItemEntityList) {
 			BigDecimal couponPrice = BigDecimal.ZERO;
 			if (couponTotalAmount.compareTo(BigDecimal.ZERO) > 0) {
-				boolean isComputeCoupon = true;
+				boolean isComputeCoupon = plan == null || plan.couponStackable(orderItemEntity.getSkuId());
 				if (MallEventConstants.USE_RANGE_2.equals(couponUseRange)) {
-					isComputeCoupon = listCouponGoods.stream()
+					isComputeCoupon = isComputeCoupon && listCouponGoods.stream()
 						.anyMatch(a -> a.getSkuId().equals(orderItemEntity.getSkuId()));
 				}
 				if (isComputeCoupon) {
@@ -615,6 +876,27 @@ public class OrderPriceComputeService {
 			}
 			orderItemEntity.setCouponPrice(couponPrice);
 			computeItemPayPrice(orderItemEntity);
+		}
+		computeOrderPrice(orderInfo, orderItemEntityList);
+	}
+
+	/**
+	 * 券额上限：可叠基数扣除最低实付金额；基数本身低于最低实付时不允许券抵扣（避免击穿成 0 元单）。
+	 */
+	private BigDecimal couponCap(BigDecimal eligibleBase) {
+		if (!minPayableEnabled || minPayableAmount == null || minPayableAmount.compareTo(BigDecimal.ZERO) <= 0) {
+			return eligibleBase;
+		}
+		if (eligibleBase.compareTo(minPayableAmount) < 0) {
+			return BigDecimal.ZERO;
+		}
+		return eligibleBase.subtract(minPayableAmount);
+	}
+
+	private void clearCouponAllocations(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList) {
+		for (OrderItemEntity item : orderItemEntityList) {
+			item.setCouponPrice(BigDecimal.ZERO);
+			computeItemPayPrice(item);
 		}
 		computeOrderPrice(orderInfo, orderItemEntityList);
 	}

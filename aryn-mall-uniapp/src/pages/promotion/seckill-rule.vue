@@ -22,7 +22,7 @@ const RULE_SECTIONS = [
     items: [
       '已登录并完成实名认证的用户均可参与',
       '每个用户每场活动限购 {1 件}（同一 SKU）',
-      '秒杀商品不支持使用优惠券、不参与其他满减活动',
+      '秒杀商品不支持使用优惠券、不支持积分抵现，也不参与其他满减活动',
     ],
   },
   {
@@ -64,7 +64,7 @@ const RULE_SECTIONS = [
 
 /** 把「{加粗}」拆成片段，模板逐段渲染（模块加载时算一次，避免模板里反复正则） */
 function toSegments(item: string) {
-  const match = item.match(/^(.*?)\{(.+?)}(.*)$/)
+  const match = item.match(/^(.*?)\{(.+?)\}(.*)$/)
   if (!match)
     return [{ strong: false, text: item }]
   return [
@@ -98,7 +98,9 @@ function toSegments(item: string) {
                 v-for="(segment, segIndex) in toSegments(item)"
                 :key="`${index}-${segIndex}`"
                 :class="{ 'rule-strong': segment.strong }"
-              >{{ segment.text }}</text>
+              >
+                {{ segment.text }}
+              </text>
             </text>
           </view>
         </view>

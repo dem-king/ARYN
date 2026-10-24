@@ -78,6 +78,8 @@ public class MemberLevelServiceImpl extends ServiceImpl<MemberLevelMapper, Membe
 		if (count > 0) {
 			throw new ArynBusinessException("相同升级条件类型的条件值已存在");
 		}
+		validateSortOrderUnique(memberLevel);
+		validateConditionMonotonic(memberLevel);
 		return this.save(memberLevel);
 	}
 
@@ -93,7 +95,37 @@ public class MemberLevelServiceImpl extends ServiceImpl<MemberLevelMapper, Membe
 		if (count > 0) {
 			throw new ArynBusinessException("相同升级条件类型的条件值已存在");
 		}
+		validateSortOrderUnique(memberLevel);
+		validateConditionMonotonic(memberLevel);
 		return this.updateById(memberLevel);
+	}
+
+	private void validateSortOrderUnique(MemberLevel memberLevel) {
+		long count = this.count(Wrappers.<MemberLevel>lambdaQuery()
+				.eq(MemberLevel::getSortOrder, memberLevel.getSortOrder())
+				.ne(memberLevel.getId() != null, MemberLevel::getId, memberLevel.getId()));
+		if (count > 0) {
+			throw new ArynBusinessException("排序号已存在");
+		}
+	}
+
+	private void validateConditionMonotonic(MemberLevel memberLevel) {
+		List<MemberLevel> sameTypeLevels = this.list(Wrappers.<MemberLevel>lambdaQuery()
+				.eq(MemberLevel::getConditionType, memberLevel.getConditionType())
+				.ne(memberLevel.getId() != null, MemberLevel::getId, memberLevel.getId()));
+		for (MemberLevel other : sameTypeLevels) {
+			if (other.getSortOrder() == null || other.getConditionValue() == null) {
+				continue;
+			}
+			boolean lowerSort = other.getSortOrder() < memberLevel.getSortOrder();
+			boolean higherSort = other.getSortOrder() > memberLevel.getSortOrder();
+			if (lowerSort && other.getConditionValue().compareTo(memberLevel.getConditionValue()) >= 0) {
+				throw new ArynBusinessException("升级条件值必须随排序号递增");
+			}
+			if (higherSort && other.getConditionValue().compareTo(memberLevel.getConditionValue()) <= 0) {
+				throw new ArynBusinessException("升级条件值必须随排序号递增");
+			}
+		}
 	}
 
 	@Override
@@ -172,11 +204,18 @@ public class MemberLevelServiceImpl extends ServiceImpl<MemberLevelMapper, Membe
 			memberLevelRecordMapper.insert(record);
 
 			if (newLevelId != null) {
-					for (MemberBenefit benefit : memberBenefitService.getLevelBenefits(newLevelId)) {
-						if ("3".equals(benefit.getBenefitType())) {
+				for (MemberBenefit benefit : memberBenefitService.getLevelBenefits(newLevelId)) {
+					if ("3".equals(benefit.getBenefitType())) {
+						try {
 							remoteCouponUserService.grantMemberBenefitCoupon(
 									benefit.getBenefitValue(), userId, newLevelId + ":" + benefit.getId());
 						}
+						catch (Exception exception) {
+							// 发券失败不能回滚等级与订单完成事务，由后台补发兜底
+							log.error("会员专属优惠券发放失败: userId={}, levelId={}, benefitId={}",
+									userId, newLevelId, benefit.getId(), exception);
+						}
+					}
 				}
 			}
 		}

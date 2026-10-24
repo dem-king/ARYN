@@ -157,6 +157,9 @@ public class SeckillActivityServiceImpl extends ServiceImpl<SeckillActivityMappe
 		SeckillActivity activity = new SeckillActivity();
 		BeanUtils.copyProperties(dto, activity);
 		activity.setStatus(0);
+		// 秒杀平台级硬互斥：券/积分一律不可叠，服务端强制覆盖防配置错误
+		activity.setCouponStackable("0");
+		activity.setPointsStackable("0");
 		boolean saved = this.save(activity);
 		if (!saved) {
 			throw new ArynBusinessException("保存秒杀活动失败");
@@ -184,6 +187,9 @@ public class SeckillActivityServiceImpl extends ServiceImpl<SeckillActivityMappe
 			throw new ArynBusinessException("进行中的活动不能修改场次和库存，请先暂停");
 		}
 		BeanUtils.copyProperties(dto, activity);
+		// 秒杀平台级硬互斥：券/积分一律不可叠，服务端强制覆盖防配置错误
+		activity.setCouponStackable("0");
+		activity.setPointsStackable("0");
 		boolean updated = this.updateById(activity);
 		if (!updated) {
 			throw new ArynBusinessException("更新秒杀活动失败");

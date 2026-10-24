@@ -28,6 +28,7 @@ import com.aryn.cloud.order.mapper.SharedCartMapper;
 import com.aryn.cloud.order.mapper.SharedCartMemberMapper;
 import com.aryn.cloud.order.service.IOrderInfoService;
 import com.aryn.cloud.order.service.ISharedCartService;
+import com.aryn.cloud.order.service.IDeliveryAreaService;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.aryn.cloud.order.support.ChainAiAssistant;
@@ -45,7 +46,9 @@ import com.aryn.cloud.product.api.vo.ReplenishImportMatchVO;
 import com.aryn.cloud.vessel.api.dto.VesselContextDTO;
 import com.aryn.cloud.vessel.api.entity.VesselMember;
 import com.aryn.cloud.vessel.api.remote.RemoteVesselService;
+import com.aryn.cloud.user.api.entity.UserAddress;
 import com.aryn.cloud.user.api.remote.RemoteMallUserService;
+import com.aryn.cloud.user.api.remote.RemoteUserAddressService;
 import com.aryn.cloud.user.api.vo.UserInfoVO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -114,6 +117,9 @@ public class SharedCartServiceImpl implements ISharedCartService {
 
 	private final IOrderInfoService orderInfoService;
 
+	/** 配送范围（岸上车地址在创建与提交两处校验，范围口径与普通订单 way=3 一致） */
+	private final IDeliveryAreaService deliveryAreaService;
+
 	/** 商品域：摘要卡片需要 SKU 售价与规格（明细表只存 ID，不存快照） */
 	@DubboReference
 	private RemoteGoodsSkuService remoteGoodsSkuService;
@@ -137,29 +143,48 @@ public class SharedCartServiceImpl implements ISharedCartService {
 	@DubboReference
 	private RemoteMallUserService remoteMallUserService;
 
+	/** 用户域：岸上车创建/提交时按归属取收货地址（getById 两参带 userId 归属校验） */
+	@DubboReference
+	private RemoteUserAddressService remoteUserAddressService;
+
 	/** 接龙报货 AI 助手（未配 key 时 isAvailable=false，整条链路自动回退纯规则） */
 	private final ChainAiAssistant chainAiAssistant;
 
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public SharedCart create(String tenantId, String userId, SharedCartCreateDTO dto) {
-		// 发起人必须是该船在船成员：前端只对已选船+靠港的用户开放创建入口，但入参不可信。
-		// 确认下单环节的配送校验兜底太晚——到那时明细已收集（窗口最长 24 小时），
-		// 且同船唯一收集中车的规则会让真成员被这张永远提交不了的车挡住。
-		// 校验必须放在同船去重之前：否则非成员先命中已有车，拿到一张自己无权查看的详情。
-		String vesselRole = remoteVesselService.getVesselMemberRole(tenantId, dto.getVesselId(), userId);
-		if (!StringUtils.hasText(vesselRole)) {
-			throw new ArynBusinessException("您不是该船舶成员，无法发起共享购物车");
+		boolean shoreCart = SharedCart.CART_TYPE_SHORE.equals(dto.normalizedCartType());
+		String vesselRole = null;
+		UserAddress address = null;
+		if (shoreCart) {
+			// 岸上企业车：收货人地址是配送终点，必须取发起人地址簿里的地址
+			// （getById 两参带 userId 归属校验，不能借别人的地址建车），且须在公司配送范围内。
+			address = requireShoreAddress(tenantId, userId, dto.getUserAddressId());
 		}
-		// 同一船舶同时只允许一个「收集中」的购物车：否则同船同一靠港会各下各的单。
-		// 命中时返回已有购物车并自动并入，由前端打开该车（并发场景由 uk_shared_cart_active 兜底）。
-		SharedCart existing = sharedCartMapper.selectOne(Wrappers.lambdaQuery(SharedCart.class)
-				.eq(SharedCart::getTenantId, tenantId)
-				.eq(SharedCart::getVesselId, dto.getVesselId())
-				.eq(SharedCart::getStatus, SharedCart.STATUS_COLLECTING)
-				.last("LIMIT 1"));
+		else {
+			// 发起人必须是该船在船成员：前端只对已选船+靠港的用户开放创建入口，但入参不可信。
+			// 确认下单环节的配送校验兜底太晚——到那时明细已收集（窗口最长 24 小时），
+			// 且同船唯一收集中车的规则会让真成员被这张永远提交不了的车挡住。
+			// 校验必须放在同船去重之前：否则非成员先命中已有车，拿到一张自己无权查看的详情。
+			if (!StringUtils.hasText(dto.getVesselId()) || !StringUtils.hasText(dto.getVesselCallId())) {
+				throw new ArynBusinessException("请选择船舶和靠港计划后再发起共享购物车");
+			}
+			vesselRole = remoteVesselService.getVesselMemberRole(tenantId, dto.getVesselId(), userId);
+			if (!StringUtils.hasText(vesselRole)) {
+				throw new ArynBusinessException("您不是该船舶成员，无法发起共享购物车");
+			}
+		}
+
+		// 同车去重：船供车按船舶（同船同时只允许一个「收集中」，否则同船同一靠港会各下各的单）；
+		// 岸上车按发起人（工厂地址是私有的，没有「同址去重」的共享维度，一人一张收集中即可，
+		// 数据库兜底见 uk_shared_cart_shore_active）。命中时返回已有购物车并自动并入，
+		// 由前端打开该车（并发场景由唯一索引兜底）。
+		SharedCart existing = shoreCart
+				? findActiveShoreCart(tenantId, userId)
+				: findActiveShipCart(tenantId, dto.getVesselId());
 		if (existing != null) {
-			log.info("船舶[{}]已有进行中的共享购物车[{}]，创建请求被引导至已有购物车", dto.getVesselId(), existing.getId());
+			log.info("{}共享购物车[{}]已有进行中记录，创建请求被引导至已有购物车",
+					shoreCart ? "岸上" : "船舶[" + dto.getVesselId() + "]", existing.getId());
 			existing.setAdoptedExisting(Boolean.TRUE);
 			adoptExistingCart(existing, userId, vesselRole);
 			return existing;
@@ -168,8 +193,11 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		SharedCart cart = new SharedCart();
 		cart.setId(IdWorker.getIdStr());
 		cart.setCartNo("SC" + IdWorker.getIdStr());
-		cart.setVesselId(dto.getVesselId());
-		cart.setVesselCallId(dto.getVesselCallId());
+		cart.setCartType(shoreCart ? SharedCart.CART_TYPE_SHORE : SharedCart.CART_TYPE_SHIP);
+		cart.setVesselId(shoreCart ? null : dto.getVesselId());
+		cart.setVesselCallId(shoreCart ? null : dto.getVesselCallId());
+		cart.setUserAddressId(shoreCart ? address.getId() : null);
+		cart.setAddressSnapshot(shoreCart ? buildAddressSnapshot(address) : null);
 		cart.setOwnerUserId(userId);
 		cart.setConfirmerUserId(userId);
 		cart.setStatus(SharedCart.STATUS_COLLECTING);
@@ -197,6 +225,59 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		return cart;
 	}
 
+	/** 岸上车地址校验：必填、属于发起人、在公司配送（岸上）范围内；通过后返回地址实体。 */
+	private UserAddress requireShoreAddress(String tenantId, String userId, String userAddressId) {
+		if (!StringUtils.hasText(userAddressId)) {
+			throw new ArynBusinessException("请选择收货地址后再发起共享购物车");
+		}
+		UserAddress address = remoteUserAddressService.getById(userAddressId, userId);
+		if (address == null) {
+			throw new ArynBusinessException("收货地址不存在或不属于你，请重新选择");
+		}
+		if (!deliveryAreaService.isAddressInDeliveryArea(address.getProvinceCode(), address.getCityCode(),
+				address.getAreaCode())) {
+			throw new ArynBusinessException("当前收货地址不在公司配送（岸上）范围内");
+		}
+		return address;
+	}
+
+	/** 地址快照拼接：省市区 + 详址 + 收货人电话，列表/详情展示不再回查地址簿。 */
+	private String buildAddressSnapshot(UserAddress address) {
+		StringBuilder sb = new StringBuilder();
+		for (String part : new String[] { address.getProvinceName(), address.getCityName(), address.getAreaName(),
+				address.getDetailAddress() }) {
+			if (StringUtils.hasText(part)) {
+				sb.append(part);
+			}
+		}
+		if (StringUtils.hasText(address.getRecipientName())) {
+			sb.append(" ").append(address.getRecipientName());
+		}
+		if (StringUtils.hasText(address.getTelephone())) {
+			sb.append(" ").append(address.getTelephone());
+		}
+		return sb.toString();
+	}
+
+	/** 同船收集中车：同船唯一，命中即复用。 */
+	private SharedCart findActiveShipCart(String tenantId, String vesselId) {
+		return sharedCartMapper.selectOne(Wrappers.lambdaQuery(SharedCart.class)
+				.eq(SharedCart::getTenantId, tenantId)
+				.eq(SharedCart::getVesselId, vesselId)
+				.eq(SharedCart::getStatus, SharedCart.STATUS_COLLECTING)
+				.last("LIMIT 1"));
+	}
+
+	/** 发起人的岸上收集中车：岸上场景不存在「同船」共享维度，按发起人收敛为一张。 */
+	private SharedCart findActiveShoreCart(String tenantId, String ownerUserId) {
+		return sharedCartMapper.selectOne(Wrappers.lambdaQuery(SharedCart.class)
+				.eq(SharedCart::getTenantId, tenantId)
+				.eq(SharedCart::getCartType, SharedCart.CART_TYPE_SHORE)
+				.eq(SharedCart::getOwnerUserId, ownerUserId)
+				.eq(SharedCart::getStatus, SharedCart.STATUS_COLLECTING)
+				.last("LIMIT 1"));
+	}
+
 	/**
 	 * 命中同船收集中车时把发起请求的船成员并入：无成员行则新增（可编辑）。
 	 *
@@ -210,7 +291,9 @@ public class SharedCartServiceImpl implements ISharedCartService {
 	 * 主场景就是船员先建车收集、业务员后到提交，不给确认权则代下单断在最后一步。
 	 */
 	private void adoptExistingCart(SharedCart cart, String userId, String vesselRole) {
-		boolean vesselManager = VESSEL_MANAGER_ROLES.contains(vesselRole);
+		// 岸上企业车没有船舶域角色（vesselRole=null）：按普通成员并入，不补确认权；
+		// Set.of 的 contains 也不接受 null，先判空再查
+		boolean vesselManager = vesselRole != null && VESSEL_MANAGER_ROLES.contains(vesselRole);
 		SharedCartMember member = sharedCartMemberMapper.selectOne(Wrappers.lambdaQuery(SharedCartMember.class)
 				.eq(SharedCartMember::getTenantId, cart.getTenantId())
 				.eq(SharedCartMember::getCartId, cart.getId())
@@ -326,10 +409,6 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		SharedCart source = requireCart(tenantId, sourceCartId);
 		// 权限：必须是源单成员。否则任何人都能借「复用」读取别人购物车的明细。
 		requireMembership(source, userId);
-		// 补给清单按船组织（船员、航线、靠港各不同），把 A 船的清单搬到 B 船没有业务意义。
-		if (!Objects.equals(source.getVesselId(), dto.getVesselId())) {
-			throw new ArynBusinessException("只能把历史补给单复用到同一条船上");
-		}
 		// 只允许复用**已结束**的单：进行中的单本身就是本轮的清单，再「复用」一次
 		// 会命中同一张车、全部明细按"已存在"跳过，用户只会看到一句莫名其妙的提示。
 		if (SharedCart.STATUS_DRAFT.equals(source.getStatus())
@@ -337,13 +416,21 @@ public class SharedCartServiceImpl implements ISharedCartService {
 				|| SharedCart.STATUS_WAITING_CONFIRM.equals(source.getStatus())) {
 			throw new ArynBusinessException("该补给单还在进行中，无需复用");
 		}
-
-		// 目标车沿用 create 的「同船同时只有一张收集中购物车」规则：命中已有车则并入。
-		// 靠港计划取 dto 里**当前**这一个，而非源单那个已结束的历史靠港 ——
-		// 复用出来的是本轮采购，配送窗口必须落在本次靠港。
+		// 目标车沿用 create 的去重规则：船供车按船舶（船员、航线、靠港各不同，把 A 船的
+		// 清单搬到 B 船没有业务意义）；岸上车按发起人，收货地址沿用源单的地址
+		// （同一工厂地址不变，跨地址复用直接重新发起即可）。
 		SharedCartCreateDTO createDTO = new SharedCartCreateDTO();
-		createDTO.setVesselId(dto.getVesselId());
-		createDTO.setVesselCallId(dto.getVesselCallId());
+		if (isShoreCart(source)) {
+			createDTO.setCartType(SharedCart.CART_TYPE_SHORE);
+			createDTO.setUserAddressId(source.getUserAddressId());
+		}
+		else {
+			if (!Objects.equals(source.getVesselId(), dto.getVesselId())) {
+				throw new ArynBusinessException("只能把历史补给单复用到同一条船上");
+			}
+			createDTO.setVesselId(dto.getVesselId());
+			createDTO.setVesselCallId(dto.getVesselCallId());
+		}
 		createDTO.setRemark(StringUtils.hasText(dto.getRemark()) ? dto.getRemark() : source.getRemark());
 		SharedCart target = create(tenantId, userId, createDTO);
 		// 复用写入的是**目标车**里、归属操作者自己的明细：先确认他在目标车里有写入权
@@ -502,7 +589,12 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		requireEditable(cart);
 		requireNotExpired(cart);
 		requireConfirmer(cart, userId);
-		ensureOrderableCall(tenantId, cart);
+		if (isShoreCart(cart)) {
+			ensureOrderableAddress(tenantId, cart);
+		}
+		else {
+			ensureOrderableCall(tenantId, cart);
+		}
 
 		List<SharedCartItem> items = listItems(tenantId, cartId);
 		if (items.isEmpty()) {
@@ -551,6 +643,30 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		log.info("共享购物车[{}]的靠港[{}]已失效，提交时顺延到可用靠港[{}]",
 				cart.getId(), cart.getVesselCallId(), available.getVesselCallId());
 		cart.setVesselCallId(available.getVesselCallId());
+	}
+
+	/**
+	 * 岸上车提交前的地址可用性校验。
+	 *
+	 * <p>车的地址是创建时刻的选择，收集期内用户可能改删地址、运营可能收窄配送范围。
+	 * 地址被删时无法自动顺延（不像船供车可换靠港），直接给出可读报错引导重新发起；
+	 * 范围被收窄同理。订单主链路对 way=3 还会再校验一次，这里是提前给出车维度文案。
+	 */
+	private void ensureOrderableAddress(String tenantId, SharedCart cart) {
+		// 地址归属发起人（建车时校验过）：确认人可能被改派，不能按确认人查地址
+		UserAddress address = remoteUserAddressService.getById(cart.getUserAddressId(), cart.getOwnerUserId());
+		if (address == null) {
+			throw new ArynBusinessException("采购地址已被删除，请关闭本单后重新发起共享购物车");
+		}
+		if (!deliveryAreaService.isAddressInDeliveryArea(address.getProvinceCode(), address.getCityCode(),
+				address.getAreaCode())) {
+			throw new ArynBusinessException("采购地址已不在公司配送（岸上）范围内，请关闭本单后重新发起");
+		}
+	}
+
+	/** 岸上企业车判定：cartType=2；存量数据 cartType 为空按船供处理。 */
+	private boolean isShoreCart(SharedCart cart) {
+		return SharedCart.CART_TYPE_SHORE.equals(cart.getCartType());
 	}
 
 	@Override
@@ -850,8 +966,11 @@ public class SharedCartServiceImpl implements ISharedCartService {
 			SharedCartVO vo = new SharedCartVO();
 			vo.setId(cart.getId());
 			vo.setCartNo(cart.getCartNo());
+			vo.setCartType(StringUtils.hasText(cart.getCartType()) ? cart.getCartType() : SharedCart.CART_TYPE_SHIP);
 			vo.setVesselId(cart.getVesselId());
 			vo.setVesselCallId(cart.getVesselCallId());
+			vo.setUserAddressId(cart.getUserAddressId());
+			vo.setAddressSnapshot(cart.getAddressSnapshot());
 			vo.setOwnerUserId(cart.getOwnerUserId());
 			vo.setConfirmerUserId(cart.getConfirmerUserId());
 			vo.setStatus(cart.getStatus());
@@ -992,17 +1111,20 @@ public class SharedCartServiceImpl implements ISharedCartService {
 
 		// 自动补建船舶成员关系：船员扫码进群即获得该船的船员身份，无需后台配置。
 		// 失败不阻断加入——Dubbo 不可用时仍允许参与本次采购，船舶成员校验在加购/下单环节再兜底。
+		// 岸上企业车没有船舶维度，跳过补建（vesselMemberBound 恒 false，前端不提示「已加入本船」）。
 		boolean member = false;
-		try {
-			member = remoteVesselService.isVesselMember(tenantId, cart.getVesselId(), userId);
-		}
-		catch (Exception e) {
-			log.warn("校验船舶成员关系失败，继续加入共享购物车：cartId={} userId={}", cart.getId(), userId, e);
+		if (StringUtils.hasText(cart.getVesselId())) {
+			try {
+				member = remoteVesselService.isVesselMember(tenantId, cart.getVesselId(), userId);
+			}
+			catch (Exception e) {
+				log.warn("校验船舶成员关系失败，继续加入共享购物车：cartId={} userId={}", cart.getId(), userId, e);
+			}
 		}
 		// bound 记录**本次**是否真的补建了成员关系（原本就在船上 / 补建失败都为 false）：
 		// 前端据此决定是否提示「已同时加入本船成员」，不能把「无需补建」说成「刚加入」。
 		boolean bound = false;
-		if (!member) {
+		if (StringUtils.hasText(cart.getVesselId()) && !member) {
 			try {
 				bound = remoteVesselService.bindMemberByShare(tenantId, cart.getVesselId(), userId);
 			}
@@ -1301,21 +1423,34 @@ public class SharedCartServiceImpl implements ISharedCartService {
 
 	private CreateOrderDTO buildCreateOrder(SharedCart cart, List<CreateOrderSkuReqDTO> skuReqList,
 			SharedCartConfirmDTO confirmDTO) {
+		boolean shoreCart = isShoreCart(cart);
 		CreateOrderDTO createOrderDTO = new CreateOrderDTO();
 		createOrderDTO.setUserId(cart.getConfirmerUserId() != null ? cart.getConfirmerUserId() : cart.getOwnerUserId());
-		createOrderDTO.setDeliveryWay("4");
-		createOrderDTO.setPurchaseScene("2");
-		createOrderDTO.setVesselId(cart.getVesselId());
-		createOrderDTO.setVesselCallId(cart.getVesselCallId());
+		if (shoreCart) {
+			// 岸上企业车：公司配送（岸上）送达收货地址，订单主链路按 userAddressId
+			// 从地址簿回填收货人四段地址并校验配送范围（与个人 way=3 订单同一条路径）
+			createOrderDTO.setDeliveryWay("3");
+			createOrderDTO.setPurchaseScene("3");
+			createOrderDTO.setUserAddressId(cart.getUserAddressId());
+		}
+		else {
+			createOrderDTO.setDeliveryWay("4");
+			createOrderDTO.setPurchaseScene("2");
+			createOrderDTO.setVesselId(cart.getVesselId());
+			createOrderDTO.setVesselCallId(cart.getVesselCallId());
+		}
 		createOrderDTO.setCreateWay("2");
 		createOrderDTO.setRequestId("SC" + cart.getId());
 		if (confirmDTO != null) {
-			createOrderDTO.setRecipientName(confirmDTO.getRecipientName());
-			createOrderDTO.setRecipientPhone(confirmDTO.getRecipientPhone());
+			// 岸上车的收货人以地址簿为准（主链路会覆盖），这里不透传船边收货人
+			if (!shoreCart) {
+				createOrderDTO.setRecipientName(confirmDTO.getRecipientName());
+				createOrderDTO.setRecipientPhone(confirmDTO.getRecipientPhone());
+			}
 			createOrderDTO.setAgentName(confirmDTO.getAgentName());
 			createOrderDTO.setAgentPhone(confirmDTO.getAgentPhone());
 			createOrderDTO.setRemark(confirmDTO.getRemark());
-			// 货到付款透传给 createOrder 校验（共享车固定 deliveryWay=4 内部配送，允许 COD）：
+			// 货到付款透传给 createOrder 校验（船供车 way=4 / 岸上车 way=3 均允许 COD）：
 			// 选 COD 时下单即进待发货并直接创建配送任务，不产生待付款单
 			createOrderDTO.setPaymentType(confirmDTO.getPaymentType());
 		}

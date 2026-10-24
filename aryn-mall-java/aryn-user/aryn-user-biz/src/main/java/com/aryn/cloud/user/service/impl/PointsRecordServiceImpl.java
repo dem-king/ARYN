@@ -72,6 +72,10 @@ public class PointsRecordServiceImpl extends ServiceImpl<PointsRecordMapper, Poi
 		if (userInfo == null) {
 			throw new ArynBusinessException("用户不存在");
 		}
+		Integer currentPoint = userInfoMapper.selectPointForUpdate(userId);
+		if (currentPoint == null) {
+			throw new ArynBusinessException("用户不存在");
+		}
 
 		// 退款/取消返还不是「新获得」：只恢复可用积分，不增加 total_point（累计获得），
 		// 否则反复「下单-取消」即可刷高累计积分与积分线等级
@@ -91,16 +95,12 @@ public class PointsRecordServiceImpl extends ServiceImpl<PointsRecordMapper, Poi
 			throw new ArynBusinessException("积分变动失败");
 		}
 
-		UserInfo updatedUser = userInfoMapper.selectById(userId);
-		if (updatedUser == null) {
-			throw new ArynBusinessException("用户不存在");
-		}
-
+		int balanceAfter = "1".equals(changeType) ? currentPoint + changePoint : currentPoint - changePoint;
 		PointsRecord record = new PointsRecord();
 		record.setUserId(userId);
 		record.setChangeType(changeType);
 		record.setChangePoint(changePoint);
-		record.setBalanceAfter(updatedUser.getPoint());
+		record.setBalanceAfter(balanceAfter);
 		record.setTriggerScene(triggerScene);
 		record.setRemark(remark);
 		record.setBizNo(bizNo);

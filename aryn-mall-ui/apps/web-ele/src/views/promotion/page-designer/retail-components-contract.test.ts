@@ -27,7 +27,13 @@ describe('retail admin component source contract', () => {
     const source = readComponent(type, 'index.vue');
 
     expect(source).toContain('RetailPreviewFrame');
-    expect(source).toContain(':common-style="showData.commonStyle"');
+    // shop-info 传派生的 frameCommonStyle（悬浮压图上移 + 卡片圆角兜底，
+    // 源头仍是 showData.commonStyle），其余组件直传配置值
+    expect(source).toMatch(
+      type === 'shop-info'
+        ? /:common-style="frameCommonStyle"/
+        : /:common-style="showData\.commonStyle"/,
+    );
     expect(source).toContain(':status=');
   });
 

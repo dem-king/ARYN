@@ -16,7 +16,7 @@ public class UserCreateDTO {
 	@Pattern(regexp = "^1[3-9]\\d{9}$", message = "手机号格式不正确")
 	private String phone;
 
-	@Size(min = 8, max = 64, message = "密码长度必须为8到64个字符")
+	@Pattern(regexp = "^$|^.{8,64}$", message = "密码长度必须为8到64个字符")
 	private String password;
 
 	@Pattern(regexp = "^[012]$", message = "性别值不正确")

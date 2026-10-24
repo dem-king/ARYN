@@ -1,7 +1,13 @@
 package com.aryn.cloud.user.service.impl;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.aryn.cloud.common.security.handler.ArynBusinessException;
+import com.aryn.cloud.promotion.api.remote.RemoteCouponInfoService;
+import com.aryn.cloud.promotion.api.remote.RemoteCouponUserService;
+import com.aryn.cloud.promotion.api.vo.CouponTemplateInfoVO;
 import com.aryn.cloud.user.api.entity.MemberBenefit;
 import com.aryn.cloud.user.api.entity.MemberBenefitLevelRel;
+import com.aryn.cloud.user.api.vo.MemberBenefitBackfillResultVO;
 import com.aryn.cloud.user.mapper.MemberBenefitLevelRelMapper;
 import com.aryn.cloud.user.mapper.MemberBenefitMapper;
 import com.aryn.cloud.user.mapper.MemberLevelMapper;
@@ -42,6 +48,8 @@ class MemberBenefitServiceImplTest {
 	@Mock private MemberLevelMapper memberLevelMapper;
 	@Mock private UserInfoMapper userInfoMapper;
 	@Mock private IMemberTagService memberTagService;
+	@Mock private RemoteCouponInfoService remoteCouponInfoService;
+	@Mock private RemoteCouponUserService remoteCouponUserService;
 
 	private MemberBenefitServiceImpl memberBenefitService;
 
@@ -49,7 +57,7 @@ class MemberBenefitServiceImplTest {
 	void setUp() {
 		// 设置 baseMapper
 		memberBenefitService = new TestMemberBenefitService(memberBenefitLevelRelMapper, memberLevelMapper,
-				userInfoMapper, memberTagService, memberBenefitMapper);
+				userInfoMapper, memberTagService, remoteCouponInfoService, remoteCouponUserService, memberBenefitMapper);
 		lenient().when(memberBenefitMapper.selectById(any())).thenReturn(new MemberBenefit().setId("benefit001"));
 		lenient().when(memberLevelMapper.selectById(any())).thenReturn(new MemberLevel().setId("level001"));
 		lenient().when(memberLevelMapper.selectByIds(anyCollection())).thenAnswer(invocation ->
@@ -65,6 +73,7 @@ class MemberBenefitServiceImplTest {
 		benefit.setBenefitType("1");
 		benefit.setBenefitValue("0.9");
 		benefit.setId("benefit001");
+		benefit.setLevelIds(List.of("level001"));
 		when(memberBenefitMapper.insert(any(MemberBenefit.class))).thenReturn(1);
 
 		// when
@@ -84,6 +93,7 @@ class MemberBenefitServiceImplTest {
 		benefit.setBenefitName("8折优惠");
 		benefit.setBenefitType("1");
 		benefit.setBenefitValue("0.8");
+		benefit.setLevelIds(List.of("level001"));
 		when(memberBenefitMapper.updateById(any(MemberBenefit.class))).thenReturn(1);
 
 		// when
@@ -95,13 +105,87 @@ class MemberBenefitServiceImplTest {
 	}
 
 	@Test
-	@DisplayName("保存专属优惠券权益 - 模板ID允许使用非数字字符串")
+	@DisplayName("保存专属优惠券权益 - 模板有效时允许非数字模板ID")
 	void saveExclusiveCouponBenefit_acceptsStringTemplateId() {
 		MemberBenefit benefit = new MemberBenefit().setId("benefit001").setBenefitName("专属优惠券")
-				.setBenefitType("3").setBenefitValue("coupon-template-uuid");
+				.setBenefitType("3").setBenefitValue("coupon-template-uuid")
+				.setLevelIds(List.of("level001"));
+		when(remoteCouponInfoService.getTemplate("coupon-template-uuid")).thenReturn(couponTemplate("0", 10));
 		when(memberBenefitMapper.insert(any(MemberBenefit.class))).thenReturn(1);
 
 		assertTrue(memberBenefitService.saveBenefit(benefit));
+	}
+
+	@Test
+	@DisplayName("保存权益 - 未关联等级时拒绝")
+	void saveBenefit_withoutLevels_throws() {
+		MemberBenefit benefit = new MemberBenefit().setId("benefit001").setBenefitName("9折优惠")
+				.setBenefitType("1").setBenefitValue("0.9");
+
+		assertThrows(ArynBusinessException.class, () -> memberBenefitService.saveBenefit(benefit));
+		verify(memberBenefitMapper, never()).insert(any(MemberBenefit.class));
+	}
+
+	@Test
+	@DisplayName("保存专属优惠券权益 - 模板不存在时拒绝")
+	void saveExclusiveCouponBenefit_missingTemplate_throws() {
+		MemberBenefit benefit = new MemberBenefit().setId("benefit001").setBenefitName("专属优惠券")
+				.setBenefitType("3").setBenefitValue("missing-template")
+				.setLevelIds(List.of("level001"));
+		when(remoteCouponInfoService.getTemplate("missing-template")).thenReturn(null);
+
+		assertThrows(ArynBusinessException.class, () -> memberBenefitService.saveBenefit(benefit));
+		verify(memberBenefitMapper, never()).insert(any(MemberBenefit.class));
+	}
+
+	@Test
+	@DisplayName("补发专属券 - 只补发给权益关联等级下的启用会员")
+	void backfillCoupon_grantsUsersInBoundLevels() {
+		when(memberBenefitMapper.selectById("benefit-coupon")).thenReturn(new MemberBenefit()
+				.setId("benefit-coupon").setBenefitType("3").setBenefitValue("template-1"));
+		when(remoteCouponInfoService.getTemplate("template-1")).thenReturn(couponTemplate("0", 10));
+		when(memberBenefitLevelRelMapper.selectList(any())).thenReturn(List.of(
+				new MemberBenefitLevelRel().setBenefitId("benefit-coupon").setLevelId("level001")));
+		Page<UserInfo> userPage = new Page<>(1, 200, false);
+		userPage.setRecords(List.of(
+				new UserInfo().setId("user001").setStatus("0"),
+				new UserInfo().setId("user002").setStatus("0")));
+		when(userInfoMapper.selectPage(any(), any())).thenReturn(userPage);
+		when(remoteCouponUserService.grantMemberBenefitCoupon("template-1", "user001", "level001:benefit-coupon"))
+			.thenReturn(true);
+		when(remoteCouponUserService.grantMemberBenefitCoupon("template-1", "user002", "level001:benefit-coupon"))
+			.thenReturn(true);
+
+		MemberBenefitBackfillResultVO result = memberBenefitService.backfillCoupon("benefit-coupon");
+
+		assertEquals(1, result.getLevelCount());
+		assertEquals(2, result.getUserCount());
+		assertEquals(2, result.getSuccessCount());
+		assertEquals(0, result.getFailedCount());
+	}
+
+	@Test
+	@DisplayName("补发专属券 - 单个会员失败不回滚整批")
+	void backfillCoupon_continuesWhenSingleGrantFails() {
+		when(memberBenefitMapper.selectById("benefit-coupon")).thenReturn(new MemberBenefit()
+				.setId("benefit-coupon").setBenefitType("3").setBenefitValue("template-1"));
+		when(remoteCouponInfoService.getTemplate("template-1")).thenReturn(couponTemplate("0", 10));
+		when(memberBenefitLevelRelMapper.selectList(any())).thenReturn(List.of(
+				new MemberBenefitLevelRel().setBenefitId("benefit-coupon").setLevelId("level001")));
+		Page<UserInfo> userPage = new Page<>(1, 200, false);
+		userPage.setRecords(List.of(
+				new UserInfo().setId("user001").setStatus("0"),
+				new UserInfo().setId("user002").setStatus("0")));
+		when(userInfoMapper.selectPage(any(), any())).thenReturn(userPage);
+		when(remoteCouponUserService.grantMemberBenefitCoupon(eq("template-1"), anyString(), anyString()))
+			.thenReturn(true)
+			.thenThrow(new RuntimeException("库存不足"));
+
+		MemberBenefitBackfillResultVO result = memberBenefitService.backfillCoupon("benefit-coupon");
+
+		assertEquals(2, result.getUserCount());
+		assertEquals(1, result.getSuccessCount());
+		assertEquals(1, result.getFailedCount());
 	}
 
 	@Test
@@ -288,12 +372,23 @@ class MemberBenefitServiceImplTest {
 				.setBenefitType(type).setBenefitValue(value).setStatus("0");
 	}
 
+	private static CouponTemplateInfoVO couponTemplate(String status, int remainNum) {
+		CouponTemplateInfoVO vo = new CouponTemplateInfoVO();
+		vo.setId("coupon-template-uuid");
+		vo.setStatus(status);
+		vo.setRemainNum(remainNum);
+		vo.setReceiveEndedAt(java.time.LocalDateTime.now().plusDays(1));
+		return vo;
+	}
+
 	private static final class TestMemberBenefitService extends MemberBenefitServiceImpl {
 
 		private TestMemberBenefitService(MemberBenefitLevelRelMapper memberBenefitLevelRelMapper,
 				MemberLevelMapper memberLevelMapper, UserInfoMapper userInfoMapper, IMemberTagService memberTagService,
+				RemoteCouponInfoService remoteCouponInfoService, RemoteCouponUserService remoteCouponUserService,
 				MemberBenefitMapper memberBenefitMapper) {
-			super(memberBenefitLevelRelMapper, memberLevelMapper, userInfoMapper, memberTagService);
+			super(memberBenefitLevelRelMapper, memberLevelMapper, userInfoMapper, memberTagService,
+					remoteCouponInfoService, remoteCouponUserService);
 			this.baseMapper = memberBenefitMapper;
 		}
 	}

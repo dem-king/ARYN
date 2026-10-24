@@ -75,6 +75,7 @@ class PublicEndpointWhitelistContractTest {
 			"/app/seckill/sessions/1/goods",
 			"/app/seckill/goods/sku1",
 			"/app/discount/activities",
+			"/app/discount/prices",
 			"/app/newbie/current",
 			"/app/newbie/prices",
 			// 本机存储文件（装修图标等）
@@ -153,7 +154,8 @@ class PublicEndpointWhitelistContractTest {
 				"/promotion/app/seckill/sessions",
 				"/promotion/app/seckill/sessions/1/goods",
 				"/promotion/app/seckill/goods/sku1",
-				"/promotion/app/discount/activities")) {
+				"/promotion/app/discount/activities",
+				"/promotion/app/discount/prices")) {
 			if (!matchesAny(whitelist, path)) {
 				uncovered.add(path);
 			}
@@ -176,6 +178,22 @@ class PublicEndpointWhitelistContractTest {
 		// 幂等：必须维护 md5，且不得用域级通配一把放开
 		assertThat(sql).contains("`md5` = MD5(@gateway_content)");
 		assertThat(sql).doesNotContain("'    - /promotion/app/**");
+	}
+
+	@Test
+	void discountPriceIncrementScriptTargetsTheGatewayWhitelist() throws IOException {
+		// 折扣批量查价接口（免登）的 cloud 白名单增量：新环境靠基线 3aryn_nacos.sql，
+		// 存量环境靠本脚本升级。脚本编号按仓库递增（当前最大为 155 号）。
+		Path script = projectRoot.resolve("db/cloud/156discount_price_nacos_config.sql");
+		assertThat(script).exists();
+		String sql = Files.readString(script);
+		assertThat(sql).contains("'aryn-gateway-dev.yml'");
+		assertThat(sql).contains("/promotion/app/discount/prices");
+		// 幂等：UPDATE 时重算 md5，且不得用域级通配一把放开（带 @SaCheckLogin 的写接口必须保持鉴权）
+		assertThat(sql).contains("`md5` = MD5(@gateway_content)");
+		assertThat(sql).doesNotContain("'    - /promotion/app/**");
+		// 锚点失效时必须由结尾自检暴露，不能「执行成功但内容没改」
+		assertThat(sql).contains("registered_discount_price_public_count");
 	}
 
 	private List<String> bootWhitelist() throws IOException {

@@ -52,6 +52,18 @@ public class OrderItemEntity extends Model<OrderItemEntity> {
 	@Schema(description = "总金额（元）")
 	private BigDecimal totalPrice;
 
+	@Schema(description = "商品原价（单价，结算页划线价用，非表字段）")
+	@TableField(exist = false)
+	private BigDecimal originalPrice;
+
+	@Schema(description = "商品原价小计（原价单价 × 数量，结算页划线价用，非表字段）")
+	@TableField(exist = false)
+	private BigDecimal originalTotalPrice;
+
+	@Schema(description = "活动优惠金额（原价小计 - 成交小计，结算页优惠行用，非表字段）")
+	@TableField(exist = false)
+	private BigDecimal activityDiscountPrice;
+
 	@Schema(description = "运费（元）")
 	private BigDecimal freightPrice;
 
@@ -130,6 +142,22 @@ public class OrderItemEntity extends Model<OrderItemEntity> {
 	@Schema(description = "商品分类名（一级/二级拼接，管理端分组展示与导出用，查询时经 Dubbo 回填，非表字段）")
 	@TableField(exist = false)
 	private String categoryName;
+
+	@Schema(description = "成交活动类型：groupBuy拼团/seckill秒杀/discount折扣/newbie新人价，null=普通商品（非表字段）")
+	@TableField(exist = false)
+	private String activityType;
+
+	@Schema(description = "成交活动ID（非表字段）")
+	@TableField(exist = false)
+	private String activityId;
+
+	@Schema(description = "该行活动是否允许叠加优惠券（非表字段，null=无活动限制）")
+	@TableField(exist = false)
+	private Boolean couponStackable;
+
+	@Schema(description = "该行活动是否允许积分抵现（非表字段，null=无活动限制）")
+	@TableField(exist = false)
+	private Boolean pointsStackable;
 
 	@TableField(exist = false)
 	private OrderRefund orderRefund;

@@ -132,6 +132,10 @@ function resolvePhase() {
     phase.value = 'paid'
     return
   }
+  if (order.value?.payStatus === '2') {
+    phase.value = 'closed'
+    return
+  }
   if (CLOSED_TRADE_STATES.includes(channelTradeState.value)) {
     phase.value = 'closed'
     return

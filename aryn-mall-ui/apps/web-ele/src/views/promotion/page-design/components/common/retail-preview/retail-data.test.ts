@@ -2,6 +2,8 @@ import type { RetailDataDependencies } from './retail-data';
 
 import { describe, expect, it, vi } from 'vitest';
 
+import { getById, getShopInfo } from '#/api/upms/tenant';
+
 import { createGoodsGroupDefaults } from '../../goods-group/types';
 import { createGoodsRankingDefaults } from '../../goods-ranking/types';
 import {
@@ -16,6 +18,15 @@ import {
   createLimitedActivityDefaults,
   createSeckillDefaults,
 } from './retail-legacy-props';
+
+vi.mock('#/api/upms/tenant', () => ({
+  getById: vi.fn(async () => {
+    throw new Error(
+      '装修画布禁止调用 /upms/tenant/{id}（缺 upms:systenant:get 权限）',
+    );
+  }),
+  getShopInfo: vi.fn(async () => null),
+}));
 
 function createDependencies(
   overrides: Partial<RetailDataDependencies> = {},
@@ -231,6 +242,32 @@ describe('retail preview data adapters', () => {
       },
     ]);
   });
+
+  it('loads shop information via the permission-free tenant shop endpoint', async () => {
+    vi.mocked(getShopInfo).mockResolvedValue({
+      address: '滨江路 1 号',
+      id: 'tenant-1',
+      logoUrl: 'logo.png',
+      name: '悦航购',
+      phone: '400-000-0000',
+      siteUrl: 'https://example.test',
+    });
+
+    const result = await loadShopInfo('tenant-1');
+
+    expect(getShopInfo).toHaveBeenCalledTimes(1);
+    expect(getById).not.toHaveBeenCalled();
+    expect(result).toEqual([
+      {
+        address: '滨江路 1 号',
+        id: 'tenant-1',
+        logoUrl: 'logo.png',
+        name: '悦航购',
+        phone: '400-000-0000',
+        siteUrl: 'https://example.test',
+      },
+    ]);
+  });
   it('loads seckill sessions and keeps a negative remaining stock as unknown', async () => {
     const seckillSessions = vi.fn(async () => [
       {
@@ -321,5 +358,8 @@ describe('retail preview data adapters', () => {
       spuId: 'spu-2',
     });
     expect(result[1]?.goodsList).toEqual([]);
+    // 缩略图由 loadDiscounts 补齐，归一化阶段统一落空串（与 C 端同口径）
+    expect(result[0]?.coverImage).toBe('');
+    expect(result[1]?.coverImage).toBe('');
   });
 });

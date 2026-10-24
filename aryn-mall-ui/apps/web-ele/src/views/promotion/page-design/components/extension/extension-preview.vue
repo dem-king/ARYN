@@ -1,9 +1,18 @@
 <script setup lang="ts">
+import type { Component } from 'vue';
+
 import type { DiyCommonStyle } from '@vben/types';
 
 import { computed } from 'vue';
 
-import { Picture } from '@element-plus/icons-vue';
+import {
+  CircleCheck,
+  Clock,
+  Picture,
+  RefreshRight,
+  Service,
+  Wallet,
+} from '@element-plus/icons-vue';
 import { ElIcon } from 'element-plus';
 
 import { commonStyleRadiusOverflow } from '../common/common-style-clip';
@@ -20,6 +29,27 @@ const entries = computed(
     >,
 );
 const title = computed(() => (props.showData.title ?? '') as string);
+
+/**
+ * 服务承诺内置图标兜底：装修设置项没有图标上传入口，iconUrl 实际恒为空，
+ * 不兜底保障条就只剩裸文字。按承诺文案关键词映射（与 C 端
+ * diy-service-promise 的 wd-icon 映射同一关键词表，preview-parity.test.ts
+ * 守卫两端同表），未命中回落对勾。
+ */
+const PROMISE_ICON_RULES: Array<[RegExp, Component]> = [
+  [/退|换/, RefreshRight],
+  [/[保正质]/, CircleCheck],
+  [/服|客|售后/, Service],
+  [/[速快时达]/, Clock],
+  [/票|结算|款|支付/, Wallet],
+];
+
+function promiseFallbackIcon(title: string): Component {
+  return (
+    PROMISE_ICON_RULES.find(([pattern]) => pattern.test(title))?.[1] ??
+    CircleCheck
+  );
+}
 
 /**
  * 图片魔方：各布局的格位结构（编辑器画布 px；小程序端 1rpx = 0.5px）。
@@ -139,12 +169,10 @@ const frameStyle = computed(() => {
 
 /**
  * 内层留白：多数组件的 C 端把 20rpx 留白挂内容内层（根节点 padding 会被
- * commonStyle 内联零值覆盖），画布以 10px 对应；底部导航/图片魔方在 C 端
+ * commonStyle 内联零值覆盖），画布以 10px 对应；图片魔方在 C 端
  * 满宽贴边，画布同样不加假留白。
  */
-const flushInner = computed(
-  () => props.type === 'bottom-nav' || props.type === 'image-cube',
-);
+const flushInner = computed(() => props.type === 'image-cube');
 </script>
 
 <template>
@@ -152,34 +180,12 @@ const flushInner = computed(
     <div class="preview-frame" :style="frameStyle">
       <div
         class="preview-inner"
-        :class="{ 'preview-inner--flush': flushInner }"
+        :class="{
+          'preview-inner--card': type === 'service-promise',
+          'preview-inner--flush': flushInner,
+        }"
       >
-        <template v-if="type === 'coupon-combo'">
-          <div
-            v-for="index in Number(showData.count) || 3"
-            :key="index"
-            class="preview-coupon"
-          >
-            <div class="preview-coupon__face">
-              <div
-                class="preview-coupon__notch preview-coupon__notch--left"
-              ></div>
-              <div
-                class="preview-coupon__notch preview-coupon__notch--right"
-              ></div>
-              <span class="preview-coupon__value">¥10</span>
-              <div class="preview-coupon__info">
-                <span class="preview-coupon__pill">满减券</span>
-                <span class="preview-coupon__title">优惠券</span>
-                <span class="preview-coupon__threshold">满100元可用</span>
-              </div>
-            </div>
-            <span class="preview-coupon__btn">领取</span>
-          </div>
-        </template>
-        <template
-          v-else-if="type === 'member-benefits' || type === 'service-promise'"
-        >
+        <template v-if="type === 'member-benefits'">
           <p v-if="title" class="preview-title">{{ title }}</p>
           <div class="preview-grid">
             <div
@@ -192,15 +198,31 @@ const flushInner = computed(
             </div>
           </div>
         </template>
-        <template v-else-if="type === 'bottom-nav'">
-          <div class="preview-bottomnav">
+        <template v-else-if="type === 'service-promise'">
+          <p v-if="title" class="preview-promise-title">{{ title }}</p>
+          <div v-if="entries.length === 0" class="preview-promise-empty">
+            暂无服务承诺，请在装修中配置
+          </div>
+          <div v-else class="preview-promise-row">
             <div
-              v-for="(item, index) in entries"
+              v-for="(entry, index) in entries"
               :key="index"
-              class="preview-bottomnav-item"
-              :style="{ color: (showData.activeColor as string) || '#ff5000' }"
+              class="preview-promise-item"
             >
-              {{ item.text }}
+              <span class="preview-promise-badge">
+                <img
+                  v-if="String(entry.iconUrl ?? '')"
+                  alt=""
+                  class="preview-promise-badge-image"
+                  :src="String(entry.iconUrl)"
+                />
+                <ElIcon v-else :size="16">
+                  <component
+                    :is="promiseFallbackIcon(String(entry.title ?? ''))"
+                  />
+                </ElIcon>
+              </span>
+              <span class="preview-promise-text">{{ entry.title }}</span>
             </div>
           </div>
         </template>
@@ -253,7 +275,7 @@ const flushInner = computed(
 }
 
 .preview-inner--flush {
-  /* 底部导航/图片魔方在 C 端满宽贴边，画布同样不加假留白 */
+  /* 图片魔方在 C 端满宽贴边，画布同样不加假留白 */
   padding: 0;
 }
 
@@ -261,101 +283,6 @@ const flushInner = computed(
   margin: 0 0 8px;
   font-size: 14px;
   font-weight: 600;
-}
-
-/* 与小程序 diy-coupon-combo 票面同源（1rpx = 0.5px） */
-.preview-coupon {
-  display: flex;
-  align-items: center;
-  padding: 3px;
-  margin-bottom: 6px;
-  overflow: hidden;
-  background: linear-gradient(135deg, #ff6a00 0%, #ff2d2d 100%);
-  border-radius: 10px;
-
-  &__face {
-    position: relative;
-    display: flex;
-    flex: 1;
-    align-items: center;
-    min-height: 50px;
-    padding: 7px 10px;
-    background: linear-gradient(180deg, #fff9f9 0%, #fff0eb 100%);
-    border-radius: 7px;
-  }
-
-  &__notch {
-    position: absolute;
-    top: 50%;
-    z-index: 2;
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    transform: translateY(-50%);
-
-    &--left {
-      left: -4.5px;
-      background: #f9531a;
-    }
-
-    &--right {
-      right: -4.5px;
-      background: #fa2431;
-    }
-  }
-
-  &__value {
-    flex-shrink: 0;
-    width: 70px;
-    font-size: 22px;
-    font-weight: 700;
-    color: #ec3d2a;
-    text-align: center;
-  }
-
-  &__info {
-    display: flex;
-    flex: 1;
-    flex-direction: column;
-    min-width: 0;
-    padding-left: 8px;
-  }
-
-  &__pill {
-    align-self: flex-start;
-    padding: 1px 7px;
-    font-size: 10px;
-    color: #e8402f;
-    background: #fde1d6;
-    border-radius: 999px;
-  }
-
-  &__title {
-    margin-top: 3px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    font-size: 13px;
-    font-weight: 600;
-    color: #222;
-    white-space: nowrap;
-  }
-
-  &__threshold {
-    margin-top: 2px;
-    font-size: 10px;
-    color: #9a8f8c;
-  }
-
-  &__btn {
-    flex-shrink: 0;
-    padding: 4px 11px;
-    margin-left: 6px;
-    font-size: 11px;
-    font-weight: 600;
-    color: #fff;
-    background: linear-gradient(135deg, #ff6a00 0%, #ff2d2d 100%);
-    border-radius: 999px;
-  }
 }
 
 .preview-grid {
@@ -384,15 +311,66 @@ const flushInner = computed(
   font-size: 12px;
 }
 
-.preview-bottomnav {
-  display: flex;
-  justify-content: space-around;
-  padding: 10px 0;
-  background: var(--el-fill-color-light);
+/* 服务承诺保障条（与 C 端 diy-service-promise 同源，1rpx = 0.5px）：
+   白卡本体挂 preview-inner--card（对应 C 端 promise-inner），圆底徽标、
+   主题色 tint 与内置图标兜底和 C 端同值同表 */
+.preview-inner--card {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 6px 16px rgb(31 35 41 / 6%);
 }
 
-.preview-bottomnav-item {
-  font-size: 12px;
+.preview-promise-title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2329;
+}
+
+.preview-promise-row {
+  display: flex;
+  flex-wrap: wrap;
+  row-gap: 8px;
+  justify-content: space-around;
+}
+
+.preview-promise-item {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  min-width: 60px;
+}
+
+.preview-promise-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  color: var(--wot-color-theme-primary, #ff2237);
+  background: var(--wot-color-theme-primary-soft, rgb(255 34 55 / 9%));
+  border-radius: 50%;
+}
+
+.preview-promise-badge-image {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+}
+
+.preview-promise-text {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #606266;
+  text-align: center;
+}
+
+.preview-promise-empty {
+  padding: 20px;
+  font-size: 13px;
+  color: #999;
+  text-align: center;
 }
 
 .preview-video {

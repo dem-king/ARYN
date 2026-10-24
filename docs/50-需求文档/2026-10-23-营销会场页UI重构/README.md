@@ -348,7 +348,7 @@
 
 | 元素 | 规格 | 变更点 |
 |------|------|--------|
-| 活动 Tab | h88，选中=主色 4rpx 下划线 + 30/700；未选=28/500 muted；多活动时吸顶，单活动不渲染 | D5 |
+| 活动 Tab | h88，选中=主色 4rpx 下划线 + 30/700；未选=28/500 muted；多活动时吸顶，单活动不渲染。**2026-10-23 修正：Tab 语义为内容切换（非页内锚点），同一时刻只渲染选中活动；落地形态为实心主色 pill，见 §十九** | D5 |
 | 活动卡 | **去掉 2rpx 描边**；大牌 112×112（原 128）、40/800、圆角 20、实心主色；活动名 28/600；副行 22/400；右侧「去逛逛 ›」文字链（不再用描边胶囊） | A1/A2 |
 | 倒计时 | 降级为**一行文字**「距结束 2天 05:41:07」（`tabular-nums`），不再用实心分格；**超 24h 一律走「N 天 HH:MM:SS」，禁止三位数小时分格**（修 N1/D4） | D4/A9 |
 | 商品卡 | 图上角标「8折」唯一一处；品名 25/500 两行；价格 36/700 + 划线 20；底部「省¥X」浅主色胶囊 + 右侧**实心圆形加购**（去掉 2rpx 描边圆钮） | D2/D3/A2 |
@@ -521,7 +521,7 @@
 
 | 项 | 原因 |
 |----|------|
-| 折扣活动 Tab 吸顶 | 活动卡本身就是该活动商品区的分区头，翻到活动区就已可见；且列表分页加载，Tab 集合会随翻页增长/变化，做成吸顶会来回抖动 |
+| 折扣活动 Tab 吸顶 | 活动卡本身就是该活动商品区的分区头，翻到活动区就已可见；且列表分页加载，Tab 集合会随翻页增长/变化，做成吸顶会来回抖动。（2026-10-23 修正：Tab 已改为内容切换、活动取消分页，Tab 置于滚动区外恒可见，此决策的前提已不成立，仅保留为历史背景） |
 | 空态位图插画 3 张 | 位图插画带固定配色，在多租户换肤（天空蓝等）下会与主题冲突；现有「品牌渐变圆 + 白色矢量图标」是主题安全的，已满足"非 emoji、非单字方块"的目标 |
 | 折扣右下悬浮购物车 | 与网格卡右下加购按钮同位置重叠，改为导航栏入口 |
 
@@ -684,7 +684,7 @@ P0 的降噪规则写的是「`pct === 0` → 仅剩 N 件」，P2 收敛后改�
 
 | ID | 事项 | 现状 | 涉及 | 估时 |
 |----|------|------|------|------|
-| P3-04 ✅ | **折扣活动 Tab** | 已实现：多活动时在导航下固定一条横向 Tab（折扣力度 + 活动名），点击高亮并滚到对应活动区；Tab 自身随选中项滚动保持可见。列表分页加载时 Tab 随数据增量追加 | `discount.vue` | 已完成（已知：手动滚动不同步高亮，按点击态为准） |
+| P3-04 ✅ | **折扣活动 Tab** | 已实现，并**于 2026-10-23 修正语义**：多活动时在导航下固定一条横向 Tab（折扣力度 + 活动名），点击即**切换内容**（同秒杀页「场次轴」）——同一时刻只渲染选中活动的活动卡与商品网格，不再把多个活动串成一条长列表；活动列表一次拉全（`size=100`），Tab 不再随分页增长；全场型活动（`goodsList` 为空）在该 Tab 内展示权益说明 +「去首页逛商品」入口，避免空 Tab。滚动不再承担导航职责，原「手动滚动不同步高亮」问题随锚点模式一并消失（详见 §十九） | `discount.vue` | 已完成 |
 | P3-05 ✅ | **秒杀「规则」入口** | 已实现：导航右侧白色 24rpx「活动规则」→ 独立页 `pages/promotion/seckill-rule`（白底、6 个模块、小红点锚点、26rpx/1.8；「1 件」「15 分钟内」加粗），文案按 2026-10-23 交付文档 | `seckill.vue`、新增 `pages/promotion/seckill-rule.vue`、`pages.json` | 已完成 |
 | P3-06 ✅（改为下线） | **首页楼层与会场页视觉二期** | **取证后不做视觉对齐，直接下线**：`page_design` 全表仅一条已逻辑删除的 `__lead_verify_*` 验证残留页用到这三个楼层，**没有任何在用页面**；为视觉对齐投入 1.5 人日在当前零使用下收益不可见，且会给运营留下"该用哪个"的歧义 | 删除 C 端 3 个楼层组件 + 管理端 3 套预览/设置组件；注册表、页面类型白名单（前后端）、契约测试同步收缩；旧版 Props/默认值/加载器保留给预览数据装配；后端 `KNOWN_TYPES`/校验分支保留以兼容存量快照发布 | 已完成 |
 | P3-07 ✅ | **空态插画 3 张** | 已接入：秒杀空态（HallState `art=seckill`）、购物车空态、订单列表空态（z-paging `#empty`）；素材从 2048px/600KB **裁切+去底+量化到 384px/12–16KB**（原图留档 `docs/…/assets/`），透明底适配任意页面背景 | `hall-state`、`shopping-cart`、`order-list`、`static/promotion/empty/` | 已完成 |
@@ -720,3 +720,84 @@ P0 的降噪规则写的是「`pct === 0` → 仅剩 N 件」，P2 收敛后改�
 
 `P3-01 部分退款精确回补` + `P3-02 已售罄禁止加购` + `P3-03 编辑移除已售商品` + `P3-13 天空蓝目检`。
 理由：三项都是「会算错/会误导用户」的正确性问题，且都在已改动文件内，回归面可控。
+
+---
+
+## 十九、2026-10-23 修正：折扣会场 Tab 由「页内锚点」改为「内容切换」
+
+### 19.1 现象与根因（用户反馈 + 代码/数据取证）
+
+用户反馈「两个活动有 Tab 可以切换，但页面上两个活动都显示，切哪个 Tab 都是同一批商品」。取证结论：**Tab 被实现成了页内锚点，不是内容切换**。
+
+- `selectActivity()` 只改高亮并设 `scrollIntoView = 'act-<id>'`，无任何过滤/切换数据的逻辑；模板 `v-for` 把接口返回的**所有**活动渲染成「活动卡 + 商品网格」（旧 `discount.vue:47-55 / 516-638`）。
+- 后端 `getActiveActivityPage` 返回全部 `status=1` 且在时间窗内的活动；种子数据中两个活动为：`会员日全场95折`（`scope=1`，`goodsList` 为空）+ `零食酒水狂欢8折专区`（`scope=2`，8 件商品）。
+- 因此「9.5折」活动本身没有商品区，页面上商品全部属于 8 折活动；点两个 Tab 看到的商品**必然一致**。两个活动卡上下相邻，锚点滚动距离仅一张卡高（H5 实测 `scrollTop 0→94`），视觉上几乎等于「没反应」。
+- 同仓库秒杀页的场次轴是**真切换**（`currentSession` computed 只渲染当前场次），两页交互模型不一致，进一步强化了用户「折扣页坏了」的判断。
+- 该问题与 §2.2 D5「多活动时下面这堆商品属于哪个活动不清晰」同源；§六竞品研究结论也要求「多活动并列以活动 Tab 分档组织，而不是串成一条长列表」。
+
+### 19.2 改动（单文件，零后端/零 DB）
+
+`aryn-mall-uniapp/src/pages/promotion/discount.vue`：
+
+1. 新增 `activeActivity` computed，模板由 `v-for` 全量渲染改为 `v-else-if="activeActivity"` 只渲染选中活动（活动卡 + 商品网格 / 权益面板）。
+2. 活动列表改为一次拉全（`current=1,size=100`），删除 `noMore/currentPage/loadingMore/onLoadMore` 与 `@scrolltolower`：Tab 必须是完整集合，不能随分页增长。
+3. `selectActivity()` 只切换 `activeActivityId` 并把内容区滚回顶部；不再用 `act-<id>` 锚点。点击当前 Tab 直接 return。
+4. 全场型活动（`scope=1`）新增权益面板：标题「全场商品通用折扣」+「任意商品结算时自动按 9.5 折计算，无需选购指定清单」+ 主色 pill「去首页逛商品 ›」；不渲染「没有更多了」收尾文案。
+5. 下拉刷新后若原选中活动下线/被删除，回落到第一个活动（避免高亮丢失）。
+
+### 19.3 验证（2026-10-23 真实数据）
+
+| 项 | 方式 | 结果 |
+|---|---|---|
+| 静态 | `cd aryn-mall-uniapp && pnpm type-check` | exit 0 |
+| H5 真机渲染 | 8888 dev server + 本地 boot 9999 **真实数据**，Playwright 无头 Chrome 390×844 | ① 初始（9.5折 Tab）：活动卡 ×1、商品网格 ×0、权益面板 ×1；② 切 8折 Tab：活动卡 ×1、商品网格 ×1、商品 ×8、权益面板 ×0；③ 8折 Tab 滚到底（scrollTop 619）后切回 9.5折：仅卡片 + 权益面板、滚动复位；④ 再切回 8折：网格与 8 件商品重新出现；Tab 数恒为 2；**0 console error / 0 page error** |
+| 截图归档 | `screenshots/discount-tab-switch-95.png`、`screenshots/discount-tab-switch-80.png` | 见文件 |
+
+### 19.4 边界
+
+- 未在微信开发者工具目检；H5 与小程序共用同一套逻辑，差异仅在 `scroll-into-view`/`scroll` 的原生实现（本页现已不依赖锚点滚动导航，风险低于旧实现）。
+- 全场型活动天然没有商品清单，「该 Tab 展示什么」是产品口径：当前选择「权益说明 + 去首页入口」；若后续要求展示代表商品，需后端提供该活动下的商品清单或复用首页商品流。
+- 未提交 git、未切分支；工作区其余改动为既有未提交内容。
+
+---
+
+## 二十、2026-10-24 修复：限时折扣活动价在商详/加购弹层/购物车显示为原价
+
+### 20.1 现象与根因（用户反馈 + 代码/接口取证）
+
+用户从折扣会场看到 8 折 ¥23.92，点加购弹层「小计」是 ¥29.90、进商详价格区是 ¥29.90（省¥8.97、划线 ¥38.87）、购物车行价/合计也是 ¥29.90 —— 折后价只在会场页出现。
+
+- 会场数据 `/promotion/app/discount/activities` 的每个商品项自带后端算好的 `discountPrice`（基准为 SKU `salesPrice`）。
+- 商详只接入了秒杀与新人价、购物车只接入了新人价、快捷加购也只透传这两类；`getGoodsDiscountInfo`（单 SKU、带 `@SaCheckLogin`）虽已存在于 API 层但**从未被调用**，也无法批量。
+- 结算侧 `OrderPriceComputeService.resolvePromotionPricePlan` 本就会按「拼团 > 秒杀 > 新人价 > 限时折扣 > 原价」落成交基价：不是结算少算，而是展示层缺数据源。
+
+### 20.2 改动
+
+| 端 | 文件 | 内容 |
+|---|---|---|
+| 后端 | `IDiscountActivityService` / `DiscountActivityServiceImpl` / `AppDiscountController` | 新增免登批量 `GET /app/discount/prices?skuIds=a,b`：1 次活动 + ≤1 次 `discount_goods` + ≤1 次 SKU 批量查询（无 N+1）；口径与单 SKU `getGoodsDiscountInfo` 一致（基准 salesPrice、scope 匹配、取最低、折后价不低于原价不返回）；原单 SKU 接口与 `calculatePrice` 未改 |
+| 后端 | `aryn-boot/application.yml`、`db/cloud/3aryn_nacos.sql`、新增 `db/cloud/156discount_price_nacos_config.sql`、`PublicEndpointWhitelistContractTest` | 双模式白名单（boot `- /app/discount/prices`、cloud `/promotion/app/discount/prices` + md5 同步 + 幂等增量脚本），契约测试同步 |
+| 后端 | 新增 `DiscountActivityPriceBatchTest`、`AppDiscountControllerBindingTest` | 8 + 3 例：价格口径、无 N+1、混合活动、非法配置、去重/空入参、路由绑定与免登性 |
+| C 端共享 | 新增 `src/utils/discount-price.ts`、`src/api/promotion.ts` | `resolveDiscountPriceDisplay` / `discountUnitPrice` / `discountSavingAmount` / `formatDiscountValue`（力度口径从入口条收敛到这里并保留原导出）；`getGoodsDiscountPrices(skuIds)` 免登批量 |
+| C 端商详 | `goods-detail/index.vue`、`components/GoodsInfo.vue` | 并行批量拉价（失败静默）；`discountDisplay` 按「秒杀 > 新人价 > 限时折扣」判定；主价/划线价/省额/「8折」角标/「限时折扣 + 活动名 + 结算自动生效」说明条；单规格快捷加购带折后价；修复有活动条时标题卡上提裁切（`hasPriceStrip`） |
+| C 端会场 | `components/quick-cart-button/index.vue`、`pages/promotion/discount.vue` | QuickCartButton 增 `promotion` 透传；折扣卡把 `discountPrice` 作为活动价带进确认弹层，弹层小计与会场标价同源 |
+| C 端购物车 | `pages/user/shopping-cart/index.vue` + `contract.test.ts` | 与新人价同时机整页一次批量拉价（去重/失败静默）；行价与合计同源 `cartUnitPrice`（新人价 > 限时折扣 > 售价）；命中折扣显示折后价 + 角标 + 划线基准价 |
+| 测试/文档 | `utils/discount-price.test.ts`、`goods-detail/discount-price-contract.test.ts`、购物车契约、本 README + 需求记录 | 12 + 5 + 3 例纯逻辑/源码契约；需求记录登记本轮现象、根因、验证与边界 |
+
+### 20.3 验证（2026-10-24 真实数据）
+
+| 项 | 方式 | 结果 |
+|---|---|---|
+| H5 端到端 | 8888 dev server + 重建后的本地 boot 9999 + 真实 C 端 token，`node outputs/discount-price-verify/verify.mjs` | ✅ **7/7**：会场卡 23.92/29.90、弹层小计 23.92、商详 23.92 + 8折 + 省5.98 + 划线29.90 + 说明条、购物车行价/合计 23.92、0 page error；截图归档 `screenshots/discount-price-add-sheet.png`、`screenshots/discount-price-goods-detail.png`、`screenshots/discount-price-cart.png` |
+| 后端接口 | `GET /boot/app/discount/prices?skuIds=...`（免登） | ✅ 200，返回 `originalPrice=29.90 / discountPrice=23.92` |
+| 静态 + 单测 | `pnpm type-check`、`pnpm test:unit` | ✅ exit 0；87 文件 / 935 用例全绿 |
+| 后端单测 | `mvn -o -pl aryn-promotion/aryn-promotion-biz -am test`、boot 白名单契约 | ✅ 新增 11 例全绿；promotion 318 例仅既有 `NewTemplateSeedValidationTest` 1 例失败（外部 scratch 模板数据问题，与本改动无关）；boot 契约 5/5 绿 |
+| 部署 | 本地 boot 容器重建（jar + 镜像 + force-recreate） | ✅ 新接口上线，H5 与小程序共用 9999 后端 |
+
+### 20.4 边界
+
+- 购物车秒杀价仍未接入（既有边界，不为标价新增逐 SKU 秒杀请求）：购物车层级为「新人价 > 限时折扣 > 售价」，结算价仍以后端为准。
+- 多规格商品在 SKU 选择弹层内仍按售价展示（弹层数据源未带活动价）；选中后商详价格区与购物车按折后价展示，属既有组件边界。
+- 批量接口单次上限 200 SKU；全场型折扣对所有 SKU 命中，商详会展示折扣说明（与结算口径一致）。
+- cloud 网关未新增 `/boot/app/discount/**` boot 兼容路由（既有缺口，boot 模式不经过网关）。
+- 未在微信开发者工具目检；未提交 git，工作区其余改动为既有未提交内容。

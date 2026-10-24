@@ -4,19 +4,20 @@ import type { SharedCart, SharedCartCreatePayload } from '@/api/order/sharedCart
  * 共享购物车列表：我发起或我被邀请的全部购物车。
  *
  * 页面要回答的问题只有一个：「现在有没有还需要我管的单」。因此：
- * 1. 顶部是当前船舶上下文 + 发起入口，回答「在哪条船上发起」；
+ * 1. 顶部是当前采购上下文 + 发起入口，回答「这一单送到哪」；
  * 2. 列表按「进行中 / 历史」两段分区，进行中的排在前面且按截止时间升序，
  *    让最紧急的单浮到最上面；
  * 3. 每张卡片给出「这单到哪一步了」（进度 / 倒计时）与「点进去能做什么」
  *    （动词随状态与权限变化），而不是四张卡都写同一个「查看」。
  *
- * 创建入口仅在当前已绑定船舶+靠港计划时可用——共享购物车创建时即绑定
- * 船舶与靠港计划且不可变更，缺少上下文无法创建。
+ * 发起支持两种车：船供整车（绑船舶+靠港，要求当前已绑定上下文）与
+ * 岸上企业（绑收货地址，未绑船的港口工厂客户用）。类型在创建弹层里切换。
  */
 import { onPullDownRefresh, onShow } from '@dcloudio/uni-app'
 
 import { computed, reactive, ref } from 'vue'
-import { createSharedCart, getMySharedCarts } from '@/api/order/sharedCart'
+import { createSharedCart, getMySharedCarts, SHARED_CART_TYPE_SHIP, SHARED_CART_TYPE_SHORE } from '@/api/order/sharedCart'
+import { getPage as getAddressPage } from '@/api/user/address'
 import hrNavbar from '@/components/hr-navbar/index.vue'
 import ShipContextPicker from '@/components/ship-context-picker/index.vue'
 import { useCountdownTicker } from '@/composables/useCountdown'
@@ -29,6 +30,9 @@ import {
   cartStatusTheme,
   groupSharedCarts,
   isCartCollecting,
+  isShoreCart,
+  sharedCartLocationLabel,
+  sharedCartTitleLabel,
 } from '@/utils/shared-cart'
 import { formatCallTime } from '@/utils/vessel-call-time'
 
@@ -42,6 +46,18 @@ definePage({
   },
 })
 
+/** 发起弹层里的收货地址（地址簿行；字段口径与 order-confirm 的 AddressSelector 一致） */
+interface ShoreAddress {
+  id: string
+  recipientName?: string
+  telephone?: string
+  provinceName?: string
+  cityName?: string
+  areaName?: string
+  detailAddress?: string
+  isDefault?: string
+}
+
 const authStore = useAuthStore()
 const shipContextStore = useShipContextStore()
 
@@ -51,18 +67,28 @@ const { now: tickNow } = useCountdownTicker()
 const loading = ref(false)
 const loadFailed = ref(false)
 const records = ref<SharedCart[]>([])
-/** 船舶与靠港选择器：创建共享购物车必须先有船舶+靠港上下文 */
+/** 船舶与靠港选择器：船供整车创建必须有船舶+靠港上下文 */
 const shipPickerVisible = ref(false)
 
 /** 创建表单 */
 const createState = reactive({
   visible: false,
   submitting: false,
-  /** 收集窗口（小时）：24 / 48 / 0 表示不限期 */
+  /** 车类型：1 船供整车 / 2 岸上企业；打开弹层时按上下文预选 */
+  cartType: SHARED_CART_TYPE_SHIP,
   remark: '',
+  /** 岸上车：已选收货地址ID */
+  addressId: '',
+  /** 岸上车：地址簿候选 */
+  addresses: [] as ShoreAddress[],
+  addressLoading: false,
 })
 
-const canCreate = computed(() => authStore.isLoggedIn && shipContextStore.hasVesselContext)
+/**
+ * 船供车可发性：创建入口对登录用户开放（岸上车不要求船舶上下文），
+ * 只有切到船供类型时才受船舶上下文约束（弹层与 hero 共用同一判定）。
+ */
+const shipTypeReady = computed(() => shipContextStore.hasVesselContext)
 
 /** 分区后的列表：服务端按创建时间倒序，这里再按「还能不能动」重排 */
 const sections = computed(() => groupSharedCarts(records.value, new Date(tickNow.value)))
@@ -120,36 +146,88 @@ function fetchList() {
     })
 }
 
+/** 拉地址簿候选并预选默认地址（岸上发起弹层打开时调用） */
+function loadShoreAddresses() {
+  createState.addressLoading = true
+  getAddressPage({ current: 1, size: 50 })
+    .then((res) => {
+      const list: ShoreAddress[] = res?.records ?? []
+      createState.addresses = list
+      // 已选地址仍有效则保留；否则回落默认地址，再回落第一条
+      const stillValid = list.some(item => item.id === createState.addressId)
+      if (!stillValid) {
+        const preferred = list.find(item => item.isDefault === '1') ?? list[0]
+        createState.addressId = preferred?.id ?? ''
+      }
+    })
+    .catch(() => {
+      // 拉失败不清空已有候选（重开弹层时还能用上一次的），只保留当前选择
+    })
+    .finally(() => {
+      createState.addressLoading = false
+    })
+}
+
 function openCreate() {
   if (!authStore.isLoggedIn) {
     goLogin()
     return
   }
-  // 缺少船舶/靠港上下文时直接给出选择入口，而不是一句无法执行的提示
-  if (!canCreate.value) {
+  // 有船舶上下文默认发船供整车；未绑船（港口工厂等岸上客户）直接落到岸上企业
+  createState.cartType = shipTypeReady.value ? SHARED_CART_TYPE_SHIP : SHARED_CART_TYPE_SHORE
+  createState.remark = ''
+  createState.addressId = ''
+  createState.visible = true
+  if (createState.cartType === SHARED_CART_TYPE_SHORE) {
+    loadShoreAddresses()
+  }
+}
+
+/** 弹层内切换车类型：切到岸上时按需拉地址，切到船供时缺上下文先弹选择器 */
+function switchCartType(type: string) {
+  if (type === createState.cartType)
+    return
+  if (type === SHARED_CART_TYPE_SHIP && !shipTypeReady.value) {
     shipPickerVisible.value = true
     return
   }
-  createState.remark = ''
-  createState.visible = true
+  createState.cartType = type
+  if (type === SHARED_CART_TYPE_SHORE && createState.addresses.length === 0) {
+    loadShoreAddresses()
+  }
+}
+
+function toAddressForm() {
+  uni.navigateTo({ url: '/sub-pages/user/address/form' })
 }
 
 function submitCreate() {
   if (createState.submitting)
     return
+  const isShore = createState.cartType === SHARED_CART_TYPE_SHORE
+  if (isShore && !createState.addressId) {
+    uni.showToast({ title: '请选择收货地址', icon: 'none' })
+    return
+  }
+  if (!isShore && !shipTypeReady.value) {
+    shipPickerVisible.value = true
+    return
+  }
   createState.submitting = true
   const payload: SharedCartCreatePayload = {
-    vesselId: shipContextStore.vesselId,
-    vesselCallId: shipContextStore.vesselCallId,
+    cartType: createState.cartType,
+    vesselId: isShore ? undefined : shipContextStore.vesselId,
+    vesselCallId: isShore ? undefined : shipContextStore.vesselCallId,
+    userAddressId: isShore ? createState.addressId : undefined,
     remark: createState.remark || undefined,
   }
   createSharedCart(payload)
     .then((cart) => {
       createState.visible = false
-      // 同一船舶已有进行中的采购时，服务端复用该购物车而非新建，
+      // 同船/同一发起人已有进行中的采购时，服务端复用该购物车而非新建，
       // 需明确告知用户是被并入，避免误以为刚创建了一个新的。
       uni.showToast({
-        title: cart?.adoptedExisting ? '该船已在进行中，已为你打开' : '已创建',
+        title: cart?.adoptedExisting ? '已有进行中采购，已为你打开' : '已创建',
         icon: 'none',
       })
       if (cart?.id) {
@@ -183,14 +261,15 @@ onPullDownRefresh(() => {
     <hr-navbar title="共享购物车" />
 
     <!--
-      船舶上下文条：回答「我在哪条船上发起」。这不是一张独立卡片——
+      发起上下文条：回答「这一单送到哪」。这不是一张独立卡片——
       它只承载当前上下文与一个创建动作，用品牌渐变把它和下面的单据列表区分开，
       用户一眼能看出「上面这块是发起入口，下面这些是已有单据」。
+      绑船用户显示船+靠港；未绑船的岸上客户（港口工厂等）提示走收货地址发起。
     -->
     <view class="hero">
       <view class="hero__head">
         <text class="hero__vessel">
-          {{ shipContextStore.vesselName || '我的船舶' }}
+          {{ shipContextStore.vesselName || '合并采购' }}
         </text>
         <view
           v-if="shipContextStore.hasVesselContext"
@@ -206,9 +285,9 @@ onPullDownRefresh(() => {
         <text class="i-carbon:location hero__icon" />
         <text>{{ shipContextStore.portName || '港口待定' }} {{ shipContextStore.berth }}</text>
       </view>
-      <view v-else class="hero__location" @tap="shipPickerVisible = true">
-        <text class="i-carbon:warning-alt hero__icon" />
-        <text>先选择船舶和靠港计划，才能发起共享购物车</text>
+      <view v-else class="hero__location">
+        <text class="i-carbon:location hero__icon" />
+        <text>未绑定船舶：可按岸上收货地址发起企业合并采购</text>
       </view>
 
       <view class="hero__cta" @tap="openCreate">
@@ -244,11 +323,15 @@ onPullDownRefresh(() => {
         <view class="card__head">
           <view class="card__vessel-wrap">
             <text class="card__vessel">
-              {{ cart.vesselName || '船舶信息加载中' }}
+              {{ sharedCartTitleLabel(cart) || '船舶信息加载中' }}
             </text>
             <!-- 自己发起的单标一下，同船多人时才知道这单该找谁 -->
             <text v-if="cart.viewerIsOwner" class="card__badge">
               我发起
+            </text>
+            <!-- 岸上企业单标类型，与船供单在混排列表里区分开 -->
+            <text v-else-if="isShoreCart(cart)" class="card__badge card__badge--shore">
+              岸上
             </text>
           </view>
           <view
@@ -261,7 +344,7 @@ onPullDownRefresh(() => {
 
         <view class="card__location">
           <text class="i-carbon:location card__icon" />
-          <text>{{ cart.portName || '港口待定' }} {{ cart.berth }}</text>
+          <text>{{ sharedCartLocationLabel(cart) || '港口待定' }}</text>
         </view>
 
         <!--
@@ -331,7 +414,7 @@ onPullDownRefresh(() => {
         还没有共享购物车
       </text>
       <text class="state__desc">
-        发起一单与同船成员合并采购，由确认人统一提交整船订单
+        发起一单与伙伴合并采购，由确认人统一提交订单
       </text>
       <view class="state__cta" @tap="openCreate">
         发起共享购物车
@@ -353,12 +436,91 @@ onPullDownRefresh(() => {
           发起共享购物车
         </text>
         <text class="sheet__desc">
-          创建后 24 小时内有效，超时自动关闭。同船成员可分别加购，由确认人统一提交整船订单。
+          创建后 24 小时内有效，超时自动关闭。成员可分别加购，由确认人统一提交合并订单。
         </text>
-        <view class="sheet__context">
+
+        <!-- 车类型：船供整车绑船+靠港，岸上企业绑收货地址；未绑船时岸上可选、船供引导去选船 -->
+        <view class="sheet__type">
+          <view
+            class="sheet__type-item"
+            :class="{ 'sheet__type-item--on': createState.cartType === '1' }"
+            @tap="switchCartType('1')"
+          >
+            <text class="sheet__type-title">
+              船供整车
+            </text>
+            <text class="sheet__type-desc">
+              送靠港泊位
+            </text>
+          </view>
+          <view
+            class="sheet__type-item"
+            :class="{ 'sheet__type-item--on': createState.cartType === '2' }"
+            @tap="switchCartType('2')"
+          >
+            <text class="sheet__type-title">
+              岸上企业
+            </text>
+            <text class="sheet__type-desc">
+              送收货地址
+            </text>
+          </view>
+        </view>
+
+        <view v-if="createState.cartType === '1'" class="sheet__context">
           <text class="i-carbon:location sheet__context-icon" />
           <text>{{ shipContextStore.vesselName }} · {{ shipContextStore.portName }} {{ shipContextStore.berth }}</text>
         </view>
+
+        <!-- 岸上：收货地址单选列表（配送终点与范围校验都以所选地址为准） -->
+        <template v-else>
+          <view class="sheet__label">
+            收货地址
+          </view>
+          <view v-if="createState.addressLoading && createState.addresses.length === 0" class="sheet__addr-state">
+            地址加载中...
+          </view>
+          <view v-else-if="createState.addresses.length === 0" class="sheet__addr-state">
+            <text>还没有收货地址，企业采购需要一个可配送的收货地址</text>
+            <view class="sheet__addr-add" @tap="toAddressForm">
+              去新增地址
+            </view>
+          </view>
+          <scroll-view v-else scroll-y class="sheet__addr-list">
+            <view
+              v-for="item in createState.addresses"
+              :key="item.id"
+              class="sheet__addr"
+              :class="{ 'sheet__addr--on': item.id === createState.addressId }"
+              @tap="createState.addressId = item.id"
+            >
+              <view class="min-w-0 flex-1">
+                <view class="sheet__addr-line">
+                  <text class="sheet__addr-name">
+                    {{ item.recipientName }}
+                  </text>
+                  <text class="sheet__addr-phone">
+                    {{ item.telephone }}
+                  </text>
+                  <text v-if="item.isDefault === '1'" class="sheet__addr-default">
+                    默认
+                  </text>
+                </view>
+                <view class="sheet__addr-detail">
+                  {{ item.provinceName }}{{ item.cityName }}{{ item.areaName }}{{ item.detailAddress }}
+                </view>
+              </view>
+              <text
+                class="i-carbon:checkmark-filled sheet__addr-check"
+                :class="{ 'sheet__addr-check--on': item.id === createState.addressId }"
+              />
+            </view>
+            <view class="sheet__addr-add" @tap="toAddressForm">
+              + 新增地址
+            </view>
+          </scroll-view>
+        </template>
+
         <view class="sheet__label">
           备注（选填）
         </view>
@@ -538,6 +700,12 @@ onPullDownRefresh(() => {
   color: #0b63e5;
 }
 
+/* 岸上企业单的类型角标：灰底与「我发起」的蓝底区分 */
+.card__badge--shore {
+  background: #f1f2f4;
+  color: #5f6b7a;
+}
+
 .card__status {
   flex: none;
   margin-left: 16rpx;
@@ -699,6 +867,129 @@ onPullDownRefresh(() => {
   flex: none;
   margin-right: 8rpx;
   font-size: 26rpx;
+  color: #0b63e5;
+}
+
+/* ------------------------------------------------------------ 车类型切换 */
+.sheet__type {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20rpx;
+  margin-top: 24rpx;
+}
+
+.sheet__type-item {
+  padding: 20rpx 24rpx;
+  border: 2rpx solid #e5e8ee;
+  border-radius: 16rpx;
+  background: #fafbfc;
+}
+
+.sheet__type-item--on {
+  border-color: #0b63e5;
+  background: #eef4ff;
+}
+
+.sheet__type-title {
+  display: block;
+  font-size: 28rpx;
+  font-weight: 700;
+  color: #172033;
+}
+
+.sheet__type-item--on .sheet__type-title {
+  color: #0b63e5;
+}
+
+.sheet__type-desc {
+  display: block;
+  margin-top: 4rpx;
+  font-size: 22rpx;
+  color: #7a8699;
+}
+
+/* ---------------------------------------------------------- 岸上地址选择 */
+.sheet__addr-state {
+  margin-top: 12rpx;
+  padding: 28rpx 24rpx;
+  border-radius: 12rpx;
+  background: #f5f7fa;
+  font-size: 24rpx;
+  color: #7a8699;
+}
+
+/* 新增地址入口：空态与列表底部共用 */
+.sheet__addr-add {
+  margin-top: 16rpx;
+  font-size: 24rpx;
+  color: #0b63e5;
+}
+
+.sheet__addr-list {
+  max-height: 400rpx;
+  margin-top: 12rpx;
+}
+
+.sheet__addr {
+  display: flex;
+  align-items: center;
+  margin-top: 12rpx;
+  padding: 20rpx 24rpx;
+  border: 2rpx solid #e5e8ee;
+  border-radius: 12rpx;
+  background: #fafbfc;
+}
+
+.sheet__addr--on {
+  border-color: #0b63e5;
+  background: #eef4ff;
+}
+
+.sheet__addr-line {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.sheet__addr-name {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #172033;
+}
+
+.sheet__addr-phone {
+  margin-left: 12rpx;
+  font-size: 22rpx;
+  color: #7a8699;
+}
+
+.sheet__addr-default {
+  flex: none;
+  margin-left: 12rpx;
+  padding: 0 10rpx;
+  border-radius: 6rpx;
+  background: #eef4ff;
+  font-size: 20rpx;
+  color: #0b63e5;
+}
+
+.sheet__addr-detail {
+  overflow: hidden;
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  color: #7a8699;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet__addr-check {
+  flex: none;
+  margin-left: 16rpx;
+  font-size: 30rpx;
+  color: transparent;
+}
+
+.sheet__addr-check--on {
   color: #0b63e5;
 }
 

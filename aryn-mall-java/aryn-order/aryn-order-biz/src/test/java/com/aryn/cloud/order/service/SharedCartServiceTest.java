@@ -19,6 +19,7 @@ import com.aryn.cloud.order.mapper.SharedCartImportRowMapper;
 import com.aryn.cloud.order.mapper.SharedCartItemMapper;
 import com.aryn.cloud.order.mapper.SharedCartMapper;
 import com.aryn.cloud.order.mapper.SharedCartMemberMapper;
+import com.aryn.cloud.order.service.IDeliveryAreaService;
 import com.aryn.cloud.order.service.impl.SharedCartServiceImpl;
 import com.aryn.cloud.order.support.ChainAiAssistant;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
@@ -103,7 +104,7 @@ class SharedCartServiceTest {
 		// 不初始化就只能用 any()，无法区分两者——而那正是"复用漏掉已确认行"的缺陷点
 		TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), SharedCartItem.class);
 		service = new SharedCartServiceImpl(cartMapper, memberMapper, itemMapper, importMapper, importRowMapper,
-				orderInfoService, mock(ChainAiAssistant.class));
+				orderInfoService, mock(IDeliveryAreaService.class), mock(ChainAiAssistant.class));
 		ReflectionTestUtils.setField(service, "remoteVesselService", remoteVesselService);
 		ReflectionTestUtils.setField(service, "remoteMallUserService", remoteMallUserService);
 	}

@@ -20,6 +20,7 @@ import type { DecorationLink } from '../schema/types'
 import type { CategoryIconFallback } from '@/utils/category-icon'
 
 import { resolveCategoryFallback } from '@/utils/category-icon'
+import { formatDiscountValue, formatStripAmount } from '@/utils/discount-price'
 
 /**
  * 三类内置入口的固定会场路由（§5.5.3）。
@@ -33,45 +34,10 @@ export const ACTIVITY_STRIP_HALLS = {
   'seckill': '/pages/promotion/seckill',
 } as const
 
-/**
- * 金额文案：最多两位小数并去掉无意义的尾零（4.00 → 4、4.5 → 4.5）。
- *
- * 角标只有几十 rpx 宽，`¥4.00` 比 `¥4` 多占两个字宽却没有任何信息增量；
- * 同时 `30.8 - 26.8` 这类浮点差会算出 `4.000000000000002`，必须按两位收敛。
- */
-export function formatStripAmount(value: number): string {
-  const amount = Number(value)
-  if (!Number.isFinite(amount))
-    return '0'
-  return String(Math.round(amount * 100) / 100)
-}
-
-/**
- * 折扣力度文案，与折扣会场页/楼层同口径（§3.2 / R4）。
- *
- * 打折：`Math.round(discountValue * 100) / 10` —— 0.95 → 9.5折、0.8 → 8折；
- * 力度 ≥10 折说明折后价不低于原价（后端也把 >1 视为非法），既没有「省」的信息量，
- * 又会拼出不成词的「10折」，因此退化为中性「折扣」，保证角标永不出现「10折」。
- * 减价 / 固定价沿用后端语义：`减¥X` / `一口价`。
- */
-export function formatDiscountValue(
-  activity: Pick<DiscountActivityItem, 'discountType' | 'discountValue'>,
-): string {
-  switch (Number(activity.discountType)) {
-    case 1: {
-      const zhe = Math.round(Number(activity.discountValue) * 100) / 10
-      if (!Number.isFinite(zhe) || zhe <= 0 || zhe >= 10)
-        return '折扣'
-      return `${Number.isInteger(zhe) ? zhe : zhe.toFixed(1)}折`
-    }
-    case 2:
-      return `减¥${formatStripAmount(activity.discountValue)}`
-    case 3:
-      return '一口价'
-    default:
-      return '折扣'
-  }
-}
+// 折扣力度/金额口径收敛到 `utils/discount-price`（商详 / 购物车的限时折扣角标
+// 与本入口条共用同一实现，避免「8折/9.5折/10折」在多处漂移）。
+// 这里保留原导出名，入口条测试与调用方无需改动。
+export { formatDiscountValue, formatStripAmount } from '@/utils/discount-price'
 
 /**
  * 拼团卡名：2 人团是本项目主力形态，也就是需求里的默认名「2人拼团」；
@@ -166,7 +132,9 @@ export function buildActivityStripEntries(
     entries.push({
       badge: value,
       hook: `${value}专区`,
-      imageUrl: discount.goodsList[0]?.goodsImage || '',
+      // 指定商品活动取首件商品图；全场活动取取数层补的代表商品图
+      // （loadDiscounts 已并入 coverImage，这里保留商品图优先，缺图才回落首字色块）
+      imageUrl: discount.goodsList[0]?.goodsImage || discount.coverImage || '',
       key: 'discount',
       link: hallLink(ACTIVITY_STRIP_HALLS.discount),
       title: '限时折扣',

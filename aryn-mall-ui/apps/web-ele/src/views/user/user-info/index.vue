@@ -1,21 +1,24 @@
 <script lang="ts" setup>
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
-import { Edit, Plus, View } from '@element-plus/icons-vue';
+import { Delete, Edit, Plus, View } from '@element-plus/icons-vue';
 import {
   ElAvatar,
   ElButton,
   ElFormItem,
   ElInput,
+  ElMessage,
+  ElMessageBox,
   ElOption,
   ElSegmented,
   ElSelect,
   ElTable,
   ElTableColumn,
+  ElTag,
 } from 'element-plus';
 
 import { getList as getLevelList } from '#/api/user/member-level';
-import { getPage } from '#/api/user/user-info';
+import { delObj, getPage, updateStatus } from '#/api/user/user-info';
 import PageFilterPanel from '#/components/page/page-filter-panel.vue';
 import PageToolbar from '#/components/page/page-toolbar.vue';
 import { useDict } from '#/utils/dict';
@@ -36,7 +39,7 @@ const Detail = defineAsyncComponent(() => import('./detail.vue'));
 // 字典
 const { user_source, user_sex } = useDict('user_source', 'user_sex');
 const state = reactive({
-  queryParams: { phone: '', sex: '', memberLevelId: '' },
+  queryParams: { phone: '', sex: '', memberLevelId: '', status: '' },
   page: {
     total: 0, // 总页数
     currentPage: 1, // 当前页数
@@ -110,6 +113,40 @@ const doEdit = (row: any) => {
   formRef.value.initForm(row);
 };
 
+const handleToggleStatus = (row: any) => {
+  const nextStatus = row.status === '1' ? '0' : '1';
+  const action = nextStatus === '1' ? '禁用' : '启用';
+  ElMessageBox.confirm(
+    `确定${action}会员「${row.nickname || row.phone || row.id}」吗？`,
+    '提示',
+    {
+      confirmButtonText: '确认',
+      cancelButtonText: '取消',
+      type: 'warning',
+    },
+  ).then(async () => {
+    await updateStatus(row.id, nextStatus);
+    ElMessage.success(`${action}成功`);
+    initPage();
+  });
+};
+
+const handleDelete = (row: any) => {
+  ElMessageBox.confirm(
+    `确定删除会员「${row.nickname || row.phone || row.id}」吗？删除后不可恢复。`,
+    '提示',
+    {
+      confirmButtonText: '确认删除',
+      cancelButtonText: '取消',
+      type: 'warning',
+    },
+  ).then(async () => {
+    await delObj(row.id);
+    ElMessage.success('删除成功');
+    initPage();
+  });
+};
+
 initPage();
 
 // 加载会员等级选项
@@ -170,6 +207,16 @@ loadLevelOptions();
             />
           </ElSelect>
         </ElFormItem>
+        <ElFormItem label="状态" prop="status">
+          <ElSelect
+            v-model="state.queryParams.status"
+            placeholder="请选择状态"
+            clearable
+          >
+            <ElOption label="启用" value="0" />
+            <ElOption label="禁用" value="1" />
+          </ElSelect>
+        </ElFormItem>
       </PageFilterPanel>
 
       <!-- 工具栏 -->
@@ -228,6 +275,13 @@ loadLevelOptions();
           </template>
         </ElTableColumn>
         <ElTableColumn prop="levelName" label="会员等级" />
+        <ElTableColumn prop="status" label="状态" width="80">
+          <template #default="scope">
+            <ElTag :type="scope.row.status === '1' ? 'danger' : 'success'">
+              {{ scope.row.status === '1' ? '禁用' : '启用' }}
+            </ElTag>
+          </template>
+        </ElTableColumn>
         <ElTableColumn prop="point" label="积分余额">
           <template #default="scope">
             <span class="hx-money">{{ scope.row.point ?? 0 }}</span>
@@ -243,7 +297,7 @@ loadLevelOptions();
         <ElTableColumn prop="province" label="所在省份" />
         <ElTableColumn prop="city" label="所在城市" />
         <ElTableColumn prop="createTime" label="创建时间" />
-        <ElTableColumn label="操作" width="200" align="center">
+        <ElTableColumn label="操作" width="300" align="center">
           <template #default="scope">
             <ElButton
               link
@@ -262,6 +316,23 @@ loadLevelOptions();
               :icon="Edit"
             >
               编辑
+            </ElButton>
+            <ElButton
+              link
+              :type="scope.row.status === '1' ? 'success' : 'warning'"
+              v-access:code="'user:userinfo:edit'"
+              @click="handleToggleStatus(scope.row)"
+            >
+              {{ scope.row.status === '1' ? '启用' : '禁用' }}
+            </ElButton>
+            <ElButton
+              link
+              type="danger"
+              v-access:code="'user:userinfo:del'"
+              @click="handleDelete(scope.row)"
+              :icon="Delete"
+            >
+              删除
             </ElButton>
           </template>
         </ElTableColumn>

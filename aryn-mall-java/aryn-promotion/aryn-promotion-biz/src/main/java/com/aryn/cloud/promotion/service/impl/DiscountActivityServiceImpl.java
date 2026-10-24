@@ -26,6 +26,7 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -34,6 +35,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -45,6 +47,9 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class DiscountActivityServiceImpl extends ServiceImpl<DiscountActivityMapper, DiscountActivity>
 		implements IDiscountActivityService {
+
+	/** 批量查价接口单次最多查询的 SKU 数（免登接口，防超长参数放大） */
+	private static final int MAX_PRICE_QUERY_SKUS = 200;
 
 	private final IDiscountGoodsService discountGoodsService;
 
@@ -92,6 +97,13 @@ public class DiscountActivityServiceImpl extends ServiceImpl<DiscountActivityMap
 		if (activity.getScope() == null) {
 			activity.setScope(1);
 		}
+		// 叠加策略缺省按折扣类型默认值（可用）补齐，避免依赖列默认值导致口径漂移
+		if (!StringUtils.hasText(activity.getCouponStackable())) {
+			activity.setCouponStackable("1");
+		}
+		if (!StringUtils.hasText(activity.getPointsStackable())) {
+			activity.setPointsStackable("1");
+		}
 		boolean saved = this.save(activity);
 		if (!saved) {
 			throw new ArynBusinessException("保存折扣活动失败");
@@ -115,6 +127,13 @@ public class DiscountActivityServiceImpl extends ServiceImpl<DiscountActivityMap
 			throw new ArynBusinessException("折扣活动不存在");
 		}
 		BeanUtils.copyProperties(dto, activity);
+		// 叠加策略缺省按折扣类型默认值（可用）补齐；显式提交的值（含关闭）必须生效
+		if (!StringUtils.hasText(activity.getCouponStackable())) {
+			activity.setCouponStackable("1");
+		}
+		if (!StringUtils.hasText(activity.getPointsStackable())) {
+			activity.setPointsStackable("1");
+		}
 		// 活动级限量不能低于已售：否则剩余为负，且删掉的额度无处追回
 		if (activity.getStock() != null && activity.getSoldCount() != null
 				&& activity.getStock() < activity.getSoldCount()) {
@@ -231,12 +250,173 @@ public class DiscountActivityServiceImpl extends ServiceImpl<DiscountActivityMap
 	}
 
 	@Override
+	public List<AppDiscountVO> getGoodsDiscountPrices(List<String> skuIds) {
+		Set<String> wanted = normalizeQuerySkuIds(skuIds);
+		if (wanted.isEmpty()) {
+			return List.of();
+		}
+		LocalDateTime now = LocalDateTime.now();
+		// 1) 一次查出全部进行中活动：后续在内存里做 SKU×活动匹配，禁止按 SKU 循环查库
+		List<DiscountActivity> activities = this.list(Wrappers.<DiscountActivity>lambdaQuery()
+				.eq(DiscountActivity::getStatus, 1)
+				.le(DiscountActivity::getStartTime, now)
+				.gt(DiscountActivity::getEndTime, now));
+		if (CollectionUtils.isEmpty(activities)) {
+			return List.of();
+		}
+		// 2) 一次查出指定商品型活动对本批 SKU 的命中关系（key=活动ID，value=命中 SKU 集合）
+		Map<String, Set<String>> matchedSkuIdsByActivity = loadMatchedSkuIdsByActivity(activities, wanted);
+		boolean fullScopeActivityExists = activities.stream()
+				.anyMatch(activity -> Integer.valueOf(1).equals(activity.getScope()));
+		boolean scopedActivityMatched = matchedSkuIdsByActivity.values().stream()
+				.anyMatch(matched -> !matched.isEmpty());
+		// 本批 SKU 没有命中任何活动时不再打远程商品库，免登接口不放大无谓的下游调用
+		if (!fullScopeActivityExists && !scopedActivityMatched) {
+			return List.of();
+		}
+		// 3) 一次批量取商品（销售价 / 名称 / 图片），批量口径与单 SKU 接口一致：基准价 = salesPrice
+		List<GoodsSku> skus = remoteGoodsSkuService.getBySkuIds(new ArrayList<>(wanted));
+		if (CollectionUtils.isEmpty(skus)) {
+			return List.of();
+		}
+		Map<String, GoodsSku> skuMap = skus.stream()
+				.filter(sku -> sku.getId() != null)
+				.collect(Collectors.toMap(GoodsSku::getId, sku -> sku, (a, b) -> a));
+		List<AppDiscountVO> result = new ArrayList<>();
+		for (String skuId : wanted) {
+			GoodsSku sku = skuMap.get(skuId);
+			// 商品库查不到 / 无销售价的 SKU 不标注折扣，由调用方回落展示原价
+			if (sku == null || sku.getSalesPrice() == null) {
+				continue;
+			}
+			AppDiscountVO bestVO = calculateBestDiscount(sku, skuId, activities, matchedSkuIdsByActivity);
+			if (bestVO != null) {
+				result.add(bestVO);
+			}
+		}
+		log.debug("批量查询折扣价完成, 请求SKU数={}, 命中数={}", wanted.size(), result.size());
+		return result;
+	}
+
+	/**
+	 * 入参归一化：剔除空值、按请求顺序去重，并限制查询规模。
+	 *
+	 * <p>上限与新人价批量接口（200 条）同口径：本接口免登可访问，不限制的话
+	 * 一个超长 skuIds 就能放大成巨型 IN 条件与一次超大远程批量调用。
+	 */
+	private Set<String> normalizeQuerySkuIds(List<String> skuIds) {
+		if (CollectionUtils.isEmpty(skuIds)) {
+			return Set.of();
+		}
+		long validCount = skuIds.stream().filter(StringUtils::hasText).count();
+		if (validCount > MAX_PRICE_QUERY_SKUS) {
+			log.warn("批量折扣价查询 SKU 数超过上限，已截断, requested={}, limit={}", validCount, MAX_PRICE_QUERY_SKUS);
+		}
+		Set<String> wanted = new LinkedHashSet<>();
+		for (String skuId : skuIds) {
+			if (wanted.size() >= MAX_PRICE_QUERY_SKUS) {
+				break;
+			}
+			if (StringUtils.hasText(skuId)) {
+				wanted.add(skuId.trim());
+			}
+		}
+		return wanted;
+	}
+
+	/**
+	 * 一次批量查询「指定商品型（scope=2）活动 × 本批 SKU」的命中关系，避免逐活动 count 造成 N+1。
+	 *
+	 * <p>全场型（scope=1）活动不挂 discount_goods，无需查询；仅当存在 scope=2 活动时才打库。
+	 */
+	private Map<String, Set<String>> loadMatchedSkuIdsByActivity(List<DiscountActivity> activities,
+			Set<String> wanted) {
+		List<String> scopedActivityIds = activities.stream()
+				.filter(activity -> Integer.valueOf(2).equals(activity.getScope()))
+				.map(DiscountActivity::getId)
+				.filter(Objects::nonNull)
+				.toList();
+		if (scopedActivityIds.isEmpty()) {
+			return Map.of();
+		}
+		return discountGoodsService.list(Wrappers.<DiscountGoods>lambdaQuery()
+					.in(DiscountGoods::getActivityId, scopedActivityIds)
+					.in(DiscountGoods::getSkuId, wanted))
+				.stream()
+				.filter(row -> row.getActivityId() != null && wanted.contains(row.getSkuId()))
+				.collect(Collectors.groupingBy(DiscountGoods::getActivityId,
+						Collectors.mapping(DiscountGoods::getSkuId, Collectors.toSet())));
+	}
+
+	/**
+	 * 在已装载的活动与命中关系里挑单个 SKU 的最优折扣，口径与 {@link #getGoodsDiscountInfo(String)} 一致：
+	 * 折后价必须严格低于当前最优价（初始为销售价），因此折后价 ≥ 原价或配置非法时不会出现在结果里。
+	 */
+	private AppDiscountVO calculateBestDiscount(GoodsSku sku, String skuId,
+			List<DiscountActivity> activities, Map<String, Set<String>> matchedSkuIdsByActivity) {
+		BigDecimal originalPrice = sku.getSalesPrice();
+		AppDiscountVO bestVO = null;
+		BigDecimal bestPrice = originalPrice;
+		for (DiscountActivity activity : activities) {
+			// 折扣类型/折扣值为空属非法配置：跳过，避免 switch 拆箱 NPE 把整个批量接口打挂
+			if (activity.getDiscountType() == null || activity.getDiscountValue() == null) {
+				continue;
+			}
+			boolean match = Integer.valueOf(1).equals(activity.getScope())
+					|| matchedSkuIdsByActivity.getOrDefault(activity.getId(), Set.of()).contains(skuId);
+			if (!match) {
+				continue;
+			}
+			BigDecimal discountPrice = calculateDiscountPrice(originalPrice,
+					activity.getDiscountType(), activity.getDiscountValue());
+			if (discountPrice.compareTo(bestPrice) >= 0) {
+				continue;
+			}
+			bestPrice = discountPrice;
+			bestVO = new AppDiscountVO();
+			bestVO.setActivityId(activity.getId());
+			bestVO.setActivityName(activity.getActivityName());
+			bestVO.setDiscountType(activity.getDiscountType());
+			bestVO.setDiscountValue(activity.getDiscountValue());
+			bestVO.setSpuId(sku.getSpuId());
+			bestVO.setSkuId(skuId);
+			bestVO.setGoodsName(sku.getGoodsSpu() != null ? sku.getGoodsSpu().getName() : null);
+			bestVO.setGoodsImage(sku.getPicUrl());
+			bestVO.setOriginalPrice(originalPrice);
+			bestVO.setDiscountPrice(discountPrice);
+		}
+		return bestVO;
+	}
+
+	@Override
 	public BigDecimal calculatePrice(String skuId, BigDecimal originalPrice) {
 		AppDiscountVO vo = getGoodsDiscountInfo(skuId);
 		if (vo == null) {
 			return originalPrice;
 		}
 		return vo.getDiscountPrice();
+	}
+
+	@Override
+	public com.aryn.cloud.promotion.api.vo.DiscountPriceContextVO getPriceContext(String skuId,
+			BigDecimal originalPrice) {
+		AppDiscountVO vo = getGoodsDiscountInfo(skuId);
+		if (vo == null) {
+			return null;
+		}
+		com.aryn.cloud.promotion.api.vo.DiscountPriceContextVO context =
+				new com.aryn.cloud.promotion.api.vo.DiscountPriceContextVO();
+		context.setSkuId(skuId);
+		context.setActivityId(vo.getActivityId());
+		context.setDiscountPrice(vo.getDiscountPrice());
+		DiscountActivity activity = vo.getActivityId() == null ? null : this.getById(vo.getActivityId());
+		context.setCouponStackable(com.aryn.cloud.promotion.api.enums.StackActivityTypeEnum.resolve(
+				activity == null ? null : activity.getCouponStackable(),
+				com.aryn.cloud.promotion.api.enums.StackActivityTypeEnum.DISCOUNT.isDefaultCouponStackable()));
+		context.setPointsStackable(com.aryn.cloud.promotion.api.enums.StackActivityTypeEnum.resolve(
+				activity == null ? null : activity.getPointsStackable(),
+				com.aryn.cloud.promotion.api.enums.StackActivityTypeEnum.DISCOUNT.isDefaultPointsStackable()));
+		return context;
 	}
 
 	@Override

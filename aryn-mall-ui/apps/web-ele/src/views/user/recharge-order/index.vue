@@ -2,9 +2,12 @@
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
 import {
+  ElButton,
   ElDatePicker,
   ElFormItem,
   ElInput,
+  ElMessage,
+  ElMessageBox,
   ElOption,
   ElSelect,
   ElTable,
@@ -12,7 +15,7 @@ import {
   ElTag,
 } from 'element-plus';
 
-import { getPage } from '#/api/user/recharge-order';
+import { cancelObj, getPage } from '#/api/user/recharge-order';
 import PageFilterPanel from '#/components/page/page-filter-panel.vue';
 import PageToolbar from '#/components/page/page-toolbar.vue';
 import { formatMoney } from '#/utils/util';
@@ -55,7 +58,8 @@ const initPage = async () => {
     params.payStatus = state.queryParams.payStatus;
   if (state.queryParams.dateRange?.length === 2) {
     params.beginTime = state.queryParams.dateRange[0];
-    params.endTime = state.queryParams.dateRange[1];
+    const endDate = state.queryParams.dateRange[1];
+    if (endDate) params.endTime = `${endDate.slice(0, 10)} 23:59:59`;
   }
   await getPage(params)
     .then((res) => {
@@ -66,6 +70,18 @@ const initPage = async () => {
     .catch(() => {
       loading.value = false;
     });
+};
+
+const handleCancel = (row: any) => {
+  ElMessageBox.confirm(`确定关闭充值订单「${row.orderNo}」吗？`, '提示', {
+    confirmButtonText: '确认关闭',
+    cancelButtonText: '取消',
+    type: 'warning',
+  }).then(async () => {
+    await cancelObj(row.id);
+    ElMessage.success('订单已关闭');
+    initPage();
+  });
 };
 
 initPage();
@@ -162,6 +178,19 @@ initPage();
         </ElTableColumn>
         <ElTableColumn prop="payTime" label="支付时间" width="170" />
         <ElTableColumn prop="createTime" label="创建时间" width="170" />
+        <ElTableColumn label="操作" width="100" align="center">
+          <template #default="scope">
+            <ElButton
+              v-if="scope.row.payStatus === '0'"
+              link
+              type="warning"
+              v-access:code="'user:rechargeorder:edit'"
+              @click="handleCancel(scope.row)"
+            >
+              关闭
+            </ElButton>
+          </template>
+        </ElTableColumn>
       </ElTable>
       <!-- 分页 -->
       <Pagination

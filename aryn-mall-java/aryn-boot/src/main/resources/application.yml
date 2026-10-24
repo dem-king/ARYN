@@ -129,6 +129,7 @@ secure:
       - /app/seckill/sessions/**
       - /app/seckill/goods/**
       - /app/discount/activities/**
+      - /app/discount/prices
       - /app/newbie/current
       - /app/newbie/prices
       - /file/local/**
@@ -329,3 +330,12 @@ aryn:
     recall-top-k: ${AI_EMBEDDING_TOP_K:6}
     score-threshold: ${AI_EMBEDDING_SCORE_THRESHOLD:0.55}
     catalog-ttl-minutes: ${AI_EMBEDDING_CATALOG_TTL_MINUTES:60}
+
+# 营销优惠叠加策略（活动价 × 优惠券 × 积分抵现）：
+# enabled=false 时所有活动商品视为可叠（灰度回滚开关，等同现网行为）；
+# 最低实付兜底防止券把商品打到 0 元单（悦航购自定策略，非行业惯例）。
+promotion:
+  stack-policy:
+    enabled: ${PROMOTION_STACK_POLICY_ENABLED:true}
+    min-payable-enabled: ${PROMOTION_MIN_PAYABLE_ENABLED:true}
+    min-payable-amount: ${PROMOTION_MIN_PAYABLE_AMOUNT:0.01}

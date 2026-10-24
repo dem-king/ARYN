@@ -15,10 +15,12 @@ import com.aryn.cloud.user.service.IPointsRecordService;
 import com.aryn.cloud.user.service.ISignInRecordService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 
 /**
@@ -31,6 +33,8 @@ import java.util.List;
 @RequiredArgsConstructor
 public class SignInRecordServiceImpl extends ServiceImpl<SignInRecordMapper, SignInRecord>
 		implements ISignInRecordService {
+
+	private static final ZoneId SIGN_IN_ZONE = ZoneId.of("Asia/Shanghai");
 
 	private final SignInConfigMapper signInConfigMapper;
 
@@ -49,7 +53,7 @@ public class SignInRecordServiceImpl extends ServiceImpl<SignInRecordMapper, Sig
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public SignInResultVO signIn(String userId) {
-		LocalDate today = LocalDate.now();
+		LocalDate today = LocalDate.now(SIGN_IN_ZONE);
 
 		// 查询今日是否已签到
 		long todayCount = this.count(Wrappers.<SignInRecord>lambdaQuery()
@@ -84,7 +88,12 @@ public class SignInRecordServiceImpl extends ServiceImpl<SignInRecordMapper, Sig
 		record.setSignDate(today);
 		record.setConsecutiveDay(consecutiveDay);
 		record.setRewardPoint(rewardPoint);
-		this.save(record);
+		try {
+			this.save(record);
+		}
+		catch (DuplicateKeyException exception) {
+			throw new ArynBusinessException("今日已签到");
+		}
 
 		// 发放积分
 		if (rewardPoint > 0) {

@@ -14,6 +14,7 @@ import com.aryn.cloud.order.mapper.SharedCartImportRowMapper;
 import com.aryn.cloud.order.mapper.SharedCartItemMapper;
 import com.aryn.cloud.order.mapper.SharedCartMapper;
 import com.aryn.cloud.order.mapper.SharedCartMemberMapper;
+import com.aryn.cloud.order.service.IDeliveryAreaService;
 import com.aryn.cloud.order.service.impl.SharedCartServiceImpl;
 import com.aryn.cloud.order.support.ChainAiAssistant;
 import static org.mockito.ArgumentMatchers.anyMap;
@@ -112,7 +113,7 @@ class SharedCartImportServiceTest {
 				SharedCartImportRow.class);
 
 		service = new SharedCartServiceImpl(cartMapper, memberMapper, itemMapper, importMapper, importRowMapper,
-				mock(IOrderInfoService.class), chainAiAssistant);
+				mock(IOrderInfoService.class), mock(IDeliveryAreaService.class), chainAiAssistant);
 		ReflectionTestUtils.setField(service, "remoteReplenishImportMatchService", remoteReplenishImportMatchService);
 		ReflectionTestUtils.setField(service, "remoteGoodsSkuService", mock(RemoteGoodsSkuService.class));
 		ReflectionTestUtils.setField(service, "remoteVesselService", mock(RemoteVesselService.class));

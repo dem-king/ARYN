@@ -12,6 +12,10 @@ import com.aryn.cloud.user.api.entity.MemberTag;
 import com.aryn.cloud.user.api.entity.UserInfo;
 import com.aryn.cloud.user.api.vo.MemberBenefitsVO;
 import com.aryn.cloud.user.api.vo.MemberCurrentInfoVO;
+import com.aryn.cloud.promotion.api.remote.RemoteCouponInfoService;
+import com.aryn.cloud.promotion.api.remote.RemoteCouponUserService;
+import com.aryn.cloud.promotion.api.vo.CouponTemplateInfoVO;
+import com.aryn.cloud.user.api.vo.MemberBenefitBackfillResultVO;
 import com.aryn.cloud.user.mapper.MemberBenefitLevelRelMapper;
 import com.aryn.cloud.user.mapper.MemberBenefitMapper;
 import com.aryn.cloud.user.mapper.MemberLevelMapper;
@@ -21,13 +25,16 @@ import com.aryn.cloud.user.service.IMemberBenefitService;
 import com.aryn.cloud.user.service.IMemberTagService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.math.BigDecimal;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -50,16 +57,44 @@ public class MemberBenefitServiceImpl extends ServiceImpl<MemberBenefitMapper, M
 
 	private final IMemberTagService memberTagService;
 
+	@DubboReference
+	private final RemoteCouponInfoService remoteCouponInfoService;
+
+	@DubboReference
+	private final RemoteCouponUserService remoteCouponUserService;
+
 	@Override
 	public IPage<MemberBenefit> getPage(Page page, MemberBenefit memberBenefit) {
-		return this.page(page, Wrappers.<MemberBenefit>lambdaQuery()
+		List<String> levelBenefitIds = null;
+		if (memberBenefit != null && StrUtil.isNotBlank(memberBenefit.getLevelId())) {
+			levelBenefitIds = memberBenefitLevelRelMapper.selectList(
+					Wrappers.<MemberBenefitLevelRel>lambdaQuery()
+						.eq(MemberBenefitLevelRel::getLevelId, memberBenefit.getLevelId()))
+				.stream().map(MemberBenefitLevelRel::getBenefitId).distinct().toList();
+			if (levelBenefitIds.isEmpty()) {
+				return new Page<>(page.getCurrent(), page.getSize(), 0);
+			}
+		}
+		IPage<MemberBenefit> result = this.page(page, Wrappers.<MemberBenefit>lambdaQuery()
 				.like(memberBenefit != null && StrUtil.isNotBlank(memberBenefit.getBenefitName()),
 						MemberBenefit::getBenefitName, memberBenefit == null ? null : memberBenefit.getBenefitName())
 				.eq(memberBenefit != null && StrUtil.isNotBlank(memberBenefit.getBenefitType()),
 						MemberBenefit::getBenefitType, memberBenefit == null ? null : memberBenefit.getBenefitType())
 				.eq(memberBenefit != null && StrUtil.isNotBlank(memberBenefit.getStatus()),
 						MemberBenefit::getStatus, memberBenefit == null ? null : memberBenefit.getStatus())
+				.in(levelBenefitIds != null, MemberBenefit::getId, levelBenefitIds)
 				.orderByDesc(MemberBenefit::getCreateTime));
+		List<MemberBenefit> records = result.getRecords();
+		if (!records.isEmpty()) {
+			List<String> benefitIds = records.stream().map(MemberBenefit::getId).toList();
+			Map<String, List<String>> levelMap = memberBenefitLevelRelMapper.selectList(
+					Wrappers.<MemberBenefitLevelRel>lambdaQuery()
+						.in(MemberBenefitLevelRel::getBenefitId, benefitIds))
+				.stream().collect(Collectors.groupingBy(MemberBenefitLevelRel::getBenefitId,
+						Collectors.mapping(MemberBenefitLevelRel::getLevelId, Collectors.toList())));
+			records.forEach(benefit -> benefit.setLevelIds(levelMap.getOrDefault(benefit.getId(), List.of())));
+		}
+		return result;
 	}
 
 	@Override
@@ -212,6 +247,49 @@ public class MemberBenefitServiceImpl extends ServiceImpl<MemberBenefitMapper, M
 	}
 
 	@Override
+	public MemberBenefitBackfillResultVO backfillCoupon(String benefitId) {
+		MemberBenefit benefit = this.getById(benefitId);
+		if (benefit == null) {
+			throw new ArynBusinessException("会员权益不存在");
+		}
+		if (!"3".equals(benefit.getBenefitType())) {
+			throw new ArynBusinessException("仅专属优惠券权益支持补发");
+		}
+		validateCouponTemplate(benefit.getBenefitValue());
+		List<String> levelIds = memberBenefitLevelRelMapper.selectList(
+				Wrappers.<MemberBenefitLevelRel>lambdaQuery().eq(MemberBenefitLevelRel::getBenefitId, benefitId))
+			.stream().map(MemberBenefitLevelRel::getLevelId).distinct().toList();
+		MemberBenefitBackfillResultVO result = new MemberBenefitBackfillResultVO();
+		result.setLevelCount(levelIds.size());
+		for (String levelId : levelIds) {
+			long pageNo = 1;
+			while (true) {
+				IPage<UserInfo> users = userInfoMapper.selectPage(new Page<>(pageNo, 200, false),
+						Wrappers.<UserInfo>lambdaQuery()
+							.eq(UserInfo::getMemberLevelId, levelId)
+							.eq(UserInfo::getStatus, "0"));
+				for (UserInfo user : users.getRecords()) {
+					result.setUserCount(result.getUserCount() + 1);
+					try {
+						remoteCouponUserService.grantMemberBenefitCoupon(
+								benefit.getBenefitValue(), user.getId(), levelId + ":" + benefitId);
+						result.setSuccessCount(result.getSuccessCount() + 1);
+					}
+					catch (Exception exception) {
+						result.setFailedCount(result.getFailedCount() + 1);
+						log.error("会员专属优惠券补发失败: userId={}, benefitId={}", user.getId(), benefitId, exception);
+					}
+				}
+				if (users.getRecords().size() < 200) {
+					break;
+				}
+				pageNo++;
+			}
+		}
+		return result;
+	}
+
+	@Override
 	public MemberBenefit getBenefitDetail(String id) {
 		MemberBenefit benefit = this.getById(id);
 		if (benefit == null) {
@@ -260,7 +338,11 @@ public class MemberBenefitServiceImpl extends ServiceImpl<MemberBenefitMapper, M
 		if (benefit.getBenefitValue() == null || benefit.getBenefitValue().isBlank()) {
 			throw new ArynBusinessException("会员权益值不能为空");
 		}
+		if (benefit.getLevelIds() == null || benefit.getLevelIds().isEmpty()) {
+			throw new ArynBusinessException("请至少关联一个会员等级");
+		}
 		if ("3".equals(benefit.getBenefitType())) {
+			validateCouponTemplate(benefit.getBenefitValue());
 			return;
 		}
 		try {
@@ -278,6 +360,29 @@ public class MemberBenefitServiceImpl extends ServiceImpl<MemberBenefitMapper, M
 		}
 		catch (NumberFormatException exception) {
 			throw new ArynBusinessException("会员权益值格式不合法");
+		}
+	}
+
+	private void validateCouponTemplate(String templateId) {
+		CouponTemplateInfoVO template;
+		try {
+			template = remoteCouponInfoService.getTemplate(templateId);
+		}
+		catch (Exception exception) {
+			log.warn("会员专属优惠券模板校验失败: templateId={}", templateId, exception);
+			throw new ArynBusinessException("优惠券模板校验失败，请稍后重试");
+		}
+		if (template == null) {
+			throw new ArynBusinessException("专属优惠券模板不存在");
+		}
+		if (!"0".equals(template.getStatus())) {
+			throw new ArynBusinessException("专属优惠券模板已禁用");
+		}
+		if (template.getRemainNum() != null && template.getRemainNum() <= 0) {
+			throw new ArynBusinessException("专属优惠券模板库存不足");
+		}
+		if (template.getReceiveEndedAt() != null && template.getReceiveEndedAt().isBefore(LocalDateTime.now())) {
+			throw new ArynBusinessException("专属优惠券模板已过期");
 		}
 	}
 

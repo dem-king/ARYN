@@ -245,6 +245,15 @@ initPage();
             </ElTag>
           </template>
         </ElTableColumn>
+        <ElTableColumn label="叠加策略" align="center" width="130">
+          <template #default="scope">
+            <span
+              >券{{ scope.row.couponStackable === '0' ? '✗' : '✓' }} · 积分{{
+                scope.row.pointsStackable === '0' ? '✗' : '✓'
+              }}</span
+            >
+          </template>
+        </ElTableColumn>
         <ElTableColumn
           prop="createTime"
           label="创建时间"

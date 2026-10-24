@@ -107,6 +107,15 @@ public class UserInfoController {
 		return Result.success(userInfoService.deleteUser(id));
 	}
 
+	@SysLog("修改会员状态")
+	@Operation(summary = "修改会员状态")
+	@SaCheckPermission("user:userinfo:edit")
+	@PutMapping("/status")
+	public Result<Boolean> updateStatus(@RequestParam String userId, @RequestParam String status) {
+		userInfoService.updateStatus(userId, status);
+		return Result.success(true);
+	}
+
 	@SysLog("调整积分")
 	@Operation(summary = "调整积分")
 	@SaCheckPermission("user:userinfo:edit")

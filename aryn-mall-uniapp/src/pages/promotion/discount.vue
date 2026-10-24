@@ -7,6 +7,7 @@ import { onLoad, onUnload } from '@dcloudio/uni-app'
 import { computed, nextTick, reactive, ref } from 'vue'
 import { getDiscountActivities } from '@/api/promotion'
 import QuickCartButton from '@/components/quick-cart-button/index.vue'
+import { formatDiscountValue } from '@/utils/discount-price'
 import { navigateToUrl } from '@/utils/tab-bar'
 
 definePage({
@@ -20,36 +21,44 @@ definePage({
 /** 全场型活动没有商品清单，折扣在商详生效：整卡「去逛逛」回首页商品流 */
 const HOME_PATH = '/pages/home/index'
 
-/** 折扣活动列表 */
+/** 折扣活动列表：一次拉全，Tab 必须是完整集合，不能随分页增长 */
 const activityList = ref<AppDiscountActivityVO[]>([])
-/** 是否还有更多 */
-const noMore = ref(false)
-/** 分页参数 */
-const currentPage = ref(1)
-const PAGE_SIZE = 10
+/** 活动拉取上限：折扣活动是运营配置的少量数据，一次取回即可 */
+const ACTIVITY_PAGE_SIZE = 100
 /** 首屏骨架：只在还没有活动数据时展示 */
 const loading = ref(true)
 /** 下拉刷新状态：驱动 scroll-view 的 refresher 收起 */
 const refreshing = ref(false)
-/** 上拉加载中 */
-const loadingMore = ref(false)
-/** scroll-view 滚动定位目标：活动头「去逛逛」滚到本活动商品区 / 回顶 */
+/** scroll-view 滚动定位目标：「去逛逛」滚到本活动商品区 / 回顶 */
 const scrollIntoView = ref('')
 /** 悬浮回顶：滚动超过约 2 屏才出现 */
 const showBackTop = ref(false)
-/** 活动 Tab：仅多活动时出现；点击定位到对应活动区 */
+/** 当前选中的活动：Tab 即内容切换（与秒杀页「场次轴」同口径），不是页内锚点 */
 const activeActivityId = ref('')
 const tabScrollInto = ref('')
 
 const showActivityTabs = computed(() => activityList.value.length > 1)
 
-/** 点击活动 Tab：高亮、内容滚到该活动卡片，并让 Tab 自身保持可见 */
+/** 当前活动：Tab 选中项；选中态失效（刷新后活动下线）时回落到第一个 */
+const activeActivity = computed<AppDiscountActivityVO | null>(() => {
+  return activityList.value.find(activity => activity.activityId === activeActivityId.value)
+    ?? activityList.value[0]
+    ?? null
+})
+
+/**
+ * 点击活动 Tab：切换渲染的活动内容（同秒杀页切场次）。
+ * 内容整体替换后旧滚动位置不再有意义，统一回到顶部；
+ * `scroll-into-view` 需先清空再赋值才能重复触发同一目标。
+ */
 function selectActivity(activityId: string) {
+  if (activityId === activeActivityId.value)
+    return
   activeActivityId.value = activityId
   scrollIntoView.value = ''
   tabScrollInto.value = ''
   nextTick(() => {
-    scrollIntoView.value = 'act-' + activityId
+    scrollIntoView.value = 'discount-top'
     tabScrollInto.value = 'tab-' + activityId
   })
 }
@@ -77,7 +86,7 @@ const countdownMap = reactive<Record<string, {
 let countdownTimer: ReturnType<typeof setInterval> | null = null
 
 onLoad(async () => {
-  await loadActivities(true)
+  await loadActivities()
   startCountdown()
 })
 
@@ -126,45 +135,36 @@ function pruneCountdowns() {
   })
 }
 
-/** 加载折扣活动列表 */
-async function loadActivities(isRefresh = false) {
-  if (isRefresh) {
-    currentPage.value = 1
-    noMore.value = false
-  }
-  if (noMore.value && !isRefresh)
-    return
-
+/**
+ * 加载折扣活动列表（一次拉全）。
+ * Tab 是内容切换而不是锚点，必须先把完整活动集合拿到再渲染，
+ * 不能沿用分页追加（否则第 2 页活动要等上拉才出现在 Tab 里）。
+ */
+async function loadActivities() {
   // 首屏用骨架占位；下拉刷新沿用手势自带 spinner，不再盖一层全局 loading
-  if (isRefresh && activityList.value.length === 0)
+  if (activityList.value.length === 0)
     loading.value = true
-  if (!isRefresh)
-    loadingMore.value = true
 
   try {
     const response = await getDiscountActivities({
-      current: currentPage.value,
-      size: PAGE_SIZE,
+      current: 1,
+      size: ACTIVITY_PAGE_SIZE,
     })
     const records = response.records || []
-    activityList.value = isRefresh
-      ? records
-      : [...activityList.value, ...records]
-    if (records.length < PAGE_SIZE || activityList.value.length >= response.total)
-      noMore.value = true
+    activityList.value = records
     // 倒计时以后端下发秒数为准，避免客户端与服务端时钟漂移
     records.forEach(initCountdown)
     pruneCountdowns()
     updateAllCountdowns()
-    if (!activeActivityId.value && activityList.value.length > 0)
-      activeActivityId.value = activityList.value[0].activityId
+    // 刷新后原选中活动可能已下线/被删除：回落到第一个活动
+    if (!records.some(activity => activity.activityId === activeActivityId.value))
+      activeActivityId.value = records[0]?.activityId ?? ''
   }
   catch {
     uni.showToast({ title: '加载失败', icon: 'none' })
   }
   finally {
     loading.value = false
-    loadingMore.value = false
   }
 }
 
@@ -172,19 +172,11 @@ async function loadActivities(isRefresh = false) {
 async function onRefresh() {
   refreshing.value = true
   try {
-    await loadActivities(true)
+    await loadActivities()
   }
   finally {
     refreshing.value = false
   }
-}
-
-/** 上拉加载更多 */
-async function onLoadMore() {
-  if (noMore.value)
-    return
-  currentPage.value++
-  await loadActivities(false)
 }
 
 /** 启动全局倒计时 */
@@ -420,6 +412,28 @@ function backTop() {
 }
 
 /** 跳转商品详情（整卡可点，加购按钮单独 stop 冒泡） */
+/**
+ * 快捷加购确认弹层的成交价。
+ *
+ * 确认弹层只从 quick-cart 拿得到 SKU 普通售价，而本页商品卡标的是折后价；
+ * 不把活动价带进去就会出现「卡片 ¥23.92、弹层小计 ¥29.90」的价差
+ * （用户本次反馈的问题之一）。折后价必须严格低于基准价才采用，
+ * 避免把异常配置的价格当优惠宣传。
+ */
+function quickAddPromotionOf(goods: AppDiscountGoodsVO) {
+  const skuId = String(goods?.skuId || '')
+  const price = Number(goods?.discountPrice)
+  const original = Number(goods?.originalPrice)
+  if (!skuId || !Number.isFinite(price) || price <= 0 || !Number.isFinite(original) || original <= price)
+    return null
+  return {
+    skuId,
+    unitPrice: price,
+    maxQuantity: null,
+    hint: `限时折扣 ${formatDiscountValue(goods)}`,
+  }
+}
+
 function goGoodsDetail(goods: AppDiscountGoodsVO) {
   uni.navigateTo({
     url: `/sub-pages/product/goods-detail/index?id=${goods.spuId}`,
@@ -440,7 +454,7 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
       </template>
     </hr-navbar>
 
-    <!-- 多活动时的活动切换条：放在滚动区外，翻到列表深处也始终可点 -->
+    <!-- 多活动时的活动切换条：切换下方渲染的活动内容（内容区独立滚动，Tab 恒可见） -->
     <scroll-view
       v-if="showActivityTabs"
       scroll-x
@@ -476,7 +490,6 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
       :scroll-into-view="scrollIntoView"
       @refresherrefresh="onRefresh"
       @scroll="onPageScroll"
-      @scrolltolower="onLoadMore"
     >
       <view id="discount-top" />
       <!-- 首屏骨架：1 张活动卡 + 2 列 × 2 行商品卡，形状与真实内容一致 -->
@@ -513,13 +526,8 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
         @action="goHome"
       />
 
-      <template v-else>
-        <view
-          v-for="activity in activityList"
-          :id="'act-' + activity.activityId"
-          :key="activity.activityId"
-          class="act-group"
-        >
+      <template v-else-if="activeActivity">
+        <view :key="activeActivity.activityId" class="act-group">
           <!--
             活动卡（第二轮重构）：白底**无描边** + 左侧实心折扣大牌
             + 活动名/副行 + 一行倒计时文字（`tabular-nums`）+ 右侧「去逛逛 ›」文字链。
@@ -529,32 +537,32 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
             <view class="act-ratio">
               <text
                 class="act-ratio-text"
-                :class="ratioTextClass(discountTagText(activity))"
+                :class="ratioTextClass(discountTagText(activeActivity))"
               >
-                {{ discountTagText(activity) }}
+                {{ discountTagText(activeActivity) }}
               </text>
             </view>
 
             <view class="act-main">
               <text class="act-name">
-                {{ activity.activityName || '限时折扣' }}
+                {{ activeActivity.activityName || '限时折扣' }}
               </text>
 
               <!-- 副行：全场型显示权益换算，商品型显示参与件数 -->
               <text class="act-sub">
-                {{ activitySubtitle(activity) }}
+                {{ activitySubtitle(activeActivity) }}
               </text>
 
               <!-- 倒计时：一行文字，超 24h 走「N 天 HH:MM:SS」 -->
-              <text v-if="hasLiveCountdown(activity)" class="act-cd">
-                {{ getCountdownLabel(activity) }} {{ countdownText(activity) }}
+              <text v-if="hasLiveCountdown(activeActivity)" class="act-cd">
+                {{ getCountdownLabel(activeActivity) }} {{ countdownText(activeActivity) }}
               </text>
               <text v-else class="act-cd act-cd--end">
-                {{ countdownFallbackText(activity) }}
+                {{ countdownFallbackText(activeActivity) }}
               </text>
             </view>
 
-            <view class="act-btn-hit" @click.stop="onBrowse(activity)">
+            <view class="act-btn-hit" @click.stop="onBrowse(activeActivity)">
               <text class="act-btn">去逛逛 ›</text>
             </view>
           </view>
@@ -566,12 +574,12 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
             第二轮去掉「到手价」label（图上角标已表达力度，卡内不再重复文案）。
           -->
           <view
-            v-if="!isFullScope(activity)"
-            :id="`goods-${activity.activityId}`"
+            v-if="!isFullScope(activeActivity)"
+            :id="`goods-${activeActivity.activityId}`"
             class="goods-grid"
           >
             <view
-              v-for="goods in activity.goodsList"
+              v-for="goods in activeActivity.goodsList"
               :key="goods.skuId"
               class="goods-card"
               hover-class="goods-card--pressed"
@@ -590,7 +598,7 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
                   <text>折扣</text>
                 </view>
                 <text class="goods-off">
-                  {{ discountTagText(activity) }}
+                  {{ discountTagText(activeActivity) }}
                 </text>
               </view>
 
@@ -620,7 +628,12 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
                   外观改为「浅主色底实心圆钮」，不再用描边圆钮（同卡描边只留 0 处）。
                 -->
                 <view class="goods-cart" @click.stop>
-                  <QuickCartButton v-if="!isSoldOut(goods)" :spu-id="goods.spuId" size="64rpx">
+                  <QuickCartButton
+                    v-if="!isSoldOut(goods)"
+                    :spu-id="goods.spuId"
+                    :promotion="quickAddPromotionOf(goods)"
+                    size="64rpx"
+                  >
                     <view class="goods-cart-btn">
                       <wd-icon name="cart" size="34rpx" />
                     </view>
@@ -635,18 +648,30 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
               </view>
             </view>
           </view>
+
+          <!--
+            全场型活动（scope=1）没有商品清单，折扣在商详/结算生效。
+            不能只剩一张活动卡：给一块权益说明 + 去首页商品流的出口，
+            避免切到该 Tab 后页面像没加载出来。
+          -->
+          <view v-else class="full-scope-panel">
+            <text class="full-scope-title">
+              全场商品通用折扣
+            </text>
+            <text class="full-scope-desc">
+              任意商品结算时自动按 {{ discountTagText(activeActivity) }} 计算，无需选购指定清单
+            </text>
+            <view class="full-scope-btn-hit" @tap="goHome">
+              <text class="full-scope-btn">
+                去首页逛商品 ›
+              </text>
+            </view>
+          </view>
         </view>
 
-        <view class="load-more">
-          <text v-if="noMore">
-            —— 没有更多了 ——
-          </text>
-          <text v-else-if="loadingMore">
-            加载中...
-          </text>
-          <text v-else>
-            上拉加载更多
-          </text>
+        <!-- 全场型活动没有商品清单，不出现列表收尾文案 -->
+        <view v-if="!isFullScope(activeActivity)" class="load-more">
+          <text>—— 没有更多了 ——</text>
         </view>
       </template>
     </scroll-view>
@@ -667,6 +692,10 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
   - 折扣=轻促销：主色只出现在大牌/倒计时/价格/省额/按钮上，其余大量留白，
     与秒杀会场的强促销拉开层级。
   颜色一律走 --wot-color-theme-* token，跟随多租户主题换肤。
+
+  2026-10-23 修正 Tab 语义：活动 Tab 由「页内锚点」改为「内容切换」（与秒杀页
+  场次轴同口径）—— 同一时刻只渲染选中活动的卡与商品；活动一次拉全，Tab 不再
+  随分页增长；全场型活动无商品清单，补权益说明 + 去首页入口，避免空 Tab。
 -->
 <style lang="scss" scoped>
 .discount-page {
@@ -844,6 +873,49 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
   font-size: 24rpx;
   font-weight: 700;
   white-space: nowrap;
+}
+
+/* ---- 全场型活动：无商品清单时的权益说明与出口 ---- */
+.full-scope-panel {
+  display: flex;
+  margin: 0 24rpx 20rpx;
+  padding: 56rpx 32rpx 48rpx;
+  align-items: center;
+  flex-direction: column;
+  gap: 12rpx;
+  background: #fff;
+  border-radius: 20rpx;
+}
+
+.full-scope-title {
+  color: #1f2329;
+  font-size: 28rpx;
+  font-weight: 600;
+  text-align: center;
+}
+
+.full-scope-desc {
+  color: #8a8f99;
+  font-size: 22rpx;
+  font-weight: 400;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.full-scope-btn-hit {
+  display: flex;
+  min-height: 88rpx;
+  margin-top: 12rpx;
+  align-items: center;
+}
+
+.full-scope-btn {
+  padding: 16rpx 44rpx;
+  background: var(--wot-color-theme-primary, #ff2237);
+  border-radius: 999rpx;
+  color: #fff;
+  font-size: 24rpx;
+  font-weight: 600;
 }
 
 /* ---- 商品双列网格 ---- */

@@ -8,6 +8,7 @@ import com.aryn.cloud.user.api.entity.RechargeConfig;
 import com.aryn.cloud.user.api.entity.RechargeOrder;
 import com.aryn.cloud.user.api.vo.AppRechargeOrderVO;
 import com.aryn.cloud.user.mapper.RechargeOrderMapper;
+import com.aryn.cloud.user.mapper.UserInfoMapper;
 import com.aryn.cloud.user.service.IBalanceRecordService;
 import com.aryn.cloud.user.service.IPointsRecordService;
 import com.aryn.cloud.user.service.IRechargeConfigService;
@@ -45,6 +46,9 @@ class RechargeOrderServiceImplTest {
 	private RechargeOrderMapper rechargeOrderMapper;
 
 	@Mock
+	private UserInfoMapper userInfoMapper;
+
+	@Mock
 	private RemotePayService remotePayService;
 
 	@Mock
@@ -59,7 +63,7 @@ class RechargeOrderServiceImplTest {
 	void setUp() {
 		// 设置 baseMapper
 		rechargeOrderService = new TestRechargeOrderService(rechargeConfigService, balanceRecordService,
-				pointsRecordService, rechargeOrderMapper);
+				pointsRecordService, userInfoMapper, rechargeOrderMapper);
 		// @DubboReference 字段不走构造器，测试里反射注入
 		ReflectionTestUtils.setField(rechargeOrderService, "remotePayService", remotePayService);
 		ReflectionTestUtils.setField(rechargeOrderService, "remoteOrderConfigService", remoteOrderConfigService);
@@ -404,8 +408,8 @@ class RechargeOrderServiceImplTest {
 
 		private TestRechargeOrderService(IRechargeConfigService rechargeConfigService,
 				IBalanceRecordService balanceRecordService, IPointsRecordService pointsRecordService,
-				RechargeOrderMapper rechargeOrderMapper) {
-			super(rechargeConfigService, balanceRecordService, pointsRecordService);
+				UserInfoMapper userInfoMapper, RechargeOrderMapper rechargeOrderMapper) {
+			super(rechargeConfigService, balanceRecordService, pointsRecordService, userInfoMapper);
 			this.baseMapper = rechargeOrderMapper;
 		}
 	}

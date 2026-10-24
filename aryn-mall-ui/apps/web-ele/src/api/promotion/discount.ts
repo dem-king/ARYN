@@ -66,6 +66,10 @@ export interface DiscountActivityForm {
   scope: DiscountScope;
   /** 活动级限量：仅全场型生效，null/不填 = 不限量 */
   stock?: null | number;
+  /** 活动商品是否可用优惠券：'1'可用 '0'不可用（缺省按 '1' 提交） */
+  couponStackable?: string;
+  /** 活动商品是否可积分抵现：'1'可抵 '0'不可抵（缺省按 '1' 提交） */
+  pointsStackable?: string;
   /** 参与折扣的商品列表（scope=2 时使用） */
   goodsList: DiscountGoodsForm[];
 }
@@ -88,6 +92,10 @@ export interface DiscountActivityRecord {
   scope: DiscountScope;
   /** 活动状态 */
   status: DiscountActivityStatus;
+  /** 活动商品是否可用优惠券：'1'可用 '0'不可用 */
+  couponStackable?: string;
+  /** 活动商品是否可积分抵现：'1'可抵 '0'不可抵 */
+  pointsStackable?: string;
   /** 创建时间 */
   createTime?: string;
 }

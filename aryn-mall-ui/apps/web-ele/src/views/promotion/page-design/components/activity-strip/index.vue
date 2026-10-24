@@ -31,6 +31,8 @@ import { ACTIVITY_STRIP_HALLS, validateActivityStrip } from './types';
  * · automatic：并行复用三个既有 loader，各取 1 条进行中活动，每类独立结算；
  * · manual：直接渲染运营手配的 entries；
  * · 某类无进行中活动 / 单个 loader 失败 → 只隐藏该卡，剩余卡等宽重排；
+ * · 全场折扣无商品清单 → 缩略图取「全店销量 Top1」真实商品图作代表（见 loadDiscounts），
+ *   不退回「限」字灰块；仍取不到图或远程图加载失败 → 首字灰块兜底；
  * · 三类全无 → controller 置 empty，由 RetailPreviewFrame 渲染空态提示
  *   （C 端默认 emptyStrategy=hide 时整条不渲染，管理端用画布空态表达同一语义）。
  *
@@ -187,7 +189,9 @@ function buildActivityStripEntries(
     entries.push({
       badge: value,
       hook: `${value}专区`,
-      imageUrl: discount.goodsList[0]?.goodsImage || '',
+      // 指定商品活动取首件商品图；全场活动取 loadDiscounts 补的代表商品图
+      // （loadDiscounts 已并入 coverImage，这里保留商品图优先，缺图才回落首字灰块）
+      imageUrl: discount.goodsList[0]?.goodsImage || discount.coverImage || '',
       key: 'discount',
       link: hallLink(ACTIVITY_STRIP_HALLS.discount),
       title: '限时折扣',

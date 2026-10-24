@@ -11,6 +11,8 @@ import { defineStore } from 'pinia'
 
 export const PURCHASE_SCENE_PERSONAL = '1'
 export const PURCHASE_SCENE_SHIP_SUPPLY = '2'
+/** 企业采购（岸上共享购物车提交生成的订单场景；C 端下单入口不主动使用） */
+export const PURCHASE_SCENE_ENTERPRISE = '3'
 
 export interface ShipContextState {
   /** 购买场景：1 海员个人购买；2 船供采购 */
@@ -57,7 +59,8 @@ export const useShipContextStore = defineStore('shipContext', {
      * 结算用的内部配送上下文参数（delivery_way=4）
      */
     deliveryContextParams: (state) => {
-      if (!state.vesselId || !state.vesselCallId) return null
+      if (!state.vesselId || !state.vesselCallId)
+        return null
       return {
         purchaseScene: state.purchaseScene,
         vesselId: state.vesselId,
@@ -94,7 +97,8 @@ export const useShipContextStore = defineStore('shipContext', {
      * 切换船舶：清空靠港上下文防止串船，靠港计划需重新加载选择
      */
     switchVessel(vesselId: string, vesselName: string) {
-      if (vesselId === this.vesselId) return
+      if (vesselId === this.vesselId)
+        return
       this.vesselId = vesselId
       this.vesselName = vesselName
       this.vesselCallId = ''

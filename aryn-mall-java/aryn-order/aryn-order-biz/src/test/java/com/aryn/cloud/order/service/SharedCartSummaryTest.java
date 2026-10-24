@@ -10,6 +10,7 @@ import com.aryn.cloud.order.mapper.SharedCartImportRowMapper;
 import com.aryn.cloud.order.mapper.SharedCartItemMapper;
 import com.aryn.cloud.order.mapper.SharedCartMapper;
 import com.aryn.cloud.order.mapper.SharedCartMemberMapper;
+import com.aryn.cloud.order.service.IDeliveryAreaService;
 import com.aryn.cloud.order.service.impl.SharedCartServiceImpl;
 import com.aryn.cloud.order.support.ChainAiAssistant;
 import com.aryn.cloud.product.api.entity.GoodsSku;
@@ -85,7 +86,7 @@ class SharedCartSummaryTest {
 
 		service = new SharedCartServiceImpl(cartMapper, memberMapper, itemMapper,
 				mock(SharedCartImportMapper.class), mock(SharedCartImportRowMapper.class),
-				mock(IOrderInfoService.class), mock(ChainAiAssistant.class));
+				mock(IOrderInfoService.class), mock(IDeliveryAreaService.class), mock(ChainAiAssistant.class));
 		ReflectionTestUtils.setField(service, "remoteGoodsSkuService", remoteGoodsSkuService);
 		ReflectionTestUtils.setField(service, "remoteGoodsSpuService", remoteGoodsSpuService);
 		ReflectionTestUtils.setField(service, "remoteVesselService", mock(RemoteVesselService.class));

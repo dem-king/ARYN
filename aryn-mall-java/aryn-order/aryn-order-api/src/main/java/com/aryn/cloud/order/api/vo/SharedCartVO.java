@@ -34,14 +34,23 @@ public class SharedCartVO implements Serializable {
 	@Schema(description = "共享购物车编号")
 	private String cartNo;
 
-	@Schema(description = "船舶ID")
+	@Schema(description = "车类型：1船供整车；2岸上企业")
+	private String cartType;
+
+	@Schema(description = "船舶ID（岸上车为空）")
 	private String vesselId;
 
-	@Schema(description = "船舶名称")
+	@Schema(description = "船舶名称（岸上车为空）")
 	private String vesselName;
 
-	@Schema(description = "靠港计划ID")
+	@Schema(description = "靠港计划ID（岸上车为空）")
 	private String vesselCallId;
+
+	@Schema(description = "岸上车收货地址ID（船供车为空）")
+	private String userAddressId;
+
+	@Schema(description = "岸上车收货地址快照（船供车为空）")
+	private String addressSnapshot;
 
 	@Schema(description = "港口编码")
 	private String portCode;

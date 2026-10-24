@@ -1,9 +1,12 @@
 import { requestClient } from '#/api/request';
 
 export interface TenantShopInfo {
+  address?: string;
   id: string;
   logoUrl?: string;
   name: string;
+  phone?: string;
+  siteUrl?: string;
 }
 
 /**

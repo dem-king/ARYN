@@ -243,6 +243,22 @@ class MemberLevelServiceImplTest {
 	}
 
 	@Test
+	@DisplayName("等级重算 - 专属券发放失败不回滚等级")
+	void recalculateLevel_couponGrantFailureDoesNotBlockLevel() {
+		when(userInfoMapper.selectById("user001")).thenReturn(testUser);
+		when(memberLevelMapper.selectList(any())).thenReturn(Arrays.asList(bronzeLevel, silverLevel));
+		when(memberBenefitService.getLevelBenefits("level-silver")).thenReturn(List.of(
+				new MemberBenefit().setId("benefit-1").setBenefitType("3").setBenefitValue("template-1")));
+		doThrow(new RuntimeException("模板不存在")).when(remoteCouponUserService)
+			.grantMemberBenefitCoupon("template-1", "user001", "level-silver:benefit-1");
+
+		assertDoesNotThrow(() -> memberLevelService.recalculateLevel("user001"));
+
+		verify(userInfoMapper).updateMemberLevel("user001", "level-silver");
+		verify(memberLevelRecordMapper).insert(any(MemberLevelRecord.class));
+	}
+
+	@Test
 	@DisplayName("删除等级 - 等级下存在会员时抛出异常")
 	void deleteLevel_hasUsers() {
 		// given

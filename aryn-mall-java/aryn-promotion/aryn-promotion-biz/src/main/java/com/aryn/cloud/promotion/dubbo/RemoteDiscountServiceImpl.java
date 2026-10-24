@@ -33,6 +33,12 @@ public class RemoteDiscountServiceImpl implements RemoteDiscountService {
 	}
 
 	@Override
+	public com.aryn.cloud.promotion.api.vo.DiscountPriceContextVO getPriceContext(String skuId,
+			BigDecimal originalPrice) {
+		return discountActivityService.getPriceContext(skuId, originalPrice);
+	}
+
+	@Override
 	public boolean hasDiscount(String skuId) {
 		return discountActivityService.getGoodsDiscountInfo(skuId) != null;
 	}

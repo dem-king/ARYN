@@ -54,9 +54,28 @@ public interface IDiscountActivityService extends IService<DiscountActivity> {
 	AppDiscountVO getGoodsDiscountInfo(String skuId);
 
 	/**
+	 * 批量获取商品当前最优折扣信息（商详 / 购物车一次标注多行用，免登）。
+	 *
+	 * <p>口径与 {@link #getGoodsDiscountInfo(String)} 完全一致：以 SKU 销售价（salesPrice）为基准，
+	 * 全场活动直接命中、指定商品活动需命中 discount_goods，取折后价最低的活动；
+	 * 折后价不低于原价（含非法配置回退原价）的 SKU 不返回。
+	 *
+	 * @param skuIds SKU ID 列表（允许重复与空值，内部去重）
+	 * @return 命中最优折扣的 SKU 价格列表；无命中返回空列表（不返回 null）
+	 */
+	List<AppDiscountVO> getGoodsDiscountPrices(List<String> skuIds);
+
+	/**
 	 * 计算商品折扣价
 	 */
 	BigDecimal calculatePrice(String skuId, BigDecimal originalPrice);
+
+	/**
+	 * 查询商品折扣价上下文（价格 + 活动叠加策略，订单侧计价用）。
+	 *
+	 * @return 上下文；null 表示无进行中的折扣
+	 */
+	com.aryn.cloud.promotion.api.vo.DiscountPriceContextVO getPriceContext(String skuId, BigDecimal originalPrice);
 
 	/**
 	 * 状态流转

@@ -17,6 +17,7 @@
  * 挂在根组件 src/App.ku.vue，每页恰好一份。
  */
 import type { SharedCart } from '@/api/order/sharedCart'
+import type { QuickAddPromotion } from '@/utils/quick-cart'
 import { nextTick, ref } from 'vue'
 
 import { useCartDestination } from '@/composables/useCartDestination'
@@ -33,9 +34,16 @@ const props = withDefaults(defineProps<{
    * 数量确认仍保留。为空时保持统一入口的原行为。
    */
   sharedCart?: SharedCart | null
+  /**
+   * 页面已知的活动成交价（列表卡上的秒杀/新人价/限时折扣价）：
+   * 透传给确认弹层算小计，避免「卡片 ¥23.92、弹层小计 ¥29.90」的价差。
+   * 只在活动 SKU == quick-cart 选中的 SKU 时生效，由 `resolveQuickAddPrice` 把关。
+   */
+  promotion?: QuickAddPromotion | null
 }>(), {
   size: '56rpx',
   sharedCart: null,
+  promotion: null,
 })
 
 const emit = defineEmits<{
@@ -77,7 +85,10 @@ function openSkuPopup(info: any) {
 }
 
 async function handleAdd() {
-  const result = await quickAdd(props.spuId, { sharedCart: props.sharedCart })
+  const result = await quickAdd(props.spuId, {
+    promotion: props.promotion,
+    sharedCart: props.sharedCart,
+  })
   if (result.added) {
     emit('added', props.spuId)
     return

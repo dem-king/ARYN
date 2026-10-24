@@ -55,3 +55,12 @@ export async function getLevelBenefits(levelId: string) {
     params: { levelId },
   });
 }
+
+/**
+ * 给权益关联等级下的现有会员补发专属优惠券
+ */
+export async function backfillCoupon(benefitId: string) {
+  return requestClient.post('/mall-user/memberbenefit/backfillCoupon', null, {
+    params: { benefitId },
+  });
+}

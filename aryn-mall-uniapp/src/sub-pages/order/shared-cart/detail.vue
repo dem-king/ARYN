@@ -39,9 +39,11 @@ import {
   cartStatusTheme,
   isCartCollecting,
   isCartReadonly,
+  isShoreCart,
   itemAmountOf,
   MEMBER_ROLE_MEMBER,
   memberRoleLabel,
+  sharedCartTitleLabel,
   summarizeCartAmount,
   unitPriceText,
 } from '@/utils/shared-cart'
@@ -590,13 +592,16 @@ const reusing = ref(false)
 /**
  * 历史单复用：仅对已结束的单开放（进行中的单本身就是本轮清单）。
  *
- * 另外要求当前船舶上下文与源单一致 —— 跨船复用没有业务意义（服务端也会拒），
- * 与其让用户点完再看到失败提示，不如直接不显示这个按钮。
- * 尚无上下文时不拦，由用户在选择器里选（选错船时服务端仍会兜底拒绝）。
+ * 船供车要求当前船舶上下文与源单一致（跨船复用没有业务意义，服务端也会拒），
+ * 与其让用户点完再看到失败提示，不如直接不显示这个按钮；
+ * 岸上车没有船舶维度，地址沿用源单，任何上下文都可复用。
  */
 const canReuse = computed(() => {
   if (!cartReadonly.value || !cart.value) {
     return false
+  }
+  if (isShoreCart(cart.value)) {
+    return true
   }
   const currentVesselId = shipContextStore.vesselId
   return !currentVesselId || currentVesselId === cart.value.vesselId
@@ -620,11 +625,35 @@ const callSnapshotStale = computed(() =>
 /**
  * 一键复用历史补给单。
  *
- * 复用出来的是**本轮**采购，因此靠港计划取当前上下文，而不是源单那个已结束的靠港；
- * 船必须与源单一致（服务端也会校验，这里先做一次本地提示以免白跑一趟）。
+ * 复用出来的是**本轮**采购：船供车的靠港计划取当前上下文，而不是源单那个
+ * 已结束的靠港；船必须与源单一致（服务端也会校验，这里先做一次本地提示
+ * 以免白跑一趟）。岸上车直接复用（地址沿用源单），不需要船舶上下文。
  */
 function handleReuse() {
   if (!cart.value || reusing.value) {
+    return
+  }
+  if (isShoreCart(cart.value)) {
+    reusing.value = true
+    reuseSharedCartFromHistory(cart.value.id, {})
+      .then((result) => {
+        if (!result?.cartId) {
+          return
+        }
+        // 部分成功要如实告知：跳过项往往是「本次清单已有该商品」或原明细没有可用数量
+        const skipped = result.skippedCount ?? 0
+        uni.showToast({
+          title: skipped > 0
+            ? `已复用 ${result.reusedCount} 项，跳过 ${skipped} 项`
+            : `已复用 ${result.reusedCount} 项`,
+          icon: 'none',
+        })
+        uni.navigateTo({ url: `/sub-pages/order/shared-cart/detail?id=${result.cartId}` })
+      })
+      .catch(() => {})
+      .finally(() => {
+        reusing.value = false
+      })
     return
   }
   // 兜底：按钮已按船舶过滤，这里再挡一次（例如上下文在页面停留期间被切走）
@@ -742,11 +771,12 @@ function confirmLineAmountText(item: SharedCartItem): string {
  * 「关闭购物车」不再与提交并排等权，避免误触一个不可逆动作。
  */
 const primaryAction = computed<null | { handler: () => void, text: string }>(() => {
+  const orderWord = isShoreCart(cart.value) ? '订单' : '整船订单'
   if (cart.value?.submitOrderId) {
-    return { text: '查看整船订单', handler: goOrder }
+    return { text: `查看${orderWord}`, handler: goOrder }
   }
   if (canConfirmNow.value) {
-    return { text: `提交整船订单（${items.value.length} 项）`, handler: openConfirm }
+    return { text: `提交${orderWord}（${items.value.length} 项）`, handler: openConfirm }
   }
   return null
 })
@@ -797,10 +827,12 @@ function submitConfirm() {
     quantity: confirmQuantityOf(item),
   }))
   confirmState.submitting = true
+  const shoreCart = isShoreCart(cart.value)
   confirmSharedCart(cartId.value, {
     approvedQuantities,
-    recipientName: confirmState.recipientName || undefined,
-    recipientPhone: confirmState.recipientPhone || undefined,
+    // 岸上车收货人由地址簿决定（后端不取该字段），船供车才透传船边收货人
+    recipientName: shoreCart ? undefined : (confirmState.recipientName || undefined),
+    recipientPhone: shoreCart ? undefined : (confirmState.recipientPhone || undefined),
     agentName: confirmState.agentName || undefined,
     agentPhone: confirmState.agentPhone || undefined,
     remark: confirmState.remark || undefined,
@@ -808,7 +840,7 @@ function submitConfirm() {
   })
     .then((orderId) => {
       confirmState.visible = false
-      uni.showToast({ title: '已提交整船订单', icon: 'success' })
+      uni.showToast({ title: isShoreCart(cart.value) ? '已提交订单' : '已提交整船订单', icon: 'success' })
       return fetchDetail().then(() => {
         if (orderId) {
           // 延时跳转期间用户可能已自行离开本页：对已销毁页面发路由会触发
@@ -878,7 +910,9 @@ onLoad((options) => {
 
 onShareAppMessage(() => {
   const id = cartId.value || cart.value?.id || ''
-  const vessel = cart.value?.vesselName || shipContextStore.vesselName || '本船'
+  // 岸上企业车没有船名，标题直说「合并采购」；船供车继续以船名开头
+  const vessel = sharedCartTitleLabel(cart.value)
+    || (isShoreCart(cart.value) ? '伙伴们' : shipContextStore.vesselName || '本船')
   return {
     title: `${vessel}正在收集采购需求，点此选购`,
     path: `/sub-pages/order/shared-cart/detail?id=${id}&token=${shareToken.value}`,
@@ -947,16 +981,21 @@ onShow(() => {
     </view>
 
     <template v-else-if="cart">
-      <!-- 概览：船舶 + 靠港标识「哪一次采购」，收集截止单独强调 -->
+      <!-- 概览：船供车显示船舶+靠港、岸上车显示收货地址，标识「哪一次采购」；收集截止单独强调 -->
       <view class="mx-24rpx mt-24rpx overflow-hidden rounded-28rpx bg-white">
         <view class="p-32rpx">
           <view class="flex items-start justify-between">
             <view class="mr-16rpx min-w-0 flex-1">
-              <view class="truncate text-38rpx font-bold">
-                {{ cart.vesselName || '船舶信息待同步' }}
+              <view class="flex items-center gap-8rpx">
+                <text class="truncate text-38rpx font-bold">
+                  {{ sharedCartTitleLabel(cart) || '船舶信息待同步' }}
+                </text>
+                <text v-if="isShoreCart(cart)" class="flex-none rounded-8rpx bg-gray-100 px-12rpx py-2rpx text-20rpx text-gray-500">
+                  岸上
+                </text>
               </view>
               <view class="mt-8rpx text-26rpx text-gray-500">
-                {{ cart.portName || '港口待定' }} {{ cart.berth }}
+                {{ isShoreCart(cart) ? (cart.addressSnapshot || '收货地址待同步') : `${cart.portName || '港口待定'} ${cart.berth}` }}
               </view>
             </view>
             <view
@@ -1720,21 +1759,32 @@ onShow(() => {
             {{ confirmState.paymentType === '3' ? '收货后线下结算，由公司在订单里确认收款' : '提交后需在 30 分钟内完成在线支付' }}
           </view>
 
-          <view class="mt-28rpx text-24rpx text-gray-500">
-            收货人
+          <!-- 岸上车收货人固定按采购地址（订单以地址簿为准），不再让确认人重复填写 -->
+          <view v-if="isShoreCart(cart)" class="mt-28rpx rounded-16rpx bg-gray-50 px-24rpx py-20rpx">
+            <view class="text-24rpx text-gray-500">
+              收货信息（按采购地址）
+            </view>
+            <view class="mt-6rpx text-26rpx text-gray-700">
+              {{ cart?.addressSnapshot || '收货地址待同步' }}
+            </view>
           </view>
-          <input
-            v-model="confirmState.recipientName"
-            class="mt-8rpx h-76rpx rounded-12rpx bg-gray-50 px-24rpx text-28rpx"
-            placeholder="收货人姓名"
-          >
-          <input
-            v-model="confirmState.recipientPhone"
-            class="mt-10rpx h-76rpx rounded-12rpx bg-gray-50 px-24rpx text-28rpx"
-            placeholder="收货人电话"
-          >
+          <template v-else>
+            <view class="mt-28rpx text-24rpx text-gray-500">
+              收货人
+            </view>
+            <input
+              v-model="confirmState.recipientName"
+              class="mt-8rpx h-76rpx rounded-12rpx bg-gray-50 px-24rpx text-28rpx"
+              placeholder="收货人姓名"
+            >
+            <input
+              v-model="confirmState.recipientPhone"
+              class="mt-10rpx h-76rpx rounded-12rpx bg-gray-50 px-24rpx text-28rpx"
+              placeholder="收货人电话"
+            >
+          </template>
           <view class="mt-28rpx text-24rpx text-gray-500">
-            船上代理 / 经办人（选填）
+            {{ isShoreCart(cart) ? '经办人（选填）' : '船上代理 / 经办人（选填）' }}
           </view>
           <input
             v-model="confirmState.agentName"

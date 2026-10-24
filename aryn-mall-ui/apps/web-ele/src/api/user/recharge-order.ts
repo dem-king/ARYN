@@ -13,3 +13,10 @@ export async function getPage(query: any) {
 export async function getById(id: string) {
   return requestClient.get(`/mall-user/rechargeorder/${id}`);
 }
+
+/**
+ * 关闭待支付充值订单
+ */
+export async function cancelObj(id: string) {
+  return requestClient.post(`/mall-user/rechargeorder/cancel/${id}`);
+}

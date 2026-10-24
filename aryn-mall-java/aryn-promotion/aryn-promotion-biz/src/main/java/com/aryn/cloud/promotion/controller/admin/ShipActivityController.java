@@ -130,6 +130,7 @@ public class ShipActivityController {
 		activity.setTenantId(ArynTenantContextHolder.getTenantId());
 		activity.setCreateTime(LocalDateTime.now());
 		activity.setDelFlag("0");
+		fillStackDefaults(activity);
 		promotionActivityMapper.insert(activity);
 		return Result.success(activity);
 	}
@@ -151,8 +152,25 @@ public class ShipActivityController {
 		}
 		activity.setId(id);
 		activity.setTenantId(ArynTenantContextHolder.getTenantId());
+		fillStackDefaults(activity);
 		promotionActivityMapper.updateById(activity);
 		return Result.success(activity);
+	}
+
+	/**
+	 * 券/积分叠加策略为空时按活动类型补默认：新人专享（type=9）默认不可叠（防 0 元单），
+	 * 其余类型默认可叠（维持现网行为）；显式提交的值照常生效。
+	 */
+	private void fillStackDefaults(PromotionActivity activity) {
+		boolean newbie = PromotionActivity.TYPE_NEWBIE_PRICE.equals(activity.getActivityType());
+		String couponDefault = newbie ? "0" : "1";
+		String pointsDefault = newbie ? "0" : "1";
+		if (!StringUtils.hasText(activity.getCouponStackable())) {
+			activity.setCouponStackable(couponDefault);
+		}
+		if (!StringUtils.hasText(activity.getPointsStackable())) {
+			activity.setPointsStackable(pointsDefault);
+		}
 	}
 
 	@SysLog("发布船供营销活动")

@@ -2,6 +2,7 @@ package com.aryn.cloud.promotion.api.remote;
 
 import com.aryn.cloud.promotion.api.dto.DiscountStockItemDTO;
 import com.aryn.cloud.promotion.api.dto.DiscountStockReserveResultDTO;
+import com.aryn.cloud.promotion.api.vo.DiscountPriceContextVO;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -19,6 +20,15 @@ public interface RemoteDiscountService {
 	 * @return 折扣价（无活动则返回原价）
 	 */
 	BigDecimal calculatePrice(String skuId, BigDecimal originalPrice);
+
+	/**
+	 * 查询 SKU 折扣价上下文（价格 + 活动叠加策略）。
+	 *
+	 * @param skuId         SKU ID
+	 * @param originalPrice 原价
+	 * @return 上下文；null 表示无进行中的折扣（调用方回落原价）
+	 */
+	DiscountPriceContextVO getPriceContext(String skuId, BigDecimal originalPrice);
 
 	/**
 	 * 查询 SKU 是否有进行中的折扣活动

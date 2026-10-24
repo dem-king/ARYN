@@ -736,16 +736,18 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		validateAndApplyDeliveryContext(createOrderDTO.getPurchaseScene(), createOrderDTO.getUserId(), orderInfo);
 		// 生成订单商品
 		List<OrderItemEntity> orderItemEntityList = orderPriceComputeService.generateOrderItems(goodsSkuList, createOrderDTO.getSkuReqList());
-		// 拼团价预取（拼团单）：校验拼团记录有效并取活动 SKU 的拼团单价，
+		// 拼团价预取（拼团单）：校验拼团记录有效并取活动上下文（拼团单价 + 叠加策略），
 		// 拼团价优先级最高，须在会员折扣与优惠券之前落到成交基价
-		Map<String, BigDecimal> groupBuyPriceBySku = resolveGroupBuyPrice(createOrderDTO.getGroupBuyRecordId(),
+		GroupBuyOrderContextVO groupBuyContext = resolveGroupBuyContext(createOrderDTO.getGroupBuyRecordId(),
 				createOrderDTO.getUserId(), orderItemEntityList);
-		// 活动价预取：整船优惠需排除已享拼团/秒杀/限时折扣的 SKU
+		// 活动价预取：整船优惠需排除已享拼团/秒杀/限时折扣的 SKU，券/积分叠加策略也取自该计划
 		OrderPriceComputeService.PromotionPricePlan promotionPricePlan = orderPriceComputeService
-			.resolvePromotionPricePlan(orderItemEntityList, groupBuyPriceBySku);
+			.resolvePromotionPricePlan(orderItemEntityList, groupBuyContext);
 		// 营销阶梯价改基价（会员/券之前）
 		PromotionCalculationVO promoCalculation = orderPriceComputeService.applyPromotionLadder(orderInfo,
 				orderItemEntityList, promotionPricePlan);
+		// 新人价命中（含叠加策略）补入计划：新人价由引擎落价，预取阶段未知
+		orderPriceComputeService.mergeStackPolicyHits(promotionPricePlan, promoCalculation);
 		// 新人价限购硬校验：命中新人价的 SKU 整单合计数量必须为 1，超量拒绝下单
 		orderPriceComputeService.assertNewbieQuantityLimit(promoCalculation, orderItemEntityList);
 		// 促销价（拼团 > 秒杀 > 新人价 > 限时折扣 > 原价）须在会员折扣与优惠券之前落到成交基价，
@@ -755,8 +757,10 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 
 		orderPriceComputeService.computeOrderPrice(orderInfo, orderItemEntityList);
 		MemberBenefitsVO memberBenefits = remoteMallUserService.getMemberBenefits(createOrderDTO.getUserId());
-		orderPriceComputeService.orderMemberBenefitHandler(orderInfo, orderItemEntityList, memberBenefits);
-		orderPriceComputeService.orderCouponHandler(orderInfo, orderItemEntityList);
+		orderPriceComputeService.orderMemberBenefitHandler(orderInfo, orderItemEntityList, memberBenefits,
+				promotionPricePlan);
+		// 严格模式：不可叠活动商品仍带券下单直接拒绝（防绕过确认页）
+		orderPriceComputeService.orderCouponHandler(orderInfo, orderItemEntityList, promotionPricePlan, true);
 		// 整船/整单优惠分摊（券之后；活动价商品不参与）
 		orderPriceComputeService.applyShipWholeDiscount(orderInfo, orderItemEntityList, promoCalculation,
 				promotionPricePlan);
@@ -792,11 +796,12 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 				throw new ArynBusinessException("当前收货地址不在公司配送（岸上）范围内");
 			}
 		}
-		// 积分抵现：基数与优惠顺序固定为「会员折扣 -> 优惠券 -> 积分抵扣 -> 运费」，须在金额校验前完成
+		// 积分抵现：基数与优惠顺序固定为「会员折扣 -> 优惠券 -> 积分抵扣 -> 运费」，须在金额校验前完成；
+		// 叠加策略下积分基数只统计允许积分的明细，不可叠仍请求积分则拒绝
 		PointsDeductContextVO pointsContext = remotePointsService.getDeductContext(createOrderDTO.getUserId());
 		orderPriceComputeService.orderPointsDeductHandler(orderInfo, orderItemEntityList,
 				createOrderDTO.getUsePoints(), Boolean.TRUE.equals(createOrderDTO.getUseMaxPoints()), pointsContext,
-				true);
+				true, promotionPricePlan);
 		// 确认页金额校验：优惠额度可能在结算后变化，价格不一致要求用户重新确认，禁止静默涨价
 		if (createOrderDTO.getExpectedPaymentPrice() != null
 				&& (orderInfo.getPaymentPrice() == null || orderInfo.getPaymentPrice()
@@ -904,12 +909,12 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 	}
 
 	/**
-	 * 拼团单取价：校验拼团资格并返回「SKU → 拼团单价」映射；非拼团单返回 null。
+	 * 拼团单取价：校验拼团资格并返回下单上下文（含拼团单价与券/积分叠加策略）；非拼团单返回 null。
 	 *
 	 * <p>下单商品必须与活动 SKU 一致（活动为单 SKU 拼团），否则抛业务异常，
 	 * 避免用户拿 A 商品的开团资格以拼团价购买 B 商品。
 	 */
-	private Map<String, BigDecimal> resolveGroupBuyPrice(String groupBuyRecordId, String userId,
+	private GroupBuyOrderContextVO resolveGroupBuyContext(String groupBuyRecordId, String userId,
 			List<OrderItemEntity> orderItemEntityList) {
 		if (!StringUtils.hasText(groupBuyRecordId)) {
 			return null;
@@ -923,9 +928,7 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		if (!skuMatched) {
 			throw new ArynBusinessException("下单商品与拼团活动商品不一致，无法按拼团价下单");
 		}
-		Map<String, BigDecimal> priceBySku = new HashMap<>();
-		priceBySku.put(context.getSkuId(), context.getGroupPrice());
-		return priceBySku;
+		return context;
 	}
 
 	private OrderInfo generateOrder(CreateOrderDTO createOrderDTO) {
@@ -1150,14 +1153,16 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		List<OrderItemEntity> orderItemEntityList = orderPriceComputeService.generateOrderItems(goodsSkuList,
 				settlementOrderDTO.getSkuReqList());
 		// 拼团价预取（拼团单）：与下单同口径，保证确认页展示金额与提交后一致
-		Map<String, BigDecimal> groupBuyPriceBySku = resolveGroupBuyPrice(settlementOrderDTO.getGroupBuyRecordId(),
+		GroupBuyOrderContextVO groupBuyContext = resolveGroupBuyContext(settlementOrderDTO.getGroupBuyRecordId(),
 				settlementOrderDTO.getUserId(), orderItemEntityList);
-		// 活动价预取：与下单同口径，整船优惠排除已享拼团/秒杀/限时折扣的 SKU
+		// 活动价预取：与下单同口径，整船优惠排除已享拼团/秒杀/限时折扣的 SKU，叠加策略取自该计划
 		OrderPriceComputeService.PromotionPricePlan promotionPricePlan = orderPriceComputeService
-			.resolvePromotionPricePlan(orderItemEntityList, groupBuyPriceBySku);
+			.resolvePromotionPricePlan(orderItemEntityList, groupBuyContext);
 		// 营销阶梯价改基价（会员/券之前）
 		PromotionCalculationVO promoCalculation = orderPriceComputeService.applyPromotionLadder(orderInfo,
 				orderItemEntityList, promotionPricePlan);
+		// 新人价命中（含叠加策略）补入计划：新人价由引擎落价，预取阶段未知
+		orderPriceComputeService.mergeStackPolicyHits(promotionPricePlan, promoCalculation);
 		// 促销价（拼团 > 秒杀 > 新人价 > 限时折扣 > 原价）与下单口径一致，须在会员折扣与优惠券之前应用，
 		// 否则确认页展示金额与提交后的实际应付不一致；限购拦截只在提交订单时做，结算页不提前拦
 		orderPriceComputeService.applyPromotionPricePlan(orderItemEntityList,
@@ -1165,8 +1170,10 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 
 		orderPriceComputeService.computeOrderPrice(orderInfo, orderItemEntityList);
 		MemberBenefitsVO memberBenefits = remoteMallUserService.getMemberBenefits(settlementOrderDTO.getUserId());
-		orderPriceComputeService.orderMemberBenefitHandler(orderInfo, orderItemEntityList, memberBenefits);
-		orderPriceComputeService.orderCouponHandler(orderInfo, orderItemEntityList);
+		orderPriceComputeService.orderMemberBenefitHandler(orderInfo, orderItemEntityList, memberBenefits,
+				promotionPricePlan);
+		// 非严格模式：不可叠活动商品的券不生效，返回原因供确认页置灰提示（提交时才硬拒绝）
+		orderPriceComputeService.orderCouponHandler(orderInfo, orderItemEntityList, promotionPricePlan, false);
 		// 整船/整单优惠分摊（券之后；活动价商品不参与）
 		orderPriceComputeService.applyShipWholeDiscount(orderInfo, orderItemEntityList, promoCalculation,
 				promotionPricePlan);
@@ -1204,12 +1211,17 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 				throw new ArynBusinessException("当前收货地址不在公司配送（岸上）范围内");
 			}
 		}
-		// 积分抵现：与下单同口径，保证确认页金额与提交后一致
+		// 积分抵现：与下单同口径，保证确认页金额与提交后一致；叠加策略下积分只作用于允许积分的明细
 		PointsDeductContextVO pointsContext = remotePointsService
 			.getDeductContext(settlementOrderDTO.getUserId());
 		orderPriceComputeService.orderPointsDeductHandler(orderInfo, orderItemEntityList,
 				settlementOrderDTO.getUsePoints(), Boolean.TRUE.equals(settlementOrderDTO.getUseMaxPoints()),
-				pointsContext, false);
+				pointsContext, false, promotionPricePlan);
+		// 确认页划线价 / 活动优惠：成交价已覆盖原价，展示字段在金额全部算完后统一回填，
+		// 与提交订单后的实际成交价同源，避免前端按商品页价格自行推算形成第二套口径
+		orderPriceComputeService.fillOriginalPriceDisplay(orderInfo, orderItemEntityList, goodsSkuList);
+		// 叠加策略展示：明细活动标签 + 券门槛可计算金额（券/积分不可用原因已由各 handler 写入）
+		orderPriceComputeService.fillStackPolicyDisplay(orderInfo, orderItemEntityList, promotionPricePlan);
 		orderInfo.setOrderItemList(orderItemEntityList);
 		orderItemEntityList.forEach(item -> item.setPurchaseScene(orderInfo.getPurchaseScene()));
 		return orderInfo;

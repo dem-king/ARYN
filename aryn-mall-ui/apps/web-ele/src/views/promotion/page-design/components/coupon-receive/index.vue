@@ -5,8 +5,14 @@ import { computed } from 'vue';
 
 import { commonStyleRadiusOverflow } from '../common/common-style-clip';
 
+interface CouponDataSource {
+  mode?: string;
+  targetIds?: string[];
+}
+
 interface ShowData {
   commonStyle?: DiyCommonStyle | null;
+  dataSource?: CouponDataSource | null;
   showStyle: string;
   showNum: number;
   showReceiveBtn: boolean;
@@ -62,14 +68,36 @@ const dynamicStyles = computed(() => {
   };
 });
 
+const showNum = computed(() => {
+  const value = Math.floor(Number(props.showData.showNum) || 3);
+  return Math.min(10, Math.max(1, value));
+});
+
+const manualMode = computed(() => props.showData.dataSource?.mode === 'manual');
+
+const manualIds = computed(() =>
+  (props.showData.dataSource?.targetIds ?? []).filter(Boolean),
+);
+
+// 自动模式按上限画（画布展示最坏高度）；手选模式只画真正选中的券
+const previewCount = computed(() =>
+  manualMode.value
+    ? Math.min(manualIds.value.length, showNum.value)
+    : showNum.value,
+);
+
 const couponList = computed(() => {
-  return Array.from({ length: props.showData.showNum }, (_, i) => i);
+  return Array.from({ length: previewCount.value }, (_, i) => i);
 });
 </script>
 
 <template>
   <div class="coupon-receive-box" :style="dynamicStyles">
+    <div v-if="manualMode && previewCount === 0" class="coupon-empty">
+      未选择优惠券
+    </div>
     <div
+      v-else
       class="coupon-list"
       :class="{
         'list-style': showData.showStyle === '1',
@@ -105,6 +133,13 @@ const couponList = computed(() => {
 <style scoped lang="scss">
 .coupon-receive-box {
   padding: 12px;
+
+  .coupon-empty {
+    padding: 20px 0;
+    font-size: 12px;
+    color: #909399;
+    text-align: center;
+  }
 
   .coupon-list {
     &.list-style {

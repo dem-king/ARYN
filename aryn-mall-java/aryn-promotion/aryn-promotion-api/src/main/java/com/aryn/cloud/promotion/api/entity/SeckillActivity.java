@@ -37,6 +37,12 @@ public class SeckillActivity extends Model<SeckillActivity> {
 	@Schema(description = "状态:0未开始 1进行中 2已结束 3已暂停")
 	private Integer status;
 
+	/** 活动商品是否可用优惠券：1可用 0不可用（秒杀服务端强制 0，配置不生效） */
+	private String couponStackable;
+
+	/** 活动商品是否可积分抵现：1可抵 0不可抵（秒杀服务端强制 0，配置不生效） */
+	private String pointsStackable;
+
 	@Schema(description = "活动描述")
 	private String description;
 

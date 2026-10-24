@@ -127,6 +127,9 @@ const sections = [
   ['折扣商品级限量库存与占用', '153discount_goods_stock_incremental.sql'],
   ['折扣库存占用补齐订单明细维度', '154discount_stock_lock_order_item.sql'],
   ['全场型折扣活动级限量', '155discount_activity_stock_incremental.sql'],
+  ['营销优惠叠加策略（活动表券/积分叠加开关）', '157promotion_stack_policy_incremental.sql'],
+  ['会员管理闭环补齐（启停用/权益/签到/充值种子）', '158member_management_incremental.sql'],
+  ['共享购物车岸上企业车（车类型/地址快照/岸上唯一性）', '159shared_cart_shore_enterprise_incremental.sql'],
 ];
 
 const normalize = (content) => content.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim();

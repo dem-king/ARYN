@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { getPage } from '@/api/promotion/couponInfo'
+import { getByIds, getPage } from '@/api/promotion/couponInfo'
 import { addObj } from '@/api/promotion/couponUser'
 import { useDiyStyle } from '@/composables/useDiyStyle'
 import { couponThresholdText, couponType, couponValueParts } from '@/utils/coupon-display'
 import { couponCardLayout } from '../coupon-card-layout'
+import { orderCouponsByIds, resolveCouponReceiveSource } from '../coupon-receive-source'
 import { mergeReceivedCouponIds } from '../coupon-received-state'
 
 const props = defineProps({
@@ -15,7 +16,11 @@ const props = defineProps({
 })
 
 const showStyle = computed(() => props.showData.showStyle || '1')
-const showNum = computed(() => props.showData.showNum || 3)
+const showNum = computed(() => {
+  const value = Math.floor(Number(props.showData.showNum) || 3)
+  return Math.min(10, Math.max(1, value))
+})
+const source = computed(() => resolveCouponReceiveSource(props.showData.dataSource, showNum.value))
 const showReceiveBtn = computed(() => props.showData.showReceiveBtn !== false)
 const dynamicStyles = useDiyStyle(computed(() => props.showData.commonStyle))
 
@@ -28,11 +33,18 @@ const couponCardStyle = computed(() => showStyle.value === '1' ? cardLayout.valu
 
 async function fetchCoupons() {
   try {
-    const res = await getPage({
-      current: 1,
-      size: showNum.value,
-    })
-    couponList.value = res.records || []
+    if (source.value.mode === 'manual') {
+      couponList.value = source.value.ids.length
+        ? orderCouponsByIds(await getByIds(source.value.ids), source.value.ids)
+        : []
+    }
+    else {
+      const res = await getPage({
+        current: 1,
+        size: showNum.value,
+      })
+      couponList.value = res.records || []
+    }
     // 匿名领券列表不含个人领取计数；登录用户数据用于恢复刷新后的状态。
     receivedIds.value = mergeReceivedCouponIds(receivedIds.value, couponList.value)
   }

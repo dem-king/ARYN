@@ -4,7 +4,9 @@ import { defineAsyncComponent, reactive, ref } from 'vue';
 import { Delete, Edit, Plus } from '@element-plus/icons-vue';
 import {
   ElButton,
+  ElDrawer,
   ElImage,
+  ElInput,
   ElMessage,
   ElMessageBox,
   ElTable,
@@ -12,7 +14,7 @@ import {
   ElTag,
 } from 'element-plus';
 
-import { delObj, getPage } from '#/api/user/member-level';
+import { delObj, getPage, getRecordPage } from '#/api/user/member-level';
 import PageToolbar from '#/components/page/page-toolbar.vue';
 import { useDict } from '#/utils/dict';
 
@@ -41,6 +43,36 @@ const state = reactive({
 });
 const loading = ref(false);
 const formRef = ref();
+const recordDrawer = ref(false);
+const recordLoading = ref(false);
+const recordQuery = reactive({ userId: '' });
+const recordState = reactive({
+  total: 0,
+  currentPage: 1,
+  pageSize: 10,
+  tableData: [] as any[],
+});
+
+const loadRecordPage = async () => {
+  recordLoading.value = true;
+  try {
+    const response: any = await getRecordPage({
+      current: recordState.currentPage,
+      size: recordState.pageSize,
+      userId: recordQuery.userId || undefined,
+    });
+    recordState.tableData = response.records || [];
+    recordState.total = response.total || 0;
+  } finally {
+    recordLoading.value = false;
+  }
+};
+
+const openRecordDrawer = () => {
+  recordDrawer.value = true;
+  recordState.currentPage = 1;
+  loadRecordPage();
+};
 
 const initPage = async () => {
   loading.value = true;
@@ -103,6 +135,12 @@ initPage();
             :icon="Plus"
           >
             新增
+          </ElButton>
+          <ElButton
+            v-access:code="'user:memberlevel:get'"
+            @click="openRecordDrawer"
+          >
+            变更记录
           </ElButton>
         </template>
         <template #right>
@@ -182,6 +220,46 @@ initPage();
         v-model:size="state.page.pageSize"
         @change="initPage"
       />
+
+      <ElDrawer v-model="recordDrawer" title="等级变更记录" size="60%">
+        <div class="mb-3 flex items-center gap-2">
+          <ElInput
+            v-model="recordQuery.userId"
+            placeholder="按用户ID筛选"
+            clearable
+            style="width: 240px"
+            @keyup.enter="loadRecordPage"
+          />
+          <ElButton type="primary" @click="loadRecordPage"> 查询 </ElButton>
+        </div>
+        <ElTable
+          v-loading="recordLoading"
+          :data="recordState.tableData"
+          border
+          empty-text="暂无变更记录"
+        >
+          <ElTableColumn prop="nickname" label="用户昵称" />
+          <ElTableColumn prop="userId" label="用户ID" width="180" />
+          <ElTableColumn label="原等级" width="130">
+            <template #default="scope">
+              {{ scope.row.oldLevelName || '-' }}
+            </template>
+          </ElTableColumn>
+          <ElTableColumn label="新等级" width="130">
+            <template #default="scope">
+              {{ scope.row.newLevelName || '-' }}
+            </template>
+          </ElTableColumn>
+          <ElTableColumn prop="changeReason" label="变更原因" />
+          <ElTableColumn prop="createTime" label="变更时间" width="170" />
+        </ElTable>
+        <Pagination
+          :total="recordState.total"
+          v-model:current="recordState.currentPage"
+          v-model:size="recordState.pageSize"
+          @change="loadRecordPage"
+        />
+      </ElDrawer>
     </div>
   </div>
 </template>

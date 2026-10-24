@@ -69,4 +69,8 @@ public class MemberBenefit extends Model<MemberBenefit> {
 	@Schema(description = "关联等级ID")
 	private List<String> levelIds;
 
+	@TableField(exist = false)
+	@Schema(description = "按关联等级筛选（查询参数）")
+	private String levelId;
+
 }

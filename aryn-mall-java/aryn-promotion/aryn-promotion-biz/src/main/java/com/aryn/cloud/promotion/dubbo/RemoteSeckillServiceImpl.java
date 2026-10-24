@@ -56,6 +56,22 @@ public class RemoteSeckillServiceImpl implements RemoteSeckillService {
 	}
 
 	@Override
+	public com.aryn.cloud.promotion.api.vo.SeckillPriceContextVO getPriceContext(String skuId) {
+		AppSeckillGoodsVO vo = seckillActivityService.getGoodsSeckillInfo(skuId);
+		if (vo == null || vo.getSeckillPrice() == null) {
+			return null;
+		}
+		com.aryn.cloud.promotion.api.vo.SeckillPriceContextVO context = new com.aryn.cloud.promotion.api.vo.SeckillPriceContextVO();
+		context.setSkuId(skuId);
+		context.setActivityId(vo.getActivityId());
+		context.setSeckillPrice(vo.getSeckillPrice());
+		// 秒杀是平台级硬互斥活动：无论活动表怎么配，叠加策略一律强制不可叠
+		context.setCouponStackable(false);
+		context.setPointsStackable(false);
+		return context;
+	}
+
+	@Override
 	public AppSeckillGoodsVO getSeckillGoodsInfo(String skuId) {
 		return seckillActivityService.getGoodsSeckillInfo(skuId);
 	}

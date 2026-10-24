@@ -68,6 +68,12 @@ public class GroupBuyActivity extends Model<GroupBuyActivity> {
 	@Schema(description = "拼团过期时间(小时)")
 	private Integer groupExpireHours;
 
+	/** 活动商品是否可用优惠券：1可用 0不可用（空按类型默认值=可用处理） */
+	private String couponStackable;
+
+	/** 活动商品是否可积分抵现：1可抵 0不可抵（空按类型默认值=可抵处理） */
+	private String pointsStackable;
+
 	@TableField(fill = FieldFill.INSERT)
 	@Schema(description = "创建人")
 	private String createBy;

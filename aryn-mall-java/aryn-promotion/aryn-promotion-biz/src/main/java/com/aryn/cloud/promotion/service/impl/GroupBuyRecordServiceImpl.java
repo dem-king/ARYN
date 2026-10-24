@@ -395,6 +395,13 @@ public class GroupBuyRecordServiceImpl extends ServiceImpl<GroupBuyRecordMapper,
 		vo.setGroupPrice(activity.getGroupPrice());
 		vo.setOriginalPrice(activity.getOriginalPrice());
 		vo.setExpireAt(record.getExpireAt());
+		// 叠加策略：空按拼团类型默认值（可用）回落，供订单侧券/积分 eligible 判定
+		vo.setCouponStackable(com.aryn.cloud.promotion.api.enums.StackActivityTypeEnum.resolve(
+				activity.getCouponStackable(),
+				com.aryn.cloud.promotion.api.enums.StackActivityTypeEnum.GROUP_BUY.isDefaultCouponStackable()));
+		vo.setPointsStackable(com.aryn.cloud.promotion.api.enums.StackActivityTypeEnum.resolve(
+				activity.getPointsStackable(),
+				com.aryn.cloud.promotion.api.enums.StackActivityTypeEnum.GROUP_BUY.isDefaultPointsStackable()));
 		return vo;
 	}
 

@@ -80,6 +80,7 @@ function createDiscount(
     activityId: 'discount-1',
     activityName: '好吃零食节',
     countdown: 7200,
+    coverImage: '',
     discountType: 1,
     discountValue: 0.95,
     endTime: '2026-10-22 23:00:00',
@@ -227,6 +228,34 @@ describe('buildActivityStripEntries 三类卡组装与隐藏降级', () => {
     expect(entries[0].imageUrl).toBe('https://cdn.example.com/chips.jpg')
     expect(entries[1].imageUrl).toBe('https://cdn.example.com/water.jpg')
     expect(entries[2].imageUrl).toBe('https://cdn.example.com/snack.jpg')
+  })
+
+  it('全场折扣没有商品清单时用取数层补的代表商品图，不落「限」字色块', () => {
+    const [entry] = buildActivityStripEntries({
+      discount: createDiscount({
+        coverImage: 'https://cdn.example.com/sales-top.jpg',
+        goodsList: [],
+        scope: 1,
+      }),
+    })
+
+    expect(entry.imageUrl).toBe('https://cdn.example.com/sales-top.jpg')
+  })
+
+  it('商品图优先于代表图（指定商品活动按首件商品展示）', () => {
+    const [entry] = buildActivityStripEntries({
+      discount: createDiscount({ coverImage: 'https://cdn.example.com/sales-top.jpg' }),
+    })
+
+    expect(entry.imageUrl).toBe('https://cdn.example.com/snack.jpg')
+  })
+
+  it('商品图与代表图都没有时保持空串，交给首字色块兜底', () => {
+    const [entry] = buildActivityStripEntries({
+      discount: createDiscount({ coverImage: '', goodsList: [], scope: 1 }),
+    })
+
+    expect(entry.imageUrl).toBe('')
   })
 
   it('某类无进行中活动时该卡不产出（剩余卡由渲染侧等宽重排）', () => {

@@ -24,6 +24,7 @@
         user_info.update_time,
         user_info.user_source,
         user_info.member_level_id,
+        user_info.status,
         user_info.point,
         user_info.total_point,
         user_info.balance,
@@ -49,6 +50,9 @@
             </if>
             <if test="query.memberLevelId !=null and query.memberLevelId !=''">
                 AND user_info.`member_level_id` = #{query.memberLevelId}
+            </if>
+            <if test="query.status !=null and query.status !=''">
+                AND user_info.`status` = #{query.status}
             </if>
         </where>
         ORDER BY user_info.create_time DESC

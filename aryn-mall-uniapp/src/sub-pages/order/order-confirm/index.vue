@@ -42,6 +42,8 @@ interface CouponState {
   couponPopup: boolean
   couponUserId: string
   orderItemList: any[]
+  /** 券门槛可计算金额（允许叠券明细折后合计，结算接口下发）：券弹层门槛判定用 */
+  couponEligibleBase: number | null
 }
 interface Address {
   id: string
@@ -79,6 +81,7 @@ const couponState = reactive<CouponState>({
   couponPopup: false,
   couponUserId: '',
   orderItemList: [],
+  couponEligibleBase: null,
 
 })
 const state = reactive<State>({
@@ -264,6 +267,8 @@ function showCoupon(item: any) {
   couponState.couponPopup = true
   couponState.orderPrice = item.totalPrice
   couponState.orderItemList = item.orderItemList
+  const eligible = Number(item.couponEligibleAmount)
+  couponState.couponEligibleBase = Number.isFinite(eligible) && eligible > 0 ? eligible : null
 }
 // 选中优惠券回调
 function couponConfirm(couponUserId: string) {
@@ -319,6 +324,12 @@ async function toSettlement() {
     if (pointsEnabled.value && Number(response?.pointsUsed) <= 0) {
       pointsEnabled.value = false
       delete state.orderParams.useMaxPoints
+    }
+    // 叠加规则：所选券对全部明细不可叠时服务端不下发券额（couponStackReason 说明原因），
+    // 自动取消选择避免提交时被 60067 硬拒；金额以本次结算（未用券）为准
+    if (response?.couponStackReason && state.orderParams.couponUserId) {
+      state.orderParams.couponUserId = ''
+      useGlobalToast().warning(response.couponStackReason)
     }
     // 资格提示依赖登录态与活动，不 await：结算金额已是权威值，
     // 提示晚到一帧不影响用户看到正确金额
@@ -583,6 +594,7 @@ onUnload(() => {
       :coupon-popup="couponState.couponPopup" :coupon-user-list="state.couponUserList"
       :order-price="couponState.orderPrice"
       :order-item-list="couponState.orderItemList"
+      :coupon-eligible-base="couponState.couponEligibleBase"
       @close-coupon-popup="closeCouponPopup" @coupon-confirm="couponConfirm"
     />
   </view>

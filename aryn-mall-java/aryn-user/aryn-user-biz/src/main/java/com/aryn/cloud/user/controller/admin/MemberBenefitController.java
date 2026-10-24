@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.log.annotation.SysLog;
 import com.aryn.cloud.user.api.entity.MemberBenefit;
+import com.aryn.cloud.user.api.vo.MemberBenefitBackfillResultVO;
 import com.aryn.cloud.user.service.IMemberBenefitService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -80,6 +81,14 @@ public class MemberBenefitController {
 	@GetMapping("/levelBenefits")
 	public Result<List<MemberBenefit>> levelBenefits(@RequestParam String levelId) {
 		return Result.success(memberBenefitService.getLevelBenefits(levelId));
+	}
+
+	@SysLog("补发会员专属优惠券")
+	@Operation(summary = "补发会员专属优惠券")
+	@SaCheckPermission("user:memberbenefit:edit")
+	@PostMapping("/backfillCoupon")
+	public Result<MemberBenefitBackfillResultVO> backfillCoupon(@RequestParam String benefitId) {
+		return Result.success(memberBenefitService.backfillCoupon(benefitId));
 	}
 
 }

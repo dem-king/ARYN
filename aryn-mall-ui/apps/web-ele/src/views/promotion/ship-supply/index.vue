@@ -15,6 +15,7 @@ import {
   ElRadioButton,
   ElRadioGroup,
   ElSelect,
+  ElSwitch,
   ElTable,
   ElTableColumn,
   ElTag,
@@ -65,6 +66,9 @@ const form = reactive<any>({
   scopeValue: '',
   startTime: '',
   totalBudget: 0,
+  // 叠加策略（活动级）：新人专享 type=9 默认关（防 0 元单），其余类型默认开（维持现状）
+  couponStackable: '1',
+  pointsStackable: '1',
 });
 const skuLadders = ref<
   Array<{
@@ -179,6 +183,10 @@ const openDialog = (row?: any) => {
   form.consumedGiftStock = row?.consumedGiftStock ?? 0;
   form.startTime = row?.startTime ?? '';
   form.endTime = row?.endTime ?? '';
+  // 叠加策略回显：存量数据可能未带字段，缺省按类型默认补齐（新人=关，其余=开）
+  const newbieType = form.activityType === '9';
+  form.couponStackable = row?.couponStackable ?? (newbieType ? '0' : '1');
+  form.pointsStackable = row?.pointsStackable ?? (newbieType ? '0' : '1');
   try {
     const rules = row ? JSON.parse(row.rules) : {};
     skuLadders.value = rules.skuLadders ?? [];
@@ -198,6 +206,13 @@ const openDialog = (row?: any) => {
   dryResult.value = null;
   loadVesselData();
   dialogVisible.value = true;
+};
+
+/** 活动类型切换时按类型默认值重置叠加策略（新人=关，其余=开） */
+const onActivityTypeChange = (value: boolean | number | string | undefined) => {
+  const newbieType = value === '9';
+  form.couponStackable = newbieType ? '0' : '1';
+  form.pointsStackable = newbieType ? '0' : '1';
 };
 
 const buildPayload = () => {
@@ -635,6 +650,18 @@ onMounted(initPage);
             {{ scopeText(scope.row) }}
           </template>
         </ElTableColumn>
+        <ElTableColumn label="叠加策略" width="130">
+          <template #default="scope">
+            <template v-if="scope.row.activityType === '9'">
+              <span
+                >券{{ scope.row.couponStackable === '1' ? '✓' : '✗' }} · 积分{{
+                  scope.row.pointsStackable === '1' ? '✓' : '✗'
+                }}</span
+              >
+            </template>
+            <span v-else style="color: var(--el-text-color-secondary)">—</span>
+          </template>
+        </ElTableColumn>
         <ElTableColumn label="额度使用" width="190">
           <template #default="scope">
             <template v-if="scope.row.activityType === '5'">
@@ -727,12 +754,33 @@ onMounted(initPage);
             <ElInput v-model="form.activityName" />
           </ElFormItem>
           <ElFormItem label="活动类型">
-            <ElRadioGroup v-model="form.activityType" :disabled="!!editingId">
+            <ElRadioGroup
+              v-model="form.activityType"
+              :disabled="!!editingId"
+              @change="onActivityTypeChange"
+            >
               <ElRadioButton value="4">船供阶梯价</ElRadioButton>
               <ElRadioButton value="7">船供整船优惠</ElRadioButton>
               <ElRadioButton value="5">买赠</ElRadioButton>
               <ElRadioButton value="9">新人专享价</ElRadioButton>
             </ElRadioGroup>
+          </ElFormItem>
+          <ElFormItem v-if="form.activityType === '9'" label="优惠叠加">
+            <div style="display: flex; gap: 8px; align-items: center">
+              <ElSwitch
+                :model-value="form.couponStackable !== '0'"
+                @update:model-value="form.couponStackable = $event ? '1' : '0'"
+              />
+              <span style="margin-right: 12px">可用优惠券</span>
+              <ElSwitch
+                :model-value="form.pointsStackable !== '0'"
+                @update:model-value="form.pointsStackable = $event ? '1' : '0'"
+              />
+              <span>可用积分抵现</span>
+              <span style="color: var(--el-text-color-secondary)">
+                （新人价已是最低价，默认关闭防叠加击穿；可按需放开）
+              </span>
+            </div>
           </ElFormItem>
           <ElFormItem
             v-if="form.activityType !== '4' && form.activityType !== '9'"

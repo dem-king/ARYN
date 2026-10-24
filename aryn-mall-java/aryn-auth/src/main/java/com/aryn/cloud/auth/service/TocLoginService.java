@@ -71,6 +71,7 @@ public class TocLoginService {
 			if (Objects.isNull(userInfo)) {
 				throw new IllegalArgumentException("login failed");
 			}
+			assertMemberEnabled(userInfo.getStatus());
 			assertUserTenant(userInfo.getTenantId(), verifiedTenantId, "商城用户");
 			// 获取三方用户
 			SocialUser socialUser = remoteSocialUserService.socialLogin(userLoginReqDTO);
@@ -108,6 +109,7 @@ public class TocLoginService {
 			if (Objects.isNull(userInfo)) {
 				throw new IllegalArgumentException("login failed");
 			}
+			assertMemberEnabled(userInfo.getStatus());
 
 			ArynUser hxUser = new ArynUser();
 			String tenantId = verifiedTenantId != null ? verifiedTenantId : ArynTenantContextHolder.getTenantId();
@@ -153,6 +155,7 @@ public class TocLoginService {
 			if (!BCrypt.checkpw(userLoginReqDTO.getPassword(), userInfo.getPassword())) {
 				throw new RuntimeException("账号或密码错误");
 			}
+			assertMemberEnabled(userInfo.getStatus());
 			ArynUser hxUser = new ArynUser();
 			if (wxMa) {
 				// 获取三方用户
@@ -213,6 +216,11 @@ public class TocLoginService {
 	}
 
 	private Object loginMallUser(String userId, String openid, String tenantId) {
+		UserInfoVO userInfo = remoteMallUserService.getUserById(userId);
+		if (Objects.isNull(userInfo)) {
+			throw new IllegalArgumentException("login failed");
+		}
+		assertMemberEnabled(userInfo.getStatus());
 		ArynUser hxUser = new ArynUser();
 		hxUser.setUserId(userId);
 		hxUser.setOpenId(openid);
@@ -221,6 +229,12 @@ public class TocLoginService {
 
 		SecurityUtils.loginByDevice(hxUser, DeviceTypeEnum.TOC);
 		return StpUtil.getTokenInfo();
+	}
+
+	private void assertMemberEnabled(String status) {
+		if ("1".equals(status)) {
+			throw new ArynBusinessException("账号已被禁用，请联系客服");
+		}
 	}
 
 	private void assertWxMaPlatform(UserLoginReqDTO userLoginReqDTO) {

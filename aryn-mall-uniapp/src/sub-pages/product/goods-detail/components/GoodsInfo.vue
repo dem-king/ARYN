@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { AppSeckillGoodsVO } from '@/api/promotion'
+import type { DiscountPriceDisplay } from '@/utils/discount-price'
 import type { SpecRowView } from '@/utils/goods-purchase'
 import type { NewbiePriceDisplay } from '@/utils/newbie-price'
 
@@ -22,6 +23,11 @@ interface Props {
    * 秒杀进行中时传的是空展示，这里不用再重复判定优先级。
    */
   newbieDisplay: NewbiePriceDisplay
+  /**
+   * 当前 SKU 的限时折扣展示：父级已按「秒杀 > 新人价 > 限时折扣」的优先级算好，
+   * 上层活动命中时传的是空展示，这里不用再重复判定优先级。
+   */
+  discountDisplay: DiscountPriceDisplay
 }
 
 interface Emits {
@@ -57,6 +63,8 @@ const mainPrice = computed(() => {
     return props.seckillInfo.seckillPrice
   if (props.newbieDisplay.showNewbiePrice)
     return props.newbieDisplay.newbiePrice
+  if (props.discountDisplay.showDiscountPrice)
+    return props.discountDisplay.discountPrice
   return props.goodsSpu?.salesPrice
 })
 
@@ -72,6 +80,10 @@ const strikePrice = computed(() => {
     return props.goodsSpu?.salesPrice
   if (props.newbieDisplay.showNewbiePrice)
     return props.newbieDisplay.originalPrice
+  // 限时折扣的基准价是 SKU 当前售价（会场卡片同样划这个价），
+  // 不能继续划商品原价（38.87）——那会把 8 折说成 7.7 折，与会场口径矛盾
+  if (props.discountDisplay.showDiscountPrice)
+    return props.discountDisplay.originalPrice
   return props.goodsSpu?.salesPrice < props.goodsSpu?.originalPrice
     ? props.goodsSpu?.originalPrice
     : null
@@ -95,6 +107,19 @@ const showSubtitle = computed(() => {
 
 /** 可享新人价时的限购提示；不适用时为空串（避免渲染空条） */
 const newbieLimitText = computed(() => newbieLimitHint(props.newbieDisplay))
+
+/**
+ * 价格区下方是否存在活动说明条。
+ *
+ * 标题卡原设计用 `margin-top: -32px` 上提、与价格渐变区咬合；一旦中间插入了
+ * 活动条（秒杀/新人价/限时折扣），上提量会把标题拖进条内、首行被裁掉。
+ * 有条时取消上提，让标题卡排在条下方。
+ */
+const hasPriceStrip = computed(() =>
+  Boolean(props.seckillInfo)
+  || Boolean(newbieLimitText.value || props.newbieDisplay.ineligibleText)
+  || props.discountDisplay.showDiscountPrice,
+)
 
 /** 秒杀剩余库存：后端 Redis 缺失时以「总量-已售」兜底 */
 const seckillRemaining = computed(() => {
@@ -271,6 +296,9 @@ defineExpose({
             <text v-if="newbieDisplay.showNewbiePrice" class="newbie-badge">
               {{ NEWBIE_BADGE_TEXT }}
             </text>
+            <text v-if="discountDisplay.showDiscountPrice" class="discount-badge">
+              {{ discountDisplay.badgeText }}
+            </text>
             <text v-if="savingAmount" class="saving-badge">
               省￥{{ savingAmount }}
             </text>
@@ -341,7 +369,23 @@ defineExpose({
         {{ newbieDisplay.ineligibleText }}
       </text>
     </view>
-    <view class="goods-title-card relative rounded-xl bg-white dark:bg-[var(--wot-dark-background2)]" style="margin-top: -32px;">
+
+    <!-- 限时折扣条：解释「为什么主价是折后价」，活动名让用户知道价从哪来 -->
+    <view v-if="discountDisplay.showDiscountPrice" class="discount-strip">
+      <text class="discount-strip-tag">
+        限时折扣
+      </text>
+      <text class="discount-strip-name">
+        {{ discountDisplay.activityName || '活动商品' }}
+      </text>
+      <text class="discount-strip-meta">
+        结算自动生效
+      </text>
+    </view>
+    <view
+      class="goods-title-card relative rounded-xl bg-white dark:bg-[var(--wot-dark-background2)]"
+      :class="{ 'goods-title-card--striped': hasPriceStrip }"
+    >
       <view class="goods-title-card__main">
         <!--  商品标题 -->
         <wd-text :lines="2" size="32rpx" color="inherit" bold :text="goodsSpu?.name" />
@@ -457,6 +501,8 @@ defineExpose({
 }
 
 .goods-title-card {
+  // 默认上提，与价格渐变区咬合；有活动说明条时由 --striped 取消（见 hasPriceStrip）
+  margin-top: -32px;
   padding: 24rpx;
   box-shadow: 0 6rpx 18rpx rgb(22 34 51 / 5%);
 
@@ -601,6 +647,62 @@ defineExpose({
   color: #fff;
   font-size: 20rpx;
   line-height: 1.6;
+}
+
+// 有活动条时标题卡不再上提，避免首行被条裁切
+.goods-title-card--striped {
+  margin-top: 0;
+}
+
+// 限时折扣角标：与新人价角标同一套白描边语言（价格区为渐变主色底）
+.discount-badge {
+  margin-left: 12rpx;
+  padding: 2rpx 12rpx;
+  border: 1rpx solid rgb(255 255 255 / 70%);
+  border-radius: 999rpx;
+  background: rgb(255 255 255 / 18%);
+  color: #fff;
+  font-size: 20rpx;
+  font-weight: 600;
+  line-height: 1.6;
+}
+
+// 限时折扣条：独立 class，避免以后调秒杀/新人价样式时被连带改掉
+.discount-strip {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin: -20rpx 16rpx 12rpx;
+  padding: 14rpx 20rpx;
+  border-radius: 12rpx;
+  background: #fff1ee;
+
+  .discount-strip-tag {
+    flex-shrink: 0;
+    padding: 4rpx 14rpx;
+    border-radius: 8rpx;
+    background: linear-gradient(135deg, var(--wot-color-theme-secondary, #ff6b35), var(--wot-color-theme-primary, #ff4500));
+    color: #fff;
+    font-size: 22rpx;
+    font-weight: 600;
+  }
+
+  .discount-strip-name {
+    flex: 1;
+    overflow: hidden;
+    color: #7a3412;
+    font-size: 22rpx;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .discount-strip-meta {
+    flex-shrink: 0;
+    color: #b25a3a;
+    font-size: 22rpx;
+  }
 }
 
 // 新人价条：与秒杀条同位置同节奏，但独立 class——两类活动不能共用样式，

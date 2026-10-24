@@ -20,6 +20,9 @@ public class PurchaseSceneValidator {
 
 	/**
 	 * 校验购买场景与配送方式组合；不合法抛出业务异常。
+	 *
+	 * <p>船供采购（2）必须公司配送到船（way=4）；企业采购（3）必须公司配送岸上
+	 * （way=3）——两类共享车提交的配送方式由车的类型决定，客户端不得另选。
 	 * @param purchaseScene 购买场景（可为空，视为普通零售）
 	 * @param deliveryWay 配送方式
 	 */
@@ -33,6 +36,10 @@ public class PurchaseSceneValidator {
 		if (PurchaseSceneEnum.SHIP_SUPPLY.getCode().equals(purchaseScene)
 				&& !DeliveryWayEnum.INTERNAL_PORT.getCode().equals(deliveryWay)) {
 			throw new ArynBusinessException("船供采购必须使用公司配送（到船）");
+		}
+		if (PurchaseSceneEnum.ENTERPRISE.getCode().equals(purchaseScene)
+				&& !DeliveryWayEnum.MALL_DELIVERY.getCode().equals(deliveryWay)) {
+			throw new ArynBusinessException("企业采购必须使用公司配送（岸上）");
 		}
 	}
 

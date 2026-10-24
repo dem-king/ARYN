@@ -111,6 +111,12 @@ const required = [
   'idx_order_info_scene',
   'uk_fulfillment_pick_item',
   'ADD COLUMN `attr_tags`',
+  'ADD COLUMN `status`',
+  'uk_points_record_biz',
+  '2140000000000000001',
+  '2160000000000000001',
+  '2170000000000000001',
+  '2050000000000000136',
 ];
 
 for (const token of required) {
@@ -148,6 +154,10 @@ const sourceFiles = [
   '57shared_cart_admin_menu.sql',
   '58shopping_cart_vessel_incremental.sql',
   '59gift_activity_incremental.sql',
+  '147member_level_seed.sql',
+  '148points_closed_loop_incremental.sql',
+  '149member_level_icon.sql',
+  '158member_management_incremental.sql',
   '3aryn_boot_job.sql',
 ];
 for (const file of sourceFiles) {

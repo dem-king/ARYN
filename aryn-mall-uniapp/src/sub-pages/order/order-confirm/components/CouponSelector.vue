@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { formatCouponExpiry } from '@/utils/coupon-display'
+import { getCouponUnavailableInfo } from '@/utils/coupon-usability'
 
 interface Props {
   couponPopup: boolean
   couponUserList: any[]
   orderPrice: number
   orderItemList: any[]
+  /** 服务端下发的券门槛可计算金额（couponEligibleAmount）：门槛按可叠商品金额判断 */
+  couponEligibleBase?: number | null
 }
 
 const props = defineProps<Props>()
@@ -33,39 +36,9 @@ function couponConfirm() {
 }
 function getCouponUnavailableMap() {
   return props.couponUserList.reduce((map, item) => {
-    map[item.id] = getCouponUnavailableInfo(item)
+    map[item.id] = getCouponUnavailableInfo(item, props.orderItemList, props.couponEligibleBase)
     return map
   }, {})
-}
-function getCouponUnavailableInfo(item: any) {
-  // 默认返回结果
-  const result = { unavailable: false, reason: '' }
-
-  // 优惠券门槛金额
-  const threshold = item?.couponInfo?.threshold ?? 0
-  // 优惠券使用范围（1：全场通用，2：部分商品可用）
-  const useRange = item?.couponInfo?.useRange
-  const orderSpuIds = props.orderItemList.map(i => i.spuId)
-
-  // ② 判断是否部分商品可用
-  if (useRange === '2') {
-    const couponSpuIds = (item.couponGoodsList || []).map((i: { spuId: string }) => i.spuId)
-    const hasMatched = orderSpuIds.some(spuId => couponSpuIds.includes(spuId))
-    if (!hasMatched) {
-      result.unavailable = true
-      result.reason = '仅部分商品可用（本单无可用商品）'
-      return result
-    }
-  }
-
-  // ① 判断门槛金额
-  if (threshold > 0 && props.orderPrice < threshold) {
-    result.unavailable = true
-    result.reason = `订单未满 ${threshold} 元`
-    return result
-  }
-
-  return result
 }
 
 const couponUnavailableMap = computed(getCouponUnavailableMap)
@@ -74,9 +47,6 @@ const couponUnavailableMap = computed(getCouponUnavailableMap)
 function handleSelect(item: any) {
   const unavailable = couponUnavailableMap.value?.[item.id]?.unavailable
   if (unavailable) {
-    return
-  }
-  if (item.couponInfo.threshold > 0 && props.orderPrice < item.couponInfo.threshold) {
     return
   }
   if (selectedCouponId.value === item.id) {

@@ -177,8 +177,11 @@ const deliverTimeLabel = (row: any) => {
   }
   return row.deliveryWay === '3' || row.deliveryWay === '4' ? '出发' : '发货';
 };
-const sceneTagType = (scene?: string): 'info' | 'primary' =>
-  scene === '2' ? 'primary' : 'info';
+const sceneTagType = (scene?: string): 'info' | 'primary' | 'success' => {
+  if (scene === '2') return 'primary';
+  if (scene === '3') return 'success';
+  return 'info';
+};
 const vesselText = (row: any) =>
   [row.vesselName, row.portName].filter(Boolean).join(' · ');
 const vesselTitle = (row: any) =>
@@ -496,6 +499,7 @@ watch(
           >
             <ElOption label="海员个人购买" value="1" />
             <ElOption label="船供采购" value="2" />
+            <ElOption label="企业采购" value="3" />
           </ElSelect>
         </ElFormItem>
         <ElFormItem label="配送方式" prop="deliveryWay">

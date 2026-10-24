@@ -85,6 +85,9 @@ public class UserInfo extends Model<UserInfo> {
 	@Schema(description = "会员等级ID")
 	private String memberLevelId;
 
+	@Schema(description = "状态：0-启用；1-禁用")
+	private String status;
+
 	@Schema(description = "积分余额")
 	private Integer point = 0;
 

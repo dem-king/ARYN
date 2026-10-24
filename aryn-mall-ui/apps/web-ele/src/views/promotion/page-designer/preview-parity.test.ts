@@ -189,10 +189,12 @@ describe('装修预览与小程序视觉一致性', () => {
       '12px',
     );
     expect(value(declarations(admin, '.notice-text'), 'line-height')).toBe(
-      '18px',
+      '20px',
     );
-    // 小程序用 wd-notice-bar 渲染，其默认字号/行高即 12px / 18px
-    expect(readMobile('diy-notice')).toContain('wd-notice-bar');
+    // 小程序用 wd-notice-bar 渲染，行高通过 CSS 变量与画布对齐
+    const mobileNotice = readMobile('diy-notice');
+    expect(mobileNotice).toContain('wd-notice-bar');
+    expect(mobileNotice).toContain("'--wot-notice-bar-line-height': '20px'");
     // 曾用 var(...) 把 color 包起来，浏览器拿不到该变量导致图标颜色失效；
     // 现在应把 color 直接作为颜色值使用
     const noticeAdmin = readAdmin('notice');
@@ -250,14 +252,71 @@ describe('装修预览与小程序视觉一致性', () => {
     const adminShop = styleBlock(readAdmin('shop-info'));
     const mobileShop = styleBlock(readMobile('diy-shop-info'));
     expect(value(declarations(adminShop, '.shop-logo'), 'width')).toBe(
-      `${rpxToPx(96)}px`,
+      `${rpxToPx(88)}px`,
     );
     expect(value(declarations(mobileShop, '.shop-logo'), 'width')).toBe(
-      '96rpx',
+      '88rpx',
     );
     expect(value(declarations(adminShop, '.shop-name'), 'color')).toBe(
       value(declarations(mobileShop, '.shop-name'), 'color'),
     );
+    // 店铺头卡片与联系胶囊（2026-10 重构）：内边距/高度两端同值
+    expect(value(declarations(adminShop, '.shop-content'), 'padding')).toBe(
+      `${rpxToPx(24)}px`,
+    );
+    expect(value(declarations(mobileShop, '.shop-card'), 'padding')).toBe(
+      '24rpx',
+    );
+    expect(value(declarations(adminShop, '.contact-button'), 'height')).toBe(
+      `${rpxToPx(60)}px`,
+    );
+    expect(value(declarations(mobileShop, '.contact-button'), 'height')).toBe(
+      '60rpx',
+    );
+  });
+
+  it('服务承诺：保障条白卡与圆底徽标两端一致，图标兜底同关键词表', () => {
+    const adminStyle = styleBlock(
+      readFileSync(
+        resolve(adminComponentsRoot, 'extension/extension-preview.vue'),
+        'utf8',
+      ),
+    );
+    const mobileStyle = styleBlock(readMobile('diy-service-promise'));
+    // 白卡：C 端 promise-inner（padding 20rpx 另有 it.each 守卫），画布 preview-inner--card
+    expect(
+      value(declarations(adminStyle, '.preview-inner--card'), 'border-radius'),
+    ).toBe(`${rpxToPx(24)}px`);
+    expect(
+      value(declarations(mobileStyle, '.promise-inner'), 'border-radius'),
+    ).toBe('24rpx');
+    // 圆底徽标 64rpx ↔ 32px
+    expect(
+      value(declarations(adminStyle, '.preview-promise-badge'), 'width'),
+    ).toBe(`${rpxToPx(64)}px`);
+    expect(value(declarations(mobileStyle, '.promise-badge'), 'width')).toBe(
+      '64rpx',
+    );
+    expect(
+      value(declarations(adminStyle, '.preview-promise-text'), 'color'),
+    ).toBe(value(declarations(mobileStyle, '.promise-text'), 'color'));
+    // iconUrl 无上传入口恒为空，两端必须按同一关键词表做内置图标兜底
+    // （映射在 <script> 里，styleBlock 只取样式，这里对全文断言）
+    const adminSource = readFileSync(
+      resolve(adminComponentsRoot, 'extension/extension-preview.vue'),
+      'utf8',
+    );
+    const mobileSource = readMobile('diy-service-promise');
+    for (const keyword of [
+      '退|换',
+      '[保正质]',
+      '服|客|售后',
+      '[速快时达]',
+      '票|结算|款|支付',
+    ]) {
+      expect(mobileSource).toContain(keyword);
+      expect(adminSource).toContain(keyword);
+    }
   });
 
   it('倒计时：单行标题 + 数值，与小程序结构一致', () => {
@@ -633,7 +692,6 @@ describe('装修预览与小程序视觉一致性', () => {
 
   it.each([
     ['diy-goods-waterfall', '.waterfall-inner'],
-    ['diy-coupon-combo', '.combo-inner'],
     ['diy-member-benefits', '.benefits-inner'],
     ['diy-service-promise', '.promise-inner'],
     ['diy-video-live', '.videolive-inner'],
@@ -641,7 +699,7 @@ describe('装修预览与小程序视觉一致性', () => {
     'extension 组件 %s 的留白挂在内层（防 commonStyle 内联零值覆盖）',
     (dir, selector) => {
       // 与商品推荐同根因：留白挂根节点会被装修 commonStyle 的 padding-*:0
-      // 内联样式整块盖掉，六个 extension 组件曾因此在实机顶到屏幕边缘
+      // 内联样式整块盖掉，extension 组件曾因此在实机顶到屏幕边缘
       const mobile = readMobile(dir);
       expect(value(declarations(mobile, selector), 'padding')).toBe('20rpx');
     },
@@ -1353,6 +1411,36 @@ describe('装修预览与小程序视觉一致性', () => {
     ]) {
       expect(adminPreview, `管理端缺少 loader ${loader}`).toContain(loader);
       expect(mobilePreview, `C 端缺少 loader ${loader}`).toContain(loader);
+    }
+
+    // 全场折扣没有商品清单：两端缩略图都用取数层补的 coverImage（商品图优先），
+    // 不退回「限」字色块；取不到图才回落首字兜底
+    for (const [label, source] of [
+      ['管理端预览', adminPreview],
+      ['C 端逻辑', mobileLogic],
+    ] as const) {
+      expect(source, `${label} 折扣缩略图优先商品图`).toContain(
+        'discount.goodsList[0]?.goodsImage || discount.coverImage',
+      );
+    }
+    for (const [label, file] of [
+      [
+        '管理端',
+        resolve(adminComponentsRoot, 'common/retail-preview/retail-data.ts'),
+      ],
+      ['C 端', resolve(mobileDiyRoot, 'retail-data.ts')],
+    ] as const) {
+      const source = readFileSync(file, 'utf8');
+      expect(source, `${label} 缺图才补代表商品图`).toContain(
+        'loadSalesTopGoodsImage',
+      );
+      // 代表图 = 全店销量 Top1 商品（真实参与全场折扣，不伪造）
+      expect(source, `${label} 代表图取销量 Top1`).toContain(
+        "createGoodsSortParams('sales'",
+      );
+      expect(source, `${label} coverImage 由取数层解析`).toContain(
+        'coverImage:',
+      );
     }
 
     // 某类无活动只隐藏该卡，剩余卡按实际卡数等宽重排（§5.5.6）；

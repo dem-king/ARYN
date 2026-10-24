@@ -12,6 +12,7 @@ import com.aryn.cloud.user.api.vo.UserRespVO;
 import com.aryn.cloud.user.api.vo.UserStatisticsVO;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 import java.io.Serializable;
@@ -69,6 +70,16 @@ public interface UserInfoMapper extends BaseMapper<UserInfo> {
 				AND COALESCE(point, 0) >= #{changePoint}
 			""")
 	int consumePoints(@Param("userId") String userId, @Param("changePoint") Integer changePoint);
+
+	/**
+	 * 锁定用户积分行，保证并发积分流水中的 balance_after 与最终余额一致。
+	 */
+	@Select("""
+			SELECT COALESCE(point, 0) FROM user_info
+			WHERE id = #{userId} AND del_flag = '0'
+			FOR UPDATE
+			""")
+	Integer selectPointForUpdate(@Param("userId") String userId);
 
 	@Update("""
 			UPDATE user_info

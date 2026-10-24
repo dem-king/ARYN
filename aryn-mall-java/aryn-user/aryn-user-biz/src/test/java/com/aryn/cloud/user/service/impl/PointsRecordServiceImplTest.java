@@ -44,6 +44,7 @@ class PointsRecordServiceImplTest {
 		UserInfo before = user(100, 500);
 		UserInfo after = user(150, 550);
 		when(userInfoMapper.selectById("user001")).thenReturn(before, after);
+		when(userInfoMapper.selectPointForUpdate("user001")).thenReturn(100);
 		when(userInfoMapper.acquirePoints("user001", 50)).thenReturn(1);
 		when(pointsRecordMapper.insert(any(PointsRecord.class))).thenReturn(1);
 
@@ -60,6 +61,7 @@ class PointsRecordServiceImplTest {
 		UserInfo before = user(100, 500);
 		UserInfo after = user(70, 500);
 		when(userInfoMapper.selectById("user001")).thenReturn(before, after);
+		when(userInfoMapper.selectPointForUpdate("user001")).thenReturn(100);
 		when(userInfoMapper.consumePoints("user001", 30)).thenReturn(1);
 		when(pointsRecordMapper.insert(any(PointsRecord.class))).thenReturn(1);
 
@@ -72,6 +74,7 @@ class PointsRecordServiceImplTest {
 	@Test
 	void consumePointsRejectsConcurrentInsufficientBalance() {
 		when(userInfoMapper.selectById("user001")).thenReturn(user(100, 500));
+		when(userInfoMapper.selectPointForUpdate("user001")).thenReturn(100);
 		when(userInfoMapper.consumePoints("user001", 100)).thenReturn(0);
 
 		ArynBusinessException exception = assertThrows(ArynBusinessException.class,
@@ -101,6 +104,7 @@ class PointsRecordServiceImplTest {
 	@Test
 	void levelFailurePropagatesSoTransactionCanRollback() {
 		when(userInfoMapper.selectById("user001")).thenReturn(user(100, 500), user(150, 550));
+		when(userInfoMapper.selectPointForUpdate("user001")).thenReturn(100);
 		when(userInfoMapper.acquirePoints("user001", 50)).thenReturn(1);
 		when(pointsRecordMapper.insert(any(PointsRecord.class))).thenReturn(1);
 		doThrow(new IllegalStateException("等级服务异常")).when(memberLevelService).recalculateLevel("user001");
@@ -118,6 +122,7 @@ class PointsRecordServiceImplTest {
 		UserInfo before = user(10, 500);
 		UserInfo after = user(110, 500);
 		when(userInfoMapper.selectById("user001")).thenReturn(before, after);
+		when(userInfoMapper.selectPointForUpdate("user001")).thenReturn(10);
 		when(userInfoMapper.refundPoints("user001", 100)).thenReturn(1);
 		when(pointsRecordMapper.insert(any(PointsRecord.class))).thenReturn(1);
 

@@ -3,6 +3,8 @@ package com.aryn.cloud.user.controller.admin;
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.common.core.util.Result;
+import com.aryn.cloud.common.log.annotation.SysLog;
+import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.user.api.entity.RechargeOrder;
 import com.aryn.cloud.user.service.IRechargeOrderService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -37,6 +39,19 @@ public class RechargeOrderController {
 	@GetMapping("/{id}")
 	public Result getById(@PathVariable("id") String id) {
 		return Result.success(rechargeOrderService.getById(id));
+	}
+
+	@SysLog("关闭充值订单")
+	@Operation(summary = "关闭充值订单")
+	@SaCheckPermission("user:rechargeorder:edit")
+	@PostMapping("/cancel/{id}")
+	public Result<Boolean> cancel(@PathVariable("id") String id) {
+		RechargeOrder order = rechargeOrderService.getById(id);
+		if (order == null) {
+			throw new ArynBusinessException("充值订单不存在");
+		}
+		rechargeOrderService.cancelOrder(order.getOrderNo());
+		return Result.success(true);
 	}
 
 }

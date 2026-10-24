@@ -2,6 +2,7 @@ package com.aryn.cloud.promotion.api.remote;
 
 import com.aryn.cloud.promotion.api.dto.SeckillOrderDTO;
 import com.aryn.cloud.promotion.api.vo.AppSeckillGoodsVO;
+import com.aryn.cloud.promotion.api.vo.SeckillPriceContextVO;
 
 import java.math.BigDecimal;
 
@@ -49,6 +50,16 @@ public interface RemoteSeckillService {
 	 * @return 秒杀价；null 表示无进行中的秒杀
 	 */
 	BigDecimal getSeckillPrice(String skuId);
+
+	/**
+	 * 查询 SKU 秒杀价上下文（价格 + 活动叠加策略）。
+	 *
+	 * <p>订单侧对秒杀类型强制不可叠（不信任返回的叠加字段），字段仅作透出与对账用。
+	 *
+	 * @param skuId SKU ID
+	 * @return 上下文；null 表示无进行中的秒杀
+	 */
+	SeckillPriceContextVO getPriceContext(String skuId);
 
 	/**
 	 * 查询 SKU 秒杀商品信息

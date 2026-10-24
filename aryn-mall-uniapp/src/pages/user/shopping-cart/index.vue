@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { DiscountPriceDisplay } from '@/utils/discount-price'
 import type { NewbiePriceDisplay } from '@/utils/newbie-price'
 import { onShow } from '@dcloudio/uni-app'
 import { computed, reactive, ref } from 'vue'
@@ -6,7 +7,7 @@ import { computed, reactive, ref } from 'vue'
 import { delShoppingCart, editShoppingCart, getPage } from '@/api/order/shoppingCart'
 import { saveBatch } from '@/api/product/collect'
 import { getById } from '@/api/product/spu'
-import { getNewbieSkuPrices } from '@/api/promotion'
+import { getGoodsDiscountPrices, getNewbieSkuPrices } from '@/api/promotion'
 // 引入组件
 import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
@@ -15,6 +16,11 @@ import WaterfallGoods from '@/components/waterfall-goods/index.vue'
 import { useShipContextLoad } from '@/composables/useShipContextLoad'
 import { useShipContextStore } from '@/store/shipContextStore'
 import { useTenantCapabilityStore } from '@/store/tenantCapabilityStore'
+import {
+  discountUnitPrice,
+  emptyDiscountDisplay,
+  resolveDiscountPriceDisplay,
+} from '@/utils/discount-price'
 import { initGoodsSpecs } from '@/utils/goods-specs'
 import {
   clampNewbieQuantity,
@@ -72,6 +78,13 @@ const { load: loadShipContext } = useShipContextLoad()
 const capabilityStore = useTenantCapabilityStore()
 const showShipStatusBar = computed(() =>
   authStore.isLoggedIn && capabilityStore.shipSupplyEnabled && !!shipContextStore.vesselId,
+)
+/**
+ * 岸上合并采购入口：未绑船的船供租户用户（港口附近工厂等岸上客户）此前没有任何
+ * 共享购物车入口——共享车不再只属于船，但绑船入口只对有船舶上下文的用户渲染。
+ */
+const showShoreEntryBar = computed(() =>
+  authStore.isLoggedIn && capabilityStore.shipSupplyEnabled && !shipContextStore.vesselId,
 )
 const hasActiveCall = computed(() => !!shipContextStore.vesselCallId)
 const shipStatusBarText = computed(() => {
@@ -164,6 +177,19 @@ function newbieDisplayOf(row: any): NewbiePriceDisplay {
 }
 
 /**
+ * 限时折扣展示：`skuId → display`。
+ *
+ * 与新人价同构：整份对象替换即可触发依赖它的行价/合计/划线价重算；
+ * 未命中/接口失败时保持空对象，所有读取都回落原价（降级无需额外分支）。
+ */
+const discountDisplays = ref<Record<string, DiscountPriceDisplay>>({})
+
+/** 取某行的限时折扣展示；无活动/未命中时返回共享的空展示（不新建对象，避免每行一个） */
+function discountDisplayOf(row: any): DiscountPriceDisplay {
+  return discountDisplays.value[String(row?.skuId ?? '')] || emptyDiscountDisplay()
+}
+
+/**
  * 行内划线价：优先划 SKU 原价（与售价同一数据源），存量商品没维护原价时，
  * 新人价场景退回划当前售价 —— 原本的对比提示不能凭空消失。
  * 普通场景无原价则不划线，与商详/列表的 shouldShowOriginalPrice 口径一致。
@@ -172,13 +198,33 @@ function strikePriceOf(row: any): number | string | undefined {
   const sku = row?.goodsSku
   if (!sku)
     return undefined
-  const display = newbieDisplayOf(row)
-  if (display.showNewbiePrice) {
-    return shouldShowOriginalPrice(display.newbiePrice, sku.originalPrice)
+  const newbie = newbieDisplayOf(row)
+  if (newbie.showNewbiePrice) {
+    return shouldShowOriginalPrice(newbie.newbiePrice, sku.originalPrice)
       ? sku.originalPrice
       : sku.salesPrice
   }
+  // 限时折扣的划线价是活动基准价（接口下发的 originalPrice，等同 SKU 售价）：
+  // 主价已切折后价，划线价必须取同一份判定结果，否则「折后价 vs 划线价」对不上
+  const discount = discountDisplayOf(row)
+  if (discount.showDiscountPrice && discount.originalPrice !== null)
+    return discount.originalPrice
   return shouldShowOriginalPrice(sku.salesPrice, sku.originalPrice) ? sku.originalPrice : undefined
+}
+
+/**
+ * 行的实际成交单价：新人价 > 限时折扣 > 售价。
+ *
+ * 行价与合计必须同源（都走本函数），否则会出现「行价 ¥23.92、合计仍按 ¥29.90」。
+ * 优先级与后端 OrderPriceComputeService 一致；秒杀价购物车未接入，属既有边界
+ * （不为标价新增秒杀请求），故这里只覆盖本页掌握的新人价与折扣价两层。
+ */
+function cartUnitPrice(row: any): number {
+  const fallback = row?.goodsSku?.salesPrice
+  const newbie = newbieDisplayOf(row)
+  if (newbie.showNewbiePrice)
+    return effectiveUnitPrice(fallback, newbie)
+  return discountUnitPrice(fallback, discountDisplayOf(row))
 }
 
 /** 页面是否存在可享新人价的行（决定顶部说明条是否渲染） */
@@ -345,9 +391,9 @@ function computePrice() {
   let amount = 0
   state.checkedList.forEach((val: any) => {
     if (val.checked && val.goodsSku) {
-      // 走共享的 effectiveUnitPrice：可享新人价时用新人价，否则回落售价。
-      // 不能继续写 salesPrice —— 否则行价显示新人价、合计按原价，两个数字对不上
-      amount += effectiveUnitPrice(val.goodsSku.salesPrice, newbieDisplayOf(val)) * val.quantity
+      // 走页面内与行价同源的 cartUnitPrice（新人价 > 限时折扣 > 售价）。
+      // 不能继续写 salesPrice —— 否则行价显示折后价、合计按原价，两个数字对不上
+      amount += cartUnitPrice(val) * val.quantity
     }
   })
   state.totalAmount = amount.toFixed(2)
@@ -412,6 +458,44 @@ function clampOverLimitQuantities() {
   computePrice()
 }
 
+/**
+ * 批量查询购物车行的限时折扣价。
+ *
+ * 与新人价同一时机、整页一次批量：逐行请求会把购物车首屏放大成 N 个请求，
+ * 且各请求可能落在活动起止边界两侧，出现同一屏里一部分行折后价、
+ * 一部分行原价的错乱。skuId 先去重（同一 SKU 可能有多行，如共享购物车按成员拆行），
+ * 避免把查询串白白拉长。
+ *
+ * 失败静默：折扣价只是价格标注，接口异常绝不能影响购物车列表与结算主流程。
+ */
+async function loadDiscountPrices() {
+  const skuIds = Array.from(new Set(
+    state.cartList
+      .map((row: any) => String(row?.skuId || '').trim())
+      .filter(Boolean),
+  ))
+  if (!skuIds.length) {
+    discountDisplays.value = {}
+    computePrice()
+    return
+  }
+  try {
+    const vo = await getGoodsDiscountPrices(skuIds)
+    const next: Record<string, DiscountPriceDisplay> = {}
+    // 按行的 skuId 逐个解析：行价、划线价、合计三处读的是同一份判定结果
+    for (const skuId of skuIds) {
+      next[skuId] = resolveDiscountPriceDisplay(vo, skuId)
+    }
+    discountDisplays.value = next
+  }
+  catch {
+    // 接口失败按原价展示（空表即全部回落 salesPrice）
+    discountDisplays.value = {}
+  }
+  // 折扣价晚于首屏返回：回来时必须重算合计，否则底栏仍显示按原价算出的金额
+  computePrice()
+}
+
 async function getCartPage() {
   globalLoading.loading('请稍候...')
   try {
@@ -431,9 +515,12 @@ async function getCartPage() {
     state.checkedList = []
     computePrice()
     shoppingCartStore.fetchCartCount()
-    // 不 await：新人价是增强展示，让它晚一帧回来即可，
-    // 购物车列表/勾选/结算不该为了价格标注多等一个请求
+    // 不 await：新人价/限时折扣价都是增强展示，让它们晚一帧回来即可，
+    // 购物车列表/勾选/结算不该为了价格标注多等一个请求。
+    // 两者同一时机触发（列表加载/刷新、增删行都会走 getCartPage），
+    // 各自整页一次批量查询，互不阻塞
     void loadNewbiePrices()
+    void loadDiscountPrices()
   }
   finally {
     loading.value = false
@@ -614,8 +701,8 @@ onShow(async () => {
     用户先看到两块几乎一样重的大卡片和两次重复的船名，密度全耗在容器上。
     现在合并为一个区：船舶卡（主控，点按切换/申报）+ 共享购物车降为区内的胶囊入口，
     分组头随即去重（只报靠港，不重复船名）。
-    无船舶上下文（纯零售租户 / 未绑定）时整个区不渲染：此时共享购物车不做
-    整船合并、没有靠港可切，留一个入口只会引导到空列表。
+    有船舶上下文时渲染船舶卡；未绑船的船供租户用户（岸上客户）改为渲染岸上合并
+    采购入口卡；纯零售租户两者都不渲染。
   -->
   <view v-if="showShipStatusBar" class="ship-panel">
     <view class="ship-card" @click="openShipPicker">
@@ -645,6 +732,23 @@ onShow(async () => {
       与同船成员合并采购
       <text class="ship-shared-arrow">
         &gt;
+      </text>
+    </view>
+  </view>
+  <!-- 岸上合并采购入口：未绑船用户的共享购物车入口（发起时选岸上收货地址） -->
+  <view v-else-if="showShoreEntryBar" class="ship-panel">
+    <view class="ship-card" @click="toSharedCart">
+      <view class="ship-status-dot is-active" />
+      <view class="min-w-0 flex-1">
+        <view class="ship-name">
+          合并采购
+        </view>
+        <view class="ship-meta">
+          未绑定船舶：可按岸上收货地址发起企业合并采购
+        </view>
+      </view>
+      <text class="ship-action">
+        去发起 &gt;
       </text>
     </view>
   </view>
@@ -756,15 +860,20 @@ onShow(async () => {
           </view>
           <view v-if="goods.goodsSku" class="goods-bottom">
             <view class="goods-price">
-              <!-- 主价走新人价或售价；划线价优先取原价，无原价时新人场景退回划售价 -->
+              <!-- 主价走 cartUnitPrice（新人价 > 限时折扣 > 售价），与合计同源；
+                   划线价优先取原价，无原价时新人场景退回划售价，折扣场景划活动基准价 -->
               <view class="goods-price-main">
                 <wd-text
-                  :text="newbieDisplayOf(goods).showNewbiePrice ? newbieDisplayOf(goods).newbiePrice : goods.goodsSku.salesPrice"
+                  :text="cartUnitPrice(goods)"
                   size="30rpx" color="var(--wot-color-theme-primary, #ff2e4d)" mode="price"
                   prefix="￥"
                 />
                 <text v-if="newbieDisplayOf(goods).showNewbiePrice" class="newbie-badge">
                   {{ NEWBIE_BADGE_TEXT }}
+                </text>
+                <!-- 限时折扣角标：新人价优先，无新人价且命中折扣时才出现（文案如「8折」） -->
+                <text v-else-if="discountDisplayOf(goods).showDiscountPrice" class="discount-badge">
+                  {{ discountDisplayOf(goods).badgeText }}
                 </text>
               </view>
               <wd-text
@@ -784,7 +893,9 @@ onShow(async () => {
     </view>
     <view v-else class="cart-empty">
       <image class="cart-empty-img" src="/static/promotion/empty/empty-cart.png" mode="aspectFit" />
-      <text class="cart-empty-title">购物车还是空的</text>
+      <text class="cart-empty-title">
+        购物车还是空的
+      </text>
       <!-- 空态给两条出路：主操作回商品列表，次操作去常购清单。
            原先只有「去逛逛」，常购用户每次都要从分类页重新翻一遍 -->
       <view class="cart-empty-actions">
@@ -1130,6 +1241,20 @@ onShow(async () => {
       border-radius: 999rpx;
       background: rgba(255, 46, 77, 0.1);
       color: var(--wot-color-theme-primary, #ff2e4d);
+      font-size: 18rpx;
+      font-weight: 600;
+      line-height: 1.6;
+    }
+
+    /* 限时折扣角标：复用新人价角标的圆角胶囊尺寸（文案如「8折」「减¥5」），
+       底色取活动强调的橙色系，与新人价角标可区分且同为小字重 */
+    .discount-badge {
+      flex-shrink: 0;
+      margin-left: 8rpx;
+      padding: 2rpx 10rpx;
+      border-radius: 999rpx;
+      background: rgba(255, 138, 0, 0.12);
+      color: var(--wot-color-theme-secondary, #ff8a00);
       font-size: 18rpx;
       font-weight: 600;
       line-height: 1.6;

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import type { SharedCartSummary } from '@/api/order/sharedCart'
+import type { SharedCartCreatePayload, SharedCartSummary } from '@/api/order/sharedCart'
+
 /**
  * 导入清单下单（向导入口）。
  *
@@ -15,12 +16,8 @@ import type { SharedCartSummary } from '@/api/order/sharedCart'
  */
 import { onShow } from '@dcloudio/uni-app'
 import { computed, ref } from 'vue'
+import { createSharedCart, getActiveSharedCartSummary } from '@/api/order/sharedCart'
 
-import {
-  createSharedCart,
-  getActiveSharedCartSummary,
-  type SharedCartCreatePayload,
-} from '@/api/order/sharedCart'
 import hrNavbar from '@/components/hr-navbar/index.vue'
 import ShipContextPicker from '@/components/ship-context-picker/index.vue'
 import { useAuthStore } from '@/store/authStore'
@@ -95,9 +92,16 @@ async function resolveTargetCart() {
 }
 
 function submitCreate() {
-  if (createState.value.submitting) return
-  // 上下文缺失时先补齐船舶/靠港，而不是一句无法执行的提示
+  if (createState.value.submitting)
+    return
+  // 上下文缺失时先补齐船舶/靠港，而不是一句无法执行的提示；
+  // 未绑船的岸上客户没有船可选，引导到列表页按收货地址发起（创建后再回详情导入）
   if (!canCreate.value) {
+    if (!shipContextStore.vesselId) {
+      uni.showToast({ title: '请先在共享购物车列表按收货地址发起', icon: 'none' })
+      goCartList()
+      return
+    }
     shipPickerVisible.value = true
     return
   }
@@ -174,7 +178,7 @@ onShow(() => {
           :maxlength="120"
         >
         <button
-          class="!m-0 mt-20rpx h-68rpx text-26rpx leading-68rpx"
+          class="mt-20rpx h-68rpx text-26rpx leading-68rpx !m-0"
           type="primary"
           :disabled="createState.submitting"
           @tap="submitCreate"

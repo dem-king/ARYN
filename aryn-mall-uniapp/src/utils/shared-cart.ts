@@ -106,13 +106,32 @@ export function pickActiveCart(summary?: SharedCartSummary | null): SharedCart |
   return cart
 }
 
-/** 购物车位置文案：港口 + 泊位，缺失时回落船名（与首页补给单卡片同口径） */
+/**
+ * 购物车位置文案：岸上车显示地址快照；船供车显示港口 + 泊位，
+ * 缺失时回落船名（与首页补给单卡片同口径）
+ */
 export function sharedCartLocationLabel(cart?: SharedCart | null): string {
   if (!cart)
     return ''
+  if (isShoreCart(cart))
+    return cart.addressSnapshot || '收货地址待同步'
   const parts = [cart.portName, cart.berth].filter(Boolean)
   if (parts.length > 0)
     return parts.join(' ')
+  return cart.vesselName || ''
+}
+
+/** 岸上企业车判定（后端对存量空 cartType 归一为船供，这里同样兜底） */
+export function isShoreCart(cart?: SharedCart | null): boolean {
+  return cart?.cartType === '2'
+}
+
+/** 购物车标题文案：岸上车无船名，统一叫「岸上合并采购」 */
+export function sharedCartTitleLabel(cart?: SharedCart | null): string {
+  if (!cart)
+    return ''
+  if (isShoreCart(cart))
+    return '岸上合并采购'
   return cart.vesselName || ''
 }
 

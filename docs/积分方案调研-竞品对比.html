@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>悦航购海员商城积分方案调研 · 竞品对比与建议优先级</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif;
+    background: #f5f7fa;
+    color: #1f2d3d;
+    line-height: 1.6;
+    padding: 20px;
+  }
+  .container { max-width: 1280px; margin: 0 auto; }
+  header {
+    background: linear-gradient(135deg, #1e5f8e 0%, #2e8b8b 100%);
+    color: #fff;
+    padding: 24px 28px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+  }
+  header h1 { font-size: 22px; font-weight: 600; margin-bottom: 8px; }
+  header p  { font-size: 14px; opacity: 0.92; }
+  .chart-card {
+    background: #fff;
+    border-radius: 10px;
+    padding: 20px 22px 14px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  }
+  .chart-card h2 {
+    font-size: 17px;
+    color: #1e5f8e;
+    margin-bottom: 4px;
+    padding-left: 10px;
+    border-left: 4px solid #2e8b8b;
+  }
+  .chart-card .sub {
+    font-size: 12.5px;
+    color: #6b7a8f;
+    margin-bottom: 10px;
+    padding-left: 14px;
+  }
+  .chart { width: 100%; height: 460px; }
+  .chart.tall { height: 520px; }
+  .insight {
+    margin-top: 8px;
+    padding: 10px 14px;
+    background: #eef6f6;
+    border-left: 3px solid #2e8b8b;
+    border-radius: 4px;
+    font-size: 13px;
+    color: #2c5e5e;
+  }
+  .insight b { color: #1e5f8e; }
+  .dim-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 12px;
+    font-size: 12.5px;
+  }
+  .dim-table th, .dim-table td {
+    border: 1px solid #e4e9f0;
+    padding: 6px 8px;
+    text-align: center;
+  }
+  .dim-table th { background: #f0f4f8; color: #3a4a5e; font-weight: 600; }
+  .dim-table td.name { text-align: left; font-weight: 600; color: #1e5f8e; }
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11.5px; }
+  .tag-yes { background: #fde8e8; color: #c0392b; }
+  .tag-no  { background: #e8f6ec; color: #27864a; }
+  .tag-mid { background: #fef3e2; color: #b9770e; }
+  .tag-cash { background: #e3edf7; color: #1e5f8e; }
+  .tag-coupon { background: #e8f4f0; color: #1f7a6a; }
+  .tag-off { background: #eef0f3; color: #6b7a8f; }
+  .legend-row {
+    display: flex; flex-wrap: wrap; gap: 14px;
+    font-size: 12.5px; color: #3a4a5e;
+    margin: 6px 0 4px 2px;
+  }
+  .legend-row .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+  footer { text-align: center; font-size: 12px; color: #8a97a8; padding: 10px 0 4px; }
+  @media (max-width: 720px) {
+    body { padding: 10px; }
+    header { padding: 16px; }
+    header h1 { font-size: 18px; }
+    .chart { height: 380px; }
+    .chart.tall { height: 460px; }
+    .dim-table { font-size: 11.5px; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<header>
+  <h1>悦航购海员商城积分方案调研：竞品对比与建议优先级</h1>
+  <p>对标小象超市（核心）/ 盒马（补充）/ 京东·淘宝·美团·拼多多·唯品会·网易严选·山姆·叮咚·永辉 共 11 家主流平台 ｜ 数据截至 2026-10-24，来源见调研文档第 6 节</p>
+</header>
+
+<!-- ============ 视图一：抵扣规则对比 ============ -->
+<div class="chart-card">
+  <h2>视图一 · 主流平台积分抵扣规则对比</h2>
+  <div class="sub">上图：抵扣比例上限（%，仅对"直接抵现"类平台取标称上限；兑券/未开放类单独着色）｜ 下图：积分有效期（天，越短越激进）</div>
+  <div id="chartDeduct" class="chart tall"></div>
+  <div class="legend-row">
+    <span><span class="dot" style="background:#2e8b8b"></span>直接抵现（比例上限明确）</span>
+    <span><span class="dot" style="background:#5b9bd5"></span>兑券 / 兑权益为主</span>
+    <span><span class="dot" style="background:#a8b6c4"></span>未开放订单抵现 / 不适用</span>
+  </div>
+  <table class="dim-table">
+    <thead>
+      <tr>
+        <th style="width:11%">平台</th>
+        <th style="width:14%">汇率<br>(积分:元)</th>
+        <th style="width:11%">品类黑名单</th>
+        <th style="width:18%">抵现形态</th>
+        <th>关键风控规则</th>
+      </tr>
+    </thead>
+    <tbody id="dimBody"></tbody>
+  </table>
+  <div class="insight">
+    <b>结论提示：</b>行业汇率事实标准为 <b>100 积分=1 元</b>（悦航购现行口径正确）；
+    <b>京东按京享值分档 50%→90%</b>、<b>美团限 50%+5/10 元固定面额+每日 1 次</b>、
+    <b>永辉单笔硬封顶 5 元</b>、<b>盒马仅兑券不抵现且 3 个月到期</b>；
+    小象/盒马/叮咚/朴朴等生鲜即时零售业态均不做无条件直接抵现——行业趋势是把积分包装成"兑券/兑权益"，而非"第二货币"。
+  </div>
+</div>
+
+<!-- ============ 视图二：建议优先级矩阵 ============ -->
+<div class="chart-card">
+  <h2>视图二 · 方案建议优先级矩阵（影响度 × 实施成本）</h2>
+  <div class="sub">横轴：实施成本（左=低 配置/枚举级，右=高 新模块/跨端重构）｜ 纵轴：对毛利保护 / 财务风控 / 用户体验的综合影响度</div>
+  <div id="chartPriority" class="chart tall"></div>
+  <div class="legend-row">
+    <span><span class="dot" style="background:#c0392b"></span>P0 = 止血（1-2 周内上）</span>
+    <span><span class="dot" style="background:#e67e22"></span>P1 = 优化（1 个月内）</span>
+    <span><span class="dot" style="background:#7f8c9b"></span>P2 = 进阶（季度规划）</span>
+  </div>
+  <div class="insight">
+    <b>落地节奏：</b>第 1 步（P0）<b>品类黑名单 + 有效期 + 门槛/封顶 + 发放侧排除</b>——两周内堵住"负债无限增长 + 虚拟商品套利"；
+    第 2 步（P1）<b>抵扣比例配置化 + 会员分级 + 积分兑券商城</b>——一个月内把积分从"第二货币"转回"营销工具"；
+    第 3 步（P2）财务递延计提 + 付费会员联动；<b>游戏化任务矩阵（#10）不建议现阶段做</b>，与海员低活场景不符。
+  </div>
+</div>
+
+<footer>悦航购 ARYN · 积分方案调研可视化 · 生成于 2026-10-24</footer>
+</div>
+
+<script>
+/* ==================== 数据 ==================== */
+var platforms = [
+  // name, deductCap%, validityDays, deductType(0=未开放/不适用,1=兑券兑权益,2=直接抵现), fxRate, blacklist, modeLabel, ruleNote
+  { name:'小象超市',   cap:0,   days:365,  type:0, fx:'100:1',  bl:'未开放', mode:'兑商品/权益', note:'付费会员积分，2026 上线积分商城；会员到期冻结、恢复在籍解冻' },
+  { name:'美团',       cap:50,  days:400,  type:2, fx:'100:1',  bl:'是(行业惯例)', mode:'直接抵现', note:'仅 5/10 元固定面额；每人每天限 1 次；次年 12-31 清零' },
+  { name:'盒马',       cap:10,  days:90,   type:1, fx:'100:1',  bl:'是(官方清单)', mode:'兑券为主', note:'烟/药品/礼品卡/黄金/手机/虚拟商品/一段奶粉等黑名单；3 个自然月到期，次日未领作废' },
+  { name:'京东',       cap:90,  days:180,  type:2, fx:'100:1',  bl:'是(官方清单)', mode:'直接抵现', note:'单笔 >500 京豆起用；京享值 0-5999→50%，9000+→90%；2026 起最长 180 天' },
+  { name:'淘宝/天猫',  cap:10,  days:365,  type:2, fx:'100:1',  bl:'是(虚拟类目)', mode:'直接抵现', note:'商家自选全店 3%/5%/10%；手机/大家电类目最高 2%；频道活动 10%-80%' },
+  { name:'拼多多',     cap:0,   days:0,    type:0, fx:'10000:1', bl:'不适用', mode:'兑券/提现', note:'无订单抵现积分；金币先兑券再叠百亿补贴；水滴不领蒸发' },
+  { name:'唯品会',     cap:100, days:730,  type:2, fx:'100:1',  bl:'部分(黄金类)', mode:'直接抵现', note:'单笔不能全币支付（上限以收银台为准）；银卡 1×/金卡 1.5×/白金 2×；次年年底清零' },
+  { name:'网易严选',   cap:20,  days:180,  type:1, fx:'10:1',   bl:'部分', mode:'Pro 抵现/普通兑商品', note:'10 积分=1 元（行业最值钱）；半年一清（6-30 与 12-31）；Pro 会员双倍积分' },
+  { name:'山姆',       cap:100, days:365,  type:2, fx:'1:1',    bl:'是(官方清单)', mode:'自动抵现', note:'卓越会员 2% 返、月返上限 500 元；无比例上限但有月返上限；53 度茅台/全球购/礼品卡/会员续费黑名单' },
+  { name:'叮咚买菜',   cap:10,  days:0,    type:1, fx:'100:1',  bl:'未列', mode:'兑券再抵现', note:'满 300 分起兑券；有效期未公开；绿卡付费会员 + 4 级成长体系' },
+  { name:'永辉生活',   cap:5,   days:365,  type:2, fx:'500:1',  bl:'未列', mode:'直接抵现', note:'单笔硬封顶 2500 积分=5 元；每年 6-30 清零上一年 6-30 前积分' }
+];
+
+var colorByType = ['#a8b6c4', '#5b9bd5', '#2e8b8b'];
+
+/* ==================== 视图一：双 panel 横向条形图 ==================== */
+var chart1 = echarts.init(document.getElementById('chartDeduct'));
+chart1.setOption({
+  tooltip: {
+    trigger: 'axis', axisPointer: { type: 'shadow' },
+    triggerOn: 'click', renderMode: 'richText', confine: true,
+    formatter: function(ps) {
+      if (!ps || !ps.length) return '';
+      var i = ps[0].dataIndex;
+      var p = platforms[i];
+      var txt = p.name + '\n';
+      txt += '抵扣上限：' + (p.cap === 0 ? '未开放订单抵现' : p.cap + '%') + '\n';
+      txt += '有效期：' + (p.days === 0 ? '未公开 / 不适用' : p.days + ' 天') + '\n';
+      txt += '汇率：' + p.fx + '\n';
+      txt += '黑名单：' + p.bl + '\n';
+      txt += '形态：' + p.mode + '\n';
+      txt += '规则：' + p.note;
+      return txt;
+    }
+  },
+  legend: { show: false },
+  grid: [
+    { left: 90, right: 40, top: 30, height: '38%' },
+    { left: 90, right: 40, top: '58%', height: '34%' }
+  ],
+  xAxis: [
+    {
+      type: 'value', gridIndex: 0, max: 100,
+      name: '抵扣上限 %', nameLocation: 'middle', nameGap: 26,
+      axisLabel: { formatter: '{value}%', fontSize: 11 },
+      splitLine: { lineStyle: { color: '#eef2f6' } }
+    },
+    {
+      type: 'value', gridIndex: 1, max: 800,
+      name: '有效期（天）', nameLocation: 'middle', nameGap: 26,
+      axisLabel: { formatter: '{value}', fontSize: 11 },
+      splitLine: { lineStyle: { color: '#eef2f6' } }
+    }
+  ],
+  yAxis: [
+    {
+      type: 'category', gridIndex: 0,
+      data: platforms.map(function(p){ return p.name; }),
+      axisLabel: { fontSize: 12, color: '#2c3e50' },
+      axisTick: { show: false }
+    },
+    {
+      type: 'category', gridIndex: 1,
+      data: platforms.map(function(p){ return p.name; }),
+      axisLabel: { fontSize: 12, color: '#2c3e50' },
+      axisTick: { show: false }
+    }
+  ],
+  series: [
+    {
+      name: '抵扣上限', type: 'bar', xAxisIndex: 0, yAxisIndex: 0,
+      data: platforms.map(function(p){
+        return { value: p.cap, itemStyle: { color: colorByType[p.type] } };
+      }),
+      barWidth: 14,
+      label: {
+        show: true, position: 'right', fontSize: 11, color: '#3a4a5e',
+        formatter: function(pp){
+          var p = platforms[pp.dataIndex];
+          if (p.cap === 0) return p.type === 0 ? '未抵现' : '';
+          return p.cap + '%';
+        }
+      }
+    },
+    {
+      name: '有效期', type: 'bar', xAxisIndex: 1, yAxisIndex: 1,
+      data: platforms.map(function(p){
+        return { value: p.days === 0 ? null : p.days, itemStyle: { color: colorByType[p.type] } };
+      }),
+      barWidth: 14,
+      label: {
+        show: true, position: 'right', fontSize: 11, color: '#3a4a5e',
+        formatter: function(pp){
+          var p = platforms[pp.dataIndex];
+          if (p.days === 0) return '未公开';
+          if (p.days >= 730) return '~2 年';
+          if (p.days >= 365) return p.days + ' 天';
+          return p.days + ' 天';
+        }
+      }
+    }
+  ]
+});
+
+/* ==================== 维度表格 ==================== */
+var dimBody = document.getElementById('dimBody');
+platforms.forEach(function(p){
+  var blTag = p.bl.indexOf('是') === 0 ? '<span class="tag tag-yes">'+p.bl+'</span>'
+            : p.bl.indexOf('部分') === 0 ? '<span class="tag tag-mid">'+p.bl+'</span>'
+            : p.bl === '不适用' ? '<span class="tag tag-off">'+p.bl+'</span>'
+            : '<span class="tag tag-no">'+p.bl+'</span>';
+  var modeTag = p.mode.indexOf('兑') === 0 ? '<span class="tag tag-coupon">'+p.mode+'</span>'
+              : p.mode.indexOf('未') === 0 ? '<span class="tag tag-off">'+p.mode+'</span>'
+              : '<span class="tag tag-cash">'+p.mode+'</span>';
+  var tr = document.createElement('tr');
+  tr.innerHTML = '<td class="name">'+p.name+'</td>'
+    + '<td>'+p.fx+'</td>'
+    + '<td>'+blTag+'</td>'
+    + '<td>'+modeTag+'</td>'
+    + '<td style="text-align:left;color:#4a5a6e">'+p.note+'</td>';
+  dimBody.appendChild(tr);
+});
+
+/* ==================== 视图二：优先级气泡图 ==================== */
+// [成本 x(1低/2中/3高), 影响度 y(0-5), 编号, 标题, 优先级, 气泡大小]
+var suggestions = [
+  { x:1.2, y:5.1, id:'①', title:'品类黑名单',       p:'P0', size:46 },
+  { x:2.2, y:4.9, id:'②', title:'引入 365 天有效期', p:'P0', size:44 },
+  { x:0.9, y:4.1, id:'③', title:'最低门槛+单笔封顶', p:'P0', size:40 },
+  { x:1.7, y:4.4, id:'④', title:'发放侧排除虚拟类目', p:'P0', size:40 },
+  { x:2.1, y:3.8, id:'⑤', title:'抵扣比例分级配置化', p:'P1', size:36 },
+  { x:2.1, y:3.3, id:'⑥', title:'会员等级差异化抵扣', p:'P1', size:34 },
+  { x:3.0, y:4.4, id:'⑦', title:'积分兑券/积分商城', p:'P1', size:38 },
+  { x:1.4, y:2.4, id:'⑧', title:'财务递延与计提',     p:'P2', size:30 },
+  { x:3.0, y:3.8, id:'⑨', title:'付费会员联动',       p:'P2', size:32 },
+  { x:3.0, y:1.8, id:'⑩', title:'游戏化任务矩阵',     p:'P2', size:28 }
+];
+var colorByP = { 'P0':'#c0392b', 'P1':'#e67e22', 'P2':'#7f8c9b' };
+
+var chart2 = echarts.init(document.getElementById('chartPriority'));
+chart2.setOption({
+  tooltip: {
+    trigger: 'item', triggerOn: 'click', renderMode: 'richText', confine: true,
+    formatter: function(pp){
+      var d = pp.data;
+      if (!d || !d[4]) return '';
+      var s = d[4];
+      return s.id + ' ' + s.title + '\n优先级：' + s.p
+        + '\n实施成本：' + (s.x < 1.6 ? '低' : s.x < 2.5 ? '中' : '高')
+        + '\n影响度：' + s.y.toFixed(1) + ' / 5';
+    }
+  },
+  grid: { left: 60, right: 40, top: 40, bottom: 50, containLabel: true },
+  xAxis: {
+    type: 'value', min: 0.5, max: 3.5,
+    name: '实施成本 →', nameLocation: 'middle', nameGap: 30,
+    interval: 1,
+    axisLabel: {
+      fontSize: 12,
+      formatter: function(v){
+        if (v === 1) return '低\n配置/枚举';
+        if (v === 2) return '中\n计价链路/后台';
+        if (v === 3) return '高\n新模块/跨端';
+        return '';
+      }
+    },
+    splitLine: { lineStyle: { color: '#eef2f6' } }
+  },
+  yAxis: {
+    type: 'value', min: 0, max: 5.5,
+    name: '影响度 →', nameLocation: 'middle', nameGap: 38,
+    axisLabel: { fontSize: 11 },
+    splitLine: { lineStyle: { color: '#eef2f6' } }
+  },
+  series: [
+    {
+      type: 'scatter',
+      symbolSize: function(data){ return data[5]; },
+      data: suggestions.map(function(s){
+        return {
+          value: [s.x, s.y, s.id, s.title, s, s.size],
+          itemStyle: { color: colorByP[s.p], opacity: 0.85, borderColor: '#fff', borderWidth: 1.5 },
+          label: {
+            show: true,
+            position: 'inside',
+            formatter: function(pp){ return pp.data.value[2]; },
+            color: '#fff', fontSize: 12, fontWeight: 'bold'
+          }
+        };
+      })
+    },
+    // 第二系列：在气泡旁显示标题文字
+    {
+      type: 'scatter',
+      symbolSize: 0,
+      data: suggestions.map(function(s){ return [s.x, s.y]; }),
+      silent: true,
+      label: {
+        show: true,
+        position: 'right',
+        formatter: function(pp){
+          var s = suggestions[pp.dataIndex];
+          return s.id + s.title;
+        },
+        fontSize: 11.5, color: '#2c3e50', distance: 8
+      },
+      itemStyle: { color: 'transparent' }
+    },
+    // 象限分割线
+    {
+      type: 'line', markLine: {
+        silent: true, symbol: 'none',
+        lineStyle: { color: '#c8d2dc', type: 'dashed' },
+        label: { show: false },
+        data: [ { xAxis: 2.0 }, { yAxis: 3.0 } ]
+      },
+      data: []
+    }
+  ]
+});
+
+/* ==================== 响应式 ==================== */
+window.addEventListener('resize', function(){
+  chart1.resize();
+  chart2.resize();
+});
+</script>
+</body>
+</html>

@@ -5,6 +5,14 @@ import com.alibaba.excel.context.AnalysisContext;
 import com.alibaba.excel.event.AnalysisEventListener;
 import com.aryn.cloud.order.api.entity.OrderInfo;
 import com.aryn.cloud.order.api.entity.OrderItemEntity;
+import org.apache.poi.ss.usermodel.BorderStyle;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CellType;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.xssf.usermodel.XSSFColor;
+import org.apache.poi.xssf.usermodel.XSSFSheet;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
@@ -17,7 +25,8 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 订单导出（按分类分组）行组装的单元测试：写出后用 EasyExcel 读回逐行断言。
+ * 订单导出（按分类分组）测试：行结构用 EasyExcel 读回断言，
+ * 表头/分类色带/小计合计/数字格式等供应商报货相关样式用 POI 读回断言。
  *
  * <p>金额/数量单元格读回是字符串化的数字，统一转 {@link BigDecimal} 比较，
  * 避免受「10 / 10.0 / 10.00」单元格格式差异影响。
@@ -37,18 +46,24 @@ class OrderCategoryExportExcelTest {
 		item.setSpuName(spuName);
 		item.setCategoryName(category);
 		item.setBuyQuantity(quantity);
+		item.setSalesPrice(new BigDecimal(price));
 		item.setTotalPrice(new BigDecimal(price));
 		return item;
 	}
 
-	private List<List<Map<Integer, String>>> writeAndRead(OrderInfo... orders) {
+	private byte[] writeBytes(OrderInfo... orders) {
 		ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
 		OrderCategoryExportExcel.write(List.of(orders), outputStream);
+		return outputStream.toByteArray();
+	}
+
+	private List<List<Map<Integer, String>>> writeAndRead(OrderInfo... orders) {
+		byte[] bytes = writeBytes(orders);
 
 		List<List<Map<Integer, String>>> sheets = new ArrayList<>();
-		sheets.add(readSheet(outputStream.toByteArray(), 0));
-		sheets.add(readSheet(outputStream.toByteArray(), 1));
-		sheets.add(readSheet(outputStream.toByteArray(), 2));
+		sheets.add(readSheet(bytes, 0));
+		sheets.add(readSheet(bytes, 1));
+		sheets.add(readSheet(bytes, 2));
 		return sheets;
 	}
 
@@ -68,7 +83,13 @@ class OrderCategoryExportExcelTest {
 	}
 
 	private BigDecimal bd(Object cellValue) {
-		return new BigDecimal(String.valueOf(cellValue));
+		// 单元格已套用两位小数格式，读回会是「3.00」；归一化后比较，避免 BigDecimal 的 scale 差异
+		return new BigDecimal(String.valueOf(cellValue)).stripTrailingZeros();
+	}
+
+	private String fillHex(Cell cell) {
+		XSSFColor color = (XSSFColor) cell.getCellStyle().getFillForegroundColorColor();
+		return color == null ? null : color.getARGBHex();
 	}
 
 	@Test
@@ -147,13 +168,13 @@ class OrderCategoryExportExcelTest {
 		List<List<Map<Integer, String>>> sheets = writeAndRead(orderA, orderB);
 		List<Map<Integer, String>> summary = sheets.get(1);
 
-		// 3 个分类
-		assertThat(summary).hasSize(3);
+		// 3 个分类 + 1 行合计
+		assertThat(summary).hasSize(4);
 		// 汇总行按总金额倒序：饮品/碳酸 15 → 未分类 12 → 饮品/水 9；列：分类、商品种数、总数量、总金额
-		assertThat(summary).extracting(row -> row.get(0)).containsExactly("饮品/碳酸", "未分类", "饮品/水");
-		assertThat(summary).extracting(row -> bd(row.get(1))).containsExactly(bd(2), bd(1), bd(1));
-		assertThat(summary).extracting(row -> bd(row.get(2))).containsExactly(bd(3), bd(1), bd(3));
-		assertThat(summary).extracting(row -> bd(row.get(3))).containsExactly(bd("15"), bd("12"), bd("9"));
+		assertThat(summary).extracting(row -> row.get(0)).containsExactly("饮品/碳酸", "未分类", "饮品/水", "合计");
+		assertThat(summary).extracting(row -> bd(row.get(1))).containsExactly(bd(2), bd(1), bd(1), bd(4));
+		assertThat(summary).extracting(row -> bd(row.get(2))).containsExactly(bd(3), bd(1), bd(3), bd(7));
+		assertThat(summary).extracting(row -> bd(row.get(3))).containsExactly(bd("15"), bd("12"), bd("9"), bd("36"));
 	}
 
 	@Test
@@ -183,6 +204,94 @@ class OrderCategoryExportExcelTest {
 			.containsExactly(bd(1), bd(3), bd(2), bd(1), bd(1));
 		assertThat(perOrder).extracting(row -> bd(row.get(6)))
 			.containsExactly(bd("3"), bd("9"), bd("10"), bd("5"), bd("12"));
+	}
+
+	@Test
+	void detailSheetIsStyledForSupplierReading() throws Exception {
+		OrderInfo order = order("NO-1",
+				item("spu-1", "薯片", "零食/膨化", 1, "12.00"),
+				item("spu-2", "可乐", "饮品/碳酸", 2, "10.00"),
+				item("spu-3", "纸巾", null, 1, "5.00"));
+
+		try (Workbook workbook = new XSSFWorkbook(new ByteArrayInputStream(writeBytes(order)))) {
+			Sheet sheet = workbook.getSheet("订单明细");
+
+			// 表头：深蓝底白字加粗，冻结表头与订单号列
+			Cell header = sheet.getRow(0).getCell(0);
+			assertThat(workbook.getFontAt(header.getCellStyle().getFontIndexAsInt()).getBold()).isTrue();
+			assertThat(fillHex(header)).isEqualTo("FF305496");
+			assertThat(sheet.getPaneInformation()).isNotNull();
+			assertThat(sheet.getPaneInformation().isFreezePane()).isTrue();
+			assertThat(sheet.getPaneInformation().getVerticalSplitPosition()).isEqualTo((short) 1);
+			assertThat(sheet.getPaneInformation().getHorizontalSplitPosition()).isEqualTo((short) 1);
+
+			// 地址列已放宽，不再截断；明细表保留筛选
+			assertThat(sheet.getColumnWidth(6)).isGreaterThanOrEqualTo(30 * 256);
+			assertThat(((XSSFSheet) sheet).getCTWorksheet().isSetAutoFilter()).isTrue();
+			assertThat(sheet.getPrintSetup().getLandscape()).isTrue();
+			assertThat(sheet.getRepeatingRows()).isNotNull();
+
+			// 行序：商品/小计交替（分类拼音序），最后订单合计
+			// 1 零食商品、2 零食小计、3 饮品商品、4 饮品小计、5 未分类商品、6 未分类小计、7 订单合计
+			assertThat(sheet.getRow(1).getCell(7).getStringCellValue()).isEqualTo("零食/膨化");
+			assertThat(sheet.getRow(2).getCell(8).getStringCellValue()).isEqualTo("零食/膨化 小计");
+			assertThat(sheet.getRow(7).getCell(8).getStringCellValue()).isEqualTo("订单合计");
+
+			// 不同分类整行底色不同，未分类用独立底色；小计/合计灰底加粗
+			String snackFill = fillHex(sheet.getRow(1).getCell(0));
+			String drinkFill = fillHex(sheet.getRow(3).getCell(0));
+			String uncategorizedFill = fillHex(sheet.getRow(5).getCell(0));
+			assertThat(snackFill).isNotNull().isNotEqualTo("FFFFFFFF");
+			assertThat(drinkFill).isNotEqualTo(snackFill);
+			assertThat(uncategorizedFill).isNotEqualTo(snackFill).isNotEqualTo(drinkFill);
+			// 分类名加粗，配合色带作为分组标识
+			assertThat(workbook.getFontAt(sheet.getRow(1).getCell(7).getCellStyle().getFontIndexAsInt()).getBold())
+				.isTrue();
+			assertThat(fillHex(sheet.getRow(2).getCell(0))).isEqualTo("FFD9D9D9");
+			assertThat(fillHex(sheet.getRow(7).getCell(0))).isEqualTo("FFA6A6A6");
+			assertThat(workbook.getFontAt(sheet.getRow(2).getCell(8).getCellStyle().getFontIndexAsInt()).getBold())
+				.isTrue();
+
+			// 单价/金额按两位小数、数量按整数显示，且仍是数值单元格（可直接求和）
+			Cell amount = sheet.getRow(1).getCell(12);
+			assertThat(amount.getCellType()).isEqualTo(CellType.NUMERIC);
+			assertThat(amount.getCellStyle().getDataFormatString()).isEqualTo("#,##0.00");
+			assertThat(sheet.getRow(1).getCell(10).getCellStyle().getDataFormatString()).isEqualTo("#,##0.00");
+			assertThat(sheet.getRow(1).getCell(11).getCellStyle().getDataFormatString()).isEqualTo("#,##0");
+		}
+	}
+
+	@Test
+	void summaryAndOrderSummarySheetsReuseCategoryColors() throws Exception {
+		OrderInfo orderA = order("NO-1",
+				item("spu-2", "可乐", "饮品/碳酸", 2, "10.00"),
+				item("spu-1", "矿泉水", "饮品/水", 3, "9.00"),
+				item("spu-6", "糖果", "零食", 1, "3.00"));
+		OrderInfo orderB = order("NO-2", item("spu-5", "雪碧", "饮品/碳酸", 1, "5.00"));
+
+		try (Workbook workbook = new XSSFWorkbook(new ByteArrayInputStream(writeBytes(orderA, orderB)))) {
+			String snackFill = fillHex(workbook.getSheet("订单明细").getRow(1).getCell(0));
+
+			// 分类汇总（第 0 行为表头）：分类单元格沿用明细表的分类底色，合计行灰底加粗
+			// 汇总按金额倒序：饮品/碳酸 15、饮品/水 9、零食 3、合计
+			Sheet summary = workbook.getSheet("分类汇总");
+			assertThat(summary.getRow(3).getCell(0).getStringCellValue()).isEqualTo("零食");
+			assertThat(fillHex(summary.getRow(3).getCell(0))).isEqualTo(snackFill);
+			assertThat(summary.getRow(4).getCell(0).getStringCellValue()).isEqualTo("合计");
+			assertThat(fillHex(summary.getRow(4).getCell(0))).isEqualTo("FFA6A6A6");
+			assertThat(workbook.getFontAt(summary.getRow(4).getCell(0).getCellStyle().getFontIndexAsInt()).getBold())
+				.isTrue();
+
+			// 订单分类小计（第 0 行为表头）：每单最后一行的下边框加粗，便于按订单切分
+			Sheet perOrder = workbook.getSheet("订单分类小计");
+			assertThat(perOrder.getRow(1).getCell(3).getStringCellValue()).isEqualTo("零食");
+			assertThat(perOrder.getRow(1).getCell(0).getCellStyle().getBorderBottom())
+				.isEqualTo(BorderStyle.THIN);
+			assertThat(perOrder.getRow(3).getCell(0).getCellStyle().getBorderBottom())
+				.isEqualTo(BorderStyle.MEDIUM);
+			assertThat(perOrder.getRow(4).getCell(0).getCellStyle().getBorderBottom())
+				.isEqualTo(BorderStyle.MEDIUM);
+		}
 	}
 
 }

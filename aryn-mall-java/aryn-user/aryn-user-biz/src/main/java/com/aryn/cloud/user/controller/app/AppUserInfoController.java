@@ -41,7 +41,7 @@ public class AppUserInfoController {
 	@Operation(summary = "注册用户")
 	@PostMapping("/register")
 	public Result<Boolean> register(HttpServletRequest request, @RequestBody @Valid UserCreateDTO userInfo) {
-		return Result.success(userInfoService.saveUser(userInfo,
+		return Result.success(userInfoService.registerUser(userInfo,
 				request.getHeader(MallCommonConstants.HEADER_PLATFORM_TYPE)));
 	}
 

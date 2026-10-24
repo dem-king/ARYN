@@ -7,10 +7,8 @@ import { useMallThemeStore } from '@/store/mallThemeStore'
 
 import { useUserStore } from '@/store/userStore'
 import DiyActivityStrip from './diy-activity-strip/index.vue'
-import DiyBottomNav from './diy-bottom-nav/index.vue'
 import DiyCategoryNav from './diy-category-nav/index.vue'
 import DiyCountdown from './diy-countdown/index.vue'
-import DiyCouponCombo from './diy-coupon-combo/index.vue'
 import DiyCouponReceive from './diy-coupon-receive/index.vue'
 import DiyCustomHtml from './diy-custom-html/index.vue'
 import DiyGap from './diy-gap/index.vue'
@@ -112,14 +110,28 @@ const stickyTop = computed(() => {
   const { statusBarHeight = 0 } = uni.getSystemInfoSync()
   return statusBarHeight + 44
 })
+// 主题色浅色面：主色追加 9% 透明（hex 8 位），服务承诺圆底等 tint 消费。
+// CSS 无法从 var() 派生透明度（小程序不支持 color-mix），只能两端同口径预计算；
+// 非 6 位 hex 不下发，组件侧走自己的 rgba 兜底。管理端画布在
+// phone-canvas / preview-canvas 挂同名变量（theme-presets.withAlpha 同口径）。
+function primarySoft(primaryColor: string | undefined): string | undefined {
+  return primaryColor && /^#[\dA-F]{6}$/i.test(primaryColor)
+    ? `${primaryColor}17`
+    : undefined
+}
 const pageStyle = computed(() => ({
-  backgroundColor: effectiveTheme.value.backgroundColor,
-  backgroundImage: document.value.page.backgroundImage
+  'backgroundColor': effectiveTheme.value.backgroundColor,
+  'backgroundImage': document.value.page.backgroundImage
     ? `url(${document.value.page.backgroundImage})`
     : undefined,
   // Tab 商品流的吸顶偏移：整页装修有固定导航栏，sticky 需要让出状态栏 + 导航高度；
   // 内嵌页/隐藏导航栏时为 0
   '--diy-sticky-top': `${stickyTop.value}px`,
+  // 有效主色 = 页面固化主题 > 商城默认主题，与 ConfigProvider 下发的
+  // --wot-color-theme-primary 同源，保证浅色面跟随实际生效的主题色
+  '--wot-color-theme-primary-soft': primarySoft(
+    document.value.themePrimaryColor || mallThemeStore.primaryColor,
+  ),
   // 页面级主题（发布固化的 themeSnapshot）在 diy 内容区覆盖全局商城主题：
   // 内联 CSS 变量沿节点树继承，区块内组件的 var(--wot-color-theme-*) 会读到页面值；
   // 未引用主题时不下发，回落 App.ku.vue 的全局商城默认主题
@@ -307,20 +319,12 @@ function sectionStyle(section: DecorationSection) {
             v-else-if="item.type === 'goods-tabs'"
             :show-data="item.props"
           />
-          <DiyCouponCombo
-            v-else-if="item.type === 'coupon-combo'"
-            :show-data="item.props"
-          />
           <DiyMemberBenefits
             v-else-if="item.type === 'member-benefits'"
             :show-data="item.props"
           />
           <DiyServicePromise
             v-else-if="item.type === 'service-promise'"
-            :show-data="item.props"
-          />
-          <DiyBottomNav
-            v-else-if="item.type === 'bottom-nav'"
             :show-data="item.props"
           />
           <DiyVideoLive

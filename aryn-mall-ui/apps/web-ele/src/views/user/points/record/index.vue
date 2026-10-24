@@ -51,7 +51,8 @@ const initPage = async () => {
     params.changeType = state.queryParams.changeType;
   if (state.queryParams.dateRange?.length === 2) {
     params.beginTime = state.queryParams.dateRange[0];
-    params.endTime = state.queryParams.dateRange[1];
+    const endDate = state.queryParams.dateRange[1];
+    if (endDate) params.endTime = `${endDate.slice(0, 10)} 23:59:59`;
   }
   await getPage(params)
     .then((res) => {

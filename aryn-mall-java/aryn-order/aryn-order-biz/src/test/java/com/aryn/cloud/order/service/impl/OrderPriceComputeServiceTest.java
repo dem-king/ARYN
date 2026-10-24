@@ -15,6 +15,7 @@ import com.aryn.cloud.promotion.api.remote.RemoteDiscountService;
 import com.aryn.cloud.promotion.api.remote.RemoteSeckillService;
 import com.aryn.cloud.promotion.api.vo.CouponUserRespVO;
 import com.aryn.cloud.promotion.api.vo.PromotionCalculationVO;
+import com.aryn.cloud.promotion.api.vo.SeckillPriceContextVO;
 import com.aryn.cloud.user.api.vo.MemberBenefitsVO;
 import com.aryn.cloud.user.api.vo.PointsDeductContextVO;
 import org.junit.jupiter.api.BeforeEach;
@@ -71,6 +72,29 @@ class OrderPriceComputeServiceTest {
 		assertThat(item.getCouponPrice()).isEqualByComparingTo("10.00");
 		assertThat(item.getPaymentPrice()).isEqualByComparingTo("70.00");
 		assertThat(order.getMemberDiscountPrice()).isEqualByComparingTo("20.00");
+	}
+
+	@Test
+	void memberDiscountSkipsActivityPricedItems() {
+		OrderInfo order = new OrderInfo();
+		OrderItemEntity normal = item("100.00").setSkuId("sku-normal").setSalesPrice(new BigDecimal("100.00"));
+		OrderItemEntity seckill = item("100.00").setSkuId("sku-seckill").setSalesPrice(new BigDecimal("100.00"));
+		SeckillPriceContextVO context = new SeckillPriceContextVO();
+		context.setSkuId("sku-seckill");
+		context.setActivityId("seckill-1");
+		context.setSeckillPrice(new BigDecimal("80.00"));
+		when(remoteSeckillService.getPriceContext("sku-seckill")).thenReturn(context);
+		OrderPriceComputeService.PromotionPricePlan plan = service
+			.resolvePromotionPricePlan(List.of(normal, seckill), null);
+		service.applyPromotionPricePlan(List.of(normal, seckill), java.util.Set.of(), plan);
+
+		MemberBenefitsVO benefits = new MemberBenefitsVO();
+		benefits.setDiscountRate(new BigDecimal("0.90"));
+		service.orderMemberBenefitHandler(order, List.of(normal, seckill), benefits, plan);
+
+		assertThat(normal.getMemberDiscountPrice()).isEqualByComparingTo("10.00");
+		assertThat(seckill.getMemberDiscountPrice()).isEqualByComparingTo("0.00");
+		assertThat(order.getMemberDiscountPrice()).isEqualByComparingTo("10.00");
 	}
 
 	@Test
@@ -228,8 +252,8 @@ class OrderPriceComputeServiceTest {
 	void discountBranchStillAppliesToOrdinarySku() {
 		OrderItemEntity item = new OrderItemEntity().setSkuId("sku-2").setBuyQuantity(1)
 			.setSalesPrice(new BigDecimal("40.00"));
-		when(remoteDiscountService.calculatePrice("sku-2", new BigDecimal("40.00")))
-			.thenReturn(new BigDecimal("32.00"));
+		when(remoteDiscountService.getPriceContext("sku-2", new BigDecimal("40.00")))
+			.thenReturn(discountContext("sku-2", "32.00", true, true));
 
 		service.orderPromotionPriceHandler(List.of(item), null, java.util.Set.of("sku-1"));
 
@@ -243,7 +267,8 @@ class OrderPriceComputeServiceTest {
 	void seckillWinsOverNewbiePrice() {
 		OrderItemEntity item = new OrderItemEntity().setSkuId("sku-1").setBuyQuantity(1)
 			.setSalesPrice(new BigDecimal("19.90"));
-		when(remoteSeckillService.getSeckillPrice("sku-1")).thenReturn(new BigDecimal("12.00"));
+		when(remoteSeckillService.getPriceContext("sku-1"))
+			.thenReturn(seckillContext("sku-1", "12.00"));
 
 		service.orderPromotionPriceHandler(List.of(item), null, java.util.Set.of("sku-1"));
 
@@ -257,8 +282,8 @@ class OrderPriceComputeServiceTest {
 	void activityPlanMarksDiscountPricedSku() {
 		OrderItemEntity item = new OrderItemEntity().setSkuId("sku-1").setBuyQuantity(1)
 			.setSalesPrice(new BigDecimal("40.00"));
-		when(remoteDiscountService.calculatePrice("sku-1", new BigDecimal("40.00")))
-			.thenReturn(new BigDecimal("30.00"));
+		when(remoteDiscountService.getPriceContext("sku-1", new BigDecimal("40.00")))
+			.thenReturn(discountContext("sku-1", "30.00", true, true));
 
 		OrderPriceComputeService.PromotionPricePlan plan = service.resolvePromotionPricePlan(List.of(item), null);
 		service.applyPromotionPricePlan(List.of(item), java.util.Set.of(), plan);
@@ -275,8 +300,8 @@ class OrderPriceComputeServiceTest {
 		OrderInfo order = new OrderInfo();
 		OrderItemEntity activityItem = item("100.00").setSkuId("sku-1").setSalesPrice(new BigDecimal("100.00"));
 		OrderItemEntity normalItem = item("100.00").setSkuId("sku-2");
-		when(remoteDiscountService.calculatePrice("sku-1", new BigDecimal("100.00")))
-			.thenReturn(new BigDecimal("80.00"));
+		when(remoteDiscountService.getPriceContext("sku-1", new BigDecimal("100.00")))
+			.thenReturn(discountContext("sku-1", "80.00", true, true));
 		OrderPriceComputeService.PromotionPricePlan plan = service
 			.resolvePromotionPricePlan(List.of(activityItem), null);
 
@@ -339,6 +364,61 @@ class OrderPriceComputeServiceTest {
 
 		// 非新人价 SKU 数量不受限
 		service.assertNewbieQuantityLimit(calculation, List.of(item, other));
+	}
+
+	/**
+	 * 结算页划线价必须是「被活动价取代的原价」，不能等于成交价：
+	 * 拼团单 SKU 售价 29.90、拼团成交 25.90 时，确认页应划 29.90 并展示 4.00 优惠。
+	 */
+	@Test
+	void originalPriceDisplayUsesSkuSellingPriceForActivityItem() {
+		OrderInfo order = new OrderInfo();
+		OrderItemEntity item = new OrderItemEntity().setSkuId("sku-1").setBuyQuantity(1)
+			.setSalesPrice(new BigDecimal("25.90")).setTotalPrice(new BigDecimal("25.90"));
+		GoodsSku sku = new GoodsSku().setId("sku-1").setSalesPrice(new BigDecimal("29.90"));
+
+		service.fillOriginalPriceDisplay(order, List.of(item), List.of(sku));
+
+		assertThat(item.getOriginalPrice()).isEqualByComparingTo("29.90");
+		assertThat(item.getOriginalTotalPrice()).isEqualByComparingTo("29.90");
+		assertThat(item.getActivityDiscountPrice()).isEqualByComparingTo("4.00");
+		assertThat(order.getOriginalTotalPrice()).isEqualByComparingTo("29.90");
+		assertThat(order.getActivityDiscountPrice()).isEqualByComparingTo("4.00");
+	}
+
+	/** 未命中活动价的普通商品原价与成交价一致：不划线、不出优惠行，避免伪造优惠。 */
+	@Test
+	void originalPriceDisplayKeepsZeroDiscountForOrdinaryItem() {
+		OrderInfo order = new OrderInfo();
+		OrderItemEntity item = new OrderItemEntity().setSkuId("sku-1").setBuyQuantity(2)
+			.setSalesPrice(new BigDecimal("29.90")).setTotalPrice(new BigDecimal("59.80"));
+		GoodsSku sku = new GoodsSku().setId("sku-1").setSalesPrice(new BigDecimal("29.90"));
+
+		service.fillOriginalPriceDisplay(order, List.of(item), List.of(sku));
+
+		assertThat(item.getOriginalTotalPrice()).isEqualByComparingTo("59.80");
+		assertThat(item.getActivityDiscountPrice()).isEqualByComparingTo("0.00");
+		assertThat(order.getActivityDiscountPrice()).isEqualByComparingTo("0.00");
+	}
+
+	/** 混合单：只有活动价明细计入优惠，订单级合计为逐行之和。 */
+	@Test
+	void originalPriceDisplaySumsDiscountAcrossItems() {
+		OrderInfo order = new OrderInfo();
+		OrderItemEntity activityItem = new OrderItemEntity().setSkuId("sku-1").setBuyQuantity(2)
+			.setSalesPrice(new BigDecimal("9.90")).setTotalPrice(new BigDecimal("19.80"));
+		OrderItemEntity ordinaryItem = new OrderItemEntity().setSkuId("sku-2").setBuyQuantity(1)
+			.setSalesPrice(new BigDecimal("15.00")).setTotalPrice(new BigDecimal("15.00"));
+		GoodsSku activitySku = new GoodsSku().setId("sku-1").setSalesPrice(new BigDecimal("14.90"));
+		GoodsSku ordinarySku = new GoodsSku().setId("sku-2").setSalesPrice(new BigDecimal("15.00"));
+
+		service.fillOriginalPriceDisplay(order, List.of(activityItem, ordinaryItem),
+				List.of(activitySku, ordinarySku));
+
+		assertThat(activityItem.getActivityDiscountPrice()).isEqualByComparingTo("10.00");
+		assertThat(ordinaryItem.getActivityDiscountPrice()).isEqualByComparingTo("0.00");
+		assertThat(order.getOriginalTotalPrice()).isEqualByComparingTo("44.80");
+		assertThat(order.getActivityDiscountPrice()).isEqualByComparingTo("10.00");
 	}
 
 	/**
@@ -431,6 +511,274 @@ class OrderPriceComputeServiceTest {
 		override.setActivityType(com.aryn.cloud.promotion.api.entity.PromotionActivity.TYPE_NEWBIE_PRICE);
 		calculation.setLadderOverrides(new java.util.ArrayList<>(List.of(override)));
 		return calculation;
+	}
+
+	// ==================== 叠加策略（活动价 × 券 × 积分） ====================
+
+	/**
+	 * 纯秒杀单 + 传券：结算（strict=false）不抛错、记录不可用原因且不产生券额；
+	 * 提交（strict=true）直接拒绝 60067（防绕过确认页强行用券）。
+	 */
+	@Test
+	void seckillOrderRejectsCouponByStackPolicy() {
+		OrderItemEntity seckillItem = item("20.00").setSkuId("sku-1").setSalesPrice(new BigDecimal("20.00"));
+		when(remoteSeckillService.getPriceContext("sku-1")).thenReturn(seckillContext("sku-1", "12.00"));
+		OrderPriceComputeService.PromotionPricePlan plan = service.resolvePromotionPricePlan(List.of(seckillItem), null);
+		when(remoteCouponUserService.getById("coupon-user-1", "user-1")).thenReturn(coupon("10.00"));
+
+		OrderInfo settlement = new OrderInfo().setUserId("user-1").setCouponUserId("coupon-user-1");
+		service.orderCouponHandler(settlement, List.of(seckillItem), plan, false);
+		assertThat(settlement.getCouponStackReason()).contains("不支持使用优惠券");
+		assertThat(seckillItem.getCouponPrice()).isEqualByComparingTo("0.00");
+
+		OrderInfo submit = new OrderInfo().setUserId("user-1").setCouponUserId("coupon-user-1");
+		OrderItemEntity submitItem = item("20.00").setSkuId("sku-1").setSalesPrice(new BigDecimal("20.00"));
+		org.assertj.core.api.Assertions
+			.assertThatThrownBy(() -> service.orderCouponHandler(submit, List.of(submitItem), plan, true))
+			.isInstanceOf(com.aryn.cloud.common.security.handler.ArynBusinessException.class)
+			.satisfies(ex -> assertThat(
+					((com.aryn.cloud.common.security.handler.ArynBusinessException) ex).getMsg())
+				.contains("不支持使用优惠券"));
+	}
+
+	/**
+	 * 纯秒杀单积分不可用：结算返回 0 额度并记录原因（确认页开关自然隐藏）；
+	 * 提交且用户显式请求积分则拒绝 60068。
+	 */
+	@Test
+	void seckillOrderRejectsPointsByStackPolicy() {
+		OrderItemEntity seckillItem = item("20.00").setSkuId("sku-1").setSalesPrice(new BigDecimal("20.00"));
+		when(remoteSeckillService.getPriceContext("sku-1")).thenReturn(seckillContext("sku-1", "12.00"));
+		OrderPriceComputeService.PromotionPricePlan plan = service.resolvePromotionPricePlan(List.of(seckillItem), null);
+
+		OrderInfo settlement = new OrderInfo();
+		service.orderPointsDeductHandler(settlement, List.of(seckillItem), 1000, false, pointsContext(5000, 100),
+				false, plan);
+		assertThat(settlement.getPointsDeductMax()).isZero();
+		assertThat(settlement.getPointsStackReason()).contains("不支持积分抵现");
+
+		OrderInfo submit = new OrderInfo();
+		OrderItemEntity submitItem = item("20.00").setSkuId("sku-1").setSalesPrice(new BigDecimal("20.00"));
+		org.assertj.core.api.Assertions
+			.assertThatThrownBy(() -> service.orderPointsDeductHandler(submit, List.of(submitItem), 1000, false,
+					pointsContext(5000, 100), true, plan))
+			.isInstanceOf(com.aryn.cloud.common.security.handler.ArynBusinessException.class)
+			.satisfies(ex -> assertThat(
+					((com.aryn.cloud.common.security.handler.ArynBusinessException) ex).getMsg())
+				.contains("不支持积分抵现"));
+	}
+
+	/**
+	 * 限时折扣默认可叠（活动上下文 couponStackable=true）：券与积分照常生效，金额与手算一致。
+	 */
+	@Test
+	void discountOrderStillStacksCouponAndPoints() {
+		OrderItemEntity discountItem = item("100.00").setSkuId("sku-1").setSalesPrice(new BigDecimal("100.00"))
+			.setBuyQuantity(1);
+		when(remoteDiscountService.getPriceContext("sku-1", new BigDecimal("100.00")))
+			.thenReturn(discountContext("sku-1", "80.00", true, true));
+		OrderPriceComputeService.PromotionPricePlan plan = service.resolvePromotionPricePlan(List.of(discountItem), null);
+		// 落活动价后再算券（与主流程顺序一致）
+		service.applyPromotionPricePlan(List.of(discountItem), java.util.Set.of(), plan);
+		discountItem.setTotalPrice(new BigDecimal("80.00")).setPaymentPrice(new BigDecimal("80.00"));
+		when(remoteCouponUserService.getById("coupon-user-1", "user-1")).thenReturn(coupon("10.00"));
+
+		OrderInfo order = new OrderInfo().setUserId("user-1").setCouponUserId("coupon-user-1");
+		service.orderCouponHandler(order, List.of(discountItem), plan, true);
+
+		assertThat(order.getCouponStackReason()).isNull();
+		assertThat(discountItem.getCouponPrice()).isEqualByComparingTo("10.00");
+		assertThat(discountItem.getPaymentPrice()).isEqualByComparingTo("70.00");
+		// 积分上限按券后应付 70 计算：70 × 20% = 14 元 = 1400 分
+		service.orderPointsDeductHandler(order, List.of(discountItem), 1400, false, pointsContext(5000, 100), true,
+				plan);
+		assertThat(order.getPointsUsed()).isEqualTo(1400);
+		assertThat(order.getPointsDeductPrice()).isEqualByComparingTo("14.00");
+	}
+
+	/**
+	 * 新人专享（引擎 type=9 覆盖）默认禁叠：mergeStackPolicyHits 后券不可用且金额不变。
+	 */
+	@Test
+	void newbieOrderRejectsCouponAfterMergingEngineHits() {
+		OrderItemEntity newbieItem = item("30.00").setSkuId("sku-1");
+		OrderPriceComputeService.PromotionPricePlan plan = service.resolvePromotionPricePlan(List.of(newbieItem), null);
+		PromotionCalculationVO calculation = newbieCalculation("sku-1");
+		calculation.getLadderOverrides().get(0).setCouponStackable(false);
+		calculation.getLadderOverrides().get(0).setPointsStackable(false);
+		service.mergeStackPolicyHits(plan, calculation);
+
+		assertThat(plan.couponStackable("sku-1")).isFalse();
+		assertThat(plan.pointsStackable("sku-1")).isFalse();
+
+		when(remoteCouponUserService.getById("coupon-user-1", "user-1")).thenReturn(coupon("10.00"));
+		OrderInfo order = new OrderInfo().setUserId("user-1").setCouponUserId("coupon-user-1");
+		service.orderCouponHandler(order, List.of(newbieItem), plan, false);
+		assertThat(order.getCouponStackReason()).contains("不支持使用优惠券");
+		assertThat(newbieItem.getPaymentPrice()).isEqualByComparingTo("30.00");
+	}
+
+	/**
+	 * 混合单（秒杀 20 + 普通 100，满 100 减 10）：券门槛只按可叠金额（100）判断、
+	 * 券额全落普通行，秒杀行券额恒 0；积分基数按券后普通行应付（90）计算。
+	 */
+	@Test
+	void mixedOrderLimitsCouponAndPointsToStackableItems() {
+		OrderItemEntity seckillItem = item("20.00").setSkuId("sku-1").setSalesPrice(new BigDecimal("20.00"));
+		OrderItemEntity normalItem = item("100.00").setSkuId("sku-2").setSalesPrice(new BigDecimal("100.00"));
+		when(remoteSeckillService.getPriceContext("sku-1")).thenReturn(seckillContext("sku-1", "12.00"));
+		OrderPriceComputeService.PromotionPricePlan plan = service
+			.resolvePromotionPricePlan(List.of(seckillItem, normalItem), null);
+		when(remoteCouponUserService.getById("coupon-user-1", "user-1")).thenReturn(coupon("10.00", "100.00"));
+
+		OrderInfo order = new OrderInfo().setUserId("user-1").setCouponUserId("coupon-user-1");
+		service.orderCouponHandler(order, List.of(seckillItem, normalItem), plan, true);
+
+		assertThat(seckillItem.getCouponPrice()).isEqualByComparingTo("0.00");
+		assertThat(normalItem.getCouponPrice()).isEqualByComparingTo("10.00");
+		assertThat(seckillItem.getPaymentPrice()).isEqualByComparingTo("20.00");
+		assertThat(normalItem.getPaymentPrice()).isEqualByComparingTo("90.00");
+
+		// 积分：可叠基数 = 90（秒杀行不可叠），20% 上限 = 18 元 = 1800 分
+		service.orderPointsDeductHandler(order, List.of(seckillItem, normalItem), 1800, false, pointsContext(5000, 100),
+				true, plan);
+		assertThat(order.getPointsUsed()).isEqualTo(1800);
+		assertThat(order.getPointsEligibleAmount()).isEqualByComparingTo("90.00");
+		assertThat(normalItem.getPointsPrice()).isEqualByComparingTo("18.00");
+		assertThat(seckillItem.getPointsPrice()).isEqualByComparingTo("0.00");
+	}
+
+	/**
+	 * 混合单门槛不满足（普通 80 + 秒杀 20，满 100 减 10）：可叠金额 80 达不到门槛，拒绝用券。
+	 */
+	@Test
+	void mixedOrderRejectsCouponWhenStackableBaseBelowThreshold() {
+		OrderItemEntity seckillItem = item("20.00").setSkuId("sku-1").setSalesPrice(new BigDecimal("20.00"));
+		OrderItemEntity normalItem = item("80.00").setSkuId("sku-2").setSalesPrice(new BigDecimal("80.00"));
+		when(remoteSeckillService.getPriceContext("sku-1")).thenReturn(seckillContext("sku-1", "12.00"));
+		OrderPriceComputeService.PromotionPricePlan plan = service
+			.resolvePromotionPricePlan(List.of(seckillItem, normalItem), null);
+		when(remoteCouponUserService.getById("coupon-user-1", "user-1")).thenReturn(coupon("10.00", "100.00"));
+
+		OrderInfo order = new OrderInfo().setUserId("user-1").setCouponUserId("coupon-user-1");
+		org.assertj.core.api.Assertions
+			.assertThatThrownBy(() -> service.orderCouponHandler(order, List.of(seckillItem, normalItem), plan, true))
+			.isInstanceOf(com.aryn.cloud.common.security.handler.ArynBusinessException.class);
+	}
+
+	/**
+	 * 最低实付兜底：普通 10 元 + 满 10 减 10 的券，券额被压到 9.99，券后应付 0.01（不出 0 元单）。
+	 */
+	@Test
+	void couponCappedByMinPayableFloor() {
+		OrderItemEntity orderItem = item("10.00");
+		when(remoteCouponUserService.getById("coupon-user-1", "user-1")).thenReturn(coupon("10.00"));
+
+		OrderInfo order = new OrderInfo().setUserId("user-1").setCouponUserId("coupon-user-1");
+		service.orderCouponHandler(order, List.of(orderItem), null, true);
+
+		assertThat(orderItem.getCouponPrice()).isEqualByComparingTo("9.99");
+		assertThat(orderItem.getPaymentPrice()).isEqualByComparingTo("0.01");
+	}
+
+	/**
+	 * 回滚开关 promotion.stack-policy.enabled=false：秒杀命中也视为可叠，行为与现网一致。
+	 */
+	@Test
+	void stackPolicyDisabledTreatsAllItemsStackable() throws Exception {
+		setStackPolicyEnabled(false);
+		OrderItemEntity seckillItem = item("20.00").setSkuId("sku-1").setSalesPrice(new BigDecimal("20.00"));
+		when(remoteSeckillService.getPriceContext("sku-1")).thenReturn(seckillContext("sku-1", "12.00"));
+		OrderPriceComputeService.PromotionPricePlan plan = service.resolvePromotionPricePlan(List.of(seckillItem), null);
+
+		assertThat(plan.couponStackable("sku-1")).isTrue();
+		assertThat(plan.pointsStackable("sku-1")).isTrue();
+
+		when(remoteCouponUserService.getById("coupon-user-1", "user-1")).thenReturn(coupon("5.00"));
+		OrderInfo order = new OrderInfo().setUserId("user-1").setCouponUserId("coupon-user-1");
+		service.orderCouponHandler(order, List.of(seckillItem), plan, true);
+		assertThat(order.getCouponStackReason()).isNull();
+		assertThat(seckillItem.getCouponPrice()).isEqualByComparingTo("5.00");
+	}
+
+	/**
+	 * 拼团上下文叠加策略：活动未显式配置（null）回落拼团默认（可叠），显式关闭则生效。
+	 */
+	@Test
+	void groupBuyContextResolvesStackPolicyWithDefaults() {
+		com.aryn.cloud.promotion.api.vo.GroupBuyOrderContextVO context =
+				new com.aryn.cloud.promotion.api.vo.GroupBuyOrderContextVO();
+		context.setSkuId("sku-1");
+		context.setGroupPrice(new BigDecimal("19.90"));
+		OrderItemEntity groupItem = item("25.90").setSkuId("sku-1").setBuyQuantity(1)
+			.setSalesPrice(new BigDecimal("25.90"));
+
+		OrderPriceComputeService.PromotionPricePlan plan = service.resolvePromotionPricePlan(List.of(groupItem), context);
+		assertThat(plan.couponStackable("sku-1")).isTrue();
+		assertThat(plan.pointsStackable("sku-1")).isTrue();
+
+		com.aryn.cloud.promotion.api.vo.GroupBuyOrderContextVO closed =
+				new com.aryn.cloud.promotion.api.vo.GroupBuyOrderContextVO();
+		closed.setSkuId("sku-1");
+		closed.setGroupPrice(new BigDecimal("19.90"));
+		closed.setCouponStackable(false);
+		closed.setPointsStackable(false);
+		OrderItemEntity closedItem = item("25.90").setSkuId("sku-1").setBuyQuantity(1)
+			.setSalesPrice(new BigDecimal("25.90"));
+		OrderPriceComputeService.PromotionPricePlan closedPlan = service.resolvePromotionPricePlan(List.of(closedItem),
+				closed);
+		assertThat(closedPlan.couponStackable("sku-1")).isFalse();
+		assertThat(closedPlan.pointsStackable("sku-1")).isFalse();
+	}
+
+	/**
+	 * 结算展示回填：明细带活动类型/叠加标记，订单级券门槛可计算金额只统计可叠明细。
+	 */
+	@Test
+	void stackPolicyDisplayMarksItemsAndEligibleAmount() {
+		OrderItemEntity seckillItem = item("20.00").setSkuId("sku-1").setSalesPrice(new BigDecimal("20.00"));
+		OrderItemEntity normalItem = item("100.00").setSkuId("sku-2").setSalesPrice(new BigDecimal("100.00"));
+		when(remoteSeckillService.getPriceContext("sku-1")).thenReturn(seckillContext("sku-1", "12.00"));
+		OrderPriceComputeService.PromotionPricePlan plan = service
+			.resolvePromotionPricePlan(List.of(seckillItem, normalItem), null);
+
+		OrderInfo order = new OrderInfo();
+		service.fillStackPolicyDisplay(order, List.of(seckillItem, normalItem), plan);
+
+		assertThat(seckillItem.getActivityType()).isEqualTo("seckill");
+		assertThat(seckillItem.getActivityId()).isEqualTo("act-seckill-1");
+		assertThat(seckillItem.getCouponStackable()).isFalse();
+		assertThat(normalItem.getActivityType()).isNull();
+		assertThat(order.getCouponEligibleAmount()).isEqualByComparingTo("100.00");
+	}
+
+	private void setStackPolicyEnabled(boolean enabled) throws Exception {
+		java.lang.reflect.Field field = OrderPriceComputeService.class.getDeclaredField("stackPolicyEnabled");
+		field.setAccessible(true);
+		field.set(service, enabled);
+	}
+
+	private com.aryn.cloud.promotion.api.vo.SeckillPriceContextVO seckillContext(String skuId, String price) {
+		com.aryn.cloud.promotion.api.vo.SeckillPriceContextVO context =
+				new com.aryn.cloud.promotion.api.vo.SeckillPriceContextVO();
+		context.setSkuId(skuId);
+		context.setActivityId("act-seckill-1");
+		context.setSeckillPrice(new BigDecimal(price));
+		context.setCouponStackable(false);
+		context.setPointsStackable(false);
+		return context;
+	}
+
+	private com.aryn.cloud.promotion.api.vo.DiscountPriceContextVO discountContext(String skuId, String price,
+			boolean couponStackable, boolean pointsStackable) {
+		com.aryn.cloud.promotion.api.vo.DiscountPriceContextVO context =
+				new com.aryn.cloud.promotion.api.vo.DiscountPriceContextVO();
+		context.setSkuId(skuId);
+		context.setActivityId("act-discount-1");
+		context.setDiscountPrice(new BigDecimal(price));
+		context.setCouponStackable(couponStackable);
+		context.setPointsStackable(pointsStackable);
+		return context;
 	}
 
 	private CreateOrderSkuReqDTO skuReq(String skuId, String spuId, int quantity, String contributorId, String name) {
@@ -563,10 +911,15 @@ class OrderPriceComputeServiceTest {
 	}
 
 	private CouponUserRespVO coupon(String amount) {
+		return coupon(amount, "0.00");
+	}
+
+	/** 带门槛的满减券（useRange=1 全场）。 */
+	private CouponUserRespVO coupon(String amount, String threshold) {
 		CouponInfo couponInfo = new CouponInfo();
 		couponInfo.setUseRange(MallEventConstants.USE_RANGE_1);
 		couponInfo.setCouponType(MallEventConstants.COUPON_TYPE_1);
-		couponInfo.setThreshold(BigDecimal.ZERO);
+		couponInfo.setThreshold(new BigDecimal(threshold));
 		couponInfo.setAmount(new BigDecimal(amount));
 		CouponUserRespVO coupon = new CouponUserRespVO();
 		coupon.setStatus(CouponUserStatusEnum.STATUS_0.getCode());

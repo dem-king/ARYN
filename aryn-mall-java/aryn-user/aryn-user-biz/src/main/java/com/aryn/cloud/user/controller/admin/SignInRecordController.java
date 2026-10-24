@@ -8,6 +8,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
 /**
@@ -27,7 +28,11 @@ public class SignInRecordController {
 	@Operation(summary = "签到记录分页列表")
 	@SaCheckPermission("user:signinrecord:page")
 	@GetMapping("/page")
-	public Result page(Page page, String nickname, String beginDate, String endDate) {
+	public Result page(Page page, String nickname, String beginDate, String endDate, String userId) {
+		// 会员详情必须按 userId 过滤；不传时保持列表页的全量查询
+		if (StringUtils.hasText(userId)) {
+			return Result.success(signInRecordService.getUserPage(page, userId, beginDate, endDate));
+		}
 		return Result.success(signInRecordService.getPage(page, nickname, beginDate, endDate));
 	}
 

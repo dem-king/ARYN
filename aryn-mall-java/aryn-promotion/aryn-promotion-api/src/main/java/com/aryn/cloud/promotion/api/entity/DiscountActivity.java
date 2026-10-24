@@ -55,6 +55,12 @@ public class DiscountActivity extends Model<DiscountActivity> {
 	@Schema(description = "状态:0未开始 1进行中 2已结束 3已暂停")
 	private Integer status;
 
+	/** 活动商品是否可用优惠券：1可用 0不可用（空按类型默认值=可用处理） */
+	private String couponStackable;
+
+	/** 活动商品是否可积分抵现：1可抵 0不可抵（空按类型默认值=可抵处理） */
+	private String pointsStackable;
+
 	@Schema(description = "活动描述")
 	private String description;
 

@@ -72,6 +72,9 @@ public class UserRespVO implements Serializable {
 	@Schema(description = "等级名称")
 	private String levelName;
 
+	@Schema(description = "状态：0-启用；1-禁用")
+	private String status;
+
 	@Schema(description = "积分余额")
 	private Integer point;
 

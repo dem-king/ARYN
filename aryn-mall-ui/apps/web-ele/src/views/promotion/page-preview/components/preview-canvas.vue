@@ -13,7 +13,10 @@ import { getComponentDefinition } from '../../page-designer/registry/component-r
 import { resolveEffectivePageTheme } from '../../page-designer/schema/effective-theme';
 import { resolveNavigationAppearance } from '../../page-designer/schema/navigation-style';
 import { buildSectionStyle } from '../../page-designer/schema/section-style';
-import { derivePageBackgroundColor } from '../../page-designer/schema/theme-presets';
+import {
+  derivePageBackgroundColor,
+  withAlpha,
+} from '../../page-designer/schema/theme-presets';
 
 const props = withDefaults(
   defineProps<{
@@ -128,6 +131,13 @@ const canvasRootStyle = computed(() => ({
         '--wot-color-theme-background':
           props.themeVars?.pageBackgroundColor || undefined,
       }),
+  // 主色 9% tint（服务承诺圆底等浅色面）：C 端 diy pageStyle 同口径预计算，
+  // 有效主色 = 页面固化主题 > 注入主题，非法色值不下发、组件侧走 rgba 兜底
+  '--wot-color-theme-primary-soft':
+    withAlpha(
+      props.document.themePrimaryColor || props.themeVars?.primaryColor || '',
+      '17',
+    ) || undefined,
 }));
 
 /**

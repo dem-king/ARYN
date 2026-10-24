@@ -72,6 +72,14 @@ public class OrderInfo extends Model<OrderInfo> {
 	@Schema(description = "营销整单优惠金额（阶梯价计入明细单价，整船优惠在此汇总）")
 	private BigDecimal promoPrice;
 
+	@Schema(description = "商品原价合计（原价小计汇总，结算页展示用，非表字段）")
+	@TableField(exist = false)
+	private BigDecimal originalTotalPrice;
+
+	@Schema(description = "活动优惠合计（原价合计 - 商品金额，结算页优惠行展示用，非表字段）")
+	@TableField(exist = false)
+	private BigDecimal activityDiscountPrice;
+
 	@Schema(description = "命中营销活动明细（结算/详情展示）")
 	@TableField(exist = false)
 	private List<com.aryn.cloud.promotion.api.vo.PromotionCalculationVO.ActivityDetail> promotionDetails;
@@ -260,5 +268,21 @@ public class OrderInfo extends Model<OrderInfo> {
 			+ "快递按发货单签收判定。货到付款确认收款以此为前提")
 	@TableField(exist = false)
 	private Boolean delivered;
+
+	@Schema(description = "券不可用原因（结算页置灰提示用），null=可用，非表字段")
+	@TableField(exist = false)
+	private String couponStackReason;
+
+	@Schema(description = "积分不可用原因（结算页提示用），null=可用，非表字段")
+	@TableField(exist = false)
+	private String pointsStackReason;
+
+	@Schema(description = "券门槛可计算金额（允许叠券明细的折后金额合计，确认页券门槛提示用），非表字段")
+	@TableField(exist = false)
+	private java.math.BigDecimal couponEligibleAmount;
+
+	@Schema(description = "积分可计算金额（允许积分明细的商品应付合计，确认页积分提示用），非表字段")
+	@TableField(exist = false)
+	private java.math.BigDecimal pointsEligibleAmount;
 
 }

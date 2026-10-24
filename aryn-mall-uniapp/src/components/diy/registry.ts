@@ -1,10 +1,8 @@
 import type { Component } from 'vue'
 
 import DiyActivityStrip from './diy-activity-strip/index.vue'
-import DiyBottomNav from './diy-bottom-nav/index.vue'
 import DiyCategoryNav from './diy-category-nav/index.vue'
 import DiyCountdown from './diy-countdown/index.vue'
-import DiyCouponCombo from './diy-coupon-combo/index.vue'
 import DiyCouponReceive from './diy-coupon-receive/index.vue'
 import DiyCustomHtml from './diy-custom-html/index.vue'
 import DiyGap from './diy-gap/index.vue'
@@ -53,10 +51,8 @@ export const mobileComponentTypes = [
   'shop-info',
   'goods-waterfall',
   'goods-tabs',
-  'coupon-combo',
   'member-benefits',
   'service-promise',
-  'bottom-nav',
   'video-live',
   'goods-recommend',
   'image-cube',
@@ -89,10 +85,8 @@ const componentRegistry: Record<MobileComponentType, Component> = {
   'shop-info': DiyShopInfo,
   'goods-waterfall': DiyGoodsWaterfall,
   'goods-tabs': DiyGoodsTabs,
-  'coupon-combo': DiyCouponCombo,
   'member-benefits': DiyMemberBenefits,
   'service-promise': DiyServicePromise,
-  'bottom-nav': DiyBottomNav,
   'video-live': DiyVideoLive,
   'goods-recommend': DiyGoodsRecommend,
   'image-cube': DiyImageCube,

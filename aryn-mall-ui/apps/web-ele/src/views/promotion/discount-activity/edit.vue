@@ -21,6 +21,7 @@ import {
   ElMessage,
   ElRadio,
   ElRadioGroup,
+  ElSwitch,
   ElTable,
   ElTableColumn,
 } from 'element-plus';
@@ -82,6 +83,9 @@ const state = reactive<{
     discountType: 1,
     discountValue: 0.8,
     scope: 1,
+    // 优惠叠加默认按类型默认值带出：限时折扣默认可叠券/可积分
+    couponStackable: '1',
+    pointsStackable: '1',
     goodsList: [] as DiscountGoodsForm[],
   },
 });
@@ -231,6 +235,10 @@ const submitForm = async (formEl: FormInstance | undefined) => {
     }
   });
 };
+
+/** 开关值与 '1'/'0' 互转 */
+const asSwitch = (val: null | string | undefined) => val !== '0';
+const fromSwitch = (val: boolean | number | string) => (val ? '1' : '0');
 
 const add = () => {
   addObj(state.form)
@@ -392,6 +400,28 @@ if (editId) {
             />
             <div class="stock-hint">
               留空 = 不限量；填写后整个活动共限 N 件，下单占用、取消/退款回补
+            </div>
+          </ElFormItem>
+          <ElFormItem label="可用优惠券">
+            <ElSwitch
+              :model-value="asSwitch(state.form.couponStackable)"
+              @update:model-value="
+                state.form.couponStackable = fromSwitch($event as boolean)
+              "
+            />
+            <div class="stock-hint">
+              开启后本活动商品可使用优惠券（券门槛只按可叠加商品金额计算）
+            </div>
+          </ElFormItem>
+          <ElFormItem label="可用积分抵现">
+            <ElSwitch
+              :model-value="asSwitch(state.form.pointsStackable)"
+              @update:model-value="
+                state.form.pointsStackable = fromSwitch($event as boolean)
+              "
+            />
+            <div class="stock-hint">
+              开启后本活动商品可参与积分抵现（抵扣上限按可叠加商品应付计算）
             </div>
           </ElFormItem>
         </PageSection>

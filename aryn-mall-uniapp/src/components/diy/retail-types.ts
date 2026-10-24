@@ -64,6 +64,8 @@ export interface MarketingEntryProps extends RetailBaseProps {
 }
 
 export interface ShopInfoProps extends RetailBaseProps {
+  /** 悬浮压图：顶部外边距再上移 16px（=32rpx），把店铺头卡片叠到上方 banner 上 */
+  liftOverBanner: boolean
   showContact: boolean
   showDescription: boolean
 }
@@ -241,6 +243,14 @@ export interface DiscountActivityItem {
   activityId: string
   activityName: string
   countdown: number
+  /**
+   * 入口卡缩略图（取数层已按优先级解析好）。
+   *
+   * 指定商品活动取首件商品图；全场活动（scope=1）没有商品清单，
+   * 由 `loadDiscounts` 补一张真实商品图作代表（全店销量 Top1 商品，确实参与全场折扣，
+   * 不伪造数据）。仍取不到图时空串，渲染侧回落首字色块。
+   */
+  coverImage: string
   discountType: number
   discountValue: number
   endTime: string
@@ -335,11 +345,6 @@ export interface GoodsTabsProps {
   tabs: GoodsTabConfig[]
 }
 
-export interface CouponComboProps extends RetailBaseProps {
-  showReceiveBtn: boolean
-  showThreshold: boolean
-}
-
 export interface MemberBenefitEntry {
   description: string
   iconUrl: string
@@ -364,21 +369,6 @@ export interface ServicePromiseProps {
   commonStyle: RetailCommonStyle
   items: ServicePromiseItem[]
   title: string
-}
-
-export interface BottomNavItem {
-  iconUrl: string
-  id: string
-  link: DecorationLink
-  text: string
-}
-
-export interface BottomNavProps {
-  activeColor: string
-  backgroundColor: string
-  commonStyle: RetailCommonStyle
-  items: BottomNavItem[]
-  textColor: string
 }
 
 export interface VideoLiveProps {

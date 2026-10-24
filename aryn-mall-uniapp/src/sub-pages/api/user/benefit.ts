@@ -1,5 +1,10 @@
 import { alovaInstance } from '@/api/core/instance'
 
+// 获取当前登录会员的有效权益
+export function getMyBenefits() {
+  return alovaInstance.Get<any>('/mall-user/app/member/benefits')
+}
+
 // 获取等级权益
 export function getLevelBenefits(levelId: string) {
   return alovaInstance.Get<any>('/mall-user/app/member/level-benefits', { params: { levelId } })

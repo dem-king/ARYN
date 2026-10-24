@@ -189,6 +189,9 @@ function normalizeDiscountGoods(value: unknown): DiscountGoodsItem[] {
  * 后端 `/app/discount/activities` 返回分页对象（records/total），
  * extractItems 已兼容；`goodsList` 仅指定商品(scope=2)活动才有，
  * 全场活动为空数组，渲染侧对其展示「全场参与」文案。
+ *
+ * `coverImage` 由取数层 `loadDiscounts` 按优先级补齐（入口卡缩略图），
+ * 归一化阶段先落空串，避免把「有无商品图」的判断散到渲染侧。
  */
 export function normalizeRetailDiscounts(value: unknown): DiscountActivityItem[] {
   return extractItems(value)
@@ -198,6 +201,7 @@ export function normalizeRetailDiscounts(value: unknown): DiscountActivityItem[]
         activityId: toText(record.activityId ?? record.id),
         activityName: toText(record.activityName),
         countdown: toNumber(record.countdown),
+        coverImage: '',
         discountType: toNumber(record.discountType),
         discountValue: toNumber(record.discountValue),
         endTime: toText(record.endTime),

@@ -41,6 +41,8 @@ public class GroupBuyActivityController {
 	@SaCheckPermission("promotion:groupbuy:add")
 	@PostMapping
 	public Result add(@Valid @RequestBody GroupBuyActivity activity) {
+		// 叠加策略缺省按拼团类型默认值（可用）补齐
+		fillStackDefaults(activity);
 		return Result.success(groupBuyActivityService.save(activity));
 	}
 
@@ -49,7 +51,18 @@ public class GroupBuyActivityController {
 	@SaCheckPermission("promotion:groupbuy:edit")
 	@PutMapping
 	public Result edit(@Valid @RequestBody GroupBuyActivity activity) {
+		fillStackDefaults(activity);
 		return Result.success(groupBuyActivityService.updateById(activity));
+	}
+
+	/** 券/积分叠加策略为空时按拼团默认（可用）补齐；显式提交的关闭值照常生效。 */
+	private void fillStackDefaults(GroupBuyActivity activity) {
+		if (activity.getCouponStackable() == null || activity.getCouponStackable().isBlank()) {
+			activity.setCouponStackable("1");
+		}
+		if (activity.getPointsStackable() == null || activity.getPointsStackable().isBlank()) {
+			activity.setPointsStackable("1");
+		}
 	}
 
 	@SysLog("删除拼团活动")

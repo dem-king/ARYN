@@ -65,6 +65,17 @@ export function derivePageBackgroundColor(primaryColor: string): string {
   return mixTowardWhite(primaryColor, 0.92) ?? '#F5F5F5';
 }
 
+/**
+ * 主色叠加透明度（hex 8 位，alphaHex 如 '17' ≈ 9%），服务承诺圆底等
+ * 浅色 tint 用。CSS 无法从 var() 派生透明度（小程序不支持 color-mix），
+ * 只能预计算注入 --wot-color-theme-primary-soft；C 端 diy/index.vue 的
+ * primarySoft 同口径，非法输入返回 null 走组件侧 rgba 兜底。
+ */
+export function withAlpha(color: string, alphaHex: string): null | string {
+  if (!isHex(color)) return null;
+  return `${color}${alphaHex}`.toUpperCase();
+}
+
 /** 预设色板（顺序即展示顺序），底色由主色统一衍生，避免手工色值漂移 */
 const PRESET_PRIMARIES: Array<[name: string, primaryColor: string]> = [
   ['活力红', '#FF2237'],

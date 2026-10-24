@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.aryn.cloud.user.api.entity.MemberBenefit;
 import com.aryn.cloud.user.api.entity.MemberLevel;
+import com.aryn.cloud.user.api.vo.MemberBenefitBackfillResultVO;
 import com.aryn.cloud.user.api.vo.MemberBenefitsVO;
 import com.aryn.cloud.user.api.vo.MemberCurrentInfoVO;
 
@@ -53,5 +54,12 @@ public interface IMemberBenefitService extends IService<MemberBenefit> {
 	MemberCurrentInfoVO getCurrentMemberInfo(String userId);
 
 	MemberBenefit getBenefitDetail(String id);
+
+	/**
+	 * 给权益已关联等级下的现有会员补发专属优惠券。
+	 * @param benefitId 权益ID
+	 * @return 补发统计
+	 */
+	MemberBenefitBackfillResultVO backfillCoupon(String benefitId);
 
 }

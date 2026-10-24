@@ -91,7 +91,9 @@ async function handleSignIn() {
     signedDates.value.unshift(today)
     // 签到成功后立即刷新日历，否则当日格子要等下次 onShow 才打勾
     refreshCalendar()
-    showSuccess(`签到成功！获得${result.rewardPoint}积分`)
+    showSuccess(result.rewardPoint > 0
+      ? `签到成功！获得${result.rewardPoint}积分`
+      : '签到成功，今日暂无奖励')
     userStore.refreshPointsInfo()
   }
   catch (error) {

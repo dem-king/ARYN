@@ -77,4 +77,16 @@ public class RechargeOrder extends Model<RechargeOrder> {
 	@Schema(description = "租户ID")
 	private String tenantId;
 
+	@TableField(exist = false)
+	@Schema(description = "会员昵称（列表展示）")
+	private String nickname;
+
+	@TableField(exist = false)
+	@Schema(description = "创建时间起（查询参数）")
+	private String beginTime;
+
+	@TableField(exist = false)
+	@Schema(description = "创建时间止（查询参数）")
+	private String endTime;
+
 }

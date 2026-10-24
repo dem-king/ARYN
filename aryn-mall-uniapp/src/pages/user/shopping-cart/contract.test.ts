@@ -153,3 +153,86 @@ describe('shopping cart off-shelf tolerance contract', () => {
     expect(service).not.toContain('query goods sku list fail!')
   })
 })
+
+/** 截取页面源码里一个函数的实现：到下一个顶层 `function` / `async function` 为止 */
+function functionSource(page: string, name: string) {
+  const start = page.indexOf(`function ${name}(`)
+  if (start < 0)
+    return ''
+  const ends = [
+    page.indexOf('\nfunction ', start + 1),
+    page.indexOf('\nasync function ', start + 1),
+  ].filter(index => index > start)
+  return page.slice(start, ends.length ? Math.min(...ends) : page.length)
+}
+
+/**
+ * 购物车「限时折扣价」契约守门。
+ *
+ * 背景（真实缺陷）：折扣会场标「8 折 ¥23.92」，购物车行价与合计却仍是 ¥29.90。
+ * 购物车拿到的是 SKU 当前售价，活动价只在会场由活动配置渲染 —— 若不接入
+ * 批量折扣价接口，用户从会场加购后看到的仍是原价，与「结算按活动价」的预期对不上。
+ *
+ * 这里把「整页一次批量拉价」「行价/划线价/合计同源」「新人价优先」绑成契约，
+ * 避免后续重构再让购物车与折扣价断线。
+ */
+describe('shopping cart limited-discount price contract', () => {
+  it('loads discount prices in one batch per cart list load', () => {
+    const cart = source(CART_PAGE)
+    // 共享层：批量接口 + 按 SKU 精确解析 + 成交单价兜底
+    expect(cart).toContain('getGoodsDiscountPrices')
+    expect(cart).toContain('resolveDiscountPriceDisplay')
+    expect(cart).toContain('discountUnitPrice')
+    // 整页只允许一处调用：逐行请求会把购物车首屏放大成 N 个请求
+    expect(cart.match(/getGoodsDiscountPrices\(/g) || []).toHaveLength(1)
+
+    const loader = functionSource(cart, 'loadDiscountPrices')
+    expect(loader).toContain('getGoodsDiscountPrices(skuIds)')
+    // 同一 SKU 可能有多行，查询前必须去重
+    expect(loader).toContain('new Set')
+    // 失败静默回落原价，不能冒泡到购物车列表与结算主流程
+    expect(loader).toContain('catch')
+    expect(loader).toContain('discountDisplays.value = {}')
+
+    // 与新人价同一时机：列表加载/刷新/增删行都会走 getCartPage，
+    // 两个价格增强请求都在这里触发且不阻塞首屏
+    const listLoader = functionSource(cart, 'getCartPage')
+    expect(listLoader).toContain('void loadNewbiePrices()')
+    expect(listLoader).toContain('void loadDiscountPrices()')
+  })
+
+  it('renders the discount price as main price with badge and strike-through base price', () => {
+    const cart = source(CART_PAGE)
+    // 行主价必须走与合计同源的 cartUnitPrice，不能各写一遍三目
+    expect(cart).toContain(':text="cartUnitPrice(goods)"')
+    // 命中折扣时展示力度角标，文案由共享层 formatDiscountValue 口径生成
+    expect(cart).toContain('discountDisplayOf(goods).showDiscountPrice')
+    expect(cart).toContain('discountDisplayOf(goods).badgeText')
+    expect(cart).toContain('discount-badge')
+    // 未命中/接口失败回落共享空展示（空表即全部按原价）
+    expect(cart).toContain('emptyDiscountDisplay()')
+
+    // 划线价取折扣基准价（display.originalPrice），与折后价同一份判定结果
+    const strike = functionSource(cart, 'strikePriceOf')
+    expect(strike).toContain('discountDisplayOf(row)')
+    expect(strike).toContain('discount.originalPrice')
+  })
+
+  it('keeps newbie price ahead of limited discount and totals on the same unit price', () => {
+    const cart = source(CART_PAGE)
+    // 优先级：新人价 > 限时折扣 > 售价（与后端 OrderPriceComputeService 一致）
+    const unit = functionSource(cart, 'cartUnitPrice')
+    const newbieAt = unit.indexOf('showNewbiePrice')
+    const discountAt = unit.indexOf('discountUnitPrice')
+    expect(newbieAt).toBeGreaterThan(-1)
+    expect(discountAt).toBeGreaterThan(newbieAt)
+    // 无新人价时才落到折扣成交价，未命中由 discountUnitPrice 回落售价
+    expect(unit).toContain('discountUnitPrice(fallback')
+
+    // 合计与行价同源：不再直接读 salesPrice，否则行价折后、合计原价
+    const compute = functionSource(cart, 'computePrice')
+    expect(compute).toContain('cartUnitPrice(val)')
+    expect(compute).not.toContain('goodsSku.salesPrice')
+    expect(compute).not.toContain('effectiveUnitPrice(')
+  })
+})

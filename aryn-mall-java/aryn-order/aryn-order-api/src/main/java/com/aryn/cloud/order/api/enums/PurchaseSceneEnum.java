@@ -19,7 +19,13 @@ public enum PurchaseSceneEnum {
 	/**
 	 * 船供采购
 	 */
-	SHIP_SUPPLY("2", "船供采购");
+	SHIP_SUPPLY("2", "船供采购"),
+
+	/**
+	 * 企业采购：港口附近工厂等岸上客户经共享购物车合并采购，
+	 * 公司配送（岸上）送达收货地址
+	 */
+	ENTERPRISE("3", "企业采购");
 
 	private final String code;
 

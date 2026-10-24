@@ -93,8 +93,20 @@ public class PromotionActivity extends Model<PromotionActivity> {
 	@TableField(exist = false)
 	private Integer consumedGiftStock;
 
-	/** 是否可叠加：0否 1是 */
+	/**
+	 * 是否可叠加：0否 1是。
+	 *
+	 * @deprecated 死字段（引擎从未读取），语义为「活动间是否可叠」的泛化字段。
+	 * 券/积分叠加策略请使用 {@link #couponStackable} / {@link #pointsStackable}，本字段保留仅为兼容存量数据。
+	 */
+	@Deprecated
 	private String stackable;
+
+	/** 活动商品是否可用优惠券：1可用 0不可用（新人专享 type=9 默认 0，其余类型默认 1） */
+	private String couponStackable;
+
+	/** 活动商品是否可积分抵现：1可抵 0不可抵（新人专享 type=9 默认 0，其余类型默认 1） */
+	private String pointsStackable;
 
 	/** 开始时间 */
 	private LocalDateTime startTime;

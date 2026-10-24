@@ -38,4 +38,11 @@ public class GroupBuyOrderContextVO implements Serializable {
 
 	@Schema(description = "拼团失效时间（超过后成团失败）")
 	private LocalDateTime expireAt;
+
+	@Schema(description = "活动商品是否可用优惠券（空按类型默认=可用处理）")
+	private Boolean couponStackable;
+
+	@Schema(description = "活动商品是否可积分抵现（空按类型默认=可抵处理）")
+	private Boolean pointsStackable;
+
 }

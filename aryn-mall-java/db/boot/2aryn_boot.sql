@@ -2404,6 +2404,7 @@ CREATE TABLE `user_info`  (
                               `create_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '创建人',
                               `update_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '修改人',
                               `open_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '平台用户唯一ID（openid / alipay userId 等）',
+                              `status` char(1) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '0' COMMENT '状态：0-启用；1-禁用',
                               PRIMARY KEY (`id`) USING BTREE,
                               UNIQUE INDEX `uk_phone`(`tenant_id` ASC, `phone` ASC) USING BTREE COMMENT '用户手机号'
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '商城用户' ROW_FORMAT = DYNAMIC;
@@ -2411,8 +2412,8 @@ CREATE TABLE `user_info`  (
 -- ----------------------------
 -- Records of user_info
 -- ----------------------------
-INSERT INTO `user_info` VALUES ('2040654277629796353', '微信用户6798', NULL, NULL, NULL, NULL, NULL, NULL, '0', '2026-04-05 12:54:28', NULL, NULL, '1590229800633634816', 'ozexS3bXeBjIkrfIZoe07SWXBY4I', NULL, 'ozexS3bXeBjIkrfIZoe07SWXBY4I');
-INSERT INTO `user_info` VALUES ('2040656345832747009', '176****2320', '17640212320', NULL, NULL, NULL, NULL, NULL, '0', '2026-04-05 13:02:41', NULL, NULL, '1590229800633634816', '17640212320', NULL, NULL);
+INSERT INTO `user_info` VALUES ('2040654277629796353', '微信用户6798', NULL, NULL, NULL, NULL, NULL, NULL, '0', '2026-04-05 12:54:28', NULL, NULL, '1590229800633634816', 'ozexS3bXeBjIkrfIZoe07SWXBY4I', NULL, 'ozexS3bXeBjIkrfIZoe07SWXBY4I', '0');
+INSERT INTO `user_info` VALUES ('2040656345832747009', '176****2320', '17640212320', NULL, NULL, NULL, NULL, NULL, '0', '2026-04-05 13:02:41', NULL, NULL, '1590229800633634816', '17640212320', NULL, NULL, '0');
 
 
 -- ----------------------------

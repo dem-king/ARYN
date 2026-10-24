@@ -163,6 +163,28 @@ export interface AppDiscountVO {
 }
 
 /**
+ * 批量查询指定 SKU 当前命中的最优限时折扣（商详 / 购物车 / 加购确认弹层用）。
+ *
+ * 免登可访问（与折扣会场列表同一白名单口径）：折扣价与会场展示同源，
+ * 未登录也能看到活动价；真正的成交价仍以下单/结算接口为准。
+ * 单个 SKU 的 `/goods/{skuId}` 带登录校验，供「商品最优折扣」单点场景使用；
+ * 页面一次要标几十行时走本批量接口，避免 N+1 请求。
+ */
+export function getGoodsDiscountPrices(skuIds: string[]) {
+  const ids = skuIds.filter(Boolean)
+  if (!ids.length) {
+    return Promise.resolve<AppDiscountVO[]>([])
+  }
+  return alovaInstance.Get<AppDiscountVO[]>(
+    '/promotion/app/discount/prices',
+    {
+      headers: { skipToken: true },
+      params: { skuIds: ids.join(',') },
+    },
+  )
+}
+
+/**
  * 获取商品当前最优折扣信息
  * GET /promotion/app/discount/goods/{skuId}
  */

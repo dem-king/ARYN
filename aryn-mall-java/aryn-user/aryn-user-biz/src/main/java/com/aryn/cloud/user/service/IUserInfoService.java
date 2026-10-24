@@ -65,6 +65,14 @@ public interface IUserInfoService extends IService<UserInfo> {
 	boolean saveUser(UserCreateDTO request, String clientType);
 
 	/**
+	 * C 端注册：保存用户后发放注册积分并重算会员等级。
+	 * @param request 注册信息
+	 * @param clientType 来源类型
+	 * @return 是否注册成功
+	 */
+	boolean registerUser(UserCreateDTO request, String clientType);
+
+	/**
 	 * 修改用户
 	 * @param userInfo
 	 * @return
@@ -76,6 +84,13 @@ public interface IUserInfoService extends IService<UserInfo> {
 	boolean updatePassword(String userId, UserPasswordUpdateDTO request);
 
 	boolean deleteUser(String userId);
+
+	/**
+	 * 修改会员启停用状态
+	 * @param userId 用户ID
+	 * @param status 0-启用；1-禁用
+	 */
+	void updateStatus(String userId, String status);
 
 	List<UserStatisticsVO> sourceStatistics(UserInfo userInfo);
 

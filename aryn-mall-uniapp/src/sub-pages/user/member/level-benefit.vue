@@ -31,6 +31,7 @@ interface MemberLevel {
 }
 
 const globalLoading = useGlobalLoading()
+const userStore = useUserStore()
 const levelList = ref<MemberLevel[]>([])
 const expandedLevelId = ref<string>('')
 
@@ -49,6 +50,11 @@ async function loadLevelList() {
         : `累计积分 ${level.conditionValue}`,
       benefits: [],
     }))
+    const currentLevel = levelList.value.find(level => level.id === userStore.getLevelId)
+    if (currentLevel) {
+      expandedLevelId.value = currentLevel.id
+      await loadLevelBenefits(currentLevel)
+    }
   }
   catch (error) {
     console.error('加载等级列表失败:', error)
@@ -65,16 +71,19 @@ async function toggleLevelBenefits(level: MemberLevel) {
   }
 
   expandedLevelId.value = level.id
+  await loadLevelBenefits(level)
+}
 
-  // 如果尚未加载权益，则请求
-  if (level.benefits.length === 0) {
-    try {
-      const benefits = await getLevelBenefits(level.id)
-      level.benefits = benefits || []
-    }
-    catch (error) {
-      console.error('加载等级权益失败:', error)
-    }
+async function loadLevelBenefits(level: MemberLevel) {
+  if (level.benefits.length > 0) {
+    return
+  }
+  try {
+    const benefits = await getLevelBenefits(level.id)
+    level.benefits = benefits || []
+  }
+  catch (error) {
+    console.error('加载等级权益失败:', error)
   }
 }
 
@@ -128,7 +137,12 @@ function formatBenefitValue(benefit: MemberBenefit): string {
             Lv.{{ level.sortOrder }}
           </view>
           <view class="ml-3">
-            <view class="text-15px font-bold">{{ level.levelName }}</view>
+            <view class="flex items-center">
+              <text class="text-15px font-bold">{{ level.levelName }}</text>
+              <text v-if="level.id === userStore.getLevelId" class="current-level-tag">
+                当前等级
+              </text>
+            </view>
             <view v-if="level.upgradeCondition" class="text-12px text-gray-400 mt-1">
               升级条件：{{ level.upgradeCondition }}
             </view>
@@ -220,6 +234,15 @@ function formatBenefitValue(benefit: MemberBenefit): string {
   &:last-child {
     border-bottom: none;
   }
+}
+
+.current-level-tag {
+  margin-left: 10rpx;
+  padding: 2rpx 10rpx;
+  border-radius: 8rpx;
+  background: #fff1f0;
+  font-size: 18rpx;
+  color: var(--wot-color-theme);
 }
 
 .rotate-180 {

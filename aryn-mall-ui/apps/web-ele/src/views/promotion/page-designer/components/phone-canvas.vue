@@ -10,6 +10,7 @@ import { ElEmpty } from 'element-plus';
 
 import { resolveEffectivePageTheme } from '../schema/effective-theme';
 import { resolveNavigationAppearance } from '../schema/navigation-style';
+import { withAlpha } from '../schema/theme-presets';
 import CanvasPageShell from './canvas-page-shell.vue';
 import CanvasSectionList from './canvas-section-list.vue';
 
@@ -106,10 +107,14 @@ const canvasStyle = computed(() => ({
   // -background 是页面底色（主色混白 92%），C 端由 wd-config-provider 的
   // colorThemeBackground 下发；画布此前漏挂，导致促销组件的浅色面在非暖色主题
   // 下落到 #fff1ee 兜底（蓝/绿主题预览偏粉），这里补齐同口径变量。
+  // -primary-soft 是主色 9% tint（服务承诺圆底等浅色面），C 端 diy pageStyle
+  // 同口径预计算（withAlpha），非法色值不下发、组件侧走 rgba 兜底。
   '--wot-color-theme-primary': props.themeVars?.primaryColor || undefined,
   '--wot-color-theme-secondary': props.themeVars?.secondaryColor || undefined,
   '--wot-color-theme-background':
     props.themeVars?.pageBackgroundColor || undefined,
+  '--wot-color-theme-primary-soft':
+    withAlpha(props.themeVars?.primaryColor || '', '17') || undefined,
   transform: `scale(${props.zoom})`,
 }));
 

@@ -158,7 +158,14 @@ public class SharedCartAdminController {
 		Map<String, Object> row = new LinkedHashMap<>(BeanUtil.beanToMap(cart));
 		// shareToken 是加入凭证，管理端列表没有任何用处，不随列表下发
 		row.remove("shareToken");
-		row.put("vesselCallText", vesselCalls.get(cart.getVesselCallId()));
+		// 岸上企业车没有靠港，「哪条船」这一列对运营要能读：直接给「岸上配送 + 地址快照」
+		if (SharedCart.CART_TYPE_SHORE.equals(cart.getCartType())) {
+			row.put("vesselCallText",
+					"岸上配送" + (StringUtils.hasText(cart.getAddressSnapshot()) ? " · " + cart.getAddressSnapshot() : ""));
+		}
+		else {
+			row.put("vesselCallText", vesselCalls.get(cart.getVesselCallId()));
+		}
 		row.put("ownerName", ownerNames.get(cart.getId()));
 		row.put("submitOrderNo", orderNos.get(cart.getSubmitOrderId()));
 		return row;

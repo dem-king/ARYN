@@ -15,8 +15,6 @@ import {
   validateCountdown,
 } from '../../page-design/components/countdown/types';
 import {
-  createBottomNavDefaults,
-  createCouponComboDefaults,
   createGoodsRecommendDefaults,
   createGoodsTabsDefaults,
   createGoodsWaterfallDefaults,
@@ -24,8 +22,6 @@ import {
   createMemberBenefitsDefaults,
   createServicePromiseDefaults,
   createVideoLiveDefaults,
-  validateBottomNav,
-  validateCouponCombo,
   validateGoodsRecommend,
   validateGoodsTabs,
   validateGoodsWaterfall,
@@ -104,10 +100,8 @@ export const extensionComponentTypes = [
   'goods-waterfall',
   'goods-tabs',
   'goods-recommend',
-  'coupon-combo',
   'member-benefits',
   'service-promise',
-  'bottom-nav',
   'video-live',
   'image-cube',
 ] as const;
@@ -248,19 +242,39 @@ export const componentRegistry: Record<
     () => import('../../page-design/components/category-nav/setting.vue'),
     () => import('../../page-design/components/category-nav/style-setting.vue'),
   ),
-  'coupon-receive': defineLegacyComponent(
-    'coupon-receive',
-    '优惠券',
-    '营销活动',
-    {
-      commonStyle,
-      showNum: 3,
-      showReceiveBtn: true,
-      showStyle: '2',
+  'coupon-receive': {
+    ...defineLegacyComponent(
+      'coupon-receive',
+      '优惠券',
+      '营销活动',
+      {
+        commonStyle,
+        dataSource: {
+          mode: 'automatic',
+          targetIds: [],
+        },
+        showNum: 3,
+        showReceiveBtn: true,
+        showStyle: '2',
+      },
+      () => import('../../page-design/components/coupon-receive/index.vue'),
+      () => import('../../page-design/components/coupon-receive/setting.vue'),
+    ),
+    validate: (props) => {
+      const dataSource = (
+        props as {
+          dataSource?: { mode?: string; targetIds?: string[] };
+        }
+      ).dataSource;
+      if (
+        dataSource?.mode === 'manual' &&
+        (dataSource.targetIds ?? []).filter(Boolean).length === 0
+      ) {
+        return ['手选优惠券不能为空'];
+      }
+      return [];
     },
-    () => import('../../page-design/components/coupon-receive/index.vue'),
-    () => import('../../page-design/components/coupon-receive/setting.vue'),
-  ),
+  },
   'custom-html': {
     category: '基础组件',
     createDefaultProps: () => cloneDesignerValue({ height: 300, html: '' }),
@@ -332,11 +346,31 @@ export const componentRegistry: Record<
     '公告',
     '基础组件',
     {
-      bgColor: '#fff8e6',
-      commonStyle,
-      content: '欢迎光临',
-      iconColor: '#ff9900',
-      textColor: '#5a3c14',
+      commonStyle: {
+        ...commonStyle,
+        bgStartColor: 'rgba(255, 248, 233, 1)',
+        bgEndColor: 'rgba(255, 248, 233, 1)',
+        styleLeftPadding: 12,
+        styleRightPadding: 12,
+        styleTopPadding: 6,
+        styleBottomPadding: 6,
+        styleLtRadius: 8,
+        styleRtRadius: 8,
+        styleLbRadius: 8,
+        styleRbRadius: 8,
+      },
+      contentList: [
+        { content: '欢迎光临悦航购，生鲜好货每日直送', link: null },
+      ],
+      color: 'rgba(100, 101, 102, 1)',
+      direction: 'horizontal',
+      speed: 50,
+      titleColor: '#F08A24',
+      titleSize: 16,
+      titleStyle: '0',
+      titleText: '',
+      titleType: '',
+      titleUrl: '',
     },
     () => import('../../page-design/components/notice/index.vue'),
     () => import('../../page-design/components/notice/setting.vue'),
@@ -563,17 +597,6 @@ export const componentRegistry: Record<
     () =>
       import('../../page-design/components/extension/goods-tabs/setting.vue'),
   ),
-  'coupon-combo': defineExtensionComponent(
-    'coupon-combo',
-    '优惠券组合',
-    '营销活动',
-    createCouponComboDefaults(),
-    validateCouponCombo,
-    () =>
-      import('../../page-design/components/extension/coupon-combo/index.vue'),
-    () =>
-      import('../../page-design/components/extension/coupon-combo/setting.vue'),
-  ),
   'member-benefits': defineExtensionComponent(
     'member-benefits',
     '会员权益',
@@ -595,18 +618,6 @@ export const componentRegistry: Record<
       import('../../page-design/components/extension/service-promise/index.vue'),
     () =>
       import('../../page-design/components/extension/service-promise/setting.vue'),
-  ),
-  'bottom-nav': defineExtensionComponent(
-    'bottom-nav',
-    '底部导航',
-    '导航广告',
-    createBottomNavDefaults(),
-    validateBottomNav,
-    () => import('../../page-design/components/extension/bottom-nav/index.vue'),
-    () =>
-      import('../../page-design/components/extension/bottom-nav/setting.vue'),
-    () =>
-      import('../../page-design/components/extension/bottom-nav/style-setting.vue'),
   ),
   'video-live': defineExtensionComponent(
     'video-live',
@@ -650,7 +661,6 @@ export const componentRegistry: Record<
  */
 export const detailPageAllowedComponents: ReadonlySet<RegisteredComponentType> =
   new Set([
-    'coupon-combo',
     'coupon-receive',
     'custom-html',
     'gap',
@@ -673,7 +683,6 @@ export const detailPageAllowedComponents: ReadonlySet<RegisteredComponentType> =
 export const categoryPageAllowedComponents: ReadonlySet<RegisteredComponentType> =
   new Set([
     'countdown',
-    'coupon-combo',
     'coupon-receive',
     'custom-html',
     'gap',
@@ -699,7 +708,6 @@ export const categoryPageAllowedComponents: ReadonlySet<RegisteredComponentType>
 export const userCenterAllowedComponents: ReadonlySet<RegisteredComponentType> =
   new Set([
     'countdown',
-    'coupon-combo',
     'coupon-receive',
     'custom-html',
     'gap',

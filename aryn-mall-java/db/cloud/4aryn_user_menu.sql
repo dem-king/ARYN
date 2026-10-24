@@ -15,6 +15,7 @@ INSERT INTO `sys_menu` VALUES ('2050000000000000003', '等级查询', 'user:memb
 INSERT INTO `sys_menu` VALUES ('2050000000000000004', '等级新增', 'user:memberlevel:add', NULL, NULL, '2050000000000000001', NULL, NULL, 3, '1', '2026-04-22 00:00:00', '2026-04-22 00:00:00', '0', '0', 'app_base', NULL, NULL);
 INSERT INTO `sys_menu` VALUES ('2050000000000000005', '等级编辑', 'user:memberlevel:edit', NULL, NULL, '2050000000000000001', NULL, NULL, 4, '1', '2026-04-22 00:00:00', '2026-04-22 00:00:00', '0', '0', 'app_base', NULL, NULL);
 INSERT INTO `sys_menu` VALUES ('2050000000000000006', '等级删除', 'user:memberlevel:del', NULL, NULL, '2050000000000000001', NULL, NULL, 5, '1', '2026-04-22 00:00:00', '2026-04-22 00:00:00', '0', '0', 'app_base', NULL, NULL);
+INSERT INTO `sys_menu` VALUES ('2050000000000000007', '等级变更记录', 'user:memberlevel:get', NULL, NULL, '2050000000000000001', NULL, NULL, 6, '1', '2026-04-22 00:00:00', '2026-04-22 00:00:00', '0', '0', 'app_base', NULL, NULL);
 
 -- ----------------------------
 -- 积分管理父菜单
@@ -72,6 +73,7 @@ INSERT INTO `sys_menu` VALUES ('2050000000000000101', '余额记录查询', 'use
 INSERT INTO `sys_menu` VALUES ('2050000000000000110', '充值订单', NULL, '/user/recharge-order', NULL, '1779386898750439425', 'carbon:receipt', 'user/recharge-order/index', 6, '0', '2026-04-22 00:00:00', '2026-04-22 00:00:00', '0', '0', 'app_base', NULL, 'system');
 INSERT INTO `sys_menu` VALUES ('2050000000000000111', '充值订单列表', 'user:rechargeorder:page', NULL, NULL, '2050000000000000110', NULL, NULL, 1, '1', '2026-04-22 00:00:00', '2026-04-22 00:00:00', '0', '0', 'app_base', NULL, NULL);
 INSERT INTO `sys_menu` VALUES ('2050000000000000112', '充值订单查询', 'user:rechargeorder:get', NULL, NULL, '2050000000000000110', NULL, NULL, 2, '1', '2026-04-22 00:00:00', '2026-04-22 00:00:00', '0', '0', 'app_base', NULL, NULL);
+INSERT INTO `sys_menu` VALUES ('2050000000000000113', '关闭充值订单', 'user:rechargeorder:edit', NULL, NULL, '2050000000000000110', NULL, NULL, 3, '1', '2026-04-22 00:00:00', '2026-04-22 00:00:00', '0', '0', 'app_base', NULL, NULL);
 
 -- ----------------------------
 -- 会员标签菜单
@@ -92,3 +94,6 @@ INSERT INTO `sys_menu` VALUES ('2050000000000000132', '权益查询', 'user:memb
 INSERT INTO `sys_menu` VALUES ('2050000000000000133', '权益新增', 'user:memberbenefit:add', NULL, NULL, '2050000000000000130', NULL, NULL, 3, '1', '2026-04-22 00:00:00', '2026-04-22 00:00:00', '0', '0', 'app_base', NULL, NULL);
 INSERT INTO `sys_menu` VALUES ('2050000000000000134', '权益编辑', 'user:memberbenefit:edit', NULL, NULL, '2050000000000000130', NULL, NULL, 4, '1', '2026-04-22 00:00:00', '2026-04-22 00:00:00', '0', '0', 'app_base', NULL, NULL);
 INSERT INTO `sys_menu` VALUES ('2050000000000000135', '权益删除', 'user:memberbenefit:del', NULL, NULL, '2050000000000000130', NULL, NULL, 5, '1', '2026-04-22 00:00:00', '2026-04-22 00:00:00', '0', '0', 'app_base', NULL, NULL);
+INSERT INTO `sys_menu` VALUES ('2050000000000000136', '补发专属优惠券', 'user:memberbenefit:edit', NULL, NULL, '2050000000000000130', NULL, NULL, 6, '1', '2026-04-22 00:00:00', '2026-04-22 00:00:00', '0', '0', 'app_base', NULL, NULL);
+INSERT INTO `sys_menu` VALUES ('2050000000000000137', '优惠券模板查看', 'promotion:couponinfo:page', NULL, NULL, '2050000000000000130', NULL, NULL, 7, '1', '2026-04-22 00:00:00', '2026-04-22 00:00:00', '0', '0', 'app_base', NULL, NULL);
+INSERT INTO `sys_menu` VALUES ('2050000000000000138', '优惠券模板查询', 'promotion:couponinfo:get', NULL, NULL, '2050000000000000130', NULL, NULL, 8, '1', '2026-04-22 00:00:00', '2026-04-22 00:00:00', '0', '0', 'app_base', NULL, NULL);

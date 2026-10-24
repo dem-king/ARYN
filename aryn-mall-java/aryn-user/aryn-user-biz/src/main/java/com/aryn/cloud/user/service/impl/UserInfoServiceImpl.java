@@ -7,6 +7,7 @@
  */
 package com.aryn.cloud.user.service.impl;
 
+import cn.dev33.satoken.stp.StpUtil;
 import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.crypto.digest.BCrypt;
@@ -15,6 +16,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.aryn.cloud.common.core.desensitization.MobilePhoneDesensitization;
+import com.aryn.cloud.common.core.enums.DeviceTypeEnum;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.user.api.dto.UserAdminUpdateDTO;
@@ -31,6 +33,7 @@ import com.aryn.cloud.user.mapper.SocialUserMapper;
 import com.aryn.cloud.user.mapper.UserInfoMapper;
 import com.aryn.cloud.user.mapper.UserTagRelMapper;
 import com.aryn.cloud.user.service.IBalanceRecordService;
+import com.aryn.cloud.user.service.IMemberLevelService;
 import com.aryn.cloud.user.service.IPointsGrantService;
 import com.aryn.cloud.user.service.IPointsRecordService;
 import com.aryn.cloud.user.service.IUserInfoService;
@@ -64,6 +67,8 @@ public class UserInfoServiceImpl extends ServiceImpl<UserInfoMapper, UserInfo> i
 
 	private final IPointsGrantService pointsGrantService;
 
+	private final IMemberLevelService memberLevelService;
+
 	private final SocialUserMapper socialUserMapper;
 
 	private final UserTagRelMapper userTagRelMapper;
@@ -89,14 +94,52 @@ public class UserInfoServiceImpl extends ServiceImpl<UserInfoMapper, UserInfo> i
 		}
 		UserRespVO userRespVO = new UserRespVO();
 		BeanUtils.copyProperties(userInfo, userRespVO);
+		if (StringUtils.hasText(userInfo.getMemberLevelId())) {
+			var level = memberLevelService.getById(userInfo.getMemberLevelId());
+			if (level != null) {
+				userRespVO.setLevelName(level.getLevelName());
+			}
+		}
 		return userRespVO;
+	}
+
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public void updateStatus(String userId, String status) {
+		if (!"0".equals(status) && !"1".equals(status)) {
+			throw new ArynBusinessException("会员状态不合法");
+		}
+		UserInfo target = this.getById(userId);
+		if (target == null) {
+			throw new ArynBusinessException("会员不存在");
+		}
+		if (!this.updateById(new UserInfo().setId(userId).setStatus(status))) {
+			throw new ArynBusinessException("会员状态更新失败");
+		}
+		if ("1".equals(status)) {
+			try {
+				StpUtil.kickout(userId, DeviceTypeEnum.TOC.getDevice());
+			}
+			catch (Exception e) {
+				log.warn("禁用会员后踢出 C 端会话失败: userId={}", userId, e);
+			}
+		}
 	}
 
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public boolean deleteUser(String userId) {
 		userTagRelMapper.delete(Wrappers.<UserTagRel>lambdaQuery().eq(UserTagRel::getUserId, userId));
-		return this.removeById(userId);
+		boolean removed = this.removeById(userId);
+		if (removed) {
+			try {
+				StpUtil.kickout(userId, DeviceTypeEnum.TOC.getDevice());
+			}
+			catch (Exception e) {
+				log.warn("删除会员后踢出 C 端会话失败: userId={}", userId, e);
+			}
+		}
+		return removed;
 	}
 
 	@Override
@@ -105,27 +148,49 @@ public class UserInfoServiceImpl extends ServiceImpl<UserInfoMapper, UserInfo> i
 		UserInfo userInfo = new UserInfo();
 		userInfo.setPhone(phone);
 		userInfo.setUserSource(clientType);
+		userInfo.setStatus("0");
 		userInfo.setNickname(mobilePhoneDesensitization.serialize(userInfo.getPhone()));
 		userInfo.setCreateBy(phone);
 		this.save(userInfo);
 		pointsGrantService.grant(userInfo.getId(), PointsSceneEnum.REGISTER, "REGISTER:" + userInfo.getId(), null,
 				"注册奖励");
+		// 注册奖励未配置时 grant 返回 0 不会触发等级重算，这里兜底一次
+		memberLevelService.recalculateLevel(userInfo.getId());
 		return userInfo;
 	}
 
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public boolean saveUser(UserCreateDTO request, String clientType) {
+		return saveUserInternal(request, clientType, false);
+	}
+
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public boolean registerUser(UserCreateDTO request, String clientType) {
+		return saveUserInternal(request, clientType, true);
+	}
+
+	private boolean saveUserInternal(UserCreateDTO request, String clientType, boolean grantRegisterReward) {
 		if (this.checkPhone(request.getPhone())) {
 			throw new RuntimeException("手机号已存在");
 		}
 		UserInfo userInfo = new UserInfo();
 		BeanUtils.copyProperties(request, userInfo);
 		userInfo.setUserSource(clientType);
+		userInfo.setStatus("0");
 		if (StringUtils.hasText(userInfo.getPassword())) {
 			userInfo.setPassword(BCrypt.hashpw(userInfo.getPassword()));
 		}
-		return this.save(userInfo);
+		if (!this.save(userInfo)) {
+			return false;
+		}
+		if (grantRegisterReward) {
+			pointsGrantService.grant(userInfo.getId(), PointsSceneEnum.REGISTER,
+					"REGISTER:" + userInfo.getId(), null, "注册奖励");
+		}
+		memberLevelService.recalculateLevel(userInfo.getId());
+		return true;
 	}
 
 	@Override
@@ -174,6 +239,7 @@ public class UserInfoServiceImpl extends ServiceImpl<UserInfoMapper, UserInfo> i
 		UserInfo userInfo = new UserInfo();
 		userInfo.setOpenId(openid);
 		userInfo.setUserSource(platformType);
+		userInfo.setStatus("0");
 		userInfo.setNickname("微信用户" + RandomUtil.randomNumbers(4));
 		userInfo.setCreateBy(openid);
 		// boot 单体模式（Dubbo injvm）下租户上下文可能未随 RPC 传递，从三方绑定记录反查兜底
@@ -197,6 +263,7 @@ public class UserInfoServiceImpl extends ServiceImpl<UserInfoMapper, UserInfo> i
 		this.save(userInfo);
 		pointsGrantService.grant(userInfo.getId(), PointsSceneEnum.REGISTER, "REGISTER:" + userInfo.getId(), null,
 				"注册奖励");
+		memberLevelService.recalculateLevel(userInfo.getId());
 		return userInfo;
 	}
 

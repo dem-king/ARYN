@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AppNewbiePriceVO, AppSeckillGoodsVO } from '@/api/promotion'
+import type { AppDiscountVO, AppNewbiePriceVO, AppSeckillGoodsVO } from '@/api/promotion'
 import type { PurchaseDecision } from '@/utils/goods-purchase'
 import { onLoad, onPageScroll, onShareAppMessage } from '@dcloudio/uni-app'
 // @ts-expect-error: mp-html type declaration issue
@@ -14,7 +14,7 @@ import {
 } from 'vue'
 import { addObj as addCollect, deleteObj as deleteCollect } from '@/api/product/collect'
 import { getById as getSpuById } from '@/api/product/spu'
-import { getGoodsSeckillInfo, getNewbieSkuPrices } from '@/api/promotion'
+import { getGoodsDiscountPrices, getGoodsSeckillInfo, getNewbieSkuPrices } from '@/api/promotion'
 import { getPage as getCouponPage } from '@/api/promotion/couponInfo'
 import { getDefault } from '@/api/user/address'
 import DiyPage from '@/components/diy/index.vue'
@@ -26,6 +26,7 @@ import {
 } from '@/composables/useDistributionShare'
 import { usePageDecoration } from '@/composables/usePageDecoration'
 import { useQuickCart } from '@/composables/useQuickCart'
+import { emptyDiscountDisplay, resolveDiscountPriceDisplay } from '@/utils/discount-price'
 import { resolvePurchaseDecision, resolveSpecRow } from '@/utils/goods-purchase'
 import { initGoodsSpecs } from '@/utils/goods-specs'
 import { customerServiceRoute } from '@/utils/message'
@@ -61,6 +62,8 @@ interface State {
   seckillInfo: AppSeckillGoodsVO | null
   /** 本 SPU 各 SKU 的新人价（含当前用户资格三态）；null 表示无活动/接口失败 */
   newbiePriceVO: AppNewbiePriceVO | null
+  /** 本 SPU 各 SKU 命中的最优限时折扣；null 表示无活动/接口失败 */
+  discountPrices: AppDiscountVO[] | null
   /**
    * 多规格商品「用户当前看着的 SKU」。
    *
@@ -120,6 +123,7 @@ const state = reactive<State>({
   rateType: '',
   seckillInfo: null,
   newbiePriceVO: null,
+  discountPrices: null,
   selectSkuId: '',
 })
 const router = useRouter()
@@ -213,6 +217,29 @@ async function loadNewbiePrices() {
 }
 
 /**
+ * 加载本 SPU 各 SKU 命中的最优限时折扣（免登批量）。
+ *
+ * 与秒杀/新人价同口径：失败静默、只影响价格标注，不影响加购/下单主流程。
+ * 折扣价与会场展示同源（后端按同一份进行中活动计算），缺失时页面回落售价。
+ */
+async function loadDiscountPrices() {
+  const skuIds = (state.goodsSpu?.goodsSkus || [])
+    .map((sku: any) => sku.id)
+    .filter(Boolean)
+  if (!skuIds.length) {
+    state.discountPrices = null
+    return
+  }
+  try {
+    state.discountPrices = await getGoodsDiscountPrices(skuIds)
+  }
+  catch {
+    // 折扣价属增强展示，接口失败按原价展示
+    state.discountPrices = null
+  }
+}
+
+/**
  * 当前聚焦的 SKU。
  *
  * 单规格（98% 在架商品）直接取唯一 SKU——否则用户进商详永远看不到新人价，
@@ -264,6 +291,21 @@ const newbieDisplay = computed(() => {
 })
 
 /**
+ * 当前 SKU 的限时折扣展示。
+ *
+ * 优先级与后端 `OrderPriceComputeService` 一致：**秒杀 > 新人价 > 限时折扣 > 原价**。
+ * 上层活动命中时整块折扣展示关掉——同一时刻只解释一个成交价，
+ * 否则页面标一个、结算按另一个，价差观感只会更严重。
+ */
+const discountDisplay = computed(() => {
+  if (state.seckillInfo)
+    return emptyDiscountDisplay()
+  if (newbieDisplay.value.showNewbiePrice)
+    return emptyDiscountDisplay()
+  return resolveDiscountPriceDisplay(state.discountPrices, currentSkuId.value)
+})
+
+/**
  * 单规格直加时交给加购确认弹层的成交价。
  *
  * 与价格区同一优先级（秒杀 > 新人价 > 售价），否则弹层会出现「页面 ¥0.01、
@@ -292,6 +334,16 @@ const quickAddPromotion = computed(() => {
       unitPrice: display.newbiePrice,
       maxQuantity: display.limitPerUser,
       hint: newbieLimitHint(display),
+    }
+  }
+  const discount = discountDisplay.value
+  if (discount.showDiscountPrice) {
+    return {
+      skuId,
+      unitPrice: discount.discountPrice,
+      // 限时折扣不限购（库存由下单链路按活动占用校验），只提示力度
+      maxQuantity: null,
+      hint: `限时折扣 ${discount.badgeText}`,
     }
   }
   return null
@@ -477,8 +529,9 @@ async function getSpu(id: string) {
     if (response) {
       queryCoupon()
       loadSeckillInfo()
-      // 与秒杀并行、互不等待：两者都是增强展示，任一失败都不影响商详主流程
+      // 与秒杀并行、互不等待：三者都是增强展示，任一失败都不影响商详主流程
       loadNewbiePrices()
+      loadDiscountPrices()
       // 在注入「默认」占位规格前取原始规格口径：单规格商品的规格行要展示真实规格值
       purchaseDecision.value = resolvePurchaseDecision(response)
       // 规格结构初始化与 goods-detail-sheet / quick-cart-button 共用同一份工具
@@ -712,6 +765,7 @@ async function handleReceive(coupon: any) {
       :address="state.address"
       :seckill-info="state.seckillInfo"
       :newbie-display="newbieDisplay"
+      :discount-display="discountDisplay"
       @swiper="handleSwiper"
       @show-coupon="showCoupon"
       @open-sku-popup="handleBuyAction"

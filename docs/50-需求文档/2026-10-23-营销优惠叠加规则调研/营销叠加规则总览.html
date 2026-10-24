@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>悦航购 · 活动价 × 优惠券 × 积分 叠加规则总览</title>
+<style>
+  :root{
+    --brand:#ff2237; --brand-soft:#fff0f1; --ink:#1f2329; --sub:#646a73;
+    --line:#e6e8eb; --bg:#f6f7f9; --ok:#0f9d58; --ok-bg:#e8f6ee;
+    --no:#d93025; --no-bg:#fdecea; --cfg:#b26a00; --cfg-bg:#fff4e0;
+    --na:#8a9099; --na-bg:#f0f1f3; --card:#fff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.7 -apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif}
+  .wrap{max-width:1180px;margin:0 auto;padding:32px 20px 64px}
+  header.hero{background:linear-gradient(135deg,#1f2329 0%,#3a0b12 60%,#7a1220 100%);
+    color:#fff;border-radius:20px;padding:34px 34px 30px;position:relative;overflow:hidden}
+  header.hero::after{content:"";position:absolute;right:-90px;top:-90px;width:280px;height:280px;
+    background:radial-gradient(circle,rgba(255,34,55,.55),transparent 65%);border-radius:50%}
+  .kicker{display:inline-flex;align-items:center;gap:8px;font-size:12px;letter-spacing:.14em;
+    text-transform:uppercase;color:#ffb3bb;font-weight:700}
+  .kicker::before{content:"";width:22px;height:2px;background:var(--brand);display:inline-block}
+  h1{font-size:30px;line-height:1.3;margin:10px 0 10px;letter-spacing:.01em}
+  .hero p{color:#d9dbe0;max-width:820px;margin:0}
+  .hero .meta{margin-top:18px;display:flex;flex-wrap:wrap;gap:10px}
+  .pill{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);
+    color:#fff;border-radius:999px;padding:4px 12px;font-size:12.5px}
+  section{margin-top:30px}
+  .sec-head{display:flex;align-items:baseline;gap:12px;margin:0 0 12px}
+  .sec-head h2{font-size:20px;margin:0}
+  .sec-head span{color:var(--sub);font-size:13px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px 22px;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+  .lead{color:var(--sub);font-size:14px;margin:0 0 14px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}
+  .rule-card{border:1px solid var(--line);border-radius:14px;padding:16px 18px;background:#fff;position:relative}
+  .rule-card h3{margin:0 0 4px;font-size:16px}
+  .rule-card .why{color:var(--sub);font-size:12.5px;margin:8px 0 0}
+  .rule-card.sk{border-color:#f3c2c7;background:linear-gradient(180deg,#fff 0%,#fff5f6 100%)}
+  .rule-card.sk::before{content:"强互斥";position:absolute;right:12px;top:12px;background:var(--brand);
+    color:#fff;font-size:11px;border-radius:999px;padding:2px 9px;font-weight:700}
+  .rule-card.nb::before{content:"默认关";position:absolute;right:12px;top:12px;background:#fff0f1;
+    color:var(--brand);font-size:11px;border-radius:999px;padding:2px 9px;font-weight:700;border:1px solid #f6c6cb}
+  .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  .tag{font-size:12.5px;border-radius:8px;padding:4px 10px;border:1px solid transparent;font-weight:600}
+  .tag b{font-weight:800}
+  .ok{color:var(--ok);background:var(--ok-bg);border-color:#c7e8d5}
+  .no{color:var(--no);background:var(--no-bg);border-color:#f5c6c2}
+  .cfg{color:var(--cfg);background:var(--cfg-bg);border-color:#f2dcb8}
+  .na{color:var(--na);background:var(--na-bg);border-color:#e1e3e6}
+  table{width:100%;border-collapse:separate;border-spacing:0;font-size:13.5px}
+  thead th{background:#fafbfc;color:#3d434b;text-align:left;font-size:12.5px;letter-spacing:.02em;
+    padding:10px 12px;border-bottom:1px solid var(--line);position:sticky;top:0}
+  tbody td{padding:11px 12px;border-bottom:1px solid #eff1f3;vertical-align:top;background:#fff}
+  tbody tr:last-child td{border-bottom:0}
+  td.act{font-weight:700;white-space:nowrap}
+  .sub{color:var(--sub);font-size:12px;display:block;margin-top:2px}
+  .grade{display:inline-block;font-size:11px;font-weight:800;border-radius:6px;padding:1px 6px;margin-left:6px;vertical-align:1px}
+  .gA{background:#e8f6ee;color:#0f7a45}.gB{background:#e8f0fe;color:#1a56b0}
+  .gC{background:#fff4e0;color:#8a5a00}.gD{background:#f0f1f3;color:#5f6670}.gE{background:#fdecea;color:#a5261d}
+  .scroll{overflow-x:auto;border:1px solid var(--line);border-radius:14px}
+  .scroll table{min-width:900px}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;color:var(--sub);font-size:12.5px;margin:10px 0 0}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+  blockquote{margin:0;padding:14px 16px;background:#fafbfc;border-left:3px solid var(--brand);
+    border-radius:0 10px 10px 0;color:#3b4149;font-size:13.5px}
+  blockquote cite{display:block;color:var(--sub);font-size:12px;font-style:normal;margin-top:6px}
+  .quote-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px}
+  ol.steps{counter-reset:s;list-style:none;margin:0;padding:0;display:grid;gap:10px}
+  ol.steps li{counter-increment:s;background:#fff;border:1px solid var(--line);border-radius:12px;
+    padding:12px 16px 12px 54px;position:relative;font-size:14px}
+  ol.steps li::before{content:counter(s);position:absolute;left:16px;top:50%;transform:translateY(-50%);
+    width:24px;height:24px;border-radius:50%;background:var(--brand);color:#fff;font-size:12.5px;
+    font-weight:800;display:flex;align-items:center;justify-content:center}
+  footer{margin-top:36px;color:var(--sub);font-size:12.5px;line-height:1.9}
+  footer a{color:#1a56b0;text-decoration:none}
+  .callout{background:#fff;border:1px dashed #f0b7bd;border-radius:14px;padding:14px 18px;font-size:13.5px;color:#4a3034}
+  .callout b{color:var(--brand)}
+  @media (max-width:640px){h1{font-size:23px}.wrap{padding:20px 14px 48px}header.hero{padding:24px 20px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <div class="kicker">Aetheryn Mall · 营销规则调研</div>
+    <h1>活动价 × 优惠券 × 积分抵现<br/>叠加规则总览</h1>
+    <p>拼团、限时折扣、秒杀、新人专享四类活动商品，能不能用优惠券、能不能积分抵扣？本页是调研结论、竞品证据与建议规则的「一页纸」版本，完整论证见同目录 README / 01 / 02 / 03。</p>
+    <div class="meta">
+      <span class="pill">2026-10-24</span>
+      <span class="pill">现状：四类活动全部可叠（代码）</span>
+      <span class="pill">建议：秒杀 / 新人专享不叠，拼团 / 折扣可配</span>
+    </div>
+  </header>
+
+  <section>
+    <div class="sec-head"><h2>01 · 现状 vs 建议</h2><span>悦航购</span></div>
+    <div class="card">
+      <p class="lead">当前代码对四类活动价「一视同仁」：优惠券与积分都在活动价之后计算，没有任何活动维度排除；唯一按 SKU 排除的是整船/整单优惠。秒杀规则页已写「不支持优惠券」，但代码未强制——这是必须收口的矛盾。</p>
+      <div class="grid">
+        <div class="rule-card">
+          <h3>拼团</h3>
+          <div class="acts">
+            <span class="tag ok">现状：券 <b>✓</b></span><span class="tag ok">现状：积分 <b>✓</b></span>
+          </div>
+          <div class="acts">
+            <span class="tag ok">建议：券 <b>✓ 可关</b></span><span class="tag ok">建议：积分 <b>✓ 可关</b></span>
+          </div>
+          <p class="why">拼团是裂变拉新，券可促成团；平台电商平行满减默认可叠；与现状兼容。</p>
+        </div>
+        <div class="rule-card">
+          <h3>限时折扣</h3>
+          <div class="acts">
+            <span class="tag ok">现状：券 <b>✓</b></span><span class="tag ok">现状：积分 <b>✓</b></span>
+          </div>
+          <div class="acts">
+            <span class="tag ok">建议：券 <b>✓ 可关</b></span><span class="tag ok">建议：积分 <b>✓ 可关</b></span>
+          </div>
+          <p class="why">常规促销，叠券是行业默认；有赞/微盟均为「可配」，靠限购/库存防薅。</p>
+        </div>
+        <div class="rule-card sk">
+          <h3>秒杀</h3>
+          <div class="acts">
+            <span class="tag ok">现状：券 <b>✓</b></span><span class="tag ok">现状：积分 <b>✓</b></span>
+          </div>
+          <div class="acts">
+            <span class="tag no">建议：券 <b>✗ 强制</b></span><span class="tag no">建议：积分 <b>✗ 强制</b></span>
+          </div>
+          <p class="why">有赞官方：秒杀不支持和任何活动叠加；秒杀价已击穿、限购 1 件，规则页已对外承诺。</p>
+        </div>
+        <div class="rule-card nb">
+          <h3>新人专享</h3>
+          <div class="acts">
+            <span class="tag ok">现状：券 <b>✓</b></span><span class="tag ok">现状：积分 <b>✓</b></span>
+          </div>
+          <div class="acts">
+            <span class="tag no">建议：券 <b>✗ 默认关</b></span><span class="tag no">建议：积分 <b>✗ 默认关</b></span>
+          </div>
+          <p class="why">新人价已最低，叠券易出 0 元单/被薅。注意：竞品无「新人价商品不可用券」硬规则（有赞体验价甚至可与秒杀/拼团搭配），默认禁叠是悦航购自定策略。</p>
+        </div>
+      </div>
+      <div class="callout" style="margin-top:16px">
+        <b>口径说明：</b>「拼团/折扣默认开」是兼容现状的推荐值；若更看重毛利安全，只需把默认值改为「关」（对标有赞/微盟），
+        能力不变、可租户灰度。秒杀为服务端强制，不开放放开。
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>02 · 竞品横评</h2><span>活动价 × 优惠券 × 积分</span></div>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th style="min-width:140px">竞品 / 活动</th>
+            <th>活动价能否用券</th>
+            <th>积分/虚拟资产能否抵扣</th>
+            <th>配置方式</th>
+            <th style="min-width:140px">证据</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="act">有赞 · 秒杀</td>
+            <td><span class="tag no">✗ 强制互斥</span></td>
+            <td><span class="tag no">✗ 强制互斥</span></td>
+            <td>无可配项</td>
+            <td>官方互斥表 + FAQ<span class="grade gA">A</span></td>
+          </tr>
+          <tr>
+            <td class="act">有赞 · 多人拼团</td>
+            <td><span class="tag cfg">可配</span></td>
+            <td><span class="tag cfg">可配</span></td>
+            <td>创建活动时勾选「可叠加优惠券/码」</td>
+            <td>官方互斥表 + FAQ<span class="grade gA">A</span></td>
+          </tr>
+          <tr>
+            <td class="act">有赞 · 限时折扣</td>
+            <td><span class="tag cfg">可配</span></td>
+            <td><span class="tag cfg">可配</span></td>
+            <td>活动勾「同享优惠」+ 券取消「仅原价购买可用」双向生效</td>
+            <td>官方 FAQ<span class="grade gA">A</span></td>
+          </tr>
+          <tr>
+            <td class="act">有赞 · 积分抵现</td>
+            <td><span class="tag ok">✓ 券可叠（默认）</span></td>
+            <td><span class="tag cfg">最后计算</span></td>
+            <td>结算时先算其他营销优惠，最后算积分</td>
+            <td>官方 FAQ<span class="grade gA">A</span></td>
+          </tr>
+          <tr>
+            <td class="act">微盟 · 限时折扣/拼团等</td>
+            <td><span class="tag cfg">券侧可配</span></td>
+            <td><span class="tag cfg">券侧可配</span></td>
+            <td>券模板三开关：下单可抵扣（积分/余额/储值卡）、券叠券（≤5 张）、券叠其他优惠</td>
+            <td>官方帮助<span class="grade gA">A</span></td>
+          </tr>
+          <tr>
+            <td class="act">淘宝 / 天猫 · 官方立减</td>
+            <td><span class="tag ok">✓ 可叠（平行满减）</span></td>
+            <td><span class="tag na">淘金币：未找到官方原文</span></td>
+            <td>活动价作为券门槛基数；店铺券与商品券取最优</td>
+            <td>媒体转述官方规则<span class="grade gC">C</span></td>
+          </tr>
+          <tr>
+            <td class="act">京东 · 换购价</td>
+            <td><span class="tag no">✗ 不支持东券</span></td>
+            <td><span class="tag ok">✓ 京豆与券独立可叠</span></td>
+            <td>平台规则；京豆与券、京东卡可一起使用</td>
+            <td>官方规则<span class="grade gA">A</span></td>
+          </tr>
+          <tr>
+            <td class="act">京东 · 秒杀/普通促销</td>
+            <td><span class="tag ok">✓ 视活动可叠</span></td>
+            <td><span class="tag ok">✓ 京豆可叠</span></td>
+            <td>平行优惠（2019-02-15 全量）；券种类互斥、同商品仅 1 张</td>
+            <td>官方规则 + 商家帮助快照<span class="grade gA">A</span></td>
+          </tr>
+          <tr>
+            <td class="act">抖音电商 · 单品级活动</td>
+            <td><span class="tag ok">✓ 可叠（平行满减）</span></td>
+            <td><span class="tag na">无通用积分抵现（未证实）</span></td>
+            <td>第一步单品级、第二步店铺/跨店级；同商品同时段仅 1 个单品活动</td>
+            <td>官方页 + 全文转载<span class="grade gB">B</span></td>
+          </tr>
+          <tr>
+            <td class="act">拼多多 / 美团系</td>
+            <td><span class="tag na">未找到官方原文</span></td>
+            <td><span class="tag na">未找到官方原文</span></td>
+            <td>经验帖口径互相矛盾，不作为设计依据</td>
+            <td><span class="grade gE">E</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="legend">
+      <span><i style="background:var(--ok)"></i>✓ 默认可叠</span>
+      <span><i style="background:var(--cfg)"></i>可配（商家决定）</span>
+      <span><i style="background:var(--no)"></i>✗ 强制互斥</span>
+      <span><i style="background:var(--na)"></i>未找到官方原文</span>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>03 · 关键官方原文</h2><span>可直接作为需求依据</span></div>
+    <div class="quote-grid">
+      <blockquote>
+        「秒杀活动不支持和任何营销活动叠加，所以不支持使用优惠券。」
+        <cite>有赞帮助中心《秒杀的商品可以用优惠券吗？》· A 级 · 2026-10-24 访问</cite>
+      </blockquote>
+      <blockquote>
+        「限时折扣可以与优惠券叠加使用。」条件：活动勾选「优惠叠加→优惠券/码」，且券取消勾选「仅原价购买可用」；顺序「先计算限时折扣，然后计算是否满足优惠券门槛」。
+        <cite>有赞帮助中心《限时折扣能否与优惠券叠加使用？》· A 级</cite>
+      </blockquote>
+      <blockquote>
+        「创建多人拼团活动时自主设定是否可叠加使用优惠券/优惠码。」
+        <cite>有赞帮助中心《多人拼团订单可以使用优惠券吗？》· A 级</cite>
+      </blockquote>
+      <blockquote>
+        「结算时，先计算其他的营销优惠，最后计算积分抵现。」
+        <cite>有赞帮助中心《积分抵现可以跟哪些营销优惠叠加吗？》· A 级</cite>
+      </blockquote>
+      <blockquote>
+        「换购品以换购价格购买时，不支持使用东券。」「京豆和优惠券、京东卡是独立的可以一起使用。」
+        <cite>京东《京东优惠券规则》《京豆说明》· A 级</cite>
+      </blockquote>
+      <blockquote>
+        「营销优惠叠加规则称为平行满减优惠叠加规则……第一步计算单品级优惠，第二步计算店铺级和跨店级优惠、其他类优惠。」
+        <cite>抖音电商《营销优惠叠加规则》· B 级（官方页 JS 渲染，第三方逐字转载）</cite>
+      </blockquote>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>04 · 落地五步</h2><span>完整规格见 03-规则设计说明书</span></div>
+    <ol class="steps">
+      <li><b>前置修复：</b>确认页券列表没有返回券适用商品明细，指定商品券会恒判「本单无可用商品」；券行展示也不看可用性。先修这两处，再谈规则。</li>
+      <li><b>数据模型：</b>四张活动表统一新增 <code>coupon_stackable</code> / <code>points_stackable</code>；存量数据按「拼团/折扣=开、秒杀/新人=关」回填；双模式增量 SQL。</li>
+      <li><b>计价改造：</b>活动价计划带「活动类型 + 两个叠加开关」；券/积分按 SKU 过滤 eligible 明细，门槛、分摊、20% 上限都只作用于 eligible；新增 0.01 元最低实付兜底（可配置）。</li>
+      <li><b>三端展示：</b>C 端券行/积分行置灰 + 原因、明细活动标签；管理端 4 个活动表单加开关（秒杀只读）+ 列表列；规则页文案与代码同步。</li>
+      <li><b>灰度回滚：</b><code>promotion.stack-policy.enabled</code> 全局开关，默认关（行为不变）→ 测试租户 → 全量；回滚只需关开关，不滚 SQL。</li>
+    </ol>
+  </section>
+
+  <footer>
+    <div>数据来源：<a href="02-竞品规则调研.md">02-竞品规则调研.md</a>（142 条来源、A~E 证据等级）、<a href="02b-证据补全.md">02b-证据补全.md</a>（2026-10-24 缺口复核：有赞新客权益形态、京东京豆/淘宝规则等）、<a href="01-现状盘点.md">01-现状盘点.md</a>（file:line 代码事实）。</div>
+    <div>口径：A=官方原文抓取成功；B=官方全文第三方逐字转载；C=权威媒体转述；D=经验帖；E=未找到官方原文。引用时请勿越级。</div>
+    <div>说明：本页为调研/方案可视化，不含代码改动；「0.01 元最低实付」为悦航购自定策略，竞品口径为有赞「最低 0 元」、京东「差额不退」。</div>
+  </footer>
+
+</div>
+</body>
+</html>

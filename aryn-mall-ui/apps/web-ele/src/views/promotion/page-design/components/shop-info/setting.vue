@@ -53,6 +53,9 @@ watch(
     <ElFormItem label="显示电话">
       <ElSwitch v-model="form.showContact" />
     </ElFormItem>
+    <ElFormItem label="悬浮压图">
+      <ElSwitch v-model="form.liftOverBanner" />
+    </ElFormItem>
     <ElFormItem label="无数据策略">
       <ElSelect v-model="form.emptyStrategy">
         <ElOption label="显示占位" value="placeholder" /><ElOption

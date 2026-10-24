@@ -15,6 +15,7 @@ import {
   ElSelect,
 } from 'element-plus';
 
+import { getPage as getCouponPage } from '#/api/promotion/coupon-info';
 import { addObj, editObj, getById } from '#/api/user/member-benefit';
 import { getList as getLevelList } from '#/api/user/member-level';
 
@@ -24,6 +25,7 @@ const loading = ref(false);
 const title = ref('');
 const formRef = ref();
 const levelList = ref<any[]>([]);
+const couponOptions = ref<any[]>([]);
 // 编辑回填与新增初始化期间抑制 benefitType 监听，避免覆盖已回填的 benefitValue
 let suppressTypeWatch = false;
 const state = reactive({
@@ -51,6 +53,15 @@ const rules = reactive({
     { required: true, message: '请选择权益类型', trigger: 'change' },
   ],
   benefitValue: [{ required: true, message: '请输入权益值', trigger: 'blur' }],
+  levelIds: [
+    {
+      type: 'array',
+      required: true,
+      min: 1,
+      message: '请至少选择一个关联等级',
+      trigger: 'change',
+    },
+  ],
 });
 
 const loadLevelList = async () => {
@@ -62,8 +73,31 @@ const loadLevelList = async () => {
   }
 };
 
+const loadCouponOptions = async (selectedId?: string) => {
+  try {
+    const res: any = await getCouponPage({
+      current: 1,
+      size: 200,
+      status: '0',
+    });
+    couponOptions.value = res.records || [];
+  } catch {
+    couponOptions.value = [];
+  }
+  if (
+    selectedId &&
+    !couponOptions.value.some((item) => item.id === selectedId)
+  ) {
+    couponOptions.value.unshift({
+      id: selectedId,
+      couponName: `已选模板 ${selectedId}`,
+    });
+  }
+};
+
 onMounted(() => {
   loadLevelList();
+  loadCouponOptions();
 });
 
 watch(
@@ -74,6 +108,9 @@ watch(
       return;
     }
     state.form.benefitValue = ['1', '2', '4'].includes(type) ? '1' : '';
+    if (type === '3') {
+      loadCouponOptions();
+    }
   },
 );
 
@@ -92,6 +129,9 @@ const initForm = async (row?: any) => {
     suppressTypeWatch = false;
     if (!state.form.levelIds) {
       state.form.levelIds = [];
+    }
+    if (state.form.benefitType === '3') {
+      await loadCouponOptions(state.form.benefitValue);
     }
   } else {
     title.value = '新增会员权益';
@@ -170,11 +210,20 @@ defineExpose({ initForm });
           model-value="1"
           disabled
         />
-        <ElInput
+        <ElSelect
           v-else-if="state.form.benefitType === '3'"
           v-model="state.form.benefitValue"
-          placeholder="请输入优惠券模板ID"
-        />
+          filterable
+          placeholder="请选择优惠券模板"
+          style="width: 100%"
+        >
+          <ElOption
+            v-for="coupon in couponOptions"
+            :key="coupon.id"
+            :label="`${coupon.couponName}（剩余 ${coupon.remainNum ?? 0}）`"
+            :value="coupon.id"
+          />
+        </ElSelect>
         <ElInputNumber
           v-else
           v-model="numericBenefitValue"
@@ -182,6 +231,12 @@ defineExpose({ initForm });
           :step="0.1"
           :precision="2"
         />
+        <div v-if="state.form.benefitType === '1'" class="form-tip">
+          0.9 表示 9 折；1 表示不打折
+        </div>
+        <div v-else-if="state.form.benefitType === '3'" class="form-tip">
+          仅可选择启用且有余量的优惠券模板
+        </div>
       </ElFormItem>
       <ElFormItem label="描述" prop="description">
         <ElInput
@@ -220,3 +275,11 @@ defineExpose({ initForm });
     </template>
   </ElDialog>
 </template>
+<style scoped>
+.form-tip {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #909399;
+}
+</style>

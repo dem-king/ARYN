@@ -185,6 +185,8 @@ export async function loadSeckillSessions(props: SeckillProps): Promise<SeckillS
  *
  * 手动模式与自动模式的差别同其它零售组件：manual 按 `targetIds`(活动 ID) 取；
  * 自动模式读进行中活动，一页取够配置条数即可（组件只展示前 count 个）。
+ *
+ * 返回项的 `coverImage` 已补齐入口卡缩略图，渲染侧无需再判断活动形态。
  */
 export async function loadDiscounts(props: DiscountProps): Promise<DiscountActivityItem[]> {
   const response = await getDiscountActivities({
@@ -199,13 +201,55 @@ export async function loadDiscounts(props: DiscountProps): Promise<DiscountActiv
     const picked = activities.filter(activity => ids.includes(activity.activityId))
     // 折扣活动的键是 activityId（非 id），不能直接用 restoreConfiguredOrder
     const order = new Map(ids.map((id, index) => [id, index]))
-    return [...picked]
+    return withDiscountCoverImages([...picked]
       .sort((left, right) =>
         (order.get(left.activityId) ?? Number.MAX_SAFE_INTEGER)
         - (order.get(right.activityId) ?? Number.MAX_SAFE_INTEGER))
-      .slice(0, props.count)
+      .slice(0, props.count))
   }
-  return activities.slice(0, props.count)
+  return withDiscountCoverImages(activities.slice(0, props.count))
+}
+
+/**
+ * 全场折扣（scope=1）的入口卡代表图：全店销量 Top1 商品图。
+ *
+ * 全场活动没有商品清单，但入口小卡需要一张真实商品图（与相邻秒杀/拼团卡一致），
+ * 不能退回「限」字色块。全场活动对所有在售商品生效，取销量 Top1 商品只是挑一个
+ * 真实参与者作代表，不伪造数据；请求失败/店内无商品时返回空串，照旧走首字色块。
+ *
+ * 模块级缓存：同一 App 会话内只查一次（首页可能挂多个入口条，运营反复改预览也会重进）；
+ * 失败不缓存，下次进入页面还能补图。
+ */
+let salesTopGoodsImageTask: null | Promise<string> = null
+
+function loadSalesTopGoodsImage(): Promise<string> {
+  salesTopGoodsImageTask ??= getGoodsPage({
+    current: 1,
+    ...createGoodsSortParams('sales', true),
+    size: 1,
+  })
+    .then(response => normalizeRetailGoods(response)[0]?.imageUrl || '')
+    .catch(() => {
+      salesTopGoodsImageTask = null
+      return ''
+    })
+  return salesTopGoodsImageTask
+}
+
+/**
+ * 给折扣活动补入口卡缩略图：指定商品活动取首件商品图；
+ * 全场活动用代表商品图兜底（见 `loadSalesTopGoodsImage`）。
+ * 只在确有活动缺图时才发商品查询，避免无谓请求。
+ */
+async function withDiscountCoverImages(
+  activities: DiscountActivityItem[],
+): Promise<DiscountActivityItem[]> {
+  const needsRepresentative = activities.some(activity => !activity.goodsList[0]?.goodsImage)
+  const representative = needsRepresentative ? await loadSalesTopGoodsImage() : ''
+  return activities.map(activity => ({
+    ...activity,
+    coverImage: activity.goodsList[0]?.goodsImage || representative,
+  }))
 }
 
 /**
@@ -291,31 +335,6 @@ export async function loadGoodsWaterfallPage(
   const list = normalizeRetailGoods(response)
   const total = Number(response?.total ?? list.length)
   return { list, total }
-}
-
-/**
- * 优惠券组合取数。
- *
- * · automatic：领取列表第一页前 N 张。
- * · manual：按 targetIds 逐张取（byIds 接口），不拉第一页再过滤——
- *   被选中的券排在列表第一页之外时，过滤式实现会让整个楼层漏渲染。
- */
-export async function loadCouponCombo(
-  props: import('./retail-types').CouponComboProps,
-) {
-  const { getPage: getCouponPage, getByIds: getCouponsByIds } = await import('@/api/promotion/couponInfo')
-  const { normalizeCoupons } = await import('./retail-normalizers')
-  return withDataSourceCache(dataSourceKey('coupon-combo', props), props.dataSource.cacheTtl ?? 0, async () => {
-    if (props.dataSource.mode === 'manual') {
-      const ids = props.dataSource.targetIds || []
-      if (!ids.length)
-        return []
-      const coupons = normalizeCoupons(await getCouponsByIds(ids))
-      return restoreConfiguredOrder(coupons, ids).slice(0, props.count)
-    }
-    const response = await getCouponPage({ current: 1, size: Math.max(props.count, 20) })
-    return normalizeCoupons(response).slice(0, props.count)
-  })
 }
 
 /**

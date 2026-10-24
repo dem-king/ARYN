@@ -2,7 +2,7 @@
 -- 生成方式: node db/boot/build-full-sql.mjs
 -- 适用环境: MySQL 8.0.13+
 -- 警告: 本文件面向空库初始化，包含 DROP TABLE IF EXISTS，请勿用于存量生产库。
--- 生成日期: 2026-10-23
+-- 生成日期: 2026-10-24
 
 -- ============================================================================
 -- 创建数据库
@@ -2466,6 +2466,7 @@ CREATE TABLE `user_info`  (
                               `create_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '创建人',
                               `update_by` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '修改人',
                               `open_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '平台用户唯一ID（openid / alipay userId 等）',
+                              `status` char(1) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '0' COMMENT '状态：0-启用；1-禁用',
                               PRIMARY KEY (`id`) USING BTREE,
                               UNIQUE INDEX `uk_phone`(`tenant_id` ASC, `phone` ASC) USING BTREE COMMENT '用户手机号'
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '商城用户' ROW_FORMAT = DYNAMIC;
@@ -2473,8 +2474,8 @@ CREATE TABLE `user_info`  (
 -- ----------------------------
 -- Records of user_info
 -- ----------------------------
-INSERT INTO `user_info` VALUES ('2040654277629796353', '微信用户6798', NULL, NULL, NULL, NULL, NULL, NULL, '0', '2026-04-05 12:54:28', NULL, NULL, '1590229800633634816', 'ozexS3bXeBjIkrfIZoe07SWXBY4I', NULL, 'ozexS3bXeBjIkrfIZoe07SWXBY4I');
-INSERT INTO `user_info` VALUES ('2040656345832747009', '176****2320', '17640212320', NULL, NULL, NULL, NULL, NULL, '0', '2026-04-05 13:02:41', NULL, NULL, '1590229800633634816', '17640212320', NULL, NULL);
+INSERT INTO `user_info` VALUES ('2040654277629796353', '微信用户6798', NULL, NULL, NULL, NULL, NULL, NULL, '0', '2026-04-05 12:54:28', NULL, NULL, '1590229800633634816', 'ozexS3bXeBjIkrfIZoe07SWXBY4I', NULL, 'ozexS3bXeBjIkrfIZoe07SWXBY4I', '0');
+INSERT INTO `user_info` VALUES ('2040656345832747009', '176****2320', '17640212320', NULL, NULL, NULL, NULL, NULL, '0', '2026-04-05 13:02:41', NULL, NULL, '1590229800633634816', '17640212320', NULL, NULL, '0');
 
 
 -- ----------------------------
@@ -3365,10 +3366,12 @@ CREATE TABLE `points_record`  (
     `balance_after` int          NOT NULL COMMENT '变动后余额',
     `trigger_scene` varchar(20)  CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '触发场景',
     `remark`        varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '备注',
+    `biz_no`        varchar(64)  CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '业务单号（积分发放/扣减/返还幂等键）',
     `create_by`     varchar(60)  CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '创建人',
     `create_time`   datetime     NULL DEFAULT NULL COMMENT '创建时间',
     `tenant_id`     varchar(32)  CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '1' COMMENT '租户ID',
     PRIMARY KEY (`id`) USING BTREE,
+    UNIQUE INDEX `uk_points_record_biz` (`tenant_id`, `biz_no`) USING BTREE,
     INDEX `idx_user_id` (`user_id`) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '积分记录表' ROW_FORMAT = DYNAMIC;
 
@@ -3443,6 +3446,7 @@ INSERT INTO `sys_menu` VALUES ('2050000000000000003', '等级查询', 'user:memb
 INSERT INTO `sys_menu` VALUES ('2050000000000000004', '等级新增', 'user:memberlevel:add', NULL, NULL, '2050000000000000001', NULL, NULL, 3, '1', '2026-04-22 00:00:00', '2026-04-22 00:00:00', '0', '0', 'app_base', NULL, NULL);
 INSERT INTO `sys_menu` VALUES ('2050000000000000005', '等级编辑', 'user:memberlevel:edit', NULL, NULL, '2050000000000000001', NULL, NULL, 4, '1', '2026-04-22 00:00:00', '2026-04-22 00:00:00', '0', '0', 'app_base', NULL, NULL);
 INSERT INTO `sys_menu` VALUES ('2050000000000000006', '等级删除', 'user:memberlevel:del', NULL, NULL, '2050000000000000001', NULL, NULL, 5, '1', '2026-04-22 00:00:00', '2026-04-22 00:00:00', '0', '0', 'app_base', NULL, NULL);
+INSERT INTO `sys_menu` VALUES ('2050000000000000007', '等级变更记录', 'user:memberlevel:get', NULL, NULL, '2050000000000000001', NULL, NULL, 6, '1', '2026-04-22 00:00:00', '2026-04-22 00:00:00', '0', '0', 'app_base', NULL, NULL);
 
 -- ----------------------------
 -- 积分管理父菜单
@@ -3628,6 +3632,7 @@ INSERT INTO `sys_menu` VALUES ('2050000000000000101', '余额记录查询', 'use
 INSERT INTO `sys_menu` VALUES ('2050000000000000110', '充值订单', NULL, '/user/recharge-order', NULL, '1779386898750439425', 'carbon:receipt', 'user/recharge-order/index', 6, '0', '2026-04-22 00:00:00', '2026-04-22 00:00:00', '0', '0', 'app_base', NULL, 'system');
 INSERT INTO `sys_menu` VALUES ('2050000000000000111', '充值订单列表', 'user:rechargeorder:page', NULL, NULL, '2050000000000000110', NULL, NULL, 1, '1', '2026-04-22 00:00:00', '2026-04-22 00:00:00', '0', '0', 'app_base', NULL, NULL);
 INSERT INTO `sys_menu` VALUES ('2050000000000000112', '充值订单查询', 'user:rechargeorder:get', NULL, NULL, '2050000000000000110', NULL, NULL, 2, '1', '2026-04-22 00:00:00', '2026-04-22 00:00:00', '0', '0', 'app_base', NULL, NULL);
+INSERT INTO `sys_menu` VALUES ('2050000000000000113', '关闭充值订单', 'user:rechargeorder:edit', NULL, NULL, '2050000000000000110', NULL, NULL, 3, '1', '2026-04-22 00:00:00', '2026-04-22 00:00:00', '0', '0', 'app_base', NULL, NULL);
 
 -- ----------------------------
 -- 会员标签菜单
@@ -3648,6 +3653,9 @@ INSERT INTO `sys_menu` VALUES ('2050000000000000132', '权益查询', 'user:memb
 INSERT INTO `sys_menu` VALUES ('2050000000000000133', '权益新增', 'user:memberbenefit:add', NULL, NULL, '2050000000000000130', NULL, NULL, 3, '1', '2026-04-22 00:00:00', '2026-04-22 00:00:00', '0', '0', 'app_base', NULL, NULL);
 INSERT INTO `sys_menu` VALUES ('2050000000000000134', '权益编辑', 'user:memberbenefit:edit', NULL, NULL, '2050000000000000130', NULL, NULL, 4, '1', '2026-04-22 00:00:00', '2026-04-22 00:00:00', '0', '0', 'app_base', NULL, NULL);
 INSERT INTO `sys_menu` VALUES ('2050000000000000135', '权益删除', 'user:memberbenefit:del', NULL, NULL, '2050000000000000130', NULL, NULL, 5, '1', '2026-04-22 00:00:00', '2026-04-22 00:00:00', '0', '0', 'app_base', NULL, NULL);
+INSERT INTO `sys_menu` VALUES ('2050000000000000136', '补发专属优惠券', 'user:memberbenefit:edit', NULL, NULL, '2050000000000000130', NULL, NULL, 6, '1', '2026-04-22 00:00:00', '2026-04-22 00:00:00', '0', '0', 'app_base', NULL, NULL);
+INSERT INTO `sys_menu` VALUES ('2050000000000000137', '优惠券模板查看', 'promotion:couponinfo:page', NULL, NULL, '2050000000000000130', NULL, NULL, 7, '1', '2026-04-22 00:00:00', '2026-04-22 00:00:00', '0', '0', 'app_base', NULL, NULL);
+INSERT INTO `sys_menu` VALUES ('2050000000000000138', '优惠券模板查询', 'promotion:couponinfo:get', NULL, NULL, '2050000000000000130', NULL, NULL, 8, '1', '2026-04-22 00:00:00', '2026-04-22 00:00:00', '0', '0', 'app_base', NULL, NULL);
 
 -- ============================================================================
 -- 站内信与客服会话
@@ -24309,5 +24317,426 @@ SET @add_act_sold = (
   WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'discount_activity' AND COLUMN_NAME = 'sold_count'
 );
 PREPARE stmt2 FROM @add_act_sold; EXECUTE stmt2; DEALLOCATE PREPARE stmt2;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 营销优惠叠加策略（活动表券/积分叠加开关）
+-- Source: db/boot/157promotion_stack_policy_incremental.sql
+-- ============================================================================
+-- 营销优惠叠加策略（Boot 单体 模式）
+--
+-- 目标库：aryn_boot（单体模式所有表同库）
+-- 背景：C 端四类活动价（拼团/秒杀/限时折扣/新人专享）当前一律可与优惠券、积分抵现叠加，
+--       秒杀规则页已对外承诺「不支持优惠券」但代码未强制。本次为四张活动表增加
+--       「活动商品是否可用优惠券 / 是否可积分抵现」两个字段，订单侧按 SKU 收敛券门槛、
+--       券分摊与积分基数（文档：docs/50-需求文档/2026-10-23-营销优惠叠加规则调研/03-规则设计说明书.md）。
+-- 内容：
+--   1. seckill_activity / discount_activity / group_buy_activity / promotion_activity
+--      各增加 coupon_stackable、points_stackable（char(1) NOT NULL DEFAULT '1'）；
+--   2. 存量回填：秒杀 → 0/0（与规则页文案对齐）、新人专享（promotion_activity type=9）→ 0/0（防 0 元单），
+--      拼团/折扣/其余营销类型保持列默认 1/1（与现网行为一致，不改价格）。
+-- 特性：可重复执行；仅新增列，不修改或删除存量数据；
+--       存量回填只在「本次刚加列」的分支内执行一次，重复执行脚本不会覆盖运营后续修改。
+-- 依赖：25seckill_discount.sql、9aryn_promotion.sql（boot 全量脚本已含对应表）。
+--
+-- 执行：mysql -u root -p aryn_boot < 157promotion_stack_policy_incremental.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+-- ---------- 1. seckill_activity（秒杀：强制 0/0） ----------
+SET @seckill_col_exists = (
+  SELECT COUNT(1) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'seckill_activity'
+    AND COLUMN_NAME = 'coupon_stackable'
+);
+SET @seckill_ddl = IF(@seckill_col_exists = 0,
+  'ALTER TABLE `seckill_activity`
+     ADD COLUMN `coupon_stackable` char(1) NOT NULL DEFAULT ''1''
+       COMMENT ''活动商品是否可用优惠券：1可用 0不可用（秒杀服务端强制 0）'' AFTER `status`,
+     ADD COLUMN `points_stackable` char(1) NOT NULL DEFAULT ''1''
+       COMMENT ''活动商品是否可积分抵现：1可抵 0不可抵（秒杀服务端强制 0）'' AFTER `coupon_stackable`',
+  'SELECT 1');
+PREPARE stmt FROM @seckill_ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+-- 存量回填：仅本次新加列时执行（秒杀规则页已承诺不叠券/积分，与文案对齐）
+SET @seckill_backfill = IF(@seckill_col_exists = 0,
+  'UPDATE `seckill_activity` SET `coupon_stackable` = ''0'', `points_stackable` = ''0'' WHERE `del_flag` = ''0''',
+  'SELECT 1');
+PREPARE stmt FROM @seckill_backfill; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ---------- 2. discount_activity（限时折扣：默认 1/1，列默认值即回填值，无需 UPDATE） ----------
+SET @discount_col_exists = (
+  SELECT COUNT(1) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'discount_activity'
+    AND COLUMN_NAME = 'coupon_stackable'
+);
+SET @discount_ddl = IF(@discount_col_exists = 0,
+  'ALTER TABLE `discount_activity`
+     ADD COLUMN `coupon_stackable` char(1) NOT NULL DEFAULT ''1''
+       COMMENT ''活动商品是否可用优惠券：1可用 0不可用'' AFTER `status`,
+     ADD COLUMN `points_stackable` char(1) NOT NULL DEFAULT ''1''
+       COMMENT ''活动商品是否可积分抵现：1可抵 0不可抵'' AFTER `coupon_stackable`',
+  'SELECT 1');
+PREPARE stmt FROM @discount_ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ---------- 3. group_buy_activity（拼团：默认 1/1，列默认值即回填值，无需 UPDATE） ----------
+SET @groupbuy_col_exists = (
+  SELECT COUNT(1) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'group_buy_activity'
+    AND COLUMN_NAME = 'coupon_stackable'
+);
+SET @groupbuy_ddl = IF(@groupbuy_col_exists = 0,
+  'ALTER TABLE `group_buy_activity`
+     ADD COLUMN `coupon_stackable` char(1) NOT NULL DEFAULT ''1''
+       COMMENT ''活动商品是否可用优惠券：1可用 0不可用'' AFTER `group_expire_hours`,
+     ADD COLUMN `points_stackable` char(1) NOT NULL DEFAULT ''1''
+       COMMENT ''活动商品是否可积分抵现：1可抵 0不可抵'' AFTER `coupon_stackable`',
+  'SELECT 1');
+PREPARE stmt FROM @groupbuy_ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ---------- 4. promotion_activity（新人专享 type=9 → 0/0；其余类型维持 1/1） ----------
+SET @promotion_col_exists = (
+  SELECT COUNT(1) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'promotion_activity'
+    AND COLUMN_NAME = 'coupon_stackable'
+);
+SET @promotion_ddl = IF(@promotion_col_exists = 0,
+  'ALTER TABLE `promotion_activity`
+     ADD COLUMN `coupon_stackable` char(1) NOT NULL DEFAULT ''1''
+       COMMENT ''活动商品是否可用优惠券：1可用 0不可用（新人专享 type=9 默认 0）'' AFTER `stackable`,
+     ADD COLUMN `points_stackable` char(1) NOT NULL DEFAULT ''1''
+       COMMENT ''活动商品是否可积分抵现：1可抵 0不可抵（新人专享 type=9 默认 0）'' AFTER `coupon_stackable`',
+  'SELECT 1');
+PREPARE stmt FROM @promotion_ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+-- 存量回填：仅本次新加列时执行（新人价已是最低价，叠券/积分易出 0 元单）
+SET @promotion_backfill = IF(@promotion_col_exists = 0,
+  'UPDATE `promotion_activity` SET `coupon_stackable` = ''0'', `points_stackable` = ''0''
+     WHERE `activity_type` = ''9'' AND `del_flag` = ''0''',
+  'SELECT 1');
+PREPARE stmt FROM @promotion_backfill; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 自检：四张表均应返回 coupon_stackable / points_stackable 两列
+SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE()
+  AND TABLE_NAME IN ('seckill_activity', 'discount_activity', 'group_buy_activity', 'promotion_activity')
+  AND COLUMN_NAME IN ('coupon_stackable', 'points_stackable')
+ORDER BY TABLE_NAME, COLUMN_NAME;
+
+-- 兜底恢复外键检查（全量脚本末尾约定）
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 会员管理闭环补齐（启停用/权益/签到/充值种子）
+-- Source: db/boot/158member_management_incremental.sql
+-- ============================================================================
+-- 会员管理闭环补齐（Boot 单体模式）
+--
+-- 目标库：aryn_boot（单体模式所有表同库）
+-- 内容：
+--   1. user_info.status：会员启停用状态；
+--   2. points_record.biz_no：基础库兜底补齐（已执行 148 时为幂等空操作）；
+--   3. member_benefit / member_benefit_level_rel：五档会员权益示例种子；
+--   4. sign_in_config：7 天连续签到奖励示例种子；
+--   5. recharge_config：100/200/500 三档充值套餐示例种子；
+--   6. 新增会员管理按钮权限并授权 ROLE_ADMIN 与全部租户。
+-- 特性：可重复执行；仅新增列/索引、本脚本固定前缀种子与菜单权限行，不删除存量业务数据。
+-- 依赖：2aryn_boot.sql（user_info）、4aryn_boot_member.sql（会员表）、147member_level_seed.sql（五档等级）。
+-- 口径：种子只绑定默认租户 1590229800633634816；其他租户请把 @tenant_id 改成目标租户后重跑。
+-- 注意：菜单权限在登录时快照，执行后需让管理员重新登录，新增按钮权限才会生效。
+--
+-- 执行：mysql -u root -p aryn_boot < 158member_management_incremental.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+SET @tenant_id = _utf8mb4'1590229800633634816' COLLATE utf8mb4_general_ci;
+SET @benefit_prefix = '2140000000000000';
+SET @benefit_rel_prefix = '2150000000000000';
+SET @signin_prefix = '2160000000000000';
+SET @recharge_prefix = '2170000000000000';
+
+-- ---------- 1. user_info.status ----------
+SET @add_user_status = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `user_info` ADD COLUMN `status` char(1) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT ''0'' COMMENT ''状态：0-启用；1-禁用'' AFTER `open_id`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'user_info' AND COLUMN_NAME = 'status'
+);
+PREPARE stmt FROM @add_user_status; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+UPDATE `user_info` SET `status` = '0' WHERE `status` IS NULL OR `status` = '';
+
+-- ---------- 2. points_record.biz_no 兜底 ----------
+SET @add_points_record_biz_no = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `points_record` ADD COLUMN `biz_no` varchar(64) NULL COMMENT ''业务单号（积分发放/扣减/返还幂等键）'' AFTER `remark`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'points_record' AND COLUMN_NAME = 'biz_no'
+);
+PREPARE stmt FROM @add_points_record_biz_no; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @add_points_record_biz_uk = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `points_record` ADD UNIQUE KEY `uk_points_record_biz` (`tenant_id`, `biz_no`)',
+    'SELECT 1')
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'points_record' AND INDEX_NAME = 'uk_points_record_biz'
+);
+PREPARE stmt FROM @add_points_record_biz_uk; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ---------- 3. 会员权益示例种子（五档等级，不含专属券） ----------
+DELETE FROM `member_benefit_level_rel`
+WHERE `benefit_id` LIKE '2140000000000000%' AND `tenant_id` = @tenant_id;
+DELETE FROM `member_benefit`
+WHERE `id` LIKE '2140000000000000%' AND `tenant_id` = @tenant_id;
+
+INSERT INTO `member_benefit`
+  (`id`, `benefit_name`, `benefit_type`, `benefit_value`, `description`, `status`,
+   `create_by`, `create_time`, `update_time`, `del_flag`, `tenant_id`)
+VALUES
+  ('2140000000000000001', '新客专享 9.8 折', '1', '0.98', '新客会员商品折扣', '0', 'seed', NOW(), NULL, '0', @tenant_id),
+  ('2140000000000000002', '银卡专享 9.5 折', '1', '0.95', '银卡会员商品折扣', '0', 'seed', NOW(), NULL, '0', @tenant_id),
+  ('2140000000000000003', '银卡 1.2 倍积分', '4', '1.2', '银卡会员订单积分倍率', '0', 'seed', NOW(), NULL, '0', @tenant_id),
+  ('2140000000000000004', '金卡专享 9.2 折', '1', '0.92', '金卡会员商品折扣', '0', 'seed', NOW(), NULL, '0', @tenant_id),
+  ('2140000000000000005', '金卡 1.5 倍积分', '4', '1.5', '金卡会员订单积分倍率', '0', 'seed', NOW(), NULL, '0', @tenant_id),
+  ('2140000000000000006', '金卡免运费', '2', '1', '金卡会员快递与商城配送免运费', '0', 'seed', NOW(), NULL, '0', @tenant_id),
+  ('2140000000000000007', '铂金专享 9 折', '1', '0.90', '铂金会员商品折扣', '0', 'seed', NOW(), NULL, '0', @tenant_id),
+  ('2140000000000000008', '铂金 2 倍积分', '4', '2', '铂金会员订单积分倍率', '0', 'seed', NOW(), NULL, '0', @tenant_id),
+  ('2140000000000000009', '铂金免运费', '2', '1', '铂金会员快递与商城配送免运费', '0', 'seed', NOW(), NULL, '0', @tenant_id),
+  ('2140000000000000010', '钻石专享 8.5 折', '1', '0.85', '钻石会员商品折扣', '0', 'seed', NOW(), NULL, '0', @tenant_id),
+  ('2140000000000000011', '钻石 3 倍积分', '4', '3', '钻石会员订单积分倍率', '0', 'seed', NOW(), NULL, '0', @tenant_id),
+  ('2140000000000000012', '钻石免运费', '2', '1', '钻石会员快递与商城配送免运费', '0', 'seed', NOW(), NULL, '0', @tenant_id);
+
+INSERT INTO `member_benefit_level_rel`
+  (`id`, `benefit_id`, `level_id`, `create_by`, `create_time`, `tenant_id`)
+VALUES
+  ('2150000000000000001', '2140000000000000001', '2120000000000000001', 'seed', NOW(), @tenant_id),
+  ('2150000000000000002', '2140000000000000002', '2120000000000000002', 'seed', NOW(), @tenant_id),
+  ('2150000000000000003', '2140000000000000003', '2120000000000000002', 'seed', NOW(), @tenant_id),
+  ('2150000000000000004', '2140000000000000004', '2120000000000000003', 'seed', NOW(), @tenant_id),
+  ('2150000000000000005', '2140000000000000005', '2120000000000000003', 'seed', NOW(), @tenant_id),
+  ('2150000000000000006', '2140000000000000006', '2120000000000000003', 'seed', NOW(), @tenant_id),
+  ('2150000000000000007', '2140000000000000007', '2120000000000000004', 'seed', NOW(), @tenant_id),
+  ('2150000000000000008', '2140000000000000008', '2120000000000000004', 'seed', NOW(), @tenant_id),
+  ('2150000000000000009', '2140000000000000009', '2120000000000000004', 'seed', NOW(), @tenant_id),
+  ('2150000000000000010', '2140000000000000010', '2120000000000000005', 'seed', NOW(), @tenant_id),
+  ('2150000000000000011', '2140000000000000011', '2120000000000000005', 'seed', NOW(), @tenant_id),
+  ('2150000000000000012', '2140000000000000012', '2120000000000000005', 'seed', NOW(), @tenant_id);
+
+-- ---------- 4. 签到奖励示例种子（连续 1-7 天） ----------
+DELETE FROM `sign_in_config`
+WHERE `id` LIKE '2160000000000000%' AND `tenant_id` = @tenant_id;
+
+INSERT INTO `sign_in_config`
+  (`id`, `consecutive_day`, `reward_point`, `sort_order`, `status`,
+   `create_by`, `create_time`, `update_time`, `del_flag`, `tenant_id`)
+VALUES
+  ('2160000000000000001', 1, 5,  1, '0', 'seed', NOW(), NULL, '0', @tenant_id),
+  ('2160000000000000002', 2, 5,  2, '0', 'seed', NOW(), NULL, '0', @tenant_id),
+  ('2160000000000000003', 3, 10, 3, '0', 'seed', NOW(), NULL, '0', @tenant_id),
+  ('2160000000000000004', 4, 10, 4, '0', 'seed', NOW(), NULL, '0', @tenant_id),
+  ('2160000000000000005', 5, 15, 5, '0', 'seed', NOW(), NULL, '0', @tenant_id),
+  ('2160000000000000006', 6, 15, 6, '0', 'seed', NOW(), NULL, '0', @tenant_id),
+  ('2160000000000000007', 7, 30, 7, '0', 'seed', NOW(), NULL, '0', @tenant_id);
+
+-- ---------- 5. 充值套餐示例种子 ----------
+DELETE FROM `recharge_config`
+WHERE `id` LIKE '2170000000000000%' AND `tenant_id` = @tenant_id;
+
+INSERT INTO `recharge_config`
+  (`id`, `recharge_amount`, `gift_amount`, `gift_point`, `sort_order`, `status`,
+   `create_by`, `create_time`, `update_time`, `del_flag`, `tenant_id`)
+VALUES
+  ('2170000000000000001', 100.00, 5.00,  0, 1, '0', 'seed', NOW(), NULL, '0', @tenant_id),
+  ('2170000000000000002', 200.00, 15.00, 0, 2, '0', 'seed', NOW(), NULL, '0', @tenant_id),
+  ('2170000000000000003', 500.00, 50.00, 0, 3, '0', 'seed', NOW(), NULL, '0', @tenant_id);
+
+-- ---------- 6. 新增按钮权限 ----------
+INSERT INTO `sys_menu`
+  (`id`, `name`, `permission`, `path`, `redirect`, `parent_id`, `icon`, `component`, `sort`, `type`,
+   `create_time`, `update_time`, `outer_status`, `del_flag`, `application_key`, `create_by`, `update_by`)
+VALUES
+  ('2050000000000000007', '等级变更记录', 'user:memberlevel:get', NULL, NULL, '2050000000000000001', NULL, NULL, 6, '1', NOW(), NOW(), '0', '0', 'app_base', NULL, NULL),
+  ('2050000000000000113', '关闭充值订单', 'user:rechargeorder:edit', NULL, NULL, '2050000000000000110', NULL, NULL, 3, '1', NOW(), NOW(), '0', '0', 'app_base', NULL, NULL),
+  ('2050000000000000136', '补发专属优惠券', 'user:memberbenefit:edit', NULL, NULL, '2050000000000000130', NULL, NULL, 6, '1', NOW(), NOW(), '0', '0', 'app_base', NULL, NULL),
+  ('2050000000000000137', '优惠券模板查看', 'promotion:couponinfo:page', NULL, NULL, '2050000000000000130', NULL, NULL, 7, '1', NOW(), NOW(), '0', '0', 'app_base', NULL, NULL),
+  ('2050000000000000138', '优惠券模板查询', 'promotion:couponinfo:get', NULL, NULL, '2050000000000000130', NULL, NULL, 8, '1', NOW(), NOW(), '0', '0', 'app_base', NULL, NULL)
+ON DUPLICATE KEY UPDATE
+  `name` = VALUES(`name`),
+  `permission` = VALUES(`permission`),
+  `parent_id` = VALUES(`parent_id`),
+  `sort` = VALUES(`sort`),
+  `del_flag` = '0';
+
+-- ---------- 7. 授权 ROLE_ADMIN 与全部租户 ----------
+INSERT INTO `sys_role_menu` (`id`, `role_id`, `menu_id`, `create_time`, `tenant_id`)
+SELECT REPLACE(UUID(), '-', ''), role.id, menu.menu_id, NOW(), role.tenant_id
+FROM `sys_role` AS role
+CROSS JOIN (
+  SELECT '2050000000000000007' AS menu_id
+  UNION ALL SELECT '2050000000000000113'
+  UNION ALL SELECT '2050000000000000136'
+  UNION ALL SELECT '2050000000000000137'
+  UNION ALL SELECT '2050000000000000138'
+) AS menu
+WHERE role.del_flag = '0'
+  AND role.role_code = 'ROLE_ADMIN'
+  AND NOT EXISTS (
+    SELECT 1 FROM `sys_role_menu` AS role_menu
+    WHERE role_menu.role_id = role.id
+      AND role_menu.menu_id = menu.menu_id
+      AND role_menu.tenant_id = role.tenant_id
+  );
+
+INSERT INTO `sys_tenant_menu` (`id`, `tenant_id`, `menu_id`, `create_time`, `create_by`)
+SELECT REPLACE(UUID(), '-', ''), tenant.id, menu.menu_id, NOW(), 'system'
+FROM `sys_tenant` AS tenant
+CROSS JOIN (
+  SELECT '2050000000000000007' AS menu_id
+  UNION ALL SELECT '2050000000000000113'
+  UNION ALL SELECT '2050000000000000136'
+  UNION ALL SELECT '2050000000000000137'
+  UNION ALL SELECT '2050000000000000138'
+) AS menu
+WHERE tenant.del_flag = '0'
+  AND tenant.id <> '1881232176465358849'
+  AND NOT EXISTS (
+    SELECT 1 FROM `sys_tenant_menu` AS tenant_menu
+    WHERE tenant_menu.tenant_id = tenant.id
+      AND tenant_menu.menu_id = menu.menu_id
+  );
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 共享购物车岸上企业车（车类型/地址快照/岸上唯一性）
+-- Source: db/boot/159shared_cart_shore_enterprise_incremental.sql
+-- ============================================================================
+-- 共享购物车岸上企业车支持（Boot 单体模式）
+--
+-- 目标库：aryn_boot（单体模式所有表同库）
+-- 租户白名单：仅对已有表 shared_cart 增加列/生成列/索引，不新增表，无需改动 hx.tenant.tables。
+-- 特性：幂等执行，不删除或重建数据，不覆盖业务数据。
+--
+-- 背景（2026-10-24）：共享购物车此前从创建到下单全部绑死「船舶成员+靠港计划」，
+-- 港口附近工厂等岸上客户无法使用。本次引入车类型：
+--   cart_type=1 船供整车（默认，存量数据同此）：vessel_id/vessel_call_id 必填；
+--   cart_type=2 岸上企业：vessel 两列置空，改挂发起人地址簿收货地址（user_address_id）
+--   与展示快照（address_snapshot），下单走公司配送（岸上）delivery_way=3。
+--
+-- 执行：mysql -u root -p aryn_boot < 159shared_cart_shore_enterprise_incremental.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ===========================================================================
+-- 1. 车类型与岸上配送字段
+-- ===========================================================================
+SET @add_shared_cart_type = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `shared_cart` ADD COLUMN `cart_type` char(2) NOT NULL DEFAULT ''1'' COMMENT ''车类型：1船供整车（默认） 2岸上企业'' AFTER `cart_no`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shared_cart' AND COLUMN_NAME = 'cart_type'
+);
+PREPARE stmt FROM @add_shared_cart_type; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @add_shared_cart_address_id = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `shared_cart` ADD COLUMN `user_address_id` varchar(32) DEFAULT NULL COMMENT ''岸上车收货地址ID（地址簿）；船供车为空'' AFTER `vessel_call_id`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shared_cart' AND COLUMN_NAME = 'user_address_id'
+);
+PREPARE stmt FROM @add_shared_cart_address_id; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @add_shared_cart_address_snapshot = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `shared_cart` ADD COLUMN `address_snapshot` varchar(500) DEFAULT NULL COMMENT ''岸上车收货地址快照（创建时拼接，展示用）'' AFTER `user_address_id`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shared_cart' AND COLUMN_NAME = 'address_snapshot'
+);
+PREPARE stmt FROM @add_shared_cart_address_snapshot; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ===========================================================================
+-- 2. 船舶两列放开可空（岸上车不挂船）
+--    仅在仍为 NOT NULL 时执行 MODIFY；存量行已有值不受影响。
+-- ===========================================================================
+SET @modify_vessel_id_nullable = (
+  SELECT IF(COUNT(*) > 0,
+    'ALTER TABLE `shared_cart` MODIFY COLUMN `vessel_id` varchar(32) NULL COMMENT ''船舶ID（船供车必填；岸上车为空）''',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shared_cart' AND COLUMN_NAME = 'vessel_id' AND IS_NULLABLE = 'NO'
+);
+PREPARE stmt FROM @modify_vessel_id_nullable; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @modify_vessel_call_nullable = (
+  SELECT IF(COUNT(*) > 0,
+    'ALTER TABLE `shared_cart` MODIFY COLUMN `vessel_call_id` varchar(32) NULL COMMENT ''靠港计划ID（船供车必填；岸上车为空）''',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shared_cart' AND COLUMN_NAME = 'vessel_call_id' AND IS_NULLABLE = 'NO'
+);
+PREPARE stmt FROM @modify_vessel_call_nullable; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ===========================================================================
+-- 3. 岸上车「同一发起人同时一张收集中」唯一性 —— 生成列 + 唯一索引
+--    既有 uk_shared_cart_active 按 vessel_id 去重：船供车照常生效；
+--    岸上车 vessel_id 为 NULL，MySQL 唯一索引对 NULL 不去重，并发插入会开出多张，
+--    因此按发起人单列兜底（岸上地址是发起人私有的，没有「同船」共享维度）。
+--    与 active_flag 同一手法：仅岸上车且收集中且未删除时取 owner_user_id，其余 NULL。
+-- ===========================================================================
+SET @add_shared_cart_shore_flag = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `shared_cart` ADD COLUMN `shore_active_owner` varchar(32) GENERATED ALWAYS AS (CASE WHEN `cart_type` = ''2'' AND `status` = ''2'' AND `del_flag` = ''0'' THEN `owner_user_id` ELSE NULL END) STORED COMMENT ''岸上车进行中标记：岸上+收集中+未删除时为发起人，其余NULL以允许多行''',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shared_cart' AND COLUMN_NAME = 'shore_active_owner'
+);
+PREPARE stmt FROM @add_shared_cart_shore_flag; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @add_shared_cart_shore_uk = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `shared_cart` ADD UNIQUE KEY `uk_shared_cart_shore_active` (`tenant_id`, `shore_active_owner`)',
+    'SELECT 1')
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shared_cart' AND INDEX_NAME = 'uk_shared_cart_shore_active'
+);
+PREPARE stmt FROM @add_shared_cart_shore_uk; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ===========================================================================
+-- 4. 岸上车按发起人查询的支撑索引
+-- ===========================================================================
+SET @add_shared_cart_owner_type_idx = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `shared_cart` ADD INDEX `idx_shared_cart_owner_type` (`tenant_id`, `owner_user_id`, `cart_type`, `status`)',
+    'SELECT 1')
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shared_cart' AND INDEX_NAME = 'idx_shared_cart_owner_type'
+);
+PREPARE stmt FROM @add_shared_cart_owner_type_idx; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ===========================================================================
+-- 5. 自检：新增列/生成列/索引应存在，vessel 两列应为可空
+-- ===========================================================================
+SELECT `COLUMN_NAME`, `COLUMN_TYPE`, `IS_NULLABLE`, `COLUMN_COMMENT`
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shared_cart'
+  AND `COLUMN_NAME` IN ('cart_type', 'user_address_id', 'address_snapshot', 'shore_active_owner', 'vessel_id', 'vessel_call_id')
+ORDER BY `COLUMN_NAME`;
+
+SELECT `INDEX_NAME`, `NON_UNIQUE`, GROUP_CONCAT(`COLUMN_NAME` ORDER BY `SEQ_IN_INDEX`) AS cols
+FROM information_schema.STATISTICS
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'shared_cart'
+  AND `INDEX_NAME` IN ('uk_shared_cart_shore_active', 'idx_shared_cart_owner_type')
+GROUP BY `INDEX_NAME`, `NON_UNIQUE`;
 
 SET FOREIGN_KEY_CHECKS = 1;

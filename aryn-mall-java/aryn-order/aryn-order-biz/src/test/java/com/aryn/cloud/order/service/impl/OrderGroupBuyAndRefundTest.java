@@ -75,15 +75,22 @@ class OrderGroupBuyAndRefundTest {
 		return item;
 	}
 
+	private com.aryn.cloud.promotion.api.vo.GroupBuyOrderContextVO groupBuyContext(String skuId, String groupPrice) {
+		com.aryn.cloud.promotion.api.vo.GroupBuyOrderContextVO context =
+				new com.aryn.cloud.promotion.api.vo.GroupBuyOrderContextVO();
+		context.setSkuId(skuId);
+		context.setGroupPrice(new BigDecimal(groupPrice));
+		return context;
+	}
+
 	/**
 	 * 拼团价优先于原价落到成交基价（拼团单核心契约）。
 	 */
 	@Test
 	void groupBuyPriceOverridesOriginalPrice() {
 		OrderItemEntity orderItem = item("sku-1", "19.90", 2);
-		Map<String, BigDecimal> groupBuyPrice = Map.of("sku-1", new BigDecimal("9.90"));
 
-		priceService.orderPromotionPriceHandler(List.of(orderItem), groupBuyPrice);
+		priceService.orderPromotionPriceHandler(List.of(orderItem), groupBuyContext("sku-1", "9.90"));
 
 		assertThat(orderItem.getSalesPrice()).isEqualByComparingTo("9.90");
 		assertThat(orderItem.getTotalPrice()).isEqualByComparingTo("19.80");
@@ -96,7 +103,7 @@ class OrderGroupBuyAndRefundTest {
 	void nonGroupBuyItemKeepsOriginalPriceWhenNoPromotion() {
 		OrderItemEntity orderItem = item("sku-2", "15.00", 1);
 
-		priceService.orderPromotionPriceHandler(List.of(orderItem), Map.of("sku-1", new BigDecimal("9.90")));
+		priceService.orderPromotionPriceHandler(List.of(orderItem), groupBuyContext("sku-1", "9.90"));
 
 		assertThat(orderItem.getSalesPrice()).isEqualByComparingTo("15.00");
 	}
@@ -108,7 +115,7 @@ class OrderGroupBuyAndRefundTest {
 	void groupBuyPriceAboveOriginalFallsBackToOriginal() {
 		OrderItemEntity orderItem = item("sku-1", "9.90", 1);
 
-		priceService.orderPromotionPriceHandler(List.of(orderItem), Map.of("sku-1", new BigDecimal("19.90")));
+		priceService.orderPromotionPriceHandler(List.of(orderItem), groupBuyContext("sku-1", "19.90"));
 
 		assertThat(orderItem.getSalesPrice()).isEqualByComparingTo("9.90");
 	}

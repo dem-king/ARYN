@@ -86,6 +86,13 @@ public class CouponUser extends Model<CouponUser> {
 	@TableField(exist = false)
 	private CouponInfo couponInfo;
 
+	/**
+	 * 券适用商品明细（useRange=2 指定商品券；确认页券弹层判断「本单是否有可用商品」用）。
+	 * 由 CouponUserMapper.pageResultMap 嵌套查询回填，非表字段。
+	 */
+	@TableField(exist = false)
+	private java.util.List<CouponGoods> couponGoodsList;
+
 	@TableField(exist = false)
 	private String[] spuIds;
 

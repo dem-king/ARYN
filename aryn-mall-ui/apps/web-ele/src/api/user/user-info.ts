@@ -71,6 +71,15 @@ export async function getTeamPage(query: any) {
 }
 
 /**
+ * 修改会员启停用状态
+ */
+export async function updateStatus(userId: string, status: string) {
+  return requestClient.put('/mall-user/userinfo/status', null, {
+    params: { userId, status },
+  });
+}
+
+/**
  * 调整积分
  */
 export async function adjustPoint(data: any) {

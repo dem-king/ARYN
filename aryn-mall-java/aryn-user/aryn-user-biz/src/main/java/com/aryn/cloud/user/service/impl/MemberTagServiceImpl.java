@@ -153,7 +153,9 @@ public class MemberTagServiceImpl extends ServiceImpl<MemberTagMapper, MemberTag
 			return new ArrayList<>();
 		}
 		List<String> tagIds = rels.stream().map(UserTagRel::getTagId).collect(Collectors.toList());
-		return this.listByIds(tagIds);
+		return this.listByIds(tagIds).stream()
+			.filter(tag -> "0".equals(tag.getStatus()))
+			.collect(Collectors.toList());
 	}
 
 	private void validateTag(MemberTag memberTag) {

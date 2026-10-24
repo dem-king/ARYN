@@ -23,7 +23,7 @@ import {
 } from '#/api/promotion/group-buy-activity';
 import { getCurrentNewbieFloor } from '#/api/promotion/newbie-activity';
 import { getAppSessionGoods, getAppSessions } from '#/api/promotion/seckill';
-import { getById as getTenantById } from '#/api/upms/tenant';
+import { getShopInfo as getCurrentTenantShop } from '#/api/upms/tenant';
 
 export interface RetailGoodsItem {
   id: string;
@@ -108,6 +108,14 @@ export interface RetailDiscountActivityItem {
   activityId: string;
   activityName: string;
   countdown: number;
+  /**
+   * 入口卡缩略图（取数层已按优先级解析好）。
+   *
+   * 指定商品活动取首件商品图；全场活动（scope=1）没有商品清单，
+   * 由 loadDiscounts 补一张真实商品图作代表（全店销量 Top1 商品，确实参与全场折扣，
+   * 不伪造数据）。仍取不到图时空串，渲染侧回落首字灰块。与 C 端同口径。
+   */
+  coverImage: string;
   discountType: number;
   discountValue: number;
   endTime: string;
@@ -166,7 +174,9 @@ const defaultDependencies: RetailDataDependencies = {
   salesRanking: getProductSalesTop10,
   seckillSessionGoods: getAppSessionGoods,
   seckillSessions: getAppSessions,
-  shopById: getTenantById,
+  // 装修账号普遍没有 upms:systenant:get，租户资料只能走免权限的当前租户门店接口；
+  // 后端按「tenant-id 头 || 登录租户」解析，与组件侧 switch-tenant-id 口径一致
+  shopById: () => getCurrentTenantShop(),
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -463,6 +473,9 @@ export async function loadSeckillSessions(
 
 /**
  * 折扣活动归一化：与 C 端 retail-normalizers.normalizeRetailDiscounts 同口径。
+ *
+ * coverImage 由 loadDiscounts 补齐（入口卡缩略图），归一化阶段先落空串，
+ * 避免把「有无商品图」的判断散到渲染侧。
  */
 export function normalizeDiscountActivities(
   value: unknown,
@@ -475,6 +488,7 @@ export function normalizeDiscountActivities(
         activityId: toText(record.activityId ?? record.id),
         activityName: toText(record.activityName),
         countdown: toNumber(record.countdown),
+        coverImage: '',
         discountType: toNumber(record.discountType),
         discountValue: toNumber(record.discountValue),
         endTime: toText(record.endTime),
@@ -499,7 +513,11 @@ export function normalizeDiscountActivities(
     .filter((item) => Boolean(item.activityId));
 }
 
-/** 折扣会场取数；manual 模式 targetIds 存活动 ID */
+/**
+ * 折扣会场取数；manual 模式 targetIds 存活动 ID。
+ *
+ * 返回项的 coverImage 已补齐入口卡缩略图（与 C 端 loadDiscounts 同口径）。
+ */
 export async function loadDiscounts(
   props: DiscountProps,
 ): Promise<RetailDiscountActivityItem[]> {
@@ -511,11 +529,59 @@ export async function loadDiscounts(
   if (props.dataSource.mode === 'manual') {
     const ids = props.dataSource.targetIds ?? [];
     if (ids.length === 0) return [];
-    return activities
-      .filter((activity) => ids.includes(activity.activityId))
-      .slice(0, props.count);
+    return withDiscountCoverImages(
+      activities
+        .filter((activity) => ids.includes(activity.activityId))
+        .slice(0, props.count),
+    );
   }
-  return activities.slice(0, props.count);
+  return withDiscountCoverImages(activities.slice(0, props.count));
+}
+
+/**
+ * 全场折扣（scope=1）的入口卡代表图：全店销量 Top1 商品图。
+ *
+ * 与 C 端同口径：全场活动没有商品清单，但入口小卡需要一张真实商品图
+ * （与相邻秒杀/拼团卡一致），不能退回「限」字灰块。全场活动对所有在售商品生效，
+ * 取销量 Top1 商品只是挑一个真实参与者作代表，不伪造数据；
+ * 请求失败/店内无商品时返回空串，照旧走首字灰块。
+ *
+ * 模块级缓存：编辑器每次改配置都会重跑 loader，同一会话只查一次即可；
+ * 失败不缓存，下次还能补图。
+ */
+let salesTopGoodsImageTask: null | Promise<string> = null;
+
+function loadSalesTopGoodsImage(): Promise<string> {
+  salesTopGoodsImageTask ??= getGoodsPage({
+    current: 1,
+    ...createGoodsSortParams('sales'),
+    size: 1,
+  })
+    .then((response) => normalizeGoods(response)[0]?.imageUrl ?? '')
+    .catch(() => {
+      salesTopGoodsImageTask = null;
+      return '';
+    });
+  return salesTopGoodsImageTask;
+}
+
+/**
+ * 补入口卡缩略图：指定商品活动取首件商品图，全场活动用代表商品图兜底。
+ * 只在确有活动缺图时才发商品查询，避免无谓请求。
+ */
+async function withDiscountCoverImages(
+  activities: RetailDiscountActivityItem[],
+): Promise<RetailDiscountActivityItem[]> {
+  const needsRepresentative = activities.some(
+    (activity) => !activity.goodsList[0]?.goodsImage,
+  );
+  const representative = needsRepresentative
+    ? await loadSalesTopGoodsImage()
+    : '';
+  return activities.map((activity) => ({
+    ...activity,
+    coverImage: activity.goodsList[0]?.goodsImage || representative,
+  }));
 }
 
 /**

@@ -15,8 +15,14 @@ import {
 // 用于接收外部 v-model
 const props = defineProps<{ modelValue: any }>();
 const emit = defineEmits(['update:modelValue']);
+const SelectMaterial = defineAsyncComponent(
+  () => import('#/components/select-material/index.vue'),
+);
 const LinkUrl = defineAsyncComponent(
   () => import('../common/link-url/index.vue'),
+);
+const ColorPicker = defineAsyncComponent(
+  () => import('../common/common-color-picker/index.vue'),
 );
 // 设置默认值
 const defaultConfig = {
@@ -24,26 +30,38 @@ const defaultConfig = {
   contentList: [], // 公告内容
   color: 'rgba(100, 101, 102, 1)',
   speed: 50, // 滚动速度
+  titleType: '', // 前缀类型：''.铃铛；'2'.文字；'1'.图片
+  titleText: '',
+  titleUrl: '',
+  titleColor: '', // 留空时跟随正文颜色
+  titleSize: 18,
+  titleStyle: '0',
   commonStyle: {
     styleTopMargin: 0,
     styleBottomMargin: 0,
     styleLeftMargin: 0,
     styleRightMargin: 0,
-    styleTopPadding: 0,
-    styleBottomPadding: 0,
-    styleLeftPadding: 0,
-    styleRightPadding: 0,
-    styleLtRadius: 0,
-    styleRtRadius: 0,
-    styleLbRadius: 0,
-    styleRbRadius: 0,
+    styleTopPadding: 6,
+    styleBottomPadding: 6,
+    styleLeftPadding: 12,
+    styleRightPadding: 12,
+    styleLtRadius: 8,
+    styleRtRadius: 8,
+    styleLbRadius: 8,
+    styleRbRadius: 8,
     bgColorDirection: 'to right',
     bgStartColor: 'rgba(255, 248, 233, 1)',
     bgEndColor: 'rgba(255, 248, 233, 1)',
   },
 };
 
-const form = ref({ ...defaultConfig, ...props.modelValue });
+const form = ref({
+  ...defaultConfig,
+  ...props.modelValue,
+  contentList: Array.isArray(props.modelValue?.contentList)
+    ? props.modelValue.contentList
+    : [],
+});
 const addNotice = () => {
   form.value.contentList.push({
     content: '公告',
@@ -77,6 +95,31 @@ watch(
         </ElFormItem>
         <ElFormItem label="滚动速度">
           <ElInputNumber v-model="form.speed" :min="0" />
+        </ElFormItem>
+        <ElFormItem label="前缀样式">
+          <ElRadioGroup v-model="form.titleType">
+            <ElRadio value="">默认铃铛</ElRadio>
+            <ElRadio value="2">文字</ElRadio>
+            <ElRadio value="1">图片</ElRadio>
+          </ElRadioGroup>
+        </ElFormItem>
+        <ElFormItem v-if="form.titleType === '2'" label="前缀文字">
+          <ElInput v-model="form.titleText" maxlength="6" show-word-limit />
+        </ElFormItem>
+        <ElFormItem v-if="form.titleType === '1'" label="前缀图片">
+          <SelectMaterial v-model="form.titleUrl" :can-choose-images-num="1" />
+        </ElFormItem>
+        <ElFormItem v-if="form.titleType !== '1'" label="前缀颜色">
+          <ColorPicker v-model="form.titleColor" />
+        </ElFormItem>
+        <ElFormItem v-if="form.titleType !== '1'" label="前缀字号">
+          <ElInputNumber v-model="form.titleSize" :min="10" :max="32" />
+        </ElFormItem>
+        <ElFormItem v-if="form.titleType === '2'" label="前缀加粗">
+          <ElRadioGroup v-model="form.titleStyle">
+            <ElRadio value="0">常规</ElRadio>
+            <ElRadio value="1">加粗</ElRadio>
+          </ElRadioGroup>
         </ElFormItem>
         <h4>公告内容</h4>
         <div

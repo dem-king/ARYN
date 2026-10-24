@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { computed, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
+import { getMyBenefits } from '@/sub-pages/api/user/benefit'
 
 definePage({
   name: 'member-center',
@@ -11,9 +13,29 @@ definePage({
 
 const router = useRouter()
 const userStore = useUserStore()
+const benefits = ref<any>(null)
+
+const discountText = computed(() => {
+  const rate = Number(benefits.value?.discountRate)
+  return Number.isFinite(rate) && rate > 0 && rate < 1
+    ? `${Number((rate * 10).toFixed(1))}折`
+    : '无折扣'
+})
+
+async function loadBenefits() {
+  try {
+    benefits.value = await getMyBenefits()
+  }
+  catch (error) {
+    console.error('加载会员权益失败:', error)
+    benefits.value = null
+  }
+}
 
 onShow(() => {
   userStore.refreshPointsInfo()
+  userStore.fetchMemberInfo()
+  loadBenefits()
 })
 
 function toSignIn() {
@@ -74,6 +96,39 @@ function toLevelBenefit() {
           </view>
         </view>
       </view>
+    </view>
+  </view>
+
+  <!-- 我的权益 -->
+  <view class="m-2 rounded-xl bg-white p-3">
+    <view class="flex items-center justify-between">
+      <view class="text-15px font-bold">
+        我的权益
+      </view>
+      <text class="text-12px color-primary" @click="toLevelBenefit">
+        查看全部等级权益
+      </text>
+    </view>
+    <view v-if="benefits && benefits.levelId" class="mt-2 flex flex-wrap gap-2">
+      <view class="benefit-chip">
+        <text class="benefit-chip__label">会员折扣</text>
+        <text class="benefit-chip__value">{{ discountText }}</text>
+      </view>
+      <view class="benefit-chip">
+        <text class="benefit-chip__label">免运费</text>
+        <text class="benefit-chip__value">{{ benefits.freeShipping ? '已享' : '未享' }}</text>
+      </view>
+      <view class="benefit-chip">
+        <text class="benefit-chip__label">积分倍率</text>
+        <text class="benefit-chip__value">{{ benefits.pointsMultiplier || 1 }}倍</text>
+      </view>
+      <view class="benefit-chip">
+        <text class="benefit-chip__label">专属券</text>
+        <text class="benefit-chip__value">{{ benefits.exclusiveCouponTemplateIds?.length || 0 }}张</text>
+      </view>
+    </view>
+    <view v-else class="mt-2 text-12px text-gray-400">
+      暂无会员权益，完成注册或首单后自动获得
     </view>
   </view>
 
@@ -158,6 +213,27 @@ function toLevelBenefit() {
     height: 60rpx;
     background: rgba(255, 255, 255, 0.3);
     align-self: center;
+  }
+}
+
+.benefit-chip {
+  display: flex;
+  flex-direction: column;
+  min-width: 120rpx;
+  padding: 12rpx 16rpx;
+  border-radius: 12rpx;
+  background: #f7f8fa;
+
+  &__label {
+    font-size: 20rpx;
+    color: #909399;
+  }
+
+  &__value {
+    margin-top: 4rpx;
+    font-size: 26rpx;
+    font-weight: 600;
+    color: #303133;
   }
 }
 

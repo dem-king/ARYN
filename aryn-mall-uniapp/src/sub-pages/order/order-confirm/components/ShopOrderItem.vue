@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 
 import { useShipContextStore } from '@/store/shipContextStore'
 import { deliveryWayLabel, deliveryWayOptions } from '@/sub-pages/utils/delivery-way'
+import { getCouponUnavailableInfo } from '@/utils/coupon-usability'
 
 interface OrderItem {
   spuId: string
@@ -14,6 +15,14 @@ interface OrderItem {
   salesPrice: number
   paymentPrice: number
   totalPrice: number
+  /** 原价小计（结算接口回填，非表字段）：划线价用，缺失时按成交小计兜底 */
+  originalTotalPrice?: number
+  /** 成交活动类型（结算接口回填，非表字段）：groupBuy/seckill/discount/newbie，空=普通商品 */
+  activityType?: string | null
+  /** 该行活动是否允许叠券（结算接口回填，非表字段）：false=活动禁叠券 */
+  couponStackable?: boolean | null
+  /** 该行活动是否允许积分抵现（结算接口回填，非表字段）：false=活动禁积分 */
+  pointsStackable?: boolean | null
 }
 
 interface Order {
@@ -26,11 +35,23 @@ interface Order {
   couponUserId: string
   couponUserList: any[]
   remark: string
+  /** 商品原价合计（结算接口回填，非表字段） */
+  originalTotalPrice?: number
+  /** 活动优惠合计（原价合计 - 成交商品金额，结算接口回填，非表字段） */
+  activityDiscountPrice?: number
+  /** 会员折扣金额（结算接口回填，非表字段） */
+  memberDiscountPrice?: number
   pointsDeductMax?: number
   pointsDeductMaxPrice?: number
   pointsDeductPrice?: number
   pointsDeductRate?: number
   pointsUsed?: number
+  /** 券不可用原因（结算接口回填，非表字段）：选中了不可叠的券时下发 */
+  couponStackReason?: string | null
+  /** 券门槛可计算金额（允许叠券明细的折后合计，结算接口回填，非表字段） */
+  couponEligibleAmount?: number | null
+  /** 积分可计算金额（允许积分明细的商品应付合计，结算接口回填，非表字段） */
+  pointsEligibleAmount?: number | null
 }
 
 interface Props {
@@ -73,11 +94,95 @@ const localOrder = ref<Order>({ ...props.order })
 
 const hasSelectedCoupon = computed(() => !!localOrder.value.couponUserId)
 
-const hasAvailableCoupons = computed(() =>
-  Array.isArray(props.couponUserList)
-  && props.couponUserList.length > 0
-  && !localOrder.value.couponUserId,
-)
+/**
+ * 全部明细都不允许叠券（纯秒杀/纯新人价单）：券行置灰给原因，不弹选择器。
+ * 兼容老结算接口（不下发 couponStackable）时恒为 false，不影响普通订单。
+ */
+const allItemsCouponBlocked = computed(() => {
+  const items = localOrder.value.orderItemList || []
+  return items.length > 0 && items.every(item => item.couponStackable === false)
+})
+
+/** 券不可用原因：优先服务端下发的 couponStackReason（选中了不可叠券时） */
+const couponBlockReason = computed(() => {
+  if (localOrder.value.couponStackReason)
+    return localOrder.value.couponStackReason
+  return allItemsCouponBlocked.value ? '活动商品不支持使用优惠券' : ''
+})
+
+/**
+ * 至少一张券可用（门槛 + 范围 + 活动可叠）：只看券数量会把「有券但全部不可用」
+ * 误显示成「选择优惠券」，用户点进去发现没有可用券。
+ */
+const hasUsableCoupon = computed(() => {
+  if (allItemsCouponBlocked.value || !Array.isArray(props.couponUserList))
+    return false
+  const eligibleBase = Number(localOrder.value.couponEligibleAmount)
+  return props.couponUserList.some((coupon) => {
+    const info = getCouponUnavailableInfo(
+      coupon,
+      localOrder.value.orderItemList,
+      Number.isFinite(eligibleBase) ? eligibleBase : null,
+    )
+    return !info.unavailable
+  })
+})
+
+const hasAvailableCoupons = computed(() => hasUsableCoupon.value && !localOrder.value.couponUserId)
+
+/** 混合单部分商品不参与积分：积分只作用于可叠明细，副文案注明口径 */
+const pointsPartialStack = computed(() => {
+  const items = localOrder.value.orderItemList || []
+  return items.some(item => item.pointsStackable === false)
+})
+
+/**
+ * 「商品金额」按原价合计展示：活动价（拼团/秒杀/折扣/新人价）让利另行成行，
+ * 让用户看到「原价 → 优惠 → 实付」的完整链路；无活动时原价合计即成交金额。
+ * 老结算接口不返回该字段时回落到成交金额，不影响展示与提交金额口径。
+ */
+const goodsAmount = computed(() => {
+  const original = Number(localOrder.value.originalTotalPrice)
+  return Number.isFinite(original) && original > 0 ? original : localOrder.value.totalPrice
+})
+
+/** 活动优惠合计：0 或字段缺失时不渲染优惠行，避免零优惠「假优惠」 */
+const activityDiscount = computed(() => {
+  const value = Number(localOrder.value.activityDiscountPrice)
+  return Number.isFinite(value) && value > 0 ? value : 0
+})
+
+/** 会员优惠：活动价明细不参与会员折扣，金额由服务端计算 */
+const memberDiscount = computed(() => {
+  const value = Number(localOrder.value.memberDiscountPrice)
+  return Number.isFinite(value) && value > 0 ? value : 0
+})
+
+/** 拼团单用「拼团优惠」点题，其余活动价统一叫「活动优惠」 */
+const activityDiscountLabel = computed(() => (props.groupBuyOrder ? '拼团优惠' : '活动优惠'))
+
+/**
+ * 明细划线价：仅当「原价小计 > 本行实付」时展示。
+ * 原来的划线取 totalPrice，促销落价后与实付相等（拼团单 25.90 划 25.90），
+ * 看上去像假折扣；这里改用结算接口回填的原价，且不做「自己划自己」。
+ */
+function showOriginalPrice(goods: OrderItem) {
+  const original = Number(goods.originalTotalPrice)
+  const paid = Number(goods.paymentPrice)
+  return Number.isFinite(original) && Number.isFinite(paid) && original > paid
+}
+
+/** 明细活动标签：解释「这行为什么是活动价/为什么不能叠券」 */
+const ACTIVITY_TYPE_LABELS: Record<string, string> = {
+  groupBuy: '拼团价',
+  seckill: '秒杀价',
+  discount: '折扣价',
+  newbie: '新人价',
+}
+function activityLabel(goods: OrderItem) {
+  return goods.activityType ? (ACTIVITY_TYPE_LABELS[goods.activityType] || '') : ''
+}
+
 // 监听prop变化以保持同步
 watch(() => props.order, (newOrder) => {
   localOrder.value = { ...newOrder }
@@ -183,14 +288,33 @@ function saveRemark() {
         <view class="ml-20rpx h-full flex flex-1 flex-col overflow-hidden">
           <view class="flex justify-between">
             <view class="mr-20rpx flex-1 overflow-hidden">
-              <wd-text :lines="2" size="26rpx" color="inherit" :text="goods.spuName" />
+              <view class="flex items-center">
+                <text
+                  v-if="activityLabel(goods)"
+                  class="mr-8rpx flex-none rounded-6rpx px-8rpx text-20rpx"
+                  :class="goods.couponStackable === false || goods.pointsStackable === false ? 'bg-[#fff1f0] color-[#cf1322]' : 'bg-[#fff7e6] color-[#d46b08]'"
+                >
+                  {{ activityLabel(goods) }}
+                </text>
+                <view class="flex-1 overflow-hidden">
+                  <wd-text :lines="2" size="26rpx" color="inherit" :text="goods.spuName" />
+                </view>
+              </view>
               <view v-if="goods.specsInfo" class="pt-10rpx">
                 <wd-text custom-class="pt-10rpx" size="24rpx" color="#909090" :text="goods.specsInfo" />
               </view>
             </view>
             <view class="flex flex-shrink-0 flex-col items-end">
               <wd-text :text="goods.paymentPrice" size="14px" color="red" mode="price" prefix=" ￥" />
-              <wd-text :text="goods.totalPrice" size="12px" mode="price" decoration="line-through" prefix=" ￥" />
+              <!-- 划线价用原价小计（结算回填）；促销价等于成交价时不划线，避免「自己划自己」 -->
+              <wd-text
+                v-if="showOriginalPrice(goods)"
+                :text="goods.originalTotalPrice"
+                size="12px"
+                mode="price"
+                decoration="line-through"
+                prefix=" ￥"
+              />
               <wd-text size="13px" :text="`x${goods.buyQuantity}`" />
             </view>
           </view>
@@ -203,7 +327,20 @@ function saveRemark() {
           <text class="text-14px">
             商品金额
           </text>
-          <wd-text size="26rpx" color="inherit" :text="localOrder.totalPrice" mode="price" prefix="￥" />
+          <wd-text size="26rpx" color="inherit" :text="goodsAmount" mode="price" prefix="￥" />
+        </view>
+        <!-- 活动价让利单独成行：拼团/秒杀/折扣/新人价节省了多少，给用户正向的成交理由 -->
+        <view v-if="activityDiscount > 0" class="flex items-center justify-between pb-20rpx">
+          <text class="text-14px">
+            {{ activityDiscountLabel }}
+          </text>
+          <wd-text size="26rpx" color="red" prefix="-￥" :text="activityDiscount.toFixed(2)" />
+        </view>
+        <view v-if="memberDiscount > 0" class="flex items-center justify-between pb-20rpx">
+          <text class="text-14px">
+            会员优惠
+          </text>
+          <wd-text size="26rpx" color="red" prefix="-￥" :text="memberDiscount.toFixed(2)" />
         </view>
         <view v-if="localOrder.deliveryWay === '1'" class="flex items-center justify-between pb-20rpx">
           <text class="text-14px">
@@ -216,9 +353,17 @@ function saveRemark() {
             优惠券
           </text>
           <view class="flex items-center">
+            <!-- 活动商品禁叠券（纯秒杀/新人价单或所选券被服务端拒绝）：置灰给原因，不弹选择器 -->
+            <wd-text
+              v-if="couponBlockReason"
+              size="22rpx"
+              color="#909090"
+              :text="couponBlockReason"
+            />
+
             <!-- 已选择优惠券 -->
             <wd-text
-              v-if="hasSelectedCoupon"
+              v-else-if="hasSelectedCoupon"
               size="26rpx"
               color="red"
               prefix="-￥"
@@ -237,7 +382,7 @@ function saveRemark() {
               size="22rpx"
               text="无可用优惠券"
             />
-            <text v-if="hasSelectedCoupon || hasAvailableCoupons" class="i-carbon:chevron-right text-14px" />
+            <text v-if="!couponBlockReason && (hasSelectedCoupon || hasAvailableCoupons)" class="i-carbon:chevron-right text-14px" />
           </view>
         </view>
         <view
@@ -249,7 +394,13 @@ function saveRemark() {
               积分抵扣
             </text>
             <text class="text-22rpx color-[#909090]">
-              可用{{ localOrder.pointsDeductMax || 0 }}积分<text v-if="Number(localOrder.pointsDeductPrice) > 0">，已抵￥{{ localOrder.pointsDeductPrice }}</text>
+              可用{{ localOrder.pointsDeductMax || 0 }}积分<text v-if="Number(localOrder.pointsDeductPrice) > 0">
+                ，已抵￥{{ localOrder.pointsDeductPrice }}
+              </text>
+            </text>
+            <!-- 混合单：活动商品不参与积分抵扣，最多可抵按可叠部分计算 -->
+            <text v-if="pointsPartialStack" class="text-22rpx color-[#909090]">
+              活动商品不参与积分抵扣
             </text>
           </view>
           <wd-switch :model-value="pointsEnabled" size="36rpx" @change="onPointsChange" />

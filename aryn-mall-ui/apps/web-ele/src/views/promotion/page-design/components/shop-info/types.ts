@@ -8,6 +8,8 @@ import {
 export interface ShopInfoProps extends RetailComponentBaseProps {
   showContact: boolean;
   showDescription: boolean;
+  /** 悬浮压图：顶部外边距再上移 16px（C 端 32rpx 同口径），把店铺头叠到上方 banner 上 */
+  liftOverBanner: boolean;
 }
 
 export function createShopInfoDefaults(): ShopInfoProps {
@@ -17,6 +19,7 @@ export function createShopInfoDefaults(): ShopInfoProps {
     dataSource: { mode: 'current-tenant' },
     emptyStrategy: 'placeholder',
     invalidStrategy: 'hide',
+    liftOverBanner: false,
     showContact: true,
     showDescription: true,
   };
