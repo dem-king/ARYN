@@ -1,0 +1,51 @@
+# ============================================================================
+# 示例：启用 443/HTTPS 的部署形态（默认部署请继续使用 docker-compose.yml，行为不变）
+# ----------------------------------------------------------------------------
+# 使用前提（缺一不可，详见同目录 README.md）：
+#   1) 镜像必须基于 HTTPS 站点配置构建：先把 aryn-ui-https.conf.example 复制为
+#      aryn-ui.conf 并替换 server_name / ssl_certificate / ssl_certificate_key
+#      （example.com → 真实域名）。仅本 compose 文件不会让 nginx 监听 443；
+#   2) 80 端口保留：ACME http-01 校验 + 301 跳 HTTPS；
+#   3) 证书目录按下面方式只读挂载；certbot 建议在宿主机运行，
+#      续期后执行 `docker exec aryn-ui-pro nginx -s reload`。
+#
+# 启动：
+#   mkdir -p certbot-www
+#   docker compose -f docker-compose.https.example.yml up -d --build
+# ============================================================================
+services:
+  aryn-ui-pro:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aryn-ui-pro
+    ports:
+      - '80:80' # ACME 校验 + 301 跳转
+      - '443:443' # TLS 入口
+    volumes:
+      # 只读挂载整个证书目录（不要只挂单个 pem：live/*.pem 是指向 archive/ 的软链，
+      # 单文件挂载在续期后仍指向旧 inode）。容器内路径与 https 模板中的
+      # /etc/nginx/certs/live/<域名>/fullchain.pem、privkey.pem 对应。
+      - /etc/letsencrypt:/etc/nginx/certs:ro
+      # ACME http-01 校验目录：宿主机 certbot --webroot -w ./certbot-www 写入，
+      # 容器内 80 server 的 /.well-known/acme-challenge/ 从这里读取。
+      - ./certbot-www:/var/www/certbot:ro
+    restart: unless-stopped
+    networks:
+      - aryn-pro-net
+
+  # 可选：容器化 certbot（与上面的 ./certbot-www 共享校验目录）。
+  # 若宿主机已安装 certbot，可直接删除本服务，在宿主机执行续期。
+  # certbot:
+  #   image: certbot/certbot:latest
+  #   container_name: aryn-ui-certbot
+  #   volumes:
+  #     - /etc/letsencrypt:/etc/letsencrypt         # 续期需要写，不能只读
+  #     - ./certbot-www:/var/www/certbot
+  #   entrypoint: /bin/sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done'
+  #   # 续期成功后仍需让 nginx 重载证书（宿主机 cron 或 webhook 执行）：
+  #   #   docker exec aryn-ui-pro nginx -s reload
+
+networks:
+  aryn-pro-net:
+    external: true

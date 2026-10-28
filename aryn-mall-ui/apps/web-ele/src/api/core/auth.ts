@@ -67,10 +67,14 @@ export async function refreshTokenApi() {
 
 /**
  * 退出登录
+ *
+ * <p>必须走统一的 {@link requestClient}：其请求拦截器会注入 satoken、执行 boot/cloud
+ * 双模式路径改写（boot 下 `/auth/token/logout` → `/boot/token/logout`）并补充
+ * Accept-Language。此前使用裸 {@link baseRequestClient}，boot 模式请求 404、cloud 模式
+ * 不带 token，服务端无法撤销会话，会出现「界面已退出、旧 token 仍有效」。</p>
  */
 export async function logoutApi() {
-  return baseRequestClient.delete('/auth/token/logout', {
-    withCredentials: true,
+  return requestClient.delete('/auth/token/logout', {
     headers: {
       isSwitchTenant: false,
     },

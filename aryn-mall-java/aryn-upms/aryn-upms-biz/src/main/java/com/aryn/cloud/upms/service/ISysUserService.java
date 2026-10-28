@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.aryn.cloud.upms.api.entity.SysUser;
+import com.aryn.cloud.upms.api.vo.SysUserVO;
 
 /**
  * 系统用户
@@ -66,15 +67,15 @@ public interface ISysUserService extends IService<SysUser> {
 	boolean updateUser(SysUser sysUser);
 
 	/**
-	 * 用户列表查询
+	 * 用户列表查询（返回不含密码的响应 VO）
 	 *
 	 * @author 雨滴kian
 	 * @date 2022/5/31
 	 * @param page
 	 * @param sysUser
-	 * @return: com.baomidou.mybatisplus.core.metadata.IPage<com.aryn.cloud.upms.common.entity.SysUser>
+	 * @return: com.baomidou.mybatisplus.core.metadata.IPage<com.aryn.cloud.upms.api.vo.SysUserVO>
 	 */
-	IPage<SysUser> adminPage(Page page, SysUser sysUser);
+	IPage<SysUserVO> adminPage(Page page, SysUser sysUser);
 
 	/**
 	 * 删除用户

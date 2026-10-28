@@ -40,6 +40,12 @@ public interface CacheConstants {
 	 */
 	String CAPTCHA_SECOND_VERIFICATION_KEY = "RUNNING:CAPTCHA:second-";
 
+	/** 登录失败计数 key 前缀（账号维度，达到上限后锁定，防密码暴力破解） */
+	String LOGIN_FAIL_ACCOUNT_KEY = "login:fail:account:";
+
+	/** 登录失败计数 key 前缀（IP 维度，防换账号撞库） */
+	String LOGIN_FAIL_IP_KEY = "login:fail:ip:";
+
 	/** 用户信息缓存 */
 	String USER_CACHE = "user_cache";
 

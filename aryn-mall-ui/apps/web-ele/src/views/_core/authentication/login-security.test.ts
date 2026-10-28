@@ -46,6 +46,28 @@ describe('login security contract', () => {
     expect(productionEnvSource).not.toContain('VITE_GLOB_API_URL=http://');
   });
 
+  it('uses the authenticated request client for logout in both boot and cloud modes', () => {
+    const logoutApi =
+      /export async function logoutApi[\s\S]*?\n\}/.exec(authApiSource)?.[0] ??
+      '';
+    // 裸 baseRequestClient 不带 satoken、不做 boot 路径改写，服务端无法撤销会话
+    expect(logoutApi).toContain("requestClient.delete('/auth/token/logout'");
+    expect(logoutApi).toContain('isSwitchTenant: false');
+    expect(logoutApi).not.toContain('baseRequestClient');
+    // refreshTokenApi 仍使用裸客户端：刷新请求不应携带已过期的 token
+    const refreshApi =
+      /export async function refreshTokenApi[\s\S]*?\n\}/.exec(
+        authApiSource,
+      )?.[0] ?? '';
+    expect(refreshApi).toContain('baseRequestClient.post');
+  });
+
+  it('does not print raw request errors (may contain password or satoken)', () => {
+    expect(authStoreSource).not.toContain('console.error(error)');
+    expect(authStoreSource).toContain('getSafeErrorMessage(error)');
+    expect(loginSource).not.toContain('console.error(error)');
+  });
+
   it('does not send internal request-control flags as HTTP headers', () => {
     expect(requestSource).toContain('delete config.headers.isToken');
     expect(requestSource).toContain('delete config.headers.isSwitchTenant');

@@ -5,6 +5,7 @@ import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.stp.StpUtil;
 import cn.hutool.core.util.ArrayUtil;
 import cn.hutool.core.util.ObjectUtil;
+import cn.hutool.core.util.StrUtil;
 import cn.hutool.crypto.digest.BCrypt;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -16,10 +17,12 @@ import com.aryn.cloud.upms.api.dto.SysUserDTO;
 import com.aryn.cloud.upms.api.entity.SysRole;
 import com.aryn.cloud.upms.api.entity.SysUser;
 import com.aryn.cloud.upms.api.entity.SysUserRole;
+import com.aryn.cloud.upms.api.vo.SysUserVO;
 import com.aryn.cloud.upms.service.ISysRoleService;
 import com.aryn.cloud.upms.service.ISysUserRoleService;
 import com.aryn.cloud.upms.service.ISysUserService;
 import com.aryn.cloud.upms.support.SysUserSessionRevoker;
+import com.aryn.cloud.common.security.util.PasswordPolicy;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.AllArgsConstructor;
@@ -53,12 +56,13 @@ public class SysUserController {
 
 	@Operation(summary = "获取当前用户全部信息")
 	@GetMapping("/info")
-	public Result info() {
+	public Result<SysUserVO> info() {
 		SysUser sysUser = sysUserService.getById(StpUtil.getLoginId().toString());
 		if (ObjectUtil.isNull(sysUser)) {
 			return Result.fail("用户信息为空");
 		}
-		return Result.success(sysUserService.findUserInfo(sysUser));
+		// HTTP 响应不含密码 hash：实体只服务于内部认证链路
+		return Result.success(SysUserVO.from(sysUserService.findUserInfo(sysUser)));
 	}
 
 	@Operation(summary = "用户列表")
@@ -71,13 +75,13 @@ public class SysUserController {
 	@Operation(summary = "通过id查询用户信息")
 	@SaCheckPermission("upms:sysuser:get")
 	@GetMapping("/{id}")
-	public Result<SysUser> getById(@PathVariable String id) {
+	public Result<SysUserVO> getById(@PathVariable String id) {
 		SysUser sysUser = sysUserService.getById(id);
 		if (ObjectUtil.isNull(sysUser)) {
 			return Result.fail("用户不存在");
 		}
 		sysUser.setRoles(sysRoleService.findRoleIdsByUserId(id));
-		return Result.success(sysUser);
+		return Result.success(SysUserVO.from(sysUser));
 	}
 
 	@SysLog("新增用户")
@@ -87,6 +91,11 @@ public class SysUserController {
 	public Result add(@RequestBody SysUser sysUser) {
 		if (ArrayUtil.isEmpty(sysUser.getRoles())) {
 			return Result.fail("角色不能为空");
+		}
+		// 服务端密码强度校验（前端表单提示不能替代）：8~64 位、字母+数字、非弱口令
+		String passwordError = PasswordPolicy.validate(sysUser.getPassword());
+		if (passwordError != null) {
+			return Result.fail(passwordError);
 		}
 		sysUser.setPassword(BCrypt.hashpw(sysUser.getPassword()));
 		return Result.success(sysUserService.saveUser(sysUser));
@@ -154,8 +163,14 @@ public class SysUserController {
 		if (ObjectUtil.isNull(sysUser)) {
 			return Result.fail("用户不存在或已删除");
 		}
-		if (!BCrypt.checkpw(sysUserDTO.getPassword(), sysUser.getPassword())) {
+		if (StrUtil.isBlank(sysUserDTO.getPassword())
+				|| !BCrypt.checkpw(sysUserDTO.getPassword(), sysUser.getPassword())) {
 			return Result.fail("旧密码错误");
+		}
+		// 服务端密码强度校验：空串/极短/纯数字/弱口令一律拒绝
+		String passwordError = PasswordPolicy.validate(sysUserDTO.getNewPassword());
+		if (passwordError != null) {
+			return Result.fail(passwordError);
 		}
 		if (!sysUserDTO.getNewPassword().equals(sysUserDTO.getCheckPassword())) {
 			return Result.fail("新密码与确认密码不一致");

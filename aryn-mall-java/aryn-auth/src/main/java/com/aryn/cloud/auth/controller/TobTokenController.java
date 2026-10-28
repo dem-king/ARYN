@@ -33,13 +33,13 @@ public class TobTokenController {
 	private final LoginService loginService;
 
 	@Operation(summary = "系统用户账号登录")
-	@RequestMapping("/login")
+	@PostMapping("/login")
 	public Result<SaTokenInfo> login(String username, String password) {
 		return Result.success(loginService.login(username, password));
 	}
 
 	@Operation(summary = "系统用户手机号短信登录")
-	@RequestMapping("/sms/login")
+	@PostMapping("/sms/login")
 	public Result<SaTokenInfo> smsLogin(String phone) {
 		return Result.success(loginService.smsLogin(phone));
 	}
@@ -51,11 +51,13 @@ public class TobTokenController {
 	}
 
 	/**
-	 * 用户退出
+	 * 用户退出。
 	 *
-	 * @author 雨滴kian
-	 * @date 2022/5/3 20:46
-	 * @version 1.0
+	 * <p>退出必须携带有效 token（前端统一请求客户端注入 `satoken` 头）：Sa-Token 依据
+	 * 请求头中的 token 撤销服务端会话；不带 token 时该方法只清理本地上下文，
+	 * 「界面已退出、旧 token 仍有效」正是历史缺陷。Sa-Token 1.45 的 {@code logout()} 自身
+	 * 对无 token / 已失效 token 幂等返回（不抛 NotLoginException），因此这里不吞异常：
+	 * Redis 等基础设施异常必须向上抛出，由前端提示「服务端退出失败」，不能假装已退出。</p>
 	 */
 	@Operation(summary = "系统用户退出")
 	@DeleteMapping("/logout")

@@ -1,0 +1,194 @@
+# ============================================================================
+# 悦航购管理端 Web —— 443 / HTTPS 示例模板（不是生产生效配置）
+# ----------------------------------------------------------------------------
+# 【重要】仓库存在本模板 ≠ 生产已经启用 HTTPS/TLS。
+#   生产是否真的走了 HTTPS，必须到真实入口核实（域名解析、负载均衡/CDN、证书链、
+#   服务器监听端口），核实方法见同目录 README.md 的「审查结论」一节。
+#
+# 文件后缀故意使用 .example，原因：
+#   1) Dockerfile 只 COPY ./dist 与 ./aryn-ui.conf，本文件不会进入镜像；
+#   2) nginx 的 `include /etc/nginx/conf.d/*.conf;` 匹配不到 *.example，
+#      即使被误放进 conf.d 也不会被加载；
+#   3) `nginx -t` 需要真实证书文件，本模板只用于人工启用时参考。
+#
+# 启用方式（完整步骤见 README.md）：
+#   1) 准备证书（推荐 Let's Encrypt / 商业证书），把下面 ssl_certificate 与
+#      ssl_certificate_key 中的 example.com 换成真实域名路径；
+#      容器内路径约定：/etc/nginx/certs/live/<域名>/fullchain.pem 与 privkey.pem；
+#   2) 证书目录必须挂载进容器（见 docker-compose.https.example.yml），
+#      推荐只读挂载整个证书目录而不是单个文件 —— Let's Encrypt 的
+#      live/*.pem 是指向 archive/ 的软链，单文件挂载在续期后会指向旧 inode；
+#   3) 将本文件复制/改名为 aryn-ui.conf 后重新构建镜像（或按你们的方式注入 conf.d），
+#      并放开 443 端口；
+#   4) 80 端口必须保留：既用于 ACME http-01 校验，也用于把明文请求 301 到 HTTPS；
+#   5) 续期后让 nginx 重新读取证书（证书路径是软链时无需重启容器）：
+#        certbot renew --deploy-hook "docker exec aryn-ui-pro nginx -s reload"
+#
+# 现代 nginx（>= 1.25.1）推荐写法是 `listen 443 ssl;` + `http2 on;`，
+# 本模板为兼容旧版本保留 `listen 443 ssl http2;`（新版会有 deprecation 警告但不影响
+# 运行）；镜像升级到新版后可自行替换。
+# ============================================================================
+
+# ---------------------------------------------------------------------------
+# 80 端口：ACME http-01 校验放行 + 其余请求 301 跳到 HTTPS
+# ---------------------------------------------------------------------------
+server {
+    listen 80;
+    server_name example.com; # 替换为真实域名
+
+    server_tokens off;
+
+    # ACME http-01 校验：certbot --webroot -w /var/www/certbot 会把校验文件写到
+    # <webroot>/.well-known/acme-challenge/<token>，因此这里 root 指向 webroot 上级。
+    # 对应的目录需挂载进容器（docker-compose.https.example.yml 的 ./certbot-www）。
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        default_type "text/plain";
+        allow all;
+    }
+
+    # 其余全部跳 HTTPS（301，保留原始 Host 与路径）
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# ---------------------------------------------------------------------------
+# 443 端口：TLS 终止 + 静态站点 + /api 反向代理
+# 注意：本段的安全头、/api 反代、静态缓存需与同目录 aryn-ui.conf 保持一致，
+#       修改时请两处同步（或后续抽取公共片段 include）。
+# ---------------------------------------------------------------------------
+server {
+    listen 443 ssl http2;
+    server_name example.com; # 替换为真实域名
+
+    # ===================== TLS =====================
+    # 占位路径：替换 example.com 为真实域名；证书文件由证书目录只读挂载提供。
+    ssl_certificate     /etc/nginx/certs/live/example.com/fullchain.pem;
+    ssl_certificate_key /etc/nginx/certs/live/example.com/privkey.pem;
+
+    # 只允许 TLS 1.2 / 1.3
+    ssl_protocols TLSv1.2 TLSv1.3;
+    # Mozilla intermediate 级别推荐套件（GCM + ChaCha20）
+    ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384:DHE-RSA-CHACHA20-POLY1305';
+    ssl_prefer_server_ciphers off;
+
+    # 会话复用，降低握手开销
+    ssl_session_cache   shared:SSL:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+
+    # 如需 OCSP stapling 可打开（需要证书链完整且容器可解析/访问 CA）：
+    # ssl_stapling on;
+    # ssl_stapling_verify on;
+
+    # ===================== 基础安全 =====================
+    server_tokens off;
+
+    # 与后端一致：aryn-boot 的 multipart max-file-size / max-request-size = 100MB
+    client_max_body_size 100m;
+
+    # HSTS：强制浏览器后续一年内走 HTTPS，并覆盖子域。
+    # 注意：
+    #   - 只有确认该域名及子域全部支持 HTTPS 时才加 includeSubDomains；
+    #   - preload 不可逆（需提交浏览器 HSTS 预加载列表且生效慢），
+    #     一般生产先不加，确认长期全站 HTTPS 后再追加 "; preload"。
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    # ===================== gzip（与 80 配置一致） =====================
+    gzip on;
+    gzip_min_length 1k;
+    gzip_buffers 4 16k;
+    gzip_http_version 1.1;
+    gzip_comp_level 9;
+    gzip_types text/plain text/xml text/css application/javascript application/json;
+    gzip_disable "MSIE [1-6]\.";
+    gzip_vary on;
+
+    # ===================== 全局安全响应头 =====================
+    # 同 aryn-ui.conf：内层 location 一旦声明 add_header 就不再继承这里，
+    # /api 与 OPTIONS 预检分支已逐条补齐（含 HSTS）。
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # ===================== API 反向代理（boot 单体模式） =====================
+    # 与 aryn-ui.conf 相同语义：/api/boot/xxx → http://aryn-boot:9999/boot/xxx，
+    # 路径改写由前端完成，Nginx 不再拼 /boot。
+    location ^~ /api/ {
+        # CORS 只保留一组：回显 Origin + 允许凭证（禁止再出现 ACAO '*'）
+        add_header Access-Control-Allow-Origin "$http_origin" always;
+        add_header Access-Control-Allow-Credentials "true" always;
+        add_header Vary "Origin" always;
+
+        # 切断继承后补齐安全头（含 HSTS）
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
+
+        # OPTIONS 预检：204 + 允许方法/头（if 块内 add_header 覆盖本 location，需重复声明）
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin "$http_origin" always;
+            add_header Access-Control-Allow-Credentials "true" always;
+            add_header Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,satoken,tenant-id,Accept-Language" always;
+            add_header Access-Control-Expose-Headers "Content-Length,Content-Range" always;
+            add_header Access-Control-Max-Age "1728000" always;
+            add_header Vary "Origin" always;
+            add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+            add_header X-Content-Type-Options "nosniff" always;
+            add_header X-Frame-Options "SAMEORIGIN" always;
+            add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+            add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
+            return 204;
+        }
+
+        # 剥离上游 CORS 头，保证全链路只有一组 ACAO（后端 SaTokenConfigure 也会在
+        # Origin 命中白名单时输出 ACAO，叠加后浏览器会按 CORS 失败处理）
+        proxy_hide_header Access-Control-Allow-Origin;
+        proxy_hide_header Access-Control-Allow-Credentials;
+        proxy_hide_header Access-Control-Allow-Methods;
+        proxy_hide_header Access-Control-Allow-Headers;
+        proxy_hide_header Access-Control-Max-Age;
+        proxy_hide_header Access-Control-Expose-Headers;
+
+        proxy_pass http://aryn-boot:9999/;
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 300s;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # TLS 在 Nginx 终止，后端据此感知原始协议
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    # ===================== 静态资源缓存 =====================
+    location ~* \.(?:js|mjs|css|png|jpe?g|gif|svg|ico|webp|avif|woff2?|ttf|eot)$ {
+        expires 30d;
+        access_log off;
+        try_files $uri =404;
+    }
+
+    location = /index.html {
+        expires -1; # Cache-Control: no-cache
+    }
+
+    # ===================== SPA 前端路由回退 =====================
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # ===================== 阻止敏感端点 =====================
+    location ~ /actuator {
+        return 403;
+    }
+}

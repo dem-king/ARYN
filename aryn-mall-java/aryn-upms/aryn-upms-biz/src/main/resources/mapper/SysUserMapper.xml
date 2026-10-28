@@ -7,13 +7,10 @@
  -->
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.aryn.cloud.upms.mapper.SysUserMapper">
+    <!-- 列表列：不含 password。用户分页接口只用于展示，密码 hash 不应离开认证链路。 -->
     <sql id="adminPageSql">
-        sys_user
-        .
-        id
-        ,
+        sys_user.id,
         sys_user.username,
-        sys_user.`password`,
         sys_user.email,
         sys_user.avatar,
         sys_user.nickname,
@@ -26,7 +23,12 @@
         sys_user.tenant_id,
         sys_user.type
     </sql>
-    <select id="adminPage" resultType="com.aryn.cloud.upms.api.entity.SysUser">
+    <!-- 认证列：密码校验需要 hash，仅用于登录/RPC 内部查询，不得用于 HTTP 响应 -->
+    <sql id="authUserSql">
+        <include refid="adminPageSql"/>,
+        sys_user.`password`
+    </sql>
+    <select id="adminPage" resultType="com.aryn.cloud.upms.api.vo.SysUserVO">
         SELECT
         <include refid="adminPageSql"/>,
         sys_dept.dept_name AS deptName,
@@ -58,7 +60,7 @@
     </select>
     <select id="selectUserByName" resultType="com.aryn.cloud.upms.api.entity.SysUser">
         SELECT
-        <include refid="adminPageSql"/>
+        <include refid="authUserSql"/>
         FROM
         sys_user AS sys_user
         where sys_user.username = #{username}
@@ -79,7 +81,7 @@
     </select>
     <select id="selectUserByPhone" resultType="com.aryn.cloud.upms.api.entity.SysUser">
         SELECT
-        <include refid="adminPageSql"/>
+        <include refid="authUserSql"/>
         FROM
         sys_user AS sys_user
         where sys_user.phone = #{phone}

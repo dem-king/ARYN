@@ -1,6 +1,5 @@
 <script lang="ts" setup>
 import type { VbenFormSchema } from '@vben/common-ui';
-import type { Recordable } from '@vben/types';
 
 import { computed, h, ref } from 'vue';
 
@@ -81,16 +80,9 @@ const formSchema = computed((): VbenFormSchema[] => {
   ];
 });
 
-function handleSubmit(value: Recordable<any>) {
-  // eslint-disable-next-line no-console
-  console.log('register submit:', value);
-}
+// 该占位页未接入注册接口；原实现把含明文密码的完整表单 console.log 到控制台，已移除。
 </script>
 
 <template>
-  <AuthenticationRegister
-    :form-schema="formSchema"
-    :loading="loading"
-    @submit="handleSubmit"
-  />
+  <AuthenticationRegister :form-schema="formSchema" :loading="loading" />
 </template>

@@ -62,7 +62,10 @@ const verifySuccess = async (params: any) => {
   try {
     await authStore.authLogin(loginUser.value);
   } catch (error) {
-    console.error(error);
+    // 仅输出脱敏提示：axios error 的 config.data 是含明文密码的登录表单，禁止整体打印
+    console.warn(
+      (error as any)?.response?.data?.msg ?? (error as any)?.message,
+    );
   }
 };
 </script>

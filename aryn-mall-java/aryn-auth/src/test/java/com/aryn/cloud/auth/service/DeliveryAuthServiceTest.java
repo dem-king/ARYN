@@ -49,7 +49,8 @@ class DeliveryAuthServiceTest {
 		remoteDeliveryAccountService = mock(RemoteDeliveryAccountService.class);
 		remoteSysUserService = mock(RemoteSysUserService.class);
 		tenantAccessGuard = mock(TenantAccessGuard.class);
-		service = new DeliveryAuthService(remoteDeliveryAccountService, remoteSysUserService, tenantAccessGuard);
+		service = new DeliveryAuthService(remoteDeliveryAccountService, remoteSysUserService, tenantAccessGuard,
+				new com.aryn.cloud.auth.config.LoginProtectionProperties());
 		securityUtils = mockStatic(SecurityUtils.class);
 		tocUser = new ArynUser();
 		tocUser.setUserId("mall-user-1");
@@ -220,7 +221,8 @@ class DeliveryAuthServiceTest {
 	void exchangeIssuesTokenOnlyForActiveStatus() {
 		givenBinding(DeliveryEligibilityDTO.BINDING_BOUND);
 		givenSysUser("0", Set.of("delivery:execute"));
-		securityUtils.when(() -> SecurityUtils.loginByDevice(any(ArynUser.class), eq(DeviceTypeEnum.TOB)))
+		securityUtils.when(() -> SecurityUtils.loginByDevice(any(ArynUser.class), eq(DeviceTypeEnum.TOB),
+				any(cn.dev33.satoken.stp.parameter.SaLoginParameter.class)))
 			.thenAnswer(invocation -> null);
 		try (MockedStatic<cn.dev33.satoken.stp.StpUtil> stp = mockStatic(cn.dev33.satoken.stp.StpUtil.class)) {
 			cn.dev33.satoken.session.SaSession tokenSession = mock(cn.dev33.satoken.session.SaSession.class);

@@ -24,6 +24,7 @@ import { getTreeList } from '#/api/upms/dept';
 import { getList as getRoleList } from '#/api/upms/sys-role';
 import { addObj, editObj, getById } from '#/api/upms/user';
 import { useDict } from '#/utils/dict';
+import { validatePassword } from '#/utils/password-policy';
 
 const emit = defineEmits(['initPage']);
 
@@ -53,6 +54,28 @@ interface UserSate {
   roleList: any;
   deptList: any;
 }
+/**
+ * 密码校验：新增员工时必填且必须满足后端同款强度策略；
+ * 编辑态后端详情不再返回密码 hash，密码输入框禁用且为空，
+ * 这里直接放行，避免编辑弹窗被密码规则卡死无法提交。
+ */
+function validatePasswordRule(
+  _rule: any,
+  value: any,
+  callback: (error?: Error) => void,
+) {
+  if (state.form.id) {
+    callback();
+    return;
+  }
+  const errorMessage = validatePassword(`${value ?? ''}`);
+  if (errorMessage) {
+    callback(new Error(errorMessage));
+    return;
+  }
+  callback();
+}
+
 // 字典
 const { status } = useDict('status');
 const state = reactive<UserSate>({
@@ -93,8 +116,7 @@ const state = reactive<UserSate>({
     ],
     password: [
       {
-        required: true,
-        message: '请输入密码',
+        validator: validatePasswordRule,
         trigger: 'change',
       },
     ],
@@ -178,6 +200,8 @@ const getDetail = (id: string) => {
   loading.value = true;
   getById(id).then((response) => {
     state.form = response;
+    // 详情接口只返回不含密码的 VO；显式清空，避免上一次表单残留值被当成新密码提交
+    state.form.password = '';
     loading.value = false;
   });
 };
@@ -317,6 +341,7 @@ defineExpose({
               <ElInput
                 v-model="state.form.password"
                 type="password"
+                placeholder="8-64位，需同时包含字母和数字"
                 :disabled="!!state.form.id"
               />
             </ElFormItem>

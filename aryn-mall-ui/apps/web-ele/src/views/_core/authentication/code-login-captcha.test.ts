@@ -131,8 +131,13 @@ describe('sms code login captcha contract', () => {
     );
     expect(cancelWatchBlock).toContain('rejectPendingSendCode');
 
-    // 发送失败走 reject 分支，不会调用 resolve
-    expect(verifySuccessBlock).toContain('pending.reject(error)');
+    // 发送失败走 reject 分支，不会调用 resolve；reject 的是脱敏 Error，
+    // 不能把含 phone/code 的原始 axios error 交给 PinInput（其内部会 console.error）
+    expect(verifySuccessBlock).toContain(
+      'pending.reject(new Error(safeMessage))',
+    );
+    expect(verifySuccessBlock).not.toContain('pending.reject(error)');
+    expect(verifySuccessBlock).not.toContain('console.error(error)');
 
     // 短信发送中再次点击直接拒绝，避免并发下发短信/启动多条倒计时链
     expect(requestCaptchaBlock).toContain('if (sendingSms) {');

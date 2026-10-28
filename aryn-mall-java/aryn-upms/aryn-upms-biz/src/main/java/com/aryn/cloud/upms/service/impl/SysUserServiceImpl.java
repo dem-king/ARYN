@@ -14,6 +14,7 @@ import com.aryn.cloud.upms.api.entity.SysRole;
 import com.aryn.cloud.upms.api.entity.SysUser;
 import com.aryn.cloud.upms.api.entity.SysUserRole;
 import com.aryn.cloud.upms.api.vo.MenuVO;
+import com.aryn.cloud.upms.api.vo.SysUserVO;
 import com.aryn.cloud.upms.mapper.*;
 import com.aryn.cloud.upms.service.ISysUserRoleService;
 import com.aryn.cloud.upms.service.ISysUserService;
@@ -141,7 +142,7 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
 	}
 
 	@Override
-	public IPage<SysUser> adminPage(Page page, SysUser sysUser) {
+	public IPage<SysUserVO> adminPage(Page page, SysUser sysUser) {
 		return baseMapper.adminPage(page, sysUser);
 	}
 

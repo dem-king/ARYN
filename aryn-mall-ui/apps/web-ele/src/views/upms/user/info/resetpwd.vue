@@ -4,6 +4,7 @@ import { reactive, ref } from 'vue';
 import { ElButton, ElForm, ElFormItem, ElInput, ElMessage } from 'element-plus';
 
 import { editPassword } from '#/api/upms/user';
+import { validatePassword } from '#/utils/password-policy';
 
 const props = defineProps({
   userId: {
@@ -17,15 +18,17 @@ const emit = defineEmits(['upSuccess']);
 const formRef = ref();
 
 const validatePass = (_rule: any, value: any, callback: any) => {
-  if (value === '') {
-    callback(new Error('请输入密码'));
-  } else {
-    if (state.form.checkPassword !== '') {
-      if (!formRef.value) return;
-      formRef.value.validateField('checkPassword', () => null);
-    }
-    callback();
+  // 与后端 PasswordPolicy 一致：非空、8-64 位、字母+数字、拒绝弱口令
+  const errorMessage = validatePassword(`${value ?? ''}`);
+  if (errorMessage) {
+    callback(new Error(errorMessage));
+    return;
   }
+  if (state.form.checkPassword !== '') {
+    if (!formRef.value) return;
+    formRef.value.validateField('checkPassword', () => null);
+  }
+  callback();
 };
 
 const validatePass2 = (_rule: any, value: any, callback: any) => {

@@ -104,9 +104,16 @@ async function verifySuccess(params: Recordable<any>) {
     ElMessage.success('发送成功');
     pending.resolve();
   } catch (error) {
-    console.error(error);
-    // 短信发送失败：reject 挂起 Promise，PinInput 不会开始倒计时
-    pending.reject(error);
+    // 仅输出脱敏提示：原始 axios error 的 config.data 含手机号与短信验证码，禁止整体打印
+    const safeMessage =
+      (error as any)?.response?.data?.msg ??
+      (error as any)?.message ??
+      '短信发送失败，请重试';
+    console.warn(safeMessage);
+    // 短信发送失败：reject 挂起 Promise，PinInput 不会开始倒计时。
+    // 这里用脱敏 Error 替换原始 axios error：@vben PinInput 捕获后会把 error 对象打印到
+    // 控制台，传原始对象会把含 phone/code 的请求体一并输出（该库不在本应用写作用域内）。
+    pending.reject(new Error(safeMessage));
   } finally {
     sendingSms = false;
   }
@@ -189,7 +196,10 @@ async function handleLogin(values: Recordable<any>) {
       code: values.code,
     });
   } catch (error) {
-    console.error(error);
+    // 仅输出脱敏提示：原始 axios error 的 config.data 含手机号与验证码，禁止整体打印
+    console.warn(
+      (error as any)?.response?.data?.msg ?? (error as any)?.message,
+    );
   }
 }
 </script>

@@ -10,6 +10,7 @@
 - [免登登录端点的凭证自校验](#免登登录端点的凭证自校验)：改登录端点 / 验证码过滤器前必读。
 - [C 端接口权限与 403 语义](#c-端接口权限与-403-语义)：C 端页面调接口、排查「登录一直过期」前必读。
 - [登录会话策略（全局单点登录）](#登录会话策略全局单点登录)：新增登录入口 / 调整会话逻辑前必读。
+- [登录凭证与会话加固](#登录凭证与会话加固2026-10-28)：改登录/退出、限流、密码策略或用户响应前必读。
 
 接口状态来自静态路径与 Controller 对照，不代表真实服务、权限和数据库联调通过。
 
@@ -222,6 +223,87 @@ cloud 在 Nacos 共享配置 `application-dev.yml`（基线 `db/cloud/3aryn_naco
   基线（含 md5）与存量增量脚本绑成契约，并校验 `config_info` 种子行保持 17 列；
   `ArynSaTokenListenerTest` / `SysOnlineUserControllerTest` 锁在线记录 key 生命周期与租户隔离，
   `SysUserSessionRevokerTest` / `SysUserServiceImplTest` / `SysUserControllerPasswordTest` 锁停用/改密/删除踢线。
+
+## 登录凭证与会话加固（2026-10-28）
+
+需求包见 [2026-10-28-管理端登录安全加固](../50-需求文档/2026-10-28-管理端登录安全加固/README.md)。以下规则适用于登录入口、退出链路、用户响应、密码与日志配置。
+
+### 凭证日志与 hash 边界
+
+- **`sa-token.is-log` 必须保持 `false`**（boot `aryn-boot/src/main/resources/application.yml`、cloud Nacos
+  共享配置 `application-dev.yml`，基线 `db/cloud/3aryn_nacos.sql`，存量环境 `db/cloud/170login_hardening_nacos_config.sql`）。
+  `is-log: true` 会在登录/续期事件打印**完整 token**，能读日志即可重放会话；`is-print: false` 关不掉这些日志。
+  审计日志由 `ArynSaTokenListener` 与登录日志表承担，二者不得记录 token / 密码。
+- **密码 hash 不得出现在 HTTP 响应**：用户信息类 HTTP 响应必须使用 `SysUserVO`
+  （`aryn-upms-api/.../api/vo/SysUserVO.java`，无 `password`、手机号脱敏）；新增字段加到 VO，
+  不要直接返回 `SysUser` 实体。`/user/page` 走 `IPage<SysUserVO>`。
+- **密码 hash 不得进入会话与日志**：登录/配送换 token 前必须 `hxUser.setPassword(null)`
+  （hash 会随 `ArynUser` 写入 Redis token-session）；Mapper 列片段分 `adminPageSql`（页面查询，不含
+  `password`）与 `authUserSql`（认证查询才含 `password`），页面查询不得再查密码列；
+  `com.aryn.cloud.upms.mapper` / `com.aryn.cloud.user.mapper` 日志级别保持 INFO（DEBUG 会打印改密 SQL 的 hash）。
+- **历史日志的泄露面**：改造前 `is-log: true` 写入过完整 token、DEBUG mapper 日志可能含 hash，
+  发布后需按合规清理/轮转历史日志。
+
+### 会话有效期
+
+- **TOB（管理端 Web + 配送端）绝对有效期 12h**：`security.login.tob-timeout-seconds=43200`
+  （`aryn-auth/.../config/LoginProtectionProperties.java`），由 `LoginService.login/smsLogin/deliveryLogin`
+  与 `DeliveryAuthService.exchange` 通过 `SaLoginParameter` 覆盖；C 端 TOC 仍用全局 `sa-token.timeout`（30 天）。
+- **未启用空闲超时（2h）**：按登录维度的空闲超时依赖全局 `dynamic-active-timeout=true`，开启后存量 token
+  会被判冻结、发布即强制全端重登；留待维护窗口评估。存量已签发 TOB token 仍按旧 30 天有效期。
+- 覆盖会话参数的 `SecurityUtils.loginByDevice(user, deviceType, SaLoginParameter)` **只能用来改超时**；
+  `isConcurrent`/`isShare` 继续以全局单点配置为准（见上一节）。
+
+### 登录失败限流与错误提示
+
+- 密码登录（`/token/login`、`/token/delivery-login`）必须经 `LoginAttemptGuard`：账号维度默认
+  **5 次 / 900s**、IP 维度 **30 次 / 900s**（`security.login.max-account-failures/account-lock-seconds/
+  max-ip-failures/ip-lock-seconds`），Redis Lua 原子计数、每次失败滑动续期；登录成功**只清账号维度**，
+  不清 IP 维度。key 前缀见 `CacheConstants.LOGIN_FAIL_ACCOUNT_KEY` / `LOGIN_FAIL_IP_KEY`。
+- **统一错误提示、不区分账号是否存在**：账号不存在 / 密码错误 / 空密码 / 非法 hash 一律返回
+  「账号或密码错误」；锁定中返回「登录失败次数过多，请 N 分钟后再试」；失败日志只记录脱敏账号。
+- 顺序必须是 **先查锁定 → 再查用户 → 再校验密码**，失败才计数；用户名归一化（trim + 小写）后计数。
+- Redis 不可用时限流 fail-closed（按锁定返回），不得降级放行；生产必须保持 `security.login.enabled=true`。
+- 新增复用员工账号密码的登录入口时，必须接入同一个 `LoginAttemptGuard` 并复用统一文案，不要另写计数。
+
+### 密码策略
+
+- 新建员工密码与改密（`SysUserController.add` / `editPwd`）必须经
+  `aryn-common-security/.../util/PasswordPolicy.java`：非空、8~64、至少 1 字母 + 1 数字、15 条弱口令黑名单
+  （大小写不敏感）；改密顺序为「验旧密码 → 校验新密码强度 → 验两次一致」，旧密码为空直接拒绝。
+- 前端 `apps/web-ele/src/utils/password-policy.ts` 是**逐字镜像**，只做表单提示；规则/文案改动必须两处同步。
+- 编辑用户时详情不再返回 hash：前端编辑态必须清空密码字段并放行密码校验，否则弹窗无法提交。
+
+### 退出链路
+
+- 前端 `logoutApi` 必须走统一 `requestClient`（注入 `satoken` + `rewriteBootUrl`，boot 下
+  `/auth/token/logout → /boot/token/logout`）；**禁止**再用裸 `baseRequestClient`——不带 token 的退出
+  不会撤销服务端会话，会出现「界面已退出、旧 token 仍有效」。`refreshTokenApi` 仍用 `baseRequestClient`
+  （刷新请求不应携带已过期 token）。
+- 后端 `TobTokenController#logout` 保持 `@DeleteMapping`：Sa-Token logout 对无 token / 失效 token 幂等，
+  但 Redis 等基础设施异常必须上抛，不得吞掉后假装退出成功。
+- 前端 store 的 logout 必须兜底清理本地态；告警只记录 `msg/message`，**禁止**打印异常对象
+  （`error.config.headers.satoken` 可直接重放、登录请求 `config.data` 含明文密码）。
+
+### 免登登录端点
+
+- `TobTokenController` 的 `login` / `smsLogin` 已限定 **POST**；新增登录端点只接受 POST，
+  不得用 `@RequestMapping` 放开 GET（密码会进入 URL 与访问日志）。
+- 登录端点都在免登白名单内，「免登」只代表能进 Controller，凭证校验（密码/图形验证码/短信验证码）必须由
+  端点自行完成，见前文「免登登录端点的凭证自校验」一节。
+
+### 部署与传输
+
+- 生产 HTTPS 必须到真实入口核实：仓库原 Nginx 配置只监听 80，`aryn-ui-https.conf.example` 只是模板，
+  **不构成生产已启用 TLS 的证据**；核实清单见 `aryn-mall-ui/scripts/deploy/README.md`。
+- 入口代理必须透传 `X-Forwarded-For` / `X-Forwarded-Proto`；`/api` 的 CORS 头由 Nginx 统一输出
+  （已剥离上游 CORS 头），不要在后端再叠加第二个 `Access-Control-Allow-Origin`。
+
+**守门测试**：`aryn-boot/.../security/LoginSecurityConfigContractTest`（boot yml + cloud 基线 content/md5 +
+增量脚本锚点，6 条）、`LoginAttemptGuardTest`、`LoginServiceSecurityTest`、`PasswordPolicyTest`、
+`SysUserControllerPasswordTest`（VO 无 password 字段）、`TobTokenControllerTest`（POST-only）；
+前端 `apps/web-ele/src/views/_core/authentication/login-security.test.ts` 锁退出必须走 `requestClient`、
+不出现 `console.error(error)`。
 
 ## 多租户隔离加固（2026-10-28）
 

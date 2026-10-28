@@ -3,6 +3,7 @@ package com.aryn.cloud.common.security.util;
 
 import cn.dev33.satoken.context.SaHolder;
 import cn.dev33.satoken.stp.StpUtil;
+import cn.dev33.satoken.stp.parameter.SaLoginParameter;
 import com.aryn.cloud.common.core.constant.CacheConstants;
 import com.aryn.cloud.common.core.enums.DeviceTypeEnum;
 import com.aryn.cloud.common.security.entity.ArynUser;
@@ -29,9 +30,28 @@ public class SecurityUtils {
 	}
 
 	public static void loginByDevice(ArynUser hxUser, DeviceTypeEnum deviceTypeEnum) {
+		loginByDevice(hxUser, deviceTypeEnum, null);
+	}
+
+	/**
+	 * 按设备类型登录，并允许覆盖本次登录的 Sa-Token 参数（如管理端更短的会话有效期）。
+	 *
+	 * <p><b>不要</b>用该方法覆盖 {@code isConcurrent} / {@code isShare}：全局单点登录策略
+	 * 以配置为准（见 docs/40-接口与风险/README.md「登录会话策略」），按入口覆盖会绕过单点约束。</p>
+	 * @param hxUser 用户会话快照
+	 * @param deviceTypeEnum 登录端类型
+	 * @param loginParameter 本次登录参数；为 {@code null} 时沿用全局配置
+	 */
+	public static void loginByDevice(ArynUser hxUser, DeviceTypeEnum deviceTypeEnum, SaLoginParameter loginParameter) {
 		hxUser.setDeviceType(deviceTypeEnum);
 		SaHolder.getStorage().set(CacheConstants.USER_CACHE, hxUser);
-		StpUtil.login(hxUser.getUserId(), deviceTypeEnum.getDevice());
+		if (loginParameter == null) {
+			StpUtil.login(hxUser.getUserId(), deviceTypeEnum.getDevice());
+		}
+		else {
+			loginParameter.setDeviceType(deviceTypeEnum.getDevice());
+			StpUtil.login(hxUser.getUserId(), loginParameter);
+		}
 		StpUtil.getTokenSession().set(CacheConstants.USER_CACHE, hxUser);
 	}
 

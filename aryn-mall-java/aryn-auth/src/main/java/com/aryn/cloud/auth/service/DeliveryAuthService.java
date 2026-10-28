@@ -4,6 +4,7 @@ package com.aryn.cloud.auth.service;
 import cn.dev33.satoken.stp.SaTokenInfo;
 import cn.dev33.satoken.stp.StpUtil;
 import cn.hutool.core.util.StrUtil;
+import com.aryn.cloud.auth.config.LoginProtectionProperties;
 import com.aryn.cloud.common.core.constant.DeliveryAuthConstants;
 import com.aryn.cloud.common.core.enums.DeviceTypeEnum;
 import com.aryn.cloud.common.security.entity.ArynUser;
@@ -68,6 +69,9 @@ public class DeliveryAuthService {
 
 	private final TenantAccessGuard tenantAccessGuard;
 
+	/** 管理端（TOB）会话策略：配送身份同样属于 TOB，必须与账号登录一致缩短绝对有效期 */
+	private final LoginProtectionProperties loginProtectionProperties;
+
 	/**
 	 * 查询当前商城用户的配送工作台资格
 	 */
@@ -106,7 +110,8 @@ public class DeliveryAuthService {
 		tobUser.setPhone(sysUser.getPhone());
 		tobUser.setTenantId(sysUser.getTenantId());
 		tobUser.setPermissions(new ArrayList<>(sysUser.getPermissions()));
-		SecurityUtils.loginByDevice(tobUser, DeviceTypeEnum.TOB);
+		SecurityUtils.loginByDevice(tobUser, DeviceTypeEnum.TOB,
+				loginProtectionProperties.tobLoginParameter());
 		// 标记本会话来源于商城绑定，配送访问守卫据此要求绑定持续有效
 		StpUtil.getTokenSession().set(DeliveryAuthConstants.MALL_BINDING_SOURCE,
 				DeliveryAuthConstants.MALL_BINDING_SOURCE_VALUE);
