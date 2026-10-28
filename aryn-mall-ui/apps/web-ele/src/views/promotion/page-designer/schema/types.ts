@@ -26,6 +26,28 @@ export interface DecorationLink {
   type: DecorationLinkType;
 }
 
+export type NavigationScrollMode = 'fade' | 'none';
+export type NavigationScrollSurface = 'custom' | 'frosted' | 'theme';
+
+/**
+ * 导航栏滚动渐显（沉浸式导航）配置。
+ *
+ * 缺省 `mode='none'` 表示保持现状（存量页面零变化）；所有字段由
+ * `normalizeNavigationScrollEffect()` 归一化，渲染端不信任草稿存值。
+ * 与 C 端 `components/diy/schema/types.ts` 同构。
+ */
+export interface NavigationScrollEffect {
+  mode: NavigationScrollMode;
+  /** 目标底色：磨砂白 / 商城主题导航色 / 自定义色 */
+  surface: NavigationScrollSurface;
+  /** surface='custom' 时生效；非法值回落磨砂白 */
+  surfaceColor: string;
+  /** 渐显距离 px（40–400，缺省 140） */
+  distance: number;
+  /** 目标态是否毛玻璃（仅 surface='frosted' 生效） */
+  blur: boolean;
+}
+
 export interface NavigationSettings {
   backgroundColor: string;
   /**
@@ -41,6 +63,8 @@ export interface NavigationSettings {
   textColor: string;
   title: string;
   visible: boolean;
+  /** 滚动渐显（沉浸式导航）配置；缺省 undefined 视为关闭 */
+  scrollEffect?: NavigationScrollEffect;
 }
 
 export interface ShareSettings {

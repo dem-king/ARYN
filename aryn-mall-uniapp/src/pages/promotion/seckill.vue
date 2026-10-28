@@ -2,6 +2,7 @@
 import type { AppSeckillGoodsVO, AppSeckillVO } from '@/api/promotion'
 import { onLoad, onUnload } from '@dcloudio/uni-app'
 import { computed, nextTick, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { getSeckillSessions, getSessionGoods } from '@/api/promotion'
 import { normalizeStock, resolveSeckillProgress } from '@/utils/seckill-progress'
 import { navigateToUrl } from '@/utils/tab-bar'
@@ -14,13 +15,13 @@ definePage({
   },
 })
 
+const { t } = useI18n()
+
 /**
  * 导航条取主色、信息条以主色起手：
  * 两者同为 --wot-color-theme-primary，衔接处不会出现一条异色带。
  */
 const THEME_PRIMARY = 'var(--wot-color-theme-primary)'
-/** 信息条钩子句：与首页秒杀楼层默认副标同源 */
-const HEAD_SUBTITLE = '整点开抢 · 限量特价 · 手慢无'
 /** 空态「去首页逛逛」目标：与折扣会场同源 */
 const HOME_PATH = '/pages/home/index'
 /** 价差占原价比例超过此值时，图上角标不再喊具体省额，改「限量特价」 */
@@ -71,7 +72,7 @@ const currentSession = computed<AppSeckillVO | null>(() => {
 /** 「N 人在抢」文案：拿不到或为 0 时不展示（不伪造氛围） */
 const cartUserText = computed(() => {
   const count = cartUserCount.value ?? 0
-  return count > 0 ? `${count} 人在抢` : ''
+  return count > 0 ? t('promotion.seckill.live', { count }) : ''
 })
 
 /** 场次轴条目：已结束场次不进轴（进行中 → 未开始，顺序沿用后端下发） */
@@ -83,7 +84,9 @@ const tabSessions = computed(() => {
 
 /** 倒计时标签：进行中看结束、未开始看开始 */
 const countdownLabel = computed(() => {
-  return currentSession.value?.status === 1 ? '距本场结束' : '距本场开始'
+  return currentSession.value?.status === 1
+    ? t('promotion.seckill.countdownEnd')
+    : t('promotion.seckill.countdownStart')
 })
 
 /** 已结束场次不渲染倒计时（轴里选不到，仅作兜底） */
@@ -129,7 +132,7 @@ async function loadSessions() {
     }
   }
   catch {
-    uni.showToast({ title: '加载失败', icon: 'none' })
+    uni.showToast({ title: t('promotion.common.loadFailed'), icon: 'none' })
   }
   finally {
     loading.value = false
@@ -169,7 +172,7 @@ async function loadSessionGoods(sessionId: string, seq: number) {
   }
   catch {
     if (seq === goodsRequestSeq)
-      uni.showToast({ title: '加载商品失败', icon: 'none' })
+      uni.showToast({ title: t('promotion.seckill.goodsLoadFailed'), icon: 'none' })
   }
 }
 
@@ -290,8 +293,8 @@ function startHourLabel(session: AppSeckillVO) {
 function sessionAxisLabel(session: AppSeckillVO) {
   const hour = startHourLabel(session)
   if (session.status === 1)
-    return hour ? `${hour} 抢购中` : '抢购中'
-  return hour ? `${hour} 开抢` : '即将开抢'
+    return hour ? t('promotion.seckill.axisLive', { hour }) : t('promotion.seckill.axisLiveFallback')
+  return hour ? t('promotion.seckill.axisStart', { hour }) : t('promotion.seckill.axisStartFallback')
 }
 
 /**
@@ -305,8 +308,8 @@ function offBadgeText(goods: AppSeckillGoodsVO) {
     return ''
   const original = Number(goods.originalPrice)
   if (original > 0 && diff / original > DEEP_DISCOUNT_RATIO)
-    return '限量特价'
-  return `立省¥${diff.toFixed(2)}`
+    return t('promotion.seckill.limitedDeal')
+  return t('promotion.seckill.saveAmount', { amount: diff.toFixed(2) })
 }
 
 /** 划线原价：仅原价大于到手价时展示 */
@@ -334,7 +337,7 @@ function pendingStockText(goods: AppSeckillGoodsVO) {
   const stock = normalizeStock(goods.seckillStock)
   if (!Number.isFinite(stock) || stock <= 0)
     return ''
-  return `限量 ${stock} 件`
+  return t('promotion.common.limitedStock', { count: stock })
 }
 
 /** 是否已抢完（库存未知不判售罄，仍允许进详情） */
@@ -350,16 +353,18 @@ function isSoldOut(goods: AppSeckillGoodsVO) {
 function ctaText(goods: AppSeckillGoodsVO) {
   const session = currentSession.value
   if (!session)
-    return '不可购买'
+    return t('promotion.seckill.unavailable')
   if (session.status === 0) {
     const hour = startHourLabel(session)
-    return hour ? `${hour} 开抢` : '即将开始'
+    return hour
+      ? t('promotion.seckill.axisStart', { hour })
+      : t('promotion.seckill.comingSoon')
   }
   if (session.status === 2)
-    return '已结束'
+    return t('promotion.seckill.ended')
   if (isSoldOut(goods))
-    return '已抢光'
-  return '抢'
+    return t('promotion.seckill.soldOut')
+  return t('promotion.seckill.grab')
 }
 
 /** CTA 是否可点：仅进行中且未售罄 */
@@ -414,14 +419,14 @@ function goOtherSession() {
   <view class="seckill-page">
     <!-- 导航承载活动名：信息条不再重复写一遍标题 -->
     <hr-navbar
-      title="限时秒杀"
+      :title="t('promotion.seckill.title')"
       :bordered="false"
       :background-color="THEME_PRIMARY"
       text-color="#ffffff"
     >
       <template #right>
         <text class="nav-rule" @tap="goRulePage">
-          活动规则
+          {{ t('promotion.seckill.rulesLink') }}
         </text>
       </template>
     </hr-navbar>
@@ -471,7 +476,7 @@ function goOtherSession() {
           </view>
           <view class="hero-text">
             <text class="hero-sub">
-              {{ HEAD_SUBTITLE }}
+              {{ t('promotion.seckill.subtitle') }}
             </text>
             <text v-if="cartUserText" class="hero-live">
               {{ cartUserText }}
@@ -483,7 +488,7 @@ function goOtherSession() {
             {{ countdownLabel }}
           </text>
           <view class="cd-blocks">
-            <text v-if="countdown.days > 0" class="cd-block cd-block--days">{{ countdown.days }}天</text>
+            <text v-if="countdown.days > 0" class="cd-block cd-block--days">{{ t('promotion.common.days', { days: countdown.days }) }}</text>
             <text class="cd-block">{{ pad(countdown.hours) }}</text>
             <text class="cd-colon">:</text>
             <text class="cd-block">{{ pad(countdown.minutes) }}</text>
@@ -533,17 +538,17 @@ function goOtherSession() {
         <hall-state
           v-else-if="noSession"
           art="seckill"
-          title="暂无进行中的秒杀场次"
-          desc="整点开抢，先去逛逛看有没有想买的"
-          action-text="去首页逛逛"
+          :title="t('promotion.seckill.emptyTitle')"
+          :desc="t('promotion.seckill.emptyDesc')"
+          :action-text="t('promotion.common.goHome')"
           @action="goHome"
         />
         <hall-state
           v-else-if="goodsList.length === 0"
           art="seckill"
-          title="本场暂无秒杀商品"
-          :desc="otherSessionIndex >= 0 ? '其它场次可能还有货' : '换个时间再来看看'"
-          :link-text="otherSessionIndex >= 0 ? '切换其它场次' : ''"
+          :title="t('promotion.seckill.emptyGoodsTitle')"
+          :desc="otherSessionIndex >= 0 ? t('promotion.seckill.otherSessionDesc') : t('promotion.seckill.retryLaterDesc')"
+          :link-text="otherSessionIndex >= 0 ? t('promotion.seckill.switchSession') : ''"
           @link="goOtherSession"
         />
 
@@ -566,19 +571,19 @@ function goOtherSession() {
                 lazy-load
               />
               <view v-else class="goods-img goods-img--empty">
-                <text>秒杀</text>
+                <text>{{ t('promotion.seckill.badge') }}</text>
               </view>
               <text v-if="offBadgeText(goods)" class="goods-off">
                 {{ offBadgeText(goods) }}
               </text>
               <view v-if="isSoldOut(goods)" class="goods-cover">
-                <text class="goods-cover-text">已抢光</text>
+                <text class="goods-cover-text">{{ t('promotion.seckill.soldOut') }}</text>
               </view>
             </view>
 
             <view class="goods-info">
               <view class="goods-name">
-                {{ goods.goodsName || '秒杀商品' }}
+                {{ goods.goodsName || t('promotion.seckill.goodsFallback') }}
               </view>
 
               <!-- 价格与 CTA 同一行：CTA 不再独占一条竖直通道 -->
@@ -618,10 +623,10 @@ function goOtherSession() {
 
           <view class="load-more">
             <text v-if="noMore">
-              —— 没有更多了 ——
+              {{ t('promotion.common.noMore') }}
             </text>
             <text v-else>
-              加载中...
+              {{ t('common.loading') }}
             </text>
           </view>
         </template>

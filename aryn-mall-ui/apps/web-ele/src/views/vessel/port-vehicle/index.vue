@@ -44,6 +44,7 @@ import {
 } from '#/api/vessel/portVehicle';
 import PageFilterPanel from '#/components/page/page-filter-panel.vue';
 import PageToolbar from '#/components/page/page-toolbar.vue';
+import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 
 const Pagination = defineAsyncComponent(
   () => import('#/components/pagination/index.vue'),
@@ -342,6 +343,8 @@ onMounted(() => {
   initPage();
   loadPortOptions();
 });
+
+useKeepAliveRefresh(handleSearch);
 </script>
 
 <template>

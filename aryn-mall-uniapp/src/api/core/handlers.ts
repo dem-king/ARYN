@@ -7,6 +7,7 @@
  * @FilePath: /aryn-uniapp-pro/src/api/core/handlers.ts
  */
 import type { Method } from 'alova'
+import { translate } from '@/locales'
 
 // 添加一个状态变量来防止重复跳转
 let isRedirectingToLogin = false
@@ -68,7 +69,7 @@ function handleAuthenticationExpired(globalToast: ReturnType<typeof useGlobalToa
       return
     expireDeliveryAuthentication()
     isRedirectingToDeliveryLogin = true
-    globalToast.error({ msg: '配送登录已过期，请重新登录！', duration: 500 })
+    globalToast.error({ msg: translate('common.deliveryLoginExpired'), duration: 500 })
     redirectToLogin(true)
     return
   }
@@ -76,7 +77,7 @@ function handleAuthenticationExpired(globalToast: ReturnType<typeof useGlobalToa
     return
   expireAuthentication()
   isRedirectingToLogin = true
-  globalToast.error({ msg: '登录已过期，请重新登录！', duration: 500 })
+  globalToast.error({ msg: translate('common.loginExpired'), duration: 500 })
   redirectToLogin()
 }
 
@@ -154,7 +155,7 @@ export async function handleAlovaResponse(
   // 免登请求不带任何凭证，401/403 都只说明服务端未放行该接口，与登录态无关。
   // 据此清 token 会把已登录用户踢回登录页（金刚区品牌接口曾因白名单漏配踩过）。
   if (isPublicRequest(method) && (isUnauthorizedResponse(statusCode, resp) || isForbiddenResponse(statusCode, resp))) {
-    const publicMsg = msg || '该功能暂不可用，请稍后重试'
+    const publicMsg = msg || translate('app.request.featureUnavailable')
     globalToast.error(publicMsg)
     throw new ApiError(publicMsg, statusCode, data)
   }
@@ -162,7 +163,7 @@ export async function handleAlovaResponse(
   // 权限不足：token 有效，只是缺少该接口所需权限。不清登录态、不跳登录页，
   // 否则用户会陷入「重新登录 → 仍被踢出」的死循环。
   if (isForbiddenResponse(statusCode, resp)) {
-    const forbiddenMsg = msg || '暂无权限访问该功能'
+    const forbiddenMsg = msg || translate('app.request.forbidden')
     globalToast.error(forbiddenMsg)
     throw new ApiError(forbiddenMsg, 403, data)
   }
@@ -172,17 +173,17 @@ export async function handleAlovaResponse(
     const deliveryRequest = isDeliveryRequest(method)
     handleAuthenticationExpired(globalToast, deliveryRequest)
 
-    throw new ApiError(deliveryRequest ? '配送登录已过期，请重新登录！' : '登录已过期，请重新登录！', statusCode, data)
+    throw new ApiError(translate(deliveryRequest ? 'common.deliveryLoginExpired' : 'common.loginExpired'), statusCode, data)
   }
 
   // Handle HTTP error status codes
   if (statusCode >= 400) {
-    globalToast.error(msg || '请求失败')
+    globalToast.error(msg || translate('common.requestFailed'))
     throw new ApiError(msg || `Request failed with status: ${statusCode}`, statusCode, data)
   }
   // 处理业务层错误（例如 code != 0）
   if (typeof resp.code === 'number' && resp.code !== 0) {
-    globalToast.error(msg || '请求失败')
+    globalToast.error(msg || translate('common.requestFailed'))
     throw new ApiError(msg || `Request failed with code: ${resp.code}`, resp.code, data)
   }
   // The data is already parsed by UniApp adapter
@@ -215,22 +216,26 @@ export function handleAlovaError(error: any, method: Method) {
     }
     const deliveryRequest = isDeliveryRequest(method)
     handleAuthenticationExpired(globalToast, deliveryRequest)
-    throw new ApiError(deliveryRequest ? '配送登录已过期，请重新登录！' : '登录已过期，请重新登录！', error.code, error.data)
+    throw new ApiError(
+      translate(deliveryRequest ? 'common.deliveryLoginExpired' : 'common.loginExpired'),
+      error.code,
+      error.data,
+    )
   }
 
   // Handle different types of errors
   const errMsg = typeof error === 'string' ? error : (error?.message || error?.errMsg || '')
   if (error?.name === 'NetworkError' || errMsg.includes('request:fail')) {
-    globalToast.error('网络请求失败，请检查网络或接口域名配置')
+    globalToast.error(translate('common.networkError'))
   }
   else if (error?.name === 'TimeoutError' || errMsg.toLowerCase().includes('timeout')) {
-    globalToast.error('请求超时，请重试')
+    globalToast.error(translate('common.timeout'))
   }
   else if (error instanceof ApiError) {
-    globalToast.error(error.message || '请求失败')
+    globalToast.error(error.message || translate('common.requestFailed'))
   }
   else {
-    globalToast.error(errMsg || '请求失败')
+    globalToast.error(errMsg || translate('common.requestFailed'))
   }
 
   throw error

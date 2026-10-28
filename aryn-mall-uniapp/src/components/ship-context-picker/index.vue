@@ -17,6 +17,7 @@
  * 底部操作区（取消/提交）固定在弹层底部而非随内容滚动。
  */
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import { declareVesselCall, getMyVessels, getVesselCalls } from '@/api/vessel'
 import { useShipContextStore } from '@/store/shipContextStore'
@@ -29,6 +30,7 @@ const emit = defineEmits<{
 }>()
 
 const shipContextStore = useShipContextStore()
+const { t } = useI18n()
 
 const loadingVessels = ref(false)
 const loadingCalls = ref(false)
@@ -280,23 +282,23 @@ function submitDeclare() {
   // 而「无靠港 → 申报」恰恰是弹层已自动选中船、store 仍为空的场景，读它必误报
   const vesselId = pickedVesselId.value
   if (!vesselId) {
-    uni.showToast({ title: '请先选择船舶', icon: 'none' })
+    uni.showToast({ title: t('cart.declareSelectVessel'), icon: 'none' })
     return
   }
   if (!form.portName.trim()) {
-    uni.showToast({ title: '请填写港口名称', icon: 'none' })
+    uni.showToast({ title: t('cart.declarePortRequired'), icon: 'none' })
     return
   }
   if (typeof form.eta !== 'number') {
-    uni.showToast({ title: '请选择预计到港时间', icon: 'none' })
+    uni.showToast({ title: t('cart.declareEtaRequired'), icon: 'none' })
     return
   }
   if (typeof form.etd !== 'number') {
-    uni.showToast({ title: '请选择预计离港时间', icon: 'none' })
+    uni.showToast({ title: t('cart.declareEtdRequired'), icon: 'none' })
     return
   }
   if (form.eta >= form.etd) {
-    uni.showToast({ title: '到港时间必须早于离港时间', icon: 'none' })
+    uni.showToast({ title: t('cart.declareTimeOrder'), icon: 'none' })
     return
   }
   if (form.submitting)
@@ -311,7 +313,7 @@ function submitDeclare() {
     etd: formatDeclareTime(form.etd),
   })
     .then((created: any) => {
-      uni.showToast({ title: '已提交，运营将据此安排配送', icon: 'none' })
+      uni.showToast({ title: t('cart.declareSubmitted'), icon: 'none' })
       if (created?.id) {
         chooseCall(created)
         return undefined
@@ -361,7 +363,7 @@ function submitDeclare() {
           <wd-icon name="arrow-left" size="18px" color="#4E5969" />
         </view>
         <view class="flex-1 text-32rpx font-bold">
-          {{ mode === 'declare' ? '申报本次靠港' : '选择船舶与靠港计划' }}
+          {{ mode === 'declare' ? t('cart.shipPickerDeclareTitle') : t('cart.shipPickerListTitle') }}
         </view>
         <view
           class="h-56rpx w-56rpx flex items-center justify-center"
@@ -375,15 +377,15 @@ function submitDeclare() {
         v-if="loadingVessels"
         class="py-60rpx text-center text-26rpx text-gray-400"
       >
-        加载中...
+        {{ t('common.loading') }}
       </view>
 
       <view v-else-if="loadFailed" class="py-60rpx text-center">
         <view class="text-26rpx text-gray-400">
-          加载失败，请检查网络后重试
+          {{ t('cart.shipPickerLoadFailed') }}
         </view>
         <view class="mt-16rpx text-26rpx text-blue-500" @tap="loadVessels">
-          重新加载
+          {{ t('cart.shipPickerReload') }}
         </view>
       </view>
 
@@ -392,14 +394,14 @@ function submitDeclare() {
         class="px-40rpx py-60rpx text-center"
       >
         <view class="text-26rpx text-gray-400">
-          当前账号暂未关联船舶，关联后即可选择靠港计划
+          {{ t('cart.shipPickerNoVessel') }}
         </view>
         <button
           class="mt-32rpx h-76rpx text-26rpx leading-76rpx"
           type="primary"
           @tap="goBind"
         >
-          去绑定船舶
+          {{ t('cart.shipPickerGoBind') }}
         </button>
       </view>
 
@@ -410,7 +412,7 @@ function submitDeclare() {
         style="flex: 1; max-height: 56vh"
       >
         <view class="px-30rpx pb-12rpx text-24rpx text-gray-500">
-          我的船舶
+          {{ t('cart.myVessels') }}
         </view>
         <!-- 单船也渲染成选中态胶囊：让「申报归属哪条船」始终有视觉落点 -->
         <view class="flex flex-wrap px-30rpx pb-16rpx">
@@ -431,10 +433,10 @@ function submitDeclare() {
 
         <view class="flex items-center justify-between px-30rpx pb-12rpx">
           <view class="text-24rpx text-gray-500">
-            可用靠港计划
+            {{ t('cart.availableCalls') }}
           </view>
           <view v-if="calls.length > 0" class="text-22rpx text-gray-400">
-            {{ calls.length }} 个
+            {{ t('cart.callsCount', { count: calls.length }) }}
           </view>
         </view>
 
@@ -442,7 +444,7 @@ function submitDeclare() {
           v-if="loadingCalls"
           class="py-40rpx text-center text-26rpx text-gray-400"
         >
-          加载中...
+          {{ t('common.loading') }}
         </view>
 
         <template v-else>
@@ -472,38 +474,37 @@ function submitDeclare() {
                 class="flex items-center"
               >
                 <text class="mr-4rpx text-22rpx text-blue-500">
-                  当前
+                  {{ t('cart.current') }}
                 </text>
                 <wd-icon name="check" size="14px" color="#378ADD" />
               </view>
             </view>
             <view class="mt-10rpx text-22rpx text-gray-500">
-              到港 {{ shortTime(call.eta) }} · 离港 {{ shortTime(call.etd) }}
+              {{ t('cart.etaEtdSummary', { eta: shortTime(call.eta), etd: shortTime(call.etd) }) }}
             </view>
             <view
               v-if="call.deliveryWindowStart"
               class="mt-6rpx text-22rpx"
               style="color: #2e9e5b"
             >
-              配送时间窗 {{ shortTime(call.deliveryWindowStart) }} ~
-              {{ shortTime(call.deliveryWindowEnd) }}
+              {{ t('cart.deliveryWindow', { start: shortTime(call.deliveryWindowStart), end: shortTime(call.deliveryWindowEnd) }) }}
             </view>
           </view>
 
           <!-- 无可用计划时的出路：由海员自行申报本次靠港 -->
           <view v-if="calls.length === 0" class="px-40rpx py-50rpx text-center">
             <view class="text-26rpx text-gray-400">
-              该船舶暂无靠港计划
+              {{ t('cart.noCalls') }}
             </view>
             <view class="mt-8rpx text-22rpx text-gray-400">
-              公司拿不到船期，由你申报本次到离港时间，运营据此安排备货与配送
+              {{ t('cart.declareIntro') }}
             </view>
             <button
               class="mt-32rpx h-76rpx text-26rpx leading-76rpx"
               type="primary"
               @tap="openDeclare"
             >
-              申报本次靠港
+              {{ t('cart.declareNow') }}
             </button>
           </view>
           <view
@@ -511,7 +512,7 @@ function submitDeclare() {
             class="pb-16rpx pt-8rpx text-center text-24rpx text-blue-500"
             @tap="openDeclare"
           >
-            没有本次靠港？手动申报
+            {{ t('cart.noCurrentCallDeclare') }}
           </view>
         </template>
         <view style="height: calc(20rpx + env(safe-area-inset-bottom))" />
@@ -523,7 +524,7 @@ function submitDeclare() {
           class="mx-30rpx mb-20rpx rounded-12rpx px-24rpx py-16rpx text-22rpx"
           style="background: #f0f7ff; color: #4e5969"
         >
-          公司无法获取船期，请填写你船本次的到离港信息；运营将据此安排备货与配送。
+          {{ t('cart.declareNotice') }}
         </view>
 
         <view
@@ -535,12 +536,12 @@ function submitDeclare() {
             style="min-height: 96rpx; border-bottom: 1rpx solid #edeef0"
           >
             <view class="w-170rpx text-26rpx">
-              港口
+              {{ t('cart.portLabel') }}
             </view>
             <input
               v-model="declareState.portName"
               class="h-96rpx flex-1 bg-transparent text-right text-26rpx"
-              placeholder="如：上海港"
+              :placeholder="t('cart.portPlaceholder')"
               placeholder-style="color: #A8ABB2"
               :maxlength="30"
             >
@@ -550,12 +551,12 @@ function submitDeclare() {
             style="min-height: 96rpx; border-bottom: 1rpx solid #edeef0"
           >
             <view class="w-170rpx text-26rpx">
-              泊位
+              {{ t('cart.berthLabel') }}
             </view>
             <input
               v-model="declareState.berth"
               class="h-96rpx flex-1 bg-transparent text-right text-26rpx"
-              placeholder="选填"
+              :placeholder="t('cart.optionalPlaceholder')"
               placeholder-style="color: #A8ABB2"
               :maxlength="30"
             >
@@ -573,7 +574,7 @@ function submitDeclare() {
           <wd-calendar
             v-model="declareState.eta"
             type="datetime"
-            title="选择预计到港时间"
+            :title="t('cart.selectEtaTitle')"
             :min-date="declareDateMin"
             :max-date="declareDateMax"
             :default-time="declareDefaultTime"
@@ -586,14 +587,14 @@ function submitDeclare() {
               style="min-height: 96rpx; border-bottom: 1rpx solid #edeef0"
             >
               <text class="w-170rpx text-26rpx">
-                预计到港时间
+                {{ t('cart.etaLabel') }}
               </text>
               <view class="flex flex-1 items-center justify-end">
                 <text v-if="declareEtaText" class="text-26rpx">
                   {{ declareEtaText }}
                 </text>
                 <text v-else class="text-26rpx" style="color: #a8abb2">
-                  请选择
+                  {{ t('cart.pleaseSelect') }}
                 </text>
                 <view class="ml-8rpx flex items-center">
                   <wd-icon name="calendar" size="16px" color="#86909C" />
@@ -605,7 +606,7 @@ function submitDeclare() {
           <wd-calendar
             v-model="declareState.etd"
             type="datetime"
-            title="选择预计离港时间"
+            :title="t('cart.selectEtdTitle')"
             :min-date="etdMinDate"
             :max-date="declareDateMax"
             :default-time="declareDefaultTime"
@@ -615,14 +616,14 @@ function submitDeclare() {
           >
             <view class="w-full flex items-center" style="min-height: 96rpx">
               <text class="w-170rpx text-26rpx">
-                预计离港时间
+                {{ t('cart.etdLabel') }}
               </text>
               <view class="flex flex-1 items-center justify-end">
                 <text v-if="declareEtdText" class="text-26rpx">
                   {{ declareEtdText }}
                 </text>
                 <text v-else class="text-26rpx" style="color: #a8abb2">
-                  请选择
+                  {{ t('cart.pleaseSelect') }}
                 </text>
                 <view class="ml-8rpx flex items-center">
                   <wd-icon name="calendar" size="16px" color="#86909C" />
@@ -646,7 +647,7 @@ function submitDeclare() {
           :disabled="declareState.submitting"
           @tap="backToList"
         >
-          取消
+          {{ t('common.cancel') }}
         </button>
         <button
           class="h-80rpx flex-1 rounded-16rpx text-28rpx leading-80rpx !m-0"
@@ -655,7 +656,7 @@ function submitDeclare() {
           :loading="declareState.submitting"
           @tap="submitDeclare"
         >
-          提交申报
+          {{ t('cart.submitDeclare') }}
         </button>
       </view>
     </view>

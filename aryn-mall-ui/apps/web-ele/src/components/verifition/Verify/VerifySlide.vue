@@ -77,17 +77,10 @@ export default {
     const backImgBase = ref(''); // 验证码背景图片
     const backToken = ref(''); // 后端返回的唯一token值
     const blockBackImgBase = ref(''); // 验证滑块的背景图片
-    const endMovetime = ref(''); // 移动结束的时间
     const finishText = ref('');
-    const iconClass = ref('icon-right');
-    const iconColor = ref(undefined);
     const isEnd = ref(false); // 是够验证完成
     const left = ref(0);
-    const leftBarBorderColor = ref('#ddd');
     const leftBarWidth = ref(undefined);
-    // 移动中样式
-    const moveBlockBackgroundColor = ref(undefined);
-    const moveBlockLeft = ref(undefined);
     const passFlag = ref(''); // 是否通过的标识
     const secretKey = ref(''); // 后端返回的ase加密秘钥
     const setSize = reactive({
@@ -98,14 +91,13 @@ export default {
     });
     const showRefresh = ref(true);
     const startLeft = ref(0);
-    const startMoveTime = ref(''); // 移动开始的时间
+    const state = ref('idle'); // idle | moving | success | error
     const status = ref(false); // 鼠标状态
     const text = ref('');
-    const tipsBackColor = ref(''); // 提示词的背景颜色
     const tipWords = ref('');
     const top = ref(0);
+    const moveBlockLeft = ref(undefined);
     const transitionLeft = ref('');
-    const transitionWidth = ref('');
 
     const handleMove = (event) => move(event);
     const handleEnd = () => end();
@@ -162,12 +154,9 @@ export default {
       startLeft.value = Math.floor(
         x - barArea.value.getBoundingClientRect().left,
       );
-      startMoveTime.value = Date.now(); // 开始滑动的时间
       if (!isEnd.value) {
         text.value = '';
-        moveBlockBackgroundColor.value = '#337ab7';
-        leftBarBorderColor.value = '#337AB7';
-        iconColor.value = '#fff';
+        state.value = 'moving';
         e.stopPropagation();
         status.value = true;
       }
@@ -203,7 +192,6 @@ export default {
 
     // 鼠标松开
     function end() {
-      endMovetime.value = Date.now();
       // 判断是否重合
       if (status.value && !isEnd.value) {
         let moveLeftDistance = Number.parseInt(
@@ -224,10 +212,7 @@ export default {
         reqCheck(data).then((response) => {
           const res = response;
           if (res.repCode === '0000') {
-            moveBlockBackgroundColor.value = '#5cb85c';
-            leftBarBorderColor.value = '#5cb85c';
-            iconColor.value = '#fff';
-            iconClass.value = 'icon-check';
+            state.value = 'success';
             showRefresh.value = false;
             isEnd.value = true;
             if (mode.value === 'pop') {
@@ -237,7 +222,7 @@ export default {
               }, 1500);
             }
             passFlag.value = true;
-            tipWords.value = `${((endMovetime.value - startMoveTime.value) / 1000).toFixed(2)}s验证成功`;
+            tipWords.value = '验证通过';
             const captchaVerification = secretKey.value
               ? aesEncrypt(
                   `${backToken.value}---${JSON.stringify({
@@ -256,10 +241,7 @@ export default {
               proxy.$parent.$emit('success', { captchaVerification });
             }, 1000);
           } else {
-            moveBlockBackgroundColor.value = '#d9534f';
-            leftBarBorderColor.value = '#d9534f';
-            iconColor.value = '#fff';
-            iconClass.value = 'icon-close';
+            state.value = 'error';
             passFlag.value = false;
             setTimeout(() => {
               refresh();
@@ -283,17 +265,11 @@ export default {
       moveBlockLeft.value = 0;
 
       leftBarWidth.value = undefined;
-      transitionWidth.value = 'width .3s';
-
-      leftBarBorderColor.value = '#ddd';
-      moveBlockBackgroundColor.value = '#fff';
-      iconColor.value = '#000';
-      iconClass.value = 'icon-right';
+      state.value = 'idle';
       isEnd.value = false;
 
       getPictrue();
       setTimeout(() => {
-        transitionWidth.value = '';
         transitionLeft.value = '';
         text.value = explain.value;
       }, 300);
@@ -323,9 +299,6 @@ export default {
       backImgBase, // 验证码背景图片
       blockBackImgBase, // 验证滑块的背景图片
       backToken, // 后端返回的唯一token值
-      startMoveTime, // 移动开始的时间
-      endMovetime, // 移动结束的时间
-      tipsBackColor, // 提示词的背景颜色
       tipWords,
       text,
       finishText,
@@ -334,16 +307,11 @@ export default {
       left,
       moveBlockLeft,
       leftBarWidth,
-      // 移动中样式
-      moveBlockBackgroundColor,
-      leftBarBorderColor,
-      iconColor,
-      iconClass,
+      state,
       status, // 鼠标状态
       isEnd, // 是够验证完成
       showRefresh,
       transitionLeft,
-      transitionWidth,
       barArea,
       refresh,
       start,
@@ -364,12 +332,22 @@ export default {
       >
         <img
           :src="`data:image/png;base64,${backImgBase}`"
-          alt=""
+          alt="验证码背景"
+          draggable="false"
           style="display: block; width: 100%; height: 100%"
         />
-        <div class="verify-refresh" @click="refresh" v-show="showRefresh">
-          <i class="iconfont icon-refresh"></i>
-        </div>
+        <button
+          v-show="showRefresh"
+          type="button"
+          class="verify-refresh"
+          aria-label="换一张"
+          @click="refresh"
+        >
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+            <path d="M21 3v6h-6" />
+          </svg>
+        </button>
         <transition name="tips">
           <span
             class="verify-tips"
@@ -392,31 +370,49 @@ export default {
       <span class="verify-msg" v-text="text"></span>
       <div
         class="verify-left-bar"
+        :class="`is-${state}`"
         :style="{
           width: leftBarWidth !== undefined ? leftBarWidth : barSize.height,
           height: barSize.height,
-          'border-color': leftBarBorderColor,
-          transaction: transitionWidth,
         }"
       >
         <span class="verify-msg" v-text="finishText"></span>
         <div
           class="verify-move-block"
+          :class="`is-${state}`"
           @touchstart="start"
           @mousedown="start"
           :style="{
             width: barSize.height,
             height: barSize.height,
-            'background-color': moveBlockBackgroundColor,
             left: moveBlockLeft,
             transition: transitionLeft,
           }"
         >
-          <i
-            class="verify-icon iconfont"
-            :class="[iconClass]"
-            :style="{ color: iconColor }"
-          ></i>
+          <svg
+            v-if="state === 'success'"
+            class="verify-icon"
+            aria-hidden="true"
+            viewBox="0 0 24 24"
+          >
+            <path d="m5 12 4 4 10-10" />
+          </svg>
+          <svg
+            v-else-if="state === 'error'"
+            class="verify-icon"
+            aria-hidden="true"
+            viewBox="0 0 24 24"
+          >
+            <path d="M6 6l12 12M18 6 6 18" />
+          </svg>
+          <svg
+            v-else
+            class="verify-icon"
+            aria-hidden="true"
+            viewBox="0 0 24 24"
+          >
+            <path d="m9 6 6 6-6 6" />
+          </svg>
           <div
             v-if="type === '2'"
             class="verify-sub-block"
@@ -430,6 +426,7 @@ export default {
             <img
               :src="`data:image/png;base64,${blockBackImgBase}`"
               alt=""
+              draggable="false"
               style="
                 display: block;
                 width: 100%;

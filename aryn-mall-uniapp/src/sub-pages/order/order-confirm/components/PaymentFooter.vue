@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
 interface Props {
   paymentPrice: number
   /** 支付方式：''=在线支付；'3'=货到付款（仅商城配送/内部配送可选） */
@@ -6,6 +8,8 @@ interface Props {
 }
 
 defineProps<Props>()
+
+const { t } = useI18n()
 
 const emit = defineEmits<{
   toPay: []
@@ -25,7 +29,7 @@ function toPay() {
       <view class="right">
         <!-- 货到付款下单后直接进订单详情，不拉起收银台，按钮语义是提交订单而非支付 -->
         <wd-button type="error" size="medium" @click="toPay">
-          {{ paymentWay === '3' ? '提交订单' : '立即支付' }}
+          {{ paymentWay === '3' ? t('checkout.payment.placeOrder') : t('checkout.payment.payNow') }}
         </wd-button>
       </view>
     </view>

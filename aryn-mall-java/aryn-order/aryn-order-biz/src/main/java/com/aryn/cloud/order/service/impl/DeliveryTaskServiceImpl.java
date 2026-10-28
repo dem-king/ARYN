@@ -810,7 +810,7 @@ public class DeliveryTaskServiceImpl extends ServiceImpl<DeliveryTaskMapper, Del
 
 	@Override
 	@Transactional(rollbackFor = Exception.class)
-	public boolean reassign(String taskId, String staffId) {
+	public boolean reassign(String taskId, String staffId, String reason) {
 		DeliveryTask task = getById(taskId);
 		if (task == null) {
 			throw new ArynBusinessException("配送任务不存在");
@@ -862,8 +862,13 @@ public class DeliveryTaskServiceImpl extends ServiceImpl<DeliveryTaskMapper, Del
 			deliveryTripService.completeIfAllTasksSettled(previousTripId);
 		}
 		refreshTripTaskCount(trip.getId());
+		String reasonDesc = "改派给[" + staff.getStaffName() + "]";
+		if (StrUtil.isNotBlank(reason)) {
+			// reason_desc 列 varchar(500)，原因超长时截断防落库报错
+			reasonDesc += "，原因：" + StrUtil.maxLength(reason.replaceAll("\\s+", " ").trim(), 200);
+		}
 		saveLog(taskId, "REASSIGN", task.getStatus(), plan.status(),
-				newAttemptNo, "1", staffId, "改派给[" + staff.getStaffName() + "]");
+				newAttemptNo, "1", staffId, reasonDesc);
 		// 改派进「已出发」的趟次：这单落配货中，司机配齐后再出发才转待收货
 		return Boolean.TRUE;
 	}
@@ -1353,6 +1358,7 @@ public class DeliveryTaskServiceImpl extends ServiceImpl<DeliveryTaskMapper, Del
 			.eq(DeliveryEvidence::getTaskId, taskId)
 			.orderByAsc(DeliveryEvidence::getSortNo));
 		backfillEvidenceUrls(taskId, list);
+		signEvidenceUrls(list);
 		return list;
 	}
 
@@ -1410,6 +1416,39 @@ public class DeliveryTaskServiceImpl extends ServiceImpl<DeliveryTaskMapper, Del
 				evidence.setMaterialUrl(urlMap.get(evidence.getMaterialId()));
 			}
 		});
+	}
+
+	/**
+	 * 私有凭证 URL 只在下发时签名，不回写快照：签名会过期，持久化后历史页面会失效。
+	 */
+	private void signEvidenceUrls(List<DeliveryEvidence> list) {
+		List<String> urls = list.stream()
+			.map(DeliveryEvidence::getMaterialUrl)
+			.filter(StrUtil::isNotBlank)
+			.distinct()
+			.toList();
+		if (urls.isEmpty()) {
+			return;
+		}
+		try {
+			List<String> signed = remoteMaterialService.signPrivateUrls(urls);
+			if (signed == null || signed.size() != urls.size()) {
+				return;
+			}
+			Map<String, String> signedByUrl = new LinkedHashMap<>();
+			for (int i = 0; i < urls.size(); i++) {
+				signedByUrl.put(urls.get(i), signed.get(i));
+			}
+			list.forEach(evidence -> {
+				String url = evidence.getMaterialUrl();
+				if (StrUtil.isNotBlank(url)) {
+					evidence.setMaterialUrl(signedByUrl.getOrDefault(url, url));
+				}
+			});
+		}
+		catch (Exception e) {
+			log.warn("任务凭证URL签名失败，私有凭证将拒绝匿名访问", e);
+		}
 	}
 
 	@Override

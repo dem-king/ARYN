@@ -3,6 +3,7 @@ import type { DiyCommonStyle } from '@vben/types';
 
 import { computed } from 'vue';
 
+import { pickReadableIconColor } from '../../../page-designer/schema/navigation-style';
 import { commonStyleRadiusOverflow } from '../common/common-style-clip';
 
 interface ShowData {
@@ -14,7 +15,7 @@ interface ShowData {
   showScan: boolean;
 }
 
-const props = defineProps<{ showData: ShowData }>();
+const props = defineProps<{ hostBackground?: string; showData: ShowData }>();
 
 const defaultCommonStyle: DiyCommonStyle = {
   styleTopMargin: 0,
@@ -86,6 +87,24 @@ const hotWords = computed<string[]>(() => {
 const displayText = computed(
   () => hotWords.value[0] || props.showData.placeholder || '搜索商品',
 );
+
+/**
+ * 铃铛/扫码图标脚下的环境底色：组件自身背景优先（渐变取起色，与 C 端
+ * diy-search-bar 同口径），背景图取不了色回落宿主区块底色，再回落白底。
+ */
+const ambientBackground = computed(() => {
+  const common = props.showData.commonStyle;
+  if (common?.bgPicUrl) return props.hostBackground || '#ffffff';
+  const own = [common?.bgStartColor, common?.bgEndColor].find(
+    (color) => typeof color === 'string' && color && color !== 'transparent',
+  );
+  return own || props.hostBackground || '#ffffff';
+});
+
+/** 深底白图标、浅底深图标（与 C 端实机同源函数）：画布与实机预览一致 */
+const iconColor = computed(() =>
+  pickReadableIconColor(ambientBackground.value, '#333333'),
+);
 </script>
 
 <template>
@@ -121,7 +140,7 @@ const displayText = computed(
           width="22"
           height="22"
           fill="none"
-          stroke="#333"
+          :stroke="iconColor"
           stroke-width="1.8"
         >
           <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
@@ -134,7 +153,7 @@ const displayText = computed(
           width="22"
           height="22"
           fill="none"
-          stroke="#333"
+          :stroke="iconColor"
           stroke-width="1.8"
         >
           <path

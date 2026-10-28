@@ -50,6 +50,7 @@ import {
   unbindVesselMemberByApply,
 } from '#/api/vessel/vessel';
 import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 
 import {
   isSameVesselIdentity,
@@ -445,6 +446,8 @@ const unbindSubmit = (row: any) => {
 };
 
 onMounted(initPage);
+
+useKeepAliveRefresh(initPage);
 </script>
 <template>
   <div class="hx-layout-container">

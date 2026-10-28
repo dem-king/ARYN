@@ -42,19 +42,22 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 
 /**
  * 管理端订单导出（按分类分组，供供应商报货/备货）。
  *
- * <p>三个工作表：
- * <ul>
- *   <li><b>订单明细</b>：一行一个商品，订单维度列逐行重复（便于筛选/透视）；
- *       订单内商品按分类分组排列，每个分类块尾部跟一行「小计」，订单末尾跟一行「订单合计」。</li>
- *   <li><b>分类汇总</b>：跨订单按分类聚合的件数/金额，末尾附合计行。</li>
- *   <li><b>订单分类小计</b>：每单 × 每分类一行的小计长表，供按订单对账、核对单笔订单的分类构成。</li>
- * </ul>
+	 * <p>三个工作表：
+	 * <ul>
+	 *   <li><b>订单明细</b>：一行一个商品，订单内商品按分类分组排列，每个分类块尾部跟一行「小计」，
+	 *       订单末尾跟一行「订单合计」；订单号~收货地址的订单级列整单合并、分类名按分类块合并显示。
+	 *       合并只作用于显示层，非首行单元格仍保留原值，筛选/透视照常按逐行取值（代价是合并列无法再整表排序）。</li>
+	 *   <li><b>分类汇总</b>：跨订单按分类聚合的件数/金额，末尾附合计行。</li>
+	 *   <li><b>订单分类小计</b>：每单 × 每分类一行的小计长表，订单号/下单时间/收货人按单合并显示，
+	 *       供按订单对账、核对单笔订单的分类构成。</li>
+	 * </ul>
  *
  * <p>不同分类通常对应不同供应商，因此每个分类在整份工作簿中使用同一底色
  * （明细整行着色、汇总表只给分类单元格着色），分类小计加粗灰底、
@@ -485,12 +488,13 @@ public final class OrderCategoryExportExcel {
 	private record SheetData(List<List<Object>> rows, List<RowMeta> metas) {
 	}
 
-	/**
-	 * 工作表样式：表头、分类色带、小计/合计强调、数字格式、列宽、冻结、筛选与打印设置。
-	 *
-	 * <p>行型信息由 {@link RowMeta} 按数据行下标提供，EasyExcel 回调里的
-	 * {@code rowIndex} 含表头行，故数据行下标为 {@code rowIndex - 1}。
-	 */
+		/**
+		 * 工作表样式：表头、分类色带、小计/合计强调、数字格式、列宽、冻结、筛选、
+		 * 订单号/分类列纵向合并与打印设置。
+		 *
+		 * <p>行型信息由 {@link RowMeta} 按数据行下标提供，EasyExcel 回调里的
+		 * {@code rowIndex} 含表头行，故数据行下标为 {@code rowIndex - 1}。
+		 */
 	private static final class SheetStyler implements CellWriteHandler, SheetWriteHandler, RowWriteHandler {
 
 		private final ColumnProfile profile;
@@ -523,6 +527,12 @@ public final class OrderCategoryExportExcel {
 			sheet.createFreezePane(1, 1);
 			if (profile.autoFilter) {
 				sheet.setAutoFilter(new CellRangeAddress(0, metas.size(), 0, widths.length - 1));
+			}
+			// 订单级列/分类列纵向合并（仅显示层，非首行保留原值，筛选/透视仍按逐行取值）。
+			// 区域按连续行块生成、互不重叠，走 Unsafe 跳过 POI 逐区域重叠校验，
+			// 否则 5000 单上限下数万个区域的 O(n²) 校验会把导出拖到分钟级
+			for (CellRangeAddress region : mergeRegions()) {
+				sheet.addMergedRegionUnsafe(region);
 			}
 			sheet.setRepeatingRows(CellRangeAddress.valueOf("1:1"));
 			PrintSetup print = sheet.getPrintSetup();
@@ -576,6 +586,62 @@ public final class OrderCategoryExportExcel {
 			}
 			int column = context.getColumnIndex() == null ? 0 : context.getColumnIndex();
 			cell.setCellStyle(style(workbook, metas.get(dataIndex), column));
+		}
+
+		/**
+		 * 纵向合并区域：订单块（上一单合计行之后到本单合计行）内合并订单级列——
+		 * 明细表为订单号/下单时间/购买场景/配送方式/收货人/电话/地址（列 0-6），
+		 * 订单分类小计表为订单号/下单时间/收货人（列 0-2）；明细表另按分类块
+		 * （连续同分类的商品行 + 收尾小计行）合并分类列。合并只登记显示层区域，
+		 * 非首行单元格的值原样保留，筛选/透视仍按逐行取值匹配。
+		 */
+		private List<CellRangeAddress> mergeRegions() {
+			if (profile == ColumnProfile.SUMMARY) {
+				return List.of();
+			}
+			List<CellRangeAddress> regions = new ArrayList<>();
+			// 订单级列：订单块从上一单合计行之后开始，到本单合计行（groupEnd）结束
+			int orderStart = 0;
+			for (int i = 0; i < metas.size(); i++) {
+				if (metas.get(i).groupEnd()) {
+					for (int column : orderMergeColumns()) {
+						addRowSpan(regions, column, orderStart, i);
+					}
+					orderStart = i + 1;
+				}
+			}
+			if (profile == ColumnProfile.DETAIL) {
+				// 分类列：块内分类名相同、块尾必是小计行；单内分类不重复、订单间有合计行隔开，块不会跨单
+				int blockStart = 0;
+				while (blockStart < metas.size()) {
+					String category = metas.get(blockStart).category();
+					int blockEnd = blockStart;
+					while (blockEnd + 1 < metas.size()
+							&& Objects.equals(category, metas.get(blockEnd + 1).category())) {
+						blockEnd++;
+					}
+					if (category != null && metas.get(blockEnd).kind() == RowKind.SUBTOTAL) {
+						addRowSpan(regions, profile.categoryColumn, blockStart, blockEnd);
+					}
+					blockStart = blockEnd + 1;
+				}
+			}
+			return regions;
+		}
+
+		/** 订单级合并列：明细表 = 表头前 7 列（订单号~收货地址），订单分类小计表 = 前 3 列（订单号/下单时间/收货人） */
+		private int[] orderMergeColumns() {
+			if (profile == ColumnProfile.DETAIL) {
+				return new int[] {0, 1, 2, 3, 4, 5, 6};
+			}
+			return new int[] {0, 1, 2};
+		}
+
+		/** 数据行下标转物理行号（表头占第 0 行，偏移 +1）；单行块不构成合并区域 */
+		private static void addRowSpan(List<CellRangeAddress> regions, int column, int firstRow, int lastRow) {
+			if (lastRow > firstRow) {
+				regions.add(new CellRangeAddress(firstRow + 1, lastRow + 1, column, column));
+			}
 		}
 
 		private CellStyle style(Workbook workbook, RowMeta meta, int column) {

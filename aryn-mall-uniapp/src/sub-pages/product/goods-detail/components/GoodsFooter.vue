@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
 interface Props {
   shoppingCartCount: number
 }
@@ -12,6 +14,7 @@ interface Emits {
 
 defineProps<Props>()
 const emit = defineEmits<Emits>()
+const { t } = useI18n()
 const useNativeContact
   = import.meta.env.VITE_CUSTOMER_SERVICE_MODE === 'NATIVE'
 
@@ -41,7 +44,7 @@ function customerService() {
       <view class="ml-20rpx mr-30rpx" @click="toHome">
         <wd-icon name="home" size="40rpx" />
         <view class="text">
-          首页
+          {{ t('product.home') }}
         </view>
       </view>
       <button
@@ -51,14 +54,14 @@ function customerService() {
       >
         <wd-icon name="service" size="40rpx" />
         <view class="text">
-          客服
+          {{ t('product.support') }}
         </view>
       </button>
       <view class="mx-30rpx" @click="toCart">
         <wd-badge :model-value="shoppingCartCount">
           <wd-icon name="cart" size="40rpx" />
           <view class="text">
-            购物车
+            {{ t('product.cart') }}
           </view>
         </wd-badge>
       </view>
@@ -69,7 +72,7 @@ function customerService() {
         hover-class="goods-footer__action--pressed"
         @click="openSkuPopup(2)"
       >
-        加入购物车
+        {{ t('product.addToCart') }}
       </view>
     </view>
   </view>

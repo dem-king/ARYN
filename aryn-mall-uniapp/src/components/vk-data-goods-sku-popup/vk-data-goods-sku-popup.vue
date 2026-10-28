@@ -1,4 +1,6 @@
 <script>
+import { useI18n } from 'vue-i18n'
+
 let vk // vk依赖
 const goodsCache = {} // 本地商品缓存
 export default {
@@ -28,12 +30,12 @@ export default {
     // 该商品已抢完时的按钮文字
     noStockText: {
       Type: String,
-      default: '该商品已抢完',
+      default: '',
     },
     // 库存文字
     stockText: {
       Type: String,
-      default: '库存',
+      default: '',
     },
     // 商品表id的字段名
     goodsIdName: {
@@ -131,7 +133,7 @@ export default {
     // 立即购买按钮的文字
     buyNowText: {
       Type: String,
-      default: '立即购买',
+      default: '',
     },
     // 立即购买按钮的字体颜色
     buyNowColor: {
@@ -144,7 +146,7 @@ export default {
     // 加入购物车按钮的文字
     addCartText: {
       Type: String,
-      default: '加入购物车',
+      default: '',
     },
     // 加入购物车按钮的字体颜色
     addCartColor: {
@@ -193,7 +195,7 @@ export default {
     // 请求中的提示
     actionTips: {
       Type: String,
-      default: '请求中...',
+      default: '',
     },
     // 默认选中的SKU
     defaultSelect: {
@@ -232,6 +234,10 @@ export default {
     },
   },
   emits: ['update:modelValue', 'input', 'update-goods', 'open', 'close', 'add-cart', 'buy-now', 'cart', 'buy', 'num-change'],
+  setup() {
+    const { t } = useI18n()
+    return { t }
+  },
   data() {
     return {
       complete: false, // 组件是否加载完成
@@ -392,6 +398,19 @@ export default {
       }
       return str
     },
+    // 以下按钮/标签文案未显式传入时按当前语言显示
+    noStockTextCom() {
+      return this.noStockText || this.t('cart.skuSoldOut')
+    },
+    stockTextCom() {
+      return this.stockText || this.t('cart.stock')
+    },
+    buyNowTextCom() {
+      return this.buyNowText || this.t('cart.buyNow')
+    },
+    addCartTextCom() {
+      return this.addCartText || this.t('cart.addToCart')
+    },
   },
   watch: {
     valueCom(newVal, oldValue) {
@@ -446,14 +465,14 @@ export default {
       const that = this
       const { useCache } = obj
       if (typeof vk == 'undefined') {
-        that.toast('custom-action必须是function', 'none')
+        that.toast(that.t('shared.sku.invalidActionFunction'), 'none')
         return false
       }
       const { actionTips } = that
       let actionTitle = ''
       let actionAoading = false
       if (actionTips !== 'custom') {
-        actionTitle = useCache ? '' : '请求中...'
+        actionTitle = useCache ? '' : that.t('shared.sku.requesting')
       }
       else {
         actionAoading = !useCache
@@ -547,7 +566,7 @@ export default {
         catch (err) {
           const { message = '' } = err
           if (message.includes('.catch is not a function')) {
-            that.toast('custom-action必须返回一个Promise', 'none')
+            that.toast(that.t('shared.sku.invalidActionPromise'), 'none')
             setTimeout(() => {
               that.close()
             }, 500)
@@ -562,7 +581,7 @@ export default {
           that.updateValue(true)
         }
         else {
-          that.toast('未获取到商品信息', 'none')
+          that.toast(that.t('cart.skuGoodsNotFound'), 'none')
           that.$emit('input', false)
           return false
         }
@@ -575,7 +594,7 @@ export default {
           that.updateValue(true)
         }
         else {
-          that.toast('未获取到商品信息', 'none')
+          that.toast(that.t('cart.skuGoodsNotFound'), 'none')
           that.$emit('input', false)
           return false
         }
@@ -749,18 +768,18 @@ export default {
         return false
       }
       that.clickTime = clickTime
-      const { selectShop, selectNum, stockText, stockName } = that
+      const { selectShop, selectNum, stockName } = that
       if (!selectShop || !selectShop[that.skuIdName]) {
-        that.toast('请先选择对应规格', 'none')
+        that.toast(that.t('cart.skuSelectSpec'), 'none')
         return false
       }
       if (selectNum <= 0) {
-        that.toast('购买数量必须>0', 'none')
+        that.toast(that.t('cart.skuQuantityPositive'), 'none')
         return false
       }
       // 判断库存
       if (selectNum > selectShop[stockName]) {
-        that.toast(`${stockText}不足`, 'none')
+        that.toast(that.t('cart.skuStockInsufficient'), 'none')
         return false
       }
       if (typeof obj.success == 'function')
@@ -778,7 +797,7 @@ export default {
             picUrl: that.selectPic ? that.selectPic : that.goodsInfo.spuUrls[0],
             skuId: selectShop.id,
             salesPrice: selectShop.salesPrice,
-            specsInfo: that.selectArr.join('；') !== '默认' ? that.selectArr.join('；') : '',
+            specsInfo: that.selectArr.join('；') !== that.defaultSingleSkuName ? that.selectArr.join('；') : '',
           }
           that.$emit('add-cart', data)
         },
@@ -796,7 +815,7 @@ export default {
             picUrl: that.selectPic ? that.selectPic : that.goodsInfo.spuUrls[0],
             skuId: selectShop.id,
             salesPrice: selectShop.salesPrice,
-            specsInfo: that.selectArr.join('；') !== '默认' ? that.selectArr.join('；') : '',
+            specsInfo: that.selectArr.join('；') !== that.defaultSingleSkuName ? that.selectArr.join('；') : '',
           }
           that.$emit('buy-now', data)
           that.$emit('buy', data)
@@ -993,11 +1012,11 @@ export default {
                 </text>
               </view>
               <view v-if="!hideStock && selectShop.stock" class="inventory">
-                {{ stockText }}：{{ stockCom }}
+                {{ stockTextCom }}: {{ stockCom }}
               </view>
               <view v-else class="inventory" />
               <view v-show="isManyCom" class="choose text-14px!">
-                已选：{{ selectArr.join(' ') }}
+                {{ t('cart.selectedSpecs') }}: {{ selectArr.join(' ') }}
               </view>
             </view>
           </view>
@@ -1025,7 +1044,7 @@ export default {
             </view>
             <view class="number-box-view">
               <view style="flex: 1">
-                数量
+                {{ t('cart.quantity') }}
               </view>
               <view style="flex: 4; text-align: right">
                 <vk-data-input-number-box
@@ -1046,26 +1065,26 @@ export default {
         :class="{ 'safe-area-inset-bottom': safeAreaInsetBottom }"
       >
         <view class="sure" style="color: #ffffff; background-color: #cccccc">
-          {{ noStockText }}
+          {{ noStockTextCom }}
         </view>
       </view>
       <view v-else-if="mode === 1" class="btn-wrapper" :class="{ 'safe-area-inset-bottom': safeAreaInsetBottom }">
         <view class="sure add-cart bg-secondary!" style="border-radius: 38rpx 0rpx 0rpx 38rpx" @click="addCart">
-          {{ addCartText }}
+          {{ addCartTextCom }}
         </view>
 
         <view class="sure bg-primary!" style="border-radius: 0rpx 38rpx 38rpx 0rpx" @click="buyNow">
-          {{ buyNowText }}
+          {{ buyNowTextCom }}
         </view>
       </view>
       <view v-else-if="mode === 2" class="btn-wrapper" :class="{ 'safe-area-inset-bottom': safeAreaInsetBottom }">
         <view class="sure add-cart bg-secondary!" @click="addCart">
-          {{ addCartText }}
+          {{ addCartTextCom }}
         </view>
       </view>
       <view v-else-if="mode === 3" class="btn-wrapper" :class="{ 'safe-area-inset-bottom': safeAreaInsetBottom }">
         <view class="sure bg-primary!" @click="buyNow">
-          {{ buyNowText }}
+          {{ buyNowTextCom }}
         </view>
       </view>
     </view>

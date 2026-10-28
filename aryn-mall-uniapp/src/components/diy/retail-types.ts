@@ -4,11 +4,31 @@ export type RetailCommonStyle = Record<string, unknown>
 export type RetailFallbackStrategy = 'hide' | 'placeholder'
 
 export interface RetailDataSource {
+  /**
+   * 会员价活动 ID（仅 `mode='activity'` 生效）：空/缺失 = 自动取当前进行中的会员价活动。
+   *
+   * 货盘与顺序完全由活动配置决定（活动加减商品即同步，C 端不落缓存）；
+   * 活动失效/无货时专区空态，不展示过期货盘。
+   */
+  activityId?: string
+  /**
+   * 折扣率阈值（仅 `sort='bargain'` 生效，与后端持久化 JSON 对齐）。
+   *
+   * 圈品口径：原价 ≥ 售价 × bargainRate。缺省/越界时按 1.15 下发（见
+   * `retail-query.ts` 的 normalizeBargainRate），管理端步长 0.01、区间 (1.00, 9.99]。
+   */
+  bargainRate?: number
   /** 数据缓存时长（秒），0 或缺省不缓存 */
   cacheTtl?: number
   categoryId?: string
   metric?: string
-  mode: 'automatic' | 'current-tenant' | 'manual' | 'ranking' | 'rule'
+  /**
+   * 数据源模式：
+   * - `automatic` 分类 + 排序取数；`manual` 运营手选 SPU；
+   * - `activity` 按会员价活动自动取货盘（会员专区，顺序随活动）；
+   * - `current-tenant` / `ranking` / `rule` 其它组件的数据源语义。
+   */
+  mode: 'activity' | 'automatic' | 'current-tenant' | 'manual' | 'ranking' | 'rule'
   sort?: string
   targetIds?: string[]
 }
@@ -318,6 +338,23 @@ export interface GoodsWaterfallProps extends RetailBaseProps {
 }
 
 /**
+ * 多 Tab 商品流的「会员权益条」（Tab 级配置，默认关）。
+ *
+ * 仅做权益透出，不做购买拦截：enabled 才对会员信息发请求并渲染横幅，
+ * 接口失败 / 未配置 / 未启用都不渲染，绝不影响商品流本身。
+ * 文案内支持 `{levelName}`（等级名）与 `{discount}`（会员折扣率权益，如 9 / 9.5）占位；
+ * 内置文案是确定性标签（「本区享会员专享价」），不写折数——折扣率权益与本区
+ * 会员价活动是两套体系，混写会产生「横幅 X 折、实价 Y 折」的错觉。
+ */
+export interface GoodsTabMemberBanner {
+  enabled: boolean
+  /** 会员态文案（有等级）；空走内置文案 */
+  memberCopy?: string
+  /** 游客态文案（未登录 / 登录但无等级）；空走内置文案 */
+  guestCopy?: string
+}
+
+/**
  * 多 Tab 商品流中的单个 Tab。
  *
  * 每个 Tab 拥有独立数据源与分页状态：首次切换才取数，切回直接复用缓存，
@@ -327,6 +364,8 @@ export interface GoodsWaterfallProps extends RetailBaseProps {
 export interface GoodsTabConfig {
   dataSource: RetailDataSource
   id: string
+  /** 会员权益条（Tab 头下方的权益横幅）；缺省视为关闭 */
+  memberBanner?: GoodsTabMemberBanner
   title: string
 }
 
@@ -343,6 +382,35 @@ export interface GoodsTabsProps {
   /** Tab 栏是否吸顶（随页面滚动停在导航栏下方） */
   stickyTabs: boolean
   tabs: GoodsTabConfig[]
+}
+
+/**
+ * 会员专区 Tab 列表卡片的会员价聚合结果。
+ *
+ * 由 `retail-data#loadGoodsTabPage` 在 `memberBanner.enabled=true` 时写入列表项
+ * （`RetailGoodsItem.memberPriceDisplay`），其它 Tab 恒为 undefined。
+ *
+ * 列表接口只下发 SPU 维度价格，而会员价按 SKU 配置：必须先在 `/app/member/prices`
+ * 按 spuIds 返回的 items 中找到 `originalPrice` 与卡片展示价一致的那条 SKU，
+ * 才允许切主价；否则会把「配在更贵规格上的会员价」当成主价（会员价 > 卡片价）。
+ * 判定口径见 `utils/member-price.ts` 的 `resolveListMemberPrice`（与商详/购物车
+ * 未达标引导文案同源）。
+ */
+export interface ListMemberPriceDisplay {
+  /** 是否找到与卡片价一致的会员价 SKU（不等于可展示） */
+  matched: boolean
+  /** 主价是否应切为会员价（仅资格达标且会员价真的更低） */
+  showMemberPrice: boolean
+  /** 会员价；未命中/不展示时为 null */
+  memberPrice: number | null
+  /** 划线价：达标命中时 = 卡片展示价（与商详同口径）；否则 null */
+  strikePrice: number | null
+  /** 角标文案：达标时「会员价」，否则空串 */
+  badgeText: string
+  /** 未达标/未登录引导「会员专享 ¥x」；无可引导信息时为 null */
+  guideText: string | null
+  /** 命中规格的等级门槛名（引导文案已含，保留给埋点/调试） */
+  minLevelName: string
 }
 
 export interface MemberBenefitEntry {

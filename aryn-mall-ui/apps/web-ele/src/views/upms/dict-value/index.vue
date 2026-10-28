@@ -12,6 +12,7 @@ import {
 
 import { delObj, getPage } from '#/api/upms/dict-value';
 import PageToolbar from '#/components/page/page-toolbar.vue';
+import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 import { useDict } from '#/utils/dict';
 
 const props = defineProps({
@@ -101,6 +102,8 @@ const del = (id: string) => {
 };
 
 initPage();
+
+useKeepAliveRefresh(initPage);
 </script>
 <template>
   <div class="layout-padding-auto layout-padding-view">

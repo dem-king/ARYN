@@ -12,6 +12,7 @@ import {
 } from 'element-plus';
 
 import { closeException, getExceptionPage } from '#/api/fulfillment/wave';
+import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 
 const Pagination = defineAsyncComponent(
   () => import('#/components/pagination/index.vue'),
@@ -84,6 +85,8 @@ const handleClose = (row: any) => {
 };
 
 onMounted(initPage);
+
+useKeepAliveRefresh(initPage);
 </script>
 
 <template>

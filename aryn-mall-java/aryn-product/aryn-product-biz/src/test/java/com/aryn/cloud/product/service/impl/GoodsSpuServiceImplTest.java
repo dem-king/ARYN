@@ -3,6 +3,7 @@ package com.aryn.cloud.product.service.impl;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.core.metadata.OrderItem;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.aryn.cloud.common.security.entity.ArynUser;
@@ -37,6 +38,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
@@ -223,7 +225,7 @@ class GoodsSpuServiceImplTest {
 		spu.setOriginalPrice(BigDecimal.valueOf(80));
 		spu.setCostPrice(BigDecimal.valueOf(40));
 		page.setRecords(List.of(spu));
-		when(spuMapper.selectApiPage(any(Page.class), any(GoodsSpu.class))).thenReturn(page);
+		when(spuMapper.selectApiPage(any(Page.class), any(GoodsSpu.class), any())).thenReturn(page);
 
 		IPage<GoodsSpu> result = service.apiPage(page, new GoodsSpu());
 
@@ -232,6 +234,126 @@ class GoodsSpuServiceImplTest {
 		assertThat(result.getRecords().get(0).getCostPrice()).isNull();
 		assertThat(result.getRecords().get(0).getSalesPrice()).isEqualByComparingTo("20");
 		assertThat(result.getRecords().get(0).getOriginalPrice()).isEqualByComparingTo("80");
+	}
+
+	@Test
+	void apiPageWithoutBargainRateKeepsLegacyOrdersAndPassesNullThreshold() {
+		Page<GoodsSpu> page = new Page<>(1, 10);
+		page.setOrders(new ArrayList<>(List.of(OrderItem.asc("sales_price"), OrderItem.desc("create_time"))));
+		when(spuMapper.selectApiPage(any(Page.class), any(GoodsSpu.class), any())).thenReturn(page);
+
+		service.apiPage(page, new GoodsSpu());
+
+		// 存量路径：不传 bargainRate 时 asc/desc 原样保留（仍由分页插件追加 ORDER BY），阈值以 null 下传
+		assertThat(page.orders()).extracting(OrderItem::getColumn).containsExactly("sales_price", "create_time");
+		assertThat(page.orders()).extracting(OrderItem::isAsc).containsExactly(true, false);
+		verify(spuMapper).selectApiPage(eq(page), any(GoodsSpu.class), isNull());
+	}
+
+	@Test
+	void apiPageWithBargainRateClearsAscDescBeforeQuery() {
+		Page<GoodsSpu> page = new Page<>(1, 10);
+		page.setOrders(new ArrayList<>(List.of(OrderItem.desc("sales_price"))));
+		GoodsSpu query = new GoodsSpu();
+		when(spuMapper.selectApiPage(any(Page.class), any(GoodsSpu.class), any())).thenReturn(page);
+
+		service.apiPage(page, query, new BigDecimal("1.15"));
+
+		// 捡漏路径：固定排序由 XML 输出，asc/desc 必须被清空——既避免再拼一层排序列，
+		// 也彻底关掉「用户传列名」的注入面（排序键只能是 XML 里写死的表达式）
+		assertThat(page.orders()).isEmpty();
+		verify(spuMapper).selectApiPage(page, query, new BigDecimal("1.15"));
+	}
+
+	@Test
+	void apiPageRejectsBargainRateOutOfRange() {
+		Page<GoodsSpu> page = new Page<>(1, 10);
+		// 下界开区间 1.00 不合法；上界 9.99 闭区间；负数/超大值一律业务错误（不落到 SQL、不返回 500）
+		for (String illegal : List.of("0.5", "1.00", "-1", "9.991", "10")) {
+			assertThatThrownBy(() -> service.apiPage(page, new GoodsSpu(), new BigDecimal(illegal)))
+				.isInstanceOf(ArynBusinessException.class)
+				.satisfies(exception -> assertThat(((ArynBusinessException) exception).getMsg()).contains("bargainRate")
+					.contains("(1.00, 9.99]"));
+		}
+		verify(spuMapper, never()).selectApiPage(any(Page.class), any(GoodsSpu.class), any());
+	}
+
+	@Test
+	void apiPageAcceptsBargainRateBoundaries() {
+		Page<GoodsSpu> page = new Page<>(1, 10);
+		when(spuMapper.selectApiPage(any(Page.class), any(GoodsSpu.class), any())).thenReturn(page);
+
+		service.apiPage(page, new GoodsSpu(), new BigDecimal("1.01"));
+		service.apiPage(page, new GoodsSpu(), new BigDecimal("9.99"));
+
+		verify(spuMapper).selectApiPage(eq(page), any(GoodsSpu.class), eq(new BigDecimal("1.01")));
+		verify(spuMapper).selectApiPage(eq(page), any(GoodsSpu.class), eq(new BigDecimal("9.99")));
+	}
+
+	@Test
+	void recommendPageUsesContextCategoriesAndMasksCostPrice() {
+		Page<GoodsSpu> page = new Page<>(1, 10);
+		page.setOrders(new ArrayList<>(List.of(OrderItem.desc("sales_price"))));
+		when(spuMapper.selectBatchIds(any())).thenReturn(List.of(product("spu-1", List.of()),
+				product("spu-2", List.of())));
+		GoodsSpu recommended = product("spu-3", List.of());
+		recommended.setCostPrice(BigDecimal.valueOf(40));
+		page.setRecords(List.of(recommended));
+		when(spuMapper.selectRecommendPage(any(Page.class), any(), any(), any())).thenReturn(page);
+
+		IPage<GoodsSpu> result = service.recommendPage(page, "spu-1", List.of("spu-2"), List.of("spu-9"));
+
+		// 当前商品与额外排除项合并；分类上下文来自 spuId/sourceSpuIds 对应商品
+		verify(spuMapper).selectRecommendPage(page, List.of("spu-1", "spu-9"),
+				List.of("category-2"), List.of("category-1"));
+		// 固定排序由 XML 输出；推荐流无限滚动，不查总数
+		assertThat(page.orders()).isEmpty();
+		assertThat(page.searchCount()).isFalse();
+		// C 端推荐列表不下发成本价
+		assertThat(result.getRecords().get(0).getCostPrice()).isNull();
+	}
+
+	@Test
+	void recommendPageWithoutContextAndGuestFallsBackToGlobalOrdering() {
+		Page<GoodsSpu> page = new Page<>(1, 10);
+		when(spuMapper.selectRecommendPage(any(Page.class), any(), any(), any())).thenReturn(page);
+
+		try (MockedStatic<SecurityUtils> security = mockStatic(SecurityUtils.class)) {
+			security.when(SecurityUtils::getUser).thenReturn(null);
+			service.recommendPage(page, null, null, null);
+		}
+
+		// 未登录且无显式上下文：不读足迹、不查分类，仅保留全店销量/上架时间排序
+		verify(footprintMapper, never()).selectList(any(Wrapper.class));
+		verify(spuMapper, never()).selectBatchIds(any());
+		verify(spuMapper).selectRecommendPage(eq(page), eq(List.of()), eq(List.of()), eq(List.of()));
+	}
+
+	@Test
+	void recommendPageWithoutContextUsesRecentFootprintsForLoggedInUser() {
+		Page<GoodsSpu> page = new Page<>(1, 10);
+		GoodsFootprint first = new GoodsFootprint()
+			.setUserId("user-1")
+			.setSpuId("spu-1")
+			.setCreateTime(LocalDateTime.now());
+		GoodsFootprint second = new GoodsFootprint()
+			.setUserId("user-1")
+			.setSpuId("spu-2")
+			.setCreateTime(LocalDateTime.now().minusDays(1));
+		when(footprintMapper.selectList(any(Wrapper.class))).thenReturn(List.of(first, second));
+		when(spuMapper.selectBatchIds(any())).thenReturn(List.of(product("spu-1", List.of()),
+				product("spu-2", List.of())));
+		when(spuMapper.selectRecommendPage(any(Page.class), any(), any(), any())).thenReturn(page);
+
+		try (MockedStatic<SecurityUtils> security = mockStatic(SecurityUtils.class)) {
+			security.when(SecurityUtils::getUser).thenReturn(loginUser("user-1"));
+			service.recommendPage(page, null, null, null);
+		}
+
+		// 个人中心无显式上下文：用近期浏览足迹的商品品类做个性化，不排除已浏览商品
+		verify(spuMapper).selectBatchIds(any());
+		verify(spuMapper).selectRecommendPage(eq(page), eq(List.of()),
+				eq(List.of("category-2")), eq(List.of("category-1")));
 	}
 
 	@Test
@@ -379,7 +501,7 @@ class GoodsSpuServiceImplTest {
 	@Test
 	void apiPageEscapesNameWildcards() {
 		Page<GoodsSpu> page = new Page<>(1, 10);
-		when(spuMapper.selectApiPage(any(Page.class), any(GoodsSpu.class))).thenReturn(page);
+		when(spuMapper.selectApiPage(any(Page.class), any(GoodsSpu.class), any())).thenReturn(page);
 		GoodsSpu query = new GoodsSpu();
 		query.setName("50%off_1");
 

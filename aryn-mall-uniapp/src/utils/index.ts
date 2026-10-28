@@ -1,4 +1,6 @@
+import { translate } from '@/locales'
 import router from '@/router'
+import { parseLocalDateTimeTimestamp } from '@/utils/datetime'
 import { isTabBarPage, toTabBarUrl } from '@/utils/tab-bar'
 
 /**
@@ -38,13 +40,15 @@ export function formatTime(timeStr: string) {
   if (!timeStr)
     return ''
 
-  const now = new Date()
-  const messageTime = new Date(timeStr)
-
-  // 检查日期是否有效
-  if (Number.isNaN(messageTime.getTime())) {
+  // 小程序 iOS 端 `new Date('yyyy-MM-dd HH:mm:ss')` 返回 Invalid Date，
+  // 统一先手工解析；解析不了仍原样返回，与旧 Invalid Date 兜底同口径
+  const messageTimestamp = parseLocalDateTimeTimestamp(timeStr)
+  if (messageTimestamp === null) {
     return timeStr
   }
+
+  const now = new Date()
+  const messageTime = new Date(messageTimestamp)
 
   const nowTime = now.getTime()
   const messageTimeStamp = messageTime.getTime()
@@ -63,20 +67,20 @@ export function formatTime(timeStr: string) {
   // 如果是今天
   if (messageDate.getTime() === today.getTime()) {
     if (diffMinutes < 1) {
-      return '刚刚'
+      return translate('labels.justNow')
     }
     else if (diffMinutes < 60) {
-      return `${diffMinutes}分钟前`
+      return translate('labels.minutesAgo', { count: diffMinutes })
     }
     else if (diffHours < 24) {
-      return `${diffHours}小时前`
+      return translate('labels.hoursAgo', { count: diffHours })
     }
   }
 
   // 如果是昨天
   const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000)
   if (messageDate.getTime() === yesterday.getTime()) {
-    return '昨天'
+    return translate('labels.yesterday')
   }
 
   // 如果是今年

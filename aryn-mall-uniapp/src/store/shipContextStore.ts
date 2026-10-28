@@ -8,6 +8,7 @@
  * 每次结算由服务端重新校验船舶成员关系和靠港计划。
  */
 import { defineStore } from 'pinia'
+import { translate } from '@/locales'
 
 export const PURCHASE_SCENE_PERSONAL = '1'
 export const PURCHASE_SCENE_SHIP_SUPPLY = '2'
@@ -148,7 +149,7 @@ export const useShipContextStore = defineStore('shipContext', {
      */
     setPurchaseScene(scene: string) {
       if (scene !== PURCHASE_SCENE_PERSONAL && scene !== PURCHASE_SCENE_SHIP_SUPPLY) {
-        throw new Error(`不支持的购买场景：${scene}`)
+        throw new Error(translate('app.auth.unsupportedScene', { scene }))
       }
       this.purchaseScene = scene
     },

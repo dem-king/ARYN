@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { followDecorationLink } from '@/components/diy/link-resolver'
 import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 import { loadGoodsGroup } from '@/components/diy/retail-data'
@@ -8,6 +9,7 @@ import { retailCommonStyle } from '@/components/diy/retail-types'
 import { useDiyStyle } from '@/composables/useDiyStyle'
 import { useRetailData } from '@/composables/useRetailData'
 import { useMallThemeStore } from '@/store/mallThemeStore'
+import { stockHintText } from '@/utils/stock-display'
 
 interface GoodsScrollProps {
   commonStyle?: any
@@ -37,8 +39,9 @@ const props = withDefaults(defineProps<{ showData?: GoodsScrollProps }>(), {
   showData: () => ({}),
 })
 
+const { t } = useI18n()
 const showData = computed(() => ({
-  title: props.showData.title || '省心午餐',
+  title: props.showData.title || t('diy.goodsScroll.defaultTitle'),
   subtitle: props.showData.subtitle || '',
   displayMode: props.showData.displayMode === 'pager' ? 'pager' : 'scroll',
   perView: Number(props.showData.perView) === 4 ? 4 : 3,
@@ -183,7 +186,7 @@ function originalPriceText(item: { price: number, originalPrice: number }) {
             lazy-load
           />
           <view v-else class="gs-img gs-img--empty" :style="imageStyle">
-            商品
+            {{ t('diy.common.product') }}
           </view>
           <view class="gs-body">
             <view class="gs-name">
@@ -200,14 +203,14 @@ function originalPriceText(item: { price: number, originalPrice: number }) {
                 </text>{{ item.price.toFixed(2) }}
               </text>
               <view class="gs-btn">
-                抢
+                {{ t('diy.common.grab') }}
               </view>
             </view>
             <text v-if="showData.showOriginalPrice" class="gs-price-original">
               {{ originalPriceText(item) }}
             </text>
-            <text v-if="showData.showSales" class="gs-sales">
-              已售 {{ item.sales }}
+            <text v-if="stockHintText(item.stock)" class="gs-sales">
+              {{ stockHintText(item.stock) }}
             </text>
           </view>
         </view>
@@ -243,7 +246,7 @@ function originalPriceText(item: { price: number, originalPrice: number }) {
               lazy-load
             />
             <view v-else class="gs-img gs-img--empty" :style="imageStyle">
-              商品
+              {{ t('diy.common.product') }}
             </view>
             <view class="gs-body">
               <view class="gs-name">
@@ -256,14 +259,14 @@ function originalPriceText(item: { price: number, originalPrice: number }) {
                   </text>{{ item.price.toFixed(2) }}
                 </text>
                 <view class="gs-btn">
-                  抢
+                  {{ t('diy.common.grab') }}
                 </view>
               </view>
               <text v-if="showData.showOriginalPrice" class="gs-price-original">
                 {{ originalPriceText(item) }}
               </text>
-              <text v-if="showData.showSales" class="gs-sales">
-                已售 {{ item.sales }}
+              <text v-if="stockHintText(item.stock)" class="gs-sales">
+                {{ stockHintText(item.stock) }}
               </text>
             </view>
           </view>

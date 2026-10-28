@@ -127,8 +127,8 @@ export default {
           reqCheck(data).then((response) => {
             const res = response.data.data;
             if (res.repCode === '0000') {
-              barAreaColor.value = '#4cae4c';
-              barAreaBorderColor.value = '#5cb85c';
+              barAreaColor.value = 'var(--el-color-success)';
+              barAreaBorderColor.value = 'var(--el-color-success)';
               text.value = '验证成功';
               bindingClick.value = false;
               if (mode.value === 'pop') {
@@ -140,8 +140,8 @@ export default {
               proxy.$parent.$emit('success', { captchaVerification });
             } else {
               proxy.$parent.$emit('error', proxy);
-              barAreaColor.value = '#d9534f';
-              barAreaBorderColor.value = '#d9534f';
+              barAreaColor.value = 'var(--el-color-danger)';
+              barAreaBorderColor.value = 'var(--el-color-danger)';
               text.value = '验证失败';
               setTimeout(() => {
                 refresh();
@@ -167,8 +167,8 @@ export default {
     };
     const refresh = function () {
       tempPoints.splice(0);
-      barAreaColor.value = '#000';
-      barAreaBorderColor.value = '#ddd';
+      barAreaColor.value = 'var(--el-text-color-secondary)';
+      barAreaBorderColor.value = 'var(--el-border-color)';
       bindingClick.value = true;
       fontPos.splice(0);
       checkPosArr.splice(0);
@@ -245,18 +245,24 @@ export default {
           'margin-bottom': `${space}px`,
         }"
       >
-        <div
+        <button
+          v-show="showRefresh"
+          type="button"
           class="verify-refresh"
           style="z-index: 3"
+          aria-label="换一张"
           @click="refresh"
-          v-show="showRefresh"
         >
-          <i class="iconfont icon-refresh"></i>
-        </div>
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+            <path d="M21 3v6h-6" />
+          </svg>
+        </button>
         <img
           :src="`data:image/png;base64,${pointBackImgBase}`"
           ref="canvas"
-          alt=""
+          alt="验证码背景"
+          draggable="false"
           style="display: block; width: 100%; height: 100%"
           @click="bindingClick ? canvasClick($event) : undefined"
         />
@@ -266,7 +272,7 @@ export default {
           :key="index"
           class="point-area"
           :style="{
-            'background-color': '#1abd6c',
+            'background-color': 'var(--el-color-success)',
             color: '#fff',
             'z-index': 9999,
             width: '20px',
@@ -288,12 +294,13 @@ export default {
       class="verify-bar-area"
       :style="{
         width: setSize.imgWidth,
-        color: barAreaColor,
         'border-color': barAreaBorderColor,
         'line-height': barSize.height,
       }"
     >
-      <span class="verify-msg">{{ text }}</span>
+      <span class="verify-msg" :style="{ color: barAreaColor }">{{
+        text
+      }}</span>
     </div>
   </div>
 </template>

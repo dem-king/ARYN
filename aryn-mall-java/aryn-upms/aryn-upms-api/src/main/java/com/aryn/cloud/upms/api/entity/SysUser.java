@@ -49,6 +49,10 @@ public class SysUser extends Model<SysUser> {
 	@Schema(description = "部门ID")
 	private String deptId;
 
+	@Schema(description = "部门名称（关联查询字段，非表字段）")
+	@TableField(exist = false)
+	private String deptName;
+
 	@Schema(description = "手机号")
 	@Desensitization(MobilePhoneDesensitization.class)
 	private String phone;

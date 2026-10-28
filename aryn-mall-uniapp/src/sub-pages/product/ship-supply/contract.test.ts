@@ -63,7 +63,7 @@ describe('ship supply page structure contract', () => {
     const topSlot = slotOf(page, 'top')
     expect(topSlot).toContain('class="context')
     expect(topSlot).toContain('class="search"')
-    expect(topSlot).toContain('搜索商品名称')
+    expect(topSlot).toContain('catalog.searchProductName')
     expect(topSlot).toContain('hr-navbar')
   })
 
@@ -113,14 +113,14 @@ describe('ship supply page structure contract', () => {
     const page = source(PAGE)
     // 请求失败被渲染成「暂无商品」会让用户以为目录里真没有
     expect(page).toContain('loadFailed')
-    expect(page).toContain('加载失败')
+    expect(page).toContain('catalog.loadFailed')
     expect(page).toContain('complete(false)')
   })
 
   it('keeps the actionable missing-context entry', () => {
     const page = source(PAGE)
     expect(page).toContain('openShipPicker')
-    expect(page).toContain('选择船舶和靠港计划')
+    expect(page).toContain('catalog.selectVesselPort')
     expect(page).toContain('ShipContextPicker')
   })
 
@@ -129,7 +129,7 @@ describe('ship supply page structure contract', () => {
     const topSlot = slotOf(page, 'top')
     // 入口必须在常驻上下文卡里（滚动区外），选货途中随时可切到分类浏览
     expect(topSlot).toContain('goCategoryPicker')
-    expect(topSlot).toContain('分类选货')
+    expect(topSlot).toContain('catalog.pickByCategory')
     expect(page).toContain('/sub-pages/order/shared-cart/category?id=')
     // 不能直接切分类 Tab：tabBar 跳转会清空「详情 → 选货」栈，
     // 回来后既找不到共享车，加购也不再是给这张车选货。

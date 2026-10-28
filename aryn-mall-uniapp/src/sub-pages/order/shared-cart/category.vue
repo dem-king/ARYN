@@ -15,6 +15,7 @@ import { onLoad, onShow } from '@dcloudio/uni-app'
  * 但把目的地锁定到当前共享车，并保留底部「查看共享购物车」出口。
  */
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { getSharedCart, getSharedCartItems } from '@/api/order/sharedCart'
 import { getActiveTree } from '@/api/product/category'
 import CategoryAllSheet from '@/components/category-all-sheet/index.vue'
@@ -34,6 +35,7 @@ definePage({
 const cartId = ref('')
 const cart = ref<SharedCart | null>(null)
 const cartLoaded = ref(false)
+const { t } = useI18n()
 /** 清单已有明细数：进入时拉一次，加购后自增，底部条用它回答「清单总共多少」 */
 const cartItemCount = ref(0)
 /** 本页已加入的 SPU：卡片角标 + 底部「已选 N 种」，避免长列表里同款重复加 */
@@ -49,7 +51,7 @@ const sheetTopOffset = ref(0)
 /** 切换类目时重放商品区淡入，与卡片逐项入场衔接 */
 const goodsSwitching = ref(true)
 
-const contextVesselName = computed(() => cart.value?.vesselName || '共享购物车')
+const contextVesselName = computed(() => cart.value?.vesselName || t('sharedCart.category.sharedCart'))
 const contextLocation = computed(() =>
   [cart.value?.portName, cart.value?.berth].filter(Boolean).join(' '),
 )
@@ -95,7 +97,7 @@ onShow(() => {
 
 onMounted(() => {
   // 与 hr-search-navbar 的 placeholderHeight 同一口径：状态栏 + 44px 导航栏
-  sheetTopOffset.value = (uni.getSystemInfoSync().statusBarHeight ?? 0) + 44
+  sheetTopOffset.value = (uni.getWindowInfo().statusBarHeight ?? 0) + 44
 })
 
 async function fetchCart() {
@@ -176,7 +178,7 @@ function goSharedCartDetail() {
 
 <template>
   <view class="picker-page">
-    <hr-navbar title="分类选货" />
+    <hr-navbar :title="t('sharedCart.category.navTitle')" />
 
     <!-- 共享车上下文：随时确认在给哪条船选货，避免选完才发现投错车 -->
     <view class="picker-context">
@@ -188,11 +190,11 @@ function goSharedCartDetail() {
           {{ contextVesselName }}
         </view>
         <view class="picker-context__meta">
-          {{ contextLocation || '靠港信息待补全' }}
+          {{ contextLocation || t('sharedCart.category.locationPending') }}
         </view>
       </view>
       <view class="picker-context__tag">
-        共享车
+        {{ t('sharedCart.category.sharedCartTag') }}
       </view>
     </view>
 
@@ -242,8 +244,8 @@ function goSharedCartDetail() {
           </text>
         </view>
         <view v-if="treeLoaded && subCategories.length === 0" class="picker-rail-empty">
-          <wd-icon name="apps" size="38rpx" color="#b5bac3" />
-          <text>暂无子类目</text>
+          <wd-icon name="layers" size="38rpx" color="#b5bac3" />
+          <text>{{ t('sharedCart.category.noSubCategories') }}</text>
         </view>
       </scroll-view>
 
@@ -270,10 +272,10 @@ function goSharedCartDetail() {
           <wd-status-tip
             image="network"
             image-size="176rpx"
-            tip="共享购物车加载失败"
+            :tip="t('sharedCart.category.loadFailed')"
           />
           <view class="picker-goods-empty__action" @tap="fetchCart">
-            重新加载
+            {{ t('common.retry') }}
           </view>
         </view>
         <goods-list-panel
@@ -293,16 +295,16 @@ function goSharedCartDetail() {
     <view class="picker-bar">
       <view class="picker-bar__info">
         <view class="picker-bar__count">
-          已选 <text class="picker-bar__count-num">
+          {{ t('sharedCart.category.selectedPrefix') }} <text class="picker-bar__count-num">
             {{ addedSkuCount }}
-          </text> 种
+          </text> {{ t('sharedCart.category.selectedSuffix') }}
         </view>
         <view class="picker-bar__meta">
-          清单共 {{ cartItemCount }} 项 · 交确认人提交
+          {{ t('sharedCart.category.listSummary', { count: cartItemCount }) }}
         </view>
       </view>
       <view class="picker-bar__btn" @tap="goSharedCartDetail">
-        查看共享购物车
+        {{ t('sharedCart.category.viewSharedCart') }}
       </view>
     </view>
 

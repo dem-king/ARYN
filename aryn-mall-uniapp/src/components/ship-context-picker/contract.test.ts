@@ -143,7 +143,7 @@ describe('no dead-end guidance remains', () => {
     const cart = source('src/pages/user/shopping-cart/index.vue')
     // 文案在 2026-10-04 的 UI 重排中去掉了括号（分组头已改细窄说明行，读起来更顺），
     // 但「提示必须是可点的入口」这条不变：它必须与 openShipPicker 同屏出现
-    expect(cart).toContain('结算前请切换船舶')
+    expect(cart).toContain('cart.groupSwitchHint')
     expect(cart).toContain('openShipPicker')
     // 旧的纯文案提示必须已被替换
     expect(cart).not.toContain('（结算前请切换船舶）')
@@ -152,7 +152,7 @@ describe('no dead-end guidance remains', () => {
   it('makes the missing-context hint on ship supply actionable', () => {
     const shipSupply = source('src/sub-pages/product/ship-supply/index.vue')
     expect(shipSupply).toContain('openShipPicker')
-    expect(shipSupply).toContain('选择船舶和靠港计划')
+    expect(shipSupply).toContain('catalog.selectVesselPort')
     // 旧文案把用户指向「首页」，而首页当时并没有入口
     expect(shipSupply).not.toContain('请在首页选择船舶和靠港计划')
   })

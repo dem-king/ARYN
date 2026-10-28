@@ -2,6 +2,7 @@
 import type { CouponCardData } from '@/components/coupon-card/index.vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { getPage } from '@/api/promotion/couponInfo'
 import { addObj } from '@/api/promotion/couponUser'
 import { formatCouponDeadline } from '@/utils/coupon-display'
@@ -13,6 +14,7 @@ definePage({
     navigationBarTitleText: '领券中心',
   },
 })
+const { t } = useI18n()
 const pagingRef = ref()
 const state = reactive<{ list: any[], hotCouponList: any[] }>({
   list: [],
@@ -26,7 +28,7 @@ onLoad(async () => {
   })
 })
 async function queryList(pageNo: number, pageSize: number) {
-  globalLoading.loading('加载中...')
+  globalLoading.loading(t('common.loading'))
   try {
     const response = await getPage({
       current: pageNo,
@@ -48,7 +50,9 @@ function isReceived(item: any) {
  * 注意不能把它置灰：置灰的「去使用」等于告诉用户领了也用不了。
  */
 function actionText(item: any) {
-  return isReceived(item) ? '去使用' : '立即领取'
+  return isReceived(item)
+    ? t('promotion.coupon.user.use')
+    : t('promotion.coupon.list.receive')
 }
 /** 领券截止时间当作状态带文案；没有截止时间则整条不显示 */
 function bandText(item: any) {
@@ -66,14 +70,14 @@ async function handleAction(coupon: CouponCardData) {
   }
   try {
     await addObj({ couponId: coupon.id })
-    show('领取成功')
+    show(t('promotion.coupon.list.receiveSuccess'))
     // 本地累加已领次数，卡片即时切到「去使用」，不必重拉列表
     if (item)
       item.userReceiveCount = Number(item.userReceiveCount || 0) + 1
   }
   catch (err: any) {
     // 服务端失败原因已由请求层统一提示；这里兜底补一条，避免静默失败
-    show(err?.message || '领取失败')
+    show(err?.message || t('promotion.coupon.list.receiveFailed'))
   }
 }
 </script>
@@ -81,7 +85,7 @@ async function handleAction(coupon: CouponCardData) {
 <template>
   <z-paging ref="pagingRef" v-model="state.list" :auto="false" @query="queryList">
     <template #top>
-      <hr-navbar title="领券中心" />
+      <hr-navbar :title="t('promotion.coupon.list.title')" />
     </template>
     <view v-for="item in state.list" :key="item.id" class="coupon-list__item">
       <coupon-card

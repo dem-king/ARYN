@@ -75,6 +75,20 @@ export function delShoppingCart(data: object) {
   return alovaInstance.Post<any>('/mall-order/app/shopping-cart/del', data)
 }
 
+/**
+ * 把购物车行转入指定靠港计划。
+ *
+ * 用于旧靠港结束后滞留的行：申报新靠港后旧行会撞防串船拦截，此前只能
+ * 删掉重新加购。服务端把选中行的归属快照刷成目标靠港；同用户同 SKU 在
+ * 目标靠港已有行时自动合并数量，不会撞唯一键。目标靠港须仍可下单。
+ */
+export function transferCartRowsToCall(callId: string, rowIds: string[]) {
+  return alovaInstance.Post<number>('/mall-order/app/shopping-cart/transfer-call', {
+    callId,
+    rowIds,
+  })
+}
+
 // 购物车数量查询
 export function getCount(params: object) {
   return alovaInstance.Get<any>('/mall-order/app/shopping-cart/count', {

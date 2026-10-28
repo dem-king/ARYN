@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
+import { useI18n } from 'vue-i18n'
 import { getPage } from '@/sub-pages/api/order/orderRefunds'
 import { useDict } from '@/sub-pages/utils/dict'
 
@@ -17,6 +18,7 @@ const state = reactive<{ list: any }>({
 })
 const router = useRouter()
 const globalLoading = useGlobalLoading()
+const { t } = useI18n()
 const { refund_status } = useDict('refund_status')
 onLoad(() => {
   nextTick(() => {
@@ -24,7 +26,7 @@ onLoad(() => {
   })
 })
 async function queryList(pageNo: number, pageSize: number) {
-  globalLoading.loading('加载中...')
+  globalLoading.loading(t('common.loading'))
   try {
     const response = await getPage({
       current: pageNo,
@@ -45,25 +47,25 @@ function toDetail(id: string) {
     },
   })
 }
+const statusDescMap = computed<Record<string, string>>(() => ({
+  1: t('afterSales.list.status.pendingReview'),
+  2: t('afterSales.list.status.awaitingReturn'),
+  3: t('afterSales.list.status.returnProcessing'),
+  4: t('afterSales.list.status.returnCompleted'),
+  5: t('afterSales.list.status.refundProcessing'),
+  6: t('afterSales.list.status.refundSuccess'),
+  7: t('afterSales.list.status.returnFailed'),
+  8: t('afterSales.list.status.refundFailed'),
+}))
 function getStatusDesc(status: string) {
-  const statusMap: Record<string, string> = {
-    1: '退款申请已提交，等待商家审核',
-    2: '商家同意退货，请尽快退回商品',
-    3: '退货正在处理中，请耐心等待',
-    4: '商品已退回，等待商家确认',
-    5: '退款正在处理中，请耐心等待',
-    6: '退款已完成，资金将原路返回',
-    7: '退货失败，请联系商家处理',
-    8: '退款失败，请联系商家处理',
-  }
-  return statusMap[status] || ''
+  return statusDescMap.value[status] || ''
 }
 </script>
 
 <template>
   <z-paging ref="pagingRef" v-model="state.list" :auto="false" @query="queryList">
     <template #top>
-      <hr-navbar title="退款/售后" />
+      <hr-navbar :title="t('afterSales.list.navTitle')" />
     </template>
     <view v-for="(item, index) in state.list" :key="index" class="m-2 rounded-xl bg-white p-2" @click="toDetail(item.id)">
       <!-- 显示退款商品 -->
@@ -72,7 +74,7 @@ function getStatusDesc(status: string) {
           {{ item.refundTradeNo }}
         </view>
         <view class="text-24rpx text-gray-400">
-          {{ item.refundType === '1' ? '退款' : '退货' }}
+          {{ item.refundType === '1' ? t('afterSales.list.refund') : t('afterSales.list.return') }}
         </view>
       </view>
       <view v-if="item.orderItem" class="flex pt-10rpx">
@@ -86,7 +88,7 @@ function getStatusDesc(status: string) {
           </view>
           <view class="flex items-center justify-between pt-10rpx">
             <text class="text-12px">
-              申请数量：{{ item.orderItem.buyQuantity }}
+              {{ t('afterSales.list.applyQty', { count: item.orderItem.buyQuantity }) }}
             </text>
             <wd-text :text="item.refundAmount" color="red" mode="price" prefix="￥" />
           </view>

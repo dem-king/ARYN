@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { nextTick, reactive, ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
+import { useI18n } from 'vue-i18n'
 import { delAddress, getPage, saveOrUpdateAddress } from '@/api/user/address'
 
 definePage({
@@ -11,6 +12,7 @@ definePage({
   },
 })
 const pagingRef = ref()
+const { t } = useI18n()
 
 // 用于下单时选择收货地址
 const placeChooseFlag = ref(false)
@@ -32,7 +34,7 @@ onShow(async () => {
   })
 })
 async function queryList(pageNo: number, pageSize: number) {
-  globalLoading.loading('加载中...')
+  globalLoading.loading(t('common.loading'))
   try {
     const response = await getPage({
       current: pageNo,
@@ -61,7 +63,7 @@ function selectAddRess(row: any) {
   uni.navigateBack()
 }
 async function handleChange(item: any, index: number) {
-  globalLoading.loading('加载中...')
+  globalLoading.loading(t('common.loading'))
   try {
     await saveOrUpdateAddress(item)
     state.addressList.forEach(v => (v.isDefault = '0'))
@@ -74,14 +76,14 @@ async function handleChange(item: any, index: number) {
 // 删除
 function del(id: string, index: number) {
   confirm({
-    title: '删除地址',
-    msg: '是否删除地址？',
+    title: t('accountSettings.address.deleteTitle'),
+    msg: t('accountSettings.address.deleteConfirm'),
     closeOnClickModal: false,
-    confirmButtonText: '确认',
-    cancelButtonText: '取消',
+    confirmButtonText: t('common.confirm'),
+    cancelButtonText: t('common.cancel'),
     success: (res) => {
       if (res.action === 'confirm') {
-        globalLoading.loading('加载中...')
+        globalLoading.loading(t('common.loading'))
         delAddress(id).then(() => {
           state.addressList.splice(index, 1)
           globalLoading.close()
@@ -97,7 +99,7 @@ function del(id: string, index: number) {
 <template>
   <z-paging ref="pagingRef" v-model="state.addressList" :auto="false" @query="queryList">
     <template #top>
-      <hr-navbar title="收货地址" />
+      <hr-navbar :title="t('accountSettings.address.navTitle')" />
     </template>
     <view
       v-for="(item, index) in state.addressList" :key="index" class="m-2 rounded-16rpx bg-white p-2"
@@ -108,7 +110,7 @@ function del(id: string, index: number) {
         <wd-text custom-class="p-r-20rpx" color="inherit" size="26rpx" :text="item.telephone" /><wd-tag
           v-if="item.isDefault === '1'" type="primary" plain
         >
-          默认
+          {{ t('accountSettings.address.defaultTag') }}
         </wd-tag>
       </view>
       <view>
@@ -120,16 +122,16 @@ function del(id: string, index: number) {
           false-value="0" @tap.stop="" @change="handleChange(item, index)"
         >
           {{ item.isDefault === '1'
-            ? '已默认'
-            : '设为默认' }}
+            ? t('accountSettings.address.alreadyDefault')
+            : t('accountSettings.address.setDefault') }}
         </wd-checkbox>
 
         <view class="flex">
           <view class="rounded-10rpx bg-white p-2 text-12px" @tap.stop="toForm(item.id)">
-            修改
+            {{ t('accountSettings.address.edit') }}
           </view>
           <view class="rounded-10rpx bg-white p-2 text-12px" @tap.stop="del(item.id, index)">
-            删除
+            {{ t('accountSettings.address.delete') }}
           </view>
         </view>
       </view>
@@ -137,7 +139,7 @@ function del(id: string, index: number) {
     <template #bottom>
       <view class="address-bottom">
         <wd-button block type="primary" @click="toForm('')">
-          添加新地址
+          {{ t('accountSettings.address.addNew') }}
         </wd-button>
       </view>
     </template>

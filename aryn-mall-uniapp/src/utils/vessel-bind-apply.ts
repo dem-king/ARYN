@@ -10,6 +10,8 @@
  * 因此把判定与文案收敛成纯函数：页面负责展示，测试负责钉住措辞里的可执行指引。
  */
 
+import { translate } from '@/locales'
+
 /** 与后端 `VesselBindApply.STATUS_PENDING` 对齐 */
 export const PENDING_APPLY_STATUS = '1'
 
@@ -97,9 +99,12 @@ export function mismatchTip(apply?: null | VesselBindMismatchLike): string {
   }
   // 申请船名缺失时不要拼出「你申请的「」」：只说清实际绑定到了哪条船
   if (!appliedVesselName) {
-    return `实际绑定到了「${matchedVesselName}」，如有疑问请联系运营`
+    return translate('vessel.bindApply.mismatchNoApplied', { vessel: matchedVesselName })
   }
-  return `你申请的「${appliedVesselName}」实际绑定到了「${matchedVesselName}」，如有疑问请联系运营`
+  return translate('vessel.bindApply.mismatch', {
+    applied: appliedVesselName,
+    matched: matchedVesselName,
+  })
 }
 
 /** 从「我的申请」列表里挑出待审核的那条（没有则 null） */
@@ -116,7 +121,8 @@ export function findPendingApply<T extends VesselBindApplyLike>(
  * 后端返回的错误是否为「已有待审核申请」防重拦截。
  *
  * 只认文案特征而不是错误码：这里所有业务错误都是 `code=1`，用 code 无法区分
- * 「船名为空」与「已有待审核申请」。
+ * 「船名为空」与「已有待审核申请」。后端文案尚未英文化，因此这里匹配的
+ * 「待审核 / 等待运营」是**后端判定码**，不能翻译（翻成英文会直接失效）。
  *
  * 判定要**同时**包含「待审核」与「等待运营」：只要求「待审核 + 申请」会误把
  * 撤回失败的「只有待审核的申请可以撤回」当成防重拦截，替换成一句让用户去撤回
@@ -132,8 +138,10 @@ export function isPendingApplyBlocked(message?: null | string): boolean {
 /** 待审核拦截的完整提示：说清是哪条船，并指出唯一出路是撤回后重填 */
 export function pendingApplyTip(apply?: null | VesselBindApplyLike): string {
   const vessel = apply?.applyVesselName?.trim()
-  const which = vessel ? `「${vessel}」的申请` : '一条绑定申请'
-  return `你已提交${which}，正在等待运营审核（同一账号同时只能有一条待审核申请）；如需修改船名或重新提交，请先在下方「我的申请」里撤回。`
+  const which = vessel
+    ? translate('vessel.bindApply.pendingWhichVessel', { vessel })
+    : translate('vessel.bindApply.pendingWhichFallback')
+  return translate('vessel.bindApply.pendingTip', { which })
 }
 
 /** 把任意错误翻译成弹层内可展示的一句话 */
@@ -148,7 +156,7 @@ export function resolveApplyErrorMessage(
   if (raw) {
     return raw
   }
-  return '提交失败，请检查网络后稍后重试'
+  return translate('vessel.bindApply.submitFailed')
 }
 
 function extractMessage(error: unknown): string {

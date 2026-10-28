@@ -6,7 +6,6 @@ import {
   CopyDocument,
   Refresh,
   RefreshLeft,
-  Search,
   Ship,
   ShoppingCart,
 } from '@element-plus/icons-vue';
@@ -15,7 +14,6 @@ import {
   ElButton,
   ElDialog,
   ElEmpty,
-  ElForm,
   ElFormItem,
   ElIcon,
   ElInput,
@@ -36,6 +34,8 @@ import {
   getSharedCartPage,
   updateSharedCartMemberPermission,
 } from '#/api/order/shared-cart';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 
 const Pagination = defineAsyncComponent(
   () => import('#/components/pagination/index.vue'),
@@ -261,6 +261,8 @@ const toggleMemberPermission = (member: any, next: boolean) => {
 };
 
 onMounted(initPage);
+
+useKeepAliveRefresh(handleSearch);
 </script>
 
 <template>
@@ -293,42 +295,36 @@ onMounted(initPage);
         </div>
       </header>
 
-      <section class="sc-filter">
-        <ElForm :inline="true" :model="state.query" @submit.prevent>
-          <ElFormItem label="购物车编号">
-            <ElInput
-              v-model="state.query.cartNo"
-              clearable
-              placeholder="搜索编号，如 SC2118..."
-              style="width: 240px"
-              @clear="handleSearch"
-              @keyup.enter="handleSearch"
+      <PageFilterPanel
+        :model="state.query"
+        @reset="resetQuery"
+        @search="handleSearch"
+      >
+        <ElFormItem label="购物车编号">
+          <ElInput
+            v-model="state.query.cartNo"
+            clearable
+            placeholder="搜索编号，如 SC2118..."
+            @clear="handleSearch"
+            @keyup.enter="handleSearch"
+          />
+        </ElFormItem>
+        <ElFormItem label="状态">
+          <ElSelect
+            v-model="state.query.status"
+            clearable
+            placeholder="全部状态"
+            @change="handleSearch"
+          >
+            <ElOption
+              v-for="(label, value) in statusLabel"
+              :key="value"
+              :label="label"
+              :value="value"
             />
-          </ElFormItem>
-          <ElFormItem label="状态">
-            <ElSelect
-              v-model="state.query.status"
-              clearable
-              placeholder="全部状态"
-              style="width: 160px"
-              @change="handleSearch"
-            >
-              <ElOption
-                v-for="(label, value) in statusLabel"
-                :key="value"
-                :label="label"
-                :value="value"
-              />
-            </ElSelect>
-          </ElFormItem>
-          <ElFormItem>
-            <ElButton type="primary" :icon="Search" @click="handleSearch">
-              搜索
-            </ElButton>
-            <ElButton :icon="RefreshLeft" @click="resetQuery">重置</ElButton>
-          </ElFormItem>
-        </ElForm>
-      </section>
+          </ElSelect>
+        </ElFormItem>
+      </PageFilterPanel>
 
       <section class="sc-list">
         <div class="sc-list-head">
@@ -879,17 +875,6 @@ onMounted(initPage);
 }
 
 /* ---------- 查询区 ---------- */
-.sc-filter {
-  padding: 14px 16px 0;
-  margin-bottom: 12px;
-  background: var(--el-fill-color-lighter);
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 12px;
-}
-
-.sc-filter :deep(.el-form-item) {
-  margin-bottom: 14px;
-}
 
 /* ---------- 列表卡片 ---------- */
 .sc-list {

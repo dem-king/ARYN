@@ -22,6 +22,7 @@ import {
 import { getPage } from '#/api/order/order-refund';
 import PageFilterPanel from '#/components/page/page-filter-panel.vue';
 import PageToolbar from '#/components/page/page-toolbar.vue';
+import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 import { useDict } from '#/utils/dict';
 import { formatMoney } from '#/utils/util';
 
@@ -124,21 +125,35 @@ onMounted(async () => {
   openRouteRefund();
 });
 
+// keepAlive 缓存后切去其它页面（如进详情）也会触发 route.query 的 watch（route
+// 变为对方路由、query 变 undefined），此时必须忽略，避免筛选/分页被重置
+const listRoutePath = route.path;
+
 // 异步子组件加载完成后再补一次深链打开
 watch(refundRef, () => void nextTick(openRouteRefund));
 // 同一页面内 query 变化（例如从不同通知再次跳转）也要打开对应退单
 watch(
   () => route.query.refundId,
-  () => void nextTick(openRouteRefund),
+  () => {
+    if (route.path !== listRoutePath) {
+      return;
+    }
+    void nextTick(openRouteRefund);
+  },
 );
 watch(
   () => route.query.status,
   () => {
+    if (route.path !== listRoutePath) {
+      return;
+    }
     if (applyRouteStatus()) {
       initPage();
     }
   },
 );
+
+useKeepAliveRefresh(initPage);
 </script>
 <template>
   <div class="hx-layout-container">

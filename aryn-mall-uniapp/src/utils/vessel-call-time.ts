@@ -10,6 +10,8 @@
  * 手工解析 yyyy-MM-dd HH:mm(:ss)，不经过 Date 字符串构造：
  * 小程序端对 `new Date('2026-09-22 00:15:33')` 的解析行为不一致（iOS 返回 Invalid Date）。
  */
+import { translate } from '@/locales'
+
 const CALL_TIME_PATTERN = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/
 
 interface ParsedCallTime {
@@ -107,36 +109,62 @@ export function remainingMsUntil(value?: string, now: Date = new Date()): number
   return timestamp - now.getTime()
 }
 
+/** 收集截止倒计时的结构化视图：文案 + 是否进入紧急窗口（不足 1 小时） */
+export interface ExpiryCountdownState {
+  text: string
+  urgent: boolean
+}
+
 /**
- * 收集截止倒计时文案：`还剩 3 小时 12 分` / `还剩 8 分`。
+ * 收集截止倒计时：`还剩 3 小时 12 分` / `还剩 8 分`。
  *
  * 共享购物车的有效期是「创建 +24h」，用户在详情页最关心的是「我还有多久」，
  * 而 `2026-09-28 22:23:26` 这种绝对时刻需要自己换算。分档与 formatCallTime
  * 同口径取整：不足 1 分钟说「即将截止」，避免显示成 `还剩 00:00`。
  *
+ * 返回结构化结果（`text` + `urgent`）而不是只有文案：紧急分档必须由这里的
+ * 时间差判定，调用方**禁止**比较或正则匹配翻译后的文案（英文下必然失效）。
+ * 已过期或无法解析时返回 null，由调用方决定展示什么。
+ *
  * 与 formatCallTime 一样手工解析，不经过 `new Date('yyyy-MM-dd HH:mm:ss')`
- * —— 小程序 iOS 端对该格式返回 Invalid Date。已过期或无法解析时返回空串，
- * 由调用方决定展示什么（本页在非收集中状态就不显示倒计时）。
+ * —— 小程序 iOS 端对该格式返回 Invalid Date。
  */
-export function formatExpiryCountdown(value?: string, now: Date = new Date()): string {
+export function formatExpiryCountdownState(
+  value?: string,
+  now: Date = new Date(),
+): ExpiryCountdownState | null {
   const parsed = parseCallTime(value)
   if (!parsed)
-    return ''
+    return null
 
   const remaining = toTimestamp(parsed) - now.getTime()
   if (!Number.isFinite(remaining) || remaining <= 0)
-    return ''
+    return null
 
   const totalMinutes = Math.floor(remaining / 60_000)
+  // 不足 1 小时（含不足 1 分钟）转警示色：与列表卡片同一分档
+  const urgent = totalMinutes < 60
   if (totalMinutes < 1)
-    return '即将截止'
+    return { text: translate('vessel.time.expiringSoon'), urgent }
   const hours = Math.floor(totalMinutes / 60)
   const minutes = totalMinutes % 60
   if (hours <= 0)
-    return `还剩 ${minutes} 分`
+    return { text: translate('vessel.time.remainingMinutes', { count: minutes }), urgent }
   if (minutes === 0)
-    return `还剩 ${hours} 小时`
-  return `还剩 ${hours} 小时 ${minutes} 分`
+    return { text: translate('vessel.time.remainingHours', { count: hours }), urgent }
+  return {
+    text: translate('vessel.time.remainingHoursMinutes', { hours, minutes }),
+    urgent,
+  }
+}
+
+/**
+ * 收集截止倒计时文案（兼容旧调用点）。
+ *
+ * 新代码需要「是否紧急」时请直接用 formatExpiryCountdownState，不要比较文案。
+ */
+export function formatExpiryCountdown(value?: string, now: Date = new Date()): string {
+  return formatExpiryCountdownState(value, now)?.text ?? ''
 }
 
 /**
@@ -151,9 +179,9 @@ export function formatCallTime(value?: string, now: Date = new Date()): string {
 
   const days = diffInDays(parsed, now)
   if (days === 0)
-    return `今天 ${parsed.time}`
+    return translate('vessel.time.today', { time: parsed.time })
   if (days === 1)
-    return `明天 ${parsed.time}`
+    return translate('vessel.time.tomorrow', { time: parsed.time })
   // 跨年时补年份，否则「01-05」无法判断是哪一年
   if (parsed.year !== now.getFullYear()) {
     return `${parsed.year}-${pad(parsed.month)}-${pad(parsed.day)} ${parsed.time}`

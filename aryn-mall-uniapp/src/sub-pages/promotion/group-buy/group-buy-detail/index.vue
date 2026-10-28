@@ -3,6 +3,7 @@ import type { GroupBuyActivity } from '@/api/promotion/groupBuyActivity'
 import type { GroupBuyMemberVO, GroupBuyRecord } from '@/sub-pages/api/promotion/groupBuyRecord'
 import { onLoad, onShareAppMessage } from '@dcloudio/uni-app'
 import { computed, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { getByIds } from '@/api/product/spu'
 import { getActivityById } from '@/api/promotion/groupBuyActivity'
 import { normalizeRetailGoods } from '@/components/diy/retail-normalizers'
@@ -16,8 +17,8 @@ definePage({
   },
 })
 
-/** 团长昵称兜底：后端未装配/查无用户时也不再显示裸 userId */
-const LEADER_FALLBACK = '拼友'
+const { t } = useI18n()
+
 /** 头像环最多画几个位置：多人团（groupNum 偏大）折叠成 +N，避免挤爆一行 */
 const MAX_RING_SLOTS = 4
 
@@ -59,8 +60,12 @@ onLoad(async (options) => {
 
 onShareAppMessage(() => {
   const current = state.activity
+  const name = current?.activityName || t('promotion.groupBuy.detail.shareFallbackName')
+  const price = current?.groupPrice ? `¥${current.groupPrice}` : ''
   return {
-    title: `${current?.activityName || '拼团优惠'} — ${current?.groupPrice ? `¥${current.groupPrice}` : ''}开团`,
+    title: price
+      ? t('promotion.groupBuy.detail.shareTitleWithPrice', { name, price })
+      : t('promotion.groupBuy.detail.shareTitle', { name }),
     path: `/sub-pages/promotion/group-buy/group-buy-detail/index?id=${current?.id}`,
   }
 })
@@ -68,7 +73,7 @@ onShareAppMessage(() => {
 /** 右上角转发引导：小程序端由 open-type="share" 触发；其它端提示走右上角菜单 */
 function handleShareTap() {
   // #ifndef MP-WEIXIN
-  uni.showToast({ title: '点击右上角「···」分享给好友', icon: 'none' })
+  uni.showToast({ title: t('promotion.groupBuy.detail.shareHint'), icon: 'none' })
   // #endif
 }
 
@@ -111,7 +116,7 @@ function remainingText(value?: string) {
   if (!parts)
     return ''
   const clock = `${pad(parts.hours)}:${pad(parts.minutes)}:${pad(parts.seconds)}`
-  return parts.days > 0 ? `${parts.days}天 ${clock}` : clock
+  return parts.days > 0 ? t('promotion.common.daysClock', { clock, days: parts.days }) : clock
 }
 
 function formatPrice(value?: number) {
@@ -122,15 +127,20 @@ function formatPrice(value?: number) {
 
 const groupPriceText = computed(() => formatPrice(activity.value?.groupPrice))
 const originalPriceText = computed(() => formatPrice(activity.value?.originalPrice))
-const goodsName = computed(() => spuInfo.value?.spuName || activity.value?.activityName || '拼团商品')
+const goodsName = computed(() =>
+  spuInfo.value?.spuName || activity.value?.activityName || t('promotion.groupBuy.detail.goodsFallback'),
+)
 const goodsImage = computed(() => spuInfo.value?.picUrl || '')
 const showGoodsImage = computed(() => Boolean(goodsImage.value) && !spuImageFailed.value)
 const showActivityName = computed(() => Boolean(spuInfo.value?.spuName && activity.value?.activityName))
 
-/** D4 已拍板：virtualNum 是活动真实「已拼件数」，>0 才展示 */
+/**
+ * 「已拼 N 件」：读后端合成的 soldCount（运营虚增 virtualNum + 真实已付款参团件数），
+ * 真实成团/退款实时反映；老接口未下发 soldCount 时回落到 virtualNum。>0 才展示。
+ */
 const soldText = computed(() => {
-  const virtualNum = activity.value?.virtualNum ?? 0
-  return virtualNum > 0 ? `已拼${virtualNum}件` : ''
+  const count = activity.value?.soldCount ?? activity.value?.virtualNum ?? 0
+  return count > 0 ? t('promotion.groupBuy.card.sold', { count }) : ''
 })
 
 /**
@@ -145,9 +155,9 @@ const baseTags = computed(() => {
     return []
   const tags: string[] = []
   if ((current.groupNum ?? 0) > 0)
-    tags.push(`${current.groupNum}人成团`)
+    tags.push(t('promotion.groupBuy.card.badge', { count: current.groupNum }))
   if ((current.limitNum ?? 0) > 0)
-    tags.push(`限购${current.limitNum}件`)
+    tags.push(t('promotion.groupBuy.card.limit', { count: current.limitNum }))
   return tags
 })
 
@@ -172,7 +182,9 @@ const groupCountdown = computed(() => {
     return null
   return {
     ...parts,
-    label: hasGroupTarget ? `${groupExpireHours.value} 小时内成团 · 剩余` : '距活动结束',
+    label: hasGroupTarget
+      ? t('promotion.groupBuy.detail.countdownGroup', { hours: groupExpireHours.value })
+      : t('promotion.groupBuy.detail.countdownActivity'),
   }
 })
 
@@ -262,7 +274,8 @@ function retryRecords() {
 function leaderNickname(record: GroupBuyRecord) {
   const leader = (record.memberList ?? []).find(member => member.isLeader === '1')
   const nickname = (record.leaderNickname || leader?.nickname || '').trim()
-  return nickname || LEADER_FALLBACK
+  // 后端未装配/查无用户时也不再显示裸 userId
+  return nickname || t('promotion.groupBuy.detail.peerFallback')
 }
 
 function leaderAvatar(record: GroupBuyRecord) {
@@ -296,7 +309,9 @@ function ringSlots(record: GroupBuyRecord): RingSlot[] {
       filled: index < filledCount,
       isLeader,
       avatar: isLeader ? leaderAvatar(record) : (member?.avatarUrl ?? ''),
-      nickname: isLeader ? leaderNickname(record) : (member?.nickname ?? LEADER_FALLBACK),
+      nickname: isLeader
+        ? leaderNickname(record)
+        : (member?.nickname ?? t('promotion.groupBuy.detail.peerFallback')),
     })
   }
   return slots
@@ -309,7 +324,7 @@ function hiddenSlotCount(record: GroupBuyRecord) {
 
 function avatarText(nickname: string) {
   const chars = Array.from(nickname.trim())
-  return chars[0] ?? '拼'
+  return chars[0] ?? t('promotion.groupBuy.detail.avatarFallback')
 }
 
 function markAvatarFailed(key: string) {
@@ -325,9 +340,9 @@ function remainCount(record: GroupBuyRecord) {
 
 function recordStatusText(record: GroupBuyRecord) {
   if (record.groupStatus === '1')
-    return '拼团成功'
+    return t('promotion.groupBuy.record.statusSuccess')
   if (record.groupStatus === '2')
-    return '拼团失败'
+    return t('promotion.groupBuy.record.statusFailed')
   return ''
 }
 
@@ -354,16 +369,16 @@ function recordAction(record: GroupBuyRecord): RecordAction {
 
 function actionLabel(action: RecordAction) {
   if (action === 'order')
-    return '去下单'
+    return t('promotion.groupBuy.detail.actionOrder')
   if (action === 'pay')
-    return '去支付'
+    return t('promotion.groupBuy.detail.actionPay')
   if (action === 'join')
-    return '参与拼单'
+    return t('promotion.groupBuy.detail.actionJoin')
   if (action === 'joined')
-    return '我参团中'
+    return t('promotion.groupBuy.detail.actionJoined')
   if (action === 'success')
-    return '已拼成'
-  return '已结束'
+    return t('promotion.groupBuy.detail.formed')
+  return t('promotion.groupBuy.status.ended')
 }
 
 function actionClass(action: RecordAction) {
@@ -387,14 +402,14 @@ function handleRecordAction(record: GroupBuyRecord) {
 async function handleOpenGroup() {
   if (!state.activity?.id)
     return
-  globalLoading.loading('开团中...')
+  globalLoading.loading(t('promotion.groupBuy.detail.opening'))
   try {
     const record = await openGroup({ activityId: state.activity.id })
     await loadRecords(state.activity.id)
     gotoOrderConfirm(record?.id)
   }
   catch {
-    uni.showToast({ title: '开团失败', icon: 'none' })
+    uni.showToast({ title: t('promotion.groupBuy.detail.openFailed'), icon: 'none' })
   }
   finally {
     globalLoading.close()
@@ -404,14 +419,14 @@ async function handleOpenGroup() {
 async function handleJoinGroup(recordId: string) {
   if (!state.activity?.id)
     return
-  globalLoading.loading('参团中...')
+  globalLoading.loading(t('promotion.groupBuy.detail.joining'))
   try {
     const record = await joinGroup({ activityId: state.activity.id, recordId })
     await loadRecords(state.activity.id)
     gotoOrderConfirm(record?.id || recordId)
   }
   catch {
-    uni.showToast({ title: '参团失败', icon: 'none' })
+    uni.showToast({ title: t('promotion.groupBuy.detail.joinFailed'), icon: 'none' })
   }
   finally {
     globalLoading.close()
@@ -428,7 +443,7 @@ async function handleJoinGroup(recordId: string) {
 function gotoOrderConfirm(recordId?: string) {
   const activity = state.activity
   if (!recordId || !activity?.skuId) {
-    uni.showToast({ title: '拼团资格获取失败，请重试', icon: 'none' })
+    uni.showToast({ title: t('promotion.groupBuy.detail.qualificationFailed'), icon: 'none' })
     return
   }
   const goodsStore = useGoodsStore()
@@ -461,7 +476,7 @@ function gotoPay(orderId: string) {
 function gotoGoodsDetail() {
   const spuId = state.activity?.spuId
   if (!spuId) {
-    uni.showToast({ title: '商品信息加载中，请稍后', icon: 'none' })
+    uni.showToast({ title: t('promotion.groupBuy.detail.goodsLoading'), icon: 'none' })
     return
   }
   uni.navigateTo({
@@ -480,15 +495,25 @@ function gotoMyGroups() {
 const saveText = computed(() => {
   const original = activity.value?.originalPrice ?? 0
   const group = activity.value?.groupPrice ?? 0
-  return original > group ? `省¥${(original - group).toFixed(2)}` : ''
+  return original > group
+    ? t('promotion.common.saveAmount', { amount: (original - group).toFixed(2) })
+    : ''
 })
 
-/** 「正在拼的团」分区头右侧：优先用真实已拼件数做社会证明，无数据时给团数 */
+/** 「正在拼的团」分区头右侧：优先用已拼件数（虚增+真实，后端合成）做社会证明，无数据时给团数 */
 const sectionSub = computed(() => {
   if (soldText.value)
     return soldText.value
   const count = displayRecords.value.length
-  return count > 0 ? `${count}个团 · 邀好友一起拼` : ''
+  return count > 0 ? t('promotion.groupBuy.detail.groupCount', { count }) : ''
+})
+
+/** 空态说明：成团人数 + 拼成价（有拼团价时展示「拼成即享」） */
+const emptyDesc = computed(() => {
+  const count = activity.value?.groupNum ?? 2
+  return groupPriceText.value
+    ? t('promotion.groupBuy.detail.emptyDescWithPrice', { count, price: groupPriceText.value })
+    : t('promotion.groupBuy.detail.emptyDesc', { count })
 })
 
 /** 我的团：同活动同一用户只占一个坑，用于底部 CTA 的状态判定 */
@@ -527,9 +552,9 @@ const bottomMode = computed<BottomMode>(() => {
 const startTimeText = computed(() => {
   const start = parseTime(activity.value?.startedAt)
   if (Number.isNaN(start))
-    return '即将开抢'
+    return t('promotion.groupBuy.detail.startingSoon')
   const date = new Date(start)
-  return `${pad(date.getHours())}:${pad(date.getMinutes())} 开抢`
+  return t('promotion.groupBuy.detail.startAt', { time: `${pad(date.getHours())}:${pad(date.getMinutes())}` })
 })
 
 /** 底部右侧主按钮动作（分享分支由原生 button open-type 承担，不进此处） */
@@ -555,10 +580,10 @@ function handleBottomSecondary() {
 
 <template>
   <view class="group-buy-page">
-    <hr-navbar title="拼团详情">
+    <hr-navbar :title="t('promotion.groupBuy.detail.title')">
       <template #right>
         <button class="nav-share" open-type="share" @tap="handleShareTap">
-          分享
+          {{ t('promotion.groupBuy.detail.share') }}
         </button>
       </template>
     </hr-navbar>
@@ -599,7 +624,7 @@ function handleBottomSecondary() {
               @error="spuImageFailed = true"
             />
             <view v-else class="goods-img goods-img--empty">
-              拼团
+              {{ t('promotion.groupBuy.card.fallbackBadge') }}
             </view>
           </view>
           <view class="goods-info">
@@ -613,10 +638,10 @@ function handleBottomSecondary() {
               <view class="price-main">
                 <text class="price-sym">¥</text>
                 <text class="price-val">{{ groupPriceText || '--' }}</text>
-                <text class="price-label">拼团价</text>
+                <text class="price-label">{{ t('promotion.groupBuy.groupPrice') }}</text>
               </view>
               <view v-if="originalPriceText" class="price-other">
-                <text class="price-other-label">单独购买</text>
+                <text class="price-other-label">{{ t('promotion.groupBuy.detail.buyAlone') }}</text>
                 <text class="price-orig">¥{{ originalPriceText }}</text>
               </view>
             </view>
@@ -632,7 +657,7 @@ function handleBottomSecondary() {
         <view v-if="groupCountdown" class="countdown-row">
           <text class="countdown-label">{{ groupCountdown.label }}</text>
           <view class="countdown-blocks">
-            <text v-if="groupCountdown.days > 0" class="cd-block cd-days">{{ groupCountdown.days }}天</text>
+            <text v-if="groupCountdown.days > 0" class="cd-block cd-days">{{ t('promotion.common.days', { days: groupCountdown.days }) }}</text>
             <text class="cd-block">{{ pad(groupCountdown.hours) }}</text>
             <text class="cd-colon">:</text>
             <text class="cd-block">{{ pad(groupCountdown.minutes) }}</text>
@@ -642,29 +667,29 @@ function handleBottomSecondary() {
         </view>
       </view>
 
-      <!-- 正在拼的团（分区头带真实已拼件数） -->
+      <!-- 正在拼的团（分区头带已拼件数：虚增 + 真实已付款参团） -->
       <view class="record-section">
         <view class="section-head">
-          <text class="section-title">正在拼的团</text>
+          <text class="section-title">{{ t('promotion.groupBuy.detail.activeGroups') }}</text>
           <text v-if="sectionSub" class="section-sub">{{ sectionSub }}</text>
         </view>
 
         <view v-if="state.recordFailed" class="records-error" @tap="retryRecords">
-          团列表加载失败，点击重试
+          {{ t('promotion.groupBuy.detail.recordsFailed') }}
         </view>
 
         <!-- 空态：图形位 + 说明 + 主按钮 + 次要出口（邀请好友一起拼） -->
         <view v-else-if="displayRecords.length === 0" class="empty-card">
           <hall-state
             art="group"
-            title="还没人开团，来发起第一团"
-            :desc="`${activity.groupNum ?? 2} 人成团${groupPriceText ? `，拼成即享 ¥${groupPriceText}` : ''}`"
-            action-text="发起拼单"
+            :title="t('promotion.groupBuy.detail.emptyTitle')"
+            :desc="emptyDesc"
+            :action-text="t('promotion.groupBuy.detail.startGroup')"
             @action="handleOpenGroup"
           >
             <template #link>
               <button class="empty-share" open-type="share" @tap="handleShareTap">
-                邀请好友一起拼
+                {{ t('promotion.groupBuy.detail.inviteToJoin') }}
               </button>
             </template>
           </hall-state>
@@ -697,7 +722,7 @@ function handleBottomSecondary() {
                 ?
               </view>
               <view v-if="slot.isLeader" class="ring-crown">
-                团长
+                {{ t('promotion.groupBuy.detail.leader') }}
               </view>
             </view>
             <text v-if="hiddenSlotCount(record) > 0" class="ring-more">+{{ hiddenSlotCount(record) }}</text>
@@ -710,16 +735,16 @@ function handleBottomSecondary() {
                 v-if="record.groupStatus === '0' && remainCount(record) > 0"
                 class="record-remain"
                 :class="{ 'is-urgent': remainCount(record) === 1 }"
-              >还差{{ remainCount(record) }}人拼成</text>
-              <text v-else-if="record.groupStatus === '1'" class="record-done">已拼成</text>
+              >{{ t('promotion.groupBuy.detail.remain', { count: remainCount(record) }) }}</text>
+              <text v-else-if="record.groupStatus === '1'" class="record-done">{{ t('promotion.groupBuy.detail.formed') }}</text>
               <text v-else-if="recordStatusText(record)" class="record-done">{{ recordStatusText(record) }}</text>
-              <text v-else-if="record.groupStatus === '0'" class="record-done">已满员待成团</text>
+              <text v-else-if="record.groupStatus === '0'" class="record-done">{{ t('promotion.groupBuy.detail.fullWaiting') }}</text>
             </view>
             <view class="record-sub">
               <text v-if="record.groupStatus === '0' && remainingText(record.expireAt)" class="record-time">
-                剩余 {{ remainingText(record.expireAt) }}
+                {{ t('promotion.groupBuy.detail.remaining', { time: remainingText(record.expireAt) }) }}
               </text>
-              <text v-else class="record-time">{{ recordStatusText(record) || '已满员' }}</text>
+              <text v-else class="record-time">{{ recordStatusText(record) || t('promotion.groupBuy.detail.full') }}</text>
             </view>
           </view>
 
@@ -740,28 +765,28 @@ function handleBottomSecondary() {
       <!-- 玩法说明：三步流程图，填补记录区之后的空白并降低理解成本 -->
       <view class="how-card">
         <view class="how-title">
-          怎么拼
+          {{ t('promotion.groupBuy.detail.howTitle') }}
         </view>
         <view class="how-steps">
           <view class="how-step">
             <view class="how-num">
               1
             </view>
-            <text class="how-label">发起拼单</text>
+            <text class="how-label">{{ t('promotion.groupBuy.detail.howStepStart') }}</text>
           </view>
           <view class="how-arrow" />
           <view class="how-step">
             <view class="how-num">
               2
             </view>
-            <text class="how-label">邀请好友</text>
+            <text class="how-label">{{ t('promotion.groupBuy.detail.howStepInvite') }}</text>
           </view>
           <view class="how-arrow" />
           <view class="how-step">
             <view class="how-num">
               3
             </view>
-            <text class="how-label">拼成发货</text>
+            <text class="how-label">{{ t('promotion.groupBuy.detail.howStepShip') }}</text>
           </view>
         </view>
       </view>
@@ -771,9 +796,9 @@ function handleBottomSecondary() {
     <view v-else class="state-panel">
       <hall-state
         art="error"
-        title="拼团活动加载失败"
-        desc="网络开小差了，请稍后重试"
-        action-text="重新加载"
+        :title="t('promotion.groupBuy.detail.loadFailedTitle')"
+        :desc="t('promotion.groupBuy.detail.loadFailedDesc')"
+        :action-text="t('promotion.groupBuy.detail.reload')"
         @action="retryLoad"
       />
     </view>
@@ -786,13 +811,13 @@ function handleBottomSecondary() {
       <view class="bottom-cta-hit" @tap="handleBottomSecondary">
         <view class="cta-ghost cta-ghost--wide">
           <template v-if="bottomMode === 'order' || bottomMode === 'pay' || bottomMode === 'joined'">
-            查看我的拼团
+            {{ t('promotion.groupBuy.detail.myGroups') }}
           </template>
           <template v-else-if="bottomMode === 'ended'">
-            去商品详情
+            {{ t('promotion.groupBuy.detail.goGoods') }}
           </template>
           <template v-else>
-            单独购买<text v-if="originalPriceText" class="cta-ghost-price"> ¥{{ originalPriceText }}</text>
+            {{ t('promotion.groupBuy.detail.buyAlone') }}<text v-if="originalPriceText" class="cta-ghost-price"> ¥{{ originalPriceText }}</text>
           </template>
         </view>
       </view>
@@ -805,7 +830,7 @@ function handleBottomSecondary() {
           open-type="share"
           @tap="handleShareTap"
         >
-          <text class="cta-solid-label">邀请好友参团</text>
+          <text class="cta-solid-label">{{ t('promotion.groupBuy.detail.inviteFriends') }}</text>
         </button>
         <view
           v-else
@@ -814,12 +839,12 @@ function handleBottomSecondary() {
           @tap="handleBottomPrimary"
         >
           <text v-if="bottomMode === 'pending'" class="cta-solid-label">{{ startTimeText }}</text>
-          <text v-else-if="bottomMode === 'ended'" class="cta-solid-label">活动已结束</text>
-          <text v-else-if="bottomMode === 'order'" class="cta-solid-label">去下单</text>
-          <text v-else-if="bottomMode === 'pay'" class="cta-solid-label">去支付</text>
+          <text v-else-if="bottomMode === 'ended'" class="cta-solid-label">{{ t('promotion.groupBuy.detail.activityEnded') }}</text>
+          <text v-else-if="bottomMode === 'order'" class="cta-solid-label">{{ t('promotion.groupBuy.detail.actionOrder') }}</text>
+          <text v-else-if="bottomMode === 'pay'" class="cta-solid-label">{{ t('promotion.groupBuy.detail.actionPay') }}</text>
           <template v-else>
             <text v-if="groupPriceText" class="cta-solid-price">¥{{ groupPriceText }}</text>
-            <text class="cta-solid-label">发起拼单{{ saveText ? ` · ${saveText}` : '' }}</text>
+            <text class="cta-solid-label">{{ t('promotion.groupBuy.detail.startGroup') }}{{ saveText ? ` · ${saveText}` : '' }}</text>
           </template>
         </view>
       </view>

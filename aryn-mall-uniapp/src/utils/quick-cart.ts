@@ -9,6 +9,9 @@
  * 无需改这里的调用方即可接回。
  */
 
+import { translate } from '@/locales'
+import { stockHintText } from './stock-display'
+
 /** 可直接加购，无需选择规格 */
 export const QUICK_CART_MODE_DIRECT = 'direct'
 /** 需用户选择规格（多规格商品） */
@@ -233,37 +236,40 @@ export function validateQuantity(value: unknown, rule: QuantityRule): { ok: bool
   const stepQty = toPositiveInt(rule.stepQty) ?? 1
   const quantity = Number(value)
   if (!Number.isFinite(quantity) || quantity <= 0)
-    return { ok: false, reason: '请输入采购数量' }
+    return { ok: false, reason: translate('labels.enterPurchaseQuantity') }
   if (quantity < moq)
-    return { ok: false, reason: `最少起订 ${moq}${rule.purchaseUnit}` }
+    return { ok: false, reason: translate('labels.minOrder', { count: moq, unit: rule.purchaseUnit }) }
   if (quantity % stepQty !== 0)
-    return { ok: false, reason: `数量需为 ${stepQty} 的整数倍` }
+    return { ok: false, reason: translate('labels.quantityMultiple', { count: stepQty }) }
   const stock = toPositiveInt(rule.stock)
   if (stock !== null && quantity > stock)
-    return { ok: false, reason: `库存仅剩 ${stock}${rule.purchaseUnit}` }
+    return { ok: false, reason: translate('labels.stockOnlyInStock', { count: stock, unit: rule.purchaseUnit }) }
   return { ok: true, reason: '' }
 }
 
 /**
- * 数量规则提示文案：把「起订量 / 步长 / 库存」讲在输入框旁，
+ * 数量规则提示文案：把「起订量 / 步长」讲在输入框旁，
  * 用户填大数量（几十上百斤）时一眼能看到约束，不必提交后才被拦。
  *
- * 没有约束（无船供资料、库存未下发）时返回空串，由调用方整行隐藏。
+ * 库存绝对值不外露（与 stock-display.ts 同口径，交互层封顶仍按真实库存执行）：
+ * 售罄/低库存给稀缺提示，充足或未知（null，后端 -1 表示未下发）不出库存段。
+ * 没有任何约束时返回空串，由调用方整行隐藏。
  */
 export function quantityRuleHint(rule: QuantityRule): string {
   const unit = rule.purchaseUnit
   const parts: string[] = []
   if (rule.moq > 1)
-    parts.push(`最少起订 ${rule.moq}${unit}`)
+    parts.push(translate('labels.minOrder', { count: rule.moq, unit }))
   if (rule.stepQty > 1)
-    parts.push(`按 ${rule.stepQty}${unit}递增`)
-  if (rule.stock !== null)
-    parts.push(`库存 ${rule.stock}${unit}`)
+    parts.push(translate('labels.incrementBy', { count: rule.stepQty, unit }))
+  const stockHint = stockHintText(rule.stock)
+  if (stockHint)
+    parts.push(stockHint)
   return parts.join(' · ')
 }
 
 /** 不可加购时的提示文案：后端给出原因时优先展示，否则回落为通用提示 */
 export function quickAddBlockedText(info: QuickCartInfo | null | undefined): string {
   const reason = typeof info?.reason === 'string' ? info.reason.trim() : ''
-  return reason || '该商品暂时无法加购'
+  return reason || translate('labels.quickAddUnavailable')
 }

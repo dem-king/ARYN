@@ -2,6 +2,7 @@
 import type { GroupBuyActivity } from '@/api/promotion/groupBuyActivity'
 import { onLoad } from '@dcloudio/uni-app'
 import { reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { getByIds } from '@/api/product/spu'
 import { getActivityPage } from '@/api/promotion/groupBuyActivity'
 import { normalizeRetailGoods } from '@/components/diy/retail-normalizers'
@@ -14,6 +15,7 @@ definePage({
   },
 })
 
+const { t } = useI18n()
 const pagingRef = ref()
 const state = reactive<{ list: GroupBuyActivity[] }>({
   list: [],
@@ -36,7 +38,7 @@ onLoad(async () => {
 })
 
 async function queryList(pageNo: number, pageSize: number) {
-  globalLoading.loading('加载中...')
+  globalLoading.loading(t('common.loading'))
   try {
     const response = await getActivityPage({
       current: pageNo,
@@ -95,11 +97,11 @@ function goDetail(activity: GroupBuyActivity) {
     ref="pagingRef"
     v-model="state.list"
     :auto="false"
-    loading-more-no-more-text="—— 没有更多了 ——"
+    :loading-more-no-more-text="t('promotion.common.noMore')"
     @query="queryList"
   >
     <template #top>
-      <hr-navbar title="拼团活动" />
+      <hr-navbar :title="t('promotion.groupBuy.list.title')" />
     </template>
     <view class="group-buy-list">
       <group-buy-card

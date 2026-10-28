@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { onLoad } from '@dcloudio/uni-app'
+import { onLoad, onUnload } from '@dcloudio/uni-app'
 import { computed, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { getByOrderNo, orderPrepay } from '@/api/order/orderInfo'
 import { useGlobalLoading } from '@/composables/useGlobalLoading'
 import { prepay } from '@/sub-pages/utils/pay'
-import { formatPayTimeout } from '@/sub-pages/utils/pay-timeout'
+import { DEFAULT_PAY_TIMEOUT_MINUTES } from '@/sub-pages/utils/pay-timeout'
 
 definePage({
   name: 'order-pay',
@@ -26,7 +27,15 @@ interface PrepayParams {
 }
 
 const loading = ref(true)
-const paymentType = ref('1')
+let initialPaymentType: PaymentType = '1'
+// 支付宝小程序只展示支付宝选项，默认值必须与展示保持一致
+// #ifdef MP-ALIPAY
+initialPaymentType = '2'
+// #endif
+const paymentType = ref<PaymentType>(initialPaymentType)
+const paying = ref(false)
+let disposed = false
+const { t } = useI18n()
 const globalLoading = useGlobalLoading()
 const state = reactive<{ order: any }>({
   order: {},
@@ -38,9 +47,20 @@ const amountText = computed(() => {
   const val = Number(paymentPrice.value || 0)
   return val.toFixed(2)
 })
-const payTimeoutText = computed(() => formatPayTimeout(state.order?.payTimeoutMinutes))
+// 与 pay-timeout 工具同口径：整小时按小时展示，缺省回落默认分钟数
+const payTimeoutText = computed(() => {
+  const value = Number(state.order?.payTimeoutMinutes)
+  const minutes = Number.isFinite(value) && value > 0 ? value : DEFAULT_PAY_TIMEOUT_MINUTES
+  return minutes >= 60 && minutes % 60 === 0
+    ? t('order.time.hours', { hours: minutes / 60 })
+    : t('order.time.minutes', { minutes })
+})
 onLoad((options) => {
   getOrder(options?.orderNo)
+})
+
+onUnload(() => {
+  disposed = true
 })
 
 function getOrder(orderNo: string) {
@@ -52,11 +72,15 @@ function getOrder(orderNo: string) {
   })
 }
 async function onPrepay() {
-  globalLoading.loading('加载中...')
+  // 防止连点或支付未结束时重复唤起收银台
+  if (paying.value || !payOrderNo.value) return
+  paying.value = true
+  globalLoading.loading(t('common.loading'))
   // 预支付
-  const prepayParams = buildPrepayParams(payOrderNo.value, paymentType.value as PaymentType)
+  const prepayParams = buildPrepayParams(payOrderNo.value, paymentType.value)
   try {
     const response = await orderPrepay(prepayParams)
+    if (disposed) return
     const orderNo = response.orderNo
     let payParams = response.payParams
     // #ifdef H5
@@ -66,9 +90,14 @@ async function onPrepay() {
         }&redirect_url=${encodeURIComponent(`${window.location.origin}/sub-pages/order/pay-result/index?orderNo=${orderNo}`)}`
     }
     // #endif
-    prepay(payParams, paymentPrice.value, `/sub-pages/order/pay-result/index?orderNo=${orderNo}`, paymentType.value)
+    await prepay(payParams, paymentPrice.value, `/sub-pages/order/pay-result/index?orderNo=${orderNo}`, paymentType.value)
+  }
+  catch (error) {
+    // 请求层已统一提示业务错误；这里兜住租户校验等本地异常，避免未处理拒绝
+    console.error('发起支付失败:', error)
   }
   finally {
+    paying.value = false
     globalLoading.close()
   }
 }
@@ -114,7 +143,7 @@ function buildPrepayParams(orderNo: string, paymentType: PaymentType): PrepayPar
 </script>
 
 <template>
-  <hr-navbar title="收银台" />
+  <hr-navbar :title="t('order.pay.title')" />
   <view v-if="!loading" class="cashier-container">
     <view class="cashier-header">
       <view class="cashier-amount">
@@ -126,13 +155,13 @@ function buildPrepayParams(orderNo: string, paymentType: PaymentType): PrepayPar
         </text>
       </view>
       <view class="cashier-tip">
-        请在{{ payTimeoutText }}内付款，超时订单自动取消
+        {{ t('order.pay.timeout', { time: payTimeoutText }) }}
       </view>
     </view>
 
     <view class="cashier-card">
       <view class="card-title">
-        选择支付方式
+        {{ t('order.pay.selectPayment') }}
       </view>
       <wd-radio-group v-model="paymentType" shape="dot" size="large" cell>
         <!-- #ifndef MP-ALIPAY -->
@@ -144,7 +173,7 @@ function buildPrepayParams(orderNo: string, paymentType: PaymentType): PrepayPar
               class="h-22px w-22px"
             />
             <text class="pl-1 text-xs">
-              微信支付
+              {{ t('order.payType.wechat') }}
             </text>
           </view>
         </wd-radio>
@@ -159,7 +188,7 @@ function buildPrepayParams(orderNo: string, paymentType: PaymentType): PrepayPar
               class="h-22px w-22px"
             />
             <text class="pl-1 text-xs">
-              支付宝支付
+              {{ t('order.payType.alipay') }}
             </text>
           </view>
         </wd-radio>
@@ -169,8 +198,8 @@ function buildPrepayParams(orderNo: string, paymentType: PaymentType): PrepayPar
       </wd-radio-group>
     </view>
     <view class="fixed bottom-0 left-0 right-0 border-t border-t-[rgba(255,255,255,0.33)] bg-white p-20rpx pb-[max(env(safe-area-inset-bottom),16rpx)]">
-      <wd-button type="primary" block @click="onPrepay">
-        确认付款
+      <wd-button type="primary" block :loading="paying" @click="onPrepay">
+        {{ t('order.pay.confirmPayment') }}
       </wd-button>
     </view>
   </view>

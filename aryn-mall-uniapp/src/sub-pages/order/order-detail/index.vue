@@ -1,18 +1,20 @@
 <script setup lang="ts">
 import { onLoad } from '@dcloudio/uni-app'
 import { reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { getById, reorderPreview } from '@/api/order/orderInfo'
 import { addShoppingCart } from '@/api/order/shoppingCart'
 import DeliveryProgress from '@/components/delivery/delivery-progress.vue'
+import { useDecorationInfiniteScroll } from '@/composables/useDecorationInfiniteScroll'
 import OrderOperation from '@/sub-pages/order/components/order-operation/index.vue'
 import {
   DELIVERY_WAY_EXPRESS,
   DELIVERY_WAY_MALL_DELIVERY,
+  DELIVERY_WAY_SELF_PICKUP,
   DELIVERY_WAY_VESSEL_INTERNAL,
-  deliveryWayLabel,
 } from '@/sub-pages/utils/delivery-way'
 import { useDict } from '@/sub-pages/utils/dict'
-import { formatPayTimeout } from '@/sub-pages/utils/pay-timeout'
+import { DEFAULT_PAY_TIMEOUT_MINUTES } from '@/sub-pages/utils/pay-timeout'
 import { customerServiceRoute } from '@/utils/message'
 
 definePage({
@@ -26,13 +28,60 @@ const { order_item_status, pay_type } = useDict(
   'order_item_status',
   'pay_type',
 )
+const { t } = useI18n()
 const globalLoading = useGlobalLoading()
+// 底部推荐商品流的页面滚动广播：滚动接近底部时自动加载下一页
+useDecorationInfiniteScroll()
 
 // 定义变量
 const loading = ref(true)
 const router = useRouter()
 const state = reactive<{ order: any }>({
   order: {},
+})
+
+// 字典标签由后端下发中文，页面按状态码映射到当前语言；未知状态保留后端原文
+const ORDER_ITEM_STATUS_LABEL_KEYS: Record<string, string> = {
+  1: 'order.status.pendingShipment',
+  2: 'order.status.shipped',
+  3: 'order.status.afterSalesProcessing',
+  6: 'order.status.refunded',
+  8: 'order.status.completed',
+}
+const PAY_TYPE_LABEL_KEYS: Record<string, string> = {
+  0: 'order.payType.free',
+  1: 'order.payType.wechat',
+  2: 'order.payType.alipay',
+  3: 'order.payType.cod',
+}
+function translateDictOptions(options: any[] | undefined, keys: Record<string, string>) {
+  return (options || []).map((item: any) => {
+    const key = keys[item.value]
+    return key ? { ...item, label: t(key) } : item
+  })
+}
+const orderItemStatusOptions = computed(() => translateDictOptions(order_item_status.value, ORDER_ITEM_STATUS_LABEL_KEYS))
+const payTypeOptions = computed(() => translateDictOptions(pay_type.value, PAY_TYPE_LABEL_KEYS))
+
+const DELIVERY_WAY_LABEL_KEYS: Record<string, string> = {
+  [DELIVERY_WAY_EXPRESS]: 'order.deliveryWay.express',
+  [DELIVERY_WAY_SELF_PICKUP]: 'order.deliveryWay.selfPickup',
+  [DELIVERY_WAY_MALL_DELIVERY]: 'order.deliveryWay.mallDelivery',
+  [DELIVERY_WAY_VESSEL_INTERNAL]: 'order.deliveryWay.vesselDelivery',
+}
+// 已知配送方式走词条；未知取值明确提示，不静默展示成普通快递
+const deliveryWayText = computed(() => {
+  const way = state.order.deliveryWay
+  const key = way ? DELIVERY_WAY_LABEL_KEYS[way] : ''
+  return key ? t(key) : way ? t('order.deliveryWay.unknown') : ''
+})
+// 与 pay-timeout 工具同口径：整小时按小时展示，缺省回落默认分钟数
+const payTimeoutText = computed(() => {
+  const value = Number(state.order.payTimeoutMinutes)
+  const minutes = Number.isFinite(value) && value > 0 ? value : DEFAULT_PAY_TIMEOUT_MINUTES
+  return minutes >= 60 && minutes % 60 === 0
+    ? t('order.time.hours', { hours: minutes / 60 })
+    : t('order.time.minutes', { minutes })
 })
 // 已在线支付，或货到付款单（payStatus 在确认收款前仍为未收款，收货后由管理端线下确认）
 const paidOrCod = computed(() => state.order.payStatus === '1' || state.order.paymentType === '3')
@@ -45,35 +94,45 @@ const hasPayDiscount = computed(() =>
   state.order.actualPayPrice != null
   && state.order.paymentPrice != null
   && Number(state.order.actualPayPrice) < Number(state.order.paymentPrice))
+// 推荐上下文：订单商品去重后既作为分类来源，也排除，避免重复推荐已购商品
+const orderRecommendSpuIds = computed(() => {
+  const items: any[] = state.order.orderItemList || []
+  const ids = items
+    .map(item => String(item?.spuId ?? '').trim())
+    .filter(Boolean)
+  return [...new Set(ids)]
+})
+const orderRecommendSourceIds = computed(() => orderRecommendSpuIds.value.slice(0, 20))
+const orderRecommendExcludeIds = computed(() => orderRecommendSpuIds.value.slice(0, 50))
 // 动态标题
 const navbarTitle = computed(() => {
   const status = state.order.status
   const way = state.order.deliveryWay
   switch (status) {
     case '1':
-      return '等待付款'
+      return t('order.detail.title.pendingPayment')
     case '2':
       if (way === DELIVERY_WAY_EXPRESS)
-        return '等待发货'
+        return t('order.detail.title.pendingShipment')
       if (way === DELIVERY_WAY_MALL_DELIVERY || way === DELIVERY_WAY_VESSEL_INTERNAL)
-        return '备货中'
-      return '商家备货中'
+        return t('order.detail.title.preparing')
+      return t('order.detail.title.sellerPreparing')
     case '3':
       if (way === DELIVERY_WAY_EXPRESS)
-        return '等待签收'
+        return t('order.detail.title.awaitingReceipt')
       if (way === DELIVERY_WAY_MALL_DELIVERY)
-        return '配送中'
+        return t('order.detail.title.delivering')
       if (way === DELIVERY_WAY_VESSEL_INTERNAL)
-        return '配送至船舶'
-      return '等待提货'
+        return t('order.detail.title.deliveringToVessel')
+      return t('order.detail.title.awaitingPickup')
     case '4':
-      return '交易完成'
+      return t('order.detail.title.completed')
     case '5':
-      return '退款中'
+      return t('order.detail.title.refunding')
     case '11':
-      return '订单已取消'
+      return t('order.detail.title.cancelled')
     default:
-      return '订单详情'
+      return t('order.detail.title.fallback')
   }
 })
 // 动态副标题
@@ -82,25 +141,25 @@ const navbarSubTitle = computed(() => {
   const way = state.order.deliveryWay
   switch (status) {
     case '1':
-      return `请在${formatPayTimeout(state.order.payTimeoutMinutes)}内付款，超时订单自动取消`
+      return t('order.pay.timeout', { time: payTimeoutText.value })
     case '2': {
-      const paidPrefix = isCod.value ? '货到付款，' : '订单已付款，'
+      const paidPrefix = isCod.value ? t('order.detail.subtitle.codPrefix') : t('order.detail.subtitle.paidPrefix')
       if (way === DELIVERY_WAY_EXPRESS)
-        return `${paidPrefix}等待商家发货`
+        return `${paidPrefix}${t('order.detail.subtitle.awaitingShipment')}`
       if (way === DELIVERY_WAY_MALL_DELIVERY)
-        return `${paidPrefix}公司正在备货配货`
+        return `${paidPrefix}${t('order.detail.subtitle.companyPreparing')}`
       if (way === DELIVERY_WAY_VESSEL_INTERNAL)
-        return `${paidPrefix}仓库正在备货`
-      return `${paidPrefix}商家备货中`
+        return `${paidPrefix}${t('order.detail.subtitle.warehousePreparing')}`
+      return `${paidPrefix}${t('order.detail.subtitle.sellerPreparing')}`
     }
     case '3':
       if (way === DELIVERY_WAY_EXPRESS)
-        return '商家已发货，等待签收'
+        return t('order.detail.subtitle.shippedAwaitingReceipt')
       if (way === DELIVERY_WAY_MALL_DELIVERY)
-        return '公司配送员正在为您配送'
+        return t('order.detail.subtitle.courierDelivering')
       if (way === DELIVERY_WAY_VESSEL_INTERNAL)
-        return '公司司机正在配送至船舶'
-      return '商家已备货，等待提货中'
+        return t('order.detail.subtitle.driverToVessel')
+      return t('order.detail.subtitle.readyForPickup')
     default:
       return ''
   }
@@ -115,7 +174,7 @@ onLoad((options) => {
 // 订单查询
 async function getOrder(id: string) {
   loading.value = true
-  globalLoading.loading('加载中...')
+  globalLoading.loading(t('common.loading'))
   try {
     const response = await getById(id)
     state.order = response
@@ -177,14 +236,14 @@ async function handleReorder() {
   const purchasable = (preview.items || []).filter((item: any) => item.purchasable)
   const blocked = (preview.items || []).filter((item: any) => !item.purchasable)
   if (purchasable.length === 0) {
-    uni.showToast({ title: blocked[0]?.reason || '商品暂不可购买', icon: 'none' })
+    uni.showToast({ title: blocked[0]?.reason || t('order.detail.itemUnavailable'), icon: 'none' })
     return
   }
   for (const item of purchasable) {
     await addShoppingCart({ skuId: item.skuId, quantity: item.originalQuantity, addType: '2' })
   }
-  const tips = blocked.length > 0 ? `，${blocked.length} 项不可购已跳过` : ''
-  uni.showToast({ title: `已加入购物车${tips}`, icon: 'none' })
+  const tips = blocked.length > 0 ? t('order.detail.reorderSkipped', { count: blocked.length }) : ''
+  uni.showToast({ title: `${t('order.detail.reorderSuccess')}${tips}`, icon: 'none' })
   // 延时跳转期间用户可能已自行离开本页：对已销毁页面发路由会触发
   // 微信 `routeDone with a webviewId xxx is not found`，故先记住当前页再确认。
   const currentPage = getCurrentPages().at(-1)
@@ -208,7 +267,7 @@ function toCustomerService() {
         image: firstItem?.picUrl || '',
         orderId: String(state.order.id),
         statusText: navbarTitle.value,
-        title: `订单 ${state.order.orderNo || state.order.id}`,
+        title: t('order.detail.orderCardTitle', { no: state.order.orderNo || state.order.id }),
       },
     }),
   })
@@ -263,7 +322,7 @@ function toCustomerService() {
         </view>
         <view class="flex-1 pl-10px">
           <view class="text-14px font-bold">
-            {{ state.order.vesselName || '船舶配送' }}
+            {{ state.order.vesselName || t('order.detail.vesselDelivery') }}
           </view>
           <view class="py-8px text-13px text-gray-500">
             {{ state.order.portName }} {{ state.order.berth }}
@@ -272,11 +331,13 @@ function toCustomerService() {
             v-if="state.order.deliveryWindowStart"
             class="text-12px text-gray-400"
           >
-            配送时间窗：{{ state.order.deliveryWindowStart }} ~
-            {{ state.order.deliveryWindowEnd }}
+            {{ t('order.detail.deliveryWindow', {
+              start: state.order.deliveryWindowStart,
+              end: state.order.deliveryWindowEnd,
+            }) }}
           </view>
           <view class="pt-6rpx text-12px text-green-600">
-            由公司司机按靠港计划送达港口/船舶
+            {{ t('order.detail.vesselDeliveryHint') }}
           </view>
         </view>
       </view>
@@ -313,7 +374,7 @@ function toCustomerService() {
                 <wd-text
                   size="22rpx"
                   color="#185FA5"
-                  :text="`为 ${item.contributorName} 购买`"
+                  :text="t('order.detail.boughtFor', { name: item.contributorName })"
                 />
               </view>
             </view>
@@ -340,7 +401,7 @@ function toCustomerService() {
               class="mr-10rpx"
               @tap.stop="handleReorder"
             >
-              再来一单
+              {{ t('order.actions.reorder') }}
             </wd-button>
             <wd-button
               v-if="item.status === '1' || item.status === '2'"
@@ -350,7 +411,7 @@ function toCustomerService() {
               type="info"
               @tap.stop="toRefunds(item.id, item.status)"
             >
-              申请售后
+              {{ t('order.actions.applyAfterSales') }}
             </wd-button>
             <wd-button
               v-else
@@ -360,7 +421,7 @@ function toCustomerService() {
               hairline
               @click="handleRefundDetail(item)"
             >
-              <dict-tag :options="order_item_status" :value="item.status" />
+              <dict-tag :options="orderItemStatusOptions" :value="item.status" />
             </wd-button>
           </view>
         </view>
@@ -386,7 +447,7 @@ function toCustomerService() {
             class="flex items-center justify-between pb-20rpx"
           >
             <text class="text-14px">
-              商品金额
+              {{ t('order.detail.subtotal') }}
             </text>
             <wd-text
               size="26rpx"
@@ -403,7 +464,7 @@ function toCustomerService() {
             class="flex items-center justify-between pb-20rpx"
           >
             <text class="text-14px">
-              运费
+              {{ t('order.detail.shipping') }}
             </text>
             <wd-text
               size="26rpx"
@@ -420,7 +481,7 @@ function toCustomerService() {
             class="flex items-center justify-between pb-20rpx"
           >
             <text class="text-14px">
-              优惠券
+              {{ t('order.detail.coupon') }}
             </text>
             <wd-text
               size="26rpx"
@@ -436,7 +497,7 @@ function toCustomerService() {
             class="flex items-center justify-between pb-20rpx"
           >
             <text class="text-14px">
-              会员优惠
+              {{ t('order.detail.memberDiscount') }}
             </text>
             <wd-text
               size="26rpx"
@@ -452,7 +513,7 @@ function toCustomerService() {
             class="flex items-center justify-between pb-20rpx"
           >
             <text class="text-14px">
-              积分抵扣（{{ state.order.pointsUsed || 0 }}积分）
+              {{ t('order.detail.pointsDeduction', { points: state.order.pointsUsed || 0 }) }}
             </text>
             <wd-text
               size="26rpx"
@@ -468,7 +529,7 @@ function toCustomerService() {
             class="flex items-center justify-between pb-20rpx"
           >
             <text class="text-14px">
-              订单金额
+              {{ t('order.detail.orderTotal') }}
             </text>
             <wd-text
               size="26rpx"
@@ -481,7 +542,7 @@ function toCustomerService() {
           <!-- 实付款 -->
           <view class="flex items-center justify-between pb-20rpx">
             <text class="text-14px">
-              实付款
+              {{ t('order.detail.amountPaid') }}
             </text>
             <wd-text
               custom-class="pl-10rpx"
@@ -500,18 +561,18 @@ function toCustomerService() {
             class="flex items-center justify-between pb-20rpx"
           >
             <text class="text-14px">
-              配送方式
+              {{ t('order.detail.deliveryMethod') }}
             </text>
             <wd-text
               size="26rpx"
               color="inherit"
-              :text="deliveryWayLabel(state.order.deliveryWay)"
+              :text="deliveryWayText"
             />
           </view>
           <!-- 订单编号（始终显示） -->
           <view class="flex items-center justify-between pb-20rpx">
             <text class="text-14px">
-              订单编号
+              {{ t('order.detail.orderNo') }}
             </text>
             <view class="flex items-center">
               <wd-text
@@ -533,14 +594,14 @@ function toCustomerService() {
             class="flex items-center justify-between pb-20rpx"
           >
             <text class="text-14px">
-              支付方式
+              {{ t('order.detail.paymentMethod') }}
             </text>
-            <dict-tag :options="pay_type" :value="state.order.paymentType" />
+            <dict-tag :options="payTypeOptions" :value="state.order.paymentType" />
           </view>
           <!-- 创建时间（始终显示） -->
           <view class="flex items-center justify-between pb-20rpx">
             <text class="text-14px">
-              创建时间
+              {{ t('order.detail.createdAt') }}
             </text>
             <wd-text
               size="26rpx"
@@ -554,7 +615,7 @@ function toCustomerService() {
             class="flex items-center justify-between pb-20rpx"
           >
             <text class="text-14px">
-              付款时间
+              {{ t('order.detail.paidAt') }}
             </text>
             <wd-text
               size="26rpx"
@@ -569,7 +630,7 @@ function toCustomerService() {
             class="flex items-center justify-between pb-20rpx"
           >
             <text class="text-14px">
-              发货时间
+              {{ t('order.detail.shippedAt') }}
             </text>
             <wd-text
               size="26rpx"
@@ -584,7 +645,7 @@ function toCustomerService() {
             class="flex items-center justify-between pb-20rpx"
           >
             <text class="text-14px">
-              收货时间
+              {{ t('order.detail.receivedAt') }}
             </text>
             <wd-text
               size="26rpx"
@@ -599,7 +660,7 @@ function toCustomerService() {
             class="flex items-center justify-between pb-20rpx"
           >
             <text class="text-14px">
-              取消时间
+              {{ t('order.detail.cancelledAt') }}
             </text>
             <wd-text
               size="26rpx"
@@ -613,7 +674,7 @@ function toCustomerService() {
             class="flex items-center justify-between pb-20rpx"
           >
             <text class="text-14px">
-              备注
+              {{ t('order.detail.note') }}
             </text>
             <wd-text size="26rpx" color="inherit" :text="state.order.remark" />
           </view>
@@ -625,11 +686,11 @@ function toCustomerService() {
           @click="toggleMoreInfo"
         >
           <text class="text-14px">
-            更多信息
+            {{ t('order.detail.moreInfo') }}
           </text>
           <view>
             <text class="mr-10rpx text-14px">
-              {{ showMoreInfo ? "收起" : "展开" }}
+              {{ showMoreInfo ? t('order.detail.collapse') : t('order.detail.expand') }}
             </text>
             <wd-icon :name="showMoreInfo ? 'arrow-up' : 'arrow-down'" />
           </view>
@@ -637,13 +698,16 @@ function toCustomerService() {
       </view>
       <wd-divider color="#E8E8E8" />
     </view>
-    <WaterfallGoods />
+    <WaterfallGoods
+      :source-spu-ids="orderRecommendSourceIds"
+      :exclude-spu-ids="orderRecommendExcludeIds"
+    />
     <wd-gap :height="80" />
     <view
       class="fixed bottom-0 left-0 right-0 flex gap-12rpx bg-white p-20rpx pb-[max(env(safe-area-inset-bottom),16rpx)]"
     >
       <wd-button plain type="info" icon="service" @click="toCustomerService">
-        联系客服
+        {{ t('order.actions.support') }}
       </wd-button>
       <order-operation
         :order-info="state.order"

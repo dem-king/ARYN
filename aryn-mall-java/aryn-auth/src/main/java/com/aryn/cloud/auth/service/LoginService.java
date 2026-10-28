@@ -42,6 +42,8 @@ public class LoginService {
 
 	private final ApplicationEventPublisher applicationEventPublisher;
 
+	private final TenantAccessGuard tenantAccessGuard;
+
 	public SaTokenInfo login(String username, String password) {
 		ArynUser hxUser = getUserDetails(remoteSysUserService.getUserInfo(username));
 		if (ObjectUtil.isNull(hxUser)) {
@@ -55,6 +57,7 @@ public class LoginService {
 			saveLoginLog(hxUser, "状态异常不可登录");
 			throw new RuntimeException("状态异常不可登录");
 		}
+		tenantAccessGuard.assertAvailable(hxUser.getTenantId());
 		SecurityUtils.loginByDevice(hxUser, DeviceTypeEnum.TOB);
 		return StpUtil.getTokenInfo();
 	}
@@ -68,6 +71,7 @@ public class LoginService {
 			saveLoginLog(hxUser, "状态异常不可登录");
 			throw new RuntimeException("状态异常不可登录");
 		}
+		tenantAccessGuard.assertAvailable(hxUser.getTenantId());
 		SecurityUtils.loginByDevice(hxUser, DeviceTypeEnum.TOB);
 		return StpUtil.getTokenInfo();
 	}
@@ -85,6 +89,7 @@ public class LoginService {
 		if (!CommonConstants.NORMAL_STATUS.equals(hxUser.getStatus())) {
 			throw new ArynBusinessException("状态异常不可登录");
 		}
+		tenantAccessGuard.assertAvailable(hxUser.getTenantId());
 		if (hxUser.getPermissions() == null
 				|| (!hxUser.getPermissions().contains("delivery:execute") && !hxUser.getPermissions().contains("*"))) {
 			throw new ArynBusinessException("当前账号未开通配送权限");

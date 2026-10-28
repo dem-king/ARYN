@@ -1,4 +1,5 @@
 import type { SharedCart } from '@/api/order/sharedCart'
+import { translate } from '@/locales'
 import type { QuickAddPromotion, QuickCartInfo } from '@/utils/quick-cart'
 
 /**
@@ -96,7 +97,7 @@ export function useQuickCart() {
 
       const quantity = resolveQuickAddQuantity(info)
       if (quantity <= 0) {
-        uni.showToast({ title: '库存不足', icon: 'none' })
+        uni.showToast({ title: translate('cart.skuStockInsufficient'), icon: 'none' })
         return { added: false, needChoose: false, info }
       }
 

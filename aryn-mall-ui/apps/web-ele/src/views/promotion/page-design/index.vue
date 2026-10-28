@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import type { FormInstance } from 'element-plus';
-
 import type { CanvasThemeVars } from '../page-designer/schema/theme-presets';
 import type { PageDesignRowAction } from './list-actions';
 
@@ -15,14 +13,13 @@ import type {
 import { computed, defineAsyncComponent, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
-import { EditPen, Plus, Refresh, Search, View } from '@element-plus/icons-vue';
+import { EditPen, Plus, View } from '@element-plus/icons-vue';
 import dayjs from 'dayjs';
 import {
   ElButton,
   ElDropdown,
   ElDropdownItem,
   ElDropdownMenu,
-  ElForm,
   ElFormItem,
   ElInput,
   ElMessage,
@@ -50,6 +47,8 @@ import {
   submitRelease,
   unpublishPage,
 } from '#/api/promotion/page-design';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 
 import { buildCanvasThemeVars } from '../page-designer/schema/theme-presets';
 import EffectivePageThumb from './components/effective-page-thumb.vue';
@@ -76,7 +75,6 @@ const Pagination = defineAsyncComponent(
 );
 
 const router = useRouter();
-const queryRef = ref<FormInstance>();
 const loading = ref(false);
 const showSearch = ref(true);
 const tableData = ref<PageDesignRecord[]>([]);
@@ -160,7 +158,6 @@ async function initPage() {
 }
 
 function resetQuery() {
-  queryRef.value?.resetFields();
   page.currentPage = 1;
   void initPage();
 }
@@ -348,17 +345,18 @@ onMounted(() => {
   void initPage();
   void loadThemesQuietly();
 });
+
+useKeepAliveRefresh(initPage);
 </script>
 
 <template>
   <div class="hx-layout-container page-design-list">
     <div class="hx-layout-container-auto hx-layout-container-view">
-      <ElForm
-        v-show="showSearch"
-        ref="queryRef"
-        :inline="true"
+      <PageFilterPanel
         :model="query"
-        class="filter-bar"
+        :visible="showSearch"
+        @reset="resetQuery"
+        @search="initPage"
       >
         <ElFormItem label="页面名称" prop="pageName">
           <ElInput
@@ -387,13 +385,7 @@ onMounted(() => {
             <ElOption label="未发布" value="0" />
           </ElSelect>
         </ElFormItem>
-        <ElFormItem>
-          <ElButton :icon="Search" type="primary" @click="initPage">
-            查询
-          </ElButton>
-          <ElButton :icon="Refresh" @click="resetQuery">重置</ElButton>
-        </ElFormItem>
-      </ElForm>
+      </PageFilterPanel>
 
       <div class="hx-table-toolbar">
         <ElDropdown trigger="click" @command="handleCreate">
@@ -652,10 +644,6 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.filter-bar :deep(.el-select) {
-  width: 160px;
-}
-
 .effective-strip {
   margin-bottom: 12px;
 }

@@ -1,6 +1,7 @@
 <script setup lang="ts" name="orderOperation">
 import type { MessageResult } from 'wot-design-uni/components/wd-message-box/types'
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { orderCancel, orderDel, orderReceiver } from '@/api/order/orderInfo'
 
 const props = defineProps({
@@ -17,6 +18,7 @@ const props = defineProps({
 const emit = defineEmits(['orderCancel', 'orderDel', 'orderReceiver', 'closeQRCode'])
 
 const { confirm } = useGlobalMessage()
+const { t } = useI18n()
 const router = useRouter()
 const showQRCodePopup = ref(false)
 
@@ -27,6 +29,8 @@ async function useConfirm(title: string, msg: string) {
       title,
       msg,
       closeOnClickModal: false,
+      confirmButtonText: t('common.confirm'),
+      cancelButtonText: t('common.cancel'),
       success: resolve,
     })
   })
@@ -42,7 +46,7 @@ function onPay() {
 
 /** 取消订单 */
 async function onCancel() {
-  const res = await useConfirm('取消订单', '是否取消订单？')
+  const res = await useConfirm(t('order.confirm.cancelTitle'), t('order.confirm.cancelMessage'))
   if (res.action === 'confirm') {
     await orderCancel(props.orderInfo.id)
     // 详情页回调按 row.id 取值刷新，载荷须与确认收货一致传对象；直传接口返回的 id 字符串会让刷新拿到 undefined
@@ -52,7 +56,7 @@ async function onCancel() {
 
 /** 删除订单 */
 async function onDel() {
-  const res = await useConfirm('删除订单', '是否删除订单？')
+  const res = await useConfirm(t('order.confirm.deleteTitle'), t('order.confirm.deleteMessage'))
   if (res.action === 'confirm') {
     const { data } = await orderDel(props.orderInfo.id)
     emit('orderDel', data)
@@ -61,7 +65,7 @@ async function onDel() {
 
 /** 确认收货 */
 async function onReceiver() {
-  const res = await useConfirm('确认收货', '是否确认收货？')
+  const res = await useConfirm(t('order.confirm.receiveTitle'), t('order.confirm.receiveMessage'))
   if (res.action === 'confirm') {
     await orderReceiver(props.orderInfo.id)
     emit('orderReceiver', { id: props.orderInfo.id })
@@ -141,43 +145,43 @@ const showQRCodeBtn = computed(() =>
   <view class="order-operation-warp">
     <view v-if="showDelete" class="button">
       <wd-button type="error" size="small" hairline plain @click.stop="onDel">
-        删除订单
+        {{ t('order.actions.deleteOrder') }}
       </wd-button>
     </view>
 
     <view v-if="showCancel" class="button">
       <wd-button type="info" size="small" hairline plain @click.stop="onCancel">
-        取消订单
+        {{ t('order.actions.cancelOrder') }}
       </wd-button>
     </view>
 
     <view v-if="showPay" class="button">
       <wd-button type="primary" size="small" hairline plain @click.stop="onPay">
-        立即付款
+        {{ t('order.actions.payNow') }}
       </wd-button>
     </view>
 
     <view v-if="showLogistics" class="button">
       <wd-button type="warning" size="small" hairline plain @click.stop="onLogistics">
-        查看物流
+        {{ t('order.actions.track') }}
       </wd-button>
     </view>
 
     <view v-if="showReceiver" class="button">
       <wd-button type="primary" size="small" hairline plain @click.stop="onReceiver">
-        确认收货
+        {{ t('order.actions.confirmReceipt') }}
       </wd-button>
     </view>
 
     <view v-if="showQRCodeBtn" class="button">
       <wd-button type="primary" size="small" @click="openQRCodePopup">
-        提货二维码
+        {{ t('order.actions.pickupQrCode') }}
       </wd-button>
     </view>
 
     <view v-if="showAppraise" class="button">
       <wd-button type="primary" size="small" hairline plain @click.stop="onAppraise">
-        评价晒单
+        {{ t('order.actions.reviewOrder') }}
       </wd-button>
     </view>
   </view>
@@ -185,7 +189,7 @@ const showQRCodeBtn = computed(() =>
   <wd-popup v-model="showQRCodePopup" position="center" custom-style="border-radius:32rpx;">
     <view class="rounded-xl bg-white p-5">
       <view class="pb-20rpx text-center text-lg font-bold">
-        提货二维码
+        {{ t('order.actions.pickupQrCode') }}
       </view>
 
       <view class="flex justify-center p-2">
@@ -199,7 +203,7 @@ const showQRCodeBtn = computed(() =>
 
       <view class="pt-20rpx text-center">
         <wd-button type="primary" size="small" @click="closeQRCodePopup">
-          关闭
+          {{ t('order.actions.close') }}
         </wd-button>
       </view>
     </view>

@@ -1,6 +1,7 @@
 import { uniappRequestAdapter } from '@alova/adapter-uniapp'
 import { createAlova } from 'alova'
 import vueHook from 'alova/vue'
+import { getLocale } from '@/locales'
 import { Local } from '@/utils/storage'
 import { apiBaseUrl } from './api-base-url'
 import { parseOpenBoot, rewriteBootUrl } from './boot-url'
@@ -23,6 +24,8 @@ export const alovaInstance = createAlova({
 
     // Add tenant ID to request headers
     method.config.headers['tenant-id'] = import.meta.env.VITE_TENANT_ID
+    // 后端 I18nFilter 按该请求头设置 Locale；业务模块的英文文案包后续补齐
+    method.config.headers['Accept-Language'] = getLocale()
     // Delivery uses a separate TOB token so it cannot accidentally reuse the customer session.
     const authState = uni.getStorageSync('auth') as { token?: string } | undefined
     const skipToken = method.config.headers.skipToken === true

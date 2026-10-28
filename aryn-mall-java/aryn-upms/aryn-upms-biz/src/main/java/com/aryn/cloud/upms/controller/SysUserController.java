@@ -19,6 +19,7 @@ import com.aryn.cloud.upms.api.entity.SysUserRole;
 import com.aryn.cloud.upms.service.ISysRoleService;
 import com.aryn.cloud.upms.service.ISysUserRoleService;
 import com.aryn.cloud.upms.service.ISysUserService;
+import com.aryn.cloud.upms.support.SysUserSessionRevoker;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.AllArgsConstructor;
@@ -44,6 +45,8 @@ public class SysUserController {
 	private final ISysRoleService sysRoleService;
 
 	private final ISysUserRoleService sysUserRoleService;
+
+	private final SysUserSessionRevoker sysUserSessionRevoker;
 
 	@DubboReference
 	private final RemoteDeliveryAccountService remoteDeliveryAccountService;
@@ -158,7 +161,12 @@ public class SysUserController {
 			return Result.fail("新密码与确认密码不一致");
 		}
 		sysUser.setPassword(BCrypt.hashpw(sysUserDTO.getNewPassword()));
-		return Result.success(sysUserService.updateById(sysUser));
+		boolean updated = sysUserService.updateById(sysUser);
+		if (updated) {
+			// 改密即失效：撤销该账号全部已登录会话，避免旧 token 用旧密码的会话继续有效
+			sysUserSessionRevoker.revokeAll(sysUser.getId(), "修改密码");
+		}
+		return Result.success(updated);
 	}
 
 }

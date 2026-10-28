@@ -12,7 +12,10 @@
  * 3. 已抢取整为 0% → 「限量 N 件」（开场还没卖出去，说"仅剩"是假紧迫）；
  * 4. 剩余 ≤5 件或 ≤20% → 「仅剩 N 件」；
  * 5. 其余 → 短文案「已抢 N%」/ 长文案「已抢 N% · 仅剩 N 件」。
+ *
+ * 文案在调用时翻译：会场页、首页楼层、管理端预览共用同一份口径，切语言即时生效。
  */
+import { translate } from '@/locales'
 
 /** 低于该剩余量不再输出百分比（绝对值） */
 export const LOW_STOCK_THRESHOLD = 5
@@ -55,25 +58,26 @@ export function resolveSeckillProgress(stockValue: unknown, remainingValue: unkn
   const pct = Math.round((sold / stock) * 100)
 
   if (remaining <= 0) {
-    return { low: true, pct: 100, shortText: '已抢光', soldOut: true, fullText: '已抢光' }
+    const soldOut = translate('promotion.seckill.soldOut')
+    return { low: true, pct: 100, shortText: soldOut, soldOut: true, fullText: soldOut }
   }
 
   if (pct <= 0) {
-    const text = `限量 ${stock} 件`
+    const text = translate('promotion.common.limitedStock', { count: stock })
     return { low: false, pct, shortText: text, soldOut: false, fullText: text }
   }
 
   const low = remaining <= LOW_STOCK_THRESHOLD || remaining <= stock * LOW_STOCK_RATIO
   if (low) {
-    const text = `仅剩 ${remaining} 件`
+    const text = translate('labels.onlyLeft', { count: remaining })
     return { low: true, pct, shortText: text, soldOut: false, fullText: text }
   }
 
   return {
     low: false,
     pct,
-    shortText: `已抢 ${pct}%`,
+    shortText: translate('promotion.seckill.progress.grabbed', { pct }),
     soldOut: false,
-    fullText: `已抢 ${pct}% · 仅剩 ${remaining} 件`,
+    fullText: translate('promotion.seckill.progress.grabbedFull', { count: remaining, pct }),
   }
 }

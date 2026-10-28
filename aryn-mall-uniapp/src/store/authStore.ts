@@ -3,6 +3,7 @@
  * 管理用户登录状态、Token、登录相关操作等
  */
 import { defineStore } from 'pinia'
+import { translate } from '@/locales'
 import { logout, passwordLogin as passwordLoginApi, phoneLogin as phoneLoginApi, quickLogin as quickLoginApi, wxLogin as wxLoginApi } from '@/api/auth'
 import { ensureSessionTenant, isTenantIdentityError } from '@/api/core/tenant-identity'
 import { useMallThemeStore } from '@/store/mallThemeStore'
@@ -94,7 +95,7 @@ export const useAuthStore = defineStore('auth', {
      */
     async wxLogin(data: any): Promise<any> {
       if (this.isLoading) {
-        throw new Error('正在登录中，请稍候...')
+        throw new Error(translate('app.auth.loggingIn'))
       }
       this.isLoading = true
 
@@ -124,7 +125,7 @@ export const useAuthStore = defineStore('auth', {
      */
     async phoneLogin(data: any): Promise<any> {
       if (this.isLoading) {
-        throw new Error('正在登录中，请稍候...')
+        throw new Error(translate('app.auth.loggingIn'))
       }
 
       this.isLoading = true
@@ -160,7 +161,7 @@ export const useAuthStore = defineStore('auth', {
      */
     async passwordLogin(data: any): Promise<any> {
       if (this.isLoading) {
-        throw new Error('正在登录中，请稍候...')
+        throw new Error(translate('app.auth.loggingIn'))
       }
 
       this.isLoading = true
@@ -195,7 +196,7 @@ export const useAuthStore = defineStore('auth', {
      */
     async quickLogin(data: any): Promise<any> {
       if (this.isLoading) {
-        throw new Error('正在登录中，请稍候...')
+        throw new Error(translate('app.auth.loggingIn'))
       }
 
       this.isLoading = true
@@ -283,7 +284,7 @@ export const useAuthStore = defineStore('auth', {
       })
       const jsCode = mpLoginRes.code
       if (!jsCode) {
-        throw new Error('获取微信登录凭证失败')
+        throw new Error(translate('app.auth.wxCredentialFailed'))
       }
       return jsCode
       // #endif

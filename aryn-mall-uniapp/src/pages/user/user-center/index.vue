@@ -2,6 +2,7 @@
 import type { DeliveryEligibility } from '@/api/delivery'
 import { onShow } from '@dcloudio/uni-app'
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ensureSessionTenant, isTenantIdentityError } from '@/api/core/tenant-identity'
 import {
   exchangeDeliveryIdentity,
@@ -12,7 +13,11 @@ import { getCount as getOrderCount } from '@/api/order/orderInfo'
 // 引入组件
 import DiyPage from '@/components/diy/index.vue'
 import WaterfallGoods from '@/components/waterfall-goods/index.vue'
+// 页面滚动广播：装修商品楼层与底部「猜你喜欢」都靠它自动续页
+import { useDecorationInfiniteScroll } from '@/composables/useDecorationInfiniteScroll'
 import { usePageDecoration } from '@/composables/usePageDecoration'
+import { useTabBarLocale } from '@/composables/useTabBarLocale'
+import { useLocaleSwitch } from '@/composables/useLocaleSwitch'
 import { useMessageStore } from '@/store/messageStore'
 import { useTenantCapabilityStore } from '@/store/tenantCapabilityStore'
 import { Local } from '@/utils/storage'
@@ -41,33 +46,40 @@ interface MyService {
 /** 页头底色：与导航栏同源，二者取值必须一致，否则顶部会露出一道色差 */
 const BRAND_COLOR = 'var(--theme-color-primary, var(--wot-color-theme-primary, #FF2237))'
 
+const { t } = useI18n()
+useTabBarLocale()
+// 滚动接近底部时广播检查：装修楼层与「猜你喜欢」各自测距后自动加载下一页
+useDecorationInfiniteScroll()
+// 页头右侧语言快捷键：展示可切换到的另一种语言，一键互切
+const { switchLabel, toggleLanguage } = useLocaleSwitch()
+
 // 定义变量
 const orderCountArray = ref<Record<string, number>>({})
 const userStore = useUserStore()
-const myOrder = ref<MyOrder[]>([
+const myOrder = computed<MyOrder[]>(() => [
   {
     icon: 'i-carbon:wallet',
-    name: '待付款',
+    name: t('userCenter.orderPendingPayment'),
     status: '1',
   },
   {
     icon: 'i-carbon:package-node',
-    name: '待发货',
+    name: t('userCenter.orderPendingShipment'),
     status: '2',
   },
   {
     icon: 'i-carbon:delivery-truck',
-    name: '待收货',
+    name: t('userCenter.orderPendingReceipt'),
     status: '3',
   },
   {
     icon: 'i-carbon:chat',
-    name: '待评价',
+    name: t('userCenter.orderPendingReview'),
     status: '4',
   },
   {
     icon: 'i-carbon:right-panel-open',
-    name: '退款/售后',
+    name: t('userCenter.orderRefund'),
     status: '5',
   },
 ])
@@ -76,45 +88,45 @@ const myOrder = ref<MyOrder[]>([
  * 消息中心排首位，未读角标是这里的首要信息；顺带把「5+3」的断行补齐成整行，
  * 末行只剩 3 项会在视觉上留下一个豁口。
  */
-const myService = ref<MyService[]>([
+const myService = computed<MyService[]>(() => [
   {
     icon: 'i-carbon:notification-new',
-    name: '消息中心',
+    name: t('userCenter.serviceMessage'),
     url: '/sub-pages/message/notice/index',
   },
   {
     icon: 'i-carbon:user-profile',
-    name: '会员中心',
+    name: t('userCenter.serviceMember'),
     url: '/sub-pages/user/member/index',
   },
   {
     icon: 'i-carbon:location',
-    name: '收货地址',
+    name: t('userCenter.serviceAddress'),
     url: '/sub-pages/user/address/index',
   },
   {
     icon: 'i-carbon:edit',
-    name: '我的评价',
+    name: t('userCenter.serviceAppraise'),
     url: '/sub-pages/user/appraise/index',
   },
   {
     icon: 'i-carbon:time',
-    name: '浏览记录',
+    name: t('userCenter.serviceFootprint'),
     url: '/sub-pages/user/footprint/index',
   },
   {
     icon: 'i-carbon:star',
-    name: '我的收藏',
+    name: t('userCenter.serviceCollect'),
     url: '/sub-pages/user/collect/index',
   },
   {
     icon: 'i-carbon:ticket',
-    name: '我的优惠券',
+    name: t('userCenter.serviceCoupon'),
     url: '/sub-pages/promotion/coupon/coupon-user/index',
   },
   {
     icon: 'i-carbon:share-knowledge',
-    name: '分销中心',
+    name: t('userCenter.serviceDistribution'),
     url: '/sub-pages/user/distribution/index',
   },
 ])
@@ -167,8 +179,8 @@ const vesselEntranceVisible = computed(() => {
  */
 const vesselEntranceSubtitle = computed(() =>
   vesselBound.value
-    ? `${vesselName.value || '已关联船舶'} · 靠港、成员与港口车辆`
-    : '未关联船舶，加入后可用靠港配送',
+    ? t('userCenter.vesselLinkedSubtitle', { name: vesselName.value || t('userCenter.vesselLinked') })
+    : t('userCenter.vesselUnlinkedSubtitle'),
 )
 
 /** 仅用于入口文案；失败时不影响入口本身可点 */
@@ -263,13 +275,13 @@ const deliveryEntranceSubtitle = computed(() => {
   const eligibility = deliveryEligibility.value
   if (eligibility?.eligible) {
     return eligibility.pendingTaskCount && eligibility.pendingTaskCount > 0
-      ? `${eligibility.pendingTaskCount} 项任务待处理`
-      : '已为你开通配送权限'
+      ? t('userCenter.deliveryPendingTasks', { count: eligibility.pendingTaskCount })
+      : t('userCenter.deliveryReady')
   }
   if (eligibility?.status === 'ACCOUNT_DISABLED') {
-    return '配送账号已停用'
+    return t('userCenter.deliveryDisabled')
   }
-  return '进入配送工作台'
+  return t('userCenter.deliveryEnter')
 })
 
 /** 入口角标：待处理任务数（最多显示 99+） */
@@ -311,7 +323,7 @@ async function exchangeAndEnter(): Promise<boolean> {
   const response = await exchangeDeliveryIdentity().send()
   const token = response?.tokenValue
   if (!token) {
-    showToast('暂时无法进入配送工作台，请稍后重试')
+    showToast(t('userCenter.deliveryUnavailable'))
     return false
   }
   await saveDeliveryAuthAndEnter(token)
@@ -329,7 +341,7 @@ async function enterDeliveryWorkspace() {
   if (eligibility && !eligibility.eligible) {
     if (eligibility.status === 'ACCOUNT_DISABLED') {
       clearDeliveryAuth()
-      showToast('配送账号已停用，请联系管理员')
+      showToast(t('userCenter.deliveryDisabledContact'))
     }
     return
   }
@@ -350,12 +362,12 @@ async function enterDeliveryWorkspace() {
         // 仅 401（旧 token 真失效）清理后重新换取；403（身份配置/权限）保留 token
         // 不自动换取；网络/守卫错误保留 token 停止进入，避免把配置错误洗成重登
         if (isTenantIdentityError(error)) {
-          showToast('应用配置暂不可用，请稍后重试')
+          showToast(t('userCenter.tenantUnavailable'))
           return
         }
         const code = error?.code
         if (code !== 401) {
-          showToast('暂时无法进入配送工作台，请稍后重试')
+          showToast(t('userCenter.deliveryUnavailable'))
           return
         }
         clearDeliveryAuth()
@@ -434,12 +446,12 @@ function toLogin() {
 <template>
   <hr-navbar
     :left-arrow="false"
-    title="个人中心"
+    :title="t('userCenter.title')"
     :bordered="false"
     :background-color="BRAND_COLOR"
     text-color="#ffffff"
   />
-  <!-- 页头：品牌渐变铺底，右上角齿轮是设置入口 -->
+  <!-- 页头：品牌渐变铺底，右侧是语言切换 + 设置入口 -->
   <view class="uc-hero">
     <view class="uc-hero__profile" @click="toLogin">
       <image
@@ -450,7 +462,7 @@ function toLogin() {
       <view class="uc-hero__meta">
         <view class="uc-hero__name-row">
           <text class="uc-hero__name">
-            {{ userStore.getUserNickname || "登录/注册" }}
+            {{ userStore.getUserNickname || t('userCenter.loginOrRegister') }}
           </text>
           <text
             v-if="authStore.isLoggedIn && userStore.getLevelName"
@@ -460,16 +472,36 @@ function toLogin() {
           </text>
         </view>
         <text v-if="!authStore.isLoggedIn" class="uc-hero__hint">
-          登录后同步订单、优惠券与积分
+           {{ t('userCenter.loginHint') }}
         </text>
       </view>
     </view>
-    <view
-      class="uc-hero__setting"
-      hover-class="uc-hero__setting--pressed"
-      @click="toJumpUrl('/sub-pages/user/user-setting/index')"
-    >
-      <text class="i-carbon:settings uc-hero__setting-icon" />
+    <!-- 页头右侧动作组：语言切换与设置并排，两者同一材质、同一条中线 -->
+    <view class="uc-hero__actions">
+      <!--
+        语言切换：导航栏右上角被「居中标题 + 微信胶囊」夹住（375pt 屏只剩约 37px），
+        放不下带文字的按钮，因此收进页头右侧，做成与齿轮同材质的玻璃胶囊。
+      -->
+      <view
+        class="uc-hero__lang"
+        hover-class="uc-hero__lang--pressed"
+        :hover-stay-time="80"
+        :aria-label="switchLabel"
+        aria-role="button"
+        @click="toggleLanguage"
+      >
+        <text class="i-carbon:translate uc-hero__lang-icon" />
+        <text class="uc-hero__lang-label">
+          {{ switchLabel }}
+        </text>
+      </view>
+      <view
+        class="uc-hero__setting"
+        hover-class="uc-hero__setting--pressed"
+        @click="toJumpUrl('/sub-pages/user/user-setting/index')"
+      >
+        <text class="i-carbon:settings uc-hero__setting-icon" />
+      </view>
     </view>
   </view>
   <!-- 资产条：上移压在渐变收口处，把优惠券/积分/余额提到首屏 -->
@@ -486,7 +518,7 @@ function toLogin() {
         {{ assetCoupon }}
       </text>
       <text class="uc-assets__label">
-        优惠券
+        {{ t('userCenter.coupon') }}
       </text>
     </view>
     <view
@@ -498,7 +530,7 @@ function toLogin() {
         {{ assetPoint }}
       </text>
       <text class="uc-assets__label">
-        积分
+        {{ t('userCenter.points') }}
       </text>
     </view>
     <view
@@ -510,7 +542,7 @@ function toLogin() {
         {{ assetBalance }}
       </text>
       <text class="uc-assets__label">
-        余额
+        {{ t('userCenter.balance') }}
       </text>
     </view>
   </view>
@@ -522,7 +554,7 @@ function toLogin() {
     @click="toLogin"
   >
     <text class="uc-assets__guest-text">
-      登录后查看优惠券、积分与余额
+      {{ t('userCenter.guestHint') }}
     </text>
     <text class="i-carbon:chevron-right uc-assets__guest-arrow" />
   </view>
@@ -535,14 +567,14 @@ function toLogin() {
   <view class="uc-card">
     <view class="uc-card__head">
       <text class="uc-card__title">
-        我的订单
+        {{ t('userCenter.myOrders') }}
       </text>
       <view
         class="uc-card__more"
         hover-class="uc-card__more--pressed"
         @click="toOrder('')"
       >
-        <text>查看全部</text>
+        <text>{{ t('userCenter.viewAll') }}</text>
         <text class="i-carbon:chevron-right uc-card__more-arrow" />
       </view>
     </view>
@@ -570,13 +602,13 @@ function toLogin() {
   <view class="uc-card">
     <view class="uc-card__head">
       <text class="uc-card__title">
-        我的服务
+        {{ t('userCenter.myServices') }}
       </text>
     </view>
     <view class="uc-grid uc-grid--4">
       <view
         v-for="item in myService"
-        :key="item.name"
+        :key="item.url"
         class="uc-grid__item"
         hover-class="uc-grid__item--pressed"
         @click="toRoute(item.url)"
@@ -584,7 +616,7 @@ function toLogin() {
         <view class="uc-grid__icon">
           <text :class="item.icon" class="uc-grid__glyph" />
           <text
-            v-if="item.name === '消息中心' && formatBadge(messageStore.totalUnread)"
+            v-if="item.url === '/sub-pages/message/notice/index' && formatBadge(messageStore.totalUnread)"
             class="uc-grid__badge"
           >
             {{ formatBadge(messageStore.totalUnread) }}
@@ -612,7 +644,7 @@ function toLogin() {
       </view>
       <view class="uc-entry__body">
         <text class="uc-entry__title">
-          配送工作台
+          {{ t('userCenter.deliveryWorkbench') }}
         </text>
         <text class="uc-entry__desc">
           {{ deliveryEntranceSubtitle }}
@@ -635,7 +667,7 @@ function toLogin() {
       </view>
       <view class="uc-entry__body">
         <text class="uc-entry__title">
-          我的船舶
+          {{ t('userCenter.myVessels') }}
         </text>
         <text class="uc-entry__desc">
           {{ vesselEntranceSubtitle }}
@@ -647,7 +679,7 @@ function toLogin() {
   <view class="uc-like">
     <view class="uc-like__rule" />
     <text class="uc-like__text">
-      猜你喜欢
+      {{ t('userCenter.guessYouLike') }}
     </text>
     <view class="uc-like__rule" />
   </view>
@@ -739,6 +771,50 @@ $uc-gutter: 20rpx;
     margin-top: 10rpx;
     color: rgba(255, 255, 255, 0.82);
     font-size: 24rpx;
+  }
+
+  /* 右侧动作组：把语言切换和齿轮收成一组，和左侧资料区共用一条中线 */
+  &__actions {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    margin-left: 16rpx;
+    gap: 16rpx;
+  }
+
+  /*
+   * 语言切换：玻璃胶囊。底色/描边/内高光与齿轮同源，压在渐变上不抢昵称的主次；
+   * 白字 + 半透明白底在任意品牌色上都成立（主题色由租户配置，不能写死颜色）。
+   */
+  &__lang {
+    display: flex;
+    align-items: center;
+    height: 72rpx;
+    padding: 0 26rpx 0 22rpx;
+    border: 1rpx solid rgba(255, 255, 255, 0.48);
+    border-radius: 999rpx;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.30) 0%, rgba(255, 255, 255, 0.15) 100%);
+    box-shadow: 0 4rpx 16rpx rgba(120, 40, 0, 0.14), inset 0 1rpx 0 rgba(255, 255, 255, 0.26);
+    transition: background-color 0.18s ease, transform 0.18s ease;
+  }
+
+  &__lang--pressed {
+    background: rgba(255, 255, 255, 0.38);
+    transform: scale(0.95);
+  }
+
+  &__lang-icon {
+    margin-right: 6rpx;
+    color: #fff;
+    font-size: 24rpx;
+  }
+
+  &__lang-label {
+    color: #fff;
+    font-size: 24rpx;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: 0.4rpx;
   }
 
   &__setting {

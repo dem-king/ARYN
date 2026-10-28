@@ -18,6 +18,7 @@ import {
 import { cancelObj, getPage } from '#/api/user/recharge-order';
 import PageFilterPanel from '#/components/page/page-filter-panel.vue';
 import PageToolbar from '#/components/page/page-toolbar.vue';
+import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 import { formatMoney } from '#/utils/util';
 
 const RightToolbar = defineAsyncComponent(
@@ -85,6 +86,8 @@ const handleCancel = (row: any) => {
 };
 
 initPage();
+
+useKeepAliveRefresh(initPage);
 </script>
 <template>
   <div class="hx-layout-container">

@@ -13,6 +13,8 @@
  * 泊位单独出现时（如「321」）没有被搜索的价值，必须有港口名才拼接。
  */
 
+import { translate } from '@/locales'
+
 export interface DeliveryDestination {
   /** 收货完整地址 */
   recipientAddress?: null | string
@@ -86,7 +88,7 @@ export function openDeliveryNavigation(
 ): void {
   const destination = resolveDeliveryDestination(target)
   if (!destination) {
-    notify('暂无收货地址')
+    notify(translate('app.deliveryNav.noAddress'))
     return
   }
 
@@ -96,7 +98,7 @@ export function openDeliveryNavigation(
       ...coordinates,
       name: destination,
       scale: 18,
-      fail: () => notify('打开地图失败'),
+      fail: () => notify(translate('app.deliveryNav.openMapFailed')),
     })
     return
   }
@@ -105,12 +107,12 @@ export function openDeliveryNavigation(
     data: destination,
     success: () => {
       uni.showModal({
-        title: '地址已复制',
-        content: '打开手机上的导航软件，把地址粘贴到搜索框即可开始导航',
+        title: translate('app.deliveryNav.addressCopiedTitle'),
+        content: translate('app.deliveryNav.addressCopiedContent'),
         showCancel: false,
-        confirmText: '知道了',
+        confirmText: translate('app.deliveryNav.gotIt'),
       })
     },
-    fail: () => notify('复制地址失败'),
+    fail: () => notify(translate('app.deliveryNav.copyFailed')),
   })
 }

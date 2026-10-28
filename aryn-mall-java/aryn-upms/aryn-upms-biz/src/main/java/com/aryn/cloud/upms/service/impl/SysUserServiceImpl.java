@@ -17,6 +17,7 @@ import com.aryn.cloud.upms.api.vo.MenuVO;
 import com.aryn.cloud.upms.mapper.*;
 import com.aryn.cloud.upms.service.ISysUserRoleService;
 import com.aryn.cloud.upms.service.ISysUserService;
+import com.aryn.cloud.upms.support.SysUserSessionRevoker;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,6 +48,8 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
 	private final ISysUserRoleService sysUserRoleService;
 
 	private final SysRoleMenuMapper sysRoleMenuMapper;
+
+	private final SysUserSessionRevoker sysUserSessionRevoker;
 
 	@Override
 	public SysUser findUserInfo(SysUser sysUser) {
@@ -98,6 +101,8 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public boolean updateUser(SysUser sysUser) {
+		// 停用前置状态：仅当本次把账号从「正常」改为「停用」时才需要撤销已有会话
+		SysUser existing = baseMapper.selectById(sysUser.getId());
 		// 请求列表可能不可变，拷贝后再做受保护角色剔除与合并
 		List<String> roles = new ArrayList<>(sysUser.getRoles() == null ? List.of() : sysUser.getRoles());
 		sysUser.setRoles(roles);
@@ -128,6 +133,10 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
 		}
 		baseMapper.updateById(sysUser);
 		saveUserRole(sysUser);
+		// 停用即下线：账号已不可再次登录，但已签发的 token 仍会有效到过期，必须立即撤销
+		if (isDisabledTransition(existing, sysUser)) {
+			sysUserSessionRevoker.revokeAll(sysUser.getId(), "停用账号");
+		}
 		return Boolean.TRUE;
 	}
 
@@ -142,12 +151,30 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
 		// 删除用户管理角色
 		sysUserRoleMapper.delete(Wrappers.<SysUserRole>lambdaQuery().eq(SysUserRole::getUserId, sysUser.getId()));
 		// 删除用户
-		return super.removeById(sysUser.getId());
+		boolean removed = super.removeById(sysUser.getId());
+		if (removed) {
+			// 删除即下线：避免已删除账号的旧 token 继续访问管理端/配送端
+			sysUserSessionRevoker.revokeAll(sysUser.getId(), "删除账号");
+		}
+		return removed;
 	}
 
 	@Override
 	public int getCount(SysUser sysUser) {
 		return baseMapper.selectCount(sysUser);
+	}
+
+	/**
+	 * 本次编辑是否把账号从「正常」改为「停用」。
+	 * <p>status 为 null 表示本次不更新该字段（MyBatis-Plus not_null 策略），不触发会话撤销；
+	 * 停用状态值以 {@link CommonConstants#NORMAL_STATUS} 为准（"0" 正常，其余视为停用）。
+	 */
+	private static boolean isDisabledTransition(SysUser existing, SysUser updated) {
+		if (existing == null || updated == null || updated.getStatus() == null) {
+			return false;
+		}
+		return CommonConstants.NORMAL_STATUS.equals(existing.getStatus())
+				&& !CommonConstants.NORMAL_STATUS.equals(updated.getStatus());
 	}
 
 	private void saveUserRole(SysUser sysUser) {

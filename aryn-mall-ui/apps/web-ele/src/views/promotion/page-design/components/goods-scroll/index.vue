@@ -10,6 +10,7 @@ import { ElIcon, ElImage } from 'element-plus';
 import { shouldShowOriginalPrice } from '../common/retail-preview/price-display';
 import { loadGoodsGroup } from '../common/retail-preview/retail-data';
 import RetailPreviewFrame from '../common/retail-preview/retail-preview-frame.vue';
+import { stockHintText } from '../common/retail-preview/stock-display';
 import { createRetailPreviewController } from '../common/retail-preview/use-retail-preview';
 import { validateGoodsScroll } from './types';
 
@@ -90,8 +91,8 @@ function originalPriceText(item: RetailGoodsItem) {
           <span v-if="showData.showOriginalPrice" class="gs-price-original">
             {{ originalPriceText(item) }}
           </span>
-          <span v-if="showData.showSales" class="gs-sales">
-            已售 {{ item.sales }}
+          <span v-if="stockHintText(item.stock)" class="gs-sales">
+            {{ stockHintText(item.stock) }}
           </span>
         </div>
       </article>

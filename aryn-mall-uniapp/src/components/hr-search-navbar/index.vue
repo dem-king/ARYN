@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 interface Props {
   modelValue: string
@@ -21,7 +22,7 @@ interface Props {
 
 const props = withDefaults(defineProps<Props>(), {
   modelValue: '',
-  placeholder: '请输入搜索关键词',
+  placeholder: '',
   placeholderLeft: false,
   bordered: true,
   leftArrow: true,
@@ -44,7 +45,10 @@ const emit = defineEmits<{
 }>()
 
 const router = useRouter()
+const { t } = useI18n()
 const searchValue = ref(props.modelValue)
+/** 未传 placeholder 时回落到与当前语言一致的默认文案 */
+const placeholderText = computed(() => props.placeholder || t('search.inputPlaceholder'))
 const isCanBack = ref(true)
 const capsulePaddingRight = ref(0)
 const statusBarHeight = ref(0)
@@ -63,7 +67,7 @@ onMounted(() => {
   else {
     isCanBack.value = true
   }
-  const sys = uni.getSystemInfoSync()
+  const sys = uni.getWindowInfo()
   statusBarHeight.value = sys.statusBarHeight || 0
   // #ifdef MP-WEIXIN
   const rect = uni.getMenuButtonBoundingClientRect()
@@ -172,7 +176,7 @@ defineExpose({ placeholderHeight })
             class="flex-1 rounded-16rpx bg-transparent px-8rpx py-4rpx text-28rpx text-[#333]"
             type="text"
             :value="searchValue"
-            :placeholder="placeholder"
+            :placeholder="placeholderText"
             :focus="focus"
             confirm-type="search"
             @input="(e:any) => updateValue(e.detail?.value ?? e.target?.value)"
@@ -191,7 +195,7 @@ defineExpose({ placeholderHeight })
                 <wd-icon name="close" size="20rpx" custom-class="ml-4rpx flex-none" color="#6b7280" />
               </view>
               <view v-else class="text-28rpx">
-                {{ placeholder }}
+                {{ placeholderText }}
               </view>
             </view>
           </view>
@@ -201,7 +205,7 @@ defineExpose({ placeholderHeight })
             class="ml-8rpx h-28px flex flex-none items-center rounded-14rpx bg-primary px-24rpx text-26rpx text-white"
             @click.stop="handleSearch(searchValue)"
           >
-            搜索
+            {{ t('search.searchButton') }}
           </view>
         </view>
       </view>

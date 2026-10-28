@@ -4,8 +4,10 @@ import type {
   AppDiscountGoodsVO,
 } from '@/api/promotion'
 import { onLoad, onUnload } from '@dcloudio/uni-app'
-import { computed, nextTick, reactive, ref } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { getDiscountActivities } from '@/api/promotion'
+import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
 import QuickCartButton from '@/components/quick-cart-button/index.vue'
 import { formatDiscountValue } from '@/utils/discount-price'
 import { navigateToUrl } from '@/utils/tab-bar'
@@ -18,7 +20,9 @@ definePage({
   },
 })
 
-/** 全场型活动没有商品清单，折扣在商详生效：整卡「去逛逛」回首页商品流 */
+const { t } = useI18n()
+
+/** 全场型活动与空态的出口：回首页商品流（折扣在商详/结算生效） */
 const HOME_PATH = '/pages/home/index'
 
 /** 折扣活动列表：一次拉全，Tab 必须是完整集合，不能随分页增长 */
@@ -29,7 +33,7 @@ const ACTIVITY_PAGE_SIZE = 100
 const loading = ref(true)
 /** 下拉刷新状态：驱动 scroll-view 的 refresher 收起 */
 const refreshing = ref(false)
-/** scroll-view 滚动定位目标：「去逛逛」滚到本活动商品区 / 回顶 */
+/** scroll-view 滚动定位目标：切活动/回顶统一落 discount-top */
 const scrollIntoView = ref('')
 /** 悬浮回顶：滚动超过约 2 屏才出现 */
 const showBackTop = ref(false)
@@ -59,9 +63,67 @@ function selectActivity(activityId: string) {
   tabScrollInto.value = ''
   nextTick(() => {
     scrollIntoView.value = 'discount-top'
-    tabScrollInto.value = 'tab-' + activityId
+    tabScrollInto.value = `tab-${activityId}`
   })
 }
+
+/**
+ * 悬浮玻璃活动卡（2026-10-26 用户需求）：
+ * 活动卡从滚动流里抽出来，常驻内容区顶部，商品从卡下方滑过并透出模糊底色（玻璃拟态）。
+ *
+ * 卡片不再是滚动内容的一部分 → 不再占布局空间，必须自己补一块等高占位，
+ * 否则首屏第一行商品会被玻璃卡压住。卡高受中英文案、端上字体行高影响不能写死，
+ * 渲染后实测回填；小程序首帧量不到节点尺寸时最多补测 3 次（同 diy-newbie-floor 口径）。
+ */
+const FLOAT_CARD_GAP = 12
+const floatCardHeight = ref(0)
+/** 滚动后抬升态：商品已滑到卡下，加重投影把卡「举」起来 */
+const floatCardRaised = ref(false)
+/** 悬浮卡数据源：loading 或空态时无卡可浮 */
+const floatActivity = computed(() => (loading.value ? null : activeActivity.value))
+const floatCardSpaceStyle = computed(() => ({
+  height: `${(floatCardHeight.value || 0) + FLOAT_CARD_GAP}px`,
+}))
+
+let floatMeasureRetry = 0
+let floatMeasureTimer: ReturnType<typeof setTimeout> | undefined
+
+/** 重新实测悬浮卡高度（数据到位 / 切活动后调用） */
+function measureFloatCard() {
+  if (floatMeasureTimer)
+    clearTimeout(floatMeasureTimer)
+  floatMeasureRetry = 0
+  nextTick(runMeasureFloatCard)
+}
+
+function runMeasureFloatCard() {
+  uni.createSelectorQuery()
+    .select('.act-float-card')
+    .boundingClientRect()
+    .exec((rects) => {
+      const height = Number((rects?.[0] as { height?: number } | null)?.height) || 0
+      if (height > 0) {
+        floatCardHeight.value = Math.ceil(height)
+        return
+      }
+      // 卡片还没上屏（loading → loaded 首帧）或端上布局未就绪：补测后仍拿不到就保持 CSS 兜底高度
+      if (floatMeasureRetry >= 3)
+        return
+      floatMeasureRetry += 1
+      floatMeasureTimer = setTimeout(runMeasureFloatCard, 120)
+    })
+}
+
+watch(
+  () => [loading.value, activeActivityId.value] as const,
+  () => {
+    if (floatActivity.value)
+      measureFloatCard()
+    else
+      floatCardHeight.value = 0
+  },
+  { flush: 'post' },
+)
 
 const authStore = useAuthStore()
 const shoppingCartStore = useShoppingCartStore()
@@ -161,7 +223,7 @@ async function loadActivities() {
       activeActivityId.value = records[0]?.activityId ?? ''
   }
   catch {
-    uni.showToast({ title: '加载失败', icon: 'none' })
+    uni.showToast({ title: t('promotion.common.loadFailed'), icon: 'none' })
   }
   finally {
     loading.value = false
@@ -228,7 +290,7 @@ function countdownText(activity: AppDiscountActivityVO) {
   const days = Math.floor(state.hours / 24)
   const hours = state.hours % 24
   const clock = `${pad(hours)}:${pad(state.minutes)}:${pad(state.seconds)}`
-  return days > 0 ? `${days}天 ${clock}` : clock
+  return days > 0 ? t('promotion.common.daysClock', { clock, days }) : clock
 }
 
 /**
@@ -236,40 +298,26 @@ function countdownText(activity: AppDiscountActivityVO) {
  * 未开始的倒计时语义是距开抢时间，用「距开始」避免误导。
  */
 function getCountdownLabel(activity: AppDiscountActivityVO) {
-  return activity.status === 1 ? '距结束' : '距开始'
+  return activity.status === 1
+    ? t('promotion.discount.countdownEnd')
+    : t('promotion.discount.countdownStart')
 }
 
 /** 倒计时归零/活动结束时的兜底文案 */
 function countdownFallbackText(activity: AppDiscountActivityVO) {
   // status 1 但倒计时归零：服务端状态尚未翻转，按已结束展示更贴近事实
   if (activity.status === 1 || activity.status === 2)
-    return '已结束'
-  return '即将开始'
+    return t('promotion.discount.ended')
+  return t('promotion.discount.comingSoon')
 }
 
 /**
- * 折扣口径（修复 D1）：0.95 → 9.5折、0.8 → 8折。
- * 旧实现 `Math.round(value * 10)` 会把 0.95 舍成「10 折」，
- * 与首页折扣楼层的 `Math.round(value * 100) / 10` 口径分叉。
+ * 折扣口径：与 `utils/discount-price` 的 `formatDiscountValue` 同一套
+ * （0.95 → 9.5折、0.8 → 8折；≥10 折退化为中性「折扣」；减价/固定价沿用后端语义），
+ * 中文按「8折」、英文按「20% OFF」表达，避免本页与商详/购物车角标漂移。
  */
 function discountTagText(activity: AppDiscountActivityVO) {
-  switch (activity.discountType) {
-    case 1: {
-      const zhe = Math.round(Number(activity.discountValue) * 100) / 10
-      if (!Number.isFinite(zhe) || zhe <= 0)
-        return '折扣'
-      // 力度等于原价（10 折）没有折扣语义，退回「折扣」而不是展示「10折」
-      if (zhe >= 10)
-        return '折扣'
-      return `${Number.isInteger(zhe) ? zhe : zhe.toFixed(1)}折`
-    }
-    case 2:
-      return `减¥${activity.discountValue}`
-    case 3:
-      return '一口价'
-    default:
-      return '折扣'
-  }
+  return formatDiscountValue(activity)
 }
 
 /**
@@ -294,11 +342,11 @@ function isFullScope(activity: AppDiscountActivityVO) {
 /** 全场权益卡说明：打折活动换算出等价的「下单立减 X%」，其余类型不编造比例 */
 function fullDesc(activity: AppDiscountActivityVO) {
   if (activity.discountType !== 1)
-    return '全场商品参与 · 下单立减'
+    return t('promotion.discount.fullScopeDesc')
   const percent = Math.round((1 - Number(activity.discountValue)) * 100)
   if (!Number.isFinite(percent) || percent <= 0)
-    return '全场商品参与 · 下单立减'
-  return `全场商品参与 · 下单立减 ${percent}%`
+    return t('promotion.discount.fullScopeDesc')
+  return t('promotion.discount.fullScopeDescPercent', { percent })
 }
 
 /**
@@ -312,7 +360,9 @@ function activitySubtitle(activity: AppDiscountActivityVO) {
     return quota ? `${desc} · ${quota}` : desc
   }
   const count = activity.goodsList?.length || 0
-  return count > 0 ? `${count}件商品参与` : '指定商品参与'
+  return count > 0
+    ? t('promotion.discount.goodsCount', { count })
+    : t('promotion.discount.goodsScope')
 }
 
 /**
@@ -325,10 +375,10 @@ function activityQuotaText(activity: AppDiscountActivityVO) {
     return ''
   const count = Math.max(0, Math.floor(Number(remaining)))
   if (count <= 0)
-    return '已售罄'
+    return t('labels.soldOut')
   if (count <= 10)
-    return `仅剩 ${count} 件`
-  return `限量 ${(activity.stock ?? count)} 件`
+    return t('labels.onlyLeft', { count })
+  return t('promotion.common.limitedStock', { count: activity.stock ?? count })
 }
 
 /** 原价严格大于折后价才划线；否则原价与省额整块隐藏 */
@@ -341,7 +391,7 @@ function savedText(goods: AppDiscountGoodsVO) {
   const diff = Number(goods.originalPrice) - Number(goods.discountPrice)
   if (!Number.isFinite(diff) || diff <= 0)
     return ''
-  return `省¥${diff.toFixed(2)}`
+  return t('promotion.common.saveAmount', { amount: diff.toFixed(2) })
 }
 
 /** 金额统一两位小数 */
@@ -369,22 +419,8 @@ function stockHint(goods: AppDiscountGoodsVO) {
     return ''
   const count = Math.max(0, Math.floor(Number(remaining)))
   if (count <= 0)
-    return '已售罄'
-  return count <= 10 ? `仅剩 ${count} 件` : ''
-}
-
-/** 活动头「去逛逛」：商品型活动滚到本活动商品区，全场型活动回首页商品流 */
-function onBrowse(activity: AppDiscountActivityVO) {
-  if (isFullScope(activity)) {
-    navigateToUrl(HOME_PATH)
-    return
-  }
-  const target = `goods-${activity.activityId}`
-  // 先清空再设置，保证连续点击同一个活动也能再次触发滚动
-  scrollIntoView.value = ''
-  nextTick(() => {
-    scrollIntoView.value = target
-  })
+    return t('labels.soldOut')
+  return count <= 10 ? t('labels.onlyLeft', { count }) : ''
 }
 
 /** 空态主按钮：无折扣活动时回首页商品流 */
@@ -397,10 +433,14 @@ function toCart() {
   navigateToUrl('/pages/user/shopping-cart/index')
 }
 
-/** 页面滚动：驱动悬浮回顶显隐（阈值按 px，约 2 屏） */
+/** 页面滚动：驱动悬浮回顶显隐（阈值按 px，约 2 屏）与玻璃卡抬升态 */
 function onPageScroll(event: { detail: { scrollTop: number } }) {
   const top = event?.detail?.scrollTop ?? 0
   showBackTop.value = top > 600
+  // 阈值取小：内容一开始从卡下滑过就抬升（回顶后立刻落回常态阴影）
+  const raised = top > 2
+  if (raised !== floatCardRaised.value)
+    floatCardRaised.value = raised
 }
 
 /** 回顶：复用 scroll-into-view（改 scroll-top 在用户手动滚动后不生效） */
@@ -430,7 +470,7 @@ function quickAddPromotionOf(goods: AppDiscountGoodsVO) {
     skuId,
     unitPrice: price,
     maxQuantity: null,
-    hint: `限时折扣 ${formatDiscountValue(goods)}`,
+    hint: t('promotion.discount.quickAddHint', { discount: formatDiscountValue(goods) }),
   }
 }
 
@@ -443,7 +483,7 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
 
 <template>
   <view class="discount-page">
-    <hr-navbar title="限时折扣">
+    <hr-navbar :title="t('promotion.discount.title')">
       <!-- 购物车入口放导航栏（与分类页同源），不做悬浮圆钮：右下角会和网格卡的加购按钮叠在一起 -->
       <template #right>
         <view class="nav-cart" @tap="toCart">
@@ -466,8 +506,8 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
       <view class="act-tabs-track">
         <view
           v-for="activity in activityList"
-          :id="'tab-' + activity.activityId"
-          :key="'tab-' + activity.activityId"
+          :id="`tab-${activity.activityId}`"
+          :key="`tab-${activity.activityId}`"
           class="act-tab"
           :class="{ 'is-on': activity.activityId === activeActivityId }"
           @tap="selectActivity(activity.activityId)"
@@ -476,205 +516,222 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
             {{ discountTagText(activity) }}
           </text>
           <text class="act-tab-name">
-            {{ activity.activityName || '限时折扣' }}
+            {{ activity.activityName || t('promotion.discount.title') }}
           </text>
         </view>
       </view>
     </scroll-view>
 
-    <scroll-view
-      scroll-y
-      class="content-scroll"
-      refresher-enabled
-      :refresher-triggered="refreshing"
-      :scroll-into-view="scrollIntoView"
-      @refresherrefresh="onRefresh"
-      @scroll="onPageScroll"
-    >
-      <view id="discount-top" />
-      <!-- 首屏骨架：1 张活动卡 + 2 列 × 2 行商品卡，形状与真实内容一致 -->
-      <template v-if="loading">
-        <view class="sk-page">
-          <view class="act-skeleton">
-            <view class="sk-ratio" />
-            <view class="sk-head-lines">
-              <view class="sk-line sk-line--lg" />
-              <view class="sk-line sk-line--md" />
-              <view class="sk-line sk-line--sm" />
-            </view>
-          </view>
-          <view class="goods-grid">
-            <view v-for="n in 4" :key="n" class="goods-card">
-              <view class="sk-img" />
-              <view class="sk-body">
+    <!--
+      内容舞台：scroll-view 与悬浮玻璃卡同处一个定位容器。
+      卡片绝对定位在滚动区之上（不再是滚动内容），商品从卡下方滑过，玻璃底色才透得出滚动内容。
+    -->
+    <view class="content-stage">
+      <scroll-view
+        scroll-y
+        class="content-scroll"
+        refresher-enabled
+        :refresher-triggered="refreshing"
+        :scroll-into-view="scrollIntoView"
+        @refresherrefresh="onRefresh"
+        @scroll="onPageScroll"
+      >
+        <view id="discount-top" />
+        <!-- 悬浮卡等高空位：高度由脚本实测卡高回填，保证首屏第一行商品不被玻璃卡压住 -->
+        <view
+          v-if="floatActivity"
+          class="act-float-space"
+          :style="floatCardSpaceStyle"
+        />
+        <!-- 首屏骨架：1 张活动卡 + 2 列 × 2 行商品卡，形状与真实内容一致 -->
+        <template v-if="loading">
+          <view class="sk-page">
+            <view class="act-skeleton">
+              <view class="sk-ratio" />
+              <view class="sk-head-lines">
                 <view class="sk-line sk-line--lg" />
                 <view class="sk-line sk-line--md" />
                 <view class="sk-line sk-line--sm" />
               </view>
             </view>
-          </view>
-        </view>
-      </template>
-
-      <!-- 空态：品牌渐变圆 + 白色折扣图标 + 主按钮（统一走 HallState） -->
-      <hall-state
-        v-else-if="activityList.length === 0"
-        art="discount"
-        title="暂无折扣活动"
-        desc="换个时间再来，或先去逛逛商品"
-        action-text="去首页逛逛"
-        @action="goHome"
-      />
-
-      <template v-else-if="activeActivity">
-        <view :key="activeActivity.activityId" class="act-group">
-          <!--
-            活动卡（第二轮重构）：白底**无描边** + 左侧实心折扣大牌
-            + 活动名/副行 + 一行倒计时文字（`tabular-nums`）+ 右侧「去逛逛 ›」文字链。
-            描边是「没有阴影就拿描边凑」的妥协，叠上大牌/圆钮会在同一张卡出现三次，故删除。
-          -->
-          <view class="act-card">
-            <view class="act-ratio">
-              <text
-                class="act-ratio-text"
-                :class="ratioTextClass(discountTagText(activeActivity))"
-              >
-                {{ discountTagText(activeActivity) }}
-              </text>
-            </view>
-
-            <view class="act-main">
-              <text class="act-name">
-                {{ activeActivity.activityName || '限时折扣' }}
-              </text>
-
-              <!-- 副行：全场型显示权益换算，商品型显示参与件数 -->
-              <text class="act-sub">
-                {{ activitySubtitle(activeActivity) }}
-              </text>
-
-              <!-- 倒计时：一行文字，超 24h 走「N 天 HH:MM:SS」 -->
-              <text v-if="hasLiveCountdown(activeActivity)" class="act-cd">
-                {{ getCountdownLabel(activeActivity) }} {{ countdownText(activeActivity) }}
-              </text>
-              <text v-else class="act-cd act-cd--end">
-                {{ countdownFallbackText(activeActivity) }}
-              </text>
-            </view>
-
-            <view class="act-btn-hit" @click.stop="onBrowse(activeActivity)">
-              <text class="act-btn">去逛逛 ›</text>
-            </view>
-          </view>
-
-          <!--
-            商品型活动：双列网格。
-            单张卡 = 方图 + 图上折角标（折扣力度全卡只此一处）+ 品名两行
-            + 到手价/划线 + 省额胶囊 + 右下快捷加购；
-            第二轮去掉「到手价」label（图上角标已表达力度，卡内不再重复文案）。
-          -->
-          <view
-            v-if="!isFullScope(activeActivity)"
-            :id="`goods-${activeActivity.activityId}`"
-            class="goods-grid"
-          >
-            <view
-              v-for="goods in activeActivity.goodsList"
-              :key="goods.skuId"
-              class="goods-card"
-              hover-class="goods-card--pressed"
-              :hover-stay-time="120"
-              @click="goGoodsDetail(goods)"
-            >
-              <view class="goods-media">
-                <image
-                  v-if="goods.goodsImage"
-                  class="goods-img"
-                  :src="resolveImageSrc(goods.goodsImage)"
-                  mode="aspectFill"
-                  lazy-load
-                />
-                <view v-else class="goods-img goods-img--empty">
-                  <text>折扣</text>
+            <view class="goods-grid">
+              <view v-for="n in 4" :key="n" class="goods-card">
+                <view class="sk-img" />
+                <view class="sk-body">
+                  <view class="sk-line sk-line--lg" />
+                  <view class="sk-line sk-line--md" />
+                  <view class="sk-line sk-line--sm" />
                 </view>
-                <text class="goods-off">
-                  {{ discountTagText(activeActivity) }}
-                </text>
               </view>
+            </view>
+          </view>
+        </template>
 
-              <view class="goods-body">
-                <view class="goods-name">
-                  {{ goods.goodsName || '折扣商品' }}
-                </view>
-                <view class="goods-price">
-                  <text class="price-sym">¥</text>
-                  <text class="price-val">{{ formatPrice(goods.discountPrice) }}</text>
-                  <text v-if="hasOriginalPrice(goods)" class="price-orig">
-                    ¥{{ formatPrice(goods.originalPrice) }}
-                  </text>
-                </view>
-                <view class="goods-bottom">
-                  <text v-if="savedText(goods)" class="goods-save">
-                    {{ savedText(goods) }}
-                  </text>
-                  <text v-if="stockHint(goods)" class="goods-stock" :class="{ 'is-out': stockHint(goods) === '已售罄' }">
-                    {{ stockHint(goods) }}
+        <!-- 空态：品牌渐变圆 + 白色折扣图标 + 主按钮（统一走 HallState） -->
+        <hall-state
+          v-else-if="activityList.length === 0"
+          art="discount"
+          :title="t('promotion.discount.emptyTitle')"
+          :desc="t('promotion.discount.emptyDesc')"
+          :action-text="t('promotion.common.goHome')"
+          @action="goHome"
+        />
+
+        <template v-else-if="activeActivity">
+          <view :key="activeActivity.activityId" class="act-group">
+            <!-- 活动卡已抽到滚动区外的悬浮玻璃卡（见 .content-stage 末尾），此处只留商品区 -->
+            <!--
+              商品型活动：双列网格。
+              单张卡 = 方图 + 图上折角标（折扣力度全卡只此一处）+ 品名两行
+              + 子标题一行 + 到手价/划线 + 省额胶囊 + 右下快捷加购；
+              第二轮去掉「到手价」label（图上角标已表达力度，卡内不再重复文案）。
+            -->
+            <view v-if="!isFullScope(activeActivity)" class="goods-grid">
+              <view
+                v-for="goods in activeActivity.goodsList"
+                :key="goods.skuId"
+                class="goods-card"
+                hover-class="goods-card--pressed"
+                :hover-stay-time="120"
+                @click="goGoodsDetail(goods)"
+              >
+                <view class="goods-media">
+                  <image
+                    v-if="goods.goodsImage"
+                    class="goods-img"
+                    :src="resolveImageSrc(goods.goodsImage)"
+                    mode="aspectFill"
+                    lazy-load
+                  />
+                  <view v-else class="goods-img goods-img--empty">
+                    <text>{{ t('labels.discount') }}</text>
+                  </view>
+                  <text class="goods-off">
+                    {{ discountTagText(activeActivity) }}
                   </text>
                 </view>
 
-                <!--
+                <view class="goods-body">
+                  <view class="goods-name">
+                    {{ goods.goodsName || t('promotion.discount.goodsFallback') }}
+                  </view>
+                  <!-- 子标题：与装修商品卡同口径，未配置或与名称相同时整行隐藏 -->
+                  <view v-if="shouldShowSubtitle(goods.goodsName, goods.subTitle)" class="goods-sub">
+                    {{ goods.subTitle }}
+                  </view>
+                  <view class="goods-price">
+                    <text class="price-sym">
+                      ¥
+                    </text>
+                    <text class="price-val">
+                      {{ formatPrice(goods.discountPrice) }}
+                    </text>
+                    <text v-if="hasOriginalPrice(goods)" class="price-orig">
+                      ¥{{ formatPrice(goods.originalPrice) }}
+                    </text>
+                  </view>
+                  <view class="goods-bottom">
+                    <text v-if="savedText(goods)" class="goods-save">
+                      {{ savedText(goods) }}
+                    </text>
+                    <text v-if="stockHint(goods)" class="goods-stock" :class="{ 'is-out': isSoldOut(goods) }">
+                      {{ stockHint(goods) }}
+                    </text>
+                  </view>
+
+                  <!--
                   加购复用 QuickCartButton（未登录跳登录 / 多规格唤起 SKU 弹层 /
                   加购去向确认都在组件内，弹层由 App.ku.vue 全局挂载一份）。
                   外观改为「浅主色底实心圆钮」，不再用描边圆钮（同卡描边只留 0 处）。
                 -->
-                <view class="goods-cart" @click.stop>
-                  <QuickCartButton
-                    v-if="!isSoldOut(goods)"
-                    :spu-id="goods.spuId"
-                    :promotion="quickAddPromotionOf(goods)"
-                    size="64rpx"
-                  >
-                    <view class="goods-cart-btn">
-                      <wd-icon name="cart" size="34rpx" />
+                  <view class="goods-cart" @click.stop>
+                    <QuickCartButton
+                      v-if="!isSoldOut(goods)"
+                      :spu-id="goods.spuId"
+                      :promotion="quickAddPromotionOf(goods)"
+                      size="64rpx"
+                    >
+                      <view class="goods-cart-btn">
+                        <wd-icon name="cart" size="34rpx" />
+                      </view>
+                    </QuickCartButton>
+                    <!-- 售罄：不再唤起加购（避免进车后到下单才被拦），整卡仍可进详情 -->
+                    <view v-else class="goods-cart-btn goods-cart-btn--out">
+                      <text class="goods-cart-out">
+                        {{ t('promotion.discount.soldOutShort') }}
+                      </text>
                     </view>
-                  </QuickCartButton>
-                  <!-- 售罄：不再唤起加购（避免进车后到下单才被拦），整卡仍可进详情 -->
-                  <view v-else class="goods-cart-btn goods-cart-btn--out">
-                    <text class="goods-cart-out">
-                      售罄
-                    </text>
                   </view>
                 </view>
               </view>
             </view>
-          </view>
 
-          <!--
+            <!--
             全场型活动（scope=1）没有商品清单，折扣在商详/结算生效。
             不能只剩一张活动卡：给一块权益说明 + 去首页商品流的出口，
             避免切到该 Tab 后页面像没加载出来。
           -->
-          <view v-else class="full-scope-panel">
-            <text class="full-scope-title">
-              全场商品通用折扣
-            </text>
-            <text class="full-scope-desc">
-              任意商品结算时自动按 {{ discountTagText(activeActivity) }} 计算，无需选购指定清单
-            </text>
-            <view class="full-scope-btn-hit" @tap="goHome">
-              <text class="full-scope-btn">
-                去首页逛商品 ›
+            <view v-else class="full-scope-panel">
+              <text class="full-scope-title">
+                {{ t('promotion.discount.fullScopeTitle') }}
               </text>
+              <text class="full-scope-desc">
+                {{ t('promotion.discount.fullScopeHint', { discount: discountTagText(activeActivity) }) }}
+              </text>
+              <view class="full-scope-btn-hit" @tap="goHome">
+                <text class="full-scope-btn">
+                  {{ t('promotion.discount.goShopping') }}
+                </text>
+              </view>
             </view>
           </view>
+
+          <!-- 全场型活动没有商品清单，不出现列表收尾文案 -->
+          <view v-if="!isFullScope(activeActivity)" class="load-more">
+            <text>{{ t('promotion.common.noMore') }}</text>
+          </view>
+        </template>
+      </scroll-view>
+
+      <!--
+        悬浮玻璃活动卡（2026-10-26）：绝对定位在滚动区之上、常驻内容区顶部，
+        商品从卡下方滑过，backdrop-filter 把透出的内容模糊成底色 —— 玻璃拟态。
+        loading / 空态不渲染；卡高由脚本实测后回填滚动区内的等高空位。
+      -->
+      <view
+        v-if="floatActivity"
+        class="act-float-card"
+        :class="{ 'is-raised': floatCardRaised }"
+      >
+        <view class="act-ratio">
+          <text
+            class="act-ratio-text"
+            :class="ratioTextClass(discountTagText(floatActivity))"
+          >
+            {{ discountTagText(floatActivity) }}
+          </text>
         </view>
 
-        <!-- 全场型活动没有商品清单，不出现列表收尾文案 -->
-        <view v-if="!isFullScope(activeActivity)" class="load-more">
-          <text>—— 没有更多了 ——</text>
+        <view class="act-main">
+          <text class="act-name">
+            {{ floatActivity.activityName || t('promotion.discount.title') }}
+          </text>
+
+          <!-- 副行：全场型显示权益换算，商品型显示参与件数 -->
+          <text class="act-sub">
+            {{ activitySubtitle(floatActivity) }}
+          </text>
+
+          <!-- 倒计时：一行文字，超 24h 走「N 天 HH:MM:SS」 -->
+          <text v-if="hasLiveCountdown(floatActivity)" class="act-cd">
+            {{ getCountdownLabel(floatActivity) }} {{ countdownText(floatActivity) }}
+          </text>
+          <text v-else class="act-cd act-cd--end">
+            {{ countdownFallbackText(floatActivity) }}
+          </text>
         </view>
-      </template>
-    </scroll-view>
+      </view>
+    </view>
 
     <!-- 悬浮回顶：滚动超过约 2 屏才出现 -->
     <view v-if="showBackTop" class="back-top" @tap="backTop">
@@ -696,6 +753,15 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
   2026-10-23 修正 Tab 语义：活动 Tab 由「页内锚点」改为「内容切换」（与秒杀页
   场次轴同口径）—— 同一时刻只渲染选中活动的卡与商品；活动一次拉全，Tab 不再
   随分页增长；全场型活动无商品清单，补权益说明 + 去首页入口，避免空 Tab。
+
+  2026-10-25 移除活动卡「去逛逛」文字链：商品型的商品区就贴在卡下方，
+  全场型已有权益卡的「去首页逛商品」出口，该入口在两种形态下都冗余。
+
+  2026-10-26 活动卡改为悬浮玻璃卡（用户需求：滑动商品时一直展示）：
+  - 卡片从 scroll-view 内容里抽到 .content-stage（定位容器）上，绝对定位常驻顶部，
+    商品从卡下方滑过，backdrop-filter 把透出的内容模糊成底色 —— 玻璃拟态；
+  - 卡片脱离滚动流后由脚本实测卡高、回填 .act-float-space 等高空位，首屏不被遮挡；
+  - 滚动后加 .is-raised 加重投影，回顶落回常态阴影；load/空态不渲染悬浮卡。
 -->
 <style lang="scss" scoped>
 .discount-page {
@@ -706,6 +772,16 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
   flex-direction: column;
   overflow: hidden;
   background: #f5f6f8;
+}
+
+/* ---- 内容舞台：滚动区 + 悬浮玻璃卡，同一个定位容器 ---- */
+.content-stage {
+  position: relative;
+  display: flex;
+  overflow: hidden;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
 }
 
 .content-scroll {
@@ -767,19 +843,76 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
   color: #fff;
 }
 
-/* ---- 活动卡（白底无描边；轻促销：主色只给大牌与文字链） ---- */
+/* ---- 商品区容器（活动卡已上浮，此处只剩商品网格/权益卡） ---- */
 .act-group {
   display: block;
 }
 
-.act-card {
+/* ---- 悬浮玻璃活动卡（玻璃拟态） ---- */
+/* 等高空位：高度由脚本实测卡高回填；min-height 是量不到节点尺寸时的兜底 */
+.act-float-space {
+  min-height: 172rpx;
+}
+
+/*
+  卡片的玻璃感来自三层：
+  1. 半透明底 + backdrop-filter：下方滑过的商品被模糊成底色（不是纯装饰，滚动内容真的从卡下穿过）；
+  2. 1rpx 半透明白描边 + 上缘向下的白色高光（::before）：模拟玻璃厚边与反光；
+  3. 双层投影：常态轻浮起，滚动后（.is-raised）加重，把卡和商品分层。
+  不支持 backdrop-filter 的内核（部分安卓 X5）退化为高不透明白，文案仍可读。
+  文案对比度：卡底是半透明白叠模糊内容，副行/倒计时由 #8a8f99 提到 #5b616e 才够读。
+*/
+.act-float-card {
+  position: absolute;
+  top: 20rpx;
+  right: 24rpx;
+  left: 24rpx;
+  z-index: 6;
   display: flex;
-  margin: 0 24rpx 20rpx;
+  box-sizing: border-box;
+  overflow: hidden;
   padding: 24rpx;
   align-items: center;
   gap: 20rpx;
-  background: #fff;
-  border-radius: 20rpx;
+  border: 1rpx solid rgb(255 255 255 / 70%);
+  border-radius: 24rpx;
+  /* 斜向渐变让玻璃有厚薄差：左上更透亮、右下略深，避免整块死白 */
+  background: linear-gradient(135deg, rgb(255 255 255 / 80%) 0%, rgb(255 255 255 / 58%) 100%);
+  /* WEBKIT 大写写法避开 autoprefixer 的过时前缀清理（iOS 17- 的 WKWebView 只认带前缀的 backdrop-filter） */
+  -WEBKIT-backdrop-filter: blur(28px) saturate(200%);
+  backdrop-filter: blur(28px) saturate(200%);
+  box-shadow:
+    0 12rpx 32rpx rgb(20 29 45 / 12%),
+    0 2rpx 8rpx rgb(20 29 45 / 6%),
+    inset 0 1rpx 0 rgb(255 255 255 / 85%);
+  transition: box-shadow 220ms ease;
+}
+
+/* 滚动后抬升：商品已滑到卡下，加重投影把卡「举」起来 */
+.act-float-card.is-raised {
+  box-shadow:
+    0 20rpx 48rpx rgb(20 29 45 / 18%),
+    0 2rpx 8rpx rgb(20 29 45 / 6%),
+    inset 0 1rpx 0 rgb(255 255 255 / 90%);
+}
+
+/* 玻璃高光：上缘一道向下渐隐的白，纯装饰层，不参与点击 */
+.act-float-card::before {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 56%;
+  content: '';
+  background: linear-gradient(180deg, rgb(255 255 255 / 42%) 0%, rgb(255 255 255 / 0%) 100%);
+  pointer-events: none;
+}
+
+/* 高光层在内容之下：大牌与文案必须抬到 ::before 之上 */
+.act-float-card .act-ratio,
+.act-float-card .act-main {
+  position: relative;
+  z-index: 1;
 }
 
 /* 折扣大牌：实心 primary 方块 112×112rpx、圆角 20rpx、白字 40rpx/800
@@ -795,6 +928,8 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
   justify-content: center;
   background: var(--wot-color-theme-primary, #ff2237);
   border-radius: 20rpx;
+  /* 玻璃面上的一枚实心色块：给一点内高光，避免像贴上去的纯色 */
+  box-shadow: inset 0 2rpx 0 rgb(255 255 255 / 22%);
 }
 
 .act-ratio-text {
@@ -835,44 +970,27 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
   white-space: nowrap;
 }
 
-/* 副行：24rpx/500 muted，单行省略 */
+/* 副行：muted 单行省略；玻璃底上 #8a8f99 偏浅，压深到 #5b616e 保证可读 */
 .act-sub {
   overflow: hidden;
-  color: #8a8f99;
+  color: #5b616e;
   font-size: 22rpx;
   font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* 倒计时：一行文字（等宽数字），不出分格 */
+/* 倒计时：一行文字（等宽数字），不出分格；玻璃底上同样压深一档 */
 .act-cd {
-  color: #8a8f99;
+  color: #5b616e;
   font-size: 22rpx;
-  font-weight: 400;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 .act-cd--end {
-  color: #b6b9c0;
-}
-
-/* 「去逛逛」：文字链（不再用描边胶囊，卡片内描边归零）；热区 88rpx */
-.act-btn-hit {
-  display: flex;
-  min-height: 88rpx;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: flex-end;
-}
-
-.act-btn {
-  padding: 12rpx 0 12rpx 12rpx;
-  color: var(--wot-color-theme-primary, #ff2237);
-  font-size: 24rpx;
-  font-weight: 700;
-  white-space: nowrap;
+  color: #8a8f99;
 }
 
 /* ---- 全场型活动：无商品清单时的权益说明与出口 ---- */
@@ -987,13 +1105,22 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
 .goods-name {
   display: -webkit-box;
   overflow: hidden;
-  height: 68rpx;
   color: #1f2329;
   font-size: 25rpx;
   font-weight: 500;
   line-height: 34rpx;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+/* 子标题：单行省略（#8a8f99 与页内 muted 文案同色）；未配置/与名称相同时隐藏 */
+.goods-sub {
+  overflow: hidden;
+  margin-top: 4rpx;
+  color: #8a8f99;
+  font-size: 22rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 到手价：36rpx/700（比秒杀的 42rpx/800 降一档 —— 轻促销不与强促销抢字号） */

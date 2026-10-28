@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { normalizeCoupons, normalizeRetailGoods, normalizeRetailNewbieFloor } from './retail-normalizers'
+import { normalizeCoupons } from './retail-coupon-normalizers'
+import { normalizeRetailGoods, normalizeRetailNewbieFloor } from './retail-normalizers'
 
 describe('normalizeRetailGoods 扩展字段', () => {
   it('保留原有 6 个字段（不破坏既有调用方）', () => {

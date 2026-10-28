@@ -18,6 +18,7 @@ import {
 import { delObj, getPage } from '#/api/promotion/coupon-info';
 import PageFilterPanel from '#/components/page/page-filter-panel.vue';
 import PageToolbar from '#/components/page/page-toolbar.vue';
+import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 import { useDict } from '#/utils/dict';
 
 const RightToolbar = defineAsyncComponent(
@@ -97,6 +98,8 @@ const del = (id: string) => {
   });
 };
 initPage();
+
+useKeepAliveRefresh(initPage);
 </script>
 <template>
   <div class="hx-layout-container">
@@ -166,21 +169,28 @@ initPage();
           prop="couponName"
           label="优惠券名称"
           align="center"
+          min-width="180"
           show-overflow-tooltip
         />
         <ElTableColumn
           prop="picUrl"
           label="有效时间"
           align="center"
+          width="176"
           show-overflow-tooltip
         >
           <template #default="scope">
-            {{ scope.row.receiveStartedAt }}-
-            {{ scope.row.receiveEndedAt }}
+            {{ scope.row.receiveStartedAt }}<br />
+            至 {{ scope.row.receiveEndedAt }}
           </template>
         </ElTableColumn>
 
-        <ElTableColumn prop="couponType" label="优惠形式" align="center">
+        <ElTableColumn
+          prop="couponType"
+          label="优惠形式"
+          align="center"
+          width="118"
+        >
           <template #default="scope">
             <span v-if="scope.row.couponType === '1'" type="danger">
               指定金额:{{ scope.row.amount }}元
@@ -190,7 +200,12 @@ initPage();
             </span>
           </template>
         </ElTableColumn>
-        <ElTableColumn prop="useRange" label="可用范围" align="center">
+        <ElTableColumn
+          prop="useRange"
+          label="可用范围"
+          align="center"
+          width="94"
+        >
           <template #default="scope">
             <ElTag v-if="scope.row.useRange === '1'" type="success">
               全部商品
@@ -200,17 +215,37 @@ initPage();
             </ElTag>
           </template>
         </ElTableColumn>
-        <ElTableColumn prop="totalNum" label="发行数量" align="center" />
-        <ElTableColumn prop="assignCount" label="已发放数量" align="center" />
-        <ElTableColumn prop="usedCount" label="已使用数量" align="center" />
-        <ElTableColumn prop="remainNum" label="剩余数量" align="center" />
-        <ElTableColumn prop="status" label="状态" align="center">
+        <ElTableColumn
+          prop="totalNum"
+          label="发行数量"
+          align="center"
+          width="84"
+        />
+        <ElTableColumn
+          prop="assignCount"
+          label="已发放数量"
+          align="center"
+          width="99"
+        />
+        <ElTableColumn
+          prop="usedCount"
+          label="已使用数量"
+          align="center"
+          width="99"
+        />
+        <ElTableColumn
+          prop="remainNum"
+          label="剩余数量"
+          align="center"
+          width="84"
+        />
+        <ElTableColumn prop="status" label="状态" align="center" width="85">
           <template #default="scope">
             <DictTag :options="status" :value="scope.row.status" />
           </template>
         </ElTableColumn>
-        <ElTableColumn prop="createTime" label="创建时间" width="180" />
-        <ElTableColumn label="操作" width="200" align="center" fixed="right">
+        <ElTableColumn prop="createTime" label="创建时间" width="158" />
+        <ElTableColumn label="操作" width="142" align="center" fixed="right">
           <template #default="scope">
             <ElButton
               link

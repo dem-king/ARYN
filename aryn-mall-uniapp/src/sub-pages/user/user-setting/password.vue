@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { editPassword } from '@/sub-pages/api/user/user'
 
 definePage({
@@ -11,6 +12,7 @@ definePage({
 })
 
 const router = useRouter()
+const { t } = useI18n()
 const formRef = ref()
 const globalLoading = useGlobalLoading()
 const { warning, success } = useGlobalToast()
@@ -28,12 +30,12 @@ function submit() {
       if (!valid)
         return
       if (state.form.password !== state.form.confirmPassword) {
-        warning('两次输入的密码不一致')
+        warning(t('accountSettings.password.mismatch'))
         return
       }
-      globalLoading.loading('提交中...')
+      globalLoading.loading(t('accountSettings.password.submitting'))
       editPassword(state.form).then(() => {
-        success('修改成功')
+        success(t('accountSettings.password.success'))
         setTimeout(() => {
           const pages = getCurrentPages()
           if (pages.length > 1) {
@@ -52,43 +54,43 @@ function submit() {
 
 <template>
   <view class="bg-white p-2">
-    <hr-navbar title="修改密码" />
+    <hr-navbar :title="t('accountSettings.password.navTitle')" />
     <wd-form ref="formRef" :model="state.form">
       <wd-cell-group border>
         <wd-input
           v-model="state.form.currentPassword"
-          label="当前密码"
+          :label="t('accountSettings.password.current')"
           label-width="100px"
           show-password
           prop="currentPassword"
           clearable
-          placeholder="请输入当前密码"
-          :rules="[{ required: true, message: '请填写当前密码' }]"
+          :placeholder="t('accountSettings.password.currentPlaceholder')"
+          :rules="[{ required: true, message: t('accountSettings.password.currentRequired') }]"
         />
         <wd-input
           v-model="state.form.password"
-          label="新密码"
+          :label="t('accountSettings.password.newPassword')"
           label-width="100px"
           show-password
           prop="password"
           clearable
-          placeholder="请输入新密码"
-          :rules="[{ required: true, message: '请填写新密码' }]"
+          :placeholder="t('accountSettings.password.newPlaceholder')"
+          :rules="[{ required: true, message: t('accountSettings.password.newRequired') }]"
         />
         <wd-input
           v-model="state.form.confirmPassword"
-          label="确认密码"
+          :label="t('accountSettings.password.confirm')"
           label-width="100px"
           show-password
           prop="confirmPassword"
           clearable
-          placeholder="请再次输入密码"
-          :rules="[{ required: true, message: '请填写确认密码' }]"
+          :placeholder="t('accountSettings.password.confirmPlaceholder')"
+          :rules="[{ required: true, message: t('accountSettings.password.confirmRequired') }]"
         />
         <wd-cell />
       </wd-cell-group>
       <wd-button type="primary" block @click="submit">
-        确认提交
+        {{ t('accountSettings.password.submit') }}
       </wd-button>
     </wd-form>
   </view>

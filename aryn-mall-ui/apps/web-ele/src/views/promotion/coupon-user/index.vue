@@ -14,6 +14,7 @@ import {
 import { getPage } from '#/api/promotion/coupon-user';
 import PageFilterPanel from '#/components/page/page-filter-panel.vue';
 import PageToolbar from '#/components/page/page-toolbar.vue';
+import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 
 const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
@@ -56,6 +57,8 @@ const initPage = async () => {
     });
 };
 initPage();
+
+useKeepAliveRefresh(initPage);
 </script>
 <template>
   <div class="hx-layout-container">
@@ -111,6 +114,7 @@ initPage();
           label="用户信息"
           show-overflow-tooltip
           align="center"
+          min-width="180"
         >
           <template #default="scope">
             <span style="color: var(--el-color-primary)">
@@ -125,11 +129,27 @@ initPage();
           label="优惠券"
           show-overflow-tooltip
           align="center"
+          min-width="220"
         />
-        <ElTableColumn prop="receivedTime" label="领取时间" align="center" />
-        <ElTableColumn prop="validatTime" label="有效时间" align="center" />
-        <ElTableColumn prop="usedTime" label="使用时间" align="center" />
-        <ElTableColumn prop="status" label="状态" align="center">
+        <ElTableColumn
+          prop="receivedTime"
+          label="领取时间"
+          align="center"
+          width="158"
+        />
+        <ElTableColumn
+          prop="validatTime"
+          label="有效时间"
+          align="center"
+          width="158"
+        />
+        <ElTableColumn
+          prop="usedTime"
+          label="使用时间"
+          align="center"
+          width="158"
+        />
+        <ElTableColumn prop="status" label="状态" align="center" width="84">
           <template #default="scope">
             <ElTag v-if="scope.row.status === '0'" type="primary">
               未使用

@@ -19,8 +19,16 @@ class TenantInterceptorBypassAuditTest {
 
 	private static final Pattern INTERCEPTOR_IGNORE_ANNOTATION = Pattern.compile(INTERCEPTOR_IGNORE + "\\s*\\(");
 
-	private static final Pattern BYPASS_METHOD = Pattern.compile(INTERCEPTOR_IGNORE
-			+ "\\s*\\((?=[^)]*tenantLine\\s*=\\s*\"true\")[^)]*\\)\\s+[\\w<>?,.\\s]+\\s+(\\w+)\\s*\\(");
+	private static final Pattern TENANT_LINE_BYPASS = Pattern.compile(INTERCEPTOR_IGNORE
+			+ "\\s*\\((?=[^)]*tenantLine\\s*=\\s*\"true\")[^)]*\\)");
+
+	/**
+	 * 方法声明（含无修饰符的 Mapper 接口方法）。注解与方法之间可能夹着 @Select 等注解，
+	 * 因此不能用一个横跨注解的整段正则，而是定位方法声明后回看上一个成员边界。
+	 */
+	private static final Pattern METHOD_DECLARATION = Pattern.compile(
+			"(?m)^[\\t ]*(?:(?:public|protected|private|static|final|default|abstract|synchronized)\\s+)*"
+					+ "(?:[\\w.$<>\\[\\],?]+\\s+)+(\\w+)\\s*\\(");
 
 	private static final Set<String> ALLOWED_BYPASSES = Set.of(
 			"aryn-message/aryn-message-biz/src/main/java/com/aryn/cloud/message/mapper/MessageConversationMapper.java#selectInactiveConversations",
@@ -34,6 +42,9 @@ class TenantInterceptorBypassAuditTest {
 			// 显式过滤 tenant_id 并经多租户 curl 验证隔离，属已审计旁路
 			"aryn-product/aryn-product-biz/src/main/java/com/aryn/cloud/product/mapper/GoodsSpuMapper.java#selectCatalogPage",
 			"aryn-product/aryn-product-biz/src/main/java/com/aryn/cloud/product/mapper/GoodsSpuMapper.java#selectSuggestNames",
+			// C 端商品榜单免登查询：SQL 显式使用 #{tenantId}，入参由服务层 fail-closed 保证
+			"aryn-product/aryn-product-biz/src/main/java/com/aryn/cloud/product/mapper/GoodsRankMapper.java#selectHotTop10",
+			"aryn-product/aryn-product-biz/src/main/java/com/aryn/cloud/product/mapper/GoodsRankMapper.java#selectOnSaleByIds",
 			"aryn-user/aryn-user-biz/src/main/java/com/aryn/cloud/user/mapper/SocialAccountMapper.java#selectByAppId",
 			"aryn-user/aryn-user-biz/src/main/java/com/aryn/cloud/user/mapper/SocialAccountMapper.java#selectValidWxMaByAppId",
 			"aryn-user/aryn-user-biz/src/main/java/com/aryn/cloud/user/mapper/SocialAccountMapper.java#countValidWxMaByAppIdExcluding",
@@ -41,6 +52,9 @@ class TenantInterceptorBypassAuditTest {
 			"aryn-user/aryn-user-biz/src/main/java/com/aryn/cloud/user/mapper/SocialUserMapper.java#selectByAppIdAndOpenIdInAnyTenant",
 			"aryn-order/aryn-order-biz/src/main/java/com/aryn/cloud/order/mapper/DailyUserOrderStatMapper.java#deleteDay",
 			"aryn-order/aryn-order-biz/src/main/java/com/aryn/cloud/order/mapper/DailyUserOrderStatMapper.java#aggregateDay",
+			// 支付宝待确认退款定时核对：跨租户扫描后逐行回填租户上下文，
+			// SQL 内以 r.tenant_id = t.tenant_id 关联，不返回跨租户混合数据
+			"aryn-pay/aryn-pay-biz/src/main/java/com/aryn/cloud/pay/mapper/PayRefundOrderMapper.java#selectPendingAlipayReconcile",
 			"aryn-promotion/aryn-promotion-biz/src/main/java/com/aryn/cloud/promotion/mapper/PageDesignTemplateMapper.java#selectMarketTemplatePage",
 			"aryn-promotion/aryn-promotion-biz/src/main/java/com/aryn/cloud/promotion/mapper/PageDesignTemplateMapper.java#selectMarketTemplateById",
 			"aryn-promotion/aryn-promotion-biz/src/main/java/com/aryn/cloud/promotion/mapper/PageDesignTemplateMapper.java#increaseMarketDownloadCount");
@@ -55,9 +69,16 @@ class TenantInterceptorBypassAuditTest {
 			for (Path path : paths.filter(TenantInterceptorBypassAuditTest::isMainJavaSource).toList()) {
 				String source = Files.readString(path);
 				annotationCount += (int) INTERCEPTOR_IGNORE_ANNOTATION.matcher(source).results().count();
-				Matcher matcher = BYPASS_METHOD.matcher(source);
+				Matcher matcher = METHOD_DECLARATION.matcher(source);
 				while (matcher.find()) {
-					actual.add(projectRoot.relativize(path).toString().replace('\\', '/') + "#" + matcher.group(1));
+					int boundary = Math.max(source.lastIndexOf(';', matcher.start()),
+							Math.max(source.lastIndexOf('}', matcher.start()),
+									source.lastIndexOf('{', matcher.start())));
+					String memberPrefix = source.substring(boundary + 1, matcher.start());
+					if (TENANT_LINE_BYPASS.matcher(memberPrefix).find()) {
+						actual.add(projectRoot.relativize(path).toString().replace('\\', '/') + "#"
+								+ matcher.group(1));
+					}
 				}
 			}
 		}

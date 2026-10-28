@@ -41,7 +41,6 @@ const defaultConfig = {
   nameSize: 14, // 商品名称字体大小
   nameColor: 'rgba(0, 0, 0, 1)', // 商品名称字体颜色
   nameStyle: '0', // 商品名称字体样式 0.正常 1.加粗
-  showTag: false,
   showSalesPrice: true,
   salesPriceSize: 14, // 商品售价字体大小
   salesPriceColor: 'rgba(255, 0, 0, 1)', // 商品售价字体颜色
@@ -151,11 +150,8 @@ const deleteGoods = (index: number) => {
         <ElFormItem label="显示内容">
           <ElCheckbox v-model="form.showName" label="商品名称" />
           <ElCheckbox v-model="form.showDesc" label="商品描述" />
-          <ElCheckbox v-model="form.showTag" label="商品标签" />
           <ElCheckbox v-model="form.showSalesPrice" label="商品售价" />
           <ElCheckbox v-model="form.showOriginalPrice" label="商品原价" />
-          <ElCheckbox v-model="form.showSalesVolume" label="商品销量" />
-          <ElCheckbox v-model="form.showStock" label="商品库存" />
         </ElFormItem>
         <ElFormItem label="购买按钮">
           <ElSwitch v-model="form.showBuyBtn" />

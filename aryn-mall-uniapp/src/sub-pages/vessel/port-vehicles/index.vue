@@ -7,7 +7,10 @@ import type { PortVehicle } from '@/api/vessel'
  * 纯只读：名单由船务公司在管理后台按港口维护，本页只做查询与拨打。
  * 默认带出当前购物靠港的港口（shipContext），无靠港上下文时用港口清单兜底切换。
  */
+import { onShow } from '@dcloudio/uni-app'
+
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { getPortVehiclePorts, getPortVehicles } from '@/api/vessel'
 import { useGlobalToast } from '@/composables/useGlobalToast'
 import { ensureShipContextLoaded } from '@/composables/useShipContextLoad'
@@ -21,6 +24,7 @@ definePage({
   },
 })
 
+const { t } = useI18n()
 const { show: showToast } = useGlobalToast()
 const authStore = useAuthStore()
 const shipContextStore = useShipContextStore()
@@ -40,13 +44,13 @@ function goLogin() {
 /** 拨打司机电话（整卡可点，与配送模块同口径） */
 function handleCallPhone(phone?: string) {
   if (!phone) {
-    showToast('暂无电话号码')
+    showToast(t('vessel.portVehicles.noPhone'))
     return
   }
   uni.makePhoneCall({
     phoneNumber: phone,
     fail: () => {
-      showToast('拨打电话失败')
+      showToast(t('vessel.portVehicles.callFailed'))
     },
   })
 }
@@ -62,7 +66,7 @@ async function loadVehicles(port: string) {
   }
   catch (error: any) {
     vehicles.value = []
-    showToast(error?.message || '获取报备车辆失败')
+    showToast(error?.message || t('vessel.portVehicles.loadFailed'))
   }
   finally {
     listLoading.value = false
@@ -109,6 +113,15 @@ async function init() {
 }
 
 onMounted(init)
+
+/**
+ * 本页是全仓唯一使用原生导航栏的页面（没有 navigationStyle: 'custom' / hr-navbar）：
+ * 静态 navigationBarTitleText 在英文下不会变，必须在每次显示时按当前语言重设标题，
+ * 这样从设置页切换语言再回到本页也能刷新。
+ */
+onShow(() => {
+  uni.setNavigationBarTitle({ title: t('vessel.portVehicles.navTitle') })
+})
 </script>
 
 <template>
@@ -122,17 +135,17 @@ onMounted(init)
         <text class="i-carbon-user-avatar text-84rpx" style="color: #378ADD" />
       </view>
       <view class="mt-40rpx text-32rpx font-bold" style="color: #1D2129">
-        登录后即可查看港口报备车辆
+        {{ t('vessel.portVehicles.loginTitle') }}
       </view>
       <view class="mt-14rpx text-26rpx leading-42rpx" style="color: #86909C">
-        报备名单由船务公司按港口维护，登录后即可查询司机电话并一键拨打
+        {{ t('vessel.portVehicles.loginDesc') }}
       </view>
       <button
         class="btn-primary mt-56rpx h-88rpx w-360rpx rounded-full text-28rpx font-medium leading-88rpx !m-0"
         hover-class="btn-press"
         @tap="goLogin"
       >
-        去登录
+        {{ t('vessel.portVehicles.goLogin') }}
       </button>
     </view>
 
@@ -144,7 +157,7 @@ onMounted(init)
         style="background: #EAF3FC; color: #2A79C6"
       >
         <text class="i-carbon-anchor text-26rpx" />
-        当前靠港：{{ shipContextStore.portName }}
+        {{ t('vessel.portVehicles.currentPort', { port: shipContextStore.portName }) }}
       </view>
 
       <!-- 港口切换（有靠港上下文时默认已选中，无需操作） -->
@@ -175,7 +188,7 @@ onMounted(init)
       <!-- 车辆列表 -->
       <template v-else-if="vehicles.length > 0">
         <view class="mx-20rpx mt-24rpx text-24rpx" style="color: #86909C">
-          {{ activePort }} · 报备车辆 {{ vehicles.length }} 辆
+          {{ t('vessel.portVehicles.summary', { port: activePort, count: vehicles.length }) }}
         </view>
         <view
           v-for="vehicle in vehicles"
@@ -193,9 +206,9 @@ onMounted(init)
                 </text>
               </view>
               <view class="mt-10rpx text-26rpx" style="color: #4E5969">
-                {{ vehicle.driverName || '司机' }}
+                {{ vehicle.driverName || t('vessel.portVehicles.driver') }}
                 <text v-if="vehicle.seatCount">
-                  · {{ vehicle.seatCount }}座
+                  {{ t('vessel.portVehicles.seats', { count: vehicle.seatCount }) }}
                 </text>
                 <text v-if="vehicle.vehicleDesc">
                   · {{ vehicle.vehicleDesc }}
@@ -209,7 +222,7 @@ onMounted(init)
               @tap.stop="handleCallPhone(vehicle.driverPhone)"
             >
               <text class="i-carbon-phone text-28rpx" />
-              拨打
+              {{ t('vessel.portVehicles.call') }}
             </view>
           </view>
           <view
@@ -218,7 +231,7 @@ onMounted(init)
             style="color: #C87D2A"
           >
             <text class="i-carbon-location mt-2rpx flex-none text-24rpx" />
-            等候点：{{ vehicle.pickupPoint }}
+            {{ t('vessel.portVehicles.pickupPoint', { point: vehicle.pickupPoint }) }}
           </view>
           <view v-if="vehicle.remark" class="mt-8rpx text-24rpx" style="color: #86909C">
             {{ vehicle.remark }}
@@ -235,10 +248,10 @@ onMounted(init)
           <text class="i-carbon-taxi text-84rpx" style="color: #A8ABB2" />
         </view>
         <view class="mt-40rpx text-30rpx font-bold" style="color: #1D2129">
-          {{ activePort ? `${activePort} 暂无报备车辆` : '暂无报备车辆' }}
+          {{ activePort ? t('vessel.portVehicles.emptyWithPort', { port: activePort }) : t('vessel.portVehicles.empty') }}
         </view>
         <view class="mt-14rpx text-26rpx leading-42rpx" style="color: #86909C">
-          联系船务管理员在后台录入后，这里就能看到司机电话
+          {{ t('vessel.portVehicles.emptyDesc') }}
         </view>
       </view>
     </template>

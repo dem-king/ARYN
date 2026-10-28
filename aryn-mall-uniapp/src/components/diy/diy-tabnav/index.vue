@@ -13,9 +13,19 @@ const props = defineProps({
 
 const current = shallowRef(0)
 
-// 分页滑动翻页时记录当前页，驱动高度按该页实际行数收缩
-function onPagerChange(e: any) {
-  current.value = e.detail.current
+/**
+ * 翻页动画结束后再更新高度。
+ *
+ * 不用 @change：它会在滑动动画开始时就触发，此时改 swiper 高度会带着整页
+ * 一起重排，滑动手感明显掉帧（H5 与小程序都有此问题）。改到
+ * @animationfinish（滑动停稳后触发）再收缩高度，滑动过程只走 compositor
+ * 的 transform，不碰布局；收缩本身用 240ms 轻微回弹，避免高度生硬跳变。
+ * 未支持该事件的平台会保持当前页高度，安全降级。
+ */
+function onPagerAnimationFinish(e: any) {
+  const next = Number(e?.detail?.current)
+  if (Number.isFinite(next) && next !== current.value)
+    current.value = next
 }
 
 const baseStyle = useDiyStyle(computed(() => props.showData.commonStyle))
@@ -68,23 +78,23 @@ const indicatorActiveColor = computed(
   () => props.showData.indicatorActiveColor || '#1989fa',
 )
 
-// 单行高度（px）= 图片高度 + 图文模式下文字块高度（上边距约 5px + 行高约 17px）
+// 单行高度（px）= 图片高度 + 图文模式下文字块高度（上边距 6px + 13px 字号行高约 18px）
 const rowHeight = computed(() => {
-  const imgSize = Number(props.showData.imgSize) || 40
-  return imgSize + (navType.value === '3' ? 22 : 0)
+  const imgSize = Number(props.showData.imgSize) || 56
+  return imgSize + (navType.value === '3' ? 24 : 0)
 })
 // 高度自适应：按「当前页」实际行数收缩——铺满 pageRows 行占满，铺不满自动缩小
-//（swiper 各页等高，翻页时高度过渡到新页的行数）
+//（swiper 各页等高；滑停后才把高度过渡到新页行数，滑动过程中不重排）
 const actualRows = computed(() => {
   const total = navList.value.length
   if (!total) return pageRows.value
   const page = pages.value[Math.min(current.value, pages.value.length - 1)] || []
   return Math.min(pageRows.value, Math.ceil(page.length / showNum.value))
 })
-// 每行底部间距 6px；分页指示点预留 16px
+// 每行底部间距 8px；分页指示点预留 16px
 const pagerHeight = computed(
   () =>
-    actualRows.value * (rowHeight.value + 6)
+    actualRows.value * (rowHeight.value + 8)
     + (indicatorDots.value && pages.value.length > 1 ? 16 : 0),
 )
 </script>
@@ -136,8 +146,9 @@ const pagerHeight = computed(
         :indicator-dots="indicatorDots && pages.length > 1"
         :indicator-color="indicatorColor"
         :indicator-active-color="indicatorActiveColor"
+        :duration="300"
         :style="{ height: `${pagerHeight}px` }"
-        @change="onPagerChange"
+        @animationfinish="onPagerAnimationFinish"
       >
         <swiper-item
           v-for="(page, pageIndex) in pages"
@@ -213,8 +224,8 @@ const pagerHeight = computed(
     }
 
     .grid-text {
-      font-size: 12px;
-      margin-top: 10rpx;
+      font-size: 13px;
+      margin-top: 12rpx;
       text-align: center;
     }
   }
@@ -253,8 +264,8 @@ const pagerHeight = computed(
         }
 
         .grid-text {
-          font-size: 12px;
-          margin-top: 10rpx;
+          font-size: 13px;
+          margin-top: 12rpx;
           text-align: center;
         }
       }
@@ -263,8 +274,9 @@ const pagerHeight = computed(
 
   &-pager {
     width: 100%;
-    // 高度随当前页行数收缩/展开
-    transition: height 0.3s ease;
+    // 高度随当前页行数收缩/展开。过渡只在 @animationfinish（滑停后）启动，
+    // 不会和手势抢主线程；240ms 轻微回弹（约 3% 过冲），收起/展开更有弹性
+    transition: height 240ms cubic-bezier(0.34, 1.35, 0.64, 1);
   }
 
   .hx-grid-page {
@@ -277,7 +289,7 @@ const pagerHeight = computed(
       display: flex;
       align-items: center;
       justify-content: center;
-      padding-bottom: 6px;
+      padding-bottom: 8px;
     }
   }
 
@@ -309,8 +321,8 @@ const pagerHeight = computed(
         }
 
         .grid-text {
-          font-size: 12px;
-          margin-top: 10rpx;
+          font-size: 13px;
+          margin-top: 12rpx;
           text-align: center;
         }
       }

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { getByIds, getPage } from '@/api/promotion/couponInfo'
 import { addObj } from '@/api/promotion/couponUser'
 import { useDiyStyle } from '@/composables/useDiyStyle'
@@ -14,6 +15,8 @@ const props = defineProps({
     default: () => ({}),
   },
 })
+
+const { locale, t } = useI18n()
 
 const showStyle = computed(() => props.showData.showStyle || '1')
 const showNum = computed(() => {
@@ -63,24 +66,41 @@ async function handleReceive(couponId: string) {
     return
   try {
     await addObj({ couponId })
-    uni.showToast({ title: '领取成功', icon: 'success' })
+    uni.showToast({ title: t('diy.coupon.receiveSuccess'), icon: 'success' })
     // 本地标记为已领取，不重新拉列表，避免卡片因库存不足被后端过滤而消失
     receivedIds.value.add(couponId)
   }
   catch (err: any) {
-    const msg = err?.message || '领取失败'
+    const msg = err?.message || t('diy.coupon.receiveFailed')
     uni.showToast({ title: msg, icon: 'none' })
   }
 }
 
-/** 金额区：拆成 符号 / 数值 / 单位 三段，与券卡组件同一口径 */
+/**
+ * 金额区：拆成 符号 / 数值 / 单位 三段，与券卡组件同一口径。
+ *
+ * 中文折扣券展示「8折」；英文没有「折」的概念，换算成「20% OFF」才等价可读，
+ * 与优惠券卡组件（components/coupon-card）保持同一换算，避免同一张券两处口径不同。
+ */
 function valueParts(item: any) {
-  return couponValueParts(item)
+  const parts = couponValueParts(item)
+  if (couponType(item) !== '2' || !String(locale.value).startsWith('en'))
+    return parts
+  const discount = Number(parts.value)
+  const percent = Number.isFinite(discount) && discount > 0 ? (10 - discount) * 10 : 0
+  return {
+    ...parts,
+    symbol: '',
+    unit: t('checkout.coupon.discountUnit'),
+    value: String(Number(percent.toFixed(2))),
+  }
 }
 
 /** 券类型标签，对应券卡上的粉色胶囊 */
 function typeLabel(item: any) {
-  return couponType(item) === '2' ? '折扣券' : '满减券'
+  return couponType(item) === '2'
+    ? t('diy.coupon.typeDiscount')
+    : t('diy.coupon.typeAmount')
 }
 
 /** 门槛文案 */
@@ -147,7 +167,7 @@ onMounted(() => {
             :class="{ 'coupon-btn--received': isReceived(item) }"
             @click.stop="handleReceive(item.id)"
           >
-            {{ isReceived(item) ? '已领取' : '领取' }}
+            {{ isReceived(item) ? t('diy.coupon.claimed') : t('diy.coupon.claim') }}
           </view>
         </view>
       </view>

@@ -37,6 +37,15 @@ public class PromotionActivity extends Model<PromotionActivity> {
 	/** 新人专享价（每人每 SKU 限购 1 件，资格=本租户未成功支付过订单且注册 N 天内） */
 	public static final String TYPE_NEWBIE_PRICE = "9";
 
+	/**
+	 * 会员价（指定 SKU、按会员等级门槛出价）。
+	 *
+	 * <p>规则 JSON：{@code {"minLevelId":"<会员等级ID>","skus":[{"skuId":"...","unitPrice":9.90}]}}，
+	 * 范围固定 scopeType=2；资格 = 用户等级 sortOrder ≥ minLevelId 的 sortOrder（fail-closed）。
+	 * 默认可叠券/积分（身份常态权益，非止血促销）。
+	 */
+	public static final String TYPE_MEMBER_PRICE = "10";
+
 	/** 人工操作态（落库）：草稿 */
 	public static final String STATUS_DRAFT = "1";
 
@@ -58,7 +67,7 @@ public class PromotionActivity extends Model<PromotionActivity> {
 	/** 活动名称 */
 	private String activityName;
 
-	/** 活动类型：4阶梯价 5买赠 7船供整船优惠 9新人专享价 */
+	/** 活动类型：4阶梯价 5买赠 7船供整船优惠 9新人专享价 10会员价 */
 	private String activityType;
 
 	/** 范围类型：1全场 2指定SKU 4指定购买场景 5指定船舶 6指定靠港计划 7指定港口 */

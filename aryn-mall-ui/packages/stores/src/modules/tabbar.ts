@@ -20,6 +20,10 @@ import { acceptHMRUpdate, defineStore } from 'pinia';
 
 interface TabbarState {
   /**
+   * @zh_CN 当前激活的标签页key
+   */
+  activeTabKey?: string;
+  /**
    * @zh_CN 当前打开的标签页列表缓存
    */
   cachedTabs: Set<string>;
@@ -35,6 +39,10 @@ interface TabbarState {
    * @zh_CN 标签右键菜单列表
    */
   menuList: string[];
+  /**
+   * @zh_CN 上一个激活的标签页key，用于关闭激活标签页时回到来源标签页
+   */
+  previousActiveTabKey?: string;
   /**
    * @zh_CN 是否刷新
    */
@@ -113,6 +121,13 @@ export const useTabbarStore = defineStore('core-tabbar', {
       }
       if (!isTabShown(tab)) {
         return tab;
+      }
+
+      // 记录激活标签页切换轨迹：路由每次变化都会经过addTab，借此维护"上一个激活的标签页"
+      const tabKey = getTabKeyFromTab(tab);
+      if (tabKey !== this.activeTabKey) {
+        this.previousActiveTabKey = this.activeTabKey;
+        this.activeTabKey = tabKey;
       }
 
       const tabIndex = this.tabs.findIndex((item) => {
@@ -262,8 +277,19 @@ export const useTabbarStore = defineStore('core-tabbar', {
       const before = this.getTabs[index - 1];
       const after = this.getTabs[index + 1];
 
-      // 下一个tab存在，跳转到下一个
-      if (after) {
+      // 优先回到上一个激活的标签页（从哪来回哪去），该标签页已被关闭时再按相邻标签跳转
+      const previousTab = this.previousActiveTabKey
+        ? this.getTabs.find(
+            (item) => getTabKeyFromTab(item) === this.previousActiveTabKey,
+          )
+        : undefined;
+
+      // 上一个激活的tab存在，回跳来源tab
+      if (previousTab) {
+        this._close(tab);
+        await this._goToTab(previousTab, router);
+        // 下一个tab存在，跳转到下一个
+      } else if (after) {
         this._close(tab);
         await this._goToTab(after, router);
         // 上一个tab存在，跳转到上一个
@@ -532,6 +558,7 @@ export const useTabbarStore = defineStore('core-tabbar', {
     },
   ],
   state: (): TabbarState => ({
+    activeTabKey: undefined,
     cachedTabs: new Set(),
     dragEndIndex: 0,
     excludeCachedTabs: new Set(),
@@ -546,6 +573,7 @@ export const useTabbarStore = defineStore('core-tabbar', {
       'close-other',
       'close-all',
     ],
+    previousActiveTabKey: undefined,
     renderRouteView: true,
     tabs: [],
     updateTime: Date.now(),

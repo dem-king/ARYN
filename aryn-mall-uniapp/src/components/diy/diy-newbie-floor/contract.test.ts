@@ -136,7 +136,8 @@ describe('新人专享楼层「抢」＝直接加购', () => {
   it('多规格回退商详：needChoose 时提示选规格并打开商详', () => {
     const floor = source(FLOOR)
     expect(floor).toContain('result.needChoose')
-    expect(floor).toContain('请选择规格')
+    // 文案走 i18n 词条（中文即原「请选择规格」），此处只校验接线到的 key
+    expect(floor).toContain("t('diy.newbieFloor.selectSpecsToast')")
     // needChoose 分支内必须真的去商详，否则用户点「抢」后无从选择规格
     expect(floor).toMatch(/result\.needChoose[\s\S]{0,300}openGoods\(spuId\)/)
   })

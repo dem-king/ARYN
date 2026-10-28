@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { GroupBuyActivity } from '@/api/promotion/groupBuyActivity'
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { stripGroupBadgePrefix } from '@/utils/activity-name'
 
 const props = defineProps<{
@@ -18,6 +19,8 @@ const emit = defineEmits<{
   (e: 'click', activity: GroupBuyActivity): void
 }>()
 
+const { t } = useI18n()
+
 /** 远程图加载失败后不再重试同一 URL，直接走缺图占位，避免破图 */
 const imageFailed = ref(false)
 watch(() => props.imageUrl, () => {
@@ -28,7 +31,9 @@ const showImage = computed(() => Boolean(props.imageUrl) && !imageFailed.value)
 
 /** 成团人数徽标：存量活动可能没有 groupNum，降级为「拼团」 */
 const badgeLabel = computed(() =>
-  (props.activity.groupNum ?? 0) > 0 ? `${props.activity.groupNum}人成团` : '拼团',
+  (props.activity.groupNum ?? 0) > 0
+    ? t('promotion.groupBuy.card.badge', { count: props.activity.groupNum })
+    : t('promotion.groupBuy.card.fallbackBadge'),
 )
 
 /**
@@ -37,7 +42,10 @@ const badgeLabel = computed(() =>
  * 「3人份」「2人份」这类规格写进名称的活动。
  */
 const displayName = computed(() =>
-  stripGroupBadgePrefix(props.activity.activityName || '拼团活动', props.activity.groupNum ?? 0),
+  stripGroupBadgePrefix(
+    props.activity.activityName || t('promotion.groupBuy.card.activityFallback'),
+    props.activity.groupNum ?? 0,
+  ),
 )
 
 function formatPrice(value?: number) {
@@ -58,24 +66,26 @@ const saveText = computed(() => {
 
 /**
  * 参与信息：已拼件数 + 限购件数合成一句话。
- * 第二轮之前是三个并列灰胶囊（已拼 / 限购 / 进行中），
- * 「进行中」还和右侧「去拼团」语义重复，已删除。
+ * 「已拼」读后端合成的 soldCount（= 运营配置的 virtualNum 虚增 + 真实已付款参团件数），
+ * 真实成团/退款会实时反映；老接口未下发 soldCount 时回落到 virtualNum，避免灰度期空白。
  */
+const soldCount = computed(() => props.activity.soldCount ?? props.activity.virtualNum ?? 0)
+
 const metaText = computed(() => {
   const parts: string[] = []
-  if ((props.activity.virtualNum ?? 0) > 0)
-    parts.push(`已拼${props.activity.virtualNum}件`)
+  if (soldCount.value > 0)
+    parts.push(t('promotion.groupBuy.card.sold', { count: soldCount.value }))
   if ((props.activity.limitNum ?? 0) > 0)
-    parts.push(`限购${props.activity.limitNum}件`)
+    parts.push(t('promotion.groupBuy.card.limit', { count: props.activity.limitNum }))
   return parts.join(' · ')
 })
 
 const statusLabel = computed(() => {
   if (props.activity.activityStatus === '0')
-    return '即将开始'
+    return t('promotion.groupBuy.status.pending')
   if (props.activity.activityStatus === '1')
-    return '进行中'
-  return '已结束'
+    return t('promotion.groupBuy.status.active')
+  return t('promotion.groupBuy.status.ended')
 })
 
 const statusClass = computed(() => `status-${props.activity.activityStatus ?? '2'}`)
@@ -85,10 +95,10 @@ const isEnded = computed(() => !isActive.value && !isPending.value)
 
 const ctaLabel = computed(() => {
   if (isActive.value)
-    return '去拼团'
+    return t('promotion.groupBuy.card.ctaJoin')
   if (isPending.value)
-    return '即将开团'
-  return '已结束'
+    return t('promotion.groupBuy.card.ctaPending')
+  return t('promotion.groupBuy.status.ended')
 })
 
 function handleClick() {
@@ -114,7 +124,7 @@ function handleClick() {
         @error="imageFailed = true"
       />
       <view v-else class="gb-img gb-img--empty">
-        <text>拼团</text>
+        <text>{{ t('promotion.groupBuy.card.fallbackBadge') }}</text>
       </view>
       <view class="gb-badge">
         {{ badgeLabel }}
@@ -134,7 +144,7 @@ function handleClick() {
           {{ priceText || '--' }}
         </text>
         <text v-if="originalText" class="gb-orig">¥{{ originalText }}</text>
-        <text v-if="saveText" class="gb-save">省¥{{ saveText }}</text>
+        <text v-if="saveText" class="gb-save">{{ t('promotion.common.saveAmount', { amount: saveText }) }}</text>
       </view>
 
       <view class="gb-foot">

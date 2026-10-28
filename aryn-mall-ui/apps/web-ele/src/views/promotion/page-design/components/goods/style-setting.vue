@@ -156,50 +156,6 @@ watch(
         </ElFormItem>
       </div>
     </div>
-    <div v-if="form.showSalesVolume">
-      <h4>商品销量</h4>
-      <div class="content-item">
-        <ElFormItem label="字体颜色">
-          <ColorPicker v-model="form.salesVolumeColor" />
-        </ElFormItem>
-        <ElFormItem label="字体样式">
-          <ElRadioGroup v-model="form.salesVolumeStyle">
-            <ElRadio value="0">正常</ElRadio>
-            <ElRadio value="1">加粗</ElRadio>
-          </ElRadioGroup>
-        </ElFormItem>
-        <ElFormItem label="字体大小">
-          <ElSlider
-            v-model="form.salesVolumeSize"
-            show-input
-            :show-input-controls="false"
-            :min="0"
-          />
-        </ElFormItem>
-      </div>
-    </div>
-    <div v-if="form.showStock">
-      <h4>商品库存</h4>
-      <div class="content-item">
-        <ElFormItem label="字体颜色">
-          <ColorPicker v-model="form.stockColor" />
-        </ElFormItem>
-        <ElFormItem label="字体样式">
-          <ElRadioGroup v-model="form.stockStyle">
-            <ElRadio value="0">正常</ElRadio>
-            <ElRadio value="1">加粗</ElRadio>
-          </ElRadioGroup>
-        </ElFormItem>
-        <ElFormItem label="字体大小">
-          <ElSlider
-            v-model="form.stockSize"
-            show-input
-            :show-input-controls="false"
-            :min="0"
-          />
-        </ElFormItem>
-      </div>
-    </div>
     <div v-if="form.showBuyBtn">
       <h4>购买按钮</h4>
       <div class="content-item">

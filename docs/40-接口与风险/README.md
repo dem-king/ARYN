@@ -9,6 +9,7 @@
 - [免登白名单与 401 语义](#免登白名单与-401-语义)：新增 C 端公开接口或排查「登录已过期」误报前必读。
 - [免登登录端点的凭证自校验](#免登登录端点的凭证自校验)：改登录端点 / 验证码过滤器前必读。
 - [C 端接口权限与 403 语义](#c-端接口权限与-403-语义)：C 端页面调接口、排查「登录一直过期」前必读。
+- [登录会话策略（全局单点登录）](#登录会话策略全局单点登录)：新增登录入口 / 调整会话逻辑前必读。
 
 接口状态来自静态路径与 Controller 对照，不代表真实服务、权限和数据库联调通过。
 
@@ -196,3 +197,81 @@ BOOT 模式下协议是 `injvm`，服务提供方与调用方**共用同一个 H
 **守门测试**：`aryn-common-dubbo/.../ArynDubboRequestFilterTest`
 的 `restoresCallerTenantAfterProviderInvocation` / `restoresCallerTenantAfterFailedProviderInvocation`
 锁定还原语义，`clearsTenantAfter*ProviderInvocation` 锁定「提供方线程本无租户」的清空语义。
+
+## 登录会话策略（全局单点登录）
+
+**当前策略（2026-10-27 起）**：同一账号任意时刻只保留一个有效会话，新登录顶掉旧登录。
+配置为 Sa-Token `is-concurrent: false`，boot 在 `aryn-boot/src/main/resources/application.yml`，
+cloud 在 Nacos 共享配置 `application-dev.yml`（基线 `db/cloud/3aryn_nacos.sql`，存量环境用
+`db/cloud/166global_single_session_nacos_config.sql` 升级）。需求包见
+[2026-10-27-全局单点登录](../50-需求文档/2026-10-27-全局单点登录/README.md)。
+
+- **顶替范围**：同账号 + 同设备类型（Sa-Token 默认 `replacedRange=CURR_DEVICE_TYPE`）。管理端 Web
+  与配送端登录同为 `TOB`，会互顶；C 端商城为 `TOC`，同一会员换设备登录也会互顶。
+- **旧设备表现**：下一次请求收到 401（`NotLoginException.BE_REPLACED`）。管理端沿用登录过期逻辑
+  回登录页；小程序配送端 `reLaunch` 到 `/pages/delivery/login`。
+- **账号失效即下线**：停用账号、修改密码、删除账号成功后，由 `SysUserSessionRevoker` 立即
+  `StpUtil.kickout(userId, "TOB")` 撤销该账号全部会话（管理端 + 配送端）；撤销失败只告警不阻断
+  主流程。**角色 / 权限变更仍不会踢线**（token-session 缓存登录时的权限快照，需重新登录生效）。
+- **在线用户记录**：Redis key 已统一为 token 维度（`satoken:login:online_user:{token}`，租户存在
+  记录值里），写入与注销/强退/顶号删除使用同一 key；列表扫描全部记录后按当前租户过滤并剔除
+  失效会话，旧格式残留 key 由 30 天 TTL 自愈。
+- **不要按登录入口覆盖该配置**：给单个端点传 `SaLoginParameter.setIsConcurrent(true)` 会绕过
+  全局单点策略；新增登录设备类型时同步评估顶替范围，否则会变成「按设备类型单点」。
+- **守门测试**：`aryn-boot/.../security/SingleSessionPolicyContractTest` 把 boot yml、cloud Nacos
+  基线（含 md5）与存量增量脚本绑成契约，并校验 `config_info` 种子行保持 17 列；
+  `ArynSaTokenListenerTest` / `SysOnlineUserControllerTest` 锁在线记录 key 生命周期与租户隔离，
+  `SysUserSessionRevokerTest` / `SysUserServiceImplTest` / `SysUserControllerPasswordTest` 锁停用/改密/删除踢线。
+
+## 多租户隔离加固（2026-10-28）
+
+需求包见 [2026-10-28-多租户隔离加固](../50-需求文档/2026-10-28-多租户隔离加固/README.md)。以下规则适用于新增接口、实体、缓存与文件能力。
+
+### 平台配置边界
+
+- 租户、套餐、租户菜单、全局菜单的**读/写管理接口**必须同时满足：TOB 会话、会话租户为
+  `CommonConstants.PLATFORM_TENANT_ID`、具备对应 `upms:*` 权限。仅靠权限串无法区分平台管理员与
+  被套餐授予同名权限的租户管理员。
+- 租户菜单保存必须校验目标租户存在、菜单 ID 有效；角色菜单保存必须校验角色归属当前租户，
+  且非平台租户只能提交 `sys_tenant_menu` 已授权菜单。**不要**把「当前租户授权菜单」校验退回给前端。
+  `SysTenantMenuServiceImpl` 全量替换前还要求租户上下文，避免无上下文误删。
+- 在线用户列表/强退必须校验 `upms:onlineuser:get` / `upms:onlineuser:forced`；强退前必须核对
+  在线记录的 tenantId 与当前租户一致，不能只凭 token 路径直接 kickout。
+- 角色菜单页读取的 `/menu/tenant`、`/menu/role/{roleId}` 需要 `upms:sysrole:update`；
+  不要为了「页面上能打开」而移除该权限，否则无权限会话可读取租户菜单结构。
+- 平台租户不可停用/删除；`/tenant/register` 与 `/tenantpackage/list` 是公开注册入口，不接平台守卫。
+
+### 写入归属
+
+- `*.api.entity` 的 `tenantId` 由 `TenantIdRequestModule` 在 HTTP 反序列化时移除；新增实体若需要
+  客户端显式指定租户，应使用 DTO 并单独校验，不要放开实体字段。
+- `MyMetaObjectHandler` 在租户上下文存在时：INSERT 强制覆盖 `tenantId`，UPDATE 清空 `tenantId`
+  （默认 `NOT_NULL` 策略下不生成 `tenant_id` 的 SET）。后台任务无上下文时才允许显式租户值。
+- 手写 SQL / `@InterceptorIgnore` 旁路仍必须显式过滤租户；新增旁路必须登记到
+  `TenantInterceptorBypassAuditTest.ALLOWED_BYPASSES`。
+
+### 缓存与异步
+
+- `@Cacheable` key 默认必须带租户维度；仅当业务键全局唯一（如 `social_account.app_id`）且调用方
+  有权威归属校验时才可按全局键缓存。
+- 异步线程、`CompletableFuture`、自建线程池不会自动传递 `ArynTenantContextHolder`；必须在任务内
+  快照/恢复租户，或使用显式传入的租户 ID。新增异步入口时按 `CatalogVectorRecallService` 的写法处理。
+
+### 租户生命周期
+
+- 登录（TOB 密码/短信/配送、TOC 微信/短信/密码）必须先经 `TenantAccessGuard` 校验租户状态与授权
+  起止时间；平台租户豁免。
+- 租户停用/删除在事务提交后由 `TenantSessionRevoker` 扫描在线记录并撤销全部会话；授权到期由
+  `TenantExpiryJob` 每小时回收。在线记录覆盖 TOB/TOC（`SysUserOnline.deviceType`），`doRenewTimeout`
+  同步续期；管理端在线列表只展示 TOB。
+- 存量改造前签发的 TOC 会话没有在线记录，无法被租户级撤销；新登录已覆盖。
+
+### 私有文件
+
+- 配送凭证等私有材料必须走 `uploadPrivateFile`；本地存储落在 `{tenantId}/private/`，下载端点对
+  `private/` 路径强制校验 `PrivateFileUrlSigner` 的 `expires + signature`。公开商品图继续匿名。
+- 签名只在下发时生成、不持久化；素材管理页与配送任务读取侧都已接入。新增读取侧时调用
+  `RemoteMaterialService#signPrivateUrls`，不要把签名 URL 写回数据库；素材编辑必须保留私有记录的
+  原 URL 与 `bizTag`。
+- 存量私有文件仍在租户根目录，未自动迁移；对象存储的私有性依赖桶 ACL，本次未改。
+- 免登公开读（商品目录等）不在本次会话闭环内；租户停用后如需整租户下线，应在网关/过滤器增加状态检查。

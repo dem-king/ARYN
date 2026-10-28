@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.aryn.cloud.order.api.dto.ShoppingCartBatchAddDTO;
 import com.aryn.cloud.order.api.dto.ShoppingCartCreateDTO;
+import com.aryn.cloud.order.api.dto.ShoppingCartTransferDTO;
 import com.aryn.cloud.order.api.dto.ShoppingCartUpdateDTO;
 import com.aryn.cloud.order.api.entity.ShoppingCart;
 import com.aryn.cloud.order.api.vo.ShoppingCartBatchAddVO;
@@ -68,5 +69,26 @@ public interface IShoppingCartService extends IService<ShoppingCart> {
 	boolean updateShoppingCart(String userId, ShoppingCartUpdateDTO request);
 
 	boolean removeByUserId(String userId, List<String> ids);
+
+	/**
+	 * 把当前用户的购物车行转入指定靠港计划（C 端「转入本次靠港」）。
+	 *
+	 * <p>目标靠港必须仍可下单；同用户同 SKU 在目标靠港已有行时合并数量而非撞唯一键。
+	 *
+	 * @param userId  当前用户
+	 * @param request 目标靠港与购物车行 ID
+	 * @return 实际处理的行数（含被合并删除的行）
+	 */
+	int transferToVesselCall(String userId, ShoppingCartTransferDTO request);
+
+	/**
+	 * 把船舶上「无靠港归属或挂在已结束靠港」的购物车行顺延到新靠港（vessel 模块申报/排产生效时调用）。
+	 *
+	 * <p>与 {@link #transferToVesselCall} 共用迁移逻辑；差异是船舶维度（该船全部用户）、
+	 * 不校验靠港可下单性（调用方已保证），全部参数显式传入、不依赖调用链路租户上下文。
+	 *
+	 * @return 迁移的行数
+	 */
+	int reattachRowsToVesselCall(String tenantId, String vesselId, String vesselCallId, List<String> staleCallIds);
 
 }

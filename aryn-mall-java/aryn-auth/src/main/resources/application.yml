@@ -1,6 +1,14 @@
 server:
   port: 5227
 
+aj:
+  captcha:
+    # 指定后 aj-captcha 不再加载内置底图，改用项目内的拼图底图池
+    # 必须用 classpath*:，否则 boot fat jar 内无法枚举嵌套 jar 的图片目录
+    jigsaw: classpath*:captcha/jigsaw
+    # 点选验证码复用同一批 310x155 底图，避免切换 captchaType 时图库为空
+    pic-click: classpath*:captcha/jigsaw/original
+
 spring:
   application:
     name: @artifactId@

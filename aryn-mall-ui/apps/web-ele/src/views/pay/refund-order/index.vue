@@ -12,6 +12,7 @@ import {
 import { getPage } from '#/api/pay/refund-order';
 import PageFilterPanel from '#/components/page/page-filter-panel.vue';
 import PageToolbar from '#/components/page/page-toolbar.vue';
+import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 import { formatMoney } from '#/utils/util';
 
 const RightToolbar = defineAsyncComponent(
@@ -51,6 +52,8 @@ const initPage = async () => {
     });
 };
 initPage();
+
+useKeepAliveRefresh(initPage);
 </script>
 <template>
   <div class="hx-layout-container">
@@ -121,6 +124,12 @@ initPage();
             </ElTag>
             <ElTag v-else-if="scope.row.refundStatus === '3'" type="danger">
               退款失败
+            </ElTag>
+            <ElTag v-else-if="scope.row.refundStatus === '4'" type="warning">
+              待确认
+            </ElTag>
+            <ElTag v-else type="info">
+              未知({{ scope.row.refundStatus }})
             </ElTag>
           </template>
         </ElTableColumn>

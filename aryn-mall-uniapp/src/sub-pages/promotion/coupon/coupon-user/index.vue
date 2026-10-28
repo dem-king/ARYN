@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { onLoad } from '@dcloudio/uni-app'
 import { computed, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { getPage } from '@/api/promotion/couponUser'
-import { couponStatusMeta, formatCouponExpiry } from '@/utils/coupon-display'
+import { couponStatusMeta, daysUntil, formatCouponExpiry } from '@/utils/coupon-display'
 
 definePage({
   name: 'coupon-user',
@@ -11,6 +12,7 @@ definePage({
     navigationBarTitleText: '我的优惠券',
   },
 })
+const { t } = useI18n()
 const pagingRef = ref()
 const state = reactive<{ list: any[], queryParams: any }>({
   list: [],
@@ -18,27 +20,17 @@ const state = reactive<{ list: any[], queryParams: any }>({
     status: '',
   },
 })
+/** 状态筛选 Tab：文案随语言切换，索引语义保持不变（0=全部、1=待使用…） */
 const tabs = reactive({
-  statusList: [
-    {
-      name: '全部',
-    },
-    {
-      name: '待使用',
-    },
-    {
-      name: '已使用',
-    },
-    {
-      name: '已过期',
-    },
-    {
-      name: '冻结中',
-    },
-  ],
-
   tabCurrent: 0,
 })
+const statusTabs = computed(() => [
+  { name: t('promotion.coupon.user.tabs.all') },
+  { name: t('promotion.coupon.user.tabs.available') },
+  { name: t('promotion.coupon.user.tabs.used') },
+  { name: t('promotion.coupon.user.tabs.expired') },
+  { name: t('promotion.coupon.user.tabs.frozen') },
+])
 const router = useRouter()
 const globalLoading = useGlobalLoading()
 function changeTab({ index }: any) {
@@ -62,12 +54,15 @@ function expirySource(item: any) {
  * 服务端 `status=2` 表示记录已过期，但按「全部/待使用」筛选时仍可能返回
  * status=0 而有效期已过的券（过期靠定时任务回写，存在时间差），
  * 因此以有效期为准判定，避免出现「待使用」却写着「已过期」的矛盾卡片。
+ * 判定只看 `daysUntil` 的数值，不比对已翻译的状态文案（切语言后仍成立）。
  */
 function cardView(item: any) {
-  const expires = formatCouponExpiry(expirySource(item))
-  const usable = item.status === '0' && expires !== '已过期'
+  const source = expirySource(item)
+  const expires = formatCouponExpiry(source)
+  const days = daysUntil(source)
+  const usable = item.status === '0' && !(days !== null && days < 0)
   if (usable)
-    return { band: expires, tone: 'active' as const, action: '去使用' }
+    return { band: expires, tone: 'active' as const, action: t('promotion.coupon.user.use') }
   if (item.status === '3')
     return { band: couponStatusMeta('3').label, tone: 'frozen' as const, action: '' }
   return { band: expires || couponStatusMeta(item.status).label, tone: 'muted' as const, action: '' }
@@ -85,7 +80,7 @@ onLoad((options) => {
 })
 
 async function queryList(pageNo: number, pageSize: number) {
-  globalLoading.loading('加载中...')
+  globalLoading.loading(t('common.loading'))
   try {
     const response = await getPage({
       current: pageNo,
@@ -110,15 +105,15 @@ function handleAction() {
 <template>
   <z-paging ref="pagingRef" v-model="state.list" :auto="false" @query="queryList">
     <template #top>
-      <hr-navbar title="我的优惠券" />
+      <hr-navbar :title="t('promotion.coupon.user.title')" />
       <wd-tabs v-model="tabs.tabCurrent" @change="changeTab">
-        <block v-for="(item, index) in tabs.statusList" :key="index">
+        <block v-for="(item, index) in statusTabs" :key="index">
           <wd-tab :title="item.name" />
         </block>
       </wd-tabs>
     </template>
     <wd-notice-bar
-      v-if="tabs.tabCurrent === 4" text="使用优惠券的订单未支付，优惠券会被冻结哦" :scrollable="false"
+      v-if="tabs.tabCurrent === 4" :text="t('promotion.coupon.user.frozenNotice')" :scrollable="false"
       prefix="warn-bold"
     />
 

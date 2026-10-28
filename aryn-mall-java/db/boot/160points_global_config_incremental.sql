@@ -57,30 +57,9 @@ CREATE TABLE IF NOT EXISTS `points_exclude` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='积分排除清单';
 
 -- ===========================================================================
--- 3. 存量发放行回填：按「先入先出」把用户当前余额分配到历史发放批次，
---    分到余额的批次补 365 天到期窗口（新老分批：存量积分从本脚本执行日起算，
---    365 为代码缺省有效期；租户后续改配置只影响新发放批次）。
---    幂等：仅处理 remain_point IS NULL 的行，重跑只补漏网行；
---    用户已删除（user_info.del_flag=1）的批次不回填、永不参与扫描。
--- ===========================================================================
-UPDATE `points_record` pr
-JOIN (
-    SELECT t.id,
-           LEAST(GREATEST(COALESCE(u.point, 0) - (t.running_sum - t.change_point), 0), t.change_point) AS remain_alloc
-    FROM (
-        SELECT id, user_id, change_point,
-               SUM(change_point) OVER (PARTITION BY user_id ORDER BY create_time, id) AS running_sum
-        FROM `points_record`
-        WHERE change_type = '1' AND remain_point IS NULL AND del_flag = '0'
-    ) t
-    JOIN `user_info` u ON u.id = t.user_id AND u.del_flag = '0'
-) alloc ON alloc.id = pr.id
-SET pr.remain_point = alloc.remain_alloc,
-    pr.expire_time = IF(alloc.remain_alloc > 0, DATE_ADD(NOW(), INTERVAL 365 DAY), NULL)
-WHERE pr.remain_point IS NULL;
-
--- ===========================================================================
--- 4. points_record 批次记账列（发放类流水：到期时间+剩余量，FIFO 与过期清零）
+-- 3. points_record 批次记账列（发放类流水：到期时间+剩余量，FIFO 与过期清零）。
+--    必须先于存量回填执行：回填语句的 WHERE/窗口过滤引用 remain_point，
+--    全新库上该列尚不存在，顺序颠倒会导致整个脚本中断
 -- ===========================================================================
 SET @add_points_record_expire_time = (
   SELECT IF(COUNT(*) = 0,
@@ -99,6 +78,29 @@ SET @add_points_record_remain_point = (
   WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'points_record' AND COLUMN_NAME = 'remain_point'
 );
 PREPARE stmt FROM @add_points_record_remain_point; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ===========================================================================
+-- 4. 存量发放行回填：按「先入先出」把用户当前余额分配到历史发放批次，
+--    分到余额的批次补 365 天到期窗口（新老分批：存量积分从本脚本执行日起算，
+--    365 为代码缺省有效期；租户后续改配置只影响新发放批次）。
+--    幂等：仅处理 remain_point IS NULL 的行，重跑只补漏网行；
+--    用户已删除（user_info.del_flag=1）的批次不回填、永不参与扫描。
+-- ===========================================================================
+UPDATE `points_record` pr
+JOIN (
+    SELECT t.id,
+           LEAST(GREATEST(COALESCE(u.point, 0) - (t.running_sum - t.change_point), 0), t.change_point) AS remain_alloc
+    FROM (
+        SELECT id, user_id, change_point,
+               SUM(change_point) OVER (PARTITION BY user_id ORDER BY create_time, id) AS running_sum
+        FROM `points_record`
+        WHERE change_type = '1' AND remain_point IS NULL
+    ) t
+    JOIN `user_info` u ON u.id = t.user_id AND u.del_flag = '0'
+) alloc ON alloc.id = pr.id
+SET pr.remain_point = alloc.remain_alloc,
+    pr.expire_time = IF(alloc.remain_alloc > 0, DATE_ADD(NOW(), INTERVAL 365 DAY), NULL)
+WHERE pr.remain_point IS NULL;
 
 -- ===========================================================================
 -- 5. 过期扫描支撑索引（定时任务按 expire_time 扫到期批次）
@@ -136,7 +138,7 @@ WHERE TABLE_SCHEMA = DATABASE()
 
 SELECT COUNT(*) AS unbackfilled_income_rows
 FROM `points_record` pr
-WHERE pr.change_type = '1' AND pr.remain_point IS NULL AND pr.del_flag = '0'
+WHERE pr.change_type = '1' AND pr.remain_point IS NULL
   AND EXISTS (SELECT 1 FROM `user_info` u WHERE u.id = pr.user_id AND u.del_flag = '0');
 
 -- ===========================================================================

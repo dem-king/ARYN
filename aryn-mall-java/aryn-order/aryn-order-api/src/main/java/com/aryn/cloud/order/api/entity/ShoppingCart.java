@@ -91,4 +91,22 @@ public class ShoppingCart extends Model<ShoppingCart> {
 	@TableField(exist = false)
 	private String subTitle;
 
+	/**
+	 * 行归属靠港的港口名称：列表出参按 vesselCallId 批量回填（展示快照，已结束靠港也有值）。
+	 * C 端购物车分组头用它替代裸靠港 ID，用户才能看出「这批货是哪次靠港加购的」。
+	 */
+	@TableField(exist = false)
+	private String vesselCallPortName;
+
+	/** 行归属靠港的船舶名称：跨船遗留行只有港口名分不出是哪艘船，一并回填 */
+	@TableField(exist = false)
+	private String vesselCallVesselName;
+
+	/**
+	 * 行归属靠港是否仍可下单：false=该靠港已结束/已取消。
+	 * 前端据此区分「已结束靠港的遗留行」（给转入入口）与「另一条进行中靠港的行」（给切换提示）。
+	 */
+	@TableField(exist = false)
+	private Boolean vesselCallOrderable;
+
 }

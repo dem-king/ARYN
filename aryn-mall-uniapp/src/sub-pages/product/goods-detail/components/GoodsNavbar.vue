@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 interface Props {
   scrollStatus: boolean
@@ -20,6 +21,7 @@ interface Emits {
 
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
+const { t } = useI18n()
 
 function goBack() {
   emit('goBack')
@@ -60,7 +62,7 @@ const bgColorStyle = computed(() => {
             v-for="(item, index) in tabList" :key="index" class="tab-item"
             :class="[index === tabActive ? 'tab-item-active text-primary!' : '']" @click="onCurrentPage(item, index)"
           >
-            {{ item.name }}
+            {{ t(item.nameKey) }}
           </view>
         </view>
         <view class="right">

@@ -64,7 +64,7 @@ describe('船舶绑定申请：提交失败必须在弹层内可见', () => {
 
     expect(page).toContain('handleCancelApply(pendingApply)')
     // 拦截依赖本地申请列表，运营刚审核完时可能是旧状态：必须能就地刷新
-    expect(page).toContain('刷新状态')
+    expect(page).toContain('vessel.bind.refreshStatus')
     expect(page).toMatch(/function openApply[\s\S]{0,500}refreshPendingState\(\)/)
   })
 
@@ -119,8 +119,9 @@ describe('绑定申请：IMO 编号与呼号是两个独立字段', () => {
 
     // 旧标签必须消失，否则用户仍会当成一个字段填
     expect(page).not.toContain('IMO / 呼号')
-    expect(page).toContain('IMO 编号')
-    expect(page).toContain('呼号')
+    // i18n 后标签文案来自词条（与 order-receipt-contract 同口径断言 key）
+    expect(page).toContain('vessel.bind.imo')
+    expect(page).toContain('vessel.bind.callSign')
     // 两个 v-model 指向不同 state（顺序不限，存在即合格）
     expect(page).toMatch(/v-model="applyState\.form\.applyVesselImo"/)
     expect(page).toMatch(/v-model="applyState\.form\.applyVesselCallSign"/)
@@ -147,9 +148,10 @@ describe('绑定申请：IMO 编号与呼号是两个独立字段', () => {
 
   it('船舶信息区拆成 4 行，只有最后一行去掉分隔线', () => {
     const page = source(BIND_PAGE)
-    // 取模板里最后一处「船舶信息」到「联系信息」之间的区块（前面还有脚本注释）
-    const start = page.lastIndexOf('船舶信息')
-    const end = page.indexOf('联系信息', start)
+    // 取模板里最后一处「船舶信息」到「联系信息」之间的区块（前面还有脚本注释）。
+    // i18n 后标题文案来自词条，用词条 key 定位区块。
+    const start = page.lastIndexOf("t('vessel.bind.vesselSection')")
+    const end = page.indexOf("t('vessel.bind.contactSection')", start)
     expect(start).toBeGreaterThan(-1)
     expect(end).toBeGreaterThan(start)
 
@@ -170,7 +172,7 @@ describe('我的申请：必须让用户看出实际绑到了哪条船', () => {
     const page = source(BIND_PAGE)
 
     expect(page).toContain('matchedVesselName')
-    expect(page).toContain('实际绑定')
+    expect(page).toContain('vessel.bind.matchedVessel')
     // 只在已通过（status==='2'）且拿到匹配船名时展示，未通过时不能编造一条船
     expect(page).toMatch(/apply\.status\s*===\s*'2'[\s\S]{0,120}apply\.matchedVesselName/)
   })

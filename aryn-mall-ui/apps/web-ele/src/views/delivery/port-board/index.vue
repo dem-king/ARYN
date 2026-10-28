@@ -14,6 +14,7 @@ import {
 
 import { getPortBoard } from '#/api/promotion/ship-activity';
 import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 
 const state = reactive({
   date: '',
@@ -52,6 +53,8 @@ const initPage = async () => {
 
 state.date = new Date().toISOString().slice(0, 10);
 onMounted(initPage);
+
+useKeepAliveRefresh(initPage);
 </script>
 
 <template>

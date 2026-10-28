@@ -21,6 +21,14 @@ export function createDefaultPageSettings(): PageSettings {
       textColor: '#000000',
       title: '',
       visible: true,
+      // 滚动渐显（沉浸式导航）：缺省关闭；具体字段常驻，避免 JSON 克隆丢 undefined
+      scrollEffect: {
+        mode: 'none',
+        surface: 'frosted',
+        surfaceColor: '',
+        distance: 140,
+        blur: true,
+      },
     },
     share: {
       description: '',

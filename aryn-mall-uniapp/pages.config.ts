@@ -33,9 +33,8 @@ export default defineUniPages({
     enablePullDownRefresh: false,
     onReachBottomDistance: 50,
 
-    // 动画配置
-    animationType: 'pop-in',
-    animationDuration: 300,
+    // animationType/animationDuration 不配：App 专用字段且默认值就是 pop-in/300，
+    // 配了会被原样带进 mp-weixin 的 app.json window，被微信判成无效字段告警
   },
   tabBar: {
     selectedColor: '#FF2237',

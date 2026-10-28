@@ -2,18 +2,20 @@
 import type { GoodsGroupProps } from '@/components/diy/retail-types'
 
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { followDecorationLink } from '@/components/diy/link-resolver'
-import { mergePagedItems } from '@/components/diy/retail-paged-list'
 import { shouldShowOriginalPrice } from '@/components/diy/price-display'
-import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
 import {
   loadGoodsGroup,
   loadGoodsGroupPage,
 } from '@/components/diy/retail-data'
+import { mergePagedItems } from '@/components/diy/retail-paged-list'
 import { retailCommonStyle } from '@/components/diy/retail-types'
+import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
 import QuickCartButton from '@/components/quick-cart-button/index.vue'
 import { useDiyPagedLoadMore } from '@/composables/useDiyPagedLoadMore'
 import { useDiyStyle } from '@/composables/useDiyStyle'
+import { stockHintText } from '@/utils/stock-display'
 
 const props = withDefaults(defineProps<{
   showData?: Partial<GoodsGroupProps>
@@ -21,6 +23,7 @@ const props = withDefaults(defineProps<{
   showData: () => ({}),
 })
 
+const { t } = useI18n()
 const showData = computed<GoodsGroupProps>(() => ({
   // 兼容后台序列化后 columns 可能为字符串的情况，统一按数值判断
   columns: Number(props.showData.columns) === 3 ? 3 : 2,
@@ -32,7 +35,7 @@ const showData = computed<GoodsGroupProps>(() => ({
   // 划线原价的运营开关：缺省视为关闭（存量装修数据里没有该字段）
   showOriginalPrice: Boolean(props.showData.showOriginalPrice),
   showSales: props.showData.showSales !== false,
-  title: props.showData.title || '热卖商品',
+  title: props.showData.title || t('diy.goodsGroup.defaultTitle'),
 }))
 const dynamicStyles = useDiyStyle(computed(() => showData.value.commonStyle))
 // 与后台预览一致的 grid 列数，避免 flex 宽度计算在小程序下偏移
@@ -111,7 +114,7 @@ function openGoods(id: string) {
           <view class="goods-image-box">
             <image v-if="item.imageUrl" class="goods-image" :src="item.imageUrl" mode="aspectFit" lazy-load />
             <view v-else class="goods-image goods-image--empty">
-              商品
+              {{ t('diy.common.product') }}
             </view>
           </view>
           <view class="goods-name">
@@ -134,21 +137,21 @@ function openGoods(id: string) {
                   ￥{{ item.originalPrice.toFixed(2) }}
                 </text>
               </view>
-              <text v-if="showData.showSales" class="goods-sales">
-                已售 {{ item.sales }}
+              <text v-if="stockHintText(item.stock)" class="goods-sales">
+                {{ stockHintText(item.stock) }}
               </text>
             </view>
             <!-- 快捷加购：单规格直接加购，多规格唤起规格弹层 -->
             <quick-cart-button v-if="item.stock > 0" :spu-id="item.id" size="40rpx" />
           </view>
           <view v-if="item.stock <= 0" class="stock-label">
-            暂时缺货
+            {{ t('diy.common.outOfStock') }}
           </view>
         </view>
       </view>
       <template #empty>
         <view class="goods-empty">
-          暂无商品
+          {{ t('diy.common.noProducts') }}
         </view>
       </template>
     </z-paging>

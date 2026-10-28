@@ -3,8 +3,10 @@ package com.aryn.cloud.product.controller.app;
 
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
+import com.aryn.cloud.product.api.vo.AppGoodsRankVO;
 import com.aryn.cloud.product.api.vo.GoodsCatalogSummaryVO;
 import com.aryn.cloud.product.api.vo.QuickCartInfoVO;
+import com.aryn.cloud.product.service.IGoodsRankService;
 import com.aryn.cloud.product.service.IQuickCartService;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -20,6 +22,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 /**
@@ -39,10 +42,24 @@ public class AppGoodsSpuController {
 
 	private final IQuickCartService quickCartService;
 
+	private final IGoodsRankService goodsRankService;
+
 	@Operation(summary = "商品列表")
 	@GetMapping("/page")
-	public Result page(Page page, GoodsSpu goodsSpu) {
-		return Result.success(goodsSpuService.apiPage(page, goodsSpu));
+	public Result page(Page page, GoodsSpu goodsSpu,
+			@RequestParam(value = "bargainRate", required = false) BigDecimal bargainRate) {
+		// bargainRate 是「低价捡漏」排序的开关兼阈值：非空时服务层校验区间 (1.00, 9.99]、
+		// 清空 asc/desc 并由 XML 出固定 ORDER BY；为空时行为与历史完全一致。
+		return Result.success(goodsSpuService.apiPage(page, goodsSpu, bargainRate));
+	}
+
+	@Operation(summary = "商品推荐流（商详同分类优先；购物车/订单按上下文分类并排除已选商品）")
+	@GetMapping("/recommend")
+	public Result recommend(Page page,
+			@RequestParam(value = "spuId", required = false) String spuId,
+			@RequestParam(value = "sourceSpuIds", required = false) List<String> sourceSpuIds,
+			@RequestParam(value = "excludeIds", required = false) List<String> excludeIds) {
+		return Result.success(goodsSpuService.recommendPage(page, spuId, sourceSpuIds, excludeIds));
 	}
 
 	@Operation(summary = "场景选货目录（统一商品池，仅上架商品；路径保留 scene=2 兼容）")
@@ -81,10 +98,16 @@ public class AppGoodsSpuController {
 		return Result.success(goodsSpuService.apiListByIds(ids));
 	}
 
-	@Operation(summary = "获取热搜商品 Top10")
+	@Operation(summary = "热搜榜 Top10（真实浏览足迹聚合，当前租户在售商品）")
 	@GetMapping("/hot-search/top10")
-	public Result<List<GoodsSpu>> getTop10HotSearchGoods() {
-		return Result.success(goodsSpuService.getTop10HotSearchGoods());
+	public Result<List<AppGoodsRankVO>> hotSearchTop10() {
+		return Result.success(goodsRankService.hotTop10(ArynTenantContextHolder.getTenantId()));
+	}
+
+	@Operation(summary = "热销榜 Top10（真实有效订单聚合，当前租户在售商品）")
+	@GetMapping("/sales-rank/top10")
+	public Result<List<AppGoodsRankVO>> salesRankTop10() {
+		return Result.success(goodsRankService.salesTop10(ArynTenantContextHolder.getTenantId()));
 	}
 
 	@Operation(summary = "搜索联想词（在售商品名，前缀优先，最多10条；输入无效返回空列表）")

@@ -2,6 +2,7 @@
 import type { ShopInfoProps } from '@/components/diy/retail-types'
 
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { loadCurrentShop } from '@/components/diy/retail-data'
 import RetailState from '@/components/diy/retail-state.vue'
 import { retailCommonStyle } from '@/components/diy/retail-types'
@@ -11,6 +12,7 @@ import { useRetailData } from '@/composables/useRetailData'
 const props = withDefaults(defineProps<{ showData?: Partial<ShopInfoProps> }>(), {
   showData: () => ({}),
 })
+const { t } = useI18n()
 const showData = computed<ShopInfoProps>(() => ({
   commonStyle: props.showData.commonStyle || retailCommonStyle,
   count: Number(props.showData.count) || 1,
@@ -63,7 +65,7 @@ const { items, shouldRender, status } = useRetailData(showData, loadCurrentShop)
       </view>
       <button v-if="showData.showContact" class="contact-button" open-type="contact">
         <wd-icon name="service" size="26rpx" color="#ffffff" />
-        <text>联系</text>
+        <text>{{ t('diy.shopInfo.contact') }}</text>
       </button>
     </view>
   </view>

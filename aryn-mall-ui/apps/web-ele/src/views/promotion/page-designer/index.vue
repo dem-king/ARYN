@@ -24,6 +24,7 @@ import {
   getEditor,
   getHomeDesign,
   getThemes,
+  isEmbeddedPageType,
   queryTokenToPageType,
   saveDraft,
   submitRelease,
@@ -47,6 +48,7 @@ import { usePageDesigner } from './composables/use-page-designer';
 import { getComponentDefinition } from './registry/component-registry';
 import { createDefaultDecorationDocument } from './schema/defaults';
 import { migratePageContent } from './schema/migrate';
+import { normalizeNavigationScrollEffect } from './schema/navigation-scroll';
 import { buildCanvasThemeVars } from './schema/theme-presets';
 import { toV3Document } from './schema/v3';
 
@@ -137,6 +139,24 @@ const firstContentSection = computed(() =>
     (section) => section.components.length > 0,
   ),
 );
+
+/**
+ * 画布导航「滚动后」预览态的滚动距离：纯本地 UI 状态。
+ *
+ * 绝不写进 document、也不走 changed()/patchPage —— 它不是草稿内容，
+ * 进 document 会触发脏标记与撤销记录（运营拖一下预览滑杆就多一步撤销）。
+ * 只透传给 PhoneCanvas 参与导航样式计算。
+ */
+const canvasScrollTop = ref(0);
+/** 页面导航开启沉浸式渐显且非内嵌页型时，工具栏才允许切换画布滚动预览态 */
+const scrollEffectAvailable = computed(
+  () =>
+    !isEmbeddedPageType(pageType.value) &&
+    normalizeNavigationScrollEffect(
+      designer.document.value.page.navigation.scrollEffect,
+    ).mode === 'fade',
+);
+
 const selectedIds = ref<string[]>([]);
 
 function toggleSelect(id: string, checked: boolean) {
@@ -240,6 +260,8 @@ async function loadPage() {
         ? editor.pageContent.themeRef
         : '';
     designer.reset(migratePageContent(editor.pageContent));
+    // 换页/重载回到「顶部」预览态，避免沿用上一页的滚动距离
+    canvasScrollTop.value = 0;
   } finally {
     loader.close();
     loading.value = false;
@@ -411,6 +433,8 @@ onBeforeUnmount(() => {
       :can-redo="designer.canRedo.value"
       :can-undo="designer.canUndo.value"
       :save-status="draftSave.status.value"
+      :scroll-preview-available="scrollEffectAvailable"
+      :scroll-top="canvasScrollTop"
       :shell-available="shellAvailable"
       @assets="assetVisible = true"
       @back="back"
@@ -422,6 +446,7 @@ onBeforeUnmount(() => {
       @theme="themeVisible = true"
       @undo="changed(designer.undo)"
       @update:page-name="updatePageName"
+      @update:scroll-top="canvasScrollTop = $event"
     />
     <main class="designer-workspace">
       <aside class="left-rail">
@@ -477,6 +502,7 @@ onBeforeUnmount(() => {
         :page-name="pageName"
         :page-type="pageType"
         :sections="designer.document.value.sections"
+        :scroll-top="canvasScrollTop"
         :selected-id="designer.selectedId.value"
         :show-page-shell="showPageShell"
         :theme-vars="canvasThemeVars"
@@ -529,6 +555,7 @@ onBeforeUnmount(() => {
               :model-value="designer.document.value.page"
               :page-name="pageName"
               :page-theme-name="pageThemeName"
+              :page-type="pageType"
               :theme-vars="canvasThemeVars"
               @update:model-value="patchPage"
             />

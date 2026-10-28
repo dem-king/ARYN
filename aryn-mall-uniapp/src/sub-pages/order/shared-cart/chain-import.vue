@@ -30,6 +30,7 @@ import type {
 import { onLoad, onUnload } from '@dcloudio/uni-app'
 
 import { computed, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { alovaInstance } from '@/api/core/instance'
 import {
   confirmSharedCartImport,
@@ -49,6 +50,7 @@ definePage({
 })
 
 const authStore = useAuthStore()
+const { t } = useI18n()
 
 const cartId = ref('')
 /** 1粘贴 2报告 */
@@ -74,10 +76,12 @@ const onlyIssue = ref(true)
 const rows = computed(() => report.value?.rows ?? [])
 
 /** AI 解析的阶段提示：不回传真实进度（解析是同步完成的），只做活动指示 */
-const AI_PHASES = ['读取接龙原文…', '识别报货人与商品…', '对照商城商品库匹配…', '生成核对报告…']
+const AI_PHASE_KEYS = ['phaseReading', 'phaseRecognizing', 'phaseMatching', 'phaseGenerating']
 const aiPhaseIndex = ref(0)
 let aiPhaseTimer: ReturnType<typeof setInterval> | null = null
-const aiPhase = computed(() => AI_PHASES[aiPhaseIndex.value % AI_PHASES.length] ?? AI_PHASES[0])
+const aiPhase = computed(() =>
+  t(`sharedCart.chainImport.${AI_PHASE_KEYS[aiPhaseIndex.value % AI_PHASE_KEYS.length]}`),
+)
 
 function startAiPhase() {
   stopAiPhase()
@@ -164,21 +168,21 @@ const personCount = computed(() => {
 
 /** 报告计数卡：按「待人工 / 不可入单」分组，空白态也占位，不做 5 格等宽硬撑 */
 const reportCells = computed(() => [
-  { key: 'unmatched', label: '未匹配', value: report.value?.unmatchedRows || 0, tone: 'danger' },
-  { key: 'specChanged', label: '规格待定', value: report.value?.specChangedRows || 0, tone: 'warn' },
-  { key: 'overStock', label: '超库存', value: report.value?.overStockRows || 0, tone: 'warn' },
-  { key: 'invalid', label: '数量异常', value: report.value?.invalidRows || 0, tone: 'warn' },
-  { key: 'offShelf', label: '已下架', value: report.value?.offShelfRows || 0, tone: 'muted' },
+  { key: 'unmatched', label: t('sharedCart.result.unmatched'), value: report.value?.unmatchedRows || 0, tone: 'danger' },
+  { key: 'specChanged', label: t('sharedCart.result.specPending'), value: report.value?.specChangedRows || 0, tone: 'warn' },
+  { key: 'overStock', label: t('sharedCart.result.overStock'), value: report.value?.overStockRows || 0, tone: 'warn' },
+  { key: 'invalid', label: t('sharedCart.result.invalidQty'), value: report.value?.invalidRows || 0, tone: 'warn' },
+  { key: 'offShelf', label: t('sharedCart.result.offShelf'), value: report.value?.offShelfRows || 0, tone: 'muted' },
 ])
 
-const RESULT_LABEL: Record<string, string> = {
-  OK: '匹配成功',
-  UNMATCHED: '未匹配',
-  SPEC_CHANGED: '待定规格',
-  OVER_STOCK: '超库存',
-  INVALID_QTY: '数量异常',
-  OFF_SHELF: '已下架',
-}
+const RESULT_LABELS = computed<Record<string, string>>(() => ({
+  OK: t('sharedCart.result.matched'),
+  UNMATCHED: t('sharedCart.result.unmatched'),
+  SPEC_CHANGED: t('sharedCart.result.specPending'),
+  OVER_STOCK: t('sharedCart.result.overStock'),
+  INVALID_QTY: t('sharedCart.result.invalidQty'),
+  OFF_SHELF: t('sharedCart.result.offShelf'),
+}))
 
 /** 徽标配色：语义色只留「要人管 / 不用管」两级，避免一屏五种颜色 */
 const RESULT_THEME: Record<string, string> = {
@@ -216,7 +220,7 @@ const missingRows = computed(() =>
 
 /** 处置行展示的品名：解析原文优先，其次匹配结果 */
 function rowTitle(row: SharedCartImportRow) {
-  return row.rawName || row.matchedName || `第 ${row.rowNo} 行`
+  return row.rawName || row.matchedName || t('sharedCart.chainImport.rowNo', { row: row.rowNo })
 }
 
 /** 处置行的商品副标题：解析成功的行带出命中的规格 */
@@ -240,9 +244,9 @@ function resolvedRowName(row: SharedCartImportRow) {
     return pickNames[row.rowNo]
       || row.candidates?.find(candidate => candidate.skuId === action.skuId)?.name
       || row.rawName
-      || `第 ${row.rowNo} 行`
+      || t('sharedCart.chainImport.rowNo', { row: row.rowNo })
   }
-  return row.rawName || row.matchedName || `第 ${row.rowNo} 行`
+  return row.rawName || row.matchedName || t('sharedCart.chainImport.rowNo', { row: row.rowNo })
 }
 
 /** 已处置行展示的数量：调数量行显示调整后的值 */
@@ -268,14 +272,14 @@ function handlePasteFromClipboard() {
   uni.getClipboardData({
     success: ({ data }) => {
       if (!data?.trim()) {
-        uni.showToast({ title: '剪贴板是空的', icon: 'none' })
+        uni.showToast({ title: t('sharedCart.chainImport.clipboardEmpty'), icon: 'none' })
         return
       }
       chainText.value = data
-      uni.showToast({ title: '已粘贴，点「AI 开始解析」', icon: 'none' })
+      uni.showToast({ title: t('sharedCart.chainImport.pasted'), icon: 'none' })
     },
     fail: () => {
-      uni.showToast({ title: '读取剪贴板失败，请长按输入框粘贴', icon: 'none' })
+      uni.showToast({ title: t('sharedCart.chainImport.clipboardFailed'), icon: 'none' })
     },
   })
 }
@@ -289,7 +293,7 @@ async function parseText() {
   if (parsing.value)
     return
   if (!chainText.value.trim()) {
-    uni.showToast({ title: '请先粘贴接龙内容', icon: 'none' })
+    uni.showToast({ title: t('sharedCart.chainImport.pasteRequired'), icon: 'none' })
     return
   }
   if (!cartId.value)
@@ -309,7 +313,7 @@ async function parseText() {
   }
   catch (error) {
     uni.showToast({
-      title: error instanceof Error ? error.message : '解析失败',
+      title: error instanceof Error ? error.message : t('sharedCart.chainImport.parseFailed'),
       icon: 'none',
     })
   }
@@ -338,18 +342,18 @@ function buildPayload(row: SharedCartImportRow): SharedCartImportActionPayload |
 function adjustQuantity(row: SharedCartImportRow) {
   const quantity = row.suggestedQuantity
   if (!quantity) {
-    uni.showToast({ title: '请人工改数量或补选商品', icon: 'none' })
+    uni.showToast({ title: t('sharedCart.chainImport.adjustManually'), icon: 'none' })
     return
   }
   actions[row.rowNo] = { rowNo: row.rowNo, action: 'ADJUST_QTY', quantity }
-  uni.showToast({ title: `已调整为 ${quantity}`, icon: 'none' })
+  uni.showToast({ title: t('sharedCart.chainImport.adjustedTo', { qty: quantity }), icon: 'none' })
 }
 
 /** 未匹配：人工补选，走既有商品搜索接口 */
 async function searchCandidates(row: SharedCartImportRow, keyword?: string) {
   const word = (keyword ?? pickKeywords[row.rowNo] ?? row.rawName ?? '').trim()
   if (!word) {
-    uni.showToast({ title: '请输入品名关键字', icon: 'none' })
+    uni.showToast({ title: t('sharedCart.chainImport.keywordRequired'), icon: 'none' })
     return
   }
   pickKeywords[row.rowNo] = word
@@ -369,10 +373,10 @@ async function searchCandidates(row: SharedCartImportRow, keyword?: string) {
       spuStatus: record.status,
     }))
     if (pickCandidates[row.rowNo].length === 0)
-      uni.showToast({ title: '没有搜到商品，换个关键字试试', icon: 'none' })
+      uni.showToast({ title: t('sharedCart.chainImport.noResult'), icon: 'none' })
   }
   catch {
-    uni.showToast({ title: '搜索失败，请重试', icon: 'none' })
+    uni.showToast({ title: t('sharedCart.chainImport.searchFailed'), icon: 'none' })
   }
   finally {
     picking[row.rowNo] = false
@@ -386,7 +390,7 @@ function chooseCandidate(row: SharedCartImportRow, candidate: SharedCartImportCa
   actions[row.rowNo] = { rowNo: row.rowNo, action: 'REPLACE_SKU', skuId: candidate.skuId }
   pickNames[row.rowNo] = candidate.name || ''
   pickCandidates[row.rowNo] = []
-  uni.showToast({ title: '已选择商品', icon: 'none' })
+  uni.showToast({ title: t('sharedCart.chainImport.productSelected'), icon: 'none' })
 }
 
 /** 跳过某行 */
@@ -405,7 +409,7 @@ function adoptAllAiPicks() {
         || ''
     }
   }
-  uni.showToast({ title: '已按 AI 推荐补选', icon: 'none' })
+  uni.showToast({ title: t('sharedCart.chainImport.aiPicked'), icon: 'none' })
 }
 
 function skipRow(row: SharedCartImportRow) {
@@ -430,19 +434,19 @@ function actionLabel(row: SharedCartImportRow) {
     return ''
   switch (action.action) {
     case 'ADJUST_QTY':
-      return `已调整为 ${action.quantity}`
+      return t('sharedCart.chainImport.actionAdjusted', { qty: action.quantity })
     case 'REPLACE_SKU':
-      return '已补选商品'
+      return t('sharedCart.chainImport.actionReplaced')
     case 'SKIP':
-      return '已跳过'
+      return t('sharedCart.chainImport.actionSkipped')
     default:
-      return '已采用'
+      return t('sharedCart.chainImport.actionAdopted')
   }
 }
 
 /** 处置后的动作条：已处置行只留「撤销」与状态，避免重复点 */
 function rowDoneLabel(row: SharedCartImportRow) {
-  return actionLabel(row) || '已处理'
+  return actionLabel(row) || t('sharedCart.chainImport.processed')
 }
 
 async function handleConfirm() {
@@ -453,7 +457,9 @@ async function handleConfirm() {
     const payload = rows.value.map(buildPayload).filter(item => item !== null)
     report.value = await confirmSharedCartImport(cartId.value, report.value.importId, payload)
     uni.showToast({
-      title: report.value.importedRows ? `已并入 ${report.value.importedRows} 项` : '已处理',
+      title: report.value.importedRows
+        ? t('sharedCart.chainImport.mergedCount', { count: report.value.importedRows })
+        : t('sharedCart.chainImport.processed'),
       icon: 'none',
     })
     if (report.value.importedRows) {
@@ -472,7 +478,7 @@ async function handleConfirm() {
   }
   catch (error) {
     uni.showToast({
-      title: error instanceof Error ? error.message : '并入失败',
+      title: error instanceof Error ? error.message : t('sharedCart.chainImport.mergeFailed'),
       icon: 'none',
     })
   }
@@ -487,12 +493,12 @@ function backToPaste() {
 }
 
 async function reopenLatestImport() {
-  uni.showLoading({ title: '加载中' })
+  uni.showLoading({ title: t('common.loading') })
   try {
     const list = await listSharedCartImports(cartId.value)
     const latest = (list ?? []).find(item => item.status === '1')
     if (!latest) {
-      uni.showToast({ title: '没有待处理的导入', icon: 'none' })
+      uni.showToast({ title: t('sharedCart.chainImport.noPendingImport'), icon: 'none' })
       return
     }
     report.value = await getSharedCartImport(cartId.value, latest.importId)
@@ -500,7 +506,7 @@ async function reopenLatestImport() {
     step.value = 2
   }
   catch {
-    uni.showToast({ title: '加载失败，请重试', icon: 'none' })
+    uni.showToast({ title: t('sharedCart.chainImport.loadFailed'), icon: 'none' })
   }
   finally {
     uni.hideLoading()
@@ -508,21 +514,25 @@ async function reopenLatestImport() {
 }
 
 /** 继续上次导入后直接停在报告页时，把报告置顶（有未处理项时提示还剩几行） */
-const remainedText = computed(() => (remainingCount.value > 0 ? `还剩 ${remainingCount.value} 项待处理` : ''))
+const remainedText = computed(() =>
+  remainingCount.value > 0
+    ? t('sharedCart.chainImport.remainingText', { count: remainingCount.value })
+    : '',
+)
 </script>
 
 <template>
   <view class="page">
-    <hrNavbar title="粘贴接龙报货" />
+    <hrNavbar :title="t('sharedCart.chainImport.navTitle')" />
 
     <!-- 步骤 1：粘贴接龙 -->
     <template v-if="step === 1">
       <view class="paste-head">
         <view class="paste-head__title">
-          粘贴微信群接龙
+          {{ t('sharedCart.chainImport.pasteTitle') }}
         </view>
         <view class="paste-head__desc">
-          整段复制群里接龙，自动按「人 × 商品 × 数量」解析
+          {{ t('sharedCart.chainImport.pasteDesc') }}
         </view>
       </view>
 
@@ -534,10 +544,10 @@ const remainedText = computed(() => (remainingCount.value > 0 ? `还剩 ${remain
             :maxlength="50000"
             :show-confirm-bar="false"
             auto-height
-            placeholder="在这里粘贴接龙原文，例如：&#10;1. 任化东 红富士冰糖心4斤，香蕉（熟点）3斤&#10;2. 水手长 盐汽水四包"
+            :placeholder="t('sharedCart.chainImport.pastePlaceholder')"
           />
           <view v-if="chainText" class="paste-box__clear" @tap="clearText">
-            清空
+            {{ t('sharedCart.chainImport.clear') }}
           </view>
         </view>
 
@@ -545,7 +555,7 @@ const remainedText = computed(() => (remainingCount.value > 0 ? `还剩 ${remain
         <view class="paste-actions">
           <view class="btn btn--ghost" @tap="handlePasteFromClipboard">
             <text class="i-carbon:copy mr-8rpx flex-none text-28rpx" />
-            读取剪贴板
+            {{ t('sharedCart.chainImport.readClipboard') }}
           </view>
           <view
             class="btn btn--primary"
@@ -553,21 +563,21 @@ const remainedText = computed(() => (remainingCount.value > 0 ? `还剩 ${remain
             @tap="parseText"
           >
             <text v-if="!parsing" class="i-carbon:magic-wand-filled mr-8rpx flex-none text-28rpx" />
-            {{ parsing ? '正在解析…' : 'AI 开始解析' }}
+            {{ parsing ? t('sharedCart.chainImport.parsing') : t('sharedCart.chainImport.startParse') }}
           </view>
         </view>
       </view>
 
       <view class="card tips-card">
         <view class="tips-card__head">
-          解析口径
+          {{ t('sharedCart.chainImport.rulesTitle') }}
         </view>
         <view class="tips-row">
           <text class="tips-row__num">
             1
           </text>
           <text class="tips-row__text">
-            每行「人名 + 报货内容」，商品之间用逗号或空格隔开、带数量（如 香蕉3斤）
+            {{ t('sharedCart.chainImport.ruleOne') }}
           </text>
         </view>
         <view class="tips-row">
@@ -575,7 +585,7 @@ const remainedText = computed(() => (remainingCount.value > 0 ? `还剩 ${remain
             2
           </text>
           <text class="tips-row__text">
-            数量缺失、叫法对不上的行会被标出来，并给出商城里的相近商品推荐，逐行核对后再并入
+            {{ t('sharedCart.chainImport.ruleTwo') }}
           </text>
         </view>
         <view class="tips-row">
@@ -583,14 +593,14 @@ const remainedText = computed(() => (remainingCount.value > 0 ? `还剩 ${remain
             3
           </text>
           <text class="tips-row__text">
-            接龙里的人不必是系统用户：人名只作配送分装标签
+            {{ t('sharedCart.chainImport.ruleThree') }}
           </text>
         </view>
       </view>
 
       <view class="paste-foot" @tap="reopenLatestImport">
         <text class="i-carbon:redo mr-8rpx text-24rpx" />
-        继续上次未处理的导入
+        {{ t('sharedCart.chainImport.continueLast') }}
       </view>
     </template>
 
@@ -601,15 +611,15 @@ const remainedText = computed(() => (remainingCount.value > 0 ? `还剩 ${remain
         <view class="summary__head">
           <view class="summary__head-left">
             <view class="summary__title">
-              解析报告
+              {{ t('sharedCart.chainImport.reportTitle') }}
             </view>
             <view v-if="report?.parserSource === 'AI'" class="summary__ai">
               <text class="i-carbon:magic-wand-filled text-22rpx" />
-              AI 解析
+              {{ t('sharedCart.chainImport.aiParsed') }}
             </view>
           </view>
           <view class="summary__meta">
-            共 {{ totalCount }} 项 · {{ personCount }} 人报货
+            {{ t('sharedCart.chainImport.reportMeta', { items: totalCount, people: personCount }) }}
           </view>
         </view>
 
@@ -622,7 +632,7 @@ const remainedText = computed(() => (remainingCount.value > 0 ? `还剩 ${remain
               {{ matchedCount }}/{{ totalCount }}
             </text>
             <text class="summary__rate-label">
-              已匹配商品（{{ matchRate }}%）
+              {{ t('sharedCart.chainImport.matchedRate', { rate: matchRate }) }}
             </text>
           </view>
         </view>
@@ -649,7 +659,7 @@ const remainedText = computed(() => (remainingCount.value > 0 ? `还剩 ${remain
         <view class="missing__head">
           <text class="i-carbon:warning-alt missing__icon" />
           <text class="missing__title">
-            以下 {{ missingRows.length }} 项商城里没有
+            {{ t('sharedCart.chainImport.missingTitle', { count: missingRows.length }) }}
           </text>
         </view>
         <view class="missing__names">
@@ -661,11 +671,11 @@ const remainedText = computed(() => (remainingCount.value > 0 ? `还剩 ${remain
             {{ rowTitle(row) }}
           </text>
           <text v-if="missingRows.length > 8" class="missing__name missing__name--more">
-            等 {{ missingRows.length }} 项
+            {{ t('sharedCart.chainImport.missingMore', { count: missingRows.length }) }}
           </text>
         </view>
         <view class="missing__hint">
-          可在下方换个叫法搜索，或先跳过——并入时自动排除，不影响其余商品正常下单
+          {{ t('sharedCart.chainImport.missingHint') }}
         </view>
       </view>
 
@@ -677,22 +687,22 @@ const remainedText = computed(() => (remainingCount.value > 0 ? `还剩 ${remain
           @tap="adoptAllAiPicks"
         >
           <text class="i-carbon:magic-wand-filled text-24rpx" />
-          采用全部 AI 推荐（{{ aiPickPendingCount }}）
+          {{ t('sharedCart.chainImport.adoptAllAi', { count: aiPickPendingCount }) }}
         </view>
         <view class="toolbar__progress">
           <template v-if="remainingCount > 0">
-            还有 <text class="toolbar__progress-num">
+            {{ t('sharedCart.chainImport.progressPrefix') }} <text class="toolbar__progress-num">
               {{ remainingCount }}
-            </text> 项需要处理
+            </text> {{ t('sharedCart.chainImport.progressSuffix') }}
           </template>
           <template v-else-if="actionableRows.length">
-            待处置项已全部处理完
+            {{ t('sharedCart.chainImport.progressAllDone') }}
           </template>
           <template v-else>
-            没有需要人工处置的项
+            {{ t('sharedCart.chainImport.progressNone') }}
           </template>
           <text v-if="skippedCount > 0" class="toolbar__progress-skip">
-            已跳过 {{ skippedCount }} 项
+            {{ t('sharedCart.chainImport.progressSkipped', { count: skippedCount }) }}
           </text>
         </view>
         <view
@@ -702,7 +712,7 @@ const remainedText = computed(() => (remainingCount.value > 0 ? `还剩 ${remain
           @tap="onlyIssue = !onlyIssue"
         >
           <text class="i-carbon:filter text-24rpx" />
-          仅看待处理
+          {{ t('sharedCart.chainImport.onlyPending') }}
         </view>
       </view>
 
@@ -716,7 +726,7 @@ const remainedText = computed(() => (remainingCount.value > 0 ? `还剩 ${remain
         >
           <view class="issue__head">
             <text class="tag" :class="RESULT_THEME[row.resultType]">
-              {{ RESULT_LABEL[row.resultType] }}
+              {{ RESULT_LABELS[row.resultType] }}
             </text>
             <text class="issue__name">
               {{ rowTitle(row) }}
@@ -731,23 +741,23 @@ const remainedText = computed(() => (remainingCount.value > 0 ? `还剩 ${remain
             {{ issueText(row) }}
           </view>
           <view v-else-if="rowMatchedNote(row)" class="issue__match">
-            解析到：{{ rowMatchedNote(row) }}
+            {{ t('sharedCart.chainImport.parsedAs', { name: rowMatchedNote(row) }) }}
           </view>
 
           <!-- 归属人：一行连续多行属同一人，点开预填、可改可清 -->
           <view class="issue__owner">
             <text class="issue__owner-label">
-              归属人
+              {{ t('sharedCart.chainImport.ownerLabel') }}
             </text>
             <input
               v-model="personNames[row.rowNo]"
               class="issue__owner-input"
               :class="{ 'issue__owner-input--empty': !(personNames[row.rowNo] || row.personName) }"
-              :placeholder="row.personName || '未识别到人名'"
+              :placeholder="row.personName || t('sharedCart.chainImport.ownerUnknown')"
               placeholder-class="ph"
             >
             <text v-if="row.personName" class="issue__owner-origin">
-              接龙原文「{{ row.personName }}」
+              {{ t('sharedCart.chainImport.ownerOriginal', { name: row.personName }) }}
             </text>
           </view>
 
@@ -757,7 +767,7 @@ const remainedText = computed(() => (remainingCount.value > 0 ? `还剩 ${remain
             class="issue__suggest"
           >
             <view class="issue__suggest-head">
-              可能是这些商品，点一下直接采用
+              {{ t('sharedCart.chainImport.suggestTitle') }}
             </view>
             <view class="issue__suggest-list">
               <view
@@ -768,7 +778,7 @@ const remainedText = computed(() => (remainingCount.value > 0 ? `还剩 ${remain
                 @tap="chooseCandidate(row, candidate)"
               >
                 <text v-if="candidate.skuId === row.aiPickedSkuId" class="chip__ai">
-                  AI 推荐
+                  {{ t('sharedCart.chainImport.aiRecommend') }}
                 </text>
                 <text class="chip__name">
                   {{ candidate.name }}
@@ -777,7 +787,7 @@ const remainedText = computed(() => (remainingCount.value > 0 ? `还剩 ${remain
                   {{ candidate.spec }}
                 </text>
                 <text class="chip__meta">
-                  库存 {{ candidate.stock ?? '—' }}
+                  {{ t('sharedCart.chainImport.stock', { count: candidate.stock ?? '—' }) }}
                   <text v-if="candidate.salesPrice != null">
                     · {{ MONEY(candidate.salesPrice) }}
                   </text>
@@ -793,10 +803,10 @@ const remainedText = computed(() => (remainingCount.value > 0 ? `还剩 ${remain
           >
             <view class="issue__missing-head">
               <text class="i-carbon:warning-alt text-24rpx" />
-              商城没有找到「{{ rowTitle(row) }}」
+              {{ t('sharedCart.chainImport.missingRowTitle', { name: rowTitle(row) }) }}
             </view>
             <view class="issue__missing-hint">
-              换个叫法搜索试试，或先跳过（并入时自动排除）
+              {{ t('sharedCart.chainImport.missingRowHint') }}
             </view>
           </view>
 
@@ -807,21 +817,23 @@ const remainedText = computed(() => (remainingCount.value > 0 ? `还剩 ${remain
               class="link link--warn"
               @tap="adjustQuantity(row)"
             >
-              用建议数量 {{ row.suggestedQuantity ?? '—' }}
+              {{ t('sharedCart.chainImport.useSuggested', { qty: row.suggestedQuantity ?? '—' }) }}
             </text>
             <text class="link link--muted" @tap="skipRow(row)">
-              跳过这行
+              {{ t('sharedCart.chainImport.skipRow') }}
             </text>
             <view class="issue__search">
               <input
                 v-model="pickKeywords[row.rowNo]"
                 class="issue__search-input"
-                :placeholder="row.rawName ? `搜索「${row.rawName}」` : '搜索商品补选'"
+                :placeholder="row.rawName
+                  ? t('sharedCart.chainImport.searchNamed', { name: row.rawName })
+                  : t('sharedCart.chainImport.searchPlaceholder')"
                 placeholder-class="ph"
                 @confirm="searchCandidates(row)"
               >
               <text class="issue__search-btn" @tap="searchCandidates(row)">
-                {{ picking[row.rowNo] ? '搜索中' : '搜索' }}
+                {{ picking[row.rowNo] ? t('sharedCart.chainImport.searching') : t('sharedCart.chainImport.search') }}
               </text>
             </view>
           </view>
@@ -832,14 +844,14 @@ const remainedText = computed(() => (remainingCount.value > 0 ? `还剩 ${remain
               <text class="i-carbon:checkmark mr-6rpx text-24rpx" />{{ rowDoneLabel(row) }}
             </text>
             <text class="link link--muted" @tap="undoRow(row)">
-              撤销
+              {{ t('sharedCart.chainImport.undo') }}
             </text>
           </view>
 
           <!-- 人工补选结果：选中即回填为已处置，这里只在搜索态出现 -->
           <view v-if="pickCandidates[row.rowNo]?.length" class="issue__suggest">
             <view class="issue__suggest-head">
-              搜索结果，点一条采用
+              {{ t('sharedCart.chainImport.searchResults') }}
             </view>
             <view class="issue__suggest-list">
               <view
@@ -855,7 +867,7 @@ const remainedText = computed(() => (remainingCount.value > 0 ? `还剩 ${remain
                   {{ candidate.spec }}
                 </text>
                 <text class="chip__meta">
-                  库存 {{ candidate.stock ?? '—' }}
+                  {{ t('sharedCart.chainImport.stock', { count: candidate.stock ?? '—' }) }}
                   <text v-if="candidate.salesPrice != null">
                     · {{ MONEY(candidate.salesPrice) }}
                   </text>
@@ -867,17 +879,17 @@ const remainedText = computed(() => (remainingCount.value > 0 ? `还剩 ${remain
       </view>
 
       <view v-else-if="actionableRows.length" class="empty">
-        待处理项已全部处置，可在下方「已处置」回看或撤销
+        {{ t('sharedCart.chainImport.allHandled') }}
       </view>
 
       <!-- 已处置行：补选/调整后会随确认并入，集中展示结果——不能让用户选完就「消失」 -->
       <view v-if="resolvedRows.length" class="card passive">
         <view class="passive__head">
           <text class="passive__title">
-            已处置
+            {{ t('sharedCart.chainImport.resolvedTitle') }}
           </text>
           <text class="passive__count">
-            {{ resolvedRows.length }} 项 · 将并入
+            {{ t('sharedCart.chainImport.resolvedCount', { count: resolvedRows.length }) }}
           </text>
         </view>
         <view
@@ -887,7 +899,7 @@ const remainedText = computed(() => (remainingCount.value > 0 ? `还剩 ${remain
         >
           <view class="flex items-center">
             <text class="tag tag--ok">
-              {{ actionLabel(row) || '已处理' }}
+              {{ actionLabel(row) || t('sharedCart.chainImport.processed') }}
             </text>
             <text class="passive__name">
               {{ resolvedRowName(row) }}
@@ -900,14 +912,14 @@ const remainedText = computed(() => (remainingCount.value > 0 ? `还剩 ${remain
             <input
               v-model="personNames[row.rowNo]"
               class="passive__owner"
-              :placeholder="row.personName || '补归属人'"
+              :placeholder="row.personName || t('sharedCart.chainImport.ownerPlaceholder')"
               placeholder-class="ph"
             >
             <text v-if="row.personName" class="passive__note">
-              接龙原文「{{ row.personName }}」
+              {{ t('sharedCart.chainImport.ownerOriginal', { name: row.personName }) }}
             </text>
             <text class="resolved__undo" @tap="undoRow(row)">
-              撤销
+              {{ t('sharedCart.chainImport.undo') }}
             </text>
           </view>
         </view>
@@ -917,10 +929,10 @@ const remainedText = computed(() => (remainingCount.value > 0 ? `还剩 ${remain
       <view v-if="passiveRows.length" class="card passive">
         <view class="passive__head">
           <text class="passive__title">
-            无需处置
+            {{ t('sharedCart.chainImport.passiveTitle') }}
           </text>
           <text class="passive__count">
-            {{ passiveRows.length }} 项
+            {{ t('sharedCart.common.itemsCount', { count: passiveRows.length }) }}
           </text>
         </view>
         <view
@@ -930,10 +942,10 @@ const remainedText = computed(() => (remainingCount.value > 0 ? `还剩 ${remain
         >
           <view class="flex items-center">
             <text class="tag" :class="RESULT_THEME[row.resultType]">
-              {{ RESULT_LABEL[row.resultType] }}
+              {{ RESULT_LABELS[row.resultType] }}
             </text>
             <text class="passive__name">
-              {{ row.matchedName || row.rawName || `第 ${row.rowNo} 行` }}
+              {{ row.matchedName || row.rawName || t('sharedCart.chainImport.rowNo', { row: row.rowNo }) }}
             </text>
             <text class="passive__qty">
               {{ row.resultType === 'OK' ? `× ${rowQuantity(row)}` : '' }}
@@ -943,7 +955,7 @@ const remainedText = computed(() => (remainingCount.value > 0 ? `还剩 ${remain
             <input
               v-model="personNames[row.rowNo]"
               class="passive__owner"
-              :placeholder="row.personName || '补归属人'"
+              :placeholder="row.personName || t('sharedCart.chainImport.ownerPlaceholder')"
               placeholder-class="ph"
             >
             <text v-if="issueText(row)" class="passive__note">
@@ -957,14 +969,14 @@ const remainedText = computed(() => (remainingCount.value > 0 ? `还剩 ${remain
       <view class="footer-spacer" />
       <view class="action-bar">
         <view class="action-bar__ghost" @tap="backToPaste">
-          重新粘贴
+          {{ t('sharedCart.chainImport.repaste') }}
         </view>
         <view class="action-bar__info">
           <view class="action-bar__amount">
-            {{ mergeCount }} 项
+            {{ t('sharedCart.chainImport.mergeCount', { count: mergeCount }) }}
           </view>
           <view class="action-bar__label">
-            {{ remainedText || '可直接并入' }}
+            {{ remainedText || t('sharedCart.chainImport.canMerge') }}
           </view>
         </view>
         <view
@@ -972,7 +984,9 @@ const remainedText = computed(() => (remainingCount.value > 0 ? `还剩 ${remain
           :class="{ 'action-bar__primary--disabled': confirming || report?.status !== '1' }"
           @tap="handleConfirm"
         >
-          {{ report?.status === '2' ? '已并入补给单' : '确认并入' }}
+          {{ report?.status === '2'
+            ? t('sharedCart.chainImport.merged')
+            : t('sharedCart.chainImport.confirmMerge') }}
         </view>
       </view>
     </template>
@@ -988,7 +1002,7 @@ const remainedText = computed(() => (remainingCount.value > 0 ? `还剩 ${remain
           </view>
         </view>
         <view class="ai-mask__title">
-          AI 智能解析中
+          {{ t('sharedCart.chainImport.aiParsingTitle') }}
         </view>
         <view class="ai-mask__phase">
           {{ aiPhase }}

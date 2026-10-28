@@ -10,6 +10,7 @@ import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellType;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.usermodel.XSSFColor;
 import org.apache.poi.xssf.usermodel.XSSFSheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -258,6 +259,55 @@ class OrderCategoryExportExcelTest {
 			assertThat(amount.getCellStyle().getDataFormatString()).isEqualTo("#,##0.00");
 			assertThat(sheet.getRow(1).getCell(10).getCellStyle().getDataFormatString()).isEqualTo("#,##0.00");
 			assertThat(sheet.getRow(1).getCell(11).getCellStyle().getDataFormatString()).isEqualTo("#,##0");
+		}
+	}
+
+	@Test
+	void detailSheetMergesOrderLevelColumnsAndCategoryBlocks() throws Exception {
+		OrderInfo orderA = order("NO-1",
+				item("spu-1", "薯片", "零食/膨化", 1, "12.00"),
+				item("spu-2", "矿泉水", "饮品/水", 3, "9.00"),
+				item("spu-3", "可乐", "饮品/碳酸", 2, "10.00"));
+		OrderInfo orderB = order("NO-2", item("spu-4", "缆绳", "五金", 1, "100.00"));
+
+		try (Workbook workbook = new XSSFWorkbook(new ByteArrayInputStream(writeBytes(orderA, orderB)))) {
+			// 明细表行结构：NO-1 三个分类块各占商品+小计两行（1-6）+ 订单合计行 7；NO-2 一块（8-9）+ 合计行 10
+			Sheet detail = workbook.getSheet("订单明细");
+			List<CellRangeAddress> merges = new ArrayList<>();
+			for (int i = 0; i < detail.getNumMergedRegions(); i++) {
+				merges.add(detail.getMergedRegion(i));
+			}
+			List<CellRangeAddress> expected = new ArrayList<>();
+			// 订单级列（订单号~收货地址，0-6）整单合并，含分类小计行与订单合计行
+			for (int column = 0; column <= 6; column++) {
+				expected.add(new CellRangeAddress(1, 7, column, column));
+				expected.add(new CellRangeAddress(8, 10, column, column));
+			}
+			// 分类列按分类块合并（商品行 + 收尾小计行）
+			expected.add(new CellRangeAddress(1, 2, 7, 7));
+			expected.add(new CellRangeAddress(3, 4, 7, 7));
+			expected.add(new CellRangeAddress(5, 6, 7, 7));
+			expected.add(new CellRangeAddress(8, 9, 7, 7));
+			assertThat(merges).containsExactlyInAnyOrderElementsOf(expected);
+
+			// 合并只是显示层：非首行单元格保留原值，筛选/透视仍按逐行取值匹配
+			assertThat(detail.getRow(2).getCell(0).getStringCellValue()).isEqualTo("NO-1");
+			assertThat(detail.getRow(7).getCell(0).getStringCellValue()).isEqualTo("NO-1");
+			assertThat(detail.getRow(6).getCell(7).getStringCellValue()).isEqualTo("饮品/碳酸");
+			assertThat(detail.getRow(9).getCell(0).getStringCellValue()).isEqualTo("NO-2");
+
+			// 分类汇总表没有合并区域；订单分类小计表的订单级列（订单号/下单时间/收货人，0-2）
+			// 按单合并，单分类订单单行不成区域
+			assertThat(workbook.getSheet("分类汇总").getNumMergedRegions()).isZero();
+			Sheet perOrder = workbook.getSheet("订单分类小计");
+			List<CellRangeAddress> perOrderMerges = new ArrayList<>();
+			for (int i = 0; i < perOrder.getNumMergedRegions(); i++) {
+				perOrderMerges.add(perOrder.getMergedRegion(i));
+			}
+			assertThat(perOrderMerges).containsExactlyInAnyOrderElementsOf(List.of(
+					new CellRangeAddress(1, 3, 0, 0),
+					new CellRangeAddress(1, 3, 1, 1),
+					new CellRangeAddress(1, 3, 2, 2)));
 		}
 	}
 

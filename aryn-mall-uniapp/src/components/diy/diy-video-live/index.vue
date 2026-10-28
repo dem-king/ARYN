@@ -2,6 +2,7 @@
 import type { VideoLiveProps } from '@/components/diy/retail-types'
 
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useDiyStyle } from '@/composables/useDiyStyle'
 
 const props = defineProps({
@@ -11,6 +12,7 @@ const props = defineProps({
   },
 })
 
+const { t } = useI18n()
 const componentProps = computed(() => props.showData as unknown as VideoLiveProps)
 const dynamicStyles = useDiyStyle(computed(() => componentProps.value.commonStyle))
 
@@ -20,10 +22,10 @@ function enterLive() {
   // `routeDone with a webviewId ... is not found`。
   // 在承载页落地前，明确提示而不是跳一个不存在的页面。
   if (!componentProps.value.liveId) {
-    uni.showToast({ title: '暂无可观看的直播', icon: 'none' })
+    uni.showToast({ title: t('diy.videoLive.noLive'), icon: 'none' })
     return
   }
-  uni.showToast({ title: '直播功能即将开放', icon: 'none' })
+  uni.showToast({ title: t('diy.videoLive.comingSoon'), icon: 'none' })
 }
 </script>
 
@@ -53,14 +55,14 @@ function enterLive() {
           mode="aspectFill"
         />
         <view v-else class="videolive-cover-fallback">
-          直播入口
+          {{ t('diy.videoLive.coverFallback') }}
         </view>
         <view class="videolive-live-tag">
-          直播
+          {{ t('diy.videoLive.liveTag') }}
         </view>
       </view>
       <view v-else class="videolive-empty">
-        请在装修中配置视频地址或直播入口
+        {{ t('diy.videoLive.emptyHint') }}
       </view>
     </view>
   </view>

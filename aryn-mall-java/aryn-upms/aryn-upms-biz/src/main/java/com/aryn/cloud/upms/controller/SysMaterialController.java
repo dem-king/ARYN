@@ -8,6 +8,7 @@ import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.log.annotation.SysLog;
 import com.aryn.cloud.upms.api.entity.SysMaterial;
 import com.aryn.cloud.upms.service.ISysMaterialService;
+import com.aryn.cloud.upms.support.PrivateFileUrlSigner;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -29,11 +30,24 @@ public class SysMaterialController {
 
 	private final ISysMaterialService materialService;
 
+	private final PrivateFileUrlSigner privateFileUrlSigner;
+
 	@Operation(summary = "素材列表")
 	@SaCheckPermission("upms:material:page")
 	@GetMapping("/page")
 	public Result<IPage<SysMaterial>> page(Page page, SysMaterial material) {
 		IPage<SysMaterial> iPage = materialService.getPage(page, material);
+		iPage.getRecords().forEach(record -> {
+			if ("delivery-evidence".equals(record.getBizTag())) {
+				try {
+					record.setUrl(privateFileUrlSigner.sign(record.getUrl()));
+				}
+				catch (Exception e) {
+					// 签名不可用时保留原 URL：下载端会拒绝匿名访问，但列表本身不应整体失败
+					log.warn("私有素材URL签名失败 materialId={}", record.getId(), e);
+				}
+			}
+		});
 		return Result.success(iPage);
 	}
 
@@ -50,6 +64,13 @@ public class SysMaterialController {
 	@SaCheckPermission("upms:material:edit")
 	@PutMapping
 	public Result<Boolean> edit(@RequestBody SysMaterial material) {
+		// 私有凭证的 URL 由上传时落库，页面回显的是带过期时间的签名 URL；
+		// 编辑时保留原 URL 与业务归属，避免把 24h 签名快照写回数据库或把私有素材改成公开素材。
+		SysMaterial existing = material.getId() == null ? null : materialService.getById(material.getId());
+		if (existing != null && "delivery-evidence".equals(existing.getBizTag())) {
+			material.setUrl(existing.getUrl());
+			material.setBizTag(existing.getBizTag());
+		}
 		return Result.success(materialService.updateById(material));
 	}
 

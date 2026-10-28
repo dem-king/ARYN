@@ -93,6 +93,8 @@ const CONFIRM_TIMEOUT_MS = 60_000
 /** 自增请求号 */
 let confirmSeq = 0
 
+import { translate } from '@/locales'
+
 export function useCartDestination() {
   const sharedCartStore = useSharedCartStore()
   const shoppingCartStore = useShoppingCartStore()
@@ -172,7 +174,7 @@ export function useCartDestination() {
       spuId: payload.spuId,
       addType: payload.addType,
     })
-    uni.showToast({ title: '已加入购物车', icon: 'success' })
+    uni.showToast({ title: translate('labels.addedToCart'), icon: 'success' })
     shoppingCartStore.fetchCartCount().catch(() => {})
   }
 
@@ -246,7 +248,7 @@ export function useCartDestination() {
       skuId: finalPayload.skuId,
       requestedQuantity: finalPayload.quantity,
     })
-    uni.showToast({ title: '已加入共享购物车', icon: 'success' })
+    uni.showToast({ title: translate('labels.addedToSharedCart'), icon: 'success' })
     // 明细已变化：作废摘要缓存，回到首页补给单卡片时强制取最新
     sharedCartStore.invalidate()
     return 'shared'

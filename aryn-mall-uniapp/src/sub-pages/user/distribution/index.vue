@@ -6,6 +6,7 @@ import type {
 } from '@/api/distribution/entity'
 import { reactive, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
+import { useI18n } from 'vue-i18n'
 import {
   getDistributionCenterSummary,
   getDistributionCommissionRecordPage,
@@ -28,6 +29,7 @@ definePage({
   },
 })
 
+const { t } = useI18n()
 const commissionList = ref<DistributionCommissionRecord[]>([])
 const withdrawList = ref<DistributionWithdrawProgress[]>([])
 
@@ -128,28 +130,28 @@ async function submitWithdraw() {
   const amount = Number(withdrawForm.amountText)
   if (!amount || Number.isNaN(amount) || amount <= 0) {
     uni.showToast({
-      title: '请输入有效提现金额',
+      title: t('accountSettings.distribution.invalidAmount'),
       icon: 'none',
     })
     return
   }
   if (amount > Number(centerSummary.value.availableCommission || 0)) {
     uni.showToast({
-      title: '提现金额超过可提现余额',
+      title: t('accountSettings.distribution.amountExceeds'),
       icon: 'none',
     })
     return
   }
   if (!withdrawForm.accountNo.trim() || !withdrawForm.accountName.trim()) {
     uni.showToast({
-      title: '请完善提现账户信息',
+      title: t('accountSettings.distribution.incompleteAccount'),
       icon: 'none',
     })
     return
   }
 
   submitting.value = true
-  globalLoading.loading('提交中...')
+  globalLoading.loading(t('accountSettings.distribution.submitting'))
   try {
     await submitDistributionWithdrawApply({
       amount,
@@ -159,7 +161,7 @@ async function submitWithdraw() {
       remark: withdrawForm.remark.trim(),
     })
     uni.showToast({
-      title: '提现申请已提交',
+      title: t('accountSettings.distribution.withdrawSubmitted'),
       icon: 'none',
     })
     resetWithdrawForm()
@@ -167,7 +169,7 @@ async function submitWithdraw() {
     await loadWithdrawList(true)
   } catch {
     uni.showToast({
-      title: '提现申请失败，请稍后重试',
+      title: t('accountSettings.distribution.withdrawFailed'),
       icon: 'none',
     })
   } finally {
@@ -177,7 +179,7 @@ async function submitWithdraw() {
 }
 
 onShow(() => {
-  globalLoading.loading('加载中...')
+  globalLoading.loading(t('common.loading'))
   Promise.all([
     loadCenterSummary(),
     loadCommissionList(true),
@@ -190,62 +192,62 @@ onShow(() => {
 
 <template>
   <view>
-    <hr-navbar title="分销中心" />
+    <hr-navbar :title="t('accountSettings.distribution.navTitle')" />
 
     <view class="distribution-page">
       <!-- 分销概览 -->
       <view class="card overview-card">
         <view class="overview-header">
-          <view class="title"> 分销概览 </view>
+          <view class="title"> {{ t('accountSettings.distribution.overview') }} </view>
         </view>
         <view class="stats-grid">
           <view class="stats-item">
-            <view class="label"> 累计佣金(元) </view>
+            <view class="label"> {{ t('accountSettings.distribution.totalCommission') }} </view>
             <view class="value">
               {{ formatMoney(centerSummary.totalCommission) }}
             </view>
           </view>
           <view class="stats-item">
-            <view class="label"> 可提现(元) </view>
+            <view class="label"> {{ t('accountSettings.distribution.withdrawable') }} </view>
             <view class="value amount-highlight">
               {{ formatMoney(centerSummary.availableCommission) }}
             </view>
           </view>
           <view class="stats-item">
-            <view class="label"> 待结算(元) </view>
+            <view class="label"> {{ t('accountSettings.distribution.pendingSettlement') }} </view>
             <view class="value">
               {{ formatMoney(centerSummary.pendingCommission) }}
             </view>
           </view>
           <view class="stats-item">
-            <view class="label"> 冻结中(元) </view>
+            <view class="label"> {{ t('accountSettings.distribution.frozen') }} </view>
             <view class="value">
               {{ formatMoney(centerSummary.frozenCommission) }}
             </view>
           </view>
           <view class="stats-item">
-            <view class="label"> 佣金欠款(元) </view>
+            <view class="label"> {{ t('accountSettings.distribution.debt') }} </view>
             <view class="value debt-value">
               {{ formatMoney(centerSummary.commissionDebt) }}
             </view>
           </view>
           <view class="stats-item">
-            <view class="label"> 已提现(元) </view>
+            <view class="label"> {{ t('accountSettings.distribution.withdrawn') }} </view>
             <view class="value">
               {{ formatMoney(centerSummary.withdrawnCommission) }}
             </view>
           </view>
         </view>
         <view class="invite-text">
-          已邀请分销用户：{{ centerSummary.inviteUserCount || 0 }} 人
+          {{ t('accountSettings.distribution.inviteCount', { count: centerSummary.inviteUserCount || 0 }) }}
         </view>
       </view>
 
       <!-- 佣金记录 -->
       <view class="card">
-        <view class="title"> 佣金记录 </view>
+        <view class="title"> {{ t('accountSettings.distribution.commissionRecords') }} </view>
         <view v-if="commissionList.length === 0" class="empty">
-          暂无佣金记录
+          {{ t('accountSettings.distribution.noCommissionRecords') }}
         </view>
         <view
           v-for="item in commissionList"
@@ -255,7 +257,7 @@ onShow(() => {
         >
           <view class="record-main">
             <view class="record-order">
-              {{ item.bizOrderId || '佣金入账' }}
+              {{ item.bizOrderId || t('accountSettings.distribution.commissionCredit') }}
             </view>
             <view class="record-time">
               {{ item.createTime }}
@@ -279,50 +281,50 @@ onShow(() => {
           :disabled="commissionPage.loading"
           @click="loadCommissionList()"
         >
-          {{ commissionPage.loading ? '加载中...' : '加载更多' }}
+          {{ commissionPage.loading ? t('common.loading') : t('accountSettings.distribution.loadMore') }}
         </button>
       </view>
 
       <!-- 提现申请 -->
       <view class="card">
-        <view class="title"> 提现申请 </view>
+        <view class="title"> {{ t('accountSettings.distribution.withdrawApply') }} </view>
         <view class="form-row">
-          <view class="form-label"> 提现金额 </view>
+          <view class="form-label"> {{ t('accountSettings.distribution.withdrawAmount') }} </view>
           <input
             v-model="withdrawForm.amountText"
             class="form-input"
             type="digit"
-            placeholder="请输入金额"
+            :placeholder="t('accountSettings.distribution.withdrawAmountPlaceholder')"
             placeholder-class="placeholder"
           />
         </view>
         <view class="form-row">
-          <view class="form-label"> 提现账户 </view>
+          <view class="form-label"> {{ t('accountSettings.distribution.withdrawAccount') }} </view>
           <input
             v-model="withdrawForm.accountNo"
             class="form-input"
             type="text"
-            placeholder="请输入账号/手机号"
+            :placeholder="t('accountSettings.distribution.withdrawAccountPlaceholder')"
             placeholder-class="placeholder"
           />
         </view>
         <view class="form-row">
-          <view class="form-label"> 收款人 </view>
+          <view class="form-label"> {{ t('accountSettings.distribution.payee') }} </view>
           <input
             v-model="withdrawForm.accountName"
             class="form-input"
             type="text"
-            placeholder="请输入收款人姓名"
+            :placeholder="t('accountSettings.distribution.payeePlaceholder')"
             placeholder-class="placeholder"
           />
         </view>
         <view class="form-row">
-          <view class="form-label"> 备注 </view>
+          <view class="form-label"> {{ t('accountSettings.distribution.remark') }} </view>
           <input
             v-model="withdrawForm.remark"
             class="form-input"
             type="text"
-            placeholder="选填"
+            :placeholder="t('accountSettings.distribution.remarkPlaceholder')"
             placeholder-class="placeholder"
           />
         </view>
@@ -331,15 +333,15 @@ onShow(() => {
           :disabled="submitting"
           @click="submitWithdraw"
         >
-          {{ submitting ? '提交中...' : '提交提现申请' }}
+          {{ submitting ? t('accountSettings.distribution.submitting') : t('accountSettings.distribution.submitWithdraw') }}
         </button>
       </view>
 
       <!-- 提现进度 -->
       <view class="card">
-        <view class="title"> 提现进度 </view>
+        <view class="title"> {{ t('accountSettings.distribution.withdrawProgress') }} </view>
         <view v-if="withdrawList.length === 0" class="empty">
-          暂无提现申请
+          {{ t('accountSettings.distribution.noWithdrawRecords') }}
         </view>
         <view
           v-for="item in withdrawList"
@@ -351,12 +353,12 @@ onShow(() => {
             <view class="record-order">
               {{ item.withdrawNo || item.id }}
             </view>
-            <view class="record-time"> 申请时间：{{ item.createTime }} </view>
+            <view class="record-time"> {{ t('accountSettings.distribution.applyTime', { time: item.createTime }) }} </view>
             <view v-if="item.rejectReason" class="record-time">
-              原因：{{ item.rejectReason }}
+              {{ t('accountSettings.distribution.rejectReason', { reason: item.rejectReason }) }}
             </view>
             <view v-if="item.payoutNo" class="record-time">
-              打款流水：{{ item.payoutNo }}
+              {{ t('accountSettings.distribution.payoutNo', { no: item.payoutNo }) }}
             </view>
           </view>
           <view class="record-right">
@@ -377,7 +379,7 @@ onShow(() => {
           :disabled="withdrawPage.loading"
           @click="loadWithdrawList()"
         >
-          {{ withdrawPage.loading ? '加载中...' : '加载更多' }}
+          {{ withdrawPage.loading ? t('common.loading') : t('accountSettings.distribution.loadMore') }}
         </button>
       </view>
     </view>

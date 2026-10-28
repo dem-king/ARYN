@@ -2,6 +2,7 @@
 import type { NoticeInboxItem } from '@/api/message/types'
 import type { BusinessCardType } from '@/utils/message'
 import { onLoad } from '@dcloudio/uni-app'
+import { useI18n } from 'vue-i18n'
 import {
   getNoticeDetail,
   markNoticeRead,
@@ -13,12 +14,18 @@ import {
   createClientMessageId,
   parseMessagePayload,
 } from '@/utils/message'
+import {
+  formatNoticeDateTime,
+  isImportantNotice,
+  noticeCategoryLabelOf,
+} from '@/utils/notice'
 
 definePage({
   name: 'message-notice-detail',
   style: { navigationStyle: 'custom', navigationBarTitleText: '通知详情' },
 })
 
+const { t } = useI18n()
 const notice = ref<NoticeInboxItem>()
 const loading = ref(true)
 
@@ -64,16 +71,29 @@ async function reply() {
 
 <template>
   <view class="notice-detail">
-    <hr-navbar title="通知详情" />
+    <hr-navbar :title="t('message.nav.noticeDetail')" />
     <view v-if="notice" class="notice-paper">
-      <text class="notice-paper__category">
-        {{ notice.category }} / {{ notice.priority }}
-      </text>
+      <!-- 分类/优先级是后端枚举码，用户侧只显示收敛后的中文标签，绝不回显 ORDER / NORMAL -->
+      <view class="notice-paper__tags">
+        <text class="notice-paper__tag">
+          {{ noticeCategoryLabelOf(notice) }}
+        </text>
+        <text
+          v-if="isImportantNotice(notice.priority)"
+          class="notice-paper__tag notice-paper__tag--important"
+        >
+          {{ t('message.notice.important') }}
+        </text>
+      </view>
       <text class="notice-paper__title">
         {{ notice.title }}
       </text>
       <view class="notice-paper__meta">
-        <text>{{ notice.senderName || "系统" }}</text><text>{{ notice.publishTime }}</text>
+        <text>{{ notice.senderName || t('message.notice.systemSender') }}</text><text>
+          {{
+            formatNoticeDateTime(notice.publishTime || notice.receivedTime)
+          }}
+        </text>
       </view>
       <text v-if="notice.summary" class="notice-paper__summary">
         {{
@@ -90,7 +110,7 @@ async function reply() {
         :type="businessCardType"
       />
       <button class="notice-paper__reply" @click="reply">
-        回复 / 咨询客服
+        {{ t('message.noticeDetail.reply') }}
       </button>
     </view>
     <wd-loading v-else-if="loading" />
@@ -98,33 +118,41 @@ async function reply() {
 </template>
 
 <style scoped lang="scss">
+/* 与消息中心同一套主题色口径：品牌色走 CSS 变量，中性色只负责可读性 */
 .notice-detail {
   min-height: 100vh;
   padding-bottom: 40rpx;
-  background: linear-gradient(180deg, #eaf5f2, #f7f8f8 360rpx);
+  background: #f4f6f7;
 }
 .notice-paper {
   margin: 24rpx;
   padding: 42rpx 34rpx;
-  border: 1rpx solid #dbe7e4;
+  border: 1rpx solid #eceff0;
   border-radius: 28rpx;
   background: #fff;
-  box-shadow: 0 20rpx 50rpx rgb(25 61 56 / 8%);
-  &__category,
-  &__title,
-  &__summary,
-  &__content {
-    display: block;
+  box-shadow: 0 20rpx 50rpx rgb(17 27 38 / 6%);
+  &__tags {
+    display: flex;
+    align-items: center;
+    gap: 12rpx;
   }
-  &__category {
-    color: #0f766e;
+  &__tag {
+    padding: 5rpx 16rpx;
+    color: var(--theme-color-primary, var(--wot-color-theme-primary, #ff2237));
+    border-radius: 999rpx;
+    background: #f2f4f4;
     font-size: 19rpx;
-    font-weight: 800;
-    letter-spacing: 0.14em;
+    font-weight: 700;
+    line-height: 1.5;
+  }
+  &__tag--important {
+    color: #d64545;
+    background: #fdecec;
   }
   &__title {
-    margin: 18rpx 0;
-    color: #173f4f;
+    display: block;
+    margin: 20rpx 0 14rpx;
+    color: #1f2a2e;
     font-size: 38rpx;
     font-weight: 800;
     line-height: 1.45;
@@ -132,22 +160,24 @@ async function reply() {
   &__meta {
     display: flex;
     gap: 28rpx;
-    color: #9aaca7;
+    color: #a3ada9;
     font-size: 21rpx;
   }
   &__summary {
+    display: block;
     margin: 30rpx 0 4rpx;
     padding: 22rpx;
-    color: #4d6962;
-    border-left: 6rpx solid #0f766e;
-    background: #edf6f3;
+    color: #4c5854;
+    border-left: 6rpx solid var(--theme-color-primary, var(--wot-color-theme-primary, #ff2237));
+    background: #f5f7f7;
     font-size: 25rpx;
     line-height: 1.6;
   }
   &__content {
+    display: block;
     min-height: 300rpx;
     padding: 32rpx 0;
-    color: #334f49;
+    color: #39433f;
     font-size: 28rpx;
     line-height: 1.9;
     white-space: pre-wrap;
@@ -156,7 +186,7 @@ async function reply() {
     margin-top: 30rpx;
     color: #fff;
     border-radius: 22rpx;
-    background: #0f766e;
+    background: var(--theme-color-primary, var(--wot-color-theme-primary, #ff2237));
     font-size: 27rpx;
   }
   &__card {

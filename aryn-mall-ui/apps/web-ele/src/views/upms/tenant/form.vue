@@ -16,6 +16,7 @@ import {
   ElFormItem,
   ElInput,
   ElMessage,
+  ElMessageBox,
   ElOption,
   ElRadio,
   ElRadioGroup,
@@ -157,8 +158,10 @@ const state = reactive<State>({
 const dialog = ref(false);
 const loading = ref(false);
 const formRef = ref();
+const initialPackageId = ref('');
 const initForm = (row: any | undefined) => {
   dialog.value = true;
+  initialPackageId.value = '';
   getTenantPackageList();
   if (row && row.id) {
     getDetail(row.id);
@@ -169,6 +172,7 @@ const getDetail = (id: string) => {
   getById(id).then((response: any) => {
     state.form = response;
     state.form.datatimes = [response.authBeginTime, response.authEndTime];
+    initialPackageId.value = response.packageId ?? '';
     loading.value = false;
   });
 };
@@ -193,20 +197,36 @@ const resetForm = (formEl: FormInstance | undefined) => {
  */
 const submitForm = async (formEl: FormInstance | undefined) => {
   if (!formEl) return;
-  await formEl.validate((valid) => {
-    if (valid) {
-      loading.value = true;
-      state.form.authBeginTime = state.form.datatimes[0] ?? '';
-      state.form.authEndTime = state.form.datatimes[1] ?? '';
-      if (state.form.id) {
-        // 修改
-        edit();
-      } else {
-        // 新增
-        add();
-      }
+  const valid = await formEl.validate().catch(() => false);
+  if (!valid) return;
+  if (
+    state.form.id &&
+    (state.form.packageId ?? '') !== initialPackageId.value
+  ) {
+    try {
+      await ElMessageBox.confirm(
+        '变更套餐会按新套餐重算租户菜单与角色授权，超出新套餐的权限将被回收，并强制该租户重新登录。是否继续？',
+        '变更套餐',
+        {
+          type: 'warning',
+          confirmButtonText: '确认变更',
+          cancelButtonText: '取消',
+        },
+      );
+    } catch {
+      return;
     }
-  });
+  }
+  loading.value = true;
+  state.form.authBeginTime = state.form.datatimes[0] ?? '';
+  state.form.authEndTime = state.form.datatimes[1] ?? '';
+  if (state.form.id) {
+    // 修改
+    edit();
+  } else {
+    // 新增
+    add();
+  }
 };
 /**
  * 新增
@@ -341,7 +361,6 @@ defineExpose({
             <ElSelect
               v-model="state.form.packageId"
               clearable
-              :disabled="!!state.form.id"
               style="width: 100%"
             >
               <ElOption
@@ -351,6 +370,9 @@ defineExpose({
                 :value="item.id"
               />
             </ElSelect>
+            <div v-if="state.form.id" class="tenant-package__tip">
+              变更套餐会重算租户菜单与角色授权，并强制该租户重新登录
+            </div>
           </ElFormItem>
           <ElFormItem label="登录账号" prop="username" v-if="!state.form.id">
             <ElInput v-model="state.form.username" />
@@ -435,7 +457,8 @@ defineExpose({
   align-items: center;
 }
 
-.tenant-logo__tip {
+.tenant-logo__tip,
+.tenant-package__tip {
   margin-top: 4px;
   font-size: 12px;
   line-height: 1.5;

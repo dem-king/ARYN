@@ -2,6 +2,7 @@ import { buildApiUrl } from '@/api/core/api-base-url'
 import { parseOpenBoot, rewriteBootUrl } from '@/api/core/boot-url'
 import { alovaInstance } from '@/api/core/instance'
 import { ensureSessionTenant, ensureTenantReady } from '@/api/core/tenant-identity'
+import { translate } from '@/locales'
 import { Local } from '@/utils/storage'
 
 interface UploadResponse {
@@ -72,7 +73,7 @@ export async function uploadDeliveryEvidence(filePath: string): Promise<string> 
         Local.remove('deliveryStaffInfo')
         uni.reLaunch({ url: '/pages/delivery/login' })
       }
-      throw error instanceof Error ? error : new Error('配送身份校验未通过')
+      throw error instanceof Error ? error : new Error(translate('app.file.deliveryIdentityFailed'))
     }
   }
   const header: Record<string, string> = {
@@ -106,17 +107,17 @@ export async function uploadDeliveryEvidence(filePath: string): Promise<string> 
             Local.remove('deliveryToken')
             Local.remove('deliveryStaffInfo')
             uni.reLaunch({ url: '/pages/delivery/login' })
-            reject(new Error('配送登录已过期，请重新登录！'))
+            reject(new Error(translate('common.deliveryLoginExpired')))
             return
           }
           if (res.statusCode < 200 || res.statusCode >= 300 || !payload.data) {
-            reject(new Error(payload.msg || '凭证上传失败'))
+            reject(new Error(payload.msg || translate('app.file.uploadFailed')))
             return
           }
           resolve(payload.data)
         }
         catch {
-          reject(new Error('凭证上传响应无效'))
+          reject(new Error(translate('app.file.uploadResponseInvalid')))
         }
       },
       fail: reject,

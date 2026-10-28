@@ -90,6 +90,21 @@ export function pickReadableNavigationTextColor(
   return luminance > 0.6 ? '#222222' : '#FFFFFF';
 }
 
+/**
+ * 按背景亮度自动选可读图标色：浅底深图标、深底白图标（阈值 0.6，与导航
+ * 文字同口径）。搜索栏铃铛/扫码这类直接坐在区块背景上的图标消费：深色
+ * 头部背景上恒用深色图标会被误读为不可点击。
+ */
+export function pickReadableIconColor(
+  backgroundColor: string,
+  fallback: string,
+): string {
+  const rgb = parseNavigationColor(backgroundColor);
+  if (!rgb) return fallback;
+  const luminance = (rgb[0] * 0.299 + rgb[1] * 0.587 + rgb[2] * 0.114) / 255;
+  return luminance > 0.6 ? '#333333' : '#FFFFFF';
+}
+
 /** 导航栏有效外观：自定义色（缺省）或跟随首个区块背景 */
 export function resolveNavigationAppearance(
   page: PageSettings,

@@ -6,6 +6,7 @@ import {
   DISTRIBUTION_CENTER_PATH,
   DISTRIBUTION_PERMISSION_POINTS,
 } from '@/api/distribution/entity'
+import { translate } from '@/locales'
 import { Local } from '@/utils/storage'
 // 定义路由白名单，这些页面不需要登录即可访问
 const WHITE_LIST = [
@@ -117,7 +118,7 @@ router.beforeEach(async (to, from, next) => {
       const hasPermission = requiredPermissions.every(permission => currentPermissions.includes(permission))
       if (!hasPermission) {
         uni.showToast({
-          title: '暂无访问权限',
+          title: translate('app.nav.noPermission'),
           icon: 'none',
         })
         next(false)

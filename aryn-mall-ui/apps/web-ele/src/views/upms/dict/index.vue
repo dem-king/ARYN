@@ -18,6 +18,7 @@ import {
 import { delObj, getPage, refresh } from '#/api/upms/dict';
 import PageFilterPanel from '#/components/page/page-filter-panel.vue';
 import PageToolbar from '#/components/page/page-toolbar.vue';
+import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 import { useDict } from '#/utils/dict';
 
 const RightToolbar = defineAsyncComponent(
@@ -106,6 +107,8 @@ const refreshCache = () => {
   });
 };
 initPage();
+
+useKeepAliveRefresh(initPage);
 </script>
 <template>
   <div class="hx-layout-container">

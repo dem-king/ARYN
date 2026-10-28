@@ -30,4 +30,11 @@ public interface IPayConfigService extends IService<PayConfig> {
 
 	boolean saveConfig(PayConfig payConfig);
 
+	/**
+	 * 编辑支付配置：同一租户的「支付类型 + 支付端」必须唯一，排除自身。
+	 * @param payConfig 支付配置
+	 * @return 是否更新成功
+	 */
+	boolean updateConfig(PayConfig payConfig);
+
 }

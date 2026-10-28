@@ -9,6 +9,7 @@ import { ElIcon, ElImage } from 'element-plus';
 import { shouldShowOriginalPrice } from '../common/retail-preview/price-display';
 import { loadGoodsRanking } from '../common/retail-preview/retail-data';
 import RetailPreviewFrame from '../common/retail-preview/retail-preview-frame.vue';
+import { stockHintText } from '../common/retail-preview/stock-display';
 import { shouldShowSubtitle } from '../common/retail-preview/subtitle-display';
 import { createRetailPreviewController } from '../common/retail-preview/use-retail-preview';
 import { validateGoodsRanking } from './types';
@@ -71,8 +72,8 @@ watch(
           <div v-if="shouldShowSubtitle(item)" class="ranking-subtitle">
             {{ item.subTitle }}
           </div>
-          <div class="ranking-stats">
-            销量 {{ item.sales }} · 库存 {{ item.stock }}
+          <div v-if="stockHintText(item.stock)" class="ranking-stats">
+            {{ stockHintText(item.stock) }}
           </div>
           <div class="ranking-price">
             ￥{{ item.price.toFixed(2) }}

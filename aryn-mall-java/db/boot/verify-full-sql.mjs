@@ -83,6 +83,8 @@ const required = [
   '1928797196747186177',
   'uk_pay_trade_order_no',
   'uk_pay_refund_order_no',
+  'uk_pay_config_type_terminal',
+  'uk_order_refund_active_item',
   'CREATE TABLE IF NOT EXISTS `vessel_info`',
   'CREATE TABLE IF NOT EXISTS `vessel_member`',
   'CREATE TABLE IF NOT EXISTS `vessel_call`',
@@ -171,6 +173,7 @@ const sourceFiles = [
   '149member_level_icon.sql',
   '158member_management_incremental.sql',
   '160points_global_config_incremental.sql',
+  '168payment_hardening_incremental.sql',
   '3aryn_boot_job.sql',
 ];
 for (const file of sourceFiles) {

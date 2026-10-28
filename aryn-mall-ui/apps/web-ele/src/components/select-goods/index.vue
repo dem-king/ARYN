@@ -5,9 +5,11 @@ import { defineAsyncComponent, reactive, ref } from 'vue';
 
 import {
   ElButton,
+  ElCascader,
   ElCol,
   ElDialog,
   ElImage,
+  ElInput,
   ElMessage,
   ElMessageBox,
   ElRow,
@@ -16,6 +18,7 @@ import {
   ElTag,
 } from 'element-plus';
 
+import { getPage as getCategoryTree } from '#/api/product/goods-category';
 import { getWarehousePage as getPage } from '#/api/product/goods-spu';
 
 const props = defineProps({
@@ -38,23 +41,60 @@ const state = reactive<any>({
     pageSize: 20, // 每页显示多少条
   },
   queryParams: {
-    groupId: '',
+    name: '',
+    categoryFirstId: '',
+    categorySecondId: '',
   },
   tableData: [],
   currentList: [], // 选中的商品
   maxHeight: window.screen.availHeight - 500,
 });
+const categoryTree = ref<Array<Record<string, any>>>([]);
+const categoryPath = ref<string[]>([]);
+const categoryCascaderProps = {
+  label: 'name',
+  value: 'id',
+  children: 'children',
+  checkStrictly: true,
+};
+let categoryLoaded = false;
+/**
+ * 分类树首次打开弹窗时加载一次
+ */
+const loadCategoryTree = async () => {
+  if (categoryLoaded) return;
+  categoryLoaded = true;
+  try {
+    categoryTree.value = ((await getCategoryTree()) ?? []) as Array<
+      Record<string, any>
+    >;
+  } catch {
+    categoryLoaded = false;
+    categoryTree.value = [];
+  }
+};
+/**
+ * 级联路径拆成一级/二级分类 ID，支持只按一级分类过滤
+ */
+const applyCategoryPath = () => {
+  const path = categoryPath.value ?? [];
+  state.queryParams.categoryFirstId = path.length > 0 ? String(path[0]) : '';
+  state.queryParams.categorySecondId =
+    path.length > 1 ? String(path[path.length - 1]) : '';
+};
 /**
  * 商品分页列表
  */
 const initPage = () => {
   state.dialog = true;
   state.loading = true;
+  loadCategoryTree();
   getPage({
     current: state.page.currentPage,
     size: state.page.pageSize,
     status: '1',
     verifyStatus: '1',
+    ...state.queryParams,
   })
     .then((response) => {
       state.loading = false;
@@ -64,6 +104,19 @@ const initPage = () => {
     .catch(() => {
       state.loading = false;
     });
+};
+/**
+ * 搜索（从第一页开始）
+ */
+const handleSearch = () => {
+  state.page.currentPage = 1;
+  initPage();
+};
+const handleReset = () => {
+  state.queryParams.name = '';
+  categoryPath.value = [];
+  applyCategoryPath();
+  handleSearch();
 };
 /**
  * 选择商品
@@ -102,6 +155,28 @@ defineExpose({
 <template>
   <div>
     <ElDialog v-model="state.dialog" width="80%" title="商品选择器">
+      <div class="picker-filter">
+        <ElInput
+          v-model="state.queryParams.name"
+          class="picker-filter-name"
+          clearable
+          placeholder="请输入商品名称"
+          @clear="handleSearch"
+          @keyup.enter="handleSearch"
+        />
+        <ElCascader
+          v-model="categoryPath"
+          class="picker-filter-category"
+          :options="categoryTree"
+          :props="categoryCascaderProps"
+          clearable
+          filterable
+          placeholder="全部类目"
+          @change="applyCategoryPath"
+        />
+        <ElButton type="primary" @click="handleSearch">搜索</ElButton>
+        <ElButton @click="handleReset">重置</ElButton>
+      </div>
       <ElTable
         ref="tableRef"
         v-loading="state.loading"
@@ -176,3 +251,19 @@ defineExpose({
     </ElDialog>
   </div>
 </template>
+<style scoped>
+.picker-filter {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.picker-filter-name {
+  width: 240px;
+}
+
+.picker-filter-category {
+  width: 260px;
+}
+</style>

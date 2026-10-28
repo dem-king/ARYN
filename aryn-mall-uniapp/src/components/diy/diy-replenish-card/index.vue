@@ -24,6 +24,7 @@ import type { ReplenishCardProps } from '@/components/diy/retail-types'
  * 靠人工回填的进度会立刻过期，比不显示更容易误事。
  */
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { getActiveSharedCartSummary } from '@/api/order/sharedCart'
 import { retailCommonStyle } from '@/components/diy/retail-types'
 import { useDiyStyle } from '@/composables/useDiyStyle'
@@ -35,6 +36,7 @@ import { useTenantCapabilityStore } from '@/store/tenantCapabilityStore'
 const props = withDefaults(defineProps<{ showData?: Partial<ReplenishCardProps> }>(), {
   showData: () => ({}),
 })
+const { t } = useI18n()
 
 /**
  * 与其他零售组件保持一致：运营在编辑器配置的「通用样式」必须真正生效，
@@ -48,7 +50,7 @@ const showData = computed<ReplenishCardProps>(() => ({
   invalidStrategy: props.showData.invalidStrategy || 'hide',
   showBatchAdd: props.showData.showBatchAdd !== false,
   showPreview: props.showData.showPreview !== false,
-  title: props.showData.title || '今日补给单',
+  title: props.showData.title || t('diy.replenishCard.defaultTitle'),
 }))
 
 const dynamicStyles = useDiyStyle(computed(() => showData.value.commonStyle))
@@ -99,7 +101,7 @@ const locationText = computed(() => {
   if (!cart)
     return ''
   if (cart.cartType === '2')
-    return cart.addressSnapshot || '收货地址待同步'
+    return cart.addressSnapshot || t('diy.replenishCard.addressPending')
   const parts = [cart.portName, cart.berth].filter(Boolean)
   if (parts.length > 0)
     return parts.join(' ')
@@ -111,9 +113,12 @@ const overviewText = computed(() => {
   const data = summary.value
   if (!data)
     return ''
-  const parts = [`${data.itemCount} 项`, `${data.memberCount} 人参与`]
+  const parts = [
+    t('diy.replenishCard.itemCount', { count: data.itemCount }),
+    t('diy.replenishCard.memberCount', { count: data.memberCount }),
+  ]
   if (data.totalAmount > 0)
-    parts.push(`预估 ¥${data.totalAmount}`)
+    parts.push(t('diy.replenishCard.estimate', { amount: data.totalAmount }))
   return parts.join(' · ')
 })
 
@@ -217,7 +222,7 @@ usePageShowLoad(loadSummary)
           class="card-action"
           @tap.stop="goBatchAdd"
         >
-          按单加购
+          {{ t('diy.replenishCard.batchAdd') }}
         </view>
       </view>
 
@@ -241,17 +246,17 @@ usePageShowLoad(loadSummary)
   >
     <view class="guide-inner">
       <text class="guide-title">
-        还没有进行中的补给单
+        {{ t('diy.replenishCard.emptyTitle') }}
       </text>
       <text class="guide-desc">
-        发起补给单与同船成员合并采购，或直接导入 Excel 清单一键下单
+        {{ t('diy.replenishCard.emptyDesc') }}
       </text>
       <view class="guide-actions">
         <view class="guide-btn guide-btn--ghost" @tap="goCreateCart">
-          发起补给单
+          {{ t('diy.replenishCard.createAction') }}
         </view>
         <view class="guide-btn guide-btn--primary" @tap="goImportEntry">
-          导入清单下单
+          {{ t('diy.replenishCard.importAction') }}
         </view>
       </view>
     </view>

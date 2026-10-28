@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
+
 definePage({
   name: 'seckill-rule',
   style: {
@@ -7,64 +10,66 @@ definePage({
   },
 })
 
-/** 规则模块：标题 + 条目；条目里的加粗片段用 {bold} 标记，渲染时拆成两段 */
-const RULE_SECTIONS = [
+const { t } = useI18n()
+
+/** 规则模块：标题 + 条目；条目里的加粗片段用 **...** 标记，渲染时拆成两段 */
+const ruleSections = computed(() => [
   {
-    title: '一、活动时间',
+    title: t('promotion.seckillRule.time.title'),
     items: [
-      '每天多场整点开启，具体场次以页面展示为准',
-      '每场活动持续约 2 小时，售完即止',
-      '未开场次可提前预览商品，到点自动开抢',
+      t('promotion.seckillRule.time.item1'),
+      t('promotion.seckillRule.time.item2'),
+      t('promotion.seckillRule.time.item3'),
     ],
   },
   {
-    title: '二、参与条件',
+    title: t('promotion.seckillRule.condition.title'),
     items: [
-      '已登录并完成实名认证的用户均可参与',
-      '每个用户每场活动限购 {1 件}（同一 SKU）',
-      '秒杀商品不支持使用优惠券、不支持积分抵现，也不参与其他满减活动',
+      t('promotion.seckillRule.condition.item1'),
+      t('promotion.seckillRule.condition.item2'),
+      t('promotion.seckillRule.condition.item3'),
     ],
   },
   {
-    title: '三、抢购流程',
+    title: t('promotion.seckillRule.flow.title'),
     items: [
-      '进入「限时秒杀」会场，选择对应场次',
-      '开抢后点击商品进入详情页，点击「加入购物车」',
-      '在购物车确认商品数量，提交订单并完成支付',
-      '订单需在 {15 分钟内} 完成支付，超时自动取消',
+      t('promotion.seckillRule.flow.item1'),
+      t('promotion.seckillRule.flow.item2'),
+      t('promotion.seckillRule.flow.item3'),
+      t('promotion.seckillRule.flow.item4'),
     ],
     ordered: true,
   },
   {
-    title: '四、库存与发货',
+    title: t('promotion.seckillRule.stock.title'),
     items: [
-      '秒杀商品限量供应，先到先得，售完即止',
-      '库存以页面实时显示为准，加入购物车不代表锁定库存',
-      '发货时效与普通商品一致，按靠港计划安排配送',
+      t('promotion.seckillRule.stock.item1'),
+      t('promotion.seckillRule.stock.item2'),
+      t('promotion.seckillRule.stock.item3'),
     ],
   },
   {
-    title: '五、订单与售后',
+    title: t('promotion.seckillRule.order.title'),
     items: [
-      '秒杀商品支持 7 天无理由退货（未拆封、不影响二次销售）',
-      '因质量问题产生的退换货运费由平台承担',
-      '秒杀订单不支持修改地址、不支持合并下单',
-      '如遇缺货，平台将主动退款并通知用户',
+      t('promotion.seckillRule.order.item1'),
+      t('promotion.seckillRule.order.item2'),
+      t('promotion.seckillRule.order.item3'),
+      t('promotion.seckillRule.order.item4'),
     ],
   },
   {
-    title: '六、其他说明',
+    title: t('promotion.seckillRule.other.title'),
     items: [
-      '如遇不可抗力或系统故障，平台有权调整或暂停活动',
-      '严禁使用外挂、脚本等作弊手段，违者取消参与资格',
-      '本活动最终解释权归悦航购所有',
+      t('promotion.seckillRule.other.item1'),
+      t('promotion.seckillRule.other.item2'),
+      t('promotion.seckillRule.other.item3'),
     ],
   },
-]
+])
 
-/** 把「{加粗}」拆成片段，模板逐段渲染（模块加载时算一次，避免模板里反复正则） */
+/** 把「**加粗**」拆成片段，模板逐段渲染（每个条目渲染时算一次，避免模板里反复正则） */
 function toSegments(item: string) {
-  const match = item.match(/^(.*?)\{(.+?)\}(.*)$/)
+  const match = item.match(/^(.*?)\*\*(.+?)\*\*(.*)$/)
   if (!match)
     return [{ strong: false, text: item }]
   return [
@@ -77,11 +82,11 @@ function toSegments(item: string) {
 
 <template>
   <view class="rule-page">
-    <hr-navbar title="限时秒杀活动规则" :bordered="false" />
+    <hr-navbar :title="t('promotion.seckillRule.title')" :bordered="false" />
 
     <scroll-view scroll-y class="rule-scroll">
       <view class="rule-body">
-        <view v-for="section in RULE_SECTIONS" :key="section.title" class="rule-section">
+        <view v-for="section in ruleSections" :key="section.title" class="rule-section">
           <view class="rule-title">
             {{ section.title }}
           </view>
@@ -106,7 +111,7 @@ function toSegments(item: string) {
         </view>
 
         <text class="rule-foot">
-          如有疑问，请联系在线客服
+          {{ t('promotion.seckillRule.footer') }}
         </text>
       </view>
     </scroll-view>

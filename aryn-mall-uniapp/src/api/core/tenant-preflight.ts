@@ -1,3 +1,4 @@
+import { translate } from '@/locales'
 import { buildApiUrl } from './api-base-url'
 import { parseOpenBoot, rewriteBootUrl } from './boot-url'
 
@@ -94,7 +95,7 @@ function request<T>(options: PreflightOptions): Promise<T> {
         if (statusCode < 200 || statusCode >= 300) {
           reject(new TenantPreflightError({
             type: statusCodeToType(statusCode),
-            message: `租户预检请求失败（HTTP ${statusCode}）`,
+            message: translate('app.tenantPreflight.httpFailed', { status: statusCode }),
             endpoint: options.endpoint,
             statusCode,
             scope: options.scope,
@@ -106,7 +107,7 @@ function request<T>(options: PreflightOptions): Promise<T> {
           const code = body?.code ?? 0
           reject(new TenantPreflightError({
             type: code === 401 ? 'unauthorized' : code === 403 ? 'forbidden' : 'server',
-            message: body?.msg || `租户预检返回异常 code=${code}`,
+            message: body?.msg || translate('app.tenantPreflight.abnormalResponse', { code }),
             endpoint: options.endpoint,
             statusCode,
             scope: options.scope,
@@ -116,7 +117,7 @@ function request<T>(options: PreflightOptions): Promise<T> {
         if (body.data === undefined || body.data === null) {
           reject(new TenantPreflightError({
             type: 'bad-payload',
-            message: '租户预检响应缺少数据',
+            message: translate('app.tenantPreflight.missingData'),
             endpoint: options.endpoint,
             statusCode,
             scope: options.scope,
@@ -128,7 +129,7 @@ function request<T>(options: PreflightOptions): Promise<T> {
       fail: (error) => {
         reject(new TenantPreflightError({
           type: 'network',
-          message: error?.errMsg || '租户预检网络失败',
+          message: error?.errMsg || translate('app.tenantPreflight.networkFailed'),
           endpoint: options.endpoint,
           scope: options.scope,
         }))

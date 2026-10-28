@@ -1,11 +1,6 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/store/authStore'
-
-const props = defineProps<Props>()
-
-const emit = defineEmits<Emits>()
-
-const { confirm } = useGlobalMessage()
 
 interface Props {
   read: boolean
@@ -16,6 +11,11 @@ interface Emits {
   (e: 'login-success'): void
 }
 
+const props = defineProps<Props>()
+const emit = defineEmits<Emits>()
+
+const { t } = useI18n()
+const { confirm } = useGlobalMessage()
 const { success: showSuccess, error: showError } = useGlobalToast()
 const authStore = useAuthStore()
 
@@ -25,6 +25,7 @@ const formData = ref({
   password: '',
 })
 
+const focusField = ref<'phone' | 'password' | ''>('')
 const formRef = ref()
 const loading = ref(false)
 
@@ -36,23 +37,26 @@ function validatePhone(phone: string): boolean {
 
 // 登录逻辑
 async function handleLogin() {
+  if (loading.value || !formRef.value)
+    return
+
   const { valid } = await formRef.value.validate()
   if (!valid) {
     return
   }
   const phone = formData.value.phone
   if (!validatePhone(phone)) {
-    showError('请输入正确的手机号码')
+    showError(t('login.phoneInvalid'))
     return
   }
 
   if (!props.read) {
     confirm({
-      title: '请阅读并同意用户协议',
-      msg: '在继续使用本服务前，请您认真阅读并同意《用户协议》和《隐私政策》。我们将严格保护您的隐私信息，只有在必要的情况下才会收集和使用。点击“我已阅读并同意”即表示您接受相关内容并继续使用服务。',
+      title: t('login.agreementTitle'),
+      msg: t('login.agreementMessage'),
       closeOnClickModal: false,
-      confirmButtonText: '我已阅读并同意',
-      cancelButtonText: '取消',
+      confirmButtonText: t('login.agree'),
+      cancelButtonText: t('common.cancel'),
       success: (res) => {
         if (res.action === 'confirm') {
           // 用户确认阅读并同意
@@ -73,11 +77,11 @@ async function loginHandler() {
       phone: formData.value.phone,
       password: formData.value.password,
     })
-    showSuccess('登录成功！')
+    showSuccess(t('login.loginSuccess'))
     emit('login-success')
   }
   catch (error: any) {
-    showError(error.message || '登录失败')
+    showError(error.message || t('login.loginFailed'))
   }
   finally {
     loading.value = false
@@ -88,31 +92,63 @@ async function loginHandler() {
 <template>
   <view class="password-login">
     <wd-form ref="formRef" :model="formData">
-      <wd-cell-group border>
-        <wd-input
-          v-model="formData.phone" label="手机号" label-width="60px" prop="phone" type="number" center
-          placeholder="请输入手机号" :rules="[{ required: true, message: '请填写手机号' }]"
-        />
-        <wd-input
-          v-model="formData.password" label="密码" label-width="60px" prop="password" show-password center
-          placeholder="请输入密码" :rules="[{ required: true, message: '请填写密码' }]"
-        />
-        <wd-cell />
-      </wd-cell-group>
-
-      <view class="footer">
-        <wd-button type="primary" block :loading="loading" size="large" @click="handleLogin">
-          登录
-        </wd-button>
+      <view class="login-fields">
+        <view class="login-field" :class="{ 'is-focus': focusField === 'phone' }">
+          <text class="i-carbon:mobile login-field__icon" :class="{ 'is-active': focusField === 'phone' }" />
+          <view class="login-field__control">
+            <wd-input
+              v-model="formData.phone"
+              prop="phone"
+              type="number"
+              :maxlength="11"
+              no-border
+              clearable
+              custom-style="background: transparent;"
+              placeholder-style="color: #a8adba"
+              :placeholder="t('login.phonePlaceholder')"
+              :rules="[{ required: true, message: t('login.phoneRule') }]"
+              @focus="focusField = 'phone'"
+              @blur="focusField = ''"
+            />
+          </view>
+        </view>
+        <view class="login-field" :class="{ 'is-focus': focusField === 'password' }">
+          <text class="i-carbon:locked login-field__icon" :class="{ 'is-active': focusField === 'password' }" />
+          <view class="login-field__control">
+            <wd-input
+              v-model="formData.password"
+              prop="password"
+              show-password
+              :maxlength="32"
+              no-border
+              custom-style="background: transparent;"
+              placeholder-style="color: #a8adba"
+              :placeholder="t('login.passwordPlaceholder')"
+              :rules="[{ required: true, message: t('login.passwordRule') }]"
+              @focus="focusField = 'password'"
+              @blur="focusField = ''"
+              @confirm="handleLogin"
+            />
+          </view>
+        </view>
       </view>
+
+      <button
+        class="login-submit"
+        :class="{ 'is-loading': loading }"
+        hover-class="login-submit--pressed"
+        :hover-stay-time="80"
+        @click="handleLogin"
+      >
+        <view v-if="loading" class="login-spinner" />
+        <text class="login-submit__label">
+          {{ t('login.submit') }}
+        </text>
+      </button>
     </wd-form>
   </view>
 </template>
 
 <style scoped lang="scss">
-.password-login {
-  .footer {
-    padding-top: 30rpx;
-  }
-}
+@import './login-controls.scss';
 </style>

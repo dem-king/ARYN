@@ -1,0 +1,184 @@
+/**
+ * 登录表单控件（验证码 / 密码 / 微信三种登录共用）。
+ *
+ * 三个组件各自 scoped，重复抄一套输入框样式必然走样；这里由各组件
+ * `@import` 进自己的 scoped style，sass 展开后再由 vue 加作用域。
+ * 品牌色一律走 CSS 变量：页头由租户换肤，组件里不能写死品牌红。
+ */
+$lc-title: #1f2329;
+$lc-field-bg: #f6f7fa;
+
+.login-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 24rpx;
+}
+
+/* 输入框外框：浅灰填充 + 聚焦描边，内部 wd-input 背景置空（见各组件 custom-style） */
+.login-field {
+  display: flex;
+  align-items: center;
+  min-height: 104rpx;
+  padding: 0 26rpx;
+  border: 2rpx solid transparent;
+  border-radius: 28rpx;
+  background: $lc-field-bg;
+  box-sizing: border-box;
+  transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+
+  /* 字号与无边框输入行高按外层容器重新定，避免沿用单元格默认值 */
+  --wot-input-fs: 30rpx;
+  --wot-input-inner-height-no-border: 48rpx;
+
+  &__icon {
+    flex-shrink: 0;
+    margin-right: 20rpx;
+    color: #a9aeb9;
+    font-size: 34rpx;
+    transition: color 0.2s ease;
+  }
+
+  &__icon.is-active {
+    color: var(--theme-color-primary, var(--wot-color-theme-primary, #FF2237));
+  }
+
+  &__control {
+    flex: 1;
+    min-width: 0;
+  }
+
+  &__divider {
+    flex-shrink: 0;
+    width: 2rpx;
+    height: 34rpx;
+    margin: 0 6rpx 0 14rpx;
+    background: #e3e6ec;
+  }
+}
+
+.login-field.is-focus {
+  border-color: var(--theme-color-primary, var(--wot-color-theme-primary, #FF2237));
+  background: #fff;
+  box-shadow: 0 16rpx 36rpx -26rpx var(--login-primary-glow, rgba(255, 34, 55, 0.5));
+}
+
+/* 验证码内联按钮：胶囊浅底，倒计时态转灰 */
+.login-code-btn {
+  flex-shrink: 0;
+  padding: 10rpx 18rpx;
+  border-radius: 999rpx;
+  background: var(--login-primary-soft, rgba(255, 34, 55, 0.1));
+  transition: transform 0.16s ease, opacity 0.16s ease;
+
+  &__text {
+    color: var(--theme-color-primary, var(--wot-color-theme-primary, #FF2237));
+    font-size: 24rpx;
+    font-weight: 600;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+}
+
+.login-code-btn.is-disabled {
+  background: #eef0f4;
+}
+
+.login-code-btn.is-disabled .login-code-btn__text {
+  color: #b3b8c2;
+}
+
+.login-code-btn--pressed {
+  transform: scale(0.95);
+  opacity: 0.85;
+}
+
+/* 主按钮：品牌渐变 + 品牌色投影，按压时整体回缩 */
+.login-submit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100rpx;
+  margin-top: 44rpx;
+  padding: 0;
+  border: none;
+  border-radius: 28rpx;
+  background: linear-gradient(
+    135deg,
+    var(--theme-color-primary, var(--wot-color-theme-primary, #FF2237)) 0%,
+    var(--theme-color-secondary, var(--wot-color-theme-secondary, #FF6B7A)) 100%
+  );
+  color: #fff;
+  line-height: 1;
+  box-shadow: 0 20rpx 40rpx -24rpx var(--login-primary-glow, rgba(255, 34, 55, 0.55));
+  transition: transform 0.16s ease, opacity 0.16s ease, box-shadow 0.16s ease;
+
+  &::after {
+    border: none;
+  }
+
+  &__label {
+    color: #fff;
+    font-size: 32rpx;
+    font-weight: 600;
+    letter-spacing: 2rpx;
+  }
+
+  &__icon {
+    margin-right: 10rpx;
+    font-size: 32rpx;
+  }
+}
+
+.login-submit--pressed {
+  transform: scale(0.97);
+  box-shadow: 0 10rpx 24rpx -22rpx var(--login-primary-glow, rgba(255, 34, 55, 0.5));
+}
+
+.login-submit.is-loading {
+  pointer-events: none;
+  opacity: 0.78;
+}
+
+/* 白底描边按钮：用在微信登录的次要动作 */
+.login-submit--ghost {
+  border: 2rpx solid #ebedf1;
+  background: #fff;
+  box-shadow: 0 16rpx 36rpx -30rpx rgba(17, 24, 39, 0.5);
+
+  .login-submit__label {
+    color: $lc-title;
+  }
+
+  .login-submit__icon {
+    color: var(--theme-color-primary, var(--wot-color-theme-primary, #FF2237));
+  }
+}
+
+/* 微信品牌绿：与主题红区分，扫一眼就知道这是微信授权入口 */
+.login-submit--wechat {
+  background: #07c160;
+  box-shadow: 0 20rpx 40rpx -26rpx rgba(7, 193, 96, 0.75);
+}
+
+.login-spinner {
+  width: 30rpx;
+  height: 30rpx;
+  margin-right: 14rpx;
+  border: 4rpx solid rgba(255, 255, 255, 0.45);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: login-spin 0.76s linear infinite;
+}
+
+@keyframes login-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-spinner {
+    animation-duration: 2s;
+  }
+}

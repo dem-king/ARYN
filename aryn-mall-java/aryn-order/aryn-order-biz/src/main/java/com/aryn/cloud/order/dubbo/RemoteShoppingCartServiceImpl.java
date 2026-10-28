@@ -3,6 +3,7 @@ package com.aryn.cloud.order.dubbo;
 import cn.hutool.core.util.StrUtil;
 import com.aryn.cloud.order.api.remote.RemoteShoppingCartService;
 import com.aryn.cloud.order.mapper.ShoppingCartMapper;
+import com.aryn.cloud.order.service.IShoppingCartService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.dubbo.config.annotation.DubboService;
@@ -15,8 +16,9 @@ import java.util.List;
  * 购物车远程服务实现：供 vessel 模块在靠港申报/排产生效时迁移购物车行归属。
  *
  * <p>迁移口径见 {@link RemoteShoppingCartService#reattachRowsToVesselCall}。
- * 全部参数显式传入并落到 SQL 过滤条件，不依赖调用链路上下文——boot 模式
- * Dubbo injvm 的提供方过滤器会清掉调用方线程的租户上下文，云模式下更是跨进程。
+ * 全部参数显式传入，不依赖调用链路上下文——boot 模式 Dubbo injvm 的提供方过滤器
+ * 会清掉调用方线程的租户上下文，云模式下更是跨进程。迁移逻辑（含同 SKU 撞唯一键
+ * 的数量合并）在 {@link IShoppingCartService} 内与 C 端「转入本次靠港」共用一份。
  *
  * @author aryn
  * @since 2026/10/4
@@ -27,6 +29,8 @@ import java.util.List;
 @RequiredArgsConstructor
 public class RemoteShoppingCartServiceImpl implements RemoteShoppingCartService {
 
+	private final IShoppingCartService shoppingCartService;
+
 	private final ShoppingCartMapper shoppingCartMapper;
 
 	@Override
@@ -36,7 +40,7 @@ public class RemoteShoppingCartServiceImpl implements RemoteShoppingCartService 
 			log.warn("靠港迁移购物车行被跳过：tenantId/vesselId/vesselCallId 存在空白");
 			return 0;
 		}
-		int rows = shoppingCartMapper.reattachRowsToVesselCall(tenantId, vesselId, vesselCallId,
+		int rows = shoppingCartService.reattachRowsToVesselCall(tenantId, vesselId, vesselCallId,
 				staleCallIds == null ? List.of() : staleCallIds);
 		if (rows > 0) {
 			log.info("靠港[{}]生效：船舶[{}]的 {} 行购物车归属顺延到新靠港", vesselCallId, vesselId, rows);

@@ -52,6 +52,15 @@ describe('hr-navbar rendering contract', () => {
     expect(navbar).toContain('getMenuButtonBoundingClientRect')
     expect(navbar).toMatch(/rightInset/)
   })
+
+  it('does not draw a hairline under the tinted diy navbar', () => {
+    const diy = source('src/components/diy/index.vue')
+    // wd-navbar 默认 bordered 会在导航底部画 1px #e8e8e8 底线：放在白底上
+    // 是分割线，压到装修页的彩色背景上就是一条扎眼的「白杠」，且编辑器
+    // 画布与预览都没有这条线。装修页导航底色由运营配置，必须关掉描边。
+    const tag = diy.match(/<hr-navbar[\s\S]*?>/)?.[0] ?? ''
+    expect(tag).toContain(':bordered="false"')
+  })
 })
 
 describe('cart page manage entry contract', () => {

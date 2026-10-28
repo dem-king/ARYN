@@ -1,6 +1,4 @@
 <script lang="ts" setup>
-import type { FormInstance } from 'element-plus';
-
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
 import {
@@ -131,7 +129,9 @@ const state = reactive({
 
 const dialog = ref(false);
 const loading = ref(false);
-const formRef = ref();
+// 基本信息与密钥配置是两个独立表单，提交时必须同时校验
+const basicFormRef = ref();
+const keyFormRef = ref();
 
 const initForm = (
   row: any,
@@ -177,39 +177,45 @@ const getDetail = (id: string) => {
  * 关闭事件
  */
 const handleClose = () => {
-  resetForm(formRef.value);
+  resetForm();
 };
 
 /**
  * 重置表单
  */
-const resetForm = (formEl: FormInstance | undefined) => {
-  if (!formEl) return;
+const resetForm = () => {
   state.form.id = '';
   state.form.apiv3Key = '';
   state.form.certSerialNo = '';
   loading.value = false;
   dialog.value = false;
-  formEl.resetFields();
+  basicFormRef.value?.resetFields();
+  keyFormRef.value?.resetFields();
 };
 
 /**
  * 提交按钮
  */
-const submitForm = async (formEl: FormInstance | undefined) => {
-  if (!formEl) return;
-  await formEl.validate((valid) => {
-    if (valid) {
-      loading.value = true;
-      if (state.form.id) {
-        // 修改
-        edit();
-      } else {
-        // 新增
-        add();
-      }
-    }
-  });
+const submitForm = async () => {
+  const forms = [basicFormRef.value, keyFormRef.value].filter(Boolean);
+  const results = await Promise.all(
+    forms.map((form) =>
+      form
+        .validate()
+        .then(() => true)
+        .catch(() => false),
+    ),
+  );
+  if (forms.length === 0 || !results.every(Boolean)) return;
+
+  loading.value = true;
+  if (state.form.id) {
+    // 修改
+    edit();
+  } else {
+    // 新增
+    add();
+  }
 };
 
 /**
@@ -218,7 +224,7 @@ const submitForm = async (formEl: FormInstance | undefined) => {
 const add = () => {
   addObj(state.form)
     .then(() => {
-      resetForm(formRef.value);
+      resetForm();
       ElMessage.success('新增成功');
       emit('initPage');
     })
@@ -233,7 +239,7 @@ const add = () => {
 const edit = () => {
   editObj(state.form)
     .then(() => {
-      resetForm(formRef.value);
+      resetForm();
       ElMessage.success('修改成功');
       emit('initPage');
     })
@@ -274,7 +280,7 @@ defineExpose({
       <!-- 基本信息 -->
       <PageSection title="基本信息" description="配置支付的基本参数信息">
         <ElForm
-          ref="formRef"
+          ref="basicFormRef"
           :model="state.form"
           label-width="auto"
           :rules="state.rules"
@@ -350,7 +356,7 @@ defineExpose({
       <!-- 密钥配置 -->
       <PageSection title="密钥配置" description="配置支付相关的密钥和证书信息">
         <ElForm
-          ref="formRef"
+          ref="keyFormRef"
           :model="state.form"
           label-width="auto"
           :rules="state.rules"
@@ -506,11 +512,7 @@ defineExpose({
     <template #footer>
       <div class="hx-form-footer">
         <ElButton @click="handleClose">取消</ElButton>
-        <ElButton
-          type="primary"
-          :loading="loading"
-          @click="submitForm(formRef)"
-        >
+        <ElButton type="primary" :loading="loading" @click="submitForm">
           确定
         </ElButton>
       </div>

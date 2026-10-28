@@ -39,7 +39,7 @@ public class DateFormatConfig {
 			builder.locale(Locale.CHINA);
 			builder.timeZone(TimeZone.getTimeZone(ZoneId.systemDefault()));
 			builder.simpleDateFormat(PATTERN);
-			builder.modules(new JavaTimeModule());
+			builder.modules(new JavaTimeModule(), new TenantIdRequestModule());
 		};
 	}
 

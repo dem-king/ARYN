@@ -17,9 +17,11 @@ import com.aryn.cloud.upms.api.entity.SysMaterial;
 import com.aryn.cloud.upms.service.ISysMaterialService;
 import com.aryn.cloud.upms.service.ISysStorageConfigService;
 import com.aryn.cloud.upms.support.LocalFilePathResolver;
+import com.aryn.cloud.upms.support.PrivateFileUrlSigner;
 import com.aryn.cloud.upms.support.UploadFileValidator;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -53,6 +55,8 @@ public class SysUploadController {
 	private final UploadFileValidator uploadFileValidator;
 
 	private final LocalFilePathResolver localFilePathResolver;
+
+	private final PrivateFileUrlSigner privateFileUrlSigner;
 
 	@Operation(summary = "文件上传")
 	@SaCheckPermission("upms:material:add")
@@ -109,7 +113,7 @@ public class SysUploadController {
 				+ cn.hutool.core.util.IdUtil.fastSimpleUUID() + "_"
 				+ (originalFilename != null ? originalFilename : "evidence");
 		String url = storageFactory.getStrategy(sysStorageConfig.getType())
-			.uploadFile(sysStorageConfig, file.getInputStream(), originalFilename, file.getContentType(),
+			.uploadPrivateFile(sysStorageConfig, file.getInputStream(), originalFilename, file.getContentType(),
 					file.getSize());
 		SysMaterial sysMaterial = new SysMaterial();
 		sysMaterial.setUrl(url);
@@ -123,14 +127,28 @@ public class SysUploadController {
 	}
 
 	@Operation(summary = "本地文件预览/下载")
-	@GetMapping("/local/{tenantId}/{url}")
-	public void getLocalFile(@PathVariable String tenantId, @PathVariable String url, HttpServletResponse response) {
+	@GetMapping("/local/{tenantId}/**")
+	public void getLocalFile(@PathVariable String tenantId,
+			@RequestParam(value = "expires", required = false) Long expires,
+			@RequestParam(value = "signature", required = false) String signature, HttpServletRequest request,
+			HttpServletResponse response) {
+		String relativePath = resolveRelativePath(request, tenantId);
+		if (relativePath == null) {
+			response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+			return;
+		}
+		// 私有目录必须携带未过期的签名；公开商品图仍可匿名访问
+		if (relativePath.startsWith("private/")
+				&& !privateFileUrlSigner.verify(relativePath, tenantId, expires, signature)) {
+			response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+			return;
+		}
 		String previousTenantId = ArynTenantContextHolder.getTenantId();
 		try {
 			ArynTenantContextHolder.setTenantId(tenantId);
 			Path file = null;
 			for (String rootPath : sysStorageConfigService.getLocalStorageRoots()) {
-				Path candidate = localFilePathResolver.resolve(rootPath, tenantId, url);
+				Path candidate = localFilePathResolver.resolve(rootPath, tenantId, relativePath);
 				if (Files.isRegularFile(candidate)) {
 					file = candidate;
 					break;
@@ -157,6 +175,20 @@ public class SysUploadController {
 				ArynTenantContextHolder.setTenantId(previousTenantId);
 			}
 		}
+	}
+
+	private String resolveRelativePath(HttpServletRequest request, String tenantId) {
+		String uri = request.getRequestURI();
+		String marker = "/local/" + tenantId + "/";
+		int index = uri.indexOf(marker);
+		if (index < 0) {
+			return null;
+		}
+		String relativePath = uri.substring(index + marker.length());
+		if (StrUtil.isBlank(relativePath) || relativePath.startsWith("/") || relativePath.contains("..")) {
+			return null;
+		}
+		return relativePath;
 	}
 
 }

@@ -1,0 +1,619 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>小程序装修页 · 沉浸式导航栏方案原型</title>
+<style>
+  :root {
+    --hero-start: #3678fa;
+    --hero-mid: #4c86f5;
+    --hero-end: #eef3fb;
+    --theme-nav: #048eea;
+    --page-bg: #f5f5f5;
+    --primary: #ff5500;
+    --ink: #1f2329;
+    --ink-2: #6b7280;
+    --line: #ececf0;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: #e9edf3;
+    color: var(--ink);
+    font: 14px/1.6 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  .page-head {
+    max-width: 1680px;
+    margin: 0 auto;
+    padding: 28px 32px 8px;
+  }
+  .page-head h1 { margin: 0 0 6px; font-size: 22px; letter-spacing: .5px; }
+  .page-head .sub { margin: 0; color: var(--ink-2); font-size: 13px; }
+  .page-head .sub code {
+    background: #fff; border: 1px solid var(--line); border-radius: 4px;
+    padding: 1px 5px; font-size: 12px; color: #334155;
+  }
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 14px 26px; align-items: center;
+    margin: 16px 0 4px; padding: 12px 16px;
+    background: #fff; border: 1px solid var(--line); border-radius: 12px;
+    box-shadow: 0 2px 10px rgb(15 23 42 / 4%);
+  }
+  .controls label { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: #334155; }
+  .controls input[type="range"] { width: 150px; accent-color: #2563eb; }
+  .controls select {
+    padding: 5px 8px; border: 1px solid #d8dee8; border-radius: 8px;
+    background: #fff; font-size: 13px; color: #334155;
+  }
+  .controls button {
+    padding: 6px 14px; border: 1px solid #d8dee8; border-radius: 8px;
+    background: #fff; font-size: 13px; color: #334155; cursor: pointer;
+  }
+  .controls button:hover { border-color: #94a3b8; }
+  .controls b { color: #2563eb; font-weight: 600; min-width: 46px; }
+
+  .stage {
+    display: flex; gap: 34px; justify-content: center; align-items: flex-start;
+    padding: 26px 24px 60px; max-width: 1680px; margin: 0 auto;
+    flex-wrap: wrap;
+  }
+  .device { margin: 0; width: 375px; flex: 0 0 auto; }
+  .device figcaption { padding: 14px 4px 0; }
+  .device figcaption h3 { margin: 0 0 4px; font-size: 15px; }
+  .device figcaption p { margin: 0; font-size: 12.5px; color: var(--ink-2); }
+  .device .badge {
+    display: inline-block; margin-bottom: 6px; padding: 1px 8px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 600;
+  }
+  .badge--current { color: #92400e; background: #fef3c7; }
+  .badge--a { color: #065f46; background: #d1fae5; }
+  .badge--b { color: #1e40af; background: #dbeafe; }
+  .badge--c { color: #9f1239; background: #ffe4e6; }
+
+  /* ---------- 手机壳 ---------- */
+  .screen {
+    position: relative; width: 375px; height: 780px; overflow: hidden;
+    background: var(--page-bg); border-radius: 42px;
+    box-shadow: 0 0 0 10px #101828, 0 24px 60px rgb(15 23 42 / 26%);
+  }
+  .screen::before { /* 灵动岛 */
+    content: ""; position: absolute; top: 9px; left: 50%; transform: translateX(-50%);
+    width: 112px; height: 27px; border-radius: 999px; background: #000; z-index: 40;
+  }
+  .scroll {
+    position: absolute; inset: 0; overflow-y: auto; overflow-x: hidden;
+    scrollbar-width: none; overscroll-behavior: contain;
+  }
+  .scroll::-webkit-scrollbar { display: none; }
+  .screen[data-mode="current"] .scroll,
+  .screen[data-mode="fade"] .scroll,
+  .screen[data-mode="ambient"] .scroll { padding-top: 68px; }
+  .screen[data-mode="overlay"] .scroll { padding-top: 0; }
+
+  /* ---------- 顶部导航（fixed 覆盖层） ---------- */
+  .topbar {
+    position: absolute; top: 0; left: 0; right: 0; height: 68px;
+    z-index: 30; overflow: hidden;
+    transition: box-shadow .18s ease;
+  }
+  .topbar .layer { position: absolute; inset: 0; }
+  .topbar .layer.base { background: var(--hero-start); transition: background-color .25s ease; }
+  .topbar .layer.surface { opacity: 0; background: rgb(255 255 255 / 86%); }
+  .topbar .layer.surface.is-blur { backdrop-filter: blur(18px) saturate(160%); -webkit-backdrop-filter: blur(18px) saturate(160%); }
+  .topbar .hairline {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 1px;
+    background: rgb(15 23 42 / 8%); opacity: 0;
+  }
+  .statusbar {
+    position: relative; z-index: 2; height: 24px; padding: 3px 22px 0;
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 11.5px; font-weight: 600; color: #fff; letter-spacing: .2px;
+  }
+  .statusbar .icons { display: flex; align-items: center; gap: 4px; font-size: 10.5px; }
+  .navbar-row {
+    position: relative; z-index: 2; height: 44px; padding: 0 16px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .navbar-title {
+    font-size: 16px; font-weight: 600; letter-spacing: .3px; color: #fff;
+    max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .capsule {
+    position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+    height: 32px; padding: 0 10px; display: flex; align-items: center; gap: 7px;
+    border: 1px solid rgb(255 255 255 / 45%); border-radius: 999px;
+    background: rgb(255 255 255 / 22%); color: #fff; font-size: 12px;
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  }
+  .capsule .dot { width: 3px; height: 3px; border-radius: 50%; background: currentColor; }
+  .capsule .ring {
+    width: 14px; height: 14px; border: 1.6px solid currentColor; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .capsule .ring::after { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+
+  /* ---------- 内容 ---------- */
+  .content { padding-bottom: 86px; }
+  .hero {
+    padding: 12px 12px 16px;
+    background: linear-gradient(180deg, var(--hero-start) 0%, var(--hero-mid) 46%, var(--hero-end) 100%);
+  }
+  .screen[data-mode="overlay"] .hero { padding-top: 80px; }
+  .hero-search {
+    height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 14px;
+    background: #fff; border-radius: 19px; color: #9aa3af; font-size: 13.5px;
+    box-shadow: 0 2px 8px rgb(15 23 42 / 8%);
+  }
+  .hero-banner {
+    position: relative; height: 168px; margin-top: 12px; border-radius: 12px; overflow: hidden;
+    background:
+      radial-gradient(120% 90% at 78% 22%, rgb(255 196 120 / 90%) 0%, rgb(255 140 66 / 55%) 34%, transparent 62%),
+      linear-gradient(160deg, #1e3a8a 0%, #3b5bdb 42%, #f59e0b 100%);
+    color: #fff; padding: 18px 16px;
+    box-shadow: 0 10px 24px rgb(15 23 42 / 22%);
+  }
+  .hero-banner::after { /* 船与海面示意 */
+    content: "🚢"; position: absolute; right: 18px; bottom: 18px; font-size: 46px;
+    filter: drop-shadow(0 6px 10px rgb(0 0 0 / 30%));
+  }
+  .banner-tag {
+    display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px;
+    background: rgb(15 23 42 / 42%); border: 1px solid rgb(255 255 255 / 30%);
+  }
+  .banner-title {
+    margin-top: 10px; font-size: 25px; font-weight: 800; letter-spacing: 1px;
+    text-shadow: 0 3px 10px rgb(0 0 0 / 30%);
+  }
+  .banner-sub { margin-top: 8px; font-size: 11.5px; opacity: .92; }
+  .banner-cta {
+    position: absolute; left: 16px; bottom: 16px; padding: 5px 13px; border-radius: 999px;
+    background: var(--primary); font-size: 12px; font-weight: 600;
+  }
+  .notice {
+    margin: 10px 12px 0; height: 34px; display: flex; align-items: center; gap: 8px;
+    padding: 0 12px; background: #fff8e6; border-radius: 8px;
+    color: #8a6d1f; font-size: 12px;
+  }
+  .card {
+    margin: 10px 12px 0; background: #fff; border-radius: 12px;
+    box-shadow: 0 1px 2px rgb(15 23 42 / 4%);
+  }
+  .cat-card { padding: 14px 6px 8px; }
+  .cat-grid { display: grid; grid-template-columns: repeat(5, 1fr); row-gap: 12px; }
+  .cat { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+  .cat .ico {
+    width: 46px; height: 46px; border-radius: 50%; display: flex; align-items: center;
+    justify-content: center; font-size: 23px; background: #f6f7f9;
+  }
+  .cat span { font-size: 11.5px; color: #3f4652; }
+  .dots { display: flex; justify-content: center; gap: 5px; padding: 10px 0 2px; }
+  .dots i { width: 5px; height: 5px; border-radius: 50%; background: #d7dbe2; }
+  .dots i.active { background: #3f8cff; }
+  .mini-row { display: flex; gap: 10px; margin-top: 10px; padding: 0 12px; }
+  .mini {
+    flex: 1; background: #fff; border-radius: 12px; padding: 12px; min-height: 76px;
+    box-shadow: 0 1px 2px rgb(15 23 42 / 4%); position: relative;
+  }
+  .mini b { font-size: 14px; }
+  .mini p { margin: 2px 0 0; font-size: 11.5px; color: var(--ink-2); }
+  .mini .emoji { font-size: 30px; float: right; margin-top: -4px; }
+  .newbie { margin: 12px 12px 0; background: #fff; border-radius: 12px; padding: 12px; }
+  .newbie-head { display: flex; align-items: baseline; gap: 8px; }
+  .newbie-head b { font-size: 15px; color: var(--primary); }
+  .newbie-head span {
+    font-size: 11px; color: var(--primary); background: #fff1e8; border-radius: 4px; padding: 1px 5px;
+  }
+  .newbie-head em { margin-left: auto; font-style: normal; font-size: 11px; color: var(--ink-2); }
+  .newbie-list { display: flex; gap: 9px; margin-top: 10px; }
+  .np {
+    flex: 1; border-radius: 10px; overflow: hidden; background: #fafbfc; border: 1px solid #f1f2f4;
+  }
+  .np .pic { height: 84px; display: flex; align-items: center; justify-content: center; font-size: 34px; background: linear-gradient(160deg, #f6f7f9, #eceff4); }
+  .np .meta { padding: 6px 7px 8px; }
+  .np .meta span { display: block; font-size: 11px; color: #3f4652; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .np .meta b { font-size: 13.5px; color: var(--primary); }
+  .goods-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 12px 0; }
+  .goods {
+    background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 2px rgb(15 23 42 / 4%);
+  }
+  .goods .pic { height: 112px; display: flex; align-items: center; justify-content: center; font-size: 44px; background: linear-gradient(160deg, #f7f8fa, #eceff4); }
+  .goods .meta { padding: 8px 10px 10px; }
+  .goods .meta span { display: block; font-size: 12.5px; color: #2b3038; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .goods .meta i { display: block; font-style: normal; font-size: 11px; color: #9aa3af; margin-top: 1px; }
+  .goods .meta b { font-size: 16px; color: var(--primary); }
+  .goods .meta b small { font-size: 11px; }
+  .load-more { text-align: center; font-size: 11.5px; color: #a6adb8; padding: 18px 0 4px; }
+  .tabbar {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 62px; z-index: 35;
+    display: flex; align-items: center; justify-content: space-around;
+    background: rgb(255 255 255 / 96%); border-top: 1px solid #ececf0;
+    padding-bottom: 8px;
+  }
+  .tab { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 10.5px; color: #8b93a1; }
+  .tab.active { color: var(--primary); font-weight: 600; }
+  .tab .ico { font-size: 19px; line-height: 1; }
+  .home-indicator {
+    position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%);
+    width: 120px; height: 4px; border-radius: 2px; background: #0f172a; opacity: .85; z-index: 36;
+  }
+  .hud {
+    position: absolute; left: 12px; bottom: 72px; z-index: 38;
+    padding: 3px 8px; border-radius: 6px; background: rgb(15 23 42 / 62%);
+    color: #fff; font-size: 10.5px; letter-spacing: .2px; backdrop-filter: blur(4px);
+  }
+  .hud b { color: #93c5fd; font-weight: 600; }
+</style>
+</head>
+<body>
+  <header class="page-head">
+    <h1>小程序装修页 · 沉浸式导航栏方案原型</h1>
+    <p class="sub">
+      真机首页真实配置：<code>backgroundMode=followFirstSection</code>、首区块渐变 <code>#3678FA → #EEF3FB</code>、
+      商城主题导航色 <code>#048EEA</code>。滚动任一手机可同步对比四种模式，HUD 显示实时进度与状态栏前景色。
+    </p>
+    <div class="controls">
+      <label>渐显距离
+        <input id="distance" type="range" min="60" max="260" step="10" value="140" />
+        <b id="distanceVal">140px</b>
+      </label>
+      <label>目标底色
+        <select id="surface">
+          <option value="frosted" selected>磨砂白（推荐）</option>
+          <option value="theme">商城主题导航色</option>
+          <option value="page">页面底色</option>
+        </select>
+      </label>
+      <label><input id="blur" type="checkbox" checked /> 毛玻璃</label>
+      <label><input id="sync" type="checkbox" checked /> 同步滚动</label>
+      <button id="reset">回到顶部</button>
+    </div>
+  </header>
+
+  <div class="stage" id="stage"></div>
+
+<script>
+(() => {
+  const HERO_START = '#3678FA'
+  const HERO_END = '#EEF3FB'
+  const THEME_NAV = '#048EEA'
+  const PAGE_BG = '#F5F5F5'
+  const DARK_INK = '#222222'
+  const WHITE = '#FFFFFF'
+
+  const MODES = [
+    {
+      id: 'current',
+      badge: '现状',
+      badgeClass: 'badge--current',
+      title: '现状：导航固定蓝色',
+      desc: 'followFirstSection 让导航与首区块同色，但滚动后始终是这块蓝，内容从底下穿过时割裂。',
+    },
+    {
+      id: 'fade',
+      badge: '方案 A · 推荐',
+      badgeClass: 'badge--a',
+      title: '滚动渐显：首屏同色 → 磨砂白',
+      desc: '导航起始跟随首区块蓝色，滚动 140px 内渐变为磨砂白，标题与状态栏文字自动反色；回滚还原。',
+    },
+    {
+      id: 'overlay',
+      badge: '方案 B · 二期可选',
+      badgeClass: 'badge--b',
+      title: '透明覆盖：首屏内容顶到状态栏',
+      desc: '去掉导航占位，首屏渐变延伸到状态栏下；导航全透明，滚动后渐显磨砂白。更沉浸，但需改布局安全区。',
+    },
+    {
+      id: 'ambient',
+      badge: '方案 C · 不推荐',
+      badgeClass: 'badge--c',
+      title: '跟随内容取色：颜色一直变',
+      desc: '导航颜色始终等于其下区块的环境色。字面意义「不再固定」，但颜色频繁跳变、可读性差、需实时测距。',
+    },
+  ]
+
+  const CATS = [
+    ['🥬', '时令鲜果'], ['🍅', '新鲜蔬菜'], ['🍖', '肉禽蛋品'], ['🦐', '海鲜水产'], ['🥟', '面食早点'],
+    ['🍟', '速冻美食'], ['🥛', '乳品冷饮'], ['🥤', '水饮水料'], ['🍷', '酒水酒类'], ['☕', '冲调热饮'],
+    ['🧃', '本周上新'], ['🍢', '烧烤火锅'], ['🍗', '熟食卤味'], ['🥫', '罐头食品'], ['🍬', '休闲零食'],
+  ]
+
+  const GOODS = [
+    ['🌱', '黄豆芽500g', '鲜嫩爽脆，炒菜凉拌皆宜', '3.50', '4.55'],
+    ['🥛', '银鹭花生牛奶450ml', '花生奶香，香甜顺滑', '4.90', '6.37'],
+    ['🍷', '沙洲优黄三年陈500ml', '三年陈酿，口感柔和', '28.60', '37.18'],
+    ['🫐', '浙梅蔓越莓干508g', '蔓越莓干，酸甜开胃', '39.90', '51.87'],
+    ['🦐', '厄瓜多尔白虾1kg', '船冻锁鲜，个头均匀', '59.90', '79.00'],
+    ['🥩', '澳洲谷饲牛排200g', '原切不调理，冷链直达', '36.80', '45.00'],
+  ]
+
+  function contentHtml() {
+    return `
+      <div class="content">
+        <div class="hero" data-ambient="#3678FA">
+          <div class="hero-search">🔍 搜索商品</div>
+          <div class="hero-banner">
+            <span class="banner-tag">船供整船优惠</span>
+            <div class="banner-title">整船采购 下单立减</div>
+            <div class="banner-sub">满1万减200 · 满2万减500 · 满5万减1500</div>
+            <span class="banner-cta">立即采购 →</span>
+          </div>
+        </div>
+        <div class="notice" data-ambient="#FFF8E6">🔔 欢迎光临悦航购，生鲜好货每日直送</div>
+        <div class="card cat-card" data-ambient="#FFFFFF">
+          <div class="cat-grid">
+            ${CATS.map(([ico, name]) => `<div class="cat"><span class="ico">${ico}</span><span>${name}</span></div>`).join('')}
+          </div>
+          <div class="dots"><i class="active"></i><i></i></div>
+        </div>
+        <div class="mini-row" data-ambient="#FFFFFF">
+          <div class="mini"><span class="emoji">🥬</span><b>2人拼团</b><p>2人成团立省</p></div>
+          <div class="mini"><span class="emoji">🍱</span><b>限时折扣</b><p>8折专区</p></div>
+        </div>
+        <div class="newbie" data-ambient="#FFF1E8">
+          <div class="newbie-head"><b>🆕 新人专享</b><span>首单专享价</span><em>距结束 2天 06:32:48</em></div>
+          <div class="newbie-list">
+            ${[['🍜','葱油拌面','5.9'],['🥟','速冻小笼包','9.9'],['🫓','食豆腐花','6.9']].map(
+              ([i, n, p]) => `<div class="np"><div class="pic">${i}</div><div class="meta"><span>${n}</span><b>¥${p}</b></div></div>`,
+            ).join('')}
+          </div>
+        </div>
+        <div class="goods-grid" data-ambient="#FFFFFF">
+          ${GOODS.map(([i, n, s, p, o]) => `
+            <div class="goods">
+              <div class="pic">${i}</div>
+              <div class="meta"><span>${n}</span><i>${s}</i><b><small>¥</small>${p}</b></div>
+            </div>`).join('')}
+        </div>
+        <div class="load-more">— 上拉加载更多 —</div>
+      </div>`
+  }
+
+  function deviceHtml(mode) {
+    return `
+      <figure class="device" data-mode="${mode.id}" data-testid="device-${mode.id}">
+        <div class="screen" data-mode="${mode.id}">
+          <div class="scroll">
+            ${contentHtml()}
+          </div>
+          <div class="topbar">
+            <div class="layer base"></div>
+            <div class="layer surface is-blur"></div>
+            <div class="hairline"></div>
+            <div class="statusbar">
+              <span>17:26</span>
+              <span class="icons"><span>●●●</span><span>5G</span><span>▮</span></span>
+            </div>
+            <div class="navbar-row">
+              <div class="navbar-title">悦航购 · 商城首页</div>
+              <div class="capsule"><i class="dot"></i><i class="dot"></i><i class="dot"></i><i class="ring"></i></div>
+            </div>
+          </div>
+          <div class="tabbar">
+            <div class="tab active"><span class="ico">🏠</span>首页</div>
+            <div class="tab"><span class="ico">▦</span>分类</div>
+            <div class="tab"><span class="ico">🛒</span>购物车</div>
+            <div class="tab"><span class="ico">👤</span>我的</div>
+          </div>
+          <div class="home-indicator"></div>
+          <div class="hud">scroll <b>0</b>px · p <b>0%</b> · 状态栏 <b>#fff</b></div>
+        </div>
+        <figcaption>
+          <span class="badge ${mode.badgeClass}">${mode.badge}</span>
+          <h3>${mode.title}</h3>
+          <p>${mode.desc}</p>
+        </figcaption>
+      </figure>`
+  }
+
+  const stage = document.getElementById('stage')
+  stage.innerHTML = MODES.map(deviceHtml).join('')
+
+  const devices = MODES.map((mode) => {
+    const root = stage.querySelector(`[data-testid="device-${mode.id}"]`)
+    return {
+      mode: mode.id,
+      root,
+      screen: root.querySelector('.screen'),
+      scroll: root.querySelector('.scroll'),
+      base: root.querySelector('.layer.base'),
+      surface: root.querySelector('.layer.surface'),
+      hairline: root.querySelector('.hairline'),
+      title: root.querySelector('.navbar-title'),
+      statusbar: root.querySelector('.statusbar'),
+      capsule: root.querySelector('.capsule'),
+      hud: root.querySelector('.hud'),
+      hero: root.querySelector('.hero'),
+      topbar: root.querySelector('.topbar'),
+    }
+  })
+
+  const state = {
+    distance: 140,
+    surface: 'frosted',
+    blur: true,
+    sync: true,
+  }
+
+  /* ---------- 颜色工具 ---------- */
+  function parseColor(color) {
+    const value = String(color || '').trim()
+    const hex = /^#([0-9a-f]{6})$/i.exec(value)
+    if (hex) {
+      return [
+        parseInt(hex[1].slice(0, 2), 16),
+        parseInt(hex[1].slice(2, 4), 16),
+        parseInt(hex[1].slice(4, 6), 16),
+      ]
+    }
+    const rgb = /^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i.exec(value)
+    if (rgb) return [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])]
+    return [255, 255, 255]
+  }
+  function mix(a, b, t) {
+    const ca = parseColor(a)
+    const cb = parseColor(b)
+    const c = ca.map((v, i) => Math.round(v + (cb[i] - v) * t))
+    return `rgb(${c[0]}, ${c[1]}, ${c[2]})`
+  }
+  function luminance(color) {
+    const [r, g, b] = parseColor(color)
+    return (r * 0.299 + g * 0.587 + b * 0.114) / 255
+  }
+  function readable(color) {
+    return luminance(color) > 0.6 ? DARK_INK : WHITE
+  }
+  function smoothstep(t) {
+    const x = Math.min(1, Math.max(0, t))
+    return x * x * (3 - 2 * x)
+  }
+
+  function surfaceSpec() {
+    if (state.surface === 'theme') return { base: THEME_NAV, alpha: 1, blur: false }
+    if (state.surface === 'page') return { base: PAGE_BG, alpha: 1, blur: false }
+    return { base: WHITE, alpha: state.blur ? 0.86 : 0.96, blur: state.blur }
+  }
+
+  function applySurface(device) {
+    const spec = surfaceSpec()
+    device.surface.style.background = `rgba(255, 255, 255, ${spec.alpha})`
+    if (state.surface !== 'frosted') {
+      device.surface.style.background = spec.base
+    }
+    device.surface.classList.toggle('is-blur', spec.blur && state.surface === 'frosted')
+  }
+
+  /* ---------- 渲染 ---------- */
+  function updateDevice(device) {
+    const scrollTop = Math.max(0, device.scroll.scrollTop)
+    const p = smoothstep(scrollTop / state.distance)
+    const spec = surfaceSpec()
+    const startTitle = WHITE
+    const endTitle = readable(spec.base)
+    const mixedNavBg = mix(HERO_START, spec.base, p)
+    const statusColor = device.mode === 'current'
+      ? WHITE
+      : device.mode === 'ambient'
+        ? readable(ambientColor(device, scrollTop))
+        : readable(mixedNavBg)
+
+    device.base.style.opacity = device.mode === 'current' ? '1' : (device.mode === 'overlay' ? '0' : String(1 - p))
+    if (device.mode === 'ambient') {
+      device.base.style.opacity = '1'
+      device.base.style.background = ambientColor(device, scrollTop)
+    }
+    device.surface.style.opacity = device.mode === 'current' || device.mode === 'ambient' ? '0' : String(p)
+    device.hairline.style.opacity = p > 0.55 ? String(Math.min(1, (p - 0.55) / 0.35)) : '0'
+
+    const titleColor = device.mode === 'current'
+      ? WHITE
+      : device.mode === 'ambient'
+        ? readable(ambientColor(device, scrollTop))
+        : mix(startTitle, endTitle, p)
+    device.title.style.color = titleColor
+    device.statusbar.style.color = device.mode === 'current' ? WHITE : statusColor
+    device.capsule.style.color = titleColor
+    device.capsule.style.borderColor = titleColor === WHITE ? 'rgba(255,255,255,.45)' : 'rgba(15,23,42,.18)'
+    device.capsule.style.background = titleColor === WHITE ? 'rgba(255,255,255,.22)' : 'rgba(255,255,255,.65)'
+
+    device.hud.innerHTML = `scroll <b>${Math.round(scrollTop)}</b>px · p <b>${Math.round(p * 100)}%</b> · 状态栏 <b>${statusColor === WHITE ? '#fff' : '#222'}</b>`
+  }
+
+  /** 方案 C：实时取「导航下沿」所在区块的环境色（原型用区块 rect 近似真机测距） */
+  function ambientColor(device, scrollTop) {
+    const navBottom = 68
+    const screenTop = device.screen.getBoundingClientRect().top
+    let color = '#FFFFFF'
+    device.scroll.querySelectorAll('[data-ambient]').forEach((node) => {
+      const rect = node.getBoundingClientRect()
+      if (rect.top - screenTop <= navBottom) {
+        color = node.getAttribute('data-ambient') || color
+      }
+    })
+    return color
+  }
+
+  function updateAll() {
+    devices.forEach(updateDevice)
+  }
+
+  /* ---------- 滚动同步 ---------- */
+  let syncing = false
+  devices.forEach((device) => {
+    device.scroll.addEventListener('scroll', () => {
+      if (state.sync && !syncing) {
+        syncing = true
+        const top = device.scroll.scrollTop
+        devices.forEach((other) => {
+          if (other !== device) other.scroll.scrollTop = top
+        })
+        syncing = false
+      }
+      requestAnimationFrame(updateAll)
+    }, { passive: true })
+  })
+
+  /* ---------- 控件 ---------- */
+  const distanceInput = document.getElementById('distance')
+  const distanceVal = document.getElementById('distanceVal')
+  distanceInput.addEventListener('input', () => {
+    state.distance = Number(distanceInput.value)
+    distanceVal.textContent = `${state.distance}px`
+    updateAll()
+  })
+
+  document.getElementById('surface').addEventListener('change', (event) => {
+    state.surface = event.target.value
+    devices.forEach(applySurface)
+    updateAll()
+  })
+  document.getElementById('blur').addEventListener('change', (event) => {
+    state.blur = event.target.checked
+    devices.forEach(applySurface)
+    updateAll()
+  })
+  document.getElementById('sync').addEventListener('change', (event) => {
+    state.sync = event.target.checked
+  })
+  document.getElementById('reset').addEventListener('click', () => {
+    devices.forEach((device) => { device.scroll.scrollTop = 0 })
+    updateAll()
+  })
+
+  devices.forEach(applySurface)
+  updateAll()
+
+  /* 供截图脚本调用 */
+  window.__demo = {
+    setScroll(value) {
+      devices.forEach((device) => { device.scroll.scrollTop = value })
+      updateAll()
+    },
+    setDistance(value) {
+      state.distance = value
+      distanceInput.value = String(value)
+      distanceVal.textContent = `${value}px`
+      updateAll()
+    },
+    setSurface(value) {
+      state.surface = value
+      document.getElementById('surface').value = value
+      devices.forEach(applySurface)
+      updateAll()
+    },
+    setSync(value) {
+      state.sync = value
+      document.getElementById('sync').checked = value
+    },
+    getState() {
+      return {
+        distance: state.distance,
+        surface: state.surface,
+        scrollTop: devices[0].scroll.scrollTop,
+      }
+    },
+  }
+})()
+</script>
+</body>
+</html>

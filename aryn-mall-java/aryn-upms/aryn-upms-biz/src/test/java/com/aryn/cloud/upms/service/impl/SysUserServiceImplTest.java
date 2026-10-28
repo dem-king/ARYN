@@ -10,6 +10,7 @@ import com.aryn.cloud.upms.mapper.SysRoleMenuMapper;
 import com.aryn.cloud.upms.mapper.SysUserMapper;
 import com.aryn.cloud.upms.mapper.SysUserRoleMapper;
 import com.aryn.cloud.upms.service.ISysUserRoleService;
+import com.aryn.cloud.upms.support.SysUserSessionRevoker;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -42,6 +43,8 @@ class SysUserServiceImplTest {
 
 	private ISysUserRoleService sysUserRoleService;
 
+	private SysUserSessionRevoker sysUserSessionRevoker;
+
 	private SysUserServiceImpl service;
 
 	@BeforeEach
@@ -50,8 +53,9 @@ class SysUserServiceImplTest {
 		sysRoleMapper = mock(SysRoleMapper.class);
 		sysUserRoleMapper = mock(SysUserRoleMapper.class);
 		sysUserRoleService = mock(ISysUserRoleService.class);
+		sysUserSessionRevoker = mock(SysUserSessionRevoker.class);
 		service = new SysUserServiceImpl(sysRoleMapper, mock(SysMenuMapper.class), sysUserRoleMapper,
-				sysUserRoleService, mock(SysRoleMenuMapper.class));
+				sysUserRoleService, mock(SysRoleMenuMapper.class), sysUserSessionRevoker);
 		ReflectionTestUtils.setField(service, "baseMapper", sysUserMapper);
 		when(sysUserRoleService.grantRole(anyString(), anyString())).thenReturn(Boolean.TRUE);
 	}
@@ -149,6 +153,54 @@ class SysUserServiceImplTest {
 
 		assertThat(service.updateUser(user)).isTrue();
 		verify(sysUserRoleMapper).delete(any(Wrapper.class));
+	}
+
+	@Test
+	void updateUserDisablingAccountRevokesExistingSessions() {
+		// 账号从正常改为停用：已签发 token 仍有效，必须立即撤销该账号全部会话
+		mockProtectedRole();
+		when(sysUserRoleMapper.selectList(any(Wrapper.class))).thenReturn(java.util.List.of());
+		when(sysUserMapper.selectById("user-1")).thenReturn(account("user-1", "0"));
+		when(sysUserMapper.updateById(any(SysUser.class))).thenReturn(1);
+		SysUser user = new SysUser();
+		user.setId("user-1");
+		user.setStatus("1");
+		user.setRoles(java.util.List.of(NORMAL_ROLE_ID));
+
+		assertThat(service.updateUser(user)).isTrue();
+		verify(sysUserSessionRevoker).revokeAll("user-1", "停用账号");
+	}
+
+	@Test
+	void updateUserEditingNormalAccountDoesNotRevokeSessions() {
+		// 普通编辑（状态不变/未提交状态）不能误踢在线会话
+		mockProtectedRole();
+		when(sysUserRoleMapper.selectList(any(Wrapper.class))).thenReturn(java.util.List.of());
+		when(sysUserMapper.selectById("user-1")).thenReturn(account("user-1", "0"));
+		when(sysUserMapper.updateById(any(SysUser.class))).thenReturn(1);
+		SysUser user = new SysUser();
+		user.setId("user-1");
+		user.setStatus("0");
+		user.setRoles(java.util.List.of(NORMAL_ROLE_ID));
+
+		assertThat(service.updateUser(user)).isTrue();
+		verify(sysUserSessionRevoker, never()).revokeAll(anyString(), anyString());
+	}
+
+	@Test
+	void delUserRevokesSessionsOfDeletedAccount() {
+		when(sysUserMapper.deleteById(any(java.io.Serializable.class))).thenReturn(1);
+		SysUser user = account("user-1", "0");
+
+		assertThat(service.delUser(user)).isTrue();
+		verify(sysUserSessionRevoker).revokeAll("user-1", "删除账号");
+	}
+
+	private static SysUser account(String id, String status) {
+		SysUser user = new SysUser();
+		user.setId(id);
+		user.setStatus(status);
+		return user;
 	}
 
 }

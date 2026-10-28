@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import type { DiyCommonStyle } from '@vben/types';
 
-import { computed, ref } from 'vue';
+import { computed, onUnmounted, ref } from 'vue';
 
 interface ShowData {
   commonStyle?: DiyCommonStyle | null;
@@ -104,15 +104,28 @@ const indicatorActiveColor = computed(
   () => props.showData.indicatorActiveColor || '#1989fa',
 );
 const activePage = ref(0);
+
+/**
+ * 滚动停稳后再结算页码：拖动过程中反复改高度会让预览画布跟着重排，
+ * 与实机一样出现掉帧。这里用短防抖代替逐帧更新（H5 的 scrollend 兼容性不足）。
+ */
+let scrollSettleTimer: ReturnType<typeof setTimeout> | undefined;
 function onPagerScroll(event: Event) {
   const el = event.target as HTMLElement;
-  activePage.value = Math.round(el.scrollLeft / el.clientWidth);
+  if (scrollSettleTimer) clearTimeout(scrollSettleTimer);
+  scrollSettleTimer = setTimeout(() => {
+    const next = Math.round(el.scrollLeft / el.clientWidth);
+    if (next !== activePage.value) activePage.value = next;
+  }, 120);
 }
+onUnmounted(() => {
+  if (scrollSettleTimer) clearTimeout(scrollSettleTimer);
+});
 
-// 单行高度（px）= 图片高度 + 图文模式下文字块高度（上边距 5px + 行高约 17px）
+// 单行高度（px）= 图片高度 + 图文模式下文字块高度（上边距 6px + 13px 字号行高约 18px）
 const rowHeight = computed(() => {
-  const imgSize = Number(props.showData.imgSize) || 40;
-  return imgSize + (navType.value === '3' ? 22 : 0);
+  const imgSize = Number(props.showData.imgSize) || 56;
+  return imgSize + (navType.value === '3' ? 24 : 0);
 });
 // 高度自适应：按「当前页」实际行数收缩——铺满 pageRows 行占满，铺不满自动缩小
 // （swiper 各页等高，翻页时高度过渡到新页的行数）
@@ -123,10 +136,10 @@ const actualRows = computed(() => {
     pages.value[Math.min(activePage.value, pages.value.length - 1)] || [];
   return Math.min(pageRows.value, Math.ceil(page.length / showNum.value));
 });
-// 每行底部间距 6px；分页指示点预留 16px
+// 每行底部间距 8px；分页指示点预留 16px
 const pagerHeight = computed(
   () =>
-    actualRows.value * (rowHeight.value + 6) + (showIndicator.value ? 16 : 0),
+    actualRows.value * (rowHeight.value + 8) + (showIndicator.value ? 16 : 0),
 );
 </script>
 
@@ -301,8 +314,8 @@ const pagerHeight = computed(
       }
 
       p {
-        margin-top: 5px;
-        font-size: 12px;
+        margin-top: 6px;
+        font-size: 13px;
         color: #fff;
         text-align: center;
       }
@@ -330,8 +343,9 @@ const pagerHeight = computed(
   .nav-pager {
     position: relative;
     width: 100%;
-    // 高度随当前页行数收缩/展开（与小程序端一致）
-    transition: height 0.3s ease;
+    // 高度随当前页行数收缩/展开（与小程序端一致）；
+    // 过渡只在滚动停稳后（防抖结算页码）启动，不与手势抢主线程
+    transition: height 240ms cubic-bezier(0.34, 1.35, 0.64, 1);
 
     &-track {
       display: flex;
@@ -355,8 +369,8 @@ const pagerHeight = computed(
       scroll-snap-align: start;
 
       .nav-item-image-li {
-        padding-bottom: 6px;
-        margin-top: 2px;
+        padding-bottom: 8px;
+        margin-top: 0;
 
         .nav-item-content {
           display: flex;
@@ -366,8 +380,8 @@ const pagerHeight = computed(
         }
 
         p {
-          margin-top: 5px;
-          font-size: 12px;
+          margin-top: 6px;
+          font-size: 13px;
           color: #fff;
           text-align: center;
         }

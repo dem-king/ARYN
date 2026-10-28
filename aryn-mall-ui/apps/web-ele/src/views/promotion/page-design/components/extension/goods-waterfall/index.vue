@@ -10,6 +10,7 @@ import { ElIcon, ElImage } from 'element-plus';
 import { shouldShowOriginalPrice } from '../../common/retail-preview/price-display';
 import { loadGoodsWaterfall } from '../../common/retail-preview/retail-data';
 import RetailPreviewFrame from '../../common/retail-preview/retail-preview-frame.vue';
+import { stockHintText } from '../../common/retail-preview/stock-display';
 import { shouldShowSubtitle } from '../../common/retail-preview/subtitle-display';
 import { createRetailPreviewController } from '../../common/retail-preview/use-retail-preview';
 import { validateGoodsWaterfall } from '../types';
@@ -28,12 +29,11 @@ watch(
 );
 
 /**
- * 卡片信息 chip：与 C 端 cardTags 同口径——只渲染确实存在的信息。
- * 管理端取数未归一化规格/免配送费字段，故只出「现货 N」这一条；
- * 字段缺失就不编造，避免出现「现货 0」这类误导性文案。
+ * 卡片信息 chip：只展示规格。
+ * 库存绝对数不外露，售罄/低库存提示在下方另起一行（与全站 stock-display 口径一致）。
  */
 function cardTags(item: RetailGoodsItem): string[] {
-  return item.stock > 0 ? [`现货 ${item.stock}`] : [];
+  return item.specsInfo ? [item.specsInfo] : [];
 }
 </script>
 
@@ -95,7 +95,7 @@ function cardTags(item: RetailGoodsItem): string[] {
                   v-if="showData.showPrice !== false"
                   class="waterfall-price"
                 >
-                  ¥{{ item.price.toFixed(2) }}
+                  ¥{{ item.price }}
                 </span>
                 <!-- 划线原价：仅原价严格高于售价时显示（存量商品原价多为 0，会划出￥0） -->
                 <span
@@ -104,11 +104,11 @@ function cardTags(item: RetailGoodsItem): string[] {
                   "
                   class="waterfall-price-original"
                 >
-                  ¥{{ item.originalPrice.toFixed(2) }}
+                  ¥{{ item.originalPrice }}
                 </span>
               </div>
-              <span v-if="showData.showSales" class="waterfall-sales">
-                已售 {{ item.sales }}
+              <span v-if="stockHintText(item.stock)" class="waterfall-sales">
+                {{ stockHintText(item.stock) }}
               </span>
             </div>
             <!-- 小程序卡片右下角是真实可点的快捷加购按钮，这里按同尺寸静态呈现 -->

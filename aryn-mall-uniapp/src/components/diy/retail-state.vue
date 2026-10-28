@@ -1,15 +1,19 @@
 <script setup lang="ts">
 import type { RetailLoadStatus } from '@/composables/useRetailData'
 
+import { useI18n } from 'vue-i18n'
+
 defineProps<{
   status: RetailLoadStatus
 }>()
+
+const { t } = useI18n()
 </script>
 
 <template>
   <view v-if="status !== 'ready'" class="retail-state">
     <view v-if="status === 'loading'" class="retail-state__skeleton" />
-    <text v-else>{{ status === 'empty' ? '暂无内容' : '暂时无法加载' }}</text>
+    <text v-else>{{ status === 'empty' ? t('diy.retailState.empty') : t('diy.retailState.invalid') }}</text>
   </view>
 </template>
 

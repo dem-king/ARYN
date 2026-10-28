@@ -11,6 +11,8 @@
  * `resolveQuickAddQuantity`——列表页快捷加购与详情页弹层共用同一份口径。
  */
 
+import { translate } from '@/locales'
+
 /** 单规格（后端 goods_spu.enable_specs 取值，与 QuickCartServiceImpl 的 SINGLE_SPEC 对齐） */
 export const ENABLE_SPECS_SINGLE = '0'
 
@@ -79,7 +81,7 @@ export function resolveSpecRow(
 ): SpecRowView {
   if (decision.needChoose) {
     const selected = (selectedText || '').trim()
-    return { visible: true, text: selected || '选择规格', tappable: true }
+    return { visible: true, text: selected || translate('labels.selectSpecs'), tappable: true }
   }
   return { visible: decision.specText.length > 0, text: decision.specText, tappable: true }
 }
@@ -116,16 +118,21 @@ export interface DeliveryRowView {
  */
 export function resolveDeliveryRow(input: DeliveryRowInput): DeliveryRowView {
   if (input.hasVesselContext) {
-    const vesselName = (input.vesselName ?? '').trim() || '所在船舶'
+    const vesselName = (input.vesselName ?? '').trim() || translate('labels.currentVessel')
     const location = [input.portName, input.berth]
       .map(part => (part ?? '').trim())
       .filter(Boolean)
       .join(' ')
     const window = input.deliveryWindowStart
-      ? `（${input.deliveryWindowStart}${input.deliveryWindowEnd ? ` ~ ${input.deliveryWindowEnd}` : ''}）`
+      ? input.deliveryWindowEnd
+        ? translate('labels.deliveryWindowRange', {
+            start: input.deliveryWindowStart,
+            end: input.deliveryWindowEnd,
+          })
+        : translate('labels.deliveryWindowSingle', { start: input.deliveryWindowStart })
       : ''
     return {
-      text: `配送至 ${vesselName}`,
+      text: translate('labels.deliverTo', { name: vesselName }),
       // 全角括号紧跟地名，中间不留空格
       detail: `${location}${window}`,
       tappable: false,
@@ -133,12 +140,12 @@ export function resolveDeliveryRow(input: DeliveryRowInput): DeliveryRowView {
   }
 
   const text = input.freightType === '0'
-    ? '包邮'
-    : `运费：${input.fixedFreightPrice ?? 0}元`
+    ? translate('labels.freeShipping')
+    : translate('labels.freightWithPrice', { price: input.fixedFreightPrice ?? 0 })
   const addressText = (input.addressText ?? '').trim()
   return {
     text,
-    detail: addressText ? `配送至：${addressText}` : '',
+    detail: addressText ? translate('labels.deliverToAddress', { address: addressText }) : '',
     tappable: true,
   }
 }

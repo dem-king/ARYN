@@ -9,6 +9,8 @@
  * 抽成纯函数是为了能单测：合并口径写错不会报错，只会让司机少拿货。
  */
 
+import { translate } from '@/locales'
+
 /** 配货汇总行：一件货在一趟车里的合计 */
 export interface PickRow {
   /** 聚合键（分类 + 商品 + 规格） */
@@ -93,7 +95,7 @@ export function groupPickRows(rows: PickRow[]): PickRowGroup[] {
   const groups: PickRowGroup[] = []
   const groupByName = new Map<string, PickRowGroup>()
   for (const row of rows) {
-    const categoryName = row.categoryName || '未分类'
+    const categoryName = row.categoryName || translate('shared.deliveryPick.uncategorized')
     let group = groupByName.get(categoryName)
     if (!group) {
       group = { categoryName, rows: [] }

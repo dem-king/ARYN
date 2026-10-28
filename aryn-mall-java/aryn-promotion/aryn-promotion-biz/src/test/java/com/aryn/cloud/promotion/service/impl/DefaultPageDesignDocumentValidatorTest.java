@@ -1,6 +1,8 @@
 package com.aryn.cloud.promotion.service.impl;
 
+import com.aryn.cloud.promotion.api.entity.PromotionActivity;
 import com.aryn.cloud.promotion.api.vo.PageDesignValidationVO;
+import com.aryn.cloud.promotion.mapper.PromotionActivityMapper;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -9,10 +11,16 @@ import java.util.stream.Collectors;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class DefaultPageDesignDocumentValidatorTest {
 
-	private final DefaultPageDesignDocumentValidator validator = new DefaultPageDesignDocumentValidator();
+	/** 活动 Tab 数据源校验用的活动表 Mapper（其余校验不触库）。 */
+	private final PromotionActivityMapper activityMapper = mock(PromotionActivityMapper.class);
+
+	private final DefaultPageDesignDocumentValidator validator = new DefaultPageDesignDocumentValidator(activityMapper);
 
 	@Test
 	void acceptsEmptyV2Document() {
@@ -469,6 +477,226 @@ class DefaultPageDesignDocumentValidatorTest {
 			.anyMatch(issue -> "COMPONENT_NOT_ALLOWED".equals(issue.getCode())));
 		assertFalse(validator.validateStructured(content, "1").getErrors().stream()
 			.anyMatch(issue -> "COMPONENT_NOT_ALLOWED".equals(issue.getCode())));
+	}
+
+	// ==== F1：自动 Tab 排序白名单与折扣率区间 ====
+
+	private PageDesignValidationVO validateGoodsTabs(String tabsJson) {
+		String content = "{\"schemaVersion\":2,\"components\":[{\"id\":\"c1\",\"type\":\"goods-tabs\",\"version\":1,"
+				+ "\"props\":{\"tabs\":[" + tabsJson + "]}}]}";
+		return validator.validateStructured(content);
+	}
+
+	@Test
+	void acceptsAllWhitelistedAutomaticTabSorts() {
+		PageDesignValidationVO result = validateGoodsTabs("""
+				{"id":"t1","title":"猜你喜欢","dataSource":{"mode":"automatic","sort":"sales"}},
+				{"id":"t2","title":"新品","dataSource":{"mode":"automatic","sort":"create_time"}},
+				{"id":"t3","title":"价格","dataSource":{"mode":"automatic","sort":"sales_price"}},
+				{"id":"t4","title":"捡漏","dataSource":{"mode":"automatic","sort":"bargain","bargainRate":1.15}}""");
+
+		assertFalse(result.hasErrors(), "白名单排序不应报错: " + result.getErrors());
+		// 4 个自动 Tab 各计一次请求预算
+		assertEquals(4, result.getPerformance().getRequestCount());
+	}
+
+	@Test
+	void acceptsBargainTabWithoutRateAndWithBoundaryRate() {
+		// bargainRate 可空（缺省 1.15）；边界 9.99 合法、1.01 合法
+		assertFalse(validateGoodsTabs(
+				"{\"id\":\"t1\",\"title\":\"捡漏\",\"dataSource\":{\"mode\":\"automatic\",\"sort\":\"bargain\"}}")
+			.hasErrors());
+		assertFalse(validateGoodsTabs(
+				"{\"id\":\"t1\",\"title\":\"捡漏\",\"dataSource\":{\"mode\":\"automatic\",\"sort\":\"bargain\",\"bargainRate\":9.99}}")
+			.hasErrors());
+		assertFalse(validateGoodsTabs(
+				"{\"id\":\"t1\",\"title\":\"捡漏\",\"dataSource\":{\"mode\":\"automatic\",\"sort\":\"bargain\",\"bargainRate\":1.01}}")
+			.hasErrors());
+	}
+
+	@Test
+	void rejectsUnknownAutomaticTabSort() {
+		PageDesignValidationVO result = validateGoodsTabs(
+				"{\"id\":\"t1\",\"title\":\"猜你喜欢\",\"dataSource\":{\"mode\":\"automatic\",\"sort\":\"price_desc\"}}");
+
+		assertTrue(result.getErrors()
+			.stream()
+			.anyMatch(issue -> "DATASOURCE_INVALID".equals(issue.getCode())
+					&& "props.tabs[0].dataSource.sort".equals(issue.getField())));
+	}
+
+	@Test
+	void rejectsBargainRateOutOfRange() {
+		for (String rate : List.of("1.00", "0.99", "10", "9.991")) {
+			PageDesignValidationVO result = validateGoodsTabs(
+					"{\"id\":\"t1\",\"title\":\"捡漏\",\"dataSource\":{\"mode\":\"automatic\",\"sort\":\"bargain\",\"bargainRate\":"
+							+ rate + "}}");
+			assertTrue(result.getErrors()
+				.stream()
+				.anyMatch(issue -> "DATASOURCE_INVALID".equals(issue.getCode())
+						&& "props.tabs[0].dataSource.bargainRate".equals(issue.getField())),
+					"折扣率 " + rate + " 超出 (1.00, 9.99] 必须报错");
+		}
+	}
+
+	@Test
+	void ignoresBargainRateWhenSortIsNotBargain() {
+		// 阈值只在折扣力度排序下生效：其余排序残留的 bargainRate 不参与校验
+		assertFalse(validateGoodsTabs(
+				"{\"id\":\"t1\",\"title\":\"销量\",\"dataSource\":{\"mode\":\"automatic\",\"sort\":\"sales\",\"bargainRate\":0.5}}")
+			.hasErrors());
+		// 手选 Tab 不校验排序语义（含非法 sort）
+		assertFalse(validateGoodsTabs(
+				"{\"id\":\"t1\",\"title\":\"手选\",\"dataSource\":{\"mode\":\"manual\",\"sort\":\"anything\",\"targetIds\":[\"spu-1\"]}}")
+			.hasErrors());
+	}
+
+	// ==== F2：Tab 级会员权益条 ====
+
+	@Test
+	void acceptsMemberBannerWithBoundaryCopy() {
+		String copy = "会".repeat(30);
+		PageDesignValidationVO result = validateGoodsTabs(
+				"{\"id\":\"t1\",\"title\":\"会员专区\",\"dataSource\":{\"mode\":\"automatic\",\"sort\":\"sales\"},"
+						+ "\"memberBanner\":{\"enabled\":true,\"memberCopy\":\"" + copy + "\",\"guestCopy\":\"" + copy
+						+ "\"}}");
+
+		assertFalse(result.hasErrors(), "30 字文案不应报错: " + result.getErrors());
+	}
+
+	@Test
+	void acceptsMemberBannerWithEmptyOrDisabledCopy() {
+		// 开启但文案留空：走 C 端内置模板
+		assertFalse(validateGoodsTabs(
+				"{\"id\":\"t1\",\"title\":\"会员专区\",\"dataSource\":{\"mode\":\"automatic\",\"sort\":\"sales\"},"
+						+ "\"memberBanner\":{\"enabled\":true}}")
+			.hasErrors());
+		// 关闭时超长文案不阻断（草稿态允许保留）
+		assertFalse(validateGoodsTabs(
+				"{\"id\":\"t1\",\"title\":\"会员专区\",\"dataSource\":{\"mode\":\"automatic\",\"sort\":\"sales\"},"
+						+ "\"memberBanner\":{\"enabled\":false,\"memberCopy\":\"" + "会".repeat(31) + "\"}}")
+			.hasErrors());
+	}
+
+	@Test
+	void rejectsOverlongMemberBannerCopies() {
+		String tooLong = "会".repeat(31);
+		PageDesignValidationVO memberResult = validateGoodsTabs(
+				"{\"id\":\"t1\",\"title\":\"会员专区\",\"dataSource\":{\"mode\":\"automatic\",\"sort\":\"sales\"},"
+						+ "\"memberBanner\":{\"enabled\":true,\"memberCopy\":\"" + tooLong + "\"}}");
+		assertTrue(memberResult.getErrors()
+			.stream()
+			.anyMatch(issue -> "DATASOURCE_INVALID".equals(issue.getCode())
+					&& "props.tabs[0].memberBanner.memberCopy".equals(issue.getField())),
+				"会员文案超过 30 字必须报错");
+
+		PageDesignValidationVO guestResult = validateGoodsTabs(
+				"{\"id\":\"t1\",\"title\":\"会员专区\",\"dataSource\":{\"mode\":\"automatic\",\"sort\":\"sales\"},"
+						+ "\"memberBanner\":{\"enabled\":true,\"guestCopy\":\"" + tooLong + "\"}}");
+		assertTrue(guestResult.getErrors()
+			.stream()
+			.anyMatch(issue -> "DATASOURCE_INVALID".equals(issue.getCode())
+					&& "props.tabs[0].memberBanner.guestCopy".equals(issue.getField())),
+				"游客文案超过 30 字必须报错");
+	}
+
+	@Test
+	void rejectsMalformedMemberBanner() {
+		PageDesignValidationVO result = validateGoodsTabs(
+				"{\"id\":\"t1\",\"title\":\"会员专区\",\"dataSource\":{\"mode\":\"automatic\",\"sort\":\"sales\"},"
+						+ "\"memberBanner\":\"on\"}");
+
+		assertTrue(result.getErrors()
+			.stream()
+			.anyMatch(issue -> "DATASOURCE_INVALID".equals(issue.getCode())
+					&& "props.tabs[0].memberBanner".equals(issue.getField())));
+	}
+
+	// ==== 会员专区活动数据源（activity 模式） ====
+
+	private PromotionActivity promotionActivity(String id, String type) {
+		PromotionActivity activity = new PromotionActivity();
+		activity.setId(id);
+		activity.setActivityName("活动-" + id);
+		activity.setActivityType(type);
+		return activity;
+	}
+
+	private String activityTab(String extraDataSourceFields) {
+		return "{\"id\":\"t1\",\"title\":\"会员专区\",\"dataSource\":{\"mode\":\"activity\""
+				+ extraDataSourceFields + "}}";
+	}
+
+	@Test
+	void acceptsActivityTabWithoutActivityIdAndCountsTwoRequests() {
+		// activityId 留空 = 运行时跟随当前进行中的会员价活动，无需 targetIds/sort
+		PageDesignValidationVO result = validateGoodsTabs(activityTab(""));
+
+		assertFalse(result.hasErrors(), "无 activityId 的 activity Tab 应放行: " + result.getErrors());
+		assertEquals(2, result.getPerformance().getRequestCount(), "活动商品接口 + 商品列表接口 = 2 次请求");
+	}
+
+	@Test
+	void acceptsActivityTabWithValidMemberPriceActivity() {
+		when(activityMapper.selectOne(any()))
+			.thenReturn(promotionActivity("act-10", PromotionActivity.TYPE_MEMBER_PRICE));
+		// 切换数据源后残留的 sort/categoryId/targetIds 一律忽略：不校验、不进引用清单
+		PageDesignValidationVO result = validateGoodsTabs(activityTab(
+				",\"activityId\":\"act-10\",\"sort\":\"bogus-sort\",\"categoryId\":\"cat-1\","
+						+ "\"targetIds\":[\"spu-stale\"]"));
+
+		assertFalse(result.hasErrors(), "合法会员价活动应放行: " + result.getErrors());
+		assertEquals(2, result.getPerformance().getRequestCount());
+		assertTrue(result.getReferences().getGoodsIds().isEmpty(), "activity 模式残留 targetIds 不进引用清单");
+	}
+
+	@Test
+	void rejectsActivityTabWithMissingActivity() {
+		when(activityMapper.selectOne(any())).thenReturn(null);
+		PageDesignValidationVO result = validateGoodsTabs(activityTab(",\"activityId\":\"act-missing\""));
+
+		assertTrue(result.getErrors()
+			.stream()
+			.anyMatch(issue -> "DATASOURCE_INVALID".equals(issue.getCode())
+					&& "props.tabs[0].dataSource.activityId".equals(issue.getField())),
+				"activityId 指向不存在的活动必须报错");
+	}
+
+	@Test
+	void rejectsActivityTabWithNonMemberPriceActivity() {
+		when(activityMapper.selectOne(any()))
+			.thenReturn(promotionActivity("act-4", PromotionActivity.TYPE_LADDER_PRICE));
+		PageDesignValidationVO result = validateGoodsTabs(activityTab(",\"activityId\":\"act-4\""));
+
+		assertTrue(result.getErrors()
+			.stream()
+			.anyMatch(issue -> "DATASOURCE_INVALID".equals(issue.getCode())
+					&& "props.tabs[0].dataSource.activityId".equals(issue.getField())),
+				"非会员价类型活动必须报错（否则专区永远空）");
+	}
+
+	@Test
+	void failsClosedWhenActivityLookupThrows() {
+		when(activityMapper.selectOne(any())).thenThrow(new RuntimeException("db down"));
+		PageDesignValidationVO result = validateGoodsTabs(activityTab(",\"activityId\":\"act-10\""));
+
+		assertTrue(result.getErrors()
+			.stream()
+			.anyMatch(issue -> "DATASOURCE_INVALID".equals(issue.getCode())
+					&& "props.tabs[0].dataSource.activityId".equals(issue.getField())),
+				"活动查询异常按校验失败处理（fail-closed），不抛异常");
+	}
+
+	@Test
+	void countsActivityAndAutomaticTabsRequestBudgetSeparately() {
+		when(activityMapper.selectOne(any()))
+			.thenReturn(promotionActivity("act-10", PromotionActivity.TYPE_MEMBER_PRICE));
+		PageDesignValidationVO result = validateGoodsTabs(activityTab(",\"activityId\":\"act-10\"") + ","
+				+ "{\"id\":\"t2\",\"title\":\"猜你喜欢\",\"dataSource\":{\"mode\":\"automatic\",\"sort\":\"sales\"}}");
+
+		assertFalse(result.hasErrors(), "activity + automatic Tab 应放行: " + result.getErrors());
+		// activity 模式 2 次 + automatic 1 次
+		assertEquals(3, result.getPerformance().getRequestCount());
 	}
 
 }

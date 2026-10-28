@@ -175,6 +175,17 @@ describe('category page structure', () => {
 })
 
 describe('goods list entry compatibility', () => {
+  it('分类入口固定在品牌条左侧，与品牌胶囊用图标和分隔线区分', () => {
+    const listSource = source('src/sub-pages/product/goods-list/index.vue')
+    const entry = listSource.indexOf('class="category-entry"')
+    const brandScroll = listSource.indexOf('class="brand-scroll"')
+    // 曾经放在品牌胶囊行尾且同为灰底圆角，被读成「又一个品牌」
+    expect(entry).toBeGreaterThan(-1)
+    expect(brandScroll).toBeGreaterThan(entry)
+    // 品牌条隐藏时分隔线一起消失，避免行首出现孤立竖线
+    expect(listSource).toContain('v-if="showBrandFilter" class="filter-bar__divider"')
+  })
+
   it('保留 categoryId 作为二级类目的历史别名', () => {
     const listSource = source('src/sub-pages/product/goods-list/index.vue')
     // 装修链接 link-resolver 与优惠券/购物车跳转仍在用 ?categoryId=二级ID

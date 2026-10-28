@@ -27,8 +27,23 @@ public abstract class AbstractUploadFileHandler implements ArynUploadFileHandler
 		return doUploadFile(storageConfig, inputStream, fileName, size);
 	}
 
+	@Override
+	public String uploadPrivateFile(SysStorageConfigDTO sysStorageConfig, InputStream inputStream, String fileName,
+			String contextType, long size) {
+		StorageConfig storageConfig = validateRequest(sysStorageConfig, contextType);
+		return doUploadPrivateFile(storageConfig, inputStream, fileName, size);
+	}
+
 	public abstract String doUploadFile(StorageConfig storageConfig, InputStream inputStream, String fileName,
 			long size);
+
+	/**
+	 * 私有上传默认复用普通上传；支持私有目录的存储策略覆写本方法。
+	 */
+	protected String doUploadPrivateFile(StorageConfig storageConfig, InputStream inputStream, String fileName,
+			long size) {
+		return doUploadFile(storageConfig, inputStream, fileName, size);
+	}
 
 	private StorageConfig validateRequest(SysStorageConfigDTO sysStorageConfig, String contextType) {
 		StorageConfig storageConfig = new StorageConfig();

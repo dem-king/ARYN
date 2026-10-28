@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
 interface Address {
   id: string
   detailAddress: string
@@ -14,6 +16,8 @@ interface Props {
 }
 
 defineProps<Props>()
+
+const { t } = useI18n()
 
 const emit = defineEmits<{
   toAddress: []
@@ -44,7 +48,7 @@ function toAddress() {
           </view>
         </view>
         <view v-else class="p-3">
-          请选择收货地址
+          {{ t('checkout.address.select') }}
         </view>
       </view>
 

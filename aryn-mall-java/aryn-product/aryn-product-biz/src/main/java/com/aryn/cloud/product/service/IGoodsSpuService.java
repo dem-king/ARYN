@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.extension.service.IService;
 import com.aryn.cloud.product.api.entity.GoodsSpu;
 import com.aryn.cloud.product.api.vo.GoodsCatalogSummaryVO;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
@@ -83,6 +84,38 @@ public interface IGoodsSpuService extends IService<GoodsSpu> {
 	IPage<GoodsSpu> apiPage(Page page, GoodsSpu goodsSpu);
 
 	/**
+	 * 分页查询商品（C 端「低价捡漏」排序）。
+	 *
+	 * <p>携带 bargainRate 时：追加原价门槛过滤原价 &gt;= 售价 × bargainRate，
+	 * 按折扣率降序固定排序并忽略 asc/desc（实现内清空 Page.orders）；bargainRate 为空时
+	 * 行为与 {@link #apiPage(Page, GoodsSpu)} 完全一致（存量零影响）。
+	 * @param page page
+	 * @param goodsSpu goodsSpu
+	 * @param bargainRate 折扣率阈值，允许区间 (1.00, 9.99]，null＝不启用捡漏过滤/排序
+	 * @return IPage<GoodsSpu>
+	 * @throws com.aryn.cloud.common.security.handler.ArynBusinessException bargainRate 越界时抛出
+	 */
+	IPage<GoodsSpu> apiPage(Page page, GoodsSpu goodsSpu, BigDecimal bargainRate);
+
+	/**
+	 * 推荐流分页（商详/购物车/个人中心/订单页共用）。
+	 *
+	 * <p>排除 {@code spuId} 与 {@code excludeIds}，优先展示与上下文商品同二级分类、
+	 * 再同一级分类的商品，其余按销量降序、上架时间降序兜底；只返回当前租户在售商品，
+	 * 出参已脱敏成本价。无显式上下文时，登录用户按近期浏览足迹的品类个性化，
+	 * 未登录则退化为全店排序。
+	 *
+	 * <p>推荐流为无限滚动，服务层关闭 count 查询（前端只按返回条数判断是否还有下一页）。
+	 *
+	 * @param page 分页
+	 * @param spuId 当前商品 SPU ID（可空）
+	 * @param sourceSpuIds 提供分类上下文的一组商品 ID（购物车/订单页，可空）
+	 * @param excludeIds 额外排除的商品 ID（购物车/订单页，可空）
+	 * @return IPage<GoodsSpu>
+	 */
+	IPage<GoodsSpu> recommendPage(Page page, String spuId, List<String> sourceSpuIds, List<String> excludeIds);
+
+	/**
 	 * 商品详情
 	 * @param id
 	 * @author 雨滴kian
@@ -119,12 +152,6 @@ public interface IGoodsSpuService extends IService<GoodsSpu> {
 	 * @param result
 	 */
 	boolean rollbackStock(Map<String, Integer> result);
-
-	/**
-	 * 获取热搜商品 Top10
-	 * @return
-	 */
-	List<GoodsSpu> getTop10HotSearchGoods();
 
 	/**
 	 * 搜索联想词（C 端搜索页「猜你想搜」）。

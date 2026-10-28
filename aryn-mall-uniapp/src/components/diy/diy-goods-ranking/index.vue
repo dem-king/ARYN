@@ -2,18 +2,21 @@
 import type { GoodsRankingProps } from '@/components/diy/retail-types'
 
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { followDecorationLink } from '@/components/diy/link-resolver'
 import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 import { loadGoodsRanking } from '@/components/diy/retail-data'
 import RetailState from '@/components/diy/retail-state.vue'
-import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
 import { retailCommonStyle } from '@/components/diy/retail-types'
+import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
 import { useDiyStyle } from '@/composables/useDiyStyle'
 import { useRetailData } from '@/composables/useRetailData'
+import { stockHintText } from '@/utils/stock-display'
 
 const props = withDefaults(defineProps<{ showData?: Partial<GoodsRankingProps> }>(), {
   showData: () => ({}),
 })
+const { t } = useI18n()
 const showData = computed<GoodsRankingProps>(() => ({
   commonStyle: props.showData.commonStyle || retailCommonStyle,
   count: Number(props.showData.count) || 5,
@@ -23,7 +26,7 @@ const showData = computed<GoodsRankingProps>(() => ({
   // 划线原价的运营开关：缺省视为关闭（存量装修数据里没有该字段）
   showOriginalPrice: Boolean(props.showData.showOriginalPrice),
   showRankNumber: props.showData.showRankNumber !== false,
-  title: props.showData.title || '畅销排行',
+  title: props.showData.title || t('diy.goodsRanking.defaultTitle'),
 }))
 const dynamicStyles = useDiyStyle(computed(() => showData.value.commonStyle))
 const { items, shouldRender, status } = useRetailData(showData, loadGoodsRanking)
@@ -46,7 +49,7 @@ function openGoods(id: string) {
         </view>
         <image v-if="item.imageUrl" class="ranking-image" :src="item.imageUrl" mode="aspectFill" lazy-load />
         <view v-else class="ranking-image ranking-image--empty">
-          商品
+          {{ t('diy.common.product') }}
         </view>
         <view class="ranking-content">
           <view class="ranking-name">
@@ -55,8 +58,8 @@ function openGoods(id: string) {
           <view v-if="shouldShowSubtitle(item.name, item.subTitle)" class="ranking-subtitle">
             {{ item.subTitle }}
           </view>
-          <view class="ranking-stats">
-            销量 {{ item.sales }} · 库存 {{ item.stock }}
+          <view v-if="stockHintText(item.stock)" class="ranking-stats">
+            {{ stockHintText(item.stock) }}
           </view>
           <view class="ranking-price">
             ￥{{ item.price.toFixed(2) }}

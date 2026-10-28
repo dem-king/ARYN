@@ -65,8 +65,9 @@ public class DeliveryTaskController {
 	@SysLog("改派")
 	@SaCheckPermission("delivery:task:reassign")
 	@PostMapping("/{id}/reassign")
-	public Result<Boolean> reassign(@PathVariable String id, @RequestParam String staffId) {
-		return Result.success(deliveryTaskService.reassign(id, staffId));
+	public Result<Boolean> reassign(@PathVariable String id, @RequestParam String staffId,
+			@RequestParam(value = "reason", required = false) String reason) {
+		return Result.success(deliveryTaskService.reassign(id, staffId, reason));
 	}
 
 	@Operation(summary = "取消任务")

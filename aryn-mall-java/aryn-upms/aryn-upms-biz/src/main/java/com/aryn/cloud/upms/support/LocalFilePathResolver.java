@@ -17,11 +17,16 @@ public class LocalFilePathResolver {
 	private static final Pattern GENERATED_FILE_PATTERN = Pattern
 		.compile("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\.(?i:jpg|jpeg|png|gif|bmp|webp|mp4|mov|m4v|webm)$");
 
+	/** 私有文件（配送凭证等）位于租户目录下的 private/ 子目录，文件名规则与公开文件一致 */
+	private static final Pattern PRIVATE_FILE_PATTERN = Pattern
+		.compile("^private/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\.(?i:jpg|jpeg|png|gif|bmp|webp|mp4|mov|m4v|webm)$");
+
 	public Path resolve(String rootPath, String tenantId, String fileName) {
 		if (!StringUtils.hasText(tenantId) || !TENANT_ID_PATTERN.matcher(tenantId).matches()) {
 			throw new ArynBusinessException("非法租户标识");
 		}
-		if (!StringUtils.hasText(fileName) || !GENERATED_FILE_PATTERN.matcher(fileName).matches()) {
+		if (!StringUtils.hasText(fileName) || (!GENERATED_FILE_PATTERN.matcher(fileName).matches()
+				&& !PRIVATE_FILE_PATTERN.matcher(fileName).matches())) {
 			throw new ArynBusinessException("非法文件路径");
 		}
 		if (!StringUtils.hasText(rootPath)) {

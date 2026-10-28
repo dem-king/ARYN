@@ -22,12 +22,24 @@
 import type { QuantityRule } from '@/utils/quick-cart'
 import { onHide, onUnload } from '@dcloudio/uni-app'
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import { pendingChoice, useCartDestination } from '@/composables/useCartDestination'
-import { normalizeQuantity, quantityRuleHint } from '@/utils/quick-cart'
-import { cartStatusLabel, cartStatusTheme, sharedCartLocationLabel } from '@/utils/shared-cart'
+import { normalizeQuantity } from '@/utils/quick-cart'
+import {
+  CART_STATUS_CLOSED,
+  CART_STATUS_COLLECTING,
+  CART_STATUS_COMPLETED,
+  CART_STATUS_DRAFT,
+  CART_STATUS_SUBMITTED,
+  CART_STATUS_WAITING_CONFIRM,
+  cartStatusTheme,
+  sharedCartLocationLabel,
+} from '@/utils/shared-cart'
+import { STOCK_LOW_THRESHOLD } from '@/utils/stock-display'
 
 const { answerDestination } = useCartDestination()
+const { t } = useI18n()
 
 /**
  * 离开所在页面 = 放弃本次加购（与点遮罩关闭同义，不会静默写进购物车）。
@@ -61,6 +73,39 @@ const rule = computed(() => pendingChoice.value?.rule ?? null)
 const lockDestination = computed(() => pendingChoice.value?.lockDestination === true)
 const statusTheme = computed(() => cartStatusTheme(cart.value?.status))
 
+const title = computed(() =>
+  rule.value
+    ? t('cart.confirmPurchaseQty')
+    : (lockDestination.value ? t('cart.addToSharedCart') : t('cart.chooseDestination')),
+)
+
+/** 共享车状态文案：状态码对照与 utils/shared-cart 保持同一口径，词条复用共享车模块 */
+const CART_STATUS_KEYS: Record<string, string> = {
+  [CART_STATUS_DRAFT]: 'sharedCart.common.status.draft',
+  [CART_STATUS_COLLECTING]: 'sharedCart.common.status.collecting',
+  [CART_STATUS_WAITING_CONFIRM]: 'sharedCart.common.status.waitingConfirm',
+  [CART_STATUS_SUBMITTED]: 'sharedCart.common.status.submitted',
+  [CART_STATUS_CLOSED]: 'sharedCart.common.status.closed',
+  [CART_STATUS_COMPLETED]: 'sharedCart.common.status.completed',
+}
+const cartStatusText = computed(() => {
+  const status = cart.value?.status
+  if (!status)
+    return ''
+  const key = CART_STATUS_KEYS[status]
+  return key ? t(key) : t('sharedCart.common.status.unknown')
+})
+
+/** 岸上车地址快照缺失时，用可翻译的占位文案替代工具层的硬编码中文 */
+const locationText = computed(() => {
+  const current = cart.value
+  if (!current)
+    return ''
+  if (current.cartType === '2' && !current.addressSnapshot)
+    return t('sharedCart.common.addressPending')
+  return sharedCartLocationLabel(current)
+})
+
 /** 数量输入值：字符串以便用户清空重输，具体数值在交互时归一化 */
 const quantityInput = ref('')
 
@@ -88,7 +133,23 @@ const subtotalText = computed(() => {
   return (unitPrice.value * quantity).toFixed(2)
 })
 
-const ruleHint = computed(() => (rule.value ? quantityRuleHint(rule.value) : ''))
+const ruleHint = computed(() => {
+  const current = rule.value
+  if (!current)
+    return ''
+  const parts: string[] = []
+  if (current.moq > 1)
+    parts.push(t('cart.moqHint', { qty: current.moq, unit: current.purchaseUnit }))
+  if (current.stepQty > 1)
+    parts.push(t('cart.stepHint', { qty: current.stepQty, unit: current.purchaseUnit }))
+  if (current.stock !== null) {
+    if (current.stock <= 0)
+      parts.push(t('cart.stockSoldOut'))
+    else if (current.stock <= STOCK_LOW_THRESHOLD)
+      parts.push(t('cart.stockOnlyLeft', { count: current.stock }))
+  }
+  return parts.join(' · ')
+})
 
 /** 活动限购说明（如「新人专享价每人限购 1 件」）；无活动限制时为空串 */
 const quantityHint = computed(() => pendingChoice.value?.payload.quantityHint || '')
@@ -141,7 +202,10 @@ function stepQuantity(direction: 1 | -1) {
   const next = Number(quantityInput.value) + direction * step
   const normalized = normalizeQuantity(next, currentRule)
   if (normalized <= 0) {
-    uni.showToast({ title: `库存不足，最少起订 ${currentRule.moq}${currentRule.purchaseUnit}`, icon: 'none' })
+    uni.showToast({
+      title: t('cart.stockInsufficientMoq', { qty: currentRule.moq, unit: currentRule.purchaseUnit }),
+      icon: 'none',
+    })
     return
   }
   quantityInput.value = String(normalized)
@@ -185,7 +249,7 @@ function confirm(dest: 'shared' | 'personal') {
   const normalized = normalizeQuantity(quantityInput.value, currentRule)
   if (normalized <= 0) {
     uni.showToast({
-      title: `库存不足，最少起订 ${currentRule.moq}${currentRule.purchaseUnit}`,
+      title: t('cart.stockInsufficientMoq', { qty: currentRule.moq, unit: currentRule.purchaseUnit }),
       icon: 'none',
     })
     return
@@ -207,7 +271,7 @@ function confirm(dest: 'shared' | 'personal') {
   >
     <view class="px-32rpx pb-32rpx pt-28rpx">
       <view class="text-32rpx font-bold">
-        {{ rule ? '确认采购数量' : (lockDestination ? '加入共享购物车' : '选择加入哪里') }}
+        {{ title }}
       </view>
 
       <!-- 商品信息：确认加的是哪一件，避免在长列表里点错商品 -->
@@ -219,7 +283,7 @@ function confirm(dest: 'shared' | 'personal') {
       <view v-if="rule" class="mt-20rpx rounded-16rpx bg-gray-50 p-24rpx">
         <view class="flex items-center justify-between">
           <text class="text-28rpx text-gray-700">
-            采购数量
+            {{ t('cart.purchaseQty') }}
           </text>
           <view class="flex items-center">
             <view
@@ -252,7 +316,7 @@ function confirm(dest: 'shared' | 'personal') {
           {{ quantityHint }}
         </view>
         <view v-if="subtotalText" class="mt-8rpx text-24rpx text-gray-600">
-          小计 ¥{{ subtotalText }}
+          {{ t('cart.subtotal') }} ¥{{ subtotalText }}
         </view>
       </view>
 
@@ -266,14 +330,14 @@ function confirm(dest: 'shared' | 'personal') {
             class="rounded-full px-16rpx py-4rpx text-22rpx"
             :style="{ background: statusTheme.bg, color: statusTheme.text }"
           >
-            {{ cartStatusLabel(cart.status) }}
+            {{ cartStatusText }}
           </text>
         </view>
         <view class="mt-6rpx text-24rpx text-gray-500">
-          {{ sharedCartLocationLabel(cart) }}
+          {{ locationText }}
         </view>
         <view v-if="cart.expiresAt" class="mt-4rpx text-24rpx text-amber-600">
-          收集截止 {{ cart.expiresAt }}
+          {{ t('cart.collectDeadline', { time: cart.expiresAt }) }}
         </view>
       </view>
 
@@ -282,10 +346,10 @@ function confirm(dest: 'shared' | 'personal') {
         class="mt-24rpx h-80rpx flex items-center justify-center rounded-full bg-primary text-28rpx text-white font-medium"
         @tap.stop="confirm('shared')"
       >
-        加入共享购物车
+        {{ t('cart.addToSharedCart') }}
       </view>
       <view v-if="cart" class="mt-10rpx text-center text-22rpx text-gray-400">
-        与同船成员合并，由采购确认人统一提交整船订单
+        {{ t('cart.sharedCartMergeHint') }}
       </view>
       <!-- 锁定向导只保留共享车入口：分类选货页不存在「加进个人车」的语义 -->
       <view
@@ -296,7 +360,7 @@ function confirm(dest: 'shared' | 'personal') {
           : 'mt-24rpx bg-primary text-white'"
         @tap.stop="confirm('personal')"
       >
-        加入个人购物车
+        {{ t('cart.addToPersonalCart') }}
       </view>
     </view>
   </wd-popup>

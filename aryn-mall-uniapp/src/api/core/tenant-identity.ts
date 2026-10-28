@@ -1,3 +1,4 @@
+import { translate } from '@/locales'
 import { tenantBuildIdentity } from '@/generated/tenant-build'
 import type { TenantBuildIdentity } from './tenant-build-types'
 import { parseOpenBoot } from './boot-url'
@@ -76,7 +77,7 @@ export function getTenantGuardError(): TenantGuardError | TenantPreflightError |
 
 function identityOrThrow(): Readonly<TenantBuildIdentity> {
   if (tenantBuildIdentity === null) {
-    throw new TenantGuardError('identity-mismatch', '租户身份模块缺失')
+    throw new TenantGuardError('identity-mismatch', translate('app.tenantGuard.moduleMissing'))
   }
   return tenantBuildIdentity
 }
@@ -89,16 +90,16 @@ function assertLocalIdentity(): void {
   const envOpenBoot = parseOpenBoot(import.meta.env.VITE_OPEN_BOOT)
   const envApiBaseUrl = import.meta.env.VITE_API_BASE_URL
   if (envTenantId !== identity.tenantId) {
-    throw new TenantGuardError('identity-mismatch', '包内租户标识与环境注入不一致', identity.buildId)
+    throw new TenantGuardError('identity-mismatch', translate('app.tenantGuard.tenantIdMismatch'), identity.buildId)
   }
   if (envAppId !== identity.wxAppId) {
-    throw new TenantGuardError('identity-mismatch', '包内微信 AppID 与环境注入不一致', identity.buildId)
+    throw new TenantGuardError('identity-mismatch', translate('app.tenantGuard.appIdMismatch'), identity.buildId)
   }
   if (envOpenBoot !== identity.openBoot) {
-    throw new TenantGuardError('identity-mismatch', '包内部署模式与环境注入不一致', identity.buildId)
+    throw new TenantGuardError('identity-mismatch', translate('app.tenantGuard.openBootMismatch'), identity.buildId)
   }
   if (envApiBaseUrl !== identity.apiBaseUrl) {
-    throw new TenantGuardError('identity-mismatch', '包内 API 地址与环境注入不一致', identity.buildId)
+    throw new TenantGuardError('identity-mismatch', translate('app.tenantGuard.apiBaseUrlMismatch'), identity.buildId)
   }
   // #ifdef MP-WEIXIN
   // 真机/开发者工具读取运行容器 AppID；vitest（node 环境）里 #ifdef 不剥离，
@@ -112,7 +113,7 @@ function assertLocalIdentity(): void {
       realAppId = ''
     }
     if (realAppId !== identity.wxAppId) {
-      throw new TenantGuardError('device-mismatch', `运行容器 AppID 与包内期望不一致（real=${realAppId || 'unknown'}）`, identity.buildId)
+      throw new TenantGuardError('device-mismatch', translate('app.tenantGuard.deviceMismatch', { real: realAppId || 'unknown' }), identity.buildId)
     }
   }
   // #endif
@@ -144,7 +145,7 @@ async function runBindingCheck(): Promise<void> {
   try {
     const binding = await preflightTenantBinding(bindingHeaders())
     if (!binding.ready || binding.appId !== identity.wxAppId || binding.tenantId !== identity.tenantId) {
-      throw new TenantGuardError('binding-blocked', '服务端租户映射与包内身份不一致', identity.buildId)
+      throw new TenantGuardError('binding-blocked', translate('app.tenantGuard.bindingMismatch'), identity.buildId)
     }
     setState('ready')
     lastBindingAt = Date.now()
@@ -154,7 +155,7 @@ async function runBindingCheck(): Promise<void> {
     setState('blocked')
     bindingError = error instanceof TenantPreflightError || error instanceof TenantGuardError
       ? error
-      : new TenantGuardError('binding-blocked', (error as Error | null)?.message || '租户绑定校验失败', identity.buildId)
+      : new TenantGuardError('binding-blocked', (error as Error | null)?.message || translate('app.tenantGuard.bindingCheckFailed'), identity.buildId)
     throw bindingError
   }
 }
@@ -171,7 +172,7 @@ export async function ensureTenantReady(): Promise<void> {
   }
   if (state === 'blocked') {
     // 不自动重试：blocked 的恢复只能走用户重试或前台刷新
-    throw bindingError ?? new TenantGuardError('binding-blocked', '应用配置暂不可用')
+    throw bindingError ?? new TenantGuardError('binding-blocked', translate('app.tenantBlocked.title'))
   }
   if (!bindingPromise) {
     bindingPromise = runBindingCheck().finally(() => {
@@ -209,7 +210,7 @@ export async function refreshBindingOnShow(): Promise<void> {
     const binding = await preflightTenantBinding(bindingHeaders())
     if (!binding.ready || binding.appId !== identity.wxAppId || binding.tenantId !== identity.tenantId) {
       setState('blocked')
-      bindingError = new TenantGuardError('binding-blocked', '服务端租户映射已变更，请重新打开应用', identity.buildId)
+      bindingError = new TenantGuardError('binding-blocked', translate('app.tenantGuard.bindingChanged'), identity.buildId)
     }
   }
   catch {
@@ -236,7 +237,7 @@ export async function ensureSessionTenant(scope: TenantPreflightScope, token: st
       if (payload.tenantId !== identity.tenantId) {
         throw new TenantPreflightError({
           type: 'forbidden',
-          message: '会话租户与包内身份不一致',
+          message: translate('app.tenantGuard.sessionMismatch'),
           endpoint: '/auth/toc-token/tenant-session',
           statusCode: 403,
           scope,

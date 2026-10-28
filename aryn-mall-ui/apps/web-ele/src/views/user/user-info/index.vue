@@ -21,6 +21,7 @@ import { getList as getLevelList } from '#/api/user/member-level';
 import { delObj, getPage, updateStatus } from '#/api/user/user-info';
 import PageFilterPanel from '#/components/page/page-filter-panel.vue';
 import PageToolbar from '#/components/page/page-toolbar.vue';
+import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 import { useDict } from '#/utils/dict';
 import { formatMoney } from '#/utils/util';
 
@@ -159,6 +160,8 @@ const loadLevelOptions = async () => {
   }
 };
 loadLevelOptions();
+
+useKeepAliveRefresh(initPage);
 </script>
 <template>
   <div class="hx-layout-container">

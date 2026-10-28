@@ -37,7 +37,7 @@ public interface IDiscountActivityService extends IService<DiscountActivity> {
 	boolean updateWithGoods(DiscountActivityDTO dto);
 
 	/**
-	 * 更新活动状态
+	 * 更新活动状态；传 0 表示启用，按时间窗直接落到未开始/进行中/已结束。
 	 */
 	boolean updateStatus(String id, Integer status);
 

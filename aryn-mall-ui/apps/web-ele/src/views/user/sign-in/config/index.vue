@@ -6,6 +6,7 @@ import { ElButton, ElTable, ElTableColumn } from 'element-plus';
 
 import { delObj, getPage } from '#/api/user/sign-in-config';
 import PageToolbar from '#/components/page/page-toolbar.vue';
+import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 import { useDict } from '#/utils/dict';
 
 const RightToolbar = defineAsyncComponent(
@@ -64,6 +65,8 @@ const handleDelete = async (row: any) => {
 };
 
 initPage();
+
+useKeepAliveRefresh(initPage);
 </script>
 <template>
   <div class="hx-layout-container">

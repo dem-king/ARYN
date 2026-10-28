@@ -40,6 +40,9 @@ class TocLoginServiceTest {
 	@Mock
 	private LoginTenantGuard loginTenantGuard;
 
+	@Mock
+	private TenantAccessGuard tenantAccessGuard;
+
 	private MockedStatic<SecurityUtils> securityUtils;
 
 	private MockedStatic<StpUtil> stpUtil;
@@ -91,7 +94,8 @@ class TocLoginServiceTest {
 		when(remoteMallUserService.getUserById("user-1"))
 			.thenReturn(userVo("user-1", "tenant-1"));
 
-		TocLoginService service = new TocLoginService(remoteSocialUserService, remoteMallUserService, loginTenantGuard);
+		TocLoginService service = new TocLoginService(remoteSocialUserService, remoteMallUserService, loginTenantGuard,
+				tenantAccessGuard);
 		service.maLogin(wxMaRequest("tenant-1"));
 
 		verify(remoteMallUserService).getUserByOpenId("openid-1", "WX_MA");
@@ -105,7 +109,8 @@ class TocLoginServiceTest {
 		SocialUser socialUser = new SocialUser().setId("social-1").setOpenId("openid-1").setTenantId("tenant-other");
 		when(remoteSocialUserService.socialLogin(any())).thenReturn(socialUser);
 
-		TocLoginService service = new TocLoginService(remoteSocialUserService, remoteMallUserService, loginTenantGuard);
+		TocLoginService service = new TocLoginService(remoteSocialUserService, remoteMallUserService, loginTenantGuard,
+				tenantAccessGuard);
 		assertThatThrownBy(() -> service.maLogin(wxMaRequest("tenant-1")))
 			.isInstanceOf(ArynBusinessException.class)
 			.extracting(e -> ((ArynBusinessException) e).getMsg())
@@ -130,7 +135,8 @@ class TocLoginServiceTest {
 		when(remoteSocialUserService.socialLogin(any())).thenReturn(socialUser);
 		when(remoteSocialUserService.bindUserId(any())).thenReturn(true);
 
-		TocLoginService service = new TocLoginService(remoteSocialUserService, remoteMallUserService, loginTenantGuard);
+		TocLoginService service = new TocLoginService(remoteSocialUserService, remoteMallUserService, loginTenantGuard,
+				tenantAccessGuard);
 		service.maPhoneLogin(wxMaRequest("tenant-1"));
 
 		// guard 先于手机号解密发生：错误绑定（抛异常）时解密不应被调用，这里验证调用顺序
@@ -149,7 +155,8 @@ class TocLoginServiceTest {
 		UserInfo userInfo = new UserInfo().setId("user-1").setTenantId("tenant-h5");
 		when(remoteMallUserService.getInfoByPhone("13800000000", "H5")).thenReturn(userInfo);
 
-		TocLoginService service = new TocLoginService(remoteSocialUserService, remoteMallUserService, loginTenantGuard);
+		TocLoginService service = new TocLoginService(remoteSocialUserService, remoteMallUserService, loginTenantGuard,
+				tenantAccessGuard);
 		service.smsLogin(request);
 
 		// H5 分支保留既有语义：不走 guard、不查三方
@@ -162,7 +169,8 @@ class TocLoginServiceTest {
 		UserLoginReqDTO request = wxMaRequest("tenant-1");
 		request.setPlatformType("H5");
 
-		TocLoginService service = new TocLoginService(remoteSocialUserService, remoteMallUserService, loginTenantGuard);
+		TocLoginService service = new TocLoginService(remoteSocialUserService, remoteMallUserService, loginTenantGuard,
+				tenantAccessGuard);
 		assertThatThrownBy(() -> service.smsLogin(request))
 			.isInstanceOf(ArynBusinessException.class)
 			.extracting(e -> ((ArynBusinessException) e).getMsg())

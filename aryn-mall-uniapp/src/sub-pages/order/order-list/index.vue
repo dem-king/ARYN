@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onLoad, onUnload } from '@dcloudio/uni-app'
-import { nextTick, reactive, ref } from 'vue'
+import { computed, nextTick, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { getPage } from '@/api/order/orderInfo'
 import OrderOperation from '@/sub-pages/order/components/order-operation/index.vue'
 import { useDict } from '@/sub-pages/utils/dict'
@@ -29,27 +30,52 @@ interface State {
 // 定义变量
 const pagingRef = ref()
 const router = useRouter()
+const { t } = useI18n()
 const globalLoading = useGlobalLoading()
 // 滑动相关变量
 const touchStartX = ref(0)
 const touchEndX = ref(0)
 // 字典
 const { order_item_status, order_status } = useDict('order_item_status', 'order_status')
-const orderStatusList = ref([
+// 字典标签由后端下发中文，页面按状态码映射到当前语言；未知状态保留后端原文
+const ORDER_STATUS_LABEL_KEYS: Record<string, string> = {
+  1: 'order.status.pendingPayment',
+  2: 'order.status.pendingShipment',
+  3: 'order.status.pendingReceipt',
+  4: 'order.status.completed',
+  5: 'order.status.refunding',
+  11: 'order.status.cancelled',
+}
+const ORDER_ITEM_STATUS_LABEL_KEYS: Record<string, string> = {
+  1: 'order.status.pendingShipment',
+  2: 'order.status.shipped',
+  3: 'order.status.afterSalesProcessing',
+  6: 'order.status.refunded',
+  8: 'order.status.completed',
+}
+function translateDictOptions(options: any[] | undefined, keys: Record<string, string>) {
+  return (options || []).map((item: any) => {
+    const key = keys[item.value]
+    return key ? { ...item, label: t(key) } : item
+  })
+}
+const orderStatusOptions = computed(() => translateDictOptions(order_status.value, ORDER_STATUS_LABEL_KEYS))
+const orderItemStatusOptions = computed(() => translateDictOptions(order_item_status.value, ORDER_ITEM_STATUS_LABEL_KEYS))
+const orderStatusList = computed(() => [
   {
-    name: '全部订单',
+    name: t('order.list.tabs.all'),
   },
   {
-    name: '待付款',
+    name: t('order.list.tabs.pendingPayment'),
   },
   {
-    name: '待发货',
+    name: t('order.list.tabs.pendingShipment'),
   },
   {
-    name: '待收货',
+    name: t('order.list.tabs.pendingReceipt'),
   },
   {
-    name: '待评价',
+    name: t('order.list.tabs.pendingReview'),
   },
 ])
 const state = reactive<State>({
@@ -76,7 +102,7 @@ onLoad(async (options) => {
 })
 
 async function queryList(pageNo: number, pageSize: number) {
-  globalLoading.loading('加载中...')
+  globalLoading.loading(t('common.loading'))
   try {
     const response = await getPage({
       current: pageNo,
@@ -170,17 +196,27 @@ onUnload(() => {
 
 <template>
   <z-paging
-    ref="pagingRef" v-model="state.orderList" :auto="false" @query="queryList" @touchstart="handleTouchStart"
-    @touchend="handleTouchEnd"
+    ref="pagingRef" v-model="state.orderList" :auto="false"
+    :refresher-default-text="t('order.list.refresherPull')"
+    :refresher-pulling-text="t('order.list.refresherRelease')"
+    :refresher-refreshing-text="t('order.list.refresherRefreshing')"
+    :refresher-complete-text="t('order.list.refresherDone')"
+    :loading-more-default-text="t('order.list.loadMore')"
+    :loading-more-loading-text="t('common.loading')"
+    :loading-more-fail-text="t('order.list.loadMoreFailed')"
+    :loading-more-no-more-text="t('order.list.noMore')"
+    @query="queryList" @touchstart="handleTouchStart" @touchend="handleTouchEnd"
   >
     <template #empty>
       <view class="order-empty">
         <image class="order-empty-img" src="/static/promotion/empty/empty-order.png" mode="aspectFit" />
-        <text class="order-empty-tip">还没有相关订单</text>
+        <text class="order-empty-tip">
+          {{ t('order.list.empty') }}
+        </text>
       </view>
     </template>
     <template #top>
-      <hr-navbar title="我的订单" />
+      <hr-navbar :title="t('order.list.title')" />
       <wd-tabs
         v-model="state.tabCurrent"
         slidable="always"
@@ -204,16 +240,16 @@ onUnload(() => {
             </view>
             <view>
               <view v-if="order.deliveryWay === '2' && order.status === '3'" class="text-22rpx">
-                待自提
+                {{ t('order.status.pendingPickup') }}
               </view>
               <!-- 自配送（way=3）/内部配送（way=4）在司机出发前订单状态恒为待发货，按详情页口径显示备货中 -->
               <view
                 v-else-if="order.status === '2' && (order.deliveryWay === '3' || order.deliveryWay === '4')"
                 class="text-22rpx"
               >
-                备货中
+                {{ t('order.status.preparing') }}
               </view>
-              <dict-tag v-else :options="order_status" :value="order.status" />
+              <dict-tag v-else :options="orderStatusOptions" :value="order.status" />
             </view>
           </view>
           <view v-for="(item, itemIndex) in order.orderItemList" :key="itemIndex" class="flex pt-10rpx">
@@ -248,11 +284,11 @@ onUnload(() => {
                     hover-stop-propagation
                     type="info"
                   >
-                    申请售后
+                    {{ t('order.actions.applyAfterSales') }}
                   </wd-button>
                 </view>
                 <wd-button v-else type="text" custom-class="float-right" size="small">
-                  <dict-tag :options="order_item_status" :value="item.status" />
+                  <dict-tag :options="orderItemStatusOptions" :value="item.status" />
                 </wd-button>
               </view>
             </view>
@@ -261,7 +297,7 @@ onUnload(() => {
 
         <view class="flex items-center justify-end py-20rpx">
           <text class="text-13px">
-            共{{ order.orderItemList.length }}件商品， 合计
+            {{ t('order.list.totalItems', { count: order.orderItemList.length }) }}
           </text>
           <wd-text
             custom-class="pl-10rpx" size="28rpx"

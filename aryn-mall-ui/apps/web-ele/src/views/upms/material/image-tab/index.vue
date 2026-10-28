@@ -21,6 +21,7 @@ import {
 import { delObj, editObj, getPage } from '#/api/upms/material';
 import { addObj as addObjGroup, getList } from '#/api/upms/material-group';
 import { uploadFile } from '#/api/upms/upload';
+import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 
 // 新增props和emits
 const props = defineProps({
@@ -294,6 +295,8 @@ const handlePreview = async (url: string) => {
 };
 getGroup();
 initPage();
+
+useKeepAliveRefresh(initPage);
 </script>
 <template>
   <div>

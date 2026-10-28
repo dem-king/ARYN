@@ -15,6 +15,7 @@ import com.aryn.cloud.order.service.IDeliveryTaskService;
 import org.apache.dubbo.config.annotation.DubboReference;
 import com.aryn.cloud.order.service.IOrderInfoService;
 import com.aryn.cloud.order.service.IOrderItemService;
+import com.aryn.cloud.order.service.IOrderRefundService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.event.EventListener;
@@ -38,6 +39,8 @@ public class ArynOrderPayEventListener {
 
 	private final IOrderItemService orderItemService;
 
+	private final IOrderRefundService orderRefundService;
+
 	private final OrderPaySuccessNotifier orderPaySuccessNotifier;
 
 	private final IDeliveryTaskService deliveryTaskService;
@@ -59,7 +62,7 @@ public class ArynOrderPayEventListener {
 			return;
 		}
 		if (OrderStatusEnum.CANCELED.getCode().equals(orderInfo.getStatus())) {
-			log.warn("订单[{}]已取消，忽略支付回调，不补建配送任务", orderInfo.getId());
+			compensatePaidCanceledOrder(orderInfo);
 			return;
 		}
 
@@ -122,6 +125,38 @@ public class ArynOrderPayEventListener {
 
 		// 通知销量增加、优惠券更改状态
 		TransactionalMqUtils.sendAfterCommit(() -> orderPaySuccessNotifier.notify(orderInfo, orderItemEntityList));
+	}
+
+	/**
+	 * 订单已取消但渠道确认到账：先记录支付事实，再按明细原路退款。
+	 * 取消链路已释放库存/券/积分，这里只补资金退款，避免二次回滚业务资源。
+	 */
+	private void compensatePaidCanceledOrder(OrderInfo orderInfo) {
+		boolean updated = orderInfoService.update(Wrappers.<OrderInfo>lambdaUpdate()
+			.eq(OrderInfo::getId, orderInfo.getId())
+			.eq(OrderInfo::getStatus, OrderStatusEnum.CANCELED.getCode())
+			.eq(OrderInfo::getPayStatus, CommonConstants.NO)
+			.set(OrderInfo::getPayStatus, CommonConstants.YES)
+			.set(OrderInfo::getPaymentTime, orderInfo.getPaymentTime())
+			.set(OrderInfo::getPaymentType, orderInfo.getPaymentType())
+			.set(OrderInfo::getTransactionId, orderInfo.getTransactionId()));
+		if (!updated) {
+			OrderInfo current = orderInfoService.getById(orderInfo.getId());
+			if (current == null || !CommonConstants.YES.equals(current.getPayStatus())
+					|| !OrderStatusEnum.CANCELED.getCode().equals(current.getStatus())) {
+				throw new ArynBusinessException("订单取消后到账状态更新失败，请重试");
+			}
+			orderInfo.setPaymentTime(current.getPaymentTime() != null ? current.getPaymentTime()
+					: orderInfo.getPaymentTime());
+			orderInfo.setPaymentType(current.getPaymentType() != null ? current.getPaymentType()
+					: orderInfo.getPaymentType());
+			orderInfo.setTransactionId(current.getTransactionId() != null ? current.getTransactionId()
+					: orderInfo.getTransactionId());
+		}
+		orderInfo.setPayStatus(CommonConstants.YES);
+		boolean refunded = orderRefundService.refundPaidCanceledOrder(orderInfo, "订单取消后到账自动退款");
+		log.warn("订单[{}]取消后到账，已记录支付并{}", orderInfo.getId(),
+				refunded ? "发起自动退款" : "未产生新退款（可能已退款或需人工核对）");
 	}
 
 }

@@ -1,5 +1,6 @@
 package com.aryn.cloud.product.support;
 
+import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.product.mapper.ReplenishImportMatchMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -164,6 +165,9 @@ public class CatalogVectorRecallService {
 		if (cached.builtAt().plus(cacheTtl).isBefore(LocalDateTime.now())
 				&& rebuilding.add(tenantId)) {
 			CompletableFuture.runAsync(() -> {
+				// 默认线程池不会传递 ThreadLocal；不恢复租户会让租户插件追加 tenant_id = NULL
+				String previousTenantId = ArynTenantContextHolder.getTenantId();
+				ArynTenantContextHolder.setTenantId(tenantId);
 				try {
 					synchronized (buildLock(tenantId)) {
 						CatalogVectors fresh = buildCatalog(tenantId);
@@ -176,6 +180,12 @@ public class CatalogVectorRecallService {
 				}
 				finally {
 					rebuilding.remove(tenantId);
+					if (StringUtils.hasText(previousTenantId)) {
+						ArynTenantContextHolder.setTenantId(previousTenantId);
+					}
+					else {
+						ArynTenantContextHolder.removeTenantId();
+					}
 				}
 			});
 		}

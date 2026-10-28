@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { onLoad } from '@dcloudio/uni-app'
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 import { getPage } from '@/sub-pages/api/product/footprint'
+import { stockHintText } from '@/utils/stock-display'
 
 definePage({
   name: 'footprint',
@@ -12,6 +14,7 @@ definePage({
   },
 })
 
+const { t } = useI18n()
 const list = ref<any>([])
 const globalLoading = useGlobalLoading()
 
@@ -23,7 +26,7 @@ onLoad(async () => {
   })
 })
 async function queryList(pageNo: number, pageSize: number) {
-  globalLoading.loading('加载中...')
+  globalLoading.loading(t('common.loading'))
   try {
     const response = await getPage({
       current: pageNo,
@@ -49,7 +52,7 @@ function toGoodsDetail(id: string) {
 <template>
   <z-paging ref="pagingRef" v-model="list" :auto="false" @query="queryList">
     <template #top>
-      <hr-navbar title="我的足迹" />
+      <hr-navbar :title="t('accountSettings.footprint.navTitle')" />
     </template>
     <view class="py-1">
       <view v-for="(item, index) in list" :key="index" class="m-2 rounded-xl bg-white p-2">
@@ -71,7 +74,7 @@ function toGoodsDetail(id: string) {
                     ￥{{ g.originalPrice }}
                   </text>
                 </view>
-                <wd-text size="22rpx" :text="`库存 ${g.stock}`" />
+                <wd-text v-if="stockHintText(g.stock)" size="22rpx" :text="stockHintText(g.stock)" />
               </view>
               <view class="mt-2 flex justify-end">
                 <wd-text size="24rpx" :text="g.createTime" />

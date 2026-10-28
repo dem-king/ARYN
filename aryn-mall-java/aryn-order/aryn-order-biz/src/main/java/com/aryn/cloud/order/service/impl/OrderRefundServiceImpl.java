@@ -32,7 +32,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.DigestUtils;
+import org.springframework.util.StringUtils;
 
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Objects;
 
@@ -205,19 +209,123 @@ public class OrderRefundServiceImpl extends ServiceImpl<OrderRefundMapper, Order
 		if (ownerOrder == null) {
 			throw new ArynBusinessException("子订单不存在");
 		}
-		// 只有已支付订单可以退款
-		if (OrderItemStatusEnum.PAID.getCode().equals(orderItemEntity.getStatus())
-				|| OrderItemStatusEnum.SHIPPED.getCode().equals(orderItemEntity.getStatus())) {
-			orderItemEntity.setStatus(OrderItemStatusEnum.AFTER_SALE_PROCESSING.getCode());
-			orderItemMapper.updateById(orderItemEntity);
-			orderRefund.setRefundTradeNo(SnowflakeIdUtils.refundOrderNo());
-			orderRefund.setRefundAmount(orderItemEntity.getPaymentPrice());
-			orderRefund.setArrivalStatus(OrderArrivalStatusEnum.NOT_REFUNDED.getCode());
-			orderRefund.setOrderId(orderItemEntity.getOrderId());
-			orderRefund.setStatus(OrderRefundEnum.PENDING_REVIEW.getCode());
-			baseMapper.insert(orderRefund);
+		// 只有已支付且未进入售后的明细可以申请退款；条件更新兜住并发申请，
+		// 避免两个请求同时读到可退状态后各自生成退款单。
+		if (!OrderItemStatusEnum.PAID.getCode().equals(orderItemEntity.getStatus())
+				&& !OrderItemStatusEnum.SHIPPED.getCode().equals(orderItemEntity.getStatus())) {
+			throw new ArynBusinessException("订单状态已变化，无法申请退款");
 		}
+		long activeRefunds = baseMapper.selectCount(Wrappers.<OrderRefund>lambdaQuery()
+			.eq(OrderRefund::getOrderItemId, orderItemEntity.getId())
+			.ne(OrderRefund::getStatus, OrderRefundEnum.REVIEW_REJECTED.getCode()));
+		if (activeRefunds > 0) {
+			throw new ArynBusinessException("该商品已有处理中的退款申请");
+		}
+		int updated = orderItemMapper.update(null, Wrappers.<OrderItemEntity>lambdaUpdate()
+			.eq(OrderItemEntity::getId, orderItemEntity.getId())
+			.in(OrderItemEntity::getStatus, OrderItemStatusEnum.PAID.getCode(),
+					OrderItemStatusEnum.SHIPPED.getCode())
+			.set(OrderItemEntity::getStatus, OrderItemStatusEnum.AFTER_SALE_PROCESSING.getCode()));
+		if (updated == 0) {
+			throw new ArynBusinessException("订单状态已变化，请刷新后重试");
+		}
+		orderRefund.setRefundTradeNo(SnowflakeIdUtils.refundOrderNo());
+		orderRefund.setRefundAmount(orderItemEntity.getPaymentPrice());
+		orderRefund.setArrivalStatus(OrderArrivalStatusEnum.NOT_REFUNDED.getCode());
+		orderRefund.setOrderId(orderItemEntity.getOrderId());
+		orderRefund.setStatus(OrderRefundEnum.PENDING_REVIEW.getCode());
+		if (!StringUtils.hasText(orderRefund.getRefundType())) {
+			orderRefund.setRefundType(MallOrderConstants.REFUND_TYPE_ONLY_REFUND);
+		}
+		baseMapper.insert(orderRefund);
 		return orderRefund;
+	}
+
+	/**
+	 * 已取消订单的迟到支付补偿。退款单号按订单项确定性生成，支付域据此幂等；
+	 * 订单侧已有退款单的明细直接跳过，保证消息重投不会重复退款。
+	 */
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public boolean refundPaidCanceledOrder(OrderInfo orderInfo, String reason) {
+		if (orderInfo == null || !CommonConstants.YES.equals(orderInfo.getPayStatus())) {
+			return false;
+		}
+		if (!MallOrderConstants.PAYMENT_TYPE_1.equals(orderInfo.getPaymentType())
+				&& !MallOrderConstants.PAYMENT_TYPE_2.equals(orderInfo.getPaymentType())) {
+			log.error("订单[{}]支付方式[{}]不支持迟到支付自动退款，请人工核对", orderInfo.getId(),
+					orderInfo.getPaymentType());
+			return false;
+		}
+		OrderConfig orderConfig = orderConfigService.getConfig();
+		if (Objects.isNull(orderConfig)) {
+			throw new ArynBusinessException("订单配置不存在");
+		}
+		BigDecimal paidAmount = orderInfo.getPaymentPrice();
+		if (paidAmount == null || paidAmount.compareTo(BigDecimal.ZERO) <= 0) {
+			log.warn("订单[{}]支付金额不大于0，跳过迟到支付退款", orderInfo.getId());
+			return false;
+		}
+		List<OrderItemEntity> orderItems = orderItemMapper.selectList(Wrappers.<OrderItemEntity>lambdaQuery()
+			.eq(OrderItemEntity::getOrderId, orderInfo.getId()));
+		boolean refundedAny = false;
+		for (OrderItemEntity item : orderItems) {
+			if (CommonConstants.YES.equals(item.getGiftFlag())) {
+				continue;
+			}
+			BigDecimal refundAmount = item.getPaymentPrice();
+			if (refundAmount == null || refundAmount.compareTo(BigDecimal.ZERO) <= 0) {
+				continue;
+			}
+			long exists = baseMapper.selectCount(Wrappers.<OrderRefund>lambdaQuery()
+				.eq(OrderRefund::getOrderItemId, item.getId()));
+			if (exists > 0) {
+				log.info("订单[{}]明细[{}]已有退款单，迟到支付补偿跳过", orderInfo.getId(), item.getId());
+				continue;
+			}
+			OrderRefund orderRefund = new OrderRefund();
+			orderRefund.setOrderId(orderInfo.getId());
+			orderRefund.setOrderItemId(item.getId());
+			orderRefund.setUserId(orderInfo.getUserId());
+			orderRefund.setRefundAmount(refundAmount);
+			orderRefund.setRefundTradeNo(canceledOrderRefundNo(orderInfo.getOrderNo(), item.getId()));
+			orderRefund.setRefundReason(reason);
+			orderRefund.setRefundType(MallOrderConstants.REFUND_TYPE_ONLY_REFUND);
+			orderRefund.setStatus(OrderRefundEnum.REFUND_COMPLETED.getCode());
+			orderRefund.setArrivalStatus(OrderArrivalStatusEnum.REFUNDING.getCode());
+			baseMapper.insert(orderRefund);
+
+			OrderItemEntity patch = new OrderItemEntity();
+			patch.setId(item.getId());
+			patch.setStatus(OrderItemStatusEnum.AFTER_SALE_PROCESSING.getCode());
+			orderItemMapper.updateById(patch);
+
+			CreateRefundsReqDTO createRefundsReqDTO = new CreateRefundsReqDTO();
+			createRefundsReqDTO.setRefundAmount(refundAmount);
+			createRefundsReqDTO.setRefundTradeNo(orderRefund.getRefundTradeNo());
+			createRefundsReqDTO.setNotifyUrl(orderConfig.getNotifyUrl());
+			createRefundsReqDTO.setOutTradeNo(orderInfo.getOrderNo());
+			createRefundsReqDTO.setTotalAmount(paidAmount);
+			createRefundsReqDTO.setUserId(orderInfo.getUserId());
+			JSONObject extraParams = new JSONObject();
+			extraParams.put("mqNotifyUrl", RocketMqConstants.PAY_REFUND_NOTIFY_TOPIC);
+			createRefundsReqDTO.setExtra(extraParams.toJSONString());
+			createRefundsReqDTO.setRefundType(MallOrderConstants.PAYMENT_TYPE_1.equals(orderInfo.getPaymentType())
+					? PayConstants.WECHAT_REFUND : PayConstants.ALIPAY_REFUND);
+			remoteRefundService.refunds(createRefundsReqDTO);
+			refundedAny = true;
+		}
+		if (!refundedAny) {
+			log.warn("订单[{}]迟到支付补偿未产生退款单，请人工核对", orderInfo.getId());
+		}
+		return refundedAny;
+	}
+
+	/** 退款单号最长 64，超长时用订单号与明细的摘要保持确定性。 */
+	private String canceledOrderRefundNo(String orderNo, String orderItemId) {
+		String value = "C" + orderNo + "-" + orderItemId;
+		return value.length() <= 64 ? value
+				: "C" + DigestUtils.md5DigestAsHex(value.getBytes(StandardCharsets.UTF_8));
 	}
 
 	@Override
@@ -269,6 +377,7 @@ public class OrderRefundServiceImpl extends ServiceImpl<OrderRefundMapper, Order
 			saveRequest.setOrderItemId(item.getId());
 			saveRequest.setUserId(orderInfo.getUserId());
 			saveRequest.setRefundReason(reason);
+			saveRequest.setRefundType(MallOrderConstants.REFUND_TYPE_ONLY_REFUND);
 			OrderRefund saved = saveRefund(saveRequest);
 			if (ObjectUtil.isNull(saved) || ObjectUtil.isNull(saved.getId())) {
 				continue;

@@ -2,6 +2,7 @@
 import type { ServicePromiseProps } from '@/components/diy/retail-types'
 
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useDiyStyle } from '@/composables/useDiyStyle'
 
 const props = defineProps({
@@ -11,6 +12,7 @@ const props = defineProps({
   },
 })
 
+const { t } = useI18n()
 const componentProps = computed(() => props.showData as unknown as ServicePromiseProps)
 const items = computed(() => componentProps.value.items || [])
 const dynamicStyles = useDiyStyle(computed(() => componentProps.value.commonStyle))
@@ -43,7 +45,7 @@ function fallbackIcon(title: string): string {
         {{ componentProps.title }}
       </view>
       <view v-if="items.length === 0" class="promise-empty">
-        暂无服务承诺，请在装修中配置
+        {{ t('diy.servicePromise.empty') }}
       </view>
       <view v-else class="promise-row">
         <view v-for="item in items" :key="item.id" class="promise-item">

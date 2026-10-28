@@ -95,6 +95,12 @@
             <if test="query.brandId != null and query.brandId != ''">
                 AND goods_spu.brand_id = #{query.brandId}
             </if>
+            <if test="query.categoryFirstId != null and query.categoryFirstId != ''">
+                AND goods_spu.category_first_id = #{query.categoryFirstId}
+            </if>
+            <if test="query.categorySecondId != null and query.categorySecondId != ''">
+                AND goods_spu.category_second_id = #{query.categorySecondId}
+            </if>
         </where>
     </select>
 
@@ -135,8 +141,86 @@
             <if test="query.brandId != null and query.brandId != ''">
                 AND goods_spu.brand_id = #{query.brandId}
             </if>
+            <!-- 低价捡漏（F1）：bargainRate 只作为绑定值参与比较，绝不拼进 SQL 文本；
+                 original_price > 0 防除零；IS NOT NULL 让存量未填划线价的商品不进池。
+                 未携带时整段不生效，SQL 与存量行为逐字一致（存量零影响）。 -->
+            <if test="bargainRate != null">
+                AND goods_spu.original_price IS NOT NULL
+                AND goods_spu.original_price &gt; 0
+                AND goods_spu.original_price &gt;= goods_spu.sales_price * #{bargainRate}
+            </if>
 
         </where>
+        <!-- 固定排序：折扣率 = (原价-售价)/原价 降序；同折扣率按售价升序、id 降序兜底稳定分页。
+             携带 bargainRate 时调用方必须已清空 Page.orders（忽略 asc/desc），
+             否则分页插件会在本 ORDER BY 之前再拼一层排序列；不带时本段不输出，排序仍由 Page.orders 决定。 -->
+        <if test="bargainRate != null">
+            ORDER BY ((goods_spu.original_price - goods_spu.sales_price) / goods_spu.original_price) DESC,
+            goods_spu.sales_price ASC,
+            goods_spu.id DESC
+        </if>
+    </select>
+    <!-- 推荐流（商详/购物车/个人中心/订单页共用）：
+         排除指定商品；有分类上下文时同二级分类优先、再同一级分类；
+         其余按销量/上架时间兜底。推荐流是无限滚动，调用方已关闭 count 查询，
+         因此 ORDER BY 可以安全使用带绑定参数的 IN。 -->
+    <select id="selectRecommendPage" resultType="com.aryn.cloud.product.api.entity.GoodsSpu">
+        SELECT
+        <include refid="goodsSpuSql"/>,
+        goods_category.name AS categoryName,
+        goods_brand.name AS brandName
+        FROM
+        goods_spu AS goods_spu
+        LEFT JOIN goods_category AS goods_category ON goods_spu.category_second_id = goods_category.id
+        LEFT JOIN goods_brand AS goods_brand ON goods_spu.brand_id = goods_brand.id
+        <where>
+            AND goods_spu.`del_flag` = '0'
+            AND goods_category.`del_flag` = '0'
+            AND goods_spu.`status` = '1'
+            <if test="excludeIds != null and excludeIds.size() > 0">
+                AND goods_spu.id NOT IN
+                <foreach collection="excludeIds" item="excludeId" open="(" separator="," close=")">
+                    #{excludeId}
+                </foreach>
+            </if>
+        </where>
+        <!-- 固定排序：分类命中权重 → 销量 → 上架时间 → id，最后两级保证翻页顺序稳定 -->
+        <choose>
+            <when test="(categorySecondIds != null and categorySecondIds.size() > 0)
+                    or (categoryFirstIds != null and categoryFirstIds.size() > 0)">
+                ORDER BY
+                <if test="categorySecondIds != null and categorySecondIds.size() > 0">
+                    CASE
+                    WHEN goods_spu.category_second_id IN
+                    <foreach collection="categorySecondIds" item="categorySecondId" open="(" separator="," close=")">
+                        #{categorySecondId}
+                    </foreach>
+                    THEN 0
+                    <if test="categoryFirstIds != null and categoryFirstIds.size() > 0">
+                        WHEN goods_spu.category_first_id IN
+                        <foreach collection="categoryFirstIds" item="categoryFirstId" open="(" separator="," close=")">
+                            #{categoryFirstId}
+                        </foreach>
+                        THEN 1
+                    </if>
+                    ELSE 2 END,
+                </if>
+                <if test="(categorySecondIds == null or categorySecondIds.size() == 0)
+                        and categoryFirstIds != null and categoryFirstIds.size() > 0">
+                    CASE WHEN goods_spu.category_first_id IN
+                    <foreach collection="categoryFirstIds" item="categoryFirstId" open="(" separator="," close=")">
+                        #{categoryFirstId}
+                    </foreach>
+                    THEN 0 ELSE 1 END,
+                </if>
+            </when>
+            <otherwise>
+                ORDER BY
+            </otherwise>
+        </choose>
+        goods_spu.sales_volume DESC,
+        goods_spu.create_time DESC,
+        goods_spu.id DESC
     </select>
     <select id="selectSpuByShoppingCart" resultType="com.aryn.cloud.product.api.entity.GoodsSpu">
         SELECT
@@ -154,20 +238,6 @@
         where goods_spu.id = #{id}
         AND goods_spu.del_flag = '0'
         AND goods_spu.status = '1'
-    </select>
-    <select id="getTop10HotSearchGoods" resultType="com.aryn.cloud.product.api.entity.GoodsSpu">
-        SELECT
-            g.id,
-            g.name,
-            g.sub_title,
-            g.spu_urls,
-            COUNT(f.id) AS view_count
-        FROM goods_spu g
-                 LEFT JOIN goods_footprint f ON g.id = f.spu_id AND f.del_flag = '0'
-        WHERE g.del_flag = '0' AND g.status = '1'
-        GROUP BY g.id, g.name, g.sub_title, g.spu_urls
-        ORDER BY view_count DESC
-            LIMIT 10;
     </select>
 
     <!-- 统一商品目录分页（2026-09-29 船供资料下线）：

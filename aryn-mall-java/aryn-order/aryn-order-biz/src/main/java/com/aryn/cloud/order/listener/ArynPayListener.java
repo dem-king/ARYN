@@ -9,6 +9,7 @@ import com.aryn.cloud.common.core.constant.RocketMqConstants;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.order.api.entity.OrderInfo;
 import com.aryn.cloud.order.api.entity.OrderItemEntity;
+import com.aryn.cloud.order.api.enums.OrderStatusEnum;
 import com.aryn.cloud.order.event.ArynOrderPayEvent;
 import com.aryn.cloud.order.event.listener.OrderPaySuccessNotifier;
 import com.aryn.cloud.order.service.IOrderInfoService;
@@ -88,7 +89,14 @@ public class ArynPayListener implements RocketMQListener<String> {
 				return;
 			}
 
-			if (CommonConstants.NO.equals(orderInfo.getPayStatus())) {
+			if (OrderStatusEnum.CANCELED.getCode().equals(orderInfo.getStatus())) {
+				// 取消后才到达的支付：必须进入补偿退款，不能按支付成功继续发货或加销量
+				orderInfo.setPaymentTime(paySuccessTime);
+				orderInfo.setPaymentType(payType);
+				orderInfo.setTransactionId(transactionId);
+				applicationEventPublisher.publishEvent(new ArynOrderPayEvent(this, orderInfo, orderItemEntityList));
+			}
+			else if (CommonConstants.NO.equals(orderInfo.getPayStatus())) {
 				orderInfo.setPaymentTime(paySuccessTime);
 				orderInfo.setPaymentType(payType);
 				orderInfo.setTransactionId(transactionId);

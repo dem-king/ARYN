@@ -19,6 +19,7 @@
  * 未绑定用户的绑定入口在「我的」页，不在首页堆引导文案。
  */
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import { getMyVessels, getVesselCalls } from '@/api/vessel'
 import type { ShipWorkbenchProps } from '@/components/diy/retail-types'
@@ -34,6 +35,7 @@ import { formatCallTime } from '@/utils/vessel-call-time'
 const props = withDefaults(defineProps<{ showData?: Partial<ShipWorkbenchProps> }>(), {
   showData: () => ({}),
 })
+const { t } = useI18n()
 
 /**
  * 与其他零售组件保持一致：运营在编辑器配置的「通用样式」必须真正生效，
@@ -74,9 +76,9 @@ const visible = computed(() => {
 
 const summary = computed(() => {
   if (loading.value)
-    return '正在加载…'
+    return t('diy.shipWorkbench.loading')
   if (status.value === 'noCall')
-    return '暂无靠港计划，点击申报'
+    return t('diy.shipWorkbench.noCall')
 
   const parts: string[] = []
   if (shipContextStore.portName) {
@@ -85,7 +87,7 @@ const summary = computed(() => {
   const arrival = formatCallTime(shipContextStore.deliveryWindowStart)
   if (arrival)
     parts.push(arrival)
-  return parts.length > 0 ? parts.join(' · ') : '靠港信息待完善'
+  return parts.length > 0 ? parts.join(' · ') : t('diy.shipWorkbench.incomplete')
 })
 
 async function loadWorkbench() {
@@ -187,7 +189,7 @@ usePageShowLoad(loadWorkbench)
       class="ml-16rpx flex-none border-0 border-l border-gray-200 border-solid pl-20rpx text-24rpx text-amber-700"
       @tap.stop="goFrequent"
     >
-      常购
+      {{ t('diy.shipWorkbench.frequent') }}
     </view>
 
     <ShipContextPicker v-model="pickerVisible" @change="loadWorkbench" />

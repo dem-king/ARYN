@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onLoad } from '@dcloudio/uni-app'
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { getById } from '@/sub-pages/api/order/orderItem'
 import { addObj } from '@/sub-pages/api/order/orderRefunds'
 
@@ -19,14 +20,15 @@ const state = reactive<{ orderItem: any, orderRefund: any }>({
     refundType: '',
   },
 })
-const refundTypeColumns = ref([
+const { t } = useI18n()
+const refundTypeColumns = computed(() => [
   {
     value: '1',
-    label: '仅退款',
+    label: t('afterSales.submit.refundOnly'),
   },
   {
     value: '2',
-    label: '退货退款',
+    label: t('afterSales.submit.returnRefund'),
   },
 ])
 const loading = ref(false)
@@ -38,7 +40,7 @@ onLoad((options) => {
   getOrderItem(options?.orderItemId)
 })
 async function getOrderItem(orderItemId: string) {
-  globalLoading.loading('加载中...')
+  globalLoading.loading(t('common.loading'))
   loading.value = true
   try {
     state.orderItem = await getById(orderItemId)
@@ -51,15 +53,15 @@ async function getOrderItem(orderItemId: string) {
 function onsubmit() {
   state.orderRefund.orderItemId = state.orderItem.id
   if (!state.orderRefund.refundType) {
-    return show('请选择服务类型')
+    return show(t('afterSales.submit.selectServiceType'))
   }
   confirm({
-    title: '申请退款',
-    msg: '确认提交申请？',
+    title: t('afterSales.submit.navTitle'),
+    msg: t('afterSales.submit.confirmSubmit'),
     closeOnClickModal: false,
     success: (res) => {
       if (res.action === 'confirm') {
-        globalLoading.loading('加载中...')
+        globalLoading.loading(t('common.loading'))
         addObj(state.orderRefund).then(() => {
           globalLoading.close()
           uni.$emit('refresh')
@@ -73,11 +75,11 @@ function onsubmit() {
 </script>
 
 <template>
-  <hr-navbar title="申请退款" />
+  <hr-navbar :title="t('afterSales.submit.navTitle')" />
   <view class="p-2">
     <view v-if="!loading" class="rounded-xl bg-white p-2 dark:bg-[var(--wot-dark-background2)]">
       <view class="text-14px text-gray-800 font-bold">
-        退款商品
+        {{ t('afterSales.submit.refundProduct') }}
       </view>
       <view class="flex pt-2">
         <image :src="state.orderItem.picUrl" class="h-160rpx w-160rpx flex-none rounded-lg" />
@@ -95,22 +97,26 @@ function onsubmit() {
         </view>
       </view>
       <wd-select-picker
-        v-model="state.orderRefund.refundType" label="服务类型" title="选择服务类型" align-right type="radio"
-        required placeholder="请选择服务类型" :columns="refundTypeColumns"
+        v-model="state.orderRefund.refundType" :label="t('afterSales.submit.serviceType')"
+        :title="t('afterSales.submit.serviceTypeTitle')" align-right type="radio"
+        required :placeholder="t('afterSales.submit.serviceTypePlaceholder')" :columns="refundTypeColumns"
       />
-      <wd-cell title="退款金额" required>
+      <wd-cell :title="t('afterSales.submit.refundAmount')" required>
         <wd-text :text="state.orderItem?.paymentPrice" color="red" mode="price" prefix="￥" />
       </wd-cell>
-      <wd-cell v-if="state.orderRefund.refundType === '2'" title="退货件数" required>
+      <wd-cell v-if="state.orderRefund.refundType === '2'" :title="t('afterSales.submit.returnQty')" required>
         <wd-text size="26rpx" color="inherit" :text="`x${state.orderItem?.buyQuantity}`" />
       </wd-cell>
-      <wd-cell title="退款原因" title-width="100%" />
+      <wd-cell :title="t('afterSales.submit.refundReason')" title-width="100%" />
       <view>
-        <wd-textarea v-model="state.orderRefund.refundReason" custom-class="wd-textarea" placeholder="请填写退款原因" />
+        <wd-textarea
+          v-model="state.orderRefund.refundReason" custom-class="wd-textarea"
+          :placeholder="t('afterSales.submit.refundReasonPlaceholder')"
+        />
       </view>
       <view class="fixed bottom-0 left-0 right-0 bg-white p-20rpx pb-[max(env(safe-area-inset-bottom),16rpx)]">
         <wd-button block type="primary" @click="onsubmit">
-          提交申请
+          {{ t('afterSales.submit.submit') }}
         </wd-button>
       </view>
     </view>

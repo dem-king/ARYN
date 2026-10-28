@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
+import { useI18n } from 'vue-i18n'
 import { editObj } from '@/sub-pages/api/user/user'
 import { uploadFile, uploadImg } from '@/api/upms/file'
 
@@ -20,6 +21,7 @@ interface Form {
 
 const userStore = useUserStore()
 
+const { t } = useI18n()
 const globalLoading = useGlobalLoading()
 const router = useRouter()
 const formRef = ref()
@@ -35,14 +37,14 @@ onLoad(() => {
   state.form.nickname = userStore.getUserNickname
   state.form.sex = userStore.getUserInfo?.sex ?? ''
 })
-const sexColumns = ref<any>([
+const sexColumns = computed(() => [
   {
     value: '1',
-    label: '男',
+    label: t('accountSettings.profile.male'),
   },
   {
     value: '2',
-    label: '女',
+    label: t('accountSettings.profile.female'),
   },
 ])
 function chooseImage() {
@@ -51,7 +53,7 @@ function chooseImage() {
     sizeType: ['original', 'compressed'], // 可以指定是原图还是压缩图，默认二者都有
     sourceType: ['album'], // 从相册选择
     success(res) {
-      globalLoading.loading('上传中...')
+      globalLoading.loading(t('accountSettings.profile.uploading'))
       uploadFile(res.tempFilePaths[0]).then((response) => {
         state.form.avatarUrl = response.data
       }).finally(() => {
@@ -69,7 +71,7 @@ function edit() {
     .validate()
     .then(({ valid }: any) => {
       if (valid) {
-        globalLoading.loading('修改中...')
+        globalLoading.loading(t('accountSettings.profile.saving'))
         editObj({
           sex: state.form.sex,
           nickname: state.form.nickname,
@@ -92,7 +94,7 @@ function edit() {
 </script>
 
 <template>
-  <hr-navbar title="用户信息" />
+  <hr-navbar :title="t('accountSettings.profile.navTitle')" />
   <view class="setting-container">
     <view class="setting-warp bg-white">
       <!-- 头像上传区域 -->
@@ -104,7 +106,7 @@ function edit() {
             <wd-icon name="fill-camera" size="32px" color="#999999" />
           </view>
           <view class="change-text">
-            {{ state.form.avatarUrl ? '更换头像' : '上传头像' }}
+            {{ state.form.avatarUrl ? t('accountSettings.profile.changeAvatar') : t('accountSettings.profile.uploadAvatar') }}
           </view>
         </button>
         <!-- #endif -->
@@ -115,7 +117,7 @@ function edit() {
             <wd-icon name="fill-camera" size="32px" color="#999999" />
           </view>
           <view class="change-text">
-            {{ state.form.avatarUrl ? '更换头像' : '上传头像' }}
+            {{ state.form.avatarUrl ? t('accountSettings.profile.changeAvatar') : t('accountSettings.profile.uploadAvatar') }}
           </view>
         </view>
         <!-- #endif -->
@@ -124,20 +126,22 @@ function edit() {
         <wd-form ref="formRef" :model="state.form">
           <wd-cell-group border>
             <wd-input
-              v-model="state.form.nickname" label="昵称" type="nickname" label-width="60px"
-              prop="nickname" center placeholder="请输入昵称"
-              :rules="[{ required: true, message: '请填写昵称' }]"
+              v-model="state.form.nickname" :label="t('accountSettings.profile.nickname')" type="nickname"
+              label-width="60px"
+              prop="nickname" center :placeholder="t('accountSettings.profile.nicknamePlaceholder')"
+              :rules="[{ required: true, message: t('accountSettings.profile.nicknameRequired') }]"
             />
             <wd-select-picker
-              v-model="state.form.sex" label-width="60px" label="性别" title="请选择性别"
+              v-model="state.form.sex" label-width="60px" :label="t('accountSettings.profile.gender')"
+              :title="t('accountSettings.profile.genderTitle')"
               :show-confirm="false" :columns="sexColumns" type="radio" prop="sex"
-              :rules="[{ required: true, message: '请选择性别' }]"
+              :rules="[{ required: true, message: t('accountSettings.profile.genderRequired') }]"
             />
             <wd-cell />
           </wd-cell-group>
         </wd-form>
         <wd-button type="primary" block @click="edit">
-          确认修改
+          {{ t('accountSettings.profile.save') }}
         </wd-button>
       </view>
     </view>

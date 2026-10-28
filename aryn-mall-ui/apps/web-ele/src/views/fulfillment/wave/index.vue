@@ -30,6 +30,7 @@ import {
 import { uploadFile } from '#/api/upms/upload';
 import PageFilterPanel from '#/components/page/page-filter-panel.vue';
 import PageToolbar from '#/components/page/page-toolbar.vue';
+import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 
 const Pagination = defineAsyncComponent(
   () => import('#/components/pagination/index.vue'),
@@ -241,6 +242,8 @@ const handleHandOver = (row: any) => {
 };
 
 onMounted(initPage);
+
+useKeepAliveRefresh(initPage);
 </script>
 
 <template>

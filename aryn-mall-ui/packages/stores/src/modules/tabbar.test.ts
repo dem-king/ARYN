@@ -282,6 +282,96 @@ describe('useAccessStore', () => {
     ).toBeUndefined();
   });
 
+  it('returns to the previous active tab when closing the active tab', async () => {
+    const store = useTabbarStore();
+    store.addTab({
+      fullPath: '/list',
+      meta: {},
+      name: 'List',
+      path: '/list',
+    } as any);
+    const detailTab = store.addTab({
+      fullPath: '/detail',
+      meta: {},
+      name: 'Detail',
+      path: '/detail',
+    } as any);
+    router.currentRoute.value = detailTab as any;
+
+    await store.closeTab(detailTab, router);
+
+    expect(store.tabs).toHaveLength(1);
+    expect(store.tabs[0]?.fullPath).toBe('/list');
+    expect(router.replace).toHaveBeenCalledWith({
+      params: {},
+      path: '/list',
+      query: {},
+    });
+  });
+
+  it('falls back to the adjacent tab when the previous active tab is closed', async () => {
+    const store = useTabbarStore();
+    store.addTab({
+      fullPath: '/home',
+      meta: {},
+      name: 'Home',
+      path: '/home',
+    } as any);
+    const midTab = store.addTab({
+      fullPath: '/mid',
+      meta: {},
+      name: 'Mid',
+      path: '/mid',
+    } as any);
+    const lastTab = store.addTab({
+      fullPath: '/last',
+      meta: {},
+      name: 'Last',
+      path: '/last',
+    } as any);
+    store._close(midTab);
+    router.currentRoute.value = lastTab as any;
+
+    await store.closeTab(lastTab, router);
+
+    expect(store.tabs).toHaveLength(1);
+    expect(router.replace).toHaveBeenCalledWith({
+      params: {},
+      path: '/home',
+      query: {},
+    });
+  });
+
+  it('falls back to the adjacent tab when no previous active tab is recorded', async () => {
+    const store = useTabbarStore();
+    const firstTab = {
+      fullPath: '/first',
+      key: '/first',
+      meta: {},
+      name: 'First',
+      path: '/first',
+    } as any;
+    const secondTab = {
+      fullPath: '/second',
+      key: '/second',
+      meta: {},
+      name: 'Second',
+      path: '/second',
+    } as any;
+    // 直接注入tabs，模拟刷新后没有切换轨迹的场景
+    store.tabs.push(firstTab, secondTab);
+    router.currentRoute.value = secondTab;
+
+    await store.closeTab(secondTab, router);
+
+    expect(store.tabs).toHaveLength(1);
+    expect(router.replace).toHaveBeenCalledWith({
+      params: {},
+      path: '/first',
+      query: {},
+    });
+  });
+
   it('refreshes the current tab', async () => {
     const store = useTabbarStore();
     const currentTab: any = {

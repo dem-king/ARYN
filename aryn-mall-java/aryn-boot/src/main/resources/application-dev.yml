@@ -51,7 +51,7 @@ xxl:
 demo:
   enabled: false
 
-cert-dir: C:\Download
+cert-dir: ${CERT_DIR:${user.home}/aryn/cert}
 
 #knife4j配置
 knife4j:

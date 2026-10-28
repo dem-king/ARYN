@@ -13,9 +13,13 @@ import {
 import type { TenantGuardState } from '@/api/core/tenant-identity'
 import { OVERLAY_Z_INDEX } from '@/utils/overlay'
 
+import { useI18n } from 'vue-i18n'
+
 // 租户构建的启动守卫 UI：安全边界在各请求入口（instance/file/socket/pay），
 // 这里只负责最早发起校验、在 blocked 时给全屏阻断界面与重试入口。
 // 默认开发（generated=null）isTenantBuild() 为 false，零开销放行。
+const { t } = useI18n()
+
 const tenantEnabled = isTenantBuild()
 const tenantState = ref<TenantGuardState>(getTenantGuardState())
 const tenantError = computed(() => getTenantGuardError())
@@ -109,11 +113,11 @@ const themeVars = computed(() => mallThemeStore.themeVars)
 
     <!-- 租户身份被阻断（本地一致/AppID/服务端映射任一失败）：全屏阻断，附 buildId 供追溯 -->
     <view v-if="tenantEnabled && tenantState === 'blocked'" class="tenant-blocked">
-      <text class="tenant-blocked__title">应用配置暂不可用</text>
-      <text class="tenant-blocked__desc">请联系管理员确认小程序与租户配置，稍后重试</text>
+      <text class="tenant-blocked__title">{{ t('app.tenantBlocked.title') }}</text>
+      <text class="tenant-blocked__desc">{{ t('app.tenantBlocked.desc') }}</text>
       <text class="tenant-blocked__meta">{{ tenantErrorDescription }}</text>
       <button class="tenant-blocked__retry" type="primary" @tap="onTenantRetry">
-        重试
+        {{ t('app.tenantBlocked.retry') }}
       </button>
     </view>
   </wd-config-provider>

@@ -1,4 +1,5 @@
 import type {
+  ExtensionDataSourceConfig,
   GoodsRecommendProps,
   GoodsWaterfallProps,
 } from '../../extension/types';
@@ -15,15 +16,17 @@ import {
   getByIds as getGoodsByIds,
   getPage as getGoodsPage,
 } from '#/api/product/goods-spu';
-import { getProductSalesTop10 } from '#/api/product/goods-statistics';
 import { getAppDiscountActivities } from '#/api/promotion/discount';
 import {
   getById as getActivityById,
   getPage as getActivityPage,
 } from '#/api/promotion/group-buy-activity';
+import { getMemberActivityGoods } from '#/api/promotion/member-activity';
 import { getCurrentNewbieFloor } from '#/api/promotion/newbie-activity';
 import { getAppSessionGoods, getAppSessions } from '#/api/promotion/seckill';
 import { getShopInfo as getCurrentTenantShop } from '#/api/upms/tenant';
+
+import { normalizeBargainRate } from '../../extension/types';
 
 export interface RetailGoodsItem {
   id: string;
@@ -41,6 +44,8 @@ export interface RetailGoodsItem {
   originalPrice: number;
   sales: number;
   stock: number;
+  /** 规格摘要（如「950ml/瓶」），与 C 端 retail-normalizers 同口径 */
+  specsInfo?: string;
 }
 
 /**
@@ -160,7 +165,8 @@ export interface RetailDataDependencies {
   activityPage: (query: Record<string, unknown>) => Promise<unknown>;
   goodsByIds: (ids: string[]) => Promise<unknown>;
   goodsPage: (query: Record<string, unknown>) => Promise<unknown>;
-  salesRanking: (query: Record<string, unknown>) => Promise<unknown>;
+  /** 会员价活动商品 SPU 列表（装修 activity 数据源预览用，C 端只读接口） */
+  memberActivityGoods: (activityId?: string) => Promise<unknown>;
   seckillSessionGoods: (sessionId: string) => Promise<unknown>;
   seckillSessions: () => Promise<unknown>;
   shopById: (id: string) => Promise<unknown>;
@@ -171,7 +177,7 @@ const defaultDependencies: RetailDataDependencies = {
   activityPage: getActivityPage,
   goodsByIds: (ids) => getGoodsByIds(ids.join(',')),
   goodsPage: getGoodsPage,
-  salesRanking: getProductSalesTop10,
+  memberActivityGoods: (activityId) => getMemberActivityGoods(activityId),
   seckillSessionGoods: getAppSessionGoods,
   seckillSessions: getAppSessions,
   // 装修账号普遍没有 upms:systenant:get，租户资料只能走免权限的当前租户门店接口；
@@ -209,10 +215,29 @@ function firstImage(record: Record<string, unknown>): string {
   );
 }
 
+/**
+ * 规格摘要：与 C 端 retail-normalizers.firstSpecs 同口径。
+ * 列表接口不返回 goodsSkus，优先读后端补的 specsInfo / packageSpec；
+ * 单规格的「默认」视为无规格。
+ */
+function firstSpecs(record: Record<string, unknown>): string {
+  const direct = toText(record.specsInfo ?? record.packageSpec ?? '');
+  if (direct && direct !== '默认') return direct;
+
+  const skus = Array.isArray(record.goodsSkus) ? record.goodsSkus : [];
+  const first = asRecord(skus[0]);
+  const specsArr = Array.isArray(first.specsArr) ? first.specsArr : [];
+  return specsArr
+    .map((item) => toText(asRecord(item).specsValueName))
+    .filter((value) => value && value !== '默认')
+    .join('；');
+}
+
 function normalizeGoods(value: unknown): RetailGoodsItem[] {
   return extractItems(value)
     .map((item) => {
       const record = asRecord(item);
+      const specsInfo = firstSpecs(record);
       return {
         id: toText(record.id),
         imageUrl: firstImage(record),
@@ -222,6 +247,7 @@ function normalizeGoods(value: unknown): RetailGoodsItem[] {
         originalPrice: toNumber(record.originalPrice),
         sales: toNumber(record.salesVolume),
         stock: toNumber(record.stock),
+        ...(specsInfo ? { specsInfo } : {}),
       };
     })
     .filter(({ id }) => Boolean(id));
@@ -239,11 +265,33 @@ function restoreConfiguredOrder<T extends { id: string }>(
   );
 }
 
-function createGoodsSortParams(sort: string) {
-  if (sort === 'sales_price') return { asc: 'sales_price' };
-  return {
-    desc: sort === 'create_time' ? 'create_time' : 'sales_volume',
+/**
+ * 商品分页排序参数：与 C 端 `retail-query.createGoodsSortParams` 同口径。
+ *
+ * `priceAscending` 决定 `sales_price` 的升降序：分组/瀑布流按低价优先取数，
+ * 排行组件按价格从高到低；两者不能共用同一种方向。
+ *
+ * `bargain`（低价捡漏）是「圈品阈值 + 固定排序」的复合模式：后端只接受
+ * `bargainRate` 绑定值并固定按折扣率降序，不再接收 asc/desc，因此这里绝不能
+ * 混发排序字段；阈值缺省或越界一律回落 1.15（后端对非法区间直接拒绝，
+ * 画布预览不能因此整块报错）。
+ */
+function createGoodsSortParams(
+  sort: string,
+  priceAscending = false,
+  bargainRate?: unknown,
+) {
+  if (sort === 'bargain')
+    return { bargainRate: normalizeBargainRate(bargainRate) };
+  if (sort === 'sales_price' && priceAscending) return { asc: 'sales_price' };
+  const fields: Record<string, string> = {
+    create_time: 'create_time',
+    newest: 'create_time',
+    price: 'sales_price',
+    sales: 'sales_volume',
+    sales_price: 'sales_price',
   };
+  return { desc: fields[sort] || 'sales_volume' };
 }
 
 export async function loadGoodsGroup(
@@ -258,26 +306,83 @@ export async function loadGoodsGroup(
   const response = await dependencies.goodsPage({
     categorySecondId: props.dataSource.categoryId || undefined,
     current: 1,
-    ...createGoodsSortParams(props.dataSource.sort || 'sales'),
+    ...createGoodsSortParams(
+      props.dataSource.sort || 'sales',
+      true,
+      (props.dataSource as ExtensionDataSourceConfig).bargainRate,
+    ),
     size: props.count,
   });
   return normalizeGoods(response).slice(0, props.count);
 }
 
+/**
+ * 商品排行取数：与 C 端 diy-goods-ranking 的 loadGoodsRanking 同口径。
+ *
+ * 必须走商品分页而不是后台销量统计 `/product/statistics/sales/top10`：
+ * 统计接口只回 id/name/picUrl/salesVolume，没有售价、库存、子标题，
+ * 画布会渲染出「￥0 / 库存 0」；且它统计的是后台订单口径，与小程序
+ * 实际按 `sales_volume` 排序取到的商品也可能不是同一批。
+ */
 export async function loadGoodsRanking(
   props: GoodsRankingProps,
   dependencies: RetailDataDependencies = defaultDependencies,
 ): Promise<RetailGoodsItem[]> {
   const metric = props.dataSource.metric || 'sales';
-  const response =
-    metric === 'sales'
-      ? await dependencies.salesRanking({})
-      : await dependencies.goodsPage({
-          current: 1,
-          desc: metric,
-          size: props.count,
-        });
+  const response = await dependencies.goodsPage({
+    current: 1,
+    ...createGoodsSortParams(metric),
+    size: props.count,
+  });
   return normalizeGoods(response).slice(0, props.count);
+}
+
+/**
+ * 会员专区自动数据源：活动 VO → SPU ID 列表（保持活动 rules.skus 配置顺序）。
+ *
+ * 后端已按「SKU 配置顺序去重保序」下发 spuIds；这里只做容错归一化，
+ * 空/异常一律退化为空数组（画布显示空态，不抛错）。
+ */
+function activitySpuIds(value: unknown): string[] {
+  const spuIds = asRecord(value).spuIds;
+  if (!Array.isArray(spuIds)) return [];
+  return spuIds.map((id) => toText(id)).filter(Boolean);
+}
+
+/**
+ * 会员专区自动数据源取数（goods-tabs `dataSource.mode='activity'`）：与 C 端同口径。
+ *
+ * 先取会员价活动的商品 SPU 列表，再用既有「按 ids 取商品」方式补齐卡片数据，
+ * 最后**按活动配置顺序回排**并截断 count。活动加减商品后画布重新取数即同步，
+ * 运营无需再手选货盘。
+ *
+ * 降级：活动接口/商品接口失败、无活动、活动无商品都返回空数组，
+ * 只让该 Tab 显示空态，不阻塞其它 Tab；预览无登录态，这里只做货盘预览，
+ * 不查询会员价（活动命中价以实机为准）；会员专区的会员价样式由渲染层按
+ * 「专区成交价」呈现，与 C 端会员本人未命中活动时的口径一致。
+ */
+async function loadActivityGoods(
+  dataSource: ExtensionDataSourceConfig,
+  count: number,
+  dependencies: RetailDataDependencies,
+): Promise<RetailGoodsItem[]> {
+  let activityGoods: unknown;
+  try {
+    activityGoods = await dependencies.memberActivityGoods(
+      dataSource.activityId || undefined,
+    );
+  } catch {
+    // 活动接口异常按空货盘降级：画布不能因为预览取数失败而整块报错
+    return [];
+  }
+  const spuIds = activitySpuIds(activityGoods);
+  if (spuIds.length === 0) return [];
+  try {
+    const goods = normalizeGoods(await dependencies.goodsByIds(spuIds));
+    return restoreConfiguredOrder(goods, spuIds).slice(0, count);
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -285,6 +390,9 @@ export async function loadGoodsRanking(
  *
  * 画布预览不做无限滚动（C 端由 z-paging 分页追加），一次取 count 条即停；
  * 缓存只在 C 端生效，管理端配置一改立即重取，所见即最新配置。
+ *
+ * 多 Tab 商品流的「会员专区」Tab 使用 `mode='activity'`：货盘来自会员价活动，
+ * 与手选/自动分类取数完全不同，单独走 loadActivityGoods。
  */
 export async function loadGoodsWaterfall(
   props: GoodsWaterfallProps,
@@ -295,10 +403,17 @@ export async function loadGoodsWaterfall(
     const result = normalizeGoods(await dependencies.goodsByIds(ids));
     return restoreConfiguredOrder(result, ids).slice(0, props.count);
   }
+  if (props.dataSource.mode === 'activity') {
+    return loadActivityGoods(props.dataSource, props.count, dependencies);
+  }
   const response = await dependencies.goodsPage({
     categorySecondId: props.dataSource.categoryId || undefined,
     current: 1,
-    ...createGoodsSortParams(props.dataSource.sort || 'sales'),
+    ...createGoodsSortParams(
+      props.dataSource.sort || 'sales',
+      true,
+      props.dataSource.bargainRate,
+    ),
     size: props.count,
   });
   return normalizeGoods(response).slice(0, props.count);
@@ -323,7 +438,7 @@ export async function loadGoodsRecommend(
   const response = await dependencies.goodsPage({
     categorySecondId: props.dataSource.categoryId || undefined,
     current: 1,
-    ...createGoodsSortParams('sales'),
+    ...createGoodsSortParams('sales', true),
     size: count,
   });
   return normalizeGoods(response).slice(0, count);
@@ -554,7 +669,7 @@ let salesTopGoodsImageTask: null | Promise<string> = null;
 function loadSalesTopGoodsImage(): Promise<string> {
   salesTopGoodsImageTask ??= getGoodsPage({
     current: 1,
-    ...createGoodsSortParams('sales'),
+    ...createGoodsSortParams('sales', true),
     size: 1,
   })
     .then((response) => normalizeGoods(response)[0]?.imageUrl ?? '')

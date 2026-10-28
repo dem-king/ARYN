@@ -4,7 +4,9 @@ package com.aryn.cloud.pay.handler.impl;
 import com.alibaba.fastjson.JSONObject;
 import com.alipay.api.AlipayApiException;
 import com.alipay.api.AlipayClient;
+import com.alipay.api.request.AlipayTradeFastpayRefundQueryRequest;
 import com.alipay.api.request.AlipayTradeRefundRequest;
+import com.alipay.api.response.AlipayTradeFastpayRefundQueryResponse;
 import com.alipay.api.response.AlipayTradeRefundResponse;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.aryn.cloud.common.core.constant.RocketMqConstants;
@@ -21,12 +23,16 @@ import com.aryn.cloud.pay.handler.AbstractPayRefundOrderHandler;
 import com.aryn.cloud.pay.service.IPayRefundOrderService;
 import com.aryn.cloud.pay.service.IPayTradeOrderService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.client.producer.SendResult;
 import org.apache.rocketmq.client.producer.SendStatus;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
 import org.springframework.messaging.support.GenericMessage;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
+
+@Slf4j
 @Service("ALIPAY_REFUND")
 @RequiredArgsConstructor
 public class AlipayRefundHandler extends AbstractPayRefundOrderHandler {
@@ -75,28 +81,104 @@ public class AlipayRefundHandler extends AbstractPayRefundOrderHandler {
 			throw new ArynBusinessException(response.getMsg() + response.getSubMsg());
 		}
 		if ("Y".equals(response.getFundChange())) {
-			// 退款成功发送mq消息
-			// rocketmq 通知
-			JSONObject jsonObject = new JSONObject();
-			jsonObject.put(PayConstants.EXTRA_PARAMS, payRefundOrder.getExtra());
-			jsonObject.put(PayConstants.REFUND_TRADE_NO, payRefundOrder.getRefundTradeNo());
-			jsonObject.put(PayConstants.TENANT_ID, ArynTenantContextHolder.getTenantId());
-			SendResult sendResult = rocketMQTemplate.syncSend(RocketMqConstants.PAY_REFUND_NOTIFY_TOPIC,
-					new GenericMessage<>(jsonObject), RocketMqConstants.TIME_OUT);
-			if (sendResult == null || !SendStatus.SEND_OK.equals(sendResult.getSendStatus())) {
-				throw new IllegalStateException("退款状态通知发送失败");
-			}
+			sendRefundNotify(payRefundOrder);
 			payRefundOrder.setRefundStatus(PayRefundOrderStatusEnum.STATUS_2.getCode());
+			payRefundOrder.setRefundSuccessTime(LocalDateTime.now());
+		}
+		else if (queryRefundSucceeded(alipayClient, payRefundOrder)) {
+			// fund_change=N 可能是退款成功后的重复请求，主动查询确认后不能停在「待确认」
+			sendRefundNotify(payRefundOrder);
+			payRefundOrder.setRefundStatus(PayRefundOrderStatusEnum.STATUS_2.getCode());
+			payRefundOrder.setRefundSuccessTime(LocalDateTime.now());
 		}
 		else {
-			// 退款接口返回 fund_change=N
-			// 不代表交易没有退款，只是代表该次接口请求没有资金变动，此时需使用退款查询接口进行查询判断，该笔交易是退款失败，还是退款成功后重复操作导致。
-			// 状态更改成待确认 定时任务跑批处理
+			// 渠道暂未确认，交给 AlipayRefundReconcileJob 继续查单收敛
 			payRefundOrder.setRefundStatus(PayRefundOrderStatusEnum.STATUS_4.getCode());
 		}
 		payRefundOrderService.updateById(payRefundOrder);
 
 		return response;
+	}
+
+	/**
+	 * 待确认退款自动核对：先以状态 4 -> 1 抢占，避免多实例重复通知；
+	 * 查询确认成功后补发退款通知，查询失败或未成功则回退到待确认继续重试。
+	 */
+	public boolean reconcile(PayRefundOrder payRefundOrder) {
+		boolean locked = payRefundOrderService.update(Wrappers.<PayRefundOrder>lambdaUpdate()
+			.eq(PayRefundOrder::getId, payRefundOrder.getId())
+			.eq(PayRefundOrder::getRefundStatus, PayRefundOrderStatusEnum.STATUS_4.getCode())
+			.set(PayRefundOrder::getRefundStatus, PayRefundOrderStatusEnum.STATUS_1.getCode()));
+		if (!locked) {
+			return false;
+		}
+		try {
+			PayTradeOrder payTradeOrder = tradeOrderService.getOne(
+					Wrappers.<PayTradeOrder>lambdaQuery()
+						.eq(PayTradeOrder::getOutTradeNo, payRefundOrder.getOutTradeNo())
+						.last("LIMIT 1"));
+			if (payTradeOrder == null) {
+				resetToPending(payRefundOrder.getId());
+				return false;
+			}
+			AlipayClient alipayClient = AliPayConfiguration.getAlipayClient(payTradeOrder.getTerminalType());
+			if (!queryRefundSucceeded(alipayClient, payRefundOrder)) {
+				resetToPending(payRefundOrder.getId());
+				return false;
+			}
+			sendRefundNotify(payRefundOrder);
+			return payRefundOrderService.update(Wrappers.<PayRefundOrder>lambdaUpdate()
+				.eq(PayRefundOrder::getId, payRefundOrder.getId())
+				.eq(PayRefundOrder::getRefundStatus, PayRefundOrderStatusEnum.STATUS_1.getCode())
+				.set(PayRefundOrder::getRefundStatus, PayRefundOrderStatusEnum.STATUS_2.getCode())
+				.set(PayRefundOrder::getRefundSuccessTime, LocalDateTime.now()));
+		}
+		catch (Exception exception) {
+			log.warn("支付宝退款待确认自动核对失败 refundTradeNo={}", payRefundOrder.getRefundTradeNo(), exception);
+			resetToPending(payRefundOrder.getId());
+			return false;
+		}
+	}
+
+	private void resetToPending(String id) {
+		payRefundOrderService.update(Wrappers.<PayRefundOrder>lambdaUpdate()
+			.eq(PayRefundOrder::getId, id)
+			.eq(PayRefundOrder::getRefundStatus, PayRefundOrderStatusEnum.STATUS_1.getCode())
+			.set(PayRefundOrder::getRefundStatus, PayRefundOrderStatusEnum.STATUS_4.getCode()));
+	}
+
+	private boolean queryRefundSucceeded(AlipayClient alipayClient, PayRefundOrder payRefundOrder) {
+		AlipayTradeFastpayRefundQueryRequest request = new AlipayTradeFastpayRefundQueryRequest();
+		JSONObject bizContent = new JSONObject();
+		bizContent.put("out_trade_no", payRefundOrder.getOutTradeNo());
+		bizContent.put("out_request_no", payRefundOrder.getRefundTradeNo());
+		request.setBizContent(bizContent.toString());
+		try {
+			AlipayTradeFastpayRefundQueryResponse response = alipayClient.certificateExecute(request);
+			return response != null && response.isSuccess()
+					&& "REFUND_SUCCESS".equals(response.getRefundStatus());
+		}
+		catch (AlipayApiException exception) {
+			log.warn("支付宝退款查询失败 refundTradeNo={}", payRefundOrder.getRefundTradeNo(), exception);
+			return false;
+		}
+	}
+
+	@Override
+	protected void notifyRefundSuccess(PayRefundOrder payRefundOrder) {
+		sendRefundNotify(payRefundOrder);
+	}
+
+	private void sendRefundNotify(PayRefundOrder payRefundOrder) {
+		JSONObject jsonObject = new JSONObject();
+		jsonObject.put(PayConstants.EXTRA_PARAMS, payRefundOrder.getExtra());
+		jsonObject.put(PayConstants.REFUND_TRADE_NO, payRefundOrder.getRefundTradeNo());
+		jsonObject.put(PayConstants.TENANT_ID, ArynTenantContextHolder.getTenantId());
+		SendResult sendResult = rocketMQTemplate.syncSend(RocketMqConstants.PAY_REFUND_NOTIFY_TOPIC,
+				new GenericMessage<>(jsonObject), RocketMqConstants.TIME_OUT);
+		if (sendResult == null || !SendStatus.SEND_OK.equals(sendResult.getSendStatus())) {
+			throw new IllegalStateException("退款状态通知发送失败");
+		}
 	}
 
 	@Override

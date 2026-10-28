@@ -1,6 +1,7 @@
 
 package com.aryn.cloud.order.mapper;
 
+import com.aryn.cloud.order.api.dto.GoodsSalesRankDTO;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.aryn.cloud.order.api.entity.OrderItemEntity;
 import org.apache.ibatis.annotations.Mapper;
@@ -54,5 +55,19 @@ public interface OrderItemMapper extends BaseMapper<OrderItemEntity> {
 			@org.apache.ibatis.annotations.Param("userId") String userId,
 			@org.apache.ibatis.annotations.Param("startTime") java.time.LocalDateTime startTime,
 			@org.apache.ibatis.annotations.Param("limit") int limit);
+
+	/**
+	 * 热销榜统计：租户近 N 天有效订单的 SPU 聚合（按累计件数倒序）。
+	 *
+	 * <p>口径与 {@link #selectFrequentPurchase} 一致：order_info.status IN ('2','3','4')、
+	 * 订单与明细均未删除、同租户；租户由 SQL 显式传参保证，不依赖调用方线程里的租户上下文。
+	 *
+	 * @param tenantId 租户
+	 * @param days 统计窗口天数（服务层已钳制 1~3650）
+	 * @param limit 返回条数（服务层已钳制 1~50）
+	 * @return 热销榜条目，按累计成交件数倒序
+	 */
+	List<GoodsSalesRankDTO> selectGoodsSalesRank(@Param("tenantId") String tenantId, @Param("days") int days,
+			@Param("limit") int limit);
 
 }

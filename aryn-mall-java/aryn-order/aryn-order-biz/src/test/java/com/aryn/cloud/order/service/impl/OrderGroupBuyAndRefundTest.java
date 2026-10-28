@@ -21,6 +21,9 @@ import com.aryn.cloud.promotion.api.vo.GroupBuyOrderContextVO;
 import com.aryn.cloud.product.api.remote.RemoteGoodsSkuService;
 import com.aryn.cloud.user.api.remote.RemoteMallUserService;
 import com.aryn.cloud.user.api.remote.RemoteUserAddressService;
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -142,6 +145,9 @@ class OrderGroupBuyAndRefundTest {
 
 	@BeforeEach
 	void setUpRefund() {
+		MapperBuilderAssistant assistant = new MapperBuilderAssistant(new MybatisConfiguration(), "");
+		TableInfoHelper.initTableInfo(assistant, OrderItemEntity.class);
+		TableInfoHelper.initTableInfo(assistant, OrderRefund.class);
 		remoteRefundService = mock(RemoteRefundService.class);
 		orderConfigService = mock(IOrderConfigService.class);
 		com.aryn.cloud.order.api.entity.OrderConfig config = new com.aryn.cloud.order.api.entity.OrderConfig();
@@ -253,6 +259,10 @@ class OrderGroupBuyAndRefundTest {
 		orderItem.setPaymentPrice(new BigDecimal("19.90"));
 		when(orderItemMapper.selectList(any())).thenReturn(List.of(orderItem));
 		when(orderItemMapper.selectById("item-1")).thenReturn(orderItem);
+		when(orderItemMapper.update(any(), any())).thenAnswer(invocation -> {
+			orderItem.setStatus(OrderItemStatusEnum.AFTER_SALE_PROCESSING.getCode());
+			return 1;
+		});
 		when(orderInfoMapper.selectOne(any())).thenReturn(orderInfo);
 		when(orderRefundMapper.selectCount(any())).thenReturn(0L);
 		when(orderRefundMapper.insert(org.mockito.ArgumentMatchers.<OrderRefund>any())).thenAnswer(invocation -> {
@@ -278,6 +288,60 @@ class OrderGroupBuyAndRefundTest {
 		verify(remoteRefundService).refunds(any());
 		verify(orderRefundMapper).insert(captor.capture());
 		assertThat(captor.getValue().getRefundReason()).isEqualTo("拼团失败自动退款");
+		assertThat(captor.getValue().getRefundType()).isEqualTo(MallOrderConstants.REFUND_TYPE_ONLY_REFUND);
+	}
+
+	/**
+	 * 并发申请时明细状态已被另一请求改走，条件更新失败必须中止，不能生成第二张退款单。
+	 */
+	@Test
+	void concurrentRefundApplicationLosesCasAndDoesNotInsert() {
+		OrderInfo orderInfo = paidOrder();
+		OrderItemEntity orderItem = new OrderItemEntity();
+		orderItem.setId("item-1");
+		orderItem.setOrderId("order-1");
+		orderItem.setStatus(OrderItemStatusEnum.PAID.getCode());
+		orderItem.setPaymentPrice(new BigDecimal("19.90"));
+		when(orderItemMapper.selectById("item-1")).thenReturn(orderItem);
+		when(orderInfoMapper.selectOne(any())).thenReturn(orderInfo);
+		when(orderRefundMapper.selectCount(any())).thenReturn(0L);
+		when(orderItemMapper.update(any(), any())).thenReturn(0);
+
+		OrderRefund request = new OrderRefund();
+		request.setOrderItemId("item-1");
+		request.setUserId("user-1");
+
+		assertThatThrownBy(() -> refundService.saveRefund(request))
+			.isInstanceOf(ArynBusinessException.class)
+			.hasFieldOrPropertyWithValue("msg", "订单状态已变化，请刷新后重试");
+		verify(orderRefundMapper, never()).insert(any(OrderRefund.class));
+	}
+
+	/**
+	 * 取消后到账：按明细生成确定性退款单号，支付域可据此幂等，重试不会重复退款。
+	 */
+	@Test
+	void canceledPaidOrderCreatesRefundWithDeterministicTradeNo() {
+		OrderInfo orderInfo = paidOrder();
+		OrderItemEntity orderItem = new OrderItemEntity();
+		orderItem.setId("item-1");
+		orderItem.setOrderId("order-1");
+		orderItem.setPaymentPrice(new BigDecimal("19.90"));
+		when(orderItemMapper.selectList(any())).thenReturn(List.of(orderItem));
+		when(orderRefundMapper.selectCount(any())).thenReturn(0L);
+		when(orderRefundMapper.insert(any(OrderRefund.class))).thenReturn(1);
+		when(orderItemMapper.updateById(any(OrderItemEntity.class))).thenReturn(1);
+
+		boolean result = refundService.refundPaidCanceledOrder(orderInfo, "订单取消后到账自动退款");
+
+		assertThat(result).isTrue();
+		ArgumentCaptor<OrderRefund> captor = ArgumentCaptor.forClass(OrderRefund.class);
+		verify(orderRefundMapper).insert(captor.capture());
+		OrderRefund saved = captor.getValue();
+		assertThat(saved.getRefundTradeNo()).isEqualTo("CNO-1-item-1");
+		assertThat(saved.getRefundType()).isEqualTo(MallOrderConstants.REFUND_TYPE_ONLY_REFUND);
+		assertThat(saved.getArrivalStatus()).isEqualTo("1");
+		verify(remoteRefundService).refunds(any());
 	}
 
 	private static <T> T mock(Class<T> type) {

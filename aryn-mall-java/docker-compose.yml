@@ -348,6 +348,8 @@ services:
       SPRING_PROFILES_ACTIVE: cloud
     networks:
       - aryn-net
+    volumes:
+      - pay-cert:/root/aryn/cert
     depends_on:
       aryn-nacos:
         condition: service_healthy
@@ -479,3 +481,4 @@ volumes:
   mysql-data:
   redis-data:
   upms-storage:
+  pay-cert:

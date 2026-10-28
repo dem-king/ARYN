@@ -3,7 +3,7 @@ import type { UploadUserFile } from 'element-plus';
 
 import type { DeliveryTaskStatus } from '#/api/delivery/task';
 
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 
 import { Plus } from '@element-plus/icons-vue';
 import {
@@ -33,6 +33,7 @@ import {
 
 import { getDeliveryStaffList } from '#/api/delivery/staff';
 import {
+  assignDeliveryTasks,
   backfillDeliveryTaskArrive,
   closeDeliveryTask,
   getDeliveryTaskDetail,
@@ -102,8 +103,8 @@ interface TaskDetail {
 
 interface DeliveryStaffOption {
   id: string;
-  name: string;
-  phone?: string;
+  staffName: string;
+  staffPhone?: string;
   status: string;
 }
 
@@ -113,10 +114,13 @@ const detail = ref<null | TaskDetail>(null);
 const evidenceList = ref<any[]>([]);
 const logList = ref<any[]>([]);
 
-const reassignVisible = ref(false);
-const reassignLoading = ref(false);
-const reassignStaffId = ref('');
-const reassignReason = ref('');
+// 待派单任务是首次「派单」，异常任务带着原配送员才是「改派」；弹窗共用，文案按语义区分
+const isReassign = computed(() => detail.value?.status === '8');
+
+const assignVisible = ref(false);
+const assignLoading = ref(false);
+const assignStaffId = ref('');
+const assignReason = ref('');
 const staffOptions = ref<DeliveryStaffOption[]>([]);
 
 const closeVisible = ref(false);
@@ -172,11 +176,11 @@ const loadLogs = (id: string) => {
   });
 };
 
-const openReassign = () => {
+const openAssignDialog = () => {
   if (!detail.value) return;
-  reassignStaffId.value = '';
-  reassignReason.value = '';
-  reassignVisible.value = true;
+  assignStaffId.value = '';
+  assignReason.value = '';
+  assignVisible.value = true;
   getDeliveryStaffList({ status: '1' })
     .then((response: any) => {
       staffOptions.value = response || [];
@@ -184,26 +188,32 @@ const openReassign = () => {
     .catch(() => {});
 };
 
-const confirmReassign = () => {
+const confirmAssign = () => {
   if (!detail.value) return;
-  if (!reassignStaffId.value) {
-    ElMessage.warning('请选择新配送员');
+  if (!assignStaffId.value) {
+    ElMessage.warning(isReassign.value ? '请选择新配送员' : '请选择配送员');
     return;
   }
-  reassignLoading.value = true;
-  reassignDeliveryTask(detail.value.id, {
-    staffId: reassignStaffId.value,
-    reason: reassignReason.value,
-  })
+  assignLoading.value = true;
+  const request = isReassign.value
+    ? reassignDeliveryTask(detail.value.id, {
+        staffId: assignStaffId.value,
+        reason: assignReason.value,
+      })
+    : assignDeliveryTasks({
+        taskIds: [detail.value.id],
+        staffId: assignStaffId.value,
+      });
+  request
     .then(() => {
-      ElMessage.success('改派成功');
-      reassignLoading.value = false;
-      reassignVisible.value = false;
+      ElMessage.success(isReassign.value ? '改派成功' : '派单成功');
+      assignLoading.value = false;
+      assignVisible.value = false;
       open(detail.value!.id);
       emit('initPage');
     })
     .catch(() => {
-      reassignLoading.value = false;
+      assignLoading.value = false;
     });
 };
 
@@ -483,10 +493,18 @@ defineExpose({
         <div style="text-align: right">
           <ElButton @click="drawerVisible = false">关 闭</ElButton>
           <ElButton
-            v-if="detail && (detail.status === '1' || detail.status === '8')"
+            v-if="detail && detail.status === '1'"
+            v-access:code="'delivery:task:assign'"
+            type="primary"
+            @click="openAssignDialog"
+          >
+            派单
+          </ElButton>
+          <ElButton
+            v-if="detail && detail.status === '8'"
             v-access:code="'delivery:task:reassign'"
             type="primary"
-            @click="openReassign"
+            @click="openAssignDialog"
           >
             改派
           </ElButton>
@@ -527,30 +545,30 @@ defineExpose({
     </ElDrawer>
 
     <ElDialog
-      v-model="reassignVisible"
-      title="改派"
+      v-model="assignVisible"
+      :title="isReassign ? '改派' : '派单'"
       width="420px"
       append-to-body
     >
       <ElForm label-width="100px">
-        <ElFormItem label="新配送员">
+        <ElFormItem :label="isReassign ? '新配送员' : '配送员'">
           <ElSelect
-            v-model="reassignStaffId"
-            placeholder="请选择新配送员"
+            v-model="assignStaffId"
+            :placeholder="isReassign ? '请选择新配送员' : '请选择配送员'"
             filterable
             style="width: 100%"
           >
             <ElOption
               v-for="item in staffOptions"
               :key="item.id"
-              :label="`${item.name}（${item.phone ?? ''}）`"
+              :label="`${item.staffName}（${item.staffPhone ?? ''}）`"
               :value="item.id"
             />
           </ElSelect>
         </ElFormItem>
-        <ElFormItem label="改派原因">
+        <ElFormItem v-if="isReassign" label="改派原因">
           <ElInput
-            v-model="reassignReason"
+            v-model="assignReason"
             type="textarea"
             :rows="3"
             placeholder="请输入改派原因（选填）"
@@ -558,13 +576,13 @@ defineExpose({
         </ElFormItem>
       </ElForm>
       <template #footer>
-        <ElButton @click="reassignVisible = false">取 消</ElButton>
+        <ElButton @click="assignVisible = false">取 消</ElButton>
         <ElButton
           type="primary"
-          :loading="reassignLoading"
-          @click="confirmReassign"
+          :loading="assignLoading"
+          @click="confirmAssign"
         >
-          确认改派
+          {{ isReassign ? '确认改派' : '确认派单' }}
         </ElButton>
       </template>
     </ElDialog>

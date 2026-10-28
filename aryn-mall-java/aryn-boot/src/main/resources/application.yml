@@ -20,11 +20,22 @@ jackson:
   default-property-inclusion: always
   date-format: yyyy-mm-dd hh:mm:ss
 
+aj:
+  captcha:
+    # 指定后 aj-captcha 不再加载内置底图，改用项目内的拼图底图池
+    # 必须用 classpath*:，否则 boot fat jar 内无法枚举嵌套 jar 的图片目录
+    jigsaw: classpath*:captcha/jigsaw
+    # 点选验证码复用同一批 310x155 底图，避免切换 captchaType 时图库为空
+    pic-click: classpath*:captcha/jigsaw/original
+
 sa-token:
   token-name: satoken
   timeout: 2592000
   active-timeout: -1
-  is-concurrent: true
+  # 全局单点登录：同一账号任意时刻只保留一个有效会话，新登录顶掉旧登录。
+  # 覆盖管理端 Web / 配送端（同为 TOB）与 C 端（TOC）；cloud 同值配置见 Nacos
+  # application-dev.yml，升级脚本 db/cloud/166global_single_session_nacos_config.sql。
+  is-concurrent: false
   is-share: false
   is-read-cookie: false
   token-style: uuid
@@ -132,6 +143,10 @@ secure:
       - /app/discount/prices
       - /app/newbie/current
       - /app/newbie/prices
+      # 会员价批量查价（C端商详/购物车/列表二次聚合，可选登录：未登录返回活动配置价）
+      - /app/member/prices
+      # 会员专区自动数据源（装修多Tab activity 模式：会员价活动商品SPU列表，免登）
+      - /app/member/activity-goods
       - /file/local/**
 
 decoration:

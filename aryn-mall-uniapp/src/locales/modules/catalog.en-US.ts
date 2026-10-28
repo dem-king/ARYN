@@ -1,0 +1,81 @@
+/**
+ * English copy for the catalog module. Keys must mirror `catalog.zh-CN.ts`.
+ */
+export default {
+  catalog: {
+    // Common entries
+    search: 'Search',
+    searchProducts: 'Search products',
+    searchProductName: 'Search product name',
+    allCategories: 'All Categories',
+    categoryNav: 'Categories',
+    allBrands: 'All Brands',
+    expand: 'More',
+    tapToCollapse: 'Tap to collapse',
+    noSubcategories: 'No subcategories',
+
+    // Sort bar
+    sortRecommended: 'Recommended',
+    sortSales: 'Sales',
+    sortPrice: 'Price',
+    sortNew: 'New',
+
+    // Product cards & empty states
+    added: 'Added',
+    soldOut: 'Sold Out',
+    onlyLeft: 'Only {count} left',
+    loadFailedRetry: 'Failed to load. Check your network and retry.',
+    noProductsForFilter: 'No products match these filters.',
+    reload: 'Reload',
+    clearFilters: 'Clear filters',
+    noMore: 'No more data',
+    loadMoreFailed: 'Load failed. Tap to reload.',
+    loadMore: 'Tap to load more',
+    noRecommendations: 'No recommendations yet',
+    refresherPull: 'Pull down to refresh',
+    refresherRelease: 'Release to refresh',
+    refresherRefreshing: 'Refreshing...',
+    refresherDone: 'Refreshed',
+
+    // Frequently bought
+    frequentTitle: 'Frequently Bought',
+    frequentStats: 'Last 90 days: {qty} in {count} orders',
+    buyAgain: 'Buy Again',
+    frequentEmpty: 'No frequent items yet. They appear after your orders.',
+
+    // Ship supply
+    shipSupplyTitle: 'Ship Supply',
+    sharedCartPicking: 'Pick for Shared Cart',
+    pickByCategory: 'By Category',
+    vesselLoading: 'Loading vessel...',
+    noVesselSelected: 'No vessel selected',
+    portInfoIncomplete: 'Port info incomplete',
+    sharedCartTip: 'Selections go to the shared cart; the purchaser submits.',
+    sharedCart: 'Shared Cart',
+    selectVesselPort: 'Select vessel & port',
+    unnamedProduct: 'Unnamed product',
+    addedCount: 'Added {count}',
+    addToSharedCart: 'Add to Shared',
+    addToCart: 'Add to Cart',
+    noResultsForKeyword: 'No products found for "{keyword}"',
+    noShipSupplyProducts: 'No ship supply products',
+    clearSearch: 'Clear search',
+    selectedPrefix: 'Selected ',
+    selectedSuffix: '',
+    sharedCartSummary: '{count} in cart · purchaser submits',
+    checkoutByPort: 'Delivered to port at checkout',
+    noVesselPort: 'No vessel or port selected',
+    viewSharedCart: 'View Shared Cart',
+    goCheckout: 'Checkout',
+    quantityRequired: 'Enter a quantity',
+    stockOnly: 'Only {max} in stock',
+    belowMoq: 'Minimum order is {moq}',
+    quantityStep: 'Quantity must be a multiple of {step}',
+    noSpecs: 'No Specs',
+    noSpecsToast: 'No sellable specs for this product',
+    outOfStock: 'Out of Stock',
+    cannotAddNow: 'Cannot add to cart now',
+    addedToSharedCart: 'Added to shared cart',
+    addedToCart: 'Added to cart',
+  },
+}

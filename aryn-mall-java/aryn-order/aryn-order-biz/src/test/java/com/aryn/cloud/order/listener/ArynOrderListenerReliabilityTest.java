@@ -99,6 +99,35 @@ class ArynOrderListenerReliabilityTest {
 	}
 
 	@Test
+	void canceledOrderRefundOnlyUpdatesStateWithoutRepublishingBusinessEvent() {
+		IOrderRefundService refundService = mock(IOrderRefundService.class);
+		IOrderItemService itemService = mock(IOrderItemService.class);
+		IOrderInfoService orderService = mock(IOrderInfoService.class);
+		RocketMQTemplate template = mock(RocketMQTemplate.class);
+		OrderRefund refund = refund();
+		when(refundService.getOne(any(Wrapper.class))).thenReturn(refund);
+		when(refundService.updateById(any())).thenReturn(true);
+		OrderItemEntity item = new OrderItemEntity();
+		item.setId("item-1");
+		item.setStatus(com.aryn.cloud.order.api.enums.OrderItemStatusEnum.PAID.getCode());
+		when(itemService.getById("item-1")).thenReturn(item);
+		when(itemService.updateById(any())).thenReturn(true);
+		OrderInfo order = new OrderInfo();
+		order.setId("order-1");
+		order.setStatus(OrderStatusEnum.CANCELED.getCode());
+		when(orderService.getById("order-1")).thenReturn(order);
+		ArynRefundListener listener = new ArynRefundListener(refundService, itemService, orderService, template,
+				mock(IDeliveryTaskService.class), mock(RemotePointsService.class));
+
+		listener.onMessage(refundMessage());
+
+		verify(refundService).updateById(any());
+		verify(itemService).updateById(any());
+		// 取消链路已释放库存/券/积分，退款结果不能再广播业务事件
+		verify(template, never()).syncSend(any(String.class), any(Message.class), anyLong());
+	}
+
+	@Test
 	void refundSuccessRetryRepublishesAndClearsTenant() {
 		IOrderRefundService refundService = mock(IOrderRefundService.class);
 		IOrderItemService itemService = mock(IOrderItemService.class);
@@ -188,8 +217,8 @@ class ArynOrderListenerReliabilityTest {
 		order.setId("order-1");
 		order.setDeliveryWay("1");
 		when(orderService.updateById(order)).thenReturn(false);
-		ArynOrderPayEventListener listener = new ArynOrderPayEventListener(orderService, itemService, notifier,
-				mock(IDeliveryTaskService.class),
+		ArynOrderPayEventListener listener = new ArynOrderPayEventListener(orderService, itemService,
+				mock(IOrderRefundService.class), notifier, mock(IDeliveryTaskService.class),
 				mock(com.aryn.cloud.promotion.api.remote.RemotePromotionEngine.class));
 
 		assertThatThrownBy(() -> listener.hxPayEventListener(

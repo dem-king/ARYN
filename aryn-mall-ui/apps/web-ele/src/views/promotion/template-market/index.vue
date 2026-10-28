@@ -9,13 +9,11 @@ import type {
 import { computed, defineAsyncComponent, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
-import { Refresh, Search } from '@element-plus/icons-vue';
 import dayjs from 'dayjs';
 import {
   ElButton,
   ElDialog,
   ElEmpty,
-  ElForm,
   ElFormItem,
   ElInput,
   ElMessage,
@@ -32,6 +30,8 @@ import {
   getThemes,
   pageTypeLabel,
 } from '#/api/promotion/page-design';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 
 import { migratePageContent } from '../page-designer/schema/migrate';
 import { buildCanvasThemeVars } from '../page-designer/schema/theme-presets';
@@ -160,18 +160,23 @@ onMounted(() => {
   initList();
   void loadThemesQuietly();
 });
+
+useKeepAliveRefresh(initList);
 </script>
 
 <template>
   <div class="hx-layout-container template-market">
     <div class="hx-layout-container-auto hx-layout-container-view">
-      <ElForm :inline="true" :model="query" class="filter-bar">
+      <PageFilterPanel
+        :model="query"
+        @reset="resetQuery"
+        @search="handleSearch"
+      >
         <ElFormItem label="模板名称">
           <ElInput
             v-model="query.keyword"
             clearable
             placeholder="输入模板名称"
-            style="width: 200px"
             @keyup.enter="handleSearch"
           />
         </ElFormItem>
@@ -180,7 +185,6 @@ onMounted(() => {
             v-model="query.industryTag"
             clearable
             placeholder="全部行业"
-            style="width: 160px"
           >
             <ElOption
               v-for="tag in INDUDRY_OPTIONS"
@@ -191,18 +195,12 @@ onMounted(() => {
           </ElSelect>
         </ElFormItem>
         <ElFormItem label="排序">
-          <ElSelect v-model="query.sortField" style="width: 140px">
+          <ElSelect v-model="query.sortField">
             <ElOption label="按下载量" value="downloadCount" />
             <ElOption label="按最新创建" value="createTime" />
           </ElSelect>
         </ElFormItem>
-        <ElFormItem>
-          <ElButton :icon="Search" type="primary" @click="handleSearch">
-            查询
-          </ElButton>
-          <ElButton :icon="Refresh" @click="resetQuery">重置</ElButton>
-        </ElFormItem>
-      </ElForm>
+      </PageFilterPanel>
 
       <div class="hx-table-toolbar">
         <RightToolbar
@@ -316,10 +314,6 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.template-market .filter-bar :deep(.el-select) {
-  width: 160px;
-}
-
 .market-grid {
   display: grid;
 

@@ -1,8 +1,15 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import { useShipContextStore } from '@/store/shipContextStore'
-import { deliveryWayLabel, deliveryWayOptions } from '@/sub-pages/utils/delivery-way'
+import {
+  DELIVERY_WAY_EXPRESS,
+  DELIVERY_WAY_MALL_DELIVERY,
+  DELIVERY_WAY_SELF_PICKUP,
+  DELIVERY_WAY_VESSEL_INTERNAL,
+  deliveryWayOptions,
+} from '@/sub-pages/utils/delivery-way'
 import { getCouponUnavailableInfo } from '@/utils/coupon-usability'
 
 interface OrderItem {
@@ -70,6 +77,8 @@ interface Props {
 
 const props = defineProps<Props>()
 
+const { t } = useI18n()
+
 const emit = defineEmits<{
   (e: 'deliveryWayChange', order: Order): void
   (e: 'paymentWayChange', paymentWay: string): void
@@ -109,7 +118,7 @@ const allItemsCouponBlocked = computed(() => {
 const couponBlockReason = computed(() => {
   if (localOrder.value.couponStackReason)
     return localOrder.value.couponStackReason
-  return allItemsCouponBlocked.value ? '活动商品不支持使用优惠券' : ''
+  return allItemsCouponBlocked.value ? t('checkout.coupon.activityBlocked') : ''
 })
 
 /**
@@ -170,7 +179,9 @@ const memberDiscount = computed(() => {
 })
 
 /** 拼团单用「拼团优惠」点题，其余活动价统一叫「活动优惠」 */
-const activityDiscountLabel = computed(() => (props.groupBuyOrder ? '拼团优惠' : '活动优惠'))
+const activityDiscountLabel = computed(() =>
+  props.groupBuyOrder ? t('checkout.goods.groupBuyDiscount') : t('checkout.goods.activityDiscount'),
+)
 
 /**
  * 明细划线价：仅当「原价小计 > 本行实付」时展示。
@@ -184,14 +195,14 @@ function showOriginalPrice(goods: OrderItem) {
 }
 
 /** 明细活动标签：解释「这行为什么是活动价/为什么不能叠券」 */
-const ACTIVITY_TYPE_LABELS: Record<string, string> = {
-  groupBuy: '拼团价',
-  seckill: '秒杀价',
-  discount: '折扣价',
-  newbie: '新人价',
-}
+const activityTypeLabels = computed<Record<string, string>>(() => ({
+  groupBuy: t('checkout.goods.groupBuyPrice'),
+  seckill: t('checkout.goods.seckillPrice'),
+  discount: t('checkout.goods.discountPrice'),
+  newbie: t('checkout.goods.newbiePrice'),
+}))
 function activityLabel(goods: OrderItem) {
-  return goods.activityType ? (ACTIVITY_TYPE_LABELS[goods.activityType] || '') : ''
+  return goods.activityType ? (activityTypeLabels.value[goods.activityType] || '') : ''
 }
 
 // 监听prop变化以保持同步
@@ -217,10 +228,28 @@ watch(() => props.paymentWay, (way) => {
 })
 
 // 配送方式选项。已绑定船舶+靠港上下文（在船成员）只走内部配送（入口统一），
-// 未绑定时提供快递/自提/商城配送三种岸上方式。文案与取值统一来自 @/sub-pages/utils/delivery-way。
+// 未绑定时提供快递/自提/商城配送三种岸上方式。取值来自 @/sub-pages/utils/delivery-way，
+// 展示文案走本页词条，保证切换语言后即时刷新。
 const shipContextStore = useShipContextStore()
+
+/** 配送方式取值仍来自 delivery-way 单一来源，展示文案走本页词条 */
+const DELIVERY_WAY_LABEL_KEYS: Record<string, string> = {
+  [DELIVERY_WAY_EXPRESS]: 'checkout.delivery.express',
+  [DELIVERY_WAY_SELF_PICKUP]: 'checkout.delivery.pickup',
+  [DELIVERY_WAY_MALL_DELIVERY]: 'checkout.delivery.mall',
+  [DELIVERY_WAY_VESSEL_INTERNAL]: 'checkout.delivery.vessel',
+}
+
+function deliveryWayName(way?: null | string): string {
+  if (!way)
+    return ''
+  const key = DELIVERY_WAY_LABEL_KEYS[way]
+  return key ? t(key) : t('checkout.delivery.unknown')
+}
+
 const deliveryMethodColumns = computed(() =>
-  deliveryWayOptions({ withVesselInternal: shipContextStore.hasVesselContext }),
+  deliveryWayOptions({ withVesselInternal: shipContextStore.hasVesselContext })
+    .map(item => ({ ...item, name: deliveryWayName(item.value) })),
 )
 
 function openDeliverySheet() {
@@ -243,8 +272,8 @@ function deliveryWayConfirm() {
 
 // 支付方式选项。货到付款仅商城配送/内部配送可用，支付方式不影响结算价格
 const paymentMethodColumns = computed(() => [
-  { name: '在线支付', value: '' },
-  { name: '货到付款', value: PAYMENT_TYPE_COD },
+  { name: t('checkout.payment.online'), value: '' },
+  { name: t('checkout.payment.cod'), value: PAYMENT_TYPE_COD },
 ])
 
 function openPaymentSheet() {
@@ -336,7 +365,7 @@ function saveRemark() {
       <view class="rounded-lg bg-white p-2">
         <view class="flex items-center justify-between pb-20rpx">
           <text class="text-14px">
-            商品金额
+            {{ t('checkout.goods.amount') }}
           </text>
           <wd-text size="26rpx" color="inherit" :text="goodsAmount" mode="price" prefix="￥" />
         </view>
@@ -349,19 +378,19 @@ function saveRemark() {
         </view>
         <view v-if="memberDiscount > 0" class="flex items-center justify-between pb-20rpx">
           <text class="text-14px">
-            会员优惠
+            {{ t('checkout.goods.memberDiscount') }}
           </text>
           <wd-text size="26rpx" color="red" prefix="-￥" :text="memberDiscount.toFixed(2)" />
         </view>
         <view v-if="localOrder.deliveryWay === '1'" class="flex items-center justify-between pb-20rpx">
           <text class="text-14px">
-            运费
+            {{ t('checkout.goods.shipping') }}
           </text>
           <wd-text size="26rpx" color="inherit" :text="localOrder.freightPrice" mode="price" prefix="￥" />
         </view>
         <view class="flex items-center justify-between pb-20rpx">
           <text class="text-14px">
-            优惠券
+            {{ t('checkout.coupon.label') }}
           </text>
           <view class="flex items-center">
             <!-- 活动商品禁叠券（纯秒杀/新人价单或所选券被服务端拒绝）：置灰给原因，不弹选择器 -->
@@ -384,14 +413,14 @@ function saveRemark() {
 
             <!-- 有可选优惠券但未选择 -->
             <text v-else-if="hasAvailableCoupons" class="pr-4rpx text-26rpx" @click="showCoupon">
-              选择优惠券
+              {{ t('checkout.coupon.select') }}
             </text>
 
             <!-- 无可用优惠券 -->
             <wd-text
               v-else
               size="22rpx"
-              text="无可用优惠券"
+              :text="t('checkout.coupon.noneAvailable')"
             />
             <text v-if="!couponBlockReason && (hasSelectedCoupon || hasAvailableCoupons)" class="i-carbon:chevron-right text-14px" />
           </view>
@@ -403,7 +432,7 @@ function saveRemark() {
         >
           <view class="flex flex-col">
             <text class="text-14px">
-              积分抵扣
+              {{ t('checkout.points.label') }}
             </text>
             <!-- 不可用原因：后端按门槛/黑名单/场景生成口径文案，前端只展示不自造 -->
             <wd-text
@@ -414,20 +443,20 @@ function saveRemark() {
             />
             <template v-else>
               <text class="text-22rpx color-[#909090]">
-                可用{{ localOrder.pointsDeductMax || 0 }}积分<text v-if="Number(localOrder.pointsDeductPrice) > 0">
-                  ，已抵￥{{ localOrder.pointsDeductPrice }}
+                {{ t('checkout.points.usable', { points: localOrder.pointsDeductMax || 0 }) }}<text v-if="Number(localOrder.pointsDeductPrice) > 0">
+                  {{ t('checkout.points.deducted', { amount: localOrder.pointsDeductPrice }) }}
                 </text>
               </text>
               <!-- 混合单：活动/黑名单商品不参与积分抵扣，最多可抵按可叠部分计算 -->
               <text v-if="pointsPartialStack" class="text-22rpx color-[#909090]">
-                部分商品不参与积分抵扣
+                {{ t('checkout.points.partial') }}
               </text>
             </template>
           </view>
           <wd-switch v-if="!pointsBlockReason" :model-value="pointsEnabled" size="36rpx" @change="onPointsChange" />
         </view>
         <view class="flex items-center justify-end pb-20rpx">
-          <wd-text size="22rpx" color="#909090" :text="`共${localOrder.orderItemList.length}件`" />
+          <wd-text size="22rpx" color="#909090" :text="t('checkout.goods.count', { count: localOrder.orderItemList.length })" />
           <wd-text
             custom-class="pl-10rpx" size="28rpx" :text="localOrder.paymentPrice" color="red" mode="price"
             prefix="￥"
@@ -435,11 +464,11 @@ function saveRemark() {
         </view>
         <view class="flex items-center justify-between pb-20rpx">
           <text class="text-14px">
-            配送方式
+            {{ t('checkout.delivery.label') }}
           </text>
           <view>
             <text class="pr-4rpx text-26rpx" @click="openDeliverySheet">
-              {{ deliveryWayLabel(deliveryWay) }}
+              {{ deliveryWayName(deliveryWay) }}
             </text>
             <!-- 绑定船舶上下文后只剩内部配送一种方式，行转为静态说明、不再给切换箭头 -->
             <text v-if="deliveryMethodColumns.length > 1" class="i-carbon:chevron-right text-14px" />
@@ -452,11 +481,11 @@ function saveRemark() {
           class="flex items-center justify-between pb-20rpx"
         >
           <text class="text-14px">
-            支付方式
+            {{ t('checkout.payment.label') }}
           </text>
           <view>
             <text class="pr-4rpx text-26rpx" @click="openPaymentSheet">
-              {{ paymentWay === PAYMENT_TYPE_COD ? '货到付款' : '在线支付' }}
+              {{ paymentWay === PAYMENT_TYPE_COD ? t('checkout.payment.cod') : t('checkout.payment.online') }}
             </text>
             <text class="i-carbon:chevron-right text-14px" />
           </view>
@@ -468,17 +497,17 @@ function saveRemark() {
           class="flex items-center justify-between pb-20rpx"
         >
           <text class="text-14px">
-            支付方式
+            {{ t('checkout.payment.label') }}
           </text>
           <text class="text-26rpx color-[#07c160]">
-            在线支付（拼团需先付款成团）
+            {{ t('checkout.payment.onlineGroupBuy') }}
           </text>
         </view>
 
         <!-- 修改：备注展示为可点击行，弹出层内再输入 -->
         <view class="flex items-center justify-between pb-20rpx" @click="openRemarkPopup">
           <view class="text-14px">
-            备注
+            {{ t('checkout.remark.label') }}
           </view>
           <view class="flex items-center">
             <wd-text
@@ -486,7 +515,7 @@ function saveRemark() {
               color="inherit"
               :lines="1"
               custom-class="remark-ellipsis"
-              :text="localOrder.remark && localOrder.remark.length ? localOrder.remark : '请填写备注'"
+              :text="localOrder.remark && localOrder.remark.length ? localOrder.remark : t('checkout.remark.placeholder')"
             />
             <text class="i-carbon:chevron-right text-14px" />
           </view>
@@ -495,11 +524,11 @@ function saveRemark() {
     </view>
 
     <!-- 新增：备注弹窗，底部保存按钮 -->
-    <wd-action-sheet v-model="remarkPopupShow" position="bottom" :safe-area-inset-bottom="true" custom-class="rounded-t-20rpx" title="订单备注" @cancel="remarkPopupShow = false">
+    <wd-action-sheet v-model="remarkPopupShow" position="bottom" :safe-area-inset-bottom="true" custom-class="rounded-t-20rpx" :title="t('checkout.remark.title')" @cancel="remarkPopupShow = false">
       <view class="px-24rpx pb-2">
         <wd-textarea
           v-model="remarkDraft"
-          placeholder="请填写备注"
+          :placeholder="t('checkout.remark.placeholder')"
           no-border
           :maxlength="200"
           show-word-limit
@@ -508,13 +537,13 @@ function saveRemark() {
       </view>
       <view class="border-1 border-gray-300 border-t-solid p-1">
         <wd-button type="primary" block @click="saveRemark">
-          保存
+          {{ t('checkout.remark.save') }}
         </wd-button>
       </view>
     </wd-action-sheet>
 
     <!-- 配送方式弹窗（替换原 wd-action-sheet） -->
-    <wd-action-sheet v-model="deliveryShow" position="bottom" :safe-area-inset-bottom="true" custom-class="rounded-t-20rpx" title="选择配送方式" @cancel="deliveryShow = false">
+    <wd-action-sheet v-model="deliveryShow" position="bottom" :safe-area-inset-bottom="true" custom-class="rounded-t-20rpx" :title="t('checkout.delivery.selectTitle')" @cancel="deliveryShow = false">
       <view class="px-24rpx pb-2">
         <view
           v-for="item in deliveryMethodColumns"
@@ -533,12 +562,12 @@ function saveRemark() {
       </view>
       <view class="border-1 border-gray-300 border-t-solid p-1">
         <wd-button block type="primary" @click="deliveryWayConfirm">
-          确认
+          {{ t('common.confirm') }}
         </wd-button>
       </view>
     </wd-action-sheet>
     <!-- 支付方式弹窗：货到付款下单后无需在线支付，收货后线下结算 -->
-    <wd-action-sheet v-model="paymentShow" position="bottom" :safe-area-inset-bottom="true" custom-class="rounded-t-20rpx" title="选择支付方式" @cancel="paymentShow = false">
+    <wd-action-sheet v-model="paymentShow" position="bottom" :safe-area-inset-bottom="true" custom-class="rounded-t-20rpx" :title="t('checkout.payment.selectTitle')" @cancel="paymentShow = false">
       <view class="px-24rpx pb-2">
         <view
           v-for="item in paymentMethodColumns"
@@ -557,7 +586,7 @@ function saveRemark() {
       </view>
       <view class="border-1 border-gray-300 border-t-solid p-1">
         <wd-button block type="primary" @click="paymentWayConfirm">
-          确认
+          {{ t('common.confirm') }}
         </wd-button>
       </view>
     </wd-action-sheet>

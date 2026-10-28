@@ -2,6 +2,7 @@
 import type { MarketingEntryProps } from '@/components/diy/retail-types'
 
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { followDecorationLink } from '@/components/diy/link-resolver'
 import { retailCommonStyle } from '@/components/diy/retail-types'
 import { useDiyStyle } from '@/composables/useDiyStyle'
@@ -9,6 +10,7 @@ import { useDiyStyle } from '@/composables/useDiyStyle'
 const props = withDefaults(defineProps<{ showData?: Partial<MarketingEntryProps> }>(), {
   showData: () => ({}),
 })
+const { t } = useI18n()
 const showData = computed<MarketingEntryProps>(() => ({
   columns: props.showData.columns === 5 ? 5 : 4,
   commonStyle: props.showData.commonStyle || retailCommonStyle,
@@ -39,7 +41,7 @@ const shouldRender = computed(() => showData.value.entries.length > 0 || showDat
       </view>
     </view>
     <view v-else class="entry-empty">
-      暂无入口
+      {{ t('diy.marketingEntry.empty') }}
     </view>
   </view>
 </template>

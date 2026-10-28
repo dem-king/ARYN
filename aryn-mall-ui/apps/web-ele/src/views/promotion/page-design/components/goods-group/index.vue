@@ -9,6 +9,7 @@ import { ElIcon, ElImage } from 'element-plus';
 import { shouldShowOriginalPrice } from '../common/retail-preview/price-display';
 import { loadGoodsGroup } from '../common/retail-preview/retail-data';
 import RetailPreviewFrame from '../common/retail-preview/retail-preview-frame.vue';
+import { stockHintText } from '../common/retail-preview/stock-display';
 import { shouldShowSubtitle } from '../common/retail-preview/subtitle-display';
 import { createRetailPreviewController } from '../common/retail-preview/use-retail-preview';
 import { validateGoodsGroup } from './types';
@@ -78,8 +79,8 @@ watch(
                 ￥{{ item.originalPrice.toFixed(2) }}
               </span>
             </span>
-            <span v-if="showData.showSales" class="goods-sales">
-              已售 {{ item.sales }}
+            <span v-if="stockHintText(item.stock)" class="goods-sales">
+              {{ stockHintText(item.stock) }}
             </span>
           </div>
           <!-- 小程序卡片右下角是真实可点的快捷加购按钮，这里按同尺寸静态呈现 -->

@@ -1,18 +1,21 @@
 <script setup lang="ts">
 import type { DiscountPriceDisplay } from '@/utils/discount-price'
+import type { MemberPriceDisplay } from '@/utils/member-price'
 import type { NewbiePriceDisplay } from '@/utils/newbie-price'
 import { onShow } from '@dcloudio/uni-app'
 import { computed, reactive, ref } from 'vue'
-
-import { delShoppingCart, editShoppingCart, getPage } from '@/api/order/shoppingCart'
+import { useI18n } from 'vue-i18n'
+import { delShoppingCart, editShoppingCart, getPage, transferCartRowsToCall } from '@/api/order/shoppingCart'
 import { saveBatch } from '@/api/product/collect'
 import { getById } from '@/api/product/spu'
-import { getGoodsDiscountPrices, getNewbieSkuPrices } from '@/api/promotion'
+import { getGoodsDiscountPrices, getMemberSkuPrices, getNewbieSkuPrices } from '@/api/promotion'
 // 引入组件
 import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
 import ShipContextPicker from '@/components/ship-context-picker/index.vue'
 import WaterfallGoods from '@/components/waterfall-goods/index.vue'
+// 推荐商品流（「为你推荐」）由本页滚动广播驱动自动续页，见 WaterfallGoods
+import { useDecorationInfiniteScroll } from '@/composables/useDecorationInfiniteScroll'
 import { useShipContextLoad } from '@/composables/useShipContextLoad'
 import { useShipContextStore } from '@/store/shipContextStore'
 import { useTenantCapabilityStore } from '@/store/tenantCapabilityStore'
@@ -23,14 +26,19 @@ import {
 } from '@/utils/discount-price'
 import { initGoodsSpecs } from '@/utils/goods-specs'
 import {
+  emptyMemberPriceDisplay,
+  memberPriceUnitPrice,
+  resolveMemberPriceDisplay,
+  resolvePromotionPriority,
+} from '@/utils/member-price'
+import {
   clampNewbieQuantity,
   effectiveUnitPrice,
   emptyNewbieDisplay,
   hasNewbiePrice,
-  NEWBIE_BADGE_TEXT,
-  newbieLimitHint,
   resolveNewbiePriceDisplay,
 } from '@/utils/newbie-price'
+import { useTabBarLocale } from '@/composables/useTabBarLocale'
 
 definePage({
   name: 'shopping-cart',
@@ -40,6 +48,11 @@ definePage({
     navigationBarTitleText: '购物车',
   },
 })
+
+const { t } = useI18n()
+useTabBarLocale()
+// 页面滚动接近底部时广播检查，「为你推荐」收到后自动加载下一页，不再需要点「点击加载更多」
+useDecorationInfiniteScroll()
 
 interface ShoppingCartState {
   customStyle: {
@@ -89,13 +102,18 @@ const showShoreEntryBar = computed(() =>
 const hasActiveCall = computed(() => !!shipContextStore.vesselCallId)
 const shipStatusBarText = computed(() => {
   if (!hasActiveCall.value)
-    return '暂无进行中的靠港计划，商品将按常规方式配送'
+    return t('cart.noActiveCall')
   const context = shipContextStore
   // 时间窗由运营排产时补填，刚申报的靠港没有；有则展示 MM-DD HH:mm 区间
   const windowText = context.deliveryWindowStart && context.deliveryWindowEnd
     ? ` · ${context.deliveryWindowStart.slice(5, 16)}~${context.deliveryWindowEnd.slice(5, 16)}`
     : ''
-  return `靠港：${context.portName || '待排产'}${context.berth ? ` ${context.berth}` : ''}${windowText}`
+  const berthText = context.berth ? ` ${context.berth}` : ''
+  return t('cart.shipStatusAtPort', {
+    port: context.portName || t('cart.portPending'),
+    berth: berthText,
+    window: windowText,
+  })
 })
 /** 船舶卡状态点：无靠港计划用橙色预警，与右侧「去申报」同色 */
 const shipStatusTone = computed(() => (hasActiveCall.value ? 'is-active' : 'is-warning'))
@@ -123,6 +141,7 @@ const cartGroups = computed(() => {
       // 标成「当前船舶：未命名」——用户明明有船却显示未命名，正是这个误判。
       label: groupLabel(key, groups[key]),
       isCurrent: !!key && key === currentKey,
+      action: groupAction(key, groups[key]),
       rows: groups[key],
     }))
 })
@@ -131,19 +150,59 @@ const cartGroups = computed(() => {
 function groupLabel(key: string, rows: any[]) {
   if (key) {
     // 当前靠港组由上方船舶状态卡承载船名与靠港，这里只补区分别组所需的信息
-    return key === (shipContextStore.vesselCallId || '')
-      ? `本单商品${currentCallSuffix.value}`
-      : `其他靠港计划 · ${key.slice(-6)}`
+    if (key === (shipContextStore.vesselCallId || ''))
+      return t('cart.currentGroupLabel', { suffix: currentCallSuffix.value })
+    return nonCurrentCallLabel(rows)
   }
   // 靠港结束（ETD 过点/已完成）后快照只带船不带靠港，行 vesselId 有值、
   // vesselCallId 为空——这不是「未指定」，回落到常规配送方式是设计内行为
   const vesselRow = rows.find(row => row.vesselId)
   if (!vesselRow)
-    return '未指定配送计划'
+    return t('cart.noDeliveryPlan')
   // 行上只有船 ID 没有船名；行归属恰好是当前上下文那艘时才报得出船名
   return vesselRow.vesselId === shipContextStore.vesselId
-    ? `当前船舶：${shipContextStore.vesselName || '未命名'}（暂无进行中的靠港计划）`
-    : '船舶暂无进行中的靠港计划'
+    ? t('cart.currentVesselNoCall', { name: shipContextStore.vesselName || t('cart.unnamedVessel') })
+    : t('cart.vesselNoCall')
+}
+
+/**
+ * 非当前靠港组的标签：说人话，绝不甩裸靠港 ID（用户看不出 413825 是什么）。
+ * 行上按靠港批量回填了展示快照（港口/船名/是否已结束），远程缺失时回落通用文案。
+ */
+function nonCurrentCallLabel(rows: any[]) {
+  const place = rows.find(row => row.vesselCallPortName)?.vesselCallPortName || ''
+  const vesselName = rows.find(row => row.vesselCallVesselName)?.vesselCallVesselName || ''
+  const where = place || vesselName
+  if (rows.some(row => row.vesselCallOrderable === false)) {
+    const base = where
+      ? t('cart.previousCallWithPlace', { place: where })
+      : t('cart.previousCall')
+    // 当前无靠港时没有「转入」目标（见 groupAction），就地讲清结算走向，别让用户猜
+    return shipContextStore.vesselCallId
+      ? base
+      : t('cart.previousCallCheckoutRegular', { base })
+  }
+  // 快照缺失/仍是进行中的另一条靠港都走这里；后者由 groupAction 给切换提示
+  return where
+    ? t('cart.otherCallWithPlace', { place: where })
+    : t('cart.otherCall')
+}
+
+/**
+ * 非当前靠港组的行动提示，只在用户真能做到时才给：
+ * - 行归属「仍在进行中」的另一条靠港 → 切换船舶有目标可切（红字入口）；
+ * - 行归属已结束的靠港且当前有靠港 → 给「转入本次靠港」，删掉重加太折磨；
+ * - 当前无靠港（没有可切换/可转入的目标）→ 不出行动，标签里已说明结算走向。
+ */
+function groupAction(key: string, rows: any[]) {
+  if (!key || key === (shipContextStore.vesselCallId || ''))
+    return ''
+  if (rows.some(row => row.vesselCallOrderable === false))
+    return shipContextStore.vesselCallId ? 'transfer' : ''
+  if (rows.some(row => row.vesselCallOrderable === true))
+    return 'switch'
+  // 快照缺失（远程失败）：保守维持旧的切换提示，仅当切换有目标时
+  return shipContextStore.vesselCallId ? 'switch' : ''
 }
 const globalLoading = useGlobalLoading()
 const { success: showSuccess } = useGlobalToast()
@@ -190,14 +249,47 @@ function discountDisplayOf(row: any): DiscountPriceDisplay {
 }
 
 /**
+ * 会员专享价展示：`skuId → display`。
+ *
+ * 与新人价/折扣价同构：整份对象替换即可触发依赖它的行价/合计/划线价重算；
+ * 未命中/接口失败时保持空对象，所有读取都回落原价（降级无需额外分支）。
+ * 达标展示价在共享层取优：min(会员价, 当前售价 × vo.userDiscountRate)
+ * （会员折扣率权益随 VO 透传；取优不叠加，与结算同口径）。
+ */
+const memberDisplays = ref<Record<string, MemberPriceDisplay>>({})
+
+/** 取某行的会员价展示；无活动/未命中时返回共享的空展示（不新建对象，避免每行一个） */
+function memberDisplayOf(row: any): MemberPriceDisplay {
+  return memberDisplays.value[String(row?.skuId ?? '')] || emptyMemberPriceDisplay()
+}
+
+/** 取某行的会员价引导文案（未达标/未登录时「会员专享 ¥x」）；无则不渲染 */
+function memberGuideOf(row: any): string {
+  const display = memberDisplayOf(row)
+  if (!display.guideText || display.memberPrice === null)
+    return ''
+  return t('cart.memberGuide', { price: display.memberPrice })
+}
+
+/**
  * 行内划线价：优先划 SKU 原价（与售价同一数据源），存量商品没维护原价时，
- * 新人价场景退回划当前售价 —— 原本的对比提示不能凭空消失。
+ * 会员价/新人价场景退回划当前售价 —— 原本的对比提示不能凭空消失。
  * 普通场景无原价则不划线，与商详/列表的 shouldShowOriginalPrice 口径一致。
+ *
+ * 优先级与成交价一致：会员价 > 新人价 > 限时折扣 > 原价。
  */
 function strikePriceOf(row: any): number | string | undefined {
   const sku = row?.goodsSku
   if (!sku)
     return undefined
+  const member = memberDisplayOf(row)
+  if (member.showMemberPrice) {
+    // 会员价的基准价是 SKU 当前售价（接口下发的 originalPrice）；
+    // 商品维护了更大的原价时优先划原价，否则至少划当前售价，保持「有优惠」的可比性
+    return shouldShowOriginalPrice(member.memberPrice, sku.originalPrice)
+      ? sku.originalPrice
+      : sku.salesPrice
+  }
   const newbie = newbieDisplayOf(row)
   if (newbie.showNewbiePrice) {
     return shouldShowOriginalPrice(newbie.newbiePrice, sku.originalPrice)
@@ -213,18 +305,28 @@ function strikePriceOf(row: any): number | string | undefined {
 }
 
 /**
- * 行的实际成交单价：新人价 > 限时折扣 > 售价。
+ * 行的实际成交单价：会员价 > 新人价 > 限时折扣 > 售价
+ * （与后端 OrderPriceComputeService 的「拼团 > 秒杀 > 会员价 > 新人价 > 限时折扣 > 原价」同向；
+ * 秒杀价购物车未接入，属既有边界，不为标价新增秒杀请求）。
  *
- * 行价与合计必须同源（都走本函数），否则会出现「行价 ¥23.92、合计仍按 ¥29.90」。
- * 优先级与后端 OrderPriceComputeService 一致；秒杀价购物车未接入，属既有边界
- * （不为标价新增秒杀请求），故这里只覆盖本页掌握的新人价与折扣价两层。
+ * 三层展示先经 `resolvePromotionPriority` 统一收敛（命中高优先级时清空低优先级），
+ * 行价/合计再读同一份结果，避免这里各写一遍 if/else 与商详判定漂移。
  */
 function cartUnitPrice(row: any): number {
   const fallback = row?.goodsSku?.salesPrice
-  const newbie = newbieDisplayOf(row)
+  const priority = resolvePromotionPriority({
+    discount: discountDisplayOf(row),
+    member: memberDisplayOf(row),
+    newbie: newbieDisplayOf(row),
+    seckill: false,
+  })
+  const member = priority.member
+  if (member.showMemberPrice)
+    return memberPriceUnitPrice(fallback, member)
+  const newbie = priority.newbie
   if (newbie.showNewbiePrice)
     return effectiveUnitPrice(fallback, newbie)
-  return discountUnitPrice(fallback, discountDisplayOf(row))
+  return discountUnitPrice(fallback, priority.discount)
 }
 
 /** 页面是否存在可享新人价的行（决定顶部说明条是否渲染） */
@@ -235,7 +337,7 @@ const cartHasNewbiePrice = computed(() =>
 /** 新人价说明条文案：任取一个可享行即可，限购数由活动统一（后端固定 1 件） */
 const cartNewbieHint = computed(() => {
   const hit = Object.values(newbieDisplays.value).find(display => display.showNewbiePrice)
-  return hit ? newbieLimitHint(hit) : ''
+  return hit ? t('cart.newbieLimitHint', { count: hit.limitPerUser }) : ''
 })
 
 /**
@@ -249,6 +351,42 @@ const cartPieceCount = computed(() =>
 const checkedPieceCount = computed(() =>
   state.checkedList.reduce((sum: number, row: any) => sum + (Number(row.quantity) || 0), 0),
 )
+
+/**
+ * 推荐上下文：车内商品去重后既作为分类来源，也作为排除项，
+ * 避免「为你推荐」反复出现已经在车里的商品。
+ */
+const cartRecommendSpuIds = computed(() => {
+  const ids = state.cartList
+    .map((row: any) => String(row?.spuId ?? '').trim())
+    .filter(Boolean)
+  return [...new Set(ids)]
+})
+const cartRecommendSourceIds = computed(() => cartRecommendSpuIds.value.slice(0, 20))
+const cartRecommendExcludeIds = computed(() => cartRecommendSpuIds.value.slice(0, 50))
+
+/**
+ * 出现多行的 SKU 集合（`String(skuId)` 归一，空 skuId 忽略）。
+ *
+ * 同一 SKU 可能来自不同靠港分组：已结束靠港的滞留行 + 当前无靠港行，这是
+ * 购物车按 (SKU, 靠港) 分组后的合法状态，不能直接合并展示 —— 每行的靠港归属
+ * 要保留给分组头与防串船校验；结算/下单时才按 SKU 合并数量。这里只标记重复行，
+ * 在商品卡里补一句说明，避免用户以为是重复加购。
+ */
+const duplicateSkuIds = computed(() => {
+  const seen = new Set<string>()
+  const duplicated = new Set<string>()
+  for (const row of state.cartList) {
+    const skuId = String(row?.skuId ?? '').trim()
+    if (!skuId)
+      continue
+    if (seen.has(skuId))
+      duplicated.add(skuId)
+    else
+      seen.add(skuId)
+  }
+  return duplicated
+})
 
 // 编辑按钮
 function handleEdit() {
@@ -496,8 +634,47 @@ async function loadDiscountPrices() {
   computePrice()
 }
 
+/**
+ * 批量查询购物车行的会员专享价（含当前用户等级资格）。
+ *
+ * 与新人价/折扣价同一时机、整页一次批量：逐行请求会把购物车首屏放大成 N 个请求，
+ * 且各请求可能落在活动起止边界两侧。skuId 先去重（同一 SKU 可能有多行，如共享
+ * 购物车按成员拆行），避免把查询串白白拉长。
+ *
+ * 失败静默：会员价只是价格标注，接口异常绝不能影响购物车列表与结算主流程。
+ * 未登录时接口等价免登（返回 eligible=null + 活动价），行价保持原价并透出引导文案。
+ */
+async function loadMemberPrices() {
+  const skuIds = Array.from(new Set(
+    state.cartList
+      .map((row: any) => String(row?.skuId || '').trim())
+      .filter(Boolean),
+  ))
+  if (!skuIds.length) {
+    memberDisplays.value = {}
+    computePrice()
+    return
+  }
+  try {
+    const vo = await getMemberSkuPrices(skuIds)
+    const next: Record<string, MemberPriceDisplay> = {}
+    // 按行的 skuId 逐个解析：行价、划线价、合计三处读的是同一份判定结果；
+    // 会员折扣率权益（vo.userDiscountRate）由共享取优逻辑消费，取优不叠加
+    for (const skuId of skuIds) {
+      next[skuId] = resolveMemberPriceDisplay(vo, skuId)
+    }
+    memberDisplays.value = next
+  }
+  catch {
+    // 接口失败按原价展示（空表即全部回落 salesPrice）
+    memberDisplays.value = {}
+  }
+  // 会员价晚于首屏返回：回来时必须重算合计，否则底栏仍显示按原价算出的金额
+  computePrice()
+}
+
 async function getCartPage() {
-  globalLoading.loading('请稍候...')
+  globalLoading.loading(t('cart.pleaseWait'))
   try {
     const response = await getPage({
       current: 1,
@@ -515,11 +692,12 @@ async function getCartPage() {
     state.checkedList = []
     computePrice()
     shoppingCartStore.fetchCartCount()
-    // 不 await：新人价/限时折扣价都是增强展示，让它们晚一帧回来即可，
+    // 不 await：新人价/会员价/限时折扣价都是增强展示，让它们晚一帧回来即可，
     // 购物车列表/勾选/结算不该为了价格标注多等一个请求。
-    // 两者同一时机触发（列表加载/刷新、增删行都会走 getCartPage），
+    // 三者同一时机触发（列表加载/刷新、增删行都会走 getCartPage），
     // 各自整页一次批量查询，互不阻塞
     void loadNewbiePrices()
+    void loadMemberPrices()
     void loadDiscountPrices()
   }
   finally {
@@ -531,11 +709,11 @@ async function getCartPage() {
 function delCart() {
   if (state.checkedList.length > 0) {
     confirm({
-      title: '删除',
-      msg: '是否删除选中商品？',
+      title: t('cart.deleteTitle'),
+      msg: t('cart.deleteSelectedMessage'),
       closeOnClickModal: false,
-      confirmButtonText: '确认',
-      cancelButtonText: '取消',
+      confirmButtonText: t('common.confirm'),
+      cancelButtonText: t('common.cancel'),
       success: (res) => {
         if (res.action === 'confirm') {
           const ids = state.checkedList.map(v => v.id)
@@ -550,11 +728,11 @@ function delCart() {
 // 删除单个商品（管理模式下点垃圾桶图标）
 function delOne(row: any) {
   confirm({
-    title: '删除',
-    msg: `确定删除「${row.spuName}」吗？`,
+    title: t('cart.deleteTitle'),
+    msg: t('cart.deleteOneMessage', { name: row.spuName }),
     closeOnClickModal: false,
-    confirmButtonText: '确认',
-    cancelButtonText: '取消',
+    confirmButtonText: t('common.confirm'),
+    cancelButtonText: t('common.cancel'),
     success: (res) => {
       if (res.action === 'confirm') {
         delShoppingCart([row.id]).then(() => {
@@ -572,11 +750,11 @@ function clearCart() {
   if (!state.cartList.length)
     return
   confirm({
-    title: '清空购物车',
-    msg: `确定清空购物车中的 ${state.cartList.length} 件商品吗？`,
+    title: t('cart.clearCartTitle'),
+    msg: t('cart.clearCartMessage', { count: state.cartList.length }),
     closeOnClickModal: false,
-    confirmButtonText: '清空',
-    cancelButtonText: '取消',
+    confirmButtonText: t('cart.clear'),
+    cancelButtonText: t('common.cancel'),
     success: (res) => {
       if (res.action === 'confirm') {
         const ids = state.cartList.map((v: any) => v.id)
@@ -590,7 +768,7 @@ function clearCart() {
   })
 }
 async function openSkuPopup(row: any) {
-  globalLoading.loading('请稍候...')
+  globalLoading.loading(t('cart.pleaseWait'))
   selectedCartId.value = row.id
   try {
     state.goodsSpu = await getById(row.spuId)
@@ -649,6 +827,33 @@ function toFrequent() {
 /** 打开船舶与靠港选择器；切换后分组随 shipContextStore 变化自动重算 */
 function openShipPicker() {
   shipPickerVisible.value = true
+}
+/**
+ * 把「此前靠港计划」滞留的整组商品转入当前靠港。
+ *
+ * 服务端把行归属快照刷成当前靠港（同 SKU 撞车自动合并数量）；成功后整页刷新，
+ * 该组随归属变化并入「本单商品」，防串船拦截自然解除。失败提示由请求层统一弹出。
+ */
+function transferGroup(group: { key: string, rows: any[] }) {
+  const targetCallId = shipContextStore.vesselCallId
+  if (!targetCallId)
+    return
+  confirm({
+    title: t('cart.transferTitle'),
+    msg: t('cart.transferMessage', { count: group.rows.length }),
+    closeOnClickModal: false,
+    confirmButtonText: t('cart.transferConfirm'),
+    cancelButtonText: t('cart.transferLater'),
+    success: (res) => {
+      if (res.action !== 'confirm')
+        return
+      transferCartRowsToCall(targetCallId, group.rows.map(row => row.id))
+        .then(() => {
+          showSuccess({ msg: t('cart.transferred') })
+          getCartPage()
+        })
+    },
+  })
 }// 去结算 跳转结算页
 function toSettlement() {
   goodsStore.setGoodsList(state.checkedList)
@@ -663,13 +868,13 @@ function toSettlement() {
 async function toCollect() {
   message
     .confirm({
-      msg: '是否移入收藏夹吗？',
-      title: '移入收藏夹',
+      msg: t('cart.moveToFavoritesMessage'),
+      title: t('cart.moveToFavorites'),
     })
     .then(() => {
       saveBatch(state.checkedList).then(() => {
         getCartPage()
-        showSuccess({ msg: '移入成功' })
+        showSuccess({ msg: t('cart.movedToFavorites') })
       })
     })
     .catch(() => { })
@@ -686,7 +891,7 @@ onShow(async () => {
 </script>
 
 <template>
-  <hr-navbar title="购物车" :left-arrow="false" />
+  <hr-navbar :title="t('cart.title')" :left-arrow="false" />
   <!--
     这里曾常驻一条「收货地址」栏，但它是纯展示：state.address 只用于渲染这行文案，
     toSettlement 并不会把它带给结算页，结算页自己会重新取默认地址并允许改选；
@@ -711,7 +916,7 @@ onShow(async () => {
       <view class="ship-status-dot" :class="shipStatusTone" />
       <view class="min-w-0 flex-1">
         <view class="ship-name">
-          {{ shipContextStore.vesselName || '未命名' }}
+          {{ shipContextStore.vesselName || t('cart.unnamedVessel') }}
         </view>
         <view class="ship-meta" :class="{ 'is-warning': !hasActiveCall }">
           {{ shipStatusBarText }}
@@ -721,15 +926,15 @@ onShow(async () => {
         v-if="!hasActiveCall"
         class="ship-action is-warning"
       >
-        去申报 &gt;
+        {{ t('cart.reportCall') }}
       </text>
       <text v-else class="ship-action">
-        切换 &gt;
+        {{ t('cart.switchVessel') }}
       </text>
     </view>
     <!-- 共享购物车：同船多成员分别加购，采购确认人统一提交整船订单 -->
     <view class="ship-shared-entry" @click="toSharedCart">
-      与同船成员合并采购
+      {{ t('cart.mergeWithCrew') }}
       <text class="ship-shared-arrow">
         &gt;
       </text>
@@ -741,14 +946,14 @@ onShow(async () => {
       <view class="ship-status-dot is-active" />
       <view class="min-w-0 flex-1">
         <view class="ship-name">
-          合并采购
+          {{ t('cart.shoreGroupPurchase') }}
         </view>
         <view class="ship-meta">
-          未绑定船舶：可按岸上收货地址发起企业合并采购
+          {{ t('cart.shoreEntryHint') }}
         </view>
       </view>
       <text class="ship-action">
-        去发起 &gt;
+        {{ t('cart.startGroupPurchase') }}
       </text>
     </view>
   </view>
@@ -760,13 +965,13 @@ onShow(async () => {
         <!-- 件数走数量累加：一行买 3 件时「共 1 件商品」会与底部结算件数对不上 -->
         <view class="toolbar-info">
           <text class="toolbar-count">
-            共 {{ cartPieceCount }} 件商品
+            {{ t('cart.itemCount', { count: cartPieceCount }) }}
           </text>
           <text v-if="state.shopCheckedAll" class="toolbar-badge">
-            已全选
+            {{ t('cart.allSelected') }}
           </text>
           <text v-else-if="state.checkedList.length > 0" class="toolbar-badge">
-            已选 {{ checkedPieceCount }}
+            {{ t('cart.selectedCount', { count: checkedPieceCount }) }}
           </text>
         </view>
         <view class="manage-pill" :class="{ 'is-active': state.isEdit }" @click="handleEdit">
@@ -775,7 +980,7 @@ onShow(async () => {
             :color="state.isEdit ? '#07c160' : '#646566'"
           />
           <text class="manage-pill-text">
-            {{ state.isEdit ? '完成' : '管理' }}
+            {{ state.isEdit ? t('cart.done') : t('cart.manage') }}
           </text>
         </view>
       </view>
@@ -786,29 +991,39 @@ onShow(async () => {
       -->
       <view v-if="cartHasNewbiePrice" class="newbie-tip">
         <text class="newbie-tip-badge">
-          {{ NEWBIE_BADGE_TEXT }}
+          {{ t('cart.newbieBadge') }}
         </text>
         <text class="newbie-tip-text">
           {{ cartNewbieHint }}
         </text>
       </view>
       <!--
-        防串船分组头：商品归属哪条船由上方船舶卡回答（分组头不再重复船名），
-        这里只保留「跨靠港结算会被拦截」这一条商品列表信息，且做成细窄说明行，
-        避免与船舶卡争夺视觉层级（此前是同款灰底圆角条，读起来像第二张卡片）。
+        防串船分组头：商品归属哪条船由上方船舶卡回答（分组头不再重复船名）。
+        行动入口只在用户真能做到时出现——「结算前请切换船舶」仅当存在可切换的
+        进行中靠港；已结束靠港的滞留行给「转入本次靠港」；当前无靠港时不出
+        行动，只说明结算走向。裸靠港 ID 任何情况下都不展示（用户读不懂尾号）。
       -->
       <view
         v-for="group in cartGroups"
         :key="group.key || 'none'"
         class="group-label"
       >
-        {{ group.label }}
+        <text class="group-text">
+          {{ group.label }}
+        </text>
         <text
-          v-if="!group.isCurrent && group.key"
+          v-if="group.action === 'switch'"
           class="group-switch"
           @click.stop="openShipPicker"
         >
-          结算前请切换船舶
+          {{ t('cart.groupSwitchHint') }}
+        </text>
+        <text
+          v-else-if="group.action === 'transfer'"
+          class="group-transfer"
+          @click.stop="transferGroup(group)"
+        >
+          {{ t('cart.transferAction') }}
         </text>
       </view>
       <view
@@ -829,7 +1044,7 @@ onShow(async () => {
         </view>
         <view v-else class="check-circle is-disabled">
           <text class="no-stock-text">
-            {{ goods.goodsSku ? '无货' : '下架' }}
+            {{ goods.goodsSku ? t('cart.outOfStockShort') : t('cart.delisted') }}
           </text>
         </view>
         <!-- left -->
@@ -847,7 +1062,7 @@ onShow(async () => {
           />
           <view v-if="goods.specsInfo" class="spec-tag" @tap.stop="openSkuPopup(goods)">
             <wd-text
-              :text="goods.goodsSku ? goods.specsInfo : '规格不存在请重新选择'" size="21rpx"
+              :text="goods.goodsSku ? goods.specsInfo : t('cart.specMissing')" size="21rpx"
               color="#909399"
             />
             <wd-icon name="arrow-down" size="20rpx" color="#909399" />
@@ -856,20 +1071,28 @@ onShow(async () => {
             v-if="goods.goodsSku && goods.goodsSku.stock > 0 && goods.goodsSku.stock <= 10"
             class="stock-tip"
           >
-            仅剩{{ goods.goodsSku.stock }}件
+            {{ t('cart.stockLeft', { count: goods.goodsSku.stock }) }}
+          </view>
+          <!-- 同款多行（不同靠港分组）时说明结算口径，避免被当成重复加购 -->
+          <view v-if="duplicateSkuIds.has(String(goods.skuId))" class="merge-tip">
+            {{ t('cart.duplicateMergeHint') }}
           </view>
           <view v-if="goods.goodsSku" class="goods-bottom">
             <view class="goods-price">
-              <!-- 主价走 cartUnitPrice（新人价 > 限时折扣 > 售价），与合计同源；
-                   划线价优先取原价，无原价时新人场景退回划售价，折扣场景划活动基准价 -->
+              <!-- 主价走 cartUnitPrice（会员价 > 新人价 > 限时折扣 > 售价），与合计同源；
+                   划线价优先取原价，无原价时会员价/新人价场景退回划售价，折扣场景划活动基准价 -->
               <view class="goods-price-main">
                 <wd-text
                   :text="cartUnitPrice(goods)"
                   size="30rpx" color="var(--wot-color-theme-primary, #ff2e4d)" mode="price"
                   prefix="￥"
                 />
-                <text v-if="newbieDisplayOf(goods).showNewbiePrice" class="newbie-badge">
-                  {{ NEWBIE_BADGE_TEXT }}
+                <!-- 会员价角标：会员价是身份权益，优先于新人价/折扣角标 -->
+                <text v-if="memberDisplayOf(goods).showMemberPrice" class="member-badge">
+                  {{ t('cart.memberBadge') }}
+                </text>
+                <text v-else-if="newbieDisplayOf(goods).showNewbiePrice" class="newbie-badge">
+                  {{ t('cart.newbieBadge') }}
                 </text>
                 <!-- 限时折扣角标：新人价优先，无新人价且命中折扣时才出现（文案如「8折」） -->
                 <text v-else-if="discountDisplayOf(goods).showDiscountPrice" class="discount-badge">
@@ -881,6 +1104,10 @@ onShow(async () => {
                 :text="strikePriceOf(goods)" size="22rpx" color="#a8abb2" mode="price"
                 prefix="￥" decoration="line-through"
               />
+              <!-- 会员价引导：未达标/未登录时「会员专享 ¥x」，只透出不下单拦截 -->
+              <view v-if="memberGuideOf(goods)" class="member-guide">
+                {{ memberGuideOf(goods) }}
+              </view>
             </view>
             <wd-input-number
               v-if="goods.goodsSku && goods.goodsSku.stock > 0" v-model="goods.quantity" :min="1" :index="goods.id"
@@ -894,20 +1121,20 @@ onShow(async () => {
     <view v-else class="cart-empty">
       <image class="cart-empty-img" src="/static/promotion/empty/empty-cart.png" mode="aspectFit" />
       <text class="cart-empty-title">
-        购物车还是空的
+        {{ t('cart.emptyTitle') }}
       </text>
       <!-- 空态给两条出路：主操作回商品列表，次操作去常购清单。
            原先只有「去逛逛」，常购用户每次都要从分类页重新翻一遍 -->
       <view class="cart-empty-actions">
         <view class="empty-btn empty-btn-primary" @tap.stop="toPageUrl">
-          去逛逛
+          {{ t('cart.goShopping') }}
         </view>
         <view class="empty-btn" @tap.stop="toFrequent">
-          常购清单
+          {{ t('cart.frequentList') }}
         </view>
       </view>
       <view class="cart-empty-tip">
-        绑定了船舶的商品会自动按靠港计划分组，方便同船成员合并结算
+        {{ t('cart.emptyTip') }}
       </view>
     </view>
   </view>
@@ -919,13 +1146,13 @@ onShow(async () => {
           <wd-icon v-if="state.shopCheckedAll" name="check" size="24rpx" color="#fff" />
         </view>
         <text class="footer-all-text">
-          全选
+          {{ t('cart.selectAll') }}
         </text>
       </view>
       <view v-if="!state.isEdit" class="footer-right">
         <view class="footer-price">
           <text class="footer-price-label">
-            合计
+            {{ t('cart.total') }}
           </text>
           <wd-text size="32rpx" mode="price" :text="state.totalAmount" prefix="￥" color="var(--wot-color-theme-primary, #ff2e4d)" />
         </view>
@@ -935,24 +1162,24 @@ onShow(async () => {
           class="settle-btn" :class="{ 'is-disabled': state.checkedList.length <= 0 }"
           @click="state.checkedList.length > 0 && toSettlement()"
         >
-          去结算({{ checkedPieceCount }})
+          {{ t('cart.checkoutWithCount', { count: checkedPieceCount }) }}
         </view>
       </view>
       <view v-else class="footer-right">
         <view class="clear-entry" @click="clearCart">
-          清空
+          {{ t('cart.clear') }}
         </view>
         <view
           class="action-btn action-btn-plain" :class="{ 'is-disabled': state.checkedList.length <= 0 }"
           @click="state.checkedList.length > 0 && toCollect()"
         >
-          移入收藏夹
+          {{ t('cart.moveToFavorites') }}
         </view>
         <view
           class="action-btn action-btn-danger" :class="{ 'is-disabled': state.checkedList.length <= 0 }"
           @click="state.checkedList.length > 0 && delCart()"
         >
-          删除({{ checkedPieceCount }})
+          {{ t('cart.deleteWithCount', { count: checkedPieceCount }) }}
         </view>
       </view>
     </view>
@@ -961,11 +1188,14 @@ onShow(async () => {
   <view class="like-title py-2">
     <wd-icon name="heart" color="red" size="18px" />
     <text class="px-1 text-xs">
-      为你推荐
+      {{ t('cart.recommend') }}
     </text>
     <wd-icon name="heart" color="red" size="18px" />
   </view>
-  <WaterfallGoods />
+  <WaterfallGoods
+    :source-spu-ids="cartRecommendSourceIds"
+    :exclude-spu-ids="cartRecommendExcludeIds"
+  />
   <!-- 底部结算条占位：结算条固定悬浮，避免遮挡推荐商品最后一行 -->
   <view class="cart-footer-holder" />
   <vk-data-goods-sku-popup
@@ -1157,9 +1387,20 @@ onShow(async () => {
   line-height: 36rpx;
   border-left: 4rpx solid #dcdfe6;
 
+  .group-text {
+    min-width: 0;
+  }
+
   .group-switch {
     margin-left: 12rpx;
     color: var(--wot-color-theme-primary, #ff2e4d);
+    flex-shrink: 0;
+  }
+
+  .group-transfer {
+    margin-left: 12rpx;
+    color: var(--wot-color-theme-primary, #ff2e4d);
+    flex-shrink: 0;
   }
 }
 
@@ -1212,6 +1453,13 @@ onShow(async () => {
       color: #ff976a;
     }
 
+    /* 同款多行提示：比库存提示更弱一档，只解释结算口径，不制造「重复加购」焦虑 */
+    .merge-tip {
+      margin-top: 4rpx;
+      font-size: 20rpx;
+      color: #e6a23c;
+    }
+
     .goods-bottom {
       display: flex;
       align-items: center;
@@ -1244,6 +1492,27 @@ onShow(async () => {
       font-size: 18rpx;
       font-weight: 600;
       line-height: 1.6;
+    }
+
+    /* 会员价角标：金色系表达会员身份权益，与新人价/折扣角标同为小字重胶囊 */
+    .member-badge {
+      flex-shrink: 0;
+      margin-left: 8rpx;
+      padding: 2rpx 10rpx;
+      border-radius: 999rpx;
+      background: rgba(184, 134, 47, 0.12);
+      color: #b8862f;
+      font-size: 18rpx;
+      font-weight: 600;
+      line-height: 1.6;
+    }
+
+    /* 会员价引导：未达标/未登录时一行小字，不占主价与划线的位置 */
+    .member-guide {
+      margin-top: 4rpx;
+      color: #b0803a;
+      font-size: 18rpx;
+      line-height: 1.5;
     }
 
     /* 限时折扣角标：复用新人价角标的圆角胶囊尺寸（文案如「8折」「减¥5」），

@@ -16,6 +16,8 @@
  * 所有配送方式文案一律经 deliveryWayLabel() 获取。
  */
 
+import { translate } from '@/locales'
+
 /** 普通快递 */
 export const DELIVERY_WAY_EXPRESS = '1'
 /** 上门自提 */
@@ -25,11 +27,17 @@ export const DELIVERY_WAY_MALL_DELIVERY = '3'
 /** 公司配送（到船） */
 export const DELIVERY_WAY_VESSEL_INTERNAL = '4'
 
-export const DELIVERY_WAY_LABEL: Record<string, string> = {
-  [DELIVERY_WAY_EXPRESS]: '普通快递',
-  [DELIVERY_WAY_SELF_PICKUP]: '上门自提',
-  [DELIVERY_WAY_MALL_DELIVERY]: '公司配送（岸上）',
-  [DELIVERY_WAY_VESSEL_INTERNAL]: '公司配送（到船）',
+/**
+ * 配送方式的词条 key（配送方式文案的唯一来源）。
+ *
+ * 文案在 `deliveryWayLabel` 调用时再取，避免模块加载时把语言固化；
+ * 不再保留中文默认表，防止新增调用方绕过 translate 直接把中文渲染到英文界面。
+ */
+const DELIVERY_WAY_TEXT_KEYS: Record<string, string> = {
+  [DELIVERY_WAY_EXPRESS]: 'labels.deliveryWayExpress',
+  [DELIVERY_WAY_SELF_PICKUP]: 'labels.deliveryWayPickup',
+  [DELIVERY_WAY_MALL_DELIVERY]: 'labels.deliveryWayMallOnshore',
+  [DELIVERY_WAY_VESSEL_INTERNAL]: 'labels.deliveryWayMallVessel',
 }
 
 /**
@@ -39,7 +47,8 @@ export const DELIVERY_WAY_LABEL: Record<string, string> = {
 export function deliveryWayLabel(way?: null | string): string {
   if (!way)
     return ''
-  return DELIVERY_WAY_LABEL[way] ?? '未知配送方式'
+  const labelKey = DELIVERY_WAY_TEXT_KEYS[way]
+  return labelKey ? translate(labelKey) : translate('labels.deliveryWayUnknown')
 }
 
 /**
@@ -57,13 +66,13 @@ export function deliveryWayOptions(options: { withVesselInternal?: boolean } = {
     return [
       {
         value: DELIVERY_WAY_VESSEL_INTERNAL,
-        name: DELIVERY_WAY_LABEL[DELIVERY_WAY_VESSEL_INTERNAL],
+        name: deliveryWayLabel(DELIVERY_WAY_VESSEL_INTERNAL),
       },
     ]
   }
   return [
-    { value: DELIVERY_WAY_EXPRESS, name: DELIVERY_WAY_LABEL[DELIVERY_WAY_EXPRESS] },
-    { value: DELIVERY_WAY_SELF_PICKUP, name: DELIVERY_WAY_LABEL[DELIVERY_WAY_SELF_PICKUP] },
-    { value: DELIVERY_WAY_MALL_DELIVERY, name: DELIVERY_WAY_LABEL[DELIVERY_WAY_MALL_DELIVERY] },
+    { value: DELIVERY_WAY_EXPRESS, name: deliveryWayLabel(DELIVERY_WAY_EXPRESS) },
+    { value: DELIVERY_WAY_SELF_PICKUP, name: deliveryWayLabel(DELIVERY_WAY_SELF_PICKUP) },
+    { value: DELIVERY_WAY_MALL_DELIVERY, name: deliveryWayLabel(DELIVERY_WAY_MALL_DELIVERY) },
   ]
 }

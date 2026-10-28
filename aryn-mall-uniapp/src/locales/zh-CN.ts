@@ -1,0 +1,165 @@
+/**
+ * 简体中文词条。
+ *
+ * 新增文案时先加到这里，再在同级 `en-US.ts` 补英文；两边 key 必须一一对应。
+ * 页面里统一用 `t('模块.key')`，禁止在模板里再直接写中文字面量。
+ */
+import accountMember from './modules/accountMember.zh-CN'
+import accountSettings from './modules/accountSettings.zh-CN'
+import afterSales from './modules/afterSales.zh-CN'
+import app from './modules/app.zh-CN'
+import cart from './modules/cart.zh-CN'
+import catalog from './modules/catalog.zh-CN'
+import checkout from './modules/checkout.zh-CN'
+import diy from './modules/diy.zh-CN'
+import labels from './modules/labels.zh-CN'
+import message from './modules/message.zh-CN'
+import order from './modules/order.zh-CN'
+import product from './modules/product.zh-CN'
+import promotion from './modules/promotion.zh-CN'
+import search from './modules/search.zh-CN'
+import shared from './modules/shared.zh-CN'
+import sharedCart from './modules/sharedCart.zh-CN'
+import vessel from './modules/vessel.zh-CN'
+
+export default {
+  common: {
+    appName: '悦航购',
+    loading: '加载中...',
+    autoLoggingIn: '自动登录中...',
+    loadFailed: '页面加载失败，请稍后重试',
+    retry: '重试',
+    confirm: '确认',
+    cancel: '取消',
+    requestFailed: '请求失败',
+    networkError: '网络请求失败，请检查网络或接口域名配置',
+    timeout: '请求超时，请重试',
+    loginExpired: '登录已过期，请重新登录！',
+    deliveryLoginExpired: '配送登录已过期，请重新登录！',
+    updateTitle: '更新提示',
+    updateMessage: '新版本已经准备好，是否重启应用？',
+    language: '语言',
+    languageChanged: '语言已切换',
+    chinese: '简体中文',
+    english: 'English',
+  },
+  tabbar: {
+    home: '首页',
+    category: '分类',
+    cart: '购物车',
+    user: '我的',
+  },
+  login: {
+    title: '登录',
+    copyright: '天启雨数版权所有',
+    welcome: '欢迎回来',
+    welcomeDesc: '登录后同步订单、优惠券与积分',
+    brandSlogan: '愉悦购物，安全航行',
+    codeLogin: '验证码登录',
+    passwordLogin: '密码登录',
+    otherMethods: '其他登录方式',
+    agreementPrefix: '我已阅读并同意',
+    agreementAnd: '和',
+    userAgreement: '《用户协议》',
+    privacyPolicy: '《隐私政策》',
+    agreementTitle: '请阅读并同意用户协议',
+    agreementMessage: '在继续使用本服务前，请您认真阅读并同意《用户协议》和《隐私政策》。我们将严格保护您的隐私信息，只有在必要的情况下才会收集和使用。点击“我已阅读并同意”即表示您接受相关内容并继续使用服务。',
+    agree: '我已阅读并同意',
+    loginSuccess: '登录成功！',
+    loginFailed: '登录失败',
+    loginCodeMissing: '登录失败: code 未获取',
+    getPhoneFailed: '获取手机号失败',
+    wechatLogin: '微信登录',
+    phoneQuickLogin: '手机号快速登录',
+    phoneRequired: '手机号不能为空',
+    phoneInvalid: '请输入正确的手机号码',
+    phoneLabel: '手机号',
+    phonePlaceholder: '请输入手机号',
+    phoneRule: '请填写手机号',
+    passwordLabel: '密码',
+    passwordPlaceholder: '请输入密码',
+    passwordRule: '请填写密码',
+    codeLabel: '验证码',
+    codePlaceholder: '请输入验证码',
+    codeRule: '请填写验证码',
+    codeSent: '验证码已发送',
+    codeSendFailed: '验证码发送失败',
+    sendingTooOften: '请勿重复发送',
+    resendAfter: '{seconds}秒后重新发送',
+    sendCode: '发送验证码',
+    submit: '登录',
+  },
+  userCenter: {
+    title: '个人中心',
+    loginOrRegister: '登录/注册',
+    loginHint: '登录后同步订单、优惠券与积分',
+    coupon: '优惠券',
+    points: '积分',
+    balance: '余额',
+    guestHint: '登录后查看优惠券、积分与余额',
+    myOrders: '我的订单',
+    viewAll: '查看全部',
+    myServices: '我的服务',
+    guessYouLike: '猜你喜欢',
+    orderPendingPayment: '待付款',
+    orderPendingShipment: '待发货',
+    orderPendingReceipt: '待收货',
+    orderPendingReview: '待评价',
+    orderRefund: '退款/售后',
+    serviceMessage: '消息中心',
+    serviceMember: '会员中心',
+    serviceAddress: '收货地址',
+    serviceAppraise: '我的评价',
+    serviceFootprint: '浏览记录',
+    serviceCollect: '我的收藏',
+    serviceCoupon: '我的优惠券',
+    serviceDistribution: '分销中心',
+    deliveryWorkbench: '配送工作台',
+    deliveryPendingTasks: '{count} 项任务待处理',
+    deliveryReady: '已为你开通配送权限',
+    deliveryDisabled: '配送账号已停用',
+    deliveryEnter: '进入配送工作台',
+    deliveryUnavailable: '暂时无法进入配送工作台，请稍后重试',
+    deliveryDisabledContact: '配送账号已停用，请联系管理员',
+    tenantUnavailable: '应用配置暂不可用，请稍后重试',
+    myVessels: '我的船舶',
+    vesselLinked: '已关联船舶',
+    vesselLinkedSubtitle: '{name} · 靠港、成员与港口车辆',
+    vesselUnlinkedSubtitle: '未关联船舶，加入后可用靠港配送',
+  },
+  userSetting: {
+    title: '个人信息',
+    nicknameNotSet: '未设置昵称',
+    memberCenter: '会员中心',
+    // vue-i18n 里 | 是复数分隔符，字面量竖线必须写成 {'|'}
+    pointsBalance: "积分{points} {'|'} 余额{balance}",
+    phone: '手机号码',
+    notBound: '未绑定',
+    changePassword: '修改密码',
+    tapToChange: '点击修改',
+    addressManagement: '地址管理',
+    setNow: '立即设置',
+    logout: '退出登录',
+    logoutTitle: '退出系统',
+    logoutMessage: '确认退出系统？',
+    loggingOut: '退出中...',
+    logoutSuccess: '退出成功',
+  },
+  ...catalog,
+  ...product,
+  ...search,
+  ...cart,
+  ...checkout,
+  ...order,
+  ...sharedCart,
+  ...afterSales,
+  ...accountMember,
+  ...accountSettings,
+  ...message,
+  ...labels,
+  ...shared,
+  ...vessel,
+  ...diy,
+  ...promotion,
+  ...app,
+}

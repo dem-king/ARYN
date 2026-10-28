@@ -38,6 +38,7 @@ import {
 } from '#/api/vessel/vessel';
 import PageFilterPanel from '#/components/page/page-filter-panel.vue';
 import PageToolbar from '#/components/page/page-toolbar.vue';
+import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 
 import {
   VESSEL_TYPE_DEFAULT,
@@ -410,6 +411,8 @@ const viewImpact = (row: any) => {
 };
 
 onMounted(initPage);
+
+useKeepAliveRefresh(initPage);
 </script>
 
 <template>

@@ -14,6 +14,8 @@ import { ElIcon, ElImage } from 'element-plus';
 import { shouldShowOriginalPrice } from '../../common/retail-preview/price-display';
 import { loadGoodsWaterfall } from '../../common/retail-preview/retail-data';
 import RetailPreviewFrame from '../../common/retail-preview/retail-preview-frame.vue';
+import { stockHintText } from '../../common/retail-preview/stock-display';
+import { shouldShowSubtitle } from '../../common/retail-preview/subtitle-display';
 import { createRetailPreviewController } from '../../common/retail-preview/use-retail-preview';
 import { validateGoodsTabs } from '../types';
 
@@ -26,6 +28,28 @@ const tabs = computed<GoodsTabConfig[]>(() => props.showData.tabs ?? []);
 const activeTab = computed(
   () => tabs.value[activeIndex.value] || tabs.value[0],
 );
+
+const isMemberZone = computed(
+  () => activeTab.value?.memberBanner?.enabled === true,
+);
+const isBargainTab = computed(
+  () => activeTab.value?.dataSource.sort === 'bargain',
+);
+
+/**
+ * 会员权益条文案：编辑器预览按「会员」态展示，自定义文案里的占位符用样例值替换。
+ * C 端按真实等级/折扣渲染会员/游客三态，预览无登录态，只负责把配置文案与样式透出。
+ */
+const memberBannerText = computed(() => {
+  const custom = (activeTab.value?.memberBanner?.memberCopy ?? '').trim();
+  if (!custom) return '您已是会员，本区享会员专享价';
+  return custom
+    .replaceAll(/\{levelName\}|\{等级\}/g, '会员')
+    .replaceAll(/\{discount\}|\{折扣\}/g, '9.5')
+    .replaceAll(/会员\s*会员/g, '会员')
+    .replaceAll(/\s+/g, ' ')
+    .trim();
+});
 
 watch(
   () => props.showData.tabs,
@@ -58,11 +82,37 @@ watch(
 );
 
 /**
- * 卡片信息 chip：与 C 端 cardTags 同口径——只渲染确实存在的信息。
- * 管理端取数未归一化规格/免配送费字段，故只出「现货 N」这一条。
+ * 卡片信息 chip：与 C 端 diy-goods-tabs 的 cardTags 同口径。
+ * 规格与库存提示都只在确有内容时出现（库存充足不外露数字）。
  */
 function cardTags(item: RetailGoodsItem): string[] {
-  return item.stock > 0 ? [`现货 ${item.stock}`] : [];
+  const tags = item.specsInfo ? [item.specsInfo] : [];
+  const hint = stockHintText(item.stock);
+  if (hint) tags.push(hint);
+  return tags;
+}
+
+/**
+ * 会员专区（Tab 级权益条开启）：与 C 端一致，会员本人按会员价样式呈现专区成交价。
+ * 预览不查询会员价活动，只覆盖「专区成交价」路径；活动命中价的数字以实机为准。
+ */
+function showMemberPrice(item: RetailGoodsItem): boolean {
+  return isMemberZone.value && shouldShowOriginalPrice(item);
+}
+
+/** 低价捡漏 Tab：价格主导样式；会员价优先，两者不同时出 */
+function showBargainPrice(item: RetailGoodsItem): boolean {
+  if (!isBargainTab.value || showMemberPrice(item)) return false;
+  return shouldShowOriginalPrice(item);
+}
+
+/** 捡漏价整数/小数拆段，与 C 端 bargainPriceParts 同口径 */
+function priceParts(item: RetailGoodsItem): {
+  decimal: string;
+  integer: string;
+} {
+  const [integer = '0', decimal = '00'] = item.price.toFixed(2).split('.');
+  return { decimal, integer };
 }
 </script>
 
@@ -84,6 +134,12 @@ function cardTags(item: RetailGoodsItem): string[] {
         <span class="goods-tabs-label">{{ tab.title }}</span>
         <span v-if="index === activeIndex" class="goods-tabs-indicator"></span>
       </div>
+    </div>
+
+    <!-- 会员权益条：与 C 端 goods-tabs__member-banner 同款金色会员态 -->
+    <div v-if="isMemberZone" class="goods-tabs-member-banner">
+      <span class="goods-tabs-member-banner-tag">会员</span>
+      <span class="goods-tabs-member-banner-text">{{ memberBannerText }}</span>
     </div>
 
     <div class="goods-tabs-inner">
@@ -120,6 +176,9 @@ function cardTags(item: RetailGoodsItem): string[] {
             </div>
           </div>
           <div class="goods-tabs-name">{{ item.name }}</div>
+          <div v-if="shouldShowSubtitle(item)" class="goods-tabs-subtitle">
+            {{ item.subTitle }}
+          </div>
           <div v-if="cardTags(item).length > 0" class="goods-tabs-tags">
             <span
               v-for="tag in cardTags(item)"
@@ -131,26 +190,76 @@ function cardTags(item: RetailGoodsItem): string[] {
           </div>
           <div class="goods-tabs-meta">
             <div class="goods-tabs-meta-text">
-              <div class="goods-tabs-price-line">
-                <span
-                  v-if="showData.showPrice !== false"
-                  class="goods-tabs-price"
-                >
-                  ¥{{ item.price.toFixed(2) }}
-                </span>
-                <!-- 划线原价：仅原价严格高于售价时显示（存量商品原价多为 0，会划出￥0） -->
-                <span
-                  v-if="
-                    showData.showOriginalPrice && shouldShowOriginalPrice(item)
-                  "
-                  class="goods-tabs-price-original"
-                >
-                  ¥{{ item.originalPrice.toFixed(2) }}
-                </span>
+              <!-- 价格区优先级：会员价 > 捡漏价 > 普通价，与 C 端同序 -->
+              <div
+                v-if="showData.showPrice !== false"
+                class="goods-tabs-price-line"
+              >
+                <template v-if="showMemberPrice(item)">
+                  <div class="goods-tabs-member-price">
+                    <div class="goods-tabs-member-price-main">
+                      <span class="goods-tabs-member-badge">会员价</span>
+                      <span class="goods-tabs-price goods-tabs-price--member">
+                        ¥{{ item.price.toFixed(2) }}
+                      </span>
+                    </div>
+                    <div
+                      v-if="
+                        showData.showOriginalPrice &&
+                        shouldShowOriginalPrice(item)
+                      "
+                      class="goods-tabs-member-price-original"
+                    >
+                      <span class="goods-tabs-member-price-label">日常价</span>
+                      <span
+                        class="goods-tabs-price-original goods-tabs-price-original--member"
+                      >
+                        ¥{{ item.originalPrice.toFixed(2) }}
+                      </span>
+                    </div>
+                  </div>
+                </template>
+                <template v-else-if="showBargainPrice(item)">
+                  <div class="goods-tabs-bargain-price">
+                    <div class="goods-tabs-bargain-price-main">
+                      <span class="goods-tabs-bargain-label">捡漏价</span>
+                      <span class="goods-tabs-bargain-amount">
+                        <span class="goods-tabs-bargain-symbol">¥</span>
+                        <span class="goods-tabs-bargain-integer">{{
+                          priceParts(item).integer
+                        }}</span>
+                        <span class="goods-tabs-bargain-decimal"
+                          >.{{ priceParts(item).decimal }}</span
+                        >
+                      </span>
+                      <span
+                        v-if="
+                          showData.showOriginalPrice &&
+                          shouldShowOriginalPrice(item)
+                        "
+                        class="goods-tabs-bargain-original-price"
+                      >
+                        ¥{{ item.originalPrice.toFixed(2) }}
+                      </span>
+                    </div>
+                  </div>
+                </template>
+                <template v-else>
+                  <span class="goods-tabs-price">
+                    ¥{{ item.price.toFixed(2) }}
+                  </span>
+                  <!-- 划线原价：仅原价严格高于售价时显示（存量商品原价多为 0，会划出￥0） -->
+                  <span
+                    v-if="
+                      showData.showOriginalPrice &&
+                      shouldShowOriginalPrice(item)
+                    "
+                    class="goods-tabs-price-original"
+                  >
+                    ¥{{ item.originalPrice.toFixed(2) }}
+                  </span>
+                </template>
               </div>
-              <span v-if="showData.showSales" class="goods-tabs-sales">
-                已售 {{ item.sales }}
-              </span>
             </div>
             <!-- 小程序卡片右下角是真实可点的快捷加购按钮，这里按同尺寸静态呈现 -->
             <span v-if="item.stock > 0" class="goods-tabs-cart">
@@ -204,6 +313,35 @@ function cardTags(item: RetailGoodsItem): string[] {
   margin-left: -10px;
   background: var(--wot-color-theme-primary, #ff2237);
   border-radius: 999px;
+}
+
+/* 会员权益条：与 C 端 goods-tabs__member-banner 同值（12rpx↔6px 等） */
+.goods-tabs-member-banner {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  padding: 7px 9px;
+  margin: 6px 10px 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #8a5a1c;
+  background: linear-gradient(90deg, #fff6e8, #ffe9cf);
+  border-radius: 6px;
+}
+
+.goods-tabs-member-banner-tag {
+  flex: none;
+  padding: 1px 5px;
+  font-size: 10px;
+  line-height: 1.6;
+  color: #fff;
+  background: #c8a05a;
+  border-radius: 999px;
+}
+
+.goods-tabs-member-banner-text {
+  flex: 1;
+  min-width: 0;
 }
 
 .goods-tabs-inner {
@@ -260,7 +398,7 @@ function cardTags(item: RetailGoodsItem): string[] {
 
 .goods-tabs-name {
   display: -webkit-box;
-  min-height: 2.8em;
+  min-height: 1.4em;
   margin: 7px 7px 0;
   overflow: hidden;
   -webkit-line-clamp: 2;
@@ -270,6 +408,17 @@ function cardTags(item: RetailGoodsItem): string[] {
   word-break: normal;
   overflow-wrap: break-word;
   -webkit-box-orient: vertical;
+}
+
+/* 商品子标题：与 C 端 goods-tabs__subtitle 同值（1px = 2rpx） */
+.goods-tabs-subtitle {
+  margin: 1px 7px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #909399;
+  white-space: nowrap;
 }
 
 .goods-tabs-tags {
@@ -324,9 +473,118 @@ function cardTags(item: RetailGoodsItem): string[] {
   text-decoration: line-through;
 }
 
-.goods-tabs-sales {
+.goods-tabs-price--member {
+  font-size: 17px;
+  font-weight: 700;
+  color: #1f2329;
+}
+
+/* 会员价：金色小标签 + 近黑主价 + 灰色日常价，与 C 端同值 */
+.goods-tabs-member-price {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  align-self: flex-start;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.goods-tabs-member-price-main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.goods-tabs-member-badge {
+  flex: none;
+  padding: 1px 4px;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: #a06a1f;
+  background: #fffaf0;
+  border: 0.5px solid #ecd4a5;
+  border-radius: 3px;
+}
+
+.goods-tabs-member-price-original {
+  display: flex;
+  gap: 2px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.goods-tabs-member-price-label {
+  flex: none;
+  font-size: 9px;
+  line-height: 1.5;
+  color: #9aa3ad;
+}
+
+.goods-tabs-price-original--member {
   font-size: 10px;
-  color: #909399;
+  color: #9aa3ad;
+}
+
+/*
+ * 低价捡漏：价格主导。小号「捡漏价」标签 + 放大红色价格（整数大、小数小）+
+ * 灰色原价划线，与 C 端 bargain 分支同值。
+ */
+.goods-tabs-bargain-price {
+  align-self: flex-start;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.goods-tabs-bargain-price-main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.goods-tabs-bargain-label {
+  flex: none;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--wot-color-theme-primary, #ff2237);
+}
+
+.goods-tabs-bargain-amount {
+  display: inline-flex;
+  align-items: baseline;
+  min-width: 0;
+  color: var(--wot-color-theme-primary, #ff2237);
+}
+
+.goods-tabs-bargain-symbol {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.goods-tabs-bargain-integer {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.05;
+}
+
+.goods-tabs-bargain-decimal {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.goods-tabs-bargain-original-price {
+  flex: none;
+  font-size: 10px;
+  font-weight: 400;
+  color: #9aa3ad;
+  text-decoration: line-through;
 }
 
 .goods-tabs-cart {

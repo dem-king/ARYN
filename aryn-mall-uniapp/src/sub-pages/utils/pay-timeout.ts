@@ -9,6 +9,8 @@
  * 页面仍提示 30 分钟，用户以为配置无效。
  */
 
+import { translate } from '@/locales'
+
 /** 后端未下发（旧包/非待付款单）时的兜底值，与后端默认延迟级别 16（30 分钟）一致 */
 export const DEFAULT_PAY_TIMEOUT_MINUTES = 30
 
@@ -19,8 +21,8 @@ export const DEFAULT_PAY_TIMEOUT_MINUTES = 30
 export function formatPayTimeout(minutes?: null | number): string {
   const value = Number(minutes)
   if (!Number.isFinite(value) || value <= 0)
-    return `${DEFAULT_PAY_TIMEOUT_MINUTES}分钟`
+    return translate('labels.payTimeoutMinutes', { count: DEFAULT_PAY_TIMEOUT_MINUTES })
   if (value >= 60 && value % 60 === 0)
-    return `${value / 60}小时`
-  return `${value}分钟`
+    return translate('labels.payTimeoutHours', { count: value / 60 })
+  return translate('labels.payTimeoutMinutes', { count: value })
 }

@@ -30,6 +30,9 @@ public abstract class AbstractPayRefundOrderHandler implements PayRefundOrderHan
 		PayRefundOrder payRefundOrder = createRefundOrder(createRefundsReqDTO);
 		validateRefundConsistency(createRefundsReqDTO, payRefundOrder);
 		if (PayRefundOrderStatusEnum.STATUS_2.getCode().equals(payRefundOrder.getRefundStatus())) {
+			// 渠道退款已完成但上游可能未收到通知（例如订单侧事务回滚后重试），
+			// 重复发起时补发一次退款结果，避免订单侧永久停在退款中。
+			notifyRefundSuccess(payRefundOrder);
 			return payRefundOrder;
 		}
 		// 退款逻辑
@@ -40,6 +43,10 @@ public abstract class AbstractPayRefundOrderHandler implements PayRefundOrderHan
 	}
 
 	public abstract Object doRefund(PayRefundOrder payRefundOrder);
+
+	/** 渠道已确认退款成功时补发通知，默认不需要。 */
+	protected void notifyRefundSuccess(PayRefundOrder payRefundOrder) {
+	}
 
 	void validateRequest(CreateRefundsReqDTO request) {
 		if (request == null || !StringUtils.hasText(request.getOutTradeNo())

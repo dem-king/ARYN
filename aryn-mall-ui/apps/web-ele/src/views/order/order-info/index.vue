@@ -49,6 +49,7 @@ import {
 import { uploadFile } from '#/api/upms/upload';
 import PageFilterPanel from '#/components/page/page-filter-panel.vue';
 import PageToolbar from '#/components/page/page-toolbar.vue';
+import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 import { useDict } from '#/utils/dict';
 import { downloadBlobFile, formatMoney } from '#/utils/util';
 
@@ -457,10 +458,18 @@ const handleExport = () => {
 };
 applyRouteStatus();
 initPage();
+useKeepAliveRefresh(initPage);
+
+// keepAlive 缓存后切去其它页面（如进详情）也会触发本 watch（route 变为对方路由，
+// query.status 变 undefined），此时必须忽略，否则会把页签重置回「全部」
+const listRoutePath = route.path;
 
 watch(
   () => route.query.status,
   () => {
+    if (route.path !== listRoutePath) {
+      return;
+    }
     if (applyRouteStatus()) {
       initPage();
     }

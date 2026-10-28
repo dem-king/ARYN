@@ -2,6 +2,7 @@
 import type { GoodsAttrTagIconKey, GoodsAttrTagPayload } from '@/api/product/attr-tags'
 import type { GoodsAttrTagView } from './goods-attr-tags'
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { OVERLAY_Z_INDEX } from '@/utils/overlay'
 import { isAllowedInternalPagePath, normalizeGoodsAttrTags } from './goods-attr-tags'
 
@@ -14,6 +15,7 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+const { t } = useI18n()
 
 /**
  * 预置图标 key → unocss iconify 类。
@@ -65,7 +67,7 @@ function openPage(tag: GoodsAttrTagView) {
     url: tag.linkUrl,
     fail: () => {
       // 页面栈满/目标页未注册时不静默失败，给用户一个可理解的反馈
-      uni.showToast({ title: '页面暂不可用', icon: 'none' })
+      uni.showToast({ title: t('product.pageUnavailable'), icon: 'none' })
     },
   })
 }

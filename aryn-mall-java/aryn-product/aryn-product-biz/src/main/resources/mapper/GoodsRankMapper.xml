@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- 
+  Copyright (c) 2025 天启雨数科技有限公司 
+  All rights reserved. 
+  注意： 
+  本项目源代码由天启雨数科技有限公司原创开发，版权所有。 
+ -->
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aryn.cloud.product.mapper.GoodsRankMapper">
+
+    <!-- 热搜榜：真实浏览足迹聚合（近 N 天）。
+         口径：当前租户、足迹与商品均未删除、仅上架商品；INNER JOIN 保证没有浏览记录的商品不进入榜单；
+         按浏览次数倒序，次数相同用最近浏览时间兜底，避免同分条目在刷新间抖动。
+         租户隔离由 SQL 显式 tenant_id 保证（与 GoodsSpuMapper.selectCatalogPage 同模式）。 -->
+    <select id="selectHotTop10" resultType="com.aryn.cloud.product.api.vo.AppGoodsRankVO">
+        SELECT
+        g.id AS id,
+        g.`name` AS `name`,
+        g.sub_title AS subTitle,
+        SUBSTRING_INDEX(g.spu_urls, ',', 1) AS picUrl
+        FROM goods_spu g
+        INNER JOIN goods_footprint f
+            ON f.spu_id = g.id
+            AND f.tenant_id = g.tenant_id
+            AND f.del_flag = '0'
+            AND f.create_time &gt;= DATE_SUB(NOW(), INTERVAL #{days} DAY)
+        WHERE g.tenant_id = #{tenantId}
+          AND g.del_flag = '0'
+          AND g.status = '1'
+        GROUP BY g.id
+        ORDER BY COUNT(f.id) DESC, MAX(f.create_time) DESC
+        LIMIT #{limit}
+    </select>
+
+    <!-- 热销榜在售回填：订单域给的是下单时的商品快照，这里用商品域当前的名称/副标题/首图覆盖，
+         只保留当前在售（status='1'、未删除、同租户）商品；名次由调用方按订单域顺序重排。 -->
+    <select id="selectOnSaleByIds" resultType="com.aryn.cloud.product.api.vo.AppGoodsRankVO">
+        SELECT
+        g.id AS id,
+        g.`name` AS `name`,
+        g.sub_title AS subTitle,
+        SUBSTRING_INDEX(g.spu_urls, ',', 1) AS picUrl
+        FROM goods_spu g
+        WHERE g.tenant_id = #{tenantId}
+          AND g.del_flag = '0'
+          AND g.status = '1'
+          AND g.id IN
+          <foreach collection="ids" item="id" open="(" separator="," close=")">
+              #{id}
+          </foreach>
+    </select>
+
+</mapper>

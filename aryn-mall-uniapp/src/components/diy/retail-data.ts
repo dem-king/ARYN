@@ -1,3 +1,4 @@
+import type { AppMemberActivityGoodsVO, AppMemberPriceVO } from '@/api/promotion'
 import type {
   DiscountActivityItem,
   DiscountProps,
@@ -15,6 +16,8 @@ import { getById, getByIds, getPage as getGoodsPage } from '@/api/product/spu'
 import {
   getCurrentNewbieFloor,
   getDiscountActivities,
+  getMemberActivityGoods,
+  getMemberSpuPrices,
   getSeckillSessions,
   getSessionGoods,
 } from '@/api/promotion'
@@ -34,6 +37,8 @@ import {
   normalizeRetailShop,
   restoreConfiguredOrder,
 } from './retail-normalizers'
+import { memberPriceItemsBySpuId, resolveListMemberPrice } from '@/utils/member-price'
+
 import { createGoodsSortParams, createRetailSortParams } from './retail-query'
 
 /**
@@ -49,7 +54,7 @@ export async function loadGoodsGroup(props: RetailBaseProps) {
   const response = await getGoodsPage({
     categorySecondId: props.dataSource.categoryId || undefined,
     current: 1,
-    ...createGoodsSortParams(props.dataSource.sort || 'sales', true),
+    ...createGoodsSortParams(props.dataSource.sort || 'sales', true, props.dataSource.bargainRate),
     size: props.count,
   })
   return normalizeRetailGoods(response).slice(0, props.count)
@@ -67,7 +72,7 @@ export async function loadGoodsGroupPage(
   const response: any = await getGoodsPage({
     categorySecondId: props.dataSource.categoryId || undefined,
     current,
-    ...createGoodsSortParams(props.dataSource.sort || 'sales', true),
+    ...createGoodsSortParams(props.dataSource.sort || 'sales', true, props.dataSource.bargainRate),
     size,
   })
   const list = normalizeRetailGoods(response)
@@ -76,10 +81,69 @@ export async function loadGoodsGroupPage(
 }
 
 /**
+ * 会员专区 Tab 单页最多补充会员价的 SPU 数。
+ *
+ * 单页条数受装修「每页加载数量」限制，正常远小于此值；这里只是防御性上限，
+ * 避免异常配置一次把请求串拉爆（后端会员价接口按批量查询设计）。
+ */
+export const MEMBER_LIST_PRICE_SPU_LIMIT = 50
+
+/**
+ * 给会员专区 Tab 的本页商品补会员价（仅 `memberBanner.enabled === true` 才执行）。
+ *
+ * 产品耦合（刻意）：横幅承诺「本区享会员价」，卡片就必须能有会员价，两者同开同关，
+ * 不新增第三个开关；其它 Tab 一律不发请求、不加字段。
+ *
+ * - 只取本页去重后的 spuIds（≤ MEMBER_LIST_PRICE_SPU_LIMIT），一次批量；
+ * - 失败静默：会员价是增强展示，接口异常时列表照常按卡片原价渲染，绝不抛错；
+ * - 每个 SPU 的展示结果由 `resolveListMemberPrice` 按「规格价 === 卡片价」判定，
+ *   未命中/倒挂的卡片不写字段（渲染侧完全不动）；
+ * - 达标价取优：`vo.userDiscountRate`（会员折扣率权益）随响应透传，
+ *   展示价 = min(会员价, 卡片价 × 折扣率)（取优不叠加，与结算同口径）。
+ */
+async function withListMemberPrices(
+  tab: GoodsTabConfig,
+  list: ReturnType<typeof normalizeRetailGoods>,
+): Promise<ReturnType<typeof normalizeRetailGoods>> {
+  if (tab.memberBanner?.enabled !== true || list.length === 0)
+    return list
+  const spuIds = [...new Set(list.map(item => item.id).filter(Boolean))]
+    .slice(0, MEMBER_LIST_PRICE_SPU_LIMIT)
+  if (spuIds.length === 0)
+    return list
+
+  let vo: AppMemberPriceVO | null = null
+  try {
+    vo = await getMemberSpuPrices(spuIds)
+  }
+  catch {
+    // 会员价属增强展示：接口失败按卡片原价渲染，不影响商品流首屏/翻页
+    vo = null
+  }
+  if (!vo)
+    return list
+
+  const itemsBySpu = memberPriceItemsBySpuId(vo)
+  return list.map((item) => {
+    const display = resolveListMemberPrice(
+      itemsBySpu.get(item.id) || [],
+      item.id,
+      item.price,
+      vo.eligible,
+      // 会员折扣率权益：仅供达标展示取优（取优不叠加），与结算同口径
+      vo.userDiscountRate,
+    )
+    return display.matched ? { ...item, memberPriceDisplay: display } : item
+  })
+}
+
+/**
  * 多 Tab 商品流取数：与商品分组保持同一套排序/归一化口径。
  *
  * manual 一次性取回并保持运营配置顺序，按展示上限截断；
+ * activity 按会员价活动自动取货盘（顺序随活动，一次性取回）；
  * automatic 按 current/size 分页，滚动加载只影响当前 Tab。
+ * 会员专区 Tab（memberBanner 开启）会在本页取到后补充列表会员价（三种模式同口径）。
  */
 export async function loadGoodsTabPage(
   tab: GoodsTabConfig,
@@ -94,15 +158,50 @@ export async function loadGoodsTabPage(
       normalizeRetailGoods(await getByIds(ids)),
       ids,
     ).slice(0, Math.max(1, size))
-    return { list: items, manual: true, total: items.length }
+    return {
+      list: await withListMemberPrices(tab, items),
+      manual: true,
+      total: items.length,
+    }
   }
+
+  /**
+   * 「按会员价活动自动」数据源（会员专区）：
+   * 货盘与顺序完全由活动配置决定——活动里加减商品即自动同步，运营无需再手选；
+   * 与手选 Tab 一样一次性取全、不做滚动分页；活动失效/无货返回空态，
+   * 不展示过期货盘（也不报错）。
+   */
+  if (tab.dataSource.mode === 'activity') {
+    let activity: AppMemberActivityGoodsVO | null = null
+    try {
+      // activityId 为空 = 自动取当前进行中的会员价活动
+      activity = await getMemberActivityGoods(tab.dataSource.activityId || '')
+    }
+    catch {
+      // 活动货盘属增强数据源：接口失败按空态处理，不影响页面其它楼层
+      activity = null
+    }
+    const spuIds = (activity?.spuIds || [])
+      .map(id => String(id).trim())
+      .filter(Boolean)
+    if (spuIds.length === 0)
+      return { list: [], manual: true, total: 0 }
+    // 按活动配置顺序回排（商品接口不保证入参顺序），再按展示上限截断
+    const items = restoreConfiguredOrder(
+      normalizeRetailGoods(await getByIds(spuIds)),
+      spuIds,
+    ).slice(0, Math.max(1, size))
+    const list = await withListMemberPrices(tab, items)
+    return { list, manual: true, total: list.length }
+  }
+
   const response: any = await getGoodsPage({
     categorySecondId: tab.dataSource.categoryId || undefined,
     current,
-    ...createGoodsSortParams(tab.dataSource.sort || 'sales', true),
+    ...createGoodsSortParams(tab.dataSource.sort || 'sales', true, tab.dataSource.bargainRate),
     size,
   })
-  const list = normalizeRetailGoods(response)
+  const list = await withListMemberPrices(tab, normalizeRetailGoods(response))
   return {
     list,
     manual: false,
@@ -113,7 +212,7 @@ export async function loadGoodsTabPage(
 export async function loadGoodsRanking(props: GoodsRankingProps) {
   const response = await getGoodsPage({
     current: 1,
-    ...createGoodsSortParams(props.dataSource.metric || 'sales'),
+    ...createGoodsSortParams(props.dataSource.metric || 'sales', false, props.dataSource.bargainRate),
     size: props.count,
   })
   return normalizeRetailGoods(response).slice(0, props.count)
@@ -309,7 +408,7 @@ export async function loadGoodsWaterfall(
     const response = await getGoodsPage({
       categorySecondId: props.dataSource.categoryId || undefined,
       current: 1,
-      ...createGoodsSortParams(props.dataSource.sort || 'sales', true),
+      ...createGoodsSortParams(props.dataSource.sort || 'sales', true, props.dataSource.bargainRate),
       size: props.count,
     })
     return normalizeRetailGoods(response).slice(0, props.count)
@@ -329,7 +428,7 @@ export async function loadGoodsWaterfallPage(
   const response: any = await getGoodsPage({
     categorySecondId: props.dataSource.categoryId || undefined,
     current,
-    ...createGoodsSortParams(props.dataSource.sort || 'sales', true),
+    ...createGoodsSortParams(props.dataSource.sort || 'sales', true, props.dataSource.bargainRate),
     size,
   })
   const list = normalizeRetailGoods(response)

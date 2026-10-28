@@ -36,6 +36,10 @@ const mobileStylesRoot = resolve(
   process.cwd(),
   '../aryn-mall-uniapp/src/styles',
 );
+const mobileLocalesRoot = resolve(
+  process.cwd(),
+  '../aryn-mall-uniapp/src/locales',
+);
 
 function readAdmin(type: string) {
   return readFileSync(resolve(adminComponentsRoot, type, 'index.vue'), 'utf8');
@@ -363,6 +367,60 @@ describe('装修预览与小程序视觉一致性', () => {
     expect(admin).toContain('search-bar-bell');
   });
 
+  it('搜索栏：铃铛/扫码图标按环境底色自动取可读色，渲染面统一下发区块底色', () => {
+    // 深色头部背景（主题色渐变/深色区块）上铃铛恒用深色会被误读为不可点击：
+    // 两端都按 ambientBackground 亮度取图标色（pickReadableIconColor 在
+    // NAVIGATION-FOLLOW 标记块内逐字同源），三个渲染面（C 端 diy / 编辑画布 /
+    // 预览画布）都必须把区块环境底色传给搜索栏。
+    const admin = readAdmin('search-bar');
+    const mobile = readMobile('diy-search-bar');
+    for (const [label, source] of [
+      ['管理端', admin],
+      ['C 端', mobile],
+    ] as const) {
+      expect(source, `${label} 须消费宿主区块底色`).toContain('hostBackground');
+      expect(source, `${label} 须按环境底色取图标色`).toContain(
+        'pickReadableIconColor',
+      );
+      expect(source, `${label} 须保留自身背景优先口径`).toContain(
+        'bgStartColor',
+      );
+    }
+    expect(mobile).toContain(':color="iconColor"');
+    expect(admin).toContain(':stroke="iconColor"');
+
+    for (const [label, source] of [
+      [
+        'C 端 diy 渲染器',
+        readFileSync(resolve(mobileDiyRoot, 'index.vue'), 'utf8'),
+      ],
+      [
+        '管理端编辑画布',
+        readFileSync(
+          resolve(adminSchemaRoot, '../components/canvas-section-list.vue'),
+          'utf8',
+        ),
+      ],
+      [
+        '管理端预览画布',
+        readFileSync(
+          resolve(
+            adminSchemaRoot,
+            '../../page-preview/components/preview-canvas.vue',
+          ),
+          'utf8',
+        ),
+      ],
+    ] as const) {
+      expect(source, `${label} 须向搜索栏下发区块底色`).toContain(
+        'host-background',
+      );
+      expect(source, `${label} 须计算区块环境底色`).toContain(
+        'sectionAmbientColor',
+      );
+    }
+  });
+
   it('分类导航 / 标题文本：容器内边距与对齐逻辑两端一致', () => {
     // 分类导航：容器上下 12px、单元上下 8px、文字单行截断
     const adminNav = styleBlock(readAdmin('category-nav'));
@@ -495,13 +553,24 @@ describe('装修预览与小程序视觉一致性', () => {
     const adminStyle = styleBlock(admin);
     const mobileStyle = styleBlock(mobile);
 
-    // 两端都按策略切换形态，占位卡结构与两个入口文案一致
+    const zhDiy = readFileSync(
+      resolve(mobileLocalesRoot, 'modules/diy.zh-CN.ts'),
+      'utf8',
+    );
+
+    // 两端都按策略切换形态；C 端入口文案走 i18n 键，中文词条与画布文案对齐
     for (const source of [admin, mobile]) {
       expect(source).toContain("emptyStrategy === 'placeholder'");
       expect(source).toContain('guide-inner');
-      expect(source).toContain('导入清单下单');
-      expect(source).toContain('发起补给单');
     }
+    for (const label of ['导入清单下单', '发起补给单']) {
+      expect(admin).toContain(label);
+    }
+    for (const key of ['createAction', 'importAction']) {
+      expect(mobile).toContain(`t('diy.replenishCard.${key}')`);
+    }
+    expect(zhDiy).toContain("createAction: '发起补给单'");
+    expect(zhDiy).toContain("importAction: '导入清单下单'");
 
     // 1rpx = 0.5px：内边距 / 圆角 / 标题字号 / 按钮高度逐值换算
     expect(value(declarations(adminStyle, '.guide-inner'), 'padding')).toBe(
@@ -530,9 +599,12 @@ describe('装修预览与小程序视觉一致性', () => {
     );
   });
 
-  it('图文导航（金刚区）：分页高度自适应公式两端一致', () => {
+  it('图文导航（金刚区）：分页高度自适应公式两端一致，高度过渡只在滑动结束后启动', () => {
     // 两端独立实现过一次 pagerHeight，曾只改一边导致预览与实机高度差一截；
-    // 这里锁住「按当前页实际行数收缩高度」的公式与高度过渡同时存在于两端
+    // 这里锁住「按当前页实际行数收缩高度」的公式。
+    // 高度改动必须放在滑动结束之后（实机 animationfinish / 预览滚动防抖）：
+    // 过渡若在 change 时启动，会跟滑动手势抢主线程导致掉帧；
+    // 过渡本身保留 240ms 轻微回弹缓动，避免高度瞬间切换显得生硬。
     const admin = readAdmin('tab-nav');
     const mobile = readMobile('diy-tabnav');
     for (const source of [admin, mobile]) {
@@ -540,8 +612,16 @@ describe('装修预览与小程序视觉一致性', () => {
       expect(source).toMatch(
         /Math\.min\(\s*pageRows\.value\s*,\s*Math\.ceil\(\s*page\.length\s*\/\s*showNum\.value\s*\)/,
       );
-      expect(source).toContain('transition: height 0.3s ease');
+      expect(source).toContain(
+        'transition: height 240ms cubic-bezier(0.34, 1.35, 0.64, 1)',
+      );
+      // 图标放大后的行距与文字规格：两端都按「行高 + 8px、13px 字号」计算与渲染
+      expect(source).toContain('rowHeight.value + 8');
+      expect(source).toContain('font-size: 13px');
+      expect(source).toContain('padding-bottom: 8px');
     }
+    expect(mobile).toContain('@animationfinish="onPagerAnimationFinish"');
+    expect(admin).toContain('scrollSettleTimer');
   });
 
   it('图片魔方：格距与格位高度换算两端一致（1rpx = 0.5px）', () => {
@@ -648,6 +728,139 @@ describe('装修预览与小程序视觉一致性', () => {
     );
   });
 
+  it('多Tab商品流：会员权益条 / 会员价 / 捡漏价样式两端一致（1rpx = 0.5px）', () => {
+    const adminSource = readFileSync(
+      resolve(adminComponentsRoot, 'extension/goods-tabs/index.vue'),
+      'utf8',
+    );
+    const mobileSource = readMobile('diy-goods-tabs');
+    const admin = styleBlock(adminSource);
+    const mobile = styleBlock(mobileSource);
+
+    // 会员权益条：金色会员态、12rpx↔6px 圆角、14rpx 18rpx↔7px 9px 内边距
+    expect(
+      value(declarations(admin, '.goods-tabs-member-banner'), 'border-radius'),
+    ).toBe('6px');
+    expect(
+      value(
+        declarations(mobile, '.goods-tabs__member-banner'),
+        'border-radius',
+      ),
+    ).toBe('12rpx');
+    expect(
+      value(declarations(admin, '.goods-tabs-member-banner'), 'padding'),
+    ).toBe('7px 9px');
+    expect(
+      value(declarations(mobile, '.goods-tabs__member-banner'), 'padding'),
+    ).toBe('14rpx 18rpx');
+    expect(
+      value(declarations(admin, '.goods-tabs-member-banner'), 'margin'),
+    ).toBe('6px 10px 0');
+    expect(
+      value(declarations(mobile, '.goods-tabs__member-banner'), 'margin'),
+    ).toBe('12rpx 20rpx 0');
+    expect(
+      value(declarations(admin, '.goods-tabs-member-banner'), 'background'),
+    ).toBe(
+      value(declarations(mobile, '.goods-tabs__member-banner'), 'background'),
+    );
+
+    // 会员价：浅金描边小标 + 近黑主价 + 灰色日常价，两端颜色与尺寸同值
+    expect(
+      value(declarations(admin, '.goods-tabs-member-badge'), 'font-size'),
+    ).toBe('9px');
+    expect(
+      value(declarations(mobile, '.goods-tabs__member-badge'), 'font-size'),
+    ).toBe('18rpx');
+    expect(
+      value(declarations(admin, '.goods-tabs-member-badge'), 'color'),
+    ).toBe(value(declarations(mobile, '.goods-tabs__member-badge'), 'color'));
+    expect(
+      backgroundColorIsSame(
+        declarations(admin, '.goods-tabs-member-badge'),
+        declarations(mobile, '.goods-tabs__member-badge'),
+      ),
+    ).toBe(true);
+    expect(
+      value(declarations(admin, '.goods-tabs-price--member'), 'font-size'),
+    ).toBe('17px');
+    expect(
+      value(declarations(mobile, '.goods-tabs__price--member'), 'font-size'),
+    ).toBe('34rpx');
+    expect(
+      value(declarations(admin, '.goods-tabs-price--member'), 'color'),
+    ).toBe(value(declarations(mobile, '.goods-tabs__price--member'), 'color'));
+
+    // 捡漏价：标签 18rpx↔9px、整数 40rpx↔20px、小数 24rpx↔12px、原价 20rpx↔10px
+    for (const [adminSelector, mobileSelector, adminValue, mobileValue] of [
+      [
+        '.goods-tabs-bargain-label',
+        '.goods-tabs__bargain-label',
+        '9px',
+        '18rpx',
+      ],
+      [
+        '.goods-tabs-bargain-integer',
+        '.goods-tabs__bargain-integer',
+        '20px',
+        '40rpx',
+      ],
+      [
+        '.goods-tabs-bargain-decimal',
+        '.goods-tabs__bargain-decimal',
+        '12px',
+        '24rpx',
+      ],
+      [
+        '.goods-tabs-bargain-original-price',
+        '.goods-tabs__bargain-original-price',
+        '10px',
+        '20rpx',
+      ],
+    ] as const) {
+      expect(value(declarations(admin, adminSelector), 'font-size')).toBe(
+        adminValue,
+      );
+      expect(value(declarations(mobile, mobileSelector), 'font-size')).toBe(
+        mobileValue,
+      );
+    }
+    expect(
+      value(declarations(admin, '.goods-tabs-bargain-original-price'), 'color'),
+    ).toBe(
+      value(
+        declarations(mobile, '.goods-tabs__bargain-original-price'),
+        'color',
+      ),
+    );
+
+    // 标题只预留一行高度（单行标题不再空出一行），子标题上边距 2rpx↔1px
+    expect(value(declarations(admin, '.goods-tabs-name'), 'min-height')).toBe(
+      '1.4em',
+    );
+    expect(value(declarations(mobile, '.goods-tabs__name'), 'min-height')).toBe(
+      '1.4em',
+    );
+    expect(value(declarations(admin, '.goods-tabs-subtitle'), 'margin')).toBe(
+      '1px 7px 0',
+    );
+    expect(value(declarations(mobile, '.goods-tabs__subtitle'), 'margin')).toBe(
+      '2rpx 14rpx 0',
+    );
+
+    // 两端都必须消费同一组样式标记与优先级
+    for (const [label, source] of [
+      ['管理端', adminSource],
+      ['C 端', mobileSource],
+    ] as const) {
+      expect(source, `${label} 须渲染会员权益条`).toContain(
+        'memberBanner?.enabled',
+      );
+      expect(source, `${label} 须渲染会员价`).toContain('会员价');
+      expect(source, `${label} 须渲染捡漏价`).toContain('捡漏价');
+    }
+  });
+
   it('extension 共享画布：通用样式框承接圆角/背景，内容留白挂内层 10px', () => {
     // 六个共用 extension-preview.vue 的组件，画布样式由 .preview-frame 内联样式
     // 承载（commonStyle 的圆角/背景/边距，圆角 > 0 时裁切子内容——否则运营调了
@@ -742,8 +955,14 @@ describe('装修预览与小程序视觉一致性', () => {
     // 吸顶偏移存在平台差异：画布里的页面导航随内容滚动，管理端停在画布顶部即可；
     // C 端整页 DIY 的 wd-navbar 是 fixed 覆盖层，必须让出状态栏+导航高度，
     // 否则区块被吸到导航栏底下、顶部内容（品牌区搜索栏）被永久遮住。
+    // 搜索框开启「滚动常驻」时 C 端还要再让出一条常驻搜索栏（stickyOffsetTop =
+    // 导航高度 + 搜索栏占用高度）；管理端画布/草稿预览是静态滚动面、不渲染常驻层，
+    // 仍停在画布顶部（与 docs/50-需求文档/2026-10-27-搜索框滚动常驻/README.md
+    // §「与设计稿的偏差」一致）。
     expect(adminSectionStyle).toMatch(/result\.top = '0'/);
-    expect(mobileRenderer).toMatch(/style\.top = `\$\{stickyTop\.value\}px`/);
+    expect(mobileRenderer).toMatch(
+      /style\.top = `\$\{stickyOffsetTop\.value\}px`/,
+    );
   });
 
   it('区块背景渐变：两端解析同源，背景图优先级一致', () => {
@@ -886,6 +1105,89 @@ describe('装修预览与小程序视觉一致性', () => {
       'utf8',
     );
     expect(navbar).toContain('backgroundImage');
+  });
+
+  it('导航栏滚动渐显：两端解析同源，三处渲染面统一消费', () => {
+    // 沉浸式导航把「滚动进度 → 背景/文字/状态栏」抽成纯函数：管理端画布、
+    // 草稿预览、C 端 hr-navbar 共用；两端各留一份拷贝（避免跨仓 import 别名），
+    // 用 NAVIGATION-SCROLL 标记圈出，去掉空白与分号后必须逐字一致。
+    const extractCore = (source: string, label: string) => {
+      const match =
+        /\/\* NAVIGATION-SCROLL-BEGIN \*\/([\s\S]*?)\/\* NAVIGATION-SCROLL-END \*\//.exec(
+          source,
+        );
+      expect(match, `${label} 缺少 NAVIGATION-SCROLL 标记`).toBeTruthy();
+      return (match?.[1] ?? '').replaceAll(/[\s;]/g, '');
+    };
+    const adminCore = extractCore(
+      readFileSync(resolve(adminSchemaRoot, 'navigation-scroll.ts'), 'utf8'),
+      '管理端 navigation-scroll.ts',
+    );
+    const mobileCore = extractCore(
+      readFileSync(
+        resolve(mobileDiyRoot, 'schema/navigation-scroll.ts'),
+        'utf8',
+      ),
+      'C 端 navigation-scroll.ts',
+    );
+    expect(adminCore).toBe(mobileCore);
+
+    // 类型契约：C 端是内联 nav 类型、管理端是独立 NavigationSettings，没有
+    // 类型共享，靠这里对账 NavigationScrollEffect 的字段形状。
+    const extractInterface = (source: string, name: string) => {
+      const match = new RegExp(
+        `export interface ${name} \\{([\\s\\S]*?)\\n\\}`,
+      ).exec(source);
+      expect(match, `缺少 ${name} 接口`).toBeTruthy();
+      return (match?.[1] ?? '').replaceAll(/[\s;]/g, '');
+    };
+    expect(
+      extractInterface(
+        readFileSync(resolve(adminSchemaRoot, 'types.ts'), 'utf8'),
+        'NavigationScrollEffect',
+      ),
+    ).toBe(
+      extractInterface(
+        readFileSync(resolve(mobileDiyRoot, 'schema/types.ts'), 'utf8'),
+        'NavigationScrollEffect',
+      ),
+    );
+
+    // 三处渲染面（编辑画布 / 草稿预览 / C 端导航）都必须消费滚动解析函数
+    for (const [label, source] of [
+      [
+        '管理端 phone-canvas',
+        readFileSync(
+          resolve(adminSchemaRoot, '../components/phone-canvas.vue'),
+          'utf8',
+        ),
+      ],
+      [
+        '管理端 preview-canvas',
+        readFileSync(
+          resolve(
+            adminSchemaRoot,
+            '../../page-preview/components/preview-canvas.vue',
+          ),
+          'utf8',
+        ),
+      ],
+      [
+        'C 端 hr-navbar',
+        readFileSync(resolve(mobileDiyRoot, '../hr-navbar/index.vue'), 'utf8'),
+      ],
+    ] as const) {
+      expect(source, `${label} 未消费滚动解析`).toContain(
+        'resolveNavigationScrollAppearance',
+      );
+    }
+
+    // 兼容底线：缺省 mode!=='fade' 时必须原样返回起始外观（存量页面零变化）
+    expect(mobileCore).toContain("normalized.mode!=='fade'");
+    expect(mobileCore).toContain('baseOpacity:1');
+    expect(mobileCore).toContain('surfaceOpacity:0');
+    // 状态栏只允许微信支持的两个值
+    expect(mobileCore).toContain("'#000000'|'#ffffff'");
   });
 
   it('页面固化主题：预览画布与 C 端 diy 都按快照主色停止叠加注入主题', () => {
@@ -1400,8 +1702,17 @@ describe('装修预览与小程序视觉一致性', () => {
       expect(source, `${label} 一口价语义`).toContain('一口价');
       // 拼团省额只在原价严格大于拼团价时出现，否则退化「拼」，不编造省额
       expect(source, `${label} 省额守卫`).toContain('if (!(saving > 0))');
-      expect(source, `${label} 无省额退化`).toContain("return '拼'");
     }
+    // C 端已 i18n 化：无省额时返回翻译键，中文词条与画布文案同为「拼」
+    const zhDiy = readFileSync(
+      resolve(mobileLocalesRoot, 'modules/diy.zh-CN.ts'),
+      'utf8',
+    );
+    expect(adminPreview, '管理端预览 无省额退化').toContain("return '拼'");
+    expect(mobileLogic, 'C 端逻辑 无省额退化').toContain(
+      "translate('diy.activityStrip.groupBuyBadge')",
+    );
+    expect(zhDiy).toContain("groupBuyBadge: '拼'");
 
     // 三类 loader 并行取数、单类失败隔离（只有三类全失败才上抛）
     for (const [label, source] of [

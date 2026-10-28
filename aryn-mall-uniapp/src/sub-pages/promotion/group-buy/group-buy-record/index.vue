@@ -2,6 +2,7 @@
 import type { GroupBuyRecord } from '@/sub-pages/api/promotion/groupBuyRecord'
 import { onLoad } from '@dcloudio/uni-app'
 import { reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { getRecordPage } from '@/sub-pages/api/promotion/groupBuyRecord'
 
 definePage({
@@ -12,6 +13,7 @@ definePage({
   },
 })
 
+const { t } = useI18n()
 const pagingRef = ref()
 const state = reactive<{ list: GroupBuyRecord[] }>({
   list: [],
@@ -25,7 +27,7 @@ onLoad(async () => {
 })
 
 async function queryList(pageNo: number, pageSize: number) {
-  globalLoading.loading('加载中...')
+  globalLoading.loading(t('common.loading'))
   try {
     const response = await getRecordPage({
       current: pageNo,
@@ -41,11 +43,11 @@ async function queryList(pageNo: number, pageSize: number) {
 
 function getGroupStatusLabel(status?: string) {
   if (status === '0')
-    return '拼团中'
+    return t('promotion.groupBuy.record.statusPending')
   if (status === '1')
-    return '拼团成功'
+    return t('promotion.groupBuy.record.statusSuccess')
   if (status === '2')
-    return '拼团失败'
+    return t('promotion.groupBuy.record.statusFailed')
   return ''
 }
 
@@ -63,13 +65,13 @@ function getGroupStatusClass(status?: string) {
 <template>
   <z-paging ref="pagingRef" v-model="state.list" :auto="false" @query="queryList">
     <template #top>
-      <hr-navbar title="我的拼团" />
+      <hr-navbar :title="t('promotion.groupBuy.record.title')" />
     </template>
     <view class="record-list">
       <view v-for="item in state.list" :key="item.id" class="record-card">
         <view class="card-top">
           <view class="record-id">
-            拼团ID: {{ item.id }}
+            {{ t('promotion.groupBuy.record.groupId', { id: item.id }) }}
           </view>
           <view class="record-status" :class="[getGroupStatusClass(item.groupStatus)]">
             {{ getGroupStatusLabel(item.groupStatus) }}
@@ -78,7 +80,7 @@ function getGroupStatusClass(status?: string) {
         <view class="card-body">
           <view class="info-row">
             <text class="label">
-              拼团价
+              {{ t('promotion.groupBuy.groupPrice') }}
             </text>
             <text class="value price">
               ¥{{ item.groupPrice }}
@@ -86,15 +88,15 @@ function getGroupStatusClass(status?: string) {
           </view>
           <view class="info-row">
             <text class="label">
-              成团进度
+              {{ t('promotion.groupBuy.record.progress') }}
             </text>
             <text class="value">
-              {{ item.currentNum }}/{{ item.groupNum }}人
+              {{ t('promotion.groupBuy.record.progressValue', { current: item.currentNum, total: item.groupNum }) }}
             </text>
           </view>
           <view class="info-row">
             <text class="label">
-              过期时间
+              {{ t('promotion.groupBuy.record.expireAt') }}
             </text>
             <text class="value">
               {{ item.expireAt }}

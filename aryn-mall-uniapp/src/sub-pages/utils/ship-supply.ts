@@ -15,6 +15,8 @@
  * 因此这里保留 0 的语义 —— 0 就是缺货，不能当成「不限量」。
  */
 
+import { translate } from '@/locales'
+
 /** 库存低于该值时提示「仅剩 N」，提醒用户早点下单 */
 export const LOW_STOCK_THRESHOLD = 10
 
@@ -101,25 +103,27 @@ export function unavailableReasonOf(row: ShipSupplyRow): string {
   if (isRowAddable(row))
     return ''
   if (!row.skuId)
-    return '暂无可售规格'
+    return translate('catalog.noSpecs')
   const { stock } = quantityRuleOf(row)
   if (stock !== null && stock <= 0)
-    return '缺货'
+    return translate('catalog.outOfStock')
   return ''
 }
 
 /**
- * 库存文案：未下发库存时不写「库存 0」这种会误导的假数据，返回空串。
+ * 库存文案：绝对库存不外露（全站口径见 utils/stock-display），
+ * 未下发库存时不写「库存 0」这种会误导的假数据，充足时也返回空串，
+ * 只在缺货 / 低库存时给稀缺提示。
  */
 export function stockHintOf(row: ShipSupplyRow): string {
   const { stock } = quantityRuleOf(row)
   if (stock === null)
     return ''
   if (stock <= 0)
-    return '缺货'
+    return translate('catalog.outOfStock')
   if (stock <= LOW_STOCK_THRESHOLD)
-    return `仅剩 ${stock}`
-  return `库存 ${stock}`
+    return translate('vessel.shipSupply.onlyLeft', { count: stock })
+  return ''
 }
 
 /**

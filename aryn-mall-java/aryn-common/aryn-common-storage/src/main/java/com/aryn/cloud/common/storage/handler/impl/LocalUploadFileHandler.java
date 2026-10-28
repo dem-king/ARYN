@@ -37,11 +37,25 @@ public class LocalUploadFileHandler extends AbstractUploadFileHandler {
 
 	private static final Pattern TENANT_ID_PATTERN = Pattern.compile("^[0-9]{1,32}$");
 
+	private static final String PRIVATE_DIRECTORY = "private";
+
 	private final Environment environment;
 
 	@SneakyThrows
 	@Override
 	public String doUploadFile(StorageConfig storageConfig, InputStream inputStream, String fileName, long size) {
+		return store(storageConfig, inputStream, fileName, false);
+	}
+
+	@SneakyThrows
+	@Override
+	protected String doUploadPrivateFile(StorageConfig storageConfig, InputStream inputStream, String fileName,
+			long size) {
+		return store(storageConfig, inputStream, fileName, true);
+	}
+
+	@SneakyThrows
+	private String store(StorageConfig storageConfig, InputStream inputStream, String fileName, boolean privateFile) {
 		String rootPath = storageConfig.getBucket();
 		String tenantId = ArynTenantContextHolder.getTenantId();
 		if (!StringUtils.hasText(rootPath) || !StringUtils.hasText(tenantId)
@@ -58,6 +72,9 @@ public class LocalUploadFileHandler extends AbstractUploadFileHandler {
 
 		Path root = Path.of(rootPath).toAbsolutePath().normalize();
 		Path tenantDirectory = root.resolve(tenantId).normalize();
+		if (privateFile) {
+			tenantDirectory = tenantDirectory.resolve(PRIVATE_DIRECTORY).normalize();
+		}
 		Path destination = tenantDirectory.resolve(uuidFileName).normalize();
 		if (!destination.startsWith(root)) {
 			throw new IllegalArgumentException("本地文件存储路径不正确");
@@ -67,7 +84,8 @@ public class LocalUploadFileHandler extends AbstractUploadFileHandler {
 			IoUtil.copy(inputStream, fos);
 		}
 
-		return resolvePublicBaseUrl(storageConfig.getDomain()) + "/file/local/" + tenantId + "/" + uuidFileName;
+		String relativePath = privateFile ? PRIVATE_DIRECTORY + "/" + uuidFileName : uuidFileName;
+		return resolvePublicBaseUrl(storageConfig.getDomain()) + "/file/local/" + tenantId + "/" + relativePath;
 	}
 
 	String resolvePublicBaseUrl(String domain) {

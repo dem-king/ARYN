@@ -13,6 +13,7 @@ import type { SharedCart, SharedCartItem, SharedCartMember } from '@/api/order/s
 import { onLoad, onShareAppMessage, onShow } from '@dcloudio/uni-app'
 
 import { computed, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   closeSharedCart,
   confirmSharedCart,
@@ -35,19 +36,17 @@ import { useUserStore } from '@/store/userStore'
 import { resolveImageSrc } from '@/utils/image'
 import {
   amountText,
-  cartStatusLabel,
   cartStatusTheme,
   isCartCollecting,
   isCartReadonly,
   isShoreCart,
   itemAmountOf,
+  MEMBER_ROLE_CONFIRMATOR,
   MEMBER_ROLE_MEMBER,
-  memberRoleLabel,
-  sharedCartTitleLabel,
   summarizeCartAmount,
   unitPriceText,
 } from '@/utils/shared-cart'
-import { formatCallTime, formatExpiryCountdown } from '@/utils/vessel-call-time'
+import { formatCallTime, formatExpiryCountdownState } from '@/utils/vessel-call-time'
 
 definePage({
   name: 'shared-cart-detail',
@@ -59,6 +58,44 @@ definePage({
 
 const userStore = useUserStore()
 const shipContextStore = useShipContextStore()
+const { t } = useI18n()
+
+/** 状态码 → 词条 key：状态取值来自服务端，文案按当前语言渲染 */
+const CART_STATUS_KEYS: Record<string, string> = {
+  1: 'draft',
+  2: 'collecting',
+  3: 'waitingConfirm',
+  4: 'submitted',
+  5: 'closed',
+  6: 'completed',
+}
+
+const MEMBER_ROLE_KEYS: Record<string, string> = {
+  1: 'owner',
+  2: 'member',
+  3: 'confirmator',
+}
+
+function cartStatusText(status?: null | string) {
+  const key = status ? CART_STATUS_KEYS[status] : ''
+  if (!key)
+    return status ? t('sharedCart.common.status.unknown') : ''
+  return t(`sharedCart.common.status.${key}`)
+}
+
+function memberRoleText(role?: null | string) {
+  if (!role)
+    return ''
+  const key = MEMBER_ROLE_KEYS[role]
+  return key ? t(`sharedCart.common.role.${key}`) : t('sharedCart.common.member')
+}
+
+/** 岸上车没有船名，统一显示固定的「岸上合并采购」 */
+function cartTitle(value: SharedCart | null) {
+  if (isShoreCart(value))
+    return t('sharedCart.common.shoreTitle')
+  return value?.vesselName || t('sharedCart.common.titleSyncing')
+}
 
 /** 每秒推进的时间基准：收集截止倒计时需要自己走，页面上没有别的定时器可用 */
 const { now: tickNow } = useCountdownTicker()
@@ -81,19 +118,23 @@ const canConfirmNow = computed(() =>
   !!cart.value?.viewerCanConfirm && collecting.value && items.value.length > 0,
 )
 
-/** 收集截止：倒计时 + 具体时刻并列，用户既要知道「还有多久」也要核对「几点」 */
-const expiryCountdown = computed(() =>
-  collecting.value ? formatExpiryCountdown(cart.value?.expiresAt, new Date(tickNow.value)) : '',
+/**
+ * 收集截止：倒计时 + 具体时刻并列，用户既要知道「还有多久」也要核对「几点」。
+ *
+ * 倒计时用结构化结果：紧急分档由 formatExpiryCountdownState 的时间差判定，
+ * 页面不再比较/正则匹配翻译后的文案（那在英文下必然失效）。
+ */
+const expiryState = computed(() =>
+  collecting.value
+    ? formatExpiryCountdownState(cart.value?.expiresAt, new Date(tickNow.value))
+    : null,
 )
+const expiryCountdown = computed(() => expiryState.value?.text ?? '')
 const expiryPoint = computed(() =>
   collecting.value ? formatCallTime(cart.value?.expiresAt, new Date(tickNow.value)) : '',
 )
 /** 剩余不足 1 小时（或已给出「即将截止」）时转为警示色，提示马上要关门了 */
-const expiryUrgent = computed(() =>
-  !!expiryCountdown.value
-  && (expiryCountdown.value === '即将截止'
-    || /还剩 \d+ 分/.test(expiryCountdown.value)),
-)
+const expiryUrgent = computed(() => expiryState.value?.urgent === true)
 
 /**
  * 明细进度只用「申请数量」一个口径（已提交的单改用核定数量）：
@@ -111,10 +152,10 @@ const itemSummaryText = computed(() => {
   // 收集中还没核定，只能报成员申请量。
   if (cartReadonly.value) {
     const totalApproved = list.reduce((sum, item) => sum + (item.approvedQuantity ?? item.requestedQuantity ?? 0), 0)
-    return `${list.length} 项 · 核定合计 ${totalApproved}`
+    return t('sharedCart.detail.summaryApproved', { items: list.length, qty: totalApproved })
   }
   const totalRequested = list.reduce((sum, item) => sum + (item.requestedQuantity ?? 0), 0)
-  return `${list.length} 项 · 申请合计 ${totalRequested}`
+  return t('sharedCart.detail.summaryRequested', { items: list.length, qty: totalRequested })
 })
 
 /** 整批金额：各明细单价 × 计价数量之和（未含促销，实付以订单为准） */
@@ -132,15 +173,14 @@ const cartAmount = computed(() => summarizeCartAmount(items.value))
 const cartAmountText = computed(() => {
   if (cartAmount.value.pricedCount === 0)
     return ''
-  const prefix = collecting.value ? '预估' : '合计'
+  const prefix = collecting.value
+    ? t('sharedCart.detail.amountEstimatePrefix')
+    : t('sharedCart.detail.amountTotalPrefix')
   return `${prefix} ¥${amountText(cartAmount.value.amount)}`
 })
 
 /** 有商品取不到价（下架/已删除）：合计不完整，必须显式说明 */
 const cartAmountIncomplete = computed(() => cartAmount.value.unpricedCount > 0)
-
-/** 待核价的明细描述，如「2 项商品」 */
-const unpricedItemText = computed(() => `${cartAmount.value.unpricedCount} 项商品`)
 
 /**
  * 明细行金额文案（含「待核价」），列表与操作面板共用同一份口径。
@@ -152,7 +192,14 @@ function itemAmountText(item: SharedCartItem): string {
   if (item.approvedQuantity === 0)
     return ''
   const amount = itemAmountOf(item)
-  return amount === null ? '待核价' : `¥${amountText(amount)}`
+  return amount === null ? t('sharedCart.common.pendingPrice') : `¥${amountText(amount)}`
+}
+
+/** 单价文案：取不到价时由页面给出「待核价」，其余沿用 utils 的金额格式 */
+function unitPriceLabel(item: SharedCartItem): string {
+  return item.unitPrice === null || item.unitPrice === undefined
+    ? t('sharedCart.common.pendingPrice')
+    : unitPriceText(item)
 }
 
 /**
@@ -219,7 +266,9 @@ const memberNames = computed<Record<string, string>>(() => {
 function memberLabel(member: SharedCartMember) {
   if (member.displayName)
     return member.displayName
-  return member.userId ? `成员 ${member.userId.slice(-4)}` : '成员'
+  return member.userId
+    ? t('sharedCart.common.memberShort', { id: member.userId.slice(-4) })
+    : t('sharedCart.common.member')
 }
 
 /** 明细来源：归属姓名（接龙代报）/ 本人 / 成员姓名 / 短标识，不暴露原始用户 ID */
@@ -228,8 +277,9 @@ function contributorLabel(item: SharedCartItem) {
   if (item.attributedName)
     return item.attributedName
   if (isMine(item))
-    return '我'
-  return memberNames.value[item.userId] || (item.userId ? `成员 ${item.userId.slice(-4)}` : '成员')
+    return t('sharedCart.common.me')
+  return memberNames.value[item.userId]
+    || (item.userId ? t('sharedCart.common.memberShort', { id: item.userId.slice(-4) }) : t('sharedCart.common.member'))
 }
 
 /**
@@ -244,7 +294,9 @@ function memberSummaryLabel(row: { member: null | SharedCartMember, userId: stri
     return row.attributedName
   if (row.member)
     return memberLabel(row.member)
-  return row.userId ? `成员 ${row.userId.slice(-4)}` : '成员'
+  return row.userId
+    ? t('sharedCart.common.memberShort', { id: row.userId.slice(-4) })
+    : t('sharedCart.common.member')
 }
 
 /**
@@ -257,7 +309,7 @@ function memberSummaryLabel(row: { member: null | SharedCartMember, userId: stri
 function memberAvatarText(member: SharedCartMember) {
   if (member.displayName)
     return member.displayName.slice(-1)
-  return '员'
+  return t('sharedCart.common.memberAvatar')
 }
 
 /** 邀请成员表单 */
@@ -267,6 +319,12 @@ const inviteState = reactive({
   memberUserId: '',
   memberRole: MEMBER_ROLE_MEMBER,
 })
+
+/** 成员角色选项：标签随语言切换，取值仍用 utils 常量 */
+const memberRoleOptions = computed(() => [
+  { label: t('sharedCart.detail.roleMember'), value: MEMBER_ROLE_MEMBER },
+  { label: t('sharedCart.detail.roleConfirmator'), value: MEMBER_ROLE_CONFIRMATOR },
+])
 
 /** 分享令牌（转发微信群用；由发起人生成） */
 const shareToken = ref('')
@@ -310,7 +368,7 @@ function openSetName() {
 function submitDisplayName() {
   const name = nameState.displayName.trim()
   if (!name) {
-    uni.showToast({ title: '请填写姓名', icon: 'none' })
+    uni.showToast({ title: t('sharedCart.detail.nameRequired'), icon: 'none' })
     return
   }
   if (nameState.submitting)
@@ -319,7 +377,7 @@ function submitDisplayName() {
   setMyDisplayName(cartId.value, name)
     .then(() => {
       nameState.visible = false
-      uni.showToast({ title: '已保存', icon: 'success' })
+      uni.showToast({ title: t('sharedCart.detail.saved'), icon: 'success' })
       return fetchDetail()
     })
     .catch(() => {})
@@ -401,7 +459,7 @@ function copyCartNo() {
     return
   uni.setClipboardData({
     data: cart.value.cartNo,
-    success: () => uni.showToast({ title: '编号已复制', icon: 'success' }),
+    success: () => uni.showToast({ title: t('sharedCart.common.copied'), icon: 'success' }),
   })
 }
 
@@ -448,7 +506,7 @@ function openEditItem(item: SharedCartItem) {
 function submitEditItem() {
   const quantity = Number(editState.quantity)
   if (!quantity || quantity < 1) {
-    uni.showToast({ title: '请填写数量', icon: 'none' })
+    uni.showToast({ title: t('sharedCart.detail.qtyRequired'), icon: 'none' })
     return
   }
   if (editState.submitting)
@@ -463,7 +521,7 @@ function submitEditItem() {
       // 先收起弹层再拉详情：fetchDetail 会把明细行重建一遍，
       // 若此时弹层还开着，用户在等待期间点到的那一行 item 已经指向被替换掉的旧对象
       editState.visible = false
-      uni.showToast({ title: '已更新', icon: 'success' })
+      uni.showToast({ title: t('sharedCart.detail.updated'), icon: 'success' })
       return fetchDetail()
     })
     .catch(() => {})
@@ -482,14 +540,14 @@ function submitEditItem() {
 function handleRemoveItem(item: SharedCartItem) {
   closeRowActions()
   uni.showModal({
-    title: '移除明细',
-    content: '确定移除这条明细吗？',
+    title: t('sharedCart.detail.removeTitle'),
+    content: t('sharedCart.detail.removeMessage'),
     success: (res) => {
       if (!res.confirm)
         return
       removeSharedCartItem(cartId.value, item.id)
         .then(() => {
-          uni.showToast({ title: '已移除', icon: 'success' })
+          uni.showToast({ title: t('sharedCart.detail.removed'), icon: 'success' })
           return fetchDetail()
         })
         .catch(() => {})
@@ -541,7 +599,7 @@ function openInvite() {
 function submitInvite() {
   const memberUserId = inviteState.memberUserId.trim()
   if (!memberUserId) {
-    uni.showToast({ title: '请填写成员用户ID', icon: 'none' })
+    uni.showToast({ title: t('sharedCart.detail.memberIdRequired'), icon: 'none' })
     return
   }
   if (inviteState.submitting)
@@ -550,7 +608,7 @@ function submitInvite() {
   inviteSharedCartMember(cartId.value, memberUserId, inviteState.memberRole)
     .then(() => {
       inviteState.visible = false
-      uni.showToast({ title: '已邀请', icon: 'success' })
+      uni.showToast({ title: t('sharedCart.detail.invited'), icon: 'success' })
       return fetchDetail()
     })
     .catch(() => {})
@@ -566,15 +624,15 @@ function handleClose() {
   if (closing.value)
     return
   uni.showModal({
-    title: '关闭购物车',
-    content: '关闭后成员将无法继续加购，确定关闭吗？',
+    title: t('sharedCart.detail.closeTitle'),
+    content: t('sharedCart.detail.closeMessage'),
     success: (res) => {
       if (!res.confirm)
         return
       closing.value = true
       closeSharedCart(cartId.value)
         .then(() => {
-          uni.showToast({ title: '已关闭', icon: 'success' })
+          uni.showToast({ title: t('sharedCart.detail.closed'), icon: 'success' })
           return fetchDetail()
         })
         .catch(() => {})
@@ -644,8 +702,8 @@ function handleReuse() {
         const skipped = result.skippedCount ?? 0
         uni.showToast({
           title: skipped > 0
-            ? `已复用 ${result.reusedCount} 项，跳过 ${skipped} 项`
-            : `已复用 ${result.reusedCount} 项`,
+            ? t('sharedCart.detail.reusePartial', { reused: result.reusedCount, skipped })
+            : t('sharedCart.detail.reuseDone', { reused: result.reusedCount }),
           icon: 'none',
         })
         uni.navigateTo({ url: `/sub-pages/order/shared-cart/detail?id=${result.cartId}` })
@@ -658,7 +716,7 @@ function handleReuse() {
   }
   // 兜底：按钮已按船舶过滤，这里再挡一次（例如上下文在页面停留期间被切走）
   if (shipContextStore.vesselId && shipContextStore.vesselId !== cart.value.vesselId) {
-    uni.showToast({ title: '只能复用到同一条船', icon: 'none' })
+    uni.showToast({ title: t('sharedCart.detail.reuseSameVessel'), icon: 'none' })
     return
   }
   if (!shipContextStore.hasVesselContext) {
@@ -678,8 +736,8 @@ function handleReuse() {
       const skipped = result.skippedCount ?? 0
       uni.showToast({
         title: skipped > 0
-          ? `已复用 ${result.reusedCount} 项，跳过 ${skipped} 项`
-          : `已复用 ${result.reusedCount} 项`,
+          ? t('sharedCart.detail.reusePartial', { reused: result.reusedCount, skipped })
+          : t('sharedCart.detail.reuseDone', { reused: result.reusedCount }),
         icon: 'none',
       })
       uni.navigateTo({ url: `/sub-pages/order/shared-cart/detail?id=${result.cartId}` })
@@ -760,7 +818,7 @@ function confirmLineAmountText(item: SharedCartItem): string {
   if (quantity <= 0)
     return ''
   if (item.unitPrice === null || item.unitPrice === undefined)
-    return '待核价'
+    return t('sharedCart.common.pendingPrice')
   return `¥${amountText(Number(item.unitPrice) * quantity)}`
 }
 
@@ -771,12 +829,20 @@ function confirmLineAmountText(item: SharedCartItem): string {
  * 「关闭购物车」不再与提交并排等权，避免误触一个不可逆动作。
  */
 const primaryAction = computed<null | { handler: () => void, text: string }>(() => {
-  const orderWord = isShoreCart(cart.value) ? '订单' : '整船订单'
+  const shore = isShoreCart(cart.value)
   if (cart.value?.submitOrderId) {
-    return { text: `查看${orderWord}`, handler: goOrder }
+    return {
+      text: t(shore ? 'sharedCart.detail.viewOrder' : 'sharedCart.detail.viewVesselOrder'),
+      handler: goOrder,
+    }
   }
   if (canConfirmNow.value) {
-    return { text: `提交${orderWord}（${items.value.length} 项）`, handler: openConfirm }
+    return {
+      text: t(shore ? 'sharedCart.detail.submitOrder' : 'sharedCart.detail.submitVesselOrderWithCount', {
+        count: items.value.length,
+      }),
+      handler: openConfirm,
+    }
   }
   return null
 })
@@ -800,13 +866,19 @@ const footerAmountValue = computed(() => {
  * 而底部条恰恰是用户最后看到金额的地方。
  */
 const footerAmountLabel = computed(() =>
-  cartAmountIncomplete.value ? '预估 · 部分待核价' : '预估',
+  cartAmountIncomplete.value
+    ? t('sharedCart.detail.footerEstimatePartial')
+    : t('sharedCart.detail.footerEstimate'),
 )
 
 /** 底部次要操作：历史单的一键复用（进行中的单不给，复用会命中同一张车） */
 const secondaryAction = computed<null | { disabled: boolean, handler: () => void, text: string }>(() => {
   if (canReuse.value) {
-    return { text: '复用为本次补给单', handler: handleReuse, disabled: reusing.value }
+    return {
+      text: t('sharedCart.detail.reuseAsThisSupply'),
+      handler: handleReuse,
+      disabled: reusing.value,
+    }
   }
   return null
 })
@@ -817,7 +889,7 @@ function submitConfirm() {
   // 「本次不采」的行显式提交核定 0，由服务端从订单里剔除并留痕；
   // 已提交前再兜一次：全部排除时服务端也会拒绝，但本地先拦住能少一次无效请求。
   if (confirmBuyCount.value === 0) {
-    uni.showToast({ title: '至少要保留一项', icon: 'none' })
+    uni.showToast({ title: t('sharedCart.detail.keepOneItem'), icon: 'none' })
     return
   }
   // 数量口径统一走 confirmQuantityOf（弹层金额也是同一份实现），
@@ -840,7 +912,12 @@ function submitConfirm() {
   })
     .then((orderId) => {
       confirmState.visible = false
-      uni.showToast({ title: isShoreCart(cart.value) ? '已提交订单' : '已提交整船订单', icon: 'success' })
+      uni.showToast({
+        title: isShoreCart(cart.value)
+          ? t('sharedCart.detail.orderSubmitted')
+          : t('sharedCart.detail.vesselOrderSubmitted'),
+        icon: 'success',
+      })
       return fetchDetail().then(() => {
         if (orderId) {
           // 延时跳转期间用户可能已自行离开本页：对已销毁页面发路由会触发
@@ -894,8 +971,8 @@ onLoad((options) => {
           // 带 icon 的 toast 在微信端只显示 7 个汉字，长文案必须用 icon:'none' 才不会被截断
           uni.showToast(
             boundVesselName
-              ? { title: `已加入本次采购，同时加入「${boundVesselName}」船舶成员`, icon: 'none' }
-              : { title: '已加入本次采购', icon: 'success' },
+              ? { title: t('sharedCart.detail.joinedWithVessel', { vessel: boundVesselName }), icon: 'none' }
+              : { title: t('sharedCart.detail.joined'), icon: 'success' },
           )
         }
       })
@@ -911,10 +988,11 @@ onLoad((options) => {
 onShareAppMessage(() => {
   const id = cartId.value || cart.value?.id || ''
   // 岸上企业车没有船名，标题直说「合并采购」；船供车继续以船名开头
-  const vessel = sharedCartTitleLabel(cart.value)
-    || (isShoreCart(cart.value) ? '伙伴们' : shipContextStore.vesselName || '本船')
+  const vessel = isShoreCart(cart.value)
+    ? t('sharedCart.detail.shorePartners')
+    : cart.value?.vesselName || shipContextStore.vesselName || t('sharedCart.detail.thisVessel')
   return {
-    title: `${vessel}正在收集采购需求，点此选购`,
+    title: t('sharedCart.detail.shareTitle', { vessel }),
     path: `/sub-pages/order/shared-cart/detail?id=${id}&token=${shareToken.value}`,
   }
 })
@@ -929,13 +1007,13 @@ function handleShare() {
   if (!cartId.value)
     return
   if (shareToken.value) {
-    uni.showToast({ title: '请点右上角「···」发送到群', icon: 'none' })
+    uni.showToast({ title: t('sharedCart.detail.shareHint'), icon: 'none' })
     return
   }
   shareSharedCart(cartId.value)
     .then((token) => {
       shareToken.value = token || ''
-      uni.showToast({ title: '请点右上角「···」发送到群', icon: 'none' })
+      uni.showToast({ title: t('sharedCart.detail.shareHint'), icon: 'none' })
     })
     .catch(() => {})
 }
@@ -947,36 +1025,36 @@ onShow(() => {
 
 <template>
   <view class="shared-cart-detail">
-    <hr-navbar title="共享购物车详情" />
+    <hr-navbar :title="t('sharedCart.detail.navTitle')" />
 
     <!-- 凭分享卡片加入中 -->
     <view v-if="joining" class="py-80rpx text-center text-26rpx text-gray-400">
-      正在加入本次采购...
+      {{ t('sharedCart.detail.joining') }}
     </view>
 
     <!-- 分享链接失效：给出可执行的出路，而不是只报错 -->
     <view v-else-if="joinFailed" class="mx-24rpx mt-40rpx rounded-24rpx bg-white p-32rpx text-center">
       <view class="text-28rpx font-bold">
-        该分享链接已失效
+        {{ t('sharedCart.detail.shareExpiredTitle') }}
       </view>
       <view class="mt-10rpx text-24rpx text-gray-500">
-        采购收集超过 24 小时会自动关闭，或已被发起人提交。请联系发起人重新分享。
+        {{ t('sharedCart.detail.shareExpiredDesc') }}
       </view>
       <button class="mt-24rpx h-72rpx text-26rpx leading-72rpx" type="primary" @tap="goSharedCartList">
-        查看我参与的采购
+        {{ t('sharedCart.detail.viewMyPurchases') }}
       </button>
     </view>
 
     <view v-else-if="loading && !cart" class="py-80rpx text-center text-26rpx text-gray-400">
-      加载中...
+      {{ t('common.loading') }}
     </view>
 
     <view v-else-if="loadFailed && !cart" class="py-80rpx text-center">
       <view class="text-26rpx text-gray-400">
-        加载失败，请检查网络后重试
+        {{ t('sharedCart.detail.loadFailed') }}
       </view>
       <view class="mt-20rpx text-26rpx text-blue-500" @tap="fetchDetail">
-        重新加载
+        {{ t('common.retry') }}
       </view>
     </view>
 
@@ -988,21 +1066,23 @@ onShow(() => {
             <view class="mr-16rpx min-w-0 flex-1">
               <view class="flex items-center gap-8rpx">
                 <text class="truncate text-38rpx font-bold">
-                  {{ sharedCartTitleLabel(cart) || '船舶信息待同步' }}
+                  {{ cartTitle(cart) }}
                 </text>
                 <text v-if="isShoreCart(cart)" class="flex-none rounded-8rpx bg-gray-100 px-12rpx py-2rpx text-20rpx text-gray-500">
-                  岸上
+                  {{ t('sharedCart.common.shoreTag') }}
                 </text>
               </view>
               <view class="mt-8rpx text-26rpx text-gray-500">
-                {{ isShoreCart(cart) ? (cart.addressSnapshot || '收货地址待同步') : `${cart.portName || '港口待定'} ${cart.berth}` }}
+                {{ isShoreCart(cart)
+                  ? (cart.addressSnapshot || t('sharedCart.common.addressPending'))
+                  : `${cart.portName || t('sharedCart.common.portPending')} ${cart.berth}` }}
               </view>
             </view>
             <view
               class="flex-none rounded-full px-16rpx py-6rpx text-24rpx"
               :style="`background:${cartStatusTheme(cart.status).bg};color:${cartStatusTheme(cart.status).text}`"
             >
-              {{ cartStatusLabel(cart.status) }}
+              {{ cartStatusText(cart.status) }}
             </view>
           </view>
 
@@ -1015,7 +1095,7 @@ onShow(() => {
             v-if="callSnapshotStale"
             class="mt-24rpx rounded-16rpx bg-orange-50 px-24rpx py-18rpx text-24rpx text-orange-600"
           >
-            该车的靠港计划已结束或暂不可用，提交时将自动顺延到本船最新可用靠港
+            {{ t('sharedCart.detail.callStale') }}
           </view>
 
           <!--
@@ -1030,13 +1110,13 @@ onShow(() => {
           >
             <view class="flex items-center justify-between">
               <text class="text-26rpx" :style="expiryUrgent ? 'color:#B91C1C' : 'color:#92400E'">
-                收集截止
+                {{ t('sharedCart.detail.collectDeadline') }}
               </text>
               <text
                 class="text-28rpx font-bold"
                 :style="expiryUrgent ? 'color:#B91C1C' : 'color:#92400E'"
               >
-                {{ expiryCountdown || '即将截止' }}
+                {{ expiryCountdown || t('sharedCart.detail.expiringSoon') }}
               </text>
             </view>
             <view
@@ -1052,16 +1132,16 @@ onShow(() => {
             v-if="cart.remark"
             class="mt-20rpx rounded-16rpx bg-gray-50 px-24rpx py-18rpx text-26rpx text-gray-600"
           >
-            备注：{{ cart.remark }}
+            {{ t('sharedCart.common.remarkPrefix') }}{{ cart.remark }}
           </view>
 
           <!-- 编号是受理号性质的参考信息：弱化展示，但要能一键复制 -->
           <view class="mt-20rpx flex items-center justify-between">
             <text class="truncate text-24rpx text-gray-400">
-              编号 {{ cart.cartNo }}
+              {{ t('sharedCart.common.cartNo', { no: cart.cartNo }) }}
             </text>
             <text class="ml-16rpx flex-none text-24rpx text-blue-500" @tap="copyCartNo">
-              复制
+              {{ t('sharedCart.common.copy') }}
             </text>
           </view>
         </view>
@@ -1069,10 +1149,10 @@ onShow(() => {
         <!-- 发起人的协作入口单独成行：分享到群是拉人进来的主路径，值得一个明确的落点 -->
         <view v-if="cart.viewerIsOwner && collecting" class="flex border-t border-gray-100">
           <view class="flex flex-1 items-center justify-center py-26rpx text-28rpx" @tap="handleShare">
-            分享到群
+            {{ t('sharedCart.detail.shareToGroup') }}
           </view>
           <view class="flex flex-1 items-center justify-center border-l border-gray-100 py-26rpx text-28rpx" @tap="openInvite">
-            邀请成员
+            {{ t('sharedCart.detail.inviteMembers') }}
           </view>
         </view>
       </view>
@@ -1086,14 +1166,14 @@ onShow(() => {
       >
         <view class="mr-16rpx min-w-0 flex-1">
           <view class="text-26rpx font-bold" style="color:#C2410C">
-            填写你的姓名
+            {{ t('sharedCart.detail.fillNameTitle') }}
           </view>
           <view class="mt-4rpx text-22rpx" style="color:#9A3412">
-            配送到船时按姓名给你的商品单独贴标签
+            {{ t('sharedCart.detail.fillNameDesc') }}
           </view>
         </view>
         <text class="flex-none text-26rpx" style="color:#C2410C">
-          去填写
+          {{ t('sharedCart.detail.fillNameAction') }}
         </text>
       </view>
 
@@ -1107,10 +1187,10 @@ onShow(() => {
         style="background:#F1EFE8"
       >
         <view class="text-26rpx font-bold" style="color:#5F5E5A">
-          你当前只能查看清单
+          {{ t('sharedCart.detail.readonlyTitle') }}
         </view>
         <view class="mt-4rpx text-22rpx" style="color:#888780">
-          明细维护权限已被收回，暂时不能加购或修改数量；如需恢复请联系发起人
+          {{ t('sharedCart.detail.readonlyDesc') }}
         </view>
       </view>
 
@@ -1122,10 +1202,10 @@ onShow(() => {
         <view class="flex items-center justify-between">
           <view class="flex items-baseline">
             <text class="text-32rpx font-bold">
-              明细
+              {{ t('sharedCart.detail.itemsTitle') }}
             </text>
             <text class="ml-8rpx text-24rpx text-gray-400">
-              {{ items.length }} 项
+              {{ t('sharedCart.common.itemsCount', { count: items.length }) }}
             </text>
           </view>
           <view class="flex items-center gap-28rpx">
@@ -1135,17 +1215,17 @@ onShow(() => {
               class="text-26rpx text-emerald-600"
               @tap="goChainImport"
             >
-              粘贴接龙
+              {{ t('sharedCart.detail.pasteChain') }}
             </text>
             <text
               v-if="collecting && cart.viewerCanConfirm"
               class="text-26rpx text-emerald-600"
               @tap="goImport"
             >
-              导入 Excel
+              {{ t('sharedCart.detail.importExcel') }}
             </text>
             <text v-if="collecting && cart.viewerCanEdit" class="text-26rpx text-blue-500" @tap="openAddGoods">
-              添加商品
+              {{ t('sharedCart.detail.addProducts') }}
             </text>
           </view>
         </view>
@@ -1166,18 +1246,18 @@ onShow(() => {
           有商品取不到价时合计偏小：必须说出来，否则用户会把这个数当成真实总价。
         -->
         <view v-if="cartAmountIncomplete" class="mt-8rpx text-22rpx" style="color:#B45309">
-          {{ unpricedItemText }}暂时取不到售价，未计入预估金额
+          {{ t('sharedCart.detail.unpricedHint', { count: cartAmount.unpricedCount }) }}
         </view>
 
         <view v-if="items.length === 0" class="py-48rpx text-center text-26rpx text-gray-400">
           <template v-if="collecting">
-            还没有成员加购，点「添加商品」开始
+            {{ t('sharedCart.detail.emptyCollecting') }}
           </template>
           <template v-else-if="cartReadonly">
-            本次未提交任何明细
+            {{ t('sharedCart.detail.emptyReadonly') }}
           </template>
           <template v-else>
-            暂无明细
+            {{ t('sharedCart.detail.emptyNoItems') }}
           </template>
         </view>
         <!--
@@ -1219,29 +1299,29 @@ onShow(() => {
                   class="ml-12rpx flex-none rounded-8rpx px-12rpx py-4rpx text-22rpx"
                   style="background:#F1EFE8;color:#5F5E5A"
                 >
-                  本次不采
+                  {{ t('sharedCart.detail.skipBadge') }}
                 </text>
               </view>
 
               <view class="mt-10rpx flex items-center text-24rpx text-gray-500">
                 <text>
-                  申请 {{ item.requestedQuantity }}
+                  {{ t('sharedCart.common.requested', { qty: item.requestedQuantity }) }}
                   <text v-if="item.approvedQuantity != null && item.approvedQuantity > 0" class="text-amber-600">
-                    · 核定 {{ item.approvedQuantity }}
+                    · {{ t('sharedCart.common.approved', { qty: item.approvedQuantity }) }}
                   </text>
                 </text>
                 <!-- 单价与行金额并列，用户能自己核对「这个数是怎麼来的」 -->
                 <text class="ml-16rpx text-gray-400">
-                  单价 {{ unitPriceText(item) }}
+                  {{ t('sharedCart.common.unitPrice', { price: unitPriceLabel(item) }) }}
                 </text>
               </view>
               <view v-if="item.memberRemark" class="mt-10rpx text-24rpx text-gray-400">
-                备注：{{ item.memberRemark }}
+                {{ t('sharedCart.common.remarkPrefix') }}{{ item.memberRemark }}
               </view>
 
               <view class="mt-14rpx flex items-center justify-between">
                 <text class="min-w-0 flex-1 truncate text-24rpx text-gray-400">
-                  来自 {{ contributorLabel(item) }}
+                  {{ t('sharedCart.common.from', { name: contributorLabel(item) }) }}
                 </text>
                 <view class="ml-16rpx flex flex-none items-center gap-28rpx">
                   <text
@@ -1263,14 +1343,14 @@ onShow(() => {
         <view class="flex items-center justify-between">
           <view class="flex items-baseline">
             <text class="text-32rpx font-bold">
-              成员
+              {{ t('sharedCart.detail.membersTitle') }}
             </text>
             <text class="ml-8rpx text-24rpx text-gray-400">
-              {{ members.length }} 人
+              {{ t('sharedCart.detail.membersCount', { count: members.length }) }}
             </text>
           </view>
           <text v-if="myMember" class="text-26rpx text-blue-500" @tap="openSetName">
-            {{ myMember.displayName ? '修改姓名' : '填写姓名' }}
+            {{ myMember.displayName ? t('sharedCart.detail.editName') : t('sharedCart.detail.setName') }}
           </text>
         </view>
         <view
@@ -1284,13 +1364,13 @@ onShow(() => {
               class="mr-20rpx h-64rpx w-64rpx flex flex-none items-center justify-center rounded-full text-26rpx text-white font-bold"
               :style="`background:${row.userId === currentUserId ? '#378ADD' : '#9AA4B2'}`"
             >
-              {{ row.attributedName ? row.attributedName.slice(-1) : (row.member ? memberAvatarText(row.member) : '员') }}
+              {{ row.attributedName ? row.attributedName.slice(-1) : (row.member ? memberAvatarText(row.member) : t('sharedCart.common.memberAvatar')) }}
             </view>
             <view class="min-w-0 flex-1">
               <view class="truncate text-28rpx text-gray-700">
                 {{ memberSummaryLabel(row) }}
                 <text v-if="!row.attributedName && row.userId === currentUserId" class="text-blue-500">
-                  （我）
+                  {{ t('sharedCart.common.meTag') }}
                 </text>
               </view>
               <!--
@@ -1299,20 +1379,20 @@ onShow(() => {
               -->
               <view class="mt-4rpx text-22rpx text-gray-400">
                 <text v-if="row.attributedName">
-                  接龙代报
+                  {{ t('sharedCart.detail.proxyEntry') }}
                 </text>
                 <text v-else-if="row.member">
-                  {{ memberRoleLabel(row.member.memberRole) }}
+                  {{ memberRoleText(row.member.memberRole) }}
                 </text>
                 <text v-if="row.itemCount > 0" class="ml-8rpx">
-                  · {{ row.itemCount }} 项
+                  {{ t('sharedCart.detail.dotItems', { count: row.itemCount }) }}
                 </text>
                 <text v-if="row.quantity > 0" class="ml-8rpx">
-                  · 共 {{ row.quantity }}
+                  {{ t('sharedCart.detail.dotTotal', { count: row.quantity }) }}
                 </text>
                 <!-- 该成员有商品取不到价：金额偏小，别让用户以为他报得少 -->
                 <text v-if="row.unpricedCount > 0" class="ml-8rpx" style="color:#B45309">
-                  · {{ row.unpricedCount }} 项待核价
+                  {{ t('sharedCart.detail.dotUnpriced', { count: row.unpricedCount }) }}
                 </text>
               </view>
             </view>
@@ -1326,7 +1406,7 @@ onShow(() => {
               class="flex-none rounded-8rpx px-12rpx py-4rpx text-22rpx"
               style="background:#E1F5EE;color:#0F6E56"
             >
-              可提交
+              {{ t('sharedCart.detail.canConfirm') }}
             </text>
           </view>
         </view>
@@ -1341,10 +1421,10 @@ onShow(() => {
       >
         <view class="min-w-0 flex-1">
           <view class="text-30rpx text-white font-bold">
-            整船订单已生成
+            {{ t('sharedCart.detail.orderCreatedTitle') }}
           </view>
           <view class="mt-6rpx text-24rpx text-white opacity-85">
-            本次提交的商品已按成员分别生成订单明细
+            {{ t('sharedCart.detail.orderCreatedDesc') }}
           </view>
         </view>
         <text class="i-carbon:chevron-right ml-16rpx flex-none text-white opacity-85" />
@@ -1359,31 +1439,31 @@ onShow(() => {
         class="mx-24rpx mt-24rpx rounded-28rpx bg-white p-32rpx"
       >
         <view class="text-26rpx text-gray-500">
-          关闭后成员无法继续加购，已收集的明细会保留
+          {{ t('sharedCart.detail.closeHint') }}
         </view>
         <button
           class="mt-24rpx h-76rpx text-28rpx leading-76rpx"
           :disabled="closing"
           @tap="handleClose"
         >
-          关闭购物车
+          {{ t('sharedCart.detail.closeCart') }}
         </button>
       </view>
 
       <!-- 底部固定条占位：不遮住最后一张卡片 -->
       <view v-if="primaryAction || secondaryAction" class="footer-spacer" />
       <view v-if="!canConfirmNow && collecting && items.length === 0" class="px-40rpx pb-40rpx text-center text-26rpx text-gray-400">
-        至少需要一条明细才能提交
+        {{ t('sharedCart.detail.needOneItem') }}
       </view>
     </template>
 
     <view v-else class="py-80rpx text-center">
       <view class="text-26rpx text-gray-400">
-        购物车不存在或你无权访问
+        {{ t('sharedCart.detail.noAccess') }}
       </view>
 
       <view class="mt-20rpx text-26rpx text-blue-500" @tap="goLogin">
-        去登录
+        {{ t('sharedCart.detail.goLogin') }}
       </view>
     </view>
 
@@ -1437,25 +1517,25 @@ onShow(() => {
     >
       <view class="px-32rpx pb-32rpx pt-28rpx">
         <view class="text-32rpx font-bold">
-          添加商品
+          {{ t('sharedCart.detail.addProducts') }}
         </view>
         <view class="mt-8rpx text-24rpx text-gray-500">
-          选择挑货方式
+          {{ t('sharedCart.detail.chooseAddWay') }}
         </view>
 
         <view class="add-way" @tap="goCategoryPicker">
           <view class="add-way__icon add-way__icon--category">
-            <wd-icon name="apps" size="24px" color="#185FA5" />
+            <wd-icon name="layers" size="24px" color="#185FA5" />
           </view>
           <view class="add-way__body">
             <view class="add-way__title">
-              按分类选货
+              {{ t('sharedCart.detail.byCategory') }}
               <text class="add-way__tag">
-                推荐
+                {{ t('sharedCart.detail.recommended') }}
               </text>
             </view>
             <view class="add-way__desc">
-              按水果、蔬菜、水产等分类挑选，找货更快
+              {{ t('sharedCart.detail.byCategoryDesc') }}
             </view>
           </view>
           <wd-icon name="chevron-right" size="16px" color="#9aa2ae" />
@@ -1467,10 +1547,10 @@ onShow(() => {
           </view>
           <view class="add-way__body">
             <view class="add-way__title">
-              全部商品
+              {{ t('sharedCart.detail.allProducts') }}
             </view>
             <view class="add-way__desc">
-              浏览完整目录，也可直接搜索商品名称
+              {{ t('sharedCart.detail.allProductsDesc') }}
             </view>
           </view>
           <wd-icon name="chevron-right" size="16px" color="#9aa2ae" />
@@ -1492,7 +1572,7 @@ onShow(() => {
     >
       <view class="px-32rpx pb-32rpx pt-28rpx">
         <view class="text-32rpx font-bold">
-          明细操作
+          {{ t('sharedCart.detail.rowActionsTitle') }}
         </view>
         <view class="mt-8rpx truncate text-24rpx text-gray-500">
           {{ rowActionState.item ? (rowActionState.item.spuName || `SKU ${rowActionState.item.skuId}`) : '' }}
@@ -1501,8 +1581,8 @@ onShow(() => {
           v-if="rowActionState.item"
           class="mt-4rpx text-22rpx text-gray-400"
         >
-          申请 {{ rowActionState.item.requestedQuantity }}
-          · 单价 {{ unitPriceText(rowActionState.item) }}
+          {{ t('sharedCart.common.requested', { qty: rowActionState.item.requestedQuantity }) }}
+          · {{ t('sharedCart.common.unitPrice', { price: unitPriceLabel(rowActionState.item) }) }}
           <text v-if="itemAmountText(rowActionState.item)">
             · {{ itemAmountText(rowActionState.item) }}
           </text>
@@ -1513,14 +1593,14 @@ onShow(() => {
             class="sheet-row"
             @tap="openEditItem(rowActionState.item)"
           >
-            修改我的申请数量
+            {{ t('sharedCart.detail.editMyQty') }}
           </view>
           <view
             v-if="rowActionState.item && canEditItem(rowActionState.item)"
             class="sheet-row sheet-row--danger"
             @tap="handleRemoveItem(rowActionState.item)"
           >
-            移除这条明细
+            {{ t('sharedCart.detail.removeItem') }}
           </view>
         </view>
       </view>
@@ -1535,20 +1615,20 @@ onShow(() => {
     >
       <view class="px-32rpx pb-32rpx pt-28rpx">
         <view class="text-32rpx font-bold">
-          我的姓名
+          {{ t('sharedCart.detail.myName') }}
         </view>
         <view class="mt-8rpx text-22rpx text-gray-500">
-          用于配送到船时把你的商品单独贴标签。填写一次即可，之后可随时修改。
+          {{ t('sharedCart.detail.myNameDesc') }}
         </view>
         <input
           v-model="nameState.displayName"
           class="mt-20rpx h-80rpx rounded-12rpx bg-gray-50 px-24rpx text-28rpx"
-          placeholder="请输入姓名，如：王建国"
+          :placeholder="t('sharedCart.detail.namePlaceholder')"
           :maxlength="64"
         >
         <view class="sheet-actions">
           <wd-button type="info" custom-class="sheet-actions__cancel" @click="nameState.visible = false">
-            取消
+            {{ t('common.cancel') }}
           </wd-button>
           <wd-button
             type="primary"
@@ -1556,7 +1636,7 @@ onShow(() => {
             custom-class="sheet-actions__ok"
             @click="submitDisplayName"
           >
-            保存
+            {{ t('sharedCart.detail.save') }}
           </wd-button>
         </view>
       </view>
@@ -1571,19 +1651,19 @@ onShow(() => {
     >
       <view class="px-32rpx pb-32rpx pt-28rpx">
         <view class="text-32rpx font-bold">
-          邀请成员
+          {{ t('sharedCart.detail.inviteMembers') }}
         </view>
         <view class="mt-8rpx text-22rpx text-gray-500">
-          让对方在微信里点开你的分享卡片即可加入，也可以直接填对方的商城用户 ID
+          {{ t('sharedCart.detail.inviteDesc') }}
         </view>
         <input
           v-model="inviteState.memberUserId"
           class="mt-20rpx h-80rpx rounded-12rpx bg-gray-50 px-24rpx text-28rpx"
-          placeholder="成员商城用户ID"
+          :placeholder="t('sharedCart.detail.memberIdPlaceholder')"
         >
         <view class="mt-16rpx flex gap-16rpx">
           <view
-            v-for="option in [{ label: '普通成员', value: MEMBER_ROLE_MEMBER }, { label: '采购确认人', value: MEMBER_ROLE_CONFIRMATOR }]"
+            v-for="option in memberRoleOptions"
             :key="option.value"
             class="rounded-30rpx px-24rpx py-8rpx text-24rpx"
             :style="inviteState.memberRole === option.value
@@ -1596,7 +1676,7 @@ onShow(() => {
         </view>
         <view class="sheet-actions">
           <wd-button type="info" custom-class="sheet-actions__cancel" @click="inviteState.visible = false">
-            取消
+            {{ t('common.cancel') }}
           </wd-button>
           <wd-button
             type="primary"
@@ -1604,7 +1684,7 @@ onShow(() => {
             custom-class="sheet-actions__ok"
             @click="submitInvite"
           >
-            邀请
+            {{ t('sharedCart.detail.invite') }}
           </wd-button>
         </view>
       </view>
@@ -1619,25 +1699,25 @@ onShow(() => {
     >
       <view class="px-32rpx pb-32rpx pt-28rpx">
         <view class="text-32rpx font-bold">
-          修改我的明细
+          {{ t('sharedCart.detail.editItemsTitle') }}
         </view>
         <view class="mt-8rpx text-22rpx text-gray-500">
-          只改你要申请的数量，最终采购量由确认人排计划时核定
+          {{ t('sharedCart.detail.editItemsDesc') }}
         </view>
         <input
           v-model="editState.quantity"
           class="mt-20rpx h-80rpx rounded-12rpx bg-gray-50 px-24rpx text-28rpx"
           type="number"
-          placeholder="申请数量"
+          :placeholder="t('sharedCart.detail.requestedQtyPlaceholder')"
         >
         <input
           v-model="editState.remark"
           class="mt-16rpx h-80rpx rounded-12rpx bg-gray-50 px-24rpx text-28rpx"
-          placeholder="备注（选填）"
+          :placeholder="t('sharedCart.detail.remarkOptional')"
         >
         <view class="sheet-actions">
           <wd-button type="info" custom-class="sheet-actions__cancel" @click="editState.visible = false">
-            取消
+            {{ t('common.cancel') }}
           </wd-button>
           <wd-button
             type="primary"
@@ -1645,7 +1725,7 @@ onShow(() => {
             custom-class="sheet-actions__ok"
             @click="submitEditItem"
           >
-            保存
+            {{ t('sharedCart.detail.save') }}
           </wd-button>
         </view>
       </view>
@@ -1663,10 +1743,10 @@ onShow(() => {
     >
       <view class="px-32rpx pt-28rpx">
         <view class="text-32rpx font-bold">
-          核定数量并提交
+          {{ t('sharedCart.detail.confirmTitle') }}
         </view>
         <view class="mt-8rpx text-22rpx text-gray-500">
-          按成员分别生成订单明细，配送时可为每人单独贴标签。这次不买的，点「本次不采」。
+          {{ t('sharedCart.detail.confirmDesc') }}
         </view>
       </view>
       <scroll-view scroll-y class="confirm-body">
@@ -1684,12 +1764,16 @@ onShow(() => {
                   : 'background:#E6F1FB;color:#185FA5'"
                 @click="toggleSkipped(item)"
               >
-                {{ confirmState.skipped[item.id] ? '已排除' : '本次不采' }}
+                {{ confirmState.skipped[item.id] ? t('sharedCart.detail.excluded') : t('sharedCart.detail.skipBadge') }}
               </view>
             </view>
             <view class="mt-4rpx flex items-center justify-between text-22rpx text-gray-400">
               <text class="min-w-0 flex-1 truncate">
-                申请 {{ item.requestedQuantity }} · 单价 {{ unitPriceText(item) }} · 来自 {{ contributorLabel(item) }}
+                {{ t('sharedCart.detail.requestedUnitFrom', {
+                  qty: item.requestedQuantity,
+                  price: unitPriceLabel(item),
+                  name: contributorLabel(item),
+                }) }}
               </text>
               <!-- 行金额跟着核定数量实时走，确认人改完数量立刻能核对 -->
               <text
@@ -1706,7 +1790,9 @@ onShow(() => {
               :class="confirmState.skipped[item.id] ? 'bg-gray-100 text-gray-400' : 'bg-gray-50'"
               :disabled="confirmState.skipped[item.id]"
               type="number"
-              :placeholder="confirmState.skipped[item.id] ? '本次不采' : '核定数量'"
+              :placeholder="confirmState.skipped[item.id]
+                ? t('sharedCart.detail.skipBadge')
+                : t('sharedCart.detail.approvedQtyPlaceholder')"
             >
           </view>
 
@@ -1717,23 +1803,23 @@ onShow(() => {
           <view class="mt-28rpx rounded-16rpx bg-gray-50 px-24rpx py-20rpx">
             <view class="flex items-baseline justify-between">
               <text class="text-26rpx text-gray-600">
-                本次采购预估金额
+                {{ t('sharedCart.detail.estimatedTotal') }}
               </text>
               <text v-if="confirmAmountText" class="text-34rpx font-bold" style="color:#C2410C">
                 {{ confirmAmountText }}
               </text>
             </view>
             <view v-if="confirmAmount.unpricedCount > 0" class="mt-6rpx text-22rpx" style="color:#B45309">
-              {{ confirmAmount.unpricedCount }} 项商品暂时取不到售价，未计入；实付以订单为准
+              {{ t('sharedCart.detail.estimateUnpriced', { count: confirmAmount.unpricedCount }) }}
             </view>
             <view v-else class="mt-6rpx text-22rpx text-gray-400">
-              未含促销与运费，实付以订单为准
+              {{ t('sharedCart.detail.estimateNote') }}
             </view>
           </view>
 
           <!-- 支付方式：共享车固定内部配送（way=4），默认货到付款；选 COD 下单即进待发货，无 30 分钟付款限制 -->
           <view class="mt-28rpx text-24rpx text-gray-500">
-            支付方式
+            {{ t('sharedCart.detail.paymentMethod') }}
           </view>
           <view class="mt-8rpx flex gap-16rpx">
             <view
@@ -1743,7 +1829,7 @@ onShow(() => {
                 : 'background:#F5F5F5;color:#374151'"
               @click="confirmState.paymentType = ''"
             >
-              在线支付
+              {{ t('sharedCart.detail.payOnline') }}
             </view>
             <view
               class="h-76rpx flex flex-1 items-center justify-center rounded-12rpx text-28rpx"
@@ -1752,68 +1838,70 @@ onShow(() => {
                 : 'background:#F5F5F5;color:#374151'"
               @click="confirmState.paymentType = '3'"
             >
-              货到付款
+              {{ t('sharedCart.detail.payCod') }}
             </view>
           </view>
           <view class="mt-4rpx text-22rpx text-gray-400">
-            {{ confirmState.paymentType === '3' ? '收货后线下结算，由公司在订单里确认收款' : '提交后需在 30 分钟内完成在线支付' }}
+            {{ confirmState.paymentType === '3'
+              ? t('sharedCart.detail.payCodHint')
+              : t('sharedCart.detail.payOnlineHint') }}
           </view>
 
           <!-- 岸上车收货人固定按采购地址（订单以地址簿为准），不再让确认人重复填写 -->
           <view v-if="isShoreCart(cart)" class="mt-28rpx rounded-16rpx bg-gray-50 px-24rpx py-20rpx">
             <view class="text-24rpx text-gray-500">
-              收货信息（按采购地址）
+              {{ t('sharedCart.detail.shippingInfoByAddress') }}
             </view>
             <view class="mt-6rpx text-26rpx text-gray-700">
-              {{ cart?.addressSnapshot || '收货地址待同步' }}
+              {{ cart?.addressSnapshot || t('sharedCart.common.addressPending') }}
             </view>
           </view>
           <template v-else>
             <view class="mt-28rpx text-24rpx text-gray-500">
-              收货人
+              {{ t('sharedCart.detail.recipient') }}
             </view>
             <input
               v-model="confirmState.recipientName"
               class="mt-8rpx h-76rpx rounded-12rpx bg-gray-50 px-24rpx text-28rpx"
-              placeholder="收货人姓名"
+              :placeholder="t('sharedCart.detail.recipientNamePlaceholder')"
             >
             <input
               v-model="confirmState.recipientPhone"
               class="mt-10rpx h-76rpx rounded-12rpx bg-gray-50 px-24rpx text-28rpx"
-              placeholder="收货人电话"
+              :placeholder="t('sharedCart.detail.recipientPhonePlaceholder')"
             >
           </template>
           <view class="mt-28rpx text-24rpx text-gray-500">
-            {{ isShoreCart(cart) ? '经办人（选填）' : '船上代理 / 经办人（选填）' }}
+            {{ isShoreCart(cart) ? t('sharedCart.detail.agentOptional') : t('sharedCart.detail.shipAgentOptional') }}
           </view>
           <input
             v-model="confirmState.agentName"
             class="mt-8rpx h-76rpx rounded-12rpx bg-gray-50 px-24rpx text-28rpx"
-            placeholder="姓名"
+            :placeholder="t('sharedCart.detail.nameFieldPlaceholder')"
           >
           <input
             v-model="confirmState.agentPhone"
             class="mt-10rpx h-76rpx rounded-12rpx bg-gray-50 px-24rpx text-28rpx"
-            placeholder="电话"
+            :placeholder="t('sharedCart.detail.phoneFieldPlaceholder')"
           >
           <view class="mt-28rpx text-24rpx text-gray-500">
-            整单备注（选填）
+            {{ t('sharedCart.detail.orderRemarkOptional') }}
           </view>
           <input
             v-model="confirmState.remark"
             class="mt-8rpx h-76rpx rounded-12rpx bg-gray-50 px-24rpx text-28rpx"
-            placeholder="如：本次补给含甲板部需求"
+            :placeholder="t('sharedCart.detail.remarkPlaceholder')"
           >
         </view>
       </scroll-view>
       <view class="px-32rpx pb-32rpx pt-20rpx">
         <!-- 提交前把「买几项」说清：全部排除时按钮置灰并给原因，不让人点完才报错 -->
         <view v-if="confirmBuyCount < items.length" class="mb-16rpx text-22rpx text-gray-500">
-          本次采购 {{ confirmBuyCount }} 项，{{ items.length - confirmBuyCount }} 项已排除
+          {{ t('sharedCart.detail.confirmSummary', { buy: confirmBuyCount, excluded: items.length - confirmBuyCount }) }}
         </view>
         <view class="sheet-actions">
           <wd-button type="info" custom-class="sheet-actions__cancel" @click="confirmState.visible = false">
-            取消
+            {{ t('common.cancel') }}
           </wd-button>
           <wd-button
             type="primary"
@@ -1822,7 +1910,7 @@ onShow(() => {
             custom-class="sheet-actions__ok"
             @click="submitConfirm"
           >
-            提交整船订单
+            {{ t('sharedCart.detail.submitVesselOrder') }}
           </wd-button>
         </view>
       </view>

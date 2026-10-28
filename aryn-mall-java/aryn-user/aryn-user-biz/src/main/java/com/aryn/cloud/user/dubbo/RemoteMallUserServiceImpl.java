@@ -55,6 +55,11 @@ public class RemoteMallUserServiceImpl implements RemoteMallUserService {
 	}
 
 	@Override
+	public Long countMallUsers() {
+		return userInfoService.count();
+	}
+
+	@Override
 	public LocalDateTime getUserRegisterTime(String userId) {
 		if (StrUtil.isBlank(userId)) {
 			return null;

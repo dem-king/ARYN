@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import { getFrequentPurchase } from '@/api/order/orderInfo'
 import { getQuickCartInfo } from '@/api/product/spu'
@@ -16,6 +17,7 @@ definePage({
 })
 
 const { submitCartAdd } = useCartDestination()
+const { t } = useI18n()
 
 const loading = ref(false)
 const records = ref<any[]>([])
@@ -72,7 +74,7 @@ onMounted(fetchPage)
 
 <template>
   <view>
-    <hr-navbar title="常购清单" />
+    <hr-navbar :title="t('catalog.frequentTitle')" />
     <view
       v-for="item in records"
       :key="item.skuId"
@@ -92,7 +94,7 @@ onMounted(fetchPage)
           {{ item.specsInfo }}
         </view>
         <view class="mt-6rpx text-22rpx text-gray-400">
-          近90天购买 {{ item.totalQuantity }} 件 / {{ item.orderCount }} 次
+          {{ t('catalog.frequentStats', { qty: item.totalQuantity, count: item.orderCount }) }}
         </view>
         <view class="mt-12rpx flex items-center justify-end">
           <button
@@ -101,13 +103,13 @@ onMounted(fetchPage)
             size="mini"
             @tap="handleAddToCart(item)"
           >
-            再来一份
+            {{ t('catalog.buyAgain') }}
           </button>
         </view>
       </view>
     </view>
     <view v-if="!loading && records.length === 0" class="py-80rpx text-center text-26rpx text-gray-400">
-      暂无常购商品，下单后自动统计
+      {{ t('catalog.frequentEmpty') }}
     </view>
   </view>
 </template>

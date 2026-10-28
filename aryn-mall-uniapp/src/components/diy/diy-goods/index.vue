@@ -5,6 +5,7 @@ import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
 import QuickCartButton from '@/components/quick-cart-button/index.vue'
 import { useDiyStyle } from '@/composables/useDiyStyle'
+import { stockHintText } from '@/utils/stock-display'
 
 const props = defineProps({
   showData: {
@@ -99,24 +100,9 @@ const originalPriceStyle = computed(() => {
               >
                 {{ item.subTitle }}
               </view>
-              <view v-if="showData.showTag">
-                <wd-tag v-if="item.freightType === '0'" type="success" plain>
-                  包邮
-                </wd-tag>
-              </view>
-              <view style="display: flex;justify-content: space-between;padding-top: 8px;">
-                <view
-                  v-if="showData.showSalesVolume" class="goods-info-salesVolume"
-                  :style="{ 'color': showData.salesVolumeColor, 'fontSize': `${showData.salesVolumeSize}px`, 'font-weight': showData.salesVolumeStyle === '1' ? 'bold' : '' }"
-                >
-                  已售{{ item.salesVolume }}
-                </view>
-                <view
-                  v-if="showData.showStock" class="goods-info-stock"
-                  :style="{ 'color': showData.stockColor, 'fontSize': `${showData.stockSize}px`, 'font-weight': showData.stockStyle === '1' ? 'bold' : '' }"
-                >
-                  {{ item.stock }}
-                </view>
+              <!-- 库存/销量不外露绝对数字：只在售罄/低库存时给稀缺提示 -->
+              <view v-if="stockHintText(item.stock)" class="goods-info-stock" style="padding-top: 8px;">
+                {{ stockHintText(item.stock) }}
               </view>
               <view class="goods-info-price">
                 <view
@@ -169,6 +155,11 @@ const originalPriceStyle = computed(() => {
 </template>
 
 <style scoped lang="scss">
+.goods-info-stock {
+  color: #909399;
+  font-size: 20rpx;
+}
+
 .goods-box {
   position: relative;
 

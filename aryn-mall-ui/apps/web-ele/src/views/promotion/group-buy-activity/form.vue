@@ -352,7 +352,8 @@ defineExpose({
               :controls="false"
             />
             <span style="color: var(--el-text-color-secondary)"
-              >展示用，0表示不虚增</span
+              >展示用，0表示不虚增；C 端「已拼」= 虚拟值 +
+              真实已付款参团件数</span
             >
           </div>
         </ElFormItem>

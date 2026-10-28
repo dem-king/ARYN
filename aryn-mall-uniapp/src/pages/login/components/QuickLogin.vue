@@ -1,11 +1,6 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/store/authStore'
-
-const props = defineProps<Props>()
-
-const emit = defineEmits<Emits>()
-
-const { confirm } = useGlobalMessage()
 
 interface Props {
   read: boolean
@@ -17,18 +12,26 @@ interface Emits {
   (e: 'wx-login'): void
 }
 
+const props = defineProps<Props>()
+const emit = defineEmits<Emits>()
+
+const { t } = useI18n()
+const { confirm } = useGlobalMessage()
 const { success: showSuccess, error: showError } = useGlobalToast()
 const authStore = useAuthStore()
 const loading = ref(false)
 // 微信登录
 function handleWxLogin() {
+  if (loading.value)
+    return
+
   if (!props.read) {
     confirm({
-      title: '请阅读并同意用户协议',
-      msg: '在继续使用本服务前，请您认真阅读并同意《用户协议》和《隐私政策》。我们将严格保护您的隐私信息，只有在必要的情况下才会收集和使用。点击“我已阅读并同意”即表示您接受相关内容并继续使用服务。',
+      title: t('login.agreementTitle'),
+      msg: t('login.agreementMessage'),
       closeOnClickModal: false,
-      confirmButtonText: '我已阅读并同意',
-      cancelButtonText: '取消',
+      confirmButtonText: t('login.agree'),
+      cancelButtonText: t('common.cancel'),
       success: (res) => {
         if (res.action === 'confirm') {
           emit('update:read', true)
@@ -41,21 +44,24 @@ function handleWxLogin() {
 
   emit('wx-login')
 }
-// 获取手机号回调（微信小程序）
+// 获取手机号回调（微信小程序）：原生 button 事件带一层 detail
+function onGetPhoneNumber(event: any) {
+  getPhoneNumber(event?.detail)
+}
 async function getPhoneNumber(detail: any) {
   const { errMsg, code } = detail || {}
   if (errMsg !== 'getPhoneNumber:ok' || !code) {
-    showError('获取手机号失败')
+    showError(t('login.getPhoneFailed'))
     return
   }
 
   if (!props.read) {
     confirm({
-      title: '请阅读并同意用户协议',
-      msg: '在继续使用本服务前，请您认真阅读并同意《用户协议》和《隐私政策》。我们将严格保护您的隐私信息，只有在必要的情况下才会收集和使用。点击“我已阅读并同意”即表示您接受相关内容并继续使用服务。',
+      title: t('login.agreementTitle'),
+      msg: t('login.agreementMessage'),
       closeOnClickModal: false,
-      confirmButtonText: '我已阅读并同意',
-      cancelButtonText: '取消',
+      confirmButtonText: t('login.agree'),
+      cancelButtonText: t('common.cancel'),
       success: (res) => {
         if (res.action === 'confirm') {
           // 用户确认阅读并同意
@@ -70,14 +76,17 @@ async function getPhoneNumber(detail: any) {
   }
 }
 async function loginHandler(code: string) {
+  if (loading.value)
+    return
+
   loading.value = true
   try {
     await authStore.quickLogin({ code })
-    showSuccess('登录成功！')
+    showSuccess(t('login.loginSuccess'))
     emit('login-success')
   }
   catch (error: any) {
-    showError(error.message || '登录失败')
+    showError(error.message || t('login.loginFailed'))
   }
   finally {
     loading.value = false
@@ -85,24 +94,49 @@ async function loginHandler(code: string) {
 }
 // 当获取手机号失败时
 function onGetPhoneNumberError(event: any) {
-  showError(event?.detail?.errMsg || '获取手机号失败')
+  showError(event?.detail?.errMsg || t('login.getPhoneFailed'))
 }
 </script>
 
 <template>
-  <view class="align-center flex flex-col justify-center">
-    <view class="mb-2 flex justify-center">
-      <wd-button type="success" custom-style="width: 80%;" size="large" block @click="handleWxLogin">
-        微信登录
-      </wd-button>
-    </view>
-    <view class="mb-2 flex justify-center">
-      <wd-button
-        type="primary" open-type="getPhoneNumber" block size="large" custom-style="width: 80%;"
-        :loading="loading" @getphonenumber="getPhoneNumber" @error="onGetPhoneNumberError"
-      >
-        手机号快速登录
-      </wd-button>
-    </view>
+  <view class="quick-login">
+    <button
+      class="login-submit login-submit--wechat"
+      hover-class="login-submit--pressed"
+      :hover-stay-time="80"
+      @click="handleWxLogin"
+    >
+      <text class="login-submit__label">
+        {{ t('login.wechatLogin') }}
+      </text>
+    </button>
+    <button
+      class="login-submit login-submit--ghost login-submit--stacked"
+      :class="{ 'is-loading': loading }"
+      hover-class="login-submit--pressed"
+      :hover-stay-time="80"
+      open-type="getPhoneNumber"
+      @getphonenumber="onGetPhoneNumber"
+      @error="onGetPhoneNumberError"
+    >
+      <view v-if="loading" class="login-spinner" />
+      <text v-else class="i-carbon:mobile login-submit__icon" />
+      <text class="login-submit__label">
+        {{ t('login.phoneQuickLogin') }}
+      </text>
+    </button>
   </view>
 </template>
+
+<style scoped lang="scss">
+@import './login-controls.scss';
+
+.quick-login .login-submit {
+  margin-top: 0;
+}
+
+/* 两枚按钮间距不用 flex gap：部分安卓内核不支持，改为显式外边距 */
+.quick-login .login-submit--stacked {
+  margin-top: 24rpx;
+}
+</style>

@@ -37,7 +37,7 @@
                 AND discount_activity.discount_type = #{query.discountType}
             </if>
         </where>
-        ORDER BY discount_activity.create_time DESC
+        ORDER BY discount_activity.create_time DESC, discount_activity.id DESC
     </select>
 
 </mapper>

@@ -480,7 +480,7 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="notice-command min-h-full p-5">
+  <div class="notice-command p-5">
     <section class="hero-panel">
       <div>
         <p class="eyebrow">MESSAGE CONTROL / 通知编排</p>
@@ -1109,6 +1109,10 @@ onMounted(load);
   --hero-accent: #5eead4;
   --hero-shadow: 0 18px 55px rgb(16 42 67 / 20%);
 
+  /* 与 hx-layout-container 同机制：绝对定位铺满内容区，滚动收进内容区，避免 document 全屏滚动条 */
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
   background:
     radial-gradient(
       circle at 88% 4%,

@@ -90,7 +90,8 @@ describe('stockHintOf / stockToneOf', () => {
   })
 
   it('escalates from normal to low to out', () => {
-    expect(stockHintOf(row({ stock: 500 }))).toBe('库存 500')
+    // 库存充足不外露绝对数字（全站口径），文案为空串但档位仍是 normal
+    expect(stockHintOf(row({ stock: 500 }))).toBe('')
     expect(stockToneOf(row({ stock: 500 }))).toBe('normal')
     expect(stockHintOf(row({ stock: 8 }))).toBe('仅剩 8')
     expect(stockToneOf(row({ stock: 8 }))).toBe('low')

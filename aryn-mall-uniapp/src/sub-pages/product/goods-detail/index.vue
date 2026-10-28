@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import type { AppDiscountVO, AppNewbiePriceVO, AppSeckillGoodsVO } from '@/api/promotion'
+import type { AppDiscountVO, AppMemberPriceVO, AppNewbiePriceVO, AppSeckillGoodsVO } from '@/api/promotion'
 import type { PurchaseDecision } from '@/utils/goods-purchase'
+import type { NewbiePriceDisplay } from '@/utils/newbie-price'
 import { onLoad, onPageScroll, onShareAppMessage } from '@dcloudio/uni-app'
 // @ts-expect-error: mp-html type declaration issue
 import mpHtml from 'mp-html/dist/uni-app/components/mp-html/mp-html'
@@ -12,13 +13,16 @@ import {
   reactive,
   ref,
 } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { addObj as addCollect, deleteObj as deleteCollect } from '@/api/product/collect'
 import { getById as getSpuById } from '@/api/product/spu'
-import { getGoodsDiscountPrices, getGoodsSeckillInfo, getNewbieSkuPrices } from '@/api/promotion'
+import { getGoodsDiscountPrices, getGoodsSeckillInfo, getMemberSkuPrices, getNewbieSkuPrices } from '@/api/promotion'
 import { getPage as getCouponPage } from '@/api/promotion/couponInfo'
 import { getDefault } from '@/api/user/address'
 import DiyPage from '@/components/diy/index.vue'
 import { useCartDestination } from '@/composables/useCartDestination'
+// 页面滚动广播：底部「猜你喜欢」推荐流靠它自动续页，同时覆盖商详装修楼层
+import { useDecorationInfiniteScroll } from '@/composables/useDecorationInfiniteScroll'
 import {
   buildDistributionSharePath,
   captureDistributionShareParams,
@@ -29,8 +33,9 @@ import { useQuickCart } from '@/composables/useQuickCart'
 import { emptyDiscountDisplay, resolveDiscountPriceDisplay } from '@/utils/discount-price'
 import { resolvePurchaseDecision, resolveSpecRow } from '@/utils/goods-purchase'
 import { initGoodsSpecs } from '@/utils/goods-specs'
+import { emptyMemberPriceDisplay, resolveMemberPriceDisplay } from '@/utils/member-price'
 import { customerServiceRoute } from '@/utils/message'
-import { emptyNewbieDisplay, newbieLimitHint, resolveNewbiePriceDisplay } from '@/utils/newbie-price'
+import { emptyNewbieDisplay, resolveNewbiePriceDisplay } from '@/utils/newbie-price'
 import GoodsCategoryEntry from './components/GoodsCategoryEntry.vue'
 import GoodsComment from './components/GoodsComment.vue'
 import GoodsFooter from './components/GoodsFooter.vue'
@@ -62,6 +67,12 @@ interface State {
   seckillInfo: AppSeckillGoodsVO | null
   /** 本 SPU 各 SKU 的新人价（含当前用户资格三态）；null 表示无活动/接口失败 */
   newbiePriceVO: AppNewbiePriceVO | null
+  /**
+   * 本 SPU 各 SKU 的会员价（含当前用户等级资格三态 + 会员折扣率权益
+   * `userDiscountRate`）；null 表示无活动/接口失败。
+   * 达标展示价由 `resolveMemberPriceDisplay` 取优（会员价 vs 售价×折扣率，不叠加）。
+   */
+  memberPriceVO: AppMemberPriceVO | null
   /** 本 SPU 各 SKU 命中的最优限时折扣；null 表示无活动/接口失败 */
   discountPrices: AppDiscountVO[] | null
   /**
@@ -87,24 +98,25 @@ const { pageContentData: decorationContent, loading: decorationLoading, fetch: f
 const goodsInfoRef = ref()
 const goodsCommentRef = ref()
 
+// 只存词条 key：名称在 GoodsNavbar 里按当前语言渲染，切换语言无需重算锚点
 const tabList = ref([
   {
-    name: '商品',
+    nameKey: 'product.tab.goods',
     top: 0,
     height: 0,
   },
   {
-    name: '评价',
+    nameKey: 'product.tab.reviews',
     top: 0,
     height: 0,
   },
   {
-    name: '详情',
+    nameKey: 'product.tab.detail',
     top: 0,
     height: 0,
   },
   {
-    name: '推荐',
+    nameKey: 'product.tab.recommend',
     top: 0,
     height: 0,
   },
@@ -123,10 +135,12 @@ const state = reactive<State>({
   rateType: '',
   seckillInfo: null,
   newbiePriceVO: null,
+  memberPriceVO: null,
   discountPrices: null,
   selectSkuId: '',
 })
 const router = useRouter()
+const { t } = useI18n()
 const authStore = useAuthStore()
 const { confirm } = useGlobalMessage()
 const globalLoading = useGlobalLoading()
@@ -137,7 +151,11 @@ const { quickAdd } = useQuickCart()
 const { submitCartAdd } = useCartDestination()
 const spuId = ref()
 const proxy = getCurrentInstance()?.proxy
-const { statusBarHeight }: any = uni.getSystemInfoSync()
+const { statusBarHeight } = uni.getWindowInfo()
+
+// 推荐流自动续页：页面滚动/触底时广播检查（导航栏渐变另有 onPageScroll，两者互不冲突，
+// 多个页面生命周期钩子会按注册顺序依次执行）
+useDecorationInfiniteScroll()
 
 /**
  * 购买决策（在注入「默认」占位规格前计算）：
@@ -145,7 +163,13 @@ const { statusBarHeight }: any = uni.getSystemInfoSync()
  * 多规格仍需用户在弹层里选规格组合。
  */
 const purchaseDecision = ref<PurchaseDecision>({ needChoose: true, specText: '' })
-const specRow = computed(() => resolveSpecRow(purchaseDecision.value, state.selectArr))
+const specRow = computed(() => {
+  const row = resolveSpecRow(purchaseDecision.value, state.selectArr)
+  // 多规格未选时共享层给的是中文占位文案，展示层按当前语言替换；已选值/单规格值保持接口原文
+  if (!purchaseDecision.value.needChoose || state.selectArr.trim())
+    return row
+  return { ...row, text: t('product.chooseSpecs') }
+})
 // 导航背景颜色
 const background = ref('rgba(255, 255, 255, 0)')
 // 导航标题字体颜色
@@ -240,6 +264,31 @@ async function loadDiscountPrices() {
 }
 
 /**
+ * 加载本 SPU 各 SKU 的会员价（含当前用户等级资格）。
+ *
+ * 与秒杀/新人价同口径：失败静默、只影响价格标注，不影响加购/下单主流程。
+ *
+ * 注意这里**必须**带上登录态（接口故意不传 skipToken）——未登录时后端返回
+ * `eligible=null`（保持原价展示，并用活动配置价给「会员专享 ¥x」引导），
+ * 已登录且等级不达标时返回 `eligible=false`，达标才切主价，避免
+ * 「商详标会员价、结算按原价」的价差观感。
+ */
+async function loadMemberPrices() {
+  const skuIds = (state.goodsSpu?.goodsSkus || [])
+    .map((sku: any) => sku.id)
+    .filter(Boolean)
+  if (!skuIds.length)
+    return
+  try {
+    state.memberPriceVO = await getMemberSkuPrices(skuIds)
+  }
+  catch {
+    // 会员价属增强展示，接口失败按原价展示
+    state.memberPriceVO = null
+  }
+}
+
+/**
  * 当前聚焦的 SKU。
  *
  * 单规格（98% 在架商品）直接取唯一 SKU——否则用户进商详永远看不到新人价，
@@ -278,22 +327,66 @@ const currentSkuId = computed(() => {
 })
 
 /**
+ * 当前 SKU 的会员专享价展示。
+ *
+ * 优先级与后端 `OrderPriceComputeService` 一致：
+ * **拼团 > 秒杀 > 会员价 > 新人价 > 限时折扣 > 原价**。
+ * 秒杀进行中时整块会员价展示关掉；未达标/未登录时主价保持原价，
+ * 只给「会员专享 ¥x」引导，不做购买拦截。
+ */
+const memberDisplay = computed(() => {
+  if (state.seckillInfo)
+    return emptyMemberPriceDisplay()
+  // 达标价在共享层取优：min(会员价, 当前售价 × vo.userDiscountRate)，取优不叠加；
+  // 会员折扣率权益随 VO 透传，页面不再各算一遍（与结算同口径）
+  return resolveMemberPriceDisplay(state.memberPriceVO, currentSkuId.value)
+})
+
+/**
+ * 新人价资格说明的本地化。
+ *
+ * 共享层 `newbieIneligibleText` 只产出中文，这里按同一个原因码口径换成当前语言；
+ * 原因码无法识别时沿用共享层结果（该场景共享层本身返回空串，整行隐藏）。
+ */
+function localizeNewbieIneligibleText(display: NewbiePriceDisplay): string {
+  if (!display.ineligibleText)
+    return ''
+  const vo = state.newbiePriceVO
+  switch (String(vo?.ineligibleReason || '').trim()) {
+    case 'ALREADY_PAID':
+      return t('product.newbieAlreadyPaid')
+    case 'REGISTER_TIMEOUT': {
+      const days = Math.floor(Number(vo?.registerWithinDays))
+      return days > 0
+        ? t('product.newbieRegisterLimit', { days })
+        : t('product.newbieNewUserOnly')
+    }
+    default:
+      return display.ineligibleText
+  }
+}
+
+/**
  * 当前 SKU 的新人价展示。
  *
- * 优先级与后端 `OrderPriceComputeService` 一致：**秒杀 > 新人价**。
- * 秒杀进行中时整块新人价展示（含限购/资格提示）都关掉——两个活动同时挂着价，
- * 页面标一个、结算按另一个，价差观感只会更严重。
+ * 优先级与后端 `OrderPriceComputeService` 一致：**秒杀 > 会员价 > 新人价**。
+ * 秒杀进行中或会员价已命中时整块新人价展示（含限购/资格提示）都关掉——
+ * 同一时刻只解释一个成交价，否则页面标一个、结算按另一个，价差观感只会更严重。
  */
 const newbieDisplay = computed(() => {
   if (state.seckillInfo)
     return emptyNewbieDisplay()
-  return resolveNewbiePriceDisplay(state.newbiePriceVO, currentSkuId.value)
+  if (memberDisplay.value.showMemberPrice)
+    return emptyNewbieDisplay()
+  const display = resolveNewbiePriceDisplay(state.newbiePriceVO, currentSkuId.value)
+  return { ...display, ineligibleText: localizeNewbieIneligibleText(display) }
 })
 
 /**
  * 当前 SKU 的限时折扣展示。
  *
- * 优先级与后端 `OrderPriceComputeService` 一致：**秒杀 > 新人价 > 限时折扣 > 原价**。
+ * 优先级与后端 `OrderPriceComputeService` 一致：
+ * **秒杀 > 会员价 > 新人价 > 限时折扣 > 原价**。
  * 上层活动命中时整块折扣展示关掉——同一时刻只解释一个成交价，
  * 否则页面标一个、结算按另一个，价差观感只会更严重。
  */
@@ -302,17 +395,20 @@ const discountDisplay = computed(() => {
     return emptyDiscountDisplay()
   if (newbieDisplay.value.showNewbiePrice)
     return emptyDiscountDisplay()
+  if (memberDisplay.value.showMemberPrice)
+    return emptyDiscountDisplay()
   return resolveDiscountPriceDisplay(state.discountPrices, currentSkuId.value)
 })
 
 /**
  * 单规格直加时交给加购确认弹层的成交价。
  *
- * 与价格区同一优先级（秒杀 > 新人价 > 售价），否则弹层会出现「页面 ¥0.01、
- * 小计 ¥12.90」的价差；活动价必须绑定当前 SKU——快捷加购由后端按库存挑 SKU，
- * 标错规格的价比不标更糟。活动限购同时下发，让弹层提前封顶数量。
+ * 与价格区同一优先级（秒杀 > 会员价 > 新人价 > 限时折扣 > 售价），否则弹层会出现
+ * 「页面 ¥0.01、小计 ¥12.90」的价差；活动价必须绑定当前 SKU——快捷加购由后端
+ * 按库存挑 SKU，标错规格的价比不标更糟。活动限购同时下发，让弹层提前封顶数量。
  */
 const quickAddPromotion = computed(() => {
+  const memberHint = t('product.memberPrice')
   const skuId = currentSkuId.value
   if (!skuId)
     return null
@@ -324,18 +420,15 @@ const quickAddPromotion = computed(() => {
       skuId,
       unitPrice: seckill.seckillPrice,
       maxQuantity,
-      hint: maxQuantity ? `秒杀价每人限购 ${maxQuantity} 件` : '',
+      hint: maxQuantity ? t('product.seckillLimit', { count: maxQuantity }) : '',
     }
   }
+  const member = memberDisplay.value
+  if (member.showMemberPrice)
+    return { skuId, unitPrice: member.memberPrice, maxQuantity: null, hint: memberHint }
   const display = newbieDisplay.value
-  if (display.showNewbiePrice) {
-    return {
-      skuId,
-      unitPrice: display.newbiePrice,
-      maxQuantity: display.limitPerUser,
-      hint: newbieLimitHint(display),
-    }
-  }
+  if (display.showNewbiePrice)
+    return { skuId, unitPrice: display.newbiePrice, maxQuantity: display.limitPerUser, hint: t('product.newbieLimit', { count: display.limitPerUser }) }
   const discount = discountDisplay.value
   if (discount.showDiscountPrice) {
     return {
@@ -343,7 +436,7 @@ const quickAddPromotion = computed(() => {
       unitPrice: discount.discountPrice,
       // 限时折扣不限购（库存由下单链路按活动占用校验），只提示力度
       maxQuantity: null,
-      hint: `限时折扣 ${discount.badgeText}`,
+      hint: t('product.limitedDiscountWithBadge', { badge: discount.badgeText }),
     }
   }
   return null
@@ -520,7 +613,7 @@ function showCoupon() {
 }
 // 通过id查询商品详情
 async function getSpu(id: string) {
-  globalLoading.loading('加载中...')
+  globalLoading.loading(t('common.loading'))
   loading.value = true
   try {
     const response = await getSpuById(id)
@@ -529,8 +622,9 @@ async function getSpu(id: string) {
     if (response) {
       queryCoupon()
       loadSeckillInfo()
-      // 与秒杀并行、互不等待：三者都是增强展示，任一失败都不影响商详主流程
+      // 与秒杀并行、互不等待：四者都是增强展示，任一失败都不影响商详主流程
       loadNewbiePrices()
+      loadMemberPrices()
       loadDiscountPrices()
       // 在注入「默认」占位规格前取原始规格口径：单规格商品的规格行要展示真实规格值
       purchaseDecision.value = resolvePurchaseDecision(response)
@@ -546,9 +640,11 @@ async function getSpu(id: string) {
     }
     else {
       confirm({
-        title: '提示',
-        msg: '商品已下架',
+        title: t('product.notice'),
+        msg: t('product.offShelf'),
         closeOnClickModal: false,
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
         success: () => {
           // 下架商品只需离开本页；两个分支原本都是 navigateBack，
           // 但本页可能是页面栈底（分享/扫码直达），此时 navigateBack 必然失败，
@@ -647,7 +743,7 @@ function onSkuAddCart(data: any) {
 }
 // 收藏
 async function handleCollect() {
-  globalLoading.loading('加载中...')
+  globalLoading.loading(t('common.loading'))
   if (state.goodsSpu.collectId) {
     // 取消收藏
     try {
@@ -764,6 +860,7 @@ async function handleReceive(coupon: any) {
       :spec-row="specRow"
       :address="state.address"
       :seckill-info="state.seckillInfo"
+      :member-display="memberDisplay"
       :newbie-display="newbieDisplay"
       :discount-display="discountDisplay"
       @swiper="handleSwiper"
@@ -773,11 +870,12 @@ async function handleReceive(coupon: any) {
       @collect="handleCollect"
       @share="handleShare"
     />
-    <!-- 商详装修区域（商品信息下方、评价上方） -->
+    <!-- 商详装修区域（商品信息下方、评价上方）：内嵌内容，不渲染装修导航、不撑满 100vh -->
     <view v-if="decorationContent">
       <DiyPage
         :page-content-data="decorationContent"
         :goods-id="String(spuId || '')"
+        embedded
       />
     </view>
     <view v-else-if="decorationLoading" class="decoration-skeleton" />
@@ -798,7 +896,7 @@ async function handleReceive(coupon: any) {
       <view class="detail-section__head">
         <view class="detail-section__bar" />
         <text class="detail-section__title">
-          商品详情
+          {{ t('product.detailSection') }}
         </text>
       </view>
       <view class="detail-section__body">
@@ -809,10 +907,10 @@ async function handleReceive(coupon: any) {
     <view id="scroll-like" class="detail-rec-head">
       <view class="detail-section__bar" />
       <text class="detail-section__title">
-        你可能还会喜欢
+        {{ t('product.mayAlsoLike') }}
       </text>
     </view>
-    <WaterfallGoods />
+    <WaterfallGoods v-if="spuId" :spu-id="String(spuId)" />
     <!-- 与固定底栏等高的留白：避免最后一行商品被操作栏压住 -->
     <view class="detail-bottom-space" />
     <GoodsFooter
@@ -833,6 +931,7 @@ async function handleReceive(coupon: any) {
     sku-list-name="goodsSkus"
     spec-list-name="specList"
     :mode="skuMode"
+    :hide-stock="true"
     @open="onOpenSkuPopup"
     @close="onCloseSkuPopup"
     @add-cart="onSkuAddCart"
@@ -841,7 +940,7 @@ async function handleReceive(coupon: any) {
   <!-- 领券弹窗 -->
   <wd-action-sheet
     v-model="state.couponState"
-    title="优惠券"
+    :title="t('product.coupon')"
     custom-class="coupon-action"
     @close="state.couponState = false"
   >

@@ -36,6 +36,8 @@ class DeliveryAuthServiceTest {
 
 	private RemoteSysUserService remoteSysUserService;
 
+	private TenantAccessGuard tenantAccessGuard;
+
 	private DeliveryAuthService service;
 
 	private MockedStatic<SecurityUtils> securityUtils;
@@ -46,7 +48,8 @@ class DeliveryAuthServiceTest {
 	void setUp() {
 		remoteDeliveryAccountService = mock(RemoteDeliveryAccountService.class);
 		remoteSysUserService = mock(RemoteSysUserService.class);
-		service = new DeliveryAuthService(remoteDeliveryAccountService, remoteSysUserService);
+		tenantAccessGuard = mock(TenantAccessGuard.class);
+		service = new DeliveryAuthService(remoteDeliveryAccountService, remoteSysUserService, tenantAccessGuard);
 		securityUtils = mockStatic(SecurityUtils.class);
 		tocUser = new ArynUser();
 		tocUser.setUserId("mall-user-1");

@@ -24,6 +24,7 @@ import {
 import { delObj, getPage, updateStatus } from '#/api/promotion/seckill';
 import PageFilterPanel from '#/components/page/page-filter-panel.vue';
 import PageToolbar from '#/components/page/page-toolbar.vue';
+import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 
 import {
   activityStatusOptions,
@@ -138,6 +139,8 @@ const toggleStatus = (row: Record<string, any> | SeckillActivityRecord) => {
 };
 
 initPage();
+
+useKeepAliveRefresh(initPage);
 </script>
 <template>
   <div class="hx-layout-container">
@@ -225,11 +228,6 @@ initPage();
             <ElTag :type="getStatusTagType(scope.row.status)">
               {{ getStatusLabel(scope.row.status) }}
             </ElTag>
-          </template>
-        </ElTableColumn>
-        <ElTableColumn label="叠加策略" align="center" width="150">
-          <template #default>
-            <span title="秒杀平台级硬互斥，不支持配置">券✗ · 积分✗</span>
           </template>
         </ElTableColumn>
         <ElTableColumn

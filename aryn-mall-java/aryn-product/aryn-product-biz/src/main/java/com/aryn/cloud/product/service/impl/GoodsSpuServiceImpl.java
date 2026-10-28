@@ -21,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
 
@@ -33,6 +34,23 @@ import java.util.*;
 @Service
 @RequiredArgsConstructor
 public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> implements IGoodsSpuService {
+
+	/** 低价捡漏折扣率阈值下界（开区间）：必须大于 1.00，否则等于无限价要求。 */
+	private static final BigDecimal BARGAIN_RATE_MIN_EXCLUSIVE = new BigDecimal("1.00");
+
+	/** 低价捡漏折扣率阈值上界（闭区间）：9.99 已是「原价近十倍」，再大必然是脏数据。 */
+	private static final BigDecimal BARGAIN_RATE_MAX_INCLUSIVE = new BigDecimal("9.99");
+
+	private static final String BARGAIN_RATE_RANGE_TIP = "折扣率阈值 bargainRate 必须在 (1.00, 9.99] 区间内";
+
+	/** 推荐流分类上下文的商品上限（购物车/订单可能很多，只取样最近/前 N 个） */
+	private static final int RECOMMEND_SOURCE_LIMIT = 20;
+
+	/** 推荐流排除商品上限，避免 IN 列表与请求 URL 过长 */
+	private static final int RECOMMEND_EXCLUDE_LIMIT = 50;
+
+	/** 个人中心个性化：近期浏览足迹取样上限 */
+	private static final int RECOMMEND_FOOTPRINT_LIMIT = 20;
 
 	private final GoodsSkuMapper goodsSkuMapper;
 
@@ -293,16 +311,128 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 
 	@Override
 	public IPage<GoodsSpu> apiPage(Page page, GoodsSpu goodsSpu) {
+		return apiPage(page, goodsSpu, null);
+	}
+
+	@Override
+	public IPage<GoodsSpu> apiPage(Page page, GoodsSpu goodsSpu, BigDecimal bargainRate) {
+		if (Objects.nonNull(bargainRate)) {
+			// 区间 (1.00, 9.99]：前端缺省 1.15，越界按业务错误返回而不是让 SQL 跑出离谱结果
+			if (bargainRate.compareTo(BARGAIN_RATE_MIN_EXCLUSIVE) <= 0
+					|| bargainRate.compareTo(BARGAIN_RATE_MAX_INCLUSIVE) > 0) {
+				throw new ArynBusinessException(BARGAIN_RATE_RANGE_TIP);
+			}
+			// 固定排序由 XML 输出，这里必须清空 asc/desc：既避免分页插件再拼一层排序列，
+			// 也彻底关掉「用户传列名」的注入面（排序键只能是 XML 里写死的表达式）。
+			if (Objects.nonNull(page)) {
+				page.setOrders(Collections.emptyList());
+			}
+		}
 		if (Objects.nonNull(goodsSpu) && StringUtils.hasText(goodsSpu.getName())) {
 			// 结果页按名称搜索：通配符按字面量匹配（XML 直接读 #{query.name}，原地改写查询对象）
 			goodsSpu.setName(escapeLikeKeyword(goodsSpu.getName()));
 		}
-		IPage<GoodsSpu> result = baseMapper.selectApiPage(page, goodsSpu);
+		IPage<GoodsSpu> result = baseMapper.selectApiPage(page, goodsSpu, bargainRate);
 		// C 端出参脱敏：成本价是内部经营数据，不下发（详见 GoodsCostPriceMasker）
 		if (Objects.nonNull(result)) {
 			result.getRecords().forEach(GoodsCostPriceMasker::maskSpu);
 		}
 		return result;
+	}
+
+	@Override
+	public IPage<GoodsSpu> recommendPage(Page page, String spuId, List<String> sourceSpuIds, List<String> excludeIds) {
+		if (Objects.nonNull(page)) {
+			// 固定排序由 XML 输出：清空 asc/desc，避免分页插件再拼一层排序列
+			page.setOrders(Collections.emptyList());
+			// 推荐流是无限滚动，前端只按返回条数判断是否还有下一页；
+			// 关闭 count 既省一次查询，也让带绑定参数的分类排序可以安全下推
+			page.setSearchCount(false);
+		}
+
+		Set<String> sources = new LinkedHashSet<>();
+		if (StringUtils.hasText(spuId)) {
+			sources.add(spuId);
+		}
+		addIds(sources, sourceSpuIds, RECOMMEND_SOURCE_LIMIT);
+		if (sources.isEmpty()) {
+			// 无显式上下文（个人中心）：登录用户按近期浏览足迹的品类个性化
+			sources.addAll(recentFootprintSpuIds());
+		}
+
+		Set<String> excludes = new LinkedHashSet<>();
+		if (StringUtils.hasText(spuId)) {
+			excludes.add(spuId);
+		}
+		addIds(excludes, excludeIds, RECOMMEND_EXCLUDE_LIMIT);
+
+		List<String> categorySecondIds = new ArrayList<>();
+		List<String> categoryFirstIds = new ArrayList<>();
+		if (!sources.isEmpty()) {
+			List<GoodsSpu> contextGoods = baseMapper.selectBatchIds(sources);
+			if (!CollectionUtils.isEmpty(contextGoods)) {
+				Set<String> secondIds = new LinkedHashSet<>();
+				Set<String> firstIds = new LinkedHashSet<>();
+				for (GoodsSpu goods : contextGoods) {
+					if (StringUtils.hasText(goods.getCategorySecondId())) {
+						secondIds.add(goods.getCategorySecondId());
+					}
+					if (StringUtils.hasText(goods.getCategoryFirstId())) {
+						firstIds.add(goods.getCategoryFirstId());
+					}
+				}
+				categorySecondIds.addAll(secondIds);
+				categoryFirstIds.addAll(firstIds);
+			}
+		}
+
+		IPage<GoodsSpu> result = baseMapper.selectRecommendPage(page, new ArrayList<>(excludes),
+				categorySecondIds, categoryFirstIds);
+		// C 端出参脱敏：成本价是内部经营数据，不下发
+		if (Objects.nonNull(result)) {
+			result.getRecords().forEach(GoodsCostPriceMasker::maskSpu);
+		}
+		return result;
+	}
+
+	/**
+	 * 登录用户近期浏览过的商品 ID（按时间倒序、去重、限流）。
+	 *
+	 * <p>只作为推荐分类上下文；未登录或没有足迹时返回空列表，推荐退化为全店排序。
+	 */
+	private List<String> recentFootprintSpuIds() {
+		ArynUser user = SecurityUtils.getUser();
+		if (Objects.isNull(user) || !StringUtils.hasText(user.getUserId())) {
+			return Collections.emptyList();
+		}
+		List<GoodsFootprint> footprints = goodsFootprintMapper.selectList(Wrappers.<GoodsFootprint>lambdaQuery()
+			.eq(GoodsFootprint::getUserId, user.getUserId())
+			.orderByDesc(GoodsFootprint::getCreateTime)
+			.last("LIMIT " + RECOMMEND_FOOTPRINT_LIMIT));
+		if (CollectionUtils.isEmpty(footprints)) {
+			return Collections.emptyList();
+		}
+		Set<String> spuIds = new LinkedHashSet<>();
+		for (GoodsFootprint footprint : footprints) {
+			if (StringUtils.hasText(footprint.getSpuId())) {
+				spuIds.add(footprint.getSpuId());
+			}
+		}
+		return new ArrayList<>(spuIds);
+	}
+
+	private static void addIds(Set<String> target, List<String> ids, int limit) {
+		if (CollectionUtils.isEmpty(ids)) {
+			return;
+		}
+		for (String id : ids) {
+			if (target.size() >= limit) {
+				return;
+			}
+			if (StringUtils.hasText(id)) {
+				target.add(id.trim());
+			}
+		}
 	}
 
 	@Override
@@ -401,13 +531,6 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 			}
 		}
 		return Boolean.TRUE;
-	}
-
-	@Override
-	public List<GoodsSpu> getTop10HotSearchGoods() {
-		List<GoodsSpu> goodsSpuList = baseMapper.getTop10HotSearchGoods();
-		goodsSpuList.forEach(GoodsCostPriceMasker::maskSpu);
-		return goodsSpuList;
 	}
 
 	@Override

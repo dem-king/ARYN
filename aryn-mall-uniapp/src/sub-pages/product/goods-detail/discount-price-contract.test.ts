@@ -73,7 +73,8 @@ describe('limited discount price consistency contract', () => {
     expect(main).toContain('discountDisplay.showDiscountPrice')
     expect(main).toContain('discountDisplay.discountPrice')
     // 「省￥x」按主价与划线价差计算，折扣场景自然生效
-    expect(info).toContain('省￥{{ savingAmount }}')
+    expect(info).toContain('product.saveAmount')
+    expect(info).toContain('savingAmount')
     // 角标文案走共享层 formatDiscountValue 口径（8折/9.5折/减¥5/一口价）
     expect(info).toContain('discountDisplay.badgeText')
     expect(info).toContain('class="discount-badge"')
@@ -93,7 +94,8 @@ describe('limited discount price consistency contract', () => {
     const discountAt = promotion.indexOf('discount.showDiscountPrice')
     expect(discountAt).toBeGreaterThan(newbieAt)
     expect(promotion).toContain('unitPrice: discount.discountPrice')
-    expect(promotion).toContain('限时折扣')
+    // 文案已 i18n：断言词条 key 而不是中文原文（中文词条内容由 locale.test 守）
+    expect(promotion).toContain('product.limitedDiscountWithBadge')
   })
 
   it('discount hall passes the activity price into the quick-add confirmation', () => {
@@ -108,7 +110,8 @@ describe('limited discount price consistency contract', () => {
     // 卡片标的是 discountPrice，弹层小计必须用同一价格
     expect(hall).toContain('goods?.discountPrice')
     expect(hall).toContain('unitPrice: price')
-    expect(hall).toContain('限时折扣')
+    // 文案已 i18n：断言词条 key 而不是中文原文
+    expect(hall).toContain('promotion.discount.quickAddHint')
 
     // QuickCartButton 必须把活动价透传给 useQuickCart，否则弹层回落回 salesPrice
     const button = source(QUICK_CART_BUTTON)

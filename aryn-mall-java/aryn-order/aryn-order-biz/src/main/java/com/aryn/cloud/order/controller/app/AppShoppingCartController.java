@@ -8,6 +8,7 @@ import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.order.api.dto.ShoppingCartBatchAddDTO;
 import com.aryn.cloud.order.api.dto.ShoppingCartCreateDTO;
+import com.aryn.cloud.order.api.dto.ShoppingCartTransferDTO;
 import com.aryn.cloud.order.api.dto.ShoppingCartUpdateDTO;
 import com.aryn.cloud.order.api.entity.ShoppingCart;
 import com.aryn.cloud.order.api.vo.ShoppingCartBatchAddVO;
@@ -66,6 +67,13 @@ public class AppShoppingCartController {
 	public Result<Boolean> edit(@Valid @RequestBody ShoppingCartUpdateDTO request) {
 		String userId = SecurityUtils.getUser().getUserId();
 		return Result.success(shoppingCartService.updateShoppingCart(userId, request));
+	}
+
+	@Operation(summary = "购物车行转入指定靠港计划（同商品已有行时合并数量）")
+	@PostMapping("/transfer-call")
+	public Result<Integer> transferCall(@Valid @RequestBody ShoppingCartTransferDTO request) {
+		String userId = SecurityUtils.getUser().getUserId();
+		return Result.success(shoppingCartService.transferToVesselCall(userId, request));
 	}
 
 	@Operation(summary = "购物车删除")

@@ -18,4 +18,11 @@ public interface RemoteMaterialService {
 	 */
 	Map<String, String> mapUrlByIds(List<String> materialIds);
 
+	/**
+	 * 为私有素材 URL 追加限时访问签名（保持入参顺序）；公开素材原样返回。
+	 * @param urls 素材访问 URL
+	 * @return 签名后的 URL
+	 */
+	List<String> signPrivateUrls(List<String> urls);
+
 }

@@ -36,7 +36,7 @@ public class AppGroupBuyController {
 	@Operation(summary = "拼团活动详情")
 	@GetMapping("/activity/{id}")
 	public Result activityDetail(@PathVariable("id") String id) {
-		return Result.success(groupBuyActivityService.getDetail(id));
+		return Result.success(groupBuyActivityService.getAppDetail(id));
 	}
 
 	@SaCheckLogin

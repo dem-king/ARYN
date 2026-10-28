@@ -1,5 +1,6 @@
 <script lang="ts" setup>
-import { onBeforeMount, ref } from 'vue'
+import { onBeforeMount, computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 interface Props {
   title?: string // 标题
@@ -8,12 +9,23 @@ interface Props {
   protocol?: string // 协议名称
 }
 
-withDefaults(defineProps<Props>(), {
-  title: '用户隐私保护提示',
-  desc: '感谢您使用本应用，您使用本应用的服务之前请仔细阅读并同意',
-  subDesc: '。当您点击同意并开始时用产品服务时，即表示你已理解并同意该条款内容，该条款将对您产生法律约束力。如您拒绝，将无法使用相应服务。',
-  protocol: '《用户隐私保护指引》',
+const props = withDefaults(defineProps<Props>(), {
+  title: '',
+  desc: '',
+  subDesc: '',
+  protocol: '',
 })
+
+const { t } = useI18n()
+
+/**
+ * 文案兜底走当前语言词条：页面可以覆盖标题/描述，但未传时不能固化中文。
+ * 用 computed 而不是 props 默认值，切换语言后能立即重渲染。
+ */
+const titleText = computed(() => props.title || t('shared.privacy.title'))
+const descText = computed(() => props.desc || t('shared.privacy.desc'))
+const subDescText = computed(() => props.subDesc || t('shared.privacy.subDesc'))
+const protocolText = computed(() => props.protocol || t('shared.privacy.protocol'))
 
 const emit = defineEmits(['agree', 'disagree'])
 const showPopup = ref<boolean>(false) // 是否展示popup
@@ -95,19 +107,19 @@ export default {
       <view class="wd-privacy-popup__header">
         <!-- 标题 -->
         <view class="wd-picker__title">
-          {{ title }}
+          {{ titleText }}
         </view>
       </view>
       <view class="wd-privacy-popup__container">
-        <text>{{ desc }}</text>
+        <text>{{ descText }}</text>
         <text class="wd-privacy-popup__container-protocol" @click="openPrivacyContract">
-          {{ protocol }}
+          {{ protocolText }}
         </text>
-        <text>{{ subDesc }}</text>
+        <text>{{ subDescText }}</text>
       </view>
       <view class="wd-privacy-popup__footer">
         <button id="disagree-btn" class="is-block is-round is-medium is-plain wd-privacy-popup__footer-disagree wd-button" @click="handleDisagree">
-          拒绝
+          {{ t('shared.privacy.disagree') }}
         </button>
         <button
           id="agree-btn"
@@ -115,7 +127,7 @@ export default {
           open-type="agreePrivacyAuthorization"
           @agreeprivacyauthorization="handleAgree"
         >
-          同意
+          {{ t('shared.privacy.agree') }}
         </button>
       </view>
     </wd-popup>
@@ -164,7 +176,9 @@ export default {
     justify-content: space-between;
     padding-bottom: 36rpx;
 
-    button {
+    // 组件 wxss 禁止标签名选择器（微信编译告警），两个按钮本就有类名，按类名命中
+    &-disagree,
+    &-agree {
       border: none;
       outline: none;
     }

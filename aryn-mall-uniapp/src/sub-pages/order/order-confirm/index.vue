@@ -3,6 +3,7 @@ import type { NewbiePriceDisplay } from '@/utils/newbie-price'
 import { onLoad, onUnload } from '@dcloudio/uni-app'
 import { storeToRefs } from 'pinia'
 import { computed, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { orderCreate, orderSettlement } from '@/api/order/orderInfo'
 import { getNewbieSkuPrices } from '@/api/promotion'
 import { getPage as getCouponList } from '@/api/promotion/couponUser'
@@ -13,6 +14,7 @@ import {
   newbieIneligibleNotice,
   resolveNewbiePriceDisplay,
 } from '@/utils/newbie-price'
+import { mergeDuplicateSkuItems } from '@/utils/order-sku-merge'
 import AddressSelector from './components/AddressSelector.vue'
 import CouponSelector from './components/CouponSelector.vue'
 import PaymentFooter from './components/PaymentFooter.vue'
@@ -58,6 +60,7 @@ const goodsStore = useGoodsStore()
 const shoppingCartStore = useShoppingCartStore()
 const shipContextStore = useShipContextStore()
 const router = useRouter()
+const { t } = useI18n()
 const { createGoodsList } = storeToRefs(goodsStore)
 const globalLoading = useGlobalLoading()
 const loading = ref(true)
@@ -118,8 +121,28 @@ const isGroupBuyOrder = computed(() => !!state.orderParams.groupBuyRecordId)
  *
  * 提示存在的意义是解释价差：用户从新人价楼层点进来，结算若按原价收，
  * 没有说明就是「页面标 0.01、结算收 5.90」的观感来源（验收用例 11）。
+ *
+ * 这里只存结构化状态，文案在 computed 里按当前语言生成：
+ * 切换语言时提示条能实时刷新，不在异步回调里拼好中文串存 ref。
  */
-const newbieNotice = ref('')
+type NewbieNoticeState =
+  | { kind: 'none' }
+  | { kind: 'ineligible', reason: string }
+  | { kind: 'applied' }
+
+const newbieNoticeState = ref<NewbieNoticeState>({ kind: 'none' })
+
+const newbieNotice = computed(() => {
+  const notice = newbieNoticeState.value
+  switch (notice.kind) {
+    case 'ineligible':
+      return t('checkout.newbie.ineligibleSuffix', { reason: notice.reason })
+    case 'applied':
+      return t('checkout.newbie.applied')
+    default:
+      return ''
+  }
+})
 
 /**
  * 本单是否真的按新人价成交。
@@ -154,7 +177,7 @@ async function loadNewbieHint() {
     .map((item: any) => String(item?.skuId || '').trim())
     .filter(Boolean)
   if (!skuIds.length) {
-    newbieNotice.value = ''
+    newbieNoticeState.value = { kind: 'none' }
     return
   }
   try {
@@ -168,17 +191,17 @@ async function loadNewbieHint() {
     // 「已登录但确定不符合」优先于正向提示：这是用户最需要解释的一种情况
     const ineligible = newbieIneligibleNotice(displays)
     if (ineligible) {
-      newbieNotice.value = `${ineligible}，本单已按原价结算`
+      newbieNoticeState.value = { kind: 'ineligible', reason: ineligible }
       return
     }
     // 正向提示只在「资格可享」且「服务端确实按新人价成交」时出现：
     // 只满足其一都说明两边判定不一致，此时不提示比提示错更好
-    newbieNotice.value = hasNewbiePrice(displays) && isNewbieApplied(priceBySku)
-      ? '本单已享新人专享价'
-      : ''
+    newbieNoticeState.value = hasNewbiePrice(displays) && isNewbieApplied(priceBySku)
+      ? { kind: 'applied' }
+      : { kind: 'none' }
   }
   catch {
-    newbieNotice.value = ''
+    newbieNoticeState.value = { kind: 'none' }
   }
 }
 
@@ -188,8 +211,12 @@ function createOrderRequestId() {
 // 初始化订单
 function initData() {
   loading.value = true
+  // 购物车按靠港分组，同一 SKU 可能合法地出现多行（已结束靠港的滞留行 +
+  // 当前无靠港行）；结算/下单接口只接受一个 SKU 一行，这里按 SKU 合并数量后再提交。
+  // 注意：防串船校验仍用原始 createGoodsList 逐行比对，不能用合并后的列表
+  const mergedGoodsList = mergeDuplicateSkuItems(createGoodsList.value || [])
   const orderItemList: Array<any> = []
-  createGoodsList.value.forEach((item: any) => {
+  mergedGoodsList.forEach((item: any) => {
     orderItemList.push({
       spuId: item.spuId,
       picUrl: item.picUrl,
@@ -282,7 +309,7 @@ function closeCouponPopup() {
 
 function pointsToggle(enabled: boolean) {
   if (enabled && Number(state.orderInfo?.pointsDeductMax) <= 0) {
-    useGlobalToast().warning('当前订单暂无可抵扣积分')
+    useGlobalToast().warning(t('checkout.points.noneDeductible'))
     return
   }
   pointsEnabled.value = enabled
@@ -302,7 +329,7 @@ async function toSettlement() {
     delete state.orderParams.useMaxPoints
     delete state.orderParams.usePoints
   }
-  globalLoading.loading('加载中...')
+  globalLoading.loading(t('common.loading'))
   state.orderParams.createWay = state.createWay
   state.orderParams.userAddressId = selectedAddress.value ? selectedAddress.value.id : ''
   if (state.orderParams.deliveryWay === '4' && shipContextStore.deliveryContextParams) {
@@ -353,11 +380,11 @@ async function toPay() {
   state.orderParams.createWay = state.createWay
   state.orderParams.userAddressId = selectedAddress.value ? selectedAddress.value.id : ''
   if (!state.orderParams.deliveryWay) {
-    return useGlobalToast().warning('请选择配送方式')
+    return useGlobalToast().warning(t('checkout.toast.selectDelivery'))
   }
 
   if (state.orderParams.deliveryWay === '1' && !selectedAddress.value?.id) {
-    return useGlobalToast().warning('请选择收货地址')
+    return useGlobalToast().warning(t('checkout.toast.selectAddress'))
   }
 
   // 拼团单兜底：支付方式只允许在线支付（服务端同样校验，防前端状态残留）
@@ -367,7 +394,7 @@ async function toPay() {
 
   // 商城配送（deliveryWay=3）同样需要收货地址
   if (state.orderParams.deliveryWay === '3' && !selectedAddress.value?.id) {
-    return useGlobalToast().warning('请选择收货地址')
+    return useGlobalToast().warning(t('checkout.toast.selectAddress'))
   }
 
   // 防串船：购物车下单时所选行的靠港归属必须与当前上下文一致（无归属的旧行放行）
@@ -377,7 +404,7 @@ async function toPay() {
     )
     if (mismatched.length > 0) {
       return useGlobalToast().warning(
-        `有 ${mismatched.length} 件商品属于其他靠港计划，请切换船舶或调整购物车`,
+        t('checkout.toast.otherVesselItems', { count: mismatched.length }),
       )
     }
   }
@@ -385,7 +412,7 @@ async function toPay() {
   // 内部配送（deliveryWay=4）必须携带船舶与靠港计划上下文
   if (state.orderParams.deliveryWay === '4') {
     if (!shipContextStore.hasVesselContext) {
-      return useGlobalToast().warning('请先选择船舶和靠港计划')
+      return useGlobalToast().warning(t('checkout.toast.selectVesselContext'))
     }
     Object.assign(state.orderParams, shipContextStore.deliveryContextParams)
   }
@@ -396,7 +423,7 @@ async function toPay() {
   }
 
   submitting.value = true
-  globalLoading.loading('加载中...')
+  globalLoading.loading(t('common.loading'))
 
   try {
     // 携带确认页金额：服务端重算不一致时会拒绝成单，避免优惠额度变化后静默涨价
@@ -413,7 +440,7 @@ async function toPay() {
     userStore.refreshPointsInfo().catch(() => {})
     if (state.orderParams.paymentType === '3') {
       // 货到付款：无需在线支付，直接进订单详情
-      useGlobalToast().success('下单成功，收货后请线下支付货款')
+      useGlobalToast().success(t('checkout.toast.codSuccess'))
       router.replace({
         name: 'order-detail',
         params: {
@@ -461,7 +488,7 @@ onUnload(() => {
 </script>
 
 <template>
-  <hr-navbar title="订单确认" />
+  <hr-navbar :title="t('checkout.title')" />
   <view v-if="!loading">
     <!-- 内部配送上下文（delivery_way=4） -->
     <view
@@ -475,17 +502,17 @@ onUnload(() => {
       "
     >
       <view style="font-weight: bold">
-        配送至：{{ shipContextStore.vesselName }}
+        {{ t('checkout.delivery.deliverTo', { name: shipContextStore.vesselName }) }}
       </view>
       <view style="color: #909399; font-size: 24rpx">
         {{ shipContextStore.portName }} {{ shipContextStore.berth }}
         <text v-if="shipContextStore.deliveryWindowStart">
-          （{{ shipContextStore.deliveryWindowStart }} ~
-          {{ shipContextStore.deliveryWindowEnd }}）
+          ({{ shipContextStore.deliveryWindowStart }} ~
+          {{ shipContextStore.deliveryWindowEnd }})
         </text>
       </view>
       <view style="color: #10b981; font-size: 24rpx; margin-top: 8rpx">
-        公司司机按靠港计划送达港口/船舶
+        {{ t('checkout.delivery.toVesselNote') }}
       </view>
     </view>
 
@@ -521,7 +548,7 @@ onUnload(() => {
       "
     >
       <view style="font-weight: bold">
-        营销优惠
+        {{ t('checkout.promotion.title') }}
       </view>
       <view
         v-for="detail in state.orderInfo.promotionDetails || []"
@@ -532,9 +559,9 @@ onUnload(() => {
           margin-top: 8rpx;
         "
       >
-        {{ detail.activityName }}：已优惠
+        {{ t('checkout.promotion.activitySaved', { name: detail.activityName }) }}
         <template v-if="detail.activityType === '4'">
-          阶梯单价（明细已按档价计价）
+          {{ t('checkout.promotion.tieredPrice') }}
         </template>
         <template v-else>
           ¥{{ detail.discountAmount }}
@@ -544,7 +571,7 @@ onUnload(() => {
         v-if="state.orderInfo.promoPrice > 0"
         style="color: #e67e22; font-size: 24rpx; margin-top: 8rpx"
       >
-        整船优惠合计：-¥{{ state.orderInfo.promoPrice }}
+        {{ t('checkout.promotion.vesselTotal', { amount: state.orderInfo.promoPrice }) }}
       </view>
     </view>
 
@@ -560,14 +587,14 @@ onUnload(() => {
       "
     >
       <view style="font-weight: bold">
-        赠品
+        {{ t('checkout.promotion.gifts') }}
       </view>
       <view
         v-for="gift in state.orderInfo.giftItems"
         :key="gift.skuId"
         style="color: #e67e22; font-size: 24rpx; margin-top: 8rpx"
       >
-        {{ gift.spuName || gift.skuId }} ×{{ gift.quantity }}（随单赠送，0 元）
+        {{ t('checkout.promotion.giftItem', { name: gift.spuName || gift.skuId, qty: gift.quantity }) }}
       </view>
     </view>
 

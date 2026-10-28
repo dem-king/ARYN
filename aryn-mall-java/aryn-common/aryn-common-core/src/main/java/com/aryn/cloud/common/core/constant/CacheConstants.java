@@ -63,4 +63,7 @@ public interface CacheConstants {
 
 	String ORDER_CONFIG_CACHE = "order_config_cache:";
 
+	/** 租户到期提醒去重 key 前缀（租户ID + 提醒阶段） */
+	String TENANT_EXPIRY_REMIND_KEY = "tenant:expiry:remind:";
+
 }

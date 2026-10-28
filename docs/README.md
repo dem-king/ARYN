@@ -32,7 +32,7 @@
 ## 完整文档清单
 
 - 项目总览：[目录索引](00-项目总览/README.md)、[项目总览](00-项目总览/项目总览.md)、[环境与启动](00-项目总览/环境与启动.md)、[术语表](00-项目总览/术语表.md)
-- 开发指南：[目录索引](10-开发指南/README.md)、[开发工作流](10-开发指南/开发工作流.md)、[Java 开发规范](10-开发指南/Java开发规范.md)、[知识沉淀规则](10-开发指南/知识沉淀规则.md)、[AI 辅助工具](10-开发指南/AI辅助工具.md)
+- 开发指南：[目录索引](10-开发指南/README.md)、[开发工作流](10-开发指南/开发工作流.md)、[Java 开发规范](10-开发指南/Java开发规范.md)、[知识沉淀规则](10-开发指南/知识沉淀规则.md)、[AI 辅助工具](10-开发指南/AI辅助工具.md)、[真机调试与局域网联调](10-开发指南/真机调试与局域网联调.md)
 - 业务与数据：[目录索引](20-业务与数据/README.md)、[功能到代码索引](20-业务与数据/功能到代码索引.md)、[业务流程](20-业务与数据/业务流程.md)、[数据模型](20-业务与数据/数据模型.md)
 - 端分析：[目录索引](30-端分析/README.md)、[后端分析](30-端分析/后端分析.md)、[管理后台分析](30-端分析/管理后台分析.md)、[移动端分析](30-端分析/移动端分析.md)
 - 接口与风险：[目录索引](40-接口与风险/README.md)、[接口映射](40-接口与风险/接口映射.md)、[缺失模块清单](40-接口与风险/缺失模块清单.md)
@@ -44,11 +44,12 @@
 1. 根目录包含商城后端、管理后台、UniApp 商城和一份独立 XXL-JOB 3.2.0 源码；XXL-JOB 不属于 `aryn-mall-java` 根 POM 模块。
 2. 后端支持 `/boot` 单体模式和 Gateway + Nacos + Dubbo 微服务模式；管理端和移动端用 `VITE_OPEN_BOOT` 切换路径。
 3. 管理端业务菜单主要由 `/upms/menu` 动态下发，静态路由模块只有 dashboard，排查“页面有文件但菜单不可见”时必须同时检查数据库菜单。
-4. 多租户启动校验、SQL/配置一致性测试和拦截绕过审计已经建立；配送相关表 Boot/Cloud 租户白名单已双模式补齐，`TenantConfigurationConsistencyTest` 基线转绿（2026-09-06）。存量库执行唯一索引迁移前仍需先按脚本预检查处理重复数据，boot 模式增量脚本尚未在真实 boot 库执行。**（2026-09-19 更新：该测试当前为红。`nacosConfigs()` 只解析 `3aryn_nacos.sql` 的 `INSERT ... VALUES` 写法，读不到 27/28/29/31/32/33/34/47/49/54/60/61 等增量补丁脚本的 `SET @var` + `UPDATE config_info` 改写；`3aryn_nacos.sql` 停留在 ship-supply 之前的旧基线，导致 upms/order/product/promotion 四个服务的白名单比对均不一致。另 `CLOUD_SCHEMAS` 未登记 `aryn-vessel-biz-dev.yml → aryn_vessel`。详见 [多租户 SQL 硬约束](40-接口与风险/README.md#多租户-sql-硬约束)。）**
+4. 多租户启动校验、SQL/配置一致性测试和拦截绕过审计已经建立；配送相关表 Boot/Cloud 租户白名单已双模式补齐，`TenantConfigurationConsistencyTest` 基线转绿（2026-09-06）。存量库执行唯一索引迁移前仍需先按脚本预检查处理重复数据，boot 模式增量脚本尚未在真实 boot 库执行。**（2026-10-28 复核：`TenantConfigurationConsistencyTest` 4 项与 `TenantInterceptorBypassAuditTest` 8 项均通过，2026-09-19 的红色状态已不再适用；2026-09-19 历史原因保留如下：`nacosConfigs()` 只解析 `3aryn_nacos.sql` 的 `INSERT ... VALUES` 写法，读不到 27/28/29/31/32/33/34/47/49/54/60/61 等增量补丁脚本的 `SET @var` + `UPDATE config_info` 改写；`3aryn_nacos.sql` 停留在 ship-supply 之前的旧基线，导致 upms/order/product/promotion 四个服务的白名单比对均不一致。另 `CLOUD_SCHEMAS` 未登记 `aryn-vessel-biz-dev.yml → aryn_vessel`。详见 [多租户 SQL 硬约束](40-接口与风险/README.md#多租户-sql-硬约束)。）**
 5. 开发配置和 SQL 种子中存在明文敏感配置；生产环境 API 地址仍有 localhost/模板值，部署前必须外置并核对。
 6. 2026-08-31 静态盘点后端 92 个测试类、管理端 62 个测试文件、UniApp 9 个测试文件；2026-09-06 已完成一轮全量验证：后端 `mvn test -pl aryn-boot -am` 转绿、管理端 63 文件 461 用例通过、UniApp type-check 与 38 用例通过。单轮通过不等于关键交易链路已被持续覆盖。
 7. 配送履约、秒杀和折扣活动已进入三端源码；配送资格体系已按 outbox 架构落地——角色授予/回收本地事务只写 `delivery_qualification_operation`，提交后执行，失败由 `DeliveryQualificationRetryJob` 指数退避重试；C 端资格结论禁回 `sysUserId`/`staffId` 内部 ID，访问守卫 fail-closed。UniApp 配送路径已统一 `/mall-order` 首段，资格/守卫专项测试 52 例已补齐，2026-07-28 设计偏差已收口。
 8. 员工账号、配送员资料、配送资格与商城账号绑定是四层边界：`delivery_staff` 为服务端受保护角色（员工/角色管理不可授予或删除，只能经配送员管理开通/停用），员工账号删除前远程校验配送关联且异常 fail-closed；改动 `SysUser*`/`SysRole*` 或订单域配送代码时必须维持该边界。
+9. 2026-10-28 完成多租户隔离加固：平台配置守卫、请求体/写入租户归属保护、缓存租户维度、租户生命周期会话撤销与配送凭证私有签名 URL 已落地；`TenantConfigurationConsistencyTest` 与 `TenantInterceptorBypassAuditTest` 当前均通过。规则见 [40-接口与风险](40-接口与风险/README.md#多租户隔离加固2026-10-28)，需求包见 [2026-10-28-多租户隔离加固](50-需求文档/2026-10-28-多租户隔离加固/README.md)。
 
 > 证据：`aryn-mall-java/pom.xml`、三端 `package.json`、`db/boot`、`db/cloud`、Controller/API/测试文件静态盘点及 `git log`；静态盘点于 2026-08-31，第 4-8 条结论随 2026-09-06 实施与测试记录回写（详见 [需求记录](90-记录归档/需求记录.md)）；置信度：已验证（结构与测试记录事实），真实库迁移与完整运行态未知。
 

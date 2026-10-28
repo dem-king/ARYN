@@ -9,6 +9,8 @@
  * 这个管「类目有没有角标、角标长什么样」，互不影响。
  */
 
+import { translate } from '@/locales'
+
 /** 角标语义 → 文案与配色。key 与后端 badge_type 取值一一对应 */
 export const CATEGORY_BADGES = {
   /** 推荐（参考图「荐」，绿色） */
@@ -35,6 +37,17 @@ export interface CategoryBadge {
 const BADGE_LOOKUP: Record<string, CategoryBadge> = CATEGORY_BADGES
 
 /**
+ * 角标文案的词条 key。
+ *
+ * 文案在 `resolveCategoryBadge` 调用时再取，避免模块加载时把语言固化；
+ * `CATEGORY_BADGES` 保留中文默认值供调试与向后兼容。
+ */
+const BADGE_TEXT_KEYS: Record<string, string> = {
+  1: 'labels.categoryBadgeRecommend',
+  2: 'labels.categoryBadgeHot',
+}
+
+/**
  * 解析类目角标；无角标时返回 null。
  *
  * 返回 null 而不是「返回一个空角标」：调用方用 `v-if` 控制渲染，
@@ -50,5 +63,9 @@ export function resolveCategoryBadge(
     return null
 
   // 后端可能返回字符串 '1' 或数字 1（JSON 序列化差异），统一按字符串取
-  return BADGE_LOOKUP[String(badgeType)] ?? null
+  const badge = BADGE_LOOKUP[String(badgeType)]
+  if (!badge)
+    return null
+  const textKey = BADGE_TEXT_KEYS[String(badgeType)]
+  return textKey ? { ...badge, text: translate(textKey) } : badge
 }

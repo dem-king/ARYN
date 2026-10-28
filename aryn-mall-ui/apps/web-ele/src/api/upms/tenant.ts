@@ -9,6 +9,26 @@ export interface TenantShopInfo {
   siteUrl?: string;
 }
 
+export interface TenantOverview {
+  adminUserCount?: null | number;
+  authBeginTime?: null | string;
+  authEndTime?: null | string;
+  businessMode?: null | string;
+  goodsCount?: null | number;
+  id: string;
+  lastLoginTime?: null | string;
+  mallUserCount?: null | number;
+  materialCount?: null | number;
+  name: string;
+  onlineSessionCount?: null | number;
+  orderCount?: null | number;
+  packageId?: null | string;
+  packageName?: null | string;
+  remainingDays?: null | number;
+  status?: null | string;
+  storageBytes?: null | number;
+}
+
 /**
  * 获取当前租户门店公开信息
  */
@@ -70,6 +90,59 @@ export async function delObj(id: string) {
       isSwitchTenant: false,
     },
   });
+}
+
+/**
+ * 租户概览
+ */
+export async function getOverview(id: string) {
+  return requestClient.get<TenantOverview>(`/upms/tenant/${id}/overview`, {
+    headers: {
+      isSwitchTenant: false,
+    },
+  });
+}
+
+/**
+ * 启用/停用租户
+ */
+export async function changeStatus(id: string, status: string) {
+  return requestClient.put(`/upms/tenant/${id}/status`, null, {
+    params: { status },
+    headers: {
+      isSwitchTenant: false,
+    },
+  });
+}
+
+/**
+ * 租户续期
+ */
+export async function renew(id: string, days: number) {
+  return requestClient.put(`/upms/tenant/${id}/renew`, null, {
+    params: { days },
+    headers: {
+      isSwitchTenant: false,
+    },
+  });
+}
+
+/**
+ * 强制下线租户全部会话
+ */
+export async function kickoutSessions(id: string) {
+  return requestClient.delete(`/upms/tenant/${id}/sessions`, {
+    headers: {
+      isSwitchTenant: false,
+    },
+  });
+}
+
+/**
+ * 记录平台切换到目标租户（审计）
+ */
+export async function auditTenantSwitch(id: string) {
+  return requestClient.post(`/upms/tenant/${id}/switch-audit`, null);
 }
 
 /**

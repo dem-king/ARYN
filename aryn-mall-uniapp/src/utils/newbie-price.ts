@@ -16,6 +16,8 @@
 
 import type { AppNewbiePriceVO } from '@/api/promotion'
 
+import { translate } from '@/locales'
+
 /** 未命中新人价活动时的展示结果（调用方沿用商品自身售价） */
 export interface NewbiePriceDisplay {
   /** 是否命中新人价活动（该 SKU 在活动配置里） */
@@ -78,12 +80,12 @@ export function newbieIneligibleText(
 ): string {
   switch (String(reason || '').trim()) {
     case ALREADY_PAID:
-      return '新人专享价仅限首单，你已下过单'
+      return translate('labels.newbieAlreadyPaid')
     case REGISTER_TIMEOUT: {
       const days = toFiniteNumber(registerWithinDays)
       return days && days > 0
-        ? `新人专享价仅限注册 ${Math.floor(days)} 天内的新用户`
-        : '新人专享价仅限新注册用户'
+        ? translate('labels.newbieRegisterWithin', { days: Math.floor(days) })
+        : translate('labels.newbieRegisterOnly')
     }
     default:
       return ''
@@ -213,7 +215,7 @@ export function exceedsNewbieLimit(quantity: unknown, display: NewbiePriceDispla
 export function newbieLimitHint(display: NewbiePriceDisplay): string {
   if (!display.showNewbiePrice)
     return ''
-  return `新人专享价每人限购 ${toPositiveLimit(display.limitPerUser)} 件`
+  return translate('labels.newbieLimitHint', { count: toPositiveLimit(display.limitPerUser) })
 }
 
 /**

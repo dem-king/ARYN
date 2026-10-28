@@ -17,7 +17,8 @@ import {
 import { getPage } from '#/api/upms/sys-login-log';
 
 const props = defineProps({
-  userId: {
+  /** 员工账号的登录用户名（sys_login_log.user_name 记录的就是登录账号，不是用户ID） */
+  userName: {
     type: String,
     default: '',
   },
@@ -25,7 +26,7 @@ const props = defineProps({
 
 const state = reactive({
   queryParams: {
-    createId: props.userId,
+    userName: props.userName,
     ipAddr: '',
     status: '',
   },

@@ -82,6 +82,8 @@ export interface AppDiscountGoodsVO {
   spuId: string
   skuId: string
   goodsName: string
+  /** 商品子标题；null/缺失 = 未配置，与名称相同时由展示层隐藏 */
+  subTitle?: string | null
   goodsImage: string
   originalPrice: number
   discountPrice: number
@@ -294,6 +296,139 @@ export function getNewbieSkuPrices(skuIds: string[]) {
     '/promotion/app/newbie/prices',
     {
       params: { skuIds: ids.join(',') },
+    },
+  )
+}
+
+// ============ 会员价活动货盘（会员专区 Tab「按活动自动」数据源） ============
+
+/**
+ * C 端「会员价活动商品」查询结果（会员专区 Tab 的自动货盘）。
+ *
+ * `spuIds` 是活动配置顺序（后端已按 SKU 配置顺序回填 SPU 并去重保序），
+ * C 端只按该顺序渲染，不做二次排序——活动里怎么配置，专区就怎么展示。
+ */
+export interface AppMemberActivityGoodsVO {
+  activityId: string
+  activityName: string
+  endTime: string
+  /** 活动配置的 SPU ID 列表（活动配置顺序） */
+  spuIds: string[]
+}
+
+/**
+ * 查询会员价活动里的商品（会员专区 Tab「按会员价活动自动」数据源）
+ * GET /promotion/app/member/activity-goods?activityId=
+ *
+ * - `activityId` 空/缺失：后端自动取当前进行中的会员价活动（type=10，优先级最高者）；
+ *   有值：按指定活动返回（允许运营提前装修，未开始的活动货盘也能预览）；
+ * - **免登可访问**：货盘只是商品 ID 列表，不含用户数据与价格，会员价资格由
+ *   `/app/member/prices` 另行判定；故按公共请求处理（不携带登录态也无需携带）；
+ * - 无活动 / 无商品 → `data:null`，C 端按空态渲染，不报错；
+ * - 双模式路径改写由请求封装统一处理，这里只写微服务域首段。
+ */
+export function getMemberActivityGoods(activityId?: string) {
+  const id = String(activityId ?? '').trim()
+  return alovaInstance.Get<AppMemberActivityGoodsVO | null>(
+    '/promotion/app/member/activity-goods',
+    {
+      // activityId 为空时不下发该参数：后端据此走「自动取当前进行中活动」
+      ...(id ? { params: { activityId: id } } : {}),
+      headers: { skipToken: true },
+    },
+  )
+}
+
+// ============ 会员价（F3，会员专享价） ============
+
+/**
+ * C 端会员价商品项（只包含请求且被会员价活动覆盖的 SKU/SPU）。
+ *
+ * 与新人价 SKU 项同构：商详/购物车/列表已掌握商品名称/图片，这里只补价格与等级元数据。
+ * 按 spuIds 查询时同一 SPU 可能出现多条（不同规格都配了会员价），由前端按规格价挑选。
+ */
+export interface AppMemberSkuPriceVO {
+  skuId: string
+  spuId: string
+  /** 会员专享价 */
+  memberPrice: number
+  /** 划线基准价 = 该 SKU 当前售价（列表按它与卡片展示价匹配规格） */
+  originalPrice: number
+  /** 活动配置的等级门槛（member_level.id） */
+  minLevelId: string
+  /** 等级门槛名称，用于「会员专享 ¥x」引导文案 */
+  minLevelName: string
+}
+
+/**
+ * C 端指定 SKU/SPU 的会员价查询结果。
+ *
+ * `eligible` 三态（后端只从登录态取用户等级，不接受请求参数传入）：
+ * - `true`  —— 当前用户等级达标，可享会员价；
+ * - `false` —— 已登录但等级不达标，**不展示会员价**，保持原价并给引导文案；
+ * - `null`  —— 未登录/未知，保持原价展示，`items` 仍下发活动配置价供引导文案使用。
+ */
+export interface AppMemberPriceVO {
+  items: AppMemberSkuPriceVO[]
+  /** 当前用户等级 ID；未登录为 null */
+  userLevelId: string | null
+  /** 当前用户等级名称；未登录为 null */
+  userLevelName: string | null
+  eligible: boolean | null
+  /**
+   * 当前用户的会员折扣率权益（全场身份折扣）：0&lt;rate≤1，1=无折扣，null=未登录。
+   *
+   * **仅供展示取优**：达标价 = min(会员价, round2(当前售价 × rate))，与结算
+   * 「会员价与会员折扣率取优，不叠加」同口径；成交仍以下单/结算接口为准。
+   */
+  userDiscountRate: number | null
+}
+
+/**
+ * 批量查询指定 SKU 的会员价（商详 / 购物车等已聚焦商品的页面用）
+ * GET /promotion/app/member/prices?skuIds=1,2
+ *
+ * **可选登录**：接口在免登白名单里，但与新人价同样**不传 `skipToken`** ——
+ * 带上登录态时后端才判定当前用户等级是否达标；未登录时中间件不带 token，
+ * 请求等价免登，后端返回 `eligible=null` + 活动配置价（供引导文案）。
+ *
+ * 双模式路径改写由请求封装统一处理，这里只写微服务域首段。
+ */
+export function getMemberSkuPrices(skuIds: string[]) {
+  const ids = skuIds.filter(Boolean)
+  if (!ids.length) {
+    return Promise.resolve<AppMemberPriceVO | null>(null)
+  }
+  return alovaInstance.Get<AppMemberPriceVO | null>(
+    '/promotion/app/member/prices',
+    {
+      params: { skuIds: ids.join(',') },
+    },
+  )
+}
+
+/**
+ * 批量查询指定 **SPU** 的会员价（会员专区商品流列表用）
+ * GET /promotion/app/member/prices?spuIds=1,2
+ *
+ * 列表接口（`/product/app/goodsspu/page`）只下发 SPU、没有 SKU 明细，无法按 skuIds
+ * 取价；后端因此支持可选 `spuIds`。同一 SPU 可能返回多条 item（不同规格都配了会员价），
+ * 由前端按「originalPrice 与卡片展示价一致」挑选对应规格（见 `resolveListMemberPrice`），
+ * 后端不做挑选。
+ *
+ * **可选登录**：与 `getMemberSkuPrices` 同一契约——请求带登录态（未登录时等价免登），
+ * 由后端判定等级资格；未登录返回 `eligible=null`，items 仍带活动价供「会员专享 ¥x」引导。
+ * 空入参不发请求；接口失败由调用方静默降级（列表按卡片原价渲染）。
+ */
+export function getMemberSpuPrices(spuIds: string[]) {
+  const ids = spuIds.filter(Boolean)
+  if (!ids.length) {
+    return Promise.resolve<AppMemberPriceVO | null>(null)
+  }
+  return alovaInstance.Get<AppMemberPriceVO | null>(
+    '/promotion/app/member/prices',
+    {
+      params: { spuIds: ids.join(',') },
     },
   )
 }

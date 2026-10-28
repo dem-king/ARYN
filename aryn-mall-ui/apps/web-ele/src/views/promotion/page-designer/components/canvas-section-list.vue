@@ -16,9 +16,14 @@ import { CopyDocument, Delete } from '@element-plus/icons-vue';
 import { ElButton, ElTooltip } from 'element-plus';
 
 import { getComponentDefinition } from '../registry/component-registry';
-import { buildSectionStyle } from '../schema/section-style';
+import {
+  buildSectionStyle,
+  getSectionGradientAnchorColor,
+} from '../schema/section-style';
 
 const props = defineProps<{
+  /** 页面有效背景色：区块没有自己的背景色时，作为区块内图标的环境底色兜底 */
+  pageBackground?: string;
   sections: DecorationSection[];
   selectedId?: string;
 }>();
@@ -80,6 +85,22 @@ function sectionOuterStyle(section: DecorationSection) {
 
 function sectionBodyStyle(section: DecorationSection) {
   return splitSectionStyle(section).body;
+}
+
+/**
+ * 区块内组件脚下的「环境底色」：搜索栏铃铛/扫码这类直接坐在区块背景上的
+ * 图标需要按底色自动取可读色。渐变取顶边起色（与导航栏「跟随首个区块」
+ * 同口径）、纯色取背景色；都没有时回落页面有效背景色。与 C 端 diy 渲染器
+ * 的 sectionAmbientColor 同口径。
+ */
+function sectionAmbientColor(section: DecorationSection) {
+  const gradient = section.style.backgroundImage
+    ? undefined
+    : section.style.backgroundGradient;
+  const anchor =
+    getSectionGradientAnchorColor(gradient) || section.style.backgroundColor;
+  if (anchor && anchor !== 'transparent') return anchor;
+  return props.pageBackground || '#ffffff';
 }
 
 const selectedPlacement = computed(() =>
@@ -203,6 +224,11 @@ onBeforeUnmount(() => {
           :is="getComponentDefinition(component.type)?.preview"
           v-if="getComponentDefinition(component.type)?.preview"
           :show-data="component.props"
+          :host-background="
+            component.type === 'search-bar'
+              ? sectionAmbientColor(section)
+              : undefined
+          "
         />
         <div v-else class="unknown-component">
           未识别组件：{{ component.type }}

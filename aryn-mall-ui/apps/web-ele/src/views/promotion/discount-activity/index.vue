@@ -24,6 +24,7 @@ import {
 import { delObj, getPage, updateStatus } from '#/api/promotion/discount';
 import PageFilterPanel from '#/components/page/page-filter-panel.vue';
 import PageToolbar from '#/components/page/page-toolbar.vue';
+import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 
 import {
   activityStatusOptions,
@@ -125,11 +126,15 @@ const toggleStatus = (row: DiscountActivityRecord | Record<string, any>) => {
   const rowStatus = row.status as number;
   const nextStatus = rowStatus === 3 ? 0 : 3;
   const actionText = nextStatus === 3 ? '暂停' : '启用';
-  ElMessageBox.confirm(`确认${actionText}该折扣活动?`, '提示', {
-    confirmButtonText: '确认',
-    cancelButtonText: '取消',
-    type: 'warning',
-  }).then(() => {
+  ElMessageBox.confirm(
+    `确认${actionText}折扣活动「${row.activityName ?? row.id}」?`,
+    '提示',
+    {
+      confirmButtonText: '确认',
+      cancelButtonText: '取消',
+      type: 'warning',
+    },
+  ).then(() => {
     updateStatus(row.id as string, nextStatus)
       .then(() => {
         ElMessage.success(`${actionText}成功`);
@@ -140,6 +145,8 @@ const toggleStatus = (row: DiscountActivityRecord | Record<string, any>) => {
 };
 
 initPage();
+
+useKeepAliveRefresh(initPage);
 </script>
 <template>
   <div class="hx-layout-container">
@@ -207,9 +214,10 @@ initPage();
           prop="activityName"
           label="活动名称"
           align="center"
+          min-width="200"
           show-overflow-tooltip
         />
-        <ElTableColumn label="活动时间" align="center" width="320">
+        <ElTableColumn label="活动时间" align="center" width="176">
           <template #default="scope">
             {{ scope.row.startTime }}<br />
             至 {{ scope.row.endTime }}
@@ -219,7 +227,7 @@ initPage();
           prop="discountType"
           label="折扣类型"
           align="center"
-          width="100"
+          width="88"
         >
           <template #default="scope">
             {{ getDiscountTypeLabel(scope.row.discountType) }}
@@ -229,23 +237,23 @@ initPage();
           prop="discountValue"
           label="折扣值"
           align="center"
-          width="100"
+          width="70"
         />
-        <ElTableColumn prop="scope" label="适用范围" align="center" width="110">
+        <ElTableColumn prop="scope" label="适用范围" align="center" width="96">
           <template #default="scope">
             <ElTag :type="scope.row.scope === 1 ? 'success' : 'warning'">
               {{ getScopeLabel(scope.row.scope) }}
             </ElTag>
           </template>
         </ElTableColumn>
-        <ElTableColumn prop="status" label="状态" align="center" width="100">
+        <ElTableColumn prop="status" label="状态" align="center" width="84">
           <template #default="scope">
             <ElTag :type="getStatusTagType(scope.row.status)">
               {{ getStatusLabel(scope.row.status) }}
             </ElTag>
           </template>
         </ElTableColumn>
-        <ElTableColumn label="叠加策略" align="center" width="130">
+        <ElTableColumn label="叠加策略" align="center" width="104">
           <template #default="scope">
             <span
               >券{{ scope.row.couponStackable === '0' ? '✗' : '✓' }} · 积分{{
@@ -258,9 +266,9 @@ initPage();
           prop="createTime"
           label="创建时间"
           align="center"
-          width="180"
+          width="158"
         />
-        <ElTableColumn label="操作" width="260" align="center" fixed="right">
+        <ElTableColumn label="操作" width="186" align="center" fixed="right">
           <template #default="scope">
             <ElButton
               link

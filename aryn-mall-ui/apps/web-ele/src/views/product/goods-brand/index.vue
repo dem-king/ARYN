@@ -20,6 +20,7 @@ import {
 import { delObj, getPage } from '#/api/product/goods-brand';
 import PageFilterPanel from '#/components/page/page-filter-panel.vue';
 import PageToolbar from '#/components/page/page-toolbar.vue';
+import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 
 const Form = defineAsyncComponent(() => import('./form.vue'));
 const formRef = ref();
@@ -53,6 +54,8 @@ async function remove(id: string) {
 }
 
 load();
+
+useKeepAliveRefresh(load);
 </script>
 
 <template>

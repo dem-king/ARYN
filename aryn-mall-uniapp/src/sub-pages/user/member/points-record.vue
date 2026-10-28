@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
+import { useI18n } from 'vue-i18n'
 import { getPointsExchanges, getPointsRecordPage, redeemPointsExchange } from '@/api/user/points'
 import type { PointsExchangeItem, PointsRecord } from '@/api/user/points'
 
@@ -12,6 +13,7 @@ definePage({
   },
 })
 
+const { t } = useI18n()
 const list = ref<PointsRecord[]>([])
 const exchanges = ref<PointsExchangeItem[]>([])
 const redeeming = ref(false)
@@ -31,7 +33,10 @@ const expiringNotice = computed(() => {
   const nearest = pointsOverview.value?.nearestExpireTime
   if (!Number.isFinite(expiring) || expiring <= 0 || !nearest)
     return ''
-  return `${expiring} 积分将于 ${formatDate(nearest)} 到期，请注意使用`
+  return t('accountMember.pointsRecord.expiringNotice', {
+    points: expiring,
+    date: formatDate(nearest),
+  })
 })
 
 onLoad(() => {
@@ -55,25 +60,35 @@ async function loadExchanges() {
 function exchangeDesc(ex: PointsExchangeItem): string {
   const parts: string[] = []
   if (ex.couponType === '2' && ex.couponDiscount) {
-    parts.push(`${ex.couponDiscount} 折券`)
+    // 中文按「8.5 折券」表达，英文按「15% OFF coupon」表达，两种语言的口径不同
+    parts.push(t('accountMember.pointsRecord.discountCoupon', {
+      discount: ex.couponDiscount,
+      percentOff: Math.round((10 - Number(ex.couponDiscount)) * 10),
+    }))
   }
   else if (ex.couponAmount) {
     parts.push(ex.couponThreshold && ex.couponThreshold > 0
-      ? `满 ${ex.couponThreshold} 减 ${ex.couponAmount} 元`
-      : `${ex.couponAmount} 元无门槛券`)
+      ? t('accountMember.pointsRecord.thresholdCoupon', {
+          threshold: ex.couponThreshold,
+          amount: ex.couponAmount,
+        })
+      : t('accountMember.pointsRecord.noThresholdCoupon', { amount: ex.couponAmount }))
   }
   else {
     parts.push(ex.title)
   }
   if (ex.perUserLimit > 0) {
-    parts.push(`每人限兑 ${ex.perUserLimit} 次`)
+    parts.push(t('accountMember.pointsRecord.perUserLimit', { limit: ex.perUserLimit }))
   }
   const exchanged = ex.exchangedCount ?? 0
   if (ex.perUserLimit > 0) {
-    parts.push(`已兑 ${exchanged}/${ex.perUserLimit}`)
+    parts.push(t('accountMember.pointsRecord.exchangedOfLimit', {
+      exchanged,
+      limit: ex.perUserLimit,
+    }))
   }
   else if (exchanged > 0) {
-    parts.push(`已兑 ${exchanged} 次`)
+    parts.push(t('accountMember.pointsRecord.exchangedTimes', { times: exchanged }))
   }
   return parts.join(' · ')
 }
@@ -86,8 +101,11 @@ function onRedeem(ex: PointsExchangeItem) {
     return
   }
   uni.showModal({
-    title: '积分兑换',
-    content: `确认用 ${ex.pointsCost} 积分兑换「${ex.couponName || ex.title}」？兑换后发放至「我的优惠券」。`,
+    title: t('accountMember.pointsRecord.redeemTitle'),
+    content: t('accountMember.pointsRecord.redeemConfirm', {
+      points: ex.pointsCost,
+      name: ex.couponName || ex.title,
+    }),
     success: (res) => {
       if (!res.confirm)
         return
@@ -98,10 +116,10 @@ function onRedeem(ex: PointsExchangeItem) {
 
 async function doRedeem(ex: PointsExchangeItem) {
   redeeming.value = true
-  globalLoading.loading('兑换中...')
+  globalLoading.loading(t('accountMember.pointsRecord.redeeming'))
   try {
     await redeemPointsExchange(ex.id)
-    uni.showToast({ title: '兑换成功', icon: 'success' })
+    uni.showToast({ title: t('accountMember.pointsRecord.redeemSuccess'), icon: 'success' })
     // 兑换改变积分余额/兑换次数/明细，三处同步刷新
     await Promise.allSettled([loadExchanges(), userStore.refreshPointsInfo()])
     pagingRef.value?.reload()
@@ -116,7 +134,7 @@ async function doRedeem(ex: PointsExchangeItem) {
 }
 
 async function queryList(pageNo: number, pageSize: number) {
-  globalLoading.loading('加载中...')
+  globalLoading.loading(t('common.loading'))
   try {
     const response = await getPointsRecordPage({
       current: pageNo,
@@ -146,46 +164,52 @@ function formatDate(dateStr: string): string {
 
 /** 单条记录到期提示：仅获取类流水下发 expireTime，null=永久不展示 */
 function expireNotice(item: PointsRecord): string {
-  return item.expireTime ? `将于 ${formatDate(item.expireTime)} 到期` : ''
+  return item.expireTime
+    ? t('accountMember.pointsRecord.expireAt', { date: formatDate(item.expireTime) })
+    : ''
 }
 
 function getChangeTypeText(type: string): string {
-  return type === '1' ? '获取' : '消耗'
+  return type === '1'
+    ? t('accountMember.pointsRecord.earned')
+    : t('accountMember.pointsRecord.spent')
 }
 
 function getChangeTypeClass(type: string): string {
   return type === '1' ? 'text-green-500' : 'text-red-500'
 }
 
+const sceneKeyMap: Record<string, string> = {
+  ORDER: 'sceneOrder',
+  ORDER_COMPLETE: 'sceneOrderComplete',
+  SIGN_IN: 'sceneSignIn',
+  EXCHANGE: 'sceneExchange',
+  RECHARGE: 'sceneRecharge',
+  REFUND: 'sceneRefund',
+  ADMIN: 'sceneAdmin',
+  ADMIN_ADJUST: 'sceneAdmin',
+  REGISTER: 'sceneRegister',
+  ORDER_DEDUCT: 'sceneOrderDeduct',
+  POINTS_EXPIRE: 'scenePointsExpire',
+  POINTS_EXCHANGE: 'scenePointsExchange',
+  ORDER_REFUND: 'sceneOrderRefund',
+}
+
 function getSceneText(scene: string): string {
-  const sceneMap: Record<string, string> = {
-    ORDER: '下单',
-    ORDER_COMPLETE: '订单完成',
-    SIGN_IN: '签到',
-    EXCHANGE: '兑换',
-    RECHARGE: '充值',
-    REFUND: '退款',
-    ADMIN: '后台调整',
-    ADMIN_ADJUST: '后台调整',
-    REGISTER: '注册奖励',
-    ORDER_DEDUCT: '积分抵现',
-    POINTS_EXPIRE: '积分过期',
-    POINTS_EXCHANGE: '积分兑换',
-    ORDER_REFUND: '退款返还',
-  }
-  return sceneMap[scene] || scene
+  const key = sceneKeyMap[scene]
+  return key ? t(`accountMember.pointsRecord.${key}`) : scene
 }
 </script>
 
 <template>
   <z-paging ref="pagingRef" v-model="list" :auto="false" @query="queryList">
     <template #top>
-      <hr-navbar title="积分记录" />
+      <hr-navbar :title="t('accountMember.pointsRecord.title')" />
     </template>
     <!-- 积分总览：余额 + 30 天内即将过期提醒（增强信息，缺失时不渲染） -->
     <view v-if="pointsOverview" class="m-2 rounded-xl bg-white px-4 py-3">
       <view class="flex items-center justify-between">
-        <text class="text-14px font-bold">当前积分</text>
+        <text class="text-14px font-bold">{{ t('accountMember.pointsRecord.currentPoints') }}</text>
         <text class="text-20px font-bold">{{ pointsOverview.point }}</text>
       </view>
       <view v-if="expiringNotice" class="mt-1 text-12px text-orange-500">
@@ -195,8 +219,8 @@ function getSceneText(scene: string): string {
     <!-- 积分兑换：无启用项整块隐藏；不可兑置灰并提示原因 -->
     <view v-if="exchanges.length" class="m-2 rounded-xl bg-white px-4 py-3">
       <view class="flex items-center justify-between">
-        <text class="text-14px font-bold">积分兑换</text>
-        <text class="text-11px text-gray-400">兑换后发放至「我的优惠券」</text>
+        <text class="text-14px font-bold">{{ t('accountMember.pointsRecord.exchange') }}</text>
+        <text class="text-11px text-gray-400">{{ t('accountMember.pointsRecord.exchangeHint') }}</text>
       </view>
       <view
         v-for="ex in exchanges" :key="ex.id"
@@ -211,13 +235,13 @@ function getSceneText(scene: string): string {
           </view>
         </view>
         <view class="ml-2 flex flex-col items-end">
-          <text class="text-14px font-bold text-orange-500">{{ ex.pointsCost }} 积分</text>
+          <text class="text-14px font-bold text-orange-500">{{ t('accountMember.pointsRecord.pointsCost', { points: ex.pointsCost }) }}</text>
           <view
             class="mt-1 rounded-full px-3 py-1 text-12px"
             :class="ex.exchangeable ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-400'"
             @tap="onRedeem(ex)"
           >
-            {{ ex.exchangeable ? '兑换' : (ex.unexchangeableReason || '不可兑换') }}
+            {{ ex.exchangeable ? t('accountMember.pointsRecord.redeem') : (ex.unexchangeableReason || t('accountMember.pointsRecord.unavailable')) }}
           </view>
         </view>
       </view>
@@ -247,7 +271,7 @@ function getSceneText(scene: string): string {
             {{ item.changeType === '1' ? '+' : '-' }}{{ item.changePoint }}
           </view>
           <view class="mt-1 text-11px text-gray-400">
-            余额 {{ item.balanceAfter }}
+            {{ t('accountMember.pointsRecord.balanceAfter', { balance: item.balanceAfter }) }}
           </view>
         </view>
       </view>

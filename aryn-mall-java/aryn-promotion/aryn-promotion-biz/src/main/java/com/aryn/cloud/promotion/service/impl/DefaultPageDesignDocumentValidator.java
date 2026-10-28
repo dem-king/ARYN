@@ -2,9 +2,15 @@ package com.aryn.cloud.promotion.service.impl;
 
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
+import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.promotion.api.constant.PageDesignComponentTypes;
+import com.aryn.cloud.promotion.api.entity.PromotionActivity;
 import com.aryn.cloud.promotion.api.vo.PageDesignValidationVO;
+import com.aryn.cloud.promotion.mapper.PromotionActivityMapper;
 import com.aryn.cloud.promotion.service.PageDesignDocumentValidator;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -26,8 +32,16 @@ import java.util.Set;
  * @author 雨滴kian
  * @date 2026/09/05
  */
+@Slf4j
 @Component
+@RequiredArgsConstructor
 public class DefaultPageDesignDocumentValidator implements PageDesignDocumentValidator {
+
+	/**
+	 * 活动表 Mapper：仅用于多 Tab {@code activity} 模式在装修保存/发布时校验
+	 * 「指定活动存在且为会员价活动（type=10）」；不参与其它校验。
+	 */
+	private final PromotionActivityMapper promotionActivityMapper;
 
 	private static final int SCHEMA_VERSION_V2 = 2;
 
@@ -49,6 +63,24 @@ public class DefaultPageDesignDocumentValidator implements PageDesignDocumentVal
 	private static final Set<String> LINK_PATH_TYPES = Set.of("custom", "mini-program");
 
 	private static final String MANUAL_MODE = "manual";
+
+	/**
+	 * 多 Tab 商品流的活动数据源模式：商品 = 会员价活动（type=10）里配置的 SKU 对应 SPU，
+	 * 顺序 = 活动 rules.skus 配置顺序（前端传 activityId 固定活动，留空则跟随当前进行中活动）。
+	 */
+	private static final String ACTIVITY_MODE = "activity";
+
+	/** 多 Tab 商品流的自动 Tab 支持的商品排序（F1：bargain=折扣力度优先）。 */
+	private static final Set<String> GOODS_TAB_AUTOMATIC_SORTS = Set.of("sales", "create_time", "sales_price",
+			"bargain");
+
+	/** 折扣力度优先的折扣率阈值区间 (1.00, 9.99]，缺省 1.15（与 F1 接口约定一致）。 */
+	private static final java.math.BigDecimal BARGAIN_RATE_MIN_EXCLUSIVE = new java.math.BigDecimal("1.00");
+
+	private static final java.math.BigDecimal BARGAIN_RATE_MAX_INCLUSIVE = new java.math.BigDecimal("9.99");
+
+	/** 会员权益条自定义文案长度上限（字）：会员/游客文案各自独立计算。 */
+	private static final int MEMBER_BANNER_COPY_MAX_LENGTH = 30;
 
 	private static final Set<String> IMAGE_EXTENSIONS = Set.of(".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg",
 			".avif");
@@ -599,19 +631,165 @@ public class DefaultPageDesignDocumentValidator implements PageDesignDocumentVal
 				continue;
 			}
 			String mode = dataSource.getString("mode");
+			boolean manualMode = MANUAL_MODE.equals(mode);
+			boolean activityMode = ACTIVITY_MODE.equals(mode);
 			JSONArray targetIds = dataSource.getJSONArray("targetIds");
 			boolean hasTargets = targetIds != null && !targetIds.isEmpty();
-			if (MANUAL_MODE.equals(mode) && !hasTargets) {
+			if (manualMode && !hasTargets) {
 				result.getErrors()
 					.add(issue("DATASOURCE_EMPTY", "手选数据源不能为空，请选择具体数据", context.componentId,
 							context.componentType, path + ".dataSource.targetIds"));
 			}
-			if (hasTargets) {
+			// activity 模式忽略 targetIds（切换数据源后装修器可能残留旧手选 ID，不校验也不进引用清单）
+			if (hasTargets && !activityMode) {
 				context.goodsIds.addAll(targetIds.toJavaList(String.class));
 			}
-			if (!MANUAL_MODE.equals(mode)) {
-				context.requestCount++;
+			if (activityMode) {
+				// 活动商品数据源 = 活动商品接口 + 按 SPU 取商品列表接口，共 2 次请求（不校验 sort/category/targetIds）
+				context.requestCount += 2;
+				validateActivityTabSource(dataSource, context, result, path);
 			}
+			else if (!manualMode) {
+				context.requestCount++;
+				// 自动 Tab：排序语义白名单 + 折扣力度区间（F1），脏配置会让 C 端落到默认排序而不报错
+				validateAutomaticTabSort(dataSource, context, result, path);
+			}
+			// Tab 级会员权益条（F2）：只会透出文案，不拦截购买；但超长文案会破坏 C 端布局，发布前拦住
+			validateMemberBanner(tab, context, result, path);
+		}
+	}
+
+	/**
+	 * 自动 Tab 的商品排序校验（与 C 端 retail-query / 商品列表接口同一白名单口径）：
+	 * sales 销量 / create_time 新品 / sales_price 价格 / bargain 折扣力度优先。
+	 * <p>
+	 * sort 缺省放行（C 端按销量兜底，兼容存量文档）；sort=bargain 时 bargainRate 可空
+	 * （缺省 1.15），给值必须落在 (1.00, 9.99]——区间由 C 端与 product 列表接口共同依赖。
+	 */
+	private void validateAutomaticTabSort(JSONObject dataSource, ValidationContext context,
+			PageDesignValidationVO result, String path) {
+		String sort = dataSource.getString("sort");
+		if (StringUtils.hasText(sort) && !GOODS_TAB_AUTOMATIC_SORTS.contains(sort)) {
+			result.getErrors()
+				.add(issue("DATASOURCE_INVALID", "自动 Tab 排序仅支持销量/新品/价格/折扣力度，不支持：" + sort,
+						context.componentId, context.componentType, path + ".dataSource.sort"));
+			return;
+		}
+		if (!"bargain".equals(sort)) {
+			return;
+		}
+		java.math.BigDecimal bargainRate;
+		try {
+			bargainRate = dataSource.getBigDecimal("bargainRate");
+		}
+		catch (Exception ex) {
+			result.getErrors()
+				.add(issue("DATASOURCE_INVALID", "折扣率阈值必须是数字", context.componentId, context.componentType,
+						path + ".dataSource.bargainRate"));
+			return;
+		}
+		if (bargainRate == null) {
+			return;
+		}
+		if (bargainRate.compareTo(BARGAIN_RATE_MIN_EXCLUSIVE) <= 0
+				|| bargainRate.compareTo(BARGAIN_RATE_MAX_INCLUSIVE) > 0) {
+			result.getErrors()
+				.add(issue("DATASOURCE_INVALID", "折扣率阈值必须大于 1.00 且不超过 9.99", context.componentId,
+						context.componentType, path + ".dataSource.bargainRate"));
+		}
+	}
+
+	/**
+	 * 活动 Tab 数据源校验：会员专区商品自动取「会员价活动」里配置的商品（活动加减商品即同步）。
+	 * <p>
+	 * activityId 可空（运行时跟随当前进行中的会员价活动）；给值时在装修保存/发布阶段直查活动表，
+	 * 校验「存在 + 会员价类型（type=10）」——避免运营选错活动（如秒杀/满减）导致专区永远空。
+	 * 这里<b>不校验活动时间窗/状态</b>：允许提前装修、也允许活动结束后保留楼层配置（C 端价格接口
+	 * 自然只对有效活动出价）。查询异常按校验失败处理（fail-closed，避免把无法确认的数据源发布出去）。
+	 */
+	private void validateActivityTabSource(JSONObject dataSource, ValidationContext context,
+			PageDesignValidationVO result, String path) {
+		String activityId = dataSource.getString("activityId");
+		if (!StringUtils.hasText(activityId)) {
+			// 留空 = 跟随当前进行中的会员价活动，无需查库
+			return;
+		}
+		String fieldPath = path + ".dataSource.activityId";
+		PromotionActivity activity;
+		try {
+			// 显式带租户条件（与 tenant 拦截器双保险）：避免跨租户按 ID 命中的极端情况
+			String tenantId = ArynTenantContextHolder.getTenantId();
+			activity = promotionActivityMapper.selectOne(Wrappers.lambdaQuery(PromotionActivity.class)
+				.eq(PromotionActivity::getId, activityId.trim())
+				.eq(StringUtils.hasText(tenantId), PromotionActivity::getTenantId, tenantId));
+		}
+		catch (Exception ex) {
+			log.warn("装修活动数据源校验查询活动失败 activityId={}: {}", activityId, ex.getMessage());
+			result.getErrors()
+				.add(issue("DATASOURCE_INVALID", "会员价活动校验失败，请稍后重试", context.componentId,
+						context.componentType, fieldPath));
+			return;
+		}
+		if (activity == null) {
+			result.getErrors()
+				.add(issue("DATASOURCE_INVALID", "会员价活动不存在：" + activityId, context.componentId,
+						context.componentType, fieldPath));
+			return;
+		}
+		if (!PromotionActivity.TYPE_MEMBER_PRICE.equals(activity.getActivityType())) {
+			result.getErrors()
+				.add(issue("DATASOURCE_INVALID", "所选活动不是会员价活动，请选择会员价类型（type=10）",
+						context.componentId, context.componentType, fieldPath));
+		}
+	}
+
+	/**
+	 * Tab 级会员权益条校验（F2）：{@code memberBanner:{enabled, memberCopy?, guestCopy?}}。
+	 * <p>
+	 * 开关关闭时不校验文案（配置文案可留作草稿）；开启时会员/游客文案各限 30 字，
+	 * 文案留空走 C 端内置模板（不报错）。长度按 Unicode 码点计算，中文与 emoji 都算 1 字。
+	 */
+	private void validateMemberBanner(JSONObject tab, ValidationContext context, PageDesignValidationVO result,
+			String path) {
+		Object rawBanner = tab.get("memberBanner");
+		if (rawBanner == null) {
+			return;
+		}
+		if (!(rawBanner instanceof JSONObject banner)) {
+			result.getErrors()
+				.add(issue("DATASOURCE_INVALID", "会员权益条配置格式不正确", context.componentId,
+						context.componentType, path + ".memberBanner"));
+			return;
+		}
+		Boolean enabled;
+		try {
+			enabled = banner.getBoolean("enabled");
+		}
+		catch (Exception ex) {
+			result.getErrors()
+				.add(issue("DATASOURCE_INVALID", "会员权益条开关必须是布尔值", context.componentId,
+						context.componentType, path + ".memberBanner.enabled"));
+			return;
+		}
+		if (!Boolean.TRUE.equals(enabled)) {
+			return;
+		}
+		validateMemberBannerCopy(banner.getString("memberCopy"), "会员文案", context, result,
+				path + ".memberBanner.memberCopy");
+		validateMemberBannerCopy(banner.getString("guestCopy"), "游客文案", context, result,
+				path + ".memberBanner.guestCopy");
+	}
+
+	private void validateMemberBannerCopy(String copy, String label, ValidationContext context,
+			PageDesignValidationVO result, String fieldPath) {
+		if (!StringUtils.hasText(copy)) {
+			return;
+		}
+		int length = copy.codePointCount(0, copy.length());
+		if (length > MEMBER_BANNER_COPY_MAX_LENGTH) {
+			result.getErrors()
+				.add(issue("DATASOURCE_INVALID", label + "不能超过 " + MEMBER_BANNER_COPY_MAX_LENGTH + " 字（当前 "
+						+ length + " 字）", context.componentId, context.componentType, fieldPath));
 		}
 	}
 

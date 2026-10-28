@@ -13,6 +13,8 @@ const defaultConfig = {
   style: '1',
   bgColor: 'rgba(245, 245, 245, 1)',
   showScan: true,
+  // 滚动常驻：仅当搜索框位于页面首个区块的第一个组件时，C 端才固定在导航栏下方
+  sticky: false,
   commonStyle: {
     styleTopMargin: 10,
     styleBottomMargin: 0,
@@ -66,6 +68,12 @@ watch(
         </ElFormItem>
         <ElFormItem label="扫描图标">
           <ElSwitch v-model="form.showScan" />
+        </ElFormItem>
+        <ElFormItem label="滚动常驻">
+          <ElSwitch v-model="form.sticky" />
+          <div class="setting-tip">
+            开启后滚动页面时搜索框固定在导航栏下方常驻；仅当搜索框位于页面首个区块的第一个组件时生效。
+          </div>
         </ElFormItem>
       </ElForm>
     </div>

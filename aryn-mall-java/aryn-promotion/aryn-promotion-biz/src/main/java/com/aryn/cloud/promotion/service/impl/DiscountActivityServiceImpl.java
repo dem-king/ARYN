@@ -6,7 +6,9 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.product.api.entity.GoodsSku;
+import com.aryn.cloud.product.api.entity.GoodsSpu;
 import com.aryn.cloud.product.api.remote.RemoteGoodsSkuService;
+import com.aryn.cloud.product.api.remote.RemoteGoodsSpuService;
 import com.aryn.cloud.promotion.api.dto.DiscountActivityDTO;
 import com.aryn.cloud.promotion.api.dto.DiscountGoodsDTO;
 import com.aryn.cloud.promotion.api.entity.DiscountActivity;
@@ -56,6 +58,9 @@ public class DiscountActivityServiceImpl extends ServiceImpl<DiscountActivityMap
 	@DubboReference
 	private final RemoteGoodsSkuService remoteGoodsSkuService;
 
+	@DubboReference
+	private RemoteGoodsSpuService remoteGoodsSpuService;
+
 	@Override
 	public IPage<DiscountActivity> getAdminPage(Page page, DiscountActivity activity) {
 		return baseMapper.selectAdminPage(page, activity);
@@ -84,8 +89,43 @@ public class DiscountActivityServiceImpl extends ServiceImpl<DiscountActivityMap
 			}
 			return goodsVO;
 		}).collect(Collectors.toList());
+		backfillSpuInfo(goodsVOs);
 		vo.setGoodsList(goodsVOs);
 		return vo;
+	}
+
+	/**
+	 * 回填商品名称与图片：discount_goods 只存 ID，不回填时编辑页商品信息列只能兜底显示一串 SPU ID。
+	 * 查询失败不阻断详情，降级为仅返回 ID（与秒杀活动详情同一口径）。
+	 */
+	private void backfillSpuInfo(List<DiscountGoodsVO> goodsVOs) {
+		List<String> spuIds = goodsVOs.stream()
+			.map(DiscountGoodsVO::getSpuId)
+			.filter(Objects::nonNull)
+			.distinct()
+			.collect(Collectors.toList());
+		if (spuIds.isEmpty()) {
+			return;
+		}
+		List<GoodsSpu> spus;
+		try {
+			spus = remoteGoodsSpuService.getSpuByIds(spuIds);
+		} catch (Exception exception) {
+			log.warn("折扣活动详情回填商品名称失败，降级为仅返回商品ID, spuIds={}", spuIds, exception);
+			return;
+		}
+		if (CollectionUtils.isEmpty(spus)) {
+			return;
+		}
+		Map<String, GoodsSpu> spuMap = spus.stream()
+			.collect(Collectors.toMap(GoodsSpu::getId, spu -> spu, (a, b) -> a));
+		goodsVOs.forEach(goodsVO -> {
+			GoodsSpu spu = spuMap.get(goodsVO.getSpuId());
+			if (spu != null) {
+				goodsVO.setSpuName(spu.getName());
+				goodsVO.setSpuUrls(spu.getSpuUrls());
+			}
+		});
 	}
 
 	@Override
@@ -176,9 +216,26 @@ public class DiscountActivityServiceImpl extends ServiceImpl<DiscountActivityMap
 
 	@Override
 	public boolean updateStatus(String id, Integer status) {
+		DiscountActivity activity = this.getById(id);
+		if (activity == null || status == null) {
+			return false;
+		}
+		// 传 0 表示启用：直接按时间窗落到最终状态，不能停在 0 等定时任务补成 1
+		int targetStatus = status == 0 ? resolveEnabledStatus(activity, LocalDateTime.now()) : status;
 		return this.update(Wrappers.<DiscountActivity>lambdaUpdate()
 				.eq(DiscountActivity::getId, id)
-				.set(DiscountActivity::getStatus, status));
+				.set(DiscountActivity::getStatus, targetStatus));
+	}
+
+	/** 启用后的目标状态，与 C 端 status=1 + 时间窗的过滤口径保持一致 */
+	private int resolveEnabledStatus(DiscountActivity activity, LocalDateTime now) {
+		if (activity.getStartTime() != null && now.isBefore(activity.getStartTime())) {
+			return 0;
+		}
+		if (activity.getEndTime() != null && !now.isBefore(activity.getEndTime())) {
+			return 2;
+		}
+		return 1;
 	}
 
 	@Override
@@ -188,7 +245,8 @@ public class DiscountActivityServiceImpl extends ServiceImpl<DiscountActivityMap
 				.eq(DiscountActivity::getStatus, 1)
 				.le(DiscountActivity::getStartTime, now)
 				.gt(DiscountActivity::getEndTime, now)
-				.orderByDesc(DiscountActivity::getCreateTime));
+				.orderByDesc(DiscountActivity::getCreateTime)
+				.orderByDesc(DiscountActivity::getId));
 		Map<String, List<DiscountGoods>> goodsByActivity = loadGoodsByActivity(activityPage.getRecords());
 		Map<String, GoodsSku> skuMap = loadSkuMap(goodsByActivity);
 		return activityPage.convert(activity -> toAppDiscountActivity(activity, goodsByActivity, skuMap, now));
@@ -521,6 +579,7 @@ public class DiscountActivityServiceImpl extends ServiceImpl<DiscountActivityMap
 		vo.setDiscountValue(activity.getDiscountValue());
 		vo.setGoodsImage(sku.getPicUrl());
 		vo.setGoodsName(sku.getGoodsSpu() != null ? sku.getGoodsSpu().getName() : null);
+		vo.setSubTitle(sku.getGoodsSpu() != null ? sku.getGoodsSpu().getSubTitle() : null);
 		// 折扣以销售价为基准，与商品详情页 getGoodsDiscountInfo 的口径保持一致
 		BigDecimal originalPrice = sku.getSalesPrice();
 		vo.setOriginalPrice(originalPrice);

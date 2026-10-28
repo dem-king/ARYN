@@ -63,6 +63,8 @@ class ArynOrderPayDeliveryIdempotencyTest {
 
 	private IDeliveryTaskService deliveryTaskServiceMock;
 
+	private com.aryn.cloud.order.service.IOrderRefundService orderRefundService;
+
 	private ArynOrderPayEventListener listener;
 
 	@BeforeEach
@@ -78,7 +80,8 @@ class ArynOrderPayDeliveryIdempotencyTest {
 		orderInfoService = mock(IOrderInfoService.class);
 		orderItemService = mock(IOrderItemService.class);
 		deliveryTaskServiceMock = mock(IDeliveryTaskService.class);
-		listener = new ArynOrderPayEventListener(orderInfoService, orderItemService,
+		orderRefundService = mock(com.aryn.cloud.order.service.IOrderRefundService.class);
+		listener = new ArynOrderPayEventListener(orderInfoService, orderItemService, orderRefundService,
 				mock(com.aryn.cloud.order.event.listener.OrderPaySuccessNotifier.class), deliveryTaskServiceMock,
 				mock(com.aryn.cloud.promotion.api.remote.RemotePromotionEngine.class));
 	}
@@ -165,14 +168,20 @@ class ArynOrderPayDeliveryIdempotencyTest {
 	}
 
 	@Test
-	@DisplayName("已取消订单的支付回调被忽略，不补建任务")
-	void canceledOrderPayCallbackIgnored() {
+	@DisplayName("已取消订单的迟到支付记录支付事实并发起补偿退款，不补建任务")
+	void canceledOrderPayCallbackCompensatesRefund() {
 		OrderInfo canceled = order(MallOrderConstants.DELIVERY_WAY_4);
 		canceled.setStatus(OrderStatusEnum.CANCELED.getCode());
+		canceled.setPaymentTime(LocalDateTime.now());
+		canceled.setPaymentType(MallOrderConstants.PAYMENT_TYPE_1);
+		doReturn(true).when(orderInfoService).update(any(Wrapper.class));
+		doReturn(true).when(orderRefundService).refundPaidCanceledOrder(canceled, "订单取消后到账自动退款");
+
 		listener.hxPayEventListener(new ArynOrderPayEvent(this, canceled, items()));
 
+		verify(orderInfoService).update(any(Wrapper.class));
+		verify(orderRefundService).refundPaidCanceledOrder(canceled, "订单取消后到账自动退款");
 		verifyNoInteractions(deliveryTaskServiceMock);
-		verify(orderInfoService, never()).update(any(Wrapper.class));
 	}
 
 	@Test

@@ -119,6 +119,58 @@ html .el-loading-mask {
     border-radius: calc(var(--radius) - 2px);
   }
 
+  /* 标准列表页（筛选面板/分页是卡片直接子级）：卡片纵向 flex 并撑满视口高度，
+     数据少时分页靠 margin-top:auto 钉在卡片底部（=视口底部）；
+     装修器等自带内部定高布局的页面不命中此规则，行为不变 */
+  &-view:has(> .hx-filter-panel),
+  &-view:has(> .hx-pagination),
+  &-view:has(.el-tabs .hx-filter-panel),
+  &-view:has(.el-tabs .hx-pagination) {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    min-height: 100%;
+  }
+
+  /* 页签包裹的列表页（船舶档案、积分配置等）：卡片高度经 tabs 一路传导到
+     pane，分页的 margin-top:auto 才能钉到卡片底部；el-tabs__content 默认
+     overflow:hidden 会吞掉分页的 sticky bottom，长列表时改回 visible */
+  &-view:has(.el-tabs .hx-pagination) > .el-tabs {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+  }
+
+  &-view:has(.el-tabs .hx-pagination) > .el-tabs > .el-tabs__content,
+  &-view:has(.el-tabs .hx-pagination)
+    > .el-tabs
+    > .el-tabs__content
+    > .el-tab-pane {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+  }
+
+  &-view:has(.el-tabs .hx-pagination) > .el-tabs > .el-tabs__content {
+    overflow: visible;
+  }
+
+  &-view:has(.el-tabs .hx-pagination) > .el-tabs .el-tab-pane > .el-table {
+    flex: 1 1 0;
+    min-height: 240px;
+  }
+
+  /* 标准列表页的表格吃满卡片剩余高度，纵向滚动收进表格内部：
+     表头常驻可视区，横向滚动条贴在可视区底部（分页上方），
+     停在页首也能左右滚动，不必滚到列表末尾才找得到横向滚动条。
+     min-height 是收缩地板：筛选条件过多把内容顶破视口时表格不被压瘪，
+     此时回落外层滚动，由 sticky 筛选/分页兜底 */
+  &-view:has(> .hx-filter-panel) > .el-table,
+  &-view:has(> .hx-pagination) > .el-table {
+    flex: 1 1 0;
+    min-height: 240px;
+  }
+
   /* el-table 自带 overflow:hidden，作为本 flex 列容器的直接子项时
      自动最小尺寸按 0 计算，页面内容超出视口会被压缩成一条缝，禁止其收缩 */
   &-auto > .el-table {

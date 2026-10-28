@@ -39,10 +39,12 @@ class PublicEndpointWhitelistContractTest {
 	private static final AntPathMatcher MATCHER = new AntPathMatcher();
 
 	/**
-	 * 前端声明 `skipToken: true` 的接口（去微服务域后的 boot 形态）。
+	 * 前端可匿名访问的接口（去微服务域后的 boot 形态）。
 	 *
-	 * <p>与 aryn-mall-uniapp 的 api 层逐条对应；新增免登接口时必须同时更新
-	 * 本清单与后端白名单，否则本测试失败 —— 这正是它的目的。
+	 * <p>多数条目对应 aryn-mall-uniapp 的 `skipToken: true`；推荐流是“可选登录”
+	 * （前端不跳过 token，以便登录后个性化），但同样必须被免登白名单覆盖。
+	 * 与 api 层逐条对应；新增免登接口时必须同时更新本清单与后端白名单，
+	 * 否则本测试失败 —— 这正是它的目的。
 	 */
 	private static final List<String> FRONTEND_PUBLIC_PATHS = List.of(
 			// 登录/短信
@@ -59,6 +61,8 @@ class PublicEndpointWhitelistContractTest {
 			"/app/goodsbrand/list",
 			"/app/goodsbrand/filter-list",
 			"/app/goodsspu/page",
+			// 推荐流：游客可读，登录用户按浏览足迹个性化（前端携带可选登录态）
+			"/app/goodsspu/recommend",
 			"/app/goodsspu/1912867577569386497",
 			"/app/goodsspu/list/1,2",
 			"/app/goodsspu/hot-search/top10",
@@ -78,6 +82,10 @@ class PublicEndpointWhitelistContractTest {
 			"/app/discount/prices",
 			"/app/newbie/current",
 			"/app/newbie/prices",
+			// 会员价批量查价（可选登录：未登录返回活动配置价，资格为 null）
+			"/app/member/prices",
+			// 会员专区自动数据源（装修多Tab activity 模式，免登）
+			"/app/member/activity-goods",
 			// 本机存储文件（装修图标等）
 			"/file/local/1590229800633634816/icon.jpg");
 

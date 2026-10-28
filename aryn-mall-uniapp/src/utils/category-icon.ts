@@ -7,6 +7,8 @@
  * 保证首屏不会是一片空白圆；运营在管理后台补图后自动切换为真实图片。
  */
 
+import { translate } from '@/locales'
+
 /**
  * 兜底色板：浅底 + 同色系深字。
  *
@@ -49,7 +51,7 @@ export function resolveCategoryFallback(
   const trimmed = (name ?? '').trim()
   // 取首字：emoji 等代理对用 Array.from 才不会截断成半个字符
   const chars = Array.from(trimmed)
-  const text = chars[0] ?? '类'
+  const text = chars[0] ?? translate('shared.categoryIcon.fallbackText')
   const palette = CATEGORY_FALLBACK_PALETTES[hashIndex(id ?? trimmed)]
   return {
     text,

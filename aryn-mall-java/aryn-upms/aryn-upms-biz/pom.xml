@@ -74,6 +74,16 @@
             <groupId>com.aryn</groupId>
             <artifactId>aryn-order-api</artifactId>
         </dependency>
+        <!-- 商品域远程契约：平台租户概览统计商品数 -->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-product-api</artifactId>
+        </dependency>
+        <!-- 消息域远程契约：租户到期提醒发送站内信 -->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-message-api</artifactId>
+        </dependency>
         <!--           短信公共模块-->
         <dependency>
             <groupId>com.aryn</groupId>

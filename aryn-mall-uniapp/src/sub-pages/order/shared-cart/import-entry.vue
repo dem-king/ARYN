@@ -16,6 +16,7 @@ import type { SharedCartCreatePayload, SharedCartSummary } from '@/api/order/sha
  */
 import { onShow } from '@dcloudio/uni-app'
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { createSharedCart, getActiveSharedCartSummary } from '@/api/order/sharedCart'
 
 import hrNavbar from '@/components/hr-navbar/index.vue'
@@ -35,6 +36,7 @@ definePage({
 const authStore = useAuthStore()
 const shipContextStore = useShipContextStore()
 const tenantCapabilityStore = useTenantCapabilityStore()
+const { t } = useI18n()
 
 const resolving = ref(true)
 /** 纯零售租户：船供能力关闭，向导整体不可用 */
@@ -84,7 +86,7 @@ async function resolveTargetCart() {
   }
   // 已有进行中的补给单：直接复用进导入，用户无需感知"购物车"这一层
   if (summary.value?.cart?.id) {
-    uni.showToast({ title: '已有进行中的补给单，直接进入导入', icon: 'none' })
+    uni.showToast({ title: t('sharedCart.importEntry.toastExisting'), icon: 'none' })
     goImport(summary.value.cart.id)
     return
   }
@@ -98,7 +100,7 @@ function submitCreate() {
   // 未绑船的岸上客户没有船可选，引导到列表页按收货地址发起（创建后再回详情导入）
   if (!canCreate.value) {
     if (!shipContextStore.vesselId) {
-      uni.showToast({ title: '请先在共享购物车列表按收货地址发起', icon: 'none' })
+      uni.showToast({ title: t('sharedCart.importEntry.toastNeedAddress'), icon: 'none' })
       goCartList()
       return
     }
@@ -115,7 +117,9 @@ function submitCreate() {
     .then((cart) => {
       // 同一船舶已有进行中的采购时，服务端复用该购物车而非新建（与列表页同口径提示）
       uni.showToast({
-        title: cart?.adoptedExisting ? '该船已在进行中，已为你打开' : '已创建',
+        title: cart?.adoptedExisting
+          ? t('sharedCart.importEntry.toastAdopted')
+          : t('sharedCart.importEntry.toastCreated'),
         icon: 'none',
       })
       if (cart?.id) {
@@ -135,16 +139,16 @@ onShow(() => {
 
 <template>
   <view>
-    <hr-navbar title="导入清单下单" />
+    <hr-navbar :title="t('sharedCart.importEntry.navTitle')" />
 
     <view v-if="resolving" class="py-80rpx text-center text-26rpx text-gray-400">
-      加载中...
+      {{ t('common.loading') }}
     </view>
 
     <template v-else-if="unsupported">
       <view class="py-80rpx text-center">
         <view class="text-26rpx text-gray-400">
-          当前店铺为纯零售模式，暂不支持船供补给单
+          {{ t('sharedCart.importEntry.unsupported') }}
         </view>
       </view>
     </template>
@@ -153,28 +157,28 @@ onShow(() => {
     <template v-else>
       <view class="mx-20rpx mt-20rpx rounded-20rpx bg-white p-24rpx">
         <view class="text-28rpx font-bold">
-          本次补给信息
+          {{ t('sharedCart.importEntry.sectionTitle') }}
         </view>
         <view class="mt-16rpx text-24rpx text-gray-500">
-          导入的清单将挂到本次靠港的补给单上，作为整船采购计划
+          {{ t('sharedCart.importEntry.sectionDesc') }}
         </view>
         <view class="mt-20rpx rounded-12rpx bg-gray-50 px-24rpx py-20rpx">
           <view class="text-26rpx font-bold">
-            {{ shipContextStore.vesselName || '我的船舶' }}
+            {{ shipContextStore.vesselName || t('sharedCart.importEntry.myVessel') }}
           </view>
           <view class="mt-6rpx text-24rpx text-gray-500">
             <template v-if="shipContextStore.hasVesselContext">
               {{ shipContextStore.portName }} {{ shipContextStore.berth }}
             </template>
             <text v-else class="text-blue-500" @tap="shipPickerVisible = true">
-              选择船舶和靠港计划 &gt;
+              {{ t('sharedCart.importEntry.chooseVesselCall') }} &gt;
             </text>
           </view>
         </view>
         <input
           v-model="createState.remark"
           class="mt-20rpx h-72rpx rounded-12rpx bg-gray-50 px-24rpx text-26rpx"
-          placeholder="备注（选填），如：本次补给含甲板部需求"
+          :placeholder="t('sharedCart.importEntry.remarkPlaceholder')"
           :maxlength="120"
         >
         <button
@@ -183,12 +187,12 @@ onShow(() => {
           :disabled="createState.submitting"
           @tap="submitCreate"
         >
-          创建并导入 Excel
+          {{ t('sharedCart.importEntry.createAndImport') }}
         </button>
         <view class="mt-20rpx text-center text-22rpx text-gray-400">
-          创建后收集截止为 24 小时内有效；也可先
+          {{ t('sharedCart.importEntry.validityHint') }}
           <text class="text-blue-500" @tap="goCartList">
-            查看全部补给单
+            {{ t('sharedCart.importEntry.viewAllCarts') }}
           </text>
         </view>
       </view>

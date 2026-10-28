@@ -22,6 +22,7 @@ import {
 import { audit, getPage } from '#/api/promotion/distribution-withdraw';
 import PageFilterPanel from '#/components/page/page-filter-panel.vue';
 import PageToolbar from '#/components/page/page-toolbar.vue';
+import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 import { useDict } from '#/utils/dict';
 import { formatMoney } from '#/utils/util';
 
@@ -104,6 +105,8 @@ async function doReject(row: DistributionWithdrawRecord) {
 }
 
 initPage();
+
+useKeepAliveRefresh(initPage);
 </script>
 
 <template>

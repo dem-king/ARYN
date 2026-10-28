@@ -1,6 +1,8 @@
 import type { DecorationComponent, DecorationDocument, DecorationSection, PageSettings, SectionCondition, SectionConditionGroup, SectionStyle } from './types'
 import { DECORATION_SCHEMA_VERSION } from './types'
 
+import { normalizeNavigationScrollEffect } from './navigation-scroll'
+
 type UnknownRecord = Record<string, unknown>
 
 function isRecord(value: unknown): value is UnknownRecord {
@@ -25,6 +27,14 @@ function createDefaultPageSettings(): PageSettings {
       textColor: '#000000',
       title: '',
       visible: true,
+      // 滚动渐显（沉浸式导航）：缺省关闭；具体字段常驻，避免 JSON 克隆丢 undefined
+      scrollEffect: {
+        mode: 'none',
+        surface: 'frosted',
+        surfaceColor: '',
+        distance: 140,
+        blur: true,
+      },
     },
     share: { description: '', imageUrl: '', title: '' },
   }
@@ -149,6 +159,7 @@ export function migratePageContent(input: unknown): DecorationDocument {
   const source = isRecord(parsed) ? parsed : {}
   const defaults = createDefaultPageSettings()
   const rawPage = isRecord(source.page) ? source.page : {}
+  const rawNavigation = isRecord(rawPage.navigation) ? rawPage.navigation : {}
   const sections = migrateSections(source)
   // 渲染列表：区块内组件按序拍平
   const components = sections.flatMap(section => section.components)
@@ -184,9 +195,11 @@ export function migratePageContent(input: unknown): DecorationDocument {
       ...(themePageBackground ? { backgroundColor: themePageBackground } : {}),
       navigation: {
         ...defaults.navigation,
-        ...(isRecord(rawPage.navigation) ? cloneRecord(rawPage.navigation) : {}),
+        ...cloneRecord(rawNavigation),
         ...(themeNavigationColor ? { backgroundColor: themeNavigationColor } : {}),
         ...(themeNavigationTextColor ? { textColor: themeNavigationTextColor } : {}),
+        // 缺省补 mode='none'、脏值归一化；旧文档/旧发布快照因此行为不变
+        scrollEffect: normalizeNavigationScrollEffect(rawNavigation.scrollEffect),
       },
       share: {
         ...defaults.share,

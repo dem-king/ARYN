@@ -9,12 +9,15 @@
  * 避免商详、购物车、加购弹层各写一遍判定而漂移。
  *
  * 优先级与后端 `OrderPriceComputeService.resolvePromotionPricePlan` 一致：
- * 拼团 > 秒杀 > 新人价 > 限时折扣 > 原价。拼团单价格由后端按拼团记录重算、
- * 商详/Cart 不参与，故本工具只覆盖「秒杀 > 新人价 > 限时折扣」三层，
- * 由调用方按同一顺序传入本工具产出的 display。
+ * **拼团 > 秒杀 > 会员价 > 新人价 > 限时折扣 > 原价**。拼团单价格由后端按拼团
+ * 记录重算、商详/Cart 不参与展示，故前端展示层只覆盖「秒杀 > 会员价 > 新人价
+ * > 限时折扣」四层；会员价/新人价的判定各自在 `member-price.ts` / `newbie-price.ts`，
+ * 由 `resolvePromotionPriority`（member-price.ts）统一收敛后传入本工具产出的 display。
  */
 
 import type { AppDiscountVO } from '@/api/promotion'
+
+import { translate } from '@/locales'
 
 /** 金额文案：最多两位小数并去掉无意义的尾零（4.00 → 4、4.5 → 4.5）。 */
 export function formatStripAmount(value: unknown): string {
@@ -38,15 +41,19 @@ export function formatDiscountValue(
     case 1: {
       const zhe = Math.round(Number(activity.discountValue) * 100) / 10
       if (!Number.isFinite(zhe) || zhe <= 0 || zhe >= 10)
-        return '折扣'
-      return `${Number.isInteger(zhe) ? zhe : zhe.toFixed(1)}折`
+        return translate('labels.discount')
+      return translate('labels.discountRate', {
+        value: Number.isInteger(zhe) ? zhe : zhe.toFixed(1),
+        // 中文按「8折」表达，英文按「20% OFF」表达，同一折扣力度两种口径
+        percentOff: Math.round((10 - zhe) * 10),
+      })
     }
     case 2:
-      return `减¥${formatStripAmount(activity.discountValue)}`
+      return translate('labels.saveAmount', { amount: formatStripAmount(activity.discountValue) })
     case 3:
-      return '一口价'
+      return translate('labels.fixedPrice')
     default:
-      return '折扣'
+      return translate('labels.discount')
   }
 }
 
@@ -155,10 +162,11 @@ export function resolveDiscountPriceDisplay(
 }
 
 /**
- * 该 SKU 在「无秒杀、无新人价」时的实际成交单价：命中折扣时取折后价，否则回落售价。
+ * 该 SKU 在「无秒杀、无会员价、无新人价」时的实际成交单价：命中折扣时取折后价，
+ * 否则回落售价。
  *
  * 购物车合计、商详主价、加购确认弹层小计都走这里，保证「标价 × 数量 = 合计」
- * 与页面标价一致。秒杀/新人价有自己的优先级判定，调用方先判它们再落到本函数。
+ * 与页面标价一致。秒杀/会员价/新人价有自己的优先级判定，调用方先判它们再落到本函数。
  */
 export function discountUnitPrice(
   fallbackPrice: unknown,

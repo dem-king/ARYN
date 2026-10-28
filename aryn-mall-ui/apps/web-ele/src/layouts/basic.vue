@@ -20,7 +20,7 @@ import { useAccessStore, useUserStore } from '@vben/stores';
 
 import { ElOption, ElSelect, ElTour, ElTourStep } from 'element-plus';
 
-import { getList, getShopInfo } from '#/api/upms/tenant';
+import { auditTenantSwitch, getList, getShopInfo } from '#/api/upms/tenant';
 import { useAuthStore } from '#/store';
 import { useMessageStore } from '#/store/message';
 import LoginForm from '#/views/_core/authentication/login.vue';
@@ -78,8 +78,15 @@ function getTenantList() {
     tenantList.value = res;
   });
 }
-function handleTenant(val: string) {
+async function handleTenant(val: string) {
   localStorage.setItem('switch-tenant-id', val);
+  if (val) {
+    try {
+      await auditTenantSwitch(val);
+    } catch {
+      // 审计失败不阻断切换
+    }
+  }
   window.location.reload();
 }
 watch(

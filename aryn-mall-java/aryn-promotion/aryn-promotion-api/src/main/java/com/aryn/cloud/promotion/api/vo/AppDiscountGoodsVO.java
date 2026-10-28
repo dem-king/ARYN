@@ -32,6 +32,9 @@ public class AppDiscountGoodsVO implements Serializable {
 	@Schema(description = "商品名称")
 	private String goodsName;
 
+	@Schema(description = "商品子标题（与名称相同时由 C 端隐藏）")
+	private String subTitle;
+
 	@Schema(description = "商品图片")
 	private String goodsImage;
 

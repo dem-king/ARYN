@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onLoad } from '@dcloudio/uni-app'
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { getCount, getPage } from '@/sub-pages/api/product/appraise'
 import { formatTime } from '@/utils/index'
 
@@ -28,6 +29,7 @@ const appraiseCount = ref<AppraiseCount>({
 })
 // 定义变量
 const globalLoading = useGlobalLoading()
+const { t } = useI18n()
 
 const pagingRef = ref()
 const spuId = ref('')
@@ -38,13 +40,13 @@ const state = reactive<{ list: any[], queryParam: any }>({
   },
 })
 
-// tabs选项
-const tabs = ref([
-  { key: 'all', name: '全部', count: appraiseCount.value.allCount },
-  { key: 'good', name: '好评', count: appraiseCount.value.goodCount },
-  { key: 'neutral', name: '中评', count: appraiseCount.value.badCount },
-  { key: 'bad', name: '差评', count: appraiseCount.value.negativeCount },
-  { key: 'pic', name: '有图', count: appraiseCount.value.imageCount },
+// tabs选项：名称随语言切换，数量直接取接口结果，避免手动回写两份状态
+const tabs = computed(() => [
+  { key: 'all', name: t('product.review.all'), count: appraiseCount.value.allCount },
+  { key: 'good', name: t('product.review.good'), count: appraiseCount.value.goodCount },
+  { key: 'neutral', name: t('product.review.neutral'), count: appraiseCount.value.badCount },
+  { key: 'bad', name: t('product.review.bad'), count: appraiseCount.value.negativeCount },
+  { key: 'pic', name: t('product.review.withImage'), count: appraiseCount.value.imageCount },
 ])
 
 // 切换tab
@@ -67,7 +69,7 @@ onLoad(async (options) => {
   })
 })
 async function queryList(pageNo: number, pageSize: number) {
-  globalLoading.loading('加载中...')
+  globalLoading.loading(t('common.loading'))
   try {
     const response = await getPage(Object.assign({
       current: pageNo,
@@ -85,12 +87,6 @@ async function queryList(pageNo: number, pageSize: number) {
 function getAppraiseCount() {
   getCount({ spuId: spuId.value }).then((response) => {
     appraiseCount.value = response
-    // 更新tabs中的count值
-    tabs.value[0].count = response.allCount
-    tabs.value[1].count = response.goodCount
-    tabs.value[2].count = response.badCount
-    tabs.value[3].count = response.negativeCount
-    tabs.value[4].count = response.imageCount
   })
 }
 function previewImage(index: number, picUrls: string[]) {
@@ -104,7 +100,7 @@ function previewImage(index: number, picUrls: string[]) {
 <template>
   <z-paging ref="pagingRef" v-model="state.list" :auto="false" @query="queryList">
     <template #top>
-      <hr-navbar title="商品评价" />
+      <hr-navbar :title="t('product.reviewTitle')" />
     </template>
     <view class="bg-white p-26rpx">
       <!-- 自定义tabs 换行显示 -->
@@ -157,7 +153,7 @@ function previewImage(index: number, picUrls: string[]) {
 
       <!-- 内容 -->
       <view class="mb-16rpx whitespace-pre-wrap break-words text-26rpx text-gray-800 dark:text-gray-200">
-        {{ item.content || '该用户未填写' }}
+        {{ item.content || t('product.review.emptyContent') }}
       </view>
 
       <!-- 图片区域 -->
@@ -209,7 +205,7 @@ function previewImage(index: number, picUrls: string[]) {
         v-if="item.replyTime && item.businessReply"
         class="mt-18rpx rounded-10rpx bg-gray-100 p-16rpx text-24rpx text-gray-700 dark:bg-gray-700 dark:text-gray-200"
       >
-        商家回复：{{ item.businessReply }}
+        {{ t('product.review.merchantReply', { content: item.businessReply }) }}
       </view>
     </view>
   </z-paging>

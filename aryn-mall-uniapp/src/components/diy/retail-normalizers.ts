@@ -1,6 +1,7 @@
 import type {
   DiscountActivityItem,
   DiscountGoodsItem,
+  ListMemberPriceDisplay,
   NewbieFloorItem,
   NewbieGoodsItem,
   SeckillGoodsItem,
@@ -41,6 +42,12 @@ export interface RetailGoodsItem {
    * 为准），字段保留在归一化结果中，供后续筛选 / 排序等数据侧复用。
    */
   freeShipping?: boolean
+  /**
+   * 会员价聚合结果：仅 `memberBanner.enabled=true` 的会员专区 Tab 会写入
+   * （由 `retail-data#loadGoodsTabPage` 二次补价），其它 Tab 恒为 undefined。
+   * 卡片据此切主价 / 角标 / 引导，不改变商品数据本身字段的含义。
+   */
+  memberPriceDisplay?: ListMemberPriceDisplay
 }
 
 export interface RetailActivityItem {
@@ -96,6 +103,9 @@ function toText(value: unknown): string {
  *
  * 列表接口不返回 goodsSkus，所以优先用后端可能补的 `specsInfo` 字段；
  * 其次从 goodsSkus[0].specsArr 拼。单规格商品的值为「默认」，视为无规格。
+ *
+ * 注意：`默认` 是后端 SKU 规格名里的数据哨兵，只用于比较、不会渲染给用户，
+ * 属逻辑键，不参与 i18n（翻译它反而会让后端中文数据漏出成规格）。
  */
 function firstSpecs(record: Record<string, unknown>): string {
   const direct = toText(record.specsInfo ?? record.packageSpec ?? '')
@@ -338,54 +348,4 @@ export function restoreConfiguredOrder<T extends { id: string }>(
   return [...items].sort((left, right) =>
     (order.get(left.id) ?? Number.MAX_SAFE_INTEGER)
     - (order.get(right.id) ?? Number.MAX_SAFE_INTEGER))
-}
-
-export interface RetailCouponItem {
-  id: string
-  thresholdText: string
-  title: string
-  /** 券类型标签：满减券 / 折扣券 */
-  typeLabel: string
-  value: string
-  /**
-   * 当前登录用户对该券的领取次数；游客请求时为 null/undefined。
-   * 领券组件的「已领取」标记依赖它，刷新后才能由服务端还原。
-   */
-  userReceiveCount?: number | null
-}
-
-/** 优惠券数据归一化：兼容 couponType/amount/discount/threshold 的存量字段 */
-export function normalizeCoupons(value: unknown): RetailCouponItem[] {
-  const records = Array.isArray(value)
-    ? value
-    : (isRecordLike(value) && Array.isArray((value as any).records) ? (value as any).records : [])
-  if (!Array.isArray(records))
-    return []
-  return records
-    .map((item: any): RetailCouponItem | null => {
-      if (!item || typeof item !== 'object')
-        return null
-      const id = String(item.id ?? '')
-      if (!id)
-        return null
-      const title = String(item.couponName ?? item.title ?? '优惠券')
-      const couponType = String(item.couponType ?? '1')
-      const value = couponType === '2' ? `${Number(item.discount ?? 0)}折` : `¥${Number(item.amount ?? 0)}`
-      const threshold = Number(item.threshold ?? 0)
-      // 保留服务端下发的领取次数，否则领券组件刷新后无法还原「已领取」
-      const userReceiveCount = item.userReceiveCount == null ? null : Number(item.userReceiveCount)
-      return {
-        id,
-        thresholdText: threshold > 0 ? `满${threshold}可用` : '无门槛',
-        title,
-        typeLabel: couponType === '2' ? '折扣券' : '满减券',
-        userReceiveCount,
-        value,
-      }
-    })
-    .filter((item): item is RetailCouponItem => item !== null)
-}
-
-function isRecordLike(value: unknown): boolean {
-  return typeof value === 'object' && value !== null
 }

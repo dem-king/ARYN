@@ -16,6 +16,7 @@ import type { SharedCart, SharedCartCreatePayload } from '@/api/order/sharedCart
 import { onPullDownRefresh, onShow } from '@dcloudio/uni-app'
 
 import { computed, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { createSharedCart, getMySharedCarts, SHARED_CART_TYPE_SHIP, SHARED_CART_TYPE_SHORE } from '@/api/order/sharedCart'
 import { getPage as getAddressPage } from '@/api/user/address'
 import hrNavbar from '@/components/hr-navbar/index.vue'
@@ -26,13 +27,11 @@ import { useShipContextStore } from '@/store/shipContextStore'
 import {
   cartActionLabel,
   cartDeadlineView,
-  cartStatusLabel,
   cartStatusTheme,
   groupSharedCarts,
   isCartCollecting,
   isShoreCart,
   sharedCartLocationLabel,
-  sharedCartTitleLabel,
 } from '@/utils/shared-cart'
 import { formatCallTime } from '@/utils/vessel-call-time'
 
@@ -60,6 +59,44 @@ interface ShoreAddress {
 
 const authStore = useAuthStore()
 const shipContextStore = useShipContextStore()
+const { t } = useI18n()
+
+/** 状态码 → 词条 key：状态取值来自服务端，文案按当前语言渲染 */
+const CART_STATUS_KEYS: Record<string, string> = {
+  1: 'draft',
+  2: 'collecting',
+  3: 'waitingConfirm',
+  4: 'submitted',
+  5: 'closed',
+  6: 'completed',
+}
+
+function cartStatusText(status?: null | string) {
+  const key = status ? CART_STATUS_KEYS[status] : ''
+  if (!key)
+    return status ? t('sharedCart.common.status.unknown') : ''
+  return t(`sharedCart.common.status.${key}`)
+}
+
+function cartActionText(cart: SharedCart, now: Date) {
+  // 动作文案由 utils 按当前语言取好（动作码 → 词条唯一来源在 shared-cart.ts）；
+  // 页面不再以中文动作词做查表，否则切到英文后词表必然查不中。
+  return cartActionLabel(cart, now)
+}
+
+function cartTitle(cart: SharedCart) {
+  if (isShoreCart(cart))
+    return t('sharedCart.common.shoreTitle')
+  return cart.vesselName || t('sharedCart.common.titleLoading')
+}
+
+function sectionTitle(key: string) {
+  return t(`sharedCart.common.section.${key}Title`)
+}
+
+function sectionHint(key: string) {
+  return t(`sharedCart.common.section.${key}Hint`)
+}
 
 /** 每秒推进的时间基准：卡片倒计时与紧急分档都要自己走，页面上没有别的定时器 */
 const { now: tickNow } = useCountdownTicker()
@@ -111,7 +148,7 @@ const cardViews = computed<Record<string, CardView>>(() => {
   const map: Record<string, CardView> = {}
   for (const cart of records.value) {
     map[cart.id] = {
-      action: cartActionLabel(cart, now),
+      action: cartActionText(cart, now),
       deadline: cartDeadlineView(cart, now),
       expiresPoint: isCartCollecting(cart.status) && cart.expiresAt
         ? formatCallTime(cart.expiresAt, now)
@@ -206,7 +243,7 @@ function submitCreate() {
     return
   const isShore = createState.cartType === SHARED_CART_TYPE_SHORE
   if (isShore && !createState.addressId) {
-    uni.showToast({ title: '请选择收货地址', icon: 'none' })
+    uni.showToast({ title: t('sharedCart.list.addressRequired'), icon: 'none' })
     return
   }
   if (!isShore && !shipTypeReady.value) {
@@ -227,7 +264,9 @@ function submitCreate() {
       // 同船/同一发起人已有进行中的采购时，服务端复用该购物车而非新建，
       // 需明确告知用户是被并入，避免误以为刚创建了一个新的。
       uni.showToast({
-        title: cart?.adoptedExisting ? '已有进行中采购，已为你打开' : '已创建',
+        title: cart?.adoptedExisting
+          ? t('sharedCart.list.adoptedExisting')
+          : t('sharedCart.list.created'),
         icon: 'none',
       })
       if (cart?.id) {
@@ -258,7 +297,7 @@ onPullDownRefresh(() => {
 
 <template>
   <view class="shared-cart-list">
-    <hr-navbar title="共享购物车" />
+    <hr-navbar :title="t('sharedCart.list.navTitle')" />
 
     <!--
       发起上下文条：回答「这一单送到哪」。这不是一张独立卡片——
@@ -269,30 +308,30 @@ onPullDownRefresh(() => {
     <view class="hero">
       <view class="hero__head">
         <text class="hero__vessel">
-          {{ shipContextStore.vesselName || '合并采购' }}
+          {{ shipContextStore.vesselName || t('sharedCart.list.mergedPurchase') }}
         </text>
         <view
           v-if="shipContextStore.hasVesselContext"
           class="hero__switch"
           @tap="shipPickerVisible = true"
         >
-          切换
+          {{ t('sharedCart.list.switch') }}
         </view>
       </view>
 
       <!-- 上下文齐备时补一句「这单会送到哪」，比只显示船名更有用 -->
       <view v-if="shipContextStore.hasVesselContext" class="hero__location">
         <text class="i-carbon:location hero__icon" />
-        <text>{{ shipContextStore.portName || '港口待定' }} {{ shipContextStore.berth }}</text>
+        <text>{{ shipContextStore.portName || t('sharedCart.common.portPending') }} {{ shipContextStore.berth }}</text>
       </view>
       <view v-else class="hero__location">
         <text class="i-carbon:location hero__icon" />
-        <text>未绑定船舶：可按岸上收货地址发起企业合并采购</text>
+        <text>{{ t('sharedCart.list.noVesselHint') }}</text>
       </view>
 
       <view class="hero__cta" @tap="openCreate">
         <text class="i-carbon:add hero__cta-icon" />
-        <text>发起共享购物车</text>
+        <text>{{ t('sharedCart.list.startCart') }}</text>
       </view>
     </view>
 
@@ -301,14 +340,14 @@ onPullDownRefresh(() => {
       <view class="section__head">
         <view class="section__title-row">
           <text class="section__title">
-            {{ section.title }}
+            {{ sectionTitle(section.key) }}
           </text>
           <text class="section__count">
             {{ section.carts.length }}
           </text>
         </view>
         <text class="section__hint">
-          {{ section.hint }}
+          {{ sectionHint(section.key) }}
         </text>
       </view>
 
@@ -323,28 +362,28 @@ onPullDownRefresh(() => {
         <view class="card__head">
           <view class="card__vessel-wrap">
             <text class="card__vessel">
-              {{ sharedCartTitleLabel(cart) || '船舶信息加载中' }}
+              {{ cartTitle(cart) }}
             </text>
             <!-- 自己发起的单标一下，同船多人时才知道这单该找谁 -->
             <text v-if="cart.viewerIsOwner" class="card__badge">
-              我发起
+              {{ t('sharedCart.common.ownerTag') }}
             </text>
             <!-- 岸上企业单标类型，与船供单在混排列表里区分开 -->
             <text v-else-if="isShoreCart(cart)" class="card__badge card__badge--shore">
-              岸上
+              {{ t('sharedCart.common.shoreTag') }}
             </text>
           </view>
           <view
             class="card__status"
             :style="`background:${cartStatusTheme(cart.status).bg};color:${cartStatusTheme(cart.status).text}`"
           >
-            {{ cartStatusLabel(cart.status) }}
+            {{ cartStatusText(cart.status) }}
           </view>
         </view>
 
         <view class="card__location">
           <text class="i-carbon:location card__icon" />
-          <text>{{ sharedCartLocationLabel(cart) || '港口待定' }}</text>
+          <text>{{ sharedCartLocationLabel(cart) || t('sharedCart.common.portPending') }}</text>
         </view>
 
         <!--
@@ -365,13 +404,13 @@ onPullDownRefresh(() => {
             v-if="cardViews[cart.id]?.expiresPoint"
             class="card__deadline-point"
           >
-            （{{ cardViews[cart.id]?.expiresPoint }}）
+            {{ t('sharedCart.common.deadlinePoint', { point: cardViews[cart.id]?.expiresPoint }) }}
           </text>
         </view>
 
         <view class="card__foot">
           <text class="card__meta">
-            {{ cart.itemCount ?? 0 }} 项商品 · {{ cart.memberCount ?? 0 }} 名成员
+            {{ t('sharedCart.common.itemMember', { items: cart.itemCount ?? 0, members: cart.memberCount ?? 0 }) }}
           </text>
           <!-- 主操作给出动词，用户不点进去也知道这一步会发生什么 -->
           <view class="card__action">
@@ -382,7 +421,7 @@ onPullDownRefresh(() => {
 
         <!-- 编号是受理号性质的参考信息：放最底且弱化，不占视线 -->
         <text class="card__no">
-          编号 {{ cart.cartNo }}
+          {{ t('sharedCart.common.cartNo', { no: cart.cartNo }) }}
         </text>
       </view>
     </view>
@@ -390,34 +429,34 @@ onPullDownRefresh(() => {
     <!-- 状态区分：加载中 / 加载失败 / 未登录 / 空，四者文案不混用 -->
     <view v-if="loading && records.length === 0" class="state">
       <text class="state__text">
-        加载中...
+        {{ t('common.loading') }}
       </text>
     </view>
     <view v-else-if="loadFailed && records.length === 0" class="state">
       <text class="state__text">
-        加载失败，请检查网络后重试
+        {{ t('sharedCart.list.loadFailed') }}
       </text>
       <view class="state__retry" @tap="fetchList">
-        重新加载
+        {{ t('common.retry') }}
       </view>
     </view>
     <view v-else-if="!authStore.isLoggedIn" class="state">
       <text class="state__text">
-        登录后可查看共享购物车
+        {{ t('sharedCart.list.loginRequired') }}
       </text>
       <view class="state__retry" @tap="goLogin">
-        去登录
+        {{ t('sharedCart.list.goLogin') }}
       </view>
     </view>
     <view v-else-if="showEmpty" class="state">
       <text class="state__text">
-        还没有共享购物车
+        {{ t('sharedCart.list.emptyTitle') }}
       </text>
       <text class="state__desc">
-        发起一单与伙伴合并采购，由确认人统一提交订单
+        {{ t('sharedCart.list.emptyDesc') }}
       </text>
       <view class="state__cta" @tap="openCreate">
-        发起共享购物车
+        {{ t('sharedCart.list.startCart') }}
       </view>
     </view>
 
@@ -433,10 +472,10 @@ onPullDownRefresh(() => {
     >
       <view class="sheet">
         <text class="sheet__title">
-          发起共享购物车
+          {{ t('sharedCart.list.startCart') }}
         </text>
         <text class="sheet__desc">
-          创建后 24 小时内有效，超时自动关闭。成员可分别加购，由确认人统一提交合并订单。
+          {{ t('sharedCart.list.createDesc') }}
         </text>
 
         <!-- 车类型：船供整车绑船+靠港，岸上企业绑收货地址；未绑船时岸上可选、船供引导去选船 -->
@@ -447,10 +486,10 @@ onPullDownRefresh(() => {
             @tap="switchCartType('1')"
           >
             <text class="sheet__type-title">
-              船供整车
+              {{ t('sharedCart.list.typeShip') }}
             </text>
             <text class="sheet__type-desc">
-              送靠港泊位
+              {{ t('sharedCart.list.typeShipDesc') }}
             </text>
           </view>
           <view
@@ -459,10 +498,10 @@ onPullDownRefresh(() => {
             @tap="switchCartType('2')"
           >
             <text class="sheet__type-title">
-              岸上企业
+              {{ t('sharedCart.list.typeShore') }}
             </text>
             <text class="sheet__type-desc">
-              送收货地址
+              {{ t('sharedCart.list.typeShoreDesc') }}
             </text>
           </view>
         </view>
@@ -475,15 +514,15 @@ onPullDownRefresh(() => {
         <!-- 岸上：收货地址单选列表（配送终点与范围校验都以所选地址为准） -->
         <template v-else>
           <view class="sheet__label">
-            收货地址
+            {{ t('sharedCart.list.shippingAddress') }}
           </view>
           <view v-if="createState.addressLoading && createState.addresses.length === 0" class="sheet__addr-state">
-            地址加载中...
+            {{ t('sharedCart.list.addressLoading') }}
           </view>
           <view v-else-if="createState.addresses.length === 0" class="sheet__addr-state">
-            <text>还没有收货地址，企业采购需要一个可配送的收货地址</text>
+            <text>{{ t('sharedCart.list.noAddress') }}</text>
             <view class="sheet__addr-add" @tap="toAddressForm">
-              去新增地址
+              {{ t('sharedCart.list.addAddress') }}
             </view>
           </view>
           <scroll-view v-else scroll-y class="sheet__addr-list">
@@ -503,7 +542,7 @@ onPullDownRefresh(() => {
                     {{ item.telephone }}
                   </text>
                   <text v-if="item.isDefault === '1'" class="sheet__addr-default">
-                    默认
+                    {{ t('sharedCart.list.defaultAddress') }}
                   </text>
                 </view>
                 <view class="sheet__addr-detail">
@@ -516,30 +555,30 @@ onPullDownRefresh(() => {
               />
             </view>
             <view class="sheet__addr-add" @tap="toAddressForm">
-              + 新增地址
+              {{ t('sharedCart.list.addAddressInline') }}
             </view>
           </scroll-view>
         </template>
 
         <view class="sheet__label">
-          备注（选填）
+          {{ t('sharedCart.list.remarkLabel') }}
         </view>
         <input
           v-model="createState.remark"
           class="sheet__input"
-          placeholder="如：本次补给含甲板部需求"
+          :placeholder="t('sharedCart.list.remarkPlaceholder')"
           :maxlength="120"
         >
         <view class="sheet__actions">
           <button class="sheet__cancel !m-0" @tap="createState.visible = false">
-            取消
+            {{ t('common.cancel') }}
           </button>
           <view
             class="sheet__ok"
             :class="{ 'sheet__ok--busy': createState.submitting }"
             @tap="submitCreate"
           >
-            {{ createState.submitting ? '创建中...' : '创建' }}
+            {{ createState.submitting ? t('sharedCart.list.creating') : t('sharedCart.list.create') }}
           </view>
         </view>
       </view>

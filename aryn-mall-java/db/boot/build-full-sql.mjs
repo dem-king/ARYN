@@ -132,6 +132,11 @@ const sections = [
   ['共享购物车岸上企业车（车类型/地址快照/岸上唯一性）', '159shared_cart_shore_enterprise_incremental.sql'],
   ['积分体系增强（全局配置/排除清单/过期记账与清零任务）', '160points_global_config_incremental.sql'],
   ['积分兑换（积分兑优惠券）', '161points_exchange_incremental.sql'],
+  ['员工账号悬挂部门修复', '162employee_dept_repair_incremental.sql'],
+  ['充值套餐档位上移（5000/10000/20000）', '163recharge_config_tiers_incremental.sql'],
+  ['首页金刚区图标放大', '164home_tabnav_icon_size_incremental.sql'],
+  ['支付配置与售后退款唯一约束', '168payment_hardening_incremental.sql'],
+  ['清理历史 MinIO 数据残留', '169clear_stale_minio_urls_incremental.sql'],
 ];
 
 const normalize = (content) => content.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim();

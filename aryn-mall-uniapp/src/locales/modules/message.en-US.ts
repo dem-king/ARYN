@@ -1,0 +1,77 @@
+export default {
+  message: {
+    nav: {
+      center: 'Messages',
+      noticeDetail: 'Notification',
+      chat: 'Live Support',
+    },
+    hub: {
+      unreadTitle: 'You have {count} unread',
+      allRead: 'No unread messages',
+      tip: 'Order updates, offers and support replies will show up here.',
+    },
+    tabs: {
+      notice: 'Notifications',
+      support: 'Support',
+    },
+    notice: {
+      inbox: 'In-app notifications',
+      markAllRead: 'Mark all read',
+      loadEarlier: 'Load earlier notifications',
+      empty: 'No notifications yet',
+      systemSender: 'System',
+      important: 'Important',
+      category: {
+        order: 'Order',
+        refund: 'Refund',
+        promotion: 'Offers',
+        vessel: 'Vessel',
+        delivery: 'Delivery',
+        system: 'System',
+        other: 'Notice',
+      },
+    },
+    support: {
+      listTitle: 'Support chats',
+      mallSupport: 'Mall Support',
+      startHint: 'Start a chat',
+      loadHistory: 'Load earlier chats',
+      empty: 'No support chats yet',
+      start: 'Contact Support',
+    },
+    chat: {
+      title: 'Live Support',
+      me: 'Me',
+      sync: 'Messages synced in real time',
+      reconnecting: 'Network unstable, messages may be delayed',
+      waiting: 'Waiting for an agent',
+      label: 'Support chat',
+      loadEarlier: 'Load earlier messages',
+      establishing: 'Connecting you to support…',
+      composerHint: 'Send images, products, orders or refunds',
+      inputPlaceholder: 'Type a message',
+      send: 'Send',
+    },
+    noticeDetail: {
+      reply: 'Reply / Contact Support',
+    },
+    systemMessage: 'System message',
+    sending: 'Sending…',
+    sendFailedRetry: 'Failed to send, tap to retry',
+    businessCard: {
+      type: {
+        notice: 'Notice',
+        order: 'Order',
+        product: 'Product',
+        refund: 'Refund',
+      },
+      detail: {
+        notice: 'Notification details',
+        order: 'Order details',
+        product: 'Product details',
+        refund: 'Refund details',
+      },
+      tapForStatus: 'Tap to view latest status',
+    },
+  },
+}

@@ -1,0 +1,137 @@
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+*~
+
+# Logs
+logs/
+*.log
+/log/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Java
+target/
+*.class
+*.jar
+*.war
+*.ear
+*.zip
+*.tar.gz
+*.rar
+*.bak
+
+# Node
+node_modules/
+yarn.lock
+package-lock.json
+dist/
+build/
+*.tsbuildinfo
+
+# UniApp/HBuilderX
+unpackage/
+
+# Environment
+.env.local
+.env.*.local
+
+#编译中间产物
+*.d.ts
+!aryn-mall-uniapp/src/api/globals.d.ts
+!aryn-mall-ui/apps/web-ele/src/typings/*.d.ts
+!aryn-mall-ui/internal/tailwind-config/src/*.d.ts
+!aryn-mall-ui/packages/@core/base/typings/*.d.ts
+!aryn-mall-ui/packages/@core/base/typings/src/*.d.ts
+!aryn-mall-ui/packages/stores/*.d.ts
+!aryn-mall-ui/packages/types/*.d.ts
+*.d.cts
+*.d.mts
+*.js.map
+
+# Test
+coverage/
+aryn-mall-ui/apps/web-ele/test-results/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+env/
+.venv/
+
+# Maven
+.mvn/
+mvnw
+mvnw.cmd
+
+# Docker
+.docker/
+
+# Database
+*.db
+*.sqlite
+*.db-journal
+
+# Archives
+*.zip
+*.tar
+*.gz
+.preferences
+
+# AI project intelligence (generated locally)
+graphify-out/
+.ua/
+.understand-anything/
+.codex/hooks.json
+.zcode/
+
+# Local runtime artifacts (file upload storage and tool outputs)
+aryn-mall-java/aryn-boot/aryn/
+.workbuddy-ai/
+artifacts/
+
+# Turborepo local build cache
+.turbo/
+.eslintcache
+.stylelintcache
+
+# ===== ↑ 以上同步自 .gitignore（「从 .gitignore 同步」只重写以上部分）=====
+.git/
+.hg/
+.svn/
+bower_components/
+jspm_packages/
+site-packages/
+htmlcov/
+lcov-report/
+cmakefiles/
+cmake-build-*/
+bazel-*/
+pods/
+deriveddata/
+storybook-static/
+playwright-report/
+test-results/
+allure-results/
+allure-report/
+cdk.out/
+*.egg-info/
+*.dist-info/
+eggs/
+pip-wheel-metadata/
+wheels/
+# ----- ↑ 以上为 ZCode 默认排除规则（自定义规则请写在本行下方，不会被同步/恢复改动）-----
+# 自定义规则写在下方（本行提示可删除）

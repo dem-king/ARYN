@@ -20,7 +20,6 @@ import {
   ElInputNumber,
   ElMessage,
   ElMessageBox,
-  ElSwitch,
   ElTable,
   ElTableColumn,
 } from 'element-plus';
@@ -268,9 +267,6 @@ const getDetail = (id: string) => {
       state.form = {
         ...response,
         datatimes: [response.startTime, response.endTime],
-        // 秒杀硬互斥：无论存量数据是什么，编辑提交一律带 0/0（后端也会强制覆盖）
-        couponStackable: '0',
-        pointsStackable: '0',
         sessions: response.sessions?.map((session: SeckillSessionForm) => ({
           ...session,
           datatimes: [session.startTime, session.endTime],
@@ -345,22 +341,6 @@ if (editId) {
               show-word-limit
               placeholder="请输入活动描述（可选）"
             />
-          </ElFormItem>
-        </PageSection>
-
-        <!-- 优惠叠加：秒杀平台级硬互斥，只读展示（与 C 端秒杀规则页口径一致） -->
-        <PageSection title="优惠叠加">
-          <ElFormItem label="可用优惠券">
-            <ElSwitch :model-value="false" disabled />
-            <span class="stack-readonly-hint">
-              秒杀活动不支持与优惠券叠加（平台规则，不可配置）
-            </span>
-          </ElFormItem>
-          <ElFormItem label="可用积分抵现">
-            <ElSwitch :model-value="false" disabled />
-            <span class="stack-readonly-hint">
-              秒杀活动不支持积分抵现（平台规则，不可配置）
-            </span>
           </ElFormItem>
         </PageSection>
 
@@ -561,11 +541,5 @@ if (editId) {
       border-radius: 4px;
     }
   }
-}
-
-.stack-readonly-hint {
-  margin-left: 8px;
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
 }
 </style>

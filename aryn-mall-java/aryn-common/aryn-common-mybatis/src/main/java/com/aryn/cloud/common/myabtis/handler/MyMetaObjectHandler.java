@@ -3,6 +3,7 @@ package com.aryn.cloud.common.myabtis.handler;
 
 import com.baomidou.mybatisplus.core.handlers.MetaObjectHandler;
 import com.aryn.cloud.common.core.constant.CommonConstants;
+import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.entity.ArynUser;
 import com.aryn.cloud.common.security.util.SecurityUtils;
 import lombok.extern.slf4j.Slf4j;
@@ -32,6 +33,7 @@ public class MyMetaObjectHandler implements MetaObjectHandler {
 		fillValIfNullByName("createBy", getUserName(), metaObject, true);
 		fillValIfNullByName("updateBy", getUserName(), metaObject, true);
 		fillValIfNullByName("delFlag", CommonConstants.NO, metaObject, true);
+		fillTenantOnInsert(metaObject);
 	}
 
 	@Override
@@ -39,6 +41,30 @@ public class MyMetaObjectHandler implements MetaObjectHandler {
 		log.info("start update fill ....");
 		fillValIfNullByName("updateTime", LocalDateTime.now(), metaObject, true);
 		fillValIfNullByName("updateBy", getUserName(), metaObject, true);
+		clearTenantOnUpdate(metaObject);
+	}
+
+	/**
+	 * 写入侧强制使用当前租户，覆盖客户端在实体中携带的 tenantId。
+	 *
+	 * <p>租户上下文为空时不改动实体值，兼容任务/消息消费等显式指定租户的后台场景。
+	 */
+	private static void fillTenantOnInsert(MetaObject metaObject) {
+		String tenantId = ArynTenantContextHolder.getTenantId();
+		if (tenantId != null && !tenantId.isBlank() && metaObject.hasSetter("tenantId")) {
+			metaObject.setValue("tenantId", tenantId);
+		}
+	}
+
+	/**
+	 * 更新时清除实体 tenantId，默认字段策略下不会把 tenant_id 放进 SET 子句；
+	 * 从而禁止把当前租户的记录改挂到其它租户。
+	 */
+	private static void clearTenantOnUpdate(MetaObject metaObject) {
+		String tenantId = ArynTenantContextHolder.getTenantId();
+		if (tenantId != null && !tenantId.isBlank() && metaObject.hasSetter("tenantId")) {
+			metaObject.setValue("tenantId", null);
+		}
 	}
 
 	/**

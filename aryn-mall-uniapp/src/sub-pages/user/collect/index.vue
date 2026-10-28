@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { onLoad } from '@dcloudio/uni-app'
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { getPage } from '@/api/product/collect'
 import { shouldShowOriginalPrice } from '@/components/diy/price-display'
+import { stockHintText } from '@/utils/stock-display'
 
 definePage({
   name: 'user-collect',
@@ -26,6 +28,7 @@ interface List {
   createTime: string
   spuId: string
 }
+const { t } = useI18n()
 const list = ref<List[]>([])
 const router = useRouter()
 const globalLoading = useGlobalLoading()
@@ -36,7 +39,7 @@ onLoad(async () => {
   })
 })
 async function queryList(pageNo: number, pageSize: number) {
-  globalLoading.loading('加载中...')
+  globalLoading.loading(t('common.loading'))
   try {
     const response = await getPage({
       current: pageNo,
@@ -63,7 +66,7 @@ function toGoodsDetail(id: string) {
 <template>
   <z-paging ref="pagingRef" v-model="list" :auto="false" @query="queryList">
     <template #top>
-      <hr-navbar title="我的收藏" />
+      <hr-navbar :title="t('accountSettings.collect.navTitle')" />
     </template>
     <view v-for="(item, index) in list" :key="index" class="m-2 flex rounded-xl bg-white px-2 py-4 dark:bg-[var(--wot-dark-background2)]" @click="toGoodsDetail(item.spuId)">
       <template v-if="item.goodsSpu">
@@ -80,7 +83,7 @@ function toGoodsDetail(id: string) {
                 ￥{{ item.goodsSpu.originalPrice }}
               </text>
             </view>
-            <wd-text size="22rpx" :text="`库存 ${item.goodsSpu.stock}`" />
+            <wd-text v-if="stockHintText(item.goodsSpu.stock)" size="22rpx" :text="stockHintText(item.goodsSpu.stock)" />
           </view>
           <view class="mt-2 flex justify-end">
             <wd-text size="24rpx" :text="item.createTime" />

@@ -21,6 +21,12 @@ public class DiscountGoodsVO {
 	@Schema(description = "商品SKU ID")
 	private String skuId;
 
+	@Schema(description = "商品名称")
+	private String spuName;
+
+	@Schema(description = "商品图片列表")
+	private String[] spuUrls;
+
 	@Schema(description = "商品图片")
 	private String goodsImage;
 

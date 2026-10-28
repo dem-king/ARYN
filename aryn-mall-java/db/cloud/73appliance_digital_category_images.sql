@@ -1,7 +1,7 @@
 -- 悦航购家用电器/手机数码类目图片回填（Cloud 微服务模式）
 -- 目标库：aryn_product（类目在 aryn_product，素材在 aryn_upms）
 -- 背景：191/192 段 9 个类目（家用电器/手机数码/电视/空调/冰箱/手机/智能设备/无人机/电脑）
---       原 category_pic 指向已失效的 MinIO 域名 minio.Aetheryn.cn，本次回填为本机存储 URL。
+--       原 category_pic 指向已失效的 MinIO 域名 已失效的外部存储域名，本次回填为本机存储 URL。
 -- 内容：更新 category_pic，并在 sys_material 素材库登记同一批图片，使后台「素材中心」可见可复用。
 -- 图片实体：db/assets/appliance-digital-category-images/（清单见该目录 manifest.tsv）
 -- 部署方式：将 stored_file（uuid.jpg）放入文件存储根目录 /data/aryn/uploads/{TENANT}/；本脚本只写库。

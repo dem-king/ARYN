@@ -8,6 +8,7 @@ import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.log.annotation.SysLog;
 import com.aryn.cloud.upms.api.entity.SysTenantPackage;
 import com.aryn.cloud.upms.service.ISysTenantPackageService;
+import com.aryn.cloud.upms.support.PlatformTenantGuard;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.AllArgsConstructor;
@@ -29,6 +30,8 @@ public class SysTenantPackageController {
 
 	private final ISysTenantPackageService sysTenantPackageService;
 
+	private final PlatformTenantGuard platformTenantGuard;
+
 	@Operation(summary = "查询全部租户套餐")
 	@GetMapping("/list")
 	public Result list(SysTenantPackage sysTenantPackage) {
@@ -39,6 +42,7 @@ public class SysTenantPackageController {
 	@SaCheckPermission("upms:tenantpackage:page")
 	@GetMapping("/page")
 	public Result page(Page page, SysTenantPackage sysTenantPackage) {
+		platformTenantGuard.requirePlatformTenant();
 		return Result.success(sysTenantPackageService.page(page, Wrappers.query(sysTenantPackage)));
 	}
 
@@ -46,6 +50,7 @@ public class SysTenantPackageController {
 	@SaCheckPermission("upms:tenantpackage:get")
 	@GetMapping("/{id}")
 	public Result getById(@PathVariable String id) {
+		platformTenantGuard.requirePlatformTenant();
 		return Result.success(sysTenantPackageService.getById(id));
 	}
 
@@ -54,6 +59,7 @@ public class SysTenantPackageController {
 	@SaCheckPermission("upms:tenantpackage:add")
 	@PostMapping
 	public Result add(@RequestBody SysTenantPackage sysTenantPackage) {
+		platformTenantGuard.requirePlatformTenant();
 		return Result.success(sysTenantPackageService.save(sysTenantPackage));
 	}
 
@@ -62,6 +68,7 @@ public class SysTenantPackageController {
 	@SaCheckPermission("upms:tenantpackage:edit")
 	@PutMapping
 	public Result edit(@RequestBody SysTenantPackage sysTenantPackage) {
+		platformTenantGuard.requirePlatformTenant();
 		return Result.success(sysTenantPackageService.updateById(sysTenantPackage));
 	}
 
@@ -70,6 +77,7 @@ public class SysTenantPackageController {
 	@SaCheckPermission("upms:tenantpackage:del")
 	@DeleteMapping("/{id}")
 	public Result del(@PathVariable String id) {
+		platformTenantGuard.requirePlatformTenant();
 		return Result.success(sysTenantPackageService.removeById(id));
 	}
 

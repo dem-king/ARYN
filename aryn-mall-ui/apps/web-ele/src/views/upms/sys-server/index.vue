@@ -1,7 +1,16 @@
 <script lang="ts" setup>
 import type { EchartsUIType } from '@vben/plugins/echarts';
 
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
+import {
+  computed,
+  onActivated,
+  onDeactivated,
+  onMounted,
+  onUnmounted,
+  reactive,
+  ref,
+  watch,
+} from 'vue';
 
 import { EchartsUI, useEcharts } from '@vben/plugins/echarts';
 
@@ -485,6 +494,10 @@ onMounted(() => {
   startTimer();
 });
 
+// keepAlive 缓存后离开页面不会 unmount，轮询必须挂到激活态上，
+// 否则切去其它页面后仍会在后台按间隔请求
+onDeactivated(stopTimer);
+onActivated(startTimer);
 onUnmounted(stopTimer);
 </script>
 

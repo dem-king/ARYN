@@ -80,8 +80,9 @@ public class ArynRefundListener implements RocketMQListener<String> {
 			OrderRefund orderRefund = orderRefundService
 				.getOne(Wrappers.<OrderRefund>lambdaQuery().eq(OrderRefund::getRefundTradeNo, refundTradeMo));
 			if (null == orderRefund) {
-				log.warn("order not found! orderNo: " + refundTradeMo);
-				return;
+				// 退款单由订单侧事务写入，渠道通知可能先于事务提交到达；
+				// 此时 ACK 会永久丢失退款结果，必须抛出异常让消息重投。
+				throw new ArynBusinessException("退款单尚未就绪，等待重试: " + refundTradeMo);
 			}
 			OrderItemEntity orderItemEntity = orderItemService.getById(orderRefund.getOrderItemId());
 			if (null == orderItemEntity) {
@@ -99,6 +100,11 @@ public class ArynRefundListener implements RocketMQListener<String> {
 					throw new ArynBusinessException("退款状态更新失败，请重试");
 				}
 			}
+			else if (OrderArrivalStatusEnum.NOT_REFUNDED.getCode().equals(orderRefund.getArrivalStatus())) {
+				// 订单侧审核事务尚未提交时，退款单已可见但到账状态仍是「未退款」；
+				// ACK 会让退款结果永久丢失，等待事务提交后重投。
+				throw new ArynBusinessException("退款单尚未进入退款中，等待重试: " + refundTradeMo);
+			}
 			else if (!OrderArrivalStatusEnum.REFUND_SUCCESS.getCode().equals(orderRefund.getArrivalStatus())) {
 				log.warn("refund status is not refundable, refundTradeNo: {}", refundTradeMo);
 				return;
@@ -108,6 +114,13 @@ public class ArynRefundListener implements RocketMQListener<String> {
 				if (!orderItemService.updateById(orderItemEntity)) {
 					throw new ArynBusinessException("订单商品退款状态更新失败，请重试");
 				}
+			}
+
+			// 取消后到账的补偿退款：库存、优惠券、营销锁定和积分已由取消链路释放，
+			// 这里只落退款状态，不能再广播退款成功事件，否则会二次回补库存/券。
+			if (OrderStatusEnum.CANCELED.getCode().equals(orderInfo.getStatus())) {
+				log.info("订单[{}]已取消，退款结果仅落状态，不重复释放业务资源", orderInfo.getId());
+				return;
 			}
 
 			// 买赠赠品（gift_flag=1，0 元）不走现金退款，不能参与「是否全部退款」判定：

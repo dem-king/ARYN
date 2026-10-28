@@ -96,9 +96,6 @@ export function createDefaultForm() {
     datatimes: [] as string[],
     startTime: '',
     endTime: '',
-    // 秒杀平台级硬互斥：券/积分一律不可叠（后端保存时也会强制覆盖为 0）
-    couponStackable: '0',
-    pointsStackable: '0',
     sessions: [createDefaultSessionItem()],
   };
 }

@@ -11,6 +11,7 @@ import {
 } from 'element-plus';
 
 import { delObj, editObj, getPage } from '#/api/upms/material-group';
+import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 
 const emit = defineEmits(['initGroup']);
 
@@ -84,6 +85,8 @@ const del = (id: string) => {
 defineExpose({
   initPage,
 });
+
+useKeepAliveRefresh(initPage);
 </script>
 <template>
   <div class="hx-layout-container-auto hx-layout-container-view">

@@ -2,6 +2,7 @@
 import type { GoodsWaterfallProps } from '@/components/diy/retail-types'
 
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 import {
   loadGoodsWaterfall,
@@ -12,6 +13,7 @@ import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
 import QuickCartButton from '@/components/quick-cart-button/index.vue'
 import { useDiyPagedLoadMore } from '@/composables/useDiyPagedLoadMore'
 import { useDiyStyle } from '@/composables/useDiyStyle'
+import { stockHintText } from '@/utils/stock-display'
 
 const props = defineProps({
   showData: {
@@ -20,6 +22,7 @@ const props = defineProps({
   },
 })
 
+const { t } = useI18n()
 const componentProps = computed(() => props.showData as unknown as GoodsWaterfallProps)
 
 // 手选模式（manual）只渲染运营勾选的固定商品；自动模式由 z-paging 分页追加，实现无限滚动
@@ -70,18 +73,15 @@ function openGoods(id: string) {
 }
 
 /**
- * 卡片信息 chip：规格 / 现货。
+ * 卡片信息 chip：只展示规格。
  *
- * 只在这两类信息确实存在时才渲染对应 chip —— 接口没返回就不编造，
- * 避免出现「现货 0」这类误导性文案。字段来源见 retail-normalizers。
+ * 库存绝对数不外露，售罄/低库存提示在下方另起一行（见 utils/stock-display）；
  * 运费（免配送费）不在商品卡片上展示，口径统一以商详 / 结算页为准。
  */
 function cardTags(item: any): string[] {
   const tags: string[] = []
   if (item.specsInfo)
     tags.push(String(item.specsInfo))
-  if (item.stock > 0)
-    tags.push(`现货 ${item.stock}`)
   return tags
 }
 </script>
@@ -121,7 +121,7 @@ function cardTags(item: any): string[] {
             <view v-if="shouldShowSubtitle(item.name, item.subTitle)" class="waterfall-subtitle">
               {{ item.subTitle }}
             </view>
-            <!-- 信息 chip：规格 / 现货（字段缺失时整行不渲染） -->
+            <!-- 信息 chip：仅规格（库存绝对数不外露，低库存另起一行） -->
             <view v-if="cardTags(item).length > 0" class="waterfall-tags">
               <text
                 v-for="tag in cardTags(item)"
@@ -146,8 +146,8 @@ function cardTags(item: any): string[] {
                     ¥{{ item.originalPrice }}
                   </text>
                 </view>
-                <text v-if="componentProps.showSales" class="waterfall-sales">
-                  已售{{ item.sales }}
+                <text v-if="stockHintText(item.stock)" class="waterfall-sales">
+                  {{ stockHintText(item.stock) }}
                 </text>
               </view>
               <!-- 快捷加购（单规格直加，多规格弹层） -->
@@ -159,7 +159,7 @@ function cardTags(item: any): string[] {
         </view>
         <template #empty>
           <view class="waterfall-empty">
-            暂无商品
+            {{ t('diy.common.noProducts') }}
           </view>
         </template>
       </z-paging>

@@ -15,6 +15,7 @@ import {
 import { delObj, getPage } from '#/api/product/goods-specs-value';
 import PageFilterPanel from '#/components/page/page-filter-panel.vue';
 import PageToolbar from '#/components/page/page-toolbar.vue';
+import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 
 const props = defineProps({
   specsId: {
@@ -97,6 +98,8 @@ const del = (id: string) => {
 defineExpose({
   initPage,
 });
+
+useKeepAliveRefresh(initPage);
 </script>
 <template>
   <div class="layout-padding-auto layout-padding-view">

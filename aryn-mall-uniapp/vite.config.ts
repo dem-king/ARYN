@@ -159,6 +159,9 @@ export default async (mode: ConfigEnv) => {
           from: 'wot-design-uni',
           imports: ['useToast', 'useMessage', 'useNotify', 'CommonUtil'],
         }, {
+          from: 'vue-i18n',
+          imports: ['useI18n'],
+        }, {
           from: 'alova/client',
           imports: ['usePagination', 'useRequest'],
         }],

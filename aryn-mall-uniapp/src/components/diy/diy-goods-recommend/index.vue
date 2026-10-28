@@ -2,6 +2,7 @@
 import type { GoodsRecommendProps } from '@/components/diy/retail-types'
 
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 import { loadGoodsRecommend } from '@/components/diy/retail-data'
@@ -20,6 +21,7 @@ const props = defineProps({
   },
 })
 
+const { t } = useI18n()
 const componentProps = computed(() => props.showData as unknown as GoodsRecommendProps)
 const dynamicStyles = useDiyStyle(computed(() => componentProps.value.commonStyle))
 
@@ -81,7 +83,7 @@ function originalPriceText(item: any) {
               lazy-load
             />
             <view v-else class="gr-pic gr-pic--empty">
-              商品
+              {{ t('diy.common.product') }}
             </view>
             <view class="gr-name">
               {{ item.name }}

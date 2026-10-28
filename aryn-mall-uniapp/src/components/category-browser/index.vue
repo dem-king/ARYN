@@ -21,6 +21,7 @@
  */
 import type { CategoryLocateTarget } from '@/store/categoryLocateStore'
 import { onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { getActiveTree } from '@/api/product/category'
 import CategoryAllSheet from '@/components/category-all-sheet/index.vue'
 import CategoryIconStrip from '@/components/category-icon-strip/index.vue'
@@ -42,6 +43,7 @@ const props = withDefaults(defineProps<Props>(), {
   showBack: false,
 })
 
+const { t } = useI18n()
 const router = useRouter()
 const authStore = useAuthStore()
 const shoppingCartStore = useShoppingCartStore()
@@ -209,7 +211,7 @@ const sheetTopOffset = computed(() => searchNavbarRef.value?.placeholderHeight ?
       ref="searchNavbarRef"
       :left-arrow="props.showBack"
       :disabled="true"
-      placeholder="搜索商品"
+      :placeholder="t('catalog.searchProducts')"
       :search-btn="true"
       @search="toSearch"
       @focus="toSearch"
@@ -271,8 +273,8 @@ const sheetTopOffset = computed(() => searchNavbarRef.value?.placeholderHeight ?
           </text>
         </view>
         <view v-if="treeLoaded && subCategories.length === 0" class="category-rail-empty">
-          <wd-icon name="apps" size="38rpx" color="#b5bac3" />
-          <text>暂无子类目</text>
+          <wd-icon name="layers" size="38rpx" color="#b5bac3" />
+          <text>{{ t('catalog.noSubcategories') }}</text>
         </view>
       </scroll-view>
 

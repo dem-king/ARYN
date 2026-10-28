@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, getCurrentInstance, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { getPage as getAppraisePage, getCount } from '@/sub-pages/api/product/appraise'
 import { formatTime } from '@/utils/index'
 
@@ -20,6 +21,7 @@ interface Emits {
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
 const router = useRouter()
+const { t, locale } = useI18n()
 const goodsAppraiseList = ref<any[]>([])
 const appraiseCount = ref<AppraiseCount>(emptyCount())
 
@@ -92,16 +94,20 @@ const positiveRateText = computed(() => {
 })
 
 const filterOptions = computed(() => [
-  { value: 'good', label: '好评', count: Number(appraiseCount.value.goodCount) || 0 },
-  { value: 'neutral', label: '中评', count: Number(appraiseCount.value.badCount) || 0 },
-  { value: 'bad', label: '差评', count: Number(appraiseCount.value.negativeCount) || 0 },
-  { value: 'pic', label: '有图', count: Number(appraiseCount.value.imageCount) || 0 },
+  { value: 'good', label: t('product.review.good'), count: Number(appraiseCount.value.goodCount) || 0 },
+  { value: 'neutral', label: t('product.review.neutral'), count: Number(appraiseCount.value.badCount) || 0 },
+  { value: 'bad', label: t('product.review.bad'), count: Number(appraiseCount.value.negativeCount) || 0 },
+  { value: 'pic', label: t('product.review.withImage'), count: Number(appraiseCount.value.imageCount) || 0 },
 ])
 
 function formatCount(value: number | string | null | undefined) {
   const count = Number(value) || 0
-  if (count >= 10000)
-    return `${(count / 10000).toFixed(1).replace(/\.0$/, '')}万`
+  if (count >= 10000) {
+    // 中文按「万」，英文按「K」：同一数量级用各自习惯的短单位，避免窄屏换行
+    const english = locale.value === 'en-US'
+    const scaled = count / (english ? 1000 : 10000)
+    return `${scaled.toFixed(1).replace(/\.0$/, '')}${english ? 'K' : '万'}`
+  }
   return String(count)
 }
 
@@ -111,7 +117,7 @@ function scoreOf(value: any) {
 }
 
 function avatarText(nickname: string) {
-  return String(nickname || '匿').slice(0, 1)
+  return String(nickname || t('product.review.anonymous')).slice(0, 1)
 }
 
 function onRateTypeChange(value: string) {
@@ -172,11 +178,11 @@ defineExpose({
   <view id="scroll-comment" class="comment-card bg-white dark:bg-[var(--wot-dark-background2)]">
     <view class="comment-head">
       <view class="comment-head__title">
-        <text>用户评价</text>
+        <text>{{ t('product.reviews') }}</text>
         <text class="comment-head__count">({{ formatCount(reviewTotal) }})</text>
       </view>
       <view v-if="hasReviews" class="comment-head__more" @click="toAppraise()">
-        <text>查看全部</text>
+        <text>{{ t('product.viewAll') }}</text>
         <wd-icon :size="12" name="arrow-right" color="var(--wot-cell-arrow-color)" />
       </view>
     </view>
@@ -190,7 +196,7 @@ defineExpose({
               {{ positiveRateText }}
             </text>
           </view>
-          <text class="comment-summary__rate-label">好评率</text>
+          <text class="comment-summary__rate-label">{{ t('product.positiveRate') }}</text>
         </view>
         <view class="comment-summary__grid">
           <view
@@ -225,7 +231,7 @@ defineExpose({
               </view>
               <view class="comment-item__user-meta">
                 <text class="comment-item__nickname">
-                  {{ item.nickname || '匿名用户' }}
+                  {{ item.nickname || t('product.review.anonymous') }}
                 </text>
                 <view v-if="scoreOf(item.goodsScore) > 0" class="comment-item__stars">
                   <wd-rate :model-value="scoreOf(item.goodsScore)" :num="5" readonly size="12px" />
@@ -237,7 +243,7 @@ defineExpose({
 
           <view class="comment-item__content-row">
             <view class="comment-item__content">
-              {{ item.content || '该用户未填写评价' }}
+              {{ item.content || t('product.review.emptyContent') }}
             </view>
             <!-- 1~2 张图放在文字右侧，避免短评被拉成一大块空白 -->
             <view
@@ -288,7 +294,7 @@ defineExpose({
         hover-class="comment-all--pressed"
         @click="toAppraise()"
       >
-        <text>查看全部 {{ formatCount(reviewTotal) }} 条评价</text>
+        <text>{{ t('product.review.viewAll', { count: formatCount(reviewTotal) }) }}</text>
         <wd-icon :size="12" name="arrow-right" color="var(--wot-cell-arrow-color)" />
       </view>
     </template>
@@ -298,10 +304,10 @@ defineExpose({
         <wd-icon name="chat" size="44rpx" color="#b5bac3" />
       </view>
       <view class="comment-empty__title">
-        还没有评价
+        {{ t('product.review.empty') }}
       </view>
       <view class="comment-empty__desc">
-        购买后可以在这里分享真实体验
+        {{ t('product.review.emptyDesc') }}
       </view>
     </view>
   </view>

@@ -18,6 +18,7 @@ import type { PurchaseDecision, SpecRowView } from '@/utils/goods-purchase'
 // @ts-expect-error: mp-html type declaration issue
 import mpHtml from 'mp-html/dist/uni-app/components/mp-html/mp-html'
 import { computed, nextTick, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import { getById as getSpuById } from '@/api/product/spu'
 import { useCartDestination } from '@/composables/useCartDestination'
@@ -49,6 +50,7 @@ const emit = defineEmits<{
 }>()
 
 const authStore = useAuthStore()
+const { t } = useI18n()
 /** 单规格直加购与列表页/商详页共用同一份规则（MOQ/步长/登录守卫） */
 const { quickAdd } = useQuickCart()
 const { submitCartAdd } = useCartDestination()
@@ -77,7 +79,9 @@ const showOriginalPrice = computed(
 
 /** 规格行视图：与商详页同口径——单规格展示真实规格值（无规格值时整行隐藏），多规格引导选择 */
 const purchaseDecision = ref<PurchaseDecision>({ needChoose: true, specText: '' })
-const specRow = computed<SpecRowView>(() => resolveSpecRow(purchaseDecision.value, ''))
+const specRow = computed<SpecRowView>(() =>
+  resolveSpecRow(purchaseDecision.value, t('search.selectSpecs')),
+)
 
 async function loadSpu(id: string) {
   if (!id)
@@ -255,7 +259,7 @@ async function handleSkuAdd(data: any) {
 
         <!-- 图文详情（完整商品详情不再跳新页面，直接在弹层内阅读） -->
         <wd-divider class="detail-sheet-divider">
-          商品详情
+          {{ t('search.productDetail') }}
         </wd-divider>
         <view class="detail-sheet-rich">
           <mp-html :content="goodsSpu.description" />
@@ -271,7 +275,7 @@ async function handleSkuAdd(data: any) {
           @click="handleAddCart"
         >
           <wd-icon name="plus" size="32rpx" color="#fff" />
-          加入购物车
+          {{ t('search.addToCart') }}
         </view>
       </view>
 
@@ -285,6 +289,8 @@ async function handleSkuAdd(data: any) {
         sku-list-name="goodsSkus"
         spec-list-name="specList"
         :mode="2"
+        :add-cart-text="t('search.addToCart')"
+        :no-stock-text="t('search.soldOut')"
         @add-cart="handleSkuAdd"
       />
     </view>

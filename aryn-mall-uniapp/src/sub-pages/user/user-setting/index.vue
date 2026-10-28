@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
+import { useI18n } from 'vue-i18n'
 
 definePage({
   name: 'user-setting-index',
@@ -11,6 +12,8 @@ definePage({
 })
 
 const router = useRouter()
+const { t } = useI18n()
+const { localeLabel, chooseLanguage } = useLocaleSwitch()
 const userStore = useUserStore()
 const authStore = useAuthStore()
 const globalLoading = useGlobalLoading()
@@ -19,7 +22,7 @@ const { confirm } = useGlobalMessage()
 const maskedPhone = computed(() => {
   const p = userStore.getUserPhone
   if (!p)
-    return '未绑定'
+    return t('userSetting.notBound')
   return p.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2')
 })
 
@@ -41,16 +44,16 @@ function toMemberCenter() {
 
 function logout() {
   confirm({
-    title: '退出系统',
-    msg: '确认退出系统？',
+    title: t('userSetting.logoutTitle'),
+    msg: t('userSetting.logoutMessage'),
     closeOnClickModal: false,
-    confirmButtonText: '确认',
-    cancelButtonText: '取消',
+    confirmButtonText: t('common.confirm'),
+    cancelButtonText: t('common.cancel'),
     success: (res) => {
       if (res.action === 'confirm') {
-        globalLoading.loading('退出中...')
+        globalLoading.loading(t('userSetting.loggingOut'))
         authStore.userLogout().then(() => {
-          showSuccess('退出成功')
+          showSuccess(t('userSetting.logoutSuccess'))
           router.replaceAll({ name: 'home' })
         })
       }
@@ -65,7 +68,7 @@ onShow(() => {
 
 <template>
   <view>
-    <hr-navbar title="个人信息" />
+    <hr-navbar :title="t('userSetting.title')" />
 
     <!-- 顶部个人卡片 -->
     <view class="m-2 rounded-xl bg-white p-4" @click="toUserDetail">
@@ -78,7 +81,7 @@ onShow(() => {
         <view class="ml-20rpx flex-1">
           <view class="flex items-center">
             <view class="text-16px">
-              {{ userStore.getUserNickname || '未设置昵称' }}
+              {{ userStore.getUserNickname || t('userSetting.nicknameNotSet') }}
             </view>
             <view v-if="userStore.getLevelName" class="level-tag ml-2">
               {{ userStore.getLevelName }}
@@ -97,12 +100,12 @@ onShow(() => {
             <view class="flex items-center">
               <wd-icon name="vip-1" size="24px" color="var(--wot-color-theme)" />
               <text class="ml-10rpx">
-                会员中心
+                {{ t('userSetting.memberCenter') }}
               </text>
             </view>
           </template>
           <view class="text-14px text-gray-400">
-            积分{{ userStore.getPoint }} | 余额{{ userStore.getBalance }}
+            {{ t('userSetting.pointsBalance', { points: userStore.getPoint, balance: userStore.getBalance }) }}
           </view>
         </wd-cell>
       </wd-cell-group>
@@ -116,7 +119,7 @@ onShow(() => {
             <view class="flex items-center">
               <wd-icon name="mobile" size="24px" color="var(--wot-color-theme)" />
               <text class="ml-10rpx">
-                手机号码
+                {{ t('userSetting.phone') }}
               </text>
             </view>
           </template>
@@ -129,28 +132,41 @@ onShow(() => {
             <view class="flex items-center">
               <wd-icon name="lock-on" size="24px" color="var(--wot-color-theme)" />
               <text class="ml-10rpx">
-                修改密码
+                {{ t('userSetting.changePassword') }}
               </text>
             </view>
           </template>
-          <wd-text text="点击修改" size="13px" color="#909090" />
+          <wd-text :text="t('userSetting.tapToChange')" size="13px" color="#909090" />
         </wd-cell>
         <wd-cell is-link @click="toAddressList">
           <template #title>
             <view class="flex items-center">
               <wd-icon name="location" size="24px" color="var(--wot-color-theme)" />
               <text class="ml-10rpx">
-                地址管理
+                {{ t('userSetting.addressManagement') }}
               </text>
             </view>
           </template>
-          <wd-text text="立即设置" size="13px" color="#909090" />
+          <wd-text :text="t('userSetting.setNow')" size="13px" color="#909090" />
+        </wd-cell>
+        <wd-cell is-link @click="chooseLanguage">
+          <template #title>
+            <view class="flex items-center">
+              <wd-icon name="translate-bold" size="24px" color="var(--wot-color-theme)" />
+              <text class="ml-10rpx">
+                {{ t('common.language') }}
+              </text>
+            </view>
+          </template>
+          <view class="text-14px">
+            {{ localeLabel }}
+          </view>
         </wd-cell>
       </wd-cell-group>
     </view>
     <view class="m-4">
       <wd-button custom-class="bg-secondary! border-secondary!" block @click="logout">
-        退出登录
+        {{ t('userSetting.logout') }}
       </wd-button>
     </view>
   </view>

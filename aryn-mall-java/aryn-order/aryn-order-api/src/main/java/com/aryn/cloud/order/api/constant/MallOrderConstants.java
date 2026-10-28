@@ -43,6 +43,9 @@ public class MallOrderConstants {
 
 	public static final String OPERATE_STATUS_REFUND = "4";
 
+	/** 退款类型：1.仅退款；2.退货退款 */
+	public static final String REFUND_TYPE_ONLY_REFUND = "1";
+
 	/** 管理端订单导出单次最大订单数：防止全表导出拖垮内存与响应 */
 	public static final int EXPORT_MAX_ORDERS = 5000;
 

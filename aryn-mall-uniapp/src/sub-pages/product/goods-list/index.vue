@@ -19,6 +19,7 @@ import { onLoad } from '@dcloudio/uni-app'
  * 表现为「每个品牌点进去都是空列表」。因此改用 `/app/goodsbrand/filter-list`。
  */
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { getTree } from '@/api/product/category'
 import HrSearchNavbar from '@/components/hr-search-navbar/index.vue'
 import { getFilterList } from '@/sub-pages/api/product/brand'
@@ -39,6 +40,7 @@ interface State {
 }
 
 const router = useRouter()
+const { t } = useI18n()
 const categoryLocateStore = useCategoryLocateStore()
 const pagingRef = ref()
 const layout = ref(true)
@@ -203,7 +205,7 @@ onMounted(() => {
   <view class="goods-list-page">
     <hr-search-navbar
       v-model="state.queryParams.name"
-      placeholder="搜索"
+      :placeholder="t('catalog.search')"
       :placeholder-left="true"
       :focus="false"
       :disabled="true"
@@ -217,6 +219,24 @@ onMounted(() => {
       布局切换按钮常驻，不能跟着品牌条一起消失，否则该分类下无法切换栅格/列表。
     -->
     <view class="filter-bar">
+      <!--
+        分类入口：固定在品牌条左侧，用图标 + 竖分隔线同品牌胶囊区分。
+        原先放在行尾、与品牌胶囊同为灰底圆角，会被读成「又一个品牌」。
+      -->
+      <view
+        class="category-entry"
+        hover-class="category-entry--pressed"
+        :hover-stay-time="120"
+        @click="goCategoryPage"
+      >
+        <wd-icon name="layers" size="28rpx" color="#666" />
+        <text class="category-entry__text">
+          {{ t('catalog.categoryNav') }}
+        </text>
+        <wd-icon name="chevron-right" size="20rpx" color="#999" />
+      </view>
+      <!-- 品牌条隐藏时不再留分隔线，避免行首出现孤立的竖线 -->
+      <view v-if="showBrandFilter" class="filter-bar__divider" />
       <scroll-view v-if="showBrandFilter" scroll-x class="brand-scroll" :show-scrollbar="false">
         <view class="brand-list">
           <view
@@ -224,7 +244,7 @@ onMounted(() => {
             :class="state.queryParams.brandId === '' ? 'brand-item--active' : ''"
             @click="state.queryParams.brandId = ''"
           >
-            全部品牌
+            {{ t('catalog.allBrands') }}
           </view>
           <view
             v-for="brand in brandOptions"
@@ -243,11 +263,6 @@ onMounted(() => {
       </scroll-view>
       <!-- 无品牌可选时把空间让给切换按钮，避免右侧留一条空白 -->
       <view v-else class="brand-scroll brand-scroll--empty" />
-      <!-- 分类入口：查看全部类目（品牌条隐藏时也常驻，见 goCategoryPage） -->
-      <view class="category-entry" @click="goCategoryPage">
-        全部分类
-        <wd-icon name="arrow-right" size="24rpx" color="#666" />
-      </view>
       <view class="layout-toggle" @click="toggleLayout">
         <wd-icon :name="layout ? 'app' : 'server'" size="40rpx" color="#666" />
       </view>
@@ -330,13 +345,28 @@ onMounted(() => {
   flex: none;
   display: flex;
   align-items: center;
-  margin: 0 12rpx 0 16rpx;
-  padding: 10rpx 20rpx;
+  gap: 6rpx;
+  padding: 15rpx 0;
   font-size: 26rpx;
   color: #666;
   white-space: nowrap;
-  background: #f6f6f6;
-  border-radius: 8rpx;
+  transition: opacity 160ms ease;
+
+  &--pressed {
+    opacity: 0.6;
+  }
+
+  &__text {
+    line-height: 1;
+  }
+}
+
+.filter-bar__divider {
+  flex: none;
+  width: 1rpx;
+  height: 32rpx;
+  margin: 0 16rpx;
+  background: #ebedf0;
 }
 
 .layout-toggle {

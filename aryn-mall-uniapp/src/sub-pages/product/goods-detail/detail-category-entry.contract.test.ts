@@ -50,10 +50,10 @@ describe('goods detail review and category entry', () => {
 
   it('keeps the review summary, full-list entry and empty state', () => {
     const comment = source(COMMENT)
-    expect(comment).toContain('好评率')
+    expect(comment).toContain('product.positiveRate')
     expect(comment).toContain('positiveRateText')
-    expect(comment).toContain('还没有评价')
-    expect(comment).toContain('查看全部')
+    expect(comment).toContain('product.review.empty')
+    expect(comment).toContain('product.viewAll')
   })
 
   it('applies the rate type passed from the review chips', () => {

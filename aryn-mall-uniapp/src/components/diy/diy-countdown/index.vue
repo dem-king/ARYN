@@ -2,27 +2,30 @@
 import type { CountdownProps } from '@/components/diy/retail-types'
 
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { retailCommonStyle } from '@/components/diy/retail-types'
 import { formatRemainingTime, useCountdownTicker } from '@/composables/useCountdown'
 import { useDiyStyle } from '@/composables/useDiyStyle'
+import { resolveTargetTimestamp } from '@/utils/datetime'
 
 const props = withDefaults(defineProps<{ showData?: Partial<CountdownProps> }>(), {
   showData: () => ({}),
 })
+const { t } = useI18n()
 const showData = computed<CountdownProps>(() => ({
   commonStyle: props.showData.commonStyle || retailCommonStyle,
-  completedText: props.showData.completedText || '活动已结束',
+  completedText: props.showData.completedText || t('diy.countdown.completedText'),
   count: Number(props.showData.count) || 1,
   dataSource: props.showData.dataSource || { mode: 'manual' },
   emptyStrategy: props.showData.emptyStrategy || 'placeholder',
   invalidStrategy: props.showData.invalidStrategy || 'placeholder',
   targetTime: props.showData.targetTime || '',
-  title: props.showData.title || '距活动结束',
+  title: props.showData.title || t('diy.countdown.title'),
 }))
 const dynamicStyles = useDiyStyle(computed(() => showData.value.commonStyle))
 const { now } = useCountdownTicker()
 const remaining = computed(() => formatRemainingTime(showData.value.targetTime, now.value))
-const invalid = computed(() => !showData.value.targetTime || Number.isNaN(Date.parse(showData.value.targetTime)))
+const invalid = computed(() => !showData.value.targetTime || resolveTargetTimestamp(showData.value.targetTime) === null)
 const shouldRender = computed(() => !invalid.value || showData.value.invalidStrategy !== 'hide')
 </script>
 

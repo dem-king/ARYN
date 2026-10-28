@@ -260,7 +260,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="p-4">
+  <div class="absolute inset-0 overflow-y-auto">
     <DashboardHeader
       v-model:range-key="rangeKey"
       v-model:custom-start="customStart"
@@ -274,45 +274,48 @@ onMounted(() => {
       @export="handleExport"
     />
 
-    <ElAlert
-      v-if="loadError"
-      :title="loadError"
-      type="warning"
-      show-icon
-      :closable="false"
-      class="mb-4"
-    />
+    <!-- 页面留白收在这层，滚动根不留 padding，时间范围条才能完全贴顶吸住 -->
+    <div class="px-4 pb-4">
+      <ElAlert
+        v-if="loadError"
+        :title="loadError"
+        type="warning"
+        show-icon
+        :closable="false"
+        class="mb-4"
+      />
 
-    <DashboardSkeleton v-if="loading && !hasLoaded" />
+      <DashboardSkeleton v-if="loading && !hasLoaded" />
 
-    <template v-else>
-      <div class="mb-4">
-        <ProductCoreMetrics
-          :scale="scaleData"
-          :sales="salesData"
-          :previous="previousSalesData"
-          :delta-label="deltaLabel"
-          :loading="loading"
-        />
-      </div>
-
-      <ProductLifecycle :data="lifecycleData" :loading="loading" />
-
-      <ProductTrend :data="trendData" :loading="loading" />
-
-      <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div class="lg:col-span-2">
-          <ProductSalesRanking
-            :visit-rank="visitRankData"
-            :stock-warning="stockWarningData"
+      <template v-else>
+        <div class="mb-4">
+          <ProductCoreMetrics
+            :scale="scaleData"
+            :sales="salesData"
+            :previous="previousSalesData"
+            :delta-label="deltaLabel"
             :loading="loading"
           />
         </div>
 
-        <div class="lg:col-span-1">
-          <ProductPraiseRanking :data="praiseRankData" :loading="loading" />
+        <ProductLifecycle :data="lifecycleData" :loading="loading" />
+
+        <ProductTrend :data="trendData" :loading="loading" />
+
+        <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <div class="lg:col-span-2">
+            <ProductSalesRanking
+              :visit-rank="visitRankData"
+              :stock-warning="stockWarningData"
+              :loading="loading"
+            />
+          </div>
+
+          <div class="lg:col-span-1">
+            <ProductPraiseRanking :data="praiseRankData" :loading="loading" />
+          </div>
         </div>
-      </div>
-    </template>
+      </template>
+    </div>
   </div>
 </template>

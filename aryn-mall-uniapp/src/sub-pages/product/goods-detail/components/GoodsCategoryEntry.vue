@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { getPage } from '@/api/product/spu'
 import { useCategoryLocateStore } from '@/store/categoryLocateStore'
 
@@ -18,6 +19,7 @@ const props = withDefaults(defineProps<Props>(), {
 
 const categoryLocateStore = useCategoryLocateStore()
 const products = ref<any[]>([])
+const { t } = useI18n()
 
 const visible = computed(() => Boolean(props.categoryFirstId || props.categorySecondId))
 
@@ -27,8 +29,8 @@ const categoryTitle = computed(() => {
   if (source)
     return source
   if (!props.categorySecondId)
-    return '同类好物'
-  return String(products.value[0]?.categoryName || '').trim() || '同类好物'
+    return t('product.similarGoods')
+  return String(products.value[0]?.categoryName || '').trim() || t('product.similarGoods')
 })
 
 /**
@@ -116,11 +118,11 @@ function goCategory() {
         {{ categoryTitle }}
       </view>
       <view class="category-entry__desc">
-        发现更多同类好物
+        {{ t('product.similarGoodsDesc') }}
       </view>
     </view>
     <view class="category-entry__action">
-      <text>去逛逛</text>
+      <text>{{ t('product.browse') }}</text>
       <wd-icon name="arrow-right" size="12px" color="#fff" />
     </view>
   </view>

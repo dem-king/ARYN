@@ -15,6 +15,7 @@ import {
 import { getPage } from '#/api/user/points-record';
 import PageFilterPanel from '#/components/page/page-filter-panel.vue';
 import PageToolbar from '#/components/page/page-toolbar.vue';
+import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 import { formatTriggerScene } from '#/utils/trigger-scene';
 
 const RightToolbar = defineAsyncComponent(
@@ -66,6 +67,8 @@ const initPage = async () => {
 };
 
 initPage();
+
+useKeepAliveRefresh(initPage);
 </script>
 <template>
   <div class="hx-layout-container">

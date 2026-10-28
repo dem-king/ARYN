@@ -8,6 +8,7 @@ import com.aryn.cloud.promotion.api.entity.PromotionActivity;
 import com.aryn.cloud.promotion.api.vo.PromotionCalculationVO;
 import com.aryn.cloud.promotion.mapper.PromotionActivityMapper;
 import com.aryn.cloud.promotion.service.PromotionEngineService;
+import com.aryn.cloud.user.api.vo.MemberLevelSnapshotVO;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -52,6 +53,15 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 	private com.aryn.cloud.product.api.remote.RemoteGoodsSkuService remoteGoodsSkuService;
 
 	/**
+	 * 会员等级快照走 user 域 Dubbo 接口（定义在 user-api、实现挂 user-biz）。
+	 *
+	 * <p>必须用<b>非 final 字段</b>+@DubboReference（构造器注入远程接口曾在 boot 启动失败），
+	 * 与 remoteBuyerProfileService 同款写法。等级查询失败一律按无资格处理（fail-closed）。
+	 */
+	@DubboReference
+	private com.aryn.cloud.user.api.remote.RemoteMemberLevelService remoteMemberLevelService;
+
+	/**
 	 * 试算：额度（预算/每人限享/赠品总量）不足的活动不参与计算。
 	 *
 	 * <p>剔除后重新计算，保证「确认页展示的价格 = 下单可成交的价格」；
@@ -73,17 +83,21 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 						.ge(PromotionActivity::getEndTime, now)
 						.in(PromotionActivity::getActivityType,
 								List.of(PromotionActivity.TYPE_LADDER_PRICE, PromotionActivity.TYPE_SHIP_WHOLE_DISCOUNT,
-										PromotionActivity.TYPE_GIFT, PromotionActivity.TYPE_NEWBIE_PRICE)));
+										PromotionActivity.TYPE_GIFT, PromotionActivity.TYPE_NEWBIE_PRICE,
+										PromotionActivity.TYPE_MEMBER_PRICE)));
 		Map<String, PromotionActivity> activityById = activities.stream()
 			.collect(Collectors.toMap(PromotionActivity::getId, activity -> activity, (left, right) -> left));
 		Set<String> excluded = new HashSet<>();
 		Map<String, Long> userUsage = new HashMap<>();
 		Map<String, Integer> giftUsage = new HashMap<>();
+		// 会员等级快照按本次 preview 缓存：额度重算会多次调用 calculate，缓存须跨轮复用，
+		// 避免同一请求对同一用户/等级重复打 Dubbo。
+		Map<String, MemberLevelSnapshotVO> memberLevelCache = new HashMap<>();
 		while (true) {
 			List<PromotionActivity> candidates = activities.stream()
 				.filter(activity -> !excluded.contains(activity.getId()))
 				.toList();
-			PromotionCalculationVO result = calculate(context, candidates);
+			PromotionCalculationVO result = calculate(context, candidates, memberLevelCache);
 			PromotionActivity exhausted = firstExhausted(context, result, activityById, userUsage, giftUsage);
 			if (exhausted == null || !excluded.add(exhausted.getId())) {
 				return result;
@@ -102,11 +116,13 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 		return result;
 	}
 
-	private PromotionCalculationVO calculate(PromotionContextDTO context, List<PromotionActivity> activities) {
+	private PromotionCalculationVO calculate(PromotionContextDTO context, List<PromotionActivity> activities,
+			Map<String, MemberLevelSnapshotVO> memberLevelCache) {
 		PromotionCalculationVO result = emptyResult();
 		List<PromotionActivity> ladderHits = new ArrayList<>();
 		List<PromotionActivity> wholeHits = new ArrayList<>();
 		List<PromotionActivity> giftHits = new ArrayList<>();
+		List<PromotionActivity> memberHits = new ArrayList<>();
 		List<PromotionActivity> newbieHits = new ArrayList<>();
 		for (PromotionActivity activity : activities) {
 			if (!matchesScope(activity, context)) {
@@ -121,14 +137,21 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 			else if (PromotionActivity.TYPE_GIFT.equals(activity.getActivityType())) {
 				giftHits.add(activity);
 			}
+			else if (PromotionActivity.TYPE_MEMBER_PRICE.equals(activity.getActivityType())) {
+				memberHits.add(activity);
+			}
 			else if (PromotionActivity.TYPE_NEWBIE_PRICE.equals(activity.getActivityType())) {
 				newbieHits.add(activity);
 			}
 		}
 
 		applyBestLadderPrice(context, ladderHits, result);
-		// 新人价必须先于整船优惠落定：整船门槛要排除已享新人价的 SKU
-		applyBestNewbiePrice(context, newbieHits, result, new HashMap<>());
+		// 会员价是身份权益，优先于新人价与限时折扣：在阶梯价之后、新人价之前落价。
+		// 返回「已被会员价（含已由阶梯价定得更高的会员权益 SKU）锁定的 SKU」，
+		// 新人价合并时跳过，保证同 SKU 冲突时会员价优先（而非取更低价）。
+		Set<String> memberPricedSkuIds = applyBestMemberPrice(context, memberHits, result, memberLevelCache);
+		// 新人价必须先于整船优惠落定：整船门槛要排除已享新人价（及会员价）的 SKU
+		applyBestNewbiePrice(context, newbieHits, result, new HashMap<>(), memberPricedSkuIds);
 		applyBestWholeDiscount(context, wholeHits, result);
 		applyBestGift(context, giftHits, result);
 		return result;
@@ -288,7 +311,7 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 	/**
 	 * 整船优惠：同类型取优惠金额最大者，按订单商品基价总额命中档位。
 	 *
-	 * <p>已享活动价（拼团/秒杀/限时折扣等外部活动价，以及本引擎产生的阶梯价/新人价）
+	 * <p>已享活动价（拼团/秒杀/限时折扣等外部活动价，以及本引擎产生的阶梯价/会员价/新人价）
 	 * 的 SKU 不计入门槛、也不参与后续分摊，避免活动价商品被整船优惠二次让利。
 	 */
 	private void applyBestWholeDiscount(PromotionContextDTO context, List<PromotionActivity> activities,
@@ -523,6 +546,211 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 	}
 
 	/**
+	 * 会员价：身份权益，在阶梯价之后、新人价之前落价。
+	 *
+	 * <p>资格判定：登录用户经 user 域 Dubbo 查当前等级 {sortOrder} 与活动门槛等级
+	 * {minLevelId → sortOrder}，用户等级 ≥ 门槛等级才可享；未登录/无等级/任一侧查询异常
+	 * 一律按无资格处理（fail-closed），不阻断结算。等级快照按本次 preview 内缓存，
+	 * 避免同请求多活动重复查库（不做跨请求缓存：等级随消费/积分变化，缓存会延迟权益生效）。
+	 *
+	 * <p>同类型多活动并存时取「相对当前基价节省额最大」的活动（与阶梯价/新人价同款口径）。
+	 * 同 SKU 已有阶梯价覆盖时取更低价（阶梯价更低则保留阶梯价，避免重复让利与同 SKU 多条覆盖）；
+	 * 会员价不低于当前基价（倒挂）时不产生覆盖，回退原价。
+	 *
+	 * @param memberLevelCache 本次 preview 内 用户/等级 → 等级快照（含 null，fail-closed 缓存）
+	 * @return 已被会员价锁定的 SKU 集合：这些 SKU 的新人价必须跳过（会员价优先），
+	 *         包含「资格达标且会员价低于基价」的 SKU，即使最终保留的是更低的阶梯价
+	 */
+	private Set<String> applyBestMemberPrice(PromotionContextDTO context, List<PromotionActivity> activities,
+			PromotionCalculationVO result, Map<String, MemberLevelSnapshotVO> memberLevelCache) {
+		if (activities.isEmpty() || !StringUtils.hasText(context.getUserId())) {
+			return Set.of();
+		}
+		PromotionActivity best = null;
+		JSONObject bestRules = null;
+		BigDecimal bestSaving = BigDecimal.ZERO;
+		for (PromotionActivity activity : activities) {
+			try {
+				JSONObject rules = JSONUtil.parseObj(activity.getRules());
+				JSONArray skus = rules.getJSONArray("skus");
+				if (skus == null || skus.isEmpty()) {
+					continue;
+				}
+				String minLevelId = rules.getStr("minLevelId");
+				if (!StringUtils.hasText(minLevelId)) {
+					continue;
+				}
+				if (!eligibleAsMember(context, minLevelId, memberLevelCache)) {
+					continue;
+				}
+				BigDecimal saving = memberSaving(context, skus);
+				if (best == null || saving.compareTo(bestSaving) > 0) {
+					bestSaving = saving;
+					best = activity;
+					bestRules = rules;
+				}
+			}
+			catch (Exception ex) {
+				log.warn("会员价活动[{}]规则解析失败，跳过: {}", activity.getId(), ex.getMessage());
+			}
+		}
+		if (best == null) {
+			return Set.of();
+		}
+		return mergeMemberOverrides(context, best, bestRules, result);
+	}
+
+	/** 会员价活动命中 SKU 相对当前基价的总节省额（仅统计真正降价的 SKU）。 */
+	private BigDecimal memberSaving(PromotionContextDTO context, JSONArray skus) {
+		BigDecimal saving = BigDecimal.ZERO;
+		for (Object element : skus) {
+			JSONObject sku = (JSONObject) element;
+			String skuId = sku.getStr("skuId");
+			BigDecimal price = sku.getBigDecimal("unitPrice");
+			if (!StringUtils.hasText(skuId) || price == null || price.signum() <= 0) {
+				continue;
+			}
+			for (PromotionContextDTO.SkuItem item : context.getSkuItems()) {
+				if (skuId.equals(item.getSkuId()) && price.compareTo(item.getSalesPrice()) < 0) {
+					saving = saving.add(item.getSalesPrice().subtract(price)
+							.multiply(BigDecimal.valueOf(item.getQuantity())));
+				}
+			}
+		}
+		return saving;
+	}
+
+	/**
+	 * 会员价覆盖合并：同 SKU 与阶梯价比较取更低价（阶梯价更低时保留阶梯价），
+	 * 逐 SKU 生成一条覆盖，避免改价链（applyPromotionLadder 按 skuId findFirst）出现随机覆盖。
+	 *
+	 * <p>会员价低于基价即按会员价落价并计入总让利；阶梯价更低时保留阶梯价（用户更优），
+	 * 但该 SKU 仍计入 {@code coveredSkuIds} 供新人价跳过。只有资格达标且会员价低于基价的
+	 * SKU 才会被锁定，倒挂回退（会员价 ≥ 基价）的 SKU 不锁定，新人价仍可对其生效。
+	 *
+	 * @return 已被会员价锁定的 SKU（含保留阶梯价更低价的情形，用于新人价跳过）
+	 */
+	private Set<String> mergeMemberOverrides(PromotionContextDTO context, PromotionActivity activity, JSONObject rules,
+			PromotionCalculationVO result) {
+		JSONArray skus = rules.getJSONArray("skus");
+		Set<String> coveredSkuIds = new HashSet<>();
+		BigDecimal saving = BigDecimal.ZERO;
+		for (Object element : skus) {
+			JSONObject sku = (JSONObject) element;
+			String skuId = sku.getStr("skuId");
+			BigDecimal price = sku.getBigDecimal("unitPrice");
+			if (!StringUtils.hasText(skuId) || price == null || price.signum() <= 0) {
+				continue;
+			}
+			for (PromotionContextDTO.SkuItem item : context.getSkuItems()) {
+				if (!skuId.equals(item.getSkuId())) {
+					continue;
+				}
+				// 倒挂回退：会员价不低于当前基价不产生覆盖（与新人价同款先例）
+				if (price.compareTo(item.getSalesPrice()) >= 0) {
+					continue;
+				}
+				// 同 SKU 已有阶梯价覆盖：取更低价（阶梯价更低则保留阶梯价，用户更优）
+				PromotionCalculationVO.UnitPriceOverride existing = findOverride(result, skuId);
+				if (existing != null && existing.getUnitPrice().compareTo(price) <= 0) {
+					// 该 SKU 已被列为会员权益锁定：新人价不得再覆盖（会员价优先语义）
+					coveredSkuIds.add(skuId);
+					continue;
+				}
+				if (existing != null) {
+					result.getLadderOverrides().remove(existing);
+				}
+				PromotionCalculationVO.UnitPriceOverride override = new PromotionCalculationVO.UnitPriceOverride();
+				override.setSkuId(skuId);
+				override.setUnitPrice(price);
+				override.setOriginalPrice(item.getSalesPrice());
+				override.setActivityId(activity.getId());
+				override.setActivityType(activity.getActivityType());
+				fillStackPolicy(override, activity);
+				result.getLadderOverrides().add(override);
+				coveredSkuIds.add(skuId);
+				saving = saving.add(item.getSalesPrice().subtract(price)
+						.multiply(BigDecimal.valueOf(item.getQuantity())));
+			}
+		}
+		if (coveredSkuIds.isEmpty()) {
+			return Set.of();
+		}
+		PromotionCalculationVO.ActivityDetail detail = new PromotionCalculationVO.ActivityDetail();
+		detail.setActivityId(activity.getId());
+		detail.setActivityType(activity.getActivityType());
+		detail.setActivityName(activity.getActivityName());
+		detail.setDiscountAmount(saving);
+		detail.setRuleSnapshot(JSONUtil.toJsonStr(rules));
+		result.getDetails().add(detail);
+		if (saving.compareTo(BigDecimal.ZERO) > 0) {
+			result.setTotalDiscount(result.getTotalDiscount().add(saving));
+		}
+		return coveredSkuIds;
+	}
+
+	private PromotionCalculationVO.UnitPriceOverride findOverride(PromotionCalculationVO result, String skuId) {
+		return result.getLadderOverrides()
+			.stream()
+			.filter(override -> override.getSkuId().equals(skuId))
+			.findFirst()
+			.orElse(null);
+	}
+
+	/**
+	 * 会员价资格：用户等级 sortOrder ≥ 活动门槛等级 sortOrder；未登录/无等级/任一侧查询异常
+	 * 一律不合格（fail-closed，避免越级白送权益）。等级快照按本次 preview 缓存。
+	 */
+	private boolean eligibleAsMember(PromotionContextDTO context, String minLevelId,
+			Map<String, MemberLevelSnapshotVO> cache) {
+		MemberLevelSnapshotVO userLevel = userLevel(context.getTenantId(), context.getUserId(), cache);
+		if (userLevel == null || userLevel.getSortOrder() == null) {
+			return false;
+		}
+		MemberLevelSnapshotVO requiredLevel = level(context.getTenantId(), minLevelId, cache);
+		if (requiredLevel == null || requiredLevel.getSortOrder() == null) {
+			return false;
+		}
+		return userLevel.getSortOrder() >= requiredLevel.getSortOrder();
+	}
+
+	/** 用户等级快照（本次 preview 缓存，含 null；异常按无等级缓存，fail-closed）。 */
+	private MemberLevelSnapshotVO userLevel(String tenantId, String userId,
+			Map<String, MemberLevelSnapshotVO> cache) {
+		String cacheKey = "user:" + userId;
+		if (cache.containsKey(cacheKey)) {
+			return cache.get(cacheKey);
+		}
+		MemberLevelSnapshotVO level = null;
+		try {
+			level = remoteMemberLevelService.getUserLevel(tenantId, userId);
+		}
+		catch (Exception ex) {
+			log.warn("会员价资格查询用户[{}]等级失败，按无资格处理: {}", userId, ex.getMessage());
+		}
+		cache.put(cacheKey, level);
+		return level;
+	}
+
+	/** 活动门槛等级快照（本次 preview 缓存，含 null；异常按无门槛缓存，fail-closed）。 */
+	private MemberLevelSnapshotVO level(String tenantId, String levelId,
+			Map<String, MemberLevelSnapshotVO> cache) {
+		String cacheKey = "level:" + levelId;
+		if (cache.containsKey(cacheKey)) {
+			return cache.get(cacheKey);
+		}
+		MemberLevelSnapshotVO level = null;
+		try {
+			level = remoteMemberLevelService.getLevelById(tenantId, levelId);
+		}
+		catch (Exception ex) {
+			log.warn("会员价资格查询等级[{}]失败，按无资格处理: {}", levelId, ex.getMessage());
+		}
+		cache.put(cacheKey, level);
+		return level;
+	}
+
+	/**
 	 * 新人专享价：资格校验通过后按 rules.skus 逐 SKU 覆盖单价。
 	 *
 	 * <p>资格判定（本租户未成功支付过订单 + 注册 N 天内）走买家画像远程接口，
@@ -535,10 +763,15 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 	 * details 为空 → 锁不写入 → 在途唯一与实际优惠都失效（真实缺陷，仅端到端可现）。
 	 * 故命中只要求「资格通过 且 规则中配置了该 SKU」，是否产生覆盖另判。
 	 *
-	 * @param eligibilityCache 本次 preview 内 registerWithinDays → 是否具备资格
+	 * <p><b>会员价优先</b>：已被会员价锁定的 SKU（{@code memberPricedSkuIds}）在本活动中
+	 * 完全跳过——即使新人价更低也不得覆盖，且不计入本活动的节省额/命中判定，
+	 * 避免「同一 SKU 两条覆盖」的随机改价与错误让利额。
+	 *
+	 * @param eligibilityCache      本次 preview 内 registerWithinDays → 是否具备资格
+	 * @param memberPricedSkuIds    已被会员价锁定的 SKU（会员价优先，新人价跳过）
 	 */
 	private void applyBestNewbiePrice(PromotionContextDTO context, List<PromotionActivity> activities,
-			PromotionCalculationVO result, Map<Integer, Boolean> eligibilityCache) {
+			PromotionCalculationVO result, Map<Integer, Boolean> eligibilityCache, Set<String> memberPricedSkuIds) {
 		if (activities.isEmpty() || !StringUtils.hasText(context.getUserId())) {
 			return;
 		}
@@ -555,7 +788,7 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 				if (!eligibleAsNewbie(context, rules.getInt("registerWithinDays"), eligibilityCache)) {
 					continue;
 				}
-				BigDecimal saving = newbieSaving(context, newbieSkus);
+				BigDecimal saving = newbieSaving(context, newbieSkus, memberPricedSkuIds);
 				// 资格通过即视为命中（saving 为 0 表示本次基价已等于活动价，即重放场景）；
 				// 多活动并存时仍取节省额最大者，节省额相同时取先出现的（稳定）
 				if (best == null || saving.compareTo(bestSaving) > 0) {
@@ -569,18 +802,23 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 			}
 		}
 		if (best != null) {
-			mergeNewbieOverrides(context, best, bestRules, result);
+			mergeNewbieOverrides(context, best, bestRules, result, memberPricedSkuIds);
 		}
 	}
 
-	/** 活动命中 SKU 相对当前基价的总节省额（仅统计真正降价的 SKU）。 */
-	private BigDecimal newbieSaving(PromotionContextDTO context, JSONArray newbieSkus) {
+	/**
+	 * 活动命中 SKU 相对当前基价的总节省额（仅统计真正降价的 SKU；
+	 * 已被会员价锁定的 SKU 不参与，会员价优先）。
+	 */
+	private BigDecimal newbieSaving(PromotionContextDTO context, JSONArray newbieSkus,
+			Set<String> memberPricedSkuIds) {
 		BigDecimal saving = BigDecimal.ZERO;
 		for (Object element : newbieSkus) {
 			JSONObject sku = (JSONObject) element;
 			String skuId = sku.getStr("skuId");
 			BigDecimal price = sku.getBigDecimal("price");
-			if (!StringUtils.hasText(skuId) || price == null || price.compareTo(BigDecimal.ZERO) < 0) {
+			if (!StringUtils.hasText(skuId) || price == null || price.compareTo(BigDecimal.ZERO) < 0
+					|| memberPricedSkuIds.contains(skuId)) {
 				continue;
 			}
 			for (PromotionContextDTO.SkuItem item : context.getSkuItems()) {
@@ -601,10 +839,12 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 	 * 下单链的第二次 preview（reserve 落锁）必须看到 detail 才会写 promotion_lock，
 	 * 否则在途唯一与优惠快照都会静默丢失。
 	 *
-	 * @return 是否命中（命中=活动覆盖了本单至少一个 SKU）
+	 * <p><b>会员价优先</b>：已被会员价锁定的 SKU 整体跳过（不覆盖、不计入命中与节省额）。
+	 *
+	 * @return 是否命中（命中=活动覆盖了本单至少一个未被会员价锁定的 SKU）
 	 */
 	private boolean mergeNewbieOverrides(PromotionContextDTO context, PromotionActivity activity, JSONObject rules,
-			PromotionCalculationVO result) {
+			PromotionCalculationVO result, Set<String> memberPricedSkuIds) {
 		JSONArray newbieSkus = rules.getJSONArray("skus");
 		BigDecimal saving = BigDecimal.ZERO;
 		boolean matched = false;
@@ -612,7 +852,8 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 			JSONObject sku = (JSONObject) element;
 			String skuId = sku.getStr("skuId");
 			BigDecimal price = sku.getBigDecimal("price");
-			if (!StringUtils.hasText(skuId) || price == null || price.compareTo(BigDecimal.ZERO) < 0) {
+			if (!StringUtils.hasText(skuId) || price == null || price.compareTo(BigDecimal.ZERO) < 0
+					|| memberPricedSkuIds.contains(skuId)) {
 				continue;
 			}
 			for (PromotionContextDTO.SkuItem item : context.getSkuItems()) {
@@ -664,13 +905,19 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 	}
 
 	/**
-	 * 按活动实体填充单价的叠加策略：新人专享（type=9）空值回落「不可叠」，
+	 * 按活动实体填充单价的叠加策略：
+	 * 新人专享（type=9）空值回落「不可叠」（防 0 元单），
+	 * 会员价（type=10）空值回落「可叠」（身份常态权益），
 	 * 其余类型（阶梯价等）回落「可叠」以维持现网行为。
 	 */
 	private void fillStackPolicy(PromotionCalculationVO.UnitPriceOverride override, PromotionActivity activity) {
-		com.aryn.cloud.promotion.api.enums.StackActivityTypeEnum type =
-				PromotionActivity.TYPE_NEWBIE_PRICE.equals(activity.getActivityType())
-						? com.aryn.cloud.promotion.api.enums.StackActivityTypeEnum.NEWBIE : null;
+		com.aryn.cloud.promotion.api.enums.StackActivityTypeEnum type = null;
+		if (PromotionActivity.TYPE_NEWBIE_PRICE.equals(activity.getActivityType())) {
+			type = com.aryn.cloud.promotion.api.enums.StackActivityTypeEnum.NEWBIE;
+		}
+		else if (PromotionActivity.TYPE_MEMBER_PRICE.equals(activity.getActivityType())) {
+			type = com.aryn.cloud.promotion.api.enums.StackActivityTypeEnum.MEMBER_PRICE;
+		}
 		boolean couponDefault = type == null || type.isDefaultCouponStackable();
 		boolean pointsDefault = type == null || type.isDefaultPointsStackable();
 		override.setCouponStackable(com.aryn.cloud.promotion.api.enums.StackActivityTypeEnum.resolve(

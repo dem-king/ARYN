@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onLoad, onShow, onUnload } from '@dcloudio/uni-app'
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { getRechargeOrder } from '@/sub-pages/api/user/recharge'
 
 definePage({
@@ -16,6 +17,7 @@ const CLOSED_TRADE_STATES = ['CLOSED', 'REVOKED', 'PAYERROR', 'REFUND']
 
 type Phase = 'closed' | 'fail' | 'paid' | 'pending'
 
+const { t } = useI18n()
 const loading = ref(true)
 const orderNo = ref('')
 const order = ref<any>({})
@@ -32,16 +34,16 @@ let autoCheckCount = 0
 const phaseTitle = computed(() => {
   switch (phase.value) {
     case 'paid': {
-      return '充值成功'
+      return t('accountMember.rechargeResult.paidTitle')
     }
     case 'closed': {
-      return '该笔支付未完成'
+      return t('accountMember.rechargeResult.closedTitle')
     }
     case 'fail': {
-      return '暂时无法确认支付结果'
+      return t('accountMember.rechargeResult.failTitle')
     }
     default: {
-      return '支付结果确认中'
+      return t('accountMember.rechargeResult.pendingTitle')
     }
   }
 })
@@ -49,16 +51,16 @@ const phaseTitle = computed(() => {
 const phaseDesc = computed(() => {
   switch (phase.value) {
     case 'paid': {
-      return '余额与赠送积分已到账'
+      return t('accountMember.rechargeResult.paidDesc')
     }
     case 'closed': {
-      return '款项未入账，可重新选择方案充值'
+      return t('accountMember.rechargeResult.closedDesc')
     }
     case 'fail': {
-      return '网络或支付渠道暂时不可用，可点击「重新查询」'
+      return t('accountMember.rechargeResult.failDesc')
     }
     default: {
-      return '款项已支付时余额会自动到账，无需停留在本页'
+      return t('accountMember.rechargeResult.pendingDesc')
     }
   }
 })
@@ -171,7 +173,13 @@ function recheck() {
 }
 
 function goBack() {
-  uni.navigateBack()
+  // 支付成功经 reLaunch 进入本页，页面栈为空时 navigateBack 无效
+  if (getCurrentPages().length > 1) {
+    uni.navigateBack()
+  }
+  else {
+    goMemberCenter()
+  }
 }
 
 function goMemberCenter() {
@@ -184,7 +192,7 @@ function goRecharge() {
 </script>
 
 <template>
-  <hr-navbar title="充值结果" />
+  <hr-navbar :title="t('accountMember.rechargeResult.title')" />
   <view v-if="!loading" class="result-container">
     <view class="text-center py-10">
       <view class="text-20px font-bold">
@@ -197,47 +205,47 @@ function goRecharge() {
     <view class="m-2 rounded-xl bg-white p-4">
       <view class="flex items-center justify-between py-1">
         <text class="text-13px text-gray-500">
-          充值单号
+          {{ t('accountMember.rechargeResult.orderNo') }}
         </text>
         <text class="text-13px">{{ order?.orderNo || orderNo }}</text>
       </view>
       <view class="flex items-center justify-between py-1">
         <text class="text-13px text-gray-500">
-          充值金额
+          {{ t('accountMember.rechargeResult.amount') }}
         </text>
         <text class="text-13px">￥{{ order?.rechargeAmount }}</text>
       </view>
       <view v-if="order?.giftAmount > 0" class="flex items-center justify-between py-1">
         <text class="text-13px text-gray-500">
-          赠送金额
+          {{ t('accountMember.rechargeResult.giftAmount') }}
         </text>
         <text class="text-13px">￥{{ order?.giftAmount }}</text>
       </view>
       <view v-if="order?.giftPoint > 0" class="flex items-center justify-between py-1">
         <text class="text-13px text-gray-500">
-          赠送积分
+          {{ t('accountMember.rechargeResult.giftPoints') }}
         </text>
         <text class="text-13px">{{ order?.giftPoint }}</text>
       </view>
     </view>
     <view class="m-2 flex items-center justify-center gap-3">
       <wd-button v-if="phase === 'closed'" type="primary" @click="goRecharge">
-        重新充值
+        {{ t('accountMember.rechargeResult.rechargeAgain') }}
       </wd-button>
       <template v-else-if="phase === 'paid'">
         <wd-button plain @click="goBack">
-          返回
+          {{ t('accountMember.rechargeResult.back') }}
         </wd-button>
         <wd-button type="primary" @click="goMemberCenter">
-          查看会员中心
+          {{ t('accountMember.rechargeResult.memberCenter') }}
         </wd-button>
       </template>
       <template v-else>
         <wd-button plain @click="goBack">
-          返回
+          {{ t('accountMember.rechargeResult.back') }}
         </wd-button>
         <wd-button :loading="checking" type="primary" @click="recheck">
-          重新查询
+          {{ t('accountMember.rechargeResult.recheck') }}
         </wd-button>
       </template>
     </view>

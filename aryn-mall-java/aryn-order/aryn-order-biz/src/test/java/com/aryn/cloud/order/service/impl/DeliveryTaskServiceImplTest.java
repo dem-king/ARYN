@@ -581,13 +581,16 @@ class DeliveryTaskServiceImplTest {
 		newTrip.setStatus(DeliveryTripStatusEnum.WAITING_LOAD.getCode());
 		when(tripService.getOne(any())).thenReturn(newTrip);
 
-		assertThat(service.reassign("task-1", "staff-new")).isTrue();
+		assertThat(service.reassign("task-1", "staff-new", "司机请假")).isTrue();
 
 		verify(tripService, never()).save(any());
 		// 原趟次少一单、新趟次多一单，两趟的单数都要重算
 		verify(tripService, times(2)).update(any());
 		verify(tripService).completeIfAllTasksSettled("trip-old");
-		verify(logService).save(any());
+		// 改派原因要随任务日志落库
+		ArgumentCaptor<DeliveryTaskLog> logCaptor = ArgumentCaptor.forClass(DeliveryTaskLog.class);
+		verify(logService).save(logCaptor.capture());
+		assertThat(logCaptor.getValue().getReasonDesc()).contains("李四").contains("司机请假");
 	}
 
 	@Test

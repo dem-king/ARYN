@@ -101,9 +101,6 @@ watch(
     <ElFormItem label="展示数量">
       <ElInputNumber v-model="form.count" :min="1" :max="20" />
     </ElFormItem>
-    <ElFormItem label="显示销量">
-      <ElSwitch v-model="form.showSales" />
-    </ElFormItem>
     <ElFormItem label="商品原价">
       <ElSwitch v-model="form.showOriginalPrice" />
     </ElFormItem>

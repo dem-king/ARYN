@@ -12,9 +12,9 @@ import { requestClient } from '#/api/request';
 import {
   formatMoney,
   formatSignedCommission,
-  getCommissionFlowText,
-  getWithdrawStatusText,
-} from '../../../../../../aryn-mall-uniapp/src/sub-pages/user/distribution/presentation';
+  getCommissionFlowKey,
+  getWithdrawStatusKey,
+} from '../../../../../../aryn-mall-uniapp/src/sub-pages/user/distribution/presentation-core';
 import { settleOrder } from './distribution-order';
 import { audit } from './distribution-withdraw';
 
@@ -70,11 +70,16 @@ describe('distribution transport and presentation contracts', () => {
     expectTypeOf<DistributionWithdrawRecord>().toHaveProperty('payoutTime');
   });
 
-  it('renders money, flow direction and withdraw status without mutating data', () => {
+  it('keeps money, flow direction and withdraw status mappings stable', () => {
     expect(formatMoney(-1.2)).toBe('-1.20');
     expect(formatSignedCommission(12.3, 'INCOME')).toBe('+12.30');
     expect(formatSignedCommission(4.5, 'EXPENSE')).toBe('-4.50');
-    expect(getCommissionFlowText('EXPENSE')).toBe('支出');
-    expect(getWithdrawStatusText('2')).toBe('已驳回');
+    // 文案由 C 端 i18n 渲染，这里锁住两端共用的翻译键。
+    expect(getCommissionFlowKey('EXPENSE')).toBe(
+      'accountSettings.distribution.flow.expense',
+    );
+    expect(getWithdrawStatusKey('2')).toBe(
+      'accountSettings.distribution.status.rejected',
+    );
   });
 });

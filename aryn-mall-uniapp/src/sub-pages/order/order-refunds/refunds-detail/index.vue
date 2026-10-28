@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onLoad } from '@dcloudio/uni-app'
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { getById } from '@/sub-pages/api/order/orderRefunds'
 import { customerServiceRoute } from '@/utils/message'
 
@@ -13,6 +14,7 @@ definePage({
 })
 const refundId = ref()
 const globalLoading = useGlobalLoading()
+const { t } = useI18n()
 const stepCurrent = ref(1)
 const loading = ref(false)
 const state = reactive<{ refunds: any }>({
@@ -24,7 +26,7 @@ onLoad((options) => {
 })
 async function getDetail() {
   loading.value = true
-  globalLoading.loading('加载中...')
+  globalLoading.loading(t('common.loading'))
   try {
     state.refunds = await getById(refundId.value)
     if (state.refunds.status === '1' || state.refunds.status === '2') {
@@ -39,53 +41,56 @@ async function getDetail() {
     globalLoading.close()
   }
 }
+const statusInfoMap = computed<
+  Record<string | number, { icon: string, title: string, desc: string }>
+>(() => ({
+  1: {
+    icon: 'money-circle',
+    title: t('afterSales.detail.status.pendingReview.title'),
+    desc: t('afterSales.detail.status.pendingReview.desc'),
+  },
+  2: {
+    icon: 'money-circle',
+    title: t('afterSales.detail.status.awaitingReturn.title'),
+    desc: t('afterSales.detail.status.awaitingReturn.desc'),
+  },
+  3: {
+    icon: 'logistics',
+    title: t('afterSales.detail.status.returnProcessing.title'),
+    desc: t('afterSales.detail.status.returnProcessing.desc'),
+  },
+  4: {
+    icon: 'logistics',
+    title: t('afterSales.detail.status.returnCompleted.title'),
+    desc: t('afterSales.detail.status.returnCompleted.desc'),
+  },
+  5: {
+    icon: 'money-circle',
+    title: t('afterSales.detail.status.refundProcessing.title'),
+    desc: t('afterSales.detail.status.refundProcessing.desc'),
+  },
+  6: {
+    icon: 'check-outline',
+    title: t('afterSales.detail.status.refundSuccess.title'),
+    desc: t('afterSales.detail.status.refundSuccess.desc'),
+  },
+  7: {
+    icon: 'close-outline',
+    title: t('afterSales.detail.status.returnFailed.title'),
+    desc: t('afterSales.detail.status.returnFailed.desc'),
+  },
+  8: {
+    icon: 'close-outline',
+    title: t('afterSales.detail.status.refundFailed.title'),
+    desc: t('afterSales.detail.status.refundFailed.desc'),
+  },
+}))
 function getStatusInfo(status: string) {
-  const statusMap: Record<
-    string | number,
-    { icon: string, title: string, desc: string }
-  > = {
-    1: { icon: 'money-circle', title: '售后申请中', desc: '请等待商家处理' },
-    2: {
-      icon: 'money-circle',
-      title: '待退货',
-      desc: '商家同意退货，请尽快退回商品',
-    },
-    3: {
-      icon: 'logistics',
-      title: '退货处理中',
-      desc: '退货正在处理中，请耐心等待',
-    },
-    4: {
-      icon: 'logistics',
-      title: '退货完成',
-      desc: '商品已退回，等待商家确认',
-    },
-    5: {
-      icon: 'money-circle',
-      title: '退款处理中',
-      desc: '退款正在处理中，请耐心等待',
-    },
-    6: {
-      icon: 'check-outline',
-      title: '退款成功',
-      desc: '退款已完成，资金将原路返回',
-    },
-    7: {
-      icon: 'close-outline',
-      title: '退货失败',
-      desc: '退货失败，请联系商家处理',
-    },
-    8: {
-      icon: 'close-outline',
-      title: '退款失败',
-      desc: '退款失败，请联系商家处理',
-    },
-  }
   return (
-    statusMap[status] || {
+    statusInfoMap.value[status] || {
       icon: 'money-circle',
-      title: '处理中',
-      desc: '请等待',
+      title: t('afterSales.detail.fallbackTitle'),
+      desc: t('afterSales.detail.fallbackDesc'),
     }
   )
 }
@@ -100,7 +105,7 @@ function toCustomerService() {
         image: state.refunds.orderItem?.picUrl || '',
         refundId: String(state.refunds.id),
         statusText: getStatusInfo(state.refunds.status).title,
-        title: state.refunds.orderItem?.spuName || '退款申请',
+        title: state.refunds.orderItem?.spuName || t('afterSales.detail.refundRequest'),
       },
     }),
   })
@@ -110,7 +115,7 @@ function toCustomerService() {
 <template>
   <view>
     <view v-if="!loading">
-      <hr-navbar title="退款详情" />
+      <hr-navbar :title="t('afterSales.detail.navTitle')" />
       <!-- 退款明细 -->
       <view
         class="h-200rpx flex items-center justify-center bg-primary text-white"
@@ -160,7 +165,7 @@ function toCustomerService() {
               </view>
               <view class="mt-auto flex items-center justify-between pt-10rpx">
                 <text class="text-12px">
-                  申请数量：{{ state.refunds.orderItem.buyQuantity }}
+                  {{ t('afterSales.detail.applyQty', { count: state.refunds.orderItem.buyQuantity }) }}
                 </text>
                 <wd-text
                   :text="state.refunds.refundAmount"
@@ -174,7 +179,7 @@ function toCustomerService() {
           </view>
           <wd-divider />
           <wd-cell-group>
-            <wd-cell title="申请退款">
+            <wd-cell :title="t('afterSales.detail.refundAmount')">
               <view>
                 <wd-text
                   :text="state.refunds.refundAmount"
@@ -185,24 +190,24 @@ function toCustomerService() {
                 />
               </view>
             </wd-cell>
-            <wd-cell title="申请时间">
+            <wd-cell :title="t('afterSales.detail.applyTime')">
               <view class="text-14px">
                 {{ state.refunds.createTime }}
               </view>
             </wd-cell>
-            <wd-cell title="申请原因">
+            <wd-cell :title="t('afterSales.detail.applyReason')">
               <view class="text-14px">
                 {{ state.refunds.refundReason }}
               </view>
             </wd-cell>
-            <wd-cell title="退款方式">
+            <wd-cell :title="t('afterSales.detail.refundMethod')">
               <view class="text-14px">
-                原支付返还
+                {{ t('afterSales.detail.originalPayment') }}
               </view>
             </wd-cell>
             <wd-cell
               v-if="state.refunds.userReceivedAccount"
-              title="退款入账账户"
+              :title="t('afterSales.detail.receivingAccount')"
             >
               <view class="text-14px">
                 {{ state.refunds.userReceivedAccount }}
@@ -217,7 +222,7 @@ function toCustomerService() {
           icon="service"
           @click="toCustomerService"
         >
-          联系客服
+          {{ t('afterSales.detail.contactSupport') }}
         </wd-button>
         <wd-gap height="50" />
       </view>

@@ -2,10 +2,9 @@
 import { defineAsyncComponent, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
-import { Download, Refresh, Search } from '@element-plus/icons-vue';
+import { Download } from '@element-plus/icons-vue';
 import {
   ElButton,
-  ElForm,
   ElFormItem,
   ElInput,
   ElOption,
@@ -16,6 +15,8 @@ import {
 
 import { getList } from '#/api/gen/datasource';
 import { getPage } from '#/api/gen/table';
+import PageFilterPanel from '#/components/page/page-filter-panel.vue';
+import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 
 const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
@@ -37,10 +38,8 @@ const state = reactive({
 });
 const showSearch = ref(true);
 const loading = ref(false);
-const queryRef = ref();
 const dsList = ref();
 const router = useRouter();
-
 const initPage = async () => {
   if (state.queryParams.dsName === '') {
     return;
@@ -62,14 +61,6 @@ const initPage = async () => {
       loading.value = false;
     });
 };
-/**
- * 重置搜索表单
- */
-const resetQuery = () => {
-  queryRef.value.resetFields();
-  initPage();
-};
-
 const getDataSource = async () => {
   const response = await getList({});
   dsList.value = response;
@@ -85,23 +76,24 @@ const genCode = async (tableName: string) => {
   });
 };
 getDataSource();
+
+useKeepAliveRefresh(initPage);
 </script>
 <template>
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
       <!-- 搜索 -->
-      <ElForm
+      <PageFilterPanel
         :model="state.queryParams"
-        ref="queryRef"
-        :inline="true"
-        v-show="showSearch"
+        :visible="showSearch"
+        @reset="initPage"
+        @search="initPage"
       >
         <ElFormItem label="数据源" prop="dsName">
           <ElSelect
             v-model="state.queryParams.dsName"
             clearable
             placeholder="请选择数据源"
-            style="width: 200px"
           >
             <ElOption
               v-for="item in dsList"
@@ -118,13 +110,7 @@ getDataSource();
             placeholder="请输入表名称"
           />
         </ElFormItem>
-        <ElFormItem>
-          <ElButton type="primary" @click="initPage" :icon="Search">
-            搜索
-          </ElButton>
-          <ElButton @click="resetQuery" :icon="Refresh"> 重置 </ElButton>
-        </ElFormItem>
-      </ElForm>
+      </PageFilterPanel>
       <!-- 工具栏 -->
       <div class="hx-table-toolbar">
         <div></div>

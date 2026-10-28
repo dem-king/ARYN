@@ -12,6 +12,7 @@
 import type { SharedCartImport } from '@/api/order/sharedCart'
 import { buildApiUrl } from '@/api/core/api-base-url'
 import { parseOpenBoot, rewriteBootUrl } from '@/api/core/boot-url'
+import { translate } from '@/locales'
 import { ensureSessionTenant, ensureTenantReady } from '@/api/core/tenant-identity'
 
 const BASE = '/mall-order/app/shared-cart'
@@ -66,14 +67,14 @@ export async function previewSharedCartImport(id: string, filePath: string): Pro
           payload = JSON.parse(res.data)
         }
         catch {
-          reject(new Error('解析响应无效'))
+          reject(new Error(translate('sharedCart.importPage.parseResponseInvalid')))
           return
         }
         // 成功判定只看 HTTP 状态与 data 是否返回，**不比对业务 code**：
         // 本平台的成功码是 0（handlers.ts 判的是 code !== 0 才算错），
         // 此前这里写死 200，导致解析成功也被判成失败 —— 上传永远弹「上传解析失败」。
         if (res.statusCode < 200 || res.statusCode >= 300 || !payload.data) {
-          reject(new Error(payload.msg || '上传解析失败'))
+          reject(new Error(payload.msg || translate('sharedCart.importPage.uploadFailed')))
           return
         }
         resolve(payload.data)
@@ -97,7 +98,7 @@ export function downloadSharedCartImportTemplate() {
       header: authHeader(),
       success: (res) => {
         if (res.statusCode !== 200) {
-          reject(new Error('模板下载失败'))
+          reject(new Error(translate('sharedCart.importPage.templateDownloadFailed')))
           return
         }
         uni.openDocument({
@@ -105,10 +106,10 @@ export function downloadSharedCartImportTemplate() {
           fileType: 'xlsx',
           showMenu: true,
           success: () => resolve(),
-          fail: () => reject(new Error('无法打开模板文件')),
+          fail: () => reject(new Error(translate('sharedCart.importPage.openTemplateFailed'))),
         })
       },
-      fail: () => reject(new Error('模板下载失败')),
+      fail: () => reject(new Error(translate('sharedCart.importPage.templateDownloadFailed'))),
     })
   })
 }

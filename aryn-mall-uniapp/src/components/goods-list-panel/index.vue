@@ -15,12 +15,14 @@
  */
 import type { SharedCart } from '@/api/order/sharedCart'
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import { getPage } from '@/api/product/spu'
 import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
 import GoodsDetailSheet from '@/components/goods-detail-sheet/index.vue'
 import QuickCartButton from '@/components/quick-cart-button/index.vue'
+import { STOCK_LOW_THRESHOLD } from '@/utils/stock-display'
 
 interface Props {
   /** 一级类目 ID，为空表示不限 */
@@ -93,6 +95,7 @@ function toggleLayout() {
 }
 
 const router = useRouter()
+const { t } = useI18n()
 const pagingRef = ref()
 const goodsList = ref<any[]>([])
 const priceSort = ref(0)
@@ -175,6 +178,23 @@ function sortHandler(val: 'default' | 'sales' | 'price' | 'newGoods') {
 }
 
 /**
+ * 库存 chip 文案：阈值与全站口径同源（utils/stock-display），
+ * 只把「售罄 / 仅剩 N 件」改写成可翻译文案，判定条件与原来一致。
+ */
+function stockHint(stock: number | string | null | undefined): string {
+  if (stock === null || stock === undefined || stock === '')
+    return ''
+  const value = Number(stock)
+  if (!Number.isFinite(value) || value < 0)
+    return ''
+  if (value <= 0)
+    return t('catalog.soldOut')
+  if (value <= STOCK_LOW_THRESHOLD)
+    return t('catalog.onlyLeft', { count: value })
+  return ''
+}
+
+/**
  * 卡片信息 chip：规格 / 低库存。
  *
  * 不再展示「现货」：能出现在商品流的都是上架在售商品，这枚 chip 没有信息量；
@@ -187,9 +207,10 @@ function cardTags(item: any): string[] {
   const tags: string[] = []
   if (item.specsInfo)
     tags.push(String(item.specsInfo))
-  const stock = Number(item.stock)
-  if (stock > 0 && stock <= 10)
-    tags.push(`仅剩 ${stock} 件`)
+  // 库存 chip 与全站库存口径同源（utils/stock-display）：售罄/低库存才出字，充足不外露数字
+  const hint = stockHint(item.stock)
+  if (hint)
+    tags.push(hint)
   return tags
 }
 
@@ -217,6 +238,14 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
       v-model="goodsList"
       :fixed="false"
       :safe-area-inset-bottom="false"
+      :refresher-default-text="t('catalog.refresherPull')"
+      :refresher-pulling-text="t('catalog.refresherRelease')"
+      :refresher-refreshing-text="t('catalog.refresherRefreshing')"
+      :refresher-complete-text="t('catalog.refresherDone')"
+      :loading-more-loading-text="t('common.loading')"
+      :loading-more-no-more-text="t('catalog.noMore')"
+      :loading-more-fail-text="t('catalog.loadMoreFailed')"
+      :loading-more-default-text="t('catalog.loadMore')"
       @query="queryList"
     >
       <!--
@@ -241,21 +270,21 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
           :class="sortMode === 'default' ? 'sort-item--active' : ''"
           @click="sortHandler('default')"
         >
-          综合推荐
+          {{ t('catalog.sortRecommended') }}
         </view>
         <view class="sort-item">
-          <wd-sort-button v-model="salesSort" title="销量" @change="sortHandler('sales')" />
+          <wd-sort-button v-model="salesSort" :title="t('catalog.sortSales')" @change="sortHandler('sales')" />
         </view>
         <view class="sort-item">
           <!-- 价格首次点击按电商习惯走低→高；desc-first 让首次值为 -1，落到 sortHandler 的 asc 分支 -->
-          <wd-sort-button v-model="priceSort" title="价格" desc-first @change="sortHandler('price')" />
+          <wd-sort-button v-model="priceSort" :title="t('catalog.sortPrice')" desc-first @change="sortHandler('price')" />
         </view>
         <view
           class="sort-item"
           :class="sortMode === 'newGoods' ? 'sort-item--active' : ''"
           @click="sortHandler('newGoods')"
         >
-          新品
+          {{ t('catalog.sortNew') }}
         </view>
         <!-- 布局切换：图标沿用商品列表页的 app / server 口径，仅分类页开启 -->
         <view
@@ -291,7 +320,7 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
             <image class="goods-pic" :src="item.spuUrls?.[0]" mode="aspectFit" lazy-load />
             <!-- 共享选货页：已加购的商品留一个角标，长列表里避免同款重复加 -->
             <view v-if="addedSpuIds.includes(item.id)" class="goods-added-flag">
-              已加入
+              {{ t('catalog.added') }}
             </view>
           </view>
           <view class="goods-meta" :class="grid ? '' : 'goods-meta--row'">
@@ -346,14 +375,14 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
           <wd-status-tip
             :image="loadFailed ? 'network' : 'content'"
             image-size="176rpx"
-            :tip="loadFailed ? '加载失败，请检查网络后重试' : '当前筛选条件下暂无商品'"
+            :tip="loadFailed ? t('catalog.loadFailedRetry') : t('catalog.noProductsForFilter')"
           />
           <view
             v-if="loadFailed || (props.brandId && props.clearFilter)"
             class="list-empty__action"
             @tap="loadFailed ? pagingRef?.reload() : props.clearFilter?.()"
           >
-            {{ loadFailed ? '重新加载' : '清除筛选' }}
+            {{ loadFailed ? t('catalog.reload') : t('catalog.clearFilters') }}
           </view>
         </view>
       </template>
@@ -492,7 +521,7 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
     box-shadow: 0 2rpx 8rpx rgba(22, 34, 51, 0.06);
   }
 
-  /* 图片锁方，标题预留两行、底部信息贴底，保证同一行两张卡的价格/加购对齐 */
+  /* 图片锁方，标题只预留一行、底部信息贴底，保证同一行两张卡的价格/加购对齐 */
   .goods-pic-box {
     flex: none;
   }
@@ -504,7 +533,7 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
   }
 
   .goods-name {
-    min-height: 2.8em;
+    min-height: 1.4em;
   }
 
   .goods-bottom {

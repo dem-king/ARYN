@@ -78,7 +78,8 @@ public class DiscountActivityController {
 		if (status == null || !VALID_STATUS.contains(status)) {
 			return Result.fail("非法的活动状态值");
 		}
-		return Result.success(discountActivityService.updateStatus(id, status));
+		boolean updated = discountActivityService.updateStatus(id, status);
+		return updated ? Result.success() : Result.fail("活动不存在或状态更新失败");
 	}
 
 	private static final Set<Integer> VALID_STATUS = Set.of(0, 1, 2, 3);

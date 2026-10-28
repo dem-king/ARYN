@@ -113,7 +113,13 @@ public interface IDeliveryTaskService extends IService<DeliveryTask> {
 	 */
 	int pullOrdersIntoTrip(String tripId, String staffId, List<String> orderIds);
 
-	boolean reassign(String taskId, String staffId);
+	/**
+	 * 改派配送员（待派单/异常任务），原因记入任务日志
+	 * @param taskId 任务ID
+	 * @param staffId 新配送员ID
+	 * @param reason 改派原因（选填）
+	 */
+	boolean reassign(String taskId, String staffId, String reason);
 
 	DeliveryTask getTaskDetail(String id);
 

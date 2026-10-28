@@ -73,7 +73,7 @@ watch(
               v-if="showData.showOriginalPrice && shouldShowOriginalPrice(item)"
               class="gr-price-original"
             >
-              ¥{{ item.originalPrice.toFixed(2) }}
+              ¥{{ item.originalPrice }}
             </span>
           </div>
         </article>

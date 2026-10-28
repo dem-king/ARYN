@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { UploadProps, UploadRequestOptions } from 'element-plus';
 
-import { defineAsyncComponent, reactive, watch } from 'vue';
+import { computed, defineAsyncComponent, reactive, ref, watch } from 'vue';
 
 import {
   ElButton,
@@ -18,6 +18,7 @@ import {
   ElUpload,
 } from 'element-plus';
 
+import { getActivityPage } from '#/api/promotion/ship-activity';
 import { uploadFile } from '#/api/upms/upload';
 
 import {
@@ -26,6 +27,7 @@ import {
 } from '../../../page-designer/schema/clone';
 import CategoryPicker from '../common/category-picker/index.vue';
 import IdPickerField from '../common/id-picker-field/index.vue';
+import { DEFAULT_BARGAIN_RATE } from './types';
 
 const props = defineProps<{
   modelValue: Record<string, unknown>;
@@ -35,6 +37,15 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:modelValue': [value: Record<string, unknown>];
 }>();
+
+/**
+ * 会员权益条会员文案的占位符说明。
+ *
+ * 放在脚本里而不是模板文本节点：模板文案过长时 Prettier 会在中文之间换行，
+ * 渲染时被压缩成一个空格（如「9 折」），导致提示语与约定文案不一致。
+ */
+const MEMBER_BANNER_HINT =
+  '{levelName} 为等级名；{discount} 是会员折扣率权益（0.9→9折），与「会员价活动」是两套体系，默认文案不写折数，避免折数与实价不符。';
 
 const SelectMaterial = defineAsyncComponent(
   () => import('#/components/select-material/index.vue'),
@@ -119,6 +130,23 @@ function updateTabDataSource(index: number, patch: Record<string, unknown>) {
   commit();
 }
 
+/**
+ * 切换数据源模式：切到 activity 时补齐 activityId=""（契约字段，空串=自动取进行中活动），
+ * 避免 C 端/后端读到缺字段；已有指定活动时保留原值。
+ */
+function updateTabMode(index: number, mode: string) {
+  const tab = tabList()[index];
+  if (!tab) return;
+  const patch: Record<string, unknown> = { mode };
+  if (
+    mode === 'activity' &&
+    typeof tabDataSource(tab).activityId !== 'string'
+  ) {
+    patch.activityId = '';
+  }
+  updateTabDataSource(index, patch);
+}
+
 function addTab() {
   const list = tabList();
   list.push({
@@ -142,6 +170,111 @@ function removeTab(index: number) {
   form.tabs = list;
   commit();
 }
+
+function tabMemberBanner(tab: Record<string, unknown>) {
+  return (tab.memberBanner ?? {}) as Record<string, unknown>;
+}
+
+function updateTabMemberBanner(index: number, patch: Record<string, unknown>) {
+  form.tabs = tabList().map((tab, current) =>
+    current === index
+      ? { ...tab, memberBanner: { ...tabMemberBanner(tab), ...patch } }
+      : tab,
+  );
+  commit();
+}
+
+/** 阈值清空时回落默认值，避免把 null / 非法值写进持久化 JSON（后端会拒绝发布） */
+function updateTabBargainRate(index: number, value: null | number | undefined) {
+  updateTabDataSource(index, {
+    bargainRate:
+      value === null || value === undefined ? DEFAULT_BARGAIN_RATE : value,
+  });
+}
+
+/** 会员价活动状态文案（promotion_activity.status；4/5 为管理端按时间窗派生的展示态） */
+const MEMBER_ACTIVITY_STATUS_LABEL: Record<string, string> = {
+  '1': '草稿',
+  '2': '已发布',
+  '3': '已暂停',
+  '4': '已结束',
+  '5': '待开始',
+};
+
+const memberActivityOptions = ref<Array<{ id: string; label: string }>>([]);
+const memberActivitiesLoading = ref(false);
+let memberActivitiesLoaded = false;
+
+/** 时间窗压缩成「MM-DD HH:mm ~ MM-DD HH:mm」，避免下拉标签过长 */
+function shortenActivityTime(value: unknown) {
+  const text = typeof value === 'string' ? value : '';
+  return text.length >= 16 ? text.slice(5, 16) : text;
+}
+
+function createMemberActivityLabel(activity: Record<string, unknown>) {
+  const name = String(activity.activityName ?? activity.id ?? '未命名活动');
+  const status =
+    MEMBER_ACTIVITY_STATUS_LABEL[String(activity.status ?? '')] ?? '';
+  const window = [
+    shortenActivityTime(activity.startTime),
+    shortenActivityTime(activity.endTime),
+  ]
+    .filter(Boolean)
+    .join(' ~ ');
+  const detail = [status, window].filter(Boolean).join(' · ');
+  return detail ? `${name}（${detail}）` : name;
+}
+
+/**
+ * 会员价活动下拉（type=10）：仅在用到「按会员价活动自动」时按需加载一次。
+ *
+ * 查询失败/无权限时降级为空列表（只保留「自动」首项），不阻断装修主流程；
+ * 失败不置已加载标记，下次切换模式还会重试。
+ */
+async function loadMemberActivities() {
+  if (memberActivitiesLoaded) return;
+  memberActivitiesLoaded = true;
+  memberActivitiesLoading.value = true;
+  try {
+    const response = (await getActivityPage({
+      activityType: '10',
+      current: 1,
+      size: 100,
+    })) as null | undefined | { records?: Array<Record<string, unknown>> };
+    const records = Array.isArray(response?.records) ? response.records : [];
+    memberActivityOptions.value = records
+      .map((activity) => ({
+        createTime: String(activity.createTime ?? ''),
+        id: String(activity.id ?? ''),
+        label: createMemberActivityLabel(activity),
+        priority: Number(activity.priority) || 0,
+      }))
+      .filter((activity) => Boolean(activity.id))
+      .sort(
+        (left, right) =>
+          right.createTime.localeCompare(left.createTime) ||
+          right.priority - left.priority,
+      )
+      .map(({ id, label }) => ({ id, label }));
+  } catch {
+    memberActivityOptions.value = [];
+    memberActivitiesLoaded = false;
+  } finally {
+    memberActivitiesLoading.value = false;
+  }
+}
+
+// 打开已配置「按会员价活动自动」Tab 的存量文档时也把活动列表拉起来（只拉一次）
+const hasActivityTab = computed(() =>
+  tabList().some((tab) => tabDataSource(tab).mode === 'activity'),
+);
+watch(
+  hasActivityTab,
+  (enabled) => {
+    if (enabled) loadMemberActivities();
+  },
+  { immediate: true },
+);
 
 const VIDEO_MAX_SIZE_MB = 100;
 
@@ -247,9 +380,6 @@ function clearVideo() {
       <ElFormItem label="显示价格">
         <ElSwitch v-model="form.showPrice as boolean" @change="commit" />
       </ElFormItem>
-      <ElFormItem label="显示销量">
-        <ElSwitch v-model="form.showSales as boolean" @change="commit" />
-      </ElFormItem>
       <ElFormItem label="商品原价">
         <ElSwitch
           v-model="form.showOriginalPrice as boolean"
@@ -285,12 +415,11 @@ function clearVideo() {
             </div>
             <ElRadioGroup
               :model-value="tabDataSource(tab).mode as string"
-              @update:model-value="
-                updateTabDataSource(index, { mode: $event as string })
-              "
+              @update:model-value="updateTabMode(index, $event as string)"
             >
               <ElRadio value="automatic">按分类/排序自动</ElRadio>
               <ElRadio value="manual">手选商品</ElRadio>
+              <ElRadio value="activity">按会员价活动自动</ElRadio>
             </ElRadioGroup>
             <div
               v-if="tabDataSource(tab).mode === 'manual'"
@@ -306,6 +435,34 @@ function clearVideo() {
                 "
               />
             </div>
+            <template v-else-if="tabDataSource(tab).mode === 'activity'">
+              <div class="tab-card__field">
+                <span class="tab-card__label">会员价活动</span>
+                <ElSelect
+                  :loading="memberActivitiesLoading"
+                  :model-value="String(tabDataSource(tab).activityId ?? '')"
+                  @update:model-value="
+                    updateTabDataSource(index, {
+                      activityId: String($event ?? ''),
+                    })
+                  "
+                >
+                  <ElOption label="自动：取当前进行中的会员价活动" value="" />
+                  <ElOption
+                    v-for="activity in memberActivityOptions"
+                    :key="activity.id"
+                    :label="activity.label"
+                    :value="activity.id"
+                  />
+                </ElSelect>
+                <span class="tab-editor__hint">
+                  专区商品＝活动里配置的商品，顺序随活动；活动加减商品自动同步，无需重新装修。
+                </span>
+                <span class="tab-editor__hint">
+                  建议同时开启「会员权益条」，C 端商品卡才会展示会员价角标。
+                </span>
+              </div>
+            </template>
             <template v-else>
               <div class="tab-card__field">
                 <span class="tab-card__label">分类（留空为全部）</span>
@@ -327,7 +484,77 @@ function clearVideo() {
                   <ElOption label="销量优先" value="sales" />
                   <ElOption label="新品优先" value="create_time" />
                   <ElOption label="价格从低到高" value="sales_price" />
+                  <ElOption label="折扣力度优先（低价捡漏）" value="bargain" />
                 </ElSelect>
+              </div>
+              <div
+                v-if="tabDataSource(tab).sort === 'bargain'"
+                class="tab-card__field"
+              >
+                <span class="tab-card__label">折扣率阈值</span>
+                <ElInputNumber
+                  :model-value="
+                    Number(
+                      tabDataSource(tab).bargainRate ?? DEFAULT_BARGAIN_RATE,
+                    )
+                  "
+                  :min="1.01"
+                  :max="9.99"
+                  :step="0.01"
+                  :precision="2"
+                  controls-position="right"
+                  @update:model-value="updateTabBargainRate(index, $event)"
+                />
+                <span class="tab-editor__hint">
+                  原价 ≥ 售价 × 阈值 的商品才会进入该 Tab，区间 (1.00,
+                  9.99]，缺省 1.15
+                </span>
+              </div>
+            </template>
+            <div class="tab-card__field">
+              <div class="tab-card__switch-row">
+                <ElSwitch
+                  :model-value="tabMemberBanner(tab).enabled === true"
+                  @update:model-value="
+                    updateTabMemberBanner(index, { enabled: $event === true })
+                  "
+                />
+                <span class="tab-card__label">会员权益条（Tab 顶部横幅）</span>
+              </div>
+              <span class="tab-editor__hint">
+                开启后 C
+                端在商品流顶部透出会员权益横幅；两段文案留空则使用内置文案。
+              </span>
+            </div>
+            <template v-if="tabMemberBanner(tab).enabled === true">
+              <div class="tab-card__field">
+                <span class="tab-card__label">会员文案（≤30 字，可留空）</span>
+                <ElInput
+                  :model-value="
+                    (tabMemberBanner(tab).memberCopy as string) ?? ''
+                  "
+                  maxlength="30"
+                  show-word-limit
+                  placeholder="内置：您已是 {levelName}，本区享会员专享价"
+                  @update:model-value="
+                    updateTabMemberBanner(index, { memberCopy: $event })
+                  "
+                />
+                <span class="tab-editor__hint">{{ MEMBER_BANNER_HINT }}</span>
+              </div>
+              <div class="tab-card__field">
+                <span class="tab-card__label">游客文案（≤30 字，可留空）</span>
+                <ElInput
+                  :model-value="
+                    (tabMemberBanner(tab).guestCopy as string) ?? ''
+                  "
+                  maxlength="30"
+                  show-word-limit
+                  placeholder="内置：入会享会员价与专属券"
+                  @update:model-value="
+                    updateTabMemberBanner(index, { guestCopy: $event })
+                  "
+                />
               </div>
             </template>
           </div>
@@ -339,8 +566,7 @@ function clearVideo() {
             添加 Tab
           </ElButton>
           <div class="tab-editor__hint">
-            「低价捡漏」建议用价格从低到高；「会员专区」建议切为手选商品，
-            先以运营货盘验证交互。
+            「低价捡漏」建议用「折扣力度优先」并按阈值圈品；「会员专区」建议用「按会员价活动自动」并开启会员权益条，商品随活动自动同步。
           </div>
         </div>
       </ElFormItem>
@@ -375,9 +601,6 @@ function clearVideo() {
       </ElFormItem>
       <ElFormItem label="显示价格">
         <ElSwitch v-model="form.showPrice as boolean" @change="commit" />
-      </ElFormItem>
-      <ElFormItem label="显示销量">
-        <ElSwitch v-model="form.showSales as boolean" @change="commit" />
       </ElFormItem>
       <ElFormItem label="商品原价">
         <ElSwitch
@@ -648,6 +871,12 @@ function clearVideo() {
 .tab-card__label {
   font-size: 12px;
   color: var(--el-text-color-secondary);
+}
+
+.tab-card__switch-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 .tab-editor__hint {

@@ -24,6 +24,7 @@ import type { ShipSupplyRow } from '@/sub-pages/utils/ship-supply'
  */
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import { computed, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { alovaInstance } from '@/api/core/instance'
 import { addSharedCartItem, getSharedCart, getSharedCartItems } from '@/api/order/sharedCart'
 import { addShoppingCart } from '@/api/order/shoppingCart'
@@ -34,13 +35,12 @@ import { useShipContextStore } from '@/store/shipContextStore'
 import {
   defaultQuantityOf,
   isRowAddable,
+  LOW_STOCK_THRESHOLD,
   quantityMaxOf,
   quantityRuleOf,
   salesPriceText,
   shipSupplyRowKey,
-  stockHintOf,
   stockToneOf,
-  unavailableReasonOf,
 } from '@/sub-pages/utils/ship-supply'
 import { resolveImageSrc } from '@/utils/image'
 
@@ -53,6 +53,7 @@ definePage({
 })
 
 const shipContextStore = useShipContextStore()
+const { t } = useI18n()
 
 const pagingRef = ref()
 const keyword = ref('')
@@ -87,8 +88,8 @@ const shipPickerVisible = ref(false)
 
 /** 顶部上下文文案：共享模式下取自购物车，个人模式下取当前上下文 */
 const contextVesselName = computed(() => isSharedMode.value
-  ? (sharedCart.value?.vesselName || '船舶信息加载中')
-  : (shipContextStore.vesselName || '未选择船舶'))
+  ? (sharedCart.value?.vesselName || t('catalog.vesselLoading'))
+  : (shipContextStore.vesselName || t('catalog.noVesselSelected')))
 
 const contextLocation = computed(() => {
   if (isSharedMode.value) {
@@ -108,6 +109,30 @@ function quantityOf(row: ShipSupplyRow) {
 
 function addedQuantityOf(row: ShipSupplyRow) {
   return addedBySku[row.skuId ?? ''] ?? 0
+}
+
+/**
+ * 行内库存提示：阈值与 utils/ship-supply 同源，只把「缺货 / 仅剩 N」
+ * 换成可翻译文案，判定条件与原来一致。
+ */
+function stockLabelOf(row: ShipSupplyRow): string {
+  const { stock } = quantityRuleOf(row)
+  if (stock === null)
+    return ''
+  if (stock <= 0)
+    return t('catalog.outOfStock')
+  if (stock <= LOW_STOCK_THRESHOLD)
+    return t('catalog.onlyLeft', { count: stock })
+  return ''
+}
+
+/** 不可加购原因（图片角标）：判定与 utils/ship-supply 一致，文案走 i18n */
+function unavailableLabelOf(row: ShipSupplyRow): string {
+  if (isRowAddable(row))
+    return ''
+  if (!row.skuId)
+    return t('catalog.noSpecs')
+  return t('catalog.outOfStock')
 }
 
 /**
@@ -200,21 +225,21 @@ function goGoodsDetail(row: ShipSupplyRow) {
  */
 function validateQuantity(row: ShipSupplyRow, quantity: number) {
   if (!quantity || quantity < 1) {
-    uni.showToast({ title: '请填写采购数量', icon: 'none' })
+    uni.showToast({ title: t('catalog.quantityRequired'), icon: 'none' })
     return null
   }
   const max = quantityMaxOf(row)
   if (max !== null && quantity > max) {
-    uni.showToast({ title: `库存仅 ${max}`, icon: 'none' })
+    uni.showToast({ title: t('catalog.stockOnly', { max }), icon: 'none' })
     return null
   }
   const { moq, stepQty } = quantityRuleOf(row)
   if (quantity < moq) {
-    uni.showToast({ title: `未达最小起订量 ${moq}`, icon: 'none' })
+    uni.showToast({ title: t('catalog.belowMoq', { moq }), icon: 'none' })
     return null
   }
   if (quantity % stepQty !== 0) {
-    uni.showToast({ title: `数量需为 ${stepQty} 的整数倍`, icon: 'none' })
+    uni.showToast({ title: t('catalog.quantityStep', { step: stepQty }), icon: 'none' })
     return null
   }
   return quantity
@@ -223,11 +248,11 @@ function validateQuantity(row: ShipSupplyRow, quantity: number) {
 function handleAddToCart(row: ShipSupplyRow) {
   // 不可加购的行按钮已置灰，这里再兜一次（视图用的是 view，没有原生 disabled）
   if (!isRowAddable(row)) {
-    uni.showToast({ title: unavailableReasonOf(row) || '当前不可加购', icon: 'none' })
+    uni.showToast({ title: unavailableLabelOf(row) || t('catalog.cannotAddNow'), icon: 'none' })
     return
   }
   if (!row.skuId) {
-    uni.showToast({ title: '该商品暂无可售规格', icon: 'none' })
+    uni.showToast({ title: t('catalog.noSpecsToast'), icon: 'none' })
     return
   }
   const raw = Number(quantityOf(row) ?? defaultQuantityOf(row))
@@ -254,7 +279,7 @@ function handleAddToCart(row: ShipSupplyRow) {
       addedBySku[row.skuId ?? ''] = addedQuantityOf(row) + quantity
       cartItemCount.value += 1
       uni.showToast({
-        title: isSharedMode.value ? '已加入共享购物车' : '已加入购物车',
+        title: isSharedMode.value ? t('catalog.addedToSharedCart') : t('catalog.addedToCart'),
         icon: 'success',
       })
     })
@@ -297,6 +322,13 @@ onShow(() => {
       ref="pagingRef"
       v-model="list"
       :safe-area-inset-bottom="false"
+      :refresher-default-text="t('catalog.refresherPull')"
+      :refresher-pulling-text="t('catalog.refresherRelease')"
+      :refresher-refreshing-text="t('catalog.refresherRefreshing')"
+      :refresher-complete-text="t('catalog.refresherDone')"
+      :loading-more-loading-text="t('common.loading')"
+      :loading-more-no-more-text="t('catalog.noMore')"
+      :loading-more-fail-text="t('catalog.loadMoreFailed')"
       @query="queryList"
     >
       <!--
@@ -304,14 +336,14 @@ onShow(() => {
         「在给哪条船选货」，并随时换关键词。
       -->
       <template #top>
-        <hr-navbar :title="isSharedMode ? '共享购物车选货' : '船供采购'" />
+        <hr-navbar :title="isSharedMode ? t('catalog.sharedCartPicking') : t('catalog.shipSupplyTitle')" />
 
         <!-- 共享购物车选货模式：加购写入共享购物车，船舶/靠港取自购物车本身 -->
         <view v-if="isSharedMode" class="context context--shared">
           <view class="context__head">
             <wd-icon name="cart" size="16px" color="#185FA5" />
             <text class="context__badge">
-              共享购物车选货
+              {{ t('catalog.sharedCartPicking') }}
             </text>
             <!-- 分类入口：常驻上下文卡，选货中途随时切换按类目浏览 -->
             <view
@@ -320,8 +352,8 @@ onShow(() => {
               :hover-stay-time="100"
               @tap="goCategoryPicker"
             >
-              <wd-icon name="apps" size="13px" color="#185FA5" />
-              <text>分类选货</text>
+              <wd-icon name="layers" size="13px" color="#185FA5" />
+              <text>{{ t('catalog.pickByCategory') }}</text>
               <wd-icon name="chevron-right" size="12px" color="#185FA5" />
             </view>
           </view>
@@ -333,11 +365,11 @@ onShow(() => {
               {{ contextLocation }}
             </text>
             <text v-else>
-              靠港信息待补全
+              {{ t('catalog.portInfoIncomplete') }}
             </text>
           </view>
           <view class="context__tip">
-            选好的货进入共享购物车，由采购确认人统一提交
+            {{ t('catalog.sharedCartTip') }}
           </view>
         </view>
 
@@ -349,14 +381,14 @@ onShow(() => {
               {{ contextVesselName }}
             </text>
             <text class="context__link" @tap="goSharedCartList">
-              共享购物车
+              {{ t('catalog.sharedCart') }}
             </text>
           </view>
           <view v-if="contextLocation" class="context__meta">
             {{ contextLocation }}
           </view>
           <view v-else class="context__meta context__meta--action" @tap="openShipPicker">
-            选择船舶和靠港计划
+            {{ t('catalog.selectVesselPort') }}
             <wd-icon name="chevron-right" size="14px" color="#185FA5" />
           </view>
         </view>
@@ -369,7 +401,7 @@ onShow(() => {
               v-model="keyword"
               class="search__input"
               type="text"
-              placeholder="搜索商品名称"
+              :placeholder="t('catalog.searchProductName')"
               placeholder-class="search__placeholder"
               confirm-type="search"
               @confirm="handleSearch"
@@ -379,7 +411,7 @@ onShow(() => {
             </view>
           </view>
           <view class="search__action" @tap="handleSearch">
-            搜索
+            {{ t('catalog.search') }}
           </view>
         </view>
       </template>
@@ -393,14 +425,14 @@ onShow(() => {
       >
         <view class="row__thumb" @tap="goGoodsDetail(row)">
           <image class="row__pic" :src="resolveImageSrc(row.picUrl)" mode="aspectFill" lazy-load />
-          <view v-if="unavailableReasonOf(row)" class="row__sold-out">
-            {{ unavailableReasonOf(row) }}
+          <view v-if="unavailableLabelOf(row)" class="row__sold-out">
+            {{ unavailableLabelOf(row) }}
           </view>
         </view>
 
         <view class="row__body">
           <view class="row__name" @tap="goGoodsDetail(row)">
-            {{ row.name || '未命名商品' }}
+            {{ row.name || t('catalog.unnamedProduct') }}
           </view>
           <view class="row__price-line">
             <view class="row__price">
@@ -419,11 +451,11 @@ onShow(() => {
             </view>
             <!-- 库存文案与档位分开：颜色只是补充，文字本身已说明情况 -->
             <text
-              v-if="stockHintOf(row)"
+              v-if="stockLabelOf(row)"
               class="row__stock"
               :class="`row__stock--${stockToneOf(row)}`"
             >
-              {{ stockHintOf(row) }}
+              {{ stockLabelOf(row) }}
             </text>
           </view>
 
@@ -440,7 +472,7 @@ onShow(() => {
               />
               <!-- 已加入标记与步进器同组靠左，重复加购前一眼可见 -->
               <text v-if="addedQuantityOf(row) > 0" class="row__added">
-                已加 {{ addedQuantityOf(row) }}
+                {{ t('catalog.addedCount', { count: addedQuantityOf(row) }) }}
               </text>
             </view>
             <!-- 加购按钮独立贴右：有无「已加」标记都不影响按钮右缘对齐 -->
@@ -449,7 +481,7 @@ onShow(() => {
               :class="{ 'row__add--disabled': !isRowAddable(row) }"
               @tap="handleAddToCart(row)"
             >
-              {{ isSharedMode ? '加入共享车' : '加入购物车' }}
+              {{ isSharedMode ? t('catalog.addToSharedCart') : t('catalog.addToCart') }}
             </view>
           </view>
         </view>
@@ -462,13 +494,13 @@ onShow(() => {
             :image="loadFailed ? 'network' : activeKeyword ? 'search' : 'content'"
             image-size="176rpx"
             :tip="loadFailed
-              ? '加载失败，请检查网络后重试'
+              ? t('catalog.loadFailedRetry')
               : activeKeyword
-                ? `没有找到「${activeKeyword}」相关的商品`
-                : '暂无船供商品'"
+                ? t('catalog.noResultsForKeyword', { keyword: activeKeyword })
+                : t('catalog.noShipSupplyProducts')"
           />
           <view v-if="loadFailed || activeKeyword" class="empty__action" @tap="loadFailed ? pagingRef?.reload() : clearSearch()">
-            {{ loadFailed ? '重新加载' : '清空搜索' }}
+            {{ loadFailed ? t('catalog.reload') : t('catalog.clearSearch') }}
           </view>
         </view>
       </template>
@@ -477,21 +509,21 @@ onShow(() => {
         <view class="checkout-bar">
           <view class="checkout-bar__info">
             <view class="checkout-bar__count">
-              已选 <text class="checkout-bar__count-num">
+              {{ t('catalog.selectedPrefix') }}<text class="checkout-bar__count-num">
                 {{ addedSkuCount }}
-              </text> 种
+              </text>{{ t('catalog.selectedSuffix') }}
             </view>
             <view class="checkout-bar__meta">
               <template v-if="isSharedMode">
-                清单共 {{ cartItemCount }} 项 · 交确认人提交
+                {{ t('catalog.sharedCartSummary', { count: cartItemCount }) }}
               </template>
               <template v-else>
-                {{ shipContextStore.hasVesselContext ? '结算时按靠港配送' : '未选船舶与靠港' }}
+                {{ shipContextStore.hasVesselContext ? t('catalog.checkoutByPort') : t('catalog.noVesselPort') }}
               </template>
             </view>
           </view>
           <view class="checkout-bar__btn" @tap="goSharedCartDetail">
-            {{ isSharedMode ? '查看共享购物车' : '去购物车结算' }}
+            {{ isSharedMode ? t('catalog.viewSharedCart') : t('catalog.goCheckout') }}
           </view>
         </view>
       </template>

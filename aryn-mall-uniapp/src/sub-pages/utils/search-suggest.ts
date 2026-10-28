@@ -12,6 +12,8 @@
  *     前端拍脑袋映射会在运营改词后失效。
  */
 
+import { translate } from '@/locales'
+
 /** 单个联想结果 */
 export interface SuggestItem {
   word: string
@@ -95,7 +97,7 @@ export function buildSearchSuggest(
 export function suggestFromLabel(from: SuggestItem['from']): string {
   if (from === 'goods')
     return ''
-  return from === 'history' ? '历史' : '热搜'
+  return from === 'history' ? translate('labels.history') : translate('labels.trending')
 }
 
 /**

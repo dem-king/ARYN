@@ -8,6 +8,7 @@
  * 未配图的类目走 `resolveCategoryFallback` 的首字色块兜底，不渲染空白圆。
  */
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { resolveCategoryFallback } from '@/utils/category-icon'
 
 interface CategoryItem {
@@ -42,6 +43,7 @@ const emit = defineEmits<{
  * 索引，失败后同样走首字色块兜底。
  */
 const failedImages = ref<Record<number, boolean>>({})
+const { t } = useI18n()
 
 function handleImageError(index: number) {
   failedImages.value[index] = true
@@ -117,7 +119,7 @@ const activeItemId = computed(() => {
     <view v-if="props.categories.length > 0" class="icon-strip-expand" @click="emit('expand')">
       <view class="icon-strip-expand-btn">
         <view class="icon-strip-expand-text">
-          展开
+          {{ t('catalog.expand') }}
         </view>
         <wd-icon name="arrow-down" size="24rpx" color="#333" />
       </view>

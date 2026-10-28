@@ -11,8 +11,16 @@ import { isEmbeddedPageType } from '#/api/promotion/page-design';
 import CanvasPageShell from '../../page-designer/components/canvas-page-shell.vue';
 import { getComponentDefinition } from '../../page-designer/registry/component-registry';
 import { resolveEffectivePageTheme } from '../../page-designer/schema/effective-theme';
+import {
+  normalizeNavigationScrollEffect,
+  resolveNavigationScrollAppearance,
+  resolveNavigationScrollSurface,
+} from '../../page-designer/schema/navigation-scroll';
 import { resolveNavigationAppearance } from '../../page-designer/schema/navigation-style';
-import { buildSectionStyle } from '../../page-designer/schema/section-style';
+import {
+  buildSectionStyle,
+  getSectionGradientAnchorColor,
+} from '../../page-designer/schema/section-style';
 import {
   derivePageBackgroundColor,
   withAlpha,
@@ -35,6 +43,11 @@ const props = withDefaults(
      */
     pageType?: PageDesignType;
     /**
+     * 浏览器整页滚动距离（相对画布顶边，缺省 0）：驱动导航栏滚动渐显。
+     * 草稿预览传真实 window scroll，生效卡片/模板缩略图不传 → 保持顶部态。
+     */
+    scrollTop?: number;
+    /**
      * 注入的有效主题色（商城默认主题/候选主题，调用方解析后传入）：
      * 覆盖页面自存的品牌色，与编辑器画布、C 端实机三方一致；缺省保留页面原色。
      * 页面自带固化主题（themeSnapshot）时不参与，见 hasPageTheme。
@@ -45,6 +58,7 @@ const props = withDefaults(
     emptyText: undefined,
     fullHeight: true,
     pageType: '0',
+    scrollTop: 0,
     themeVars: undefined,
   },
 );
@@ -104,6 +118,84 @@ const navigationStyle = computed(() => ({
     : undefined,
   color: navigationAppearance.value.textColor,
 }));
+
+/**
+ * 滚动渐显（沉浸式导航）：与编辑画布 phone-canvas、C 端 hr-navbar 共用同一份
+ * 解析函数。先解析静态目标底色（resolveNavigationScrollSurface），再按进度合成
+ * （resolveNavigationScrollAppearance）：
+ *   · base 层 = 当前静态外观，opacity = 1-p 渐隐；
+ *   · surface 层 = 目标底色（磨砂白/主题色/自定义色），opacity = p 渐显；
+ *   · hairline 只在目标底色为浅色时于 p>0.55 后渐显。
+ * mode!=='fade' 时 progress=0，导航外观与改动前完全一致。
+ */
+const scrollEffect = computed(() =>
+  normalizeNavigationScrollEffect(props.document.page.navigation.scrollEffect),
+);
+const fadeEnabled = computed(() => scrollEffect.value.mode === 'fade');
+/** 静态部分：目标底色外观（只随页面配置/主题变化） */
+const scrollSurface = computed(() =>
+  resolveNavigationScrollSurface(
+    props.document.page,
+    effectivePage.value,
+    navigationAppearance.value,
+  ),
+);
+/** 动态部分：滚动进度 → 导航外观（scrollTop 来自草稿预览的 window scroll） */
+const scrollAppearance = computed(() =>
+  resolveNavigationScrollAppearance(
+    navigationAppearance.value,
+    scrollSurface.value,
+    scrollEffect.value,
+    Math.max(0, props.scrollTop),
+  ),
+);
+
+/** 导航外层样式：无渐显时沿用现状；渐显时背景交给 base/surface 两层，只留文字色 */
+const navigationOuterStyle = computed(() =>
+  fadeEnabled.value
+    ? { color: scrollAppearance.value.textColor }
+    : navigationStyle.value,
+);
+
+/** base 层：静态外观整体按 1-p 渐隐（渐变用背景图，不做颜色过渡） */
+const navigationBaseLayerStyle = computed(() => ({
+  ...navigationStyle.value,
+  opacity: scrollAppearance.value.baseOpacity,
+}));
+
+/** surface 层：目标底色带目标态 alpha，层透明度 = 进度 p */
+const navigationSurfaceLayerStyle = computed(() => ({
+  backgroundColor: scrollLayerColor(
+    scrollAppearance.value.surfaceColor,
+    scrollAppearance.value.surfaceAlpha,
+  ),
+  opacity: scrollAppearance.value.surfaceOpacity,
+  // 管理端只跑桌面浏览器，写标准属性即可；-webkit- 前缀由 C 端 hr-navbar 负责
+  backdropFilter: scrollAppearance.value.blur
+    ? 'blur(18px) saturate(160%)'
+    : undefined,
+}));
+
+/**
+ * 目标底色 + 目标态 alpha 拼成 CSS 颜色：hex / rgb() / rgba() 统一成 rgba()。
+ * 与 phone-canvas.vue 同名同实现（两个渲染面各留一份，避免预览画布反向依赖编辑器组件）。
+ */
+function scrollLayerColor(color: string, alpha: number): string {
+  const value = color.trim();
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(value);
+  if (hex) {
+    const raw = hex[1] ?? '';
+    const base =
+      raw.length === 3 ? [...raw].map((char) => char + char).join('') : raw;
+    const channels = [0, 2, 4].map((index) =>
+      Number.parseInt(base.slice(index, index + 2), 16),
+    );
+    return `rgba(${channels[0]}, ${channels[1]}, ${channels[2]}, ${alpha})`;
+  }
+  const rgb = /^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i.exec(value);
+  if (!rgb) return `rgba(255, 255, 255, ${alpha})`;
+  return `rgba(${rgb[1]}, ${rgb[2]}, ${rgb[3]}, ${alpha})`;
+}
 
 /**
  * 画布根节点同时挂主题 CSS 变量：装修组件预览用 var(--wot-color-theme-*)
@@ -171,6 +263,24 @@ function sectionStyle(section: DecorationDocument['sections'][number]) {
   // 吸顶层级 10：与 C 端实机一致（此页不与编辑器操作按钮共存）
   return buildSectionStyle(section.style, { stickyZIndex: 10 });
 }
+
+/**
+ * 区块内组件脚下的「环境底色」：搜索栏铃铛/扫码这类直接坐在区块背景上的
+ * 图标需要按底色自动取可读色。渐变取顶边起色（与导航栏「跟随首个区块」
+ * 同口径）、纯色取背景色；都没有时回落页面有效背景色。与 C 端 diy 渲染器
+ * 的 sectionAmbientColor 同口径。
+ */
+function sectionAmbientColor(
+  section: DecorationDocument['sections'][number],
+): string {
+  const gradient = section.style.backgroundImage
+    ? undefined
+    : section.style.backgroundGradient;
+  const anchor =
+    getSectionGradientAnchorColor(gradient) || section.style.backgroundColor;
+  if (anchor && anchor !== 'transparent') return anchor;
+  return effectivePage.value.backgroundColor || '#ffffff';
+}
 </script>
 
 <template>
@@ -182,9 +292,27 @@ function sectionStyle(section: DecorationDocument['sections'][number]) {
     <header
       v-if="!isEmbeddedPage && document.page.navigation.visible"
       class="preview-navigation"
-      :style="navigationStyle"
+      :style="navigationOuterStyle"
     >
-      {{ document.page.navigation.title || pageName }}
+      <!-- 渐显态：base（当前外观，1-p 渐隐）+ surface（目标底色，p 渐显）+ 细线 -->
+      <template v-if="fadeEnabled">
+        <div
+          class="preview-navigation__base"
+          :style="navigationBaseLayerStyle"
+        ></div>
+        <div
+          class="preview-navigation__surface"
+          :class="{ 'is-blur': scrollAppearance.blur }"
+          :style="navigationSurfaceLayerStyle"
+        ></div>
+        <div
+          class="preview-navigation__hairline"
+          :style="{ opacity: scrollAppearance.hairlineOpacity }"
+        ></div>
+      </template>
+      <span class="preview-navigation__title">
+        {{ document.page.navigation.title || pageName }}
+      </span>
     </header>
 
     <!-- 内嵌页型套原生骨架：装修块的真实落点与列宽在骨架里才看得见 -->
@@ -204,6 +332,11 @@ function sectionStyle(section: DecorationDocument['sections'][number]) {
               :is="getComponentDefinition(component.type)?.preview"
               v-if="getComponentDefinition(component.type)?.preview"
               :show-data="component.props"
+              :host-background="
+                component.type === 'search-bar'
+                  ? sectionAmbientColor(section)
+                  : undefined
+              "
             />
             <div v-else class="preview-unknown">
               暂不支持预览组件：{{ component.type }}
@@ -229,6 +362,11 @@ function sectionStyle(section: DecorationDocument['sections'][number]) {
             :is="getComponentDefinition(component.type)?.preview"
             v-if="getComponentDefinition(component.type)?.preview"
             :show-data="component.props"
+            :host-background="
+              component.type === 'search-bar'
+                ? sectionAmbientColor(section)
+                : undefined
+            "
           />
           <div v-else class="preview-unknown">
             暂不支持预览组件：{{ component.type }}
@@ -251,7 +389,10 @@ function sectionStyle(section: DecorationDocument['sections'][number]) {
   width: min(100%, 375px);
   min-height: 100dvh;
   margin: 0 auto;
-  overflow: hidden;
+
+  /* 不能用 overflow: hidden：它会成为 sticky 导航的滚动祖先，导航滚到顶后不再吸住。
+     overflow-x: clip 裁掉横向溢出但不创建滚动容器（visible 轴保持可滚动）。 */
+  overflow-x: clip;
   background-repeat: no-repeat;
   background-position: top center;
   background-size: 100% auto;
@@ -273,6 +414,44 @@ function sectionStyle(section: DecorationDocument['sections'][number]) {
   font-size: 16px;
   font-weight: 600;
   text-align: center;
+}
+
+/* 只有整页草稿预览（浏览器整页滚动）才让导航吸顶；卡片/模板缩略图是
+   `--inline`，若也 sticky 会在外层滚动容器里误吸顶，与改动前不一致。 */
+.preview-canvas:not(.preview-canvas--inline) .preview-navigation {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.preview-navigation__title {
+  position: relative;
+  z-index: 1;
+  transition: color 0.16s linear;
+}
+
+/* 背景两层绝对铺满导航条：base = 当前外观，surface = 目标底色 */
+.preview-navigation__base,
+.preview-navigation__surface {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  transition: opacity 0.16s linear;
+}
+
+.preview-navigation__surface.is-blur {
+  backdrop-filter: blur(18px) saturate(160%);
+}
+
+.preview-navigation__hairline {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 1px;
+  pointer-events: none;
+  background: rgb(15 23 42 / 8%);
+  transition: opacity 0.16s linear;
 }
 
 .preview-embedded {

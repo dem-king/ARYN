@@ -515,8 +515,11 @@ onMounted(() => load(true));
   --hero-cta-shadow-hover: 0 12px 26px rgb(8 25 48 / 32%);
   --hero-shadow: 0 18px 45px rgb(16 42 67 / 18%);
 
-  min-height: 100%;
-  padding: 20px;
+  /* 与 hx-layout-container 同机制：绝对定位铺满内容区，滚动收进内容区，避免 document 全屏滚动条。
+     页面自身不留 padding（否则 sticky 筛选条贴不到顶），留白由各区块的 width/margin 承担 */
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
   background:
     radial-gradient(
       circle at 88% 0,
@@ -532,9 +535,9 @@ onMounted(() => load(true));
   gap: 28px;
   align-items: center;
   justify-content: space-between;
-  max-width: 1080px;
+  width: min(1080px, calc(100% - 40px));
   padding: 30px 32px;
-  margin: 0 auto 16px;
+  margin: 20px auto 16px;
   color: var(--hero-text);
   background: var(--hero-bg);
   border-radius: 18px;
@@ -628,18 +631,30 @@ onMounted(() => load(true));
 
 /* ---------- 工具栏 ---------- */
 .inbox-toolbar {
+  /* 滚动发生在 .inbox-page，固定筛选条不随消息列表滚走；
+     top:0 完全贴顶，默认间隙由上方 hero 的自然流位置提供，滚动后随即吸死 */
+  position: sticky;
+  top: 0;
+  z-index: 20;
   display: flex;
   flex-wrap: wrap;
   gap: 14px;
   align-items: center;
   justify-content: space-between;
-  max-width: 1080px;
+  width: min(1080px, calc(100% - 40px));
   padding: 14px 18px;
   margin: 0 auto 14px;
   background: var(--el-bg-color);
   border: 1px solid var(--inbox-line);
   border-radius: 14px;
   box-shadow: var(--el-box-shadow-light);
+
+  /* 玻璃拟态：消息卡片从筛选条下方滚过时呈磨砂效果。
+     不支持背景模糊的环境保持上面那行不透明底色，避免文字叠影 */
+  @supports (backdrop-filter: blur(1px)) {
+    background: color-mix(in srgb, var(--el-bg-color) 65%, transparent);
+    backdrop-filter: blur(10px) saturate(1.4);
+  }
 }
 
 .filter-tabs {
@@ -749,8 +764,8 @@ onMounted(() => load(true));
 
 /* ---------- 卡片列表 ---------- */
 .inbox-list {
-  max-width: 1080px;
-  margin: 0 auto;
+  width: min(1080px, calc(100% - 40px));
+  margin: 0 auto 20px;
 }
 
 .notice-card {

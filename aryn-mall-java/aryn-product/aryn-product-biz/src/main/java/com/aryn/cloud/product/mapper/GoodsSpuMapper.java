@@ -11,6 +11,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
 import java.io.Serializable;
+import java.math.BigDecimal;
 import java.util.List;
 
 /**
@@ -57,13 +58,37 @@ public interface GoodsSpuMapper extends BaseMapper<GoodsSpu> {
 	/**
 	 * 分页查询商品列表
 	 *
+	 * <p>C 端「低价捡漏」：bargainRate 非空时在 where 追加
+	 * original_price IS NOT NULL AND original_price &gt; 0 AND original_price &gt;= sales_price * bargainRate，
+	 * 同时由 XML 输出固定排序（折扣率降序、售价升序、id 降序兜底）；
+	 * 此时调用方必须先清空 Page.orders，否则 asc/desc 会被分页插件拼进 ORDER BY。
+	 * bargainRate 为空时 SQL 与历史完全一致（只作为绑定值，不参与字符串拼接）。
+	 *
 	 * @author 雨滴kian
 	 * @date 2022/6/6
 	 * @param page
 	 * @param goodsSpu
+	 * @param bargainRate 折扣率阈值（(1.00, 9.99]，null＝不启用捡漏过滤/排序）
 	 * @return: com.baomidou.mybatisplus.core.metadata.IPage<com.aryn.cloud.mall.common.entity.GoodsSpu>
 	 */
-	IPage<GoodsSpu> selectApiPage(Page page, @Param("query") GoodsSpu goodsSpu);
+	IPage<GoodsSpu> selectApiPage(Page page, @Param("query") GoodsSpu goodsSpu,
+			@Param("bargainRate") BigDecimal bargainRate);
+
+	/**
+	 * 分页查询推荐商品（商详/购物车/个人中心/订单页共用）。
+	 *
+	 * <p>只返回当前租户在售商品；语义上按“同二级分类 → 同一级分类 → 销量 →
+	 * 上架时间 → id”排序，保证跨页稳定。
+	 *
+	 * @param page
+	 * @param excludeIds 需要排除的商品 ID（空＝不排除）
+	 * @param categorySecondIds 优先展示的二级分类（空＝不按二级分类加权）
+	 * @param categoryFirstIds 优先展示的一级分类（空＝不按一级分类加权）
+	 * @return: com.baomidou.mybatisplus.core.metadata.IPage<GoodsSpu>
+	 */
+	IPage<GoodsSpu> selectRecommendPage(Page page, @Param("excludeIds") List<String> excludeIds,
+			@Param("categorySecondIds") List<String> categorySecondIds,
+			@Param("categoryFirstIds") List<String> categoryFirstIds);
 
 	/**
 	 * 购物车查询商品
@@ -84,12 +109,6 @@ public interface GoodsSpuMapper extends BaseMapper<GoodsSpu> {
 	 * @return: com.aryn.cloud.mall.common.entity.GoodsSpu
 	 */
 	GoodsSpu selectApiSpuById(Serializable id);
-
-	/**
-	 * 获取热搜商品 Top10
-	 * @return
-	 */
-	List<GoodsSpu> getTop10HotSearchGoods();
 
 	/**
 	 * 统一商品目录分页（C 端场景选货页/搜索共用）。

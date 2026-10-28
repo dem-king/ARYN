@@ -14,6 +14,7 @@ import {
   createDefaultPageSettings,
   createDefaultSectionStyle,
 } from './defaults';
+import { normalizeNavigationScrollEffect } from './navigation-scroll';
 import { DECORATION_SCHEMA_VERSION_V3 } from './types';
 import { DEFAULT_SECTION_ID, DEFAULT_SECTION_TYPE } from './v3';
 
@@ -188,12 +189,16 @@ function migratePageSettings(value: unknown): PageSettings {
   const defaults = createDefaultPageSettings();
   if (!isRecord(value)) return defaults;
 
+  const rawNavigation = isRecord(value.navigation) ? value.navigation : {};
+
   return {
     ...defaults,
     ...cloneRecord(value),
     navigation: {
       ...defaults.navigation,
-      ...(isRecord(value.navigation) ? cloneRecord(value.navigation) : {}),
+      ...cloneRecord(rawNavigation),
+      // 缺省补 mode='none'、脏值归一化；旧草稿/旧发布快照因此行为不变
+      scrollEffect: normalizeNavigationScrollEffect(rawNavigation.scrollEffect),
     },
     share: {
       ...defaults.share,

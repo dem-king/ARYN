@@ -2,6 +2,7 @@
 import type { ChatMessageType, Conversation } from '@/api/message/types'
 import type { BusinessCardType, ViewChatMessage } from '@/utils/message'
 import { onLoad, onShow, onUnload } from '@dcloudio/uni-app'
+import { useI18n } from 'vue-i18n'
 import {
   getConversation,
   getConversationMessages,
@@ -23,6 +24,7 @@ definePage({
   style: { navigationStyle: 'custom', navigationBarTitleText: '在线客服' },
 })
 
+const { t } = useI18n()
 const conversation = ref<Conversation>()
 const messages = ref<ViewChatMessage[]>([])
 const draft = ref('')
@@ -141,7 +143,7 @@ function optimistic(
     payload,
     sendState: 'sending',
     senderId: 'current',
-    senderName: '我',
+    senderName: t('message.chat.me'),
     senderType: 'MALL_USER',
     seqNo: Number.MAX_SAFE_INTEGER,
   }
@@ -248,23 +250,23 @@ onUnload(() => uni.$off('message-push', recoverAfterPush))
 
 <template>
   <view class="chat-page">
-    <hr-navbar title="在线客服" />
+    <hr-navbar :title="t('message.chat.title')" />
     <view class="chat-status">
       <view :class="`state-${messageStore.socketState}`" /><text>
         {{
           messageStore.socketState === "open"
-            ? "实时连接中"
-            : "连接恢复中，仍可正常发送"
+            ? t('message.chat.sync')
+            : t('message.chat.reconnecting')
         }}
       </text><text v-if="conversation">
         {{
-          conversation.status === "WAITING" ? "等待客服领取" : "客服会话"
+          conversation.status === "WAITING" ? t('message.chat.waiting') : t('message.chat.label')
         }}
       </text>
     </view>
     <scroll-view scroll-y class="chat-timeline" :scroll-top="scrollTop">
       <view v-if="hasMore" class="load-history" @click="loadOlder">
-        加载更早消息
+        {{ t('message.chat.loadEarlier') }}
       </view>
       <MessageChatBubble
         v-for="message in messages"
@@ -273,13 +275,13 @@ onUnload(() => uni.$off('message-push', recoverAfterPush))
         @click="retry(message)"
       />
       <view v-if="loading" class="loading-copy">
-        正在建立安全会话…
+        {{ t('message.chat.establishing') }}
       </view>
     </scroll-view>
     <view class="chat-composer">
       <view class="chat-composer__tools">
         <wd-icon name="image" size="42rpx" @click="chooseImages" /><text>
-          支持图片、商品、订单和退款上下文
+          {{ t('message.chat.composerHint') }}
         </text>
       </view>
       <view class="chat-composer__row">
@@ -287,9 +289,9 @@ onUnload(() => uni.$off('message-push', recoverAfterPush))
           v-model="draft"
           :maxlength="10000"
           auto-height
-          placeholder="输入消息"
+          :placeholder="t('message.chat.inputPlaceholder')"
         /><button @click="sendText">
-          发送
+          {{ t('message.chat.send') }}
         </button>
       </view>
     </view>
@@ -302,18 +304,16 @@ onUnload(() => uni.$off('message-push', recoverAfterPush))
   height: 100vh;
   flex-direction: column;
   overflow: hidden;
-  background:
-    radial-gradient(circle at 100% 0, rgb(15 118 110 / 11%), transparent 34%),
-    #f1f6f4;
+  background: #f4f6f7;
 }
 .chat-status {
   display: flex;
   align-items: center;
   gap: 12rpx;
   padding: 16rpx 24rpx;
-  color: #718780;
-  border-bottom: 1rpx solid #dce9e5;
-  background: rgb(255 255 255 / 84%);
+  color: #7b8783;
+  border-bottom: 1rpx solid #eceff0;
+  background: rgb(255 255 255 / 92%);
   font-size: 20rpx;
 }
 .chat-status view {
@@ -331,7 +331,7 @@ onUnload(() => uni.$off('message-push', recoverAfterPush))
 }
 .chat-status text:last-child {
   margin-left: auto;
-  color: #0f766e;
+  color: var(--theme-color-primary, var(--wot-color-theme-primary, #ff2237));
 }
 .chat-timeline {
   min-height: 0;
@@ -342,20 +342,20 @@ onUnload(() => uni.$off('message-push', recoverAfterPush))
 .load-history,
 .loading-copy {
   padding: 20rpx;
-  color: #81938e;
+  color: #8a9591;
   text-align: center;
   font-size: 21rpx;
 }
 .chat-composer {
   padding: 18rpx 22rpx max(env(safe-area-inset-bottom), 18rpx);
-  border-top: 1rpx solid #dce9e5;
+  border-top: 1rpx solid #eceff0;
   background: #fff;
   &__tools {
     display: flex;
     align-items: center;
     gap: 18rpx;
     margin-bottom: 14rpx;
-    color: #849791;
+    color: #87938f;
     font-size: 20rpx;
   }
   &__row {
@@ -367,7 +367,7 @@ onUnload(() => uni.$off('message-push', recoverAfterPush))
     flex: 1;
     padding: 12rpx 18rpx;
     border-radius: 20rpx;
-    background: #f0f5f3;
+    background: #f4f6f7;
   }
   button {
     width: 130rpx;
@@ -375,7 +375,7 @@ onUnload(() => uni.$off('message-push', recoverAfterPush))
     margin: 0;
     color: #fff;
     border-radius: 20rpx;
-    background: #0f766e;
+    background: var(--theme-color-primary, var(--wot-color-theme-primary, #ff2237));
     font-size: 25rpx;
     line-height: 72rpx;
   }

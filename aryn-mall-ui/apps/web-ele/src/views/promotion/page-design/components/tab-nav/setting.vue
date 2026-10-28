@@ -40,7 +40,7 @@ const defaultConfig = {
   type: '1',
   fontColor: 'rgba(0, 0, 0, 1)',
   showNum: 4,
-  imgSize: 40, // 图片大小
+  imgSize: 56, // 图片大小（首页金刚区实测 5 列下 56px 观感最佳）
   imgRadius: 0, // 图片圆角
   // 显示方式：grid 平铺 | scroll 横向滚动 | pager 分页滑动
   displayMode: 'grid',

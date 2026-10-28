@@ -2,6 +2,7 @@
 package com.aryn.cloud.upms.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import cn.dev33.satoken.annotation.SaMode;
 import cn.hutool.core.lang.tree.TreeNode;
 import cn.hutool.core.lang.tree.TreeUtil;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -12,6 +13,7 @@ import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.upms.api.entity.SysMenu;
 import com.aryn.cloud.upms.api.vo.MenuVO;
 import com.aryn.cloud.upms.service.ISysMenuService;
+import com.aryn.cloud.upms.support.PlatformTenantGuard;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.AllArgsConstructor;
@@ -38,6 +40,8 @@ import java.util.stream.Collectors;
 public class SysMenuController {
 
 	private final ISysMenuService sysMenuService;
+
+	private final PlatformTenantGuard platformTenantGuard;
 
 	/**
 	 * 获取所有菜单和权限
@@ -80,6 +84,7 @@ public class SysMenuController {
 	}
 
 	@Operation(summary = "查询租户树形菜单集合")
+	@SaCheckPermission(value = { "upms:sysrole:update", "upms:sysrole:page" }, mode = SaMode.OR)
 	@GetMapping("/tenant")
 	public Result getTenantMenu() {
 		List<TreeNode<String>> treeNodes = sysMenuService.getTenantMenuTree(ArynTenantContextHolder.getTenantId());
@@ -87,6 +92,7 @@ public class SysMenuController {
 	}
 
 	@Operation(summary = "查询指定角色菜单")
+	@SaCheckPermission(value = { "upms:sysrole:update", "upms:sysrole:page" }, mode = SaMode.OR)
 	@GetMapping("/role/{roleId}")
 	public Result<List<MenuVO>> getRoleMenu(@PathVariable("roleId") String roleId) {
 		return Result.success(sysMenuService.findMenuByRoleId(roleId));
@@ -104,6 +110,7 @@ public class SysMenuController {
 	@SaCheckPermission("upms:sysmenu:add")
 	@PostMapping
 	public Result add(@RequestBody SysMenu sysMenu) {
+		platformTenantGuard.requirePlatformTenant();
 		return Result.success(sysMenuService.saveMenu(sysMenu));
 	}
 
@@ -112,6 +119,7 @@ public class SysMenuController {
 	@SaCheckPermission("upms:sysmenu:edit")
 	@PutMapping
 	public Result edit(@RequestBody SysMenu sysMenu) {
+		platformTenantGuard.requirePlatformTenant();
 		return Result.success(sysMenuService.updateMenuById(sysMenu));
 	}
 
@@ -120,6 +128,7 @@ public class SysMenuController {
 	@SaCheckPermission("upms:sysmenu:del")
 	@DeleteMapping("/{id}")
 	public Result del(@PathVariable("id") String id) {
+		platformTenantGuard.requirePlatformTenant();
 		return Result.success(sysMenuService.removeMenuById(id));
 	}
 

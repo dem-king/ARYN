@@ -113,36 +113,43 @@ describe('page designer canvas contract', () => {
       resolve(mobileSourceRoot, 'pages/user/user-center/index.vue'),
       'utf8',
     );
+    const zhCN = readFileSync(
+      resolve(mobileSourceRoot, 'locales/zh-CN.ts'),
+      'utf8',
+    );
 
     // 个人中心骨架的常驻模块（订单 5 入口 / 服务 8 宫格 / 猜你喜欢 / 页头设置
     // 入口）必须与 C 端 user-center 页逐项对齐：曾漏掉「我的服务」「猜你喜欢」
     // 整块、订单入口不带文字标签，运营会误以为实机少了内容。
     // 角色条件入口（配送工作台/我的船舶）按登录与租户能力出现，示意骨架不画。
-    for (const label of [
-      '待付款',
-      '待发货',
-      '待收货',
-      '待评价',
-      '退款/售后',
-      '我的服务',
-      '猜你喜欢',
-      '消息中心',
-      '会员中心',
-      '收货地址',
-      '我的评价',
-      '浏览记录',
-      '我的收藏',
-      '我的优惠券',
-      '分销中心',
+    // C 端已完成 i18n：页面只保留翻译键，这里同时锁住键与中文词条。
+    for (const [label, key] of [
+      ['待付款', 'orderPendingPayment'],
+      ['待发货', 'orderPendingShipment'],
+      ['待收货', 'orderPendingReceipt'],
+      ['待评价', 'orderPendingReview'],
+      ['退款/售后', 'orderRefund'],
+      ['我的服务', 'myServices'],
+      ['猜你喜欢', 'guessYouLike'],
+      ['消息中心', 'serviceMessage'],
+      ['会员中心', 'serviceMember'],
+      ['收货地址', 'serviceAddress'],
+      ['我的评价', 'serviceAppraise'],
+      ['浏览记录', 'serviceFootprint'],
+      ['我的收藏', 'serviceCollect'],
+      ['我的优惠券', 'serviceCoupon'],
+      ['分销中心', 'serviceDistribution'],
     ]) {
       expect(shell).toContain(label);
-      expect(userCenter).toContain(label);
+      expect(userCenter).toContain(`t('userCenter.${key}')`);
+      expect(zhCN).toContain(`${key}: '${label}'`);
     }
     expect(shell).toContain('uc-hero__setting');
     expect(userCenter).toContain('uc-hero__setting');
     // 未登录提示文案与实机一致（曾写成「登录后查看权益」）
     expect(shell).toContain('登录后同步订单、优惠券与积分');
-    expect(userCenter).toContain('登录后同步订单、优惠券与积分');
+    expect(userCenter).toContain("t('userCenter.loginHint')");
+    expect(zhCN).toContain("loginHint: '登录后同步订单、优惠券与积分'");
     expect(shell).not.toContain('配送工作台');
     expect(shell).not.toContain('我的船舶');
   });

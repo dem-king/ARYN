@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import { followDecorationLink } from '@/components/diy/link-resolver'
 import type { MemberBenefitsProps } from '@/components/diy/retail-types'
@@ -12,6 +13,7 @@ const props = defineProps({
   },
 })
 
+const { t } = useI18n()
 const componentProps = computed(() => props.showData as unknown as MemberBenefitsProps)
 const entries = computed(() => componentProps.value.entries || [])
 const dynamicStyles = useDiyStyle(computed(() => componentProps.value.commonStyle))
@@ -24,7 +26,7 @@ const dynamicStyles = useDiyStyle(computed(() => componentProps.value.commonStyl
         {{ componentProps.title }}
       </view>
       <view v-if="entries.length === 0" class="benefits-empty">
-        暂无会员权益，请在装修中配置
+        {{ t('diy.memberBenefits.empty') }}
       </view>
       <view v-else class="benefits-grid">
         <view
@@ -34,7 +36,7 @@ const dynamicStyles = useDiyStyle(computed(() => componentProps.value.commonStyl
           @click="followDecorationLink(entry.link)"
         >
           <image v-if="entry.iconUrl" class="benefit-icon" :src="entry.iconUrl" />
-          <view v-else class="benefit-icon benefit-icon-fallback">礼</view>
+          <view v-else class="benefit-icon benefit-icon-fallback">{{ t('diy.memberBenefits.fallbackIcon') }}</view>
           <view class="benefit-text">
             <view class="benefit-name">
               {{ entry.title }}

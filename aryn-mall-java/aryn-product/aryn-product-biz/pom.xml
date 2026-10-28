@@ -65,6 +65,11 @@
             <groupId>com.aryn</groupId>
             <artifactId>aryn-product-api</artifactId>
         </dependency>
+        <!-- 热销榜跨域取数：订单域聚合结果经 Dubbo 消费（L4 -> L3 API，不直接依赖 order-biz） -->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-order-api</artifactId>
+        </dependency>
         <!--            安全模块-->
         <dependency>
             <groupId>com.aryn</groupId>

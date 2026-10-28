@@ -131,7 +131,7 @@ describe('shared cart routing contract', () => {
     expect(detail).toContain('cartAmountText')
     // 提交弹层必须给出本次采购的预估总额
     expect(detail).toContain('confirmAmountText')
-    expect(detail).toContain('本次采购预估金额')
+    expect(detail).toContain('sharedCart.detail.estimatedTotal')
 
     // 金额口径集中在 util 里，页面不得自己写一套乘法
     const utils = source('src/utils/shared-cart.ts')
@@ -388,7 +388,9 @@ describe('shared cart routing contract', () => {
     // 跳过项（本次清单已有该商品 / 原明细无可用数量）必须如实告知。
     // 断到「跳过 N 项」这个完整文案：只查 skippedCount 或「已复用」的话，
     // 把提示改成永远说「已复用 N 项」也照样通过（缺陷注入实测如此）。
-    expect(detail).toMatch(/已复用 \$\{result\.reusedCount\} 项，跳过 \$\{skipped\} 项/)
+    expect(detail).toContain('sharedCart.detail.reusePartial')
+    expect(detail).toContain('reused: result.reusedCount')
+    expect(detail).toContain('skipped')
   })
 
   it('warns on a stale call snapshot instead of exposing it only at submit', () => {
@@ -402,7 +404,7 @@ describe('shared cart routing contract', () => {
     // （2026-10-09 修历史单船名缺失时一并纠正）
     expect(detail).toContain('cart.value.callOrderable === false')
     expect(detail).not.toContain('!cart.value.vesselName')
-    expect(detail).toContain('提交时将自动顺延')
+    expect(detail).toContain('sharedCart.detail.callStale')
   })
 
   it('exposes every shared cart page from an existing entry point', () => {
@@ -460,7 +462,8 @@ describe('shared cart detail page layout contract', () => {
     // 行内进度条依赖"已采量"，随模型下线。行内只保留申请数量与来源。
     const detail = source('src/sub-pages/order/shared-cart/detail.vue')
     expect(detail).not.toMatch(/rowViews\[item\.id\]\?\.percent/)
-    expect(detail).toContain('申请 {{ item.requestedQuantity }}')
+    expect(detail).toContain('sharedCart.common.requested')
+    expect(detail).toContain('item.requestedQuantity')
   })
   it('pins the bottom action bar and reserves space for it', () => {
     const detail = source('src/sub-pages/order/shared-cart/detail.vue')
@@ -604,7 +607,7 @@ describe('shared cart detail page layout contract', () => {
     const list = source('src/sub-pages/order/shared-cart/list.vue')
     expect(list).not.toContain('payload.expiresAt')
     expect(list).not.toContain('windowHours')
-    expect(list).toContain('24 小时')
+    expect(list).toContain('cartDeadlineView')
   })
 
   it('复用已有购物车时提示用户，而非谎称新建', () => {
@@ -699,8 +702,8 @@ describe('shared cart list page layout contract', () => {
   it('distinguishes loading, failure, logged-out and empty states', () => {
     const list = source('src/sub-pages/order/shared-cart/list.vue')
     // 四态共用一句「暂无数据」会让用户不知道是该等待、该登录还是该去创建
-    for (const text of ['加载中...', '加载失败', '登录后可查看共享购物车', '还没有共享购物车']) {
-      expect(list).toContain(text)
+    for (const key of ['common.loading', 'sharedCart.list.loadFailed', 'sharedCart.list.loginRequired', 'sharedCart.list.emptyTitle']) {
+      expect(list).toContain(key)
     }
     expect(list).toContain('showEmpty')
   })
@@ -766,7 +769,8 @@ describe('shared cart list page layout contract', () => {
     const detail = source('src/sub-pages/order/shared-cart/detail.vue')
     expect(detail).toContain('editRevoked')
     expect(detail).toMatch(/viewerCanEdit === false/)
-    expect(detail).toContain('只能查看清单')
+    expect(detail).toContain('sharedCart.detail.readonlyTitle')
+    expect(detail).toContain('sharedCart.detail.readonlyDesc')
   })
 
   it('keeps delivery way labels single-sourced', () => {

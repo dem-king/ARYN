@@ -1,0 +1,77 @@
+export default {
+  message: {
+    nav: {
+      center: '消息中心',
+      noticeDetail: '通知详情',
+      chat: '在线客服',
+    },
+    hub: {
+      unreadTitle: '你有 {count} 条未读消息',
+      allRead: '暂无未读消息',
+      tip: '订单进度、优惠到账和客服回复都会在这里提醒你',
+    },
+    tabs: {
+      notice: '通知',
+      support: '客服',
+    },
+    notice: {
+      inbox: '站内通知',
+      markAllRead: '全部已读',
+      loadEarlier: '加载更早通知',
+      empty: '暂时没有通知',
+      systemSender: '系统',
+      important: '重要',
+      category: {
+        order: '订单',
+        refund: '退款',
+        promotion: '优惠',
+        vessel: '船舶',
+        delivery: '配送',
+        system: '系统',
+        other: '通知',
+      },
+    },
+    support: {
+      listTitle: '客服会话',
+      mallSupport: '商城客服',
+      startHint: '开始咨询',
+      loadHistory: '加载历史会话',
+      empty: '还没有客服会话',
+      start: '发起客服咨询',
+    },
+    chat: {
+      title: '在线客服',
+      me: '我',
+      sync: '消息实时同步',
+      reconnecting: '网络不稳定，消息可能延迟',
+      waiting: '等待客服领取',
+      label: '客服会话',
+      loadEarlier: '加载更早消息',
+      establishing: '正在连接客服…',
+      composerHint: '可发送图片、商品、订单和退款信息',
+      inputPlaceholder: '输入消息',
+      send: '发送',
+    },
+    noticeDetail: {
+      reply: '回复 / 咨询客服',
+    },
+    systemMessage: '系统消息',
+    sending: '发送中…',
+    sendFailedRetry: '发送失败，点击重试',
+    businessCard: {
+      type: {
+        notice: '通知',
+        order: '订单',
+        product: '商品',
+        refund: '退款',
+      },
+      detail: {
+        notice: '通知详情',
+        order: '订单详情',
+        product: '商品详情',
+        refund: '退款详情',
+      },
+      tapForStatus: '点击查看最新业务状态',
+    },
+  },
+}

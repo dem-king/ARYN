@@ -6,7 +6,7 @@ package com.aryn.cloud.promotion.api.enums;
  * <p>订单侧（券/积分 eligible 判定）与营销侧（远程上下文、引擎覆盖）共用该编码，
  * 避免各自硬编码字符串导致两端口径漂移。默认值口径见营销优惠叠加规则设计说明书 §1.2：
  * 拼团/限时折扣默认可叠（兼容现网行为），秒杀强制不可叠（有赞官方互斥 + 秒杀规则页已对外承诺），
- * 新人专享默认不可叠（防 0 元单/薅羊毛，悦航购自定策略）。
+ * 新人专享默认不可叠（防 0 元单/薅羊毛，悦航购自定策略），会员价默认可叠（身份常态权益，非止血促销）。
  *
  * @author aryn
  * @since 2026/10/24
@@ -23,7 +23,14 @@ public enum StackActivityTypeEnum {
 	DISCOUNT("discount", true, true),
 
 	/** 新人专享价（promotion_activity type=9） */
-	NEWBIE("newbie", false, false);
+	NEWBIE("newbie", false, false),
+
+	/**
+	 * 会员价（promotion_activity type=10）。
+	 *
+	 * <p>会员价是身份常态权益（非止血促销），默认可叠券/积分，管理端可显式关闭。
+	 */
+	MEMBER_PRICE("memberPrice", true, true);
 
 	/** 活动类型编码（远程 VO / 结算响应下发用） */
 	private final String code;

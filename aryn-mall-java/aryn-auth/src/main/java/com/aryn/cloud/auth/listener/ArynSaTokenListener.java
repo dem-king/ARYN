@@ -15,7 +15,6 @@ import com.aryn.cloud.common.core.enums.DeviceTypeEnum;
 import com.aryn.cloud.common.core.util.IpUtils;
 import com.aryn.cloud.common.core.entity.SysLoginLogBase;
 import com.aryn.cloud.common.log.event.ArynLoginLogEvent;
-import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.entity.ArynUser;
 import com.aryn.cloud.upms.api.entity.SysUserOnline;
 import jakarta.servlet.http.HttpServletRequest;
@@ -28,7 +27,6 @@ import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.time.LocalDateTime;
-import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -46,46 +44,60 @@ public class ArynSaTokenListener implements SaTokenListener {
 
 	private final StringRedisTemplate redisTemplate;
 
-	/** 每次登录时触发 */
+	/** 每次登录时触发：所有端都写在线记录，登录日志仍只记录管理端 */
 	@Override
 	public void doLogin(String loginType, Object loginId, String tokenValue, SaLoginParameter loginModel) {
-		// 非后台登录无需往下执行
-		if (!DeviceTypeEnum.TOB.getDevice().equals(loginModel.getDeviceType())) {
+		ArynUser hxUser = (ArynUser) SaHolder.getStorage().get(CacheConstants.USER_CACHE);
+		if (hxUser == null || StrUtil.isBlank(hxUser.getTenantId())) {
 			return;
 		}
-		HttpServletRequest request = ((ServletRequestAttributes) Objects
-			.requireNonNull(RequestContextHolder.getRequestAttributes())).getRequest();
-		// 处理登录日志
-		ArynUser hxUser = (ArynUser) SaHolder.getStorage().get(CacheConstants.USER_CACHE);
+		HttpServletRequest request = currentRequest();
+		String agent = request != null ? request.getHeader("User-Agent") : null;
+		UserAgent ua = UserAgentUtil.parse(StrUtil.blankToDefault(agent, ""));
+		String os = ua.getOs() != null ? ua.getOs().toString() : null;
+		String browser = ua.getBrowser() != null ? ua.getBrowser().toString() : null;
+		String ipAddr = request != null ? JakartaServletUtil.getClientIP(request) : null;
+		String location = ipAddr != null ? IpUtils.getWhoisAddress(ipAddr) : null;
+		boolean tob = DeviceTypeEnum.TOB.getDevice().equals(loginModel.getDeviceType());
 
-		String tenantId = hxUser.getTenantId();
-		String userName = hxUser.getUsername();
-		String agent = SaHolder.getRequest().getHeader("User-Agent").toLowerCase();
-		UserAgent ua = UserAgentUtil.parse(agent);
-		SysLoginLogBase sysLoginLog = new SysLoginLogBase();
-		sysLoginLog.setStatus(CommonConstants.LOGIN_LOG_STATUS_1);
-		sysLoginLog.setIpAddr(JakartaServletUtil.getClientIP(request));
-		sysLoginLog.setLocation(IpUtils.getWhoisAddress(sysLoginLog.getIpAddr()));
-		sysLoginLog.setCreateBy(userName);
-		sysLoginLog.setOs(ua.getOs().toString());
-		sysLoginLog.setBrowser(ua.getBrowser().toString());
-		sysLoginLog.setMsg(StrUtil.format("用户：{} 登录成功", userName));
-		sysLoginLog.setUserName(userName);
-		ArynTenantContextHolder.setTenantId(tenantId);
-		// 缓存在线用户信息
+		SysLoginLogBase sysLoginLog = null;
+		if (tob) {
+			sysLoginLog = new SysLoginLogBase();
+			sysLoginLog.setStatus(CommonConstants.LOGIN_LOG_STATUS_1);
+			sysLoginLog.setIpAddr(ipAddr);
+			sysLoginLog.setLocation(location);
+			sysLoginLog.setCreateBy(hxUser.getUsername());
+			sysLoginLog.setOs(os);
+			sysLoginLog.setBrowser(browser);
+			sysLoginLog.setMsg(StrUtil.format("用户：{} 登录成功", hxUser.getUsername()));
+			sysLoginLog.setUserName(hxUser.getUsername());
+			sysLoginLog.setTenantId(hxUser.getTenantId());
+		}
+
+		// 在线记录覆盖 TOB/TOC：租户停用或删除时需要按 tenantId 撤销该租户全部会话
 		SysUserOnline sysUserOnline = new SysUserOnline();
 		sysUserOnline.setTokenId(tokenValue);
 		sysUserOnline.setTokenTimeout(loginModel.getTimeout());
-		sysUserOnline.setBrowser(sysLoginLog.getBrowser());
-		sysUserOnline.setOs(sysLoginLog.getOs());
-		sysUserOnline.setUserName(sysLoginLog.getUserName());
+		sysUserOnline.setBrowser(browser);
+		sysUserOnline.setOs(os);
+		sysUserOnline.setUserName(hxUser.getUsername());
 		sysUserOnline.setLoginTime(LocalDateTime.now());
-		sysUserOnline.setIpAddr(sysLoginLog.getIpAddr());
-		sysUserOnline.setLocation(sysLoginLog.getLocation());
-		sysUserOnline.setTenantId(tenantId);
-		String key = CacheConstants.SYS_ONLINE_KEY + tenantId + ":" + tokenValue;
-		redisTemplate.opsForValue()
-			.set(key, JSONUtil.toJsonStr(sysUserOnline), loginModel.getTimeout(), TimeUnit.SECONDS);
+		sysUserOnline.setIpAddr(ipAddr);
+		sysUserOnline.setLocation(location);
+		sysUserOnline.setTenantId(hxUser.getTenantId());
+		sysUserOnline.setDeviceType(loginModel.getDeviceType());
+		String key = onlineUserKey(tokenValue);
+		String value = JSONUtil.toJsonStr(sysUserOnline);
+		if (loginModel.getTimeout() > 0) {
+			redisTemplate.opsForValue().set(key, value, loginModel.getTimeout(), TimeUnit.SECONDS);
+		}
+		else {
+			redisTemplate.opsForValue().set(key, value);
+		}
+
+		if (sysLoginLog == null) {
+			return;
+		}
 		try {
 			applicationEventPublisher.publishEvent(new ArynLoginLogEvent(this, sysLoginLog));
 		}
@@ -94,19 +106,43 @@ public class ArynSaTokenListener implements SaTokenListener {
 		}
 	}
 
+	private HttpServletRequest currentRequest() {
+		ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+		return attributes != null ? attributes.getRequest() : null;
+	}
+
 	@Override
 	public void doLogout(String loginType, Object loginId, String tokenValue) {
-		redisTemplate.delete(CacheConstants.SYS_ONLINE_KEY + tokenValue);
+		deleteOnlineUser(tokenValue);
 	}
 
 	@Override
 	public void doKickout(String loginType, Object loginId, String tokenValue) {
-		redisTemplate.delete(CacheConstants.SYS_ONLINE_KEY + tokenValue);
+		deleteOnlineUser(tokenValue);
 	}
 
 	@Override
 	public void doReplaced(String loginType, Object loginId, String tokenValue) {
-		redisTemplate.delete(CacheConstants.SYS_ONLINE_KEY + tokenValue);
+		deleteOnlineUser(tokenValue);
+	}
+
+	/**
+	 * 在线会话记录的 Redis key。
+	 *
+	 * <p>历史实现写入时是 {@code 前缀 + tenantId + ":" + token}，而注销/强退/顶号回调里
+	 * 用 {@code 前缀 + token} 删除，key 永远不匹配，导致已下线的会话残留在「在线用户」
+	 * 列表里直到 30 天 TTL。租户信息已保存在值（{@link SysUserOnline#getTenantId()}）中，
+	 * key 不再重复携带租户，保证写入与删除使用同一 key。
+	 */
+	static String onlineUserKey(String tokenValue) {
+		return CacheConstants.SYS_ONLINE_KEY + tokenValue;
+	}
+
+	private void deleteOnlineUser(String tokenValue) {
+		if (StrUtil.isBlank(tokenValue)) {
+			return;
+		}
+		redisTemplate.delete(onlineUserKey(tokenValue));
 	}
 
 	@Override
@@ -134,8 +170,14 @@ public class ArynSaTokenListener implements SaTokenListener {
 	}
 
 	@Override
-	public void doRenewTimeout(String s, Object o, String s1, long l) {
-
+	public void doRenewTimeout(String loginType, Object loginId, String tokenValue, long timeout) {
+		// token 续期时同步续期在线记录，否则记录先过期，租户停用时无法再定位到该会话
+		if (StrUtil.isBlank(tokenValue)) {
+			return;
+		}
+		if (timeout > 0) {
+			redisTemplate.expire(onlineUserKey(tokenValue), timeout, TimeUnit.SECONDS);
+		}
 	}
 
 }

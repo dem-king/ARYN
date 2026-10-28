@@ -29,6 +29,7 @@ import {
 } from '#/api/promotion/distribution-config';
 import PageFilterPanel from '#/components/page/page-filter-panel.vue';
 import PageToolbar from '#/components/page/page-toolbar.vue';
+import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 import { useDict } from '#/utils/dict';
 import { formatMoney } from '#/utils/util';
 
@@ -146,6 +147,8 @@ const del = (id: string) => {
 };
 
 initPage();
+
+useKeepAliveRefresh(initPage);
 </script>
 
 <template>

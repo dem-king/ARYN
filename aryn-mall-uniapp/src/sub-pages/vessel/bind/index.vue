@@ -25,6 +25,7 @@ import type { VesselBindApply, VesselInviteCode, VesselMember } from '@/api/vess
 import { onLoad, onShow } from '@dcloudio/uni-app'
 
 import { computed, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   addVesselMember,
   cancelBindApply,
@@ -62,6 +63,8 @@ definePage({
   },
 })
 
+const { t } = useI18n()
+
 const authStore = useAuthStore()
 const shipContextStore = useShipContextStore()
 const userStore = useUserStore()
@@ -78,18 +81,19 @@ const activeVessel = computed(() => vessels.value.find(v => v.id === activeVesse
 // 角色与徽章
 // ---------------------------------------------------------------------------
 
-/** 船舶域角色文案：1发起人 2普通船员 3采购确认人 4业务员 */
-const VESSEL_ROLE_LABEL: Record<string, string> = {
-  1: '发起人',
-  2: '普通船员',
-  3: '采购确认人',
-  4: '业务员',
+/** 船舶域角色 → 词条 key：1发起人 2普通船员 3采购确认人 4业务员 */
+const VESSEL_ROLE_KEYS: Record<string, string> = {
+  1: 'owner',
+  2: 'crew',
+  3: 'confirmator',
+  4: 'sales',
 }
 
 function vesselRoleLabel(role?: null | string): string {
   if (!role)
     return ''
-  return VESSEL_ROLE_LABEL[role] ?? '成员'
+  const key = VESSEL_ROLE_KEYS[role]
+  return key ? t(`vessel.bind.role.${key}`) : t('vessel.bind.role.member')
 }
 
 const ROLE_BADGE_STYLES: Record<string, string> = {
@@ -99,11 +103,19 @@ const ROLE_BADGE_STYLES: Record<string, string> = {
   4: 'background:#FBF0E1;color:#C87D2A',
 }
 
-const APPLY_STATUS_LABEL: Record<string, string> = {
-  1: '待审核',
-  2: '已通过',
-  3: '已驳回',
-  4: '已撤回',
+const APPLY_STATUS_KEYS: Record<string, string> = {
+  1: 'pending',
+  2: 'approved',
+  3: 'rejected',
+  4: 'withdrawn',
+}
+
+/** 申请状态文案；未知取值返回空串，由模板回退显示原始状态码 */
+function applyStatusLabel(status?: null | string): string {
+  if (!status)
+    return ''
+  const key = APPLY_STATUS_KEYS[status]
+  return key ? t(`vessel.bind.applyStatus.${key}`) : ''
 }
 
 const APPLY_STATUS_STYLES: Record<string, string> = {
@@ -130,6 +142,19 @@ function avatarText(member: VesselMember): string {
 
 /** 可管理成员的角色 */
 const MANAGE_ROLES = ['1', '3', '4']
+
+/** 添加成员弹层里的船上角色选项 */
+const MEMBER_ROLE_OPTIONS = computed(() => [
+  { label: t('vessel.bind.role.crew'), value: '2' },
+  { label: t('vessel.bind.role.confirmator'), value: '3' },
+  { label: t('vessel.bind.role.sales'), value: '4' },
+])
+
+/** 绑定申请弹层里的身份选项 */
+const APPLY_ROLE_OPTIONS = computed(() => [
+  { label: t('vessel.bind.role.crewPerson'), value: '2' },
+  { label: t('vessel.bind.role.salesPerson'), value: '4' },
+])
 
 const members = ref<VesselMember[]>([])
 const myRole = computed(() => members.value.find(m => m.userId === userStore.getUserId)?.memberRole ?? '')
@@ -277,7 +302,7 @@ function refreshAll() {
 function submitRedeem() {
   const code = joinState.code.trim().toUpperCase()
   if (!code) {
-    uni.showToast({ title: '请输入邀请码', icon: 'none' })
+    uni.showToast({ title: t('vessel.bind.toast.codeRequired'), icon: 'none' })
     return
   }
   if (joinState.submitting)
@@ -286,7 +311,7 @@ function submitRedeem() {
   redeemInviteCode(code)
     .then(() => {
       joinState.code = ''
-      uni.showToast({ title: '已加入船舶', icon: 'success' })
+      uni.showToast({ title: t('vessel.bind.toast.joined'), icon: 'success' })
       return refreshAll()
     })
     .catch(() => {})
@@ -319,7 +344,7 @@ const joinAnother = reactive({ code: '', submitting: false })
 function submitJoinAnother() {
   const code = joinAnother.code.trim().toUpperCase()
   if (!code) {
-    uni.showToast({ title: '请输入邀请码', icon: 'none' })
+    uni.showToast({ title: t('vessel.bind.toast.codeRequired'), icon: 'none' })
     return
   }
   if (joinAnother.submitting)
@@ -328,7 +353,7 @@ function submitJoinAnother() {
   redeemInviteCode(code)
     .then(() => {
       joinAnother.code = ''
-      uni.showToast({ title: '已加入新船，可在上方切换', icon: 'none' })
+      uni.showToast({ title: t('vessel.bind.toast.joinedNew'), icon: 'none' })
       return fetchVessels()
     })
     .catch(() => {})
@@ -339,15 +364,15 @@ function submitJoinAnother() {
 
 function submitApply() {
   if (!applyState.form.applyVesselName.trim()) {
-    applyState.error = '请填写船名'
-    uni.showToast({ title: '请填写船名', icon: 'none' })
+    applyState.error = t('vessel.bind.toast.vesselNameRequired')
+    uni.showToast({ title: t('vessel.bind.toast.vesselNameRequired'), icon: 'none' })
     return
   }
   // 已有待审核申请时后端必然拒绝（同一用户仅一条待审核）：本地先拦下。
   // 头部横幅已经解释了原因与出路，这里只在操作点补一句**动作指引**，
   // 不重复整段文案（同屏出现两句一样的话会让用户以为点了两次都没用）。
   if (pendingApply.value) {
-    applyState.error = '请先撤回上面那条待审核申请，或点「刷新状态」确认是否已审核通过'
+    applyState.error = t('vessel.bind.toast.pendingBlocked')
     return
   }
   if (applyState.submitting)
@@ -368,7 +393,7 @@ function submitApply() {
     .then(() => {
       applyState.visible = false
       applyState.error = ''
-      uni.showToast({ title: '已提交，等待运营审核', icon: 'success' })
+      uni.showToast({ title: t('vessel.bind.toast.submitted'), icon: 'success' })
       return fetchJoinData()
     })
     .catch((error) => {
@@ -387,8 +412,10 @@ function handleCancelApply(apply: null | VesselBindApply | undefined) {
   if (!apply)
     return
   uni.showModal({
-    title: '撤回申请',
-    content: `确定撤回「${apply.applyVesselName || '这条申请'}」的绑定申请吗？撤回后可重新提交。`,
+    title: t('vessel.bind.modal.withdrawTitle'),
+    content: t('vessel.bind.modal.withdrawContent', {
+      vessel: apply.applyVesselName || t('vessel.bind.modal.withdrawFallback'),
+    }),
     success: (res) => {
       if (!res.confirm)
         return
@@ -397,7 +424,7 @@ function handleCancelApply(apply: null | VesselBindApply | undefined) {
           // 撤回成功即解除「仅一条待审核」的死结：清掉内联拦截文案，
           // 用户可以就地改船名重新提交，不必先退出弹层再进来
           applyState.error = ''
-          uni.showToast({ title: '已撤回', icon: 'success' })
+          uni.showToast({ title: t('vessel.bind.toast.withdrawn'), icon: 'success' })
           return fetchJoinData()
         })
         .catch((error) => {
@@ -422,7 +449,7 @@ function openAddFlow() {
 function doSearchCandidates() {
   const keyword = candidateState.keyword.trim()
   if (!keyword) {
-    uni.showToast({ title: '请输入手机号或昵称', icon: 'none' })
+    uni.showToast({ title: t('vessel.bind.toast.memberQueryRequired'), icon: 'none' })
     return
   }
   candidateState.searching = true
@@ -430,7 +457,7 @@ function doSearchCandidates() {
     .then((res) => {
       candidateState.list = res ?? []
       if (candidateState.list.length === 0) {
-        uni.showToast({ title: '没找到匹配的商城用户', icon: 'none' })
+        uni.showToast({ title: t('vessel.bind.toast.memberNotFound'), icon: 'none' })
       }
     })
     .catch(() => {})
@@ -467,7 +494,7 @@ function submitAdd() {
     .then(() => {
       addState.visible = false
       candidateState.list = candidateState.list.filter(c => c.userId !== addState.target?.userId)
-      uni.showToast({ title: '已添加', icon: 'success' })
+      uni.showToast({ title: t('vessel.bind.toast.added'), icon: 'success' })
       return fetchMemberData()
     })
     .catch((error) => {
@@ -481,14 +508,16 @@ function submitAdd() {
 
 function handleRemoveMember(member: VesselMember) {
   uni.showModal({
-    title: '移除成员',
-    content: `确定将「${member.nickname || member.userId}」移出本船吗？`,
+    title: t('vessel.bind.modal.removeMemberTitle'),
+    content: t('vessel.bind.modal.removeMemberContent', {
+      member: member.nickname || member.userId,
+    }),
     success: (res) => {
       if (!res.confirm)
         return
       removeVesselMember(activeVesselId.value, member.id)
         .then(() => {
-          uni.showToast({ title: '已移除', icon: 'success' })
+          uni.showToast({ title: t('vessel.bind.toast.removed'), icon: 'success' })
           return fetchMemberData()
         })
         .catch(() => {})
@@ -502,14 +531,14 @@ function handleLeaveVessel() {
   if (!vessel)
     return
   uni.showModal({
-    title: '退出本船',
-    content: `退出后将无法以船供方式在「${vessel.vesselName}」下单，确定退出吗？`,
+    title: t('vessel.bind.modal.exitTitle'),
+    content: t('vessel.bind.modal.exitContent', { vessel: vessel.vesselName }),
     success: (res) => {
       if (!res.confirm)
         return
       leaveVessel(vessel.id)
         .then(() => {
-          uni.showToast({ title: '已退出', icon: 'success' })
+          uni.showToast({ title: t('vessel.bind.toast.exited'), icon: 'success' })
           activeVesselId.value = ''
           members.value = []
           inviteCodes.value = []
@@ -526,7 +555,7 @@ function handleLeaveVessel() {
 function handleGenerateCode() {
   generateInviteCode(activeVesselId.value, { expireHours: 24 })
     .then(() => {
-      uni.showToast({ title: '已生成（24 小时有效）', icon: 'success' })
+      uni.showToast({ title: t('vessel.bind.toast.codeGenerated'), icon: 'success' })
       return fetchMemberData()
     })
     .catch(() => {})
@@ -535,20 +564,20 @@ function handleGenerateCode() {
 function copyCode(code: string) {
   uni.setClipboardData({
     data: code,
-    success: () => uni.showToast({ title: '邀请码已复制', icon: 'none' }),
+    success: () => uni.showToast({ title: t('vessel.bind.toast.codeCopied'), icon: 'none' }),
   })
 }
 
 function handleRevokeCode(item: VesselInviteCode) {
   uni.showModal({
-    title: '撤销邀请码',
-    content: '撤销后该邀请码立即失效，确定吗？',
+    title: t('vessel.bind.modal.revokeCodeTitle'),
+    content: t('vessel.bind.modal.revokeCodeContent'),
     success: (res) => {
       if (!res.confirm)
         return
       revokeInviteCode(item.id)
         .then(() => {
-          uni.showToast({ title: '已撤销', icon: 'success' })
+          uni.showToast({ title: t('vessel.bind.toast.revoked'), icon: 'success' })
           return fetchMemberData()
         })
         .catch(() => {})
@@ -573,7 +602,7 @@ function useAsCurrent() {
   if (!activeVessel.value)
     return
   shipContextStore.switchVessel(activeVessel.value.id, activeVessel.value.vesselName)
-  uni.showToast({ title: '已设为当前船舶', icon: 'success' })
+  uni.showToast({ title: t('vessel.bind.toast.vesselSwitched'), icon: 'success' })
 }
 
 onLoad((options) => {
@@ -589,7 +618,7 @@ onShow(() => {
 
 <template>
   <view>
-    <hr-navbar title="船舶绑定" />
+    <hr-navbar :title="t('vessel.bind.navTitle')" />
 
     <!-- 首次加载：骨架屏 -->
     <view v-if="loading && vessels.length === 0" class="px-20rpx pt-20rpx">
@@ -602,10 +631,10 @@ onShow(() => {
     <view v-else-if="loadFailed && vessels.length === 0" class="px-40rpx pt-140rpx text-center">
       <text class="i-carbon-warning-alt block text-80rpx" style="color: #C87D2A" />
       <view class="mt-16rpx text-26rpx" style="color: #86909C">
-        加载失败，请检查网络后重试
+        {{ t('vessel.bind.loadFailed') }}
       </view>
       <button class="mt-32rpx h-80rpx w-320rpx rounded-16rpx text-28rpx leading-80rpx !m-0" type="primary" @tap="refreshAll">
-        重新加载
+        {{ t('vessel.bind.reload') }}
       </button>
     </view>
 
@@ -619,10 +648,10 @@ onShow(() => {
         <view class="relative p-40rpx">
           <text class="i-carbon-anchor absolute right-20rpx top-16rpx text-140rpx" style="color: rgba(255, 255, 255, 0.14)" />
           <view class="text-40rpx text-white font-bold">
-            加入船舶
+            {{ t('vessel.bind.joinTitle') }}
           </view>
           <view class="mt-12rpx text-26rpx" style="color: rgba(255, 255, 255, 0.85)">
-            加入后即可使用船供采购与靠港配送
+            {{ t('vessel.bind.joinDesc') }}
           </view>
         </view>
       </view>
@@ -631,13 +660,13 @@ onShow(() => {
       <view v-if="!authStore.isLoggedIn" class="mx-20rpx mt-20rpx rounded-24rpx bg-white p-32rpx">
         <view class="flex items-center gap-12rpx text-28rpx font-bold">
           <text class="i-carbon-information text-30rpx" style="color: #C87D2A" />
-          尚未登录
+          {{ t('vessel.bind.notLoggedIn') }}
         </view>
         <view class="mt-8rpx text-24rpx" style="color: #86909C">
-          登录后才能输入邀请码或提交绑定申请
+          {{ t('vessel.bind.loginHint') }}
         </view>
         <button class="mt-24rpx h-88rpx rounded-16rpx text-28rpx leading-88rpx !m-0" type="primary" @tap="goLogin">
-          去登录
+          {{ t('vessel.bind.goLogin') }}
         </button>
       </view>
 
@@ -645,17 +674,17 @@ onShow(() => {
       <view class="mx-20rpx mt-20rpx rounded-24rpx bg-white p-32rpx">
         <view class="flex items-center gap-10rpx text-30rpx font-bold">
           <text class="i-carbon-qr-code text-32rpx" style="color: #378ADD" />
-          方式一 · 邀请码加入
+          {{ t('vessel.bind.inviteWayTitle') }}
         </view>
         <view class="mt-8rpx text-24rpx" style="color: #86909C">
-          向已在船上的同事索取邀请码，输入即可加入
+          {{ t('vessel.bind.inviteWayDesc') }}
         </view>
         <view class="mt-24rpx rounded-16rpx" style="background: #F7F8FA">
           <input
             v-model="joinState.code"
             class="h-96rpx px-24rpx text-36rpx tracking-widest"
             style="text-transform: uppercase"
-            placeholder="如 A3K9MP"
+            :placeholder="t('vessel.bind.inviteCodePlaceholder')"
             placeholder-style="color: #A8ABB2"
             :maxlength="12"
           >
@@ -666,7 +695,7 @@ onShow(() => {
           :disabled="joinState.submitting"
           @tap="submitRedeem"
         >
-          {{ joinState.submitting ? '加入中…' : '加入船舶' }}
+          {{ joinState.submitting ? t('vessel.bind.joining') : t('vessel.bind.join') }}
         </button>
       </view>
 
@@ -674,10 +703,10 @@ onShow(() => {
       <view class="mx-20rpx mt-20rpx rounded-24rpx bg-white p-32rpx">
         <view class="flex items-center gap-10rpx text-30rpx font-bold">
           <text class="i-carbon-document-blank text-32rpx" style="color: #378ADD" />
-          方式二 · 提交绑定申请
+          {{ t('vessel.bind.applyWayTitle') }}
         </view>
         <view class="mt-8rpx text-24rpx" style="color: #86909C">
-          没有邀请码时填写申请，由运营审核；业务员认领新船也走这里
+          {{ t('vessel.bind.applyWayDesc') }}
         </view>
         <view
           class="mt-24rpx h-88rpx flex items-center justify-center gap-8rpx rounded-16rpx text-28rpx"
@@ -685,7 +714,7 @@ onShow(() => {
           @tap="openApply"
         >
           <text class="i-carbon-edit text-30rpx" />
-          填写申请
+          {{ t('vessel.bind.fillApply') }}
         </view>
       </view>
     </template>
@@ -702,21 +731,21 @@ onShow(() => {
           <view class="flex items-center gap-16rpx">
             <text class="i-carbon-sailboat-coastal flex-none text-44rpx text-white" />
             <view class="min-w-0 flex-1 truncate text-40rpx text-white font-bold">
-              {{ activeVessel?.vesselName || '我的船舶' }}
+              {{ activeVessel?.vesselName || t('vessel.bind.myVesselFallback') }}
             </view>
           </view>
           <view class="mt-20rpx flex flex-wrap items-center gap-12rpx">
             <view v-if="myRole" class="rounded-full px-16rpx py-4rpx text-22rpx" style="background: rgba(255, 255, 255, 0.22); color: #fff">
-              我的角色：{{ vesselRoleLabel(myRole) }}
+              {{ t('vessel.bind.myRole', { role: vesselRoleLabel(myRole) }) }}
             </view>
             <view class="rounded-full px-16rpx py-4rpx text-22rpx" style="background: rgba(255, 255, 255, 0.22); color: #fff">
-              成员 {{ members.length }}
+              {{ t('vessel.bind.memberCount', { count: members.length }) }}
             </view>
           </view>
           <view class="mt-28rpx">
             <view v-if="isCurrentVessel" class="flex items-center gap-8rpx text-26rpx text-white">
               <text class="i-carbon-checkmark-filled text-30rpx" />
-              当前购物船舶
+              {{ t('vessel.bind.currentVessel') }}
             </view>
             <view
               v-else
@@ -724,7 +753,7 @@ onShow(() => {
               style="color: #2A79C6"
               @tap="useAsCurrent"
             >
-              设为当前船舶
+              {{ t('vessel.bind.setCurrent') }}
             </view>
           </view>
         </view>
@@ -738,19 +767,19 @@ onShow(() => {
         <view class="flex items-center justify-between">
           <view class="flex items-center gap-10rpx text-30rpx font-bold">
             <text class="i-carbon-taxi text-32rpx" style="color: #378ADD" />
-            港口报备车辆
+            {{ t('vessel.bind.portVehicles') }}
           </view>
           <text class="i-carbon-chevron-right text-28rpx" style="color: #A8ABB2" />
         </view>
         <view class="mt-8rpx text-24rpx" style="color: #86909C">
-          靠港外出打车：查看当前港口已报备车辆，一键拨打司机电话
+          {{ t('vessel.bind.portVehiclesDesc') }}
         </view>
       </view>
 
       <!-- 多船切换 -->
       <view v-if="vessels.length > 1" class="mx-20rpx mt-20rpx rounded-24rpx bg-white p-24rpx">
         <view class="text-24rpx" style="color: #86909C">
-          我的船舶（{{ vessels.length }}）
+          {{ t('vessel.bind.myVesselsCount', { count: vessels.length }) }}
         </view>
         <view class="mt-16rpx flex flex-wrap gap-16rpx">
           <view
@@ -769,10 +798,10 @@ onShow(() => {
       <view class="mx-20rpx mt-20rpx rounded-24rpx bg-white p-32rpx">
         <view class="flex items-center gap-10rpx text-30rpx font-bold">
           <text class="i-carbon-qr-code text-32rpx" style="color: #378ADD" />
-          加入其他船舶
+          {{ t('vessel.bind.joinOtherTitle') }}
         </view>
         <view class="mt-8rpx text-24rpx" style="color: #86909C">
-          经常换船跑？输入新船的邀请码加入，加入后可在上方随时切换
+          {{ t('vessel.bind.joinOtherDesc') }}
         </view>
         <view class="mt-24rpx flex items-center gap-16rpx">
           <view class="flex-1 rounded-16rpx" style="background: #F7F8FA">
@@ -780,7 +809,7 @@ onShow(() => {
               v-model="joinAnother.code"
               class="h-88rpx px-24rpx text-30rpx tracking-widest"
               style="text-transform: uppercase"
-              placeholder="新船邀请码"
+              :placeholder="t('vessel.bind.newCodePlaceholder')"
               placeholder-style="color: #A8ABB2"
               :maxlength="12"
             >
@@ -792,7 +821,7 @@ onShow(() => {
             :disabled="joinAnother.submitting"
             @tap="submitJoinAnother"
           >
-            {{ joinAnother.submitting ? '加入中…' : '加入' }}
+            {{ joinAnother.submitting ? t('vessel.bind.joining') : t('vessel.bind.joinNow') }}
           </button>
         </view>
         <view
@@ -801,7 +830,7 @@ onShow(() => {
           @tap="openApply"
         >
           <text class="i-carbon-edit text-28rpx" />
-          没有邀请码？提交申请，由运营审核加入
+          {{ t('vessel.bind.noCodeHint') }}
         </view>
       </view>
 
@@ -809,7 +838,7 @@ onShow(() => {
       <view class="mx-20rpx mt-20rpx rounded-24rpx bg-white p-32rpx">
         <view class="flex items-center gap-10rpx text-30rpx font-bold">
           <text class="i-carbon-group text-32rpx" style="color: #378ADD" />
-          船上成员（{{ members.length }}）
+          {{ t('vessel.bind.membersTitle', { count: members.length }) }}
         </view>
 
         <view v-for="member in members" :key="member.id" class="mt-24rpx flex items-center">
@@ -829,7 +858,7 @@ onShow(() => {
                 class="flex-none rounded-full px-14rpx py-2rpx text-20rpx"
                 style="background: #E6F1FB; color: #378ADD"
               >
-                我
+                {{ t('vessel.bind.me') }}
               </view>
               <view
                 class="flex-none rounded px-10rpx py-2rpx text-20rpx"
@@ -860,7 +889,7 @@ onShow(() => {
           @tap="openAddFlow"
         >
           <text class="i-carbon-user-follow text-30rpx" />
-          添加成员
+          {{ t('vessel.bind.addMember') }}
         </view>
       </view>
 
@@ -869,7 +898,7 @@ onShow(() => {
         <view class="flex items-center justify-between">
           <view class="flex items-center gap-10rpx text-30rpx font-bold">
             <text class="i-carbon-ticket text-32rpx" style="color: #378ADD" />
-            邀请码
+            {{ t('vessel.bind.inviteCodeTitle') }}
           </view>
           <view
             class="h-60rpx flex items-center gap-4rpx rounded-full px-24rpx text-24rpx"
@@ -877,11 +906,11 @@ onShow(() => {
             @tap="handleGenerateCode"
           >
             <text class="i-carbon-add text-26rpx" />
-            生成新码
+            {{ t('vessel.bind.generateCode') }}
           </view>
         </view>
         <view class="mt-8rpx text-24rpx" style="color: #86909C">
-          业务员不在场时，把码发给同事自助加入本船
+          {{ t('vessel.bind.inviteCodeDesc') }}
         </view>
 
         <view
@@ -904,12 +933,18 @@ onShow(() => {
             </view>
           </view>
           <view class="mt-8rpx text-22rpx" style="color: #86909C">
-            已用 {{ item.usedCount }}{{ item.maxUses > 0 ? `/${item.maxUses}` : ' 次（不限）' }} · {{ item.expiresAt }} 过期
+            {{ t('vessel.bind.codeUsage', {
+              used: item.usedCount,
+              limit: item.maxUses > 0
+                ? t('vessel.bind.codeUsageLimit', { max: item.maxUses })
+                : t('vessel.bind.codeUsageUnlimited'),
+              expires: item.expiresAt,
+            }) }}
           </view>
         </view>
 
         <view v-if="inviteCodes.length === 0" class="py-32rpx text-center text-24rpx" style="color: #A8ABB2">
-          暂无有效邀请码，点上方「生成新码」创建
+          {{ t('vessel.bind.noValidCode') }}
         </view>
       </view>
 
@@ -918,10 +953,10 @@ onShow(() => {
         <view class="flex items-center justify-between">
           <view class="min-w-0 flex-1">
             <view class="text-28rpx font-medium">
-              退出「{{ activeVessel?.vesselName || '本船' }}」
+              {{ t('vessel.bind.exitVessel', { vessel: activeVessel?.vesselName || t('vessel.bind.exitFallback') }) }}
             </view>
             <view class="mt-6rpx text-22rpx" style="color: #86909C">
-              退出后不能再以该船下单，历史订单不受影响；换船时退出后可加入其他船
+              {{ t('vessel.bind.exitDesc') }}
             </view>
           </view>
           <view
@@ -929,7 +964,7 @@ onShow(() => {
             style="background: #FDEEEE; color: #D54941"
             @tap="handleLeaveVessel"
           >
-            退出
+            {{ t('vessel.bind.exit') }}
           </view>
         </view>
       </view>
@@ -939,7 +974,7 @@ onShow(() => {
     <view v-if="myApplies.length > 0" class="mx-20rpx mt-20rpx rounded-24rpx bg-white p-32rpx">
       <view class="flex items-center gap-10rpx text-30rpx font-bold">
         <text class="i-carbon-time text-32rpx" style="color: #378ADD" />
-        我的申请
+        {{ t('vessel.bind.myApplies') }}
       </view>
       <view
         v-for="apply in myApplies"
@@ -952,11 +987,11 @@ onShow(() => {
             {{ apply.applyVesselName }}
           </view>
           <view class="rounded-full px-16rpx py-4rpx text-22rpx" :style="APPLY_STATUS_STYLES[apply.status] || APPLY_STATUS_STYLES['4']">
-            {{ APPLY_STATUS_LABEL[apply.status] || apply.status }}
+            {{ applyStatusLabel(apply.status) || apply.status }}
           </view>
         </view>
         <view class="mt-8rpx text-22rpx" style="color: #86909C">
-          申请单 {{ apply.applyNo }} · {{ apply.createTime }}
+          {{ t('vessel.bind.applyNo', { no: apply.applyNo, time: apply.createTime }) }}
         </view>
         <!-- 实际绑定船：审核通过后单独一行展示，避免只看申请船名误以为绑的是同一条 -->
         <view
@@ -964,7 +999,7 @@ onShow(() => {
           class="mt-8rpx text-22rpx"
           style="color: #4E5969"
         >
-          实际绑定：{{ apply.matchedVesselName }}
+          {{ t('vessel.bind.matchedVessel', { vessel: apply.matchedVesselName }) }}
         </view>
         <!-- 申请船名与实际绑定船名不一致：审核通过后申请单不再变化，必须显式告知 -->
         <view
@@ -979,7 +1014,7 @@ onShow(() => {
           class="mt-12rpx rounded-8rpx px-16rpx py-10rpx text-22rpx"
           style="background: #FBF0E1; color: #C87D2A"
         >
-          审核意见：{{ apply.auditRemark }}
+          {{ t('vessel.bind.auditRemark', { remark: apply.auditRemark }) }}
         </view>
         <view v-if="apply.status === '1'" class="mt-16rpx flex justify-end">
           <view
@@ -987,7 +1022,7 @@ onShow(() => {
             style="background: #FDEEEE; color: #D54941"
             @tap="handleCancelApply(apply)"
           >
-            撤回申请
+            {{ t('vessel.bind.withdrawApply') }}
           </view>
         </view>
       </view>
@@ -1013,7 +1048,7 @@ onShow(() => {
             <text class="i-carbon-arrow-left text-28rpx" style="color: #4E5969" />
           </view>
           <view class="flex-1 text-32rpx font-bold">
-            {{ addState.mode === 'confirm' ? '确认加入信息' : '添加成员' }}
+            {{ addState.mode === 'confirm' ? t('vessel.bind.confirmJoinTitle') : t('vessel.bind.addMemberTitle') }}
           </view>
           <view class="h-56rpx w-56rpx flex items-center justify-center" @tap="addState.visible = false">
             <text class="i-carbon-close text-28rpx" style="color: #86909C" />
@@ -1023,14 +1058,14 @@ onShow(() => {
         <!-- 搜索视图 -->
         <scroll-view v-if="addState.mode === 'search'" scroll-y style="flex: 1; min-height: 0">
           <view class="mx-30rpx mb-20rpx rounded-12rpx px-24rpx py-16rpx text-22rpx" style="background: #F0F7FF; color: #4E5969">
-            输入对方的手机号或昵称搜索，对方需已注册本商城
+            {{ t('vessel.bind.addMemberHint') }}
           </view>
           <view class="mx-30rpx flex items-center gap-16rpx">
             <view class="flex-1 rounded-16rpx" style="background: #F7F8FA">
               <input
                 v-model="candidateState.keyword"
                 class="h-88rpx px-24rpx text-26rpx"
-                placeholder="手机号 / 昵称 / 用户ID"
+                :placeholder="t('vessel.bind.candidatePlaceholder')"
                 placeholder-style="color: #A8ABB2"
                 confirm-type="search"
                 @confirm="doSearchCandidates"
@@ -1043,12 +1078,12 @@ onShow(() => {
               :disabled="candidateState.searching"
               @tap="doSearchCandidates"
             >
-              {{ candidateState.searching ? '搜索中' : '搜索' }}
+              {{ candidateState.searching ? t('vessel.bind.searching') : t('vessel.bind.search') }}
             </button>
           </view>
 
           <view v-if="candidateState.list.length > 0" class="mx-30rpx mt-12rpx pb-20rpx text-22rpx" style="color: #86909C">
-            找到 {{ candidateState.list.length }} 位用户
+            {{ t('vessel.bind.foundUsers', { count: candidateState.list.length }) }}
           </view>
           <view
             v-for="candidate in candidateState.list"
@@ -1071,7 +1106,7 @@ onShow(() => {
               </view>
             </view>
             <view v-if="candidate.status === '1'" class="text-24rpx" style="color: #A8ABB2">
-              已在船上
+              {{ t('vessel.bind.alreadyOnboard') }}
             </view>
             <view
               v-else
@@ -1079,7 +1114,7 @@ onShow(() => {
               style="background: #378ADD; color: #fff"
               @tap="openAdd(candidate)"
             >
-              添加
+              {{ t('vessel.bind.add') }}
             </view>
           </view>
           <view style="height: calc(24rpx + env(safe-area-inset-bottom))" />
@@ -1106,11 +1141,11 @@ onShow(() => {
             </view>
 
             <view class="mx-30rpx mt-28rpx text-26rpx">
-              船上角色
+              {{ t('vessel.bind.onboardRole') }}
             </view>
             <view class="mx-30rpx mt-16rpx flex flex-wrap gap-16rpx">
               <view
-                v-for="option in [{ label: '普通船员', value: '2' }, { label: '采购确认人', value: '3' }, { label: '业务员', value: '4' }]"
+                v-for="option in MEMBER_ROLE_OPTIONS"
                 :key="option.value"
                 class="rounded-full px-28rpx py-14rpx text-26rpx"
                 :style="addState.memberRole === option.value ? 'background:#378ADD;color:#fff' : 'background:#F2F3F5;color:#4E5969'"
@@ -1121,13 +1156,13 @@ onShow(() => {
             </view>
 
             <view class="mx-30rpx mt-32rpx text-26rpx">
-              备注
+              {{ t('vessel.bind.remark') }}
             </view>
             <view class="mx-30rpx mt-16rpx rounded-16rpx" style="background: #F7F8FA">
               <input
                 v-model="addState.remark"
                 class="h-96rpx px-24rpx text-26rpx"
-                placeholder="如：张工-轮机长"
+                :placeholder="t('vessel.bind.remarkPlaceholder')"
                 placeholder-style="color: #A8ABB2"
                 :maxlength="30"
               >
@@ -1151,7 +1186,7 @@ onShow(() => {
               style="background: #F2F3F5; color: #4E5969"
               @tap="backToSearch"
             >
-              上一步
+              {{ t('vessel.bind.prev') }}
             </button>
             <button
               class="h-88rpx flex-1 rounded-16rpx text-28rpx leading-88rpx !m-0"
@@ -1159,7 +1194,7 @@ onShow(() => {
               :disabled="addState.submitting"
               @tap="submitAdd"
             >
-              {{ addState.submitting ? '添加中…' : '确认添加' }}
+              {{ addState.submitting ? t('vessel.bind.adding') : t('vessel.bind.confirmAdd') }}
             </button>
           </view>
         </template>
@@ -1176,7 +1211,7 @@ onShow(() => {
         <view class="mx-auto mt-14rpx h-8rpx w-72rpx rounded-full" style="background: #E5E6EB" />
         <view class="flex items-center px-24rpx pb-16rpx pt-18rpx">
           <view class="flex-1 text-32rpx font-bold">
-            绑定申请
+            {{ t('vessel.bind.applyTitle') }}
           </view>
           <view class="h-56rpx w-56rpx flex items-center justify-center" @tap="closeApply">
             <text class="i-carbon-close text-28rpx" style="color: #86909C" />
@@ -1198,7 +1233,7 @@ onShow(() => {
             {{ pendingApplyTip(pendingApply) }}
           </view>
           <view class="mt-8rpx text-22rpx" style="color: #A8ABB2">
-            申请单 {{ pendingApply.applyNo }}
+            {{ t('vessel.bind.applyNoShort', { no: pendingApply.applyNo }) }}
           </view>
           <view class="mt-16rpx flex items-center gap-16rpx">
             <view
@@ -1206,7 +1241,7 @@ onShow(() => {
               style="background: #FDEEEE; color: #D54941"
               @tap="handleCancelApply(pendingApply)"
             >
-              撤回这条申请
+              {{ t('vessel.bind.withdrawThisApply') }}
             </view>
             <!--
               拦截依赖本地缓存的申请列表：运营刚审核完时这里可能还是旧状态。
@@ -1217,7 +1252,7 @@ onShow(() => {
               style="background: #F2F3F5; color: #4E5969"
               @tap="refreshPendingState()"
             >
-              刷新状态
+              {{ t('vessel.bind.refreshStatus') }}
             </view>
           </view>
         </view>
@@ -1239,11 +1274,11 @@ onShow(() => {
 
         <scroll-view scroll-y style="flex: 1; min-height: 0">
           <view class="mx-30rpx text-26rpx">
-            我的身份
+            {{ t('vessel.bind.applyRoleTitle') }}
           </view>
           <view class="mx-30rpx mt-16rpx flex gap-16rpx">
             <view
-              v-for="option in [{ label: '船上人员', value: '2' }, { label: '商城业务员', value: '4' }]"
+              v-for="option in APPLY_ROLE_OPTIONS"
               :key="option.value"
               class="rounded-full px-28rpx py-14rpx text-26rpx"
               :style="applyState.form.applyRole === option.value ? 'background:#378ADD;color:#fff' : 'background:#F2F3F5;color:#4E5969'"
@@ -1254,7 +1289,7 @@ onShow(() => {
           </view>
 
           <view class="mx-30rpx mt-32rpx text-26rpx">
-            船舶信息
+            {{ t('vessel.bind.vesselSection') }}
           </view>
           <view class="mx-30rpx mt-16rpx rounded-16rpx px-24rpx" style="background: #F7F8FA">
             <view class="flex items-center" style="min-height: 96rpx; border-bottom: 1rpx solid #EDEEF0">
@@ -1262,48 +1297,48 @@ onShow(() => {
                 <text style="color: #D54941">
                   *
                 </text>
-                船名
+                {{ t('vessel.bind.vesselName') }}
               </view>
               <input
                 v-model="applyState.form.applyVesselName"
                 class="h-96rpx flex-1 bg-transparent text-right text-26rpx"
-                placeholder="如 悦航1号"
+                :placeholder="t('vessel.bind.vesselNamePlaceholder')"
                 placeholder-style="color: #A8ABB2"
                 :maxlength="30"
               >
             </view>
             <view class="flex items-center" style="min-height: 96rpx; border-bottom: 1rpx solid #EDEEF0">
               <view class="w-190rpx text-26rpx">
-                IMO 编号
+                {{ t('vessel.bind.imo') }}
               </view>
               <input
                 v-model="applyState.form.applyVesselImo"
                 class="h-96rpx flex-1 bg-transparent text-right text-26rpx"
-                placeholder="选填，IMO 为 7 位数字"
+                :placeholder="t('vessel.bind.imoPlaceholder')"
                 placeholder-style="color: #A8ABB2"
                 :maxlength="30"
               >
             </view>
             <view class="flex items-center" style="min-height: 96rpx; border-bottom: 1rpx solid #EDEEF0">
               <view class="w-190rpx text-26rpx">
-                呼号
+                {{ t('vessel.bind.callSign') }}
               </view>
               <input
                 v-model="applyState.form.applyVesselCallSign"
                 class="h-96rpx flex-1 bg-transparent text-right text-26rpx"
-                placeholder="选填，如 3EABC"
+                :placeholder="t('vessel.bind.callSignPlaceholder')"
                 placeholder-style="color: #A8ABB2"
                 :maxlength="30"
               >
             </view>
             <view class="flex items-center" style="min-height: 96rpx">
               <view class="w-190rpx text-26rpx">
-                常靠港口
+                {{ t('vessel.bind.homePort') }}
               </view>
               <input
                 v-model="applyState.form.applyPortName"
                 class="h-96rpx flex-1 bg-transparent text-right text-26rpx"
-                placeholder="选填，如 上海港"
+                :placeholder="t('vessel.bind.homePortPlaceholder')"
                 placeholder-style="color: #A8ABB2"
                 :maxlength="30"
               >
@@ -1311,29 +1346,29 @@ onShow(() => {
           </view>
 
           <view class="mx-30rpx mt-32rpx text-26rpx">
-            联系信息
+            {{ t('vessel.bind.contactSection') }}
           </view>
           <view class="mx-30rpx mt-16rpx rounded-16rpx px-24rpx" style="background: #F7F8FA">
             <view class="flex items-center" style="min-height: 96rpx; border-bottom: 1rpx solid #EDEEF0">
               <view class="w-190rpx text-26rpx">
-                真实姓名
+                {{ t('vessel.bind.realName') }}
               </view>
               <input
                 v-model="applyState.form.realName"
                 class="h-96rpx flex-1 bg-transparent text-right text-26rpx"
-                placeholder="选填"
+                :placeholder="t('vessel.bind.optionalPlaceholder')"
                 placeholder-style="color: #A8ABB2"
                 :maxlength="20"
               >
             </view>
             <view class="flex items-center" style="min-height: 96rpx; border-bottom: 1rpx solid #EDEEF0">
               <view class="w-190rpx text-26rpx">
-                联系电话
+                {{ t('vessel.bind.phone') }}
               </view>
               <input
                 v-model="applyState.form.phone"
                 class="h-96rpx flex-1 bg-transparent text-right text-26rpx"
-                placeholder="选填"
+                :placeholder="t('vessel.bind.optionalPlaceholder')"
                 placeholder-style="color: #A8ABB2"
                 type="number"
                 :maxlength="20"
@@ -1341,24 +1376,24 @@ onShow(() => {
             </view>
             <view class="flex items-center" style="min-height: 96rpx; border-bottom: 1rpx solid #EDEEF0">
               <view class="w-190rpx text-26rpx">
-                职务/工号
+                {{ t('vessel.bind.position') }}
               </view>
               <input
                 v-model="applyState.form.position"
                 class="h-96rpx flex-1 bg-transparent text-right text-26rpx"
-                placeholder="选填，如 轮机长"
+                :placeholder="t('vessel.bind.positionPlaceholder')"
                 placeholder-style="color: #A8ABB2"
                 :maxlength="30"
               >
             </view>
             <view class="flex items-center" style="min-height: 96rpx">
               <view class="w-190rpx text-26rpx">
-                补充说明
+                {{ t('vessel.bind.extraNote') }}
               </view>
               <input
                 v-model="applyState.form.remark"
                 class="h-96rpx flex-1 bg-transparent text-right text-26rpx"
-                placeholder="选填"
+                :placeholder="t('vessel.bind.optionalPlaceholder')"
                 placeholder-style="color: #A8ABB2"
                 :maxlength="50"
               >
@@ -1373,7 +1408,7 @@ onShow(() => {
             style="background: #F2F3F5; color: #4E5969"
             @tap="closeApply"
           >
-            取消
+            {{ t('vessel.bind.cancel') }}
           </button>
           <button
             class="h-88rpx flex-1 rounded-16rpx text-28rpx leading-88rpx !m-0"
@@ -1381,7 +1416,7 @@ onShow(() => {
             :disabled="applyState.submitting"
             @tap="submitApply"
           >
-            {{ applyState.submitting ? '提交中…' : '提交申请' }}
+            {{ applyState.submitting ? t('vessel.bind.submitting') : t('vessel.bind.submitApply') }}
           </button>
         </view>
       </view>

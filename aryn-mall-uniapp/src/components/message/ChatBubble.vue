@@ -1,8 +1,12 @@
 <script setup lang="ts">
 import type { ViewChatMessage } from '@/utils/message'
+import { useI18n } from 'vue-i18n'
 import { parseMessagePayload } from '@/utils/message'
+import { formatNoticeTime } from '@/utils/notice'
 
 defineProps<{ message: ViewChatMessage }>()
+
+const { t } = useI18n()
 
 function previewImage(payload?: string) {
   const url = parseMessagePayload(payload).url
@@ -20,7 +24,7 @@ function previewImage(payload?: string) {
     }"
   >
     <view v-if="message.senderType === 'SYSTEM'" class="system-message">
-      {{ message.content || "系统消息" }}
+      {{ message.content || t('message.systemMessage') }}
     </view>
     <view v-else class="message-bubble">
       <text v-if="message.messageType === 'TEXT'" class="message-text">
@@ -47,10 +51,10 @@ function previewImage(payload?: string) {
       <text class="message-state">
         {{
           message.sendState === "sending"
-            ? "发送中…"
+            ? t('message.sending')
             : message.sendState === "failed"
-              ? "发送失败，点击重试"
-              : message.createTime
+              ? t('message.sendFailedRetry')
+              : formatNoticeTime(message.createTime)
         }}
       </text>
     </view>
@@ -71,16 +75,16 @@ function previewImage(payload?: string) {
 .message-bubble {
   max-width: 76%;
   padding: 18rpx 22rpx;
-  border: 1rpx solid #dce9e6;
+  border: 1rpx solid #eceff0;
   border-radius: 8rpx 26rpx 26rpx;
   background: #fff;
-  box-shadow: 0 10rpx 26rpx rgb(25 67 64 / 6%);
+  box-shadow: 0 10rpx 26rpx rgb(17 27 38 / 4%);
 }
 .mine .message-bubble {
   color: #fff;
-  border-color: #0f766e;
+  border-color: var(--theme-color-primary, var(--wot-color-theme-primary, #ff2237));
   border-radius: 26rpx 8rpx 26rpx 26rpx;
-  background: #0f766e;
+  background: var(--theme-color-primary, var(--wot-color-theme-primary, #ff2237));
 }
 .message-text {
   display: block;
@@ -102,9 +106,9 @@ function previewImage(payload?: string) {
 }
 .system-message {
   padding: 10rpx 18rpx;
-  color: #81938e;
+  color: #7b8783;
   border-radius: 30rpx;
-  background: #e9f0ee;
+  background: #eff2f2;
   font-size: 20rpx;
 }
 </style>

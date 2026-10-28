@@ -40,4 +40,8 @@ public class SysUserOnline implements Serializable {
 	@Schema(description = "租户ID")
 	private String tenantId;
 
+	/** 登录端：TOB 管理端/配送端，TOC 商城端；历史记录可能为空，按管理端兼容处理 */
+	@Schema(description = "登录端")
+	private String deviceType;
+
 }

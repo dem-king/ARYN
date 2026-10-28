@@ -19,6 +19,7 @@ import type { DecorationLink } from '../schema/types'
  */
 import type { CategoryIconFallback } from '@/utils/category-icon'
 
+import { translate } from '@/locales'
 import { resolveCategoryFallback } from '@/utils/category-icon'
 import { formatDiscountValue, formatStripAmount } from '@/utils/discount-price'
 
@@ -47,7 +48,9 @@ export function formatGroupBuyTitle(
   activity: Pick<RetailActivityItem, 'groupNum'>,
 ): string {
   const groupNum = Number(activity.groupNum)
-  return groupNum > 0 ? `${groupNum}人拼团` : '2人拼团'
+  return groupNum > 0
+    ? translate('diy.activityStrip.groupBuyTitle', { groupNum })
+    : translate('diy.activityStrip.groupBuyTitleFallback')
 }
 
 /** 拼团钩子：`{groupNum}人成团立省`；存量活动没有 groupNum 时退化为「多人成团」 */
@@ -55,7 +58,9 @@ export function formatGroupBuyHook(
   activity: Pick<RetailActivityItem, 'groupNum'>,
 ): string {
   const groupNum = Number(activity.groupNum)
-  return groupNum > 0 ? `${groupNum}人成团立省` : '多人成团'
+  return groupNum > 0
+    ? translate('diy.activityStrip.groupBuyHook', { groupNum })
+    : translate('diy.activityStrip.groupBuyHookFallback')
 }
 
 /**
@@ -67,8 +72,8 @@ export function formatGroupBuyBadge(
 ): string {
   const saving = Number(activity.originalPrice) - Number(activity.activityPrice)
   if (!(saving > 0))
-    return '拼'
-  return `省¥${formatStripAmount(saving)}`
+    return translate('diy.activityStrip.groupBuyBadge')
+  return translate('diy.common.saveAmount', { amount: formatStripAmount(saving) })
 }
 
 /** 秒杀钩子：`{sessionName}·整点开抢`；场次名缺失时只留节奏词 */
@@ -76,7 +81,9 @@ export function formatSeckillHook(
   session: Pick<SeckillSessionItem, 'sessionName'>,
 ): string {
   const name = (session.sessionName || '').trim()
-  return name ? `${name}·整点开抢` : '整点开抢'
+  return name
+    ? translate('diy.activityStrip.seckillHookWithSession', { name })
+    : translate('diy.activityStrip.seckillHook')
 }
 
 /**
@@ -105,12 +112,12 @@ export function buildActivityStripEntries(
   const seckill = sources.seckill
   if (seckill && Number(seckill.status) === 1) {
     entries.push({
-      badge: '抢',
+      badge: translate('diy.activityStrip.seckillBadge'),
       hook: formatSeckillHook(seckill),
       imageUrl: seckill.goodsList[0]?.goodsImage || '',
       key: 'seckill',
       link: hallLink(ACTIVITY_STRIP_HALLS.seckill),
-      title: '限时秒杀',
+      title: translate('diy.activityStrip.seckillTitle'),
     })
   }
 
@@ -131,13 +138,13 @@ export function buildActivityStripEntries(
     const value = formatDiscountValue(discount)
     entries.push({
       badge: value,
-      hook: `${value}专区`,
+      hook: translate('diy.activityStrip.discountHook', { value }),
       // 指定商品活动取首件商品图；全场活动取取数层补的代表商品图
       // （loadDiscounts 已并入 coverImage，这里保留商品图优先，缺图才回落首字色块）
       imageUrl: discount.goodsList[0]?.goodsImage || discount.coverImage || '',
       key: 'discount',
       link: hallLink(ACTIVITY_STRIP_HALLS.discount),
-      title: '限时折扣',
+      title: translate('diy.activityStrip.discountTitle'),
     })
   }
 

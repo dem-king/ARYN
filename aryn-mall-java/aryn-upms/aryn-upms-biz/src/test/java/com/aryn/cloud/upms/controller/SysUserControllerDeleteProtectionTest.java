@@ -7,6 +7,7 @@ import com.aryn.cloud.upms.api.entity.SysUser;
 import com.aryn.cloud.upms.service.ISysRoleService;
 import com.aryn.cloud.upms.service.ISysUserRoleService;
 import com.aryn.cloud.upms.service.ISysUserService;
+import com.aryn.cloud.upms.support.SysUserSessionRevoker;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -39,7 +40,7 @@ class SysUserControllerDeleteProtectionTest {
 		sysUserRoleService = mock(ISysUserRoleService.class);
 		remoteDeliveryAccountService = mock(RemoteDeliveryAccountService.class);
 		controller = new SysUserController(sysUserService, sysRoleService, sysUserRoleService,
-				remoteDeliveryAccountService);
+				mock(SysUserSessionRevoker.class), remoteDeliveryAccountService);
 		SysUser existing = new SysUser();
 		existing.setId("user-1");
 		when(sysUserService.getById("user-1")).thenReturn(existing);

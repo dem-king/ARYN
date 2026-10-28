@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { captureDistributionShareParams, flushPendingDistributionShareBinding } from '@/composables/useDistributionShare'
 import { refreshBindingOnShow } from '@/api/core/tenant-identity'
+import { translate } from '@/locales'
+import { useLocaleStore } from '@/store/localeStore'
 import { MALL_THEME_REFRESH_THROTTLE_MS, useMallThemeStore } from '@/store/mallThemeStore'
 
 /**
  * 应用启动时的初始化逻辑
  */
 onLaunch(async () => {
+  useLocaleStore().init()
   // #ifdef MP
   updateManager()
   // #endif
@@ -27,11 +30,11 @@ function updateManager() {
   const updateManager = uni.getUpdateManager()
   updateManager.onUpdateReady(() => {
     useGlobalMessage().confirm({
-      title: '更新提示',
-      msg: '新版本已经准备好，是否重启应用？',
+      title: translate('common.updateTitle'),
+      msg: translate('common.updateMessage'),
       closeOnClickModal: false,
-      confirmButtonText: '确认',
-      cancelButtonText: '取消',
+      confirmButtonText: translate('common.confirm'),
+      cancelButtonText: translate('common.cancel'),
       success: (res) => {
         if (res.action === 'confirm') {
           // 新的版本已经下载好，调用 applyUpdate 应用新版本并重启

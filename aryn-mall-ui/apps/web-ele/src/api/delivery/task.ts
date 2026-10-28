@@ -121,8 +121,10 @@ export async function reassignDeliveryTask(
   id: string,
   data: ReassignDeliveryTaskPayload,
 ) {
-  const url = `/mall-order/delivery/task/${id}/reassign`;
-  return requestClient.post(`${url}?staffId=${data.staffId}`);
+  const url = `/mall-order/delivery/task/${id}/reassign?staffId=${data.staffId}`;
+  return requestClient.post(
+    data.reason ? `${url}&reason=${encodeURIComponent(data.reason)}` : url,
+  );
 }
 
 /**

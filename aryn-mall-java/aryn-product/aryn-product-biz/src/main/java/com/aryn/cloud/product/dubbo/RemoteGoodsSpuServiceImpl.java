@@ -56,6 +56,11 @@ public class RemoteGoodsSpuServiceImpl implements RemoteGoodsSpuService {
 	}
 
 	@Override
+	public Long countGoods() {
+		return goodsSpuService.count();
+	}
+
+	@Override
 	public List<GoodsSpu> getSpuByIds(List<String> ids) {
 		if (ids == null || ids.isEmpty()) {
 			return List.of();

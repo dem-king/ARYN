@@ -3,11 +3,16 @@ package com.aryn.cloud.promotion.service.impl;
 import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
+import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.promotion.api.entity.PromotionActivity;
 import com.aryn.cloud.promotion.mapper.PromotionActivityMapper;
+import com.aryn.cloud.user.api.remote.RemoteMemberLevelService;
+import com.aryn.cloud.user.api.vo.MemberLevelSnapshotVO;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -24,6 +29,7 @@ import java.util.Set;
  * @author aryn
  * @since 2026/9/12
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ActivityPublishGovernanceService {
@@ -31,11 +37,22 @@ public class ActivityPublishGovernanceService {
 	private final PromotionActivityMapper promotionActivityMapper;
 
 	/**
+	 * 会员价（type=10）发布时的等级门槛存在性校验：定义在 user-api、实现挂 user-biz。
+	 *
+	 * <p>必须用<b>非 final 字段</b>+@DubboReference：构造器注入远程接口曾在 boot 启动失败
+	 * （与 NewbieActivityServiceImpl 同款踩坑）；查询异常按校验失败处理（fail-closed），
+	 * 不允许把无效等级门槛的活动发布出去。
+	 */
+	@DubboReference
+	private RemoteMemberLevelService remoteMemberLevelService;
+
+	/**
 	 * 发布前规则结构校验：
 	 * 阶梯价 skuLadders[{skuId,ladders[{minQty,unitPrice}]}]（须指定SKU/常购用户范围且与 scopeValue 一一对应；
 	 * 每 SKU 内 minQty 不得重复，且数量越大单价必须越低）；
 	 * 整船优惠 tiers[{minAmount,discountAmount}]（minAmount 不得重复，金额越大优惠不得减少）；
-	 * 买赠 gifts[{skuId,quantity,minAmount}]；常购专属价 skuPrices[{skuId,unitPrice}]。
+	 * 买赠 gifts[{skuId,quantity,minAmount}]；常购专属价 skuPrices[{skuId,unitPrice}]；
+	 * 会员价 minLevelId + skus[{skuId,unitPrice}]（指定 SKU 范围，等级门槛须存在）。
 	 */
 	public void validateRules(PromotionActivity activity) {
 		if (!StringUtils.hasText(activity.getRules())) {
@@ -48,6 +65,7 @@ public class ActivityPublishGovernanceService {
 				case PromotionActivity.TYPE_SHIP_WHOLE_DISCOUNT -> validateTiers(rules);
 				case PromotionActivity.TYPE_GIFT -> validateGifts(rules);
 				case PromotionActivity.TYPE_NEWBIE_PRICE -> validateNewbiePrice(activity, rules);
+				case PromotionActivity.TYPE_MEMBER_PRICE -> validateMemberPrice(activity, rules);
 				default -> throw new ArynBusinessException("暂不支持的活动类型：" + activity.getActivityType());
 			}
 		}
@@ -211,6 +229,67 @@ public class ActivityPublishGovernanceService {
 		Set<String> scopeSkuIds = new HashSet<>(List.of(activity.getScopeValue().split(",")));
 		if (!scopeSkuIds.equals(ruleSkuIds)) {
 			throw new ArynBusinessException("新人专享价 skus 与指定商品范围必须一一对应");
+		}
+	}
+
+	/**
+	 * 会员价：必须使用「指定商品」范围；minLevelId 必填且经 user 域远程接口校验存在
+	 * （查询异常按校验失败处理，fail-closed 不允许发布无效等级门槛）；
+	 * rules.skus 与 scopeValue（指定 SKU 范围）必须一一对应且不重复，每个 unitPrice 为正数。
+	 * 价格与 SKU 售价的相对关系在引擎侧跳过（会员价不低于基价不产生覆盖），发布时不查商品库。
+	 *
+	 * <p>等级是否存在之外不按 member_level.status 过滤：与用户域 getCurrentMemberInfo 口径一致
+	 * （禁用等级的历史用户仍可能持有该等级ID，发布侧不做额外收窄）。
+	 */
+	private void validateMemberPrice(PromotionActivity activity, JSONObject rules) {
+		if (!"2".equals(activity.getScopeType())) {
+			throw new ArynBusinessException("会员价活动必须使用「指定商品」范围");
+		}
+		String minLevelId = rules.getStr("minLevelId");
+		if (!StringUtils.hasText(minLevelId)) {
+			throw new ArynBusinessException("会员价活动必须配置 minLevelId 会员等级门槛");
+		}
+		assertMemberLevelExists(minLevelId);
+		JSONArray skus = rules.getJSONArray("skus");
+		if (skus == null || skus.isEmpty()) {
+			throw new ArynBusinessException("会员价活动必须配置 skus 单价列表");
+		}
+		Set<String> ruleSkuIds = new HashSet<>();
+		for (Object element : skus) {
+			JSONObject sku = (JSONObject) element;
+			String skuId = sku.getStr("skuId");
+			BigDecimal unitPrice = sku.getBigDecimal("unitPrice");
+			if (!StringUtils.hasText(skuId) || unitPrice == null || unitPrice.signum() <= 0) {
+				throw new ArynBusinessException("会员价 skus 必须包含 skuId 与正数 unitPrice");
+			}
+			if (!ruleSkuIds.add(skuId)) {
+				throw new ArynBusinessException("会员价 SKU 重复：" + skuId);
+			}
+		}
+		if (!StringUtils.hasText(activity.getScopeValue())) {
+			throw new ArynBusinessException("会员价活动必须配置指定商品范围");
+		}
+		Set<String> scopeSkuIds = new HashSet<>(List.of(activity.getScopeValue().split(",")));
+		if (!scopeSkuIds.equals(ruleSkuIds)) {
+			throw new ArynBusinessException("会员价 skus 与指定商品范围必须一一对应");
+		}
+	}
+
+	/**
+	 * 等级门槛存在性校验：远程返回 null 视为等级不存在；远程异常视为校验失败（fail-closed），
+	 * 不允许在等级校验不可用时把活动发布出去（否则引擎侧所有用户都无资格，活动等于空转）。
+	 */
+	private void assertMemberLevelExists(String minLevelId) {
+		MemberLevelSnapshotVO level;
+		try {
+			level = remoteMemberLevelService.getLevelById(ArynTenantContextHolder.getTenantId(), minLevelId);
+		}
+		catch (Exception ex) {
+			log.warn("会员价发布校验查询会员等级失败 levelId={}: {}", minLevelId, ex.getMessage());
+			throw new ArynBusinessException("会员等级校验失败，请稍后重试");
+		}
+		if (level == null) {
+			throw new ArynBusinessException("会员等级不存在：" + minLevelId);
 		}
 	}
 

@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import { onLoad } from '@dcloudio/uni-app'
-import { reactive, ref } from 'vue'
+import { onLoad, onShow, onUnload } from '@dcloudio/uni-app'
+import { computed, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { getByOrderNo as getOrderInfoByNo } from '@/api/order/orderInfo'
+import { useDecorationInfiniteScroll } from '@/composables/useDecorationInfiniteScroll'
 import { getOrder as getOrderByNo } from '@/sub-pages/api/pay/index'
 import { useDict } from '@/sub-pages/utils/dict'
 
@@ -12,97 +15,148 @@ definePage({
   },
 })
 const { pay_type } = useDict('pay_type')
-const { confirm, alert } = useGlobalMessage()
+const { t } = useI18n()
+// 底部推荐商品流的页面滚动广播：滚动接近底部时自动加载下一页
+useDecorationInfiniteScroll()
+
+const PAY_TYPE_LABEL_KEYS: Record<string, string> = {
+  0: 'order.payType.free',
+  1: 'order.payType.wechat',
+  2: 'order.payType.alipay',
+  3: 'order.payType.cod',
+}
+const payTypeOptions = computed(() => (pay_type.value || []).map((item: any) => {
+  const key = PAY_TYPE_LABEL_KEYS[item.value]
+  return key ? { ...item, label: t(key) } : item
+}))
+
+const POLL_INTERVAL = 1500
+const MAX_POLL = 8
 
 const loading = ref(true)
+const checking = ref(false)
+const orderNo = ref('')
 const state = reactive<{ order: any, payType: string }>({
   order: {},
   payType: '',
 })
-const globalLoading = useGlobalLoading()
+/** 支付结果必须等待服务端确认，不能仅凭客户端回调展示成功 */
+const isPaid = computed(() => String(state.order?.payStatus ?? '') === '1')
+/** 推荐上下文：支付结果页只拿到支付单，订单商品需另查一次 */
+const recommendItems = ref<any[]>([])
+const payRecommendSpuIds = computed(() => {
+  const ids = recommendItems.value
+    .map((item) => String(item?.spuId ?? '').trim())
+    .filter(Boolean)
+  return [...new Set(ids)]
+})
+const payRecommendSourceIds = computed(() => payRecommendSpuIds.value.slice(0, 20))
+const payRecommendExcludeIds = computed(() => payRecommendSpuIds.value.slice(0, 50))
 const router = useRouter()
+
+let pollTimer: ReturnType<typeof setTimeout> | null = null
+let pollCount = 0
+let disposed = false
+let loaded = false
+
 onLoad((options) => {
-  const orderNo = options?.orderNo
-  getOrder(orderNo)
-
-  // #ifdef H5
-  if (state.order?.payStatus !== '0') {
-    return // 已支付则不处理
-  }
-  confirm({
-    title: '支付提醒',
-    msg: '确认支付是否已完成？',
-    closeOnClickModal: false,
-    confirmButtonText: '已完成支付',
-    cancelButtonText: '遇到问题重新支付',
-    success: (res) => {
-      if (res.action === 'confirm') {
-        // 显示加载
-        globalLoading.loading('查询支付结果中...')
-        // 轮询逻辑
-        pollGetOrder(orderNo).catch(() => {
-          // 轮询失败，弹出提示
-          alert({
-            msg: '系统暂未确认到支付成功，请稍后到订单列表查看或联系客服。',
-            title: '温馨提示',
-          })
-        })
-        // 支付成功，页面数据会自动更新
-      }
-      else {
-        router.replace({
-          name: 'order-pay',
-          params: {
-            orderNo,
-          },
-        })
-      }
-    },
-    fail: () => {
-      router.replace({
-        name: 'order-pay',
-        params: {
-          orderNo,
-        },
-      })
-    },
-  })
-
-  // #endif
+  orderNo.value = options?.orderNo || ''
+  void refresh()
+  loadRecommendContext(orderNo.value)
 })
 
-async function getOrder(orderNo: string) {
-  await getOrderByNo(orderNo).then((response) => {
-    loading.value = false
-    state.order = response
+onShow(() => {
+  // 从其他页面返回时补一次查询，避免长时间停在「确认中」
+  if (loaded && !isPaid.value) {
+    void refresh()
+  }
+})
+
+onUnload(() => {
+  disposed = true
+  clearPoll()
+})
+
+async function refresh() {
+  if (!orderNo.value || checking.value) {
+    return
+  }
+  checking.value = true
+  try {
+    await getOrder(orderNo.value)
+    loaded = true
+    if (isPaid.value) {
+      clearPoll()
+    }
+    else {
+      schedulePoll()
+    }
+  }
+  finally {
+    checking.value = false
+  }
+}
+
+async function getOrder(no: string) {
+  try {
+    const response = await getOrderByNo(no)
+    state.order = response || {}
     if (state.order) {
-      const extra = JSON.parse(state.order?.extra)
-      state.payType = extra?.payType
-    }
-  })
-}
-
-// 添加轮询查询方法
-function pollGetOrder(orderNo: string, maxTry = 3, interval = 2000) {
-  let tryCount = 0
-
-  return new Promise<void>((resolve, reject) => {
-    const check = async () => {
-      tryCount++
-      await getOrder(orderNo)
-      if (state.order?.payStatus === '1') {
-        resolve()
+      try {
+        state.payType = JSON.parse(state.order.extra || '{}')?.payType || ''
       }
-      else if (tryCount < maxTry) {
-        setTimeout(check, interval)
-      }
-      else {
-        reject(new Error('查询支付结果超时'))
+      catch {
+        state.payType = ''
       }
     }
-    check()
-  })
+  }
+  catch (error) {
+    // 网络异常保留当前结论，交给下一轮轮询或手动刷新
+    console.error('查询支付结果失败:', error)
+  }
+  finally {
+    loading.value = false
+  }
 }
+
+function schedulePoll() {
+  if (disposed || pollTimer || pollCount >= MAX_POLL || isPaid.value) {
+    return
+  }
+  pollTimer = setTimeout(() => {
+    pollTimer = null
+    pollCount++
+    void refresh()
+  }, POLL_INTERVAL)
+}
+
+function clearPoll() {
+  if (pollTimer) {
+    clearTimeout(pollTimer)
+    pollTimer = null
+  }
+}
+
+function manualRefresh() {
+  pollCount = 0
+  clearPoll()
+  void refresh()
+}
+
+/** 订单商品只用于推荐上下文；失败时退化为浏览足迹/全店推荐，不影响支付结果主流程 */
+async function loadRecommendContext(no?: string) {
+  if (!no) {
+    return
+  }
+  try {
+    const order = await getOrderInfoByNo(no)
+    recommendItems.value = order?.orderItemList || []
+  }
+  catch {
+    recommendItems.value = []
+  }
+}
+
 // 返回首页
 function goHome() {
   router.replaceAll({ name: 'home' })
@@ -114,7 +168,7 @@ function goOrder() {
 </script>
 
 <template>
-  <hr-navbar title="支付结果" />
+  <hr-navbar :title="t('order.result.title')" />
   <view v-if="!loading" class="pay-result-container">
     <view class="pay-result-bg-elements">
       <view class="bg-circle bg-circle-1" />
@@ -122,44 +176,60 @@ function goOrder() {
       <view class="bg-circle bg-circle-3" />
     </view>
     <view class="pay-result-header animated bounceInDown flex flex-col items-center justify-center p-30rpx">
-      <wd-icon color="#19be6b" name="check-circle" size="100rpx" class="success-icon animated pulse infinite" />
+      <wd-icon
+        :color="isPaid ? '#19be6b' : '#ff9900'"
+        :name="isPaid ? 'check-circle' : 'info-circle'"
+        size="100rpx"
+        :class="isPaid ? 'success-icon animated pulse infinite' : ''"
+      />
       <text class="animated fadeInUp py-1 text-xl font-bold">
-        支付成功
+        {{ isPaid ? t('order.result.success') : t('order.result.confirming') }}
+      </text>
+      <text v-if="!isPaid" class="mt-2 px-6 text-center text-xs text-gray-400">
+        {{ t('order.result.confirmingDesc') }}
       </text>
     </view>
     <view class="pay-result-content animated fadeInUp m-50rpx mx-80rpx delay-03s">
       <view class="item flex items-center justify-between pb-10rpx">
         <text class="text-xs">
-          支付编号
+          {{ t('order.result.paymentNo') }}
         </text>
         <wd-text size="26rpx" color="inherit" :text="state.order?.outTradeNo" />
       </view>
       <view class="item flex items-center justify-between pb-10rpx">
         <text class="text-xs">
-          支付方式
+          {{ t('order.result.paymentMethod') }}
         </text>
-        <dict-tag :options="pay_type" :value="state.payType" />
+        <dict-tag :options="payTypeOptions" :value="state.payType" />
       </view>
       <view class="item flex items-center justify-between pb-10rpx">
         <text class="text-xs">
-          支付金额
+          {{ t('order.result.amount') }}
         </text>
         <wd-text size="16px" color="red" :text="state.order?.amount" mode="price" prefix="￥" />
       </view>
     </view>
     <view class="pay-result-foot animated fadeInUp mt-40rpx flex items-center justify-center delay-05s">
+      <view v-if="!isPaid" class="p-2">
+        <wd-button plain :loading="checking" custom-class="action-btn hover-scale" @click="manualRefresh">
+          {{ t('order.result.refresh') }}
+        </wd-button>
+      </view>
       <view class="p-2">
         <wd-button plain custom-class="action-btn hover-scale" @click="goHome">
-          返回首页
+          {{ t('order.result.backHome') }}
         </wd-button>
       </view>
       <view class="p-2">
         <wd-button type="primary" custom-class="action-btn hx-ml10 hover-scale" @click="goOrder">
-          查看订单
+          {{ t('order.result.viewOrder') }}
         </wd-button>
       </view>
     </view>
-    <WaterfallGoods />
+    <WaterfallGoods
+      :source-spu-ids="payRecommendSourceIds"
+      :exclude-spu-ids="payRecommendExcludeIds"
+    />
   </view>
 </template>
 

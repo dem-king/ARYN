@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { NewbieFloorProps, NewbieGoodsItem } from '@/components/diy/retail-types'
 import { computed, getCurrentInstance, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { getQuickCartInfo } from '@/api/product/spu'
 import { followDecorationLink } from '@/components/diy/link-resolver'
 import { loadNewbieFloor } from '@/components/diy/retail-data'
@@ -12,11 +13,13 @@ import { useQuickCart } from '@/composables/useQuickCart'
 import { useRetailData } from '@/composables/useRetailData'
 import { useAuthStore } from '@/store/authStore'
 import { useMallThemeStore } from '@/store/mallThemeStore'
+import { resolveTargetTimestamp } from '@/utils/datetime'
 import { QUICK_CART_MODE_DIRECT, resolveQuickAddMode, resolveQuickAddQuantity } from '@/utils/quick-cart'
 
 const props = withDefaults(defineProps<{ showData?: Partial<NewbieFloorProps> }>(), {
   showData: () => ({}),
 })
+const { t } = useI18n()
 const showData = computed<NewbieFloorProps>(() => ({
   commonStyle: props.showData.commonStyle || retailCommonStyle,
   count: Number(props.showData.count) || 6,
@@ -28,7 +31,7 @@ const showData = computed<NewbieFloorProps>(() => ({
   mainColor: props.showData.mainColor || '',
   showCountdown: props.showData.showCountdown !== false,
   showTag: props.showData.showTag !== false,
-  title: props.showData.title || '新人专享',
+  title: props.showData.title || t('diy.newbieFloor.defaultTitle'),
 }))
 
 const dynamicStyles = useDiyStyle(computed(() => showData.value.commonStyle))
@@ -50,14 +53,18 @@ const countdown = computed(() => {
   const endTime = floor.value?.endTime
   if (!showData.value.showCountdown || !endTime)
     return null
-  const target = Date.parse(endTime)
-  if (Number.isNaN(target))
-    return { prefix: '活动', text: '已结束' }
+  const ended = {
+    prefix: t('diy.newbieFloor.countdownEndedPrefix'),
+    text: t('diy.newbieFloor.countdownEndedText'),
+  }
+  const target = resolveTargetTimestamp(endTime)
+  if (target === null)
+    return ended
   const remaining = formatRemainingTime(endTime, now.value)
   // 剩余不足 1 秒时 formatRemainingTime 仍返回 00:00:00，与管理端「到点即结束」口径对齐
   return remaining && remaining !== '00:00:00'
-    ? { prefix: '距结束', text: remaining }
-    : { prefix: '活动', text: '已结束' }
+    ? { prefix: t('diy.newbieFloor.countdownPrefix'), text: remaining }
+    : ended
 })
 
 function savedAmount(goods: { newbiePrice: number, originalPrice: number }) {
@@ -106,7 +113,7 @@ const CARD_STEP_RPX = CARD_WIDTH_RPX + CARD_GAP_RPX
 
 /** scroll-view 的 scroll-left 是 px：按 windowWidth/750 把 rpx 换算成 px */
 function rpxToPx(rpx: number) {
-  return (rpx * uni.getSystemInfoSync().windowWidth) / 750
+  return (rpx * uni.getWindowInfo().windowWidth) / 750
 }
 
 /**
@@ -321,7 +328,7 @@ async function handleGrab(goods: NewbieGoodsItem) {
         // 「限购 1 件」与「起订量/步长 > 1」冲突：任何合规数量都超限，不自行加购
         if (resolveQuickAddQuantity(info) > limit) {
           // 原生 toast 不随页面卸载立即消失，先提示再跳转，用户能读到限购原因
-          uni.showToast({ title: `新人专享价每人限购 ${limit} 件`, icon: 'none' })
+          uni.showToast({ title: t('diy.newbieFloor.limitToast', { limit }), icon: 'none' })
           openGoods(spuId)
           return
         }
@@ -341,13 +348,13 @@ async function handleGrab(goods: NewbieGoodsItem) {
       skuId: String(goods.skuId || ''),
       unitPrice: goods.newbiePrice,
       maxQuantity: newbieLimitPerUser(),
-      hint: `新人专享价每人限购 ${newbieLimitPerUser()} 件`,
+      hint: t('diy.newbieFloor.limitToast', { limit: newbieLimitPerUser() }),
     },
   })
   if (result.needChoose) {
     // 多规格无法确定加哪个 SKU：楼层卡只标活动配置的那个 SKU 的价格，
     // 在楼层里替用户猜规格会加错货，交给商详选规格更合理
-    uni.showToast({ title: '请选择规格', icon: 'none' })
+    uni.showToast({ title: t('diy.newbieFloor.selectSpecsToast'), icon: 'none' })
     openGoods(spuId)
   }
   // 剩下两种结果都不再插手：info === null 是未登录/请求失败（登录跳转与提示由
@@ -361,13 +368,13 @@ async function handleGrab(goods: NewbieGoodsItem) {
     <view class="nf-panel" :style="colorVars">
       <view class="nf-head">
         <view v-if="showData.showTag" class="nf-mark">
-          新
+          {{ t('diy.newbieFloor.tag') }}
         </view>
         <text class="nf-title">
           {{ showData.title }}
         </text>
         <text v-if="showData.showTag" class="nf-subtitle">
-          首单专享价
+          {{ t('diy.newbieFloor.subtitle') }}
         </text>
         <view v-if="countdown" class="nf-countdown">
           <text class="nf-cd-label">
@@ -379,7 +386,7 @@ async function handleGrab(goods: NewbieGoodsItem) {
         </view>
       </view>
       <view v-if="floor" class="nf-perks">
-        注册{{ floor.registerWithinDays }}天内新人 · 每人每款限{{ floor.limitPerUser }}件
+        {{ t('diy.newbieFloor.perks', { limit: floor.limitPerUser, registerDays: floor.registerWithinDays }) }}
       </view>
 
       <RetailState v-if="status !== 'ready'" :status="status" />
@@ -404,7 +411,7 @@ async function handleGrab(goods: NewbieGoodsItem) {
           >
             <view class="nf-media">
               <text v-if="showData.showTag" class="nf-badge">
-                新人价
+                {{ t('diy.newbieFloor.priceBadge') }}
               </text>
               <image
                 v-if="goods.goodsImage"
@@ -414,12 +421,12 @@ async function handleGrab(goods: NewbieGoodsItem) {
                 lazy-load
               />
               <view v-else class="nf-img nf-img--empty">
-                商品
+                {{ t('diy.common.product') }}
               </view>
             </view>
             <view class="nf-body">
               <view class="nf-name">
-                {{ goods.goodsName || '新人专享商品' }}
+                {{ goods.goodsName || t('diy.newbieFloor.fallbackGoodsName') }}
               </view>
               <view class="nf-price-row">
                 <text class="nf-price">
@@ -436,7 +443,7 @@ async function handleGrab(goods: NewbieGoodsItem) {
                   :class="{ 'nf-btn--pending': pending }"
                   @click.stop="handleGrab(goods)"
                 >
-                  抢
+                  {{ t('diy.common.grab') }}
                 </view>
               </view>
               <view v-if="goods.originalPrice > goods.newbiePrice" class="nf-meta">
@@ -444,7 +451,7 @@ async function handleGrab(goods: NewbieGoodsItem) {
                   ¥{{ goods.originalPrice.toFixed(2) }}
                 </text>
                 <text class="nf-save">
-                  省¥{{ savedAmount(goods).toFixed(2) }}
+                  {{ t('diy.common.saveAmount', { amount: savedAmount(goods).toFixed(2) }) }}
                 </text>
               </view>
             </view>

@@ -71,7 +71,7 @@ describe('shopping cart vessel grouping contract', () => {
     // 但前者是设计内回落（配送改走常规方式），不能同样显示「未指定配送计划」
     // 让用户误以为归属又丢了（2026-10-04 实测：靠港 11:30 过点后重加购恒显未指定）
     expect(cart).toContain('row.vesselId')
-    expect(cart).toContain('暂无进行中的靠港计划')
+    expect(cart).toContain('cart.noActiveCall')
   })
 
   it('shows the vessel call status without requiring cart rows', () => {
@@ -141,7 +141,8 @@ describe('shopping cart vessel grouping contract', () => {
     expect(handleEdit).toContain('!val.goodsSku')
     expect(handleEdit).toContain('val.goodsSku && val.goodsSku.stock > 0')
     // 模板据 goodsSku 为空渲染「下架」，与后端返回 null 的语义配套
-    expect(cart).toContain('goods.goodsSku ? \'无货\' : \'下架\'')
+    expect(cart).toContain('cart.outOfStockShort')
+    expect(cart).toContain('cart.delisted')
   })
 })
 
@@ -151,6 +152,60 @@ describe('shopping cart off-shelf tolerance contract', () => {
     // 商品服务查不到 SKU 属正常业务状态，不能整体抛错，
     // 否则整车商品都已下架的用户连清空购物车的入口都进不去
     expect(service).not.toContain('query goods sku list fail!')
+  })
+})
+
+/**
+ * 购物车分组头「说人话」契约守门。
+ *
+ * 背景（真实困惑，2026-10-24）：靠港结束后滞留行的分组头显示
+ * 「其他靠港计划 · 413825」——裸靠港 ID 尾号对用户零信息；且当前无靠港时
+ * 仍出红字「结算前请切换船舶」，既无目标可切、结算也不会被拦（拦截只在
+ * 当前有靠港时才比对），是假警告。用户截屏来问「413825 是什么」。
+ *
+ * 这里把「标签用回填的展示快照」「行动只在真能做到时出现」「已结束靠港
+ * 给转入入口」绑成契约，防止分组文案再次退化成机器 ID。
+ */
+describe('shopping cart stale-call group contract', () => {
+  it('renders group labels from the backfilled call snapshot, never from a raw call id', () => {
+    const cart = source(CART_PAGE)
+    // 标签必须消费后端回填的展示快照字段（港口/船名/是否已结束），
+    // 禁止再拿 vesselCallId 切尾号当文案
+    expect(cart).toContain('vesselCallPortName')
+    expect(cart).toContain('vesselCallOrderable')
+    expect(cart).not.toContain('key.slice(-6)')
+  })
+
+  it('keeps the stale-call snapshot flowing from the server list', () => {
+    // 实体瞬态字段 → 服务端按靠港批量回填 → 前端消费，三处缺一即静默退化
+    const entity = repoSource(
+      'aryn-mall-java/aryn-order/aryn-order-api/src/main/java/com/aryn/cloud/order/api/entity/ShoppingCart.java',
+    )
+    for (const field of ['vesselCallPortName', 'vesselCallVesselName', 'vesselCallOrderable']) {
+      expect(entity).toContain(field)
+    }
+    const service = repoSource(CART_SERVICE)
+    // 展示快照而非可下单查询：已结束的靠港也要报得出港口
+    expect(service).toContain('getVesselCallSnapshot')
+  })
+
+  it('offers the transfer entry only when a target call exists, wired to the transfer API', () => {
+    const cart = source(CART_PAGE)
+    // 行动判定与转移调用必须成对出现：给了「转入本次靠港」就要真调转入接口
+    expect(cart).toContain('transferCartRowsToCall')
+    expect(cart).toContain('transferGroup')
+    const action = functionSource(cart, 'groupAction')
+    // 行动以当前靠港为目标：当前无靠港时不得出现任何行动（无目标可切/可转）
+    expect(action).toContain('vesselCallId')
+  })
+
+  it('transfers rows through the dedicated endpoint that merges on unique-key collision', () => {
+    const api = source('src/api/order/shoppingCart.ts')
+    expect(api).toContain('/mall-order/app/shopping-cart/transfer-call')
+    // 唯一键 uk_shopping_cart_active_row 是生成列：合并必须在服务端完成
+    const service = repoSource(CART_SERVICE)
+    expect(service).toContain('migrateRowToVesselCall')
+    expect(service).toContain('DuplicateKeyException')
   })
 })
 

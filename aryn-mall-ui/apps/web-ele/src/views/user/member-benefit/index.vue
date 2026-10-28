@@ -17,6 +17,7 @@ import {
 import { backfillCoupon, delObj, getPage } from '#/api/user/member-benefit';
 import { getList as getLevelList } from '#/api/user/member-level';
 import PageToolbar from '#/components/page/page-toolbar.vue';
+import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 import { useDict } from '#/utils/dict';
 
 const RightToolbar = defineAsyncComponent(
@@ -162,6 +163,8 @@ onMounted(() => {
   loadLevelList();
   initPage();
 });
+
+useKeepAliveRefresh(initPage);
 </script>
 <template>
   <div class="hx-layout-container">

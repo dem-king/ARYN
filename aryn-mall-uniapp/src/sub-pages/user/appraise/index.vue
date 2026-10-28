@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
+import { useI18n } from 'vue-i18n'
 import { getUserPage } from '@/sub-pages/api/product/appraise'
 
 definePage({
@@ -21,6 +22,7 @@ interface List {
   businessReply: string
 }
 // 定义变量
+const { t } = useI18n()
 const list = ref<List[]>([])
 const pagingRef = ref()
 const globalLoading = useGlobalLoading()
@@ -31,7 +33,7 @@ onShow(async () => {
 
 async function queryList(pageNo: number, pageSize: number) {
   try {
-    globalLoading.loading('加载中...')
+    globalLoading.loading(t('common.loading'))
     const response: any = await getUserPage({
       current: pageNo,
       size: pageSize,
@@ -59,7 +61,7 @@ function formatTime(time: string) {
 <template>
   <z-paging ref="pagingRef" v-model="list" :auto="false" @query="queryList">
     <template #top>
-      <hr-navbar title="我的评价" />
+      <hr-navbar :title="t('accountSettings.appraise.navTitle')" />
     </template>
     <view
       v-for="(item, index) in list"
@@ -84,7 +86,7 @@ function formatTime(time: string) {
 
       <!-- 内容 -->
       <view class="mb-16rpx whitespace-pre-wrap break-words text-26rpx text-gray-800 leading-relaxed dark:text-gray-200">
-        {{ item.content || '该用户未填写' }}
+        {{ item.content || t('accountSettings.appraise.emptyContent') }}
       </view>
 
       <!-- 图片区域 -->
@@ -136,7 +138,7 @@ function formatTime(time: string) {
         v-if="item.replyTime && item.businessReply"
         class="mt-18rpx whitespace-pre-wrap break-words rounded-10rpx bg-gray-100 p-16rpx text-24rpx text-gray-700 leading-relaxed dark:bg-gray-700 dark:text-gray-200"
       >
-        商家回复：{{ item.businessReply }}
+        {{ t('accountSettings.appraise.sellerReply', { reply: item.businessReply }) }}
       </view>
     </view>
   </z-paging>

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
 interface Props {
   modelValue: boolean
 
@@ -11,6 +13,7 @@ interface Emits {
 
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
+const { t } = useI18n()
 
 const show = computed({
   get: () => props.modelValue,
@@ -27,7 +30,7 @@ function onShare() {
 </script>
 
 <template>
-  <wd-action-sheet v-model="show" title="分享至" custom-class="action-sheet-custom" @close="onClose">
+  <wd-action-sheet v-model="show" :title="t('product.shareTo')" custom-class="action-sheet-custom" @close="onClose">
     <view class="show-content-container">
       <!-- #ifdef MP-WEIXIN -->
       <view class="show-content-item">
@@ -36,7 +39,7 @@ function onShare() {
         </view>
         <view>
           <wd-button type="text" open-type="share" custom-style="color:#333333">
-            分享好友
+            {{ t('product.shareToFriend') }}
           </wd-button>
         </view>
       </view>
@@ -48,7 +51,7 @@ function onShare() {
         </view>
         <view>
           <wd-button type="text" open-type="share" custom-style="color:#333333">
-            分享链接
+            {{ t('product.shareLink') }}
           </wd-button>
         </view>
       </view>

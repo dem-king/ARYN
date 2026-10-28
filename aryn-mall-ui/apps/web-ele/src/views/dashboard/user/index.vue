@@ -302,7 +302,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="p-4">
+  <div class="absolute inset-0 overflow-y-auto">
     <DashboardHeader
       v-model:range-key="rangeKey"
       v-model:custom-start="customStart"
@@ -316,37 +316,40 @@ onMounted(() => {
       @export="handleExport"
     />
 
-    <ElAlert
-      v-if="loadError"
-      :title="loadError"
-      type="warning"
-      show-icon
-      :closable="false"
-      class="mb-4"
-    />
-
-    <DashboardSkeleton v-if="loading && !hasLoaded" />
-
-    <template v-else>
-      <UserScaleCards :data="scaleData" :loading="loading" />
-      <UserGrowthTrend :data="trendData" :loading="loading" />
-
-      <UserConsumptionAnalysis
-        :overview="consumptionData.overview"
-        :previous="previousConsumptionOverview"
-        :delta-label="deltaLabel"
-        :frequency-data="consumptionData.frequencyData"
-        :amount-data="consumptionData.amountData"
-        :loading="loading"
+    <!-- 页面留白收在这层，滚动根不留 padding，时间范围条才能完全贴顶吸住 -->
+    <div class="px-4 pb-4">
+      <ElAlert
+        v-if="loadError"
+        :title="loadError"
+        type="warning"
+        show-icon
+        :closable="false"
+        class="mb-4"
       />
 
-      <UserRfmSegmentation :data="rfmSegments" :loading="loading" />
+      <DashboardSkeleton v-if="loading && !hasLoaded" />
 
-      <UserCohortRetention
-        :data="cohortRetention"
-        :end-month="currentRange.endTime.slice(0, 7)"
-        :loading="loading"
-      />
-    </template>
+      <template v-else>
+        <UserScaleCards :data="scaleData" :loading="loading" />
+        <UserGrowthTrend :data="trendData" :loading="loading" />
+
+        <UserConsumptionAnalysis
+          :overview="consumptionData.overview"
+          :previous="previousConsumptionOverview"
+          :delta-label="deltaLabel"
+          :frequency-data="consumptionData.frequencyData"
+          :amount-data="consumptionData.amountData"
+          :loading="loading"
+        />
+
+        <UserRfmSegmentation :data="rfmSegments" :loading="loading" />
+
+        <UserCohortRetention
+          :data="cohortRetention"
+          :end-month="currentRange.endTime.slice(0, 7)"
+          :loading="loading"
+        />
+      </template>
+    </div>
   </div>
 </template>

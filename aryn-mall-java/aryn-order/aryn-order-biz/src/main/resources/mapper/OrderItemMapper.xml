@@ -101,4 +101,27 @@
 		ORDER BY totalQuantity DESC
 		LIMIT #{limit}
 	</select>
+
+	<!-- 热销榜：租户口径与常购统计（selectFrequentPurchase）一致，
+	     只聚合已过支付环节的有效订单（待发货/待收货/已完成，含货到付款）。
+	     租户由 SQL 显式保证；同件数时按 spu_id 稳定排序，避免同分条目在分页/刷新间抖动。 -->
+	<select id="selectGoodsSalesRank" resultType="com.aryn.cloud.order.api.dto.GoodsSalesRankDTO">
+		SELECT
+		order_item.spu_id AS spuId,
+		MAX(order_item.spu_name) AS spuName,
+		MAX(order_item.pic_url) AS picUrl,
+		SUM(order_item.buy_quantity) AS salesCount
+		FROM order_item AS order_item
+		INNER JOIN order_info AS order_info
+			ON order_info.id = order_item.order_id
+			AND order_info.tenant_id = order_item.tenant_id
+			AND order_info.del_flag = '0'
+			AND order_info.status IN ('2', '3', '4')
+			AND order_info.create_time &gt;= DATE_SUB(NOW(), INTERVAL #{days} DAY)
+		WHERE order_item.tenant_id = #{tenantId}
+		  AND order_item.del_flag = '0'
+		GROUP BY order_item.spu_id
+		ORDER BY SUM(order_item.buy_quantity) DESC, order_item.spu_id ASC
+		LIMIT #{limit}
+	</select>
 </mapper>

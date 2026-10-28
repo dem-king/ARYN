@@ -15,6 +15,7 @@ import {
 import { getPage } from '#/api/upms/tenant-package';
 import PageFilterPanel from '#/components/page/page-filter-panel.vue';
 import PageToolbar from '#/components/page/page-toolbar.vue';
+import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 import { useDict } from '#/utils/dict';
 
 const RightToolbar = defineAsyncComponent(
@@ -79,6 +80,8 @@ const edit = (row: any) => {
   formRef.value.initForm(row);
 };
 initPage();
+
+useKeepAliveRefresh(initPage);
 </script>
 <template>
   <div class="hx-layout-container">

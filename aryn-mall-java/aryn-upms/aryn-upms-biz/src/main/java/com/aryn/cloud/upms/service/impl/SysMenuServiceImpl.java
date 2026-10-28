@@ -133,6 +133,8 @@ public class SysMenuServiceImpl extends ServiceImpl<SysMenuMapper, SysMenu> impl
 				jsonObject.put("title", menu.getName());
 				jsonObject.put("icon", menu.getIcon());
 				jsonObject.put("order", menu.getSort());
+				// 菜单页均为列表页，开启 keepAlive 后切走再返回可保留查询条件与分页状态（详情/表单页走静态路由不受影响）
+				jsonObject.put("keepAlive", true);
 				extra.put("meta", jsonObject);
 				treeNode.setExtra(extra);
 				return treeNode;

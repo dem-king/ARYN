@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
 interface Props {
   modelValue: boolean
   collectId: string
@@ -12,6 +14,7 @@ interface Emits {
 
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
+const { t } = useI18n()
 
 const show = computed({
   get: () => props.modelValue,
@@ -32,14 +35,14 @@ function onCollect() {
 </script>
 
 <template>
-  <wd-action-sheet v-model="show" title="更多功能" custom-class="action-sheet-custom" @close="onClose">
+  <wd-action-sheet v-model="show" :title="t('product.moreActions')" custom-class="action-sheet-custom" @close="onClose">
     <view class="show-content-container">
       <view class="show-content-item">
         <view class="pic-icon-warp" @click="onToHome">
           <wd-icon name="home" color="#ffffff" size="38rpx" />
         </view>
         <view>
-          <wd-text size="22rpx" text="返回首页" />
+          <wd-text size="22rpx" :text="t('product.backHome')" />
         </view>
       </view>
       <view class="show-content-item">
@@ -47,7 +50,7 @@ function onCollect() {
           <wd-icon :name="collectId ? 'star-filled' : 'star'" color="#ffffff" size="38rpx" />
         </view>
         <view>
-          <wd-text size="22rpx" :text="collectId ? '取消收藏' : '收藏'" />
+          <wd-text size="22rpx" :text="collectId ? t('product.unfavorite') : t('product.favorite')" />
         </view>
       </view>
     </view>

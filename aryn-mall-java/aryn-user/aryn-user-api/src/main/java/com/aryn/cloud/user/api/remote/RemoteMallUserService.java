@@ -49,4 +49,9 @@ public interface RemoteMallUserService {
 	 */
 	LocalDateTime getUserRegisterTime(String userId);
 
+	/**
+	 * 统计当前租户商城会员数（租户由调用上下文决定）。
+	 */
+	Long countMallUsers();
+
 }

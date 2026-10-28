@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import type { CouponLike } from '@/utils/coupon-display'
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
-  couponSubtitle,
-  couponThresholdText,
   couponType,
   couponValueParts,
 } from '@/utils/coupon-display'
@@ -47,10 +46,44 @@ const emit = defineEmits<{
   select: [coupon: CouponCardData]
 }>()
 
-const valueParts = computed(() => couponValueParts(props.coupon))
-const typeLabel = computed(() => (couponType(props.coupon) === '2' ? '折扣券' : '满减券'))
-const threshold = computed(() => couponThresholdText(props.coupon))
-const desc = computed(() => (props.showScope ? couponSubtitle(props.coupon) : ''))
+const { t, locale } = useI18n()
+
+const isDiscountCoupon = computed(() => couponType(props.coupon) === '2')
+
+/**
+ * 金额区数值：满减券直接展示面额；折扣券中文展示「8折」，
+ * 英文没有「折」的概念，换算成「20 % OFF」才等价可读。
+ */
+const valueParts = computed(() => {
+  const parts = couponValueParts(props.coupon)
+  const unit = t('checkout.coupon.discountUnit')
+  if (!isDiscountCoupon.value)
+    return parts
+  if (String(locale.value).startsWith('en')) {
+    const discount = Number(parts.value)
+    const percent = Number.isFinite(discount) && discount > 0 ? (10 - discount) * 10 : 0
+    return { ...parts, symbol: '', value: String(Number(percent.toFixed(2))), unit }
+  }
+  return { ...parts, unit }
+})
+const typeLabel = computed(() =>
+  isDiscountCoupon.value ? t('checkout.coupon.typeDiscount') : t('checkout.coupon.typeAmount'),
+)
+const threshold = computed(() => {
+  const value = Number(props.coupon?.threshold ?? 0)
+  if (!Number.isFinite(value) || value <= 0)
+    return t('checkout.coupon.noThreshold')
+  return t('checkout.coupon.threshold', { amount: String(Number(value.toFixed(2))) })
+})
+const desc = computed(() => {
+  if (!props.showScope)
+    return ''
+  // 后端下发的使用说明是业务文案，保持原文；没有时回落到适用范围
+  const description = (props.coupon?.useDescription ?? '').trim()
+  return description || t(
+    props.coupon?.useRange === '1' ? 'checkout.coupon.scopeAll' : 'checkout.coupon.scopePartial',
+  )
+})
 
 /**
  * 整卡可点：选择态下派发 select，其余情况派发 action。
@@ -110,7 +143,7 @@ function handleAction() {
           {{ typeLabel }}
         </view>
         <view class="coupon-ticket__name">
-          {{ coupon.couponName || '优惠券' }}
+          {{ coupon.couponName || t('checkout.coupon.fallbackName') }}
         </view>
         <view v-if="desc" class="coupon-ticket__desc">
           {{ desc }}

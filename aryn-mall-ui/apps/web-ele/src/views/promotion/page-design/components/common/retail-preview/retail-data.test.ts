@@ -4,11 +4,13 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { getById, getShopInfo } from '#/api/upms/tenant';
 
+import { createGoodsWaterfallDefaults } from '../../extension/types';
 import { createGoodsGroupDefaults } from '../../goods-group/types';
 import { createGoodsRankingDefaults } from '../../goods-ranking/types';
 import {
   loadGoodsGroup,
   loadGoodsRanking,
+  loadGoodsWaterfall,
   loadLimitedActivities,
   loadSeckillSessions,
   loadShopInfo,
@@ -36,7 +38,7 @@ function createDependencies(
     activityPage: vi.fn(async () => ({ records: [] })),
     goodsByIds: vi.fn(async () => []),
     goodsPage: vi.fn(async () => ({ records: [] })),
-    salesRanking: vi.fn(async () => []),
+    memberActivityGoods: vi.fn(async () => null),
     seckillSessionGoods: vi.fn(async () => ({})),
     seckillSessions: vi.fn(async () => []),
     shopById: vi.fn(async () => ({})),
@@ -109,6 +111,55 @@ describe('retail preview data adapters', () => {
     expect(goodsPage.mock.calls[0]?.[0]).not.toHaveProperty('desc');
   });
 
+  it('sends only the bargain threshold for a bargain-sorted group (no asc/desc)', async () => {
+    const goodsPage = vi.fn(async (_query: Record<string, unknown>) => ({
+      records: [],
+    }));
+    const props = createGoodsGroupDefaults();
+    props.dataSource.sort = 'bargain';
+    (props.dataSource as { bargainRate?: number }).bargainRate = 1.2;
+
+    await loadGoodsGroup(props, createDependencies({ goodsPage }));
+
+    expect(goodsPage).toHaveBeenCalledWith(
+      expect.objectContaining({ bargainRate: 1.2, current: 1 }),
+    );
+    const query = goodsPage.mock.calls[0]?.[0];
+    // 后端 bargain 模式固定排序，多传 asc/desc 会与之冲突
+    expect(query).not.toHaveProperty('asc');
+    expect(query).not.toHaveProperty('desc');
+  });
+
+  it('defaults the bargain threshold to 1.15 for goods-tabs previews', async () => {
+    const goodsPage = vi.fn(async (_query: Record<string, unknown>) => ({
+      records: [],
+    }));
+    const props = createGoodsWaterfallDefaults();
+    props.dataSource.sort = 'bargain';
+
+    await loadGoodsWaterfall(props, createDependencies({ goodsPage }));
+
+    expect(goodsPage).toHaveBeenCalledWith(
+      expect.objectContaining({ bargainRate: 1.15 }),
+    );
+  });
+
+  it('falls back to the default threshold when the configured one is out of range', async () => {
+    const goodsPage = vi.fn(async (_query: Record<string, unknown>) => ({
+      records: [],
+    }));
+    const props = createGoodsWaterfallDefaults();
+    props.dataSource.sort = 'bargain';
+    // 后端会直接拒绝越界阈值，预览必须自行回落而不是把 400 暴露给画布
+    props.dataSource.bargainRate = 0.5;
+
+    await loadGoodsWaterfall(props, createDependencies({ goodsPage }));
+
+    expect(goodsPage).toHaveBeenCalledWith(
+      expect.objectContaining({ bargainRate: 1.15 }),
+    );
+  });
+
   it('loads manually selected goods in configured order', async () => {
     const goodsByIds = vi.fn(async () => [
       { id: 'goods-2', name: '商品二' },
@@ -129,26 +180,94 @@ describe('retail preview data adapters', () => {
     expect(result.map(({ id }) => id)).toEqual(['goods-1', 'goods-2']);
   });
 
-  it('normalizes the sales ranking and respects count', async () => {
+  it('loads the sales ranking through the goods page and respects count', async () => {
+    const goodsPage = vi.fn(async (_query: Record<string, unknown>) => ({
+      records: [
+        {
+          id: 'goods-1',
+          name: '第一名',
+          salesPrice: '19.90',
+          salesVolume: 99,
+          spuUrls: ['one.png'],
+          stock: 5,
+        },
+        {
+          id: 'goods-2',
+          name: '第二名',
+          salesPrice: '9.90',
+          salesVolume: 88,
+          spuUrls: ['two.png'],
+          stock: 20,
+        },
+      ],
+    }));
     const props = createGoodsRankingDefaults();
     props.count = 1;
 
     const result = await loadGoodsRanking(
       props,
-      createDependencies({
-        salesRanking: vi.fn(async () => [
-          { id: 'goods-1', name: '第一名', picUrl: 'one.png', salesVolume: 99 },
-          { id: 'goods-2', name: '第二名', picUrl: 'two.png', salesVolume: 88 },
-        ]),
-      }),
+      createDependencies({ goodsPage }),
     );
 
+    expect(goodsPage).toHaveBeenCalledWith(
+      expect.objectContaining({ current: 1, desc: 'sales_volume', size: 1 }),
+    );
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({
       id: 'goods-1',
       imageUrl: 'one.png',
+      price: 19.9,
       sales: 99,
+      stock: 5,
     });
+  });
+
+  it('sorts the price ranking descending like the mobile renderer', async () => {
+    const goodsPage = vi.fn(async (_query: Record<string, unknown>) => ({
+      records: [],
+    }));
+    const props = createGoodsRankingDefaults();
+    props.dataSource.metric = 'sales_price';
+
+    await loadGoodsRanking(props, createDependencies({ goodsPage }));
+
+    // 小程序排行对「价格排行」按降序取数；分组/瀑布流的低价优先是另一条路径
+    expect(goodsPage).toHaveBeenCalledWith(
+      expect.objectContaining({ desc: 'sales_price' }),
+    );
+  });
+
+  it('normalizes the specs summary for waterfall/tabs cards', async () => {
+    const goodsPage = vi.fn(async () => ({
+      records: [
+        {
+          id: 'goods-1',
+          name: '矿泉水',
+          packageSpec: '950ml/瓶',
+          salesPrice: 3.5,
+          spuUrls: ['water.png'],
+          stock: 30,
+        },
+        {
+          id: 'goods-2',
+          name: '单规格商品',
+          packageSpec: '默认',
+          salesPrice: 5,
+          spuUrls: ['single.png'],
+          stock: 30,
+        },
+      ],
+    }));
+    const props = createGoodsWaterfallDefaults();
+
+    const result = await loadGoodsWaterfall(
+      props,
+      createDependencies({ goodsPage }),
+    );
+
+    expect(result[0]?.specsInfo).toBe('950ml/瓶');
+    // 单规格的「默认」视为无规格，不能渲染成商品标签
+    expect(result[1]?.specsInfo).toBeUndefined();
   });
 
   it('loads active activities and maps runtime status', async () => {
@@ -361,5 +480,116 @@ describe('retail preview data adapters', () => {
     // 缩略图由 loadDiscounts 补齐，归一化阶段统一落空串（与 C 端同口径）
     expect(result[0]?.coverImage).toBe('');
     expect(result[1]?.coverImage).toBe('');
+  });
+});
+
+describe('retail preview: 会员专区 activity 数据源', () => {
+  function activityProps(count = 2) {
+    const props = createGoodsWaterfallDefaults();
+    props.count = count;
+    // 与装修 JSON 契约一致：activityId 空串 = 自动取当前进行中的会员价活动
+    props.dataSource = { activityId: '', cacheTtl: 0, mode: 'activity' };
+    return props;
+  }
+
+  const activityGoods = (spuIds: string[] = ['spu-b', 'spu-a', 'spu-c']) => ({
+    activityId: 'act-1',
+    activityName: '黄金会员价',
+    endTime: '2099-12-31 23:59:59',
+    spuIds,
+  });
+
+  it('loads activity goods in the activity order and truncates to count', async () => {
+    const memberActivityGoods = vi.fn(async () => activityGoods());
+    const goodsByIds = vi.fn(async () => [
+      { id: 'spu-a', name: '商品A', salesPrice: 10 },
+      { id: 'spu-c', name: '商品C', salesPrice: 30 },
+      { id: 'spu-b', name: '商品B', salesPrice: 20 },
+    ]);
+    const props = activityProps(2);
+    props.dataSource.activityId = 'act-1';
+
+    const result = await loadGoodsWaterfall(
+      props,
+      createDependencies({ goodsByIds, memberActivityGoods }),
+    );
+
+    // activityId 透传给 C 端只读接口，商品按活动配置顺序回排后截断 count
+    expect(memberActivityGoods).toHaveBeenCalledWith('act-1');
+    expect(goodsByIds).toHaveBeenCalledWith(['spu-b', 'spu-a', 'spu-c']);
+    expect(result.map(({ id }) => id)).toEqual(['spu-b', 'spu-a']);
+    // 活动模式不走商品分页接口
+    expect(goodsByIds).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes undefined when activityId is empty (auto: in-progress activity)', async () => {
+    const memberActivityGoods = vi.fn(async () => activityGoods(['spu-a']));
+
+    await loadGoodsWaterfall(
+      activityProps(1),
+      createDependencies({
+        goodsByIds: vi.fn(async () => [{ id: 'spu-a', name: '商品A' }]),
+        memberActivityGoods,
+      }),
+    );
+
+    expect(memberActivityGoods).toHaveBeenCalledWith(undefined);
+  });
+
+  it('returns an empty list when there is no activity or no goods (null)', async () => {
+    const goodsByIds = vi.fn(async () => []);
+
+    const result = await loadGoodsWaterfall(
+      activityProps(),
+      createDependencies({
+        goodsByIds,
+        memberActivityGoods: vi.fn(async () => null),
+      }),
+    );
+
+    expect(result).toEqual([]);
+    // 活动为空时不必再请求商品，避免画布多发一次无意义请求
+    expect(goodsByIds).not.toHaveBeenCalled();
+  });
+
+  it('degrades to an empty list when the activity endpoint fails', async () => {
+    const result = await loadGoodsWaterfall(
+      activityProps(),
+      createDependencies({
+        memberActivityGoods: vi.fn(async () => {
+          throw new Error('403 无权限');
+        }),
+      }),
+    );
+
+    expect(result).toEqual([]);
+  });
+
+  it('does not call the activity endpoint for automatic/manual modes', async () => {
+    const memberActivityGoods = vi.fn(async () => activityGoods());
+    const goodsPage = vi.fn(async () => ({ records: [] }));
+
+    // 自动模式：仍按商品分页取数
+    await loadGoodsWaterfall(
+      createGoodsWaterfallDefaults(),
+      createDependencies({ goodsPage, memberActivityGoods }),
+    );
+    expect(memberActivityGoods).not.toHaveBeenCalled();
+    expect(goodsPage).toHaveBeenCalled();
+
+    // 手选模式：仍按 targetIds 取数
+    const manualProps = createGoodsWaterfallDefaults();
+    manualProps.dataSource = {
+      mode: 'manual',
+      targetIds: ['spu-manual'],
+    };
+    await loadGoodsWaterfall(
+      manualProps,
+      createDependencies({
+        goodsByIds: vi.fn(async () => [{ id: 'spu-manual', name: '手选' }]),
+        memberActivityGoods,
+      }),
+    );
+    expect(memberActivityGoods).not.toHaveBeenCalled();
   });
 });

@@ -66,11 +66,14 @@ public class DeliveryAuthService {
 	@DubboReference
 	private final RemoteSysUserService remoteSysUserService;
 
+	private final TenantAccessGuard tenantAccessGuard;
+
 	/**
 	 * 查询当前商城用户的配送工作台资格
 	 */
 	public DeliveryEligibilityVO eligibility() {
 		ArynUser tocUser = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
+		tenantAccessGuard.assertAvailable(tocUser.getTenantId());
 		return toExternalVO(evaluate(tocUser.getUserId(), tocUser.getTenantId()));
 	}
 
@@ -79,6 +82,7 @@ public class DeliveryAuthService {
 	 */
 	public DeliveryExchangeVO exchange() {
 		ArynUser tocUser = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
+		tenantAccessGuard.assertAvailable(tocUser.getTenantId());
 		DeliveryQualification qualification = evaluate(tocUser.getUserId(), tocUser.getTenantId());
 		String status = qualification.getStatus();
 		// 与资格判定同一套校验，避免换取绕过资格回收

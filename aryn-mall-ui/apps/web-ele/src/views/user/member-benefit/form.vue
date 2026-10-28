@@ -243,6 +243,9 @@ defineExpose({ initForm });
         <div v-if="state.form.benefitType === '1'" class="form-tip">
           0.9 表示 9 折；1 表示不打折
         </div>
+        <div v-if="state.form.benefitType === '1'" class="form-tip">
+          活动价商品（拼团/秒杀/限时折扣/新人价）不参与会员折扣，成交价按活动价
+        </div>
         <div v-else-if="state.form.benefitType === '3'" class="form-tip">
           仅可选择启用且有余量的优惠券模板
         </div>

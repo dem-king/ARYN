@@ -2,12 +2,15 @@
 import type { AppSeckillGoodsVO } from '@/api/promotion'
 import type { DiscountPriceDisplay } from '@/utils/discount-price'
 import type { SpecRowView } from '@/utils/goods-purchase'
+import type { MemberPriceDisplay } from '@/utils/member-price'
 import type { NewbiePriceDisplay } from '@/utils/newbie-price'
 
 import { computed, getCurrentInstance, onBeforeUnmount, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useShipContextStore } from '@/store/shipContextStore'
+import { formatStripAmount } from '@/utils/discount-price'
 import { resolveDeliveryRow } from '@/utils/goods-purchase'
-import { NEWBIE_BADGE_TEXT, newbieLimitHint } from '@/utils/newbie-price'
+import { stockHintText } from '@/utils/stock-display'
 import GoodsAttrTags from './GoodsAttrTags.vue'
 
 interface Props {
@@ -19,13 +22,19 @@ interface Props {
   /** 当前 SKU 的秒杀信息；null 表示无进行中的秒杀 */
   seckillInfo?: AppSeckillGoodsVO | null
   /**
-   * 当前 SKU 的新人价展示：父级已按「秒杀 > 新人价」的优先级算好，
-   * 秒杀进行中时传的是空展示，这里不用再重复判定优先级。
+   * 当前 SKU 的会员专享价展示：父级已按「秒杀 > 会员价 > 新人价 > 限时折扣」的
+   * 优先级算好，上层活动命中时传的是空展示，这里不用再重复判定优先级。
+   * 未达标/未登录时 showMemberPrice=false，主价保持原价、只渲染 guideText 引导。
+   */
+  memberDisplay: MemberPriceDisplay
+  /**
+   * 当前 SKU 的新人价展示：父级已按「秒杀 > 会员价 > 新人价」的优先级算好，
+   * 秒杀/会员价命中时传的是空展示，这里不用再重复判定优先级。
    */
   newbieDisplay: NewbiePriceDisplay
   /**
-   * 当前 SKU 的限时折扣展示：父级已按「秒杀 > 新人价 > 限时折扣」的优先级算好，
-   * 上层活动命中时传的是空展示，这里不用再重复判定优先级。
+   * 当前 SKU 的限时折扣展示：父级已按「秒杀 > 会员价 > 新人价 > 限时折扣」的
+   * 优先级算好，上层活动命中时传的是空展示，这里不用再重复判定优先级。
    */
   discountDisplay: DiscountPriceDisplay
 }
@@ -44,23 +53,36 @@ const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
 
 const shipContextStore = useShipContextStore()
+const { t } = useI18n()
 
 /** 轮播页码：参考商超详情页的 1/5 角标，用户能感知还有多少张图 */
 const currentImage = ref(0)
 const imageCount = computed(() => props.goodsSpu?.spuUrls?.length || 0)
 const isFreeShipping = computed(() => props.goodsSpu?.freightType === '0')
 
+/** 库存提示：售罄/低库存时的一行稀缺文案；充足或未知为空串（整行隐藏） */
+const stockHint = computed(() => {
+  if (!stockHintText(props.goodsSpu?.stock))
+    return ''
+  const stock = Number(props.goodsSpu?.stock)
+  return stock <= 0
+    ? t('product.stockSoldOut')
+    : t('product.stockLeft', { count: stock })
+})
+
 function onSwiperChange(event: any) {
   currentImage.value = Number(event?.current) || 0
 }
 
 /**
- * 价格区主价：秒杀 > 新人价 > 销售价（与后端 OrderPriceComputeService 的
- * 「拼团 > 秒杀 > 新人价 > 限时折扣 > 原价」同向，前端只覆盖到这个页面能拿到的三层）。
+ * 价格区主价：秒杀 > 会员价 > 新人价 > 限时折扣 > 销售价（与后端 OrderPriceComputeService 的
+ * 「拼团 > 秒杀 > 会员价 > 新人价 > 限时折扣 > 原价」同向，前端只覆盖这个页面能拿到的层级）。
  */
 const mainPrice = computed(() => {
   if (props.seckillInfo)
     return props.seckillInfo.seckillPrice
+  if (props.memberDisplay.showMemberPrice)
+    return props.memberDisplay.memberPrice
   if (props.newbieDisplay.showNewbiePrice)
     return props.newbieDisplay.newbiePrice
   if (props.discountDisplay.showDiscountPrice)
@@ -71,6 +93,8 @@ const mainPrice = computed(() => {
 /**
  * 价格区划线价：
  * - 秒杀：划当前售价（后端口径：秒杀价基于 salesPrice 降）；
+ * - 会员价：划会员价里的 originalPrice（后端回填的当前售价），
+ *   与新人价同口径——不划商品原价，避免把会员价说成更大折扣；
  * - 新人价：划新人价里的 originalPrice（后端回填的当前售价），
  *   没有则不划——自己划自己只会制造噪音；
  * - 无活动：沿用既有「售价 < 原价」的划线口径（与 diy/price-display 同源）。
@@ -78,6 +102,8 @@ const mainPrice = computed(() => {
 const strikePrice = computed(() => {
   if (props.seckillInfo)
     return props.goodsSpu?.salesPrice
+  if (props.memberDisplay.showMemberPrice)
+    return props.memberDisplay.originalPrice
   if (props.newbieDisplay.showNewbiePrice)
     return props.newbieDisplay.originalPrice
   // 限时折扣的基准价是 SKU 当前售价（会场卡片同样划这个价），
@@ -106,17 +132,34 @@ const showSubtitle = computed(() => {
 })
 
 /** 可享新人价时的限购提示；不适用时为空串（避免渲染空条） */
-const newbieLimitText = computed(() => newbieLimitHint(props.newbieDisplay))
+const newbieLimitText = computed(() =>
+  props.newbieDisplay.showNewbiePrice
+    ? t('product.newbieLimit', { count: props.newbieDisplay.limitPerUser })
+    : '',
+)
+
+/**
+ * 会员价引导文案：未达标/未登录时「会员专享 ¥x」。
+ *
+ * 达标时主价已切会员价（showMemberPrice），不再重复引导；无活动/价格倒挂时
+ * guideText 为 null，整行隐藏。只在价格区下方透出引导，不改变主价与划线口径。
+ */
+const memberGuideText = computed(() => {
+  if (!props.memberDisplay.guideText || props.memberDisplay.memberPrice == null)
+    return ''
+  return t('product.memberOnly', { price: formatStripAmount(props.memberDisplay.memberPrice) })
+})
 
 /**
  * 价格区下方是否存在活动说明条。
  *
  * 标题卡原设计用 `margin-top: -32px` 上提、与价格渐变区咬合；一旦中间插入了
- * 活动条（秒杀/新人价/限时折扣），上提量会把标题拖进条内、首行被裁掉。
+ * 活动条（秒杀/会员价/新人价/限时折扣），上提量会把标题拖进条内、首行被裁掉。
  * 有条时取消上提，让标题卡排在条下方。
  */
 const hasPriceStrip = computed(() =>
   Boolean(props.seckillInfo)
+  || Boolean(memberGuideText.value)
   || Boolean(newbieLimitText.value || props.newbieDisplay.ineligibleText)
   || props.discountDisplay.showDiscountPrice,
 )
@@ -206,6 +249,25 @@ const deliveryRow = computed(() => resolveDeliveryRow({
   addressText: formatAddressText(props.address),
 }))
 
+/** 配送行主文案：共享层负责口径判定，文案在这里按当前语言渲染 */
+const deliveryText = computed(() => {
+  if (shipContextStore.hasVesselContext) {
+    const vessel = (shipContextStore.vesselName ?? '').trim() || t('product.currentVessel')
+    return t('product.deliveryToVessel', { vessel })
+  }
+  return isFreeShipping.value
+    ? t('product.freeShipping')
+    : t('product.freightAmount', { amount: props.goodsSpu?.fixedFreightPrice ?? 0 })
+})
+
+/** 配送行副文案：船舶场景沿用共享层拼好的港口/靠港时段（业务数据，语言无关） */
+const deliveryDetail = computed(() => {
+  if (shipContextStore.hasVesselContext)
+    return deliveryRow.value.detail
+  const address = formatAddressText(props.address)
+  return address ? t('product.deliveryToAddress', { address }) : ''
+})
+
 function formatAddressText(address: any) {
   if (!address?.provinceName)
     return ''
@@ -285,22 +347,26 @@ defineExpose({
       class="relative h-72px rounded-t-xl from-primary to-secondary bg-gradient-to-r px-3 py-2 -top-10px"
     >
       <view class="flex items-center justify-between pt-1">
-        <!-- 价格：秒杀 > 新人价 > 销售价；主价旁的划线价随主价口径切换 -->
+        <!-- 价格：秒杀 > 会员价 > 新人价 > 限时折扣 > 销售价；主价旁的划线价随主价口径切换 -->
         <view class="flex-1">
           <view class="flex flex-wrap items-center">
             <wd-text
               size="44rpx" prefix="￥" mode="price" color="white" bold
               :text="mainPrice"
             />
+            <!-- 会员价角标：白字底上用白色描边胶囊，与新人价角标同层级 -->
+            <text v-if="memberDisplay.showMemberPrice" class="member-badge">
+              {{ t('product.memberPrice') }}
+            </text>
             <!-- 新人价角标：白字底上用白色描边胶囊，不引入额外色块压住渐变主色 -->
             <text v-if="newbieDisplay.showNewbiePrice" class="newbie-badge">
-              {{ NEWBIE_BADGE_TEXT }}
+              {{ t('product.newbiePrice') }}
             </text>
             <text v-if="discountDisplay.showDiscountPrice" class="discount-badge">
               {{ discountDisplay.badgeText }}
             </text>
             <text v-if="savingAmount" class="saving-badge">
-              省￥{{ savingAmount }}
+              {{ t('product.saveAmount', { amount: savingAmount }) }}
             </text>
           </view>
           <wd-text
@@ -315,13 +381,13 @@ defineExpose({
               <text v-if="goodsSpu?.collectId" class="i-flowbite:heart-solid text-18px text-red-5 text-white!" />
               <text v-else class="i-flowbite:heart-outline text-18px text-white!" />
               <text class="text-12px text-white!">
-                {{ goodsSpu?.collectId ? '已收藏' : '收藏' }}
+                {{ goodsSpu?.collectId ? t('product.favorited') : t('product.favorite') }}
               </text>
             </view>
             <view class="flex flex-col items-center pl-10px" @click="handleShare">
               <text class="i-flowbite:share-all-outline text-18px text-white!" />
               <text class="text-12px text-white!">
-                分享
+                {{ t('product.share') }}
               </text>
             </view>
           </view>
@@ -331,26 +397,26 @@ defineExpose({
     <!-- 秒杀条：有进行中的秒杀才展示；已抢完/已结束仅提示，不影响加购 -->
     <view v-if="seckillInfo" class="seckill-strip">
       <view class="seckill-tag">
-        限时秒杀
+        {{ t('product.flashSale') }}
       </view>
       <view v-if="!seckillFinished" class="seckill-countdown">
-        还剩
+        {{ t('product.endsIn') }}
         <text class="seckill-time">
           {{ seckillCountdownText }}
         </text>
       </view>
       <text v-else class="seckill-over">
-        本场已结束
+        {{ t('product.sessionEnded') }}
       </text>
       <view class="seckill-meta">
         <text v-if="seckillInfo.limitPerUser">
-          每人限购{{ seckillInfo.limitPerUser }}件
+          {{ t('product.limitPerUser', { count: seckillInfo.limitPerUser }) }}
         </text>
         <text v-if="seckillRemaining > 0" class="seckill-remaining">
-          仅剩{{ seckillRemaining }}件
+          {{ t('product.stockLeft', { count: seckillRemaining }) }}
         </text>
         <text v-else class="seckill-remaining">
-          已抢完
+          {{ t('product.soldOut') }}
         </text>
       </view>
     </view>
@@ -370,16 +436,33 @@ defineExpose({
       </text>
     </view>
 
+    <!--
+      会员价引导条：未达标/未登录时透出「会员专享 ¥x」，只做引导不做拦截。
+      达标时主价已切会员价（价格区角标已说明），不重复渲染本行；
+      价格倒挂等无可引导信息时 guideText 为 null，整行隐藏（不改变主价与划线口径）。
+    -->
+    <view v-if="memberGuideText" class="member-strip">
+      <text class="member-strip-tag">
+        {{ t('product.member') }}
+      </text>
+      <text class="member-strip-text">
+        {{ memberGuideText }}
+      </text>
+      <text class="member-strip-meta">
+        {{ t('product.joinToEnjoy') }}
+      </text>
+    </view>
+
     <!-- 限时折扣条：解释「为什么主价是折后价」，活动名让用户知道价从哪来 -->
     <view v-if="discountDisplay.showDiscountPrice" class="discount-strip">
       <text class="discount-strip-tag">
-        限时折扣
+        {{ t('product.limitedDiscount') }}
       </text>
       <text class="discount-strip-name">
-        {{ discountDisplay.activityName || '活动商品' }}
+        {{ discountDisplay.activityName || t('product.activityItem') }}
       </text>
       <text class="discount-strip-meta">
-        结算自动生效
+        {{ t('product.autoAppliedAtCheckout') }}
       </text>
     </view>
     <view
@@ -395,23 +478,23 @@ defineExpose({
         </view>
         <view v-if="isFreeShipping" class="goods-title-card__tags">
           <text class="goods-tag">
-            包邮
+            {{ t('product.freeShipping') }}
           </text>
         </view>
       </view>
       <!--
         运营配置的属性标签（地标/冷藏/上榜…）：横滑卡条，放在标题之后、
-        库存已售之前。后端未部署或旧数据无 attrTags 时组件内部整块不渲染，
+        库存提示之前。后端未部署或旧数据无 attrTags 时组件内部整块不渲染，
         首屏与改动前完全一致。
       -->
       <GoodsAttrTags :attr-tags="goodsSpu?.attrTags" />
-      <view class="goods-title-card__meta">
+      <!--
+        库存口径：绝对库存/累计销量不外露（运营敏感数据，自营竞品也不展示），
+        只在售罄或低库存时给一行稀缺提示；充足或未知时整行隐藏。
+      -->
+      <view v-if="stockHint" class="goods-title-card__meta">
         <text class="goods-title-card__meta-item">
-          库存 <text class="goods-title-card__meta-value">{{ goodsSpu.stock || 0 }}</text> 件
-        </text>
-        <text class="goods-title-card__meta-divider" />
-        <text class="goods-title-card__meta-item">
-          已售 <text class="goods-title-card__meta-value">{{ goodsSpu.salesVolume || 0 }}</text> 件
+          {{ stockHint }}
         </text>
       </view>
     </view>
@@ -424,7 +507,7 @@ defineExpose({
           @click="showCoupon"
         >
           <view class="w-80rpx flex-shrink-0 text-28rpx text-gray-800">
-            优惠
+            {{ t('product.discounts') }}
           </view>
           <view class="mx-5 flex-1 text-26rpx text-gray-600">
             <view class="line-clamp-1 flex">
@@ -450,7 +533,7 @@ defineExpose({
           @click="openSkuPopup(2)"
         >
           <view class="w-80rpx flex-shrink-0 text-28rpx text-gray-800">
-            规格
+            {{ t('product.specs') }}
           </view>
           <view class="mx-5 flex-1 text-left text-26rpx text-gray-600">
             {{ specRow.text }}
@@ -465,12 +548,12 @@ defineExpose({
           @click="onDeliveryRowTap"
         >
           <view class="w-80rpx flex-shrink-0 text-28rpx text-gray-800">
-            配送
+            {{ t('product.delivery') }}
           </view>
           <view class="mx-5 flex-1 text-left text-26rpx text-gray-600">
-            {{ deliveryRow.text }}
-            <view v-if="deliveryRow.detail" class="line-clamp-1 text-12px text-gray-400">
-              {{ deliveryRow.detail }}
+            {{ deliveryText }}
+            <view v-if="deliveryDetail" class="line-clamp-1 text-12px text-gray-400">
+              {{ deliveryDetail }}
             </view>
           </view>
           <view v-if="deliveryRow.tappable" class="flex-shrink-0 text-gray-400">
@@ -652,6 +735,58 @@ defineExpose({
 // 有活动条时标题卡不再上提，避免首行被条裁切
 .goods-title-card--striped {
   margin-top: 0;
+}
+
+// 会员价角标：与新人价/折扣角标同一套白描边语言（价格区为渐变主色底）
+.member-badge {
+  margin-left: 12rpx;
+  padding: 2rpx 12rpx;
+  border: 1rpx solid rgb(255 255 255 / 70%);
+  border-radius: 999rpx;
+  background: rgb(255 255 255 / 18%);
+  color: #fff;
+  font-size: 20rpx;
+  font-weight: 600;
+  line-height: 1.6;
+}
+
+// 会员价引导条：未达标/未登录时解释「专享价是多少、差哪一级」，独立 class
+// 避免与新人价条/折扣条共用样式（三类活动语义与迭代都不同）
+.member-strip {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin: -20rpx 16rpx 12rpx;
+  padding: 14rpx 20rpx;
+  border-radius: 12rpx;
+  background: #fdf6e7;
+
+  .member-strip-tag {
+    flex-shrink: 0;
+    padding: 4rpx 14rpx;
+    border-radius: 8rpx;
+    background: linear-gradient(135deg, #d8b25e, #b8862f);
+    color: #fff;
+    font-size: 22rpx;
+    font-weight: 600;
+  }
+
+  .member-strip-text {
+    flex: 1;
+    overflow: hidden;
+    color: #8a5a1c;
+    font-size: 22rpx;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .member-strip-meta {
+    flex-shrink: 0;
+    color: #b0803a;
+    font-size: 22rpx;
+  }
 }
 
 // 限时折扣角标：与新人价角标同一套白描边语言（价格区为渐变主色底）

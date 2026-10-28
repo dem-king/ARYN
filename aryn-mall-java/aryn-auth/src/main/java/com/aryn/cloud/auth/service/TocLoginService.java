@@ -53,6 +53,8 @@ public class TocLoginService {
 
 	private final LoginTenantGuard loginTenantGuard;
 
+	private final TenantAccessGuard tenantAccessGuard;
+
 	public SaTokenInfo maPhoneLogin(UserLoginReqDTO userLoginReqDTO) {
 		// /ma/phone/login 固定微信小程序语义：平台缺失/错误直接拒绝
 		assertWxMaPlatform(userLoginReqDTO);
@@ -61,6 +63,7 @@ public class TocLoginService {
 		String previousTenantId = ArynTenantContextHolder.getTenantId();
 		ArynTenantContextHolder.setTenantId(verifiedTenantId);
 		try {
+			tenantAccessGuard.assertAvailable(verifiedTenantId);
 			// 解密手机号（user-biz 内部再次权威重查绑定）
 			String phone = remoteSocialUserService.getPhoneNumberInfo(userLoginReqDTO);
 			if (!StringUtils.hasText(phone)) {
@@ -113,6 +116,7 @@ public class TocLoginService {
 
 			ArynUser hxUser = new ArynUser();
 			String tenantId = verifiedTenantId != null ? verifiedTenantId : ArynTenantContextHolder.getTenantId();
+			tenantAccessGuard.assertAvailable(tenantId);
 			if (wxMa) {
 				// 获取三方用户
 				SocialUser socialUser = remoteSocialUserService.socialLogin(userLoginReqDTO);
@@ -156,6 +160,7 @@ public class TocLoginService {
 				throw new RuntimeException("账号或密码错误");
 			}
 			assertMemberEnabled(userInfo.getStatus());
+			tenantAccessGuard.assertAvailable(wxMa ? verifiedTenantId : userInfo.getTenantId());
 			ArynUser hxUser = new ArynUser();
 			if (wxMa) {
 				// 获取三方用户
@@ -221,6 +226,7 @@ public class TocLoginService {
 			throw new IllegalArgumentException("login failed");
 		}
 		assertMemberEnabled(userInfo.getStatus());
+		tenantAccessGuard.assertAvailable(tenantId);
 		ArynUser hxUser = new ArynUser();
 		hxUser.setUserId(userId);
 		hxUser.setOpenId(openid);

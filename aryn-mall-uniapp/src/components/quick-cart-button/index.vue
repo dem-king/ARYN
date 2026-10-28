@@ -19,6 +19,7 @@
 import type { SharedCart } from '@/api/order/sharedCart'
 import type { QuickAddPromotion } from '@/utils/quick-cart'
 import { nextTick, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import { useCartDestination } from '@/composables/useCartDestination'
 import { useQuickCart } from '@/composables/useQuickCart'
@@ -50,6 +51,7 @@ const emit = defineEmits<{
   (e: 'added', spuId: string): void
 }>()
 
+const { t } = useI18n()
 const { pending, quickAdd } = useQuickCart()
 const { submitCartAdd } = useCartDestination()
 const skuPopup = ref()
@@ -150,6 +152,8 @@ async function handleSkuAdd(data: any) {
     sku-list-name="goodsSkus"
     spec-list-name="specList"
     :mode="skuMode"
+    :add-cart-text="t('search.addToCart')"
+    :no-stock-text="t('search.soldOut')"
     @add-cart="handleSkuAdd"
   />
 </template>

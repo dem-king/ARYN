@@ -11,6 +11,9 @@
  *     分类多时被上限封顶（底边最多落在约 86.5% 屏高处），宫格内部滚动，
  *     下方始终保留遮罩带露出压暗的页面内容。
  *   · 底角带圆角，形成「自上滑出的卡片」观感。
+ *   · 面板为毛玻璃：半透明白 + backdrop-filter 模糊透出压暗的页面内容。
+ *     不支持 backdrop-filter 的内核（部分安卓 X5）自动退化为半透明白，
+ *     文字对比度仍由 0.78 的白色底保证，可读性不依赖模糊生效。
  *
  * 层级：遮罩 999 —— 高于 H5 tabBar(998) 与 SKU 弹层(990)，低于导航栏(1000)。
  * 因此导航栏保持点亮、其余页面内容被压暗，与参考图一致。
@@ -18,6 +21,7 @@
  * 组件由父级用 `v-if` 懒挂载：分类页不打开浮层时不产生任何节点。
  */
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { resolveCategoryFallback } from '@/utils/category-icon'
 
 interface CategoryItem {
@@ -50,6 +54,7 @@ const emit = defineEmits<{
 
 /** 图片加载失败的类目：已填图但域名不可达时同样走首字色块，避免空白圆 */
 const failedImages = ref<Record<number, boolean>>({})
+const { t } = useI18n()
 
 function handleImageError(index: number) {
   failedImages.value[index] = true
@@ -79,7 +84,7 @@ const activeAnchor = computed(() => `all-sheet-anchor-${props.activeIndex}`)
     <view class="all-sheet" :style="sheetStyle">
       <view class="all-sheet-header">
         <view class="all-sheet-title">
-          全部分类
+          {{ t('catalog.allCategories') }}
         </view>
         <view class="all-sheet-close" @click="emit('close')">
           <wd-icon name="close" size="32rpx" color="#666" />
@@ -130,7 +135,7 @@ const activeAnchor = computed(() => `all-sheet-anchor-${props.activeIndex}`)
       </scroll-view>
 
       <view class="all-sheet-footer" @click="emit('close')">
-        点击收起
+        {{ t('catalog.tapToCollapse') }}
         <wd-icon name="arrow-up" size="26rpx" color="#666" />
       </view>
     </view>
@@ -168,7 +173,11 @@ const activeAnchor = computed(() => `all-sheet-anchor-${props.activeIndex}`)
   /* 高度自适应内容；上限由内联 maxHeight 封顶（底边最多 86.5% 屏高），分类多时宫格内滚动 */
   display: flex;
   flex-direction: column;
-  background: #fff;
+  /* 毛玻璃：半透明白打底，backdrop-filter 把遮罩下压暗的页面内容模糊透出 */
+  background: rgba(255, 255, 255, 0.78);
+  /* WEBKIT 大写写法避开 autoprefixer 的过时前缀清理（iOS 17- 的 WKWebView 只认带前缀的 backdrop-filter） */
+  -WEBKIT-backdrop-filter: blur(24px) saturate(160%);
+  backdrop-filter: blur(24px) saturate(160%);
   border-bottom-left-radius: 28rpx;
   border-bottom-right-radius: 28rpx;
   box-shadow: 0 16rpx 48rpx rgba(20, 29, 45, 0.14);
@@ -181,7 +190,7 @@ const activeAnchor = computed(() => `all-sheet-anchor-${props.activeIndex}`)
   position: relative;
   flex: none;
   padding: 28rpx 32rpx 20rpx;
-  border-bottom: 1rpx solid #f4f5f7;
+  border-bottom: 1rpx solid rgba(20, 29, 45, 0.08);
 }
 
 .all-sheet-title {
@@ -295,14 +304,15 @@ const activeAnchor = computed(() => `all-sheet-anchor-${props.activeIndex}`)
   align-items: center;
   justify-content: center;
   height: 96rpx;
-  border-top: 1rpx solid #f0f1f3;
-  background: #fff;
+  border-top: 1rpx solid rgba(20, 29, 45, 0.08);
+  /* 透出面板自身的毛玻璃底，不再垫白色实底 */
+  background: transparent;
   font-size: 28rpx;
   color: #687080;
   transition: background-color 160ms ease;
 
   &:active {
-    background: #f7f8fa;
+    background: rgba(20, 29, 45, 0.05);
   }
 }
 

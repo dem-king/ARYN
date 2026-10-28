@@ -19,6 +19,7 @@ import com.aryn.cloud.user.service.IPointsGlobalConfigService;
 import com.aryn.cloud.user.service.IPointsGrantService;
 import com.aryn.cloud.user.service.IPointsRecordService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -45,8 +46,10 @@ public class PointsRecordServiceImpl extends ServiceImpl<PointsRecordMapper, Poi
 
 	private final IPointsGlobalConfigService pointsGlobalConfigService;
 
-	// PointsGrantService 构造依赖本服务（账本写入），此处反向取汇率只能字段注入打破循环；
+	// PointsGrantService 构造依赖本服务（账本写入），此处反向取汇率：字段注入 + @Lazy 代理
+	// 才能真正打破启动期循环引用（Boot 3 默认禁止循环依赖，仅字段注入不够）；
 	// 极端情况下（独立装配无积分发放服务）按未配置汇率处理，金额列不折算
+	@Lazy
 	@Autowired(required = false)
 	private IPointsGrantService pointsGrantService;
 

@@ -19,6 +19,7 @@ import type {
 import { onLoad } from '@dcloudio/uni-app'
 
 import { computed, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { alovaInstance } from '@/api/core/instance'
 import {
   confirmSharedCartImport,
@@ -41,6 +42,7 @@ definePage({
 })
 
 const authStore = useAuthStore()
+const { t } = useI18n()
 
 const cartId = ref('')
 /** 1选文件 2报告 */
@@ -81,15 +83,15 @@ const notFilledCount = computed(
   () => report.value?.notFilledRows ?? rows.value.filter(row => row.resultType === 'NOT_FILLED').length,
 )
 
-const RESULT_LABEL: Record<string, string> = {
-  OK: '匹配成功',
-  UNMATCHED: '未匹配',
-  SPEC_CHANGED: '规格变更',
-  OVER_STOCK: '超库存',
-  INVALID_QTY: '数量异常',
-  OFF_SHELF: '已下架',
-  NOT_FILLED: '未填数量',
-}
+const RESULT_LABELS = computed<Record<string, string>>(() => ({
+  OK: t('sharedCart.result.matched'),
+  UNMATCHED: t('sharedCart.result.unmatched'),
+  SPEC_CHANGED: t('sharedCart.result.specChanged'),
+  OVER_STOCK: t('sharedCart.result.overStock'),
+  INVALID_QTY: t('sharedCart.result.invalidQty'),
+  OFF_SHELF: t('sharedCart.result.offShelf'),
+  NOT_FILLED: t('sharedCart.result.notFilled'),
+}))
 
 const RESULT_THEME: Record<string, string> = {
   OK: 'bg-emerald-50 text-emerald-600',
@@ -140,7 +142,7 @@ function handlePickFile() {
   // #endif
 
   // #ifdef APP-PLUS
-  uni.showToast({ title: 'App 端暂不支持导入，请使用小程序或网页版', icon: 'none' })
+  uni.showToast({ title: t('sharedCart.importPage.appUnsupported'), icon: 'none' })
   // #endif
 }
 
@@ -158,7 +160,7 @@ async function uploadAndParse(filePath: string, name: string) {
   }
   catch (error) {
     uni.showToast({
-      title: error instanceof Error ? error.message : '上传解析失败',
+      title: error instanceof Error ? error.message : t('sharedCart.importPage.uploadFailed'),
       icon: 'none',
     })
   }
@@ -170,25 +172,25 @@ async function uploadAndParse(filePath: string, name: string) {
 /** 规格变更：确认新规格 */
 function acceptSpec(row: SharedCartImportRow) {
   actions[row.rowNo] = { rowNo: row.rowNo, action: 'ACCEPT_SPEC' }
-  uni.showToast({ title: '已确认当前规格', icon: 'none' })
+  uni.showToast({ title: t('sharedCart.importPage.specAccepted'), icon: 'none' })
 }
 
 /** 超库存/数量异常：按服务端建议值调整 */
 function adjustQuantity(row: SharedCartImportRow) {
   const quantity = row.suggestedQuantity
   if (!quantity) {
-    uni.showToast({ title: '当前库存不足以起订，请人工补选', icon: 'none' })
+    uni.showToast({ title: t('sharedCart.importPage.stockInsufficient'), icon: 'none' })
     return
   }
   actions[row.rowNo] = { rowNo: row.rowNo, action: 'ADJUST_QTY', quantity }
-  uni.showToast({ title: `已调整为 ${quantity}`, icon: 'none' })
+  uni.showToast({ title: t('sharedCart.importPage.adjustedTo', { qty: quantity }), icon: 'none' })
 }
 
 /** 未匹配：人工补选，走既有商品搜索接口 */
 async function searchCandidates(row: SharedCartImportRow) {
   const keyword = (pickKeywords[row.rowNo] || '').trim()
   if (!keyword) {
-    uni.showToast({ title: '请输入品名或编码关键字', icon: 'none' })
+    uni.showToast({ title: t('sharedCart.importPage.keywordRequired'), icon: 'none' })
     return
   }
   picking[row.rowNo] = true
@@ -207,10 +209,10 @@ async function searchCandidates(row: SharedCartImportRow) {
       spuStatus: record.status,
     }))
     if (pickCandidates[row.rowNo].length === 0)
-      uni.showToast({ title: '没有搜到商品，换个关键字试试', icon: 'none' })
+      uni.showToast({ title: t('sharedCart.importPage.noSearchResult'), icon: 'none' })
   }
   catch {
-    uni.showToast({ title: '搜索失败，请重试', icon: 'none' })
+    uni.showToast({ title: t('sharedCart.importPage.searchFailed'), icon: 'none' })
   }
   finally {
     picking[row.rowNo] = false
@@ -223,7 +225,7 @@ function chooseCandidate(row: SharedCartImportRow, candidate: SharedCartImportCa
     return
   actions[row.rowNo] = { rowNo: row.rowNo, action: 'REPLACE_SKU', skuId: candidate.skuId }
   pickCandidates[row.rowNo] = []
-  uni.showToast({ title: '已选择商品', icon: 'none' })
+  uni.showToast({ title: t('sharedCart.importPage.productSelected'), icon: 'none' })
 }
 
 /** 跳过某行 */
@@ -238,13 +240,13 @@ function actionLabel(row: SharedCartImportRow) {
     return ''
   switch (action.action) {
     case 'ACCEPT_SPEC':
-      return '已确认规格'
+      return t('sharedCart.importPage.actionSpec')
     case 'ADJUST_QTY':
-      return `已调整为 ${action.quantity}`
+      return t('sharedCart.importPage.adjustedTo', { qty: action.quantity })
     case 'REPLACE_SKU':
-      return '已补选商品'
+      return t('sharedCart.importPage.actionReplaced')
     default:
-      return '已跳过'
+      return t('sharedCart.importPage.actionSkipped')
   }
 }
 
@@ -255,7 +257,9 @@ async function handleConfirm() {
   try {
     report.value = await confirmSharedCartImport(cartId.value, report.value.importId, Object.values(actions))
     uni.showToast({
-      title: report.value.importedRows ? `已并入 ${report.value.importedRows} 项` : '已处理',
+      title: report.value.importedRows
+        ? t('sharedCart.importPage.mergedCount', { count: report.value.importedRows })
+        : t('sharedCart.importPage.processed'),
       icon: 'none',
     })
     if (report.value.importedRows) {
@@ -278,7 +282,7 @@ async function handleConfirm() {
   }
   catch (error) {
     uni.showToast({
-      title: error instanceof Error ? error.message : '并入失败',
+      title: error instanceof Error ? error.message : t('sharedCart.importPage.mergeFailed'),
       icon: 'none',
     })
   }
@@ -299,26 +303,26 @@ async function downloadTemplate() {
   }
   catch (error) {
     uni.showToast({
-      title: error instanceof Error ? error.message : '模板下载失败',
+      title: error instanceof Error ? error.message : t('sharedCart.importPage.templateDownloadFailed'),
       icon: 'none',
     })
   }
 }
 
 async function reopenLatestImport() {
-  uni.showLoading({ title: '加载中' })
+  uni.showLoading({ title: t('common.loading') })
   try {
     const list = await listSharedCartImports(cartId.value)
     const latest = (list ?? []).find(item => item.status === '1')
     if (!latest) {
-      uni.showToast({ title: '没有待处理的导入', icon: 'none' })
+      uni.showToast({ title: t('sharedCart.importPage.noPendingImport'), icon: 'none' })
       return
     }
     report.value = await getSharedCartImport(cartId.value, latest.importId)
     step.value = 2
   }
   catch {
-    uni.showToast({ title: '加载失败，请重试', icon: 'none' })
+    uni.showToast({ title: t('sharedCart.importPage.loadFailed'), icon: 'none' })
   }
   finally {
     uni.hideLoading()
@@ -328,16 +332,16 @@ async function reopenLatestImport() {
 
 <template>
   <view class="min-h-100vh bg-gray-50 pb-40rpx">
-    <hrNavbar title="导入补给清单" />
+    <hrNavbar :title="t('sharedCart.importPage.navTitle')" />
 
     <!-- 步骤 1：选择文件 -->
     <template v-if="step === 1">
       <view class="mx-20rpx mt-20rpx rounded-20rpx bg-white p-32rpx">
         <view class="text-28rpx text-gray-800 font-bold">
-          导入补给清单
+          {{ t('sharedCart.importPage.title') }}
         </view>
         <view class="mt-8rpx text-22rpx text-gray-400">
-          支持 .xlsx / .xls，单文件最多 2000 行
+          {{ t('sharedCart.importPage.fileHint') }}
         </view>
 
         <view
@@ -345,37 +349,37 @@ async function reopenLatestImport() {
           @tap="handlePickFile"
         >
           <view class="text-28rpx text-blue-600 font-bold">
-            {{ parsing ? '正在解析…' : '点击选择 Excel 文件' }}
+            {{ parsing ? t('sharedCart.importPage.parsing') : t('sharedCart.importPage.pickFile') }}
           </view>
           <view class="mt-10rpx text-22rpx text-gray-400">
-            推荐下载标准模板：已按分类列好全部在售商品，只需填「数量」列
+            {{ t('sharedCart.importPage.templateHint') }}
           </view>
         </view>
 
         <view v-if="parsing" class="mt-20rpx text-center text-24rpx text-gray-500">
-          正在解析并匹配商品，请稍候…
+          {{ t('sharedCart.importPage.parsingHint') }}
         </view>
 
         <view class="mt-20rpx text-center text-22rpx text-blue-500" @tap="downloadTemplate">
-          下载标准模板 ›
+          {{ t('sharedCart.importPage.downloadTemplate') }}
         </view>
 
         <view class="mt-30rpx border-t border-gray-100 pt-20rpx text-22rpx text-gray-400">
-          <view>· 模板按分类列出全部在售商品，只需填「数量」列，其余行留空即可</view>
+          <view>· {{ t('sharedCart.importPage.ruleTemplate') }}</view>
           <view class="mt-6rpx">
-            · 商品编码优先匹配（IMPA / ISSA / 内部编码 / 条码 / 供应商编码）
+            · {{ t('sharedCart.importPage.ruleCode') }}
           </view>
           <view class="mt-6rpx">
-            · 未填编码时按品名 + 规格兜底，命中多个规格需人工确认
+            · {{ t('sharedCart.importPage.ruleName') }}
           </view>
           <view class="mt-6rpx">
-            · 数量需满足最小起订量与步长；超出库存会给出建议数量
+            · {{ t('sharedCart.importPage.ruleQty') }}
           </view>
         </view>
       </view>
 
       <view class="mx-20rpx mt-20rpx text-center text-24rpx text-blue-500" @tap="reopenLatestImport">
-        继续上次未完成的导入 ›
+        {{ t('sharedCart.importPage.continueLast') }}
       </view>
     </template>
 
@@ -384,10 +388,10 @@ async function reopenLatestImport() {
       <view class="mx-20rpx mt-20rpx rounded-20rpx bg-white p-24rpx">
         <view class="flex items-center justify-between">
           <view class="text-28rpx font-bold">
-            导入报告
+            {{ t('sharedCart.importPage.reportTitle') }}
           </view>
           <view class="text-22rpx text-gray-400">
-            共 {{ report?.totalRows || 0 }} 行
+            {{ t('sharedCart.importPage.totalRows', { count: report?.totalRows || 0 }) }}
           </view>
         </view>
         <view v-if="fileName" class="mt-6rpx text-22rpx text-gray-400">
@@ -400,7 +404,7 @@ async function reopenLatestImport() {
               {{ report?.matchedRows || 0 }}
             </view>
             <view class="mt-4rpx text-20rpx text-gray-400">
-              匹配成功
+              {{ t('sharedCart.result.matched') }}
             </view>
           </view>
           <view class="min-w-120rpx flex-1 rounded-12rpx bg-gray-50 px-10rpx py-14rpx text-center">
@@ -408,7 +412,7 @@ async function reopenLatestImport() {
               {{ report?.unmatchedRows || 0 }}
             </view>
             <view class="mt-4rpx text-20rpx text-gray-400">
-              未匹配
+              {{ t('sharedCart.result.unmatched') }}
             </view>
           </view>
           <view class="min-w-120rpx flex-1 rounded-12rpx bg-gray-50 px-10rpx py-14rpx text-center">
@@ -416,7 +420,7 @@ async function reopenLatestImport() {
               {{ report?.specChangedRows || 0 }}
             </view>
             <view class="mt-4rpx text-20rpx text-gray-400">
-              规格变更
+              {{ t('sharedCart.result.specChanged') }}
             </view>
           </view>
           <view class="min-w-120rpx flex-1 rounded-12rpx bg-gray-50 px-10rpx py-14rpx text-center">
@@ -424,7 +428,7 @@ async function reopenLatestImport() {
               {{ report?.overStockRows || 0 }}
             </view>
             <view class="mt-4rpx text-20rpx text-gray-400">
-              超库存
+              {{ t('sharedCart.result.overStock') }}
             </view>
           </view>
           <view class="min-w-120rpx flex-1 rounded-12rpx bg-gray-50 px-10rpx py-14rpx text-center">
@@ -432,7 +436,7 @@ async function reopenLatestImport() {
               {{ report?.invalidRows || 0 }}
             </view>
             <view class="mt-4rpx text-20rpx text-gray-400">
-              数量异常
+              {{ t('sharedCart.result.invalidQty') }}
             </view>
           </view>
           <view class="min-w-120rpx flex-1 rounded-12rpx bg-gray-50 px-10rpx py-14rpx text-center">
@@ -440,7 +444,7 @@ async function reopenLatestImport() {
               {{ report?.offShelfRows || 0 }}
             </view>
             <view class="mt-4rpx text-20rpx text-gray-400">
-              已下架
+              {{ t('sharedCart.result.offShelf') }}
             </view>
           </view>
           <!-- 未填数量独立一格且用灰字：模板铺满在售商品，这是正常状态而非错误 -->
@@ -449,14 +453,14 @@ async function reopenLatestImport() {
               {{ report?.notFilledRows || 0 }}
             </view>
             <view class="mt-4rpx text-20rpx text-gray-400">
-              未填数量
+              {{ t('sharedCart.result.notFilled') }}
             </view>
           </view>
         </view>
 
         <!-- 只填了少数行时给出明确解释，避免用户以为漏导了商品 -->
         <view v-if="report?.notFilledRows" class="mt-16rpx text-22rpx text-gray-400">
-          未填数量的 {{ report.notFilledRows }} 行视为本次不采购，不会并入补给单。
+          {{ t('sharedCart.importPage.notFilledHint', { count: report.notFilledRows }) }}
         </view>
       </view>
 
@@ -468,10 +472,10 @@ async function reopenLatestImport() {
       >
         <view class="flex items-center gap-12rpx">
           <text class="rounded-6rpx px-10rpx py-4rpx text-20rpx font-bold" :class="RESULT_THEME[row.resultType]">
-            {{ RESULT_LABEL[row.resultType] }}
+            {{ RESULT_LABELS[row.resultType] }}
           </text>
           <text class="flex-1 text-26rpx text-gray-800">
-            {{ row.rawName || row.rawCode || `第 ${row.rowNo} 行` }}
+            {{ row.rawName || row.rawCode || t('sharedCart.importPage.rowNo', { row: row.rowNo }) }}
           </text>
           <text class="text-22rpx text-gray-400">
             × {{ row.rawQuantity ?? '—' }}
@@ -481,7 +485,7 @@ async function reopenLatestImport() {
           {{ row.resultMessage }}
         </view>
         <view v-if="row.matchedName" class="mt-6rpx text-22rpx text-gray-400">
-          当前商品：{{ row.matchedName }}<text v-if="row.matchedSpec">
+          {{ t('sharedCart.importPage.currentProduct', { name: row.matchedName }) }}<text v-if="row.matchedSpec">
             · {{ row.matchedSpec }}
           </text>
         </view>
@@ -492,17 +496,17 @@ async function reopenLatestImport() {
             class="text-24rpx text-emerald-600"
             @tap="acceptSpec(row)"
           >
-            确认新规格
+            {{ t('sharedCart.importPage.confirmNewSpec') }}
           </text>
           <text
             v-if="row.resultType === 'OVER_STOCK' || row.resultType === 'INVALID_QTY'"
             class="text-24rpx text-amber-600"
             @tap="adjustQuantity(row)"
           >
-            调整为建议数量
+            {{ t('sharedCart.importPage.adjustToSuggested') }}
           </text>
           <text class="text-24rpx text-blue-500" @tap="skipRow(row)">
-            跳过
+            {{ t('sharedCart.importPage.skip') }}
           </text>
           <text v-if="actionLabel(row)" class="ml-auto text-22rpx text-gray-400">
             {{ actionLabel(row) }}
@@ -515,11 +519,11 @@ async function reopenLatestImport() {
             <input
               v-model="pickKeywords[row.rowNo]"
               class="flex-1 rounded-full bg-gray-100 px-20rpx py-12rpx text-24rpx"
-              placeholder="搜索品名 / 编码补选商品"
+              :placeholder="t('sharedCart.importPage.searchPlaceholder')"
               @confirm="searchCandidates(row)"
             >
             <text class="text-24rpx text-blue-500" @tap="searchCandidates(row)">
-              {{ picking[row.rowNo] ? '搜索中' : '搜索' }}
+              {{ picking[row.rowNo] ? t('sharedCart.importPage.searching') : t('sharedCart.importPage.search') }}
             </text>
           </view>
           <view
@@ -536,11 +540,11 @@ async function reopenLatestImport() {
                 <text v-if="candidate.spec">
                   {{ candidate.spec }} ·
                 </text>
-                库存 {{ candidate.stock ?? '—' }}
+                {{ t('sharedCart.importPage.stock', { count: candidate.stock ?? '—' }) }}
               </view>
             </view>
             <text class="text-24rpx text-blue-500">
-              选择
+              {{ t('sharedCart.importPage.choose') }}
             </text>
           </view>
         </view>
@@ -556,7 +560,7 @@ async function reopenLatestImport() {
         class="mx-20rpx mt-20rpx rounded-20rpx bg-white p-24rpx"
       >
         <view class="text-28rpx font-bold">
-          无需处置
+          {{ t('sharedCart.importPage.noActionNeeded') }}
         </view>
         <view
           v-for="row in passiveRows.filter(item => item.resultType !== 'NOT_FILLED')"
@@ -564,10 +568,10 @@ async function reopenLatestImport() {
           class="mt-16rpx flex items-center gap-12rpx border-b border-gray-100 pb-12rpx text-24rpx"
         >
           <text class="rounded-6rpx px-10rpx py-4rpx text-20rpx font-bold" :class="RESULT_THEME[row.resultType]">
-            {{ RESULT_LABEL[row.resultType] }}
+            {{ RESULT_LABELS[row.resultType] }}
           </text>
           <text class="flex-1 text-gray-700">
-            {{ row.matchedName || row.rawName || `第 ${row.rowNo} 行` }}
+            {{ row.matchedName || row.rawName || t('sharedCart.importPage.rowNo', { row: row.rowNo }) }}
           </text>
           <text class="text-22rpx text-gray-400">
             {{ row.resultType === 'OK' ? `× ${row.quantity ?? row.rawQuantity ?? '—'}` : '' }}
@@ -577,7 +581,7 @@ async function reopenLatestImport() {
 
       <view class="mx-20rpx my-30rpx flex gap-20rpx">
         <button class="h-80rpx flex-1 text-28rpx leading-80rpx !m-0" @tap="backToPick">
-          重新选择文件
+          {{ t('sharedCart.importPage.repick') }}
         </button>
         <button
           class="h-80rpx flex-1 text-28rpx leading-80rpx !m-0"
@@ -585,7 +589,9 @@ async function reopenLatestImport() {
           :disabled="confirming || report?.status !== '1'"
           @tap="handleConfirm"
         >
-          {{ report?.status === '2' ? '已并入补给单' : `确认并入（${report?.matchedRows || 0} 项）` }}
+          {{ report?.status === '2'
+            ? t('sharedCart.importPage.mergedToCart')
+            : t('sharedCart.importPage.confirmMerge', { count: report?.matchedRows || 0 }) }}
         </button>
       </view>
     </template>

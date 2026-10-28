@@ -45,6 +45,7 @@ import com.aryn.cloud.order.service.IOrderItemService;
 import com.aryn.cloud.order.service.ISharedCartService;
 import com.aryn.cloud.order.service.IShoppingCartService;
 import com.aryn.cloud.order.service.OrderStaffNotifyService;
+import com.aryn.cloud.order.support.OrderSkuReqNormalizer;
 import com.aryn.cloud.pay.api.constants.PayConstants;
 import com.aryn.cloud.pay.api.dto.CreateOrderReqDTO;
 import com.aryn.cloud.pay.api.enums.PayTradeTypeEnum;
@@ -716,14 +717,15 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		if (Objects.isNull(userInfo)) {
 			throw new ArynBusinessException(MallErrorCodeEnum.ERROR_50001.getMsg());
 		}
+		// 购物车按靠港分组会产生同 SKU 多行、共享车按成员拆行也是同 SKU 多行：
+		// 先归一化（无归属的重复行合并数量、带贡献者的拆行整组保留，见 OrderSkuReqNormalizer），
+		// 再按去重后的 skuId 查价/校验；不能再用「重复 SKU 直接拒绝」的硬校验，否则确认页无法结算
+		createOrderDTO.setSkuReqList(OrderSkuReqNormalizer.normalize(createOrderDTO.getSkuReqList()));
 		List<String> skuIds = createOrderDTO.getSkuReqList()
 			.stream()
 			.map(CreateOrderSkuReqDTO::getSkuId)
 			.distinct()
 			.toList();
-		if (skuIds.size() != createOrderDTO.getSkuReqList().size()) {
-			throw new ArynBusinessException("订单商品不能包含重复SKU");
-		}
 		// 查询购买商品
 		List<GoodsSku> goodsSkuList = remoteGoodsSkuService.getBySkuIds(skuIds);
 		if (CollectionUtils.isEmpty(goodsSkuList) || goodsSkuList.size() != skuIds.size()) {
@@ -740,20 +742,22 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		// 拼团价优先级最高，须在会员折扣与优惠券之前落到成交基价
 		GroupBuyOrderContextVO groupBuyContext = resolveGroupBuyContext(createOrderDTO.getGroupBuyRecordId(),
 				createOrderDTO.getUserId(), orderItemEntityList);
-		// 活动价预取：整船优惠需排除已享拼团/秒杀/限时折扣的 SKU，券/积分叠加策略也取自该计划
+		// 活动价预取：整船优惠需排除已享拼团/秒杀/限时折扣（含引擎落价的会员价/新人价）的 SKU，
+		// 券/积分叠加策略也取自该计划
 		OrderPriceComputeService.PromotionPricePlan promotionPricePlan = orderPriceComputeService
 			.resolvePromotionPricePlan(orderItemEntityList, groupBuyContext);
-		// 营销阶梯价改基价（会员/券之前）
+		// 营销试算改基价（阶梯价/会员价/新人价，会员/券之前）
 		PromotionCalculationVO promoCalculation = orderPriceComputeService.applyPromotionLadder(orderInfo,
 				orderItemEntityList, promotionPricePlan);
-		// 新人价命中（含叠加策略）补入计划：新人价由引擎落价，预取阶段未知
+		// 会员价/新人价命中（含叠加策略）补入计划：两类活动价由引擎落价，预取阶段未知
 		orderPriceComputeService.mergeStackPolicyHits(promotionPricePlan, promoCalculation);
-		// 新人价限购硬校验：命中新人价的 SKU 整单合计数量必须为 1，超量拒绝下单
+		// 新人价限购硬校验：命中新人价的 SKU 整单合计数量必须为 1，超量拒绝下单（会员价无限购）
 		orderPriceComputeService.assertNewbieQuantityLimit(promoCalculation, orderItemEntityList);
-		// 促销价（拼团 > 秒杀 > 新人价 > 限时折扣 > 原价）须在会员折扣与优惠券之前落到成交基价，
-		// 否则券与会员折扣按原价基数抵扣；历史实现藏在运费分支内，自提/内配恒不生效
+		// 促销价（拼团 > 秒杀 > 会员价 > 新人价 > 限时折扣 > 原价）须在会员折扣与优惠券之前落到成交基价，
+		// 否则券与会员折扣按原价基数抵扣；历史实现藏在运费分支内，自提/内配恒不生效。
+		// 会员价/新人价已由引擎写成基价，enginePricedSkuIds 保证限时折扣不再覆盖
 		orderPriceComputeService.applyPromotionPricePlan(orderItemEntityList,
-				orderPriceComputeService.newbiePriceSkuIds(promoCalculation), promotionPricePlan);
+				orderPriceComputeService.enginePricedSkuIds(promoCalculation), promotionPricePlan);
 
 		orderPriceComputeService.computeOrderPrice(orderInfo, orderItemEntityList);
 		MemberBenefitsVO memberBenefits = remoteMallUserService.getMemberBenefits(createOrderDTO.getUserId());
@@ -1150,14 +1154,14 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		if (Objects.isNull(userInfo)) {
 			throw new ArynBusinessException(MallErrorCodeEnum.ERROR_50001.getMsg());
 		}
+		// 与下单同口径：购物车多行按 SKU 合并数量、共享车按成员拆行保留（见 OrderSkuReqNormalizer），
+		// 否则结算请求里的合法重复行会被误判为错误，确认页直接空白
+		settlementOrderDTO.setSkuReqList(OrderSkuReqNormalizer.normalize(settlementOrderDTO.getSkuReqList()));
 		List<String> skuIds = settlementOrderDTO.getSkuReqList()
 			.stream()
 			.map(CreateOrderSkuReqDTO::getSkuId)
 			.distinct()
 			.toList();
-		if (skuIds.size() != settlementOrderDTO.getSkuReqList().size()) {
-			throw new ArynBusinessException("订单商品不能包含重复SKU");
-		}
 		// 查询购买商品
 		List<GoodsSku> goodsSkuList = remoteGoodsSkuService.getBySkuIds(skuIds);
 		if (CollectionUtils.isEmpty(goodsSkuList) || goodsSkuList.size() != skuIds.size()) {
@@ -1182,18 +1186,20 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		// 拼团价预取（拼团单）：与下单同口径，保证确认页展示金额与提交后一致
 		GroupBuyOrderContextVO groupBuyContext = resolveGroupBuyContext(settlementOrderDTO.getGroupBuyRecordId(),
 				settlementOrderDTO.getUserId(), orderItemEntityList);
-		// 活动价预取：与下单同口径，整船优惠排除已享拼团/秒杀/限时折扣的 SKU，叠加策略取自该计划
+		// 活动价预取：与下单同口径，整船优惠排除已享拼团/秒杀/限时折扣（含引擎落价的会员价/新人价）的 SKU，
+		// 叠加策略取自该计划
 		OrderPriceComputeService.PromotionPricePlan promotionPricePlan = orderPriceComputeService
 			.resolvePromotionPricePlan(orderItemEntityList, groupBuyContext);
-		// 营销阶梯价改基价（会员/券之前）
+		// 营销试算改基价（阶梯价/会员价/新人价，会员/券之前）
 		PromotionCalculationVO promoCalculation = orderPriceComputeService.applyPromotionLadder(orderInfo,
 				orderItemEntityList, promotionPricePlan);
-		// 新人价命中（含叠加策略）补入计划：新人价由引擎落价，预取阶段未知
+		// 会员价/新人价命中（含叠加策略）补入计划：两类活动价由引擎落价，预取阶段未知
 		orderPriceComputeService.mergeStackPolicyHits(promotionPricePlan, promoCalculation);
-		// 促销价（拼团 > 秒杀 > 新人价 > 限时折扣 > 原价）与下单口径一致，须在会员折扣与优惠券之前应用，
-		// 否则确认页展示金额与提交后的实际应付不一致；限购拦截只在提交订单时做，结算页不提前拦
+		// 促销价（拼团 > 秒杀 > 会员价 > 新人价 > 限时折扣 > 原价）与下单口径一致，须在会员折扣与优惠券之前应用，
+		// 否则确认页展示金额与提交后的实际应付不一致；限购拦截只在提交订单时做，结算页不提前拦。
+		// 会员价/新人价已由引擎写成基价，enginePricedSkuIds 保证限时折扣不再覆盖
 		orderPriceComputeService.applyPromotionPricePlan(orderItemEntityList,
-				orderPriceComputeService.newbiePriceSkuIds(promoCalculation), promotionPricePlan);
+				orderPriceComputeService.enginePricedSkuIds(promoCalculation), promotionPricePlan);
 
 		orderPriceComputeService.computeOrderPrice(orderInfo, orderItemEntityList);
 		MemberBenefitsVO memberBenefits = remoteMallUserService.getMemberBenefits(settlementOrderDTO.getUserId());

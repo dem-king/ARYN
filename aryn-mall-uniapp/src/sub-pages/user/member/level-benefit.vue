@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
+import { useI18n } from 'vue-i18n'
 import { getMemberLevelList, getLevelBenefits } from '@/sub-pages/api/user/benefit'
 
 definePage({
@@ -26,10 +27,10 @@ interface MemberLevel {
   conditionType: string
   conditionValue: number
   sortOrder: number
-  upgradeCondition: string
   benefits: MemberBenefit[]
 }
 
+const { t } = useI18n()
 const globalLoading = useGlobalLoading()
 const userStore = useUserStore()
 const levelList = ref<MemberLevel[]>([])
@@ -40,14 +41,11 @@ onLoad(() => {
 })
 
 async function loadLevelList() {
-  globalLoading.loading('加载中...')
+  globalLoading.loading(t('common.loading'))
   try {
     const response = await getMemberLevelList()
     levelList.value = (response || []).map((level: any) => ({
       ...level,
-      upgradeCondition: level.conditionType === '1'
-        ? `累计消费 ¥${level.conditionValue}`
-        : `累计积分 ${level.conditionValue}`,
       benefits: [],
     }))
     const currentLevel = levelList.value.find(level => level.id === userStore.getLevelId)
@@ -87,14 +85,23 @@ async function loadLevelBenefits(level: MemberLevel) {
   }
 }
 
+const benefitTypeKeyMap: Record<string, string> = {
+  1: 'typeDiscount',
+  2: 'typeFreeShipping',
+  3: 'typeExclusiveCoupon',
+  4: 'typePointsMultiplier',
+}
+
 function getBenefitTypeTag(type: string): string {
-  const typeMap: Record<string, string> = {
-    1: '折扣',
-    2: '免邮',
-    3: '专属券',
-    4: '积分倍率',
-  }
-  return typeMap[type] || type
+  const key = benefitTypeKeyMap[type]
+  return key ? t(`accountMember.levelBenefit.${key}`) : type
+}
+
+/** 升级门槛由等级条件换算，随语言切换实时刷新 */
+function formatUpgradeCondition(level: MemberLevel): string {
+  return level.conditionType === '1'
+    ? t('accountMember.levelBenefit.spendCondition', { amount: level.conditionValue })
+    : t('accountMember.levelBenefit.pointsCondition', { points: level.conditionValue })
 }
 
 function getBenefitTypeClass(type: string): string {
@@ -108,20 +115,25 @@ function getBenefitTypeClass(type: string): string {
 }
 
 function formatBenefitValue(benefit: MemberBenefit): string {
-  if (benefit.benefitType === '1')
-    return `${Number(benefit.benefitValue) * 10}折`
+  if (benefit.benefitType === '1') {
+    const rate = Number(benefit.benefitValue)
+    return t('accountMember.levelBenefit.valueDiscount', {
+      rate: rate * 10,
+      percent: Number(((1 - rate) * 100).toFixed(1)),
+    })
+  }
   if (benefit.benefitType === '2')
-    return '免邮'
+    return t('accountMember.levelBenefit.valueFreeShipping')
   if (benefit.benefitType === '3')
-    return '专享'
+    return t('accountMember.levelBenefit.valueExclusive')
   if (benefit.benefitType === '4')
-    return `${benefit.benefitValue}倍`
+    return t('accountMember.levelBenefit.valueMultiplier', { value: benefit.benefitValue })
   return ''
 }
 </script>
 
 <template>
-  <hr-navbar title="等级权益" />
+  <hr-navbar :title="t('accountMember.levelBenefit.title')" />
   <view class="m-2">
     <view v-for="level in levelList" :key="level.id" class="level-card">
       <!-- 等级头部 -->
@@ -140,17 +152,17 @@ function formatBenefitValue(benefit: MemberBenefit): string {
             <view class="flex items-center">
               <text class="text-15px font-bold">{{ level.levelName }}</text>
               <text v-if="level.id === userStore.getLevelId" class="current-level-tag">
-                当前等级
+                {{ t('accountMember.levelBenefit.currentLevel') }}
               </text>
             </view>
-            <view v-if="level.upgradeCondition" class="text-12px text-gray-400 mt-1">
-              升级条件：{{ level.upgradeCondition }}
+            <view v-if="level.conditionType" class="text-12px text-gray-400 mt-1">
+              {{ t('accountMember.levelBenefit.upgradeCondition', { condition: formatUpgradeCondition(level) }) }}
             </view>
           </view>
         </view>
         <view class="flex items-center">
           <text class="text-12px color-primary mr-1">
-            {{ expandedLevelId === level.id ? '收起' : '查看权益' }}
+            {{ expandedLevelId === level.id ? t('accountMember.levelBenefit.collapse') : t('accountMember.levelBenefit.viewBenefits') }}
           </text>
           <text
             class="i-carbon:chevron-down text-sm color-primary transition-transform"
@@ -162,7 +174,7 @@ function formatBenefitValue(benefit: MemberBenefit): string {
       <!-- 权益列表 -->
       <view v-if="expandedLevelId === level.id" class="benefit-list">
         <view v-if="level.benefits.length === 0" class="text-center text-gray-400 py-4">
-          暂无权益
+          {{ t('accountMember.levelBenefit.noBenefits') }}
         </view>
         <view
           v-for="benefit in level.benefits"
@@ -188,7 +200,7 @@ function formatBenefitValue(benefit: MemberBenefit): string {
     </view>
 
     <view v-if="levelList.length === 0" class="text-center text-gray-400 py-10">
-      暂无等级信息
+      {{ t('accountMember.levelBenefit.noLevels') }}
     </view>
   </view>
 </template>

@@ -2,7 +2,12 @@ import { onPageScroll, onReachBottom } from '@dcloudio/uni-app'
 import { onUnmounted } from 'vue'
 
 /**
- * 装修页（整页 DIY）无限滚动的页面侧接线。
+ * 页面滚动检查广播的页面侧接线。
+ *
+ * 适用于所有「宿主页滚动、分页商品流在页内」的场景，目前两类调用方：
+ *   1. 装修页（整页 DIY）——`pages/home`、`sub-pages/promotion/diy-page`；
+ *   2. 推荐商品流宿主页——购物车「为你推荐」、商详/个人中心「猜你喜欢」、
+ *      订单详情/支付结果推荐位（组件 `waterfall-goods`）。
  *
  * 页面只负责广播「有滚动活动」：onPageScroll 里限频广播，滚动停止后再兜底
  * 广播一次——快速滑动时最后一帧可能落在限频窗口内，用户停在底部附近却没有任何

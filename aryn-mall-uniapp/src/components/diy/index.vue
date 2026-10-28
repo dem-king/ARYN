@@ -38,8 +38,9 @@ import DiyVideoLive from './diy-video-live/index.vue'
 import { evaluateCondition } from './schema/condition'
 import { resolveEffectivePageTheme } from './schema/effective-theme'
 import { migratePageContent } from './schema/migrate'
+import { resolveNavigationScrollSurface } from './schema/navigation-scroll'
 import { resolveNavigationAppearance } from './schema/navigation-style'
-import { buildSectionGradient } from './schema/section-gradient'
+import { buildSectionGradient, getSectionGradientAnchorColor } from './schema/section-gradient'
 import UnknownComponent from './unknown-component.vue'
 
 const props = defineProps<{
@@ -104,12 +105,85 @@ const navigationAppearance = computed(() =>
     document.value.sections,
   ),
 )
+// 滚动渐显（沉浸式导航）的静态配置：目标底色外观只随页面配置 / 主题变化。
+// 这里**只算静态部分、不读滚动值**：滚动进度由 hr-navbar 自己 inject 的
+// scrollTop 计算，DiyPage 不消费滚动状态，滚动时全部装修楼层都不重渲染。
+const navigationScrollEffect = computed(
+  () => document.value.page.navigation.scrollEffect,
+)
+const navigationScrollSurface = computed(() =>
+  resolveNavigationScrollSurface(
+    document.value.page,
+    effectiveTheme.value,
+    navigationAppearance.value,
+  ),
+)
 const stickyTop = computed(() => {
   if (props.embedded || !document.value.page.navigation.visible)
     return 0
-  const { statusBarHeight = 0 } = uni.getSystemInfoSync()
+  const { statusBarHeight = 0 } = uni.getWindowInfo()
   return statusBarHeight + 44
 })
+
+/** 搜索框行高（px）：与 diy-search-bar 的固定 CSS 同口径（行内上下 padding 6px*2 + 输入条 36px） */
+const SEARCH_BAR_ROW_HEIGHT = 48
+
+function normalizeDiyLength(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+/**
+ * 常驻搜索框：整页 DIY + 首个渲染区块的第一个组件是 search-bar + 组件配置 sticky=true。
+ *
+ * 只认这个位置：搜索框必须位于页面内容的最顶端，才能用「导航栏高度 + 首区块上边距 /
+ * 上内边距 + 搜索框自身外边距」静态算出常驻层的顶边（不做异步测距）。其余位置
+ * （区块中段 / 非首个区块 / 内嵌装修块）一律回退为原来的随页滚动行为，现有页面零变化。
+ */
+const stickySearch = computed(() => {
+  if (props.embedded)
+    return null
+  const first = sections.value[0]
+  if (!first || first.style.horizontalScroll)
+    return null
+  const component = first.components[0]
+  if (!component || component.type !== 'search-bar')
+    return null
+  const showData = component.props as Record<string, unknown> | undefined
+  if (!showData || showData.sticky !== true)
+    return null
+  const common = (showData.commonStyle ?? {}) as Record<string, unknown>
+  const paddingTop = normalizeDiyLength(common.styleTopPadding)
+  const paddingBottom = normalizeDiyLength(common.styleBottomPadding)
+  return {
+    id: component.id,
+    props: showData,
+    /** 常驻层顶边（视口坐标）：导航栏占位高 + 首区块上外边距 + 上内边距 */
+    top: stickyTop.value + first.style.marginY + first.style.paddingY,
+    /** 常驻层左右避让：首区块左右外边距 + 左右内边距 */
+    insetX: first.style.marginX + first.style.paddingX,
+    hostBackground: sectionAmbientColor(first),
+    /**
+     * 常驻层占用的纵向高度（相对导航栏下沿）：首区块上边距/上内边距 + 搜索框上外边距
+     * + 上内边距 + 行高 + 下内边距。吸顶 Tab 栏 / 吸顶区块按它下移，不会被搜索框盖住。
+     */
+    occupiedHeight: first.style.marginY
+      + first.style.paddingY
+      + normalizeDiyLength(common.styleTopMargin)
+      + paddingTop
+      + SEARCH_BAR_ROW_HEIGHT
+      + paddingBottom,
+  }
+})
+
+const stickySearchId = computed(() => stickySearch.value?.id ?? '')
+
+/**
+ * 吸顶基准线：有固定导航栏时让出导航栏；常驻搜索框出现后再让出一条搜索栏高度，
+ * 吸顶 Tab 栏与吸顶区块都停在搜索框下沿。
+ */
+const stickyOffsetTop = computed(
+  () => stickyTop.value + (stickySearch.value?.occupiedHeight ?? 0),
+)
 // 主题色浅色面：主色追加 9% 透明（hex 8 位），服务承诺圆底等 tint 消费。
 // CSS 无法从 var() 派生透明度（小程序不支持 color-mix），只能两端同口径预计算；
 // 非 6 位 hex 不下发，组件侧走自己的 rgba 兜底。管理端画布在
@@ -119,14 +193,65 @@ function primarySoft(primaryColor: string | undefined): string | undefined {
     ? `${primaryColor}17`
     : undefined
 }
+
+/**
+ * 沉浸式导航是否生效：整页 DIY + 导航可见 + 页面开了滚动渐显。
+ *
+ * 只用于「把导航的目标底色材质同步给吸顶 Tab 栏」这类同层 UI，
+ * 不参与滚动进度计算（进度仍由 hr-navbar 自己 inject）。
+ */
+const immersiveNavEnabled = computed(
+  () =>
+    !props.embedded
+    && document.value.page.navigation.visible
+    && document.value.page.navigation.scrollEffect?.mode === 'fade',
+)
+
+/**
+ * 目标底色 + 目标态 alpha → CSS rgba()。
+ *
+ * 吸顶 Tab 栏与 hr-navbar 共用同一材质：导航的磨砂面是 rgba(.86) + blur，
+ * 这里必须拼出同口径颜色，否则两块半透明层叠在一起会一深一浅。
+ */
+function toSurfaceCssColor(color: string, alpha: number): string {
+  const value = color.trim()
+  const hex = /^#([\da-f]{3}|[\da-f]{6})$/i.exec(value)
+  if (hex) {
+    const raw = hex[1] ?? ''
+    const base = raw.length === 3
+      ? raw.split('').map(char => char + char).join('')
+      : raw
+    const channels = [0, 2, 4].map(index => Number.parseInt(base.slice(index, index + 2), 16))
+    return `rgba(${channels[0]}, ${channels[1]}, ${channels[2]}, ${alpha})`
+  }
+  const rgb = /^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i.exec(value)
+  if (!rgb)
+    return `rgba(255, 255, 255, ${alpha})`
+  return `rgba(${rgb[1]}, ${rgb[2]}, ${rgb[3]}, ${alpha})`
+}
+
 const pageStyle = computed(() => ({
   'backgroundColor': effectiveTheme.value.backgroundColor,
   'backgroundImage': document.value.page.backgroundImage
     ? `url(${document.value.page.backgroundImage})`
     : undefined,
   // Tab 商品流的吸顶偏移：整页装修有固定导航栏，sticky 需要让出状态栏 + 导航高度；
-  // 内嵌页/隐藏导航栏时为 0
-  '--diy-sticky-top': `${stickyTop.value}px`,
+  // 首区块搜索框开了「滚动常驻」时还要让出常驻搜索栏那一条；内嵌页/隐藏导航栏时为 0
+  '--diy-sticky-top': `${stickyOffsetTop.value}px`,
+  // 沉浸式导航的目标底色材质（磨砂白 / 主题色 / 自定义色）：吸顶 Tab 栏与
+  // 顶栏共用，避免「顶栏磨砂白、Tab 栏纯白」出现一条材质分界。
+  ...(immersiveNavEnabled.value
+    ? {
+        '--diy-nav-surface-bg': toSurfaceCssColor(
+          navigationScrollSurface.value.color,
+          navigationScrollSurface.value.alpha,
+        ),
+        '--diy-nav-surface-blur': navigationScrollSurface.value.blur
+          ? 'blur(18px) saturate(160%)'
+          : 'none',
+        '--diy-nav-hairline': 'rgba(15, 23, 42, 0.08)',
+      }
+    : {}),
   // 有效主色 = 页面固化主题 > 商城默认主题，与 ConfigProvider 下发的
   // --wot-color-theme-primary 同源，保证浅色面跟随实际生效的主题色
   '--wot-color-theme-primary-soft': primarySoft(
@@ -150,6 +275,22 @@ function sectionVisible(section: DecorationSection) {
     memberLevelId: userStore.getLevelId,
     userTags: userStore.getUserTags,
   })
+}
+
+/**
+ * 区块内组件脚下的「环境底色」：搜索栏铃铛/扫码这类直接坐在区块背景上的
+ * 图标需要按底色自动取可读色。渐变取顶边起色（与导航栏「跟随首个区块」
+ * 同口径）、纯色取背景色；都没有时回落页面有效背景色。
+ */
+function sectionAmbientColor(section: DecorationSection): string {
+  const gradient = section.style.backgroundImage
+    ? undefined
+    : section.style.backgroundGradient
+  const anchor
+    = getSectionGradientAnchorColor(gradient) || section.style.backgroundColor
+  if (anchor && anchor !== 'transparent')
+    return anchor
+  return effectiveTheme.value.backgroundColor || '#ffffff'
 }
 
 function sectionStyle(section: DecorationSection) {
@@ -197,8 +338,9 @@ function sectionStyle(section: DecorationSection) {
     style.position = 'sticky'
     // 让出固定导航栏：整页 DIY 的 wd-navbar 是 fixed 覆盖层（状态栏 + 44px），
     // top:0 会把区块吸到导航栏底下、顶部内容（如品牌区搜索栏）被永久遮住；
-    // 内嵌页/隐藏导航栏时 stickyTop 为 0，行为与之前一致。
-    style.top = `${stickyTop.value}px`
+    // 首区块搜索框开了「滚动常驻」时，还要再让出常驻搜索栏那一条；
+    // 内嵌页/隐藏导航栏时为 0，行为与之前一致。
+    style.top = `${stickyOffsetTop.value}px`
     style.zIndex = '10'
   }
   return style
@@ -211,9 +353,28 @@ function sectionStyle(section: DecorationSection) {
       v-if="!embedded && document.page.navigation.visible"
       :title="title"
       :left-arrow="false"
+      :bordered="false"
       :background-color="navigationAppearance.backgroundColor"
       :background-image="navigationAppearance.backgroundImage"
       :text-color="navigationAppearance.textColor"
+      :scroll-effect="navigationScrollEffect"
+      :scroll-surface="navigationScrollSurface"
+      :hairline="!stickySearch"
+    />
+    <!--
+      常驻搜索栏：首区块第一个搜索框开启「滚动常驻」后，由页面级渲染一份固定层
+      （滚动进度只在该组件内部消费），区块里那份退化为只占高度的占位实例。
+    -->
+    <DiySearchBar
+      v-if="stickySearch"
+      pinned
+      :show-data="stickySearch.props"
+      :host-background="stickySearch.hostBackground"
+      :pinned-top="stickySearch.top"
+      :pinned-inset-x="stickySearch.insetX"
+      :nav-appearance="navigationAppearance"
+      :scroll-effect="navigationScrollEffect"
+      :scroll-surface="navigationScrollSurface"
     />
     <view class="diy-components">
       <view
@@ -258,6 +419,8 @@ function sectionStyle(section: DecorationSection) {
           <DiySearchBar
             v-else-if="item.type === 'search-bar'"
             :show-data="item.props"
+            :host-background="sectionAmbientColor(section)"
+            :sticky-placeholder="stickySearchId === item.id"
           />
           <DiySwiperBanner
             v-else-if="item.type === 'swiper-banner'"
@@ -318,6 +481,7 @@ function sectionStyle(section: DecorationSection) {
           <DiyGoodsTabs
             v-else-if="item.type === 'goods-tabs'"
             :show-data="item.props"
+            :immersive-nav="immersiveNavEnabled"
           />
           <DiyMemberBenefits
             v-else-if="item.type === 'member-benefits'"

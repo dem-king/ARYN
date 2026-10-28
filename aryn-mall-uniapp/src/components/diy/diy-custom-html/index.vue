@@ -2,6 +2,7 @@
 // @ts-expect-error: mp-html type declaration issue
 import mpHtml from 'mp-html/dist/uni-app/components/mp-html/mp-html'
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import { useDiyStyle } from '@/composables/useDiyStyle'
 
@@ -10,6 +11,8 @@ import { sanitizeCustomHtmlHtml } from './sanitize-html'
 const props = defineProps<{
   showData: Record<string, unknown>
 }>()
+
+const { t } = useI18n()
 
 const rawHtml = computed(() =>
   typeof props.showData.html === 'string' ? props.showData.html : '',
@@ -37,7 +40,7 @@ const dynamicStyles = useDiyStyle(computed(() => props.showData.commonStyle))
     <view v-if="hasContent" class="custom-html-container" :style="containerStyle">
       <mp-html :content="safeHtml" />
     </view>
-    <view v-else class="custom-html-placeholder">暂无内容</view>
+    <view v-else class="custom-html-placeholder">{{ t('diy.customHtml.empty') }}</view>
   </view>
 </template>
 

@@ -48,9 +48,9 @@ describe('order receipt contracts', () => {
     const titleSwitch = detail.match(/const navbarTitle[\s\S]*?\n\}\)/)?.[0] ?? ''
     expect(titleSwitch).not.toBe('')
     // 后端 OrderStatusEnum: 5=退款中, 11=已取消；历史上 5 被错标为「订单已取消」
-    expect(titleSwitch).toMatch(/case '5':\s*return '退款中'/)
-    expect(titleSwitch).toMatch(/case '11':\s*return '订单已取消'/)
-    expect(titleSwitch).not.toMatch(/case '5':\s*return '订单已取消'/)
+    expect(titleSwitch).toMatch(/case '5':\s*return t\('order\.detail\.title\.refunding'\)/)
+    expect(titleSwitch).toMatch(/case '11':\s*return t\('order\.detail\.title\.cancelled'\)/)
+    expect(titleSwitch).not.toMatch(/case '5':\s*return t\('order\.detail\.title\.cancelled'\)/)
   })
 
   it('gates confirm-receipt on delivered for task-driven delivery ways', () => {

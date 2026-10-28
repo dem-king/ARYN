@@ -41,4 +41,9 @@ public interface RemoteGoodsSpuService {
 	 */
 	Long countVisitors(LocalDateTime startTime, LocalDateTime endTime);
 
+	/**
+	 * 统计当前租户商品总数（租户由调用上下文决定）。
+	 */
+	Long countGoods();
+
 }

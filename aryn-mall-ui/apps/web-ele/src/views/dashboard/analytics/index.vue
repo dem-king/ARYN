@@ -425,7 +425,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="p-4">
+  <div class="absolute inset-0 overflow-y-auto">
     <DashboardHeader
       v-model:range-key="rangeKey"
       v-model:custom-start="customStart"
@@ -439,53 +439,56 @@ onMounted(() => {
       @export="handleExport"
     />
 
-    <ElAlert
-      v-if="loadError"
-      :title="loadError"
-      type="warning"
-      show-icon
-      :closable="false"
-      class="mb-4"
-    />
-
-    <DashboardSkeleton v-if="loading && !hasLoaded" />
-
-    <template v-else>
-      <DashboardInsights v-if="hasLoaded" :insights="insights" />
-
-      <AnalyticsCards
-        :data="cardsData"
-        :delta-label="deltaLabel"
-        :previous="previousCardsData"
-        :loading="loading"
+    <!-- 页面留白收在这层，滚动根不留 padding，时间范围条才能完全贴顶吸住 -->
+    <div class="px-4 pb-4">
+      <ElAlert
+        v-if="loadError"
+        :title="loadError"
+        type="warning"
+        show-icon
+        :closable="false"
+        class="mb-4"
       />
 
-      <DashboardTarget />
+      <DashboardSkeleton v-if="loading && !hasLoaded" />
 
-      <AnalyticsTrends :data="trendsData" :loading="loading" />
+      <template v-else>
+        <DashboardInsights v-if="hasLoaded" :insights="insights" />
 
-      <AnalyticsFunnel :data="funnelData" :loading="loading" />
-
-      <TrafficFunnel :data="trafficFunnelData" :loading="loading" />
-
-      <ChannelContribution
-        :end-time="currentRange.endTime"
-        :start-time="currentRange.startTime"
-      />
-
-      <div class="mb-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-        <AnalyticsOrderStatus :data="orderStatusData" :loading="loading" />
-        <AnalyticsService :data="riskData" :loading="loading" />
-
-        <AnalyticsProductRanking
-          :rankings="productRankingData"
+        <AnalyticsCards
+          :data="cardsData"
+          :delta-label="deltaLabel"
+          :previous="previousCardsData"
           :loading="loading"
         />
-        <div class="flex flex-col gap-4">
-          <AnalyticsUser :data="userData" :loading="loading" />
-          <AnalyticsTraffic :data="trafficData" :loading="loading" />
+
+        <DashboardTarget />
+
+        <AnalyticsTrends :data="trendsData" :loading="loading" />
+
+        <AnalyticsFunnel :data="funnelData" :loading="loading" />
+
+        <TrafficFunnel :data="trafficFunnelData" :loading="loading" />
+
+        <ChannelContribution
+          :end-time="currentRange.endTime"
+          :start-time="currentRange.startTime"
+        />
+
+        <div class="mb-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+          <AnalyticsOrderStatus :data="orderStatusData" :loading="loading" />
+          <AnalyticsService :data="riskData" :loading="loading" />
+
+          <AnalyticsProductRanking
+            :rankings="productRankingData"
+            :loading="loading"
+          />
+          <div class="flex flex-col gap-4">
+            <AnalyticsUser :data="userData" :loading="loading" />
+            <AnalyticsTraffic :data="trafficData" :loading="loading" />
+          </div>
         </div>
-      </div>
-    </template>
+      </template>
+    </div>
   </div>
 </template>

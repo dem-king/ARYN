@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { getOrderDeliveryProgress } from '@/api/delivery'
 import type { DeliveryProgress } from '@/api/delivery'
 
@@ -9,6 +10,7 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+const { t } = useI18n()
 
 const loading = ref(true)
 const progress = ref<DeliveryProgress | null>(null)
@@ -16,12 +18,12 @@ const progress = ref<DeliveryProgress | null>(null)
 /** 拨打配送员电话 */
 function handleCallStaff(phone?: string) {
   if (!phone) {
-    return uni.showToast({ title: '暂无电话号码', icon: 'none' })
+    return uni.showToast({ title: t('shared.deliveryProgress.noPhone'), icon: 'none' })
   }
   uni.makePhoneCall({
     phoneNumber: phone,
     fail: () => {
-      uni.showToast({ title: '拨打电话失败', icon: 'none' })
+      uni.showToast({ title: t('shared.deliveryProgress.callFailed'), icon: 'none' })
     },
   })
 }
@@ -60,7 +62,7 @@ watch(() => props.orderId, () => {
 <template>
   <view class="delivery-progress">
     <view v-if="loading" class="py-40rpx text-center text-26rpx text-gray-400">
-      加载中...
+      {{ t('common.loading') }}
     </view>
 
     <template v-else-if="progress">
@@ -78,7 +80,7 @@ watch(() => props.orderId, () => {
               {{ progress.staffName }}
             </text>
             <view class="mt-4rpx text-24rpx text-gray-500">
-              商城专属配送员
+              {{ t('shared.deliveryProgress.staffRole') }}
             </view>
           </view>
         </view>
@@ -95,7 +97,7 @@ watch(() => props.orderId, () => {
       <view v-if="progress.tripNo" class="mb-20rpx rounded-20rpx bg-white p-30rpx">
         <view class="flex items-center justify-between">
           <text class="text-26rpx text-gray-600">
-            出车单号
+            {{ t('shared.deliveryProgress.tripNo') }}
           </text>
           <text class="text-26rpx">
             {{ progress.tripNo }}
@@ -106,7 +108,7 @@ watch(() => props.orderId, () => {
       <!-- 配送进度时间线 -->
       <view class="rounded-20rpx bg-white p-30rpx">
         <text class="mb-30rpx block text-28rpx font-bold">
-          配送进度
+          {{ t('shared.deliveryProgress.progressTitle') }}
         </text>
         <view class="timeline">
           <view
@@ -156,7 +158,7 @@ watch(() => props.orderId, () => {
         <!-- 送达凭证：后端已送达/已签收时才返回，空列表整块隐藏 -->
         <view v-if="progress.evidenceUrls && progress.evidenceUrls.length > 0" class="mt-30rpx border-t border-gray-100 pt-20rpx">
           <text class="mb-16rpx block text-26rpx text-gray-600">
-            送达凭证
+            {{ t('shared.deliveryProgress.evidence') }}
           </text>
           <view class="flex flex-wrap gap-16rpx">
             <image
@@ -173,7 +175,7 @@ watch(() => props.orderId, () => {
     </template>
 
     <view v-else class="py-40rpx text-center text-26rpx text-gray-400">
-      暂无配送进度信息
+      {{ t('shared.deliveryProgress.empty') }}
     </view>
   </view>
 </template>

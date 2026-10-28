@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { formatCouponExpiry } from '@/utils/coupon-display'
+import { useI18n } from 'vue-i18n'
+import { daysUntil } from '@/utils/coupon-display'
 import { getCouponUnavailableInfo } from '@/utils/coupon-usability'
 
 interface Props {
@@ -13,6 +14,8 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+
+const { t } = useI18n()
 
 const emit = defineEmits<{
   closeCouponPopup: []
@@ -43,6 +46,44 @@ function getCouponUnavailableMap() {
 
 const couponUnavailableMap = computed(getCouponUnavailableMap)
 
+/**
+ * 券不可用原因本地化。
+ *
+ * 判定口径由 coupon-usability 统一产出，这里只把该模块的三个固定文案
+ * 映射成词条；未覆盖的文案原样展示，避免丢失信息。
+ */
+function localizeCouponReason(reason: string): string {
+  if (!reason)
+    return ''
+  switch (reason) {
+    case '活动商品不支持使用优惠券':
+      return t('checkout.coupon.activityBlocked')
+    case '仅部分商品可用（本单无可用商品）':
+      return t('checkout.coupon.reasonPartialOnly')
+    default: {
+      const gap = reason.match(/^还差 ￥(.+) 可用该券$/)
+      return gap ? t('checkout.coupon.reasonGap', { amount: gap[1] }) : reason
+    }
+  }
+}
+
+/** 券有效期状态带：按当前语言生成，切换语言后即时刷新 */
+function expiryBand(value?: string | null): string {
+  const days = daysUntil(value)
+  if (days === null)
+    return ''
+  if (days < 0)
+    return t('checkout.coupon.expired')
+  if (days === 0)
+    return t('checkout.coupon.expiresToday')
+  if (days === 1)
+    return t('checkout.coupon.expiresTomorrow')
+  if (days <= 7)
+    return t('checkout.coupon.expiresInDays', { days })
+  const matched = String(value ?? '').match(/^\d{4}-(\d{2})-(\d{2})/)
+  return matched ? t('checkout.coupon.expiresOn', { date: `${matched[1]}-${matched[2]}` }) : ''
+}
+
 // 选择事件处理：选择当前优惠券（并转为 string）
 function handleSelect(item: any) {
   const unavailable = couponUnavailableMap.value?.[item.id]?.unavailable
@@ -66,8 +107,8 @@ const cards = computed(() => props.couponUserList.map((item) => {
   const unavailable = couponUnavailableMap.value[item.id]
   return {
     item,
-    band: formatCouponExpiry(item.validatTime || item.couponInfo?.receiveEndedAt),
-    reason: unavailable?.unavailable ? unavailable.reason : '',
+    band: expiryBand(item.validatTime || item.couponInfo?.receiveEndedAt),
+    reason: unavailable?.unavailable ? localizeCouponReason(unavailable.reason) : '',
     tone: unavailable?.unavailable ? ('muted' as const) : ('active' as const),
     selectable: !unavailable?.unavailable,
   }
@@ -76,7 +117,7 @@ const cards = computed(() => props.couponUserList.map((item) => {
 
 <template>
   <wd-action-sheet
-    v-model="localCouponPopup" safe-area-inset-bottom custom-class="coupon-action" title="选择优惠券"
+    v-model="localCouponPopup" safe-area-inset-bottom custom-class="coupon-action" :title="t('checkout.coupon.select')"
     @close="closeCouponPopup"
   >
     <scroll-view scroll-y class="coupon-scroll">
@@ -91,16 +132,16 @@ const cards = computed(() => props.couponUserList.map((item) => {
           @select="handleSelect(card.item)"
         />
         <view v-if="card.reason" class="coupon-scroll__reason">
-          优惠券不可用原因：{{ card.reason }}
+          {{ t('checkout.coupon.unavailableReason', { reason: card.reason }) }}
         </view>
       </view>
       <view v-if="cards.length === 0" class="coupon-scroll__empty">
-        暂无可用优惠券
+        {{ t('checkout.coupon.noneAvailable') }}
       </view>
     </scroll-view>
     <view class="coupon-scroll__footer">
       <wd-button block type="primary" @click="couponConfirm">
-        确认
+        {{ t('common.confirm') }}
       </wd-button>
     </view>
   </wd-action-sheet>

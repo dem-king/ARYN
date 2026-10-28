@@ -61,10 +61,12 @@ class OrderPriceComputeServiceTest {
 	void memberDiscountIsAppliedBeforeCoupon() {
 		OrderInfo order = new OrderInfo().setUserId("user-1").setCouponUserId("coupon-user-1");
 		OrderItemEntity item = item("100.00");
+		// 无活动价命中的计划：普通商品正常参与会员折扣
+		OrderPriceComputeService.PromotionPricePlan plan = service.resolvePromotionPricePlan(List.of(item), null);
 		MemberBenefitsVO benefits = new MemberBenefitsVO();
 		benefits.setDiscountRate(new BigDecimal("0.80"));
 
-		service.orderMemberBenefitHandler(order, List.of(item), benefits);
+		service.orderMemberBenefitHandler(order, List.of(item), benefits, plan);
 		when(remoteCouponUserService.getById("coupon-user-1", "user-1")).thenReturn(coupon("10.00"));
 		service.orderCouponHandler(order, List.of(item));
 
@@ -96,6 +98,57 @@ class OrderPriceComputeServiceTest {
 
 		assertThat(normal.getMemberDiscountPrice()).isEqualByComparingTo("10.00");
 		assertThat(seckill.getMemberDiscountPrice()).isEqualByComparingTo("0.00");
+		assertThat(order.getMemberDiscountPrice()).isEqualByComparingTo("10.00");
+	}
+
+	/**
+	 * 四类活动价（拼团/秒杀/限时折扣/新人价）的会员折扣一律归零：
+	 * 会员折扣只作用于普通商品，避免「活动价 × 会员折扣」二次让利造成价格击穿。
+	 */
+	@Test
+	void memberDiscountSkipsAllActivityPricedTypes() {
+		OrderInfo order = new OrderInfo();
+		OrderItemEntity groupBuyItem = item("25.90").setSkuId("sku-group")
+			.setSalesPrice(new BigDecimal("25.90"))
+			.setBuyQuantity(1);
+		OrderItemEntity seckillItem = item("20.00").setSkuId("sku-seckill")
+			.setSalesPrice(new BigDecimal("20.00"))
+			.setBuyQuantity(1);
+		OrderItemEntity discountItem = item("100.00").setSkuId("sku-discount")
+			.setSalesPrice(new BigDecimal("100.00"))
+			.setBuyQuantity(1);
+		OrderItemEntity newbieItem = item("28.50").setSkuId("sku-newbie")
+			.setSalesPrice(new BigDecimal("28.50"))
+			.setBuyQuantity(1);
+		OrderItemEntity normalItem = item("100.00").setSkuId("sku-normal")
+			.setSalesPrice(new BigDecimal("100.00"))
+			.setBuyQuantity(1);
+
+		com.aryn.cloud.promotion.api.vo.GroupBuyOrderContextVO groupBuyContext =
+				new com.aryn.cloud.promotion.api.vo.GroupBuyOrderContextVO();
+		groupBuyContext.setSkuId("sku-group");
+		groupBuyContext.setGroupPrice(new BigDecimal("19.90"));
+		when(remoteSeckillService.getPriceContext("sku-seckill"))
+			.thenReturn(seckillContext("sku-seckill", "12.00"));
+		when(remoteDiscountService.getPriceContext("sku-discount", new BigDecimal("100.00")))
+			.thenReturn(discountContext("sku-discount", "80.00", true, true));
+
+		List<OrderItemEntity> items = List.of(groupBuyItem, seckillItem, discountItem, newbieItem, normalItem);
+		OrderPriceComputeService.PromotionPricePlan plan = service.resolvePromotionPricePlan(items, groupBuyContext);
+		// 新人价由营销引擎改基价，命中信息在试算后补入计划
+		service.mergeStackPolicyHits(plan, newbieCalculation("sku-newbie"));
+		newbieItem.setSalesPrice(new BigDecimal("19.90")).setTotalPrice(new BigDecimal("19.90"));
+		service.applyPromotionPricePlan(items, java.util.Set.of("sku-newbie"), plan);
+
+		MemberBenefitsVO benefits = new MemberBenefitsVO();
+		benefits.setDiscountRate(new BigDecimal("0.90"));
+		service.orderMemberBenefitHandler(order, items, benefits, plan);
+
+		assertThat(groupBuyItem.getMemberDiscountPrice()).isEqualByComparingTo("0.00");
+		assertThat(seckillItem.getMemberDiscountPrice()).isEqualByComparingTo("0.00");
+		assertThat(discountItem.getMemberDiscountPrice()).isEqualByComparingTo("0.00");
+		assertThat(newbieItem.getMemberDiscountPrice()).isEqualByComparingTo("0.00");
+		assertThat(normalItem.getMemberDiscountPrice()).isEqualByComparingTo("10.00");
 		assertThat(order.getMemberDiscountPrice()).isEqualByComparingTo("10.00");
 	}
 
@@ -515,6 +568,30 @@ class OrderPriceComputeServiceTest {
 		return calculation;
 	}
 
+	/** 会员价（type=10）引擎覆盖：100 → 90 的会员价。 */
+	private PromotionCalculationVO memberCalculation(String skuId) {
+		return memberCalculation(skuId, "90.00", "100.00");
+	}
+
+	private PromotionCalculationVO memberCalculation(String skuId, String memberUnitPrice, String originalPrice) {
+		PromotionCalculationVO calculation = new PromotionCalculationVO();
+		PromotionCalculationVO.UnitPriceOverride override = new PromotionCalculationVO.UnitPriceOverride();
+		override.setSkuId(skuId);
+		override.setUnitPrice(new BigDecimal(memberUnitPrice));
+		override.setOriginalPrice(new BigDecimal(originalPrice));
+		override.setActivityId("act-member");
+		override.setActivityType(com.aryn.cloud.promotion.api.entity.PromotionActivity.TYPE_MEMBER_PRICE);
+		calculation.setLadderOverrides(new java.util.ArrayList<>(List.of(override)));
+		return calculation;
+	}
+
+	/** 会员权益（仅折扣率参与取优；积分倍率缺省 1）。 */
+	private MemberBenefitsVO memberBenefits(String discountRate) {
+		MemberBenefitsVO benefits = new MemberBenefitsVO();
+		benefits.setDiscountRate(new BigDecimal(discountRate));
+		return benefits;
+	}
+
 	// ==================== 叠加策略（活动价 × 券 × 积分） ====================
 
 	/**
@@ -752,6 +829,390 @@ class OrderPriceComputeServiceTest {
 		assertThat(seckillItem.getCouponStackable()).isFalse();
 		assertThat(normalItem.getActivityType()).isNull();
 		assertThat(order.getCouponEligibleAmount()).isEqualByComparingTo("100.00");
+	}
+
+	// ==================== 会员价（type=10）取价链与叠加 ====================
+
+	/**
+	 * 会员价 SKU 不被限时折扣覆盖：引擎已把会员价 90 写成基价，
+	 * enginePricedSkuIds 必须让 applyPromotionPricePlan 跳过折扣分支（否则被 80 冲掉）。
+	 * 优先级链：拼团 &gt; 秒杀 &gt; 会员价 &gt; 新人价 &gt; 限时折扣 &gt; 原价。
+	 */
+	@Test
+	void memberPriceSkuNotOverriddenByDiscountBranch() {
+		OrderItemEntity memberItem = item("100.00").setSkuId("sku-member")
+			.setSalesPrice(new BigDecimal("100.00"))
+			.setBuyQuantity(1);
+		when(remoteDiscountService.getPriceContext("sku-member", new BigDecimal("100.00")))
+			.thenReturn(discountContext("sku-member", "80.00", true, true));
+		OrderPriceComputeService.PromotionPricePlan plan = service
+			.resolvePromotionPricePlan(List.of(memberItem), null);
+		// 模拟 applyPromotionLadder：引擎把会员价 90 写成成交基价，并返回 type=10 覆盖
+		PromotionCalculationVO calculation = memberCalculation("sku-member");
+		memberItem.setSalesPrice(new BigDecimal("90.00")).setTotalPrice(new BigDecimal("90.00"));
+
+		service.applyPromotionPricePlan(List.of(memberItem), service.enginePricedSkuIds(calculation), plan);
+
+		assertThat(memberItem.getSalesPrice()).isEqualByComparingTo("90.00");
+		assertThat(memberItem.getTotalPrice()).isEqualByComparingTo("90.00");
+	}
+
+	/**
+	 * 引擎落价集合 = 会员价 type=10 ∪ 新人价 type=9；阶梯价 type=4 不在集合内，
+	 * 保证「无会员价/新人价时限时折扣覆盖阶梯价」的既有成交口径不变。
+	 */
+	@Test
+	void enginePricedSkuIdsCoversMemberAndNewbieOnly() {
+		PromotionCalculationVO calculation = memberCalculation("sku-member");
+		PromotionCalculationVO.UnitPriceOverride newbie = new PromotionCalculationVO.UnitPriceOverride();
+		newbie.setSkuId("sku-newbie");
+		newbie.setUnitPrice(new BigDecimal("19.90"));
+		newbie.setActivityType(com.aryn.cloud.promotion.api.entity.PromotionActivity.TYPE_NEWBIE_PRICE);
+		PromotionCalculationVO.UnitPriceOverride ladder = new PromotionCalculationVO.UnitPriceOverride();
+		ladder.setSkuId("sku-ladder");
+		ladder.setUnitPrice(new BigDecimal("24.00"));
+		ladder.setActivityType(com.aryn.cloud.promotion.api.entity.PromotionActivity.TYPE_LADDER_PRICE);
+		calculation.getLadderOverrides().add(newbie);
+		calculation.getLadderOverrides().add(ladder);
+
+		assertThat(service.enginePricedSkuIds(calculation)).containsExactlyInAnyOrder("sku-member", "sku-newbie");
+		// 新人价限购集合只认 type=9：会员价不能混入，否则达标会员买多件会被误拦
+		assertThat(service.newbiePriceSkuIds(calculation)).containsExactly("sku-newbie");
+	}
+
+	/** 无会员价/新人价时既有行为不变：普通 SKU 的限时折扣照常生效。 */
+	@Test
+	void discountStillAppliesWhenNoEnginePricedSku() {
+		PromotionCalculationVO ladderOnly = new PromotionCalculationVO();
+		PromotionCalculationVO.UnitPriceOverride ladder = new PromotionCalculationVO.UnitPriceOverride();
+		ladder.setSkuId("sku-other");
+		ladder.setUnitPrice(new BigDecimal("80.00"));
+		ladder.setActivityType(com.aryn.cloud.promotion.api.entity.PromotionActivity.TYPE_LADDER_PRICE);
+		ladderOnly.setLadderOverrides(new java.util.ArrayList<>(List.of(ladder)));
+
+		OrderItemEntity ordinary = item("40.00").setSkuId("sku-2")
+			.setSalesPrice(new BigDecimal("40.00"))
+			.setBuyQuantity(1);
+		when(remoteDiscountService.getPriceContext("sku-2", new BigDecimal("40.00")))
+			.thenReturn(discountContext("sku-2", "32.00", true, true));
+		OrderPriceComputeService.PromotionPricePlan plan = service.resolvePromotionPricePlan(List.of(ordinary), null);
+
+		service.applyPromotionPricePlan(List.of(ordinary), service.enginePricedSkuIds(ladderOnly), plan);
+
+		assertThat(ordinary.getSalesPrice()).isEqualByComparingTo("32.00");
+	}
+
+	/**
+	 * 会员价命中补入计划后：会员折扣率不再叠加（memberDiscountPrice=0），
+	 * 默认可叠券/积分（身份常态权益），结算展示活动类型为 memberPrice。
+	 */
+	@Test
+	void memberPriceHitSkipsMemberDiscountAndKeepsCouponStackable() {
+		OrderInfo order = new OrderInfo();
+		OrderItemEntity memberItem = item("90.00").setSkuId("sku-member")
+			.setSalesPrice(new BigDecimal("90.00"))
+			.setBuyQuantity(1);
+		OrderPriceComputeService.PromotionPricePlan plan = service
+			.resolvePromotionPricePlan(List.of(memberItem), null);
+		service.mergeStackPolicyHits(plan, memberCalculation("sku-member"));
+
+		MemberBenefitsVO benefits = new MemberBenefitsVO();
+		benefits.setDiscountRate(new BigDecimal("0.90"));
+		service.orderMemberBenefitHandler(order, List.of(memberItem), benefits, plan);
+
+		assertThat(memberItem.getMemberDiscountPrice()).isEqualByComparingTo("0.00");
+		assertThat(order.getMemberDiscountPrice()).isEqualByComparingTo("0.00");
+		assertThat(memberItem.getPaymentPrice()).isEqualByComparingTo("90.00");
+		assertThat(plan.couponStackable("sku-member")).isTrue();
+		assertThat(plan.pointsStackable("sku-member")).isTrue();
+
+		OrderInfo settlement = new OrderInfo();
+		service.fillStackPolicyDisplay(settlement, List.of(memberItem), plan);
+		assertThat(memberItem.getActivityType()).isEqualTo("memberPrice");
+		assertThat(memberItem.getActivityId()).isEqualTo("act-member");
+		// 可叠 → 券门槛可计算金额计入会员价明细
+		assertThat(settlement.getCouponEligibleAmount()).isEqualByComparingTo("90.00");
+	}
+
+	/** 叠加策略取引擎填充值：管理端关闭叠加后，会员价商品不可用券/积分。 */
+	@Test
+	void memberPriceRespectsEngineStackPolicyOverrides() {
+		PromotionCalculationVO calculation = memberCalculation("sku-member");
+		calculation.getLadderOverrides().get(0).setCouponStackable(false);
+		calculation.getLadderOverrides().get(0).setPointsStackable(false);
+		OrderItemEntity memberItem = item("90.00").setSkuId("sku-member").setBuyQuantity(1);
+		OrderPriceComputeService.PromotionPricePlan plan = service
+			.resolvePromotionPricePlan(List.of(memberItem), null);
+
+		service.mergeStackPolicyHits(plan, calculation);
+
+		assertThat(plan.couponStackable("sku-member")).isFalse();
+		assertThat(plan.pointsStackable("sku-member")).isFalse();
+	}
+
+	/** 会员价默认可叠券：券按会员价基数正常抵扣，不被叠加策略拒绝。 */
+	@Test
+	void memberPriceAllowsCouponStacking() {
+		OrderItemEntity memberItem = item("90.00").setSkuId("sku-member").setBuyQuantity(1);
+		OrderPriceComputeService.PromotionPricePlan plan = service
+			.resolvePromotionPricePlan(List.of(memberItem), null);
+		service.mergeStackPolicyHits(plan, memberCalculation("sku-member"));
+		when(remoteCouponUserService.getById("coupon-user-1", "user-1")).thenReturn(coupon("10.00"));
+
+		OrderInfo order = new OrderInfo().setUserId("user-1").setCouponUserId("coupon-user-1");
+		service.orderCouponHandler(order, List.of(memberItem), plan, true);
+
+		assertThat(order.getCouponStackReason()).isNull();
+		assertThat(memberItem.getCouponPrice()).isEqualByComparingTo("10.00");
+		assertThat(memberItem.getPaymentPrice()).isEqualByComparingTo("80.00");
+	}
+
+	/** 会员价 override 不计入整船优惠（既不参与门槛也不参与分摊），普通行照常分摊。 */
+	@Test
+	void memberPriceOverrideExcludedFromShipWholeDiscount() {
+		OrderInfo order = new OrderInfo();
+		OrderItemEntity memberItem = item("90.00").setSkuId("sku-member");
+		OrderItemEntity normalItem = item("100.00").setSkuId("sku-normal");
+		PromotionCalculationVO calculation = memberCalculation("sku-member");
+		calculation.setWholeDiscount(new BigDecimal("30.00"));
+		calculation.setDetails(new java.util.ArrayList<>());
+
+		service.applyShipWholeDiscount(order, List.of(memberItem, normalItem), calculation, null);
+
+		assertThat(memberItem.getPromoPrice()).isEqualByComparingTo("0.00");
+		assertThat(normalItem.getPromoPrice()).isEqualByComparingTo("30.00");
+		assertThat(order.getPromoPrice()).isEqualByComparingTo("30.00");
+	}
+
+	/**
+	 * 会员价无每人限购：同一会员价 SKU 整单 3 件不触发新人价限购拦截；
+	 * 新人价 SKU 仍按既有规则限购 1 件（见 newbieQuantityLimit* 用例）。
+	 */
+	@Test
+	void memberPriceDoesNotTriggerNewbieQuantityLimit() {
+		PromotionCalculationVO calculation = memberCalculation("sku-member");
+		OrderItemEntity memberItem = new OrderItemEntity().setSkuId("sku-member").setBuyQuantity(3);
+
+		service.assertNewbieQuantityLimit(calculation, List.of(memberItem));
+	}
+
+	/**
+	 * 同 SKU 并发秒杀与会员价：预取的秒杀命中不得被会员价命中覆盖
+	 * （优先级链拼团 &gt; 秒杀 &gt; 会员价，秒杀强制不可叠，覆盖会把不可叠改回可叠）。
+	 */
+	@Test
+	void seckillHitNotOverriddenByMemberPriceMerge() {
+		OrderItemEntity seckillItem = item("100.00").setSkuId("sku-1")
+			.setSalesPrice(new BigDecimal("100.00"))
+			.setBuyQuantity(1);
+		when(remoteSeckillService.getPriceContext("sku-1")).thenReturn(seckillContext("sku-1", "60.00"));
+		OrderPriceComputeService.PromotionPricePlan plan = service
+			.resolvePromotionPricePlan(List.of(seckillItem), null);
+
+		service.mergeStackPolicyHits(plan, memberCalculation("sku-1"));
+
+		assertThat(plan.hit("sku-1").activityType())
+			.isEqualTo(com.aryn.cloud.promotion.api.enums.StackActivityTypeEnum.SECKILL);
+		assertThat(plan.couponStackable("sku-1")).isFalse();
+		assertThat(plan.pointsStackable("sku-1")).isFalse();
+	}
+
+	// ==================== 会员价取优（会员价 vs 会员折扣率，取低而非叠加） ====================
+
+	/**
+	 * 取平：会员价 90 与「原价 100 × 9 折 = 90」相等 → 维持会员价成交、memberDiscountPrice=0。
+	 */
+	@Test
+	void memberPriceTieWithMemberDiscountKeepsMemberPrice() {
+		OrderInfo order = new OrderInfo();
+		OrderItemEntity memberItem = item("90.00").setSkuId("sku-member")
+			.setSalesPrice(new BigDecimal("90.00"))
+			.setBuyQuantity(1);
+		OrderPriceComputeService.PromotionPricePlan plan = service
+			.resolvePromotionPricePlan(List.of(memberItem), null);
+		service.mergeStackPolicyHits(plan, memberCalculation("sku-member"));
+
+		service.orderMemberBenefitHandler(order, List.of(memberItem), memberBenefits("0.90"), plan);
+
+		assertThat(memberItem.getSalesPrice()).isEqualByComparingTo("90.00");
+		assertThat(memberItem.getTotalPrice()).isEqualByComparingTo("90.00");
+		assertThat(memberItem.getMemberDiscountPrice()).isEqualByComparingTo("0.00");
+		assertThat(memberItem.getPaymentPrice()).isEqualByComparingTo("90.00");
+	}
+
+	/**
+	 * 会员价 95 高于「原价 100 × 9 折 = 90」→ 切换为原价成交 + 会员折扣：
+	 * salesPrice 回原价、totalPrice 恢复原价小计、memberDiscountPrice=10、实付 90。
+	 */
+	@Test
+	void memberPriceHigherThanMemberDiscountSwitchesToDiscount() {
+		OrderItemEntity memberItem = item("95.00").setSkuId("sku-member")
+			.setSalesPrice(new BigDecimal("95.00"))
+			.setBuyQuantity(1);
+		OrderPriceComputeService.PromotionPricePlan plan = service
+			.resolvePromotionPricePlan(List.of(memberItem), null);
+		service.mergeStackPolicyHits(plan, memberCalculation("sku-member", "95.00", "100.00"));
+
+		service.orderMemberBenefitHandler(new OrderInfo(), List.of(memberItem), memberBenefits("0.90"), plan);
+
+		assertThat(memberItem.getSalesPrice()).isEqualByComparingTo("100.00");
+		assertThat(memberItem.getTotalPrice()).isEqualByComparingTo("100.00");
+		assertThat(memberItem.getMemberDiscountPrice()).isEqualByComparingTo("10.00");
+		assertThat(memberItem.getPaymentPrice()).isEqualByComparingTo("90.00");
+	}
+
+	/** 会员价 90 高于 8.5 折（85）→ 切换会员折扣成交，实付 85（高等级不吃亏）。 */
+	@Test
+	void memberPriceTakeBetterSwitchesForHigherTierDiscount() {
+		OrderItemEntity memberItem = item("90.00").setSkuId("sku-member")
+			.setSalesPrice(new BigDecimal("90.00"))
+			.setBuyQuantity(1);
+		OrderPriceComputeService.PromotionPricePlan plan = service
+			.resolvePromotionPricePlan(List.of(memberItem), null);
+		service.mergeStackPolicyHits(plan, memberCalculation("sku-member"));
+
+		service.orderMemberBenefitHandler(new OrderInfo(), List.of(memberItem), memberBenefits("0.85"), plan);
+
+		assertThat(memberItem.getSalesPrice()).isEqualByComparingTo("100.00");
+		assertThat(memberItem.getMemberDiscountPrice()).isEqualByComparingTo("15.00");
+		assertThat(memberItem.getPaymentPrice()).isEqualByComparingTo("85.00");
+	}
+
+	/**
+	 * 竞品调研反例（盒马线下专享价翻车）：售价 59、会员价 9 折 53.10、钻石 8.5 折 50.15 →
+	 * 取优后必须按 50.15 成交，高等级会员不因会员专区反而更贵。
+	 */
+	@Test
+	void memberPriceTakeBetterProtectsHigherTierMember() {
+		OrderItemEntity memberItem = item("53.10").setSkuId("sku-member")
+			.setSalesPrice(new BigDecimal("53.10"))
+			.setBuyQuantity(1);
+		OrderPriceComputeService.PromotionPricePlan plan = service
+			.resolvePromotionPricePlan(List.of(memberItem), null);
+		service.mergeStackPolicyHits(plan, memberCalculation("sku-member", "53.10", "59.00"));
+
+		service.orderMemberBenefitHandler(new OrderInfo(), List.of(memberItem), memberBenefits("0.85"), plan);
+
+		assertThat(memberItem.getSalesPrice()).isEqualByComparingTo("59.00");
+		assertThat(memberItem.getTotalPrice()).isEqualByComparingTo("59.00");
+		assertThat(memberItem.getMemberDiscountPrice()).isEqualByComparingTo("8.85");
+		assertThat(memberItem.getPaymentPrice()).isEqualByComparingTo("50.15");
+	}
+
+	/** 多件按明细小计取优：原价 100×2=200、会员价 95×2=190、9 折 180 → 切换会员折扣。 */
+	@Test
+	void memberPriceTakeBetterUsesItemSubtotalForMultipleQuantity() {
+		OrderItemEntity memberItem = item("190.00").setSkuId("sku-member")
+			.setSalesPrice(new BigDecimal("95.00"))
+			.setBuyQuantity(2);
+		OrderPriceComputeService.PromotionPricePlan plan = service
+			.resolvePromotionPricePlan(List.of(memberItem), null);
+		service.mergeStackPolicyHits(plan, memberCalculation("sku-member", "95.00", "100.00"));
+
+		service.orderMemberBenefitHandler(new OrderInfo(), List.of(memberItem), memberBenefits("0.90"), plan);
+
+		assertThat(memberItem.getSalesPrice()).isEqualByComparingTo("100.00");
+		assertThat(memberItem.getTotalPrice()).isEqualByComparingTo("200.00");
+		assertThat(memberItem.getMemberDiscountPrice()).isEqualByComparingTo("20.00");
+		assertThat(memberItem.getPaymentPrice()).isEqualByComparingTo("180.00");
+	}
+
+	/**
+	 * 新人价仍互斥：即使会员折扣率更低，新人价命中也不参与取优（memberDiscountPrice=0），
+	 * 且新人价命中不带落价前基价（originalUnitPrice 为空）。
+	 */
+	@Test
+	void newbiePriceStillMutuallyExclusiveWithMemberDiscount() {
+		OrderItemEntity newbieItem = item("19.90").setSkuId("sku-newbie")
+			.setSalesPrice(new BigDecimal("19.90"))
+			.setBuyQuantity(1);
+		OrderPriceComputeService.PromotionPricePlan plan = service
+			.resolvePromotionPricePlan(List.of(newbieItem), null);
+		service.mergeStackPolicyHits(plan, newbieCalculation("sku-newbie"));
+
+		assertThat(plan.hit("sku-newbie").originalUnitPrice()).isNull();
+		service.orderMemberBenefitHandler(new OrderInfo(), List.of(newbieItem), memberBenefits("0.80"), plan);
+
+		assertThat(newbieItem.getSalesPrice()).isEqualByComparingTo("19.90");
+		assertThat(newbieItem.getMemberDiscountPrice()).isEqualByComparingTo("0.00");
+		assertThat(newbieItem.getPaymentPrice()).isEqualByComparingTo("19.90");
+	}
+
+	/**
+	 * 防御：会员价命中缺少落价前基价（老数据/引擎未回填）→ 维持旧行为
+	 * （会员价成交、memberDiscountPrice=0），不因取优逻辑报错或改价。
+	 */
+	@Test
+	void memberPriceWithoutOriginalPriceKeepsLegacyBehavior() {
+		PromotionCalculationVO calculation = memberCalculation("sku-member");
+		calculation.getLadderOverrides().get(0).setOriginalPrice(null);
+		OrderItemEntity memberItem = item("90.00").setSkuId("sku-member")
+			.setSalesPrice(new BigDecimal("90.00"))
+			.setBuyQuantity(1);
+		OrderPriceComputeService.PromotionPricePlan plan = service
+			.resolvePromotionPricePlan(List.of(memberItem), null);
+		service.mergeStackPolicyHits(plan, calculation);
+
+		assertThat(plan.hit("sku-member").originalUnitPrice()).isNull();
+		service.orderMemberBenefitHandler(new OrderInfo(), List.of(memberItem), memberBenefits("0.85"), plan);
+
+		assertThat(memberItem.getSalesPrice()).isEqualByComparingTo("90.00");
+		assertThat(memberItem.getMemberDiscountPrice()).isEqualByComparingTo("0.00");
+		assertThat(memberItem.getPaymentPrice()).isEqualByComparingTo("90.00");
+	}
+
+	/**
+	 * 取优后券链路自洽：券门槛基数 = 取优后实付（90），券按该基数抵扣，不会按原价重复让利。
+	 */
+	@Test
+	void memberPriceTakeBetterFeedsCouponBaseWithDiscountedTotal() {
+		OrderItemEntity memberItem = item("95.00").setSkuId("sku-member")
+			.setSalesPrice(new BigDecimal("95.00"))
+			.setBuyQuantity(1);
+		OrderPriceComputeService.PromotionPricePlan plan = service
+			.resolvePromotionPricePlan(List.of(memberItem), null);
+		service.mergeStackPolicyHits(plan, memberCalculation("sku-member", "95.00", "100.00"));
+		service.orderMemberBenefitHandler(new OrderInfo(), List.of(memberItem), memberBenefits("0.90"), plan);
+
+		OrderInfo settlement = new OrderInfo();
+		service.fillStackPolicyDisplay(settlement, List.of(memberItem), plan);
+		assertThat(settlement.getCouponEligibleAmount()).isEqualByComparingTo("90.00");
+
+		when(remoteCouponUserService.getById("coupon-user-1", "user-1")).thenReturn(coupon("10.00"));
+		OrderInfo submit = new OrderInfo().setUserId("user-1").setCouponUserId("coupon-user-1");
+		service.orderCouponHandler(submit, List.of(memberItem), plan, true);
+
+		assertThat(submit.getCouponStackReason()).isNull();
+		assertThat(memberItem.getCouponPrice()).isEqualByComparingTo("10.00");
+		assertThat(memberItem.getPaymentPrice()).isEqualByComparingTo("80.00");
+	}
+
+	/**
+	 * 取优后整船链路不变：会员价 SKU 即使按会员折扣成交，仍因活动价命中不参与整船优惠分摊；
+	 * 普通行会员折扣与整船分摊照常。
+	 */
+	@Test
+	void memberPriceTakeBetterStillExcludedFromShipWholeDiscount() {
+		OrderInfo order = new OrderInfo();
+		OrderItemEntity memberItem = item("95.00").setSkuId("sku-member")
+			.setSalesPrice(new BigDecimal("95.00"))
+			.setBuyQuantity(1);
+		OrderItemEntity normalItem = item("100.00").setSkuId("sku-normal").setBuyQuantity(1);
+		OrderPriceComputeService.PromotionPricePlan plan = service
+			.resolvePromotionPricePlan(List.of(memberItem, normalItem), null);
+		PromotionCalculationVO calculation = memberCalculation("sku-member", "95.00", "100.00");
+		service.mergeStackPolicyHits(plan, calculation);
+		service.orderMemberBenefitHandler(order, List.of(memberItem, normalItem), memberBenefits("0.90"), plan);
+		calculation.setWholeDiscount(new BigDecimal("30.00"));
+		calculation.setDetails(new java.util.ArrayList<>());
+
+		service.applyShipWholeDiscount(order, List.of(memberItem, normalItem), calculation, plan);
+
+		assertThat(memberItem.getPromoPrice()).isEqualByComparingTo("0.00");
+		assertThat(normalItem.getPromoPrice()).isEqualByComparingTo("30.00");
+		assertThat(order.getPromoPrice()).isEqualByComparingTo("30.00");
+		// 普通行仍按既有规则叠加会员折扣（100 × 9 折），证明取优只作用于会员价命中明细
+		assertThat(normalItem.getMemberDiscountPrice()).isEqualByComparingTo("10.00");
 	}
 
 	private void setStackPolicyEnabled(boolean enabled) throws Exception {

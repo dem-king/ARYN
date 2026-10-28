@@ -139,6 +139,13 @@ describe('mergeSuggestWords', () => {
     expect(result.map(i => i.word)).toEqual(['Red Apple Juice', 'Apple Pie'])
   })
 
+  it('精确商品名时联想为空是预期：面板由常驻「直接搜索」行兜底，不能渲染死空态', () => {
+    // 联想接口（rankSuggestWords）与本地 buildSearchSuggest 都会过滤「与输入完全相同的词」，
+    // 因此搜索在售商品全名 / 点热门词时联想必然为空。页面必须仍给出可执行的搜索动作，
+    // 不能显示「没找到相关联想」这类误导性空态（2026-10-25 交互修复的回归护栏）。
+    expect(mergeSuggestWords([], '苹果醋', ['苹果醋'], HOT)).toEqual([])
+  })
+
   it('总条数仍受 MAX_SUGGEST 约束', () => {
     const api = Array.from({ length: 20 }, (_, i) => `苹果味汽水${i}`)
     expect(mergeSuggestWords(api, '苹果', [], HOT).length).toBe(MAX_SUGGEST)

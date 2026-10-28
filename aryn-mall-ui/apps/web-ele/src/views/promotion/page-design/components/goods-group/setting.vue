@@ -95,9 +95,6 @@ watch(
         <ElRadio :value="2">2 列</ElRadio><ElRadio :value="3">3 列</ElRadio>
       </ElRadioGroup>
     </ElFormItem>
-    <ElFormItem label="显示销量">
-      <ElSwitch v-model="form.showSales" />
-    </ElFormItem>
     <ElFormItem label="商品原价">
       <ElSwitch v-model="form.showOriginalPrice" />
     </ElFormItem>

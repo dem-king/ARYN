@@ -85,7 +85,7 @@ watch(rangeKey, (value) => {
 
 <template>
   <div
-    class="mb-4 flex flex-col items-start justify-between gap-3 rounded-lg bg-[var(--el-bg-color-overlay)] p-4 shadow-sm md:flex-row md:items-center"
+    class="dashboard-header sticky top-0 z-20 mx-4 mb-4 mt-4 flex flex-col items-start justify-between gap-3 rounded-lg p-4 md:flex-row md:items-center"
   >
     <div class="flex w-full flex-wrap items-center gap-3 md:w-auto">
       <span class="text-sm font-bold text-[var(--el-text-color-primary)]">
@@ -147,3 +147,18 @@ watch(rangeKey, (value) => {
     </ElSpace>
   </div>
 </template>
+
+<style scoped>
+.dashboard-header {
+  background: var(--el-bg-color-overlay);
+  border: 1px solid var(--el-border-color-lighter);
+
+  /* 玻璃拟态：页面内容从工具条下方滚过时呈磨砂悬浮效果。
+     不支持背景模糊的环境保持上面那行不透明底色，避免文字叠影 */
+  @supports (backdrop-filter: blur(1px)) {
+    background: color-mix(in srgb, var(--el-bg-color-overlay) 65%, transparent);
+    box-shadow: var(--el-box-shadow-light);
+    backdrop-filter: blur(12px) saturate(1.4);
+  }
+}
+</style>

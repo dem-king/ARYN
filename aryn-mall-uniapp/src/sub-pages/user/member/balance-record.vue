@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
+import { useI18n } from 'vue-i18n'
 import { getBalanceRecordPage } from '@/sub-pages/api/user/balance'
 
 definePage({
@@ -22,6 +23,7 @@ interface BalanceRecord {
   createTime: string
 }
 
+const { t } = useI18n()
 const list = ref<BalanceRecord[]>([])
 const globalLoading = useGlobalLoading()
 const pagingRef = ref()
@@ -33,7 +35,7 @@ onLoad(() => {
 })
 
 async function queryList(pageNo: number, pageSize: number) {
-  globalLoading.loading('加载中...')
+  globalLoading.loading(t('common.loading'))
   try {
     const response = await getBalanceRecordPage({
       current: pageNo,
@@ -52,7 +54,11 @@ async function queryList(pageNo: number, pageSize: number) {
 }
 
 function getChangeTypeText(type: string): string {
-  return type === '1' ? '充值' : type === '2' ? '消费' : '调整'
+  if (type === '1')
+    return t('accountMember.balanceRecord.typeRecharge')
+  return type === '2'
+    ? t('accountMember.balanceRecord.typeConsume')
+    : t('accountMember.balanceRecord.typeAdjust')
 }
 
 function getChangeTypeClass(type: string): string {
@@ -66,23 +72,25 @@ function formatChangeAmount(item: BalanceRecord): string {
   return `${sign}${Math.abs(amount)}`
 }
 
+const sceneKeyMap: Record<string, string> = {
+  RECHARGE: 'sceneRecharge',
+  CONSUME: 'sceneConsume',
+  REFUND: 'sceneRefund',
+  ADMIN: 'sceneAdmin',
+  ADMIN_ADJUST: 'sceneAdmin',
+  GIFT: 'sceneGift',
+}
+
 function getSceneText(scene: string): string {
-  const sceneMap: Record<string, string> = {
-    RECHARGE: '充值',
-    CONSUME: '消费',
-    REFUND: '退款',
-    ADMIN: '后台调整',
-    ADMIN_ADJUST: '后台调整',
-    GIFT: '赠送',
-  }
-  return sceneMap[scene] || scene
+  const key = sceneKeyMap[scene]
+  return key ? t(`accountMember.balanceRecord.${key}`) : scene
 }
 </script>
 
 <template>
   <z-paging ref="pagingRef" v-model="list" :auto="false" @query="queryList">
     <template #top>
-      <hr-navbar title="余额明细" />
+      <hr-navbar :title="t('accountMember.balanceRecord.title')" />
     </template>
     <view v-for="(item, index) in list" :key="index" class="m-2 rounded-xl bg-white px-4 py-3">
       <view class="flex items-center justify-between">
@@ -105,7 +113,7 @@ function getSceneText(scene: string): string {
             {{ formatChangeAmount(item) }}
           </view>
           <view class="mt-1 text-11px text-gray-400">
-            余额 {{ item.balanceAfter }}
+            {{ t('accountMember.balanceRecord.balanceAfter', { balance: item.balanceAfter }) }}
           </view>
         </view>
       </view>

@@ -10,6 +10,7 @@ import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.order.api.dto.ShoppingCartBatchAddDTO;
 import com.aryn.cloud.order.api.dto.ShoppingCartCreateDTO;
+import com.aryn.cloud.order.api.dto.ShoppingCartTransferDTO;
 import com.aryn.cloud.order.api.dto.ShoppingCartUpdateDTO;
 import com.aryn.cloud.order.api.entity.ShoppingCart;
 import com.aryn.cloud.order.api.vo.ShoppingCartBatchAddVO;
@@ -20,6 +21,8 @@ import com.aryn.cloud.product.api.util.GoodsCostPriceMasker;
 import com.aryn.cloud.product.api.entity.GoodsSpu;
 import com.aryn.cloud.product.api.remote.RemoteGoodsSkuService;
 import com.aryn.cloud.product.api.remote.RemoteGoodsSpuService;
+import com.aryn.cloud.vessel.api.dto.VesselContextDTO;
+import com.aryn.cloud.vessel.api.remote.RemoteVesselService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.dubbo.config.annotation.DubboReference;
@@ -53,6 +56,10 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
 	@DubboReference
 	private final RemoteGoodsSpuService remoteGoodsSpuService;
 
+	/** 船舶域：分组头可读化要按靠港 ID 取展示快照（已结束的靠港也有船名/港口） */
+	@DubboReference
+	private RemoteVesselService remoteVesselService;
+
 	@Override
 	public List<ShoppingCart> apiPage(Page page, ShoppingCart shoppingCart) {
 		IPage<ShoppingCart> iPage = baseMapper.selectApiPage(page, shoppingCart);
@@ -61,6 +68,8 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
 		}
 		// 商品卖点是 SPU 字段，购物车行只落 SKU 快照，整页一次补齐
 		fillSpuSubTitles(iPage.getRecords());
+		// 行归属靠港的可读信息（港口/船名/是否已结束）：分组头要说人话，不能甩裸 ID
+		fillVesselCallSummaries(iPage.getRecords());
 		// 从List中提取SKUID
 		List<String> skuIds = iPage.getRecords()
 			.stream()
@@ -115,6 +124,50 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
 		}
 	}
 
+	/**
+	 * 按靠港 ID 批量回填行归属靠港的可读信息（港口名/船名/是否已结束）。
+	 *
+	 * <p>用展示快照而非可下单查询：靠港 ETD 过点后历史行的港口照样要显示，
+	 * 「是否已结束」由 {@code callOrderable} 单独下发（与共享车同口径）。
+	 * 远程失败按行降级为空——分组头回落到不含港口的通用文案，列表不能因此打不开。
+	 */
+	private void fillVesselCallSummaries(List<ShoppingCart> rows) {
+		List<String> callIds = rows.stream()
+			.map(ShoppingCart::getVesselCallId)
+			.filter(StringUtils::hasText)
+			.distinct()
+			.toList();
+		if (callIds.isEmpty()) {
+			return;
+		}
+		String tenantId = ArynTenantContextHolder.getTenantId();
+		Map<String, VesselContextDTO> snapshotByCall = new HashMap<>();
+		for (String callId : callIds) {
+			try {
+				VesselContextDTO context = remoteVesselService.getVesselCallSnapshot(tenantId, callId);
+				if (context != null) {
+					snapshotByCall.put(callId, context);
+				}
+			}
+			catch (Exception exception) {
+				log.warn("购物车行归属靠港[{}]展示快照获取失败，分组头降级为通用文案", callId, exception);
+			}
+		}
+		if (snapshotByCall.isEmpty()) {
+			return;
+		}
+		rows.forEach(row -> {
+			VesselContextDTO context = StringUtils.hasText(row.getVesselCallId())
+					? snapshotByCall.get(row.getVesselCallId())
+					: null;
+			if (context != null) {
+				row.setVesselCallPortName(context.getPortName());
+				row.setVesselCallVesselName(context.getVesselName());
+				row.setVesselCallOrderable(context.getCallOrderable());
+			}
+		});
+	}
+
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public boolean saveShoppingCart(String userId, ShoppingCartCreateDTO request) {
@@ -123,6 +176,15 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
 		ShoppingCart mergeable = findMergeableRow(userId, sku.getId(), request.getVesselCallId());
 		if (mergeable != null) {
 			return baseMapper.incrementQuantityById(userId, mergeable.getId(), request.getQuantity()) > 0;
+		}
+		// 无靠港上下文加购：靠港结束后客户端不再持有靠港快照，再买同款若只按靠港归组，
+		// 会在「无归属」组新建第二行；滞留行与无归属行最终都按常规配送，没有区分意义，
+		// 应并入同船已结束靠港的滞留行，否则购物车同款两行、结算时撞「重复 SKU」。
+		if (!StringUtils.hasText(request.getVesselCallId())) {
+			ShoppingCart stranded = findStrandedRowOfSameVessel(userId, sku.getId(), request.getVesselId());
+			if (stranded != null) {
+				return baseMapper.incrementQuantityById(userId, stranded.getId(), request.getQuantity()) > 0;
+			}
 		}
 		ShoppingCart shoppingCart = buildCart(userId, sku, request.getQuantity(), request);
 		try {
@@ -135,6 +197,54 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
 			}
 			throw exception;
 		}
+	}
+
+	/**
+	 * 查找同用户同 SKU 同船、且挂在「已结束靠港」上的滞留购物车行（无靠港上下文加购时并入用）。
+	 *
+	 * <p>为什么需要这一步：shopping_cart 唯一键含 vessel_call_id，靠港结束后客户端靠港快照
+	 * 被清空，再买同款只能落在 vessel_call_id=NULL 的「无归属」组，于是同一 SKU 出现两行
+	 * （一行已结束靠港的滞留行、一行无归属行）。两行最终都按常规配送，应并成一行；
+	 * 否则购物车出现同款两行，结算时同一 SKU 多行会撞「重复 SKU」。
+	 *
+	 * <p>只并入确认已结束的靠港（快照为 null 或 callOrderable=false）：快照仍可下单说明
+	 * 该靠港的配送还在进行，新加购可能属于下一港，不能跨靠港合并；远程调用异常时无法判定，
+	 * 同样返回 null 让调用方按原逻辑新建行——宁可多一行，也不误并入进行中的靠港。
+	 */
+	private ShoppingCart findStrandedRowOfSameVessel(String userId, String skuId, String vesselId) {
+		if (!StringUtils.hasText(vesselId)) {
+			return null;
+		}
+		String tenantId = ArynTenantContextHolder.getTenantId();
+		// 同一船可能先后靠过多个港：按加购时间倒序看最新的滞留行，命中即并入
+		List<ShoppingCart> candidates = baseMapper.selectList(Wrappers.<ShoppingCart>lambdaQuery()
+			.eq(ShoppingCart::getTenantId, tenantId)
+			.eq(ShoppingCart::getUserId, userId)
+			.eq(ShoppingCart::getSkuId, skuId)
+			.eq(ShoppingCart::getVesselId, vesselId)
+			.eq(ShoppingCart::getDelFlag, "0")
+			.isNotNull(ShoppingCart::getVesselCallId)
+			.ne(ShoppingCart::getVesselCallId, "")
+			.orderByDesc(ShoppingCart::getCreateTime));
+		if (CollectionUtils.isEmpty(candidates)) {
+			return null;
+		}
+		for (ShoppingCart candidate : candidates) {
+			try {
+				VesselContextDTO snapshot = remoteVesselService.getVesselCallSnapshot(tenantId,
+						candidate.getVesselCallId());
+				// 快照为 null（靠港记录已不存在）或已不可下单 → 滞留行，按常规配送并入
+				if (snapshot == null || Boolean.FALSE.equals(snapshot.getCallOrderable())) {
+					return candidate;
+				}
+			}
+			catch (Exception exception) {
+				log.warn("判断购物车行所属靠港[{}]是否已结束失败，按无法判定处理（不并入，照常新建行）",
+						candidate.getVesselCallId(), exception);
+				return null;
+			}
+		}
+		return null;
 	}
 
 	/**
@@ -261,6 +371,112 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
 		return baseMapper.delete(Wrappers.<ShoppingCart>lambdaQuery()
 			.eq(ShoppingCart::getUserId, userId)
 			.in(ShoppingCart::getId, ids)) > 0;
+	}
+
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public int transferToVesselCall(String userId, ShoppingCartTransferDTO request) {
+		String tenantId = ArynTenantContextHolder.getTenantId();
+		String targetCallId = request.getCallId();
+		// 目标靠港必须仍可下单：不可下单的靠港挂上去也结不了算，当场拒绝比静默成功诚实
+		VesselContextDTO target = remoteVesselService.getVesselCallContext(tenantId, targetCallId);
+		if (target == null) {
+			throw new ArynBusinessException("靠港计划已失效，请刷新后重试");
+		}
+		List<ShoppingCart> rows = baseMapper.selectList(Wrappers.<ShoppingCart>lambdaQuery()
+			.eq(ShoppingCart::getTenantId, tenantId)
+			.eq(ShoppingCart::getUserId, userId)
+			.in(ShoppingCart::getId, request.getRowIds()));
+		List<ShoppingCart> movable = rows.stream()
+			.filter(row -> !targetCallId.equals(row.getVesselCallId()))
+			.toList();
+		if (movable.isEmpty()) {
+			throw new ArynBusinessException("没有需要转入的商品");
+		}
+		int moved = 0;
+		for (ShoppingCart row : movable) {
+			if (migrateRowToVesselCall(tenantId, row, targetCallId, target.getVesselId())) {
+				moved++;
+			}
+		}
+		return moved;
+	}
+
+	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public int reattachRowsToVesselCall(String tenantId, String vesselId, String vesselCallId,
+			List<String> staleCallIds) {
+		List<String> stale = staleCallIds == null ? List.of() : staleCallIds.stream().filter(StringUtils::hasText).toList();
+		// 无归属（NULL/空串）与挂在已结束靠港的行都顺延；staleCallIds 为空时不能拼 IN ()
+		List<ShoppingCart> candidates = baseMapper.selectList(Wrappers.<ShoppingCart>lambdaQuery()
+			.eq(ShoppingCart::getTenantId, tenantId)
+			.eq(ShoppingCart::getVesselId, vesselId)
+			.and(query -> {
+				query.isNull(ShoppingCart::getVesselCallId).or().eq(ShoppingCart::getVesselCallId, "");
+				if (!stale.isEmpty()) {
+					query.or().in(ShoppingCart::getVesselCallId, stale);
+				}
+			}));
+		int moved = 0;
+		for (ShoppingCart row : candidates) {
+			if (migrateRowToVesselCall(tenantId, row, vesselCallId, vesselId)) {
+				moved++;
+			}
+		}
+		return moved;
+	}
+
+	/**
+	 * 把一行购物车迁到目标靠港：目标靠港已有同用户同 SKU 行时并入（原子加量 + 源行删除），
+	 * 否则原行改挂目标靠港。
+	 *
+	 * <p>shopping_cart 有生成列唯一键 uk_shopping_cart_active_row(tenant, user, sku:call)，
+	 * 盲目 UPDATE 会在「用户已在新靠港重新加购过同商品」时撞键——顺延曾是单条 UPDATE，
+	 * 撞键即整次迁移失败且重试恒败，行就永远滞留在旧靠港上（2026/10/24 修）。
+	 * 并发窗口内的撞键按合并处理，与预检失败殊途同归。
+	 *
+	 * @return true 表示该行发生了迁移（改挂或被合并）
+	 */
+	private boolean migrateRowToVesselCall(String tenantId, ShoppingCart row, String targetCallId,
+			String targetVesselId) {
+		if (targetCallId.equals(row.getVesselCallId())) {
+			return false;
+		}
+		ShoppingCart existing = baseMapper.selectOne(Wrappers.<ShoppingCart>lambdaQuery()
+			.eq(ShoppingCart::getTenantId, tenantId)
+			.eq(ShoppingCart::getUserId, row.getUserId())
+			.eq(ShoppingCart::getSkuId, row.getSkuId())
+			.eq(ShoppingCart::getVesselCallId, targetCallId)
+			.ne(ShoppingCart::getId, row.getId())
+			.last("LIMIT 1"));
+		if (existing == null) {
+			try {
+				return baseMapper.update(null, Wrappers.<ShoppingCart>lambdaUpdate()
+					.set(ShoppingCart::getVesselId, targetVesselId)
+					.set(ShoppingCart::getVesselCallId, targetCallId)
+					.eq(ShoppingCart::getId, row.getId())
+					.eq(ShoppingCart::getTenantId, tenantId)) > 0;
+			}
+			catch (DuplicateKeyException exception) {
+				// 并发窗口内目标行刚被创建：转入合并分支
+				existing = baseMapper.selectOne(Wrappers.<ShoppingCart>lambdaQuery()
+					.eq(ShoppingCart::getTenantId, tenantId)
+					.eq(ShoppingCart::getUserId, row.getUserId())
+					.eq(ShoppingCart::getSkuId, row.getSkuId())
+					.eq(ShoppingCart::getVesselCallId, targetCallId)
+					.ne(ShoppingCart::getId, row.getId())
+					.last("LIMIT 1"));
+				if (existing == null) {
+					throw exception;
+				}
+			}
+		}
+		// 原子加量防并发丢数量；源行随逻辑删除退场
+		baseMapper.incrementQuantityById(row.getUserId(), existing.getId(), row.getQuantity());
+		baseMapper.delete(Wrappers.<ShoppingCart>lambdaQuery()
+			.eq(ShoppingCart::getId, row.getId())
+			.eq(ShoppingCart::getTenantId, tenantId));
+		return true;
 	}
 
 	private GoodsSku requireSaleSku(String skuId, int quantity) {

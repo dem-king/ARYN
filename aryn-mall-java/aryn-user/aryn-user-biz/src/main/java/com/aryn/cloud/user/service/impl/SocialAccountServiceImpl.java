@@ -50,7 +50,10 @@ public class SocialAccountServiceImpl extends ServiceImpl<SocialAccountMapper, S
 	}
 
 	@Override
-	@Cacheable(value = CacheConstants.SOCIAL_ACCOUNT_CACHE, key = "#id", unless = "#result == null")
+	// 详情缓存必须带租户维度：仅按 ID 命中会让其它租户跳过数据库租户过滤直接拿到缓存对象
+	@Cacheable(value = CacheConstants.SOCIAL_ACCOUNT_CACHE,
+			key = "T(com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder).getTenantId() + ':id:' + #id",
+			unless = "#result == null")
 	public SocialAccountVO getSocialAccountById(String id) {
 		return baseMapper.selectSocialAccountById(id);
 	}

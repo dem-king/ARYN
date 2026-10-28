@@ -2500,7 +2500,7 @@ CREATE TABLE `sys_user`  (
 -- Records of sys_user
 -- ----------------------------
 INSERT INTO `sys_user` VALUES ('1', 'admin', '$2a$10$9p1BH9TCqoxGG1BZe8.cZeUs7xytTbg6LUqjB5uSDbIYCeXDBYnR2', '806@163.com', '天启雨数', 'https://aryn.oss-cn-beijing.aliyuncs.com/aryn/278a943b-52ac-4f6b-a6b6-506cc67f8d0a.jpg', '2', '17615123399', '0', '2022-05-20 17:33:24', '2025-04-09 22:18:24', '1590229800633634816', '0', NULL, 'admin', '0');
-INSERT INTO `sys_user` VALUES ('1881232178902249473', 'system', '$2a$10$9p1BH9TCqoxGG1BZe8.cZeUs7xytTbg6LUqjB5uSDbIYCeXDBYnR2', NULL, '111', 'https://minio.Aetheryn.cn/aryn/file/eece8d88-c9a5-4d7f-b6b8-cf7c82d3c34a.png', '1881232178197606401', '17640212321', '0', '2025-01-20 14:47:58', '2025-04-13 05:01:21', '1881232176465358849', '0', 'aryn', 'system', '0');
+INSERT INTO `sys_user` VALUES ('1881232178902249473', 'system', '$2a$10$9p1BH9TCqoxGG1BZe8.cZeUs7xytTbg6LUqjB5uSDbIYCeXDBYnR2', NULL, '111', NULL, '1881232178197606401', '17640212321', '0', '2025-01-20 14:47:58', '2025-04-13 05:01:21', '1881232176465358849', '0', 'aryn', 'system', '0');
 
 -- ----------------------------
 -- Table structure for sys_user_role

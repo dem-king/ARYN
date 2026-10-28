@@ -100,7 +100,7 @@ public class PayConfigController {
 				&& keyDesensitization.serialize(target.getMchKey()).equals(payConfig.getMchKey())) {
 			payConfig.setMchKey(null);
 		}
-		return Result.success(payConfigService.updateById(payConfig));
+		return Result.success(payConfigService.updateConfig(payConfig));
 	}
 
 	@Operation(summary = "支付配置删除")

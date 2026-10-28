@@ -10,7 +10,8 @@
  */
 import type { SharedCart, SharedCartItem, SharedCartSummary } from '@/api/order/sharedCart'
 
-import { formatExpiryCountdown, remainingMsUntil } from '@/utils/vessel-call-time'
+import { translate } from '@/locales'
+import { formatExpiryCountdownState, remainingMsUntil } from '@/utils/vessel-call-time'
 
 /** 1 草稿 */
 export const CART_STATUS_DRAFT = '1'
@@ -25,13 +26,19 @@ export const CART_STATUS_CLOSED = '5'
 /** 6 已完成（订单送达后归档） */
 export const CART_STATUS_COMPLETED = '6'
 
+/**
+ * 状态码 → 词条 key。
+ *
+ * 导出名沿用历史名（自动导入声明与既有引用依赖它）；文案在 `cartStatusLabel()`
+ * 调用时按当前语言取，避免模块加载时把语言固化。
+ */
 export const CART_STATUS_LABEL: Record<string, string> = {
-  [CART_STATUS_DRAFT]: '草稿',
-  [CART_STATUS_COLLECTING]: '收集中',
-  [CART_STATUS_WAITING_CONFIRM]: '待确认',
-  [CART_STATUS_SUBMITTED]: '已提交',
-  [CART_STATUS_CLOSED]: '已关闭',
-  [CART_STATUS_COMPLETED]: '本次采购已送达',
+  [CART_STATUS_DRAFT]: 'sharedCart.common.status.draft',
+  [CART_STATUS_COLLECTING]: 'sharedCart.common.status.collecting',
+  [CART_STATUS_WAITING_CONFIRM]: 'sharedCart.common.status.waitingConfirm',
+  [CART_STATUS_SUBMITTED]: 'sharedCart.common.status.submitted',
+  [CART_STATUS_CLOSED]: 'sharedCart.common.status.closed',
+  [CART_STATUS_COMPLETED]: 'sharedCart.common.status.completed',
 }
 
 /** 状态主题色（浅底深字，用于标签） */
@@ -51,16 +58,18 @@ export const MEMBER_ROLE_MEMBER = '2'
 /** 3 确认人 */
 export const MEMBER_ROLE_CONFIRMATOR = '3'
 
+/** 成员角色 → 词条 key（导出名沿用历史名，文案在 `memberRoleLabel()` 里按当前语言取） */
 export const MEMBER_ROLE_LABEL: Record<string, string> = {
-  [MEMBER_ROLE_OWNER]: '发起人',
-  [MEMBER_ROLE_MEMBER]: '成员',
-  [MEMBER_ROLE_CONFIRMATOR]: '确认人',
+  [MEMBER_ROLE_OWNER]: 'sharedCart.common.role.owner',
+  [MEMBER_ROLE_MEMBER]: 'sharedCart.common.role.member',
+  [MEMBER_ROLE_CONFIRMATOR]: 'sharedCart.common.role.confirmator',
 }
 
 export function cartStatusLabel(status?: null | string): string {
   if (!status)
     return ''
-  return CART_STATUS_LABEL[status] ?? '未知状态'
+  const key = CART_STATUS_LABEL[status]
+  return key ? translate(key) : translate('sharedCart.common.status.unknown')
 }
 
 export function cartStatusTheme(status?: null | string) {
@@ -70,7 +79,8 @@ export function cartStatusTheme(status?: null | string) {
 export function memberRoleLabel(role?: null | string): string {
   if (!role)
     return ''
-  return MEMBER_ROLE_LABEL[role] ?? '成员'
+  const key = MEMBER_ROLE_LABEL[role]
+  return key ? translate(key) : translate('sharedCart.common.role.member')
 }
 
 /** 仅「收集中」的购物车允许继续加购与编辑明细 */
@@ -114,7 +124,7 @@ export function sharedCartLocationLabel(cart?: SharedCart | null): string {
   if (!cart)
     return ''
   if (isShoreCart(cart))
-    return cart.addressSnapshot || '收货地址待同步'
+    return cart.addressSnapshot || translate('sharedCart.common.addressPending')
   const parts = [cart.portName, cart.berth].filter(Boolean)
   if (parts.length > 0)
     return parts.join(' ')
@@ -131,7 +141,7 @@ export function sharedCartTitleLabel(cart?: SharedCart | null): string {
   if (!cart)
     return ''
   if (isShoreCart(cart))
-    return '岸上合并采购'
+    return translate('sharedCart.common.shoreTitle')
   return cart.vesselName || ''
 }
 
@@ -199,8 +209,18 @@ export function groupSharedCarts(carts: SharedCart[], now: Date = new Date()): S
   active.sort((a, b) => deadlineRank(a, now) - deadlineRank(b, now))
 
   return [
-    { key: 'active', title: '进行中', hint: '还没有提交，截止前随时可以加购', carts: active },
-    { key: 'history', title: '历史', hint: '已提交或已关闭的单，仅供查阅', carts: history },
+    {
+      key: 'active',
+      title: translate('sharedCart.common.section.activeTitle'),
+      hint: translate('sharedCart.common.section.activeHint'),
+      carts: active,
+    },
+    {
+      key: 'history',
+      title: translate('sharedCart.common.section.historyTitle'),
+      hint: translate('sharedCart.common.section.historyHint'),
+      carts: history,
+    },
   ].filter(section => section.carts.length > 0) as SharedCartSection[]
 }
 
@@ -219,7 +239,7 @@ function deadlineRank(cart: SharedCart, now: Date): number {
  * 卡片上的截止提示：倒计时 + 是否紧急。
  *
  * 只在收集中且有截止时间时给出；不足 1 小时转警示色，与详情页同一分档
- * （复用 formatExpiryCountdown，不在这里另写一套时间换算）。
+ * （复用 formatExpiryCountdownState 的结构化结果，不在这里另写一套时间换算）。
  */
 export function cartDeadlineView(
   cart: SharedCart,
@@ -228,13 +248,14 @@ export function cartDeadlineView(
   if (!isCartCollecting(cart.status) || !cart.expiresAt)
     return null
   if (isCartExpired(cart, now))
-    return { text: '已过截止时间', urgent: true, expired: true }
-  const text = formatExpiryCountdown(cart.expiresAt, now)
-  if (!text)
+    return { text: translate('sharedCart.common.deadlineExpired'), urgent: true, expired: true }
+  // 紧急与否由倒计时函数结构化返回，禁止比较翻译后的文案（英文下正则必然失效）
+  const countdown = formatExpiryCountdownState(cart.expiresAt, now)
+  if (!countdown)
     return null
   return {
-    text,
-    urgent: text === '即将截止' || /还剩 \d+ 分/.test(text),
+    text: countdown.text,
+    urgent: countdown.urgent,
     expired: false,
   }
 }
@@ -248,21 +269,42 @@ export function cartDeadlineView(
  *
  * 权限只信服务端下发的 viewer* 标记，前端不按 userId 猜。
  */
-export function cartActionLabel(cart: SharedCart, now: Date = new Date()): string {
+export type SharedCartAction = 'viewOrder' | 'plan' | 'addItems' | 'view'
+
+/**
+ * 动作的中文默认文案。
+ *
+ * 展示统一走 `cartActionLabel()` 的当前语言文案；这张表保留动作口径的单一来源
+ * （源码契约测试也依赖它），调用方不得拿它的返回值做逻辑判断。
+ */
+const CART_ACTION_TEXT: Record<SharedCartAction, string> = {
+  viewOrder: '查看订单',
+  plan: '排计划',
+  addItems: '去加货',
+  view: '查看',
+}
+
+/** 卡片主操作的动作码：页面需要做分支/埋点时用它，不要比较展示文案 */
+export function cartActionKey(cart: SharedCart, now: Date = new Date()): SharedCartAction {
   if (cart.submitOrderId)
-    return '查看订单'
+    return 'viewOrder'
   if (isCartCollecting(cart.status)) {
     if (isCartExpired(cart, now))
-      return '查看'
+      return 'view'
     if (cart.viewerCanConfirm === true)
-      return '排计划'
+      return 'plan'
     if (cart.viewerCanEdit === true)
-      return '去加货'
-    return '查看'
+      return 'addItems'
+    return 'view'
   }
   if (cart.status === CART_STATUS_DRAFT)
-    return cart.viewerCanEdit === true ? '去加货' : '查看'
-  return '查看'
+    return cart.viewerCanEdit === true ? 'addItems' : 'view'
+  return 'view'
+}
+
+export function cartActionLabel(cart: SharedCart, now: Date = new Date()): string {
+  const key = cartActionKey(cart, now)
+  return translate(`sharedCart.common.action.${key}`) || CART_ACTION_TEXT[key]
 }
 
 /* -------------------------------------------------------------------------
@@ -349,12 +391,12 @@ export function amountText(value?: null | number): string {
  */
 export function itemAmountText(item: SharedCartItem): string {
   const amount = itemAmountOf(item)
-  return amount === null ? '待核价' : `¥${amountText(amount)}`
+  return amount === null ? translate('sharedCart.common.pendingPrice') : `¥${amountText(amount)}`
 }
 
 /** 单价文案：`¥12.00 / 件` 之类的部分由调用方拼接，这里只出数字部分 */
 export function unitPriceText(item: SharedCartItem): string {
   if (item.unitPrice === null || item.unitPrice === undefined)
-    return '待核价'
+    return translate('sharedCart.common.pendingPrice')
   return `¥${amountText(Number(item.unitPrice))}`
 }

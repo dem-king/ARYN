@@ -12,6 +12,7 @@ import {
 import { getPage } from '#/api/pay/trade-order';
 import PageFilterPanel from '#/components/page/page-filter-panel.vue';
 import PageToolbar from '#/components/page/page-toolbar.vue';
+import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 import { formatMoney } from '#/utils/util';
 
 const RightToolbar = defineAsyncComponent(
@@ -68,6 +69,8 @@ const getPayTypeDesc = (extra: any): string => {
   }
 };
 initPage();
+
+useKeepAliveRefresh(initPage);
 </script>
 <template>
   <div class="hx-layout-container">

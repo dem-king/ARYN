@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onLoad } from '@dcloudio/uni-app'
 import { reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { buildApiUrl } from '@/api/core/api-base-url'
 import { parseOpenBoot, rewriteBootUrl } from '@/api/core/boot-url'
 import { getById, orderAppraise } from '@/api/order/orderInfo'
@@ -14,6 +15,7 @@ definePage({
 })
 const loading = ref(true)
 const { error } = useGlobalToast()
+const { t } = useI18n()
 const router = useRouter()
 const globalLoading = useGlobalLoading()
 const authStore = useAuthStore()
@@ -35,7 +37,7 @@ onLoad(async (options) => {
 })
 
 async function getOrder(id: string) {
-  globalLoading.loading('加载中...')
+  globalLoading.loading(t('common.loading'))
   try {
     const response = await getById(id)
     response.orderItemList.forEach((item: any) => {
@@ -61,7 +63,7 @@ async function getOrder(id: string) {
 async function onsubmit() {
   for (const item of state.list) {
     if (!item.content) {
-      error('请填写评价')
+      error(t('order.appraise.required'))
       return
     }
     if (Array.isArray(item.uploadList) && item.uploadList.length > 0) {
@@ -78,7 +80,7 @@ async function onsubmit() {
     }
   }
   try {
-    globalLoading.loading('加载中...')
+    globalLoading.loading(t('common.loading'))
     await orderAppraise(state.list[0].orderId, state.list)
     router.push({
       name: 'user-appraise',
@@ -91,7 +93,7 @@ async function onsubmit() {
 </script>
 
 <template>
-  <hr-navbar title="发表评论" />
+  <hr-navbar :title="t('order.appraise.title')" />
   <view class="p-20rpx">
     <view v-for="(item, index) in state.list" :key="index" class="mb-2 rounded-xl bg-white p-2">
       <view class="flex p-20rpx">
@@ -107,12 +109,12 @@ async function onsubmit() {
       </view>
       <view class="flex items-center p-10rpx">
         <view class="pr-10rpx">
-          商品评价
+          {{ t('order.appraise.productRating') }}
         </view>
         <wd-rate v-model="item.goodsScore" :num="5" />
       </view>
       <view class="p-10rpx">
-        <wd-textarea v-model="item.content" custom-class="wd-textarea border border-gray-400! rounded-16rpx! m-0!" placeholder="请填写评价" />
+        <wd-textarea v-model="item.content" custom-class="wd-textarea border border-gray-400! rounded-16rpx! m-0!" :placeholder="t('order.appraise.placeholder')" />
       </view>
       <view>
         <wd-upload v-model:file-list="item.uploadList" multiple :header="headers" image-mode="aspectFill" :action="action" :limit="6" />
@@ -121,7 +123,7 @@ async function onsubmit() {
     <wd-gap height="50" />
     <view class="fixed bottom-0 left-0 right-0 bg-white p-10rpx pb-[max(env(safe-area-inset-bottom),16rpx)]">
       <wd-button block type="primary" @click="onsubmit">
-        确认发表
+        {{ t('order.appraise.submit') }}
       </wd-button>
     </view>
   </view>

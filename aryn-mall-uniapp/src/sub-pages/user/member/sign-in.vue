@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
+import { useI18n } from 'vue-i18n'
 import { signIn as signInApi, getSignInConfigPage, getSignInRecordPage } from '@/sub-pages/api/user/signIn'
 import type { SignInConfig } from '@/sub-pages/api/user/signIn'
 
@@ -12,6 +13,7 @@ definePage({
   },
 })
 
+const { t } = useI18n()
 const userStore = useUserStore()
 const globalLoading = useGlobalLoading()
 const { success: showSuccess } = useGlobalToast()
@@ -81,7 +83,7 @@ function currentMonthRange(now: Date): { begin: string, end: string } {
 async function handleSignIn() {
   if (isSigned.value)
     return
-  globalLoading.loading('签到中...')
+  globalLoading.loading(t('accountMember.signIn.signingIn'))
   try {
     const result = await signInApi()
     isSigned.value = true
@@ -92,8 +94,8 @@ async function handleSignIn() {
     // 签到成功后立即刷新日历，否则当日格子要等下次 onShow 才打勾
     refreshCalendar()
     showSuccess(result.rewardPoint > 0
-      ? `签到成功！获得${result.rewardPoint}积分`
-      : '签到成功，今日暂无奖励')
+      ? t('accountMember.signIn.successWithReward', { points: result.rewardPoint })
+      : t('accountMember.signIn.successNoReward'))
     userStore.refreshPointsInfo()
   }
   catch (error) {
@@ -148,18 +150,18 @@ onShow(() => {
 </script>
 
 <template>
-  <hr-navbar title="每日签到" />
+  <hr-navbar :title="t('accountMember.signIn.title')" />
   <!-- 签到状态卡片 -->
   <view class="sign-card">
     <view class="card-bg" />
     <view class="card-content">
       <view class="text-center">
-        <view class="text-14px text-white opacity-80">当前积分</view>
+        <view class="text-14px text-white opacity-80">{{ t('accountMember.signIn.currentPoints') }}</view>
         <view class="text-36px font-bold text-white mt-1">{{ userStore.getPoint }}</view>
       </view>
       <view class="mt-4 flex items-center justify-center">
         <view v-if="consecutiveDay > 0" class="text-13px text-white opacity-80">
-          已连续签到{{ consecutiveDay }}天
+          {{ t('accountMember.signIn.consecutiveDays', { days: consecutiveDay }) }}
         </view>
       </view>
       <view class="mt-4">
@@ -169,7 +171,7 @@ onShow(() => {
           block
           @click="handleSignIn"
         >
-          {{ isSigned ? '今日已签到' : '立即签到' }}
+          {{ isSigned ? t('accountMember.signIn.checkedToday') : t('accountMember.signIn.checkInNow') }}
         </wd-button>
       </view>
     </view>
@@ -177,7 +179,7 @@ onShow(() => {
 
   <!-- 签到日历 -->
   <view class="m-2 rounded-xl bg-white p-4">
-    <view class="text-14px font-bold mb-2">签到日历</view>
+    <view class="text-14px font-bold mb-2">{{ t('accountMember.signIn.calendar') }}</view>
     <view class="calendar-grid">
       <view v-for="item in calendarDays" :key="item.date" class="calendar-item">
         <view
@@ -197,10 +199,10 @@ onShow(() => {
 
   <!-- 签到奖励规则 -->
   <view v-if="signInConfigs.length > 0" class="m-2 rounded-xl bg-white p-4">
-    <view class="text-14px font-bold mb-2">签到奖励</view>
+    <view class="text-14px font-bold mb-2">{{ t('accountMember.signIn.rewards') }}</view>
     <view v-for="config in signInConfigs" :key="config.id" class="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
-      <view class="text-13px">连续签到{{ config.consecutiveDay }}天</view>
-      <view class="text-13px color-primary">+{{ config.rewardPoint }}积分</view>
+      <view class="text-13px">{{ t('accountMember.signIn.rewardRule', { days: config.consecutiveDay }) }}</view>
+      <view class="text-13px color-primary">{{ t('accountMember.signIn.rewardPoints', { points: config.rewardPoint }) }}</view>
     </view>
   </view>
 </template>

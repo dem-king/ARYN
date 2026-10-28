@@ -21,6 +21,7 @@ import { getDeliveryStaffList } from '#/api/delivery/staff';
 import { assignDeliveryTasks, getDeliveryTaskPage } from '#/api/delivery/task';
 import PageFilterPanel from '#/components/page/page-filter-panel.vue';
 import PageToolbar from '#/components/page/page-toolbar.vue';
+import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 
 import { resolveDeliveryDestination } from '../delivery-destination';
 
@@ -55,8 +56,8 @@ const PENDING_ASSIGN: DeliveryTaskStatus = '1';
 
 interface DeliveryStaffOption {
   id: string;
-  name: string;
-  phone?: string;
+  staffName: string;
+  staffPhone?: string;
   status: string;
 }
 
@@ -201,6 +202,7 @@ const confirmAssign = () => {
 };
 
 initPage();
+useKeepAliveRefresh(initPage);
 </script>
 <template>
   <div class="hx-layout-container">
@@ -400,7 +402,7 @@ initPage();
               <ElOption
                 v-for="item in staffOptions"
                 :key="item.id"
-                :label="`${item.name}（${item.phone ?? ''}）`"
+                :label="`${item.staffName}（${item.staffPhone ?? ''}）`"
                 :value="item.id"
               />
             </ElSelect>

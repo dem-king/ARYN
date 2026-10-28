@@ -4,9 +4,10 @@ import type { DiyCommonStyle } from '@vben/types';
 import { computed } from 'vue';
 
 import { Handbag, ShoppingCart } from '@element-plus/icons-vue';
-import { ElButton, ElIcon, ElTag } from 'element-plus';
+import { ElButton, ElIcon } from 'element-plus';
 
 import { shouldShowOriginalPrice as showOriginalPrice } from '../common/retail-preview/price-display';
+import { stockHintText } from '../common/retail-preview/stock-display';
 import { shouldShowSubtitle } from '../common/retail-preview/subtitle-display';
 
 interface ShowData {
@@ -22,10 +23,6 @@ interface ShowData {
   nameSize: number;
   nameColor: string;
   nameStyle: string;
-  showTag: boolean;
-  tagSize: number;
-  tagColor: string;
-  tagStyle: string;
   showSalesPrice: true;
   salesPriceSize: number;
   salesPriceColor: string;
@@ -43,8 +40,11 @@ interface ShowData {
   stockColor: string;
   stockStyle: string;
   buyBtnStyle: string;
-  showBuyBtn: string;
+  showBuyBtn: boolean;
   buyBtnText: string;
+  buyBtnColor?: string;
+  buyBtnSize?: number;
+  imageBorderSize?: number;
 }
 const props = defineProps<{
   showData: ShowData;
@@ -123,6 +123,14 @@ const dynamicGoodsStyles = computed(() => {
     }),
   };
 });
+/** 购买按钮配色/字号与图片圆角：与小程序 diy-goods 读取同一组装修字段 */
+const buyBtnColor = computed(
+  () => props.showData.buyBtnColor || 'var(--wot-color-theme-primary, #ff2237)',
+);
+const buyBtnSize = computed(() => Number(props.showData.buyBtnSize) || 14);
+const imageBorderRadius = computed(
+  () => `${Number(props.showData.imageBorderSize) || 0}px`,
+);
 </script>
 
 <template>
@@ -148,7 +156,10 @@ const dynamicGoodsStyles = computed(() => {
             <div class="goods-item" :style="dynamicGoodsStyles">
               <div
                 class="goods-img-one"
-                :style="{ backgroundImage: `url(${item.spuUrls[0]})` }"
+                :style="{
+                  backgroundImage: `url(${item.spuUrls[0]})`,
+                  borderRadius: imageBorderRadius,
+                }"
               ></div>
               <div class="goods-box-info">
                 <div
@@ -173,41 +184,17 @@ const dynamicGoodsStyles = computed(() => {
                 >
                   {{ item.subTitle }}
                 </div>
-                <div v-if="showData.showTag" style="padding-top: 8px">
-                  <ElTag effect="plain" size="small" style="height: 15px">
-                    包邮
-                  </ElTag>
-                </div>
+                <!-- 库存/销量不外露绝对数字：只在售罄/低库存时给稀缺提示（与小程序 diy-goods 同口径） -->
                 <div
+                  v-if="stockHintText(item.stock)"
+                  class="goods-info-stock"
                   style="
-                    display: flex;
-                    justify-content: space-between;
                     padding-top: 8px;
+                    font-size: 10px;
+                    color: rgb(144 147 153);
                   "
                 >
-                  <div
-                    class="goods-info-salesVolume"
-                    v-if="showData.showSalesVolume"
-                    :style="{
-                      color: showData.salesVolumeColor,
-                      fontSize: `${showData.salesVolumeSize}px`,
-                      'font-weight':
-                        showData.salesVolumeStyle === '1' ? 'bold' : '',
-                    }"
-                  >
-                    已售{{ item.salesVolume }}
-                  </div>
-                  <div
-                    class="goods-info-stock"
-                    v-if="showData.showStock"
-                    :style="{
-                      color: showData.stockColor,
-                      fontSize: `${showData.stockSize}px`,
-                      'font-weight': showData.stockStyle === '1' ? 'bold' : '',
-                    }"
-                  >
-                    {{ item.stock }}
-                  </div>
+                  {{ stockHintText(item.stock) }}
                 </div>
                 <div class="goods-info-price">
                   <div
@@ -240,24 +227,33 @@ const dynamicGoodsStyles = computed(() => {
                       ￥{{ item.originalPrice }}
                     </span>
                   </div>
-                  <div class="goods-info-buy-btn">
+                  <div
+                    v-if="showData.showBuyBtn !== false"
+                    class="goods-info-buy-btn"
+                  >
                     <ElIcon
                       v-if="showData.buyBtnStyle === '1'"
-                      color="var(--wot-color-theme-primary, #ff2237)"
-                      size="20"
+                      :color="buyBtnColor"
+                      :size="buyBtnSize"
                     >
                       <Handbag />
                     </ElIcon>
                     <ElIcon
                       v-if="showData.buyBtnStyle === '2'"
-                      color="var(--wot-color-theme-primary, #ff2237)"
-                      size="20"
+                      :color="buyBtnColor"
+                      :size="buyBtnSize"
                     >
                       <ShoppingCart />
                     </ElIcon>
                     <ElButton
                       v-if="showData.buyBtnStyle === '3'"
-                      color="var(--wot-color-theme-primary, #ff2237)"
+                      plain
+                      size="small"
+                      :style="{
+                        color: buyBtnColor,
+                        borderColor: buyBtnColor,
+                        fontSize: `${buyBtnSize}px`,
+                      }"
                     >
                       {{ showData.buyBtnText }}
                     </ElButton>
@@ -282,25 +278,33 @@ const dynamicGoodsStyles = computed(() => {
               </div>
               <div class="goods-info-price">
                 <div class="price-info">￥9999</div>
-                <div class="goods-info-buy-btn" v-if="showData.showBuyBtn">
+                <div
+                  v-if="showData.showBuyBtn !== false"
+                  class="goods-info-buy-btn"
+                >
                   <ElIcon
                     v-if="showData.buyBtnStyle === '1'"
-                    color="var(--wot-color-theme-primary, #ff2237)"
-                    size="20"
+                    :color="buyBtnColor"
+                    :size="buyBtnSize"
                   >
                     <Handbag />
                   </ElIcon>
                   <ElIcon
                     v-if="showData.buyBtnStyle === '2'"
-                    color="var(--wot-color-theme-primary, #ff2237)"
-                    size="20"
+                    :color="buyBtnColor"
+                    :size="buyBtnSize"
                   >
                     <ShoppingCart />
                   </ElIcon>
                   <ElButton
                     v-if="showData.buyBtnStyle === '3'"
-                    color="var(--wot-color-theme-primary, #ff2237)"
+                    plain
                     size="small"
+                    :style="{
+                      color: buyBtnColor,
+                      borderColor: buyBtnColor,
+                      fontSize: `${buyBtnSize}px`,
+                    }"
                   >
                     {{ showData.buyBtnText }}
                   </ElButton>
