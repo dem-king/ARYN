@@ -4,7 +4,7 @@
 
 ## 项目概览
 
-悦航购是一套电商 SaaS 系统，支持单体/微服务双模式运行。三个独立子项目通过 API 通信：
+悦航购是一套电商 SaaS 系统，支持单体/微服务双模式运行。三个应用与一份独立调度源码通过 API/调度通信：
 
 | 目录 | 技术栈 | 定位 |
 |------|--------|------|
@@ -36,12 +36,12 @@ cd aryn-mall-ui && pnpm lint                                   # ESLint + Pretti
 
 # === 移动端 ===
 cd aryn-mall-uniapp && pnpm install && pnpm dev:mp-weixin     # 微信小程序（需 Node >= 22）
-cd aryn-mall-uniapp && pnpm type-check                         # 当前无 lint/test 脚本
+cd aryn-mall-uniapp && pnpm type-check && pnpm test:unit       # 当前无 lint 脚本
 
 # === 当前可靠验证 ===
 cd aryn-mall-java && mvn test -pl aryn-boot -am
 cd aryn-mall-ui && pnpm check:type && pnpm test:unit && pnpm lint
-cd aryn-mall-uniapp && pnpm type-check
+cd aryn-mall-uniapp && pnpm type-check && pnpm test:unit
 ```
 
 ## 分层规则
@@ -148,7 +148,7 @@ cd aryn-mall-uniapp && pnpm type-check
 
 ## Git 与知识维护
 
-- 当前主开发分支为 `dev`，远端为 `origin`；新分支默认使用 `codex/<topic>`，除非用户指定其他约定。
+- 当前实际活跃分支为 `ship-chandler`（2026-10-28 最新提交）；`dev`（2026-07-31）与 `master`（2026-07-06）均已滞后，合并目标分支以用户指定为准；新分支默认使用 `codex/<topic>`。
 - Git 提交信息的标题和正文必须使用中文；禁止使用英文提交标题或英文正文。
 - 禁止创建、使用或切换 Git worktree；所有操作必须在当前工作目录完成。
 - 工作区可能包含用户未提交修改；不得回退、覆盖或顺带格式化无关文件。

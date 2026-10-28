@@ -14,6 +14,7 @@
 #   ./dev-tools/start-demo-env.sh --build      # 先重新构建 H5 与管理端静态包再启动
 #   ./dev-tools/start-demo-env.sh --no-admin   # 不启动管理端
 #   ./dev-tools/start-demo-env.sh --no-h5      # 不启动 H5
+#   ./dev-tools/start-demo-env.sh --stop       # 停止隧道/前端服务（若装了 launchd 自启会一并暂停）
 #
 # 建议演示期间：caffeinate -dis ./dev-tools/start-demo-env.sh  # 防止 Mac 休眠
 #
@@ -25,6 +26,8 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 RUN_PUBLIC="${TMPDIR:-/tmp}/aryn-public-tunnel"
+AUTO_PAGES="${AUTO_PAGES:-false}"
+TUNNELS_CHANGED=0
 RUN_IMAGE="${TMPDIR:-/tmp}/aryn-image-tunnel"
 MOBILE_DIR="${ROOT_DIR}/aryn-mall-uniapp"
 UI_DIR="${ROOT_DIR}/aryn-mall-ui"
@@ -43,6 +46,7 @@ while (($# > 0)); do
     --status) ACTION="status"; shift ;;
     --build) DO_BUILD=true; shift ;;
     --no-admin) WITH_ADMIN=false; shift ;;
+    --stop) ACTION="stop"; shift ;;
     --no-h5) WITH_H5=false; shift ;;
     -h|--help) sed -n '2,28p' "$0"; exit 0 ;;
     *) die "未知参数: $1" ;;
@@ -109,6 +113,41 @@ print_status() {
 
 if [ "$ACTION" = "status" ]; then
   print_status
+  exit 0
+fi
+
+# 运行锁：避免 launchd 两次执行重叠导致隧道互相覆盖（--status/--stop 不加锁）
+LOCK_DIR="${TMPDIR:-/tmp}/aryn-demo-env.lock"
+if [ "$ACTION" = "start" ]; then
+  if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    OLD_PID=$(cat "$LOCK_DIR/pid" 2>/dev/null || true)
+    if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+      log "另一个 start-demo-env.sh 正在运行（pid=${OLD_PID}），本次跳过"
+      exit 0
+    fi
+    rm -rf "$LOCK_DIR"
+    mkdir "$LOCK_DIR" 2>/dev/null || die '无法创建运行锁'
+  fi
+  printf '%s' "$$" > "$LOCK_DIR/pid"
+  trap 'rm -rf "$LOCK_DIR" 2>/dev/null || true' EXIT INT TERM
+fi
+
+if [ "$ACTION" = "stop" ]; then
+  log '停止演示环境…'
+  LABEL="com.aryn.demo-env"
+  if launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1; then
+    launchctl bootout "gui/$(id -u)/$LABEL" >/dev/null 2>&1 || true
+    log '已暂停 launchd 自启（需要恢复：./dev-tools/install-demo-launchd.sh install）'
+  fi
+  "${SCRIPT_DIR}/dev-image-tunnel.sh" --stop >/dev/null 2>&1 || true
+  "${SCRIPT_DIR}/dev-public-tunnel.sh" 5777 --stop >/dev/null 2>&1 || true
+  "${SCRIPT_DIR}/dev-public-tunnel.sh" 8890 --stop >/dev/null 2>&1 || true
+  for port in 8890 5777; do
+    pids=$(lsof -ti "tcp:${port}" 2>/dev/null || true)
+    [ -n "$pids" ] && kill $pids 2>/dev/null || true
+  done
+  log '已停止：三条隧道、H5 静态服务(8890)、管理端 dev server(5777)'
+  log '后端 Docker 容器未停止（需要时 docker stop aryn-boot）'
   exit 0
 fi
 
@@ -179,6 +218,7 @@ if ! state_pid_alive "${RUN_IMAGE}/state.env"; then
   log '启动后端/图片隧道 (9999)，并把数据库图片地址切到新域名…'
   "${SCRIPT_DIR}/dev-image-tunnel.sh" --detach >/tmp/image-tunnel-restart.log 2>&1 \
     || warn '后端/图片隧道启动失败，见 /tmp/image-tunnel-restart.log'
+  TUNNELS_CHANGED=1
 else
   log '后端/图片隧道已在运行，沿用现有域名'
 fi
@@ -193,6 +233,7 @@ ensure_public_tunnel() { # $1=port  $2=额外参数
   # shellcheck disable=SC2086
   "${SCRIPT_DIR}/dev-public-tunnel.sh" "$port" --detach $extra >"/tmp/tunnel-${port}-restart.log" 2>&1 \
     || warn "端口 ${port} 隧道启动失败，见 /tmp/tunnel-${port}-restart.log"
+  TUNNELS_CHANGED=1
 }
 
 if $WITH_ADMIN; then ensure_public_tunnel 5777; fi
@@ -202,6 +243,19 @@ if $WITH_H5; then ensure_public_tunnel 8890 "--no-host-rewrite"; fi
 
 echo
 print_status
+# 隧道域名变了且开启了自动发布：更新 Cloudflare Pages 的 /api 代理目标（不重建前端）
+if [ "$TUNNELS_CHANGED" = "1" ] && [ "$AUTO_PAGES" = "true" ]; then
+  if npx --yes wrangler@latest whoami 2>/dev/null | grep -q 'Account Name'; then
+    log '检测到隧道域名变化，自动更新 Cloudflare Pages 代理目标…'
+    "${SCRIPT_DIR}/deploy-pages.sh" --skip-build >>"${HOME}/Library/Logs/aryn-demo/pages-deploy.log" 2>&1 \
+      && log '已自动更新 Pages 代理目标' \
+      || warn '自动更新 Pages 失败，请手动执行 ./dev-tools/deploy-pages.sh --skip-build'
+  else
+    warn '隧道域名已变化，但未登录 Cloudflare，Pages 代理未更新；请执行 npx wrangler login 后跑 ./dev-tools/deploy-pages.sh --skip-build'
+    warn '若还没部署过 Pages，可忽略本提示'
+  fi
+fi
+
 echo
 log '说明：'
 log '  1. 以上隧道链接由 Cloudflare Quick Tunnel 生成，进程重启/网络变化后域名会变，重跑本脚本即可；'
