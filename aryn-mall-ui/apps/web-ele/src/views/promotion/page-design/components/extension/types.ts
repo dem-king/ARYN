@@ -468,3 +468,72 @@ export function validateGoodsTabs(props: Record<string, unknown>) {
   });
   return errors;
 }
+
+/**
+ * 满减券阶梯的档数边界。
+ *
+ * 1 档没有对比意义；超过 4 档在 375px 宽度下每档只剩 80px 左右，
+ * 「满 199 元」都会被挤断行。
+ */
+export const COUPON_LADDER_MIN_TIERS = 2;
+export const COUPON_LADDER_MAX_TIERS = 4;
+
+export function createCouponLadderDefaults() {
+  return {
+    badgeText: '',
+    /**
+     * 卡片自带白底，根节点不再铺白：否则两张卡之间的 10px 缝隙会被白色填满，
+     * 渐变头图与内容卡会粘成一整块。
+     */
+    commonStyle: {
+      ...extensionCommonStyle,
+      bgStartColor: '',
+      styleBottomMargin: 10,
+      styleLeftMargin: 12,
+      styleRightMargin: 12,
+    },
+    ctaLink: {
+      params: {},
+      path: '/sub-pages/promotion/coupon/coupon-list/index',
+      type: 'custom' as const,
+    } satisfies DecorationLink,
+    ctaText: '去领券中心',
+    dataSource: { mode: 'automatic' as const, targetIds: [] as string[] },
+    noteText: '',
+    showClaimBtn: true,
+    showNum: 3,
+    subtitle: '先领券 · 后加购 · 下单自动抵扣',
+    title: '满减狂欢',
+  };
+}
+
+/**
+ * 满减券阶梯的发布校验。
+ *
+ * 档位数字不在校验范围内：它来自 coupon_info，运营改券即改档位，
+ * schema 里没有任何金额字段可校验（这是与「自定义 HTML 手写满减」的关键区别）。
+ */
+export function validateCouponLadder(props: Record<string, unknown>) {
+  const errors: string[] = [];
+  if (!String(props.title ?? '').trim()) errors.push('标题不能为空');
+
+  const showNum = Number(props.showNum);
+  if (
+    !Number.isInteger(showNum) ||
+    showNum < COUPON_LADDER_MIN_TIERS ||
+    showNum > COUPON_LADDER_MAX_TIERS
+  ) {
+    errors.push(
+      `展示档数需在 ${COUPON_LADDER_MIN_TIERS}-${COUPON_LADDER_MAX_TIERS} 之间`,
+    );
+  }
+
+  const dataSource = props.dataSource as
+    undefined | { mode?: string; targetIds?: string[] };
+  const targetIds = (dataSource?.targetIds ?? []).filter(Boolean);
+  if (dataSource?.mode === 'manual' && targetIds.length === 0)
+    errors.push('手选满减券不能为空');
+  if (dataSource?.mode === 'manual' && targetIds.length > showNum)
+    errors.push(`手选满减券最多 ${showNum} 张，超出部分不会被展示`);
+  return errors;
+}

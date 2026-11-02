@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { onLoad, onShow, onUnload } from '@dcloudio/uni-app'
+import { onLoad, onPageScroll, onShow, onUnload } from '@dcloudio/uni-app'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getRechargeOrder } from '@/sub-pages/api/user/recharge'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+
+const { handlePageScroll } = useFrostedNavbar()
 
 definePage({
   name: 'member-recharge-result',
@@ -189,6 +192,9 @@ function goMemberCenter() {
 function goRecharge() {
   uni.redirectTo({ url: '/sub-pages/user/member/recharge' })
 }
+
+// 顶栏磨砂玻璃：字面量注册滚动（小程序按页面源码生成滚动位标记，包进 composable 会静默失效）
+onPageScroll(handlePageScroll)
 </script>
 
 <template>

@@ -8,12 +8,17 @@ import {
   markAllNoticesRead,
   markNoticeRead,
 } from '@/api/message/notice'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+import { useRequireLogin } from '@/composables/useRequireLogin'
+import { useAuthStore } from '@/store/authStore'
 import { useMessageStore } from '@/store/messageStore'
 import {
   formatNoticeTime,
   isImportantNotice,
   noticeCategoryLabelOf,
 } from '@/utils/notice'
+
+const { handlePageScroll } = useFrostedNavbar()
 
 definePage({
   name: 'message-center',
@@ -33,7 +38,9 @@ const conversationCursor = ref<string>()
 const noticeHasMore = ref(false)
 const conversationHasMore = ref(false)
 const loading = ref(false)
+const authStore = useAuthStore()
 const messageStore = useMessageStore()
+const { goLogin } = useRequireLogin()
 
 /** 页头不写产品内部说明：有未读报数，无未读给确定态，别让用户读到设计文档的句子 */
 const heroTitle = computed(() =>
@@ -59,13 +66,18 @@ const stickyTop = ref(resolveStickyTop())
 const stuck = ref(false)
 
 // 卡片吸顶后加重投影形成「浮起」层级；值没变不触发渲染，滚动回调里只做一次比较
-onPageScroll(({ scrollTop }) => {
-  const next = scrollTop > 8
+onPageScroll((event) => {
+  // 同一滚动回调里顺带驱动顶栏磨砂玻璃：页面在滚，内容会从固定顶栏下穿过
+  handlePageScroll(event)
+  const next = event.scrollTop > 8
   if (next !== stuck.value)
     stuck.value = next
 })
 
 async function loadNotices(reset = true) {
+  // 消息中心是非白名单页：游客深链打开时先挡在这里，不发出需登录的收件箱请求
+  if (!authStore.isLoggedIn)
+    return
   const page = await getNoticeInbox({
     cursor: reset ? undefined : noticeCursor.value,
     limit: 20,
@@ -76,6 +88,9 @@ async function loadNotices(reset = true) {
 }
 
 async function loadConversations(reset = true) {
+  // 同上：游客不拉客服会话
+  if (!authStore.isLoggedIn)
+    return
   const page = await getConversationInbox({
     cursor: reset ? undefined : conversationCursor.value,
     limit: 20,
@@ -88,6 +103,12 @@ async function loadConversations(reset = true) {
 }
 
 async function refresh() {
+  if (!authStore.isLoggedIn) {
+    loading.value = false
+    // 游客下拉刷新不发请求，但原生下拉动画必须收起，否则会一直转
+    uni.stopPullDownRefresh()
+    return
+  }
   loading.value = true
   try {
     await Promise.all([
@@ -132,6 +153,9 @@ async function readAll() {
 onLoad((options) => {
   if (options?.tab === 'conversation')
     activeTab.value = 'conversation'
+  // 游客深链直达时不建连、不订阅推送：登录后由 redirect 回本页重新 onLoad
+  if (!authStore.isLoggedIn)
+    return
   messageStore.connect()
   uni.$on('message-push', refresh)
 })
@@ -143,143 +167,162 @@ onUnload(() => uni.$off('message-push', refresh))
 <template>
   <view class="message-center">
     <hr-navbar :title="t('message.nav.center')" />
-    <view
-      class="message-hero"
-      :class="{ 'is-stuck': stuck }"
-      :style="{ top: `${stickyTop}px` }"
-    >
-      <view class="message-hero__copy">
-        <text class="message-hero__title">
-          {{ heroTitle }}
-        </text>
-        <text class="message-hero__tip">
-          {{ t('message.hub.tip') }}
-        </text>
+    <!--
+      游客态：消息中心是非白名单页（可被 H5 深链/历史链接直达），未登录时不渲染
+      hero / tabs / 列表，页面也不发出任何需登录请求，只留一条登录引导；
+      登录成功后由登录页按 redirectPath 回到本页重新加载。
+    -->
+    <view v-if="!authStore.isLoggedIn" class="message-guest">
+      <view class="message-guest__badge">
+        <wd-icon name="notification" size="52rpx" color="#ffffff" />
       </view>
-      <view class="message-hero__badge">
-        <wd-icon name="notification" size="42rpx" color="#ffffff" />
-      </view>
-    </view>
-    <view class="message-tabs">
-      <view
-        :class="{ active: activeTab === 'notice' }"
-        @click="activeTab = 'notice'"
-      >
-        {{ t('message.tabs.notice') }}
-        <text v-if="messageStore.noticeUnread">
-          {{
-            messageStore.noticeUnread
-          }}
-        </text>
-      </view>
-      <view
-        :class="{ active: activeTab === 'conversation' }"
-        @click="activeTab = 'conversation'"
-      >
-        {{ t('message.tabs.support') }}
-        <text v-if="messageStore.conversationUnread">
-          {{
-            messageStore.conversationUnread
-          }}
-        </text>
+      <text class="message-guest__text">
+        {{ t('message.hub.loginRequired') }}
+      </text>
+      <view class="message-guest__action" @tap="goLogin()">
+        {{ t('common.goLogin') }}
       </view>
     </view>
 
-    <view v-if="activeTab === 'notice'" class="message-list">
-      <view class="message-list__toolbar">
-        <text>{{ t('message.notice.inbox') }}</text><text
-          v-if="messageStore.noticeUnread"
-          class="message-list__action"
-          @click="readAll"
-        >
-          {{ t('message.notice.markAllRead') }}
-        </text>
-      </view>
+    <template v-else>
       <view
-        v-for="item in notices"
-        :key="item.recipientRecordId"
-        class="notice-item"
-        :class="{ unread: item.readStatus === '0' }"
-        @click="openNotice(item)"
+        class="message-hero"
+        :class="{ 'is-stuck': stuck }"
+        :style="{ top: `${stickyTop}px` }"
       >
-        <view class="notice-item__dot" />
-        <view class="notice-item__copy">
-          <view class="notice-item__head">
-            <text class="notice-item__title">
-              {{ item.title }}
-            </text><text class="notice-item__category">
+        <view class="message-hero__copy">
+          <text class="message-hero__title">
+            {{ heroTitle }}
+          </text>
+          <text class="message-hero__tip">
+            {{ t('message.hub.tip') }}
+          </text>
+        </view>
+        <view class="message-hero__badge">
+          <wd-icon name="notification" size="42rpx" color="#ffffff" />
+        </view>
+      </view>
+      <view class="message-tabs">
+        <view
+          :class="{ active: activeTab === 'notice' }"
+          @click="activeTab = 'notice'"
+        >
+          {{ t('message.tabs.notice') }}
+          <text v-if="messageStore.noticeUnread">
+            {{
+              messageStore.noticeUnread
+            }}
+          </text>
+        </view>
+        <view
+          :class="{ active: activeTab === 'conversation' }"
+          @click="activeTab = 'conversation'"
+        >
+          {{ t('message.tabs.support') }}
+          <text v-if="messageStore.conversationUnread">
+            {{
+              messageStore.conversationUnread
+            }}
+          </text>
+        </view>
+      </view>
+
+      <view v-if="activeTab === 'notice'" class="message-list">
+        <view class="message-list__toolbar">
+          <text>{{ t('message.notice.inbox') }}</text><text
+            v-if="messageStore.noticeUnread"
+            class="message-list__action"
+            @click="readAll"
+          >
+            {{ t('message.notice.markAllRead') }}
+          </text>
+        </view>
+        <view
+          v-for="item in notices"
+          :key="item.recipientRecordId"
+          class="notice-item"
+          :class="{ unread: item.readStatus === '0' }"
+          @click="openNotice(item)"
+        >
+          <view class="notice-item__dot" />
+          <view class="notice-item__copy">
+            <view class="notice-item__head">
+              <text class="notice-item__title">
+                {{ item.title }}
+              </text><text class="notice-item__category">
+                {{
+                  noticeCategoryLabelOf(item)
+                }}
+              </text><text
+                v-if="isImportantNotice(item.priority)"
+                class="notice-item__important"
+              >
+                {{ t('message.notice.important') }}
+              </text>
+            </view>
+            <text class="notice-item__summary">
               {{
-                noticeCategoryLabelOf(item)
+                item.summary || item.content
               }}
-            </text><text
-              v-if="isImportantNotice(item.priority)"
-              class="notice-item__important"
-            >
-              {{ t('message.notice.important') }}
+            </text>
+            <text class="notice-item__time">
+              {{
+                formatNoticeTime(item.publishTime || item.receivedTime)
+              }}
             </text>
           </view>
-          <text class="notice-item__summary">
-            {{
-              item.summary || item.content
-            }}
-          </text>
-          <text class="notice-item__time">
-            {{
-              formatNoticeTime(item.publishTime || item.receivedTime)
-            }}
-          </text>
+          <wd-icon name="arrow-right" size="28rpx" color="#c3cbc8" />
         </view>
-        <wd-icon name="arrow-right" size="28rpx" color="#c3cbc8" />
+        <view v-if="noticeHasMore" class="load-more" @click="loadNotices(false)">
+          {{ t('message.notice.loadEarlier') }}
+        </view>
+        <wd-status-tip
+          v-else-if="!loading && !notices.length"
+          image="message"
+          :tip="t('message.notice.empty')"
+        />
       </view>
-      <view v-if="noticeHasMore" class="load-more" @click="loadNotices(false)">
-        {{ t('message.notice.loadEarlier') }}
-      </view>
-      <wd-status-tip
-        v-else-if="!loading && !notices.length"
-        image="message"
-        :tip="t('message.notice.empty')"
-      />
-    </view>
 
-    <view v-else class="message-list">
-      <view class="message-list__toolbar">
-        <text>{{ t('message.support.listTitle') }}</text>
-      </view>
-      <view
-        v-for="item in conversations"
-        :key="item.id"
-        class="conversation-item"
-        @click="openConversation(item)"
-      >
-        <view class="conversation-item__avatar">
-          <wd-icon name="service" size="38rpx" />
+      <view v-else class="message-list">
+        <view class="message-list__toolbar">
+          <text>{{ t('message.support.listTitle') }}</text>
         </view>
-        <view class="conversation-item__copy">
-          <view>
-            <text>{{ t('message.support.mallSupport') }}</text><text>{{ formatNoticeTime(item.lastMessageTime) }}</text>
-          </view><text>{{ item.lastMessageSummary || t('message.support.startHint') }}</text>
+        <view
+          v-for="item in conversations"
+          :key="item.id"
+          class="conversation-item"
+          @click="openConversation(item)"
+        >
+          <view class="conversation-item__avatar">
+            <wd-icon name="service" size="38rpx" />
+          </view>
+          <view class="conversation-item__copy">
+            <view>
+              <text>{{ t('message.support.mallSupport') }}</text><text>{{ formatNoticeTime(item.lastMessageTime) }}</text>
+            </view><text>{{ item.lastMessageSummary || t('message.support.startHint') }}</text>
+          </view>
+          <wd-badge v-if="item.unreadCount" :model-value="item.unreadCount" />
         </view>
-        <wd-badge v-if="item.unreadCount" :model-value="item.unreadCount" />
+        <view
+          v-if="conversationHasMore"
+          class="load-more"
+          @click="loadConversations(false)"
+        >
+          {{ t('message.support.loadHistory') }}
+        </view>
+        <wd-status-tip
+          v-else-if="!loading && !conversations.length"
+          image="content"
+          :tip="t('message.support.empty')"
+        />
+        <button
+          class="start-service"
+          @click="startConversation"
+        >
+          {{ t('message.support.start') }}
+        </button>
       </view>
-      <view
-        v-if="conversationHasMore"
-        class="load-more"
-        @click="loadConversations(false)"
-      >
-        {{ t('message.support.loadHistory') }}
-      </view>
-      <wd-status-tip
-        v-else-if="!loading && !conversations.length"
-        image="content"
-        :tip="t('message.support.empty')"
-      />
-      <button
-        class="start-service"
-        @click="startConversation"
-      >
-        {{ t('message.support.start') }}
-      </button>
-    </view>
+    </template>
   </view>
 </template>
 
@@ -289,7 +332,51 @@ onUnload(() => uni.$off('message-push', refresh))
 .message-center {
   min-height: 100vh;
   padding-bottom: 50rpx;
-  background: #f4f6f7;
+  background: var(--app-bg);
+}
+/* 游客态：非白名单页深链直达且未登录时，只展示登录引导，不渲染需登录内容 */
+.message-guest {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 160rpx 64rpx;
+  text-align: center;
+  &__badge {
+    display: grid;
+    width: 120rpx;
+    height: 120rpx;
+    place-items: center;
+    border-radius: 34rpx;
+    background: linear-gradient(
+      135deg,
+      var(--theme-color-primary, var(--wot-color-theme-primary, #ff2237)),
+      var(--theme-color-secondary, var(--wot-color-theme-secondary, #ff6b7a))
+    );
+    box-shadow: 0 12rpx 28rpx rgb(20 29 45 / 16%);
+  }
+  &__text {
+    margin-top: 32rpx;
+    color: var(--app-text);
+    font-size: 30rpx;
+    font-weight: 700;
+    line-height: 1.5;
+  }
+  &__action {
+    height: 80rpx;
+    margin-top: 36rpx;
+    padding: 0 64rpx;
+    color: #fff;
+    border-radius: 999rpx;
+    background: linear-gradient(
+      135deg,
+      var(--theme-color-primary, var(--wot-color-theme-primary, #ff2237)),
+      var(--theme-color-secondary, var(--wot-color-theme-secondary, #ff6b7a))
+    );
+    box-shadow: 0 10rpx 24rpx rgb(20 29 45 / 16%);
+    font-size: 28rpx;
+    font-weight: 600;
+    line-height: 80rpx;
+  }
 }
 /*
   悬浮玻璃卡（玻璃拟态）：吸顶常驻，列表从卡下穿过。
@@ -353,7 +440,7 @@ onUnload(() => uni.$off('message-push', refresh))
     display: block;
   }
   &__title {
-    color: #1f2a2e;
+    color: var(--app-text);
     font-size: 32rpx;
     font-weight: 700;
     line-height: 1.4;
@@ -395,17 +482,17 @@ onUnload(() => uni.$off('message-push', refresh))
   margin: 24rpx;
   padding: 8rpx;
   border-radius: 20rpx;
-  background: #e9edee;
+  background: var(--app-border);
   view {
     padding: 18rpx;
-    color: #6f7b78;
+    color: var(--app-text-2);
     text-align: center;
     font-size: 26rpx;
     border-radius: 15rpx;
   }
   view.active {
     color: var(--theme-color-primary, var(--wot-color-theme-primary, #ff2237));
-    background: #fff;
+    background: var(--app-card);
     box-shadow: 0 8rpx 20rpx rgb(20 40 60 / 6%);
     font-weight: 700;
   }
@@ -420,11 +507,11 @@ onUnload(() => uni.$off('message-push', refresh))
     display: flex;
     justify-content: space-between;
     padding: 16rpx 5rpx;
-    color: #97a3a0;
+    color: var(--app-text-3);
     font-size: 22rpx;
   }
   &__action {
-    color: #6f7b78;
+    color: var(--app-text-2);
   }
 }
 .notice-item,
@@ -434,9 +521,9 @@ onUnload(() => uni.$off('message-push', refresh))
   gap: 18rpx;
   margin-bottom: 16rpx;
   padding: 25rpx;
-  border: 1rpx solid #eceff0;
+  border: 1rpx solid var(--app-border);
   border-radius: 22rpx;
-  background: #fff;
+  background: var(--app-card);
   box-shadow: 0 10rpx 26rpx rgb(17 27 38 / 4%);
 }
 .notice-item__dot {
@@ -444,7 +531,7 @@ onUnload(() => uni.$off('message-push', refresh))
   height: 76rpx;
   flex: none;
   border-radius: 8rpx;
-  background: #e3e8e8;
+  background: var(--app-border);
 }
 .notice-item.unread .notice-item__dot {
   background: var(--theme-color-primary, var(--wot-color-theme-primary, #ff2237));
@@ -460,7 +547,7 @@ onUnload(() => uni.$off('message-push', refresh))
 }
 .notice-item__title {
   overflow: hidden;
-  color: #1f2a2e;
+  color: var(--app-text);
   font-size: 28rpx;
   font-weight: 700;
   text-overflow: ellipsis;
@@ -475,8 +562,8 @@ onUnload(() => uni.$off('message-push', refresh))
   line-height: 1.5;
 }
 .notice-item__category {
-  color: #6f7b78;
-  background: #f2f4f4;
+  color: var(--app-text-2);
+  background: var(--app-card-2);
 }
 .notice-item__important {
   color: #d64545;
@@ -491,11 +578,11 @@ onUnload(() => uni.$off('message-push', refresh))
 }
 .notice-item__summary {
   margin: 10rpx 0;
-  color: #7b8783;
+  color: var(--app-text-3);
   font-size: 23rpx;
 }
 .notice-item__time {
-  color: #a8b1ae;
+  color: var(--app-text-3);
   font-size: 19rpx;
 }
 .conversation-item__avatar {
@@ -506,7 +593,7 @@ onUnload(() => uni.$off('message-push', refresh))
   place-items: center;
   color: var(--theme-color-primary, var(--wot-color-theme-primary, #ff2237));
   border-radius: 22rpx;
-  background: #f2f4f4;
+  background: var(--app-card-2);
 }
 .conversation-item__copy {
   min-width: 0;
@@ -515,12 +602,12 @@ onUnload(() => uni.$off('message-push', refresh))
 .conversation-item__copy view {
   display: flex;
   justify-content: space-between;
-  color: #1f2a2e;
+  color: var(--app-text);
   font-size: 27rpx;
   font-weight: 700;
 }
 .conversation-item__copy view text:last-child {
-  color: #a8b1ae;
+  color: var(--app-text-3);
   font-size: 18rpx;
   font-weight: 400;
 }
@@ -528,14 +615,14 @@ onUnload(() => uni.$off('message-push', refresh))
   display: block;
   margin-top: 10rpx;
   overflow: hidden;
-  color: #7b8783;
+  color: var(--app-text-3);
   font-size: 22rpx;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .load-more {
   padding: 24rpx;
-  color: #87938f;
+  color: var(--app-text-3);
   text-align: center;
   font-size: 22rpx;
 }

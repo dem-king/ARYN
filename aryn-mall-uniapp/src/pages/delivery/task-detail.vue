@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import type { DeliveryTask, DeliveryTaskStatus } from '@/api/delivery'
-import { onLoad } from '@dcloudio/uni-app'
+import { onLoad, onPageScroll } from '@dcloudio/uni-app'
 import { computed, ref } from 'vue'
 import { arriveTask, getTaskDetail, getTaskEvidence, getTaskStatusColor, getTaskStatusName } from '@/api/delivery'
-import { uploadDeliveryEvidence } from '@/api/upms/file'
+import { uploadDeliveryEvidence } from '@/api/upms/delivery-evidence'
 import { openDeliveryNavigation, resolveDeliveryDestination } from '@/utils/delivery-navigation'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+
+const { handlePageScroll } = useFrostedNavbar()
 
 definePage({
   name: 'delivery-task-detail',
@@ -183,6 +186,9 @@ function removeEvidence(index: number) {
   evidencePaths.value.splice(index, 1)
   evidenceIds.value.splice(index, 1)
 }
+
+// 顶栏磨砂玻璃：字面量注册滚动（小程序按页面源码生成滚动位标记，包进 composable 会静默失效）
+onPageScroll(handlePageScroll)
 </script>
 
 <template>

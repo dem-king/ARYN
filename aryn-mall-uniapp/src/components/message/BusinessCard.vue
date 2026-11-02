@@ -63,9 +63,9 @@ function openCard() {
 .business-card {
   width: 470rpx;
   overflow: hidden;
-  border: 1rpx solid #eceff0;
+  border: 1rpx solid var(--app-border);
   border-radius: 20rpx;
-  background: #fff;
+  background: var(--app-card);
   box-shadow: 0 12rpx 30rpx rgb(17 27 38 / 6%);
   &__type {
     padding: 12rpx 20rpx;
@@ -74,7 +74,7 @@ function openCard() {
     font-weight: 700;
     letter-spacing: 0.12em;
     text-transform: uppercase;
-    background: #f2f4f4;
+    background: var(--app-card-2);
   }
   &__body {
     display: flex;
@@ -87,7 +87,7 @@ function openCard() {
     height: 86rpx;
     flex: none;
     border-radius: 14rpx;
-    background: #f2f4f4;
+    background: var(--app-card-2);
   }
   &__copy {
     min-width: 0;
@@ -101,13 +101,13 @@ function openCard() {
     white-space: nowrap;
   }
   &__title {
-    color: #1f2a2e;
+    color: var(--app-text);
     font-size: 26rpx;
     font-weight: 700;
   }
   &__summary {
     margin-top: 8rpx;
-    color: #7b8783;
+    color: var(--app-text-3);
     font-size: 21rpx;
   }
 }

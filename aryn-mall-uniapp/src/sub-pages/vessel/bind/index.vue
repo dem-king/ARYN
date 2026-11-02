@@ -22,7 +22,7 @@ import type { VesselBindApply, VesselInviteCode, VesselMember } from '@/api/vess
  *  · 角色文案改用船舶域映射——此前借用 shared-cart 的 memberRoleLabel，
  *    业务员(4) 会错显成「成员」。
  */
-import { onLoad, onShow } from '@dcloudio/uni-app'
+import { onLoad, onPageScroll, onShow } from '@dcloudio/uni-app'
 
 import { computed, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -43,6 +43,8 @@ import {
 
 } from '@/api/vessel'
 import hrNavbar from '@/components/hr-navbar/index.vue'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+import { useRequireLogin } from '@/composables/useRequireLogin'
 import { ensureShipContextLoaded } from '@/composables/useShipContextLoad'
 import { useAuthStore } from '@/store/authStore'
 import { useShipContextStore } from '@/store/shipContextStore'
@@ -54,6 +56,8 @@ import {
   pendingApplyTip,
   resolveApplyErrorMessage,
 } from '@/utils/vessel-bind-apply'
+
+const { handlePageScroll } = useFrostedNavbar()
 
 definePage({
   name: 'vessel-bind',
@@ -98,7 +102,7 @@ function vesselRoleLabel(role?: null | string): string {
 
 const ROLE_BADGE_STYLES: Record<string, string> = {
   1: 'background:#378ADD;color:#fff',
-  2: 'background:#F2F3F5;color:#4E5969',
+  2: 'background:var(--app-card-2);color:var(--app-text-2)',
   3: 'background:#E6F1FB;color:#2A79C6',
   4: 'background:#FBF0E1;color:#C87D2A',
 }
@@ -122,7 +126,7 @@ const APPLY_STATUS_STYLES: Record<string, string> = {
   1: 'background:#FBF0E1;color:#C87D2A',
   2: 'background:#E8F5EE;color:#2E9E5B',
   3: 'background:#FDEEEE;color:#D54941',
-  4: 'background:#F2F3F5;color:#86909C',
+  4: 'background:var(--app-card-2);color:var(--app-text-2)',
 }
 
 /** 成员头像：昵称首字 + 稳定取色，避免引入外部图片资源 */
@@ -234,9 +238,8 @@ const addState = reactive({
   error: '',
 })
 
-function goLogin() {
-  uni.navigateTo({ url: '/pages/login/index' })
-}
+// 统一登录守卫：记录当前页回跳（登录后回到绑定流程），不再裸跳登录页丢来源
+const { goLogin } = useRequireLogin()
 
 function fetchVessels() {
   if (!authStore.isLoggedIn)
@@ -614,6 +617,9 @@ onLoad((options) => {
 onShow(() => {
   void refreshAll()
 })
+
+// 顶栏磨砂玻璃：字面量注册滚动（小程序按页面源码生成滚动位标记，包进 composable 会静默失效）
+onPageScroll(handlePageScroll)
 </script>
 
 <template>
@@ -630,7 +636,7 @@ onShow(() => {
     <!-- 加载失败 -->
     <view v-else-if="loadFailed && vessels.length === 0" class="px-40rpx pt-140rpx text-center">
       <text class="i-carbon-warning-alt block text-80rpx" style="color: #C87D2A" />
-      <view class="mt-16rpx text-26rpx" style="color: #86909C">
+      <view class="mt-16rpx text-26rpx" style="color: var(--app-text-2)">
         {{ t('vessel.bind.loadFailed') }}
       </view>
       <button class="mt-32rpx h-80rpx w-320rpx rounded-16rpx text-28rpx leading-80rpx !m-0" type="primary" @tap="refreshAll">
@@ -662,10 +668,10 @@ onShow(() => {
           <text class="i-carbon-information text-30rpx" style="color: #C87D2A" />
           {{ t('vessel.bind.notLoggedIn') }}
         </view>
-        <view class="mt-8rpx text-24rpx" style="color: #86909C">
+        <view class="mt-8rpx text-24rpx" style="color: var(--app-text-2)">
           {{ t('vessel.bind.loginHint') }}
         </view>
-        <button class="mt-24rpx h-88rpx rounded-16rpx text-28rpx leading-88rpx !m-0" type="primary" @tap="goLogin">
+        <button class="mt-24rpx h-88rpx rounded-16rpx text-28rpx leading-88rpx !m-0" type="primary" @tap="goLogin()">
           {{ t('vessel.bind.goLogin') }}
         </button>
       </view>
@@ -676,16 +682,16 @@ onShow(() => {
           <text class="i-carbon-qr-code text-32rpx" style="color: #378ADD" />
           {{ t('vessel.bind.inviteWayTitle') }}
         </view>
-        <view class="mt-8rpx text-24rpx" style="color: #86909C">
+        <view class="mt-8rpx text-24rpx" style="color: var(--app-text-2)">
           {{ t('vessel.bind.inviteWayDesc') }}
         </view>
-        <view class="mt-24rpx rounded-16rpx" style="background: #F7F8FA">
+        <view class="mt-24rpx rounded-16rpx" style="background: var(--app-card-2)">
           <input
             v-model="joinState.code"
             class="h-96rpx px-24rpx text-36rpx tracking-widest"
             style="text-transform: uppercase"
             :placeholder="t('vessel.bind.inviteCodePlaceholder')"
-            placeholder-style="color: #A8ABB2"
+            placeholder-style="color: var(--app-text-3)"
             :maxlength="12"
           >
         </view>
@@ -705,7 +711,7 @@ onShow(() => {
           <text class="i-carbon-document-blank text-32rpx" style="color: #378ADD" />
           {{ t('vessel.bind.applyWayTitle') }}
         </view>
-        <view class="mt-8rpx text-24rpx" style="color: #86909C">
+        <view class="mt-8rpx text-24rpx" style="color: var(--app-text-2)">
           {{ t('vessel.bind.applyWayDesc') }}
         </view>
         <view
@@ -769,16 +775,16 @@ onShow(() => {
             <text class="i-carbon-taxi text-32rpx" style="color: #378ADD" />
             {{ t('vessel.bind.portVehicles') }}
           </view>
-          <text class="i-carbon-chevron-right text-28rpx" style="color: #A8ABB2" />
+          <text class="i-carbon-chevron-right text-28rpx" style="color: var(--app-text-3)" />
         </view>
-        <view class="mt-8rpx text-24rpx" style="color: #86909C">
+        <view class="mt-8rpx text-24rpx" style="color: var(--app-text-2)">
           {{ t('vessel.bind.portVehiclesDesc') }}
         </view>
       </view>
 
       <!-- 多船切换 -->
       <view v-if="vessels.length > 1" class="mx-20rpx mt-20rpx rounded-24rpx bg-white p-24rpx">
-        <view class="text-24rpx" style="color: #86909C">
+        <view class="text-24rpx" style="color: var(--app-text-2)">
           {{ t('vessel.bind.myVesselsCount', { count: vessels.length }) }}
         </view>
         <view class="mt-16rpx flex flex-wrap gap-16rpx">
@@ -786,7 +792,7 @@ onShow(() => {
             v-for="vessel in vessels"
             :key="vessel.id"
             class="rounded-full px-28rpx py-12rpx text-26rpx"
-            :style="activeVesselId === vessel.id ? 'background:#378ADD;color:#fff' : 'background:#F2F3F5;color:#4E5969'"
+            :style="activeVesselId === vessel.id ? 'background:#378ADD;color:#fff' : 'background:var(--app-card-2);color:var(--app-text-2)'"
             @tap="switchVessel(vessel.id)"
           >
             {{ vessel.vesselName }}
@@ -800,17 +806,17 @@ onShow(() => {
           <text class="i-carbon-qr-code text-32rpx" style="color: #378ADD" />
           {{ t('vessel.bind.joinOtherTitle') }}
         </view>
-        <view class="mt-8rpx text-24rpx" style="color: #86909C">
+        <view class="mt-8rpx text-24rpx" style="color: var(--app-text-2)">
           {{ t('vessel.bind.joinOtherDesc') }}
         </view>
         <view class="mt-24rpx flex items-center gap-16rpx">
-          <view class="flex-1 rounded-16rpx" style="background: #F7F8FA">
+          <view class="flex-1 rounded-16rpx" style="background: var(--app-card-2)">
             <input
               v-model="joinAnother.code"
               class="h-88rpx px-24rpx text-30rpx tracking-widest"
               style="text-transform: uppercase"
               :placeholder="t('vessel.bind.newCodePlaceholder')"
-              placeholder-style="color: #A8ABB2"
+              placeholder-style="color: var(--app-text-3)"
               :maxlength="12"
             >
           </view>
@@ -867,7 +873,7 @@ onShow(() => {
                 {{ vesselRoleLabel(member.memberRole) }}
               </view>
             </view>
-            <view class="mt-6rpx text-22rpx" style="color: #86909C">
+            <view class="mt-6rpx text-22rpx" style="color: var(--app-text-2)">
               {{ member.phone || '—' }}
             </view>
           </view>
@@ -909,7 +915,7 @@ onShow(() => {
             {{ t('vessel.bind.generateCode') }}
           </view>
         </view>
-        <view class="mt-8rpx text-24rpx" style="color: #86909C">
+        <view class="mt-8rpx text-24rpx" style="color: var(--app-text-2)">
           {{ t('vessel.bind.inviteCodeDesc') }}
         </view>
 
@@ -917,10 +923,10 @@ onShow(() => {
           v-for="item in inviteCodes"
           :key="item.id"
           class="mt-20rpx rounded-16rpx p-24rpx"
-          style="background: #F7F8FA"
+          style="background: var(--app-card-2)"
         >
           <view class="flex items-center justify-between">
-            <view class="min-w-0 flex-1 truncate text-40rpx font-bold tracking-widest" style="color: #1F2D3D">
+            <view class="min-w-0 flex-1 truncate text-40rpx font-bold tracking-widest" style="color: var(--app-text)">
               {{ item.code }}
             </view>
             <view class="ml-16rpx flex flex-none items-center gap-16rpx">
@@ -928,11 +934,11 @@ onShow(() => {
                 <text class="i-carbon-copy text-28rpx" style="color: #378ADD" />
               </view>
               <view class="h-64rpx w-64rpx flex items-center justify-center rounded-full bg-white" @tap="handleRevokeCode(item)">
-                <text class="i-carbon-close text-28rpx" style="color: #86909C" />
+                <text class="i-carbon-close text-28rpx" style="color: var(--app-text-2)" />
               </view>
             </view>
           </view>
-          <view class="mt-8rpx text-22rpx" style="color: #86909C">
+          <view class="mt-8rpx text-22rpx" style="color: var(--app-text-2)">
             {{ t('vessel.bind.codeUsage', {
               used: item.usedCount,
               limit: item.maxUses > 0
@@ -943,7 +949,7 @@ onShow(() => {
           </view>
         </view>
 
-        <view v-if="inviteCodes.length === 0" class="py-32rpx text-center text-24rpx" style="color: #A8ABB2">
+        <view v-if="inviteCodes.length === 0" class="py-32rpx text-center text-24rpx" style="color: var(--app-text-3)">
           {{ t('vessel.bind.noValidCode') }}
         </view>
       </view>
@@ -955,7 +961,7 @@ onShow(() => {
             <view class="text-28rpx font-medium">
               {{ t('vessel.bind.exitVessel', { vessel: activeVessel?.vesselName || t('vessel.bind.exitFallback') }) }}
             </view>
-            <view class="mt-6rpx text-22rpx" style="color: #86909C">
+            <view class="mt-6rpx text-22rpx" style="color: var(--app-text-2)">
               {{ t('vessel.bind.exitDesc') }}
             </view>
           </view>
@@ -980,7 +986,7 @@ onShow(() => {
         v-for="apply in myApplies"
         :key="apply.id"
         class="mt-20rpx rounded-16rpx p-24rpx"
-        style="background: #F7F8FA"
+        style="background: var(--app-card-2)"
       >
         <view class="flex items-center justify-between">
           <view class="text-28rpx font-medium">
@@ -990,14 +996,14 @@ onShow(() => {
             {{ applyStatusLabel(apply.status) || apply.status }}
           </view>
         </view>
-        <view class="mt-8rpx text-22rpx" style="color: #86909C">
+        <view class="mt-8rpx text-22rpx" style="color: var(--app-text-2)">
           {{ t('vessel.bind.applyNo', { no: apply.applyNo, time: apply.createTime }) }}
         </view>
         <!-- 实际绑定船：审核通过后单独一行展示，避免只看申请船名误以为绑的是同一条 -->
         <view
           v-if="apply.status === '2' && apply.matchedVesselName"
           class="mt-8rpx text-22rpx"
-          style="color: #4E5969"
+          style="color: var(--app-text-2)"
         >
           {{ t('vessel.bind.matchedVessel', { vessel: apply.matchedVesselName }) }}
         </view>
@@ -1037,36 +1043,36 @@ onShow(() => {
         class="fixed bottom-0 left-0 right-0 flex flex-col rounded-t-24rpx bg-white"
         :style="`z-index: ${OVERLAY_Z_INDEX.sheet}; height: 80vh`"
       >
-        <view class="mx-auto mt-14rpx h-8rpx w-72rpx rounded-full" style="background: #E5E6EB" />
+        <view class="mx-auto mt-14rpx h-8rpx w-72rpx rounded-full" style="background: var(--app-border)" />
         <view class="flex items-center px-24rpx pb-16rpx pt-18rpx">
           <view
             v-if="addState.mode === 'confirm'"
             class="mr-16rpx h-56rpx w-56rpx flex items-center justify-center rounded-full"
-            style="background: #F2F3F5"
+            style="background: var(--app-card-2)"
             @tap="backToSearch"
           >
-            <text class="i-carbon-arrow-left text-28rpx" style="color: #4E5969" />
+            <text class="i-carbon-arrow-left text-28rpx" style="color: var(--app-text-2)" />
           </view>
           <view class="flex-1 text-32rpx font-bold">
             {{ addState.mode === 'confirm' ? t('vessel.bind.confirmJoinTitle') : t('vessel.bind.addMemberTitle') }}
           </view>
           <view class="h-56rpx w-56rpx flex items-center justify-center" @tap="addState.visible = false">
-            <text class="i-carbon-close text-28rpx" style="color: #86909C" />
+            <text class="i-carbon-close text-28rpx" style="color: var(--app-text-2)" />
           </view>
         </view>
 
         <!-- 搜索视图 -->
         <scroll-view v-if="addState.mode === 'search'" scroll-y style="flex: 1; min-height: 0">
-          <view class="mx-30rpx mb-20rpx rounded-12rpx px-24rpx py-16rpx text-22rpx" style="background: #F0F7FF; color: #4E5969">
+          <view class="mx-30rpx mb-20rpx rounded-12rpx px-24rpx py-16rpx text-22rpx" style="background: #F0F7FF; color: var(--app-text-2)">
             {{ t('vessel.bind.addMemberHint') }}
           </view>
           <view class="mx-30rpx flex items-center gap-16rpx">
-            <view class="flex-1 rounded-16rpx" style="background: #F7F8FA">
+            <view class="flex-1 rounded-16rpx" style="background: var(--app-card-2)">
               <input
                 v-model="candidateState.keyword"
                 class="h-88rpx px-24rpx text-26rpx"
                 :placeholder="t('vessel.bind.candidatePlaceholder')"
-                placeholder-style="color: #A8ABB2"
+                placeholder-style="color: var(--app-text-3)"
                 confirm-type="search"
                 @confirm="doSearchCandidates"
               >
@@ -1082,14 +1088,14 @@ onShow(() => {
             </button>
           </view>
 
-          <view v-if="candidateState.list.length > 0" class="mx-30rpx mt-12rpx pb-20rpx text-22rpx" style="color: #86909C">
+          <view v-if="candidateState.list.length > 0" class="mx-30rpx mt-12rpx pb-20rpx text-22rpx" style="color: var(--app-text-2)">
             {{ t('vessel.bind.foundUsers', { count: candidateState.list.length }) }}
           </view>
           <view
             v-for="candidate in candidateState.list"
             :key="candidate.userId"
             class="mx-30rpx mt-16rpx flex items-center rounded-16rpx p-24rpx"
-            style="background: #F7F8FA"
+            style="background: var(--app-card-2)"
           >
             <view
               class="h-80rpx w-80rpx flex-none rounded-full text-center text-32rpx text-white font-bold"
@@ -1101,11 +1107,11 @@ onShow(() => {
               <view class="truncate text-28rpx font-medium">
                 {{ candidate.nickname || candidate.userId }}
               </view>
-              <view class="mt-6rpx text-22rpx" style="color: #86909C">
+              <view class="mt-6rpx text-22rpx" style="color: var(--app-text-2)">
                 {{ candidate.phone || '—' }}
               </view>
             </view>
-            <view v-if="candidate.status === '1'" class="text-24rpx" style="color: #A8ABB2">
+            <view v-if="candidate.status === '1'" class="text-24rpx" style="color: var(--app-text-3)">
               {{ t('vessel.bind.alreadyOnboard') }}
             </view>
             <view
@@ -1123,7 +1129,7 @@ onShow(() => {
         <!-- 角色确认视图 -->
         <template v-else>
           <scroll-view scroll-y style="flex: 1; min-height: 0">
-            <view class="mx-30rpx mt-8rpx flex items-center rounded-16rpx p-24rpx" style="background: #F7F8FA">
+            <view class="mx-30rpx mt-8rpx flex items-center rounded-16rpx p-24rpx" style="background: var(--app-card-2)">
               <view
                 class="h-80rpx w-80rpx flex-none rounded-full text-center text-32rpx text-white font-bold"
                 :style="`background:${avatarColor(addState.target?.nickname || addState.target?.userId || '')};line-height:80rpx`"
@@ -1134,7 +1140,7 @@ onShow(() => {
                 <view class="truncate text-28rpx font-medium">
                   {{ addState.target?.nickname || addState.target?.userId }}
                 </view>
-                <view class="mt-6rpx text-22rpx" style="color: #86909C">
+                <view class="mt-6rpx text-22rpx" style="color: var(--app-text-2)">
                   {{ addState.target?.phone || '—' }}
                 </view>
               </view>
@@ -1148,7 +1154,7 @@ onShow(() => {
                 v-for="option in MEMBER_ROLE_OPTIONS"
                 :key="option.value"
                 class="rounded-full px-28rpx py-14rpx text-26rpx"
-                :style="addState.memberRole === option.value ? 'background:#378ADD;color:#fff' : 'background:#F2F3F5;color:#4E5969'"
+                :style="addState.memberRole === option.value ? 'background:#378ADD;color:#fff' : 'background:var(--app-card-2);color:var(--app-text-2)'"
                 @tap="addState.memberRole = option.value"
               >
                 {{ option.label }}
@@ -1158,12 +1164,12 @@ onShow(() => {
             <view class="mx-30rpx mt-32rpx text-26rpx">
               {{ t('vessel.bind.remark') }}
             </view>
-            <view class="mx-30rpx mt-16rpx rounded-16rpx" style="background: #F7F8FA">
+            <view class="mx-30rpx mt-16rpx rounded-16rpx" style="background: var(--app-card-2)">
               <input
                 v-model="addState.remark"
                 class="h-96rpx px-24rpx text-26rpx"
                 :placeholder="t('vessel.bind.remarkPlaceholder')"
-                placeholder-style="color: #A8ABB2"
+                placeholder-style="color: var(--app-text-3)"
                 :maxlength="30"
               >
             </view>
@@ -1183,7 +1189,7 @@ onShow(() => {
           <view class="flex items-center px-30rpx pt-16rpx" style="padding-bottom: calc(24rpx + env(safe-area-inset-bottom))">
             <button
               class="mr-20rpx h-88rpx flex-1 rounded-16rpx text-28rpx leading-88rpx !m-0"
-              style="background: #F2F3F5; color: #4E5969"
+              style="background: var(--app-card-2); color: var(--app-text-2)"
               @tap="backToSearch"
             >
               {{ t('vessel.bind.prev') }}
@@ -1208,13 +1214,13 @@ onShow(() => {
         class="fixed bottom-0 left-0 right-0 flex flex-col rounded-t-24rpx bg-white"
         :style="`z-index: ${OVERLAY_Z_INDEX.sheet}; height: 85vh`"
       >
-        <view class="mx-auto mt-14rpx h-8rpx w-72rpx rounded-full" style="background: #E5E6EB" />
+        <view class="mx-auto mt-14rpx h-8rpx w-72rpx rounded-full" style="background: var(--app-border)" />
         <view class="flex items-center px-24rpx pb-16rpx pt-18rpx">
           <view class="flex-1 text-32rpx font-bold">
             {{ t('vessel.bind.applyTitle') }}
           </view>
           <view class="h-56rpx w-56rpx flex items-center justify-center" @tap="closeApply">
-            <text class="i-carbon-close text-28rpx" style="color: #86909C" />
+            <text class="i-carbon-close text-28rpx" style="color: var(--app-text-2)" />
           </view>
         </view>
 
@@ -1232,7 +1238,7 @@ onShow(() => {
             <text class="i-carbon-warning-alt mr-8rpx text-28rpx" />
             {{ pendingApplyTip(pendingApply) }}
           </view>
-          <view class="mt-8rpx text-22rpx" style="color: #A8ABB2">
+          <view class="mt-8rpx text-22rpx" style="color: var(--app-text-3)">
             {{ t('vessel.bind.applyNoShort', { no: pendingApply.applyNo }) }}
           </view>
           <view class="mt-16rpx flex items-center gap-16rpx">
@@ -1249,7 +1255,7 @@ onShow(() => {
             -->
             <view
               class="h-64rpx flex items-center rounded-full px-28rpx text-24rpx"
-              style="background: #F2F3F5; color: #4E5969"
+              style="background: var(--app-card-2); color: var(--app-text-2)"
               @tap="refreshPendingState()"
             >
               {{ t('vessel.bind.refreshStatus') }}
@@ -1281,7 +1287,7 @@ onShow(() => {
               v-for="option in APPLY_ROLE_OPTIONS"
               :key="option.value"
               class="rounded-full px-28rpx py-14rpx text-26rpx"
-              :style="applyState.form.applyRole === option.value ? 'background:#378ADD;color:#fff' : 'background:#F2F3F5;color:#4E5969'"
+              :style="applyState.form.applyRole === option.value ? 'background:#378ADD;color:#fff' : 'background:var(--app-card-2);color:var(--app-text-2)'"
               @tap="applyState.form.applyRole = option.value"
             >
               {{ option.label }}
@@ -1291,8 +1297,8 @@ onShow(() => {
           <view class="mx-30rpx mt-32rpx text-26rpx">
             {{ t('vessel.bind.vesselSection') }}
           </view>
-          <view class="mx-30rpx mt-16rpx rounded-16rpx px-24rpx" style="background: #F7F8FA">
-            <view class="flex items-center" style="min-height: 96rpx; border-bottom: 1rpx solid #EDEEF0">
+          <view class="mx-30rpx mt-16rpx rounded-16rpx px-24rpx" style="background: var(--app-card-2)">
+            <view class="flex items-center" style="min-height: 96rpx; border-bottom: 1rpx solid var(--app-border)">
               <view class="w-190rpx text-26rpx">
                 <text style="color: #D54941">
                   *
@@ -1303,11 +1309,11 @@ onShow(() => {
                 v-model="applyState.form.applyVesselName"
                 class="h-96rpx flex-1 bg-transparent text-right text-26rpx"
                 :placeholder="t('vessel.bind.vesselNamePlaceholder')"
-                placeholder-style="color: #A8ABB2"
+                placeholder-style="color: var(--app-text-3)"
                 :maxlength="30"
               >
             </view>
-            <view class="flex items-center" style="min-height: 96rpx; border-bottom: 1rpx solid #EDEEF0">
+            <view class="flex items-center" style="min-height: 96rpx; border-bottom: 1rpx solid var(--app-border)">
               <view class="w-190rpx text-26rpx">
                 {{ t('vessel.bind.imo') }}
               </view>
@@ -1315,11 +1321,11 @@ onShow(() => {
                 v-model="applyState.form.applyVesselImo"
                 class="h-96rpx flex-1 bg-transparent text-right text-26rpx"
                 :placeholder="t('vessel.bind.imoPlaceholder')"
-                placeholder-style="color: #A8ABB2"
+                placeholder-style="color: var(--app-text-3)"
                 :maxlength="30"
               >
             </view>
-            <view class="flex items-center" style="min-height: 96rpx; border-bottom: 1rpx solid #EDEEF0">
+            <view class="flex items-center" style="min-height: 96rpx; border-bottom: 1rpx solid var(--app-border)">
               <view class="w-190rpx text-26rpx">
                 {{ t('vessel.bind.callSign') }}
               </view>
@@ -1327,7 +1333,7 @@ onShow(() => {
                 v-model="applyState.form.applyVesselCallSign"
                 class="h-96rpx flex-1 bg-transparent text-right text-26rpx"
                 :placeholder="t('vessel.bind.callSignPlaceholder')"
-                placeholder-style="color: #A8ABB2"
+                placeholder-style="color: var(--app-text-3)"
                 :maxlength="30"
               >
             </view>
@@ -1339,7 +1345,7 @@ onShow(() => {
                 v-model="applyState.form.applyPortName"
                 class="h-96rpx flex-1 bg-transparent text-right text-26rpx"
                 :placeholder="t('vessel.bind.homePortPlaceholder')"
-                placeholder-style="color: #A8ABB2"
+                placeholder-style="color: var(--app-text-3)"
                 :maxlength="30"
               >
             </view>
@@ -1348,8 +1354,8 @@ onShow(() => {
           <view class="mx-30rpx mt-32rpx text-26rpx">
             {{ t('vessel.bind.contactSection') }}
           </view>
-          <view class="mx-30rpx mt-16rpx rounded-16rpx px-24rpx" style="background: #F7F8FA">
-            <view class="flex items-center" style="min-height: 96rpx; border-bottom: 1rpx solid #EDEEF0">
+          <view class="mx-30rpx mt-16rpx rounded-16rpx px-24rpx" style="background: var(--app-card-2)">
+            <view class="flex items-center" style="min-height: 96rpx; border-bottom: 1rpx solid var(--app-border)">
               <view class="w-190rpx text-26rpx">
                 {{ t('vessel.bind.realName') }}
               </view>
@@ -1357,11 +1363,11 @@ onShow(() => {
                 v-model="applyState.form.realName"
                 class="h-96rpx flex-1 bg-transparent text-right text-26rpx"
                 :placeholder="t('vessel.bind.optionalPlaceholder')"
-                placeholder-style="color: #A8ABB2"
+                placeholder-style="color: var(--app-text-3)"
                 :maxlength="20"
               >
             </view>
-            <view class="flex items-center" style="min-height: 96rpx; border-bottom: 1rpx solid #EDEEF0">
+            <view class="flex items-center" style="min-height: 96rpx; border-bottom: 1rpx solid var(--app-border)">
               <view class="w-190rpx text-26rpx">
                 {{ t('vessel.bind.phone') }}
               </view>
@@ -1369,12 +1375,12 @@ onShow(() => {
                 v-model="applyState.form.phone"
                 class="h-96rpx flex-1 bg-transparent text-right text-26rpx"
                 :placeholder="t('vessel.bind.optionalPlaceholder')"
-                placeholder-style="color: #A8ABB2"
+                placeholder-style="color: var(--app-text-3)"
                 type="number"
                 :maxlength="20"
               >
             </view>
-            <view class="flex items-center" style="min-height: 96rpx; border-bottom: 1rpx solid #EDEEF0">
+            <view class="flex items-center" style="min-height: 96rpx; border-bottom: 1rpx solid var(--app-border)">
               <view class="w-190rpx text-26rpx">
                 {{ t('vessel.bind.position') }}
               </view>
@@ -1382,7 +1388,7 @@ onShow(() => {
                 v-model="applyState.form.position"
                 class="h-96rpx flex-1 bg-transparent text-right text-26rpx"
                 :placeholder="t('vessel.bind.positionPlaceholder')"
-                placeholder-style="color: #A8ABB2"
+                placeholder-style="color: var(--app-text-3)"
                 :maxlength="30"
               >
             </view>
@@ -1394,7 +1400,7 @@ onShow(() => {
                 v-model="applyState.form.remark"
                 class="h-96rpx flex-1 bg-transparent text-right text-26rpx"
                 :placeholder="t('vessel.bind.optionalPlaceholder')"
-                placeholder-style="color: #A8ABB2"
+                placeholder-style="color: var(--app-text-3)"
                 :maxlength="50"
               >
             </view>
@@ -1405,7 +1411,7 @@ onShow(() => {
         <view class="flex items-center px-30rpx pt-16rpx" style="padding-bottom: calc(24rpx + env(safe-area-inset-bottom))">
           <button
             class="mr-20rpx h-88rpx flex-1 rounded-16rpx text-28rpx leading-88rpx !m-0"
-            style="background: #F2F3F5; color: #4E5969"
+            style="background: var(--app-card-2); color: var(--app-text-2)"
             @tap="closeApply"
           >
             {{ t('vessel.bind.cancel') }}
@@ -1426,7 +1432,7 @@ onShow(() => {
 
 <style scoped>
 .skeleton {
-  background: linear-gradient(90deg, #EFF1F4 25%, #F7F8FA 37%, #EFF1F4 63%);
+  background: linear-gradient(90deg, var(--app-skeleton) 25%, var(--app-skeleton-band) 37%, var(--app-skeleton) 63%);
   background-size: 400% 100%;
   animation: skeleton-loading 1.4s ease infinite;
 }

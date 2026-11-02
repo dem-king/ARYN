@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { onLoad } from '@dcloudio/uni-app'
+import { onLoad, onPageScroll } from '@dcloudio/uni-app'
 import { computed, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getById } from '@/sub-pages/api/order/orderItem'
 import { addObj } from '@/sub-pages/api/order/orderRefunds'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+
+const { handlePageScroll } = useFrostedNavbar()
 
 definePage({
   name: 'refunds-submit',
@@ -72,6 +75,9 @@ function onsubmit() {
     },
   })
 }
+
+// 顶栏磨砂玻璃：字面量注册滚动（小程序按页面源码生成滚动位标记，包进 composable 会静默失效）
+onPageScroll(handlePageScroll)
 </script>
 
 <template>
@@ -125,7 +131,7 @@ function onsubmit() {
 
 <style lang="scss" scoped>
 :deep(.wd-textarea) {
-  border: 1px solid #bfbfbf !important;
+  border: 1px solid var(--app-border) !important;
   border-radius: 10rpx !important;
   margin: 10px !important;
 }

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { reportException } from '@/api/delivery'
-import { uploadDeliveryEvidence } from '@/api/upms/file'
+import { uploadDeliveryEvidence } from '@/api/upms/delivery-evidence'
 import { useToast } from 'wot-design-uni'
 
 const toast = useToast()
@@ -142,7 +142,7 @@ async function handleChooseImage() {
         display: block;
         font-size: 14px;
         margin-bottom: 8px;
-        color: #333;
+        color: var(--app-text);
       }
     }
   }

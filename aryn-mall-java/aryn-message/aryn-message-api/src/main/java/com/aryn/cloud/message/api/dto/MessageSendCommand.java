@@ -40,6 +40,10 @@ public class MessageSendCommand implements Serializable {
 	@Size(max = 500)
 	private String summary;
 
+	/** 业务时间文案（如开抢时间），微信订阅消息 time 字段优先使用 */
+	@Size(max = 64)
+	private String timeText;
+
 	@NotBlank
 	@Size(max = 10000)
 	private String content;

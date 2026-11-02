@@ -34,7 +34,7 @@ const props = defineProps<{
   pageName: string;
   saveStatus: DraftSaveStatus;
   /**
-   * 页面导航开启「沉浸式渐显」且非内嵌页型时，才允许切换画布导航的
+   * 页面导航开启「沉浸式（滚动切换）」且非内嵌页型时，才允许切换画布导航的
    * 「顶部 / 滚动后」预览态；否则整组控件不渲染，避免出现改了没反应的死控件。
    */
   scrollPreviewAvailable: boolean;
@@ -69,12 +69,12 @@ const emit = defineEmits<{
 /**
  * 画布「滚动后」预览态的最大滚动距离。
  *
- * 取面板「渐显距离」上限 260：这样把距离调到 260 时点「滚动后」也能看到
- * 完全显现态；距离更小（默认 140）时 260 处同样是 progress=1，不会过度。
+ * 导航材质是一步切换：任意正数即可看到「已滚动」目标态。取 260px 只是给
+ * 滑杆留一段可拖动区间，避免与「顶部 / 滚动后」开关抢交互。
  */
 const SCROLL_PREVIEW_MAX = 260;
 
-/** 「滚动后」快捷档位取满程（完全显现），与滑杆微调互不冲突 */
+/** 「滚动后」快捷档位取满程（已滚动态），与滑杆微调互不冲突 */
 const scrollPreviewMode = computed(() =>
   props.scrollTop > 0 ? 'scrolled' : 'top',
 );
@@ -196,7 +196,10 @@ const statusLabel = computed(() => {
           </ElRadioGroup>
         </ElTooltip>
         <!-- 细调滑杆是低频操作：窄窗口下先收起它，保留「顶部 / 滚动后」快捷切换 -->
-        <span class="scroll-preview-fine">
+        <span
+          class="scroll-preview-fine"
+          title="任意正数即「已滚动」目标态；导航为一步切换，不做滚动距离插值"
+        >
           <ElSlider
             :max="SCROLL_PREVIEW_MAX"
             :min="0"
@@ -206,7 +209,9 @@ const statusLabel = computed(() => {
             size="small"
             @input="onScrollTopInput"
           />
-          <span class="scroll-preview-value">{{ scrollTop }}px</span>
+          <span class="scroll-preview-value">{{
+            scrollTop > 0 ? '已滚动' : '顶部'
+          }}</span>
         </span>
       </template>
     </ElSpace>
@@ -274,8 +279,6 @@ const statusLabel = computed(() => {
 </template>
 
 <style scoped>
-
-
 /* 1450px 以下：收起预览滑杆与 px 数值（细调低频），保留分段切换 */
 @media (max-width: 1449px) {
   .scroll-preview-fine {

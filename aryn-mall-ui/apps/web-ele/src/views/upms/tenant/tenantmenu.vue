@@ -22,28 +22,27 @@ const defaultProps = ref({
   label: 'name',
   disabled: 'disabled',
 });
-/** 不可分配给租户的菜单（系统内置 applicationKey） */
-const SYS_APP_KEY = 'sys_key';
-const sysKeyMenuIdSet = ref<Set<string>>(new Set());
+/** 平台专属应用菜单由后端 platformOnly 标识，前端不再硬编码 applicationKey */
+const platformOnlyMenuIdSet = ref<Set<string>>(new Set());
 
-function markSysKeyMenusDisabled(nodes: any[]) {
+function markPlatformOnlyMenusDisabled(nodes: any[]) {
   for (const node of nodes) {
-    if (node.applicationKey === SYS_APP_KEY) {
+    if (node.platformOnly) {
       node.disabled = true;
     }
     if (node.children?.length) {
-      markSysKeyMenusDisabled(node.children);
+      markPlatformOnlyMenusDisabled(node.children);
     }
   }
 }
 
-function collectSysKeyMenuIds(nodes: any[], out: Set<string>) {
+function collectPlatformOnlyMenuIds(nodes: any[], out: Set<string>) {
   for (const node of nodes) {
-    if (node.applicationKey === SYS_APP_KEY) {
+    if (node.platformOnly) {
       out.add(node.id);
     }
     if (node.children?.length) {
-      collectSysKeyMenuIds(node.children, out);
+      collectPlatformOnlyMenuIds(node.children, out);
     }
   }
 }
@@ -66,16 +65,16 @@ const getTenantMenus = async (tenantIdParam: string) => {
    */
   await getList().then((response) => {
     state.menuList = response;
-    markSysKeyMenusDisabled(state.menuList);
+    markPlatformOnlyMenusDisabled(state.menuList);
     const set = new Set<string>();
-    collectSysKeyMenuIds(state.menuList, set);
-    sysKeyMenuIdSet.value = set;
+    collectPlatformOnlyMenuIds(state.menuList, set);
+    platformOnlyMenuIdSet.value = set;
   });
   await getTenantMenuList(tenantIdParam).then((response) => {
     if (response) {
       state.menuIds = response
         .map((v: { menuId: string }) => v.menuId)
-        .filter((menuId: string) => !sysKeyMenuIdSet.value.has(menuId));
+        .filter((menuId: string) => !platformOnlyMenuIdSet.value.has(menuId));
       if (state.menuIds.length > 0) {
         state.menuIds.forEach((menuId: string) => {
           nextTick(() => {

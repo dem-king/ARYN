@@ -4,14 +4,18 @@ package com.aryn.cloud.common.security.util;
 import cn.dev33.satoken.context.SaHolder;
 import cn.dev33.satoken.stp.StpUtil;
 import cn.dev33.satoken.stp.parameter.SaLoginParameter;
+import cn.hutool.core.util.StrUtil;
 import com.aryn.cloud.common.core.constant.CacheConstants;
 import com.aryn.cloud.common.core.enums.DeviceTypeEnum;
 import com.aryn.cloud.common.security.entity.ArynUser;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
+import com.aryn.cloud.common.security.support.SessionInvalidSupport;
 import lombok.experimental.UtilityClass;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -20,6 +24,7 @@ import java.util.Objects;
  * @author 雨滴kian
  * @since 2022/11/25 21:25
  */
+@Slf4j
 @UtilityClass
 public class SecurityUtils {
 
@@ -43,6 +48,10 @@ public class SecurityUtils {
 	 * @param loginParameter 本次登录参数；为 {@code null} 时沿用全局配置
 	 */
 	public static void loginByDevice(ArynUser hxUser, DeviceTypeEnum deviceTypeEnum, SaLoginParameter loginParameter) {
+		// 登录会顶掉该账号同设备类型的旧会话（sa-token is-concurrent=false），
+		// 登录前先记下旧 token，登录后给它们写"被顶下线"的失效原因，
+		// 供旧设备下一次请求 401 时向前端说明原因并展示新设备信息。
+		List<String> replacedTokens = collectReplacedTokens(hxUser, deviceTypeEnum);
 		hxUser.setDeviceType(deviceTypeEnum);
 		SaHolder.getStorage().set(CacheConstants.USER_CACHE, hxUser);
 		if (loginParameter == null) {
@@ -53,6 +62,58 @@ public class SecurityUtils {
 			StpUtil.login(hxUser.getUserId(), loginParameter);
 		}
 		StpUtil.getTokenSession().set(CacheConstants.USER_CACHE, hxUser);
+		markReplacedSessions(replacedTokens, hxUser, deviceTypeEnum);
+	}
+
+	/**
+	 * 登录前捕获"即将被顶掉"的旧 token 列表；任何异常都只告警，登录不受影响。
+	 */
+	private static List<String> collectReplacedTokens(ArynUser hxUser, DeviceTypeEnum deviceTypeEnum) {
+		try {
+			return StpUtil.getTokenValueListByLoginId(hxUser.getUserId(), deviceTypeEnum.getDevice());
+		}
+		catch (Exception e) {
+			log.warn("登录前读取旧会话失败，跳过失效原因记录: {}", e.getMessage());
+			return null;
+		}
+	}
+
+	/**
+	 * 为被顶掉的旧会话写失效原因（带新设备信息）；这是登录链路上的旁路能力，
+	 * 任何失败都不能影响登录本身。
+	 */
+	private static void markReplacedSessions(List<String> replacedTokens, ArynUser hxUser, DeviceTypeEnum deviceTypeEnum) {
+		if (replacedTokens == null || replacedTokens.isEmpty()) {
+			return;
+		}
+		try {
+			SessionInvalidSupport.markReplaced(replacedTokens, resolveNewTokenValue(hxUser, deviceTypeEnum),
+					hxUser.getUserId(), hxUser.getTenantId(), deviceTypeEnum.getDevice());
+		}
+		catch (Exception e) {
+			log.warn("记录被顶下线会话原因失败，不影响登录: {}", e.getMessage());
+		}
+	}
+
+	/**
+	 * 解析本次登录签发的新 token（用于读取新会话的在线记录作为"新设备信息"）。
+	 */
+	private static String resolveNewTokenValue(ArynUser hxUser, DeviceTypeEnum deviceTypeEnum) {
+		try {
+			String tokenValue = StpUtil.getTokenValue();
+			if (StrUtil.isNotBlank(tokenValue)) {
+				return tokenValue;
+			}
+		}
+		catch (Exception ignored) {
+			// 继续走按 loginId 反查的兜底路径
+		}
+		try {
+			return StpUtil.getTokenValueByLoginId(hxUser.getUserId(), deviceTypeEnum.getDevice());
+		}
+		catch (Exception e) {
+			return null;
+		}
 	}
 
 	private boolean isWebRequest() {

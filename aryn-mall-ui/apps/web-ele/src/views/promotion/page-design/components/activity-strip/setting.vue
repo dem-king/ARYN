@@ -129,14 +129,14 @@ function removeEntry(index: number) {
       v-if="form.dataSource.mode === 'automatic'"
       :closable="false"
       show-icon
-      title="并行读取进行中的秒杀 / 拼团 / 折扣各一条，入口固定跳对应会场；某类没有进行中活动时只隐藏该卡。卡片按实际数量自动等宽排布。"
+      title="并行读取进行中的秒杀 / 拼团 / 折扣各一条，入口固定跳对应会场；某类没有进行中活动时只隐藏该卡。钩子展示真实活动名 + 利益点，文案超长时单行滚动、不截断。卡片按实际数量自动等宽排布。"
       type="info"
     />
     <template v-else>
       <ElAlert
         :closable="false"
         show-icon
-        title="卡片按添加数量自动排布，一行最多三张，超出自动换行；跳转链接默认指向对应会场，也可改成领券中心等任意装修链接。"
+        title="卡片按添加数量自动排布，一行最多三张，超出自动换行；跳转链接默认指向对应会场，也可改成领券中心等任意装修链接。活动名/钩子超长时单行滚动，不会换行或省略。"
         type="info"
       />
       <div class="entry-list">
@@ -171,16 +171,17 @@ function removeEntry(index: number) {
           <ElFormItem label="活动名">
             <ElInput
               v-model="entry.title"
-              maxlength="6"
-              placeholder="如 限时秒杀"
+              maxlength="20"
+              placeholder="如 限时秒杀（超长单行滚动）"
               show-word-limit
             />
           </ElFormItem>
           <ElFormItem label="钩子文案">
             <ElInput
               v-model="entry.hook"
-              maxlength="10"
-              placeholder="如 午间场·整点开抢（可留空）"
+              maxlength="40"
+              placeholder="如 午间场·整点开抢（可留空，超长单行滚动）"
+              show-word-limit
             />
           </ElFormItem>
           <ElFormItem label="角标">

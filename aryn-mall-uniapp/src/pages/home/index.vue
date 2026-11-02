@@ -34,7 +34,7 @@ const { canPullDownRefresh, title } = useDecorationPage({
 })
 const requestRunner = createLatestRequestRunner()
 
-// 导航栏滚动渐显：页面只负责把滚动距离写进 provide 出去的 ref，消费方在 hr-navbar
+// 沉浸式导航：页面只负责把滚动状态写进 provide 出去的 ref，消费方在 hr-navbar
 const { handlePageScroll } = useDiyNavbarScroll()
 
 // 滚动接近底部时提前通知装修里的分页商品组件（goods-group / goods-waterfall / goods-tabs）加载下一页
@@ -68,7 +68,7 @@ onLoad(() => {
 })
 
 /**
- * 滚动渐显接线（必须写成页面 SFC 内的字面量调用）。
+ * 沉浸式导航接线（必须写成页面 SFC 内的字面量调用）。
  *
  * 微信小程序编译期由 @dcloudio/uni-mp-vite 的 runtimeHooks 插件对**页面源文本**
  * 做字符串匹配生成 `__runtimeHooks` 位标记；只把 onPageScroll 包在 composable
@@ -109,17 +109,20 @@ onPullDownRefresh(() => {
       :page-content-data="pageContent"
       :page-name="title"
     />
+    <!-- 悬浮玻璃底栏是 fixed 覆盖层：留一条等高空白，最后一个楼层能滚到栏上方 -->
+    <view class="tabbar-bottom-space" />
   </view>
 </template>
 
 <style scoped>
+/* 兜底态直接坐在页面壳上，颜色必须随深浅切换（装修内容区才有自己的浅色底） */
 .decoration-state {
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: 240px;
   font-size: 14px;
-  color: #666;
+  color: var(--app-text-2);
 }
 
 .decoration-state-error {

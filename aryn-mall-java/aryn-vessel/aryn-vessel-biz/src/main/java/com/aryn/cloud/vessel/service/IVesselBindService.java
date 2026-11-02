@@ -66,6 +66,16 @@ public interface IVesselBindService {
 	List<VesselMemberVO> listMembers(String tenantId, String userId, String vesselId);
 
 	/**
+	 * 在船成员全量列表，供其他域「选人」使用（如共享购物车邀请成员）。
+	 *
+	 * <p>与 {@link #listMembers(String, String, String)} 的区别：不校验调用者
+	 * 成员身份（权限由调用方负责，如共享购物车的发起人校验）、只返回在船成员。
+	 * 关键词为空返回全部在船成员，否则按昵称/手机号/用户ID 过滤；
+	 * 原始手机号不出船舶域，出参一律脱敏。
+	 */
+	List<VesselMemberVO> listOnboardMembers(String tenantId, String vesselId, String keyword);
+
+	/**
 	 * 添加成员（业务员现场拉人）。操作者须为 1/3/4 角色。
 	 */
 	VesselMemberVO addMember(String tenantId, String operatorUserId, String vesselId, VesselMemberAddDTO dto);

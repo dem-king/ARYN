@@ -1,0 +1,69 @@
+{
+  "reason": {
+    "BE_REPLACED": {
+      "content": "Your account signed in on another device at {time}, so you have been signed out. {deviceLine}Signing in again will sign out that device.",
+      "title": "Account Signed in on Another Device"
+    },
+    "KICK_OUT": {
+      "content": "Your session is no longer valid. Please sign in again.",
+      "title": "Session Invalid"
+    },
+    "KICK_OUT_ACCOUNT_DELETED": {
+      "content": "This account has been deleted and cannot be used.",
+      "title": "Account Deleted"
+    },
+    "KICK_OUT_ACCOUNT_DISABLED": {
+      "content": "This account has been disabled and cannot be used. Please contact your administrator.",
+      "title": "Account Disabled"
+    },
+    "KICK_OUT_ADMIN_KICK": {
+      "content": "An administrator has signed you out. If this was unexpected, please contact your administrator.",
+      "title": "Signed Out by Administrator"
+    },
+    "KICK_OUT_PASSWORD_CHANGED": {
+      "content": "Your password has been changed. Please sign in with the new password.",
+      "title": "Password Changed"
+    },
+    "KICK_OUT_TENANT_DISABLED": {
+      "content": "Your tenant has been disabled or has expired. Please contact the platform administrator.",
+      "title": "Tenant Disabled"
+    },
+    "NO_PREFIX": {
+      "content": "Your session is no longer valid. Please sign in again.",
+      "title": "Session Invalid"
+    },
+    "NOT_TOKEN": {
+      "content": "Your session is no longer valid. Please sign in again.",
+      "title": "Session Invalid"
+    },
+    "TOKEN_EXPIRED": {
+      "content": "Your session has expired. Please sign in again.",
+      "title": "Login Expired"
+    },
+    "TOKEN_FREEZE": {
+      "content": "Your session is no longer valid. Please sign in again.",
+      "title": "Session Invalid"
+    },
+    "TOKEN_INVALID": {
+      "content": "Your session is no longer valid. Please sign in again.",
+      "title": "Session Invalid"
+    },
+    "UNKNOWN": {
+      "content": "Your session is no longer valid. Please sign in again.",
+      "title": "Session Invalid"
+    }
+  },
+  "device": {
+    "fieldSeparator": " · ",
+    "ip": "IP: {value}",
+    "location": "Location: {value}",
+    "loginDevice": "Device: {value}",
+    "separator": " | ",
+    "time": "Time: {value}"
+  },
+  "exit": "Sign Out",
+  "relogin": "Sign In Again",
+  "reloginSuccess": "Signed in again. Please retry your previous action.",
+  "backToLogin": "Back to Sign In",
+  "exitShort": "Exit"
+}

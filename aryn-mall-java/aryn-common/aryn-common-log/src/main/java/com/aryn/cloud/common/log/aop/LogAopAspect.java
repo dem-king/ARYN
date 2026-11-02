@@ -1,7 +1,6 @@
 package com.aryn.cloud.common.log.aop;
 
 import cn.hutool.core.util.URLUtil;
-import cn.hutool.extra.servlet.JakartaServletUtil;
 import com.aryn.cloud.common.core.constant.CommonConstants;
 import com.aryn.cloud.common.core.entity.SysLogBase;
 import com.aryn.cloud.common.core.util.IpUtils;
@@ -42,7 +41,7 @@ public class LogAopAspect {
 		SysLog log = method.getAnnotation(SysLog.class);
 		String title = log.value();
 		SysLogBase sysLogVo = new SysLogBase();
-		String ip = JakartaServletUtil.getClientIP(request);
+		String ip = IpUtils.getClientIp(request);
 		sysLogVo.setMethod(request.getMethod());
 		sysLogVo.setIpAddr(ip);
 		sysLogVo.setLocation(IpUtils.getWhoisAddress(ip));

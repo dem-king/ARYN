@@ -20,4 +20,10 @@ public interface RemoteSocialUserService {
 
 	String getPhoneNumberInfo(UserLoginReqDTO userLoginReqDTO);
 
+	/**
+	 * 按商城用户ID查询微信小程序 openid（C 端订阅消息使用）。
+	 * @return openid；未绑定返回 null
+	 */
+	String getOpenidByMallUserId(String tenantId, String mallUserId);
+
 }

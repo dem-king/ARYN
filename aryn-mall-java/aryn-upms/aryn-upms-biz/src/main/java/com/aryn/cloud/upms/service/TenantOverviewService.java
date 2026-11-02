@@ -71,6 +71,7 @@ public class TenantOverviewService {
 		overview.setPackageId(tenant.getPackageId());
 		overview.setStatus(tenant.getStatus());
 		overview.setBusinessMode(tenant.getBusinessMode());
+		overview.setTenantType(tenant.getTenantType());
 		overview.setAuthBeginTime(tenant.getAuthBeginTime());
 		overview.setAuthEndTime(tenant.getAuthEndTime());
 		if (tenant.getAuthEndTime() != null) {

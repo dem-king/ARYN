@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
+import { onLoad, onPageScroll } from '@dcloudio/uni-app'
 import { useI18n } from 'vue-i18n'
 import { getMemberLevelList, getLevelBenefits } from '@/sub-pages/api/user/benefit'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+
+const { handlePageScroll } = useFrostedNavbar()
 
 definePage({
   name: 'member-level-benefit',
@@ -130,6 +133,9 @@ function formatBenefitValue(benefit: MemberBenefit): string {
     return t('accountMember.levelBenefit.valueMultiplier', { value: benefit.benefitValue })
   return ''
 }
+
+// 顶栏磨砂玻璃：字面量注册滚动（小程序按页面源码生成滚动位标记，包进 composable 会静默失效）
+onPageScroll(handlePageScroll)
 </script>
 
 <template>
@@ -207,7 +213,7 @@ function formatBenefitValue(benefit: MemberBenefit): string {
 
 <style lang="scss" scoped>
 .level-card {
-  background: #fff;
+  background: var(--app-card);
   border-radius: 16rpx;
   margin-bottom: 16rpx;
   overflow: hidden;
@@ -236,12 +242,12 @@ function formatBenefitValue(benefit: MemberBenefit): string {
 
 .benefit-list {
   padding: 0 30rpx 24rpx;
-  border-top: 1rpx solid #f5f5f5;
+  border-top: 1rpx solid var(--app-border);
 }
 
 .benefit-item {
   padding: 16rpx 0;
-  border-bottom: 1rpx solid #f5f5f5;
+  border-bottom: 1rpx solid var(--app-border);
 
   &:last-child {
     border-bottom: none;

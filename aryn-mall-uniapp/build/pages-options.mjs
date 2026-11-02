@@ -14,6 +14,8 @@ export function createPagesOptions(root) {
     dts: 'src/uni-pages.d.ts',
     subPackages: [
       'src/sub-pages',
+      // 配送端独立分包；root 为 pages/delivery，页面 URL 与主包时期一致
+      'src/pages/delivery',
     ],
     /**
      * 排除的页面，相对于 dir 和 subPackages

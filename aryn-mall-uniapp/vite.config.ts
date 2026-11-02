@@ -17,6 +17,7 @@ import UniHelperLayouts from '@uni-helper/vite-plugin-uni-layouts'
 import UniHelperComponents from '@uni-helper/vite-plugin-uni-components'
 import AutoImport from 'unplugin-auto-import/vite'
 import { WotResolver } from '@uni-helper/vite-plugin-uni-components/resolvers'
+import Optimization from '@uni-ku/bundle-optimizer'
 import UniKuRoot from '@uni-ku/root'
 import { createPagesOptions } from './build/pages-options.mjs'
 
@@ -149,6 +150,11 @@ export default async (mode: ConfigEnv) => {
       // https://github.com/uni-ku/root
       UniKuRoot(),
       Uni(),
+      // 只把仅被分包使用的模块移入分包；异步跨包 import/组件会改变运行时加载行为，保持关闭
+      Optimization({
+        enable: { 'optimization': true, 'async-import': false, 'async-component': false },
+        logger: false,
+      }),
       UnoCSS({ mode: 'vue-scoped' }),
       // https://github.com/antfu/unplugin-auto-import
       AutoImport({

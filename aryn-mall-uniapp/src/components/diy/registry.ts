@@ -3,6 +3,7 @@ import type { Component } from 'vue'
 import DiyActivityStrip from './diy-activity-strip/index.vue'
 import DiyCategoryNav from './diy-category-nav/index.vue'
 import DiyCountdown from './diy-countdown/index.vue'
+import DiyCouponLadder from './diy-coupon-ladder/index.vue'
 import DiyCouponReceive from './diy-coupon-receive/index.vue'
 import DiyCustomHtml from './diy-custom-html/index.vue'
 import DiyGap from './diy-gap/index.vue'
@@ -32,6 +33,7 @@ import DiyVideoLive from './diy-video-live/index.vue'
 
 export const mobileComponentTypes = [
   'category-nav',
+  'coupon-ladder',
   'coupon-receive',
   'custom-html',
   'gap',
@@ -66,6 +68,7 @@ export type MobileComponentType = typeof mobileComponentTypes[number]
 
 const componentRegistry: Record<MobileComponentType, Component> = {
   'category-nav': DiyCategoryNav,
+  'coupon-ladder': DiyCouponLadder,
   'coupon-receive': DiyCouponReceive,
   'custom-html': DiyCustomHtml,
   'gap': DiyGap,

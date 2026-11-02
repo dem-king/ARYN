@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
-import { onLoad, onUnload } from '@dcloudio/uni-app'
+import { onLoad, onPageScroll, onUnload } from '@dcloudio/uni-app'
 import { useI18n } from 'vue-i18n'
 import { editPhone } from '@/sub-pages/api/user/user'
 import { sendSmsCode } from '@/api/upms/sms'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+
+const { handlePageScroll } = useFrostedNavbar()
 
 definePage({
   name: 'user-setting-phone',
@@ -91,6 +94,9 @@ function submit() {
         })
     })
 }
+
+// 顶栏磨砂玻璃：字面量注册滚动（小程序按页面源码生成滚动位标记，包进 composable 会静默失效）
+onPageScroll(handlePageScroll)
 </script>
 
 <template>

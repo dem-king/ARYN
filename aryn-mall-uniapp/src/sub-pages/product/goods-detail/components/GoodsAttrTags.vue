@@ -44,6 +44,9 @@ const displayTags = computed(() => tags.value.map(tag => ({
   iconClass: tag.iconKey ? ICON_CLASS_MAP[tag.iconKey] : '',
 })))
 
+/** 超过 3 张改为单行横滑（不换行），第 4 张露出一截提示可滑 */
+const isScrollable = computed(() => displayTags.value.length > 3)
+
 const popupVisible = ref(false)
 const popupTitle = ref('')
 const popupContent = ref('')
@@ -88,16 +91,19 @@ function onTagClick(tag: GoodsAttrTagView) {
 <template>
   <view v-if="displayTags.length > 0" class="attr-tags">
     <!--
-      横滑卡条：卡宽 176rpx + 12rpx 间距，标题卡内容区一屏露出 3 张以上，
-      第四张被裁切即「还有更多」的天然提示；不显示滚动条避免首屏噪音。
+      属性卡条：3 张以内等宽铺满整行；超过 3 张改为单行横滑（不换行），
+      第 4 张露出一截作为「还有更多」的提示。
     -->
     <scroll-view
       class="attr-tags__scroll"
-      scroll-x
+      :scroll-x="isScrollable"
       :show-scrollbar="false"
       :enable-flex="true"
     >
-      <view class="attr-tags__track">
+      <view
+        class="attr-tags__track"
+        :class="{ 'attr-tags__track--scroll': isScrollable }"
+      >
         <view
           v-for="tag in displayTags"
           :key="tag.key"
@@ -168,6 +174,11 @@ function onTagClick(tag: GoodsAttrTagView) {
   &__track {
     display: flex;
     gap: 12rpx;
+
+    // 超量时才定宽横滑：3 张以内由 flex-grow 均分铺满整行，右侧不留白
+    &--scroll .attr-tag {
+      flex: 0 0 176rpx;
+    }
   }
 }
 
@@ -177,13 +188,12 @@ function onTagClick(tag: GoodsAttrTagView) {
  */
 .attr-tag {
   display: flex;
-  width: 176rpx;
-  box-sizing: border-box;
-  flex: 0 0 176rpx;
+  min-width: 0;
+  flex: 1 1 0;
   flex-direction: column;
   padding: 12rpx 14rpx;
   border-radius: 14rpx;
-  background: var(--attr-tag-bg, #f5f6f8);
+  background: var(--attr-tag-bg, var(--app-card-2));
   transition: opacity 120ms ease, transform 120ms ease;
 
   &--green {
@@ -199,9 +209,9 @@ function onTagClick(tag: GoodsAttrTagView) {
   }
 
   &--gray {
-    --attr-tag-bg: #f5f6f8;
-    --attr-tag-value: #4b5563;
-    --attr-tag-icon: #6b7280;
+    --attr-tag-bg: var(--app-card-2);
+    --attr-tag-value: var(--app-text-2);
+    --attr-tag-icon: var(--app-text-2);
   }
 
   &--orange {
@@ -226,7 +236,7 @@ function onTagClick(tag: GoodsAttrTagView) {
     width: 26rpx;
     height: 26rpx;
     flex: none;
-    color: var(--attr-tag-icon, #6b7280);
+    color: var(--attr-tag-icon, var(--app-text-2));
     font-size: 26rpx;
   }
 
@@ -241,7 +251,7 @@ function onTagClick(tag: GoodsAttrTagView) {
     overflow: hidden;
     min-width: 0;
     flex: 1;
-    color: var(--attr-tag-value, #3a3f47);
+    color: var(--attr-tag-value, var(--app-text));
     font-size: 24rpx;
     font-weight: 600;
     line-height: 1.3;
@@ -258,7 +268,7 @@ function onTagClick(tag: GoodsAttrTagView) {
   &__label {
     margin-top: 4rpx;
     overflow: hidden;
-    color: #8a8f99;
+    color: var(--app-text-3);
     font-size: 20rpx;
     line-height: 1.3;
     text-overflow: ellipsis;
@@ -279,7 +289,7 @@ function onTagClick(tag: GoodsAttrTagView) {
   &__title {
     min-width: 0;
     flex: 1;
-    color: #1f2329;
+    color: var(--app-text);
     font-size: 32rpx;
     font-weight: 700;
     line-height: 1.4;
@@ -300,7 +310,7 @@ function onTagClick(tag: GoodsAttrTagView) {
   }
 
   &__content {
-    color: #5f6673;
+    color: var(--app-text-2);
     font-size: 26rpx;
     line-height: 1.7;
     white-space: pre-wrap;

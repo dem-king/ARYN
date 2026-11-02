@@ -373,27 +373,27 @@ function confirm(dest: 'shared' | 'personal') {
   justify-content: center;
   width: 60rpx;
   height: 60rpx;
-  border: 2rpx solid #e8e8e8;
+  border: 2rpx solid var(--app-border);
   border-radius: 12rpx;
-  background: #fff;
-  color: #303133;
+  background: var(--app-card);
+  color: var(--app-text);
 }
 
 .quantity-btn--disabled {
-  color: #c8c9cc;
-  background: #f7f8fa;
+  color: var(--app-text-3);
+  background: var(--app-card-2);
 }
 
 .quantity-input {
   width: 120rpx;
   height: 60rpx;
   margin: 0 12rpx;
-  border: 2rpx solid #e8e8e8;
+  border: 2rpx solid var(--app-border);
   border-radius: 12rpx;
-  background: #fff;
+  background: var(--app-card);
   text-align: center;
   font-size: 30rpx;
   font-weight: 600;
-  color: #303133;
+  color: var(--app-text);
 }
 </style>

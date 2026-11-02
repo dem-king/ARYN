@@ -62,6 +62,23 @@ export const tableColumns = [
   },
 ];
 
+/** 排期方式选项 */
+export const scheduleTypeOptions = [
+  { label: '一次性场次', value: 0 },
+  { label: '每日重复', value: 1 },
+];
+
+/** 生效星期选项（1=周一，与后端一致） */
+export const weekdayOptions = [
+  { label: '周一', value: 1 },
+  { label: '周二', value: 2 },
+  { label: '周三', value: 3 },
+  { label: '周四', value: 4 },
+  { label: '周五', value: 5 },
+  { label: '周六', value: 6 },
+  { label: '周日', value: 7 },
+];
+
 /** 秒杀商品表单默认值 */
 export function createDefaultGoodsItem() {
   return {
@@ -87,16 +104,31 @@ export function createDefaultSessionItem() {
   };
 }
 
+/** 秒杀每日排期模板默认值 */
+export function createDefaultSessionTemplateItem() {
+  return {
+    id: undefined as string | undefined,
+    sessionName: '',
+    datatimes: [] as string[],
+    startTime: '',
+    endTime: '',
+    weekdays: [1, 2, 3, 4, 5, 6, 7],
+    goodsList: [createDefaultGoodsItem()],
+  };
+}
+
 /** 秒杀活动表单默认值 */
 export function createDefaultForm() {
   return {
     id: undefined as string | undefined,
     activityName: '',
     description: '',
+    scheduleType: 0,
     datatimes: [] as string[],
     startTime: '',
     endTime: '',
     sessions: [createDefaultSessionItem()],
+    sessionTemplates: [createDefaultSessionTemplateItem()],
   };
 }
 

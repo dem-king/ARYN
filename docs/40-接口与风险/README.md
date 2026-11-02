@@ -5,6 +5,7 @@
 - [接口映射](接口映射.md)：管理端/移动端 API 与后端模块覆盖。
 - [缺失模块清单](缺失模块清单.md)：已确认缺口、风险级别和处理策略。
 - [多租户 SQL 硬约束](#多租户-sql-硬约束)：改 Mapper 前必读。
+- [Mapper 方法名不得与 BaseMapper 重名](#mapper-方法名不得与-basemapper-内置方法重名)：新增/改名 Mapper 自定义方法前必读。
 - [租户上下文线程规则](#租户上下文线程规则)：改 Dubbo 过滤器或 `ArynTenantContextHolder` 前必读。
 - [免登白名单与 401 语义](#免登白名单与-401-语义)：新增 C 端公开接口或排查「登录已过期」误报前必读。
 - [免登登录端点的凭证自校验](#免登登录端点的凭证自校验)：改登录端点 / 验证码过滤器前必读。
@@ -37,6 +38,28 @@ ERROR 1052 (23000): Column 'tenant_id' in on clause is ambiguous
 未起别名，导致船供采购页报上述 1052 错误。该测试当时已存在且逻辑正确，但因
 `mvn -o test -pl aryn-boot`（离线、无 `-am`）解析不到 `aryn-vessel-biz` 构件而**从未真正执行**——
 守门测试必须纳入常规验证命令才有意义。
+
+## Mapper 方法名不得与 BaseMapper 内置方法重名
+
+**MyBatis 语句 id = `命名空间 + "." + 方法名`**，MyBatis-Plus 的内置语句也按同一 id 注入。
+Mapper 接口里只要声明一个与 `BaseMapper` 内置方法（`selectCount`、`selectById`、`selectList`、`selectPage` 等）同名的自定义方法，
+XML/注解语句会先以该 id 注册，MP 的 `AbstractMethod#hasMappedStatement` 检测到同名语句已存在便**跳过内置注入**。
+后果：内置方法被自定义 SQL 顶掉，而两者参数绑定名不同（自定义通常是 `@Param("query")`；内置是 `@Param("ew")` + 位置参数 `param1`），
+任何走内置方法的调用（`IService#count()`、`page()`、`getById()` 等）都会抛：
+
+```
+org.apache.ibatis.binding.BindingException: Parameter 'query' not found. Available parameters are [ew, param1]
+```
+
+**规则**：自定义 Mapper 方法必须换不重名的名字（如 `countUserByQuery`），不得叫 `selectCount` / `selectById` 等。
+**守门测试**：`aryn-boot/src/test/java/com/aryn/cloud/boot/tenant/MapperStatementBindingAuditTest#customMapperMethodsMustNotShadowBaseMapperMethods`
+（BaseMapper 方法清单按当前 MP 版本反射获取，避免手写清单随版本漂移）。
+
+**踩坑记录（2026-10-28）**：`SysUserMapper#selectCount(@Param("query") SysUser)` 配 XML `<select id="selectCount">`
+覆盖了内置 `selectCount(Wrapper)`。该自定义方法只服务「手机号唯一性校验」，其自身调用一直正常，问题潜伏到
+新增的租户概览接口（`TenantOverviewService#getOverview` → `sysUserService.count()`）才暴露：
+租户管理页点「详情」必现 500。原审计测试把名为 BaseMapper 内置方法的方法直接跳过，等于把该冲突白名单化了，
+本次同时修正该盲点。
 
 ## 免登白名单与 401 语义
 
@@ -305,6 +328,95 @@ cloud 在 Nacos 共享配置 `application-dev.yml`（基线 `db/cloud/3aryn_naco
 前端 `apps/web-ele/src/views/_core/authentication/login-security.test.ts` 锁退出必须走 `requestClient`、
 不出现 `console.error(error)`。
 
+## 会话失效 401 契约（2026-10-28）
+
+需求包见 [2026-10-28-被顶下线弹窗提示](../50-需求文档/2026-10-28-被顶下线弹窗提示/README.md)，
+实现契约见同目录 [一期实现契约](../50-需求文档/2026-10-28-被顶下线弹窗提示/一期实现契约.md)。
+
+**背景**：Sa-Token 的 7 种未登录场景值（-1 未带 token / -2 无效 / -3 过期 / -4 被顶下线 / -5 被踢下线 /
+-6 冻结 / -7 前缀错）历史上只被揉进中文 `msg`，且三个出口不一致（boot/cloud 过滤器 `code=401`，
+MVC 兜底 `code=1`）。前端只判 `code===401`，导致被顶下线时管理端静默跳登录页、移动端 0.5s toast 后 `reLaunch`，
+用户看不到"为什么下线"，还会把带 token 的 `msg` 弹到界面上。
+
+**现契约**（HTTP 状态仍为 200，沿用 `body.code` 约定）：
+
+```json
+{"code":401,"msg":"账号已在其他设备登录","data":{"reason":"BE_REPLACED","invalidAt":"2026-10-28T21:32:07+08:00",
+ "device":{"os":"Windows 10","browser":"Chrome 120","location":"上海市","loginTime":"2026-10-28T21:32:05+08:00"}}}
+```
+
+- `reason` 取值（wire 值 = 后端 `SessionInvalidReason` 枚举名，**不得改名**）：
+  `NOT_TOKEN` / `TOKEN_INVALID` / `TOKEN_EXPIRED` / `BE_REPLACED` / `KICK_OUT` / `TOKEN_FREEZE` / `NO_PREFIX`。
+- `invalidAt` / `device` 可缺失；`device` 仅在「被顶下线 + 能取到新会话在线记录」时返回，只含
+  `os/browser/location/loginTime`，**不含 IP、token、loginId、tenantId**（`SessionInvalidPayload` 白名单过滤）。
+- `msg` 是脱敏固定文案，**不再回显 token**（旧实现 `NotLoginException` 的 message 会拼完整 token）。
+- **响应体必须是合法 JSON**：boot/cloud 过滤器不能用 `SaResult` 承载嵌套 `data`（`SaResult#toString()` 对嵌套 Map 只做
+  `String.valueOf`，会输出 `{reason=NOT_TOKEN}` 非法 JSON，浏览器 Axios 无法解析）；统一走
+  `SessionInvalidResponse.toJson(reason, data)` 预序列化字符串（2026-10-29 boot 部署实测修复）。
+- 写入：登录链路 `SecurityUtils.loginByDevice`（登录前收集旧 token → 登录成功后写
+  `satoken:login:invalid-reason:{token}`，value 为同上 JSON，TTL 7 天；失败只 warn，不影响登录）。
+- 读取：boot 过滤器 / cloud 网关过滤器 / MVC 兜底三个出口同源（网关不能依赖 servlet 版 `common-security`，
+  按同一 key/字段直接读 Redis）；Redis 异常或记录缺失只降级为「只有 reason」，不得改变 401 语义。
+- 前端消费：管理端 `loginExpiredMode: 'modal'` + 会话失效弹窗（原地重登、保留页面现场）；
+  移动端 `sessionStore` + `SessionInvalidDialog`（用户确认后才清态/跳登录页，并回跳原页）。
+  **免登请求 401 与 403 仍然只提示、不清登录态、不弹窗**。
+- **游客态 401 不属于会话失效（2026-10-29 修复）**：移动端 `beforeRequest` 给请求打 `meta.hadToken`
+  （本次是否真的带了 token），响应层 `isGuestRequest`（`hadToken === false`）命中时只 toast「请先登录」，
+  不置失效态、不弹窗、不冻结请求；带 token 的 401 仍按上面的弹窗链路。对齐需求包 README §1 第 5 行
+  「未登录/伪造 → 直接去登录页，不弹被顶」与 §7.4。受限页不得依赖路由守卫（只拦 `router.push`，
+  裸 `uni.navigateTo` 会绕过），须自行做游客态/登录引导（如常购清单页）。
+- **入口级登录守卫统一到 `composables/useRequireLogin.ts`（2026-10-29 第二轮）**：`ensureLoggedIn()`
+  未登录时写 `redirectPath`（当前页完整路径含 query）→ 打开登录页 → 返回 false；已登录直接放行；
+  已在登录页/连点幂等。已接入：装修领券（receive/ladder）与领券中心、消息中心（搜索栏铃铛未登录不渲染、
+  notice 游客态、chat/notice-detail 深链跳登录）、商详多规格加购/收藏/客服、共享车分享卡片直达
+  （回跳保留 `id`/`token`，登录后自动 join）、拼团开团/参团。守门测试：移动端
+  `src/require-login-contract.test.ts`（源码契约）+ `src/composables/useRequireLogin.test.ts`（行为 6 例）。
+- 新增 `data` 为纯追加字段，旧客户端无感；**不要把 HTTP 状态改成 401**（三端拦截器与既有测试都建立在
+  「HTTP 200 + 业务码 401」上）。
+
+**守门测试**：`aryn-boot/.../security/SessionInvalidContractTest`（枚举/wire 值/脱敏文案/设备字段白名单/
+三个出口同源/gateway 不依赖 common-security/Redis key 与 TTL/契约文档冻结值/`subReason` 全链路）、
+`aryn-boot/.../common/security/support/SessionInvalidSupportTest`（读写/降级/敏感字段/TTL/踢人原因写入）、
+移动端 `src/api/core/guest-request.test.ts`（游客 401 不弹会话失效窗、只提示登录；带 token 401 仍弹窗；
+`handleAlovaError` 游客短路）。
+
+### 细分原因 `subReason`（二期，2026-10-28）
+
+同为 `reason=KICK_OUT`，"管理员强退 / 账号停用 / 改密 / 删除 / 租户停用 / 配送资格撤销 / 会员禁用"
+对用户的含义和下一步动作完全不同，因此在 `data` 里增加可空 `subReason`：
+
+| wire 值 | 含义 | 写入点 |
+|---|---|---|
+| `ADMIN_KICK` | 管理员强制下线 | `SysOnlineUserController#kickoutByToken` |
+| `ACCOUNT_DISABLED` | 员工账号停用 | `SysUserServiceImpl#updateUser` |
+| `PASSWORD_CHANGED` | 密码修改 | `SysUserController#editPwd` |
+| `ACCOUNT_DELETED` | 账号删除 | `SysUserServiceImpl#delUser`、`UserInfoServiceImpl#deleteUser` |
+| `TENANT_DISABLED` | 租户停用/到期/套餐变更/删除/平台强制下线 | `TenantSessionRevoker#revokeTenant` |
+| `DELIVERY_REVOKED` | 配送资格撤销 | `DeliveryAccessGuard#revokeDeliverySessions` |
+| `MEMBER_DISABLED` | C 端会员禁用 | `UserInfoServiceImpl#updateStatus` |
+
+- **只在 `reason=KICK_OUT` 时输出**；其它原因即使传入也会被 `SessionInvalidPayload` 忽略。
+- 写入必须在 kickout **之前**（`SessionInvalidSupport.kickoutWithReason/kickoutTokenWithReason` 已封装"枚举 token → 写原因 → kickout"）：kickout 之后 token→loginId 映射立即消失，无法再按 token 反查。
+- 前端未知值按"无 subReason"降级；`可重新登录=false` 的原因（停用/删除/租户停用/会员禁用）不渲染「重新登录」按钮，避免用户白试。
+- 冻结契约见 [二期实现契约](../50-需求文档/2026-10-28-被顶下线弹窗提示/二期实现契约.md)。
+
+### 会话失效主动推送与登录设备（三期，2026-10-29）
+
+- **WS 事件**：被顶/被踢时服务端向旧设备已建立的 WebSocket 推送
+  `{"eventType":"SESSION_INVALID","tenantId","recipientType":"SYS_USER|MALL_USER","recipientId","reason","subReason?","invalidAt?","device?"}`。
+  通道复用 `message:push:events`；发布方在 `common-security`（不依赖 message-api），
+  通道/事件类型/接收者类型的常量统一在 `common-core` 的 `SessionInvalidPushConstants`，
+  `MessagePushEvent` 增加可空字段承载；前端收到后复用同一 `sessionStore.invalidate`（幂等）。
+  推送失败只 warn，仍由下一次 HTTP 401 兜底。
+- **登录设备接口**：`GET /auth/session/devices` 返回当前账号活跃会话（token 只以 SHA-256 前 12 位
+  形式出现，带 `current` 标记）；`DELETE /auth/session/devices/{id}` 只能下线自己的**非当前**会话，
+  当前设备必须走退出登录。
+- **我的登录记录**：`GET /upms/sysloginlog/my` 只返回当前账号 + 当前租户记录，单页上限 20，
+  **不得**加 `upms:sysloginlog:page` 权限点（否则普通员工无法在「登录设备」弹窗查看自己的记录）。
+- 守门测试：`SessionInvalidContractTest`（推送契约/接口安全边界/契约文档冻结值）、
+  `SessionInvalidSupportTest`（推送字段白名单）、`SessionDeviceControllerTest`、
+  `SysLoginLogControllerMyTest`、`MessageRedisPushListenerTest`（跨实例投递/本实例跳过/坏 JSON）。
+
 ## 多租户隔离加固（2026-10-28）
 
 需求包见 [2026-10-28-多租户隔离加固](../50-需求文档/2026-10-28-多租户隔离加固/README.md)。以下规则适用于新增接口、实体、缓存与文件能力。
@@ -321,14 +433,21 @@ cloud 在 Nacos 共享配置 `application-dev.yml`（基线 `db/cloud/3aryn_naco
   在线记录的 tenantId 与当前租户一致，不能只凭 token 路径直接 kickout。
 - 角色菜单页读取的 `/menu/tenant`、`/menu/role/{roleId}` 需要 `upms:sysrole:update`；
   不要为了「页面上能打开」而移除该权限，否则无权限会话可读取租户菜单结构。
-- 平台租户不可停用/删除；`/tenant/register` 与 `/tenantpackage/list` 是公开注册入口，不接平台守卫。
+- 平台租户不可停用/删除、不可设置授权结束时间或续期；`/tenant/register` 与 `/tenantpackage/list` 是公开注册入口，不接平台守卫。
+- 租户是否长期有效由数据决定：`sys_tenant.tenant_type = '1'`（平台租户）且 `auth_end_time IS NULL`；
+  普通租户按授权起止时间管控。前端不得再按租户 ID 硬编码「长期有效」，列表/详情统一以
+  `authEndTime` 为空作为长期有效判据，操作按钮以 `tenantType` 判据。仅「当前会话是否为平台租户」
+  这类无租户行的场景继续使用 `CommonConstants.PLATFORM_TENANT_ID`。
 
 ### 写入归属
 
 - `*.api.entity` 的 `tenantId` 由 `TenantIdRequestModule` 在 HTTP 反序列化时移除；新增实体若需要
   客户端显式指定租户，应使用 DTO 并单独校验，不要放开实体字段。
-- `MyMetaObjectHandler` 在租户上下文存在时：INSERT 强制覆盖 `tenantId`，UPDATE 清空 `tenantId`
-  （默认 `NOT_NULL` 策略下不生成 `tenant_id` 的 SET）。后台任务无上下文时才允许显式租户值。
+- `MyMetaObjectHandler` 在租户上下文存在时：INSERT 强制覆盖 `tenantId`，UPDATE 把实体 `tenantId`
+  改写为当前租户（`SET` 与租户插件 `WHERE` 同归属，改挂无效）。**UPDATE 不能把 `tenantId` 置空**：
+  MyBatis-Plus 先按实体非空字段生成 `SET tenant_id = #{et.tenantId}`，之后才执行 `updateFill`，
+  置空会让参数绑定 NULL，命中 `tenant_id NOT NULL`（2026-10-29 微信登录 500 的根因，回归测试
+  `TenantUpdateOwnershipSqlTest`）。后台任务无上下文时才允许显式租户值。
 - 手写 SQL / `@InterceptorIgnore` 旁路仍必须显式过滤租户；新增旁路必须登记到
   `TenantInterceptorBypassAuditTest.ALLOWED_BYPASSES`。
 

@@ -21,15 +21,21 @@ const GOODS_INFO = 'src/sub-pages/product/goods-detail/components/GoodsInfo.vue'
 const ATTR_TAGS = 'src/sub-pages/product/goods-detail/components/GoodsAttrTags.vue'
 
 describe('goods attr tags wiring', () => {
-  it('mounts inside the title card: after subtitle/free-shipping tags, before stock meta', () => {
+  it('mounts inside the title card: after subtitle, before stock meta', () => {
     const info = source(GOODS_INFO)
-    const tagsIndex = info.indexOf('goods-title-card__tags')
+    const subtitleIndex = info.indexOf('goods-title-card__subtitle')
     const componentIndex = info.indexOf('<GoodsAttrTags')
     const metaIndex = info.indexOf('goods-title-card__meta')
 
-    expect(tagsIndex).toBeGreaterThan(-1)
-    expect(componentIndex).toBeGreaterThan(tagsIndex)
+    expect(subtitleIndex).toBeGreaterThan(-1)
+    expect(componentIndex).toBeGreaterThan(subtitleIndex)
     expect(metaIndex).toBeGreaterThan(componentIndex)
+  })
+
+  it('drops the standalone free-shipping chip under the title', () => {
+    // 运费口径只由「配送」行承载，标题下不再重复一个小标签
+    const info = source(GOODS_INFO)
+    expect(info).not.toContain('goods-title-card__tags')
   })
 
   it('feeds raw attrTags from the detail response without reshaping elsewhere', () => {
@@ -43,13 +49,17 @@ describe('goods attr tags wiring', () => {
     expect(component).toContain('normalizeGoodsAttrTags')
   })
 
-  it('uses a horizontal scroll-view with the documented card metrics', () => {
+  it('fills the row for up to 3 tags, then scrolls horizontally without wrapping', () => {
     const component = source(ATTR_TAGS)
-    expect(component).toContain('scroll-x')
-    expect(component).toContain(':show-scrollbar="false"')
-    expect(component).toContain(':enable-flex="true"')
-    expect(component).toMatch(/width:\s*176rpx/)
+    // 3 张以内等宽铺满，右侧不留白
+    expect(component).toMatch(/flex:\s*1 1 0/)
     expect(component).toMatch(/gap:\s*12rpx/)
+    // 超过 3 张走单行定宽横滑，绝不换行
+    expect(component).toContain('displayTags.value.length > 3')
+    expect(component).toContain(':scroll-x="isScrollable"')
+    expect(component).not.toMatch(/flex-wrap:\s*wrap/)
+    expect(component).toContain('attr-tags__track--scroll')
+    expect(component).toMatch(/flex:\s*0 0 176rpx/)
   })
 
   it('opens popup content via wd-popup instead of an external URL', () => {

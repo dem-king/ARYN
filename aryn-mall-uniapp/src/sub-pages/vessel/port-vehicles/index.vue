@@ -13,6 +13,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getPortVehiclePorts, getPortVehicles } from '@/api/vessel'
 import { useGlobalToast } from '@/composables/useGlobalToast'
+import { useRequireLogin } from '@/composables/useRequireLogin'
 import { ensureShipContextLoaded } from '@/composables/useShipContextLoad'
 import { useAuthStore } from '@/store/authStore'
 import { useShipContextStore } from '@/store/shipContextStore'
@@ -37,9 +38,8 @@ const vehicles = ref<PortVehicle[]>([])
 
 const hasContextPort = computed(() => !!shipContextStore.portName)
 
-function goLogin() {
-  uni.navigateTo({ url: '/pages/login/index' })
-}
+// 统一登录守卫：记录当前页回跳（登录后回到港口车辆名单），不再裸跳登录页丢来源
+const { goLogin } = useRequireLogin()
 
 /** 拨打司机电话（整卡可点，与配送模块同口径） */
 function handleCallPhone(phone?: string) {
@@ -125,7 +125,7 @@ onShow(() => {
 </script>
 
 <template>
-  <view class="min-h-screen pb-40rpx" style="background: #F5F6F7">
+  <view class="min-h-screen pb-40rpx" style="background: var(--app-bg)">
     <!-- 未登录 -->
     <view v-if="!authStore.isLoggedIn" class="flex flex-col items-center px-60rpx pt-180rpx text-center">
       <view
@@ -134,16 +134,16 @@ onShow(() => {
       >
         <text class="i-carbon-user-avatar text-84rpx" style="color: #378ADD" />
       </view>
-      <view class="mt-40rpx text-32rpx font-bold" style="color: #1D2129">
+      <view class="mt-40rpx text-32rpx font-bold" style="color: var(--app-text)">
         {{ t('vessel.portVehicles.loginTitle') }}
       </view>
-      <view class="mt-14rpx text-26rpx leading-42rpx" style="color: #86909C">
+      <view class="mt-14rpx text-26rpx leading-42rpx" style="color: var(--app-text-2)">
         {{ t('vessel.portVehicles.loginDesc') }}
       </view>
       <button
         class="btn-primary mt-56rpx h-88rpx w-360rpx rounded-full text-28rpx font-medium leading-88rpx !m-0"
         hover-class="btn-press"
-        @tap="goLogin"
+        @tap="goLogin()"
       >
         {{ t('vessel.portVehicles.goLogin') }}
       </button>
@@ -187,7 +187,7 @@ onShow(() => {
 
       <!-- 车辆列表 -->
       <template v-else-if="vehicles.length > 0">
-        <view class="mx-20rpx mt-24rpx text-24rpx" style="color: #86909C">
+        <view class="mx-20rpx mt-24rpx text-24rpx" style="color: var(--app-text-2)">
           {{ t('vessel.portVehicles.summary', { port: activePort, count: vehicles.length }) }}
         </view>
         <view
@@ -201,11 +201,11 @@ onShow(() => {
             <view class="min-w-0">
               <view class="flex items-center gap-12rpx">
                 <text class="i-carbon-car text-30rpx" style="color: #378ADD" />
-                <text class="text-34rpx font-bold tracking-wide" style="color: #1D2129">
+                <text class="text-34rpx font-bold tracking-wide" style="color: var(--app-text)">
                   {{ vehicle.plateNo }}
                 </text>
               </view>
-              <view class="mt-10rpx text-26rpx" style="color: #4E5969">
+              <view class="mt-10rpx text-26rpx" style="color: var(--app-text-2)">
                 {{ vehicle.driverName || t('vessel.portVehicles.driver') }}
                 <text v-if="vehicle.seatCount">
                   {{ t('vessel.portVehicles.seats', { count: vehicle.seatCount }) }}
@@ -233,7 +233,7 @@ onShow(() => {
             <text class="i-carbon-location mt-2rpx flex-none text-24rpx" />
             {{ t('vessel.portVehicles.pickupPoint', { point: vehicle.pickupPoint }) }}
           </view>
-          <view v-if="vehicle.remark" class="mt-8rpx text-24rpx" style="color: #86909C">
+          <view v-if="vehicle.remark" class="mt-8rpx text-24rpx" style="color: var(--app-text-2)">
             {{ vehicle.remark }}
           </view>
         </view>
@@ -245,12 +245,12 @@ onShow(() => {
           class="h-168rpx w-168rpx flex items-center justify-center rounded-full"
           style="background: linear-gradient(155deg, #EEF3F8 0%, #F7F9FB 78%); box-shadow: 0 12rpx 32rpx rgba(29, 33, 41, 0.06)"
         >
-          <text class="i-carbon-taxi text-84rpx" style="color: #A8ABB2" />
+          <text class="i-carbon-taxi text-84rpx" style="color: var(--app-text-3)" />
         </view>
-        <view class="mt-40rpx text-30rpx font-bold" style="color: #1D2129">
+        <view class="mt-40rpx text-30rpx font-bold" style="color: var(--app-text)">
           {{ activePort ? t('vessel.portVehicles.emptyWithPort', { port: activePort }) : t('vessel.portVehicles.empty') }}
         </view>
-        <view class="mt-14rpx text-26rpx leading-42rpx" style="color: #86909C">
+        <view class="mt-14rpx text-26rpx leading-42rpx" style="color: var(--app-text-2)">
           {{ t('vessel.portVehicles.emptyDesc') }}
         </view>
       </view>
@@ -286,7 +286,7 @@ onShow(() => {
 
 /* 列表加载骨架：微光扫过 */
 .skeleton {
-  background: linear-gradient(90deg, #EFF1F4 25%, #F7F8FA 37%, #EFF1F4 63%);
+  background: linear-gradient(90deg, var(--app-skeleton) 25%, var(--app-skeleton-band) 37%, var(--app-skeleton) 63%);
   background-size: 400% 100%;
   animation: skeleton-loading 1.4s ease infinite;
 }

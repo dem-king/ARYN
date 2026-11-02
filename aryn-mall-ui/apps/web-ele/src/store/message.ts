@@ -1,11 +1,13 @@
 import type { NotificationItem } from '@vben/layouts';
 
+import type { SessionInvalidPayload } from './session';
+
 import type {
   ConversationAttention,
   NoticeInboxItem,
 } from '#/api/message/types';
 
-import { computed, onScopeDispose, ref } from 'vue';
+import { computed, onScopeDispose, ref, watch } from 'vue';
 
 import { useAppConfig } from '@vben/hooks';
 import { useAccessStore } from '@vben/stores';
@@ -42,6 +44,13 @@ import {
   writeToggle,
 } from '#/composables/use-message-alert';
 import { resolveNoticeLink } from '#/utils/notice-link';
+
+import {
+  normalizeSessionInvalidDevice,
+  normalizeSessionInvalidReason,
+  normalizeSessionInvalidSubReason,
+  useSessionStore,
+} from './session';
 
 export interface MessagePushSignal {
   conversationId?: string;
@@ -90,6 +99,42 @@ export function isConversationPush(signal?: MessagePushSignal) {
   );
 }
 
+/** 三期契约 §1：服务端主动推送「会话失效」事件类型。 */
+export const SESSION_INVALID_EVENT_TYPE = 'SESSION_INVALID';
+
+/**
+ * 解析 WS 主动推送的会话失效事件（三期契约 §1.1）。
+ *
+ * <p>字段与 HTTP 401 的 `data` 保持同一口径：`reason/subReason` 只认已知 wire 值
+ * （未知值丢弃 → 通用文案兜底），`device` 仅 `BE_REPLACED` 时可能带。</p>
+ *
+ * @returns 会话失效载荷；非 SESSION_INVALID 事件 / 非 JSON / 缺 eventType 均返回 null
+ */
+export function parseSessionInvalidPushSignal(
+  raw: unknown,
+): null | SessionInvalidPayload {
+  if (typeof raw !== 'string' || !raw.startsWith('{')) return null;
+  let payload: unknown;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!payload || typeof payload !== 'object') return null;
+  const event = payload as Record<string, unknown>;
+  if (event.eventType !== SESSION_INVALID_EVENT_TYPE) return null;
+  return {
+    // 与 HTTP 401 同一清洗口径（白名单字段 + Unknown 兜底值过滤 + ip）
+    device: normalizeSessionInvalidDevice(event.device),
+    invalidAt:
+      typeof event.invalidAt === 'string' && event.invalidAt.trim()
+        ? event.invalidAt.trim()
+        : null,
+    reason: normalizeSessionInvalidReason(event.reason),
+    subReason: normalizeSessionInvalidSubReason(event.subReason),
+  };
+}
+
 /**
  * 拼装工作人员实时通道地址。
  *
@@ -113,6 +158,8 @@ export function buildStaffWebSocketUrl(options: {
 }
 
 export const useMessageStore = defineStore('message', () => {
+  // 会话失效后不再建立/恢复推送连接（死 token 重连只会不断刷 401）
+  const sessionStore = useSessionStore();
   const unreadCount = ref(0);
   const notifications = ref<NotificationItem[]>([]);
   const conversationUnread = ref(0);
@@ -200,23 +247,36 @@ export const useMessageStore = defineStore('message', () => {
 
   async function refreshNotifications() {
     const requestGeneration = sessionGeneration;
-    const [count, page, attention] = await Promise.all([
-      getStaffNoticeUnreadCount(),
-      getStaffNoticeInbox({ limit: 6 }),
-      // 会话提醒失败不能拖垮站内信：非坐席账号调用该接口没有意义，
-      // 这里降级为“没有会话提醒”，避免整个铃铛空白。
-      getConversationAttention({ limit: 10 }).catch(() => undefined),
-    ]);
-    if (requestGeneration !== sessionGeneration) return;
-    unreadCount.value = count;
-    const notices = page.records.map((item) => noticeNotification(item));
-    conversationUnread.value = attention
-      ? attention.unreadConversations + attention.waitingTotal
-      : 0;
-    notifications.value = attention
-      ? [...conversationNotifications(attention), ...notices]
-      : notices;
-    alertOnUnreadIncrease();
+    try {
+      const [count, page, attention] = await Promise.all([
+        getStaffNoticeUnreadCount(),
+        getStaffNoticeInbox({ limit: 6 }),
+        // 会话提醒失败不能拖垮站内信：非坐席账号调用该接口没有意义，
+        // 这里降级为“没有会话提醒”，避免整个铃铛空白。
+        getConversationAttention({ limit: 10 }).catch(() => undefined),
+      ]);
+      if (requestGeneration !== sessionGeneration) return;
+      unreadCount.value = count;
+      const notices = page.records.map((item) => noticeNotification(item));
+      conversationUnread.value = attention
+        ? attention.unreadConversations + attention.waitingTotal
+        : 0;
+      notifications.value = attention
+        ? [...conversationNotifications(attention), ...notices]
+        : notices;
+      alertOnUnreadIncrease();
+    } catch (error) {
+      // 二期契约 §3.2：401 交给统一会话失效链路（弹窗已承载提示），其它错误只 warn，
+      // 不得产生 unhandled rejection（尤其 WS 推送触发的被动刷新）。
+      const code = (error as { code?: unknown })?.code;
+      if (code === 401 || sessionStore.invalid) {
+        return;
+      }
+      console.warn(
+        '[message] 未读提醒刷新失败：',
+        (error as Error)?.message ?? '未知错误',
+      );
+    }
   }
 
   /**
@@ -348,6 +408,11 @@ export const useMessageStore = defineStore('message', () => {
   }
 
   function connect() {
+    if (sessionStore.invalid) {
+      // 会话已失效：清掉重连意图并断开旧连接，不再建立新连接
+      disconnect();
+      return;
+    }
     if (
       socket?.readyState === WebSocket.OPEN ||
       socketState.value === 'connecting'
@@ -363,8 +428,19 @@ export const useMessageStore = defineStore('message', () => {
     });
     currentSocket.addEventListener('message', (event) => {
       if (socket !== currentSocket) return;
+      const raw = (event as MessageEvent).data;
+      const sessionInvalid = parseSessionInvalidPushSignal(raw);
+      if (sessionInvalid) {
+        // 三期契约 §3.1：服务端主动推送会话失效（秒级感知）。
+        // 先落状态 + 弹窗（多标签广播、锁屏解锁由 sessionStore.invalidate 统一处理），
+        // 随后断开连接并 return——失效事件不是普通消息，不能再触发未读刷新。
+        sessionStore.invalidate(sessionInvalid);
+        useAccessStore().setLoginExpired(true);
+        disconnect();
+        return;
+      }
       void refreshNotifications();
-      const signal = parsePushSignal((event as MessageEvent).data);
+      const signal = parsePushSignal(raw);
       if (isConversationPush(signal)) lastConversationPush.value = signal;
     });
     currentSocket.addEventListener('close', () => {
@@ -374,6 +450,11 @@ export const useMessageStore = defineStore('message', () => {
       if (shouldReconnect) {
         reconnectTimer = setTimeout(() => {
           reconnectTimer = undefined;
+          if (sessionStore.invalid) {
+            // 定时器触发前会话已失效：不再重连（等价于「不排重连」）
+            shouldReconnect = false;
+            return;
+          }
           connect();
         }, 3000);
       }
@@ -392,6 +473,18 @@ export const useMessageStore = defineStore('message', () => {
     currentSocket?.close();
     socketState.value = 'closed';
   }
+
+  // 二期契约 §3.2 落点：失效即断连。放在 message store 内部，
+  // 只要推送链路被使用过（BasicLayout 挂载即 start）就一定生效；
+  // 不依赖具体页面是否存活，也不会影响正常连接/重连流程。
+  watch(
+    () => sessionStore.invalid,
+    (invalid) => {
+      if (invalid) {
+        disconnect();
+      }
+    },
+  );
 
   /** 请求工作台定位到指定会话；工作台消费后调用 clearPendingConversation。 */
   function requestConversation(conversationId: string) {

@@ -52,6 +52,16 @@ public interface CacheConstants {
 	/** 系统在线用户 */
 	String SYS_ONLINE_KEY = "satoken:login:online_user:";
 
+	/**
+	 * 会话失效原因记录 key 前缀（token 维度，值为
+	 * {@link com.aryn.cloud.common.core.util.SessionInvalidPayload} 的 JSON）。
+	 *
+	 * <p>用途：token 被顶下线/被踢下线后，401 出口按 token 反查「为什么失效」，
+	 * 把机器可读的 reason 与被顶下线时的"新设备信息"下发给前端弹窗；
+	 * TTL 由写入方设置（当前 7 天），读不到时前端按通用文案降级。</p>
+	 */
+	String SESSION_INVALID_KEY = "satoken:login:invalid-reason:";
+
 	/** 菜单信息缓存 */
 	String MENU_CACHE = "menu_cache";
 

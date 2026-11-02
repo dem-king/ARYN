@@ -21,11 +21,15 @@ import com.aryn.cloud.promotion.api.vo.AppSeckillGoodsVO;
 import com.aryn.cloud.promotion.api.vo.AppSeckillVO;
 import com.aryn.cloud.promotion.api.vo.SeckillActivityVO;
 import com.aryn.cloud.promotion.api.vo.SeckillGoodsVO;
+import com.aryn.cloud.promotion.api.vo.SeckillReminderConfigVO;
+import com.aryn.cloud.promotion.api.vo.SeckillSessionTemplateVO;
 import com.aryn.cloud.promotion.api.vo.SeckillSessionVO;
 import com.aryn.cloud.promotion.mapper.SeckillActivityMapper;
 import com.aryn.cloud.promotion.service.ISeckillActivityService;
 import com.aryn.cloud.promotion.service.ISeckillGoodsService;
+import com.aryn.cloud.promotion.service.ISeckillScheduleService;
 import com.aryn.cloud.promotion.service.ISeckillSessionService;
+import com.aryn.cloud.promotion.service.ISeckillSessionTemplateService;
 import com.aryn.cloud.promotion.service.SeckillStockManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,12 +43,15 @@ import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -56,6 +63,10 @@ public class SeckillActivityServiceImpl extends ServiceImpl<SeckillActivityMappe
 	private final ISeckillSessionService seckillSessionService;
 
 	private final ISeckillGoodsService seckillGoodsService;
+
+	private final ISeckillSessionTemplateService seckillSessionTemplateService;
+
+	private final ISeckillScheduleService seckillScheduleService;
 
 	private final SeckillStockManager seckillStockManager;
 
@@ -92,8 +103,10 @@ public class SeckillActivityServiceImpl extends ServiceImpl<SeckillActivityMappe
 		}
 		SeckillActivityVO vo = new SeckillActivityVO();
 		BeanUtils.copyProperties(activity, vo);
-		// 查询场次
-		List<SeckillSession> sessions = seckillSessionService.listByActivityId(id);
+		// 每日重复模式的场次由模板按天生成，数量会随时间增长；编辑页只消费模板，不回传历史场次
+		boolean dailySchedule = activity.getScheduleType() != null && activity.getScheduleType() == 1;
+		List<SeckillSession> sessions = dailySchedule
+				? List.of() : seckillSessionService.listByActivityId(id);
 		List<SeckillSessionVO> sessionVOs = sessions.stream().map(session -> {
 			SeckillSessionVO sessionVO = new SeckillSessionVO();
 			BeanUtils.copyProperties(session, sessionVO);
@@ -111,6 +124,14 @@ public class SeckillActivityServiceImpl extends ServiceImpl<SeckillActivityMappe
 		// 跨场次一次性回填商品名称/主图，避免编辑页「商品信息」只显示 SPU ID
 		fillGoodsSpuInfo(sessionVOs);
 		vo.setSessions(sessionVOs);
+		// 每日重复模式：回填排期模板（含每场商品与计划库存）
+		List<SeckillSessionTemplateVO> templates = seckillSessionTemplateService.listVoByActivityId(id);
+		fillGoodsSpuInfoForGoods(templates.stream()
+			.map(SeckillSessionTemplateVO::getGoodsList)
+			.filter(Objects::nonNull)
+			.flatMap(List::stream)
+			.toList());
+		vo.setSessionTemplates(templates);
 		return vo;
 	}
 
@@ -123,6 +144,10 @@ public class SeckillActivityServiceImpl extends ServiceImpl<SeckillActivityMappe
 			.filter(Objects::nonNull)
 			.flatMap(List::stream)
 			.toList();
+		fillGoodsSpuInfoForGoods(goodsList);
+	}
+
+	private void fillGoodsSpuInfoForGoods(List<SeckillGoodsVO> goodsList) {
 		List<String> spuIds = goodsList.stream()
 			.map(SeckillGoodsVO::getSpuId)
 			.filter(StringUtils::hasText)
@@ -157,6 +182,8 @@ public class SeckillActivityServiceImpl extends ServiceImpl<SeckillActivityMappe
 		SeckillActivity activity = new SeckillActivity();
 		BeanUtils.copyProperties(dto, activity);
 		activity.setStatus(0);
+		int scheduleType = dto.getScheduleType() == null ? 0 : dto.getScheduleType();
+		activity.setScheduleType(scheduleType);
 		// 秒杀平台级硬互斥：券/积分一律不可叠，服务端强制覆盖防配置错误
 		activity.setCouponStackable("0");
 		activity.setPointsStackable("0");
@@ -165,9 +192,16 @@ public class SeckillActivityServiceImpl extends ServiceImpl<SeckillActivityMappe
 			throw new ArynBusinessException("保存秒杀活动失败");
 		}
 		String activityId = activity.getId();
-		// 保存场次和商品
-		saveSessionsAndGoods(activityId, dto.getSessions(), dto.getEndTime());
-		log.info("秒杀活动创建成功, activityId={}, activityName={}", activityId, dto.getActivityName());
+		if (scheduleType == 1) {
+			seckillSessionTemplateService.saveTemplates(activityId, dto.getSessionTemplates());
+			runAfterCommit(() -> generateSessionsQuietly(activityId, false));
+		}
+		else {
+			// 保存场次和商品
+			saveSessionsAndGoods(activityId, dto.getSessions(), dto.getEndTime());
+		}
+		log.info("秒杀活动创建成功, activityId={}, activityName={}, scheduleType={}",
+				activityId, dto.getActivityName(), scheduleType);
 		return true;
 	}
 
@@ -181,12 +215,16 @@ public class SeckillActivityServiceImpl extends ServiceImpl<SeckillActivityMappe
 		if (activity == null) {
 			throw new ArynBusinessException("秒杀活动不存在");
 		}
-		// 进行中的活动禁止修改场次和库存（防止数据丢失和库存不一致）
-		if (activity.getStatus() != null && activity.getStatus() == 1
+		int scheduleType = dto.getScheduleType() == null
+				? Optional.ofNullable(activity.getScheduleType()).orElse(0) : dto.getScheduleType();
+		boolean oneOff = scheduleType == 0;
+		// 一次性模式下，进行中的活动禁止修改场次和库存（防止数据丢失和库存不一致）
+		if (oneOff && activity.getStatus() != null && activity.getStatus() == 1
 				&& dto.getSessions() != null && !dto.getSessions().isEmpty()) {
 			throw new ArynBusinessException("进行中的活动不能修改场次和库存，请先暂停");
 		}
 		BeanUtils.copyProperties(dto, activity);
+		activity.setScheduleType(scheduleType);
 		// 秒杀平台级硬互斥：券/积分一律不可叠，服务端强制覆盖防配置错误
 		activity.setCouponStackable("0");
 		activity.setPointsStackable("0");
@@ -194,24 +232,63 @@ public class SeckillActivityServiceImpl extends ServiceImpl<SeckillActivityMappe
 		if (!updated) {
 			throw new ArynBusinessException("更新秒杀活动失败");
 		}
-		// 仅当传入了新场次数据时才重建（进行中活动不允许，已在上面拦截）
-		if (dto.getSessions() != null && !dto.getSessions().isEmpty()) {
-			// 删除原有场次和商品（逻辑删除），并清理旧 Redis 库存
-			List<SeckillSession> oldSessions = seckillSessionService.listByActivityId(activity.getId());
-			for (SeckillSession session : oldSessions) {
-				List<SeckillGoods> oldGoods = seckillGoodsService.listBySessionId(session.getId());
-				for (SeckillGoods goods : oldGoods) {
-					seckillStockManager.removeStock(activity.getId(), session.getId(), goods.getSkuId());
+		if (oneOff) {
+			// 仅当传入了新场次数据时才重建（进行中活动不允许，已在上面拦截）
+			if (dto.getSessions() != null && !dto.getSessions().isEmpty()) {
+				// 删除原有场次和商品（逻辑删除），并清理旧 Redis 库存
+				List<SeckillSession> oldSessions = seckillSessionService.listByActivityId(activity.getId());
+				for (SeckillSession session : oldSessions) {
+					List<SeckillGoods> oldGoods = seckillGoodsService.listBySessionId(session.getId());
+					for (SeckillGoods goods : oldGoods) {
+						seckillStockManager.removeStock(activity.getId(), session.getId(), goods.getSkuId());
+					}
+					seckillGoodsService.remove(Wrappers.<SeckillGoods>lambdaQuery()
+							.eq(SeckillGoods::getSessionId, session.getId()));
+					seckillSessionService.removeById(session.getId());
 				}
-				seckillGoodsService.remove(Wrappers.<SeckillGoods>lambdaQuery()
-						.eq(SeckillGoods::getSessionId, session.getId()));
-				seckillSessionService.removeById(session.getId());
+				// 重新保存场次和商品
+				saveSessionsAndGoods(activity.getId(), dto.getSessions(), dto.getEndTime());
 			}
-			// 重新保存场次和商品
-			saveSessionsAndGoods(activity.getId(), dto.getSessions(), dto.getEndTime());
 		}
-		log.info("秒杀活动更新成功, activityId={}", dto.getId());
+		else {
+			if (dto.getSessionTemplates() != null) {
+				seckillSessionTemplateService.saveTemplates(activity.getId(), dto.getSessionTemplates());
+				// 未开始且无订单/订阅的场次按新模板重建；已有用户占位的场次保留
+				runAfterCommit(() -> generateSessionsQuietly(activity.getId(), true));
+			}
+		}
+		log.info("秒杀活动更新成功, activityId={}, scheduleType={}", dto.getId(), scheduleType);
 		return true;
+	}
+
+	/**
+	 * 事务提交后生成/重建场次：失败不回滚活动配置，常驻 Job 会在下一分钟补齐。
+	 */
+	private void generateSessionsQuietly(String activityId, boolean rebuild) {
+		try {
+			if (rebuild) {
+				seckillScheduleService.rebuildFutureSessions(activityId);
+			}
+			else {
+				seckillScheduleService.generateForActivity(activityId, 3);
+			}
+		}
+		catch (Exception exception) {
+			log.error("秒杀场次生成失败，等待定时任务补齐, activityId={}", activityId, exception);
+		}
+	}
+
+	private void runAfterCommit(Runnable action) {
+		if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+			action.run();
+			return;
+		}
+		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+			@Override
+			public void afterCommit() {
+				action.run();
+			}
+		});
 	}
 
 	@Override
@@ -222,8 +299,11 @@ public class SeckillActivityServiceImpl extends ServiceImpl<SeckillActivityMappe
 	}
 
 	@Override
-	public List<AppSeckillVO> getActiveSessions() {
+	public List<AppSeckillVO> getActiveSessions(String mallUserId) {
 		LocalDateTime now = LocalDateTime.now();
+		LocalDate today = now.toLocalDate();
+		// 今日剩余 + 明日场次：明日用于「明日预告」与场次滚动，避免当天最后一场结束后会场空窗
+		LocalDateTime horizon = today.plusDays(2).atStartOfDay();
 		// 已暂停的活动不投放；活动是否结束按时间判定，不依赖定时任务落库的 status（任务停摆时 C 端不空窗）
 		List<SeckillActivity> activities = this.list(Wrappers.<SeckillActivity>lambdaQuery()
 				.select(SeckillActivity::getId)
@@ -237,8 +317,16 @@ public class SeckillActivityServiceImpl extends ServiceImpl<SeckillActivityMappe
 		List<SeckillSession> sessions = seckillSessionService.list(Wrappers.<SeckillSession>lambdaQuery()
 				.in(SeckillSession::getActivityId, activityIds)
 				.gt(SeckillSession::getEndTime, now)
+				.lt(SeckillSession::getStartTime, horizon)
 				.orderByAsc(SeckillSession::getStartTime));
-		return sessions.stream().map(this::convertToAppSeckillVO).collect(Collectors.toList());
+		List<AppSeckillVO> result = sessions.stream().map(this::convertToAppSeckillVO)
+				.collect(Collectors.toList());
+		if (StringUtils.hasText(mallUserId) && !result.isEmpty()) {
+			Set<String> subscribed = seckillScheduleService.subscribedSessionIds(
+					result.stream().map(AppSeckillVO::getSessionId).toList(), mallUserId);
+			result.forEach(vo -> vo.setSubscribed(subscribed.contains(vo.getSessionId())));
+		}
+		return result;
 	}
 
 	@Override
@@ -275,6 +363,7 @@ public class SeckillActivityServiceImpl extends ServiceImpl<SeckillActivityMappe
 			vo.setGoodsImage(sku.getPicUrl());
 			vo.setOriginalPrice(sku.getSalesPrice());
 			vo.setGoodsName(sku.getGoodsSpu() != null ? sku.getGoodsSpu().getName() : null);
+			vo.setSubTitle(sku.getGoodsSpu() != null ? sku.getGoodsSpu().getSubTitle() : null);
 		}
 		return vo;
 	}
@@ -356,6 +445,16 @@ public class SeckillActivityServiceImpl extends ServiceImpl<SeckillActivityMappe
 		vo.setSessionName(session.getSessionName());
 		vo.setStartTime(session.getStartTime());
 		vo.setEndTime(session.getEndTime());
+		LocalDate bizDate = session.getBizDate() != null
+				? session.getBizDate() : session.getStartTime().toLocalDate();
+		vo.setBizDate(bizDate);
+		// 0=今天 1=明天；跨夜场次归到开始日，不出现负数
+		vo.setDayOffset((int) Math.max(0, ChronoUnit.DAYS.between(LocalDate.now(), bizDate)));
+		vo.setSubscribed(false);
+		SeckillReminderConfigVO reminderConfig = seckillScheduleService.getReminderConfig();
+		vo.setReminderEnabled(reminderConfig.getEnabled());
+		vo.setReminderTemplateId(reminderConfig.getTemplateId());
+		vo.setReminderOffsetMinutes(reminderConfig.getOffsetMinutes());
 		// 状态与倒计时按时间实时推导，不读落库 status（定时任务延迟/停摆时 C 端口径仍正确）：
 		// 未开始算距开始，进行中算距结束，已结束不进楼层（列表查询已过滤，此处兜底）
 		LocalDateTime now = LocalDateTime.now();
@@ -401,6 +500,7 @@ public class SeckillActivityServiceImpl extends ServiceImpl<SeckillActivityMappe
 				goodsVO.setOriginalPrice(sku.getSalesPrice());
 				// 商品名取自 SPU；此前漏填，C 端秒杀列表的商品名一直是空白
 				goodsVO.setGoodsName(sku.getGoodsSpu() != null ? sku.getGoodsSpu().getName() : null);
+				goodsVO.setSubTitle(sku.getGoodsSpu() != null ? sku.getGoodsSpu().getSubTitle() : null);
 			}
 			Integer remaining = remainingStocks.get(i);
 			goodsVO.setRemainingStock(remaining != null ? remaining : goods.getSeckillStock() - Optional.ofNullable(goods.getSoldCount()).orElse(0));

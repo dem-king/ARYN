@@ -92,6 +92,16 @@ const hasContributorRemark = computed(() =>
 );
 
 /**
+ * 是否存在订购人归属：只有共享采购（按人拆行）才写入 contributor_name，
+ * 个人订单整单都是买家本人，不渲染该列，避免出现整列「—」的空列。
+ */
+const hasContributorName = computed(() =>
+  (state.orderInfo.orderItemList ?? []).some(
+    (item: any) => item.contributorName,
+  ),
+);
+
+/**
  * 商品按分类分组的展示列表：组内保持原始顺序（共享采购按人拆行的
  * 归属语义不被打乱），组间按分类名拼音序，「未分类」固定排最后。
  */
@@ -639,7 +649,7 @@ getDetail();
         <ElTableColumn prop="item.salesPrice" label="单价（元）" width="118" />
         <ElTableColumn prop="item.buyQuantity" label="数量" width="80" />
         <!-- 共享采购按人拆行后的归属：仓库按此列逐人分拣并打印配送标签 -->
-        <ElTableColumn label="订购人" width="110">
+        <ElTableColumn v-if="hasContributorName" label="订购人" width="110">
           <template #default="scope">
             <span v-if="scope.row.item.contributorName">{{
               scope.row.item.contributorName

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { isForbiddenResponse, isPublicRequest, isUnauthorizedResponse, parseApiResponse } from './handlers'
 
 /**
@@ -14,8 +14,9 @@ import { isForbiddenResponse, isPublicRequest, isUnauthorizedResponse, parseApiR
  * 进页面仍被踢出，看起来像「登录一直失效」。
  *
  * 这里不重实现判定逻辑，而是直接驱动 `handleAlovaResponse`，断言**用户可见后果**：
- *   · 403 → 不清登录态、不跳登录页、提示权限不足；
- *   · 401 → 仍要清登录态并跳登录页（不能把真实过期修坏）。
+ *   · 403 → 不清登录态、不弹会话失效、不跳登录页，只提示权限不足；
+ *   · 401 → 仍必须进入「会话失效」态（一期改为弹窗，清态延后到用户动作，
+ *     但绝不能被 403 的拆分修坏）。
  */
 
 interface MockUni {
@@ -24,7 +25,12 @@ interface MockUni {
   reLaunch: ReturnType<typeof vi.fn>
 }
 
-function installGlobals() {
+/**
+ * `vi.resetModules()` 之后模块注册表已清空：先动态 import pinia 建一份新的
+ * activePinia，随后动态 import 的 handlers/sessionStore 会复用同一份 pinia 模块实例
+ *（静态 import 的 pinia 是重置前的旧实例，setActivePinia 对它们无效）。
+ */
+async function installGlobals() {
   const removeStorageSync = vi.fn()
   const emit = vi.fn()
   const reLaunch = vi.fn()
@@ -35,7 +41,10 @@ function installGlobals() {
     uni,
     useGlobalToast: () => ({ error: toastError, success: vi.fn(), show: vi.fn(), close: vi.fn() }),
     CommonUtil: { deepMerge: (a: object, b: object) => ({ ...a, ...b }), deepClone: (v: unknown) => v, isObj: () => false },
+    getCurrentPages: () => [{ route: 'pages/home/index' }],
   })
+  const pinia = await import('pinia')
+  pinia.setActivePinia(pinia.createPinia())
   return { removeStorageSync, emit, reLaunch, toastError }
 }
 
@@ -49,45 +58,66 @@ function forbiddenResponse() {
 
 describe('forbidden (403) handling', () => {
   beforeEach(() => {
+    vi.useFakeTimers()
     vi.resetModules()
     vi.clearAllMocks()
   })
 
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('does not clear the session when an authenticated request is denied by permission', async () => {
-    const g = installGlobals()
+    const g = await installGlobals()
     const { handleAlovaResponse } = await import('./handlers')
+    const { useSessionStore } = await import('@/store/sessionStore')
 
     const method = { url: '/boot/mall-user/signinrecord/page', config: { meta: { publicRequest: false } } } as any
 
     await expect(handleAlovaResponse(forbiddenResponse() as any, method)).rejects.toThrow()
 
-    // 关键断言：登录态必须原封不动
+    // 关键断言：登录态必须原封不动，且不得被误判为会话失效
     expect(g.removeStorageSync).not.toHaveBeenCalledWith('auth')
-    expect(g.reLaunch).not.toHaveBeenCalled()
     expect(g.emit).not.toHaveBeenCalledWith('auth-expired')
+    expect(useSessionStore().invalid).toBe(false)
     // 但用户仍要看到失败提示，且不应被误导为「登录已过期」
     expect(g.toastError).toHaveBeenCalled()
     expect(g.toastError.mock.calls[0][0]).not.toContain('登录已过期')
+    // 真断言：403 路径不排任何跳转定时器（旧空断言依赖定时器不推进，恒真）
+    expect(vi.getTimerCount()).toBe(0)
+    vi.advanceTimersByTime(5000)
+    expect(g.reLaunch).not.toHaveBeenCalled()
   })
 
-  it('still clears the session when an authenticated request gets 401', async () => {
-    const g = installGlobals()
+  it('enters the session-invalid state for an authenticated 401 (state clear deferred to the user action)', async () => {
+    const g = await installGlobals()
     const { handleAlovaResponse } = await import('./handlers')
+    const { useSessionStore } = await import('@/store/sessionStore')
 
     const method = { url: '/boot/mall-user/app/userinfo', config: { meta: { publicRequest: false } } } as any
     const unauthorized = { statusCode: 401, data: { code: 401, msg: 'token已过期', data: null } }
 
     await expect(handleAlovaResponse(unauthorized as any, method)).rejects.toThrow()
 
-    // 真实过期必须照旧清态跳登录，不能因为 403 的拆分把这条路径改坏
-    expect(g.removeStorageSync).toHaveBeenCalledWith('auth')
-    expect(g.emit).toHaveBeenCalledWith('auth-expired')
-    expect(g.toastError).toHaveBeenCalled()
+    // 真实过期必须照旧失效，不能因为 403 的拆分把这条路径改坏；
+    // 一期把「清态」延后到用户点「重新登录/退出」时（README §2.4：语义不能改坏）。
+    const session = useSessionStore()
+    expect(session.invalid).toBe(true)
+    expect(session.reason).toBe('')
+    expect(session.isDegraded).toBe(true)
+    // 弹窗期间不清态、不自动跳转、不再有 500ms toast + 1s reLaunch
+    expect(g.removeStorageSync).not.toHaveBeenCalled()
+    expect(g.emit).not.toHaveBeenCalled()
+    expect(g.toastError).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+    vi.advanceTimersByTime(5000)
+    expect(g.reLaunch).not.toHaveBeenCalled()
   })
 
   it('does not clear the session when a token-less request is denied by permission', async () => {
-    const g = installGlobals()
+    const g = await installGlobals()
     const { handleAlovaResponse } = await import('./handlers')
+    const { useSessionStore } = await import('@/store/sessionStore')
 
     // 免登请求拿到 403 同样只说明该接口没放行公开访问，与登录态无关
     const method = { url: '/boot/app/goodsbrand/list', config: { meta: { publicRequest: true } } } as any
@@ -95,8 +125,11 @@ describe('forbidden (403) handling', () => {
     await expect(handleAlovaResponse(forbiddenResponse() as any, method)).rejects.toThrow()
 
     expect(g.removeStorageSync).not.toHaveBeenCalledWith('auth')
-    expect(g.reLaunch).not.toHaveBeenCalled()
+    expect(useSessionStore().invalid).toBe(false)
     expect(g.toastError).toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+    vi.advanceTimersByTime(5000)
+    expect(g.reLaunch).not.toHaveBeenCalled()
   })
 
   it('separates 401 from 403 in the response predicates', () => {

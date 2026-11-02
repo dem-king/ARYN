@@ -22,12 +22,20 @@ interface Props {
   categories?: CategoryItem[]
   activeIndex?: number
   loading?: boolean
+  /**
+   * 磨砂态：页面已滚动、宿主层已铺半透明白 + 背景模糊。
+   *
+   * 本组件要让出自己的白底，否则整块纯白会把父层的毛玻璃完全挡住；
+   * 右侧「展开」列同理（白底 + 白色外阴影都是为纯白头部画的）。
+   */
+  frosted?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   categories: () => [],
   activeIndex: 0,
   loading: false,
+  frosted: false,
 })
 
 const emit = defineEmits<{
@@ -60,7 +68,7 @@ const activeItemId = computed(() => {
 </script>
 
 <template>
-  <view class="icon-strip">
+  <view class="icon-strip" :class="{ 'icon-strip--frosted': props.frosted }">
     <view v-if="props.loading && props.categories.length === 0" class="icon-strip-skeleton">
       <view v-for="n in 5" :key="n" class="icon-strip-skeleton-item">
         <view class="icon-strip-skeleton-circle skeleton-shimmer" />
@@ -130,11 +138,22 @@ const activeItemId = computed(() => {
 <style lang="scss" scoped>
 .icon-strip {
   position: relative;
-  background: #fff;
+  background: var(--app-card);
   /* 顶边 4rpx 与 .icon-strip-inner 的 20rpx 相加仍是原 24rpx：拆开是为了给选中项留裁切余量 */
   padding: 4rpx 0 18rpx;
   /* 与下方内容区形成层次分隔，避免纯白平贴 */
-  border-bottom: 1rpx solid #f1f2f4;
+  border-bottom: 1rpx solid var(--app-border);
+}
+
+/* 磨砂态：白底交给宿主覆盖层，本层透明才能透出背后被模糊的商品流 */
+.icon-strip--frosted {
+  background: transparent;
+  border-bottom-color: rgba(15, 23, 42, 0.08);
+
+  .icon-strip-expand-btn {
+    background: transparent;
+    box-shadow: -16rpx 0 16rpx rgba(255, 255, 255, 0.72);
+  }
 }
 
 .icon-strip-scroll {
@@ -182,7 +201,7 @@ const activeItemId = computed(() => {
   overflow: hidden;
   box-sizing: border-box;
   border: 3rpx solid transparent;
-  background: #f5f6f8;
+  background: var(--app-card-2);
   box-shadow: 0 5rpx 14rpx rgba(29, 39, 54, 0.08);
   transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
 
@@ -233,7 +252,7 @@ const activeItemId = computed(() => {
   max-width: 120rpx;
   font-size: 24rpx;
   line-height: 32rpx;
-  color: #737985;
+  color: var(--app-text-2);
   transition: color 180ms ease, font-weight 180ms ease;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -262,7 +281,7 @@ const activeItemId = computed(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: #fff;
+  background: var(--app-card);
   /* 用白色外阴影做边缘渐隐；box-shadow 不接收点击，不会抢最后一个类目的 tap */
   box-shadow: -16rpx 0 16rpx rgba(255, 255, 255, 0.96);
   transition: opacity 160ms ease, transform 160ms ease;
@@ -276,7 +295,7 @@ const activeItemId = computed(() => {
 .icon-strip-expand-text {
   font-size: 24rpx;
   line-height: 30rpx;
-  color: #4b5360;
+  color: var(--app-text-2);
 }
 
 .icon-strip-skeleton {
@@ -307,7 +326,7 @@ const activeItemId = computed(() => {
 }
 
 .skeleton-shimmer {
-  background: linear-gradient(90deg, #f2f3f5 25%, #e9ebef 37%, #f2f3f5 63%);
+  background: linear-gradient(90deg, var(--app-skeleton) 25%, var(--app-skeleton-band) 37%, var(--app-skeleton) 63%);
   background-size: 400% 100%;
   animation: icon-strip-shimmer 1.4s ease infinite;
 }

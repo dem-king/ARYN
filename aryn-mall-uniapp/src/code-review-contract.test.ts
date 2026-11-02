@@ -33,13 +33,20 @@ describe('mobile review contracts', () => {
   it('keeps delivery authentication and service routing isolated', () => {
     const deliverySource = source('src/api/delivery.ts')
     const requestSource = source('src/api/core/instance.ts')
+    const uploadSource = source('src/api/upms/delivery-evidence.ts')
 
     expect(deliverySource).toContain("const DELIVERY_API_BASE = '/mall-order/app/delivery'")
     expect(deliverySource).toContain("'/auth/token/delivery-login'")
     expect(deliverySource).toContain('/mall-order/app/order/${orderId}/delivery-progress')
     expect(requestSource).toContain("Local.get('deliveryToken')")
     expect(source('src/router/index.ts')).toContain("const DELIVERY_ROUTE_PREFIX = '/pages/delivery/'")
-    expect(source('src/api/upms/file.ts')).toContain("Local.remove('deliveryToken')")
+    // 配送 401 的清理已收敛到统一失效入口（2026-10-28 一期）：上传旁路不再裸清 token、
+    // 不再裸 reLaunch（会无提示清页面栈），而是置 sessionStore（target=delivery）走弹窗；
+    // 真正清配送凭证的实现登记在 main.ts 的 session 清态 handler 里。
+    expect(uploadSource).toContain("useSessionStore().invalidate(")
+    expect(uploadSource).toContain("target: 'delivery'")
+    expect(uploadSource).not.toContain("uni.reLaunch({ url: '/pages/delivery/login' })")
+    expect(source('src/main.ts')).toContain("Local.remove('deliveryToken')")
   })
 
   it('keeps ship workbench navigation aligned with declared pages', () => {
@@ -88,10 +95,10 @@ describe('mobile review contracts', () => {
     // 断言改为「没有把贴顶 fixed 的地址栏加回来」。
     expect(cartSource).not.toMatch(/position: fixed[^}]*cart-header/)
 
-    // 结算条固定在 TabBar 之上：H5 的 TabBar 是一层 fixed 遮盖（z-index 998），
-    // 用 --window-bottom 定位才能露出「去结算」按钮；小程序该变量为 0。
+    // 结算条固定在悬浮玻璃底栏之上：底栏是固定 16px 贴底的胶囊（52px 高），
+    // 统一用 --app-tabbar-height（52 + 16）定位才能露出「去结算」按钮；H5 与小程序同口径。
     const footerRule = cartSource.match(/\.cart-footer \{[\s\S]*?\.cart-footer-warp/)?.[0] ?? ''
-    expect(footerRule).toContain('bottom: var(--window-bottom')
+    expect(footerRule).toContain('bottom: var(--app-tabbar-height')
 
     // 结算条悬浮在内容之上，必须有等高占位，否则会遮住推荐商品最后一行。
     expect(cartSource).toContain('class="cart-footer-holder"')

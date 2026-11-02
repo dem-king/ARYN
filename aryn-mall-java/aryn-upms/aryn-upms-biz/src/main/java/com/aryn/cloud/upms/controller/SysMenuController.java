@@ -68,12 +68,19 @@ public class SysMenuController {
 				extra.put("path", menu.getPath());
 				extra.put("component", menu.getComponent());
 				extra.put("applicationKey", menu.getApplicationKey());
+				extra.put("platformOnly", CommonConstants.PLATFORM_APP_KEY.equals(menu.getApplicationKey()));
 				extra.put("sort", menu.getSort());
 				treeNode.setExtra(extra);
 				return treeNode;
 			})
 			.collect(Collectors.toList());
 		return Result.success(TreeUtil.build(treeNodes, CommonConstants.PARENT_ID));
+	}
+
+	@Operation(summary = "查询平台专属应用标识")
+	@GetMapping("/platform-app-keys")
+	public Result<List<String>> getPlatformAppKeys() {
+		return Result.success(List.of(CommonConstants.PLATFORM_APP_KEY));
 	}
 
 	@Operation(summary = "查询当前用户的树形菜单集合")

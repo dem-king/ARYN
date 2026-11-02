@@ -21,7 +21,7 @@ import java.time.LocalDateTime;
 @Schema(description = "商品评价")
 @EqualsAndHashCode(callSuper = true)
 @Accessors(chain = true)
-@TableName(value = "goods_appraise")
+@TableName(value = "goods_appraise", autoResultMap = true)
 public class GoodsAppraise extends Model<GoodsAppraise> {
 
 	@Schema(description = "主键")
@@ -67,6 +67,29 @@ public class GoodsAppraise extends Model<GoodsAppraise> {
 
 	@Schema(description = "评论内容")
 	private String content;
+
+	@Schema(description = "评价类型：0.用户主动评价；1.系统默认评价（默认评价不打分、不进好评率统计）")
+	private Integer appraiseType;
+
+	@Schema(description = "是否匿名：0.否；1.是")
+	private Integer isAnonymous;
+
+	@Schema(description = "评价标签")
+	@TableField(typeHandler = JsonArrayStringTypeHandler.class)
+	private String[] tags;
+
+	@Schema(description = "追评内容")
+	private String advanceContent;
+
+	@Schema(description = "追评图片")
+	@TableField(typeHandler = JsonArrayStringTypeHandler.class)
+	private String[] advancePicUrls;
+
+	@Schema(description = "追评时间（已追评后写入，仅允许追评一次）")
+	private LocalDateTime advanceTime;
+
+	@Schema(description = "评价修改时间（已修改后写入，仅允许修改一次）")
+	private LocalDateTime modifyTime;
 
 	@TableField(fill = FieldFill.INSERT)
 	@Schema(description = "创建人")

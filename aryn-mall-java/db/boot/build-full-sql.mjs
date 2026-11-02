@@ -137,6 +137,17 @@ const sections = [
   ['首页金刚区图标放大', '164home_tabnav_icon_size_incremental.sql'],
   ['支付配置与售后退款唯一约束', '168payment_hardening_incremental.sql'],
   ['清理历史 MinIO 数据残留', '169clear_stale_minio_urls_incremental.sql'],
+  ['租户类型与长期有效授权', '170tenant_type_incremental.sql'],
+  ['商品评价增强（部分评价/匿名/评分分层/追评改删）', '171appraise_enhancement_incremental.sql'],
+  ['商品卖点富文本（商详首屏）', '172goods_introduction_incremental.sql'],
+  ['商品卖点文案回填（商详首屏）', '173goods_introduction_seed.sql'],
+  ['秒杀每日排期与开抢提醒', '174seckill_daily_schedule.sql'],
+  ['秒杀每日排期定时任务注册', '175seckill_schedule_job.sql'],
+  ['员工账号查看完整手机号权限', '176sysuser_phone_permission.sql'],
+  ['每日重复秒杀活动回填（早晚双场排期模板）', '177seckill_daily_schedule_seed.sql'],
+  ['商品目录大规模扩充（35 新类目 + 241 新品 + 27 补货）', '178goods_catalog_expansion_incremental.sql'],
+  ['双十一囤货节前置：下线日常活动', '179double_eleven_stop_legacy.sql'],
+  ['双十一航海囤货节活动种子（2026-11-01 ~ 11-15）', '180double_eleven_campaign.sql'],
 ];
 
 const normalize = (content) => content.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim();
@@ -206,6 +217,9 @@ DROP TABLE IF EXISTS \`points_global_config\`;
 DROP TABLE IF EXISTS \`points_exclude\`;
 DROP TABLE IF EXISTS \`points_exchange\`;
 DROP TABLE IF EXISTS \`points_exchange_record\`;
+DROP TABLE IF EXISTS \`seckill_session_template\`;
+DROP TABLE IF EXISTS \`seckill_goods_template\`;
+DROP TABLE IF EXISTS \`seckill_subscribe\`;
 `;
 
 const output = sections.reduce((sql, [title, file]) => {

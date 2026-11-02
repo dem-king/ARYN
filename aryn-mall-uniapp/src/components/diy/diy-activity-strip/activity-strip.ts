@@ -53,14 +53,69 @@ export function formatGroupBuyTitle(
     : translate('diy.activityStrip.groupBuyTitleFallback')
 }
 
-/** 拼团钩子：`{groupNum}人成团立省`；存量活动没有 groupNum 时退化为「多人成团」 */
+/** 活动名归一：折叠空白并去首尾，避免活动名里的换行把单行跑马灯撑乱 */
+function normalizeActivityName(value?: string): string {
+  return (value || '').replace(/\s+/g, ' ').trim()
+}
+
+/**
+ * 拼团钩子：优先展示真实活动名 + 利益点，如「农夫山泉天然水整箱·立省¥4」。
+ *
+ * 活动名缺失时退回原来的「{groupNum}人成团立省 / 多人成团」，保证存量数据
+ * 不出现空钩子；活动名已写明省额（含 `¥4`）时不重复拼接。钩子不截断：
+ * 卡片宽度放不下时由 MarqueeText 单行滚动完整展示。
+ */
 export function formatGroupBuyHook(
-  activity: Pick<RetailActivityItem, 'groupNum'>,
+  activity: Pick<RetailActivityItem, 'activityPrice' | 'groupNum' | 'name' | 'originalPrice'>,
 ): string {
   const groupNum = Number(activity.groupNum)
+  const name = normalizeActivityName(activity.name)
+  if (!name) {
+    return groupNum > 0
+      ? translate('diy.activityStrip.groupBuyHook', { groupNum })
+      : translate('diy.activityStrip.groupBuyHookFallback')
+  }
+
+  const saving = Number(activity.originalPrice) - Number(activity.activityPrice)
+  if (saving > 0) {
+    const amount = formatStripAmount(saving)
+    // 只按金额去重：活动名里的「省」可能是别的意思，不能据此吞掉真实省额
+    if (name.includes(`¥${amount}`))
+      return name
+    return translate('diy.activityStrip.groupBuyHookWithName', { amount, name })
+  }
+  // 无省额时不编造金额；活动名已写「成团/人团」就不再补人数
+  if (/成团|人团/.test(name))
+    return name
   return groupNum > 0
-    ? translate('diy.activityStrip.groupBuyHook', { groupNum })
-    : translate('diy.activityStrip.groupBuyHookFallback')
+    ? translate('diy.activityStrip.groupBuyHookWithNameGroup', { groupNum, name })
+    : name
+}
+
+/**
+ * 折扣钩子：优先展示真实活动名 + 力度，如「好吃零食节·9.5折」。
+ *
+ * 活动名已写明同类型优惠时只展示活动名（「零食酒水狂欢8折专区」
+ * 不再拼成「…8折专区·8折」）；活动名缺失时退回「{value}专区」。
+ */
+export function formatDiscountHook(
+  activity: Pick<DiscountActivityItem, 'activityName' | 'discountType' | 'discountValue'>,
+): string {
+  const name = normalizeActivityName(activity.activityName)
+  const value = formatDiscountValue(activity)
+  if (!name)
+    return translate('diy.activityStrip.discountHook', { value })
+
+  const type = Number(activity.discountType)
+  const hasOwnBenefit
+    = (type === 1 && /折|off/i.test(name))
+      || (type === 2 && /减/.test(name))
+      || (type === 3 && /一口价/.test(name))
+      || name.includes(value)
+  // 力度字段异常时 value 会退化为中性的「折扣」，此时活动名本身信息量更大
+  if (hasOwnBenefit || value === translate('labels.discount'))
+    return name
+  return translate('diy.activityStrip.discountHookWithName', { name, value })
 }
 
 /**
@@ -76,11 +131,16 @@ export function formatGroupBuyBadge(
   return translate('diy.common.saveAmount', { amount: formatStripAmount(saving) })
 }
 
-/** 秒杀钩子：`{sessionName}·整点开抢`；场次名缺失时只留节奏词 */
+/** 秒杀钩子：`{sessionName}·整点开抢`；明日场次标明「明日」，场次名缺失时只留节奏词 */
 export function formatSeckillHook(
-  session: Pick<SeckillSessionItem, 'sessionName'>,
+  session: Pick<SeckillSessionItem, 'dayOffset' | 'sessionName'>,
 ): string {
   const name = (session.sessionName || '').trim()
+  if (Number(session.dayOffset) === 1) {
+    return name
+      ? translate('diy.activityStrip.seckillTomorrowHookWithSession', { name })
+      : translate('diy.activityStrip.seckillTomorrowHook')
+  }
   return name
     ? translate('diy.activityStrip.seckillHookWithSession', { name })
     : translate('diy.activityStrip.seckillHook')
@@ -101,8 +161,8 @@ export interface ActivityStripSources {
 /**
  * 组装内置三类卡，顺序固定为「秒杀 → 拼团 → 折扣」（与 §5.5.3 表格一致）。
  *
- * 只认「进行中」：秒杀场次 status=1、拼团 activityStatus=active、折扣 status=1；
- * 未开始/已结束的数据即使被 loader 带回来也不会出现在入口条上。
+ * 秒杀认「进行中优先，其次未开始」：当天最后一场结束后，入口条继续展示明日场次，
+ * 不再整卡消失；拼团 activityStatus=active、折扣 status=1。
  */
 export function buildActivityStripEntries(
   sources: ActivityStripSources,
@@ -110,7 +170,7 @@ export function buildActivityStripEntries(
   const entries: ActivityStripEntry[] = []
 
   const seckill = sources.seckill
-  if (seckill && Number(seckill.status) === 1) {
+  if (seckill && (Number(seckill.status) === 1 || Number(seckill.status) === 0)) {
     entries.push({
       badge: translate('diy.activityStrip.seckillBadge'),
       hook: formatSeckillHook(seckill),
@@ -138,7 +198,7 @@ export function buildActivityStripEntries(
     const value = formatDiscountValue(discount)
     entries.push({
       badge: value,
-      hook: translate('diy.activityStrip.discountHook', { value }),
+      hook: formatDiscountHook(discount),
       // 指定商品活动取首件商品图；全场活动取取数层补的代表商品图
       // （loadDiscounts 已并入 coverImage，这里保留商品图优先，缺图才回落首字色块）
       imageUrl: discount.goodsList[0]?.goodsImage || discount.coverImage || '',

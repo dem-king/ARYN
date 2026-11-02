@@ -16,6 +16,13 @@ export const SHARED_CART_TYPE_SHIP = '1'
 /** 车类型：岸上企业（收货地址配送） */
 export const SHARED_CART_TYPE_SHORE = '2'
 
+/**
+ * 姓名闸门业务码（对齐后端 CommonConstants.SHARED_CART_NAME_REQUIRED）：
+ * 凡以自己名义落明细（加购/导入确认）必须先填成员姓名（配送贴标签用），
+ * 前端命中此 code 时引导到详情页补填，不能用文案匹配区分
+ */
+export const SHARED_CART_NAME_REQUIRED = 1201
+
 export interface SharedCart {
   id: string
   cartNo: string
@@ -217,6 +224,30 @@ export function createSharedCart(data: SharedCartCreatePayload) {
 export function inviteSharedCartMember(id: string, memberUserId: string, memberRole = '2') {
   return alovaInstance.Post<SharedCartMember>(`${BASE}/${id}/members`, undefined, {
     params: { memberUserId, memberRole },
+  })
+}
+
+/**
+ * 邀请成员的候选人（发起人）。
+ *
+ * 船供车 = 本船在船成员（默认全量，可按姓名/手机号过滤）；岸上企业车 = 同租户
+ * 用户搜索（关键词必填）。手机号由服务端脱敏，前端不做明文处理。
+ * 此前「手填商城用户 ID」的路径已废弃：用户无处查到自己的 ID，选人只做选择题。
+ */
+export interface SharedCartMemberCandidate {
+  userId: string
+  nickname?: string
+  avatarUrl?: string
+  /** 脱敏手机号（138****5678） */
+  phone?: string
+  /** 已是本购物车成员（true 时禁用邀请按钮） */
+  alreadyMember?: boolean
+}
+
+/** 成员候选列表（发起人） */
+export function listSharedCartMemberCandidates(id: string, keyword = '') {
+  return alovaInstance.Get<SharedCartMemberCandidate[]>(`${BASE}/${id}/member-candidates`, {
+    params: { keyword },
   })
 }
 

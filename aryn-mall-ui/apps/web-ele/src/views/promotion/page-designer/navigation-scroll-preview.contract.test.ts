@@ -77,6 +77,21 @@ describe('编辑画布：导航滚动渐显预览态', () => {
     expect(phoneCanvas).toContain('scrollAppearance.hairlineOpacity');
   });
 
+  it('画布与草稿预览的导航材质一步切换、不挂 CSS 过渡（否则预览里仍是「渐变」）', () => {
+    // 共享解析层已改为 0/1 两态；若画布/预览再给 base/surface/hairline/title
+    // 挂 160ms 过渡，运营在「顶部/滚动后」与草稿预览里看到的就仍是渐变过程，
+    // 与真机不一致。C 端 hr-navbar 已删除 transition，管理端两侧必须一起删。
+    for (const [label, source] of [
+      ['phone-canvas', phoneCanvas],
+      ['preview-canvas', previewCanvas],
+    ] as const) {
+      expect(
+        styleBlock(source),
+        `${label} 导航材质不应有 CSS 过渡`,
+      ).not.toMatch(/transition\s*:/);
+    }
+  });
+
   it('无渐显（mode!=fade）时导航仍走旧样式，375px 画布契约不变', () => {
     expect(phoneCanvas).toContain('fadeEnabled.value');
     // 渐显关闭：外层仍用整块 navigationStyle；开启才交给两层背景
@@ -112,6 +127,9 @@ describe('编辑画布：导航滚动渐显预览态', () => {
     expect(toolbar).toContain(':max="SCROLL_PREVIEW_MAX"');
     expect(toolbar).toContain(':min="0"');
     expect(toolbar).toContain("emit('update:scrollTop'");
+    // 一步切换后任意正数等价，读数显示两态而不是 px，避免暗示「距离」仍可调
+    expect(toolbar).toContain("scrollTop > 0 ? '已滚动' : '顶部'");
+    expect(toolbar).not.toContain('{{ scrollTop }}px');
     // 原有缩放 / 骨架开关契约不能被新控件顶掉
     expect(toolbar).toContain(
       "emit('update:zoom', Math.max(0.75, zoom - 0.05))",

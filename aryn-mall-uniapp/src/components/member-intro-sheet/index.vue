@@ -190,22 +190,22 @@ function onConfirm() {
 <style lang="scss" scoped>
 /* 文字色阶沿用会员中心/个人中心：标题 #1f2329 / 正文 #4e5969 / 辅助 #6b7280
    （辅助色不用 #909399：11~12px 小字在浅底上对比度不足 4.5:1） */
-$mis-title: #1f2329;
-$mis-text: #4e5969;
+$mis-title: var(--app-text);
+$mis-text: var(--app-text-2);
 /* 会员身份色：与「会员价」角标、权益条同族的暖金，不跟随租户主色（主色只用于 CTA） */
 $mis-gold: #c8a05a;
 $mis-gold-deep: #8a5a1c;
 $mis-gold-soft: #a06a1f;
 $mis-gold-bg: #fff6e8;
 $mis-gold-line: #f0e1c4;
-$mis-hairline: #f0f1f3;
+$mis-hairline: var(--app-border);
 $mis-primary: var(--theme-color-primary, var(--wot-color-theme-primary, #ff2237));
 
 .member-intro {
   position: relative;
   box-sizing: border-box;
   padding: 0 32rpx 8rpx;
-  background: #fff;
+  background: var(--app-card);
 }
 
 .member-intro__handle {
@@ -213,7 +213,7 @@ $mis-primary: var(--theme-color-primary, var(--wot-color-theme-primary, #ff2237)
   height: 8rpx;
   margin: 16rpx auto 0;
   border-radius: 999rpx;
-  background: #e5e7eb;
+  background: var(--app-border);
 }
 
 /* 关闭按钮固定在右上角：不占 header 排版，长标题也能完整显示 */
@@ -222,19 +222,19 @@ $mis-primary: var(--theme-color-primary, var(--wot-color-theme-primary, #ff2237)
   top: 24rpx;
   right: 24rpx;
   /* 图标类 color:inherit：颜色给父容器 */
-  color: #9ca3af;
+  color: var(--app-text-3);
   display: flex;
   width: 56rpx;
   height: 56rpx;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background: #f5f6f8;
+  background: var(--app-card-2);
   z-index: 1;
 }
 
 .member-intro__close--pressed {
-  background: #eceef1;
+  background: var(--app-card-pressed);
 }
 
 /* 视觉 56rpx、热区 88rpx：移动端可点区域不低于 44px */
@@ -370,7 +370,7 @@ $mis-primary: var(--theme-color-primary, var(--wot-color-theme-primary, #ff2237)
   box-sizing: border-box;
   padding: 18rpx 16rpx;
   border-radius: 16rpx;
-  background: #f8f9fb;
+  background: var(--app-card-2);
 }
 
 .member-intro__benefit-icon {
@@ -403,7 +403,7 @@ $mis-primary: var(--theme-color-primary, var(--wot-color-theme-primary, #ff2237)
 
 .member-intro__benefit-desc {
   margin-top: 2rpx;
-  color: #6b7280;
+  color: var(--app-text-2);
   font-size: 24rpx;
   line-height: 1.4;
 }
@@ -457,7 +457,7 @@ $mis-primary: var(--theme-color-primary, var(--wot-color-theme-primary, #ff2237)
 
 .member-intro__step-desc {
   margin-top: 2rpx;
-  color: #6b7280;
+  color: var(--app-text-2);
   font-size: 24rpx;
   line-height: 1.4;
 }
@@ -469,7 +469,7 @@ $mis-primary: var(--theme-color-primary, var(--wot-color-theme-primary, #ff2237)
   margin-top: 24rpx;
   padding: 16rpx 20rpx;
   border-radius: 12rpx;
-  background: #f7f8fa;
+  background: var(--app-card-2);
 }
 
 .member-intro__note-icon {
@@ -513,7 +513,7 @@ $mis-primary: var(--theme-color-primary, var(--wot-color-theme-primary, #ff2237)
   height: 88rpx;
   align-items: center;
   justify-content: center;
-  color: #6b7280;
+  color: var(--app-text-2);
   font-size: 26rpx;
 }
 

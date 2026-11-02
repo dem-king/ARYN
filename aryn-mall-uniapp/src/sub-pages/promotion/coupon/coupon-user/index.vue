@@ -122,6 +122,7 @@ function handleAction() {
         :coupon="card.item.couponInfo || {}"
         :band="card.band"
         :action-text="card.action"
+        :action-variant="'ghost'"
         :tone="card.tone"
         @action="handleAction"
       />

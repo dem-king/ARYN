@@ -1,6 +1,9 @@
 package com.aryn.cloud.vessel.api.remote;
 
 import com.aryn.cloud.vessel.api.dto.VesselContextDTO;
+import com.aryn.cloud.vessel.api.vo.VesselMemberVO;
+
+import java.util.List;
 
 /**
  * 船舶域远程服务接口。
@@ -75,5 +78,19 @@ public interface RemoteVesselService {
 	 * @return 可用靠港上下文；船舶没有可用靠港时返回 null
 	 */
 	VesselContextDTO resolveAvailableCall(String tenantId, String vesselId);
+
+	/**
+	 * 查询船舶在船成员列表，供其他域「选人」使用（如共享购物车邀请成员）。
+	 *
+	 * <p>权限由调用方负责（共享购物车侧已做发起人校验）；关键词为空返回全部
+	 * 在船成员，否则按昵称/手机号/用户ID 过滤。出参手机号一律脱敏，
+	 * 关键词匹配使用原始手机号（在船舶域内完成，明文不出域）。
+	 *
+	 * @param tenantId 租户ID
+	 * @param vesselId 船舶ID
+	 * @param keyword 搜索关键词（可空）
+	 * @return 在船成员列表（昵称+脱敏手机号）；用户域不可用时昵称/手机号为 null
+	 */
+	List<VesselMemberVO> listOnboardMembers(String tenantId, String vesselId, String keyword);
 
 }

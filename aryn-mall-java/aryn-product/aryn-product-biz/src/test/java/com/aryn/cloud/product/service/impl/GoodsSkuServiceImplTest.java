@@ -7,6 +7,8 @@ import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.product.api.dto.GoodsSkuStockReqDTO;
 import com.aryn.cloud.product.api.entity.GoodsSku;
+import com.aryn.cloud.product.api.entity.GoodsSpu;
+import com.aryn.cloud.product.api.vo.GoodsSkuDisplayVO;
 import com.aryn.cloud.product.mapper.GoodsSkuMapper;
 import com.aryn.cloud.product.service.IGoodsSpuService;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
@@ -14,6 +16,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.math.BigDecimal;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -111,6 +115,54 @@ class GoodsSkuServiceImplTest {
 			.isInstanceOf(ArynBusinessException.class);
 
 		verify(goodsSpuService, never()).rollbackStock(any());
+	}
+
+	@Test
+	void displayByIdsFillsSpuNameSpecAndSalesPrice() {
+		GoodsSku sku = displaySku("sku-1", "spu-1", "19.90", "500ml", "蓝色");
+		when(mapper.selectBatchIds(List.of("sku-1"))).thenReturn(List.of(sku));
+		when(goodsSpuService.listByIds(List.of("spu-1"))).thenReturn(List.of(spu("spu-1", "白酒礼盒")));
+
+		List<GoodsSkuDisplayVO> displays = service.getDisplayByIds(List.of("sku-1"));
+
+		assertThat(displays).singleElement().satisfies(display -> {
+			assertThat(display.getSkuId()).isEqualTo("sku-1");
+			assertThat(display.getSpuId()).isEqualTo("spu-1");
+			assertThat(display.getSpuName()).isEqualTo("白酒礼盒");
+			assertThat(display.getSkuName()).isEqualTo("500ml 蓝色");
+			assertThat(display.getSalesPrice()).isEqualByComparingTo("19.90");
+		});
+	}
+
+	@Test
+	void displayByIdsFallsBackToSingleSpecWhenSpecsMissing() {
+		when(mapper.selectBatchIds(List.of("sku-1"))).thenReturn(List.of(displaySku("sku-1", "spu-1", "8.80")));
+		when(goodsSpuService.listByIds(List.of("spu-1"))).thenReturn(List.of(spu("spu-1", "矿泉水")));
+
+		assertThat(service.getDisplayByIds(List.of("sku-1")))
+			.singleElement()
+			.satisfies(display -> assertThat(display.getSkuName()).isEqualTo("单规格"));
+	}
+
+	@Test
+	void displayByIdsSkipsQueryWhenNoIds() {
+		assertThat(service.getDisplayByIds(List.of())).isEmpty();
+		verify(mapper, never()).selectBatchIds(any());
+	}
+
+	private GoodsSku displaySku(String skuId, String spuId, String salesPrice, String... specsValues) {
+		GoodsSku sku = new GoodsSku().setId(skuId).setSpuId(spuId).setSalesPrice(new BigDecimal(salesPrice));
+		sku.setSpecsArr(Arrays.stream(specsValues)
+			.map(value -> new GoodsSku.Specs("specs-1", "规格", "value-1", value))
+			.toList());
+		return sku;
+	}
+
+	private GoodsSpu spu(String id, String name) {
+		GoodsSpu spu = new GoodsSpu();
+		spu.setId(id);
+		spu.setName(name);
+		return spu;
 	}
 
 	private GoodsSkuStockReqDTO stock(String skuId, String spuId, int quantity) {

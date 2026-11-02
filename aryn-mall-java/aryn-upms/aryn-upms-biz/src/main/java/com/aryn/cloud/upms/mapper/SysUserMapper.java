@@ -36,8 +36,15 @@ public interface SysUserMapper extends BaseMapper<SysUser> {
 	@InterceptorIgnore(tenantLine = "true")
 	SysUser selectUserByName(@Param("username") String username);
 
+	/**
+	 * 按条件统计账号数（手机号唯一性校验用，跨租户统计）。
+	 * <p>
+	 * 方法名不得叫 {@code selectCount}：MyBatis 语句 id = 命名空间 + 方法名，与
+	 * {@code BaseMapper#selectCount(Wrapper)} 同名会让本方法的 XML 语句覆盖内置实现，
+	 * 导致 {@code IService#count()} 绑不到 {@code ew} 参数抛 BindingException。
+	 */
 	@InterceptorIgnore(tenantLine = "true")
-	int selectCount(@Param("query") SysUser sysUser);
+	int countUserByQuery(@Param("query") SysUser sysUser);
 
 	@InterceptorIgnore(tenantLine = "true")
 	SysUser selectUserByPhone(@Param("phone") String phone);

@@ -1,5 +1,6 @@
 package com.aryn.cloud.order.service;
 
+import com.aryn.cloud.common.core.constant.CommonConstants;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.order.api.dto.CreateOrderDTO;
 import com.aryn.cloud.order.api.dto.CreateOrderSkuReqDTO;
@@ -104,7 +105,7 @@ class SharedCartServiceTest {
 		// 不初始化就只能用 any()，无法区分两者——而那正是"复用漏掉已确认行"的缺陷点
 		TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), SharedCartItem.class);
 		service = new SharedCartServiceImpl(cartMapper, memberMapper, itemMapper, importMapper, importRowMapper,
-				orderInfoService, mock(IDeliveryAreaService.class), mock(ChainAiAssistant.class));
+				orderInfoService, mock(IDeliveryAreaService.class), mock(ChainAiAssistant.class), mock(com.aryn.cloud.order.service.SharedCartInviteNotifyService.class));
 		ReflectionTestUtils.setField(service, "remoteVesselService", remoteVesselService);
 		ReflectionTestUtils.setField(service, "remoteMallUserService", remoteMallUserService);
 	}
@@ -592,11 +593,12 @@ class SharedCartServiceTest {
 	}
 
 	@Test
-	@DisplayName("发起人不查成员行即可加购：他创建车时就承担了维护职责")
-	void ownerCanAddItemWithoutMemberRow() {
+	@DisplayName("发起人已填姓名即可加购：can_edit 对发起人短路，姓名闸门单独查成员行")
+	void ownerCanAddItem() {
 		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
-		// 成员表里查不到发起人（历史数据/异常场景）也不该拦住他自己
-		when(memberMapper.selectOne(any())).thenReturn(null);
+		// create() 一定为发起人建成员行；requireCanEdit 短路，但姓名闸门对发起人同样生效
+		when(memberMapper.selectOne(any()))
+			.thenReturn(member(CART_ID, OWNER, SharedCartMember.ROLE_MEMBER, "1", "0"));
 		SharedCartItemDTO dto = new SharedCartItemDTO();
 		dto.setSkuId("sku-1");
 		dto.setRequestedQuantity(1);
@@ -605,6 +607,41 @@ class SharedCartServiceTest {
 
 		assertEquals(OWNER, added.getUserId());
 		verify(itemMapper).insert(any(SharedCartItem.class));
+	}
+
+	@Test
+	@DisplayName("未填姓名的成员不能加购：服务端真闸门，C 端按 code 弹姓名补填层")
+	void memberWithoutDisplayNameCannotAddItem() {
+		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
+		SharedCartMember unnamed = member(CART_ID, MEMBER, SharedCartMember.ROLE_MEMBER, "1", "0");
+		unnamed.setDisplayName("");
+		when(memberMapper.selectOne(any())).thenReturn(unnamed);
+		SharedCartItemDTO dto = new SharedCartItemDTO();
+		dto.setSkuId("sku-1");
+		dto.setRequestedQuantity(1);
+
+		ArynBusinessException exception = assertThrows(ArynBusinessException.class,
+				() -> service.addItem(TENANT, MEMBER, CART_ID, dto));
+		assertEquals(CommonConstants.SHARED_CART_NAME_REQUIRED, exception.getCode(),
+				"C 端靠这个 code 区分姓名闸门，不能回落 FAIL");
+		assertTrue(exception.getMsg().contains("姓名"), "报错要说清缺的是姓名，而不是权限或商品");
+		verify(itemMapper, never()).insert(any(SharedCartItem.class));
+	}
+
+	@Test
+	@DisplayName("发起人成员行缺失时同样被姓名闸门挡下：fail-closed，不给无姓名明细留口子")
+	void ownerWithoutMemberRowBlockedByNameGate() {
+		// 正常链路 create() 必建发起人成员行；缺失属异常数据（历史脏数据/手工删行），闸门宁可错拦
+		when(cartMapper.selectOne(any())).thenReturn(cart(SharedCart.STATUS_COLLECTING));
+		when(memberMapper.selectOne(any())).thenReturn(null);
+		SharedCartItemDTO dto = new SharedCartItemDTO();
+		dto.setSkuId("sku-1");
+		dto.setRequestedQuantity(1);
+
+		ArynBusinessException exception = assertThrows(ArynBusinessException.class,
+				() -> service.addItem(TENANT, OWNER, CART_ID, dto));
+		assertEquals(CommonConstants.SHARED_CART_NAME_REQUIRED, exception.getCode());
+		verify(itemMapper, never()).insert(any(SharedCartItem.class));
 	}
 
 	@Test
@@ -1341,6 +1378,9 @@ class SharedCartServiceTest {
 		member.setMemberRole(role);
 		member.setCanEdit(canEdit);
 		member.setCanConfirm(canConfirm);
+		// 姓名闸门（requireMemberDisplayName）默认放行：夹具统一模拟已填姓名的成员，
+		// 未填姓名的拦截行为由专项用例显式覆盖
+		member.setDisplayName("张三");
 		member.setTenantId(TENANT);
 		return member;
 	}

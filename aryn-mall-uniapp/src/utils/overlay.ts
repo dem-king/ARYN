@@ -31,6 +31,12 @@ export const OVERLAY_Z_INDEX = {
   messageBox: 5003,
   /** 顶部通知条，最高 */
   notify: 5004,
+  /**
+   * 会话失效阻断弹窗（被顶下线/登录过期）。
+   * 不是普通反馈层：它是「唯一出口是重新登录/退出」的阻断层，必须压住所有
+   * toast/loading/messageBox（页面里被短路的请求可能触发提示，不能盖住按钮）。
+   */
+  sessionInvalid: 5100,
 } as const
 
 export type OverlayZIndexKey = keyof typeof OVERLAY_Z_INDEX

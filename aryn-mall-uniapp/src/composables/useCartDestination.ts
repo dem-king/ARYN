@@ -20,7 +20,8 @@ import type { QuantityRule } from '@/utils/quick-cart'
  * 一个加购流在等待确认。
  */
 import { ref } from 'vue'
-import { addSharedCartItem } from '@/api/order/sharedCart'
+import { ApiError } from '@/api/core/handlers'
+import { addSharedCartItem, SHARED_CART_NAME_REQUIRED } from '@/api/order/sharedCart'
 import { addShoppingCart } from '@/api/order/shoppingCart'
 import { useSharedCartStore } from '@/store/sharedCartStore'
 import { useShoppingCartStore } from '@/store/shoppingCartStore'
@@ -243,11 +244,22 @@ export function useCartDestination() {
       return 'personal'
     }
 
-    await addSharedCartItem(cart.id, {
-      spuId: finalPayload.spuId,
-      skuId: finalPayload.skuId,
-      requestedQuantity: finalPayload.quantity,
-    })
+    try {
+      await addSharedCartItem(cart.id, {
+        spuId: finalPayload.spuId,
+        skuId: finalPayload.skuId,
+        requestedQuantity: finalPayload.quantity,
+      })
+    }
+    catch (error) {
+      // 姓名闸门：成员未填姓名时服务端拒绝落明细（拦截器已 toast 后端文案），
+      // 引导到该车详情页——那里的强制姓名弹层会让用户补填后再来加购
+      if (error instanceof ApiError && error.code === SHARED_CART_NAME_REQUIRED) {
+        uni.navigateTo({ url: `/sub-pages/order/shared-cart/detail?id=${cart.id}` })
+        return 'abort'
+      }
+      throw error
+    }
     uni.showToast({ title: translate('labels.addedToSharedCart'), icon: 'success' })
     // 明细已变化：作废摘要缓存，回到首页补给单卡片时强制取最新
     sharedCartStore.invalidate()

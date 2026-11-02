@@ -33,8 +33,12 @@
 - 新增 `TenantIdRequestModule`：`*.api.entity` 的 `tenantId` 在 JSON 反序列化时被移除并标记为 ignorable，客户端无法通过请求体指定归属；显式跨租户 DTO（如 `SysTenantMenuDTO`）不受影响。
 - `MyMetaObjectHandler`：
   - INSERT：租户上下文存在时强制覆盖实体 `tenantId`；
-  - UPDATE：租户上下文存在时清空实体 `tenantId`，默认字段策略下不会生成 `tenant_id` 的 SET，禁止改挂租户；
+  - UPDATE：租户上下文存在时把实体 `tenantId` 改写为当前租户，禁止改挂租户；
   - 无上下文的后台任务保留显式租户值。
+  - > 2026-10-29 修正：原实现「UPDATE 清空 tenantId（默认策略不生成 SET）」的假设不成立。
+    > MyBatis-Plus 先生成 SET 子句再执行 `updateFill`，置空会写入 `tenant_id = NULL` 并命中非空约束
+    > （微信登录 500）。现改为改写为当前租户，语义不变且不会产生 NULL；回归测试见
+    > `TenantUpdateOwnershipSqlTest`。
 
 ### 3. 缓存与异步上下文
 

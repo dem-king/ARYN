@@ -127,4 +127,29 @@ public class RemoteMallUserServiceImpl implements RemoteMallUserService {
 		}).collect(Collectors.toList());
 	}
 
+	@Override
+	public List<UserInfoVO> searchTenantUsers(String tenantId, String keyword, int limit) {
+		if (StrUtil.isBlank(tenantId) || StrUtil.isBlank(keyword)) {
+			return List.of();
+		}
+		int safeLimit = Math.min(Math.max(limit, 1), 50);
+		// 租户必须显式过滤：远端调用上下文里的租户态不可依赖（boot injvm 与 cloud 直连
+		// 行为不同），且不显式过滤时其他租户用户会挤占限量名额
+		List<UserInfo> users = userInfoService.list(Wrappers.<UserInfo>lambdaQuery()
+			.eq(UserInfo::getTenantId, tenantId)
+			.and(wrapper -> wrapper
+				.like(UserInfo::getPhone, keyword.trim())
+				.or()
+				.like(UserInfo::getNickname, keyword.trim())
+				.or()
+				.eq(UserInfo::getId, keyword.trim()))
+			.last("LIMIT " + safeLimit));
+		return users.stream().map(v -> {
+			UserInfoVO vo = new UserInfoVO();
+			BeanUtil.copyProperties(v, vo);
+			vo.setPassword(null);
+			return vo;
+		}).collect(Collectors.toList());
+	}
+
 }

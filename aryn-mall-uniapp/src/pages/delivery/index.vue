@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { DeliveryTripBrief } from '@/api/delivery'
-import { onShow, onUnload } from '@dcloudio/uni-app'
+import { onPageScroll, onShow, onUnload } from '@dcloudio/uni-app'
 import { computed, ref } from 'vue'
 import {
   getDeliveryWorkbench,
@@ -9,6 +9,9 @@ import {
 } from '@/api/delivery'
 import { useDeliveryMessageStore } from '@/store/deliveryMessageStore'
 import { resolveDeliveryDestination } from '@/utils/delivery-navigation'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+
+const { handlePageScroll } = useFrostedNavbar()
 
 definePage({
   name: 'delivery-index',
@@ -207,6 +210,9 @@ function toMessage() {
 function onRefresh() {
   fetchData()
 }
+
+// 顶栏磨砂玻璃：字面量注册滚动（小程序按页面源码生成滚动位标记，包进 composable 会静默失效）
+onPageScroll(handlePageScroll)
 </script>
 
 <template>
@@ -244,7 +250,7 @@ function onRefresh() {
 
     <!-- 在途趟次：正常只有一张（一车一张单）；多张属历史遗留，提示司机拉合 -->
     <view v-if="trips.length === 0" class="mx-20rpx rounded-20rpx bg-white p-60rpx text-center">
-      <text class="i-carbon:truck text-80rpx text-gray-300" />
+      <text class="i-carbon:delivery-truck text-80rpx text-gray-300" />
       <view class="mt-20rpx text-26rpx text-gray-400">
         暂无进行中的出车单
       </view>
@@ -425,7 +431,7 @@ function onRefresh() {
   display: flex;
   align-items: center;
   padding: 20rpx 0;
-  border-bottom: 1px solid #f5f5f5;
+  border-bottom: 1px solid var(--app-border);
 
   &:last-of-type {
     border-bottom: none;
@@ -484,7 +490,7 @@ function onRefresh() {
   justify-content: center;
   padding: 30rpx 0;
   border-radius: 12rpx;
-  background-color: #f7f8fa;
+  background-color: var(--app-card-2);
 }
 
 .quick-entry__badge {

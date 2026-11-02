@@ -6,7 +6,7 @@ import type { TenantShopInfo } from '#/api/upms/tenant';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
-import { AuthenticationLoginExpiredModal } from '@vben/common-ui';
+import { useVbenModal } from '@vben/common-ui';
 import { ARYN_PLATFORM_TENANT_ID } from '@vben/constants';
 import { useWatermark } from '@vben/hooks';
 import {
@@ -16,23 +16,47 @@ import {
   UserDropdown,
 } from '@vben/layouts';
 import { preferences } from '@vben/preferences';
-import { useAccessStore, useUserStore } from '@vben/stores';
+import { useUserStore } from '@vben/stores';
 
+import { Monitor, User } from '@element-plus/icons-vue';
 import { ElOption, ElSelect, ElTour, ElTourStep } from 'element-plus';
 
 import { auditTenantSwitch, getList, getShopInfo } from '#/api/upms/tenant';
+import { $t } from '#/locales';
 import { useAuthStore } from '#/store';
 import { useMessageStore } from '#/store/message';
-import LoginForm from '#/views/_core/authentication/login.vue';
 
+import LoginDevicesModalContent from './login-devices-modal.vue';
+import SessionInvalidModal from './session-invalid-modal.vue';
 import { resolveAdminBrand } from './tenant-brand';
 
 const userStore = useUserStore();
 const authStore = useAuthStore();
-const accessStore = useAccessStore();
 const messageStore = useMessageStore();
 const router = useRouter();
 const { destroyWatermark, updateWatermark } = useWatermark();
+
+/**
+ * 登录设备弹窗（三期）：用户下拉菜单入口 + app 级弹窗内容组件。
+ * 会话失效弹窗与本弹窗互不影响；打开时才拉取设备/登录记录数据。
+ */
+const [LoginDevicesModal, loginDevicesModalApi] = useVbenModal({
+  connectedComponent: LoginDevicesModalContent,
+  destroyOnClose: true,
+});
+
+const userMenus = computed(() => [
+  {
+    handler: () => void router.push('/profile'),
+    icon: User,
+    text: $t('page.profile.menu'),
+  },
+  {
+    handler: () => loginDevicesModalApi.open(),
+    icon: Monitor,
+    text: $t('page.loginDevices.menu'),
+  },
+]);
 
 const switchTenantId = ref(localStorage.getItem('switch-tenant-id') ?? '');
 const tenantList = ref();
@@ -182,6 +206,7 @@ function handleViewAllNotices() {
     <template #user-dropdown>
       <UserDropdown
         :avatar
+        :menus="userMenus"
         :text="userStore.userInfo?.username"
         :description="userStore.userInfo?.email"
         tag-text="Pro"
@@ -205,12 +230,10 @@ function handleViewAllNotices() {
       />
     </template>
     <template #extra>
-      <AuthenticationLoginExpiredModal
-        v-model:open="accessStore.loginExpired"
-        :avatar
-      >
-        <LoginForm />
-      </AuthenticationLoginExpiredModal>
+      <!-- 登录失效（被顶下线/过期/被踢）阻塞弹窗：不可关闭，原地重登或退出登录 -->
+      <SessionInvalidModal />
+      <!-- 登录设备：活跃会话 + 最近登录记录，非当前会话可下线 -->
+      <LoginDevicesModal />
     </template>
     <template #lock-screen>
       <LockScreen :avatar @to-login="handleLogout" />

@@ -34,7 +34,7 @@ const state = reactive({
     status: '',
     orderCancelTimeout: '',
     orderAutoConfirmDays: 1,
-    orderAutoCommentDays: 1,
+    orderAutoCommentDays: 15,
     codPayRemindHours: '72,168',
     driverSelfPullUnassigned: '1',
     kuaidi100AppKey: '',
@@ -66,7 +66,7 @@ const state = reactive({
     orderAutoCommentDays: [
       {
         required: true,
-        message: '请输入订单评价时间（天）',
+        message: '请输入评价有效期（天）',
         trigger: 'change',
       },
     ],
@@ -246,7 +246,7 @@ defineExpose({
           :min="1"
         />
       </ElFormItem>
-      <ElFormItem label="订单评价时间（天）" prop="orderAutoCommentDays">
+      <ElFormItem label="评价有效期（天）" prop="orderAutoCommentDays">
         <ElInputNumber
           v-model="state.form.orderAutoCommentDays"
           :precision="0"
@@ -254,6 +254,10 @@ defineExpose({
           style="width: 260px"
           :min="1"
         />
+        <div class="form-field-tip">
+          订单完成后超过该天数未评价，将关闭评价入口并生成「系统默认好评」
+          （不计入商品评分与好评率）；行业常见 15 天
+        </div>
       </ElFormItem>
       <ElFormItem label="货到付款收款提醒（小时）" prop="codPayRemindHours">
         <ElInput

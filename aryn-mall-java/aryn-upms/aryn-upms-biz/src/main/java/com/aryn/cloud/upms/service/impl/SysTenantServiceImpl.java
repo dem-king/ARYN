@@ -81,6 +81,8 @@ public class SysTenantServiceImpl extends ServiceImpl<SysTenantMapper, SysTenant
 		if (StrUtil.isBlank(sysTenant.getStatus())) {
 			sysTenant.setStatus(CommonConstants.NORMAL_STATUS);
 		}
+		// 平台租户只能由初始化脚本产生，接口创建一律是普通租户
+		sysTenant.setTenantType(CommonConstants.TENANT_TYPE_STANDARD);
 		requireAvailablePackage(sysTenant.getPackageId());
 		if (Objects.nonNull(sysUserService.findUserByName(username))) {
 			throw new ArynBusinessException("该用户已存在: " + username);
@@ -112,6 +114,7 @@ public class SysTenantServiceImpl extends ServiceImpl<SysTenantMapper, SysTenant
 		sysTenant.setName(registerTenantDTO.getName().trim());
 		sysTenant.setPhone(phone);
 		sysTenant.setStatus(CommonConstants.NORMAL_STATUS);
+		sysTenant.setTenantType(CommonConstants.TENANT_TYPE_STANDARD);
 		sysTenant.setPackageId(registerTenantDTO.getPackageId());
 		sysTenant.setAuthBeginTime(LocalDateTime.now());
 		sysTenant.setAuthEndTime(LocalDateTimeUtil.offset(sysTenant.getAuthBeginTime(), 7, ChronoUnit.DAYS));
@@ -208,9 +211,12 @@ public class SysTenantServiceImpl extends ServiceImpl<SysTenantMapper, SysTenant
 		if (existing == null) {
 			throw new ArynBusinessException("租户不存在或已删除");
 		}
-		boolean platformTenant = CommonConstants.PLATFORM_TENANT_ID.equals(existing.getId());
-		if (platformTenant && attemptsToClose(sysTenant)) {
-			throw new ArynBusinessException("平台租户不可停用或设置过期的授权时间");
+		if (sysTenant.getTenantType() != null && !sysTenant.getTenantType().equals(existing.getTenantType())) {
+			throw new ArynBusinessException("租户类型不可修改");
+		}
+		boolean platformTenant = isPlatformTenant(existing);
+		if (platformTenant && (sysTenant.getAuthEndTime() != null || attemptsToClose(sysTenant))) {
+			throw new ArynBusinessException("平台租户长期有效，不可停用或设置授权结束时间");
 		}
 		boolean packageChanged = StrUtil.isNotBlank(sysTenant.getPackageId())
 				&& !sysTenant.getPackageId().equals(existing.getPackageId());
@@ -245,7 +251,7 @@ public class SysTenantServiceImpl extends ServiceImpl<SysTenantMapper, SysTenant
 		if (existing == null) {
 			return false;
 		}
-		if (CommonConstants.PLATFORM_TENANT_ID.equals(id)) {
+		if (isPlatformTenant(existing)) {
 			throw new ArynBusinessException("平台租户不可删除");
 		}
 		boolean removed = removeById(id);
@@ -277,6 +283,9 @@ public class SysTenantServiceImpl extends ServiceImpl<SysTenantMapper, SysTenant
 		if (existing == null) {
 			throw new ArynBusinessException("租户不存在或已删除");
 		}
+		if (isPlatformTenant(existing)) {
+			throw new ArynBusinessException("平台租户长期有效，无需续期");
+		}
 		LocalDateTime now = LocalDateTime.now();
 		LocalDateTime base = existing.getAuthEndTime() == null || existing.getAuthEndTime().isBefore(now)
 				? now : existing.getAuthEndTime();
@@ -305,6 +314,14 @@ public class SysTenantServiceImpl extends ServiceImpl<SysTenantMapper, SysTenant
 		if (appKeys != null) {
 			Arrays.stream(appKeys)
 				.filter(StrUtil::isNotBlank)
+				.filter(key -> {
+					// 历史套餐可能已写入平台应用，下发时必须兜底剔除，否则平台菜单会随模板发给租户
+					if (CommonConstants.PLATFORM_APP_KEY.equals(key)) {
+						log.warn("租户套餐 {} 包含平台专属应用 {}，已忽略", tenantPackage.getId(), key);
+						return false;
+					}
+					return true;
+				})
 				.forEach(key -> menus.addAll(
 						sysMenuService.list(Wrappers.<SysMenu>lambdaQuery().eq(SysMenu::getApplicationKey, key))));
 		}
@@ -430,7 +447,7 @@ public class SysTenantServiceImpl extends ServiceImpl<SysTenantMapper, SysTenant
 			return true;
 		}
 		// 平台租户是运维入口，必须始终可登录，避免误配把平台自身锁死
-		if (CommonConstants.PLATFORM_TENANT_ID.equals(tenant.getId())) {
+		if (isPlatformTenant(tenant)) {
 			return false;
 		}
 		if (!CommonConstants.NORMAL_STATUS.equals(tenant.getStatus())) {
@@ -441,6 +458,10 @@ public class SysTenantServiceImpl extends ServiceImpl<SysTenantMapper, SysTenant
 			return true;
 		}
 		return tenant.getAuthEndTime() != null && tenant.getAuthEndTime().isBefore(now);
+	}
+
+	private boolean isPlatformTenant(SysTenant tenant) {
+		return tenant != null && CommonConstants.TENANT_TYPE_PLATFORM.equals(tenant.getTenantType());
 	}
 
 	private void revokeSessionsAfterCommit(String tenantId, String reason) {

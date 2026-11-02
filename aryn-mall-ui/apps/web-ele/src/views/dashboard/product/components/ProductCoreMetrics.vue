@@ -60,7 +60,7 @@ const delta = (key: keyof SalesMetrics) =>
           <span>商品规模</span>
         </div>
       </template>
-      <div class="grid grid-cols-2 gap-4 sm:grid-cols-3">
+      <div class="grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-4">
         <div
           class="flex flex-col items-center justify-center rounded-lg bg-[var(--el-fill-color-light)] p-4"
         >
@@ -137,7 +137,7 @@ const delta = (key: keyof SalesMetrics) =>
           </span>
         </div>
       </template>
-      <div class="grid grid-cols-2 gap-4 sm:grid-cols-3">
+      <div class="grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-4">
         <div
           class="flex flex-col items-center justify-center rounded-lg bg-purple-50 p-4 dark:bg-purple-900/20"
         >

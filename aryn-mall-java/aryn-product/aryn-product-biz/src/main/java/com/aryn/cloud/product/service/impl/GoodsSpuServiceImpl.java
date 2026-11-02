@@ -15,6 +15,7 @@ import com.aryn.cloud.product.api.vo.GoodsCatalogSummaryVO;
 import com.aryn.cloud.product.mapper.*;
 import com.aryn.cloud.product.service.IGoodsSpuService;
 import com.aryn.cloud.product.support.GoodsAttrTagNormalizer;
+import com.aryn.cloud.product.support.GoodsIntroductionSanitizer;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -108,6 +109,13 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 			throw new ArynBusinessException("商品不存在或无权操作");
 		}
 		goodsSpu.setAttrTags(GoodsAttrTagNormalizer.normalize(goodsSpu.getAttrTags()));
+		// 显式提交了卖点（哪怕是空编辑器）就要真正落库：清洗成 null 时写空串，
+		// 否则会被 MyBatis-Plus 的 NOT_NULL 更新策略忽略，运营清空卖点不生效
+		boolean introductionSubmitted = goodsSpu.getIntroduction() != null;
+		goodsSpu.setIntroduction(GoodsIntroductionSanitizer.sanitize(goodsSpu.getIntroduction()));
+		if (introductionSubmitted && goodsSpu.getIntroduction() == null) {
+			goodsSpu.setIntroduction("");
+		}
 		List<GoodsSku> goodsSkuList = validateGoodsSkus(goodsSpu);
 		Map<String, GoodsSku> storedSkuMap = Optional.ofNullable(goodsSkuMapper.selectBySpuId(goodsSpu.getId()))
 			.orElseGet(Collections::emptyList)
@@ -161,6 +169,7 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 	@Transactional(rollbackFor = Exception.class)
 	public boolean saveGoods(GoodsSpu goodsSpu) {
 		goodsSpu.setAttrTags(GoodsAttrTagNormalizer.normalize(goodsSpu.getAttrTags()));
+		goodsSpu.setIntroduction(GoodsIntroductionSanitizer.sanitize(goodsSpu.getIntroduction()));
 		List<GoodsSku> goodsSkuList = validateGoodsSkus(goodsSpu);
 		applyAggregatePrices(goodsSpu, goodsSkuList);
 		goodsSpu.setStock(calculateTotalStock(goodsSkuList));

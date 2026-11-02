@@ -1,6 +1,6 @@
 # 搜索框滚动常驻（首页头部常驻搜索栏）
 
-> 日期：2026-10-27 ｜ 状态：**已实施（自动化 + H5 端到端验证通过；MP 产物构建通过，未真机目检）**
+> 日期：2026-10-27（**2026-10-28 变更：材质改为与导航栏同步「一步切换」，移除 RAW 滚动 ref 与 8px 成形，见 §10**）｜ 状态：**已实施（自动化 + H5 端到端验证通过；MP 产物构建通过，未真机目检）**
 > 范围：C 端小程序（整页装修）+ 管理端装修器 ｜ **零后端接口 / 零 DB 结构变更**（只扩装修 JSON 的组件 props；存量页面开关默认关）
 > 关联：[小程序沉浸式导航栏](../2026-10-27-小程序沉浸式导航栏/README.md)（本需求的材质/滚动接线直接复用该能力）
 
@@ -12,10 +12,10 @@
 （只剩导航栏）。现在给它加了运营可配的「**滚动常驻**」开关：
 
 1. **整页常驻**：开启后搜索框固定在导航栏下方，滚到页面任何位置都可见、可点，不会随内容滚走。
-2. **与导航栏同一块头部**：常驻栏复用沉浸式导航的滚动渐显材质（起始底色 → 磨砂白 / 主题色 / 自定义色，
-   双层 + 毛玻璃 + 底边细线），滚动中导航栏与搜索栏始终是同一块连续表面；导航栏自己的底边细线在此时
-   让给搜索栏底边，避免头部被切成两段。材质**跟随逐帧原始滚动值、不加 CSS 时间过渡**，变色与内容
-   1:1 跟手（2026-10-28 按用户「慢一步/不够丝滑」反馈优化，见 §9）。
+2. **与导航栏同一块头部**：常驻栏复用沉浸式导航的目标材质（磨砂白 / 主题色 / 自定义色，双层 + 毛玻璃 +
+   底边细线），并且**与导航栏共用同一条滚动状态、一步切换**（顶部全透明 → 一开始滚动整块头部一起到位）；
+   导航栏自己的底边细线在此时让给搜索栏底边，避免头部被切成两段。材质层不加 CSS 时间过渡
+   （2026-10-28 先后按「慢一步」反馈与「不要渐变过程」要求优化，见 §9 / §10）。
 3. **静置零变化**：材质层在 `scrollTop=0` 时完全透明，首屏仍是设计稿的「搜索框直接坐在区块渐变上」；
    H5 实测 header 区域与改造前**像素级一致**（最大通道差 1，>2 的像素 0 个）。
 4. **位置约束（重要）**：只有「首个渲染区块的第一个组件」是搜索框时才生效——常驻顶边由「导航栏高度 +
@@ -53,8 +53,8 @@
 }
 ```
 
-- 渲染链路：`pages/home` → `useDiyNavbarScroll()`（页面 `provide` 8px 量化的 scrollTop）→ `DiyPage` →
-  `hr-navbar`（fixed + 占位，`inject` 滚动值做渐显）+ 区块流。
+- 渲染链路：`pages/home` → `useDiyNavbarScroll()`（页面 `provide` 布尔滚动状态）→ `DiyPage` →
+  `hr-navbar`（fixed + 占位，`inject` 状态做顶部/已滚动切换）+ 区块流。
 - **既有纪律**：`DiyPage` 不消费滚动状态（`navbar-scroll.contract.test.ts` 守门），滚动时只允许导航子树
   重渲染——本需求的常驻层同样是「叶子组件自己 `inject`」，`DiyPage` 只下发静态外观。
 - 首页搜索框是首区块第一个组件，其自然位置恰好紧贴导航栏下沿，因此「常驻位置 = 静置位置」，
@@ -85,24 +85,26 @@ if (component?.type !== 'search-bar') return null
 if (showData?.sticky !== true) return null
 ```
 
-### 3.2 材质与导航栏同源：`materialize` 成形
+### 3.2 材质与导航栏同源：共用一条 0/1 滚动状态
 
 常驻层直接复用 `resolveNavigationScrollAppearance()`（与 `hr-navbar` 同一纯函数）算出：
 起始底色层不透明度 `baseOpacity`、目标底色层不透明度 `surfaceOpacity`、`surfaceColor/alpha`、`blur`、
-`textColor`、`hairlineOpacity`，并叠加一个「成形」系数：
+`textColor`、`hairlineOpacity`。导航材质已改为**一步切换**，这里不再有按距离的「成形」系数，只保留静置开关：
 
 ```
-materialize = min(1, rawScrollTop / 8)    // 一个量化步内把底色补上
-层不透明度   = 渐显进度 × materialize
+materialVisible = 已滚动 ? 1 : 0          // 常驻实例且页面已滚动
+层不透明度       = 解析结果（0/1） × materialVisible
 ```
 
-- `scrollTop = 0` ⇒ `materialize = 0` ⇒ 材质全透明，静置观感 100% 还原设计稿（首屏不糊上导航底色）。
-- **滚动值用逐帧原始值**：`useDiyNavbarScroll()` 同时 provide 两份 ref —— 8px 量化的 `scrollTop` 给
-  导航栏渐显（控制整条导航的重渲染次数），逐帧原始值 `rawScrollTop` 给常驻搜索栏材质（大面积纯色块，
-  量化台阶可见且会与导航栏「差档」）。材质层**不加 CSS transition**（时间过渡会额外滞后 ~180ms）。
+- `materialVisible = 0`（静置）⇒ 材质全透明，静置观感 100% 还原设计稿（首屏不糊上导航底色）——
+  解析层在顶部返回的 `baseOpacity=1` 是给导航栏用的起始外观，常驻层必须自己乘 0 关掉。
+- **滚动状态只有一个布尔值**：`useDiyNavbarScroll()` 只 provide `DIY_NAVBAR_SCROLL_KEY`（`ShallowRef<boolean>`），
+  导航栏与常驻搜索栏读同一个值 ⇒ 一开始滚动，整块头部（导航 + 搜索栏）同一帧一步到位，不会出现
+  「搜索栏比导航栏慢半帧」；滚动过程中该状态不变，头部零重渲染。逐帧原始值 ref（`DIY_NAVBAR_RAW_SCROLL_KEY`）
+  与 8px「成形」在 2026-10-28 一步切换改造中已删除（见 §10）。材质层**不加 CSS transition**。
 - 材质变量 `--diy-nav-surface-bg / --diy-nav-surface-blur / --diy-nav-hairline` 由 `DiyPage` 挂在
   `.diy-page` 根节点继承（与吸顶 Tab 栏同一条链路），因此**导航栏 / 搜索栏 / 吸顶 Tab 栏三处材质同源**。
-- 滚动值只在本组件子树（`diy-search-bar`）内 `inject` 消费；`DiyPage` 与装修楼层不重渲染。
+- 滚动状态只在本组件子树（`diy-search-bar`）内 `inject` 消费；`DiyPage` 与装修楼层不重渲染。
 
 ### 3.3 细线归属、图标反色、白条轮廓
 
@@ -136,8 +138,8 @@ materialize = min(1, rawScrollTop / 8)    // 一个量化步内把底色补上
 | `aryn-mall-uniapp/src/components/diy/diy-search-bar/index.vue` | 新增 `pinned / stickyPlaceholder / pinnedTop / pinnedInsetX / navAppearance / scrollEffect / scrollSurface` props；`inject(DIY_NAVBAR_SCROLL_KEY)` + `resolveNavigationScrollAppearance` 生成两层材质；固定层/占位层根样式；图标反色、白条细边 |
 | `aryn-mall-uniapp/src/components/diy/index.vue` | 新增 `stickySearch / stickySearchId / stickyOffsetTop`；页面级渲染 `pinned` 实例并静态下发导航外观；区块内实例加 `:sticky-placeholder`；`--diy-sticky-top` 与区块吸顶 top 改用 `stickyOffsetTop`；`hr-navbar` 传 `:hairline="!stickySearch"` |
 | `aryn-mall-uniapp/src/components/hr-navbar/index.vue` | 新增 `hairline` prop（默认 `true`），常驻搜索栏接管头部下沿时关闭自身细线 |
-| `aryn-mall-uniapp/src/composables/useDiyNavbarScroll.ts` | 新增 `DIY_NAVBAR_RAW_SCROLL_KEY`：逐帧原始滚动值（导航栏仍用 8px 量化 ref，搜索栏材质用原始值），`onShow` 同步两份 ref |
-| `aryn-mall-uniapp/src/components/diy/sticky-search.contract.test.ts`（新增） | 13 条源码契约：位置约束、页面级渲染、占位层、DiyPage 不消费滚动、吸顶让位、材质同源、固定层级、静置透明、细线归属、**逐帧原始值/无时间过渡** |
+| `aryn-mall-uniapp/src/composables/useDiyNavbarScroll.ts` | 提供布尔滚动状态 `DIY_NAVBAR_SCROLL_KEY`（顶部/已滚动两态，只在翻转时更新），`onShow` 补一次同步；2026-10-28 起不再提供 RAW 逐帧 ref |
+| `aryn-mall-uniapp/src/components/diy/sticky-search.contract.test.ts`（新增） | 13 条源码契约：位置约束、页面级渲染、占位层、DiyPage 不消费滚动、吸顶让位、材质同源、固定层级、静置透明、细线归属、**与导航栏同一条 0/1 状态 / 无时间过渡** |
 | `aryn-mall-ui/.../page-design/components/search-bar/setting.vue` | 「滚动常驻」开关 + 默认 `false` + 生效位置提示 |
 | `aryn-mall-ui/.../page-designer/registry/component-registry.ts` | search-bar 默认值补 `sticky: false` |
 | `aryn-mall-ui/.../page-designer/search-bar-sticky.contract.test.ts`（新增） | 5 条契约：开关绑定/默认值/提示文案/registry 默认值/不放进样式面板 |
@@ -181,8 +183,9 @@ materialize = min(1, rawScrollTop / 8)    // 一个量化步内把底色补上
    常驻效果只在 C 端实机出现。`preview-parity` 相应断言更新为 `stickyOffsetTop` 并注明原因。
 2. **仅「首个渲染区块的第一个组件」生效**：常驻顶边由静态布局算出，不做异步测距；搜索框若放在区块中段、
    非首个区块或内嵌装修段，开关不生效（回退随页滚动）。管理端提示文案已写明。
-3. **过渡带（scrollTop 0→140px）会与导航栏一起透出少量内容**：这是「与导航栏同一套材质」的必然结果
-   （目标底色 `alpha .86` + 毛玻璃），首屏与深滚两端均干净；中途急停时可见轻微透底，与导航栏自身表现一致。
+3. **不再有「过渡带」（2026-10-28 起）**：导航材质改为一步切换，`scrollTop>0` 瞬间就是完整目标材质，
+   中途急停不会出现半透明中间态；首屏与深滚两端同样干净。目标底色 `alpha .86` + 毛玻璃下内容仍会轻微
+   透出，与导航栏自身表现一致。
 4. **占位实例仍在区块内**（`visibility:hidden`）：用于零成本保留首屏布局高度；不可见、不可点、不跑热词定时器。
 
 ## 7. 剩余风险 / 待办
@@ -191,9 +194,9 @@ materialize = min(1, rawScrollTop / 8)    // 一个量化步内把底色补上
   的层级与状态栏安全区；②`backdrop-filter` 在不同微信版本的兼容（不支持时仍是 `rgba .86` 半透明兜底）；
   ③Tab 切走/返回时的滚动补同步（`useDiyNavbarScroll` 的 `onShow` 已补一次 viewport 偏移）；④下拉刷新回弹时
   固定层表现。
-- **逐帧刷新的真机开销**：常驻搜索栏材质改为消费逐帧原始滚动值后，该叶子子树在滚动时每帧重渲染一次
-  （导航栏仍是 8px 量化）。H5 实测丝滑且无掉帧，但 MP 真机 `setData` 频率随之提高，需在低端机观察；
-  若真机出现掉帧，可退回「4px 量化 ref」折中（探针脚本可直接复测滞后帧数）。
+- **逐帧刷新的真机开销已消除（2026-10-28）**：导航与常驻搜索栏共用布尔滚动状态，滚动过程中该子树不再
+  重渲染（只在「顶部 ↔ 已滚动」翻转时各更新一次）；`onShow` 的 viewport 补同步保留。原「逐帧/量化」探针
+  脚本仍可用于回归「是否又引入时间过渡」。
 - **多页面开启**：落地页（`sub-pages/promotion/diy-page`）同样支持；运营在其它页面开启时须遵守「首个区块
   第一个组件」约束，否则无效果。
 - **管理端预览二期**：若要草稿预览也演示常驻效果，需要在 `page-preview` 用现有 `scrollTop` 驱动一个
@@ -215,6 +218,9 @@ materialize = min(1, rawScrollTop / 8)    // 一个量化步内把底色补上
 ---
 
 ## 9. 顺滑度优化（2026-10-28 用户反馈）
+
+> ⚠️ **历史记录**：本节是 2026-10-28 上午的「逐帧材质」优化；同日晚按「不要渐变过程、直接就变模糊」改为
+> 一步切换后，`DIY_NAVBAR_RAW_SCROLL_KEY` 与按距离的 8px「成形」均已删除（现为 0/1 开关 `materialVisible`，见 §10）。
 
 **反馈**：往下滚动时搜索框背景变色「比其他慢一步」；往上滚动时背景颜色变化「不够丝滑」。
 
@@ -250,3 +256,19 @@ materialize = min(1, rawScrollTop / 8)    // 一个量化步内把底色补上
 
 **边界**：逐帧刷新只发生在常驻搜索栏这一棵子树；若 MP 低端机实测掉帧，可把原始值 ref 换成 4px 量化
 （滞后帧数会回到 1–2 帧，仍远好于时间过渡方案），探针脚本可直接复测。
+
+---
+
+## 10. 变更记录（2026-10-28）：与导航栏同步一步切换
+
+- **背景**：用户要求沉浸式导航栏去掉「透明 → 模糊」渐变过程；常驻搜索栏与导航栏共用头部材质，必须同步
+  改，否则会出现「导航栏已模糊、搜索栏还在淡入」的两段式事故。
+- **改动**：`useDiyNavbarScroll` 收敛为布尔滚动状态（删除 `DIY_NAVBAR_RAW_SCROLL_KEY`）；`diy-search-bar`
+  删除按距离的 `MATERIALIZE_DISTANCE`，改为 0/1 材质开关（`materialVisible = 已滚动 ? 1 : 0`，静置仍完全透明），
+  两层材质不透明度 = `resolveNavigationScrollAppearance` 结果 × 开关；`materialized`（图标反色 / 白条细边）
+  改为 `pinned && 已滚动`；不加 CSS transition。
+- **验证**：C 端 `pnpm type-check` 0 error、`pnpm test:unit` **115 文件 / 1208 用例全通过**、
+  `pnpm build:mp-weixin` 构建成功；`sticky-search.contract.test.ts` 13 条契约改为断言布尔状态、无 RAW ref、
+  无 `MATERIALIZE_DISTANCE`、无 `transition: opacity`。
+- **观感变化**：静置（顶部）仍完全透明、首屏不变；一开始滚动，整块头部（导航 + 搜索栏）同一帧切换为
+  目标材质。原 §9 的「逐帧跟手」指标不再适用（已无逐帧更新）。

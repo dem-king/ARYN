@@ -43,6 +43,20 @@ public interface RemoteMallUserService {
 	List<UserInfoVO> searchUsersForBinding(String keyword, int limit);
 
 	/**
+	 * 在指定租户内按关键字搜索商城用户（手机号/昵称/用户ID）。
+	 *
+	 * <p>与 {@link #searchUsersForBinding(String, int)} 的区别：显式按租户精确过滤，
+	 * 防止其他租户用户挤占限量名额——共享购物车邀请成员等「同企业选人」场景
+	 * 只应看到本租户用户。出参手机号为原文，调用方负责按端脱敏。
+	 *
+	 * @param tenantId 租户ID（精确过滤；空时返回空列表）
+	 * @param keyword 关键字（空时返回空列表）
+	 * @param limit 最大返回数量
+	 * @return 用户信息列表（不含密码）
+	 */
+	List<UserInfoVO> searchTenantUsers(String tenantId, String keyword, int limit);
+
+	/**
 	 * 查询用户注册时间（新人资格时效判定用；createTime 不随通用 VO 出参）。
 	 * @param userId 用户ID
 	 * @return 注册时间；用户不存在返回 null

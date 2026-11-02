@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { FormInstance } from 'element-plus';
 
-import { defineAsyncComponent, reactive, ref } from 'vue';
+import { computed, defineAsyncComponent, onMounted, reactive, ref } from 'vue';
 
 import {
   ElButton,
@@ -17,12 +17,13 @@ import {
   ElSelect,
 } from 'element-plus';
 
+import { getPlatformAppKeys } from '#/api/upms/menu';
 import { addObj, editObj, getById } from '#/api/upms/tenant-package';
 import { useDict } from '#/utils/dict';
 
 interface DataState {
   form: {
-    appKey: string;
+    appKey: string[];
     description: string;
     id: string | undefined;
     name: string;
@@ -39,6 +40,23 @@ const Editor = defineAsyncComponent(
 );
 // 字典
 const { application_key, status } = useDict('application_key', 'status');
+// 平台专属应用（菜单管理/字典管理/代码生成等）不可下发给租户，由后端下发标识，避免前端硬编码
+const platformAppKeys = ref<string[]>([]);
+const assignableAppKeys = computed(() =>
+  ((application_key?.value ?? []) as any[]).filter(
+    (item: any) => !platformAppKeys.value.includes(item.value),
+  ),
+);
+onMounted(() => {
+  getPlatformAppKeys()
+    .then((keys) => {
+      platformAppKeys.value = keys;
+    })
+    .catch(() => {
+      // 拉取失败只影响下拉可选项，保存时后端仍会拒绝平台应用
+      platformAppKeys.value = [];
+    });
+});
 const state = reactive<DataState>({
   form: {
     id: undefined,
@@ -47,7 +65,7 @@ const state = reactive<DataState>({
     subTitle: '',
     originalPrice: 0,
     salesPrice: 0,
-    appKey: '',
+    appKey: [],
     description: '',
   },
   rules: {
@@ -101,7 +119,13 @@ const initForm = (row: any | undefined) => {
 const getDetail = (id: string) => {
   loading.value = true;
   getById(id).then((response) => {
-    state.form = response;
+    state.form = {
+      ...response,
+      // 存量套餐可能已含平台应用，回显时剔除，避免编辑保存时把历史脏数据带回去
+      appKey: (response.appKey ?? []).filter(
+        (key: string) => !platformAppKeys.value.includes(key),
+      ),
+    };
     loading.value = false;
   });
 };
@@ -208,7 +232,7 @@ defineExpose({
       <ElFormItem label="应用系统" prop="appKey">
         <ElSelect v-model="state.form.appKey" multiple>
           <ElOption
-            v-for="item in application_key"
+            v-for="item in assignableAppKeys"
             :key="item.value"
             :label="item.label"
             :value="item.value"

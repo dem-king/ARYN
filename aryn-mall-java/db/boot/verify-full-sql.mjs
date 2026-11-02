@@ -131,6 +131,11 @@ const required = [
   'unbackfilled_income_rows',
   'CREATE TABLE IF NOT EXISTS `points_exchange`',
   'CREATE TABLE IF NOT EXISTS `points_exchange_record`',
+  'ADD COLUMN `appraise_type`',
+  'ADD COLUMN `is_anonymous`',
+  'ADD COLUMN `advance_time`',
+  'ADD COLUMN `modify_time`',
+  'ADD COLUMN `introduction`',
 ];
 
 for (const token of required) {

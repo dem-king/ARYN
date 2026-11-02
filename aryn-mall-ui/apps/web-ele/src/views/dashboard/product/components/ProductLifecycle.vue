@@ -70,7 +70,7 @@ const metrics = computed(() => [
         </ElTooltip>
       </div>
     </template>
-    <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+    <div class="grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-4">
       <div
         v-for="item in metrics"
         :key="item.label"

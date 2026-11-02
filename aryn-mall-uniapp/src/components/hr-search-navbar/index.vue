@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, inject, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+
+import { DIY_NAVBAR_SCROLL_KEY } from '@/composables/useDiyNavbarScroll'
+import { FROSTED_NAVBAR_KEY } from '@/composables/useFrostedNavbar'
 
 interface Props {
   modelValue: string
@@ -55,6 +58,24 @@ const statusBarHeight = ref(0)
 const navBarHeight = ref(44)
 const capsuleCenterOffset = ref(0)
 const maxScroll = 100
+
+/** 页面滚动状态 / 业务页磨砂开关：均由宿主页的 useFrostedNavbar() provide */
+const pageScrolled = inject(DIY_NAVBAR_SCROLL_KEY, null)
+const frostedScroll = inject(FROSTED_NAVBAR_KEY, false)
+
+/**
+ * 磨砂玻璃态：业务页开着磨砂开关且页面已滚动。
+ *
+ * transparent（按滚动距离渐显白底）与 primary（品牌色底）是两条既定材质，
+ * 这里不接管，避免同一根栏上叠加两套底色逻辑。
+ */
+const frosted = computed(
+  () =>
+    frostedScroll
+    && pageScrolled?.value === true
+    && !props.transparent
+    && !props.primary,
+)
 watch(() => props.modelValue, (val) => {
   searchValue.value = val
 })
@@ -117,7 +138,12 @@ function handleLeftClick() {
 
 const dynamicStyle = computed(() => {
   let style = ''
-  if (props.transparent) {
+  if (frosted.value) {
+    // 磨砂玻璃：与 hr-navbar 的磨砂白目标态同一组数值（86% 白 + blur 18px）
+    style += 'background-color: rgba(255, 255, 255, 0.86);'
+    style += 'color: #222222;'
+  }
+  else if (props.transparent) {
     const opacity = Math.min(props.scrollTop / maxScroll, 1)
     style += `background-color: rgba(255, 255, 255, ${opacity});`
     style += `color: ${opacity > 0.5 ? '#000' : '#fff'};`
@@ -141,6 +167,8 @@ const dynamicStyle = computed(() => {
 })
 
 const titleColor = computed(() => {
+  if (frosted.value)
+    return '#222222'
   if (props.transparent) {
     const opacity = Math.min(props.scrollTop / maxScroll, 1)
     return opacity > 0.5 ? '#000000' : '#ffffff'
@@ -154,7 +182,11 @@ defineExpose({ placeholderHeight })
 </script>
 
 <template>
-  <view class="fixed left-0 right-0 top-0 z-1000" :style="dynamicStyle">
+  <view
+    class="fixed left-0 right-0 top-0 z-1000"
+    :class="{ 'hr-search-navbar--frosted': frosted }"
+    :style="dynamicStyle"
+  >
     <view :style="{ paddingTop: `${statusBarHeight + capsuleCenterOffset}px`, height: `${navBarHeight}px`, paddingRight: `${capsulePaddingRight}px` }" class="flex items-center justify-between px-12rpx">
       <view v-if="leftArrow" class="w-68rpx flex items-center justify-center">
         <wd-icon
@@ -214,10 +246,23 @@ defineExpose({ placeholderHeight })
         <slot name="right" />
       </view>
     </view>
-    <view v-if="bordered" class="h-1px bg-[#eaeaea]" />
+    <view
+      v-if="bordered"
+      class="h-1px bg-[#eaeaea]"
+      :style="{ backgroundColor: frosted ? 'rgba(15, 23, 42, 0.08)' : '' }"
+    />
   </view>
   <view v-if="navPlaceholder" :style="{ height: `${placeholderHeight}px` }" />
 </template>
 
 <style lang="scss" scoped>
+/**
+ * 磨砂玻璃态：与 hr-navbar 的磨砂白目标态共用 blur 数值。
+ * 大写 WEBKIT 避开 autoprefixer 的过时前缀清理（iOS 17- 的 WKWebView 只认带前缀的
+ * backdrop-filter）；不支持 backdrop-filter 的内核退化为 86% 白底，图标/搜索框仍可读。
+ */
+.hr-search-navbar--frosted {
+  -WEBKIT-backdrop-filter: blur(18px) saturate(160%);
+  backdrop-filter: blur(18px) saturate(160%);
+}
 </style>

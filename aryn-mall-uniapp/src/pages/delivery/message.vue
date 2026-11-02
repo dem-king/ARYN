@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import type { NoticeInboxItem } from '@/api/message/types'
-import { onLoad, onPullDownRefresh, onShow, onUnload } from '@dcloudio/uni-app'
+import { onLoad, onPageScroll, onPullDownRefresh, onShow, onUnload } from '@dcloudio/uni-app'
 import {
   getStaffNoticeInbox,
   markAllStaffNoticesRead,
   markStaffNoticeRead,
 } from '@/api/delivery-message'
 import { useDeliveryMessageStore } from '@/store/deliveryMessageStore'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+
+const { handlePageScroll } = useFrostedNavbar()
 
 /**
  * 配送员消息中心。
@@ -99,6 +102,9 @@ onLoad(() => {
 onShow(refresh)
 onPullDownRefresh(refresh)
 onUnload(() => uni.$off('delivery-message-push', refresh))
+
+// 顶栏磨砂玻璃：字面量注册滚动（小程序按页面源码生成滚动位标记，包进 composable 会静默失效）
+onPageScroll(handlePageScroll)
 </script>
 
 <template>
@@ -167,7 +173,7 @@ onUnload(() => uni.$off('delivery-message-push', refresh))
 .message-page {
   min-height: 100vh;
   padding-bottom: 60rpx;
-  background-color: #f6f8f7;
+  background-color: var(--app-bg);
 }
 
 .notice-card {

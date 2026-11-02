@@ -11,6 +11,8 @@ export interface AppSeckillGoodsVO {
   spuId: string
   skuId: string
   goodsName: string
+  /** 商品子标题（未配置或与名称相同时隐藏） */
+  subTitle?: string | null
   goodsImage: string
   originalPrice: number
   seckillPrice: number
@@ -32,6 +34,18 @@ export interface AppSeckillVO {
   endTime: string
   /** 状态: 0未开始 1进行中 2已结束 */
   status: number
+  /** 场次业务日期（yyyy-MM-dd） */
+  bizDate?: string
+  /** 相对今天的天数：0今天 1明天 */
+  dayOffset?: number
+  /** 当前用户是否已订阅开抢提醒 */
+  subscribed?: boolean
+  /** 是否开放开抢提醒 */
+  reminderEnabled?: boolean
+  /** 微信订阅模板ID */
+  reminderTemplateId?: string
+  /** 提前提醒分钟数 */
+  reminderOffsetMinutes?: number
   /** 倒计时(秒) */
   countdown: number
   /** 本场「N 人在抢」的去重人数（场次内 SKU 仍在购物车里的人数；拿不到时为空） */
@@ -40,13 +54,12 @@ export interface AppSeckillVO {
 }
 
 /**
- * 获取进行中的秒杀场次列表
+ * 获取秒杀场次列表（今日剩余 + 明日预告）
  * GET /promotion/app/seckill/sessions
+ * 携带可选登录态：未登录也能逛，登录后回填 subscribed。
  */
 export function getSeckillSessions() {
-  return alovaInstance.Get<AppSeckillVO[]>('/promotion/app/seckill/sessions', {
-    headers: { skipToken: true },
-  })
+  return alovaInstance.Get<AppSeckillVO[]>('/promotion/app/seckill/sessions')
 }
 
 /**
@@ -72,6 +85,26 @@ export function getGoodsSeckillInfo(skuId: string) {
     {
       headers: { skipToken: true },
     },
+  )
+}
+
+/**
+ * 订阅场次开抢提醒（需登录）
+ * POST /promotion/app/seckill/subscribe/{sessionId}
+ */
+export function subscribeSeckill(sessionId: string) {
+  return alovaInstance.Post<boolean>(
+    `/promotion/app/seckill/subscribe/${sessionId}`,
+  )
+}
+
+/**
+ * 取消场次开抢提醒（需登录）
+ * DELETE /promotion/app/seckill/subscribe/{sessionId}
+ */
+export function unsubscribeSeckill(sessionId: string) {
+  return alovaInstance.Delete<boolean>(
+    `/promotion/app/seckill/subscribe/${sessionId}`,
   )
 }
 

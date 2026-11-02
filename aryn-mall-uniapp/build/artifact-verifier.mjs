@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { auditMpPackage } from './mp-package-audit.mjs'
 
 /**
  * 产物最终校验（子进程 close 后在父进程执行，是发布前的权威门）。
@@ -183,6 +184,10 @@ export function verifyArtifact({ outputDir, snapshotAppRoot, normalized, evidenc
   verifyManifest(snapshotAppRoot, normalized)
   const appStats = verifyAppJson(outputDir)
   verifyThemeResources(outputDir)
+  const packageAudit = auditMpPackage(outputDir)
+  if (!packageAudit.ok) {
+    throw new ArtifactVerifyError(`分包审计失败:\n${packageAudit.errors.join('\n')}`)
+  }
   const evidence = verifyIdentityEvidence(evidencePath, normalized)
 
   const checksums = checksumsFor(outputDir)
@@ -195,6 +200,7 @@ export function verifyArtifact({ outputDir, snapshotAppRoot, normalized, evidenc
     profile: normalized.profile,
     deployment: normalized.deployment,
     appStats,
+    packageSizes: packageAudit.sizes,
     identityChunks: evidence.identityChunks ?? [],
     fileCount: Object.keys(checksums).length,
     totalBytes,

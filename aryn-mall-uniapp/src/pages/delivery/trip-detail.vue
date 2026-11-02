@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { DeliveryCandidateOrder, DeliveryCandidateSource, DeliveryTask, DeliveryTaskStatus, DeliveryTrip } from '@/api/delivery'
 import type { PickRow, PickRowGroup } from '@/utils/delivery-pick'
-import { onLoad } from '@dcloudio/uni-app'
+import { onLoad, onPageScroll } from '@dcloudio/uni-app'
 import { computed, ref } from 'vue'
 import {
   arriveTask,
@@ -14,8 +14,9 @@ import {
   sortTripTasks,
   startLoading,
 } from '@/api/delivery'
-import { uploadDeliveryEvidence } from '@/api/upms/file'
+import { uploadDeliveryEvidence } from '@/api/upms/delivery-evidence'
 import { openDeliveryNavigation, resolveDeliveryDestination } from '@/utils/delivery-navigation'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
 import {
   applyRouteOrder,
   buildPickRows,
@@ -25,6 +26,8 @@ import {
   resolveTargetIndex,
   sortRowOffset,
 } from '@/utils/delivery-pick'
+
+const { handlePageScroll } = useFrostedNavbar()
 
 definePage({
   name: 'delivery-trip-detail',
@@ -605,6 +608,9 @@ async function confirmArrive() {
     globalLoading.close()
   }
 }
+
+// 顶栏磨砂玻璃：字面量注册滚动（小程序按页面源码生成滚动位标记，包进 composable 会静默失效）
+onPageScroll(handlePageScroll)
 </script>
 
 <template>
@@ -1261,7 +1267,7 @@ async function confirmArrive() {
   width: 100%;
   height: 16rpx;
   border-radius: 8rpx;
-  background-color: #e5e6eb;
+  background-color: var(--app-border);
   overflow: hidden;
 
   .progress-bar-inner {
@@ -1276,7 +1282,7 @@ async function confirmArrive() {
   display: flex;
   align-items: center;
   padding: 20rpx 0;
-  border-bottom: 1px solid #f5f5f5;
+  border-bottom: 1px solid var(--app-border);
 
   &:last-of-type {
     border-bottom: none;
@@ -1289,7 +1295,7 @@ async function confirmArrive() {
 
 .task-done {
   opacity: 0.7;
-  background-color: #f7f8fa;
+  background-color: var(--app-card-2);
 }
 
 /* 当前配送站：描边 + 轻投影，和已送达的置灰卡形成明确层级 */
@@ -1331,8 +1337,8 @@ async function confirmArrive() {
   /* 固定行高：拖拽落点按行高换算，变高行长会让插入位置判定漂移 */
   height: 72px;
   padding: 0 8rpx;
-  border-bottom: 1px solid #f5f5f5;
-  background-color: #fff;
+  border-bottom: 1px solid var(--app-border);
+  background-color: var(--app-card);
   transition: transform 0.15s ease;
 
   &:last-of-type {
@@ -1342,7 +1348,7 @@ async function confirmArrive() {
 
 .sort-row-dragging {
   transition: none;
-  background-color: #f7f8fa;
+  background-color: var(--app-card-2);
   border-radius: 12rpx;
 }
 
@@ -1373,14 +1379,14 @@ async function confirmArrive() {
   justify-content: center;
   padding: 24rpx 0;
   border-radius: 12rpx;
-  background-color: #f7f8fa;
+  background-color: var(--app-card-2);
 }
 
 .pull-row {
   display: flex;
   align-items: center;
   padding: 20rpx 16rpx;
-  border-bottom: 1px solid #f5f5f5;
+  border-bottom: 1px solid var(--app-border);
 
   &:last-of-type {
     border-bottom: none;
@@ -1396,7 +1402,7 @@ async function confirmArrive() {
   margin-top: 10rpx;
   padding: 12rpx 16rpx;
   border-radius: 10rpx;
-  background-color: #fafbfc;
+  background-color: var(--app-card-2);
 }
 
 .candidate-item {

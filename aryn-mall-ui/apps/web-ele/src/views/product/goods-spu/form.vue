@@ -34,6 +34,7 @@ import { useDict } from '#/utils/dict';
 
 import {
   validateGoodsAttrTags,
+  validateGoodsIntroduction,
   validateGoodsSkus,
 } from './goods-spu-form-validation';
 
@@ -59,6 +60,7 @@ interface DataState {
     goodsSkus: Array<any>;
     goodsSpuSpecs: Array<any>;
     id: undefined;
+    introduction: string;
     name: string;
     salesVolume: number;
     sku: {
@@ -88,6 +90,7 @@ const state = reactive<DataState>({
     id: undefined,
     name: '',
     subTitle: '',
+    introduction: '',
     attrTags: [],
     spuUrls: [],
     salesVolume: 0,
@@ -214,6 +217,20 @@ const defaultProps = {
   children: 'children',
 };
 const MAX_ATTR_TAGS = 6;
+/**
+ * 卖点编辑器工具栏：只保留配色/强调/字号。
+ * 图片、表格、列表、大标题都会被后端白名单剥掉，工具栏提前收窄避免运营做了无效排版。
+ */
+const INTRO_TOOLBAR_KEYS = [
+  'color',
+  'bold',
+  'italic',
+  'underline',
+  'fontSize',
+  'undo',
+  'redo',
+  'clearStyle',
+];
 const attrIconOptions = [
   { label: '无图标', value: 'none' },
   { label: '定位/地标', value: 'location' },
@@ -259,6 +276,7 @@ const resetForm = (formEl: FormInstance | undefined) => {
     id: undefined,
     name: '',
     subTitle: '',
+    introduction: '',
     attrTags: [],
     spuUrls: [],
     salesVolume: 0,
@@ -343,6 +361,13 @@ const submitForm = async (formEl: FormInstance | undefined) => {
       );
       if (attrTagValidationMessage) {
         ElMessage.warning(attrTagValidationMessage);
+        return;
+      }
+      const introductionValidationMessage = validateGoodsIntroduction(
+        state.form.introduction,
+      );
+      if (introductionValidationMessage) {
+        ElMessage.warning(introductionValidationMessage);
         return;
       }
       loading.value = true;
@@ -520,6 +545,8 @@ const initForm = () => {
         loading.value = false;
         state.form = response;
         state.form.attrTags = normalizeAttrTags(response.attrTags);
+        // 老数据/旧后端没有卖点字段时按空串回显，避免编辑器读到 undefined
+        state.form.introduction = response.introduction ?? '';
 
         const categoryIds: string[] = [];
 
@@ -572,6 +599,20 @@ initForm();
                   show-word-limit
                   :rows="2"
                 />
+              </ElFormItem>
+              <ElFormItem label="商品卖点">
+                <div class="intro-editor">
+                  <Editor
+                    v-model:get-html="state.form.introduction"
+                    height="200px"
+                    :toolbar-keys="INTRO_TOOLBAR_KEYS"
+                    :disable="false"
+                  />
+                  <div class="intro-editor__tip">
+                    展示在商详首屏属性卡下方，按商品单独配色；仅保留颜色/加粗/字号，120
+                    字以内，留空则不展示。
+                  </div>
+                </div>
               </ElFormItem>
               <ElFormItem label="商品属性标签">
                 <div class="attr-tag-editor">
@@ -894,6 +935,17 @@ initForm();
       &__tip {
         margin-bottom: 8px;
         font-size: 12px;
+        color: var(--el-text-color-secondary);
+      }
+    }
+
+    .intro-editor {
+      width: 100%;
+
+      &__tip {
+        margin-top: 6px;
+        font-size: 12px;
+        line-height: 1.5;
         color: var(--el-text-color-secondary);
       }
     }

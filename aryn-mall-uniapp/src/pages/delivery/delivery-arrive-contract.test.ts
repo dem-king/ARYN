@@ -84,7 +84,7 @@ describe('delivery arrive evidence contract', () => {
   })
 
   it('凭证上传走配送员专用接口（C 端 /app/upload 不接受 delivery token）', () => {
-    const fileApi = source('src/api/upms/file.ts')
+    const fileApi = source('src/api/upms/delivery-evidence.ts')
     expect(fileApi).toContain('\'/upms/file/staff/delivery-evidence/upload\'')
     expect(fileApi).toContain('Local.get(\'deliveryToken\')')
   })

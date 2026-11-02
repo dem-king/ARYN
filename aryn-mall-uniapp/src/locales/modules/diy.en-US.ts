@@ -21,12 +21,17 @@ export default {
       seckillTitle: 'Flash Sale',
       seckillHookWithSession: '{name} · Hourly',
       seckillHook: 'Hourly drop',
+      seckillTomorrowHookWithSession: 'Tomorrow {name}',
+      seckillTomorrowHook: 'Same time tomorrow',
       groupBuyTitle: '{groupNum}-Person Group',
       groupBuyTitleFallback: '2-Person Group',
       groupBuyHook: 'Save more with {groupNum} people',
       groupBuyHookFallback: 'Group up to save',
+      groupBuyHookWithName: '{name} · Save ¥{amount}',
+      groupBuyHookWithNameGroup: '{name} · {groupNum}-person group',
       groupBuyBadge: 'Group',
       discountHook: '{value} Zone',
+      discountHookWithName: '{name} · {value}',
       discountTitle: 'Limited Offer',
     },
 
@@ -102,12 +107,15 @@ export default {
 
     // Today's supply list floor (diy-replenish-card)
     replenishCard: {
-      defaultTitle: 'Today\'s Supply List',
+      defaultTitle: 'Supply List',
       addressPending: 'Address syncing',
-      itemCount: '{count} items',
-      memberCount: '{count} joined',
-      estimate: 'Est. ¥{amount}',
-      batchAdd: 'Add from List',
+      // Number and unit are split so the card can scale the number up on its own
+      itemUnit: 'items',
+      memberUnit: 'joined',
+      estimateLabel: 'Est.',
+      emptyItems: 'Items your crew adds will show up here',
+      pickAction: 'Add Items',
+      batchAdd: 'Add Items',
       emptyTitle: 'No active supply list',
       emptyDesc: 'Start a supply list to pool orders with your crew, or import an Excel list to order in one go.',
       createAction: 'Start a List',
@@ -134,6 +142,18 @@ export default {
       claim: 'Claim',
       receiveSuccess: 'Coupon claimed',
       receiveFailed: 'Failed to claim',
+    },
+
+    // Coupon ladder (diy-coupon-ladder)
+    couponLadder: {
+      tierTitle: 'Tiered savings',
+      tierHint: 'The more you buy, the more you save',
+      bestValue: 'Best value',
+      stepTitle: 'How it works',
+      stepClaim: 'Claim coupons',
+      stepCart: 'Add to cart',
+      stepCheckout: 'Auto discount',
+      threshold: 'Min. spend ¥{amount}',
     },
 
     // Search bar floor (diy-search-bar)
@@ -165,6 +185,7 @@ export default {
     // Custom HTML floor (diy-custom-html)
     customHtml: {
       empty: 'No content',
+      linkCopyFailed: 'Failed to copy the link. Please long-press it to copy.',
     },
   },
 }

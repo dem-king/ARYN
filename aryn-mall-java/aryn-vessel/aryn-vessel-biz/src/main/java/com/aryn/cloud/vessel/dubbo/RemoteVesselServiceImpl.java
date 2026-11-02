@@ -5,10 +5,14 @@ import com.aryn.cloud.vessel.api.constant.VesselMemberRole;
 import com.aryn.cloud.vessel.api.dto.VesselContextDTO;
 import com.aryn.cloud.vessel.api.entity.VesselMember;
 import com.aryn.cloud.vessel.api.remote.RemoteVesselService;
+import com.aryn.cloud.vessel.api.vo.VesselMemberVO;
+import com.aryn.cloud.vessel.service.IVesselBindService;
 import com.aryn.cloud.vessel.service.VesselService;
 import org.apache.dubbo.config.annotation.DubboService;
 import org.springframework.stereotype.Service;
 import lombok.RequiredArgsConstructor;
+
+import java.util.List;
 
 /**
  * 船舶域远程服务实现：供订单等 biz 模块通过 Dubbo（Cloud）或本地 Bean（Boot）调用。
@@ -22,6 +26,8 @@ import lombok.RequiredArgsConstructor;
 public class RemoteVesselServiceImpl implements RemoteVesselService {
 
 	private final VesselService vesselService;
+
+	private final IVesselBindService vesselBindService;
 
 	@Override
 	public boolean isVesselMember(String tenantId, String vesselId, String userId) {
@@ -68,6 +74,11 @@ public class RemoteVesselServiceImpl implements RemoteVesselService {
 	@Override
 	public VesselContextDTO resolveAvailableCall(String tenantId, String vesselId) {
 		return vesselService.resolveAvailableCall(tenantId, vesselId);
+	}
+
+	@Override
+	public List<VesselMemberVO> listOnboardMembers(String tenantId, String vesselId, String keyword) {
+		return vesselBindService.listOnboardMembers(tenantId, vesselId, keyword);
 	}
 
 }

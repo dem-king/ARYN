@@ -43,7 +43,7 @@ public class TenantExpiryJob {
 			return;
 		}
 		for (SysTenant tenant : expiredTenants) {
-			if (CommonConstants.PLATFORM_TENANT_ID.equals(tenant.getId())) {
+			if (CommonConstants.TENANT_TYPE_PLATFORM.equals(tenant.getTenantType())) {
 				continue;
 			}
 			tenantSessionRevoker.revokeTenant(tenant.getId(), "租户授权到期");

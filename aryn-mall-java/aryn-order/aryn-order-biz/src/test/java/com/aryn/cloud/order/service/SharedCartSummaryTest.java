@@ -86,7 +86,7 @@ class SharedCartSummaryTest {
 
 		service = new SharedCartServiceImpl(cartMapper, memberMapper, itemMapper,
 				mock(SharedCartImportMapper.class), mock(SharedCartImportRowMapper.class),
-				mock(IOrderInfoService.class), mock(IDeliveryAreaService.class), mock(ChainAiAssistant.class));
+				mock(IOrderInfoService.class), mock(IDeliveryAreaService.class), mock(ChainAiAssistant.class), mock(com.aryn.cloud.order.service.SharedCartInviteNotifyService.class));
 		ReflectionTestUtils.setField(service, "remoteGoodsSkuService", remoteGoodsSkuService);
 		ReflectionTestUtils.setField(service, "remoteGoodsSpuService", remoteGoodsSpuService);
 		ReflectionTestUtils.setField(service, "remoteVesselService", mock(RemoteVesselService.class));

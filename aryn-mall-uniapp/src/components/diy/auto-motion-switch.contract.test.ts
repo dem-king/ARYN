@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 
 /**
  * 全站自动动效总开关的接线契约：
- * 开关（mallThemeStore.autoMotionEnabled）必须被 5 处自动动效消费，
+ * 开关（mallThemeStore.autoMotionEnabled）必须被 6 处自动动效消费，
  * 且「关闭时不启动」的判定要真的落在自动播放/定时器上，而不是只存在字段。
  */
 const diyRoot = resolve(process.cwd(), 'src/components/diy')
@@ -33,6 +33,7 @@ describe('全站自动动效总开关接线', () => {
     ['diy-swiper-banner', '轮播图'],
     ['diy-image', '图片组件轮播'],
     ['diy-search-bar', '搜索栏热词轮换'],
+    ['diy-activity-strip', '活动入口条长文案跑马灯'],
   ])('%s（%s）消费总开关', (dir, label) => {
     const source = read(`${dir}/index.vue`)
     expect(source, `${label} 应引入 store`).toContain('useMallThemeStore')
@@ -50,7 +51,7 @@ describe('全站自动动效总开关接线', () => {
   it('搜索栏热词轮换受开关约束，且开关异步到达后能自愈启停', () => {
     const source = read('diy-search-bar/index.vue')
     // 关闭时不启动定时器
-    expect(source).toMatch(/if \(!mallThemeStore\.autoMotionEnabled\)\s*\n\s*return/)
+    expect(source).toMatch(/if \(!mallThemeStore\.autoMotionEnabled\)\s+return/)
     // 总开关变化时重新评估（主题拉取晚于挂载）
     expect(source).toContain('watch(')
     expect(source).toContain('startRotation()')

@@ -100,8 +100,12 @@ describe('ship context picker contract', () => {
 
     // 申报表单嵌在 scroll-view 内，小程序端 fixed 会被裁掉，必须 portal 出去
     expect(template.match(/root-portal/g)?.length).toBe(2)
-    // 弹层本体是 900/901，H5 原生 tabBar 是 998，选择器面板必须压过两者
-    expect(template.match(/:z-index="1000"/g)?.length).toBe(2)
+    // 玻璃 tabBar（H5 内置 / 小程序自绘）是 998：遮罩与面板必须压过它，
+    // 否则 tab 页（购物车/首页工作台）上弹层底部会被底栏盖住
+    expect(template).toContain('z-index: 999')
+    expect(template).toContain('z-index: 1000')
+    // 日历面板嵌在弹层的 scroll-view 里，还要压过弹层面板本体（1000）
+    expect(template.match(/:z-index="1002"/g)?.length).toBe(2)
   })
 
   it('keeps ETD bounded by the chosen ETA as early as selection time', () => {

@@ -235,6 +235,26 @@ class ShoppingCartServiceImplTest {
 		assertThat(rows.get(1).getGoodsSku()).isNull();
 	}
 
+	/**
+	 * 角标/「去结算(n)」的口径是商品总件数：购物车一行是一个 SKU，必须对行
+	 * quantity 求和而不是数行数（数行数得到的是「加购了几种」）；quantity
+	 * 为空的行按 0 计，空车返回 0。
+	 */
+	@Test
+	void countTotalQuantitySumsRowQuantities() {
+		ShoppingCart row1 = cartRow("cart-1", "sku-1");
+		row1.setQuantity(3);
+		ShoppingCart row2 = cartRow("cart-2", "sku-2");
+		row2.setQuantity(2);
+		ShoppingCart row3 = cartRow("cart-3", "sku-3");
+		when(mapper.selectList(any(Wrapper.class))).thenReturn(List.of(row1, row2, row3));
+
+		assertThat(service.countTotalQuantity("user-1")).isEqualTo(5);
+
+		when(mapper.selectList(any(Wrapper.class))).thenReturn(List.of());
+		assertThat(service.countTotalQuantity("user-1")).isZero();
+	}
+
 	private static Page<ShoppingCart> pageOf(ShoppingCart... rows) {
 		Page<ShoppingCart> page = new Page<>(1, 10);
 		page.setRecords(List.of(rows));

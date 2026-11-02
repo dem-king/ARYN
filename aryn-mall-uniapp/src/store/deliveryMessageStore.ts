@@ -12,6 +12,8 @@ import { defineStore } from 'pinia'
 import { buildWebSocketUrl, getPageOrigin } from '@/api/core/api-base-url'
 import { parseOpenBoot, rewriteBootUrl } from '@/api/core/boot-url'
 import { getStaffNoticeUnreadCount } from '@/api/delivery-message'
+import { useSessionStore } from '@/store/sessionStore'
+import { parseSessionInvalidPushEvent } from '@/utils/session-invalid'
 import { Local } from '@/utils/storage'
 
 let socketTask: UniApp.SocketTask | undefined
@@ -73,6 +75,11 @@ export const useDeliveryMessageStore = defineStore('deliveryMessage', {
       }
     },
     async connect() {
+      // 配送会话已失效：不建连、不重连，避免死 token 每 3 秒空转（与商城端同一守卫）
+      if (useSessionStore().invalid) {
+        this.disconnect()
+        return
+      }
       if (this.socketState === 'connecting' || this.socketState === 'open')
         return
       const token = deliveryToken()
@@ -113,12 +120,23 @@ export const useDeliveryMessageStore = defineStore('deliveryMessage', {
         lastAliveAt = Date.now()
         if (event.data === 'PONG')
           return
+        // 三期：配送端同样消费 SESSION_INVALID 主动推送（target=delivery），
+        // 命中后断开连接、不再刷新未读/发推送事件。
+        const sessionInvalid = parseSessionInvalidPushEvent(event.data)
+        if (sessionInvalid) {
+          useSessionStore().invalidate({ ...sessionInvalid, target: 'delivery' })
+          this.disconnect()
+          return
+        }
         void this.refreshUnread()
         uni.$emit('delivery-message-push')
       })
       socketTask.onClose(() => {
         this.socketState = 'closed'
         stopHeartbeat()
+        // 会话失效引起的关闭不再重连（connect 内还有一道兜底判断）
+        if (useSessionStore().invalid)
+          return
         if (!reconnectTimer) {
           reconnectTimer = setTimeout(() => {
             reconnectTimer = undefined

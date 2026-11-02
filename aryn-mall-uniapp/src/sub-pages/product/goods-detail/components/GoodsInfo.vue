@@ -7,6 +7,8 @@ import type { NewbiePriceDisplay } from '@/utils/newbie-price'
 
 import { computed, getCurrentInstance, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+// @ts-expect-error: mp-html type declaration issue
+import mpHtml from 'mp-html/dist/uni-app/components/mp-html/mp-html'
 import { useShipContextStore } from '@/store/shipContextStore'
 import { formatStripAmount } from '@/utils/discount-price'
 import { resolveDeliveryRow } from '@/utils/goods-purchase'
@@ -130,6 +132,22 @@ const showSubtitle = computed(() => {
   const name = String(props.goodsSpu?.name || '').trim()
   return subtitle.length > 0 && subtitle !== name
 })
+
+/**
+ * 商详首屏卖点：后台富文本录入、服务端白名单清洗后的 HTML 片段。
+ * 允许逐商品配色（span 的 color 等），为空时整块不渲染。
+ */
+const introductionHtml = computed(() =>
+  String(props.goodsSpu?.introduction || '').trim(),
+)
+
+/**
+ * 卖点的版式约束：只放开行内样式，段落边距清零。
+ * 后台能调颜色/加粗/字号，但不能靠段落外边距把标题卡撑开。
+ */
+const introTagStyle = {
+  p: 'margin: 0;',
+}
 
 /** 可享新人价时的限购提示；不适用时为空串（避免渲染空条） */
 const newbieLimitText = computed(() =>
@@ -476,18 +494,23 @@ defineExpose({
         <view v-if="showSubtitle" class="goods-title-card__subtitle">
           <wd-text :lines="2" size="24rpx" color="#8a8f99" :text="goodsSpu?.subTitle" />
         </view>
-        <view v-if="isFreeShipping" class="goods-title-card__tags">
-          <text class="goods-tag">
-            {{ t('product.freeShipping') }}
-          </text>
-        </view>
       </view>
       <!--
-        运营配置的属性标签（地标/冷藏/上榜…）：横滑卡条，放在标题之后、
+        运营配置的属性标签（地标/冷藏/上榜…）：等宽铺满，放在标题之后、
         库存提示之前。后端未部署或旧数据无 attrTags 时组件内部整块不渲染，
         首屏与改动前完全一致。
       -->
       <GoodsAttrTags :attr-tags="goodsSpu?.attrTags" />
+      <!--
+        商详首屏卖点：运营可配的白名单富文本，支持逐商品配色，
+        紧跟在属性卡之后；为空时整块不渲染（旧数据与未配置卖点一致）。
+      -->
+      <view
+        v-if="introductionHtml"
+        class="goods-title-card__intro text-[#6b7280] dark:text-[var(--wot-dark-color3)]"
+      >
+        <mp-html :content="introductionHtml" :tag-style="introTagStyle" />
+      </view>
       <!--
         库存口径：绝对库存/累计销量不外露（运营敏感数据，自营竞品也不展示），
         只在售罄或低库存时给一行稀缺提示；充足或未知时整行隐藏。
@@ -597,11 +620,15 @@ defineExpose({
     margin-top: 8rpx;
   }
 
-  &__tags {
-    display: flex;
-    align-items: center;
-    gap: 8rpx;
-    margin-top: 12rpx;
+  // 卖点段落：与属性卡之间用细分隔线收口，字号/行高按「一段可读文案」给，
+  // 颜色由运营配置的行内样式决定；未配色时落在外层的次级文本色上（弱于标题正文）。
+  &__intro {
+    margin-top: 16rpx;
+    padding-top: 16rpx;
+    border-top: 1rpx solid var(--app-border);
+    font-size: 26rpx;
+    line-height: 1.9;
+    word-break: break-word;
   }
 
   &__meta {
@@ -610,13 +637,13 @@ defineExpose({
     gap: 16rpx;
     margin-top: 16rpx;
     padding-top: 16rpx;
-    border-top: 1rpx solid #f5f6f8;
-    color: #8a8f99;
+    border-top: 1rpx solid var(--app-border);
+    color: var(--app-text-3);
     font-size: 22rpx;
   }
 
   &__meta-value {
-    color: #3a3f47;
+    color: var(--app-text);
     font-size: 24rpx;
     font-weight: 600;
   }
@@ -624,26 +651,15 @@ defineExpose({
   &__meta-divider {
     width: 1rpx;
     height: 18rpx;
-    background: #e8eaf0;
+    background: var(--app-border);
   }
-}
-
-.goods-tag {
-  display: inline-flex;
-  align-items: center;
-  padding: 2rpx 12rpx;
-  border-radius: 6rpx;
-  background: #f5f6f8;
-  color: var(--theme-color-primary, var(--wot-color-theme-primary, #ff2237));
-  font-size: 20rpx;
-  font-weight: 500;
 }
 
 .goods-cell {
   transition: opacity 120ms ease;
 
   &--border {
-    border-bottom: 1rpx solid #f5f6f8;
+    border-bottom: 1rpx solid var(--app-border);
   }
 
   &--pressed {
@@ -683,7 +699,7 @@ defineExpose({
   }
 
   .seckill-over {
-    color: #999;
+    color: var(--app-text-3);
     font-size: 24rpx;
   }
 
@@ -692,7 +708,7 @@ defineExpose({
     flex: 1;
     justify-content: flex-end;
     gap: 16rpx;
-    color: #999;
+    color: var(--app-text-3);
     font-size: 22rpx;
 
     .seckill-remaining {
@@ -884,7 +900,7 @@ defineExpose({
   border-top-right-radius: 20upx;
   border-bottom-right-radius: 20upx;
   border: 1upx solid var(--wot-color-theme-primary, #ff2237);
-  background-color: #fff;
+  background-color: var(--app-card);
   border-left: 0;
 }
 
@@ -897,7 +913,7 @@ defineExpose({
   border-top-left-radius: 20upx;
   border-bottom-left-radius: 20upx;
   border: 1upx solid var(--wot-color-theme-primary, #ff2237);
-  background-color: #fff;
+  background-color: var(--app-card);
   border-right: 0;
 }
 </style>

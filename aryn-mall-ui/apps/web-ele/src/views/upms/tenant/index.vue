@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
-import { ARYN_PLATFORM_TENANT_ID } from '@vben/constants';
+import { ARYN_TENANT_TYPE_PLATFORM } from '@vben/constants';
 
 import { ArrowDown, Edit, Plus } from '@element-plus/icons-vue';
 import dayjs from 'dayjs';
@@ -122,10 +122,13 @@ const remainingDays = (row: any) => {
     .diff(dayjs().startOf('day'), 'day');
 };
 
-const isPlatformTenant = (row: any) => row.id === ARYN_PLATFORM_TENANT_ID;
+const isPlatformTenant = (row: any) =>
+  row.tenantType === ARYN_TENANT_TYPE_PLATFORM;
+
+const isPerpetual = (row: any) => isPlatformTenant(row) || !row.authEndTime;
 
 const remainingText = (row: any) => {
-  if (isPlatformTenant(row)) return '长期有效';
+  if (isPerpetual(row)) return '长期有效';
   const days = remainingDays(row);
   if (days === null) return '-';
   if (days < 0) return `已过期 ${Math.abs(days)} 天`;
@@ -136,7 +139,7 @@ const remainingText = (row: any) => {
 const remainingTagType = (
   row: any,
 ): 'danger' | 'info' | 'success' | 'warning' => {
-  if (isPlatformTenant(row)) return 'success';
+  if (isPerpetual(row)) return 'success';
   const days = remainingDays(row);
   if (days === null) return 'info';
   if (days <= 7) return 'danger';
@@ -375,9 +378,7 @@ useKeepAliveRefresh(initPage);
         <ElTableColumn prop="authBeginTime" label="授权开始时间" width="165" />
         <ElTableColumn label="授权结束时间" width="165">
           <template #default="scope">
-            {{
-              isPlatformTenant(scope.row) ? '长期有效' : scope.row.authEndTime
-            }}
+            {{ isPerpetual(scope.row) ? '长期有效' : scope.row.authEndTime }}
           </template>
         </ElTableColumn>
         <ElTableColumn label="剩余天数" width="120">
@@ -417,14 +418,14 @@ useKeepAliveRefresh(initPage);
             <ElButton
               link
               type="primary"
-              v-if="scope.row.id !== ARYN_PLATFORM_TENANT_ID"
+              v-if="!isPlatformTenant(scope.row)"
               v-access:code="'upms:systenant:add'"
               @click="upMenu(scope.row.id)"
             >
               配置菜单
             </ElButton>
             <ElDropdown
-              v-if="scope.row.id !== ARYN_PLATFORM_TENANT_ID"
+              v-if="!isPlatformTenant(scope.row)"
               trigger="click"
               @command="
                 (command: string) => handleRowCommand(command, scope.row)
@@ -439,28 +440,28 @@ useKeepAliveRefresh(initPage);
               <template #dropdown>
                 <ElDropdownMenu>
                   <ElDropdownItem
-                    v-if="scope.row.id !== ARYN_PLATFORM_TENANT_ID"
+                    v-if="!isPlatformTenant(scope.row)"
                     command="renew"
                     v-access:code="'upms:systenant:edit'"
                   >
                     续期
                   </ElDropdownItem>
                   <ElDropdownItem
-                    v-if="scope.row.id !== ARYN_PLATFORM_TENANT_ID"
+                    v-if="!isPlatformTenant(scope.row)"
                     command="toggle"
                     v-access:code="'upms:systenant:edit'"
                   >
                     {{ scope.row.status === '0' ? '停用' : '启用' }}
                   </ElDropdownItem>
                   <ElDropdownItem
-                    v-if="scope.row.id !== ARYN_PLATFORM_TENANT_ID"
+                    v-if="!isPlatformTenant(scope.row)"
                     command="kickout"
                     v-access:code="'upms:systenant:edit'"
                   >
                     强制下线
                   </ElDropdownItem>
                   <ElDropdownItem
-                    v-if="scope.row.id !== ARYN_PLATFORM_TENANT_ID"
+                    v-if="!isPlatformTenant(scope.row)"
                     command="delete"
                     divided
                     v-access:code="'upms:systenant:del'"

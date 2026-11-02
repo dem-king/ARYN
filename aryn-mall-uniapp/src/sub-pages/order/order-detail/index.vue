@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { onLoad } from '@dcloudio/uni-app'
+import { onLoad, onPageScroll } from '@dcloudio/uni-app'
 import { reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getById, reorderPreview } from '@/api/order/orderInfo'
 import { addShoppingCart } from '@/api/order/shoppingCart'
 import DeliveryProgress from '@/components/delivery/delivery-progress.vue'
 import { useDecorationInfiniteScroll } from '@/composables/useDecorationInfiniteScroll'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
 import OrderOperation from '@/sub-pages/order/components/order-operation/index.vue'
 import {
   DELIVERY_WAY_EXPRESS,
@@ -16,6 +17,8 @@ import {
 import { useDict } from '@/sub-pages/utils/dict'
 import { DEFAULT_PAY_TIMEOUT_MINUTES } from '@/sub-pages/utils/pay-timeout'
 import { customerServiceRoute } from '@/utils/message'
+
+const { handlePageScroll } = useFrostedNavbar()
 
 definePage({
   name: 'order-detail',
@@ -32,6 +35,11 @@ const { t } = useI18n()
 const globalLoading = useGlobalLoading()
 // 底部推荐商品流的页面滚动广播：滚动接近底部时自动加载下一页
 useDecorationInfiniteScroll()
+
+// 品牌色变量链：装修页级 → 商城换肤（wot ConfigProvider）→ 内置兜底，
+// 与个人中心页头同源；顶栏底色与页头渐变首色一致才能无缝衔接
+const BRAND_COLOR = 'var(--theme-color-primary, var(--wot-color-theme-primary, #FF2237))'
+const PRICE_COLOR = 'var(--theme-color-primary, var(--wot-color-theme-primary, #FF2237))'
 
 // 定义变量
 const loading = ref(true)
@@ -164,6 +172,18 @@ const navbarSubTitle = computed(() => {
       return ''
   }
 })
+// 状态主视觉图标：类名全量字面量列出，供 UnoCSS 扫描生成；未知状态走文档图标
+const ORDER_STATUS_HERO_ICONS: Record<string, string> = {
+  1: 'i-carbon:time',
+  2: 'i-carbon:package',
+  3: 'i-carbon:delivery-truck',
+  4: 'i-carbon:checkmark-filled',
+  5: 'i-carbon:renew',
+  11: 'i-carbon:close',
+}
+const heroIcon = computed(() => ORDER_STATUS_HERO_ICONS[String(state.order.status)] ?? 'i-carbon:document')
+// 首卡是否为商品卡：无地址/船舶卡（自提等）时由商品卡顶替压盖页头
+const heroOverlapCard = computed(() => !['1', '3', '4'].includes(state.order.deliveryWay))
 // 添加更多信息公开关状态
 const showMoreInfo = ref(false)
 
@@ -272,41 +292,55 @@ function toCustomerService() {
     }),
   })
 }
+
+// 顶栏磨砂玻璃：字面量注册滚动（小程序按页面源码生成滚动位标记，包进 composable 会静默失效）
+onPageScroll(handlePageScroll)
 </script>
 
 <template>
-  <hr-navbar :title="navbarTitle" />
-  <view v-if="!loading">
-    <!-- 状态提示（可选显示在标题下方） -->
-    <view
-      v-if="navbarSubTitle"
-      class="bg-white py-10px text-center text-24rpx text-gray-400"
-    >
-      {{ navbarSubTitle }}
+  <hr-navbar
+    :title="navbarTitle"
+    :bordered="false"
+    :background-color="BRAND_COLOR"
+    text-color="#ffffff"
+  />
+  <view v-if="!loading" class="od-page">
+    <!-- 状态页头：品牌渐变铺底 + 大字状态 + 副标题，底部留白给首卡压盖 -->
+    <view class="od-hero">
+      <view class="od-hero__headline">
+        <text class="od-hero__title">
+          {{ navbarTitle }}
+        </text>
+        <text class="od-hero__icon" :class="heroIcon" />
+      </view>
+      <text v-if="navbarSubTitle" class="od-hero__subtitle">
+        {{ navbarSubTitle }}
+      </text>
     </view>
+
     <!-- 收货地址（普通快递 / 商城配送） -->
     <view
       v-if="state.order.deliveryWay === '1' || state.order.deliveryWay === '3'"
-      class="m-2 rounded-xl bg-white p-2"
+      class="od-card od-card--overlap"
     >
-      <view class="flex items-center">
-        <view class="flex items-center">
-          <wd-icon name="location" size="22px" />
+      <view class="od-address">
+        <view class="od-address__badge">
+          <text class="od-address__badge-icon i-carbon:location" />
         </view>
-        <view class="pl-10px">
-          <view>
-            <text class="text-14px">
+        <view class="od-address__body">
+          <view class="od-address__name-row">
+            <text class="od-address__name">
               {{ state.order.recipientName }}
             </text>
-            <text class="pl-10px text-14px">
+            <text class="od-address__name od-address__name--muted">
               {{ state.order.recipientPhone }}
             </text>
           </view>
-          <view class="py-8px text-13px">
+          <text class="od-address__detail">
             {{ state.order.recipientProvince }} {{ state.order.recipientCity }}
             {{ state.order.recipientArea }}
             {{ state.order.recipientAddress }}
-          </view>
+          </text>
         </view>
       </view>
     </view>
@@ -314,95 +348,86 @@ function toCustomerService() {
     <!-- 配送至船舶（公司港口/船舶内部配送 way=4） -->
     <view
       v-if="state.order.deliveryWay === '4'"
-      class="m-2 rounded-xl bg-white p-2"
+      class="od-card od-card--overlap"
     >
-      <view class="flex items-center">
-        <view class="flex items-center">
-          <wd-icon name="location" size="22px" />
+      <view class="od-address">
+        <view class="od-address__badge">
+          <text class="od-address__badge-icon i-carbon:sailboat-coastal" />
         </view>
-        <view class="flex-1 pl-10px">
-          <view class="text-14px font-bold">
+        <view class="od-address__body">
+          <text class="od-address__name od-address__name--block">
             {{ state.order.vesselName || t('order.detail.vesselDelivery') }}
-          </view>
-          <view class="py-8px text-13px text-gray-500">
+          </text>
+          <text class="od-address__detail">
             {{ state.order.portName }} {{ state.order.berth }}
-          </view>
-          <view
+          </text>
+          <text
             v-if="state.order.deliveryWindowStart"
-            class="text-12px text-gray-400"
+            class="od-address__meta"
           >
             {{ t('order.detail.deliveryWindow', {
               start: state.order.deliveryWindowStart,
               end: state.order.deliveryWindowEnd,
             }) }}
-          </view>
-          <view class="pt-6rpx text-12px text-green-600">
+          </text>
+          <text class="od-address__hint">
             {{ t('order.detail.vesselDeliveryHint') }}
-          </view>
+          </text>
         </view>
       </view>
     </view>
-    <view class="m-2 rounded-xl bg-white p-2">
+
+    <!-- 商品清单：无地址卡（自提等）时由它压盖页头 -->
+    <view class="od-card" :class="{ 'od-card--overlap': heroOverlapCard }">
       <view
         v-for="(item, index) in state.order.orderItemList"
         :key="index"
-        class="flex pt-20rpx"
+        class="od-item"
+        :class="{ 'od-item--divided': index > 0 }"
       >
         <image
           :src="item.picUrl"
-          class="h-160rpx w-160rpx flex-none rounded-lg"
+          class="od-item__pic"
+          mode="aspectFill"
         />
-        <view class="ml-20rpx h-full flex flex-1 flex-col overflow-hidden">
-          <view class="flex justify-between">
-            <view class="mr-20rpx flex-1 overflow-hidden">
+        <view class="od-item__info">
+          <view class="od-item__top">
+            <view class="od-item__name-wrap">
               <wd-text
                 :lines="2"
-                size="26rpx"
+                size="28rpx"
                 color="inherit"
+                custom-class="od-item__name"
                 :text="item.spuName"
               />
-              <view v-if="item.specsInfo" class="pt-10rpx">
-                <wd-text
-                  custom-class="pt-10rpx"
-                  size="24rpx"
-                  color="#909090"
-                  :text="item.specsInfo"
-                />
-              </view>
+              <text v-if="item.specsInfo" class="od-item__specs">
+                {{ item.specsInfo }}
+              </text>
               <!-- 共享采购按人拆行：标明这件商品是谁要的，配送时按此贴标签 -->
-              <view v-if="item.contributorName" class="pt-6rpx">
-                <wd-text
-                  size="22rpx"
-                  color="#185FA5"
-                  :text="t('order.detail.boughtFor', { name: item.contributorName })"
-                />
+              <view v-if="item.contributorName" class="od-item__contributor">
+                <text class="od-item__contributor-text">
+                  {{ t('order.detail.boughtFor', { name: item.contributorName }) }}
+                </text>
               </view>
             </view>
-            <view class="flex flex-shrink-0 flex-col items-end">
+            <view class="od-item__price-wrap">
               <wd-text
                 :text="item.paymentPrice"
-                size="14px"
-                color="red"
+                size="15px"
+                :color="PRICE_COLOR"
                 mode="price"
-                prefix=" ￥"
+                prefix="￥"
+                custom-class="od-item__price"
               />
-              <wd-text size="13px" :text="`x${item.buyQuantity}`" />
+              <text class="od-item__qty">
+                x{{ item.buyQuantity }}
+              </text>
             </view>
           </view>
           <view
             v-if="paidOrCod"
-            class="flex justify-end pt-10rpx"
+            class="od-item__actions"
           >
-            <wd-button
-              size="small"
-              plain
-              hairline
-              type="primary"
-              class="mr-10rpx"
-              @tap.stop="handleReorder"
-            >
-              {{ t('order.actions.reorder') }}
-            </wd-button>
             <wd-button
               v-if="item.status === '1' || item.status === '2'"
               size="small"
@@ -427,287 +452,245 @@ function toCustomerService() {
         </view>
       </view>
     </view>
+
     <!-- 商城配送进度时间线（deliveryWay=3/4 且已付款或货到付款后展示） -->
     <view
       v-if="
         ['3', '4'].includes(state.order.deliveryWay)
           && paidOrCod
       "
-      class="m-2"
+      class="od-section"
     >
       <DeliveryProgress :order-id="state.order.id" />
     </view>
-    <view class="m-2 rounded-xl bg-white p-2">
-      <view class="p-20rpx">
-        <!-- 信息列表 -->
-        <view>
-          <!-- 商品金额（仅展开时显示） -->
-          <view
-            v-if="showMoreInfo"
-            class="flex items-center justify-between pb-20rpx"
-          >
-            <text class="text-14px">
-              {{ t('order.detail.subtotal') }}
-            </text>
-            <wd-text
-              size="26rpx"
-              color="inherit"
-              :text="state.order.totalPrice"
-              mode="price"
-              prefix="￥"
-            />
-          </view>
 
-          <!-- 运费 -->
-          <view
-            v-if="showMoreInfo"
-            class="flex items-center justify-between pb-20rpx"
-          >
-            <text class="text-14px">
-              {{ t('order.detail.shipping') }}
-            </text>
-            <wd-text
-              size="26rpx"
-              color="inherit"
-              :text="state.order.freightPrice"
-              mode="price"
-              prefix="￥"
-            />
-          </view>
+    <!-- 费用与订单信息 -->
+    <view class="od-card od-card--tail">
+      <view class="od-summary">
+        <!-- 费用明细（仅展开时显示） -->
+        <view v-if="showMoreInfo" class="od-summary__row">
+          <text class="od-summary__label">
+            {{ t('order.detail.subtotal') }}
+          </text>
+          <wd-text
+            custom-class="od-summary__value"
+            size="26rpx"
+            color="inherit"
+            :text="state.order.totalPrice"
+            mode="price"
+            prefix="￥"
+          />
+        </view>
+        <view v-if="showMoreInfo" class="od-summary__row">
+          <text class="od-summary__label">
+            {{ t('order.detail.shipping') }}
+          </text>
+          <wd-text
+            custom-class="od-summary__value"
+            size="26rpx"
+            color="inherit"
+            :text="state.order.freightPrice"
+            mode="price"
+            prefix="￥"
+          />
+        </view>
+        <view v-if="showMoreInfo" class="od-summary__row">
+          <text class="od-summary__label">
+            {{ t('order.detail.coupon') }}
+          </text>
+          <wd-text
+            custom-class="od-summary__value"
+            size="26rpx"
+            :color="PRICE_COLOR"
+            :text="state.order.couponPrice"
+            mode="price"
+            prefix="-￥"
+          />
+        </view>
+        <view
+          v-if="showMoreInfo && Number(state.order.memberDiscountPrice) > 0"
+          class="od-summary__row"
+        >
+          <text class="od-summary__label">
+            {{ t('order.detail.memberDiscount') }}
+          </text>
+          <wd-text
+            custom-class="od-summary__value"
+            size="26rpx"
+            :color="PRICE_COLOR"
+            :text="state.order.memberDiscountPrice"
+            mode="price"
+            prefix="-￥"
+          />
+        </view>
+        <view
+          v-if="showMoreInfo && Number(state.order.pointsDeductPrice) > 0"
+          class="od-summary__row"
+        >
+          <text class="od-summary__label">
+            {{ t('order.detail.pointsDeduction', { points: state.order.pointsUsed || 0 }) }}
+          </text>
+          <wd-text
+            custom-class="od-summary__value"
+            size="26rpx"
+            :color="PRICE_COLOR"
+            :text="state.order.pointsDeductPrice"
+            mode="price"
+            prefix="-￥"
+          />
+        </view>
+        <!-- 订单金额（线下收款有折扣时展示应收口径） -->
+        <view v-if="hasPayDiscount" class="od-summary__row">
+          <text class="od-summary__label">
+            {{ t('order.detail.orderTotal') }}
+          </text>
+          <wd-text
+            custom-class="od-summary__value"
+            size="26rpx"
+            color="inherit"
+            :text="state.order.paymentPrice"
+            mode="price"
+            prefix="￥"
+          />
+        </view>
+        <!-- 实付款 -->
+        <view class="od-summary__row od-summary__row--paid">
+          <text class="od-summary__paid-label">
+            {{ t('order.detail.amountPaid') }}
+          </text>
+          <wd-text
+            custom-class="od-summary__paid-value"
+            size="32rpx"
+            :color="PRICE_COLOR"
+            :text="actualPayPrice"
+            mode="price"
+            prefix="￥"
+          />
+        </view>
 
-          <!-- 优惠券 -->
-          <view
-            v-if="showMoreInfo"
-            class="flex items-center justify-between pb-20rpx"
-          >
-            <text class="text-14px">
-              {{ t('order.detail.coupon') }}
-            </text>
-            <wd-text
-              size="26rpx"
-              :text="state.order.couponPrice"
-              color="red"
-              mode="price"
-              prefix="-￥"
-            />
-          </view>
-          <!-- 会员优惠 -->
-          <view
-            v-if="showMoreInfo && Number(state.order.memberDiscountPrice) > 0"
-            class="flex items-center justify-between pb-20rpx"
-          >
-            <text class="text-14px">
-              {{ t('order.detail.memberDiscount') }}
-            </text>
-            <wd-text
-              size="26rpx"
-              :text="state.order.memberDiscountPrice"
-              color="red"
-              mode="price"
-              prefix="-￥"
-            />
-          </view>
-          <!-- 积分抵扣 -->
-          <view
-            v-if="showMoreInfo && Number(state.order.pointsDeductPrice) > 0"
-            class="flex items-center justify-between pb-20rpx"
-          >
-            <text class="text-14px">
-              {{ t('order.detail.pointsDeduction', { points: state.order.pointsUsed || 0 }) }}
-            </text>
-            <wd-text
-              size="26rpx"
-              :text="state.order.pointsDeductPrice"
-              color="red"
-              mode="price"
-              prefix="-￥"
-            />
-          </view>
-          <!-- 订单金额（线下收款有折扣时展示应收口径） -->
-          <view
-            v-if="hasPayDiscount"
-            class="flex items-center justify-between pb-20rpx"
-          >
-            <text class="text-14px">
-              {{ t('order.detail.orderTotal') }}
-            </text>
-            <wd-text
-              size="26rpx"
-              color="inherit"
-              :text="state.order.paymentPrice"
-              mode="price"
-              prefix="￥"
-            />
-          </view>
-          <!-- 实付款 -->
-          <view class="flex items-center justify-between pb-20rpx">
-            <text class="text-14px">
-              {{ t('order.detail.amountPaid') }}
-            </text>
-            <wd-text
-              custom-class="pl-10rpx"
-              size="28rpx"
-              :text="actualPayPrice"
-              color="red"
-              mode="price"
-              prefix="￥"
-            />
-          </view>
-          <wd-divider v-if="showMoreInfo" color="#E8E8E8" />
+        <view v-if="showMoreInfo" class="od-summary__divider" />
 
-          <!-- 配送方式 -->
-          <view
-            v-if="showMoreInfo"
-            class="flex items-center justify-between pb-20rpx"
-          >
-            <text class="text-14px">
-              {{ t('order.detail.deliveryMethod') }}
+        <!-- 配送方式 -->
+        <view v-if="showMoreInfo" class="od-summary__row">
+          <text class="od-summary__label">
+            {{ t('order.detail.deliveryMethod') }}
+          </text>
+          <text class="od-summary__value">
+            {{ deliveryWayText }}
+          </text>
+        </view>
+        <!-- 订单编号（始终显示，整行可点复制） -->
+        <view class="od-summary__row" @click="copyOrderNo">
+          <text class="od-summary__label">
+            {{ t('order.detail.orderNo') }}
+          </text>
+          <view class="od-summary__order-no">
+            <text class="od-summary__value">
+              {{ state.order.orderNo }}
             </text>
-            <wd-text
-              size="26rpx"
-              color="inherit"
-              :text="deliveryWayText"
-            />
+            <text class="od-summary__copy i-carbon:copy" />
           </view>
-          <!-- 订单编号（始终显示） -->
-          <view class="flex items-center justify-between pb-20rpx">
-            <text class="text-14px">
-              {{ t('order.detail.orderNo') }}
-            </text>
-            <view class="flex items-center">
-              <wd-text
-                size="26rpx"
-                color="inherit"
-                :text="state.order.orderNo"
-              />
-              <wd-icon
-                name="file-copy"
-                color="var(--wot-color-theme)"
-                custom-class="ml-10rpx"
-                @click="copyOrderNo"
-              />
-            </view>
-          </view>
-          <!-- 支付方式 -->
-          <view
-            v-if="showMoreInfo && paidOrCod"
-            class="flex items-center justify-between pb-20rpx"
-          >
-            <text class="text-14px">
-              {{ t('order.detail.paymentMethod') }}
-            </text>
+        </view>
+        <!-- 支付方式 -->
+        <view v-if="showMoreInfo && paidOrCod" class="od-summary__row">
+          <text class="od-summary__label">
+            {{ t('order.detail.paymentMethod') }}
+          </text>
+          <view class="od-summary__value">
             <dict-tag :options="payTypeOptions" :value="state.order.paymentType" />
           </view>
-          <!-- 创建时间（始终显示） -->
-          <view class="flex items-center justify-between pb-20rpx">
-            <text class="text-14px">
-              {{ t('order.detail.createdAt') }}
-            </text>
-            <wd-text
-              size="26rpx"
-              color="inherit"
-              :text="state.order.createTime"
-            />
-          </view>
-          <!-- 付款时间 -->
-          <view
-            v-if="showMoreInfo && state.order.paymentTime"
-            class="flex items-center justify-between pb-20rpx"
-          >
-            <text class="text-14px">
+        </view>
+        <!-- 创建时间（始终显示） -->
+        <view class="od-summary__row">
+          <text class="od-summary__label">
+            {{ t('order.detail.createdAt') }}
+          </text>
+          <text class="od-summary__value">
+            {{ state.order.createTime }}
+          </text>
+        </view>
+        <!-- 付款 / 发货 / 收货 / 取消时间与备注（仅展开时显示） -->
+        <template v-if="showMoreInfo">
+          <view v-if="state.order.paymentTime" class="od-summary__row">
+            <text class="od-summary__label">
               {{ t('order.detail.paidAt') }}
             </text>
-            <wd-text
-              size="26rpx"
-              color="inherit"
-              :text="state.order.paymentTime"
-            />
+            <text class="od-summary__value">
+              {{ state.order.paymentTime }}
+            </text>
           </view>
-
-          <!-- 发货时间 -->
-          <view
-            v-if="showMoreInfo && state.order.deliverTime"
-            class="flex items-center justify-between pb-20rpx"
-          >
-            <text class="text-14px">
+          <view v-if="state.order.deliverTime" class="od-summary__row">
+            <text class="od-summary__label">
               {{ t('order.detail.shippedAt') }}
             </text>
-            <wd-text
-              size="26rpx"
-              color="inherit"
-              :text="state.order.deliverTime"
-            />
+            <text class="od-summary__value">
+              {{ state.order.deliverTime }}
+            </text>
           </view>
-
-          <!-- 收货时间 -->
-          <view
-            v-if="showMoreInfo && state.order.receiverTime"
-            class="flex items-center justify-between pb-20rpx"
-          >
-            <text class="text-14px">
+          <view v-if="state.order.receiverTime" class="od-summary__row">
+            <text class="od-summary__label">
               {{ t('order.detail.receivedAt') }}
             </text>
-            <wd-text
-              size="26rpx"
-              color="inherit"
-              :text="state.order.receiverTime"
-            />
+            <text class="od-summary__value">
+              {{ state.order.receiverTime }}
+            </text>
           </view>
-
-          <!-- 取消时间 -->
-          <view
-            v-if="showMoreInfo && state.order.cancelTime"
-            class="flex items-center justify-between pb-20rpx"
-          >
-            <text class="text-14px">
+          <view v-if="state.order.cancelTime" class="od-summary__row">
+            <text class="od-summary__label">
               {{ t('order.detail.cancelledAt') }}
             </text>
-            <wd-text
-              size="26rpx"
-              color="inherit"
-              :text="state.order.cancelTime"
-            />
+            <text class="od-summary__value">
+              {{ state.order.cancelTime }}
+            </text>
           </view>
-          <!-- 备注 -->
-          <view
-            v-if="showMoreInfo && state.order.remark"
-            class="flex items-center justify-between pb-20rpx"
-          >
-            <text class="text-14px">
+          <view v-if="state.order.remark" class="od-summary__row">
+            <text class="od-summary__label">
               {{ t('order.detail.note') }}
             </text>
-            <wd-text size="26rpx" color="inherit" :text="state.order.remark" />
-          </view>
-        </view>
-
-        <!-- 展开/收起按钮 -->
-        <view
-          class="mt-10rpx flex items-center justify-between border-t border-gray-200 dark:border-gray-700"
-          @click="toggleMoreInfo"
-        >
-          <text class="text-14px">
-            {{ t('order.detail.moreInfo') }}
-          </text>
-          <view>
-            <text class="mr-10rpx text-14px">
-              {{ showMoreInfo ? t('order.detail.collapse') : t('order.detail.expand') }}
+            <text class="od-summary__value">
+              {{ state.order.remark }}
             </text>
-            <wd-icon :name="showMoreInfo ? 'arrow-up' : 'arrow-down'" />
           </view>
+        </template>
+
+        <!-- 展开/收起切换条 -->
+        <view class="od-summary__toggle" @click="toggleMoreInfo">
+          <text class="od-summary__toggle-text">
+            {{ showMoreInfo ? t('order.detail.collapse') : t('order.detail.moreInfo') }}
+          </text>
+          <text
+            class="od-summary__toggle-icon"
+            :class="showMoreInfo ? 'i-carbon:arrow-up' : 'i-carbon:arrow-down'"
+          />
         </view>
       </view>
-      <wd-divider color="#E8E8E8" />
     </view>
+
     <WaterfallGoods
       :source-spu-ids="orderRecommendSourceIds"
       :exclude-spu-ids="orderRecommendExcludeIds"
     />
-    <wd-gap :height="80" />
-    <view
-      class="fixed bottom-0 left-0 right-0 flex gap-12rpx bg-white p-20rpx pb-[max(env(safe-area-inset-bottom),16rpx)]"
-    >
-      <wd-button plain type="info" icon="service" @click="toCustomerService">
+    <!-- 底部操作栏占位：栏高 + 安全区，防内容被盖 -->
+    <view class="od-footer-spacer" />
+    <view class="od-footer">
+      <wd-button
+        plain
+        type="info"
+        icon="service"
+        custom-style="flex:1"
+        @click="toCustomerService"
+      >
         {{ t('order.actions.support') }}
+      </wd-button>
+      <wd-button
+        v-if="paidOrCod"
+        size="small"
+        plain
+        hairline
+        type="primary"
+        @click="handleReorder"
+      >
+        {{ t('order.actions.reorder') }}
       </wd-button>
       <order-operation
         :order-info="state.order"
@@ -718,3 +701,379 @@ function toCustomerService() {
     </view>
   </view>
 </template>
+
+<style lang="scss" scoped>
+/*
+ * 订单详情（主流电商式重排）：
+ * 彩色状态页头 → 白卡上浮（地址/船舶/商品）→ 进度 → 金额信息 → 磨砂操作栏。
+ * 主题变量链与个人中心同源：装修页级 → wot 换肤 → 内置兜底。
+ */
+$brand: var(--theme-color-primary, var(--wot-color-theme-primary, #FF2237));
+$brand-secondary: var(--theme-color-secondary, var(--wot-color-theme-secondary, #FF6B7A));
+$ink: var(--app-text);
+$ink-2: var(--app-text-2);
+$ink-3: var(--app-text-3);
+$hairline: var(--app-border);
+
+.od-page {
+  min-height: 100vh;
+  background: var(--theme-color-background, var(--wot-color-theme-background, #FFF0F0));
+}
+
+/* ===================== 状态页头 ===================== */
+
+.od-hero {
+  position: relative;
+  overflow: hidden;
+  padding: 24rpx 40rpx 132rpx;
+  background: linear-gradient(180deg, $brand 0%, $brand-secondary 100%);
+
+  /* 装饰圆：白色半透明，纯 CSS 无额外节点，被 overflow 裁出层次 */
+  &::before,
+  &::after {
+    content: '';
+    position: absolute;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.1);
+    pointer-events: none;
+  }
+
+  &::before {
+    top: -140rpx;
+    right: -80rpx;
+    width: 340rpx;
+    height: 340rpx;
+  }
+
+  &::after {
+    bottom: -60rpx;
+    left: -60rpx;
+    width: 220rpx;
+    height: 220rpx;
+    background: rgba(255, 255, 255, 0.08);
+  }
+}
+
+.od-hero__headline {
+  display: flex;
+  align-items: center;
+}
+
+.od-hero__title {
+  flex: 1;
+  min-width: 0;
+  font-size: 44rpx;
+  font-weight: 700;
+  line-height: 1.3;
+  color: #fff;
+}
+
+.od-hero__icon {
+  margin-left: 24rpx;
+  font-size: 56rpx;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.od-hero__subtitle {
+  display: block;
+  margin-top: 12rpx;
+  font-size: 26rpx;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* ===================== 卡片 ===================== */
+
+.od-card {
+  margin: 24rpx 24rpx 0;
+  background: var(--app-card);
+  border-radius: 24rpx;
+  box-shadow: 0 6rpx 24rpx rgba(17, 24, 39, 0.04);
+}
+
+/* 首卡压盖页头：主流订单页「彩色头部 + 白卡上浮」结构 */
+.od-card--overlap {
+  position: relative;
+  margin-top: -92rpx;
+}
+
+.od-card--tail {
+  margin-bottom: 24rpx;
+}
+
+.od-section {
+  margin: 24rpx 24rpx 0;
+}
+
+/* ===================== 地址 / 船舶卡 ===================== */
+
+.od-address {
+  display: flex;
+  align-items: flex-start;
+  padding: 28rpx 24rpx;
+}
+
+.od-address__badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: 50%;
+  background: var(--app-card-2);
+  flex-shrink: 0;
+}
+
+.od-address__badge-icon {
+  font-size: 36rpx;
+  color: $brand;
+}
+
+.od-address__body {
+  flex: 1;
+  min-width: 0;
+  margin-left: 20rpx;
+}
+
+.od-address__name-row {
+  display: flex;
+  align-items: baseline;
+}
+
+.od-address__name {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: $ink;
+}
+
+.od-address__name--muted {
+  margin-left: 16rpx;
+  font-weight: 400;
+  color: $ink-2;
+}
+
+.od-address__name--block {
+  display: block;
+}
+
+.od-address__detail {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  line-height: 1.6;
+  color: $ink-2;
+}
+
+.od-address__meta {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 22rpx;
+  color: $ink-3;
+}
+
+.od-address__hint {
+  display: block;
+  margin-top: 10rpx;
+  font-size: 22rpx;
+  color: #16a34a;
+}
+
+/* ===================== 商品清单 ===================== */
+
+.od-item {
+  display: flex;
+  align-items: flex-start;
+  padding: 28rpx 24rpx;
+}
+
+.od-item--divided {
+  border-top: 1rpx solid $hairline;
+}
+
+.od-item__pic {
+  width: 160rpx;
+  height: 160rpx;
+  border-radius: 16rpx;
+  background: var(--app-card-2);
+  flex-shrink: 0;
+}
+
+.od-item__info {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  margin-left: 24rpx;
+}
+
+.od-item__top {
+  display: flex;
+  justify-content: space-between;
+}
+
+.od-item__name-wrap {
+  flex: 1;
+  min-width: 0;
+  margin-right: 16rpx;
+}
+
+.od-item__name {
+  font-weight: 500;
+  line-height: 38rpx;
+  color: $ink;
+}
+
+.od-item__specs {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  color: $ink-3;
+}
+
+.od-item__contributor {
+  display: inline-flex;
+  margin-top: 12rpx;
+  padding: 4rpx 16rpx;
+  border-radius: 999rpx;
+  background: rgba(24, 95, 165, 0.08);
+}
+
+.od-item__contributor-text {
+  font-size: 22rpx;
+  color: #185fa5;
+}
+
+.od-item__price-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  flex-shrink: 0;
+}
+
+.od-item__price {
+  font-weight: 600;
+}
+
+.od-item__qty {
+  margin-top: 6rpx;
+  font-size: 24rpx;
+  color: $ink-3;
+}
+
+.od-item__actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 20rpx;
+}
+
+/* ===================== 金额与订单信息 ===================== */
+
+.od-summary {
+  padding: 12rpx 24rpx 8rpx;
+}
+
+.od-summary__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12rpx 0;
+}
+
+.od-summary__label {
+  flex-shrink: 0;
+  font-size: 26rpx;
+  color: $ink-2;
+}
+
+.od-summary__value {
+  flex: 1;
+  min-width: 0;
+  margin-left: 24rpx;
+  font-size: 26rpx;
+  text-align: right;
+  color: $ink;
+}
+
+.od-summary__order-no {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 1;
+  min-width: 0;
+  margin-left: 24rpx;
+}
+
+.od-summary__copy {
+  margin-left: 12rpx;
+  font-size: 26rpx;
+  color: $brand;
+}
+
+.od-summary__row--paid {
+  padding: 16rpx 0 20rpx;
+}
+
+.od-summary__paid-label {
+  flex-shrink: 0;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: $ink;
+}
+
+.od-summary__paid-value {
+  flex-shrink: 0;
+  margin-left: 24rpx;
+  font-size: 32rpx;
+  font-weight: 700;
+}
+
+.od-summary__divider {
+  height: 1rpx;
+  margin: 8rpx 0;
+  background: $hairline;
+}
+
+.od-summary__toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 88rpx;
+  margin-top: 8rpx;
+  border-top: 1rpx solid $hairline;
+}
+
+.od-summary__toggle-text {
+  font-size: 26rpx;
+  color: $ink-2;
+}
+
+.od-summary__toggle-icon {
+  margin-left: 8rpx;
+  font-size: 24rpx;
+  color: $ink-3;
+}
+
+/* ===================== 底部操作栏 ===================== */
+
+.od-footer-spacer {
+  height: calc(140rpx + env(safe-area-inset-bottom));
+}
+
+.od-footer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  padding: 16rpx 24rpx;
+  padding-bottom: calc(max(env(safe-area-inset-bottom), 16rpx));
+  background: rgba(255, 255, 255, 0.92);
+  border-top: 1rpx solid rgba(15, 23, 42, 0.06);
+  /* 大写 WEBKIT 避开 autoprefixer 的过时前缀清理（iOS 17- 的 WKWebView 只认带前缀的写法） */
+  -WEBKIT-backdrop-filter: blur(20px) saturate(160%);
+  backdrop-filter: blur(20px) saturate(160%);
+}
+</style>

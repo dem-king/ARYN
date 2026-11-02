@@ -24,9 +24,9 @@ const props = defineProps<{
   pageName: string;
   pageType: PageDesignType;
   /**
-   * 画布预览的滚动距离（本地 UI 态，缺省 0）：只参与导航栏「滚动渐显」的
-   * 样式计算，绝不写 document、也不触发 patchPage / 撤销记录。
-   * 工具栏「顶部 / 滚动后」切换与 0–210px 滑杆修改它。
+   * 画布预览的滚动距离（本地 UI 态，缺省 0）：只参与导航栏沉浸式效果（顶部 /
+   * 已滚动两态）的样式计算，绝不写 document、也不触发 patchPage / 撤销记录。
+   * 工具栏「顶部 / 滚动后」切换与 0–260px 滑杆修改它。
    */
   scrollTop?: number;
   sections: DecorationSection[];
@@ -103,12 +103,13 @@ const navigationStyle = computed(() => ({
 }));
 
 /**
- * 滚动渐显（沉浸式导航）：与草稿预览、C 端 hr-navbar 共用同一份解析函数。
+ * 沉浸式导航（滚动切换）：与草稿预览、C 端 hr-navbar 共用同一份解析函数。
  *
  * 两层 DOM 分工（与 C 端同构）：
- *   · base 层 = 当前静态外观（纯色 / 左右渐变），opacity = 1-p 渐隐；
- *   · surface 层 = 目标底色（磨砂白 / 主题色 / 自定义色），opacity = p 渐显；
- *   · hairline 只在目标底色为浅色时出现，p 过半后渐显。
+ *   · 页面在顶部：base 层 = 当前静态外观（纯色 / 左右渐变），surface 层隐藏；
+ *   · 一旦滚动（scrollTop>0）：一步切到 surface 层 = 目标底色（磨砂白 / 主题色 /
+ *     自定义色），base 层隐藏；浅色目标底色同时出现 hairline；
+ *   · 不做距离插值，因此没有「透明 → 模糊」的过渡过程。
  * mode!=='fade' 时整条链路返回 progress=0，渲染与改动前完全一致。
  */
 const scrollEffect = computed(() =>
@@ -123,7 +124,7 @@ const scrollSurface = computed(() =>
     navigationAppearance.value,
   ),
 );
-/** 动态部分：滚动进度 → 导航外观（scrollTop 是本组件入参，不进 document） */
+/** 动态部分：滚动状态 → 导航外观（scrollTop 是本组件入参，不进 document） */
 const scrollAppearance = computed(() =>
   resolveNavigationScrollAppearance(
     navigationAppearance.value,
@@ -133,20 +134,20 @@ const scrollAppearance = computed(() =>
   ),
 );
 
-/** 导航外层样式：无渐显时沿用现状；渐显时背景交给 base/surface 两层，只留文字色 */
+/** 导航外层样式：未开效果时沿用现状；开启时背景交给 base/surface 两层，只留文字色 */
 const navigationOuterStyle = computed(() =>
   fadeEnabled.value
     ? { color: scrollAppearance.value.textColor }
     : navigationStyle.value,
 );
 
-/** base 层：静态外观整体按 1-p 渐隐（渐变用背景图，不做颜色过渡） */
+/** base 层：起始外观（顶部显示 / 已滚动隐藏；渐变用背景图，不做颜色过渡） */
 const navigationBaseLayerStyle = computed(() => ({
   ...navigationStyle.value,
   opacity: scrollAppearance.value.baseOpacity,
 }));
 
-/** surface 层：目标底色带目标态 alpha，层透明度 = 进度 p */
+/** surface 层：目标底色带目标态 alpha（已滚动显示 / 顶部隐藏） */
 const navigationSurfaceLayerStyle = computed(() => ({
   backgroundColor: scrollLayerColor(
     scrollAppearance.value.surfaceColor,
@@ -237,7 +238,7 @@ const isEmpty = computed(() =>
         class="phone-navigation"
         :style="navigationOuterStyle"
       >
-        <!-- 渐显态：base（当前外观，1-p 渐隐）+ surface（目标底色，p 渐显）+ 细线 -->
+        <!-- 滚动切换态：base（顶部显示）+ surface（已滚动显示）+ 细线，一步切换 -->
         <template v-if="fadeEnabled">
           <div
             class="phone-navigation__base"
@@ -354,16 +355,16 @@ const isEmpty = computed(() =>
 .phone-navigation__title {
   position: relative;
   z-index: 1;
-  transition: color 0.16s linear;
 }
 
-/* 背景两层绝对铺满导航条：base = 当前外观，surface = 目标底色 */
+/* 背景两层绝对铺满导航条：base = 当前外观，surface = 目标底色。
+   一层切换（顶部 / 已滚动）不加 transition，与 C 端 hr-navbar 一致：
+   任何时间过渡都会被感知成「渐变过程」。 */
 .phone-navigation__base,
 .phone-navigation__surface {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  transition: opacity 0.16s linear;
 }
 
 .phone-navigation__surface.is-blur {
@@ -378,6 +379,5 @@ const isEmpty = computed(() =>
   height: 1px;
   pointer-events: none;
   background: rgb(15 23 42 / 8%);
-  transition: opacity 0.16s linear;
 }
 </style>

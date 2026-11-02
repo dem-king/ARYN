@@ -12,7 +12,22 @@ import { useAuthStore } from '#/store';
 
 defineOptions({ name: 'Login' });
 
+/**
+ * 可在会话失效弹窗里复用时覆盖主按钮文案（如「重新登录」），
+ * 登录页自身不传该 prop，行为保持不变。
+ */
+const props = withDefaults(
+  defineProps<{
+    submitText?: string;
+  }>(),
+  { submitText: '' },
+);
+
 const authStore = useAuthStore();
+
+const submitText = computed(
+  () => props.submitText || $t('page.auth.loginSubmit'),
+);
 const formRef = ref<FormInstance>();
 const verifyRef = ref();
 const captchaType = ref('blockPuzzle'); // 1）滑动拼图 blockPuzzle 2）文字点选 clickWord
@@ -126,7 +141,7 @@ const verifySuccess = async (params: any) => {
           type="primary"
           @click="handleSubmit"
         >
-          <span>{{ $t('page.auth.loginSubmit') }}</span>
+          <span>{{ submitText }}</span>
           <ElIcon
             v-if="!authStore.loginLoading"
             class="auth-login__submit-arrow"

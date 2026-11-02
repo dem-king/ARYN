@@ -5,7 +5,6 @@ import cn.dev33.satoken.context.SaHolder;
 import cn.dev33.satoken.listener.SaTokenListener;
 import cn.dev33.satoken.stp.parameter.SaLoginParameter;
 import cn.hutool.core.util.StrUtil;
-import cn.hutool.extra.servlet.JakartaServletUtil;
 import cn.hutool.http.useragent.UserAgent;
 import cn.hutool.http.useragent.UserAgentUtil;
 import cn.hutool.json.JSONUtil;
@@ -56,7 +55,7 @@ public class ArynSaTokenListener implements SaTokenListener {
 		UserAgent ua = UserAgentUtil.parse(StrUtil.blankToDefault(agent, ""));
 		String os = ua.getOs() != null ? ua.getOs().toString() : null;
 		String browser = ua.getBrowser() != null ? ua.getBrowser().toString() : null;
-		String ipAddr = request != null ? JakartaServletUtil.getClientIP(request) : null;
+		String ipAddr = IpUtils.getClientIp(request);
 		String location = ipAddr != null ? IpUtils.getWhoisAddress(ipAddr) : null;
 		boolean tob = DeviceTypeEnum.TOB.getDevice().equals(loginModel.getDeviceType());
 

@@ -26,6 +26,12 @@ public class SeckillSession extends Model<SeckillSession> {
 	@NotBlank(message = "活动ID不能为空")
 	private String activityId;
 
+	@Schema(description = "排期模板ID（每日重复生成时回填）")
+	private String templateId;
+
+	@Schema(description = "业务日期（每日重复生成时回填）")
+	private java.time.LocalDate bizDate;
+
 	@Schema(description = "场次名称")
 	@NotBlank(message = "场次名称不能为空")
 	private String sessionName;
@@ -40,6 +46,9 @@ public class SeckillSession extends Model<SeckillSession> {
 
 	@Schema(description = "状态:0未开始 1进行中 2已结束")
 	private Integer status;
+
+	@Schema(description = "未售库存是否已顺延:0否 1是")
+	private Integer carryoverDone;
 
 	@TableField(fill = FieldFill.INSERT)
 	@Schema(description = "创建时间")

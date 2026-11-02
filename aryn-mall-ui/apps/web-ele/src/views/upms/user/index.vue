@@ -10,6 +10,7 @@ import {
   Key,
   Plus,
   Search,
+  View,
 } from '@element-plus/icons-vue';
 import {
   ElAlert,
@@ -32,7 +33,7 @@ import {
 } from 'element-plus';
 
 import { getTreeList } from '#/api/upms/dept';
-import { delObj, getPage } from '#/api/upms/user';
+import { delObj, getPage, getPhone } from '#/api/upms/user';
 import PageFilterPanel from '#/components/page/page-filter-panel.vue';
 import PageToolbar from '#/components/page/page-toolbar.vue';
 import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
@@ -72,6 +73,25 @@ const state = reactive({
   },
 });
 
+/**
+ * 已查看的完整手机号（按员工 id 缓存，重新查询列表时清空）
+ */
+const revealedPhones = reactive<Record<string, string>>({});
+const togglePhone = async (row: any) => {
+  if (revealedPhones[row.id]) {
+    delete revealedPhones[row.id];
+    return;
+  }
+  try {
+    const phone = await getPhone(row.id);
+    if (phone) {
+      revealedPhones[row.id] = phone;
+    }
+  } catch {
+    // 请求层已提示错误，继续保持脱敏展示
+  }
+};
+
 const showSearch = ref(true);
 const loading = ref(false);
 const filterText = ref('');
@@ -109,6 +129,7 @@ watch(filterText, (value) => {
 
 const initPage = async () => {
   loading.value = true;
+  Object.keys(revealedPhones).forEach((id) => delete revealedPhones[id]);
   await getPage(
     Object.assign(
       {
@@ -382,7 +403,29 @@ useKeepAliveRefresh(initPage);
               </div>
             </template>
           </ElTableColumn>
-          <ElTableColumn prop="phone" label="手机号" width="125" />
+          <ElTableColumn label="手机号" width="190">
+            <template #default="scope">
+              <div class="user-phone">
+                <span class="user-phone__value">
+                  {{ revealedPhones[scope.row.id] || scope.row.phone || '-' }}
+                </span>
+                <ElButton
+                  v-if="scope.row.phone"
+                  v-access:code="'upms:sysuser:phone'"
+                  :aria-label="
+                    revealedPhones[scope.row.id]
+                      ? '隐藏手机号'
+                      : '查看完整手机号'
+                  "
+                  :icon="View"
+                  link
+                  size="small"
+                  type="primary"
+                  @click="togglePhone(scope.row)"
+                />
+              </div>
+            </template>
+          </ElTableColumn>
           <ElTableColumn
             prop="deptName"
             label="部门"
@@ -599,5 +642,17 @@ useKeepAliveRefresh(initPage);
 /* ElDropdown 包装层是 inline-block，基线比相邻 link 按钮高 2px，统一垂直对齐 */
 .user-page__main :deep(td .el-dropdown) {
   vertical-align: middle;
+}
+
+/* 手机号列：脱敏号码与「查看/隐藏」按钮同一行，数字等宽避免列宽跳动 */
+.user-phone {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.user-phone__value {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 </style>

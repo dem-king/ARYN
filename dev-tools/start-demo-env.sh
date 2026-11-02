@@ -23,6 +23,9 @@
 
 set -uo pipefail
 
+# 与 deploy-pages.sh 一致：IPv6 会让 wrangler 连不上 Cloudflare 认证，优先走 IPv4。
+export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--dns-result-order=ipv4first"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 RUN_PUBLIC="${TMPDIR:-/tmp}/aryn-public-tunnel"
@@ -53,7 +56,11 @@ while (($# > 0)); do
   esac
 done
 
-curl_code() { curl -s -o /dev/null -w '%{http_code}' --max-time "${2:-5}" "$1" 2>/dev/null || printf '000'; }
+curl_code() { # $1=url  $2=timeout；连接失败/超时统一返回 000（不要重复拼接，否则会变成 000000 导致下游判断失效）
+  local code
+  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time "${2:-5}" "$1" 2>/dev/null) || true
+  printf '%s' "${code:-000}"
+}
 
 # ---------- 状态读取 ----------
 
@@ -90,10 +97,14 @@ print_status() {
   local code
   code=$(curl_code 'http://127.0.0.1:9999/')
   printf '  后端 9999      : %s\n' "$([ "$code" != "000" ] && echo "✅ HTTP $code" || echo "❌ 未启动")"
-  code=$(curl_code 'http://127.0.0.1:8890/')
-  printf '  H5 静态服务 8890: %s\n' "$([ "$code" = "200" ] && echo "✅ HTTP $code" || echo "❌ 未启动")"
-  code=$(curl_code 'http://127.0.0.1:5777/')
-  printf '  管理端 5777    : %s\n' "$([ "$code" = "200" ] && echo "✅ HTTP $code" || echo "❌ 未启动")"
+  if $WITH_H5; then
+    code=$(curl_code 'http://127.0.0.1:8890/')
+    printf '  H5 静态服务 8890: %s\n' "$([ "$code" = "200" ] && echo "✅ HTTP $code" || echo "❌ 未启动")"
+  fi
+  if $WITH_ADMIN; then
+    code=$(curl_code 'http://127.0.0.1:5777/')
+    printf '  管理端 5777    : %s\n' "$([ "$code" = "200" ] && echo "✅ HTTP $code" || echo "❌ 未启动")"
+  fi
   echo '──────────────────────────────────────────────'
   log '隧道状态 + 链接'
   local iurl aurl hurl

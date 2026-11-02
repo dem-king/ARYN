@@ -18,7 +18,6 @@ import {
   ElInput,
   ElRadioButton,
   ElRadioGroup,
-  ElSlider,
   ElSwitch,
 } from 'element-plus';
 
@@ -48,7 +47,7 @@ const props = defineProps<{
    * 页型：决定内嵌页型（商详/分类/个人中心）是否禁用「滚动效果」。
    *
    * 这三类页面的装修区只是原生页面中的一段内容，C 端 `DiyPage` 传 `embedded`
-   * 后不渲染装修自带导航栏，滚动渐显没有渲染面；面板若可配置，运营改完到
+   * 后不渲染装修自带导航栏，沉浸式导航没有渲染面；面板若可配置，运营改完到
    * 实机看不到变化，会被当成配置不生效。
    */
   pageType?: PageDesignType;
@@ -212,11 +211,11 @@ const navigationTextColorModel = computed<null | string | undefined>({
 });
 
 /**
- * 滚动渐显（沉浸式导航）配置：一律经共享归一化函数读写。
+ * 沉浸式导航（滚动切换）配置：一律经共享归一化函数读写。
  *
  * 面板只做「展示 + 改一个字段」，其余字段沿用当前值；归一化保证写回 form 的
- * 永远是完整对象（缺省 mode='none'、distance 40–400），存量页面零变化，
- * 也避免 JSON 克隆丢 undefined 键导致的「撤销无效 / 关不掉」。
+ * 永远是完整对象（缺省 mode='none'；distance 为遗留字段、不再展示），存量页面
+ * 零变化，也避免 JSON 克隆丢 undefined 键导致的「撤销无效 / 关不掉」。
  */
 const scrollEffect = computed(() =>
   normalizeNavigationScrollEffect(form.navigation.scrollEffect),
@@ -256,11 +255,6 @@ function onScrollSurfaceChange(value: boolean | number | string | undefined) {
 const scrollSurfaceColorModel = computed<null | string | undefined>({
   get: () => scrollEffect.value.surfaceColor || '#FFFFFF',
   set: (value) => patchScrollEffect({ surfaceColor: value ?? '' }),
-});
-
-const scrollDistanceModel = computed<number>({
-  get: () => scrollEffect.value.distance,
-  set: (value) => patchScrollEffect({ distance: Number(value) }),
 });
 
 const scrollBlurModel = computed<boolean>({
@@ -379,10 +373,10 @@ const scrollBlurModel = computed<boolean>({
         @change="onScrollEffectModeChange"
       >
         <ElRadioButton value="none">关闭（固定底色）</ElRadioButton>
-        <ElRadioButton value="fade">沉浸式渐显</ElRadioButton>
+        <ElRadioButton value="fade">沉浸式（滚动切换）</ElRadioButton>
       </ElRadioGroup>
       <p class="follow-hint">
-        顶部与首屏同色，页面滚动后渐变为下方目标底色；标题与状态栏自动反色。
+        顶部与首屏同色，一开始滚动就立即切换为下方目标底色（无渐变过程）；标题与状态栏自动反色。
       </p>
       <p v-if="embeddedPage" class="follow-hint">
         内嵌装修不渲染导航栏（商详/分类/个人中心的导航由原生页面提供），滚动效果不可用。
@@ -417,25 +411,6 @@ const scrollBlurModel = computed<boolean>({
           class="follow-hint"
         >
           跟随商城主题或已指定本页主题时，自定义目标底色暂不生效；如需特殊页面配色，请先关闭跟随。
-        </p>
-        <div class="scroll-row">
-          <span class="follow-label">渐显距离</span>
-          <ElSlider
-            v-model="scrollDistanceModel"
-            :disabled="embeddedPage"
-            :max="260"
-            :min="60"
-            :show-input-controls="false"
-            :step="10"
-            show-input
-            class="scroll-slider"
-          />
-        </div>
-        <p class="follow-hint">
-          渐显距离
-          {{
-            scrollEffect.distance
-          }}px：滚动到该距离时目标底色完全显现（约两个导航栏高度，推荐 140px）。
         </p>
         <div class="scroll-row">
           <ElSwitch v-model="scrollBlurModel" :disabled="embeddedPage" />
@@ -515,10 +490,5 @@ const scrollBlurModel = computed<boolean>({
 .scroll-row--block {
   flex-wrap: wrap;
   gap: 8px;
-}
-
-.scroll-slider {
-  flex: 1;
-  min-width: 140px;
 }
 </style>

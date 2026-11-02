@@ -220,21 +220,21 @@ function showImage(item: RankGoodsItem) {
 <style lang="scss" scoped>
 $rb-primary: var(--theme-color-primary, var(--wot-color-theme-primary, #FF2237));
 $rb-secondary: var(--theme-color-secondary, var(--wot-color-theme-secondary, #FF6B7A));
-$rb-title: #1f2329;
+$rb-title: var(--app-text);
 /* 辅助信息文字统一 #6b7280：白底 4.83:1，满足 WCAG AA；#8a94a6 仅 2.8:1 已弃用 */
-$rb-muted: #6b7280;
+$rb-muted: var(--app-text-2);
 /* 弱化色只给纯装饰元素（chevron / 占位图标）用 */
-$rb-faint: #c0c6cf;
-$rb-hairline: #f0f1f4;
-$rb-fill: #f5f6f8;
-$rb-skeleton-base: #f2f3f5;
-$rb-skeleton-wave: #e9ebef;
+$rb-faint: var(--app-text-3);
+$rb-hairline: var(--app-border);
+$rb-fill: var(--app-card-2);
+$rb-skeleton-base: var(--app-skeleton);
+$rb-skeleton-wave: var(--app-skeleton-band);
 
 .rank-board {
   box-sizing: border-box;
   padding: 28rpx;
   border-radius: 24rpx;
-  background: #fff;
+  background: var(--app-card);
   box-shadow: 0 8rpx 24rpx rgba(31, 44, 65, 0.06);
 }
 
@@ -294,7 +294,7 @@ $rb-skeleton-wave: #e9ebef;
   min-height: 88rpx;
   border-radius: 999rpx;
   background: $rb-fill;
-  color: #4e5969;
+  color: var(--app-text-2);
   font-size: 27rpx;
   font-weight: 600;
   line-height: 1.3;
@@ -348,12 +348,12 @@ $rb-skeleton-wave: #e9ebef;
 }
 
 .rank-row--pressed {
-  background-color: #f7f8fa;
+  background-color: var(--app-card-2);
 }
 
 /* H5 按下即时反馈（小程序走 hover-class） */
 .rank-row:active {
-  background-color: #f7f8fa;
+  background-color: var(--app-card-2);
 }
 
 /* 名次徽章（前三） */
@@ -414,7 +414,7 @@ $rb-skeleton-wave: #e9ebef;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #b6bec9;
+  color: var(--app-text-3);
 }
 
 .rank-pic__glyph {
@@ -481,7 +481,7 @@ $rb-skeleton-wave: #e9ebef;
   height: 108rpx;
   border-radius: 50%;
   background: $rb-fill;
-  color: #b6bec9;
+  color: var(--app-text-3);
 }
 
 .rank-empty__glyph {
@@ -490,7 +490,7 @@ $rb-skeleton-wave: #e9ebef;
 
 .rank-empty__title {
   margin-top: 20rpx;
-  color: #4e5969;
+  color: var(--app-text-2);
   font-size: 28rpx;
   font-weight: 600;
   line-height: 1.3;
@@ -498,7 +498,7 @@ $rb-skeleton-wave: #e9ebef;
 
 .rank-empty__desc {
   margin-top: 8rpx;
-  color: #6b7280;
+  color: var(--app-text-2);
   font-size: 24rpx;
   line-height: 1.4;
   text-align: center;

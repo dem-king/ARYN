@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   validateGoodsAttrTags,
+  validateGoodsIntroduction,
   validateGoodsSkus,
 } from './goods-spu-form-validation';
 
@@ -218,5 +219,32 @@ describe('goods attr tag validation', () => {
         },
       ]),
     ).toBe('第 1 个属性标签的跳转路径不能超过 500 个字符');
+  });
+
+  it('accepts an empty or short introduction', () => {
+    expect(validateGoodsIntroduction('')).toBeNull();
+    expect(validateGoodsIntroduction(undefined)).toBeNull();
+    expect(
+      validateGoodsIntroduction(
+        '<p><span style="color: #c00">冷藏后风味更佳</span></p>',
+      ),
+    ).toBeNull();
+  });
+
+  it('counts visible characters without markup', () => {
+    const markup = `<p><span style="color: #c00">${'脆'.repeat(120)}</span></p>`;
+
+    expect(validateGoodsIntroduction(markup)).toBeNull();
+    expect(validateGoodsIntroduction(markup.replace('脆', '甜甜'))).toBe(
+      '商品卖点不能超过 120 个字',
+    );
+  });
+
+  it('rejects an over-length introduction payload', () => {
+    expect(
+      validateGoodsIntroduction(
+        `<span style="color: #c00">脆</span>${'<br/>'.repeat(900)}`,
+      ),
+    ).toBe('商品卖点内容过长，请精简排版');
   });
 });

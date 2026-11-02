@@ -10,6 +10,7 @@ import { migratePageContent } from '@/components/diy/schema/migrate'
 import { normalizeNavigationScrollEffect } from '@/components/diy/schema/navigation-scroll'
 import { resolveNavigationAppearance } from '@/components/diy/schema/navigation-style'
 import { useMallThemeStore } from '@/store/mallThemeStore'
+import { toNativeNavigationBarHexColor } from '@/utils/navigation-bar-color'
 
 interface DecorationPageMeta {
   pageId?: string
@@ -92,8 +93,11 @@ export function useDecorationPage(options: UseDecorationPageOptions) {
       }
       if (navbarOwnsStatusBar.value)
         return
+      // backgroundColor 是微信 setNavigationBarColor 的必填参数，缺传/传非 hex
+      // 会抛 MiniProgramError；装修页原生导航条被 custom 样式隐藏，值不可见，
+      // 归一化成合法 hex 只为满足参数校验
       uni.setNavigationBarColor({
-        backgroundColor: navigation.backgroundColor,
+        backgroundColor: toNativeNavigationBarHexColor(navigation.backgroundColor),
         frontColor: normalizeNavigationTextColor(navigation.textColor),
       })
     },

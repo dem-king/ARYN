@@ -39,7 +39,7 @@ const deltaClass = computed(() => {
 <template>
   <div
     v-if="delta !== null"
-    class="mt-1 flex items-center gap-1 text-xs"
+    class="mt-1 flex items-center gap-1 whitespace-nowrap text-xs"
     :class="deltaClass"
   >
     <ElIcon v-if="trend === 'up'"><CaretTop /></ElIcon>

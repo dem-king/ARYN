@@ -7,7 +7,6 @@
  */
 package com.aryn.cloud.user.service.impl;
 
-import cn.dev33.satoken.stp.StpUtil;
 import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.crypto.digest.BCrypt;
@@ -17,6 +16,8 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.aryn.cloud.common.core.desensitization.MobilePhoneDesensitization;
 import com.aryn.cloud.common.core.enums.DeviceTypeEnum;
+import com.aryn.cloud.common.core.enums.SessionInvalidSubReason;
+import com.aryn.cloud.common.security.support.SessionInvalidSupport;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.user.api.dto.UserAdminUpdateDTO;
@@ -118,7 +119,8 @@ public class UserInfoServiceImpl extends ServiceImpl<UserInfoMapper, UserInfo> i
 		}
 		if ("1".equals(status)) {
 			try {
-				StpUtil.kickout(userId, DeviceTypeEnum.TOC.getDevice());
+				SessionInvalidSupport.kickoutWithReason(userId, DeviceTypeEnum.TOC.getDevice(),
+						SessionInvalidSubReason.MEMBER_DISABLED);
 			}
 			catch (Exception e) {
 				log.warn("禁用会员后踢出 C 端会话失败: userId={}", userId, e);
@@ -133,7 +135,8 @@ public class UserInfoServiceImpl extends ServiceImpl<UserInfoMapper, UserInfo> i
 		boolean removed = this.removeById(userId);
 		if (removed) {
 			try {
-				StpUtil.kickout(userId, DeviceTypeEnum.TOC.getDevice());
+				SessionInvalidSupport.kickoutWithReason(userId, DeviceTypeEnum.TOC.getDevice(),
+						SessionInvalidSubReason.ACCOUNT_DELETED);
 			}
 			catch (Exception e) {
 				log.warn("删除会员后踢出 C 端会话失败: userId={}", userId, e);

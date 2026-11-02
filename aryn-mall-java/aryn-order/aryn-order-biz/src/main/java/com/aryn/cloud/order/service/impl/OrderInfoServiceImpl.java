@@ -45,6 +45,7 @@ import com.aryn.cloud.order.service.IOrderItemService;
 import com.aryn.cloud.order.service.ISharedCartService;
 import com.aryn.cloud.order.service.IShoppingCartService;
 import com.aryn.cloud.order.service.OrderStaffNotifyService;
+import com.aryn.cloud.order.support.OrderCancelTimeoutHelper;
 import com.aryn.cloud.order.support.OrderSkuReqNormalizer;
 import com.aryn.cloud.pay.api.constants.PayConstants;
 import com.aryn.cloud.pay.api.dto.CreateOrderReqDTO;
@@ -657,8 +658,28 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 			// 回填「货物是否已送达」，C 端据此决定是否展示「确认收货」按钮
 			// （商城配送/内部配送必须等司机点已送达，否则按钮不出现）
 			fillDeliveredForReceive(result.getRecords());
+			// 待付款单回填支付时限，列表页倒计时与详情页/收银台同口径
+			fillPayTimeoutForPendingPayment(result.getRecords());
 		}
 		return result;
+	}
+
+	/**
+	 * 批量回填待付款单的支付时限（分钟）。
+	 *
+	 * <p>时限来自订单配置的 MQ 延迟级别，与延迟取消消息、兜底扫描共用
+	 * OrderCancelTimeoutHelper；列表接口不逐单读取配置，避免 N+1。
+	 */
+	private void fillPayTimeoutForPendingPayment(List<OrderInfo> orders) {
+		List<OrderInfo> pendingPaymentOrders = orders.stream()
+				.filter(order -> OrderStatusEnum.WAITING_FOR_PAYMENT.getCode().equals(order.getStatus()))
+				.collect(Collectors.toList());
+		if (pendingPaymentOrders.isEmpty()) {
+			return;
+		}
+		Integer payTimeoutMinutes = OrderCancelTimeoutHelper.delayLevelToMinutes(
+				OrderCancelTimeoutHelper.resolveDelayLevel(orderConfigService.getConfig()));
+		pendingPaymentOrders.forEach(order -> order.setPayTimeoutMinutes(payTimeoutMinutes));
 	}
 
 	/**
@@ -1140,6 +1161,29 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 	@Transactional(rollbackFor = Exception.class)
 	public boolean appraiseOrder(String id, String userId, List<OrderAppraiseDTO> orderAppraiseList) {
 		return orderAppraiseService.appraiseOrder(id, userId, orderAppraiseList);
+	}
+
+	@Override
+	@GlobalTransactional(rollbackFor = Exception.class)
+	@Transactional(rollbackFor = Exception.class)
+	public boolean advanceAppraiseOrder(String orderId, String orderItemId, String userId,
+			OrderAdvanceAppraiseDTO advanceAppraiseDTO) {
+		return orderAppraiseService.advanceAppraiseOrder(orderId, orderItemId, userId, advanceAppraiseDTO);
+	}
+
+	@Override
+	@GlobalTransactional(rollbackFor = Exception.class)
+	@Transactional(rollbackFor = Exception.class)
+	public boolean editAppraiseOrder(String orderId, String orderItemId, String userId,
+			OrderAppraiseEditDTO editAppraiseDTO) {
+		return orderAppraiseService.editAppraiseOrder(orderId, orderItemId, userId, editAppraiseDTO);
+	}
+
+	@Override
+	@GlobalTransactional(rollbackFor = Exception.class)
+	@Transactional(rollbackFor = Exception.class)
+	public boolean deleteAppraiseOrder(String orderId, String orderItemId, String userId) {
+		return orderAppraiseService.deleteAppraiseOrder(orderId, orderItemId, userId);
 	}
 
 	@Override

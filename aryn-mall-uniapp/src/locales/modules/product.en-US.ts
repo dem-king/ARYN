@@ -75,6 +75,8 @@ export default {
       empty: 'No reviews yet',
       emptyDesc: 'Share your experience here after purchase',
       merchantReply: 'Seller reply: {content}',
+      scoreMissing: 'Not rated',
+      advance: 'Follow-up',
     },
   },
 }

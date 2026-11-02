@@ -45,7 +45,7 @@ describe('goods detail review and category entry', () => {
     const browser = source('src/components/category-browser/index.vue')
     expect(browser).toContain(':left-arrow="props.showBack"')
     const tabPage = source('src/pages/product/category/index.vue')
-    expect(tabPage).toContain('<CategoryBrowser />')
+    expect(tabPage).toContain('<CategoryBrowser with-tab-bar')
   })
 
   it('keeps the review summary, full-list entry and empty state', () => {

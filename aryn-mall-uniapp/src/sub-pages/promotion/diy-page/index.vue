@@ -31,7 +31,7 @@ const { canPullDownRefresh, title } = useDecorationPage({
 })
 const requestRunner = createLatestRequestRunner()
 
-// 导航栏滚动渐显：页面只负责把滚动距离写进 provide 出去的 ref，消费方在 hr-navbar
+// 沉浸式导航：页面只负责把滚动状态写进 provide 出去的 ref，消费方在 hr-navbar
 const { handlePageScroll } = useDiyNavbarScroll()
 
 // 落地页同样接入无限滚动：滚动接近底部时提前加载装修里的分页商品下一页
@@ -77,7 +77,7 @@ onLoad(async (options) => {
 })
 
 /**
- * 滚动渐显接线（必须写成页面 SFC 内的字面量调用）。
+ * 沉浸式导航接线（必须写成页面 SFC 内的字面量调用）。
  *
  * 微信小程序编译期由 @dcloudio/uni-mp-vite 的 runtimeHooks 插件对**页面源文本**
  * 做字符串匹配生成 `__runtimeHooks` 位标记；只把 onPageScroll 包在 composable
@@ -129,7 +129,7 @@ watch(locale, () => {
   justify-content: center;
   min-height: 240px;
   font-size: 14px;
-  color: #666;
+  color: var(--app-text-2);
 }
 
 .decoration-state-error {

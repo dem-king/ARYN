@@ -5,8 +5,10 @@ import cn.dev33.satoken.stp.StpUtil;
 import cn.hutool.core.util.StrUtil;
 import com.aryn.cloud.common.core.constant.DeliveryAuthConstants;
 import com.aryn.cloud.common.core.enums.DeviceTypeEnum;
+import com.aryn.cloud.common.core.enums.SessionInvalidSubReason;
 import com.aryn.cloud.common.security.entity.ArynUser;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
+import com.aryn.cloud.common.security.support.SessionInvalidSupport;
 import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.order.api.entity.DeliveryAccountBinding;
 import com.aryn.cloud.order.api.entity.DeliveryStaff;
@@ -136,7 +138,9 @@ public class DeliveryAccessGuard {
 		}
 		invalidateQualificationCache(sysUserId);
 		try {
-			StpUtil.kickout(sysUserId, DeviceTypeEnum.TOB.getDevice());
+			// 先记「配送资格撤销」原因再踢，旧设备 401 时前端展示对应文案
+			SessionInvalidSupport.kickoutWithReason(sysUserId, DeviceTypeEnum.TOB.getDevice(),
+					SessionInvalidSubReason.DELIVERY_REVOKED);
 			log.info("已撤销配送会话 sysUserId={}", sysUserId);
 		}
 		catch (Exception e) {

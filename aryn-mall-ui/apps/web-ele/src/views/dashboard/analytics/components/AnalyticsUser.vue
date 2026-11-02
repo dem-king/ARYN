@@ -31,121 +31,111 @@ defineProps<{
         <span>客户数据</span>
       </div>
     </template>
-    <div class="grid grid-cols-2 gap-4 xl:grid-cols-4">
+    <!-- 卡片在页内恒为半宽，瓷砖固定 2 列，避免 4 列时图标+文字横排放不下 -->
+    <div class="grid grid-cols-2 gap-4">
       <div
-        class="flex flex-col justify-between rounded-lg bg-[var(--el-fill-color-light)] p-4 transition-all hover:-translate-y-1 hover:shadow-md"
+        class="flex flex-col justify-between gap-2 rounded-lg bg-[var(--el-fill-color-light)] p-4 transition-all hover:-translate-y-1 hover:shadow-md"
       >
-        <div class="flex items-center gap-4">
+        <div class="flex items-center justify-between gap-2">
+          <div class="text-xl font-bold text-[var(--el-text-color-primary)]">
+            <CountTo :end-val="data.transactingUsers" />
+          </div>
           <div
             class="rounded-full bg-blue-100 p-2 text-blue-500 dark:bg-blue-900/30 dark:text-blue-400"
           >
             <ElIcon :size="20"><UserFilled /></ElIcon>
           </div>
-          <div>
-            <div
-              class="flex items-center gap-1 text-xs text-[var(--el-text-color-secondary)]"
-            >
-              成交用户数
-              <ElTooltip
-                content="统计周期内有支付行为的用户总数"
-                placement="top"
-              >
-                <ElIcon class="cursor-help"><InfoFilled /></ElIcon>
-              </ElTooltip>
-            </div>
-            <div class="text-xl font-bold text-[var(--el-text-color-primary)]">
-              <CountTo :end-val="data.transactingUsers" />
-            </div>
-          </div>
+        </div>
+        <div
+          class="flex items-center gap-1 text-xs text-[var(--el-text-color-secondary)]"
+        >
+          成交用户数
+          <ElTooltip content="统计周期内有支付行为的用户总数" placement="top">
+            <ElIcon class="cursor-help"><InfoFilled /></ElIcon>
+          </ElTooltip>
         </div>
       </div>
 
       <div
-        class="flex flex-col justify-between rounded-lg bg-[var(--el-fill-color-light)] p-4 transition-all hover:-translate-y-1 hover:shadow-md"
+        class="flex flex-col justify-between gap-2 rounded-lg bg-[var(--el-fill-color-light)] p-4 transition-all hover:-translate-y-1 hover:shadow-md"
       >
-        <div class="flex items-center gap-4">
+        <div class="flex items-center justify-between gap-2">
+          <div class="text-xl font-bold text-green-500 dark:text-green-400">
+            <CountTo :end-val="data.newUsers" />
+          </div>
           <div
             class="rounded-full bg-green-100 p-2 text-green-500 dark:bg-green-900/30 dark:text-green-400"
           >
             <ElIcon :size="20"><User /></ElIcon>
           </div>
-          <div>
-            <div
-              class="flex items-center gap-1 text-xs text-[var(--el-text-color-secondary)]"
-            >
-              新增用户
-              <ElTooltip content="统计周期内新注册的用户" placement="top">
-                <ElIcon class="cursor-help"><InfoFilled /></ElIcon>
-              </ElTooltip>
-            </div>
-            <div class="text-xl font-bold text-green-500 dark:text-green-400">
-              <CountTo :end-val="data.newUsers" />
-            </div>
-          </div>
+        </div>
+        <div
+          class="flex items-center gap-1 text-xs text-[var(--el-text-color-secondary)]"
+        >
+          新增用户
+          <ElTooltip content="统计周期内新注册的用户" placement="top">
+            <ElIcon class="cursor-help"><InfoFilled /></ElIcon>
+          </ElTooltip>
         </div>
       </div>
 
       <div
-        class="flex flex-col justify-between rounded-lg bg-[var(--el-fill-color-light)] p-4 transition-all hover:-translate-y-1 hover:shadow-md"
+        class="flex flex-col justify-between gap-2 rounded-lg bg-[var(--el-fill-color-light)] p-4 transition-all hover:-translate-y-1 hover:shadow-md"
       >
-        <div class="flex items-center gap-4">
+        <div class="flex items-center justify-between gap-2">
+          <div class="text-xl font-bold text-[var(--el-text-color-primary)]">
+            <CountTo
+              :end-val="toPercent(data.repurchaseRate)"
+              :decimals="2"
+              suffix="%"
+            />
+          </div>
           <div
             class="rounded-full bg-purple-100 p-2 text-purple-500 dark:bg-purple-900/30 dark:text-purple-400"
           >
             <ElIcon :size="20"><Refresh /></ElIcon>
           </div>
-          <div>
-            <div
-              class="flex items-center gap-1 text-xs text-[var(--el-text-color-secondary)]"
-            >
-              复购率
-              <ElTooltip
-                content="统计周期内产生两次及以上购买行为的用户占比"
-                placement="top"
-              >
-                <ElIcon class="cursor-help"><InfoFilled /></ElIcon>
-              </ElTooltip>
-            </div>
-            <div class="text-xl font-bold text-[var(--el-text-color-primary)]">
-              <CountTo
-                :end-val="toPercent(data.repurchaseRate)"
-                :decimals="2"
-                suffix="%"
-              />
-            </div>
-          </div>
+        </div>
+        <div
+          class="flex items-center gap-1 text-xs text-[var(--el-text-color-secondary)]"
+        >
+          复购率
+          <ElTooltip
+            content="统计周期内产生两次及以上购买行为的用户占比"
+            placement="top"
+          >
+            <ElIcon class="cursor-help"><InfoFilled /></ElIcon>
+          </ElTooltip>
         </div>
       </div>
 
       <div
-        class="flex flex-col justify-between rounded-lg bg-[var(--el-fill-color-light)] p-4 transition-all hover:-translate-y-1 hover:shadow-md"
+        class="flex flex-col justify-between gap-2 rounded-lg bg-[var(--el-fill-color-light)] p-4 transition-all hover:-translate-y-1 hover:shadow-md"
       >
-        <div class="flex items-center gap-4">
+        <div class="flex items-center justify-between gap-2">
+          <div class="text-xl font-bold text-[var(--el-text-color-primary)]">
+            <CountTo
+              :end-val="toPercent(data.returningCustomerShare)"
+              :decimals="2"
+              suffix="%"
+            />
+          </div>
           <div
             class="rounded-full bg-orange-100 p-2 text-orange-500 dark:bg-orange-900/30 dark:text-orange-400"
           >
             <ElIcon :size="20"><Star /></ElIcon>
           </div>
-          <div>
-            <div
-              class="flex items-center gap-1 text-xs text-[var(--el-text-color-secondary)]"
-            >
-              老客成交占比
-              <ElTooltip
-                content="统计周期内老客户成交金额占总成交额比例"
-                placement="top"
-              >
-                <ElIcon class="cursor-help"><InfoFilled /></ElIcon>
-              </ElTooltip>
-            </div>
-            <div class="text-xl font-bold text-[var(--el-text-color-primary)]">
-              <CountTo
-                :end-val="toPercent(data.returningCustomerShare)"
-                :decimals="2"
-                suffix="%"
-              />
-            </div>
-          </div>
+        </div>
+        <div
+          class="flex items-center gap-1 text-xs text-[var(--el-text-color-secondary)]"
+        >
+          老客成交占比
+          <ElTooltip
+            content="统计周期内老客户成交金额占总成交额比例"
+            placement="top"
+          >
+            <ElIcon class="cursor-help"><InfoFilled /></ElIcon>
+          </ElTooltip>
         </div>
       </div>
     </div>

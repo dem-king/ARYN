@@ -20,6 +20,14 @@ function repoSource(relativePath: string) {
   return readFileSync(resolve(repoRoot, relativePath), 'utf8')
 }
 
+/** 去掉注释，避免「注释里提到某某」被当成真实调用（契约只认代码） */
+function stripComments(code: string) {
+  return code
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/[^\n]*/g, '')
+}
+
 const CONTROLLER = 'aryn-mall-java/aryn-product/aryn-product-biz/src/main/java/com/aryn/cloud/product/controller/app/AppGoodsSpuController.java'
 
 describe('quick cart routing contract', () => {
@@ -51,7 +59,9 @@ describe('quick cart interaction contract', () => {
   it('requires login before hitting the cart API', () => {
     const composable = source('src/composables/useQuickCart.ts')
     expect(composable).toContain('if (!authStore.isLoggedIn)')
-    expect(composable).toContain('uni.navigateTo({ url: \'/pages/login/index\' })')
+    // 登录拦截走统一守卫（记录 redirectPath，登录后回原页），不再各处裸跳登录页
+    expect(composable).toContain('useRequireLogin')
+    expect(composable).toContain('goLogin()')
   })
 
   it('never reports success unless the cart write resolved', () => {
@@ -84,6 +94,51 @@ describe('quick cart interaction contract', () => {
     expect(source('src/components/diy/diy-goods/index.vue')).toContain('<quick-cart-button')
     expect(source('src/components/diy/diy-goods-group/index.vue')).toContain('<quick-cart-button')
     expect(source('src/components/diy/diy-goods-waterfall/index.vue')).toContain('<quick-cart-button')
+  })
+
+  it('exposes quick add on the recommendation stream cards with a sold-out guard', () => {
+    // 购物车「为你推荐」、商详「你可能还会喜欢」、个人中心「猜你喜欢」、
+    // 订单详情与支付结果推荐位共用 waterfall-goods，加购入口收在这一处。
+    const waterfall = source('src/components/waterfall-goods/index.vue')
+    // 整卡点击仍跳商详；加购按钮在卡片内部，冒泡由 quick-cart-button 根节点 stop
+    expect(waterfall).toContain('@click="toDetail(item.id)"')
+    // 守卫必须包住按钮本体（不能挂在别的元素上把按钮留在守卫外），尺寸/回调与列表同源
+    const guardedBlock
+      = waterfall.match(/<view v-if="item\.stock > 0"[^>]*>([\s\S]*?)<\/view>/)?.[1] ?? ''
+    expect(guardedBlock).toContain('<quick-cart-button')
+    expect(guardedBlock).toContain('size="48rpx"')
+    expect(guardedBlock).toContain('@added="handleAdded"')
+    // 加购成功要真的 emit 出去：只声明 emits + 模板接线、删掉 emit 调用时，
+    // 购物车页永远收不到刷新信号，而类型检查与其余契约都发现不了。
+    expect(waterfall).toContain("(e: 'added', spuId: string): void")
+    expect(waterfall).toContain("emit('added', spuId)")
+    // 目的地确认弹层由 App.ku.vue 全局单例挂载：随卡片重复渲染的组件不得自己再挂一份
+    const code = stripComments(waterfall)
+    expect(code).not.toContain('shared-cart-destination-sheet')
+    expect(code).not.toContain('useCartDestination')
+  })
+
+  it('binds the recommendation sold-out guard to the backend stock column', () => {
+    // 守卫依赖推荐接口下发 stock：后端若把 stock 从 goodsSpuSql / selectRecommendPage
+    // 摘掉或换成精简 VO，前端会把所有商品判成售罄（按钮静默全消失），而前端测试仍然全绿。
+    // 先剥注释：列名只出现在注释里不算数。
+    const mapper = stripComments(repoSource(
+      'aryn-mall-java/aryn-product/aryn-product-biz/src/main/resources/mapper/GoodsSpuMapper.xml',
+    ))
+    const spuSql = mapper.slice(mapper.indexOf('<sql id="goodsSpuSql">'), mapper.indexOf('</sql>'))
+    expect(spuSql).toContain('goods_spu.stock')
+    const recommendSelect = mapper.slice(mapper.indexOf('<select id="selectRecommendPage"'))
+    const recommendBlock = recommendSelect.slice(0, recommendSelect.indexOf('</select>'))
+    expect(recommendBlock).toContain('<include refid="goodsSpuSql"/>')
+    // 出参实体也必须是带 stock 的 GoodsSpu：换成精简 VO 时 MyBatis 会把 stock 静默丢弃
+    expect(recommendBlock).toContain(
+      'resultType="com.aryn.cloud.product.api.entity.GoodsSpu"',
+    )
+    expect(repoSource(
+      'aryn-mall-java/aryn-product/aryn-product-api/src/main/java/com/aryn/cloud/product/api/entity/GoodsSpu.java',
+    )).toMatch(/private Integer stock;/)
+    // 前端消费的是 /recommend 这条路由，路径漂移会让契约对不上号
+    expect(repoSource(CONTROLLER)).toContain('@GetMapping("/recommend")')
   })
 })
 

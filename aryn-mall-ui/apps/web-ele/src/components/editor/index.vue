@@ -1,7 +1,16 @@
 <script setup lang="ts" name="wngEditor">
 import type { IDomEditor, IEditorConfig } from '@wangeditor/editor';
 
-import { onBeforeUnmount, reactive, ref, shallowRef, watch } from 'vue';
+import type { PropType } from 'vue';
+
+import {
+  computed,
+  onBeforeUnmount,
+  reactive,
+  ref,
+  shallowRef,
+  watch,
+} from 'vue';
 
 import { Editor, Toolbar } from '@wangeditor/editor-for-vue';
 
@@ -49,6 +58,11 @@ const props = defineProps({
     type: String,
     default: () => '',
   },
+  // 工具栏 key 列表：不传时保持 wangEditor 默认全集；传空数组也按默认处理
+  toolbarKeys: {
+    type: Array as PropType<string[]>,
+    default: undefined,
+  },
 });
 
 // 定义子组件向父组件传值/事件
@@ -77,6 +91,13 @@ state.editorConfig.MENU_CONF!.uploadImage = {
     insertFn('', '', '');
   },
 };
+
+/** 工具栏配置：只在调用方显式传入 key 列表时收窄，未传时沿用默认全集 */
+const toolbarConfig = computed(() =>
+  props.toolbarKeys && props.toolbarKeys.length > 0
+    ? { toolbarKeys: props.toolbarKeys }
+    : undefined,
+);
 /**
  * 素材选择器
  * @param urls 选中得图片
@@ -150,6 +171,7 @@ watch(
     <Toolbar
       style="border-bottom: 1px solid #ccc"
       :editor="editorRef"
+      :default-config="toolbarConfig"
       :mode="mode"
     />
     <Editor

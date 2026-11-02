@@ -4,6 +4,9 @@ import { onLoad } from '@dcloudio/uni-app'
 import { useI18n } from 'vue-i18n'
 import { getPage } from '@/sub-pages/api/order/orderRefunds'
 import { useDict } from '@/sub-pages/utils/dict'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+
+const { handlePageScroll } = useFrostedNavbar()
 
 definePage({
   name: 'refunds-list',
@@ -63,10 +66,11 @@ function getStatusDesc(status: string) {
 </script>
 
 <template>
-  <z-paging ref="pagingRef" v-model="state.list" :auto="false" @query="queryList">
-    <template #top>
-      <hr-navbar :title="t('afterSales.list.navTitle')" />
-    </template>
+  <hr-navbar :title="t('afterSales.list.navTitle')" />
+  <z-paging ref="pagingRef" v-model="state.list" :auto="false" @query="queryList" @scroll="handlePageScroll">
+    <!-- 顶栏覆盖层等高占位：列表整屏滚动，首屏内容从顶栏下沿开始 -->
+    <hr-navbar-space />
+
     <view v-for="(item, index) in state.list" :key="index" class="m-2 rounded-xl bg-white p-2" @click="toDetail(item.id)">
       <!-- 显示退款商品 -->
       <view class="flex items-center justify-between">

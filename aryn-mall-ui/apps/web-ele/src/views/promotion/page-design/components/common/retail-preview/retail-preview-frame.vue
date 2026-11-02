@@ -78,7 +78,12 @@ const stateMeta = computed(() => {
 .retail-frame {
   overflow: hidden;
   color: #172033;
-  border: 1px solid rgb(17 24 39 / 8%);
+
+  /* 楼层边界提示用 inset 阴影而不是 border：C 端这些零售楼层根节点没有边框，
+     border 会多吃 1px（左右共 2px、高 2px），导致预览卡片比实机窄/高一点点，
+     与「1rpx = 0.5px」的逐值对齐口径打架。换成不占布局的 inset 阴影后，
+     编辑器里仍有淡淡的边界提示，但尺寸与实机一致。 */
+  box-shadow: inset 0 0 0 1px rgb(17 24 39 / 8%);
 }
 
 /**

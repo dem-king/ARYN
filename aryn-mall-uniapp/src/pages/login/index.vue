@@ -1,14 +1,17 @@
 <script setup lang="ts">
-import { onLoad } from '@dcloudio/uni-app'
+import { onLoad, onPageScroll } from '@dcloudio/uni-app'
 import { computed, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { flushPendingDistributionShareBinding } from '@/composables/useDistributionShare'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
 import { useLocaleSwitch } from '@/composables/useLocaleSwitch'
 import { Local } from '@/utils/storage'
 // 引入组件
 import MobileLogin from './components/MobileLogin.vue'
 import PasswordLogin from './components/PasswordLogin.vue'
 import QuickLogin from './components/QuickLogin.vue'
+
+const { handlePageScroll } = useFrostedNavbar()
 
 definePage({
   name: 'login',
@@ -108,6 +111,9 @@ function loginSuccess() {
   }
   router.replaceAll({ path: redirectPath || '/pages/home/index' })
 }
+
+// 顶栏磨砂玻璃：字面量注册滚动（小程序按页面源码生成滚动位标记，包进 composable 会静默失效）
+onPageScroll(handlePageScroll)
 </script>
 
 <template>
@@ -269,15 +275,15 @@ function loginSuccess() {
 </template>
 
 <style lang="scss" scoped>
-/* 文字色阶沿用全站约定：标题 #1f2329 / 正文 #4e5969 / 辅助 #9ca3af */
-$login-title: #1f2329;
-$login-muted: #9ca3af;
+/* 文字色阶沿用全站约定：接入语义色变量（App.vue 定义），深色模式自动跟随 */
+$login-title: var(--app-text);
+$login-muted: var(--app-text-3);
 
 .login-page {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  background: #fff;
+  background: var(--app-bg);
 }
 
 /* ===================== 页头 ===================== */
@@ -410,7 +416,7 @@ $login-muted: #9ca3af;
   /* 上移压住页头收口，页面滚动时内容从品牌色里长出来 */
   margin-top: -56rpx;
   border-radius: 48rpx 48rpx 0 0;
-  background: #fff;
+  background: var(--app-card);
   animation: sheet-rise 0.58s cubic-bezier(0.22, 0.61, 0.36, 1) both;
 }
 
@@ -452,7 +458,7 @@ $login-muted: #9ca3af;
   margin-top: 36rpx;
   padding: 8rpx;
   border-radius: 999rpx;
-  background: #f3f4f8;
+  background: var(--app-card-2);
   box-sizing: border-box;
 
   &__thumb {
@@ -462,7 +468,7 @@ $login-muted: #9ca3af;
     width: calc(50% - 8rpx);
     height: calc(100% - 16rpx);
     border-radius: 999rpx;
-    background: #fff;
+    background: var(--app-card);
     box-shadow: 0 6rpx 18rpx rgba(17, 24, 39, 0.08);
     transition: transform 0.32s cubic-bezier(0.22, 0.61, 0.36, 1);
   }
@@ -479,7 +485,7 @@ $login-muted: #9ca3af;
     align-items: center;
     justify-content: center;
     height: 100%;
-    color: #8a90a0;
+    color: var(--app-text-3);
     font-size: 28rpx;
     transition: color 0.24s ease;
   }
@@ -511,9 +517,9 @@ $login-muted: #9ca3af;
     width: 32rpx;
     height: 32rpx;
     margin-top: 4rpx;
-    border: 2rpx solid #d3d7df;
+    border: 2rpx solid var(--app-border);
     border-radius: 50%;
-    background: #fff;
+    background: var(--app-card);
     transition: background-color 0.2s ease, border-color 0.2s ease;
   }
 
@@ -530,7 +536,7 @@ $login-muted: #9ca3af;
 
   &__text {
     margin-left: 14rpx;
-    color: #8a90a0;
+    color: var(--app-text-3);
     font-size: 23rpx;
     line-height: 1.55;
   }
@@ -560,7 +566,7 @@ $login-muted: #9ca3af;
 
   &__divider-text {
     margin: 0 20rpx;
-    color: #b0b5bf;
+    color: var(--app-text-3);
     font-size: 22rpx;
     line-height: 1.4;
   }
@@ -586,7 +592,7 @@ $login-muted: #9ca3af;
     width: 88rpx;
     height: 88rpx;
     border-radius: 50%;
-    background: #f6f7fa;
+    background: var(--app-card-2);
   }
 
   &__wx {
@@ -595,13 +601,13 @@ $login-muted: #9ca3af;
   }
 
   &__glyph {
-    color: #4e5969;
+    color: var(--app-text-2);
     font-size: 38rpx;
   }
 
   &__label {
     margin-top: 12rpx;
-    color: #8a90a0;
+    color: var(--app-text-3);
     font-size: 22rpx;
     line-height: 1.3;
   }
@@ -615,7 +621,7 @@ $login-muted: #9ca3af;
 .copyright {
   margin-top: auto;
   padding-top: 56rpx;
-  color: #c2c6cf;
+  color: var(--app-text-3);
   font-size: 20rpx;
   letter-spacing: 0.5rpx;
   text-align: center;

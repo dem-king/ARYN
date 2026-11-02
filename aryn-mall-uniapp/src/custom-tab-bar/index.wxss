@@ -1,0 +1,90 @@
+/**
+ * 与 components/glass-tabbar/index.vue 逐值一致的玻璃胶囊。
+ *
+ * 这份样式只在「页面 Vue 还没挂载」的首帧可见（Vue 版挂载后会隐藏本组件），
+ * 但几何、材质、字号必须与 Vue 版一致，否则交接瞬间会看到底栏跳一下。
+ * 改任意一侧时同步另一侧，契约测试会比对关键数值。
+ */
+.glass-tabbar {
+  position: fixed;
+  /* 悬浮胶囊：居中、左右留边、底部离屏一条，圆角与浮起阴影由本层承担 */
+  left: 50%;
+  transform: translateX(-50%);
+  width: calc(100% - 40px);
+  max-width: 480px;
+  /* 固定 16px：落在 iPhone home indicator 上方，又不至于悬在半空 */
+  bottom: 16px;
+  /* 与 H5 原生 tabBar 同层：普通内嵌浮层在其下，需盖住底栏的弹层用 999+
+     （「全部分类」/SKU 弹层 999、船舶选择弹层 999/1000） */
+  z-index: 998;
+  display: flex;
+  height: 52px;
+  box-sizing: border-box;
+  overflow: hidden;
+  border-radius: 26px;
+  /* 与顶栏磨砂白同一数值（86%），上下两块玻璃看起来才是一套材质 */
+  background-color: rgba(255, 255, 255, 0.86);
+  /* iOS 18 以下只认带前缀的写法；本文件不经过 autoprefixer，保留前缀 */
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  backdrop-filter: blur(18px) saturate(160%);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
+}
+
+.glass-tabbar__item {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.glass-tabbar__item--pressed {
+  opacity: 0.72;
+}
+
+.glass-tabbar__icon-box {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  margin-bottom: 3px;
+}
+
+.glass-tabbar__icon {
+  display: block;
+  width: 26px;
+  height: 26px;
+}
+
+.glass-tabbar__label {
+  font-size: 11px;
+  line-height: 15px;
+  color: #7a7e83;
+}
+
+/* 角标与原生 tabBar 的红色角标同色：主题色偏浅时白字会看不清，这里不跟随主题 */
+.glass-tabbar__badge {
+  position: absolute;
+  top: -4px;
+  right: -10px;
+  box-sizing: border-box;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background-color: #ff2237;
+  color: #fff;
+  font-size: 9px;
+  line-height: 15px;
+  text-align: center;
+}
+
+/* 深色模式：与 wot 的 theme 同源（由 Vue 版把 mode 写进 seed，原生这边用 class） */
+.glass-tabbar--dark {
+  background-color: rgba(26, 26, 26, 0.86);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.46);
+}
+
+.glass-tabbar--dark .glass-tabbar__label {
+  color: #a8adb5;
+}

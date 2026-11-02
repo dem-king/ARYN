@@ -291,7 +291,7 @@ function goSharedCartDetail() {
       </view>
     </view>
 
-    <!-- 底部常驻清单条：与选货页同一口径，选完直接交回清单 -->
+    <!-- 底部悬浮玻璃清单条：选完直接交回清单，商品流从条下穿过 -->
     <view class="picker-bar">
       <view class="picker-bar__info">
         <view class="picker-bar__count">
@@ -329,7 +329,13 @@ function goSharedCartDetail() {
   flex-direction: column;
   height: calc(100vh - var(--window-bottom, 0px));
   overflow: hidden;
-  background: #f4f5f7;
+  background: var(--app-bg);
+  /**
+   * 悬浮玻璃底栏的总占位（条高 + 贴底距离 + 呼吸间隙）。条是 fixed 覆盖层，
+   * 内容区从它下方向屏底延伸；滚动区与被面板 transform 困住的弹层
+   * （商品详情/SKU）都按这个变量抬高，让最后 actionable 的内容停在玻璃上沿之上。
+   */
+  --page-glass-bar-clearance: 84px;
 }
 
 /* 共享车上下文：沿用选货页的蓝卡语言，与普通分类页的白底区分 */
@@ -395,18 +401,19 @@ function goSharedCartDetail() {
   flex: 1;
   min-height: 0;
   margin-top: 12rpx;
-  background: #fff;
+  background: var(--app-card);
 }
 
-/* 左栏与分类页保持同一宽度与选中态，切页时视觉不跳 */
+/* 左栏与分类页保持同一宽度与选中态，切页时视觉不跳；
+   底部留出让位空间，最后一个子类能滚出玻璃底栏上沿 */
 .picker-rail {
-  width: 176rpx;
+  width: 192rpx;
   height: 100%;
   flex: none;
-  padding: 16rpx 8rpx;
+  padding: 16rpx 8rpx calc(16rpx + var(--page-glass-bar-clearance, 0px));
   box-sizing: border-box;
-  background: linear-gradient(180deg, #f5f6f8 0%, #f1f2f4 100%);
-  border-right: 1rpx solid #eef0f2;
+  background: var(--app-card-2);
+  border-right: 1rpx solid var(--app-border);
 }
 
 .picker-rail-item {
@@ -417,33 +424,39 @@ function goSharedCartDetail() {
   padding: 16rpx 12rpx;
   font-size: 26rpx;
   line-height: 1.4;
-  color: #5f6673;
+  color: var(--app-text-2);
   text-align: left;
-  word-break: break-all;
   border-radius: 14rpx;
   transition: color 180ms ease, background-color 180ms ease, transform 180ms ease;
   animation: picker-rail-in 260ms ease-out backwards;
 
+  /* 选中指示条绝对定位在左侧内边距里，不占流内宽度（与分类页同口径） */
   &__indicator {
+    position: absolute;
+    top: 50%;
+    left: 3rpx;
     width: 5rpx;
     height: 0;
-    flex: none;
-    margin-right: 10rpx;
     border-radius: 8rpx;
     background: var(--theme-color-primary, var(--wot-color-theme-primary));
     opacity: 0;
+    transform: translateY(-50%);
     transition: height 180ms ease, opacity 180ms ease;
   }
 
+  /* 与分类页同口径：名称恒单行、超长省略，角标 + 5 字名要完整放下 */
   &__name {
     flex: 1;
     min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   &__badge {
     flex: none;
     height: 28rpx;
-    margin-right: 6rpx;
+    margin-right: 4rpx;
     padding: 0 5rpx;
     border-radius: 4rpx;
     font-size: 19rpx;
@@ -455,7 +468,7 @@ function goSharedCartDetail() {
   &--active {
     color: var(--theme-color-primary, var(--wot-color-theme-primary));
     font-weight: 600;
-    background: #fff;
+    background: var(--app-card);
     box-shadow: 0 6rpx 18rpx rgba(31, 44, 65, 0.055);
     transform: translateX(3rpx);
 
@@ -490,7 +503,7 @@ function goSharedCartDetail() {
   gap: 12rpx;
   padding: 44rpx 10rpx;
   font-size: 22rpx;
-  color: #6b7280;
+  color: var(--app-text-2);
   text-align: center;
 }
 
@@ -505,7 +518,7 @@ function goSharedCartDetail() {
   flex: 1;
   min-width: 0;
   min-height: 0;
-  background: #fff;
+  background: var(--app-card);
 
   &--enter {
     animation: picker-goods-enter 240ms ease-out both;
@@ -530,7 +543,7 @@ function goSharedCartDetail() {
 
 .picker-goods-skeleton {
   height: 100%;
-  padding: 16rpx;
+  padding: 16rpx 16rpx calc(16rpx + var(--page-glass-bar-clearance, 0px));
   box-sizing: border-box;
   overflow: hidden;
 }
@@ -558,7 +571,7 @@ function goSharedCartDetail() {
 .picker-goods-skeleton__card {
   overflow: hidden;
   border-radius: 16rpx;
-  background: #fff;
+  background: var(--app-card);
   box-shadow: 0 4rpx 14rpx rgba(22, 34, 51, 0.05);
 }
 
@@ -583,7 +596,7 @@ function goSharedCartDetail() {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding-bottom: 80rpx;
+  padding-bottom: calc(80rpx + var(--page-glass-bar-clearance, 0px));
 
   &__action {
     margin-top: 16rpx;
@@ -593,16 +606,31 @@ function goSharedCartDetail() {
 }
 
 /**
- * 底部清单条：本页不是 z-paging 根，直接排在 flex 尾部。
- * 安全区并进自身内边距，与选货页 checkout-bar 同一口径。
+ * 底部清单条：悬浮玻璃胶囊，材质与 glass-tabbar / GoodsFooter 同一套
+ * （白 86% + blur 18px saturate 160%）。半透明是玻璃成立的前提：写成 #fff 时
+ * backdrop-filter 无处可透，商品卡滚到条下只剩一块实心带。
+ * 大写 WEBKIT 避开 autoprefixer 的过时前缀清理（iOS 17- 只认带前缀的写法）。
+ * 层级 9：盖过商品流（含被面板 transform 困住的详情/SKU 弹层内容），
+ * 低于「全部分类」浮层（999）等真正的页面级弹窗。
  */
 .picker-bar {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  width: calc(100% - 40px);
+  max-width: 480px;
+  bottom: 16px;
+  z-index: 9;
   display: flex;
-  flex: none;
   align-items: center;
-  padding: 16rpx 24rpx calc(16rpx + env(safe-area-inset-bottom));
-  background: #fff;
-  box-shadow: 0 -2rpx 12rpx rgb(27 39 57 / 6%);
+  box-sizing: border-box;
+  padding: 10px 16px;
+  overflow: hidden;
+  border-radius: 26px;
+  background: rgba(255, 255, 255, 0.86);
+  -WEBKIT-backdrop-filter: blur(18px) saturate(160%);
+  backdrop-filter: blur(18px) saturate(160%);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
 
   &__info {
     flex: 1;
@@ -611,7 +639,7 @@ function goSharedCartDetail() {
 
   &__count {
     font-size: 27rpx;
-    color: #1b2739;
+    color: var(--app-text);
   }
 
   &__count-num {
@@ -624,7 +652,7 @@ function goSharedCartDetail() {
   &__meta {
     margin-top: 2rpx;
     font-size: 22rpx;
-    color: #9aa2ae;
+    color: var(--app-text-3);
   }
 
   &__btn {
@@ -641,8 +669,18 @@ function goSharedCartDetail() {
   }
 }
 
+/* 深色模式：与 glass-tabbar / GoodsFooter 同源（wot-theme-dark 挂在根节点） */
+.wot-theme-dark .picker-bar {
+  background: rgba(26, 26, 26, 0.86);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.46);
+}
+
+.wot-theme-dark .picker-bar__count {
+  color: #e5e6eb;
+}
+
 .skeleton-shimmer {
-  background: linear-gradient(90deg, #f2f3f5 25%, #e9ebef 37%, #f2f3f5 63%);
+  background: linear-gradient(90deg, var(--app-skeleton) 25%, var(--app-skeleton-band) 37%, var(--app-skeleton) 63%);
   background-size: 400% 100%;
   animation: picker-skeleton-shimmer 1.4s ease infinite;
 }

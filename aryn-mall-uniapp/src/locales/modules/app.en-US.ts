@@ -7,6 +7,7 @@ export default {
     request: {
       featureUnavailable: 'This feature is temporarily unavailable. Please try again later.',
       forbidden: 'You do not have permission to access this feature.',
+      needLogin: 'Please sign in first',
     },
     auth: {
       loggingIn: 'Signing in. Please wait...',

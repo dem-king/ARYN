@@ -15,5 +15,5 @@ definePage({
 </script>
 
 <template>
-  <CategoryBrowser />
+  <CategoryBrowser with-tab-bar />
 </template>

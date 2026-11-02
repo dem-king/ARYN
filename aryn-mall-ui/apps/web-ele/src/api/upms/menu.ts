@@ -122,6 +122,17 @@ export async function getTenantMenu() {
 }
 
 /**
+ * 查询平台专属应用标识（该应用下的菜单不可分配给租户）
+ */
+export async function getPlatformAppKeys() {
+  return requestClient.get<string[]>('/upms/menu/platform-app-keys', {
+    headers: {
+      isSwitchTenant: false,
+    },
+  });
+}
+
+/**
  * 查询角色菜单
  */
 export async function getMenusByRole(roleId: string) {

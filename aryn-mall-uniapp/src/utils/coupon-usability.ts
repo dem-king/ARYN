@@ -15,6 +15,8 @@
  * 纯函数里直接翻译，否则字符串比较会失配、英文环境反而回落中文。
  */
 
+import { daysUntil } from './coupon-display'
+
 export interface CouponUsability {
   unavailable: boolean
   reason: string
@@ -100,4 +102,92 @@ export function getCouponUnavailableInfo(
   }
 
   return result
+}
+
+/** 券类型：1 满减、2 折扣（与 coupon_info.coupon_type 一致） */
+const COUPON_TYPE_DISCOUNT = '2'
+
+/**
+ * 估算一张券在本单可抵扣的金额（只用于「自动选最优券」排序）。
+ *
+ * 与服务端 `OrderPriceComputeService#couponCompute` 同口径：
+ * 满减券取面额；折扣券按 `门槛可计算金额 × (10 − 折扣) / 10` 折算。
+ * 最终可抵金额一律以结算接口返回的 `couponPrice` 为准，这里只做候选排序，
+ * 不参与任何金额展示与提交。
+ */
+export function estimateCouponDiscount(
+  coupon: any,
+  eligibleBase?: number | string | null,
+): number {
+  const info = coupon?.couponInfo ?? {}
+  const base = Number(eligibleBase)
+  if (!Number.isFinite(base) || base <= 0)
+    return 0
+  if (String(info.couponType ?? coupon?.couponType ?? '1') === COUPON_TYPE_DISCOUNT) {
+    const discount = Number(info.discount)
+    // 折扣券 discount=9 表示 9 折；10 折/非法值等于不打折，不参与自动选券
+    if (!Number.isFinite(discount) || discount <= 0 || discount >= 10)
+      return 0
+    return Number(((base * (10 - discount)) / 10).toFixed(2))
+  }
+  const amount = Number(info.amount)
+  return Number.isFinite(amount) && amount > 0 ? Number(amount.toFixed(2)) : 0
+}
+
+/**
+ * 自动选券：从用户未使用券里挑「本单可抵扣金额最大」的一张，供确认页默认选中。
+ *
+ * 口径：
+ * - 必须通过 `getCouponUnavailableInfo` 的可用性判定（门槛 / 范围 / 活动叠加）；
+ * - 有效期已过但状态还没被定时任务回写的券不选（避免自动选到过期券再报错）；
+ * - 抵扣金额相同优先「快到期的」（先到先用），再按 id 稳定排序；
+ * - 无可用券返回 `null`（调用方保持「未选券」状态，不弹错误）。
+ *
+ * 纯函数，不读 store / 不改入参；页面拿到结果后仍需重新结算，
+ * 以服务端返回的 couponPrice 为准。
+ */
+export function pickBestCoupon(
+  coupons: any[] | null | undefined,
+  orderItemList: UsabilityItemLike[],
+  eligibleBase?: number | string | null,
+  now: Date = new Date(),
+): any | null {
+  if (!Array.isArray(coupons) || coupons.length === 0)
+    return null
+  const items = Array.isArray(orderItemList) ? orderItemList : []
+  const base = Number(eligibleBase)
+  // eligibleBase 缺失时按允许叠券明细本地汇总（与 getCouponUnavailableInfo 的兜底同口径）
+  const baseForEstimate = Number.isFinite(base) && base > 0
+    ? base
+    : items.filter(isCouponStackable).reduce((sum, item) => sum + Number(item.totalPrice ?? 0), 0)
+
+  const candidates = coupons
+    .map((coupon) => {
+      if (!coupon?.id)
+        return null
+      const usability = getCouponUnavailableInfo(
+        coupon,
+        items,
+        Number.isFinite(base) ? base : null,
+      )
+      if (usability.unavailable)
+        return null
+      // 过期回写有延迟：状态还是「未使用」但有效期已过的券不能自动选
+      const days = daysUntil(coupon?.validatTime ?? coupon?.couponInfo?.receiveEndedAt, now)
+      if (days !== null && days < 0)
+        return null
+      const discount = estimateCouponDiscount(coupon, baseForEstimate)
+      if (discount <= 0)
+        return null
+      return { coupon, discount, expiresIn: days === null ? Number.POSITIVE_INFINITY : days }
+    })
+    .filter((candidate): candidate is { coupon: any, discount: number, expiresIn: number } => candidate !== null)
+
+  candidates.sort(
+    (left, right) =>
+      right.discount - left.discount
+      || left.expiresIn - right.expiresIn
+      || String(left.coupon.id).localeCompare(String(right.coupon.id)),
+  )
+  return candidates[0]?.coupon ?? null
 }

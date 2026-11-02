@@ -75,6 +75,8 @@ export default {
       empty: '还没有评价',
       emptyDesc: '购买后可以在这里分享真实体验',
       merchantReply: '商家回复：{content}',
+      scoreMissing: '未评分',
+      advance: '追评',
     },
   },
 }

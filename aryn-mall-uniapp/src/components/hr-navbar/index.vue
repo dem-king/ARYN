@@ -5,8 +5,16 @@ import type { NavigationScrollEffect } from '@/components/diy/schema/types'
 
 import { computed, inject, onMounted, ref, watch } from 'vue'
 
-import { resolveNavigationScrollAppearance } from '@/components/diy/schema/navigation-scroll'
+import {
+  FROSTED_SCROLL_EFFECT,
+  FROSTED_SCROLL_SURFACE,
+  FROSTED_SCROLL_SURFACE_DARK,
+  resolveNavigationScrollAppearance,
+} from '@/components/diy/schema/navigation-scroll'
 import { DIY_NAVBAR_SCROLL_KEY } from '@/composables/useDiyNavbarScroll'
+import { FROSTED_NAVBAR_KEY } from '@/composables/useFrostedNavbar'
+import { useMallThemeStore } from '@/store/mallThemeStore'
+import { toNativeNavigationBarHexColor } from '@/utils/navigation-bar-color'
 
 interface Props {
   title?: string
@@ -26,7 +34,7 @@ interface Props {
    */
   backgroundImage?: string
   /**
-   * 滚动渐显（沉浸式导航）配置：仅装修页 DiyPage 传入。
+   * 沉浸式导航（滚动后一步切换目标底色）配置：仅装修页 DiyPage 传入。
    * 缺省/`mode='none'` 时走旧逻辑 —— 30+ 业务页的渲染结果必须逐像素不变。
    */
   scrollEffect?: NavigationScrollEffect | null
@@ -82,22 +90,54 @@ const rightInsetStyle = computed(() =>
 )
 
 /**
- * 滚动渐显的页面滚动距离：由宿主页 useDiyNavbarScroll() provide。
+ * 页面滚动状态：由宿主页 useDiyNavbarScroll() / useFrostedNavbar() provide。
  *
- * 其余 30+ 业务页不 provide，inject 拿到 null 视为 scrollTop=0，行为与改造前一致。
- * 只 inject 引用、在 computed 里读值，滚动时仅导航子树重渲染。
+ * 完全没有滚动源接入的页面（纯表单页、登录页）inject 拿到 null，视为未滚动
+ * （起始外观），行为与改造前一致；只 inject 引用、在 computed 里读值，一次
+ * 滚动只翻转两次。
  */
-const scrollTop = inject(DIY_NAVBAR_SCROLL_KEY, null)
+const scrolled = inject(DIY_NAVBAR_SCROLL_KEY, null)
 
 /**
- * 是否启用滚动渐显。
+ * 业务页磨砂开关：由宿主页 useFrostedNavbar() provide。
+ *
+ * 与装修页的配置驱动区分开：装修页传 scrollEffect/scrollSurface（可能显式关闭），
+ * 业务页不传配置、只开开关 —— 材质取同一份磨砂白常量，避免两处数值漂移。
+ * 未开开关且未传配置时（登录页等只需静态顶栏的页面）完全不进入 fade 分支。
+ */
+const frostedScroll = inject(FROSTED_NAVBAR_KEY, false)
+
+/**
+ * 生效的滚动配置：显式下传优先，其次业务页磨砂开关；都没有则不接管。
+ *
+ * 业务页磨砂面的底色随系统深浅切换（深色玻璃同 86% 材质）；装修页显式
+ * 下传的 surface 是商家配置的浅色内容，保持原样不参与深色切换。
+ */
+const mallThemeStore = useMallThemeStore()
+const scrollEffect = computed(
+  () =>
+    props.scrollEffect
+    ?? (frostedScroll ? FROSTED_SCROLL_EFFECT : null),
+)
+const scrollSurface = computed(
+  () =>
+    props.scrollSurface
+    ?? (frostedScroll
+      ? (mallThemeStore.mode === 'dark'
+          ? FROSTED_SCROLL_SURFACE_DARK
+          : FROSTED_SCROLL_SURFACE)
+      : null),
+)
+
+/**
+ * 是否启用沉浸式导航（滚动切换）。
  *
  * 两个条件缺一不可：配置 mode='fade' 且拿到目标底色外观。背景层与
  * 「wd-navbar 根透明」是同一件事的两面 —— 少了背景层还会把根设成透明，
  * 就会出现导航整条透空、页面内容直接顶到状态栏的视觉事故，故一并降级。
  */
 const fadeEnabled = computed(
-  () => props.scrollEffect?.mode === 'fade' && props.scrollSurface != null,
+  () => scrollEffect.value?.mode === 'fade' && scrollSurface.value != null,
 )
 
 /** 起始外观：与旧渲染同源（装修页传入的底色/前景色） */
@@ -106,9 +146,22 @@ const baseAppearance = computed<NavigationAppearance>(() => ({
   textColor: tinted.value ? props.textColor || '#FFFFFF' : '#222222',
 }))
 
-/** 目标底色：fade 时必由 DiyPage 传入；兜底值不参与渲染，只为类型收敛 */
+/**
+ * 传给微信 setNavigationBarColor 的 backgroundColor。
+ *
+ * 微信把它定为**必填**色值：只传 frontColor 会抛
+ * `parameter.backgroundColor should be String instead of Undefined`，
+ * 传 rgb() / CSS 变量则抛 `should be HexColor`。沉浸式导航的页面都是
+ * `navigationStyle: custom`，原生导航条不可见，这里只需把起始底色归一化成
+ * 合法 hex 占位；读不出色值（如个人中心的 `var(--theme-color-primary)`）回退白色。
+ */
+const nativeNavigationBarColor = computed(() =>
+  toNativeNavigationBarHexColor(baseAppearance.value.backgroundColor),
+)
+
+/** 目标底色：fade 时必由 DiyPage 传入或由业务页开关提供；兜底值不参与渲染，只为类型收敛 */
 const fadeSurface = computed<NavigationSurfaceAppearance>(() =>
-  props.scrollSurface ?? {
+  scrollSurface.value ?? {
     color: baseAppearance.value.backgroundColor,
     alpha: 1,
     blur: false,
@@ -116,24 +169,24 @@ const fadeSurface = computed<NavigationSurfaceAppearance>(() =>
   },
 )
 
-/** 滚动进度 → 外观：与编辑画布、草稿预览共用同一纯函数（schema/navigation-scroll.ts） */
+/** 滚动状态 → 外观：与编辑画布、草稿预览共用同一纯函数（schema/navigation-scroll.ts） */
 const fadeAppearance = computed<NavigationScrollAppearance>(() =>
   resolveNavigationScrollAppearance(
     baseAppearance.value,
     fadeSurface.value,
-    props.scrollEffect ?? undefined,
-    scrollTop?.value ?? 0,
+    scrollEffect.value ?? undefined,
+    scrolled?.value ? 1 : 0,
   ),
 )
 
 /**
- * 滚动渐显背景层高度 = 状态栏 + 44px 导航条内容区。
+ * 沉浸式导航背景层高度 = 状态栏 + 44px 导航条内容区。
  * 与 wd-navbar 的 fixed 根同口径（padding-top: statusBarHeight + 44px 内容区）。
  */
 const { statusBarHeight = 0 } = uni.getWindowInfo()
 const navbarBgHeight = statusBarHeight + 44
 
-/** base 层：静态外观（纯色 / 左右渐变背景图），随进度整体淡出 */
+/** base 层：静态外观（纯色 / 左右渐变背景图），已滚动时整体隐藏 */
 const baseLayerStyle = computed(
   () => `${navbarStyle.value}opacity:${fadeAppearance.value.baseOpacity};`,
 )
@@ -161,19 +214,20 @@ function toSurfaceRgba(color: string, alpha: number): string {
   return `rgba(${Math.round(Number(rgb[1]))}, ${Math.round(Number(rgb[2]))}, ${Math.round(Number(rgb[3]))}, ${alpha})`
 }
 
-/** surface 层：目标底色 + 可选毛玻璃，随进度淡入 */
+/** surface 层：目标底色 + 可选毛玻璃，已滚动时整体显示 */
 const surfaceLayerStyle = computed(() => {
   const appearance = fadeAppearance.value
   return `background-color:${toSurfaceRgba(appearance.surfaceColor, appearance.surfaceAlpha)};opacity:${appearance.surfaceOpacity};`
 })
 
 /**
- * 标题 / 图标色：fade 模式按滚动进度在起始色与目标色之间翻转。
- * 切换点带 160ms 颜色过渡，避免合成背景亮度跨过阈值时文字「啪」地跳色。
+ * 标题 / 图标色：fade 模式在起始色与目标色之间随滚动状态一步翻转。
+ * 不加颜色过渡：背景已是一步切换，颜色若慢 160ms 会在磨砂白底上留下
+ * 「白字淡出」的空窗；与状态栏同帧翻转才一致。
  */
 const titleStyle = computed(() => {
   if (fadeEnabled.value)
-    return `color:${fadeAppearance.value.textColor};transition:color .16s linear;`
+    return `color:${fadeAppearance.value.textColor};`
   return tinted.value ? `color:${foreground.value};` : ''
 })
 const leftIconColor = computed(() => {
@@ -191,9 +245,12 @@ const navbarCustomStyle = computed(() =>
  * 状态栏前景色同步（fade 模式）。
  *
  * 微信 setNavigationBarColor 的 frontColor 语义包含状态栏，且只接受
- * #000000 / #ffffff：按滚动进度翻转，值不变时不重复调用，一次滚动最多
+ * #000000 / #ffffff：按滚动状态翻转，值不变时不重复调用，一次滚动最多
  * 切换一次。H5 / App 无系统状态栏或端上不支持时静默（try/catch），
  * 导航自绘的背景与文字色不受影响。
+ *
+ * backgroundColor 是微信的**必填**参数（漏传即抛 MiniProgramError），虽然
+ * fade 模式下原生导航条不可见，也必须带一个合法 hex，见 nativeNavigationBarColor。
  */
 let lastFrontColor: '#000000' | '#ffffff' | null = null
 watch(
@@ -208,7 +265,10 @@ watch(
       return
     lastFrontColor = frontColor
     try {
-      uni.setNavigationBarColor({ frontColor })
+      uni.setNavigationBarColor({
+        backgroundColor: nativeNavigationBarColor.value,
+        frontColor,
+      })
     }
     catch {
       // 忽略：状态栏属于增强项，不影响导航内容可读性
@@ -250,25 +310,26 @@ function handleLeftClick() {
 
 <template>
   <!--
-    滚动渐显背景层：只有 fade 模式才渲染，位于 wd-navbar（z-index 500）之下、
+    沉浸式导航背景层：只有 fade 模式才渲染，位于 wd-navbar（z-index 500）之下、
     页面内容之上（z-index 499）。pointer-events:none 保证不挡页面点击；
     高度 = 状态栏 + 44px，与 wd-navbar 的 fixed 根同口径。
-    无 scrollEffect 的其余业务页不会渲染这个节点，模板契约与改造前一致。
+    起始外观与目标外观一步切换（不做距离插值），无 scrollEffect 的其余
+    业务页不会渲染这个节点，模板契约与改造前一致。
   -->
   <view
     v-if="fadeEnabled"
     class="hr-navbar-bg"
     :style="{ height: `${navbarBgHeight}px` }"
   >
-    <!-- base 层：起始外观（纯色 / 左右渐变背景图），随进度淡出 -->
+    <!-- base 层：起始外观（纯色 / 左右渐变背景图），已滚动时整体隐藏 -->
     <view class="hr-navbar-bg__base" :style="baseLayerStyle" />
-    <!-- surface 层：目标底色 + 可选毛玻璃，随进度淡入 -->
+    <!-- surface 层：目标底色 + 可选毛玻璃，已滚动时整体显示 -->
     <view
       class="hr-navbar-bg__surface"
       :class="{ 'is-blur': fadeAppearance.blur }"
       :style="surfaceLayerStyle"
     />
-    <!-- 底部细线：浅色目标底色与内容的分界，按进度渐显；常驻搜索栏接管下沿时渲染者变为搜索栏 -->
+    <!-- 底部细线：浅色目标底色与内容的分界，随滚动状态出现；常驻搜索栏接管下沿时渲染者变为搜索栏 -->
     <view
       v-if="hairline"
       class="hr-navbar-bg__hairline"
@@ -335,9 +396,9 @@ function handleLeftClick() {
     bottom: 0;
   }
 
-  /* iOS 18 以下需要 -webkit- 前缀；不支持的端仍是不透明度 .86 的目标底色层 */
+  /* 大写 WEBKIT 避开 autoprefixer 的过时前缀清理（iOS 17- 的 WKWebView 只认带前缀的写法） */
   &__surface.is-blur {
-    -webkit-backdrop-filter: blur(18px) saturate(160%);
+    -WEBKIT-backdrop-filter: blur(18px) saturate(160%);
     backdrop-filter: blur(18px) saturate(160%);
   }
 

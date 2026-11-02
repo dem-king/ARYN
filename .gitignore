@@ -31,6 +31,7 @@ node_modules/
 yarn.lock
 package-lock.json
 dist/
+dist-cn/
 build/
 !aryn-mall-uniapp/build/
 *.tsbuildinfo
@@ -46,6 +47,7 @@ unpackage/
 /aryn-mall-java/.env
 .env.local
 .env.*.local
+dev-tools/cn-tunnel.env
 
 #编译中间产物
 *.d.ts

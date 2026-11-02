@@ -2,6 +2,7 @@ package com.aryn.cloud.upms.controller;
 
 import cn.dev33.satoken.stp.StpUtil;
 import cn.hutool.crypto.digest.BCrypt;
+import com.aryn.cloud.common.core.enums.SessionInvalidSubReason;
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.order.api.remote.RemoteDeliveryAccountService;
 import com.aryn.cloud.upms.api.dto.SysUserDTO;
@@ -83,7 +84,7 @@ class SysUserControllerPasswordTest {
 		assertThat(BCrypt.checkpw(STRONG_NEW_PASSWORD, captor.getValue().getPassword())).isTrue();
 		assertThat(BCrypt.checkpw(OLD_PASSWORD, captor.getValue().getPassword())).isFalse();
 		// 改密即失效：删除该账号所有已登录会话
-		verify(revoker).revokeAll("user-1", "修改密码");
+		verify(revoker).revokeAll("user-1", SessionInvalidSubReason.PASSWORD_CHANGED);
 	}
 
 	@Test
@@ -95,7 +96,7 @@ class SysUserControllerPasswordTest {
 		controller.editPwd(changePasswordRequest(STRONG_NEW_PASSWORD));
 
 		// 密码没有实际写库时不能把用户踢下线
-		verify(revoker, never()).revokeAll("user-1", "修改密码");
+		verify(revoker, never()).revokeAll("user-1", SessionInvalidSubReason.PASSWORD_CHANGED);
 	}
 
 	@Test
@@ -115,7 +116,7 @@ class SysUserControllerPasswordTest {
 		assertThat(weak.getMsg()).contains("过于简单");
 		// 弱密码不得写库，也不得踢线
 		verify(userService, never()).updateById(existing);
-		verify(revoker, never()).revokeAll("user-1", "修改密码");
+		verify(revoker, never()).revokeAll("user-1", SessionInvalidSubReason.PASSWORD_CHANGED);
 	}
 
 	@Test

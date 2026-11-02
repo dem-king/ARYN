@@ -1,5 +1,6 @@
 package com.aryn.cloud.message.service.impl;
 
+import com.aryn.cloud.common.core.constant.SessionInvalidPushConstants;
 import com.aryn.cloud.message.api.dto.push.MessagePushEvent;
 import com.aryn.cloud.message.api.entity.MessageParticipant;
 import com.aryn.cloud.message.api.enums.MessageIdentityType;
@@ -22,7 +23,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class MessagePushServiceImpl implements MessagePushService {
 
-	public static final String CHANNEL = "message:push:events";
+	/** 与 common-security 的会话失效主动推送共用同一频道（常量见 common-core） */
+	public static final String CHANNEL = SessionInvalidPushConstants.CHANNEL;
 
 	/** 单次待领取广播的坐席上限，与坐席候选查询保持一致。 */
 	private static final int POOL_FANOUT_LIMIT = 500;

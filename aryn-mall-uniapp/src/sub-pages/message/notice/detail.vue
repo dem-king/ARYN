@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { NoticeInboxItem } from '@/api/message/types'
 import type { BusinessCardType } from '@/utils/message'
-import { onLoad } from '@dcloudio/uni-app'
+import { onLoad, onPageScroll } from '@dcloudio/uni-app'
 import { useI18n } from 'vue-i18n'
 import {
   getNoticeDetail,
@@ -9,6 +9,8 @@ import {
   replyToNotice,
 } from '@/api/message/notice'
 import BusinessCard from '@/components/message/BusinessCard.vue'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+import { useRequireLogin } from '@/composables/useRequireLogin'
 import {
 
   createClientMessageId,
@@ -20,12 +22,15 @@ import {
   noticeCategoryLabelOf,
 } from '@/utils/notice'
 
+const { handlePageScroll } = useFrostedNavbar()
+
 definePage({
   name: 'message-notice-detail',
   style: { navigationStyle: 'custom', navigationBarTitleText: '通知详情' },
 })
 
 const { t } = useI18n()
+const { ensureLoggedIn } = useRequireLogin()
 const notice = ref<NoticeInboxItem>()
 const loading = ref(true)
 
@@ -42,8 +47,20 @@ const businessCardPayload = computed(() =>
 )
 
 onLoad(async (options) => {
-  if (!options?.id)
+  // 通知详情是非白名单页（可被 H5 深链/历史链接直达）：游客不拉详情、不上报已读，
+  // 只记录含 id 的回跳路径并打开登录页，登录成功后自动回到本页。
+  const redirectPath = options?.id
+    ? `/sub-pages/message/notice/detail?id=${options.id}`
+    : undefined
+  if (!ensureLoggedIn(redirectPath)) {
+    loading.value = false
     return
+  }
+  if (!options?.id) {
+    // 深链没有 id 时没有可拉取的内容：必须收起骨架屏，否则已登录用户会一直看到 loading
+    loading.value = false
+    return
+  }
   try {
     notice.value = await getNoticeDetail(options.id).send()
     if (notice.value.readStatus === '0') {
@@ -67,6 +84,9 @@ async function reply() {
     url: `/sub-pages/message/chat/index?conversationId=${message.conversationId}`,
   })
 }
+
+// 顶栏磨砂玻璃：字面量注册滚动（小程序按页面源码生成滚动位标记，包进 composable 会静默失效）
+onPageScroll(handlePageScroll)
 </script>
 
 <template>
@@ -122,14 +142,14 @@ async function reply() {
 .notice-detail {
   min-height: 100vh;
   padding-bottom: 40rpx;
-  background: #f4f6f7;
+  background: var(--app-bg);
 }
 .notice-paper {
   margin: 24rpx;
   padding: 42rpx 34rpx;
-  border: 1rpx solid #eceff0;
+  border: 1rpx solid var(--app-border);
   border-radius: 28rpx;
-  background: #fff;
+  background: var(--app-card);
   box-shadow: 0 20rpx 50rpx rgb(17 27 38 / 6%);
   &__tags {
     display: flex;
@@ -140,7 +160,7 @@ async function reply() {
     padding: 5rpx 16rpx;
     color: var(--theme-color-primary, var(--wot-color-theme-primary, #ff2237));
     border-radius: 999rpx;
-    background: #f2f4f4;
+    background: var(--app-card-2);
     font-size: 19rpx;
     font-weight: 700;
     line-height: 1.5;
@@ -152,7 +172,7 @@ async function reply() {
   &__title {
     display: block;
     margin: 20rpx 0 14rpx;
-    color: #1f2a2e;
+    color: var(--app-text);
     font-size: 38rpx;
     font-weight: 800;
     line-height: 1.45;
@@ -160,16 +180,16 @@ async function reply() {
   &__meta {
     display: flex;
     gap: 28rpx;
-    color: #a3ada9;
+    color: var(--app-text-3);
     font-size: 21rpx;
   }
   &__summary {
     display: block;
     margin: 30rpx 0 4rpx;
     padding: 22rpx;
-    color: #4c5854;
+    color: var(--app-text);
     border-left: 6rpx solid var(--theme-color-primary, var(--wot-color-theme-primary, #ff2237));
-    background: #f5f7f7;
+    background: var(--app-card-2);
     font-size: 25rpx;
     line-height: 1.6;
   }
@@ -177,7 +197,7 @@ async function reply() {
     display: block;
     min-height: 300rpx;
     padding: 32rpx 0;
-    color: #39433f;
+    color: var(--app-text);
     font-size: 28rpx;
     line-height: 1.9;
     white-space: pre-wrap;

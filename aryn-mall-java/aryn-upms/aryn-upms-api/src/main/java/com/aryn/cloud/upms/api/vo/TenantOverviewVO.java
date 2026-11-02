@@ -35,10 +35,13 @@ public class TenantOverviewVO implements Serializable {
 	@Schema(description = "业务模式：1综合（个人+船供并存） 2纯零售")
 	private String businessMode;
 
+	@Schema(description = "租户类型：1平台租户（长期有效） 2普通租户")
+	private String tenantType;
+
 	@Schema(description = "授权开始时间")
 	private LocalDateTime authBeginTime;
 
-	@Schema(description = "授权结束时间")
+	@Schema(description = "授权结束时间；为空表示长期有效")
 	private LocalDateTime authEndTime;
 
 	@Schema(description = "剩余天数；负数表示已过期")

@@ -1,6 +1,10 @@
 export default {
   checkout: {
     title: '确认订单',
+    footer: {
+      total: '合计',
+      saved: '已优惠￥{amount}',
+    },
     address: {
       select: '请选择收货地址',
     },
@@ -39,6 +43,7 @@ export default {
     coupon: {
       label: '优惠券',
       select: '选择优惠券',
+      noCoupon: '不使用优惠券',
       noneAvailable: '无可用优惠券',
       activityBlocked: '活动商品不支持使用优惠券',
       unavailableReason: '优惠券不可用原因：{reason}',

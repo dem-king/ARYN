@@ -116,8 +116,26 @@ function scoreOf(value: any) {
   return Number.isFinite(score) ? score : 0
 }
 
-function avatarText(nickname: string) {
-  return String(nickname || t('product.review.anonymous')).slice(0, 1)
+/** 系统默认评价 goodsScore 为 null：显示「未评分」而不是 0 星 */
+function hasScore(value: any) {
+  return scoreOf(value) > 0
+}
+
+/** 匿名评价由后端脱敏，前端兜底展示「匿名用户」 */
+function isAnonymousItem(item: any) {
+  return Number(item?.isAnonymous) === 1
+}
+
+function displayName(item: any) {
+  return isAnonymousItem(item) ? t('product.review.anonymous') : (item?.nickname || t('product.review.anonymous'))
+}
+
+function avatarText(item: any) {
+  return String(displayName(item) || t('product.review.anonymous')).slice(0, 1)
+}
+
+function hasAdvance(item: any) {
+  return Boolean(item?.advanceTime) || Boolean(item?.advanceContent) || (item?.advancePicUrls?.length ?? 0) > 0
 }
 
 function onRateTypeChange(value: string) {
@@ -222,20 +240,23 @@ defineExpose({
             <view class="comment-item__user">
               <view class="comment-item__avatar">
                 <wd-img
-                  v-if="item.avatarUrl" width="32px" height="32px" round
+                  v-if="item.avatarUrl && !isAnonymousItem(item)" width="32px" height="32px" round
                   :src="item.avatarUrl"
                 />
                 <text v-else class="comment-item__avatar-text">
-                  {{ avatarText(item.nickname) }}
+                  {{ avatarText(item) }}
                 </text>
               </view>
               <view class="comment-item__user-meta">
                 <text class="comment-item__nickname">
-                  {{ item.nickname || t('product.review.anonymous') }}
+                  {{ displayName(item) }}
                 </text>
-                <view v-if="scoreOf(item.goodsScore) > 0" class="comment-item__stars">
+                <view v-if="hasScore(item.goodsScore)" class="comment-item__stars">
                   <wd-rate :model-value="scoreOf(item.goodsScore)" :num="5" readonly size="12px" />
                 </view>
+                <text v-else class="text-20rpx text-gray-400">
+                  {{ t('product.review.scoreMissing') }}
+                </text>
               </view>
             </view>
             <text class="comment-item__time">{{ formatTime(item.createTime) }}</text>
@@ -285,6 +306,47 @@ defineExpose({
               </view>
             </view>
           </view>
+
+          <!-- 快捷标签 -->
+          <view v-if="item.tags && item.tags.length > 0" class="mt-10rpx flex flex-wrap gap-8rpx">
+            <text
+              v-for="tag in item.tags"
+              :key="tag"
+              class="rounded-full bg-gray-100 px-14rpx py-2rpx text-20rpx text-gray-500 dark:bg-gray-700 dark:text-gray-300"
+            >
+              {{ tag }}
+            </text>
+          </view>
+
+          <!-- 追评：与主评同一评价资产，展示追评文字/图片 -->
+          <view v-if="hasAdvance(item)" class="mt-16rpx rounded-12rpx bg-gray-50 p-16rpx dark:bg-gray-700/50">
+            <view class="flex items-center justify-between">
+              <text class="text-22rpx text-gray-500 font-medium dark:text-gray-300">
+                {{ t('product.review.advance') }}
+              </text>
+              <text v-if="item.advanceTime" class="text-20rpx text-gray-400">
+                {{ formatTime(item.advanceTime) }}
+              </text>
+            </view>
+            <view
+              v-if="item.advanceContent"
+              class="mt-8rpx whitespace-pre-wrap break-words text-24rpx text-gray-700 leading-relaxed dark:text-gray-200"
+            >
+              {{ item.advanceContent }}
+            </view>
+            <view v-if="item.advancePicUrls && item.advancePicUrls.length > 0" class="mt-8rpx flex gap-6rpx">
+              <view
+                v-for="(pic, picIndex) in item.advancePicUrls.slice(0, 3)"
+                :key="picIndex"
+                class="h-[64px] w-[64px] overflow-hidden rounded-10rpx"
+              >
+                <wd-img
+                  width="100%" height="100%" mode="aspectFill" :src="pic"
+                  @click="previewImage(picIndex, item.advancePicUrls)"
+                />
+              </view>
+            </view>
+          </view>
         </view>
       </view>
 
@@ -329,13 +391,13 @@ defineExpose({
     display: flex;
     align-items: baseline;
     gap: 8rpx;
-    color: #1f2329;
+    color: var(--app-text);
     font-size: 28rpx;
     font-weight: 600;
   }
 
   &__count {
-    color: #8a8f99;
+    color: var(--app-text-3);
     font-size: 22rpx;
     font-weight: 400;
   }
@@ -344,7 +406,7 @@ defineExpose({
     display: flex;
     align-items: center;
     gap: 4rpx;
-    color: #8a8f99;
+    color: var(--app-text-3);
     font-size: 22rpx;
   }
 }
@@ -360,7 +422,7 @@ defineExpose({
   margin-top: 20rpx;
   padding: 20rpx;
   border-radius: 16rpx;
-  background: #f7f8fa;
+  background: var(--app-card-2);
 
   &__rate {
     display: flex;
@@ -386,7 +448,7 @@ defineExpose({
   }
 
   &__rate-label {
-    color: #8a8f99;
+    color: var(--app-text-3);
     font-size: 22rpx;
   }
 
@@ -403,13 +465,13 @@ defineExpose({
   align-items: center;
   justify-content: space-between;
   padding: 10rpx 16rpx;
-  border: 1rpx solid #eef0f3;
+  border: 1rpx solid var(--app-border);
   border-radius: 10rpx;
-  background: #fff;
+  background: var(--app-card);
   transition: transform 120ms ease, opacity 120ms ease;
 
   &__label {
-    color: #5f6673;
+    color: var(--app-text-2);
     font-size: 22rpx;
   }
 
@@ -433,7 +495,7 @@ defineExpose({
   & + & {
     margin-top: 24rpx;
     padding-top: 24rpx;
-    border-top: 1rpx solid #f2f3f5;
+    border-top: 1rpx solid var(--app-border);
   }
 
   &__head {
@@ -459,11 +521,11 @@ defineExpose({
     justify-content: center;
     overflow: hidden;
     border-radius: 50%;
-    background: #f0f2f5;
+    background: var(--app-card-2);
   }
 
   &__avatar-text {
-    color: #8a8f99;
+    color: var(--app-text-3);
     font-size: 24rpx;
     font-weight: 600;
   }
@@ -477,7 +539,7 @@ defineExpose({
 
   &__nickname {
     overflow: hidden;
-    color: #3a3f47;
+    color: var(--app-text);
     font-size: 24rpx;
     font-weight: 500;
     text-overflow: ellipsis;
@@ -491,7 +553,7 @@ defineExpose({
 
   &__time {
     flex: none;
-    color: #a8abb2;
+    color: var(--app-text-3);
     font-size: 20rpx;
     line-height: 32px;
   }
@@ -507,7 +569,7 @@ defineExpose({
     display: -webkit-box;
     overflow: hidden;
     flex: 1;
-    color: #3a3f47;
+    color: var(--app-text);
     font-size: 26rpx;
     line-height: 1.6;
     word-break: break-word;
@@ -527,7 +589,7 @@ defineExpose({
     height: 64px;
     overflow: hidden;
     border-radius: 12rpx;
-    background: #f5f6f8;
+    background: var(--app-card-2);
   }
 
   &__grid-pics {
@@ -542,7 +604,7 @@ defineExpose({
     height: 72px;
     overflow: hidden;
     border-radius: 12rpx;
-    background: #f5f6f8;
+    background: var(--app-card-2);
   }
 
   &__grid-more {
@@ -566,8 +628,8 @@ defineExpose({
   gap: 4rpx;
   margin-top: 24rpx;
   border-radius: 999rpx;
-  background: #f7f8fa;
-  color: #5f6673;
+  background: var(--app-card-2);
+  color: var(--app-text-2);
   font-size: 22rpx;
   transition: opacity 120ms ease;
 
@@ -589,19 +651,19 @@ defineExpose({
     align-items: center;
     justify-content: center;
     border-radius: 50%;
-    background: #f5f6f8;
+    background: var(--app-card-2);
   }
 
   &__title {
     margin-top: 16rpx;
-    color: #3a3f47;
+    color: var(--app-text);
     font-size: 26rpx;
     font-weight: 500;
   }
 
   &__desc {
     margin-top: 6rpx;
-    color: #a8abb2;
+    color: var(--app-text-3);
     font-size: 22rpx;
   }
 }

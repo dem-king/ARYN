@@ -154,7 +154,7 @@ function goCategory() {
     height: 80rpx;
     overflow: hidden;
     border-radius: 14rpx;
-    background: #f5f6f8;
+    background: var(--app-card-2);
 
     &--placeholder {
       display: flex;
@@ -170,7 +170,7 @@ function goCategory() {
 
   &__title {
     overflow: hidden;
-    color: #1f2329;
+    color: var(--app-text);
     font-size: 26rpx;
     font-weight: 600;
     text-overflow: ellipsis;
@@ -179,7 +179,7 @@ function goCategory() {
 
   &__desc {
     margin-top: 6rpx;
-    color: #8a8f99;
+    color: var(--app-text-3);
     font-size: 22rpx;
   }
 

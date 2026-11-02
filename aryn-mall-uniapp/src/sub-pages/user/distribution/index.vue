@@ -5,7 +5,7 @@ import type {
   DistributionWithdrawProgress,
 } from '@/api/distribution/entity'
 import { reactive, ref } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onPageScroll, onShow } from '@dcloudio/uni-app'
 import { useI18n } from 'vue-i18n'
 import {
   getDistributionCenterSummary,
@@ -20,6 +20,9 @@ import {
   getWithdrawStatusClass,
   getWithdrawStatusText,
 } from './presentation'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+
+const { handlePageScroll } = useFrostedNavbar()
 
 definePage({
   name: 'distribution-center',
@@ -188,6 +191,9 @@ onShow(() => {
     globalLoading.close()
   })
 })
+
+// 顶栏磨砂玻璃：字面量注册滚动（小程序按页面源码生成滚动位标记，包进 composable 会静默失效）
+onPageScroll(handlePageScroll)
 </script>
 
 <template>
@@ -393,7 +399,7 @@ onShow(() => {
 
 .card {
   border-radius: 16rpx;
-  background: #fff;
+  background: var(--app-card);
   padding: 28rpx 24rpx;
   margin-bottom: 20rpx;
 }
@@ -411,7 +417,7 @@ onShow(() => {
 .title {
   font-size: 30rpx;
   font-weight: 600;
-  color: #303133;
+  color: var(--app-text);
 }
 
 .stats-grid {
@@ -423,19 +429,19 @@ onShow(() => {
 
 .stats-item {
   border-radius: 12rpx;
-  background: #f7f8fa;
+  background: var(--app-card-2);
   padding: 16rpx;
 }
 
 .label {
   font-size: 22rpx;
-  color: #909399;
+  color: var(--app-text-3);
 }
 
 .value {
   margin-top: 8rpx;
   font-size: 34rpx;
-  color: #303133;
+  color: var(--app-text);
   font-weight: 600;
 }
 
@@ -450,12 +456,12 @@ onShow(() => {
 .invite-text {
   margin-top: 16rpx;
   font-size: 24rpx;
-  color: #606266;
+  color: var(--app-text-2);
 }
 
 .record-item {
   padding: 18rpx 0;
-  border-bottom: 1px solid #f2f2f2;
+  border-bottom: 1px solid var(--app-border);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -472,13 +478,13 @@ onShow(() => {
 
 .record-order {
   font-size: 26rpx;
-  color: #303133;
+  color: var(--app-text);
 }
 
 .record-time {
   margin-top: 8rpx;
   font-size: 22rpx;
-  color: #909399;
+  color: var(--app-text-3);
 }
 
 .record-right {
@@ -499,7 +505,7 @@ onShow(() => {
 .record-status {
   margin-top: 6rpx;
   font-size: 22rpx;
-  color: #909399;
+  color: var(--app-text-3);
 }
 
 .status-pending {
@@ -521,22 +527,22 @@ onShow(() => {
 .form-label {
   margin-bottom: 8rpx;
   font-size: 24rpx;
-  color: #606266;
+  color: var(--app-text-2);
 }
 
 .form-input {
   width: 100%;
   height: 74rpx;
   border-radius: 12rpx;
-  background: #f7f8fa;
+  background: var(--app-card-2);
   padding: 0 20rpx;
   box-sizing: border-box;
   font-size: 26rpx;
-  color: #303133;
+  color: var(--app-text);
 }
 
 .placeholder {
-  color: #c0c4cc;
+  color: var(--app-text-3);
 }
 
 .submit-btn {
@@ -558,7 +564,7 @@ onShow(() => {
   padding: 24rpx 0 8rpx;
   text-align: center;
   font-size: 26rpx;
-  color: #c0c4cc;
+  color: var(--app-text-3);
 }
 
 .load-more-btn {
@@ -566,8 +572,8 @@ onShow(() => {
   height: 72rpx;
   margin-top: 12rpx;
   border-radius: 8rpx;
-  background: #f2f3f5;
-  color: #606266;
+  background: var(--app-card-2);
+  color: var(--app-text-2);
   font-size: 26rpx;
   line-height: 72rpx;
 }

@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
+import { onLoad, onPageScroll } from '@dcloudio/uni-app'
 import { useI18n } from 'vue-i18n'
 import { editObj } from '@/sub-pages/api/user/user'
 import { uploadFile, uploadImg } from '@/api/upms/file'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+
+const { handlePageScroll } = useFrostedNavbar()
 
 definePage({
   name: 'user-setting',
@@ -91,6 +94,9 @@ function edit() {
       }
     })
 }
+
+// 顶栏磨砂玻璃：字面量注册滚动（小程序按页面源码生成滚动位标记，包进 composable 会静默失效）
+onPageScroll(handlePageScroll)
 </script>
 
 <template>
@@ -166,8 +172,8 @@ function edit() {
                 height: 160rpx;
                 border-radius: 80rpx;
                 overflow: hidden;
-                background-color: #f5f5f5;
-                border: 1rpx dashed #dcdcdc;
+                background-color: var(--app-card-2);
+                border: 1rpx dashed var(--app-border);
                 padding: 0; // 重置button默认样式
                 margin: 0; // 重置button默认样式
                 line-height: 1; // 重置button默认样式
@@ -206,7 +212,7 @@ function edit() {
 
     :deep(.wd-form) {
         margin-top: 20rpx;
-        background: #ffffff;
+        background: var(--app-card);
         border-radius: 16rpx;
     }
 

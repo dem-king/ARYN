@@ -7,6 +7,7 @@ import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.promotion.api.dto.SeckillOrderDTO;
 import com.aryn.cloud.promotion.service.ISeckillActivityService;
 import com.aryn.cloud.promotion.service.ISeckillOrderService;
+import com.aryn.cloud.promotion.service.ISeckillScheduleService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -25,10 +26,22 @@ public class AppSeckillController {
 
 	private final ISeckillOrderService seckillOrderService;
 
-	@Operation(summary = "秒杀场次列表")
+	private final ISeckillScheduleService seckillScheduleService;
+
+	@Operation(summary = "秒杀场次列表（今日剩余 + 明日预告）")
 	@GetMapping("/sessions")
 	public Result getSessions() {
-		return Result.success(seckillActivityService.getActiveSessions());
+		// 公开接口：未登录也能逛会场；登录态存在时顺带回填提醒订阅状态
+		String mallUserId = null;
+		try {
+			if (StpUtil.isLogin()) {
+				mallUserId = StpUtil.getLoginIdAsString();
+			}
+		}
+		catch (Exception ignored) {
+			// 无 token / token 失效：按游客处理，不阻断会场
+		}
+		return Result.success(seckillActivityService.getActiveSessions(mallUserId));
 	}
 
 	@Operation(summary = "场次商品列表")
@@ -41,6 +54,30 @@ public class AppSeckillController {
 	@GetMapping("/goods/{skuId}")
 	public Result getGoodsSeckillInfo(@PathVariable("skuId") String skuId) {
 		return Result.success(seckillActivityService.getGoodsSeckillInfo(skuId));
+	}
+
+	@SaCheckLogin
+	@Operation(summary = "订阅场次开抢提醒")
+	@PostMapping("/subscribe/{sessionId}")
+	public Result subscribe(@PathVariable("sessionId") String sessionId) {
+		seckillScheduleService.subscribe(sessionId, SecurityUtils.getUser().getUserId());
+		return Result.success(true);
+	}
+
+	@SaCheckLogin
+	@Operation(summary = "取消场次开抢提醒")
+	@DeleteMapping("/subscribe/{sessionId}")
+	public Result unsubscribe(@PathVariable("sessionId") String sessionId) {
+		seckillScheduleService.unsubscribe(sessionId, SecurityUtils.getUser().getUserId());
+		return Result.success(true);
+	}
+
+	@SaCheckLogin
+	@Operation(summary = "查询场次开抢提醒订阅状态")
+	@GetMapping("/subscribe/{sessionId}")
+	public Result getSubscribeStatus(@PathVariable("sessionId") String sessionId) {
+		return Result.success(seckillScheduleService.isSubscribed(
+				sessionId, SecurityUtils.getUser().getUserId()));
 	}
 
 	@SaCheckLogin

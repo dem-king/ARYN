@@ -20,6 +20,10 @@
 
 set -uo pipefail
 
+# 国内网络下 IPv6 常导致 wrangler 连 dash.cloudflare.com 超时（表现为“未登录/令牌无法刷新”），
+# 强制 Node 优先 IPv4，保证 launchd 自动更新 Pages 代理时能正常发布。
+export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--dns-result-order=ipv4first"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 MOBILE_DIR="${ROOT_DIR}/aryn-mall-uniapp"

@@ -9,12 +9,15 @@ import { LOGIN_PATH } from '@vben/constants';
 import { preferences } from '@vben/preferences';
 import { resetAllStores, useAccessStore, useUserStore } from '@vben/stores';
 
-import { ElNotification } from 'element-plus';
+import { ElMessage, ElNotification } from 'element-plus';
 import { defineStore } from 'pinia';
 
 import { getUserInfoApi, loginApi, logoutApi, mobileLoginApi } from '#/api';
 import { sendCode } from '#/api/upms/sms';
 import { $t } from '#/locales';
+
+import { useSessionStore } from './session';
+import { broadcastSessionRestored } from './session-sync';
 
 /**
  * 从请求异常中提取可安全记录的文本。
@@ -39,17 +42,48 @@ function getSafeErrorMessage(error: unknown): string {
 }
 
 // 退出请求是否在途。退出改走 requestClient 后，401 响应会触发
-// authenticateResponseInterceptor 的 doReAuthenticate → authStore.logout()；
-// 若旧 token 已失效，新的退出请求仍返回 401，不设标记会形成
-// logout → 401 → logout 的无限递归。重入时跳过接口请求、只做本地清理。
+// authenticateResponseInterceptor 的 doReAuthenticate；若旧 token 已失效，
+// 新的退出请求仍返回 401，不设标记会形成 logout → 401 → logout 的无限递归。
+// 重入时跳过接口请求、只做本地清理。
 let serverLogoutPending = false;
+
+/** 是否有用户主动发起的退出请求在途（请求层据此短路 401 重认证）。 */
+export function isServerLogoutPending() {
+  return serverLogoutPending;
+}
 
 export const useAuthStore = defineStore('auth', () => {
   const accessStore = useAccessStore();
   const userStore = useUserStore();
+  const sessionStore = useSessionStore();
   const router = useRouter();
 
   const loginLoading = ref(false);
+
+  /**
+   * 会话失效弹窗内的原地重登成功后的收尾。
+   *
+   * <p>不跳转、保留当前页面现场（表单数据还在），只清失效态 + 关弹窗 +
+   * 提示用户重试刚才因 401 失败的操作（失败的请求不会自动重放，避免重复提交）。</p>
+   *
+   * <p>例外：刷新页面后首个 401 时初始导航会被守卫中断、BasicLayout 从未挂载，
+   * 此时当前路由仍未解析（`matched` 为空），原地无法恢复页面，需要整页重载——
+   * 新 token 已持久化，重载后守卫生效、回到用户原来访问的页面。</p>
+   */
+  async function handleSessionRestored() {
+    // 二期多标签页：reset 之前广播，让其它标签页整页重载（token 已持久化）
+    broadcastSessionRestored();
+    // 关闭弹窗 + 重置会话失效状态机
+    accessStore.setLoginExpired(false);
+    sessionStore.reset();
+
+    if (router.currentRoute.value.matched.length === 0) {
+      window.location.reload();
+      return;
+    }
+
+    ElMessage.success($t('sessionInvalid.reloginSuccess'));
+  }
 
   /**
    * 异步处理登录操作
@@ -77,21 +111,23 @@ export const useAuthStore = defineStore('auth', () => {
         userStore.setUserInfo(userInfo);
 
         if (accessStore.loginExpired) {
-          accessStore.setLoginExpired(false);
+          // 会话失效弹窗内的原地重登：关闭弹窗、保留当前路由，不跳转；
+          // 恢复提示已由 handleSessionRestored 用轻量 ElMessage 给出，不再叠加登录成功通知
+          await handleSessionRestored();
         } else {
           onSuccess
             ? await onSuccess?.()
             : await router.push(
                 userInfo.homePath || preferences.app.defaultHomePath,
               );
-        }
 
-        if (userInfo?.realName) {
-          ElNotification({
-            message: `${$t('authentication.loginSuccessDesc')}:${userInfo?.realName}`,
-            title: $t('authentication.loginSuccess'),
-            type: 'success',
-          });
+          if (userInfo?.realName) {
+            ElNotification({
+              message: `${$t('authentication.loginSuccessDesc')}:${userInfo?.realName}`,
+              title: $t('authentication.loginSuccess'),
+              type: 'success',
+            });
+          }
         }
       }
     } finally {
@@ -122,21 +158,23 @@ export const useAuthStore = defineStore('auth', () => {
         userStore.setUserInfo(userInfo);
 
         if (accessStore.loginExpired) {
-          accessStore.setLoginExpired(false);
+          // 会话失效弹窗内的原地重登：关闭弹窗、保留当前路由，不跳转；
+          // 恢复提示已由 handleSessionRestored 用轻量 ElMessage 给出，不再叠加登录成功通知
+          await handleSessionRestored();
         } else {
           onSuccess
             ? await onSuccess?.()
             : await router.push(
                 userInfo.homePath || preferences.app.defaultHomePath,
               );
-        }
 
-        if (userInfo?.realName) {
-          ElNotification({
-            message: `${$t('authentication.loginSuccessDesc')}:${userInfo?.realName}`,
-            title: $t('authentication.loginSuccess'),
-            type: 'success',
-          });
+          if (userInfo?.realName) {
+            ElNotification({
+              message: `${$t('authentication.loginSuccessDesc')}:${userInfo?.realName}`,
+              title: $t('authentication.loginSuccess'),
+              type: 'success',
+            });
+          }
         }
       }
     } finally {
@@ -154,8 +192,11 @@ export const useAuthStore = defineStore('auth', () => {
     await sendCode(type, phone, captchaVerification);
   }
   async function logout(redirect: boolean = true) {
+    // 会话已判定失效（被顶下线/过期/被踢）时跳过服务端退出：
+    // 带失效 token 打 /auth/token/logout 只会再吃一个 401，并再次触发会话失效分流。
+    const sessionInvalid = sessionStore.invalid;
     try {
-      if (!serverLogoutPending) {
+      if (!serverLogoutPending && !sessionInvalid) {
         serverLogoutPending = true;
         try {
           await logoutApi();
@@ -173,6 +214,7 @@ export const useAuthStore = defineStore('auth', () => {
     } finally {
       // 退出时删除选中租户ID
       localStorage.removeItem('switch-tenant-id');
+      sessionStore.reset();
       resetAllStores();
       accessStore.setLoginExpired(false);
 

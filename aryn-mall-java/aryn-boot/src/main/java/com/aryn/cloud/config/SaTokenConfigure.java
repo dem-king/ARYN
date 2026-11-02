@@ -2,13 +2,17 @@
 package com.aryn.cloud.config;
 
 import cn.dev33.satoken.context.SaHolder;
+import cn.dev33.satoken.exception.NotLoginException;
 import cn.dev33.satoken.filter.SaServletFilter;
 import cn.dev33.satoken.interceptor.SaInterceptor;
 import cn.dev33.satoken.router.SaHttpMethod;
 import cn.dev33.satoken.router.SaRouter;
 import cn.dev33.satoken.stp.StpUtil;
 import cn.dev33.satoken.util.SaResult;
+import com.aryn.cloud.common.core.enums.SessionInvalidReason;
 import com.aryn.cloud.common.core.properties.CorsProperties;
+import com.aryn.cloud.common.core.util.SessionInvalidResponse;
+import com.aryn.cloud.common.security.support.SessionInvalidSupport;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
@@ -54,6 +58,15 @@ public class SaTokenConfigure implements WebMvcConfigurer {
 
 			// 异常处理函数：每次认证函数发生异常时执行此函数
 			.setError(e -> {
+				// 会话失效：下发机器可读原因（+ 被顶下线的新设备信息），msg 为脱敏固定文案，
+				// 不再回显 Sa-Token 异常 message 里可能拼上的完整 token。
+				if (e instanceof NotLoginException notLoginException) {
+					SessionInvalidReason reason = SessionInvalidReason.fromSaTokenType(notLoginException.getType());
+					// 注意：不能返回 SaResult —— 过滤器用 String.valueOf() 写响应，
+					// SaResult#toString 不会把嵌套 data 序列化成 JSON（会输出 {reason=NOT_TOKEN}）。
+					SaHolder.getResponse().setHeader("Content-Type", SessionInvalidResponse.CONTENT_TYPE_JSON);
+					return SessionInvalidResponse.toJson(reason, SessionInvalidSupport.resolveData(reason));
+				}
 				return SaResult.error(e.getMessage()).setCode(HttpStatus.UNAUTHORIZED.value());
 			})
 

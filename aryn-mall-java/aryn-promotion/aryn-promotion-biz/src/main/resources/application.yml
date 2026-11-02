@@ -6,6 +6,14 @@ decoration:
     # 装修发布审批开关：true 时提交发布申请后需审批通过才上线；Nacos 中同名配置可覆盖
     approval-required: false
 
+# 秒杀开抢提醒：template-id 为空时 C 端隐藏提醒入口，Job 只落库不发送。
+aryn:
+  seckill:
+    reminder:
+      enabled: ${SECKILL_REMINDER_ENABLED:true}
+      template-id: ${WECHAT_SUBSCRIBE_TEMPLATE_SECKILL_START:}
+      offset-minutes: ${SECKILL_REMINDER_OFFSET_MINUTES:10}
+
 xxl:
   job:
     port: 9010

@@ -10,8 +10,8 @@ import { describe, expect, it } from 'vitest'
  *
  * 1. **静置外观回归**：常驻层是页面级固定元素，一旦在 scrollTop=0 就画出底色，
  *    首屏「搜索框直接坐在区块渐变上」的设计稿观感就被导航底色糊掉了；材质必须
- *    初始完全透明、随滚动「成形」。占位实例必须只保留布局高度（visibility:hidden），
- *    否则同屏会出现两条搜索框。
+ *    初始完全透明、开始滚动后与导航栏一起一步到位。占位实例必须只保留布局高度
+ *    （visibility:hidden），否则同屏会出现两条搜索框。
  *
  * 2. **滚动性能回归**：滚动值只能由常驻层组件自己 inject 消费，绝不能经过
  *    DiyPage 下钻——否则滚动时整棵装修楼层重渲染，低端机直接掉帧
@@ -32,7 +32,6 @@ function source(relativePath: string) {
 
 const DIY_RENDERER = 'src/components/diy/index.vue'
 const SEARCH_BAR = 'src/components/diy/diy-search-bar/index.vue'
-const NAVBAR_SCROLL = 'src/composables/useDiyNavbarScroll.ts'
 const NAVBAR = 'src/components/hr-navbar/index.vue'
 
 describe('装修渲染器：常驻搜索框的识别与页面级渲染', () => {
@@ -93,32 +92,31 @@ describe('常驻搜索栏接管头部下沿', () => {
 describe('搜索栏组件：常驻层材质与静置零变化', () => {
   const code = source(SEARCH_BAR)
 
-  it('只由常驻层自己 inject 页面滚动值，并复用导航滚动渐显解析', () => {
-    expect(code).toContain('inject(DIY_NAVBAR_RAW_SCROLL_KEY, null)')
+  it('只由常驻层自己 inject 页面滚动状态，并复用导航滚动解析', () => {
     expect(code).toContain('inject(DIY_NAVBAR_SCROLL_KEY, null)')
+    expect(code).not.toContain('DIY_NAVBAR_RAW_SCROLL_KEY')
     expect(code).toContain('resolveNavigationScrollAppearance')
     expect(code).toContain('materialScrollTop.value')
   })
 
-  it('材质跟随逐帧原始滚动值、不加 CSS 时间过渡（用户反馈「比导航栏慢一步」的根因）', () => {
-    // 8px 量化值 + transition: opacity .18s 会让大面积色块比导航栏晚 ~180ms 到位；
-    // 材质层必须直接消费页面逐帧原始值，且不得再挂时间过渡。
-    expect(source(NAVBAR_SCROLL)).toContain('DIY_NAVBAR_RAW_SCROLL_KEY')
-    expect(source(NAVBAR_SCROLL)).toContain(
-      'provide(DIY_NAVBAR_RAW_SCROLL_KEY, rawScrollTop)',
-    )
-    expect(code).toContain('pageRawScrollTop?.value ?? pageScrollTop?.value ?? 0')
+  it('材质与导航栏同一条 0/1 滚动状态、不加 CSS 时间过渡（用户反馈「比导航栏慢一步」的根因）', () => {
+    // 一步切换后常驻层只需要布尔状态：开始滚动即与导航栏一起到位；
+    // 任何时间过渡或按距离「成形」都会让头部被切成两段。
+    expect(code).toContain('pageScrolled?.value')
+    expect(code).toContain('props.pinned && pageScrolled')
     expect(code).not.toMatch(/transition:\s*opacity/)
-    // 起步「成形」距离收紧到一个量化步，避免起步阶段比导航栏慢半拍
-    expect(code).toContain('MATERIALIZE_DISTANCE = 8')
+    expect(code).not.toContain('MATERIALIZE_DISTANCE')
   })
 
-  it('静置完全透明、随滚动「成形」，避免首屏被导航底色糊住', () => {
-    expect(code).toContain('MATERIALIZE_DISTANCE')
-    expect(code).toContain('materialize')
-    // 材质两层不透明度 = 渐显进度 × 成形进度
-    expect(code).toContain('material.value.baseOpacity * materialize.value')
-    expect(code).toContain('material.value.surfaceOpacity * materialize.value')
+  it('静置完全透明、开始滚动一步到位，避免首屏被导航底色糊住', () => {
+    expect(code).toContain('materialScrollTop')
+    expect(code).toContain('materialized')
+    // 静置时解析结果给的是「起始外观」（baseOpacity=1），必须再乘 0/1 材质开关，
+    // 否则会把导航起始底色糊到首屏搜索框区域
+    expect(code).toContain('const materialVisible = computed')
+    expect(code).toContain('material.value.baseOpacity * materialVisible.value')
+    expect(code).toContain('material.value.surfaceOpacity * materialVisible.value')
+    expect(code).toContain('material.value.hairlineOpacity * materialVisible.value')
   })
 
   it('材质与导航栏同源：复用 CSS 变量 + 毛玻璃双前缀', () => {
@@ -127,7 +125,7 @@ describe('搜索栏组件：常驻层材质与静置零变化', () => {
     expect(code).toContain('search-bar-material__base')
     expect(code).toContain('search-bar-material__surface')
     expect(code).toContain('search-bar-material__hairline')
-    expect(code).toContain('-webkit-backdrop-filter')
+    expect(code).toContain('-WEBKIT-backdrop-filter')
   })
 
   it('pinned 用页面级 fixed 且压在导航栏之下（z-index < 500）', () => {

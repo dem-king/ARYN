@@ -48,23 +48,41 @@ describe('装修页滚动接线契约', () => {
     }
   })
 
-  it('滚动值以 provide 暴露、8px 量化，并用 onShow 补同步', () => {
+  it('滚动状态以 provide 暴露、只在顶部/已滚动翻转时更新', () => {
     const code = source(NAVBAR_SCROLL)
     expect(code).toContain('provide(DIY_NAVBAR_SCROLL_KEY')
     expect(code).toContain('shallowRef')
-    // 不量化会让导航每帧重渲染；8px 量化后 140px 渐显全程最多约 18 次更新
-    expect(code).toMatch(/SCROLL_QUANTUM = 8/)
-    // Tab 切回 / 页面返回不产生滚动事件，必须用 viewport scrollOffset 补一次
+    // 一步切换只需要「是否已滚动」两态：同值不赋值，滚动过程中不产生重渲染
+    expect(code).toContain('toScrolledState')
+    expect(code).toContain('scrolled.value = next')
+    expect(code).not.toContain('SCROLL_QUANTUM')
+  })
+
+  it('切回本页的视口校准必须延后，且隐藏期间的滚动不写状态', () => {
+    const code = source(NAVBAR_SCROLL)
+    // onShow 时刻本页可能还没露出（H5 为 display:none）：立刻查视口读到的是上一页
+    // 的 0，会把仍停在原滚动位置的页面误判成顶部。校准必须挂在定时器上，不能
+    // 在 onShow 回调里直接调 syncFromViewport()
     expect(code).toContain('selectViewport')
     expect(code).toContain('onShow')
+    expect(code).toMatch(/onShow\(\(\) => \{[\s\S]*?setTimeout\(syncFromViewport/)
+    expect(code).not.toMatch(/onShow\(\(\) => \{\s*syncFromViewport\(\)/)
+    // 隐藏期间（切 Tab 时窗口回顶）的滚动事件不属于本页，必须由 hidden 守卫拦掉
+    expect(code).toContain('onHide')
+    expect(code).toMatch(/function handlePageScroll[\s\S]*?if \(hidden\)/)
+    // 视口补读只允许单向补成「已滚动」：读到 0 不能把状态打回顶部，否则切回时
+    // 仍停在原滚动位置的页面又会被打回起始外观（本次缺陷的根因）
+    const viewportSync = code.slice(code.indexOf('function syncFromViewport'), code.indexOf('onHide('))
+    expect(viewportSync).toContain('if (toScrolledState(value))')
+    expect(viewportSync).not.toContain('apply(toScrolledState(value))')
   })
 })
 
 describe('装修渲染器不消费滚动状态', () => {
-  it('不 inject 滚动 ref、不把 scrollTop 当 prop 往下钻', () => {
+  it('不 inject 滚动 ref、不把滚动状态当 prop 往下钻', () => {
     const code = source(DIY_RENDERER)
-    // 只判断真实取值/注入动作：注释里提到 scrollTop 是说明为什么不该消费它
-    expect(code).not.toContain('scrollTop.value')
+    // 只判断真实取值/注入动作：注释里提到滚动状态是说明为什么不该消费它
+    expect(code).not.toContain('scrolled.value')
     expect(code).not.toMatch(/\binject\(/)
     expect(code).not.toContain('DIY_NAVBAR_SCROLL_KEY')
     expect(code).not.toContain('useDiyNavbarScroll')
@@ -98,8 +116,9 @@ describe('hr-navbar 滚动渐显渲染契约', () => {
     expect(code).toMatch(/v-if="fadeEnabled"[\s\S]*?hr-navbar-bg/)
     expect(code).toMatch(/\.hr-navbar-bg \{[\s\S]*?z-index: 499/)
     expect(code).toMatch(/\.hr-navbar-bg \{[\s\S]*?pointer-events: none/)
-    // iOS 18 以下只认 -webkit-backdrop-filter；不支持时仍是不透明度 .86 的底色层
-    expect(code).toContain('-webkit-backdrop-filter')
+    // 大写 WEBKIT 写法避开 autoprefixer 清理；iOS 18 以下只认带前缀的 backdrop-filter
+    // 不支持时仍是不透明度 .86 的底色层
+    expect(code).toContain('-WEBKIT-backdrop-filter')
     // 高度 = 状态栏 + 44px，与 wd-navbar 占位同口径
     expect(code).toContain('statusBarHeight + 44')
   })
@@ -110,6 +129,15 @@ describe('hr-navbar 滚动渐显渲染契约', () => {
     expect(code).toContain('lastFrontColor')
     expect(code).toContain('try {')
     expect(code).toContain('statusBarFrontColor')
+    // 微信 backgroundColor 必填：只传 frontColor 会在每次进页面时抛
+    // 「parameter.backgroundColor should be String instead of Undefined」。
+    // fade 模式下原生导航条不可见，但参数仍要合法 hex，且必须经归一化
+    // （页面起始底色可能是 CSS 变量 / rgb()）。
+    const normalized = code.indexOf('toNativeNavigationBarHexColor(')
+    const call = code.indexOf('uni.setNavigationBarColor')
+    expect(normalized).toBeGreaterThan(-1)
+    expect(normalized).toBeLessThan(call)
+    expect(code.slice(call)).toContain('backgroundColor:')
   })
 })
 
@@ -127,6 +155,9 @@ describe('状态栏归属不冲突', () => {
     expect(code.slice(guard, setColor)).toContain('return')
     // 非 fade 的 frontColor 必须来自解析后的外观，而不是原始 textColor
     expect(code).toContain('normalizeNavigationTextColor(navigation.textColor)')
+    // 同一调用里的 backgroundColor 也不能直接透传原始配置：微信只收 hex，
+    // 空串 / 脏数据会换一种参数错误继续刷控制台
+    expect(code).toContain('toNativeNavigationBarHexColor(navigation.backgroundColor)')
   })
 })
 
@@ -161,6 +192,6 @@ describe('吸顶 Tab 栏与顶栏共用磨砂材质', () => {
     expect(tabs).toContain('var(--diy-nav-surface-blur, none)')
     expect(tabs).toContain('var(--diy-nav-hairline, #f2f3f5)')
     // 与顶栏一致的 iOS 前缀兜底
-    expect(tabs).toContain('-webkit-backdrop-filter')
+    expect(tabs).toContain('-WEBKIT-backdrop-filter')
   })
 })

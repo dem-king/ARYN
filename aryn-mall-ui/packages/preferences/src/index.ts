@@ -9,9 +9,13 @@ import type { DeepPartial } from '@vben-core/typings';
  */
 
 function defineOverridesPreferences(preferences: DeepPartial<Preferences>) {
+  // 先铺调用方（app 级 preferences.ts）的 app 覆盖，再补团队统一默认值。
+  // 不能直接整体替换 app 对象：否则调用方传入的 app.* 会被静默丢弃
+  // （如管理端一期依赖的 loginExpiredMode: 'modal'）。
   preferences.app = {
     accessMode: 'backend',
     name: 'Aryn Mall',
+    ...preferences.app,
   };
   preferences.theme = {
     mode: 'light',

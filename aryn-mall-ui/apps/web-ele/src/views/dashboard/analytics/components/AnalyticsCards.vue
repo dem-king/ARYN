@@ -106,7 +106,7 @@ const cards = computed(
 </script>
 
 <template>
-  <div class="mb-4 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+  <div class="mb-4 grid grid-cols-[repeat(auto-fit,minmax(210px,1fr))] gap-4">
     <MetricCard
       v-for="card in cards"
       :key="card.title"

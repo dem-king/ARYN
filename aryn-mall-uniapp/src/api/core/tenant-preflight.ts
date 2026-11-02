@@ -1,4 +1,6 @@
 import { translate } from '@/locales'
+import type { SessionInvalidPayload } from '@/utils/session-invalid'
+import { extractSessionInvalidPayload } from '@/utils/session-invalid'
 import { buildApiUrl } from './api-base-url'
 import { parseOpenBoot, rewriteBootUrl } from './boot-url'
 
@@ -8,6 +10,10 @@ import { parseOpenBoot, rewriteBootUrl } from './boot-url'
  * 不 import alova/store，避免 instance→guard→API→instance 循环；
  * 错误只返回类型化结果给守卫/启动界面，不触碰会清 token 的全局响应处理器。
  * binding 不携带任何 token；session 显式传入本次待验证 token。
+ *
+ * 401 的失效原因（reason/invalidAt/device）在传输层顺手解析出来挂到错误对象上：
+ * preflight 是原始 uni.request，绕过 alova 响应处理器，不解析的话最后一级
+ * 「会话租户校验」的 401 就只能降级成无原因文案（契约 §3 允许降级，但能拿到就不该丢）。
  */
 
 export type TenantPreflightEndpoint = '/auth/toc-token/tenant-binding' | '/auth/toc-token/tenant-session'
@@ -43,6 +49,9 @@ export class TenantPreflightError extends Error {
   /** 仅 session 检查携带：便于调用方比对"迟到 401 是否属于本次校验的 token"。 */
   checkedToken?: string
 
+  /** 401 响应体里解析出的失效原因（reason/invalidAt/device）；解析不到为空 payload。 */
+  invalidPayload: SessionInvalidPayload
+
   constructor(options: {
     type: TenantPreflightErrorType
     message: string
@@ -50,6 +59,7 @@ export class TenantPreflightError extends Error {
     statusCode?: number
     scope?: TenantPreflightScope
     checkedToken?: string
+    invalidPayload?: unknown
   }) {
     super(options.message)
     this.name = 'TenantPreflightError'
@@ -58,6 +68,7 @@ export class TenantPreflightError extends Error {
     this.statusCode = options.statusCode ?? 0
     this.scope = options.scope
     this.checkedToken = options.checkedToken
+    this.invalidPayload = extractSessionInvalidPayload(options.invalidPayload)
   }
 }
 
@@ -99,6 +110,8 @@ function request<T>(options: PreflightOptions): Promise<T> {
             endpoint: options.endpoint,
             statusCode,
             scope: options.scope,
+            // 网关直接用 HTTP 401 表达时，原因同样在响应体 data 里
+            invalidPayload: result.data,
           }))
           return
         }
@@ -111,6 +124,7 @@ function request<T>(options: PreflightOptions): Promise<T> {
             endpoint: options.endpoint,
             statusCode,
             scope: options.scope,
+            invalidPayload: body,
           }))
           return
         }

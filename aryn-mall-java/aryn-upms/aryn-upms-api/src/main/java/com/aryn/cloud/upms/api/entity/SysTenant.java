@@ -42,6 +42,9 @@ public class SysTenant extends Model<SysTenant> {
 	@Schema(description = "业务模式：1综合（个人+船供并存） 2纯零售")
 	private String businessMode;
 
+	@Schema(description = "租户类型：1平台租户（长期有效） 2普通租户")
+	private String tenantType;
+
 	@Schema(description = "状态：0.正常；1.停用；")
 	@NotBlank(message = "状态不能为空")
 	private String status;
@@ -55,7 +58,7 @@ public class SysTenant extends Model<SysTenant> {
 	@Schema(description = "授权开始时间")
 	private LocalDateTime authBeginTime;
 
-	@Schema(description = "授权结束时间")
+	@Schema(description = "授权结束时间；为空表示长期有效")
 	private LocalDateTime authEndTime;
 
 	@TableField(fill = FieldFill.INSERT)

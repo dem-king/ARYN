@@ -43,6 +43,8 @@ export default {
     frequentStats: '近90天购买 {qty} 件 / {count} 次',
     buyAgain: '再来一份',
     frequentEmpty: '暂无常购商品，下单后自动统计',
+    frequentGuestTip: '登录后查看常购清单',
+    frequentGoLogin: '去登录',
 
     // 船供选货
     shipSupplyTitle: '船供采购',

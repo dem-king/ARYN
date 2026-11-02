@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { onLoad, onUnload } from '@dcloudio/uni-app'
+import { onLoad, onPageScroll, onUnload } from '@dcloudio/uni-app'
 import { computed, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getByOrderNo, orderPrepay } from '@/api/order/orderInfo'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
 import { useGlobalLoading } from '@/composables/useGlobalLoading'
 import { prepay } from '@/sub-pages/utils/pay'
 import { DEFAULT_PAY_TIMEOUT_MINUTES } from '@/sub-pages/utils/pay-timeout'
+
+const { handlePageScroll } = useFrostedNavbar()
 
 definePage({
   name: 'order-pay',
@@ -140,6 +143,9 @@ function buildPrepayParams(orderNo: string, paymentType: PaymentType): PrepayPar
 
   return params
 }
+
+// 顶栏磨砂玻璃：字面量注册滚动（小程序按页面源码生成滚动位标记，包进 composable 会静默失效）
+onPageScroll(handlePageScroll)
 </script>
 
 <template>
@@ -207,7 +213,7 @@ function buildPrepayParams(orderNo: string, paymentType: PaymentType): PrepayPar
 
 <style lang="scss" scoped>
 .cashier-container {
-  background: #fff;
+  background: var(--app-card);
   box-sizing: border-box;
   padding: 20rpx 20rpx 60rpx;
 }
@@ -232,24 +238,24 @@ function buildPrepayParams(orderNo: string, paymentType: PaymentType): PrepayPar
 }
 .cashier-tip {
   margin-top: 20rpx;
-  color: #999;
+  color: var(--app-text-3);
   font-size: 26rpx;
 }
 .order-no {
   margin-top: 8rpx;
-  color: #666;
+  color: var(--app-text-2);
   font-size: 22rpx;
 }
 .cashier-card {
   margin-top: 20rpx;
-  background: #fff;
+  background: var(--app-card);
   border-radius: 16rpx;
   box-shadow: 0 8rpx 24rpx rgba(0,0,0,0.06);
   padding: 16rpx 20rpx;
 }
 .card-title {
   font-size: 26rpx;
-  color: #333;
+  color: var(--app-text);
   font-weight: 600;
   padding: 8rpx 0 16rpx;
 }

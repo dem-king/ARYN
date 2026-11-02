@@ -32,6 +32,9 @@ public class AppSeckillGoodsVO implements Serializable {
 	@Schema(description = "商品名称")
 	private String goodsName;
 
+	@Schema(description = "商品子标题（未配置或与名称相同时 C 端隐藏）")
+	private String subTitle;
+
 	@Schema(description = "商品图片")
 	private String goodsImage;
 

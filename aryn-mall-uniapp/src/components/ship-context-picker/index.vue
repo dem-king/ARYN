@@ -330,10 +330,15 @@ function submitDeclare() {
 
 <template>
   <view v-if="modelValue">
-    <!-- 遮罩：点空白处关闭 -->
+    <!--
+      遮罩：点空白处关闭。
+      999/1000 必须压过玻璃 tabBar（H5 内置与小程序自绘均为 998）：
+      本弹层会在购物车/首页工作台等 tab 页打开，低于 998 时弹层底部
+      （申报操作区、安全区留白）会被底栏盖住（uni.hideTabBar 在 custom 模式不生效）。
+    -->
     <view
       class="fixed bottom-0 left-0 right-0 top-0"
-      style="z-index: 900; background: rgba(0, 0, 0, 0.45)"
+      style="z-index: 999; background: rgba(0, 0, 0, 0.45)"
       @tap="close"
     />
 
@@ -341,7 +346,7 @@ function submitDeclare() {
     <view
       class="fixed bottom-0 left-0 right-0 rounded-t-24rpx bg-white"
       style="
-        z-index: 901;
+        z-index: 1000;
         max-height: 80vh;
         display: flex;
         flex-direction: column;
@@ -566,8 +571,8 @@ function submitDeclare() {
             标签行放在默认插槽里：with-cell 保持默认 true 时，插槽外包着
             `@click="open"` 的块级 view 占满整行，所以整行都是命中区域。
             必须 root-portal —— 申报表单嵌在 scroll-view 里，小程序端 fixed 元素
-            会被 scroll-view 裁掉；z-index 抬到 1000 才压得住本弹层（900/901）
-            与 H5 原生 tabBar（998）。
+            会被 scroll-view 裁掉；z-index 抬到 1002 才压得住本弹层面板（1000）
+            与玻璃 tabBar（998）。
             注意 with-cell 千万别传 false：库内 `<template v-if="withCell">` 把
             默认插槽分支也包在里面，传 false 连触发区一起不渲染（1.14.0 实测）。
           -->
@@ -580,7 +585,7 @@ function submitDeclare() {
             :default-time="declareDefaultTime"
             hide-second
             root-portal
-            :z-index="1000"
+            :z-index="1002"
           >
             <view
               class="w-full flex items-center"
@@ -612,7 +617,7 @@ function submitDeclare() {
             :default-time="declareDefaultTime"
             hide-second
             root-portal
-            :z-index="1000"
+            :z-index="1002"
           >
             <view class="w-full flex items-center" style="min-height: 96rpx">
               <text class="w-170rpx text-26rpx">

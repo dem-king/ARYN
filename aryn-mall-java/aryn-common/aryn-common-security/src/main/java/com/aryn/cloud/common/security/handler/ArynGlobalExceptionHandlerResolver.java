@@ -5,7 +5,9 @@ import cn.dev33.satoken.exception.NotLoginException;
 import cn.dev33.satoken.exception.NotPermissionException;
 import cn.dev33.satoken.exception.NotRoleException;
 import cn.hutool.core.util.StrUtil;
+import com.aryn.cloud.common.core.enums.SessionInvalidReason;
 import com.aryn.cloud.common.core.util.Result;
+import com.aryn.cloud.common.security.support.SessionInvalidSupport;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.validation.BindException;
@@ -105,34 +107,22 @@ public class ArynGlobalExceptionHandlerResolver {
 
 	/**
 	 * （拦截项目中的NotLoginException异常）
-	 * @param nle
+	 *
+	 * <p>历史实现只按场景值返回中文 msg、且 code 固定为 1（与过滤器分支的 401 不一致），
+	 * 前端因此"看着像登录态还活着"。现在统一为 {@code code=401 + data.reason}，与
+	 * boot/cloud 过滤器出口同一份契约；msg 使用脱敏固定文案，不再回显 token。</p>
+	 *
+	 * @param nle 未登录异常
 	 * @author 雨滴kian
 	 * @date 2022/6/28
 	 * @return: com.aryn.cloud.common.core.util.Result
 	 */
 	@ExceptionHandler(NotLoginException.class)
 	public Result handlerNotLoginException(NotLoginException nle) {
-		// 判断场景值，定制化异常信息
-		String message = "";
-		if (nle.getType().equals(NotLoginException.NOT_TOKEN)) {
-			message = "未提供token";
-		}
-		else if (nle.getType().equals(NotLoginException.INVALID_TOKEN)) {
-			message = "token无效";
-		}
-		else if (nle.getType().equals(NotLoginException.TOKEN_TIMEOUT)) {
-			message = "token已过期";
-		}
-		else if (nle.getType().equals(NotLoginException.BE_REPLACED)) {
-			message = "token已被顶下线";
-		}
-		else if (nle.getType().equals(NotLoginException.KICK_OUT)) {
-			message = "token已被踢下线";
-		}
-		else {
-			message = "当前会话未登录";
-		}
-		return Result.fail(message);
+		SessionInvalidReason reason = SessionInvalidReason.fromSaTokenType(nle.getType());
+		log.warn("会话失效 reason={}", reason.name());
+		return Result.fail(HttpStatus.UNAUTHORIZED.value(), reason.getMessage(),
+				SessionInvalidSupport.resolveData(reason));
 	}
 
 }

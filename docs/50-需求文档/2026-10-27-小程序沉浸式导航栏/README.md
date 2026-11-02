@@ -1,6 +1,6 @@
 # 小程序装修页沉浸式导航栏（滚动自适应）设计方案
 
-> 日期：2026-10-27 ｜ 状态：**P0 已实施（自动化验证通过；未真机目检）** ｜ 范围：C 端小程序 + 管理端装修器 ｜ **零后端 / 零 DB 变更**（只扩装修 JSON Schema）
+> 日期：2026-10-27（**2026-10-28 变更：滚动后一步切换为目标底色，取消「透明 → 模糊」的渐变过程，见 §11**）｜ 状态：**P0 已实施（自动化验证通过；未真机目检）** ｜ 范围：C 端小程序 + 管理端装修器 ｜ **零后端 / 零 DB 变更**（只扩装修 Schema 字段）
 > 关联：[装修 Schema v3](../2026-09-23-装修功能改造/装修功能改造实施报告.md)、[商城主题色](../2026-10-02-商城主题色/README.md)、`preview-parity` 跨端同源守卫
 > 原型：`prototype/index.html`（可交互，四种模式对比）｜ 截图：`prototype/screenshots/`
 
@@ -11,12 +11,12 @@
 **可以做，而且不需要改后端和数据库。** 推荐落地「**方案 A：滚动渐显（Scroll Fade）**」：
 
 1. **顶部保持现状**：导航背景 = 当前解析结果（首页是 `followFirstSection`，取首区块渐变顶边色 `rgb(54,120,250)`），与首屏无缝。
-2. **滚动时渐变**：`scrollTop` 0 → D（默认 **140px**，可配 60–260）过程中，导航从「首屏同色」交叉淡化为「磨砂白」（默认；可选商城主题导航色 / 自定义色），内容从半透明材质下穿过。
+2. **滚动即切换（2026-10-28 起）**：页面在顶部保持与首屏同色；**一开始滚动就立即**切换为「磨砂白」（默认；可选商城主题导航色 / 自定义色），不再按距离渐变（用户要求去掉「透明 → 模糊」的过渡过程）。旧配置里的 `distance` 字段保留但不再生效。
 3. **文字/状态栏自动反色**：标题、图标、状态栏前景色统一按「当前合成背景亮度」取黑/白，跨阈值切换一次；状态栏只有 `#ffffff` / `#000000` 两档（微信 API 限制）。
-4. **回滚可逆**：进度是 `scrollTop` 的纯函数，向上滚回自动还原。
+4. **回滚可逆**：状态是 `scrollTop` 的纯函数（`scrollTop > 0` 即已滚动），向上滚回顶部立即还原。
 5. **三端同源**：新增 `schema/navigation-scroll.ts` 纯函数 + `NAVIGATION-SCROLL` 标记块，管理端画布 / 草稿预览 / C 端小程序共用，`preview-parity.test.ts` 逐字守卫（不动现有 `NAVIGATION-FOLLOW` 块）。
 6. **存量零回归**：新字段可选、缺省 `mode='none'` 走原逻辑；存量页面、模板、发布快照、回放都不变。
-7. **性能可控**：滚动值 **8px 量化**（140px 全程约 18 次更新）+ 页面 `provide` 滚动 ref、只有 `hr-navbar` `inject` 读取，`DiyPage` 与装修楼层不重渲染；只在滚动回调里改一个导航子树的 opacity/color。
+7. **性能可控**：滚动状态只在「顶部 ↔ 已滚动」翻转时更新一次（布尔 ref）+ 页面 `provide`、只有 `hr-navbar` / 常驻搜索栏 `inject` 读取，`DiyPage` 与装修楼层不重渲染；滚动过程中头部零更新。
 
 **关键实现前提（审计发现，必须写进任务）**：微信小程序的页面 `onPageScroll` 是否派发，由 **页面 SFC 源码里是否出现 `onPageScroll` 字面量** 决定（`__runtimeHooks` 编译期生成）；只在 composable 内部注册在 MP 上**静默失效**。所以 `home` / `diy-page` 两个宿主页必须显式写 `onPageScroll(handlePageScroll)`，并加契约测试守住。
 
@@ -120,7 +120,7 @@
 | 方案 | 做法 | 沉浸感 | 可读性 | 性能/成本 | 结论 |
 |---|---|---|---|---|---|
 | 现状 | `followFirstSection` 静态同色 | 顶部好，滚动割裂 | 好 | — | 问题所在 |
-| **A 滚动渐显（推荐）** | 保持布局，导航背景按滚动进度交叉淡化到目标底色 | **好**：内容从半透明材质下穿过 | 自动反色，可控 | 低：一个子树、8px 量化 | **P0 实施** |
+| **A 滚动切换（原「滚动渐显」）** | 保持布局，滚动后**一步切换**到目标底色（2026-10-28 去掉按距离交叉淡化） | **好**：内容从磨砂材质下穿过 | 自动反色，可控 | 低：头部只在两态翻转时更新 | **P0 实施** |
 | B 透明覆盖 | 去占位，首区块延伸至状态栏，导航透明→渐显 | 最好（真全屏） | 需 scrim/自动反色 | 中高：改布局安全区、画布同构、存量页面风险 | **P1 二期** |
 | C 内容取色 | 导航始终等于其下区块环境色 | 字面「不固定」 | 差：频繁跳变 | 高：滚动中实时测距 | 不做 |
 | D 常驻磨砂 | 导航一直半透明毛玻璃 | 中 | 中 | 中 | 不做（顶部背后是页面底色不是头图，会像白条） |
@@ -131,21 +131,21 @@
 
 ## 4. 方案 A 详细设计
 
-### 4.1 状态模型与进度
+### 4.1 状态模型（2026-10-28 变更：一步切换）
 
 ```text
 scrollTop = 页面滚动距离（原生页面滚动，负值按 0 处理）
-D         = 渐显距离（默认 140px，可配 60–260px）
-t         = clamp(scrollTop / D, 0, 1)
-p         = smoothstep(t) = t²(3-2t)      // 两端缓入缓出
+scrolled  = scrollTop > 0            // 布尔：页面是否已滚动
+progress  = scrolled ? 1 : 0         // 0=顶部起始外观，1=完整目标外观
 ```
 
-- `p=0`：导航完全等于当前静态外观（`custom` / `followFirstSection` 解析结果），首屏观感与现在**完全一致**；
-- `0<p<1`：base 层透明度 `1-p`，surface 层透明度 `p`，交叉淡化；
-- `p=1`：导航为完整目标底色，内容在导航下滚动；
-- 向上滚回：`p` 对称回落，无一次性开关的状态残留。
+- `progress=0`：导航完全等于当前静态外观（`custom` / `followFirstSection` 解析结果），首屏观感与现在**完全一致**；
+- `progress=1`：**一开始滚动就一步切换**为完整目标底色（磨砂白 + 毛玻璃 / 主题色 / 自定义色），base 层 `opacity=0`、surface 层 `opacity=1`，内容在导航下滚动；
+- 向上滚回顶部：立即还原起始外观；
+- **不再按距离插值**：原设计的 `p = smoothstep(clamp(scrollTop / distance, 0, 1))`（默认 140px、60–260 可配）已取消——用户反馈「开始滑动时透明到模糊有一个过程，不要那个，直接就变成模糊的」。`distance` 字段仅作为旧文档遗留字段保留（迁移器仍归一化，渲染端不消费）；
+- 不做 CSS `transition` 兜底：任何时间过渡都会被感知成同一个渐变过程，材质切换保持瞬时。
 
-> 为什么用 `smoothstep`：线性在起点/终点会「突然开始/突然停住」；`smoothstep` 两端导数为 0，更接近 iOS 导航栏材质过渡。
+> 历史设计（已废弃）：`0<p<1` 时 base/surface 两层交叉淡化、`smoothstep` 两端缓入缓出；本版保留在 §10 实施记录与原型截图里，仅供追溯。
 
 ### 4.2 视觉规格
 
@@ -154,34 +154,35 @@ p         = smoothstep(t) = t²(3-2t)      // 两端缓入缓出
 ```text
 z-index 500  wd-navbar（透明根 + 标题/图标，fixed，带安全区）
 z-index 499  hr-navbar 背景层（fixed，height = 状态栏 + 44px，pointer-events:none）
-               ├─ base 层：静态外观（纯色 / 左右渐变背景图），opacity = 1-p
-               └─ surface 层：目标底色 + 可选毛玻璃，opacity = p
+               ├─ base 层：静态外观（纯色 / 左右渐变背景图），顶部显示 / 已滚动隐藏
+               └─ surface 层：目标底色 + 可选毛玻璃，已滚动显示 / 顶部隐藏
 ```
 
 **默认参数**：
 
 | 项 | 值 | 说明 |
 |---|---|---|
-| 渐显距离 D | 140px | 约 2 个导航栏高度；60–260 可配 |
+| 切换点 | `scrollTop > 0` | 任意正滚动距离立即切换到目标态；不做距离插值（`distance` 为遗留字段） |
 | 目标底色默认 | 磨砂白 `rgba(255,255,255,.86)` + `blur(18px) saturate(160%)` | 关闭毛玻璃时用 `.97` 半透明兜底 |
 | 目标底色可选 | 商城主题导航色（`theme.navigationColor`）/ 自定义色 | 主题色更品牌化；自定义给特殊页面 |
-| 标题/图标色 | 按合成背景亮度自动黑/白（阈值 0.6） | 与状态栏同色；切换带 160ms `color` 过渡 |
+| 标题/图标色 | 按合成背景亮度自动黑/白（阈值 0.6） | 与状态栏同色；与背景同步瞬时翻转，不加 `color` 过渡 |
 | 状态栏前景色 | `#ffffff` / `#000000` | 微信 API 仅这两个合法值；只在翻转时调一次 |
-| 底部细线 | 目标底色亮度 > 0.75 时，`p>0.55` 渐显 1px `rgba(15,23,42,.08)` | 浅色导航与内容的分界；深色不画 |
+| 底部细线 | 目标底色亮度 > 0.75 时，已滚动即出现 1px `rgba(15,23,42,.08)` | 浅色导航与内容的分界；深色不画 |
 | 颜色阈值 | 亮度 0.6（与现有 `pickReadableNavigationTextColor` 同口径） | 三端一致 |
 
 **状态矩阵**：
 
 | 滚动位置 | 背景 | 标题/图标 | 状态栏 | 细线 |
 |---|---|---|---|---|
-| 顶部 p=0 | 首屏同色（#3678FA） | 白 | 白 | 无 |
-| 半程 p≈0.5 | 蓝白混合（磨砂半透明） | 白→黑翻转点附近 | 白→黑翻转 | 0 |
-| 完成 p=1 | 磨砂白（内容透出） | 深色 | 黑 | 1px |
-| 回滚 | 对称还原 | 对称还原 | 对称还原 | 渐隐 |
+| 顶部（未滚动） | 首屏同色（#3678FA） | 白 | 白 | 无 |
+| 已滚动（一步到位） | 磨砂白（内容透出） | 深色 | 黑 | 1px |
+| 回滚到顶部 | 立即还原 | 立即还原 | 立即还原 | 立即消失 |
 
 ![方案 A 顶部](prototype/screenshots/04-fade-top.png)
 ![方案 A 半程](prototype/screenshots/05-fade-mid.png)
 ![方案 A 滚动完成](prototype/screenshots/06-fade-scrolled.png)
+
+> 以上截图是 2026-10-27「140px 渐显」版本的历史素材；2026-10-28 起没有中间态（顶部 / 已滚动一步切换，见 §11）。
 
 > 目标底色选「商城主题导航色」时（当前主题导航色 #048EEA，蓝→蓝变化很弱，所以默认推荐磨砂白）：
 > ![主题色目标底色](prototype/screenshots/09-theme-surface-scrolled.png)
@@ -199,7 +200,7 @@ export interface NavigationScrollEffect {
   mode: NavigationScrollMode;        // 缺省 'none'
   surface: NavigationScrollSurface;  // 缺省 'frosted'
   surfaceColor: string;              // 仅 surface='custom' 生效
-  distance: number;                  // 缺省 140，clamp 40–400
+  distance: number;                  // 遗留字段（原渐显距离）：缺省 140，clamp 40–400，渲染端不消费
   blur: boolean;                     // 仅 surface='frosted' 生效，缺省 true
 }
 ```
@@ -208,7 +209,7 @@ export interface NavigationScrollEffect {
 
 - `schema/defaults.ts`：新建页面写入 `scrollEffect: { mode:'none', surface:'frosted', surfaceColor:'', distance:140, blur:true }`。
   > 为什么要写默认值而不是省略：`cloneDesignerValue` 走 JSON 克隆，`undefined` 键会消失；面板用 `Object.assign` 同步 props→form 是「加法」，撤销/套模板到不含该键的旧文档时残留键会被 form watcher 重新 emit，表现为「撤销无效 / 关不掉」。默认值常驻可规避。
-- 两端 `migratePageContent()`：对 `navigation.scrollEffect` 做 defaults 深合并 + 归一化（`mode`/`surface` 白名单、`distance` clamp、`blur` 布尔、`surfaceColor` 只接受 hex/rgb，非法回落 `frosted`）；旧文档补默认、脏值不落到 CSS。
+- 两端 `migratePageContent()`：对 `navigation.scrollEffect` 做 defaults 深合并 + 归一化（`mode`/`surface` 白名单、`distance` clamp、`blur` 布尔、`surfaceColor` 只接受 hex/rgb，非法回落 `frosted`）；旧文档补默认、脏值不落到 CSS。`distance` 仅做兼容归一化（渲染端不消费，见 §11）。
 - 发布快照/回放：老快照没有该字段 → 迁移器补默认 `mode='none'` → 行为不变；版本 diff 按 `page` 顶层 key 泛化比较，新字段表现为 `page.navigation` 整体变更，后端无需改。
 - 后端：`page_content` 按 JSON 原样存取；校验器只看 `sections/components`（`DefaultPageDesignDocumentValidator`），新字段随草稿/版本/模板透传，**零改动**。
 - 模板种子：现有种子 SQL 的 `navigation` 无新键 → 默认关闭；若要模板演示，需 boot + cloud 双份增量 SQL 并重生成 `aryn_boot_full.sql`（另立任务，本期不做）。
@@ -247,7 +248,7 @@ export interface NavigationSurfaceAppearance {
 }
 
 export interface NavigationScrollAppearance {
-  progress: number;             // 0–1
+  progress: number;             // 0/1 两态（顶部 / 已滚动）
   baseOpacity: number;          // 1-p
   surfaceOpacity: number;       // p
   surfaceColor: string;         // 目标底色（rgb/rgba 由渲染层拼）
@@ -282,11 +283,11 @@ export function normalizeNavigationScrollEffect(
 关键规则（都写进单测）：
 
 1. `effect?.mode !== 'fade'` → `progress=0 / baseOpacity=1 / surfaceOpacity=0 / textColor=base.textColor / statusBarFrontColor=可读色(base.backgroundColor)`，**与旧渲染完全一致**；
-2. `p = smoothstep(clamp(scrollTop / clamp(distance||140, 40, 400), 0, 1))`；
-3. 合成背景 `composite = mix(base.backgroundColor, surface.color, p)`（base 的左右渐变背景图取其 anchor 色，与现有口径一致），用于亮度判断；
+2. `progress = scrollTop > 0 ? 1 : 0`（一步切换；`distance` 已不参与计算，仅归一化保留）；
+3. 合成背景 `composite = mix(base.backgroundColor, surface.color, progress)`（base 的左右渐变背景图取其 anchor 色，与现有口径一致），用于亮度判断；
 4. `textColor = statusBarFrontColor = pickReadable(composite)`（复用 `navigation-style.ts` 的 `pickReadableNavigationTextColor`，阈值 0.6）；
 5. `surface.alpha`：`surface='frosted'` 时 `blur ? .86 : .97`，`theme/custom` 为 1；
-6. `hairlineOpacity = luminance(surface.color) > 0.75 ? clamp((p-0.55)/0.45, 0, 1) : 0`；
+6. `hairlineOpacity = luminance(surface.color) > 0.75 ? progress : 0`（progress 已为 0/1）；
 7. 非法/缺失配置全部走缺省，不抛错（小程序端不能因一条脏数据白屏）。
 
 **跨端守卫扩展**（`preview-parity.test.ts`）：
@@ -307,7 +308,7 @@ export function normalizeNavigationScrollEffect(
 | `aryn-mall-uniapp/src/components/diy/schema/navigation-scroll.ts` | **新增**：类型 + `NAVIGATION-SCROLL` 块 + 归一化/解析纯函数 |
 | `aryn-mall-uniapp/src/components/diy/schema/navigation-scroll.test.ts` | **新增**：进度/边界/三种目标底色/可读色翻转/缺省回退/脏值归一 |
 | `aryn-mall-uniapp/src/components/diy/schema/defaults.ts`、`migrate.ts` | 默认值常驻 + 深合并/归一化 |
-| `aryn-mall-uniapp/src/composables/useDiyNavbarScroll.ts` | **新增**：`provide` 滚动 `shallowRef` + 量化 handler + `onShow` 回显同步 |
+| `aryn-mall-uniapp/src/composables/useDiyNavbarScroll.ts`（新） | `provide` 滚动布尔 `shallowRef`（顶部 / 已滚动两态）+ `onShow` 回显同步 |
 | `aryn-mall-uniapp/src/pages/home/index.vue`、`src/sub-pages/promotion/diy-page/index.vue` | **显式字面量** `onPageScroll(handlePageScroll)` + `useDiyNavbarScroll()` |
 | `aryn-mall-uniapp/src/components/diy/index.vue` | 计算静态 `scrollEffect`/`surface` 并传给 `hr-navbar`；**不读滚动 ref** |
 | `aryn-mall-uniapp/src/components/hr-navbar/index.vue` | inject 滚动 ref；新增背景层 + 毛玻璃 + 标题色 + 状态栏同步；无 `scrollEffect` 时走旧逻辑 |
@@ -326,38 +327,61 @@ export function normalizeNavigationScrollEffect(
 因此接线必须写成：
 
 ```ts
-// composables/useDiyNavbarScroll.ts
-export const DIY_NAVBAR_SCROLL_KEY: InjectionKey<ShallowRef<number>> =
-  Symbol('diy-navbar-scroll');
+// composables/useDiyNavbarScroll.ts（2026-10-28：滚动状态改为布尔两态）
+export const DIY_NAVBAR_SCROLL_KEY: InjectionKey<ShallowRef<boolean>> =
+  Symbol('diy-navbar-scrolled');
+
+/** 负值（iOS 回弹）按顶部处理：只有正滚动距离才算「已滚动」 */
+function toScrolledState(value: number): boolean {
+  return Math.max(0, value) > 0;
+}
 
 export function useDiyNavbarScroll() {
-  const scrollTop = shallowRef(0);
-  let last = 0;
+  const scrolled = shallowRef(false);
+  let last = false;
 
-  /** 量化到 8px：140px 全程最多 ~18 次更新；同值不赋值 */
+  /** 只在「顶部 ↔ 已滚动」翻转时赋值：滚动过程中不产生任何更新 */
   function handlePageScroll({ scrollTop: value }: { scrollTop: number }) {
-    const next = Math.round(Math.max(0, value) / 8) * 8;
+    const next = toScrolledState(value);
     if (next !== last) {
       last = next;
-      scrollTop.value = next;
+      scrolled.value = next;
     }
   }
 
-  // Tab 页切回不产生新滚动事件：onShow 用 viewport scrollOffset 补一次（异步；
-  // H5/部分端不支持 selectViewport 时回调不触发，等下一次滚动校正即可）
+  // 切回本页的视口补读必须延后（2026-10-29 修正，见 §12）：
+  // onShow 执行时本页往往还没露出（H5 实测仍是 display:none），此刻读视口拿到
+  // 的是上一页的 0，会把已滚动的页面误判成顶部。恢复滚动位置也不派发 onPageScroll。
+  // 因此延后补读两次，且只做单向补正（读到已滚动才写 true）；回退顶部交给真实
+  // 的 onPageScroll（scrollTop=0），避免视口误读把状态打回起始外观。
+  onHide(() => {
+    hidden = true;
+    clearViewportSync();
+  });
+
   onShow(() => {
+    hidden = false;
+    clearViewportSync();
+    [200, 800].forEach((delay) =>
+      syncTimers.push(setTimeout(syncFromViewport, delay)),
+    );
+  });
+
+  function syncFromViewport() {
+    if (hidden) return;
     uni.createSelectorQuery()
       .selectViewport()
       .scrollOffset((res) => {
-        const value = (res as { scrollTop?: number } | null)?.scrollTop ?? 0;
-        scrollTop.value = Math.round(Math.max(0, value) / 8) * 8;
-        last = scrollTop.value;
+        if (hidden) return;
+        const value = (res as { scrollTop?: number } | null)?.scrollTop;
+        if (typeof value !== 'number' || !Number.isFinite(value)) return;
+        if (toScrolledState(value)) apply(true);
       })
       .exec();
-  });
+  }
 
-  provide(DIY_NAVBAR_SCROLL_KEY, scrollTop);
-  return { handlePageScroll, scrollTop };
+  provide(DIY_NAVBAR_SCROLL_KEY, scrolled);
+  return { handlePageScroll, scrolled };
 }
 ```
 
@@ -369,8 +393,8 @@ onPageScroll(handlePageScroll);
 ```
 
 - `DiyPage` **不 inject、不读 ref**，只透传静态配置 → 滚动时 `DiyPage` 及全部装修楼层不重渲染；
-- `hr-navbar` `inject(DIY_NAVBAR_SCROLL_KEY, null)`，在 `computed` 里读 `ref.value` → **只有导航子树重渲染**；
-- 其他 30 个 `hr-navbar` 页面不接线、不传 `scrollEffect` → 完全走旧逻辑（`inject` 拿 `null` 视为 `scrollTop=0`）；
+- `hr-navbar` `inject(DIY_NAVBAR_SCROLL_KEY, null)`，在 `computed` 里读 `ref.value` → **只有导航子树重渲染**；常驻搜索栏（`diy-search-bar`）inject 同一状态，与导航栏同步一步切换；
+- 其他 30 个 `hr-navbar` 页面不接线、不传 `scrollEffect` → 完全走旧逻辑（`inject` 拿 `null` 视为未滚动）；
 - 补字面量后会顺带激活 `useDecorationInfiniteScroll` 的滚动预加载：需回归「首页滚动不会触发额外分页请求风暴」（广播限频 200ms，组件自测距，理论无影响）。
 
 #### 4.5.3 `hr-navbar` 渲染改造
@@ -397,10 +421,10 @@ onPageScroll(handlePageScroll);
 </wd-navbar>
 ```
 
-- `baseLayerStyle`：`background-color / background-image` = 现有解析结果；`opacity = 1-p`；
-- `surfaceLayerStyle`：`background-color: rgba(surface.color, surface.alpha)`；`opacity = p`；毛玻璃时 `backdrop-filter: blur(18px) saturate(160%)`（同时写 `-webkit-` 前缀，iOS <18 必需）；
+- `baseLayerStyle`：`background-color / background-image` = 现有解析结果；顶部 `opacity=1`，已滚动 `opacity=0`；
+- `surfaceLayerStyle`：`background-color: rgba(surface.color, surface.alpha)`；顶部 `opacity=0`，已滚动 `opacity=1`；毛玻璃时 `backdrop-filter: blur(18px) saturate(160%)`（同时写 `-webkit-` 前缀，iOS <18 必需）；切换不加 `transition`，保持瞬时；
 - 背景层 `position:fixed; top:0; left:0; right:0; z-index:499; pointer-events:none`；高度 = `statusBarHeight + 44`（与 `wd-navbar` 占位同口径）；
-- 标题/图标色 = `appearance.textColor`，`transition: color .16s linear`；
+- 标题/图标色 = `appearance.textColor`，与背景同步瞬时翻转（不加 `color` 过渡，避免磨砂白底上「白字淡出」空窗）；
 - 无 `scrollEffect` 时：不渲染背景层，`custom-style` 仍走现有 `navbarStyle`，标题色逻辑不变 —— 存量行为零变化；
 - 必须保留 `<hr-navbar … :bordered="false">` 形态（`hr-navbar/contract.test.ts` 守卫）与 `backgroundImage` 字面量（parity 守卫）。
 
@@ -434,9 +458,9 @@ onPageScroll(handlePageScroll);
 | H5 / App | 滚动/背景/文字照常；状态栏 API 忽略（`try/catch`）；H5 顶栏由浏览器决定 |
 | 毛玻璃不支持（Android 旧 X5/XWeb、Skyline） | `backdrop-filter` 不生效时仍是不透明度 `.86` 的白色层，可读性不受影响；管理端提供「毛玻璃」开关可关；Skyline 官方明确「与 opacity 混合有问题」，本项目当前是 WebView 渲染（manifest 未开 skyline），如后续切 Skyline 需重新评估 |
 | 下拉刷新 | 首页当前未开 `enablePullDownRefresh`；若后续开启，需同步 `wx.setBackgroundColor` / `backgroundColorTop`（iOS）为顶部底色，避免下拉露白（列入验收项） |
-| 页面返回/切 Tab 恢复滚动位置 | Tab 页实例仍在 → `scrollTop` ref 保留最后值 + `onShow` 用 `selectViewport().scrollOffset()` 补同步，导航不会闪回顶部色；非 Tab 页销毁重建从 0 开始 |
+| 页面返回/切 Tab 恢复滚动位置 | Tab 页实例仍在 → `scrolled` ref 保留最后状态；`onHide` 后忽略页面级滚动事件，`onShow` **延后**（200/800ms）用 `selectViewport().scrollOffset()` 单向补读（只补成「已滚动」，见 §12），不会闪回顶部色；非 Tab 页销毁重建从顶部态开始 |
 | 语言切换重拉装修 | `pageContent` 变化 → `hr-navbar` props 变化、组件不销毁；新配置即时生效；`scrollTop` ref 不受影响 |
-| 横向渐变起始态 | base 层整体 opacity 渐隐，`background-image` 不需要做颜色过渡，无跳变 |
+| 横向渐变起始态 | base 层直接隐藏（无过渡），`background-image` 不需要做颜色过渡，无跳变 |
 | 深色模式 | 当前无 dark 分支，磨砂白在深色模式会突兀；属已知边界，后续单独适配 |
 | 脏数据 | 迁移器归一化，非法值回缺省；渲染层不抛错 |
 
@@ -448,11 +472,10 @@ onPageScroll(handlePageScroll);
 
 ```text
 滚动效果
-  ( ) 关闭（固定底色）      (•) 沉浸式渐显
-  提示：顶部与首屏同色，页面滚动后渐变为下方目标底色；标题与状态栏自动反色。
+  ( ) 关闭（固定底色）      (•) 沉浸式（滚动切换）
+  提示：顶部与首屏同色，一开始滚动就立即切换为下方目标底色（无渐变过程）；标题与状态栏自动反色。
 
   目标底色   (•) 磨砂白（推荐）  ( ) 商城主题导航色  ( ) 自定义 [色块]
-  渐显距离   [———●———] 140px（60–260）
   毛玻璃     [开]
   提示：在画布下方拖动「滚动位置」可预览；Android 旧机型可能不支持毛玻璃，会自动回退为半透明白。
 ```
@@ -462,12 +485,12 @@ onPageScroll(handlePageScroll);
 - 面板新增 `pageType` prop（由 `index.vue` 传入，`index.vue` 已有 `shellAvailable` 同类判断）：内嵌页型（2/3/4）**禁用**该效果并提示「内嵌装修不渲染导航栏」；
 - 与「跟随商城主题 / 本页主题」联动：`surface='theme'` 取主题导航色；自定义色在「跟随主题」态下禁用并提示（与现有取色器口径一致）；
 - 提示「保存草稿后生效；预览需重新生成预览链接（草稿保存会使旧 token 失效）」，避免被当成 bug；
-- 新增 `ElSlider`（element-plus 已有依赖）。
+- 2026-10-28 起移除「渐显距离」滑杆与相关文案（一步切换后不再有意义），`ElSlider` 引入一并删除；契约测试改为断言滑杆/文案已移除，避免死控件回归。
 
 #### 4.6.2 编辑画布（`phone-canvas.vue` + `index.vue` + `designer-toolbar.vue`）
 
 - 画布**没有内部滚动容器**（外层 stage 才滚动，手机壳一次铺开）；**不要**把手机壳改成滚动容器——会与 stage 滚动叠加，且操作条定位依赖 `getBoundingClientRect`/scale 折算，改滚动容器后要重验拖拽/选中；
-- 推荐：工具栏加「顶部 / 滚动后」两态切换 + 可选 0–260px 滑杆（覆盖面板 60–260 的渐显距离上限）；状态放 `index.vue` 的本地 ref（**绝不进 document / patchPage**，不触发脏标记与撤销），`phone-canvas` 加可选 `scrollTop` prop，仅参与导航 style 计算；
+- 推荐：工具栏加「顶部 / 滚动后」两态切换 + 可选 0–260px 滑杆（面板已无距离配置，滑杆仅用于两态预览）；状态放 `index.vue` 的本地 ref（**绝不进 document / patchPage**，不触发脏标记与撤销），`phone-canvas` 加可选 `scrollTop` prop，仅参与导航 style 计算；
 - 导航样式用 `resolveNavigationScrollAppearance` 合成（base/surface 两层 DOM，与 C 端同构）；
 - 画布天然表达不了：状态栏时间/电量、`fixed` 覆盖、毛玻璃真机差异 → 面板与画布加「以草稿预览/真机为准」提示。
 
@@ -485,7 +508,7 @@ onPageScroll(handlePageScroll);
 #### 4.6.4 测试与命令
 
 - `preview-parity.test.ts`：新增 NAVIGATION-SCROLL 块同源用例 + 三处消费 + `mode='none'` 回退；
-- `page-settings-contract.test.ts`：断言新控件存在、默认值、内嵌页型禁用、提示文案、`ElSlider` 引入；
+- `page-settings-contract.test.ts`：断言模式/目标底色/毛玻璃控件存在、默认值、内嵌页型禁用、提示文案，以及「渐显距离」滑杆与文案已移除；
 - 新增 `navigation-scroll-preview.contract.test.ts`：断言 `phone-canvas` 接收 `scrollTop`、`preview-canvas` sticky + 滚动监听、画布预览态是本地 ref（不出现 `patchPage`）；
 - 命令：`cd aryn-mall-ui && pnpm test:unit`（定向 `pnpm exec vitest run --dom apps/web-ele/src/views/promotion/page-designer`）、`pnpm check:type`、`pnpm lint`；
 - **基线说明（审计实测，2026-10-27）**：当前工作树已有未提交改动（两端 `navigation-style.ts` 各加了 `pickReadableIconColor`）；`page-designer` 定向跑有 **3 个与本需求无关的既有失败**（个人中心骨架、补给单、活动入口条），`pnpm check:type` 因测试文件跨仓 `@/` 别名**当前就失败**。验收门槛用「不新增失败/不新增类型错误」，不要承诺全绿。
@@ -495,11 +518,11 @@ onPageScroll(handlePageScroll);
 | 风险 | 设计 |
 |---|---|
 | 滚动每帧 setData 整页 | 滚动值只存在页面 provide 的 ref 里；`DiyPage` 不读 → 不重渲染；只有 `hr-navbar` 重渲染 |
-| 官方明令「避免在 onPageScroll 里频繁 setData」 | 8px 量化（140px 全程 ~18 次）+ 同值不赋值；只改一个导航子树的 opacity/color |
-| 背景跳变 | base/surface 两层 opacity 由内联样式更新，CSS `transition: opacity .16s linear` 平滑量化台阶 |
+| 官方明令「避免在 onPageScroll 里频繁 setData」 | 滚动状态只在「顶部 ↔ 已滚动」翻转时更新一次（同值不赋值）；滚动过程中头部零更新，只改一个导航子树的 opacity/color |
+| 背景跳变 | 目标态本身是磨砂材质；按需求拒绝渐变后瞬时切换，不加 opacity 时间过渡 |
 | 毛玻璃合成开销 | 只在 `surface='frosted'` 且 `blur` 开启时启用；关闭后是普通半透明层；不逐帧改 `backdrop-filter` |
 | 状态栏 API 频繁调用 | `frontColor` 去重，一次滚动最多切换 1 次 |
-| 滚动中做测距 | 完全不做 `createSelectorQuery`（对比方案 C）；`onShow` 同步只调一次 |
+| 滚动中做测距 | 完全不做 `createSelectorQuery`（对比方案 C）；切回本页的视口补读固定在 `onShow` 后两次（200/800ms，且只做单向补正，见 §12） |
 
 验收时用微信开发者工具 Performance 面板 + 真机低端安卓滚动观察；代码层面契约测试守住「页面不读滚动 ref」「navbar 去重」两条。
 
@@ -534,7 +557,7 @@ onPageScroll(handlePageScroll);
 |---|---|---|
 | P0-1 | Schema/类型 + 默认值/迁移归一化 + 解析器纯函数 + 两端单测 | 1 人日 |
 | P0-2 | C 端 `hr-navbar` 背景层/毛玻璃/标题色/状态栏 + `useDiyNavbarScroll` + home/diy-page 字面量接线 + 契约测试 | 1.5 人日 |
-| P0-3 | 管理端页面设置（开关/目标底色/距离/毛玻璃/内嵌禁用）+ 画布滚动预览 + 草稿预览 live + 契约测试 | 1.5 人日 |
+| P0-3 | 管理端页面设置（开关/目标底色/毛玻璃/内嵌禁用；距离滑杆已移除）+ 画布滚动预览 + 草稿预览 live + 契约测试 | 1.5 人日 |
 | P0-4 | 三端 parity 扩展、双端构建、微信开发者工具 + iOS/Android 真机回归、文档回写 | 1 人日 |
 | P0-5 | 顺手修复：goods-detail `embedded`、preview 补 `page-type`（各约 0.2 人日） | 0.5 人日 |
 | P1 | 方案 B 透明覆盖（可选） | 2–3 人日 |
@@ -543,7 +566,7 @@ onPageScroll(handlePageScroll);
 
 ### 上线后如何让首页生效
 
-存量首页 `scrollEffect` 缺省 = 关闭。发布后由运营在「页面设置 → 滚动效果」打开（推荐：磨砂白 + 140px + 毛玻璃），保存草稿 → 预览确认 → 发布。**不做数据迁移**（不批量改存量 JSON，避免误伤其他页面）。
+存量首页 `scrollEffect` 缺省 = 关闭。发布后由运营在「页面设置 → 滚动效果」打开（推荐：磨砂白 + 毛玻璃；滚动后一步切换，已无距离可配），保存草稿 → 预览确认 → 发布。**不做数据迁移**（不批量改存量 JSON，避免误伤其他页面）。
 
 ---
 
@@ -551,11 +574,11 @@ onPageScroll(handlePageScroll);
 
 ### 功能
 
-- [ ] 顶部 `p=0` 与现状**像素级一致**（同一页面开/关 fade 对比）；
-- [ ] 滚动 0→140px：导航从首屏色平滑过渡到目标底色，无闪跳；
-- [ ] 回滚 140→0：对称还原；
+- [ ] 顶部（未滚动）与现状**像素级一致**（同一页面开/关 fade 对比）；
+- [ ] 一开始滚动：导航**一步**切换为磨砂目标底色（无渐变过程、无闪跳、无时间过渡）；
+- [ ] 回滚到顶部：立即还原起始外观；
 - [ ] 三种目标底色（磨砂白/主题色/自定义）都正确；
-- [ ] 标题、图标、状态栏在任意 p 下可读，翻转只发生一次；
+- [ ] 标题、图标、状态栏随切换翻转一次且可读；
 - [ ] 毛玻璃开/关都正常；关闭时仍是可读的半透明层；
 - [ ] `backgroundMode=custom` 与 `followFirstSection` 两种起始态都正确；
 - [ ] 关闭滚动效果（`mode='none'`）时与改造前完全一致；
@@ -575,7 +598,7 @@ onPageScroll(handlePageScroll);
 
 - [ ] 微信开发者工具 Performance：滚动无长任务；
 - [ ] 低端 Android 真机滚动不卡顿；
-- [ ] 单次滚动 `hr-navbar` setData ≤ 20 次，`DiyPage` 楼层不重渲染；
+- [ ] 一次完整滚动 `hr-navbar` 只在「顶部 / 已滚动」翻转时 setData（≤2 次），`DiyPage` 楼层不重渲染；
 - [ ] 状态栏 API 一次滚动 ≤ 1 次调用；
 - [ ] 补字面量后首页「提前预加载」不产生请求风暴（回归分页请求数）。
 
@@ -600,7 +623,7 @@ cd aryn-mall-ui && pnpm check:type       # 基线：当前已失败（跨仓 @/ 
 | R4 | 运营配置不当（目标底色与首屏色接近、距离过短/过长、浅底白字） | 效果不明显或可读性差 | 默认值兜底；设置面板提示 + 起止色对比校验；预览可先看 |
 | R5 | 画布预览与实机差异（画布无惯性、无状态栏、blur 平台差异） | 运营预期偏差 | 文案说明「以草稿预览/真机为准」；草稿预览提供真实滚动；验收以小程序为准 |
 | R6 | 深色模式：manifest 已开 `darkmode`，但装修导航色无 dark 分支 | 深色模式下磨砂白突兀 | 本期不处理；后续主题 dark 分支一起做 |
-| R7 | 页面返回/切 Tab 首帧用旧/默认 p | 短暂色差 | Tab 页 ref 保留 + `onShow` 同步；非 Tab 页从 0 开始，可接受 |
+| R7 | 页面返回/切 Tab 首帧用旧/默认 p | 短暂色差 | Tab 页 ref 保留 + `onShow` 后延后单向补读（§12）；非 Tab 页从 0 开始，可接受 |
 | R8 | 管理端基线不干净（3 个既有测试失败、`check:type` 已失败） | 验收口径混乱 | 用「不新增」门槛；修复跨仓 `@/` 别名另立任务 |
 | R9 | 后端发布校验/版本 diff 对未知字段的处理 | 保存/发布失败 | 审计结论：JSON 透传、校验只看 sections/components、diff 按 page 顶层 key 泛化 → 预期无需改；联调时确认 |
 | R10 | 两端类型形状手工对齐（C 端内联 nav 类型 vs 管理端 NavigationSettings） | 字段漂移 | 同批修改 + parity 测试；后续可抽公共类型 |
@@ -608,7 +631,7 @@ cd aryn-mall-ui && pnpm check:type       # 基线：当前已失败（跨仓 @/ 
 **开放问题（需要产品/设计拍板）**：
 
 1. 目标底色默认用**磨砂白**（推荐）还是**商城主题导航色**？当前主题导航色 `#048EEA` 与首屏 `#3678FA` 太接近，主题色方案变化不明显。
-2. 渐显距离默认 **140px** 是否合适？（可选 120 / 160）
+2. ~~渐显距离默认 140px 是否合适？（可选 120 / 160）~~ **已关闭（2026-10-28）**：改为一步切换，`distance` 降级为遗留字段，后台滑杆已移除（§11）。
 3. 方案 B 透明覆盖是否要进下一期？若客户强烈要求「头图顶到状态栏」，建议单独立项。
 4. 是否需要「滚动后导航栏出现搜索框」的收起策略？本期不做。
 
@@ -655,8 +678,8 @@ cd aryn-mall-ui && pnpm check:type       # 基线：当前已失败（跨仓 @/ 
 
 | 用户诉求 | 方案落点 |
 |---|---|
-| 导航栏背景「自适应」 | 起始态沿用 `followFirstSection`（与首屏同色），滚动后按进度渐变为目标底色（§4.1/4.2） |
-| 「滚动的时候不再是固定的颜色」 | base/surface 两层交叉淡化 + 8px 量化 + smoothstep（§4.1/4.5.3） |
+| 导航栏背景「自适应」 | 起始态沿用 `followFirstSection`（与首屏同色），一开始滚动即切换为目标底色（§4.1/4.2） |
+| 「滚动的时候不再是固定的颜色」 | base/surface 两层按 0/1 状态一步切换（2026-10-28 去掉交叉淡化 + 8px 量化 + smoothstep，见 §11） |
 | 「更沉浸」 | 内容从半透明磨砂层下穿过；标题/状态栏自动反色；二期可升级为透明覆盖（§5） |
 | 可配置/可运营 | 管理端页面设置 + 画布/草稿预览 + 三端同源（§4.3/4.4/4.6） |
 | 不影响存量 | 字段可选、缺省关闭、发布快照回放不变（§4.3/§7） |
@@ -664,6 +687,8 @@ cd aryn-mall-ui && pnpm check:type       # 基线：当前已失败（跨仓 @/ 
 ---
 
 ## 10. 实施记录（2026-10-27，P0）
+
+> ⚠️ **历史记录**：本节 10.1–10.5 描述的是「140px 渐显」版本；2026-10-28 已改为**一步切换**（取消渐变过程、移除 RAW ref 与后台距离滑杆），变更明细见 §11。
 
 > 本轮按评审结论落地：**目标底色默认磨砂白、渐显距离 140px、方案 B 暂不做**。零后端 / 零 DB 变更，仅装修 JSON Schema 增量字段。
 
@@ -725,7 +750,7 @@ cd aryn-mall-ui && pnpm check:type       # 基线：当前已失败（跨仓 @/ 
 
 ### 10.3 与设计稿的偏差
 
-1. 画布预览滑杆上限从设计稿的 210px 提到 **260px**：覆盖面板「渐显距离」上限，避免距离调到 260 时点「滚动后」看不到完全显现态。
+1. 画布预览滑杆上限从设计稿的 210px 提到 **260px**：原为覆盖面板「渐显距离」上限；2026-10-28 起面板滑杆已移除，画布滑杆仅用于「顶部 / 滚动后」两态预览。
 2. `preview-canvas` 的 sticky 限定为**整页草稿预览**（`:not(.preview-canvas--inline)`）：模板市场/生效卡片/换肤缩略图保持流内，避免在外部滚动容器里误吸顶。
 3. 管理端预览的 `backdrop-filter` 未写 `-webkit-` 前缀（stylelint 禁 vendor prefix，管理端只跑桌面浏览器）；C 端 `hr-navbar` 已写双前缀。
 4. 状态栏同步仍只传 `frontColor`（微信 custom 导航下 `backgroundColor` 无承载区），与设计一致。
@@ -741,8 +766,80 @@ cd aryn-mall-ui && pnpm check:type       # 基线：当前已失败（跨仓 @/ 
 
 ### 10.5 上线后如何让首页生效
 
-1. 管理端进入首页搭建器 → 右侧「页面设置」→「滚动效果」选「沉浸式渐显」；
-2. 目标底色保持「磨砂白」、渐显距离 140、毛玻璃开（默认推荐值）；
+1. 管理端进入首页搭建器 → 右侧「页面设置」→「滚动效果」选「沉浸式（滚动切换）」；
+2. 目标底色保持「磨砂白」、毛玻璃开（默认推荐值）；滚动后立即切换，无距离可调；
 3. 保存草稿 → 顶部工具栏「滚动后」/草稿预览确认真机效果 → 发布；
 4. 无需改后端、无需执行 SQL、无需数据迁移。
 
+---
+
+## 11. 变更记录（2026-10-28）：去掉「透明 → 模糊」渐变过程，改为一步切换
+
+> 用户反馈：「这个沉浸导航栏最开始滑动那个透明到模糊有一个过程，现在不要那个，直接就变成模糊的」。产品确认：**一滚动就立刻切到模糊目标态**；后台「渐显距离」滑杆一并移除（否则会留下无效控件）。
+
+### 11.1 行为变化
+
+- `resolveNavigationScrollAppearance` 进度改为 `progress = scrollTop > 0 ? 1 : 0`，删除 `smoothstep` 与 `distance` 插值：顶部仍为起始外观，任意正滚动立即是完整目标态（目标底色 + 毛玻璃 + 底边细线 + 反色文字），回滚立即还原；**不加 CSS transition**，避免又被感知为渐变过程。
+- 标题 / 图标色同步去掉 160ms `color` 过渡：背景瞬时切换后，文字慢半拍会在磨砂白底上出现「白字淡出」的空窗；与状态栏同帧翻转才一致。
+- 删除 `NAVIGATION_HAIRLINE_PROGRESS`（原 0.55 细线渐显门限）：progress 只有 0/1，细线直接取 `lightSurface ? progress : 0`，两端块同步简化。
+- `useDiyNavbarScroll` 从「8px 量化值 + 逐帧原始值两份 ref」收敛为**单个布尔状态**（`DIY_NAVBAR_SCROLL_KEY: InjectionKey<ShallowRef<boolean>>`，0/1 两态），删除 `DIY_NAVBAR_RAW_SCROLL_KEY`；`onShow` 仍用 `selectViewport().scrollOffset()` 补一次同步。滚动过程中头部零更新（同值不赋值）。
+- 常驻搜索栏（`diy-search-bar`）删除按距离的 `MATERIALIZE_DISTANCE`（原 8px 成形），改为 0/1 材质开关 `materialVisible`（静置=0 保持全透明、已滚动=1 一步到位），与导航栏共用同一条状态——头部上下一体切换，不再出现「搜索栏比导航栏慢半帧」。
+- `distance`：类型 / `normalizeNavigationScrollEffect` / defaults / 迁移器**保留**（旧文档可原样读回、不被当脏值清掉），但渲染端不再消费，标注为遗留字段。
+- 管理端：页面设置移除「渐显距离」滑杆、`ElSlider` 引入及相关文案；模式文案改为「沉浸式（滚动切换）」；画布/草稿预览随共享解析函数自动变为两态，工具栏滑杆保留（仅用于预览两态，读数显示「顶部 / 已滚动」）；画布与草稿预览的导航材质同步删除 160ms `transition`（`opacity`/`color`），否则预览里仍是渐变过程。
+
+### 11.2 同步修改的守卫
+
+- 两端 `navigation-scroll.test.ts`：进度用例改为「一步切换」断言（1px 与 140px 解析结果一致），`distance` 用例改为「不再影响切换」；`NAVIGATION-SCROLL` 标记块与 `NavigationScrollEffect` 接口仍由 `preview-parity.test.ts` 逐字 / 形状守卫。
+- 两端「页面设置」契约：断言滑杆与「渐显距离」文案已移除，防止死控件回归。
+- C 端 `navbar-scroll.contract.test.ts` / `sticky-search.contract.test.ts`：改为断言布尔滚动状态、无 RAW ref、无 `MATERIALIZE_DISTANCE`、无 `transition: opacity`。
+- 管理端 `navigation-scroll-preview.contract.test.ts`：新增断言画布与草稿预览的导航材质不得有 CSS `transition`；工具栏读数不得再显示 px。
+- 文档：`2026-10-27-搜索框滚动常驻` README 同步更新（材质一步切换、RAW ref 移除）。
+
+### 11.3 验证（2026-10-28 本机实跑）
+
+| 项 | 结果 |
+|---|---|
+| C 端 `pnpm type-check` | ✅ 0 error |
+| C 端 `pnpm test:unit` | ✅ 全通过（本需求相关定向契约 38 条全通过；全量 118 文件 / 1218 用例，数量含工作区其它并发需求，会随工作区变化） |
+| C 端 `pnpm build:mp-weixin` | ✅ 构建成功（`__runtimeHooks` / 产物路由不变） |
+| 管理端 `pnpm test:unit` | ✅ **121 文件 / 995 用例全通过** |
+| 管理端 `pnpm check:type` | ✅ 通过（全量 typecheck 0 error，本次无基线外新增） |
+| 两端 `NAVIGATION-SCROLL` 块 / 接口一致性 | ✅ 手工脚本按 parity 同口径比对一致（marker 块 + `NavigationScrollEffect`） |
+| H5 / 真机目检 | ⏳ 未重跑（需重新 `pnpm build:h5:demo` 或真机；观感以「开始滚动即整条头部模糊」为准） |
+
+
+---
+
+## 12. 缺陷修复记录（2026-10-29）：切 Tab 回来「顶部效果消失」
+
+> 用户反馈：首页滚到中部后切到「分类」再切回「首页」，导航从磨砂白打回首屏蓝色实心条（沉浸式效果消失）。
+
+### 12.1 根因
+
+`useDiyNavbarScroll` 在 `onShow` 里**立刻**用 `selectViewport().scrollOffset()` 校准状态。`onShow` 执行时本页还没真正露出：
+
+- H5 实测：点击 Tab 后本页仍是 `display:none`，`window.scrollY` 为 0；约 29ms 后页面才 `display:block` 并恢复滚动位置，而这次恢复**不派发** `onPageScroll`；
+- 于是校准读到 0 → `scrolled=false` → 导航按「顶部」渲染 base 层（`followFirstSection` 的首区块蓝色），页面实际仍停在原滚动位置。
+
+用 Playwright 在 H5 演示包复现（`127.0.0.1:8890`，滚动 800px → 切分类 → 切回）：`scrollY=800`，但 `.hr-navbar-bg__base` opacity=1 / `__surface` opacity=0；同时 `uni-page` 未重建、装修接口未重拉，确认状态被 onShow 的查询覆盖。
+
+### 12.2 修复（`aryn-mall-uniapp/src/composables/useDiyNavbarScroll.ts`）
+
+1. **不再在 onShow 同步校准**：onShow 只负责解除隐藏标记，补读挂到 `setTimeout` 上（200ms / 800ms 两次），晚于页面露出与滚动位置恢复；
+2. **视口补读单向化**：读到「已滚动」才补成已滚动，读到 0 不回写 —— 视口在页面未露出时必然读 0，任何「0 即回顶部」的判定都会重现本缺陷；回退到顶部由真实 `onPageScroll(scrollTop=0)` 负责（那条路径不会误判）；
+3. **隐藏期间不消费滚动事件**：`onHide` 置 `hidden` 并清掉补读定时器，切 Tab 时窗口回顶产生的 0 不会写进本页状态。
+
+### 12.3 验证
+
+| 项 | 结果 |
+|---|---|
+| H5 复现脚本（Playwright + 真实后端） | ✅ 修复前 `scrollY=800 / base=1`（复现）；修复后 `scrollY=800 / base=0, surface=1`、标题 `rgb(34,34,34)`、铃铛为深色 |
+| 顶部 → 切分类 → 切回 | ✅ 仍为起始外观（base=1，白字） |
+| 滚动 800 → 回顶 | ✅ 立即还原起始外观 |
+| 滚动 900 → 切分类 → 切回 | ✅ 保持磨砂目标态 |
+| 滚动 900 → 进搜索页 → 返回 | ✅ 保持磨砂目标态 |
+| `pnpm type-check` | ✅ 0 error |
+| `pnpm test:unit` | ✅ 123 文件 / 1325 用例全通过 |
+| `pnpm build:h5:demo` / `pnpm build:mp-weixin` | ✅ 均构建成功；首页产物 `__runtimeHooks=1` 保持不变 |
+| 守门 | 新增契约：补读必须在定时器里（不得在 onShow 直接调用）、视口补读不得写 0、`handlePageScroll` 必须有 `hidden` 守卫 |
+| 真机 | ⏳ 未复测（微信真机行为预期一致：状态本就随页面实例保留，补读只做单向补正） |

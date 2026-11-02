@@ -12,7 +12,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
 /**
@@ -50,13 +49,7 @@ public class AppUserAddressController {
 	@PostMapping
 	public Result saveOrUpdate(@RequestBody UserAddress userAddress) {
 		String userId = SecurityUtils.getUser().getUserId();
-		userAddress.setUserId(userId);
-		if (!StringUtils.hasText(userAddress.getId())) {
-			return Result.success(userAddressService.save(userAddress));
-		}
-		return Result.success(userAddressService.update(userAddress, Wrappers.<UserAddress>lambdaUpdate()
-			.eq(UserAddress::getId, userAddress.getId())
-			.eq(UserAddress::getUserId, userId)));
+		return Result.success(userAddressService.saveOrUpdateForUser(userAddress, userId));
 	}
 
 	/**

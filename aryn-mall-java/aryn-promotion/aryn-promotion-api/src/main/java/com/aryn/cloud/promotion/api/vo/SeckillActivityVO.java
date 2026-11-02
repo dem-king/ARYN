@@ -25,6 +25,9 @@ public class SeckillActivityVO {
 	@Schema(description = "状态:0未开始 1进行中 2已结束 3已暂停")
 	private Integer status;
 
+	@Schema(description = "排期方式:0一次性场次 1每日重复")
+	private Integer scheduleType;
+
 	@Schema(description = "活动描述")
 	private String description;
 
@@ -33,4 +36,7 @@ public class SeckillActivityVO {
 
 	@Schema(description = "场次列表")
 	private List<SeckillSessionVO> sessions;
+
+	@Schema(description = "每日排期模板列表")
+	private List<SeckillSessionTemplateVO> sessionTemplates;
 }

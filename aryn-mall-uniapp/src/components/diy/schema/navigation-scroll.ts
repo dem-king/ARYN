@@ -5,21 +5,62 @@ import type { NavigationScrollEffect, PageSettings } from './types'
 import { pickReadableNavigationTextColor } from './navigation-style'
 
 /* NAVIGATION-SCROLL-BEGIN */
-/** 滚动渐显默认距离（px）：约两个导航栏高度 */
+/**
+ * 遗留「渐显距离」缺省值（px）。
+ *
+ * 导航材质已改为**一步切换**（滚动即目标态），distance 不再参与渲染；
+ * 这里保留常量与归一化，只为兼容存量草稿里的旧字段，避免被当成脏值清掉。
+ */
 export const DEFAULT_NAVIGATION_SCROLL_DISTANCE = 140
 export const MIN_NAVIGATION_SCROLL_DISTANCE = 40
 export const MAX_NAVIGATION_SCROLL_DISTANCE = 400
 /** 磨砂白目标态不透明度：有毛玻璃 / 无毛玻璃兜底 */
 export const FROSTED_SURFACE_ALPHA = 0.86
 export const FROSTED_FALLBACK_ALPHA = 0.97
-/** 浅色目标底色开始出现底部细线的进度 */
-export const NAVIGATION_HAIRLINE_PROGRESS = 0.55
+
+/**
+ * 业务页（非装修页）的缺省「滚动 → 磨砂玻璃」配置。
+ *
+ * 与首页磨砂白目标态完全同源：同一份配置、同一套解析函数、同一材质常量，
+ * 避免两处各写一套 rgba/blur 数值后越改越偏。业务页只需调用
+ * useFrostedNavbar() 并把滚动状态喂进去，导航组件自动套用。
+ */
+export const FROSTED_SCROLL_EFFECT: NavigationScrollEffect = {
+  mode: 'fade',
+  surface: 'frosted',
+  surfaceColor: '',
+  distance: DEFAULT_NAVIGATION_SCROLL_DISTANCE,
+  blur: true,
+}
+
+/** 磨砂白目标态外观（静态部分）：白底 86% + 毛玻璃 + 深色文字 */
+export const FROSTED_SCROLL_SURFACE: NavigationSurfaceAppearance = {
+  color: '#FFFFFF',
+  alpha: FROSTED_SURFACE_ALPHA,
+  blur: true,
+  textColor: '#222222',
+}
+
+/**
+ * 磨砂深色目标态外观：系统深色时业务页滚动玻璃切深。
+ *
+ * 材质与 glass-tabbar / GoodsNavbar 的深色玻璃同源（86% 暗底）；textColor
+ * 必须是纯白，toStatusBarFrontColor 只认 '#ffffff' 才翻白色状态栏前景。
+ * 滚动后的文字色/底边细线由 resolveNavigationScrollAppearance 按合成底色
+ * 亮度自动推导（深色面 → 白字、无细线），无需在此重复配置。
+ */
+export const FROSTED_SCROLL_SURFACE_DARK: NavigationSurfaceAppearance = {
+  color: '#1A1A1A',
+  alpha: FROSTED_SURFACE_ALPHA,
+  blur: true,
+  textColor: '#FFFFFF',
+}
 
 /**
  * 导航目标底色外观（静态部分）。
  *
  * 只随页面配置 / 主题变化，不随滚动变化：C 端、编辑画布、草稿预览先解析出
- * 这一层，再在滚动时用 resolveNavigationScrollAppearance() 按进度合成。
+ * 这一层，再在滚动时用 resolveNavigationScrollAppearance() 合成。
  */
 export interface NavigationSurfaceAppearance {
   /** 目标底色（不含 alpha，用于亮度判断与合成） */
@@ -34,7 +75,7 @@ export interface NavigationSurfaceAppearance {
 
 /** 滚动进度合成后的导航外观（动态部分） */
 export interface NavigationScrollAppearance {
-  /** 0–1 渐显进度 */
+  /** 0/1 两态：0=页面在顶部（起始外观），1=已滚动（完整目标外观） */
   progress: number
   /** 起始外观层不透明度（1-progress） */
   baseOpacity: number
@@ -46,7 +87,7 @@ export interface NavigationScrollAppearance {
   surfaceAlpha: number
   /** 是否启用毛玻璃 */
   blur: boolean
-  /** 当前进度下的标题 / 图标色 */
+  /** 当前状态下的标题 / 图标色 */
   textColor: string
   /** 状态栏前景色（微信仅支持这两个值） */
   statusBarFrontColor: '#000000' | '#ffffff'
@@ -107,20 +148,17 @@ function scrollLuminance(color: string): number {
   return (rgb[0] * 0.299 + rgb[1] * 0.587 + rgb[2] * 0.114) / 255
 }
 
-function smoothstep(progress: number): number {
-  const value = clampScrollNumber(progress, 0, 1)
-  return value * value * (3 - 2 * value)
-}
-
 /** 可读文字色 → 状态栏合法值（#222222 视为黑，其余非白也按黑） */
 function toStatusBarFrontColor(color: string): '#000000' | '#ffffff' {
   return color.toLowerCase() === '#ffffff' ? '#ffffff' : '#000000'
 }
 
 /**
- * 滚动渐显配置归一化：缺省 / 脏值 → 合法对象。
+ * 沉浸式导航滚动配置归一化：缺省 / 脏值 → 合法对象。
  *
  * 迁移器与设置面板共用；缺省 mode='none' 表示保持现状（存量页面零变化）。
+ * distance 是遗留字段（新版改为一步切换，渲染端不再消费），仍按 40–400
+ * clamp，保证旧文档能原样读回、不被当成脏值清掉。
  * 不抛错：小程序端不能因为一条脏数据白屏。
  */
 export function normalizeNavigationScrollEffect(
@@ -206,10 +244,15 @@ export function resolveNavigationScrollSurface(
 }
 
 /**
- * 动态部分：滚动进度 → 导航外观（纯函数，三端共用）。
+ * 动态部分：滚动状态 → 导航外观（纯函数，三端共用）。
  *
- * 进度 = smoothstep(clamp(scrollTop / distance, 0, 1))；文字与状态栏颜色按
- * 「起始色 → 目标色」的合成背景亮度取黑/白（阈值 0.6，与现有导航解析同口径）。
+ * 目标态是**一步切换**：页面在顶部（scrollTop<=0）保持起始外观，任意正滚动
+ * 距离立即变成完整目标态（目标底色 + 毛玻璃 + 底边细线 + 反色文字），回到
+ * 顶部立即还原——不再按 distance 插值，也就没有「透明 → 模糊」的过渡过程
+ * （用户明确要求去掉）。distance 因此只作为旧文档的遗留字段保留。
+ *
+ * 文字与状态栏颜色仍按「当前合成背景亮度」取黑/白（阈值 0.6，与现有导航
+ * 解析同口径）；progress 只取 0/1 两态，头部不会随滚动反复换色。
  */
 export function resolveNavigationScrollAppearance(
   base: NavigationAppearance,
@@ -233,13 +276,23 @@ export function resolveNavigationScrollAppearance(
       hairlineOpacity: 0,
     }
   }
-  const progress = smoothstep(Math.max(0, scrollTop) / normalized.distance)
+  // 一步切换：任意正滚动距离即目标态，负值（iOS 回弹）按顶部处理
+  const progress = scrollTop > 0 ? 1 : 0
   const composite = mixScrollColor(
     base.backgroundColor,
     surface.color,
     progress,
   )
-  const textColor = pickReadableNavigationTextColor(composite, base.textColor)
+  /**
+   * 起点直接沿用调用方给的起始文字色。
+   *
+   * 业务页的起始底色可能是 CSS 变量（如个人中心/会员页的 `var(--theme-color-primary)`）：
+   * 解析器只认 hex/rgb，读不出来会按白底推成深色字 —— 叠在品牌色导航上直接「白字变黑字」。
+   * 起始态本来就是「原样展示」，文字色没有重新推断的必要。
+   */
+  const textColor = progress === 0
+    ? base.textColor
+    : pickReadableNavigationTextColor(composite, base.textColor)
   const lightSurface = scrollLuminance(surface.color) > 0.75
   return {
     progress,
@@ -250,14 +303,7 @@ export function resolveNavigationScrollAppearance(
     blur: surface.blur,
     textColor,
     statusBarFrontColor: toStatusBarFrontColor(textColor),
-    hairlineOpacity: lightSurface
-      ? clampScrollNumber(
-          (progress - NAVIGATION_HAIRLINE_PROGRESS) /
-            (1 - NAVIGATION_HAIRLINE_PROGRESS),
-          0,
-          1,
-        )
-      : 0,
+    hairlineOpacity: lightSurface ? progress : 0,
   }
 }
 /* NAVIGATION-SCROLL-END */

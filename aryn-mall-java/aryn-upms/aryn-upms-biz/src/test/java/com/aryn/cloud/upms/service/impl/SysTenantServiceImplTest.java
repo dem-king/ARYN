@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.aryn.cloud.common.core.constant.CacheConstants;
 import com.aryn.cloud.common.core.constant.CommonConstants;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
+import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.upms.api.entity.SysMenu;
 import com.aryn.cloud.upms.api.entity.SysRole;
 import com.aryn.cloud.upms.api.entity.SysRoleMenu;
@@ -33,10 +34,12 @@ import java.util.Collection;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -163,6 +166,60 @@ class SysTenantServiceImplTest {
 		verify(tenantSessionRevoker).revokeTenant(eq(TENANT_ID), contains("停用"));
 	}
 
+	@Test
+	void platformTenantKeepsPerpetualLicense() {
+		SysTenant platform = platformTenant();
+		when(sysTenantMapper.selectById(TENANT_ID)).thenReturn(platform);
+
+		assertThatThrownBy(() -> service.changeStatus(TENANT_ID, "1"))
+			.isInstanceOf(ArynBusinessException.class)
+			.extracting(e -> ((ArynBusinessException) e).getMsg())
+			.asString().contains("平台租户");
+
+		assertThatThrownBy(() -> service.renew(TENANT_ID, 30))
+			.isInstanceOf(ArynBusinessException.class)
+			.extracting(e -> ((ArynBusinessException) e).getMsg())
+			.asString().contains("无需续期");
+
+		SysTenant patch = new SysTenant();
+		patch.setId(TENANT_ID);
+		patch.setAuthEndTime(LocalDateTime.now().plusDays(30));
+		assertThatThrownBy(() -> service.updateTenant(patch))
+			.isInstanceOf(ArynBusinessException.class)
+			.extracting(e -> ((ArynBusinessException) e).getMsg())
+			.asString().contains("长期有效");
+
+		verify(sysTenantMapper, never()).updateById(any(SysTenant.class));
+	}
+
+	@Test
+	void tenantTypeCannotBeChangedThroughUpdate() {
+		when(sysTenantMapper.selectById(TENANT_ID)).thenReturn(tenant(OLD_PACKAGE_ID, CommonConstants.NORMAL_STATUS));
+
+		SysTenant patch = new SysTenant();
+		patch.setId(TENANT_ID);
+		patch.setTenantType(CommonConstants.TENANT_TYPE_PLATFORM);
+
+		assertThatThrownBy(() -> service.updateTenant(patch))
+			.isInstanceOf(ArynBusinessException.class)
+			.extracting(e -> ((ArynBusinessException) e).getMsg())
+			.asString().contains("租户类型不可修改");
+
+		verify(sysTenantMapper, never()).updateById(any(SysTenant.class));
+	}
+
+	@Test
+	void platformTenantCannotBeRemoved() {
+		when(sysTenantMapper.selectById(TENANT_ID)).thenReturn(platformTenant());
+
+		assertThatThrownBy(() -> service.removeTenant(TENANT_ID))
+			.isInstanceOf(ArynBusinessException.class)
+			.extracting(e -> ((ArynBusinessException) e).getMsg())
+			.asString().contains("不可删除");
+
+		verify(sysTenantMapper, never()).deleteById(any(String.class));
+	}
+
 	@SuppressWarnings({ "unchecked", "rawtypes" })
 	private static <T> ArgumentCaptor<Collection<T>> collectionCaptor() {
 		return (ArgumentCaptor) ArgumentCaptor.forClass(Collection.class);
@@ -174,8 +231,16 @@ class SysTenantServiceImplTest {
 		tenant.setName("测试租户");
 		tenant.setPackageId(packageId);
 		tenant.setStatus(status);
+		tenant.setTenantType(CommonConstants.TENANT_TYPE_STANDARD);
 		tenant.setAuthBeginTime(LocalDateTime.now().minusDays(1));
 		tenant.setAuthEndTime(LocalDateTime.now().plusDays(30));
+		return tenant;
+	}
+
+	private static SysTenant platformTenant() {
+		SysTenant tenant = tenant(OLD_PACKAGE_ID, CommonConstants.NORMAL_STATUS);
+		tenant.setTenantType(CommonConstants.TENANT_TYPE_PLATFORM);
+		tenant.setAuthEndTime(null);
 		return tenant;
 	}
 

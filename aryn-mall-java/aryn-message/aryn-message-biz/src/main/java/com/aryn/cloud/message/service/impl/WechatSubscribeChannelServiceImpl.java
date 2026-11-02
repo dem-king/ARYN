@@ -2,10 +2,12 @@ package com.aryn.cloud.message.service.impl;
 
 import com.aryn.cloud.message.api.constant.MessageJumpConstants;
 import com.aryn.cloud.message.api.dto.MessageSendCommand;
+import com.aryn.cloud.message.api.enums.MessageIdentityType;
 import com.aryn.cloud.message.config.WechatSubscribeProperties;
 import com.aryn.cloud.message.service.WechatSubscribeChannelService;
 import com.aryn.cloud.upms.api.remote.RemoteWechatBindingService;
 import com.aryn.cloud.user.api.dto.WechatSubscribeMsgDTO;
+import com.aryn.cloud.user.api.remote.RemoteSocialUserService;
 import com.aryn.cloud.user.api.remote.RemoteWechatSubscribeService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -39,6 +41,9 @@ public class WechatSubscribeChannelServiceImpl implements WechatSubscribeChannel
 	@DubboReference
 	private final RemoteWechatBindingService wechatBindingService;
 
+	@DubboReference
+	private final RemoteSocialUserService socialUserService;
+
 	@Override
 	public void send(MessageSendCommand command) {
 		if (!StringUtils.hasText(properties.getAppId()) || properties.getTemplateMap() == null) {
@@ -50,9 +55,9 @@ public class WechatSubscribeChannelServiceImpl implements WechatSubscribeChannel
 			log.debug("bizType={} 未配置微信订阅模板，跳过", command.getBizType());
 			return;
 		}
-		String openid = wechatBindingService.getOpenid(command.getTenantId(), command.getRecipientId());
+		String openid = resolveOpenid(command);
 		if (!StringUtils.hasText(openid)) {
-			log.debug("员工 {} 未绑定微信 openid，跳过订阅消息", command.getRecipientId());
+			log.debug("收件人 {} 未绑定微信 openid，跳过订阅消息", command.getRecipientId());
 			return;
 		}
 		WechatSubscribeMsgDTO dto = new WechatSubscribeMsgDTO();
@@ -84,14 +89,27 @@ public class WechatSubscribeChannelServiceImpl implements WechatSubscribeChannel
 		return route.startsWith("/") ? route.substring(1) : route;
 	}
 
+	/**
+	 * 员工通知走 upms 员工绑定；商城用户通知走 social_user 的 openid。
+	 */
+	private String resolveOpenid(MessageSendCommand command) {
+		if (MessageIdentityType.MALL_USER.name().equals(command.getRecipientType())) {
+			return socialUserService.getOpenidByMallUserId(command.getTenantId(), command.getRecipientId());
+		}
+		return wechatBindingService.getOpenid(command.getTenantId(), command.getRecipientId());
+	}
+
 	private List<Map<String, String>> buildTemplateData(MessageSendCommand command) {
 		List<Map<String, String>> data = new ArrayList<>();
 		data.add(Map.of("key", "thing1", "value", truncate(command.getTitle(), 20)));
 		if (StringUtils.hasText(command.getSummary())) {
 			data.add(Map.of("key", "thing2", "value", truncate(command.getSummary(), 20)));
 		}
-		data.add(Map.of("key", "time3", "value", java.time.LocalDateTime.now()
-				.format(java.time.format.DateTimeFormatter.ofPattern("yyyy年MM月dd日 HH:mm"))));
+		String timeText = StringUtils.hasText(command.getTimeText())
+				? command.getTimeText()
+				: java.time.LocalDateTime.now()
+					.format(java.time.format.DateTimeFormatter.ofPattern("yyyy年MM月dd日 HH:mm"));
+		data.add(Map.of("key", "time3", "value", timeText));
 		return data;
 	}
 

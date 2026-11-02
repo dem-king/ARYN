@@ -18,6 +18,7 @@ import com.aryn.cloud.upms.api.vo.SysUserVO;
 import com.aryn.cloud.upms.mapper.*;
 import com.aryn.cloud.upms.service.ISysUserRoleService;
 import com.aryn.cloud.upms.service.ISysUserService;
+import com.aryn.cloud.common.core.enums.SessionInvalidSubReason;
 import com.aryn.cloud.upms.support.SysUserSessionRevoker;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -136,7 +137,7 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
 		saveUserRole(sysUser);
 		// 停用即下线：账号已不可再次登录，但已签发的 token 仍会有效到过期，必须立即撤销
 		if (isDisabledTransition(existing, sysUser)) {
-			sysUserSessionRevoker.revokeAll(sysUser.getId(), "停用账号");
+			sysUserSessionRevoker.revokeAll(sysUser.getId(), SessionInvalidSubReason.ACCOUNT_DISABLED);
 		}
 		return Boolean.TRUE;
 	}
@@ -155,14 +156,14 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
 		boolean removed = super.removeById(sysUser.getId());
 		if (removed) {
 			// 删除即下线：避免已删除账号的旧 token 继续访问管理端/配送端
-			sysUserSessionRevoker.revokeAll(sysUser.getId(), "删除账号");
+			sysUserSessionRevoker.revokeAll(sysUser.getId(), SessionInvalidSubReason.ACCOUNT_DELETED);
 		}
 		return removed;
 	}
 
 	@Override
 	public int getCount(SysUser sysUser) {
-		return baseMapper.selectCount(sysUser);
+		return baseMapper.countUserByQuery(sysUser);
 	}
 
 	/**

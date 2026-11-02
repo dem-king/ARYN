@@ -88,7 +88,10 @@ const steps = computed(() => {
       :image-size="60"
       description="暂无数据"
     />
-    <div v-else class="grid grid-cols-2 gap-3 md:grid-cols-5">
+    <div
+      v-else
+      class="grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-3"
+    >
       <div
         v-for="step in steps"
         :key="step.label"

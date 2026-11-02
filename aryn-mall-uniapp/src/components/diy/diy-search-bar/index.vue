@@ -15,9 +15,8 @@
  *   `pinned` 实例挂在页面级（本组件的根节点 `position: fixed`，钉在导航栏下方），
  *   区块里原来那一份退化为 `stickyPlaceholder`（visibility:hidden 只保留布局高度）。
  *   这样：① 首屏静置观感与设计稿逐像素一致（材质层初始完全透明）；② 一旦滚动，
- *   搜索框不再随内容滚走，而是与导航栏同一套材质（起始底色 → 目标底色 → 底边细线）
- *   连成一块头图，滚动进度只在本组件子树内消费，装修楼层不重渲染；
- *   ③ 材质跟随逐帧原始滚动值、不做 CSS 时间过渡，变色与内容 1:1 跟手（不滞后）。
+ *   搜索框不再随内容滚走，而是与导航栏共用同一套目标材质（一步切换，不做渐变），
+ *   连成一块头部；滚动状态只在本组件子树内消费，装修楼层不重渲染。
  */
 import type { NavigationSurfaceAppearance } from '@/components/diy/schema/navigation-scroll'
 import type { NavigationAppearance } from '@/components/diy/schema/navigation-style'
@@ -28,10 +27,7 @@ import { useI18n } from 'vue-i18n'
 
 import { resolveNavigationScrollAppearance } from '@/components/diy/schema/navigation-scroll'
 import { pickReadableIconColor } from '@/components/diy/schema/navigation-style'
-import {
-  DIY_NAVBAR_RAW_SCROLL_KEY,
-  DIY_NAVBAR_SCROLL_KEY,
-} from '@/composables/useDiyNavbarScroll'
+import { DIY_NAVBAR_SCROLL_KEY } from '@/composables/useDiyNavbarScroll'
 import { useDiyStyle } from '@/composables/useDiyStyle'
 import { useAuthStore } from '@/store/authStore'
 import { useMallThemeStore } from '@/store/mallThemeStore'
@@ -75,7 +71,7 @@ const props = defineProps({
     type: Object,
     default: null,
   },
-  /** 滚动渐显配置与目标底色外观（静态部分，与 hr-navbar 同源） */
+  /** 沉浸式导航配置与目标底色外观（静态部分，与 hr-navbar 同源） */
   scrollEffect: {
     type: Object,
     default: null,
@@ -144,22 +140,18 @@ const ambientBackground = computed(() => {
  * ------------------------------------------------------------------ */
 
 /**
- * 页面滚动距离：由整页 DIY 宿主页 `useDiyNavbarScroll()` provide。
+ * 页面滚动状态：由整页 DIY 宿主页 `useDiyNavbarScroll()` provide。
  *
- * 优先用**逐帧原始值**（`DIY_NAVBAR_RAW_SCROLL_KEY`）：常驻搜索栏是大面积纯色块，
- * 8px 量化的台阶看得出来，且会与导航栏渐显「差档」；量化值只作为老宿主页兜底。
- * 内嵌装修页（商详/分类/个人中心的装修块）不 provide，inject 为 null，此时常驻层
- * 也不会被渲染（DiyPage 只在整页 DIY 下渲染常驻层）。
+ * 导航材质是一步切换（顶部起始外观 / 已滚动目标外观），这里只需要布尔状态：
+ * 内嵌装修页（商详/分类/个人中心的装修块）不 provide，inject 为 null 视为未滚动，
+ * 且常驻层只在整页 DIY 下被渲染。
  */
-const pageRawScrollTop = inject(DIY_NAVBAR_RAW_SCROLL_KEY, null)
-const pageScrollTop = inject(DIY_NAVBAR_SCROLL_KEY, null)
+const pageScrolled = inject(DIY_NAVBAR_SCROLL_KEY, null)
 
-/** 常驻层材质消费的滚动值：原始值优先，滚动事件本身即逐帧触发，不做时间过渡 */
-const materialScrollTop = computed(() => {
-  if (!props.pinned)
-    return 0
-  return pageRawScrollTop?.value ?? pageScrollTop?.value ?? 0
-})
+/** 常驻层材质开关：只有常驻实例、且页面已滚动时才取目标外观（0/1 传给解析函数） */
+const materialScrollTop = computed(() =>
+  props.pinned && pageScrolled?.value ? 1 : 0,
+)
 
 /** 导航栏起始外观：正常由 DiyPage 下发；缺省时按宿主区块底色兜底（仅防御） */
 const navBaseAppearance = computed<NavigationAppearance>(() => {
@@ -183,8 +175,9 @@ const navScrollEffect = computed(
 /**
  * 常驻层材质：与 hr-navbar 共用同一纯函数。
  *
- * 传 scrollTop=0 时（占位/普通实例）解析结果就是「起始外观」且 surfaceOpacity=0，
- * 不参与滚动消费；只有 pinned 实例会随页面滚动重算——滚动时仅本组件子树重渲染。
+ * 未滚动（含占位/普通实例）时解析结果就是「起始外观」且 surfaceOpacity=0；
+ * 只有 pinned 实例会随页面滚动状态重算——一次滚动只翻转两次，滚动过程中
+ * 仅本组件子树重渲染。
  */
 const material = computed(() =>
   resolveNavigationScrollAppearance(
@@ -200,37 +193,28 @@ const material = computed(() =>
   ),
 )
 
+/** 材质已出现：常驻实例且页面已滚动（与导航栏同步一步到位，不再按距离「成形」） */
+const materialized = computed(() => props.pinned && materialScrollTop.value > 0)
+
 /**
- * 材质「成形」距离（px）。
- *
- * 静置（scrollTop=0）必须完全透明：首屏仍是「搜索框直接坐在区块渐变上」的设计稿观感，
- * 常驻层不能把导航底色（可能 ≠ 首区块渐变）糊上来。开始滚动后**一个量化步（8px）内**
- * 就把材质补满：再长会在起步阶段显得比导航栏「慢半拍」（用户反馈），再短则非
- * `followFirstSection` 页面会在首个滚动事件跳色。
+ * 材质开关（0/1）。静置必须为 0：此时解析结果给的是「起始外观」（baseOpacity=1），
+ * 直接铺出来会把导航起始底色糊到首屏搜索框区域，破坏设计稿观感；开始滚动后
+ * 与导航栏同帧切到 1，两层材质一步到位。
  */
-const MATERIALIZE_DISTANCE = 8
+const materialVisible = computed(() => (materialized.value ? 1 : 0))
 
-const materialize = computed(() => {
-  if (!props.pinned)
-    return 0
-  return Math.min(1, Math.max(0, materialScrollTop.value) / MATERIALIZE_DISTANCE)
-})
-
-/** 两层材质的不透明度 = 渐显进度 × 成形进度（与 hr-navbar 的 base/surface 同口径） */
+/** 两层材质不透明度 = 解析结果 × 材质开关（0/1，与 hr-navbar 的 base/surface 同口径） */
 const materialBaseStyle = computed(() =>
-  `background-color:${navBaseAppearance.value.backgroundColor};opacity:${(material.value.baseOpacity * materialize.value).toFixed(3)};`,
+  `background-color:${navBaseAppearance.value.backgroundColor};opacity:${(material.value.baseOpacity * materialVisible.value).toFixed(3)};`,
 )
 const materialSurfaceStyle = computed(() =>
-  `background:var(--diy-nav-surface-bg, rgba(255, 255, 255, 0.86));opacity:${(material.value.surfaceOpacity * materialize.value).toFixed(3)};`,
+  `background:var(--diy-nav-surface-bg, rgba(255, 255, 255, 0.86));opacity:${(material.value.surfaceOpacity * materialVisible.value).toFixed(3)};`,
 )
 const materialHairlineStyle = computed(() =>
-  `background:var(--diy-nav-hairline, rgba(15, 23, 42, 0.08));opacity:${(material.value.hairlineOpacity * materialize.value).toFixed(3)};`,
+  `background:var(--diy-nav-hairline, rgba(15, 23, 42, 0.08));opacity:${(material.value.hairlineOpacity * materialVisible.value).toFixed(3)};`,
 )
-/** 毛玻璃只在渐显目标态启用；与 hr-navbar 的 is-blur 同值 */
+/** 毛玻璃只在目标态启用；与 hr-navbar 的 is-blur 同值 */
 const materialSurfaceBlur = computed(() => props.pinned && material.value.blur)
-
-/** 材质已出现：铃铛/扫码图标切换到与合成底色对比的可读色，内层白条补一圈细边保持轮廓 */
-const materialized = computed(() => props.pinned && materialize.value > 0)
 
 /**
  * 图标色：静置沿用宿主区块底色（与改造前一致）；常驻材质出现后跟随导航栏
@@ -321,9 +305,9 @@ function stopRotation() {
     :style="dynamicStyles"
   >
     <!--
-      常驻层材质：起始底色 → 目标底色 → 底边细线，三层与 hr-navbar 同源
-      （CSS 变量 --diy-nav-surface-* 由 DiyPage 挂在 .diy-page 根节点上继承）。
-      普通/占位实例不渲染，模板契约与改造前一致。
+      常驻层材质：起始底色 → 目标底色 → 底边细线，三层与 hr-navbar 同源、
+      随导航滚动状态一步切换（CSS 变量 --diy-nav-surface-* 由 DiyPage 挂在
+      .diy-page 根节点上继承）。普通/占位实例不渲染，模板契约与改造前一致。
     -->
     <view v-if="pinned" class="search-bar-material">
       <view class="search-bar-material__base" :style="materialBaseStyle" />
@@ -347,8 +331,8 @@ function stopRotation() {
         </text>
       </view>
 
-      <!-- 消息角标：未读为 0 或未登录时不渲染 -->
-      <view class="search-bar-bell" @click.stop="goMessage">
+      <!-- 消息角标：未登录时整个铃铛不渲染（消息中心是需登录页），未读为 0 时只渲染铃铛、不渲染角标 -->
+      <view v-if="authStore.isLoggedIn" class="search-bar-bell" @click.stop="goMessage">
         <wd-icon name="notification" size="22px" :color="iconColor" />
         <view v-if="unreadCount > 0" class="search-bar-bell-dot">
           {{ unreadText }}
@@ -439,14 +423,14 @@ function stopRotation() {
       bottom: 0;
       left: 0;
       /*
-       * 不加 transition：时间过渡会让材质比导航栏/内容滞后 ~180ms（用户反馈
-       * 「慢一步」）；这里直接跟随 onPageScroll 的逐帧原始值，与内容 1:1 跟手。
+       * 不加 transition：材质与导航栏同一条 0/1 滚动状态，一步切换；
+       * 任何时间过渡都会让搜索栏比导航栏滞后（用户反馈「慢一步」）。
        */
     }
 
     /* iOS 18 以下只认 -webkit- 前缀；不支持的端仍是不透明度 .86 的底色层 */
     &__surface.is-blur {
-      -webkit-backdrop-filter: blur(18px) saturate(160%);
+      -WEBKIT-backdrop-filter: blur(18px) saturate(160%);
       backdrop-filter: blur(18px) saturate(160%);
     }
 

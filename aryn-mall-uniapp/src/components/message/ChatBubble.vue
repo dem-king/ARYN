@@ -75,9 +75,9 @@ function previewImage(payload?: string) {
 .message-bubble {
   max-width: 76%;
   padding: 18rpx 22rpx;
-  border: 1rpx solid #eceff0;
+  border: 1rpx solid var(--app-border);
   border-radius: 8rpx 26rpx 26rpx;
-  background: #fff;
+  background: var(--app-card);
   box-shadow: 0 10rpx 26rpx rgb(17 27 38 / 4%);
 }
 .mine .message-bubble {
@@ -106,9 +106,9 @@ function previewImage(payload?: string) {
 }
 .system-message {
   padding: 10rpx 18rpx;
-  color: #7b8783;
+  color: var(--app-text-3);
   border-radius: 30rpx;
-  background: #eff2f2;
+  background: var(--app-card-2);
   font-size: 20rpx;
 }
 </style>

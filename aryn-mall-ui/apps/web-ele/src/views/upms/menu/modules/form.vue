@@ -25,14 +25,23 @@ const emit = defineEmits<{
 const { application_key, menu_type } = useDict('application_key', 'menu_type');
 function getMenuListWithRoot() {
   return getMenuList().then((res) => {
-    const menu = {
-      id: '0',
-      name: '顶级菜单',
-      children: [],
-      parentId: '0',
-    };
-    res.unshift(menu);
-    return res;
+    // 上级菜单只能是目录/菜单；同时剔除自身子树，避免编辑时把菜单挂到自己下面
+    const editingId = formData.value?.id;
+    const pickParents = (nodes: any[]): any[] =>
+      nodes
+        .filter((node) => node.type !== '1' && node.id !== editingId)
+        .map((node) => ({
+          ...node,
+          children: pickParents(node.children ?? []),
+        }));
+    return [
+      {
+        id: '0',
+        name: '顶级菜单',
+        parentId: '0',
+        children: pickParents(res),
+      },
+    ];
   });
 }
 const formData = ref<any>();
@@ -64,6 +73,7 @@ const schema: VbenFormSchema[] = [
       valueField: 'id',
       childrenField: 'children',
       allowClear: true,
+      placeholder: '请选择上级菜单',
     },
     fieldName: 'parentId',
     label: '上级菜单',
@@ -84,8 +94,11 @@ const schema: VbenFormSchema[] = [
   },
   {
     component: 'Input',
+    componentProps: {
+      placeholder: '以 / 开头，如 /platform',
+    },
     fieldName: 'path',
-    label: '菜单编码',
+    label: '路由地址',
     dependencies: {
       show: (values) => {
         return ['0'].includes(values.type);
@@ -94,21 +107,13 @@ const schema: VbenFormSchema[] = [
     },
     rules: z
       .string()
-      .min(2, $t('ui.formRules.minLength', ['菜单编码', 2]))
-      .max(100, $t('ui.formRules.maxLength', ['菜单编码', 100]))
+      .min(2, $t('ui.formRules.minLength', ['路由地址', 2]))
+      .max(100, $t('ui.formRules.maxLength', ['路由地址', 100]))
       .refine(
         (value: string) => {
           return value.startsWith('/');
         },
-        $t('ui.formRules.startWith', ['菜单编码', '/']),
-      )
-      .refine(
-        async () => {
-          return true;
-        },
-        (value) => ({
-          message: $t('ui.formRules.alreadyExists', ['菜单编码', value]),
-        }),
+        $t('ui.formRules.startWith', ['路由地址', '/']),
       ),
   },
   {
@@ -123,13 +128,16 @@ const schema: VbenFormSchema[] = [
       triggerFields: ['type'],
     },
     fieldName: 'icon',
-    label: '菜单icon',
+    label: '菜单图标',
   },
 
   {
     component: 'Input',
+    componentProps: {
+      placeholder: '如 upms/menu/index',
+    },
     fieldName: 'component',
-    label: '菜单路径',
+    label: '组件路径',
     dependencies: {
       show: (values) => {
         return ['0'].includes(values.type);
@@ -139,6 +147,9 @@ const schema: VbenFormSchema[] = [
   },
   {
     component: 'Input',
+    componentProps: {
+      placeholder: '如 upms:sysmenu:add',
+    },
     dependencies: {
       rules: (values) => {
         return values.type === '1' ? 'required' : null;
@@ -149,7 +160,7 @@ const schema: VbenFormSchema[] = [
       triggerFields: ['type'],
     },
     fieldName: 'permission',
-    label: '菜单权限',
+    label: '权限标识',
   },
 
   {
@@ -161,12 +172,13 @@ const schema: VbenFormSchema[] = [
     },
     fieldName: 'applicationKey',
     label: '应用系统',
+    help: '决定该菜单随哪类租户套餐下发；平台应用的菜单仅平台可用，不会分配给租户',
     rules: 'required',
   },
   {
     component: 'InputNumber',
     fieldName: 'sort',
-    label: '排序序号',
+    label: '排序',
     defaultValue: 1,
     rules: 'required',
   },

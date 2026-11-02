@@ -99,9 +99,9 @@ export interface ShopInfoProps extends RetailBaseProps {
 export interface ActivityStripEntry {
   /** 卡片类型：内置三类固定跳对应会场，custom 走 link */
   key: 'custom' | 'discount' | 'group-buy' | 'seckill'
-  /** 活动名，如「限时秒杀」；缺图时取首字做色块兜底 */
+  /** 活动名，如「限时秒杀」；缺图时取首字做色块兜底；超长时单行滚动 */
   title: string
-  /** 钩子文案，如「午间场·整点开抢」；空则不渲染该行 */
+  /** 钩子文案，如「午间场·整点开抢」；空则不渲染该行；超长时单行滚动 */
   hook: string
   /** 角标文字，如「抢」「省¥4」「9.5折」；空则不渲染角标 */
   badge: string
@@ -224,6 +224,8 @@ export interface SeckillGoodsItem {
 /** 秒杀场次（已归一化） */
 export interface SeckillSessionItem {
   countdown: number
+  /** 相对今天的天数：0今天 1明天 */
+  dayOffset?: number
   endTime: string
   goodsList: SeckillGoodsItem[]
   sessionId: string

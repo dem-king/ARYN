@@ -1,8 +1,12 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { onPageScroll } from '@dcloudio/uni-app'
 import { bindWechatByCode, getWechatBindStatus, getWxLoginCode, requestSubscribeMessage } from '@/api/delivery'
 import { useDeliveryMessageStore } from '@/store/deliveryMessageStore'
 import { Local } from '@/utils/storage'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+
+const { handlePageScroll } = useFrostedNavbar()
 
 definePage({
   name: 'delivery-profile',
@@ -117,6 +121,9 @@ function handleLogout() {
     },
   })
 }
+
+// 顶栏磨砂玻璃：字面量注册滚动（小程序按页面源码生成滚动位标记，包进 composable 会静默失效）
+onPageScroll(handlePageScroll)
 </script>
 
 <template>
@@ -235,7 +242,7 @@ function handleLogout() {
   display: flex;
   align-items: center;
   padding: 30rpx 0;
-  border-bottom: 1px solid #f5f5f5;
+  border-bottom: 1px solid var(--app-border);
 
   &:last-child {
     border-bottom: none;

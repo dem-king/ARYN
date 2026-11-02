@@ -43,8 +43,9 @@ const props = withDefaults(
      */
     pageType?: PageDesignType;
     /**
-     * 浏览器整页滚动距离（相对画布顶边，缺省 0）：驱动导航栏滚动渐显。
-     * 草稿预览传真实 window scroll，生效卡片/模板缩略图不传 → 保持顶部态。
+     * 浏览器整页滚动距离（相对画布顶边，缺省 0）：驱动导航栏滚动切换
+     * （顶部 / 已滚动两态）。草稿预览传真实 window scroll，生效卡片/模板缩略图
+     * 不传 → 保持顶部态。
      */
     scrollTop?: number;
     /**
@@ -120,12 +121,13 @@ const navigationStyle = computed(() => ({
 }));
 
 /**
- * 滚动渐显（沉浸式导航）：与编辑画布 phone-canvas、C 端 hr-navbar 共用同一份
- * 解析函数。先解析静态目标底色（resolveNavigationScrollSurface），再按进度合成
- * （resolveNavigationScrollAppearance）：
- *   · base 层 = 当前静态外观，opacity = 1-p 渐隐；
- *   · surface 层 = 目标底色（磨砂白/主题色/自定义色），opacity = p 渐显；
- *   · hairline 只在目标底色为浅色时于 p>0.55 后渐显。
+ * 沉浸式导航（滚动切换）：与编辑画布 phone-canvas、C 端 hr-navbar 共用同一份
+ * 解析函数。先解析静态目标底色（resolveNavigationScrollSurface），再按滚动状态
+ * 合成（resolveNavigationScrollAppearance）：
+ *   · 页面在顶部：base 层显示起始外观，surface 层隐藏；
+ *   · 一旦滚动：一步切换到目标底色（磨砂白/主题色/自定义色 + 毛玻璃）、
+ *     surface 层显示，base 层隐藏，浅色目标底色同时出现底部细线；
+ *   · 不做距离插值，因此没有「透明 → 模糊」的过渡过程。
  * mode!=='fade' 时 progress=0，导航外观与改动前完全一致。
  */
 const scrollEffect = computed(() =>
@@ -140,7 +142,7 @@ const scrollSurface = computed(() =>
     navigationAppearance.value,
   ),
 );
-/** 动态部分：滚动进度 → 导航外观（scrollTop 来自草稿预览的 window scroll） */
+/** 动态部分：滚动状态 → 导航外观（scrollTop 来自草稿预览的 window scroll） */
 const scrollAppearance = computed(() =>
   resolveNavigationScrollAppearance(
     navigationAppearance.value,
@@ -150,20 +152,20 @@ const scrollAppearance = computed(() =>
   ),
 );
 
-/** 导航外层样式：无渐显时沿用现状；渐显时背景交给 base/surface 两层，只留文字色 */
+/** 导航外层样式：未开效果时沿用现状；开启时背景交给 base/surface 两层，只留文字色 */
 const navigationOuterStyle = computed(() =>
   fadeEnabled.value
     ? { color: scrollAppearance.value.textColor }
     : navigationStyle.value,
 );
 
-/** base 层：静态外观整体按 1-p 渐隐（渐变用背景图，不做颜色过渡） */
+/** base 层：起始外观（顶部显示 / 已滚动隐藏；渐变用背景图，不做颜色过渡） */
 const navigationBaseLayerStyle = computed(() => ({
   ...navigationStyle.value,
   opacity: scrollAppearance.value.baseOpacity,
 }));
 
-/** surface 层：目标底色带目标态 alpha，层透明度 = 进度 p */
+/** surface 层：目标底色带目标态 alpha（已滚动显示 / 顶部隐藏） */
 const navigationSurfaceLayerStyle = computed(() => ({
   backgroundColor: scrollLayerColor(
     scrollAppearance.value.surfaceColor,
@@ -294,7 +296,7 @@ function sectionAmbientColor(
       class="preview-navigation"
       :style="navigationOuterStyle"
     >
-      <!-- 渐显态：base（当前外观，1-p 渐隐）+ surface（目标底色，p 渐显）+ 细线 -->
+      <!-- 滚动切换态：base（顶部显示）+ surface（已滚动显示）+ 细线，一步切换 -->
       <template v-if="fadeEnabled">
         <div
           class="preview-navigation__base"
@@ -406,6 +408,11 @@ function sectionAmbientColor(
 }
 
 .preview-navigation {
+  /* 滚动切换态的背景由 __base / __surface 两层绝对定位铺满导航条（inset: 0），
+     这里必须建立包含块，否则它们会逃逸到最近的定位祖先（内嵌场景无 transform
+     包裹时直接是管理端内容区），把导航底色铺满整页、盖住左侧主题库等面板。
+     sticky 也是定位元素，整页预览分支的 position: sticky 同样满足该要求。 */
+  position: relative;
   display: flex;
   align-items: end;
   justify-content: center;
@@ -427,16 +434,15 @@ function sectionAmbientColor(
 .preview-navigation__title {
   position: relative;
   z-index: 1;
-  transition: color 0.16s linear;
 }
 
-/* 背景两层绝对铺满导航条：base = 当前外观，surface = 目标底色 */
+/* 背景两层绝对铺满导航条：base = 当前外观，surface = 目标底色。
+   一步切换（顶部 / 已滚动）不加 transition，与 C 端 hr-navbar / 编辑画布一致。 */
 .preview-navigation__base,
 .preview-navigation__surface {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  transition: opacity 0.16s linear;
 }
 
 .preview-navigation__surface.is-blur {
@@ -451,7 +457,6 @@ function sectionAmbientColor(
   height: 1px;
   pointer-events: none;
   background: rgb(15 23 42 / 8%);
-  transition: opacity 0.16s linear;
 }
 
 .preview-embedded {

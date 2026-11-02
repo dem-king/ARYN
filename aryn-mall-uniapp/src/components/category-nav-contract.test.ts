@@ -20,7 +20,7 @@ describe('category page structure', () => {
   const page = 'src/components/category-browser/index.vue'
 
   it('same category UI feeds both the tab page and the stack page', () => {
-    expect(source('src/pages/product/category/index.vue')).toContain('<CategoryBrowser />')
+    expect(source('src/pages/product/category/index.vue')).toContain('<CategoryBrowser with-tab-bar')
     expect(source('src/sub-pages/product/category-browse/index.vue')).toContain('<CategoryBrowser show-back')
     expect(source(page)).toContain(':left-arrow="props.showBack"')
   })

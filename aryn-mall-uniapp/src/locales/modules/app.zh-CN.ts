@@ -8,6 +8,7 @@ export default {
     request: {
       featureUnavailable: '该功能暂不可用，请稍后重试',
       forbidden: '暂无权限访问该功能',
+      needLogin: '请先登录',
     },
     auth: {
       loggingIn: '正在登录中，请稍候...',

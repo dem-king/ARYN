@@ -28,6 +28,7 @@ import {
   ElTag,
 } from 'element-plus';
 
+import { getDisplayByIds } from '#/api/product/goods-sku';
 import { getById as getSpuById } from '#/api/product/goods-spu';
 import {
   addActivity,
@@ -108,7 +109,7 @@ const registerWithinDays = ref<null | number>(null);
  *
  * 提交契约（与后端/C 端严格一致）：
  * `rules = { minLevelId, skus: [{ skuId, unitPrice }] }`，只存契约字段，
- * 商品名/售价仅用于管理端展示，不落库（编辑回显时缺失则退回显示 skuId）。
+ * 商品名/售价不落库，编辑回显时按 skuId 向商品服务换取。
  */
 const memberSkus = ref<
   Array<{
@@ -221,6 +222,51 @@ const parseActivityRules = (value: unknown): null | Record<string, any> => {
   }
 };
 
+/** skuId → 商品展示信息，活动规则只存 skuId 时用于回显与试算结果展示 */
+const skuDisplayMap = ref<Record<string, any>>({});
+
+/**
+ * 活动规则只持久化 skuId（会员价等类型的展示字段不落库），编辑回显时
+ * 按 skuId 批量换取商品名/规格/售价，避免弹窗只显示一串 ID。
+ * 商品服务不可用时保留规则内已有展示字段，不阻断配置。
+ */
+const enrichSkuDisplay = async (rows: any[]) => {
+  const ids = [...new Set(rows.map((row) => row.skuId).filter(Boolean))];
+  if (ids.length === 0) return;
+  try {
+    const displays = (await getDisplayByIds(ids as string[])) ?? [];
+    const map = { ...skuDisplayMap.value };
+    displays.forEach((item) => {
+      map[item.skuId] = item;
+    });
+    skuDisplayMap.value = map;
+    rows.forEach((row) => {
+      const display = map[row.skuId];
+      if (!display) return;
+      if (display.spuName) row.spuName = display.spuName;
+      if (display.skuName) row.skuName = display.skuName;
+      if (display.salesPrice !== null && display.salesPrice !== undefined) {
+        row.salesPrice = display.salesPrice;
+      }
+    });
+  } catch {
+    // 商品服务不可用：保留规则内已有展示字段，缺失时回退显示 skuId
+  }
+};
+
+/** 试算结果只回传 skuId：优先用购物车行/已解析的商品名展示 */
+const skuDisplayText = (skuId: string) => {
+  const item = dryForm.items.find((row: any) => row.skuId === skuId);
+  const display = skuDisplayMap.value[skuId];
+  const name = [
+    item?.spuName || display?.spuName,
+    item?.skuName || display?.skuName,
+  ]
+    .filter(Boolean)
+    .join(' ');
+  return name || skuId;
+};
+
 /** 会员价（type=10）列表摘要：等级门槛 · SKU 数 · 最低会员价 */
 const memberRuleSummary = (row: any) => {
   const rules = parseActivityRules(row.rules);
@@ -301,6 +347,24 @@ const openDialog = (row?: any) => {
     registerWithinDays.value = null;
   }
   dryResult.value = null;
+  switch (form.activityType) {
+    case '4': {
+      enrichSkuDisplay(skuLadders.value);
+
+      break;
+    }
+    case '9': {
+      enrichSkuDisplay(newbieSkus.value);
+
+      break;
+    }
+    case '10': {
+      enrichSkuDisplay(memberSkus.value);
+
+      break;
+    }
+    // No default
+  }
   if (form.activityType === '10') loadMemberLevels();
   loadVesselData();
   dialogVisible.value = true;
@@ -538,8 +602,10 @@ const resolveSkuRows = async (spuList: any[]) => {
           skuId: sku.id,
           spuName: spu.name,
           skuName:
-            (sku.specsArr ?? []).map((spec: any) => spec.specsName).join(' ') ||
-            '单规格',
+            (sku.specsArr ?? [])
+              .map((spec: any) => spec.specsValueName)
+              .filter(Boolean)
+              .join(' ') || '单规格',
           salesPrice: sku.salesPrice,
         });
       }
@@ -923,6 +989,8 @@ useKeepAliveRefresh(initPage);
       <ElDialog
         v-model="dialogVisible"
         :title="editingId ? '编辑活动' : '新建活动'"
+        class="ship-activity-dialog"
+        top="6vh"
         width="720px"
       >
         <ElForm label-width="auto">
@@ -1407,7 +1475,13 @@ useKeepAliveRefresh(initPage);
         </template>
       </ElDialog>
 
-      <ElDialog v-model="dryVisible" title="命中试算（不落库）" width="640px">
+      <ElDialog
+        v-model="dryVisible"
+        class="ship-activity-dialog"
+        title="命中试算（不落库）"
+        top="8vh"
+        width="640px"
+      >
         <ElForm label-width="auto">
           <ElFormItem label="购买场景">
             <ElSelect v-model="dryForm.purchaseScene" style="width: 160px">
@@ -1478,14 +1552,16 @@ useKeepAliveRefresh(initPage);
             class="hx-money"
             style="margin-top: 4px; color: var(--el-color-warning)"
           >
-            阶梯价 {{ override.skuId }} → ¥{{ formatMoney(override.unitPrice) }}
+            阶梯价 {{ skuDisplayText(override.skuId) }} → ¥{{
+              formatMoney(override.unitPrice)
+            }}
           </div>
           <div
             v-for="gift in dryResult.gifts || []"
             :key="gift.skuId"
             style="margin-top: 4px; color: var(--el-color-warning)"
           >
-            赠品 {{ gift.skuId }} ×{{ gift.quantity }}
+            赠品 {{ skuDisplayText(gift.skuId) }} ×{{ gift.quantity }}
           </div>
           <div
             v-if="
@@ -1515,3 +1591,21 @@ useKeepAliveRefresh(initPage);
     </div>
   </div>
 </template>
+
+<style scoped>
+/* 活动表单较长：把弹窗限制在视口内、内容在 body 内滚动，
+   标题与底部按钮始终可点，避免整页跟随滚动。
+   弹窗 class 通过 $attrs 透传到 .el-dialog，拿不到 scoped 属性，需从容器下沉 */
+.hx-layout-container :deep(.ship-activity-dialog) {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - var(--el-dialog-margin-top, 15vh) - 56px);
+}
+
+.hx-layout-container :deep(.ship-activity-dialog .el-dialog__body) {
+  flex: 1;
+  min-height: 0;
+  padding-top: 4px;
+  overflow-y: auto;
+}
+</style>

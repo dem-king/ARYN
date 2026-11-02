@@ -1,5 +1,6 @@
 package com.aryn.cloud.upms.service.impl;
 
+import com.aryn.cloud.common.core.enums.SessionInvalidSubReason;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.upms.api.entity.SysRole;
 import com.aryn.cloud.upms.api.entity.SysUser;
@@ -168,7 +169,7 @@ class SysUserServiceImplTest {
 		user.setRoles(java.util.List.of(NORMAL_ROLE_ID));
 
 		assertThat(service.updateUser(user)).isTrue();
-		verify(sysUserSessionRevoker).revokeAll("user-1", "停用账号");
+		verify(sysUserSessionRevoker).revokeAll("user-1", SessionInvalidSubReason.ACCOUNT_DISABLED);
 	}
 
 	@Test
@@ -184,7 +185,7 @@ class SysUserServiceImplTest {
 		user.setRoles(java.util.List.of(NORMAL_ROLE_ID));
 
 		assertThat(service.updateUser(user)).isTrue();
-		verify(sysUserSessionRevoker, never()).revokeAll(anyString(), anyString());
+		verify(sysUserSessionRevoker, never()).revokeAll(anyString(), any());
 	}
 
 	@Test
@@ -193,7 +194,7 @@ class SysUserServiceImplTest {
 		SysUser user = account("user-1", "0");
 
 		assertThat(service.delUser(user)).isTrue();
-		verify(sysUserSessionRevoker).revokeAll("user-1", "删除账号");
+		verify(sysUserSessionRevoker).revokeAll("user-1", SessionInvalidSubReason.ACCOUNT_DELETED);
 	}
 
 	private static SysUser account(String id, String status) {

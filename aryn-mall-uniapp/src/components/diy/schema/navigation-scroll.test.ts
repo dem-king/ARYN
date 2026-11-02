@@ -5,6 +5,8 @@ import { describe, expect, it } from 'vitest'
 
 import {
   DEFAULT_NAVIGATION_SCROLL_DISTANCE,
+  FROSTED_SCROLL_EFFECT,
+  FROSTED_SCROLL_SURFACE,
   normalizeNavigationScrollEffect,
   resolveNavigationScrollAppearance,
   resolveNavigationScrollSurface,
@@ -63,7 +65,7 @@ describe('normalizeNavigationScrollEffect', () => {
     }
   })
 
-  it('距离 clamp 到 40–400 并取整', () => {
+  it('遗留距离字段仍 clamp 到 40–400 并取整（旧文档兼容）', () => {
     expect(normalizeNavigationScrollEffect({ distance: 10 }).distance).toBe(40)
     expect(normalizeNavigationScrollEffect({ distance: 999 }).distance).toBe(400)
     expect(normalizeNavigationScrollEffect({ distance: 139.6 }).distance).toBe(140)
@@ -171,16 +173,24 @@ describe('resolveNavigationScrollAppearance', () => {
     })
   })
 
-  it('进度端点与缓动：0 / 70 / 140 / 超界', () => {
+  it('一步切换：顶部保持起始外观，任意正滚动距离即完整目标态', () => {
     const at = (scrollTop: number) =>
       resolveNavigationScrollAppearance(base, surface, fade(), scrollTop)
-    expect(at(0).progress).toBe(0)
-    expect(at(70).progress).toBe(0.5)
-    expect(at(140).progress).toBe(1)
-    expect(at(999).progress).toBe(1)
+    expect(at(0)).toMatchObject({
+      progress: 0,
+      baseOpacity: 1,
+      surfaceOpacity: 0,
+    })
+    // 没有「透明 → 模糊」的过渡：1px 与 140px 的解析结果完全一致
+    for (const scrollTop of [1, 8, 70, 140, 999]) {
+      expect(at(scrollTop)).toMatchObject({
+        progress: 1,
+        baseOpacity: 0,
+        surfaceOpacity: 1,
+      })
+    }
+    // iOS 回弹的负值按顶部处理
     expect(at(-20).progress).toBe(0)
-    expect(at(70).baseOpacity).toBe(0.5)
-    expect(at(70).surfaceOpacity).toBe(0.5)
   })
 
   it('标题与状态栏自动反色：顶部白字，完成态黑字', () => {
@@ -190,6 +200,43 @@ describe('resolveNavigationScrollAppearance', () => {
     const done = resolveNavigationScrollAppearance(base, surface, fade(), 140)
     expect(done.textColor).toBe('#222222')
     expect(done.statusBarFrontColor).toBe('#000000')
+  })
+
+  it('起始底色是 CSS 变量时，顶部沿用调用方给的文字色（业务页品牌色导航）', () => {
+    // 个人中心/会员页的底色是 var(--theme-color-primary)：解析器读不出通道，
+    // 若仍按白底推断会把品牌色导航上的白字推成深色
+    const brandBase: NavigationAppearance = {
+      backgroundColor: 'var(--theme-color-primary, var(--wot-color-theme-primary, #FF2237))',
+      textColor: '#FFFFFF',
+    }
+    const top = resolveNavigationScrollAppearance(
+      brandBase,
+      FROSTED_SCROLL_SURFACE,
+      FROSTED_SCROLL_EFFECT,
+      0,
+    )
+    expect(top.textColor).toBe('#FFFFFF')
+    expect(top.statusBarFrontColor).toBe('#ffffff')
+    const done = resolveNavigationScrollAppearance(
+      brandBase,
+      FROSTED_SCROLL_SURFACE,
+      FROSTED_SCROLL_EFFECT,
+      1,
+    )
+    expect(done.textColor).toBe('#222222')
+  })
+
+  it('业务页磨砂常量与装修页磨砂白目标态同源', () => {
+    expect(FROSTED_SCROLL_EFFECT).toMatchObject({
+      mode: 'fade',
+      surface: 'frosted',
+      blur: true,
+    })
+    expect(FROSTED_SCROLL_SURFACE).toMatchObject({
+      color: '#FFFFFF',
+      alpha: 0.86,
+      blur: true,
+    })
   })
 
   it('浅色目标底色才出现底部细线', () => {
@@ -205,14 +252,15 @@ describe('resolveNavigationScrollAppearance', () => {
     ).toBe(0)
   })
 
-  it('自定义距离生效：distance=40 时 20px 即半程', () => {
+  it('distance 为遗留字段：不再影响切换（旧文档也按一步切换渲染）', () => {
     const appearance = resolveNavigationScrollAppearance(
       base,
       surface,
       fade({ distance: 40 }),
-      20,
+      1,
     )
-    expect(appearance.progress).toBe(0.5)
+    expect(appearance.progress).toBe(1)
+    expect(appearance.surfaceOpacity).toBe(1)
   })
 
   it('毛玻璃开关透传到动态外观', () => {

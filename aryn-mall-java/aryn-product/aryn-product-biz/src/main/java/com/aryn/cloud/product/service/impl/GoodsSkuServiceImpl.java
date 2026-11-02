@@ -7,6 +7,8 @@ import com.aryn.cloud.common.core.enums.MallErrorCodeEnum;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.product.api.dto.GoodsSkuStockReqDTO;
 import com.aryn.cloud.product.api.entity.GoodsSku;
+import com.aryn.cloud.product.api.entity.GoodsSpu;
+import com.aryn.cloud.product.api.vo.GoodsSkuDisplayVO;
 import com.aryn.cloud.product.mapper.GoodsSkuMapper;
 import com.aryn.cloud.product.service.IGoodsSkuService;
 import com.aryn.cloud.product.service.IGoodsSpuService;
@@ -20,6 +22,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * 商品sku
@@ -125,6 +128,49 @@ public class GoodsSkuServiceImpl extends ServiceImpl<GoodsSkuMapper, GoodsSku> i
 	@Override
 	public List<GoodsSku> getSkuByIds(List<String> ids) {
 		return baseMapper.selectSkuByIds(ids);
+	}
+
+	@Override
+	public List<GoodsSkuDisplayVO> getDisplayByIds(List<String> ids) {
+		if (CollectionUtils.isEmpty(ids)) {
+			return List.of();
+		}
+		List<GoodsSku> skus = baseMapper.selectBatchIds(ids);
+		if (skus.isEmpty()) {
+			return List.of();
+		}
+		List<String> spuIds = skus.stream()
+			.map(GoodsSku::getSpuId)
+			.filter(StringUtils::hasText)
+			.distinct()
+			.toList();
+		Map<String, String> spuNames = spuIds.isEmpty() ? Map.of()
+				: goodsSpuService.listByIds(spuIds)
+					.stream()
+					.collect(Collectors.toMap(GoodsSpu::getId, GoodsSpu::getName, (a, b) -> a));
+		return skus.stream().map(sku -> {
+			GoodsSkuDisplayVO vo = new GoodsSkuDisplayVO();
+			vo.setSkuId(sku.getId());
+			vo.setSpuId(sku.getSpuId());
+			vo.setSpuName(spuNames.get(sku.getSpuId()));
+			vo.setSkuName(buildSkuName(sku));
+			vo.setSalesPrice(sku.getSalesPrice());
+			vo.setPicUrl(sku.getPicUrl());
+			return vo;
+		}).toList();
+	}
+
+	/** 规格描述取规格值（如「500ml 蓝色」）；无规格或规格值缺失时显示「单规格」 */
+	private String buildSkuName(GoodsSku sku) {
+		List<GoodsSku.Specs> specs = sku.getSpecsArr();
+		if (specs == null || specs.isEmpty()) {
+			return "单规格";
+		}
+		String name = specs.stream()
+			.map(GoodsSku.Specs::getSpecsValueName)
+			.filter(StringUtils::hasText)
+			.collect(Collectors.joining(" "));
+		return StringUtils.hasText(name) ? name : "单规格";
 	}
 
 }

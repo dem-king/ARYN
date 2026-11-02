@@ -4,6 +4,8 @@ import cn.dev33.satoken.stp.StpUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import com.aryn.cloud.common.core.constant.CacheConstants;
+import com.aryn.cloud.common.core.enums.SessionInvalidSubReason;
+import com.aryn.cloud.common.security.support.SessionInvalidSupport;
 import com.aryn.cloud.upms.api.entity.SysUserOnline;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -40,6 +42,8 @@ public class TenantSessionRevoker {
 		int revoked = 0;
 		for (String token : tokens) {
 			try {
+				// 先记「租户停用/到期」原因再踢：kickout 之后 token 映射消失，无法再按 token 反查
+				SessionInvalidSupport.markKickoutTokens(List.of(token), SessionInvalidSubReason.TENANT_DISABLED);
 				StpUtil.kickoutByTokenValue(token);
 				revoked++;
 			}

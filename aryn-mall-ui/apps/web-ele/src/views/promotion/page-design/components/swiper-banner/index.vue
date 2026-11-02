@@ -58,6 +58,17 @@ const hasImages = computed(() => {
     props.showData.imageList[0].url
   );
 });
+
+/**
+ * 指示点颜色：C 端 `diy-swiper-banner` 用 uni swiper 的
+ * `indicator-color` / `indicator-active-color`（运营可配），管理端 ElCarousel
+ * 无法直接接收这两个属性，改用 CSS 变量覆盖内部按钮，保证两端换色一致。
+ * 缺省值与 C 端组件同口径（rgba(0,0,0,.3) / #fff）。
+ */
+const indicatorVars = computed(() => ({
+  '--banner-indicator': props.showData.indicatorColor || 'rgba(0, 0, 0, 0.3)',
+  '--banner-indicator-active': props.showData.indicatorActiveColor || '#ffffff',
+}));
 </script>
 
 <template>
@@ -69,6 +80,7 @@ const hasImages = computed(() => {
         height: `${showData.height}px`,
         borderRadius: `${showData.borderRadius}px`,
         overflow: 'hidden',
+        ...indicatorVars,
       }"
     >
       <ElCarousel
@@ -113,6 +125,9 @@ const hasImages = computed(() => {
 <!--
   样式与小程序 diy-swiper-banner 逐值对齐：外层左右内外边距 12px，
   高度与圆角由运营配置直接生效。
+  图片缩放：C 端 `<image mode="scaleToFill">` 把图拉伸铺满整个轮播区域（不裁切），
+  管理端预览必须用等价的 `object-fit: fill`；用 cover 会裁掉两侧，banner 上的
+  文案/按钮位置随之偏移，运营据此调图就会出错。
 -->
 <style scoped lang="scss">
 .swiper-banner-box {
@@ -124,7 +139,22 @@ const hasImages = computed(() => {
     .banner-image {
       width: 100%;
       height: 100%;
-      object-fit: cover;
+      object-fit: fill;
+    }
+
+    /* 指示点：ElCarousel 默认是 30×2 的指示条，C 端 uni swiper 是 8px 圆点，
+       颜色取运营配置（见 script 的 indicatorVars）。 */
+    :deep(.el-carousel__indicator .el-carousel__button) {
+      width: 8px;
+      height: 8px;
+      background-color: var(--banner-indicator);
+      border-radius: 50%;
+      opacity: 1;
+    }
+
+    :deep(.el-carousel__indicator.is-active .el-carousel__button) {
+      background-color: var(--banner-indicator-active);
+      opacity: 1;
     }
   }
 
@@ -147,7 +177,7 @@ const hasImages = computed(() => {
     img {
       width: 100%;
       height: 100%;
-      object-fit: cover;
+      object-fit: fill;
     }
   }
 }

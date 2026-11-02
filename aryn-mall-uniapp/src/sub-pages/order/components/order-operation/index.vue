@@ -13,6 +13,11 @@ const props = defineProps({
     type: String,
     default: 'medium',
   },
+  // inline：详情页底栏内联；list：订单列表卡片底部，需要独立留白
+  mode: {
+    type: String,
+    default: 'inline',
+  },
 })
 
 const emit = defineEmits(['orderCancel', 'orderDel', 'orderReceiver', 'closeQRCode'])
@@ -139,12 +144,23 @@ const showAppraise = computed(() =>
 const showQRCodeBtn = computed(() =>
   props.orderInfo.status === '3' && props.orderInfo.deliveryWay === '2',
 )
+
+// 无任何可执行操作时不渲染根节点，避免列表卡片尾部留下空白操作区
+const hasAnyAction = computed(() =>
+  showDelete.value
+  || showCancel.value
+  || showPay.value
+  || showLogistics.value
+  || showReceiver.value
+  || showQRCodeBtn.value
+  || showAppraise.value,
+)
 </script>
 
 <template>
-  <view class="order-operation-warp">
+  <view v-if="hasAnyAction" class="order-operation-warp" :class="{ 'order-operation-warp--list': mode === 'list' }">
     <view v-if="showDelete" class="button">
-      <wd-button type="error" size="small" hairline plain @click.stop="onDel">
+      <wd-button type="info" size="small" hairline plain @click.stop="onDel">
         {{ t('order.actions.deleteOrder') }}
       </wd-button>
     </view>
@@ -156,19 +172,19 @@ const showQRCodeBtn = computed(() =>
     </view>
 
     <view v-if="showPay" class="button">
-      <wd-button type="primary" size="small" hairline plain @click.stop="onPay">
+      <wd-button type="primary" size="small" @click.stop="onPay">
         {{ t('order.actions.payNow') }}
       </wd-button>
     </view>
 
     <view v-if="showLogistics" class="button">
-      <wd-button type="warning" size="small" hairline plain @click.stop="onLogistics">
+      <wd-button type="info" size="small" hairline plain @click.stop="onLogistics">
         {{ t('order.actions.track') }}
       </wd-button>
     </view>
 
     <view v-if="showReceiver" class="button">
-      <wd-button type="primary" size="small" hairline plain @click.stop="onReceiver">
+      <wd-button type="primary" size="small" @click.stop="onReceiver">
         {{ t('order.actions.confirmReceipt') }}
       </wd-button>
     </view>
@@ -180,7 +196,7 @@ const showQRCodeBtn = computed(() =>
     </view>
 
     <view v-if="showAppraise" class="button">
-      <wd-button type="primary" size="small" hairline plain @click.stop="onAppraise">
+      <wd-button type="primary" size="small" @click.stop="onAppraise">
         {{ t('order.actions.reviewOrder') }}
       </wd-button>
     </view>
@@ -221,8 +237,12 @@ const showQRCodeBtn = computed(() =>
   }
 }
 
+.order-operation-warp--list {
+  padding: 16rpx 0 24rpx;
+}
+
 .groupon-item {
-  background-color: #fff;
+  background-color: var(--app-card);
   border-radius: 10rpx;
   width: 100%;
   display: flex;
@@ -235,7 +255,7 @@ const showQRCodeBtn = computed(() =>
       width: 35px;
       height: 35px;
       border-radius: 50%;
-      background-color: #ccc; // 默认颜色
+      background-color: var(--app-text-3); // 默认颜色
     }
 
     .avatar:not(:last-child) {
@@ -246,7 +266,7 @@ const showQRCodeBtn = computed(() =>
   &:after {
     content: '';
     position: absolute;
-    border-bottom: 1px solid #f2f2f2;
+    border-bottom: 1px solid var(--app-border);
     bottom: 0;
     left: 0;
     width: 100%;

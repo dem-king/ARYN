@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { DeliveryEligibility } from '@/api/delivery'
-import { onShow } from '@dcloudio/uni-app'
+import { onPageScroll, onShow } from '@dcloudio/uni-app'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ensureSessionTenant, isTenantIdentityError } from '@/api/core/tenant-identity'
@@ -15,12 +15,15 @@ import DiyPage from '@/components/diy/index.vue'
 import WaterfallGoods from '@/components/waterfall-goods/index.vue'
 // 页面滚动广播：装修商品楼层与底部「猜你喜欢」都靠它自动续页
 import { useDecorationInfiniteScroll } from '@/composables/useDecorationInfiniteScroll'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
 import { usePageDecoration } from '@/composables/usePageDecoration'
 import { useTabBarLocale } from '@/composables/useTabBarLocale'
 import { useLocaleSwitch } from '@/composables/useLocaleSwitch'
 import { useMessageStore } from '@/store/messageStore'
 import { useTenantCapabilityStore } from '@/store/tenantCapabilityStore'
 import { Local } from '@/utils/storage'
+
+const { handlePageScroll } = useFrostedNavbar()
 
 definePage({
   name: 'user-center',
@@ -441,6 +444,9 @@ function toLogin() {
     name: 'login',
   })
 }
+
+// 顶栏磨砂玻璃：字面量注册滚动（小程序按页面源码生成滚动位标记，包进 composable 会静默失效）
+onPageScroll(handlePageScroll)
 </script>
 
 <template>
@@ -451,8 +457,12 @@ function toLogin() {
     :background-color="BRAND_COLOR"
     text-color="#ffffff"
   />
-  <!-- 页头：品牌渐变铺底，右侧是语言切换 + 设置入口 -->
-  <view class="uc-hero">
+  <!--
+    页头：品牌渐变铺底，右侧是语言切换 + 设置入口。
+    未登录时整个页头（头像 + 「登录/注册」+ 权益说明）就是唯一的登录入口，
+    下方不再重复一条登录引导卡——同一个动作在一屏里出现两次只会分散注意力。
+  -->
+  <view class="uc-hero" :class="{ 'uc-hero--guest': !authStore.isLoggedIn }">
     <view class="uc-hero__profile" @click="toLogin">
       <image
         class="uc-hero__avatar"
@@ -546,18 +556,7 @@ function toLogin() {
       </text>
     </view>
   </view>
-  <!-- 未登录没有可展示的资产，换成一条登录引导，不摆三个 0 -->
-  <view
-    v-else
-    class="uc-assets uc-assets--guest"
-    hover-class="uc-assets__item--pressed"
-    @click="toLogin"
-  >
-    <text class="uc-assets__guest-text">
-      {{ t('userCenter.guestHint') }}
-    </text>
-    <text class="i-carbon:chevron-right uc-assets__guest-arrow" />
-  </view>
+  <!-- 未登录不再补一条登录引导卡：页头本身已是登录入口，见 .uc-hero--guest 注释 -->
   <!-- 个人中心装修区域：用户信息卡下方、订单入口上方，可放会员活动 / 优惠券 / 公告 -->
   <view v-if="pageContentData" class="uc-decoration">
     <DiyPage :page-content-data="pageContentData" embedded />
@@ -684,27 +683,32 @@ function toLogin() {
     <view class="uc-like__rule" />
   </view>
   <WaterfallGoods />
+  <!-- 悬浮玻璃底栏是 fixed 覆盖层：留一条等高空白，推荐流最后一行能滚到栏上方 -->
+  <view class="tabbar-bottom-space" />
 </template>
 
 <style lang="scss" scoped>
-/* 文字色阶与卡片口径沿用全站约定：标题 #1f2329 / 正文 #4e5969 / 辅助 #9ca3af */
-$uc-title: #1f2329;
-$uc-text: #4e5969;
-$uc-muted: #9ca3af;
-$uc-hairline: #eef0f3;
+/* 文字色阶与卡片口径沿用全站约定：接入语义色变量（App.vue 定义），深色模式自动跟随 */
+$uc-title: var(--app-text);
+$uc-text: var(--app-text-2);
+$uc-muted: var(--app-text-3);
+$uc-hairline: var(--app-border);
 /* 卡片左右留白与全站 mx-20rpx 对齐 */
 $uc-gutter: 20rpx;
 
 .uc-decoration {
   /* 装修块自带底色，这里不再叠加第四种灰（全站已用 #f5f5f5/#f2f3f5/#F8F8F8） */
   min-height: 0;
+  /* 与上一张卡（资产条 / 未登录时的页头）留出全站统一的卡片间距；
+     区块自己的 marginY 由运营在装修页配置，二者叠加互不覆盖 */
+  margin-top: 20rpx;
 }
 
 .uc-decoration-skeleton {
   height: 200rpx;
   margin: 20rpx $uc-gutter;
   border-radius: 24rpx;
-  background: #ececf0;
+  background: var(--app-card-2);
 }
 
 /* ===================== 页头 ===================== */
@@ -716,6 +720,14 @@ $uc-gutter: 20rpx;
   /* 底部多留一截给资产条上移压盖，渐变收口才落在卡片背后而不是露出一条灰边 */
   padding: 24rpx $uc-gutter 104rpx;
   background: linear-gradient(180deg, var(--theme-color-primary, var(--wot-color-theme-primary, #FF2237)) 0%, var(--theme-color-secondary, var(--wot-color-theme-secondary, #FF6B7A)) 100%);
+
+  /*
+   * 未登录没有资产条压盖，收窄渐变底部留白：
+   * 否则头像下面会吊着一大片纯品牌色空块（原设计留白是给白色资产卡的）。
+   */
+  &--guest {
+    padding-bottom: 44rpx;
+  }
 
   &__profile {
     display: flex;
@@ -846,7 +858,7 @@ $uc-gutter: 20rpx;
   margin: -72rpx $uc-gutter 0;
   padding: 28rpx 0;
   border-radius: 24rpx;
-  background: #fff;
+  background: var(--app-card);
   box-shadow: 0 8rpx 24rpx rgba(31, 44, 65, 0.06);
 
   &__item {
@@ -879,22 +891,6 @@ $uc-gutter: 20rpx;
     color: $uc-muted;
     font-size: 24rpx;
   }
-
-  &--guest {
-    align-items: center;
-    justify-content: space-between;
-    padding: 36rpx 32rpx;
-  }
-
-  &__guest-text {
-    color: $uc-text;
-    font-size: 26rpx;
-  }
-
-  &__guest-arrow {
-    color: $uc-muted;
-    font-size: 32rpx;
-  }
 }
 
 /* ===================== 卡片与宫格 ===================== */
@@ -903,7 +899,7 @@ $uc-gutter: 20rpx;
   margin: 20rpx $uc-gutter 0;
   padding: 8rpx 20rpx 4rpx;
   border-radius: 24rpx;
-  background: #fff;
+  background: var(--app-card);
   box-shadow: 0 8rpx 24rpx rgba(31, 44, 65, 0.04);
 
   &__head {
@@ -967,7 +963,7 @@ $uc-gutter: 20rpx;
     width: 76rpx;
     height: 76rpx;
     border-radius: 24rpx;
-    background: #f5f6f8;
+    background: var(--app-card-2);
   }
 
   &__glyph {
@@ -1029,7 +1025,7 @@ $uc-gutter: 20rpx;
     height: 88rpx;
     flex-shrink: 0;
     border-radius: 28rpx;
-    background: #f5f6f8;
+    background: var(--app-card-2);
   }
 
   &__glyph {
@@ -1087,7 +1083,7 @@ $uc-gutter: 20rpx;
   &__rule {
     flex: 1;
     height: 1rpx;
-    background: #e4e6eb;
+    background: var(--app-border);
   }
 
   &__text {

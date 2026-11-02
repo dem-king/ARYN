@@ -35,7 +35,7 @@ class TenantInterceptorBypassAuditTest {
 			"aryn-message/aryn-message-biz/src/main/java/com/aryn/cloud/message/mapper/MessageDispatchTaskMapper.java#selectRecoveryTasks",
 			"aryn-pay/aryn-pay-biz/src/main/java/com/aryn/cloud/pay/mapper/PayConfigMapper.java#selectByAppId",
 			"aryn-upms/aryn-upms-biz/src/main/java/com/aryn/cloud/upms/mapper/SysMenuMapper.java#selectTenantMenuTree",
-			"aryn-upms/aryn-upms-biz/src/main/java/com/aryn/cloud/upms/mapper/SysUserMapper.java#selectCount",
+			"aryn-upms/aryn-upms-biz/src/main/java/com/aryn/cloud/upms/mapper/SysUserMapper.java#countUserByQuery",
 			"aryn-upms/aryn-upms-biz/src/main/java/com/aryn/cloud/upms/mapper/SysUserMapper.java#selectUserByName",
 			"aryn-upms/aryn-upms-biz/src/main/java/com/aryn/cloud/upms/mapper/SysUserMapper.java#selectUserByPhone",
 			// JSON_TABLE 手写 SQL 打挂租户拦截器（2026-10-11）：selectCatalogPage/selectSuggestNames

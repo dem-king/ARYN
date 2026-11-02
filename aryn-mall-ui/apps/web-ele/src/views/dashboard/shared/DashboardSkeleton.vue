@@ -4,7 +4,7 @@ import { ElSkeleton, ElSkeletonItem } from 'element-plus';
 
 <template>
   <div class="space-y-4">
-    <div class="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+    <div class="grid grid-cols-[repeat(auto-fit,minmax(210px,1fr))] gap-4">
       <ElSkeleton v-for="item in 6" :key="`metric-${item}`" animated>
         <template #template>
           <ElSkeletonItem

@@ -1,0 +1,69 @@
+{
+  "reason": {
+    "BE_REPLACED": {
+      "content": "当前账号于 {time} 在另一台设备登录，你已被迫下线。{deviceLine}重新登录会使那台设备下线。",
+      "title": "账号已在其他设备登录"
+    },
+    "KICK_OUT": {
+      "content": "登录状态已失效，请重新登录。",
+      "title": "登录状态已失效"
+    },
+    "KICK_OUT_ACCOUNT_DELETED": {
+      "content": "该账号已被删除，无法继续使用。",
+      "title": "账号已被删除"
+    },
+    "KICK_OUT_ACCOUNT_DISABLED": {
+      "content": "该账号已被停用，无法继续使用。如有疑问请联系管理员。",
+      "title": "账号已被停用"
+    },
+    "KICK_OUT_ADMIN_KICK": {
+      "content": "管理员已强制将你下线。如非本人预期，请联系管理员。",
+      "title": "已被管理员下线"
+    },
+    "KICK_OUT_PASSWORD_CHANGED": {
+      "content": "密码已修改，请使用新密码重新登录。",
+      "title": "密码已修改"
+    },
+    "KICK_OUT_TENANT_DISABLED": {
+      "content": "你所属的租户已被停用或已到期，请联系平台管理员。",
+      "title": "所属租户已停用"
+    },
+    "NO_PREFIX": {
+      "content": "登录状态已失效，请重新登录。",
+      "title": "登录状态已失效"
+    },
+    "NOT_TOKEN": {
+      "content": "登录状态已失效，请重新登录。",
+      "title": "登录状态已失效"
+    },
+    "TOKEN_EXPIRED": {
+      "content": "登录状态已过期，请重新登录。",
+      "title": "登录已过期"
+    },
+    "TOKEN_FREEZE": {
+      "content": "登录状态已失效，请重新登录。",
+      "title": "登录状态已失效"
+    },
+    "TOKEN_INVALID": {
+      "content": "登录状态已失效，请重新登录。",
+      "title": "登录状态已失效"
+    },
+    "UNKNOWN": {
+      "content": "登录状态已失效，请重新登录。",
+      "title": "登录状态已失效"
+    }
+  },
+  "device": {
+    "fieldSeparator": " · ",
+    "ip": "IP：{value}",
+    "location": "地点：{value}",
+    "loginDevice": "登录设备：{value}",
+    "separator": "｜",
+    "time": "时间：{value}"
+  },
+  "exit": "退出登录",
+  "relogin": "重新登录",
+  "reloginSuccess": "已重新登录，请重试刚才的操作",
+  "backToLogin": "返回登录",
+  "exitShort": "退出"
+}

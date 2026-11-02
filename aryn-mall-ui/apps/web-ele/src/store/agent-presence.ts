@@ -71,6 +71,23 @@ export const useAgentPresenceStore = defineStore('agent-presence', () => {
     presence.value = enabled.value ? agent.presenceStatus : 'OFFLINE';
   }
 
+  /**
+   * 退出登录 / 重置 store 时调用：`resetAllStores()` 会遍历所有 store 调 `$reset()`，
+   * 缺少它会让 Pinia 3 抛错并中断 logout 的后续清理（清态、跳登录页）。
+   * 同时必须停掉心跳：会话已失效时继续每 30s 续约只会不断触发 401。
+   */
+  function $reset() {
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = undefined;
+    }
+    refreshing = null;
+    renewing = false;
+    presence.value = 'OFFLINE';
+    enabled.value = false;
+    loaded.value = false;
+  }
+
   function startHeartbeat() {
     if (heartbeatTimer) return;
     heartbeatTimer = setInterval(() => {
@@ -97,6 +114,7 @@ export const useAgentPresenceStore = defineStore('agent-presence', () => {
   }
 
   return {
+    $reset,
     activate,
     applyAgent,
     changePresence,

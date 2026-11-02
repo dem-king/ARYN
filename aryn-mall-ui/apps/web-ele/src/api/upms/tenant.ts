@@ -27,6 +27,7 @@ export interface TenantOverview {
   remainingDays?: null | number;
   status?: null | string;
   storageBytes?: null | number;
+  tenantType?: null | string;
 }
 
 /**

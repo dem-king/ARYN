@@ -259,6 +259,7 @@ export function normalizeRetailSeckillSessions(value: unknown): SeckillSessionIt
       const record = asRecord(item)
       return {
         countdown: toNumber(record.countdown),
+        dayOffset: toNumber(record.dayOffset),
         endTime: toText(record.endTime),
         goodsList: normalizeSeckillGoods(record.goodsList),
         sessionId: toText(record.sessionId ?? record.id),

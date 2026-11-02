@@ -9,8 +9,32 @@
  */
 import { defineUniPages } from '@uni-helper/vite-plugin-uni-pages'
 
+/**
+ * 微信自定义 tabBar（自绘悬浮玻璃底栏）。
+ *
+ * `custom: true` 让小程序**从根上不渲染原生 tabBar**：冷启动 / 重新编译不会先
+ * 闪出一条原生底栏；真正的视觉由 `src/custom-tab-bar/`（页面首帧的原生实现）
+ * 与 `src/components/glass-tabbar/`（Vue 常态实现）接管。
+ *
+ * 必须**无条件**写入，不能按编译平台做条件分支：
+ * `src/pages.json` 是三端（H5 / 小程序 / App）共用的同一份生成文件，H5 的启动
+ * 与构建也会重写它。一旦按平台条件写入，任何一次 H5 运行都会把 custom 抹掉，
+ * 正在跑的 mp-weixin dev 监听到 pages.json 变化后重新生成的 app.json 随即丢掉
+ * custom，微信开发者工具就退回原生底栏（2026-10-29 实际踩过这个坑）。
+ * H5 / App 的运行时不认识该字段，按微信 schema 原样透传即可；H5 的内置
+ * tabBar 仍由全局 CSS 渲染成磨砂胶囊，不受影响。
+ */
+const customTabBar = { custom: true } as Record<string, unknown>
+
 export default defineUniPages({
   pages: [],
+  // 配送入口在「我的」页；只在 Wi-Fi 下预下载，避免普通顾客消耗流量
+  preloadRule: {
+    'pages/user/user-center/index': {
+      network: 'wifi',
+      packages: ['pages/delivery'],
+    },
+  },
   easycom: {
     autoscan: true,
     custom: {
@@ -37,6 +61,8 @@ export default defineUniPages({
     // 配了会被原样带进 mp-weixin 的 app.json window，被微信判成无效字段告警
   },
   tabBar: {
+    // 微信自定义 tabBar 字段不在 uni 类型里，无条件按微信 schema 原样透传到 app.json
+    ...customTabBar,
     selectedColor: '#FF2237',
     list: [{
       pagePath: 'pages/home/index',

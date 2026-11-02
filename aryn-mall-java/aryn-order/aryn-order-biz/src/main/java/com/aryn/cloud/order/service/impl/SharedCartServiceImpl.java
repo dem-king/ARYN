@@ -1,5 +1,6 @@
 package com.aryn.cloud.order.service.impl;
 
+import com.aryn.cloud.common.core.constant.CommonConstants;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.order.api.dto.CreateOrderDTO;
@@ -18,6 +19,7 @@ import com.aryn.cloud.order.api.vo.SharedCartImportRowVO;
 import com.aryn.cloud.order.api.vo.SharedCartImportVO;
 import com.aryn.cloud.order.api.vo.SharedCartItemVO;
 import com.aryn.cloud.order.api.vo.SharedCartJoinVO;
+import com.aryn.cloud.order.api.vo.SharedCartMemberCandidateVO;
 import com.aryn.cloud.order.api.vo.SharedCartReuseVO;
 import com.aryn.cloud.order.api.vo.SharedCartSummaryVO;
 import com.aryn.cloud.order.api.vo.SharedCartVO;
@@ -29,6 +31,8 @@ import com.aryn.cloud.order.mapper.SharedCartMemberMapper;
 import com.aryn.cloud.order.service.IOrderInfoService;
 import com.aryn.cloud.order.service.ISharedCartService;
 import com.aryn.cloud.order.service.IDeliveryAreaService;
+import com.aryn.cloud.order.service.SharedCartInviteNotifyService;
+import com.aryn.cloud.pay.api.utils.TransactionalMqUtils;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.aryn.cloud.order.support.ChainAiAssistant;
@@ -46,6 +50,7 @@ import com.aryn.cloud.product.api.vo.ReplenishImportMatchVO;
 import com.aryn.cloud.vessel.api.dto.VesselContextDTO;
 import com.aryn.cloud.vessel.api.entity.VesselMember;
 import com.aryn.cloud.vessel.api.remote.RemoteVesselService;
+import com.aryn.cloud.vessel.api.vo.VesselMemberVO;
 import com.aryn.cloud.user.api.entity.UserAddress;
 import com.aryn.cloud.user.api.remote.RemoteMallUserService;
 import com.aryn.cloud.user.api.remote.RemoteUserAddressService;
@@ -149,6 +154,9 @@ public class SharedCartServiceImpl implements ISharedCartService {
 
 	/** 接龙报货 AI 助手（未配 key 时 isAvailable=false，整条链路自动回退纯规则） */
 	private final ChainAiAssistant chainAiAssistant;
+
+	/** 邀请成员的站内通知（发送时机由本服务用 TransactionalMqUtils 包在提交后） */
+	private final SharedCartInviteNotifyService sharedCartInviteNotifyService;
 
 	@Override
 	@Transactional(rollbackFor = Exception.class)
@@ -324,12 +332,16 @@ public class SharedCartServiceImpl implements ISharedCartService {
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public SharedCartMember inviteMember(String tenantId, String cartId, String operatorUserId, String memberUserId,
-			String memberRole) {		SharedCart cart = requireCart(tenantId, cartId);
+			String memberRole) {
+		SharedCart cart = requireCart(tenantId, cartId);
 		requireOwner(cart, operatorUserId);
 		requireEditable(cart);
 		if (!StringUtils.hasText(memberUserId)) {
 			throw new ArynBusinessException("被邀请成员不能为空");
 		}
+		// 用户存在性校验：选人邀请来自候选接口，但入参仍不可信（历史上是手填用户 ID）。
+		// 不校验会静默落一条无效成员行——对方永远无感知，发起人还以为邀请成功。
+		UserInfoVO invitedUser = requireInvitableUser(tenantId, memberUserId);
 		Long duplicated = sharedCartMemberMapper.selectCount(Wrappers.lambdaQuery(SharedCartMember.class)
 				.eq(SharedCartMember::getTenantId, tenantId)
 				.eq(SharedCartMember::getCartId, cartId)
@@ -349,7 +361,127 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		member.setCreateTime(LocalDateTime.now());
 		member.setDelFlag("0");
 		sharedCartMemberMapper.insert(member);
+		log.info("发起人[{}]邀请用户[{}]加入共享购物车[{}]，角色={}", operatorUserId, memberUserId, cartId,
+				member.getMemberRole());
+		// 通知放提交后：回滚的邀请不发送；无事务上下文时立即执行（单测可直接验证）。
+		// 船名查询失败不影响邀请——通知里省略船名即可（resolveVesselNameForJoin 内部已兜底）。
+		boolean shoreCart = isShoreCart(cart);
+		String vesselName = shoreCart ? null : resolveVesselNameForJoin(tenantId, cart);
+		TransactionalMqUtils.sendAfterCommit(() -> sharedCartInviteNotifyService.notifyInvited(tenantId, cartId,
+				shoreCart, vesselName, memberUserId, invitedUser.getNickname()));
 		return member;
+	}
+
+	/**
+	 * 邀请对象必须是真实存在且属于本租户的用户；用户域不可用时拒绝——
+	 * 宁可让发起人稍后重试，也不落一条对方永远无感知的无效成员行。
+	 */
+	private UserInfoVO requireInvitableUser(String tenantId, String memberUserId) {
+		UserInfoVO user;
+		try {
+			user = remoteMallUserService.getUserById(memberUserId);
+		}
+		catch (Exception e) {
+			log.warn("邀请成员时查询用户失败：userId={}", memberUserId, e);
+			throw new ArynBusinessException("邀请失败，请稍后重试");
+		}
+		if (user == null || !StringUtils.hasText(user.getId())) {
+			throw new ArynBusinessException("该用户不存在，请从候选列表中选择后再邀请");
+		}
+		// 租户一致性：跨租户用户即使真实存在，也进不了本租户的采购链路；
+		// 历史数据的 tenant_id 允许为空，为空时跳过该检查（不误伤）
+		if (StringUtils.hasText(user.getTenantId()) && !user.getTenantId().equals(tenantId)) {
+			throw new ArynBusinessException("对方不属于当前企业，无法邀请");
+		}
+		return user;
+	}
+
+	/** 候选人单次返回上限（弹层滚动列表的合理体量，与船舶域 searchCandidates 对齐） */
+	private static final int CANDIDATE_LIMIT = 20;
+
+	@Override
+	public List<SharedCartMemberCandidateVO> listMemberCandidates(String tenantId, String userId, String cartId,
+			String keyword) {
+		SharedCart cart = requireCart(tenantId, cartId);
+		requireOwner(cart, userId);
+		Set<String> existing = listMembers(tenantId, cartId).stream()
+			.map(SharedCartMember::getUserId)
+			.filter(StringUtils::hasText)
+			.collect(Collectors.toSet());
+		if (isShoreCart(cart)) {
+			return searchShoreCandidates(tenantId, cartId, keyword, existing);
+		}
+		return listShipCandidates(tenantId, cart, keyword, existing);
+	}
+
+	/**
+	 * 岸上企业车候选：同租户用户搜索。
+	 *
+	 * <p>岸上车没有「同船成员」这个天然候选集，关键词必填、不设默认列表——
+	 * 空关键词返回空列表，由前端引导发起人输入姓名或手机号。
+	 */
+	private List<SharedCartMemberCandidateVO> searchShoreCandidates(String tenantId, String cartId, String keyword,
+			Set<String> existing) {
+		if (!StringUtils.hasText(keyword)) {
+			return List.of();
+		}
+		List<UserInfoVO> users;
+		try {
+			users = remoteMallUserService.searchTenantUsers(tenantId, keyword.trim(), CANDIDATE_LIMIT);
+		}
+		catch (Exception e) {
+			log.warn("搜索岸上购物车候选成员失败，返回空列表：cartId={} tenantId={}", cartId, tenantId, e);
+			return List.of();
+		}
+		return users.stream()
+			.filter(u -> u != null && StringUtils.hasText(u.getId()))
+			.map(u -> toCandidateVO(u.getId(), u.getNickname(), u.getAvatarUrl(), maskPhone(u.getPhone()), existing))
+			.toList();
+	}
+
+	/**
+	 * 船供车候选：本船在船成员。
+	 *
+	 * <p>船员是一份有限且互相认识的名单，无关键词时默认返回全量（打开弹层即见，
+	 * 不必先搜索）；姓名/手机号过滤在船舶域完成——原始手机号不出域，出参已脱敏。
+	 */
+	private List<SharedCartMemberCandidateVO> listShipCandidates(String tenantId, SharedCart cart, String keyword,
+			Set<String> existing) {
+		if (!StringUtils.hasText(cart.getVesselId())) {
+			return List.of();
+		}
+		List<VesselMemberVO> members;
+		try {
+			members = remoteVesselService.listOnboardMembers(tenantId, cart.getVesselId(),
+					StringUtils.hasText(keyword) ? keyword.trim() : null);
+		}
+		catch (Exception e) {
+			log.warn("查询船供购物车候选成员失败，返回空列表：cartId={} vesselId={}", cart.getId(), cart.getVesselId(), e);
+			return List.of();
+		}
+		return members.stream()
+			.filter(vo -> vo != null && StringUtils.hasText(vo.getUserId()))
+			.map(vo -> toCandidateVO(vo.getUserId(), vo.getNickname(), null, vo.getPhone(), existing))
+			.toList();
+	}
+
+	private SharedCartMemberCandidateVO toCandidateVO(String userId, String nickname, String avatarUrl, String phone,
+			Set<String> existing) {
+		SharedCartMemberCandidateVO vo = new SharedCartMemberCandidateVO();
+		vo.setUserId(userId);
+		vo.setNickname(nickname);
+		vo.setAvatarUrl(avatarUrl);
+		vo.setPhone(phone);
+		vo.setAlreadyMember(existing.contains(userId));
+		return vo;
+	}
+
+	/** 手机号脱敏：保留前三后四（与船舶域 VesselBindServiceImpl 同口径）。 */
+	private String maskPhone(String phone) {
+		if (!StringUtils.hasText(phone) || phone.length() < 7) {
+			return phone;
+		}
+		return phone.substring(0, 3) + "****" + phone.substring(phone.length() - 4);
 	}
 
 	@Override
@@ -360,6 +492,8 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		requireNotExpired(cart);
 		// 成员身份与明细写入权一次判完（非成员报「无权访问」，只读成员报缺编辑权）
 		requireCanEdit(cart, userId);
+		// 凡以自己名义落明细必须先有姓名（配送按人贴标签）；C 端详情页有强制弹层，这里是真闸门
+		requireMemberDisplayName(cart, userId);
 		// 手动加购归属就是本人（归属姓名空串），选货页重复点「加入共享车」预期是累加数量
 		return upsertOwnCartItem(tenantId, cartId, userId, "", itemDTO.getSpuId(), itemDTO.getSkuId(),
 				itemDTO.getRequestedQuantity(), itemDTO.getMemberRemark(), true);
@@ -435,6 +569,9 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		SharedCart target = create(tenantId, userId, createDTO);
 		// 复用写入的是**目标车**里、归属操作者自己的明细：先确认他在目标车里有写入权
 		// （非成员则补一行可编辑的成员关系），被设为只读的成员不能靠这条侧门添行。
+		// 此处不挂姓名闸门：复用会在本事务里新建目标车，闸门抛错会连车一起回滚，
+		// 用户被踢到一辆「不存在的车」上没地方补填姓名；复用后 C 端落到目标车详情页，
+		// 那里的强制姓名弹层会立即要求补填，明细归属标签按成员行实时渲染、补填即自愈。
 		requireReuseEditable(tenantId, target, userId);
 
 		// 目标清单里已有的 SKU 不再搬：重复点「历史复用」时数量不能翻倍。
@@ -1394,6 +1531,25 @@ public class SharedCartServiceImpl implements ISharedCartService {
 	}
 
 	/**
+	 * 以自己名义落明细的成员必须已填写姓名（display_name，配送按人贴标签）。
+	 *
+	 * <p>C 端在详情页对未填姓名的成员强制弹层补填，这里是服务端真闸门：
+	 * 浏览加购漏斗、船供直加、导入确认等绕开详情页预检的路径全部收口于此。
+	 * 发起人也一样要填（create 只建成员行不填姓名）。成员行缺失按未填处理
+	 * （前置的 requireCanEdit/requireReuseEditable 已保证行存在，这里是 fail-closed）。
+	 */
+	private void requireMemberDisplayName(SharedCart cart, String userId) {
+		SharedCartMember member = sharedCartMemberMapper.selectOne(Wrappers.lambdaQuery(SharedCartMember.class)
+				.eq(SharedCartMember::getTenantId, cart.getTenantId())
+				.eq(SharedCartMember::getCartId, cart.getId())
+				.eq(SharedCartMember::getUserId, userId));
+		if (member == null || !StringUtils.hasText(member.getDisplayName())) {
+			throw new ArynBusinessException(CommonConstants.SHARED_CART_NAME_REQUIRED,
+					"请先填写姓名，配送时按姓名贴标签");
+		}
+	}
+
+	/**
 	 * 写入确认人的核定数量：0 表示「本次不采」，该行不进整船订单。
 	 *
 	 * <p>批量操作时经常出现「几十项里有两三样这次不买」，若只允许正数，
@@ -2086,6 +2242,9 @@ public class SharedCartServiceImpl implements ISharedCartService {
 		if (SharedCartImport.STATUS_CANCELLED.equals(job.getStatus())) {
 			throw new ArynBusinessException("该导入已取消，请重新上传");
 		}
+		// 幂等返回不写数据不拦；真正落库前才要求操作者已填姓名——未命中成员姓名的
+		// 接龙行也归到操作者名下，操作者本人同样要有姓名供贴标签
+		requireMemberDisplayName(cart, userId);
 
 		Map<Integer, SharedCartImportConfirmDTO.RowAction> actionByRowNo = new LinkedHashMap<>();
 		if (dto != null && dto.getRows() != null) {

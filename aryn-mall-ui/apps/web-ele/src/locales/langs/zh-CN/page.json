@@ -35,5 +35,37 @@
     "title": "概览",
     "analytics": "分析页",
     "workspace": "工作台"
+  },
+  "loginDevices": {
+    "action": "操作",
+    "activeTitle": "活跃会话",
+    "close": "关闭",
+    "current": "当前设备",
+    "device": "设备",
+    "deviceInfo": "浏览器 / 系统",
+    "failed": "失败",
+    "kick": "下线",
+    "kickConfirm": "下线后该设备需要重新登录，确定继续？",
+    "kickFailed": "下线失败，请稍后重试",
+    "kickSuccess": "已下线该设备",
+    "kickTitle": "下线该设备",
+    "loadFailed": "加载失败",
+    "location": "地点",
+    "loginTime": "登录时间",
+    "menu": "登录设备",
+    "noDevices": "暂无登录设备",
+    "noLogs": "暂无登录记录",
+    "recentTitle": "最近登录记录",
+    "result": "结果",
+    "retry": "重试",
+    "singlePointNotice": "同一账号仅允许一处登录，其他设备登录会自动顶掉本设备",
+    "status": "状态",
+    "success": "成功",
+    "time": "时间",
+    "title": "登录设备"
+  },
+  "profile": {
+    "menu": "个人信息",
+    "title": "个人信息"
   }
 }

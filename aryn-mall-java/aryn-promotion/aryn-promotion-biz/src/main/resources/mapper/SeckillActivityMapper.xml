@@ -9,6 +9,7 @@
         seckill_activity.start_time,
         seckill_activity.end_time,
         seckill_activity.status,
+        seckill_activity.schedule_type,
         seckill_activity.description,
         seckill_activity.create_by,
         seckill_activity.update_by,

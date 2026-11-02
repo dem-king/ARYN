@@ -156,7 +156,7 @@ onMounted(() => {
     </template>
 
     <!-- Overview Metrics -->
-    <div class="mb-6 grid grid-cols-2 gap-4 md:grid-cols-5">
+    <div class="mb-6 grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-4">
       <div
         class="flex flex-col items-center justify-center rounded-lg bg-orange-50 p-4 dark:bg-orange-900/20"
       >

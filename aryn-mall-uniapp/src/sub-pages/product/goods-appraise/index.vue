@@ -2,8 +2,11 @@
 import { onLoad } from '@dcloudio/uni-app'
 import { computed, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
 import { getCount, getPage } from '@/sub-pages/api/product/appraise'
 import { formatTime } from '@/utils/index'
+
+const { handlePageScroll } = useFrostedNavbar()
 
 definePage({
   name: 'goods-appraise',
@@ -95,13 +98,35 @@ function previewImage(index: number, picUrls: string[]) {
     urls: picUrls,
   })
 }
+
+function isAnonymousItem(item: any) {
+  return Number(item?.isAnonymous) === 1
+}
+
+function displayName(item: any) {
+  return isAnonymousItem(item) ? t('product.review.anonymous') : (item?.nickname || t('product.review.anonymous'))
+}
+
+function avatarText(item: any) {
+  return String(displayName(item) || t('product.review.anonymous')).slice(0, 1)
+}
+
+/** 系统默认评价 goodsScore 为 null：显示「未评分」而不是渲染 0 星 */
+function hasScore(value: any) {
+  const score = Number(value)
+  return Number.isFinite(score) && score > 0
+}
+
+function hasAdvance(item: any) {
+  return Boolean(item?.advanceTime) || Boolean(item?.advanceContent) || (item?.advancePicUrls?.length ?? 0) > 0
+}
 </script>
 
 <template>
-  <z-paging ref="pagingRef" v-model="state.list" :auto="false" @query="queryList">
-    <template #top>
-      <hr-navbar :title="t('product.reviewTitle')" />
-    </template>
+  <hr-navbar :title="t('product.reviewTitle')" />
+  <z-paging ref="pagingRef" v-model="state.list" :auto="false" @query="queryList" @scroll="handlePageScroll">
+    <!-- 顶栏覆盖层等高占位：列表整屏滚动，首屏内容从顶栏下沿开始 -->
+    <hr-navbar-space />
     <view class="bg-white p-26rpx">
       <!-- 自定义tabs 换行显示 -->
       <view class="flex flex-wrap">
@@ -136,24 +161,41 @@ function previewImage(index: number, picUrls: string[]) {
       class="my-20rpx rounded-20rpx bg-white p-20rpx dark:bg-[var(--wot-dark-background2)]"
     >
       <view class="mb-20rpx flex items-center justify-between">
-        <!-- 左边：头像+昵称 -->
+        <!-- 左边：头像+昵称（匿名评价由后端脱敏，前端兜底展示「匿名用户」） -->
         <view class="flex items-center">
-          <wd-img :width="40" :height="40" round :src="item.avatarUrl" />
+          <wd-img v-if="item.avatarUrl && !isAnonymousItem(item)" :width="40" :height="40" round :src="item.avatarUrl" />
+          <view v-else class="h-[40px] w-[40px] flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700">
+            <text class="text-24rpx text-gray-400 font-medium">
+              {{ avatarText(item) }}
+            </text>
+          </view>
           <view class="pl-20rpx text-28rpx font-medium">
-            {{ item.nickname }}
+            {{ displayName(item) }}
           </view>
         </view>
 
-        <!-- 右边：评分+时间 -->
+        <!-- 右边：评分+时间（系统默认评价无星级） -->
         <view class="flex flex-col items-end gap-12rpx text-gray-400">
           <wd-text size="24rpx" :text="formatTime(item.createTime)" />
-          <wd-rate v-model="item.goodsScore" :num="5" readonly size="12px" />
+          <wd-rate v-if="hasScore(item.goodsScore)" :model-value="Number(item.goodsScore)" :num="5" readonly size="12px" />
+          <text v-else class="text-22rpx text-gray-400">{{ t('product.review.scoreMissing') }}</text>
         </view>
       </view>
 
       <!-- 内容 -->
       <view class="mb-16rpx whitespace-pre-wrap break-words text-26rpx text-gray-800 dark:text-gray-200">
         {{ item.content || t('product.review.emptyContent') }}
+      </view>
+
+      <!-- 快捷标签 -->
+      <view v-if="item.tags && item.tags.length > 0" class="mb-10rpx flex flex-wrap gap-8rpx">
+        <text
+          v-for="tag in item.tags"
+          :key="tag"
+          class="rounded-full bg-gray-100 px-16rpx py-4rpx text-22rpx text-gray-600 dark:bg-gray-700 dark:text-gray-300"
+        >
+          {{ tag }}
+        </text>
       </view>
 
       <!-- 图片区域 -->
@@ -196,6 +238,39 @@ function previewImage(index: number, picUrls: string[]) {
             >
               +{{ item.picUrls.length - 4 }}
             </view>
+          </view>
+        </view>
+      </view>
+
+      <!-- 追评：后端仅一次，展示追评内容/图片与时间 -->
+      <view
+        v-if="hasAdvance(item)"
+        class="mt-18rpx rounded-10rpx bg-gray-50 p-16rpx dark:bg-gray-700/50"
+      >
+        <view class="flex items-center justify-between">
+          <text class="text-24rpx text-gray-500 font-medium dark:text-gray-300">
+            {{ t('product.review.advance') }}
+          </text>
+          <text v-if="item.advanceTime" class="text-22rpx text-gray-400">
+            {{ formatTime(item.advanceTime) }}
+          </text>
+        </view>
+        <view
+          v-if="item.advanceContent"
+          class="mt-8rpx whitespace-pre-wrap break-words text-26rpx text-gray-700 leading-relaxed dark:text-gray-200"
+        >
+          {{ item.advanceContent }}
+        </view>
+        <view v-if="item.advancePicUrls && item.advancePicUrls.length > 0" class="mt-10rpx flex gap-6rpx">
+          <view
+            v-for="(pic, picIndex) in item.advancePicUrls.slice(0, 3)"
+            :key="picIndex"
+            class="h-[76px] w-[76px] overflow-hidden rounded-10rpx"
+          >
+            <wd-img
+              width="100%" height="100%" mode="aspectFill" :src="pic"
+              @click="previewImage(picIndex, item.advancePicUrls)"
+            />
           </view>
         </view>
       </view>

@@ -113,8 +113,10 @@ describe('新人专享楼层「抢」＝直接加购', () => {
 
   it('未登录的登录引导由 useQuickCart 统一负责，楼层不自己写跳登录', () => {
     const composable = source(QUICK_CART)
-    // 单一真相：登录跳转只在 useQuickCart 里出现，所有加购宿主共用
-    expect(composable).toContain('/pages/login/index')
+    // 单一真相：登录引导只在 useQuickCart 里（经 useRequireLogin 统一守卫：记录回跳 + 去重），
+    // 所有加购宿主共用；宿主自己再写一份跳登录会二次跳转
+    expect(composable).toContain('useRequireLogin')
+    expect(composable).toContain('goLogin()')
     expect(composable).toContain('authStore.isLoggedIn')
     // 楼层自己再写一份 navigateTo 登录，就会与统一入口二次跳转
     expect(source(FLOOR)).not.toMatch(/navigateTo\(\{\s*url:\s*'\/pages\/login\/index'/)

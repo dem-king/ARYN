@@ -71,6 +71,17 @@ public interface IShoppingCartService extends IService<ShoppingCart> {
 	boolean removeByUserId(String userId, List<String> ids);
 
 	/**
+	 * 购物车商品总件数（对行 quantity 求和，空车返回 0）。
+	 *
+	 * <p>购物车一行是一个 SKU，行数只等于「加购了几种」；C 端角标要与购物车页
+	 * 「共 X 件」「去结算(n)」同口径，必须按数量累加。
+	 *
+	 * @param userId 当前用户
+	 * @return 商品总件数
+	 */
+	Integer countTotalQuantity(String userId);
+
+	/**
 	 * 把当前用户的购物车行转入指定靠港计划（C 端「转入本次靠港」）。
 	 *
 	 * <p>目标靠港必须仍可下单；同用户同 SKU 在目标靠港已有行时合并数量而非撞唯一键。

@@ -22,7 +22,7 @@ import {
 
 import { getTreeList } from '#/api/upms/dept';
 import { getList as getRoleList } from '#/api/upms/sys-role';
-import { addObj, editObj, getById } from '#/api/upms/user';
+import { addObj, editObj, getById, getPhone } from '#/api/upms/user';
 import { useDict } from '#/utils/dict';
 import { validatePassword } from '#/utils/password-policy';
 
@@ -157,6 +157,39 @@ const loading = ref(false);
 const formRef = ref();
 
 /**
+ * 编辑态临时展示完整手机号：详情接口只返回脱敏号码，
+ * 点「查看」单独取一次；仅影响本地显示，编辑提交时后端忽略 phone。
+ */
+const fullPhone = ref('');
+const loadingPhone = ref(false);
+const phoneDisplay = computed({
+  get: () => fullPhone.value || state.form.phone,
+  set: (value: string) => {
+    state.form.phone = value;
+  },
+});
+const togglePhone = () => {
+  if (!state.form.id) {
+    return;
+  }
+  if (fullPhone.value) {
+    fullPhone.value = '';
+    return;
+  }
+  loadingPhone.value = true;
+  getPhone(state.form.id)
+    .then((phone) => {
+      fullPhone.value = phone || '';
+    })
+    .catch(() => {
+      fullPhone.value = '';
+    })
+    .finally(() => {
+      loadingPhone.value = false;
+    });
+};
+
+/**
  * 受保护角色ID集合（存在重复编码角色时全部纳入保护）
  */
 const protectedRoleIds = computed(() =>
@@ -198,6 +231,7 @@ const initForm = (row: any | undefined) => {
 };
 const getDetail = (id: string) => {
   loading.value = true;
+  fullPhone.value = '';
   getById(id).then((response) => {
     state.form = response;
     // 详情接口只返回不含密码的 VO；显式清空，避免上一次表单残留值被当成新密码提交
@@ -217,6 +251,7 @@ const handleClose = () => {
 const resetForm = (formEl: FormInstance | undefined) => {
   if (!formEl) return;
   state.form.id = '';
+  fullPhone.value = '';
   loading.value = false;
   dialog.value = false;
   formEl.resetFields();
@@ -319,11 +354,23 @@ defineExpose({
           <ElCol :span="12" class="mb20">
             <ElFormItem label="手机号码" prop="phone">
               <ElInput
-                v-model="state.form.phone"
+                v-model="phoneDisplay"
                 maxlength="11"
                 :disabled="!!state.form.id"
                 show-word-limit
-              />
+              >
+                <template v-if="state.form.id" #append>
+                  <ElButton
+                    v-access:code="'upms:sysuser:phone'"
+                    :loading="loadingPhone"
+                    link
+                    type="primary"
+                    @click="togglePhone"
+                  >
+                    {{ fullPhone ? '隐藏' : '查看' }}
+                  </ElButton>
+                </template>
+              </ElInput>
             </ElFormItem>
           </ElCol>
         </ElRow>

@@ -14,6 +14,12 @@ public interface CommonConstants {
 	int FAIL = 1;
 
 	/**
+	 * 业务码：共享购物车成员尚未填写姓名（display_name，配送按人贴标签用）。
+	 * C 端按此 code 弹出姓名补填层并引导到详情页，勿复用 FAIL。
+	 */
+	int SHARED_CART_NAME_REQUIRED = 1201;
+
+	/**
 	 * 系统状态：0.正常；1.停用
 	 */
 	String NORMAL_STATUS = "0";
@@ -72,6 +78,21 @@ public interface CommonConstants {
 	 * 平台租户ID
 	 */
 	String PLATFORM_TENANT_ID = "1881232176465358849";
+
+	/**
+	 * 平台专属应用标识：该应用下的菜单仅平台租户可用，禁止写入租户套餐或直接分配给租户
+	 */
+	String PLATFORM_APP_KEY = "sys_key";
+
+	/**
+	 * 租户类型：平台租户。不参与授权期管理，auth_end_time 为空表示长期有效
+	 */
+	String TENANT_TYPE_PLATFORM = "1";
+
+	/**
+	 * 租户类型：普通租户。按授权开始/结束时间管控
+	 */
+	String TENANT_TYPE_STANDARD = "2";
 
 	/**
 	 * token key

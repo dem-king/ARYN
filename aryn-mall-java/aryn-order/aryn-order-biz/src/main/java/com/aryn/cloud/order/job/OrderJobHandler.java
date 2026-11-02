@@ -33,6 +33,9 @@ import java.util.Objects;
 @RequiredArgsConstructor
 public class OrderJobHandler {
 
+	/** 未配置评价有效期（order_config.order_auto_comment_days）时的兜底天数：对齐行业 15 天窗口 */
+	private static final int DEFAULT_ORDER_AUTO_COMMENT_DAYS = 15;
+
 	private final IOrderInfoService orderInfoService;
 
 	@DubboReference
@@ -143,14 +146,16 @@ public class OrderJobHandler {
 				try {
 					ArynTenantContextHolder.setTenantId(sysTenant.getId());
 					OrderConfig orderConfig = orderConfigService.getConfig();
-					if (Objects.isNull(orderConfig) || Objects.isNull(orderConfig.getOrderAutoCommentDays())) {
-						return;
-					}
+					// 配置缺失时按行业默认 15 天兜底，避免自动评价永远不触发
+					Integer autoCommentDays = Objects.isNull(orderConfig) ? null
+							: orderConfig.getOrderAutoCommentDays();
+					int commentDays = Objects.nonNull(autoCommentDays) ? autoCommentDays
+							: DEFAULT_ORDER_AUTO_COMMENT_DAYS;
 					List<OrderInfo> orderList = orderInfoService.list(Wrappers.<OrderInfo>lambdaQuery()
 						.eq(OrderInfo::getStatus, OrderStatusEnum.COMPLETED.getCode())
 						.eq(OrderInfo::getAppraiseStatus, CommonConstants.NO)
 						.lt(OrderInfo::getReceiverTime,
-								LocalDateTime.now().minusDays(orderConfig.getOrderAutoCommentDays())));
+								LocalDateTime.now().minusDays(commentDays)));
 					orderList.forEach(orderInfoService::autoAppraiseOrder);
 				}
 				finally {

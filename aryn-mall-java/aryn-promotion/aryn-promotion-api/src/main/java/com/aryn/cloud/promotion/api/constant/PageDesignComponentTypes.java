@@ -154,20 +154,29 @@ public final class PageDesignComponentTypes {
 	public static final String CUSTOM_HTML = "custom-html";
 
 	/**
+	 * 满减券阶梯（营销玩法说明 + 真实券档位）。
+	 * <p>
+	 * 档位来自 coupon_info 中 {@code coupon_type=1} 且 {@code threshold>0} 的
+	 * 满减券（按门槛升序取前 N 个），C 端可直接领取；本类型不预置数字，
+	 * 因此 automatic 模式无需运营手配 ID，manual 模式仍要求非空。
+	 */
+	public static final String COUPON_LADDER = "coupon-ladder";
+
+	/**
 	 * 当前全量已知组件类型。
 	 */
 	public static final Set<String> KNOWN_TYPES = Set.of(CATEGORY_NAV, COUPON_RECEIVE, GAP, GOODS, IMAGE_AD, NOTICE,
 			RICH_TEXT, SEARCH_BAR, SWIPER_BANNER, TAB_NAV, TITLE_TEXT, GOODS_GROUP, GOODS_RANKING, GOODS_SCROLL,
 			LIMITED_ACTIVITY, COUNTDOWN, MARKETING_ENTRY, SHOP_INFO, GOODS_WATERFALL, GOODS_TABS, COUPON_COMBO,
 			MEMBER_BENEFITS, SERVICE_PROMISE, BOTTOM_NAV, VIDEO_LIVE, SHIP_WORKBENCH, REPLENISH_CARD, CUSTOM_HTML,
-			SECKILL, DISCOUNT, GOODS_RECOMMEND, IMAGE_CUBE, NEWBIE_FLOOR, ACTIVITY_STRIP);
+			SECKILL, DISCOUNT, GOODS_RECOMMEND, IMAGE_CUBE, NEWBIE_FLOOR, ACTIVITY_STRIP, COUPON_LADDER);
 
 	/**
 	 * 依赖数据源拉取业务数据的组件（手动数据源为空时发布阻断）。
 	 */
 	public static final Set<String> DATA_DRIVEN_TYPES = Set.of(GOODS_GROUP, GOODS_RANKING, GOODS_SCROLL, LIMITED_ACTIVITY,
 			COUNTDOWN, MARKETING_ENTRY, SHOP_INFO, GOODS_WATERFALL, GOODS_TABS, COUPON_COMBO, SECKILL, DISCOUNT,
-			GOODS_RECOMMEND, NEWBIE_FLOOR);
+			GOODS_RECOMMEND, NEWBIE_FLOOR, COUPON_LADDER);
 
 	/**
 	 * 全页面唯一组件：同一页最多出现一次，出现多个即发布阻断。
@@ -235,7 +244,7 @@ public final class PageDesignComponentTypes {
 	 */
 	private static final Set<String> CATEGORY_PAGE_ALLOWED_TYPES = Set.of(IMAGE_AD, SWIPER_BANNER, GOODS, GOODS_GROUP,
 			GOODS_SCROLL, GOODS_WATERFALL, GOODS_TABS, GOODS_RANKING, COUPON_RECEIVE, COUNTDOWN,
-			TITLE_TEXT, RICH_TEXT, CUSTOM_HTML, GAP, NOTICE, IMAGE_CUBE);
+			TITLE_TEXT, RICH_TEXT, CUSTOM_HTML, GAP, NOTICE, IMAGE_CUBE, COUPON_LADDER);
 
 	/**
 	 * 个人中心页（pageType=4）允许的组件；对应管理端 {@code userCenterAllowedComponents}。
@@ -243,7 +252,7 @@ public final class PageDesignComponentTypes {
 	 * 个人中心页不展示商品流，故排除全部商品类组件。
 	 */
 	private static final Set<String> USER_CENTER_ALLOWED_TYPES = Set.of(IMAGE_AD, SWIPER_BANNER, COUPON_RECEIVE,
-			COUNTDOWN, TITLE_TEXT, RICH_TEXT, CUSTOM_HTML, GAP, NOTICE);
+			COUNTDOWN, TITLE_TEXT, RICH_TEXT, CUSTOM_HTML, GAP, NOTICE, COUPON_LADDER);
 
 	/**
 	 * 取指定页面类型允许的组件白名单；微页面/首页无限制返回 {@code null}。

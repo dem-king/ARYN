@@ -148,7 +148,7 @@ const firstContentSection = computed(() =>
  * 只透传给 PhoneCanvas 参与导航样式计算。
  */
 const canvasScrollTop = ref(0);
-/** 页面导航开启沉浸式渐显且非内嵌页型时，工具栏才允许切换画布滚动预览态 */
+/** 页面导航开启沉浸式（滚动切换）且非内嵌页型时，工具栏才允许切换画布滚动预览态 */
 const scrollEffectAvailable = computed(
   () =>
     !isEmbeddedPageType(pageType.value) &&

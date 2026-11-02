@@ -206,6 +206,44 @@ describe('装修预览与小程序视觉一致性', () => {
     expect(noticeAdmin).toMatch(/color:\s*titleColor/);
   });
 
+  it('公告：滚动行为两端一致（单条 ticker / 多条逐条滚动 / 竖向轮播）', () => {
+    // 画布曾只静态显示首条，运营配置的滚动方式/速度在预览里完全不可见。
+    // 现在与小程序 diy-notice 同构：单条横向走 MarqueeText ticker（无缝循环），
+    // 多条横向/竖向走 wd-notice-bar 同算法仿真（transitionend 逐条驱动）。
+    const admin = readAdmin('notice');
+    const mobile = readMobile('diy-notice');
+
+    // 单条横向：两端都引用 activity-strip 的 MarqueeText 并开启 ticker
+    expect(mobile).toContain('const singleTicker = computed');
+    expect(mobile).toContain('MarqueeText');
+    expect(admin).toContain('const singleTicker = computed');
+    expect(admin).toContain("from '../activity-strip/marquee-text.vue'");
+    expect(admin).toContain('ticker');
+
+    // 多条/竖向：画布必须有 wd-notice-bar 仿真，且与小程序同走 scrollable/wrapable 组合
+    expect(admin).toContain('notice-scroller');
+    expect(admin).toContain(':scrollable="!singleNotice"');
+    expect(admin).toContain(':wrapable="singleNotice && !singleTicker"');
+    expect(mobile).toContain(':scrollable="!singleNotice"');
+    expect(mobile).toContain(':wrapable="singleNotice && !singleTicker"');
+
+    // 速度口径：两端同为 px/s，0/非法值回落 50
+    expect(admin).toContain('|| 50');
+    expect(mobile).toContain('|| 50');
+
+    // 仿真状态机与 wd-notice-bar 同节奏：transitionend 驱动换条、
+    // 条目间停顿 1s（库默认 delay）、横向 translateX 逐条进出、竖向 translateY 步进轮播
+    const scroller = readFileSync(
+      resolve(adminComponentsRoot, 'notice/notice-scroller.vue'),
+      'utf8',
+    );
+    expect(scroller).toContain('transitionend');
+    expect(scroller).toContain('const DELAY_SEC = 1');
+    expect(scroller).toContain('translateX');
+    expect(scroller).toContain('translateY');
+    expect(scroller).toContain('transitionProperty');
+  });
+
   it('商品排行：区块标题与小程序同值', () => {
     const admin = styleBlock(readAdmin('goods-ranking'));
     const mobile = styleBlock(readMobile('diy-goods-ranking'));
@@ -453,45 +491,75 @@ describe('装修预览与小程序视觉一致性', () => {
     );
   });
 
-  it('领券：票面结构（票根缺口 / 券类型胶囊 / 状态带）两端一致', () => {
+  it('领券：票面结构（白卡 / 券类型胶囊 / 虚线撕口 / 领取按钮）两端一致', () => {
     const admin = readAdmin('coupon-receive');
     const mobile = readMobile('diy-coupon-receive');
-    // 曾预览缺少中缝虚线，两端视觉明显不同；改为票面后仍要求结构同名同量
+
+    // 2026-11 券面重构：渐变描边外框与整条状态带下线，统一为
+    // 「白卡 + 上券面 / 左值块 + 虚线撕口 + 轻投影」；结构 class 两端同名同量。
     for (const marker of [
+      'coupon-item',
       'coupon-face',
-      'coupon-notch',
       'coupon-pill',
+      'amount-row',
+      'coupon-value',
+      'coupon-threshold',
+      'coupon-name',
+      'coupon-info',
+      'coupon-desc',
       'coupon-band',
+      'coupon-btn',
     ]) {
-      expect(admin).toContain(marker);
-      expect(mobile).toContain(marker);
+      expect(admin, `管理端预览缺少结构 ${marker}`).toContain(marker);
+      expect(mobile, `小程序缺少结构 ${marker}`).toContain(marker);
     }
 
     const adminStyle = styleBlock(admin);
     const mobileStyle = styleBlock(mobile);
-    // 金额字号：22px ↔ 44rpx
+
+    // 面额字号：24px ↔ 48rpx（券卡与领券卡同一口径）
     expect(value(declarations(adminStyle, '.coupon-value'), 'font-size')).toBe(
-      `${rpxToPx(44)}px`,
+      `${rpxToPx(48)}px`,
     );
     expect(value(declarations(mobileStyle, '.coupon-value'), 'font-size')).toBe(
-      '44rpx',
+      '48rpx',
     );
-    // 描边厚度 3px ↔ 6rpx、票根缺口 9px ↔ 18rpx、状态带高度 26px ↔ 52rpx
-    // （`.coupon-item` 在 list-style 分支里也出现，取声明块会取错，故按原文断言）
-    expect(adminStyle).toContain('padding: 3px;');
-    expect(mobileStyle).toContain('padding: $coupon-rim-width;');
-    expect(value(declarations(adminStyle, '.coupon-notch'), 'width')).toBe(
-      '9px',
+
+    // 券面上内边距逐值换算（曾两端各写各的，一排 3 张时卡片高度明显不同）
+    const mobileFacePadding = value(
+      declarations(mobileStyle, '.coupon-face'),
+      'padding',
     );
-    expect(value(declarations(mobileStyle, '.coupon-notch'), 'width')).toBe(
-      '$coupon-notch-size',
+    expect(mobileFacePadding).toBe('20rpx 12rpx 14rpx');
+    expect(value(declarations(adminStyle, '.coupon-face'), 'padding')).toBe(
+      mobileFacePadding
+        .split(' ')
+        .map((step) => `${rpxToPx(Number.parseFloat(step))}px`)
+        .join(' '),
     );
-    expect(value(declarations(adminStyle, '.coupon-band'), 'height')).toBe(
-      '26px',
+
+    // 虚线撕口：2rpx 虚线 ↔ 1px dashed（宽度锁死，避免一边实线/一边虚线）
+    const mobileBandBorder = value(
+      declarations(mobileStyle, '.coupon-band'),
+      'border-top',
     );
-    expect(value(declarations(mobileStyle, '.coupon-band'), 'height')).toBe(
-      '$coupon-band-height',
+    expect(mobileBandBorder).toContain('dashed');
+    expect(mobileBandBorder).toContain('$coupon-divider-width');
+    const adminBandBorder = value(
+      declarations(adminStyle, '.coupon-band'),
+      'border-top',
     );
+    expect(adminBandBorder).toContain('dashed');
+    expect(adminBandBorder).toBe(`${rpxToPx(2)}px dashed #ffe3d6`);
+
+    // 领取按钮高度：26px ↔ 52rpx（一排 3 张时的紧凑高度）
+    expect(value(declarations(adminStyle, '.coupon-btn'), 'height')).toBe(
+      `${rpxToPx(52)}px`,
+    );
+    expect(value(declarations(mobileStyle, '.coupon-btn'), 'height')).toBe(
+      '52rpx',
+    );
+
     // 券类型胶囊配色两端同源：小程序用 SCSS 变量，故比对预览写死的色值
     // 是否等于 coupon-ticket.scss 里该变量的值（颜色不一致会立刻失败）
     const pillColor =
@@ -503,7 +571,7 @@ describe('装修预览与小程序视觉一致性', () => {
     );
     expect(pillColor).toMatch(/^#[0-9a-f]{6}$/i);
     expect(tokens.toLowerCase()).toContain(
-      `$coupon-pill-bg: ${pillColor.toLowerCase()};`,
+      `$coupon-tint-strong: ${pillColor.toLowerCase()};`,
     );
   });
 
@@ -514,10 +582,19 @@ describe('装修预览与小程序视觉一致性', () => {
       resolve(mobileStylesRoot, 'coupon-ticket.scss'),
       'utf8',
     );
-    expect(tokens).toContain('$coupon-rim-width: 6rpx;');
-    expect(tokens).toContain('$coupon-notch-size: 18rpx;');
-    expect(tokens).toContain('$coupon-band-height: 52rpx;');
-    expect(tokens).toContain('$coupon-radius: 20rpx;');
+    expect(tokens).toContain('$coupon-card-radius: 24rpx;');
+    expect(tokens).toContain('$coupon-notch-size: 20rpx;');
+    expect(tokens).toContain('$coupon-value-width: 176rpx;');
+    // 撕口虚线宽是「2rpx ↔ 1px」换算的依据，单独锁住，避免只改预览的 1px
+    expect(tokens).toContain('$coupon-divider-width: 2rpx;');
+
+    // 管理端预览写死的 px 必须与上面的令牌保持 1rpx = 0.5px 换算：
+    // 票卡圆角 24rpx ↔ 12px；横版票左值块 176rpx ↔ 88px
+    const adminStyle = styleBlock(readAdmin('coupon-receive'));
+    expect(
+      value(declarations(adminStyle, '.coupon-item'), 'border-radius'),
+    ).toBe(`${rpxToPx(24)}px`);
+    expect(adminStyle).toMatch(new RegExp(`width:\\s*${rpxToPx(176)}px;`));
   });
 
   it('轮播图：commonStyle 与私有圆角分层，12px 兜底留白两端一致', () => {
@@ -547,7 +624,7 @@ describe('装修预览与小程序视觉一致性', () => {
     expect(mobile).toContain('props.showData.borderRadius');
   });
 
-  it('补给单：空态占位引导卡两端一致（emptyStrategy=placeholder）', () => {
+  it('补给单：白卡 / 空态引导两端同名同值（1rpx = 0.5px）', () => {
     const admin = readAdmin('replenish-card');
     const mobile = readMobile('diy-replenish-card');
     const adminStyle = styleBlock(admin);
@@ -558,10 +635,28 @@ describe('装修预览与小程序视觉一致性', () => {
       'utf8',
     );
 
-    // 两端都按策略切换形态；C 端入口文案走 i18n 键，中文词条与画布文案对齐
+    // 2026-11 重设计：旧版「深蓝渐变 + 半透明地址胶囊 / guide-inner」下线，
+    // 两端统一为「白卡 + 发丝线 + 轻投影 + 中性灰 + 品牌色点状强调」。
+    // 有单卡片与空态引导卡的结构 class 两端同名同量（管理端画布只换算单位）
+    for (const marker of [
+      'rp-card',
+      'rp-guide',
+      'rp-icon',
+      'rp-title',
+      'rp-action',
+      'rp-stat-num',
+      'rp-amount-value',
+      'rp-preview',
+      'rp-guide-btn',
+      'rp-guide-btn--primary',
+    ]) {
+      expect(admin, `管理端预览缺少结构 ${marker}`).toContain(marker);
+      expect(mobile, `小程序缺少结构 ${marker}`).toContain(marker);
+    }
+
+    // 两端都按策略切换形态；C 端入口文案走 i18n 键，画布写死同词条
     for (const source of [admin, mobile]) {
       expect(source).toContain("emptyStrategy === 'placeholder'");
-      expect(source).toContain('guide-inner');
     }
     for (const label of ['导入清单下单', '发起补给单']) {
       expect(admin).toContain(label);
@@ -572,39 +667,202 @@ describe('装修预览与小程序视觉一致性', () => {
     expect(zhDiy).toContain("createAction: '发起补给单'");
     expect(zhDiy).toContain("importAction: '导入清单下单'");
 
-    // 1rpx = 0.5px：内边距 / 圆角 / 标题字号 / 按钮高度逐值换算
-    expect(value(declarations(adminStyle, '.guide-inner'), 'padding')).toBe(
-      '12px',
+    // 画布示意数据与 C 端真实字段同口径：标题绑配置，3 项商品 / 1 人参与 /
+    // 预估 ¥189.20 / 预览 3 个商品，长地址只给一行示意
+    expect(admin).toContain('{{ showData.title }}');
+    for (const text of [
+      '项商品',
+      '人参与',
+      '预估',
+      '189.20',
+      '烟台大樱桃 ×2',
+      '北京市东城区',
+    ]) {
+      expect(admin).toContain(text);
+    }
+    // 两个开关两端同名：关掉「按单加购」/「明细预览」时对应区块不渲染
+    for (const source of [admin, mobile]) {
+      expect(source).toContain('showBatchAdd');
+      expect(source).toContain('showPreview');
+    }
+
+    // 1rpx = 0.5px：卡片 / 图标 / 标题 / CTA / 数字 / 金额 / 预览条逐值换算
+    const adminCard = declarations(adminStyle, '.rp-card');
+    const mobileCard = declarations(mobileStyle, '.rp-card');
+    // 卡片内边距 2026-11-01 收口过一次（26/26/24 → 24/24/22），两端一起改
+    expect(value(adminCard, 'padding')).toBe('12px 12px 11px');
+    expect(value(mobileCard, 'padding')).toBe('24rpx 24rpx 22rpx');
+    expect(value(adminCard, 'border-radius')).toBe(`${rpxToPx(24)}px`);
+    expect(value(mobileCard, 'border-radius')).toBe('24rpx');
+
+    expect(value(declarations(adminStyle, '.rp-icon'), 'width')).toBe(
+      `${rpxToPx(76)}px`,
     );
-    expect(value(declarations(mobileStyle, '.guide-inner'), 'padding')).toBe(
+    expect(value(declarations(mobileStyle, '.rp-icon'), 'width')).toBe('76rpx');
+
+    expect(value(declarations(adminStyle, '.rp-title'), 'font-size')).toBe(
+      `${rpxToPx(32)}px`,
+    );
+    expect(value(declarations(mobileStyle, '.rp-title'), 'font-size')).toBe(
+      '32rpx',
+    );
+
+    expect(value(declarations(adminStyle, '.rp-action'), 'height')).toBe(
+      `${rpxToPx(64)}px`,
+    );
+    expect(value(declarations(mobileStyle, '.rp-action'), 'height')).toBe(
+      '64rpx',
+    );
+
+    expect(value(declarations(adminStyle, '.rp-stat-num'), 'font-size')).toBe(
+      `${rpxToPx(30)}px`,
+    );
+    expect(value(declarations(mobileStyle, '.rp-stat-num'), 'font-size')).toBe(
+      '30rpx',
+    );
+
+    expect(
+      value(declarations(adminStyle, '.rp-amount-value'), 'font-size'),
+    ).toBe(`${rpxToPx(36)}px`);
+    expect(
+      value(declarations(mobileStyle, '.rp-amount-value'), 'font-size'),
+    ).toBe('36rpx');
+
+    // 浅灰预览条：padding 12rpx 18rpx ↔ 6px 9px，上间距 12rpx ↔ 6px
+    expect(value(declarations(adminStyle, '.rp-preview'), 'padding')).toBe(
+      `${rpxToPx(12)}px ${rpxToPx(18)}px`,
+    );
+    expect(value(declarations(mobileStyle, '.rp-preview'), 'padding')).toBe(
+      '12rpx 18rpx',
+    );
+    expect(value(declarations(adminStyle, '.rp-preview'), 'margin-top')).toBe(
+      `${rpxToPx(12)}px`,
+    );
+    expect(value(declarations(mobileStyle, '.rp-preview'), 'margin-top')).toBe(
+      '12rpx',
+    );
+
+    // 空态引导卡：内边距（24rpx ↔ 12px）/ 标题字号 / 按钮高度
+    expect(value(declarations(adminStyle, '.rp-guide'), 'padding')).toBe(
+      `${rpxToPx(24)}px`,
+    );
+    expect(value(declarations(mobileStyle, '.rp-guide'), 'padding')).toBe(
       '24rpx',
     );
     expect(
-      value(declarations(adminStyle, '.guide-inner'), 'border-radius'),
-    ).toBe('12px');
+      value(declarations(adminStyle, '.rp-guide-title'), 'font-size'),
+    ).toBe(`${rpxToPx(30)}px`);
     expect(
-      value(declarations(mobileStyle, '.guide-inner'), 'border-radius'),
-    ).toBe('24rpx');
-    expect(value(declarations(adminStyle, '.guide-title'), 'font-size')).toBe(
-      '14px',
+      value(declarations(mobileStyle, '.rp-guide-title'), 'font-size'),
+    ).toBe('30rpx');
+    expect(value(declarations(adminStyle, '.rp-guide-btn'), 'height')).toBe(
+      `${rpxToPx(72)}px`,
     );
-    expect(value(declarations(mobileStyle, '.guide-title'), 'font-size')).toBe(
-      '28rpx',
+    expect(value(declarations(mobileStyle, '.rp-guide-btn'), 'height')).toBe(
+      '72rpx',
     );
-    expect(value(declarations(adminStyle, '.guide-btn'), 'height')).toBe(
-      '32px',
+
+    // 其余冻结值同样成对：状态胶囊 / 状态点 / 发丝线 / 预览条圆角 / 按钮字号
+    expect(value(declarations(adminStyle, '.rp-status'), 'padding')).toBe(
+      '2px 6px 2px 5px',
     );
-    expect(value(declarations(mobileStyle, '.guide-btn'), 'height')).toBe(
-      '64rpx',
+    expect(value(declarations(mobileStyle, '.rp-status'), 'padding')).toBe(
+      '4rpx 12rpx 4rpx 10rpx',
     );
+    expect(value(declarations(adminStyle, '.rp-status-dot'), 'width')).toBe(
+      `${rpxToPx(8)}px`,
+    );
+    expect(value(declarations(mobileStyle, '.rp-status-dot'), 'width')).toBe(
+      '8rpx',
+    );
+    expect(value(declarations(adminStyle, '.rp-divider'), 'height')).toBe(
+      `${rpxToPx(1)}px`,
+    );
+    expect(value(declarations(mobileStyle, '.rp-divider'), 'height')).toBe(
+      '1rpx',
+    );
+    // 分隔线上下留白 16rpx/14rpx ↔ 8px/7px
+    expect(value(declarations(adminStyle, '.rp-divider'), 'margin')).toBe(
+      `${rpxToPx(16)}px 0 ${rpxToPx(14)}px`,
+    );
+    expect(value(declarations(mobileStyle, '.rp-divider'), 'margin')).toBe(
+      '16rpx 0 14rpx',
+    );
+    // 状态胶囊：中性底圆角 8rpx ↔ 4px；状态小字 20rpx ↔ 10px
+    expect(value(declarations(adminStyle, '.rp-status'), 'border-radius')).toBe(
+      `${rpxToPx(8)}px`,
+    );
+    expect(
+      value(declarations(mobileStyle, '.rp-status'), 'border-radius'),
+    ).toBe('8rpx');
+    expect(
+      value(declarations(adminStyle, '.rp-status-text'), 'font-size'),
+    ).toBe(`${rpxToPx(20)}px`);
+    expect(
+      value(declarations(mobileStyle, '.rp-status-text'), 'font-size'),
+    ).toBe('20rpx');
+    expect(
+      value(declarations(adminStyle, '.rp-preview'), 'border-radius'),
+    ).toBe(`${rpxToPx(16)}px`);
+    expect(
+      value(declarations(mobileStyle, '.rp-preview'), 'border-radius'),
+    ).toBe('16rpx');
+    expect(value(declarations(adminStyle, '.rp-guide-btn'), 'font-size')).toBe(
+      `${rpxToPx(26)}px`,
+    );
+    expect(value(declarations(mobileStyle, '.rp-guide-btn'), 'font-size')).toBe(
+      '26rpx',
+    );
+
+    // 字重口径两端同值：标题 / 数值 700，状态 / CTA / 按钮 600，正文 400
+    for (const [selector, weight] of [
+      ['.rp-title', '700'],
+      ['.rp-stat-num', '700'],
+      ['.rp-amount-value', '700'],
+      ['.rp-status-text', '600'],
+      ['.rp-action-text', '600'],
+      ['.rp-guide-btn', '600'],
+    ] as const) {
+      expect(value(declarations(adminStyle, selector), 'font-weight')).toBe(
+        weight,
+      );
+      expect(value(declarations(mobileStyle, selector), 'font-weight')).toBe(
+        weight,
+      );
+    }
+
+    // 配色令牌两端同源：发丝线 / 浅填充 / 灰底 / 主文字 / 次文字 / 辅助文字；
+    // 管理端画布固定演示租户主色 #ff5500（与 coupon-receive 预览同口径），
+    // C 端品牌色走主题变量链（换肤后卡片跟着变），兜底红 #ff2237
+    for (const color of [
+      '#eef0f3',
+      '#f7f8fa',
+      '#f4f5f7',
+      '#1f2329',
+      '#5b616e',
+      '#6b7280',
+    ]) {
+      expect(admin.toLowerCase()).toContain(color);
+      expect(mobile.toLowerCase()).toContain(color);
+    }
+    expect(admin.toLowerCase()).toContain('#ff5500');
+    expect(mobile).toContain(
+      'var(--theme-color-primary, var(--wot-color-theme-primary, #ff2237))',
+    );
+
+    // 画布状态文案固定「收集中」；C 端按 cartStatusLabel() 的当前状态取值
+    expect(admin).toContain('收集中');
   });
 
-  it('图文导航（金刚区）：分页高度自适应公式两端一致，高度过渡只在滑动结束后启动', () => {
+  it('图文导航（金刚区）：分页高度自适应公式两端一致，实机握手段高度由 WXS 视图层驱动', () => {
     // 两端独立实现过一次 pagerHeight，曾只改一边导致预览与实机高度差一截；
     // 这里锁住「按当前页实际行数收缩高度」的公式。
-    // 高度改动必须放在滑动结束之后（实机 animationfinish / 预览滚动防抖）：
-    // 过渡若在 change 时启动，会跟滑动手势抢主线程导致掉帧；
-    // 过渡本身保留 240ms 轻微回弹缓动，避免高度瞬间切换显得生硬。
+    // 实机（小程序）必须让高度跟着手指同步收缩/展开，但**不能**在逻辑层逐帧写：
+    // swiper 的 transition 事件每秒 60~120 次，逐帧 setData 会重排金刚区下方所有
+    // 楼层，真机表现为整页掉帧、收缩滞后于手指。现由 WXS 在视图层 setStyle 逐帧
+    // 驱动（不经过 setData），页码仍在 animationfinish 结算；C 端由
+    // `diy-tabnav/pager-height.contract.test.ts` 单独钉死，这里做跨端防回归。
+    // 管理端预览没有 WXS：保持滚动停稳后（scrollSettleTimer 防抖）再改高度。
     const admin = readAdmin('tab-nav');
     const mobile = readMobile('diy-tabnav');
     for (const source of [admin, mobile]) {
@@ -621,6 +879,13 @@ describe('装修预览与小程序视觉一致性', () => {
       expect(source).toContain('padding-bottom: 8px');
     }
     expect(mobile).toContain('@animationfinish="onPagerAnimationFinish"');
+    // 小程序端：transition 绑到 WXS 视图层事件，并由 data-* 下发高度/页码/宽度
+    expect(mobile).toContain('<script module="tabnavWxs" lang="wxs">');
+    expect(mobile).toContain('@transition="tabnavWxs.onTransition"');
+    expect(mobile).toContain(':data-heights="pagerHeightsAttr"');
+    // 小程序端 wxss 不允许带高度过渡（WXS 逐帧写入，过渡会变「追赶」拖影）：
+    // 240ms 过渡只保留给 H5/App 的 JS 通道，因此必须包在条件编译里
+    expect(mobile).toContain('/* #ifndef MP-WEIXIN */');
     expect(admin).toContain('scrollSettleTimer');
   });
 
@@ -1630,6 +1895,56 @@ describe('装修预览与小程序视觉一致性', () => {
         `${label} 弱角标底色`,
       ).toBe('var(--wot-color-theme-background, #fff1ee)');
     }
+  });
+
+  it('活动入口条：长文案单行滚动两端同口径（间距/速度/溢出才滚）', () => {
+    const adminMarquee = readFileSync(
+      resolve(adminComponentsRoot, 'activity-strip/marquee-text.vue'),
+      'utf8',
+    );
+    const mobileMarquee = readFileSync(
+      resolve(mobileDiyRoot, 'diy-activity-strip/marquee-text.vue'),
+      'utf8',
+    );
+    const mobileLogic = readFileSync(
+      resolve(mobileDiyRoot, 'diy-activity-strip/marquee.ts'),
+      'utf8',
+    );
+
+    // C 端纯逻辑常量是唯一口径；管理端预览必须逐值同步
+    expect(mobileLogic).toContain('MARQUEE_GAP_PX = 12');
+    expect(mobileLogic).toContain('MARQUEE_SPEED_PX_PER_SEC = 28');
+    expect(mobileLogic).toContain('MARQUEE_OVERFLOW_EPSILON_PX = 1');
+    expect(adminMarquee).toContain('const GAP_PX = 12');
+    expect(adminMarquee).toContain('const SPEED_PX_PER_SEC = 28');
+    expect(adminMarquee).toContain('const OVERFLOW_EPSILON_PX = 1');
+
+    for (const [label, source] of [
+      ['管理端', adminMarquee],
+      ['C 端', mobileMarquee],
+    ] as const) {
+      // 不换行：长文案通过双份文本 + -50% 位移无缝循环
+      expect(source, `${label} 跑马灯不应允许换行`).not.toContain(
+        'white-space: normal',
+      );
+      expect(source, `${label} 轨道位移`).toContain('translateX(-50%)');
+      expect(source, `${label} 单行静态态`).toContain('white-space: nowrap');
+      expect(source, `${label} 触摸暂停`).toContain(
+        'animation-play-state: paused',
+      );
+    }
+
+    // 溢出阈值只在纯逻辑里判定：短文案保持静止，避免无意义晃动
+    expect(mobileLogic).toContain(
+      'return content > viewport + MARQUEE_OVERFLOW_EPSILON_PX',
+    );
+    // C 端总开关必须真的接到滚动组件上
+    expect(readMobile('diy-activity-strip')).toContain(
+      ':motion-enabled="mallThemeStore.autoMotionEnabled"',
+    );
+
+    // 公告条 ticker 模式复用本组件：文案不超宽也按容器宽重复偶数份滚动
+    expect(adminMarquee).toContain('props.ticker');
   });
 
   it('活动入口条：自动/手动数据源与促销口径和 C 端同源', () => {

@@ -4,6 +4,9 @@ import { onLoad } from '@dcloudio/uni-app'
 import { useI18n } from 'vue-i18n'
 import { getPointsExchanges, getPointsRecordPage, redeemPointsExchange } from '@/api/user/points'
 import type { PointsExchangeItem, PointsRecord } from '@/api/user/points'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+
+const { handlePageScroll } = useFrostedNavbar()
 
 definePage({
   name: 'member-points-record',
@@ -202,10 +205,11 @@ function getSceneText(scene: string): string {
 </script>
 
 <template>
-  <z-paging ref="pagingRef" v-model="list" :auto="false" @query="queryList">
-    <template #top>
-      <hr-navbar :title="t('accountMember.pointsRecord.title')" />
-    </template>
+  <hr-navbar :title="t('accountMember.pointsRecord.title')" />
+  <z-paging ref="pagingRef" v-model="list" :auto="false" @query="queryList" @scroll="handlePageScroll">
+    <!-- 顶栏覆盖层等高占位：列表整屏滚动，首屏内容从顶栏下沿开始 -->
+    <hr-navbar-space />
+
     <!-- 积分总览：余额 + 30 天内即将过期提醒（增强信息，缺失时不渲染） -->
     <view v-if="pointsOverview" class="m-2 rounded-xl bg-white px-4 py-3">
       <view class="flex items-center justify-between">

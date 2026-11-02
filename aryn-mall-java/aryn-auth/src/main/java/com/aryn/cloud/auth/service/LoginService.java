@@ -9,7 +9,6 @@ import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.util.ObjectUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.crypto.digest.BCrypt;
-import cn.hutool.extra.servlet.JakartaServletUtil;
 import cn.hutool.http.useragent.UserAgent;
 import cn.hutool.http.useragent.UserAgentUtil;
 import com.aryn.cloud.auth.config.LoginProtectionProperties;
@@ -178,7 +177,7 @@ public class LoginService {
 		if (attributes == null || attributes.getRequest() == null) {
 			return null;
 		}
-		return JakartaServletUtil.getClientIP(attributes.getRequest());
+		return IpUtils.getClientIp(attributes.getRequest());
 	}
 
 	/**
@@ -199,7 +198,7 @@ public class LoginService {
 			UserAgent ua = UserAgentUtil.parse(agent);
 			SysLoginLogBase sysLoginLog = new SysLoginLogBase();
 			sysLoginLog.setStatus(CommonConstants.LOGIN_LOG_STATUS_0);
-			sysLoginLog.setIpAddr(JakartaServletUtil.getClientIP(request));
+			sysLoginLog.setIpAddr(IpUtils.getClientIp(request));
 			sysLoginLog.setLocation(IpUtils.getWhoisAddress(sysLoginLog.getIpAddr()));
 			sysLoginLog.setCreateBy(userName);
 			sysLoginLog.setOs(ua.getOs() != null ? ua.getOs().toString() : null);

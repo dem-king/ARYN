@@ -4,6 +4,9 @@ import { parseOpenBoot, rewriteBootUrl } from '@/api/core/boot-url'
 import { ensureSessionTenant, ensureTenantReady } from '@/api/core/tenant-identity'
 import { getConversationInbox } from '@/api/message/conversation'
 import { getNoticeUnreadCount } from '@/api/message/notice'
+import { useAuthStore } from '@/store/authStore'
+import { useSessionStore } from '@/store/sessionStore'
+import { parseSessionInvalidPushEvent } from '@/utils/session-invalid'
 
 let socketTask: UniApp.SocketTask | undefined
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined
@@ -63,6 +66,12 @@ export const useMessageStore = defineStore('message', {
       )
     },
     async connect() {
+      // 会话已失效：不建连、不重连。否则会拿已失效 token 每 3 秒无限重试
+      //（握手不经过 alova 响应处理器，401 不会触发任何提示，只是空转打服务端）。
+      if (useSessionStore().invalid) {
+        this.disconnect()
+        return
+      }
       if (this.socketState === 'connecting' || this.socketState === 'open')
         return
       const authStore = useAuthStore()
@@ -113,12 +122,24 @@ export const useMessageStore = defineStore('message', {
         lastAliveAt = Date.now()
         if (event.data === 'PONG')
           return
+        // 三期：会话失效主动推送（秒级感知）。命中即写 sessionStore + 断开连接，
+        // 不能再当普通消息刷新未读/发 message-push（那时接口已被 beforeRequest 短路，
+        // 只会白打一次请求并触发页面逻辑）。
+        const sessionInvalid = parseSessionInvalidPushEvent(event.data)
+        if (sessionInvalid) {
+          useSessionStore().invalidate({ ...sessionInvalid, target: 'mall' })
+          this.disconnect()
+          return
+        }
         void this.refreshUnread()
         uni.$emit('message-push')
       })
       socketTask.onClose(() => {
         this.socketState = 'closed'
         stopHeartbeat()
+        // 会话失效引起的关闭不再重连（connect 里还有一道兜底，这里提前终止，避免定时器空转）
+        if (useSessionStore().invalid)
+          return
         if (!reconnectTimer) {
           reconnectTimer = setTimeout(() => {
             reconnectTimer = undefined

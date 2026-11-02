@@ -146,6 +146,41 @@ class GoodsSpuServiceImplTest {
 	}
 
 	@Test
+	void saveGoodsSanitizesIntroductionBeforePersisting() {
+		when(spuMapper.insert(any(GoodsSpu.class))).thenAnswer(invocation -> {
+			GoodsSpu saved = invocation.getArgument(0);
+			saved.setId("spu-intro");
+			return 1;
+		});
+		when(skuMapper.insert(any(GoodsSku.class))).thenReturn(1);
+		GoodsSpu request = product(null, List.of(sku(null, 20, 100, 60, 3, 0)));
+		request.setIntroduction("<p><span style=\"color: #c00; position: fixed\">脆甜</span>"
+				+ "<script>alert(1)</script></p>");
+
+		assertThat(service.saveGoods(request)).isTrue();
+
+		// 白名单清洗：保留配色、丢弃危险样式与脚本整段
+		assertThat(request.getIntroduction()).isEqualTo("<p><span style=\"color: #c00\">脆甜</span></p>");
+	}
+
+	@Test
+	void updateGoodsWritesEmptyIntroductionWhenEditorCleared() {
+		GoodsSku storedSku = sku("sku-1", 20, 100, 60, 3, 1);
+		when(spuMapper.selectById("spu-1")).thenReturn(product("spu-1", List.of(storedSku)));
+		when(skuMapper.selectBySpuId("spu-1")).thenReturn(List.of(storedSku));
+		when(skuMapper.updateById(any(GoodsSku.class))).thenReturn(1);
+		when(spuMapper.updateById(any(GoodsSpu.class))).thenReturn(1);
+		GoodsSpu request = product("spu-1", List.of(sku("sku-1", 20, 100, 60, 3, 1)));
+		// 后台清空编辑器时提交的是空段落，清洗后为 null；
+		// 必须落成空串，否则会被 NOT_NULL 更新策略忽略，旧卖点残留在库里
+		request.setIntroduction("<p><br/></p>");
+
+		assertThat(service.updateGoods(request)).isTrue();
+
+		assertThat(request.getIntroduction()).isEmpty();
+	}
+
+	@Test
 	void saveGoodsRejectsDuplicateSpecificationCombination() {
 		GoodsSku first = sku(null, 10, 10, 8, 1, 0);
 		GoodsSku second = sku(null, 12, 12, 9, 1, 0);

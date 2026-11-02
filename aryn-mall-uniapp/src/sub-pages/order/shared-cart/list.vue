@@ -13,7 +13,7 @@ import type { SharedCart, SharedCartCreatePayload } from '@/api/order/sharedCart
  * 发起支持两种车：船供整车（绑船舶+靠港，要求当前已绑定上下文）与
  * 岸上企业（绑收货地址，未绑船的港口工厂客户用）。类型在创建弹层里切换。
  */
-import { onPullDownRefresh, onShow } from '@dcloudio/uni-app'
+import { onPageScroll, onPullDownRefresh, onShow } from '@dcloudio/uni-app'
 
 import { computed, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -22,6 +22,8 @@ import { getPage as getAddressPage } from '@/api/user/address'
 import hrNavbar from '@/components/hr-navbar/index.vue'
 import ShipContextPicker from '@/components/ship-context-picker/index.vue'
 import { useCountdownTicker } from '@/composables/useCountdown'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+import { useRequireLogin } from '@/composables/useRequireLogin'
 import { useAuthStore } from '@/store/authStore'
 import { useShipContextStore } from '@/store/shipContextStore'
 import {
@@ -34,6 +36,8 @@ import {
   sharedCartLocationLabel,
 } from '@/utils/shared-cart'
 import { formatCallTime } from '@/utils/vessel-call-time'
+
+const { handlePageScroll } = useFrostedNavbar()
 
 definePage({
   name: 'shared-cart-list',
@@ -158,9 +162,8 @@ const cardViews = computed<Record<string, CardView>>(() => {
   return map
 })
 
-function goLogin() {
-  uni.navigateTo({ url: '/pages/login/index' })
-}
+// 统一登录守卫：记录当前页回跳（登录后回到我参与的采购单），不再裸跳登录页丢来源
+const { goLogin } = useRequireLogin()
 
 function fetchList() {
   if (!authStore.isLoggedIn) {
@@ -293,6 +296,9 @@ onShow(() => {
 onPullDownRefresh(() => {
   void fetchList()
 })
+
+// 顶栏磨砂玻璃：字面量注册滚动（小程序按页面源码生成滚动位标记，包进 composable 会静默失效）
+onPageScroll(handlePageScroll)
 </script>
 
 <template>
@@ -444,7 +450,7 @@ onPullDownRefresh(() => {
       <text class="state__text">
         {{ t('sharedCart.list.loginRequired') }}
       </text>
-      <view class="state__retry" @tap="goLogin">
+      <view class="state__retry" @tap="goLogin()">
         {{ t('sharedCart.list.goLogin') }}
       </view>
     </view>
@@ -590,7 +596,7 @@ onPullDownRefresh(() => {
 .shared-cart-list {
   min-height: 100vh;
   padding-bottom: 40rpx;
-  background: #f5f6f8;
+  background: var(--app-bg);
 }
 
 /* ---------------------------------------------------------------- 船舶上下文条 */
@@ -677,20 +683,20 @@ onPullDownRefresh(() => {
 .section__title {
   font-size: 30rpx;
   font-weight: 700;
-  color: #172033;
+  color: var(--app-text);
 }
 
 .section__count {
   margin-left: 10rpx;
   font-size: 24rpx;
-  color: #9aa4b2;
+  color: var(--app-text-3);
 }
 
 .section__hint {
   display: block;
   margin-top: 6rpx;
   font-size: 22rpx;
-  color: #9aa4b2;
+  color: var(--app-text-3);
 }
 
 /* -------------------------------------------------------------------- 单据卡 */
@@ -698,13 +704,13 @@ onPullDownRefresh(() => {
   margin: 20rpx 24rpx 0;
   padding: 28rpx;
   border-radius: 24rpx;
-  background: #fff;
+  background: var(--app-card);
   box-shadow: 0 2rpx 12rpx rgb(23 32 51 / 5%);
 }
 
 // 小程序端 :active 不生效，用 hover-class 提供按压反馈
 .card--pressed {
-  background: #f7f8fa;
+  background: var(--app-card-2);
 }
 
 .card__head {
@@ -724,7 +730,7 @@ onPullDownRefresh(() => {
   overflow: hidden;
   font-size: 32rpx;
   font-weight: 700;
-  color: #172033;
+  color: var(--app-text);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -741,8 +747,8 @@ onPullDownRefresh(() => {
 
 /* 岸上企业单的类型角标：灰底与「我发起」的蓝底区分 */
 .card__badge--shore {
-  background: #f1f2f4;
-  color: #5f6b7a;
+  background: var(--app-card-2);
+  color: var(--app-text-2);
 }
 
 .card__status {
@@ -758,14 +764,14 @@ onPullDownRefresh(() => {
   align-items: center;
   margin-top: 12rpx;
   font-size: 24rpx;
-  color: #5f6b7a;
+  color: var(--app-text-2);
 }
 
 .card__icon {
   flex: none;
   margin-right: 6rpx;
   font-size: 24rpx;
-  color: #9aa4b2;
+  color: var(--app-text-3);
 }
 
 .card__deadline {
@@ -782,12 +788,12 @@ onPullDownRefresh(() => {
 }
 
 .card__deadline--expired {
-  color: #9aa4b2;
+  color: var(--app-text-3);
 }
 
 .card__deadline-point {
   margin-left: 4rpx;
-  color: #b9c0ca;
+  color: var(--app-text-3);
 }
 
 .card__foot {
@@ -802,7 +808,7 @@ onPullDownRefresh(() => {
   flex: 1;
   overflow: hidden;
   font-size: 22rpx;
-  color: #9aa4b2;
+  color: var(--app-text-3);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -828,9 +834,9 @@ onPullDownRefresh(() => {
   display: block;
   margin-top: 14rpx;
   padding-top: 14rpx;
-  border-top: 1rpx solid #f2f3f5;
+  border-top: 1rpx solid var(--app-border);
   font-size: 20rpx;
-  color: #b9c0ca;
+  color: var(--app-text-3);
 }
 
 /* -------------------------------------------------------------------- 空/异常态 */
@@ -842,7 +848,7 @@ onPullDownRefresh(() => {
 .state__text {
   display: block;
   font-size: 27rpx;
-  color: #7a8699;
+  color: var(--app-text-3);
 }
 
 .state__desc {
@@ -850,7 +856,7 @@ onPullDownRefresh(() => {
   margin-top: 12rpx;
   font-size: 23rpx;
   line-height: 1.6;
-  color: #9aa4b2;
+  color: var(--app-text-3);
 }
 
 .state__retry {
@@ -880,7 +886,7 @@ onPullDownRefresh(() => {
   display: block;
   font-size: 32rpx;
   font-weight: 700;
-  color: #172033;
+  color: var(--app-text);
 }
 
 .sheet__desc {
@@ -888,7 +894,7 @@ onPullDownRefresh(() => {
   margin-top: 10rpx;
   font-size: 22rpx;
   line-height: 1.6;
-  color: #7a8699;
+  color: var(--app-text-3);
 }
 
 .sheet__context {
@@ -897,9 +903,9 @@ onPullDownRefresh(() => {
   margin-top: 20rpx;
   padding: 20rpx 24rpx;
   border-radius: 16rpx;
-  background: #f5f7fa;
+  background: var(--app-card-2);
   font-size: 24rpx;
-  color: #5f6b7a;
+  color: var(--app-text-2);
 }
 
 .sheet__context-icon {
@@ -919,9 +925,9 @@ onPullDownRefresh(() => {
 
 .sheet__type-item {
   padding: 20rpx 24rpx;
-  border: 2rpx solid #e5e8ee;
+  border: 2rpx solid var(--app-border);
   border-radius: 16rpx;
-  background: #fafbfc;
+  background: var(--app-card-2);
 }
 
 .sheet__type-item--on {
@@ -933,7 +939,7 @@ onPullDownRefresh(() => {
   display: block;
   font-size: 28rpx;
   font-weight: 700;
-  color: #172033;
+  color: var(--app-text);
 }
 
 .sheet__type-item--on .sheet__type-title {
@@ -944,7 +950,7 @@ onPullDownRefresh(() => {
   display: block;
   margin-top: 4rpx;
   font-size: 22rpx;
-  color: #7a8699;
+  color: var(--app-text-3);
 }
 
 /* ---------------------------------------------------------- 岸上地址选择 */
@@ -952,9 +958,9 @@ onPullDownRefresh(() => {
   margin-top: 12rpx;
   padding: 28rpx 24rpx;
   border-radius: 12rpx;
-  background: #f5f7fa;
+  background: var(--app-card-2);
   font-size: 24rpx;
-  color: #7a8699;
+  color: var(--app-text-3);
 }
 
 /* 新增地址入口：空态与列表底部共用 */
@@ -974,9 +980,9 @@ onPullDownRefresh(() => {
   align-items: center;
   margin-top: 12rpx;
   padding: 20rpx 24rpx;
-  border: 2rpx solid #e5e8ee;
+  border: 2rpx solid var(--app-border);
   border-radius: 12rpx;
-  background: #fafbfc;
+  background: var(--app-card-2);
 }
 
 .sheet__addr--on {
@@ -993,13 +999,13 @@ onPullDownRefresh(() => {
 .sheet__addr-name {
   font-size: 26rpx;
   font-weight: 600;
-  color: #172033;
+  color: var(--app-text);
 }
 
 .sheet__addr-phone {
   margin-left: 12rpx;
   font-size: 22rpx;
-  color: #7a8699;
+  color: var(--app-text-3);
 }
 
 .sheet__addr-default {
@@ -1016,7 +1022,7 @@ onPullDownRefresh(() => {
   overflow: hidden;
   margin-top: 6rpx;
   font-size: 22rpx;
-  color: #7a8699;
+  color: var(--app-text-3);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1035,7 +1041,7 @@ onPullDownRefresh(() => {
 .sheet__label {
   margin-top: 24rpx;
   font-size: 24rpx;
-  color: #5f6b7a;
+  color: var(--app-text-2);
 }
 
 .sheet__input {
@@ -1044,7 +1050,7 @@ onPullDownRefresh(() => {
   margin-top: 10rpx;
   padding: 0 24rpx;
   border-radius: 12rpx;
-  background: #f5f6f8;
+  background: var(--app-card-2);
   font-size: 28rpx;
 }
 
@@ -1059,8 +1065,8 @@ onPullDownRefresh(() => {
   height: 80rpx;
   font-size: 28rpx;
   line-height: 80rpx;
-  color: #5f6b7a;
-  background: #f5f6f8;
+  color: var(--app-text-2);
+  background: var(--app-card-2);
   border-radius: 999rpx;
 }
 

@@ -28,9 +28,10 @@ export type NavigationScrollMode = 'fade' | 'none'
 export type NavigationScrollSurface = 'custom' | 'frosted' | 'theme'
 
 /**
- * 导航栏滚动渐显（沉浸式导航）配置。
+ * 导航栏滚动切换（沉浸式导航）配置。
  *
- * 缺省 `mode='none'` 表示保持现状（存量页面零变化）；所有字段由
+ * 顶部与首屏同色，开始滚动后一步切换为目标底色（不做渐变）；缺省
+ * `mode='none'` 表示保持现状（存量页面零变化）；所有字段由
  * `normalizeNavigationScrollEffect()` 归一化，渲染端不信任草稿存值。
  * 与管理端 NavigationSettings.scrollEffect 同构。
  */
@@ -40,7 +41,10 @@ export interface NavigationScrollEffect {
   surface: NavigationScrollSurface
   /** surface='custom' 时生效；非法值回落磨砂白 */
   surfaceColor: string
-  /** 渐显距离 px（40–400，缺省 140） */
+  /**
+   * 遗留字段：旧版「渐显距离」px（40–400，缺省 140）。
+   * 滚动效果已改为一步切换（滚动即目标态），渲染端不再消费；保留以兼容存量草稿。
+   */
   distance: number
   /** 目标态是否毛玻璃（仅 surface='frosted' 生效） */
   blur: boolean
@@ -70,7 +74,7 @@ export interface PageSettings {
     textColor: string
     title: string
     visible: boolean
-    /** 滚动渐显（沉浸式导航）配置；缺省 undefined 视为关闭 */
+    /** 沉浸式导航（滚动切换）配置；缺省 undefined 视为关闭 */
     scrollEffect?: NavigationScrollEffect
   }
   share: {

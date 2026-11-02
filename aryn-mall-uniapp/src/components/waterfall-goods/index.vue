@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { getRecommendPage } from '@/api/product/spu'
 import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
+import QuickCartButton from '@/components/quick-cart-button/index.vue'
 import { useDiyPagedLoadMore } from '@/composables/useDiyPagedLoadMore'
 
 const props = defineProps<{
@@ -13,6 +14,11 @@ const props = defineProps<{
   sourceSpuIds?: string[]
   /** 购物车/订单：需要排除的商品（取前 50 个） */
   excludeSpuIds?: string[]
+}>()
+
+const emit = defineEmits<{
+  /** 快捷加购成功：宿主页据此刷新车内列表/从推荐流移除已加商品 */
+  (e: 'added', spuId: string): void
 }>()
 
 // 定义变量
@@ -90,6 +96,11 @@ function toDetail(id: string) {
     },
   })
 }
+
+// 推荐卡快捷加购成功：透传宿主页（购物车页要据此立即刷新本页列表与推荐上下文）
+function handleAdded(spuId: string) {
+  emit('added', spuId)
+}
 </script>
 
 <template>
@@ -127,14 +138,27 @@ function toDetail(id: string) {
                   {{ item.subTitle }}
                 </view>
               </view>
-              <view class="flex items-baseline pt-10rpx">
-                <wd-text mode="price" :text="item.salesPrice" prefix="￥" color="red" />
-                <text
-                  v-if="shouldShowOriginalPrice(item.salesPrice, item.originalPrice)"
-                  class="price-original"
-                >
-                  ￥{{ item.originalPrice }}
-                </text>
+              <!--
+                价格与快捷加购同一行：推荐卡原先只有「点整卡跳商详」一个动作，
+                用户看到想买的商品必须先进详情页才能加购。加购按钮复用
+                `quick-cart-button`（单规格按起订量直加、多规格唤起 SKU 弹层、
+                未登录先跳登录，加购去向由全局 App.ku 的确认弹层统一处理），
+                其根节点已 `@tap.stop`，点加购不会同时触发外层卡片的跳商详。
+                售罄（stock <= 0）不渲染按钮，与装修商品流 `diy-goods-*` 同口径。
+              -->
+              <view class="flex items-end justify-between pt-10rpx">
+                <view class="min-w-0 flex flex-1 items-baseline overflow-hidden">
+                  <wd-text mode="price" :text="item.salesPrice" prefix="￥" color="red" />
+                  <text
+                    v-if="shouldShowOriginalPrice(item.salesPrice, item.originalPrice)"
+                    class="price-original"
+                  >
+                    ￥{{ item.originalPrice }}
+                  </text>
+                </view>
+                <view v-if="item.stock > 0" class="flex flex-shrink-0 pl-8rpx">
+                  <quick-cart-button :spu-id="item.id" size="48rpx" @added="handleAdded" />
+                </view>
               </view>
             </view>
           </view>
@@ -148,7 +172,7 @@ function toDetail(id: string) {
 .goods-subtitle {
   margin-top: 4rpx;
   overflow: hidden;
-  color: #909399;
+  color: var(--app-text-3);
   font-size: 22rpx;
   line-height: 1.4;
   text-overflow: ellipsis;
@@ -158,7 +182,7 @@ function toDetail(id: string) {
 .price-original {
   margin-left: 8rpx;
   font-size: 20rpx;
-  color: #999;
+  color: var(--app-text-3);
   text-decoration: line-through;
 }
 </style>

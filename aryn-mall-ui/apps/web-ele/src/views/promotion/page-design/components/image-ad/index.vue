@@ -16,6 +16,9 @@ interface ShowData {
   height: number;
   interval: number; // 轮播间隔时间
   indicatorDots?: boolean;
+  /** 指示点颜色 / 选中颜色（C 端 uni swiper 同名属性，运营可配） */
+  indicatorColor?: string;
+  indicatorActiveColor?: string;
   swiperType: string; // 轮播图类型 1.横向滚动；2.卡片式轮播图；3.两个两个轮播
   imgRadius: number; // 图片圆角
 }
@@ -82,9 +85,20 @@ const dynamicStyles = computed(() => {
     }),
   };
 });
+
+/**
+ * 轮播指示点颜色：C 端 `diy-image` 的 uni swiper 读
+ * `indicator-color` / `indicator-active-color`（运营可配），管理端 ElCarousel
+ * 用 CSS 变量覆盖内部按钮，避免两端轮播点颜色不一致。
+ * 缺省值与 C 端组件同口径。
+ */
+const indicatorVars = computed(() => ({
+  '--image-indicator': props.showData.indicatorColor || 'rgba(0, 0, 0, 0.3)',
+  '--image-indicator-active': props.showData.indicatorActiveColor || '#ffffff',
+}));
+
 const dynamicImageStyles = computed(() => {
   const commonStyle = props.showData.commonImageStyle ?? defaultCommonStyle;
-
   const paddingTop = commonStyle.styleTopPadding ?? 0;
   const paddingBottom = commonStyle.styleBottomPadding ?? 0;
   const marginTop = commonStyle.styleTopMargin ?? 0;
@@ -139,8 +153,9 @@ const dynamicImageStyles = computed(() => {
           :style="dynamicImageStyles"
         >
           <ElImage
-            :style="{ borderRadius: `${showData.imgRadius}px` }"
+            fit="fill"
             :src="item.url"
+            :style="{ borderRadius: `${showData.imgRadius}px` }"
           />
         </div>
       </div>
@@ -148,15 +163,17 @@ const dynamicImageStyles = computed(() => {
       <ElCarousel
         v-else
         :height="`${showData?.height}px`"
-        :interval="showData.interval * 1000"
-        :type="showData.swiperType === '2' ? 'card' : ''"
         :indicator-position="showData.indicatorDots ? '' : 'none'"
+        :interval="showData.interval * 1000"
+        :style="indicatorVars"
+        :type="showData.swiperType === '2' ? 'card' : ''"
       >
         <ElCarouselItem
           v-for="(item, index) in showData.imageList"
           :key="index"
         >
           <ElImage
+            fit="fill"
             :src="item.url"
             :style="{ borderRadius: `${showData.imgRadius}px` }"
           />
@@ -173,6 +190,12 @@ const dynamicImageStyles = computed(() => {
 </template>
 
 <style scoped lang="scss">
+/*
+  图片缩放口径：C 端 diy-image 的 `<image>` 未指定 mode（默认 scaleToFill），
+  轮播项显式 `mode="scaleToFill"` —— 两端都是「拉伸铺满格位、不裁切」。
+  管理端预览必须用等价的 object-fit: fill；用 cover 会裁掉图片两侧，
+  与运营在真机上看到的效果不一致。
+*/
 .image-box {
   .single-image-list {
     .single-image-item {
@@ -187,7 +210,7 @@ const dynamicImageStyles = computed(() => {
         box-sizing: border-box;
         width: 100%;
         height: 100%;
-        object-fit: cover; // ✅ 确保图片不变形
+        object-fit: fill;
       }
     }
   }
@@ -216,8 +239,23 @@ const dynamicImageStyles = computed(() => {
       box-sizing: border-box;
       width: 100%;
       height: 100%;
-      object-fit: cover;
+      object-fit: fill;
     }
+  }
+
+  /* 指示点：ElCarousel 默认 30×2 指示条 → 对齐 C 端 uni swiper 的 8px 圆点，
+     颜色取运营配置（见 script 的 indicatorVars）。 */
+  :deep(.el-carousel__indicator .el-carousel__button) {
+    width: 8px;
+    height: 8px;
+    background-color: var(--image-indicator);
+    border-radius: 50%;
+    opacity: 1;
+  }
+
+  :deep(.el-carousel__indicator.is-active .el-carousel__button) {
+    background-color: var(--image-indicator-active);
+    opacity: 1;
   }
 }
 </style>

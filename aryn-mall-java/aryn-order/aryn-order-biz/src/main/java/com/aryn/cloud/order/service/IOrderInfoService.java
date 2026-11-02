@@ -158,6 +158,37 @@ public interface IOrderInfoService extends IService<OrderInfo> {
 	boolean appraiseOrder(String id, String userId, List<OrderAppraiseDTO> orderAppraiseList);
 
 	/**
+	 * 订单追评（评价发布后 30 天内，且每条评价仅可追评一次）
+	 * @param orderId 订单 id
+	 * @param orderItemId 子订单 id
+	 * @param userId 当前用户 id
+	 * @param advanceAppraiseDTO 追评内容
+	 * @return boolean
+	 */
+	boolean advanceAppraiseOrder(String orderId, String orderItemId, String userId,
+			OrderAdvanceAppraiseDTO advanceAppraiseDTO);
+
+	/**
+	 * 修改评价（评价发布后 30 天内，且每条评价仅可修改一次）
+	 * @param orderId 订单 id
+	 * @param orderItemId 子订单 id
+	 * @param userId 当前用户 id
+	 * @param editAppraiseDTO 修改内容
+	 * @return boolean
+	 */
+	boolean editAppraiseOrder(String orderId, String orderItemId, String userId,
+			OrderAppraiseEditDTO editAppraiseDTO);
+
+	/**
+	 * 删除评价（逻辑删除，评价发布后 30 天内）
+	 * @param orderId 订单 id
+	 * @param orderItemId 子订单 id
+	 * @param userId 当前用户 id
+	 * @return boolean
+	 */
+	boolean deleteAppraiseOrder(String orderId, String orderItemId, String userId);
+
+	/**
 	 * 订单统计
 	 * @return
 	 */

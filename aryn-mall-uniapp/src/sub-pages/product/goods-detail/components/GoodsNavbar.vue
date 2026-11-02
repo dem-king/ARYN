@@ -2,6 +2,8 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { useMallThemeStore } from '@/store/mallThemeStore'
+
 interface Props {
   scrollStatus: boolean
   isCanBack: boolean
@@ -39,8 +41,19 @@ function handleMore() {
   emit('more')
 }
 
-// 计算背景色样式，根据暗黑模式和透明度设置
+// 计算背景色样式：滚动到位后切磨砂玻璃（与首页顶栏同一材质），静置/过渡期保持渐显白底。
+// 深色模式切深玻璃（与 glass-tabbar 的 dark 材质同值 86% 暗色），不把夜间顶栏刷白
+const mallThemeStore = useMallThemeStore()
 const bgColorStyle = computed(() => {
+  if (mallThemeStore.mode === 'dark') {
+    if (props.scrollStatus)
+      return { background: 'rgba(26, 26, 26, 0.86)' }
+    return {
+      background: `rgba(26, 26, 26, ${props.rootOpacity})`,
+    }
+  }
+  if (props.scrollStatus)
+    return { background: 'rgba(255, 255, 255, 0.86)' }
   return {
     background: `rgba(255, 255, 255, ${props.rootOpacity})`,
   }
@@ -50,14 +63,18 @@ const bgColorStyle = computed(() => {
 <template>
   <view class="goods-detail-container">
     <!-- 顶部导航栏 -->
-    <view class="goods-detail-navbar" :style="bgColorStyle">
+    <view
+      class="goods-detail-navbar"
+      :class="{ 'goods-detail-navbar--frosted': scrollStatus }"
+      :style="bgColorStyle"
+    >
       <view class="goods-detail-navbar-warp" :style="rootStyle">
         <view class="left">
           <view class="detail-header-back-icon" :class="scrollStatus ? 'detail-header-back-bg' : ''" @click="goBack">
             <wd-icon size="36rpx" :name="isCanBack ? 'arrow-left' : 'home1'" />
           </view>
         </view>
-        <view class="middle" :style="{ opacity: rootOpacity }">
+        <view class="middle" :style="{ opacity: scrollStatus ? 1 : rootOpacity }">
           <view
             v-for="(item, index) in tabList" :key="index" class="tab-item"
             :class="[index === tabActive ? 'tab-item-active text-primary!' : '']" @click="onCurrentPage(item, index)"
@@ -102,9 +119,21 @@ const bgColorStyle = computed(() => {
   position: fixed;
   top: 0;
   left: 0;
-  box-shadow: 0 -1px #fff;
+  /* 顶部补缝线随表面色（浅色补白、深色补卡面深色） */
+  box-shadow: 0 -1px var(--app-card, #fff);
   box-sizing: border-box;
   z-index: 99;
+
+  /**
+   * 磨砂玻璃态：滚动到位后整个顶栏（含状态栏区域）半透明白 + 背景模糊，
+   * 商品图/详情从栏下穿过被模糊成底色。iOS 18 以下需要 -webkit- 前缀；
+   * 不支持 backdrop-filter 的内核退化为 86% 白底，图标与文字仍可读。
+   */
+  &.goods-detail-navbar--frosted {
+    box-shadow: 0 1px 0 rgba(15, 23, 42, 0.08);
+    -WEBKIT-backdrop-filter: blur(18px) saturate(160%);
+    backdrop-filter: blur(18px) saturate(160%);
+  }
 
   .goods-detail-navbar-warp {
     width: 100%;
@@ -156,7 +185,8 @@ const bgColorStyle = computed(() => {
 
   .detail-header-back-bg {
     background-color: rgba(0, 0, 0, 0) !important;
-    color: #3a3a3a !important;
+    /* 玻璃态下图标随语义文字色：浅色深灰、深色浅灰（值≈原 #3a3a3a） */
+    color: var(--app-text, #3a3a3a) !important;
   }
 }
 

@@ -48,6 +48,18 @@ export function orderPrepay(data: object) {
 export function orderAppraise(id: string, data: object) {
   return alovaInstance.Post<any>(`/mall-order/app/orderinfo/appraise/${id}`, data)
 }
+// 追加评价（主评后 30 天内、仅一次；系统默认评价也可追评）
+export function orderAppraiseAdvance(id: string, data: object) {
+  return alovaInstance.Post<any>(`/mall-order/app/orderinfo/appraise/${id}/advance`, data)
+}
+// 修改评价（主评后 30 天内、仅一次；系统默认评价不可修改）
+export function orderAppraiseModify(id: string, orderItemId: string, data: object) {
+  return alovaInstance.Put<any>(`/mall-order/app/orderinfo/appraise/${id}/item/${orderItemId}`, data)
+}
+// 删除评价（主评后 30 天内逻辑删除；系统默认评价不可删除）
+export function orderAppraiseDelete(id: string, orderItemId: string) {
+  return alovaInstance.Delete<any>(`/mall-order/app/orderinfo/appraise/${id}/item/${orderItemId}`)
+}
 
 /**
  * 再来一单预览：返回原明细与当前价格/库存/可购状态（重新确认后走正常结算）

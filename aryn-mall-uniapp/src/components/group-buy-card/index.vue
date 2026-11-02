@@ -2,6 +2,7 @@
 import type { GroupBuyActivity } from '@/api/promotion/groupBuyActivity'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
 import { stripGroupBadgePrefix } from '@/utils/activity-name'
 
 const props = defineProps<{
@@ -13,6 +14,8 @@ const props = defineProps<{
    * （一次 getByIds，避免每张卡各发一次请求）；缺省时渲染缺图占位。
    */
   imageUrl?: string
+  /** 商品子标题：与图片同源（getByIds 批量取回后传入），未配置/与标题重复时整行隐藏 */
+  subTitle?: string
 }>()
 
 const emit = defineEmits<{
@@ -136,6 +139,11 @@ function handleClick() {
         {{ displayName }}
       </view>
 
+      <!-- 子标题：与装修商品卡同口径；拼团卡标题是活动名，「重复即隐藏」按显示名判定 -->
+      <view v-if="shouldShowSubtitle(displayName, props.subTitle)" class="gb-sub">
+        {{ props.subTitle }}
+      </view>
+
       <view class="gb-price">
         <text class="gb-sym">
           ¥
@@ -143,13 +151,21 @@ function handleClick() {
         <text class="gb-val">
           {{ priceText || '--' }}
         </text>
-        <text v-if="originalText" class="gb-orig">¥{{ originalText }}</text>
-        <text v-if="saveText" class="gb-save">{{ t('promotion.common.saveAmount', { amount: saveText }) }}</text>
+        <text v-if="originalText" class="gb-orig">
+          ¥{{ originalText }}
+        </text>
+        <text v-if="saveText" class="gb-save">
+          {{ t('promotion.common.saveAmount', { amount: saveText }) }}
+        </text>
       </view>
 
       <view class="gb-foot">
-        <text v-if="metaText" class="gb-meta">{{ metaText }}</text>
-        <text v-else class="gb-meta gb-meta--status" :class="statusClass">{{ statusLabel }}</text>
+        <text v-if="metaText" class="gb-meta">
+          {{ metaText }}
+        </text>
+        <text v-else class="gb-meta gb-meta--status" :class="statusClass">
+          {{ statusLabel }}
+        </text>
         <!-- 视觉按钮 64rpx / 命中区 ≥88rpx（§4.3 触控要求） -->
         <view class="gb-cta-hit">
           <view class="gb-btn" :class="{ 'is-pending': isPending, 'is-ended': isEnded }">
@@ -169,8 +185,8 @@ function handleClick() {
   box-sizing: border-box;
   gap: 20rpx;
   padding: 20rpx;
-  background: #fff;
-  border: 1rpx solid #f1f2f4;
+  background: var(--app-card);
+  border: 1rpx solid var(--app-border);
   border-radius: 20rpx;
   box-shadow: 0 8rpx 24rpx rgba(15, 23, 42, 0.05);
 }
@@ -193,7 +209,7 @@ function handleClick() {
   height: 200rpx;
   color: var(--wot-color-theme-primary, #ff2237);
   font-size: 22rpx;
-  background: #f3f4f6;
+  background: var(--app-card-2);
   border-radius: 16rpx;
 }
 
@@ -229,12 +245,22 @@ function handleClick() {
   display: -webkit-box;
   height: 68rpx;
   overflow: hidden;
-  color: #1f2329;
+  color: var(--app-text);
   font-size: 25rpx;
   font-weight: 500;
   line-height: 34rpx;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+/* 子标题：单行省略（#8a8f99 与参与信息同色）；未配置/与标题重复时整行隐藏 */
+.gb-sub {
+  overflow: hidden;
+  margin-top: 4rpx;
+  color: var(--app-text-3);
+  font-size: 22rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .gb-price {
@@ -260,7 +286,7 @@ function handleClick() {
 }
 
 .gb-orig {
-  color: #b6b9c0;
+  color: var(--app-text-3);
   font-size: 20rpx;
   text-decoration: line-through;
 }
@@ -289,7 +315,7 @@ function handleClick() {
   overflow: hidden;
   min-width: 0;
   flex: 1;
-  color: #8a8f99;
+  color: var(--app-text-3);
   font-size: 22rpx;
   font-weight: 400;
   white-space: nowrap;
@@ -303,7 +329,7 @@ function handleClick() {
 }
 
 .gb-meta--status.status-2 {
-  color: #b6b9c0;
+  color: var(--app-text-3);
 }
 
 .gb-cta-hit {
@@ -339,7 +365,7 @@ function handleClick() {
 }
 
 .gb-btn.is-ended {
-  color: #b6b9c0;
-  background: #f1f2f4;
+  color: var(--app-text-3);
+  background: var(--app-card-2);
 }
 </style>

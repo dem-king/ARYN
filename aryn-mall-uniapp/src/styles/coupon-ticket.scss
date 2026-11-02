@@ -1,77 +1,77 @@
 /**
- * 优惠券票面样式（对标小象超市券卡）。
+ * 优惠券体系设计令牌（2026-11-01 券卡重设计 v2）。
  *
- * 结构：渐变描边外框 + 浅色票面 + 底部红色状态带，票根缺口落在票面与状态带之间。
- * 这里只放变量与 mixin，不产出选择器，供券卡组件与装修组件共用，
- * 避免同一套配色在多处各抄一遍后走形（历史上券卡就是这样分叉的）。
+ * 四处券面共用同一套令牌：领券中心 / 我的券包 / 结算页选券 / 首页装修领券组件，
+ * 以及管理端装修预览（px 写死、与这里逐值对齐，见 `preview-parity.test.ts`）。
  *
- * 取色依据：小程序屏宽恒为 750rpx，故图上 1rpx = 1.7067 图像像素；
- * 参考图实测描边 #F85417→#FA2332、票面 #FFF9F9→#FFF0EB、
- * 状态带 #FF8A7E→#FF343D、数值 #FF3228，此处取其整。
+ * 设计口径（方向 A · 现代简约）：
+ * - 券面 = 白底卡 + 左侧浅色金额区 + 竖向虚线撕口 + 轻投影，去掉旧的渐变描边外框与整条红带；
+ * - 红橙只做「钱」的强调（金额 / 主 CTA / 选中态 / 阶梯最高档），其余全部中性灰；
+ * - 券体系用固定的促销红橙色，不跟随多租户主题 —— 券 = 让利，红橙是行业通用语言；
+ *   正文/背景/分隔线仍用全站中性色，换肤时不会出现「红配蓝」。
+ *
+ * 换算口径：小程序屏宽恒为 750rpx，管理端预览画布 375px ⇒ **1rpx = 0.5px**。
+ * 改这里任何一个数值都必须同步管理端预览；`preview-parity.test.ts` 会锁住高信号值。
  */
 
-/* 描边 */
-$coupon-rim-start: #ff6a00;
-$coupon-rim-end: #ff2d2d;
-/* 票根缺口：与描边同色，取描边在该侧的实际色值，缺口贴在边上才不会显脏 */
-$coupon-notch-left: #f9531a;
-$coupon-notch-right: #fa2431;
+/* ---------- 品牌促销色（券体系固定色）---------- */
+$coupon-brand: #ff5500;
+$coupon-brand-light: #ff7a1f;
+$coupon-brand-mid: #ff4a10;
+$coupon-brand-deep: #ff2d2d;
+/* 浅橙底上的品牌小字：对 $coupon-tint 对比度 ≈ 5:1，避免 20rpx 小字压品牌色只有 3.2:1 */
+$coupon-brand-ink: #c94300;
 
-/* 票面 */
-$coupon-face-start: #fff9f9;
-$coupon-face-end: #fff0eb;
+/* ---------- 券面浅底 / 分隔 ---------- */
+$coupon-tint: #fff6f1;
+$coupon-tint-strong: #ffece2;
+$coupon-line: #ffe3d6;
 
-/* 状态带 */
-$coupon-band-start: #ff8a7e;
-$coupon-band-end: #ff343d;
+/* ---------- 中性文字 / 面 ---------- */
+$coupon-text: #1f2329;
+$coupon-text-2: #5b616e;
+$coupon-desc: #8a8f99;
+$coupon-placeholder: #b6b9c0;
+$coupon-surface: #ffffff;
+$coupon-hairline: #f1f2f4;
 
-/* 文字 */
-$coupon-value: #ec3d2a;
-$coupon-pill-bg: #fde1d6;
-$coupon-pill-text: #e8402f;
-$coupon-title: #222222;
-$coupon-desc: #9a8f8c;
+/* ---------- 不可用（已使用 / 已过期）---------- */
+$coupon-muted-brand: #b6b9c0;
+$coupon-muted-tint: #fafbfc;
+$coupon-muted-line: #eef0f3;
 
-/* 不可用（已使用/已过期/未达门槛）整体降级为灰 */
-$coupon-muted-rim-start: #d9d9d9;
-$coupon-muted-rim-end: #b8b8b8;
-$coupon-muted-notch-left: #d9d9d9;
-$coupon-muted-notch-right: #b8b8b8;
-$coupon-muted-face-start: #fbfbfb;
-$coupon-muted-face-end: #f4f4f4;
-$coupon-muted-band-start: #c9c9c9;
-$coupon-muted-band-end: #a6a6a6;
-$coupon-muted-value: #9a9a9a;
-$coupon-muted-pill-bg: #ededed;
-$coupon-muted-pill-text: #9a9a9a;
+/* ---------- 冻结中（订单未支付占用）：保留暖色，与「已用过」区分 ---------- */
+$coupon-frozen-brand: #e8842a;
+$coupon-frozen-tint: #fffaf3;
+$coupon-frozen-line: #ffe6c7;
+$coupon-frozen-ink: #b26a12;
 
-/* 冻结中（订单未支付占用）保留暖色，与「已用过」区分开 */
-$coupon-frozen-rim-start: #ffb44d;
-$coupon-frozen-rim-end: #ff8a00;
-$coupon-frozen-notch-left: #ffa235;
-$coupon-frozen-notch-right: #ff8a00;
-$coupon-frozen-face-start: #fffaf3;
-$coupon-frozen-face-end: #fff2e0;
-$coupon-frozen-band-start: #ffc978;
-$coupon-frozen-band-end: #ff9a2e;
-$coupon-frozen-value: #e8842a;
-$coupon-frozen-pill-bg: #fff0d6;
-$coupon-frozen-pill-text: #d9821f;
+/* ---------- 形状 / 阴影 / 尺寸 ---------- */
+$coupon-card-radius: 24rpx;
+$coupon-card-shadow:
+  0 2rpx 6rpx rgba(15, 23, 42, 0.03),
+  0 12rpx 32rpx rgba(15, 23, 42, 0.05);
+$coupon-divider-width: 2rpx;
+$coupon-notch-size: 20rpx;
+/* 金额区宽度：左侧值块（金额 + 门槛），虚线撕口与票根缺口都按它对位 */
+$coupon-value-width: 176rpx;
+$coupon-action-height: 64rpx;
 
-/* 描边厚度与状态带高度：票根缺口按它们定位，改这三处会一起动 */
-$coupon-rim-width: 6rpx;
-$coupon-radius: 20rpx;
-$coupon-band-height: 52rpx;
-$coupon-notch-size: 18rpx;
-
-@mixin coupon-rim($start, $end) {
-  background: linear-gradient(135deg, $start 0%, $end 100%);
+/* ---------- mixin ---------- */
+/* 促销 hero（领券中心页头 / 阶梯页头）：橙 → 红，白色标题压在深色端 */
+@mixin coupon-hero-bg {
+  background: linear-gradient(
+    118deg,
+    $coupon-brand-light 0%,
+    $coupon-brand-mid 56%,
+    $coupon-brand-deep 100%
+  );
 }
 
-@mixin coupon-face($start, $end) {
-  background: linear-gradient(180deg, $start 0%, $end 100%);
-}
+/* 主 CTA / 选中态：品牌实底（$coupon-brand），不用渐变 —— 券卡/阶梯的主行动
+   都靠实底 + 橙色投影；渐变只留给促销 hero，避免整页「到处渐变色」。 */
 
-@mixin coupon-band($start, $end) {
-  background: linear-gradient(180deg, $start 0%, $end 100%);
+/* 券卡主投影：两层叠加，近处细、远处散，避免旧版的硬投影 */
+@mixin coupon-card-elevation {
+  box-shadow: $coupon-card-shadow;
 }

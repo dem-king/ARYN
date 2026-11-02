@@ -290,7 +290,7 @@ onMounted(() => {
   flex-direction: column;
   height: calc(100vh - var(--window-bottom, 0px));
   overflow: hidden;
-  background: #f6f6f6;
+  background: var(--app-bg);
 }
 
 .filter-bar {
@@ -298,7 +298,7 @@ onMounted(() => {
   align-items: center;
   flex: none;
   padding: 12rpx 16rpx;
-  background: #fff;
+  background: var(--app-card);
 }
 
 .brand-scroll {
@@ -321,7 +321,7 @@ onMounted(() => {
   margin-right: 12rpx;
   padding: 10rpx 24rpx;
   font-size: 26rpx;
-  color: #666;
+  color: var(--app-text-2);
   border-radius: 8rpx;
 
   &--active {
@@ -337,7 +337,7 @@ onMounted(() => {
   &__count {
     margin-left: 6rpx;
     font-size: 22rpx;
-    color: #b0b3b8;
+    color: var(--app-text-3);
   }
 }
 
@@ -348,7 +348,7 @@ onMounted(() => {
   gap: 6rpx;
   padding: 15rpx 0;
   font-size: 26rpx;
-  color: #666;
+  color: var(--app-text-2);
   white-space: nowrap;
   transition: opacity 160ms ease;
 
@@ -366,7 +366,7 @@ onMounted(() => {
   width: 1rpx;
   height: 32rpx;
   margin: 0 16rpx;
-  background: #ebedf0;
+  background: var(--app-border);
 }
 
 .layout-toggle {

@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { onLoad, onShow, onUnload } from '@dcloudio/uni-app'
+import { onLoad, onPageScroll, onShow, onUnload } from '@dcloudio/uni-app'
 import { computed, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getByOrderNo as getOrderInfoByNo } from '@/api/order/orderInfo'
 import { useDecorationInfiniteScroll } from '@/composables/useDecorationInfiniteScroll'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
 import { getOrder as getOrderByNo } from '@/sub-pages/api/pay/index'
 import { useDict } from '@/sub-pages/utils/dict'
+
+const { handlePageScroll } = useFrostedNavbar()
 
 definePage({
   name: 'pay-result',
@@ -165,6 +168,9 @@ function goHome() {
 function goOrder() {
   router.push({ name: 'order-list' })
 }
+
+// 顶栏磨砂玻璃：字面量注册滚动（小程序按页面源码生成滚动位标记，包进 composable 会静默失效）
+onPageScroll(handlePageScroll)
 </script>
 
 <template>

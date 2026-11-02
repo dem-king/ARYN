@@ -14,7 +14,8 @@
  *   不退回「限」字色块；仍取不到图或远程图加载失败 → 首字色块兜底。
  *
  * 视觉（§5.5.5）：白底浅描边小卡、64rpx 缩略图、角标贴缩略图角、右侧淡箭头、整卡可点；
- * 活动名与缩略图同一行，钩子文案独占整卡宽的第二行（三张卡时也能完整显示）；
+ * 活动名与缩略图同一行，钩子文案独占整卡宽的第二行；两行都保持单行，
+ * 文案超出卡片宽度时在行内横向滚动（短文案静止），不换行也不省略；
  * 卡片数由实际活动决定，不再配置列数/展示数量；颜色只走主题 token，多租户换肤自适应。
  */
 import type { ActivityStripEntry, ActivityStripProps } from '@/components/diy/retail-types'
@@ -27,6 +28,7 @@ import RetailState from '@/components/diy/retail-state.vue'
 import { retailCommonStyle } from '@/components/diy/retail-types'
 import { useDiyStyle } from '@/composables/useDiyStyle'
 import { useRetailData } from '@/composables/useRetailData'
+import { useMallThemeStore } from '@/store/mallThemeStore'
 import { resolveImageSrc } from '@/utils/image'
 
 import {
@@ -35,6 +37,7 @@ import {
   stripBadgeTone,
   stripGridColumns,
 } from './activity-strip'
+import MarqueeText from './marquee-text.vue'
 
 const props = withDefaults(defineProps<{ showData?: Partial<ActivityStripProps> }>(), {
   showData: () => ({}),
@@ -52,6 +55,12 @@ const showData = computed<ActivityStripProps>(() => ({
   invalidStrategy: props.showData.invalidStrategy || 'hide',
 }))
 const dynamicStyles = useDiyStyle(computed(() => showData.value.commonStyle))
+
+/**
+ * 全站自动动效总开关：关闭时长文案只做单行省略，不启动跑马灯。
+ * 开关可能异步到达（主题拉取晚于挂载），子组件会随 prop 变化自行重测。
+ */
+const mallThemeStore = useMallThemeStore()
 
 /** 三个内置 loader 只读 count/dataSource，其余字段给「无楼层头」的占位值即可 */
 const builtinSourceBase = {
@@ -163,13 +172,21 @@ function onImageError(index: number) {
               {{ entry.badge }}
             </view>
           </view>
-          <text class="strip-name">
-            {{ entry.title }}
-          </text>
+          <view class="strip-name">
+            <MarqueeText
+              :text="entry.title"
+              :motion-enabled="mallThemeStore.autoMotionEnabled"
+              :layout-key="cards.length"
+            />
+          </view>
         </view>
-        <text v-if="entry.hook" class="strip-hook">
-          {{ entry.hook }}
-        </text>
+        <view v-if="entry.hook" class="strip-hook">
+          <MarqueeText
+            :text="entry.hook"
+            :motion-enabled="mallThemeStore.autoMotionEnabled"
+            :layout-key="cards.length"
+          />
+        </view>
         <view class="strip-arrow" />
       </view>
     </view>
@@ -181,7 +198,8 @@ function onImageError(index: number) {
   视觉规格见需求文档 §5.5.5（750rpx 设计稿）：
   · 卡片等宽 1/卡数（一行最多三张）、白底、1rpx 浅描边 #F1F2F4、圆角 16rpx、内边距 12×16rpx、整卡可点；
   · 首行缩略图 64×64rpx 圆角 12rpx + 活动名，缺图用 resolveCategoryFallback 首字色块；
-  · 活动名 24rpx/700 ink、钩子 20rpx/500 muted 独占第二行，单行省略；
+  · 活动名 24rpx/700 ink、钩子 20rpx/500 muted 独占第二行；
+  · 两行都保持单行：文案超出卡片宽度时行内横向滚动（触摸暂停），短文案静止；
   · 角标 18rpx/700 小胶囊贴缩略图角：秒杀主题渐变实心「抢」，拼团/折扣主题浅底「省¥X/X折」；
   · 右侧淡箭头与首行活动名垂直居中，无独立按钮、无大促渐变头；促销色只走 var(--wot-color-theme-*)。
 -->
@@ -259,7 +277,7 @@ function onImageError(index: number) {
   white-space: nowrap;
 }
 
-/* 钩子文案独占第二行、通卡宽：三张卡时也能完整显示「午间场·整点开抢」 */
+/* 钩子文案独占第二行、通卡宽：真实活动名超长时交给 MarqueeText 单行滚动 */
 .strip-hook {
   display: block;
   overflow: hidden;

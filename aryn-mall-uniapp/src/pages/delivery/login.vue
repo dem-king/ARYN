@@ -1,8 +1,12 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
+import { onPageScroll } from '@dcloudio/uni-app'
 import { deliveryLogin, getMyDeliveryStaff } from '@/api/delivery'
 import { ensureSessionTenant, isTenantIdentityError } from '@/api/core/tenant-identity'
 import { Local } from '@/utils/storage'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+
+const { handlePageScroll } = useFrostedNavbar()
 
 definePage({
   name: 'delivery-login',
@@ -50,6 +54,16 @@ async function handleLogin() {
       const staffResponse: any = await getMyDeliveryStaff().send()
       Local.set('deliveryStaffInfo', staffResponse?.data || staffResponse || {})
       showToast('登录成功')
+      // 会话失效弹窗「重新登录」会写 redirectPath（当前配送页），登录成功后回跳原页；
+      // 只认配送域路径，防止商城登录的 redirectPath 把司机带到 C 端页面。
+      const redirectPath = Local.get('redirectPath')
+      if (typeof redirectPath === 'string'
+        && redirectPath.startsWith('/pages/delivery/')
+        && !redirectPath.startsWith('/pages/delivery/login')) {
+        Local.remove('redirectPath')
+        router.replaceAll({ path: redirectPath })
+        return
+      }
       // 跳转到配送工作台
       router.replaceAll({ name: 'delivery-index' })
     }
@@ -76,6 +90,9 @@ async function handleLogin() {
 function toUserLogin() {
   router.replaceAll({ name: 'login' })
 }
+
+// 顶栏磨砂玻璃：字面量注册滚动（小程序按页面源码生成滚动位标记，包进 composable 会静默失效）
+onPageScroll(handlePageScroll)
 </script>
 
 <template>
@@ -142,7 +159,7 @@ function toUserLogin() {
     align-items: center;
     padding: 30rpx 20rpx;
     margin-bottom: 20rpx;
-    border-bottom: 1px solid #e5e6eb;
+    border-bottom: 1px solid var(--app-border);
 
     input {
       flex: 1;

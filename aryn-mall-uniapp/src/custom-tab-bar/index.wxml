@@ -1,0 +1,21 @@
+<view wx:if="{{!hidden}}" class="glass-tabbar {{dark ? 'glass-tabbar--dark' : ''}}">
+  <view
+    wx:for="{{items}}"
+    wx:key="path"
+    class="glass-tabbar__item"
+    hover-class="glass-tabbar__item--pressed"
+    hover-stay-time="80"
+    data-index="{{index}}"
+    bindtap="tap"
+  >
+    <view class="glass-tabbar__icon-box">
+      <image
+        class="glass-tabbar__icon"
+        mode="aspectFit"
+        src="{{index === selected ? item.activeIcon : item.icon}}"
+      />
+      <text wx:if="{{item.key === 'cart' && badge}}" class="glass-tabbar__badge">{{badge}}</text>
+    </view>
+    <text class="glass-tabbar__label" style="{{index === selected ? 'color:' + primaryColor : ''}}">{{item.label}}</text>
+  </view>
+</view>

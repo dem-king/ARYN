@@ -11,6 +11,8 @@ import {
   sendConversationMessage,
 } from '@/api/message/conversation'
 import { uploadFile } from '@/api/upms/file'
+import { useRequireLogin } from '@/composables/useRequireLogin'
+import { useAuthStore } from '@/store/authStore'
 import { useMessageStore } from '@/store/messageStore'
 import {
   createClientMessageId,
@@ -25,6 +27,8 @@ definePage({
 })
 
 const { t } = useI18n()
+const authStore = useAuthStore()
+const { ensureLoggedIn } = useRequireLogin()
 const conversation = ref<Conversation>()
 const messages = ref<ViewChatMessage[]>([])
 const draft = ref('')
@@ -230,6 +234,12 @@ function scrollToBottom() {
 }
 
 onLoad(async (options) => {
+  // 在线客服是非白名单页（可被深链/分享直达）：游客先记录回跳并打开登录页，
+  // 不建连、不初始化会话；loading 必须收起，否则空骨架屏会一直转。
+  if (!ensureLoggedIn()) {
+    loading.value = false
+    return
+  }
   messageStore.connect()
   uni.$on('message-push', recoverAfterPush)
   try {
@@ -240,6 +250,10 @@ onLoad(async (options) => {
   }
 })
 onShow(() => {
+  // 登录页返回瞬间（用户取消登录）本页仍在栈顶：未登录不发请求，
+  // 等登录成功后由 redirect 重建页面再走 onLoad。
+  if (!authStore.isLoggedIn)
+    return
   // 后台挂起期间的推送可能丢失（socket 假在线由 store 心跳兜底），
   // 回到前台时按游标补拉一次，保证坐席回复最终可见。
   if (!loading.value)
@@ -304,15 +318,15 @@ onUnload(() => uni.$off('message-push', recoverAfterPush))
   height: 100vh;
   flex-direction: column;
   overflow: hidden;
-  background: #f4f6f7;
+  background: var(--app-bg);
 }
 .chat-status {
   display: flex;
   align-items: center;
   gap: 12rpx;
   padding: 16rpx 24rpx;
-  color: #7b8783;
-  border-bottom: 1rpx solid #eceff0;
+  color: var(--app-text-3);
+  border-bottom: 1rpx solid var(--app-border);
   background: rgb(255 255 255 / 92%);
   font-size: 20rpx;
 }
@@ -342,20 +356,20 @@ onUnload(() => uni.$off('message-push', recoverAfterPush))
 .load-history,
 .loading-copy {
   padding: 20rpx;
-  color: #8a9591;
+  color: var(--app-text-3);
   text-align: center;
   font-size: 21rpx;
 }
 .chat-composer {
   padding: 18rpx 22rpx max(env(safe-area-inset-bottom), 18rpx);
-  border-top: 1rpx solid #eceff0;
-  background: #fff;
+  border-top: 1rpx solid var(--app-border);
+  background: var(--app-card);
   &__tools {
     display: flex;
     align-items: center;
     gap: 18rpx;
     margin-bottom: 14rpx;
-    color: #87938f;
+    color: var(--app-text-3);
     font-size: 20rpx;
   }
   &__row {
@@ -367,7 +381,7 @@ onUnload(() => uni.$off('message-push', recoverAfterPush))
     flex: 1;
     padding: 12rpx 18rpx;
     border-radius: 20rpx;
-    background: #f4f6f7;
+    background: var(--app-card-2);
   }
   button {
     width: 130rpx;

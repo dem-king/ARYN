@@ -88,6 +88,15 @@ describe('cart destination contract', () => {
     expect(api).toContain('export function addSharedCartItem')
   })
 
+  it('redirects to cart detail when the backend name gate rejects the add', () => {
+    // 姓名必填（2026-11）：未填姓名的成员在浏览页加购共享车会被服务端拒绝（code 1201）。
+    // 漏斗命中该 code 时必须跳到详情页的强制补填层，而不是把错误吞成一个无出路的失败
+    const composable = source('src/composables/useCartDestination.ts')
+    expect(composable).toContain('SHARED_CART_NAME_REQUIRED')
+    expect(composable).toContain('/sub-pages/order/shared-cart/detail?id=')
+    expect(composable).toContain('error.code === SHARED_CART_NAME_REQUIRED')
+  })
+
   it('keeps the destination sheet above the sku popup and wired to all three answers', () => {
     const sheet = source('src/components/shared-cart-destination-sheet/index.vue')
     // 必须压住 SKU 规格弹层（990）与商详快捷面板（1000）

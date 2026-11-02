@@ -74,6 +74,16 @@ describe('shopping cart vessel grouping contract', () => {
     expect(cart).toContain('cart.noActiveCall')
   })
 
+  it('renders rows inside their own group section, not as a stacked legend', () => {
+    const cart = source(CART_PAGE)
+    // 组头后必须紧跟该组自己的行（嵌套 v-for）。若改回「组头循环 + 行循环」
+    // 两个平行循环，组头会退化成堆在列表顶部的图例：用户无法从位置判断
+    // 哪行属于哪组（2026-10-31 用户实测反馈「本次加购下方的商品全是本次的吗」）
+    expect(cart).toContain('v-for="goods in group.rows"')
+    expect(cart).toContain('group.showHeader')
+    expect(cart).not.toContain('v-for="(goods, goodsIndex) in state.cartList"')
+  })
+
   it('shows the vessel call status without requiring cart rows', () => {
     const cart = source(CART_PAGE)
     // 状态行挂在列表之外：空购物车也能看到靠港状态并直达申报入口；
@@ -289,5 +299,83 @@ describe('shopping cart limited-discount price contract', () => {
     expect(compute).toContain('cartUnitPrice(val)')
     expect(compute).not.toContain('goodsSku.salesPrice')
     expect(compute).not.toContain('effectiveUnitPrice(')
+  })
+})
+
+/**
+ * 购物车「空车底栏 / 结算条磨砂材质 / 推荐位可见性」契约守门。
+ *
+ * 背景（2026-10-29 用户小程序截图反馈）：
+ * 1. 底部「全选 / 合计 / 去结算」是纯白实心条，与顶栏、悬浮玻璃底栏不是一套材质；
+ * 2. 空购物车仍渲染结算条，显示「去结算(0)」——没有可结算对象却占着一整条底栏；
+ * 3. `.cart-container` 的 `min-height: 100vh` 把「为你推荐」推到一屏之外，
+ *    空车首屏只有空白，用户不知道下面还有商品推荐。
+ *
+ * 这三条都是「删掉不报错、加回来也不报错」的视觉回归，只能靠源码契约钉住。
+ */
+describe('shopping cart empty footer & frosted checkout bar contract', () => {
+  it('hides the select-all/checkout bar when the cart has no rows', () => {
+    const cart = source(CART_PAGE)
+    // 底栏与它的等高等价占位必须同条件：只藏底栏会在页尾留下一条无意义空白
+    expect(cart).toContain('v-if="hasCartItems" class="cart-footer"')
+    expect(cart).toContain('v-if="hasCartItems" class="cart-footer-holder"')
+    // 空车也仍需给悬浮玻璃底栏让位，避免推荐最后一行永久压在底栏下
+    expect(cart).toContain('v-else class="tabbar-bottom-space"')
+    // 渲染条件取真实行数，不用登录态/加载态之类的近似值
+    expect(cart).toMatch(/const hasCartItems = computed\([\s\S]*?state\.cartList\.length > 0/)
+  })
+
+  it('paints the checkout bar with the same frosted glass as the navbar and tab bar', () => {
+    const cart = source(CART_PAGE)
+    const footer = cart.match(/\.cart-footer \{[\s\S]*?\.cart-footer-warp/)?.[0] ?? ''
+    // 材质同源：白 86% + blur 18px / saturate 160%（与 hr-navbar、glass-tabbar 同一组数值），
+    // 纯白实心底色会把底部压成一块死板的白带，内容从玻璃下穿过才看得出模糊
+    expect(footer).toContain('rgba(255, 255, 255, 0.86)')
+    // 大写 WEBKIT 前缀避开 autoprefixer 过时前缀清理（iOS 17- 只认带前缀写法）
+    expect(footer).toContain('-WEBKIT-backdrop-filter: blur(18px) saturate(160%)')
+    expect(footer).toMatch(/[\r\n]\s*backdrop-filter: blur\(18px\) saturate\(160%\)/)
+    // 材质升级不能顺带改掉定位：结算条仍悬浮在玻璃底栏之上
+    expect(footer).toContain('bottom: var(--app-tabbar-height')
+  })
+
+  it('lets the recommendation stream start in the first screen instead of below a full-viewport container', () => {
+    const cart = source(CART_PAGE)
+    const container = cart.match(/\.cart-container \{[\s\S]*?\n\}/)?.[0] ?? ''
+    expect(container).toBeTruthy()
+    // 一屏下限会把「为你推荐」整整推低一屏：空车时首屏只有空白，
+    // 少量商品时也要滚过一整屏空白才看到推荐（用户截图的根因）
+    expect(container).not.toContain('min-height: 100vh')
+    // 推荐流仍紧跟在车内商品之后，不被别的容器包住/垫高
+    expect(cart.indexOf('class="cart-container"')).toBeLessThan(cart.indexOf('class="like-title'))
+    expect(cart.indexOf('class="like-title')).toBeLessThan(cart.indexOf('<WaterfallGoods'))
+  })
+})
+
+/**
+ * 推荐卡快捷加购与购物车列表的同页联动契约。
+ *
+ * 背景（2026-10-29 推荐卡补加购入口后）：加购写入成功只刷了底栏角标，
+ * 本页 `state.cartList` 仍是旧值 —— 用户看到「已加入购物车」toast、上方列表却没有商品；
+ * 推荐上下文（source/exclude 都派生自 cartList）也不重算，刚加的商品继续留在
+ * 「为你推荐」里可被反复加购。推荐流必须把加购成功回调给宿主去静默刷新。
+ */
+describe('cart recommendation quick-add refresh contract', () => {
+  it('refreshes the cart list silently after adding from the recommendation stream', () => {
+    const cart = source(CART_PAGE)
+    // 事件必须接在 WaterfallGoods 标签上（挪到后面的其它元素等于没接）
+    const waterfallTag = cart.match(/<WaterfallGoods[\s\S]*?\/>/)?.[0] ?? ''
+    expect(waterfallTag).toContain('@added="handleRecommendAdded"')
+    // 回调走静默刷新：加购本身已有成功 toast，不再叠一层全屏 loading；
+    // 刷新失败由请求拦截器统一提示，这里必须吞掉 rejection（避免未处理拒绝）。
+    expect(cart).toMatch(
+      /function handleRecommendAdded\([^)]*\) \{\s*getCartPage\(\{ silent: true \}\)\.catch\(\(\) => \{\}\)/,
+    )
+    expect(cart).toContain('async function getCartPage(options: { silent?: boolean } = {})')
+    // 「静默」必须真的跳过全局 loading 与关闭，否则等于没静默
+    expect(cart).toMatch(/if \(!silent\)\s*globalLoading\.loading\(/)
+    expect(cart).toMatch(/if \(!silent\)\s*globalLoading\.close\(\)/)
+    // 静默刷新不能打断用户已勾选的结算项：按行 id 记住并恢复，新行默认不勾选
+    expect(cart).toContain('const checkedIds = silent')
+    expect(cart).toContain('state.checkedList = state.cartList.filter')
   })
 })

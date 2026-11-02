@@ -66,7 +66,8 @@
         where sys_user.username = #{username}
         AND sys_user.del_flag = '0'
     </select>
-    <select id="selectCount" resultType="java.lang.Integer">
+    <!-- 注意：id 不能叫 selectCount —— 会与 BaseMapper#selectCount 的语句 id 冲突并覆盖内置实现 -->
+    <select id="countUserByQuery" resultType="java.lang.Integer">
         SELECT
         COUNT( 1 )
         FROM

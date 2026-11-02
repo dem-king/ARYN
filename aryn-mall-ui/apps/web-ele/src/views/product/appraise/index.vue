@@ -10,10 +10,13 @@ import {
   ElInput,
   ElMessage,
   ElMessageBox,
+  ElOption,
   ElRate,
   ElRow,
+  ElSelect,
   ElTable,
   ElTableColumn,
+  ElTag,
 } from 'element-plus';
 
 import { getPage, replyObj } from '#/api/product/appraise';
@@ -31,6 +34,7 @@ const Pagination = defineAsyncComponent(
 const state = reactive({
   queryParams: {
     nickname: '',
+    appraiseType: '',
   },
   page: {
     total: 0,
@@ -106,6 +110,16 @@ useKeepAliveRefresh(initPage);
             @keyup.enter="initPage"
           />
         </ElFormItem>
+        <ElFormItem label="评价方式" prop="appraiseType">
+          <ElSelect
+            v-model="state.queryParams.appraiseType"
+            clearable
+            placeholder="全部评价"
+          >
+            <ElOption label="用户评价" value="0" />
+            <ElOption label="系统默认" value="1" />
+          </ElSelect>
+        </ElFormItem>
       </PageFilterPanel>
       <!-- 工具栏 -->
       <PageToolbar :total="state.page.total" total-label="条评价">
@@ -151,15 +165,55 @@ useKeepAliveRefresh(initPage);
             </ElRow>
           </template>
         </ElTableColumn>
-        <ElTableColumn prop="goodsScore" label="商品评分" width="200">
+        <ElTableColumn label="评价方式" width="140">
           <template #default="scope">
+            <ElTag v-if="scope.row.appraiseType === 1" size="small" type="info">
+              系统默认
+            </ElTag>
+            <ElTag v-else size="small" type="success">用户评价</ElTag>
+            <ElTag
+              v-if="scope.row.isAnonymous === 1"
+              size="small"
+              style="margin-left: 4px"
+              type="warning"
+            >
+              匿名
+            </ElTag>
+          </template>
+        </ElTableColumn>
+        <ElTableColumn prop="goodsScore" label="商品评分" width="160">
+          <template #default="scope">
+            <span
+              v-if="scope.row.goodsScore == null"
+              style="color: var(--el-text-color-secondary)"
+            >
+              未评分
+            </span>
             <ElRate
+              v-else
               v-model="scope.row.goodsScore"
               disabled
               show-score
               text-color="var(--el-color-warning)"
               score-template="{value} 评分"
             />
+          </template>
+        </ElTableColumn>
+        <ElTableColumn label="物流/服务" width="120">
+          <template #default="scope">
+            <span
+              v-if="
+                scope.row.logisticsScore == null &&
+                scope.row.serviceScore == null
+              "
+              style="color: var(--el-text-color-secondary)"
+            >
+              —
+            </span>
+            <span v-else>
+              {{ scope.row.logisticsScore ?? '-' }} /
+              {{ scope.row.serviceScore ?? '-' }}
+            </span>
           </template>
         </ElTableColumn>
         <ElTableColumn prop="content" label="评价内容" min-width="250" />
@@ -179,6 +233,30 @@ useKeepAliveRefresh(initPage);
           </template>
         </ElTableColumn>
         <ElTableColumn prop="createTime" label="评价时间" width="200" />
+        <ElTableColumn label="标签" width="180">
+          <template #default="scope">
+            <template v-if="scope.row.tags && scope.row.tags.length > 0">
+              <ElTag
+                v-for="tag in scope.row.tags"
+                :key="tag"
+                effect="plain"
+                size="small"
+                style="margin: 2px"
+              >
+                {{ tag }}
+              </ElTag>
+            </template>
+            <span v-else style="color: var(--el-text-color-secondary)">—</span>
+          </template>
+        </ElTableColumn>
+        <ElTableColumn label="追评" min-width="180">
+          <template #default="scope">
+            <span v-if="scope.row.advanceContent">
+              {{ scope.row.advanceContent }}
+            </span>
+            <span v-else style="color: var(--el-text-color-secondary)">—</span>
+          </template>
+        </ElTableColumn>
         <ElTableColumn
           prop="businessReply"
           label="商家回复"

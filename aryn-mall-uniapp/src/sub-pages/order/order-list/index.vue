@@ -4,7 +4,10 @@ import { computed, nextTick, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getPage } from '@/api/order/orderInfo'
 import OrderOperation from '@/sub-pages/order/components/order-operation/index.vue'
+import { DEFAULT_PAY_TIMEOUT_MINUTES } from '@/sub-pages/utils/pay-timeout'
 import { useDict } from '@/sub-pages/utils/dict'
+import { parseLocalDateTimeTimestamp } from '@/utils/datetime'
+import { navigateToUrl } from '@/utils/tab-bar'
 
 definePage({
   name: 'order-list',
@@ -27,11 +30,21 @@ interface State {
   tabCurrent: number
   orderList: Array<any>
 }
+// 多商品订单默认只露出前两件，避免一单撑满整屏
+const COLLAPSED_ITEM_COUNT = 2
+const DELIVERY_WAY_LABEL_KEYS: Record<string, string> = {  1: 'order.deliveryWay.express',
+  2: 'order.deliveryWay.selfPickup',
+  3: 'order.deliveryWay.mallDelivery',
+  4: 'order.deliveryWay.vesselDelivery',
+}
 // 定义变量
 const pagingRef = ref()
 const router = useRouter()
 const { t } = useI18n()
 const globalLoading = useGlobalLoading()
+const toast = useGlobalToast()
+// 倒计时每秒 tick：仅待付款单有可见文案，其余状态不参与渲染
+const { now: tickNow } = useCountdownTicker()
 // 滑动相关变量
 const touchStartX = ref(0)
 const touchEndX = ref(0)
@@ -88,6 +101,9 @@ const state = reactive<State>({
   tabCurrent: 0,
   orderList: [],
 })
+// 多商品订单的展开状态按订单 id 记录，切换 Tab 不串状态
+const expandedOrders = reactive<Record<string, boolean>>({})
+
 onLoad(async (options) => {
   if (options?.status) {
     state.tabCurrent = Number(options.status)
@@ -123,6 +139,9 @@ function toOrderDetail(orderId: string) {
     name: 'order-detail',
     params: { id: orderId },
   })
+}
+function goShopping() {
+  navigateToUrl('/pages/home/index')
 }
 
 function changeTab({ index }: TabChangeParams) {
@@ -187,6 +206,96 @@ function handleRefresh() {
   pagingRef.value?.reload()
 }
 
+/* ---------------------
+  展示层格式化
+--------------------- */
+function formatOrderTime(value?: string) {
+  if (!value) {
+    return ''
+  }
+  const text = String(value).slice(0, 16)
+  const year = String(new Date().getFullYear())
+  return text.startsWith(year) ? text.slice(5) : text
+}
+function deliveryWayText(order: any) {
+  const key = DELIVERY_WAY_LABEL_KEYS[String(order?.deliveryWay)]
+  return key ? t(key) : ''
+}
+function orderStatusText(order: any) {
+  // 自提待收货、自配送备货中沿用详情页口径，字典只覆盖后端标准状态
+  if (order?.deliveryWay === '2' && order?.status === '3') {
+    return t('order.status.pendingPickup')
+  }
+  if (order?.status === '2' && (order?.deliveryWay === '3' || order?.deliveryWay === '4')) {
+    return t('order.status.preparing')
+  }
+  const option = orderStatusOptions.value.find(item => String(item.value) === String(order?.status))
+  return option?.label || ''
+}
+function statusToneClass(order: any) {
+  if (String(order?.status) === '11') {
+    return 'ol-head__status--muted'
+  }
+  if (String(order?.status) === '4') {
+    return 'ol-head__status--done'
+  }
+  return 'ol-head__status--active'
+}
+function itemStatusText(status: string) {
+  const option = orderItemStatusOptions.value.find(item => String(item.value) === String(status))
+  return option?.label || ''
+}
+function totalQuantity(order: any) {
+  const items: any[] = order?.orderItemList || []
+  return items.reduce((sum, item) => sum + Number(item?.buyQuantity || 0), 0)
+}
+function formatAmount(value: any) {
+  const number = Number(value)
+  return Number.isFinite(number) ? number.toFixed(2) : (value ?? '')
+}
+function visibleItems(order: any) {
+  const items: any[] = order?.orderItemList || []
+  return expandedOrders[order.id] ? items : items.slice(0, COLLAPSED_ITEM_COUNT)
+}
+function toggleExpand(orderId: string) {
+  expandedOrders[orderId] = !expandedOrders[orderId]
+}
+function isExpanded(orderId: string) {
+  return !!expandedOrders[orderId]
+}
+/** 待付款倒计时：列表接口下发支付时限，缺省与详情页同口径回落默认值 */
+function payRemainingText(order: any) {
+  if (order?.status !== '1' || order?.payStatus !== '0') {
+    return ''
+  }
+  const createdAt = parseLocalDateTimeTimestamp(order?.createTime)
+  if (createdAt === null) {
+    return ''
+  }
+  const minutes = Number(order?.payTimeoutMinutes)
+  const timeout = Number.isFinite(minutes) && minutes > 0 ? minutes : DEFAULT_PAY_TIMEOUT_MINUTES
+  const remaining = createdAt + timeout * 60_000 - tickNow.value
+  if (remaining <= 0) {
+    return t('order.list.payExpired')
+  }
+  const totalSeconds = Math.floor(remaining / 1000)
+  const hours = Math.floor(totalSeconds / 3600)
+  const mins = Math.floor((totalSeconds % 3600) / 60)
+  const secs = totalSeconds % 60
+  const pad = (value: number) => String(value).padStart(2, '0')
+  const time = hours > 0 ? `${pad(hours)}:${pad(mins)}:${pad(secs)}` : `${pad(mins)}:${pad(secs)}`
+  return t('order.list.payRemaining', { time })
+}
+function copyOrderNo(orderNo?: string) {
+  if (!orderNo) {
+    return
+  }
+  uni.setClipboardData({
+    data: String(orderNo),
+    success: () => toast.success(t('order.list.orderNoCopied')),
+  })
+}
+
 uni.$on('refresh', handleRefresh)
 
 onUnload(() => {
@@ -197,6 +306,7 @@ onUnload(() => {
 <template>
   <z-paging
     ref="pagingRef" v-model="state.orderList" :auto="false"
+    bg-color="var(--theme-color-background, var(--wot-color-theme-background, #FFF0F0))"
     :refresher-default-text="t('order.list.refresherPull')"
     :refresher-pulling-text="t('order.list.refresherRelease')"
     :refresher-refreshing-text="t('order.list.refresherRefreshing')"
@@ -208,105 +318,128 @@ onUnload(() => {
     @query="queryList" @touchstart="handleTouchStart" @touchend="handleTouchEnd"
   >
     <template #empty>
-      <view class="order-empty">
-        <image class="order-empty-img" src="/static/promotion/empty/empty-order.png" mode="aspectFit" />
-        <text class="order-empty-tip">
+      <view class="ol-empty">
+        <image class="ol-empty__img" src="/static/promotion/empty/empty-order.png" mode="aspectFit" />
+        <text class="ol-empty__title">
           {{ t('order.list.empty') }}
         </text>
+        <wd-button size="small" round class="ol-empty__btn" @click="goShopping">
+          {{ t('order.list.goShopping') }}
+        </wd-button>
       </view>
     </template>
     <template #top>
       <hr-navbar :title="t('order.list.title')" />
-      <wd-tabs
-        v-model="state.tabCurrent"
-        slidable="always"
-        swipeable
-        @change="changeTab"
-      >
-        <block v-for="(item, index) in orderStatusList" :key="index">
-          <wd-tab :title="item.name" />
-        </block>
-      </wd-tabs>
+      <view class="ol-tabs">
+        <wd-tabs
+          v-model="state.tabCurrent"
+          slidable="always"
+          swipeable
+          :line-width="24"
+          :line-height="3"
+          inactive-color="#6B7280"
+          @change="changeTab"
+        >
+          <block v-for="(item, index) in orderStatusList" :key="index">
+            <wd-tab :title="item.name" />
+          </block>
+        </wd-tabs>
+      </view>
     </template>
 
-    <view
-      class="px-20rpx"
-    >
-      <view v-for="(order, index) in state.orderList" :key="index" class="my-20rpx rounded-xl bg-white p-20rpx">
-        <view @click.stop="toOrderDetail(order.id)">
-          <view class="flex items-center justify-between">
-            <view v-if="order.orderNo" class="flex items-center text-12px text-gray">
-              {{ order.orderNo }}
+    <view class="ol-list">
+      <view
+        v-for="(order, index) in state.orderList"
+        :key="order.id ?? index"
+        class="ol-card"
+        hover-class="ol-card--pressed"
+        :hover-stay-time="60"
+      >
+        <!-- 卡头：时间/配送方式/订单号 + 状态优先 -->
+        <view class="ol-head" @click.stop="toOrderDetail(order.id)">
+          <view class="ol-head__left">
+            <view class="ol-head__meta">
+              <text class="ol-head__time">{{ formatOrderTime(order.createTime) }}</text>
+              <template v-if="deliveryWayText(order)">
+                <text class="ol-head__dot">·</text>
+                <text class="ol-head__way">{{ deliveryWayText(order) }}</text>
+              </template>
             </view>
-            <view>
-              <view v-if="order.deliveryWay === '2' && order.status === '3'" class="text-22rpx">
-                {{ t('order.status.pendingPickup') }}
-              </view>
-              <!-- 自配送（way=3）/内部配送（way=4）在司机出发前订单状态恒为待发货，按详情页口径显示备货中 -->
-              <view
-                v-else-if="order.status === '2' && (order.deliveryWay === '3' || order.deliveryWay === '4')"
-                class="text-22rpx"
-              >
-                {{ t('order.status.preparing') }}
-              </view>
-              <dict-tag v-else :options="orderStatusOptions" :value="order.status" />
+            <view v-if="order.orderNo" class="ol-head__no" @click.stop="copyOrderNo(order.orderNo)">
+              <text class="ol-head__no-text">{{ order.orderNo }}</text>
+              <text class="ol-head__copy i-carbon:copy" />
             </view>
           </view>
-          <view v-for="(item, itemIndex) in order.orderItemList" :key="itemIndex" class="flex pt-10rpx">
-            <view class="flex flex-col items-center">
-              <image :src="item.picUrl" class="h-160rpx w-160rpx flex-none rounded-lg" />
-            </view>
+          <view class="ol-head__right">
+            <text class="ol-head__status" :class="statusToneClass(order)">
+              {{ orderStatusText(order) }}
+            </text>
+            <text v-if="payRemainingText(order)" class="ol-head__countdown">
+              {{ payRemainingText(order) }}
+            </text>
+          </view>
+        </view>
 
-            <view class="ml-20rpx h-full flex flex-1 flex-col overflow-hidden">
-              <!-- 商品信息和价格信息左右布局 -->
-              <view class="flex justify-between">
-                <!-- 左侧：商品名称和规格 -->
-                <view class="mr-10rpx flex-1">
-                  <view>
-                    <wd-text :lines="2" size="14px" color="inherit" :text="item.spuName" />
+        <!-- 商品行 -->
+        <view class="ol-items" @click.stop="toOrderDetail(order.id)">
+          <view v-for="(item, itemIndex) in visibleItems(order)" :key="item.id ?? itemIndex" class="ol-item">
+            <image :src="item.picUrl" class="ol-item__pic" mode="aspectFill" />
+            <view class="ol-item__info">
+              <view class="ol-item__top">
+                <view class="ol-item__main">
+                  <text class="ol-item__name">{{ item.spuName }}</text>
+                  <text v-if="item.specsInfo" class="ol-item__specs">{{ item.specsInfo }}</text>
+                  <view v-if="order.payStatus === '1' && ['1', '2', '3', '6'].includes(item.status)" class="ol-item__foot">
+                    <text
+                      v-if="item.status === '1' || item.status === '2'"
+                      class="ol-item__after"
+                      @click.stop="toRefunds(item.id, item.status)"
+                    >
+                      {{ t('order.actions.applyAfterSales') }}
+                      <text class="ol-item__after-arrow">›</text>
+                    </text>
+                    <text v-else class="ol-item__state">{{ itemStatusText(item.status) }}</text>
                   </view>
-                  <view v-if="item.specsInfo" class="pt-5rpx">
-                    <wd-text size="13px" color="#909090" :text="item.specsInfo" />
-                  </view>
                 </view>
-
-                <!-- 右侧：价格和数量，居右对齐 -->
-                <view class="flex flex-col items-end">
-                  <wd-text :text="item.salesPrice" size="14px" mode="price" prefix="￥" />
-                  <wd-text class="pt-10rpx" size="12px" :text="`x${item.buyQuantity}`" />
+                <view class="ol-item__price-wrap">
+                  <text class="ol-item__price">
+                    <text class="ol-item__currency">¥</text>{{ formatAmount(item.paymentPrice ?? item.salesPrice) }}
+                  </text>
+                  <text class="ol-item__qty">×{{ item.buyQuantity }}</text>
                 </view>
-              </view>
-
-              <view v-if="order.payStatus === '1'" class="pt-1">
-                <view v-if="item.status === '1' || item.status === '2'" @click.stop="toRefunds(item.id, item.status)">
-                  <wd-button
-                    custom-class="float-right" size="small" plain hairline
-                    hover-stop-propagation
-                    type="info"
-                  >
-                    {{ t('order.actions.applyAfterSales') }}
-                  </wd-button>
-                </view>
-                <wd-button v-else type="text" custom-class="float-right" size="small">
-                  <dict-tag :options="orderItemStatusOptions" :value="item.status" />
-                </wd-button>
               </view>
             </view>
           </view>
         </view>
 
-        <view class="flex items-center justify-end py-20rpx">
-          <text class="text-13px">
-            {{ t('order.list.totalItems', { count: order.orderItemList.length }) }}
+        <!-- 多商品折叠 -->
+        <view
+          v-if="(order.orderItemList?.length || 0) > COLLAPSED_ITEM_COUNT"
+          class="ol-more"
+          @click.stop="toggleExpand(order.id)"
+        >
+          <text class="ol-more__text">
+            {{ isExpanded(order.id) ? t('order.list.collapse') : t('order.list.moreItems', { count: order.orderItemList.length - COLLAPSED_ITEM_COUNT }) }}
           </text>
-          <wd-text
-            custom-class="pl-10rpx" size="28rpx"
-            :text="order.actualPayPrice ?? order.paymentPrice" color="red" mode="price"
-            prefix="￥"
-          />
+          <text class="ol-more__icon i-carbon:chevron-down" :class="{ 'ol-more__icon--up': isExpanded(order.id) }" />
         </view>
+
+        <!-- 合计 -->
+        <view class="ol-total" @click.stop="toOrderDetail(order.id)">
+          <text class="ol-total__count">
+            {{ t('order.list.totalItems', { count: totalQuantity(order) }) }}
+          </text>
+          <text class="ol-total__amount">
+            <text class="ol-total__currency">¥</text>{{ formatAmount(order.actualPayPrice ?? order.paymentPrice) }}
+          </text>
+        </view>
+
+        <!-- 操作区：主操作实心品牌色，次操作中性描边 -->
         <order-operation
-          :order-info="order" @order-del="orderDel(index)" @order-receiver="orderReceiver"
+          mode="list"
+          :order-info="order"
+          @order-del="orderDel(index)"
+          @order-receiver="orderReceiver"
           @order-cancel="orderCancel"
         />
       </view>
@@ -314,24 +447,319 @@ onUnload(() => {
   </z-paging>
 </template>
 
-<style lang="scss">
-/* 已使用UnoCSS重构样式，移除原有样式 */
+<style lang="scss" scoped>
+/*
+ * 订单列表（主流电商式重排）：
+ * 状态优先卡头 → 紧凑商品行（超两件折叠）→ 合计 → 胶囊操作。
+ * 与订单详情页共用同一套颜色/圆角/留白口径。
+ */
+$brand: var(--theme-color-primary, var(--wot-color-theme-primary, #FF2237));
+$ink: var(--app-text);
+$ink-2: var(--app-text-2);
+$ink-3: var(--app-text-3);
+$hairline: var(--app-border);
 
-.order-empty {
+.ol-tabs {
+  background: var(--app-card);
+  box-shadow: 0 4rpx 16rpx rgba(17, 24, 39, 0.03);
+}
+
+.ol-list {
+  padding: 20rpx 24rpx calc(24rpx + env(safe-area-inset-bottom));
+}
+
+.ol-card {
+  padding: 0 24rpx;
+  margin-bottom: 20rpx;
+  background: var(--app-card);
+  border-radius: 24rpx;
+  box-shadow: 0 6rpx 24rpx rgba(17, 24, 39, 0.04);
+  transition: background-color 0.15s ease;
+}
+
+.ol-card--pressed {
+  background: var(--app-card-2);
+}
+
+/* ===================== 卡头 ===================== */
+
+.ol-head {
   display: flex;
-  padding-top: 120rpx;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 24rpx 0 20rpx;
+  border-bottom: 1rpx solid $hairline;
+}
+
+.ol-head__left {
+  flex: 1;
+  min-width: 0;
+  margin-right: 16rpx;
+}
+
+.ol-head__meta {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.ol-head__time {
+  flex-shrink: 0;
+  font-size: 24rpx;
+  color: $ink-2;
+}
+
+.ol-head__dot {
+  margin: 0 8rpx;
+  font-size: 22rpx;
+  color: $ink-3;
+}
+
+.ol-head__way {
+  overflow: hidden;
+  font-size: 22rpx;
+  color: $ink-3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ol-head__no {
+  display: flex;
+  align-items: center;
+  margin-top: 6rpx;
+}
+
+.ol-head__no-text {
+  font-size: 22rpx;
+  color: $ink-3;
+}
+
+.ol-head__copy {
+  margin-left: 8rpx;
+  font-size: 22rpx;
+  color: $ink-3;
+}
+
+.ol-head__right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  flex-shrink: 0;
+}
+
+.ol-head__status {
+  font-size: 28rpx;
+  font-weight: 600;
+  line-height: 36rpx;
+}
+
+.ol-head__status--active {
+  color: $brand;
+}
+
+.ol-head__status--done {
+  color: $ink-2;
+}
+
+.ol-head__status--muted {
+  font-weight: 500;
+  color: $ink-3;
+}
+
+.ol-head__countdown {
+  margin-top: 4rpx;
+  font-size: 22rpx;
+  color: $brand;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===================== 商品行 ===================== */
+
+.ol-items {
+  padding: 4rpx 0;
+}
+
+.ol-item {
+  display: flex;
+  padding: 20rpx 0;
+}
+
+.ol-item__pic {
+  width: 136rpx;
+  height: 136rpx;
+  border-radius: 16rpx;
+  background: var(--app-card-2);
+  flex-shrink: 0;
+}
+
+.ol-item__info {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  margin-left: 20rpx;
+}
+
+.ol-item__top {
+  display: flex;
+  flex: 1;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.ol-item__main {
+  flex: 1;
+  min-width: 0;
+  margin-right: 16rpx;
+}
+
+.ol-item__name {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 28rpx;
+  line-height: 38rpx;
+  color: $ink;
+  word-break: break-all;
+}
+
+.ol-item__specs {
+  display: block;
+  overflow: hidden;
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  color: $ink-3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ol-item__foot {
+  display: flex;
+  align-items: center;
+  margin-top: 10rpx;
+}
+
+.ol-item__after {
+  display: inline-flex;
+  align-items: center;
+  padding: 6rpx 0;
+  font-size: 22rpx;
+  line-height: 30rpx;
+  color: $ink-2;
+}
+
+.ol-item__after-arrow {
+  margin-left: 2rpx;
+  font-size: 20rpx;
+  color: $ink-3;
+}
+.ol-item__state {
+  font-size: 22rpx;
+  color: $ink-3;
+}
+
+.ol-item__price-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  flex-shrink: 0;
+}
+
+.ol-item__price {
+  font-size: 28rpx;
+  font-weight: 600;
+  line-height: 36rpx;
+  color: $ink;
+}
+
+.ol-item__currency {
+  font-size: 22rpx;
+  font-weight: 500;
+}
+
+.ol-item__qty {
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  color: $ink-3;
+}
+
+/* ===================== 折叠 ===================== */
+
+.ol-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 64rpx;
+  margin: 0 -24rpx;
+  border-top: 1rpx solid $hairline;
+}
+
+.ol-more__text {
+  font-size: 24rpx;
+  color: $ink-2;
+}
+
+.ol-more__icon {
+  margin-left: 6rpx;
+  font-size: 24rpx;
+  color: $ink-3;
+  transition: transform 0.2s ease;
+}
+
+.ol-more__icon--up {
+  transform: rotate(180deg);
+}
+
+/* ===================== 合计与操作 ===================== */
+
+.ol-total {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  padding: 18rpx 0 4rpx;
+}
+
+.ol-total__count {
+  margin-right: 12rpx;
+  font-size: 24rpx;
+  color: $ink-3;
+}
+
+.ol-total__amount {
+  font-size: 32rpx;
+  font-weight: 700;
+  color: $brand;
+  font-variant-numeric: tabular-nums;
+}
+
+.ol-total__currency {
+  margin-right: 2rpx;
+  font-size: 24rpx;
+  font-weight: 600;
+}
+
+/* ===================== 空态 ===================== */
+
+.ol-empty {
+  display: flex;
+  padding-top: 140rpx;
   flex-direction: column;
   align-items: center;
 }
 
-.order-empty-img {
-  width: 280rpx;
-  height: 280rpx;
+.ol-empty__img {
+  width: 260rpx;
+  height: 260rpx;
+  opacity: 0.9;
 }
 
-.order-empty-tip {
-  margin-top: 12rpx;
-  color: #8a8f99;
-  font-size: 24rpx;
+.ol-empty__title {
+  margin-top: 20rpx;
+  font-size: 28rpx;
+  color: $ink-2;
+}
+
+.ol-empty__btn {
+  margin-top: 32rpx;
 }
 </style>

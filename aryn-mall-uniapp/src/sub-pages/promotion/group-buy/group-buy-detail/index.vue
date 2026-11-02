@@ -1,13 +1,18 @@
 <script setup lang="ts">
 import type { GroupBuyActivity } from '@/api/promotion/groupBuyActivity'
 import type { GroupBuyMemberVO, GroupBuyRecord } from '@/sub-pages/api/promotion/groupBuyRecord'
-import { onLoad, onShareAppMessage } from '@dcloudio/uni-app'
+import { onLoad, onPageScroll, onShareAppMessage } from '@dcloudio/uni-app'
 import { computed, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getByIds } from '@/api/product/spu'
 import { getActivityById } from '@/api/promotion/groupBuyActivity'
 import { normalizeRetailGoods } from '@/components/diy/retail-normalizers'
+import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+import { useRequireLogin } from '@/composables/useRequireLogin'
 import { getRecordPage, joinGroup, openGroup } from '@/sub-pages/api/promotion/groupBuyRecord'
+
+const { handlePageScroll } = useFrostedNavbar()
 
 definePage({
   name: 'group-buy-detail',
@@ -37,12 +42,14 @@ const state = reactive<{
 })
 
 const activityId = ref('')
-const spuInfo = ref<{ spuName: string, picUrl: string } | null>(null)
+const spuInfo = ref<{ spuName: string, picUrl: string, subTitle: string } | null>(null)
 const spuImageFailed = ref(false)
 /** 头像加载失败标记（key = 环位置 key），失败后退回首字灰圆 */
 const failedAvatars = ref<Record<string, boolean>>({})
 
 const globalLoading = useGlobalLoading()
+/** 开团/参团需登录：游客先登录再回本页重试（成功后会跳结算页） */
+const { ensureLoggedIn } = useRequireLogin()
 /** 全局 1s ticker：成团倒计时/各团剩余时间共用，组件卸载自动清理 */
 const { now } = useCountdownTicker()
 
@@ -230,7 +237,7 @@ async function loadSpuInfo(spuId?: string) {
      *    访客未登录 → 401 → 商品图/商品名恒为空；
      * 2) 商品接口真实响应是 `{ id, name, spuUrls[] }`，并没有 `spuName/picUrl/sliderPicUrls`，
      *    旧代码读的三个字段都不存在，即使登录也取不到。
-     * 这里复用装修楼层的归一化（firstImage 兼容 spuUrls[0]），一次请求拿到名称与主图。
+     * 这里复用装修楼层的归一化（firstImage 兼容 spuUrls[0]），一次请求拿到名称、主图与子标题。
      */
     const goodsList = normalizeRetailGoods(await getByIds([spuId]))
     const goods = goodsList[0]
@@ -238,6 +245,7 @@ async function loadSpuInfo(spuId?: string) {
     spuInfo.value = {
       spuName: goods?.name || '',
       picUrl: goods?.imageUrl || '',
+      subTitle: goods?.subTitle || '',
     }
   }
   catch {
@@ -400,6 +408,9 @@ function handleRecordAction(record: GroupBuyRecord) {
 }
 
 async function handleOpenGroup() {
+  // 游客不发开团请求：先登录，登录后回拼团详情再点
+  if (!ensureLoggedIn())
+    return
   if (!state.activity?.id)
     return
   globalLoading.loading(t('promotion.groupBuy.detail.opening'))
@@ -417,6 +428,9 @@ async function handleOpenGroup() {
 }
 
 async function handleJoinGroup(recordId: string) {
+  // 游客不发参团请求：先登录，登录后回拼团详情再点
+  if (!ensureLoggedIn())
+    return
   if (!state.activity?.id)
     return
   globalLoading.loading(t('promotion.groupBuy.detail.joining'))
@@ -576,6 +590,9 @@ function handleBottomSecondary() {
   }
   gotoGoodsDetail()
 }
+
+// 顶栏磨砂玻璃：字面量注册滚动（小程序按页面源码生成滚动位标记，包进 composable 会静默失效）
+onPageScroll(handlePageScroll)
 </script>
 
 <template>
@@ -631,18 +648,32 @@ function handleBottomSecondary() {
             <view class="goods-name">
               {{ goodsName }}
             </view>
+            <!-- 子标题：与装修商品卡同口径，未配置或与商品名重复时整行隐藏 -->
+            <view v-if="shouldShowSubtitle(goodsName, spuInfo?.subTitle)" class="goods-sub">
+              {{ spuInfo?.subTitle }}
+            </view>
             <view v-if="showActivityName" class="goods-activity">
               {{ activity.activityName }}
             </view>
             <view class="price-row">
               <view class="price-main">
-                <text class="price-sym">¥</text>
-                <text class="price-val">{{ groupPriceText || '--' }}</text>
-                <text class="price-label">{{ t('promotion.groupBuy.groupPrice') }}</text>
+                <text class="price-sym">
+                  ¥
+                </text>
+                <text class="price-val">
+                  {{ groupPriceText || '--' }}
+                </text>
+                <text class="price-label">
+                  {{ t('promotion.groupBuy.groupPrice') }}
+                </text>
               </view>
               <view v-if="originalPriceText" class="price-other">
-                <text class="price-other-label">{{ t('promotion.groupBuy.detail.buyAlone') }}</text>
-                <text class="price-orig">¥{{ originalPriceText }}</text>
+                <text class="price-other-label">
+                  {{ t('promotion.groupBuy.detail.buyAlone') }}
+                </text>
+                <text class="price-orig">
+                  ¥{{ originalPriceText }}
+                </text>
               </view>
             </view>
           </view>
@@ -650,19 +681,35 @@ function handleBottomSecondary() {
 
         <!-- 标签组：只留硬约束（N人成团 / 限购N件）；「已拼N件」升为下方分区头 -->
         <view class="tag-row">
-          <text v-for="tag in baseTags" :key="tag" class="tag">{{ tag }}</text>
+          <text v-for="tag in baseTags" :key="tag" class="tag">
+            {{ tag }}
+          </text>
         </view>
 
         <!-- 倒计时：天单独一格（仅跨天出现），前置词承担「N 小时内成团」 -->
         <view v-if="groupCountdown" class="countdown-row">
-          <text class="countdown-label">{{ groupCountdown.label }}</text>
+          <text class="countdown-label">
+            {{ groupCountdown.label }}
+          </text>
           <view class="countdown-blocks">
-            <text v-if="groupCountdown.days > 0" class="cd-block cd-days">{{ t('promotion.common.days', { days: groupCountdown.days }) }}</text>
-            <text class="cd-block">{{ pad(groupCountdown.hours) }}</text>
-            <text class="cd-colon">:</text>
-            <text class="cd-block">{{ pad(groupCountdown.minutes) }}</text>
-            <text class="cd-colon">:</text>
-            <text class="cd-block">{{ pad(groupCountdown.seconds) }}</text>
+            <text v-if="groupCountdown.days > 0" class="cd-block cd-days">
+              {{ t('promotion.common.days', { days: groupCountdown.days }) }}
+            </text>
+            <text class="cd-block">
+              {{ pad(groupCountdown.hours) }}
+            </text>
+            <text class="cd-colon">
+              :
+            </text>
+            <text class="cd-block">
+              {{ pad(groupCountdown.minutes) }}
+            </text>
+            <text class="cd-colon">
+              :
+            </text>
+            <text class="cd-block">
+              {{ pad(groupCountdown.seconds) }}
+            </text>
           </view>
         </view>
       </view>
@@ -670,8 +717,12 @@ function handleBottomSecondary() {
       <!-- 正在拼的团（分区头带已拼件数：虚增 + 真实已付款参团） -->
       <view class="record-section">
         <view class="section-head">
-          <text class="section-title">{{ t('promotion.groupBuy.detail.activeGroups') }}</text>
-          <text v-if="sectionSub" class="section-sub">{{ sectionSub }}</text>
+          <text class="section-title">
+            {{ t('promotion.groupBuy.detail.activeGroups') }}
+          </text>
+          <text v-if="sectionSub" class="section-sub">
+            {{ sectionSub }}
+          </text>
         </view>
 
         <view v-if="state.recordFailed" class="records-error" @tap="retryRecords">
@@ -725,26 +776,40 @@ function handleBottomSecondary() {
                 {{ t('promotion.groupBuy.detail.leader') }}
               </view>
             </view>
-            <text v-if="hiddenSlotCount(record) > 0" class="ring-more">+{{ hiddenSlotCount(record) }}</text>
+            <text v-if="hiddenSlotCount(record) > 0" class="ring-more">
+              +{{ hiddenSlotCount(record) }}
+            </text>
           </view>
 
           <view class="record-info">
             <view class="record-title">
-              <text class="record-nick">{{ leaderNickname(record) }}</text>
+              <text class="record-nick">
+                {{ leaderNickname(record) }}
+              </text>
               <text
                 v-if="record.groupStatus === '0' && remainCount(record) > 0"
                 class="record-remain"
                 :class="{ 'is-urgent': remainCount(record) === 1 }"
-              >{{ t('promotion.groupBuy.detail.remain', { count: remainCount(record) }) }}</text>
-              <text v-else-if="record.groupStatus === '1'" class="record-done">{{ t('promotion.groupBuy.detail.formed') }}</text>
-              <text v-else-if="recordStatusText(record)" class="record-done">{{ recordStatusText(record) }}</text>
-              <text v-else-if="record.groupStatus === '0'" class="record-done">{{ t('promotion.groupBuy.detail.fullWaiting') }}</text>
+              >
+                {{ t('promotion.groupBuy.detail.remain', { count: remainCount(record) }) }}
+              </text>
+              <text v-else-if="record.groupStatus === '1'" class="record-done">
+                {{ t('promotion.groupBuy.detail.formed') }}
+              </text>
+              <text v-else-if="recordStatusText(record)" class="record-done">
+                {{ recordStatusText(record) }}
+              </text>
+              <text v-else-if="record.groupStatus === '0'" class="record-done">
+                {{ t('promotion.groupBuy.detail.fullWaiting') }}
+              </text>
             </view>
             <view class="record-sub">
               <text v-if="record.groupStatus === '0' && remainingText(record.expireAt)" class="record-time">
                 {{ t('promotion.groupBuy.detail.remaining', { time: remainingText(record.expireAt) }) }}
               </text>
-              <text v-else class="record-time">{{ recordStatusText(record) || t('promotion.groupBuy.detail.full') }}</text>
+              <text v-else class="record-time">
+                {{ recordStatusText(record) || t('promotion.groupBuy.detail.full') }}
+              </text>
             </view>
           </view>
 
@@ -772,21 +837,27 @@ function handleBottomSecondary() {
             <view class="how-num">
               1
             </view>
-            <text class="how-label">{{ t('promotion.groupBuy.detail.howStepStart') }}</text>
+            <text class="how-label">
+              {{ t('promotion.groupBuy.detail.howStepStart') }}
+            </text>
           </view>
           <view class="how-arrow" />
           <view class="how-step">
             <view class="how-num">
               2
             </view>
-            <text class="how-label">{{ t('promotion.groupBuy.detail.howStepInvite') }}</text>
+            <text class="how-label">
+              {{ t('promotion.groupBuy.detail.howStepInvite') }}
+            </text>
           </view>
           <view class="how-arrow" />
           <view class="how-step">
             <view class="how-num">
               3
             </view>
-            <text class="how-label">{{ t('promotion.groupBuy.detail.howStepShip') }}</text>
+            <text class="how-label">
+              {{ t('promotion.groupBuy.detail.howStepShip') }}
+            </text>
           </view>
         </view>
       </view>
@@ -817,7 +888,9 @@ function handleBottomSecondary() {
             {{ t('promotion.groupBuy.detail.goGoods') }}
           </template>
           <template v-else>
-            {{ t('promotion.groupBuy.detail.buyAlone') }}<text v-if="originalPriceText" class="cta-ghost-price"> ¥{{ originalPriceText }}</text>
+            {{ t('promotion.groupBuy.detail.buyAlone') }}<text v-if="originalPriceText" class="cta-ghost-price">
+              ¥{{ originalPriceText }}
+            </text>
           </template>
         </view>
       </view>
@@ -830,7 +903,9 @@ function handleBottomSecondary() {
           open-type="share"
           @tap="handleShareTap"
         >
-          <text class="cta-solid-label">{{ t('promotion.groupBuy.detail.inviteFriends') }}</text>
+          <text class="cta-solid-label">
+            {{ t('promotion.groupBuy.detail.inviteFriends') }}
+          </text>
         </button>
         <view
           v-else
@@ -838,13 +913,25 @@ function handleBottomSecondary() {
           :class="{ 'is-disabled': bottomMode === 'pending' || bottomMode === 'ended' }"
           @tap="handleBottomPrimary"
         >
-          <text v-if="bottomMode === 'pending'" class="cta-solid-label">{{ startTimeText }}</text>
-          <text v-else-if="bottomMode === 'ended'" class="cta-solid-label">{{ t('promotion.groupBuy.detail.activityEnded') }}</text>
-          <text v-else-if="bottomMode === 'order'" class="cta-solid-label">{{ t('promotion.groupBuy.detail.actionOrder') }}</text>
-          <text v-else-if="bottomMode === 'pay'" class="cta-solid-label">{{ t('promotion.groupBuy.detail.actionPay') }}</text>
+          <text v-if="bottomMode === 'pending'" class="cta-solid-label">
+            {{ startTimeText }}
+          </text>
+          <text v-else-if="bottomMode === 'ended'" class="cta-solid-label">
+            {{ t('promotion.groupBuy.detail.activityEnded') }}
+          </text>
+          <text v-else-if="bottomMode === 'order'" class="cta-solid-label">
+            {{ t('promotion.groupBuy.detail.actionOrder') }}
+          </text>
+          <text v-else-if="bottomMode === 'pay'" class="cta-solid-label">
+            {{ t('promotion.groupBuy.detail.actionPay') }}
+          </text>
           <template v-else>
-            <text v-if="groupPriceText" class="cta-solid-price">¥{{ groupPriceText }}</text>
-            <text class="cta-solid-label">{{ t('promotion.groupBuy.detail.startGroup') }}{{ saveText ? ` · ${saveText}` : '' }}</text>
+            <text v-if="groupPriceText" class="cta-solid-price">
+              ¥{{ groupPriceText }}
+            </text>
+            <text class="cta-solid-label">
+              {{ t('promotion.groupBuy.detail.startGroup') }}{{ saveText ? ` · ${saveText}` : '' }}
+            </text>
           </template>
         </view>
       </view>
@@ -891,7 +978,7 @@ function handleBottomSecondary() {
 .record-section {
   margin: 20rpx 24rpx 0;
   padding: 24rpx;
-  background: #fff;
+  background: var(--app-card);
   border-radius: 20rpx;
   box-shadow: 0 8rpx 24rpx rgba(15, 23, 42, 0.05);
 }
@@ -911,7 +998,7 @@ function handleBottomSecondary() {
   justify-content: center;
   width: 224rpx;
   height: 224rpx;
-  background: #f3f4f6;
+  background: var(--app-card-2);
   border-radius: 16rpx;
 }
 
@@ -932,7 +1019,7 @@ function handleBottomSecondary() {
   display: -webkit-box;
   height: 68rpx;
   overflow: hidden;
-  color: #1f2329;
+  color: var(--app-text);
   font-size: 25rpx;
   font-weight: 500;
   line-height: 34rpx;
@@ -940,10 +1027,20 @@ function handleBottomSecondary() {
   -webkit-line-clamp: 2;
 }
 
+/* 子标题：单行省略（与下方活动名同色系，但字号大一档区分层级） */
+.goods-sub {
+  overflow: hidden;
+  margin-top: 4rpx;
+  color: var(--app-text-3);
+  font-size: 22rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .goods-activity {
   margin-top: 8rpx;
   overflow: hidden;
-  color: #8a8f99;
+  color: var(--app-text-3);
   font-size: 20rpx;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -994,12 +1091,12 @@ function handleBottomSecondary() {
 }
 
 .price-other-label {
-  color: #8a8f99;
+  color: var(--app-text-3);
   font-size: 20rpx;
 }
 
 .price-orig {
-  color: #b6b9c0;
+  color: var(--app-text-3);
   font-size: 20rpx;
   text-decoration: line-through;
 }
@@ -1027,11 +1124,11 @@ function handleBottomSecondary() {
   padding-top: 18rpx;
   margin-top: 18rpx;
   gap: 12rpx;
-  border-top: 1rpx solid #f1f2f4;
+  border-top: 1rpx solid var(--app-border);
 }
 
 .countdown-label {
-  color: #5b616e;
+  color: var(--app-text-2);
   font-size: 22rpx;
   font-weight: 600;
 }
@@ -1062,7 +1159,7 @@ function handleBottomSecondary() {
 }
 
 .cd-colon {
-  color: #5b616e;
+  color: var(--app-text-2);
   font-size: 20rpx;
   font-weight: 700;
 }
@@ -1076,20 +1173,20 @@ function handleBottomSecondary() {
 }
 
 .section-title {
-  color: #1f2329;
+  color: var(--app-text);
   font-size: 30rpx;
   font-weight: 800;
   letter-spacing: 0.4rpx;
 }
 
 .section-sub {
-  color: #8a8f99;
+  color: var(--app-text-3);
   font-size: 20rpx;
 }
 
 .records-error {
   padding: 40rpx 0;
-  color: #8a8f99;
+  color: var(--app-text-3);
   font-size: 24rpx;
   text-align: center;
 }
@@ -1098,7 +1195,7 @@ function handleBottomSecondary() {
   display: flex;
   align-items: center;
   padding: 16rpx 0;
-  border-bottom: 1rpx solid #f1f2f4;
+  border-bottom: 1rpx solid var(--app-border);
 }
 
 .record-item:last-child {
@@ -1151,8 +1248,8 @@ function handleBottomSecondary() {
   justify-content: center;
   width: 64rpx;
   height: 64rpx;
-  background: #f1f2f4;
-  border: 2rpx solid #fff;
+  background: var(--app-card-2);
+  border: 2rpx solid var(--app-card);
   border-radius: 50%;
 }
 
@@ -1162,16 +1259,16 @@ function handleBottomSecondary() {
 }
 
 .ring-avatar--text {
-  color: #8a8f99;
+  color: var(--app-text-3);
   font-size: 24rpx;
   font-weight: 700;
 }
 
 .ring-avatar--empty {
-  color: #b6b9c0;
+  color: var(--app-text-3);
   font-size: 26rpx;
   font-weight: 700;
-  background: #fafafa;
+  background: var(--app-card-2);
   border: 2rpx dashed #d9dbe0;
 }
 
@@ -1198,7 +1295,7 @@ function handleBottomSecondary() {
 
 .ring-more {
   margin-left: 8rpx;
-  color: #8a8f99;
+  color: var(--app-text-3);
   font-size: 20rpx;
   font-weight: 600;
 }
@@ -1218,7 +1315,7 @@ function handleBottomSecondary() {
 .record-nick {
   overflow: hidden;
   max-width: 220rpx;
-  color: #1f2329;
+  color: var(--app-text);
   font-size: 26rpx;
   font-weight: 600;
   white-space: nowrap;
@@ -1226,7 +1323,7 @@ function handleBottomSecondary() {
 }
 
 .record-remain {
-  color: #8a8f99;
+  color: var(--app-text-3);
   font-size: 22rpx;
   font-weight: 600;
   white-space: nowrap;
@@ -1239,7 +1336,7 @@ function handleBottomSecondary() {
 }
 
 .record-done {
-  color: #8a8f99;
+  color: var(--app-text-3);
   font-size: 20rpx;
   font-weight: 500;
 }
@@ -1249,7 +1346,7 @@ function handleBottomSecondary() {
 }
 
 .record-time {
-  color: #8a8f99;
+  color: var(--app-text-3);
   font-size: 20rpx;
   font-variant-numeric: tabular-nums;
 }
@@ -1293,13 +1390,13 @@ function handleBottomSecondary() {
 }
 
 .cta-sm--disabled {
-  color: #b6b9c0;
-  background: #f1f2f4;
+  color: var(--app-text-3);
+  background: var(--app-card-2);
 }
 
 /* ---------- 空态（HallState：图形位 + 说明 + 主按钮 + 邀请好友） ---------- */
 .empty-card {
-  background: #fff;
+  background: var(--app-card);
   border-radius: 20rpx;
   overflow: hidden;
 }
@@ -1323,7 +1420,7 @@ function handleBottomSecondary() {
 
 /* ---------- 异常态 ---------- */
 .state-panel {
-  background: #fff;
+  background: var(--app-card);
   border-radius: 20rpx;
   margin: 20rpx 24rpx 0;
   overflow: hidden;
@@ -1333,13 +1430,13 @@ function handleBottomSecondary() {
 .how-card {
   margin: 20rpx 24rpx 0;
   padding: 24rpx;
-  background: #fff;
+  background: var(--app-card);
   border-radius: 20rpx;
   box-shadow: 0 8rpx 24rpx rgba(15, 23, 42, 0.05);
 }
 
 .how-title {
-  color: #1f2329;
+  color: var(--app-text);
   font-size: 26rpx;
   font-weight: 700;
 }
@@ -1372,7 +1469,7 @@ function handleBottomSecondary() {
 }
 
 .how-label {
-  color: #5b616e;
+  color: var(--app-text-2);
   font-size: 22rpx;
 }
 
@@ -1382,7 +1479,7 @@ function handleBottomSecondary() {
   width: 28rpx;
   height: 2rpx;
   margin-bottom: 34rpx;
-  background: #e5e7eb;
+  background: var(--app-border);
 }
 
 .how-arrow::after {
@@ -1392,8 +1489,8 @@ function handleBottomSecondary() {
   width: 8rpx;
   height: 8rpx;
   content: '';
-  border-top: 2rpx solid #e5e7eb;
-  border-right: 2rpx solid #e5e7eb;
+  border-top: 2rpx solid var(--app-border);
+  border-right: 2rpx solid var(--app-border);
   transform: rotate(45deg);
 }
 
@@ -1409,8 +1506,8 @@ function handleBottomSecondary() {
   padding: 16rpx 24rpx;
   padding-bottom: calc(16rpx + env(safe-area-inset-bottom));
   gap: 16rpx;
-  background: #fff;
-  border-top: 1rpx solid #f1f2f4;
+  background: var(--app-card);
+  border-top: 1rpx solid var(--app-border);
   box-shadow: 0 -8rpx 24rpx rgba(15, 23, 42, 0.05);
 }
 
@@ -1444,7 +1541,7 @@ function handleBottomSecondary() {
 
 .cta-ghost {
   color: var(--wot-color-theme-primary, #ff2237);
-  background: #fff;
+  background: var(--app-card);
   border: 2rpx solid var(--wot-color-theme-primary, #ff2237);
 }
 
@@ -1465,8 +1562,8 @@ function handleBottomSecondary() {
 
 /* 未开始 / 已结束：禁用态保留按钮形态（不再整条消失） */
 .cta-solid.is-disabled {
-  background: #f1f2f4;
-  color: #8a8f99;
+  background: var(--app-card-2);
+  color: var(--app-text-3);
 }
 
 /* 原生 button 复位：我参团中一支的主按钮即分享入口 */
@@ -1505,7 +1602,7 @@ function handleBottomSecondary() {
 .sk-card {
   padding: 24rpx;
   margin-bottom: 20rpx;
-  background: #fff;
+  background: var(--app-card);
   border-radius: 20rpx;
 }
 
@@ -1569,7 +1666,7 @@ function handleBottomSecondary() {
 }
 
 .sk-pulse {
-  background: #f1f2f4;
+  background: var(--app-card-2);
   animation: gb-skeleton-pulse 1.4s ease-in-out infinite;
 }
 

@@ -3,9 +3,11 @@ package com.aryn.cloud.upms.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.stp.StpUtil;
+import com.aryn.cloud.common.security.support.SessionInvalidSupport;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import com.aryn.cloud.common.core.constant.CacheConstants;
+import com.aryn.cloud.common.core.enums.SessionInvalidSubReason;
 import com.aryn.cloud.common.core.enums.DeviceTypeEnum;
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.log.annotation.SysLog;
@@ -117,7 +119,8 @@ public class SysOnlineUserController {
 		if (online == null || StrUtil.isBlank(tenantId) || !tenantId.equals(online.getTenantId())) {
 			return Result.fail("在线用户不存在或不属于当前租户");
 		}
-		StpUtil.kickoutByTokenValue(token);
+		// 先记「管理员强退」原因再踢：kickout 之后 token 映射消失，无法再按 token 反查
+		SessionInvalidSupport.kickoutTokenWithReason(token, SessionInvalidSubReason.ADMIN_KICK);
 		redisTemplate.delete(CacheConstants.SYS_ONLINE_KEY + token);
 		return Result.success();
 	}

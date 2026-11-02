@@ -22,6 +22,15 @@ import type { ReplenishCardProps } from '@/components/diy/retail-types'
  * 展示口径：只回答「几项、几个人、大概多少钱、都有什么」。
  * 不做「已采 / 还差 / 进度条」——系统里没有采购执行的实施反馈来源，
  * 靠人工回填的进度会立刻过期，比不显示更容易误事。
+ *
+ * 视觉口径（2026-11-01 重设计，对齐全站「白卡 + 发丝线 + 轻投影 + 中性灰 +
+ * 品牌色点状强调」）：
+ * - 旧版是深蓝渐变整块 + 半透明白胶囊装地址，长地址会折 3 行把卡片撑高并压住
+ *   按钮；信息全部压在渐变上，没有层级也没有品牌关系（全站主色是橙红）。
+ * - 新版是白卡：品牌色只出现在图标块 / 状态点 / 主 CTA，地址收成标题下的一行
+ *   省略文本，摘要做成「数字 + 单位」的弱化 meta 行，明细预览收进浅灰面板。
+ * - 主色一律走主题变量（不写死），换肤后不会出现「红配蓝」；正文/分隔线用全站
+ *   中性色，与 11-01 券体系重设计同一套令牌。
  */
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -32,6 +41,7 @@ import { usePageShowLoad } from '@/composables/usePageShowLoad'
 import { useAuthStore } from '@/store/authStore'
 import { useShipContextStore } from '@/store/shipContextStore'
 import { useTenantCapabilityStore } from '@/store/tenantCapabilityStore'
+import { amountText, cartStatusLabel } from '@/utils/shared-cart'
 
 const props = withDefaults(defineProps<{ showData?: Partial<ReplenishCardProps> }>(), {
   showData: () => ({}),
@@ -108,18 +118,30 @@ const locationText = computed(() => {
   return cart.vesselName || ''
 })
 
-/** 概览文案：N 项 · M 人参与 · 预估 ¥X */
-const overviewText = computed(() => {
-  const data = summary.value
-  if (!data)
-    return ''
-  const parts = [
-    t('diy.replenishCard.itemCount', { count: data.itemCount }),
-    t('diy.replenishCard.memberCount', { count: data.memberCount }),
-  ]
-  if (data.totalAmount > 0)
-    parts.push(t('diy.replenishCard.estimate', { amount: data.totalAmount }))
-  return parts.join(' · ')
+/** 位置图标：岸上=坐标点，船供=船（UnoCSS 扫描源码里的字面量类名，勿动态拼接） */
+const locationIconClass = computed(() =>
+  summary.value?.cart?.cartType === '2' ? 'i-carbon:location' : 'i-carbon:sailboat-coastal',
+)
+
+/**
+ * 状态胶囊：文案统一走 cartStatusLabel()（共享购物车的状态口径唯一来源），
+ * 颜色保持中性 —— 状态是"卡片现在是什么阶段"，不是促销信息，不抢主 CTA。
+ */
+const statusText = computed(() => cartStatusLabel(summary.value?.cart?.status))
+
+/** 统计数字：项 / 人（单位走 i18n，数字单独放大） */
+const itemCount = computed(() => summary.value?.itemCount ?? 0)
+const memberCount = computed(() => summary.value?.memberCount ?? 0)
+
+/** 主 CTA 文案随状态变：清单为空时「按单加购」没有对象，改成「去选品」 */
+const actionText = computed(() =>
+  itemCount.value > 0 ? t('diy.replenishCard.batchAdd') : t('diy.replenishCard.pickAction'),
+)
+
+/** 预估金额：只作量级参考，不是结算金额；0 元时不显示（没有金额比显示 ¥0.00 更诚实） */
+const amountValue = computed(() => {
+  const amount = summary.value?.totalAmount ?? 0
+  return amount > 0 ? amountText(amount) : ''
 })
 
 /**
@@ -127,13 +149,14 @@ const overviewText = computed(() => {
  *
  * 这里刻意不显示「还差 N」——系统里没有"已买多少"的事实来源，
  * 编一个进度出来会让确认人误以为有人在跟踪采购执行。
+ * 数量用「×N」而不是裸数字，避免和商品名里的规格数字混淆。
  */
 const previewLineText = computed(() => {
   const data = summary.value
   if (!data || data.previewItems.length === 0)
     return ''
   const text = data.previewItems
-    .map(item => `${item.spuName || item.skuId} ${item.quantity}`)
+    .map(item => `${item.spuName || item.skuId} ×${item.quantity}`)
     .join(' · ')
   return data.previewTruncated ? `${text} …` : text
 })
@@ -202,38 +225,72 @@ usePageShowLoad(loadSummary)
     class="replenish-card"
     :style="dynamicStyles"
   >
-    <view class="card-inner" @tap="openDetail">
-      <view class="card-head">
-        <view class="min-w-0 flex flex-1 flex-col">
-          <view class="flex items-center">
-            <text class="card-title">
-              {{ showData.title }}
-            </text>
-            <text v-if="locationText" class="card-location">
-              {{ locationText }}
-            </text>
+    <!-- 有进行中的补给单：整卡可点进详情，右侧 CTA 直达按单加购（stop 防冒泡） -->
+    <view
+      class="rp-card"
+      hover-class="rp-card--pressed"
+      @tap="openDetail"
+    >
+      <view class="rp-head">
+        <view class="rp-icon">
+          <text class="i-carbon:list-checked rp-icon-glyph" />
+        </view>
+        <view class="rp-heading">
+          <view class="rp-title-row">
+            <text class="rp-title">{{ showData.title }}</text>
+            <view v-if="statusText" class="rp-status">
+              <text class="rp-status-dot" />
+              <text class="rp-status-text">{{ statusText }}</text>
+            </view>
           </view>
-          <text class="card-overview">
-            {{ overviewText }}
-          </text>
+          <view v-if="locationText" class="rp-loc">
+            <text class="rp-loc-icon" :class="locationIconClass" />
+            <text class="rp-loc-text">{{ locationText }}</text>
+          </view>
         </view>
         <view
           v-if="showData.showBatchAdd"
-          class="card-action"
+          class="rp-action"
+          hover-class="rp-action--pressed"
           @tap.stop="goBatchAdd"
         >
-          {{ t('diy.replenishCard.batchAdd') }}
+          <text class="rp-action-text">{{ actionText }}</text>
+          <text class="i-carbon:arrow-right rp-action-icon" />
+        </view>
+      </view>
+
+      <view class="rp-divider" />
+
+      <view class="rp-meta">
+        <view class="rp-meta-stats">
+          <view class="rp-stat">
+            <text class="rp-stat-num">{{ itemCount }}</text>
+            <text class="rp-stat-unit">{{ t('diy.replenishCard.itemUnit') }}</text>
+          </view>
+          <text class="rp-stat-sep">·</text>
+          <view class="rp-stat">
+            <text class="rp-stat-num">{{ memberCount }}</text>
+            <text class="rp-stat-unit">{{ t('diy.replenishCard.memberUnit') }}</text>
+          </view>
+        </view>
+        <view v-if="amountValue" class="rp-amount">
+          <text class="rp-amount-label">{{ t('diy.replenishCard.estimateLabel') }}</text>
+          <text class="rp-amount-symbol">¥</text>
+          <text class="rp-amount-value">{{ amountValue }}</text>
         </view>
       </view>
 
       <view
-        v-if="showData.showPreview && previewLineText"
-        class="card-preview"
+        v-if="showData.showPreview"
+        class="rp-preview"
       >
-        <text class="flex-1 truncate">
-          {{ previewLineText }}
+        <template v-if="previewLineText">
+          <text class="rp-preview-text">{{ previewLineText }}</text>
+          <text class="i-carbon:chevron-right rp-preview-icon" />
+        </template>
+        <text v-else class="rp-preview-placeholder">
+          {{ t('diy.replenishCard.emptyItems') }}
         </text>
-        <text class="i-carbon:chevron-right ml-8rpx flex-none text-24rpx" />
       </view>
     </view>
   </view>
@@ -244,18 +301,29 @@ usePageShowLoad(loadSummary)
     class="replenish-card"
     :style="dynamicStyles"
   >
-    <view class="guide-inner">
-      <text class="guide-title">
-        {{ t('diy.replenishCard.emptyTitle') }}
-      </text>
-      <text class="guide-desc">
-        {{ t('diy.replenishCard.emptyDesc') }}
-      </text>
-      <view class="guide-actions">
-        <view class="guide-btn guide-btn--ghost" @tap="goCreateCart">
+    <view class="rp-guide">
+      <view class="rp-guide-head">
+        <view class="rp-icon">
+          <text class="i-carbon:add-alt rp-icon-glyph" />
+        </view>
+        <view class="rp-guide-heading">
+          <text class="rp-guide-title">{{ t('diy.replenishCard.emptyTitle') }}</text>
+          <text class="rp-guide-desc">{{ t('diy.replenishCard.emptyDesc') }}</text>
+        </view>
+      </view>
+      <view class="rp-guide-actions">
+        <view
+          class="rp-guide-btn rp-guide-btn--ghost"
+          hover-class="rp-guide-btn--pressed"
+          @tap="goCreateCart"
+        >
           {{ t('diy.replenishCard.createAction') }}
         </view>
-        <view class="guide-btn guide-btn--primary" @tap="goImportEntry">
+        <view
+          class="rp-guide-btn rp-guide-btn--primary"
+          hover-class="rp-guide-btn--pressed"
+          @tap="goImportEntry"
+        >
           {{ t('diy.replenishCard.importAction') }}
         </view>
       </view>
@@ -263,108 +331,402 @@ usePageShowLoad(loadSummary)
   </view>
 </template>
 
-<style scoped lang="scss">
+<style lang="scss" scoped>
+/**
+ * 补给单卡片设计令牌（2026-11-01 重设计 v1）。
+ *
+ * 与 `src/styles/coupon-ticket.scss` 同一套中性色口径；品牌色是主题变量
+ * （三色主题：页面级 --theme-color-* > 商城主题 --wot-color-theme-* > 兜底红），
+ * 禁止写死主色 —— 换肤后卡片配色必须跟着变。
+ *
+ * 换算口径：小程序屏宽恒 750rpx，管理端预览画布 375px ⇒ **1rpx = 0.5px**。
+ * 改这里任何一个数值都必须同步 `aryn-mall-ui/.../replenish-card/index.vue`，
+ * `preview-parity.test.ts` 会锁住高信号值。
+ */
+$rp-brand: var(--theme-color-primary, var(--wot-color-theme-primary, #ff2237));
+$rp-text-1: #1f2329;
+$rp-text-2: #5b616e;
+$rp-text-3: #6b7280;
+$rp-muted: #9ca3af;
+$rp-line: #eef0f3;
+$rp-fill: #f7f8fa;
+$rp-fill-strong: #f4f5f7;
+$rp-pressed: #fafbfc;
+
 .replenish-card {
-  // 背景由装修通用样式接管，这里只保留卡片内容的结构与品牌渐变
+  // 背景/边距/圆角由装修通用样式接管，这里只保留卡片内容的结构
 }
 
-.card-inner {
+.rp-card {
+  position: relative;
+  padding: 24rpx 24rpx 22rpx;
   overflow: hidden;
-  padding: 24rpx;
-  border-radius: 24rpx;
-  background: linear-gradient(135deg, #082e63, #0b63e5);
-  color: #fff;
-}
-
-.card-head {
-  display: flex;
-  align-items: flex-start;
-}
-
-.card-title {
-  flex: none;
-  font-size: 30rpx;
-  font-weight: 800;
-}
-
-.card-location {
-  margin-left: 12rpx;
-  padding: 2rpx 12rpx;
-  border-radius: 999rpx;
-  background: rgba(255, 255, 255, 0.22);
-  font-size: 20rpx;
-}
-
-.card-overview {
-  margin-top: 8rpx;
-  font-size: 22rpx;
-  opacity: 0.85;
-}
-
-.card-action {
-  flex: none;
-  padding: 12rpx 28rpx;
-  border-radius: 999rpx;
+  color: $rp-text-1;
   background: #fff;
-  color: #0a4da3;
-  font-size: 26rpx;
-  font-weight: 700;
+  border: 1rpx solid $rp-line;
+  border-radius: 24rpx;
+  // 两层叠加：近处细、远处散，白底楼层上靠发丝线 + 浅投影立住卡片边界
+  box-shadow:
+    0 2rpx 6rpx rgb(15 23 42 / 3%),
+    0 12rpx 28rpx rgb(15 23 42 / 5%);
+  transition: background-color 160ms ease;
+
+  // 按压反馈：H5 用 :active，小程序用 hover-class，两者效果一致
+  &:active {
+    background: $rp-pressed;
+  }
 }
 
-.card-preview {
+.rp-card--pressed {
+  background: $rp-pressed;
+}
+
+.rp-head {
   display: flex;
   align-items: center;
-  margin-top: 14rpx;
-  font-size: 22rpx;
-  opacity: 0.92;
 }
 
-// 空态占位引导卡：白底虚线框区别于有单时的品牌渐变实卡
-.guide-inner {
-  padding: 24rpx;
-  border: 2rpx dashed rgb(11 99 229 / 35%);
-  border-radius: 24rpx;
-  background: #fff;
-  text-align: center;
+/* 品牌色图标块：整卡唯一的"实心色块"，作为视觉锚点，其余全部中性 */
+.rp-icon {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 76rpx;
+  height: 76rpx;
+  color: #fff;
+  background: $rp-brand;
+  border-radius: 22rpx;
 }
 
-.guide-title {
-  display: block;
-  font-size: 28rpx;
+.rp-icon-glyph {
+  font-size: 38rpx;
+  line-height: 1;
+}
+
+.rp-heading {
+  flex: 1;
+  min-width: 0;
+  margin-left: 20rpx;
+}
+
+.rp-title-row {
+  display: flex;
+  align-items: center;
+}
+
+.rp-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 32rpx;
   font-weight: 700;
-  color: #172033;
+  line-height: 1.25;
+  color: $rp-text-1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.guide-desc {
-  display: block;
+/* 状态胶囊：中性底 + 品牌色状态点，只表达"阶段"，不抢 CTA */
+.rp-status {
+  display: flex;
+  flex: none;
+  align-items: center;
+  padding: 4rpx 12rpx 4rpx 10rpx;
+  margin-left: 12rpx;
+  background: $rp-fill-strong;
+  border-radius: 8rpx;
+}
+
+.rp-status-dot {
+  flex: none;
+  width: 8rpx;
+  height: 8rpx;
+  margin-right: 6rpx;
+  background: $rp-brand;
+  border-radius: 50%;
+}
+
+.rp-status-text {
+  flex: none;
+  font-size: 20rpx;
+  font-weight: 600;
+  line-height: 1.2;
+  color: $rp-text-2;
+}
+
+/* 位置行：长地址（岸上收货地址）必须收成 1 行省略，不再折行撑高卡片 */
+.rp-loc {
+  display: flex;
+  align-items: center;
+  min-width: 0;
   margin-top: 8rpx;
+}
+
+.rp-loc-icon {
+  flex: none;
+  margin-right: 6rpx;
+  font-size: 22rpx;
+  line-height: 1;
+  color: $rp-muted;
+}
+
+.rp-loc-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 22rpx;
+  line-height: 1.3;
+  color: $rp-text-3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 主 CTA：品牌实底胶囊（对齐券体系重设计口径：主行动用实底，不用渐变） */
+.rp-action {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  height: 64rpx;
+  padding: 0 24rpx 0 26rpx;
+  margin-left: 16rpx;
+  background: $rp-brand;
+  border-radius: 999rpx;
+  box-shadow: 0 8rpx 20rpx rgb(15 23 42 / 12%);
+  transition: opacity 160ms ease, transform 160ms ease;
+
+  // 视觉高 64rpx，触控热区补到 88rpx（44px）：::after 只扩热区不改布局
+  &::after {
+    position: absolute;
+    top: -12rpx;
+    right: -8rpx;
+    bottom: -12rpx;
+    left: -8rpx;
+    content: '';
+    border-radius: inherit;
+  }
+}
+
+.rp-action--pressed {
+  opacity: 0.88;
+  transform: scale(0.97);
+}
+
+.rp-action-text {
+  font-size: 24rpx;
+  font-weight: 600;
+  line-height: 1;
+  color: #fff;
+}
+
+.rp-action-icon {
+  margin-left: 4rpx;
+  font-size: 22rpx;
+  line-height: 1;
+  color: #fff;
+}
+
+.rp-divider {
+  height: 1rpx;
+  margin: 16rpx 0 14rpx;
+  background: $rp-line;
+}
+
+/* 摘要行：左边「N 项商品 · M 人参与」，右边「预估 ¥X.XX」——金额靠右形成张力 */
+.rp-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.rp-meta-stats {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.rp-stat {
+  display: flex;
+  align-items: baseline;
+}
+
+.rp-stat-num {
+  font-size: 30rpx;
+  font-weight: 700;
+  line-height: 1;
+  color: $rp-text-1;
+  font-variant-numeric: tabular-nums;
+}
+
+.rp-stat-unit {
+  margin-left: 4rpx;
+  font-size: 22rpx;
+  line-height: 1;
+  color: $rp-text-3;
+}
+
+.rp-stat-sep {
+  margin: 0 12rpx;
+  font-size: 22rpx;
+  line-height: 1;
+  color: #c9cdd4;
+}
+
+.rp-amount {
+  display: flex;
+  flex: none;
+  align-items: baseline;
+  margin-left: 16rpx;
+}
+
+.rp-amount-label {
+  margin-right: 6rpx;
+  font-size: 20rpx;
+  line-height: 1;
+  color: $rp-text-3;
+}
+
+.rp-amount-symbol {
+  margin-right: 2rpx;
+  font-size: 22rpx;
+  font-weight: 700;
+  line-height: 1;
+  color: $rp-text-2;
+}
+
+.rp-amount-value {
+  font-size: 36rpx;
+  font-weight: 700;
+  line-height: 1;
+  color: $rp-text-1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 明细预览：浅灰面板收口，1 行省略；0 项时同一位置给引导文案 */
+.rp-preview {
+  display: flex;
+  align-items: center;
+  padding: 12rpx 18rpx;
+  margin-top: 12rpx;
+  background: $rp-fill;
+  border-radius: 16rpx;
+}
+
+.rp-preview-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 22rpx;
+  line-height: 1.4;
+  color: $rp-text-2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rp-preview-icon {
+  flex: none;
+  margin-left: 8rpx;
+  font-size: 22rpx;
+  line-height: 1;
+  color: $rp-muted;
+}
+
+.rp-preview-placeholder {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 22rpx;
+  line-height: 1.4;
+  color: $rp-text-3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- 空态占位引导卡 ---------- */
+.rp-guide {
+  padding: 24rpx;
+  background: #fff;
+  border: 1rpx solid $rp-line;
+  border-radius: 24rpx;
+  box-shadow:
+    0 2rpx 6rpx rgb(15 23 42 / 3%),
+    0 12rpx 28rpx rgb(15 23 42 / 5%);
+}
+
+.rp-guide-head {
+  display: flex;
+  align-items: center;
+}
+
+.rp-guide-heading {
+  flex: 1;
+  min-width: 0;
+  margin-left: 20rpx;
+}
+
+.rp-guide-title {
+  display: block;
+  font-size: 30rpx;
+  font-weight: 700;
+  line-height: 1.3;
+  color: $rp-text-1;
+}
+
+.rp-guide-desc {
+  display: block;
+  margin-top: 6rpx;
   font-size: 22rpx;
   line-height: 1.5;
-  color: #7a8699;
+  color: $rp-text-3;
 }
 
-.guide-actions {
+.rp-guide-actions {
   display: flex;
   gap: 16rpx;
-  margin-top: 20rpx;
+  margin-top: 24rpx;
 }
 
-.guide-btn {
+.rp-guide-btn {
+  position: relative;
+  display: flex;
   flex: 1;
-  height: 64rpx;
-  font-size: 24rpx;
-  line-height: 64rpx;
+  align-items: center;
+  justify-content: center;
+  height: 72rpx;
+  font-size: 26rpx;
+  font-weight: 600;
+  line-height: 1;
   border-radius: 999rpx;
+  transition: opacity 160ms ease, transform 160ms ease;
+
+  // 视觉高 72rpx，触控热区补到 88rpx（44px）
+  &::after {
+    position: absolute;
+    top: -8rpx;
+    right: 0;
+    bottom: -8rpx;
+    left: 0;
+    content: '';
+    border-radius: inherit;
+  }
 }
 
-.guide-btn--ghost {
-  border: 2rpx solid #0b63e5;
-  color: #0b63e5;
-  background: #fff;
+.rp-guide-btn--pressed {
+  opacity: 0.88;
+  transform: scale(0.98);
 }
 
-.guide-btn--primary {
+.rp-guide-btn--ghost {
+  color: $rp-text-1;
+  background: $rp-fill-strong;
+}
+
+.rp-guide-btn--primary {
   color: #fff;
-  background: #0b63e5;
+  background: $rp-brand;
+  box-shadow: 0 8rpx 20rpx rgb(15 23 42 / 12%);
 }
 </style>

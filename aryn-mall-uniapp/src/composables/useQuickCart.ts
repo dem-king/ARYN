@@ -18,6 +18,7 @@ import { ref } from 'vue'
 
 import { getQuickCartInfo } from '@/api/product/spu'
 import { useCartDestination } from '@/composables/useCartDestination'
+import { useRequireLogin } from '@/composables/useRequireLogin'
 import { useAuthStore } from '@/store/authStore'
 import {
   QUICK_CART_MODE_DIRECT,
@@ -54,11 +55,10 @@ export interface QuickAddOptions {
 export function useQuickCart() {
   const authStore = useAuthStore()
   const { submitCartAdd } = useCartDestination()
+  // 未登录先拦在本地：走统一登录守卫（记录 redirectPath，登录后回原页），
+  // 不再各处各写一遍裸跳登录页（此前登录成功会被兜底送回首页，丢掉当前商品/列表页）
+  const { goLogin } = useRequireLogin()
   const pending = ref(false)
-
-  function goLogin() {
-    uni.navigateTo({ url: '/pages/login/index' })
-  }
 
   /**
    * 执行快捷加购。

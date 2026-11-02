@@ -11,9 +11,12 @@ import com.aryn.cloud.promotion.api.entity.SeckillSession;
 import com.aryn.cloud.promotion.api.vo.AppSeckillVO;
 import com.aryn.cloud.promotion.api.vo.SeckillActivityVO;
 import com.aryn.cloud.promotion.api.vo.SeckillGoodsVO;
+import com.aryn.cloud.promotion.api.vo.SeckillReminderConfigVO;
 import com.aryn.cloud.promotion.mapper.SeckillActivityMapper;
 import com.aryn.cloud.promotion.service.ISeckillGoodsService;
+import com.aryn.cloud.promotion.service.ISeckillScheduleService;
 import com.aryn.cloud.promotion.service.ISeckillSessionService;
+import com.aryn.cloud.promotion.service.ISeckillSessionTemplateService;
 import com.aryn.cloud.promotion.service.SeckillStockManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,6 +43,10 @@ class SeckillActivityServiceImplTest {
 
 	private ISeckillGoodsService seckillGoodsService;
 
+	private ISeckillSessionTemplateService seckillSessionTemplateService;
+
+	private ISeckillScheduleService seckillScheduleService;
+
 	private RemoteGoodsSpuService remoteGoodsSpuService;
 
 	private RemoteShoppingCartService remoteShoppingCartService;
@@ -56,13 +63,21 @@ class SeckillActivityServiceImplTest {
 	void setUp() {
 		seckillSessionService = mock(ISeckillSessionService.class);
 		seckillGoodsService = mock(ISeckillGoodsService.class);
+		seckillSessionTemplateService = mock(ISeckillSessionTemplateService.class);
+		seckillScheduleService = mock(ISeckillScheduleService.class);
 		remoteGoodsSpuService = mock(RemoteGoodsSpuService.class);
 		remoteShoppingCartService = mock(RemoteShoppingCartService.class);
 		seckillStockManager = mock(SeckillStockManager.class);
 		remoteGoodsSkuService = mock(RemoteGoodsSkuService.class);
 		activityMapper = mock(SeckillActivityMapper.class);
 		service = new SeckillActivityServiceImpl(seckillSessionService, seckillGoodsService,
+				seckillSessionTemplateService, seckillScheduleService,
 				seckillStockManager, remoteGoodsSkuService);
+		SeckillReminderConfigVO reminderConfig = new SeckillReminderConfigVO();
+		reminderConfig.setEnabled(false);
+		reminderConfig.setOffsetMinutes(10);
+		when(seckillScheduleService.getReminderConfig()).thenReturn(reminderConfig);
+		when(seckillSessionTemplateService.listVoByActivityId(anyString())).thenReturn(List.of());
 		ReflectionTestUtils.setField(service, "remoteGoodsSpuService", remoteGoodsSpuService);
 		ReflectionTestUtils.setField(service, "remoteShoppingCartService", remoteShoppingCartService);
 		ReflectionTestUtils.setField(service, "baseMapper", activityMapper);

@@ -771,7 +771,7 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
   height: 100vh;
   flex-direction: column;
   overflow: hidden;
-  background: #f5f6f8;
+  background: var(--app-bg);
 }
 
 /* ---- 内容舞台：滚动区 + 悬浮玻璃卡，同一个定位容器 ---- */
@@ -796,7 +796,7 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
   width: 100%;
   flex: 0 0 auto;
   padding: 12rpx 0;
-  background: #fff;
+  background: var(--app-card);
   white-space: nowrap;
 }
 
@@ -814,7 +814,7 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
   flex: 0 0 auto;
   align-items: center;
   gap: 8rpx;
-  background: #f5f6f8;
+  background: var(--app-card-2);
   border-radius: 999rpx;
 }
 
@@ -831,7 +831,7 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
 
 .act-tab-name {
   overflow: hidden;
-  color: #5b616e;
+  color: var(--app-text-2);
   font-size: 22rpx;
   font-weight: 500;
   text-overflow: ellipsis;
@@ -1001,19 +1001,19 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
   align-items: center;
   flex-direction: column;
   gap: 12rpx;
-  background: #fff;
+  background: var(--app-card);
   border-radius: 20rpx;
 }
 
 .full-scope-title {
-  color: #1f2329;
+  color: var(--app-text);
   font-size: 28rpx;
   font-weight: 600;
   text-align: center;
 }
 
 .full-scope-desc {
-  color: #8a8f99;
+  color: var(--app-text-3);
   font-size: 22rpx;
   font-weight: 400;
   line-height: 1.5;
@@ -1047,7 +1047,7 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
 .goods-card {
   position: relative;
   overflow: hidden;
-  background: #fff;
+  background: var(--app-card);
   border-radius: 20rpx;
   transition: transform 160ms ease;
 }
@@ -1061,7 +1061,7 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
   position: relative;
   width: 100%;
   padding-top: 100%;
-  background: #f6f7f9;
+  background: var(--app-card-2);
 }
 
 .goods-img {
@@ -1105,7 +1105,7 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
 .goods-name {
   display: -webkit-box;
   overflow: hidden;
-  color: #1f2329;
+  color: var(--app-text);
   font-size: 25rpx;
   font-weight: 500;
   line-height: 34rpx;
@@ -1117,7 +1117,7 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
 .goods-sub {
   overflow: hidden;
   margin-top: 4rpx;
-  color: #8a8f99;
+  color: var(--app-text-3);
   font-size: 22rpx;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1149,7 +1149,7 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
 
 .price-orig {
   overflow: hidden;
-  color: #b6b9c0;
+  color: var(--app-text-3);
   font-size: 20rpx;
   text-decoration: line-through;
   text-overflow: ellipsis;
@@ -1187,7 +1187,7 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
 }
 
 .goods-stock.is-out {
-  color: #b6b9c0;
+  color: var(--app-text-3);
 }
 
 /* 加购按钮绝对定位在卡身右下，与省额行同一视觉行 */
@@ -1232,11 +1232,11 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
 
 /* 售罄：灰底灰字，不可点（无按压态） */
 .goods-cart-btn--out {
-  color: #b6b9c0;
+  color: var(--app-text-3);
 }
 
 .goods-cart-btn--out::before {
-  background: #f1f2f4;
+  background: var(--app-card-2);
   opacity: 1;
 }
 
@@ -1269,7 +1269,7 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
   padding: 24rpx;
   align-items: center;
   gap: 20rpx;
-  background: #fff;
+  background: var(--app-card);
   border-radius: 20rpx;
 }
 
@@ -1277,7 +1277,7 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
   width: 112rpx;
   height: 112rpx;
   flex: 0 0 auto;
-  background: #edeff3;
+  background: var(--app-card-2);
   border-radius: 20rpx;
 }
 
@@ -1290,7 +1290,7 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
 
 .sk-line {
   height: 24rpx;
-  background: #edeff3;
+  background: var(--app-card-2);
   border-radius: 8rpx;
 }
 
@@ -1310,7 +1310,7 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
 .sk-img {
   width: 100%;
   padding-top: 100%;
-  background: #edeff3;
+  background: var(--app-card-2);
 }
 
 .sk-body {
@@ -1323,7 +1323,7 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
 /* ---- 收尾 ---- */
 .load-more {
   padding: 24rpx 0 60rpx;
-  color: #b6b9c0;
+  color: var(--app-text-3);
   font-size: 22rpx;
   text-align: center;
 }
@@ -1361,5 +1361,55 @@ function goGoodsDetail(goods: AppDiscountGoodsVO) {
   border-top: 3rpx solid #5b616e;
   border-left: 3rpx solid #5b616e;
   transform: rotate(45deg);
+}
+
+/**
+ * 深色模式：悬浮玻璃卡与回顶钮切深色玻璃（86% 暗底同族材质），
+ * 卡上的中性灰文字换语义浅色。品牌渐变氛围区保持原样。
+ */
+.wot-theme-dark .act-float-card {
+  border-color: rgb(255 255 255 / 14%);
+  background: linear-gradient(135deg, rgb(38 38 40 / 82%) 0%, rgb(30 30 32 / 66%) 100%);
+  box-shadow:
+    0 12rpx 32rpx rgb(0 0 0 / 46%),
+    0 2rpx 8rpx rgb(0 0 0 / 24%),
+    inset 0 1rpx 0 rgb(255 255 255 / 10%);
+}
+
+.wot-theme-dark .act-float-card.is-raised {
+  box-shadow:
+    0 20rpx 48rpx rgb(0 0 0 / 56%),
+    0 2rpx 8rpx rgb(0 0 0 / 24%),
+    inset 0 1rpx 0 rgb(255 255 255 / 12%);
+}
+
+.wot-theme-dark .act-float-card::before {
+  background: linear-gradient(180deg, rgb(255 255 255 / 8%) 0%, rgb(255 255 255 / 0%) 100%);
+}
+
+.wot-theme-dark .act-name {
+  color: var(--app-text);
+}
+
+.wot-theme-dark .act-sub {
+  color: var(--app-text-2);
+}
+
+.wot-theme-dark .act-cd {
+  color: var(--app-text-2);
+}
+
+.wot-theme-dark .act-cd--end {
+  color: var(--app-text-3);
+}
+
+.wot-theme-dark .back-top {
+  background: rgb(26 26 26 / 88%);
+  box-shadow: 0 8rpx 24rpx rgba(0, 0, 0, 0.46);
+}
+
+.wot-theme-dark .back-top-glyph {
+  border-top-color: rgba(255, 255, 255, 0.68);
+  border-left-color: rgba(255, 255, 255, 0.68);
 }
 </style>

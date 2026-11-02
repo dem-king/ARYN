@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { onLoad, onShow } from '@dcloudio/uni-app'
+import { onLoad, onPageScroll, onShow } from '@dcloudio/uni-app'
 import { useI18n } from 'vue-i18n'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+import { useUserLogout } from '@/composables/useUserLogout'
+
+const { handlePageScroll } = useFrostedNavbar()
 
 definePage({
   name: 'user-setting-index',
@@ -15,10 +19,7 @@ const router = useRouter()
 const { t } = useI18n()
 const { localeLabel, chooseLanguage } = useLocaleSwitch()
 const userStore = useUserStore()
-const authStore = useAuthStore()
-const globalLoading = useGlobalLoading()
-const { success: showSuccess } = useGlobalToast()
-const { confirm } = useGlobalMessage()
+const { confirmLogout } = useUserLogout()
 const maskedPhone = computed(() => {
   const p = userStore.getUserPhone
   if (!p)
@@ -41,29 +42,16 @@ function updatePhone() {
 function toMemberCenter() {
   router.push({ name: 'member-center' })
 }
-
-function logout() {
-  confirm({
-    title: t('userSetting.logoutTitle'),
-    msg: t('userSetting.logoutMessage'),
-    closeOnClickModal: false,
-    confirmButtonText: t('common.confirm'),
-    cancelButtonText: t('common.cancel'),
-    success: (res) => {
-      if (res.action === 'confirm') {
-        globalLoading.loading(t('userSetting.loggingOut'))
-        authStore.userLogout().then(() => {
-          showSuccess(t('userSetting.logoutSuccess'))
-          router.replaceAll({ name: 'home' })
-        })
-      }
-    },
-  })
+function toLoginDevices() {
+  router.push({ name: 'user-login-devices' })
 }
 onLoad(() => {})
 onShow(() => {
   userStore.refreshPointsInfo()
 })
+
+// 顶栏磨砂玻璃：字面量注册滚动（小程序按页面源码生成滚动位标记，包进 composable 会静默失效）
+onPageScroll(handlePageScroll)
 </script>
 
 <template>
@@ -162,10 +150,21 @@ onShow(() => {
             {{ localeLabel }}
           </view>
         </wd-cell>
+        <!-- 三期：登录设备管理（当前会话 + 下线其它会话；当前设备请从底部退出登录） -->
+        <wd-cell is-link @click="toLoginDevices">
+          <template #title>
+            <view class="flex items-center">
+              <wd-icon name="computer" size="24px" color="var(--wot-color-theme)" />
+              <text class="ml-10rpx">
+                {{ t('loginDevices.entry') }}
+              </text>
+            </view>
+          </template>
+        </wd-cell>
       </wd-cell-group>
     </view>
     <view class="m-4">
-      <wd-button custom-class="bg-secondary! border-secondary!" block @click="logout">
+      <wd-button custom-class="bg-secondary! border-secondary!" block @click="confirmLogout">
         {{ t('userSetting.logout') }}
       </wd-button>
     </view>

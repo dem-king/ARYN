@@ -119,6 +119,36 @@ class DefaultPageDesignDocumentValidatorTest {
 	}
 
 	@Test
+	void rejectsManualEmptyDataSourceOnCouponLadder() {
+		String content = """
+				{"schemaVersion":3,"page":{},"sections":[
+				  {"id":"section-1","type":"default","components":[
+				    {"id":"c1","type":"coupon-ladder","version":1,"props":{
+				      "title":"满减狂欢","showNum":3,"dataSource":{"mode":"manual","targetIds":[]}}}]}]}
+				""";
+
+		PageDesignValidationVO result = validator.validateStructured(content);
+
+		assertTrue(result.getErrors()
+			.stream()
+			.anyMatch(issue -> "DATASOURCE_EMPTY".equals(issue.getCode()) && "c1".equals(issue.getComponentId())));
+	}
+
+	@Test
+	void acceptsAutomaticCouponLadderWithoutTargets() {
+		String content = """
+				{"schemaVersion":3,"page":{},"sections":[
+				  {"id":"section-1","type":"default","components":[
+				    {"id":"c1","type":"coupon-ladder","version":1,"props":{
+				      "title":"满减狂欢","showNum":3,"dataSource":{"mode":"automatic","targetIds":[]}}}]}]}
+				""";
+
+		PageDesignValidationVO result = validator.validateStructured(content);
+
+		assertFalse(result.hasErrors(), String.valueOf(result.getErrors()));
+	}
+
+	@Test
 	void collectsManualGoodsTargetsIntoReferences() {
 		String content = """
 				{"schemaVersion":2,"components":[

@@ -374,6 +374,15 @@ public class ShoppingCartServiceImpl extends ServiceImpl<ShoppingCartMapper, Sho
 	}
 
 	@Override
+	public Integer countTotalQuantity(String userId) {
+		return list(Wrappers.<ShoppingCart>lambdaQuery()
+			.eq(ShoppingCart::getUserId, userId))
+			.stream()
+			.mapToInt(row -> row.getQuantity() == null ? 0 : row.getQuantity())
+			.sum();
+	}
+
+	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public int transferToVesselCall(String userId, ShoppingCartTransferDTO request) {
 		String tenantId = ArynTenantContextHolder.getTenantId();

@@ -27,19 +27,24 @@ import type {
  * - **模糊候选直接铺开**：服务端已打分给出候选，不必先手点搜索；
  *   连续多个候选各占一行列表反而更慢，改为候选项一行内横排。
  */
-import { onLoad, onUnload } from '@dcloudio/uni-app'
+import { onLoad, onPageScroll, onUnload } from '@dcloudio/uni-app'
 
 import { computed, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { ApiError } from '@/api/core/handlers'
 import { alovaInstance } from '@/api/core/instance'
 import {
   confirmSharedCartImport,
   getSharedCartImport,
   listSharedCartImports,
   previewChainImport,
+  SHARED_CART_NAME_REQUIRED,
 } from '@/api/order/sharedCart'
 import hrNavbar from '@/components/hr-navbar/index.vue'
-import { useAuthStore } from '@/store/authStore'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+import { useRequireLogin } from '@/composables/useRequireLogin'
+
+const { handlePageScroll } = useFrostedNavbar()
 
 definePage({
   name: 'shared-cart-chain-import',
@@ -49,7 +54,8 @@ definePage({
   },
 })
 
-const authStore = useAuthStore()
+// 统一登录守卫：游客深链进入时记录带 cartId 的回跳并跳登录（不再裸跳登录页丢来源）
+const { ensureLoggedIn } = useRequireLogin()
 const { t } = useI18n()
 
 const cartId = ref('')
@@ -263,8 +269,10 @@ function MONEY(value?: number | null) {
 
 onLoad((options) => {
   cartId.value = options?.cartId ?? ''
-  if (!authStore.isLoggedIn)
-    uni.navigateTo({ url: '/pages/login/index' })
+  // 需登录页：游客先登录，登录成功后带着 cartId 回到本页（而不是被兜底送回首页）
+  const redirectPath = `/sub-pages/order/shared-cart/chain-import${cartId.value ? `?cartId=${encodeURIComponent(cartId.value)}` : ''}`
+  if (!ensureLoggedIn(redirectPath))
+    return
 })
 
 /** 读取剪贴板：接龙原文在微信里复制后，回到小程序一键填入 */
@@ -477,6 +485,12 @@ async function handleConfirm() {
     }
   }
   catch (error) {
+    // 姓名闸门：操作者未填姓名（未命中人名的行归操作者名下），服务端拒绝并入
+    // （拦截器已 toast 后端文案）。跳到该车详情页强制补填，导入任务保留，返回后可重新确认
+    if (error instanceof ApiError && error.code === SHARED_CART_NAME_REQUIRED) {
+      uni.navigateTo({ url: `/sub-pages/order/shared-cart/detail?id=${cartId.value}` })
+      return
+    }
     uni.showToast({
       title: error instanceof Error ? error.message : t('sharedCart.chainImport.mergeFailed'),
       icon: 'none',
@@ -519,6 +533,9 @@ const remainedText = computed(() =>
     ? t('sharedCart.chainImport.remainingText', { count: remainingCount.value })
     : '',
 )
+
+// 顶栏磨砂玻璃：字面量注册滚动（小程序按页面源码生成滚动位标记，包进 composable 会静默失效）
+onPageScroll(handlePageScroll)
 </script>
 
 <template>
@@ -1016,13 +1033,13 @@ const remainedText = computed(() =>
 .page {
   min-height: 100vh;
   padding-bottom: 40rpx;
-  background: #f5f6f8;
+  background: var(--app-bg);
 }
 
 .card {
   margin: 20rpx 20rpx 0;
   border-radius: 20rpx;
-  background: #fff;
+  background: var(--app-card);
 }
 
 /* ---------- 步骤 1：粘贴 ---------- */
@@ -1034,13 +1051,13 @@ const remainedText = computed(() =>
 .paste-head__title {
   font-size: 34rpx;
   font-weight: 700;
-  color: #1f2329;
+  color: var(--app-text);
 }
 
 .paste-head__desc {
   margin-top: 8rpx;
   font-size: 24rpx;
-  color: #8a97a6;
+  color: var(--app-text-3);
 }
 
 .paste-card {
@@ -1050,7 +1067,7 @@ const remainedText = computed(() =>
 .paste-box {
   position: relative;
   border-radius: 16rpx;
-  background: #f7f8fa;
+  background: var(--app-card-2);
 }
 
 .paste-box__input {
@@ -1060,7 +1077,7 @@ const remainedText = computed(() =>
   padding: 24rpx;
   font-size: 26rpx;
   line-height: 1.6;
-  color: #1f2329;
+  color: var(--app-text);
 }
 
 .paste-box__clear {
@@ -1069,9 +1086,9 @@ const remainedText = computed(() =>
   bottom: 12rpx;
   padding: 4rpx 16rpx;
   border-radius: 999rpx;
-  background: #fff;
+  background: var(--app-card);
   font-size: 22rpx;
-  color: #8a97a6;
+  color: var(--app-text-3);
 }
 
 .paste-actions {
@@ -1091,8 +1108,8 @@ const remainedText = computed(() =>
 }
 
 .btn--ghost {
-  border: 1rpx solid #e3e6eb;
-  color: #303133;
+  border: 1rpx solid var(--app-border);
+  color: var(--app-text);
 }
 
 .btn--primary {
@@ -1112,7 +1129,7 @@ const remainedText = computed(() =>
 .tips-card__head {
   font-size: 26rpx;
   font-weight: 700;
-  color: #1f2329;
+  color: var(--app-text);
 }
 
 .tips-row {
@@ -1129,17 +1146,17 @@ const remainedText = computed(() =>
   justify-content: center;
   margin-top: 2rpx;
   border-radius: 999rpx;
-  background: #eef1f5;
+  background: var(--app-card-2);
   font-size: 20rpx;
   font-weight: 700;
-  color: #5f6b7a;
+  color: var(--app-text-2);
 }
 
 .tips-row__text {
   margin-left: 16rpx;
   font-size: 23rpx;
   line-height: 1.55;
-  color: #6b7684;
+  color: var(--app-text-2);
 }
 
 .paste-foot {
@@ -1166,12 +1183,12 @@ const remainedText = computed(() =>
 .summary__title {
   font-size: 30rpx;
   font-weight: 700;
-  color: #1f2329;
+  color: var(--app-text);
 }
 
 .summary__meta {
   font-size: 22rpx;
-  color: #8a97a6;
+  color: var(--app-text-3);
 }
 
 .summary__rate {
@@ -1185,7 +1202,7 @@ const remainedText = computed(() =>
   flex: 1;
   overflow: hidden;
   border-radius: 999rpx;
-  background: #eef1f5;
+  background: var(--app-card-2);
 }
 
 .summary__bar-fill {
@@ -1211,7 +1228,7 @@ const remainedText = computed(() =>
 .summary__rate-label {
   margin-left: 8rpx;
   font-size: 20rpx;
-  color: #8a97a6;
+  color: var(--app-text-3);
 }
 
 .summary__cells {
@@ -1224,7 +1241,7 @@ const remainedText = computed(() =>
 .summary__cell {
   padding: 16rpx 8rpx;
   border-radius: 14rpx;
-  background: #f7f8fa;
+  background: var(--app-card-2);
   text-align: center;
 }
 
@@ -1237,7 +1254,7 @@ const remainedText = computed(() =>
 .summary__cell-label {
   margin-top: 6rpx;
   font-size: 20rpx;
-  color: #8a97a6;
+  color: var(--app-text-3);
 }
 
 .summary__cell--danger .summary__cell-value {
@@ -1249,7 +1266,7 @@ const remainedText = computed(() =>
 }
 
 .summary__cell--muted .summary__cell-value {
-  color: #adb5bd;
+  color: var(--app-text-3);
 }
 
 /* ---------- 工具条 ---------- */
@@ -1276,7 +1293,7 @@ const remainedText = computed(() =>
 
 .toolbar__progress {
   font-size: 24rpx;
-  color: #6b7684;
+  color: var(--app-text-2);
 }
 
 .toolbar__progress-num {
@@ -1287,18 +1304,18 @@ const remainedText = computed(() =>
 .toolbar__progress-skip {
   margin-left: 12rpx;
   font-size: 22rpx;
-  color: #adb5bd;
+  color: var(--app-text-3);
 }
 
 .toolbar__switch {
   display: flex;
   align-items: center;
   padding: 8rpx 20rpx;
-  border: 1rpx solid #e3e6eb;
+  border: 1rpx solid var(--app-border);
   border-radius: 999rpx;
-  background: #fff;
+  background: var(--app-card);
   font-size: 22rpx;
-  color: #8a97a6;
+  color: var(--app-text-3);
 }
 
 .toolbar__switch--on {
@@ -1311,7 +1328,7 @@ const remainedText = computed(() =>
 
 .issue {
   padding: 24rpx 28rpx;
-  border-bottom: 1rpx solid #f2f3f5;
+  border-bottom: 1rpx solid var(--app-border);
 }
 
 .issue:last-child {
@@ -1319,7 +1336,7 @@ const remainedText = computed(() =>
 }
 
 .issue--done {
-  background: #fafbfc;
+  background: var(--app-card-2);
 }
 
 .issue__head {
@@ -1351,8 +1368,8 @@ const remainedText = computed(() =>
 }
 
 .tag--muted {
-  background: #f1f3f5;
-  color: #8a97a6;
+  background: var(--app-card-2);
+  color: var(--app-text-3);
 }
 
 .issue__name {
@@ -1363,7 +1380,7 @@ const remainedText = computed(() =>
   overflow: hidden;
   font-size: 27rpx;
   font-weight: 600;
-  color: #1f2329;
+  color: var(--app-text);
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 1;
 }
@@ -1373,7 +1390,7 @@ const remainedText = computed(() =>
   margin-left: 14rpx;
   font-size: 24rpx;
   font-weight: 600;
-  color: #5f6b7a;
+  color: var(--app-text-2);
 }
 
 .issue__issue,
@@ -1390,7 +1407,7 @@ const remainedText = computed(() =>
 }
 
 .issue__match {
-  color: #8a97a6;
+  color: var(--app-text-3);
 }
 
 .issue__owner {
@@ -1402,7 +1419,7 @@ const remainedText = computed(() =>
 .issue__owner-label {
   flex: none;
   font-size: 22rpx;
-  color: #8a97a6;
+  color: var(--app-text-3);
 }
 
 .issue__owner-input {
@@ -1411,9 +1428,9 @@ const remainedText = computed(() =>
   margin-left: 14rpx;
   padding: 0 20rpx;
   border-radius: 12rpx;
-  background: #f2f4f7;
+  background: var(--app-card-2);
   font-size: 24rpx;
-  color: #1f2329;
+  color: var(--app-text);
 }
 
 .issue__owner-input--empty {
@@ -1426,7 +1443,7 @@ const remainedText = computed(() =>
   margin-left: 12rpx;
   overflow: hidden;
   font-size: 20rpx;
-  color: #b0b8c1;
+  color: var(--app-text-3);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1437,7 +1454,7 @@ const remainedText = computed(() =>
 
 .issue__suggest-head {
   font-size: 22rpx;
-  color: #8a97a6;
+  color: var(--app-text-3);
 }
 
 .issue__suggest-list {
@@ -1457,7 +1474,7 @@ const remainedText = computed(() =>
 
 .chip--ai {
   border-color: var(--wot-color-theme-primary, #ff4d2e);
-  background: #fff;
+  background: var(--app-card);
   box-shadow: 0 0 0 2rpx rgb(255 77 46 / 14%);
 }
 
@@ -1487,7 +1504,7 @@ const remainedText = computed(() =>
   overflow: hidden;
   margin-top: 4rpx;
   font-size: 21rpx;
-  color: #5f6b7a;
+  color: var(--app-text-2);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1496,7 +1513,7 @@ const remainedText = computed(() =>
   display: block;
   margin-top: 4rpx;
   font-size: 20rpx;
-  color: #8a97a6;
+  color: var(--app-text-3);
 }
 
 .issue__actions {
@@ -1516,7 +1533,7 @@ const remainedText = computed(() =>
 }
 
 .link--muted {
-  color: #8a97a6;
+  color: var(--app-text-3);
 }
 
 .issue__search {
@@ -1531,9 +1548,9 @@ const remainedText = computed(() =>
   flex: 1;
   padding: 0 24rpx;
   border-radius: 999rpx;
-  background: #f2f4f7;
+  background: var(--app-card-2);
   font-size: 24rpx;
-  color: #1f2329;
+  color: var(--app-text);
 }
 
 .issue__search-btn {
@@ -1561,16 +1578,16 @@ const remainedText = computed(() =>
 }
 
 :deep(.ph) {
-  color: #b0b8c1;
+  color: var(--app-text-3);
 }
 
 .empty {
   margin: 20rpx 20rpx 0;
   padding: 48rpx 0;
   border-radius: 20rpx;
-  background: #fff;
+  background: var(--app-card);
   font-size: 24rpx;
-  color: #8a97a6;
+  color: var(--app-text-3);
   text-align: center;
 }
 
@@ -1589,17 +1606,17 @@ const remainedText = computed(() =>
 .passive__title {
   font-size: 28rpx;
   font-weight: 700;
-  color: #1f2329;
+  color: var(--app-text);
 }
 
 .passive__count {
   font-size: 22rpx;
-  color: #8a97a6;
+  color: var(--app-text-3);
 }
 
 .passive__row {
   padding: 20rpx 0;
-  border-bottom: 1rpx solid #f2f3f5;
+  border-bottom: 1rpx solid var(--app-border);
 }
 
 .passive__row:last-child {
@@ -1613,7 +1630,7 @@ const remainedText = computed(() =>
   margin-left: 14rpx;
   overflow: hidden;
   font-size: 26rpx;
-  color: #303133;
+  color: var(--app-text);
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 1;
 }
@@ -1622,7 +1639,7 @@ const remainedText = computed(() =>
   flex: none;
   margin-left: 14rpx;
   font-size: 22rpx;
-  color: #8a97a6;
+  color: var(--app-text-3);
 }
 
 .passive__foot {
@@ -1637,9 +1654,9 @@ const remainedText = computed(() =>
   flex: none;
   padding: 0 18rpx;
   border-radius: 10rpx;
-  background: #f7f8fa;
+  background: var(--app-card-2);
   font-size: 22rpx;
-  color: #303133;
+  color: var(--app-text);
 }
 
 .passive__note {
@@ -1648,7 +1665,7 @@ const remainedText = computed(() =>
   margin-left: 16rpx;
   overflow: hidden;
   font-size: 21rpx;
-  color: #8a97a6;
+  color: var(--app-text-3);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1657,7 +1674,7 @@ const remainedText = computed(() =>
   margin-left: auto;
   flex: none;
   font-size: 24rpx;
-  color: #8a97a6;
+  color: var(--app-text-3);
 }
 
 /* ---------- 底部固定条（与明细页同款） ---------- */
@@ -1676,7 +1693,7 @@ const remainedText = computed(() =>
   align-items: center;
   box-sizing: border-box;
   padding: 16rpx 24rpx calc(16rpx + env(safe-area-inset-bottom));
-  background: #fff;
+  background: var(--app-card);
   box-shadow: 0 -2rpx 12rpx rgb(0 0 0 / 4%);
 }
 
@@ -1687,7 +1704,7 @@ const remainedText = computed(() =>
   border-radius: 999rpx;
   font-size: 26rpx;
   line-height: 80rpx;
-  color: #303133;
+  color: var(--app-text);
 }
 
 .action-bar__info {
@@ -1707,7 +1724,7 @@ const remainedText = computed(() =>
   margin-top: 2rpx;
   font-size: 20rpx;
   line-height: 1.2;
-  color: #9aa4b2;
+  color: var(--app-text-3);
 }
 
 .action-bar__primary {
@@ -1791,14 +1808,14 @@ const remainedText = computed(() =>
 
 .missing__name--more {
   background: transparent;
-  color: #8a97a6;
+  color: var(--app-text-3);
 }
 
 .missing__hint {
   margin-top: 16rpx;
   font-size: 22rpx;
   line-height: 1.55;
-  color: #8a97a6;
+  color: var(--app-text-3);
 }
 
 /* ---------- 行内缺品空态 ---------- */
@@ -1823,7 +1840,7 @@ const remainedText = computed(() =>
 .issue__missing-hint {
   margin-top: 8rpx;
   font-size: 22rpx;
-  color: #8a97a6;
+  color: var(--app-text-3);
 }
 
 /* ---------- AI 解析动效 ---------- */
@@ -1848,7 +1865,7 @@ const remainedText = computed(() =>
   align-items: center;
   padding: 48rpx 56rpx 40rpx;
   border-radius: 28rpx;
-  background: #fff;
+  background: var(--app-card);
   box-shadow: 0 20rpx 60rpx rgb(0 0 0 / 18%);
 }
 
@@ -1918,12 +1935,12 @@ const remainedText = computed(() =>
   margin-top: 28rpx;
   font-size: 30rpx;
   font-weight: 700;
-  color: #1f2329;
+  color: var(--app-text);
 }
 
 .ai-mask__phase {
   margin-top: 10rpx;
   font-size: 24rpx;
-  color: #8a97a6;
+  color: var(--app-text-3);
 }
 </style>

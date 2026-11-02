@@ -1,6 +1,10 @@
 export default {
   checkout: {
     title: 'Confirm Order',
+    footer: {
+      total: 'Total',
+      saved: 'Saved ¥{amount}',
+    },
     address: {
       select: 'Select a shipping address',
     },
@@ -39,6 +43,7 @@ export default {
     coupon: {
       label: 'Coupon',
       select: 'Select Coupon',
+      noCoupon: 'No coupon',
       noneAvailable: 'No coupons available',
       activityBlocked: 'Not available on promo items',
       unavailableReason: 'Coupon unavailable: {reason}',

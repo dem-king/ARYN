@@ -4,6 +4,9 @@ import { onLoad } from '@dcloudio/uni-app'
 import { reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getRecordPage } from '@/sub-pages/api/promotion/groupBuyRecord'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+
+const { handlePageScroll } = useFrostedNavbar()
 
 definePage({
   name: 'group-buy-record',
@@ -63,10 +66,11 @@ function getGroupStatusClass(status?: string) {
 </script>
 
 <template>
-  <z-paging ref="pagingRef" v-model="state.list" :auto="false" @query="queryList">
-    <template #top>
-      <hr-navbar :title="t('promotion.groupBuy.record.title')" />
-    </template>
+  <hr-navbar :title="t('promotion.groupBuy.record.title')" />
+  <z-paging ref="pagingRef" v-model="state.list" :auto="false" @query="queryList" @scroll="handlePageScroll">
+    <!-- 顶栏覆盖层等高占位：列表整屏滚动，首屏内容从顶栏下沿开始 -->
+    <hr-navbar-space />
+
     <view class="record-list">
       <view v-for="item in state.list" :key="item.id" class="record-card">
         <view class="card-top">
@@ -114,7 +118,7 @@ function getGroupStatusClass(status?: string) {
 }
 
 .record-card {
-  background: #fff;
+  background: var(--app-card);
   border-radius: 16rpx;
   padding: 24rpx;
   margin-bottom: 24rpx;
@@ -128,7 +132,7 @@ function getGroupStatusClass(status?: string) {
 
     .record-id {
       font-size: 24rpx;
-      color: #999;
+      color: var(--app-text-3);
     }
 
     .record-status {
@@ -138,7 +142,7 @@ function getGroupStatusClass(status?: string) {
 
       &.status-pending { color: #ff8c00; background: #fff7e6; }
       &.status-success { color: #52c41a; background: #f6ffed; }
-      &.status-fail { color: #999; background: #f5f5f5; }
+      &.status-fail { color: var(--app-text-3); background: var(--app-card-2); }
     }
   }
 
@@ -149,8 +153,8 @@ function getGroupStatusClass(status?: string) {
       padding: 8rpx 0;
       font-size: 26rpx;
 
-      .label { color: #999; }
-      .value { color: #333; }
+      .label { color: var(--app-text-3); }
+      .value { color: var(--app-text); }
       .value.price { color: var(--wot-color-theme-primary, #ff2237); font-weight: 600; }
     }
   }

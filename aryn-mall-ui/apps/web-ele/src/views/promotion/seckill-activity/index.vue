@@ -211,6 +211,13 @@ useKeepAliveRefresh(initPage);
           align="center"
           show-overflow-tooltip
         />
+        <ElTableColumn label="排期方式" align="center" width="110">
+          <template #default="scope">
+            <ElTag :type="scope.row.scheduleType === 1 ? 'success' : 'info'">
+              {{ scope.row.scheduleType === 1 ? '每日重复' : '一次性' }}
+            </ElTag>
+          </template>
+        </ElTableColumn>
         <ElTableColumn label="活动时间" align="center" width="320">
           <template #default="scope">
             {{ scope.row.startTime }}<br />

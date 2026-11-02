@@ -50,7 +50,31 @@ describe('补给单卡片契约', () => {
     expect(card).not.toContain('progress-bar')
     expect(card).not.toMatch(/progressPercent[\s\S]{0,40}\/\s*\d/)
     // 金额只作量级参考，文案必须是「预估」而不是「合计」
-    expect(card).toContain('预估 ¥')
+    expect(card).toContain('t(\'diy.replenishCard.estimateLabel\')')
+    expect(card).not.toMatch(/合计|小计|总计/)
+    expect(source('src/locales/modules/diy.zh-CN.ts')).toContain('estimateLabel: \'预估\'')
+  })
+
+  it('长地址单行省略，不靠折行撑高卡片', () => {
+    // 旧版把地址塞进半透明白胶囊：长地址会折成 3 行、把卡片撑高并压住 CTA。
+    // 位置行必须 nowrap + ellipsis，长地址只截断不换行。
+    const card = source(CARD)
+    expect(card).toContain('class="rp-loc-text"')
+    expect(card).toMatch(/\.rp-loc-text[\s\S]{0,400}?text-overflow:\s*ellipsis/)
+    expect(card).toMatch(/\.rp-loc-text[\s\S]{0,400}?white-space:\s*nowrap/)
+    // 明细预览行同理：只出 1 行
+    expect(card).toMatch(/\.rp-preview-text[\s\S]{0,400}?white-space:\s*nowrap/)
+  })
+
+  it('品牌色走主题变量，旧版深蓝渐变不得回潮', () => {
+    const card = source(CARD)
+    // 全站主色是租户主题色（默认红），卡片只允许用变量，禁止写死某个品牌色
+    expect(card).toContain('var(--theme-color-primary')
+    expect(card).toContain('var(--wot-color-theme-primary')
+    // 旧版写死的深蓝渐变与白底蓝字按钮：与橙红主题同屏冲突，必须消失
+    expect(card).not.toContain('#082e63')
+    expect(card).not.toContain('#0b63e5')
+    expect(card).not.toContain('#0a4da3')
   })
 
   it('商品名从 SPU 批量查询取，不依赖 SKU 回填的 goodsSpu', () => {

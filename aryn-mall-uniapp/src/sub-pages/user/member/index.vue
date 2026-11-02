@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { onShow } from '@dcloudio/uni-app'
+import { onPageScroll, onShow } from '@dcloudio/uni-app'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getMemberLevelList, getMyBenefits } from '@/sub-pages/api/user/benefit'
 import { Local } from '@/utils/storage'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+
+const { handlePageScroll } = useFrostedNavbar()
 
 definePage({
   name: 'member-center',
@@ -286,6 +289,9 @@ function toCouponList() {
   if (requireLogin())
     router.push({ name: 'coupon-user' })
 }
+
+// 顶栏磨砂玻璃：字面量注册滚动（小程序按页面源码生成滚动位标记，包进 composable 会静默失效）
+onPageScroll(handlePageScroll)
 </script>
 
 <template>
@@ -475,13 +481,13 @@ function toCouponList() {
 </template>
 
 <style lang="scss" scoped>
-/* 文字色阶与卡片口径沿用个人中心：标题 #1f2329 / 正文 #4e5969 / 辅助 #9ca3af */
-$mc-title: #1f2329;
-$mc-text: #4e5969;
-$mc-muted: #9ca3af;
-/* 小号说明文字的灰比 #9ca3af 再深一档：22rpx 在浅底上要保证可读 */
-$mc-label: #6b7280;
-$mc-hairline: #eef0f3;
+/* 文字色阶与卡片口径沿用个人中心：接入语义色变量（App.vue 定义），深色模式自动跟随 */
+$mc-title: var(--app-text);
+$mc-text: var(--app-text-2);
+$mc-muted: var(--app-text-3);
+/* 小号说明文字与正文同档语义灰：22rpx 在浅底上要保证可读 */
+$mc-label: var(--app-text-2);
+$mc-hairline: var(--app-border);
 $mc-gutter: 20rpx;
 $mc-shadow: 0 8rpx 24rpx rgba(31, 44, 65, 0.06);
 /* 主题色：管理端可换肤，页面内不出现写死的主色（旧版紫色渐变即反例） */
@@ -613,7 +619,7 @@ $mc-secondary: var(--theme-color-secondary, var(--wot-color-theme-secondary, #FF
   margin: -80rpx $mc-gutter 0;
   padding: 26rpx 0;
   border-radius: 24rpx;
-  background: #fff;
+  background: var(--app-card);
   box-shadow: 0 12rpx 30rpx rgba(31, 44, 65, 0.08);
 }
 
@@ -677,7 +683,7 @@ $mc-secondary: var(--theme-color-secondary, var(--wot-color-theme-secondary, #FF
   height: 72rpx;
   flex-shrink: 0;
   border-radius: 24rpx;
-  background: #f5f6f8;
+  background: var(--app-card-2);
 }
 
 .mc-assets__guest-glyph {
@@ -741,7 +747,7 @@ $mc-secondary: var(--theme-color-secondary, var(--wot-color-theme-secondary, #FF
   margin: 20rpx $mc-gutter 0;
   padding: 8rpx 24rpx 20rpx;
   border-radius: 24rpx;
-  background: #fff;
+  background: var(--app-card);
   box-shadow: $mc-shadow;
 }
 
@@ -790,7 +796,7 @@ $mc-secondary: var(--theme-color-secondary, var(--wot-color-theme-secondary, #FF
   margin-bottom: 16rpx;
   padding: 18rpx 20rpx;
   border-radius: 20rpx;
-  background: #f7f8fa;
+  background: var(--app-card-2);
 }
 
 .mc-benefit--pressed {
@@ -811,7 +817,7 @@ $mc-secondary: var(--theme-color-secondary, var(--wot-color-theme-secondary, #FF
   color: $mc-primary;
   flex-shrink: 0;
   border-radius: 20rpx;
-  background: #fff;
+  background: var(--app-card);
   box-shadow: 0 2rpx 8rpx rgba(31, 44, 65, 0.04);
 }
 
@@ -978,7 +984,7 @@ $mc-secondary: var(--theme-color-secondary, var(--wot-color-theme-secondary, #FF
   color: $mc-primary;
   flex-shrink: 0;
   border-radius: 22rpx;
-  background: #f5f6f8;
+  background: var(--app-card-2);
 }
 
 .mc-entry__glyph {

@@ -17,6 +17,9 @@
 #   ./dev-tools/dev-image-tunnel.sh --detach     # 后台运行：起隧道+改库后退出，用 --stop 停止
 #   ./dev-tools/dev-image-tunnel.sh --stop       # 停止隧道并把图片地址还原为局域网 http
 #   ./dev-tools/dev-image-tunnel.sh --verify     # 只读：查看当前图片主机/隧道状态
+#   ./dev-tools/dev-image-tunnel.sh --set-host https://demo.example.cn
+#                                                # 不启动隧道，只把图片地址切到指定域名
+#                                                # （国内 ChmlFrp/natapp/cpolar 演示时用）
 #   ./dev-tools/dev-image-tunnel.sh --port 9999  # 后端端口，默认 9999
 #
 # 环境变量:
@@ -40,6 +43,7 @@ STATE_FILE="${RUN_DIR}/state.env"
 CF_LOG="${RUN_DIR}/cloudflared.log"
 PORT="9999"
 ACTION="foreground"
+SET_HOST=""
 
 CF_PID=""
 CF_HOST=""
@@ -54,6 +58,7 @@ usage() { sed -n '2,42p' "$0"; }
 while (($# > 0)); do
   case "$1" in
     --port) PORT="${2:-}"; shift 2 ;;
+    --set-host) ACTION="set-host"; SET_HOST="${2:-}"; shift 2 ;;
     --detach) ACTION="detach"; shift ;;
     --stop|--revert) ACTION="stop"; shift ;;
     --verify) ACTION="verify"; shift ;;
@@ -63,6 +68,10 @@ while (($# > 0)); do
 done
 
 [[ "$PORT" =~ ^[0-9]+$ ]] || die "端口不合法: ${PORT}"
+if [ "$ACTION" = "set-host" ]; then
+  [[ "$SET_HOST" =~ ^https?:// ]] || die "--set-host 需要 http(s):// 开头的地址，收到: ${SET_HOST:-<空>}"
+  SET_HOST="${SET_HOST%/}"
+fi
 
 # ---------- 基础探测 ----------
 
@@ -142,6 +151,8 @@ ORDER BY table_name, ordinal_position;"
 
 HTTP_DEV_RE="http://(localhost|127[.]0[.]0[.]1|10[.][0-9]{1,3}[.][0-9]{1,3}[.][0-9]{1,3}|192[.]168[.][0-9]{1,3}[.][0-9]{1,3}|172[.](1[6-9]|2[0-9]|3[01])[.][0-9]{1,3}[.][0-9]{1,3}):${PORT}"
 TUNNEL_RE="https://[a-zA-Z0-9-]+[.]trycloudflare[.]com"
+# 国内免费穿透的域名（ChmlFrp / natapp / cpolar），只在 --set-host 切换时覆盖旧值
+CN_TUNNEL_RE="https?://[a-zA-Z0-9.-]+[.](chmlfrp|natapp|natappfree|cpolar)[.][a-zA-Z]+(:[0-9]+)?"
 
 sql_quote() { printf "'%s'" "$1"; }
 
@@ -149,14 +160,20 @@ list_columns() { # $1=db
   mysql_q "$(printf "$COLUMN_SQL" "$1")"
 }
 
-gen_apply_sql() { # $1=db  $2=隧道地址
-  local db="$1" target="$2" t c
+gen_apply_sql() { # $1=db  $2=隧道地址  $3=是否同时替换国内穿透域名(1/0)
+  local db="$1" target="$2" include_cn="${3:-0}" t c
   while IFS=$'\t' read -r t c; do
     [ -n "$t" ] || continue
     printf 'UPDATE `%s`.`%s` SET `%s` = REGEXP_REPLACE(`%s`, %s, %s) WHERE `%s` REGEXP %s;\n' \
       "$db" "$t" "$c" "$c" "$(sql_quote "$HTTP_DEV_RE")" "$(sql_quote "$target")" "$c" "$(sql_quote "$HTTP_DEV_RE")"
     printf 'UPDATE `%s`.`%s` SET `%s` = REGEXP_REPLACE(`%s`, %s, %s) WHERE `%s` REGEXP %s;\n' \
       "$db" "$t" "$c" "$c" "$(sql_quote "$TUNNEL_RE")" "$(sql_quote "$target")" "$c" "$(sql_quote "$TUNNEL_RE")"
+    # 只在显式切到国内域名时替换旧国内域名；Cloudflare 图片隧道重启时不碰国内域名，
+    # 避免把正在演示的 ChmlFrp/natapp/cpolar 图片地址改回 trycloudflare。
+    if [ "$include_cn" = "1" ]; then
+      printf 'UPDATE `%s`.`%s` SET `%s` = REGEXP_REPLACE(`%s`, %s, %s) WHERE `%s` REGEXP %s;\n' \
+        "$db" "$t" "$c" "$c" "$(sql_quote "$CN_TUNNEL_RE")" "$(sql_quote "$target")" "$c" "$(sql_quote "$CN_TUNNEL_RE")"
+    fi
   done <<< "$(list_columns "$db")"
 }
 
@@ -169,10 +186,10 @@ gen_revert_sql() { # $1=db
   done <<< "$(list_columns "$db")"
 }
 
-apply_hosts() { # $1=隧道地址
-  local target="$1" db sql
+apply_hosts() { # $1=隧道地址  $2=是否同时替换国内穿透域名(1/0)
+  local target="$1" include_cn="${2:-0}" db sql
   for db in $DBS; do
-    sql=$(gen_apply_sql "$db" "$target")
+    sql=$(gen_apply_sql "$db" "$target" "$include_cn")
     [ -n "$sql" ] || continue
     printf '%s\n' "$sql" | mysql_run_db "$db" >/dev/null
   done
@@ -230,7 +247,7 @@ purge_stale_tunnel_cache() { # $1=当前隧道地址
     for k in $(redis_q "$db" --scan --pattern '*design*') $(redis_q "$db" --scan --pattern '*config_cache*'); do
       [ -n "$k" ] || continue
       v=$(redis_q "$db" GET "$k")
-      printf '%s' "$v" | grep -q 'trycloudflare[.]com' || continue
+      printf '%s' "$v" | grep -Eq 'trycloudflare[.]com|chmlfrp[.]|natapp|cpolar' || continue
       printf '%s' "$v" | grep -q "$cur_host" && continue
       redis_q "$db" DEL "$k" >/dev/null
       log "清理残留旧隧道缓存：$k"
@@ -367,12 +384,12 @@ current_image_hosts() {
   spu=$(mysql_q "SELECT spu_urls FROM \`aryn_boot\`.\`goods_spu\` WHERE spu_urls <> '' AND del_flag = '0' LIMIT 1;" 2>/dev/null | cut -d',' -f1)
   domain=$(mysql_q "SELECT domain FROM \`aryn_boot\`.\`sys_storage_config\` WHERE domain IS NOT NULL AND domain <> '' LIMIT 1;" 2>/dev/null)
   design=$(mysql_q "SELECT page_content FROM \`aryn_boot\`.\`page_design_release\` ORDER BY update_time DESC LIMIT 1;" 2>/dev/null | grep -oE "https?://[^\"\\\\ ]+" | head -1)
-  tunnel_count=$(mysql_q "SELECT COUNT(*) FROM \`aryn_boot\`.\`goods_spu\` WHERE spu_urls LIKE '%trycloudflare.com%' AND del_flag = '0';" 2>/dev/null)
+  tunnel_count=$(mysql_q "SELECT COUNT(*) FROM \`aryn_boot\`.\`goods_spu\` WHERE spu_urls REGEXP 'trycloudflare[.]com|chmlfrp[.]|natapp|cpolar' AND del_flag = '0';" 2>/dev/null)
   lan_count=$(mysql_q "SELECT COUNT(*) FROM \`aryn_boot\`.\`goods_spu\` WHERE spu_urls LIKE '%192.168.%' AND del_flag = '0';" 2>/dev/null)
   printf '  商品图样例: %s\n' "${spu:-<空>}"
   printf '  装修图样例: %s\n' "${design:-<空>}"
   printf '  存储 domain: %s\n' "${domain:-<空>}"
-  printf '  商品图统计: 隧道 %s 行 / 局域网 %s 行\n' "${tunnel_count:-?}" "${lan_count:-?}"
+  printf '  商品图统计: 公网隧道 %s 行 / 局域网 %s 行\n' "${tunnel_count:-?}" "${lan_count:-?}"
 }
 
 print_next_steps() {
@@ -415,6 +432,18 @@ stop_existing() {
 # ---------- 主流程 ----------
 
 case "$ACTION" in
+  set-host)
+    log "把图片地址切换到 ${SET_HOST}（不启动 cloudflared）…"
+    apply_hosts "$SET_HOST" 1
+    # 等 2s 让切换瞬间在途的请求落完，再清缓存，避免旧域名被重新写回
+    sleep 2
+    clear_image_caches
+    purge_stale_tunnel_cache "$SET_HOST"
+    log "已把图片地址切换到 ${SET_HOST}（含 sys_storage_config.domain）"
+    current_image_hosts
+    verify_sample_image
+    exit 0
+    ;;
   verify)
     log "当前状态（只读）：LAN=${LAN_HTTP}  库=${DBS//$'\n'/, }"
     current_image_hosts

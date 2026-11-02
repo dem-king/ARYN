@@ -17,3 +17,23 @@ export function shouldShowOriginalPrice(
     return false
   return original > current
 }
+
+export interface PriceParts {
+  integer: string
+  decimal: string
+}
+
+/**
+ * 金额拆成整数/两位小数（整数部分带千分位），供「¥ 小、整数大、小数小」
+ * 的电商价格排版使用。负数与非法值返回 null，页面直接不渲染价格。
+ */
+export function splitPrice(value: unknown): PriceParts | null {
+  const amount = Number(value)
+  if (!Number.isFinite(amount) || amount < 0)
+    return null
+  const [integer, decimal] = amount.toFixed(2).split('.')
+  return {
+    integer: integer.replace(/\B(?=(\d{3})+(?!\d))/g, ','),
+    decimal,
+  }
+}

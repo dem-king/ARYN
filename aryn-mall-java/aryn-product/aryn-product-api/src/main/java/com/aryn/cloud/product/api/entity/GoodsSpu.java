@@ -39,6 +39,16 @@ public class GoodsSpu extends Model<GoodsSpu> {
 	@Schema(description = "子标题")
 	private String subTitle;
 
+	/**
+	 * 商详首屏卖点：白名单内的 HTML 片段（p/br/span/strong/em/u/s，
+	 * span 仅保留 color/font-weight/font-size/text-align）。
+	 *
+	 * <p>写入前经 {@code GoodsIntroductionSanitizer} 清洗，C 端用 mp-html 渲染，
+	 * 因此运营可以逐商品配色；为空时首屏整块不渲染。
+	 */
+	@Schema(description = "商品卖点（白名单HTML片段，商详首屏）")
+	private String introduction;
+
 	@Schema(description = "商品属性标签（商详首屏属性卡）")
 	@TableField(value = "attr_tags", typeHandler = GoodsAttrTagListTypeHandler.class, jdbcType = JdbcType.VARCHAR)
 	private List<GoodsAttrTag> attrTags;

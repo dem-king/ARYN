@@ -2,7 +2,6 @@
 package com.aryn.cloud.order.controller.app;
 
 import cn.hutool.core.util.StrUtil;
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.security.util.SecurityUtils;
@@ -83,15 +82,14 @@ public class AppShoppingCartController {
 		return Result.success(shoppingCartService.removeByUserId(userId, ids));
 	}
 
-	@Operation(summary = "查询购物车数量")
+	@Operation(summary = "查询购物车商品总件数（按行数量求和，与「去结算(n)」同口径）")
 	@GetMapping("/count")
 	public Result count() {
 		String userId = SecurityUtils.getUser().getUserId();
 		if (StrUtil.isEmpty(userId)) {
 			return Result.success(0);
 		}
-		return Result.success(
-				shoppingCartService.count(Wrappers.<ShoppingCart>lambdaQuery().eq(ShoppingCart::getUserId, userId)));
+		return Result.success(shoppingCartService.countTotalQuantity(userId));
 	}
 
 }

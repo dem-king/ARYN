@@ -53,6 +53,13 @@ import {
   deriveSecondaryColor,
   THEME_PRESETS,
 } from '../page-designer/schema/theme-presets';
+import {
+  PREVIEW_TABBAR_ACTIVE_KEY,
+  PREVIEW_TABBAR_ITEMS,
+  resolvePreviewColors,
+  resolvePreviewTheme,
+  resolvePreviewThemeLabel,
+} from './preview-theme';
 
 const PreviewCanvas = defineAsyncComponent(
   () => import('../page-preview/components/preview-canvas.vue'),
@@ -97,6 +104,14 @@ const homeDocument = computed<DecorationDocument | null>(() => {
   }
 });
 
+/**
+ * 预览导航标题：与 C 端同源 —— `page.navigation.title || pageName`。
+ * 首页快照的 navigation.title 为空时，C 端展示的是首页页名
+ * （如「悦航购 · 商城首页」）；此前这里硬编码「商城首页」，
+ * 运营在主题页看到的是泛化文案，与实机对不上。
+ */
+const homePageName = computed(() => homePage.value?.pageName ?? '商城首页');
+
 /** 首页是否跟随商城主题：页面设置里关掉后全局换肤对它无效，预览须如实说明 */
 const homeFollowsTheme = computed(
   () => homeDocument.value?.page.followMallTheme !== false,
@@ -133,39 +148,26 @@ const form = reactive<PageDesignThemePayload>({
   themeName: '',
 });
 
-const defaultTheme = computed(() =>
-  themes.value.find((theme) => theme.mallDefaultFlag === '1'),
+/**
+ * 预览主题：优先选中行，其次商城默认；都没有时用预设主色兜底。
+ * 选主题 / 标注 / 取色的展示口径统一放在 ./preview-theme，由同目录单测钉死。
+ */
+const previewTheme = computed(() =>
+  resolvePreviewTheme(themes.value, previewId.value),
 );
 
-/** 预览主题：优先选中行，其次商城默认；都没有时用预设主色兜底 */
-const previewTheme = computed<PageDesignThemePayload & { id?: string }>(() => {
-  const picked = themes.value.find((theme) => theme.id === previewId.value);
-  if (picked) return picked;
-  if (defaultTheme.value) return defaultTheme.value;
-  return buildThemePayloadFromPrimary(
-    THEME_PRESETS[0]!.primaryColor,
-    THEME_PRESETS[0]!.name,
-  );
-});
-
 /** 预览手机壳底色与 tabBar 选中色（装修内容配色由画布按主题变量解析） */
-const previewColors = computed(() => ({
-  background: previewTheme.value.pageBackgroundColor || '#F5F5F5',
-  primary: previewTheme.value.primaryColor || '#FF2237',
-}));
+const previewColors = computed(() => resolvePreviewColors(previewTheme.value));
 
 /** 预览主题 → 画布主题变量：首页快照按该主题换肤（与编辑器画布同口径） */
 const previewThemeVars = computed<CanvasThemeVars>(() =>
   buildCanvasThemeVars(previewTheme.value),
 );
 
-/** 当前预览的主题名（无来源时标注「预设示例」） */
-const previewLabel = computed(() => {
-  const picked = themes.value.find((theme) => theme.id === previewId.value);
-  if (picked) return picked.themeName;
-  if (defaultTheme.value) return `${defaultTheme.value.themeName}（商城默认）`;
-  return '预设示例';
-});
+/** 当前预览的主题名（商城默认始终带「（商城默认）」后缀，见 preview-theme.ts） */
+const previewLabel = computed(() =>
+  resolvePreviewThemeLabel(themes.value, previewId.value),
+);
 
 async function loadThemes() {
   loading.value = true;
@@ -485,7 +487,7 @@ onMounted(() => {
                   <PreviewCanvas
                     :document="homeDocument"
                     :full-height="false"
-                    page-name="商城首页"
+                    :page-name="homePageName"
                     page-type="1"
                     :theme-vars="previewThemeVars"
                   />
@@ -493,23 +495,29 @@ onMounted(() => {
               </div>
               <div class="preview-tabbar-zoom" :style="{ zoom: previewZoom }">
                 <div class="preview-tabbar">
+                  <!-- 与 C 端 pages.json tabBar 同序（含购物车），选中项用预览主题主色 -->
                   <span
-                    class="tabbar-item is-active"
-                    :style="{ color: previewColors.primary }"
+                    v-for="item in PREVIEW_TABBAR_ITEMS"
+                    :key="item.key"
+                    :class="{
+                      'is-active': item.key === PREVIEW_TABBAR_ACTIVE_KEY,
+                    }"
+                    :style="
+                      item.key === PREVIEW_TABBAR_ACTIVE_KEY
+                        ? { color: previewColors.primary }
+                        : undefined
+                    "
+                    class="tabbar-item"
                   >
                     <i
-                      :style="{ background: previewColors.primary }"
+                      :style="
+                        item.key === PREVIEW_TABBAR_ACTIVE_KEY
+                          ? { background: previewColors.primary }
+                          : undefined
+                      "
                       class="tabbar-dot"
                     ></i>
-                    首页
-                  </span>
-                  <span class="tabbar-item">
-                    <i class="tabbar-dot"></i>
-                    分类
-                  </span>
-                  <span class="tabbar-item">
-                    <i class="tabbar-dot"></i>
-                    我的
+                    {{ item.label }}
                   </span>
                 </div>
               </div>
@@ -751,19 +759,29 @@ onMounted(() => {
   align-items: center;
 }
 
-/* 预览舞台居中放一部完整手机：高度吃满可用空间，宽度按真机 375:812 比例
-   由 aspect-ratio 推出；画布按 375px 设计宽绘制后用 zoom 等比缩放塞进屏体 */
+/* 预览舞台居中放一部完整手机：画布按 375px 设计宽绘制，手机壳按真机
+   375:812 比例等比缩放塞进可用空间。
+   舞台自身作为尺寸查询容器：手机壳宽度 = min(舞台宽, 舞台高 × 375/812)，
+   宽/高任一方向先耗尽都能自动收缩，再由 aspect-ratio 反推高度——始终等比、
+   不越界，也不依赖写死的窗口高度偏移。此前只写 max-width 并由 aspect-ratio
+   从宽度推高度，大屏（如 1920×1080）下 flex 会把高度拉到舞台高、宽度又被
+   max-width 卡住，手机壳横向溢出 4px 且比例失真。 */
 .preview-stage {
   display: flex;
   flex: 1;
+  align-items: center;
   justify-content: center;
   min-height: 0;
+
+  /* 高度由 flex 分配、两轴都是确定尺寸，可被 100cqh 引用为 size 容器 */
+  container-type: size;
 }
 
 .preview-phone {
   display: flex;
   flex: none;
   flex-direction: column;
+  width: min(100%, calc(100cqh * 375 / 812));
   max-width: calc(375px + 12px);
   aspect-ratio: 375 / 812;
   overflow: hidden;

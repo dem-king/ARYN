@@ -37,6 +37,10 @@ public class SeckillActivity extends Model<SeckillActivity> {
 	@Schema(description = "状态:0未开始 1进行中 2已结束 3已暂停")
 	private Integer status;
 
+	/** 排期方式：0一次性场次 1每日重复（每日重复由排期模板按天生成场次） */
+	@Schema(description = "排期方式:0一次性场次 1每日重复")
+	private Integer scheduleType;
+
 	/** 活动商品是否可用优惠券：1可用 0不可用（秒杀服务端强制 0，配置不生效） */
 	private String couponStackable;
 

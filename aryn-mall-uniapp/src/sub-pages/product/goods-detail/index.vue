@@ -30,6 +30,7 @@ import {
 } from '@/composables/useDistributionShare'
 import { usePageDecoration } from '@/composables/usePageDecoration'
 import { useQuickCart } from '@/composables/useQuickCart'
+import { useRequireLogin } from '@/composables/useRequireLogin'
 import { emptyDiscountDisplay, resolveDiscountPriceDisplay } from '@/utils/discount-price'
 import { resolvePurchaseDecision, resolveSpecRow } from '@/utils/goods-purchase'
 import { initGoodsSpecs } from '@/utils/goods-specs'
@@ -149,6 +150,8 @@ const shoppingCartStore = useShoppingCartStore()
 /** 单规格直加购与列表页快捷加购共用同一份规则（MOQ/步长/登录守卫） */
 const { quickAdd } = useQuickCart()
 const { submitCartAdd } = useCartDestination()
+/** 需要登录的点击入口（收藏/客服/弹层加购确认）：未登录先记录回跳并打开登录页 */
+const { ensureLoggedIn } = useRequireLogin()
 const spuId = ref()
 const proxy = getCurrentInstance()?.proxy
 const { statusBarHeight } = uni.getWindowInfo()
@@ -713,6 +716,9 @@ async function updateTabListPositions() {
 // 添加购物车（弹层回传路径；单规格直加路径在 handleBuyAction → useQuickCart）。
 // 去向由统一入口决定：有进行中的共享购物车时先询问，提示与角标也由它处理
 async function addCart(data: any) {
+  // 游客不进入加购链路：先登录，登录后回到商详再操作
+  if (!ensureLoggedIn())
+    return
   try {
     const dest = await submitCartAdd({
       skuId: data.skuId,
@@ -743,6 +749,9 @@ function onSkuAddCart(data: any) {
 }
 // 收藏
 async function handleCollect() {
+  // 收藏/取消收藏都调需登录接口，游客先登录再回来操作
+  if (!ensureLoggedIn())
+    return
   globalLoading.loading(t('common.loading'))
   if (state.goodsSpu.collectId) {
     // 取消收藏
@@ -809,15 +818,29 @@ function toCart() {
 }
 
 function toCustomerService() {
+  // 在线客服需要登录态（会话按用户建立）：游客先登录再回商详
+  if (!ensureLoggedIn())
+    return
   const payload = {
     image: state.goodsSpu.spuUrls?.[0] || '',
     productId: String(state.goodsSpu.id),
-    summary: state.goodsSpu.introduction || state.goodsSpu.name,
+    // 卖点是富文本，会话商品卡只展示可见文本，避免标签外露
+    summary: plainText(state.goodsSpu.introduction) || state.goodsSpu.name,
     title: state.goodsSpu.name,
   }
   uni.navigateTo({
     url: customerServiceRoute({ messageType: 'PRODUCT_CARD', payload }),
   })
+}
+
+/** 富文本转单行可见文本（仅用于会话卡片摘要，不走渲染） */
+function plainText(html: string) {
+  return String(html || '')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function handleSwiper(obj: any) {
@@ -999,7 +1022,7 @@ async function handleReceive(coupon: any) {
 }
 
 .detail-section__title {
-  color: #1f2329;
+  color: var(--app-text);
   font-size: 28rpx;
   font-weight: 600;
 }
@@ -1042,14 +1065,15 @@ async function handleReceive(coupon: any) {
   }
 }
 
+/* 与悬浮玻璃底栏等高的让位：52px 胶囊 + 16px 贴底 + 12px 呼吸位 */
 .detail-bottom-space {
-  height: calc(140rpx + env(safe-area-inset-bottom));
+  height: calc(var(--app-tabbar-height, 68px) + 12px);
 }
 
 .decoration-skeleton {
   height: 300rpx;
   margin: 16rpx;
   border-radius: 12rpx;
-  background: #f5f5f5;
+  background: var(--app-card-2);
 }
 </style>

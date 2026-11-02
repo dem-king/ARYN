@@ -92,6 +92,8 @@ export interface RetailSeckillGoodsItem {
 
 export interface RetailSeckillSessionItem {
   countdown: number;
+  /** 相对今天的天数：0今天 1明天 */
+  dayOffset?: number;
   endTime: string;
   goodsList: RetailSeckillGoodsItem[];
   sessionId: string;
@@ -528,6 +530,7 @@ export function normalizeSeckillSessions(
       const goods = Array.isArray(record.goodsList) ? record.goodsList : [];
       return {
         countdown: toNumber(record.countdown),
+        dayOffset: toNumber(record.dayOffset),
         endTime: toText(record.endTime),
         goodsList: goods
           .map((goodsItem) => {

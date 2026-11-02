@@ -41,6 +41,18 @@ export default defineConfig({
       // },
     }),
   ],
+  rules: [
+    /**
+     * bg-white 语义化（编译期改写）：解析为卡片表面变量。
+     *
+     * 全仓 90+ 处 bg-white 的语义是「卡片/面板表面」而非字面纯白——深色模式下
+     * 这些面必须跟着变黑。改写为 var(--app-card, #ffffff) 后，浅色模式与原值
+     * 逐字节一致；深色模式由 App.vue 的 .wot-theme-dark 块下发深色卡片值。
+     * 自定义规则先于 preset 匹配，text-white / bg-white/50 等其他用法不受影响
+     * （全仓已核实 bg-white 只有裸用法）。
+     */
+    ['bg-white', { 'background-color': 'var(--app-card, #ffffff)' }],
+  ],
   theme: {
     colors: {
       // 三色主题CSS变量映射

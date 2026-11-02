@@ -6,8 +6,12 @@
 # 做三件事：
 #   1. 写 ~/Library/LaunchAgents/com.aryn.demo-env.plist
 #   2. launchctl 加载并立即执行一次
-#   3. 之后每 300 秒执行一遍 start-demo-env.sh（已存活的服务不会重启；
+#   3. 之后每 300 秒执行一遍 start-demo-env.sh --no-admin --no-h5（已存活的服务不会重启；
 #      隧道挂了会自动重建，并自动把 Cloudflare Pages 的 /api 代理更新到新域名）
+#
+# 管理端/移动端已静态部署到 Cloudflare Pages，本机不再需要 5777/8890 前端服务；
+# 该任务只负责保活 9999 后端隧道并同步 Pages 代理域名。需要本地前端时手动跑
+# ./dev-tools/start-demo-env.sh。
 #
 # 用法：
 #   ./dev-tools/install-demo-launchd.sh install     # 安装/更新并立即启动
@@ -54,7 +58,7 @@ write_plist() {
   <array>
     <string>/bin/bash</string>
     <string>-lc</string>
-    <string>cd "${ROOT_DIR}" &amp;&amp; echo "===== $(date) launchd loop start =====" &amp;&amp; while true; do AUTO_PAGES=true ./dev-tools/start-demo-env.sh; echo "----- 下一轮 300s 后 -----"; sleep 300; done</string>
+    <string>cd "${ROOT_DIR}" &amp;&amp; echo "===== $(date) launchd loop start =====" &amp;&amp; while true; do AUTO_PAGES=true ./dev-tools/start-demo-env.sh --no-admin --no-h5; echo "----- 下一轮 300s 后 -----"; sleep 300; done</string>
   </array>
   <key>WorkingDirectory</key>
   <string>${ROOT_DIR}</string>

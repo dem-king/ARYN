@@ -22,6 +22,7 @@ import {
 } from '../common/retail-preview/retail-data';
 import RetailPreviewFrame from '../common/retail-preview/retail-preview-frame.vue';
 import { createRetailPreviewController } from '../common/retail-preview/use-retail-preview';
+import MarqueeText from './marquee-text.vue';
 import { ACTIVITY_STRIP_HALLS, validateActivityStrip } from './types';
 
 /**
@@ -34,7 +35,9 @@ import { ACTIVITY_STRIP_HALLS, validateActivityStrip } from './types';
  * · 全场折扣无商品清单 → 缩略图取「全店销量 Top1」真实商品图作代表（见 loadDiscounts），
  *   不退回「限」字灰块；仍取不到图或远程图加载失败 → 首字灰块兜底；
  * · 三类全无 → controller 置 empty，由 RetailPreviewFrame 渲染空态提示
- *   （C 端默认 emptyStrategy=hide 时整条不渲染，管理端用画布空态表达同一语义）。
+ *   （C 端默认 emptyStrategy=hide 时整条不渲染，管理端用画布空态表达同一语义）；
+ * · 钩子优先展示真实活动名 + 利益点（如「农夫山泉天然水整箱·立省¥4」），
+ *   活动名/钩子超长时保持单行横向滚动，不换行也不省略。
  *
  * 视觉规格见需求文档 §5.5.5（750rpx 设计稿）：1rpx = 0.5px，
  * 375px 画布内所有 px 值都是 C 端 rpx 值的一半；改任一端必须同步另一端。
@@ -106,12 +109,62 @@ function formatGroupBuyTitle(
   return groupNum > 0 ? `${groupNum}人拼团` : '2人拼团';
 }
 
-/** 拼团钩子：`{groupNum}人成团立省`；存量活动没有 groupNum 时退化为「多人成团」 */
+/** 活动名归一：折叠空白并去首尾，避免活动名里的换行把单行跑马灯撑乱（与 C 端同源） */
+function normalizeActivityName(value?: string): string {
+  return (value || '').replaceAll(/\s+/g, ' ').trim();
+}
+
+/**
+ * 拼团钩子：优先展示真实活动名 + 利益点，如「农夫山泉天然水整箱·立省¥4」
+ * （与 C 端 formatGroupBuyHook 同源）。活动名缺失时退回原「N人成团立省」；
+ * 已写省额时不重复拼接，钩子不截断，超长时由 MarqueeText 单行滚动。
+ */
 function formatGroupBuyHook(
-  activity: Pick<RetailActivityItem, 'groupNum'>,
+  activity: Pick<
+    RetailActivityItem,
+    'activityPrice' | 'groupNum' | 'name' | 'originalPrice'
+  >,
 ): string {
   const groupNum = Number(activity.groupNum);
-  return groupNum > 0 ? `${groupNum}人成团立省` : '多人成团';
+  const name = normalizeActivityName(activity.name);
+  if (!name) {
+    return groupNum > 0 ? `${groupNum}人成团立省` : '多人成团';
+  }
+
+  const saving =
+    Number(activity.originalPrice) - Number(activity.activityPrice);
+  if (saving > 0) {
+    const amount = formatStripAmount(saving);
+    if (name.includes(`¥${amount}`)) return name;
+    return `${name}·立省¥${amount}`;
+  }
+  if (/成团|人团/.test(name)) return name;
+  return groupNum > 0 ? `${name}·${groupNum}人成团` : name;
+}
+
+/**
+ * 折扣钩子：优先展示真实活动名 + 力度，如「好吃零食节·9.5折」
+ * （与 C 端 formatDiscountHook 同源）。活动名已写明同类型优惠时只展示活动名，
+ * 活动名缺失时退回「{value}专区」；钩子不截断，超长时单行滚动。
+ */
+function formatDiscountHook(
+  activity: Pick<
+    RetailDiscountActivityItem,
+    'activityName' | 'discountType' | 'discountValue'
+  >,
+): string {
+  const name = normalizeActivityName(activity.activityName);
+  const value = formatDiscountValue(activity);
+  if (!name) return `${value}专区`;
+
+  const type = Number(activity.discountType);
+  const hasOwnBenefit =
+    (type === 1 && /折|off/i.test(name)) ||
+    (type === 2 && /减/.test(name)) ||
+    (type === 3 && /一口价/.test(name)) ||
+    name.includes(value);
+  if (hasOwnBenefit || value === '折扣') return name;
+  return `${name}·${value}`;
 }
 
 /**
@@ -127,11 +180,14 @@ function formatGroupBuyBadge(
   return `省¥${formatStripAmount(saving)}`;
 }
 
-/** 秒杀钩子：`{sessionName}·整点开抢`；场次名缺失时只留节奏词 */
+/** 秒杀钩子：`{sessionName}·整点开抢`；明日场次标明「明日」，场次名缺失时只留节奏词 */
 function formatSeckillHook(
-  session: Pick<RetailSeckillSessionItem, 'sessionName'>,
+  session: Pick<RetailSeckillSessionItem, 'dayOffset' | 'sessionName'>,
 ): string {
   const name = (session.sessionName || '').trim();
+  if (Number(session.dayOffset) === 1) {
+    return name ? `明日${name}` : '明日同一时间再开抢';
+  }
   return name ? `${name}·整点开抢` : '整点开抢';
 }
 
@@ -151,8 +207,8 @@ function hallLink(path: string): DecorationLink {
  * 组装内置三类卡，顺序固定「秒杀 → 拼团 → 折扣」（与 C 端
  * buildActivityStripEntries 同源，§5.5.3 表格顺序）。
  *
- * 只认「进行中」：秒杀场次 status=1、拼团 activityStatus=active、折扣 status=1；
- * 未开始/已结束的数据即使被 loader 带回来也不会出现在入口条上。
+ * 秒杀认「进行中优先，其次未开始」：当天最后一场结束后，入口条继续展示明日场次，
+ * 不再整卡消失；拼团 activityStatus=active、折扣 status=1。
  */
 function buildActivityStripEntries(
   sources: ActivityStripSources,
@@ -160,7 +216,10 @@ function buildActivityStripEntries(
   const entries: ActivityStripEntry[] = [];
 
   const seckill = sources.seckill;
-  if (seckill && Number(seckill.status) === 1) {
+  if (
+    seckill &&
+    (Number(seckill.status) === 1 || Number(seckill.status) === 0)
+  ) {
     entries.push({
       badge: '抢',
       hook: formatSeckillHook(seckill),
@@ -188,7 +247,7 @@ function buildActivityStripEntries(
     const value = formatDiscountValue(discount);
     entries.push({
       badge: value,
-      hook: `${value}专区`,
+      hook: formatDiscountHook(discount),
       // 指定商品活动取首件商品图；全场活动取 loadDiscounts 补的代表商品图
       // （loadDiscounts 已并入 coverImage，这里保留商品图优先，缺图才回落首字灰块）
       imageUrl: discount.goodsList[0]?.goodsImage || discount.coverImage || '',
@@ -337,9 +396,13 @@ const gridStyle = computed(() => ({
               {{ entry.badge }}
             </span>
           </div>
-          <span class="strip-name">{{ entry.title }}</span>
+          <div class="strip-name">
+            <MarqueeText :text="entry.title" />
+          </div>
         </div>
-        <span v-if="entry.hook" class="strip-hook">{{ entry.hook }}</span>
+        <div v-if="entry.hook" class="strip-hook">
+          <MarqueeText :text="entry.hook" />
+        </div>
         <div class="strip-arrow"></div>
       </div>
     </div>
@@ -429,7 +492,7 @@ const gridStyle = computed(() => ({
   white-space: nowrap;
 }
 
-/* 钩子文案独占一行、通卡宽：三张卡时也能完整显示「午间场·整点开抢」 */
+/* 钩子文案独占一行、通卡宽：真实活动名超长时交给 MarqueeText 单行滚动 */
 .strip-hook {
   display: block;
   overflow: hidden;

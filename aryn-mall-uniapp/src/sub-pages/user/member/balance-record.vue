@@ -3,6 +3,9 @@ import { ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { useI18n } from 'vue-i18n'
 import { getBalanceRecordPage } from '@/sub-pages/api/user/balance'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+
+const { handlePageScroll } = useFrostedNavbar()
 
 definePage({
   name: 'member-balance-record',
@@ -88,10 +91,11 @@ function getSceneText(scene: string): string {
 </script>
 
 <template>
-  <z-paging ref="pagingRef" v-model="list" :auto="false" @query="queryList">
-    <template #top>
-      <hr-navbar :title="t('accountMember.balanceRecord.title')" />
-    </template>
+  <hr-navbar :title="t('accountMember.balanceRecord.title')" />
+  <z-paging ref="pagingRef" v-model="list" :auto="false" @query="queryList" @scroll="handlePageScroll">
+    <!-- 顶栏覆盖层等高占位：列表整屏滚动，首屏内容从顶栏下沿开始 -->
+    <hr-navbar-space />
+
     <view v-for="(item, index) in list" :key="index" class="m-2 rounded-xl bg-white px-4 py-3">
       <view class="flex items-center justify-between">
         <view class="flex-1">

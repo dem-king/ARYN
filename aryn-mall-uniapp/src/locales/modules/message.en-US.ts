@@ -9,6 +9,7 @@ export default {
       unreadTitle: 'You have {count} unread',
       allRead: 'No unread messages',
       tip: 'Order updates, offers and support replies will show up here.',
+      loginRequired: 'Sign in to view your messages',
     },
     tabs: {
       notice: 'Notifications',

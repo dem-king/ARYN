@@ -31,9 +31,16 @@ public class SeckillActivityDTO {
 	@Schema(description = "活动描述")
 	private String description;
 
-	@Schema(description = "场次列表")
+	@Schema(description = "排期方式:0一次性场次 1每日重复")
+	private Integer scheduleType;
+
+	@Schema(description = "场次列表（一次性模式）")
 	@Valid
 	private List<SeckillSessionDTO> sessions;
+
+	@Schema(description = "每日排期模板（每日重复模式）")
+	@Valid
+	private List<SeckillSessionTemplateDTO> sessionTemplates;
 
 	@Schema(description = "时间区间校验")
 	public boolean isTimeRangeValid() {

@@ -25,8 +25,9 @@ import type { ShipSupplyRow } from '@/sub-pages/utils/ship-supply'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import { computed, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { ApiError } from '@/api/core/handlers'
 import { alovaInstance } from '@/api/core/instance'
-import { addSharedCartItem, getSharedCart, getSharedCartItems } from '@/api/order/sharedCart'
+import { addSharedCartItem, getSharedCart, getSharedCartItems, SHARED_CART_NAME_REQUIRED } from '@/api/order/sharedCart'
 import { addShoppingCart } from '@/api/order/shoppingCart'
 import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 import hrNavbar from '@/components/hr-navbar/index.vue'
@@ -283,7 +284,13 @@ function handleAddToCart(row: ShipSupplyRow) {
         icon: 'success',
       })
     })
-    .catch(() => {})
+    .catch((error) => {
+      // 姓名闸门：共享模式下成员未填姓名，服务端拒绝落明细（拦截器已 toast 后端文案），
+      // 跳到该车详情页强制补填后再回来加购
+      if (isSharedMode.value && error instanceof ApiError && error.code === SHARED_CART_NAME_REQUIRED) {
+        uni.navigateTo({ url: `/sub-pages/order/shared-cart/detail?id=${sharedCartId.value}` })
+      }
+    })
 }
 
 /** 进入共享模式时拉一次清单概览：底部条要显示「清单已有 N 项」 */
@@ -537,7 +544,7 @@ onShow(() => {
 <style lang="scss" scoped>
 .ship-supply {
   min-height: 100vh;
-  background: #f4f5f7;
+  background: var(--app-bg);
 }
 
 /**
@@ -558,7 +565,7 @@ onShow(() => {
   }
 
   &--personal {
-    background: #fff;
+    background: var(--app-card);
   }
 
   &__head {
@@ -608,7 +615,7 @@ onShow(() => {
     overflow: hidden;
     font-size: 30rpx;
     font-weight: 600;
-    color: #1b2739;
+    color: var(--app-text);
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -629,7 +636,7 @@ onShow(() => {
   &__meta {
     margin-top: 6rpx;
     font-size: 24rpx;
-    color: #6b7686;
+    color: var(--app-text-2);
 
     &--action {
       display: flex;
@@ -656,7 +663,7 @@ onShow(() => {
   align-items: center;
   gap: 16rpx;
   padding: 16rpx 20rpx;
-  background: #f4f5f7;
+  background: var(--app-bg);
 
   &__box {
     display: flex;
@@ -666,7 +673,7 @@ onShow(() => {
     height: 76rpx;
     padding: 0 24rpx;
     border-radius: 38rpx;
-    background: #fff;
+    background: var(--app-card);
     box-sizing: border-box;
   }
 
@@ -675,12 +682,12 @@ onShow(() => {
     min-width: 0;
     height: 76rpx;
     font-size: 27rpx;
-    color: #1b2739;
+    color: var(--app-text);
   }
 
   &__placeholder {
     font-size: 26rpx;
-    color: #a8afba;
+    color: var(--app-text-3);
   }
 
   &__clear {
@@ -707,7 +714,7 @@ onShow(() => {
   margin: 0 20rpx 16rpx;
   padding: 20rpx;
   border-radius: 16rpx;
-  background: #fff;
+  background: var(--app-card);
   animation: row-in 280ms ease-out backwards;
 
   &__thumb {
@@ -717,7 +724,7 @@ onShow(() => {
     flex: none;
     overflow: hidden;
     border-radius: 12rpx;
-    background: #f2f3f5;
+    background: var(--app-card-2);
   }
 
   &__pic {
@@ -750,7 +757,7 @@ onShow(() => {
     font-size: 29rpx;
     font-weight: 600;
     line-height: 1.35;
-    color: #1b2739;
+    color: var(--app-text);
     /* 小程序不支持 unocss 的 line-clamp 简写，显式写 box 属性 */
     display: -webkit-box;
     -webkit-box-orient: vertical;
@@ -786,14 +793,14 @@ onShow(() => {
     margin-left: 10rpx;
     font-size: 22rpx;
     font-weight: 400;
-    color: #9aa2ae;
+    color: var(--app-text-3);
     text-decoration: line-through;
   }
 
   &__stock {
     flex: none;
     font-size: 22rpx;
-    color: #9aa2ae;
+    color: var(--app-text-3);
 
     &--low {
       color: #e8734a;
@@ -853,9 +860,9 @@ onShow(() => {
     text-align: center;
 
     &--disabled {
-      background: #e5e7eb;
+      background: var(--app-card-2);
       box-shadow: none;
-      color: #a8afba;
+      color: var(--app-text-3);
     }
   }
 }
@@ -895,7 +902,7 @@ onShow(() => {
   display: flex;
   align-items: center;
   padding: 16rpx 24rpx calc(16rpx + env(safe-area-inset-bottom));
-  background: #fff;
+  background: var(--app-card);
   box-shadow: 0 -2rpx 12rpx rgb(27 39 57 / 6%);
 
   &__info {
@@ -905,7 +912,7 @@ onShow(() => {
 
   &__count {
     font-size: 27rpx;
-    color: #1b2739;
+    color: var(--app-text);
   }
 
   &__count-num {
@@ -918,7 +925,7 @@ onShow(() => {
   &__meta {
     margin-top: 2rpx;
     font-size: 22rpx;
-    color: #9aa2ae;
+    color: var(--app-text-3);
   }
 
   &__btn {

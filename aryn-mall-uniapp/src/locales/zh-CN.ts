@@ -13,11 +13,13 @@ import catalog from './modules/catalog.zh-CN'
 import checkout from './modules/checkout.zh-CN'
 import diy from './modules/diy.zh-CN'
 import labels from './modules/labels.zh-CN'
+import loginDevices from './modules/loginDevices.zh-CN'
 import message from './modules/message.zh-CN'
 import order from './modules/order.zh-CN'
 import product from './modules/product.zh-CN'
 import promotion from './modules/promotion.zh-CN'
 import search from './modules/search.zh-CN'
+import sessionInvalid from './modules/sessionInvalid.zh-CN'
 import shared from './modules/shared.zh-CN'
 import sharedCart from './modules/sharedCart.zh-CN'
 import vessel from './modules/vessel.zh-CN'
@@ -36,6 +38,8 @@ export default {
     timeout: '请求超时，请重试',
     loginExpired: '登录已过期，请重新登录！',
     deliveryLoginExpired: '配送登录已过期，请重新登录！',
+    // 需要登录的点击入口/游客态统一按钮（composables/useRequireLogin）
+    goLogin: '去登录',
     updateTitle: '更新提示',
     updateMessage: '新版本已经准备好，是否重启应用？',
     language: '语言',
@@ -96,7 +100,6 @@ export default {
     coupon: '优惠券',
     points: '积分',
     balance: '余额',
-    guestHint: '登录后查看优惠券、积分与余额',
     myOrders: '我的订单',
     viewAll: '查看全部',
     myServices: '我的服务',
@@ -148,6 +151,8 @@ export default {
   ...catalog,
   ...product,
   ...search,
+  ...sessionInvalid,
+  ...loginDevices,
   ...cart,
   ...checkout,
   ...order,

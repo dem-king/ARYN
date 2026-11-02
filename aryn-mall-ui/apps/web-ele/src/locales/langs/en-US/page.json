@@ -35,5 +35,37 @@
     "title": "Dashboard",
     "analytics": "Analytics",
     "workspace": "Workspace"
+  },
+  "loginDevices": {
+    "action": "Action",
+    "activeTitle": "Active Sessions",
+    "close": "Close",
+    "current": "Current Device",
+    "device": "Device",
+    "deviceInfo": "Browser / OS",
+    "failed": "Failed",
+    "kick": "Sign Out",
+    "kickConfirm": "That device will need to sign in again. Continue?",
+    "kickFailed": "Failed to sign out the device. Please try again.",
+    "kickSuccess": "The device has been signed out",
+    "kickTitle": "Sign Out Device",
+    "loadFailed": "Failed to load",
+    "location": "Location",
+    "loginTime": "Login Time",
+    "menu": "Login Devices",
+    "noDevices": "No login devices",
+    "noLogs": "No login records",
+    "recentTitle": "Recent Logins",
+    "result": "Result",
+    "retry": "Retry",
+    "singlePointNotice": "Only one session is allowed per account; signing in on another device will sign this device out automatically.",
+    "status": "Status",
+    "success": "Success",
+    "time": "Time",
+    "title": "Login Devices"
+  },
+  "profile": {
+    "menu": "Profile",
+    "title": "Profile"
   }
 }

@@ -10,7 +10,9 @@ import com.aryn.cloud.common.core.constant.MallCommonConstants;
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.order.api.dto.CreateOrderDTO;
+import com.aryn.cloud.order.api.dto.OrderAdvanceAppraiseDTO;
 import com.aryn.cloud.order.api.dto.OrderAppraiseDTO;
+import com.aryn.cloud.order.api.dto.OrderAppraiseEditDTO;
 import com.aryn.cloud.order.api.dto.PrepayDTO;
 import com.aryn.cloud.order.api.dto.SettlementOrderDTO;
 import com.aryn.cloud.order.api.entity.OrderInfo;
@@ -118,6 +120,30 @@ public class AppOrderInfoController {
 		String userId = SecurityUtils.getUser().getUserId();
 		return Result.success(orderInfoService.appraiseOrder(id, userId, orderAppraiseList));
 
+	}
+
+	@Operation(summary = "订单追评")
+	@PostMapping("/appraise/{id}/advance")
+	public Result<Boolean> advanceAppraiseOrder(@PathVariable String id,
+			@Valid @RequestBody OrderAdvanceAppraiseDTO advanceAppraiseDTO) {
+		String userId = SecurityUtils.getUser().getUserId();
+		return Result.success(orderInfoService.advanceAppraiseOrder(id, advanceAppraiseDTO.getOrderItemId(),
+				userId, advanceAppraiseDTO));
+	}
+
+	@Operation(summary = "修改评价")
+	@PutMapping("/appraise/{id}/item/{orderItemId}")
+	public Result<Boolean> editAppraiseOrder(@PathVariable String id, @PathVariable String orderItemId,
+			@Valid @RequestBody OrderAppraiseEditDTO editAppraiseDTO) {
+		String userId = SecurityUtils.getUser().getUserId();
+		return Result.success(orderInfoService.editAppraiseOrder(id, orderItemId, userId, editAppraiseDTO));
+	}
+
+	@Operation(summary = "删除评价")
+	@DeleteMapping("/appraise/{id}/item/{orderItemId}")
+	public Result<Boolean> deleteAppraiseOrder(@PathVariable String id, @PathVariable String orderItemId) {
+		String userId = SecurityUtils.getUser().getUserId();
+		return Result.success(orderInfoService.deleteAppraiseOrder(id, orderItemId, userId));
 	}
 
 	@Operation(summary = "订单数量查询")

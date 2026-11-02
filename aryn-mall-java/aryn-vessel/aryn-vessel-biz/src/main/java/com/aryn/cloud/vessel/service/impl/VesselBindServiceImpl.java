@@ -326,6 +326,43 @@ public class VesselBindServiceImpl implements IVesselBindService {
 	}
 
 	@Override
+	public List<VesselMemberVO> listOnboardMembers(String tenantId, String vesselId, String keyword) {
+		List<VesselMember> members = vesselMemberMapper.selectList(Wrappers.lambdaQuery(VesselMember.class)
+			.eq(VesselMember::getTenantId, tenantId)
+			.eq(VesselMember::getVesselId, vesselId)
+			.eq(VesselMember::getStatus, VesselMember.STATUS_ONBOARD)
+			.orderByAsc(VesselMember::getJoinTime)
+			.last("LIMIT 100"));
+		if (members.isEmpty()) {
+			return List.of();
+		}
+		Map<String, UserInfoVO> users = loadUsers(members.stream().map(VesselMember::getUserId).toList());
+		String trimmed = keyword == null ? "" : keyword.trim();
+		return members.stream()
+			.filter(member -> keywordMatchesUser(member.getUserId(), users.get(member.getUserId()), trimmed))
+			.map(member -> toMemberVO(member, users.get(member.getUserId())))
+			.toList();
+	}
+
+	/**
+	 * 候选关键词匹配：昵称/原始手机号/用户ID 包含即命中；空关键词全通过。
+	 * 手机号必须用未脱敏原文匹配（138****5678 永远匹配不上中间几位），出参仍脱敏。
+	 */
+	private boolean keywordMatchesUser(String userId, UserInfoVO user, String keyword) {
+		if (!StringUtils.hasText(keyword)) {
+			return true;
+		}
+		if (keyword.equals(userId)) {
+			return true;
+		}
+		if (user == null) {
+			return false;
+		}
+		return StringUtils.hasText(user.getNickname()) && user.getNickname().contains(keyword)
+				|| StringUtils.hasText(user.getPhone()) && user.getPhone().contains(keyword);
+	}
+
+	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public VesselMemberVO addMember(String tenantId, String operatorUserId, String vesselId, VesselMemberAddDTO dto) {
 		requireMemberAdmin(tenantId, operatorUserId, vesselId);

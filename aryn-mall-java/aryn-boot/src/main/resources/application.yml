@@ -253,6 +253,9 @@ hx:
       - seckill_session
       - seckill_goods
       - seckill_order
+      - seckill_session_template
+      - seckill_goods_template
+      - seckill_subscribe
       - discount_activity
       - discount_goods
       - discount_stock_lock
@@ -339,6 +342,14 @@ distribution:
   withdraw:
     account-key: ${DISTRIBUTION_WITHDRAW_ACCOUNT_KEY:}
 
+# 微信小程序订阅消息（秒杀开抢提醒等）；模板 ID 由运营在微信公众平台创建后注入。
+wechat:
+  subscribe:
+    app-id: ${WECHAT_SUBSCRIBE_APP_ID:}
+    template-map:
+      ORDER_DELIVERY_TASK: ${WECHAT_SUBSCRIBE_TEMPLATE_DELIVERY:}
+      SECKILL_SESSION_START: ${WECHAT_SUBSCRIBE_TEMPLATE_SECKILL_START:}
+
 # 接龙报货 AI 助手（OpenAI 兼容协议，默认 DeepSeek；GLM 等同协议供应商换 base-url/model 即可）。
 # api-key 留空时 isAvailable=false，整条链路自动走纯规则解析/匹配，零影响。
 # key 建议经环境变量注入（compose-boot.yml 已透传 AI_API_KEY，可放 aryn-mall-java/.env）。
@@ -368,6 +379,12 @@ aryn:
     recall-top-k: ${AI_EMBEDDING_TOP_K:6}
     score-threshold: ${AI_EMBEDDING_SCORE_THRESHOLD:0.55}
     catalog-ttl-minutes: ${AI_EMBEDDING_CATALOG_TTL_MINUTES:60}
+  # 秒杀开抢提醒：template-id 为空时 C 端隐藏提醒入口，Job 只落库不发送。
+  seckill:
+    reminder:
+      enabled: ${SECKILL_REMINDER_ENABLED:true}
+      template-id: ${WECHAT_SUBSCRIBE_TEMPLATE_SECKILL_START:}
+      offset-minutes: ${SECKILL_REMINDER_OFFSET_MINUTES:10}
 
 # 营销优惠叠加策略（活动价 × 优惠券 × 积分抵现）：
 # enabled=false 时所有活动商品视为可叠（灰度回滚开关，等同现网行为）；

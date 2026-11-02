@@ -18,7 +18,8 @@ export default {
     // Port-call group labels and actions
     currentGroupLabel: 'Items in this order{suffix}',
     noDeliveryPlan: 'No delivery plan',
-    currentVesselNoCall: 'Current vessel: {name} (no port call in progress)',
+    addedThisSession: 'Added in this session',
+    addedBeforeCall: 'Added earlier, will ship with this port call',
     vesselNoCall: 'This vessel has no port call in progress',
     previousCallWithPlace: 'Added under a previous port call ({place})',
     previousCall: 'Added under a previous port call',

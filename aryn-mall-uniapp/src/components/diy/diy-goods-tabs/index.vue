@@ -26,10 +26,10 @@ import { stockHintText } from '@/utils/stock-display'
 const props = withDefaults(defineProps<{
   showData?: Partial<GoodsTabsProps>
   /**
-   * 页面开启了沉浸式导航（滚动渐显）：吸顶 Tab 栏与顶栏共用同一磨砂材质。
+   * 页面开启了沉浸式导航（滚动切换）：吸顶 Tab 栏与顶栏共用同一磨砂材质。
    *
-   * 由 DiyPage 按页面配置下传；内嵌页（分类/商详/个人中心）与未开启渐显的页面
-   * 为 false，Tab 栏保持原来的纯白底，行为不变。
+   * 由 DiyPage 按页面配置下传；内嵌页（分类/商详/个人中心）与未开启沉浸式导航的
+   * 页面为 false，Tab 栏保持原来的纯白底，行为不变。
    */
   immersiveNav?: boolean
 }>(), {
@@ -781,12 +781,12 @@ function cardMemberGuide(item: any): string {
  *   --diy-nav-surface-bg   目标底色（磨砂白 rgba .86 / 主题色 / 自定义色）
  *   --diy-nav-surface-blur backdrop-filter 值（毛玻璃关闭时为 none）
  *   --diy-nav-hairline     底部细线色（与 hr-navbar 的 hairline 同色）
- * 未下发变量（内嵌页 / 未开渐显）时回落原来的白底 + #f2f3f5 细线。
+ * 未下发变量（内嵌页 / 未开沉浸式导航）时回落原来的白底 + #f2f3f5 细线。
  */
 .goods-tabs__bar--immersive {
   background: var(--diy-nav-surface-bg, #fff);
   border-bottom-color: var(--diy-nav-hairline, #f2f3f5);
-  -webkit-backdrop-filter: var(--diy-nav-surface-blur, none);
+  -WEBKIT-backdrop-filter: var(--diy-nav-surface-blur, none);
   backdrop-filter: var(--diy-nav-surface-blur, none);
 }
 

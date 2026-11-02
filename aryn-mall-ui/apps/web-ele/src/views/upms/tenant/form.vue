@@ -7,6 +7,8 @@ import type {
 
 import { reactive, ref } from 'vue';
 
+import { ARYN_TENANT_TYPE_PLATFORM } from '@vben/constants';
+
 import {
   ElButton,
   ElCol,
@@ -47,6 +49,7 @@ interface State {
     phone: string;
     siteUrl: string;
     status: string;
+    tenantType: string;
     username: string;
   };
   rules: any;
@@ -74,6 +77,7 @@ const state = reactive<State>({
     authBeginTime: '',
     authEndTime: '',
     packageId: '',
+    tenantType: '',
   },
   rules: {
     name: [
@@ -99,8 +103,20 @@ const state = reactive<State>({
     ],
     datatimes: [
       {
-        required: true,
-        message: '请选择有效期',
+        validator: (
+          _rule: any,
+          value: any,
+          callback: (error?: Error) => void,
+        ) => {
+          // 平台租户长期有效，不参与授权期管理，无需选择有效期
+          if (state.form.tenantType === ARYN_TENANT_TYPE_PLATFORM) {
+            return callback();
+          }
+          if (!Array.isArray(value) || value.length === 0) {
+            return callback(new Error('请选择有效期'));
+          }
+          return callback();
+        },
         trigger: 'change',
       },
     ],
@@ -171,7 +187,10 @@ const getDetail = (id: string) => {
   loading.value = true;
   getById(id).then((response: any) => {
     state.form = response;
-    state.form.datatimes = [response.authBeginTime, response.authEndTime];
+    state.form.datatimes =
+      response.tenantType === ARYN_TENANT_TYPE_PLATFORM
+        ? []
+        : [response.authBeginTime, response.authEndTime];
     initialPackageId.value = response.packageId ?? '';
     loading.value = false;
   });
@@ -218,8 +237,10 @@ const submitForm = async (formEl: FormInstance | undefined) => {
     }
   }
   loading.value = true;
-  state.form.authBeginTime = state.form.datatimes[0] ?? '';
-  state.form.authEndTime = state.form.datatimes[1] ?? '';
+  if (state.form.tenantType !== ARYN_TENANT_TYPE_PLATFORM) {
+    state.form.authBeginTime = state.form.datatimes[0] ?? '';
+    state.form.authEndTime = state.form.datatimes[1] ?? '';
+  }
   if (state.form.id) {
     // 修改
     edit();
@@ -347,7 +368,11 @@ defineExpose({
           <ElFormItem label="官网" prop="siteUrl">
             <ElInput v-model="state.form.siteUrl" />
           </ElFormItem>
-          <ElFormItem label="有效时间" prop="datatimes">
+          <ElFormItem
+            label="有效时间"
+            prop="datatimes"
+            v-if="state.form.tenantType !== ARYN_TENANT_TYPE_PLATFORM"
+          >
             <ElDatePicker
               v-model="state.form.datatimes"
               type="datetimerange"
@@ -356,6 +381,11 @@ defineExpose({
               end-placeholder="授权结束时间"
               value-format="YYYY-MM-DD HH:mm:ss"
             />
+          </ElFormItem>
+          <ElFormItem label="有效时间" v-else>
+            <span class="tenant-package__tip">
+              长期有效（平台租户不参与授权期管理）
+            </span>
           </ElFormItem>
           <ElFormItem label="租户套餐" prop="packageId">
             <ElSelect

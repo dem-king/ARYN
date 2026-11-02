@@ -42,7 +42,9 @@ const handleRefund = (status: string) => {
     <template #header>
       <div class="font-bold">订单状态总览</div>
     </template>
-    <div class="grid grid-cols-3 gap-4 text-center md:grid-cols-3">
+    <div
+      class="grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-4 text-center"
+    >
       <div
         class="hover:text-primary group flex cursor-pointer flex-col items-center justify-center rounded-lg p-2 transition-all hover:bg-[var(--el-fill-color-light)]"
         @click="handleNavigate('1')"

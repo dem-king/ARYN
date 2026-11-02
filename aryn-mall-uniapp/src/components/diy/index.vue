@@ -9,6 +9,7 @@ import { useUserStore } from '@/store/userStore'
 import DiyActivityStrip from './diy-activity-strip/index.vue'
 import DiyCategoryNav from './diy-category-nav/index.vue'
 import DiyCountdown from './diy-countdown/index.vue'
+import DiyCouponLadder from './diy-coupon-ladder/index.vue'
 import DiyCouponReceive from './diy-coupon-receive/index.vue'
 import DiyCustomHtml from './diy-custom-html/index.vue'
 import DiyGap from './diy-gap/index.vue'
@@ -105,9 +106,9 @@ const navigationAppearance = computed(() =>
     document.value.sections,
   ),
 )
-// 滚动渐显（沉浸式导航）的静态配置：目标底色外观只随页面配置 / 主题变化。
-// 这里**只算静态部分、不读滚动值**：滚动进度由 hr-navbar 自己 inject 的
-// scrollTop 计算，DiyPage 不消费滚动状态，滚动时全部装修楼层都不重渲染。
+// 沉浸式导航（滚动切换）的静态配置：目标底色外观只随页面配置 / 主题变化。
+// 这里**只算静态部分、不读滚动状态**：滚动后的一步切换由 hr-navbar 自己
+// inject 的滚动状态计算，DiyPage 不消费滚动状态，装饰楼层不重渲染。
 const navigationScrollEffect = computed(
   () => document.value.page.navigation.scrollEffect,
 )
@@ -195,10 +196,10 @@ function primarySoft(primaryColor: string | undefined): string | undefined {
 }
 
 /**
- * 沉浸式导航是否生效：整页 DIY + 导航可见 + 页面开了滚动渐显。
+ * 沉浸式导航是否生效：整页 DIY + 导航可见 + 页面开了沉浸式导航效果。
  *
  * 只用于「把导航的目标底色材质同步给吸顶 Tab 栏」这类同层 UI，
- * 不参与滚动进度计算（进度仍由 hr-navbar 自己 inject）。
+ * 不参与滚动状态计算（状态仍由 hr-navbar 自己 inject）。
  */
 const immersiveNavEnabled = computed(
   () =>
@@ -231,8 +232,12 @@ function toSurfaceCssColor(color: string, alpha: number): string {
 }
 
 const pageStyle = computed(() => ({
-  'backgroundColor': effectiveTheme.value.backgroundColor,
-  'backgroundImage': document.value.page.backgroundImage
+  // 内嵌模式只渲染装修内容，**不铺页面底色/背景图**：宿主页面（个人中心 / 分类页 /
+  // 商详页）自带页面底色，内嵌块再画一层会把宿主背景盖成装修页的配色。页面引用过
+  // 主题时这里读到的是发布固化的 themeSnapshot.pageBackgroundColor（可能是早已换掉的
+  // 旧主题色），于是一张白卡四周会露出一圈异色描边，看起来像「组件背景坏了」。
+  'backgroundColor': props.embedded ? undefined : effectiveTheme.value.backgroundColor,
+  'backgroundImage': !props.embedded && document.value.page.backgroundImage
     ? `url(${document.value.page.backgroundImage})`
     : undefined,
   // Tab 商品流的吸顶偏移：整页装修有固定导航栏，sticky 需要让出状态栏 + 导航高度；
@@ -502,6 +507,10 @@ function sectionStyle(section: DecorationSection) {
           />
           <DiyImageCube
             v-else-if="item.type === 'image-cube'"
+            :show-data="item.props"
+          />
+          <DiyCouponLadder
+            v-else-if="item.type === 'coupon-ladder'"
             :show-data="item.props"
           />
           <UnknownComponent

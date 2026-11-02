@@ -8,6 +8,10 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.aryn.cloud.product.mapper.GoodsAppraiseMapper">
 
+    <!--
+      评价数量统计：排除系统默认评价（appraise_type=1），默认评价不进好评率分子/分母；
+      goods_score 为空的默认评价同样不计入 goodCount（CASE WHEN 对 NULL 自然不成立）。
+    -->
     <select id="selectGoodsAppraiseCount" resultType="com.aryn.cloud.product.api.vo.AppraiseCountVO">
         SELECT
         COUNT( 1 ) AS allCount,
@@ -19,6 +23,7 @@
         goods_appraise AS goods_appraise
         <where>
             AND goods_appraise.del_flag='0'
+            AND goods_appraise.appraise_type = 0
             <if test="query.spuId != null and query.spuId != ''">
                 AND goods_appraise.`spu_id` = #{query.spuId}
             </if>
@@ -48,6 +53,13 @@
             goods_appraise.business_reply,
             goods_appraise.reply_time,
             goods_appraise.content,
+            goods_appraise.appraise_type,
+            goods_appraise.is_anonymous,
+            goods_appraise.tags,
+            goods_appraise.advance_content,
+            goods_appraise.advance_pic_urls,
+            goods_appraise.advance_time,
+            goods_appraise.modify_time,
             goods_appraise.tenant_id,
             goods_appraise.create_by,
             goods_appraise.update_by
@@ -59,6 +71,20 @@
             <if test="query.nickname != null and query.nickname != ''">
                 AND goods_appraise.nickname = #{query.nickname}
             </if>
+            <if test="query.userId != null and query.userId != ''">
+                AND goods_appraise.user_id = #{query.userId}
+            </if>
+            <if test="query.orderId != null and query.orderId != ''">
+                AND goods_appraise.order_id = #{query.orderId}
+            </if>
+            <if test="query.spuId != null and query.spuId != ''">
+                AND goods_appraise.spu_id = #{query.spuId}
+            </if>
+            <if test="query.appraiseType != null">
+                AND goods_appraise.appraise_type = #{query.appraiseType}
+            </if>
         </where>
+        <!-- 管理端/「我的评价」均按最新在前；分页插件会自动剥离 ORDER BY 生成 count SQL -->
+        ORDER BY goods_appraise.create_time DESC, goods_appraise.id DESC
     </select>
 </mapper>

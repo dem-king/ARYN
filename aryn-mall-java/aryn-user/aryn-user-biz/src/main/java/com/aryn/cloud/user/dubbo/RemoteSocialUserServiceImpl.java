@@ -141,4 +141,31 @@ public class RemoteSocialUserServiceImpl implements RemoteSocialUserService {
 		return phoneNoInfo.getPhoneNumber();
 	}
 
+	@Override
+	public String getOpenidByMallUserId(String tenantId, String mallUserId) {
+		if (!StringUtils.hasText(tenantId) || !StringUtils.hasText(mallUserId)) {
+			return null;
+		}
+		String previousTenantId = ArynTenantContextHolder.getTenantId();
+		try {
+			// 消息消费者会带租户上下文调用；显式恢复一次，避免 Boot 模式 injvm 调用丢上下文
+			ArynTenantContextHolder.setTenantId(tenantId);
+			SocialUser socialUser = socialUserService.getOne(Wrappers.<SocialUser>lambdaQuery()
+				.eq(SocialUser::getMallUserId, mallUserId)
+				.isNotNull(SocialUser::getOpenId)
+				.ne(SocialUser::getOpenId, "")
+				.orderByDesc(SocialUser::getUpdateTime)
+				.last("LIMIT 1"), false);
+			return socialUser == null ? null : socialUser.getOpenId();
+		}
+		finally {
+			if (StringUtils.hasText(previousTenantId)) {
+				ArynTenantContextHolder.setTenantId(previousTenantId);
+			}
+			else {
+				ArynTenantContextHolder.removeTenantId();
+			}
+		}
+	}
+
 }

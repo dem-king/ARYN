@@ -62,7 +62,7 @@ public class TenantExpiryReminderJob {
 			return;
 		}
 		for (SysTenant tenant : tenants) {
-			if (CommonConstants.PLATFORM_TENANT_ID.equals(tenant.getId())) {
+			if (CommonConstants.TENANT_TYPE_PLATFORM.equals(tenant.getTenantType())) {
 				continue;
 			}
 			long remainingDays = ChronoUnit.DAYS.between(LocalDate.now(), tenant.getAuthEndTime().toLocalDate());

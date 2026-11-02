@@ -9,6 +9,7 @@ export default {
       unreadTitle: '你有 {count} 条未读消息',
       allRead: '暂无未读消息',
       tip: '订单进度、优惠到账和客服回复都会在这里提醒你',
+      loginRequired: '登录后查看消息',
     },
     tabs: {
       notice: '通知',

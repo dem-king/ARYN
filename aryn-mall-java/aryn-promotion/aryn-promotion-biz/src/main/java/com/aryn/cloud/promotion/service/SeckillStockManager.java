@@ -27,6 +27,9 @@ public class SeckillStockManager {
 
 	private DefaultRedisScript<Long> rollbackScript;
 
+	/** 仅当库存 key 存在时增加库存（场次未售顺延，不凭空创建 key） */
+	private DefaultRedisScript<Long> carryoverScript;
+
 	/**
 	 * Lua 脚本：原子扣减库存 + 限购校验
 	 * KEYS[1] = stock key
@@ -67,6 +70,20 @@ public class SeckillStockManager {
 			return 0
 			""";
 
+	/**
+	 * Lua 脚本：场次未售库存顺延（仅当下一场库存 key 存在才增加）
+	 * KEYS[1] = stock key
+	 * ARGV[1] = quantity
+	 * 返回：1成功 / 0 key不存在(跳过，等待懒初始化按 DB 新基线重建)
+	 */
+	private static final String CARRYOVER_SCRIPT = """
+			if redis.call('EXISTS', KEYS[1]) == 1 then
+			    redis.call('INCRBY', KEYS[1], ARGV[1])
+			    return 1
+			end
+			return 0
+			""";
+
 	@PostConstruct
 	public void init() {
 		seckillScript = new DefaultRedisScript<>();
@@ -76,6 +93,10 @@ public class SeckillStockManager {
 		rollbackScript = new DefaultRedisScript<>();
 		rollbackScript.setScriptText(ROLLBACK_SCRIPT);
 		rollbackScript.setResultType(Long.class);
+
+		carryoverScript = new DefaultRedisScript<>();
+		carryoverScript.setScriptText(CARRYOVER_SCRIPT);
+		carryoverScript.setResultType(Long.class);
 	}
 
 	/**
@@ -161,6 +182,26 @@ public class SeckillStockManager {
 			return null;
 		}
 		return Integer.valueOf(value);
+	}
+
+	/**
+	 * 场次未售库存顺延到下一场：仅当下一场库存 key 存在时增加。
+	 * key 缺失时不创建，DB 基线已由调用方增加，下单时 ensureStockInitialized 会按新基线重建。
+	 */
+	public boolean carryoverStock(String activityId, String sessionId, String skuId,
+			Integer quantity) {
+		if (quantity == null || quantity <= 0) {
+			return false;
+		}
+		String stockKey = buildStockKey(activityId, sessionId, skuId);
+		Long result = redisTemplate.execute(carryoverScript, List.of(stockKey),
+				String.valueOf(quantity));
+		boolean carried = result != null && result == 1L;
+		if (!carried) {
+			log.info("秒杀库存顺延跳过（下一场 key 不存在）, activityId={}, sessionId={}, skuId={}, quantity={}",
+					activityId, sessionId, skuId, quantity);
+		}
+		return carried;
 	}
 
 	/**

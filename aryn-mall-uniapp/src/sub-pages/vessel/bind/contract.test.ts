@@ -157,7 +157,8 @@ describe('绑定申请：IMO 编号与呼号是两个独立字段', () => {
 
     const block = page.slice(start, end)
     const rows = block.match(/min-height: 96rpx/g) ?? []
-    const dividers = block.match(/border-bottom: 1rpx solid #EDEEF0/g) ?? []
+    // 分隔线已接语义变量（深色模式），断言按结构匹配、不钉具体色值
+    const dividers = block.match(/border-bottom: 1rpx solid (?:var\(--app-border\)|#EDEEF0)/g) ?? []
     // 船名 / IMO / 呼号 / 常靠港 = 4 行，中间 3 条分隔线（最后一行不画）
     expect(rows.length).toBe(4)
     expect(dividers.length).toBe(3)

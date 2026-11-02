@@ -429,6 +429,27 @@ describe('shared cart detail page layout contract', () => {
     // 排计划弹层已随模型一起下线
     expect(detail).not.toContain('planState')
   })
+
+  it('forces members without a display name to fill it in before doing anything', () => {
+    const detail = source('src/sub-pages/order/shared-cart/detail.vue')
+    // 姓名必填（2026-11）：进详情未填就自动弹强制层，不可点遮罩关闭、无取消按钮。
+    // 否则成员列表/明细来源会一直出现「成员 3057」这类尾号标识，仓库没法按人贴标签
+    expect(detail).toContain(':close-on-click-modal="!nameState.forced"')
+    expect(detail).toContain('wd-button v-if="!nameState.forced" type="info"')
+    // fetchDetail 成员赋值后自动弹出强制层（放在这里而非 onShow，避开 onLoad 登录守卫窗口）
+    expect(detail).toMatch(/needDisplayName\.value\)\s*showNameSheet\(true\)/)
+    // 写入明细的页内入口都要过姓名预检；保存成功后自动继续原动作
+    for (const entry of ['goCategoryPicker', 'goAddGoods', 'goImport', 'goChainImport']) {
+      const start = detail.indexOf(`function ${entry}(`)
+      const body = detail.slice(start, detail.indexOf('\n}', start))
+      expect(body).toContain('requireNameBefore(')
+    }
+    // 复用入口不做源车姓名预检：姓名按车存，复用落的是新车，补填发生在目标车详情页的强制弹层
+    const reuse = detail.slice(detail.indexOf('function handleReuse('), detail.indexOf('function openConfirm('))
+    expect(reuse).not.toContain('requireNameBefore(')
+    expect(detail).toContain('nameState.pendingAction')
+  })
+
   it('binds the confirm sheet with a viewport-scoped scroll area', () => {
     const detail = source('src/sub-pages/order/shared-cart/detail.vue')
     // 明细多时表单会超过屏幕，只让 body 滚，标题与提交按钮始终可见
@@ -599,6 +620,33 @@ describe('shared cart detail page layout contract', () => {
     expect(api).toContain('`${BASE}/${id}/items/${itemId}`')
     expect(api).toContain('`${BASE}/${id}/confirm`')
     expect(api).toContain('`${BASE}/${id}/close`')
+  })
+
+  it('invites by picking candidates instead of typing raw user ids', () => {
+    // 2026-11-01：手填商城用户 ID 的邀请路径整体废弃——用户无处查到自己的 ID，
+    // 这条路径事实上走不通，且旧后端不校验存在性、不通知。改回手填 = 复活死路。
+    const detail = source('src/sub-pages/order/shared-cart/detail.vue')
+    const api = source('src/api/order/sharedCart.ts')
+    const controller = repoSource(`${ORDER_BIZ}/controller/app/AppSharedCartController.java`)
+    const service = repoSource(`${ORDER_BIZ}/service/impl/SharedCartServiceImpl.java`)
+
+    expect(detail).not.toContain('memberUserId')
+    expect(detail).not.toContain('商城用户ID')
+    // 候选接口三端连通：前端声明、后端路由、服务实现
+    expect(api).toContain('listSharedCartMemberCandidates')
+    expect(api).toContain('`${BASE}/${id}/member-candidates`')
+    expect(controller).toContain('@GetMapping("/{id}/member-candidates")')
+    // 服务端必须校验被邀请用户真实存在（历史手填路径会静默落无效成员行）
+    expect(service).toContain('requireInvitableUser')
+    // 邀请要有感知：被邀请人收到站内通知
+    expect(service).toContain('sharedCartInviteNotifyService')
+  })
+
+  it('shares to the group via a native share button', () => {
+    // 「分享到群」原先只是 toast 提示用户去点右上角菜单，多一步且不可发现；
+    // 必须用 button open-type="share" 直接拉起转发（拼团页同款写法）
+    const detail = source('src/sub-pages/order/shared-cart/detail.vue')
+    expect(detail).toContain('open-type="share"')
   })
 
   it('不再由前端计算有效期，收集截止统一由服务端按创建时刻 +24h 决定', () => {

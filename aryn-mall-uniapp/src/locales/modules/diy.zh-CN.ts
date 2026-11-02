@@ -23,12 +23,17 @@ export default {
       seckillTitle: '限时秒杀',
       seckillHookWithSession: '{name}·整点开抢',
       seckillHook: '整点开抢',
+      seckillTomorrowHookWithSession: '明日{name}',
+      seckillTomorrowHook: '明日同一时间再开抢',
       groupBuyTitle: '{groupNum}人拼团',
       groupBuyTitleFallback: '2人拼团',
       groupBuyHook: '{groupNum}人成团立省',
       groupBuyHookFallback: '多人成团',
+      groupBuyHookWithName: '{name}·立省¥{amount}',
+      groupBuyHookWithNameGroup: '{name}·{groupNum}人成团',
       groupBuyBadge: '拼',
       discountHook: '{value}专区',
+      discountHookWithName: '{name}·{value}',
       discountTitle: '限时折扣',
     },
 
@@ -106,9 +111,12 @@ export default {
     replenishCard: {
       defaultTitle: '今日补给单',
       addressPending: '收货地址待同步',
-      itemCount: '{count} 项',
-      memberCount: '{count} 人参与',
-      estimate: '预估 ¥{amount}',
+      // 数字与单位拆开：卡片里数字单独放大，单位用弱化小字
+      itemUnit: '项商品',
+      memberUnit: '人参与',
+      estimateLabel: '预估',
+      emptyItems: '成员填报的商品会显示在这里',
+      pickAction: '去选品',
       batchAdd: '按单加购',
       emptyTitle: '还没有进行中的补给单',
       emptyDesc: '发起补给单与同船成员合并采购，或直接导入 Excel 清单一键下单',
@@ -136,6 +144,18 @@ export default {
       claim: '领取',
       receiveSuccess: '领取成功',
       receiveFailed: '领取失败',
+    },
+
+    // 满减券阶梯（diy-coupon-ladder）
+    couponLadder: {
+      tierTitle: '阶梯满减',
+      tierHint: '买得越多，省得越多',
+      bestValue: '最划算',
+      stepTitle: '怎么参与',
+      stepClaim: '领取优惠券',
+      stepCart: '加购物车',
+      stepCheckout: '下单自动减',
+      threshold: '满{amount}元',
     },
 
     // 搜索栏楼层（diy-search-bar）
@@ -167,6 +187,7 @@ export default {
     // 自定义 HTML 楼层（diy-custom-html）
     customHtml: {
       empty: '暂无内容',
+      linkCopyFailed: '链接复制失败，请长按链接手动复制',
     },
   },
 }

@@ -18,6 +18,7 @@ import com.aryn.cloud.order.api.entity.SharedCartMember;
 import com.aryn.cloud.order.api.vo.SharedCartImportVO;
 import com.aryn.cloud.order.api.vo.SharedCartItemVO;
 import com.aryn.cloud.order.api.vo.SharedCartJoinVO;
+import com.aryn.cloud.order.api.vo.SharedCartMemberCandidateVO;
 import com.aryn.cloud.order.api.vo.SharedCartReuseVO;
 import com.aryn.cloud.order.api.vo.SharedCartSummaryVO;
 import com.aryn.cloud.order.api.vo.SharedCartVO;
@@ -158,6 +159,19 @@ public class AppSharedCartController {
 		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
 		return Result.success(sharedCartService.inviteMember(ArynTenantContextHolder.getTenantId(), id, user.getUserId(),
 				memberUserId, memberRole));
+	}
+
+	/**
+	 * 成员候选列表：发起人只做选择题。船供车返回本船在船成员（可按姓名/手机号过滤），
+	 * 岸上企业车在同租户用户中搜索（关键词必填）；已在本车成员标记 alreadyMember。
+	 */
+	@Operation(summary = "成员候选列表（发起人）：船供车=本船在船成员；岸上企业车=同租户用户搜索")
+	@GetMapping("/{id}/member-candidates")
+	public Result<List<SharedCartMemberCandidateVO>> memberCandidates(@PathVariable String id,
+			@RequestParam(required = false) String keyword) {
+		ArynUser user = SecurityUtils.requireUser(DeviceTypeEnum.TOC);
+		return Result.success(sharedCartService.listMemberCandidates(ArynTenantContextHolder.getTenantId(),
+				user.getUserId(), id, keyword));
 	}
 
 	@Operation(summary = "添加自己的明细")

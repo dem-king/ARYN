@@ -514,7 +514,7 @@ useKeepAliveRefresh(handleSearch);
 
         <div v-loading="detailLoading" class="sc-detail-body">
           <div class="sc-detail-meta">
-            <div class="sc-meta-item">
+            <div class="sc-meta-item sc-meta-item--wrap">
               <span class="sc-meta-label">靠港计划</span>
               <span
                 class="sc-meta-value"
@@ -1160,6 +1160,13 @@ useKeepAliveRefresh(handleSearch);
   text-overflow: ellipsis;
   font-size: 12px;
   color: var(--el-text-color-secondary);
+}
+
+/* 岸上配送车的靠港计划值是「岸上配送 · 完整收货地址」，单行省略会把主副两段
+   都挤成省略号；该项单独放开换行，其余摘要项仍保持单行截断 */
+.sc-meta-item--wrap .sc-meta-value {
+  flex-wrap: wrap;
+  white-space: normal;
 }
 
 .sc-stat-grid {

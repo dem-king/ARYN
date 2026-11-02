@@ -15,6 +15,7 @@ import {
   validateCountdown,
 } from '../../page-design/components/countdown/types';
 import {
+  createCouponLadderDefaults,
   createGoodsRecommendDefaults,
   createGoodsTabsDefaults,
   createGoodsWaterfallDefaults,
@@ -22,6 +23,7 @@ import {
   createMemberBenefitsDefaults,
   createServicePromiseDefaults,
   createVideoLiveDefaults,
+  validateCouponLadder,
   validateGoodsRecommend,
   validateGoodsTabs,
   validateGoodsWaterfall,
@@ -104,6 +106,7 @@ export const extensionComponentTypes = [
   'service-promise',
   'video-live',
   'image-cube',
+  'coupon-ladder',
 ] as const;
 
 export type ExtensionComponentType = (typeof extensionComponentTypes)[number];
@@ -277,7 +280,8 @@ export const componentRegistry: Record<
   },
   'custom-html': {
     category: '基础组件',
-    createDefaultProps: () => cloneDesignerValue({ height: 300, html: '' }),
+    createDefaultProps: () =>
+      cloneDesignerValue({ commonStyle, height: 300, html: '' }),
     label: '自定义HTML',
     preview: defineAsyncComponent(
       () => import('../../page-design/components/custom-html/index.vue'),
@@ -669,6 +673,17 @@ export const componentRegistry: Record<
     () =>
       import('../../page-design/components/extension/image-cube/setting.vue'),
   ),
+  'coupon-ladder': defineExtensionComponent(
+    'coupon-ladder',
+    '满减券阶梯',
+    '营销活动',
+    createCouponLadderDefaults(),
+    validateCouponLadder,
+    () =>
+      import('../../page-design/components/extension/coupon-ladder/index.vue'),
+    () =>
+      import('../../page-design/components/extension/coupon-ladder/setting.vue'),
+  ),
 };
 
 /**
@@ -702,6 +717,7 @@ export const detailPageAllowedComponents: ReadonlySet<RegisteredComponentType> =
 export const categoryPageAllowedComponents: ReadonlySet<RegisteredComponentType> =
   new Set([
     'countdown',
+    'coupon-ladder',
     'coupon-receive',
     'custom-html',
     'gap',
@@ -727,6 +743,7 @@ export const categoryPageAllowedComponents: ReadonlySet<RegisteredComponentType>
 export const userCenterAllowedComponents: ReadonlySet<RegisteredComponentType> =
   new Set([
     'countdown',
+    'coupon-ladder',
     'coupon-receive',
     'custom-html',
     'gap',

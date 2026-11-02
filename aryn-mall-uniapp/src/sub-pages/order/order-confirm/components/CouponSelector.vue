@@ -11,6 +11,8 @@ interface Props {
   orderItemList: any[]
   /** 服务端下发的券门槛可计算金额（couponEligibleAmount）：门槛按可叠商品金额判断 */
   couponEligibleBase?: number | null
+  /** 当前已选券（含确认页自动选中的最优券）：弹层打开时据此回显选中态 */
+  couponUserId?: string
 }
 
 const props = defineProps<Props>()
@@ -24,10 +26,18 @@ const emit = defineEmits<{
 
 // 使用本地响应式变量替代直接绑定 prop
 const localCouponPopup = ref(props.couponPopup)
-const selectedCouponId = ref()
-// 监听 prop 变化同步到本地变量
+const selectedCouponId = ref(props.couponUserId || '')
+// 每次打开弹层都以当前已选券回显：否则重新打开后不显示选中态，
+// 直接点「确认」会把已选券清掉（历史上这就是「自动选券后又丢券」的来源）
 watch(() => props.couponPopup, (newVal) => {
   localCouponPopup.value = newVal
+  if (newVal)
+    selectedCouponId.value = props.couponUserId || ''
+})
+// 弹层打开期间父组件更新已选券（自动选券的二次结算回来）时同步回显
+watch(() => props.couponUserId, (newVal) => {
+  if (props.couponPopup)
+    selectedCouponId.value = newVal || ''
 })
 
 function closeCouponPopup() {
@@ -35,7 +45,8 @@ function closeCouponPopup() {
 }
 
 function couponConfirm() {
-  emit('couponConfirm', selectedCouponId.value)
+  // 未选中任何券 = 用户选择「不使用优惠券」，显式回传空串清空
+  emit('couponConfirm', selectedCouponId.value || '')
 }
 function getCouponUnavailableMap() {
   return props.couponUserList.reduce((map, item) => {
@@ -121,12 +132,26 @@ const cards = computed(() => props.couponUserList.map((item) => {
     @close="closeCouponPopup"
   >
     <scroll-view scroll-y class="coupon-scroll">
+      <!-- 不使用优惠券：自动选券后用户要能显式取消，不能靠「再点一次已选券」猜 -->
+      <view class="coupon-scroll__none" @click="selectedCouponId = ''">
+        <text class="coupon-scroll__none-text">
+          {{ t('checkout.coupon.noCoupon') }}
+        </text>
+        <wd-icon
+          v-if="!selectedCouponId"
+          name="check-circle-filled"
+          :color="'#ff5500'"
+          size="22px"
+        />
+        <wd-icon v-else name="circle1" color="#c8c8c8" size="22px" />
+      </view>
       <view v-for="card in cards" :key="card.item.id" class="coupon-scroll__item">
         <coupon-card
           :coupon="card.item.couponInfo || {}"
           :band="card.band"
           :tone="card.tone"
           selector
+          notch-color="#ffffff"
           :selected="selectedCouponId === card.item.id"
           :action-enabled="card.selectable"
           @select="handleSelect(card.item)"
@@ -157,6 +182,21 @@ const cards = computed(() => props.couponUserList.map((item) => {
 .coupon-scroll__item {
   padding: 16rpx 24rpx 0;
 }
+.coupon-scroll__none {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 96rpx;
+  padding: 0 24rpx;
+  margin: 16rpx 24rpx 0;
+  background: var(--app-card);
+  border-radius: 24rpx;
+  box-shadow: 0 2rpx 6rpx rgba(15, 23, 42, 0.03), 0 12rpx 32rpx rgba(15, 23, 42, 0.05);
+}
+.coupon-scroll__none-text {
+  font-size: 26rpx;
+  color: var(--app-text);
+}
 .coupon-scroll__reason {
   padding: 4rpx 8rpx 0;
   font-size: 22rpx;
@@ -165,7 +205,7 @@ const cards = computed(() => props.couponUserList.map((item) => {
 .coupon-scroll__empty {
   padding: 80rpx 0;
   font-size: 26rpx;
-  color: #999;
+  color: var(--app-text-3);
   text-align: center;
 }
 .coupon-scroll__footer {

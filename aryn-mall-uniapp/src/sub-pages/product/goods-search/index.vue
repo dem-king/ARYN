@@ -10,14 +10,17 @@
  */
 import type { RankGoodsItem } from '@/api/product/spu'
 import type { SuggestItem } from '@/sub-pages/utils/search-suggest'
-import { onLoad } from '@dcloudio/uni-app'
+import { onLoad, onPageScroll } from '@dcloudio/uni-app'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getSalesRankGoods, getSuggestWords, getTop10HotSearchGoods } from '@/api/product/spu'
 import HrSearchNavbar from '@/components/hr-search-navbar/index.vue'
 import { useSearchHistory } from '@/sub-pages/composables/useSearchHistory'
 import { mergeSuggestWords } from '@/sub-pages/utils/search-suggest'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
 import RankBoard from './components/rank-board.vue'
+
+const { handlePageScroll } = useFrostedNavbar()
 
 definePage({
   name: 'goods-search',
@@ -286,6 +289,9 @@ onLoad((options) => {
     keyword.value = options.keyword
   void loadRankData()
 })
+
+// 顶栏磨砂玻璃：字面量注册滚动（小程序按页面源码生成滚动位标记，包进 composable 会静默失效）
+onPageScroll(handlePageScroll)
 </script>
 
 <template>
@@ -465,14 +471,14 @@ onLoad((options) => {
 
 <style lang="scss" scoped>
 $sp-primary: var(--theme-color-primary, var(--wot-color-theme-primary, #FF2237));
-$sp-title: #1f2329;
-$sp-text: #4e5969;
+$sp-title: var(--app-text);
+$sp-text: var(--app-text-2);
 /* 辅助信息文字统一 #6b7280（白底 4.83:1，满足 WCAG AA）；#8a94a6 仅 2.8:1 已弃用 */
-$sp-muted: #6b7280;
+$sp-muted: var(--app-text-2);
 /* 弱化色只给纯装饰元素（占位图标等）用 */
-$sp-faint: #c0c6cf;
-$sp-hairline: #f0f1f4;
-$sp-fill: #f5f6f8;
+$sp-faint: var(--app-text-3);
+$sp-hairline: var(--app-border);
+$sp-fill: var(--app-card-2);
 $sp-shadow: 0 8rpx 24rpx rgba(31, 44, 65, 0.06);
 $sp-gutter: 20rpx;
 
@@ -484,7 +490,7 @@ $sp-gutter: 20rpx;
 .search-root {
   box-sizing: border-box;
   min-height: 100vh;
-  background-color: #f6f7f9;
+  background-color: var(--app-bg);
 }
 
 .search-page {
@@ -501,7 +507,7 @@ $sp-gutter: 20rpx;
   margin-bottom: 20rpx;
   padding: 8rpx 28rpx 28rpx;
   border-radius: 24rpx;
-  background: #fff;
+  background: var(--app-card);
   box-shadow: $sp-shadow;
 }
 
@@ -586,7 +592,7 @@ $sp-gutter: 20rpx;
 }
 
 .chip--pressed {
-  background: #eceef1;
+  background: var(--app-card-pressed);
 }
 
 /*
@@ -670,12 +676,12 @@ $sp-gutter: 20rpx;
 }
 
 .suggest-row--pressed {
-  background-color: #f7f8fa;
+  background-color: var(--app-card-2);
 }
 
 /* H5 按下即时反馈（小程序走 hover-class） */
 .suggest-row:active {
-  background-color: #f7f8fa;
+  background-color: var(--app-card-2);
 }
 
 /* 纯装饰图标用弱化色，不承载信息；颜色给容器，图标元素只继承 */
@@ -727,7 +733,7 @@ $sp-gutter: 20rpx;
   padding: 2rpx 12rpx;
   border: 1rpx solid $sp-hairline;
   border-radius: 999rpx;
-  background: #fff;
+  background: var(--app-card);
   color: $sp-muted;
   font-size: 24rpx;
   line-height: 1.3;
@@ -781,7 +787,7 @@ $sp-gutter: 20rpx;
 
 /* 柔和 shimmer：1.2s 循环，与榜单骨架同语言 */
 .skeleton-shimmer {
-  background: linear-gradient(90deg, #f2f3f5 25%, #e9ebef 37%, #f2f3f5 63%);
+  background: linear-gradient(90deg, var(--app-skeleton) 25%, var(--app-skeleton-band) 37%, var(--app-skeleton) 63%);
   background-size: 400% 100%;
   animation: search-shimmer 1.2s ease infinite;
 }

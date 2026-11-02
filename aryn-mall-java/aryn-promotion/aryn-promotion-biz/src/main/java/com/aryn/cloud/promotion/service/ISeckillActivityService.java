@@ -43,9 +43,11 @@ public interface ISeckillActivityService extends IService<SeckillActivity> {
 	// ==================== C端 ====================
 
 	/**
-	 * 获取进行中的场次列表
+	 * 获取场次列表（今日剩余 + 明日预告）
+	 *
+	 * @param mallUserId 当前商城用户ID，可为空；非空时回填是否已订阅开抢提醒
 	 */
-	List<AppSeckillVO> getActiveSessions();
+	List<AppSeckillVO> getActiveSessions(String mallUserId);
 
 	/**
 	 * 获取场次商品列表

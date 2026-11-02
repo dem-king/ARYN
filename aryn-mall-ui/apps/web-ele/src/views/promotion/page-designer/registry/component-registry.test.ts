@@ -104,8 +104,8 @@ describe('retail component registry', () => {
     );
   });
 
-  it('registers all seven extension components exactly once', () => {
-    expect(new Set(extensionComponentTypes).size).toBe(7);
+  it('registers all eight extension components exactly once', () => {
+    expect(new Set(extensionComponentTypes).size).toBe(8);
     for (const type of extensionComponentTypes) {
       const definition = componentRegistry[type];
       expect(definition).toBeDefined();
@@ -220,10 +220,15 @@ describe('component style settings registry', () => {
     expect(componentRegistry['image-cube'].styleSettings).toBeUndefined();
   });
 
-  it('custom-html has neither common style nor a style panel', () => {
+  it('custom-html relies on the shared common style with a white backdrop', () => {
     const defaults = componentRegistry['custom-html'].createDefaultProps();
 
-    expect(defaults).not.toHaveProperty('commonStyle');
+    // 之前没有 commonStyle，运营只能把边距/背景写进行内 style；现在走通用样式面板。
+    // 底色刻意给白色：C 端页面底色是 #f8f8f8，正文块需要自己的底。
+    expect(defaults).toHaveProperty('commonStyle');
+    expect(
+      (defaults.commonStyle as { bgStartColor?: string }).bgStartColor,
+    ).toBe('rgba(255, 255, 255, 1)');
     expect(componentRegistry['custom-html'].styleSettings).toBeUndefined();
   });
 });

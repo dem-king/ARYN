@@ -42,6 +42,8 @@ export default {
     frequentStats: 'Last 90 days: {qty} in {count} orders',
     buyAgain: 'Buy Again',
     frequentEmpty: 'No frequent items yet. They appear after your orders.',
+    frequentGuestTip: 'Sign in to view frequently bought items',
+    frequentGoLogin: 'Sign In',
 
     // Ship supply
     shipSupplyTitle: 'Ship Supply',

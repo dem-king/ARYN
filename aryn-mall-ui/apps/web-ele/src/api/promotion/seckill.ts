@@ -56,6 +56,24 @@ export interface SeckillSessionForm {
   goodsList: SeckillGoodsForm[];
 }
 
+/** 秒杀每日排期模板表单 */
+export interface SeckillSessionTemplateForm {
+  /** 模板 ID（编辑时存在） */
+  id?: string;
+  /** 场次名称 */
+  sessionName: string;
+  /** 每日时段（前端绑定，[开始, 结束]） */
+  datatimes?: string[];
+  /** 每日开始时间 */
+  startTime?: string;
+  /** 每日结束时间 */
+  endTime?: string;
+  /** 生效星期（1-7，1=周一）；提交时转成逗号分隔字符串 */
+  weekdays?: number[];
+  /** 场次下的商品列表（每场计划库存） */
+  goodsList: SeckillGoodsForm[];
+}
+
 /** 秒杀活动表单 */
 export interface SeckillActivityForm {
   /** 活动 ID（编辑时存在） */
@@ -64,14 +82,52 @@ export interface SeckillActivityForm {
   activityName: string;
   /** 活动描述 */
   description?: string;
+  /** 排期方式：0一次性场次 1每日重复 */
+  scheduleType?: number;
   /** 活动时间范围（前端绑定） */
   datatimes?: string[];
   /** 活动开始时间 */
   startTime?: string;
   /** 活动结束时间 */
   endTime?: string;
-  /** 场次列表 */
+  /** 场次列表（一次性模式） */
   sessions: SeckillSessionForm[];
+  /** 每日排期模板（每日重复模式） */
+  sessionTemplates: SeckillSessionTemplateForm[];
+}
+
+/** 秒杀每日排期模板提交体（weekdays 由数组转为逗号分隔字符串） */
+export interface SeckillSessionTemplatePayload {
+  /** 场次名称 */
+  sessionName: string;
+  /** 每日开始时间 HH:mm:ss */
+  startTime: string;
+  /** 每日结束时间 HH:mm:ss */
+  endTime: string;
+  /** 生效星期（1-7 逗号分隔） */
+  weekdays: string;
+  /** 场次下的商品列表 */
+  goodsList: SeckillGoodsForm[];
+}
+
+/** 秒杀活动提交体 */
+export interface SeckillActivityPayload {
+  /** 活动 ID（编辑时存在） */
+  id?: string;
+  /** 活动名称 */
+  activityName: string;
+  /** 活动描述 */
+  description?: string;
+  /** 排期方式：0一次性场次 1每日重复 */
+  scheduleType?: number;
+  /** 活动开始时间 */
+  startTime?: string;
+  /** 活动结束时间 */
+  endTime?: string;
+  /** 场次列表（一次性模式） */
+  sessions: SeckillSessionForm[];
+  /** 每日排期模板（每日重复模式） */
+  sessionTemplates: SeckillSessionTemplatePayload[];
 }
 
 /** 秒杀活动列表记录 */
@@ -84,6 +140,8 @@ export interface SeckillActivityRecord {
   startTime: string;
   /** 活动结束时间 */
   endTime: string;
+  /** 排期方式：0一次性场次 1每日重复 */
+  scheduleType?: number;
   /** 场次数 */
   sessionCount: number;
   /** 活动状态 */
@@ -110,23 +168,26 @@ export async function getPage(
 }
 
 /** 根据 ID 获取秒杀活动详情（含场次与商品） */
-export async function getById(
-  id: string,
-): Promise<SeckillActivityForm & { sessions: SeckillSessionForm[] }> {
+export async function getById(id: string): Promise<
+  SeckillActivityForm & {
+    sessions: SeckillSessionForm[];
+    sessionTemplates: SeckillSessionTemplateForm[];
+  }
+> {
   return requestClient.get(`/promotion/seckill/activity/${id}`);
 }
 
 /** 新增秒杀活动 */
 export async function addObj(
-  data: SeckillActivityForm,
-): Promise<SeckillActivityForm> {
+  data: SeckillActivityPayload,
+): Promise<SeckillActivityPayload> {
   return requestClient.post('/promotion/seckill/activity', data);
 }
 
 /** 修改秒杀活动 */
 export async function editObj(
-  data: SeckillActivityForm,
-): Promise<SeckillActivityForm> {
+  data: SeckillActivityPayload,
+): Promise<SeckillActivityPayload> {
   return requestClient.put('/promotion/seckill/activity', data);
 }
 

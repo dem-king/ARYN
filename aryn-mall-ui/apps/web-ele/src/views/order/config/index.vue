@@ -172,7 +172,7 @@ useKeepAliveRefresh(initPage);
           prop="orderAutoConfirmDays"
           label="订单确认收货时间（天）"
         />
-        <ElTableColumn prop="orderAutoCommentDays" label="订单评价时间（天）" />
+        <ElTableColumn prop="orderAutoCommentDays" label="评价有效期（天）" />
         <ElTableColumn prop="kuaidi100AppKey" label="快递100AppKey" />
         <ElTableColumn prop="status" label="状态" width="100">
           <template #default="scope">

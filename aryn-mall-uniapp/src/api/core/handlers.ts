@@ -8,36 +8,69 @@
  */
 import type { Method } from 'alova'
 import { translate } from '@/locales'
+import { useSessionStore } from '@/store/sessionStore'
+import type { SessionInvalidPayload, SessionInvalidTarget } from '@/utils/session-invalid'
+import { extractSessionInvalidPayload, resolveSessionInvalidTitle } from '@/utils/session-invalid'
 
-// 添加一个状态变量来防止重复跳转
-let isRedirectingToLogin = false
-let isRedirectingToDeliveryLogin = false
-
-function redirectToLogin(deliveryRequest = false) {
-  const timer = setTimeout(() => {
-    clearTimeout(timer)
-    uni.reLaunch({
-      url: deliveryRequest ? '/pages/delivery/login' : '/pages/login/index',
-      complete: () => {
-        if (deliveryRequest)
-          isRedirectingToDeliveryLogin = false
-        else
-          isRedirectingToLogin = false
-      },
-    })
-  }, 1000)
+/**
+ * 登录态失效的统一入口（被顶下线 / 自然过期 / 被踢下线 / 旧后端无 reason 的业务 401）。
+ *
+ * 一期契约（README §4.3 / §7.2）+ 二期契约（subReason 细分）：
+ *  - 只置 sessionStore.invalid（冻结请求与 WS），**不 toast、不清 storage、不跳转**；
+ *    用户点「重新登录」或「退出」时才真正清凭证并 reLaunch（见 sessionStore）。
+ *  - 幂等去重：`invalidate()` 在已失效时返回 false，不覆盖首次原因 —— 这就是
+ *    原先 isRedirectingToLogin 标志要表达的「已提示过」语义，只是状态提升到了 store，
+ *    并发 401（首页多个楼层层层发请求）不会叠弹/叠提示。
+ *  - 免登请求 401 与 403 不走这里（见 handleAlovaResponse）。
+ */
+function enterSessionInvalid(
+  payload: SessionInvalidPayload,
+  target: SessionInvalidTarget,
+): {
+  reason: ReturnType<typeof useSessionStore>['reason']
+  subReason: ReturnType<typeof useSessionStore>['subReason']
+  target: SessionInvalidTarget
+} {
+  const sessionStore = useSessionStore()
+  sessionStore.invalidate({
+    reason: payload.reason,
+    subReason: payload.subReason,
+    invalidAt: payload.invalidAt,
+    device: payload.device,
+    target,
+  })
+  return { reason: sessionStore.reason, subReason: sessionStore.subReason, target }
 }
 
-function expireAuthentication() {
-  uni.removeStorageSync('auth')
-  uni.$emit('auth-expired')
+function isUnauthorizedPreflight(error: unknown): boolean {
+  return (error as { type?: string })?.type === 'unauthorized'
 }
 
-function expireDeliveryAuthentication() {
-  uni.removeStorageSync('deliveryToken')
-  // 与登录/个人中心写入的配送员资料 key 保持一致
-  uni.removeStorageSync('deliveryStaffInfo')
-  uni.$emit('delivery-auth-expired')
+/**
+ * 旁路请求（uni.uploadFile）的租户会话预检 401：与 alova 响应处理器共用同一失效入口。
+ *
+ * 先比对「本次校验的 token」与调用方持有的 token：迟到 401 不能把刚重新登录的新会话
+ * 再打回弹窗（旧实现也是先比对再清配送 token）。403/网络故障不进入失效流程。
+ */
+export function convergePreflightUnauthorized(
+  error: unknown,
+  target: 'mall' | 'delivery',
+  token: string,
+) {
+  if (!isUnauthorizedPreflight(error))
+    return
+  const checkedToken = (error as { checkedToken?: string }).checkedToken
+  if (checkedToken && checkedToken !== token)
+    return
+  const payload = (error as { invalidPayload?: unknown }).invalidPayload
+  useSessionStore().invalidate({ ...extractSessionInvalidPayload(payload), target })
+}
+
+/** 旁路（uni.uploadFile）请求的失效态短路：与 alova beforeRequest 同一判断。 */
+export function assertSessionUsable() {
+  if (useSessionStore().invalid) {
+    throw new Error(translate('sessionInvalid.content.invalid'))
+  }
 }
 
 export function isDeliveryRequest(method?: Method) {
@@ -63,22 +96,18 @@ export function isPublicRequest(method?: Method) {
   return (method?.config?.meta as { publicRequest?: boolean } | undefined)?.publicRequest === true
 }
 
-function handleAuthenticationExpired(globalToast: ReturnType<typeof useGlobalToast>, deliveryRequest: boolean) {
-  if (deliveryRequest) {
-    if (isRedirectingToDeliveryLogin)
-      return
-    expireDeliveryAuthentication()
-    isRedirectingToDeliveryLogin = true
-    globalToast.error({ msg: translate('common.deliveryLoginExpired'), duration: 500 })
-    redirectToLogin(true)
-    return
-  }
-  if (isRedirectingToLogin)
-    return
-  expireAuthentication()
-  isRedirectingToLogin = true
-  globalToast.error({ msg: translate('common.loginExpired'), duration: 500 })
-  redirectToLogin()
+/**
+ * 是否是「游客请求」：请求侧确认没有携带任何凭证（beforeRequest 写 `meta.hadToken = false`）。
+ *
+ * 游客打开需登录页面时，服务端会返回 401（reason=NOT_TOKEN）——这不是「登录态失效」：
+ * 游客本来就没有可失效的会话，不该弹「登录状态已失效」、也不该冻结请求
+ * （设计文档《被顶下线弹窗提示》§1 第 5 行 / §7.4：未登录 = 直接去登录页，不弹「被顶」）。
+ *
+ * 只有显式 `hadToken === false` 才算游客：`undefined`（旧调用方/旧测试未打标记）
+ * 仍按「携带凭证」处理，保持既有 401 语义不变。
+ */
+export function isGuestRequest(method?: Method) {
+  return (method?.config?.meta as { hadToken?: boolean } | undefined)?.hadToken === false
 }
 
 // Custom error class for API errors
@@ -123,7 +152,7 @@ export function parseApiResponse(data: unknown): ApiResponse {
 /**
  * 未登录 / 登录态失效（HTTP 401 或业务 code 401）。
  *
- * 只有这一种才该清 token 并跳登录页。
+ * 只有这一种才该进入「会话失效」流程并弹窗。
  */
 export function isUnauthorizedResponse(statusCode: number, response: ApiResponse) {
   return statusCode === 401 || response.code === 401
@@ -168,12 +197,21 @@ export async function handleAlovaResponse(
     throw new ApiError(forbiddenMsg, 403, data)
   }
 
-  // 登录态失效：只有 401 才清 token 并跳登录页
+  // 登录态失效：进入会话失效态并弹窗（不 toast / 不跳转 / 不清 storage）。
+  // `resp` 是完整响应体，失效原因在 `resp.data`（可能是对象，也可能是 JSON 字符串，
+  // 由 extractSessionInvalidPayload 两种都兼容）。
   if (isUnauthorizedResponse(statusCode, resp)) {
-    const deliveryRequest = isDeliveryRequest(method)
-    handleAuthenticationExpired(globalToast, deliveryRequest)
-
-    throw new ApiError(translate(deliveryRequest ? 'common.deliveryLoginExpired' : 'common.loginExpired'), statusCode, data)
+    // 游客本来就没有可失效的会话：没带 token 的 401 只说明「这个接口需要登录」。
+    // 只提示去登录，不置 invalid、不清量、不跳转，避免游客看到「登录状态已失效」。
+    if (isGuestRequest(method)) {
+      const needLoginMsg = translate('app.request.needLogin')
+      globalToast.error(needLoginMsg)
+      throw new ApiError(needLoginMsg, statusCode, data)
+    }
+    const target: SessionInvalidTarget = isDeliveryRequest(method) ? 'delivery' : 'mall'
+    const { reason, subReason } = enterSessionInvalid(extractSessionInvalidPayload(resp.data), target)
+    // 已经失效时的并发 401：不重复弹、不重复提示，直接静默抛错
+    throw new ApiError(resolveSessionInvalidTitle({ reason, subReason, target }), statusCode, data)
   }
 
   // Handle HTTP error status codes
@@ -206,7 +244,7 @@ export function handleAlovaError(error: any, method: Method) {
 
   // 处理401/403错误（如果不是在handleAlovaResponse中处理的）
   if (error instanceof ApiError && (error.code === 401 || error.code === 403)) {
-    // 公开请求已在 handleAlovaResponse 里转为业务错误并抛过 toast，这里不再清登录态
+    // 公开请求已在 handleAlovaResponse 里转为业务错误并抛过 toast，这里不再进入失效流程
     if (isPublicRequest(method)) {
       throw error
     }
@@ -214,13 +252,20 @@ export function handleAlovaError(error: any, method: Method) {
     if (error.code === 403) {
       throw error
     }
-    const deliveryRequest = isDeliveryRequest(method)
-    handleAuthenticationExpired(globalToast, deliveryRequest)
-    throw new ApiError(
-      translate(deliveryRequest ? 'common.deliveryLoginExpired' : 'common.loginExpired'),
-      error.code,
-      error.data,
-    )
+    // 游客请求：handleAlovaResponse 已提示过「请先登录」，这里只透传错误，
+    // 不再二次 toast、也不进入会话失效流程（游客本来就没有可失效的会话）。
+    if (isGuestRequest(method)) {
+      throw error
+    }
+    // 已处于失效态：静默 reject（并发 401 / beforeRequest 短路产生的错误都会走到这里）
+    if (useSessionStore().invalid) {
+      throw error
+    }
+    // 兜底：异常可能是被包装过的（error.data 是完整响应体 `{code,msg,data}`），
+    // extractSessionInvalidPayload 会继续拆一层 data 拿原因；拿不到就按无 reason 降级。
+    const target: SessionInvalidTarget = isDeliveryRequest(method) ? 'delivery' : 'mall'
+    const { reason, subReason } = enterSessionInvalid(extractSessionInvalidPayload(error.data), target)
+    throw new ApiError(resolveSessionInvalidTitle({ reason, subReason, target }), error.code, error.data)
   }
 
   // Handle different types of errors

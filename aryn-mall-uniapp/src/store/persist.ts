@@ -22,6 +22,9 @@ const EXCLUDED_STORE_IDS = new Set([
   'mallTheme',
   // 语言偏好由 locales 模块用独立 key 持久化（i18n 初始化早于 pinia），避免双写
   'locale',
+  // 会话失效标记只属于当前进程：持久化会导致冷启动/回前台弹出过期旧窗，
+  // 且失效后本就不允许发请求，下一次真实 401 会重新触发
+  'session',
 ])
 
 export function shouldPersistStore(storeId: string) {

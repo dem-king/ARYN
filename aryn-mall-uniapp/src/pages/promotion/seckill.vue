@@ -3,7 +3,15 @@ import type { AppSeckillGoodsVO, AppSeckillVO } from '@/api/promotion'
 import { onLoad, onUnload } from '@dcloudio/uni-app'
 import { computed, nextTick, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { getSeckillSessions, getSessionGoods } from '@/api/promotion'
+import { requestSubscribeMessage } from '@/api/delivery'
+import {
+  getSeckillSessions,
+  getSessionGoods,
+  subscribeSeckill,
+  unsubscribeSeckill,
+} from '@/api/promotion'
+import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
+import { useAuthStore } from '@/store/authStore'
 import { normalizeStock, resolveSeckillProgress } from '@/utils/seckill-progress'
 import { navigateToUrl } from '@/utils/tab-bar'
 
@@ -16,12 +24,8 @@ definePage({
 })
 
 const { t } = useI18n()
+const authStore = useAuthStore()
 
-/**
- * 导航条取主色、信息条以主色起手：
- * 两者同为 --wot-color-theme-primary，衔接处不会出现一条异色带。
- */
-const THEME_PRIMARY = 'var(--wot-color-theme-primary)'
 /** 空态「去首页逛逛」目标：与折扣会场同源 */
 const HOME_PATH = '/pages/home/index'
 /** 价差占原价比例超过此值时，图上角标不再喊具体省额，改「限量特价」 */
@@ -82,11 +86,23 @@ const tabSessions = computed(() => {
     .filter(item => item.session.status !== 2)
 })
 
-/** 倒计时标签：进行中看结束、未开始看开始 */
+/** 倒计时标签：进行中看结束、未开始看开始（明日场次标明「明日」） */
 const countdownLabel = computed(() => {
-  return currentSession.value?.status === 1
-    ? t('promotion.seckill.countdownEnd')
-    : t('promotion.seckill.countdownStart')
+  const session = currentSession.value
+  if (session?.status === 1)
+    return t('promotion.seckill.countdownEnd')
+  if (Number(session?.dayOffset) === 1)
+    return t('promotion.seckill.countdownStartTomorrow')
+  return t('promotion.seckill.countdownStart')
+})
+
+/** 已订阅：后端随场次列表回填，切换场次后随对象更新 */
+const subscribed = computed(() => !!currentSession.value?.subscribed)
+
+/** 未开始且后端开放提醒时，hero 区出现「开抢提醒」 */
+const showReminderButton = computed(() => {
+  const session = currentSession.value
+  return !!session && session.status === 0 && session.reminderEnabled === true
 })
 
 /** 已结束场次不渲染倒计时（轴里选不到，仅作兜底） */
@@ -294,6 +310,11 @@ function sessionAxisLabel(session: AppSeckillVO) {
   const hour = startHourLabel(session)
   if (session.status === 1)
     return hour ? t('promotion.seckill.axisLive', { hour }) : t('promotion.seckill.axisLiveFallback')
+  if (Number(session.dayOffset) === 1) {
+    return hour
+      ? t('promotion.seckill.axisTomorrowStart', { hour })
+      : t('promotion.seckill.axisStartFallback')
+  }
   return hour ? t('promotion.seckill.axisStart', { hour }) : t('promotion.seckill.axisStartFallback')
 }
 
@@ -340,6 +361,39 @@ function pendingStockText(goods: AppSeckillGoodsVO) {
   return t('promotion.common.limitedStock', { count: stock })
 }
 
+/**
+ * 是否渲染已抢轨道：未开始场次整场不成立；进行中但一件没卖出（pct=0）时
+ * 轨道长度为 0，渲染出来只是一条空灰条 —— 此时只出「限量 N 件」文字，
+ * 避免每张卡底部挂一条无进度语义的灰线。
+ */
+function showStockTrack(goods: AppSeckillGoodsVO) {
+  if (isPendingSession.value)
+    return false
+  return (stockInfo(goods)?.pct ?? 0) > 0
+}
+
+/** 进度/限量文案：未开始只报限量，进行中报已抢进度 */
+function stockText(goods: AppSeckillGoodsVO) {
+  if (isPendingSession.value)
+    return pendingStockText(goods)
+  return stockInfo(goods)?.fullText ?? ''
+}
+
+/**
+ * 文案强度：只有「快抢完 / 已抢光」用主色，常规进度与限量数走辅助灰。
+ * 一卡主色密度从 4 处（角标/价格/CTA/进度）压到 3 处，进度条本身已表达紧迫度。
+ */
+function stockTone(goods: AppSeckillGoodsVO) {
+  if (isPendingSession.value)
+    return 'is-muted'
+  const info = stockInfo(goods)
+  if (!info)
+    return 'is-muted'
+  if (info.soldOut)
+    return 'is-out'
+  return info.low ? 'is-urgent' : 'is-muted'
+}
+
 /** 是否已抢完（库存未知不判售罄，仍允许进详情） */
 function isSoldOut(goods: AppSeckillGoodsVO) {
   const remaining = normalizeStock(goods.remainingStock)
@@ -356,6 +410,11 @@ function ctaText(goods: AppSeckillGoodsVO) {
     return t('promotion.seckill.unavailable')
   if (session.status === 0) {
     const hour = startHourLabel(session)
+    if (Number(session.dayOffset) === 1) {
+      return hour
+        ? t('promotion.seckill.ctaTomorrow', { hour })
+        : t('promotion.seckill.comingSoon')
+    }
     return hour
       ? t('promotion.seckill.axisStart', { hour })
       : t('promotion.seckill.comingSoon')
@@ -394,6 +453,52 @@ function goGoodsDetail(goods: AppSeckillGoodsVO) {
   })
 }
 
+/**
+ * 开抢提醒：先请求微信一次性订阅授权，再把订阅落到服务端。
+ * 微信订阅消息每次授权只能发送一条，因此按场次逐次订阅。
+ */
+async function handleRemind() {
+  const session = currentSession.value
+  if (!session || session.status !== 0)
+    return
+  if (!authStore.isLoggedIn) {
+    uni.navigateTo({ url: '/pages/login/index' })
+    return
+  }
+  if (session.subscribed) {
+    try {
+      await unsubscribeSeckill(session.sessionId)
+      session.subscribed = false
+      uni.showToast({ title: t('promotion.seckill.remindCancelled'), icon: 'none' })
+    }
+    catch {
+      uni.showToast({ title: t('promotion.seckill.remindFailed'), icon: 'none' })
+    }
+    return
+  }
+  if (!session.reminderEnabled || !session.reminderTemplateId) {
+    uni.showToast({ title: t('promotion.seckill.remindUnavailable'), icon: 'none' })
+    return
+  }
+  try {
+    const result = await requestSubscribeMessage([session.reminderTemplateId])
+    if (!result || Object.keys(result).length === 0) {
+      uni.showToast({ title: t('promotion.seckill.remindNeedWechat'), icon: 'none' })
+      return
+    }
+    if (result[session.reminderTemplateId] !== 'accept') {
+      uni.showToast({ title: t('promotion.seckill.remindRejected'), icon: 'none' })
+      return
+    }
+    await subscribeSeckill(session.sessionId)
+    session.subscribed = true
+    uni.showToast({ title: t('promotion.seckill.remindSuccess'), icon: 'none' })
+  }
+  catch {
+    uni.showToast({ title: t('promotion.seckill.remindFailed'), icon: 'none' })
+  }
+}
+
 /** 活动规则页（独立静态页，文案由运营/产品维护在页面内） */
 function goRulePage() {
   uni.navigateTo({ url: '/pages/promotion/seckill-rule' })
@@ -417,21 +522,16 @@ function goOtherSession() {
 
 <template>
   <view class="seckill-page">
-    <!-- 导航承载活动名：信息条不再重复写一遍标题 -->
-    <hr-navbar
-      :title="t('promotion.seckill.title')"
-      :bordered="false"
-      :background-color="THEME_PRIMARY"
-      text-color="#ffffff"
-    >
-      <template #right>
-        <text class="nav-rule" @tap="goRulePage">
-          {{ t('promotion.seckill.rulesLink') }}
-        </text>
-      </template>
-    </hr-navbar>
+    <!--
+      顶栏回到全站业务页口径：白底深字、标题即活动名。
+      2026-11-01：原「实心主色导航 + 满幅主色信息条」是全站唯一不切磨砂、
+      且同一主色在一屏里出现三种画法的页面，与折扣会场/购物车/商详等页面割裂；
+      「活动规则」也因小程序胶囊避让只剩约 40px，和居中标题粘连。
+      现在主色只作为一张信息卡出现，规则入口收进卡内，导航右槽不再放文字。
+    -->
+    <hr-navbar :title="t('promotion.seckill.title')" />
 
-    <!-- 首屏骨架：信息条 + 白色面板（场次轴 / 倒计时）+ 2 行商品 -->
+    <!-- 首屏骨架：信息卡 + 场次轴 + 2 行商品（形状与真实首屏同高，加载完不跳一屏） -->
     <template v-if="loading">
       <view class="hero-skeleton" />
       <view class="panel-skeleton">
@@ -468,32 +568,70 @@ function goOtherSession() {
       @scrolltolower="onLoadMore"
     >
       <view id="seckill-top" />
-      <!-- 信息条（176rpx）：线性图标 + 钩子句 + 右侧深色分格倒计时（天单独一格） -->
+      <!--
+        信息卡：整页唯一的主色面。
+        钩子句与「活动规则」在卡头（主色实底、白字可读），倒计时在卡内的白色
+        胶囊条上（品牌色数字压白底 = 全卡最高对比），既保留秒杀强度，又不把
+        主色铺满首屏；「N 人在抢 / 开抢提醒」同在这条白色胶囊条的右端。
+      -->
       <view class="hero">
-        <view class="hero-main">
+        <view class="hero-head">
           <view class="hero-icon">
             <image class="hero-icon-img" src="/static/promotion/icon-flash.svg" mode="aspectFit" />
           </view>
-          <view class="hero-text">
-            <text class="hero-sub">
-              {{ t('promotion.seckill.subtitle') }}
-            </text>
-            <text v-if="cartUserText" class="hero-live">
-              {{ cartUserText }}
-            </text>
+          <text class="hero-sub">
+            {{ t('promotion.seckill.subtitle') }}
+          </text>
+          <view class="hero-rule-hit" @tap.stop="goRulePage">
+            <view class="hero-rule">
+              <text class="hero-rule-text">
+                {{ t('promotion.seckill.rulesLink') }}
+              </text>
+              <view class="hero-rule-arrow" />
+            </view>
           </view>
         </view>
+
         <view v-if="showCountdown" class="hero-cd">
           <text class="cd-label">
             {{ countdownLabel }}
           </text>
-          <view class="cd-blocks">
-            <text v-if="countdown.days > 0" class="cd-block cd-block--days">{{ t('promotion.common.days', { days: countdown.days }) }}</text>
-            <text class="cd-block">{{ pad(countdown.hours) }}</text>
-            <text class="cd-colon">:</text>
-            <text class="cd-block">{{ pad(countdown.minutes) }}</text>
-            <text class="cd-colon">:</text>
-            <text class="cd-block">{{ pad(countdown.seconds) }}</text>
+          <view class="hero-cd-main">
+            <view class="cd-blocks">
+              <text v-if="countdown.days > 0" class="cd-days">
+                {{ t('promotion.common.days', { days: countdown.days }) }}
+              </text>
+              <text class="cd-num">
+                {{ pad(countdown.hours) }}
+              </text>
+              <text class="cd-colon">
+                :
+              </text>
+              <text class="cd-num">
+                {{ pad(countdown.minutes) }}
+              </text>
+              <text class="cd-colon">
+                :
+              </text>
+              <text class="cd-num">
+                {{ pad(countdown.seconds) }}
+              </text>
+            </view>
+            <view class="hero-cd-tail">
+              <!-- 未开始场次的主动作是「开抢提醒」，同屏再挤「N 人在抢」会把条塞满 -->
+              <text v-if="cartUserText && !showReminderButton" class="hero-live">
+                {{ cartUserText }}
+              </text>
+              <view
+                v-if="showReminderButton"
+                class="hero-remind-hit"
+                @tap.stop="handleRemind"
+              >
+                <text class="hero-remind">
+                  {{ subscribed ? t('promotion.seckill.reminded') : t('promotion.seckill.remindMe') }}
+                </text>
+              </view>
+            </view>
           </view>
         </view>
       </view>
@@ -510,7 +648,10 @@ function goOtherSession() {
               v-for="item in tabSessions"
               :key="item.session.sessionId"
               class="hall-tab"
-              :class="item.session.status === 1 ? 'is-live' : 'is-pending'"
+              :class="[
+                item.session.status === 1 ? 'is-live' : 'is-pending',
+                { 'is-current': item.index === currentSessionIndex },
+              ]"
               @click="selectSession(item.index)"
             >
               <text class="hall-tab-label">
@@ -577,7 +718,9 @@ function goOtherSession() {
                 {{ offBadgeText(goods) }}
               </text>
               <view v-if="isSoldOut(goods)" class="goods-cover">
-                <text class="goods-cover-text">{{ t('promotion.seckill.soldOut') }}</text>
+                <text class="goods-cover-text">
+                  {{ t('promotion.seckill.soldOut') }}
+                </text>
               </view>
             </view>
 
@@ -586,11 +729,20 @@ function goOtherSession() {
                 {{ goods.goodsName || t('promotion.seckill.goodsFallback') }}
               </view>
 
+              <!-- 子标题：与装修商品卡/折扣会场同口径，未配置或与名称相同时整行隐藏 -->
+              <view v-if="shouldShowSubtitle(goods.goodsName, goods.subTitle)" class="goods-sub">
+                {{ goods.subTitle }}
+              </view>
+
               <!-- 价格与 CTA 同一行：CTA 不再独占一条竖直通道 -->
               <view class="goods-price-row">
                 <view class="goods-price">
-                  <text class="price-sym">¥</text>
-                  <text class="price-val">{{ formatPrice(goods.seckillPrice) }}</text>
+                  <text class="price-sym">
+                    ¥
+                  </text>
+                  <text class="price-val">
+                    {{ formatPrice(goods.seckillPrice) }}
+                  </text>
                   <text v-if="hasOriginalPrice(goods)" class="price-orig">
                     ¥{{ formatPrice(goods.originalPrice) }}
                   </text>
@@ -602,21 +754,21 @@ function goOtherSession() {
                 </view>
               </view>
 
-              <!-- 进度：进行中出轨道 + 文案；未开始只出「限量 N 件」 -->
-              <view v-if="stockInfo(goods) && !isPendingSession" class="prog">
-                <view class="prog-track">
+              <!--
+                进度：已抢 > 0 才出轨道 + 文案；0% 与未开始场次只出「限量 N 件」文字
+                （0% 的空轨道没有进度语义，之前每张卡底部都挂一条空灰条）。
+              -->
+              <view v-if="stockText(goods)" class="prog">
+                <view v-if="showStockTrack(goods)" class="prog-track">
                   <view
                     class="prog-fill"
                     :class="{ 'is-out': isSoldOut(goods) }"
                     :style="{ width: `${stockInfo(goods)?.pct ?? 0}%` }"
                   />
                 </view>
-                <text class="prog-text" :class="{ 'is-out': isSoldOut(goods) }">
-                  {{ stockInfo(goods)?.fullText }}
+                <text class="prog-text" :class="stockTone(goods)">
+                  {{ stockText(goods) }}
                 </text>
-              </view>
-              <view v-else-if="isPendingSession && pendingStockText(goods)" class="prog prog--pending">
-                <text class="prog-text">{{ pendingStockText(goods) }}</text>
               </view>
             </view>
           </view>
@@ -647,6 +799,18 @@ function goOtherSession() {
   h12 真实轨道 + 文案双出，并新增两条降噪规则（见 stockInfo / offBadgeText）。
   空态统一走 HallState（品牌渐变圆 + 白色线性图标），不再用中文单字方块。
   颜色一律走 --wot-color-theme-* token，跟随多租户主题换肤。
+
+  2026-11-01 风格统一（用户反馈「跟其它页面风格不一致」）：
+  · 顶栏改回全站业务页口径：白底深字 + 默认分隔线，不再用满幅主色导航，
+    同时消掉小程序端「状态栏黑字压橙底」和「活动规则与居中标题粘连」两个硬伤；
+  · 原满幅主色信息条只保留成一张卡（24rpx 圆角 + 品牌渐变 + 品牌色投影），
+    主色面积从首屏约 1/3 压到一张 180rpx 的卡；
+  · 倒计时从 #1F2329 纯黑分格改为卡内白色胶囊条 + 品牌色等宽数字（对比最高，
+    也是全站唯一不再出现的黑色块）；「N 人在抢 / 开抢提醒」收进同一条右端；
+  · 场次 pill 对齐折扣页活动 Tab：h64、激活实心主色、待开始 #5b616e（5.6:1）；
+  · 商品卡：24rpx 圆角 + 购物车同档轻投影；已抢 0% 不再渲染空轨道，
+    进度文案常规态转辅助灰（22/500 #8a8f99），仅「仅剩 / 已抢光」升主色；
+  · 骨架按新首屏同高重排，收尾补 env(safe-area-inset-bottom) 让位。
 -->
 <style lang="scss" scoped>
 .seckill-page {
@@ -656,32 +820,27 @@ function goOtherSession() {
   height: 100vh;
   flex-direction: column;
   overflow: hidden;
-  background: #f5f6f8;
+  background: var(--app-bg);
 }
 
-/* 导航右侧「活动规则」：主色头白字，热区靠上下 padding 撑到 88rpx */
-.nav-rule {
-  padding: 24rpx 8rpx;
-  color: #fff;
-  font-size: 24rpx;
-  font-weight: 500;
-}
-
-/* ---- 信息条：品牌渐变 + 钩子句 + 深色分格倒计时 ---- */
+/* ---- 信息卡：整页唯一的主色面（品牌渐变卡 + 白色倒计时胶囊条） ---- */
 .hero {
   display: flex;
-  padding: 20rpx 24rpx 24rpx;
-  align-items: center;
+  overflow: hidden;
+  margin: 20rpx 24rpx 0;
+  padding: 24rpx;
+  flex-direction: column;
   gap: 16rpx;
+  border-radius: 24rpx;
   color: #fff;
-  background: linear-gradient(180deg, var(--wot-color-theme-primary, #ff2237) 0%, var(--wot-color-theme-secondary, #ff6b35) 100%);
+  /* 与个人中心 / 会员中心同一套品牌渐变写法；浅端只落在卡底装饰区，白字全在主色实底上 */
+  background: linear-gradient(180deg, var(--wot-color-theme-primary, #ff2237) 0%, var(--wot-color-theme-secondary, #ff6b7a) 100%);
+  box-shadow: 0 10rpx 28rpx rgb(20 29 45 / 10%);
 }
 
-.hero-main {
+.hero-head {
   display: flex;
-  overflow: hidden;
   min-width: 0;
-  flex: 1;
   align-items: center;
   gap: 14rpx;
 }
@@ -703,93 +862,165 @@ function goOtherSession() {
   height: 28rpx;
 }
 
-.hero-text {
+.hero-sub {
+  overflow: hidden;
+  min-width: 0;
+  flex: 1;
+  color: #fff;
+  font-size: 26rpx;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 「活动规则」：白 20% 玻璃胶囊；热区用负 margin 撑到 88rpx，不撑高卡头 */
+.hero-rule-hit {
+  display: flex;
+  height: 88rpx;
+  margin: -20rpx 0;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.hero-rule {
+  display: flex;
+  height: 48rpx;
+  padding: 0 16rpx;
+  align-items: center;
+  gap: 6rpx;
+  background: rgb(255 255 255 / 20%);
+  border-radius: 999rpx;
+}
+
+.hero-rule-text {
+  color: #fff;
+  font-size: 22rpx;
+  font-weight: 500;
+  line-height: 1;
+}
+
+/* 右向细箭头：2rpx 描边旋转 45°，比引图标字体轻 */
+.hero-rule-arrow {
+  width: 8rpx;
+  height: 8rpx;
+  border-top: 2rpx solid rgb(255 255 255 / 80%);
+  border-right: 2rpx solid rgb(255 255 255 / 80%);
+  transform: rotate(45deg);
+}
+
+/* 倒计时胶囊条：白底 + 品牌色数字 —— 全卡最高对比，主色「省」给数字。
+   两端对齐（label 左 / 数字+尾部右），没有在抢人数时右侧也不会空出一条白带 */
+.hero-cd {
+  display: flex;
+  min-height: 68rpx;
+  padding: 0 20rpx;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12rpx;
+  background: rgb(255 255 255 / 94%);
+  border-radius: 16rpx;
+}
+
+.hero-cd-main {
   display: flex;
   overflow: hidden;
   min-width: 0;
-  flex-direction: column;
-  gap: 2rpx;
-}
-
-.hero-sub {
-  overflow: hidden;
-  color: rgb(255 255 255 / 90%);
-  font-size: 24rpx;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* 「N 人在抢」：真实购物车去重人数，后端拿不到时不渲染该行 */
-.hero-live {
-  overflow: hidden;
-  color: #fff;
-  font-size: 20rpx;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.hero-cd {
-  display: flex;
-  flex: 0 0 auto;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 6rpx;
+  align-items: center;
+  gap: 12rpx;
 }
 
 .cd-label {
-  color: rgb(255 255 255 / 82%);
+  flex: 0 0 auto;
+  color: #5b616e;
   font-size: 20rpx;
   font-weight: 500;
+  line-height: 1;
 }
 
 .cd-blocks {
   display: flex;
-  align-items: center;
-  gap: 6rpx;
+  align-items: baseline;
+  gap: 4rpx;
 }
 
-/* 深色分格固定 #1F2329（不随主题），倒计时数字等宽 */
-.cd-block {
-  display: flex;
-  min-width: 44rpx;
-  height: 44rpx;
-  padding: 0 8rpx;
-  align-items: center;
-  justify-content: center;
-  background: #1f2329;
-  border-radius: 8rpx;
-  color: #fff;
-  font-size: 23rpx;
-  font-weight: 700;
+/* 倒计时数字：等宽 + 品牌色 + 800 字重（这张卡的信息主角） */
+.cd-num,
+.cd-colon {
+  color: var(--wot-color-theme-primary, #ff2237);
+  font-size: 30rpx;
+  font-weight: 800;
   font-variant-numeric: tabular-nums;
-}
-
-/* 天单独一格：宽度自适应，不与时:分:秒 同宽 */
-.cd-block--days {
-  min-width: 0;
-  padding: 0 10rpx;
+  letter-spacing: -0.6rpx;
+  line-height: 1;
 }
 
 .cd-colon {
-  color: rgb(255 255 255 / 85%);
-  font-size: 23rpx;
-  font-weight: 700;
+  opacity: 0.45;
 }
 
-/* ---- 场次轴：吸顶（信息条滚走后仍可切场次）；不支持 sticky 时随页滚动 ---- */
+/* 跨天场次：天单独一段、字号降一档，不与时:分:秒 抢宽 */
+.cd-days {
+  color: var(--wot-color-theme-primary, #ff2237);
+  font-size: 22rpx;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.hero-cd-tail {
+  display: flex;
+  overflow: hidden;
+  min-width: 0;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 12rpx;
+}
+
+/* 「N 人在抢」：真实购物车去重人数，后端拿不到时不渲染（不伪造氛围） */
+.hero-live {
+  overflow: hidden;
+  min-width: 0;
+  flex: 0 1 auto;
+  color: #8a8f99;
+  font-size: 20rpx;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 开抢提醒：白条右端的实心主色小胶囊；热区负 margin 撑到 88rpx */
+.hero-remind-hit {
+  display: flex;
+  height: 88rpx;
+  margin: -10rpx 0;
+  align-items: center;
+}
+
+.hero-remind {
+  display: flex;
+  height: 44rpx;
+  padding: 0 16rpx;
+  align-items: center;
+  background: var(--wot-color-theme-primary, #ff2237);
+  border-radius: 999rpx;
+  color: #fff;
+  font-size: 20rpx;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* ---- 场次轴：白色吸顶条（信息卡滚走后仍可切场次）；不支持 sticky 时随页滚动 ---- */
 .hall-panel {
   position: sticky;
   top: 0;
   z-index: 3;
-  background: #fff;
+  margin-top: 16rpx;
+  background: var(--app-card);
   transition: box-shadow 0.2s;
 }
 
 .hall-panel.is-stuck {
-  box-shadow: 0 8rpx 20rpx rgba(15, 23, 42, 0.08);
+  box-shadow: 0 8rpx 20rpx rgb(15 23 42 / 8%);
 }
 
 .hall-tabs {
@@ -799,14 +1030,15 @@ function goOtherSession() {
 
 .hall-tabs-track {
   display: inline-flex;
-  padding: 20rpx 24rpx;
+  padding: 16rpx 24rpx;
   gap: 12rpx;
 }
 
-/* 场次 pill：视觉 60rpx、热区 76rpx（padding 撑高） */
+/* 场次 pill：与折扣页活动 Tab 同规格（h64 / 激活实心主色 / 待开始浅底） */
 .hall-tab {
   display: inline-flex;
-  height: 60rpx;
+  box-sizing: border-box;
+  height: 64rpx;
   padding: 0 24rpx;
   flex: 0 0 auto;
   align-items: center;
@@ -816,23 +1048,38 @@ function goOtherSession() {
 
 /* 进行中：实心主色 + 白字（强促销：主色只给「现在」这一场） */
 .hall-tab.is-live {
-  background: linear-gradient(135deg, var(--wot-color-theme-secondary, #ff6b7a), var(--wot-color-theme-primary, #ff2237));
+  background: var(--wot-color-theme-primary, #ff2237);
 }
 
 .hall-tab.is-live .hall-tab-label {
   color: #fff;
-  font-size: 26rpx;
+  font-size: 24rpx;
   font-weight: 700;
 }
 
-/* 未开始：浅底 + 常规字重 */
+/* 未开始：浅底 + 中性字（#5b616e 对比度 5.6:1，比原来的 3.0:1 更可读） */
 .hall-tab.is-pending {
-  background: #f5f6f8;
+  background: var(--app-card-2);
 }
 
 .hall-tab.is-pending .hall-tab-label {
-  color: #8a8f99;
+  color: var(--app-text-2);
   font-size: 24rpx;
+  font-weight: 500;
+}
+
+/*
+ * 选中的未开始场次：全场都还没开抢时（例如晚间打开页面），原来所有 pill 长得一样，
+ * 用户不知道正在看哪一场。用主色描边 + 主色字标出当前场次；进行中场次本身就是
+ * 实心主色，不需要再叠选中态。
+ */
+.hall-tab.is-pending.is-current {
+  background: var(--app-card);
+  border: 2rpx solid var(--wot-color-theme-primary, #ff2237);
+}
+
+.hall-tab.is-pending.is-current .hall-tab-label {
+  color: var(--wot-color-theme-primary, #ff2237);
   font-weight: 600;
 }
 
@@ -859,13 +1106,14 @@ function goOtherSession() {
   display: flex;
   padding: 20rpx;
   margin-bottom: 20rpx;
-  background: #fff;
-  border-radius: 20rpx;
-  box-shadow: 0 8rpx 24rpx rgba(0, 0, 0, 0.05);
+  background: var(--app-card);
+  border-radius: 24rpx;
+  /* 与购物车行卡同档：列表卡用极轻投影，不再用 8/24 的浮起阴影 */
+  box-shadow: 0 2rpx 12rpx rgb(15 23 42 / 4%);
 }
 
 .goods-card--pressed {
-  background: #fafafa;
+  background: var(--app-card-2);
 }
 
 /* 售罄整卡置灰：图降透明度、文字压成辅助色 */
@@ -877,7 +1125,7 @@ function goOtherSession() {
   .goods-name,
   .price-sym,
   .price-val {
-    color: #8a8f99;
+    color: var(--app-text-3);
   }
 }
 
@@ -887,7 +1135,7 @@ function goOtherSession() {
   width: 200rpx;
   height: 200rpx;
   flex: 0 0 auto;
-  background: #f3f4f6;
+  background: var(--app-card-2);
   border-radius: 16rpx;
 }
 
@@ -905,13 +1153,13 @@ function goOtherSession() {
   font-size: 24rpx;
 }
 
-/* 图上唯一角标：实心主色小块（价差过深时文案降噪为「限量特价」） */
+/* 图上唯一角标：实心主色小块（价差过深时文案降噪为「限量特价」），与拼团卡同规格 */
 .goods-off {
   position: absolute;
-  top: 12rpx;
-  left: 12rpx;
+  top: 10rpx;
+  left: 10rpx;
   display: flex;
-  height: 36rpx;
+  height: 34rpx;
   padding: 0 12rpx;
   align-items: center;
   background: var(--wot-color-theme-primary, #ff2237);
@@ -959,13 +1207,23 @@ function goOtherSession() {
 .goods-name {
   display: -webkit-box;
   overflow: hidden;
-  height: 68rpx;
-  color: #1f2329;
-  font-size: 25rpx;
+  height: 72rpx;
+  color: var(--app-text);
+  font-size: 26rpx;
   font-weight: 500;
-  line-height: 34rpx;
+  line-height: 36rpx;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+/* 子标题：单行省略（#8a8f99 与进度文案同色）；未配置/与名称相同时整行隐藏 */
+.goods-sub {
+  overflow: hidden;
+  margin-top: 4rpx;
+  color: var(--app-text-3);
+  font-size: 22rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 价格与 CTA 同一行：价格左、CTA 右，行高由 CTA 撑到 64rpx */
@@ -1001,7 +1259,7 @@ function goOtherSession() {
 
 .price-orig {
   overflow: hidden;
-  color: #b6b9c0;
+  color: var(--app-text-3);
   font-size: 20rpx;
   text-decoration: line-through;
   text-overflow: ellipsis;
@@ -1034,16 +1292,17 @@ function goOtherSession() {
 
 /* 未开始/已结束/售罄：浅底主色字 vs 灰底灰字（四字文案缩到 22rpx 保证不折行） */
 .goods-cta.is-disabled {
-  background: #f1f2f4;
-  color: #8a8f99;
+  background: var(--app-card-2);
+  color: var(--app-text-3);
   font-size: 22rpx;
   letter-spacing: 0;
 }
 
-/* ---- 已抢进度：真实轨道 + 文案双出 ---- */
+/* ---- 已抢进度：真实轨道 + 文案双出（0% 不出轨道，见模板注释） ---- */
 .prog {
   display: flex;
-  margin-top: 14rpx;
+  margin-top: 12rpx;
+  min-height: 32rpx;
   align-items: center;
   gap: 12rpx;
 }
@@ -1053,7 +1312,7 @@ function goOtherSession() {
   height: 12rpx;
   min-width: 120rpx;
   flex: 1;
-  background: #f1f2f4;
+  background: var(--app-card-2);
   border-radius: 999rpx;
 }
 
@@ -1068,29 +1327,25 @@ function goOtherSession() {
   background: #d7dae0;
 }
 
+/* 常规进度 / 限量数走辅助灰；只有「仅剩 N 件 / 已抢光」升主色，一卡主色不堆叠 */
 .prog-text {
   overflow: hidden;
   flex: 0 0 auto;
-  color: var(--wot-color-theme-primary, #ff2237);
+  color: var(--app-text-3);
   font-size: 22rpx;
-  font-weight: 600;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
+.prog-text.is-urgent {
+  color: var(--wot-color-theme-primary, #ff2237);
+  font-weight: 600;
+}
+
 .prog-text.is-out {
-  color: #8a8f99;
-}
-
-/* 未开始：只出文字，不出轨道 */
-.prog--pending {
-  height: 36rpx;
-}
-
-.prog--pending .prog-text {
-  color: #8a8f99;
-  font-weight: 500;
+  color: var(--app-text-3);
 }
 
 /* ---- 骨架 ---- */
@@ -1105,36 +1360,40 @@ function goOtherSession() {
   }
 }
 
+/* 信息卡骨架：与真实卡同高（padding24 + 卡头48 + 间距16 + 倒计时条68 = 180rpx） */
 .hero-skeleton {
-  height: 176rpx;
-  background: #e9ebef;
+  margin: 20rpx 24rpx 0;
+  height: 180rpx;
+  background: var(--app-card-2);
+  border-radius: 24rpx;
   animation: sk-pulse 1.4s ease-in-out infinite;
 }
 
-/* 面板骨架：与真实面板同形（白底条 + 场次 pill） */
+/* 面板骨架：与真实场次轴同形（白底条 + 场次 pill） */
 .panel-skeleton {
-  padding: 28rpx 24rpx;
-  background: #fff;
+  margin-top: 16rpx;
+  padding: 16rpx 24rpx;
+  background: var(--app-card);
   animation: sk-pulse 1.4s ease-in-out infinite;
 }
 
 .sk-tabs {
   display: flex;
-  height: 60rpx;
+  height: 64rpx;
   align-items: center;
-  gap: 24rpx;
+  gap: 12rpx;
 }
 
 .sk-tab {
-  width: 132rpx;
-  height: 60rpx;
-  background: #edeff3;
+  width: 176rpx;
+  height: 64rpx;
+  background: var(--app-card-2);
   border-radius: 999rpx;
 }
 
 .sk-line {
   height: 24rpx;
-  background: #edeff3;
+  background: var(--app-card-2);
   border-radius: 8rpx;
 }
 
@@ -1151,9 +1410,9 @@ function goOtherSession() {
   display: flex;
   padding: 20rpx;
   margin-bottom: 20rpx;
-  background: #fff;
-  border-radius: 20rpx;
-  box-shadow: 0 8rpx 24rpx rgba(0, 0, 0, 0.05);
+  background: var(--app-card);
+  border-radius: 24rpx;
+  box-shadow: 0 2rpx 12rpx rgb(15 23 42 / 4%);
   animation: sk-pulse 1.4s ease-in-out infinite;
 }
 
@@ -1161,7 +1420,7 @@ function goOtherSession() {
   width: 200rpx;
   height: 200rpx;
   flex: 0 0 auto;
-  background: #edeff3;
+  background: var(--app-card-2);
   border-radius: 16rpx;
 }
 
@@ -1173,10 +1432,10 @@ function goOtherSession() {
   gap: 18rpx;
 }
 
-/* ---- 加载更多 ---- */
+/* ---- 加载更多（底部预留 home indicator 安全区，最后一张卡不被压住） ---- */
 .load-more {
-  padding: 24rpx 0 60rpx;
-  color: #b6b9c0;
+  padding: 24rpx 0 calc(40rpx + env(safe-area-inset-bottom));
+  color: var(--app-text-3);
   font-size: 22rpx;
   text-align: center;
 }
@@ -1205,5 +1464,32 @@ function goOtherSession() {
   border-top: 3rpx solid #5b616e;
   border-left: 3rpx solid #5b616e;
   transform: rotate(45deg);
+}
+
+/**
+ * 深色模式：白玻璃件（hero 倒计时胶囊、回顶钮）切深色玻璃，
+ * 压在其上的中性灰文字/箭头同步换语义浅色——浅色分支的深灰在深玻璃上不可读。
+ * 品牌渐变 hero、售罄白蒙层不属于白玻璃件，保持原样。
+ */
+.wot-theme-dark .hero-cd {
+  background: rgb(26 26 26 / 88%);
+}
+
+.wot-theme-dark .cd-label {
+  color: var(--app-text-2);
+}
+
+.wot-theme-dark .hero-live {
+  color: var(--app-text-3);
+}
+
+.wot-theme-dark .back-top {
+  background: rgb(26 26 26 / 88%);
+  box-shadow: 0 8rpx 24rpx rgba(0, 0, 0, 0.46);
+}
+
+.wot-theme-dark .back-top-glyph {
+  border-top-color: rgba(255, 255, 255, 0.68);
+  border-left-color: rgba(255, 255, 255, 0.68);
 }
 </style>

@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { onLoad, onShow } from '@dcloudio/uni-app'
+import { onLoad, onPageScroll, onShow } from '@dcloudio/uni-app'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { createRechargeOrder, getRechargeConfigList, rechargePrepay } from '@/sub-pages/api/user/recharge'
 import { prepay } from '@/sub-pages/utils/pay'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+
+const { handlePageScroll } = useFrostedNavbar()
 
 definePage({
   name: 'member-recharge',
@@ -125,6 +128,9 @@ function buildPrepayParams(orderNo: string) {
   // #endif
   return params
 }
+
+// 顶栏磨砂玻璃：字面量注册滚动（小程序按页面源码生成滚动位标记，包进 composable 会静默失效）
+onPageScroll(handlePageScroll)
 </script>
 
 <template>
@@ -294,7 +300,7 @@ function buildPrepayParams(orderNo: string) {
     padding: 0 4rpx 20rpx;
     font-size: 30rpx;
     font-weight: 600;
-    color: #303133;
+    color: var(--app-text);
   }
 
   &__tip {
@@ -302,7 +308,7 @@ function buildPrepayParams(orderNo: string) {
     padding: 0 4rpx;
     font-size: 22rpx;
     line-height: 1.6;
-    color: #909399;
+    color: var(--app-text-3);
   }
 }
 
@@ -320,7 +326,7 @@ function buildPrepayParams(orderNo: string) {
   overflow: hidden;
   border: 3rpx solid transparent;
   border-radius: 16rpx;
-  background: #fff;
+  background: var(--app-card);
   box-shadow: 0 2rpx 12rpx rgba(0, 0, 0, 0.04);
   transition: border-color 0.2s;
 
@@ -392,13 +398,13 @@ function buildPrepayParams(orderNo: string) {
 
   &__icon {
     font-size: 88rpx;
-    color: #c0c4cc;
+    color: var(--app-text-3);
   }
 
   &__text {
     margin-top: 16rpx;
     font-size: 26rpx;
-    color: #909399;
+    color: var(--app-text-3);
   }
 }
 
@@ -413,13 +419,13 @@ function buildPrepayParams(orderNo: string) {
   justify-content: space-between;
   width: 100%;
   padding: 16rpx 24rpx calc(16rpx + env(safe-area-inset-bottom));
-  background: #fff;
+  background: var(--app-card);
   box-shadow: 0 -2rpx 12rpx rgba(0, 0, 0, 0.04);
 
   &__amount {
     display: flex;
     align-items: baseline;
-    color: #303133;
+    color: var(--app-text);
   }
 
   &__symbol {
@@ -435,13 +441,13 @@ function buildPrepayParams(orderNo: string) {
 
   &__placeholder {
     font-size: 28rpx;
-    color: #909399;
+    color: var(--app-text-3);
   }
 
   &__arrival {
     margin-top: 6rpx;
     font-size: 20rpx;
-    color: #909399;
+    color: var(--app-text-3);
   }
 
   &__btn {

@@ -6,6 +6,8 @@ import cn.hutool.core.date.LocalDateTimeUtil;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.common.core.util.Result;
+import com.aryn.cloud.common.security.entity.ArynUser;
+import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.upms.api.entity.SysLoginLog;
 import com.aryn.cloud.upms.service.ISysLoginLogService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -40,6 +42,26 @@ public class SysLoginLogController {
 	@GetMapping("/page")
 	public Result page(Page page, SysLoginLog sysLoginLog) {
 		return Result.success(sysLoginLogService.page(page, Wrappers.query(sysLoginLog)));
+	}
+
+	/**
+	 * 我的登录记录（当前登录账号，自服务口径）。
+	 *
+	 * <p>不需要 {@code upms:sysloginlog:page} 权限：只按当前账号 + 当前租户过滤，
+	 * 普通员工/管理员都能查看自己的最近登录记录（登录设备页使用）。
+	 * 单页上限 20 条，避免被当成全量日志接口。</p>
+	 */
+	@Operation(summary = "我的登录记录")
+	@GetMapping("/my")
+	public Result myPage(Page page) {
+		ArynUser user = SecurityUtils.requireUser();
+		if (page.getSize() <= 0 || page.getSize() > 20) {
+			page.setSize(20);
+		}
+		return Result.success(sysLoginLogService.page(page, Wrappers.<SysLoginLog>lambdaQuery()
+			.eq(SysLoginLog::getUserName, user.getUsername())
+			.eq(SysLoginLog::getTenantId, user.getTenantId())
+			.orderByDesc(SysLoginLog::getCreateTime)));
 	}
 
 	@Operation(summary = "统计查询")

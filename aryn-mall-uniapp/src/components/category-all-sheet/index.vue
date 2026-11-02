@@ -15,7 +15,8 @@
  *     不支持 backdrop-filter 的内核（部分安卓 X5）自动退化为半透明白，
  *     文字对比度仍由 0.78 的白色底保证，可读性不依赖模糊生效。
  *
- * 层级：遮罩 999 —— 高于 H5 tabBar(998) 与 SKU 弹层(990)，低于导航栏(1000)。
+ * 层级：遮罩 999 —— 高于 H5 tabBar(998)，低于导航栏(1000)；SKU 弹层同为 999
+ * （分别用在分类页与购物车/商详页，不同页共存）。
  * 因此导航栏保持点亮、其余页面内容被压暗，与参考图一致。
  *
  * 组件由父级用 `v-if` 懒挂载：分类页不打开浮层时不产生任何节点。
@@ -334,6 +335,37 @@ const activeAnchor = computed(() => `all-sheet-anchor-${props.activeIndex}`)
     animation: none;
     animation-duration: 1ms;
     transition: none;
+  }
+}
+
+/**
+ * 深色模式：面板切深色毛玻璃（与 glass-tabbar/GoodsNavbar 深色材质同族），
+ * 其上的文字由硬编码深灰换语义变量——浅色分支的 #252a34/#4b5260/#687080
+ * 在深色面板上不可读，必须成对切换。
+ */
+.wot-theme-dark .all-sheet {
+  background: rgba(26, 26, 26, 0.82);
+  box-shadow: 0 16rpx 48rpx rgba(0, 0, 0, 0.5);
+}
+
+.wot-theme-dark .all-sheet-header {
+  border-bottom: 1rpx solid rgba(255, 255, 255, 0.08);
+}
+
+.wot-theme-dark .all-sheet-title {
+  color: var(--app-text);
+}
+
+.wot-theme-dark .all-sheet-name {
+  color: var(--app-text-2);
+}
+
+.wot-theme-dark .all-sheet-footer {
+  border-top: 1rpx solid rgba(255, 255, 255, 0.08);
+  color: var(--app-text-3);
+
+  &:active {
+    background: rgba(255, 255, 255, 0.06);
   }
 }
 </style>

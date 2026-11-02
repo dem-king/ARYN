@@ -32,6 +32,7 @@
         ,
         goods_spu.`name`,
         goods_spu.sub_title,
+        goods_spu.introduction,
         goods_spu.spu_urls,
         goods_spu.`status`,
         goods_spu.sales_volume,

@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest'
 import {
   ACTIVITY_STRIP_HALLS,
   buildActivityStripEntries,
+  formatDiscountHook,
   formatDiscountValue,
   formatGroupBuyBadge,
   formatGroupBuyHook,
@@ -129,6 +130,49 @@ describe('formatDiscountValue 折扣力度口径', () => {
   })
 })
 
+describe('formatDiscountHook 折扣钩子动态活动名', () => {
+  it('无活动名时退回 {value}专区', () => {
+    expect(formatDiscountHook({ ...createDiscount(), activityName: '' })).toBe('9.5折专区')
+  })
+
+  it('活动名未写力度时拼成「活动名·力度」，长文案不截断', () => {
+    expect(formatDiscountHook({ ...createDiscount(), activityName: '好吃零食节' }))
+      .toBe('好吃零食节·9.5折')
+
+    const longName = '会员日全场零食酒水家庭囤货超值专区'
+    expect(formatDiscountHook({ ...createDiscount(), activityName: longName }))
+      .toBe(`${longName}·9.5折`)
+  })
+
+  it('活动名已写明同类型优惠时不重复拼接', () => {
+    expect(formatDiscountHook({ ...createDiscount(), activityName: '零食酒水狂欢8折专区' }))
+      .toBe('零食酒水狂欢8折专区')
+    expect(formatDiscountHook({ ...createDiscount(), activityName: '会员日全场95折' }))
+      .toBe('会员日全场95折')
+    expect(formatDiscountHook({
+      ...createDiscount(),
+      activityName: '满100减20',
+      discountType: 2,
+      discountValue: 20,
+    })).toBe('满100减20')
+    expect(formatDiscountHook({
+      ...createDiscount(),
+      activityName: '一口价专区',
+      discountType: 3,
+      discountValue: 9.9,
+    })).toBe('一口价专区')
+  })
+
+  it('力度字段异常退化为中性「折扣」时直接用活动名，不拼出「·折扣」', () => {
+    expect(formatDiscountHook({
+      ...createDiscount(),
+      activityName: '好吃零食节',
+      discountType: 9,
+      discountValue: 0.5,
+    })).toBe('好吃零食节')
+  })
+})
+
 describe('formatStripAmount 角标金额口径', () => {
   it('去掉无意义尾零，只保留最多两位小数', () => {
     expect(formatStripAmount(4)).toBe('4')
@@ -159,10 +203,51 @@ describe('拼团角标与钩子', () => {
     expect(formatGroupBuyBadge({ activityPrice: 26.8, originalPrice: 20 })).toBe('拼')
   })
 
-  it('钩子 {groupNum}人成团立省，groupNum 缺失退化「多人成团」', () => {
-    expect(formatGroupBuyHook({ groupNum: 2 })).toBe('2人成团立省')
-    expect(formatGroupBuyHook({ groupNum: 3 })).toBe('3人成团立省')
-    expect(formatGroupBuyHook({ groupNum: 0 })).toBe('多人成团')
+  it('无活动名时钩子退回 {groupNum}人成团立省，groupNum 缺失退化「多人成团」', () => {
+    const noName = { activityPrice: 26.8, groupNum: 2, name: '', originalPrice: 30.8 }
+    expect(formatGroupBuyHook(noName)).toBe('2人成团立省')
+    expect(formatGroupBuyHook({ ...noName, groupNum: 3 })).toBe('3人成团立省')
+    expect(formatGroupBuyHook({ ...noName, groupNum: 0 })).toBe('多人成团')
+  })
+
+  it('有活动名时钩子展示真实活动名 + 省额，不截断长文案', () => {
+    expect(formatGroupBuyHook({
+      activityPrice: 26.8,
+      groupNum: 2,
+      name: '农夫山泉天然水整箱',
+      originalPrice: 30.8,
+    })).toBe('农夫山泉天然水整箱·立省¥4')
+
+    const longName = '农夫山泉天然水整箱家庭装超值囤货'
+    expect(formatGroupBuyHook({
+      activityPrice: 26.8,
+      groupNum: 2,
+      name: longName,
+      originalPrice: 30.8,
+    })).toBe(`${longName}·立省¥4`)
+  })
+
+  it('活动名已写省额时不重复拼接；无省额且已写人数时不补人数', () => {
+    expect(formatGroupBuyHook({
+      activityPrice: 26.8,
+      groupNum: 2,
+      name: '农夫山泉天然水整箱·立省¥4',
+      originalPrice: 30.8,
+    })).toBe('农夫山泉天然水整箱·立省¥4')
+
+    expect(formatGroupBuyHook({
+      activityPrice: 26.8,
+      groupNum: 2,
+      name: '农夫山泉2人团',
+      originalPrice: 26.8,
+    })).toBe('农夫山泉2人团')
+
+    expect(formatGroupBuyHook({
+      activityPrice: 26.8,
+      groupNum: 2,
+      name: '农夫山泉天然水整箱',
+      originalPrice: 26.8,
+    })).toBe('农夫山泉天然水整箱·2人成团')
   })
 
   it('卡名默认「2人拼团」，多人团按真实人数表达', () => {
@@ -181,6 +266,11 @@ describe('秒杀钩子', () => {
     expect(formatSeckillHook({ sessionName: '' })).toBe('整点开抢')
     expect(formatSeckillHook({ sessionName: '   ' })).toBe('整点开抢')
   })
+
+  it('明日场次标明「明日」，而不是继续喊整点开抢', () => {
+    expect(formatSeckillHook({ dayOffset: 1, sessionName: '10:00 场' })).toBe('明日10:00 场')
+    expect(formatSeckillHook({ dayOffset: 1, sessionName: '' })).toBe('明日同一时间再开抢')
+  })
 })
 
 describe('buildActivityStripEntries 三类卡组装与隐藏降级', () => {
@@ -196,8 +286,8 @@ describe('buildActivityStripEntries 三类卡组装与隐藏降级', () => {
     expect(entries.map(entry => entry.badge)).toEqual(['抢', '省¥4', '9.5折'])
     expect(entries.map(entry => entry.hook)).toEqual([
       '14:00 场·整点开抢',
-      '2人成团立省',
-      '9.5折专区',
+      '农夫山泉 3 人团·立省¥4',
+      '好吃零食节·9.5折',
     ])
   })
 
@@ -258,13 +348,22 @@ describe('buildActivityStripEntries 三类卡组装与隐藏降级', () => {
     expect(entry.imageUrl).toBe('')
   })
 
-  it('某类无进行中活动时该卡不产出（剩余卡由渲染侧等宽重排）', () => {
+  it('某类无可展示活动时该卡不产出（剩余卡由渲染侧等宽重排）', () => {
     const onlyDiscount = buildActivityStripEntries({
       discount: createDiscount(),
       groupBuy: createGroupBuy({ status: 'ended' }),
-      seckill: createSeckillSession({ status: 0 }),
+      seckill: createSeckillSession({ status: 2 }),
     })
     expect(onlyDiscount.map(entry => entry.key)).toEqual(['discount'])
+  })
+
+  it('当天最后一场结束后仍展示明日场次入口，不再整卡消失', () => {
+    const entries = buildActivityStripEntries({
+      seckill: createSeckillSession({ dayOffset: 1, status: 0 }),
+    })
+
+    expect(entries.map(entry => entry.key)).toEqual(['seckill'])
+    expect(entries[0]!.hook).toContain('明日')
   })
 
   it('三类全无进行中活动时返回空数组（整条不渲染，不留占位）', () => {

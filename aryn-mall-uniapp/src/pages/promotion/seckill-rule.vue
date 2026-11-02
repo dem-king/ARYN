@@ -124,7 +124,7 @@ function toSegments(item: string) {
   height: 100vh;
   flex-direction: column;
   overflow: hidden;
-  background: #fff;
+  background: var(--app-bg);
 }
 
 .rule-scroll {
@@ -141,7 +141,7 @@ function toSegments(item: string) {
 }
 
 .rule-title {
-  color: #1f2329;
+  color: var(--app-text);
   font-size: 30rpx;
   font-weight: 700;
   line-height: 1.5;
@@ -164,20 +164,20 @@ function toSegments(item: string) {
 
 .rule-text {
   flex: 1;
-  color: #333;
+  color: var(--app-text);
   font-size: 26rpx;
   line-height: 1.8;
 }
 
 .rule-strong {
-  color: #1f2329;
+  color: var(--app-text);
   font-weight: 700;
 }
 
 .rule-foot {
   display: block;
   padding-top: 56rpx;
-  color: #b6b9c0;
+  color: var(--app-text-3);
   font-size: 20rpx;
   text-align: center;
 }

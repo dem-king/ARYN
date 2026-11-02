@@ -1100,7 +1100,9 @@ export default {
   top: 0;
   right: 0;
   bottom: 0;
-  z-index: 990;
+  /* 999 压过玻璃 tabBar（998）：购物车 tab 页上弹层底部按钮曾被底栏盖住
+     （小程序端 custom tabBar 不占 --window-bottom，面板直接贴屏底） */
+  z-index: 999;
   overflow: hidden;
 
   &.show {
@@ -1112,7 +1114,9 @@ export default {
 
     .layer {
       animation: showLayer 0.2s linear both;
-      bottom: var(--window-bottom);
+      /* 宿主页若挂了悬浮玻璃底栏（--page-glass-bar-clearance，见共享车分类选货页），
+         弹层面板会被底栏盖住下沿，按变量把选规格面板抬到玻璃上沿之上 */
+      bottom: calc(var(--window-bottom, 0px) + var(--page-glass-bar-clearance, 0px));
     }
   }
 
@@ -1150,7 +1154,7 @@ export default {
     z-index: 99;
     bottom: 0;
     border-radius: 10rpx 10rpx 0 0;
-    background-color: #fff;
+    background-color: var(--app-card);
 
     .specification-wrapper {
       width: 100%;
@@ -1215,13 +1219,13 @@ export default {
 
             .inventory {
               font-size: 24rpx;
-              color: #999999;
+              color: var(--app-text-3);
               margin-bottom: 14rpx;
             }
 
             .choose {
               font-size: 28rpx;
-              color: #333333;
+              color: var(--app-text);
             }
           }
         }
@@ -1239,7 +1243,7 @@ export default {
             .item-title {
               margin-bottom: 20rpx;
               font-size: 28rpx;
-              color: #999999;
+              color: var(--app-text-3);
             }
 
             .item-wrapper {
@@ -1252,11 +1256,11 @@ export default {
                 padding: 10rpx 35rpx;
                 font-size: 24rpx;
                 border-radius: 10rpx;
-                background-color: #ffffff;
-                color: #333333;
+                background-color: var(--app-card);
+                color: var(--app-text);
                 margin-right: 20rpx;
                 margin-bottom: 16rpx;
-                border: 1px solid #f4f4f4;
+                border: 1px solid var(--app-border);
                 box-sizing: border-box;
 
                 &.actived {
@@ -1265,9 +1269,9 @@ export default {
                 }
 
                 &.noactived {
-                  background-color: #f6f6f6;
-                  border-color: #f6f6f6;
-                  color: #c3c3c3;
+                  background-color: var(--app-card-2);
+                  border-color: var(--app-border);
+                  color: var(--app-text-3);
                 }
               }
             }

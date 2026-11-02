@@ -39,6 +39,14 @@ export const DEFAULT_MALL_THEME = {
 }
 
 /**
+ * 深色模式下发给 --wot-color-theme-background 的页面底色。
+ * pageBackgroundColor 是浅色概念（管理端配置的主题粉底），而该变量以 inline
+ * style 绑在根节点、无法被 class 覆盖——discount/group-buy 等页面直接引用
+ * 它当背景，深色时必须在取值侧切深色（与 App.vue 的 --app-bg 深色值同源）。
+ */
+export const MALL_THEME_DARK_BACKGROUND = '#131313'
+
+/**
  * 回到前台刷新的节流窗口：管理端改色后「下次打开生效」包含冷启动与
  * 后台切回两种场景，无需每次 onShow 都打接口。
  */
@@ -170,7 +178,12 @@ export const useMallThemeStore = defineStore('mallTheme', {
         colorTheme: state.primaryColor,
         colorThemePrimary: state.primaryColor,
         colorThemeSecondary: state.secondaryColor,
-        colorThemeBackground: state.pageBackgroundColor,
+        // 深色模式：pageBackgroundColor 是浅色概念且 inline 绑定无法被 class
+        // 覆盖，取值侧直接切深色（品牌色两个保持原值，深浅一致）
+        colorThemeBackground:
+          state.mode === 'dark'
+            ? MALL_THEME_DARK_BACKGROUND
+            : state.pageBackgroundColor,
       }
     },
   },

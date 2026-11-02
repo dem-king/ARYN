@@ -2,7 +2,11 @@
 import { pendingChoice } from '@/composables/useCartDestination'
 import { useMallThemeSync } from '@/composables/useMallThemeSync'
 import { useTabBarBadge } from '@/composables/useTabBarBadge'
+import { useDeliveryMessageStore } from '@/store/deliveryMessageStore'
 import { useMallThemeStore } from '@/store/mallThemeStore'
+import { useMessageStore } from '@/store/messageStore'
+import { useSessionStore } from '@/store/sessionStore'
+import SessionInvalidDialog from '@/components/SessionInvalidDialog.vue'
 import {
   getTenantGuardError,
   getTenantGuardState,
@@ -60,11 +64,43 @@ useTabBarBadge()
 useMallThemeSync()
 const mallThemeStore = useMallThemeStore()
 const themeVars = computed(() => mallThemeStore.themeVars)
+
+/**
+ * 根节点 custom-class：深色时追加 UnoCSS 的 dark 类。
+ *
+ * wot 组件层只认 ConfigProvider 自挂的 .wot-theme-dark；而业务模板里存量
+ * dark:bg-[...] / dark:text-... 工具类编译出的选择器是 `.dark .dark_xxx`
+ * （applet 预设把冒号转 _a_），祖先没有 .dark 时这些规则永远不命中——
+ * 此前 60+ 处已写好的深色适配因此整体失效，这里补上缺的那颗 class。
+ */
+const rootCustomClass = computed(() =>
+  mallThemeStore.mode === 'dark' ? 'page-wrapper dark' : 'page-wrapper',
+)
+
+/**
+ * 会话失效（被顶下线/登录过期）：立刻断开两条 WS。
+ *
+ * 请求层已由 sessionStore 短路，但 WS 不经过 alova 响应处理器，死 token 会在
+ * onClose 里每 3 秒重连一次。这里在 invalid 翻转时主动 disconnect；immediate
+ * 覆盖「失效发生在旧页面、用户返回后新页面实例才挂载」的情况。
+ * 配送端与商城端是两套身份，先都断开（用户只能从弹窗出口恢复其一）。
+ */
+const sessionStore = useSessionStore()
+watch(
+  () => sessionStore.invalid,
+  (invalid) => {
+    if (!invalid)
+      return
+    useMessageStore().disconnect()
+    useDeliveryMessageStore().disconnect()
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
   <wd-config-provider
-    custom-class="page-wrapper"
+    :custom-class="rootCustomClass"
     :theme="mallThemeStore.mode"
     :theme-vars="themeVars"
   >
@@ -107,6 +143,12 @@ const themeVars = computed(() => mallThemeStore.themeVars)
     -->
     <shared-cart-destination-sheet v-if="!!pendingChoice" />
 
+    <!--
+      会话失效阻断弹窗（被顶下线/登录过期）：全局唯一状态在 sessionStore，
+      每页一份实例；弹窗期间页面保持原样，用户点「重新登录/退出」后才清态跳转。
+    -->
+    <session-invalid-dialog />
+
     <!-- #ifdef MP-WEIXIN -->
     <privacy-popup />
     <!-- #endif -->
@@ -134,24 +176,24 @@ const themeVars = computed(() => mallThemeStore.themeVars)
   justify-content: center;
   gap: 16rpx;
   padding: 0 64rpx;
-  background: #f6f7f9;
+  background: var(--app-bg, #f6f7f9);
 }
 
 .tenant-blocked__title {
   font-size: 36rpx;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--app-text, #1f2937);
 }
 
 .tenant-blocked__desc {
   font-size: 26rpx;
-  color: #6b7280;
+  color: var(--app-text-2, #6b7280);
   text-align: center;
 }
 
 .tenant-blocked__meta {
   font-size: 22rpx;
-  color: #9ca3af;
+  color: var(--app-text-3, #9ca3af);
 }
 
 .tenant-blocked__retry {

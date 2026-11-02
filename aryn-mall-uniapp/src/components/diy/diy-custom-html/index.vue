@@ -5,6 +5,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useDiyStyle } from '@/composables/useDiyStyle'
+import { handleHtmlLinkTap } from '@/utils/html-link'
 
 import { sanitizeCustomHtmlHtml } from './sanitize-html'
 
@@ -22,23 +23,30 @@ const safeHtml = computed(() => sanitizeCustomHtmlHtml(rawHtml.value))
 
 const hasContent = computed(() => safeHtml.value.trim().length > 0)
 
+/** 高度只做下限：内容超出时撑开，避免按 px 裁掉运营没算准的规则文案 */
 const containerStyle = computed(() => {
   const style: Record<string, string> = {}
   const height = Number(props.showData.height)
-  if (Number.isFinite(height) && height > 0) {
-    style.height = `${height}px`
-    style.overflow = 'hidden'
-  }
+  if (Number.isFinite(height) && height > 0)
+    style.minHeight = `${height}px`
   return style
 })
 
 const dynamicStyles = useDiyStyle(computed(() => props.showData.commonStyle))
+
+function onLinkTap(attrs: { href?: string }) {
+  handleHtmlLinkTap(attrs.href)
+}
 </script>
 
 <template>
   <view :style="dynamicStyles">
     <view v-if="hasContent" class="custom-html-container" :style="containerStyle">
-      <mp-html :content="safeHtml" />
+      <mp-html
+        :content="safeHtml"
+        scroll-table
+        @linktap="onLinkTap"
+      />
     </view>
     <view v-else class="custom-html-placeholder">{{ t('diy.customHtml.empty') }}</view>
   </view>

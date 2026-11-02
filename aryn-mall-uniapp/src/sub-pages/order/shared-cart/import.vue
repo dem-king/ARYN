@@ -16,22 +16,27 @@ import type {
  * 数据与校验全部以服务端返回为准：客户端只上传文件、回传「行号 → 处置动作」，
  * 不自行判断某行能否入单（匹配口径在服务端，前端重复实现必然漂移）。
  */
-import { onLoad } from '@dcloudio/uni-app'
+import { onLoad, onPageScroll } from '@dcloudio/uni-app'
 
 import { computed, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { ApiError } from '@/api/core/handlers'
 import { alovaInstance } from '@/api/core/instance'
 import {
   confirmSharedCartImport,
   getSharedCartImport,
   listSharedCartImports,
+  SHARED_CART_NAME_REQUIRED,
 } from '@/api/order/sharedCart'
 import hrNavbar from '@/components/hr-navbar/index.vue'
-import { useAuthStore } from '@/store/authStore'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+import { useRequireLogin } from '@/composables/useRequireLogin'
 import {
   downloadSharedCartImportTemplate,
   previewSharedCartImport,
 } from '@/sub-pages/api/order/sharedCartImport'
+
+const { handlePageScroll } = useFrostedNavbar()
 
 definePage({
   name: 'shared-cart-import',
@@ -41,7 +46,8 @@ definePage({
   },
 })
 
-const authStore = useAuthStore()
+// 统一登录守卫：游客深链进入时记录带 cartId 的回跳并跳登录（不再裸跳登录页丢来源）
+const { ensureLoggedIn } = useRequireLogin()
 const { t } = useI18n()
 
 const cartId = ref('')
@@ -105,8 +111,10 @@ const RESULT_THEME: Record<string, string> = {
 
 onLoad((options) => {
   cartId.value = options?.cartId ?? ''
-  if (!authStore.isLoggedIn)
-    uni.navigateTo({ url: '/pages/login/index' })
+  // 需登录页：游客先登录，登录成功后带着 cartId 回到本页（而不是被兜底送回首页）
+  const redirectPath = `/sub-pages/order/shared-cart/import${cartId.value ? `?cartId=${encodeURIComponent(cartId.value)}` : ''}`
+  if (!ensureLoggedIn(redirectPath))
+    return
 })
 
 /** 选文件：小程序只能从聊天记录选（基础库 ≥ 2.6.0），H5 走 chooseFile */
@@ -281,6 +289,12 @@ async function handleConfirm() {
     }
   }
   catch (error) {
+    // 姓名闸门：操作者未填姓名，服务端拒绝并入（拦截器已 toast 后端文案）。
+    // 跳到该车详情页强制补填，导入任务保留，返回本页后可直接重新确认
+    if (error instanceof ApiError && error.code === SHARED_CART_NAME_REQUIRED) {
+      uni.navigateTo({ url: `/sub-pages/order/shared-cart/detail?id=${cartId.value}` })
+      return
+    }
     uni.showToast({
       title: error instanceof Error ? error.message : t('sharedCart.importPage.mergeFailed'),
       icon: 'none',
@@ -328,6 +342,9 @@ async function reopenLatestImport() {
     uni.hideLoading()
   }
 }
+
+// 顶栏磨砂玻璃：字面量注册滚动（小程序按页面源码生成滚动位标记，包进 composable 会静默失效）
+onPageScroll(handlePageScroll)
 </script>
 
 <template>

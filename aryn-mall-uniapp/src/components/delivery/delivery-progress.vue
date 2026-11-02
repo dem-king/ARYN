@@ -1,8 +1,8 @@
 <script setup lang="ts">
+import type { DeliveryProgress } from '@/api/delivery'
 import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getOrderDeliveryProgress } from '@/api/delivery'
-import type { DeliveryProgress } from '@/api/delivery'
 
 interface Props {
   /** 订单ID */
@@ -61,212 +61,364 @@ watch(() => props.orderId, () => {
 
 <template>
   <view class="delivery-progress">
-    <view v-if="loading" class="py-40rpx text-center text-26rpx text-gray-400">
+    <view v-if="loading" class="dp-state">
       {{ t('common.loading') }}
     </view>
 
-    <template v-else-if="progress">
-      <!-- 配送员信息卡片 -->
-      <view
-        v-if="progress.staffName"
-        class="staff-card mb-20rpx flex items-center justify-between rounded-20rpx bg-white p-30rpx"
-      >
-        <view class="flex items-center">
-          <view class="staff-avatar">
-            <text class="i-carbon:user-avatar text-40rpx text-white" />
-          </view>
-          <view class="ml-20rpx">
-            <text class="text-28rpx font-bold">
-              {{ progress.staffName }}
-            </text>
-            <view class="mt-4rpx text-24rpx text-gray-500">
-              {{ t('shared.deliveryProgress.staffRole') }}
-            </view>
-          </view>
+    <view v-else-if="progress" class="dp-card">
+      <!-- 卡头：进度标题 + 出车单号 -->
+      <view class="dp-header">
+        <text class="dp-header__title">
+          {{ t('shared.deliveryProgress.progressTitle') }}
+        </text>
+        <text v-if="progress.tripNo" class="dp-header__trip">
+          {{ t('shared.deliveryProgress.tripNo') }} {{ progress.tripNo }}
+        </text>
+      </view>
+
+      <!-- 配送员行：头像 + 姓名 + 拨打 -->
+      <view v-if="progress.staffName" class="dp-staff">
+        <view class="dp-staff__avatar">
+          <text class="dp-staff__avatar-icon i-carbon:user-avatar" />
+        </view>
+        <view class="dp-staff__meta">
+          <text class="dp-staff__name">
+            {{ progress.staffName }}
+          </text>
+          <text class="dp-staff__role">
+            {{ t('shared.deliveryProgress.staffRole') }}
+          </text>
         </view>
         <view
           v-if="progress.staffPhone"
-          class="staff-call"
+          class="dp-staff__call"
           @click="handleCallStaff(progress.staffPhone)"
         >
-          <text class="i-carbon:phone text-36rpx text-white" />
-        </view>
-      </view>
-
-      <!-- 出车单号 -->
-      <view v-if="progress.tripNo" class="mb-20rpx rounded-20rpx bg-white p-30rpx">
-        <view class="flex items-center justify-between">
-          <text class="text-26rpx text-gray-600">
-            {{ t('shared.deliveryProgress.tripNo') }}
-          </text>
-          <text class="text-26rpx">
-            {{ progress.tripNo }}
-          </text>
+          <text class="dp-staff__call-icon i-carbon:phone" />
         </view>
       </view>
 
       <!-- 配送进度时间线 -->
-      <view class="rounded-20rpx bg-white p-30rpx">
-        <text class="mb-30rpx block text-28rpx font-bold">
-          {{ t('shared.deliveryProgress.progressTitle') }}
-        </text>
-        <view class="timeline">
-          <view
-            v-for="(node, index) in progress.nodes"
-            :key="index"
-            class="timeline-item"
-          >
-            <!-- 节点圆点 -->
-            <view class="timeline-dot-wrap">
-              <view
-                class="timeline-dot"
-                :class="{
-                  'timeline-dot-done': node.done,
-                  'timeline-dot-active': node.active,
-                }"
-              >
-                <text
-                  v-if="node.done"
-                  class="i-carbon:checkmark text-20rpx text-white"
-                />
-              </view>
-              <view
-                v-if="index < progress.nodes.length - 1"
-                class="timeline-line"
-                :class="{ 'timeline-line-done': node.done }"
-              />
+      <view class="dp-timeline">
+        <view
+          v-for="(node, index) in progress.nodes"
+          :key="index"
+          class="dp-node"
+        >
+          <view class="dp-node__rail">
+            <view
+              class="dp-node__dot"
+              :class="{
+                'dp-node__dot--done': node.done,
+                'dp-node__dot--active': node.active,
+              }"
+            >
+              <text v-if="node.done" class="dp-node__check i-carbon:checkmark" />
             </view>
-            <!-- 节点内容 -->
-            <view class="timeline-content">
-              <text
-                class="text-26rpx"
-                :class="{
-                  'text-primary font-bold': node.active,
-                  'text-gray-400': !node.active && !node.done,
-                  'text-gray-600': node.done,
-                }"
-              >
-                {{ node.name }}
-              </text>
-              <text v-if="node.time" class="mt-4rpx block text-22rpx text-gray-400">
-                {{ node.time }}
-              </text>
-            </view>
-          </view>
-        </view>
-
-        <!-- 送达凭证：后端已送达/已签收时才返回，空列表整块隐藏 -->
-        <view v-if="progress.evidenceUrls && progress.evidenceUrls.length > 0" class="mt-30rpx border-t border-gray-100 pt-20rpx">
-          <text class="mb-16rpx block text-26rpx text-gray-600">
-            {{ t('shared.deliveryProgress.evidence') }}
-          </text>
-          <view class="flex flex-wrap gap-16rpx">
-            <image
-              v-for="(url, index) in progress.evidenceUrls"
-              :key="url"
-              :src="url"
-              class="h-150rpx w-150rpx rounded-lg"
-              mode="aspectFill"
-              @click="previewEvidence(index)"
+            <view
+              v-if="index < progress.nodes.length - 1"
+              class="dp-node__line"
+              :class="{ 'dp-node__line--done': node.done }"
             />
+          </view>
+          <view class="dp-node__content">
+            <text
+              class="dp-node__name"
+              :class="{
+                'dp-node__name--active': node.active,
+                'dp-node__name--done': node.done && !node.active,
+                'dp-node__name--todo': !node.active && !node.done,
+              }"
+            >
+              {{ node.name }}
+            </text>
+            <text v-if="node.time" class="dp-node__time">
+              {{ node.time }}
+            </text>
           </view>
         </view>
       </view>
-    </template>
 
-    <view v-else class="py-40rpx text-center text-26rpx text-gray-400">
+      <!-- 送达凭证：后端已送达/已签收时才返回，空列表整块隐藏 -->
+      <view
+        v-if="progress.evidenceUrls && progress.evidenceUrls.length > 0"
+        class="dp-evidence"
+      >
+        <text class="dp-evidence__title">
+          {{ t('shared.deliveryProgress.evidence') }}
+        </text>
+        <view class="dp-evidence__grid">
+          <image
+            v-for="(url, index) in progress.evidenceUrls"
+            :key="url"
+            :src="url"
+            class="dp-evidence__pic"
+            mode="aspectFill"
+            @click="previewEvidence(index)"
+          />
+        </view>
+      </view>
+    </view>
+
+    <view v-else class="dp-state">
       {{ t('shared.deliveryProgress.empty') }}
     </view>
   </view>
 </template>
 
 <style lang="scss" scoped>
+/*
+ * 配送进度卡：主题色贯穿（完成=主题色实心对勾、当前=柔光光环、待办=灰点），
+ * 不再使用写死的蓝绿渐变——商城可换肤，硬编码色值会与全站主题打架。
+ */
+$brand: var(--theme-color-primary, var(--wot-color-theme-primary, #FF2237));
+$ink: var(--app-text);
+$ink-2: var(--app-text-2);
+$ink-3: var(--app-text-3);
+$hairline: var(--app-border);
+
 .delivery-progress {
   width: 100%;
 }
 
-.staff-card {
-  background: linear-gradient(135deg, #0084ff 0%, #07c160 100%);
-  color: #fff;
-
-  :deep(.text-gray-500) {
-    color: rgba(255, 255, 255, 0.8) !important;
-  }
+.dp-state {
+  padding: 48rpx 0;
+  font-size: 26rpx;
+  color: $ink-3;
+  text-align: center;
 }
 
-.staff-avatar {
+.dp-card {
+  padding: 28rpx 28rpx 4rpx;
+  background: var(--app-card);
+  border-radius: 24rpx;
+  box-shadow: 0 6rpx 24rpx rgba(17, 24, 39, 0.04);
+}
+
+.dp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 24rpx;
+}
+
+.dp-header__title {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: $ink;
+}
+
+.dp-header__trip {
+  margin-left: 24rpx;
+  font-size: 22rpx;
+  color: $ink-3;
+  text-align: right;
+}
+
+/* ===================== 配送员 ===================== */
+
+.dp-staff {
+  display: flex;
+  align-items: center;
+  padding: 20rpx 0 28rpx;
+  border-top: 1rpx solid $hairline;
+}
+
+.dp-staff__avatar {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 80rpx;
   height: 80rpx;
   border-radius: 50%;
-  background-color: rgba(255, 255, 255, 0.25);
+  background: var(--app-card-2);
+  flex-shrink: 0;
 }
 
-.staff-call {
+.dp-staff__avatar-icon {
+  font-size: 40rpx;
+  color: $brand;
+}
+
+.dp-staff__meta {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  margin-left: 20rpx;
+}
+
+.dp-staff__name {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: $ink;
+}
+
+.dp-staff__role {
+  margin-top: 4rpx;
+  font-size: 22rpx;
+  color: $ink-3;
+}
+
+.dp-staff__call {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 72rpx;
-  height: 72rpx;
+  width: 88rpx;
+  height: 88rpx;
   border-radius: 50%;
-  background-color: rgba(255, 255, 255, 0.25);
+  background: $brand;
+  flex-shrink: 0;
 }
 
-.timeline {
-  padding-left: 10rpx;
+.dp-staff__call-icon {
+  font-size: 36rpx;
+  color: #fff;
 }
 
-.timeline-item {
+/* ===================== 时间线 ===================== */
+
+.dp-timeline {
+  padding: 4rpx 0 12rpx;
+}
+
+.dp-node {
   display: flex;
-  min-height: 80rpx;
 }
 
-.timeline-dot-wrap {
+.dp-node__rail {
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: 40rpx;
+  width: 44rpx;
   flex-shrink: 0;
 }
 
-.timeline-dot {
+.dp-node__dot {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32rpx;
-  height: 32rpx;
+  width: 28rpx;
+  height: 28rpx;
   border-radius: 50%;
-  background-color: #dcdfe6;
+  background: var(--app-border);
   flex-shrink: 0;
   z-index: 1;
+  margin-top: 4rpx;
   transition: all 0.3s ease;
 }
 
-.timeline-dot-done {
-  background-color: #07c160;
+.dp-node__dot--done {
+  background: $brand;
 }
 
-.timeline-dot-active {
-  background-color: var(--wot-color-theme, #0084ff);
-  box-shadow: 0 0 0 8rpx rgba(0, 132, 255, 0.2);
+/* 当前节点：白底挖空 + 柔光光环（伪元素实现，避免对主题变量做 rgba 合成） */
+.dp-node__dot--active {
+  background: var(--app-card);
 }
 
-.timeline-line {
+.dp-node__dot--active::before {
+  content: '';
+  position: absolute;
+  top: -8rpx;
+  right: -8rpx;
+  bottom: -8rpx;
+  left: -8rpx;
+  border-radius: 50%;
+  background: $brand;
+  opacity: 0.15;
+}
+
+.dp-node__dot--active::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 20rpx;
+  height: 20rpx;
+  margin: -10rpx 0 0 -10rpx;
+  border-radius: 50%;
+  background: $brand;
+}
+
+.dp-node__check {
+  font-size: 18rpx;
+  color: #fff;
+}
+
+.dp-node__line {
   width: 4rpx;
   flex: 1;
-  background-color: #dcdfe6;
   margin-top: 4rpx;
+  background: var(--app-border);
 }
 
-.timeline-line-done {
-  background-color: #07c160;
+.dp-node__line--done {
+  background: $brand;
 }
 
-.timeline-content {
-  padding-left: 20rpx;
-  padding-bottom: 30rpx;
+.dp-node__content {
   flex: 1;
+  min-width: 0;
+  padding-left: 20rpx;
+  padding-bottom: 36rpx;
+}
+
+.dp-node:last-child .dp-node__content {
+  padding-bottom: 24rpx;
+}
+
+.dp-node__name {
+  display: block;
+  font-size: 26rpx;
+  line-height: 36rpx;
+}
+
+.dp-node__name--active {
+  font-weight: 600;
+  color: $brand;
+}
+
+.dp-node__name--done {
+  color: $ink;
+}
+
+.dp-node__name--todo {
+  color: $ink-3;
+}
+
+.dp-node__time {
+  display: block;
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  color: $ink-3;
+}
+
+/* ===================== 送达凭证 ===================== */
+
+.dp-evidence {
+  padding: 24rpx 0;
+  border-top: 1rpx solid $hairline;
+}
+
+.dp-evidence__title {
+  display: block;
+  font-size: 24rpx;
+  color: $ink-2;
+}
+
+.dp-evidence__grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16rpx;
+  margin-top: 16rpx;
+}
+
+.dp-evidence__pic {
+  width: 144rpx;
+  height: 144rpx;
+  border-radius: 16rpx;
+  background: var(--app-card-2);
 }
 </style>

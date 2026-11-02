@@ -18,7 +18,8 @@ export default {
     // 防串船分组标签与行动入口
     currentGroupLabel: '本单商品{suffix}',
     noDeliveryPlan: '未指定配送计划',
-    currentVesselNoCall: '当前船舶：{name}（暂无进行中的靠港计划）',
+    addedThisSession: '本次加购',
+    addedBeforeCall: '此前加购，将随本次靠港配送',
     vesselNoCall: '船舶暂无进行中的靠港计划',
     previousCallWithPlace: '此前靠港计划（{place}）加购',
     previousCall: '此前靠港计划加购',

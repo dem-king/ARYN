@@ -23,6 +23,7 @@ import { useI18n } from 'vue-i18n'
 import { getById as getSpuById } from '@/api/product/spu'
 import { useCartDestination } from '@/composables/useCartDestination'
 import { useQuickCart } from '@/composables/useQuickCart'
+import { useRequireLogin } from '@/composables/useRequireLogin'
 import { resolvePurchaseDecision, resolveSpecRow } from '@/utils/goods-purchase'
 import { initGoodsSpecs } from '@/utils/goods-specs'
 
@@ -71,6 +72,11 @@ const skuGoods = ref<any>({})
 
 /** 图片列表兜底：接口缺图时给个空数组，swiper 不崩 */
 const imageList = computed(() => goodsSpu.value?.spuUrls ?? [])
+
+/** 卖点段落样式：与商详页同口径，段落边距清零（内容已由服务端白名单清洗） */
+const introTagStyle = {
+  p: 'margin: 0;',
+}
 
 /** 是否有可展示的划线价 */
 const showOriginalPrice = computed(
@@ -143,9 +149,8 @@ function openSkuPopup() {
   })
 }
 
-function goLogin() {
-  uni.navigateTo({ url: '/pages/login/index' })
-}
+// 统一登录守卫：记录当前页回跳（登录后回到这件商品），避免各入口各写一套裸跳登录页
+const { goLogin } = useRequireLogin()
 
 /** 加入购物车：单规格按合法数量直接入车，多规格唤起弹层选规格 */
 async function handleAddCart() {
@@ -254,7 +259,7 @@ async function handleSkuAdd(data: any) {
           {{ goodsSpu.name }}
         </view>
         <view v-if="goodsSpu.introduction" class="detail-sheet-intro">
-          {{ goodsSpu.introduction }}
+          <mp-html :content="goodsSpu.introduction" :tag-style="introTagStyle" />
         </view>
 
         <!-- 图文详情（完整商品详情不再跳新页面，直接在弹层内阅读） -->
@@ -309,7 +314,17 @@ async function handleSkuAdd(data: any) {
    */
   height: 66vh;
   max-height: 66vh;
-  background: #fff;
+  background: var(--app-card);
+  /**
+   * 宿主页若挂了悬浮玻璃底栏（--page-glass-bar-clearance，见共享车分类选货页）：
+   * 底栏是 fixed 覆盖层且层级高于被面板 transform 困住的本弹层，会盖住底部
+   * 「加入购物车」操作栏；这里按变量抬高 footer，弹层白底继续铺到屏底、
+   * 从玻璃下穿过。未设变量的宿主取 0，行为不变。
+   * padding 必须计入 66vh（border-box）：content-box 下 padding 被顶出
+   * max-height，会被弹层根节点裁掉、让位不足。
+   */
+  box-sizing: border-box;
+  padding-bottom: var(--page-glass-bar-clearance, 0px);
 }
 
 .detail-sheet-gallery {
@@ -317,7 +332,7 @@ async function handleSkuAdd(data: any) {
   flex: none;
   /* 大图收敛：420rpx 约等于四分之一屏，把空间让给信息与操作区 */
   height: 420rpx;
-  background: #f5f5f5;
+  background: var(--app-card-2);
 }
 
 .detail-sheet-swiper {
@@ -387,7 +402,7 @@ async function handleSkuAdd(data: any) {
 
 .detail-sheet-original {
   margin-left: 16rpx;
-  color: #999;
+  color: var(--app-text-3);
   font-size: 24rpx;
   text-decoration: line-through;
 }
@@ -398,7 +413,7 @@ async function handleSkuAdd(data: any) {
   justify-content: space-between;
   margin: 16rpx 32rpx 0;
   padding: 14rpx 20rpx;
-  background: #f7f7f7;
+  background: var(--app-card-2);
   border-radius: 12rpx;
   /* 规格行可点，按压反馈与页面其它可点元素一致 */
   transition: opacity 160ms ease, transform 160ms ease;
@@ -413,7 +428,7 @@ async function handleSkuAdd(data: any) {
   flex: 1;
   min-width: 0;
   font-size: 26rpx;
-  color: #333;
+  color: var(--app-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -424,20 +439,20 @@ async function handleSkuAdd(data: any) {
   font-size: 32rpx;
   font-weight: 600;
   line-height: 1.4;
-  color: #222;
+  color: var(--app-text);
 }
 
 .detail-sheet-intro {
   padding: 10rpx 32rpx 0;
   font-size: 26rpx;
   line-height: 1.5;
-  color: #888;
+  color: var(--app-text-3);
 }
 
 .detail-sheet-divider {
   margin: 20rpx 0 0;
   padding: 0 32rpx;
-  color: #333;
+  color: var(--app-text);
   font-weight: 600;
 }
 
@@ -451,8 +466,8 @@ async function handleSkuAdd(data: any) {
   align-items: center;
   gap: 16rpx;
   padding: 14rpx 32rpx;
-  border-top: 1rpx solid #f2f2f2;
-  background: #fff;
+  border-top: 1rpx solid var(--app-border);
+  background: var(--app-card);
 }
 
 .detail-sheet-add {

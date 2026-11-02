@@ -3,7 +3,7 @@ import type { TenantOverview } from '#/api/upms/tenant';
 
 import { ref } from 'vue';
 
-import { ARYN_PLATFORM_TENANT_ID } from '@vben/constants';
+import { ARYN_TENANT_TYPE_PLATFORM } from '@vben/constants';
 
 import dayjs from 'dayjs';
 import {
@@ -58,8 +58,11 @@ const formatBytes = (value?: null | number) => {
   return `${(value / 1024 / 1024 / 1024).toFixed(2)} GB`;
 };
 
+const isPerpetual = (data: TenantOverview) =>
+  data.tenantType === ARYN_TENANT_TYPE_PLATFORM || !data.authEndTime;
+
 const remainingText = (data: TenantOverview) => {
-  if (data.id === ARYN_PLATFORM_TENANT_ID) return '长期有效';
+  if (isPerpetual(data)) return '长期有效';
   const value = data.remainingDays;
   if (value === null || value === undefined) return '-';
   if (value < 0) return `已过期 ${Math.abs(value)} 天`;
@@ -70,7 +73,7 @@ const remainingText = (data: TenantOverview) => {
 const remainingTagType = (
   data: TenantOverview,
 ): 'danger' | 'info' | 'success' | 'warning' => {
-  if (data.id === ARYN_PLATFORM_TENANT_ID) return 'success';
+  if (isPerpetual(data)) return 'success';
   const value = data.remainingDays;
   if (value === null || value === undefined) return 'info';
   if (value <= 7) return 'danger';
@@ -119,9 +122,9 @@ defineExpose({ open });
           </ElDescriptionsItem>
           <ElDescriptionsItem label="授权结束">
             {{
-              overview.id === ARYN_PLATFORM_TENANT_ID
-                ? '长期有效'
-                : formatDateTime(overview.authEndTime)
+              overview.authEndTime
+                ? formatDateTime(overview.authEndTime)
+                : '长期有效'
             }}
           </ElDescriptionsItem>
         </ElDescriptions>

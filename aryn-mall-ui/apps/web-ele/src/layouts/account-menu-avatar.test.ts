@@ -17,7 +17,10 @@ describe('account menu and avatar contracts', () => {
     expect(basicLayoutSource).not.toContain('ARYN_DOC_URL');
     expect(basicLayoutSource).not.toContain('ARYN_GITEE_URL');
     expect(basicLayoutSource).not.toContain('const menus');
-    expect(basicLayoutSource).not.toContain(':menus');
+    // 三期新增「登录设备」入口后，用户下拉允许传入自建菜单；
+    // 但只允许这一个业务入口，外部账号菜单（文档/Gitee 等）仍必须不存在。
+    expect(basicLayoutSource).toContain(':menus="userMenus"');
+    expect(basicLayoutSource).toContain("$t('page.loginDevices.menu')");
     expect(basicLayoutSource).not.toContain('preferences.app.defaultAvatar');
     expect(basicLayoutSource).toContain(
       'userStore.userInfo?.avatar?.trim() || undefined',

@@ -10,6 +10,7 @@ import cn.hutool.crypto.digest.BCrypt;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.common.core.constant.CommonConstants;
+import com.aryn.cloud.common.core.enums.SessionInvalidSubReason;
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.log.annotation.SysLog;
 import com.aryn.cloud.order.api.remote.RemoteDeliveryAccountService;
@@ -82,6 +83,25 @@ public class SysUserController {
 		}
 		sysUser.setRoles(sysRoleService.findRoleIdsByUserId(id));
 		return Result.success(SysUserVO.from(sysUser));
+	}
+
+	/**
+	 * 查看员工完整手机号：列表与详情响应一律脱敏，联系同事需要完整号码时单独取，
+	 * 由独立权限控制并写入操作日志，日志不记录号码本身。
+	 */
+	@SysLog("查看员工完整手机号")
+	@Operation(summary = "查看员工完整手机号")
+	@SaCheckPermission("upms:sysuser:phone")
+	@GetMapping("/{id}/phone")
+	public Result<String> phone(@PathVariable String id) {
+		SysUser sysUser = sysUserService.getById(id);
+		if (ObjectUtil.isNull(sysUser)) {
+			return Result.fail("用户不存在");
+		}
+		if (StrUtil.isBlank(sysUser.getPhone())) {
+			return Result.fail("该账号未绑定手机号");
+		}
+		return Result.success(sysUser.getPhone());
 	}
 
 	@SysLog("新增用户")
@@ -179,7 +199,7 @@ public class SysUserController {
 		boolean updated = sysUserService.updateById(sysUser);
 		if (updated) {
 			// 改密即失效：撤销该账号全部已登录会话，避免旧 token 用旧密码的会话继续有效
-			sysUserSessionRevoker.revokeAll(sysUser.getId(), "修改密码");
+			sysUserSessionRevoker.revokeAll(sysUser.getId(), SessionInvalidSubReason.PASSWORD_CHANGED);
 		}
 		return Result.success(updated);
 	}

@@ -68,6 +68,9 @@ const dynamicStyles = computed(() => {
   };
 });
 
+/** 展示样式：1 = 列表（紧凑竖版票），2 = 卡片（一卡一行横版票） */
+const showStyle = computed(() => props.showData.showStyle || '1');
+
 const showNum = computed(() => {
   const value = Math.floor(Number(props.showData.showNum) || 3);
   return Math.min(10, Math.max(1, value));
@@ -100,25 +103,34 @@ const couponList = computed(() => {
       v-else
       class="coupon-list"
       :class="{
-        'list-style': showData.showStyle === '1',
-        'card-style': showData.showStyle === '2',
+        'list-style': showStyle === '1',
+        'card-style': showStyle === '2',
       }"
     >
       <div v-for="i in couponList" :key="i" class="coupon-item">
+        <!--
+          2026-11 券体系重构：与 C 端 diy-coupon-receive 同构 —— 白卡 + 轻投影，
+          去掉渐变描边外框与整条状态带；红橙只给面额与领取按钮。
+        -->
         <div class="coupon-face">
-          <div class="coupon-notch coupon-notch--left"></div>
-          <div class="coupon-notch coupon-notch--right"></div>
           <div class="coupon-pill">满减券</div>
           <div class="amount-row">
             <span class="coupon-symbol">¥</span>
             <span class="coupon-value">10</span>
             <span class="coupon-unit"></span>
           </div>
-          <div class="coupon-name">优惠券</div>
+          <div class="coupon-threshold">满100元可用</div>
+          <!-- 竖版票：券名放在券面下方；横版票的券名在右侧信息区 -->
+          <div v-if="showStyle === '1'" class="coupon-name">优惠券</div>
         </div>
-        <div class="coupon-band">
-          <span class="coupon-condition">满100元可用</span>
-          <div v-if="showData.showReceiveBtn" class="coupon-btn">领取</div>
+
+        <div v-if="showStyle === '2'" class="coupon-info">
+          <div class="coupon-name">优惠券</div>
+          <div class="coupon-desc">全场通用</div>
+        </div>
+
+        <div v-if="showData.showReceiveBtn" class="coupon-band">
+          <div class="coupon-btn">领取</div>
         </div>
       </div>
     </div>
@@ -126,7 +138,7 @@ const couponList = computed(() => {
 </template>
 
 <!--
-  样式与小程序 diy-coupon-receive 逐值对齐（票面 / 状态带 / 票根缺口）。
+  样式与小程序 diy-coupon-receive 逐值对齐（券面 / 撕口虚线 / 领取按钮）。
   换算口径：小程序屏宽在 rpx 下恒为 750，画布正好 375px，故 1rpx = 0.5px。
   配色与小程序 src/styles/coupon-ticket.scss 同源，改一侧必须同步另一侧。
 -->
@@ -142,6 +154,114 @@ const couponList = computed(() => {
   }
 
   .coupon-list {
+    // 票卡：白底 + 12px 圆角 + 轻投影（与券卡组件同一套形状令牌）
+    .coupon-item {
+      position: relative;
+      box-sizing: border-box;
+      display: flex;
+      overflow: hidden;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow:
+        0 1px 3px rgb(15 23 42 / 3%),
+        0 6px 16px rgb(15 23 42 / 5%);
+    }
+
+    // 竖版票上区：浅橙渐变到白，放类型胶囊 / 面额 / 门槛 / 券名
+    .coupon-face {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 10px 6px 7px;
+      text-align: center;
+      background: linear-gradient(180deg, #fff6f1 0%, #fff 100%);
+    }
+
+    // 券类型胶囊：品牌小字压在浅橙底上（对 $coupon-tint-strong ≈ 5:1）
+    .coupon-pill {
+      padding: 1px 6px;
+      font-size: 9px;
+      font-weight: 600;
+      color: #c94300;
+      white-space: nowrap;
+      background: #ffece2;
+      border-radius: 4px;
+    }
+
+    .amount-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: center;
+      margin-top: 6px;
+      line-height: 1;
+      color: #f50;
+    }
+
+    .coupon-symbol {
+      margin-right: 1px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    // 管理端预览按 1rpx = 0.5px 锁 48rpx ↔ 24px，改字号要同步小程序
+    .coupon-value {
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+    }
+
+    .coupon-unit {
+      margin-left: 1px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .coupon-threshold {
+      max-width: 100%;
+      margin-top: 5px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 9px;
+      color: #8a8f99;
+      white-space: nowrap;
+    }
+
+    // 竖版票的券名是辅助信息，走中性灰，不与「钱」抢视觉
+    .coupon-name {
+      width: 100%;
+      margin-top: 3px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 9px;
+      color: #8a8f99;
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    // 下方动作区：虚线撕口 + 领取按钮（与券卡撕口同宽 2rpx ↔ 1px）
+    .coupon-band {
+      padding: 7px 8px 8px;
+      margin-top: 7px;
+      border-top: 1px dashed #ffe3d6;
+    }
+
+    .coupon-btn {
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 26px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #fff;
+      white-space: nowrap;
+      background: #f50;
+      border-radius: 999px;
+    }
+
     &.list-style {
       display: flex;
       gap: 8px;
@@ -151,8 +271,8 @@ const couponList = computed(() => {
         display: none;
       }
 
+      // 画布按上限画卡：单卡 110px（220rpx 最小宽度），一排最多 3 张不换行
       .coupon-item {
-        box-sizing: border-box;
         flex: 0 0 auto;
         flex-direction: column;
         width: 110px;
@@ -165,122 +285,68 @@ const couponList = computed(() => {
       gap: 8px;
 
       .coupon-item {
+        flex-direction: row;
+        align-items: stretch;
+        width: 100%;
+      }
+
+      // 横版票：左值块固定 88px（$coupon-value-width: 176rpx）
+      .coupon-face {
+        box-sizing: border-box;
+        flex: 0 0 88px;
+        width: 88px;
+        padding: 12px 4px;
+        background: linear-gradient(180deg, #fff6f1 0%, #fff 82%);
+      }
+
+      .amount-row {
+        margin-top: 6px;
+      }
+
+      .coupon-info {
+        box-sizing: border-box;
+        display: flex;
+        flex: 1;
         flex-direction: column;
-      }
-    }
-
-    .coupon-item {
-      display: flex;
-      // 渐变描边：与小程序一致
-      padding: 3px;
-      overflow: hidden;
-      background: linear-gradient(135deg, #ff6a00 0%, #ff2d2d 100%);
-      border-radius: 10px;
-    }
-
-    .coupon-face {
-      position: relative;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 8px 6px;
-      background: linear-gradient(180deg, #fff9f9 0%, #fff0eb 100%);
-      border-radius: 7px 7px 0 0;
-    }
-
-    // 票根缺口：贴在票面左右边缘垂直中线上，外侧半圆被外框裁掉
-    .coupon-notch {
-      position: absolute;
-      top: 50%;
-      z-index: 2;
-      width: 9px;
-      height: 9px;
-      border-radius: 50%;
-      transform: translateY(-50%);
-
-      &--left {
-        left: -4.5px;
-        background: #f9531a;
+        justify-content: center;
+        min-width: 0;
+        padding: 13px 8px 12px 12px;
       }
 
-      &--right {
-        right: -4.5px;
-        background: #fa2431;
+      // 横版票的券名是主信息：13px + 深色 + 单行省略
+      .coupon-name {
+        margin-top: 0;
+        font-size: 13px;
+        font-weight: 600;
+        color: #1f2329;
+        text-align: left;
       }
-    }
 
-    .coupon-pill {
-      padding: 0.5px 6px;
-      font-size: 9px;
-      color: #e8402f;
-      background: #fde1d6;
-      border-radius: 999px;
-    }
+      .coupon-desc {
+        margin-top: 4px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-size: 10px;
+        color: #8a8f99;
+        white-space: nowrap;
+      }
 
-    .amount-row {
-      display: flex;
-      align-items: baseline;
-      justify-content: center;
-      margin-top: 3px;
-      color: #ec3d2a;
-    }
+      .coupon-band {
+        display: flex;
+        flex-shrink: 0;
+        flex-direction: row;
+        align-items: center;
+        justify-content: center;
+        padding: 0 12px 0 6px;
+        margin-top: 0;
+        border-top: none;
+      }
 
-    .coupon-symbol {
-      font-size: 12px;
-      font-weight: 600;
-    }
-
-    .coupon-value {
-      font-size: 22px;
-      font-weight: 700;
-      line-height: 1.05;
-    }
-
-    .coupon-unit {
-      font-size: 12px;
-      font-weight: 600;
-    }
-
-    .coupon-name {
-      width: 100%;
-      margin-top: 3px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      font-size: 11px;
-      color: #222;
-      text-align: center;
-      white-space: nowrap;
-    }
-
-    .coupon-band {
-      box-sizing: border-box;
-      display: flex;
-      flex-direction: row;
-      align-items: center;
-      justify-content: space-between;
-      height: 26px;
-      padding: 0 6px;
-      background: linear-gradient(180deg, #ff8a7e 0%, #ff343d 100%);
-      border-radius: 0 0 7px 7px;
-    }
-
-    .coupon-condition {
-      overflow: hidden;
-      text-overflow: ellipsis;
-      font-size: 9px;
-      color: #fff;
-      white-space: nowrap;
-    }
-
-    .coupon-btn {
-      flex-shrink: 0;
-      padding: 1px 6px;
-      margin-left: 4px;
-      font-size: 10px;
-      color: #ec3d2a;
-      background: #fff;
-      border-radius: 999px;
+      // 动作区按钮 128rpx × 56rpx ↔ 64px × 28px
+      .coupon-btn {
+        width: 64px;
+        height: 28px;
+      }
     }
   }
 }

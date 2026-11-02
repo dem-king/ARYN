@@ -83,10 +83,16 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{
   (e: 'added', spuId: string): void
   (e: 'update:grid', value: boolean): void
+  /** 列表滚动事件原样上抛：宿主页据此驱动顶栏磨砂材质（分类页头部覆盖层） */
+  (e: 'scroll', event: { detail?: { scrollTop?: number } }): void
 }>()
 
 function handleAdded(spuId: string) {
   emit('added', spuId)
+}
+
+function handleScroll(event: { detail?: { scrollTop?: number } }) {
+  emit('scroll', event)
 }
 
 /** 双列 / 单列切换：布局只影响卡片样式，不触发重新查询 */
@@ -247,6 +253,7 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
       :loading-more-fail-text="t('catalog.loadMoreFailed')"
       :loading-more-default-text="t('catalog.loadMore')"
       @query="queryList"
+      @scroll="handleScroll"
     >
       <!--
         顶部内容区（装修 banner + 排序条）排在**滚动区内**，随商品流一起滚动。
@@ -441,13 +448,20 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
   justify-content: space-between;
   height: 88rpx;
   padding: 0 8rpx;
-  background: #fff;
-  border-bottom: 1rpx solid #f2f3f5;
+  /**
+   * 与顶栏同一套磨砂材质：分类页吸顶时正好接在搜索栏 + 图标条下方，
+   * 三块要连成一整块玻璃；纯白底会在这里断出一道明显的材质分界。
+   * 大写 WEBKIT 避开 autoprefixer 的过时前缀清理（iOS 17- 只认带前缀的写法）。
+   */
+  background: rgba(255, 255, 255, 0.86);
+  -WEBKIT-backdrop-filter: blur(18px) saturate(160%);
+  backdrop-filter: blur(18px) saturate(160%);
+  border-bottom: 1rpx solid rgba(15, 23, 42, 0.08);
   font-size: 28rpx;
-  color: #666;
+  color: var(--app-text-2);
   /* 排序条排在滚动区内（见模板注释），靠 sticky 常驻顶部 */
   position: sticky;
-  top: 0;
+  top: var(--goods-sort-sticky-top, 0px);
   z-index: 10;
 
   .sort-item {
@@ -476,16 +490,21 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
   }
 
   .sort-layout-toggle--pressed {
-    background: #f2f3f5;
+    background: var(--app-card-2);
     transform: scale(0.94);
   }
 }
 
 .goods-list {
   padding: 16rpx;
+  /* 宿主页若挂了悬浮玻璃底栏（--page-glass-bar-clearance，见共享车分类选货页），
+     商品流从条下穿过时最后一行要能滚出玻璃上沿，否则加购按钮被永久挡住；
+     未设变量的宿主取 0，行为不变 */
+  padding-bottom: calc(16rpx + var(--page-glass-bar-clearance, 0px));
 
   &--row {
     padding: 0;
+    padding-bottom: var(--page-glass-bar-clearance, 0px);
   }
 }
 
@@ -503,7 +522,7 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
 }
 
 .goods-card {
-  background: #fff;
+  background: var(--app-card);
   overflow: hidden;
   /* 卡片逐项入场（按 index 错峰），backwards 保证结束后 :active 按压仍生效 */
   animation: goods-card-in 300ms ease-out backwards;
@@ -560,17 +579,17 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
 
 .goods-card--row.goods-card--pressed {
   transform: none;
-  background: #fafbfc;
+  background: var(--app-card-2);
 }
 
 .goods-card--row {
   display: flex;
   padding: 16rpx;
-  border-bottom: 1rpx solid #f2f2f2;
+  border-bottom: 1rpx solid var(--app-border);
   transition: background-color 160ms ease;
 
   &:active {
-    background: #fafbfc;
+    background: var(--app-card-2);
   }
 }
 
@@ -584,7 +603,7 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
 .goods-pic-box {
   position: relative;
   width: 100%;
-  background: #fff;
+  background: var(--app-card);
 }
 
 .goods-pic-box--grid {
@@ -636,7 +655,7 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
 .goods-name {
   font-size: 28rpx;
   line-height: 1.4;
-  color: #333;
+  color: var(--app-text);
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
@@ -650,7 +669,7 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
   overflow: hidden;
   font-size: 22rpx;
   line-height: 1.4;
-  color: #909399;
+  color: var(--app-text-3);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -672,8 +691,8 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
 .goods-tag {
   padding: 4rpx 10rpx;
   border-radius: 6rpx;
-  background: #f5f6f8;
-  color: #5f6b7a;
+  background: var(--app-card-2);
+  color: var(--app-text-2);
   font-size: 24rpx;
   line-height: 1.4;
 }
@@ -714,7 +733,7 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
   }
 
   .goods-price-original {
-    color: #999;
+    color: var(--app-text-3);
     font-size: 22rpx;
     font-weight: 400;
     text-decoration: line-through;

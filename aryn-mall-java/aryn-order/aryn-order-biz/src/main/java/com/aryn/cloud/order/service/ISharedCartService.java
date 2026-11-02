@@ -11,6 +11,7 @@ import com.aryn.cloud.order.api.entity.SharedCartMember;
 import com.aryn.cloud.order.api.vo.SharedCartImportVO;
 import com.aryn.cloud.order.api.vo.SharedCartItemVO;
 import com.aryn.cloud.order.api.vo.SharedCartJoinVO;
+import com.aryn.cloud.order.api.vo.SharedCartMemberCandidateVO;
 import com.aryn.cloud.order.api.vo.SharedCartReuseVO;
 import com.aryn.cloud.order.api.vo.SharedCartSummaryVO;
 import com.aryn.cloud.order.api.vo.SharedCartVO;
@@ -38,6 +39,16 @@ public interface ISharedCartService {
 	 */
 	SharedCartMember inviteMember(String tenantId, String cartId, String operatorUserId, String memberUserId,
 			String memberRole);
+
+	/**
+	 * 邀请成员的候选人列表（发起人）。
+	 *
+	 * <p>船供车返回本船在船成员（默认全部，关键词按姓名/手机号过滤）；
+	 * 岸上企业车按关键词在同租户用户中搜索（姓名/手机号），关键词为空返回空列表。
+	 * 发起人只做选择题：此前让用户手填 19 位商城用户 ID 的路径已废弃。
+	 */
+	List<SharedCartMemberCandidateVO> listMemberCandidates(String tenantId, String userId, String cartId,
+			String keyword);
 
 	/**
 	 * 成员添加自己的明细。

@@ -1,5 +1,6 @@
 package com.aryn.cloud.order.service;
 
+import com.aryn.cloud.common.core.constant.CommonConstants;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.order.api.dto.SharedCartImportConfirmDTO;
@@ -113,7 +114,10 @@ class SharedCartImportServiceTest {
 				SharedCartImportRow.class);
 
 		service = new SharedCartServiceImpl(cartMapper, memberMapper, itemMapper, importMapper, importRowMapper,
-				mock(IOrderInfoService.class), mock(IDeliveryAreaService.class), chainAiAssistant);
+				mock(IOrderInfoService.class), mock(IDeliveryAreaService.class), chainAiAssistant, mock(com.aryn.cloud.order.service.SharedCartInviteNotifyService.class));
+		// 姓名闸门默认放行：confirmImport 落库前会查操作者成员行的 display_name，
+		// 夹具统一模拟「发起人已填姓名」，未填姓名的拦截由专项用例显式覆盖
+		when(memberMapper.selectOne(any(Wrapper.class))).thenReturn(namedOwnerMember());
 		ReflectionTestUtils.setField(service, "remoteReplenishImportMatchService", remoteReplenishImportMatchService);
 		ReflectionTestUtils.setField(service, "remoteGoodsSkuService", mock(RemoteGoodsSkuService.class));
 		ReflectionTestUtils.setField(service, "remoteVesselService", mock(RemoteVesselService.class));
@@ -147,6 +151,19 @@ class SharedCartImportServiceTest {
 		job.setTotalRows(1);
 		job.setMatchedRows(1);
 		return job;
+	}
+
+	/** setUp 默认桩用：已填姓名的发起人成员行（姓名闸门放行） */
+	private SharedCartMember namedOwnerMember() {
+		SharedCartMember member = new SharedCartMember();
+		member.setCartId(CART_ID);
+		member.setUserId(OWNER);
+		member.setMemberRole(SharedCartMember.ROLE_MEMBER);
+		member.setCanEdit("1");
+		member.setCanConfirm("0");
+		member.setDisplayName("张三");
+		member.setTenantId(TENANT);
+		return member;
 	}
 
 	private SharedCartImportRow row(int rowNo, String resultType, Integer quantity) {
@@ -342,6 +359,25 @@ class SharedCartImportServiceTest {
 		entity.setSourceType(SharedCartImportRow.SOURCE_CHAIN);
 		entity.setPersonName(personName);
 		return entity;
+	}
+
+	@Test
+	@DisplayName("操作者未填姓名时导入确认被闸门挡下：未命中人名的行会归到操作者名下")
+	void confirmImportBlockedWhenOperatorHasNoDisplayName() {
+		SharedCartMember unnamed = namedOwnerMember();
+		unnamed.setDisplayName("");
+		when(memberMapper.selectOne(any(Wrapper.class))).thenReturn(unnamed);
+		when(cartMapper.selectOne(any(Wrapper.class))).thenReturn(collectingCart());
+		when(importMapper.selectOne(any(Wrapper.class))).thenReturn(pendingImport());
+		when(importRowMapper.selectList(any(Wrapper.class)))
+			.thenReturn(List.of(chainRow(1, 4, "任化东")));
+
+		ArynBusinessException exception = assertThrows(ArynBusinessException.class,
+				() -> service.confirmImport(TENANT, OWNER, CART_ID, IMPORT_ID,
+						confirmAction(1, SharedCartImportRow.ACTION_ACCEPT_SPEC)));
+		assertEquals(CommonConstants.SHARED_CART_NAME_REQUIRED, exception.getCode(),
+				"C 端靠这个 code 跳转详情页补填姓名，不能回落 FAIL");
+		verify(itemMapper, never()).insert(any(SharedCartItem.class));
 	}
 
 	@Test

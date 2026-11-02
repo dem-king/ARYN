@@ -77,8 +77,6 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const { t } = useI18n()
-
 const emit = defineEmits<{
   (e: 'deliveryWayChange', order: Order): void
   (e: 'paymentWayChange', paymentWay: string): void
@@ -87,7 +85,12 @@ const emit = defineEmits<{
   (e: 'pointsToggle', enabled: boolean): void
 }>()
 
+const { t } = useI18n()
+
 const PAYMENT_TYPE_COD = '3'
+
+/** 价格/优惠统一走商城主题色（换肤后随之变化），与 C 端价格口径一致 */
+const THEME_COLOR = 'var(--wot-color-theme-primary, #ff2e4d)'
 
 const deliveryShow = ref(false)
 /** 已确认的配送方式（提交值） */
@@ -146,6 +149,9 @@ const hasUsableCoupon = computed(() => {
 })
 
 const hasAvailableCoupons = computed(() => hasUsableCoupon.value && !localOrder.value.couponUserId)
+
+/** 优惠券行是否可点：已选（可换）或有可用券（可选）且未被置灰 */
+const couponRowActionable = computed(() => !couponBlockReason.value && (hasSelectedCoupon.value || hasAvailableCoupons.value))
 
 /**
  * 混合单部分商品不参与积分：活动禁叠或命中积分黑名单（后端均以 pointsStackable=false
@@ -317,213 +323,246 @@ function saveRemark() {
 </script>
 
 <template>
-  <view class="m-2 rounded-xl bg-white p-2 dark:bg-[var(--wot-dark-background2)]">
-    <!-- 订单商品内容 -->
-    <view>
+  <view class="confirm-sections">
+    <!-- 卡一：商品清单 -->
+    <view class="section-card">
       <view
-        v-for="(goods, goodsIndex) in localOrder.orderItemList" :key="goodsIndex"
-        class="flex rounded-lg bg-white px-20rpx py-20rpx"
+        v-for="(goods, goodsIndex) in localOrder.orderItemList"
+        :key="goodsIndex"
+        class="goods-row"
       >
-        <image :src="goods.picUrl" class="h-160rpx w-160rpx flex-none rounded-lg" />
-        <view class="ml-20rpx h-full flex flex-1 flex-col overflow-hidden">
-          <view class="flex justify-between">
-            <view class="mr-20rpx flex-1 overflow-hidden">
-              <view class="flex items-center">
-                <text
-                  v-if="activityLabel(goods)"
-                  class="mr-8rpx flex-none rounded-6rpx px-8rpx text-20rpx"
-                  :class="goods.couponStackable === false || goods.pointsStackable === false ? 'bg-[#fff1f0] color-[#cf1322]' : 'bg-[#fff7e6] color-[#d46b08]'"
-                >
-                  {{ activityLabel(goods) }}
-                </text>
-                <view class="flex-1 overflow-hidden">
-                  <wd-text :lines="2" size="26rpx" color="inherit" :text="goods.spuName" />
-                </view>
-              </view>
-              <view v-if="goods.specsInfo" class="pt-10rpx">
-                <wd-text custom-class="pt-10rpx" size="24rpx" color="#909090" :text="goods.specsInfo" />
-              </view>
+        <image
+          v-if="goods.picUrl"
+          :src="goods.picUrl"
+          class="goods-row__img"
+          mode="aspectFill"
+        />
+        <!-- picUrl 缺失时给中性占位，避免空图把行撑出大段空白 -->
+        <view v-else class="goods-row__img goods-row__img--empty">
+          <text class="i-carbon:shopping-bag goods-row__img-placeholder" />
+        </view>
+        <view class="goods-row__info">
+          <view class="goods-row__name-line">
+            <text
+              v-if="activityLabel(goods)"
+              class="goods-row__tag"
+              :class="{ 'is-strict': goods.couponStackable === false || goods.pointsStackable === false }"
+            >
+              {{ activityLabel(goods) }}
+            </text>
+            <view class="goods-row__name">
+              <wd-text :lines="2" size="28rpx" color="inherit" :text="goods.spuName" />
             </view>
-            <view class="flex flex-shrink-0 flex-col items-end">
-              <wd-text :text="goods.paymentPrice" size="14px" color="red" mode="price" prefix=" ￥" />
+          </view>
+          <text v-if="goods.specsInfo" class="goods-row__specs">
+            {{ goods.specsInfo }}
+          </text>
+          <view class="goods-row__price-line">
+            <view class="goods-row__price">
+              <view class="goods-row__price-main">
+                <wd-text
+                  :text="goods.paymentPrice"
+                  size="30rpx"
+                  mode="price"
+                  prefix="￥"
+                  :color="THEME_COLOR"
+                />
+              </view>
               <!-- 划线价用原价小计（结算回填）；促销价等于成交价时不划线，避免「自己划自己」 -->
-              <wd-text
-                v-if="showOriginalPrice(goods)"
-                :text="goods.originalTotalPrice"
-                size="12px"
-                mode="price"
-                decoration="line-through"
-                prefix=" ￥"
-              />
-              <wd-text size="13px" :text="`x${goods.buyQuantity}`" />
+              <view v-if="showOriginalPrice(goods)" class="goods-row__price-origin">
+                <wd-text
+                  :text="goods.originalTotalPrice"
+                  size="22rpx"
+                  mode="price"
+                  decoration="line-through"
+                  prefix="￥"
+                  color="#c9cdd4"
+                />
+              </view>
             </view>
+            <text class="goods-row__qty">
+              x{{ goods.buyQuantity }}
+            </text>
           </view>
         </view>
       </view>
     </view>
-    <view>
-      <view class="rounded-lg bg-white p-2">
-        <view class="flex items-center justify-between pb-20rpx">
-          <text class="text-14px">
-            {{ t('checkout.goods.amount') }}
-          </text>
-          <wd-text size="26rpx" color="inherit" :text="goodsAmount" mode="price" prefix="￥" />
-        </view>
-        <!-- 活动价让利单独成行：拼团/秒杀/折扣/新人价节省了多少，给用户正向的成交理由 -->
-        <view v-if="activityDiscount > 0" class="flex items-center justify-between pb-20rpx">
-          <text class="text-14px">
-            {{ activityDiscountLabel }}
-          </text>
-          <wd-text size="26rpx" color="red" prefix="-￥" :text="activityDiscount.toFixed(2)" />
-        </view>
-        <view v-if="memberDiscount > 0" class="flex items-center justify-between pb-20rpx">
-          <text class="text-14px">
-            {{ t('checkout.goods.memberDiscount') }}
-          </text>
-          <wd-text size="26rpx" color="red" prefix="-￥" :text="memberDiscount.toFixed(2)" />
-        </view>
-        <view v-if="localOrder.deliveryWay === '1'" class="flex items-center justify-between pb-20rpx">
-          <text class="text-14px">
-            {{ t('checkout.goods.shipping') }}
-          </text>
-          <wd-text size="26rpx" color="inherit" :text="localOrder.freightPrice" mode="price" prefix="￥" />
-        </view>
-        <view class="flex items-center justify-between pb-20rpx">
-          <text class="text-14px">
-            {{ t('checkout.coupon.label') }}
-          </text>
-          <view class="flex items-center">
-            <!-- 活动商品禁叠券（纯秒杀/新人价单或所选券被服务端拒绝）：置灰给原因，不弹选择器 -->
+
+    <!-- 卡二：费用明细 -->
+    <view class="section-card fee-card">
+      <view class="fee-row">
+        <text class="fee-row__label">
+          {{ t('checkout.goods.amount') }}
+        </text>
+        <wd-text size="26rpx" color="#1d2129" :text="goodsAmount" mode="price" prefix="￥" />
+      </view>
+      <!-- 活动价让利单独成行：拼团/秒杀/折扣/新人价节省了多少，给用户正向的成交理由 -->
+      <view v-if="activityDiscount > 0" class="fee-row">
+        <text class="fee-row__label">
+          {{ activityDiscountLabel }}
+        </text>
+        <wd-text size="26rpx" :color="THEME_COLOR" prefix="-￥" :text="activityDiscount.toFixed(2)" />
+      </view>
+      <view v-if="memberDiscount > 0" class="fee-row">
+        <text class="fee-row__label">
+          {{ t('checkout.goods.memberDiscount') }}
+        </text>
+        <wd-text size="26rpx" :color="THEME_COLOR" prefix="-￥" :text="memberDiscount.toFixed(2)" />
+      </view>
+      <view v-if="localOrder.deliveryWay === '1'" class="fee-row">
+        <text class="fee-row__label">
+          {{ t('checkout.goods.shipping') }}
+        </text>
+        <wd-text size="26rpx" color="#1d2129" :text="localOrder.freightPrice" mode="price" prefix="￥" />
+      </view>
+      <view
+        class="fee-row"
+        :class="{ 'is-actionable': couponRowActionable }"
+        @click="couponRowActionable && showCoupon()"
+      >
+        <text class="fee-row__label">
+          {{ t('checkout.coupon.label') }}
+        </text>
+        <view class="fee-row__value">
+          <!-- 活动商品禁叠券（纯秒杀/新人价单或所选券被服务端拒绝）：置灰给原因，不弹选择器 -->
+          <view v-if="couponBlockReason" class="fee-row__block-reason">
             <wd-text
-              v-if="couponBlockReason"
-              size="22rpx"
-              color="#909090"
+              size="24rpx"
+              color="#c9cdd4"
+              :lines="1"
               :text="couponBlockReason"
             />
-
-            <!-- 已选择优惠券 -->
-            <wd-text
-              v-else-if="hasSelectedCoupon"
-              size="26rpx"
-              color="red"
-              prefix="-￥"
-              :text="localOrder.couponPrice"
-              @click="showCoupon"
-            />
-
-            <!-- 有可选优惠券但未选择 -->
-            <text v-else-if="hasAvailableCoupons" class="pr-4rpx text-26rpx" @click="showCoupon">
-              {{ t('checkout.coupon.select') }}
-            </text>
-
-            <!-- 无可用优惠券 -->
-            <wd-text
-              v-else
-              size="22rpx"
-              :text="t('checkout.coupon.noneAvailable')"
-            />
-            <text v-if="!couponBlockReason && (hasSelectedCoupon || hasAvailableCoupons)" class="i-carbon:chevron-right text-14px" />
           </view>
-        </view>
-        <!-- 积分抵扣：整单不可用（门槛/黑名单/场景）时置灰展示服务端原因，不提供开关 -->
-        <view
-          v-if="pointsBlockReason || Number(localOrder.pointsDeductMax) > 0 || Number(localOrder.pointsDeductPrice) > 0"
-          class="flex items-center justify-between pb-20rpx"
-        >
-          <view class="flex flex-col">
-            <text class="text-14px">
-              {{ t('checkout.points.label') }}
-            </text>
-            <!-- 不可用原因：后端按门槛/黑名单/场景生成口径文案，前端只展示不自造 -->
-            <wd-text
-              v-if="pointsBlockReason"
-              size="22rpx"
-              color="#909090"
-              :text="pointsBlockReason"
-            />
-            <template v-else>
-              <text class="text-22rpx color-[#909090]">
-                {{ t('checkout.points.usable', { points: localOrder.pointsDeductMax || 0 }) }}<text v-if="Number(localOrder.pointsDeductPrice) > 0">
-                  {{ t('checkout.points.deducted', { amount: localOrder.pointsDeductPrice }) }}
-                </text>
-              </text>
-              <!-- 混合单：活动/黑名单商品不参与积分抵扣，最多可抵按可叠部分计算 -->
-              <text v-if="pointsPartialStack" class="text-22rpx color-[#909090]">
-                {{ t('checkout.points.partial') }}
-              </text>
-            </template>
-          </view>
-          <wd-switch v-if="!pointsBlockReason" :model-value="pointsEnabled" size="36rpx" @change="onPointsChange" />
-        </view>
-        <view class="flex items-center justify-end pb-20rpx">
-          <wd-text size="22rpx" color="#909090" :text="t('checkout.goods.count', { count: localOrder.orderItemList.length })" />
+          <!-- 已选择优惠券 -->
           <wd-text
-            custom-class="pl-10rpx" size="28rpx" :text="localOrder.paymentPrice" color="red" mode="price"
+            v-else-if="hasSelectedCoupon"
+            size="26rpx"
+            :color="THEME_COLOR"
+            prefix="-￥"
+            :text="localOrder.couponPrice"
+          />
+          <!-- 有可选优惠券但未选择 -->
+          <text v-else-if="hasAvailableCoupons" class="fee-row__hint">
+            {{ t('checkout.coupon.select') }}
+          </text>
+          <!-- 无可用优惠券 -->
+          <text v-else class="fee-row__hint is-muted">
+            {{ t('checkout.coupon.noneAvailable') }}
+          </text>
+          <text
+            v-if="couponRowActionable"
+            class="i-carbon:chevron-right fee-row__arrow"
+          />
+        </view>
+      </view>
+      <!-- 积分抵扣：整单不可用（门槛/黑名单/场景）时置灰展示服务端原因，不提供开关 -->
+      <view
+        v-if="pointsBlockReason || Number(localOrder.pointsDeductMax) > 0 || Number(localOrder.pointsDeductPrice) > 0"
+        class="fee-row"
+      >
+        <view class="fee-row__stack">
+          <text class="fee-row__label">
+            {{ t('checkout.points.label') }}
+          </text>
+          <!-- 不可用原因：后端按门槛/黑名单/场景生成口径文案，前端只展示不自造 -->
+          <wd-text
+            v-if="pointsBlockReason"
+            size="22rpx"
+            color="#c9cdd4"
+            :lines="1"
+            :text="pointsBlockReason"
+          />
+          <template v-else>
+            <text class="fee-row__sub">
+              {{ t('checkout.points.usable', { points: localOrder.pointsDeductMax || 0 }) }}<text v-if="Number(localOrder.pointsDeductPrice) > 0">
+                {{ t('checkout.points.deducted', { amount: localOrder.pointsDeductPrice }) }}
+              </text>
+            </text>
+            <!-- 混合单：活动/黑名单商品不参与积分抵扣，最多可抵按可叠部分计算 -->
+            <text v-if="pointsPartialStack" class="fee-row__sub">
+              {{ t('checkout.points.partial') }}
+            </text>
+          </template>
+        </view>
+        <wd-switch v-if="!pointsBlockReason" :model-value="pointsEnabled" size="36rpx" @change="onPointsChange" />
+      </view>
+      <view class="fee-card__total">
+        <wd-text size="24rpx" color="#86909c" :text="t('checkout.goods.count', { count: localOrder.orderItemList.length })" />
+        <view class="fee-card__total-amount">
+          <text class="fee-card__total-label">
+            {{ t('checkout.footer.total') }}
+          </text>
+          <wd-text
+            :text="localOrder.paymentPrice"
+            size="34rpx"
+            color="#1d2129"
+            mode="price"
             prefix="￥"
           />
         </view>
-        <view class="flex items-center justify-between pb-20rpx">
-          <text class="text-14px">
-            {{ t('checkout.delivery.label') }}
-          </text>
-          <view>
-            <text class="pr-4rpx text-26rpx" @click="openDeliverySheet">
-              {{ deliveryWayName(deliveryWay) }}
-            </text>
-            <!-- 绑定船舶上下文后只剩内部配送一种方式，行转为静态说明、不再给切换箭头 -->
-            <text v-if="deliveryMethodColumns.length > 1" class="i-carbon:chevron-right text-14px" />
-          </view>
-        </view>
+      </view>
+    </view>
 
-        <!-- 支付方式：仅商城配送（3）/内部配送（4）可选货到付款；拼团单恒为在线支付，不展示选择入口 -->
-        <view
-          v-if="(deliveryWay === '3' || deliveryWay === '4') && !groupBuyOrder"
-          class="flex items-center justify-between pb-20rpx"
-        >
-          <text class="text-14px">
-            {{ t('checkout.payment.label') }}
+    <!-- 卡三：配送 / 支付 / 备注 -->
+    <view class="section-card option-card">
+      <view class="option-row" @click="openDeliverySheet">
+        <text class="option-row__label">
+          {{ t('checkout.delivery.label') }}
+        </text>
+        <view class="option-row__right">
+          <text class="option-row__value">
+            {{ deliveryWayName(deliveryWay) }}
           </text>
-          <view>
-            <text class="pr-4rpx text-26rpx" @click="openPaymentSheet">
-              {{ paymentWay === PAYMENT_TYPE_COD ? t('checkout.payment.cod') : t('checkout.payment.online') }}
-            </text>
-            <text class="i-carbon:chevron-right text-14px" />
-          </view>
+          <!-- 绑定船舶上下文后只剩内部配送一种方式，行转为静态说明、不再给切换箭头 -->
+          <text v-if="deliveryMethodColumns.length > 1" class="i-carbon:chevron-right option-row__arrow" />
         </view>
+      </view>
 
-        <!-- 拼团单固定在线支付说明 -->
-        <view
-          v-if="groupBuyOrder"
-          class="flex items-center justify-between pb-20rpx"
-        >
-          <text class="text-14px">
-            {{ t('checkout.payment.label') }}
+      <!-- 支付方式：仅商城配送（3）/内部配送（4）可选货到付款；拼团单恒为在线支付，不展示选择入口 -->
+      <view
+        v-if="(deliveryWay === '3' || deliveryWay === '4') && !groupBuyOrder"
+        class="option-row"
+        @click="openPaymentSheet"
+      >
+        <text class="option-row__label">
+          {{ t('checkout.payment.label') }}
+        </text>
+        <view class="option-row__right">
+          <text class="option-row__value">
+            {{ paymentWay === PAYMENT_TYPE_COD ? t('checkout.payment.cod') : t('checkout.payment.online') }}
           </text>
-          <text class="text-26rpx color-[#07c160]">
-            {{ t('checkout.payment.onlineGroupBuy') }}
-          </text>
+          <text class="i-carbon:chevron-right option-row__arrow" />
         </view>
+      </view>
 
-        <!-- 修改：备注展示为可点击行，弹出层内再输入 -->
-        <view class="flex items-center justify-between pb-20rpx" @click="openRemarkPopup">
-          <view class="text-14px">
-            {{ t('checkout.remark.label') }}
-          </view>
-          <view class="flex items-center">
-            <wd-text
-              size="26rpx"
-              color="inherit"
-              :lines="1"
-              custom-class="remark-ellipsis"
-              :text="localOrder.remark && localOrder.remark.length ? localOrder.remark : t('checkout.remark.placeholder')"
-            />
-            <text class="i-carbon:chevron-right text-14px" />
-          </view>
+      <!-- 拼团单固定在线支付说明 -->
+      <view v-if="groupBuyOrder" class="option-row">
+        <text class="option-row__label">
+          {{ t('checkout.payment.label') }}
+        </text>
+        <text class="option-row__value is-group-buy">
+          {{ t('checkout.payment.onlineGroupBuy') }}
+        </text>
+      </view>
+
+      <!-- 备注展示为可点击行，弹出层内再输入 -->
+      <view class="option-row" @click="openRemarkPopup">
+        <text class="option-row__label">
+          {{ t('checkout.remark.label') }}
+        </text>
+        <view class="option-row__right">
+          <text
+            class="option-row__value option-row__remark"
+            :class="{ 'is-placeholder': !(localOrder.remark && localOrder.remark.length) }"
+          >
+            {{ localOrder.remark && localOrder.remark.length ? localOrder.remark : t('checkout.remark.placeholder') }}
+          </text>
+          <text class="i-carbon:chevron-right option-row__arrow" />
         </view>
       </view>
     </view>
 
-    <!-- 新增：备注弹窗，底部保存按钮 -->
+    <!-- 备注弹窗，底部保存按钮 -->
     <wd-action-sheet v-model="remarkPopupShow" position="bottom" :safe-area-inset-bottom="true" custom-class="rounded-t-20rpx" :title="t('checkout.remark.title')" @cancel="remarkPopupShow = false">
       <view class="px-24rpx pb-2">
         <wd-textarea
@@ -542,7 +581,7 @@ function saveRemark() {
       </view>
     </wd-action-sheet>
 
-    <!-- 配送方式弹窗（替换原 wd-action-sheet） -->
+    <!-- 配送方式弹窗 -->
     <wd-action-sheet v-model="deliveryShow" position="bottom" :safe-area-inset-bottom="true" custom-class="rounded-t-20rpx" :title="t('checkout.delivery.selectTitle')" @cancel="deliveryShow = false">
       <view class="px-24rpx pb-2">
         <view
@@ -556,7 +595,7 @@ function saveRemark() {
             v-if="deliveryWayDraft === item.value"
             name="check"
             size="26rpx"
-            color="#07c160"
+            :color="THEME_COLOR"
           />
         </view>
       </view>
@@ -580,7 +619,7 @@ function saveRemark() {
             v-if="paymentWayDraft === item.value"
             name="check"
             size="26rpx"
-            color="#07c160"
+            :color="THEME_COLOR"
           />
         </view>
       </view>
@@ -594,13 +633,273 @@ function saveRemark() {
 </template>
 
 <style lang="scss" scoped>
-.custom-textarea-border {
-  border: 1px solid #bfbfbf !important;
+/*
+ * 结算页三卡布局：商品清单 / 费用明细 / 配送支付备注。
+ * 页面底色由宿主页提供浅灰，白卡 20rpx 圆角浮在上面。
+ */
+.confirm-sections {
+  min-width: 0;
 }
-.remark-ellipsis {
-  max-width: 450rpx; /* 可按需调整宽度 */
+
+.section-card {
+  margin: 20rpx 20rpx 0;
+  padding: 8rpx 24rpx;
+  border-radius: 20rpx;
+  background: var(--app-card);
+}
+
+/* ---- 卡一：商品行 ---- */
+.goods-row {
+  display: flex;
+  align-items: stretch;
+  padding: 24rpx 0;
+}
+
+.goods-row__img {
+  flex-shrink: 0;
+  width: 160rpx;
+  height: 160rpx;
+  border-radius: 16rpx;
+  background: var(--app-card-2);
+}
+
+.goods-row__img--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.goods-row__img-placeholder {
+  font-size: 56rpx;
+  color: var(--app-text-3);
+}
+
+.goods-row__info {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: space-between;
+  min-width: 0;
+  margin-left: 20rpx;
+}
+
+.goods-row__name-line {
+  display: flex;
+  align-items: flex-start;
+}
+
+.goods-row__tag {
+  flex-shrink: 0;
+  margin-right: 8rpx;
+  padding: 2rpx 10rpx;
+  border-radius: 8rpx;
+  font-size: 20rpx;
+  line-height: 30rpx;
+  color: #d46b08;
+  background: #fff7e6;
+
+  &.is-strict {
+    color: #cf1322;
+    background: #fff1f0;
+  }
+}
+
+.goods-row__name {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
+  font-size: 28rpx;
+  font-weight: 500;
+  color: var(--app-text);
+  line-height: 38rpx;
+}
+
+.goods-row__specs {
+  margin-top: 8rpx;
+  overflow: hidden;
+  font-size: 24rpx;
+  color: var(--app-text-3);
+  line-height: 32rpx;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.goods-row__price-line {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-top: 12rpx;
+}
+
+.goods-row__price {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.goods-row__price-main {
+  flex-shrink: 0;
+  font-weight: 600;
+}
+
+.goods-row__price-origin {
+  margin-left: 12rpx;
+}
+
+.goods-row__qty {
+  flex-shrink: 0;
+  margin-left: 16rpx;
+  font-size: 24rpx;
+  color: var(--app-text-3);
+  line-height: 34rpx;
+}
+
+/* ---- 卡二：费用明细 ---- */
+.fee-card {
+  padding-top: 16rpx;
+}
+
+.fee-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14rpx 0;
+}
+
+.fee-row__label {
+  flex-shrink: 0;
+  font-size: 26rpx;
+  color: var(--app-text-2);
+  line-height: 36rpx;
+}
+
+.fee-row__value {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  margin-left: 24rpx;
+}
+
+.fee-row__stack {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  margin-right: 24rpx;
+}
+
+.fee-row__sub {
+  margin-top: 4rpx;
+  font-size: 22rpx;
+  color: var(--app-text-3);
+  line-height: 30rpx;
+}
+
+.fee-row__hint {
+  font-size: 26rpx;
+  color: var(--app-text-2);
+
+  &.is-muted {
+    color: var(--app-text-3);
+  }
+}
+
+.fee-row__block-reason {
+  max-width: 420rpx;
+  overflow: hidden;
+}
+
+.fee-row__arrow {
+  flex-shrink: 0;
+  margin-left: 8rpx;
+  font-size: 26rpx;
+  color: var(--app-text-3);
+}
+
+.fee-row.is-actionable {
+  .fee-row__hint {
+    color: var(--app-text);
+  }
+
+  .fee-row__arrow {
+    color: var(--app-text-3);
+  }
+}
+
+.fee-card__total {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  margin-top: 8rpx;
+  padding: 20rpx 0 24rpx;
+  border-top: 1rpx solid var(--app-border);
+}
+
+.fee-card__total-amount {
+  display: flex;
+  align-items: baseline;
+  margin-left: 12rpx;
+  font-weight: 600;
+}
+
+.fee-card__total-label {
+  margin-right: 8rpx;
+  font-size: 26rpx;
+  color: var(--app-text);
+}
+
+/* ---- 卡三：选项行 ---- */
+.option-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 92rpx;
+  padding: 8rpx 0;
+}
+
+.option-row__label {
+  flex-shrink: 0;
+  font-size: 28rpx;
+  color: var(--app-text);
+}
+
+.option-row__right {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  margin-left: 24rpx;
+}
+
+.option-row__value {
+  overflow: hidden;
+  font-size: 26rpx;
+  color: var(--app-text-2);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+
+  &.is-placeholder {
+    color: var(--app-text-3);
+  }
+
+  &.is-group-buy {
+    color: #07c160;
+  }
+}
+
+.option-row__remark {
+  max-width: 460rpx;
+}
+
+.option-row__arrow {
+  flex-shrink: 0;
+  margin-left: 8rpx;
+  font-size: 28rpx;
+  color: var(--app-text-3);
+}
+
+.custom-textarea-border {
+  border: 1px solid var(--app-border) !important;
 }
 </style>

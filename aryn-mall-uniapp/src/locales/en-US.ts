@@ -10,11 +10,13 @@ import catalog from './modules/catalog.en-US'
 import checkout from './modules/checkout.en-US'
 import diy from './modules/diy.en-US'
 import labels from './modules/labels.en-US'
+import loginDevices from './modules/loginDevices.en-US'
 import message from './modules/message.en-US'
 import order from './modules/order.en-US'
 import product from './modules/product.en-US'
 import promotion from './modules/promotion.en-US'
 import search from './modules/search.en-US'
+import sessionInvalid from './modules/sessionInvalid.en-US'
 import shared from './modules/shared.en-US'
 import sharedCart from './modules/sharedCart.en-US'
 import vessel from './modules/vessel.en-US'
@@ -33,6 +35,8 @@ export default {
     timeout: 'Request timed out. Please try again.',
     loginExpired: 'Your session has expired. Please sign in again.',
     deliveryLoginExpired: 'Your delivery session has expired. Please sign in again.',
+    // Shared CTA for login-required entry points / guest states (composables/useRequireLogin)
+    goLogin: 'Sign In',
     updateTitle: 'Update available',
     updateMessage: 'A new version is ready. Restart the app now?',
     language: 'Language',
@@ -93,7 +97,6 @@ export default {
     coupon: 'Coupons',
     points: 'Points',
     balance: 'Balance',
-    guestHint: 'Sign in to view coupons, points and balance',
     myOrders: 'My Orders',
     viewAll: 'View all',
     myServices: 'My Services',
@@ -145,6 +148,8 @@ export default {
   ...catalog,
   ...product,
   ...search,
+  ...sessionInvalid,
+  ...loginDevices,
   ...cart,
   ...checkout,
   ...order,

@@ -32,9 +32,38 @@ const MAX_ATTR_TAG_VALUE_LENGTH = 24;
 const MAX_ATTR_TAG_POPUP_TITLE_LENGTH = 30;
 const MAX_ATTR_TAG_POPUP_CONTENT_LENGTH = 500;
 const MAX_ATTR_TAG_LINK_URL_LENGTH = 500;
+/** 与后端 GoodsIntroductionSanitizer 保持一致：可见 120 字、HTML 4000 字符 */
+const MAX_INTRODUCTION_VISIBLE_LENGTH = 120;
+const MAX_INTRODUCTION_HTML_LENGTH = 4000;
 
 function trimText(value: null | string | undefined) {
   return (value ?? '').trim();
+}
+
+/**
+ * 富文本可见字数：去掉标签与实体后计数。
+ * 不追求解析准确，只用于提交前的字数拦截；最终口径以后端清洗结果为准。
+ */
+function visibleTextLength(html: null | string | undefined) {
+  return trimText(html)
+    .replaceAll(/<[^>]*>/g, '')
+    .replaceAll(/&(?:[a-zA-Z]+|#\d+|#x[\da-fA-F]+);/g, 'x')
+    .replaceAll(/\s+/g, ' ')
+    .trim().length;
+}
+
+export function validateGoodsIntroduction(
+  introduction: null | string | undefined,
+) {
+  if (!trimText(introduction)) return null;
+  if (visibleTextLength(introduction) > MAX_INTRODUCTION_VISIBLE_LENGTH) {
+    return `商品卖点不能超过 ${MAX_INTRODUCTION_VISIBLE_LENGTH} 个字`;
+  }
+  // 颜色/加粗会放大 HTML 长度，超额时提示精简而不是静默截断
+  if ((introduction ?? '').length > MAX_INTRODUCTION_HTML_LENGTH) {
+    return '商品卖点内容过长，请精简排版';
+  }
+  return null;
 }
 
 function buildSpecsKey(sku: GoodsSkuFormValue) {

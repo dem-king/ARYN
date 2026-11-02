@@ -75,8 +75,13 @@ describe('delivery message entry contract', () => {
     const pagesJson = source('src/pages.json')
 
     expect(page).toContain('name: \'delivery-message\'')
-    expect(pagesJson).toContain('pages/delivery/message')
-    expect(pagesJson).toContain('"name": "delivery-message"')
+    // 配送端是独立分包（root=pages/delivery），页面 URL 仍为 /pages/delivery/message；
+    // pages.json 带注释不是合法 JSON，按分包片段截取断言
+    const rootIndex = pagesJson.indexOf('"root": "pages/delivery"')
+    expect(rootIndex).toBeGreaterThan(-1)
+    const nextRoot = pagesJson.indexOf('"root":', rootIndex + 1)
+    const deliveryPackage = pagesJson.slice(rootIndex, nextRoot < 0 ? undefined : nextRoot)
+    expect(deliveryPackage).toMatch(/"path": "message",[^}]*"name": "delivery-message"/)
   })
 
   it('通知点击只标记已读，不跳管理端路由', () => {

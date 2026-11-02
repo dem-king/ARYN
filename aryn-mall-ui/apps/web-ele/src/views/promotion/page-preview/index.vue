@@ -91,8 +91,8 @@ async function loadPreview() {
 
 /**
  * 草稿预览是浏览器整页滚动：把「画布顶边滚出视口的距离」经 prop 传给
- * PreviewCanvas，驱动导航栏滚动渐显。监听走 passive + rAF 合并，
- * 滚动过程中每帧最多算一次布局，避免强制同步布局引发掉帧。
+ * PreviewCanvas，驱动导航栏滚动切换（顶部 / 已滚动两态）。监听走 passive +
+ * rAF 合并，滚动过程中每帧最多算一次布局，避免强制同步布局引发掉帧。
  */
 const canvasHostRef = shallowRef<HTMLElement | null>(null);
 const scrollTop = shallowRef(0);

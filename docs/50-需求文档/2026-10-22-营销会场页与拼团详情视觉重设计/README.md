@@ -36,7 +36,7 @@
 | 折扣会场（原型对齐版） | [screenshots/discount-hall.png](./screenshots/discount-hall.png) | 描边活动卡 + 实心「9.5折/8折」大牌 + 「剩」分格倒计时 + 去逛逛 / **双列网格商品卡** + 折角标 +「到手价」label + 省¥胶囊 + 右下快捷加购 |
 | 拼团列表 | [screenshots/group-buy-list.png](./screenshots/group-buy-list.png) | 商品图/N 人成团徽标/双价/省额/已拼 N 件/去拼团 |
 | 拼团详情 | [screenshots/group-buy-detail.png](./screenshots/group-buy-detail.png) | 商品名+商品图（未登录亦可）/双价/标签组/成团倒计时/空态引导/底部双 CTA |
-| 首页活动入口条 | [screenshots/activity-strip.png](./screenshots/activity-strip.png) | 三类卡等宽、真实图、角标「抢/省¥7/9.5折」、钩子、跳会场 |
+| 首页活动入口条 | [screenshots/activity-strip-scroll.png](./screenshots/activity-strip-scroll.png) | 三类卡等宽、真实活动名钩子、角标「抢/省¥7/8折」、超长文案单行滚动、跳会场 |
 | 秒杀状态矩阵 | [screenshots/seckill-states-soldout.png](./screenshots/seckill-states-soldout.png) | 售罄整卡置灰+「已抢光」/库存紧张「仅剩 2 件」/未开始「即将开始」灰 CTA |
 | 拼团详情（登录态） | [screenshots/group-buy-detail-logged-in.png](./screenshots/group-buy-detail-logged-in.png) | 真实后端头像昵称/头像环空位虚线问号/「还差1人拼成」/「已满员待成团」 |
 | 拼团团态矩阵 | [screenshots/group-buy-actions.png](./screenshots/group-buy-actions.png) | 参与拼单 / 我参团中 / 去支付 / 去下单 / 已拼成（灰态）五分支同屏 |
@@ -375,10 +375,11 @@ export interface ActivityStripProps extends Omit<RetailBaseProps, 'count'> {
 | 卡 | 默认名 / 钩子 / 角标 | 自动取数（复用现有 loader，count=1） | 固定跳转 |
 |----|--------------------|--------------------------------------|---------|
 | 秒杀 | 名「限时秒杀」/ 钩子「{sessionName}·整点开抢」/ 红角标「抢」 | `loadSeckillSessions` 取进行中首场，图取首件 `goodsList[0].goodsImage` | `/pages/promotion/seckill` |
-| 2人拼团 | 名「2人拼团」/ 钩子「{groupNum}人成团立省」/ 橙角标「省¥{originalPrice-groupPrice}」 | `loadLimitedActivities({mode:'automatic',count:1})` 取进行中首条，图取合并后 `goodsImage` | `/sub-pages/promotion/group-buy/group-buy-list/index` |
-| 限时折扣 | 名「限时折扣」/ 钩子「{折扣力度}专区」/ 橙角标「{折扣}折」 | `loadDiscounts({mode:'automatic',count:1})` 取进行中首条，图取首件图 | `/pages/promotion/discount` |
+| 2人拼团 | 名「2人拼团」/ 钩子「{真实活动名}·立省¥{省额}」/ 橙角标「省¥{originalPrice-groupPrice}」 | `loadLimitedActivities({mode:'automatic',count:1})` 取进行中首条，图取合并后 `goodsImage` | `/sub-pages/promotion/group-buy/group-buy-list/index` |
+| 限时折扣 | 名「限时折扣」/ 钩子「{真实活动名}·{折扣力度}」/ 橙角标「{折扣}折」 | `loadDiscounts({mode:'automatic',count:1})` 取进行中首条，图取首件图 | `/pages/promotion/discount` |
 
 - 入口始终指向**会场聚合页**（不是单场/单活动），活动轮换后入口不失效；钩子与图随取到的活动实时刷新。
+- **钩子优先展示真实活动名 + 利益点**（2026-10-31 增补）：拼团如「农夫山泉天然水整箱·立省¥4」，折扣如「好吃零食节·9.5折」；活动名缺失/无省额时回落原通用文案，活动名已写明同类型优惠时不重复拼接。文案不换行、不省略，超出卡片宽度时在行内横向滚动（触摸暂停，受自动动效总开关约束，见 §5.5.8）。
 - 省额/折扣只由真实字段计算（§4 数据原则），无进行中活动的卡直接隐藏，不显示「暂无」占位。
 - 折扣角标力度口径与会场页统一：`Math.round(discountValue*100)/10`（0.95→9.5折，见 §3.2 / R4），不出现「10折」。
 
@@ -392,8 +393,8 @@ export interface ActivityStripProps extends Omit<RetailBaseProps, 'count'> {
 |------|------|
 | 卡片 | 等宽 1/卡数（一行最多三张，手配超出三张自动换行），白底，浅描边 `#F1F2F4`，圆角 16rpx，内边距 12rpx |
 | 首行 | 缩略图 64×64rpx 圆角 12rpx + 活动名；指定商品活动取首件商品图，全场折扣没有商品清单时取「全店销量 Top1」真实商品图作代表（该商品确实参与全场折扣，不伪造数据），仍缺图才回落首字色块（沿用 `resolveCategoryFallback` 色板） |
-| 活动名 | 24rpx/700 ink，与缩略图同一行，单行省略 |
-| 钩子 | 20rpx/500 muted，独占整卡宽的第二行，单行省略（三张卡时也能完整显示「午间场·整点开抢」） |
+| 活动名 | 24rpx/700 ink，与缩略图同一行；保持单行，超出卡片宽度时横向滚动（短文案静止） |
+| 钩子 | 20rpx/500 muted，独占整卡宽的第二行；保持单行，超出卡片宽度时横向滚动，触摸暂停，5 秒后恢复 |
 | 角标 | 18rpx/700 小胶囊贴卡角：秒杀红「抢」、拼团橙「省¥X」、折扣橙「X折」，色值走 §4.2 token |
 | 交互 | 整卡可点（`followDecorationLink`），右侧淡箭头与首行活动名垂直居中；无独立按钮、无大促渐变头 |
 
@@ -411,6 +412,23 @@ export interface ActivityStripProps extends Omit<RetailBaseProps, 'count'> {
 - **本期只做 C 端组件 + 默认 automatic 配置**；管理端装修器的「活动入口条」拖拽、手动选卡配置面板可排到下一期（届时补组件库注册与配置表单）。
 - 管理端已补注册与配置面板：只配「数据来源（自动/手配）」与手配卡片，**不提供每行列数/展示数量**——卡片按实际数量自动等宽排布，一行最多三张，超出换行。
 - 首页落地动作由运营在装修器：移除三个通栏促销楼层、拖入 `activity-strip`；无需改 `pages/home/index.vue`（纯装修驱动）。
+
+#### 5.5.8 2026-10-31 增补：动态活动名与长文案单行滚动
+
+> 用户反馈：首页三张活动卡的标题/钩子偏静态，真实活动名接进来后文案太长会被省略，看不全。
+
+- **动态钩子**：自动模式不再只显示「N人成团立省 / X折专区」，改为真实活动名 + 利益点：
+  - 拼团：`{活动名}·立省¥{省额}`（无省额时 `{活动名}·{N}人成团`；活动名已写省额/成团人数时不重复拼接）；
+  - 折扣：`{活动名}·{力度}`（活动名已写「折/减/一口价」等同类型优惠时只展示活动名）；
+  - 秒杀：沿用 `{场次名}·整点开抢 / 明日{场次名}`（场次名本身就是动态活动名）；
+  - 活动名缺失时全部回落原通用文案，存量数据不出现空钩子。
+- **长文案不换行、滚动显示**：新增 C 端 `diy-activity-strip/marquee-text.vue` 与管理端同名预览组件。
+  - 用隐藏的 shrink-to-fit 节点测量文本真实宽度；只有超出容器才启动，短文案保持静止；
+  - 双份文本 + `translateX(-50%)` 无缝循环，速度 28px/s、间距 12px、最短 2.4s；
+  - 触摸/悬停暂停，松手/移出 5 秒后恢复（WCAG 2.2.2）；C 端受全站「自动动效」总开关约束，关闭时退化为单行省略；
+  - 两侧 8px 白底淡出，卡片高度不变（单行），不挤压箭头/角标。
+- **管理端**：手配活动名上限 6→20 字、钩子上限 10→40 字，属性面板提示改为「超长单行滚动」，画布预览与 C 端同口径。
+- **验证**：H5 真实数据实测三卡中仅秒杀钩子（`上午抢鲜场 10点场·整点开抢`）溢出并滚动，拼团/折扣钩子长度足够时保持静止；两帧截图可见位移、触摸暂停约 5 秒后恢复、`body` 无横向溢出、控制台 0 error（实拍见 [activity-strip-scroll.png](./screenshots/activity-strip-scroll.png)）。C 端 `pnpm type-check` + 136 文件 / 1488 用例 + `build:mp-weixin` 全绿；管理端 `typecheck` 通过、page-design/page-designer 49 文件 412 用例通过（1 条导航滚动用例为本次改造前既有失败）。
 
 > 原型：[prototypes/p7-home-entry-strip.jpg](./prototypes/p7-home-entry-strip.jpg)（金刚区 + 活动小卡条 + 推荐商品流）。
 

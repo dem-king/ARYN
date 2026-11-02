@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
+import { onPageScroll } from '@dcloudio/uni-app'
 import { useI18n } from 'vue-i18n'
 import { editPassword } from '@/sub-pages/api/user/user'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+
+const { handlePageScroll } = useFrostedNavbar()
 
 definePage({
   name: 'user-setting-password',
@@ -50,6 +54,9 @@ function submit() {
       })
     })
 }
+
+// 顶栏磨砂玻璃：字面量注册滚动（小程序按页面源码生成滚动位标记，包进 composable 会静默失效）
+onPageScroll(handlePageScroll)
 </script>
 
 <template>

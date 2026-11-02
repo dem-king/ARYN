@@ -31,7 +31,7 @@ defineProps<{
         <span>用户规模概览</span>
       </div>
     </template>
-    <div class="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+    <div class="grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-4">
       <div
         class="flex flex-col items-center justify-center rounded-lg bg-blue-50 p-4 dark:bg-blue-900/20"
       >
