@@ -39,6 +39,7 @@
         <druid.version>1.2.24</druid.version>
         <xxl-job.version>3.2.0</xxl-job.version>
         <hutool.version>5.8.42</hutool.version>
+        <ip2region.version>3.3.7</ip2region.version>
         <easyexcel.version>4.0.3</easyexcel.version>
         <captcha.version>1.4.0</captcha.version>
         <rocketmq.version>2.3.5</rocketmq.version>
@@ -216,6 +217,12 @@
                 <artifactId>aryn-common-datasource</artifactId>
                 <version>${project.version}</version>
             </dependency>
+            <!--           IP 归属地（ip2region 离线库 + 数据热更新）-->
+            <dependency>
+                <groupId>com.aryn</groupId>
+                <artifactId>aryn-common-ip</artifactId>
+                <version>${project.version}</version>
+            </dependency>
             <!--滑块验证码-->
             <dependency>
                 <groupId>com.anji-plus</groupId>
@@ -257,6 +264,12 @@
                 <groupId>cn.hutool</groupId>
                 <artifactId>hutool-all</artifactId>
                 <version>${hutool.version}</version>
+            </dependency>
+            <!--            ip2region 离线 IP 库-->
+            <dependency>
+                <groupId>org.lionsoul</groupId>
+                <artifactId>ip2region</artifactId>
+                <version>${ip2region.version}</version>
             </dependency>
             <!--            Excel 导入导出-->
             <dependency>

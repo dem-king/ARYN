@@ -31,6 +31,11 @@
             <groupId>com.aryn</groupId>
             <artifactId>aryn-upms-api</artifactId>
         </dependency>
+        <!-- IP 归属地离线解析：随日志模块分发给所有产生登录/操作日志的服务 -->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-common-ip</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.apache.dubbo</groupId>
             <artifactId>dubbo-spring-boot-starter</artifactId>

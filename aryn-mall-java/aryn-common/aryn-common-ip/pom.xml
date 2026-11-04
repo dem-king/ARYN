@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Copyright (c) 2025 天启雨数科技有限公司
+  All rights reserved.
+  注意：
+  本项目源代码由天启雨数科技有限公司原创开发，版权所有。
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>aryn-common</artifactId>
+        <groupId>com.aryn</groupId>
+        <version>3.2.1</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+    <description>IP 归属地解析（ip2region 离线库 + 数据热更新）</description>
+    <artifactId>aryn-common-ip</artifactId>
+
+    <packaging>jar</packaging>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-common-core</artifactId>
+        </dependency>
+        <!-- ip2region 离线 IP 库：官方自带 v4 数据见 src/main/resources/ip2region/ip2region_v4.xdb；
+             商用场景替换为 ip2region.net 商用离线数据（TXT 用 maker 生成 xdb）即可 -->
+        <dependency>
+            <groupId>org.lionsoul</groupId>
+            <artifactId>ip2region</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter</artifactId>
+        </dependency>
+        <!-- 可选：只有引入 aryn-common-job（xxl-job-core）的服务才注册数据刷新任务 -->
+        <dependency>
+            <groupId>com.xuxueli</groupId>
+            <artifactId>xxl-job-core</artifactId>
+            <version>${xxl-job.version}</version>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <resources>
+            <!-- xdb 是二进制文件，禁止资源过滤（默认过滤会按文本解码导致构建失败/数据损坏）；
+                 本模块没有需要占位符替换的资源 -->
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>false</filtering>
+            </resource>
+        </resources>
+    </build>
+
+</project>

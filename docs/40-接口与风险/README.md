@@ -509,3 +509,23 @@ MVC 兜底 `code=1`）。前端只判 `code===401`，导致被顶下线时管理
   best-effort，失败只 warn。配送登录读 `sys_user.phone`（即时生效），`staff_phone` 只用于配送工作台展示/搜索。
 - **不强制下线**：手机号不是当前 token 的校验因子，改号不撤销会话；如需强制重登，需新增
   `PHONE_CHANGED` 会话失效子原因并同步前后端契约。
+
+## IP 归属地数据源与许可（2026-11-04）
+
+需求包见 [2026-11-04-IP归属地离线化](../50-需求文档/2026-11-04-IP归属地离线化/README.md)。
+
+- **默认实现改为本地离线库**：`IpUtils.getWhoisAddress` 是通过 `IpLocationResolver` SPI 注册的
+  统一入口，默认是第三方 HTTP（`HttpIpLocationResolver`），引入 `aryn-common-ip` 后由自动配置注册
+  ip2region 实现（classpath 内置 11MB v4 xdb，外部 `data-dir` 优先）。新增调用点时只调用
+  `IpUtils.getWhoisAddress`，**不要**自行 new HTTP 客户端或再依赖第三方接口。
+- **数据许可红线**：`pconline` whois 接口只自称「免费」、无商用授权与 SLA（实测并发即 503）；
+  ip2region **代码** Apache-2.0/MIT 可商用，但**自带数据**未给商用许可承诺——对外售卖前必须替换为
+  已购商用离线数据（ip2region.net ¥499/年起，每月 ≥1 更新）。数据文件更新走
+  `aryn.ip.refresh.source-url` 指向自有分发，不要长期依赖 GitHub master。
+- **热更新**：XXL-JOB `ipRegionDataRefreshJobHandler`（boot `200` / cloud `203` 注册脚本）每日 03:30
+  按 ETag 检查，下载后必须过 体积/`verifyFromFile`/样本 IP 三重校验才原子替换，失败自动回滚并保留旧数据；
+  多实例靠 `{data-dir}/.ip2region_v4.lock` 文件锁串行化。**不要**手工直接覆盖 xdb 文件。
+- **降级边界**：离线库不可用/未命中且 `aryn.ip.fallback-http=true` 时才会访问第三方 HTTP（1.5s 超时），
+  两者都失败返回「未知」；归属地只影响展示，任何异常不得影响登录/业务主流程（`IpUtils` 已兜底）。
+- **cloud 多服务**：xdb 是本地文件。需要所有实例热更新时，要么给各服务挂同一 `data-dir` 共享卷，
+  要么在各执行器分组分别注册刷新任务；否则非执行器服务随镜像发版更新。

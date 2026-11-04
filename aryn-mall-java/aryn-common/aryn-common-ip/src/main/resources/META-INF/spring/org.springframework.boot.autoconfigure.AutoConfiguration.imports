@@ -1,0 +1,2 @@
+com.aryn.cloud.common.ip.config.IpLocationAutoConfiguration
+com.aryn.cloud.common.ip.config.IpRegionRefreshJobAutoConfiguration

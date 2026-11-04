@@ -23,3 +23,19 @@ spring:
       - optional:nacos:${spring.application.name}-@profiles.active@.yml
   profiles:
     active: @profiles.active@
+
+# IP 归属地：ip2region 离线库优先、查询失败回退第三方 HTTP；xdb 由 XXL-JOB 每日校验更新
+aryn:
+  ip:
+    enabled: ${ARYN_IP_ENABLED:true}
+    fallback-http: ${ARYN_IP_FALLBACK_HTTP:true}
+    ip2region:
+      # 外部可写目录（热更新落盘位置）；多副本/多服务可挂同一共享卷，留空默认 ~/.aryn/ip2region
+      data-dir: ${ARYN_IP2REGION_DATA_DIR:}
+      cache-policy: vindex
+      searchers: 20
+    refresh:
+      enabled: ${ARYN_IP_REFRESH_ENABLED:true}
+      # 默认跟随 ip2region master（官方数据不定期更新）；境内可换 Gitee 镜像，商用换成已购离线数据
+      source-url: ${ARYN_IP2REGION_XDB_URL:https://raw.githubusercontent.com/lionsoul2014/ip2region/master/data/ip2region_v4.xdb}
+      timeout-ms: ${ARYN_IP2REGION_TIMEOUT_MS:60000}

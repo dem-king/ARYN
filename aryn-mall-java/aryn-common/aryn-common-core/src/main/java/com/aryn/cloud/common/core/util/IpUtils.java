@@ -2,52 +2,41 @@ package com.aryn.cloud.common.core.util;
 
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.extra.servlet.JakartaServletUtil;
-import cn.hutool.http.HttpUtil;
-import cn.hutool.json.JSONObject;
-import cn.hutool.json.JSONUtil;
 import com.aryn.cloud.common.core.entity.GeoLocation;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.StringUtils;
 
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
 /**
- * IP工具类
+ * IP工具类。
  *
- * @author 雨滴kian
- * @date 2022/6/10
+ * <p>职责：取真实客户端 IP、内网 IP 判断，以及归属地解析的统一入口。归属地实现通过
+ * {@link IpLocationResolver} SPI 注册：</p>
+ * <ul>
+ * <li>未引入 {@code aryn-common-ip} 时使用默认的第三方 HTTP 查询
+ * （{@link HttpIpLocationResolver}，与原实现行为一致）；</li>
+ * <li>引入后由该模块自动配置注册 ip2region 离线库实现（含失败回退与热更新），
+ * 本类与所有调用方无需改动。</li>
+ * </ul>
  */
 @Slf4j
 public class IpUtils {
 
-	// ip查询地址（源站已拒绝 HTTP 访问，返回 403，只能走 HTTPS）
-	private static final String IP_URL = "https://whois.pconline.com.cn/ipJson.jsp";
+	/** 未知地址 */
+	public static final String UNKNOWN = "未知";
 
-	private static final String USER_AGENT = "Mozilla/4.0 compatible; MSIE 6.0; Windows NT 5.1;DigExt";
-
-	// 未知地址
-	private static final String UNKNOWN = "未知";
-
-	// 内网地址
-	private static final String INTRANET = "内网IP";
-
-	// 查询超时：登录与操作日志是同步链路，不能被第三方接口长时间拖住
-	private static final int QUERY_TIMEOUT_MILLIS = 1500;
-
-	// 成功结果缓存 30 分钟；失败只缓存 1 分钟，接口恢复后能尽快重新解析
-	private static final long SUCCESS_CACHE_MILLIS = 30 * 60 * 1000L;
-
-	private static final long FAILURE_CACHE_MILLIS = 60 * 1000L;
-
-	private static final int CACHE_LIMIT = 1024;
+	/** 内网地址 */
+	public static final String INTRANET = "内网IP";
 
 	// 只接受 IPv4/IPv6 字面量，避免请求头内容被拼进查询地址
-	private static final Pattern IP_PATTERN = Pattern.compile("[0-9a-fA-F:.]+");
+	static final Pattern IP_PATTERN = Pattern.compile("[0-9a-fA-F:.]+");
 
-	private static final Map<String, CachedAddress> CACHE = new ConcurrentHashMap<>();
+	// 默认实现：第三方 HTTP 查询（保留旧行为，模块未接入或离线库不可用时兜底）
+	private static final IpLocationResolver DEFAULT_RESOLVER = new HttpIpLocationResolver();
+
+	private static volatile IpLocationResolver addressResolver = DEFAULT_RESOLVER;
 
 	/**
 	 * 取真实客户端 IP：Cloudflare 隧道/代理请求优先用 CF-Connecting-IP，
@@ -67,9 +56,11 @@ public class IpUtils {
 	}
 
 	/**
-	 * 太平洋通过IP获取地址信息
-	 * @param ip
-	 * @return
+	 * 归属地解析统一入口：返回「省 市」/「内网IP」/「未知」，永不返回 null。
+	 * <p>实现由 {@link #registerAddressResolver(IpLocationResolver)} 注册，默认走第三方
+	 * HTTP 查询；注册 ip2region 离线实现后自动切换，调用方无需感知。</p>
+	 * @param ip 客户端 IP
+	 * @return 展示用归属地文本
 	 */
 	public static String getWhoisAddress(String ip) {
 		if (StrUtil.isBlank(ip)) {
@@ -82,30 +73,60 @@ public class IpUtils {
 		if (!IP_PATTERN.matcher(address).matches()) {
 			return UNKNOWN;
 		}
-		long now = System.currentTimeMillis();
-		CachedAddress cached = CACHE.get(address);
-		if (cached != null && cached.expireAt() > now) {
-			return cached.location();
+		IpLocationResolver resolver = addressResolver;
+		if (resolver == null) {
+			return UNKNOWN;
 		}
-		String location = parseAddress(query(address));
-		cache(address, location, now);
-		return location;
+		try {
+			String location = resolver.resolve(address);
+			return StrUtil.isBlank(location) ? UNKNOWN : location;
+		}
+		catch (Exception e) {
+			// 归属地只影响展示，任何实现异常都不能影响登录/业务主流程
+			log.warn("IP 归属地解析失败 ip={}: {}", address, e.getMessage());
+			return UNKNOWN;
+		}
 	}
 
 	/**
-	 * 太平洋通过IP获取省市区
-	 * @param ip
-	 * @return
+	 * 太平洋通过IP获取省市区（第三方 HTTP，保留旧接口；内网/非法 IP 返回 null）。
+	 * @param ip IP 地址
+	 * @return 省市区
 	 */
 	public static GeoLocation getWhoisCity(String ip) {
-		if (isPrivateIpAddress(ip)) {
+		if (StrUtil.isBlank(ip) || isPrivateIpAddress(ip)) {
 			return null;
 		}
-		JSONObject result = query(ip);
-		if (result == null) {
+		String address = ip.trim();
+		if (!IP_PATTERN.matcher(address).matches()) {
 			return null;
 		}
-		return new GeoLocation(result.getStr("pro"), result.getStr("city"), result.getStr("region"));
+		return DEFAULT_RESOLVER instanceof HttpIpLocationResolver httpResolver ? httpResolver.resolveCity(address)
+				: null;
+	}
+
+	/**
+	 * 注册归属地解析器（由 {@code aryn-common-ip} 自动配置在启动时调用）。
+	 * <p>传 null 恢复默认实现，主要供测试与降级使用。</p>
+	 * @param resolver 解析器实现
+	 */
+	public static void registerAddressResolver(IpLocationResolver resolver) {
+		addressResolver = resolver != null ? resolver : DEFAULT_RESOLVER;
+	}
+
+	/**
+	 * 恢复默认（第三方 HTTP）解析器，测试用。
+	 */
+	public static void resetAddressResolver() {
+		addressResolver = DEFAULT_RESOLVER;
+	}
+
+	/**
+	 * 当前是否已注册自定义解析器（如 ip2region 离线库）。
+	 * @return true 表示已注册
+	 */
+	public static boolean hasCustomAddressResolver() {
+		return addressResolver != DEFAULT_RESOLVER;
 	}
 
 	public static boolean isPrivateIpAddress(String ip) {
@@ -139,56 +160,6 @@ public class IpUtils {
 		return false;
 	}
 
-	/**
-	 * 查询归属地原始响应；网络异常/空响应返回 null（调用方降级为「未知」）。
-	 */
-	private static JSONObject query(String ip) {
-		try {
-			String url = IP_URL + "?ip=" + ip + "&json=true";
-			String returnStr = HttpUtil.createGet(url)
-				.header("User-Agent", USER_AGENT)
-				.setConnectionTimeout(QUERY_TIMEOUT_MILLIS)
-				.setReadTimeout(QUERY_TIMEOUT_MILLIS)
-				.execute()
-				.body();
-			if (StrUtil.isBlank(returnStr)) {
-				return null;
-			}
-			return JSONUtil.parseObj(returnStr);
-		}
-		catch (Exception e) {
-			log.warn("IP 归属地查询失败 ip={}: {}", ip, e.getMessage());
-			return null;
-		}
-	}
-
-	/**
-	 * 归属地展示：`省 市`；接口对海外 IP 只给 addr（如「 美国」），此时直接用 addr。
-	 */
-	static String parseAddress(JSONObject result) {
-		if (result == null) {
-			return UNKNOWN;
-		}
-		String province = StrUtil.trimToEmpty(result.getStr("pro"));
-		String city = StrUtil.trimToEmpty(result.getStr("city"));
-		String location = (province + " " + city).trim();
-		if (StrUtil.isBlank(location)) {
-			location = StrUtil.trimToEmpty(result.getStr("addr"));
-		}
-		return StrUtil.isBlank(location) ? UNKNOWN : location;
-	}
-
-	private static void cache(String ip, String location, long now) {
-		if (CACHE.size() >= CACHE_LIMIT) {
-			CACHE.entrySet().removeIf(entry -> entry.getValue().expireAt() <= now);
-			if (CACHE.size() >= CACHE_LIMIT) {
-				CACHE.clear();
-			}
-		}
-		long ttl = UNKNOWN.equals(location) ? FAILURE_CACHE_MILLIS : SUCCESS_CACHE_MILLIS;
-		CACHE.put(ip, new CachedAddress(location, now + ttl));
-	}
-
 	private static boolean isBetween(String ipAddress, int lower, int upper) {
 		String[] parts = ipAddress.split("\\.");
 		if (parts.length != 4) {
@@ -201,9 +172,6 @@ public class IpUtils {
 		catch (NumberFormatException e) {
 			return false;
 		}
-	}
-
-	private record CachedAddress(String location, long expireAt) {
 	}
 
 }

@@ -31,5 +31,6 @@
         <module>aryn-common-seata</module>
         <module>aryn-common-swagger</module>
         <module>aryn-common-datasource</module>
+        <module>aryn-common-ip</module>
     </modules>
 </project>

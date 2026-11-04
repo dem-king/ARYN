@@ -163,6 +163,7 @@ const sections = [
   ['平台管理员用户级身份与专属角色', '197platform_admin_user.sql'],
   ['专区批量打标批次记录/撤销与同步状态字段', '198zone_tag_batch_incremental.sql'],
   ['专区商品管理菜单', '199zone_tag_batch_menu.sql'],
+  ['IP 归属地数据刷新定时任务注册', '200ip_region_refresh_job.sql'],
 ];
 
 const normalize = (content) => content.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim();

@@ -51,7 +51,7 @@ cd aryn-mall-uniapp && pnpm type-check && pnpm test:unit
 | 层 | 模块 | 规则 |
 |:--:|------|------|
 | L0 | `aryn-common-core` | 纯基础类型，**禁止 import 任何 aryn 内部包** |
-| L1 | `common-log/redis/mybatis/storage/sms/swagger/job/dubbo` | 基础设施，仅依赖 L0 |
+| L1 | `common-log/redis/mybatis/storage/sms/swagger/job/dubbo/ip` | 基础设施，仅依赖 L0（`common-log → common-ip` 为既有 L1 互相依赖实践的延续） |
 | L2 | `common-security/sentinel/seata/logistics` | 中间件封装，依赖 L0-1 |
 | L3 | `aryn-*-api` (order-api, user-api …) | 接口 + DTO 定义，依赖 L0-2 |
 | L4 | `aryn-*-biz` (order-biz, user-biz …) | 业务实现，依赖 L0-3 |
