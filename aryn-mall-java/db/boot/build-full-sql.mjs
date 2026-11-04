@@ -164,6 +164,7 @@ const sections = [
   ['专区批量打标批次记录/撤销与同步状态字段', '198zone_tag_batch_incremental.sql'],
   ['专区商品管理菜单', '199zone_tag_batch_menu.sql'],
   ['IP 归属地数据刷新定时任务注册', '200ip_region_refresh_job.sql'],
+  ['客服会话维护与通知分发恢复定时任务注册', '201message_job_register.sql'],
 ];
 
 const normalize = (content) => content.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim();

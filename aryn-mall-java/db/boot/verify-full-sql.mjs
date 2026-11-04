@@ -173,6 +173,9 @@ const required = [
   // 专区商品管理菜单
   '2110000000000000305',
   "'/promotion/zone-goods'",
+  // 客服会话维护与通知分发恢复定时任务注册（2026-11-04 客服功能加固）
+  "'conversationMaintenanceJob'",
+  "'noticeDispatchRecoveryJob'",
 ];
 
 for (const token of required) {
