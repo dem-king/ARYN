@@ -47,8 +47,9 @@ export function saveAgentConfig(data: AgentConfigRequest) {
   return requestClient.put<AgentInfo>('/message/staff/agent/config', data);
 }
 
+/** 本人坐席配置：未配置坐席时后端返回 null（不再抛业务错误）。 */
 export function getSelfAgent() {
-  return requestClient.get<AgentInfo>('/message/staff/agent/self');
+  return requestClient.get<AgentInfo | null>('/message/staff/agent/self');
 }
 
 export function updateAgentPresence(status: AgentInfo['presenceStatus']) {

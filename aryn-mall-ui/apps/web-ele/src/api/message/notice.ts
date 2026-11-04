@@ -1,4 +1,5 @@
 import type {
+  ChatMessage,
   CursorPage,
   NoticeInboxItem,
   NoticeRecipientItem,
@@ -93,4 +94,17 @@ export function markAllStaffNoticesRead() {
 
 export function hideStaffNotice(id: string) {
   return requestClient.post(`/message/staff/notice/${id}/hide`);
+}
+
+/**
+ * 回复工作人员收到的内部通知。
+ *
+ * 后端会按发布人自动打开/创建工作人员私信并插入一条 NOTICE_CARD 卡片消息，
+ * 返回的 `conversationId` 用于跳转私信页定位会话；`clientMessageId` 由调用方生成，
+ * 保证重复提交不会产生两条卡片消息。
+ */
+export function replyStaffNotice(id: string, clientMessageId: string) {
+  return requestClient.post<ChatMessage>(`/message/staff/notice/${id}/reply`, {
+    clientMessageId,
+  });
 }

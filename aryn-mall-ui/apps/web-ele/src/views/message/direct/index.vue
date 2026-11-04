@@ -4,7 +4,7 @@ import type { ViewChatMessage } from '../message-state';
 import type { Conversation } from '#/api/message/types';
 import type { MessagePushSignal } from '#/store/message';
 
-import { nextTick, onMounted, ref } from 'vue';
+import { nextTick, onActivated, onMounted, ref, watch } from 'vue';
 
 import { ElButton, ElEmpty, ElInput, ElMessage, ElTag } from 'element-plus';
 import { nanoid } from 'nanoid';
@@ -17,6 +17,7 @@ import {
   sendConversationMessage,
 } from '#/api/message/conversation';
 import { getPage as getStaffPage } from '#/api/upms/user';
+import { useMessageStore } from '#/store/message';
 
 import ChatMessageCard from '../chat-message-card.vue';
 import {
@@ -35,6 +36,7 @@ interface StaffOption {
   username?: string;
 }
 
+const messageStore = useMessageStore();
 const conversations = ref<Conversation[]>([]);
 const active = ref<Conversation>();
 const messages = ref<ViewChatMessage[]>([]);
@@ -43,11 +45,39 @@ const keyword = ref('');
 const draft = ref('');
 const timeline = ref<HTMLElement>();
 
+/**
+ * 会话打开代际：慢网连点时只认最后一次点击。
+ *
+ * 请求返回时代际已变化，说明用户又打开了别的会话，旧响应必须丢弃，
+ * 否则后到的响应会把消息写进新会话的列表里（串会话）。
+ */
+let openToken = 0;
+
+function scrollToBottom(behavior: ScrollBehavior = 'smooth') {
+  timeline.value?.scrollTo({
+    behavior,
+    top: timeline.value.scrollHeight,
+  });
+}
+
+/** 加载私信会话列表；按会话 ID 去重，避免推送刷新与手动加载交叠时出现重复项。 */
 async function loadConversations() {
   const page = await getStaffConversations({ limit: 100 });
-  conversations.value = page.records.filter(
-    (item) => item.conversationType === 'STAFF_DIRECT',
-  );
+  const seen = new Set<string>();
+  conversations.value = page.records.filter((item) => {
+    if (item.conversationType !== 'STAFF_DIRECT' || seen.has(item.id)) {
+      return false;
+    }
+    seen.add(item.id);
+    return true;
+  });
+  // 列表刷新后用最新未读/摘要覆盖当前打开项，模板角标才不会停在旧值
+  if (active.value) {
+    const refreshed = conversations.value.find(
+      (item) => item.id === active.value?.id,
+    );
+    if (refreshed) active.value = refreshed;
+  }
 }
 
 async function searchStaff() {
@@ -60,48 +90,87 @@ async function searchStaff() {
 }
 
 async function startDirect(staff: StaffOption) {
-  const conversation = await createStaffDirect(staff.id);
-  await loadConversations();
-  await openConversation(conversation);
-  ElMessage.success(
-    `已打开与 ${staff.nickname || staff.username || staff.id} 的私信`,
-  );
+  try {
+    const conversation = await createStaffDirect(staff.id);
+    await loadConversations();
+    await openConversation(conversation);
+    ElMessage.success(
+      `已打开与 ${staff.nickname || staff.username || staff.id} 的私信`,
+    );
+  } catch {
+    // 请求层已统一提示；保留列表页可用性
+  }
 }
 
+/** 列表点击入口：吞掉请求层已提示的异常，避免 unhandled rejection。 */
+function handleOpenConversation(conversation: Conversation) {
+  void openConversation(conversation).catch(() => {
+    // 请求层已统一提示
+  });
+}
+
+/** 打开会话并标记已读（带竞态保护）。 */
 async function openConversation(conversation: Conversation) {
+  const token = ++openToken;
   active.value = conversation;
   const page = await getConversationMessages(conversation.id, { limit: 100 });
+  if (token !== openToken) return;
   messages.value = [...page.records].reverse();
   if (conversation.lastSeq > conversation.lastReadSeq) {
     await markConversationRead(conversation.id, conversation.lastSeq);
+    if (token !== openToken) return;
+    conversation.lastReadSeq = conversation.lastSeq;
+    const current = active.value;
+    if (current && current.id === conversation.id) {
+      active.value = { ...current, lastReadSeq: conversation.lastSeq };
+    }
+    // 读掉会话未读后回刷铃铛，否则角标要等到下一次推送才回落
+    void messageStore.refreshNotifications();
     await loadConversations();
+    if (token !== openToken) return;
   }
   await nextTick();
-  timeline.value?.scrollTo({ top: timeline.value.scrollHeight });
+  if (token !== openToken) return;
+  scrollToBottom();
 }
 
-/** 推送到达后按 afterSeq 增量补拉当前私信，并推进已读游标。 */
+/** 推送/重连后按 afterSeq 增量补拉当前会话，并推进已读游标。 */
 async function refreshActiveConversation() {
   const conversation = active.value;
   if (!conversation) return;
+  const token = openToken;
   const afterSeq = latestServerSequence(messages.value);
   const page = await getConversationMessages(conversation.id, {
     afterSeq,
     limit: 100,
   });
-  if (active.value?.id !== conversation.id) return;
+  if (token !== openToken) return;
   if (page.records.length > 0) {
     messages.value = mergeCursorMessages(messages.value, page.records);
     await nextTick();
-    timeline.value?.scrollTo({ top: timeline.value.scrollHeight });
+    if (token !== openToken) return;
+    scrollToBottom();
   }
   const latest = latestServerSequence(messages.value);
-  if (latest > (conversation.lastReadSeq || 0)) {
+  const current = active.value;
+  if (
+    current?.id === conversation.id &&
+    latest > (conversation.lastReadSeq || 0)
+  ) {
     await markConversationRead(conversation.id, latest);
+    if (token !== openToken) return;
+    current.lastReadSeq = latest;
+    // 读后回刷铃铛：会话未读与角标必须同步收敛
+    void messageStore.refreshNotifications();
   }
 }
 
-/** 推送到达后刷新私信列表；当前会话有新消息时再按游标补拉。 */
+/**
+ * 推送到达后刷新私信列表；当前会话有新消息时再按游标补拉。
+ *
+ * 重连信号（RECONNECTED）没有 conversationId，等同于“当前会话可能缺消息”，
+ * 因此同样走一次当前会话补拉。
+ */
 async function refreshOnPush(signal: MessagePushSignal) {
   await loadConversations();
   if (!signal.conversationId || signal.conversationId === active.value?.id) {
@@ -109,11 +178,29 @@ async function refreshOnPush(signal: MessagePushSignal) {
   }
 }
 
+/** 发送文本消息并合并服务端回执；失败抛给调用方决定本地失败态。 */
+async function deliverMessage(
+  conversationId: string,
+  clientMessageId: string,
+  content: string,
+) {
+  const serverMessage = await sendConversationMessage(conversationId, {
+    clientMessageId,
+    content,
+    messageType: 'TEXT',
+  });
+  // 慢网期间用户可能已切换会话：旧会话的回执不得写进当前消息列表
+  if (active.value?.id !== conversationId) return;
+  messages.value = mergeServerMessage(messages.value, serverMessage);
+  await nextTick();
+  scrollToBottom();
+}
+
 async function send() {
   const content = draft.value.trim();
   if (!active.value || !content) return;
-  const clientMessageId = nanoid();
   const conversationId = active.value.id;
+  const clientMessageId = nanoid();
   draft.value = '';
   messages.value.push({
     clientMessageId,
@@ -129,22 +216,124 @@ async function send() {
     senderType: 'SYS_USER',
   });
   try {
-    const serverMessage = await sendConversationMessage(conversationId, {
-      clientMessageId,
-      content,
-      messageType: 'TEXT',
-    });
-    messages.value = mergeServerMessage(messages.value, serverMessage);
-  } catch (error) {
-    messages.value = markMessageFailed(messages.value, clientMessageId);
-    throw error;
+    await deliverMessage(conversationId, clientMessageId, content);
+  } catch {
+    // 失败由请求层提示；这里只在仍是同一会话时把气泡标成可重发
+    if (active.value?.id === conversationId) {
+      messages.value = markMessageFailed(messages.value, clientMessageId);
+    }
   }
+}
+
+/**
+ * 失败气泡点击重发。
+ *
+ * 复用原 clientMessageId：服务端按幂等键去重，重发不会产生两条消息，
+ * 也能接住“请求超时但实际已落库”的情况。
+ */
+async function resend(message: ViewChatMessage) {
+  const conversationId = message.conversationId || active.value?.id;
+  if (!conversationId || message.sendState !== 'failed') return;
+  if (active.value?.id !== conversationId) return;
+  if (message.messageType !== 'TEXT') return;
+  const { clientMessageId } = message;
+  // 立刻切到发送中，避免连点重复提交
+  messages.value = messages.value.map((item): ViewChatMessage =>
+    item.clientMessageId === clientMessageId
+      ? { ...item, sendState: 'sending' }
+      : item,
+  );
+  try {
+    await deliverMessage(
+      conversationId,
+      clientMessageId,
+      message.content || '',
+    );
+  } catch {
+    if (active.value?.id === conversationId) {
+      messages.value = markMessageFailed(messages.value, clientMessageId);
+    }
+  }
+}
+
+/**
+ * 消费登记给私信页的待定位会话（铃铛私信提醒、通知回复跳转）。
+ *
+ * 先读后清：同一事件可能同时触发 watch 与激活钩子，第二次进来拿不到 id 即天然幂等。
+ */
+async function consumePendingConversation() {
+  const conversationId = messageStore.pendingDirectConversationId;
+  if (!conversationId) return;
+  messageStore.clearPendingConversation();
+  let target = conversations.value.find((item) => item.id === conversationId);
+  if (!target) {
+    // 可能是刚由通知回复创建的会话，本地列表还没拉到
+    await loadConversations();
+    target = conversations.value.find((item) => item.id === conversationId);
+  }
+  if (!target) {
+    ElMessage.warning('未找到对应的私信会话，请稍后刷新重试');
+    return;
+  }
+  await openConversation(target);
 }
 
 useConversationPush(refreshOnPush);
 
+/** 切回标签页时补拉列表与当前会话，并消费可能新登记的待定位会话。 */
+async function refreshOnReactivate() {
+  try {
+    await loadConversations();
+    await consumePendingConversation();
+    await refreshActiveConversation();
+  } catch {
+    // 请求层已统一提示，保留页面现有数据
+  }
+}
+
+/**
+ * keepAlive 缓存页回到前台时的静默刷新。
+ *
+ * onActivated 在首次挂载后也会触发一次（紧跟 onMounted），那次必须跳过，
+ * 否则首进就会查两遍；页面未启用 keepAlive 时该钩子不会触发，天然无副作用。
+ */
+let activated = false;
+onActivated(() => {
+  if (!activated) {
+    activated = true;
+    return;
+  }
+  void refreshOnReactivate();
+});
+
+/**
+ * 通知回复/铃铛私信提醒会登记待定位会话。
+ *
+ * 页面已挂载时由 watch 直接打开；页面尚未挂载时登记会留在 store 里，
+ * 由 onMounted 消费，因此两个入口都能定位到会话。
+ */
+watch(
+  () => messageStore.pendingDirectConversationId,
+  (conversationId) => {
+    if (!conversationId) return;
+    void consumePendingConversation().catch(() => {
+      // 请求层已提示；保留页面可用性，等下一次手动刷新
+    });
+  },
+);
+
 onMounted(async () => {
-  await Promise.all([loadConversations(), searchStaff()]);
+  try {
+    await Promise.all([loadConversations(), searchStaff()]);
+  } catch {
+    // 请求层已统一提示；页面保持可用，后续操作会重试
+  }
+  // 待定位会话不依赖工作人员列表：上一步失败也要尝试打开（通知回复跳转依赖它）
+  try {
+    await consumePendingConversation();
+  } catch {
+    // 请求层已提示；保留页面可用性
+  }
 });
 </script>
 
@@ -194,7 +383,7 @@ onMounted(async () => {
         :key="item.id"
         class="direct-item"
         :class="{ active: active?.id === item.id }"
-        @click="openConversation(item)"
+        @click="handleOpenConversation(item)"
       >
         <span class="direct-avatar">内</span>
         <span class="direct-copy"
@@ -231,12 +420,21 @@ onMounted(async () => {
               :message="message"
             />
             <p v-else>{{ message.content || '[系统消息]' }}</p>
-            <time>{{
+            <time
+              v-if="message.sendState === 'failed'"
+              class="retry"
+              role="button"
+              tabindex="0"
+              title="重新发送这条消息"
+              @click="resend(message)"
+              @keydown.enter.prevent="resend(message)"
+            >
+              发送失败，点击重发
+            </time>
+            <time v-else>{{
               message.sendState === 'sending'
                 ? '发送中…'
-                : message.sendState === 'failed'
-                  ? '发送失败'
-                  : `#${message.seqNo} · ${message.createTime}`
+                : `#${message.seqNo} · ${message.createTime}`
             }}</time>
           </div>
         </article>
@@ -503,6 +701,18 @@ onMounted(async () => {
 .direct-bubble time {
   font-size: 9px;
   opacity: 0.55;
+}
+
+/* 失败气泡的重发入口：可点击文字按钮，键盘/读屏都能操作 */
+.direct-bubble time.retry {
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.direct-bubble time.retry:focus-visible {
+  outline: 2px solid var(--direct-accent);
+  outline-offset: 2px;
+  border-radius: 3px;
 }
 
 .direct-chat footer {

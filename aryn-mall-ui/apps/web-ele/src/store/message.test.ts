@@ -11,7 +11,7 @@ import {
   markStaffNoticeRead,
 } from '#/api/message/notice';
 
-import { useMessageStore } from './message';
+import { RECONNECTED_EVENT_TYPE, useMessageStore } from './message';
 
 vi.mock('#/api/message/notice', () => ({
   getStaffNoticeInbox: vi.fn(),
@@ -290,6 +290,125 @@ describe('message store', () => {
     expect(store.unreadCount).toBe(1);
     expect(store.conversationUnread).toBe(0);
     expect(store.notifications.map((item) => item.kind)).toEqual(['notice']);
+  });
+
+  it('routes conversation reminders by conversation type', async () => {
+    vi.mocked(getStaffNoticeUnreadCount).mockResolvedValueOnce(0);
+    vi.mocked(getStaffNoticeInbox).mockResolvedValueOnce({
+      hasMore: false,
+      records: [],
+    });
+    vi.mocked(getConversationAttention).mockResolvedValueOnce({
+      conversations: [
+        {
+          conversationType: 'STAFF_DIRECT',
+          id: 'direct-1',
+          lastMessageSummary: '麻烦看下合同',
+          lastReadSeq: 2,
+          lastSeq: 3,
+          queueCode: 'DEFAULT',
+          status: 'ACTIVE',
+          unreadCount: 1,
+        },
+        {
+          conversationType: 'CUSTOMER_SERVICE',
+          customerId: 'member-9',
+          id: 'conversation-1',
+          lastMessageSummary: '在吗',
+          lastReadSeq: 0,
+          lastSeq: 2,
+          queueCode: 'DEFAULT',
+          status: 'ACTIVE',
+          unreadCount: 2,
+        },
+      ],
+      unreadConversations: 2,
+      waitingTotal: 0,
+    });
+    const store = useMessageStore();
+
+    await store.refreshNotifications();
+
+    // 工作人员私信提醒必须进私信页，会员会话提醒仍进客服工作台
+    expect(store.notifications[0]).toMatchObject({
+      conversationId: 'direct-1',
+      link: '/message/direct',
+    });
+    expect(store.notifications[1]).toMatchObject({
+      conversationId: 'conversation-1',
+      link: '/message/service',
+    });
+  });
+
+  it('keeps one-shot conversation targets separate per page', () => {
+    const store = useMessageStore();
+
+    // 私信页与工作台各自消费自己的待定位会话，避免互相“抢”提醒
+    store.requestConversation('direct-1', 'direct');
+    expect(store.pendingDirectConversationId).toBe('direct-1');
+    expect(store.pendingConversationId).toBeUndefined();
+
+    store.clearPendingConversation();
+    store.requestConversation('conversation-1');
+    expect(store.pendingConversationId).toBe('conversation-1');
+    expect(store.pendingDirectConversationId).toBeUndefined();
+
+    store.$reset();
+    expect(store.pendingConversationId).toBeUndefined();
+    expect(store.pendingDirectConversationId).toBeUndefined();
+  });
+
+  it('refreshes the bell and signals reconnection when the socket reconnects', async () => {
+    vi.useFakeTimers();
+    const sockets: FakeWebSocket[] = [];
+
+    class FakeWebSocket {
+      static readonly OPEN = 1;
+      readonly readyState = 0;
+      private readonly listeners = new Map<string, Array<() => void>>();
+
+      constructor() {
+        sockets.push(this);
+      }
+
+      addEventListener(type: string, listener: () => void) {
+        const listeners = this.listeners.get(type) ?? [];
+        listeners.push(listener);
+        this.listeners.set(type, listeners);
+      }
+
+      close() {}
+
+      emit(type: string) {
+        this.listeners.get(type)?.forEach((listener) => listener());
+      }
+    }
+
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    vi.mocked(getStaffNoticeUnreadCount).mockResolvedValue(0);
+    vi.mocked(getStaffNoticeInbox).mockResolvedValue({
+      hasMore: false,
+      records: [],
+    });
+    const store = useMessageStore();
+
+    store.connect();
+    sockets[0]?.emit('open');
+    // 首次连接不是重连：不产生补拉信号
+    expect(store.lastConversationPush).toBeUndefined();
+
+    sockets[0]?.emit('close');
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(sockets).toHaveLength(2);
+
+    sockets[1]?.emit('open');
+    // 重连成功：通知消息页按游标补拉断线期间的消息
+    expect(store.lastConversationPush).toEqual({
+      eventType: RECONNECTED_EVENT_TYPE,
+    });
+    // 每次连接建立都要补拉未读提醒
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getStaffNoticeInbox).toHaveBeenCalledTimes(2);
   });
 
   it('does not reconnect after logout resets the store', () => {

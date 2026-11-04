@@ -3,6 +3,8 @@ export type NoticeStatus = 'DRAFT' | 'PUBLISHED' | 'REVOKED';
 export type NoticeDispatchStatus =
   'FAILED' | 'NONE' | 'PARTIAL_FAILED' | 'RUNNING' | 'SUCCEEDED';
 export type ConversationStatus = 'ACTIVE' | 'ASSIGNED' | 'CLOSED' | 'WAITING';
+/** 工作人员会话列表的状态过滤：OPEN=WAITING/ASSIGNED/ACTIVE，CLOSED=已关闭。 */
+export type ConversationInboxStatus = 'CLOSED' | 'OPEN';
 export type ChatMessageType =
   | 'IMAGE'
   | 'NOTICE_CARD'
@@ -89,20 +91,39 @@ export interface NoticeRecord {
 }
 
 export interface Conversation {
+  /** 负责客服昵称快照 */
+  assignedStaffAvatar?: string;
   assignedStaffId?: string;
+  assignedStaffName?: string;
   closedTime?: string;
   contextPayload?: string;
   conversationType: 'CUSTOMER_SERVICE' | 'STAFF_DIRECT';
+  customerAvatar?: string;
   customerId?: string;
+  /** 会员昵称快照：缺失时前端回退展示 customerId */
+  customerName?: string;
   id: string;
   lastMessageSummary?: string;
   lastMessageTime?: string;
   lastReadSeq: number;
   lastSeq: number;
+  /** 对方最后已读的消息序号，用于「已读/未读」回执 */
+  peerLastReadSeq?: number;
   queueCode: string;
   reopenDeadline?: string;
   status: ConversationStatus;
   unreadCount: number;
+}
+
+/** 主管视角的会话分配日志（强制分配/转交/领取等审计动作）。 */
+export interface ConversationAssignmentLog {
+  actionType: string;
+  createTime?: string;
+  fromStaffId?: string;
+  operatorId?: string;
+  operatorType?: string;
+  reason?: string;
+  toStaffId?: string;
 }
 
 /** 坐席待办提醒：本人未读会话与共享池待领取。 */

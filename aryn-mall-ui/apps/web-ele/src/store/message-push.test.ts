@@ -4,6 +4,7 @@ import {
   buildStaffWebSocketUrl,
   isConversationPush,
   parsePushSignal,
+  RECONNECTED_EVENT_TYPE,
 } from './message';
 
 describe('staff websocket url', () => {
@@ -93,5 +94,9 @@ describe('push signal parsing', () => {
     expect(
       isConversationPush({ conversationId: 'conversation-1', eventType: 'X' }),
     ).toBe(false);
+    // 重连信号只表示“连接已重建、需要补拉”，不是某个会话的推送事件
+    expect(isConversationPush({ eventType: RECONNECTED_EVENT_TYPE })).toBe(
+      false,
+    );
   });
 });

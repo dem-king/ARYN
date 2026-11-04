@@ -21,12 +21,14 @@ import {
   ElMessageBox,
   ElSkeleton,
 } from 'element-plus';
+import { nanoid } from 'nanoid';
 
 import {
   getStaffNoticeInbox,
   hideStaffNotice,
   markAllStaffNoticesRead,
   markStaffNoticeRead,
+  replyStaffNotice,
 } from '#/api/message/notice';
 import { useMessageStore } from '#/store/message';
 import { resolveNoticeLink } from '#/utils/notice-link';
@@ -95,6 +97,19 @@ const loadingMore = ref(false);
 const readingAll = ref(false);
 const searchQuery = ref('');
 const activeFilter = ref<InboxFilterKey>('all');
+/** 正在回复的通知 ID：避免连点生成多条回复卡片。 */
+const replyingId = ref<string>();
+
+/**
+ * 只有工作人员手工发布的通知才能回复。
+ *
+ * 业务系统通知（订单/退款/船舶等）由 `sourceType` 标识、发布人是“系统”，
+ * 后端会拒绝回复；这里提前区分，避免用户点了才看到报错。
+ * 手工通知的发布人昵称可能为空（`senderName` 为 null），不能因此藏掉入口。
+ */
+function canReply(item: NoticeInboxItem) {
+  return !item.sourceType && item.senderName !== '系统';
+}
 
 /** 已加载记录的分类/未读统计（搜索无关）。 */
 const stats = computed(() => inboxStats(records.value));
@@ -226,6 +241,28 @@ async function open(item: NoticeInboxItem) {
   const link = resolveNoticeLink(item);
   if (link) {
     void router.push(link);
+  }
+}
+
+/**
+ * 回复工作人员发来的内部通知。
+ *
+ * 后端按通知发布人自动打开/创建私信并插入 NOTICE_CARD 卡片消息；成功后把会话
+ * 登记给私信页定位，跳过去即可继续沟通（失败由请求层统一提示）。
+ */
+async function reply(item: NoticeInboxItem) {
+  if (replyingId.value) return;
+  replyingId.value = item.messageId;
+  try {
+    const message = await replyStaffNotice(item.messageId, nanoid());
+    // 回复即已读：顺手清掉未读，铃铛由 read() 内部回刷
+    await read(item);
+    messageStore.requestConversation(message.conversationId, 'direct');
+    await router.push('/message/direct');
+  } catch {
+    // 请求层已提示（如系统通知不可回复），保留当前列表
+  } finally {
+    replyingId.value = undefined;
   }
 }
 
@@ -447,6 +484,20 @@ onMounted(() => load(true));
               @keydown.stop
             >
               隐藏
+            </ElButton>
+            <ElButton
+              v-if="canReply(row.item)"
+              class="notice-reply"
+              link
+              type="primary"
+              size="small"
+              title="回复发布人"
+              aria-label="回复发布人，跳转到工作人员私信"
+              :loading="replyingId === row.item.messageId"
+              @click.stop="reply(row.item)"
+              @keydown.stop
+            >
+              回复
             </ElButton>
             <span v-if="row.link" class="notice-cta" aria-hidden="true">
               {{ row.ctaLabel }}
@@ -995,6 +1046,16 @@ onMounted(() => load(true));
 }
 
 .notice-hide:focus-visible {
+  outline: 2px solid var(--inbox-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.notice-reply {
+  font-weight: 600;
+}
+
+.notice-reply:focus-visible {
   outline: 2px solid var(--inbox-primary);
   outline-offset: 2px;
   border-radius: 4px;

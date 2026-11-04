@@ -66,6 +66,17 @@ const CONVERSATION_EVENT_TYPES = new Set([
 ]);
 
 /**
+ * WS 重连成功信号。
+ *
+ * 断线期间的推送（消息、通知）都会丢，页面收到该信号后必须按游标补拉；
+ * 它没有 conversationId，也不属于 {@link isConversationPush} 的会话事件口径。
+ */
+export const RECONNECTED_EVENT_TYPE = 'RECONNECTED';
+
+/** 待定位会话的目标页面：私信页与客服工作台各自消费自己的提醒。 */
+export type PendingConversationTarget = 'direct' | 'service';
+
+/**
  * 解析服务端下发的轻量推送事件。
  *
  * 事件只表示“数据已变化”，正文仍由 HTTP 游标补拉；非 JSON 或缺少事件类型时忽略。
@@ -175,16 +186,35 @@ export const useMessageStore = defineStore('message', () => {
   /** 上次语音播报时间：连单高峰节流，避免逐条朗读刷屏。 */
   let lastSpokenAt = 0;
   /**
-   * 铃铛点击后要定位的会话。
+   * 铃铛/通知回复之后要定位的会话。
    *
    * 走 store 而不是路由 query：工作台的标签页 key 取自 fullPath，
    * 用 query 会让每个会话都开一个新标签页。
+   *
+   * 目标页必须记进同一个状态：私信页与客服工作台的 keepAlive 实例会同时存活，
+   * 若两边都监听同一个 id，谁先执行谁就把会话“抢”到自己页面打开了。
+   * 因此内部只存一份，对外按 target 派生出两个只读 ref，各页各消费一个。
    */
-  const pendingConversationId = ref<string>();
+  const pendingConversation = ref<{
+    conversationId: string;
+    target: PendingConversationTarget;
+  }>();
+  const pendingConversationId = computed(() =>
+    pendingConversation.value?.target === 'service'
+      ? pendingConversation.value.conversationId
+      : undefined,
+  );
+  const pendingDirectConversationId = computed(() =>
+    pendingConversation.value?.target === 'direct'
+      ? pendingConversation.value.conversationId
+      : undefined,
+  );
   let socket: null | WebSocket = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   let shouldReconnect = false;
   let sessionGeneration = 0;
+  /** 是否已经成功建立过连接：用于区分首次连接与断线重连。 */
+  let hasConnectedOnce = false;
 
   const showDot = computed(() => unreadCount.value > 0);
 
@@ -204,19 +234,20 @@ export const useMessageStore = defineStore('message', () => {
   ): NotificationItem[] {
     return attention.conversations.map((item) => {
       const waiting = item.status === 'WAITING';
-      const name =
-        item.conversationType === 'STAFF_DIRECT'
-          ? '工作人员私信'
-          : `会员 ${item.customerId || ''}`.trim();
+      // 工作人员私信没有会员，点开应该进私信页；其余会话仍由客服工作台承接。
+      const direct = item.conversationType === 'STAFF_DIRECT';
+      const name = direct
+        ? '工作人员私信'
+        : `会员 ${item.customerId || ''}`.trim();
       return {
         avatar: '',
-        avatarText: item.conversationType === 'STAFF_DIRECT' ? '内' : '客',
+        avatarText: direct ? '内' : '客',
         category: 'conversation',
         conversationId: item.id,
         date: item.lastMessageTime || '',
         isRead: !waiting && !item.unreadCount,
         kind: 'conversation',
-        link: '/message/service',
+        link: direct ? '/message/direct' : '/message/service',
         message: item.lastMessageSummary || '暂无新消息',
         tag: waiting ? '待领取' : undefined,
         timestamp: parseNoticeTime(item.lastMessageTime),
@@ -424,7 +455,22 @@ export const useMessageStore = defineStore('message', () => {
     socket = currentSocket;
     currentSocket.addEventListener('open', () => {
       if (socket !== currentSocket) return;
+      if (sessionStore.invalid) {
+        // 连接建立前会话已失效：不再复用这条连接
+        disconnect();
+        return;
+      }
       socketState.value = 'open';
+      const reconnected = hasConnectedOnce;
+      hasConnectedOnce = true;
+      // 断线期间的推送全部丢失：连接建立后补拉一次未读提醒（首次连接时 `start()` 也会拉，
+      // 这里多拉一次无副作用，却能在重连长间隔后立刻收敛角标）。
+      void refreshNotifications();
+      if (reconnected) {
+        // 通知各消息页“连接已重建、需要按游标补拉”；该信号没有 conversationId，
+        // 页面侧会把它当作“当前会话可能缺消息”的刷新指令。
+        lastConversationPush.value = { eventType: RECONNECTED_EVENT_TYPE };
+      }
     });
     currentSocket.addEventListener('message', (event) => {
       if (socket !== currentSocket) return;
@@ -486,23 +532,32 @@ export const useMessageStore = defineStore('message', () => {
     },
   );
 
-  /** 请求工作台定位到指定会话；工作台消费后调用 clearPendingConversation。 */
-  function requestConversation(conversationId: string) {
-    pendingConversationId.value = conversationId;
+  /**
+   * 请求消息页定位到指定会话；目标页消费后调用 clearPendingConversation。
+   *
+   * @param conversationId 要打开的会话 ID
+   * @param target 消费方页面：私信页（direct，默认由通知回复/私信铃铛使用）或客服工作台（service）
+   */
+  function requestConversation(
+    conversationId: string,
+    target: PendingConversationTarget = 'service',
+  ) {
+    pendingConversation.value = { conversationId, target };
   }
 
   function clearPendingConversation() {
-    pendingConversationId.value = undefined;
+    pendingConversation.value = undefined;
   }
 
   function $reset() {
     sessionGeneration += 1;
     disconnect();
+    hasConnectedOnce = false;
     unreadCount.value = 0;
     conversationUnread.value = 0;
     notifications.value = [];
     lastConversationPush.value = undefined;
-    pendingConversationId.value = undefined;
+    pendingConversation.value = undefined;
     // 清掉未读基线：下次登录后的首个快照只用来定基线，不会把存量未读当新消息提醒
     lastAlertCounts = undefined;
     lastSpokenAt = 0;
@@ -536,6 +591,7 @@ export const useMessageStore = defineStore('message', () => {
     markRead,
     notifications,
     pendingConversationId,
+    pendingDirectConversationId,
     refreshNotifications,
     requestConversation,
     setDesktopEnabled,

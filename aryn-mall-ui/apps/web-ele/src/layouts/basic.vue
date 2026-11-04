@@ -146,7 +146,8 @@ onMounted(() => {
 
 /**
  * 铃铛里的提醒分两类：
- * - 客服会话：登记待定位会话并跳到工作台，由工作台打开（待领取会话进“待领取”页签）；
+ * - 客服会话：登记待定位会话并跳到对应消息页（`item.link` 在 store 里按会话类型分流：
+ *   工作人员私信 → `/message/direct`，会员会话 → `/message/service`），由页面打开；
  * - 站内信：先标记已读，再按后端下发的业务路由直达订单/退款/船舶审核等页面。
  *
  * 路由在 store 里已由 resolveNoticeLink 解析并做了安全白名单，这里只负责跳转；
@@ -155,7 +156,12 @@ onMounted(() => {
 function handleNoticeRead(item: NotificationItem) {
   if (item.kind === 'conversation') {
     if (item.conversationId) {
-      messageStore.requestConversation(item.conversationId);
+      // 目标页要分开登记：私信页和客服工作台的 keepAlive 实例可能同时存活，
+      // 共用一个 id 会被先执行的页面抢走，落到错误的页签里。
+      messageStore.requestConversation(
+        item.conversationId,
+        item.link === '/message/direct' ? 'direct' : 'service',
+      );
     }
     void router.push(item.link || '/message/service');
     return;
