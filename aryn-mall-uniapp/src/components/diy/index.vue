@@ -548,4 +548,29 @@ function sectionStyle(section: DecorationSection) {
   flex: 0 0 580rpx;
   width: 580rpx;
 }
+
+/**
+ * 折叠屏 / 平板展开态（仅微信小程序，断点 600px）。
+ *
+ * 装修背景图原按「宽 100%、高按图片比例自适应」绘制（background-size: 100% auto），
+ * 这是为手机竖屏的窄高窗口调的。展开后窗口宽高比从 ~9:19 变成接近 1:1，同一张图
+ * 按宽度铺满会把画面纵向截断/主体跑位，两侧还容易露出页面底色。
+ * 宽屏改 cover：以铺满容器为优先，构图重心保持在 top center（页面图）与区块内的
+ * top center（区块图），不再出现横向留白。
+ *
+ * 区块背景图的 100% auto 是 sectionStyle() 写进元素 style 的行内值，CSS 普通规则
+ * 赢不了行内样式，必须 !important；页面级背景图只由本文件的 class 规则控制，无需。
+ * 该段在 H5 / App 产物中会被条件编译剔除，手机端零变化。
+ */
+/* #ifdef MP-WEIXIN */
+@media (min-width: 600px) {
+  .diy-page {
+    background-size: cover;
+  }
+
+  .diy-page .diy-section {
+    background-size: cover !important;
+  }
+}
+/* #endif */
 </style>

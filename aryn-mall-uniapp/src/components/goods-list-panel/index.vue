@@ -818,4 +818,159 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
     transition: none;
   }
 }
+
+/**
+ * 折叠屏 / 平板展开态（仅微信小程序，断点 600px）。
+ *
+ * 本面板被「分类页右栏 / 商品列表页 / 共享车分类选货页」三处复用，宽屏统一走平板密度：
+ * 网格 2→3 列、卡片标题 13px、价格 15px；标题仍沿用基础规则的 2 行截断（卡变窄也不破版）。
+ * 段内禁用 rpx/upx：rpx 以「窗口宽 = 750rpx」为基准，展开态所有尺寸等比放大 ≈1.8 倍
+ * （28rpx 标题从 14.6px 变成 26px），正是本次要修的根因；这里只用 px 与 App.vue 的
+ * --wide-* token（引用一律带兜底值）。折叠态（<600px）不命中本段，H5/App 被条件编译
+ * 整段剔除 → 手机端像素级零变化。
+ *
+ * 宽度账（A7/A8，700px 窗口）：
+ *   · 分类页右栏：700 − rail 96px ≈ 604px → 卡宽 =（604 − padding 12×2 − 列间距 12×2）/ 3 ≈ 185px ≥ 180px；
+ *   · 商品列表页 / 共享选货页整宽：卡宽 =（700 − 24 − 24）/ 3 ≈ 217px。
+ * 断点临界 600px 时分类页右栏卡宽 ≈ 152px，属首档起步区间（方案只用一个断点，不加第二档）。
+ * 卡片图片仍是 padding-top:100% 的 1:1 方框（百分比不随 rpx 放大），保持现状不改。
+ */
+/* #ifdef MP-WEIXIN */
+@media (min-width: 600px) {
+  .goods-list {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 12px;
+    /* 悬浮玻璃底栏的等高让位沿用宿主变量（未设的宿主取 0，行为不变） */
+    padding-bottom: calc(12px + var(--page-glass-bar-clearance, 0px));
+  }
+
+  /* 单列（图左信息右）保持单列不重排：只把行卡密度换成平板值。
+     必须排在 .goods-list 之后重写，否则被上面的 12px 内边距盖掉 */
+  .goods-list--row {
+    padding: 0;
+    padding-bottom: var(--page-glass-bar-clearance, 0px);
+  }
+
+  /* 2→3 列。仍用 grid 轨道均分而不是 flex + calc 卡宽：小程序端 flex-wrap 对小数宽度
+     的临界判断很敏感，grid 先扣 gap 再分轨道不存在「每行只剩一张卡」的问题 */
+  .goods-list--grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .goods-card--grid {
+    border-radius: 8px;
+  }
+
+  .goods-meta {
+    padding: 12px;
+  }
+
+  /* 标题 13px / 仍是最多 2 行截断（-webkit-line-clamp 沿用基础规则），价格 15px 拉开主次 */
+  .goods-name {
+    font-size: var(--wide-card-font, 13px);
+    line-height: 1.4;
+  }
+
+  .goods-desc {
+    font-size: var(--wide-meta-font, 12px);
+  }
+
+  .goods-tags {
+    gap: 3px;
+    padding-top: 4px;
+  }
+
+  .goods-tag {
+    font-size: var(--wide-meta-font, 12px);
+    padding: 2px 5px;
+    border-radius: 3px;
+  }
+
+  .goods-bottom {
+    padding-top: 6px;
+  }
+
+  /* 已加入角标（共享选货页专用）：rpx 在展开态会放大成 26px 高的小方块，改 px */
+  .goods-added-flag {
+    top: 8px;
+    left: 8px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    box-shadow: 0 1px 4px rgb(15 110 86 / 24%);
+    font-size: 11px;
+  }
+
+  /* 价格区：保持「.goods-price 后代」的既有嵌套关系，同权规则宽屏段在后即覆盖原 rpx 值 */
+  .goods-price {
+    .goods-price-symbol {
+      font-size: 11px;
+    }
+
+    .goods-price-value {
+      font-size: var(--wide-price-font, 15px);
+    }
+
+    .goods-price-original {
+      font-size: 11px;
+    }
+
+    .goods-price-guide {
+      font-size: 10px;
+    }
+
+    .goods-price-badge {
+      padding: 1px 4px;
+      border-radius: 3px;
+      font-size: 10px;
+    }
+  }
+
+  /* 排序条：88rpx 展开态 ≈82px 过粗，收到 44px（最小热区）+ 13px。
+     wd-sort-button 内部是固定 14px 字号 / 48px 行高（wot 用 px，不随 rpx 放大），
+     用官方 CSS 变量对齐，避免同一行里「推荐/新品」13px 与「销量/价格」14px 混排 */
+  .sort-bar {
+    height: 44px;
+    font-size: 13px;
+    --wot-sort-button-fs: 13px;
+    --wot-sort-button-height: 44px;
+  }
+
+  .sort-bar .sort-layout-toggle {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+  }
+
+  /* 模板里 wd-icon 的 size="36rpx" 是内联字号：展开态放大到 ≈33.6px 塞不进 28px 的切换按钮，
+     内联样式只能 !important 压回 18px（36rpx 在 390px 窗口 ≈18.7px，视觉等同原样）。
+     选择器只下探到切换按钮内部，避免把排序按钮里的升降箭头图标一起放大 */
+  .sort-layout-toggle :deep(.wd-icon) {
+    font-size: 18px !important;
+  }
+
+  /* 空态：内边距/字号改 px（wd-status-tip 的 image-size 是模板内联 rpx，不在本段处理） */
+  .list-empty {
+    padding: 30px 0;
+
+    &__action {
+      margin-top: 8px;
+      font-size: 13px;
+    }
+  }
+
+  /* 列表布局（.goods-list--row）宽屏同样改平板密度，但保持单列不重排 */
+  .goods-card--row {
+    padding: 12px;
+    border-bottom: 1px solid var(--app-border);
+  }
+
+  .goods-pic-box--row {
+    width: 96px;
+    height: 96px;
+    border-radius: 8px;
+  }
+}
+/* #endif */
 </style>

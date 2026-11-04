@@ -731,4 +731,146 @@ const sheetTopOffset = computed(() => searchNavbarRef.value?.placeholderHeight ?
     transition: none;
   }
 }
+
+/**
+ * 折叠屏 / 平板展开态（仅微信小程序，断点 600px 取微信《大屏适配指南》口径）。
+ *
+ * 问题：左栏 rail 原为 192rpx，展开到 ~700px 时按 750rpx 基准换算 ≈179px，占掉 1/4 屏；
+ * 类目行高、角标、骨架块随 rpx 一起放大 ~1.8 倍，右栏被挤成「放大版手机」。本段把 rail
+ * 钉成固定 96px（不随窗口变宽放大），字号/内边距/骨架换成平板密度 px。右栏 3 列由
+ * goods-list-panel 的宽屏段给出（同一份网格口径；本文件不穿透子组件内部网格，
+ * 否则两处各改一套，迟早漂移）。
+ *
+ * 折叠态（<600px）根本不会命中本段；H5 / App 产物被条件编译整段剔除 → 手机端零变化。
+ * 段内禁用 rpx/upx：rpx 以「窗口宽 = 750rpx」为基准，展开态会等比放大 ≈1.8 倍，
+ * 正是本次要修的根因。
+ *
+ * 宽度账（A7 验收口径，700px 窗口）：rail 96px → 右栏 ≈604px；
+ * 右栏 3 列时卡宽 =（604 − goods-list 左右 padding 12×2 − 列间距 12×2）/ 3 ≈ 185px ≥ 180px。
+ * 断点临界 600px 时卡宽 ≈ 152px，属首档起步区间（方案只用一个断点，不再加第二档）。
+ */
+/* #ifdef MP-WEIXIN */
+@media (min-width: 600px) {
+  /* 左栏不再随 rpx 放大：固定 96px 把多出来的窗口宽度全部让给商品区 */
+  .category-rail {
+    width: 96px;
+    padding: 10px 6px;
+  }
+
+  /* 行高 44px 对齐调研 P0 的最小热区建议；字号回到平板正文 14px */
+  .category-rail-item {
+    min-height: 44px;
+    padding: 8px 6px;
+    font-size: var(--wide-body-font, 14px);
+    border-radius: 8px;
+
+    /* 选中指示条改 px：原 5rpx 在展开态约 4.7px，与 96px 的窄栏不成比例 */
+    &__indicator {
+      left: 3px;
+      width: 3px;
+      border-radius: 3px;
+    }
+
+    /* 角标随字号一起收：28rpx/19rpx 展开后约 26px/17.7px，比类目名本身还大 */
+    &__badge {
+      height: 18px;
+      margin-right: 3px;
+      padding: 0 3px;
+      border-radius: 3px;
+      font-size: 11px;
+      line-height: 18px;
+    }
+
+    &--active {
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(31, 44, 65, 0.08);
+      transform: translateX(2px);
+
+      .category-rail-item__indicator {
+        height: 18px;
+      }
+    }
+  }
+
+  /* 骨架项与真实 44px 行高对齐，树加载完成切换时左栏不会跳一下 */
+  .category-rail-skeleton__item {
+    height: 38px;
+    margin-bottom: 6px;
+    border-radius: 8px;
+  }
+
+  /* 左栏空态：字号/内边距改 px（38rpx 的图标是模板内联属性，不在本段处理） */
+  .category-rail-empty {
+    gap: 8px;
+    padding: 22px 6px;
+    font-size: 12px;
+  }
+
+  /* 购物车热区：展开态至少 44×44px 才点得准（调研 P0 建议） */
+  .category-cart {
+    width: 44px;
+    height: 44px;
+  }
+
+  /* 模板里 wd-icon 的 size="48rpx" 是内联字号：展开态会放大到 ≈44.8px 撑满整个导航条，
+     内联样式只能用 !important 压回手机端同视觉的 26px（48rpx 在 390px 窗口 ≈25px） */
+  .category-cart :deep(.wd-icon) {
+    font-size: 26px !important;
+  }
+
+  /* 右栏骨架：与真实商品流同一密度（3 列、同样的卡片圆角和行高） */
+  .category-goods-skeleton {
+    padding: calc(var(--category-header-height, 0px) + 12px) 12px 12px;
+  }
+
+  .category-goods-skeleton__banner {
+    height: 120px;
+    border-radius: 8px;
+  }
+
+  .category-goods-skeleton__sort {
+    height: 44px;
+    padding: 0 6px;
+  }
+
+  .category-goods-skeleton__sort-item {
+    width: 56px;
+    height: 16px;
+    border-radius: 8px;
+  }
+
+  .category-goods-skeleton__grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  /* 单列（图左信息右）布局时骨架保持单列：上面刚把默认网格改成 3 列，同权规则后写者胜
+     会把 --single 盖掉，这里按原样再断言一次，手机端不受影响 */
+  .category-goods-skeleton__grid--single {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .category-goods-skeleton__card {
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(22, 34, 51, 0.05);
+  }
+
+  .category-goods-skeleton__line {
+    height: 16px;
+    margin: 12px 12px 0;
+    border-radius: 4px;
+  }
+
+  .category-goods-skeleton__line--short {
+    margin-bottom: 12px;
+  }
+
+  /* 右栏装修位骨架（分类页 banner 位）：200rpx 展开态 ≈187px 过高，收到平板密度 */
+  .category-decoration-skeleton {
+    height: 120px;
+    margin: 12px;
+    border-radius: 8px;
+  }
+}
+/* #endif */
 </style>

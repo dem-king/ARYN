@@ -109,6 +109,37 @@ page, #page {
 /* #endif */
 
 /**
+ * 折叠屏 / 平板展开态全局 token（仅微信小程序，断点 600px 取微信《大屏适配指南》口径）。
+ *
+ * 为什么需要：rpx 以「窗口宽 = 750rpx」为基准，同一台折叠屏合上 ≈390px 时 1rpx≈0.52px，
+ * 展开 ≈700px 时 1rpx≈0.93px——只要铺满展开态窗口，页面里所有 rpx 尺寸都会等比放大
+ * ~1.8 倍（正文 28rpx 从 14.6px 变成 26px），这就是「展开像老年模式」的根因。
+ * 因此宽屏版式不能用 rpx 拼，统一用平板密度 px + 下列 token；本段只放变量不放业务样式，
+ * 各页面的宽屏规则在自身 <style> 的 MP-WEIXIN 段里引用（一律带兜底值）。
+ *
+ * 条件编译保证 H5 / App 产物不含本段，手机端（<600px）行为零变化。
+ */
+/* #ifdef MP-WEIXIN */
+@media (min-width: 600px) {
+  page, #page {
+    /* 两栏/多列间距；也是折叠屏折痕安全区，禁止用 rpx（24px 跨折痕不压字） */
+    --wide-gutter: 24px;
+    /* 宽屏页面左右内边距 */
+    --wide-pad: 16px;
+    /* 商详顶栏内容高度（state bar 另计），吸顶元素让位用 */
+    --wide-nav: 44px;
+    /* 宽屏卡片圆角（rpx 圆角在展开态会变成 20px+ 的夸张大圆角） */
+    --wide-radius: 12px;
+    /* 平板密度字号：卡片标题 13px / 列表价格 15px / 正文 14px / 辅助 12px */
+    --wide-card-font: 13px;
+    --wide-price-font: 15px;
+    --wide-body-font: 14px;
+    --wide-meta-font: 12px;
+  }
+}
+/* #endif */
+
+/**
  * 深色语义变量：App.ku.vue 在系统深色时给根节点追加 .dark（激活 UnoCSS 的
  * dark: 工具类）与 wot 自带的 .wot-theme-dark（wot 组件深色态），变量沿
  * 节点树下发到全部业务内容。色板与 wot 深色组件的内置值同灰阶：

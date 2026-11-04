@@ -1135,4 +1135,57 @@ async function handleReceive(coupon: any) {
   border-radius: 12rpx;
   background: var(--app-card-2);
 }
+
+/**
+ * ===== 折叠屏 / 平板展开态：首屏以下保持全宽单栏（仅微信小程序，窗口宽 ≥600px） =====
+ *
+ * 商详首屏的双栏 grid 由 GoodsInfo 组件内部承担（左图集 / 右价格信息），本页只负责
+ * 首屏以下的区块：已确认不重排、不切栏（保持滚动锚点 #scroll-description / #scroll-like
+ * 的测量口径不变），仅把随 rpx 放大的区块间距、标题条、骨架高度改成平板密度 px，
+ * 避免展开后「区块之间空一大截、标题比正文大两级」。
+ *
+ * 只 MP-WEIXIN 生效（H5 / App 产物不含本段），折叠态（<600px）不命中媒体查询零变化；
+ * 段内禁止 rpx/upx，只用 px 与 App.vue 下发的 --wide-* token（一律带兜底值）。
+ */
+/* #ifdef MP-WEIXIN */
+@media (min-width: 600px) {
+  .detail-section {
+    margin: 16px 24px;
+    padding: 16px;
+    border-radius: var(--wide-radius, 12px);
+  }
+
+  .detail-section__head {
+    gap: 6px;
+  }
+
+  .detail-section__bar {
+    width: 3px;
+    height: 14px;
+  }
+
+  /* 区块标题比正文（14px）高一档取 15px；--wide-card-font（13px）是列表卡片标题的
+     口径，混用会让「商品详情」「猜你喜欢」比正文还小 */
+  .detail-section__title {
+    font-size: 15px;
+  }
+
+  .detail-section__body {
+    margin-top: 8px;
+  }
+
+  .detail-rec-head {
+    margin: 24px 24px 8px;
+    gap: 6px;
+  }
+
+  .decoration-skeleton {
+    height: 150px;
+    margin: 8px;
+    border-radius: 8px;
+  }
+
+  /* .detail-bottom-space 已是 px（底栏等高让位），宽屏无需再调 */
+}
+/* #endif */
 </style>

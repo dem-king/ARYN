@@ -5,10 +5,11 @@
  * 区分默认开发与租户构建两种身份来源：
  * - 默认开发：固定默认名称与微信 AppID，忽略残留的租户环境变量；
  * - 租户构建（VITE_TENANT_BUILD=true）：由 build-tenant.mjs 注入名称与 AppID，缺任一立即失败。
+ * 折叠屏开关 MP_RESIZABLE=false 为构建期回滚（默认开启），env 只在本边界读取，工厂保持纯函数。
  * src/manifest.json 是生成物；租户构建不会触碰原目录的该文件。
  */
 import { defineManifestConfig } from '@uni-helper/vite-plugin-uni-manifest'
-import { createManifest, DEFAULT_APP_NAME, DEFAULT_WX_APP_ID } from './build/manifest-factory.mjs'
+import { createManifest, DEFAULT_APP_NAME, DEFAULT_WX_APP_ID, resolveMpResizable } from './build/manifest-factory.mjs'
 
 const tenantBuild = process.env.VITE_TENANT_BUILD === 'true'
 if (tenantBuild && (!process.env.VITE_TENANT_NAME || !process.env.VITE_TENANT_WX_APPID)) {
@@ -18,4 +19,5 @@ if (tenantBuild && (!process.env.VITE_TENANT_NAME || !process.env.VITE_TENANT_WX
 export default defineManifestConfig(createManifest({
   name: tenantBuild ? process.env.VITE_TENANT_NAME as string : DEFAULT_APP_NAME,
   wxAppId: tenantBuild ? process.env.VITE_TENANT_WX_APPID as string : DEFAULT_WX_APP_ID,
+  resizable: resolveMpResizable(process.env.MP_RESIZABLE),
 }))

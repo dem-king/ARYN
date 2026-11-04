@@ -19,7 +19,13 @@ const require = createRequire(path.join(projectRoot, 'package.json'))
 
 async function writeDefaultManifest() {
   const factory = await import(pathToFileURL(path.join(projectRoot, 'build', 'manifest-factory.mjs')).href)
-  const manifest = factory.createManifest({ name: 'aryn-mall-uniapp', wxAppId: 'wx0a8242ea59f3e6b4' })
+  // 折叠屏开关必须在预写与 vite 插件两处同口径：否则两边产物不一致，
+  // src/manifest.json 会被反复回写、init 阶段读到错值（MP_RESIZABLE=false 构建期回滚）
+  const manifest = factory.createManifest({
+    name: 'aryn-mall-uniapp',
+    wxAppId: 'wx0a8242ea59f3e6b4',
+    resizable: factory.resolveMpResizable(process.env.MP_RESIZABLE),
+  })
   const target = path.join(projectRoot, 'src', 'manifest.json')
   const current = fs.existsSync(target) ? JSON.parse(fs.readFileSync(target, 'utf8')) : null
   const next = JSON.stringify(manifest, null, 2)

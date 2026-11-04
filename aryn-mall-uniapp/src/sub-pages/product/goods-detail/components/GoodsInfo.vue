@@ -63,6 +63,18 @@ const emit = defineEmits<Emits>()
 const shipContextStore = useShipContextStore()
 const { t } = useI18n()
 
+/**
+ * 真实状态栏高度（px），供宽屏首屏下移 / 图集吸顶偏移使用。
+ *
+ * 本页 navigationStyle: custom，自绘顶栏是 fixed 覆盖层、页面内容从 y=0 开始；
+ * 宽屏双栏若贴 y=0，右栏价格条会被顶栏压住，所以首屏要整段下移「状态栏 + 顶栏内容高」。
+ * 不能用 CSS 的 --status-bar-height：它在 mp-weixin 是编译期常量 25px（dist app.wxss
+ * 可核实），刘海/挖孔机的真实值更大，会漏出一截被顶栏遮住的右栏。
+ * 这里用运行时实测值下发成 CSS 变量，只被宽屏段消费；折叠态无规则引用它，手机端零变化。
+ */
+const statusBarHeight = uni.getWindowInfo().statusBarHeight ?? 0
+const wideNavOffsetStyle = { '--goods-nav-offset': `${statusBarHeight}px` }
+
 /** 轮播页码：参考商超详情页的 1/5 角标，用户能感知还有多少张图 */
 const currentImage = ref(0)
 const imageCount = computed(() => props.goodsSpu?.spuUrls?.length || 0)
@@ -361,7 +373,9 @@ defineExpose({
 </script>
 
 <template>
-  <view id="scroll-pic">
+  <view id="scroll-pic" class="goods-info" :style="wideNavOffsetStyle">
+    <!-- 宽屏包裹层：折叠态（<600px）不挂任何样式，仅作 ≥600px 双栏的左列图集；规则见文末宽屏段 -->
+    <view class="goods-gallery">
     <view class="goods-swiper">
       <wd-swiper
         height="750rpx" :list="goodsSpu?.spuUrls" autoplay :indicator="{ type: 'dots-bar' }"
@@ -371,8 +385,11 @@ defineExpose({
         {{ currentImage + 1 }}/{{ imageCount }}
       </view>
     </view>
+    </view>
+    <!-- 宽屏包裹层：折叠态（<600px）不挂任何样式，仅作 ≥600px 双栏的右栏（价格条 → 优惠/规格/配送） -->
+    <view class="goods-body">
     <view
-      class="relative h-72px rounded-t-xl from-primary to-secondary bg-gradient-to-r px-3 py-2 -top-10px"
+      class="goods-price-bar relative h-72px rounded-t-xl from-primary to-secondary bg-gradient-to-r px-3 py-2 -top-10px"
     >
       <view class="flex items-center justify-between pt-1">
         <!-- 价格：秒杀 > 会员价 > 新人价 > 限时折扣 > 销售价；主价旁的划线价随主价口径切换 -->
@@ -380,6 +397,7 @@ defineExpose({
           <view class="flex flex-wrap items-center">
             <wd-text
               size="44rpx" prefix="￥" mode="price" color="white" bold
+              custom-class="goods-price-main"
               :text="mainPrice"
             />
             <!-- 会员价角标：白字底上用白色描边胶囊，与新人价角标同层级 -->
@@ -401,7 +419,7 @@ defineExpose({
             </text>
           </view>
           <wd-text
-            v-if="strikePrice != null" color="white" custom-class="pl-5px" size="28rpx" prefix="￥"
+            v-if="strikePrice != null" color="white" custom-class="pl-5px goods-strike-price" size="28rpx" prefix="￥"
             mode="price" :text="strikePrice" decoration="line-through"
           />
         </view>
@@ -502,10 +520,10 @@ defineExpose({
     >
       <view class="goods-title-card__main">
         <!--  商品标题 -->
-        <wd-text :lines="2" size="32rpx" color="inherit" bold :text="goodsSpu?.name" />
+        <wd-text :lines="2" size="32rpx" color="inherit" bold custom-class="goods-title-text" :text="goodsSpu?.name" />
         <!-- 副标题 -->
         <view v-if="showSubtitle" class="goods-title-card__subtitle">
-          <wd-text :lines="2" size="24rpx" color="#8a8f99" :text="goodsSpu?.subTitle" />
+          <wd-text :lines="2" size="24rpx" color="#8a8f99" custom-class="goods-subtitle-text" :text="goodsSpu?.subTitle" />
         </view>
       </view>
       <!--
@@ -542,10 +560,10 @@ defineExpose({
           hover-class="goods-cell--pressed"
           @click="showCoupon"
         >
-          <view class="w-80rpx flex-shrink-0 text-28rpx text-gray-800">
+          <view class="w-80rpx goods-cell__label flex-shrink-0 text-28rpx text-gray-800">
             {{ t('product.discounts') }}
           </view>
-          <view class="mx-5 flex-1 text-26rpx text-gray-600">
+          <view class="goods-cell__value mx-5 flex-1 text-26rpx text-gray-600">
             <view class="line-clamp-1 flex">
               <view v-for="(item, index) in couponList.slice(0, 3)" :key="index" class="coupons_css">
                 {{ item.couponName }}
@@ -568,10 +586,10 @@ defineExpose({
           hover-class="goods-cell--pressed"
           @click="openSkuPopup(2)"
         >
-          <view class="w-80rpx flex-shrink-0 text-28rpx text-gray-800">
+          <view class="w-80rpx goods-cell__label flex-shrink-0 text-28rpx text-gray-800">
             {{ t('product.specs') }}
           </view>
-          <view class="mx-5 flex-1 text-left text-26rpx text-gray-600">
+          <view class="goods-cell__value mx-5 flex-1 text-left text-26rpx text-gray-600">
             {{ specRow.text }}
           </view>
           <view class="flex-shrink-0 text-gray-400">
@@ -583,10 +601,10 @@ defineExpose({
           :hover-class="deliveryRow.tappable ? 'goods-cell--pressed' : 'none'"
           @click="onDeliveryRowTap"
         >
-          <view class="w-80rpx flex-shrink-0 text-28rpx text-gray-800">
+          <view class="w-80rpx goods-cell__label flex-shrink-0 text-28rpx text-gray-800">
             {{ t('product.delivery') }}
           </view>
-          <view class="mx-5 flex-1 text-left text-26rpx text-gray-600">
+          <view class="goods-cell__value mx-5 flex-1 text-left text-26rpx text-gray-600">
             {{ deliveryText }}
             <view v-if="deliveryDetail" class="line-clamp-1 text-12px text-gray-400">
               {{ deliveryDetail }}
@@ -597,6 +615,7 @@ defineExpose({
           </view>
         </view>
       </view>
+    </view>
     </view>
   </view>
 </template>
@@ -930,4 +949,289 @@ defineExpose({
   background-color: var(--app-card);
   border-right: 0;
 }
+
+/**
+ * ===== 折叠屏 / 平板展开态：商详首屏双栏（仅微信小程序，窗口宽 ≥600px） =====
+ *
+ * 为什么单独一段：rpx 以「窗口宽 = 750rpx」为基准，折叠屏展开到 ~700px 时手机端那套
+ * 尺寸会等比放大约 1.8 倍——图集被拉高、正文变成 26px、横向全是空白，「铺满」不等于
+ * 好用。本段用 px 重建平板密度：左列图集 46%（吸顶），右列价格/标题/优惠/规格/配送
+ * 保底 300px（验收 A6）。
+ *
+ * 三条硬约束：
+ *  1. 只 MP-WEIXIN 生效：H5 / App 产物不含本段；折叠态（<600px）不命中媒体查询，
+ *     另外新增的 .goods-gallery / .goods-body 包裹层在窄屏没有任何样式，手机端零变化；
+ *  2. 段内禁止 rpx/upx，只用 px 与 App.vue 下发的 --wide-* token（一律带兜底值）；
+ *  3. 本段在文件末尾：文件内自定义 class 同名再写一次即可覆盖；模板里的 UnoCSS 工具类
+ *     编译产物注入在本段之后、同权时后写者胜，打不过，必须 !important；wd-text 的 size、
+ *     wd-swiper 的 height 是组件内联 style，行内优先级最高，也只能 !important。
+ */
+/* #ifdef MP-WEIXIN */
+@media (min-width: 600px) {
+  .goods-info {
+    /* 顶栏让位：本页是 navigationStyle:custom，顶栏为 fixed 覆盖层、页面内容从 y=0
+       开始（手机端让图集钻到透明栏下没问题）。宽屏双栏时右栏若也贴 y=0，价格条会被
+       顶栏图标/标题压住；且 sticky 吸顶位移在滚动前也会把图集向下顶同样的距离。
+       因此宽屏整段内容统一下移到顶栏之下，并把这个值直接复用为图集吸顶偏移。
+       --goods-nav-offset 是模板根节点下发的真实状态栏高度（运行时 uni.getWindowInfo）；
+       拿不到时回退 CSS 常量 --status-bar-height（mp-weixin 固定 25px）；折叠态本段不生效。 */
+    --goods-wide-nav-offset: calc(var(--goods-nav-offset, var(--status-bar-height, 0px)) + var(--wide-nav, 44px) + 8px);
+    display: grid;
+    /* 左列图集 46%、右列保底 300px：600px 临界时左列会自动收缩到 ~43%（仍在验收
+       A6 的 42–48% 区间内），右列不塌，也就不会撑出横向滚动 */
+    grid-template-columns: minmax(0, 46%) minmax(300px, 1fr);
+    /* 24px 两栏间距同时是折痕安全区（页面级 token，兜底同值） */
+    gap: var(--wide-gutter, 24px);
+    /* 吸顶生效的前提：栅格子项不被拉伸成整行高 */
+    align-items: start;
+    width: 100%;
+    box-sizing: border-box;
+    padding: var(--goods-wide-nav-offset) var(--wide-pad, 16px) var(--wide-pad, 16px);
+  }
+
+  .goods-gallery {
+    /* 左列图集吸顶：与上面内容下移量同值（状态栏 + 商详顶栏内容高 + 8px 呼吸位） */
+    position: sticky;
+    top: var(--goods-wide-nav-offset);
+    min-width: 0;
+    /* 老基础库不认 min() 时退化为固定平板高度 */
+    height: 320px;
+    height: min(46vw, 420px);
+    overflow: hidden;
+    border-radius: var(--wide-radius, 12px);
+    background: var(--app-card);
+
+    /* wd-swiper 高度链：外层先逐层接上 100%（组件内 scroll-view 自带 height:100%，无需覆盖） */
+    :deep(.wd-swiper) {
+      height: 100%;
+    }
+
+    /* 这两个内层高度是组件内联 style（模板传入的 750 设计稿值），行内优先级最高，
+       必须 !important 才能跟随容器 */
+    :deep(.wd-swiper__track) {
+      height: 100% !important;
+    }
+
+    :deep(.wd-swiper__image),
+    :deep(.wd-swiper__video) {
+      height: 100% !important;
+    }
+  }
+
+  .goods-swiper {
+    height: 100%;
+  }
+
+  .goods-swiper__counter {
+    right: 12px;
+    bottom: 12px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+  }
+
+  /* 右栏：价格条 → 活动条 → 标题卡 → 优惠/规格/配送，纵向 12px 节奏 */
+  .goods-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .goods-price-bar {
+    /* 手机端渐变条靠 Uno -top-10px 上移咬住主图，宽屏是独立卡片、不再重叠；
+       Uno 工具类注入在本段之后且同权，必须 !important 才能赢 */
+    top: 0 !important;
+    /* Uno h-72px 写死高度，宽屏让角标折行时自然撑高 */
+    height: auto !important;
+    min-height: 72px;
+    /* Uno px-3 / py-2 的间距在展开态会被等比放大，改 12/16px 平板内边距 */
+    padding: 12px 16px !important;
+    /* Uno rounded-t-xl 只圆上两角（手机端咬合主图用），宽屏卡片四角统一宽屏圆角 */
+    border-radius: var(--wide-radius, 12px) !important;
+  }
+
+  /* 价格区角标：手机端那枚小胶囊在展开态会长到 ~19px，收到 12px 平板密度 */
+  .member-badge,
+  .clearance-badge,
+  .newbie-badge,
+  .discount-badge,
+  .saving-badge {
+    margin-left: 8px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+  }
+
+  /* 活动说明条：手机端用负 margin 上移咬住价格条，宽屏改由 .goods-body 的 gap 控间距 */
+  .seckill-strip,
+  .newbie-strip,
+  .member-strip,
+  .discount-strip {
+    margin: 0;
+    padding: 10px 14px;
+    border-radius: 8px;
+    gap: 8px;
+
+    .seckill-tag,
+    .member-strip-tag,
+    .discount-strip-tag {
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+  }
+
+  .seckill-strip {
+    .seckill-countdown,
+    .seckill-over {
+      font-size: 13px;
+    }
+
+    .seckill-meta {
+      gap: 8px;
+      font-size: 12px;
+    }
+  }
+
+  .member-strip {
+    .member-strip-text {
+      font-size: 13px;
+    }
+
+    .member-strip-meta {
+      font-size: 12px;
+    }
+  }
+
+  .discount-strip {
+    .discount-strip-name {
+      font-size: 13px;
+    }
+
+    .discount-strip-meta {
+      font-size: 12px;
+    }
+  }
+
+  .newbie-strip {
+    .newbie-strip-text {
+      font-size: 13px;
+    }
+  }
+
+  .goods-title-card {
+    /* 手机端上提 32px 与价格渐变区咬合；宽屏价格条已独立成卡，回正交给 gap */
+    margin-top: 0;
+    padding: 16px;
+    /* Uno rounded-xl 注入在本段之后且同权，必须 !important 才能换成宽屏圆角 token */
+    border-radius: var(--wide-radius, 12px) !important;
+    box-shadow: 0 2px 8px rgb(22 34 51 / 5%);
+  }
+
+  .goods-title-card__subtitle {
+    margin-top: 6px;
+  }
+
+  /* 卖点：手机端正文在展开态会被放到 ~24px，收回 14px 平板正文 */
+  .goods-title-card__intro {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--app-border);
+    font-size: 14px;
+    line-height: 1.8;
+  }
+
+  .goods-title-card__meta {
+    gap: 8px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--app-border);
+    font-size: 12px;
+  }
+
+  .goods-title-card__meta-value {
+    font-size: 12px;
+  }
+
+  .goods-title-card__meta-divider {
+    width: 1px;
+    height: 10px;
+  }
+
+  /* 下面 4 处 wd-text 的字号由组件的 size prop 写成内联 style，行内优先级最高，
+     只能 !important 覆盖（custom-class 由模板挂载） */
+  .goods-price-bar :deep(.goods-price-main) {
+    font-size: 22px !important;
+  }
+
+  .goods-price-bar :deep(.goods-strike-price) {
+    font-size: 13px !important;
+  }
+
+  .goods-title-card :deep(.goods-title-text) {
+    font-size: 14px !important;
+  }
+
+  .goods-title-card :deep(.goods-subtitle-text) {
+    font-size: 13px !important;
+  }
+
+  /* 优惠/规格/配送列表：外层 Uno mx-3 / my-2 / p-3 / rounded-xl 注入在本段之后且同权，
+     必须 !important；标签列宽/内容列外边距/字号这几个工具类同理 */
+  .goods-cells {
+    margin: 0 !important;
+    padding: 4px 16px !important;
+    border-radius: var(--wide-radius, 12px) !important;
+  }
+
+  .goods-cell {
+    /* Uno py-3 的上下内边距在展开态会变成 ~22px */
+    padding-top: 10px !important;
+    padding-bottom: 10px !important;
+  }
+
+  .goods-cell__label {
+    /* Uno 的固定标签宽与字号（展开态分别放大到 ~75px / ~26px）注入在后，必须 !important */
+    width: 64px !important;
+    font-size: 13px !important;
+  }
+
+  .goods-cell__value {
+    /* Uno 的左右外边距（展开态 ~37px）与字号（~24px）注入在后，必须 !important */
+    margin-left: 8px !important;
+    margin-right: 8px !important;
+    font-size: 13px !important;
+  }
+
+  /* 优惠券 chip 用的是手机端那套等比尺寸（不是 Uno 工具类，不受宽度断点约束），
+     展开态同样会放大约 1.8 倍；右栏只有 ~300px 宽时三枚 chip 会被行内裁切。
+     这里按平板密度重写，两端的半圆缺口（leftdot/rightdot）同步缩放 */
+  .coupons_css {
+    height: 20px;
+    margin-right: 8px;
+    margin-bottom: 0;
+    padding: 0 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    line-height: 20px;
+  }
+
+  .leftdot,
+  .rightdot {
+    width: 4px;
+    height: 6px;
+  }
+
+  .leftdot {
+    top: 7px;
+    left: -2px;
+  }
+
+  .rightdot {
+    top: 7px;
+    right: -2px;
+  }
+}
+/* #endif */
 </style>

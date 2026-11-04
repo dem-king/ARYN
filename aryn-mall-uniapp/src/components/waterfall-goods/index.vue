@@ -149,13 +149,18 @@ function handleAdded(spuId: string) {
       :empty-view-reload-text="t('catalog.reload')"
       @query="queryList"
     >
-      <view class="p-2">
-        <view class="flex flex-wrap justify-between">
-          <view v-for="(item, index) in state.list" :key="index" class="mb-20rpx box-border w-[calc(50%-10rpx)] rounded-xl bg-white shadow-sm dark:bg-[var(--wot-dark-background2)]" @click="toDetail(item.id)">
+      <!--
+        waterfall-body / waterfall-grid / waterfall-card 三个语义 class 只为底部
+        MP-WEIXIN 宽屏段提供挂载点（折叠态没有任何样式规则命中它们，规则只加在样式表末尾）。
+        卡片仍保留全部 Uno 工具类：手机端版式一行都不改。
+      -->
+      <view class="p-2 waterfall-body">
+        <view class="flex flex-wrap justify-between waterfall-grid">
+          <view v-for="(item, index) in state.list" :key="index" class="mb-20rpx box-border w-[calc(50%-10rpx)] rounded-xl bg-white shadow-sm dark:bg-[var(--wot-dark-background2)] waterfall-card" @click="toDetail(item.id)">
             <image :src="item.spuUrls[0]" class="block h-160px w-full rounded-lg" />
             <view class="p-10rpx">
               <view class="px-10rpx">
-                <wd-text size="14px" :lines="2" :text="item.name" />
+                <wd-text size="14px" :lines="2" :text="item.name" custom-class="waterfall-title" />
                 <view
                   v-if="shouldShowSubtitle(item.name, item.subTitle)"
                   class="goods-subtitle"
@@ -180,7 +185,7 @@ function handleAdded(spuId: string) {
                   >
                     {{ zonePriceBadgeText(cardPrice(item).badgeKind) }}
                   </text>
-                  <wd-text mode="price" :text="cardPrice(item).mainPrice" prefix="￥" color="red" />
+                  <wd-text mode="price" :text="cardPrice(item).mainPrice" prefix="￥" color="red" custom-class="waterfall-price" />
                   <text v-if="cardPrice(item).strikePrice !== null" class="price-original">
                     ￥{{ formatAmount(cardPrice(item).strikePrice) }}
                   </text>
@@ -250,4 +255,80 @@ function handleAdded(spuId: string) {
   font-size: 20rpx;
   line-height: 1.4;
 }
+
+/**
+ * 折叠屏 / 平板展开态（仅微信小程序，断点 600px）。
+ *
+ * 推荐流被商详推荐位、个人中心、购物车、支付结果、订单详情共用，宽屏统一 3 列是预期行为
+ * （与商品列表页同参数：标题 13px、价格 15px、列间距用折痕安全区 --wide-gutter 24px）。
+ * 段内禁用 rpx/upx：rpx 以「窗口宽 = 750rpx」为基准，展开态所有尺寸等比放大 ≈1.8 倍，
+ * 正是本次要修的根因；这里只用 px 与 App.vue 的 --wide-* token（引用带兜底值）。
+ * 折叠态（<600px）不命中本段，H5/App 被条件编译整段剔除 → 手机端像素级零变化。
+ *
+ * 宽度账（A8，700px 窗口）：外层左右各 12px 内边距 → 网格 676px；
+ * 卡宽 =（676 − 2×24 列间距）/ 3 ≈ 209px，3 列并排恰好铺满、不换行也不溢出。
+ *
+ * 卡片图片 h-160px 本来就是 px（不随 rpx 放大），保持现状不改比例——改成 1:1 会同时
+ * 动到手机端观感，与「折叠态零变化」冲突。
+ */
+/* #ifdef MP-WEIXIN */
+@media (min-width: 600px) {
+  /* 外层 p-2 是模板里的 UnoCSS 工具类：它和本文件 scoped 规则同权、且注入顺序在 scoped
+     样式之后，同权后写者胜——必须用「祖先 + 本类」提高优先级才压得住 */
+  .waterfall-goods .waterfall-body {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 12px;
+  }
+
+  /* justify-between 同理是工具类：3 列定宽后要改回左对齐，否则最后一行的少量卡片会被拉开 */
+  .waterfall-goods .waterfall-grid {
+    gap: var(--wide-gutter, 24px);
+    justify-content: flex-start;
+  }
+
+  /* 卡宽原由模板工具类 w-[calc(50%-10rpx)] 控制，这里用「祖先 + 双类」把优先级提到更高，
+     不依赖 !important 即可压过工具类；宽度按「容器宽 − 两条列间距」三等分，
+     以后改列数只动这一个数字 */
+  .waterfall-goods .waterfall-grid .waterfall-card {
+    width: calc((100% - 2 * var(--wide-gutter, 24px)) / 3);
+    min-width: 0;
+    margin-bottom: 12px;
+    border-radius: var(--wide-radius, 12px);
+  }
+
+  /* wd-text 的 font-size 由模板 size 行内样式（标题 14px）决定，内联样式只能 !important 覆盖 */
+  .waterfall-goods .waterfall-title {
+    font-size: var(--wide-card-font, 13px) !important;
+    line-height: 1.4;
+  }
+
+  /* 价格同样走 wd-text，统一 !important 口径，避免将来补 size 属性时静默失效 */
+  .waterfall-goods .waterfall-price {
+    font-size: var(--wide-price-font, 15px) !important;
+  }
+
+  /* 卡片内辅助文案仍是 rpx（展开会放大），按平板密度改 px */
+  .waterfall-goods .goods-subtitle {
+    margin-top: 3px;
+    font-size: var(--wide-meta-font, 12px);
+  }
+
+  .waterfall-goods .price-original {
+    margin-left: 6px;
+    font-size: 11px;
+  }
+
+  .waterfall-goods .zone-badge {
+    margin-right: 6px;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 10px;
+  }
+
+  .waterfall-goods .price-guide {
+    font-size: 10px;
+  }
+}
+/* #endif */
 </style>

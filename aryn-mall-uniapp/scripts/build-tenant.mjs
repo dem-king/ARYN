@@ -151,6 +151,8 @@ async function generateManifestInCopy(appRoot, normalized) {
   const manifest = factory.createManifest({
     name: normalized.name,
     wxAppId: normalized.wxAppId,
+    // 折叠屏 app.json resizable 的构建期回滚开关：租户构建与默认构建同口径
+    resizable: factory.resolveMpResizable(process.env.MP_RESIZABLE),
   })
   const target = path.join(appRoot, 'src', 'manifest.json')
   fs.writeFileSync(target, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')

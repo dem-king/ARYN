@@ -86,6 +86,10 @@ export function createOriginalManifest() {
       // 显式声明小程序根目录，uni 从 manifest 生成 project.config.json 时会原样带上；
       // fixProjectConfig 补丁只作为兼容层，权威校验在构建后的 verifier。
       miniprogramRoot: './',
+      // 折叠屏/平板：app.json 根级 resizable 才会占满展开态窗口。不开时微信按手机宽度
+      // 居中、两侧留白（官方口径「符合预期」），折叠屏适配方案 P0-1 即此项。
+      // 默认开启；构建期 MP_RESIZABLE=false 回滚（env 解析见 resolveMpResizable，工厂本身不读 env）。
+      resizable: true,
     },
     'mp-alipay': {
       usingComponents: true,
@@ -125,7 +129,20 @@ export function createOriginalManifest() {
 }
 
 /**
- * @param {{ name: string, wxAppId: string }} identity
+ * 折叠屏宽屏开关的构建期回滚分支（默认开）。
+ *
+ * 工厂是纯模块、不读 process.env：由调用方（manifest.config.ts / run-uni.mjs /
+ * build-tenant.mjs）在 env 边界取值后显式传入。约定只有字面量 'false' 关闭，
+ * undefined / 空串 / 其它值一律视为开启，避免误配成 '0'/'no' 时静默改变线上行为。
+ *
+ * @param {string | undefined} envValue
+ */
+export function resolveMpResizable(envValue) {
+  return envValue !== 'false'
+}
+
+/**
+ * @param {{ name: string, wxAppId: string, resizable?: boolean }} identity
  */
 export function createManifest(identity) {
   if (!identity || typeof identity.name !== 'string' || !identity.name.trim()) {
@@ -137,5 +154,6 @@ export function createManifest(identity) {
   const manifest = createOriginalManifest()
   manifest.name = identity.name.trim()
   manifest['mp-weixin'].appid = identity.wxAppId
+  manifest['mp-weixin'].resizable = identity.resizable !== false
   return manifest
 }
