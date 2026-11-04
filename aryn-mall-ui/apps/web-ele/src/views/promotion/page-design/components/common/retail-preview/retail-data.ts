@@ -21,7 +21,6 @@ import {
   getById as getActivityById,
   getPage as getActivityPage,
 } from '#/api/promotion/group-buy-activity';
-import { getMemberActivityGoods } from '#/api/promotion/member-activity';
 import { getCurrentNewbieFloor } from '#/api/promotion/newbie-activity';
 import { getAppSessionGoods, getAppSessions } from '#/api/promotion/seckill';
 import { getShopInfo as getCurrentTenantShop } from '#/api/upms/tenant';
@@ -167,8 +166,6 @@ export interface RetailDataDependencies {
   activityPage: (query: Record<string, unknown>) => Promise<unknown>;
   goodsByIds: (ids: string[]) => Promise<unknown>;
   goodsPage: (query: Record<string, unknown>) => Promise<unknown>;
-  /** 会员价活动商品 SPU 列表（装修 activity 数据源预览用，C 端只读接口） */
-  memberActivityGoods: (activityId?: string) => Promise<unknown>;
   seckillSessionGoods: (sessionId: string) => Promise<unknown>;
   seckillSessions: () => Promise<unknown>;
   shopById: (id: string) => Promise<unknown>;
@@ -179,7 +176,6 @@ const defaultDependencies: RetailDataDependencies = {
   activityPage: getActivityPage,
   goodsByIds: (ids) => getGoodsByIds(ids.join(',')),
   goodsPage: getGoodsPage,
-  memberActivityGoods: (activityId) => getMemberActivityGoods(activityId),
   seckillSessionGoods: getAppSessionGoods,
   seckillSessions: getAppSessions,
   // 装修账号普遍没有 upms:systenant:get，租户资料只能走免权限的当前租户门店接口；
@@ -285,6 +281,9 @@ function createGoodsSortParams(
 ) {
   if (sort === 'bargain')
     return { bargainRate: normalizeBargainRate(bargainRate) };
+  if (sort === 'member_price')
+    return { memberItem: true, sort: 'member_price' };
+  if (sort === 'clearance') return { clearanceItem: true, sort: 'clearance' };
   if (sort === 'sales_price' && priceAscending) return { asc: 'sales_price' };
   const fields: Record<string, string> = {
     create_time: 'create_time',
@@ -340,61 +339,10 @@ export async function loadGoodsRanking(
 }
 
 /**
- * 会员专区自动数据源：活动 VO → SPU ID 列表（保持活动 rules.skus 配置顺序）。
- *
- * 后端已按「SKU 配置顺序去重保序」下发 spuIds；这里只做容错归一化，
- * 空/异常一律退化为空数组（画布显示空态，不抛错）。
- */
-function activitySpuIds(value: unknown): string[] {
-  const spuIds = asRecord(value).spuIds;
-  if (!Array.isArray(spuIds)) return [];
-  return spuIds.map((id) => toText(id)).filter(Boolean);
-}
-
-/**
- * 会员专区自动数据源取数（goods-tabs `dataSource.mode='activity'`）：与 C 端同口径。
- *
- * 先取会员价活动的商品 SPU 列表，再用既有「按 ids 取商品」方式补齐卡片数据，
- * 最后**按活动配置顺序回排**并截断 count。活动加减商品后画布重新取数即同步，
- * 运营无需再手选货盘。
- *
- * 降级：活动接口/商品接口失败、无活动、活动无商品都返回空数组，
- * 只让该 Tab 显示空态，不阻塞其它 Tab；预览无登录态，这里只做货盘预览，
- * 不查询会员价（活动命中价以实机为准）；会员专区的会员价样式由渲染层按
- * 「专区成交价」呈现，与 C 端会员本人未命中活动时的口径一致。
- */
-async function loadActivityGoods(
-  dataSource: ExtensionDataSourceConfig,
-  count: number,
-  dependencies: RetailDataDependencies,
-): Promise<RetailGoodsItem[]> {
-  let activityGoods: unknown;
-  try {
-    activityGoods = await dependencies.memberActivityGoods(
-      dataSource.activityId || undefined,
-    );
-  } catch {
-    // 活动接口异常按空货盘降级：画布不能因为预览取数失败而整块报错
-    return [];
-  }
-  const spuIds = activitySpuIds(activityGoods);
-  if (spuIds.length === 0) return [];
-  try {
-    const goods = normalizeGoods(await dependencies.goodsByIds(spuIds));
-    return restoreConfiguredOrder(goods, spuIds).slice(0, count);
-  } catch {
-    return [];
-  }
-}
-
-/**
  * 商品瀑布流取数：与 C 端 diy-goods-waterfall 的 loadGoodsWaterfall 同口径。
  *
  * 画布预览不做无限滚动（C 端由 z-paging 分页追加），一次取 count 条即停；
  * 缓存只在 C 端生效，管理端配置一改立即重取，所见即最新配置。
- *
- * 多 Tab 商品流的「会员专区」Tab 使用 `mode='activity'`：货盘来自会员价活动，
- * 与手选/自动分类取数完全不同，单独走 loadActivityGoods。
  */
 export async function loadGoodsWaterfall(
   props: GoodsWaterfallProps,
@@ -404,9 +352,6 @@ export async function loadGoodsWaterfall(
     const ids = props.dataSource.targetIds ?? [];
     const result = normalizeGoods(await dependencies.goodsByIds(ids));
     return restoreConfiguredOrder(result, ids).slice(0, props.count);
-  }
-  if (props.dataSource.mode === 'activity') {
-    return loadActivityGoods(props.dataSource, props.count, dependencies);
   }
   const response = await dependencies.goodsPage({
     categorySecondId: props.dataSource.categoryId || undefined,

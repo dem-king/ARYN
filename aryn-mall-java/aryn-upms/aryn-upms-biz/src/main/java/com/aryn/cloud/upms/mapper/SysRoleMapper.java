@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.aryn.cloud.upms.api.entity.SysRole;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 
 import java.util.List;
 
@@ -36,5 +37,14 @@ public interface SysRoleMapper extends BaseMapper<SysRole> {
 	 * @return
 	 */
 	IPage<SysRole> selectRolePage(Page page, @Param("query") SysRole sysRole);
+
+	/**
+	 * 查询平台管理员角色 ID（租户上下文由拦截器限定）。
+	 *
+	 * <p>单独成方法而不是用通用 wrapper 查询：平台管理员角色是受保护角色，
+	 * 授予校验需要稳定且可被单元测试隔离的查询入口。</p>
+	 */
+	@Select("SELECT `id` FROM `sys_role` WHERE `role_code` = 'ROLE_PLATFORM_ADMIN' AND `del_flag` = '0'")
+	List<String> selectPlatformAdminRoleIds();
 
 }

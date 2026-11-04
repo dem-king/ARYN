@@ -14,6 +14,7 @@
  *   · SKU 主键字段直接复用 getById 返回的 `id`（详情页同口径，不做字段映射）
  */
 import type { SharedCart } from '@/api/order/sharedCart'
+import type { ListZonePrice } from '@/utils/zone-price'
 import type { PurchaseDecision, SpecRowView } from '@/utils/goods-purchase'
 // @ts-expect-error: mp-html type declaration issue
 import mpHtml from 'mp-html/dist/uni-app/components/mp-html/mp-html'
@@ -24,8 +25,11 @@ import { getById as getSpuById } from '@/api/product/spu'
 import { useCartDestination } from '@/composables/useCartDestination'
 import { useQuickCart } from '@/composables/useQuickCart'
 import { useRequireLogin } from '@/composables/useRequireLogin'
+import { useZonePrices } from '@/composables/useZonePrices'
 import { resolvePurchaseDecision, resolveSpecRow } from '@/utils/goods-purchase'
 import { initGoodsSpecs } from '@/utils/goods-specs'
+import { minZoneSkuPrice, resolveZoneSkuPrice } from '@/utils/quick-cart'
+import { zonePriceBadgeText } from '@/utils/zone-price'
 
 interface Props {
   /** 控制显隐（v-model） */
@@ -55,6 +59,8 @@ const { t } = useI18n()
 /** 单规格直加购与列表页/商详页共用同一份规则（MOQ/步长/登录守卫） */
 const { quickAdd } = useQuickCart()
 const { submitCartAdd } = useCartDestination()
+/** 快捷商详的专区价（会员价/捡漏价）：与列表卡片同一口径，先渲染后补价 */
+const zone = useZonePrices()
 
 const visible = computed({
   get: () => props.modelValue,
@@ -78,10 +84,55 @@ const introTagStyle = {
   p: 'margin: 0;',
 }
 
-/** 是否有可展示的划线价 */
-const showOriginalPrice = computed(
-  () => Number(goodsSpu.value?.salesPrice) < Number(goodsSpu.value?.originalPrice),
-)
+/**
+ * 价格条专区价：主价 = 会员价/捡漏价/普通售价，划线 = 对应划线基准，
+ * 角标只在命中身份价时出现；未达标/未登录给「会员专享 ¥x」引导。
+ *
+ * 与列表卡走同一份共享层判定，避免「分类页标会员价、点开弹层还是原价」。
+ */
+const zonePriceCard = computed<ListZonePrice | null>(() => {
+  const spu = goodsSpu.value
+  if (!spu?.id)
+    return null
+  return zone.cardPriceOf({
+    id: spu.id,
+    originalPrice: spu.originalPrice,
+    price: spu.salesPrice,
+  })
+})
+
+/** 金额展示：去掉无意义的末尾 0，避免浮点尾差 */
+function formatAmount(value: unknown): string {
+  const amount = Number(value)
+  if (!Number.isFinite(amount))
+    return ''
+  return String(Number(amount.toFixed(2)))
+}
+
+/**
+ * 多规格弹层的 SKU 数据：按专区成交价覆盖每个 SKU 的展示售价。
+ *
+ * 弹层自身按 `salesPrice` 展示价格，若不覆盖，卡片上的会员价/捡漏价到了
+ * 规格弹层又变回普通售价（用户会以为价格在骗人）。只覆盖展示字段，
+ * 加购仍用同一份 SKU 数据，不改变原有加购逻辑。
+ */
+const skuLocalData = computed(() => {
+  const spu = goodsSpu.value
+  const zonePrices = zone.skuZonePricesOf(String(spu?.id ?? ''))
+  const goodsSkus = (spu?.goodsSkus ?? []).map((sku: any) => {
+    const zonePrice = resolveZoneSkuPrice(zonePrices, sku?.skuId ?? sku?.id)
+    return {
+      ...sku,
+      ...(zonePrice === null ? {} : { salesPrice: zonePrice }),
+    }
+  })
+  const cheapestZonePrice = minZoneSkuPrice(zonePrices)
+  return {
+    ...spu,
+    goodsSkus,
+    ...(cheapestZonePrice === null ? {} : { salesPrice: cheapestZonePrice }),
+  }
+})
 
 /** 规格行视图：与商详页同口径——单规格展示真实规格值（无规格值时整行隐藏），多规格引导选择 */
 const purchaseDecision = ref<PurchaseDecision>({ needChoose: true, specText: '' })
@@ -98,8 +149,11 @@ async function loadSpu(id: string) {
     // 在注入「默认」占位规格前取原始规格口径
     purchaseDecision.value = resolvePurchaseDecision(response)
     goodsSpu.value = response ?? {}
-    if (response)
+    if (response) {
       initGoodsSpecs(response)
+      // 商品信息先渲染，会员价/捡漏价异步补拉（失败静默、缓存 60s）
+      void zone.loadForSpuIds([String(response.id ?? id)])
+    }
     imgIndex.value = 0
   }
   catch {
@@ -141,7 +195,8 @@ function previewImage() {
 function openSkuPopup() {
   if (!goodsSpu.value.id)
     return
-  skuGoods.value = goodsSpu.value
+  // 用覆盖过专区成交价的数据源：规格弹层展示价与卡片价一致，加购主键/库存不变
+  skuGoods.value = skuLocalData.value
   skuMounted.value = true
   // 弹层由 v-if 新建，需等一帧再打开，否则首次点击不会弹出
   nextTick(() => {
@@ -160,7 +215,10 @@ async function handleAddCart() {
     goLogin()
     return
   }
-  const result = await quickAdd(String(goodsSpu.value.id), { sharedCart: props.sharedCart })
+  const result = await quickAdd(String(goodsSpu.value.id), {
+    zonePrices: zone.skuZonePricesOf(String(goodsSpu.value.id)),
+    sharedCart: props.sharedCart,
+  })
   if (result.added) {
     emit('added', String(goodsSpu.value.id))
     return
@@ -227,21 +285,31 @@ async function handleSkuAdd(data: any) {
       </view>
 
       <scroll-view class="detail-sheet-body" scroll-y>
-        <!-- 价格条 -->
-        <view class="detail-sheet-price">
+        <!-- 价格条：主价=会员价/捡漏价/售价，划线=对应基准，未达标给会员引导 -->
+        <view v-if="zonePriceCard" class="detail-sheet-price">
+          <text
+            v-if="zonePriceCard.badgeKind"
+            class="detail-sheet-badge"
+            :class="`detail-sheet-badge--${zonePriceCard.badgeKind}`"
+          >
+            {{ zonePriceBadgeText(zonePriceCard.badgeKind) }}
+          </text>
           <view class="detail-sheet-price-main">
             <text class="detail-sheet-symbol">
               ¥
             </text>
             <text class="detail-sheet-value">
-              {{ goodsSpu.salesPrice }}
+              {{ formatAmount(zonePriceCard.mainPrice) }}
             </text>
           </view>
           <text
-            v-if="showOriginalPrice"
+            v-if="zonePriceCard.strikePrice !== null"
             class="detail-sheet-original"
           >
-            ¥{{ goodsSpu.originalPrice }}
+            ¥{{ formatAmount(zonePriceCard.strikePrice) }}
+          </text>
+          <text v-if="zonePriceCard.guideText" class="detail-sheet-guide">
+            {{ zonePriceCard.guideText }}
           </text>
         </view>
 
@@ -382,9 +450,39 @@ async function handleSkuAdd(data: any) {
 
 .detail-sheet-price {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   padding: 20rpx 32rpx 0;
   background: linear-gradient(180deg, #fff2f2 0%, #ffffff 100%);
+}
+
+/* 身份价角标：与列表卡同一套颜色语义（会员金 / 捡漏红） */
+.detail-sheet-badge {
+  flex: none;
+  margin-right: 10rpx;
+  padding: 2rpx 10rpx;
+  border-radius: 6rpx;
+  color: #fff;
+  font-size: 22rpx;
+  font-weight: 500;
+  line-height: 1.5;
+
+  &--member {
+    background: linear-gradient(135deg, #b8860b 0%, #e0a82e 100%);
+  }
+
+  &--clearance {
+    background: linear-gradient(135deg, #fa2c19 0%, #ff6b45 100%);
+  }
+}
+
+/* 未达标引导：独占一行，弱化颜色，避免挤压主价 */
+.detail-sheet-guide {
+  flex-basis: 100%;
+  margin-top: 6rpx;
+  color: #b45309;
+  font-size: 22rpx;
+  line-height: 1.4;
 }
 
 .detail-sheet-price-main {

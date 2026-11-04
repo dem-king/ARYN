@@ -28,6 +28,18 @@ const required = [
   'ADD COLUMN brand_id',
   "'product:goodsbrand:page'",
   'ADD COLUMN `member_level_id`',
+  'ADD COLUMN `is_member_item`',
+  'ADD COLUMN `member_discount_rate`',
+  'ADD COLUMN `clearance_expire_time`',
+  'ADD COLUMN `activity_code`',
+  'mallZoneSyncJobHandler',
+  'mallZoneLegacyCleanupJobHandler',
+  'CREATE TABLE IF NOT EXISTS `clearance_rule`',
+  'CREATE TABLE IF NOT EXISTS `goods_price_history`',
+  'CREATE TABLE IF NOT EXISTS `mall_zone_setting`',
+  'ADD COLUMN `zone_source`',
+  'ADD COLUMN `activity_base_price`',
+  'ADD COLUMN `cost_floor_multiplier`',
   'ADD COLUMN page_type',
   'CREATE TABLE page_design_version',
   'CREATE TABLE page_design_template',
@@ -136,6 +148,31 @@ const required = [
   'ADD COLUMN `advance_time`',
   'ADD COLUMN `modify_time`',
   'ADD COLUMN `introduction`',
+  // 平台租户默认文件存储配置（个人信息头像等平台级上传）
+  '1881232176465358849001',
+  "'/data/aryn/uploads'",
+  // 平台租户合并（悦航购接管平台租户身份、物理删除系统租户）
+  '196platform_tenant_consolidation.sql',
+  // 平台管理员用户级身份与专属角色
+  '197platform_admin_user.sql',
+  'ROLE_PLATFORM_ADMIN',
+  'platform_admin',
+  '1970000000000000001',
+  "SET @target_tenant_id = '1590229800633634816'",
+  "SET @legacy_tenant_id = '1881232176465358849'",
+  'DELETE FROM `sys_tenant`',
+  // 员工账号修改手机号权限（独立于查看完整号码）
+  '2110000000000000207',
+  "'upms:sysuser:phone:edit'",
+  // 专区批量打标批次记录/撤销与同步状态字段
+  'CREATE TABLE IF NOT EXISTS `goods_zone_tag_batch`',
+  'CREATE TABLE IF NOT EXISTS `goods_zone_tag_batch_item`',
+  'ADD COLUMN `last_sync_time`',
+  'ADD COLUMN `last_sync_status`',
+  'ADD COLUMN `last_sync_error`',
+  // 专区商品管理菜单
+  '2110000000000000305',
+  "'/promotion/zone-goods'",
 ];
 
 for (const token of required) {
@@ -179,7 +216,14 @@ const sourceFiles = [
   '158member_management_incremental.sql',
   '160points_global_config_incremental.sql',
   '168payment_hardening_incremental.sql',
+  '181platform_storage_config.sql',
+  '182sysuser_phone_edit_permission.sql',
   '3aryn_boot_job.sql',
+  '195relocate_ship_supply_menus.sql',
+  '196platform_tenant_consolidation.sql',
+  '197platform_admin_user.sql',
+  '198zone_tag_batch_incremental.sql',
+  '199zone_tag_batch_menu.sql',
 ];
 for (const file of sourceFiles) {
   if (!sql.includes(`Source: db/boot/${file}`)) throw new Error(`缺少来源段: ${file}`);

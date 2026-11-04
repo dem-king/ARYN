@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { getById } from '@/sub-pages/api/order/orderItem'
 import { addObj } from '@/sub-pages/api/order/orderRefunds'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+import { getTopPage, isPageAlive } from '@/utils/navigation-lock'
 
 const { handlePageScroll } = useFrostedNavbar()
 
@@ -39,6 +40,8 @@ const { confirm } = useGlobalMessage()
 const { show } = useGlobalToast()
 const router = useRouter()
 const globalLoading = useGlobalLoading()
+/** setup 时的页面实例：提交在途时用户可能已返回，回来就不要再弹栈 */
+const pageAtSetup = getTopPage()
 onLoad((options) => {
   getOrderItem(options?.orderItemId)
 })
@@ -69,6 +72,10 @@ function onsubmit() {
           globalLoading.close()
           uni.$emit('refresh')
 
+          // 提交期间用户已自行返回/被顶替时不发路由（否则会对已销毁页面调 navigateBack）
+          if (!isPageAlive(pageAtSetup)) {
+            return
+          }
           router.back()
         })
       }

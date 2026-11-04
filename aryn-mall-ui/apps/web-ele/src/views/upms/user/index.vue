@@ -479,7 +479,7 @@ useKeepAliveRefresh(initPage);
                   (command: string) => handleRowCommand(command, scope.row)
                 "
               >
-                <ElButton link type="primary" class="user-page__more">
+                <ElButton link type="primary">
                   更多
                   <ElIcon class="el-icon--right">
                     <ArrowDown />
@@ -634,15 +634,8 @@ useKeepAliveRefresh(initPage);
   white-space: nowrap;
 }
 
-/* 「更多」触发布局：图标靠右、与相邻 link 按钮对齐 */
-.user-page__more {
-  margin-left: 8px;
-}
-
-/* ElDropdown 包装层是 inline-block，基线比相邻 link 按钮高 2px，统一垂直对齐 */
-.user-page__main :deep(td .el-dropdown) {
-  vertical-align: middle;
-}
+/* 操作列「更多」下拉的对齐与间距由全局 .hx-data-table 规则统一处理
+   （见 packages/styles/src/ele/index.css），本页不再单独覆写 */
 
 /* 手机号列：脱敏号码与「查看/隐藏」按钮同一行，数字等宽避免列宽跳动 */
 .user-phone {

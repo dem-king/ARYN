@@ -384,13 +384,15 @@ onMounted(() => {
         text-align: left;
       }
 
+      // 使用说明与券卡组件同口径：完整换行展示，不截断使用限制
       .coupon-desc {
         margin-top: 8rpx;
-        overflow: hidden;
         font-size: 20rpx;
+        line-height: 1.4;
         color: $coupon-desc;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        overflow-wrap: break-word;
+        word-break: normal;
+        white-space: normal;
       }
 
       .coupon-band {

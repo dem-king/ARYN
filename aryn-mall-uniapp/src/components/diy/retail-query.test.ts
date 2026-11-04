@@ -83,3 +83,21 @@ describe('自动检漏（sort=bargain）请求参数', () => {
     })
   })
 })
+
+describe('商品标签专区（会员/出清）请求参数', () => {
+  it('会员专区只下发标签过滤与语义排序，排序由后端固定', () => {
+    expect(createGoodsSortParams('member_price')).toEqual({
+      memberItem: true,
+      sort: 'member_price',
+    })
+    expect(createGoodsSortParams('member_price')).not.toHaveProperty('asc')
+    expect(createGoodsSortParams('member_price')).not.toHaveProperty('desc')
+  })
+
+  it('出清专区只下发标签过滤与语义排序，不混入 bargainRate', () => {
+    expect(createGoodsSortParams('clearance', true, 1.3)).toEqual({
+      clearanceItem: true,
+      sort: 'clearance',
+    })
+  })
+})

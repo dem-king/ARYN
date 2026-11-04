@@ -37,6 +37,12 @@ public class OrderStatisticsController {
 		return Result.success(orderStatisticsService.getChannelContribution(dto));
 	}
 
+	@GetMapping("/zone")
+	@Operation(summary = "会员/出清专区让利报表")
+	public Result<ZoneReportVO> getZoneReport(OrderStatisticsDTO dto) {
+		return Result.success(orderStatisticsService.getZoneReport(dto));
+	}
+
 	@GetMapping("/trade")
 	@Operation(summary = "统计订单交易数据")
 	public Result<OrderTradeStatisticsVO> getOrderTradeStatistics(OrderStatisticsDTO dto) {

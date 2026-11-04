@@ -1,6 +1,12 @@
 /** 折扣力度优先排序：装修器检漏 Tab 数据源 sort 取值 */
 export const BARGAIN_SORT = 'bargain'
 
+/** 会员专区：按商品级会员标签选品，售价升序稳定排序 */
+export const MEMBER_ZONE_SORT = 'member_price'
+
+/** 低价捡漏专区：按商品级出清标签 + 未到期选品，出清价升序 */
+export const CLEARANCE_SORT = 'clearance'
+
 /**
  * 折扣率阈值缺省值。
  *
@@ -33,6 +39,11 @@ export function createRetailSortParams(
   // 前端只下发阈值绑定值，不拼列名（无注入面），也不与 asc/desc 混发。
   if (sort === BARGAIN_SORT)
     return { bargainRate: normalizeBargainRate(bargainRate) }
+  // 商品级标签专区：过滤与固定排序由后端 XML 输出，前端只传语义参数
+  if (sort === MEMBER_ZONE_SORT)
+    return { memberItem: true, sort: MEMBER_ZONE_SORT }
+  if (sort === CLEARANCE_SORT)
+    return { clearanceItem: true, sort: CLEARANCE_SORT }
   if (sort === 'sales_price' && priceAscending)
     return { asc: tieBreaker ? `sales_price,${tieBreaker}` : 'sales_price' }
   const fields: Record<string, string> = {

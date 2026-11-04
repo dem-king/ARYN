@@ -19,44 +19,6 @@ export const FROSTED_SURFACE_ALPHA = 0.86
 export const FROSTED_FALLBACK_ALPHA = 0.97
 
 /**
- * 业务页（非装修页）的缺省「滚动 → 磨砂玻璃」配置。
- *
- * 与首页磨砂白目标态完全同源：同一份配置、同一套解析函数、同一材质常量，
- * 避免两处各写一套 rgba/blur 数值后越改越偏。业务页只需调用
- * useFrostedNavbar() 并把滚动状态喂进去，导航组件自动套用。
- */
-export const FROSTED_SCROLL_EFFECT: NavigationScrollEffect = {
-  mode: 'fade',
-  surface: 'frosted',
-  surfaceColor: '',
-  distance: DEFAULT_NAVIGATION_SCROLL_DISTANCE,
-  blur: true,
-}
-
-/** 磨砂白目标态外观（静态部分）：白底 86% + 毛玻璃 + 深色文字 */
-export const FROSTED_SCROLL_SURFACE: NavigationSurfaceAppearance = {
-  color: '#FFFFFF',
-  alpha: FROSTED_SURFACE_ALPHA,
-  blur: true,
-  textColor: '#222222',
-}
-
-/**
- * 磨砂深色目标态外观：系统深色时业务页滚动玻璃切深。
- *
- * 材质与 glass-tabbar / GoodsNavbar 的深色玻璃同源（86% 暗底）；textColor
- * 必须是纯白，toStatusBarFrontColor 只认 '#ffffff' 才翻白色状态栏前景。
- * 滚动后的文字色/底边细线由 resolveNavigationScrollAppearance 按合成底色
- * 亮度自动推导（深色面 → 白字、无细线），无需在此重复配置。
- */
-export const FROSTED_SCROLL_SURFACE_DARK: NavigationSurfaceAppearance = {
-  color: '#1A1A1A',
-  alpha: FROSTED_SURFACE_ALPHA,
-  blur: true,
-  textColor: '#FFFFFF',
-}
-
-/**
  * 导航目标底色外观（静态部分）。
  *
  * 只随页面配置 / 主题变化，不随滚动变化：C 端、编辑画布、草稿预览先解析出
@@ -307,3 +269,41 @@ export function resolveNavigationScrollAppearance(
   }
 }
 /* NAVIGATION-SCROLL-END */
+
+/**
+ * 业务页（非装修页）的缺省「滚动 → 磨砂玻璃」配置。
+ *
+ * 与首页磨砂白目标态完全同源：同一份配置、同一套解析函数、同一材质常量，
+ * 避免两处各写一套 rgba/blur 数值后越改越偏。业务页只需调用
+ * useFrostedNavbar() 并把滚动状态喂进去，导航组件自动套用。
+ */
+export const FROSTED_SCROLL_EFFECT: NavigationScrollEffect = {
+  mode: 'fade',
+  surface: 'frosted',
+  surfaceColor: '',
+  distance: DEFAULT_NAVIGATION_SCROLL_DISTANCE,
+  blur: true,
+}
+
+/** 磨砂白目标态外观（静态部分）：白底 86% + 毛玻璃 + 深色文字 */
+export const FROSTED_SCROLL_SURFACE: NavigationSurfaceAppearance = {
+  color: '#FFFFFF',
+  alpha: FROSTED_SURFACE_ALPHA,
+  blur: true,
+  textColor: '#222222',
+}
+
+/**
+ * 磨砂深色目标态外观：系统深色时业务页滚动玻璃切深。
+ *
+ * 材质与 glass-tabbar / GoodsNavbar 的深色玻璃同源（86% 暗底）；textColor
+ * 必须是纯白，toStatusBarFrontColor 只认 '#ffffff' 才翻白色状态栏前景。
+ * 滚动后的文字色/底边细线由 resolveNavigationScrollAppearance 按合成底色
+ * 亮度自动推导（深色面 → 白字、无细线），无需在此重复配置。
+ */
+export const FROSTED_SCROLL_SURFACE_DARK: NavigationSurfaceAppearance = {
+  color: '#1A1A1A',
+  alpha: FROSTED_SURFACE_ALPHA,
+  blur: true,
+  textColor: '#FFFFFF',
+}

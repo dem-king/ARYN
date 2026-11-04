@@ -1,6 +1,14 @@
 <script lang="ts" setup>
-import { computed, defineAsyncComponent, onMounted, reactive, ref } from 'vue';
+import {
+  computed,
+  defineAsyncComponent,
+  onActivated,
+  onMounted,
+  reactive,
+  ref,
+} from 'vue';
 import useClipboard from 'vue-clipboard3';
+import { useRoute, useRouter } from 'vue-router';
 
 import {
   CopyDocument,
@@ -8,6 +16,7 @@ import {
   RefreshLeft,
   Ship,
   ShoppingCart,
+  View,
 } from '@element-plus/icons-vue';
 import dayjs from 'dayjs';
 import {
@@ -260,7 +269,51 @@ const toggleMemberPermission = (member: any, next: boolean) => {
     });
 };
 
-onMounted(initPage);
+const route = useRoute();
+const router = useRouter();
+/** 已消费的详情深链：keepAlive 页面重复激活时不再弹窗 */
+let handledDetailId = '';
+
+const openDetailById = (id: string) => {
+  detail.value = { cart: {}, items: [], members: [] };
+  detailTab.value = 'members';
+  detailVisible.value = true;
+  detailLoading.value = true;
+  getSharedCartDetail(id)
+    .then((data) => {
+      detail.value = data ?? { cart: {}, items: [], members: [] };
+    })
+    .catch(() => {
+      detailVisible.value = false;
+    })
+    .finally(() => {
+      detailLoading.value = false;
+    });
+};
+
+/**
+ * 订单详情「来源共享购物车」深链：打开对应车详情并清掉 query，
+ * 避免刷新或 keepAlive 再次激活时重复弹窗。
+ */
+const consumeDetailQuery = () => {
+  const id = route.query.id as string | undefined;
+  if (!id || handledDetailId === id) return;
+  handledDetailId = id;
+  router.replace({ path: route.path, query: {} }).catch(() => {});
+  openDetailById(id);
+};
+
+/** 共享车生成的订单：直接跳订单详情，省去复制订单号再搜索 */
+const openOrder = (orderId?: string) => {
+  if (!orderId) return;
+  router.push({ path: '/order/detail', query: { id: orderId } });
+};
+
+onMounted(() => {
+  initPage();
+  consumeDetailQuery();
+});
+onActivated(consumeDetailQuery);
 
 useKeepAliveRefresh(handleSearch);
 </script>
@@ -431,6 +484,19 @@ useKeepAliveRefresh(handleSearch);
                     @click.stop="copyText(scope.row.submitOrderNo, '订单号')"
                   />
                 </ElTooltip>
+                <ElTooltip
+                  v-if="scope.row.submitOrderId"
+                  content="查看订单详情"
+                  placement="top"
+                >
+                  <ElButton
+                    class="sc-copy"
+                    link
+                    :icon="View"
+                    v-access:code="'order:orderinfo:get'"
+                    @click.stop="openOrder(scope.row.submitOrderId)"
+                  />
+                </ElTooltip>
               </span>
               <span v-else class="sc-muted">—</span>
             </template>
@@ -568,6 +634,19 @@ useKeepAliveRefresh(handleSearch);
                       link
                       :icon="CopyDocument"
                       @click="copyText(detail.cart.submitOrderNo, '订单号')"
+                    />
+                  </ElTooltip>
+                  <ElTooltip
+                    v-if="detail.cart.submitOrderId"
+                    content="查看订单详情"
+                    placement="top"
+                  >
+                    <ElButton
+                      class="sc-copy is-visible"
+                      link
+                      :icon="View"
+                      v-access:code="'order:orderinfo:get'"
+                      @click="openOrder(detail.cart.submitOrderId)"
                     />
                   </ElTooltip>
                 </template>

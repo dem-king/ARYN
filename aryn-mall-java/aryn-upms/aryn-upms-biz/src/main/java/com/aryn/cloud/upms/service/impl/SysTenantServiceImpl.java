@@ -309,23 +309,69 @@ public class SysTenantServiceImpl extends ServiceImpl<SysTenantMapper, SysTenant
 	}
 
 	private List<SysMenu> resolvePackageMenus(SysTenantPackage tenantPackage) {
-		Set<SysMenu> menus = new HashSet<>();
-		String[] appKeys = tenantPackage.getAppKey();
-		if (appKeys != null) {
-			Arrays.stream(appKeys)
-				.filter(StrUtil::isNotBlank)
-				.filter(key -> {
-					// 历史套餐可能已写入平台应用，下发时必须兜底剔除，否则平台菜单会随模板发给租户
-					if (CommonConstants.PLATFORM_APP_KEY.equals(key)) {
-						log.warn("租户套餐 {} 包含平台专属应用 {}，已忽略", tenantPackage.getId(), key);
-						return false;
-					}
-					return true;
-				})
-				.forEach(key -> menus.addAll(
-						sysMenuService.list(Wrappers.<SysMenu>lambdaQuery().eq(SysMenu::getApplicationKey, key))));
+		List<String> licensedAppKeys = tenantPackage.getAppKey() == null ? List.of()
+				: Arrays.stream(tenantPackage.getAppKey())
+					.filter(StrUtil::isNotBlank)
+					.filter(key -> {
+						// 历史套餐可能已写入平台应用，下发时必须兜底剔除，否则平台菜单会随模板发给租户
+						if (CommonConstants.PLATFORM_APP_KEY.equals(key)) {
+							log.warn("租户套餐 {} 包含平台专属应用 {}，已忽略", tenantPackage.getId(), key);
+							return false;
+						}
+						return true;
+					})
+					.distinct()
+					.toList();
+		if (licensedAppKeys.isEmpty()) {
+			return List.of();
 		}
-		return new ArrayList<>(menus);
+		Set<SysMenu> menus = new HashSet<>(sysMenuService
+			.list(Wrappers.<SysMenu>lambdaQuery().in(SysMenu::getApplicationKey, licensedAppKeys)));
+		return new ArrayList<>(withAncestorContainers(menus));
+	}
+
+	/**
+	 * 补齐套餐菜单的祖先容器节点。
+	 *
+	 * <p>套餐按 application_key 取菜单，而管理端菜单树要求父节点存在：若子菜单的
+	 * application_key 与父目录不同（例如基础版 app_base 的「船供活动」挂在 app_market 的
+	 * 「营销管理」下），父目录未随套餐下发时登录菜单树会丢弃整棵子树。这里沿 parent_id
+	 * 向上补齐容器节点，保证「基础版也要船供」等跨应用系统挂载仍然可见。
+	 * 平台专属应用（sys_key）的祖先仍不下发给租户。</p>
+	 */
+	private Set<SysMenu> withAncestorContainers(Set<SysMenu> packageMenus) {
+		if (packageMenus.isEmpty()) {
+			return packageMenus;
+		}
+		Map<String, SysMenu> allMenus = sysMenuService.list()
+			.stream()
+			.collect(Collectors.toMap(SysMenu::getId, menu -> menu, (left, right) -> left));
+		// 按 id 去重：不同查询返回的是不同对象实例，不能依赖实体 equals
+		Map<String, SysMenu> resolved = new LinkedHashMap<>();
+		packageMenus.forEach(menu -> resolved.putIfAbsent(menu.getId(), menu));
+		Deque<String> pendingParents = packageMenus.stream()
+			.map(SysMenu::getParentId)
+			.filter(StrUtil::isNotBlank)
+			.collect(Collectors.toCollection(ArrayDeque::new));
+		while (!pendingParents.isEmpty()) {
+			String parentId = pendingParents.poll();
+			if (CommonConstants.PARENT_ID.equals(parentId)) {
+				continue;
+			}
+			SysMenu parent = allMenus.get(parentId);
+			if (parent == null) {
+				continue;
+			}
+			if (CommonConstants.PLATFORM_APP_KEY.equals(parent.getApplicationKey())) {
+				log.warn("套餐菜单的祖先目录 {} 属于平台专属应用，不下发给租户", parent.getId());
+				continue;
+			}
+			if (resolved.putIfAbsent(parent.getId(), parent) == null
+					&& StrUtil.isNotBlank(parent.getParentId())) {
+				pendingParents.add(parent.getParentId());
+			}
+		}
+		return new LinkedHashSet<>(resolved.values());
 	}
 
 	/**
@@ -386,6 +432,10 @@ public class SysTenantServiceImpl extends ServiceImpl<SysTenantMapper, SysTenant
 
 	private void syncRoleMenus(Set<String> authorizedMenuIds) {
 		for (SysRole role : sysRoleService.list()) {
+			// 平台管理员角色持有全部菜单，不随租户套餐裁剪
+			if (CommonConstants.ROLE_PLATFORM_ADMIN_CODE.equals(role.getRoleCode())) {
+				continue;
+			}
 			Set<String> currentMenuIds = sysRoleMenuService
 				.list(Wrappers.<SysRoleMenu>lambdaQuery().eq(SysRoleMenu::getRoleId, role.getId()))
 				.stream()

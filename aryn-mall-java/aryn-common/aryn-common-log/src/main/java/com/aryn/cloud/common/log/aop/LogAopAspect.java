@@ -1,6 +1,7 @@
 package com.aryn.cloud.common.log.aop;
 
 import cn.hutool.core.util.URLUtil;
+import cn.hutool.json.JSONUtil;
 import com.aryn.cloud.common.core.constant.CommonConstants;
 import com.aryn.cloud.common.core.entity.SysLogBase;
 import com.aryn.cloud.common.core.util.IpUtils;
@@ -16,16 +17,30 @@ import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.reflect.MethodSignature;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.lang.reflect.Method;
 import java.util.Objects;
+import java.util.regex.Pattern;
 
+/**
+ * 操作日志切面：记录管理端写操作（标题/URI/操作人/租户/耗时/参数摘要）。
+ *
+ * <p>2026-11-04 注册为 Bean（此前仅 @Aspect 未注册，导致 sys_log 一直为空）；
+ * 参数摘要做敏感字段脱敏并截断，避免密码/令牌与大请求体落库。
+ */
 @Aspect
+@Component
 @Slf4j
 @RequiredArgsConstructor
 public class LogAopAspect {
+
+	private static final int MAX_PARAMS_LENGTH = 2000;
+
+	private static final Pattern SENSITIVE_FIELD = Pattern.compile(
+			"(?i)(\"(?:password|oldPassword|newPassword|confirmPassword|token|accessToken|refreshToken|secret|secretKey)\"\\s*:\\s*\")[^\"]*(\")");
 
 	private final ApplicationEventPublisher applicationEventPublisher;
 
@@ -51,6 +66,7 @@ public class LogAopAspect {
 		sysLogVo.setStatus(CommonConstants.LOGIN_LOG_STATUS_1);
 		sysLogVo.setUserName(userSupplier.getCurrentUserName());
 		sysLogVo.setTenantId(ArynTenantContextHolder.getTenantId());
+		sysLogVo.setRequestParams(safeParams(point.getArgs()));
 
 		Long startTime = System.currentTimeMillis();
 		Object result = null;
@@ -70,6 +86,28 @@ public class LogAopAspect {
 
 		}
 		return result;
+	}
+
+	/**
+	 * 参数摘要：JSON 序列化 + 敏感字段脱敏 + 长度截断；任何异常都不影响主流程。
+	 */
+	private String safeParams(Object[] args) {
+		if (args == null || args.length == 0) {
+			return null;
+		}
+		try {
+			String json = JSONUtil.toJsonStr(args);
+			if (json == null) {
+				return null;
+			}
+			json = SENSITIVE_FIELD.matcher(json).replaceAll("$1***$2");
+			return json.length() > MAX_PARAMS_LENGTH ? json.substring(0, MAX_PARAMS_LENGTH) + "...(truncated)"
+					: json;
+		}
+		catch (Exception ex) {
+			log.debug("操作日志参数序列化失败，已忽略", ex);
+			return null;
+		}
 	}
 
 }

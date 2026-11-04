@@ -45,6 +45,26 @@ public class ArynUser implements Serializable {
 	@Schema(description = "租户id")
 	private String tenantId;
 
+	/**
+	 * 租户类型：1.平台租户；2.普通租户。
+	 *
+	 * <p>平台身份以数据（sys_tenant.tenant_type）为准，登录时随会话快照写入；
+	 * 租户切换、平台配置守卫、菜单过滤均按此字段判断，不要再硬编码租户 ID。
+	 * 存量会话没有该字段时按普通租户处理，重新登录即可刷新。</p>
+	 */
+	@Schema(description = "租户类型：1.平台租户；2.普通租户")
+	private String tenantType;
+
+	/**
+	 * 是否平台管理员（用户级身份，唯一判据）。
+	 *
+	 * <p>登录时按 {@code sys_user.platform_admin = '1'} 且所属租户
+	 * {@code sys_tenant.tenant_type = '1'} 计算后写入会话快照；租户管理员即使位于平台租户
+	 * 也不是平台管理员。租户切换、平台配置守卫、平台菜单/套餐豁免均按此字段判断。</p>
+	 */
+	@Schema(description = "是否平台管理员")
+	private Boolean platformAdmin;
+
 	@Schema(description = "openId")
 	private String openId;
 

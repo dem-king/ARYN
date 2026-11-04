@@ -17,13 +17,14 @@
  * 挂在根组件 src/App.ku.vue，每页恰好一份。
  */
 import type { SharedCart } from '@/api/order/sharedCart'
-import type { QuickAddPromotion } from '@/utils/quick-cart'
+import type { QuickAddPromotion, QuickAddZonePrices } from '@/utils/quick-cart'
 import { nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useCartDestination } from '@/composables/useCartDestination'
 import { useQuickCart } from '@/composables/useQuickCart'
 import { initGoodsSpecs } from '@/utils/goods-specs'
+import { minZoneSkuPrice, resolveZoneSkuPrice } from '@/utils/quick-cart'
 
 const props = withDefaults(defineProps<{
   /** 商品 SPU ID */
@@ -41,10 +42,19 @@ const props = withDefaults(defineProps<{
    * 只在活动 SKU == quick-cart 选中的 SKU 时生效，由 `resolveQuickAddPrice` 把关。
    */
   promotion?: QuickAddPromotion | null
+  /**
+   * 页面已知的专区成交价（会员价/捡漏价）：skuId → 成交价。
+   *
+   * 同一件商品在卡片上标了会员价/捡漏价时，规格弹层与确认弹层必须显示同一个
+   * 成交价，不能再显示普通售价。**可选**：商详/购物车等未接入专区价的调用方
+   * 不传即保持原有行为完全不变。
+   */
+  zonePrices?: QuickAddZonePrices | null
 }>(), {
   size: '56rpx',
   sharedCart: null,
   promotion: null,
+  zonePrices: null,
 })
 
 const emit = defineEmits<{
@@ -63,19 +73,27 @@ const skuMounted = ref(false)
 const skuGoods = ref<any>({})
 
 function openSkuPopup(info: any) {
-  const goods = {
-    id: info?.spuId || props.spuId,
-    name: info?.name || '',
-    spuUrls: info?.spuUrls || [],
-    enableSpecs: info?.enableSpecs,
-    salesPrice: info?.salesPrice,
-    goodsSkus: (info?.goodsSkus || []).map((sku: any) => ({
+  const goodsSkus = (info?.goodsSkus || []).map((sku: any) => {
+    const zonePrice = resolveZoneSkuPrice(props.zonePrices, sku?.skuId)
+    return {
       ...sku,
       // 弹层默认按 `id` 读取 SKU 主键，后端 VO 用的是 skuId
       id: sku.skuId,
       spuId: info?.spuId || props.spuId,
       specsArr: sku.specsArr || [],
-    })),
+      // 专区成交价覆盖规格展示价：卡片标会员价/捡漏价时，弹层不能再显示普通售价
+      ...(zonePrice === null ? {} : { salesPrice: zonePrice }),
+    }
+  })
+  // 未选规格前的弹层头价：用专区价最低值（即卡片起价），避免一打开弹层价格就跳变
+  const cheapestZonePrice = minZoneSkuPrice(props.zonePrices)
+  const goods = {
+    id: info?.spuId || props.spuId,
+    name: info?.name || '',
+    spuUrls: info?.spuUrls || [],
+    enableSpecs: info?.enableSpecs,
+    salesPrice: cheapestZonePrice ?? info?.salesPrice,
+    goodsSkus,
   }
   initGoodsSpecs(goods)
   skuGoods.value = goods
@@ -89,6 +107,7 @@ function openSkuPopup(info: any) {
 async function handleAdd() {
   const result = await quickAdd(props.spuId, {
     promotion: props.promotion,
+    zonePrices: props.zonePrices,
     sharedCart: props.sharedCart,
   })
   if (result.added) {

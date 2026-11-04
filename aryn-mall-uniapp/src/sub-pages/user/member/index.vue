@@ -2,9 +2,10 @@
 import { onPageScroll, onShow } from '@dcloudio/uni-app'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+import { useSignInStatus } from '@/composables/useSignInStatus'
 import { getMemberLevelList, getMyBenefits } from '@/sub-pages/api/user/benefit'
 import { Local } from '@/utils/storage'
-import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
 
 const { handlePageScroll } = useFrostedNavbar()
 
@@ -67,6 +68,26 @@ const benefits = ref<MemberBenefits | null>(null)
 const levels = ref<MemberLevel[]>([])
 
 const isLoggedIn = computed(() => authStore.isLoggedIn)
+
+/**
+ * 今日签到态：先用本地快照同步渲染（已签到用户不该先看到一瞬「去签到」），
+ * onShow 再按需让接口校正（换设备签到 / 跨天等场景）。
+ */
+const signInStatus = useSignInStatus()
+if (isLoggedIn.value)
+  signInStatus.syncFromCache()
+
+/** 已签到态只对登录用户生效：退出登录后残留的快照不能继续显示「已签到」 */
+const isSignedToday = computed(() => isLoggedIn.value && signInStatus.signedToday.value)
+
+/** 签到横幅副文案：未签=引导文案；已签=连签天数（拿不到天数时退化为「明天再来」） */
+const signInDesc = computed(() => {
+  if (!isSignedToday.value)
+    return t('accountMember.checkInDesc')
+  return signInStatus.consecutiveDay.value > 0
+    ? t('accountMember.checkedInDesc', { days: signInStatus.consecutiveDay.value })
+    : t('accountMember.checkedInDescPlain')
+})
 
 const nickname = computed(() => {
   if (userStore.getUserNickname)
@@ -196,6 +217,7 @@ onShow(() => {
   if (!authStore.isLoggedIn) {
     benefits.value = null
     levels.value = []
+    signInStatus.reset()
     return
   }
   /**
@@ -213,6 +235,8 @@ onShow(() => {
   }
   loadBenefits()
   loadLevels()
+  // 今日签到态：命中「今天已签到」快照时不发请求，否则按接口校正（详见 useSignInStatus）
+  void signInStatus.refresh()
 })
 
 async function loadBenefits() {
@@ -430,7 +454,7 @@ onPageScroll(handlePageScroll)
       </view>
     </view>
 
-    <!-- 每日签到：品牌渐变横幅，页面里唯一的高饱和运营块 -->
+    <!-- 每日签到：品牌渐变横幅，页面里唯一的高饱和运营块；已签到换「已签到」态，不再诱导重复签到 -->
     <view class="mc-signin" hover-class="mc-signin--pressed" @click="toSignIn">
       <view class="mc-signin__icon">
         <text class="i-carbon:fire mc-signin__glyph" />
@@ -440,11 +464,12 @@ onPageScroll(handlePageScroll)
           {{ t('accountMember.dailyCheckIn') }}
         </text>
         <text class="mc-signin__desc">
-          {{ t('accountMember.checkInDesc') }}
+          {{ signInDesc }}
         </text>
       </view>
-      <view class="mc-signin__cta">
-        {{ t('accountMember.goCheckIn') }}
+      <view class="mc-signin__cta" :class="{ 'mc-signin__cta--signed': isSignedToday }">
+        <text v-if="isSignedToday" class="i-carbon:checkmark mc-signin__cta-icon" />
+        <text>{{ isSignedToday ? t('accountMember.checkedInToday') : t('accountMember.goCheckIn') }}</text>
       </view>
     </view>
 
@@ -940,6 +965,8 @@ $mc-secondary: var(--theme-color-secondary, var(--wot-color-theme-secondary, #FF
 }
 
 .mc-signin__cta {
+  display: flex;
+  align-items: center;
   padding: 12rpx 28rpx;
   flex-shrink: 0;
   border-radius: 999rpx;
@@ -948,6 +975,22 @@ $mc-secondary: var(--theme-color-secondary, var(--wot-color-theme-secondary, #FF
   font-size: 24rpx;
   font-weight: 700;
   line-height: 1.3;
+}
+
+/* 已签到态：CTA 从白色实心主行动点降级为描边状态胶囊，避免与「去签到」抢注意力。
+   白字压 16% 白底属于本页既有的品牌色面白字口径（与横幅标题/描述同源取舍），
+   字号下调到 24rpx 后靠字重 700 保可读性 */
+.mc-signin__cta--signed {
+  /* 描边不占额外外径：与未签到态的白色实心胶囊同宽高 */
+  box-sizing: border-box;
+  border: 1rpx solid rgba(255, 255, 255, 0.66);
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+
+.mc-signin__cta-icon {
+  margin-right: 6rpx;
+  font-size: 22rpx;
 }
 
 /* ===================== 常用功能 ===================== */

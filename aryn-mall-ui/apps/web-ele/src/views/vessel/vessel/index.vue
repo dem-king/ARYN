@@ -2,6 +2,7 @@
 import type { FormInstance, FormRules } from 'element-plus';
 
 import { computed, defineAsyncComponent, onMounted, reactive, ref } from 'vue';
+import { useRouter } from 'vue-router';
 
 import { Plus } from '@element-plus/icons-vue';
 import {
@@ -410,6 +411,23 @@ const viewImpact = (row: any) => {
     .catch(() => {});
 };
 
+const router = useRouter();
+
+/**
+ * 为该船创建船供活动：带上船舶上下文进入船供活动页，
+ * 页面自动打开「整船优惠」新建弹窗并预填「指定船舶」。
+ */
+const goShipActivity = (row: any) => {
+  router.push({
+    path: '/promotion/ship-supply',
+    query: {
+      action: 'create',
+      vesselId: row.id,
+      ...(row.vesselName ? { vesselName: row.vesselName } : {}),
+    },
+  });
+};
+
 onMounted(initPage);
 
 useKeepAliveRefresh(initPage);
@@ -484,7 +502,7 @@ useKeepAliveRefresh(initPage);
                 />
               </template>
             </ElTableColumn>
-            <ElTableColumn label="操作" width="240" align="center">
+            <ElTableColumn label="操作" width="320" align="center">
               <template #default="scope">
                 <ElButton
                   link
@@ -509,6 +527,14 @@ useKeepAliveRefresh(initPage);
                   @click="openCalls(scope.row)"
                 >
                   靠港计划
+                </ElButton>
+                <ElButton
+                  link
+                  type="primary"
+                  v-access:code="'promotion:shipactivity:save'"
+                  @click="goShipActivity(scope.row)"
+                >
+                  船供活动
                 </ElButton>
                 <ElButton
                   link

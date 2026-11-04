@@ -43,6 +43,7 @@ public class RemoteTenantServiceImpl implements RemoteTenantService {
 		}
 		TenantAccessDTO access = new TenantAccessDTO();
 		access.setTenantId(tenant.getId());
+		access.setTenantType(tenant.getTenantType());
 		access.setStatus(tenant.getStatus());
 		access.setAuthBeginTime(tenant.getAuthBeginTime());
 		access.setAuthEndTime(tenant.getAuthEndTime());

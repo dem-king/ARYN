@@ -20,7 +20,15 @@
         goods_sku.del_flag,
         goods_sku.version,
         goods_sku.specs_arr,
-        goods_sku.pic_url
+        goods_sku.pic_url,
+        goods_sku.is_member_item,
+        goods_sku.member_discount_rate,
+        goods_sku.member_price_fixed,
+        goods_sku.member_price_floor,
+        goods_sku.is_clearance_item,
+        goods_sku.clearance_price,
+        goods_sku.clearance_discount_rate,
+        goods_sku.clearance_expire_time
     </sql>
     <resultMap id="goodsSkuResultMap" type="com.aryn.cloud.product.api.entity.GoodsSku">
         <id column="id" property="id"/>

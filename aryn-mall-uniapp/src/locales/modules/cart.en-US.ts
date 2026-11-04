@@ -40,6 +40,8 @@ export default {
     newbieLimitHint: 'Newcomer price: limit {count} per person',
     memberBadge: 'Member',
     memberGuide: 'Members only ¥{price}',
+    clearanceBadge: 'Clearance Price',
+    clearanceExpireHint: 'Clearance price valid until {date}',
 
     // Goods card
     outOfStockShort: 'Out of stock',

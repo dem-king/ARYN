@@ -2,6 +2,7 @@
 import type { Component } from 'vue';
 
 import { computed, onMounted, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 
 import {
   ArrowLeft,
@@ -348,6 +349,30 @@ function openDay(dateStr: string) {
   drawerVisible.value = true;
 }
 
+const router = useRouter();
+
+/**
+ * 为该靠港创建船供活动：带上船舶/靠港上下文进入船供活动页，
+ * 页面自动打开「整船优惠」新建弹窗并预填适用范围（可再调整）。
+ */
+function goShipActivity(call: VesselCall) {
+  router.push({
+    path: '/promotion/ship-supply',
+    query: {
+      action: 'create',
+      ...(call.callId
+        ? {
+            vesselCallId: call.callId,
+            vesselCallLabel:
+              `${call.portName ?? ''} ${String(call.eta ?? '').slice(0, 10)}`.trim(),
+          }
+        : {}),
+      ...(call.vesselId ? { vesselId: call.vesselId } : {}),
+      ...(call.vesselName ? { vesselName: call.vesselName } : {}),
+    },
+  });
+}
+
 watch(month, fetchCalls);
 onMounted(fetchCalls);
 </script>
@@ -601,6 +626,23 @@ onMounted(fetchCalls);
                 </ElTag>
               </template>
             </ElTableColumn>
+            <ElTableColumn
+              label="操作"
+              width="110"
+              align="center"
+              fixed="right"
+            >
+              <template #default="scope">
+                <ElButton
+                  link
+                  type="primary"
+                  v-access:code="'promotion:shipactivity:save'"
+                  @click="goShipActivity(scope.row as VesselCall)"
+                >
+                  建船供活动
+                </ElButton>
+              </template>
+            </ElTableColumn>
           </ElTable>
         </template>
         <ElEmpty
@@ -660,6 +702,17 @@ onMounted(fetchCalls);
                   <template v-else>—</template>
                 </span>
               </div>
+            </div>
+            <div class="day-card-actions">
+              <ElButton
+                link
+                type="primary"
+                size="small"
+                v-access:code="'promotion:shipactivity:save'"
+                @click="goShipActivity(call)"
+              >
+                建船供活动
+              </ElButton>
             </div>
           </div>
         </div>
@@ -1103,6 +1156,11 @@ onMounted(fetchCalls);
 
 .day-card-body {
   padding: 8px 14px 12px;
+}
+
+.day-card-actions {
+  padding: 0 14px 10px;
+  text-align: right;
 }
 
 .day-card-row {

@@ -212,9 +212,8 @@ function copyOrderNo() {
 }
 // 订单删除
 function orderDel() {
-  uni.navigateBack({
-    delta: 1,
-  })
+  // 走 router.back：实例上的 navigation lock 会拦掉首屏无效返回与连点重复返回
+  router.back()
 }
 // 订单确认收货
 function orderReceiver(row: any) {

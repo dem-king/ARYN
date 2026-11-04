@@ -1,11 +1,13 @@
 <script setup lang="ts">
+import type { ListZonePrice } from '@/utils/zone-price'
 import { reactive } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getRecommendPage } from '@/api/product/spu'
-import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
 import QuickCartButton from '@/components/quick-cart-button/index.vue'
 import { useDiyPagedLoadMore } from '@/composables/useDiyPagedLoadMore'
+import { useZonePrices } from '@/composables/useZonePrices'
+import { zonePriceBadgeText } from '@/utils/zone-price'
 
 const props = defineProps<{
   /** 商详：当前商品，既作为分类上下文也默认排除 */
@@ -29,6 +31,8 @@ const state = reactive<any>({
 const router = useRouter()
 const { t } = useI18n()
 const pagingRef = ref()
+/** 推荐位的专区价（会员价/捡漏价）：先渲染、后补价，失败静默回落原价 */
+const zone = useZonePrices()
 
 /**
  * 推荐流无感续页（与装修商品楼层共用同一套机制）。
@@ -69,11 +73,14 @@ async function queryList(pageNo: number, pageSize: number) {
     const response = await getRecommendPage(params)
     if (epoch !== contextEpoch)
       return
+    const records = response?.records ?? []
+    // 先按普通售价渲染本页，会员价/捡漏价异步补拉（缓存 60s、失败静默）
+    void zone.loadForSpuIds(records.map((item: any) => item?.id))
     // 后端推荐接口 page.setSearchCount(false)（GoodsSpuServiceImpl#recommendPage），不下发真实
     // total，注释明确「前端只按返回条数判断是否还有下一页」——所以用 complete 让 z-paging 按
     // 本页条数推断；不能用 completeByTotal：total=0 会被判成「没有更多」，第一页后不再加载。
     // 必须 await：自愈重测要在数据生效之后进行，否则量到的是旧布局。
-    await pagingRef.value?.complete(response?.records ?? [])
+    await pagingRef.value?.complete(records)
   }, () => epoch === contextEpoch)
 }
 
@@ -95,6 +102,24 @@ function toDetail(id: string) {
       id,
     },
   })
+}
+
+/**
+ * 推荐卡专区价展示：主价/划线/角标/未达标引导统一由共享层判定。
+ *
+ * 渲染期读取共享层 revision，价格晚一帧回来时卡片自动重算；未命中时
+ * 主价=售价、划线仍按「原价 > 售价」口径，与改造前一致。
+ */
+function cardPrice(item: any): ListZonePrice {
+  return zone.cardPriceOf(item)
+}
+
+/** 金额展示：去掉无意义的末尾 0，避免浮点尾差 */
+function formatAmount(value: unknown): string {
+  const amount = Number(value)
+  if (!Number.isFinite(amount))
+    return ''
+  return String(Number(amount.toFixed(2)))
 }
 
 // 推荐卡快捷加购成功：透传宿主页（购物车页要据此立即刷新本页列表与推荐上下文）
@@ -147,17 +172,29 @@ function handleAdded(spuId: string) {
                 售罄（stock <= 0）不渲染按钮，与装修商品流 `diy-goods-*` 同口径。
               -->
               <view class="flex items-end justify-between pt-10rpx">
-                <view class="min-w-0 flex flex-1 items-baseline overflow-hidden">
-                  <wd-text mode="price" :text="item.salesPrice" prefix="￥" color="red" />
+                <view class="min-w-0 flex flex-1 flex-wrap items-baseline overflow-hidden">
                   <text
-                    v-if="shouldShowOriginalPrice(item.salesPrice, item.originalPrice)"
-                    class="price-original"
+                    v-if="cardPrice(item).badgeKind"
+                    class="zone-badge"
+                    :class="`zone-badge--${cardPrice(item).badgeKind}`"
                   >
-                    ￥{{ item.originalPrice }}
+                    {{ zonePriceBadgeText(cardPrice(item).badgeKind) }}
+                  </text>
+                  <wd-text mode="price" :text="cardPrice(item).mainPrice" prefix="￥" color="red" />
+                  <text v-if="cardPrice(item).strikePrice !== null" class="price-original">
+                    ￥{{ formatAmount(cardPrice(item).strikePrice) }}
+                  </text>
+                  <text v-if="cardPrice(item).guideText" class="price-guide">
+                    {{ cardPrice(item).guideText }}
                   </text>
                 </view>
                 <view v-if="item.stock > 0" class="flex flex-shrink-0 pl-8rpx">
-                  <quick-cart-button :spu-id="item.id" size="48rpx" @added="handleAdded" />
+                  <quick-cart-button
+                    :spu-id="item.id"
+                    :zone-prices="zone.skuZonePricesOf(item.id)"
+                    size="48rpx"
+                    @added="handleAdded"
+                  />
                 </view>
               </view>
             </view>
@@ -184,5 +221,33 @@ function handleAdded(spuId: string) {
   font-size: 20rpx;
   color: var(--app-text-3);
   text-decoration: line-through;
+}
+
+/* 身份价角标：与列表卡同一套颜色语义（会员金 / 捡漏红） */
+.zone-badge {
+  margin-right: 8rpx;
+  padding: 2rpx 8rpx;
+  border-radius: 6rpx;
+  color: #fff;
+  font-size: 18rpx;
+  font-weight: 500;
+  line-height: 1.4;
+
+  &--member {
+    background: linear-gradient(135deg, #b8860b 0%, #e0a82e 100%);
+  }
+
+  &--clearance {
+    background: linear-gradient(135deg, #fa2c19 0%, #ff6b45 100%);
+  }
+}
+
+/* 未达标引导：独占一行、弱化颜色 */
+.price-guide {
+  flex-basis: 100%;
+  margin-top: 2rpx;
+  color: #b45309;
+  font-size: 20rpx;
+  line-height: 1.4;
 }
 </style>

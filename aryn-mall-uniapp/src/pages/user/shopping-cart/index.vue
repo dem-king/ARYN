@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { DiscountPriceDisplay } from '@/utils/discount-price'
+import type { ClearancePriceDisplay } from '@/utils/clearance-price'
 import type { MemberPriceDisplay } from '@/utils/member-price'
 import type { NewbiePriceDisplay } from '@/utils/newbie-price'
 import { onPageScroll, onShow } from '@dcloudio/uni-app'
@@ -9,6 +10,7 @@ import { delShoppingCart, editShoppingCart, getPage, transferCartRowsToCall } fr
 import { saveBatch } from '@/api/product/collect'
 import { getById } from '@/api/product/spu'
 import { getGoodsDiscountPrices, getMemberSkuPrices, getNewbieSkuPrices } from '@/api/promotion'
+import { getClearanceSkuPrices } from '@/api/product/spu'
 // 引入组件
 import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
@@ -21,6 +23,12 @@ import { useShipContextLoad } from '@/composables/useShipContextLoad'
 import { useTabBarLocale } from '@/composables/useTabBarLocale'
 import { useShipContextStore } from '@/store/shipContextStore'
 import { useTenantCapabilityStore } from '@/store/tenantCapabilityStore'
+import {
+  clearanceWinsOverMember,
+  emptyClearancePriceDisplay,
+  resolveClearancePriceDisplay,
+} from '@/utils/clearance-price'
+import { parseLocalDateTimeTimestamp } from '@/utils/datetime'
 import {
   discountUnitPrice,
   emptyDiscountDisplay,
@@ -291,13 +299,33 @@ function discountDisplayOf(row: any): DiscountPriceDisplay {
  */
 const memberDisplays = ref<Record<string, MemberPriceDisplay>>({})
 
+/** 出清价展示：skuId → display；未命中/接口失败即空对象，回落原价 */
+const clearanceDisplays = ref<Record<string, ClearancePriceDisplay>>({})
+
 /** 取某行的会员价展示；无活动/未命中时返回共享的空展示（不新建对象，避免每行一个） */
 function memberDisplayOf(row: any): MemberPriceDisplay {
   return memberDisplays.value[String(row?.skuId ?? '')] || emptyMemberPriceDisplay()
 }
 
+function clearanceDisplayOf(row: any): ClearancePriceDisplay {
+  return clearanceDisplays.value[String(row?.skuId ?? '')] || emptyClearancePriceDisplay()
+}
+
+/** 出清价是否胜出：与会员价取低，同价归属会员价（与后端一致） */
+function clearanceWins(row: any): boolean {
+  const member = memberDisplayOf(row)
+  return clearanceWinsOverMember(
+    clearanceDisplayOf(row),
+    member.showMemberPrice ? member.memberPrice : null,
+  )
+}
+
 /** 取某行的会员价引导文案（未达标/未登录时「会员专享 ¥x」）；无则不渲染 */
 function memberGuideOf(row: any): string {
+  // 出清价胜出时主价已是捡漏价：再给「会员专享」引导会让用户以为这个价还不对，
+  // 与卡片/商详的口径也冲突（身份价只会解释成一个成交价）
+  if (clearanceWins(row))
+    return ''
   const display = memberDisplayOf(row)
   if (!display.guideText || display.memberPrice === null)
     return ''
@@ -305,16 +333,49 @@ function memberGuideOf(row: any): string {
 }
 
 /**
+ * 出清到期日：接口下发 `yyyy-MM-dd HH:mm:ss`，展示到日即可。
+ *
+ * iOS 不能直接 `new Date('2026-11-06 00:00:00')`（Invalid Date），统一走
+ * `parseLocalDateTimeTimestamp` 手工解析；解析失败返回空串，由调用方不渲染。
+ */
+function formatClearanceExpireDate(expireTime?: string): string {
+  const timestamp = parseLocalDateTimeTimestamp(expireTime)
+  if (timestamp === null)
+    return ''
+  const date = new Date(timestamp)
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
+/**
+ * 出清到期提示：「捡漏价 · xx 前有效」。
+ *
+ * 只在捡漏价胜出且接口确实下发到期时间时展示：到期后行价会跳回原价，
+ * 不提前告知会让用户以为价格被悄悄改掉（结算侧到期按原价，无金额风险）。
+ */
+function clearanceExpireHintOf(row: any): string {
+  if (!clearanceWins(row))
+    return ''
+  const date = formatClearanceExpireDate(clearanceDisplayOf(row).expireTime)
+  return date ? t('cart.clearanceExpireHint', { date }) : ''
+}
+
+/**
  * 行内划线价：优先划 SKU 原价（与售价同一数据源），存量商品没维护原价时，
  * 会员价/新人价场景退回划当前售价 —— 原本的对比提示不能凭空消失。
  * 普通场景无原价则不划线，与商详/列表的 shouldShowOriginalPrice 口径一致。
  *
- * 优先级与成交价一致：会员价 > 新人价 > 限时折扣 > 原价。
+ * 优先级必须与成交价完全一致：出清价（胜出时） > 会员价 > 新人价 > 限时折扣 > 原价。
+ * 出清价与会员价同 SKU 取低，出清更低时主价是捡漏价，划线必须回到 SKU 当前售价，
+ * 不能继续走会员分支（否则会出现「捡漏价 vs 会员价基准」的自相矛盾划线）。
  */
 function strikePriceOf(row: any): number | string | undefined {
   const sku = row?.goodsSku
   if (!sku)
     return undefined
+  // 出清价胜出：整行按捡漏价解释，划线=该 SKU 的当前售价
+  if (clearanceWins(row))
+    return clearanceDisplayOf(row).originalPrice ?? sku.salesPrice
   const member = memberDisplayOf(row)
   if (member.showMemberPrice) {
     // 会员价的基准价是 SKU 当前售价（接口下发的 originalPrice）；
@@ -338,15 +399,20 @@ function strikePriceOf(row: any): number | string | undefined {
 }
 
 /**
- * 行的实际成交单价：会员价 > 新人价 > 限时折扣 > 售价
- * （与后端 OrderPriceComputeService 的「拼团 > 秒杀 > 会员价 > 新人价 > 限时折扣 > 原价」同向；
+ * 行的实际成交单价：出清价胜出时 > 会员价 > 新人价 > 限时折扣 > 售价
+ * （与后端 OrderPriceComputeService 的「拼团 > 秒杀 > 会员价/出清价 > 新人价 > 限时折扣 > 原价」同向；
  * 秒杀价购物车未接入，属既有边界，不为标价新增秒杀请求）。
  *
- * 三层展示先经 `resolvePromotionPriority` 统一收敛（命中高优先级时清空低优先级），
+ * 出清价与会员价同 SKU 取低、同价会员优先（见 clearanceWins），胜出时不再叠加新人价/折扣；
+ * 其余三层展示先经 `resolvePromotionPriority` 统一收敛（命中高优先级时清空低优先级），
  * 行价/合计再读同一份结果，避免这里各写一遍 if/else 与商详判定漂移。
  */
 function cartUnitPrice(row: any): number {
   const fallback = row?.goodsSku?.salesPrice
+  const clearance = clearanceDisplayOf(row)
+  // 出清价与会员价取低（同价会员价优先）：胜出时直接按出清价，且不再叠加新人价/折扣
+  if (clearanceWins(row) && clearance.clearancePrice !== null)
+    return clearance.clearancePrice
   const priority = resolvePromotionPriority({
     discount: discountDisplayOf(row),
     member: memberDisplayOf(row),
@@ -716,6 +782,35 @@ async function loadMemberPrices() {
 }
 
 /**
+ * 批量查询购物车行的有效出清价（免登）。
+ *
+ * 与会员价同一时机整页一次批量；失败静默，行价回落原价。
+ */
+async function loadClearancePrices() {
+  const skuIds = Array.from(new Set(
+    state.cartList
+      .map((row: any) => String(row?.skuId || '').trim())
+      .filter(Boolean),
+  ))
+  if (!skuIds.length) {
+    clearanceDisplays.value = {}
+    computePrice()
+    return
+  }
+  try {
+    const vo = await getClearanceSkuPrices(skuIds)
+    const next: Record<string, ClearancePriceDisplay> = {}
+    for (const skuId of skuIds)
+      next[skuId] = resolveClearancePriceDisplay(vo, skuId)
+    clearanceDisplays.value = next
+  }
+  catch {
+    clearanceDisplays.value = {}
+  }
+  computePrice()
+}
+
+/**
  * 推荐卡快捷加购成功：本页的购物车列表与推荐上下文都派生自 `state.cartList`，
  * 必须立即刷新 —— 否则成功 toast 与底栏角标都变了，上方列表却要等下次 onShow
  * 才出现商品；排除列表不重算还会让刚加的商品继续留在「为你推荐」里被反复加购。
@@ -764,12 +859,13 @@ async function getCartPage(options: { silent?: boolean } = {}) {
     }
     computePrice()
     shoppingCartStore.fetchCartCount()
-    // 不 await：新人价/会员价/限时折扣价都是增强展示，让它们晚一帧回来即可，
-    // 购物车列表/勾选/结算不该为了价格标注多等一个请求。
-    // 三者同一时机触发（列表加载/刷新、增删行都会走 getCartPage），
+    // 不 await：新人价/会员价/出清价/限时折扣都是增强展示，晚一帧回来即可，
+    // 购物车列表/勾选/结算不该为了价格标注多等请求。
+    // 四者同一时机触发（列表加载/刷新、增删行都会走 getCartPage），
     // 各自整页一次批量查询，互不阻塞
     void loadNewbiePrices()
     void loadMemberPrices()
+    void loadClearancePrices()
     void loadDiscountPrices()
   }
   finally {
@@ -1169,8 +1265,15 @@ onPageScroll(handlePageScroll)
                     size="30rpx" color="var(--wot-color-theme-primary, #ff2e4d)" mode="price"
                     prefix="￥"
                   />
-                  <!-- 会员价角标：会员价是身份权益，优先于新人价/折扣角标 -->
-                  <text v-if="memberDisplayOf(goods).showMemberPrice" class="member-badge">
+                  <!--
+                    角标必须与 cartUnitPrice 同源（同一份「出清 vs 会员取低」判定）：
+                    出清价胜出 → 捡漏价；会员价胜出 → 会员价；再次才是新人价/折扣角标。
+                    同一 SKU 同时命中会员+出清且出清更低时，主价是捡漏价，角标不能再标会员价。
+                  -->
+                  <text v-if="clearanceWins(goods)" class="clearance-badge">
+                    {{ t('cart.clearanceBadge') }}
+                  </text>
+                  <text v-else-if="memberDisplayOf(goods).showMemberPrice" class="member-badge">
                     {{ t('cart.memberBadge') }}
                   </text>
                   <text v-else-if="newbieDisplayOf(goods).showNewbiePrice" class="newbie-badge">
@@ -1186,7 +1289,11 @@ onPageScroll(handlePageScroll)
                   :text="strikePriceOf(goods)" size="22rpx" color="#a8abb2" mode="price"
                   prefix="￥" decoration="line-through"
                 />
-                <!-- 会员价引导：未达标/未登录时「会员专享 ¥x」，只透出不下单拦截 -->
+                <!-- 出清到期提示：仅在捡漏价胜出且接口下发到期时间时出现 -->
+                <view v-if="clearanceExpireHintOf(goods)" class="clearance-expire">
+                  {{ clearanceExpireHintOf(goods) }}
+                </view>
+                <!-- 会员价引导：出清价胜出时 memberGuideOf 返回空串，不会与捡漏价冲突 -->
                 <view v-if="memberGuideOf(goods)" class="member-guide">
                   {{ memberGuideOf(goods) }}
                 </view>
@@ -1607,6 +1714,27 @@ onPageScroll(handlePageScroll)
       font-size: 18rpx;
       font-weight: 600;
       line-height: 1.6;
+    }
+
+    /* 捡漏价角标：红色系表达出清让利，与会员价金色角标区分身份/清仓两种来源 */
+    .clearance-badge {
+      flex-shrink: 0;
+      margin-left: 8rpx;
+      padding: 2rpx 10rpx;
+      border-radius: 999rpx;
+      background: rgba(255, 46, 77, 0.1);
+      color: var(--wot-color-theme-primary, #ff2e4d);
+      font-size: 18rpx;
+      font-weight: 600;
+      line-height: 1.6;
+    }
+
+    /* 出清到期提示：一行小字，弱于主价但不至于被忽略 */
+    .clearance-expire {
+      margin-top: 4rpx;
+      color: #c45656;
+      font-size: 18rpx;
+      line-height: 1.5;
     }
 
     /* 会员价引导：未达标/未登录时一行小字，不占主价与划线的位置 */

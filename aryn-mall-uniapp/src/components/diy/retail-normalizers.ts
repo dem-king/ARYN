@@ -24,6 +24,10 @@ export interface RetailGoodsItem {
    * 否则会划出一个「￥0」。判断口径与商详页一致：仅当原价 > 现价时才显示。
    */
   originalPrice: number
+  /** 出清价（仅打了出清标签的商品下发；无则 undefined） */
+  clearancePrice?: number
+  /** 出清截止时间（ISO 字符串；无则长期有效） */
+  clearanceExpireTime?: string
   sales: number
   stock: number
   /**
@@ -141,6 +145,8 @@ export function normalizeRetailGoods(value: unknown): RetailGoodsItem[] {
         subTitle: toText(record.subTitle).trim() || undefined,
         price: toNumber(record.salesPrice ?? record.price),
         originalPrice: toNumber(record.originalPrice),
+        clearancePrice: record.clearancePrice == null ? undefined : toNumber(record.clearancePrice),
+        clearanceExpireTime: toText(record.clearanceExpireTime) || undefined,
         sales: toNumber(record.salesVolume),
         stock: toNumber(record.stock),
         specsInfo: specsInfo || undefined,

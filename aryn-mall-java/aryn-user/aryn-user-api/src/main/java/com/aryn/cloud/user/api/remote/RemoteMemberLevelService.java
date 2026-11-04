@@ -28,4 +28,14 @@ public interface RemoteMemberLevelService {
 	 */
 	MemberLevelSnapshotVO getLevelById(String tenantId, String levelId);
 
+	/**
+	 * 租户内全部启用中的会员等级（按 sortOrder 升序）。
+	 *
+	 * <p>会员专区系统活动需要取最低等级作为门槛（所有会员均达标）；查询失败返回空列表，
+	 * 由调用方按「无法同步会员价」处理（fail-closed）。
+	 * @param tenantId 租户ID
+	 * @return 等级快照列表，无等级或查询失败返回空列表
+	 */
+	java.util.List<MemberLevelSnapshotVO> listLevels(String tenantId);
+
 }

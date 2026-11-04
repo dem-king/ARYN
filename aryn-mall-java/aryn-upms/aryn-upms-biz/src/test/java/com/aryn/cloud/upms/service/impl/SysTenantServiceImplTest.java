@@ -142,6 +142,43 @@ class SysTenantServiceImplTest {
 	}
 
 	@Test
+	void packageChangeKeepsAncestorContainersForCrossAppChildMenus() {
+		SysTenant existing = tenant(OLD_PACKAGE_ID, CommonConstants.NORMAL_STATUS);
+		SysTenant updated = tenant(NEW_PACKAGE_ID, CommonConstants.NORMAL_STATUS);
+		when(sysTenantMapper.selectById(TENANT_ID)).thenReturn(existing, updated);
+
+		SysTenantPackage newPackage = new SysTenantPackage();
+		newPackage.setId(NEW_PACKAGE_ID);
+		newPackage.setStatus(CommonConstants.NORMAL_STATUS);
+		newPackage.setAppKey(new String[] { "app_base" });
+		when(sysTenantPackageService.getById(NEW_PACKAGE_ID)).thenReturn(newPackage);
+
+		// 子菜单 app_base 挂在 app_market 的营销管理下（船供活动场景）
+		SysMenu shipActivity = menu("menu-ship-activity", "menu-marketing", "app_base");
+		SysMenu marketing = menu("menu-marketing", CommonConstants.PARENT_ID, "app_market");
+		when(sysMenuService.list(any(Wrapper.class))).thenReturn(List.of(shipActivity));
+		when(sysMenuService.list()).thenReturn(List.of(marketing, shipActivity));
+		when(sysTenantMenuService.list()).thenReturn(List.of());
+		when(sysRoleService.list()).thenReturn(List.of(role("role-admin", CommonConstants.ROLE_ADMIN_CODE)));
+
+		SysTenant patch = new SysTenant();
+		patch.setId(TENANT_ID);
+		patch.setPackageId(NEW_PACKAGE_ID);
+
+		assertThat(service.updateTenant(patch)).isTrue();
+
+		ArgumentCaptor<Collection<SysTenantMenu>> tenantMenus = collectionCaptor();
+		verify(sysTenantMenuService).saveBatch(tenantMenus.capture());
+		assertThat(tenantMenus.getValue()).extracting(SysTenantMenu::getMenuId)
+			.containsExactlyInAnyOrder("menu-ship-activity", "menu-marketing");
+
+		ArgumentCaptor<Collection<SysRoleMenu>> roleMenus = collectionCaptor();
+		verify(sysRoleMenuService).saveBatch(roleMenus.capture());
+		assertThat(roleMenus.getValue()).extracting(SysRoleMenu::getMenuId)
+			.containsExactlyInAnyOrder("menu-ship-activity", "menu-marketing");
+	}
+
+	@Test
 	void renewExtendsFromCurrentAuthorizationEnd() {
 		SysTenant existing = tenant(OLD_PACKAGE_ID, CommonConstants.NORMAL_STATUS);
 		existing.setAuthEndTime(LocalDateTime.now().plusDays(10));
@@ -247,6 +284,13 @@ class SysTenantServiceImplTest {
 	private static SysMenu menu(String id) {
 		SysMenu menu = new SysMenu();
 		menu.setId(id);
+		return menu;
+	}
+
+	private static SysMenu menu(String id, String parentId, String applicationKey) {
+		SysMenu menu = menu(id);
+		menu.setParentId(parentId);
+		menu.setApplicationKey(applicationKey);
 		return menu;
 	}
 

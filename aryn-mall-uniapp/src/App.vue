@@ -2,8 +2,25 @@
 import { captureDistributionShareParams, flushPendingDistributionShareBinding } from '@/composables/useDistributionShare'
 import { refreshBindingOnShow } from '@/api/core/tenant-identity'
 import { translate } from '@/locales'
+import { useAuthStore } from '@/store/authStore'
 import { useLocaleStore } from '@/store/localeStore'
 import { MALL_THEME_REFRESH_THROTTLE_MS, useMallThemeStore } from '@/store/mallThemeStore'
+import { useUserStore } from '@/store/userStore'
+
+/**
+ * 预热用户信息。
+ *
+ * 路由守卫不再在跳转路径上 `await fetchUserInfo()`（见 router/index.ts）：把网络
+ * 请求挡在导航路径上会制造「首次点击没反应」，用户再点一次就产生同 tick 两次路由，
+ * 正是微信 `routeDone with a webviewId xxx is not found` 的高发成因。
+ * 冷启动只恢复了 token 时由这里补一次；页面 onShow 的补拉继续作为兜底。
+ */
+function prefetchUserInfo() {
+  if (!useAuthStore().isLoggedIn || useUserStore().getUserInfo) {
+    return
+  }
+  useUserStore().fetchUserInfo().catch(() => {})
+}
 
 /**
  * 应用启动时的初始化逻辑
@@ -18,6 +35,7 @@ onLaunch(async () => {
 onShow((options) => {
   captureDistributionShareParams(options as Record<string, any>)
   flushPendingDistributionShareBinding()
+  prefetchUserInfo()
   // 租户构建：回前台按 5 分钟节流重查绑定映射（默认开发 generated=null 直接返回）
   void refreshBindingOnShow()
   // 管理端改色「下次打开生效」的另一半：冷启动由 App.ku.vue 的

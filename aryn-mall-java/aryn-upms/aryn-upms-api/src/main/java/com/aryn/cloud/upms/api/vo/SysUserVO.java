@@ -79,6 +79,12 @@ public class SysUserVO implements Serializable {
 	@Schema(description = "租户id")
 	private String tenantId;
 
+	@Schema(description = "租户类型：1.平台租户；2.普通租户")
+	private String tenantType;
+
+	@Schema(description = "是否平台管理员")
+	private Boolean platformAdmin;
+
 	@Schema(description = "账号类型：0.系统主账户（管理全部店铺）")
 	private String type;
 

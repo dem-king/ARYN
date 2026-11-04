@@ -333,45 +333,6 @@ export function getNewbieSkuPrices(skuIds: string[]) {
   )
 }
 
-// ============ 会员价活动货盘（会员专区 Tab「按活动自动」数据源） ============
-
-/**
- * C 端「会员价活动商品」查询结果（会员专区 Tab 的自动货盘）。
- *
- * `spuIds` 是活动配置顺序（后端已按 SKU 配置顺序回填 SPU 并去重保序），
- * C 端只按该顺序渲染，不做二次排序——活动里怎么配置，专区就怎么展示。
- */
-export interface AppMemberActivityGoodsVO {
-  activityId: string
-  activityName: string
-  endTime: string
-  /** 活动配置的 SPU ID 列表（活动配置顺序） */
-  spuIds: string[]
-}
-
-/**
- * 查询会员价活动里的商品（会员专区 Tab「按会员价活动自动」数据源）
- * GET /promotion/app/member/activity-goods?activityId=
- *
- * - `activityId` 空/缺失：后端自动取当前进行中的会员价活动（type=10，优先级最高者）；
- *   有值：按指定活动返回（允许运营提前装修，未开始的活动货盘也能预览）；
- * - **免登可访问**：货盘只是商品 ID 列表，不含用户数据与价格，会员价资格由
- *   `/app/member/prices` 另行判定；故按公共请求处理（不携带登录态也无需携带）；
- * - 无活动 / 无商品 → `data:null`，C 端按空态渲染，不报错；
- * - 双模式路径改写由请求封装统一处理，这里只写微服务域首段。
- */
-export function getMemberActivityGoods(activityId?: string) {
-  const id = String(activityId ?? '').trim()
-  return alovaInstance.Get<AppMemberActivityGoodsVO | null>(
-    '/promotion/app/member/activity-goods',
-    {
-      // activityId 为空时不下发该参数：后端据此走「自动取当前进行中活动」
-      ...(id ? { params: { activityId: id } } : {}),
-      headers: { skipToken: true },
-    },
-  )
-}
-
 // ============ 会员价（F3，会员专享价） ============
 
 /**

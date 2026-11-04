@@ -406,9 +406,12 @@ async function handleAction(coupon: CouponCardData) {
   gap: 20rpx;
 }
 
-/* 骨架卡：高度/圆角/投影与真实券卡同形，数据到位后不产生高度跳变 */
+/*
+  骨架卡：高度/圆角/投影与真实券卡同形，数据到位后不产生高度跳变。
+  使用说明改为完整换行后，带两行说明的券卡约 208rpx，骨架按常见形态对齐。
+*/
 .cc-skeleton {
-  height: 176rpx;
+  height: 208rpx;
   border-radius: $coupon-card-radius;
   background: $coupon-surface;
   box-shadow: $coupon-card-shadow;

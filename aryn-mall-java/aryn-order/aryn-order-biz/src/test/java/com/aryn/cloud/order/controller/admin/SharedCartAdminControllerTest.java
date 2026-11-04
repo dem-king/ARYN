@@ -208,6 +208,31 @@ class SharedCartAdminControllerTest {
 				.containsExactly("张伟", "李强");
 	}
 
+	@Test
+	@DisplayName("详情与列表同一回填口径：从订单/菜单深链直达也能看到船名、发起人与订单号")
+	void detailFillsVesselOwnerAndOrderNoForDeepLink() {
+		SharedCart cart = submittedCart();
+		cart.setShareToken("secret-token");
+		when(sharedCartMapper.selectOne(any(Wrapper.class))).thenReturn(cart);
+		givenOwnerMember("cart-1", "owner-1", "张伟");
+		when(sharedCartItemMapper.selectList(any(Wrapper.class))).thenReturn(List.of());
+		when(remoteMallUserService.getUserByIds(anyList()))
+				.thenReturn(List.of(user("owner-1", "176****2320")));
+		when(remoteVesselService.getVesselCallSnapshot("tenant-1", "call-1")).thenReturn(staleContext());
+		when(orderInfoMapper.selectByIds(List.of("order-1")))
+				.thenReturn(List.of(order("order-1", "2026100900001")));
+
+		Result<Map<String, Object>> result = controller.detail("cart-1");
+
+		@SuppressWarnings("unchecked")
+		Map<String, Object> cartRow = (Map<String, Object>) result.getData().get("cart");
+		assertThat(cartRow.get("vesselCallText")).isEqualTo("悦航2号 · 福建港 321");
+		assertThat(cartRow.get("ownerName")).isEqualTo("张伟");
+		assertThat(cartRow.get("submitOrderNo")).isEqualTo("2026100900001");
+		// 深链详情同样不下发加入凭证
+		assertThat(cartRow).doesNotContainKey("shareToken");
+	}
+
 	@SuppressWarnings("unchecked")
 	private Map<String, Object> firstRow() {
 		Result<IPage<Map<String, Object>>> result = controller.page(new Page<>(1, 10), new SharedCart());

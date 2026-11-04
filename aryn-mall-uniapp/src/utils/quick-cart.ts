@@ -116,6 +116,87 @@ export interface QuickAddPrice {
 }
 
 /**
+ * 页面已知的专区成交价（会员价 / 捡漏价）：skuId → 该 SKU 的成交价。
+ *
+ * 取值既可以是纯数字，也可以带角标说明（如「会员价」「捡漏价」）——
+ * 角标文案只有卡片侧知道，透传上来后确认弹层可直接标在单价旁，
+ * 用户一眼看出「弹层这个价就是卡片上那个身份价」。
+ */
+export type QuickAddZonePriceValue =
+  | number
+  | string
+  | { price?: number | string | null, hint?: string }
+
+export type QuickAddZonePrices = Record<string, QuickAddZonePriceValue>
+
+/** 归一化专区价表项：价格非法返回 null，角标说明统一成 trim 后的字符串 */
+function normalizeZonePriceEntry(
+  raw: QuickAddZonePriceValue | null | undefined,
+): { price: number, hint: string } | null {
+  if (raw === null || raw === undefined)
+    return null
+  const entry = typeof raw === 'object' ? raw : { price: raw }
+  const price = Number(entry?.price)
+  if (!Number.isFinite(price) || price <= 0)
+    return null
+  return {
+    price: Math.round(price * 100) / 100,
+    hint: typeof entry?.hint === 'string' ? entry.hint.trim() : '',
+  }
+}
+
+/**
+ * 取指定 SKU 的专区成交价（多规格弹层覆盖展示价用）。
+ *
+ * @returns 有效成交价（元）；未命中/脏数据返回 null
+ */
+export function resolveZoneSkuPrice(
+  zonePrices: QuickAddZonePrices | null | undefined,
+  skuId: unknown,
+): number | null {
+  const id = typeof skuId === 'string' || typeof skuId === 'number' ? String(skuId).trim() : ''
+  if (!id || !zonePrices)
+    return null
+  return normalizeZonePriceEntry(zonePrices[id])?.price ?? null
+}
+
+/**
+ * 专区价表中的最低有效价。
+ *
+ * 多规格弹层在用户选规格前只能展示一个价；用专区价最低值（即卡片上那个
+ * 「起」价）比展示普通售价更贴近卡片，避免一打开弹层价格就跳变。
+ */
+export function minZoneSkuPrice(
+  zonePrices: QuickAddZonePrices | null | undefined,
+): number | null {
+  if (!zonePrices)
+    return null
+  let best: number | null = null
+  for (const raw of Object.values(zonePrices)) {
+    const entry = normalizeZonePriceEntry(raw)
+    if (!entry)
+      continue
+    if (best === null || entry.price < best)
+      best = entry.price
+  }
+  return best
+}
+
+/** 活动价是否可用于本次加购（活动 SKU 与 quick-cart 选中的 SKU 一致，且单价合法） */
+export function isQuickAddPromotionApplicable(
+  info: QuickCartInfo | null | undefined,
+  promotion: QuickAddPromotion | null | undefined,
+): boolean {
+  if (!promotion)
+    return false
+  const skuId = String(info?.skuId ?? '').trim()
+  if (!skuId || String(promotion.skuId ?? '').trim() !== skuId)
+    return false
+  const unitPrice = Number(promotion.unitPrice)
+  return Number.isFinite(unitPrice) && unitPrice > 0
+}
+
+/**
  * 解析确认弹层应展示的成交价。
  *
  * 活动价只在「活动 SKU == quick-cart 选中的 SKU」时生效：后端快捷加购按库存
@@ -131,16 +212,43 @@ export function resolveQuickAddPrice(
     maxQuantity: null,
     hint: '',
   }
-  const skuId = String(info?.skuId ?? '').trim()
-  if (!promotion || !skuId || String(promotion.skuId ?? '').trim() !== skuId)
-    return fallback
-  const unitPrice = Number(promotion.unitPrice)
-  if (!Number.isFinite(unitPrice) || unitPrice <= 0)
+  if (!isQuickAddPromotionApplicable(info, promotion) || !promotion)
     return fallback
   return {
-    unitPrice,
+    unitPrice: Number(promotion.unitPrice),
     maxQuantity: toPositiveInt(promotion.maxQuantity),
     hint: typeof promotion.hint === 'string' ? promotion.hint : '',
+  }
+}
+
+/**
+ * 解析专区成交价对应的确认弹层单价。
+ *
+ * 列表卡片上标了会员价/捡漏价，但 quick-cart 接口只回普通售价，确认弹层若按
+ * 普通售价算小计就会出现「卡片 ¥5.90、弹层 ¥7.90」。这里按 quick-cart 选中的
+ * SKU 精确匹配专区价；专区价必须真的低于普通售价才采用（防脏数据把价格抬高），
+ * 且不带限购上限（会员价/捡漏价不封顶数量，与后端结算口径一致）。
+ *
+ * @returns 命中时返回可直接用于确认弹层的价格口径；未命中返回 null，调用方回落原价
+ */
+export function resolveQuickAddZonePrice(
+  info: QuickCartInfo | null | undefined,
+  zonePrices: QuickAddZonePrices | null | undefined,
+): QuickAddPrice | null {
+  const skuId = String(info?.skuId ?? '').trim()
+  if (!skuId || !zonePrices)
+    return null
+  const entry = normalizeZonePriceEntry(zonePrices[skuId])
+  if (!entry)
+    return null
+  // 专区价必须低于后端下发的普通售价：等价/倒挂说明数据不同步，宁可按普通价展示
+  const sales = Number(info?.salesPrice)
+  if (Number.isFinite(sales) && sales > 0 && entry.price >= sales)
+    return null
+  return {
+    unitPrice: entry.price,
+    maxQuantity: null,
+    hint: entry.hint,
   }
 }
 

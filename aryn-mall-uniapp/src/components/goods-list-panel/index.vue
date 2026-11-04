@@ -14,15 +14,17 @@
  * 父组件通过 props 变化或 `refresh()` 驱动重新查询。
  */
 import type { SharedCart } from '@/api/order/sharedCart'
+import type { ListZonePrice } from '@/utils/zone-price'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { getPage } from '@/api/product/spu'
-import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
 import GoodsDetailSheet from '@/components/goods-detail-sheet/index.vue'
 import QuickCartButton from '@/components/quick-cart-button/index.vue'
+import { useZonePrices } from '@/composables/useZonePrices'
 import { STOCK_LOW_THRESHOLD } from '@/utils/stock-display'
+import { zonePriceBadgeText } from '@/utils/zone-price'
 
 interface Props {
   /** 一级类目 ID，为空表示不限 */
@@ -102,6 +104,14 @@ function toggleLayout() {
 
 const router = useRouter()
 const { t } = useI18n()
+/**
+ * 列表专区价（会员价 / 捡漏价）。
+ *
+ * 分类 / 商品列表 / 搜索共用本面板：列表接口只回 SPU 普通售价，身份价必须按本页
+ * SPU 批量补拉一次。**先渲染、后补价**（`void` 不 await）：价格晚一帧到达时
+ * revision 驱动卡片 computed 自动重算，列表首屏不被价格接口阻塞；失败静默回落原价。
+ */
+const zone = useZonePrices()
 const pagingRef = ref()
 const goodsList = ref<any[]>([])
 const priceSort = ref(0)
@@ -126,7 +136,10 @@ async function queryList(pageNo: number, pageSize: number) {
       ...pageOrder.value,
     })
     loadFailed.value = false
-    pagingRef.value?.complete(response?.records ?? [])
+    const records = response?.records ?? []
+    pagingRef.value?.complete(records)
+    // 卡片先按普通售价渲染，本页 SPU 的会员价/捡漏价异步补拉（失败静默、缓存 60s）
+    void zone.loadForSpuIds(records.map((item: any) => item?.id))
   }
   catch (e) {
     console.warn('[goods-list-panel] queryList failed', e)
@@ -220,9 +233,23 @@ function cardTags(item: any): string[] {
   return tags
 }
 
-/** 划线原价：存量商品常缺省为 0，只有严格高于售价时才展示（与商详/首页楼层同口径） */
-function showOriginalPrice(item: any): boolean {
-  return shouldShowOriginalPrice(item.salesPrice, item.originalPrice)
+/**
+ * 卡片专区价展示：主价 / 划线 / 角标 / 未达标引导统一由共享层判定，
+ * 各列表页不再自行比价，避免同一商品在不同页面出现两种成交价。
+ *
+ * 函数在渲染期读取共享层缓存的 revision：价格晚一帧回来时模板自动重算。
+ * 未命中任何身份价时主价=售价、划线沿用「原价 > 售价」口径，与改造前完全一致。
+ */
+function cardPrice(item: any): ListZonePrice {
+  return zone.cardPriceOf(item)
+}
+
+/** 金额展示：去掉无意义的末尾 0，同时避免浮点尾差 */
+function formatAmount(value: unknown): string {
+  const amount = Number(value)
+  if (!Number.isFinite(amount))
+    return ''
+  return String(Number(amount.toFixed(2)))
 }
 
 function toDetail(id: string) {
@@ -345,23 +372,39 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
               </text>
             </view>
             <view class="goods-bottom">
+              <!--
+                价格区：主价 = 会员价/捡漏价/普通售价（共享层判定），划线价 =
+                对应成交价的划线基准，角标只在命中身份价时出现；未达标/未登录时
+                在价格下方给「会员专享 ¥x」引导，不切主价。
+              -->
               <view class="goods-price">
+                <text
+                  v-if="cardPrice(item).badgeKind"
+                  class="goods-price-badge"
+                  :class="`goods-price-badge--${cardPrice(item).badgeKind}`"
+                >
+                  {{ zonePriceBadgeText(cardPrice(item).badgeKind) }}
+                </text>
                 <view class="goods-price-main">
                   <text class="goods-price-symbol">
                     ¥
                   </text>
                   <text class="goods-price-value">
-                    {{ item.salesPrice }}
+                    {{ formatAmount(cardPrice(item).mainPrice) }}
                   </text>
                 </view>
-                <text v-if="showOriginalPrice(item)" class="goods-price-original">
-                  ¥{{ item.originalPrice }}
+                <text v-if="cardPrice(item).strikePrice !== null" class="goods-price-original">
+                  ¥{{ formatAmount(cardPrice(item).strikePrice) }}
+                </text>
+                <text v-if="cardPrice(item).guideText" class="goods-price-guide">
+                  {{ cardPrice(item).guideText }}
                 </text>
               </view>
               <view class="goods-actions">
                 <quick-cart-button
                   :spu-id="item.id"
                   :shared-cart="sharedCart"
+                  :zone-prices="zone.skuZonePricesOf(item.id)"
                   size="56rpx"
                   @added="handleAdded"
                 />
@@ -730,6 +773,35 @@ const cardClass = computed(() => (props.grid ? 'goods-card goods-card--grid' : '
 
   .goods-price-value {
     font-size: 32rpx;
+  }
+
+  /* 身份价角标：小号色块文字，不抢主价视觉重心 */
+  .goods-price-badge {
+    flex: none;
+    align-self: center;
+    padding: 2rpx 8rpx;
+    border-radius: 6rpx;
+    color: #fff;
+    font-size: 20rpx;
+    font-weight: 500;
+    line-height: 1.4;
+
+    &--member {
+      background: linear-gradient(135deg, #b8860b 0%, #e0a82e 100%);
+    }
+
+    &--clearance {
+      background: linear-gradient(135deg, #fa2c19 0%, #ff6b45 100%);
+    }
+  }
+
+  /* 未达标引导：独占一行、弱化颜色，避免与划线价挤在一起 */
+  .goods-price-guide {
+    flex-basis: 100%;
+    color: #b45309;
+    font-size: 20rpx;
+    font-weight: 400;
+    line-height: 1.4;
   }
 
   .goods-price-original {

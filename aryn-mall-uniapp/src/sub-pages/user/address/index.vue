@@ -100,7 +100,8 @@ function handleCardTap(item: AddressItem) {
 
 function selectAddress(item: AddressItem) {
   uni.$emit('update:selectedAddress', item)
-  uni.navigateBack()
+  // 走 router.back：实例上的 navigation lock 会拦掉首屏无效返回与连点重复返回
+  router.back()
 }
 
 async function setDefault(item: AddressItem) {

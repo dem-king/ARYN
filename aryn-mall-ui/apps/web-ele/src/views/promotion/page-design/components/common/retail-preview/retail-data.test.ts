@@ -38,7 +38,6 @@ function createDependencies(
     activityPage: vi.fn(async () => ({ records: [] })),
     goodsByIds: vi.fn(async () => []),
     goodsPage: vi.fn(async () => ({ records: [] })),
-    memberActivityGoods: vi.fn(async () => null),
     seckillSessionGoods: vi.fn(async () => ({})),
     seckillSessions: vi.fn(async () => []),
     shopById: vi.fn(async () => ({})),
@@ -480,116 +479,5 @@ describe('retail preview data adapters', () => {
     // 缩略图由 loadDiscounts 补齐，归一化阶段统一落空串（与 C 端同口径）
     expect(result[0]?.coverImage).toBe('');
     expect(result[1]?.coverImage).toBe('');
-  });
-});
-
-describe('retail preview: 会员专区 activity 数据源', () => {
-  function activityProps(count = 2) {
-    const props = createGoodsWaterfallDefaults();
-    props.count = count;
-    // 与装修 JSON 契约一致：activityId 空串 = 自动取当前进行中的会员价活动
-    props.dataSource = { activityId: '', cacheTtl: 0, mode: 'activity' };
-    return props;
-  }
-
-  const activityGoods = (spuIds: string[] = ['spu-b', 'spu-a', 'spu-c']) => ({
-    activityId: 'act-1',
-    activityName: '黄金会员价',
-    endTime: '2099-12-31 23:59:59',
-    spuIds,
-  });
-
-  it('loads activity goods in the activity order and truncates to count', async () => {
-    const memberActivityGoods = vi.fn(async () => activityGoods());
-    const goodsByIds = vi.fn(async () => [
-      { id: 'spu-a', name: '商品A', salesPrice: 10 },
-      { id: 'spu-c', name: '商品C', salesPrice: 30 },
-      { id: 'spu-b', name: '商品B', salesPrice: 20 },
-    ]);
-    const props = activityProps(2);
-    props.dataSource.activityId = 'act-1';
-
-    const result = await loadGoodsWaterfall(
-      props,
-      createDependencies({ goodsByIds, memberActivityGoods }),
-    );
-
-    // activityId 透传给 C 端只读接口，商品按活动配置顺序回排后截断 count
-    expect(memberActivityGoods).toHaveBeenCalledWith('act-1');
-    expect(goodsByIds).toHaveBeenCalledWith(['spu-b', 'spu-a', 'spu-c']);
-    expect(result.map(({ id }) => id)).toEqual(['spu-b', 'spu-a']);
-    // 活动模式不走商品分页接口
-    expect(goodsByIds).toHaveBeenCalledTimes(1);
-  });
-
-  it('passes undefined when activityId is empty (auto: in-progress activity)', async () => {
-    const memberActivityGoods = vi.fn(async () => activityGoods(['spu-a']));
-
-    await loadGoodsWaterfall(
-      activityProps(1),
-      createDependencies({
-        goodsByIds: vi.fn(async () => [{ id: 'spu-a', name: '商品A' }]),
-        memberActivityGoods,
-      }),
-    );
-
-    expect(memberActivityGoods).toHaveBeenCalledWith(undefined);
-  });
-
-  it('returns an empty list when there is no activity or no goods (null)', async () => {
-    const goodsByIds = vi.fn(async () => []);
-
-    const result = await loadGoodsWaterfall(
-      activityProps(),
-      createDependencies({
-        goodsByIds,
-        memberActivityGoods: vi.fn(async () => null),
-      }),
-    );
-
-    expect(result).toEqual([]);
-    // 活动为空时不必再请求商品，避免画布多发一次无意义请求
-    expect(goodsByIds).not.toHaveBeenCalled();
-  });
-
-  it('degrades to an empty list when the activity endpoint fails', async () => {
-    const result = await loadGoodsWaterfall(
-      activityProps(),
-      createDependencies({
-        memberActivityGoods: vi.fn(async () => {
-          throw new Error('403 无权限');
-        }),
-      }),
-    );
-
-    expect(result).toEqual([]);
-  });
-
-  it('does not call the activity endpoint for automatic/manual modes', async () => {
-    const memberActivityGoods = vi.fn(async () => activityGoods());
-    const goodsPage = vi.fn(async () => ({ records: [] }));
-
-    // 自动模式：仍按商品分页取数
-    await loadGoodsWaterfall(
-      createGoodsWaterfallDefaults(),
-      createDependencies({ goodsPage, memberActivityGoods }),
-    );
-    expect(memberActivityGoods).not.toHaveBeenCalled();
-    expect(goodsPage).toHaveBeenCalled();
-
-    // 手选模式：仍按 targetIds 取数
-    const manualProps = createGoodsWaterfallDefaults();
-    manualProps.dataSource = {
-      mode: 'manual',
-      targetIds: ['spu-manual'],
-    };
-    await loadGoodsWaterfall(
-      manualProps,
-      createDependencies({
-        goodsByIds: vi.fn(async () => [{ id: 'spu-manual', name: '手选' }]),
-        memberActivityGoods,
-      }),
-    );
-    expect(memberActivityGoods).not.toHaveBeenCalled();
   });
 });

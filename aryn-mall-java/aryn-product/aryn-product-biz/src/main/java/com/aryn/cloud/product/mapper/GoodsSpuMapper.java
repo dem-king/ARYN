@@ -30,9 +30,11 @@ public interface GoodsSpuMapper extends BaseMapper<GoodsSpu> {
 	 * @date 2022/6/15
 	 * @param page
 	 * @param goodsSpu
+	 * @param zoneType 管理端专区筛选：member / clearance / none，空=不筛选
 	 * @return: com.baomidou.mybatisplus.core.metadata.IPage<com.aryn.cloud.mall.common.entity.GoodsSpu>
 	 */
-	IPage<GoodsSpu> selectPageByAdmin(Page page, @Param("query") GoodsSpu goodsSpu);
+	IPage<GoodsSpu> selectPageByAdmin(Page page, @Param("query") GoodsSpu goodsSpu,
+			@Param("zoneType") String zoneType);
 
 	/**
 	 * 分页查询商品库列表
@@ -72,7 +74,10 @@ public interface GoodsSpuMapper extends BaseMapper<GoodsSpu> {
 	 * @return: com.baomidou.mybatisplus.core.metadata.IPage<com.aryn.cloud.mall.common.entity.GoodsSpu>
 	 */
 	IPage<GoodsSpu> selectApiPage(Page page, @Param("query") GoodsSpu goodsSpu,
-			@Param("bargainRate") BigDecimal bargainRate);
+			@Param("bargainRate") BigDecimal bargainRate,
+			@Param("memberItem") Boolean memberItem,
+			@Param("clearanceItem") Boolean clearanceItem,
+			@Param("zoneSort") String zoneSort);
 
 	/**
 	 * 分页查询推荐商品（商详/购物车/个人中心/订单页共用）。

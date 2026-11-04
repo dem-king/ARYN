@@ -11,6 +11,7 @@ import com.aryn.cloud.common.core.constant.CommonConstants;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.upms.api.entity.SysRole;
+import com.aryn.cloud.upms.api.entity.SysTenant;
 import com.aryn.cloud.upms.api.entity.SysUser;
 import com.aryn.cloud.upms.api.entity.SysUserRole;
 import com.aryn.cloud.upms.api.vo.MenuVO;
@@ -19,6 +20,7 @@ import com.aryn.cloud.upms.mapper.*;
 import com.aryn.cloud.upms.service.ISysUserRoleService;
 import com.aryn.cloud.upms.service.ISysUserService;
 import com.aryn.cloud.common.core.enums.SessionInvalidSubReason;
+import com.aryn.cloud.upms.support.PlatformAdminSupport;
 import com.aryn.cloud.upms.support.SysUserSessionRevoker;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -51,11 +53,24 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
 
 	private final SysRoleMenuMapper sysRoleMenuMapper;
 
+	private final SysTenantMapper sysTenantMapper;
+
 	private final SysUserSessionRevoker sysUserSessionRevoker;
+
+	private final PlatformAdminSupport platformAdminSupport;
 
 	@Override
 	public SysUser findUserInfo(SysUser sysUser) {
 		ArynTenantContextHolder.setTenantId(sysUser.getTenantId());
+
+		// 平台身份以数据为准：租户类型 + 用户级 platform_admin 标记，前端与守卫不再硬编码租户 ID
+		SysTenant tenant = StrUtil.isBlank(sysUser.getTenantId()) ? null
+				: sysTenantMapper.selectById(sysUser.getTenantId());
+		sysUser.setTenantType(tenant == null ? null : tenant.getTenantType());
+		String platformAdminFlag = StrUtil.isBlank(sysUser.getId()) ? null
+				: baseMapper.selectPlatformAdminFlag(sysUser.getId());
+		sysUser.setPlatformAdmin(CommonConstants.TENANT_TYPE_PLATFORM.equals(sysUser.getTenantType())
+				&& CommonConstants.YES.equals(platformAdminFlag));
 
 		// 查询角色
 		List<String> roleIds = sysRoleMapper.listRoleIdsByUserId(sysUser.getId());
@@ -90,6 +105,8 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
 		if (Objects.nonNull(this.findUserByName(sysUser.getUsername()))) {
 			throw new ArynBusinessException("用户已存在");
 		}
+		// 平台管理员角色只允许平台管理员授予
+		assertCanAssignRoles(sysUser.getRoles());
 		// 配送资格只能由配送员管理开通，通用用户新增不允许直接授予受保护角色
 		List<String> protectedRoleIds = findProtectedDeliveryRoleIds();
 		if (containsAny(sysUser.getRoles(), protectedRoleIds)) {
@@ -105,6 +122,9 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
 	public boolean updateUser(SysUser sysUser) {
 		// 停用前置状态：仅当本次把账号从「正常」改为「停用」时才需要撤销已有会话
 		SysUser existing = baseMapper.selectById(sysUser.getId());
+		// 平台管理员账号只允许平台管理员维护；平台管理员角色只允许平台管理员授予
+		assertCanManageUser(existing);
+		assertCanAssignRoles(sysUser.getRoles());
 		// 请求列表可能不可变，拷贝后再做受保护角色剔除与合并
 		List<String> roles = new ArrayList<>(sysUser.getRoles() == null ? List.of() : sysUser.getRoles());
 		sysUser.setRoles(roles);
@@ -150,6 +170,8 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public boolean delUser(SysUser sysUser) {
+		// 平台管理员账号只允许平台管理员删除
+		assertCanManageUser(baseMapper.selectById(sysUser.getId()));
 		// 删除用户管理角色
 		sysUserRoleMapper.delete(Wrappers.<SysUserRole>lambdaQuery().eq(SysUserRole::getUserId, sysUser.getId()));
 		// 删除用户
@@ -197,6 +219,37 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
 
 	private boolean containsAny(List<String> roleIds, List<String> protectedRoleIds) {
 		return CollUtil.containsAny(roleIds == null ? new ArrayList<String>() : roleIds, protectedRoleIds);
+	}
+
+	/**
+	 * 平台管理员账号只允许平台管理员维护（改资料、停用、删除、改角色）。
+	 *
+	 * <p>平台租户里的租户管理员即使拥有用户管理权限，也不能改动平台管理员账号，否则
+	 * 可停用/删除平台唯一运维入口或改写其角色。</p>
+	 */
+	private void assertCanManageUser(SysUser target) {
+		if (target == null || platformAdminSupport.isCurrentPlatformAdmin()) {
+			return;
+		}
+		if (CommonConstants.YES.equals(baseMapper.selectPlatformAdminFlag(target.getId()))) {
+			throw new ArynBusinessException(403, "平台管理员账号仅平台管理员可维护");
+		}
+	}
+
+	/**
+	 * 平台管理员角色只允许平台管理员授予，避免租户管理员借角色拿到平台菜单与权限。
+	 */
+	private void assertCanAssignRoles(List<String> roleIds) {
+		if (CollUtil.isEmpty(roleIds) || platformAdminSupport.isCurrentPlatformAdmin()) {
+			return;
+		}
+		List<String> platformRoleIds = sysRoleMapper.selectPlatformAdminRoleIds();
+		if (CollUtil.isEmpty(platformRoleIds)) {
+			return;
+		}
+		if (CollUtil.containsAny(roleIds, platformRoleIds)) {
+			throw new ArynBusinessException(403, "无权授予平台管理员角色");
+		}
 	}
 
 }

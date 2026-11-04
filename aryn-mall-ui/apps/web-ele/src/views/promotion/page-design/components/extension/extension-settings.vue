@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import type { UploadProps, UploadRequestOptions } from 'element-plus';
 
-import { computed, defineAsyncComponent, reactive, ref, watch } from 'vue';
+import { defineAsyncComponent, reactive, watch } from 'vue';
 
 import {
+  ElAlert,
   ElButton,
   ElForm,
   ElFormItem,
@@ -18,7 +19,6 @@ import {
   ElUpload,
 } from 'element-plus';
 
-import { getActivityPage } from '#/api/promotion/ship-activity';
 import { uploadFile } from '#/api/upms/upload';
 
 import {
@@ -27,7 +27,12 @@ import {
 } from '../../../page-designer/schema/clone';
 import CategoryPicker from '../common/category-picker/index.vue';
 import IdPickerField from '../common/id-picker-field/index.vue';
-import { DEFAULT_BARGAIN_RATE } from './types';
+import {
+  GOODS_TAB_CLEARANCE_SORT,
+  GOODS_TAB_LEGACY_BARGAIN_SORT,
+  GOODS_TAB_MEMBER_SORT,
+  GOODS_TAB_NORMAL_SORTS,
+} from './types';
 
 const props = defineProps<{
   modelValue: Record<string, unknown>;
@@ -45,7 +50,7 @@ const emit = defineEmits<{
  * 渲染时被压缩成一个空格（如「9 折」），导致提示语与约定文案不一致。
  */
 const MEMBER_BANNER_HINT =
-  '{levelName} 为等级名；{discount} 是会员折扣率权益（0.9→9折），与「会员价活动」是两套体系，默认文案不写折数，避免折数与实价不符。';
+  '{levelName} 为等级名；{discount} 是会员折扣率权益（0.9→9折），与商品「专区标签」的会员价是两套体系，默认文案不写折数，避免折数与实价不符。';
 
 const SelectMaterial = defineAsyncComponent(
   () => import('#/components/select-material/index.vue'),
@@ -130,21 +135,86 @@ function updateTabDataSource(index: number, patch: Record<string, unknown>) {
   commit();
 }
 
-/**
- * 切换数据源模式：切到 activity 时补齐 activityId=""（契约字段，空串=自动取进行中活动），
- * 避免 C 端/后端读到缺字段；已有指定活动时保留原值。
- */
+/** 切换 Tab 数据源模式：只支持「按分类/排序自动」与「手选商品」 */
 function updateTabMode(index: number, mode: string) {
+  if (!tabList()[index]) return;
+  updateTabDataSource(index, { mode });
+}
+
+/**
+ * 多 Tab 商品流的「专区选品」取值。
+ *
+ * 持久化仍在 `dataSource.sort`（后端/C 端白名单不变）：
+ * - `member_price` = 会员专区（商品级会员标签选品）
+ * - `clearance` = 低价捡漏（商品级出清标签选品）
+ * - `bargain` 为旧版「折扣力度优先」，仅兼容历史装修文档，管理端不再提供新选。
+ */
+const TAB_ZONE_MEMBER = GOODS_TAB_MEMBER_SORT;
+const TAB_ZONE_CLEARANCE = GOODS_TAB_CLEARANCE_SORT;
+const TAB_LEGACY_BARGAIN = GOODS_TAB_LEGACY_BARGAIN_SORT;
+const TAB_NORMAL_SORTS = GOODS_TAB_NORMAL_SORTS;
+
+type TabZone = 'clearance' | 'legacy' | 'member' | 'none';
+
+/** 每个 Tab 上一次选中的普通排序：从专区切回普通商品时恢复（编辑期记忆，不落库） */
+const lastNormalSort = reactive<Record<string, string>>({});
+
+function tabSort(tab: Record<string, unknown>) {
+  return String(tabDataSource(tab).sort || 'sales');
+}
+
+/** Tab 的专区语义：会员标签 / 出清标签 / 旧版折扣力度 / 普通商品 */
+function tabZone(tab: Record<string, unknown>): TabZone {
+  const sort = tabSort(tab);
+  if (sort === TAB_ZONE_MEMBER) return 'member';
+  if (sort === TAB_ZONE_CLEARANCE) return 'clearance';
+  if (sort === TAB_LEGACY_BARGAIN) return 'legacy';
+  return 'none';
+}
+
+function tabNormalSort(tab: Record<string, unknown>) {
+  const sort = tabSort(tab);
+  return (TAB_NORMAL_SORTS as readonly string[]).includes(sort)
+    ? sort
+    : lastNormalSort[String(tab.id ?? '')] || 'sales';
+}
+
+function updateTabNormalSort(index: number, sort: string) {
   const tab = tabList()[index];
   if (!tab) return;
-  const patch: Record<string, unknown> = { mode };
-  if (
-    mode === 'activity' &&
-    typeof tabDataSource(tab).activityId !== 'string'
-  ) {
-    patch.activityId = '';
+  lastNormalSort[String(tab.id ?? index)] = sort;
+  updateTabDataSource(index, { sort });
+}
+
+/**
+ * 切换专区选品：
+ * - 专区 Tab 的 dataSource.sort 直接写专区语义（member_price / clearance）；
+ * - 切回普通商品时恢复该 Tab 上次的普通排序；
+ * - 旧版 bargain 的阈值一并清掉，避免脏字段留在装修文档里。
+ */
+function updateTabZone(index: number, zone: string) {
+  const tab = tabList()[index];
+  if (!tab) return;
+  const id = String(tab.id ?? index);
+  if (tabZone(tab) === 'none') lastNormalSort[id] = tabNormalSort(tab);
+  if (zone === 'member') {
+    updateTabDataSource(index, {
+      bargainRate: undefined,
+      sort: TAB_ZONE_MEMBER,
+    });
+    return;
   }
-  updateTabDataSource(index, patch);
+  if (zone === 'clearance') {
+    updateTabDataSource(index, {
+      bargainRate: undefined,
+      sort: TAB_ZONE_CLEARANCE,
+    });
+    return;
+  }
+  updateTabDataSource(index, {
+    bargainRate: undefined,
+    sort: lastNormalSort[id] || 'sales',
+  });
 }
 
 function addTab() {
@@ -183,98 +253,6 @@ function updateTabMemberBanner(index: number, patch: Record<string, unknown>) {
   );
   commit();
 }
-
-/** 阈值清空时回落默认值，避免把 null / 非法值写进持久化 JSON（后端会拒绝发布） */
-function updateTabBargainRate(index: number, value: null | number | undefined) {
-  updateTabDataSource(index, {
-    bargainRate:
-      value === null || value === undefined ? DEFAULT_BARGAIN_RATE : value,
-  });
-}
-
-/** 会员价活动状态文案（promotion_activity.status；4/5 为管理端按时间窗派生的展示态） */
-const MEMBER_ACTIVITY_STATUS_LABEL: Record<string, string> = {
-  '1': '草稿',
-  '2': '已发布',
-  '3': '已暂停',
-  '4': '已结束',
-  '5': '待开始',
-};
-
-const memberActivityOptions = ref<Array<{ id: string; label: string }>>([]);
-const memberActivitiesLoading = ref(false);
-let memberActivitiesLoaded = false;
-
-/** 时间窗压缩成「MM-DD HH:mm ~ MM-DD HH:mm」，避免下拉标签过长 */
-function shortenActivityTime(value: unknown) {
-  const text = typeof value === 'string' ? value : '';
-  return text.length >= 16 ? text.slice(5, 16) : text;
-}
-
-function createMemberActivityLabel(activity: Record<string, unknown>) {
-  const name = String(activity.activityName ?? activity.id ?? '未命名活动');
-  const status =
-    MEMBER_ACTIVITY_STATUS_LABEL[String(activity.status ?? '')] ?? '';
-  const window = [
-    shortenActivityTime(activity.startTime),
-    shortenActivityTime(activity.endTime),
-  ]
-    .filter(Boolean)
-    .join(' ~ ');
-  const detail = [status, window].filter(Boolean).join(' · ');
-  return detail ? `${name}（${detail}）` : name;
-}
-
-/**
- * 会员价活动下拉（type=10）：仅在用到「按会员价活动自动」时按需加载一次。
- *
- * 查询失败/无权限时降级为空列表（只保留「自动」首项），不阻断装修主流程；
- * 失败不置已加载标记，下次切换模式还会重试。
- */
-async function loadMemberActivities() {
-  if (memberActivitiesLoaded) return;
-  memberActivitiesLoaded = true;
-  memberActivitiesLoading.value = true;
-  try {
-    const response = (await getActivityPage({
-      activityType: '10',
-      current: 1,
-      size: 100,
-    })) as null | undefined | { records?: Array<Record<string, unknown>> };
-    const records = Array.isArray(response?.records) ? response.records : [];
-    memberActivityOptions.value = records
-      .map((activity) => ({
-        createTime: String(activity.createTime ?? ''),
-        id: String(activity.id ?? ''),
-        label: createMemberActivityLabel(activity),
-        priority: Number(activity.priority) || 0,
-      }))
-      .filter((activity) => Boolean(activity.id))
-      .sort(
-        (left, right) =>
-          right.createTime.localeCompare(left.createTime) ||
-          right.priority - left.priority,
-      )
-      .map(({ id, label }) => ({ id, label }));
-  } catch {
-    memberActivityOptions.value = [];
-    memberActivitiesLoaded = false;
-  } finally {
-    memberActivitiesLoading.value = false;
-  }
-}
-
-// 打开已配置「按会员价活动自动」Tab 的存量文档时也把活动列表拉起来（只拉一次）
-const hasActivityTab = computed(() =>
-  tabList().some((tab) => tabDataSource(tab).mode === 'activity'),
-);
-watch(
-  hasActivityTab,
-  (enabled) => {
-    if (enabled) loadMemberActivities();
-  },
-  { immediate: true },
-);
 
 const VIDEO_MAX_SIZE_MB = 100;
 
@@ -419,7 +397,6 @@ function clearVideo() {
             >
               <ElRadio value="automatic">按分类/排序自动</ElRadio>
               <ElRadio value="manual">手选商品</ElRadio>
-              <ElRadio value="activity">按会员价活动自动</ElRadio>
             </ElRadioGroup>
             <div
               v-if="tabDataSource(tab).mode === 'manual'"
@@ -434,35 +411,10 @@ function clearVideo() {
                   updateTabDataSource(index, { targetIds: $event })
                 "
               />
+              <span class="tab-editor__hint">
+                手选商品不套用专区标签与专区开关；需要专区货盘请改用「按分类/排序自动」并选择「专区选品」。
+              </span>
             </div>
-            <template v-else-if="tabDataSource(tab).mode === 'activity'">
-              <div class="tab-card__field">
-                <span class="tab-card__label">会员价活动</span>
-                <ElSelect
-                  :loading="memberActivitiesLoading"
-                  :model-value="String(tabDataSource(tab).activityId ?? '')"
-                  @update:model-value="
-                    updateTabDataSource(index, {
-                      activityId: String($event ?? ''),
-                    })
-                  "
-                >
-                  <ElOption label="自动：取当前进行中的会员价活动" value="" />
-                  <ElOption
-                    v-for="activity in memberActivityOptions"
-                    :key="activity.id"
-                    :label="activity.label"
-                    :value="activity.id"
-                  />
-                </ElSelect>
-                <span class="tab-editor__hint">
-                  专区商品＝活动里配置的商品，顺序随活动；活动加减商品自动同步，无需重新装修。
-                </span>
-                <span class="tab-editor__hint">
-                  建议同时开启「会员权益条」，C 端商品卡才会展示会员价角标。
-                </span>
-              </div>
-            </template>
             <template v-else>
               <div class="tab-card__field">
                 <span class="tab-card__label">分类（留空为全部）</span>
@@ -474,42 +426,73 @@ function clearVideo() {
                 />
               </div>
               <div class="tab-card__field">
+                <span class="tab-card__label">专区选品</span>
+                <ElSelect
+                  :model-value="tabZone(tab)"
+                  @update:model-value="updateTabZone(index, $event as string)"
+                >
+                  <ElOption label="不参与专区（普通商品）" value="none" />
+                  <ElOption label="会员专区（会员标签商品）" value="member" />
+                  <ElOption
+                    label="低价捡漏（出清标签商品）"
+                    value="clearance"
+                  />
+                  <ElOption
+                    v-if="tabZone(tab) === 'legacy'"
+                    disabled
+                    label="折扣力度优先（旧版，已停用）"
+                    value="legacy"
+                  />
+                </ElSelect>
+                <span v-if="tabZone(tab) === 'member'" class="tab-editor__hint">
+                  只展示打了「会员」标签的商品；开关、默认折扣率、成本下限在「专区设置」维护，本
+                  Tab 不控制排序。
+                </span>
+                <span
+                  v-else-if="tabZone(tab) === 'clearance'"
+                  class="tab-editor__hint"
+                >
+                  只展示打了「出清」标签且未到期的商品；开关与排序在「专区设置」维护（本
+                  Tab 的排序选项不生效）。
+                </span>
+                <span
+                  v-else-if="tabZone(tab) === 'none'"
+                  class="tab-editor__hint"
+                >
+                  普通商品按下方排序展示；需要专区货盘请选择「会员专区」或「低价捡漏」。
+                </span>
+              </div>
+              <div v-if="tabZone(tab) === 'none'" class="tab-card__field">
                 <span class="tab-card__label">排序</span>
                 <ElSelect
-                  :model-value="tabDataSource(tab).sort as string"
+                  :model-value="tabNormalSort(tab)"
                   @update:model-value="
-                    updateTabDataSource(index, { sort: $event as string })
+                    updateTabNormalSort(index, $event as string)
                   "
                 >
                   <ElOption label="销量优先" value="sales" />
                   <ElOption label="新品优先" value="create_time" />
                   <ElOption label="价格从低到高" value="sales_price" />
-                  <ElOption label="折扣力度优先（低价捡漏）" value="bargain" />
                 </ElSelect>
               </div>
-              <div
-                v-if="tabDataSource(tab).sort === 'bargain'"
-                class="tab-card__field"
+              <ElAlert
+                v-if="tabZone(tab) === 'legacy'"
+                class="tab-card__alert"
+                :closable="false"
+                show-icon
+                title="旧版「折扣力度优先」已停用"
+                type="warning"
               >
-                <span class="tab-card__label">折扣率阈值</span>
-                <ElInputNumber
-                  :model-value="
-                    Number(
-                      tabDataSource(tab).bargainRate ?? DEFAULT_BARGAIN_RATE,
-                    )
-                  "
-                  :min="1.01"
-                  :max="9.99"
-                  :step="0.01"
-                  :precision="2"
-                  controls-position="right"
-                  @update:model-value="updateTabBargainRate(index, $event)"
-                />
-                <span class="tab-editor__hint">
-                  原价 ≥ 售价 × 阈值 的商品才会进入该 Tab，区间 (1.00,
-                  9.99]，缺省 1.15
-                </span>
-              </div>
+                该配置按全店折扣率圈品，不认专区标签、也不受「专区设置」开关控制。
+                <ElButton
+                  class="tab-card__alert-action"
+                  size="small"
+                  type="primary"
+                  @click="updateTabZone(index, 'clearance')"
+                >
+                  改为「低价捡漏（按标签）」
+                </ElButton>
+              </ElAlert>
             </template>
             <div class="tab-card__field">
               <div class="tab-card__switch-row">
@@ -522,8 +505,9 @@ function clearVideo() {
                 <span class="tab-card__label">会员权益条（Tab 顶部横幅）</span>
               </div>
               <span class="tab-editor__hint">
-                开启后 C
-                端在商品流顶部透出会员权益横幅；两段文案留空则使用内置文案。
+                仅控制 C
+                端商品流顶部的会员权益横幅，不控制会员价；会员价由「专区设置」开关控制。建议只给会员专区
+                Tab 开启。
               </span>
             </div>
             <template v-if="tabMemberBanner(tab).enabled === true">
@@ -566,7 +550,10 @@ function clearVideo() {
             添加 Tab
           </ElButton>
           <div class="tab-editor__hint">
-            「低价捡漏」建议用「折扣力度优先」并按阈值圈品；「会员专区」建议用「按会员价活动自动」并开启会员权益条，商品随活动自动同步。
+            推荐配置：「低价捡漏」= 按分类/排序自动 +
+            专区选品「低价捡漏（出清标签商品）」；「会员专区」= 按分类/排序自动
+            +
+            专区选品「会员专区（会员标签商品）」并开启会员权益条。旧版「折扣力度优先」已停用，历史配置会提示一键迁移。
           </div>
         </div>
       </ElFormItem>
@@ -877,6 +864,14 @@ function clearVideo() {
   display: flex;
   gap: 8px;
   align-items: center;
+}
+
+.tab-card__alert {
+  padding: 8px 10px;
+}
+
+.tab-card__alert-action {
+  margin-top: 6px;
 }
 
 .tab-editor__hint {

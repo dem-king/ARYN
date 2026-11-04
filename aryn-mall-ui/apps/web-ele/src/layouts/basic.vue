@@ -7,7 +7,6 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
 import { useVbenModal } from '@vben/common-ui';
-import { ARYN_PLATFORM_TENANT_ID } from '@vben/constants';
 import { useWatermark } from '@vben/hooks';
 import {
   BasicLayout,
@@ -64,9 +63,15 @@ const tenantRef = ref();
 const openTour = ref(false);
 const tenantShopInfo = ref<null | TenantShopInfo>(null);
 
+// 平台管理员是用户级身份：由后端按 sys_user.platform_admin + 平台租户类型计算后下发，
+// 平台租户里的租户管理员不是平台管理员（不显示租户切换与平台管理菜单）
+const isPlatformAdmin = computed(
+  () => userStore.userInfo?.platformAdmin === true,
+);
+
 // 平台管理员切换到租户后，userInfo 仍是平台租户，需以本地切换值为准
 const currentTenantId = computed(() => {
-  if (userStore.userInfo?.tenantId === ARYN_PLATFORM_TENANT_ID) {
+  if (isPlatformAdmin.value) {
     return localStorage.getItem('switch-tenant-id') || '';
   }
   return userStore.userInfo?.tenantId || '';
@@ -76,10 +81,8 @@ const brand = computed(() =>
   resolveAdminBrand(currentTenantId.value, tenantShopInfo.value),
 );
 
-if (
-  currentTenantId.value &&
-  currentTenantId.value !== ARYN_PLATFORM_TENANT_ID
-) {
+// 平台租户未切换时 currentTenantId 为空，继续使用平台品牌；其余场景按当前租户取品牌
+if (currentTenantId.value) {
   getShopInfo()
     .then((info) => {
       tenantShopInfo.value = info;
@@ -128,7 +131,7 @@ watch(
     immediate: true,
   },
 );
-if (userStore.userInfo?.tenantId === ARYN_PLATFORM_TENANT_ID) {
+if (isPlatformAdmin.value) {
   getTenantList();
   if (localStorage.getItem('switch-tenant-id') === null) {
     openTour.value = true;
@@ -184,10 +187,7 @@ function handleViewAllNotices() {
       </ElTour>
       <Transition name="tenant">
         <ElSelect
-          v-if="
-            userStore.userInfo?.tenantId === ARYN_PLATFORM_TENANT_ID &&
-            tenantList
-          "
+          v-if="isPlatformAdmin && tenantList"
           ref="tenantRef"
           v-model="switchTenantId"
           placeholder="请切换租户"

@@ -169,10 +169,10 @@ describe('page designer canvas contract', () => {
     const shell = readAdmin('canvas-page-shell.vue');
     const categoryBrowser = readMobile(MOBILE_CATEGORY_BROWSER);
 
-    // 左栏 rail 宽度是本契约的关键数值：C 端 176rpx（= 88px），
-    // 右栏可用宽度 = 375 - 88 = 287px。任一端改动都必须同步另一端。
-    expect(categoryBrowser).toContain('width: 176rpx');
-    expect(shell).toContain('width: 88px');
+    // 左栏 rail 宽度是本契约的关键数值：C 端 192rpx（= 96px），
+    // 右栏可用宽度 = 375 - 96 = 279px。任一端改动都必须同步另一端。
+    expect(categoryBrowser).toContain('width: 192rpx');
+    expect(shell).toContain('width: 96px');
 
     // 排序条 88rpx = 44px，同样两端对齐
     expect(categoryBrowser).toContain('height: 88rpx');

@@ -28,12 +28,13 @@ public class TenantAccessGuard {
 		if (!StringUtils.hasText(tenantId)) {
 			throw new ArynBusinessException(403, "缺少租户标识");
 		}
-		if (CommonConstants.PLATFORM_TENANT_ID.equals(tenantId)) {
-			return;
-		}
 		TenantAccessDTO access = remoteTenantService.getAccess(tenantId);
 		if (access == null) {
 			throw new ArynBusinessException(403, "租户不存在或已删除");
+		}
+		// 平台租户是运维入口，始终放行：身份按数据 tenant_type 判定，不硬编码租户 ID
+		if (CommonConstants.TENANT_TYPE_PLATFORM.equals(access.getTenantType())) {
+			return;
 		}
 		if (!CommonConstants.NORMAL_STATUS.equals(access.getStatus())) {
 			throw new ArynBusinessException(403, "租户已停用，请联系平台管理员");

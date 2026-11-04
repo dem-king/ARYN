@@ -262,9 +262,9 @@ public class OrderPriceComputeService {
 				// 既有命中优先级更高（拼团/秒杀/会员价）：保留原命中与叠加策略
 				continue;
 			}
-			// 仅会员价带落价前基价（取优用）；新人价/拼团/秒杀/折扣传入 null，互斥语义不变
+			// 会员价/出清价带落价前基价（取优用）；新人价/拼团/秒杀/折扣传入 null，互斥语义不变
 			BigDecimal originalUnitPrice = activityType == StackActivityTypeEnum.MEMBER_PRICE
-					? override.getOriginalPrice() : null;
+					|| activityType == StackActivityTypeEnum.CLEARANCE ? override.getOriginalPrice() : null;
 			plan.putHit(override.getSkuId(), activityType, override.getActivityId(),
 					override.getCouponStackable() == null ? activityType.isDefaultCouponStackable()
 							: override.getCouponStackable(),
@@ -274,21 +274,71 @@ public class OrderPriceComputeService {
 		}
 	}
 
-	/** 取价链优先级（拼团 &gt; 秒杀 &gt; 会员价 &gt; 新人价 &gt; 限时折扣），用于防止低优先级命中覆盖高优先级命中。 */
+	/**
+	 * 专区来源与活动前单价快照：订单明细只持久化成交价，事后无法反推专区让利，
+	 * 这里在落价后按最终胜出的 override 回填 {@code zoneSource/activityBasePrice}。
+	 *
+	 * <p>只有会员价/出清价会被标记；阶梯价、新人价、拼团/秒杀/折扣不属于专区。
+	 * 无命中的明细显式清零，避免确认页/试算复用对象时残留。
+	 */
+	public void applyZoneSourceSnapshots(List<OrderItemEntity> orderItemEntityList,
+			PromotionCalculationVO calculation) {
+		if (orderItemEntityList == null || orderItemEntityList.isEmpty()) {
+			return;
+		}
+		Map<String, OrderItemEntity> itemBySku = orderItemEntityList.stream()
+			.filter(item -> item != null && item.getSkuId() != null)
+			.collect(Collectors.toMap(OrderItemEntity::getSkuId, item -> item, (left, right) -> left));
+		for (OrderItemEntity item : orderItemEntityList) {
+			if (item != null) {
+				item.setZoneSource(null);
+				item.setActivityBasePrice(null);
+			}
+		}
+		if (calculation == null || calculation.getLadderOverrides() == null) {
+			return;
+		}
+		for (PromotionCalculationVO.UnitPriceOverride override : calculation.getLadderOverrides()) {
+			String zoneSource = null;
+			if (PromotionActivity.TYPE_MEMBER_PRICE.equals(override.getActivityType())) {
+				zoneSource = "member";
+			}
+			else if (PromotionActivity.TYPE_CLEARANCE.equals(override.getActivityType())) {
+				zoneSource = "clearance";
+			}
+			if (zoneSource == null) {
+				continue;
+			}
+			OrderItemEntity item = itemBySku.get(override.getSkuId());
+			if (item == null) {
+				continue;
+			}
+			item.setZoneSource(zoneSource);
+			item.setActivityBasePrice(override.getOriginalPrice());
+		}
+	}
+
+	/** 取价链优先级（拼团 &gt; 秒杀 &gt; 会员价/出清价 &gt; 新人价 &gt; 限时折扣），用于防止低优先级命中覆盖高优先级命中。 */
 	private static int stackPriority(StackActivityTypeEnum activityType) {
 		return switch (activityType) {
 			case GROUP_BUY -> 4;
 			case SECKILL -> 3;
-			case MEMBER_PRICE -> 2;
+			case MEMBER_PRICE, CLEARANCE -> 2;
 			case NEWBIE -> 1;
 			case DISCOUNT -> 0;
 		};
 	}
 
-	/** 引擎落价的订单侧活动类型映射：会员价 type=10、新人价 type=9；其他类型（阶梯价等）不参与叠加策略。 */
+	/**
+	 * 引擎落价的订单侧活动类型映射：会员价 type=10、出清价 type=11、新人价 type=9；
+	 * 其他类型（阶梯价等）不参与叠加策略。
+	 */
 	private static StackActivityTypeEnum enginePricedActivityType(String activityType) {
 		if (PromotionActivity.TYPE_MEMBER_PRICE.equals(activityType)) {
 			return StackActivityTypeEnum.MEMBER_PRICE;
+		}
+		if (PromotionActivity.TYPE_CLEARANCE.equals(activityType)) {
+			return StackActivityTypeEnum.CLEARANCE;
 		}
 		if (PromotionActivity.TYPE_NEWBIE_PRICE.equals(activityType)) {
 			return StackActivityTypeEnum.NEWBIE;
@@ -953,6 +1003,18 @@ public class OrderPriceComputeService {
 	 */
 	public void orderMemberBenefitHandler(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
 			MemberBenefitsVO benefits, PromotionPricePlan plan) {
+		orderMemberBenefitHandler(orderInfo, orderItemEntityList, benefits, plan, null);
+	}
+
+	/**
+	 * 会员权益落价（带成本兜底倍率）。
+	 *
+	 * <p>{@code costFloorMultiplier} 非空时，会员价明细的成交单价不得低于
+	 * 「商品成本 × 倍率」；等级折扣价低于该下限时回退到会员价/下限，保证任何情况下不击穿成本。
+	 * 出清价属于清仓让利，不套用会员成本兜底。
+	 */
+	public void orderMemberBenefitHandler(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList,
+			MemberBenefitsVO benefits, PromotionPricePlan plan, BigDecimal costFloorMultiplier) {
 		if (plan == null) {
 			log.warn("会员折扣计算缺少活动价计划（PromotionPricePlan=null），活动价明细将按普通商品参与会员折扣");
 		}
@@ -974,8 +1036,12 @@ public class OrderPriceComputeService {
 				discountPrice = item.getTotalPrice().multiply(BigDecimal.ONE.subtract(discountRate))
 					.setScale(2, RoundingMode.HALF_UP);
 			}
-			else if (hit.activityType() == StackActivityTypeEnum.MEMBER_PRICE && hit.originalUnitPrice() != null) {
-				discountPrice = resolveMemberPriceTakeBetter(item, hit, discountRate);
+			else if ((hit.activityType() == StackActivityTypeEnum.MEMBER_PRICE
+					|| hit.activityType() == StackActivityTypeEnum.CLEARANCE) && hit.originalUnitPrice() != null) {
+				// 会员价：等级折扣取优也必须守住成本下限；出清价不适用会员成本兜底
+				BigDecimal costFloor = hit.activityType() == StackActivityTypeEnum.MEMBER_PRICE
+						? costFloor(item, costFloorMultiplier) : null;
+				discountPrice = resolveMemberPriceTakeBetter(item, hit, discountRate, costFloor);
 			}
 			else {
 				// 其它活动价（新人价/秒杀/拼团/限时折扣）与会员折扣互斥：只享受活动价
@@ -997,18 +1063,46 @@ public class OrderPriceComputeService {
 	 * @return 会员折扣金额；0 表示维持会员价成交
 	 */
 	private BigDecimal resolveMemberPriceTakeBetter(OrderItemEntity item,
-			PromotionPricePlan.ActivityPriceHit hit, BigDecimal discountRate) {
+			PromotionPricePlan.ActivityPriceHit hit, BigDecimal discountRate, BigDecimal costFloorUnit) {
 		BigDecimal quantity = BigDecimal.valueOf(item.getBuyQuantity() == null ? 0 : item.getBuyQuantity());
+		if (quantity.signum() <= 0) {
+			return BigDecimal.ZERO;
+		}
 		BigDecimal baseTotal = hit.originalUnitPrice().multiply(quantity);
 		BigDecimal discountedTotal = baseTotal.multiply(discountRate).setScale(2, RoundingMode.HALF_UP);
 		BigDecimal memberPricedTotal = item.getTotalPrice() == null ? BigDecimal.ZERO : item.getTotalPrice();
+		// 成本下限不能超过原价，否则会把成交价抬到高于划线价
+		BigDecimal floorUnit = costFloorUnit == null ? null : costFloorUnit.min(hit.originalUnitPrice());
+		BigDecimal floorTotal = floorUnit == null ? null : floorUnit.multiply(quantity);
+		if (floorTotal != null && memberPricedTotal.compareTo(floorTotal) < 0) {
+			// 会员活动价本身低于成本下限：抬到下限成交，不再二次打折
+			item.setSalesPrice(floorUnit);
+			item.setTotalPrice(floorTotal);
+			return BigDecimal.ZERO;
+		}
 		if (discountedTotal.compareTo(memberPricedTotal) >= 0) {
 			// 会员价更低或持平：维持会员价成交，memberDiscountPrice=0（会员价已是身份优惠）
 			return BigDecimal.ZERO;
 		}
+		if (floorUnit != null) {
+			BigDecimal discountedUnit = discountedTotal.divide(quantity, 2, RoundingMode.HALF_UP);
+			if (discountedUnit.compareTo(floorUnit) < 0) {
+				// 等级折扣击穿成本：保留会员价，不执行等级折扣
+				return BigDecimal.ZERO;
+			}
+		}
 		item.setSalesPrice(hit.originalUnitPrice());
 		item.setTotalPrice(baseTotal);
 		return baseTotal.subtract(discountedTotal).max(BigDecimal.ZERO);
+	}
+
+	/** 会员成本下限单价：成本 × 倍率，空/非法成本或未启用返回 null。 */
+	private BigDecimal costFloor(OrderItemEntity item, BigDecimal costFloorMultiplier) {
+		if (costFloorMultiplier == null || costFloorMultiplier.signum() <= 0 || item.getCostPrice() == null
+				|| item.getCostPrice().signum() <= 0) {
+			return null;
+		}
+		return item.getCostPrice().multiply(costFloorMultiplier).setScale(2, RoundingMode.HALF_UP);
 	}
 
 	public void orderCouponHandler(OrderInfo orderInfo, List<OrderItemEntity> orderItemEntityList) {
@@ -1203,6 +1297,8 @@ public class OrderPriceComputeService {
 			orderItemEntity.setSpuId(goodsSpu.getId());
 			orderItemEntity.setSkuId(sku.getId());
 			orderItemEntity.setSalesPrice(salesPrice);
+			// 成本快照只用于会员价成本兜底，不落库、不出参
+			orderItemEntity.setCostPrice(sku.getCostPrice() != null ? sku.getCostPrice() : goodsSpu.getCostPrice());
 			orderItemEntity.setTotalPrice(
 					orderItemEntity.getSalesPrice().multiply(BigDecimal.valueOf(placeOrderSku.getQuantity())));
 			orderItemEntity.setFreightPrice(BigDecimal.ZERO);
@@ -1230,12 +1326,13 @@ public class OrderPriceComputeService {
 	}
 
 	/**
-	 * 从营销试算结果中提取「已由引擎落定成交基价」的 SKU 集合：会员价（type=10）∪ 新人价（type=9）。
+	 * 从营销试算结果中提取「已由引擎落定成交基价」的 SKU 集合：
+	 * 会员价（type=10）∪ 出清价（type=11）∪ 新人价（type=9）。
 	 *
 	 * <p>{@link #applyPromotionLadder} 已把这些 SKU 的 salesPrice 改成活动价，
 	 * {@link #applyPromotionPricePlan} 的限时折扣分支必须整段跳过（折扣会无条件覆盖 salesPrice），
-	 * 否则会员价/新人价会被折扣价冲掉。阶梯价（type=4）不在此集合：折扣覆盖阶梯价是本次改造前的
-	 * 既有行为，为「无会员价/新人价时既有成交口径不变」保持不变。
+	 * 否则会员价/出清价/新人价会被折扣价冲掉。阶梯价（type=4）不在此集合：折扣覆盖阶梯价是本次改造前的
+	 * 既有行为，为「无会员价/出清价/新人价时既有成交口径不变」保持不变。
 	 *
 	 * <p>下单与结算两个入口必须传同一份集合，保证提交金额与确认页一致。
 	 */
@@ -1246,6 +1343,7 @@ public class OrderPriceComputeService {
 		return calculation.getLadderOverrides().stream()
 			.filter(override -> override.getActivityType() != null
 					&& (PromotionActivity.TYPE_MEMBER_PRICE.equals(override.getActivityType())
+							|| PromotionActivity.TYPE_CLEARANCE.equals(override.getActivityType())
 							|| PromotionActivity.TYPE_NEWBIE_PRICE.equals(override.getActivityType())))
 			.map(PromotionCalculationVO.UnitPriceOverride::getSkuId)
 			.collect(Collectors.toSet());

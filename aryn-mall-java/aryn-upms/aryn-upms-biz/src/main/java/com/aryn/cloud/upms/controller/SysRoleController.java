@@ -16,6 +16,7 @@ import com.aryn.cloud.upms.api.entity.SysUserRole;
 import com.aryn.cloud.upms.service.ISysRoleMenuService;
 import com.aryn.cloud.upms.service.ISysRoleService;
 import com.aryn.cloud.upms.service.ISysUserRoleService;
+import com.aryn.cloud.upms.support.PlatformAdminSupport;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.AllArgsConstructor;
@@ -42,6 +43,8 @@ public class SysRoleController {
 	private final ISysUserRoleService sysUserRoleService;
 
 	private final ISysRoleMenuService sysRoleMenuService;
+
+	private final PlatformAdminSupport platformAdminSupport;
 
 	@Operation(summary = "角色列表")
 	@SaCheckPermission("upms:sysrole:page")
@@ -71,6 +74,10 @@ public class SysRoleController {
 	@SaCheckPermission("upms:sysrole:add")
 	@PostMapping
 	public Result add(@RequestBody SysRole sysRole) {
+		if (CommonConstants.ROLE_PLATFORM_ADMIN_CODE.equals(sysRole.getRoleCode())
+				&& !platformAdminSupport.isCurrentPlatformAdmin()) {
+			return Result.fail("平台管理员角色仅平台管理员可维护");
+		}
 		if (sysRoleService.checkRole(new SysRole(null, sysRole.getRoleCode()))) {
 			return Result.fail("角色编码已存在");
 		}
@@ -86,6 +93,10 @@ public class SysRoleController {
 	@PutMapping
 	public Result edit(@RequestBody SysRole sysRole) {
 		SysRole exists = sysRoleService.getById(sysRole.getId());
+		if (exists != null && CommonConstants.ROLE_PLATFORM_ADMIN_CODE.equals(exists.getRoleCode())
+				&& !platformAdminSupport.isCurrentPlatformAdmin()) {
+			return Result.fail("平台管理员角色仅平台管理员可维护");
+		}
 		if (exists != null && CommonConstants.PROTECTED_DELIVERY_ROLE_CODE.equals(exists.getRoleCode())
 				&& StrUtil.isNotBlank(sysRole.getRoleCode())
 				&& !CommonConstants.PROTECTED_DELIVERY_ROLE_CODE.equals(sysRole.getRoleCode())) {
@@ -104,6 +115,10 @@ public class SysRoleController {
 		SysRole exists = sysRoleService.getById(id);
 		if (exists == null) {
 			return Result.fail("角色不存在");
+		}
+		if (CommonConstants.ROLE_PLATFORM_ADMIN_CODE.equals(exists.getRoleCode())
+				&& !platformAdminSupport.isCurrentPlatformAdmin()) {
+			return Result.fail("平台管理员角色仅平台管理员可维护");
 		}
 		// 受保护角色只能由配送员管理（资格接口/向导）授予或回收，删除会导致资格链路中断
 		if (CommonConstants.PROTECTED_DELIVERY_ROLE_CODE.equals(exists.getRoleCode())) {

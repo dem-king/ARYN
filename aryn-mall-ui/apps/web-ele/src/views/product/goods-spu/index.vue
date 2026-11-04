@@ -1,5 +1,7 @@
 <script lang="ts" setup>
-import { defineAsyncComponent, reactive, ref, toRefs } from 'vue';
+import type { ZoneType } from '#/views/product/zone-batch/types';
+
+import { computed, defineAsyncComponent, reactive, ref, toRefs } from 'vue';
 import { useRouter } from 'vue-router';
 
 import { Bottom, Delete, Edit, Plus, Top } from '@element-plus/icons-vue';
@@ -19,6 +21,7 @@ import {
   ElSelect,
   ElTable,
   ElTableColumn,
+  ElTag,
 } from 'element-plus';
 
 import { getList as getBrandList } from '#/api/product/goods-brand';
@@ -40,6 +43,7 @@ import PageToolbar from '#/components/page/page-toolbar.vue';
 import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 import { useDict } from '#/utils/dict';
 import { formatMoney } from '#/utils/util';
+import ZoneBatchDialog from '#/views/product/zone-batch/components/ZoneBatchDialog.vue';
 
 const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
@@ -52,6 +56,15 @@ const DictTag = defineAsyncComponent(
 );
 
 const { goods_status, goods_specs } = useDict('goods_status', 'goods_specs');
+/**
+ * 专区分类筛选项：取值与后端 `GET /product/goodsspu/page?zoneType=` 契约一致
+ * （member 会员专区 / clearance 低价捡漏 / none 未加入专区），改值需同步后端校验。
+ */
+const zoneFilterOptions = [
+  { label: '会员专区', value: 'member' },
+  { label: '低价捡漏', value: 'clearance' },
+  { label: '未加入专区', value: 'none' },
+];
 const state = reactive({
   queryParams: {
     name: '',
@@ -59,6 +72,7 @@ const state = reactive({
     enableSpecs: '',
     categorySecondId: '',
     brandId: '',
+    zoneType: '',
   },
   page: {
     total: 0,
@@ -95,6 +109,36 @@ const importLoading = ref(false);
 const importFileName = ref('');
 const importRows = ref<any[]>([]);
 const previewResult = ref<any>(null);
+
+// 专区批量操作（共享弹窗 v2，契约 §3.3）
+const zoneBatchVisible = ref(false);
+const zoneBatchMode = ref<'remove' | 'standard'>('standard');
+const zoneBatchSpuIds = computed(() =>
+  multipleSelection.value.map((item: any) => item.id),
+);
+/** 专区筛选已指定专区时，弹窗只操作该专区；否则两个专区都开放 */
+const zoneBatchZoneScope = computed<'both' | ZoneType>(() => {
+  const zoneType = state.queryParams.zoneType;
+  return zoneType === 'member' || zoneType === 'clearance' ? zoneType : 'both';
+});
+
+const openZoneBatch = (mode: 'remove' | 'standard') => {
+  if (!multipleSelection.value?.length) {
+    return ElMessage.warning('请选择商品');
+  }
+  zoneBatchMode.value = mode;
+  zoneBatchVisible.value = true;
+};
+
+/** 结果面板关闭后刷新列表（弹窗内部已展示结果与失败明细） */
+const handleZoneBatchDone = () => {
+  initPage();
+};
+
+/** 专区商品管理页（以专区为主体管理商品集合） */
+const gotoZoneGoods = () => {
+  $route.push('/promotion/zone-goods');
+};
 
 const openImport = () => {
   importVisible.value = true;
@@ -266,6 +310,20 @@ useKeepAliveRefresh(initPage);
             :props="defaultProps"
           />
         </ElFormItem>
+        <ElFormItem label="专区" prop="zoneType">
+          <ElSelect
+            v-model="state.queryParams.zoneType"
+            clearable
+            placeholder="请选择专区"
+          >
+            <ElOption
+              v-for="item in zoneFilterOptions"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </ElSelect>
+        </ElFormItem>
         <ElFormItem label="商品品牌" prop="brandId">
           <ElSelect
             v-model="state.queryParams.brandId"
@@ -338,6 +396,31 @@ useKeepAliveRefresh(initPage);
             :icon="Bottom"
           >
             下架
+          </ElButton>
+          <ElButton
+            type="primary"
+            plain
+            v-access:code="'product:goodsspu:edit'"
+            :disabled="multipleSelection.length <= 0"
+            @click="openZoneBatch('standard')"
+          >
+            批量设置规则
+          </ElButton>
+          <ElButton
+            type="danger"
+            plain
+            v-access:code="'product:goodsspu:edit'"
+            :disabled="multipleSelection.length <= 0"
+            @click="openZoneBatch('remove')"
+          >
+            移出专区
+          </ElButton>
+          <ElButton
+            plain
+            v-access:code="'promotion:shipactivity:page'"
+            @click="gotoZoneGoods"
+          >
+            专区商品管理
           </ElButton>
           <ElButton
             type="warning"
@@ -433,6 +516,33 @@ useKeepAliveRefresh(initPage);
             <DictTag :options="goods_specs" :value="scope.row.enableSpecs" />
           </template>
         </ElTableColumn>
+        <ElTableColumn label="专区" align="center" width="120">
+          <template #default="scope">
+            <ElTag
+              v-if="scope.row.isMemberItem === 1"
+              size="small"
+              type="warning"
+              class="mr5"
+            >
+              会员
+            </ElTag>
+            <ElTag
+              v-if="scope.row.isClearanceItem === 1"
+              size="small"
+              type="danger"
+            >
+              捡漏
+            </ElTag>
+            <span
+              v-if="
+                scope.row.isMemberItem !== 1 && scope.row.isClearanceItem !== 1
+              "
+              class="text-gray-400"
+            >
+              -
+            </span>
+          </template>
+        </ElTableColumn>
         <ElTableColumn
           prop="salesVolume"
           label="销量"
@@ -480,6 +590,17 @@ useKeepAliveRefresh(initPage);
         v-model:current="state.page.currentPage"
         v-model:size="state.page.pageSize"
         @change="initPage"
+      />
+      <!-- 专区批量操作（共享弹窗 v2：预检 → 动作 → 影响 → 分片提交 → 结果面板） -->
+      <ZoneBatchDialog
+        v-model:visible="zoneBatchVisible"
+        :spu-ids="zoneBatchSpuIds"
+        :zone-scope="zoneBatchZoneScope"
+        :mode="zoneBatchMode"
+        :title="
+          zoneBatchMode === 'remove' ? '批量移出专区' : '批量设置专区规则'
+        "
+        @done="handleZoneBatchDone"
       />
       <!-- 批量导入 -->
       <ElDialog

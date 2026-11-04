@@ -1,93 +1,85 @@
-import type { DecorationLink } from './schema/types'
+import type { DecorationLink } from "./schema/types";
 
-export type RetailCommonStyle = Record<string, unknown>
-export type RetailFallbackStrategy = 'hide' | 'placeholder'
+export type RetailCommonStyle = Record<string, unknown>;
+export type RetailFallbackStrategy = "hide" | "placeholder";
 
 export interface RetailDataSource {
-  /**
-   * 会员价活动 ID（仅 `mode='activity'` 生效）：空/缺失 = 自动取当前进行中的会员价活动。
-   *
-   * 货盘与顺序完全由活动配置决定（活动加减商品即同步，C 端不落缓存）；
-   * 活动失效/无货时专区空态，不展示过期货盘。
-   */
-  activityId?: string
   /**
    * 折扣率阈值（仅 `sort='bargain'` 生效，与后端持久化 JSON 对齐）。
    *
    * 圈品口径：原价 ≥ 售价 × bargainRate。缺省/越界时按 1.15 下发（见
    * `retail-query.ts` 的 normalizeBargainRate），管理端步长 0.01、区间 (1.00, 9.99]。
    */
-  bargainRate?: number
+  bargainRate?: number;
   /** 数据缓存时长（秒），0 或缺省不缓存 */
-  cacheTtl?: number
-  categoryId?: string
-  metric?: string
+  cacheTtl?: number;
+  categoryId?: string;
+  metric?: string;
   /**
    * 数据源模式：
    * - `automatic` 分类 + 排序取数；`manual` 运营手选 SPU；
-   * - `activity` 按会员价活动自动取货盘（会员专区，顺序随活动）；
    * - `current-tenant` / `ranking` / `rule` 其它组件的数据源语义。
    */
-  mode: 'activity' | 'automatic' | 'current-tenant' | 'manual' | 'ranking' | 'rule'
-  sort?: string
-  targetIds?: string[]
+  mode: "automatic" | "current-tenant" | "manual" | "ranking" | "rule";
+  sort?: string;
+  targetIds?: string[];
 }
 
 export interface RetailBaseProps {
-  commonStyle: RetailCommonStyle
-  count: number
-  dataSource: RetailDataSource
-  emptyStrategy: RetailFallbackStrategy
-  invalidStrategy: RetailFallbackStrategy
+  commonStyle: RetailCommonStyle;
+  count: number;
+  dataSource: RetailDataSource;
+  emptyStrategy: RetailFallbackStrategy;
+  invalidStrategy: RetailFallbackStrategy;
 }
 
 export interface GoodsGroupProps extends RetailBaseProps {
-  columns: 2 | 3
+  columns: 2 | 3;
   /** 是否展示划线原价（仅当商品原价高于售价时可见） */
-  showOriginalPrice: boolean
-  showSales: boolean
-  title: string
+  showOriginalPrice: boolean;
+  showSales: boolean;
+  title: string;
 }
 
 export interface GoodsRankingProps extends RetailBaseProps {
   /** 是否展示划线原价（仅当商品原价高于售价时可见） */
-  showOriginalPrice: boolean
-  showRankNumber: boolean
-  title: string
+  showOriginalPrice: boolean;
+  showRankNumber: boolean;
+  title: string;
 }
 
 export interface LimitedActivityProps extends RetailBaseProps {
   /** 展示样式：list=单列横排（默认，匹配 1 活动=1 商品）；grid=双列货架式 */
-  layout: 'grid' | 'list'
-  showCountdown: boolean
+  layout: "grid" | "list";
+  showCountdown: boolean;
   /** 楼层头副标题，空串使用模块默认文案 */
-  subtitle: string
-  title: string
+  subtitle: string;
+  title: string;
 }
 
 export interface CountdownProps extends RetailBaseProps {
-  completedText: string
-  targetTime: string
-  title: string
+  completedText: string;
+  targetTime: string;
+  title: string;
 }
 
 export interface MarketingEntry {
-  iconUrl: string
-  id: string
-  link: DecorationLink
-  title: string
+  iconUrl: string;
+  id: string;
+  link: DecorationLink;
+  title: string;
 }
 
 export interface MarketingEntryProps extends RetailBaseProps {
-  columns: 4 | 5
-  entries: MarketingEntry[]
+  columns: 4 | 5;
+  entries: MarketingEntry[];
 }
 
 export interface ShopInfoProps extends RetailBaseProps {
   /** 悬浮压图：顶部外边距再上移 16px（=32rpx），把店铺头卡片叠到上方 banner 上 */
-  liftOverBanner: boolean
-  showContact: boolean
-  showDescription: boolean
+  liftOverBanner: boolean;
+  showContact: boolean;
+  showDescription: boolean;
 }
 
 /**
@@ -98,17 +90,17 @@ export interface ShopInfoProps extends RetailBaseProps {
  */
 export interface ActivityStripEntry {
   /** 卡片类型：内置三类固定跳对应会场，custom 走 link */
-  key: 'custom' | 'discount' | 'group-buy' | 'seckill'
+  key: "custom" | "discount" | "group-buy" | "seckill";
   /** 活动名，如「限时秒杀」；缺图时取首字做色块兜底；超长时单行滚动 */
-  title: string
+  title: string;
   /** 钩子文案，如「午间场·整点开抢」；空则不渲染该行；超长时单行滚动 */
-  hook: string
+  hook: string;
   /** 角标文字，如「抢」「省¥4」「9.5折」；空则不渲染角标 */
-  badge: string
+  badge: string;
   /** 缩略图，空或远程加载失败走首字色块兜底 */
-  imageUrl: string
+  imageUrl: string;
   /** 跳转：内置三类的 link 在自动模式下填固定会场路由，统一走 followDecorationLink */
-  link: DecorationLink
+  link: DecorationLink;
 }
 
 /**
@@ -119,9 +111,8 @@ export interface ActivityStripEntry {
  * · manual：运营手配 `ActivityStripEntry[]`，不实时拉活动，可放领券中心等任意装修链接。
  *   管理端配置面板按需求 R7 后置，本期 C 端先支持读取。
  */
-export type ActivityStripDataSource
-  = | { mode: 'automatic' }
-    | { entries: ActivityStripEntry[], mode: 'manual' }
+export type ActivityStripDataSource =
+  { mode: "automatic" } | { entries: ActivityStripEntry[]; mode: "manual" };
 
 /**
  * 首页活动入口条（金刚区正下方一排等宽活动小卡，盒马式）。
@@ -134,17 +125,19 @@ export type ActivityStripDataSource
  * 不再提供「每行列数 / 展示数量」：自动模式最多三类活动各一张，
  * 手配卡片数就是运营添加的数量；渲染侧按实际卡数排布（一行最多三张）。
  */
-export interface ActivityStripProps
-  extends Omit<RetailBaseProps, 'count' | 'dataSource'> {
+export interface ActivityStripProps extends Omit<
+  RetailBaseProps,
+  "count" | "dataSource"
+> {
   /** 自动取数（本期默认）或运营手配卡片 */
-  dataSource: ActivityStripDataSource
+  dataSource: ActivityStripDataSource;
 }
 
 export const retailCommonStyle: RetailCommonStyle = {
-  bgColorDirection: 'to right',
-  bgEndColor: '',
-  bgPicUrl: '',
-  bgStartColor: '#ffffff',
+  bgColorDirection: "to right",
+  bgEndColor: "",
+  bgPicUrl: "",
+  bgStartColor: "#ffffff",
   styleBottomMargin: 10,
   styleBottomPadding: 12,
   styleLbRadius: 0,
@@ -157,7 +150,7 @@ export const retailCommonStyle: RetailCommonStyle = {
   styleRtRadius: 0,
   styleTopMargin: 10,
   styleTopPadding: 12,
-}
+};
 
 /**
  * 船舶工作台。
@@ -166,7 +159,7 @@ export const retailCommonStyle: RetailCommonStyle = {
  * 因此没有可手选的数据源；运营只能控制「常购」入口与通用样式。
  */
 export interface ShipWorkbenchProps extends RetailBaseProps {
-  showFrequent: boolean
+  showFrequent: boolean;
 }
 
 /**
@@ -180,11 +173,11 @@ export interface ShipWorkbenchProps extends RetailBaseProps {
  */
 export interface ReplenishCardProps extends RetailBaseProps {
   /** 是否展示「按单加购」按钮 */
-  showBatchAdd: boolean
+  showBatchAdd: boolean;
   /** 是否展示明细预览行 */
-  showPreview: boolean
+  showPreview: boolean;
   /** 展示标题，如「今日补给单」 */
-  title: string
+  title: string;
 }
 
 /**
@@ -195,44 +188,44 @@ export interface ReplenishCardProps extends RetailBaseProps {
  */
 export interface SeckillProps extends RetailBaseProps {
   /** 是否展示场次倒计时 */
-  showCountdown: boolean
+  showCountdown: boolean;
   /** 是否展示已售进度条 */
-  showProgress: boolean
+  showProgress: boolean;
   /** 楼层头副标题，空串使用模块默认文案 */
-  subtitle: string
-  title: string
+  subtitle: string;
+  title: string;
 }
 
 /** 秒杀场次商品项（已归一化） */
 export interface SeckillGoodsItem {
-  goodsImage: string
-  goodsName: string
+  goodsImage: string;
+  goodsName: string;
   /** 每人限购数，0 或缺失表示不限购 */
-  limitPerUser: number
-  originalPrice: number
+  limitPerUser: number;
+  originalPrice: number;
   /** 已售件数 */
-  soldCount: number
-  seckillPrice: number
-  skuId: string
-  spuId: string
+  soldCount: number;
+  seckillPrice: number;
+  skuId: string;
+  spuId: string;
   /** 剩余库存；-1 表示后端未下发，此时不渲染进度 */
-  remainingStock: number
+  remainingStock: number;
   /** 秒杀总库存 */
-  seckillStock: number
+  seckillStock: number;
 }
 
 /** 秒杀场次（已归一化） */
 export interface SeckillSessionItem {
-  countdown: number
+  countdown: number;
   /** 相对今天的天数：0今天 1明天 */
-  dayOffset?: number
-  endTime: string
-  goodsList: SeckillGoodsItem[]
-  sessionId: string
-  sessionName: string
-  startTime: string
+  dayOffset?: number;
+  endTime: string;
+  goodsList: SeckillGoodsItem[];
+  sessionId: string;
+  sessionName: string;
+  startTime: string;
   /** 0未开始 1进行中 2已结束 */
-  status: number
+  status: number;
 }
 
 /**
@@ -242,29 +235,29 @@ export interface SeckillSessionItem {
  */
 export interface DiscountProps extends RetailBaseProps {
   /** 每个活动最多展示的商品数（防止楼层过高） */
-  goodsLimit: number
+  goodsLimit: number;
   /** 是否展示活动倒计时 */
-  showCountdown: boolean
+  showCountdown: boolean;
   /** 楼层头副标题，空串使用模块默认文案 */
-  subtitle: string
-  title: string
+  subtitle: string;
+  title: string;
 }
 
 /** 折扣活动商品项（已归一化） */
 export interface DiscountGoodsItem {
-  discountPrice: number
-  goodsImage: string
-  goodsName: string
-  originalPrice: number
-  skuId: string
-  spuId: string
+  discountPrice: number;
+  goodsImage: string;
+  goodsName: string;
+  originalPrice: number;
+  skuId: string;
+  spuId: string;
 }
 
 /** 折扣活动（已归一化） */
 export interface DiscountActivityItem {
-  activityId: string
-  activityName: string
-  countdown: number
+  activityId: string;
+  activityName: string;
+  countdown: number;
   /**
    * 入口卡缩略图（取数层已按优先级解析好）。
    *
@@ -272,14 +265,14 @@ export interface DiscountActivityItem {
    * 由 `loadDiscounts` 补一张真实商品图作代表（全店销量 Top1 商品，确实参与全场折扣，
    * 不伪造数据）。仍取不到图时空串，渲染侧回落首字色块。
    */
-  coverImage: string
-  discountType: number
-  discountValue: number
-  endTime: string
-  goodsList: DiscountGoodsItem[]
-  scope: number
-  startTime: string
-  status: number
+  coverImage: string;
+  discountType: number;
+  discountValue: number;
+  endTime: string;
+  goodsList: DiscountGoodsItem[];
+  scope: number;
+  startTime: string;
+  status: number;
 }
 
 /**
@@ -290,53 +283,53 @@ export interface DiscountActivityItem {
  */
 export interface NewbieFloorProps extends RetailBaseProps {
   /** 是否展示活动结束倒计时 */
-  showCountdown: boolean
+  showCountdown: boolean;
   /** 是否展示「新人」角标 */
-  showTag: boolean
+  showTag: boolean;
   /**
    * 自动前进（分页式：一次一张卡）。
    * 字段名沿用 autoScroll 以兼容已发布页面的存量数据；
    * 语义已由「连续跑马灯」改为「分页步进 + 触摸暂停」。
    */
-  autoScroll: boolean
+  autoScroll: boolean;
   /** 每张卡片的停留时长（毫秒） */
-  interval: number
+  interval: number;
   /** 区块主色（6 位 hex）用于淡色底纹，空串跟随页面主题色 */
-  mainColor: string
-  title: string
+  mainColor: string;
+  title: string;
 }
 
 /** 新人价商品项（已归一化） */
 export interface NewbieGoodsItem {
-  goodsImage: string
-  goodsName: string
+  goodsImage: string;
+  goodsName: string;
   /** 新人专享价 */
-  newbiePrice: number
+  newbiePrice: number;
   /** 划线原价（当前售价） */
-  originalPrice: number
-  skuId: string
-  spuId: string
+  originalPrice: number;
+  skuId: string;
+  spuId: string;
 }
 
 /** 新人专享活动（已归一化，单活动） */
 export interface NewbieFloorItem {
-  activityId: string
-  activityName: string
-  endTime: string
+  activityId: string;
+  activityName: string;
+  endTime: string;
   /** 每人每 SKU 限购件数（固定 1） */
-  limitPerUser: number
+  limitPerUser: number;
   /** 注册时效（天），0 表示不限 */
-  registerWithinDays: number
-  goodsList: NewbieGoodsItem[]
+  registerWithinDays: number;
+  goodsList: NewbieGoodsItem[];
 }
 
 export interface GoodsWaterfallProps extends RetailBaseProps {
-  columns: 2 | 3
+  columns: 2 | 3;
   /** 是否展示划线原价（仅当商品原价高于售价时可见） */
-  showOriginalPrice: boolean
-  showPrice: boolean
-  showSales: boolean
-  title: string
+  showOriginalPrice: boolean;
+  showPrice: boolean;
+  showSales: boolean;
+  title: string;
 }
 
 /**
@@ -349,11 +342,11 @@ export interface GoodsWaterfallProps extends RetailBaseProps {
  * 会员价活动是两套体系，混写会产生「横幅 X 折、实价 Y 折」的错觉。
  */
 export interface GoodsTabMemberBanner {
-  enabled: boolean
+  enabled: boolean;
   /** 会员态文案（有等级）；空走内置文案 */
-  memberCopy?: string
+  memberCopy?: string;
   /** 游客态文案（未登录 / 登录但无等级）；空走内置文案 */
-  guestCopy?: string
+  guestCopy?: string;
 }
 
 /**
@@ -364,26 +357,26 @@ export interface GoodsTabMemberBanner {
  * automatic 按分类/排序取数，manual 只展示运营手选商品。
  */
 export interface GoodsTabConfig {
-  dataSource: RetailDataSource
-  id: string
+  dataSource: RetailDataSource;
+  id: string;
   /** 会员权益条（Tab 头下方的权益横幅）；缺省视为关闭 */
-  memberBanner?: GoodsTabMemberBanner
-  title: string
+  memberBanner?: GoodsTabMemberBanner;
+  title: string;
 }
 
 export interface GoodsTabsProps {
-  columns: 2 | 3
-  commonStyle: RetailCommonStyle
-  count: number
-  emptyStrategy: RetailFallbackStrategy
-  invalidStrategy: RetailFallbackStrategy
+  columns: 2 | 3;
+  commonStyle: RetailCommonStyle;
+  count: number;
+  emptyStrategy: RetailFallbackStrategy;
+  invalidStrategy: RetailFallbackStrategy;
   /** 是否展示划线原价（仅当商品原价高于售价时可见） */
-  showOriginalPrice: boolean
-  showPrice: boolean
-  showSales: boolean
+  showOriginalPrice: boolean;
+  showPrice: boolean;
+  showSales: boolean;
   /** Tab 栏是否吸顶（随页面滚动停在导航栏下方） */
-  stickyTabs: boolean
-  tabs: GoodsTabConfig[]
+  stickyTabs: boolean;
+  tabs: GoodsTabConfig[];
 }
 
 /**
@@ -400,54 +393,54 @@ export interface GoodsTabsProps {
  */
 export interface ListMemberPriceDisplay {
   /** 是否找到与卡片价一致的会员价 SKU（不等于可展示） */
-  matched: boolean
+  matched: boolean;
   /** 主价是否应切为会员价（仅资格达标且会员价真的更低） */
-  showMemberPrice: boolean
+  showMemberPrice: boolean;
   /** 会员价；未命中/不展示时为 null */
-  memberPrice: number | null
+  memberPrice: number | null;
   /** 划线价：达标命中时 = 卡片展示价（与商详同口径）；否则 null */
-  strikePrice: number | null
+  strikePrice: number | null;
   /** 角标文案：达标时「会员价」，否则空串 */
-  badgeText: string
+  badgeText: string;
   /** 未达标/未登录引导「会员专享 ¥x」；无可引导信息时为 null */
-  guideText: string | null
+  guideText: string | null;
   /** 命中规格的等级门槛名（引导文案已含，保留给埋点/调试） */
-  minLevelName: string
+  minLevelName: string;
 }
 
 export interface MemberBenefitEntry {
-  description: string
-  iconUrl: string
-  id: string
-  link: DecorationLink
-  title: string
+  description: string;
+  iconUrl: string;
+  id: string;
+  link: DecorationLink;
+  title: string;
 }
 
 export interface MemberBenefitsProps extends RetailBaseProps {
-  entries: MemberBenefitEntry[]
-  title: string
+  entries: MemberBenefitEntry[];
+  title: string;
 }
 
 export interface ServicePromiseItem {
-  description: string
-  iconUrl: string
-  id: string
-  title: string
+  description: string;
+  iconUrl: string;
+  id: string;
+  title: string;
 }
 
 export interface ServicePromiseProps {
-  commonStyle: RetailCommonStyle
-  items: ServicePromiseItem[]
-  title: string
+  commonStyle: RetailCommonStyle;
+  items: ServicePromiseItem[];
+  title: string;
 }
 
 export interface VideoLiveProps {
-  commonStyle: RetailCommonStyle
-  coverUrl: string
-  liveId: string
-  mode: 'live' | 'video'
-  title: string
-  videoUrl: string
+  commonStyle: RetailCommonStyle;
+  coverUrl: string;
+  liveId: string;
+  mode: "live" | "video";
+  title: string;
+  videoUrl: string;
 }
 
 /**
@@ -459,15 +452,15 @@ export interface VideoLiveProps {
  * 补位来源：列表不足 count 时按顺序追加未重复的手选商品。
  */
 export interface GoodsRecommendProps extends RetailBaseProps {
-  showOriginalPrice: boolean
-  showPrice: boolean
-  title: string
+  showOriginalPrice: boolean;
+  showPrice: boolean;
+  title: string;
 }
 
 export interface ImageCubeItem {
-  id: string
-  link: DecorationLink
-  url: string
+  id: string;
+  link: DecorationLink;
+  url: string;
 }
 
 /**
@@ -475,7 +468,7 @@ export interface ImageCubeItem {
  * 格位尺寸两端同源（1rpx = 0.5px）：大格 376rpx、小格 184rpx、三分格 120rpx。
  */
 export interface ImageCubeProps {
-  commonStyle: RetailCommonStyle
-  items: ImageCubeItem[]
-  layout: '1' | '1+2' | '1+3' | '2h' | '2v' | '4'
+  commonStyle: RetailCommonStyle;
+  items: ImageCubeItem[];
+  layout: "1" | "1+2" | "1+3" | "2h" | "2v" | "4";
 }

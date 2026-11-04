@@ -70,7 +70,6 @@ class PromotionEngineTest {
 		goodsSkuService = mock(com.aryn.cloud.product.api.remote.RemoteGoodsSkuService.class);
 		ReflectionTestUtils.setField(engine, "remoteGoodsSkuService", goodsSkuService);
 		governanceService = new com.aryn.cloud.promotion.service.impl.ActivityPublishGovernanceService(activityMapper);
-		ReflectionTestUtils.setField(governanceService, "remoteMemberLevelService", memberLevelService);
 		reservation = new PromotionReservationServiceImpl(engine, activityMapper, lockMapper, lockUsage);
 		// 默认额度充足；竞态用例单独覆盖为 0
 		when(activityMapper.consumeBudget(any(), any(), any())).thenReturn(1);
@@ -1075,55 +1074,148 @@ class PromotionEngineTest {
 	}
 
 	@Test
-	@DisplayName("会员价发布校验：等级门槛存在性/范围/单价/一一对应")
-	void validateMemberPriceRules() {
-		com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder.setTenantId(TENANT);
-		try {
-			when(memberLevelService.getLevelById(TENANT, "lv-1")).thenReturn(level("lv-1", "白银", 2));
-			PromotionActivity activity = activity("act-member", PromotionActivity.TYPE_MEMBER_PRICE, "2",
-					"sku-1,sku-2", null, memberRules("lv-1", "sku-1", "20", "sku-2", "8"));
-			governanceService.validateRules(activity);
+	@DisplayName("会员价活动发布校验已下线：type=10 规则不再支持")
+	void memberPriceRulesRejectedAsUnsupported() {
+		PromotionActivity activity = activity("act-member", PromotionActivity.TYPE_MEMBER_PRICE, "2",
+				"sku-1", null, memberRules("lv-1", "sku-1", "20"));
 
-			// 必须是「指定商品」范围
-			activity.setScopeType("1");
-			assertThrows(ArynBusinessException.class, () -> governanceService.validateRules(activity));
-			activity.setScopeType("2");
+		assertThrows(ArynBusinessException.class, () -> governanceService.validateRules(activity));
+	}
 
-			// minLevelId 必填
-			activity.setRules("{\"skus\":[{\"skuId\":\"sku-1\",\"unitPrice\":20}]}");
-			assertThrows(ArynBusinessException.class, () -> governanceService.validateRules(activity));
+	@Test
+	@DisplayName("出清价：未到期按出清价落价并产出 type=11 明细")
+	void clearancePriceAppliesWhenNotExpired() {
+		when(activityMapper.selectList(any())).thenReturn(List.of(
+				activity("act-clear", PromotionActivity.TYPE_CLEARANCE, "1", null, null,
+						"{\"skus\":[{\"skuId\":\"sku-1\",\"price\":20,\"expireTime\":\"2099-12-31T23:59:59\"}]}")));
 
-			// 等级不存在 → 拒绝发布
-			when(memberLevelService.getLevelById(TENANT, "lv-missing")).thenReturn(null);
-			activity.setRules(memberRules("lv-missing", "sku-1", "20"));
-			activity.setScopeValue("sku-1");
-			assertThrows(ArynBusinessException.class, () -> governanceService.validateRules(activity));
+		PromotionCalculationVO result = engine.preview(context("1", null, null, null));
 
-			// 等级查询异常 → fail-closed 拒绝发布
-			when(memberLevelService.getLevelById(TENANT, "lv-error")).thenThrow(new RuntimeException("rpc down"));
-			activity.setRules(memberRules("lv-error", "sku-1", "20"));
-			assertThrows(ArynBusinessException.class, () -> governanceService.validateRules(activity));
+		assertEquals(1, result.getLadderOverrides().size());
+		assertEquals(0, result.getLadderOverrides().get(0).getUnitPrice().compareTo(new BigDecimal("20")));
+		assertEquals(PromotionActivity.TYPE_CLEARANCE, result.getLadderOverrides().get(0).getActivityType());
+		assertEquals(1, result.getDetails().size());
+		assertEquals(0, result.getTotalDiscount().compareTo(new BigDecimal("510")));
+	}
 
-			// skus 不能为空
-			activity.setRules("{\"minLevelId\":\"lv-1\",\"skus\":[]}");
-			assertThrows(ArynBusinessException.class, () -> governanceService.validateRules(activity));
+	@Test
+	@DisplayName("出清价已到期：不落价、不产出明细（无需等待同步任务移除）")
+	void clearancePriceSkippedWhenExpired() {
+		when(activityMapper.selectList(any())).thenReturn(List.of(
+				activity("act-clear", PromotionActivity.TYPE_CLEARANCE, "1", null, null,
+						"{\"skus\":[{\"skuId\":\"sku-1\",\"price\":20,\"expireTime\":\"2020-01-01T00:00:00\"}]}")));
 
-			// unitPrice 必须为正数
-			activity.setRules(memberRules("lv-1", "sku-1", "0"));
-			assertThrows(ArynBusinessException.class, () -> governanceService.validateRules(activity));
+		PromotionCalculationVO result = engine.preview(context("1", null, null, null));
 
-			// SKU 不能重复
-			activity.setRules(memberRules("lv-1", "sku-1", "20", "sku-1", "18"));
-			assertThrows(ArynBusinessException.class, () -> governanceService.validateRules(activity));
+		assertTrue(result.getLadderOverrides().isEmpty());
+		assertTrue(result.getDetails().isEmpty());
+	}
 
-			// skus 与 scopeValue 必须一一对应
-			activity.setRules(memberRules("lv-1", "sku-1", "20", "sku-2", "18"));
-			activity.setScopeValue("sku-1");
-			assertThrows(ArynBusinessException.class, () -> governanceService.validateRules(activity));
-		}
-		finally {
-			com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder.removeTenantId();
-		}
+	@Test
+	@DisplayName("会员价与出清价同 SKU：取低者成交，不重复计让利")
+	void memberAndClearanceTakeLowerPrice() {
+		when(activityMapper.selectList(any())).thenReturn(List.of(
+				memberActivity("act-member", memberRules("lv-1", "sku-1", "22")),
+				activity("act-clear", PromotionActivity.TYPE_CLEARANCE, "1", null, null,
+						"{\"skus\":[{\"skuId\":\"sku-1\",\"price\":20}]}")));
+		memberLevels(3, 2);
+
+		PromotionCalculationVO result = engine.preview(context("1", null, null, null));
+
+		assertEquals(1, result.getLadderOverrides().size());
+		PromotionCalculationVO.UnitPriceOverride override = result.getLadderOverrides().get(0);
+		assertEquals(0, override.getUnitPrice().compareTo(new BigDecimal("20")));
+		assertEquals(PromotionActivity.TYPE_CLEARANCE, override.getActivityType());
+		assertEquals(1, result.getDetails().size());
+		assertEquals(PromotionActivity.TYPE_CLEARANCE, result.getDetails().get(0).getActivityType());
+		assertEquals(0, result.getTotalDiscount().compareTo(new BigDecimal("510")));
+	}
+
+	@Test
+	@DisplayName("会员价低于出清价：保留会员价，出清价不参与明细")
+	void memberPriceWinsWhenLowerThanClearance() {
+		when(activityMapper.selectList(any())).thenReturn(List.of(
+				memberActivity("act-member", memberRules("lv-1", "sku-1", "20")),
+				activity("act-clear", PromotionActivity.TYPE_CLEARANCE, "1", null, null,
+						"{\"skus\":[{\"skuId\":\"sku-1\",\"price\":22}]}")));
+		memberLevels(3, 2);
+
+		PromotionCalculationVO result = engine.preview(context("1", null, null, null));
+
+		assertEquals(1, result.getLadderOverrides().size());
+		assertEquals(PromotionActivity.TYPE_MEMBER_PRICE, result.getLadderOverrides().get(0).getActivityType());
+		assertEquals(1, result.getDetails().size());
+		assertEquals(PromotionActivity.TYPE_MEMBER_PRICE, result.getDetails().get(0).getActivityType());
+	}
+
+	@Test
+	@DisplayName("系统会员活动优先级最低：迁移窗口期手工活动优先，即使系统价更低")
+	void manualMemberActivityWinsOverSystemActivity() {
+		PromotionActivity system = memberActivity("act-system", memberRules("lv-1", "sku-1", "20"));
+		system.setActivityCode("SYS_MEMBER_ZONE");
+		when(activityMapper.selectList(any())).thenReturn(List.of(
+				system,
+				memberActivity("act-manual", memberRules("lv-1", "sku-1", "22"))));
+		memberLevels(3, 2);
+
+		PromotionCalculationVO result = engine.preview(context("1", null, null, null));
+
+		assertEquals(1, result.getLadderOverrides().size());
+		assertEquals("act-manual", result.getLadderOverrides().get(0).getActivityId());
+		assertEquals(0, result.getLadderOverrides().get(0).getUnitPrice().compareTo(new BigDecimal("22")));
+	}
+
+	@Test
+	@DisplayName("手工活动与系统活动并存：逐 SKU 取优，未覆盖的标签商品仍享会员价")
+	void manualAndSystemMemberActivitiesMergePerSku() {
+		PromotionActivity system = activity("act-system", PromotionActivity.TYPE_MEMBER_PRICE, "2", "sku-1,sku-2",
+				null, memberRules("lv-1", "sku-1", "20", "sku-2", "10"));
+		system.setActivityCode("SYS_MEMBER_ZONE");
+		PromotionActivity manual = activity("act-manual", PromotionActivity.TYPE_MEMBER_PRICE, "2", "sku-1",
+				null, memberRules("lv-1", "sku-1", "22"));
+		when(activityMapper.selectList(any())).thenReturn(List.of(system, manual));
+		memberLevels(3, 2);
+
+		PromotionCalculationVO result = engine.preview(context("1", null, null, null));
+
+		assertEquals(2, result.getLadderOverrides().size());
+		PromotionCalculationVO.UnitPriceOverride sku1 = result.getLadderOverrides()
+			.stream()
+			.filter(override -> "sku-1".equals(override.getSkuId()))
+			.findFirst()
+			.orElseThrow();
+		PromotionCalculationVO.UnitPriceOverride sku2 = result.getLadderOverrides()
+			.stream()
+			.filter(override -> "sku-2".equals(override.getSkuId()))
+			.findFirst()
+			.orElseThrow();
+		// 同一 SKU 手工优先（即使系统价更低）；未被手工覆盖的 SKU 回落系统活动
+		assertEquals("act-manual", sku1.getActivityId());
+		assertEquals(0, sku1.getUnitPrice().compareTo(new BigDecimal("22")));
+		assertEquals("act-system", sku2.getActivityId());
+		assertEquals(0, sku2.getUnitPrice().compareTo(new BigDecimal("10")));
+		assertEquals(2, result.getDetails().size());
+		// 60*(28.5-22)=390 + 5*(12-10)=10
+		assertEquals(0, result.getTotalDiscount().compareTo(new BigDecimal("400.0")));
+	}
+
+	@Test
+	@DisplayName("出清价阻断新人价：即使新人价更低也不覆盖")
+	void clearanceBlocksNewbiePrice() {
+		when(activityMapper.selectList(any())).thenReturn(List.of(
+				activity("act-clear", PromotionActivity.TYPE_CLEARANCE, "1", null, null,
+						"{\"skus\":[{\"skuId\":\"sku-1\",\"price\":20}]}"),
+				activity("act-newbie", PromotionActivity.TYPE_NEWBIE_PRICE, "2", "sku-1", null,
+						newbieRules("{\"skuId\":\"sku-1\",\"price\":10}"))));
+		newbieEligible(true);
+
+		PromotionCalculationVO result = engine.preview(context("1", null, null, null));
+
+		assertEquals(1, result.getLadderOverrides().size());
+		assertEquals(PromotionActivity.TYPE_CLEARANCE, result.getLadderOverrides().get(0).getActivityType());
+		assertTrue(result.getDetails()
+			.stream()
+			.noneMatch(detail -> PromotionActivity.TYPE_NEWBIE_PRICE.equals(detail.getActivityType())));
 	}
 
 }

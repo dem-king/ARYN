@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import { onShow } from '@dcloudio/uni-app'
 import { computed, inject, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { DIY_NAVBAR_SCROLL_KEY } from '@/composables/useDiyNavbarScroll'
 import { FROSTED_NAVBAR_KEY } from '@/composables/useFrostedNavbar'
+import { canGoBackFromCurrentPage } from '@/utils/navigation-lock'
 
 interface Props {
   modelValue: string
@@ -80,14 +82,20 @@ watch(() => props.modelValue, (val) => {
   searchValue.value = val
 })
 
+/**
+ * 能否返回：每次点击现算，不再只用挂载时的快照。
+ *
+ * 与 hr-navbar 同口径：页面栈可能在挂载后被 replaceAll / redirectTo 改写，
+ * 快照失真会让返回键在首屏调 navigateBack（必然失败）或误退回首页。
+ */
+function syncBackIcon() {
+  isCanBack.value = canGoBackFromCurrentPage()
+}
+
+onShow(syncBackIcon)
+
 onMounted(() => {
-  const pages = getCurrentPages()
-  if (pages.length <= 1 || pages[pages.length - 1].route === 'pages/login/index') {
-    isCanBack.value = false
-  }
-  else {
-    isCanBack.value = true
-  }
+  syncBackIcon()
   const sys = uni.getWindowInfo()
   statusBarHeight.value = sys.statusBarHeight || 0
   // #ifdef MP-WEIXIN
@@ -128,7 +136,8 @@ function handleDisabledClick() {
     handleSearch(searchValue.value)
 }
 function handleLeftClick() {
-  if (isCanBack.value) {
+  if (canGoBackFromCurrentPage()) {
+    // 连点由 router 实例上的 navigation lock 兜底，避免连退两层
     router.back()
   }
   else {

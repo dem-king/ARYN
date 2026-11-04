@@ -19,6 +19,9 @@ public class TenantAccessDTO implements Serializable {
 
 	private String tenantId;
 
+	/** 1.平台租户（长期有效，登录侧始终放行）；2.普通租户 */
+	private String tenantType;
+
 	/** 0.正常；1.停用 */
 	private String status;
 

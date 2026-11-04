@@ -30,6 +30,7 @@ import AnalyticsService from './components/AnalyticsService.vue';
 import AnalyticsTraffic from './components/AnalyticsTraffic.vue';
 import AnalyticsTrends from './components/AnalyticsTrends.vue';
 import AnalyticsUser from './components/AnalyticsUser.vue';
+import AnalyticsZoneReport from './components/AnalyticsZoneReport.vue';
 import ChannelContribution from './components/ChannelContribution.vue';
 import DashboardTarget from './components/DashboardTarget.vue';
 import TrafficFunnel from './components/TrafficFunnel.vue';
@@ -471,6 +472,11 @@ onMounted(() => {
         <TrafficFunnel :data="trafficFunnelData" :loading="loading" />
 
         <ChannelContribution
+          :end-time="currentRange.endTime"
+          :start-time="currentRange.startTime"
+        />
+
+        <AnalyticsZoneReport
           :end-time="currentRange.endTime"
           :start-time="currentRange.startTime"
         />

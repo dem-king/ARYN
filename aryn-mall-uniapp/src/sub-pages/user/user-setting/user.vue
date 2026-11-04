@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { editObj } from '@/sub-pages/api/user/user'
 import { uploadFile, uploadImg } from '@/api/upms/file'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+import { getTopPage, isPageAlive } from '@/utils/navigation-lock'
 
 const { handlePageScroll } = useFrostedNavbar()
 
@@ -27,6 +28,8 @@ const userStore = useUserStore()
 const { t } = useI18n()
 const globalLoading = useGlobalLoading()
 const router = useRouter()
+/** setup 时的页面实例：保存在途时用户可能已返回，回来就不要再弹栈 */
+const pageAtSetup = getTopPage()
 const formRef = ref()
 const state = reactive<{ form: Form }>({
   form: {
@@ -81,8 +84,11 @@ function edit() {
           avatarUrl: state.form.avatarUrl,
         }).then(() => {
           userStore.fetchUserInfo()
-          const pages = getCurrentPages()
-          if (pages.length > 1) {
+          // 保存期间用户已自行返回/被顶替时不发路由（对已销毁页面路由会触发 routeDone 报错）
+          if (!isPageAlive(pageAtSetup)) {
+            return
+          }
+          if (getCurrentPages().length > 1) {
             router.back()
           }
           else {

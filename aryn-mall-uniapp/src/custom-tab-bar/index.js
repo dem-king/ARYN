@@ -178,10 +178,30 @@ Component({
 
     tap(e) {
       const index = Number(e.currentTarget.dataset.index)
-      if (!Number.isFinite(index) || index === this.data.selected) {
+      if (!Number.isFinite(index)) {
         return
       }
-      wx.switchTab({ url: TABS[index].path, fail() {} })
+      /*
+       * 现算当前选中项，不再只信 data.selected：attached 时页面栈可能还是空的，
+       * selected 会是 -1（见 selectedIndex 注释），此时「点当前 tab」的守卫完全失效，
+       * switchTab 到当前页会留下无主的 routeDone（开发者工具报 webviewId 报错）。
+       */
+      if (index === selectedIndex()) {
+        return
+      }
+      // 连点两个 tab：同一 tick 两次 switchTab，complete 前不再接第二次
+      if (this.__switching) {
+        return
+      }
+      this.__switching = true
+      const self = this
+      wx.switchTab({
+        url: TABS[index].path,
+        fail() {},
+        complete() {
+          self.__switching = false
+        },
+      })
     },
   },
 })

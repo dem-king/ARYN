@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getPage } from '@/api/product/spu'
 import { useCategoryLocateStore } from '@/store/categoryLocateStore'
+import { navigateToUrl } from '@/utils/tab-bar'
 
 interface Props {
   spuId: string
@@ -86,13 +87,9 @@ function goCategory() {
   }
   // 压栈打开分类页：商详仍留在返回栈里，左上角返回箭头可以原路回到商详。
   // 分类 tab 是 root 页，switchTab/reLaunch 会清空栈，不能用于这个入口。
-  uni.navigateTo({
-    url: '/sub-pages/product/category-browse/index',
-    fail: () => {
-      // 页面栈满等极端情况下退回分类 tab：入口不能失效，代价是没有返回栈
-      uni.reLaunch({ url: '/pages/product/category/index' })
-    },
-  })
+  // 统一走 navigateToUrl：页面栈接近上限时它会提前降级 redirectTo；不再写
+  // `fail` 里补 reLaunch —— 失败回调与首次跳转同 tick，正是 routeDone 报错的成因。
+  navigateToUrl('/sub-pages/product/category-browse/index')
 }
 </script>
 

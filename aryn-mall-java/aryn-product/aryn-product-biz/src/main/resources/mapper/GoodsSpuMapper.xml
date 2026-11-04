@@ -49,7 +49,15 @@
         goods_spu.fixed_freight_price,
         goods_spu.sales_price,
         goods_spu.original_price,
-        goods_spu.cost_price
+        goods_spu.cost_price,
+        goods_spu.is_member_item,
+        goods_spu.member_discount_rate,
+        goods_spu.member_price_fixed,
+        goods_spu.member_price_floor,
+        goods_spu.is_clearance_item,
+        goods_spu.clearance_price,
+        goods_spu.clearance_discount_rate,
+        goods_spu.clearance_expire_time
     </sql>
     <select id="selectPageByAdmin" resultType="com.aryn.cloud.product.api.entity.GoodsSpu">
         SELECT
@@ -73,6 +81,30 @@
             </if>
             <if test="query.brandId != null and query.brandId != ''">
                 AND goods_spu.brand_id = #{query.brandId}
+            </if>
+            <!-- 管理端「专区」分类筛选（2026-11-03）：member=会员专区 / clearance=低价捡漏 / none=未加入任何专区。
+                 口径与列表「专区」列一致：只看商品级标签、不看到期时间——已到期的出清商品仍需能筛出来
+                 续期或取消标签（专区价是否生效由 C 端选品/查价按到期时间另行判定）。
+                 zoneType 为空时整段不输出，存量 SQL 逐字不变。取值合法性由服务层校验，这里只做条件映射。 -->
+            <if test="zoneType != null and zoneType != ''">
+                <choose>
+                    <when test="zoneType == 'member'">
+                        AND goods_spu.is_member_item = 1
+                    </when>
+                    <when test="zoneType == 'clearance'">
+                        AND goods_spu.is_clearance_item = 1
+                    </when>
+                    <when test="zoneType == 'none'">
+                        AND (goods_spu.is_member_item IS NULL OR goods_spu.is_member_item = 0)
+                        AND (goods_spu.is_clearance_item IS NULL OR goods_spu.is_clearance_item = 0)
+                    </when>
+                    <when test="zoneType == 'not_member'">
+                        AND (goods_spu.is_member_item IS NULL OR goods_spu.is_member_item = 0)
+                    </when>
+                    <when test="zoneType == 'not_clearance'">
+                        AND (goods_spu.is_clearance_item IS NULL OR goods_spu.is_clearance_item = 0)
+                    </when>
+                </choose>
             </if>
         </where>
     </select>
@@ -150,14 +182,38 @@
                 AND goods_spu.original_price &gt; 0
                 AND goods_spu.original_price &gt;= goods_spu.sales_price * #{bargainRate}
             </if>
-
+            <!-- 会员专区：商品级标签选品；未传时本段不输出，存量行为不变 -->
+            <if test="memberItem != null and memberItem">
+                AND goods_spu.is_member_item = 1
+            </if>
+            <!-- 捡漏专区：商品级标签 + 未到期；到期商品不参与专区列表 -->
+            <if test="clearanceItem != null and clearanceItem">
+                AND goods_spu.is_clearance_item = 1
+                AND (goods_spu.clearance_expire_time IS NULL OR goods_spu.clearance_expire_time &gt; NOW())
+            </if>
         </where>
         <!-- 固定排序：折扣率 = (原价-售价)/原价 降序；同折扣率按售价升序、id 降序兜底稳定分页。
-             携带 bargainRate 时调用方必须已清空 Page.orders（忽略 asc/desc），
+             携带 bargainRate/zoneSort 时调用方必须已清空 Page.orders（忽略 asc/desc），
              否则分页插件会在本 ORDER BY 之前再拼一层排序列；不带时本段不输出，排序仍由 Page.orders 决定。 -->
-        <if test="bargainRate != null">
+        <if test="bargainRate != null and (zoneSort == null or zoneSort == '')">
             ORDER BY ((goods_spu.original_price - goods_spu.sales_price) / goods_spu.original_price) DESC,
             goods_spu.sales_price ASC,
+            goods_spu.id DESC
+        </if>
+        <!-- 专区排序：捡漏按出清价升序（固定价优先，其次按折扣率折算，最后售价兜底）；
+             会员专区按售价升序（会员价随会员身份浮动，列表只承诺稳定顺序）。 -->
+        <if test="zoneSort == 'clearance'">
+            ORDER BY CASE
+                WHEN goods_spu.clearance_price IS NOT NULL THEN goods_spu.clearance_price
+                WHEN goods_spu.clearance_discount_rate IS NOT NULL AND goods_spu.original_price &gt; 0
+                    THEN goods_spu.original_price * goods_spu.clearance_discount_rate
+                ELSE goods_spu.sales_price
+            END ASC,
+            goods_spu.sales_price ASC,
+            goods_spu.id DESC
+        </if>
+        <if test="zoneSort == 'member_price'">
+            ORDER BY goods_spu.sales_price ASC,
             goods_spu.id DESC
         </if>
     </select>

@@ -29,11 +29,21 @@ const activeTab = computed(
   () => tabs.value[activeIndex.value] || tabs.value[0],
 );
 
-const isMemberZone = computed(
+/** 会员权益条开关：只控制横幅渲染，不控制会员价（与 C 端口径一致） */
+const memberBannerEnabled = computed(
   () => activeTab.value?.memberBanner?.enabled === true,
 );
-const isBargainTab = computed(
-  () => activeTab.value?.dataSource.sort === 'bargain',
+/** 会员专区 Tab：专区选品=会员标签，或旧配置开启权益条（预览无登录态，仅透出样式） */
+const isMemberZone = computed(
+  () =>
+    activeTab.value?.dataSource.sort === 'member_price' ||
+    memberBannerEnabled.value,
+);
+/** 出清/捡漏 Tab（含旧版 bargain）：价格主导样式；会员价优先，两者不同时出 */
+const isClearanceTab = computed(
+  () =>
+    activeTab.value?.dataSource.sort === 'clearance' ||
+    activeTab.value?.dataSource.sort === 'bargain',
 );
 
 /**
@@ -93,16 +103,16 @@ function cardTags(item: RetailGoodsItem): string[] {
 }
 
 /**
- * 会员专区（Tab 级权益条开启）：与 C 端一致，会员本人按会员价样式呈现专区成交价。
- * 预览不查询会员价活动，只覆盖「专区成交价」路径；活动命中价的数字以实机为准。
+ * 会员专区（专区选品=会员标签，或旧配置开启权益条）：与 C 端一致，会员本人按会员价样式呈现专区成交价。
+ * 预览不查询会员成交价，只覆盖「专区成交价」路径；实际成交数字以实机为准。
  */
 function showMemberPrice(item: RetailGoodsItem): boolean {
   return isMemberZone.value && shouldShowOriginalPrice(item);
 }
 
-/** 低价捡漏 Tab：价格主导样式；会员价优先，两者不同时出 */
+/** 出清/捡漏 Tab（含旧版 bargain）：价格主导样式；会员价优先，两者不同时出 */
 function showBargainPrice(item: RetailGoodsItem): boolean {
-  if (!isBargainTab.value || showMemberPrice(item)) return false;
+  if (!isClearanceTab.value || showMemberPrice(item)) return false;
   return shouldShowOriginalPrice(item);
 }
 
@@ -123,7 +133,7 @@ function priceParts(item: RetailGoodsItem): {
     :status="state.status"
     type-label="多Tab商品流"
   >
-    <div class="goods-tabs-bar">
+    <div v-if="tabs.length > 1" class="goods-tabs-bar">
       <div
         v-for="(tab, index) in tabs"
         :key="tab.id"
@@ -137,7 +147,7 @@ function priceParts(item: RetailGoodsItem): {
     </div>
 
     <!-- 会员权益条：与 C 端 goods-tabs__member-banner 同款金色会员态 -->
-    <div v-if="isMemberZone" class="goods-tabs-member-banner">
+    <div v-if="memberBannerEnabled" class="goods-tabs-member-banner">
       <span class="goods-tabs-member-banner-tag">会员</span>
       <span class="goods-tabs-member-banner-text">{{ memberBannerText }}</span>
     </div>
@@ -153,6 +163,7 @@ function priceParts(item: RetailGoodsItem): {
           v-for="item in state.items"
           :key="item.id"
           class="goods-tabs-card"
+          :class="{ 'goods-tabs-card--soldout': item.stock <= 0 }"
         >
           <div class="goods-tabs-image-box">
             <ElImage
@@ -245,8 +256,14 @@ function priceParts(item: RetailGoodsItem): {
                   </div>
                 </template>
                 <template v-else>
-                  <span class="goods-tabs-price">
-                    ¥{{ item.price.toFixed(2) }}
+                  <span class="goods-tabs-price-amount">
+                    <span class="goods-tabs-price-symbol">¥</span>
+                    <span class="goods-tabs-price-integer">{{
+                      priceParts(item).integer
+                    }}</span>
+                    <span class="goods-tabs-price-decimal"
+                      >.{{ priceParts(item).decimal }}</span
+                    >
                   </span>
                   <!-- 划线原价：仅原价严格高于售价时显示（存量商品原价多为 0，会划出￥0） -->
                   <span
@@ -350,16 +367,24 @@ function priceParts(item: RetailGoodsItem): {
 
 .goods-tabs-grid {
   display: grid;
-  gap: 8px;
+  gap: 10px;
 }
 
 .goods-tabs-card {
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   overflow: hidden;
   background: #fff;
-  border: 0.5px solid #eef0f3;
-  border-radius: 8px;
+  border: 0.5px solid #f0f1f3;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgb(31 35 41 / 5%);
+}
+
+/* 售罄：图片压暗 + 居中胶囊，与 C 端同款 */
+.goods-tabs-card--soldout .goods-tabs-image {
+  opacity: 0.45;
 }
 
 /* 图片 1:1 容器 + contain 完整展示，与小程序 goods-tabs__image-box 对齐 */
@@ -386,25 +411,27 @@ function priceParts(item: RetailGoodsItem): {
 
 .goods-tabs-sold-out {
   position: absolute;
-  top: 0;
-  right: 0;
-  left: 0;
-  padding: 4px;
+  top: 50%;
+  left: 50%;
+  padding: 5px 11px;
   font-size: 11px;
+  line-height: 1.4;
   color: #fff;
-  text-align: center;
-  background: rgb(0 0 0 / 50%);
+  background: rgb(17 24 39 / 72%);
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
 }
 
 .goods-tabs-name {
   display: -webkit-box;
   min-height: 1.4em;
-  margin: 7px 7px 0;
+  margin: 8px 10px 0;
   overflow: hidden;
   -webkit-line-clamp: 2;
   font-size: 14px;
+  font-weight: 500;
   line-height: 1.4;
-  color: #303133;
+  color: #1f2329;
   word-break: normal;
   overflow-wrap: break-word;
   -webkit-box-orient: vertical;
@@ -412,29 +439,29 @@ function priceParts(item: RetailGoodsItem): {
 
 /* 商品子标题：与 C 端 goods-tabs__subtitle 同值（1px = 2rpx） */
 .goods-tabs-subtitle {
-  margin: 1px 7px 0;
+  margin: 3px 10px 0;
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: 11px;
   line-height: 1.4;
-  color: #909399;
+  color: #8a919f;
   white-space: nowrap;
 }
 
 .goods-tabs-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 3px;
-  padding: 4px 7px 0;
+  gap: 4px;
+  padding: 5px 10px 0;
 }
 
 .goods-tabs-tag {
-  padding: 1px 4px;
+  padding: 1px 5px;
   font-size: 10px;
-  line-height: 1.5;
-  color: #8a97a6;
-  background: #f2f3f5;
-  border-radius: 3px;
+  line-height: 1.6;
+  color: #6b7280;
+  background: #f4f5f7;
+  border-radius: 999px;
 }
 
 .goods-tabs-meta {
@@ -442,7 +469,8 @@ function priceParts(item: RetailGoodsItem): {
   gap: 4px;
   align-items: flex-end;
   justify-content: space-between;
-  padding: 6px 7px 7px;
+  padding: 7px 10px 10px;
+  margin-top: auto;
 }
 
 .goods-tabs-meta-text {
@@ -454,7 +482,7 @@ function priceParts(item: RetailGoodsItem): {
 .goods-tabs-price-line {
   display: flex;
   flex-wrap: wrap;
-  gap: 3px;
+  gap: 5px;
   align-items: baseline;
   min-width: 0;
 }
@@ -463,6 +491,32 @@ function priceParts(item: RetailGoodsItem): {
   font-size: 16px;
   font-weight: 600;
   color: var(--wot-color-theme-primary, #ff2237);
+}
+
+/* 普通价：整数大、小数小、符号降一档，与 C 端同值 */
+.goods-tabs-price-amount {
+  display: inline-flex;
+  align-items: baseline;
+  min-width: 0;
+  color: var(--wot-color-theme-primary, #ff2237);
+}
+
+.goods-tabs-price-symbol {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.goods-tabs-price-integer {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.05;
+}
+
+.goods-tabs-price-decimal {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .goods-tabs-price-original {
@@ -592,8 +646,8 @@ function priceParts(item: RetailGoodsItem): {
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   font-size: 12px;
   color: #fff;
   background: var(--wot-color-theme-primary, #4d7fff);

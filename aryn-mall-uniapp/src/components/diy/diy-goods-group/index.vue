@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import type { GoodsGroupProps } from '@/components/diy/retail-types'
+import type { ListZonePrice } from '@/utils/zone-price'
 
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { followDecorationLink } from '@/components/diy/link-resolver'
-import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 import {
   loadGoodsGroup,
   loadGoodsGroupPage,
@@ -15,7 +15,9 @@ import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
 import QuickCartButton from '@/components/quick-cart-button/index.vue'
 import { useDiyPagedLoadMore } from '@/composables/useDiyPagedLoadMore'
 import { useDiyStyle } from '@/composables/useDiyStyle'
+import { useZonePrices } from '@/composables/useZonePrices'
 import { stockHintText } from '@/utils/stock-display'
+import { zonePriceBadgeText } from '@/utils/zone-price'
 
 const props = withDefaults(defineProps<{
   showData?: Partial<GoodsGroupProps>
@@ -53,11 +55,55 @@ const pageSize = computed(() => Math.max(1, Number(showData.value.count) || 10))
 // 自动续页：页面滚动接近底部 / 加载完成后自愈补页，见 useDiyPagedLoadMore
 const { runQuery } = useDiyPagedLoadMore(pagingRef, '.goods-group')
 
+/**
+ * 列表「专区价」批量补价句柄：会员价/出清价都不在商品列表接口里，
+ * 列表先渲染、价格后补（见 utils/zone-price 与 composables/useZonePrices）。
+ */
+const zone = useZonePrices()
+
+/** 本轮本页商品补专区价：不 await，避免价格接口阻塞商品流 */
+function loadZonePrices(items: any[]) {
+  const ids = items.map(item => String(item?.id || '').trim()).filter(Boolean)
+  if (!ids.length) return
+  void zone.loadForSpuIds(ids)
+}
+
+/**
+ * 卡片专区价：会员价/捡漏价命中时切换主价与划线，未命中回落普通价与未达标引导，
+ * 统一走共享口径 `utils/zone-price#resolveListZonePrice`（与会员专区/低价捡漏一致）。
+ */
+function cardDisplay(item: any): ListZonePrice {
+  return zone.cardPriceOf(item, showData.value.showOriginalPrice)
+}
+
+function cardMainPrice(item: any): number {
+  return cardDisplay(item).mainPrice
+}
+
+function cardStrikePrice(item: any): number | null {
+  return cardDisplay(item).strikePrice
+}
+
+function cardBadgeText(item: any): string {
+  return zonePriceBadgeText(cardDisplay(item).badgeKind)
+}
+
+function cardBadgeClass(item: any): string {
+  return cardDisplay(item).badgeKind === 'member'
+    ? 'goods-price-badge--member'
+    : 'goods-price-badge--clearance'
+}
+
+function cardGuideText(item: any): string {
+  return cardDisplay(item).guideText || ''
+}
+
 async function queryList(pageNo: number, pageSize: number) {
   await runQuery(async () => {
     if (isManual.value) {
       // 手选：一次性取全量，明确告知 z-paging 没有下一页
       const items = await loadGoodsGroup(showData.value)
+      loadZonePrices(items)
       await pagingRef.value?.completeByNoMore(items, true)
       return
     }
@@ -66,6 +112,7 @@ async function queryList(pageNo: number, pageSize: number) {
     const { items, reachedLimit } = mergePagedItems(goodsList.value, list)
     const loadedCount = goodsList.value.length + items.length
     const nomore = reachedLimit || list.length === 0 || (total > 0 && loadedCount >= total)
+    loadZonePrices(items)
     await pagingRef.value?.completeByNoMore(items, nomore)
   })
 }
@@ -126,23 +173,40 @@ function openGoods(id: string) {
           <view class="goods-meta">
             <view class="goods-meta-text">
               <view class="goods-price-line">
-                <text class="goods-price">
-                  ￥{{ item.price.toFixed(2) }}
-                </text>
-                <!-- 划线原价：仅原价严格高于售价时显示（存量商品原价多为 0，会划出￥0） -->
+                <!-- 角标：会员价 / 捡漏价；主价与划线均由共享专区价口径给出 -->
                 <text
-                  v-if="showData.showOriginalPrice && shouldShowOriginalPrice(item.price, item.originalPrice)"
+                  v-if="cardBadgeText(item)"
+                  class="goods-price-badge"
+                  :class="cardBadgeClass(item)"
+                >
+                  {{ cardBadgeText(item) }}
+                </text>
+                <text class="goods-price">
+                  ￥{{ cardMainPrice(item).toFixed(2) }}
+                </text>
+                <!-- 划线价：会员价/捡漏价命中划当前售价，普通价仍是「原价 > 售价才划线」 -->
+                <text
+                  v-if="cardStrikePrice(item) !== null"
                   class="goods-price-original"
                 >
-                  ￥{{ item.originalPrice.toFixed(2) }}
+                  ￥{{ Number(cardStrikePrice(item)).toFixed(2) }}
                 </text>
               </view>
+              <!-- 未达标/未登录的会员价引导：只透出「会员专享 ¥X」，主价不动 -->
+              <text v-if="cardGuideText(item)" class="goods-member-guide">
+                {{ cardGuideText(item) }}
+              </text>
               <text v-if="stockHintText(item.stock)" class="goods-sales">
                 {{ stockHintText(item.stock) }}
               </text>
             </view>
-            <!-- 快捷加购：单规格直接加购，多规格唤起规格弹层 -->
-            <quick-cart-button v-if="item.stock > 0" :spu-id="item.id" size="40rpx" />
+            <!-- 快捷加购：单规格直接加购，多规格唤起规格弹层；专区价透传给弹层保证「卡片价 = 弹层价」 -->
+            <quick-cart-button
+              v-if="item.stock > 0"
+              :spu-id="item.id"
+              size="40rpx"
+              :zone-prices="zone.skuZonePricesOf(item.id)"
+            />
           </view>
           <view v-if="item.stock <= 0" class="stock-label">
             {{ t('diy.common.outOfStock') }}
@@ -174,8 +238,14 @@ function openGoods(id: string) {
 .goods-meta-text { min-width: 0; display: flex; flex-direction: column; }
 .goods-price-line { display: flex; align-items: baseline; gap: 6rpx; min-width: 0; }
 .goods-price { color: var(--wot-color-theme-primary, #ff2237); font-size: 28rpx; font-weight: 600; }
-/* 划线原价：灰字小一号，仅作价格锚点，不与售价抢视觉层级 */
+/* 专区价角标：会员价走浅金、捡漏价走主题红，小号标签不抢商品图重心 */
+.goods-price-badge { flex: none; padding: 0 6rpx; border-radius: 4rpx; font-size: 19rpx; font-weight: 600; line-height: 1.5; }
+.goods-price-badge--member { border: 1rpx solid #ecd4a5; background: #fffaf0; color: #a06a1f; }
+.goods-price-badge--clearance { background: var(--wot-color-theme-primary, #ff2237); color: #fff; }
+/* 划线原价/划线售价：灰字小一号，仅作价格锚点，不与售价抢视觉层级 */
 .goods-price-original { flex: none; color: #999; font-size: 22rpx; font-weight: normal; text-decoration: line-through; }
+/* 会员价引导：未达标/未登录时的一行小字，不改变主价与划线口径 */
+.goods-member-guide { margin-top: 2rpx; color: #a06a1f; font-size: 20rpx; line-height: 1.4; }
 .goods-sales { color: #909399; font-size: 20rpx; }
 .stock-label { margin: -4rpx 14rpx 14rpx; color: #909399; font-size: 20rpx; }
 .goods-empty { padding: 40rpx; color: #999; font-size: 26rpx; text-align: center; }

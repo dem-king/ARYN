@@ -370,13 +370,19 @@ function handleAction() {
   white-space: nowrap;
 }
 
+/*
+  使用说明是「能不能用」的关键信息（例如「秒杀商品不可用」），券面又没有详情入口，
+  单行省略等于把使用限制藏掉一半。这里按可用宽度自然换行，卡片高度随文案增长；
+  长英文/数字串用 overflow-wrap 兜底，避免撑破信息区。
+*/
 .coupon-ticket__desc {
   margin-top: 10rpx;
-  overflow: hidden;
   font-size: 21rpx;
   color: $coupon-desc;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.4;
+  overflow-wrap: break-word;
+  word-break: normal;
+  white-space: normal;
 }
 
 .coupon-ticket__meta {

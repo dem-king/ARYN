@@ -9,7 +9,9 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.aryn.cloud.common.core.constant.CacheConstants;
 import com.aryn.cloud.common.core.constant.CommonConstants;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
+import com.aryn.cloud.common.security.entity.ArynUser;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
+import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.upms.api.entity.SysMenu;
 import com.aryn.cloud.upms.api.entity.SysRoleMenu;
 import com.aryn.cloud.upms.api.entity.SysTenantMenu;
@@ -19,6 +21,7 @@ import com.aryn.cloud.upms.mapper.SysRoleMapper;
 import com.aryn.cloud.upms.mapper.SysRoleMenuMapper;
 import com.aryn.cloud.upms.mapper.SysTenantMenuMapper;
 import com.aryn.cloud.upms.service.ISysMenuService;
+import com.aryn.cloud.upms.support.PlatformAdminSupport;
 import lombok.AllArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
@@ -44,6 +47,8 @@ public class SysMenuServiceImpl extends ServiceImpl<SysMenuMapper, SysMenu> impl
 
 	private final SysTenantMenuMapper sysTenantMenuMapper;
 
+	private final PlatformAdminSupport platformAdminSupport;
+
 	@Override
 	@Cacheable(value = CacheConstants.MENU_CACHE, key = "#roleId + '_menu'", unless = "#result.isEmpty()")
 	public List<MenuVO> findMenuByRoleId(String roleId) {
@@ -59,8 +64,8 @@ public class SysMenuServiceImpl extends ServiceImpl<SysMenuMapper, SysMenu> impl
 	@Override
 	public List<TreeNode<String>> getTenantMenuTree(String tenantId) {
 		List<SysMenu> sysMenuList = null;
-		// 平台租户查询全部菜单
-		if (!CommonConstants.PLATFORM_TENANT_ID.equals(ArynTenantContextHolder.getTenantId())) {
+		// 平台管理员查询全部菜单；租户管理员只能看到本租户套餐内的菜单
+		if (!platformAdminSupport.isCurrentPlatformAdmin()) {
 			sysMenuList = baseMapper.selectTenantMenuTree(tenantId);
 		}
 		else {
@@ -100,8 +105,12 @@ public class SysMenuServiceImpl extends ServiceImpl<SysMenuMapper, SysMenu> impl
 		for (String roleId : roles) {
 			all.addAll(this.findMenuByRoleId(roleId));
 		}
-		// 平台租户不过滤菜单
-		if (!CommonConstants.PLATFORM_TENANT_ID.equals(ArynTenantContextHolder.getTenantId())) {
+		// 平台管理员在「本租户上下文」下不过滤菜单；切到其它租户或租户管理员一律按租户套餐过滤
+		ArynUser sessionUser = SecurityUtils.getUser();
+		boolean platformAdminContext = sessionUser != null
+				&& Boolean.TRUE.equals(sessionUser.getPlatformAdmin())
+				&& Objects.equals(sessionUser.getTenantId(), ArynTenantContextHolder.getTenantId());
+		if (!platformAdminContext) {
 			// 查询租户菜单
 			List<SysTenantMenu> sysTenantMenuList = sysTenantMenuMapper.selectList(Wrappers.query());
 			List<String> tenantMenuIds = sysTenantMenuList.stream().map(SysTenantMenu::getMenuId).toList();

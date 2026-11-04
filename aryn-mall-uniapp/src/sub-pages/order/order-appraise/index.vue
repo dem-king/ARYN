@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onLoad, onPageScroll } from '@dcloudio/uni-app'
+import { onLoad, onPageScroll, onUnload } from '@dcloudio/uni-app'
 import { computed, nextTick, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { buildApiUrl } from '@/api/core/api-base-url'
@@ -104,6 +104,40 @@ const state = reactive<PageState>({
 /** 提交前定位到的问题卡下标（滚动 + 高亮） */
 const highlightIndex = ref(-1)
 let highlightTimer: ReturnType<typeof setTimeout> | null = null
+/** 提交成功后的延时跳转句柄（页面卸载时必须清掉，否则会对已销毁页面发路由） */
+let navTimer: ReturnType<typeof setTimeout> | null = null
+/** setup 时的页面实例：延时回调里用它判断页面是否仍是栈顶 */
+const pageAtSetup = typeof getCurrentPages === 'function' ? getCurrentPages().at(-1) : undefined
+
+/**
+ * 延时路由：提交提示还在展示时，用户可能自己点了返回/被登录态顶掉。
+ * 对已销毁页面发路由会触发微信
+ * `routeDone with a webviewId xxx is not found`，故先记住当前页、到点确认仍在栈顶
+ * 再跳（与 order-detail / shared-cart 的既有写法同口径）。
+ */
+function navigateLater(delay: number, run: () => void) {
+  if (navTimer) {
+    clearTimeout(navTimer)
+  }
+  navTimer = setTimeout(() => {
+    navTimer = null
+    if (pageAtSetup && getCurrentPages().at(-1) !== pageAtSetup) {
+      return
+    }
+    run()
+  }, delay)
+}
+
+onUnload(() => {
+  if (navTimer) {
+    clearTimeout(navTimer)
+    navTimer = null
+  }
+  if (highlightTimer) {
+    clearTimeout(highlightTimer)
+    highlightTimer = null
+  }
+})
 
 /** 可选快捷标签（当前语言下的文案） */
 const tagOptions = computed(() => TAG_KEYS.map(key => t(`order.appraise.${key}`)))
@@ -306,7 +340,7 @@ async function onsubmit() {
   if (payload.length === 0) {
     if (allReviewed.value) {
       info(t('order.appraise.allReviewed'))
-      setTimeout(() => router.push({ name: 'user-appraise' }), 900)
+      navigateLater(900, () => router.push({ name: 'user-appraise' }))
       return
     }
     error(t('order.appraise.submitEmpty'))
@@ -345,12 +379,12 @@ async function onsubmit() {
         duration: 1800,
       })
       // 子集提交后订单仍在「待评价」：提示剩余件数并回到上一页，稍后可继续评
-      setTimeout(() => router.back(), 1800)
+      navigateLater(1800, () => router.back())
       return
     }
     success({ msg: t('order.appraise.successAll'), duration: 1500 })
     // 全部评完后端已把订单置为已评价：跳到「我的评价」看结果
-    setTimeout(() => router.push({ name: 'user-appraise' }), 900)
+    navigateLater(900, () => router.push({ name: 'user-appraise' }))
   }
   catch {
     // 接口错误由请求中间件统一 toast（后端 message）

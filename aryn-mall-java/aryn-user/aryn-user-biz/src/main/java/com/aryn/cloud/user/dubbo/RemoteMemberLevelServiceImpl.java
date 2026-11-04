@@ -57,6 +57,31 @@ public class RemoteMemberLevelServiceImpl implements RemoteMemberLevelService {
 	}
 
 	@Override
+	public java.util.List<MemberLevelSnapshotVO> listLevels(String tenantId) {
+		if (!StringUtils.hasText(tenantId)) {
+			return java.util.List.of();
+		}
+		String snapshot = ArynTenantContextHolder.getTenantId();
+		try {
+			ArynTenantContextHolder.setTenantId(tenantId);
+			return memberLevelMapper.selectList(com.baomidou.mybatisplus.core.toolkit.Wrappers
+					.lambdaQuery(MemberLevel.class)
+					.eq(MemberLevel::getStatus, "0")
+					.orderByAsc(MemberLevel::getSortOrder))
+				.stream()
+				.map(this::toSnapshot)
+				.toList();
+		}
+		catch (Exception ex) {
+			log.warn("会员等级列表查询异常，按无等级处理 tenant={}", tenantId, ex);
+			return java.util.List.of();
+		}
+		finally {
+			restoreTenant(snapshot);
+		}
+	}
+
+	@Override
 	public MemberLevelSnapshotVO getLevelById(String tenantId, String levelId) {
 		if (!StringUtils.hasText(tenantId) || !StringUtils.hasText(levelId)) {
 			return null;

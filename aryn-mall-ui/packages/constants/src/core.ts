@@ -30,11 +30,10 @@ export const ARYN_DOC_URL = 'https://www.iaryn.cn';
  */
 export const ARYN_GITEE_URL = 'https://gitee.com/lijiaxing_boy/aryn-mall';
 /**
- * @zh_CN 平台租户ID
- */
-export const ARYN_PLATFORM_TENANT_ID = '1881232176465358849';
-/**
  * @zh_CN 租户类型：平台租户（长期有效，不参与授权期管理）
+ *
+ * 平台管理员身份以登录用户信息里的 `tenantType` 判定（后端按
+ * sys_tenant.tenant_type 下发），前端不再硬编码平台租户 ID。
  */
 export const ARYN_TENANT_TYPE_PLATFORM = '1';
 /**

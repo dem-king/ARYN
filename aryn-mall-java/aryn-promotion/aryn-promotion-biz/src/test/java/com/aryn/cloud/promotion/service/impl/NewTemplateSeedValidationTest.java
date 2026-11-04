@@ -1,7 +1,6 @@
 package com.aryn.cloud.promotion.service.impl;
 
 import com.aryn.cloud.promotion.api.vo.PageDesignValidationVO;
-import com.aryn.cloud.promotion.mapper.PromotionActivityMapper;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
@@ -47,9 +46,8 @@ class NewTemplateSeedValidationTest {
 			new Template("0727_zs_category.json", "3"),
 			new Template("0728_zs_usercenter.json", "4"));
 
-	/** 活动 Tab 校验依赖的活动表 Mapper；本测试模板不含 activity 数据源，仅需占位。 */
-	private final DefaultPageDesignDocumentValidator validator = new DefaultPageDesignDocumentValidator(
-			org.mockito.Mockito.mock(PromotionActivityMapper.class));
+	/** 页面装修文档校验器（无外部依赖，会员价活动数据源已下线）。 */
+	private final DefaultPageDesignDocumentValidator validator = new DefaultPageDesignDocumentValidator();
 
 	/**
 	 * 2026-10-24 禁用：coupon-combo / bottom-nav 组件已整体下线（ca17f9b0），

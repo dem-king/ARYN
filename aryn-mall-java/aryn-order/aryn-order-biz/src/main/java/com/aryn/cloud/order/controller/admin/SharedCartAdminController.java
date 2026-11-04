@@ -292,7 +292,12 @@ public class SharedCartAdminController {
 				.toList();
 
 		Map<String, Object> detail = new HashMap<>();
-		detail.put("cart", cart);
+		// 详情与列表同一展示口径：从订单/菜单深链直达详情时没有列表行可借，
+		// 同样要把「哪条船、谁发起、生成哪张单」回填出来，否则只剩一串雪花 ID
+		detail.put("cart", toListRow(cart,
+				resolveOwnerNames(List.of(cart), tenantId),
+				loadVesselCallSnapshots(List.of(cart), tenantId),
+				loadOrderNos(List.of(cart))));
 		detail.put("members", members);
 		detail.put("items", itemRows);
 		return Result.success(detail);

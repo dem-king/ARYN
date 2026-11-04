@@ -1,8 +1,6 @@
 package com.aryn.cloud.promotion.service.impl;
 
-import com.aryn.cloud.promotion.api.entity.PromotionActivity;
 import com.aryn.cloud.promotion.api.vo.PageDesignValidationVO;
-import com.aryn.cloud.promotion.mapper.PromotionActivityMapper;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -11,16 +9,10 @@ import java.util.stream.Collectors;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 class DefaultPageDesignDocumentValidatorTest {
 
-	/** 活动 Tab 数据源校验用的活动表 Mapper（其余校验不触库）。 */
-	private final PromotionActivityMapper activityMapper = mock(PromotionActivityMapper.class);
-
-	private final DefaultPageDesignDocumentValidator validator = new DefaultPageDesignDocumentValidator(activityMapper);
+	private final DefaultPageDesignDocumentValidator validator = new DefaultPageDesignDocumentValidator();
 
 	@Test
 	void acceptsEmptyV2Document() {
@@ -642,91 +634,17 @@ class DefaultPageDesignDocumentValidatorTest {
 					&& "props.tabs[0].memberBanner".equals(issue.getField())));
 	}
 
-	// ==== 会员专区活动数据源（activity 模式） ====
-
-	private PromotionActivity promotionActivity(String id, String type) {
-		PromotionActivity activity = new PromotionActivity();
-		activity.setId(id);
-		activity.setActivityName("活动-" + id);
-		activity.setActivityType(type);
-		return activity;
-	}
-
-	private String activityTab(String extraDataSourceFields) {
-		return "{\"id\":\"t1\",\"title\":\"会员专区\",\"dataSource\":{\"mode\":\"activity\""
-				+ extraDataSourceFields + "}}";
-	}
-
 	@Test
-	void acceptsActivityTabWithoutActivityIdAndCountsTwoRequests() {
-		// activityId 留空 = 运行时跟随当前进行中的会员价活动，无需 targetIds/sort
-		PageDesignValidationVO result = validateGoodsTabs(activityTab(""));
+	void legacyActivityModeIsNoLongerValidatedAsActivityDataSource() {
+		// 会员价活动数据源已彻底下线：存量文档里残留的 activity 模式按自动 Tab 处理，
+		// 不再查询活动表、不再要求 activityId 合法（C 端已无该数据源）。
+		PageDesignValidationVO result = validateGoodsTabs(
+				"{\"id\":\"t1\",\"title\":\"会员专区\",\"dataSource\":{\"mode\":\"activity\","
+						+ "\"activityId\":\"act-missing\"}}");
 
-		assertFalse(result.hasErrors(), "无 activityId 的 activity Tab 应放行: " + result.getErrors());
-		assertEquals(2, result.getPerformance().getRequestCount(), "活动商品接口 + 商品列表接口 = 2 次请求");
-	}
-
-	@Test
-	void acceptsActivityTabWithValidMemberPriceActivity() {
-		when(activityMapper.selectOne(any()))
-			.thenReturn(promotionActivity("act-10", PromotionActivity.TYPE_MEMBER_PRICE));
-		// 切换数据源后残留的 sort/categoryId/targetIds 一律忽略：不校验、不进引用清单
-		PageDesignValidationVO result = validateGoodsTabs(activityTab(
-				",\"activityId\":\"act-10\",\"sort\":\"bogus-sort\",\"categoryId\":\"cat-1\","
-						+ "\"targetIds\":[\"spu-stale\"]"));
-
-		assertFalse(result.hasErrors(), "合法会员价活动应放行: " + result.getErrors());
-		assertEquals(2, result.getPerformance().getRequestCount());
-		assertTrue(result.getReferences().getGoodsIds().isEmpty(), "activity 模式残留 targetIds 不进引用清单");
-	}
-
-	@Test
-	void rejectsActivityTabWithMissingActivity() {
-		when(activityMapper.selectOne(any())).thenReturn(null);
-		PageDesignValidationVO result = validateGoodsTabs(activityTab(",\"activityId\":\"act-missing\""));
-
-		assertTrue(result.getErrors()
-			.stream()
-			.anyMatch(issue -> "DATASOURCE_INVALID".equals(issue.getCode())
-					&& "props.tabs[0].dataSource.activityId".equals(issue.getField())),
-				"activityId 指向不存在的活动必须报错");
-	}
-
-	@Test
-	void rejectsActivityTabWithNonMemberPriceActivity() {
-		when(activityMapper.selectOne(any()))
-			.thenReturn(promotionActivity("act-4", PromotionActivity.TYPE_LADDER_PRICE));
-		PageDesignValidationVO result = validateGoodsTabs(activityTab(",\"activityId\":\"act-4\""));
-
-		assertTrue(result.getErrors()
-			.stream()
-			.anyMatch(issue -> "DATASOURCE_INVALID".equals(issue.getCode())
-					&& "props.tabs[0].dataSource.activityId".equals(issue.getField())),
-				"非会员价类型活动必须报错（否则专区永远空）");
-	}
-
-	@Test
-	void failsClosedWhenActivityLookupThrows() {
-		when(activityMapper.selectOne(any())).thenThrow(new RuntimeException("db down"));
-		PageDesignValidationVO result = validateGoodsTabs(activityTab(",\"activityId\":\"act-10\""));
-
-		assertTrue(result.getErrors()
-			.stream()
-			.anyMatch(issue -> "DATASOURCE_INVALID".equals(issue.getCode())
-					&& "props.tabs[0].dataSource.activityId".equals(issue.getField())),
-				"活动查询异常按校验失败处理（fail-closed），不抛异常");
-	}
-
-	@Test
-	void countsActivityAndAutomaticTabsRequestBudgetSeparately() {
-		when(activityMapper.selectOne(any()))
-			.thenReturn(promotionActivity("act-10", PromotionActivity.TYPE_MEMBER_PRICE));
-		PageDesignValidationVO result = validateGoodsTabs(activityTab(",\"activityId\":\"act-10\"") + ","
-				+ "{\"id\":\"t2\",\"title\":\"猜你喜欢\",\"dataSource\":{\"mode\":\"automatic\",\"sort\":\"sales\"}}");
-
-		assertFalse(result.hasErrors(), "activity + automatic Tab 应放行: " + result.getErrors());
-		// activity 模式 2 次 + automatic 1 次
-		assertEquals(3, result.getPerformance().getRequestCount());
+		assertFalse(result.getErrors().stream()
+			.anyMatch(issue -> issue.getField() != null && issue.getField().contains("activityId")),
+			"activityId 不再是后端校验字段");
 	}
 
 }

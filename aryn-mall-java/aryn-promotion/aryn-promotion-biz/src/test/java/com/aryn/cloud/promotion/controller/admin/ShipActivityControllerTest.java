@@ -305,6 +305,86 @@ class ShipActivityControllerTest {
 		verify(activityMapper, never()).updateById(any(PromotionActivity.class));
 	}
 
+	// ==== 会员价活动（type=10）已彻底下线：列表/详情/写入口全部不可用 ====
+
+	@Test
+	@DisplayName("新建会员价活动：写库前拒绝并引导使用商品专区标签")
+	void saveRejectsMemberPriceActivity() {
+		PromotionActivity manual = activity(PromotionActivity.STATUS_DRAFT, LocalDateTime.now(),
+				LocalDateTime.now().plusDays(7));
+		manual.setActivityType(PromotionActivity.TYPE_MEMBER_PRICE);
+
+		assertThatThrownBy(() -> controller.save(manual))
+			.isInstanceOfSatisfying(ArynBusinessException.class, ex -> assertThat(ex.getMsg())
+				.contains("会员价活动已下线").contains("专区打标").contains("专区标签"));
+		verify(activityMapper, never()).insert(any(PromotionActivity.class));
+		verify(governanceService, never()).validateRules(any(PromotionActivity.class));
+	}
+
+	@Test
+	@DisplayName("新建非会员价活动不受影响：正常写入草稿")
+	void saveAllowsNonMemberPriceActivity() {
+		PromotionActivity gift = activity(PromotionActivity.STATUS_DRAFT, LocalDateTime.now(),
+				LocalDateTime.now().plusDays(7));
+		gift.setActivityType(PromotionActivity.TYPE_GIFT);
+		when(activityMapper.insert(any(PromotionActivity.class))).thenReturn(1);
+
+		controller.save(gift);
+
+		verify(activityMapper).insert(any(PromotionActivity.class));
+	}
+
+	@Test
+	@DisplayName("分页查询排除已下线的会员价活动（type=10）")
+	void pageExcludesMemberPriceActivity() {
+		when(activityMapper.selectPage(any(), any())).thenReturn(new Page<>());
+
+		controller.page(new Page<>(), new PromotionActivity());
+
+		AbstractWrapper<?, ?, ?> wrapper = capturedWrapper();
+		assertThat(wrapper.getSqlSegment()).contains("activity_type");
+		assertThat(wrapper.getParamNameValuePairs().values()).contains(PromotionActivity.TYPE_MEMBER_PRICE);
+	}
+
+	@Test
+	@DisplayName("详情/修改/发布会员价活动：按库内类型拦截（入参不带类型也不放行）")
+	void memberPriceActivityIdEntriesAreRejected() {
+		PromotionActivity manual = activity(PromotionActivity.STATUS_DRAFT, LocalDateTime.now(),
+				LocalDateTime.now().plusDays(7));
+		manual.setActivityType(PromotionActivity.TYPE_MEMBER_PRICE);
+		when(activityMapper.selectOne(any())).thenReturn(manual);
+
+		assertThatThrownBy(() -> controller.getById("act-1"))
+			.isInstanceOfSatisfying(ArynBusinessException.class,
+					ex -> assertThat(ex.getMsg()).contains("会员价活动已下线").contains("商品专区标签"));
+		assertThatThrownBy(() -> controller.update("act-1", new PromotionActivity()))
+			.isInstanceOfSatisfying(ArynBusinessException.class,
+					ex -> assertThat(ex.getMsg()).contains("会员价活动已下线"));
+		assertThatThrownBy(() -> controller.publish("act-1", false))
+			.isInstanceOfSatisfying(ArynBusinessException.class,
+					ex -> assertThat(ex.getMsg()).contains("会员价活动已下线"));
+		verify(activityMapper, never()).updateById(any(PromotionActivity.class));
+		verify(governanceService, never()).validateRules(any(PromotionActivity.class));
+	}
+
+	@Test
+	@DisplayName("暂停/删除会员价活动：同样拦截（不再保留旧活动收尾入口）")
+	void memberPriceActivityCannotBePausedOrDeleted() {
+		PromotionActivity running = activity(PromotionActivity.STATUS_PUBLISHED, LocalDateTime.now().minusDays(1),
+				LocalDateTime.now().plusDays(1));
+		running.setActivityType(PromotionActivity.TYPE_MEMBER_PRICE);
+		when(activityMapper.selectOne(any())).thenReturn(running);
+
+		assertThatThrownBy(() -> controller.pause("act-1"))
+			.isInstanceOfSatisfying(ArynBusinessException.class,
+					ex -> assertThat(ex.getMsg()).contains("会员价活动已下线"));
+		assertThatThrownBy(() -> controller.delete("act-1"))
+			.isInstanceOfSatisfying(ArynBusinessException.class,
+					ex -> assertThat(ex.getMsg()).contains("会员价活动已下线"));
+		verify(activityMapper, never()).updateById(any(PromotionActivity.class));
+		verify(activityMapper, never()).deleteById(any(Serializable.class));
+	}
+
 	@SuppressWarnings("unchecked")
 	private AbstractWrapper<?, ?, ?> capturedWrapper() {
 		ArgumentCaptor<Wrapper<PromotionActivity>> captor = ArgumentCaptor.forClass(Wrapper.class);

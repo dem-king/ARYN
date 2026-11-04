@@ -2,7 +2,7 @@
 -- 生成方式: node db/boot/build-full-sql.mjs
 -- 适用环境: MySQL 8.0.13+
 -- 警告: 本文件面向空库初始化，包含 DROP TABLE IF EXISTS，请勿用于存量生产库。
--- 生成日期: 2026-11-01
+-- 生成日期: 2026-11-04
 
 -- ============================================================================
 -- 创建数据库
@@ -52,6 +52,11 @@ DROP TABLE IF EXISTS `product_change_log`;
 DROP TABLE IF EXISTS `product_import_row`;
 DROP TABLE IF EXISTS `promotion_activity`;
 DROP TABLE IF EXISTS `promotion_lock`;
+DROP TABLE IF EXISTS `clearance_rule`;
+DROP TABLE IF EXISTS `mall_zone_setting`;
+DROP TABLE IF EXISTS `goods_price_history`;
+DROP TABLE IF EXISTS `goods_zone_tag_batch`;
+DROP TABLE IF EXISTS `goods_zone_tag_batch_item`;
 DROP TABLE IF EXISTS `vessel_call_change_log`;
 DROP TABLE IF EXISTS `vessel_invite_code`;
 DROP TABLE IF EXISTS `vessel_bind_apply`;
@@ -4653,7 +4658,6 @@ CREATE TABLE `seckill_order` (
     `del_flag`         varchar(1)   NOT NULL DEFAULT '0',
     PRIMARY KEY (`id`),
     KEY `idx_order` (`order_id`),
-    KEY `idx_order_item` (`order_id`, `order_item_id`),
     KEY `idx_user_session` (`user_id`, `session_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='秒杀订单记录';
 
@@ -27692,9 +27696,9 @@ SELECT `id`, `end_time` FROM `promotion_activity` WHERE `id` = '2114325311846989
 --     未来使其不在领券中心展示；发放有效性走 grantSourceCoupon，不受领取窗口限制）
 --   D 积分兑换专场：3 个兑换项（花积分发券）
 --   E 船员拼团 2.0：3 款 2 人团（可叠券）
---   F/G 统一营销活动（promotion_activity）：新人价(9)/会员价(10)/整船满减(7)/阶梯价(4)
+--   F/G 统一营销活动（promotion_activity）：新人价(9)/整船满减(7)/阶梯价(4)
 --
--- 选品纪律：同一 SKU 只挂一个活动价位（取价链 拼团>秒杀>会员价>新人价>折扣>原价）；
+-- 选品纪律：同一 SKU 只挂一个活动价位（取价链 拼团>秒杀>会员价>新人价>折扣>原价；会员价活动已下线，本种子不再创建 type=10）；
 --   3170 前缀为本活动专用，避开 3150/3160 存量前缀；秒杀硬互斥券/积分由服务端强制。
 -- 特性：幂等（先清 3170 前缀再插入，含可能已生成的场次实例）；限量/预算字段封顶。
 -- 执行：mysql -u root -p aryn_boot < 180double_eleven_campaign.sql
@@ -27873,21 +27877,6 @@ VALUES
    '2026-11-01 00:00:00', '2026-11-15 20:00:00', '2', NOW(),
    '航海双11新人礼包：8 款高感知 SKU 一口价，每人每款限 1 件', @tid, 'double11', '0');
 
--- ============ F2. 会员专享价（type=10，可叠券/积分；与会员折扣率取优） ============
-INSERT INTO `promotion_activity`
-  (`id`, `activity_name`, `activity_type`, `scope_type`, `scope_value`, `purchase_scene`, `rules`,
-   `priority`, `total_budget`, `consumed_budget`, `per_user_limit`, `gift_stock`, `stackable`,
-   `coupon_stackable`, `points_stackable`, `start_time`, `end_time`, `status`, `publish_time`,
-   `remark`, `tenant_id`, `create_by`, `del_flag`)
-VALUES
-  ('3170000000000000502', '双11会员专享价', '10', '2',
-   '10740000000000000384,10740000000000000359,10740000000000000377,10740000000000000387,10740000000000000329,10740000000000000333,10740000000000000306,10740000000000000380,10740000000000000379,10740000000000000320,10740000000000000325,10740000000000000392',
-   '',
-   '{"minLevelId":"2120000000000000001","skus":[{"skuId":"10740000000000000384","unitPrice":15.9},{"skuId":"10740000000000000359","unitPrice":12.9},{"skuId":"10740000000000000377","unitPrice":55.9},{"skuId":"10740000000000000387","unitPrice":31.9},{"skuId":"10740000000000000329","unitPrice":11.9},{"skuId":"10740000000000000333","unitPrice":14.9},{"skuId":"10740000000000000306","unitPrice":9.9},{"skuId":"10740000000000000380","unitPrice":23.9},{"skuId":"10740000000000000379","unitPrice":31.9},{"skuId":"10740000000000000320","unitPrice":13.9},{"skuId":"10740000000000000325","unitPrice":12.9},{"skuId":"10740000000000000392","unitPrice":39.9}]}',
-   0, 0.00, 0.00, 0, 0, '0', '1', '1',
-   '2026-11-01 00:00:00', '2026-11-15 20:00:00', '2', NOW(),
-   '航海双11会员专享：12 款会员一口价，新客会员及以上可享', @tid, 'double11', '0');
-
 -- ============ F3. 靠港补给节·整船采购满减（type=7，船供场景，预算封顶 2000） ============
 INSERT INTO `promotion_activity`
   (`id`, `activity_name`, `activity_type`, `scope_type`, `scope_value`, `purchase_scene`, `rules`,
@@ -27932,5 +27921,1382 @@ SELECT `gt`.`sku_id`, `gt`.`seckill_price`, `s`.`sales_price`
 FROM `seckill_goods_template` `gt`
 JOIN `goods_sku` `s` ON CONVERT(`s`.`id` USING utf8mb4) = CONVERT(`gt`.`sku_id` USING utf8mb4)
 WHERE `gt`.`activity_id` LIKE '3170000000000000%' AND `gt`.`seckill_price` >= `s`.`sales_price`;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 平台租户默认文件存储配置
+-- Source: db/boot/181platform_storage_config.sql
+-- ============================================================================
+-- ============================================================================
+-- 平台租户默认文件存储配置增量（Boot 单体模式）
+-- 目标库：aryn_boot
+--
+-- 背景：平台管理员 system 属于「系统租户」（tenant_id=1881232176465358849）。
+--       个人信息页更换头像、平台级素材上传等操作都按登录用户自己的租户查找
+--       sys_storage_config；平台租户此前没有启用的存储配置，上传直接报
+--       「当前租户未配置启用的文件存储，请联系管理员完成配置」。
+--
+-- 内容：为系统租户补一条启用的本机存储配置，根目录沿用部署约定
+--       /data/aryn/uploads（boot/cloud 的 Docker 都把这个目录挂成持久卷，
+--       文件按 tenant_id 分子目录落盘，不会和其他租户串文件）。
+--
+-- 幂等：固定 ID + INSERT IGNORE + 「已存在启用配置则跳过」，可重复执行；
+--       已有对象存储或自定义配置的部署不会被覆盖。
+--
+-- 注意：domain 留空时返回站内相对 URL。如果管理端与上传服务不同源（例如
+--       本机 Vite dev server 打开管理端），请在「系统设置-文件存储配置」里
+--       补公开访问域名；本机开发可执行 dev-tools/dev-image-tunnel.sh，
+--       它会同步 sys_storage_config.domain。
+--
+-- 执行：mysql -u root -p aryn_boot < 181platform_storage_config.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+INSERT IGNORE INTO `sys_storage_config`
+	(`id`, `access_key`, `access_secret`, `endpoint`, `bucket`, `type`, `create_time`, `update_time`,
+	 `dir`, `is_https`, `del_flag`, `tenant_id`, `create_by`, `update_by`, `status`,
+	 `style_access_enabled`, `domain`)
+SELECT '1881232176465358849001', NULL, NULL, NULL, '/data/aryn/uploads', 'local', NOW(), NOW(),
+	   NULL, NULL, '0', '1881232176465358849', 'system', NULL, '0', 0, NULL
+FROM DUAL
+WHERE NOT EXISTS (
+	SELECT 1
+	FROM `sys_storage_config`
+	WHERE `tenant_id` = '1881232176465358849'
+	  AND `del_flag` = '0'
+	  AND `status` = '0'
+);
+
+-- 自检：平台租户应有且仅有一条启用的存储配置
+SELECT `id`, `type`, `bucket`, `status`, `domain`
+FROM `sys_storage_config`
+WHERE `tenant_id` = '1881232176465358849' AND `del_flag` = '0' AND `status` = '0';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 员工账号修改手机号权限
+-- Source: db/boot/182sysuser_phone_edit_permission.sql
+-- ============================================================================
+-- ============================================================================
+-- 员工账号「修改手机号」权限增量（Boot 单体模式）
+-- 目标库：aryn_boot
+--
+-- 背景：员工账号编辑弹窗此前把手机号输入框禁用、后端编辑接口也丢弃 phone 字段，
+--       管理员无法给员工换绑手机号；新接口 PUT /upms/user/{id}/phone 需要独立授权。
+-- 内容：sys_menu 补按钮权限 upms:sysuser:phone:edit（修改员工手机号），
+--       向已拥有同父「重置密码」按钮（upms:sysuser:password）授权的角色补授，
+--       并向已开通「重置密码」按钮的租户补齐租户菜单。
+-- 权限口径：改手机号与重置密码同属账号接管级敏感操作，按同一批角色授权；
+--       查看完整手机号仍是单独的 upms:sysuser:phone，不随本次授权放开。
+-- 幂等：固定 ID + INSERT IGNORE / 派生授权，可重复执行；仅新增行，不改存量数据。
+-- 注意：菜单在登录时快照，执行后管理端需重新登录才出现按钮。
+-- 执行：mysql -u root -p aryn_boot < 182sysuser_phone_edit_permission.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+-- 员工账号下补「修改员工手机号」按钮权限
+INSERT IGNORE INTO `sys_menu`
+	(`id`, `name`, `permission`, `path`, `redirect`, `parent_id`, `icon`, `component`, `sort`, `type`,
+	 `create_time`, `update_time`, `outer_status`, `del_flag`, `application_key`, `create_by`, `update_by`)
+VALUES
+	('2110000000000000207', '修改员工手机号', 'upms:sysuser:phone:edit', NULL, NULL,
+	 '1491752531735490561', '', NULL, 10, '1', NOW(), NOW(), '0', '0', 'app_base', 'system', 'system');
+
+-- 向已拥有同父「重置密码」按钮授权的角色补授新按钮，主键 MD5(role_id:menu:menu_id) 保证幂等
+INSERT IGNORE INTO `sys_role_menu` (`id`, `role_id`, `menu_id`, `create_time`, `tenant_id`)
+SELECT MD5(CONCAT(gr.`role_id`, ':menu:', m.`id`)), gr.`role_id`, m.`id`, NOW(), gr.`tenant_id`
+FROM `sys_menu` m
+JOIN `sys_menu` peer ON peer.`parent_id` = m.`parent_id`
+	AND peer.`del_flag` = '0'
+	AND peer.`permission` = 'upms:sysuser:password'
+JOIN `sys_role_menu` gr ON gr.`menu_id` = peer.`id`
+WHERE m.`id` = '2110000000000000207' AND m.`del_flag` = '0';
+
+-- 向已开通同父「重置密码」按钮的租户补齐租户菜单记录
+INSERT IGNORE INTO `sys_tenant_menu` (`id`, `tenant_id`, `menu_id`, `create_time`, `create_by`)
+SELECT MD5(CONCAT(gt.`tenant_id`, ':menu:', m.`id`)), gt.`tenant_id`, m.`id`, NOW(), 'system'
+FROM `sys_menu` m
+JOIN `sys_menu` peer ON peer.`parent_id` = m.`parent_id`
+	AND peer.`del_flag` = '0'
+	AND peer.`permission` = 'upms:sysuser:password'
+JOIN `sys_tenant_menu` gt ON gt.`menu_id` = peer.`id`
+WHERE m.`id` = '2110000000000000207' AND m.`del_flag` = '0';
+
+-- 执行结果自检：应返回 1 行菜单及对应的角色/租户授权数
+SELECT m.`id`, m.`permission`,
+       (SELECT COUNT(*) FROM `sys_role_menu` rm WHERE rm.`menu_id` = m.`id`) AS role_grants,
+       (SELECT COUNT(*) FROM `sys_tenant_menu` tm WHERE tm.`menu_id` = m.`id`) AS tenant_grants
+FROM `sys_menu` m
+WHERE m.`id` = '2110000000000000207';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 会员专区与低价捡漏规则化（商品标签/系统活动）
+-- Source: db/boot/183member_clearance_zone_incremental.sql
+-- ============================================================================
+-- 会员专区与低价捡漏规则化（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 背景：会员价/出清价从「运营逐个 SKU 配活动」下沉为「商品级标签 + 规则自动算价」。
+--       会员专区按 is_member_item 选品，出清专区按 is_clearance_item + 到期时间选品；
+--       标签同步到系统托管活动（activity_code=SYS_MEMBER_ZONE / SYS_CLEARANCE_ZONE）复用既有促销引擎。
+-- 结构：
+--   goods_spu：会员/出清标签与默认规则（SPU 级）
+--   goods_sku：同义覆盖（NULL=继承 SPU）
+--   promotion_activity：系统托管活动标识 activity_code
+-- 特性：可重复执行（information_schema 守卫），不 DROP/TRUNCATE 存量数据。
+-- 配套：GoodsSpu/GoodsSku 实体、MallZoneActivitySyncService、GoodsZoneTagService。
+--
+-- 执行：mysql -u root -p aryn_boot < 183member_clearance_zone_incremental.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+-- ===========================================================================
+-- 1. goods_spu：专区标签与默认规则
+-- ===========================================================================
+SET @spu_is_member_item := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'goods_spu' AND COLUMN_NAME = 'is_member_item'
+);
+SET @ddl := IF(@spu_is_member_item = 0,
+  'ALTER TABLE `goods_spu` ADD COLUMN `is_member_item` tinyint(1) NOT NULL DEFAULT 0 COMMENT ''会员专区标签：0否 1是'' AFTER `cost_price`',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @spu_member_discount_rate := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'goods_spu' AND COLUMN_NAME = 'member_discount_rate'
+);
+SET @ddl := IF(@spu_member_discount_rate = 0,
+  'ALTER TABLE `goods_spu` ADD COLUMN `member_discount_rate` decimal(5,4) NULL DEFAULT NULL COMMENT ''商品级会员折扣率，如0.9000；空=用等级折扣率'' AFTER `is_member_item`',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @spu_member_price_fixed := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'goods_spu' AND COLUMN_NAME = 'member_price_fixed'
+);
+SET @ddl := IF(@spu_member_price_fixed = 0,
+  'ALTER TABLE `goods_spu` ADD COLUMN `member_price_fixed` decimal(10,2) NULL DEFAULT NULL COMMENT ''会员固定价（迁移旧活动用）；与按率算价取低'' AFTER `member_discount_rate`',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @spu_member_price_floor := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'goods_spu' AND COLUMN_NAME = 'member_price_floor'
+);
+SET @ddl := IF(@spu_member_price_floor = 0,
+  'ALTER TABLE `goods_spu` ADD COLUMN `member_price_floor` decimal(10,2) NULL DEFAULT NULL COMMENT ''会员价下限（防击穿），空=0.01'' AFTER `member_price_fixed`',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @spu_is_clearance_item := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'goods_spu' AND COLUMN_NAME = 'is_clearance_item'
+);
+SET @ddl := IF(@spu_is_clearance_item = 0,
+  'ALTER TABLE `goods_spu` ADD COLUMN `is_clearance_item` tinyint(1) NOT NULL DEFAULT 0 COMMENT ''捡漏专区标签：0否 1是'' AFTER `member_price_floor`',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @spu_clearance_price := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'goods_spu' AND COLUMN_NAME = 'clearance_price'
+);
+SET @ddl := IF(@spu_clearance_price = 0,
+  'ALTER TABLE `goods_spu` ADD COLUMN `clearance_price` decimal(10,2) NULL DEFAULT NULL COMMENT ''出清固定价，与 clearance_discount_rate 二选一'' AFTER `is_clearance_item`',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @spu_clearance_discount_rate := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'goods_spu' AND COLUMN_NAME = 'clearance_discount_rate'
+);
+SET @ddl := IF(@spu_clearance_discount_rate = 0,
+  'ALTER TABLE `goods_spu` ADD COLUMN `clearance_discount_rate` decimal(5,4) NULL DEFAULT NULL COMMENT ''出清折扣率（对 original_price 计算）'' AFTER `clearance_price`',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @spu_clearance_expire_time := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'goods_spu' AND COLUMN_NAME = 'clearance_expire_time'
+);
+SET @ddl := IF(@spu_clearance_expire_time = 0,
+  'ALTER TABLE `goods_spu` ADD COLUMN `clearance_expire_time` datetime NULL DEFAULT NULL COMMENT ''出清截止时间，到期自动退出专区与出清价'' AFTER `clearance_discount_rate`',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ===========================================================================
+-- 2. goods_sku：同义覆盖（NULL=继承 SPU）
+-- ===========================================================================
+SET @sku_is_member_item := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'goods_sku' AND COLUMN_NAME = 'is_member_item'
+);
+SET @ddl := IF(@sku_is_member_item = 0,
+  'ALTER TABLE `goods_sku` ADD COLUMN `is_member_item` tinyint(1) NULL DEFAULT NULL COMMENT ''会员专区标签：NULL继承SPU 0否 1是'' AFTER `pic_url`',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sku_member_discount_rate := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'goods_sku' AND COLUMN_NAME = 'member_discount_rate'
+);
+SET @ddl := IF(@sku_member_discount_rate = 0,
+  'ALTER TABLE `goods_sku` ADD COLUMN `member_discount_rate` decimal(5,4) NULL DEFAULT NULL COMMENT ''SKU会员折扣率覆盖；空=继承SPU'' AFTER `is_member_item`',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sku_member_price_fixed := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'goods_sku' AND COLUMN_NAME = 'member_price_fixed'
+);
+SET @ddl := IF(@sku_member_price_fixed = 0,
+  'ALTER TABLE `goods_sku` ADD COLUMN `member_price_fixed` decimal(10,2) NULL DEFAULT NULL COMMENT ''SKU会员固定价覆盖；空=继承SPU'' AFTER `member_discount_rate`',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sku_member_price_floor := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'goods_sku' AND COLUMN_NAME = 'member_price_floor'
+);
+SET @ddl := IF(@sku_member_price_floor = 0,
+  'ALTER TABLE `goods_sku` ADD COLUMN `member_price_floor` decimal(10,2) NULL DEFAULT NULL COMMENT ''SKU会员价下限覆盖；空=继承SPU'' AFTER `member_price_fixed`',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sku_is_clearance_item := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'goods_sku' AND COLUMN_NAME = 'is_clearance_item'
+);
+SET @ddl := IF(@sku_is_clearance_item = 0,
+  'ALTER TABLE `goods_sku` ADD COLUMN `is_clearance_item` tinyint(1) NULL DEFAULT NULL COMMENT ''捡漏专区标签：NULL继承SPU 0否 1是'' AFTER `member_price_floor`',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sku_clearance_price := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'goods_sku' AND COLUMN_NAME = 'clearance_price'
+);
+SET @ddl := IF(@sku_clearance_price = 0,
+  'ALTER TABLE `goods_sku` ADD COLUMN `clearance_price` decimal(10,2) NULL DEFAULT NULL COMMENT ''SKU出清固定价覆盖；空=继承SPU'' AFTER `is_clearance_item`',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sku_clearance_discount_rate := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'goods_sku' AND COLUMN_NAME = 'clearance_discount_rate'
+);
+SET @ddl := IF(@sku_clearance_discount_rate = 0,
+  'ALTER TABLE `goods_sku` ADD COLUMN `clearance_discount_rate` decimal(5,4) NULL DEFAULT NULL COMMENT ''SKU出清折扣率覆盖；空=继承SPU'' AFTER `clearance_price`',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sku_clearance_expire_time := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'goods_sku' AND COLUMN_NAME = 'clearance_expire_time'
+);
+SET @ddl := IF(@sku_clearance_expire_time = 0,
+  'ALTER TABLE `goods_sku` ADD COLUMN `clearance_expire_time` datetime NULL DEFAULT NULL COMMENT ''SKU出清截止时间覆盖；空=继承SPU'' AFTER `clearance_discount_rate`',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ===========================================================================
+-- 3. 选品索引
+-- ===========================================================================
+SET @idx_member_item := (
+  SELECT COUNT(*) FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'goods_spu' AND INDEX_NAME = 'idx_member_item'
+);
+SET @ddl := IF(@idx_member_item = 0,
+  'ALTER TABLE `goods_spu` ADD INDEX `idx_member_item` (`tenant_id`, `is_member_item`, `status`, `del_flag`)',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @idx_clearance_item := (
+  SELECT COUNT(*) FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'goods_spu' AND INDEX_NAME = 'idx_clearance_item'
+);
+SET @ddl := IF(@idx_clearance_item = 0,
+  'ALTER TABLE `goods_spu` ADD INDEX `idx_clearance_item` (`tenant_id`, `is_clearance_item`, `clearance_expire_time`, `status`, `del_flag`)',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ===========================================================================
+-- 4. promotion_activity：系统托管活动标识
+-- ===========================================================================
+SET @activity_code := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'promotion_activity' AND COLUMN_NAME = 'activity_code'
+);
+SET @ddl := IF(@activity_code = 0,
+  'ALTER TABLE `promotion_activity` ADD COLUMN `activity_code` varchar(64) NULL DEFAULT NULL COMMENT ''系统托管活动标识（SYS_MEMBER_ZONE/SYS_CLEARANCE_ZONE），手工活动为空'' AFTER `activity_type`',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 4.1 清理早期版本的非唯一索引（仅索引，不动数据）
+SET @idx_activity_code_legacy := (
+  SELECT COUNT(*) FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'promotion_activity'
+    AND INDEX_NAME = 'idx_promotion_activity_code'
+);
+SET @ddl := IF(@idx_activity_code_legacy > 0,
+  'ALTER TABLE `promotion_activity` DROP INDEX `idx_promotion_activity_code`',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 4.2 唯一索引：同步任务并发（打标保存 + 兜底 Job）时防止产生两条系统活动。
+--     MySQL 唯一索引允许多个 NULL，手工活动（activity_code 为空）不受影响。
+--     存量若已有重复系统活动，先不建索引（避免脚本失败），由 duplicate_activity_code_groups 暴露，
+--     人工合并后重跑；应用层 DuplicateKey 兜底仍然生效。
+SET @dup_activity_code_groups := (
+  SELECT COUNT(*) FROM (
+    SELECT `tenant_id`, `activity_code`
+    FROM `promotion_activity`
+    WHERE `activity_code` IS NOT NULL AND `del_flag` = '0'
+    GROUP BY `tenant_id`, `activity_code`
+    HAVING COUNT(*) > 1
+  ) AS duplicated
+);
+SET @uk_activity_code := (
+  SELECT COUNT(*) FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'promotion_activity'
+    AND INDEX_NAME = 'uk_promotion_activity_code'
+);
+SET @ddl := IF(@uk_activity_code = 0 AND @dup_activity_code_groups = 0,
+  'ALTER TABLE `promotion_activity` ADD UNIQUE INDEX `uk_promotion_activity_code` (`tenant_id`, `activity_code`)',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SELECT @dup_activity_code_groups AS duplicate_activity_code_groups;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 会员/出清专区系统活动兜底同步定时任务注册
+-- Source: db/boot/184mall_zone_sync_job.sql
+-- ============================================================================
+-- 会员/出清专区系统活动兜底同步定时任务注册（Boot 单体模式）
+--
+-- 目标库：aryn_boot_job（xxl-job 调度库）
+-- 特性：可重复执行；不 DROP/TRUNCATE；按 executor_handler 判重，已注册则跳过。
+--
+-- 背景（2026-11-03）：会员专区/低价捡漏改为商品级标签驱动，打标后同步触发系统托管活动
+--   （SYS_MEMBER_ZONE / SYS_CLEARANCE_ZONE）。出清到期退出与同步失败漏单需要每日兜底重算。
+--
+-- 执行：mysql -u root -p aryn_boot_job < 184mall_zone_sync_job.sql
+
+USE aryn_boot_job;
+
+INSERT INTO `xxl_job_info` (
+    `job_group`, `job_desc`, `add_time`, `update_time`, `author`, `alarm_email`,
+    `schedule_type`, `schedule_conf`, `misfire_strategy`, `executor_route_strategy`,
+    `executor_handler`, `executor_param`, `executor_block_strategy`, `executor_timeout`,
+    `executor_fail_retry_count`, `glue_type`, `glue_source`, `glue_remark`,
+    `glue_updatetime`, `child_jobid`, `trigger_status`, `trigger_last_time`, `trigger_next_time`
+)
+SELECT 1, '会员/出清专区系统活动兜底同步', NOW(), NOW(), 'admin', '',
+       'CRON', '0 10 3 * * ?', 'DO_NOTHING', 'FIRST',
+       'mallZoneSyncJobHandler', '', 'SERIAL_EXECUTION', 0,
+       1, 'BEAN', '', 'GLUE代码初始化',
+       NOW(), '', 1, 0, 0
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM `xxl_job_info` WHERE `executor_handler` = 'mallZoneSyncJobHandler'
+);
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- P1 专区规则化与治理（出清分层/价格历史/专区设置）
+-- Source: db/boot/185p1_zone_governance_incremental.sql
+-- ============================================================================
+-- P1 专区规则化与治理（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 背景：P0 已把会员/出清价下沉为商品标签 + 系统托管活动。P1 补齐：
+--   1) clearance_rule：出清时间分层（距到期 ≤N 小时再打折），算价在同步任务中完成；
+--   2) goods_price_history：商品价格变更历史，用于「先涨后降」可信度判定；
+--   3) mall_zone_setting：专区开关/默认折扣/排序/文案，关闭开关时同步服务清空系统活动 rules。
+-- 特性：可重复执行（CREATE TABLE IF NOT EXISTS + 索引判存），不 DROP/TRUNCATE 存量数据。
+-- 配套：ClearanceRule、MallZoneSetting、GoodsPriceHistory 实体与同步/管理端。
+--
+-- 执行：mysql -u root -p aryn_boot < 185p1_zone_governance_incremental.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+-- ===========================================================================
+-- 1. 出清时间分层规则
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS `clearance_rule` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户id',
+  `rule_name` varchar(64) NOT NULL COMMENT '规则名称',
+  `hours_before_expire` int NOT NULL COMMENT '距到期小时数：剩余时间 <= 该值时命中',
+  `discount_rate` decimal(5,4) NOT NULL COMMENT '在基础出清价上再打折的比率，如0.8000',
+  `enabled` char(1) NOT NULL DEFAULT '1' COMMENT '启用：1是 0否',
+  `sort_order` int NOT NULL DEFAULT 0 COMMENT '排序（仅管理端展示）',
+  `remark` varchar(255) NULL DEFAULT NULL COMMENT '备注',
+  `create_by` varchar(64) NULL DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(64) NULL DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime NULL DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime NULL DEFAULT NULL COMMENT '修改时间',
+  `del_flag` char(1) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0显示 1隐藏',
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_clearance_rule_tenant` (`tenant_id`, `enabled`, `hours_before_expire`)
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '出清时间分层规则' ROW_FORMAT = DYNAMIC;
+
+-- ===========================================================================
+-- 2. 商品价格变更历史
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS `goods_price_history` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户id',
+  `spu_id` varchar(32) NOT NULL COMMENT '商品SPU ID',
+  `sku_id` varchar(32) NULL DEFAULT NULL COMMENT '商品SKU ID（SPU级变更可空）',
+  `price_type` varchar(32) NOT NULL COMMENT '价格类型：sales/original/clearance/member_fixed/member_rate',
+  `old_value` decimal(12,4) NULL DEFAULT NULL COMMENT '变更前值',
+  `new_value` decimal(12,4) NULL DEFAULT NULL COMMENT '变更后值',
+  `change_source` varchar(32) NOT NULL COMMENT '来源：product_save/tag_save/migration/import',
+  `change_reason` varchar(255) NULL DEFAULT NULL COMMENT '变更说明',
+  `operator` varchar(64) NULL DEFAULT NULL COMMENT '操作人',
+  `create_time` datetime NULL DEFAULT NULL COMMENT '创建时间',
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_price_history_spu` (`tenant_id`, `spu_id`, `create_time`),
+  KEY `idx_price_history_sku` (`tenant_id`, `sku_id`, `create_time`)
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '商品价格变更历史' ROW_FORMAT = DYNAMIC;
+
+-- ===========================================================================
+-- 3. 专区设置（会员/出清各一条）
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS `mall_zone_setting` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户id',
+  `zone_type` varchar(16) NOT NULL COMMENT '专区类型：member/clearance',
+  `enabled` char(1) NOT NULL DEFAULT '1' COMMENT '专区开关：1开 0关（关闭时清空系统活动 rules）',
+  `default_discount_rate` decimal(5,4) NULL DEFAULT NULL COMMENT '默认折扣率：商品未配置时兜底',
+  `sort_mode` varchar(32) NOT NULL DEFAULT 'default' COMMENT '排序：default/price_asc/discount_desc',
+  `title` varchar(64) NULL DEFAULT NULL COMMENT '专区标题',
+  `subtitle` varchar(128) NULL DEFAULT NULL COMMENT '专区副标题',
+  `notice` varchar(500) NULL DEFAULT NULL COMMENT '专区公告/说明',
+  `create_by` varchar(64) NULL DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(64) NULL DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime NULL DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime NULL DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(1) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0显示 1隐藏',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_zone_setting_tenant_type` (`tenant_id`, `zone_type`)
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '会员/出清专区设置' ROW_FORMAT = DYNAMIC;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- P1 专区治理菜单
+-- Source: db/boot/186p1_zone_governance_menu.sql
+-- ============================================================================
+-- P1 专区治理菜单（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 背景：新增「专区设置」与「出清折扣规则」两个管理页，需要菜单入口与按钮权限。
+-- 权限：复用 promotion:shipactivity:page/save，避免新增权限点与菜单授权漂移。
+-- 特性：INSERT IGNORE 按固定 ID 幂等；向试点租户与已拥有「船供活动」菜单的角色/租户推导式补授。
+--
+-- 执行：mysql -u root -p aryn_boot < 186p1_zone_governance_menu.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+INSERT IGNORE INTO `sys_menu` (`id`,`name`,`permission`,`path`,`redirect`,`parent_id`,`icon`,`component`,`sort`,`type`,`create_time`,`outer_status`,`del_flag`,`application_key`,`create_by`) VALUES
+('2110000000000000301','专区设置','promotion:shipactivity:page','/promotion/zone-setting',NULL,'1779386604402573314','lucide:settings-2','promotion/zone-setting/index',24,'0',NOW(),'0','0','app_base','system'),
+('2110000000000000302','专区设置保存','promotion:shipactivity:save',NULL,NULL,'2110000000000000301','',NULL,1,'1',NOW(),'0','0','app_base','system'),
+('2110000000000000303','出清折扣规则','promotion:shipactivity:page','/promotion/clearance-rule',NULL,'1779386604402573314','lucide:percent','promotion/clearance-rule/index',25,'0',NOW(),'0','0','app_base','system'),
+('2110000000000000304','出清折扣规则保存','promotion:shipactivity:save',NULL,NULL,'2110000000000000303','',NULL,1,'1',NOW(),'0','0','app_base','system');
+
+INSERT IGNORE INTO `sys_tenant_menu` (`id`,`tenant_id`,`menu_id`,`create_time`,`create_by`)
+SELECT MD5(CONCAT('1590229800633634816', ':menu:', m.`id`)), '1590229800633634816', m.`id`, NOW(), 'system'
+FROM `sys_menu` m
+WHERE m.`id` IN ('2110000000000000301','2110000000000000302','2110000000000000303','2110000000000000304')
+  AND m.`del_flag` = '0';
+
+INSERT IGNORE INTO `sys_role_menu` (`id`,`role_id`,`menu_id`,`create_time`,`tenant_id`)
+SELECT MD5(CONCAT(gr.`role_id`, ':menu:', m.`id`)), gr.`role_id`, m.`id`, NOW(), gr.`tenant_id`
+FROM `sys_menu` m
+JOIN `sys_role_menu` gr ON gr.`menu_id` = '2110000000000000101'
+WHERE m.`id` IN ('2110000000000000301','2110000000000000302','2110000000000000303','2110000000000000304')
+  AND m.`del_flag` = '0';
+
+INSERT IGNORE INTO `sys_tenant_menu` (`id`,`tenant_id`,`menu_id`,`create_time`,`create_by`)
+SELECT MD5(CONCAT(gt.`tenant_id`, ':menu:', m.`id`)), gt.`tenant_id`, m.`id`, NOW(), 'system'
+FROM `sys_menu` m
+JOIN `sys_tenant_menu` gt ON gt.`menu_id` = '2110000000000000101'
+WHERE m.`id` IN ('2110000000000000301','2110000000000000302','2110000000000000303','2110000000000000304')
+  AND m.`del_flag` = '0';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 商品类目树基线补齐（971 一级 + 972 二级）
+-- Source: db/boot/188category_tree_export_seed.sql
+-- ============================================================================
+-- 商品类目树基线补齐（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 背景：178 脚本引用了 971 一级与 972 二级类目作为 parent_id，但仓库内没有对应创建脚本。
+-- 内容：971 一级 26 行（含 4 行逻辑删除）+ 972 二级 72 行，全部挂主租户 1590229800633634816。
+-- 特性：可重复执行；仅清理 971/972 前缀，不触碰 191/192/951/952/963/976 等存量类目。
+-- 注意：本脚本需在 90goods_category_badge.sql 之后执行（INSERT 含 badge_type 列）。
+--
+-- 执行：mysql -u root -p aryn_boot < 188category_tree_export_seed.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ---------- 清理本脚本自身种子（幂等） ----------
+DELETE FROM `goods_category` WHERE `id` LIKE '971%' OR `id` LIKE '972%';
+
+-- ---------- 971 一级 + 972 二级 ----------
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9710000000000000001','时令鲜果','0','http://localhost:9999/boot/file/local/1590229800633634816/6cc27e9d-d531-4164-8e0b-d88facf20e88.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9710000000000000002','新鲜蔬菜','0','http://localhost:9999/boot/file/local/1590229800633634816/348f1de5-aedd-4588-9e69-339460305bce.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',2,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9710000000000000003','肉禽蛋品','0','http://localhost:9999/boot/file/local/1590229800633634816/26d4a42c-dd9a-4615-8b47-10f9d14ca8ee.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',3,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9710000000000000004','面食早点','0','http://localhost:9999/boot/file/local/1590229800633634816/ce1c188b-5bfa-4eb2-8553-a31e2ec01777.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',5,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9710000000000000005','速冻美食','0','http://localhost:9999/boot/file/local/1590229800633634816/391950b2-b765-490c-8e86-2e419d7bbb62.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',6,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9710000000000000006','本周上新','0','http://localhost:9999/boot/file/local/1590229800633634816/27049fbf-1ae1-4c4d-83f8-1e29398f797b.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',11,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9710000000000000007','纸品水饮','0','http://localhost:9999/boot/file/local/1590229800633634816/bfe88e27-9c17-44d2-855e-ded9796fa233.jpg','','1','2026-09-29 21:47:29','2026-09-29 22:52:00','1',7,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9710000000000000008','乳品冷饮','0','http://localhost:9999/boot/file/local/1590229800633634816/8c712116-738f-4573-835b-5b0939cb11b8.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',7,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9710000000000000009','水饮饮料','0','http://localhost:9999/boot/file/local/1590229800633634816/050d8073-ee44-4e33-a177-5ed5851dadd1.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',8,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9710000000000000010','咖啡能量','0','http://localhost:9999/boot/file/local/1590229800633634816/3dc5ba8d-0d8c-4c7b-96b2-03e6a420bc31.jpg','','1','2026-09-29 21:47:29','2026-09-29 22:52:00','1',10,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9710000000000000011','酒水酒类','0','http://localhost:9999/boot/file/local/1590229800633634816/8426d4cf-600b-4c75-a295-9d7c9b220e21.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',9,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9710000000000000012','即饮茶','0','http://localhost:9999/boot/file/local/1590229800633634816/e0dcdfbe-f1ac-43b6-8c0c-f6a538d48d73.jpg','','1','2026-09-29 21:47:29','2026-09-29 22:52:00','1',12,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9710000000000000013','冲调热饮','0','http://localhost:9999/boot/file/local/1590229800633634816/19e0e575-8534-4dea-b4b5-2cfed70d8863.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',10,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9710000000000000014','烧烤火锅','0','http://localhost:9999/boot/file/local/1590229800633634816/f0f883f9-8ead-469d-82b7-f47a5160ff9f.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',12,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9710000000000000015','熟食卤味','0','http://localhost:9999/boot/file/local/1590229800633634816/5a027361-ed1c-4523-8ebd-cf7e247338b9.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',13,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9710000000000000016','罐头食品','0','http://localhost:9999/boot/file/local/1590229800633634816/49675391-d35e-4ee0-a6c9-aee8944e96ae.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',14,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9710000000000000017','炒货坚果','0','http://localhost:9999/boot/file/local/1590229800633634816/de9c1003-7b6e-4ea1-9c66-b0a66cbbdfa1.jpg','','1','2026-09-29 21:47:29','2026-09-29 22:52:46','1',17,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9710000000000000018','休闲零食','0','http://localhost:9999/boot/file/local/1590229800633634816/f15badb7-012f-42db-8f33-3a82c6137acc.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',15,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9710000000000000019','面包糕点','0','http://localhost:9999/boot/file/local/1590229800633634816/59618a97-bb7d-4a43-af85-08ac4f440ce6.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',16,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9710000000000000020','方便速食','0','http://localhost:9999/boot/file/local/1590229800633634816/63566b30-f327-4ff3-bf73-102fb80506e8.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',17,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9710000000000000021','个护清洁','0','http://localhost:9999/boot/file/local/1590229800633634816/aa25aea9-8cbc-4ea0-9edb-499471269570.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',18,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9710000000000000022','家居日用','0','http://localhost:9999/boot/file/local/1590229800633634816/646a5dd3-9d37-40f3-b1e3-e5a863464a33.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',19,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9710000000000000023','文具运动','0','http://localhost:9999/boot/file/local/1590229800633634816/93aaa3f9-09b5-4d63-9887-56340eed47fc.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',20,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9710000000000000024','数码家电','0','http://localhost:9999/boot/file/local/1590229800633634816/416d2fd7-6926-498c-ad8f-7fc096e33735.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',21,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9710000000000000025','劳保用品','0','http://localhost:9999/boot/file/local/1590229800633634816/979c0b7e-eca5-446b-a5c6-1acbf8daf207.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',22,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9710000000000000026','海鲜水产','0',NULL,NULL,'0','2026-09-29 22:52:00','2026-09-30 18:18:15','0',4,'0','1590229800633634816','admin','admin');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000001','时令鲜果','9710000000000000001','http://localhost:9999/boot/file/local/1590229800633634816/6cc27e9d-d531-4164-8e0b-d88facf20e88.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000002','家常鲜蔬','9710000000000000002','http://localhost:9999/boot/file/local/1590229800633634816/348f1de5-aedd-4588-9e69-339460305bce.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000003','猪牛羊禽','9710000000000000003','http://localhost:9999/boot/file/local/1590229800633634816/26d4a42c-dd9a-4615-8b47-10f9d14ca8ee.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000004','海鲜水产','9710000000000000026','http://localhost:9999/boot/file/local/1590229800633634816/26d4a42c-dd9a-4615-8b47-10f9d14ca8ee.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000005','中式面点','9710000000000000004','http://localhost:9999/boot/file/local/1590229800633634816/ce1c188b-5bfa-4eb2-8553-a31e2ec01777.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000006','鲜面水饺','9710000000000000004','http://localhost:9999/boot/file/local/1590229800633634816/ce1c188b-5bfa-4eb2-8553-a31e2ec01777.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000007','冷冻速食','9710000000000000005','http://localhost:9999/boot/file/local/1590229800633634816/391950b2-b765-490c-8e86-2e419d7bbb62.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000008','火锅丸滑','9710000000000000005','http://localhost:9999/boot/file/local/1590229800633634816/391950b2-b765-490c-8e86-2e419d7bbb62.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000009','本周上新','9710000000000000006','http://localhost:9999/boot/file/local/1590229800633634816/27049fbf-1ae1-4c4d-83f8-1e29398f797b.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000010','包装水饮','9710000000000000009','http://localhost:9999/boot/file/local/1590229800633634816/bfe88e27-9c17-44d2-855e-ded9796fa233.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000011','生活用纸','9710000000000000021','http://localhost:9999/boot/file/local/1590229800633634816/bfe88e27-9c17-44d2-855e-ded9796fa233.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000012','常温奶','9710000000000000008','http://localhost:9999/boot/file/local/1590229800633634816/8c712116-738f-4573-835b-5b0939cb11b8.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000013','酸奶果汁','9710000000000000008','http://localhost:9999/boot/file/local/1590229800633634816/8c712116-738f-4573-835b-5b0939cb11b8.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000014','可乐汽水','9710000000000000009','http://localhost:9999/boot/file/local/1590229800633634816/050d8073-ee44-4e33-a177-5ed5851dadd1.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000015','气泡水','9710000000000000009','http://localhost:9999/boot/file/local/1590229800633634816/050d8073-ee44-4e33-a177-5ed5851dadd1.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000016','能量饮料','9710000000000000009','http://localhost:9999/boot/file/local/1590229800633634816/3dc5ba8d-0d8c-4c7b-96b2-03e6a420bc31.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000017','即饮咖啡','9710000000000000009','http://localhost:9999/boot/file/local/1590229800633634816/3dc5ba8d-0d8c-4c7b-96b2-03e6a420bc31.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000018','啤酒','9710000000000000011','http://localhost:9999/boot/file/local/1590229800633634816/8426d4cf-600b-4c75-a295-9d7c9b220e21.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000019','白酒红酒','9710000000000000011','http://localhost:9999/boot/file/local/1590229800633634816/8426d4cf-600b-4c75-a295-9d7c9b220e21.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000020','瓶装茶饮','9710000000000000009','http://localhost:9999/boot/file/local/1590229800633634816/e0dcdfbe-f1ac-43b6-8c0c-f6a538d48d73.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000021','茶叶','9710000000000000013','http://localhost:9999/boot/file/local/1590229800633634816/e0dcdfbe-f1ac-43b6-8c0c-f6a538d48d73.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000022','冲调谷物','9710000000000000013','http://localhost:9999/boot/file/local/1590229800633634816/19e0e575-8534-4dea-b4b5-2cfed70d8863.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000023','冲调饮品','9710000000000000013','http://localhost:9999/boot/file/local/1590229800633634816/19e0e575-8534-4dea-b4b5-2cfed70d8863.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000024','火锅食材','9710000000000000014','http://localhost:9999/boot/file/local/1590229800633634816/f0f883f9-8ead-469d-82b7-f47a5160ff9f.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000025','烧烤食材','9710000000000000014','http://localhost:9999/boot/file/local/1590229800633634816/f0f883f9-8ead-469d-82b7-f47a5160ff9f.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000026','卤味熟食','9710000000000000015','http://localhost:9999/boot/file/local/1590229800633634816/5a027361-ed1c-4523-8ebd-cf7e247338b9.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000027','酱菜蛋品','9710000000000000015','http://localhost:9999/boot/file/local/1590229800633634816/5a027361-ed1c-4523-8ebd-cf7e247338b9.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000028','水果罐头','9710000000000000016','http://localhost:9999/boot/file/local/1590229800633634816/49675391-d35e-4ee0-a6c9-aee8944e96ae.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000029','肉菜罐头','9710000000000000016','http://localhost:9999/boot/file/local/1590229800633634816/49675391-d35e-4ee0-a6c9-aee8944e96ae.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000030','瓜子花生','9710000000000000018','http://localhost:9999/boot/file/local/1590229800633634816/de9c1003-7b6e-4ea1-9c66-b0a66cbbdfa1.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000031','坚果炒货','9710000000000000018','http://localhost:9999/boot/file/local/1590229800633634816/de9c1003-7b6e-4ea1-9c66-b0a66cbbdfa1.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000032','膨化肉脯','9710000000000000018','http://localhost:9999/boot/file/local/1590229800633634816/f15badb7-012f-42db-8f33-3a82c6137acc.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000033','糖果巧克力','9710000000000000018','http://localhost:9999/boot/file/local/1590229800633634816/f15badb7-012f-42db-8f33-3a82c6137acc.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000034','面包吐司','9710000000000000019','http://localhost:9999/boot/file/local/1590229800633634816/59618a97-bb7d-4a43-af85-08ac4f440ce6.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000035','饼干糕点','9710000000000000019','http://localhost:9999/boot/file/local/1590229800633634816/59618a97-bb7d-4a43-af85-08ac4f440ce6.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000036','方便面','9710000000000000020','http://localhost:9999/boot/file/local/1590229800633634816/63566b30-f327-4ff3-bf73-102fb80506e8.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000037','自热速食','9710000000000000020','http://localhost:9999/boot/file/local/1590229800633634816/63566b30-f327-4ff3-bf73-102fb80506e8.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000038','洗护沐浴','9710000000000000021','http://localhost:9999/boot/file/local/1590229800633634816/aa25aea9-8cbc-4ea0-9edb-499471269570.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000039','个护健康','9710000000000000021','http://localhost:9999/boot/file/local/1590229800633634816/aa25aea9-8cbc-4ea0-9edb-499471269570.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000040','清洁洗护','9710000000000000022','http://localhost:9999/boot/file/local/1590229800633634816/646a5dd3-9d37-40f3-b1e3-e5a863464a33.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000041','日用杂品','9710000000000000022','http://localhost:9999/boot/file/local/1590229800633634816/646a5dd3-9d37-40f3-b1e3-e5a863464a33.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000042','文具办公','9710000000000000023','http://localhost:9999/boot/file/local/1590229800633634816/93aaa3f9-09b5-4d63-9887-56340eed47fc.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000043','运动器材','9710000000000000023','http://localhost:9999/boot/file/local/1590229800633634816/93aaa3f9-09b5-4d63-9887-56340eed47fc.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000044','手机数码','9710000000000000024','http://localhost:9999/boot/file/local/1590229800633634816/416d2fd7-6926-498c-ad8f-7fc096e33735.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000045','小家电','9710000000000000024','http://localhost:9999/boot/file/local/1590229800633634816/416d2fd7-6926-498c-ad8f-7fc096e33735.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000046','防护用品','9710000000000000025','http://localhost:9999/boot/file/local/1590229800633634816/979c0b7e-eca5-446b-a5c6-1acbf8daf207.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000047','鞋服配件','9710000000000000025','http://localhost:9999/boot/file/local/1590229800633634816/979c0b7e-eca5-446b-a5c6-1acbf8daf207.jpg','','0','2026-09-29 21:47:29','2026-09-30 18:18:15','0',1,'0','1590229800633634816','seed','seed');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000048','进口水果','9710000000000000001','http://localhost:9999/boot/file/local/1590229800633634816/48954aec-bf86-40ec-b54c-0f73ec376cce.jpg',NULL,'0','2026-09-29 22:31:23','2026-09-30 18:18:15','0',2,'0','1590229800633634816','admin','admin');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000049','菌菇豆品','9710000000000000002','http://localhost:9999/boot/file/local/1590229800633634816/034bd1b8-1920-42e0-adcf-078dee7c318d.jpg',NULL,'0','2026-09-29 22:31:23','2026-09-30 18:18:15','0',2,'0','1590229800633634816','admin','admin');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000050','蛋品豆制品','9710000000000000003','http://localhost:9999/boot/file/local/1590229800633634816/0ab7daca-139a-4443-8d9d-7d83d7798540.jpg',NULL,'0','2026-09-29 22:31:23','2026-09-30 18:18:15','0',3,'0','1590229800633634816','admin','admin');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000051','早餐粥品','9710000000000000004','http://localhost:9999/boot/file/local/1590229800633634816/4457fd21-00f0-4782-aef5-768e12d69711.jpg',NULL,'0','2026-09-29 22:31:23','2026-09-30 18:18:15','0',3,'0','1590229800633634816','admin','admin');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000052','速冻面点','9710000000000000005','http://localhost:9999/boot/file/local/1590229800633634816/1606621d-b272-4f13-8e98-c499274ef805.jpg',NULL,'0','2026-09-29 22:31:23','2026-09-30 18:18:15','0',3,'0','1590229800633634816','admin','admin');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000053','季节限定','9710000000000000006','http://localhost:9999/boot/file/local/1590229800633634816/099a3c77-c141-403c-a5ee-509318173150.jpg',NULL,'0','2026-09-29 22:31:23','2026-09-30 18:18:15','0',2,'0','1590229800633634816','admin','admin');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000054','清洁湿巾','9710000000000000021','http://localhost:9999/boot/file/local/1590229800633634816/238f0d03-cc45-4368-81bb-d9f7c767b68b.jpg',NULL,'0','2026-09-29 22:31:23','2026-09-30 18:18:15','0',3,'0','1590229800633634816','admin','admin');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000055','植物蛋白饮','9710000000000000008','http://localhost:9999/boot/file/local/1590229800633634816/6a987408-45b5-4f04-84bd-cb8dcab691f2.jpg',NULL,'0','2026-09-29 22:31:23','2026-09-30 18:18:15','0',3,'0','1590229800633634816','admin','admin');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000056','果汁汽水','9710000000000000009','http://localhost:9999/boot/file/local/1590229800633634816/054ecef5-0d51-4669-ae43-dd6495e55163.jpg',NULL,'0','2026-09-29 22:31:23','2026-09-30 18:18:15','0',3,'0','1590229800633634816','admin','admin');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000057','速溶咖啡','9710000000000000013','http://localhost:9999/boot/file/local/1590229800633634816/028aaa29-5300-4a81-b114-112459d86fc5.jpg',NULL,'0','2026-09-29 22:31:23','2026-09-30 18:18:15','0',3,'0','1590229800633634816','admin','admin');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000058','养生药酒','9710000000000000011','http://localhost:9999/boot/file/local/1590229800633634816/2761126d-c74a-4389-b0e8-e66df7011cc1.jpg',NULL,'0','2026-09-29 22:31:23','2026-09-30 18:18:15','0',3,'0','1590229800633634816','admin','admin');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000059','奶茶风味','9710000000000000013','http://localhost:9999/boot/file/local/1590229800633634816/22ea386e-2064-4348-aa9d-b97f2955dc1f.jpg',NULL,'0','2026-09-29 22:31:23','2026-09-30 18:18:15','0',3,'0','1590229800633634816','admin','admin');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000060','蜂蜜滋补','9710000000000000013','http://localhost:9999/boot/file/local/1590229800633634816/24c341fb-ee8e-41ae-b642-1552796edc36.jpg',NULL,'0','2026-09-29 22:31:23','2026-09-30 18:18:15','0',3,'0','1590229800633634816','admin','admin');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000061','底料蘸料','9710000000000000014','http://localhost:9999/boot/file/local/1590229800633634816/0ba11373-9cb5-4aac-afe1-78fa8ea337fc.jpg',NULL,'0','2026-09-29 22:31:23','2026-09-30 18:18:15','0',3,'0','1590229800633634816','admin','admin');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000062','休闲卤味','9710000000000000015','http://localhost:9999/boot/file/local/1590229800633634816/70e765df-2519-4dee-b9b5-5ffac90be7d6.jpg',NULL,'0','2026-09-29 22:31:23','2026-09-30 18:18:15','0',3,'0','1590229800633634816','admin','admin');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000063','进口罐头','9710000000000000016','http://localhost:9999/boot/file/local/1590229800633634816/39b13802-824f-4c4f-bf96-ffc429b5b757.jpg',NULL,'0','2026-09-29 22:31:23','2026-09-30 18:18:15','0',3,'0','1590229800633634816','admin','admin');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000064','果干蜜饯','9710000000000000018','http://localhost:9999/boot/file/local/1590229800633634816/20dbd285-dc4b-4bf5-8375-dcf63d50c865.jpg',NULL,'0','2026-09-29 22:31:23','2026-09-30 18:18:15','0',3,'0','1590229800633634816','admin','admin');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000065','膨化食品','9710000000000000018','http://localhost:9999/boot/file/local/1590229800633634816/243724d3-2f46-4c43-a2c5-177e51c5e4f9.jpg',NULL,'0','2026-09-29 22:31:23','2026-09-30 18:18:15','0',3,'0','1590229800633634816','admin','admin');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000066','中式糕点','9710000000000000019','http://localhost:9999/boot/file/local/1590229800633634816/16f59fe0-c9bb-4329-9d62-d5b110e852e4.jpg',NULL,'0','2026-09-29 22:31:23','2026-09-30 18:18:15','0',3,'0','1590229800633634816','admin','admin');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000067','速食汤粥','9710000000000000020','http://localhost:9999/boot/file/local/1590229800633634816/2b9a22c2-dcc9-429a-95fe-a9b763422790.jpg',NULL,'0','2026-09-29 22:31:23','2026-09-30 18:18:15','0',3,'0','1590229800633634816','admin','admin');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000068','洗发护发','9710000000000000021','http://localhost:9999/boot/file/local/1590229800633634816/215334ac-1c4b-4634-955c-20615bf9181c.jpg',NULL,'0','2026-09-29 22:31:23','2026-09-30 18:18:15','0',3,'0','1590229800633634816','admin','admin');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000069','收纳整理','9710000000000000022','http://localhost:9999/boot/file/local/1590229800633634816/3e610a8e-0206-4e4d-b65e-9eb029ad7372.jpg',NULL,'0','2026-09-29 22:31:23','2026-09-30 18:18:15','0',3,'0','1590229800633634816','admin','admin');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000070','户外休闲','9710000000000000023','http://localhost:9999/boot/file/local/1590229800633634816/4a1315c0-3d8e-4b30-b094-32e963b7223f.jpg',NULL,'0','2026-09-29 22:31:23','2026-09-30 18:18:15','0',3,'0','1590229800633634816','admin','admin');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000071','车载出行','9710000000000000024','http://localhost:9999/boot/file/local/1590229800633634816/967c4f21-b26b-42f1-bd1a-229cebceebe9.jpg',NULL,'0','2026-09-29 22:31:23','2026-09-30 18:18:15','0',3,'0','1590229800633634816','admin','admin');
+INSERT INTO `goods_category` (`id`, `name`, `parent_id`, `category_pic`, `description`, `status`, `create_time`, `update_time`, `del_flag`, `sort`, `badge_type`, `tenant_id`, `create_by`, `update_by`) VALUES ('9720000000000000072','消防应急','9710000000000000025','http://localhost:9999/boot/file/local/1590229800633634816/3190d2c7-3a94-42c6-9ac1-fc587c7cf4ad.jpg',NULL,'0','2026-09-29 22:31:23','2026-09-30 18:18:15','0',3,'0','1590229800633634816','admin','admin');
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 专区让利报表快照字段
+-- Source: db/boot/192order_item_zone_report_incremental.sql
+-- ============================================================================
+-- 专区让利报表快照（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 背景：订单明细只存成交价，活动类型/活动ID 是非表字段，专区让利无法事后统计。
+--       本脚本为明细补两个快照列：zone_source（member/clearance）与 activity_base_price
+--       （活动前单价），报表按「活动前单价 - 成交单价 + 会员折扣」计算让利。
+-- 特性：可重复执行（information_schema 守卫），不 DROP/TRUNCATE 存量数据。
+--
+-- 执行：mysql -u root -p aryn_boot < 192order_item_zone_report_incremental.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+SET @zone_source := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'order_item' AND COLUMN_NAME = 'zone_source'
+);
+SET @ddl := IF(@zone_source = 0,
+  'ALTER TABLE `order_item` ADD COLUMN `zone_source` varchar(16) NULL DEFAULT NULL COMMENT ''专区来源：member/clearance；空=非专区'' AFTER `member_discount_price`',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @base_price := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'order_item' AND COLUMN_NAME = 'activity_base_price'
+);
+SET @ddl := IF(@base_price = 0,
+  'ALTER TABLE `order_item` ADD COLUMN `activity_base_price` decimal(10,2) NULL DEFAULT NULL COMMENT ''专区活动前单价快照（让利统计用）'' AFTER `zone_source`',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @idx_zone := (
+  SELECT COUNT(*) FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'order_item' AND INDEX_NAME = 'idx_order_item_zone'
+);
+SET @ddl := IF(@idx_zone = 0,
+  'ALTER TABLE `order_item` ADD INDEX `idx_order_item_zone` (`tenant_id`, `zone_source`, `order_id`)',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 会员价成本兜底倍率
+-- Source: db/boot/193member_cost_floor_incremental.sql
+-- ============================================================================
+-- 会员价按成本自动兜底（Boot 单体模式）
+--
+-- 背景：会员价下限 member_price_floor 目前只能逐商品手填；批量打标无法按不同成本填统一值。
+--       本脚本给专区设置增加成本兜底倍率：商品未显式配置下限时，
+--       下限 = 成本价 × 倍率（如 1.05），避免会员价击穿成本。
+-- 优先级：商品显式 member_price_floor > 成本兜底倍率 > 默认 0.01。
+--
+-- 执行：mysql -u root -p aryn_boot < 193member_cost_floor_incremental.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+
+SET @cost_floor_multiplier := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mall_zone_setting'
+    AND COLUMN_NAME = 'cost_floor_multiplier'
+);
+SET @ddl := IF(@cost_floor_multiplier = 0,
+  'ALTER TABLE `mall_zone_setting` ADD COLUMN `cost_floor_multiplier` decimal(5,2) NULL DEFAULT NULL COMMENT ''会员价成本兜底倍率：下限=成本×倍率，空=不启用'' AFTER `default_discount_rate`',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 会员价活动功能整体下线（清理手工会员价活动与迁移痕迹）
+-- Source: db/boot/194member_price_activity_purge_incremental.sql
+-- ============================================================================
+-- ============================================================================
+-- 会员价活动功能整体下线：清理手工会员价活动与历史迁移痕迹（Boot 单体模式）
+-- ============================================================================
+-- 背景（2026-11-03 开发阶段）：会员价只保留「商品专区标签 + 系统托管活动
+--   SYS_MEMBER_ZONE」一套模型；「发布会员价活动」功能整体删除，旧手工会员价活动
+--   不做迁移、直接清理（当前环境均为测试数据）。
+--
+-- ⚠ 本脚本会**物理删除**手工会员价活动，并回滚历史上「手工活动迁移为商品标签」
+--   写入的标签与价格历史；仅适用于本功能整体下线后的开发/测试环境。
+--   若某个环境仍需保留旧活动价格，请先人工备份后再执行。
+--
+-- 保留不动：系统托管活动（activity_code LIKE 'SYS\_%'）、商品级会员/出清标签、
+--   系统活动价格载体、其它活动类型（阶梯价/整船满减/买赠/新人价/秒杀等）。
+--
+-- 幂等：迁移痕迹以 goods_price_history.change_source='migration' 识别，
+--   执行后该批历史被删除，重复执行均为空操作；活动删除按类型+系统标识判断。
+-- ============================================================================
+
+USE `aryn_boot`;
+
+-- 1. 回滚历史迁移写入的 SKU 会员标签（未执行过迁移的环境为空操作）
+UPDATE `goods_sku` s
+JOIN (
+    SELECT DISTINCT `sku_id`
+    FROM `goods_price_history`
+    WHERE `change_source` = 'migration' AND `price_type` = 'member_rate'
+) h ON h.`sku_id` = s.`id`
+SET s.`is_member_item` = NULL,
+    s.`member_discount_rate` = NULL,
+    s.`member_price_fixed` = NULL,
+    s.`member_price_floor` = NULL
+WHERE s.`del_flag` = '0';
+
+-- 2. 回滚历史迁移写入的 SPU 会员标签（仅当该 SPU 已没有其它仍打标的 SKU 时）
+UPDATE `goods_spu` p
+JOIN (
+    SELECT DISTINCT `spu_id`
+    FROM `goods_price_history`
+    WHERE `change_source` = 'migration'
+) m ON m.`spu_id` = p.`id`
+LEFT JOIN (
+    SELECT DISTINCT `spu_id`
+    FROM `goods_sku`
+    WHERE `del_flag` = '0' AND `is_member_item` = 1
+) t ON t.`spu_id` = p.`id`
+SET p.`is_member_item` = 0,
+    p.`member_discount_rate` = NULL,
+    p.`member_price_fixed` = NULL,
+    p.`member_price_floor` = NULL
+WHERE t.`spu_id` IS NULL;
+
+-- 3. 删除历史迁移价格记录（迁移已撤回，不再保留 migration 来源审计）
+DELETE FROM `goods_price_history`
+WHERE `change_source` = 'migration';
+
+-- 4. 物理删除手工会员价活动（type=10 且非系统托管；系统活动 SYS_MEMBER_ZONE 保留）
+DELETE FROM `promotion_activity`
+WHERE `activity_type` = '10'
+  AND (`activity_code` IS NULL OR `activity_code` = '' OR `activity_code` NOT LIKE 'SYS\_%');
+
+-- 5. 删除已下线的「会员价活动迁移后清理」定时任务注册（调度库 aryn_boot_job）
+--    对应历史脚本 187；Job 与接口已删除，避免调度中心继续触发不存在的 handler。
+USE `aryn_boot_job`;
+SET @legacy_job_id := (
+    SELECT `id` FROM `xxl_job_info`
+    WHERE `executor_handler` = 'mallZoneLegacyCleanupJobHandler'
+    LIMIT 1
+);
+DELETE FROM `xxl_job_log` WHERE `job_id` = @legacy_job_id;
+DELETE FROM `xxl_job_info` WHERE `id` = @legacy_job_id;
+
+USE `aryn_boot`;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 船供菜单归属调整（船供活动→营销管理、共享购物车→订单管理）
+-- Source: db/boot/195relocate_ship_supply_menus.sql
+-- ============================================================================
+-- 悦航购船供菜单归属调整（Boot 单体模式）
+-- 目标库：aryn_boot
+-- 背景：管理端信息架构按领域收敛——「船供活动」属于营销域（promotion_activity /
+--       /promotion/ship-activity），「共享购物车」属于订单域（SharedCart / order/shared-cart），
+--       但两者一直挂在「船供运营」目录下。两个页面的路由/组件早已分别位于
+--       /promotion/ship-supply 与 /order/shared-cart，只有 parent_id 没有归位。
+-- 语义：
+--   1) 船供活动 → 营销管理（sort 2）；共享购物车 → 订单管理（sort 15）；
+--   2) 应用系统纠偏：优惠券管理 app_base → app_market。它是营销管理下的历史错配，
+--      修正后套餐「补祖先容器」时不会把营销优惠券管理页下发给基础版租户；
+--   3) 权限补偿：持有被搬页面（以及已挂在营销管理下、仅因父目录缺失而不可见的
+--      专区设置/出清折扣规则）但未持有新父目录的角色/租户，补授父目录；
+--   4) 幂等：UPDATE 带旧值条件、INSERT IGNORE + NOT EXISTS；不删除、不覆盖业务数据。
+-- 注意：菜单与权限在登录时快照，且 MENU_CACHE 为进程内缓存；执行后需重启后端并重新登录管理端才生效。
+-- 关联：cloud 模式对应 db/cloud/200relocate_ship_supply_menus.sql，内容一致。
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ============================================================================
+-- 一、菜单归属调整
+-- ============================================================================
+UPDATE `sys_menu`
+SET `parent_id` = '1779386604402573314', `sort` = 2, `update_time` = NOW(), `update_by` = 'system'
+WHERE `id` = '2110000000000000101'
+  AND `parent_id` = '2110000000000000000'
+  AND `del_flag` = '0';
+
+UPDATE `sys_menu`
+SET `parent_id` = '1521496866882236418', `sort` = 15, `update_time` = NOW(), `update_by` = 'system'
+WHERE `id` = '2110000000000000121'
+  AND `parent_id` = '2110000000000000000'
+  AND `del_flag` = '0';
+
+-- ============================================================================
+-- 二、应用系统纠偏：优惠券管理属于营销应用（app_market）
+-- ============================================================================
+UPDATE `sys_menu`
+SET `application_key` = 'app_market', `update_time` = NOW(), `update_by` = 'system'
+WHERE `id` = '1585191589231144962'
+  AND `application_key` = 'app_base'
+  AND `del_flag` = '0';
+
+-- ============================================================================
+-- 三、角色权限补偿：持有页面但缺新父目录的角色，补授父目录
+--     锚点：船供活动、共享购物车，以及营销管理下同类的专区设置/出清折扣规则
+-- ============================================================================
+INSERT IGNORE INTO `sys_role_menu` (`id`, `role_id`, `menu_id`, `create_time`, `tenant_id`)
+SELECT MD5(CONCAT(gr.`role_id`, ':menu:', parent.`id`)), gr.`role_id`, parent.`id`, NOW(), gr.`tenant_id`
+FROM `sys_role_menu` gr
+JOIN `sys_menu` child ON child.`id` = gr.`menu_id` AND child.`del_flag` = '0'
+JOIN `sys_menu` parent ON parent.`id` = child.`parent_id` AND parent.`del_flag` = '0'
+WHERE child.`id` IN (
+    '2110000000000000101', -- 船供活动
+    '2110000000000000121', -- 共享购物车
+    '2110000000000000301', -- 专区设置
+    '2110000000000000303'  -- 出清折扣规则
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM `sys_role_menu` existed
+    WHERE existed.`role_id` = gr.`role_id` AND existed.`menu_id` = parent.`id`
+  );
+
+-- ============================================================================
+-- 四、租户菜单补偿：持有页面但缺新父目录的租户，补授父目录
+-- ============================================================================
+INSERT IGNORE INTO `sys_tenant_menu` (`id`, `tenant_id`, `menu_id`, `create_time`, `create_by`)
+SELECT MD5(CONCAT(gt.`tenant_id`, ':menu:', parent.`id`)), gt.`tenant_id`, parent.`id`, NOW(), 'system'
+FROM `sys_tenant_menu` gt
+JOIN `sys_menu` child ON child.`id` = gt.`menu_id` AND child.`del_flag` = '0'
+JOIN `sys_menu` parent ON parent.`id` = child.`parent_id` AND parent.`del_flag` = '0'
+WHERE child.`id` IN (
+    '2110000000000000101', -- 船供活动
+    '2110000000000000121', -- 共享购物车
+    '2110000000000000301', -- 专区设置
+    '2110000000000000303'  -- 出清折扣规则
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM `sys_tenant_menu` existed
+    WHERE existed.`tenant_id` = gt.`tenant_id` AND existed.`menu_id` = parent.`id`
+  );
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 平台租户合并（悦航购接管平台租户、物理删除系统租户）
+-- Source: db/boot/196platform_tenant_consolidation.sql
+-- ============================================================================
+-- ============================================================================
+-- 平台租户合并：「悦航购」接管平台租户身份，物理删除「系统租户」（Boot 单体模式）
+-- 目标库：aryn_boot
+--
+-- 背景：
+--   初始化种子里有两条租户：业务租户「悦航购」1590229800633634816（承载全部业务数据）
+--   与平台租户「系统租户」1881232176465358849（仅 system 管理员、角色、部门、存储配置）。
+--   平台租户身份此前写死在代码常量里，运维想只保留一个租户时无处下手。
+--   本次改为「租户类型数据驱动」后，把悦航购提升为平台租户，并把系统租户下的
+--   system 管理员迁入悦航购，最后物理删除系统租户及其余下数据。
+--
+-- 内容：
+--   1. 悦航购：tenant_type=1（平台租户）、auth_end_time=NULL（长期有效）；
+--   2. system 管理员：租户迁到悦航购、部门改挂悦航购根部门；
+--   3. 存储配置：悦航购没有启用配置时，继承系统租户的默认本机配置；
+--   4. 物理删除系统租户在 sys_user/sys_role/sys_user_role/sys_role_menu/sys_dept/
+--      sys_tenant_menu/sys_storage_config/sys_login_log/sys_log 等表的全部数据及租户行；
+--   5. 兜底自检：列出仍残留系统租户 tenant_id 的表（正常应为空）。
+--
+-- 边界：
+--   本脚本只做「租户合并」，不区分平台管理员与租户管理员。system 账号的平台管理员角色与
+--   全部菜单授权、以及悦航购租户管理员角色还原到套餐范围，由后续 197 脚本完成。
+--
+-- 安全：
+--   * 仅当「悦航购」租户行存在时才执行任何写入/删除，避免在非种子环境误删平台租户；
+--   * 全部语句幂等：系统租户已删除后重复执行均为空操作；
+--   * 本脚本含物理删除，执行前请备份数据库；无 DROP TABLE / TRUNCATE。
+--
+-- 执行：mysql -u root -p aryn_boot < 196platform_tenant_consolidation.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4 COLLATE utf8mb4_general_ci;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- 固定种子 ID（与 2aryn_boot.sql 基线一致）
+SET @target_tenant_id = '1590229800633634816'; -- 悦航购
+SET @legacy_tenant_id = '1881232176465358849'; -- 系统租户（待删除）
+SET @legacy_system_user_id = '1881232178902249473'; -- 系统租户下的 system 管理员
+
+-- 目标租户存在才执行合并；否则所有语句退化为空操作（非种子环境不会误删平台租户）
+SET @target_exists = (
+  SELECT COUNT(*) FROM `sys_tenant` WHERE `id` = @target_tenant_id AND `del_flag` = '0'
+);
+
+-- ============================================================================
+-- 一、悦航购提升为平台租户：长期有效、不参与授权期管理
+-- ============================================================================
+UPDATE `sys_tenant`
+SET `tenant_type` = '1',
+    `auth_end_time` = NULL,
+    `update_time` = NOW(),
+    `update_by` = 'system'
+WHERE `id` = @target_tenant_id
+  AND `del_flag` = '0'
+  AND @target_exists = 1;
+
+-- ============================================================================
+-- 二、system 管理员迁入悦航购：部门改挂目标租户根部门，账号本身保留
+-- ============================================================================
+SET @target_root_dept_id = (
+  SELECT `id` FROM `sys_dept`
+  WHERE `tenant_id` = @target_tenant_id AND `parent_id` = '0' AND `del_flag` = '0'
+  ORDER BY `sort`, `id`
+  LIMIT 1
+);
+
+UPDATE `sys_user`
+SET `tenant_id` = @target_tenant_id,
+    `dept_id` = COALESCE(@target_root_dept_id, `dept_id`),
+    `update_time` = NOW(),
+    `update_by` = 'system'
+WHERE `id` = @legacy_system_user_id
+  AND `tenant_id` = @legacy_tenant_id
+  AND `del_flag` = '0'
+  AND @target_exists = 1;
+
+-- 角色关系：先删除旧租户下的角色关联；system 的平台管理员角色由 197 脚本授予
+DELETE FROM `sys_user_role`
+WHERE `user_id` = @legacy_system_user_id
+  AND `tenant_id` = @legacy_tenant_id;
+
+-- ============================================================================
+-- 三、存储配置：目标租户没有启用配置时，继承系统租户的默认本机配置
+-- ============================================================================
+UPDATE `sys_storage_config` sc
+JOIN (
+  SELECT COUNT(*) AS cnt FROM `sys_storage_config`
+  WHERE `tenant_id` = @target_tenant_id AND `del_flag` = '0' AND `status` = '0'
+) target_cfg
+SET sc.`tenant_id` = @target_tenant_id,
+    sc.`update_time` = NOW(),
+    sc.`update_by` = 'system'
+WHERE sc.`tenant_id` = @legacy_tenant_id
+  AND sc.`del_flag` = '0'
+  AND sc.`status` = '0'
+  AND target_cfg.cnt = 0
+  AND @target_exists = 1;
+
+-- ============================================================================
+-- 四、物理删除系统租户及其余下数据
+--     显式列出种子模型下平台租户会产生的表；顺序为先关联表、后主表、最后租户行
+-- ============================================================================
+DELETE FROM `sys_role_menu` WHERE `tenant_id` = @legacy_tenant_id AND @target_exists = 1;
+DELETE FROM `sys_tenant_menu` WHERE `tenant_id` = @legacy_tenant_id AND @target_exists = 1;
+DELETE FROM `sys_user_role` WHERE `tenant_id` = @legacy_tenant_id AND @target_exists = 1;
+DELETE FROM `sys_role` WHERE `tenant_id` = @legacy_tenant_id AND @target_exists = 1;
+DELETE FROM `sys_dept` WHERE `tenant_id` = @legacy_tenant_id AND @target_exists = 1;
+DELETE FROM `sys_storage_config` WHERE `tenant_id` = @legacy_tenant_id AND @target_exists = 1;
+DELETE FROM `sys_login_log` WHERE `tenant_id` = @legacy_tenant_id AND @target_exists = 1;
+DELETE FROM `sys_log` WHERE `tenant_id` = @legacy_tenant_id AND @target_exists = 1;
+DELETE FROM `sys_material` WHERE `tenant_id` = @legacy_tenant_id AND @target_exists = 1;
+DELETE FROM `sys_material_group` WHERE `tenant_id` = @legacy_tenant_id AND @target_exists = 1;
+DELETE FROM `sys_user_wechat_binding` WHERE `tenant_id` = @legacy_tenant_id AND @target_exists = 1;
+-- 基线种子在系统租户下遗留的商品规格测试行（goods_specs / goods_specs_value）
+DELETE FROM `goods_specs_value` WHERE `tenant_id` = @legacy_tenant_id AND @target_exists = 1;
+DELETE FROM `goods_specs` WHERE `tenant_id` = @legacy_tenant_id AND @target_exists = 1;
+-- 系统租户下的其它账号一并删除（system 已迁出，此处只兜底清理遗留账号）
+DELETE FROM `sys_user` WHERE `tenant_id` = @legacy_tenant_id AND @target_exists = 1;
+
+DELETE FROM `sys_tenant`
+WHERE `id` = @legacy_tenant_id
+  AND @target_exists = 1;
+
+-- ============================================================================
+-- 五、兜底自检：列出仍残留系统租户 tenant_id 的表（正常应为空结果集）
+--     如出现残留（例如运维在系统租户下创建过业务数据），请按表名人工确认后再清理
+-- ============================================================================
+SET SESSION group_concat_max_len = 1048576;
+SET @leftover_sql = (
+  SELECT CONCAT(
+    'SELECT * FROM (',
+    GROUP_CONCAT(
+      CONCAT('SELECT ''', TABLE_NAME, ''' AS table_name, COUNT(*) AS cnt FROM `',
+             TABLE_NAME, '` WHERE `tenant_id` = ''', @legacy_tenant_id, '''')
+      SEPARATOR ' UNION ALL '
+    ),
+    ') leftover WHERE cnt > 0'
+  )
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND COLUMN_NAME = 'tenant_id'
+);
+PREPARE stmt FROM @leftover_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- 自检：悦航购应为唯一平台租户，且长期有效
+SELECT `id`, `name`, `tenant_type`, `auth_end_time`
+FROM `sys_tenant`
+WHERE `tenant_type` = '1' AND `del_flag` = '0';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 平台管理员用户级身份与专属角色
+-- Source: db/boot/197platform_admin_user.sql
+-- ============================================================================
+-- ============================================================================
+-- 平台管理员用户级身份与专属角色（Boot 单体模式）
+-- 目标库：aryn_boot
+--
+-- 背景：
+--   平台租户合并（196）后「悦航购」成为平台租户，system 与 admin 都在其中。
+--   但「平台租户里的账号」此前都会被当作平台管理员——admin 是业务租户管理员，
+--   不应看到平台管理菜单、不能切换租户。本次把平台管理员收敛为用户级身份：
+--     sys_user.platform_admin = '1' 且所属租户为平台租户（tenant_type = '1'）；
+--   全库唯一平台管理员是 system；同时给 system 分配「平台管理员」专属角色（全部菜单），
+--   并把租户管理员角色还原到套餐范围。
+--
+-- 内容：
+--   1. sys_user 增加 platform_admin 列（默认 0，不映射实体，接口不可改写）；
+--   2. 唯一平台管理员：system（1881232178902249473）置 1，其余账号置 0；
+--   3. 平台租户下创建「平台管理员」角色（ROLE_PLATFORM_ADMIN）并授予全部可见菜单；
+--   4. system 只保留平台管理员角色；
+--   5. 还原租户管理员角色：删除 196 曾给 ROLE_ADMIN 补授的套餐外菜单（含平台管理菜单）。
+--
+-- 特性：幂等；不覆盖普通账号业务数据；无 DROP/TRUNCATE。
+-- 执行：mysql -u root -p aryn_boot < 197platform_admin_user.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4 COLLATE utf8mb4_general_ci;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- 固定种子 ID（与 2aryn_boot.sql 基线一致）
+SET @target_tenant_id = '1590229800633634816'; -- 悦航购（平台租户）
+SET @platform_admin_user_id = '1881232178902249473'; -- system（唯一平台管理员）
+SET @platform_role_id = '1970000000000000001'; -- 平台管理员角色
+
+-- ============================================================================
+-- 一、sys_user.platform_admin：用户级平台管理员标记
+-- ============================================================================
+SET @add_platform_admin = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `sys_user` ADD COLUMN `platform_admin` char(1) NOT NULL DEFAULT ''0'' COMMENT ''平台管理员：1是；0否'' AFTER `type`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sys_user' AND COLUMN_NAME = 'platform_admin'
+);
+PREPARE stmt FROM @add_platform_admin; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ============================================================================
+-- 二、平台管理员唯一化：system 置 1，其余账号一律 0
+-- ============================================================================
+UPDATE `sys_user` SET `platform_admin` = '0'
+WHERE `platform_admin` IS NULL OR `platform_admin` NOT IN ('0', '1');
+
+UPDATE `sys_user` SET `platform_admin` = '0'
+WHERE `platform_admin` = '1' AND `id` <> @platform_admin_user_id;
+
+UPDATE `sys_user`
+SET `platform_admin` = '1', `update_time` = NOW(), `update_by` = 'system'
+WHERE `id` = @platform_admin_user_id AND `del_flag` = '0';
+
+-- ============================================================================
+-- 三、平台管理员专属角色：持有全部可见菜单（不参与租户套餐）
+-- ============================================================================
+INSERT INTO `sys_role`
+	(`id`, `role_name`, `role_code`, `role_desc`, `create_time`, `update_time`, `del_flag`,
+	 `tenant_id`, `create_by`, `update_by`)
+SELECT @platform_role_id, '平台管理员', 'ROLE_PLATFORM_ADMIN',
+	   '平台管理员：可切换租户并维护平台级配置', NOW(), NOW(), '0',
+	   @target_tenant_id, 'system', 'system'
+FROM DUAL
+WHERE EXISTS (SELECT 1 FROM `sys_tenant` WHERE `id` = @target_tenant_id AND `del_flag` = '0')
+  AND NOT EXISTS (SELECT 1 FROM `sys_role` WHERE `id` = @platform_role_id);
+
+-- 角色已存在时纠正名称/编码/归属（幂等，避免被改坏后无法自愈）
+UPDATE `sys_role`
+SET `role_name` = '平台管理员',
+    `role_code` = 'ROLE_PLATFORM_ADMIN',
+    `tenant_id` = @target_tenant_id,
+    `del_flag` = '0',
+    `update_time` = NOW(),
+    `update_by` = 'system'
+WHERE `id` = @platform_role_id
+  AND EXISTS (
+    SELECT 1 FROM (SELECT 1 FROM `sys_tenant`
+                   WHERE `id` = @target_tenant_id AND `del_flag` = '0') t
+  );
+
+-- 授予全部可见菜单（幂等）
+INSERT INTO `sys_role_menu` (`id`, `role_id`, `menu_id`, `create_time`, `tenant_id`)
+SELECT REPLACE(UUID(), '-', ''), @platform_role_id, m.`id`, NOW(), @target_tenant_id
+FROM `sys_menu` m
+WHERE m.`del_flag` = '0'
+  AND EXISTS (SELECT 1 FROM `sys_role` r WHERE r.`id` = @platform_role_id AND r.`del_flag` = '0')
+  AND NOT EXISTS (
+    SELECT 1 FROM `sys_role_menu` rm
+    WHERE rm.`role_id` = @platform_role_id AND rm.`menu_id` = m.`id`
+  );
+
+-- ============================================================================
+-- 四、system 账号只保留平台管理员角色
+-- ============================================================================
+DELETE FROM `sys_user_role`
+WHERE `user_id` = @platform_admin_user_id
+  AND `role_id` <> @platform_role_id;
+
+INSERT INTO `sys_user_role` (`id`, `user_id`, `role_id`, `create_time`, `tenant_id`, `del_flag`)
+SELECT REPLACE(UUID(), '-', ''), @platform_admin_user_id, @platform_role_id, NOW(), @target_tenant_id, '0'
+FROM DUAL
+WHERE EXISTS (SELECT 1 FROM `sys_user` u
+              WHERE u.`id` = @platform_admin_user_id
+                AND u.`tenant_id` = @target_tenant_id
+                AND u.`del_flag` = '0')
+  AND EXISTS (SELECT 1 FROM `sys_role` r WHERE r.`id` = @platform_role_id AND r.`del_flag` = '0')
+  AND NOT EXISTS (SELECT 1 FROM `sys_user_role` ur
+                  WHERE ur.`user_id` = @platform_admin_user_id
+                    AND ur.`role_id` = @platform_role_id
+                    AND ur.`del_flag` = '0');
+
+-- ============================================================================
+-- 五、还原租户管理员角色到套餐范围
+--     196 曾给平台租户 ROLE_ADMIN 补授全部菜单；租户管理员只应持有租户套餐菜单
+-- ============================================================================
+DELETE rm FROM `sys_role_menu` rm
+JOIN `sys_role` r ON r.`id` = rm.`role_id`
+WHERE r.`tenant_id` = @target_tenant_id
+  AND r.`role_code` = 'ROLE_ADMIN'
+  AND r.`del_flag` = '0'
+  AND NOT EXISTS (
+    SELECT 1 FROM `sys_tenant_menu` tm
+    WHERE tm.`tenant_id` = @target_tenant_id AND tm.`menu_id` = rm.`menu_id`
+  );
+
+-- ============================================================================
+-- 六、自检
+-- ============================================================================
+-- 唯一平台管理员（期望 1 行：system）
+SELECT `id`, `username`, `tenant_id`, `platform_admin`
+FROM `sys_user`
+WHERE `platform_admin` = '1';
+
+-- 平台管理员角色与菜单数（期望：角色存在、menu_count = 可见菜单总数）
+SELECT r.`id`, r.`role_code`, r.`role_name`, COUNT(rm.`id`) AS menu_count
+FROM `sys_role` r
+LEFT JOIN `sys_role_menu` rm ON rm.`role_id` = r.`id`
+WHERE r.`id` = @platform_role_id
+GROUP BY r.`id`, r.`role_code`, r.`role_name`;
+
+-- 租户管理员角色与套餐菜单差异（期望 0 行）
+SELECT rm.`menu_id`
+FROM `sys_role_menu` rm
+JOIN `sys_role` r ON r.`id` = rm.`role_id`
+WHERE r.`tenant_id` = @target_tenant_id
+  AND r.`role_code` = 'ROLE_ADMIN'
+  AND r.`del_flag` = '0'
+  AND NOT EXISTS (
+    SELECT 1 FROM `sys_tenant_menu` tm
+    WHERE tm.`tenant_id` = @target_tenant_id AND tm.`menu_id` = rm.`menu_id`
+  );
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 专区批量打标批次记录/撤销与同步状态字段
+-- Source: db/boot/198zone_tag_batch_incremental.sql
+-- ============================================================================
+-- 专区批量打标：批次记录/撤销 + 专区同步状态字段（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 背景（2026-11-04 专区批量打标交互优化）：
+--   1) 批量打标/移出返回 batchId 并支持操作记录与整批撤销（G17），
+--      需要 goods_zone_tag_batch（批次头）+ goods_zone_tag_batch_item（逐商品 before/after 快照）；
+--   2) 管理端需要看到「上次专区价同步时间/结果/失败原因」（G19），
+--      给 mall_zone_setting 增加 last_sync_time / last_sync_status / last_sync_error。
+-- 特性：可重复执行（CREATE TABLE IF NOT EXISTS + information_schema 判存），不 DROP/TRUNCATE 存量数据。
+-- 配套：GoodsZoneTagBatch/GoodsZoneTagBatchItem 实体、ZoneTagBatchRecordServiceImpl、
+--       MallZoneActivitySyncServiceImpl 同步状态回写、GET /promotion/zone/sync-status。
+--
+-- 执行：mysql -u root -p aryn_boot < 198zone_tag_batch_incremental.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ===========================================================================
+-- 1. 专区标签批量操作批次（批次头）
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS `goods_zone_tag_batch` (
+  `id` varchar(32) NOT NULL COMMENT '主键（雪花ID，即 batchId）',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户id',
+  `batch_no` varchar(64) NULL DEFAULT NULL COMMENT '批次号（展示用）',
+  `operator_id` varchar(32) NULL DEFAULT NULL COMMENT '操作人ID',
+  `operator_name` varchar(64) NULL DEFAULT NULL COMMENT '操作人姓名快照',
+  `member_action` varchar(16) NULL DEFAULT NULL COMMENT '会员专区动作：ADD/REMOVE/NONE',
+  `clearance_action` varchar(16) NULL DEFAULT NULL COMMENT '低价捡漏动作：ADD/REMOVE/NONE',
+  `member_rule` text NULL COMMENT '会员规则快照 JSON',
+  `clearance_rule` text NULL COMMENT '出清规则快照 JSON',
+  `overwrite_sku_rules` tinyint(1) NULL DEFAULT NULL COMMENT '是否清除 SKU 精调：1是 0否',
+  `total` int NOT NULL DEFAULT 0 COMMENT '请求商品数',
+  `changed` int NOT NULL DEFAULT 0 COMMENT '实际变化数',
+  `added` int NOT NULL DEFAULT 0 COMMENT '新增数',
+  `updated` int NOT NULL DEFAULT 0 COMMENT '更新数',
+  `removed` int NOT NULL DEFAULT 0 COMMENT '移出数',
+  `no_change` int NOT NULL DEFAULT 0 COMMENT '无变化数',
+  `failed` int NOT NULL DEFAULT 0 COMMENT '失败数',
+  `sync_status` varchar(16) NOT NULL DEFAULT 'SKIPPED' COMMENT '同步状态：SUCCESS/FAILED/SKIPPED',
+  `sync_message` varchar(500) NULL DEFAULT NULL COMMENT '同步失败原因',
+  `undo_status` varchar(16) NOT NULL DEFAULT 'NONE' COMMENT '撤销状态：NONE/UNDONE',
+  `undo_time` datetime NULL DEFAULT NULL COMMENT '撤销时间',
+  `create_time` datetime NULL DEFAULT NULL COMMENT '创建时间',
+  `del_flag` char(1) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0显示 1隐藏',
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_zone_tag_batch_tenant` (`tenant_id`, `create_time`),
+  KEY `idx_zone_tag_batch_no` (`tenant_id`, `batch_no`)
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '专区标签批量操作批次' ROW_FORMAT = DYNAMIC;
+
+-- ===========================================================================
+-- 2. 专区标签批量操作批次明细（逐商品 before/after 快照，撤销的唯一依据）
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS `goods_zone_tag_batch_item` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户id',
+  `batch_id` varchar(32) NOT NULL COMMENT '批次ID',
+  `spu_id` varchar(32) NOT NULL COMMENT '商品SPU ID',
+  `spu_name` varchar(255) NULL DEFAULT NULL COMMENT '商品名称快照',
+  `change_type` varchar(16) NULL DEFAULT NULL COMMENT '变更类型：ADD/UPDATE/REMOVE/NO_CHANGE/INVALID/FAILED',
+  `success` tinyint(1) NULL DEFAULT NULL COMMENT '是否成功：1是 0否',
+  `error_code` varchar(64) NULL DEFAULT NULL COMMENT '错误码',
+  `message` varchar(500) NULL DEFAULT NULL COMMENT '结果说明',
+  `before_snapshot` mediumtext NULL COMMENT '变更前快照 JSON（SPU 专区字段 + SKU 覆盖原值）',
+  `after_snapshot` mediumtext NULL COMMENT '变更后快照 JSON（SPU 专区字段 + SKU 覆盖原值）',
+  `create_time` datetime NULL DEFAULT NULL COMMENT '创建时间',
+  `del_flag` char(1) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0显示 1隐藏',
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_zone_tag_batch_item_batch` (`tenant_id`, `batch_id`),
+  KEY `idx_zone_tag_batch_item_spu` (`tenant_id`, `spu_id`)
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '专区标签批量操作批次明细' ROW_FORMAT = DYNAMIC;
+
+-- ===========================================================================
+-- 3. 专区设置：上次系统活动同步结果（G19）
+-- ===========================================================================
+SET @last_sync_time := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mall_zone_setting' AND COLUMN_NAME = 'last_sync_time'
+);
+SET @ddl := IF(@last_sync_time = 0,
+  'ALTER TABLE `mall_zone_setting` ADD COLUMN `last_sync_time` datetime NULL DEFAULT NULL COMMENT ''上次系统活动同步时间'' AFTER `sort_mode`',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @last_sync_status := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mall_zone_setting' AND COLUMN_NAME = 'last_sync_status'
+);
+SET @ddl := IF(@last_sync_status = 0,
+  'ALTER TABLE `mall_zone_setting` ADD COLUMN `last_sync_status` varchar(16) NULL DEFAULT NULL COMMENT ''上次同步结果：SUCCESS/FAILED/UNKNOWN'' AFTER `last_sync_time`',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @last_sync_error := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mall_zone_setting' AND COLUMN_NAME = 'last_sync_error'
+);
+SET @ddl := IF(@last_sync_error = 0,
+  'ALTER TABLE `mall_zone_setting` ADD COLUMN `last_sync_error` varchar(500) NULL DEFAULT NULL COMMENT ''上次同步失败原因'' AFTER `last_sync_status`',
+  'SELECT 1');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 自检：三列都应存在（为 0 说明 ALTER 未生效）
+SELECT
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mall_zone_setting'
+      AND COLUMN_NAME IN ('last_sync_time', 'last_sync_status', 'last_sync_error')) AS mall_zone_setting_sync_columns,
+  (SELECT COUNT(*) FROM information_schema.TABLES
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME IN ('goods_zone_tag_batch', 'goods_zone_tag_batch_item')) AS zone_tag_batch_tables;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 专区商品管理菜单
+-- Source: db/boot/199zone_tag_batch_menu.sql
+-- ============================================================================
+-- 专区商品管理菜单（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 背景：专区批量打标交互优化新增「专区商品管理」页（tabs 会员/出清、批量设置规则/移出、
+--       添加商品 picker、批次记录与撤销、同步状态与重试）。
+-- 菜单：挂在「营销管理」父菜单 1779386604402573314 下，路由 /promotion/zone-goods，
+--       页面权限复用 promotion:shipactivity:page（写操作沿用 product:goodsspu:edit），
+--       避免新增权限点与菜单授权漂移。
+-- 特性：INSERT IGNORE 按固定 ID 幂等；向试点租户与已拥有「船供活动」菜单的角色/租户推导式补授。
+-- 配套：db/boot/199zone_tag_batch_menu.sql（本文件）、前端 aryn-mall-ui promotion/zone-goods 页面。
+--
+-- 执行：mysql -u root -p aryn_boot < 199zone_tag_batch_menu.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+INSERT IGNORE INTO `sys_menu` (`id`,`name`,`permission`,`path`,`redirect`,`parent_id`,`icon`,`component`,`sort`,`type`,`create_time`,`outer_status`,`del_flag`,`application_key`,`create_by`) VALUES
+('2110000000000000305','专区商品管理','promotion:shipactivity:page','/promotion/zone-goods',NULL,'1779386604402573314','lucide:layout-grid','promotion/zone-goods/index',26,'0',NOW(),'0','0','app_base','system');
+
+-- 试点租户显式补授
+INSERT IGNORE INTO `sys_tenant_menu` (`id`,`tenant_id`,`menu_id`,`create_time`,`create_by`)
+SELECT MD5(CONCAT('1590229800633634816', ':menu:', m.`id`)), '1590229800633634816', m.`id`, NOW(), 'system'
+FROM `sys_menu` m
+WHERE m.`id` IN ('2110000000000000305')
+  AND m.`del_flag` = '0';
+
+-- 已拥有「船供活动」菜单的角色推导式补授
+INSERT IGNORE INTO `sys_role_menu` (`id`,`role_id`,`menu_id`,`create_time`,`tenant_id`)
+SELECT MD5(CONCAT(gr.`role_id`, ':menu:', m.`id`)), gr.`role_id`, m.`id`, NOW(), gr.`tenant_id`
+FROM `sys_menu` m
+JOIN `sys_role_menu` gr ON gr.`menu_id` = '2110000000000000101'
+WHERE m.`id` IN ('2110000000000000305')
+  AND m.`del_flag` = '0';
+
+-- 已拥有「船供活动」菜单的租户推导式补授
+INSERT IGNORE INTO `sys_tenant_menu` (`id`,`tenant_id`,`menu_id`,`create_time`,`create_by`)
+SELECT MD5(CONCAT(gt.`tenant_id`, ':menu:', m.`id`)), gt.`tenant_id`, m.`id`, NOW(), 'system'
+FROM `sys_menu` m
+JOIN `sys_tenant_menu` gt ON gt.`menu_id` = '2110000000000000101'
+WHERE m.`id` IN ('2110000000000000305')
+  AND m.`del_flag` = '0';
+
+-- 自检：菜单存在且已向试点租户授权，两列都应为 1
+SELECT
+  (SELECT COUNT(*) FROM `sys_menu` WHERE `id` = '2110000000000000305' AND `del_flag` = '0') AS zone_goods_menu,
+  (SELECT COUNT(*) FROM `sys_tenant_menu`
+    WHERE `menu_id` = '2110000000000000305' AND `tenant_id` = '1590229800633634816') AS pilot_tenant_granted;
 
 SET FOREIGN_KEY_CHECKS = 1;

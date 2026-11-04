@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import type { ListZonePrice } from '@/utils/zone-price'
+
+import { computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { followDecorationLink } from '@/components/diy/link-resolver'
-import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 import { loadGoodsGroup } from '@/components/diy/retail-data'
 import RetailState from '@/components/diy/retail-state.vue'
 import { retailCommonStyle } from '@/components/diy/retail-types'
 import { useDiyStyle } from '@/composables/useDiyStyle'
 import { useRetailData } from '@/composables/useRetailData'
+import { useZonePrices } from '@/composables/useZonePrices'
 import { useMallThemeStore } from '@/store/mallThemeStore'
 import { stockHintText } from '@/utils/stock-display'
+import { zonePriceBadgeText } from '@/utils/zone-price'
 
 interface GoodsScrollProps {
   commonStyle?: any
@@ -64,6 +67,52 @@ const dynamicStyles = useDiyStyle(computed(() => showData.value.commonStyle))
 // 与商品排行/活动等零售组件一致：加载中出骨架屏，空态与失败态按后台选的兜底策略决定是否渲染
 const { items: goodsList, shouldRender, status } = useRetailData(showData, loadGoodsGroup)
 
+/**
+ * 列表「专区价」批量补价句柄：会员价/出清价都不在商品列表接口里，
+ * 列表先渲染、价格后补，失败静默（见 utils/zone-price 与 composables/useZonePrices）。
+ */
+const zone = useZonePrices()
+
+watch(
+  goodsList,
+  (list) => {
+    const ids = list.map(item => String(item?.id || '').trim()).filter(Boolean)
+    if (!ids.length) return
+    void zone.loadForSpuIds(ids)
+  },
+  { immediate: true },
+)
+
+/**
+ * 卡片专区价：会员价/捡漏价命中时切换主价与划线，未命中回落普通价与未达标引导，
+ * 统一走共享口径 `utils/zone-price#resolveListZonePrice`（与会员专区/低价捡漏一致）。
+ */
+function cardDisplay(item: any): ListZonePrice {
+  return zone.cardPriceOf(item, showData.value.showOriginalPrice)
+}
+
+function cardMainPrice(item: any): number {
+  return cardDisplay(item).mainPrice
+}
+
+function cardStrikePrice(item: any): number | null {
+  return cardDisplay(item).strikePrice
+}
+
+function cardBadgeText(item: any): string {
+  return zonePriceBadgeText(cardDisplay(item).badgeKind)
+}
+
+function cardBadgeClass(item: any): string {
+  return cardDisplay(item).badgeKind === 'member'
+    ? 'gs-badge--member'
+    : 'gs-badge--clearance'
+}
+
+function cardGuideText(item: any): string {
+  return cardDisplay(item).guideText || ''
+}
+
 /** 全站自动动效总开关（商城主题配置）；关闭时轮播页停止自动播放 */
 const mallThemeStore = useMallThemeStore()
 
@@ -94,18 +143,18 @@ const CARD_BORDER_RPX = 2
 const imageHeightRpx = computed(() => cardWidthRpx.value - CARD_BORDER_RPX)
 
 // 文字区高度（rpx）：上下内边距 24 + 两行名称 72 + 价格行间距 8 与行高 46，
-// 加上可选的原价行与销量行（行高 28 + 间距 6，各占 34）。取值与下方
-// .gs-name/.gs-bottom/.gs-price-original/.gs-sales 的显式行高一一对应，
+// 加上价格辅助行与销量行（行高 28 + 间距 6，各占 34）。取值与下方
+// .gs-name/.gs-bottom/.gs-price-original/.gs-price-guide/.gs-sales 的显式行高一一对应，
 // 任一处改动都要同步这里，否则 swiper 会裁掉底部。
-// 原价行按运营开关整行预留（不按单件商品实际是否划线）：同一轮播页的卡片
-// 必须等高，若按商品有无原价增减高度，同页卡片会高低不齐。
+// 辅助行整行预留（划线价与未达标会员引导互斥、共用同一行位）：同一轮播页的卡片
+// 必须等高，若按商品实际有无划线增减高度，同页卡片会高低不齐。
 const cardBodyHeightRpx = computed(
   () =>
     24
     + 72
     + 8
     + 46
-    + (showData.value.showOriginalPrice ? 34 : 0)
+    + 34
     + (showData.value.showSales ? 34 : 0),
 )
 
@@ -133,17 +182,6 @@ const pages = computed(() => {
 
 function openGoods(id: string) {
   followDecorationLink({ params: {}, path: '', targetId: id, type: 'goods' })
-}
-
-/**
- * 原价行内容：行位由运营开关整行预留（等高诉求见 cardBodyHeightRpx），
- * 内容仍须原价 > 现价才渲染，避免给未填原价的商品划出「¥0」。
- */
-function originalPriceText(item: { price: number, originalPrice: number }) {
-  return showData.value.showOriginalPrice
-    && shouldShowOriginalPrice(item.price, item.originalPrice)
-    ? `¥${item.originalPrice.toFixed(2)}`
-    : ''
 }
 </script>
 
@@ -188,6 +226,14 @@ function originalPriceText(item: { price: number, originalPrice: number }) {
           <view v-else class="gs-img gs-img--empty" :style="imageStyle">
             {{ t('diy.common.product') }}
           </view>
+          <!-- 专区价角标：会员价 / 捡漏价（贴图左上，不挤占窄条卡的价格行） -->
+          <text
+            v-if="cardBadgeText(item)"
+            class="gs-badge"
+            :class="cardBadgeClass(item)"
+          >
+            {{ cardBadgeText(item) }}
+          </text>
           <view class="gs-body">
             <view class="gs-name">
               {{ item.name }}
@@ -200,14 +246,22 @@ function originalPriceText(item: { price: number, originalPrice: number }) {
               <text class="gs-price">
                 <text class="gs-price-symbol">
                   ¥
-                </text>{{ item.price.toFixed(2) }}
+                </text>{{ cardMainPrice(item).toFixed(2) }}
               </text>
               <view class="gs-btn">
                 {{ t('diy.common.grab') }}
               </view>
             </view>
-            <text v-if="showData.showOriginalPrice" class="gs-price-original">
-              {{ originalPriceText(item) }}
+            <!--
+              价格辅助行（整行预留，划线价与未达标会员引导互斥）：
+              会员价/捡漏价命中划当前售价，普通价仍是「开关开启 + 原价 > 售价」才划线；
+              未达标/未登录只透出「会员专享 ¥X」，主价不动。
+            -->
+            <text v-if="cardStrikePrice(item) !== null" class="gs-price-original">
+              ¥{{ Number(cardStrikePrice(item)).toFixed(2) }}
+            </text>
+            <text v-else-if="cardGuideText(item)" class="gs-price-guide">
+              {{ cardGuideText(item) }}
             </text>
             <text v-if="stockHintText(item.stock)" class="gs-sales">
               {{ stockHintText(item.stock) }}
@@ -248,6 +302,14 @@ function originalPriceText(item: { price: number, originalPrice: number }) {
             <view v-else class="gs-img gs-img--empty" :style="imageStyle">
               {{ t('diy.common.product') }}
             </view>
+            <!-- 专区价角标：会员价 / 捡漏价（贴图左上，不挤占窄条卡的价格行） -->
+            <text
+              v-if="cardBadgeText(item)"
+              class="gs-badge"
+              :class="cardBadgeClass(item)"
+            >
+              {{ cardBadgeText(item) }}
+            </text>
             <view class="gs-body">
               <view class="gs-name">
                 {{ item.name }}
@@ -256,14 +318,18 @@ function originalPriceText(item: { price: number, originalPrice: number }) {
                 <text class="gs-price">
                   <text class="gs-price-symbol">
                     ¥
-                  </text>{{ item.price.toFixed(2) }}
+                  </text>{{ cardMainPrice(item).toFixed(2) }}
                 </text>
                 <view class="gs-btn">
                   {{ t('diy.common.grab') }}
                 </view>
               </view>
-              <text v-if="showData.showOriginalPrice" class="gs-price-original">
-                {{ originalPriceText(item) }}
+              <!-- 价格辅助行（整行预留，划线价与未达标会员引导互斥） -->
+              <text v-if="cardStrikePrice(item) !== null" class="gs-price-original">
+                ¥{{ Number(cardStrikePrice(item)).toFixed(2) }}
+              </text>
+              <text v-else-if="cardGuideText(item)" class="gs-price-guide">
+                {{ cardGuideText(item) }}
               </text>
               <text v-if="stockHintText(item.stock)" class="gs-sales">
                 {{ stockHintText(item.stock) }}
@@ -332,6 +398,7 @@ function originalPriceText(item: { price: number, originalPrice: number }) {
 }
 
 .gs-card {
+  position: relative;
   overflow: hidden;
   box-sizing: border-box;
   flex: 0 0 auto;
@@ -339,6 +406,29 @@ function originalPriceText(item: { price: number, originalPrice: number }) {
   border-radius: 16rpx;
   background: #fff;
   box-shadow: 0 2rpx 12rpx rgba(11, 99, 229, 0.06);
+}
+
+/* 专区价角标：贴图左上角，小号标签不挤占窄条卡的价格行 */
+.gs-badge {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  padding: 2rpx 10rpx;
+  border-radius: 16rpx 0 12rpx 0;
+  font-size: 18rpx;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.gs-badge--member {
+  background: #fffaf0;
+  color: #a06a1f;
+}
+
+.gs-badge--clearance {
+  background: var(--wot-color-theme-primary, #ff2237);
+  color: #fff;
 }
 
 .gs-img {
@@ -411,6 +501,19 @@ function originalPriceText(item: { price: number, originalPrice: number }) {
   font-weight: normal;
   line-height: 28rpx;
   text-decoration: line-through;
+}
+
+/* 未达标/未登录的会员价引导：与划线价共用同一行位（互斥），只透出「会员专享 ¥X」 */
+.gs-price-guide {
+  display: block;
+  overflow: hidden;
+  height: 28rpx;
+  margin-top: 6rpx;
+  color: #a06a1f;
+  font-size: 18rpx;
+  line-height: 28rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .gs-btn {

@@ -84,8 +84,9 @@ class PublicEndpointWhitelistContractTest {
 			"/app/newbie/prices",
 			// 会员价批量查价（可选登录：未登录返回活动配置价，资格为 null）
 			"/app/member/prices",
-			// 会员专区自动数据源（装修多Tab activity 模式，免登）
-			"/app/member/activity-goods",
+			// 低价捡漏专区（商品级出清标签选品/批量查价，免登）
+			"/app/clearance/activity-goods",
+			"/app/clearance/prices",
 			// 本机存储文件（装修图标等）
 			"/file/local/1590229800633634816/icon.jpg");
 

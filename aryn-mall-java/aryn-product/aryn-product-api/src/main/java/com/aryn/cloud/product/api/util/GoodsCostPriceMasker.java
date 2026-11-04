@@ -37,6 +37,10 @@ public final class GoodsCostPriceMasker {
 			return null;
 		}
 		goodsSpu.setCostPrice(null);
+		// 会员定价规则是内部数据（折扣率/固定价/下限），C 端只展示已算好的会员价
+		goodsSpu.setMemberDiscountRate(null);
+		goodsSpu.setMemberPriceFixed(null);
+		goodsSpu.setMemberPriceFloor(null);
 		if (goodsSpu.getGoodsSkus() != null) {
 			goodsSpu.getGoodsSkus().forEach(GoodsCostPriceMasker::maskSku);
 		}
@@ -53,6 +57,9 @@ public final class GoodsCostPriceMasker {
 			return null;
 		}
 		goodsSku.setCostPrice(null);
+		goodsSku.setMemberDiscountRate(null);
+		goodsSku.setMemberPriceFixed(null);
+		goodsSku.setMemberPriceFloor(null);
 		return goodsSku;
 	}
 

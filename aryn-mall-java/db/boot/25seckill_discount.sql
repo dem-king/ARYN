@@ -87,7 +87,6 @@ CREATE TABLE `seckill_order` (
     `del_flag`         varchar(1)   NOT NULL DEFAULT '0',
     PRIMARY KEY (`id`),
     KEY `idx_order` (`order_id`),
-    KEY `idx_order_item` (`order_id`, `order_item_id`),
     KEY `idx_user_session` (`user_id`, `session_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='秒杀订单记录';
 

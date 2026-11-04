@@ -84,6 +84,26 @@ public class SysUser extends Model<SysUser> {
 	@Schema(description = "租户id")
 	private String tenantId;
 
+	/**
+	 * 租户类型：1.平台租户；2.普通租户（非表字段）。
+	 *
+	 * <p>登录与用户信息查询时按 sys_tenant.tenant_type 填充，供会话快照和前端
+	 * 识别平台管理员；不落库，也不允许通过接口写入。</p>
+	 */
+	@TableField(exist = false)
+	@Schema(description = "租户类型：1.平台租户；2.普通租户（非表字段）")
+	private String tenantType;
+
+	/**
+	 * 是否平台管理员（非表字段）。
+	 *
+	 * <p>登录与用户信息查询时按 {@code sys_user.platform_admin} + 所属租户类型计算后填充，
+	 * 供会话快照与前端识别平台管理员；不落库，也不允许通过接口写入。</p>
+	 */
+	@TableField(exist = false)
+	@Schema(description = "是否平台管理员（非表字段）")
+	private Boolean platformAdmin;
+
 	@Schema(description = "账号类型：0.系统主账户（管理全部店铺）")
 	private String type;
 

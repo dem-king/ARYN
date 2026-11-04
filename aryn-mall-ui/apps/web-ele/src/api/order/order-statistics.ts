@@ -32,6 +32,24 @@ export interface DashboardTargetVO {
 /**
  * 订单交易数据 VO
  */
+export interface ZoneReportItemVO {
+  zoneSource: 'clearance' | 'member' | string;
+  orderCount: number;
+  itemCount: number;
+  gmv: number;
+  discount: number;
+}
+
+export interface ZoneReportVO {
+  startTime: string;
+  endTime: string;
+  orderCount: number;
+  itemCount: number;
+  gmv: number;
+  discount: number;
+  items: ZoneReportItemVO[];
+}
+
 export interface OrderTradeStatisticsVO {
   /**
    * 支付金额 (GMV)
@@ -425,6 +443,16 @@ export function getOrderDashboardStatistics(params: OrderDashboardQuery) {
       params,
     },
   );
+}
+
+/**
+ * 获取会员/出清专区让利报表
+ * @param params
+ */
+export function getZoneReport(params: OrderStatisticsQuery) {
+  return requestClient.get<ZoneReportVO>('/mall-order/order/statistics/zone', {
+    params,
+  });
 }
 
 /**

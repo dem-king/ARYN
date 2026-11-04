@@ -371,4 +371,60 @@
             AND o.payment_time &lt;= #{dto.endTime}
         </if>
     </select>
+
+    <!-- 专区让利：只统计已支付订单；让利=活动前价差×数量+会员折扣，不含券/积分 -->
+    <select id="getZoneReport" resultType="com.aryn.cloud.order.api.vo.ZoneReportVO$Item">
+        SELECT
+        oi.zone_source AS zoneSource,
+        COUNT(DISTINCT oi.order_id) AS orderCount,
+        IFNULL(SUM(oi.buy_quantity), 0) AS itemCount,
+        IFNULL(SUM(IFNULL(oi.payment_price, 0) - IFNULL(oi.freight_price, 0)), 0) AS gmv,
+        IFNULL(SUM(
+            GREATEST(IFNULL(oi.activity_base_price, oi.sales_price) - oi.sales_price, 0)
+                * IFNULL(oi.buy_quantity, 0)
+            + IFNULL(oi.member_discount_price, 0)
+        ), 0) AS discount
+        FROM order_item oi
+        INNER JOIN order_info o ON oi.order_id = o.id
+        WHERE o.del_flag = '0'
+        AND oi.del_flag = '0'
+        AND o.pay_status = '1'
+        AND oi.tenant_id = #{tenantId}
+        AND o.tenant_id = #{tenantId}
+        AND oi.zone_source IS NOT NULL
+        <if test="dto.startTime != null">
+            AND o.payment_time &gt;= #{dto.startTime}
+        </if>
+        <if test="dto.endTime != null">
+            AND o.payment_time &lt;= #{dto.endTime}
+        </if>
+        GROUP BY oi.zone_source
+    </select>
+
+    <!-- 总计：订单数跨专区去重，避免同一单同时含会员/出清商品时被重复计数 -->
+    <select id="getZoneReportTotal" resultType="com.aryn.cloud.order.api.vo.ZoneReportVO$Item">
+        SELECT
+        COUNT(DISTINCT oi.order_id) AS orderCount,
+        IFNULL(SUM(oi.buy_quantity), 0) AS itemCount,
+        IFNULL(SUM(IFNULL(oi.payment_price, 0) - IFNULL(oi.freight_price, 0)), 0) AS gmv,
+        IFNULL(SUM(
+            GREATEST(IFNULL(oi.activity_base_price, oi.sales_price) - oi.sales_price, 0)
+                * IFNULL(oi.buy_quantity, 0)
+            + IFNULL(oi.member_discount_price, 0)
+        ), 0) AS discount
+        FROM order_item oi
+        INNER JOIN order_info o ON oi.order_id = o.id
+        WHERE o.del_flag = '0'
+        AND oi.del_flag = '0'
+        AND o.pay_status = '1'
+        AND oi.tenant_id = #{tenantId}
+        AND o.tenant_id = #{tenantId}
+        AND oi.zone_source IS NOT NULL
+        <if test="dto.startTime != null">
+            AND o.payment_time &gt;= #{dto.startTime}
+        </if>
+        <if test="dto.endTime != null">
+            AND o.payment_time &lt;= #{dto.endTime}
+        </if>
+    </select>
 </mapper>

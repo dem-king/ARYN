@@ -9,6 +9,7 @@ import com.aryn.cloud.order.service.IDeliveryAccountBindingService;
 import com.aryn.cloud.order.service.IDeliveryStaffService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.util.List;
 import java.util.Map;
@@ -16,6 +17,8 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -118,6 +121,68 @@ class RemoteDeliveryAccountServiceImplTest {
 	void cleanedUpDeliveryStaffAllowsDelete() {
 		when(deliveryStaffService.getByUserId("sys-user-1")).thenReturn(null);
 		assertThat(service.hasActiveDeliveryStaff("sys-user-1")).isFalse();
+	}
+
+	@Test
+	void syncStaffPhoneRejectsBlankArguments() {
+		// 手机号/员工账号为空时不查询、不更新，直接返回 false
+		assertThat(service.syncStaffPhone(null, "13800138000")).isFalse();
+		assertThat(service.syncStaffPhone("", "13800138000")).isFalse();
+		assertThat(service.syncStaffPhone("sys-user-1", null)).isFalse();
+		assertThat(service.syncStaffPhone("sys-user-1", " ")).isFalse();
+		verify(deliveryStaffService, never()).getByUserId(any());
+	}
+
+	@Test
+	void syncStaffPhoneReturnsFalseWhenDeliveryStaffMissing() {
+		when(deliveryStaffService.getByUserId("sys-user-1")).thenReturn(null);
+
+		assertThat(service.syncStaffPhone("sys-user-1", "13800138000")).isFalse();
+		verify(deliveryStaffService, never()).updateById(any());
+	}
+
+	@Test
+	void syncStaffPhoneSkipsUpdateWhenPhoneUnchanged() {
+		DeliveryStaff staff = new DeliveryStaff();
+		staff.setId("staff-1");
+		staff.setUserId("sys-user-1");
+		staff.setStaffPhone("13800138000");
+		when(deliveryStaffService.getByUserId("sys-user-1")).thenReturn(staff);
+
+		assertThat(service.syncStaffPhone("sys-user-1", "13800138000")).isTrue();
+		verify(deliveryStaffService, never()).updateById(any());
+	}
+
+	@Test
+	void syncStaffPhoneUpdatesOnlyStaffPhone() {
+		DeliveryStaff staff = new DeliveryStaff();
+		staff.setId("staff-1");
+		staff.setUserId("sys-user-1");
+		staff.setStaffName("张三");
+		staff.setStaffPhone("17615123399");
+		when(deliveryStaffService.getByUserId("sys-user-1")).thenReturn(staff);
+		when(deliveryStaffService.updateById(any())).thenReturn(true);
+
+		assertThat(service.syncStaffPhone("sys-user-1", "13800138000")).isTrue();
+
+		ArgumentCaptor<DeliveryStaff> captor = ArgumentCaptor.forClass(DeliveryStaff.class);
+		verify(deliveryStaffService).updateById(captor.capture());
+		assertThat(captor.getValue().getId()).isEqualTo("staff-1");
+		assertThat(captor.getValue().getStaffPhone()).isEqualTo("13800138000");
+		// 只更新资料电话，员工账号/姓名等字段保持原值
+		assertThat(captor.getValue().getUserId()).isNull();
+		assertThat(captor.getValue().getStaffName()).isNull();
+	}
+
+	@Test
+	void syncStaffPhoneReturnsUpdateResult() {
+		DeliveryStaff staff = new DeliveryStaff();
+		staff.setId("staff-1");
+		staff.setStaffPhone("17615123399");
+		when(deliveryStaffService.getByUserId("sys-user-1")).thenReturn(staff);
+		when(deliveryStaffService.updateById(any())).thenReturn(false);
+
+		assertThat(service.syncStaffPhone("sys-user-1", "13800138000")).isFalse();
 	}
 
 }

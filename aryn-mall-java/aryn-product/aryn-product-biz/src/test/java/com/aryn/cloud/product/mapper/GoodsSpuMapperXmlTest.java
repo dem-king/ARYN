@@ -37,10 +37,15 @@ class GoodsSpuMapperXmlTest {
 
 	private static final String STATEMENT_ID = "com.aryn.cloud.product.mapper.GoodsSpuMapper.selectApiPage";
 
+	private static final String ADMIN_PAGE_STATEMENT_ID =
+			"com.aryn.cloud.product.mapper.GoodsSpuMapper.selectPageByAdmin";
+
 	private static final String RECOMMEND_STATEMENT_ID =
 			"com.aryn.cloud.product.mapper.GoodsSpuMapper.selectRecommendPage";
 
 	private static MappedStatement selectApiPage;
+
+	private static MappedStatement selectPageByAdmin;
 
 	private static MappedStatement selectRecommendPage;
 
@@ -55,6 +60,7 @@ class GoodsSpuMapperXmlTest {
 			builder.parse();
 		}
 		selectApiPage = configuration.getMappedStatement(STATEMENT_ID);
+		selectPageByAdmin = configuration.getMappedStatement(ADMIN_PAGE_STATEMENT_ID);
 		selectRecommendPage = configuration.getMappedStatement(RECOMMEND_STATEMENT_ID);
 		paginationInterceptor = new PaginationInnerInterceptor(DbType.MYSQL);
 	}
@@ -74,6 +80,18 @@ class GoodsSpuMapperXmlTest {
 		params.put("query", new GoodsSpu());
 		params.put("bargainRate", bargainRate);
 		BoundSql boundSql = selectApiPage.getBoundSql(params);
+		return normalize(boundSql.getSql());
+	}
+
+	private static String adminPageSql(String zoneType) {
+		return adminPageSql(new GoodsSpu(), zoneType);
+	}
+
+	private static String adminPageSql(GoodsSpu query, String zoneType) {
+		Map<String, Object> params = new HashMap<>(4);
+		params.put("query", query);
+		params.put("zoneType", zoneType);
+		BoundSql boundSql = selectPageByAdmin.getBoundSql(params);
 		return normalize(boundSql.getSql());
 	}
 
@@ -110,6 +128,44 @@ class GoodsSpuMapperXmlTest {
 		// 阈值只以绑定值出现：SQL 文本里既没有阈值字面量，也没有参数名（无拼接 = 无注入面）
 		assertThat(sql).doesNotContain("1.15");
 		assertThat(sql).doesNotContain("bargainRate");
+	}
+
+	@Test
+	void selectPageByAdminWithoutZoneTypeKeepsLegacySql() {
+		GoodsSpu query = new GoodsSpu();
+		query.setName("酱");
+		query.setStatus("1");
+		query.setCategorySecondId("cat-2");
+		query.setBrandId("brand-1");
+		String sql = adminPageSql(query, null);
+
+		// 存量零影响：不携带 zoneType 时不得出现任何专区条件（列表 SELECT 里的专区列除外）
+		assertThat(sql).doesNotContain("AND goods_spu.is_member_item");
+		assertThat(sql).doesNotContain("AND goods_spu.is_clearance_item");
+		assertThat(sql).doesNotContain("zoneType");
+		// 既有筛选条件原样保留，避免改动顺手改变了管理端列表口径
+		assertThat(sql).contains("goods_spu.`del_flag` = '0'");
+		assertThat(sql).contains("LOWER(goods_spu.`name`) LIKE CONCAT('%',LOWER(?),'%')");
+		assertThat(sql).contains("goods_spu.`status` = ?");
+		assertThat(sql).contains("goods_category.`id` = ?");
+		assertThat(sql).contains("goods_spu.brand_id = ?");
+		// 空字符串等价于不筛选
+		assertThat(adminPageSql("")).doesNotContain("AND goods_spu.is_member_item");
+	}
+
+	@Test
+	void selectPageByAdminFiltersByZoneType() {
+		// 会员专区 / 低价捡漏：与列表「专区」列同口径，只看商品级标签（含同时打了两个标签的商品）
+		assertThat(adminPageSql("member")).contains("AND goods_spu.is_member_item = 1")
+			.doesNotContain("AND goods_spu.is_clearance_item");
+		assertThat(adminPageSql("clearance")).contains("AND goods_spu.is_clearance_item = 1")
+			.doesNotContain("AND goods_spu.is_member_item");
+		// 未加入任何专区：两个标签都为 0（兼容存量 NULL 脏数据）；取值只参与分支判断，不落入 SQL 文本
+		String noneSql = adminPageSql("none");
+		assertThat(noneSql).contains("AND (goods_spu.is_member_item IS NULL OR goods_spu.is_member_item = 0)");
+		assertThat(noneSql)
+			.contains("AND (goods_spu.is_clearance_item IS NULL OR goods_spu.is_clearance_item = 0)");
+		assertThat(noneSql).doesNotContain("zoneType");
 	}
 
 	@Test

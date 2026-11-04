@@ -70,6 +70,17 @@ html .el-loading-mask {
   margin-left: 8px;
 }
 
+/* 操作列里的「更多」下拉：Element Plus 默认给 .el-dropdown 加 vertical-align: top，
+   而相邻 link 按钮是 middle，两者混排时下拉按钮会明显偏高（约 2-3px），统一成 middle。 */
+.hx-data-table .el-table__cell .el-dropdown {
+  vertical-align: middle;
+}
+
+/* 下拉包装层会打断 .el-button + .el-button 的间距规则，补回与相邻按钮一致的 8px */
+.hx-data-table .el-table__cell .el-button + .el-dropdown {
+  margin-left: 8px;
+}
+
 /* 金额统一：等宽数字，避免同列 9.5 / 9.50 混排时宽度抖动 */
 .hx-money {
   font-variant-numeric: tabular-nums;

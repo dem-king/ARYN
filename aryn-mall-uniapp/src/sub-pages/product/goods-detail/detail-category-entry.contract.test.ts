@@ -33,7 +33,11 @@ describe('goods detail review and category entry', () => {
   it('pushes a stack category page so the detail can be returned to', () => {
     const entry = source(CATEGORY_ENTRY)
     expect(entry).toContain('setPendingLocate')
-    expect(entry).toContain('uni.navigateTo')
+    // 统一走 navigateToUrl：页面栈接近上限时它提前降级 redirectTo，不写 fail 兜底补跳
+    // ——失败回调与首次跳转挤在同一 tick，正是 routeDone 报错的成因。
+    expect(entry).toContain('navigateToUrl')
+    expect(entry).not.toContain('fail:')
+    expect(entry).not.toContain('uni.reLaunch')
     expect(entry).toContain('/sub-pages/product/category-browse/index')
     expect(entry).toContain('categoryFirstId')
     expect(entry).toContain('categorySecondId')

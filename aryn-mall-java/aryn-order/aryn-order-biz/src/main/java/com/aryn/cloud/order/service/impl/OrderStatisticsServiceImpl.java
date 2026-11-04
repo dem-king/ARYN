@@ -1,5 +1,6 @@
 package com.aryn.cloud.order.service.impl;
 
+import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.order.api.dto.OrderStatisticsDTO;
 import com.aryn.cloud.order.api.vo.*;
 import com.aryn.cloud.order.mapper.DailyUserOrderStatMapper;
@@ -95,6 +96,30 @@ public class OrderStatisticsServiceImpl implements IOrderStatisticsService {
 		}
 
 		return dashboard;
+	}
+
+	@Override
+	public ZoneReportVO getZoneReport(OrderStatisticsDTO dto) {
+		OrderStatisticsDTO query = dto == null ? new OrderStatisticsDTO() : dto;
+		if (query.getStartTime() == null) {
+			query.setStartTime(LocalDateTime.now().minusDays(7).withHour(0).withMinute(0).withSecond(0));
+		}
+		if (query.getEndTime() == null) {
+			query.setEndTime(LocalDateTime.now());
+		}
+		String tenantId = ArynTenantContextHolder.getTenantId();
+		List<ZoneReportVO.Item> items = orderStatisticsMapper.getZoneReport(query, tenantId);
+		ZoneReportVO.Item total = orderStatisticsMapper.getZoneReportTotal(query, tenantId);
+		ZoneReportVO vo = new ZoneReportVO();
+		vo.setStartTime(query.getStartTime());
+		vo.setEndTime(query.getEndTime());
+		vo.setItems(items);
+		// 总计取跨专区去重结果，不能把按专区拆分的订单数直接相加
+		vo.setOrderCount(total == null || total.getOrderCount() == null ? 0L : total.getOrderCount());
+		vo.setItemCount(total == null || total.getItemCount() == null ? 0L : total.getItemCount());
+		vo.setGmv(total == null || total.getGmv() == null ? BigDecimal.ZERO : total.getGmv());
+		vo.setDiscount(total == null || total.getDiscount() == null ? BigDecimal.ZERO : total.getDiscount());
+		return vo;
 	}
 
 	@Override

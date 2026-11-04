@@ -1,10 +1,12 @@
 package com.aryn.cloud.upms.controller;
 
+import com.aryn.cloud.common.core.constant.CommonConstants;
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.upms.api.entity.SysRole;
 import com.aryn.cloud.upms.service.ISysRoleMenuService;
 import com.aryn.cloud.upms.service.ISysRoleService;
 import com.aryn.cloud.upms.service.ISysUserRoleService;
+import com.aryn.cloud.upms.support.PlatformAdminSupport;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -37,7 +39,8 @@ class SysRoleControllerProtectionTest {
 		sysRoleService = mock(ISysRoleService.class);
 		sysUserRoleService = mock(ISysUserRoleService.class);
 		sysRoleMenuService = mock(ISysRoleMenuService.class);
-		controller = new SysRoleController(sysRoleService, sysUserRoleService, sysRoleMenuService);
+		controller = new SysRoleController(sysRoleService, sysUserRoleService, sysRoleMenuService,
+				new PlatformAdminSupport());
 	}
 
 	private SysRole protectedRole() {
@@ -60,6 +63,21 @@ class SysRoleControllerProtectionTest {
 		verify(sysUserRoleService, never()).count(any());
 		verify(sysRoleService, never()).removeById(any(SysRole.class));
 		verify(sysRoleMenuService, never()).remove(any(Wrapper.class));
+	}
+
+	@Test
+	void deleteRejectedForPlatformAdminRoleByTenantAdmin() {
+		SysRole platformRole = new SysRole();
+		platformRole.setId("role-platform-admin");
+		platformRole.setRoleName("平台管理员");
+		platformRole.setRoleCode(CommonConstants.ROLE_PLATFORM_ADMIN_CODE);
+		when(sysRoleService.getById("role-platform-admin")).thenReturn(platformRole);
+
+		Result result = controller.del("role-platform-admin");
+
+		assertThat(result.getCode()).isNotEqualTo(0);
+		assertThat(result.getMsg()).contains("平台管理员角色仅平台管理员可维护");
+		verify(sysRoleService, never()).removeById(any(SysRole.class));
 	}
 
 	@Test

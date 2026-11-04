@@ -11,6 +11,7 @@ import com.aryn.cloud.upms.api.vo.StaffMessageRecipientVO;
 import com.aryn.cloud.upms.api.vo.SysUserVO;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 
 import java.util.List;
 
@@ -53,5 +54,14 @@ public interface SysUserMapper extends BaseMapper<SysUser> {
 			@Param("fetchSize") int fetchSize);
 
 	int countCustomerServiceStaff(@Param("tenantId") String tenantId, @Param("staffId") String staffId);
+
+	/**
+	 * 读取账号的平台管理员标记（1 是 / 0 否）。
+	 *
+	 * <p>{@code platform_admin} 是用户级平台身份列，不映射到实体，避免经通用新增/编辑接口
+	 * 被客户端改写；租户拦截器会按当前上下文追加 tenant_id 条件。</p>
+	 */
+	@Select("SELECT `platform_admin` FROM `sys_user` WHERE `id` = #{userId} AND `del_flag` = '0'")
+	String selectPlatformAdminFlag(@Param("userId") String userId);
 
 }

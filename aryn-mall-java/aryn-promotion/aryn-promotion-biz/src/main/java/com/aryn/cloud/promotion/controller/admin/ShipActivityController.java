@@ -49,6 +49,10 @@ import java.util.stream.Collectors;
  *
  * <p>发布前校验时间窗与规则结构；发布后核心规则不可修改，只能暂停或新建版本。
  *
+ * <p>会员价活动（type=10）已彻底下线，收敛为「商品级专区标签 + 系统托管活动 SYS_MEMBER_ZONE」：
+ * 活动列表不展示、按 ID 的详情/修改/发布/暂停/删除全部拦截、新建直接拒绝；
+ * 系统托管活动 SYS_MEMBER_ZONE 由商品标签同步服务维护，本控制器不提供任何写入口。
+ *
  * @author aryn
  * @since 2026/9/12
  */
@@ -80,7 +84,14 @@ public class ShipActivityController {
 				.eq(StringUtils.hasText(query.getActivityType()), PromotionActivity::getActivityType,
 						query.getActivityType())
 				.like(StringUtils.hasText(query.getActivityName()), PromotionActivity::getActivityName,
-						query.getActivityName());
+						query.getActivityName())
+				// 会员价活动（type=10）已下线：手工活动不再支持，系统托管活动由商品标签自动维护，
+				// 两者都不在活动列表展示；会员价统一走商品列表「专区打标」/商品编辑「专区标签」
+				.ne(PromotionActivity::getActivityType, PromotionActivity.TYPE_MEMBER_PRICE)
+				// 系统托管活动（SYS_MEMBER_ZONE/SYS_CLEARANCE_ZONE）同样由商品标签自动维护
+				.and(w -> w.isNull(PromotionActivity::getActivityCode)
+					.or()
+					.notLikeRight(PromotionActivity::getActivityCode, "SYS"));
 		// 已结束/待开始是展示态，筛选时翻译为时间窗条件（库内仅存 1草稿/2发布/3暂停）
 		if (PromotionActivity.STATUS_ENDED.equals(query.getStatus())) {
 			wrapper.eq(PromotionActivity::getStatus, PromotionActivity.STATUS_PUBLISHED)
@@ -109,12 +120,9 @@ public class ShipActivityController {
 	@SaCheckPermission("promotion:shipactivity:page")
 	@GetMapping("/{id}")
 	public Result<PromotionActivity> getById(@PathVariable String id) {
-		PromotionActivity activity = promotionActivityMapper.selectOne(Wrappers.lambdaQuery(PromotionActivity.class)
-				.eq(PromotionActivity::getTenantId, ArynTenantContextHolder.getTenantId())
-				.eq(PromotionActivity::getId, id));
-		if (activity != null) {
-			activity.setStatus(deriveDisplayStatus(activity, LocalDateTime.now()));
-		}
+		// requireActivity 拦截系统托管活动与已下线的会员价活动，避免绕过列表直接读取/编辑
+		PromotionActivity activity = requireActivity(id);
+		activity.setStatus(deriveDisplayStatus(activity, LocalDateTime.now()));
 		return Result.success(activity);
 	}
 
@@ -123,6 +131,7 @@ public class ShipActivityController {
 	@SaCheckPermission("promotion:shipactivity:save")
 	@PostMapping
 	public Result<PromotionActivity> save(@RequestBody PromotionActivity activity) {
+		rejectManualMemberPrice(activity);
 		publishGovernanceService.validateRules(activity);
 		activity.setId(null);
 		activity.setStatus(PromotionActivity.STATUS_DRAFT);
@@ -140,6 +149,7 @@ public class ShipActivityController {
 	@SaCheckPermission("promotion:shipactivity:save")
 	@PutMapping("/{id}")
 	public Result<PromotionActivity> update(@PathVariable String id, @RequestBody PromotionActivity activity) {
+		// requireActivity 统一拦截系统托管活动与已下线的会员价活动（入参可能不带 activityType）
 		PromotionActivity exists = requireActivity(id);
 		if (PromotionActivity.STATUS_PUBLISHED.equals(exists.getStatus())) {
 			if (changed(exists.getRules(), activity.getRules()) || changed(exists.getScopeType(), activity.getScopeType())
@@ -196,6 +206,7 @@ public class ShipActivityController {
 	@PostMapping("/{id}/publish")
 	public Result<Void> publish(@PathVariable String id,
 			@RequestParam(required = false, defaultValue = "false") boolean force) {
+		// requireActivity 统一拦截系统托管活动与已下线的会员价活动
 		PromotionActivity activity = requireActivity(id);
 		publishGovernanceService.validateRules(activity);
 		assertLadderPricesBelowSales(activity);
@@ -254,7 +265,33 @@ public class ShipActivityController {
 		if (activity == null) {
 			throw new ArynBusinessException("活动不存在");
 		}
+		if (isSystemActivity(activity)) {
+			throw new ArynBusinessException("系统托管活动由商品专区标签自动维护，不可手工编辑或删除");
+		}
+		// 会员价活动已彻底下线（手工不再支持发布/维护，系统活动由标签同步服务维护）：
+		// 详情/修改/发布/暂停/删除等按 ID 的入口全部拦截
+		if (PromotionActivity.TYPE_MEMBER_PRICE.equals(activity.getActivityType())) {
+			throw new ArynBusinessException("会员价活动已下线，请使用商品专区标签维护");
+		}
 		return activity;
+	}
+
+	/**
+	 * 会员价活动（type=10）已下线：会员价只通过商品专区标签维护，
+	 * 系统托管活动 SYS_MEMBER_ZONE 由标签同步服务自动维护并作为价格载体。
+	 *
+	 * <p>新建入口（save）写库前拦截；按 ID 的存量活动入口由 {@link #requireActivity(String)} 统一拦截。
+	 */
+	private void rejectManualMemberPrice(PromotionActivity activity) {
+		if (activity != null && PromotionActivity.TYPE_MEMBER_PRICE.equals(activity.getActivityType())) {
+			throw new ArynBusinessException(
+					"会员价活动已下线：请在商品列表「专区打标」或商品编辑「专区标签」维护");
+		}
+	}
+
+	private boolean isSystemActivity(PromotionActivity activity) {
+		return activity != null && StringUtils.hasText(activity.getActivityCode())
+				&& activity.getActivityCode().startsWith("SYS_");
 	}
 
 	/** 是否进行中：已发布且当前时间在时间窗内（暂停/删除守卫与展示态派生的基准） */

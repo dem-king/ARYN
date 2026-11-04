@@ -70,6 +70,11 @@
             <groupId>com.aryn</groupId>
             <artifactId>aryn-order-api</artifactId>
         </dependency>
+        <!-- 专区打标后触发系统托管活动同步（仅依赖 promotion-api，不直接依赖 promotion-biz） -->
+        <dependency>
+            <groupId>com.aryn</groupId>
+            <artifactId>aryn-promotion-api</artifactId>
+        </dependency>
         <!--            安全模块-->
         <dependency>
             <groupId>com.aryn</groupId>

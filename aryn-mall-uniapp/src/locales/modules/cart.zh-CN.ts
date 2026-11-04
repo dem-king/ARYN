@@ -40,6 +40,8 @@ export default {
     newbieLimitHint: '新人专享价每人限购 {count} 件',
     memberBadge: '会员价',
     memberGuide: '会员专享 ¥{price}',
+    clearanceBadge: '捡漏价',
+    clearanceExpireHint: '捡漏价 · {date} 前有效',
 
     // 商品卡片
     outOfStockShort: '无货',

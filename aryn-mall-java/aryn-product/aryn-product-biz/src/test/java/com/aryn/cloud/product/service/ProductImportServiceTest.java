@@ -10,6 +10,7 @@ import com.aryn.cloud.product.api.vo.ProductImportPreviewVO;
 import com.aryn.cloud.product.mapper.GoodsBrandMapper;
 import com.aryn.cloud.product.mapper.GoodsCategoryMapper;
 import com.aryn.cloud.product.mapper.GoodsSkuMapper;
+import com.aryn.cloud.product.service.impl.GoodsPriceHistoryService;
 import com.aryn.cloud.product.mapper.GoodsSpuMapper;
 import com.aryn.cloud.product.mapper.ProductChangeLogMapper;
 import com.aryn.cloud.product.mapper.ProductImportErrorMapper;
@@ -67,7 +68,7 @@ class ProductImportServiceTest {
 		when(brandMapper.selectById("brand-1")).thenReturn(brand);
 
 		service = new ProductImportServiceImpl(jobMapper, rowMapper, errorMapper, changeLogMapper, spuMapper, skuMapper,
-				categoryMapper, brandMapper, new ObjectMapper());
+				mock(GoodsPriceHistoryService.class), categoryMapper, brandMapper, new ObjectMapper());
 	}
 
 	private ProductImportRowDTO row(String name) {

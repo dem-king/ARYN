@@ -78,7 +78,7 @@ describe('goods detail member price contract', () => {
     const page = source(DETAIL_PAGE)
 
     const memberBlock = page.slice(
-      page.indexOf('const memberDisplay = computed('),
+      page.indexOf('const rawMemberDisplay = computed('),
       page.indexOf('/**\n * 当前 SKU 的新人价展示'),
     )
     // 秒杀压会员价

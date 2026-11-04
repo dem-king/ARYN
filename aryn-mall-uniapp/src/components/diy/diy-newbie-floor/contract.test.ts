@@ -172,13 +172,16 @@ describe('新人专享楼层「抢」＝直接加购', () => {
     expect(floor).toMatch(/!== activitySkuId[\s\S]{0,200}openGoods\(spuId\)/)
   })
 
-  it('确认弹层按楼层标价展示新人价，并把数量封顶到限购件数', () => {
+  it('确认弹层按楼层成交价展示（命中身份价时用身份价，否则新人价），并封顶限购件数', () => {
     const floor = source(FLOOR)
     // quick-cart 只回普通售价；不带活动价进弹层就会出现「卡片 ¥0.01、小计 ¥12.90」
     expect(floor).toMatch(/quickAdd\(spuId,\s*\{\s*promotion:\s*\{/)
-    expect(floor).toMatch(/unitPrice:\s*goods\.newbiePrice/)
+    // 命中更高优先级的会员价/出清价时按身份价展示（SKU 级优先），否则沿用新人价
+    expect(floor).toMatch(/unitPrice:\s*zonePriced/)
+    expect(floor).toMatch(/goods\.newbiePrice/)
+    expect(floor).toMatch(/zone\.skuZonePriceOf\(/)
     // 超量不是恢复原价而是整单被后端拒绝，必须在弹层里提前封顶
-    expect(floor).toMatch(/maxQuantity:\s*newbieLimitPerUser\(\)/)
+    expect(floor).toMatch(/maxQuantity:\s*zonePriced \? null : newbieLimitPerUser\(\)/)
   })
 
   it('防重复点击：复用 composable 的 pending，并把在途态反映到按钮上', () => {

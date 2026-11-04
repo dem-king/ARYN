@@ -26,6 +26,7 @@ export default {
       recommend: 'Recommended',
     },
     memberPrice: 'Member Price',
+    clearancePrice: 'Clearance Price',
     newbiePrice: 'New User Price',
     member: 'Member',
     memberOnly: 'Members only ¥{price}',

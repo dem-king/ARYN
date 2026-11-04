@@ -1,3 +1,5 @@
+import type { AppClearancePriceVO } from '@/utils/clearance-price'
+
 import { alovaInstance } from '@/api/core/instance'
 
 // 获取商品列表
@@ -23,6 +25,46 @@ export function getRecommendPage(params: object) {
 // 免登请求拿不到用户，足迹会一直是空的。
 export function getById(id: string) {
   return alovaInstance.Get<any>(`/product/app/goodsspu/${id}`)
+}
+
+/**
+ * 批量查询 SKU 有效出清价（商详/购物车展示）。
+ *
+ * 免登接口：出清价对所有用户一致；只返回未到期且真实低于当前售价的 SKU。
+ */
+export function getClearanceSkuPrices(skuIds: string[]) {
+  const ids = skuIds.filter(Boolean)
+  if (!ids.length)
+    return Promise.resolve<AppClearancePriceVO | null>(null)
+  return alovaInstance.Get<AppClearancePriceVO | null>(
+    '/product/app/clearance/prices',
+    {
+      params: { skuIds: ids.join(',') },
+      headers: { skipToken: true },
+    },
+  )
+}
+
+/**
+ * 批量查询 SPU 维度有效出清价（商品列表卡片展示）。
+ *
+ * 列表接口只下发 SPU（无 SKU 明细），且 `clearancePrice` 字段可能是过期/未分层的
+ * 原始配置价；这里按 spuIds 由后端用与专区/结算同一套算法算出「每个 SKU 的有效出清价」，
+ * 前端再按卡片价聚合最低有效价（`resolveListClearanceDisplay`）。
+ *
+ * 免登：出清价对所有用户一致。
+ */
+export function getClearanceSpuPrices(spuIds: string[]) {
+  const ids = spuIds.filter(Boolean)
+  if (!ids.length)
+    return Promise.resolve<AppClearancePriceVO | null>(null)
+  return alovaInstance.Get<AppClearancePriceVO | null>(
+    '/product/app/clearance/prices',
+    {
+      params: { spuIds: ids.join(',') },
+      headers: { skipToken: true },
+    },
+  )
 }
 
 // 通过ids查询商品列表

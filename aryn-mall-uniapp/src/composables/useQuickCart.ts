@@ -1,6 +1,6 @@
 import type { SharedCart } from '@/api/order/sharedCart'
 import { translate } from '@/locales'
-import type { QuickAddPromotion, QuickCartInfo } from '@/utils/quick-cart'
+import type { QuickAddPromotion, QuickAddZonePrices, QuickCartInfo } from '@/utils/quick-cart'
 
 /**
  * 快捷加购 composable。
@@ -23,11 +23,13 @@ import { useAuthStore } from '@/store/authStore'
 import {
   QUICK_CART_MODE_DIRECT,
   QUICK_CART_MODE_UNAVAILABLE,
+  isQuickAddPromotionApplicable,
   quickAddBlockedText,
   resolveQuantityRule,
   resolveQuickAddMode,
   resolveQuickAddPrice,
   resolveQuickAddQuantity,
+  resolveQuickAddZonePrice,
 } from '@/utils/quick-cart'
 
 export interface QuickCartResult {
@@ -45,6 +47,14 @@ export interface QuickAddOptions {
    * 并按活动限购封顶数量。只在 quick-cart 选中的 SKU 与活动 SKU 一致时生效。
    */
   promotion?: QuickAddPromotion | null
+  /**
+   * 页面已知的专区成交价（会员价 / 捡漏价）：skuId → 单价。
+   *
+   * 卡片上标了专区价时透传进来，确认弹层的单价/小计就不会再显示普通售价；
+   * 只在活动价（promotion）不适用时生效——现有新人价/秒杀价优先逻辑保持不变。
+   * 不传时行为与原来完全一致（向后兼容商详/购物车/装修楼层等既有调用方）。
+   */
+  zonePrices?: QuickAddZonePrices | null
   /**
    * 共享购物车分类选货页传入：目的地锁定到该车，跳过去向询问，
    * 避免同一页里的加购被误投进个人购物车。
@@ -65,6 +75,7 @@ export function useQuickCart() {
    *
    * @param spuId 商品 SPU ID
    * @param options.promotion 页面已知的活动价（新人价/秒杀价），仅用于确认弹层展示与限购封顶
+   * @param options.zonePrices 页面已知的专区成交价（会员价/捡漏价），活动价不适用时作为确认弹层单价
    * @returns 加购结果；需要选规格时由调用方接管后续交互
    */
   async function quickAdd(spuId: string, options: QuickAddOptions = {}): Promise<QuickCartResult> {
@@ -102,7 +113,13 @@ export function useQuickCart() {
       }
 
       const rule = resolveQuantityRule(info)
-      const pricing = resolveQuickAddPrice(info, options.promotion)
+      // 价格优先级与卡片一致：活动价（新人价/秒杀价）适用时优先；否则用专区成交价
+      // （会员价/捡漏价），二者都未命中时回落 quick-cart 的普通售价。
+      // 不这么做会出现「卡片 ¥5.90、确认弹层小计 ¥7.90」的价差。
+      const pricing = isQuickAddPromotionApplicable(info, options.promotion)
+        ? resolveQuickAddPrice(info, options.promotion)
+        : (resolveQuickAddZonePrice(info, options.zonePrices)
+          ?? resolveQuickAddPrice(info, options.promotion))
       // 限购件数低于起订量时，任何合法数量都享不到活动价：不展示活动价也不封顶，
       // 交给弹层按常规商品处理（楼层入口已提前把这种冲突挡到商详）
       const promotionUsable = pricing.maxQuantity === null || pricing.maxQuantity >= rule.moq

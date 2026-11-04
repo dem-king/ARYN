@@ -6,6 +6,7 @@ import cn.hutool.json.JSONUtil;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.product.api.entity.GoodsSku;
 import com.aryn.cloud.product.api.remote.RemoteGoodsSkuService;
+import com.aryn.cloud.promotion.api.entity.MallZoneSetting;
 import com.aryn.cloud.promotion.api.entity.PromotionActivity;
 import com.aryn.cloud.promotion.api.vo.AppMemberPriceVO;
 import com.aryn.cloud.promotion.mapper.PromotionActivityMapper;
@@ -35,12 +36,13 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * 会员价查询实现（C 端展示）：读进行中的会员价活动（promotion_activity type=10）并组装商品价格。
+ * 会员价查询实现（C 端展示）：读进行中的系统托管会员价活动（SYS_MEMBER_ZONE，type=10）
+ * 并组装商品价格。
  *
  * <p>与新人价接口（{@link NewbieActivityServiceImpl}）同款口径：
  * <ol>
- *   <li><b>活动选择</b>：进行中活动按优先级降序取「首个能产出请求 SKU 交集」的活动
- *       （与新人价「多活动并存取优先级最高」一致；发布治理会提示同类型时间重叠）；</li>
+ *   <li><b>活动选择</b>：进行中活动按优先级降序取「首个能产出请求 SKU 交集」的活动；
+ *       历史手工 type=10 活动已下线，当前仅系统托管活动 SYS_MEMBER_ZONE（保留多活动合并逻辑兜底）；</li>
  *   <li><b>商品回填</b>：仅回填商品库确认存在的 SKU（远程批量查询，失败降级剔除，不阻断）；</li>
  *   <li><b>资格 fail-closed</b>：登录用户经 Dubbo 查等级快照，等级缺失/远程异常一律按不合格，
  *       等级门槛快照同样查询失败即视为不可用（不下发该活动）；未登录不下发资格字段；</li>
@@ -101,6 +103,9 @@ public class MemberPriceActivityServiceImpl implements IMemberPriceActivityServi
 	@DubboReference
 	private final RemoteGoodsSkuService remoteGoodsSkuService;
 
+	/** 会员专区开关：关闭后价格接口不再下发会员价（与列表/结算口径一致）。 */
+	private final MallZoneSettingService mallZoneSettingService;
+
 	/**
 	 * 会员等级快照走 user 域 Dubbo 接口（定义在 user-api、实现挂 user-biz）。
 	 *
@@ -121,7 +126,7 @@ public class MemberPriceActivityServiceImpl implements IMemberPriceActivityServi
 
 	@Override
 	public AppMemberPriceVO getSkuPrices(List<String> skuIds, String userId) {
-		if (CollectionUtils.isEmpty(skuIds)) {
+		if (CollectionUtils.isEmpty(skuIds) || !memberZoneEnabled()) {
 			return null;
 		}
 		// 去重但保留请求顺序：同一 SPU 下前端可能把多个规格 SKU 一起带上来
@@ -141,19 +146,20 @@ public class MemberPriceActivityServiceImpl implements IMemberPriceActivityServi
 		MemberLevelSnapshotVO userLevel = loggedIn ? loadUserLevel(tenantId, userId, levelCache) : null;
 		// 会员折扣率权益（每个请求只查一次，供 C 端计算展示取优价；未登录不查、字段为 null）
 		BigDecimal userDiscountRate = loggedIn ? loadUserDiscountRate(userId) : null;
+		List<ActivityOffer> offers = new ArrayList<>();
 		for (PromotionActivity activity : activeActivities(tenantId)) {
 			AppMemberPriceVO price = toSkuPrices(activity, wanted, tenantId, userLevel, loggedIn,
 					userDiscountRate, levelCache);
-			if (price != null) {
-				return price;
+			if (price != null && !CollectionUtils.isEmpty(price.getItems())) {
+				offers.add(new ActivityOffer(activity, price));
 			}
 		}
-		return null;
+		return mergeOffers(offers);
 	}
 
 	@Override
 	public AppMemberPriceVO getSpuPrices(List<String> spuIds, String userId) {
-		if (CollectionUtils.isEmpty(spuIds)) {
+		if (CollectionUtils.isEmpty(spuIds) || !memberZoneEnabled()) {
 			return null;
 		}
 		// 去重但保留请求顺序；列表一屏商品数有界，上限只防请求体放大
@@ -173,18 +179,111 @@ public class MemberPriceActivityServiceImpl implements IMemberPriceActivityServi
 		MemberLevelSnapshotVO userLevel = loggedIn ? loadUserLevel(tenantId, userId, levelCache) : null;
 		// 会员折扣率权益（每个请求只查一次，供 C 端计算展示取优价；未登录不查、字段为 null）
 		BigDecimal userDiscountRate = loggedIn ? loadUserDiscountRate(userId) : null;
+		List<ActivityOffer> offers = new ArrayList<>();
 		for (PromotionActivity activity : activeActivities(tenantId)) {
 			AppMemberPriceVO price = toSpuPrices(activity, wantedSpuIds, tenantId, userLevel, loggedIn,
 					userDiscountRate, levelCache);
-			if (price != null) {
-				return price;
+			if (price != null && !CollectionUtils.isEmpty(price.getItems())) {
+				offers.add(new ActivityOffer(activity, price));
 			}
 		}
-		return null;
+		return mergeOffers(offers);
 	}
 
 	/**
-	 * 进行中的会员价活动，按优先级降序（与楼层「多活动并存取优先级最高」的展示语义一致）。
+	 * 合并多个进行中活动的商品价（历史手工活动已下线，当前仅系统托管活动 SYS_MEMBER_ZONE；
+	 * 保留合并逻辑兜底异常数据，避免只返回第一个活动）。
+	 *
+	 * <p>同一 SKU 历史手工活动优先于系统托管活动（与结算引擎一致），同类活动取最低价；
+	 * 资格按「任一活动达标即可」聚合，避免系统活动价格因历史手工活动先命中而消失。
+	 */
+	private AppMemberPriceVO mergeOffers(List<ActivityOffer> offers) {
+		if (offers.isEmpty()) {
+			return null;
+		}
+		Map<String, MergedItem> bySku = new LinkedHashMap<>();
+		Boolean eligible = null;
+		String userLevelId = null;
+		String userLevelName = null;
+		BigDecimal userDiscountRate = null;
+		for (ActivityOffer offer : offers) {
+			AppMemberPriceVO vo = offer.price();
+			if (userLevelId == null) {
+				userLevelId = vo.getUserLevelId();
+			}
+			if (userLevelName == null) {
+				userLevelName = vo.getUserLevelName();
+			}
+			if (userDiscountRate == null) {
+				userDiscountRate = vo.getUserDiscountRate();
+			}
+			if (Boolean.TRUE.equals(vo.getEligible())) {
+				eligible = Boolean.TRUE;
+			}
+			else if (vo.getEligible() != null && eligible == null) {
+				eligible = Boolean.FALSE;
+			}
+			boolean system = isSystemActivity(offer.activity());
+			for (AppMemberPriceVO.MemberSkuPriceVO item : vo.getItems()) {
+				String skuId = item.getSkuId();
+				if (!StringUtils.hasText(skuId)) {
+					continue;
+				}
+				MergedItem existing = bySku.get(skuId);
+				if (existing == null || winning(system, item.getMemberPrice(), existing)) {
+					bySku.put(skuId, new MergedItem(system, item));
+				}
+			}
+		}
+		if (bySku.isEmpty()) {
+			return null;
+		}
+		AppMemberPriceVO merged = new AppMemberPriceVO();
+		merged.setUserLevelId(userLevelId);
+		merged.setUserLevelName(userLevelName);
+		merged.setEligible(eligible);
+		merged.setUserDiscountRate(userDiscountRate);
+		merged.setItems(bySku.values().stream().map(MergedItem::item).toList());
+		return merged;
+	}
+
+	private boolean winning(boolean system, BigDecimal price, MergedItem existing) {
+		if (system != existing.system()) {
+			// 历史手工活动（存量数据）优先于系统托管活动
+			return !system;
+		}
+		if (price == null) {
+			return false;
+		}
+		return existing.item().getMemberPrice() == null
+				|| price.compareTo(existing.item().getMemberPrice()) < 0;
+	}
+
+	private boolean isSystemActivity(PromotionActivity activity) {
+		return activity != null && StringUtils.hasText(activity.getActivityCode())
+				&& activity.getActivityCode().startsWith("SYS_");
+	}
+
+	private record ActivityOffer(PromotionActivity activity, AppMemberPriceVO price) {
+	}
+
+	private record MergedItem(boolean system, AppMemberPriceVO.MemberSkuPriceVO item) {
+	}
+
+	private boolean memberZoneEnabled() {
+		try {
+			return !"0".equals(mallZoneSettingService.getOrDefault(ArynTenantContextHolder.getTenantId(),
+					MallZoneSetting.ZONE_MEMBER).getEnabled());
+		}
+		catch (Exception ex) {
+			// 设置查询失败按开启处理：展示降级不能比价格缺失更糟
+			log.warn("会员专区开关查询失败，按开启处理: {}", ex.getMessage());
+			return true;
+		}
+	}
+
+	/**
+	 * 进行中的会员价活动，按优先级降序（历史手工活动已下线，当前仅系统托管活动 SYS_MEMBER_ZONE）。
 	 */
 	private List<PromotionActivity> activeActivities(String tenantId) {
 		LocalDateTime now = LocalDateTime.now();

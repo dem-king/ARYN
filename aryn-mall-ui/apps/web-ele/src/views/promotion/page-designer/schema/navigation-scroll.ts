@@ -245,7 +245,17 @@ export function resolveNavigationScrollAppearance(
     surface.color,
     progress,
   );
-  const textColor = pickReadableNavigationTextColor(composite, base.textColor);
+  /**
+   * 起点直接沿用调用方给的起始文字色。
+   *
+   * 业务页的起始底色可能是 CSS 变量（如个人中心/会员页的 `var(--theme-color-primary)`）：
+   * 解析器只认 hex/rgb，读不出来会按白底推成深色字 —— 叠在品牌色导航上直接「白字变黑字」。
+   * 起始态本来就是「原样展示」，文字色没有重新推断的必要。
+   */
+  const textColor =
+    progress === 0
+      ? base.textColor
+      : pickReadableNavigationTextColor(composite, base.textColor);
   const lightSurface = scrollLuminance(surface.color) > 0.75;
   return {
     progress,

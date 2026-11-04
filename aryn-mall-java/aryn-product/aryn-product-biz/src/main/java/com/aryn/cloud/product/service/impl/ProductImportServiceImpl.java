@@ -72,6 +72,9 @@ public class ProductImportServiceImpl implements ProductImportService {
 
 	private final GoodsSkuMapper goodsSkuMapper;
 
+	/** 价格历史：导入改价同样要落库，否则「先涨后降」判定可被导入绕过。 */
+	private final GoodsPriceHistoryService goodsPriceHistoryService;
+
 	private final GoodsCategoryMapper goodsCategoryMapper;
 
 	private final GoodsBrandMapper goodsBrandMapper;
@@ -397,6 +400,7 @@ public class ProductImportServiceImpl implements ProductImportService {
 			if (sku == null || !Objects.equals(sku.getTenantId(), tenantId)) {
 				throw new ArynBusinessException("待更新SKU不存在");
 			}
+			BigDecimal previousSalesPrice = sku.getSalesPrice();
 			if (row.getSalesPrice() != null) {
 				sku.setSalesPrice(row.getSalesPrice());
 			}
@@ -406,6 +410,8 @@ public class ProductImportServiceImpl implements ProductImportService {
 			sku.setUpdateBy(operatorName);
 			sku.setUpdateTime(LocalDateTime.now());
 			goodsSkuMapper.updateById(sku);
+			goodsPriceHistoryService.recordIfChanged(spuId, sku.getId(), "sales", previousSalesPrice,
+				sku.getSalesPrice(), "import", "商品导入修改SKU售价");
 		}
 		else {
 			sku = new GoodsSku();

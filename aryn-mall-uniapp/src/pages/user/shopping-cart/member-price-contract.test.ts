@@ -99,3 +99,80 @@ describe('shopping cart member price contract', () => {
     expect(strike).toContain('member.memberPrice')
   })
 })
+
+/**
+ * 购物车「出清价（捡漏价）」口径契约。
+ *
+ * 真实缺陷（审计 §2.2 P1）：行价 `cartUnitPrice` 已按「出清 vs 会员取低」收敛，
+ * 但角标与划线价仍先走会员分支——同一 SKU 同时命中会员+出清且出清更低时，
+ * 主价是捡漏价、角标却标「会员价」、划线基准也错。加上「捡漏价」角标词条
+ * 与到期提示，让购物车与卡片/会员专区对同一个成交价给出同一套解释。
+ */
+describe('shopping cart clearance price priority contract', () => {
+  const CART_ZH = 'src/locales/modules/cart.zh-CN.ts'
+  const CART_EN = 'src/locales/modules/cart.en-US.ts'
+
+  it('keeps clearance ahead of member in the row unit price', () => {
+    const unit = functionSource(source(CART_PAGE), 'cartUnitPrice')
+    // 出清价胜出时直接返回出清价（不再允许会员价/新人价/折扣覆盖）
+    const clearanceAt = unit.indexOf('clearanceWins(row)')
+    const memberAt = unit.indexOf('member.showMemberPrice')
+    expect(clearanceAt).toBeGreaterThan(-1)
+    expect(memberAt).toBeGreaterThan(clearanceAt)
+    expect(unit).toContain('clearance.clearancePrice')
+  })
+
+  it('badge follows the same clearance-first branch as the main price', () => {
+    const cart = source(CART_PAGE)
+    // 角标顺序：捡漏价 → 会员价 → 新人价 → 折扣
+    expect(cart).toContain('v-if="clearanceWins(goods)"')
+    expect(cart).toContain('t(\'cart.clearanceBadge\')')
+    expect(cart).toContain('clearance-badge')
+
+    const clearanceBadgeAt = cart.indexOf('v-if="clearanceWins(goods)"')
+    const memberBadgeAt = cart.indexOf('memberDisplayOf(goods).showMemberPrice')
+    expect(clearanceBadgeAt).toBeGreaterThan(-1)
+    expect(memberBadgeAt).toBeGreaterThan(clearanceBadgeAt)
+  })
+
+  it('strike-through price uses the SKU current price when clearance wins', () => {
+    const strike = functionSource(source(CART_PAGE), 'strikePriceOf')
+    // 出清分支必须排在会员分支之前，否则划线价取会员价基准
+    const clearanceAt = strike.indexOf('clearanceWins(row)')
+    const memberAt = strike.indexOf('memberDisplayOf(row)')
+    expect(clearanceAt).toBeGreaterThan(-1)
+    expect(memberAt).toBeGreaterThan(clearanceAt)
+    // 划线基准=接口下发的 SKU 当前售价（无则回落行内售价），与主价同一份判定
+    expect(strike).toContain('clearanceDisplayOf(row).originalPrice')
+    expect(strike).toContain('sku.salesPrice')
+  })
+
+  it('suppresses the members-only guide once clearance price wins', () => {
+    const guide = functionSource(source(CART_PAGE), 'memberGuideOf')
+    // 主价已是捡漏价时再引导「会员专享 ¥x」会让用户以为价格还没生效
+    expect(guide).toContain('clearanceWins(row)')
+    expect(guide).toMatch(/clearanceWins\(row\)\)\s*\n\s*return ''/)
+  })
+
+  it('renders a clearance expiry hint only when clearance wins and expire time exists', () => {
+    const cart = source(CART_PAGE)
+    const hint = functionSource(cart, 'clearanceExpireHintOf')
+    expect(hint).toContain('clearanceWins(row)')
+    expect(hint).toContain('clearanceDisplayOf(row).expireTime')
+    expect(hint).toContain('formatClearanceExpireDate')
+    expect(cart).toContain('clearanceExpireHintOf(goods)')
+    expect(cart).toContain('clearance-expire')
+    // iOS 不能直接 new Date('yyyy-MM-dd HH:mm:ss')：必须走手工解析，否则到期日不渲染
+    expect(cart).toContain('parseLocalDateTimeTimestamp')
+    expect(functionSource(cart, 'formatClearanceExpireDate')).toContain('parseLocalDateTimeTimestamp')
+  })
+
+  it('ships the clearance badge and expiry hint copy in both locales', () => {
+    const zh = source(CART_ZH)
+    const en = source(CART_EN)
+    expect(zh).toMatch(/clearanceBadge:\s*'捡漏价'/)
+    expect(zh).toMatch(/clearanceExpireHint:\s*'.*\{date\}.*'/)
+    expect(en).toMatch(/clearanceBadge:\s*'Clearance Price'/)
+    expect(en).toMatch(/clearanceExpireHint:\s*'.*\{date\}.*'/)
+  })
+})

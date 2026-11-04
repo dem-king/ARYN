@@ -73,6 +73,16 @@ public class OrderItemEntity extends Model<OrderItemEntity> {
 	@Schema(description = "会员折扣优惠金额（元）")
 	private BigDecimal memberDiscountPrice;
 
+	@Schema(description = "专区来源：member/clearance；空=非专区（报表快照）")
+	private String zoneSource;
+
+	@Schema(description = "专区活动前单价快照（让利统计用）")
+	private BigDecimal activityBasePrice;
+
+	@Schema(description = "商品成本价快照（会员价成本兜底用，非表字段）")
+	@TableField(exist = false)
+	private BigDecimal costPrice;
+
 	@Schema(description = "积分抵扣分摊金额（元）")
 	private BigDecimal pointsPrice;
 

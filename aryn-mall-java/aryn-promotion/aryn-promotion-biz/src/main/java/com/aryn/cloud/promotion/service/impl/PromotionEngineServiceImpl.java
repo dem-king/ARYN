@@ -84,7 +84,7 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 						.in(PromotionActivity::getActivityType,
 								List.of(PromotionActivity.TYPE_LADDER_PRICE, PromotionActivity.TYPE_SHIP_WHOLE_DISCOUNT,
 										PromotionActivity.TYPE_GIFT, PromotionActivity.TYPE_NEWBIE_PRICE,
-										PromotionActivity.TYPE_MEMBER_PRICE)));
+										PromotionActivity.TYPE_MEMBER_PRICE, PromotionActivity.TYPE_CLEARANCE)));
 		Map<String, PromotionActivity> activityById = activities.stream()
 			.collect(Collectors.toMap(PromotionActivity::getId, activity -> activity, (left, right) -> left));
 		Set<String> excluded = new HashSet<>();
@@ -123,6 +123,7 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 		List<PromotionActivity> wholeHits = new ArrayList<>();
 		List<PromotionActivity> giftHits = new ArrayList<>();
 		List<PromotionActivity> memberHits = new ArrayList<>();
+		List<PromotionActivity> clearanceHits = new ArrayList<>();
 		List<PromotionActivity> newbieHits = new ArrayList<>();
 		for (PromotionActivity activity : activities) {
 			if (!matchesScope(activity, context)) {
@@ -140,18 +141,22 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 			else if (PromotionActivity.TYPE_MEMBER_PRICE.equals(activity.getActivityType())) {
 				memberHits.add(activity);
 			}
+			else if (PromotionActivity.TYPE_CLEARANCE.equals(activity.getActivityType())) {
+				clearanceHits.add(activity);
+			}
 			else if (PromotionActivity.TYPE_NEWBIE_PRICE.equals(activity.getActivityType())) {
 				newbieHits.add(activity);
 			}
 		}
 
 		applyBestLadderPrice(context, ladderHits, result);
-		// 会员价是身份权益，优先于新人价与限时折扣：在阶梯价之后、新人价之前落价。
-		// 返回「已被会员价（含已由阶梯价定得更高的会员权益 SKU）锁定的 SKU」，
-		// 新人价合并时跳过，保证同 SKU 冲突时会员价优先（而非取更低价）。
-		Set<String> memberPricedSkuIds = applyBestMemberPrice(context, memberHits, result, memberLevelCache);
-		// 新人价必须先于整船优惠落定：整船门槛要排除已享新人价（及会员价）的 SKU
-		applyBestNewbiePrice(context, newbieHits, result, new HashMap<>(), memberPricedSkuIds);
+		// 会员价/出清价同为 stackPriority=2：在阶梯价之后、新人价之前统一落价，同 SKU 取低。
+		// 返回「已被身份价（含已由阶梯价定得更高的会员权益 SKU）锁定的 SKU」，
+		// 新人价合并时跳过，保证同 SKU 冲突时身份价优先（而非取更低价）。
+		Set<String> identityPricedSkuIds = applyBestIdentityPrice(context, memberHits, clearanceHits, result,
+				memberLevelCache);
+		// 新人价必须先于整船优惠落定：整船门槛要排除已享新人价（及会员价/出清价）的 SKU
+		applyBestNewbiePrice(context, newbieHits, result, new HashMap<>(), identityPricedSkuIds);
 		applyBestWholeDiscount(context, wholeHits, result);
 		applyBestGift(context, giftHits, result);
 		return result;
@@ -546,29 +551,46 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 	}
 
 	/**
-	 * 会员价：身份权益，在阶梯价之后、新人价之前落价。
+	 * 身份价（会员价 + 出清价）：在阶梯价之后、新人价之前统一落价。
 	 *
-	 * <p>资格判定：登录用户经 user 域 Dubbo 查当前等级 {sortOrder} 与活动门槛等级
+	 * <p>会员价：登录用户经 user 域 Dubbo 查当前等级 {sortOrder} 与活动门槛等级
 	 * {minLevelId → sortOrder}，用户等级 ≥ 门槛等级才可享；未登录/无等级/任一侧查询异常
 	 * 一律按无资格处理（fail-closed），不阻断结算。等级快照按本次 preview 内缓存，
 	 * 避免同请求多活动重复查库（不做跨请求缓存：等级随消费/积分变化，缓存会延迟权益生效）。
 	 *
-	 * <p>同类型多活动并存时取「相对当前基价节省额最大」的活动（与阶梯价/新人价同款口径）。
-	 * 同 SKU 已有阶梯价覆盖时取更低价（阶梯价更低则保留阶梯价，避免重复让利与同 SKU 多条覆盖）；
-	 * 会员价不低于当前基价（倒挂）时不产生覆盖，回退原价。
+	 * <p>出清价：免登录，按 SKU 配置价生效；计算时二次校验 expireTime，已到期不参与
+	 * （即使兜底 Job 尚未把该 SKU 从系统活动移除）。
+	 *
+	 * <p><b>多活动按 SKU 取优</b>：历史手工活动已下线，当前仅系统托管活动 SYS_MEMBER_ZONE；
+	 * 合并逻辑保留兜底，不能只挑“节省额最大”的一个活动，否则未被该活动覆盖的标签商品会丢会员价。
+	 * 同一 SKU 上历史手工活动（存量数据）优先于系统活动，同类活动之间取最低价；
+	 * 出清价与会员价之间取最低价。
+	 *
+	 * <p>同 SKU 已有阶梯价覆盖时取更低价（阶梯价更低则保留阶梯价，避免重复让利与
+	 * 同 SKU 多条覆盖）；身份价不低于当前基价（倒挂）时不产生覆盖。
 	 *
 	 * @param memberLevelCache 本次 preview 内 用户/等级 → 等级快照（含 null，fail-closed 缓存）
-	 * @return 已被会员价锁定的 SKU 集合：这些 SKU 的新人价必须跳过（会员价优先），
-	 *         包含「资格达标且会员价低于基价」的 SKU，即使最终保留的是更低的阶梯价
+	 * @return 已被身份价锁定的 SKU 集合：这些 SKU 的新人价必须跳过（身份价优先），
+	 *         包含「价格低于基价」的 SKU，即使最终保留的是更低的阶梯价
 	 */
-	private Set<String> applyBestMemberPrice(PromotionContextDTO context, List<PromotionActivity> activities,
-			PromotionCalculationVO result, Map<String, MemberLevelSnapshotVO> memberLevelCache) {
-		if (activities.isEmpty() || !StringUtils.hasText(context.getUserId())) {
+	private Set<String> applyBestIdentityPrice(PromotionContextDTO context, List<PromotionActivity> memberActivities,
+			List<PromotionActivity> clearanceActivities, PromotionCalculationVO result,
+			Map<String, MemberLevelSnapshotVO> memberLevelCache) {
+		List<PriceOffer> memberOffers = memberOffers(context, memberActivities, memberLevelCache);
+		List<PriceOffer> clearanceOffers = clearanceOffers(context, clearanceActivities);
+		if (memberOffers.isEmpty() && clearanceOffers.isEmpty()) {
 			return Set.of();
 		}
-		PromotionActivity best = null;
-		JSONObject bestRules = null;
-		BigDecimal bestSaving = BigDecimal.ZERO;
+		return mergeIdentityOverrides(context, memberOffers, clearanceOffers, result);
+	}
+
+	/** 所有命中的会员价活动（手工 + 系统），逐 SKU 由合并阶段取优。 */
+	private List<PriceOffer> memberOffers(PromotionContextDTO context, List<PromotionActivity> activities,
+			Map<String, MemberLevelSnapshotVO> memberLevelCache) {
+		if (activities.isEmpty() || !StringUtils.hasText(context.getUserId())) {
+			return List.of();
+		}
+		List<PriceOffer> offers = new ArrayList<>();
 		for (PromotionActivity activity : activities) {
 			try {
 				JSONObject rules = JSONUtil.parseObj(activity.getRules());
@@ -583,110 +605,220 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 				if (!eligibleAsMember(context, minLevelId, memberLevelCache)) {
 					continue;
 				}
-				BigDecimal saving = memberSaving(context, skus);
-				if (best == null || saving.compareTo(bestSaving) > 0) {
-					bestSaving = saving;
-					best = activity;
-					bestRules = rules;
-				}
+				offers.add(new PriceOffer(activity, rules, parsePriceBySku(skus, "unitPrice")));
 			}
 			catch (Exception ex) {
 				log.warn("会员价活动[{}]规则解析失败，跳过: {}", activity.getId(), ex.getMessage());
 			}
 		}
-		if (best == null) {
-			return Set.of();
-		}
-		return mergeMemberOverrides(context, best, bestRules, result);
+		return offers;
 	}
 
-	/** 会员价活动命中 SKU 相对当前基价的总节省额（仅统计真正降价的 SKU）。 */
-	private BigDecimal memberSaving(PromotionContextDTO context, JSONArray skus) {
-		BigDecimal saving = BigDecimal.ZERO;
+	private boolean isSystemActivity(PromotionActivity activity) {
+		return activity != null && StringUtils.hasText(activity.getActivityCode())
+				&& activity.getActivityCode().startsWith("SYS_");
+	}
+
+	/** 所有命中的出清价活动（通常只有系统托管一条，保留多活动取优能力）。 */
+	private List<PriceOffer> clearanceOffers(PromotionContextDTO context,
+			List<PromotionActivity> activities) {
+		if (activities.isEmpty()) {
+			return List.of();
+		}
+		LocalDateTime now = context.getActivityTime() != null ? context.getActivityTime() : LocalDateTime.now();
+		List<PriceOffer> offers = new ArrayList<>();
+		for (PromotionActivity activity : activities) {
+			try {
+				JSONObject rules = JSONUtil.parseObj(activity.getRules());
+				JSONArray skus = rules.getJSONArray("skus");
+				if (skus == null || skus.isEmpty()) {
+					continue;
+				}
+				Map<String, BigDecimal> priceBySku = parseClearancePriceBySku(skus, now);
+				if (!priceBySku.isEmpty()) {
+					offers.add(new PriceOffer(activity, rules, priceBySku));
+				}
+			}
+			catch (Exception ex) {
+				log.warn("出清价活动[{}]规则解析失败，跳过: {}", activity.getId(), ex.getMessage());
+			}
+		}
+		return offers;
+	}
+
+	/** rules.skus 的 SKU → 价格映射（保持配置顺序）；价格非正数的条目忽略。 */
+	private Map<String, BigDecimal> parsePriceBySku(JSONArray skus, String priceKey) {
+		Map<String, BigDecimal> priceBySku = new java.util.LinkedHashMap<>();
 		for (Object element : skus) {
 			JSONObject sku = (JSONObject) element;
 			String skuId = sku.getStr("skuId");
-			BigDecimal price = sku.getBigDecimal("unitPrice");
-			if (!StringUtils.hasText(skuId) || price == null || price.signum() <= 0) {
-				continue;
-			}
-			for (PromotionContextDTO.SkuItem item : context.getSkuItems()) {
-				if (skuId.equals(item.getSkuId()) && price.compareTo(item.getSalesPrice()) < 0) {
-					saving = saving.add(item.getSalesPrice().subtract(price)
-							.multiply(BigDecimal.valueOf(item.getQuantity())));
-				}
+			BigDecimal price = sku.getBigDecimal(priceKey);
+			if (StringUtils.hasText(skuId) && price != null && price.signum() > 0) {
+				priceBySku.put(skuId, price);
 			}
 		}
-		return saving;
+		return priceBySku;
+	}
+
+	/** 出清价映射：只保留未到期且价格为正的 SKU，到期商品绝不落价。 */
+	private Map<String, BigDecimal> parseClearancePriceBySku(JSONArray skus, LocalDateTime now) {
+		Map<String, BigDecimal> priceBySku = new java.util.LinkedHashMap<>();
+		for (Object element : skus) {
+			JSONObject sku = (JSONObject) element;
+			String skuId = sku.getStr("skuId");
+			BigDecimal price = sku.getBigDecimal("price");
+			if (StringUtils.hasText(skuId) && price != null && price.signum() > 0 && !isClearanceExpired(sku, now)) {
+				priceBySku.put(skuId, price);
+			}
+		}
+		return priceBySku;
+	}
+
+	private boolean isClearanceExpired(JSONObject sku, LocalDateTime now) {
+		String expireTime = sku.getStr("expireTime");
+		if (!StringUtils.hasText(expireTime)) {
+			return false;
+		}
+		try {
+			return !LocalDateTime.parse(expireTime).isAfter(now);
+		}
+		catch (Exception ex) {
+			log.warn("出清价 expireTime 解析失败，按已到期处理: {}", expireTime);
+			return true;
+		}
 	}
 
 	/**
-	 * 会员价覆盖合并：同 SKU 与阶梯价比较取更低价（阶梯价更低时保留阶梯价），
+	 * 身份价覆盖合并：逐 SKU 在全部会员活动与出清活动中取最低价，再与阶梯价比较取更低价，
 	 * 逐 SKU 生成一条覆盖，避免改价链（applyPromotionLadder 按 skuId findFirst）出现随机覆盖。
 	 *
-	 * <p>会员价低于基价即按会员价落价并计入总让利；阶梯价更低时保留阶梯价（用户更优），
-	 * 但该 SKU 仍计入 {@code coveredSkuIds} 供新人价跳过。只有资格达标且会员价低于基价的
-	 * SKU 才会被锁定，倒挂回退（会员价 ≥ 基价）的 SKU 不锁定，新人价仍可对其生效。
+	 * <p>价格低于基价即落价并计入总让利；阶梯价更低时保留阶梯价（用户更优），
+	 * 但该 SKU 仍计入 {@code lockedSkuIds} 供新人价跳过。倒挂（价格 ≥ 基价）的 SKU
+	 * 不锁定，新人价仍可对其生效。每个参与的活动各自产出明细，同 SKU 的让利只归胜出方，
+	 * 不会重复计算。
 	 *
-	 * @return 已被会员价锁定的 SKU（含保留阶梯价更低价的情形，用于新人价跳过）
+	 * @return 已被身份价锁定的 SKU（含保留阶梯价更低价的情形，用于新人价跳过）
 	 */
-	private Set<String> mergeMemberOverrides(PromotionContextDTO context, PromotionActivity activity, JSONObject rules,
-			PromotionCalculationVO result) {
-		JSONArray skus = rules.getJSONArray("skus");
-		Set<String> coveredSkuIds = new HashSet<>();
-		BigDecimal saving = BigDecimal.ZERO;
-		for (Object element : skus) {
-			JSONObject sku = (JSONObject) element;
-			String skuId = sku.getStr("skuId");
-			BigDecimal price = sku.getBigDecimal("unitPrice");
-			if (!StringUtils.hasText(skuId) || price == null || price.signum() <= 0) {
+	private Set<String> mergeIdentityOverrides(PromotionContextDTO context, List<PriceOffer> memberOffers,
+			List<PriceOffer> clearanceOffers, PromotionCalculationVO result) {
+		Set<String> lockedSkuIds = new HashSet<>();
+		Map<String, BigDecimal> savingByActivity = new java.util.LinkedHashMap<>();
+		Map<String, PromotionActivity> participating = new java.util.LinkedHashMap<>();
+		for (PromotionContextDTO.SkuItem item : context.getSkuItems()) {
+			IdentityCandidate winner = chooseIdentityPrice(memberOffers, clearanceOffers, item);
+			if (winner == null) {
 				continue;
 			}
-			for (PromotionContextDTO.SkuItem item : context.getSkuItems()) {
-				if (!skuId.equals(item.getSkuId())) {
-					continue;
-				}
-				// 倒挂回退：会员价不低于当前基价不产生覆盖（与新人价同款先例）
-				if (price.compareTo(item.getSalesPrice()) >= 0) {
-					continue;
-				}
-				// 同 SKU 已有阶梯价覆盖：取更低价（阶梯价更低则保留阶梯价，用户更优）
-				PromotionCalculationVO.UnitPriceOverride existing = findOverride(result, skuId);
-				if (existing != null && existing.getUnitPrice().compareTo(price) <= 0) {
-					// 该 SKU 已被列为会员权益锁定：新人价不得再覆盖（会员价优先语义）
-					coveredSkuIds.add(skuId);
-					continue;
-				}
-				if (existing != null) {
-					result.getLadderOverrides().remove(existing);
-				}
-				PromotionCalculationVO.UnitPriceOverride override = new PromotionCalculationVO.UnitPriceOverride();
-				override.setSkuId(skuId);
-				override.setUnitPrice(price);
-				override.setOriginalPrice(item.getSalesPrice());
-				override.setActivityId(activity.getId());
-				override.setActivityType(activity.getActivityType());
-				fillStackPolicy(override, activity);
-				result.getLadderOverrides().add(override);
-				coveredSkuIds.add(skuId);
-				saving = saving.add(item.getSalesPrice().subtract(price)
-						.multiply(BigDecimal.valueOf(item.getQuantity())));
+			lockedSkuIds.add(item.getSkuId());
+			participating.putIfAbsent(winner.activity().getId(), winner.activity());
+			PromotionCalculationVO.UnitPriceOverride existing = findOverride(result, item.getSkuId());
+			if (existing != null && existing.getUnitPrice().compareTo(winner.price()) <= 0) {
+				// 阶梯价更低：保留阶梯价（用户更优），该 SKU 仍被身份价锁定
+				continue;
 			}
+			if (existing != null) {
+				result.getLadderOverrides().remove(existing);
+			}
+			PromotionCalculationVO.UnitPriceOverride override = new PromotionCalculationVO.UnitPriceOverride();
+			override.setSkuId(item.getSkuId());
+			override.setUnitPrice(winner.price());
+			override.setOriginalPrice(item.getSalesPrice());
+			override.setActivityId(winner.activity().getId());
+			override.setActivityType(winner.activity().getActivityType());
+			fillStackPolicy(override, winner.activity());
+			result.getLadderOverrides().add(override);
+			savingByActivity.merge(winner.activity().getId(),
+				item.getSalesPrice().subtract(winner.price())
+					.multiply(BigDecimal.valueOf(item.getQuantity())),
+				BigDecimal::add);
 		}
-		if (coveredSkuIds.isEmpty()) {
+		if (lockedSkuIds.isEmpty()) {
 			return Set.of();
 		}
-		PromotionCalculationVO.ActivityDetail detail = new PromotionCalculationVO.ActivityDetail();
-		detail.setActivityId(activity.getId());
-		detail.setActivityType(activity.getActivityType());
-		detail.setActivityName(activity.getActivityName());
-		detail.setDiscountAmount(saving);
-		detail.setRuleSnapshot(JSONUtil.toJsonStr(rules));
-		result.getDetails().add(detail);
-		if (saving.compareTo(BigDecimal.ZERO) > 0) {
-			result.setTotalDiscount(result.getTotalDiscount().add(saving));
+		appendIdentityDetails(memberOffers, participating, savingByActivity, result);
+		appendIdentityDetails(clearanceOffers, participating, savingByActivity, result);
+		return lockedSkuIds;
+	}
+
+	/** 身份价同 SKU 取低：同价时优先会员价（身份权益稳定归属）。 */
+	private IdentityCandidate chooseIdentityPrice(List<PriceOffer> memberOffers, List<PriceOffer> clearanceOffers,
+			PromotionContextDTO.SkuItem item) {
+		IdentityCandidate member = bestMemberCandidate(memberOffers, item);
+		IdentityCandidate clearance = bestOfferCandidate(clearanceOffers, item);
+		if (member == null) {
+			return clearance;
 		}
-		return coveredSkuIds;
+		if (clearance == null) {
+			return member;
+		}
+		return clearance.price().compareTo(member.price()) < 0 ? clearance : member;
+	}
+
+	/**
+	 * 会员价候选：历史手工活动已下线，当前仅系统托管活动 SYS_MEMBER_ZONE；
+	 * 同一 SKU 上历史手工活动（存量数据）优先于系统托管活动，同类活动之间取最低价。
+	 */
+	private IdentityCandidate bestMemberCandidate(List<PriceOffer> offers, PromotionContextDTO.SkuItem item) {
+		IdentityCandidate manual = null;
+		IdentityCandidate system = null;
+		for (PriceOffer offer : offers) {
+			IdentityCandidate candidate = candidate(offer, item);
+			if (candidate == null) {
+				continue;
+			}
+			if (isSystemActivity(offer.activity())) {
+				if (system == null || candidate.price().compareTo(system.price()) < 0) {
+					system = candidate;
+				}
+			}
+			else if (manual == null || candidate.price().compareTo(manual.price()) < 0) {
+				manual = candidate;
+			}
+		}
+		return manual != null ? manual : system;
+	}
+
+	/** 出清价候选：多活动时取最低价。 */
+	private IdentityCandidate bestOfferCandidate(List<PriceOffer> offers, PromotionContextDTO.SkuItem item) {
+		IdentityCandidate best = null;
+		for (PriceOffer offer : offers) {
+			IdentityCandidate candidate = candidate(offer, item);
+			if (candidate != null && (best == null || candidate.price().compareTo(best.price()) < 0)) {
+				best = candidate;
+			}
+		}
+		return best;
+	}
+
+	private IdentityCandidate candidate(PriceOffer offer, PromotionContextDTO.SkuItem item) {
+		if (offer == null) {
+			return null;
+		}
+		BigDecimal price = offer.priceBySku().get(item.getSkuId());
+		if (price == null || price.signum() <= 0 || price.compareTo(item.getSalesPrice()) >= 0) {
+			return null;
+		}
+		return new IdentityCandidate(offer.activity(), price);
+	}
+
+	private void appendIdentityDetails(List<PriceOffer> offers, Map<String, PromotionActivity> participating,
+			Map<String, BigDecimal> savingByActivity, PromotionCalculationVO result) {
+		for (PriceOffer offer : offers) {
+			if (!participating.containsKey(offer.activity().getId())) {
+				continue;
+			}
+			BigDecimal saving = savingByActivity.getOrDefault(offer.activity().getId(), BigDecimal.ZERO);
+			PromotionCalculationVO.ActivityDetail detail = new PromotionCalculationVO.ActivityDetail();
+			detail.setActivityId(offer.activity().getId());
+			detail.setActivityType(offer.activity().getActivityType());
+			detail.setActivityName(offer.activity().getActivityName());
+			detail.setDiscountAmount(saving);
+			detail.setRuleSnapshot(JSONUtil.toJsonStr(offer.rules()));
+			result.getDetails().add(detail);
+			if (saving.compareTo(BigDecimal.ZERO) > 0) {
+				result.setTotalDiscount(result.getTotalDiscount().add(saving));
+			}
+		}
 	}
 
 	private PromotionCalculationVO.UnitPriceOverride findOverride(PromotionCalculationVO result, String skuId) {
@@ -918,6 +1050,9 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 		else if (PromotionActivity.TYPE_MEMBER_PRICE.equals(activity.getActivityType())) {
 			type = com.aryn.cloud.promotion.api.enums.StackActivityTypeEnum.MEMBER_PRICE;
 		}
+		else if (PromotionActivity.TYPE_CLEARANCE.equals(activity.getActivityType())) {
+			type = com.aryn.cloud.promotion.api.enums.StackActivityTypeEnum.CLEARANCE;
+		}
 		boolean couponDefault = type == null || type.isDefaultCouponStackable();
 		boolean pointsDefault = type == null || type.isDefaultPointsStackable();
 		override.setCouponStackable(com.aryn.cloud.promotion.api.enums.StackActivityTypeEnum.resolve(
@@ -943,6 +1078,57 @@ public class PromotionEngineServiceImpl implements PromotionEngineService {
 				return false;
 			}
 		});
+	}
+
+	/** 身份价候选：胜出的活动与其固定单价。 */
+	private static final class IdentityCandidate {
+
+		private final PromotionActivity activity;
+
+		private final BigDecimal price;
+
+		private IdentityCandidate(PromotionActivity activity, BigDecimal price) {
+			this.activity = activity;
+			this.price = price;
+		}
+
+		private PromotionActivity activity() {
+			return activity;
+		}
+
+		private BigDecimal price() {
+			return price;
+		}
+
+	}
+
+	/** 单个身份价活动的规则与 SKU→价格映射。 */
+	private static final class PriceOffer {
+
+		private final PromotionActivity activity;
+
+		private final JSONObject rules;
+
+		private final Map<String, BigDecimal> priceBySku;
+
+		private PriceOffer(PromotionActivity activity, JSONObject rules, Map<String, BigDecimal> priceBySku) {
+			this.activity = activity;
+			this.rules = rules;
+			this.priceBySku = priceBySku;
+		}
+
+		private PromotionActivity activity() {
+			return activity;
+		}
+
+		private JSONObject rules() {
+			return rules;
+		}
+
+		private Map<String, BigDecimal> priceBySku() {
+			return priceBySku;
+		}
+
 	}
 
 }

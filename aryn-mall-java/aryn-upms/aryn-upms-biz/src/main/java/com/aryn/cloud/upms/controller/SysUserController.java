@@ -15,6 +15,7 @@ import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.log.annotation.SysLog;
 import com.aryn.cloud.order.api.remote.RemoteDeliveryAccountService;
 import com.aryn.cloud.upms.api.dto.SysUserDTO;
+import com.aryn.cloud.upms.api.dto.SysUserPhoneUpdateDTO;
 import com.aryn.cloud.upms.api.entity.SysRole;
 import com.aryn.cloud.upms.api.entity.SysUser;
 import com.aryn.cloud.upms.api.entity.SysUserRole;
@@ -29,7 +30,10 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.dubbo.config.annotation.DubboReference;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.regex.Pattern;
 
 /**
  * 员工账号管理
@@ -43,6 +47,9 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/user")
 @Tag(description = "user", name = "员工账号管理")
 public class SysUserController {
+
+	/** 手机号格式：11 位大陆手机号 */
+	private static final Pattern PHONE_PATTERN = Pattern.compile("^1[3-9]\\d{9}$");
 
 	private final ISysUserService sysUserService;
 
@@ -102,6 +109,74 @@ public class SysUserController {
 			return Result.fail("该账号未绑定手机号");
 		}
 		return Result.success(sysUser.getPhone());
+	}
+
+	/**
+	 * 修改员工手机号：手机号是管理端短信登录与配送员登录的凭据，按「重置密码」同敏感度管理，
+	 * 使用独立权限与操作日志，日志不记录号码本身。
+	 *
+	 * <p>旧号丢失是常见场景，管理员入口不要求员工短信验证码；脱敏值永不回写，
+	 * 服务端强制校验完整号码。更新成功后 best-effort 同步配送员资料联系电话。</p>
+	 */
+	@SysLog("修改员工手机号")
+	@Operation(summary = "修改员工手机号")
+	@SaCheckPermission("upms:sysuser:phone:edit")
+	@PutMapping("/{id}/phone")
+	public Result<Boolean> updatePhone(@PathVariable String id, @RequestBody SysUserPhoneUpdateDTO dto) {
+		if (dto == null) {
+			return Result.fail("请输入手机号");
+		}
+		String phone = StrUtil.trim(dto.getPhone());
+		if (StrUtil.isBlank(phone)) {
+			return Result.fail("请输入手机号");
+		}
+		if (!PHONE_PATTERN.matcher(phone).matches()) {
+			return Result.fail("手机号格式不正确");
+		}
+		// 租户拦截器把查询限定在当前查看的租户内：平台管理员切换租户后只能改该租户员工
+		SysUser target = sysUserService.getById(id);
+		if (ObjectUtil.isNull(target)) {
+			return Result.fail("用户不存在或已删除");
+		}
+		if (phone.equals(target.getPhone())) {
+			return Result.fail("新手机号与当前手机号相同");
+		}
+		// 唯一约束覆盖全部租户（del_flag='0'），查重必须与服务端唯一口径一致
+		SysUser query = new SysUser();
+		query.setPhone(phone);
+		if (sysUserService.getCount(query) > 0) {
+			return Result.fail("该手机号已被使用");
+		}
+		SysUser update = new SysUser();
+		update.setId(id);
+		update.setPhone(phone);
+		boolean updated;
+		try {
+			updated = sysUserService.updateById(update);
+		}
+		catch (DuplicateKeyException e) {
+			// 唯一键冲突消息会带出完整手机号，日志只记录目标账号
+			log.warn("修改员工手机号触发唯一键冲突：userId={}", id);
+			return Result.fail("该手机号已被使用");
+		}
+		if (!updated) {
+			return Result.fail("手机号修改失败");
+		}
+		syncDeliveryStaffPhone(id, phone);
+		return Result.success(true);
+	}
+
+	/**
+	 * 配送员资料联系电话 best-effort 同步：员工账号手机号已落库并即时生效，
+	 * 同步失败只告警，不回滚、不阻断接口返回。
+	 */
+	private void syncDeliveryStaffPhone(String userId, String phone) {
+		try {
+			remoteDeliveryAccountService.syncStaffPhone(userId, phone);
+		}
+		catch (Exception e) {
+			log.warn("修改员工手机号后同步配送员联系电话失败：userId={}，原因={}", userId, e.getMessage());
+		}
 	}
 
 	@SysLog("新增用户")

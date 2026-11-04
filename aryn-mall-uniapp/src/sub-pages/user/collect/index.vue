@@ -3,10 +3,12 @@ import { onLoad } from '@dcloudio/uni-app'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { deleteObj, getPage } from '@/api/product/collect'
-import { shouldShowOriginalPrice, splitPrice } from '@/components/diy/price-display'
+import { splitPrice } from '@/components/diy/price-display'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+import { useZonePrices } from '@/composables/useZonePrices'
 import { formatShortDateTime } from '@/utils/history-display'
 import { stockHintText } from '@/utils/stock-display'
+import { zonePriceBadgeText } from '@/utils/zone-price'
 
 const { handlePageScroll } = useFrostedNavbar()
 
@@ -40,8 +42,14 @@ interface CollectCardView {
   name: string
   available: boolean
   price: ReturnType<typeof splitPrice>
-  originalPrice: number | null
-  showOriginal: boolean
+  /** 划线基准（会员价/捡漏价命中时为卡片价，否则为「原价 > 售价」的普通划线） */
+  strikePrice: number | null
+  /** 身份价角标文案（会员价/捡漏价），空串不渲染 */
+  badgeText: string
+  /** 角标样式类型（member/clearance），无角标为空串 */
+  badgeKind: string
+  /** 未达标/未登录的「会员专享 ¥x」引导 */
+  guideText: string
   soldOut: boolean
   stockTag: string
   timeText: string
@@ -54,6 +62,8 @@ const globalLoading = useGlobalLoading()
 const userStore = useUserStore()
 const { show: showToast } = useGlobalToast()
 const pagingRef = ref()
+/** 列表专区价：收藏接口只回 SPU，会员价/捡漏价按本页 spuId 异步补拉（先渲染后补价） */
+const zone = useZonePrices()
 const removingId = ref('')
 
 onLoad(async () => {
@@ -70,7 +80,10 @@ async function queryList(pageNo: number, pageSize: number) {
       size: pageSize,
       desc: 'create_time',
     })
-    pagingRef.value?.complete(response.records)
+    const records: CollectItem[] = response?.records ?? []
+    pagingRef.value?.complete(records)
+    // 卡片先按普通售价渲染，本页商品的会员价/捡漏价异步补拉（失败静默、缓存 60s）
+    void zone.loadForSpuIds(records.map(record => record?.spuId))
   }
   finally {
     globalLoading.close()
@@ -83,16 +96,23 @@ const cards = computed<CollectCardView[]>(() =>
     const available = Boolean(spu?.name)
     const stock = Number(spu?.stock)
     const soldOut = available && Number.isFinite(stock) && stock <= 0
-    const originalPrice = Number(spu?.originalPrice)
     const savedTime = formatShortDateTime(item.createTime) || item.createTime || ''
+    const spuId = String(item.spuId || (spu as any)?.id || '')
+    // 专区价与列表卡同一口径：主价（会员价/捡漏价/售价）+ 划线 + 角标 + 未达标引导
+    const display = available
+      ? zone.cardPriceOf({ id: spuId, price: spu?.salesPrice, originalPrice: spu?.originalPrice })
+      : null
+    const mainPrice = display?.mainPrice ?? 0
     return {
       item,
       pic: spu?.spuUrls?.[0] || '',
       name: available ? String(spu?.name) : t('accountSettings.collect.unavailable'),
       available,
-      price: available ? splitPrice(spu?.salesPrice) : null,
-      originalPrice: Number.isFinite(originalPrice) ? originalPrice : null,
-      showOriginal: available && shouldShowOriginalPrice(spu?.salesPrice, spu?.originalPrice),
+      price: available && mainPrice > 0 ? splitPrice(mainPrice) : null,
+      strikePrice: display?.strikePrice ?? null,
+      badgeText: zonePriceBadgeText(display?.badgeKind ?? ''),
+      badgeKind: display?.badgeKind ?? '',
+      guideText: display?.guideText ?? '',
       soldOut,
       stockTag: available && !soldOut ? stockHintText(spu?.stock) : '',
       timeText: savedTime
@@ -191,12 +211,19 @@ function toGoodsList() {
         <view class="cl-card__body">
           <text class="cl-card__name" :class="{ 'cl-card__name--unavailable': !card.available }">{{ card.name }}</text>
           <view v-if="card.price" class="cl-card__price">
+            <text
+              v-if="card.badgeText"
+              class="cl-card__badge"
+              :class="`cl-card__badge--${card.badgeKind}`"
+            >{{ card.badgeText }}</text>
             <text class="cl-card__currency">¥</text>
             <text class="cl-card__amount">{{ card.price.integer }}</text>
             <text class="cl-card__decimal">.{{ card.price.decimal }}</text>
-            <text v-if="card.showOriginal" class="cl-card__original">¥{{ card.originalPrice }}</text>
+            <text v-if="card.strikePrice !== null" class="cl-card__original">¥{{ card.strikePrice }}</text>
             <text v-if="card.stockTag" class="cl-card__stock">{{ card.stockTag }}</text>
           </view>
+          <!-- 未达标/未登录：主价保持售价，只给会员引导（与列表卡同源文案） -->
+          <text v-if="card.guideText" class="cl-card__guide">{{ card.guideText }}</text>
           <view class="cl-card__foot">
             <view v-if="card.timeText" class="cl-card__time">
               <text class="i-carbon:time cl-card__time-icon" />
@@ -311,6 +338,34 @@ $cl-muted: var(--app-text-3);
   display: flex;
   align-items: baseline;
   margin-top: 10rpx;
+}
+
+/* 身份价角标：与列表卡同一套颜色语义（会员金 / 捡漏红） */
+.cl-card__badge {
+  flex: none;
+  margin-right: 8rpx;
+  padding: 2rpx 8rpx;
+  border-radius: 6rpx;
+  color: #fff;
+  font-size: 20rpx;
+  font-weight: 500;
+  line-height: 1.4;
+
+  &--member {
+    background: linear-gradient(135deg, #b8860b 0%, #e0a82e 100%);
+  }
+
+  &--clearance {
+    background: linear-gradient(135deg, #fa2c19 0%, #ff6b45 100%);
+  }
+}
+
+/* 未达标引导：价格行下方弱化展示 */
+.cl-card__guide {
+  margin-top: 4rpx;
+  color: #b45309;
+  font-size: 20rpx;
+  line-height: 1.4;
 }
 
 .cl-card__currency {

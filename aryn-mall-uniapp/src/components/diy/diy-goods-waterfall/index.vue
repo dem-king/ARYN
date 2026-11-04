@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import type { GoodsWaterfallProps } from '@/components/diy/retail-types'
+import type { ListZonePrice } from '@/utils/zone-price'
 
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 import {
   loadGoodsWaterfall,
   loadGoodsWaterfallPage,
@@ -13,7 +13,9 @@ import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
 import QuickCartButton from '@/components/quick-cart-button/index.vue'
 import { useDiyPagedLoadMore } from '@/composables/useDiyPagedLoadMore'
 import { useDiyStyle } from '@/composables/useDiyStyle'
+import { useZonePrices } from '@/composables/useZonePrices'
 import { stockHintText } from '@/utils/stock-display'
+import { zonePriceBadgeText } from '@/utils/zone-price'
 
 const props = defineProps({
   showData: {
@@ -38,11 +40,55 @@ const pageSize = computed(() => Math.max(1, Number(componentProps.value.count) |
 // 自动续页：页面滚动接近底部 / 加载完成后自愈补页，见 useDiyPagedLoadMore
 const { runQuery } = useDiyPagedLoadMore(pagingRef, '.diy-waterfall')
 
+/**
+ * 列表「专区价」批量补价句柄：会员价/出清价都不在商品列表接口里，
+ * 列表先渲染、价格后补，失败静默（见 utils/zone-price 与 composables/useZonePrices）。
+ */
+const zone = useZonePrices()
+
+/** 本轮本页商品补专区价：不 await，避免价格接口阻塞瀑布流渲染 */
+function loadZonePrices(items: any[]) {
+  const ids = items.map(item => String(item?.id || '').trim()).filter(Boolean)
+  if (!ids.length) return
+  void zone.loadForSpuIds(ids)
+}
+
+/**
+ * 卡片专区价：会员价/捡漏价命中时切换主价与划线，未命中回落普通价与未达标引导，
+ * 统一走共享口径 `utils/zone-price#resolveListZonePrice`（与会员专区/低价捡漏一致）。
+ */
+function cardDisplay(item: any): ListZonePrice {
+  return zone.cardPriceOf(item, componentProps.value.showOriginalPrice)
+}
+
+function cardMainPrice(item: any): number {
+  return cardDisplay(item).mainPrice
+}
+
+function cardStrikePrice(item: any): number | null {
+  return cardDisplay(item).strikePrice
+}
+
+function cardBadgeText(item: any): string {
+  return zonePriceBadgeText(cardDisplay(item).badgeKind)
+}
+
+function cardBadgeClass(item: any): string {
+  return cardDisplay(item).badgeKind === 'member'
+    ? 'waterfall-price-badge--member'
+    : 'waterfall-price-badge--clearance'
+}
+
+function cardGuideText(item: any): string {
+  return cardDisplay(item).guideText || ''
+}
+
 async function queryList(pageNo: number, pageSize: number) {
   await runQuery(async () => {
     if (isManual.value) {
       // 手选：一次性取全量，回传明确无下一页，z-paging 据此隐藏“点击加载更多”
       const items = await loadGoodsWaterfall(componentProps.value)
+      loadZonePrices(items)
       await pagingRef.value?.completeByNoMore(items, true)
       return
     }
@@ -55,6 +101,7 @@ async function queryList(pageNo: number, pageSize: number) {
     const { items, reachedLimit } = mergePagedItems(goodsList.value, list)
     const loadedCount = goodsList.value.length + items.length
     const nomore = reachedLimit || list.length === 0 || (total > 0 && loadedCount >= total)
+    loadZonePrices(items)
     await pagingRef.value?.completeByNoMore(items, nomore)
   })
 }
@@ -134,25 +181,42 @@ function cardTags(item: any): string[] {
             <view class="waterfall-meta">
               <view class="waterfall-meta-text">
                 <view class="waterfall-price-line">
-                  <text v-if="componentProps.showPrice !== false" class="waterfall-price">
-                    ¥{{ item.price }}
-                  </text>
-                  <!-- 划线原价：仅原价严格高于售价时显示（存量商品原价多为 0，会划出￥0） -->
                   <text
-                    v-if="componentProps.showOriginalPrice
-                      && shouldShowOriginalPrice(item.price, item.originalPrice)"
+                    v-if="componentProps.showPrice !== false"
+                    class="waterfall-price"
+                  >
+                    <!-- 角标：会员价 / 捡漏价；主价与划线均由共享专区价口径给出 -->
+                    <text
+                      v-if="cardBadgeText(item)"
+                      class="waterfall-price-badge"
+                      :class="cardBadgeClass(item)"
+                    >{{ cardBadgeText(item) }}</text>
+                    ¥{{ cardMainPrice(item).toFixed(2) }}
+                  </text>
+                  <!-- 划线价：会员价/捡漏价命中划当前售价，普通价仍是「原价 > 售价才划线」 -->
+                  <text
+                    v-if="cardStrikePrice(item) !== null"
                     class="waterfall-price-original"
                   >
-                    ¥{{ item.originalPrice }}
+                    ¥{{ Number(cardStrikePrice(item)).toFixed(2) }}
                   </text>
                 </view>
+                <!-- 未达标/未登录的会员价引导：只透出「会员专享 ¥X」，主价不动 -->
+                <text v-if="cardGuideText(item)" class="waterfall-member-guide">
+                  {{ cardGuideText(item) }}
+                </text>
                 <text v-if="stockHintText(item.stock)" class="waterfall-sales">
                   {{ stockHintText(item.stock) }}
                 </text>
               </view>
-              <!-- 快捷加购（单规格直加，多规格弹层） -->
+              <!-- 快捷加购（单规格直加，多规格弹层）；专区价透传给弹层保证「卡片价 = 弹层价」 -->
               <view class="waterfall-actions">
-                <quick-cart-button v-if="item.stock > 0" :spu-id="item.id" size="40rpx" />
+                <quick-cart-button
+                  v-if="item.stock > 0"
+                  :spu-id="item.id"
+                  size="40rpx"
+                  :zone-prices="zone.skuZonePricesOf(item.id)"
+                />
               </view>
             </view>
           </view>
@@ -266,6 +330,27 @@ function cardTags(item: any): string[] {
   font-weight: 600;
 }
 
+/* 专区价角标：会员价走浅金、捡漏价走主题红，小号标签不抢价格层级 */
+.waterfall-price-badge {
+  margin-right: 4rpx;
+  padding: 0 6rpx;
+  border-radius: 4rpx;
+  font-size: 18rpx;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.waterfall-price-badge--member {
+  border: 1rpx solid #ecd4a5;
+  background: #fffaf0;
+  color: #a06a1f;
+}
+
+.waterfall-price-badge--clearance {
+  background: var(--wot-color-theme-primary, #ff2237);
+  color: #fff;
+}
+
 /* 划线原价：灰字小一号，仅作价格锚点，不与售价抢视觉层级 */
 .waterfall-price-original {
   flex: none;
@@ -273,6 +358,13 @@ function cardTags(item: any): string[] {
   font-size: 22rpx;
   font-weight: normal;
   text-decoration: line-through;
+}
+
+/* 会员价引导：未达标/未登录时的一行小字，不改变主价与划线口径 */
+.waterfall-member-guide {
+  color: #a06a1f;
+  font-size: 20rpx;
+  line-height: 1.4;
 }
 
 .waterfall-sales {

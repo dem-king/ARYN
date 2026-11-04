@@ -28,11 +28,11 @@ defineProps<{
  *
  * 这三类页面的装修块都只是页面中的一段内容，画布若只画区块本身，
  * 运营看不到它在页面里的位置与**真实宽度**：分类页装修实际嵌在右栏商品流内
- * （左栏二级分类 rail 占 176rpx = 88px，右栏只剩 375 - 88 = 287px），
+ * （左栏二级分类 rail 占 192rpx = 96px，右栏只剩 375 - 96 = 279px），
  * 按画布满宽 375px 做的 banner 到实机整体变窄。
  *
  * 尺寸口径与 C 端一致：`1rpx = 0.5px`（屏宽 750rpx 对应画布 375px），
- * 各处取自 C 端真实样式（分类页 `.category-rail` 176rpx、
+ * 各处取自 C 端真实样式（分类页 `.category-rail` 192rpx、
  * `.sort-bar` 88rpx、`.icon-strip` 圆 96rpx 等）。
  * 骨架是**示意**：商品流、主图墙这类超长区域压缩展示，只保证位置、
  * 列宽与关键块高一致，不追求逐像素还原；但**常驻模块必须画全**——
@@ -361,10 +361,10 @@ const serviceEntries = [
   min-height: 420px;
 }
 
-/* 左栏 rail：176rpx = 88px，与 C 端 .category-rail 同宽 */
+/* 左栏 rail：192rpx = 96px，与 C 端 .category-rail 同宽 */
 .cat-rail {
   flex: none;
-  width: 88px;
+  width: 96px;
   padding: 0 4px 10px;
   background: linear-gradient(180deg, #f5f6f8 0%, #f1f2f4 100%);
   border-right: 0.5px solid #eef0f2;
@@ -409,7 +409,7 @@ const serviceEntries = [
   box-shadow: 0 3px 9px rgb(31 44 65 / 6%);
 }
 
-/* 右栏：375 - 88 = 287px，装修块的真实可用宽度 */
+/* 右栏：375 - 96 = 279px，装修块的真实可用宽度 */
 .cat-main {
   flex: 1;
   min-width: 0;

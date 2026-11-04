@@ -5,12 +5,16 @@ import { computed, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getById, saveOrUpdateAddress } from '@/api/user/address'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+import { getTopPage, isPageAlive } from '@/utils/navigation-lock'
 // @ts-expect-error: 省市区数据为纯 js 数据文件，无类型声明
 import regionData from '@/sub-pages/components/region-picker/region-picker.js'
 // @ts-expect-error: region-picker type declaration issue
 import RegionPicker from '@/sub-pages/components/region-picker/region-picker.vue'
 
 const { handlePageScroll } = useFrostedNavbar()
+const router = useRouter()
+/** setup 时的页面实例：保存请求在途时用户可能已返回，回来就不要再弹栈 */
+const pageAtSetup = getTopPage()
 
 definePage({
   name: 'address-form',
@@ -164,7 +168,11 @@ function submit() {
       saveOrUpdateAddress(state.form)
         .then(() => {
           globalLoading.close()
-          uni.navigateBack()
+          // 保存期间用户已自行返回/被顶替时不发路由（对已销毁页面路由会触发 routeDone 报错）
+          if (!isPageAlive(pageAtSetup)) {
+            return
+          }
+          router.back()
         })
         .catch(() => {
           globalLoading.close()

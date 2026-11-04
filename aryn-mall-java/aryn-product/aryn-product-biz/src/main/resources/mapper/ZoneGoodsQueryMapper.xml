@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  Copyright (c) 2025 天启雨数科技有限公司
+  All rights reserved.
+  注意：
+  本项目源代码由天启雨数科技有限公司原创开发，版权所有。
+-->
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aryn.cloud.product.mapper.ZoneGoodsQueryMapper">
+
+    <!--
+      专区商品筛选条件（分页 / 取 ID / 计数 三处共用，保证「全选筛选结果」与「列表筛选」口径一致）。
+      zoneType 口径：
+        member        会员专区（is_member_item = 1）
+        clearance     低价捡漏（is_clearance_item = 1）
+        none          未加入任何专区
+        not_member    未加入会员专区（0/NULL，添加商品候选）
+        not_clearance 未加入出清专区（0/NULL，添加商品候选）
+    -->
+    <sql id="zoneGoodsFilter">
+        <if test="query.name != null and query.name != ''">
+            AND LOWER(goods_spu.`name`) LIKE CONCAT('%', LOWER(#{query.name}), '%')
+        </if>
+        <if test="query.status != null and query.status != ''">
+            AND goods_spu.`status` = #{query.status}
+        </if>
+        <if test="query.categorySecondId != null and query.categorySecondId != ''">
+            AND goods_spu.`category_second_id` = #{query.categorySecondId}
+        </if>
+        <if test="query.brandId != null and query.brandId != ''">
+            AND goods_spu.`brand_id` = #{query.brandId}
+        </if>
+        <if test="query.zoneType != null and query.zoneType != ''">
+            <choose>
+                <when test="query.zoneType == 'member'">
+                    AND goods_spu.`is_member_item` = 1
+                </when>
+                <when test="query.zoneType == 'clearance'">
+                    AND goods_spu.`is_clearance_item` = 1
+                </when>
+                <when test="query.zoneType == 'none'">
+                    AND (goods_spu.`is_member_item` IS NULL OR goods_spu.`is_member_item` = 0)
+                    AND (goods_spu.`is_clearance_item` IS NULL OR goods_spu.`is_clearance_item` = 0)
+                </when>
+                <when test="query.zoneType == 'not_member'">
+                    AND (goods_spu.`is_member_item` IS NULL OR goods_spu.`is_member_item` = 0)
+                </when>
+                <when test="query.zoneType == 'not_clearance'">
+                    AND (goods_spu.`is_clearance_item` IS NULL OR goods_spu.`is_clearance_item` = 0)
+                </when>
+            </choose>
+        </if>
+    </sql>
+
+    <!--
+      专区商品管理分页：固定 ORDER BY id ASC（G16，翻页遍历稳定）。
+      返回实体由服务层转换为 ZoneGoodsRowVO 并计算 state/effectivePrice/skuOverrideCount。
+    -->
+    <select id="selectZonePage" resultType="com.aryn.cloud.product.api.entity.GoodsSpu">
+        SELECT
+        goods_spu.`id`,
+        goods_spu.`name`,
+        goods_spu.`sub_title`,
+        goods_spu.`spu_urls`,
+        goods_spu.`status`,
+        goods_spu.`stock`,
+        goods_spu.`sales_price`,
+        goods_spu.`original_price`,
+        goods_spu.`is_member_item`,
+        goods_spu.`member_discount_rate`,
+        goods_spu.`member_price_fixed`,
+        goods_spu.`member_price_floor`,
+        goods_spu.`is_clearance_item`,
+        goods_spu.`clearance_price`,
+        goods_spu.`clearance_discount_rate`,
+        goods_spu.`clearance_expire_time`,
+        goods_spu.`category_second_id`,
+        goods_spu.`brand_id`,
+        goods_category.`name` AS category_name,
+        goods_brand.`name` AS brand_name
+        FROM goods_spu AS goods_spu
+        LEFT JOIN goods_category AS goods_category ON goods_spu.`category_second_id` = goods_category.`id`
+        LEFT JOIN goods_brand AS goods_brand ON goods_spu.`brand_id` = goods_brand.`id`
+        WHERE goods_spu.`del_flag` = '0'
+        <include refid="zoneGoodsFilter"/>
+        ORDER BY goods_spu.`id` ASC
+    </select>
+
+    <!-- 按筛选条件取 ID：固定 id 升序 + 服务端 limit（上限由服务层收敛到 1000）。 -->
+    <select id="selectZoneIds" resultType="java.lang.String">
+        SELECT goods_spu.`id`
+        FROM goods_spu AS goods_spu
+        WHERE goods_spu.`del_flag` = '0'
+        <include refid="zoneGoodsFilter"/>
+        ORDER BY goods_spu.`id` ASC
+        LIMIT #{limit}
+    </select>
+
+    <!-- 与 selectZoneIds 同 where 口径的总数（用于 truncated 判断）。 -->
+    <select id="countZoneIds" resultType="long">
+        SELECT COUNT(*)
+        FROM goods_spu AS goods_spu
+        WHERE goods_spu.`del_flag` = '0'
+        <include refid="zoneGoodsFilter"/>
+    </select>
+
+    <!-- SKU 专区覆盖原值（null=继承 SPU）；租户条件由拦截器注入。 -->
+    <select id="selectSkuZoneRows" resultType="com.aryn.cloud.product.api.entity.GoodsSku">
+        SELECT
+        goods_sku.`id`,
+        goods_sku.`spu_id`,
+        goods_sku.`status`,
+        goods_sku.`sales_price`,
+        goods_sku.`original_price`,
+        goods_sku.`is_member_item`,
+        goods_sku.`member_discount_rate`,
+        goods_sku.`member_price_fixed`,
+        goods_sku.`member_price_floor`,
+        goods_sku.`is_clearance_item`,
+        goods_sku.`clearance_price`,
+        goods_sku.`clearance_discount_rate`,
+        goods_sku.`clearance_expire_time`
+        FROM goods_sku AS goods_sku
+        WHERE goods_sku.`del_flag` = '0'
+        AND goods_sku.`spu_id` IN
+        <foreach collection="spuIds" item="spuId" open="(" separator="," close=")">
+            #{spuId}
+        </foreach>
+    </select>
+
+</mapper>

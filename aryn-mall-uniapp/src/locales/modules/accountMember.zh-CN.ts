@@ -20,6 +20,9 @@ export default {
     dailyCheckIn: '每日签到',
     checkInDesc: '签到领积分，连签奖励更多',
     goCheckIn: '去签到',
+    checkedInToday: '已签到',
+    checkedInDesc: '今日已签到，连续签到 {days} 天',
+    checkedInDescPlain: '今日已签到，明天记得再来',
     quickAccess: '常用功能',
 
     assets: {

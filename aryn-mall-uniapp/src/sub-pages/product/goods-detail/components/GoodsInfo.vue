@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { AppSeckillGoodsVO } from '@/api/promotion'
+import type { ClearancePriceDisplay } from '@/utils/clearance-price'
 import type { DiscountPriceDisplay } from '@/utils/discount-price'
 import type { SpecRowView } from '@/utils/goods-purchase'
 import type { MemberPriceDisplay } from '@/utils/member-price'
@@ -29,6 +30,11 @@ interface Props {
    * 未达标/未登录时 showMemberPrice=false，主价保持原价、只渲染 guideText 引导。
    */
   memberDisplay: MemberPriceDisplay
+  /**
+   * 当前 SKU 的有效出清价：父级已按「出清价 vs 会员价取低」收敛，
+   * 命中时会员价展示为空，价格区只解释出清价。
+   */
+  clearanceDisplay: ClearancePriceDisplay
   /**
    * 当前 SKU 的新人价展示：父级已按「秒杀 > 会员价 > 新人价」的优先级算好，
    * 秒杀/会员价命中时传的是空展示，这里不用再重复判定优先级。
@@ -85,6 +91,8 @@ const mainPrice = computed(() => {
     return props.seckillInfo.seckillPrice
   if (props.memberDisplay.showMemberPrice)
     return props.memberDisplay.memberPrice
+  if (props.clearanceDisplay.showClearancePrice)
+    return props.clearanceDisplay.clearancePrice
   if (props.newbieDisplay.showNewbiePrice)
     return props.newbieDisplay.newbiePrice
   if (props.discountDisplay.showDiscountPrice)
@@ -106,6 +114,8 @@ const strikePrice = computed(() => {
     return props.goodsSpu?.salesPrice
   if (props.memberDisplay.showMemberPrice)
     return props.memberDisplay.originalPrice
+  if (props.clearanceDisplay.showClearancePrice)
+    return props.clearanceDisplay.originalPrice
   if (props.newbieDisplay.showNewbiePrice)
     return props.newbieDisplay.originalPrice
   // 限时折扣的基准价是 SKU 当前售价（会场卡片同样划这个价），
@@ -375,6 +385,9 @@ defineExpose({
             <!-- 会员价角标：白字底上用白色描边胶囊，与新人价角标同层级 -->
             <text v-if="memberDisplay.showMemberPrice" class="member-badge">
               {{ t('product.memberPrice') }}
+            </text>
+            <text v-if="clearanceDisplay.showClearancePrice" class="clearance-badge">
+              {{ t('product.clearancePrice') }}
             </text>
             <!-- 新人价角标：白字底上用白色描边胶囊，不引入额外色块压住渐变主色 -->
             <text v-if="newbieDisplay.showNewbiePrice" class="newbie-badge">
@@ -754,7 +767,8 @@ defineExpose({
 }
 
 // 会员价角标：与新人价/折扣角标同一套白描边语言（价格区为渐变主色底）
-.member-badge {
+.member-badge,
+.clearance-badge {
   margin-left: 12rpx;
   padding: 2rpx 12rpx;
   border: 1rpx solid rgb(255 255 255 / 70%);

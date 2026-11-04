@@ -112,10 +112,24 @@ watch(
   publishNativeTabBarSeed,
 )
 
+/**
+ * 切换进行中标记：连点两个 tab（或同一 tab 连点）会在同一 tick 里发出两次
+ * `uni.switchTab` —— 微信对重叠的 tab 切换会留下无主的 routeDone，开发者工具报
+ * `routeDone with a webviewId xxx is not found`。complete 里复位，失败也复位。
+ */
+let switching = false
+
 function selectTab(item: GlassTabItem) {
-  if (item.key === props.active)
+  if (switching || item.key === props.active)
     return
-  uni.switchTab({ url: item.path, fail: () => {} })
+  switching = true
+  uni.switchTab({
+    url: item.path,
+    fail: () => {},
+    complete: () => {
+      switching = false
+    },
+  })
 }
 </script>
 

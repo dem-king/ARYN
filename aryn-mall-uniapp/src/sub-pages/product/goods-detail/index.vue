@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { AppDiscountVO, AppMemberPriceVO, AppNewbiePriceVO, AppSeckillGoodsVO } from '@/api/promotion'
+import type { AppClearancePriceVO } from '@/utils/clearance-price'
 import type { PurchaseDecision } from '@/utils/goods-purchase'
 import type { NewbiePriceDisplay } from '@/utils/newbie-price'
 import { onLoad, onPageScroll, onShareAppMessage } from '@dcloudio/uni-app'
@@ -15,7 +16,7 @@ import {
 } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { addObj as addCollect, deleteObj as deleteCollect } from '@/api/product/collect'
-import { getById as getSpuById } from '@/api/product/spu'
+import { getById as getSpuById, getClearanceSkuPrices } from '@/api/product/spu'
 import { getGoodsDiscountPrices, getGoodsSeckillInfo, getMemberSkuPrices, getNewbieSkuPrices } from '@/api/promotion'
 import { getPage as getCouponPage } from '@/api/promotion/couponInfo'
 import { getDefault } from '@/api/user/address'
@@ -31,11 +32,17 @@ import {
 import { usePageDecoration } from '@/composables/usePageDecoration'
 import { useQuickCart } from '@/composables/useQuickCart'
 import { useRequireLogin } from '@/composables/useRequireLogin'
+import {
+  clearanceWinsOverMember,
+  emptyClearancePriceDisplay,
+  resolveClearancePriceDisplay,
+} from '@/utils/clearance-price'
 import { emptyDiscountDisplay, resolveDiscountPriceDisplay } from '@/utils/discount-price'
 import { resolvePurchaseDecision, resolveSpecRow } from '@/utils/goods-purchase'
 import { initGoodsSpecs } from '@/utils/goods-specs'
 import { emptyMemberPriceDisplay, resolveMemberPriceDisplay } from '@/utils/member-price'
 import { customerServiceRoute } from '@/utils/message'
+import { canGoBackFromCurrentPage } from '@/utils/navigation-lock'
 import { emptyNewbieDisplay, resolveNewbiePriceDisplay } from '@/utils/newbie-price'
 import GoodsCategoryEntry from './components/GoodsCategoryEntry.vue'
 import GoodsComment from './components/GoodsComment.vue'
@@ -74,6 +81,8 @@ interface State {
    * 达标展示价由 `resolveMemberPriceDisplay` 取优（会员价 vs 售价×折扣率，不叠加）。
    */
   memberPriceVO: AppMemberPriceVO | null
+  /** 本 SPU 各 SKU 的有效出清价；null 表示未打标/到期/接口失败 */
+  clearancePriceVO: AppClearancePriceVO | null
   /** 本 SPU 各 SKU 命中的最优限时折扣；null 表示无活动/接口失败 */
   discountPrices: AppDiscountVO[] | null
   /**
@@ -137,6 +146,7 @@ const state = reactive<State>({
   seckillInfo: null,
   newbiePriceVO: null,
   memberPriceVO: null,
+  clearancePriceVO: null,
   discountPrices: null,
   selectSkuId: '',
 })
@@ -292,6 +302,27 @@ async function loadMemberPrices() {
 }
 
 /**
+ * 加载本 SPU 各 SKU 的有效出清价（免登批量）。
+ *
+ * 与会员价并行、互不等待：失败只影响价格标注，商详主流程照常。
+ */
+async function loadClearancePrices() {
+  const skuIds = (state.goodsSpu?.goodsSkus || [])
+    .map((sku: any) => sku.id)
+    .filter(Boolean)
+  if (!skuIds.length) {
+    state.clearancePriceVO = null
+    return
+  }
+  try {
+    state.clearancePriceVO = await getClearanceSkuPrices(skuIds)
+  }
+  catch {
+    state.clearancePriceVO = null
+  }
+}
+
+/**
  * 当前聚焦的 SKU。
  *
  * 单规格（98% 在架商品）直接取唯一 SKU——否则用户进商详永远看不到新人价，
@@ -337,12 +368,30 @@ const currentSkuId = computed(() => {
  * 秒杀进行中时整块会员价展示关掉；未达标/未登录时主价保持原价，
  * 只给「会员专享 ¥x」引导，不做购买拦截。
  */
-const memberDisplay = computed(() => {
+const rawMemberDisplay = computed(() => {
   if (state.seckillInfo)
     return emptyMemberPriceDisplay()
   // 达标价在共享层取优：min(会员价, 当前售价 × vo.userDiscountRate)，取优不叠加；
   // 会员折扣率权益随 VO 透传，页面不再各算一遍（与结算同口径）
   return resolveMemberPriceDisplay(state.memberPriceVO, currentSkuId.value)
+})
+
+/**
+ * 有效出清价：与会员价取低（D2），同价归属会员价（与后端引擎一致）。
+ * 出清价胜出时会员价展示关闭，页面只解释一个成交价。
+ */
+const effectiveClearanceDisplay = computed(() => {
+  if (state.seckillInfo)
+    return emptyClearancePriceDisplay()
+  const clearance = resolveClearancePriceDisplay(state.clearancePriceVO, currentSkuId.value)
+  const memberPrice = rawMemberDisplay.value.showMemberPrice ? rawMemberDisplay.value.memberPrice : null
+  return clearanceWinsOverMember(clearance, memberPrice) ? clearance : emptyClearancePriceDisplay()
+})
+
+const memberDisplay = computed(() => {
+  if (effectiveClearanceDisplay.value.showClearancePrice)
+    return emptyMemberPriceDisplay()
+  return rawMemberDisplay.value
 })
 
 /**
@@ -381,6 +430,8 @@ const newbieDisplay = computed(() => {
     return emptyNewbieDisplay()
   if (memberDisplay.value.showMemberPrice)
     return emptyNewbieDisplay()
+  if (effectiveClearanceDisplay.value.showClearancePrice)
+    return emptyNewbieDisplay()
   const display = resolveNewbiePriceDisplay(state.newbiePriceVO, currentSkuId.value)
   return { ...display, ineligibleText: localizeNewbieIneligibleText(display) }
 })
@@ -399,6 +450,8 @@ const discountDisplay = computed(() => {
   if (newbieDisplay.value.showNewbiePrice)
     return emptyDiscountDisplay()
   if (memberDisplay.value.showMemberPrice)
+    return emptyDiscountDisplay()
+  if (effectiveClearanceDisplay.value.showClearancePrice)
     return emptyDiscountDisplay()
   return resolveDiscountPriceDisplay(state.discountPrices, currentSkuId.value)
 })
@@ -429,6 +482,9 @@ const quickAddPromotion = computed(() => {
   const member = memberDisplay.value
   if (member.showMemberPrice)
     return { skuId, unitPrice: member.memberPrice, maxQuantity: null, hint: memberHint }
+  const clearance = effectiveClearanceDisplay.value
+  if (clearance.showClearancePrice && clearance.clearancePrice !== null)
+    return { skuId, unitPrice: clearance.clearancePrice, maxQuantity: null, hint: t('product.clearancePrice') }
   const display = newbieDisplay.value
   if (display.showNewbiePrice)
     return { skuId, unitPrice: display.newbiePrice, maxQuantity: display.limitPerUser, hint: t('product.newbieLimit', { count: display.limitPerUser }) }
@@ -527,10 +583,11 @@ function readyHandel() {
   measureDetailSections()
 }
 function goBack() {
+  // 返回能力按点击时刻现算：onMounted 的快照在 redirectTo/replaceAll 改写页面栈后
+  // 会失真（首屏调 navigateBack 必然失败、开发者工具报 Page route 错误）。
+  state.isCanBack = canGoBackFromCurrentPage()
   if (state.isCanBack) {
-    uni.navigateBack({
-      delta: 1,
-    })
+    router.back()
   }
   else {
     toHome()
@@ -628,6 +685,7 @@ async function getSpu(id: string) {
       // 与秒杀并行、互不等待：四者都是增强展示，任一失败都不影响商详主流程
       loadNewbiePrices()
       loadMemberPrices()
+      loadClearancePrices()
       loadDiscountPrices()
       // 在注入「默认」占位规格前取原始规格口径：单规格商品的规格行要展示真实规格值
       purchaseDecision.value = resolvePurchaseDecision(response)
@@ -884,6 +942,7 @@ async function handleReceive(coupon: any) {
       :address="state.address"
       :seckill-info="state.seckillInfo"
       :member-display="memberDisplay"
+      :clearance-display="effectiveClearanceDisplay"
       :newbie-display="newbieDisplay"
       :discount-display="discountDisplay"
       @swiper="handleSwiper"

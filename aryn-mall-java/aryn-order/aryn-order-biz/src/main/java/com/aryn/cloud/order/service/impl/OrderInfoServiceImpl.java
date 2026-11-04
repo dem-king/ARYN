@@ -19,6 +19,7 @@ import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.core.util.SnowflakeIdUtils;
 import com.aryn.cloud.common.logistics.util.Kuaidi100Utils;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
+import com.aryn.cloud.promotion.api.vo.MallZoneSettingSnapshotVO;
 import com.aryn.cloud.promotion.api.vo.PromotionCalculationVO;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.common.security.util.SecurityUtils;
@@ -60,6 +61,7 @@ import com.aryn.cloud.product.api.remote.RemoteGoodsSpuService;
 import com.aryn.cloud.promotion.api.enums.CouponUserStatusEnum;
 import com.aryn.cloud.promotion.api.remote.RemoteCouponUserService;
 import com.aryn.cloud.promotion.api.remote.RemoteGroupBuyService;
+import com.aryn.cloud.promotion.api.remote.RemoteMallZoneSettingService;
 import com.aryn.cloud.promotion.api.remote.RemotePromotionEngine;
 import com.aryn.cloud.promotion.api.remote.RemoteSeckillService;
 import com.aryn.cloud.promotion.api.vo.GroupBuyOrderContextVO;
@@ -171,6 +173,10 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 
 	@DubboReference
 	private final RemotePromotionEngine promotionEngine;
+
+	/** 会员专区成本兜底倍率：下单取一次，传给会员权益落价。 */
+	@DubboReference
+	private RemoteMallZoneSettingService remoteMallZoneSettingService;
 
 	@DubboReference
 	private final com.aryn.cloud.upms.api.remote.RemoteMaterialService remoteMaterialService;
@@ -772,6 +778,8 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 				orderItemEntityList, promotionPricePlan);
 		// 会员价/新人价命中（含叠加策略）补入计划：两类活动价由引擎落价，预取阶段未知
 		orderPriceComputeService.mergeStackPolicyHits(promotionPricePlan, promoCalculation);
+		// 专区来源/活动前价快照：只认最终胜出的会员价/出清价，供让利报表统计
+		orderPriceComputeService.applyZoneSourceSnapshots(orderItemEntityList, promoCalculation);
 		// 新人价限购硬校验：命中新人价的 SKU 整单合计数量必须为 1，超量拒绝下单（会员价无限购）
 		orderPriceComputeService.assertNewbieQuantityLimit(promoCalculation, orderItemEntityList);
 		// 促销价（拼团 > 秒杀 > 会员价 > 新人价 > 限时折扣 > 原价）须在会员折扣与优惠券之前落到成交基价，
@@ -783,7 +791,7 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		orderPriceComputeService.computeOrderPrice(orderInfo, orderItemEntityList);
 		MemberBenefitsVO memberBenefits = remoteMallUserService.getMemberBenefits(createOrderDTO.getUserId());
 		orderPriceComputeService.orderMemberBenefitHandler(orderInfo, orderItemEntityList, memberBenefits,
-				promotionPricePlan);
+				promotionPricePlan, memberCostFloorMultiplier());
 		// 严格模式：不可叠活动商品仍带券下单直接拒绝（防绕过确认页）
 		orderPriceComputeService.orderCouponHandler(orderInfo, orderItemEntityList, promotionPricePlan, true);
 		// 整船/整单优惠分摊（券之后；活动价商品不参与）
@@ -943,6 +951,21 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 	 * <p>下单商品必须与活动 SKU 一致（活动为单 SKU 拼团），否则抛业务异常，
 	 * 避免用户拿 A 商品的开团资格以拼团价购买 B 商品。
 	 */
+	/**
+	 * 会员专区成本兜底倍率：查询失败/未配置返回 null，不阻断下单（按原逻辑不加兜底）。
+	 */
+	private BigDecimal memberCostFloorMultiplier() {
+		try {
+			MallZoneSettingSnapshotVO setting = remoteMallZoneSettingService
+				.getSetting(ArynTenantContextHolder.getTenantId(), "member");
+			return setting == null ? null : setting.getCostFloorMultiplier();
+		}
+		catch (Exception ex) {
+			log.warn("会员专区成本兜底倍率查询失败，按未配置处理: " + ex.getMessage());
+			return null;
+		}
+	}
+
 	private GroupBuyOrderContextVO resolveGroupBuyContext(String groupBuyRecordId, String userId,
 			List<OrderItemEntity> orderItemEntityList) {
 		if (!StringUtils.hasText(groupBuyRecordId)) {
@@ -1239,6 +1262,7 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 				orderItemEntityList, promotionPricePlan);
 		// 会员价/新人价命中（含叠加策略）补入计划：两类活动价由引擎落价，预取阶段未知
 		orderPriceComputeService.mergeStackPolicyHits(promotionPricePlan, promoCalculation);
+		orderPriceComputeService.applyZoneSourceSnapshots(orderItemEntityList, promoCalculation);
 		// 促销价（拼团 > 秒杀 > 会员价 > 新人价 > 限时折扣 > 原价）与下单口径一致，须在会员折扣与优惠券之前应用，
 		// 否则确认页展示金额与提交后的实际应付不一致；限购拦截只在提交订单时做，结算页不提前拦。
 		// 会员价/新人价已由引擎写成基价，enginePricedSkuIds 保证限时折扣不再覆盖
@@ -1248,7 +1272,7 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 		orderPriceComputeService.computeOrderPrice(orderInfo, orderItemEntityList);
 		MemberBenefitsVO memberBenefits = remoteMallUserService.getMemberBenefits(settlementOrderDTO.getUserId());
 		orderPriceComputeService.orderMemberBenefitHandler(orderInfo, orderItemEntityList, memberBenefits,
-				promotionPricePlan);
+				promotionPricePlan, memberCostFloorMultiplier());
 		// 非严格模式：不可叠活动商品的券不生效，返回原因供确认页置灰提示（提交时才硬拒绝）
 		orderPriceComputeService.orderCouponHandler(orderInfo, orderItemEntityList, promotionPricePlan, false);
 		// 整船/整单优惠分摊（券之后；活动价商品不参与）

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  createGoodsTabsDefaults,
   DEFAULT_BARGAIN_RATE,
-  GOODS_TAB_DATA_SOURCE_MODES,
   GOODS_TAB_SORTS,
   normalizeBargainRate,
   validateGoodsTabs,
@@ -19,6 +19,32 @@ function autoTab(patch: Record<string, unknown> = {}) {
     title: '低价捡漏',
   };
 }
+
+describe('多 Tab 商品流默认配置（专区口径）', () => {
+  it('新建组件的「低价捡漏 / 会员专区」默认使用专区选品', () => {
+    const tabs = createGoodsTabsDefaults().tabs;
+    expect(tabs.find((tab) => tab.id === 'recommend')?.dataSource.sort).toBe(
+      'sales',
+    );
+    expect(tabs.find((tab) => tab.id === 'bargain')?.dataSource.sort).toBe(
+      'clearance',
+    );
+    expect(tabs.find((tab) => tab.id === 'member')?.dataSource.sort).toBe(
+      'member_price',
+    );
+  });
+
+  it('accepts member_price / clearance in the sort whitelist', () => {
+    expect(GOODS_TAB_SORTS).toContain('member_price');
+    expect(GOODS_TAB_SORTS).toContain('clearance');
+    expect(
+      validateGoodsTabs(createProps([autoTab({ sort: 'member_price' })])),
+    ).toEqual([]);
+    expect(
+      validateGoodsTabs(createProps([autoTab({ sort: 'clearance' })])),
+    ).toEqual([]);
+  });
+});
 
 describe('f1 低价捡漏排序（goods-tabs）', () => {
   it('includes bargain in the sort whitelist', () => {
@@ -166,71 +192,5 @@ describe('f2 会员权益条（goods-tabs）', () => {
     const tab = { ...autoTab(), memberBanner: 'yes' };
     const errors = validateGoodsTabs(createProps([tab]));
     expect(errors[0]).toContain('会员权益条配置格式不正确');
-  });
-});
-
-describe('会员专区按会员价活动自动（activity 模式）', () => {
-  function activityTab(patch: Record<string, unknown> = {}) {
-    return {
-      dataSource: { mode: 'activity', ...patch },
-      id: 'member',
-      title: '会员专区',
-    };
-  }
-
-  it('includes activity in the supported data source modes', () => {
-    expect(GOODS_TAB_DATA_SOURCE_MODES).toContain('activity');
-  });
-
-  it('accepts the persisted activity data source shape', () => {
-    expect(
-      validateGoodsTabs(createProps([activityTab({ activityId: '' })])),
-    ).toEqual([]);
-  });
-
-  it('allows activityId to be omitted (auto picks the in-progress activity)', () => {
-    expect(validateGoodsTabs(createProps([activityTab()]))).toEqual([]);
-  });
-
-  it('accepts a specified activity id', () => {
-    expect(
-      validateGoodsTabs(
-        createProps([activityTab({ activityId: 'activity-1' })]),
-      ),
-    ).toEqual([]);
-  });
-
-  it('skips sort/targetIds/categoryId validation in activity mode', () => {
-    const tab = activityTab({
-      activityId: '',
-      categoryId: '',
-      sort: 'bargain',
-      targetIds: [],
-    });
-    expect(validateGoodsTabs(createProps([tab]))).toEqual([]);
-    // 活动模式下 sort 不生效，脏值也不该拦发布
-    expect(
-      validateGoodsTabs(createProps([activityTab({ sort: 'discount_rate' })])),
-    ).toEqual([]);
-  });
-
-  it('keeps rejecting a manual tab without goods', () => {
-    const manualTab = {
-      dataSource: { mode: 'manual', targetIds: [] },
-      id: 'manual',
-      title: '手选',
-    };
-    expect(validateGoodsTabs(createProps([manualTab]))).toEqual([
-      '「手选」手选商品不能为空',
-    ]);
-  });
-
-  it('still validates the member banner in activity mode', () => {
-    const tab = {
-      ...activityTab({ activityId: '' }),
-      memberBanner: { enabled: true, memberCopy: '会'.repeat(31) },
-    };
-    const errors = validateGoodsTabs(createProps([tab]));
-    expect(errors[0]).toContain('会员文案不能超过 30 字');
   });
 });

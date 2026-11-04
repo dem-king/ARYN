@@ -59,6 +59,19 @@ public interface CommonConstants {
 	String ROLE_ADMIN_CODE = "ROLE_ADMIN";
 
 	/**
+	 * 平台管理员角色编码：平台租户下的专属角色，持有全部菜单与权限。
+	 *
+	 * <p>平台管理员身份以 {@code sys_user.platform_admin = '1'} 为唯一判据，本角色只负责
+	 * 菜单与权限下发；租户管理员不得授予、修改或删除该角色。</p>
+	 */
+	String ROLE_PLATFORM_ADMIN_CODE = "ROLE_PLATFORM_ADMIN";
+
+	/**
+	 * 平台管理员角色名称
+	 */
+	String ROLE_PLATFORM_ADMIN_NAME = "平台管理员";
+
+	/**
 	 * 管理员角色名称
 	 */
 	String ROLE_ADMIN_NAME = "系统管理员";
@@ -75,17 +88,15 @@ public interface CommonConstants {
 	String TENANT_ID = "tenant-id";
 
 	/**
-	 * 平台租户ID
-	 */
-	String PLATFORM_TENANT_ID = "1881232176465358849";
-
-	/**
 	 * 平台专属应用标识：该应用下的菜单仅平台租户可用，禁止写入租户套餐或直接分配给租户
 	 */
 	String PLATFORM_APP_KEY = "sys_key";
 
 	/**
-	 * 租户类型：平台租户。不参与授权期管理，auth_end_time 为空表示长期有效
+	 * 租户类型：平台租户。不参与授权期管理，auth_end_time 为空表示长期有效。
+	 *
+	 * <p>平台身份的唯一判据是 {@code sys_tenant.tenant_type}，<b>不要再硬编码平台租户 ID</b>：
+	 * 登录侧、租户切换、平台配置守卫、菜单过滤都按该类型判定。</p>
 	 */
 	String TENANT_TYPE_PLATFORM = "1";
 

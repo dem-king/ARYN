@@ -4,6 +4,7 @@ import type { NavigationAppearance } from '@/components/diy/schema/navigation-st
 import type { NavigationScrollEffect } from '@/components/diy/schema/types'
 
 import { computed, inject, onMounted, ref, watch } from 'vue'
+import { onShow } from '@dcloudio/uni-app'
 
 import {
   FROSTED_SCROLL_EFFECT,
@@ -14,6 +15,7 @@ import {
 import { DIY_NAVBAR_SCROLL_KEY } from '@/composables/useDiyNavbarScroll'
 import { FROSTED_NAVBAR_KEY } from '@/composables/useFrostedNavbar'
 import { useMallThemeStore } from '@/store/mallThemeStore'
+import { canGoBackFromCurrentPage } from '@/utils/navigation-lock'
 import { toNativeNavigationBarHexColor } from '@/utils/navigation-bar-color'
 
 interface Props {
@@ -277,17 +279,22 @@ watch(
   { immediate: true },
 )
 
+/**
+ * 能否返回：每次点击现算，不再只用挂载时的快照。
+ *
+ * 旧实现在 onMounted 里 `getCurrentPages()` 拍一次；登录页 `replaceAll` 回跳、
+ * `redirectTo` 顶替当前页、分享卡片直达等都会让页面栈在挂载后变化。快照失真后
+ * 返回键会在首屏调 `navigateBack`（必然失败、开发者工具报 Page route 错误），
+ * 或在可返回时误退回首页。图标在挂载/每次 onShow 同步，点击时再实时判断一次。
+ */
+function syncBackIcon() {
+  isCanBack.value = canGoBackFromCurrentPage()
+}
+
+onShow(syncBackIcon)
+
 onMounted(() => {
-  const pages = getCurrentPages()
-  /**
-   * 判断是否能返回
-   */
-  if (pages.length <= 1 || pages[pages.length - 1].route === 'pages/login/index') {
-    isCanBack.value = false
-  }
-  else {
-    isCanBack.value = true
-  }
+  syncBackIcon()
 
   // #ifdef MP-WEIXIN
   const sys = uni.getWindowInfo()
@@ -297,7 +304,9 @@ onMounted(() => {
 })
 
 function handleLeftClick() {
-  if (isCanBack.value) {
+  if (canGoBackFromCurrentPage()) {
+    // 连点由 router 实例上的 navigation lock 兜底（返回键 600ms 内只执行一次），
+    // 避免第二次 navigateBack 把上一层页面也弹掉、留下无主的 routeDone。
     router.back()
   }
   else {

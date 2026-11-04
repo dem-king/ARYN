@@ -25,6 +25,10 @@ interface BasicUserInfo {
    */
   permissions?: string[];
   /**
+   * 是否平台管理员（用户级身份：sys_user.platform_admin=1 且所属租户为平台租户）
+   */
+  platformAdmin?: boolean;
+  /**
    * 用户昵称
    */
   realName: string;
@@ -36,6 +40,10 @@ interface BasicUserInfo {
    * 租户id
    */
   tenantId?: string;
+  /**
+   * 租户类型：1.平台租户；2.普通租户（后端按 sys_tenant.tenant_type 下发）
+   */
+  tenantType?: string;
   /**
    * 用户id
    */

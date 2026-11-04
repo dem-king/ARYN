@@ -1,4 +1,4 @@
-import type { AppMemberActivityGoodsVO, AppMemberPriceVO } from '@/api/promotion'
+import type { AppMemberPriceVO } from '@/api/promotion'
 import type {
   DiscountActivityItem,
   DiscountProps,
@@ -16,7 +16,6 @@ import { getById, getByIds, getPage as getGoodsPage } from '@/api/product/spu'
 import {
   getCurrentNewbieFloor,
   getDiscountActivities,
-  getMemberActivityGoods,
   getMemberSpuPrices,
   getSeckillSessions,
   getSessionGoods,
@@ -37,7 +36,10 @@ import {
   normalizeRetailShop,
   restoreConfiguredOrder,
 } from './retail-normalizers'
-import { memberPriceItemsBySpuId, resolveListMemberPrice } from '@/utils/member-price'
+import {
+  memberPriceItemsBySpuId,
+  resolveListMemberPrice,
+} from '@/utils/member-price'
 
 import { createGoodsSortParams, createRetailSortParams } from './retail-query'
 
@@ -54,7 +56,11 @@ export async function loadGoodsGroup(props: RetailBaseProps) {
   const response = await getGoodsPage({
     categorySecondId: props.dataSource.categoryId || undefined,
     current: 1,
-    ...createGoodsSortParams(props.dataSource.sort || 'sales', true, props.dataSource.bargainRate),
+    ...createGoodsSortParams(
+      props.dataSource.sort || 'sales',
+      true,
+      props.dataSource.bargainRate,
+    ),
     size: props.count,
   })
   return normalizeRetailGoods(response).slice(0, props.count)
@@ -72,7 +78,11 @@ export async function loadGoodsGroupPage(
   const response: any = await getGoodsPage({
     categorySecondId: props.dataSource.categoryId || undefined,
     current,
-    ...createGoodsSortParams(props.dataSource.sort || 'sales', true, props.dataSource.bargainRate),
+    ...createGoodsSortParams(
+      props.dataSource.sort || 'sales',
+      true,
+      props.dataSource.bargainRate,
+    ),
     size,
   })
   const list = normalizeRetailGoods(response)
@@ -89,10 +99,11 @@ export async function loadGoodsGroupPage(
 export const MEMBER_LIST_PRICE_SPU_LIMIT = 50
 
 /**
- * 给会员专区 Tab 的本页商品补会员价（仅 `memberBanner.enabled === true` 才执行）。
+ * 给会员专区 Tab 的本页商品补会员价（仅 `memberBanner.enabled === true` 时由本数据层预取）。
  *
- * 产品耦合（刻意）：横幅承诺「本区享会员价」，卡片就必须能有会员价，两者同开同关，
- * 不新增第三个开关；其它 Tab 一律不发请求、不加字段。
+ * 口径说明：会员价展示的总开关是「专区设置 → 会员专区开关」；会员权益条只控制
+ * Tab 顶部横幅与本数据层的预取，不控制其它 Tab 的会员价展示——其它 Tab 仍由
+ * `useZonePrices` 共享补价层按页补价（跨页面价格一致性，2026-11-03 需求）。
  *
  * - 只取本页去重后的 spuIds（≤ MEMBER_LIST_PRICE_SPU_LIMIT），一次批量；
  * - 失败静默：会员价是增强展示，接口异常时列表照常按卡片原价渲染，绝不抛错；
@@ -105,26 +116,21 @@ async function withListMemberPrices(
   tab: GoodsTabConfig,
   list: ReturnType<typeof normalizeRetailGoods>,
 ): Promise<ReturnType<typeof normalizeRetailGoods>> {
-  if (tab.memberBanner?.enabled !== true || list.length === 0)
-    return list
-  const spuIds = [...new Set(list.map(item => item.id).filter(Boolean))]
-    .slice(0, MEMBER_LIST_PRICE_SPU_LIMIT)
-  if (spuIds.length === 0)
-    return list
+  if (tab.memberBanner?.enabled !== true || list.length === 0) return list
+  const spuIds = [...new Set(list.map(item => item.id).filter(Boolean))].slice(0, MEMBER_LIST_PRICE_SPU_LIMIT)
+  if (spuIds.length === 0) return list
 
   let vo: AppMemberPriceVO | null = null
   try {
     vo = await getMemberSpuPrices(spuIds)
-  }
-  catch {
+  } catch {
     // 会员价属增强展示：接口失败按卡片原价渲染，不影响商品流首屏/翻页
     vo = null
   }
-  if (!vo)
-    return list
+  if (!vo) return list
 
   const itemsBySpu = memberPriceItemsBySpuId(vo)
-  return list.map((item) => {
+  return list.map(item => {
     const display = resolveListMemberPrice(
       itemsBySpu.get(item.id) || [],
       item.id,
@@ -141,9 +147,8 @@ async function withListMemberPrices(
  * 多 Tab 商品流取数：与商品分组保持同一套排序/归一化口径。
  *
  * manual 一次性取回并保持运营配置顺序，按展示上限截断；
- * activity 按会员价活动自动取货盘（顺序随活动，一次性取回）；
  * automatic 按 current/size 分页，滚动加载只影响当前 Tab。
- * 会员专区 Tab（memberBanner 开启）会在本页取到后补充列表会员价（三种模式同口径）。
+ * 会员专区 Tab（memberBanner 开启）会在本页取到后补充列表会员价（两种模式同口径）。
  */
 export async function loadGoodsTabPage(
   tab: GoodsTabConfig,
@@ -152,8 +157,7 @@ export async function loadGoodsTabPage(
 ) {
   if (tab.dataSource.mode === 'manual') {
     const ids = tab.dataSource.targetIds || []
-    if (ids.length === 0)
-      return { list: [], manual: true, total: 0 }
+    if (ids.length === 0) return { list: [], manual: true, total: 0 }
     const items = restoreConfiguredOrder(
       normalizeRetailGoods(await getByIds(ids)),
       ids,
@@ -165,40 +169,14 @@ export async function loadGoodsTabPage(
     }
   }
 
-  /**
-   * 「按会员价活动自动」数据源（会员专区）：
-   * 货盘与顺序完全由活动配置决定——活动里加减商品即自动同步，运营无需再手选；
-   * 与手选 Tab 一样一次性取全、不做滚动分页；活动失效/无货返回空态，
-   * 不展示过期货盘（也不报错）。
-   */
-  if (tab.dataSource.mode === 'activity') {
-    let activity: AppMemberActivityGoodsVO | null = null
-    try {
-      // activityId 为空 = 自动取当前进行中的会员价活动
-      activity = await getMemberActivityGoods(tab.dataSource.activityId || '')
-    }
-    catch {
-      // 活动货盘属增强数据源：接口失败按空态处理，不影响页面其它楼层
-      activity = null
-    }
-    const spuIds = (activity?.spuIds || [])
-      .map(id => String(id).trim())
-      .filter(Boolean)
-    if (spuIds.length === 0)
-      return { list: [], manual: true, total: 0 }
-    // 按活动配置顺序回排（商品接口不保证入参顺序），再按展示上限截断
-    const items = restoreConfiguredOrder(
-      normalizeRetailGoods(await getByIds(spuIds)),
-      spuIds,
-    ).slice(0, Math.max(1, size))
-    const list = await withListMemberPrices(tab, items)
-    return { list, manual: true, total: list.length }
-  }
-
   const response: any = await getGoodsPage({
     categorySecondId: tab.dataSource.categoryId || undefined,
     current,
-    ...createGoodsSortParams(tab.dataSource.sort || 'sales', true, tab.dataSource.bargainRate),
+    ...createGoodsSortParams(
+      tab.dataSource.sort || 'sales',
+      true,
+      tab.dataSource.bargainRate,
+    ),
     size,
   })
   const list = await withListMemberPrices(tab, normalizeRetailGoods(response))
@@ -212,7 +190,11 @@ export async function loadGoodsTabPage(
 export async function loadGoodsRanking(props: GoodsRankingProps) {
   const response = await getGoodsPage({
     current: 1,
-    ...createGoodsSortParams(props.dataSource.metric || 'sales', false, props.dataSource.bargainRate),
+    ...createGoodsSortParams(
+      props.dataSource.metric || 'sales',
+      false,
+      props.dataSource.bargainRate,
+    ),
     size: props.count,
   })
   return normalizeRetailGoods(response).slice(0, props.count)
@@ -221,9 +203,10 @@ export async function loadGoodsRanking(props: GoodsRankingProps) {
 export async function loadLimitedActivities(props: LimitedActivityProps) {
   async function withGoods(value: unknown) {
     const activities = normalizeRetailActivities(value)
-    const spuIds = [...new Set(activities.map(item => item.spuId).filter(Boolean))]
-    if (!spuIds.length)
-      return activities
+    const spuIds = [
+      ...new Set(activities.map(item => item.spuId).filter(Boolean)),
+    ]
+    if (!spuIds.length) return activities
     const goods = normalizeRetailGoods(await getByIds(spuIds))
     return mergeActivityGoods(activities, goods)
   }
@@ -231,10 +214,10 @@ export async function loadLimitedActivities(props: LimitedActivityProps) {
   if (props.dataSource.mode === 'manual') {
     const ids = props.dataSource.targetIds || []
     const responses = await Promise.all(ids.map(id => getActivityById(id)))
-    return restoreConfiguredOrder(
-      await withGoods(responses),
-      ids,
-    ).slice(0, props.count)
+    return restoreConfiguredOrder(await withGoods(responses), ids).slice(
+      0,
+      props.count,
+    )
   }
   const response = await getActivityPage({
     activityStatus: '1',
@@ -254,11 +237,12 @@ export async function loadLimitedActivities(props: LimitedActivityProps) {
  * · automatic：读全部进行中场次
  * · manual：按 targetIds 逐场次取数（`/sessions/{id}/goods` 只回单场且带商品）
  */
-export async function loadSeckillSessions(props: SeckillProps): Promise<SeckillSessionItem[]> {
+export async function loadSeckillSessions(
+  props: SeckillProps,
+): Promise<SeckillSessionItem[]> {
   if (props.dataSource.mode === 'manual') {
     const ids = props.dataSource.targetIds || []
-    if (ids.length === 0)
-      return []
+    if (ids.length === 0) return []
     const sessions = await Promise.all(ids.map(id => getSessionGoods(id)))
     return normalizeRetailSeckillSessions(sessions).slice(0, props.count)
   }
@@ -267,10 +251,8 @@ export async function loadSeckillSessions(props: SeckillProps): Promise<SeckillS
   // 注意不能直接按 status 升序：0=未开始会排在 1=进行中前面，
   // count=1 时楼层会取到未开始的场次，运营看到的是「即将开始」而不是正在抢。
   const rank = (status: number) => {
-    if (status === 1)
-      return 0
-    if (status === 0)
-      return 1
+    if (status === 1) return 0
+    if (status === 0) return 1
     return 2
   }
   const ranked = sessions
@@ -287,7 +269,9 @@ export async function loadSeckillSessions(props: SeckillProps): Promise<SeckillS
  *
  * 返回项的 `coverImage` 已补齐入口卡缩略图，渲染侧无需再判断活动形态。
  */
-export async function loadDiscounts(props: DiscountProps): Promise<DiscountActivityItem[]> {
+export async function loadDiscounts(
+  props: DiscountProps,
+): Promise<DiscountActivityItem[]> {
   const response = await getDiscountActivities({
     current: 1,
     size: Math.max(props.count, 10),
@@ -295,16 +279,21 @@ export async function loadDiscounts(props: DiscountProps): Promise<DiscountActiv
   const activities = normalizeRetailDiscounts(response)
   if (props.dataSource.mode === 'manual') {
     const ids = props.dataSource.targetIds || []
-    if (ids.length === 0)
-      return []
-    const picked = activities.filter(activity => ids.includes(activity.activityId))
+    if (ids.length === 0) return []
+    const picked = activities.filter(activity =>
+      ids.includes(activity.activityId),
+    )
     // 折扣活动的键是 activityId（非 id），不能直接用 restoreConfiguredOrder
     const order = new Map(ids.map((id, index) => [id, index]))
-    return withDiscountCoverImages([...picked]
-      .sort((left, right) =>
-        (order.get(left.activityId) ?? Number.MAX_SAFE_INTEGER)
-        - (order.get(right.activityId) ?? Number.MAX_SAFE_INTEGER))
-      .slice(0, props.count))
+    return withDiscountCoverImages(
+      [...picked]
+        .sort(
+          (left, right) =>
+            (order.get(left.activityId) ?? Number.MAX_SAFE_INTEGER) -
+            (order.get(right.activityId) ?? Number.MAX_SAFE_INTEGER),
+        )
+        .slice(0, props.count),
+    )
   }
   return withDiscountCoverImages(activities.slice(0, props.count))
 }
@@ -343,8 +332,12 @@ function loadSalesTopGoodsImage(): Promise<string> {
 async function withDiscountCoverImages(
   activities: DiscountActivityItem[],
 ): Promise<DiscountActivityItem[]> {
-  const needsRepresentative = activities.some(activity => !activity.goodsList[0]?.goodsImage)
-  const representative = needsRepresentative ? await loadSalesTopGoodsImage() : ''
+  const needsRepresentative = activities.some(
+    activity => !activity.goodsList[0]?.goodsImage,
+  )
+  const representative = needsRepresentative
+    ? await loadSalesTopGoodsImage()
+    : ''
   return activities.map(activity => ({
     ...activity,
     coverImage: activity.goodsList[0]?.goodsImage || representative,
@@ -368,7 +361,7 @@ export async function loadCurrentShop() {
 
 // ---------- 数据源协议：TTL 缓存与扩展组件加载器 ----------
 
-const dataSourceCache = new Map<string, { expiresAt: number, value: unknown }>()
+const dataSourceCache = new Map<string, { expiresAt: number; value: unknown }>()
 
 /** 按 key 缓存数据源结果；ttl<=0 时直读。加载失败由调用方的 fallback 策略兜底。 */
 export async function withDataSourceCache<T>(
@@ -377,12 +370,10 @@ export async function withDataSourceCache<T>(
   loader: () => Promise<T>,
 ): Promise<T> {
   const ttl = Number(ttlSeconds ?? 0)
-  if (ttl <= 0)
-    return loader()
+  if (ttl <= 0) return loader()
   const cached = dataSourceCache.get(key)
   const now = Date.now()
-  if (cached && cached.expiresAt > now)
-    return cached.value as T
+  if (cached && cached.expiresAt > now) return cached.value as T
   const value = await loader()
   dataSourceCache.set(key, { expiresAt: now + ttl * 1000, value })
   return value
@@ -399,20 +390,28 @@ function dataSourceKey(componentId: string, props: { dataSource?: unknown }) {
 export async function loadGoodsWaterfall(
   props: import('./retail-types').GoodsWaterfallProps,
 ) {
-  return withDataSourceCache(dataSourceKey('goods-waterfall', props), props.dataSource.cacheTtl ?? 0, async () => {
-    if (props.dataSource.mode === 'manual') {
-      const ids = props.dataSource.targetIds || []
-      const items = normalizeRetailGoods(await getByIds(ids))
-      return restoreConfiguredOrder(items, ids).slice(0, props.count)
-    }
-    const response = await getGoodsPage({
-      categorySecondId: props.dataSource.categoryId || undefined,
-      current: 1,
-      ...createGoodsSortParams(props.dataSource.sort || 'sales', true, props.dataSource.bargainRate),
-      size: props.count,
-    })
-    return normalizeRetailGoods(response).slice(0, props.count)
-  })
+  return withDataSourceCache(
+    dataSourceKey('goods-waterfall', props),
+    props.dataSource.cacheTtl ?? 0,
+    async () => {
+      if (props.dataSource.mode === 'manual') {
+        const ids = props.dataSource.targetIds || []
+        const items = normalizeRetailGoods(await getByIds(ids))
+        return restoreConfiguredOrder(items, ids).slice(0, props.count)
+      }
+      const response = await getGoodsPage({
+        categorySecondId: props.dataSource.categoryId || undefined,
+        current: 1,
+        ...createGoodsSortParams(
+          props.dataSource.sort || 'sales',
+          true,
+          props.dataSource.bargainRate,
+        ),
+        size: props.count,
+      })
+      return normalizeRetailGoods(response).slice(0, props.count)
+    },
+  )
 }
 
 /**
@@ -428,7 +427,11 @@ export async function loadGoodsWaterfallPage(
   const response: any = await getGoodsPage({
     categorySecondId: props.dataSource.categoryId || undefined,
     current,
-    ...createGoodsSortParams(props.dataSource.sort || 'sales', true, props.dataSource.bargainRate),
+    ...createGoodsSortParams(
+      props.dataSource.sort || 'sales',
+      true,
+      props.dataSource.bargainRate,
+    ),
     size,
   })
   const list = normalizeRetailGoods(response)
@@ -454,37 +457,42 @@ export async function loadGoodsRecommend(
   const count = Math.max(1, Number(props.count) || 6)
   const selfId = goodsId || ''
   const cacheKey = `goods-recommend:${selfId}:${JSON.stringify(props.dataSource ?? {})}`
-  return withDataSourceCache(cacheKey, props.dataSource.cacheTtl ?? 0, async () => {
-    if (props.dataSource.mode === 'manual') {
-      const ids = props.dataSource.targetIds || []
-      const items = normalizeRetailGoods(await getByIds(ids))
-      return restoreConfiguredOrder(items, ids).slice(0, count)
-    }
-    let categorySecondId = props.dataSource.categoryId || ''
-    if (!categorySecondId && selfId) {
-      try {
-        const spu: any = await getById(selfId)
-        categorySecondId = String(spu?.categorySecondId ?? '')
+  return withDataSourceCache(
+    cacheKey,
+    props.dataSource.cacheTtl ?? 0,
+    async () => {
+      if (props.dataSource.mode === 'manual') {
+        const ids = props.dataSource.targetIds || []
+        const items = normalizeRetailGoods(await getByIds(ids))
+        return restoreConfiguredOrder(items, ids).slice(0, count)
       }
-      catch {
-        // 分类解析失败不阻断渲染：回落全站销量榜
+      let categorySecondId = props.dataSource.categoryId || ''
+      if (!categorySecondId && selfId) {
+        try {
+          const spu: any = await getById(selfId)
+          categorySecondId = String(spu?.categorySecondId ?? '')
+        } catch {
+          // 分类解析失败不阻断渲染：回落全站销量榜
+        }
       }
-    }
-    // 多取一件用于排除当前商品后仍能凑满 count
-    const response = await getGoodsPage({
-      categorySecondId: categorySecondId || undefined,
-      current: 1,
-      ...createGoodsSortParams('sales', true),
-      size: count + (selfId ? 1 : 0),
-    })
-    const items = normalizeRetailGoods(response)
-      .filter(item => !selfId || item.id !== selfId)
-    const manualIds = (props.dataSource.targetIds || [])
-      .filter(id => id && id !== selfId && !items.some(item => item.id === id))
-    if (manualIds.length > 0 && items.length < count) {
-      const extra = normalizeRetailGoods(await getByIds(manualIds))
-      items.push(...restoreConfiguredOrder(extra, manualIds))
-    }
-    return items.slice(0, count)
-  })
+      // 多取一件用于排除当前商品后仍能凑满 count
+      const response = await getGoodsPage({
+        categorySecondId: categorySecondId || undefined,
+        current: 1,
+        ...createGoodsSortParams('sales', true),
+        size: count + (selfId ? 1 : 0),
+      })
+      const items = normalizeRetailGoods(response).filter(
+        item => !selfId || item.id !== selfId,
+      )
+      const manualIds = (props.dataSource.targetIds || []).filter(
+        id => id && id !== selfId && !items.some(item => item.id === id),
+      )
+      if (manualIds.length > 0 && items.length < count) {
+        const extra = normalizeRetailGoods(await getByIds(manualIds))
+        items.push(...restoreConfiguredOrder(extra, manualIds))
+      }
+      return items.slice(0, count)
+    },
+  )
 }

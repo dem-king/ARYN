@@ -1,9 +1,10 @@
 <script lang="ts" setup>
 import type { FormInstance } from 'element-plus';
 
-import { computed, defineAsyncComponent, reactive, ref } from 'vue';
+import { computed, defineAsyncComponent, nextTick, reactive, ref } from 'vue';
 
 import {
+  ElAlert,
   ElButton,
   ElCheckbox,
   ElCheckboxGroup,
@@ -22,7 +23,13 @@ import {
 
 import { getTreeList } from '#/api/upms/dept';
 import { getList as getRoleList } from '#/api/upms/sys-role';
-import { addObj, editObj, getById, getPhone } from '#/api/upms/user';
+import {
+  addObj,
+  editObj,
+  getById,
+  getPhone,
+  updateUserPhone,
+} from '#/api/upms/user';
 import { useDict } from '#/utils/dict';
 import { validatePassword } from '#/utils/password-policy';
 
@@ -189,6 +196,98 @@ const togglePhone = () => {
     });
 };
 
+/* ----------------------------- 修改员工手机号 ----------------------------- */
+
+/** 大陆 11 位手机号格式 */
+const PHONE_PATTERN = /^1[3-9]\d{9}$/;
+
+const phoneDialog = ref(false);
+const phoneSaving = ref(false);
+const phoneFormRef = ref<FormInstance>();
+const phoneForm = reactive({
+  confirmPhone: '',
+  phone: '',
+});
+
+/**
+ * 确认号码校验：非空且必须与新手机号一致
+ */
+function validateConfirmPhone(
+  _rule: any,
+  value: any,
+  callback: (error?: Error) => void,
+) {
+  if (!value) {
+    callback(new Error('请再次输入新手机号'));
+    return;
+  }
+  if (value !== phoneForm.phone) {
+    callback(new Error('两次输入的新手机号不一致'));
+    return;
+  }
+  callback();
+}
+
+const phoneRules: object = {
+  phone: [
+    { required: true, message: '请输入新手机号', trigger: 'blur' },
+    { pattern: PHONE_PATTERN, message: '请输入正确的手机号', trigger: 'blur' },
+  ],
+  confirmPhone: [{ validator: validateConfirmPhone, trigger: 'blur' }],
+};
+
+/**
+ * 重置子弹窗表单与校验状态
+ */
+function resetPhoneForm() {
+  phoneForm.phone = '';
+  phoneForm.confirmPhone = '';
+  phoneFormRef.value?.clearValidate();
+}
+
+function openPhoneDialog() {
+  resetPhoneForm();
+  phoneDialog.value = true;
+  void nextTick(() => phoneFormRef.value?.clearValidate());
+}
+
+function closePhoneDialog() {
+  phoneDialog.value = false;
+  resetPhoneForm();
+}
+
+/**
+ * 手机号由独立接口修改：成功后就地回填脱敏号并通知列表刷新，
+ * 不整体重载详情，避免覆盖管理员在本弹窗内尚未保存的其他字段修改。
+ * 失败提示由请求层统一展示，弹窗保持打开便于修正。
+ */
+async function submitPhone() {
+  const formEl = phoneFormRef.value;
+  if (!formEl || phoneSaving.value) {
+    return;
+  }
+  const valid = await formEl.validate().catch(() => false);
+  if (!valid) {
+    return;
+  }
+  const newPhone = phoneForm.phone.trim();
+  phoneSaving.value = true;
+  try {
+    await updateUserPhone(state.form.id, newPhone);
+    // 与后端 @Desensitization 口径一致：前 3 位 + **** + 后 4 位
+    state.form.phone = newPhone.replace(/^(1[3-9]\d)\d{4}(\d{4})$/, '$1****$2');
+    // 旧号的「查看」结果立即失效，按钮回到「查看」态
+    fullPhone.value = '';
+    closePhoneDialog();
+    emit('initPage');
+    ElMessage.success('手机号修改成功');
+  } catch {
+    // 错误提示由请求层统一展示，保留弹窗便于修正
+  } finally {
+    phoneSaving.value = false;
+  }
+}
+
 /**
  * 受保护角色ID集合（存在重复编码角色时全部纳入保护）
  */
@@ -254,6 +353,8 @@ const resetForm = (formEl: FormInstance | undefined) => {
   fullPhone.value = '';
   loading.value = false;
   dialog.value = false;
+  // 主弹窗关闭时一并收起手机号子弹窗，避免 append-to-body 的弹窗残留在页面上
+  closePhoneDialog();
   formEl.resetFields();
 };
 /**
@@ -298,7 +399,10 @@ const add = () => {
  * 修改
  */
 const edit = () => {
-  editObj(state.form)
+  // 手机号走独立修改接口，通用编辑不提交 phone（详情返回的也是脱敏号）
+  const payload: Record<string, any> = { ...state.form };
+  delete payload.phone;
+  editObj(payload)
     .then(() => {
       resetForm(formRef.value);
       ElMessage.success('修改成功');
@@ -353,24 +457,36 @@ defineExpose({
           </ElCol>
           <ElCol :span="12" class="mb20">
             <ElFormItem label="手机号码" prop="phone">
-              <ElInput
-                v-model="phoneDisplay"
-                maxlength="11"
-                :disabled="!!state.form.id"
-                show-word-limit
-              >
-                <template v-if="state.form.id" #append>
-                  <ElButton
-                    v-access:code="'upms:sysuser:phone'"
-                    :loading="loadingPhone"
-                    link
-                    type="primary"
-                    @click="togglePhone"
-                  >
-                    {{ fullPhone ? '隐藏' : '查看' }}
-                  </ElButton>
-                </template>
-              </ElInput>
+              <div class="phone-field">
+                <ElInput
+                  v-model="phoneDisplay"
+                  maxlength="11"
+                  :disabled="!!state.form.id"
+                  show-word-limit
+                >
+                  <template v-if="state.form.id" #append>
+                    <ElButton
+                      v-access:code="'upms:sysuser:phone'"
+                      :loading="loadingPhone"
+                      link
+                      type="primary"
+                      @click="togglePhone"
+                    >
+                      {{ fullPhone ? '隐藏' : '查看' }}
+                    </ElButton>
+                  </template>
+                </ElInput>
+                <ElButton
+                  v-if="state.form.id"
+                  v-access:code="'upms:sysuser:phone:edit'"
+                  class="phone-field__edit"
+                  link
+                  type="primary"
+                  @click="openPhoneDialog"
+                >
+                  修改
+                </ElButton>
+              </div>
             </ElFormItem>
           </ElCol>
         </ElRow>
@@ -461,6 +577,60 @@ defineExpose({
         </span>
       </template>
     </ElDialog>
+
+    <!-- 修改手机号：独立子弹窗，append-to-body 保证层级在主弹窗之上 -->
+    <ElDialog
+      v-model="phoneDialog"
+      append-to-body
+      title="修改手机号"
+      width="460px"
+      :close-on-click-modal="false"
+      @closed="resetPhoneForm"
+    >
+      <ElAlert
+        show-icon
+        :closable="false"
+        type="warning"
+        title="修改后旧手机号将无法登录；如该员工已开通配送资格，配送员资料中的联系电话会自动同步。"
+      />
+      <ElForm
+        ref="phoneFormRef"
+        class="phone-dialog-form"
+        label-width="108px"
+        :model="phoneForm"
+        :rules="phoneRules"
+      >
+        <ElFormItem label="当前手机号">
+          <ElInput
+            :model-value="state.form.phone || '未绑定'"
+            disabled
+            placeholder="未绑定"
+          />
+        </ElFormItem>
+        <ElFormItem label="新手机号" prop="phone">
+          <ElInput
+            v-model="phoneForm.phone"
+            maxlength="11"
+            placeholder="请输入 11 位手机号"
+            show-word-limit
+          />
+        </ElFormItem>
+        <ElFormItem label="确认新手机号" prop="confirmPhone">
+          <ElInput
+            v-model="phoneForm.confirmPhone"
+            maxlength="11"
+            placeholder="请再次输入新手机号"
+            show-word-limit
+          />
+        </ElFormItem>
+      </ElForm>
+      <template #footer>
+        <ElButton @click="closePhoneDialog">取消</ElButton>
+        <ElButton type="primary" :loading="phoneSaving" @click="submitPhone">
+          确认修改
+        </ElButton>
+      </template>
+    </ElDialog>
   </div>
 </template>
 <style scoped>
@@ -478,5 +648,25 @@ defineExpose({
   font-size: 12px;
   line-height: 1.6;
   color: var(--el-text-color-secondary);
+}
+
+.phone-dialog-form {
+  margin-top: 16px;
+}
+
+/* 手机号输入框（含「查看」后缀）与「修改」按钮同一行 */
+.phone-field {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+}
+
+.phone-field :deep(.el-input) {
+  flex: 1;
+}
+
+.phone-field__edit {
+  flex: 0 0 auto;
 }
 </style>

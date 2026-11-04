@@ -42,6 +42,7 @@ import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -52,6 +53,8 @@ class GoodsSpuServiceImplTest {
 	private GoodsSkuMapper skuMapper;
 
 	private GoodsFootprintMapper footprintMapper;
+
+	private GoodsPriceHistoryService priceHistoryService;
 
 	private GoodsSpuServiceImpl service;
 
@@ -64,8 +67,9 @@ class GoodsSpuServiceImplTest {
 		spuMapper = mock(GoodsSpuMapper.class);
 		skuMapper = mock(GoodsSkuMapper.class);
 		footprintMapper = mock(GoodsFootprintMapper.class);
+		priceHistoryService = mock(GoodsPriceHistoryService.class);
 		service = new TestGoodsSpuService(skuMapper, mock(GoodsCollectMapper.class), footprintMapper,
-				mock(GoodsCategoryMapper.class), spuMapper);
+				mock(GoodsCategoryMapper.class), spuMapper, priceHistoryService);
 	}
 
 	@Test
@@ -260,7 +264,7 @@ class GoodsSpuServiceImplTest {
 		spu.setOriginalPrice(BigDecimal.valueOf(80));
 		spu.setCostPrice(BigDecimal.valueOf(40));
 		page.setRecords(List.of(spu));
-		when(spuMapper.selectApiPage(any(Page.class), any(GoodsSpu.class), any())).thenReturn(page);
+		when(spuMapper.selectApiPage(any(Page.class), any(GoodsSpu.class), any(), any(), any(), any())).thenReturn(page);
 
 		IPage<GoodsSpu> result = service.apiPage(page, new GoodsSpu());
 
@@ -275,14 +279,52 @@ class GoodsSpuServiceImplTest {
 	void apiPageWithoutBargainRateKeepsLegacyOrdersAndPassesNullThreshold() {
 		Page<GoodsSpu> page = new Page<>(1, 10);
 		page.setOrders(new ArrayList<>(List.of(OrderItem.asc("sales_price"), OrderItem.desc("create_time"))));
-		when(spuMapper.selectApiPage(any(Page.class), any(GoodsSpu.class), any())).thenReturn(page);
+		when(spuMapper.selectApiPage(any(Page.class), any(GoodsSpu.class), any(), any(), any(), any())).thenReturn(page);
 
 		service.apiPage(page, new GoodsSpu());
 
 		// 存量路径：不传 bargainRate 时 asc/desc 原样保留（仍由分页插件追加 ORDER BY），阈值以 null 下传
 		assertThat(page.orders()).extracting(OrderItem::getColumn).containsExactly("sales_price", "create_time");
 		assertThat(page.orders()).extracting(OrderItem::isAsc).containsExactly(true, false);
-		verify(spuMapper).selectApiPage(eq(page), any(GoodsSpu.class), isNull());
+		verify(spuMapper).selectApiPage(eq(page), any(GoodsSpu.class), isNull(), isNull(), isNull(), isNull());
+	}
+
+	@Test
+	void adminPagePassesNormalizedZoneTypeToMapper() {
+		Page<GoodsSpu> page = new Page<>(1, 10);
+		GoodsSpu query = new GoodsSpu();
+		when(spuMapper.selectPageByAdmin(any(Page.class), any(GoodsSpu.class), any())).thenReturn(page);
+
+		service.adminPage(page, query, "  member  ");
+
+		// 前端取值先 trim 再下传；SQL 只按 member/clearance/none 映射专区条件
+		verify(spuMapper).selectPageByAdmin(page, query, "member");
+	}
+
+	@Test
+	void adminPageWithoutZoneTypeKeepsLegacyQuery() {
+		Page<GoodsSpu> page = new Page<>(1, 10);
+		GoodsSpu query = new GoodsSpu();
+		when(spuMapper.selectPageByAdmin(any(Page.class), any(GoodsSpu.class), any())).thenReturn(page);
+
+		service.adminPage(page, query, null);
+		service.adminPage(page, query, "   ");
+
+		// 不筛选专区时统一以 null 下传，XML 不输出专区条件（存量查询逐字不变）
+		verify(spuMapper, times(2)).selectPageByAdmin(page, query, null);
+	}
+
+	@Test
+	void adminPageRejectsUnsupportedZoneType() {
+		Page<GoodsSpu> page = new Page<>(1, 10);
+		// 前端拼错/手改 URL 时返回明确业务错误，而不是静默返回全量（否则运营以为筛选生效）
+		for (String illegal : List.of("members", "member,clearance", "both", "0")) {
+			assertThatThrownBy(() -> service.adminPage(page, new GoodsSpu(), illegal))
+				.isInstanceOf(ArynBusinessException.class)
+				.satisfies(exception -> assertThat(((ArynBusinessException) exception).getMsg())
+					.contains("member / clearance / none"));
+		}
+		verify(spuMapper, never()).selectPageByAdmin(any(Page.class), any(GoodsSpu.class), any());
 	}
 
 	@Test
@@ -290,14 +332,14 @@ class GoodsSpuServiceImplTest {
 		Page<GoodsSpu> page = new Page<>(1, 10);
 		page.setOrders(new ArrayList<>(List.of(OrderItem.desc("sales_price"))));
 		GoodsSpu query = new GoodsSpu();
-		when(spuMapper.selectApiPage(any(Page.class), any(GoodsSpu.class), any())).thenReturn(page);
+		when(spuMapper.selectApiPage(any(Page.class), any(GoodsSpu.class), any(), any(), any(), any())).thenReturn(page);
 
 		service.apiPage(page, query, new BigDecimal("1.15"));
 
 		// 捡漏路径：固定排序由 XML 输出，asc/desc 必须被清空——既避免再拼一层排序列，
 		// 也彻底关掉「用户传列名」的注入面（排序键只能是 XML 里写死的表达式）
 		assertThat(page.orders()).isEmpty();
-		verify(spuMapper).selectApiPage(page, query, new BigDecimal("1.15"));
+		verify(spuMapper).selectApiPage(page, query, new BigDecimal("1.15"), null, null, null);
 	}
 
 	@Test
@@ -310,19 +352,19 @@ class GoodsSpuServiceImplTest {
 				.satisfies(exception -> assertThat(((ArynBusinessException) exception).getMsg()).contains("bargainRate")
 					.contains("(1.00, 9.99]"));
 		}
-		verify(spuMapper, never()).selectApiPage(any(Page.class), any(GoodsSpu.class), any());
+		verify(spuMapper, never()).selectApiPage(any(Page.class), any(GoodsSpu.class), any(), any(), any(), any());
 	}
 
 	@Test
 	void apiPageAcceptsBargainRateBoundaries() {
 		Page<GoodsSpu> page = new Page<>(1, 10);
-		when(spuMapper.selectApiPage(any(Page.class), any(GoodsSpu.class), any())).thenReturn(page);
+		when(spuMapper.selectApiPage(any(Page.class), any(GoodsSpu.class), any(), any(), any(), any())).thenReturn(page);
 
 		service.apiPage(page, new GoodsSpu(), new BigDecimal("1.01"));
 		service.apiPage(page, new GoodsSpu(), new BigDecimal("9.99"));
 
-		verify(spuMapper).selectApiPage(eq(page), any(GoodsSpu.class), eq(new BigDecimal("1.01")));
-		verify(spuMapper).selectApiPage(eq(page), any(GoodsSpu.class), eq(new BigDecimal("9.99")));
+		verify(spuMapper).selectApiPage(eq(page), any(GoodsSpu.class), eq(new BigDecimal("1.01")), isNull(), isNull(), isNull());
+		verify(spuMapper).selectApiPage(eq(page), any(GoodsSpu.class), eq(new BigDecimal("9.99")), isNull(), isNull(), isNull());
 	}
 
 	@Test
@@ -536,7 +578,7 @@ class GoodsSpuServiceImplTest {
 	@Test
 	void apiPageEscapesNameWildcards() {
 		Page<GoodsSpu> page = new Page<>(1, 10);
-		when(spuMapper.selectApiPage(any(Page.class), any(GoodsSpu.class), any())).thenReturn(page);
+		when(spuMapper.selectApiPage(any(Page.class), any(GoodsSpu.class), any(), any(), any(), any())).thenReturn(page);
 		GoodsSpu query = new GoodsSpu();
 		query.setName("50%off_1");
 
@@ -606,8 +648,8 @@ class GoodsSpuServiceImplTest {
 
 		private TestGoodsSpuService(GoodsSkuMapper goodsSkuMapper, GoodsCollectMapper goodsCollectMapper,
 				GoodsFootprintMapper goodsFootprintMapper, GoodsCategoryMapper goodsCategoryMapper,
-				GoodsSpuMapper goodsSpuMapper) {
-			super(goodsSkuMapper, goodsCollectMapper, goodsFootprintMapper, goodsCategoryMapper);
+				GoodsSpuMapper goodsSpuMapper, GoodsPriceHistoryService priceHistoryService) {
+			super(goodsSkuMapper, goodsCollectMapper, goodsFootprintMapper, goodsCategoryMapper, priceHistoryService);
 			this.baseMapper = goodsSpuMapper;
 		}
 

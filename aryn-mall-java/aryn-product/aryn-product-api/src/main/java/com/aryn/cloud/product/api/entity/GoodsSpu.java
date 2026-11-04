@@ -2,6 +2,7 @@
 package com.aryn.cloud.product.api.entity;
 
 import com.baomidou.mybatisplus.annotation.*;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.baomidou.mybatisplus.extension.activerecord.Model;
 import com.aryn.cloud.common.myabtis.handler.JsonArrayStringTypeHandler;
@@ -141,5 +142,49 @@ public class GoodsSpu extends Model<GoodsSpu> {
 	@JsonInclude(JsonInclude.Include.NON_NULL)
 	@Schema(description = "商品成本价 sku最低成本价")
 	private BigDecimal costPrice;
+
+	@Schema(description = "会员专区标签：0否 1是")
+	private Integer isMemberItem;
+
+	/**
+	 * 商品级会员折扣率（如 0.9000）；空表示用会员等级折扣率。
+	 *
+	 * <p>属于内部定价规则，C 端出参经 {@link com.aryn.cloud.product.api.util.GoodsCostPriceMasker}
+	 * 置空后不下发，避免暴露底价。
+	 */
+	@JsonInclude(JsonInclude.Include.NON_NULL)
+	@Schema(description = "商品级会员折扣率，如0.9000；空=用等级折扣率")
+	private BigDecimal memberDiscountRate;
+
+	/** 会员固定价（迁移旧活动用）；与按率算价取低。C 端不下发。 */
+	@JsonInclude(JsonInclude.Include.NON_NULL)
+	@Schema(description = "会员固定价；与按率算价取低")
+	private BigDecimal memberPriceFixed;
+
+	/** 会员价下限（防击穿），空=0.01。C 端不下发。 */
+	@JsonInclude(JsonInclude.Include.NON_NULL)
+	@Schema(description = "会员价下限（防击穿），空=0.01")
+	private BigDecimal memberPriceFloor;
+
+	@Schema(description = "捡漏专区标签：0否 1是")
+	private Integer isClearanceItem;
+
+	@Schema(description = "出清固定价，与 clearanceDiscountRate 二选一")
+	private BigDecimal clearancePrice;
+
+	@Schema(description = "出清折扣率（对 originalPrice 计算）")
+	private BigDecimal clearanceDiscountRate;
+
+	@Schema(description = "出清截止时间，到期自动退出专区与出清价")
+	private LocalDateTime clearanceExpireTime;
+
+	/**
+	 * 本次保存是否改动了专区相关字段（非库字段）。
+	 *
+	 * <p>控制器据此决定是否触发系统活动同步，避免每次普通商品编辑都全量重算租户专区。
+	 */
+	@JsonIgnore
+	@TableField(exist = false)
+	private boolean zoneChanged;
 
 }

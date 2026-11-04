@@ -8,9 +8,11 @@ import com.aryn.cloud.upms.api.entity.SysUserRole;
 import com.aryn.cloud.upms.mapper.SysMenuMapper;
 import com.aryn.cloud.upms.mapper.SysRoleMapper;
 import com.aryn.cloud.upms.mapper.SysRoleMenuMapper;
+import com.aryn.cloud.upms.mapper.SysTenantMapper;
 import com.aryn.cloud.upms.mapper.SysUserMapper;
 import com.aryn.cloud.upms.mapper.SysUserRoleMapper;
 import com.aryn.cloud.upms.service.ISysUserRoleService;
+import com.aryn.cloud.upms.support.PlatformAdminSupport;
 import com.aryn.cloud.upms.support.SysUserSessionRevoker;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -56,7 +58,8 @@ class SysUserServiceImplTest {
 		sysUserRoleService = mock(ISysUserRoleService.class);
 		sysUserSessionRevoker = mock(SysUserSessionRevoker.class);
 		service = new SysUserServiceImpl(sysRoleMapper, mock(SysMenuMapper.class), sysUserRoleMapper,
-				sysUserRoleService, mock(SysRoleMenuMapper.class), sysUserSessionRevoker);
+				sysUserRoleService, mock(SysRoleMenuMapper.class), mock(SysTenantMapper.class),
+				sysUserSessionRevoker, new PlatformAdminSupport());
 		ReflectionTestUtils.setField(service, "baseMapper", sysUserMapper);
 		when(sysUserRoleService.grantRole(anyString(), anyString())).thenReturn(Boolean.TRUE);
 	}

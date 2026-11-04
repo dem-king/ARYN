@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { editPhone } from '@/sub-pages/api/user/user'
 import { sendSmsCode } from '@/api/upms/sms'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+import { getTopPage, isPageAlive } from '@/utils/navigation-lock'
 
 const { handlePageScroll } = useFrostedNavbar()
 
@@ -29,6 +30,9 @@ const state = reactive<{ form: { oldPhone: string, newPhone: string, code: strin
 
 const countdown = ref(0)
 let timer: any = null
+/** setup 时的页面实例 + 成功后的延时跳转句柄：卸载后不许再对已销毁页面发路由 */
+const pageAtSetup = getTopPage()
+let navTimer: ReturnType<typeof setTimeout> | null = null
 
 onLoad(() => {
   state.form.oldPhone = userStore.getUserPhone || ''
@@ -36,6 +40,10 @@ onLoad(() => {
 onUnload(() => {
   if (timer)
     clearInterval(timer)
+  if (navTimer) {
+    clearTimeout(navTimer)
+    navTimer = null
+  }
 })
 
 function startCountdown() {
@@ -79,9 +87,16 @@ function submit() {
         .then(() => {
           showSuccess(t('accountSettings.phone.success'))
           userStore.fetchUserInfo?.()
-          setTimeout(() => {
-            const pages = getCurrentPages()
-            if (pages.length > 1) {
+          if (navTimer) {
+            clearTimeout(navTimer)
+          }
+          navTimer = setTimeout(() => {
+            navTimer = null
+            // 成功提示展示期间用户可能已自行返回：只对仍是栈顶的页面发路由
+            if (!isPageAlive(pageAtSetup)) {
+              return
+            }
+            if (getCurrentPages().length > 1) {
               router.back()
             }
             else {

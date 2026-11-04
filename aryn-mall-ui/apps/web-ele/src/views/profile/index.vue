@@ -6,7 +6,7 @@ import type {
   UploadRequestOptions,
 } from 'element-plus';
 
-import { computed, nextTick, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue';
 
 import { useUserStore } from '@vben/stores';
 
@@ -24,8 +24,10 @@ import {
   ElUpload,
 } from 'element-plus';
 
+import { sendCode } from '#/api/upms/sms';
 import {
   updateMyPassword,
+  updateMyPhone,
   updateMyProfile,
   updateMyUsername,
   uploadMyAvatar,
@@ -221,6 +223,134 @@ async function saveUsername() {
   }
 }
 
+/* ------------------------------ 修改手机号 ------------------------------ */
+
+/** 大陆 11 位手机号格式 */
+const PHONE_PATTERN = /^1[3-9]\d{9}$/;
+
+const phoneDialogOpen = ref(false);
+const phoneSaving = ref(false);
+const phoneCodeSending = ref(false);
+const phoneCountdown = ref(0);
+const phoneFormRef = ref<FormInstance>();
+const phoneForm = reactive({
+  code: '',
+  password: '',
+  phone: '',
+});
+let phoneCountdownTimer: ReturnType<typeof setInterval> | undefined;
+
+const phoneValid = computed(() => PHONE_PATTERN.test(phoneForm.phone.trim()));
+const phoneCodeButtonText = computed(() =>
+  phoneCountdown.value > 0 ? `${phoneCountdown.value} 秒后重发` : '发送验证码',
+);
+const phoneCodeDisabled = computed(
+  () => !phoneValid.value || phoneCountdown.value > 0 || phoneCodeSending.value,
+);
+
+const phoneRules: FormRules = {
+  phone: [
+    { required: true, message: '请输入新手机号', trigger: 'blur' },
+    {
+      pattern: /^1[3-9]\d{9}$/,
+      message: '请输入正确的手机号',
+      trigger: 'blur',
+    },
+  ],
+  code: [{ required: true, message: '请输入短信验证码', trigger: 'blur' }],
+  password: [{ required: true, message: '请输入当前密码', trigger: 'blur' }],
+};
+
+function stopPhoneCountdown() {
+  if (phoneCountdownTimer) {
+    clearInterval(phoneCountdownTimer);
+    phoneCountdownTimer = undefined;
+  }
+  phoneCountdown.value = 0;
+}
+
+function startPhoneCountdown() {
+  stopPhoneCountdown();
+  phoneCountdown.value = 60;
+  phoneCountdownTimer = setInterval(() => {
+    if (phoneCountdown.value <= 1) {
+      stopPhoneCountdown();
+      return;
+    }
+    phoneCountdown.value -= 1;
+  }, 1000);
+}
+
+/** 重置弹窗表单与倒计时（关闭弹窗或重新打开时调用） */
+function resetPhoneDialog() {
+  phoneForm.phone = '';
+  phoneForm.code = '';
+  phoneForm.password = '';
+  stopPhoneCountdown();
+  phoneFormRef.value?.clearValidate();
+}
+
+function openPhoneDialog() {
+  resetPhoneDialog();
+  phoneDialogOpen.value = true;
+  void nextTick(() => phoneFormRef.value?.clearValidate());
+}
+
+/** 发送换绑验证码：复用 update 类型短信，60 秒倒计时内不可重复发送 */
+async function sendPhoneCode() {
+  if (phoneCodeDisabled.value) {
+    return;
+  }
+  const phone = phoneForm.phone.trim();
+  if (!PHONE_PATTERN.test(phone)) {
+    ElMessage.warning('请输入正确的手机号');
+    return;
+  }
+  phoneCodeSending.value = true;
+  try {
+    await sendCode('update', phone);
+    ElMessage.success('验证码已发送');
+    startPhoneCountdown();
+  } catch {
+    // 错误提示由请求层统一展示
+  } finally {
+    phoneCodeSending.value = false;
+  }
+}
+
+function submitPhoneDialog() {
+  phoneFormRef.value?.validate((valid) => {
+    if (valid) {
+      void savePhone();
+    }
+  });
+}
+
+async function savePhone() {
+  if (phoneSaving.value) {
+    return;
+  }
+  phoneSaving.value = true;
+  try {
+    await updateMyPhone({
+      code: phoneForm.code.trim(),
+      password: phoneForm.password,
+      phone: phoneForm.phone.trim(),
+    });
+    phoneDialogOpen.value = false;
+    stopPhoneCountdown();
+    await refreshProfile();
+    ElMessage.success('手机号已修改，请使用新手机号登录/接收通知');
+  } catch {
+    // 错误提示由请求层统一展示，保留弹窗便于修正
+  } finally {
+    phoneSaving.value = false;
+  }
+}
+
+// 组件卸载时清理倒计时，避免离开页面后 timer 继续运行
+onBeforeUnmount(stopPhoneCountdown);
+
 /* ------------------------------ 修改密码 ------------------------------ */
 
 const passwordDialogOpen = ref(false);
@@ -384,7 +514,7 @@ async function savePassword() {
                   placeholder="未绑定"
                 />
                 <div class="profile-form__tip">
-                  手机号用于登录与安全校验，如需变更请联系企业管理员
+                  手机号用于登录与安全校验，可在下方「账号安全」中修改
                 </div>
               </ElFormItem>
               <ElFormItem>
@@ -407,8 +537,20 @@ async function savePassword() {
 
           <PageSection
             title="账号安全"
-            description="登录账号与密码的修改需要校验当前密码"
+            description="手机号、登录账号与密码的修改需要校验短信验证码或当前密码"
           >
+            <div class="security-row">
+              <div class="security-row__info">
+                <span class="security-row__label">手机号</span>
+                <span class="security-row__value">
+                  {{ profile.phone || '未绑定' }}
+                </span>
+                <span class="security-row__tip">
+                  手机号用于登录与安全校验，修改后旧手机号立即不可登录
+                </span>
+              </div>
+              <ElButton plain @click="openPhoneDialog">修改</ElButton>
+            </div>
             <div class="security-row">
               <div class="security-row__info">
                 <span class="security-row__label">登录账号</span>
@@ -485,6 +627,73 @@ async function savePassword() {
       </template>
     </ElDialog>
 
+    <!-- 修改手机号 -->
+    <ElDialog
+      v-model="phoneDialogOpen"
+      title="修改手机号"
+      width="460px"
+      :close-on-click-modal="false"
+      @closed="resetPhoneDialog"
+    >
+      <ElAlert
+        show-icon
+        :closable="false"
+        title="手机号用于登录与安全校验，修改后旧手机号立即不可登录。"
+        type="warning"
+      />
+      <ElForm
+        ref="phoneFormRef"
+        class="dialog-form"
+        label-width="88px"
+        :model="phoneForm"
+        :rules="phoneRules"
+      >
+        <ElFormItem label="新手机号" prop="phone">
+          <ElInput
+            v-model="phoneForm.phone"
+            maxlength="11"
+            placeholder="请输入 11 位手机号"
+          />
+        </ElFormItem>
+        <ElFormItem label="短信验证码" prop="code">
+          <div class="phone-code-row">
+            <ElInput
+              v-model="phoneForm.code"
+              maxlength="6"
+              placeholder="请输入短信验证码"
+            />
+            <ElButton
+              class="phone-code-row__btn"
+              :disabled="phoneCodeDisabled"
+              :loading="phoneCodeSending"
+              @click="sendPhoneCode"
+            >
+              {{ phoneCodeButtonText }}
+            </ElButton>
+          </div>
+        </ElFormItem>
+        <ElFormItem label="当前密码" prop="password">
+          <ElInput
+            v-model="phoneForm.password"
+            autocomplete="off"
+            placeholder="请输入当前密码"
+            show-password
+            type="password"
+          />
+        </ElFormItem>
+      </ElForm>
+      <template #footer>
+        <ElButton @click="phoneDialogOpen = false">取消</ElButton>
+        <ElButton
+          :loading="phoneSaving"
+          type="primary"
+          @click="submitPhoneDialog"
+        >
+          确认修改
+        </ElButton>
+      </template>
+    </ElDialog>
+
     <!-- 修改密码 -->
     <ElDialog
       v-model="passwordDialogOpen"
@@ -549,6 +758,14 @@ async function savePassword() {
 </template>
 
 <style lang="scss" scoped>
+
+
+@media (max-width: 900px) {
+  .profile-page__inner {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .profile-page__inner {
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr);
@@ -702,9 +919,19 @@ async function savePassword() {
   margin-top: 16px;
 }
 
-@media (max-width: 900px) {
-  .profile-page__inner {
-    grid-template-columns: minmax(0, 1fr);
-  }
+/* 短信验证码输入框 + 发送按钮同一行；按钮定宽避免倒计时文案变化时抖动 */
+.phone-code-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.phone-code-row :deep(.el-input) {
+  flex: 1;
+}
+
+.phone-code-row__btn {
+  flex: 0 0 auto;
+  min-width: 116px;
 }
 </style>

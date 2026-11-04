@@ -164,8 +164,9 @@ secure:
       - /app/newbie/prices
       # 会员价批量查价（C端商详/购物车/列表二次聚合，可选登录：未登录返回活动配置价）
       - /app/member/prices
-      # 会员专区自动数据源（装修多Tab activity 模式：会员价活动商品SPU列表，免登）
-      - /app/member/activity-goods
+      # 低价捡漏专区（商品级出清标签选品/批量查价，免登）
+      - /app/clearance/activity-goods
+      - /app/clearance/prices
       - /file/local/**
 
 decoration:
@@ -227,6 +228,9 @@ hx:
       - goods_specs
       - goods_specs_value
       - goods_spu
+      - goods_price_history
+      - goods_zone_tag_batch
+      - goods_zone_tag_batch_item
       - product_order_pay_record
       - product_refund_stock_record
       - coupon_goods
@@ -314,6 +318,8 @@ hx:
       - product_import_row
       - promotion_activity
       - promotion_lock
+      - clearance_rule
+      - mall_zone_setting
 
   swagger:
     enabled: true

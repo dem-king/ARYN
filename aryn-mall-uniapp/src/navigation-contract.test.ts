@@ -161,3 +161,39 @@ describe('跳转目标必须在 pages.json 中声明', () => {
       .toContain('/sub-pages/promotion/live/index')
   })
 })
+
+/**
+ * 路由串行锁的接线契约。
+ *
+ * 背景（真实缺陷）：`uni-mini-router` 的守卫是异步的，`push` 又是 fire-and-forget。
+ * 守卫里 `await fetchUserInfo()` 会让第一次点击「没反应」，用户再点一次，
+ * 两个 async 守卫在同一批微任务恢复 → 同 tick 两次路由 → 微信报
+ * `routeDone with a webviewId xxx is not found`。
+ * 因此：① 守卫不得把用户信息请求 await 在跳转路径上；② router 实例必须装配
+ * navigation lock（同目标去重 + 返回键去重 + switchTab 当前页拦截）。
+ */
+describe('路由串行锁接线', () => {
+  const routerSource = readFileSync(resolve(projectRoot, 'src/router/index.ts'), 'utf8')
+
+  it('router 实例必须装配 navigation lock', () => {
+    expect(routerSource).toContain('installNavigationLock(router)')
+  })
+
+  it('导航守卫不得把用户信息请求 await 在跳转路径上', () => {
+    // 只看代码行：文件头注释里会引用旧写法作为反例
+    const code = routerSource
+      .split('\n')
+      .filter(line => !/^\s*(?:\*|\/\/)/.test(line))
+      .join('\n')
+    expect(code).not.toMatch(/await\s+userStore\.fetchUserInfo/)
+    // 预热可以留（页面 onShow 会补拉），但不能阻塞 next()
+    expect(code).toContain('userStore.fetchUserInfo().catch(')
+  })
+
+  it('导航栏返回键必须走实时判定（不得在挂载时快照页面栈）', () => {
+    for (const file of ['src/components/hr-navbar/index.vue', 'src/components/hr-search-navbar/index.vue']) {
+      const source = readFileSync(resolve(projectRoot, file), 'utf8')
+      expect(source).toContain('canGoBackFromCurrentPage')
+    }
+  })
+})

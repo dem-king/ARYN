@@ -148,6 +148,21 @@ const sections = [
   ['商品目录大规模扩充（35 新类目 + 241 新品 + 27 补货）', '178goods_catalog_expansion_incremental.sql'],
   ['双十一囤货节前置：下线日常活动', '179double_eleven_stop_legacy.sql'],
   ['双十一航海囤货节活动种子（2026-11-01 ~ 11-15）', '180double_eleven_campaign.sql'],
+  ['平台租户默认文件存储配置', '181platform_storage_config.sql'],
+  ['员工账号修改手机号权限', '182sysuser_phone_edit_permission.sql'],
+  ['会员专区与低价捡漏规则化（商品标签/系统活动）', '183member_clearance_zone_incremental.sql'],
+  ['会员/出清专区系统活动兜底同步定时任务注册', '184mall_zone_sync_job.sql'],
+  ['P1 专区规则化与治理（出清分层/价格历史/专区设置）', '185p1_zone_governance_incremental.sql'],
+  ['P1 专区治理菜单', '186p1_zone_governance_menu.sql'],
+  ['商品类目树基线补齐（971 一级 + 972 二级）', '188category_tree_export_seed.sql'],
+  ['专区让利报表快照字段', '192order_item_zone_report_incremental.sql'],
+  ['会员价成本兜底倍率', '193member_cost_floor_incremental.sql'],
+  ['会员价活动功能整体下线（清理手工会员价活动与迁移痕迹）', '194member_price_activity_purge_incremental.sql'],
+  ['船供菜单归属调整（船供活动→营销管理、共享购物车→订单管理）', '195relocate_ship_supply_menus.sql'],
+  ['平台租户合并（悦航购接管平台租户、物理删除系统租户）', '196platform_tenant_consolidation.sql'],
+  ['平台管理员用户级身份与专属角色', '197platform_admin_user.sql'],
+  ['专区批量打标批次记录/撤销与同步状态字段', '198zone_tag_batch_incremental.sql'],
+  ['专区商品管理菜单', '199zone_tag_batch_menu.sql'],
 ];
 
 const normalize = (content) => content.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim();
@@ -205,6 +220,11 @@ DROP TABLE IF EXISTS \`product_change_log\`;
 DROP TABLE IF EXISTS \`product_import_row\`;
 DROP TABLE IF EXISTS \`promotion_activity\`;
 DROP TABLE IF EXISTS \`promotion_lock\`;
+DROP TABLE IF EXISTS \`clearance_rule\`;
+DROP TABLE IF EXISTS \`mall_zone_setting\`;
+DROP TABLE IF EXISTS \`goods_price_history\`;
+DROP TABLE IF EXISTS \`goods_zone_tag_batch\`;
+DROP TABLE IF EXISTS \`goods_zone_tag_batch_item\`;
 DROP TABLE IF EXISTS \`vessel_call_change_log\`;
 DROP TABLE IF EXISTS \`vessel_invite_code\`;
 DROP TABLE IF EXISTS \`vessel_bind_apply\`;

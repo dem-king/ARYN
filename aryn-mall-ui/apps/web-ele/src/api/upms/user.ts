@@ -27,6 +27,16 @@ export async function getPhone(id: string) {
 }
 
 /**
+ * 修改指定员工手机号
+ *
+ * 员工手机号不走通用编辑接口（详情返回的是脱敏号），由独立接口 + 独立权限修改，
+ * 后端会同步配送员资料中的联系电话。
+ */
+export async function updateUserPhone(id: string, phone: string) {
+  return requestClient.put(`/upms/user/${id}/phone`, { phone });
+}
+
+/**
  * 添加用户
  */
 export async function addObj(data: any) {
@@ -106,6 +116,23 @@ export async function updateMyPassword(data: {
   password: string;
 }) {
   return requestClient.put('/upms/profile/password', data, {
+    headers: {
+      isSwitchTenant: false,
+    },
+  });
+}
+
+/**
+ * 修改当前登录用户手机号（需短信验证码 + 当前密码）
+ *
+ * 与个人资料接口一致：始终作用于当前会话用户，固定不走租户切换请求头。
+ */
+export async function updateMyPhone(data: {
+  code: string;
+  password: string;
+  phone: string;
+}) {
+  return requestClient.put('/upms/profile/phone', data, {
     headers: {
       isSwitchTenant: false,
     },

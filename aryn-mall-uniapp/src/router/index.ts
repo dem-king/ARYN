@@ -7,6 +7,7 @@ import {
   DISTRIBUTION_PERMISSION_POINTS,
 } from '@/api/distribution/entity'
 import { translate } from '@/locales'
+import { installNavigationLock } from '@/utils/navigation-lock'
 import { Local } from '@/utils/storage'
 // 定义路由白名单，这些页面不需要登录即可访问
 const WHITE_LIST = [
@@ -66,7 +67,7 @@ function generateRoutes() {
 const router = createRouter({
   routes: generateRoutes(),
 })
-router.beforeEach(async (to, from, next) => {
+router.beforeEach((to, from, next) => {
   const isDeliveryRoute = Boolean(to.path?.startsWith(DELIVERY_ROUTE_PREFIX))
   if (isDeliveryRoute) {
     if (to.path === DELIVERY_LOGIN_PATH || Local.get('deliveryToken')) {
@@ -98,15 +99,20 @@ router.beforeEach(async (to, from, next) => {
 
   // 检查token并获取用户信息
   if (authStore.getToken && !userStore.getUserInfo) {
-    try {
-      await userStore.fetchUserInfo()
-    }
-    catch {
-      // 清除认证信息并跳转到登录页
-      authStore.clearAuthData()
-      next({ path: '/pages/login/index' })
-      return
-    }
+    /**
+     * 只预热、不等待。
+     *
+     * 旧实现 `await userStore.fetchUserInfo()` 把网络请求挡在导航路径上：冷启动
+     * 只恢复了 token 时，第一次点击「没反应」（无 loading、无按钮态），用户必然
+     * 再点一次；两次点击的 async 守卫从**同一个 in-flight promise** 恢复，在同一
+     * 批微任务里各自发出一次路由 —— 同 tick 两次路由正是微信
+     * `routeDone with a webviewId xxx is not found` 的高发成因
+     * （见 utils/navigation-lock.ts 文件头）。
+     *
+     * 页面自己的 onShow 都会补拉用户信息（个人中心/会员中心已是这套口径）；
+     * 凭证真的失效时由统一 401/会话失效链路处理，不靠导航守卫同步拦截。
+     */
+    userStore.fetchUserInfo().catch(() => authStore.clearAuthData())
   }
 
   // 路由权限点占位校验：
@@ -129,5 +135,15 @@ router.beforeEach(async (to, from, next) => {
 
   next()
 })
+
+/**
+ * 路由串行/去重锁：包住 router 实例的 push/replace/pushTab/replaceAll/back。
+ *
+ * 必须装在实例方法上而不是逐个调用点：全仓 ~95 处 router.* 调用、~85 处裸 uni.*，
+ * 且 uni-mini-router 的守卫是异步的、push 不可 await。锁在 beforeEach 之前执行，
+ * 保证「一次用户手势最多一条路由」——连点/双击不再产生第二次路由。
+ * 细节与成因见 utils/navigation-lock.ts。
+ */
+installNavigationLock(router)
 
 export default router

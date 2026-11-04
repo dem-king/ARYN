@@ -14,6 +14,7 @@ import com.aryn.cloud.product.api.util.GoodsCostPriceMasker;
 import com.aryn.cloud.product.api.vo.GoodsCatalogSummaryVO;
 import com.aryn.cloud.product.mapper.*;
 import com.aryn.cloud.product.service.IGoodsSpuService;
+import com.aryn.cloud.product.service.support.GoodsZoneTagRuleValidator;
 import com.aryn.cloud.product.support.GoodsAttrTagNormalizer;
 import com.aryn.cloud.product.support.GoodsIntroductionSanitizer;
 import lombok.RequiredArgsConstructor;
@@ -44,6 +45,13 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 
 	private static final String BARGAIN_RATE_RANGE_TIP = "折扣率阈值 bargainRate 必须在 (1.00, 9.99] 区间内";
 
+	/** 管理端「专区」筛选支持的值：会员专区 / 低价捡漏 / 未加入任何专区 / 未加入指定专区。 */
+	private static final Set<String> ADMIN_ZONE_TYPES = Set.of("member", "clearance", "none", "not_member",
+			"not_clearance");
+
+	/** 管理端「专区」筛选的取值校验提示（与前端下拉选项一一对应）。 */
+	private static final String ADMIN_ZONE_TYPE_TIP = "专区筛选只支持 member / clearance / none / not_member / not_clearance";
+
 	/** 推荐流分类上下文的商品上限（购物车/订单可能很多，只取样最近/前 N 个） */
 	private static final int RECOMMEND_SOURCE_LIMIT = 20;
 
@@ -61,9 +69,36 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 
 	private final GoodsCategoryMapper goodsCategoryMapper;
 
+	private final GoodsPriceHistoryService goodsPriceHistoryService;
+
+	/**
+	 * 专区默认折扣：表单保存出清商品时与批量打标同口径校验。
+	 *
+	 * <p>非 final + @DubboReference（构造器注入远程接口曾在 boot 启动失败）。
+	 */
+	@org.apache.dubbo.config.annotation.DubboReference
+	private com.aryn.cloud.promotion.api.remote.RemoteMallZoneSettingService remoteMallZoneSettingService;
+
 	@Override
-	public IPage<GoodsSpu> adminPage(Page page, GoodsSpu goodsSpu) {
-		return baseMapper.selectPageByAdmin(page, goodsSpu);
+	public IPage<GoodsSpu> adminPage(Page page, GoodsSpu goodsSpu, String zoneType) {
+		return baseMapper.selectPageByAdmin(page, goodsSpu, normalizeAdminZoneType(zoneType));
+	}
+
+	/**
+	 * 管理端「专区」筛选归一化：空白视为不筛选，未知取值直接拒绝。
+	 *
+	 * <p>不在 SQL 里做字符串判断，避免前端拼错（如把 member 写成 members）时静默返回全量，
+	 * 运营误以为筛选生效；校验风格与 C 端 {@code zoneSort} 一致。
+	 */
+	private String normalizeAdminZoneType(String zoneType) {
+		if (!StringUtils.hasText(zoneType)) {
+			return null;
+		}
+		String value = zoneType.trim();
+		if (!ADMIN_ZONE_TYPES.contains(value)) {
+			throw new ArynBusinessException(ADMIN_ZONE_TYPE_TIP);
+		}
+		return value;
 	}
 
 	@Override
@@ -108,6 +143,7 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 		if (storedSpu == null) {
 			throw new ArynBusinessException("商品不存在或无权操作");
 		}
+		boolean zoneChanged = zoneFieldsChanged(storedSpu, goodsSpu);
 		goodsSpu.setAttrTags(GoodsAttrTagNormalizer.normalize(goodsSpu.getAttrTags()));
 		// 显式提交了卖点（哪怕是空编辑器）就要真正落库：清洗成 null 时写空串，
 		// 否则会被 MyBatis-Plus 的 NOT_NULL 更新策略忽略，运营清空卖点不生效
@@ -133,6 +169,7 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 					throw new ArynBusinessException("商品库存已变化，请刷新后重试");
 				}
 				stockDelta = Math.addExact(stockDelta, goodsSku.getStock() - storedSku.getStock());
+				recordSkuPriceChanges(goodsSpu.getId(), storedSku, goodsSku);
 				prepareSkuForUpdate(goodsSku, goodsSpu.getId());
 				if (goodsSkuMapper.updateById(goodsSku) <= 0) {
 					throw new ArynBusinessException("商品库存已变化，请刷新后重试");
@@ -157,11 +194,14 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 			stockDelta = Math.subtractExact(stockDelta, removedSku.getStock());
 		}
 		applyAggregatePrices(goodsSpu, goodsSkuList);
+		recordSpuPriceChanges(storedSpu, goodsSpu);
+		validateZoneFields(goodsSpu, storedSpu);
 		prepareSpuForUpdate(goodsSpu);
 		if (super.updateById(goodsSpu) == false) {
 			throw new ArynBusinessException("商品修改失败");
 		}
 		adjustSpuStock(goodsSpu.getId(), stockDelta);
+		goodsSpu.setZoneChanged(zoneChanged);
 		return Boolean.TRUE;
 	}
 
@@ -172,6 +212,8 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 		goodsSpu.setIntroduction(GoodsIntroductionSanitizer.sanitize(goodsSpu.getIntroduction()));
 		List<GoodsSku> goodsSkuList = validateGoodsSkus(goodsSpu);
 		applyAggregatePrices(goodsSpu, goodsSkuList);
+		validateZoneFields(goodsSpu, null);
+		goodsSpu.setZoneChanged(hasZoneConfig(goodsSpu));
 		goodsSpu.setStock(calculateTotalStock(goodsSkuList));
 		prepareSpuForInsert(goodsSpu);
 		if (super.save(goodsSpu) == false) {
@@ -325,12 +367,21 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 
 	@Override
 	public IPage<GoodsSpu> apiPage(Page page, GoodsSpu goodsSpu, BigDecimal bargainRate) {
-		if (Objects.nonNull(bargainRate)) {
+		return apiPage(page, goodsSpu, bargainRate, null, null, null);
+	}
+
+	@Override
+	public IPage<GoodsSpu> apiPage(Page page, GoodsSpu goodsSpu, BigDecimal bargainRate, Boolean memberItem,
+			Boolean clearanceItem, String zoneSort) {
+		String normalizedZoneSort = normalizeZoneSort(zoneSort);
+		if (Objects.nonNull(bargainRate) && normalizedZoneSort == null) {
 			// 区间 (1.00, 9.99]：前端缺省 1.15，越界按业务错误返回而不是让 SQL 跑出离谱结果
 			if (bargainRate.compareTo(BARGAIN_RATE_MIN_EXCLUSIVE) <= 0
 					|| bargainRate.compareTo(BARGAIN_RATE_MAX_INCLUSIVE) > 0) {
 				throw new ArynBusinessException(BARGAIN_RATE_RANGE_TIP);
 			}
+		}
+		if (Objects.nonNull(bargainRate) || normalizedZoneSort != null) {
 			// 固定排序由 XML 输出，这里必须清空 asc/desc：既避免分页插件再拼一层排序列，
 			// 也彻底关掉「用户传列名」的注入面（排序键只能是 XML 里写死的表达式）。
 			if (Objects.nonNull(page)) {
@@ -341,12 +392,134 @@ public class GoodsSpuServiceImpl extends ServiceImpl<GoodsSpuMapper, GoodsSpu> i
 			// 结果页按名称搜索：通配符按字面量匹配（XML 直接读 #{query.name}，原地改写查询对象）
 			goodsSpu.setName(escapeLikeKeyword(goodsSpu.getName()));
 		}
-		IPage<GoodsSpu> result = baseMapper.selectApiPage(page, goodsSpu, bargainRate);
-		// C 端出参脱敏：成本价是内部经营数据，不下发（详见 GoodsCostPriceMasker）
+		IPage<GoodsSpu> result = baseMapper.selectApiPage(page, goodsSpu,
+				normalizedZoneSort != null ? null : bargainRate, memberItem, clearanceItem, normalizedZoneSort);
+		// C 端出参脱敏：成本价/会员定价规则是内部经营数据，不下发（详见 GoodsCostPriceMasker）
 		if (Objects.nonNull(result)) {
 			result.getRecords().forEach(GoodsCostPriceMasker::maskSpu);
 		}
 		return result;
+	}
+
+	private String normalizeZoneSort(String zoneSort) {
+		if (!StringUtils.hasText(zoneSort)) {
+			return null;
+		}
+		String value = zoneSort.trim();
+		if (!"member_price".equals(value) && !"clearance".equals(value)) {
+			throw new ArynBusinessException("不支持的专区排序：" + zoneSort);
+		}
+		return value;
+	}
+
+	/** SKU 售价/原价变更落历史：用于先涨后降判定与价格审计。 */
+	private void recordSkuPriceChanges(String spuId, GoodsSku stored, GoodsSku incoming) {
+		goodsPriceHistoryService.recordIfChanged(spuId, incoming.getId(), "sales", stored.getSalesPrice(),
+			incoming.getSalesPrice(), "product_save", "商品编辑修改SKU售价");
+		goodsPriceHistoryService.recordIfChanged(spuId, incoming.getId(), "original", stored.getOriginalPrice(),
+			incoming.getOriginalPrice(), "product_save", "商品编辑修改SKU原价");
+	}
+
+	/** SPU 聚合价（min/SKU）变更落历史。 */
+	private void recordSpuPriceChanges(GoodsSpu stored, GoodsSpu incoming) {
+		goodsPriceHistoryService.recordIfChanged(incoming.getId(), null, "sales", stored.getSalesPrice(),
+			incoming.getSalesPrice(), "product_save", "商品编辑修改SPU聚合售价");
+		goodsPriceHistoryService.recordIfChanged(incoming.getId(), null, "original", stored.getOriginalPrice(),
+			incoming.getOriginalPrice(), "product_save", "商品编辑修改SPU聚合原价");
+	}
+
+	/**
+	 * 专区字段校验：表单直改商品时也必须走与批量打标相同的规则，
+	 * 防止绕过接口写入非法折扣率/价格。
+	 *
+	 * @param stored 更新前的商品（新增传 null），用于区分「未提交」与「主动改成过去时间」
+	 */
+	private void validateZoneFields(GoodsSpu spu, GoodsSpu stored) {
+		GoodsZoneTagRuleValidator.validateRate(spu.getMemberDiscountRate(), "会员折扣率");
+		GoodsZoneTagRuleValidator.validateRate(spu.getClearanceDiscountRate(), "出清折扣率");
+		GoodsZoneTagRuleValidator.validatePositive(spu.getMemberPriceFixed(), "会员固定价");
+		GoodsZoneTagRuleValidator.validatePositive(spu.getMemberPriceFloor(), "会员价下限");
+		GoodsZoneTagRuleValidator.validatePositive(spu.getClearancePrice(), "出清价");
+		Boolean clearanceTag = spu.getIsClearanceItem() != null ? Objects.equals(spu.getIsClearanceItem(), 1)
+				: (stored != null && Objects.equals(stored.getIsClearanceItem(), 1));
+		GoodsZoneTagRuleValidator.validateClearanceAvailability(clearanceTag, spu.getClearancePrice(),
+				spu.getClearanceDiscountRate(), stored == null ? null : stored.getClearancePrice(),
+				stored == null ? null : stored.getClearanceDiscountRate(), loadClearanceDefaultRate(),
+				spu.getOriginalPrice());
+		if (spu.getClearanceDiscountRate() != null
+				&& (spu.getOriginalPrice() == null || spu.getOriginalPrice().signum() <= 0)) {
+			throw new ArynBusinessException("商品缺少原价，无法按出清折扣算价，请配置出清固定价");
+		}
+		LocalDateTime expireTime = spu.getClearanceExpireTime();
+		LocalDateTime storedExpireTime = stored == null ? null : stored.getClearanceExpireTime();
+		if (expireTime != null && !Objects.equals(expireTime, storedExpireTime)
+				&& !expireTime.isAfter(LocalDateTime.now())) {
+			throw new ArynBusinessException("出清截止时间不能早于当前时间");
+		}
+	}
+
+	/**
+	 * 读取专区默认折扣；远程不可用时按未配置处理（回退为必须配置商品规则）。
+	 */
+	private BigDecimal loadClearanceDefaultRate() {
+		if (remoteMallZoneSettingService == null) {
+			return null;
+		}
+		try {
+			com.aryn.cloud.promotion.api.vo.MallZoneSettingSnapshotVO setting = remoteMallZoneSettingService
+				.getSetting(com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder.getTenantId(),
+						com.aryn.cloud.promotion.api.entity.MallZoneSetting.ZONE_CLEARANCE);
+			return setting == null ? null : setting.getDefaultDiscountRate();
+		}
+		catch (Exception ex) {
+			return null;
+		}
+	}
+
+	private void validateZoneRate(BigDecimal rate, String label) {
+		if (rate != null && (rate.signum() <= 0 || rate.compareTo(BigDecimal.ONE) >= 0)) {
+			throw new ArynBusinessException(label + "必须在 (0, 1) 区间内，如 0.9 表示 9 折");
+		}
+	}
+
+	private void validateZonePositive(BigDecimal value, String label) {
+		if (value != null && value.signum() <= 0) {
+			throw new ArynBusinessException(label + "必须大于 0");
+		}
+	}
+
+	/** 本次提交是否带了专区配置（新增商品时决定是否需要同步系统活动）。 */
+	private boolean hasZoneConfig(GoodsSpu spu) {
+		return Objects.equals(spu.getIsMemberItem(), 1) || Objects.equals(spu.getIsClearanceItem(), 1)
+				|| spu.getMemberDiscountRate() != null || spu.getMemberPriceFixed() != null
+				|| spu.getMemberPriceFloor() != null || spu.getClearancePrice() != null
+				|| spu.getClearanceDiscountRate() != null || spu.getClearanceExpireTime() != null;
+	}
+
+	/**
+	 * 专区字段是否变化：null 视为「本次未提交」（与 MyBatis-Plus NOT_NULL 更新策略一致），
+	 * 避免普通商品编辑也触发租户级全量同步。
+	 */
+	private boolean zoneFieldsChanged(GoodsSpu stored, GoodsSpu incoming) {
+		return changed(stored.getIsMemberItem(), incoming.getIsMemberItem())
+				|| changed(stored.getIsClearanceItem(), incoming.getIsClearanceItem())
+				|| changed(stored.getMemberDiscountRate(), incoming.getMemberDiscountRate())
+				|| changed(stored.getMemberPriceFixed(), incoming.getMemberPriceFixed())
+				|| changed(stored.getMemberPriceFloor(), incoming.getMemberPriceFloor())
+				|| changed(stored.getClearancePrice(), incoming.getClearancePrice())
+				|| changed(stored.getClearanceDiscountRate(), incoming.getClearanceDiscountRate())
+				|| changed(stored.getClearanceExpireTime(), incoming.getClearanceExpireTime());
+	}
+
+	private boolean changed(Object stored, Object incoming) {
+		return incoming != null && !Objects.equals(stored, incoming);
+	}
+
+	private boolean changed(BigDecimal stored, BigDecimal incoming) {
+		if (incoming == null) {
+			return false;
+		}
+		return stored == null || stored.compareTo(incoming) != 0;
 	}
 
 	@Override

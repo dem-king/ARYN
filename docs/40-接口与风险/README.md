@@ -423,9 +423,13 @@ MVC 兜底 `code=1`）。前端只判 `code===401`，导致被顶下线时管理
 
 ### 平台配置边界
 
-- 租户、套餐、租户菜单、全局菜单的**读/写管理接口**必须同时满足：TOB 会话、会话租户为
-  `CommonConstants.PLATFORM_TENANT_ID`、具备对应 `upms:*` 权限。仅靠权限串无法区分平台管理员与
-  被套餐授予同名权限的租户管理员。
+- 租户、套餐、租户菜单、全局菜单的**读/写管理接口**必须同时满足：TOB 会话、会话为
+  **平台管理员**、具备对应 `upms:*` 权限。仅靠权限串无法区分平台管理员与被套餐授予同名权限的租户管理员。
+  **平台管理员是用户级身份**：`sys_user.platform_admin = '1'` 且所属租户为平台租户
+  （`sys_tenant.tenant_type = '1'`），登录时计算后写入会话快照 `ArynUser.platformAdmin`；
+  守卫用 `PlatformTenantGuard`/`PlatformAdminSupport` 判定，**禁止**再硬编码平台租户 ID
+  （原 `CommonConstants.PLATFORM_TENANT_ID` 已删除）。平台租户里的租户管理员不是平台管理员：
+  不显示平台管理菜单、不能切换租户、不能操作平台配置。
 - 租户菜单保存必须校验目标租户存在、菜单 ID 有效；角色菜单保存必须校验角色归属当前租户，
   且非平台租户只能提交 `sys_tenant_menu` 已授权菜单。**不要**把「当前租户授权菜单」校验退回给前端。
   `SysTenantMenuServiceImpl` 全量替换前还要求租户上下文，避免无上下文误删。
@@ -436,8 +440,18 @@ MVC 兜底 `code=1`）。前端只判 `code===401`，导致被顶下线时管理
 - 平台租户不可停用/删除、不可设置授权结束时间或续期；`/tenant/register` 与 `/tenantpackage/list` 是公开注册入口，不接平台守卫。
 - 租户是否长期有效由数据决定：`sys_tenant.tenant_type = '1'`（平台租户）且 `auth_end_time IS NULL`；
   普通租户按授权起止时间管控。前端不得再按租户 ID 硬编码「长期有效」，列表/详情统一以
-  `authEndTime` 为空作为长期有效判据，操作按钮以 `tenantType` 判据。仅「当前会话是否为平台租户」
-  这类无租户行的场景继续使用 `CommonConstants.PLATFORM_TENANT_ID`。
+  `authEndTime` 为空作为长期有效判据，操作按钮以 `tenantType` 判据。「当前会话是否平台管理员」
+  取会话 `ArynUser.platformAdmin`（用户级标记），前端取用户信息接口返回的 `platformAdmin`；
+  存量会话没有该字段时按非平台管理员处理，重新登录即可刷新。
+- 平台管理员专属角色 `ROLE_PLATFORM_ADMIN`（平台租户下「平台管理员」，持有全部菜单）只允许
+  平台管理员维护：角色新增/修改/删除、角色菜单保存、员工角色授予都会校验会话平台管理员身份；
+  租户管理员也不能修改/停用/删除平台管理员账号。`syncRoleMenus` 不裁剪该角色。
+- 平台租户必须有自己的启用 `sys_storage_config`（种子：boot `181` / cloud `183`，默认本机
+  `/data/aryn/uploads`）：个人信息头像、租户 Logo 等平台级上传按登录用户自己的租户查存储配置，
+  不能依赖业务租户的配置。`domain` 为空只返回站内相对 URL，跨源管理端需补公开访问域名。
+  2026-11-03 起平台租户由「悦航购」担任（boot `196` / cloud `201` 合并脚本），悦航购自身已有启用
+  存储配置时不再继承平台租户配置；新增平台级种子/授权脚本按 `tenant_type='1'` 或目标租户管理员
+  角色推导，**不要**写死租户 ID。
 
 ### 写入归属
 
@@ -476,3 +490,22 @@ MVC 兜底 `code=1`）。前端只判 `code===401`，导致被顶下线时管理
   原 URL 与 `bizTag`。
 - 存量私有文件仍在租户根目录，未自动迁移；对象存储的私有性依赖桶 ACL，本次未改。
 - 免登公开读（商品目录等）不在本次会话闭环内；租户停用后如需整租户下线，应在网关/过滤器增加状态检查。
+
+## 手机号修改（2026-11-02）
+
+需求包见 [2026-11-02-员工账号与个人信息手机号修改](../50-需求文档/2026-11-02-员工账号与个人信息手机号修改/README.md)。
+
+- **两个入口、两套安全口径**：管理员入口 `PUT /upms/user/{id}/phone` 走独立权限
+  `upms:sysuser:phone:edit`（与查看权限 `upms:sysuser:phone` 分开，按「重置密码」同敏感度授权，
+  boot `182` / cloud `184` 种子）；本人入口 `PUT /upms/profile/phone` 无额外权限，但必须同时校验
+  当前密码 + 新手机号短信验证码（`SmsCodeVerifier` 原子消费），不能只凭登录态换绑。
+- **手机号全局唯一**：`sys_user` 的 `uk_sys_user_phone`（仅 `del_flag='0'`）跨租户生效；应用层用
+  `ISysUserService#getCount` 预检并捕获唯一键冲突。不要改成租户内唯一——`selectUserByPhone` 是
+  免租户旁路，短信登录按全局唯一解析账号。
+- **脱敏值永不回写**：列表/详情 `SysUserVO.phone` 已脱敏；员工编辑接口继续丢弃 `phone`，换绑只能走
+  独立接口并接收完整 11 位号码，禁止放开通用编辑提交。
+- **配送员资料同步**：两个入口在本地更新成功后调用
+  `RemoteDeliveryAccountService#syncStaffPhone(sysUserId, phone)` 更新未删除 `delivery_staff.staff_phone`；
+  best-effort，失败只 warn。配送登录读 `sys_user.phone`（即时生效），`staff_phone` 只用于配送工作台展示/搜索。
+- **不强制下线**：手机号不是当前 token 的校验因子，改号不撤销会话；如需强制重登，需新增
+  `PHONE_CHANGED` 会话失效子原因并同步前后端契约。

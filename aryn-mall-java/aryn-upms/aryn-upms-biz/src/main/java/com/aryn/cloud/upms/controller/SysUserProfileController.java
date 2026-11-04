@@ -10,10 +10,13 @@ import com.aryn.cloud.common.log.annotation.SysLog;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.entity.ArynUser;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
+import com.aryn.cloud.common.security.service.SmsCodeVerifier;
 import com.aryn.cloud.common.security.util.PasswordPolicy;
 import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.common.storage.handler.StorageFactory;
+import com.aryn.cloud.order.api.remote.RemoteDeliveryAccountService;
 import com.aryn.cloud.upms.api.dto.SysUserProfileDTO;
+import com.aryn.cloud.upms.api.dto.SysUserProfilePhoneUpdateDTO;
 import com.aryn.cloud.upms.api.entity.SysUser;
 import com.aryn.cloud.upms.service.ISysStorageConfigService;
 import com.aryn.cloud.upms.service.ISysUserService;
@@ -22,6 +25,8 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.dubbo.config.annotation.DubboReference;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -33,8 +38,8 @@ import java.util.regex.Pattern;
  * 当前登录用户的个人信息与账号安全。
  *
  * <p>只操作会话中的登录用户，不接受客户端传入 userId：普通员工也能自助维护头像、
- * 昵称、邮箱与密码，不需要账号管理权限。修改登录账号与密码都要求校验当前密码，
- * 避免会话被劫持后直接改掉登录凭证。</p>
+ * 昵称、邮箱与密码，不需要账号管理权限。修改登录账号、密码与手机号都要求校验当前密码，
+ * 换绑手机号还要求新号短信验证码，避免会话被劫持后直接改掉登录凭证。</p>
  *
  * <p>所有读写都在登录用户自己的租户上下文下执行：平台管理员切换租户后，请求头里的
  * 租户是“正在查看的租户”，不能用来定位或更新自己的账号。</p>
@@ -54,6 +59,9 @@ public class SysUserProfileController {
 
 	private static final Pattern USERNAME_PATTERN = Pattern.compile("^\\S{3,32}$");
 
+	/** 手机号格式：11 位大陆手机号 */
+	private static final Pattern PHONE_PATTERN = Pattern.compile("^1[3-9]\\d{9}$");
+
 	private static final int NICKNAME_MAX_LENGTH = 32;
 
 	private static final int EMAIL_MAX_LENGTH = 128;
@@ -65,6 +73,11 @@ public class SysUserProfileController {
 	private final StorageFactory storageFactory;
 
 	private final UploadFileValidator uploadFileValidator;
+
+	private final SmsCodeVerifier smsCodeVerifier;
+
+	@DubboReference
+	private final RemoteDeliveryAccountService remoteDeliveryAccountService;
 
 	@SysLog("修改个人资料")
 	@Operation(summary = "修改当前用户个人资料")
@@ -134,6 +147,71 @@ public class SysUserProfileController {
 			refreshSession(loginUser, user -> user.setUsername(username));
 		}
 		return Result.success(updated);
+	}
+
+	/**
+	 * 自助换绑手机号：当前密码 + 新手机号短信验证码双因子，验证码最后校验并一次性消费，
+	 * 前面任何一项失败都不消耗验证码。
+	 *
+	 * <p>全程强制在登录用户自己的租户上下文内执行（含配送同步 RPC）：平台管理员切换租户后
+	 * 请求头里的租户是「正在查看的租户」，不能用来定位自己的账号或同步配送资料。</p>
+	 */
+	@SysLog("修改手机号")
+	@Operation(summary = "修改当前用户手机号")
+	@PutMapping("/phone")
+	public Result<Boolean> updatePhone(@RequestBody SysUserProfilePhoneUpdateDTO dto) {
+		ArynUser loginUser = SecurityUtils.requireUser();
+		if (dto == null) {
+			return Result.fail("请输入手机号");
+		}
+		String phone = StrUtil.trim(dto.getPhone());
+		if (StrUtil.isBlank(phone)) {
+			return Result.fail("请输入手机号");
+		}
+		if (!PHONE_PATTERN.matcher(phone).matches()) {
+			return Result.fail("手机号格式不正确");
+		}
+		return withOwnTenant(loginUser, () -> {
+			SysUser current = sysUserService.getById(loginUser.getUserId());
+			if (current == null) {
+				throw new ArynBusinessException("当前账号信息不存在");
+			}
+			if (!passwordMatches(dto.getPassword(), current.getPassword())) {
+				return Result.fail("当前密码错误");
+			}
+			if (phone.equals(current.getPhone())) {
+				return Result.fail("新手机号与当前手机号相同");
+			}
+			// 手机号唯一约束跨租户（del_flag='0'），查重与管理员入口同一口径
+			SysUser query = new SysUser();
+			query.setPhone(phone);
+			if (sysUserService.getCount(query) > 0) {
+				return Result.fail("该手机号已被使用");
+			}
+			String codeError = verifyPhoneCode(phone, dto.getCode());
+			if (codeError != null) {
+				return Result.fail(codeError);
+			}
+			SysUser update = new SysUser();
+			update.setId(loginUser.getUserId());
+			update.setPhone(phone);
+			boolean updated;
+			try {
+				updated = sysUserService.updateById(update);
+			}
+			catch (DuplicateKeyException e) {
+				// 唯一键冲突消息会带出完整手机号，日志只记录当前账号
+				log.warn("自助换绑手机号触发唯一键冲突：userId={}", loginUser.getUserId());
+				return Result.fail("该手机号已被使用");
+			}
+			if (!updated) {
+				return Result.fail("手机号修改失败");
+			}
+			refreshSession(loginUser, user -> user.setPhone(phone));
+			// 配送同步是跨服务 best-effort：失败只告警，不阻断换绑结果
+			syncDeliveryStaffPhone(loginUser.getUserId(), phone);
+			return Result.success(true);
+		});
 	}
 
 	@SysLog("修改密码")
@@ -214,6 +292,39 @@ public class SysUserProfileController {
 		}
 		catch (IllegalArgumentException e) {
 			return false;
+		}
+	}
+
+	/**
+	 * 新手机号短信验证码校验，返回 null 表示通过。
+	 *
+	 * <p>空验证码直接拒绝，不白跑一次 Redis；非空时原子「校验 + 消费 + 失败计数」，
+	 * 错误 5 次验证码即作废，用户需要重新获取。</p>
+	 */
+	private String verifyPhoneCode(String phone, String code) {
+		if (StrUtil.isBlank(code)) {
+			return "请输入验证码";
+		}
+		SmsCodeVerifier.Result verifyResult = smsCodeVerifier.verifyAndConsume(phone, code);
+		if (verifyResult == SmsCodeVerifier.Result.TOO_MANY_ATTEMPTS) {
+			return "验证码错误次数过多，请重新获取验证码";
+		}
+		if (verifyResult != SmsCodeVerifier.Result.SUCCESS) {
+			return "验证码不合法";
+		}
+		return null;
+	}
+
+	/**
+	 * 配送员资料联系电话 best-effort 同步：手机号已落库并即时生效，
+	 * 同步失败只告警，不回滚、不阻断接口返回。
+	 */
+	private void syncDeliveryStaffPhone(String userId, String phone) {
+		try {
+			remoteDeliveryAccountService.syncStaffPhone(userId, phone);
+		}
+		catch (Exception e) {
+			log.warn("修改手机号后同步配送员联系电话失败：userId={}，原因={}", userId, e.getMessage());
 		}
 	}
 

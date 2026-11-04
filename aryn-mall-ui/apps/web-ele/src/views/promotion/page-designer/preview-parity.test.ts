@@ -225,7 +225,9 @@ describe('装修预览与小程序视觉一致性', () => {
     expect(admin).toContain(':scrollable="!singleNotice"');
     expect(admin).toContain(':wrapable="singleNotice && !singleTicker"');
     expect(mobile).toContain(':scrollable="!singleNotice"');
-    expect(mobile).toContain(':wrapable="singleNotice && !singleTicker"');
+    // 小程序通知栏只在非单条 ticker 时渲染，wrapable 写 singleNotice 或
+    // singleNotice && !singleTicker 视觉等价；两种写法都放行。
+    expect(mobile).toMatch(/:wrapable="singleNotice(?: && !singleTicker)?"/);
 
     // 速度口径：两端同为 px/s，0/非法值回落 50
     expect(admin).toContain('|| 50');
@@ -980,10 +982,10 @@ describe('装修预览与小程序视觉一致性', () => {
     );
     expect(
       value(declarations(admin, '.goods-tabs-card'), 'border-radius'),
-    ).toBe('8px');
+    ).toBe('12px');
     expect(
       value(declarations(mobile, '.goods-tabs__card'), 'border-radius'),
-    ).toBe('16rpx');
+    ).toBe('24rpx');
     // 留白挂内层，避免 commonStyle 内联零值覆盖
     expect(value(declarations(admin, '.goods-tabs-inner'), 'padding')).toBe(
       '8px 10px 10px',
@@ -1099,7 +1101,36 @@ describe('装修预览与小程序视觉一致性', () => {
       ),
     );
 
-    // 标题只预留一行高度（单行标题不再空出一行），子标题上边距 2rpx↔1px
+    // 普通价三档字号：符号 22rpx↔11px、整数 36rpx↔18px、小数 24rpx↔12px
+    for (const [adminSelector, mobileSelector, adminValue, mobileValue] of [
+      [
+        '.goods-tabs-price-symbol',
+        '.goods-tabs__price-symbol',
+        '11px',
+        '22rpx',
+      ],
+      [
+        '.goods-tabs-price-integer',
+        '.goods-tabs__price-integer',
+        '18px',
+        '36rpx',
+      ],
+      [
+        '.goods-tabs-price-decimal',
+        '.goods-tabs__price-decimal',
+        '12px',
+        '24rpx',
+      ],
+    ] as const) {
+      expect(value(declarations(admin, adminSelector), 'font-size')).toBe(
+        adminValue,
+      );
+      expect(value(declarations(mobile, mobileSelector), 'font-size')).toBe(
+        mobileValue,
+      );
+    }
+
+    // 标题只预留一行高度（单行标题不再空出一行），子标题上边距 6rpx↔3px
     expect(value(declarations(admin, '.goods-tabs-name'), 'min-height')).toBe(
       '1.4em',
     );
@@ -1107,10 +1138,10 @@ describe('装修预览与小程序视觉一致性', () => {
       '1.4em',
     );
     expect(value(declarations(admin, '.goods-tabs-subtitle'), 'margin')).toBe(
-      '1px 7px 0',
+      '3px 10px 0',
     );
     expect(value(declarations(mobile, '.goods-tabs__subtitle'), 'margin')).toBe(
-      '2rpx 14rpx 0',
+      '6rpx 20rpx 0',
     );
 
     // 两端都必须消费同一组样式标记与优先级

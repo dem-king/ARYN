@@ -79,6 +79,26 @@ public class RemoteDeliveryAccountServiceImpl implements RemoteDeliveryAccountSe
 		return deliveryStaffService.getByUserId(sysUserId) != null;
 	}
 
+	@Override
+	public boolean syncStaffPhone(String sysUserId, String phone) {
+		if (StrUtil.isBlank(sysUserId) || StrUtil.isBlank(phone)) {
+			return false;
+		}
+		// getByUserId 走逻辑删除过滤，只同步未删除的配送员资料
+		DeliveryStaff staff = deliveryStaffService.getByUserId(sysUserId);
+		if (staff == null) {
+			return false;
+		}
+		if (Objects.equals(phone, staff.getStaffPhone())) {
+			return true;
+		}
+		// 只更新资料电话，员工账号/姓名/状态等字段保持原值
+		DeliveryStaff update = new DeliveryStaff();
+		update.setId(staff.getId());
+		update.setStaffPhone(phone);
+		return deliveryStaffService.updateById(update);
+	}
+
 	private int countPendingTasks(String staffId) {
 		if (StrUtil.isBlank(staffId)) {
 			return 0;

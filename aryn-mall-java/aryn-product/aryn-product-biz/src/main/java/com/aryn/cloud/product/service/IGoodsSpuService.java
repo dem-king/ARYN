@@ -20,12 +20,19 @@ import java.util.Map;
 public interface IGoodsSpuService extends IService<GoodsSpu> {
 
 	/**
-	 * 分页查询商品
+	 * 管理端分页查询商品。
+	 *
+	 * <p>zoneType 为管理端列表的「专区」分类筛选：{@code member} 会员专区、
+	 * {@code clearance} 低价捡漏、{@code none} 未加入任何专区；为空时不追加专区条件，
+	 * SQL 与存量逐字一致。口径与列表「专区」列一致（只看商品级标签、不看到期时间），
+	 * 已到期的出清商品仍需能筛出来续期或取消标签。不支持的值抛业务异常，避免前端拼错时静默返回全量。
+	 *
 	 * @param page page
 	 * @param goodsSpu goodsSpu
+	 * @param zoneType 专区分类：member / clearance / none，可空
 	 * @return IPage<GoodsSpu>
 	 */
-	IPage<GoodsSpu> adminPage(Page page, GoodsSpu goodsSpu);
+	IPage<GoodsSpu> adminPage(Page page, GoodsSpu goodsSpu, String zoneType);
 
 	/**
 	 * 统一商品目录分页（C 端场景选货页/搜索共用）。
@@ -96,6 +103,24 @@ public interface IGoodsSpuService extends IService<GoodsSpu> {
 	 * @throws com.aryn.cloud.common.security.handler.ArynBusinessException bargainRate 越界时抛出
 	 */
 	IPage<GoodsSpu> apiPage(Page page, GoodsSpu goodsSpu, BigDecimal bargainRate);
+
+	/**
+	 * 分页查询商品（C 端专区选品）。
+	 *
+	 * <p>memberItem/clearanceItem 为 true 时按商品级标签过滤（捡漏额外排除已到期）；
+	 * zoneSort 只接受 {@code member_price}/{@code clearance}，由 XML 输出固定排序并忽略 asc/desc。
+	 * 全部为空时与 {@link #apiPage(Page, GoodsSpu, BigDecimal)} 行为完全一致。
+	 *
+	 * @param page 分页
+	 * @param goodsSpu 查询条件
+	 * @param bargainRate 低价捡漏折扣率阈值（与 zoneSort 互斥，zoneSort 非空时忽略）
+	 * @param memberItem 只看会员商品
+	 * @param clearanceItem 只看未到期出清商品
+	 * @param zoneSort 专区排序：member_price / clearance
+	 * @return 商品分页
+	 */
+	IPage<GoodsSpu> apiPage(Page page, GoodsSpu goodsSpu, BigDecimal bargainRate, Boolean memberItem,
+			Boolean clearanceItem, String zoneSort);
 
 	/**
 	 * 推荐流分页（商详/购物车/个人中心/订单页共用）。

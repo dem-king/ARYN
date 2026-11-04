@@ -4,6 +4,7 @@ import { onLoad, onPageScroll, onShow } from '@dcloudio/uni-app'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+import { formatSignInDate, useSignInStatus } from '@/composables/useSignInStatus'
 import { getSignInConfigPage, getSignInRecordPage, signIn as signInApi } from '@/sub-pages/api/user/signIn'
 
 const { handlePageScroll } = useFrostedNavbar()
@@ -33,6 +34,19 @@ const signedDates = ref<string[]>([])
 // 签到成功后的「+N」飘分动画：key 递增强制重建节点重播动画
 const floatVisible = ref(false)
 const floatKey = ref(0)
+
+/**
+ * 与会员中心共用「今日签到态」：首帧先用本地快照渲染，
+ * 已签到用户进来不会先看到一瞬「立即签到」，再由当月记录接口校正。
+ * 快照只含「今天已签」，所以同步补一条当日日期，避免首帧「CTA 已签到 +
+ * 本月签到 0 天 + 日历未打勾」三处口径不一致。
+ */
+const signInStatus = useSignInStatus()
+if (signInStatus.syncFromCache()) {
+  isSigned.value = true
+  consecutiveDay.value = signInStatus.consecutiveDay.value
+  signedDates.value = [formatSignInDate()]
+}
 
 onLoad(() => {
   loadSignInConfig()
@@ -66,13 +80,16 @@ async function loadSignInRecord() {
       endDate: range.end,
     })
     const records = response.records || []
-    signedDates.value = records.map((r: any) => r.signDate)
+    signedDates.value = records.map(r => r.signDate)
     // 检查今天是否已签到
-    const today = formatDate(now)
+    const today = formatSignInDate(now)
     isSigned.value = signedDates.value.includes(today)
     if (records.length > 0) {
       consecutiveDay.value = records[0].consecutiveDay || 0
     }
+    // 记录接口是签到态的唯一事实来源：顺手刷新本地快照，供会员中心首帧直接渲染
+    if (isSigned.value)
+      signInStatus.markSigned(consecutiveDay.value, now)
     refreshCalendar()
   }
   catch (error) {
@@ -85,8 +102,8 @@ function currentMonthRange(now: Date): { begin: string, end: string } {
   const year = now.getFullYear()
   const month = now.getMonth()
   return {
-    begin: formatDate(new Date(year, month, 1)),
-    end: formatDate(new Date(year, month + 1, 0)),
+    begin: formatSignInDate(new Date(year, month, 1)),
+    end: formatSignInDate(new Date(year, month + 1, 0)),
   }
 }
 
@@ -99,8 +116,10 @@ async function handleSignIn() {
     isSigned.value = true
     consecutiveDay.value = result.consecutiveDay
     rewardPoint.value = result.rewardPoint
-    const today = formatDate(new Date())
+    const today = formatSignInDate(new Date())
     signedDates.value.unshift(today)
+    // 写本地快照：返回会员中心时横幅立即变「已签到」，不必等接口往返
+    signInStatus.markSigned(result.consecutiveDay)
     // 签到成功后立即刷新日历，否则当日格子要等下次 onShow 才打勾
     refreshCalendar()
     if (result.rewardPoint > 0) {
@@ -128,13 +147,6 @@ function toPointsRecord() {
   router.push({ name: 'member-points-record' })
 }
 
-function formatDate(date: Date): string {
-  const y = date.getFullYear()
-  const m = String(date.getMonth() + 1).padStart(2, '0')
-  const d = String(date.getDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
-}
-
 // 生成当月日历数据
 interface CalendarDay {
   date: string
@@ -154,7 +166,7 @@ function getCalendarDays(): CalendarDay[] {
   const days: CalendarDay[] = []
   for (let d = 1; d <= daysInMonth; d++) {
     const date = new Date(year, month, d)
-    const dateStr = formatDate(date)
+    const dateStr = formatSignInDate(date)
     days.push({
       date: dateStr,
       day: d,

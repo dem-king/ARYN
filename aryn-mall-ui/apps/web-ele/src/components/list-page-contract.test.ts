@@ -145,3 +145,25 @@ describe('list card growth contract', () => {
     expect(source).toContain('overflow: visible');
   });
 });
+
+describe('data table action column contract', () => {
+  const source = readFileSync(
+    resolve(process.cwd(), 'packages/styles/src/ele/index.css'),
+    'utf8',
+  );
+
+  it('aligns the "更多" dropdown with neighbouring link buttons', () => {
+    // Element Plus 默认给 .el-dropdown 加 vertical-align: top，而 link 按钮是 middle，
+    // 两者混排时下拉按钮会偏高 2-3px（租户管理/用户管理操作列均踩过）
+    expect(source).toMatch(
+      /\.hx-data-table \.el-table__cell \.el-dropdown \{\s*vertical-align: middle;/,
+    );
+  });
+
+  it('keeps the 8px gap before the dropdown', () => {
+    // 下拉包装层插在按钮之间，会打断 .el-button + .el-button 的间距规则
+    expect(source).toMatch(
+      /\.hx-data-table \.el-table__cell \.el-button \+ \.el-dropdown \{\s*margin-left: 8px;/,
+    );
+  });
+});

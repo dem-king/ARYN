@@ -21,6 +21,9 @@ public interface IOrderStatisticsService {
 	 */
 	OrderTradeStatisticsVO getOrderTradeStatistics(OrderStatisticsDTO dto);
 
+	/** 会员/出清专区让利报表（按 zone_source 聚合，GMV 不含运费）。 */
+	ZoneReportVO getZoneReport(OrderStatisticsDTO dto);
+
 	/**
 	 * 交易趋势统计
 	 * @param dto 统计参数

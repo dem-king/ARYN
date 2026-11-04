@@ -1,19 +1,8 @@
-import { ARYN_PLATFORM_TENANT_ID } from '@vben/constants';
-
 import { describe, expect, it } from 'vitest';
 
 import { resolveAdminBrand } from './tenant-brand';
 
 describe('admin tenant brand', () => {
-  it('keeps the platform brand for the platform tenant', () => {
-    expect(
-      resolveAdminBrand(ARYN_PLATFORM_TENANT_ID, {
-        logoUrl: '/tenant.png',
-        name: '系统租户',
-      }),
-    ).toEqual({});
-  });
-
   it('keeps the platform brand when no tenant is selected', () => {
     expect(
       resolveAdminBrand('', { logoUrl: '/tenant.png', name: '悦航购' }),

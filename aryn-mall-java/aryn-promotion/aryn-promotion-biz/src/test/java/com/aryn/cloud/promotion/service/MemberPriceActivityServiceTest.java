@@ -6,6 +6,7 @@ import com.aryn.cloud.product.api.remote.RemoteGoodsSkuService;
 import com.aryn.cloud.promotion.api.entity.PromotionActivity;
 import com.aryn.cloud.promotion.api.vo.AppMemberPriceVO;
 import com.aryn.cloud.promotion.mapper.PromotionActivityMapper;
+import com.aryn.cloud.promotion.service.impl.MallZoneSettingService;
 import com.aryn.cloud.promotion.service.impl.MemberPriceActivityServiceImpl;
 import com.aryn.cloud.user.api.remote.RemoteMallUserService;
 import com.aryn.cloud.user.api.remote.RemoteMemberLevelService;
@@ -84,9 +85,14 @@ class MemberPriceActivityServiceTest {
 		activityMapper = mock(PromotionActivityMapper.class);
 		goodsSkuService = mock(RemoteGoodsSkuService.class);
 		memberLevelService = mock(RemoteMemberLevelService.class);
-		// 构造器只接收两个 final 依赖；会员等级是 @DubboReference 非 final 字段（boot 启动约束），反射注入
+		// 构造器接收 mapper、商品远程与专区设置；会员等级是 @DubboReference 非 final 字段（boot 启动约束），反射注入
 		mallUserService = mock(RemoteMallUserService.class);
-		service = new MemberPriceActivityServiceImpl(activityMapper, goodsSkuService);
+		MallZoneSettingService settingService = mock(MallZoneSettingService.class);
+		com.aryn.cloud.promotion.api.entity.MallZoneSetting setting =
+			new com.aryn.cloud.promotion.api.entity.MallZoneSetting();
+		setting.setEnabled("1");
+		when(settingService.getOrDefault(any(), any())).thenReturn(setting);
+		service = new MemberPriceActivityServiceImpl(activityMapper, goodsSkuService, settingService);
 		ReflectionTestUtils.setField(service, "remoteMemberLevelService", memberLevelService);
 		// 会员折扣率权益也是 @DubboReference 非 final 字段（boot 构造器注入会启动失败），同样反射注入
 		ReflectionTestUtils.setField(service, "remoteMallUserService", mallUserService);
@@ -306,6 +312,36 @@ class MemberPriceActivityServiceTest {
 
 		assertNotNull(result);
 		assertEquals(0, result.getItems().get(0).getMemberPrice().compareTo(new BigDecimal("8.8")));
+	}
+
+	@Test
+	@DisplayName("手工活动与系统活动并存：按 SKU 合并价格，不能只返回第一个活动")
+	void mergesManualAndSystemActivityPrices() {
+		PromotionActivity manual = activity("act-manual", memberRules("lv-1", "sku-1", "8.8"));
+		PromotionActivity system = activity("act-system", memberRules("lv-1", "sku-1", "8.0", "sku-2", "6.0"));
+		system.setActivityCode("SYS_MEMBER_ZONE");
+		when(activityMapper.selectList(any())).thenReturn(List.of(manual, system));
+		when(goodsSkuService.getBySkuIds(any())).thenReturn(List.of(
+				sku("sku-1", "spu-1", "29.9"), sku("sku-2", "spu-2", "19.9")));
+
+		AppMemberPriceVO result = service.getSkuPrices(List.of("sku-1", "sku-2"), USER);
+
+		assertNotNull(result);
+		assertEquals(2, result.getItems().size());
+		// 同一 SKU 手工活动优先（即使系统价更低）
+		assertEquals(0, result.getItems().stream()
+			.filter(item -> "sku-1".equals(item.getSkuId()))
+			.findFirst()
+			.orElseThrow()
+			.getMemberPrice()
+			.compareTo(new BigDecimal("8.8")));
+		// 手工活动未覆盖的 SKU 仍由系统活动补价
+		assertEquals(0, result.getItems().stream()
+			.filter(item -> "sku-2".equals(item.getSkuId()))
+			.findFirst()
+			.orElseThrow()
+			.getMemberPrice()
+			.compareTo(new BigDecimal("6.0")));
 	}
 
 	@Test

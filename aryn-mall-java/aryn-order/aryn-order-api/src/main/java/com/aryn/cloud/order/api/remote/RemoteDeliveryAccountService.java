@@ -30,4 +30,18 @@ public interface RemoteDeliveryAccountService {
 	 */
 	boolean hasActiveDeliveryStaff(String sysUserId);
 
+	/**
+	 * 同步员工账号手机号到该员工的配送员资料（staff_phone 资料快照）
+	 *
+	 * <p>租户隔离由调用链上下文（ArynTenantContextHolder）保证：调用方必须在员工账号
+	 * 自己的租户上下文内调用，否则会定位到错误租户的配送资料。员工账号手机号是登录凭据，
+	 * 本地更新后立即生效，本方法只维护配送工作台展示/搜索用的联系电话快照，
+	 * 调用方按 best-effort 处理，同步失败不回滚手机号修改。</p>
+	 * @param sysUserId 员工账号ID
+	 * @param phone 新手机号
+	 * @return 手机号或员工账号为空、无未删除的配送员资料时返回 false；
+	 * 号码相同直接返回 true；否则返回资料更新结果
+	 */
+	boolean syncStaffPhone(String sysUserId, String phone);
+
 }

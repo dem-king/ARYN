@@ -160,4 +160,18 @@ public interface OrderStatisticsMapper {
 	 */
 	OrderRefundSummaryVO getRefundSummary(@Param("dto") OrderStatisticsDTO dto);
 
+	/**
+	 * 专区让利：按 zone_source 聚合已支付订单，让利 = 活动前价差 + 会员折扣。
+	 *
+	 * @param dto 时间范围
+	 * @param tenantId 显式租户（两表 join，不能依赖拦截器猜别名）
+	 * @return 按专区拆分的行
+	 */
+	List<ZoneReportVO.Item> getZoneReport(@Param("dto") OrderStatisticsDTO dto,
+			@Param("tenantId") String tenantId);
+
+	/** 专区让利总计（订单数需跨专区去重，不能把分行结果相加）。 */
+	ZoneReportVO.Item getZoneReportTotal(@Param("dto") OrderStatisticsDTO dto,
+			@Param("tenantId") String tenantId);
+
 }

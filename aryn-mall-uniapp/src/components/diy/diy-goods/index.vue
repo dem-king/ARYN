@@ -1,11 +1,14 @@
 <script setup lang="ts">
+import type { ListZonePrice } from '@/utils/zone-price'
+
 import { computed, ref, watch } from 'vue'
 import { getByIds } from '@/api/product/spu'
-import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
 import QuickCartButton from '@/components/quick-cart-button/index.vue'
 import { useDiyStyle } from '@/composables/useDiyStyle'
+import { useZonePrices } from '@/composables/useZonePrices'
 import { stockHintText } from '@/utils/stock-display'
+import { zonePriceBadgeText } from '@/utils/zone-price'
 
 const props = defineProps({
   showData: {
@@ -13,6 +16,20 @@ const props = defineProps({
     default: () => { },
   },
 })
+
+/**
+ * 列表「专区价」批量补价句柄：会员价/出清价都不在商品列表接口里，
+ * 列表先渲染、价格后补，失败静默（见 utils/zone-price 与 composables/useZonePrices）。
+ */
+const zone = useZonePrices()
+
+/** 本轮商品补专区价：不 await，避免价格接口阻塞楼层渲染 */
+function loadZonePrices(items: any[]) {
+  const ids = items.map(item => String(item?.id || '').trim()).filter(Boolean)
+  if (!ids.length) return
+  void zone.loadForSpuIds(ids)
+}
+
 const goodsList = ref()
 watch(
   () => props.showData.goodsList,
@@ -27,6 +44,7 @@ watch(
     try {
       const response = await getByIds(ids)
       goodsList.value = response
+      loadZonePrices(response || [])
     }
     catch (error) {
       console.error('获取商品列表失败:', error)
@@ -41,14 +59,36 @@ const dynamicGoodsStyles = useDiyStyle(
 )
 
 /**
- * 划线原价：运营在后台勾选「商品原价」后才渲染。
+ * 卡片专区价：会员价/捡漏价命中时切换主价与划线，未命中回落原售价与未达标引导，
+ * 统一走共享口径 `utils/zone-price#resolveListZonePrice`（与会员专区/低价捡漏一致）。
  *
- * 该开关在旧版装修数据里都是 false（此前两端都未实现），因此这里严格按
- * `=== true` 判定，不做「缺省即显示」的兜底，避免运营没开也划出原价。
+ * 划线原价：运营在后台勾选「商品原价」后才渲染（旧版装修数据里该开关都是 false，
+ * 严格按 === true 判定，不做「缺省即显示」兜底）；主价/角标不受该开关影响。
  */
-function showOriginalPrice(item: any) {
-  return props.showData?.showOriginalPrice === true
-    && shouldShowOriginalPrice(item.salesPrice, item.originalPrice)
+function cardDisplay(item: any): ListZonePrice {
+  return zone.cardPriceOf(item, props.showData?.showOriginalPrice === true)
+}
+
+function cardMainPrice(item: any): number {
+  return cardDisplay(item).mainPrice
+}
+
+function cardStrikePrice(item: any): number | null {
+  return cardDisplay(item).strikePrice
+}
+
+function cardBadgeText(item: any): string {
+  return zonePriceBadgeText(cardDisplay(item).badgeKind)
+}
+
+function cardBadgeClass(item: any): string {
+  return cardDisplay(item).badgeKind === 'member'
+    ? 'price-badge--member'
+    : 'price-badge--clearance'
+}
+
+function cardGuideText(item: any): string {
+  return cardDisplay(item).guideText || ''
 }
 
 /**
@@ -109,17 +149,29 @@ const originalPriceStyle = computed(() => {
                   v-if="showData.showSalesPrice" class="price-info"
                   :style="{ 'color': showData.salesPriceColor, 'fontSize': `${showData.salesPriceSize}px`, 'font-weight': showData.salesPriceStyle === '1' ? 'bold' : '' }"
                 >
-                  ￥{{ item.salesPrice }}
+                  <!-- 角标：会员价 / 捡漏价；主价与划线均由共享专区价口径给出 -->
+                  <text
+                    v-if="cardBadgeText(item)" class="price-badge" :class="cardBadgeClass(item)"
+                  >
+                    {{ cardBadgeText(item) }}
+                  </text>
+                  ￥{{ cardMainPrice(item).toFixed(2) }}
                   <!--
-                    划线原价：由后台「商品原价」开关控制，且只在原价高于售价时显示
-                    （存量商品原价多为 0，直接渲染会划出「￥0」）。
+                    划线价：会员价/捡漏价命中划当前售价；普通价由后台「商品原价」开关控制，
+                    且只在原价高于售价时显示（存量商品原价多为 0，直接渲染会划出「￥0」）。
                     与售价同行，随该行一起省略号截断，不额外占高。
                   -->
                   <text
-                    v-if="showOriginalPrice(item)" class="price-original" :style="originalPriceStyle"
+                    v-if="cardStrikePrice(item) !== null" class="price-original" :style="originalPriceStyle"
                   >
-                    ￥{{ item.originalPrice }}
+                    ￥{{ Number(cardStrikePrice(item)).toFixed(2) }}
                   </text>
+                </view>
+                <!-- 未达标/未登录的会员价引导：只透出「会员专享 ¥X」，主价不动 -->
+                <view
+                  v-if="showData.showSalesPrice && cardGuideText(item)" class="price-member-guide"
+                >
+                  {{ cardGuideText(item) }}
                 </view>
                 <!--
                   快捷加购：卡片上的购买按钮不再是纯装饰，点击直接加购。
@@ -127,7 +179,10 @@ const originalPriceStyle = computed(() => {
                   单规格一键加购，多规格自动唤起规格弹层。
                 -->
                 <view v-if="showData.showBuyBtn !== false" class="goods-info-buy-btn">
-                  <quick-cart-button :spu-id="item.id">
+                  <quick-cart-button
+                    :spu-id="item.id"
+                    :zone-prices="zone.skuZonePricesOf(item.id)"
+                  >
                     <wd-icon
                       v-if="showData.buyBtnStyle === '1'" name="goods" :color="showData.buyBtnColor"
                       :size="`${showData.buyBtnSize}px`"
@@ -255,6 +310,35 @@ const originalPriceStyle = computed(() => {
                 color: #999;
                 font-weight: normal;
                 text-decoration: line-through;
+              }
+
+              /* 专区价角标：会员价走浅金、捡漏价走主题红，小号标签不抢价格层级 */
+              .price-badge {
+                margin-right: 4px;
+                padding: 0 4px;
+                border-radius: 3px;
+                font-size: 10px;
+                font-weight: 600;
+                line-height: 1.5;
+              }
+
+              .price-badge--member {
+                border: 1px solid #ecd4a5;
+                background: #fffaf0;
+                color: #a06a1f;
+              }
+
+              .price-badge--clearance {
+                background: var(--wot-color-theme-primary, #ff2237);
+                color: #fff;
+              }
+
+              /* 会员价引导：未达标/未登录时的一行小字，不改变主价与划线口径 */
+              .price-member-guide {
+                margin-top: 4px;
+                color: #a06a1f;
+                font-size: 12px;
+                line-height: 1.4;
               }
 
               .goods-info-buy-btn {

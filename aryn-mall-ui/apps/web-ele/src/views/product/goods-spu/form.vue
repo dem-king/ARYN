@@ -3,10 +3,13 @@ import type { FormInstance } from 'element-plus';
 
 import type { GoodsAttrTagFormValue } from './goods-spu-form-validation';
 
+import type { ZoneTagDetail } from '#/views/product/zone-batch/types';
+
 import { defineAsyncComponent, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import {
+  ElAlert,
   ElButton,
   ElCascader,
   ElCol,
@@ -31,6 +34,7 @@ import { getPage as getCategoryTree } from '#/api/product/goods-category';
 import { getList as getSpecsList } from '#/api/product/goods-specs';
 import { addObj, editObj, getById } from '#/api/product/goods-spu';
 import { useDict } from '#/utils/dict';
+import ZoneSkuEditor from '#/views/product/zone-batch/components/ZoneSkuEditor.vue';
 
 import {
   validateGoodsAttrTags,
@@ -53,6 +57,9 @@ interface DataState {
     categoryFirstId: string;
     categoryIds: Array<string>;
     categorySecondId: string;
+    clearanceDiscountRate?: number;
+    clearanceExpireTime?: string;
+    clearancePrice?: number;
     description: string;
     enableSpecs: string;
     fixedFreightPrice: number;
@@ -61,6 +68,11 @@ interface DataState {
     goodsSpuSpecs: Array<any>;
     id: undefined;
     introduction: string;
+    isClearanceItem: number;
+    isMemberItem: number;
+    memberDiscountRate?: number;
+    memberPriceFixed?: number;
+    memberPriceFloor?: number;
     name: string;
     salesVolume: number;
     sku: {
@@ -114,6 +126,14 @@ const state = reactive<DataState>({
     categoryIds: [],
     freightType: '0',
     fixedFreightPrice: 0,
+    isMemberItem: 0,
+    memberDiscountRate: undefined,
+    memberPriceFixed: undefined,
+    memberPriceFloor: undefined,
+    isClearanceItem: 0,
+    clearancePrice: undefined,
+    clearanceDiscountRate: undefined,
+    clearanceExpireTime: undefined,
   },
   rules: {
     name: [
@@ -300,6 +320,14 @@ const resetForm = (formEl: FormInstance | undefined) => {
     categoryIds: [],
     freightType: '0',
     fixedFreightPrice: 0,
+    isMemberItem: 0,
+    memberDiscountRate: undefined,
+    memberPriceFixed: undefined,
+    memberPriceFloor: undefined,
+    isClearanceItem: 0,
+    clearancePrice: undefined,
+    clearanceDiscountRate: undefined,
+    clearanceExpireTime: undefined,
   };
   loading.value = false;
   // formEl.resetFields();
@@ -337,6 +365,24 @@ const addAttrTag = () => {
 const removeAttrTag = (index: number) => {
   state.form.attrTags.splice(index, 1);
 };
+/**
+ * 专区标签页签独立保存后回填主表单的专区字段。
+ *
+ * 商品主表提交仍走 `editObj(state.form)`；若不回填，刚在专区页签保存的规则会被
+ * 打开编辑页时加载的旧值覆盖，造成「保存成功但被主表单改回去」。
+ */
+const handleZoneSaved = (detail?: ZoneTagDetail) => {
+  if (!detail) return;
+  state.form.isMemberItem = Number(detail.isMemberItem) === 1 ? 1 : 0;
+  state.form.memberDiscountRate = detail.memberDiscountRate ?? undefined;
+  state.form.memberPriceFixed = detail.memberPriceFixed ?? undefined;
+  state.form.memberPriceFloor = detail.memberPriceFloor ?? undefined;
+  state.form.isClearanceItem = Number(detail.isClearanceItem) === 1 ? 1 : 0;
+  state.form.clearancePrice = detail.clearancePrice ?? undefined;
+  state.form.clearanceDiscountRate = detail.clearanceDiscountRate ?? undefined;
+  state.form.clearanceExpireTime = detail.clearanceExpireTime ?? undefined;
+};
+
 /**
  * 提交按钮
  */
@@ -898,12 +944,25 @@ initForm();
                 />
               </ElFormItem>
             </ElTabPane>
+            <ElTabPane label="专区标签" :name="3">
+              <ElAlert
+                type="info"
+                :closable="false"
+                show-icon
+                title="专区标签独立保存：本页签修改后点击「保存专区标签」立即生效；底部商品「确认」不再负责专区标签，避免用旧值覆盖刚保存的规则。"
+                class="mb10"
+              />
+              <ZoneSkuEditor
+                :spu-id="state.form.id || ''"
+                @saved="handleZoneSaved"
+              />
+            </ElTabPane>
           </ElTabs>
         </ElForm>
         <div class="goods-footer">
           <div class="hx-form-footer">
             <ElButton @click="handleClose">关 闭</ElButton>
-            <ElButton @click="handleNext" v-if="active < 2"> 下一步 </ElButton>
+            <ElButton @click="handleNext" v-if="active < 3"> 下一步 </ElButton>
             <ElButton
               type="primary"
               :disabled="loading"

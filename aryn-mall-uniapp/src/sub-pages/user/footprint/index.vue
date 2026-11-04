@@ -2,11 +2,13 @@
 import { onLoad } from '@dcloudio/uni-app'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { shouldShowOriginalPrice, splitPrice } from '@/components/diy/price-display'
+import { splitPrice } from '@/components/diy/price-display'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+import { useZonePrices } from '@/composables/useZonePrices'
 import { getPage } from '@/sub-pages/api/product/footprint'
 import { formatClockTime, resolveHistoryDay } from '@/utils/history-display'
 import { stockHintText } from '@/utils/stock-display'
+import { zonePriceBadgeText } from '@/utils/zone-price'
 
 const { handlePageScroll } = useFrostedNavbar()
 
@@ -40,8 +42,14 @@ interface FootprintItemView {
   name: string
   available: boolean
   price: ReturnType<typeof splitPrice>
-  originalPrice: number | null
-  showOriginal: boolean
+  /** 划线基准（会员价/捡漏价命中时为卡片价，否则为「原价 > 售价」的普通划线） */
+  strikePrice: number | null
+  /** 身份价角标文案（会员价/捡漏价），空串不渲染 */
+  badgeText: string
+  /** 角标样式类型（member/clearance），无角标为空串 */
+  badgeKind: string
+  /** 未达标/未登录的「会员专享 ¥x」引导 */
+  guideText: string
   soldOut: boolean
   stockTag: string
   clock: string
@@ -60,6 +68,8 @@ const list = ref<FootprintDay[]>([])
 const globalLoading = useGlobalLoading()
 const router = useRouter()
 const pagingRef = ref()
+/** 列表专区价：足迹接口只回 SPU，会员价/捡漏价按本页 spuId 异步补拉（先渲染后补价） */
+const zone = useZonePrices()
 
 onLoad(async () => {
   nextTick(() => {
@@ -74,7 +84,11 @@ async function queryList(pageNo: number, pageSize: number) {
       current: pageNo,
       size: pageSize,
     })
-    pagingRef.value?.complete(response.records)
+    const records: FootprintDay[] = response?.records ?? []
+    pagingRef.value?.complete(records)
+    // 卡片先按普通售价渲染，本页商品的会员价/捡漏价异步补拉（失败静默、缓存 60s）
+    const spuIds = records.flatMap(day => (Array.isArray(day?.items) ? day.items : []).map(item => item?.spuId))
+    void zone.loadForSpuIds(spuIds)
   }
   finally {
     globalLoading.close()
@@ -85,16 +99,23 @@ function buildItemView(item: FootprintItem | null | undefined, dayKey: string, i
   const available = Boolean(item?.name)
   const stock = Number(item?.stock)
   const soldOut = available && Number.isFinite(stock) && stock <= 0
-  const originalPrice = Number(item?.originalPrice)
+  const spuId = String(item?.spuId || '')
+  // 专区价与列表卡同一口径：主价（会员价/捡漏价/售价）+ 划线 + 角标 + 未达标引导
+  const display = available
+    ? zone.cardPriceOf({ id: spuId, price: item?.salesPrice, originalPrice: item?.originalPrice })
+    : null
+  const mainPrice = display?.mainPrice ?? 0
   return {
     key: item?.spuId || `${dayKey}-${index}`,
-    spuId: item?.spuId || '',
+    spuId,
     pic: typeof item?.spuUrls === 'string' ? item.spuUrls : '',
     name: available ? String(item?.name) : t('accountSettings.footprint.unavailable'),
     available,
-    price: available ? splitPrice(item?.salesPrice) : null,
-    originalPrice: Number.isFinite(originalPrice) ? originalPrice : null,
-    showOriginal: available && shouldShowOriginalPrice(item?.salesPrice, item?.originalPrice),
+    price: available && mainPrice > 0 ? splitPrice(mainPrice) : null,
+    strikePrice: display?.strikePrice ?? null,
+    badgeText: zonePriceBadgeText(display?.badgeKind ?? ''),
+    badgeKind: display?.badgeKind ?? '',
+    guideText: display?.guideText ?? '',
     soldOut,
     stockTag: available && !soldOut ? stockHintText(item?.stock) : '',
     clock: formatClockTime(item?.createTime) || item?.createTime || '',
@@ -217,11 +238,18 @@ function toGoodsList() {
             <view class="fp-item__info">
               <text class="fp-item__name" :class="{ 'fp-item__name--unavailable': !item.available }">{{ item.name }}</text>
               <view v-if="item.price" class="fp-item__price">
+                <text
+                  v-if="item.badgeText"
+                  class="fp-item__badge"
+                  :class="`fp-item__badge--${item.badgeKind}`"
+                >{{ item.badgeText }}</text>
                 <text class="fp-item__currency">¥</text>
                 <text class="fp-item__amount">{{ item.price.integer }}</text>
                 <text class="fp-item__decimal">.{{ item.price.decimal }}</text>
-                <text v-if="item.showOriginal" class="fp-item__original">¥{{ item.originalPrice }}</text>
+                <text v-if="item.strikePrice !== null" class="fp-item__original">¥{{ item.strikePrice }}</text>
               </view>
+              <!-- 未达标/未登录：主价保持售价，只给会员引导（与列表卡同源文案） -->
+              <text v-if="item.guideText" class="fp-item__guide">{{ item.guideText }}</text>
               <view class="fp-item__foot">
                 <view class="fp-item__time">
                   <text class="i-carbon:time fp-item__time-icon" />
@@ -367,6 +395,34 @@ $fp-hairline: var(--app-border);
   display: flex;
   align-items: baseline;
   margin-top: 10rpx;
+}
+
+/* 身份价角标：与列表卡同一套颜色语义（会员金 / 捡漏红） */
+.fp-item__badge {
+  flex: none;
+  margin-right: 8rpx;
+  padding: 2rpx 8rpx;
+  border-radius: 6rpx;
+  color: #fff;
+  font-size: 20rpx;
+  font-weight: 500;
+  line-height: 1.4;
+
+  &--member {
+    background: linear-gradient(135deg, #b8860b 0%, #e0a82e 100%);
+  }
+
+  &--clearance {
+    background: linear-gradient(135deg, #fa2c19 0%, #ff6b45 100%);
+  }
+}
+
+/* 未达标引导：价格行下方弱化展示 */
+.fp-item__guide {
+  margin-top: 4rpx;
+  color: #b45309;
+  font-size: 20rpx;
+  line-height: 1.4;
 }
 
 .fp-item__currency {

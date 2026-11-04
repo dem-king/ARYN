@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
-import { onPageScroll } from '@dcloudio/uni-app'
+import { onPageScroll, onUnload } from '@dcloudio/uni-app'
 import { useI18n } from 'vue-i18n'
 import { editPassword } from '@/sub-pages/api/user/user'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
+import { getTopPage, isPageAlive } from '@/utils/navigation-lock'
 
 const { handlePageScroll } = useFrostedNavbar()
 
@@ -16,6 +17,9 @@ definePage({
 })
 
 const router = useRouter()
+/** setup 时的页面实例 + 延时跳转句柄：卸载后不许再对已销毁页面发路由 */
+const pageAtSetup = getTopPage()
+let navTimer: ReturnType<typeof setTimeout> | null = null
 const { t } = useI18n()
 const formRef = ref()
 const globalLoading = useGlobalLoading()
@@ -40,9 +44,16 @@ function submit() {
       globalLoading.loading(t('accountSettings.password.submitting'))
       editPassword(state.form).then(() => {
         success(t('accountSettings.password.success'))
-        setTimeout(() => {
-          const pages = getCurrentPages()
-          if (pages.length > 1) {
+        if (navTimer) {
+          clearTimeout(navTimer)
+        }
+        navTimer = setTimeout(() => {
+          navTimer = null
+          // 成功提示展示期间用户可能已自行返回：只对仍是栈顶的页面发路由
+          if (!isPageAlive(pageAtSetup)) {
+            return
+          }
+          if (getCurrentPages().length > 1) {
             router.back()
           }
           else {
@@ -54,6 +65,13 @@ function submit() {
       })
     })
 }
+
+onUnload(() => {
+  if (navTimer) {
+    clearTimeout(navTimer)
+    navTimer = null
+  }
+})
 
 // 顶栏磨砂玻璃：字面量注册滚动（小程序按页面源码生成滚动位标记，包进 composable 会静默失效）
 onPageScroll(handlePageScroll)

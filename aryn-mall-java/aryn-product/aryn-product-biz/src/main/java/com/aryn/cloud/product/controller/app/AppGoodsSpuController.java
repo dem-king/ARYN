@@ -7,6 +7,7 @@ import com.aryn.cloud.product.api.vo.AppGoodsRankVO;
 import com.aryn.cloud.product.api.vo.GoodsCatalogSummaryVO;
 import com.aryn.cloud.product.api.vo.QuickCartInfoVO;
 import com.aryn.cloud.product.service.IGoodsRankService;
+import com.aryn.cloud.product.service.IGoodsZoneTagService;
 import com.aryn.cloud.product.service.IQuickCartService;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -44,13 +45,33 @@ public class AppGoodsSpuController {
 
 	private final IGoodsRankService goodsRankService;
 
+	private final IGoodsZoneTagService goodsZoneTagService;
+
 	@Operation(summary = "商品列表")
 	@GetMapping("/page")
 	public Result page(Page page, GoodsSpu goodsSpu,
-			@RequestParam(value = "bargainRate", required = false) BigDecimal bargainRate) {
+			@RequestParam(value = "bargainRate", required = false) BigDecimal bargainRate,
+			@RequestParam(value = "memberItem", required = false) Boolean memberItem,
+			@RequestParam(value = "clearanceItem", required = false) Boolean clearanceItem,
+			@RequestParam(value = "sort", required = false) String sort) {
 		// bargainRate 是「低价捡漏」排序的开关兼阈值：非空时服务层校验区间 (1.00, 9.99]、
 		// 清空 asc/desc 并由 XML 出固定 ORDER BY；为空时行为与历史完全一致。
-		return Result.success(goodsSpuService.apiPage(page, goodsSpu, bargainRate));
+		// memberItem/clearanceItem/sort 是商品级标签专区选品，全部不传时同样保持历史行为。
+		String zoneSort = sort == null ? null : sort.trim();
+		// 出清专区必须走专区服务：开关、时间分层最终价与 sortMode 只在那边生效，
+		// 直接走通用分页会让卡片价与确认页/结算价不一致。
+		if (Boolean.TRUE.equals(clearanceItem) || "clearance".equals(zoneSort)) {
+			return Result.success(goodsZoneTagService.clearancePage(page, goodsSpu, memberItem));
+		}
+		// 会员专区关闭后，主列表入口也不再展示会员标签商品（价格接口同样已关闭）
+		if ((Boolean.TRUE.equals(memberItem) || "member_price".equals(zoneSort))
+				&& !goodsZoneTagService.zoneEnabled("member")) {
+			Page<GoodsSpu> empty = page == null ? new Page<>() : new Page<>(page.getCurrent(), page.getSize());
+			empty.setTotal(0);
+			empty.setRecords(List.of());
+			return Result.success(empty);
+		}
+		return Result.success(goodsSpuService.apiPage(page, goodsSpu, bargainRate, memberItem, clearanceItem, sort));
 	}
 
 	@Operation(summary = "商品推荐流（商详同分类优先；购物车/订单按上下文分类并排除已选商品）")

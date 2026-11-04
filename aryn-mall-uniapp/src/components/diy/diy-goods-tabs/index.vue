@@ -1,8 +1,24 @@
 <script setup lang="ts">
-import type { GoodsTabConfig, GoodsTabMemberBanner, GoodsTabsProps } from '@/components/diy/retail-types'
-import type { MemberBannerProfile, MemberBannerView } from '@/components/diy/member-banner'
+import type {
+  GoodsTabConfig,
+  GoodsTabMemberBanner,
+  GoodsTabsProps,
+  ListMemberPriceDisplay,
+} from '@/components/diy/retail-types'
+import type {
+  MemberBannerProfile,
+  MemberBannerView,
+} from '@/components/diy/member-banner'
+import type { ListZonePrice } from '@/utils/zone-price'
 
-import { computed, getCurrentInstance, nextTick, reactive, ref, watch } from 'vue'
+import {
+  computed,
+  getCurrentInstance,
+  nextTick,
+  reactive,
+  ref,
+  watch,
+} from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getMemberBenefits, getMemberCurrentInfo } from '@/api/user/member'
 import {
@@ -13,29 +29,33 @@ import {
 import { shouldShowOriginalPrice } from '@/components/diy/price-display'
 import { loadGoodsTabPage } from '@/components/diy/retail-data'
 import { mergePagedItems } from '@/components/diy/retail-paged-list'
-import { BARGAIN_SORT } from '@/components/diy/retail-query'
 import { retailCommonStyle } from '@/components/diy/retail-types'
 import { shouldShowSubtitle } from '@/components/diy/subtitle-display'
 import MemberIntroSheet from '@/components/member-intro-sheet/index.vue'
 import QuickCartButton from '@/components/quick-cart-button/index.vue'
 import { useDiyPagedLoadMore } from '@/composables/useDiyPagedLoadMore'
 import { useDiyStyle } from '@/composables/useDiyStyle'
+import { useZonePrices } from '@/composables/useZonePrices'
 import { useAuthStore } from '@/store/authStore'
 import { stockHintText } from '@/utils/stock-display'
+import { resolveListZonePrice, zonePriceBadgeText } from '@/utils/zone-price'
 
-const props = withDefaults(defineProps<{
-  showData?: Partial<GoodsTabsProps>
-  /**
-   * 页面开启了沉浸式导航（滚动切换）：吸顶 Tab 栏与顶栏共用同一磨砂材质。
-   *
-   * 由 DiyPage 按页面配置下传；内嵌页（分类/商详/个人中心）与未开启沉浸式导航的
-   * 页面为 false，Tab 栏保持原来的纯白底，行为不变。
-   */
-  immersiveNav?: boolean
-}>(), {
-  showData: () => ({}),
-  immersiveNav: false,
-})
+const props = withDefaults(
+  defineProps<{
+    showData?: Partial<GoodsTabsProps>
+    /**
+     * 页面开启了沉浸式导航（滚动切换）：吸顶 Tab 栏与顶栏共用同一磨砂材质。
+     *
+     * 由 DiyPage 按页面配置下传；内嵌页（分类/商详/个人中心）与未开启沉浸式导航的
+     * 页面为 false，Tab 栏保持原来的纯白底，行为不变。
+     */
+    immersiveNav?: boolean
+  }>(),
+  {
+    showData: () => ({}),
+    immersiveNav: false,
+  },
+)
 
 const { t } = useI18n()
 
@@ -67,11 +87,9 @@ function defaultTabs(): GoodsTabConfig[] {
  * 时直接返回 undefined（等价关闭），渲染侧只需判空，不用到处看 enabled。
  */
 function normalizeMemberBanner(raw: unknown): GoodsTabMemberBanner | undefined {
-  const record = raw && typeof raw === 'object'
-    ? raw as Record<string, unknown>
-    : null
-  if (!record || record.enabled !== true)
-    return undefined
+  const record =
+    raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null
+  if (!record || record.enabled !== true) return undefined
   const memberCopy = String(record.memberCopy || '').trim()
   const guestCopy = String(record.guestCopy || '').trim()
   return {
@@ -84,21 +102,16 @@ function normalizeMemberBanner(raw: unknown): GoodsTabMemberBanner | undefined {
 function normalizeTabs(raw: unknown): GoodsTabConfig[] {
   const list = Array.isArray(raw) ? raw : []
   const tabs = list.map((item, index) => {
-    const record = item && typeof item === 'object'
-      ? item as Record<string, unknown>
-      : {}
-    const source = record.dataSource && typeof record.dataSource === 'object'
-      ? record.dataSource as Record<string, unknown>
-      : {}
+    const record =
+      item && typeof item === 'object' ? (item as Record<string, unknown>) : {}
+    const source =
+      record.dataSource && typeof record.dataSource === 'object'
+        ? (record.dataSource as Record<string, unknown>)
+        : {}
     const bargainRate = Number(source.bargainRate)
-    // 数据源模式必须原样保留：activity（按会员价活动自动）与 manual 一样是一次性
-    // 取全的独立模式，落到 automatic 会把活动货盘换成分类排序取数
-    const mode = source.mode === 'manual'
-      ? 'manual'
-      : source.mode === 'activity'
-        ? 'activity'
-        : 'automatic'
-    const activityId = String(source.activityId || '').trim()
+    // 数据源模式只有手选与自动两种：manual 一次性取全按运营配置顺序，
+    // 其余（含装修 JSON 里的历史脏值）统一按 automatic 分类排序取数
+    const mode = source.mode === 'manual' ? 'manual' : 'automatic'
     return {
       id: String(record.id || `tab-${index + 1}`),
       title: String(record.title || `Tab ${index + 1}`),
@@ -108,9 +121,9 @@ function normalizeTabs(raw: unknown): GoodsTabConfig[] {
         sort: String(source.sort || 'sales'),
         // 阈值合法区间由 retail-query 统一兜底；这里只保留可下发的数值，
         // 避免脏字符串一路带到请求参数里
-        ...(Number.isFinite(bargainRate) && bargainRate > 0 ? { bargainRate } : {}),
-        // 仅 activity 模式保留活动 ID（空 = 自动取当前进行中的会员价活动）
-        ...(mode === 'activity' && activityId ? { activityId } : {}),
+        ...(Number.isFinite(bargainRate) && bargainRate > 0
+          ? { bargainRate }
+          : {}),
         targetIds: Array.isArray(source.targetIds)
           ? source.targetIds.map(value => String(value))
           : [],
@@ -147,6 +160,12 @@ const goodsList = ref<any[]>([])
 const pagingRef = ref()
 const instance = getCurrentInstance()
 
+/**
+ * 列表「专区价」批量补价句柄：会员价/出清价都不在商品列表接口里，
+ * 列表先渲染、价格后补（见 utils/zone-price 与 composables/useZonePrices）。
+ */
+const zone = useZonePrices()
+
 // ---------- 会员权益条（Tab 级，默认关） ----------
 
 const authStore = useAuthStore()
@@ -173,11 +192,15 @@ const memberIntroVisible = ref(false)
  * 失败静默：横幅是增强信息，会员接口异常绝不影响商品流首屏与翻页。
  */
 async function loadMemberProfile() {
-  if (memberProfileRequested)
-    return
+  if (memberProfileRequested) return
   memberProfileRequested = true
   if (!authStore.isLoggedIn) {
-    memberProfile.value = { discountRate: null, isLoggedIn: false, levelId: '', levelName: '' }
+    memberProfile.value = {
+      discountRate: null,
+      isLoggedIn: false,
+      levelId: '',
+      levelName: '',
+    }
     return
   }
   try {
@@ -190,15 +213,15 @@ async function loadMemberProfile() {
     ])
     const discountRate = Number(benefits?.discountRate)
     memberProfile.value = {
-      discountRate: Number.isFinite(discountRate) && discountRate > 0 && discountRate < 1
-        ? discountRate
-        : null,
+      discountRate:
+        Number.isFinite(discountRate) && discountRate > 0 && discountRate < 1
+          ? discountRate
+          : null,
       isLoggedIn: true,
       levelId: String(info?.levelId || ''),
       levelName: String(info?.levelName || ''),
     }
-  }
-  catch {
+  } catch {
     // 接口失败：不渲染权益条，商品流照常
     memberProfile.value = null
   }
@@ -207,11 +230,9 @@ async function loadMemberProfile() {
 /** 当前 Tab 的会员权益条展示结果；未启用 / 未查到会员信息 → null（不渲染） */
 const memberBannerView = computed<MemberBannerView | null>(() => {
   const config = activeTab.value?.memberBanner
-  if (!config?.enabled)
-    return null
+  if (!config?.enabled) return null
   const profile = memberProfile.value
-  if (!profile)
-    return null
+  if (!profile) return null
   const view = resolveMemberBannerView(config, profile)
   return view.visible ? view : null
 })
@@ -236,38 +257,90 @@ const memberBannerActionText = computed(() => {
  * 就是给会员的成交价，不能因为没单独配置会员价活动就退回普通红价。未登录/无等级
  * 不进入该分支，仍走「原价 + 引导文案」，避免把专区价说成游客的会员价。
  */
-const memberZonePricing = computed(() =>
-  Boolean(activeTab.value?.memberBanner?.enabled) && memberBannerView.value?.state === 'member',
+const memberZonePricing = computed(
+  () =>
+    Boolean(activeTab.value?.memberBanner?.enabled) &&
+    memberBannerView.value?.state === 'member',
 )
 
 /**
- * 卡片是否按会员价呈现：
- * - 会员价活动命中且资格达标：始终是会员价；
- * - 会员专区内会员本人：有划线基准（真实优惠）才出会员价，无优惠商品保持普通价。
+ * 卡片专区价展示：会员价 / 捡漏价 / 原价三选一，统一收敛到共享口径
+ * `utils/zone-price#resolveListZonePrice`，各 Tab 不再各自比价。
+ *
+ * - 会员价：会员专区 Tab 用数据层按本页商品补好的 `item.memberPriceDisplay`，
+ *   其它 Tab 用 `useZonePrices` 批量补价缓存（会员价活动命中且资格达标才切主价）；
+ * - 出清价：对所有 Tab 生效（不仅低价捡漏 Tab），与会员价取低、同价会员价优先；
+ * - 都未命中：保持售价，未达标/未登录时给出「会员专享 ¥x」引导；
+ * - 会员专区「会员本人兜底」：没有更高的身份价时，专区价本身就是本区会员的成交价，
+ *   沿用原金色会员价视觉（有真实划线才标，不给无优惠商品贴假会员价）。
  */
-function showCardMemberPrice(item: any): boolean {
-  if (item?.memberPriceDisplay?.showMemberPrice)
-    return true
-  return memberZonePricing.value && cardStrikePrice(item) !== null
+function cardDisplay(item: any): ListZonePrice {
+  const sales = Number(item?.price) || 0
+  const display = resolveListZonePrice({
+    salesPrice: sales,
+    originalPrice: item?.originalPrice,
+    showOriginal: showData.value.showOriginalPrice,
+    memberDisplay: memberDisplayOf(item, sales),
+    clearanceDisplay: zone.clearanceDisplayOf(item?.id, sales),
+  })
+  if (!display.badgeKind && !display.guideText && memberZonePricing.value) {
+    const strike = shouldShowOriginalPrice(item?.price, item?.originalPrice)
+      ? Number(item?.originalPrice)
+      : null
+    if (strike !== null) {
+      return {
+        badgeKind: 'member',
+        guideText: null,
+        mainPrice: display.mainPrice,
+        strikePrice: showData.value.showOriginalPrice ? strike : null,
+      }
+    }
+  }
+  return display
 }
 
-/** 低价捡漏 Tab：用「捡漏价」放大价格层，其它 Tab 维持原样 */
-const bargainTab = computed(() => activeTab.value?.dataSource.sort === BARGAIN_SORT)
+/**
+ * 卡片会员价展示入参：会员专区 Tab 优先用数据层按活动补好的结果（口径同上），
+ * 其余 Tab 用批量补价缓存里的会员价展示。
+ */
+function memberDisplayOf(item: any, cardPrice: number): ListMemberPriceDisplay | null {
+  const fromData = item?.memberPriceDisplay as ListMemberPriceDisplay | undefined
+  if (fromData) return fromData
+  return zone.memberDisplayOf(String(item?.id || '').trim(), cardPrice)
+}
+
+/** 卡片是否按会员价样式呈现：同一卡片只解释一个成交价（与捡漏价互斥） */
+function showCardMemberPrice(item: any): boolean {
+  return cardDisplay(item).badgeKind === 'member'
+}
 
 /**
- * 卡片是否按捡漏价呈现：仅低价捡漏 Tab、非会员价命中、且确有划线原价。
- * 会员价是身份权益，优先级高于捡漏价，两者同时命中时只出会员价。
+ * 卡片是否按捡漏价样式呈现（价格主导的红价块）。
+ *
+ * 出清价对所有 Tab 生效，不再只在低价捡漏/出清标签 Tab；会员价与出清价
+ * 由 `resolveListZonePrice` 取低，同价会员价优先，因此两个样式不会同时出现。
  */
 function showCardBargainPrice(item: any): boolean {
-  if (!bargainTab.value || showCardMemberPrice(item))
-    return false
-  return cardStrikePrice(item) !== null
+  return cardDisplay(item).badgeKind === 'clearance'
+}
+
+/**
+ * 本轮本页商品补专区价：列表先渲染、价格后补，失败静默。
+ *
+ * 会员专区 Tab 虽已由数据层按本页商品补过会员价，这里仍统一补一次：
+ * 卡片加购弹层的 SKU 级成交价、以及导出到其它位置的同 SPU 价格都依赖模块级
+ * 价格缓存，少补一次会出现「卡片会员价、加购弹层普通价」的漂移；
+ * 共享层有 60s 缓存与并发合并，重复请求成本可接受。
+ */
+function loadZonePrices(items: any[]) {
+  const ids = items.map(item => String(item?.id || '').trim()).filter(Boolean)
+  if (!ids.length) return
+  void zone.loadForSpuIds(ids)
 }
 
 /** 按需查询会员信息：只有当前 Tab 开启了权益条才发请求（整组件生命周期缓存一次） */
 function ensureMemberProfile() {
-  if (!activeTab.value?.memberBanner?.enabled)
-    return
+  if (!activeTab.value?.memberBanner?.enabled) return
   void loadMemberProfile()
 }
 
@@ -281,8 +354,7 @@ watch(() => authStore.isLoggedIn, () => {
 
 function onMemberBannerClick() {
   const view = memberBannerView.value
-  if (!view || view.action === 'none')
-    return
+  if (!view || view.action === 'none') return
   if (view.action === 'login') {
     uni.navigateTo({ url: MEMBER_BANNER_LOGIN_URL })
     return
@@ -343,11 +415,10 @@ function stateOf(tabId: string) {
 watch(
   () => [props.showData.tabs, props.showData.count],
   () => {
-    Object.keys(feedStates).forEach((key) => {
+    Object.keys(feedStates).forEach(key => {
       delete feedStates[key]
     })
-    if (activeIndex.value >= tabs.value.length)
-      activeIndex.value = 0
+    if (activeIndex.value >= tabs.value.length) activeIndex.value = 0
     pagingRef.value?.reload?.()?.catch?.(() => {})
   },
   { deep: true },
@@ -360,8 +431,7 @@ let querySequence = 0
 
 async function queryList(pageNo: number, pageSize: number) {
   const tab = activeTab.value
-  if (!tab)
-    return
+  if (!tab) return
   const state = stateOf(tab.id)
   const sequence = ++querySequence
   const isCurrent = () =>
@@ -371,22 +441,26 @@ async function queryList(pageNo: number, pageSize: number) {
     await runQuery(async () => {
       // 切回已加载过的 Tab：直接用缓存恢复，不重复请求第一页
       if (pageNo === 1 && state.loaded) {
-        await pagingRef.value?.completeByNoMore([...state.items], !state.hasMore)
+        // 缓存列表同样补一次价（模块级缓存命中时几乎零成本），
+        // 保证会员价/出清价晚到或已过期时卡片能自动刷新
+        loadZonePrices(state.items)
+        await pagingRef.value?.completeByNoMore(
+          [...state.items],
+          !state.hasMore,
+        )
         return
       }
 
       // 恢复缓存后 z-paging 的 pageNo 会回到 1，真实下一面以 Tab 自己的游标为准
       const currentPage = pageNo === 1 ? 1 : state.nextPage
       const result = await loadGoodsTabPage(tab, currentPage, pageSize)
-      if (!isCurrent())
-        return
+      if (!isCurrent()) return
 
       let pageItems = result.list
       let reachedLimit = false
       if (currentPage === 1) {
         state.items = [...pageItems]
-      }
-      else {
+      } else {
         const merged = mergePagedItems(state.items, pageItems)
         pageItems = merged.items
         reachedLimit = merged.reachedLimit
@@ -395,15 +469,17 @@ async function queryList(pageNo: number, pageSize: number) {
 
       state.loaded = true
       state.nextPage = currentPage + 1
-      const nomore = result.manual
-        || reachedLimit
-        || result.list.length === 0
-        || (result.total > 0 && state.items.length >= result.total)
+      const nomore =
+        result.manual ||
+        reachedLimit ||
+        result.list.length === 0 ||
+        (result.total > 0 && state.items.length >= result.total)
       state.hasMore = !nomore
+      // 列表先渲染、价格后补：不 await，避免会员价/出清价接口阻塞首屏
+      loadZonePrices(pageItems)
       await pagingRef.value?.completeByNoMore(pageItems, nomore)
     }, isCurrent)
-  }
-  finally {
+  } finally {
     if (switchingTab && sequence === querySequence) {
       switchingTab = false
       // 等新列表完成一次渲染再释放占位，避免同一帧内高度先塌后涨
@@ -414,24 +490,27 @@ async function queryList(pageNo: number, pageSize: number) {
 }
 
 function measureFeedHeight(): Promise<number> {
-  return new Promise((resolve) => {
-    uni.createSelectorQuery()
+  return new Promise(resolve => {
+    uni
+      .createSelectorQuery()
       .in(instance?.proxy ?? instance)
       .select('.goods-tabs__inner')
-      .boundingClientRect((raw) => {
-        const rect = (Array.isArray(raw) ? raw[0] : raw) as { height?: number } | null
+      .boundingClientRect(raw => {
+        const rect = (Array.isArray(raw) ? raw[0] : raw) as {
+          height?: number
+        } | null
         resolve(Number(rect?.height || 0))
       })
       .exec()
   })
 }
 
-function measureTabPosition(): Promise<{ barTop: number, rootTop: number }> {
-  return new Promise((resolve) => {
+function measureTabPosition(): Promise<{ barTop: number; rootTop: number }> {
+  return new Promise(resolve => {
     const query = uni.createSelectorQuery().in(instance?.proxy ?? instance)
     query.select('.goods-tabs').boundingClientRect()
     query.select('.goods-tabs__bar').boundingClientRect()
-    query.exec((raw) => {
+    query.exec(raw => {
       const result = Array.isArray(raw) ? raw : []
       const root = result[0] as { top?: number } | null
       const bar = result[1] as { top?: number } | null
@@ -444,8 +523,7 @@ function measureTabPosition(): Promise<{ barTop: number, rootTop: number }> {
 }
 
 async function switchTab(index: number) {
-  if (index === activeIndex.value || !tabs.value[index])
-    return
+  if (index === activeIndex.value || !tabs.value[index]) return
 
   const { barTop, rootTop } = await measureTabPosition()
   const paddingTop = Number(
@@ -453,7 +531,8 @@ async function switchTab(index: number) {
       ?.styleTopPadding || 0,
   )
   // 栏顶高于「根节点 + 顶部内边距」说明已离开自然位置、处于吸顶状态
-  const barStuck = showData.value.stickyTabs && barTop < rootTop + paddingTop - 0.5
+  const barStuck =
+    showData.value.stickyTabs && barTop < rootTop + paddingTop - 0.5
   if (barStuck) {
     stickyOffsetPx.value = Math.max(0, barTop - paddingTop)
     await nextTick()
@@ -462,8 +541,7 @@ async function switchTab(index: number) {
   }
 
   const height = await measureFeedHeight()
-  if (height > 0)
-    feedMinHeight.value = height
+  if (height > 0) feedMinHeight.value = height
   switchingTab = true
   activeIndex.value = index
   await nextTick()
@@ -482,54 +560,62 @@ function openGoods(id: string) {
  */
 function cardTags(item: any): string[] {
   const tags: string[] = []
-  if (item.specsInfo)
-    tags.push(String(item.specsInfo))
+  if (item.specsInfo) tags.push(String(item.specsInfo))
   // 库存 chip 与全站库存口径同源（utils/stock-display）：售罄/低库存才出字，充足不外露数字
   const hint = stockHintText(item.stock)
-  if (hint)
-    tags.push(hint)
+  if (hint) tags.push(hint)
   return tags
 }
 
 /**
- * 卡片主价：会员专区 Tab 命中「可享会员价」时切会员价，否则沿用列表价格（SPU 售价）。
+ * 卡片主价：会员价/捡漏价命中时切换，否则沿用列表价格（SPU 售价）。
  *
  * 会员价聚合结果由 `loadGoodsTabPage` 在 `memberBanner.enabled=true` 时写入
- * （仅该 Tab 会带），其它 Tab 的 item 没有这个字段，行为完全不变。
+ * （仅该 Tab 会带），其它 Tab 的会员价/出清价由 `useZonePrices` 按本页 SPU 批量补；
+ * 两种来源最终都收敛到 `cardDisplay`（共享 zone-price 口径）。
  */
 function cardMainPrice(item: any): number {
-  const display = item?.memberPriceDisplay
-  if (display?.showMemberPrice && display.memberPrice !== null)
-    return Number(display.memberPrice)
-  return Number(item?.price) || 0
+  return cardDisplay(item).mainPrice
 }
 
 /**
- * 卡片划线价：
- * - 会员价命中达标：划卡片当前价（与商详「会员价 vs 当前售价」同口径），
- *   此时不再叠加 SPU 原价——否则会把会员价说成更大的折扣；
- * - 其它：沿用既有「SPU 原价 > 售价才显示」口径（`shouldShowOriginalPrice`）。
+ * 卡片划线价：由共享专区价口径给出。
+ *
+ * - 会员价/捡漏价命中：划当前售价（与商详「身份价 vs 当前售价」同口径），
+ *   此时不再叠加 SPU 原价——否则会把身份价说成更大的折扣；
+ * - 都未命中：沿用「SPU 原价 > 售价才划线」口径，并受 `showOriginalPrice` 开关约束。
  */
 function cardStrikePrice(item: any): number | null {
-  const display = item?.memberPriceDisplay
-  if (display?.showMemberPrice) {
-    const strike = Number(display.strikePrice)
-    return Number.isFinite(strike) && strike > 0 ? strike : null
-  }
-  return shouldShowOriginalPrice(item?.price, item?.originalPrice)
-    ? Number(item.originalPrice)
-    : null
+  return cardDisplay(item).strikePrice
+}
+
+function splitPriceParts(value: number): { decimal: string; integer: string } {
+  const [integer, decimal = '00'] = Number(value).toFixed(2).split('.')
+  return { decimal, integer }
+}
+
+/** 普通价拆成整数/小数两段：整数大、小数小，与捡漏价同一套价格层级 */
+function cardPriceParts(item: any): { decimal: string; integer: string } {
+  return splitPriceParts(cardMainPrice(item))
 }
 
 /** 捡漏价拆成整数/小数两段：整数大、小数小，价格更像线下价签 */
-function bargainPriceParts(item: any): { decimal: string, integer: string } {
-  const [integer, decimal = '00'] = Number(cardMainPrice(item)).toFixed(2).split('.')
-  return { decimal, integer }
+function bargainPriceParts(item: any): { decimal: string; integer: string } {
+  return splitPriceParts(cardMainPrice(item))
+}
+
+/** 角标文案（会员价/捡漏价）；无角标返回空串，卡片不渲染 */
+function cardBadgeText(item: any): string {
+  return zonePriceBadgeText(cardDisplay(item).badgeKind)
 }
 
 /** 会员价未达标/未登录时的引导文案（「会员专享 ¥X」）；无则不渲染 */
 function cardMemberGuide(item: any): string {
-  return item?.memberPriceDisplay?.guideText || ''
+  // 会员专区 Tab 的引导由数据层聚合结果直接透出（与商详/购物车同源）；
+  // 其它 Tab 由共享口径根据批量补价结果生成。两处都取，避免引导在缓存未命中时丢失。
+  return cardDisplay(item).guideText
+    || item?.memberPriceDisplay?.guideText
+    || ''
 }
 </script>
 
@@ -541,6 +627,7 @@ function cardMemberGuide(item: any): string {
       :style="{ top: `-${stickyOffsetPx}px` }"
     />
     <view
+      v-if="tabs.length > 1"
       class="goods-tabs__bar"
       :class="{
         'goods-tabs__bar--sticky': showData.stickyTabs,
@@ -570,7 +657,9 @@ function cardMemberGuide(item: any): string {
     <view
       v-if="memberBannerView"
       class="goods-tabs__member-banner"
-      :class="{ 'goods-tabs__member-banner--guest': memberBannerView.state === 'guest' }"
+      :class="{
+        'goods-tabs__member-banner--guest': memberBannerView.state === 'guest',
+      }"
       @click="onMemberBannerClick"
     >
       <text class="goods-tabs__member-banner-tag">
@@ -579,14 +668,19 @@ function cardMemberGuide(item: any): string {
       <text class="goods-tabs__member-banner-text">
         {{ memberBannerView.text }}
       </text>
-      <text v-if="memberBannerActionText" class="goods-tabs__member-banner-action">
+      <text
+        v-if="memberBannerActionText"
+        class="goods-tabs__member-banner-action"
+      >
         {{ memberBannerActionText }}
       </text>
     </view>
 
     <view
       class="goods-tabs__inner"
-      :style="feedMinHeight > 0 ? { minHeight: `${feedMinHeight}px` } : undefined"
+      :style="
+        feedMinHeight > 0 ? { minHeight: `${feedMinHeight}px` } : undefined
+      "
     >
       <!--
         use-page-scroll：复用装修页页面滚动，由 useDiyPagedLoadMore 测自身底边位置，
@@ -608,6 +702,9 @@ function cardMemberGuide(item: any): string {
             v-for="item in goodsList"
             :key="item.id"
             class="goods-tabs__card"
+            :class="{ 'goods-tabs__card--soldout': item.stock <= 0 }"
+            hover-class="goods-tabs__card--pressed"
+            :hover-stay-time="80"
             @click="openGoods(item.id)"
           >
             <view class="goods-tabs__image-box">
@@ -655,14 +752,23 @@ function cardMemberGuide(item: any): string {
                     <view class="goods-tabs__member-price">
                       <view class="goods-tabs__member-price-main">
                         <text class="goods-tabs__member-badge">
-                          {{ item.memberPriceDisplay?.showMemberPrice ? item.memberPriceDisplay.badgeText : t('labels.memberPriceBadge') }}
+                          {{
+                            item.memberPriceDisplay?.showMemberPrice
+                              ? item.memberPriceDisplay.badgeText
+                              : zonePriceBadgeText('member')
+                          }}
                         </text>
-                        <text class="goods-tabs__price goods-tabs__price--member">
+                        <text
+                          class="goods-tabs__price goods-tabs__price--member"
+                        >
                           ¥{{ cardMainPrice(item).toFixed(2) }}
                         </text>
                       </view>
                       <view
-                        v-if="showData.showOriginalPrice && cardStrikePrice(item) !== null"
+                        v-if="
+                          showData.showOriginalPrice &&
+                          cardStrikePrice(item) !== null
+                        "
                         class="goods-tabs__member-price-original"
                       >
                         <text class="goods-tabs__member-price-label">
@@ -675,22 +781,30 @@ function cardMemberGuide(item: any): string {
                     </view>
                   </template>
                   <!--
-                    低价捡漏：小号「捡漏价」标签 + 放大的红色价格（整数大、小数小）+
+                    捡漏价：所有 Tab 都对出清标签商品生效（不再只在低价捡漏 Tab）。
+                    小号「捡漏价」标签 + 放大的红色价格（整数大、小数小）+
                     灰色原价划线。对标小象「出清价」的价格主导层级，不做整块底色。
                   -->
                   <template v-else-if="showCardBargainPrice(item)">
                     <view class="goods-tabs__bargain-price">
                       <view class="goods-tabs__bargain-price-main">
                         <text class="goods-tabs__bargain-label">
-                          {{ t('diy.goodsTabs.bargainPrice') }}
+                          {{ cardBadgeText(item) }}
                         </text>
                         <view class="goods-tabs__bargain-amount">
                           <text class="goods-tabs__bargain-symbol">¥</text>
-                          <text class="goods-tabs__bargain-integer">{{ bargainPriceParts(item).integer }}</text>
-                          <text class="goods-tabs__bargain-decimal">.{{ bargainPriceParts(item).decimal }}</text>
+                          <text class="goods-tabs__bargain-integer">{{
+                            bargainPriceParts(item).integer
+                          }}</text>
+                          <text class="goods-tabs__bargain-decimal"
+                            >.{{ bargainPriceParts(item).decimal }}</text
+                          >
                         </view>
                         <text
-                          v-if="showData.showOriginalPrice"
+                          v-if="
+                            showData.showOriginalPrice &&
+                            cardStrikePrice(item) !== null
+                          "
                           class="goods-tabs__bargain-original-price"
                         >
                           ¥{{ Number(cardStrikePrice(item)).toFixed(2) }}
@@ -699,12 +813,21 @@ function cardMemberGuide(item: any): string {
                     </view>
                   </template>
                   <template v-else>
-                    <text class="goods-tabs__price">
-                      ¥{{ cardMainPrice(item).toFixed(2) }}
-                    </text>
+                    <view class="goods-tabs__price-amount">
+                      <text class="goods-tabs__price-symbol">¥</text>
+                      <text class="goods-tabs__price-integer">{{
+                        cardPriceParts(item).integer
+                      }}</text>
+                      <text class="goods-tabs__price-decimal"
+                        >.{{ cardPriceParts(item).decimal }}</text
+                      >
+                    </view>
                     <!-- 普通价：沿用「原价 > 售价才划线」口径，与其它 Tab 完全一致 -->
                     <text
-                      v-if="showData.showOriginalPrice && cardStrikePrice(item) !== null"
+                      v-if="
+                        showData.showOriginalPrice &&
+                        cardStrikePrice(item) !== null
+                      "
                       class="goods-tabs__price-original"
                     >
                       ¥{{ Number(cardStrikePrice(item)).toFixed(2) }}
@@ -719,7 +842,12 @@ function cardMemberGuide(item: any): string {
                   {{ cardMemberGuide(item) }}
                 </view>
               </view>
-              <quick-cart-button v-if="item.stock > 0" :spu-id="item.id" size="52rpx" />
+              <quick-cart-button
+                v-if="item.stock > 0"
+                :spu-id="item.id"
+                size="56rpx"
+                :zone-prices="zone.skuZonePricesOf(item.id)"
+              />
             </view>
           </view>
         </view>
@@ -875,15 +1003,25 @@ function cardMemberGuide(item: any): string {
 
 .goods-tabs__grid {
   display: grid;
-  gap: 16rpx;
+  gap: 20rpx;
 }
 
 .goods-tabs__card {
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   box-sizing: border-box;
-  border: 1rpx solid #eef0f3;
-  border-radius: 16rpx;
+  border: 1rpx solid #f0f1f3;
+  border-radius: 24rpx;
   background: #fff;
+  box-shadow: 0 8rpx 24rpx rgb(31 35 41 / 5%);
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+/* 小程序 hover-class：轻缩反馈，不改变卡片排版 */
+.goods-tabs__card--pressed {
+  transform: scale(0.985);
+  box-shadow: 0 2rpx 10rpx rgb(31 35 41 / 8%);
 }
 
 /* 小程序 <image> 自带默认宽高，用 padding-top 百分比把图片区锁成 1:1 */
@@ -911,25 +1049,32 @@ function cardMemberGuide(item: any): string {
   background: #f3f4f6;
 }
 
+/* 售罄：图片压暗 + 居中胶囊，不再用顶部黑条挡商品图 */
+.goods-tabs__card--soldout .goods-tabs__image {
+  opacity: 0.45;
+}
+
 .goods-tabs__sold-out {
   position: absolute;
-  top: 0;
-  right: 0;
-  left: 0;
-  padding: 8rpx;
-  background: rgb(0 0 0 / 50%);
+  top: 50%;
+  left: 50%;
+  padding: 10rpx 22rpx;
+  border-radius: 999rpx;
+  background: rgb(17 24 39 / 72%);
   color: #fff;
   font-size: 22rpx;
-  text-align: center;
+  line-height: 1.4;
+  transform: translate(-50%, -50%);
 }
 
 .goods-tabs__name {
   display: -webkit-box;
   overflow: hidden;
   min-height: 1.4em;
-  margin: 14rpx 14rpx 0;
-  color: #303133;
+  margin: 16rpx 20rpx 0;
+  color: #1f2329;
   font-size: 28rpx;
+  font-weight: 500;
   line-height: 1.4;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -938,8 +1083,8 @@ function cardMemberGuide(item: any): string {
 /* 商品子标题（商品介绍）：单行省略，与其它商品卡副标题口径一致 */
 .goods-tabs__subtitle {
   overflow: hidden;
-  margin: 2rpx 14rpx 0;
-  color: #909399;
+  margin: 6rpx 20rpx 0;
+  color: #8a919f;
   font-size: 22rpx;
   line-height: 1.4;
   text-overflow: ellipsis;
@@ -949,25 +1094,26 @@ function cardMemberGuide(item: any): string {
 .goods-tabs__tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 6rpx;
-  padding: 8rpx 14rpx 0;
+  gap: 8rpx;
+  padding: 10rpx 20rpx 0;
 }
 
 .goods-tabs__tag {
-  padding: 2rpx 8rpx;
-  border-radius: 6rpx;
-  background: #f2f3f5;
-  color: #8a97a6;
+  padding: 2rpx 10rpx;
+  border-radius: 999rpx;
+  background: #f4f5f7;
+  color: #6b7280;
   font-size: 20rpx;
-  line-height: 1.5;
+  line-height: 1.6;
 }
 
 .goods-tabs__meta {
   display: flex;
+  margin-top: auto;
   align-items: flex-end;
   justify-content: space-between;
   gap: 8rpx;
-  padding: 12rpx 14rpx 14rpx;
+  padding: 14rpx 20rpx 20rpx;
 }
 
 .goods-tabs__meta-text {
@@ -980,7 +1126,7 @@ function cardMemberGuide(item: any): string {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 6rpx;
+  gap: 10rpx;
   min-width: 0;
 }
 
@@ -1088,6 +1234,32 @@ function cardMemberGuide(item: any): string {
   color: var(--wot-color-theme-primary, #ff2237);
   font-size: 32rpx;
   font-weight: 600;
+}
+
+/* 普通价：整数大、小数小、符号降一档，价格层级更接近线下价签 */
+.goods-tabs__price-amount {
+  display: inline-flex;
+  align-items: baseline;
+  min-width: 0;
+  color: var(--wot-color-theme-primary, #ff2237);
+}
+
+.goods-tabs__price-symbol {
+  font-size: 22rpx;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.goods-tabs__price-integer {
+  font-size: 36rpx;
+  font-weight: 700;
+  line-height: 1.05;
+}
+
+.goods-tabs__price-decimal {
+  font-size: 24rpx;
+  font-weight: 700;
+  line-height: 1;
 }
 
 /* 会员价主价：近黑高对比，靠字号与字重强调；金色身份由左侧小标签承担 */

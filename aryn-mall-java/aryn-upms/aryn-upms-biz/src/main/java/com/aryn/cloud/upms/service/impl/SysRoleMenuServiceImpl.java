@@ -10,6 +10,7 @@ import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.upms.api.dto.SysRoleMenuDTO;
 import com.aryn.cloud.upms.api.entity.SysMenu;
+import com.aryn.cloud.upms.api.entity.SysRole;
 import com.aryn.cloud.upms.api.entity.SysRoleMenu;
 import com.aryn.cloud.upms.api.entity.SysTenantMenu;
 import com.aryn.cloud.upms.mapper.SysMenuMapper;
@@ -17,6 +18,7 @@ import com.aryn.cloud.upms.mapper.SysRoleMapper;
 import com.aryn.cloud.upms.mapper.SysRoleMenuMapper;
 import com.aryn.cloud.upms.mapper.SysTenantMenuMapper;
 import com.aryn.cloud.upms.service.ISysRoleMenuService;
+import com.aryn.cloud.upms.support.PlatformAdminSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
@@ -24,7 +26,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -44,6 +45,8 @@ public class SysRoleMenuServiceImpl extends ServiceImpl<SysRoleMenuMapper, SysRo
 
 	private final SysTenantMenuMapper sysTenantMenuMapper;
 
+	private final PlatformAdminSupport platformAdminSupport;
+
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	@CacheEvict(value = CacheConstants.MENU_CACHE, allEntries = true)
@@ -56,8 +59,14 @@ public class SysRoleMenuServiceImpl extends ServiceImpl<SysRoleMenuMapper, SysRo
 			throw new ArynBusinessException(403, "缺少租户上下文");
 		}
 		// 角色必须属于当前租户；租户拦截器保证 selectById 不会命中其它租户
-		if (sysRoleMapper.selectById(request.getRoleId()) == null) {
+		SysRole role = sysRoleMapper.selectById(request.getRoleId());
+		if (role == null) {
 			throw new ArynBusinessException("角色不存在或不属于当前租户");
+		}
+		// 平台管理员角色持有全部菜单与权限，只允许平台管理员维护，避免租户管理员削权/扩权
+		if (CommonConstants.ROLE_PLATFORM_ADMIN_CODE.equals(role.getRoleCode())
+				&& !platformAdminSupport.isCurrentPlatformAdmin()) {
+			throw new ArynBusinessException(403, "平台管理员角色仅平台管理员可维护");
 		}
 		List<String> menuIds = request.getMenuIds() == null ? List.of()
 				: request.getMenuIds().stream()
@@ -89,12 +98,13 @@ public class SysRoleMenuServiceImpl extends ServiceImpl<SysRoleMenuMapper, SysRo
 	}
 
 	/**
-	 * 租户管理员只能把「租户已获授权」的菜单授予角色；平台租户不受套餐限制。
+	 * 租户管理员只能把「租户已获授权」的菜单授予角色；平台管理员不受套餐限制。
 	 *
 	 * <p>否则可绕过套餐直接提交套餐外菜单 ID，重新登录后权限快照即包含越权菜单。
 	 */
 	private void assertMenusAuthorized(String tenantId, List<String> menuIds) {
-		if (Objects.equals(CommonConstants.PLATFORM_TENANT_ID, tenantId)) {
+		// 平台管理员不受套餐限制（平台管理员是用户级身份，与角色所属租户无关）
+		if (platformAdminSupport.isCurrentPlatformAdmin()) {
 			if (!menuIds.isEmpty() && sysMenuMapper.selectBatchIds(menuIds).size() != menuIds.size()) {
 				throw new ArynBusinessException("存在无效菜单，请刷新后重试");
 			}

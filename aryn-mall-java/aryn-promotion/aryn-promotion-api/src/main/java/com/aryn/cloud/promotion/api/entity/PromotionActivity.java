@@ -38,13 +38,22 @@ public class PromotionActivity extends Model<PromotionActivity> {
 	public static final String TYPE_NEWBIE_PRICE = "9";
 
 	/**
-	 * 会员价（指定 SKU、按会员等级门槛出价）。
+	 * 会员价（仅系统托管活动 SYS_MEMBER_ZONE 承载，价格由商品级专区标签自动同步）。
 	 *
 	 * <p>规则 JSON：{@code {"minLevelId":"<会员等级ID>","skus":[{"skuId":"...","unitPrice":9.90}]}}，
-	 * 范围固定 scopeType=2；资格 = 用户等级 sortOrder ≥ minLevelId 的 sortOrder（fail-closed）。
-	 * 默认可叠券/积分（身份常态权益，非止血促销）。
+	 * 范围固定 scopeType=3；资格 = 用户等级 sortOrder ≥ minLevelId 的 sortOrder（fail-closed）。
+	 * 默认可叠券/积分（身份常态权益，非止血促销）。手工会员价活动的发布/编辑/迁移功能已下线。
 	 */
 	public static final String TYPE_MEMBER_PRICE = "10";
+
+	/**
+	 * 出清价（低价捡漏专区，系统托管）。
+	 *
+	 * <p>规则 JSON：{@code {"skus":[{"skuId":"...","price":9.90,"expireTime":"2026-11-30T23:59:59"}]}}，
+	 * 范围固定 scopeType=1（全场），实际选品由 rules.skus 决定；与会员价同优先级、同 SKU 取低。
+	 * 活动由商品标签自动同步（activity_code=SYS_CLEARANCE_ZONE），禁止手工编辑。
+	 */
+	public static final String TYPE_CLEARANCE = "11";
 
 	/** 人工操作态（落库）：草稿 */
 	public static final String STATUS_DRAFT = "1";
@@ -67,8 +76,15 @@ public class PromotionActivity extends Model<PromotionActivity> {
 	/** 活动名称 */
 	private String activityName;
 
-	/** 活动类型：4阶梯价 5买赠 7船供整船优惠 9新人专享价 10会员价 */
+	/** 活动类型：4阶梯价 5买赠 7船供整船优惠 9新人专享价 10会员价 11出清价 */
 	private String activityType;
+
+	/**
+	 * 系统托管活动标识（SYS_MEMBER_ZONE / SYS_CLEARANCE_ZONE），手工活动为空。
+	 *
+	 * <p>系统活动由商品标签同步服务维护，管理端列表过滤且禁止人工编辑/删除。
+	 */
+	private String activityCode;
 
 	/** 范围类型：1全场 2指定SKU 4指定购买场景 5指定船舶 6指定靠港计划 7指定港口 */
 	private String scopeType;

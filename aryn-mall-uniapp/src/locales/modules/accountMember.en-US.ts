@@ -19,6 +19,9 @@ export default {
     dailyCheckIn: 'Daily Check-in',
     checkInDesc: 'Check in for points; longer streaks earn more',
     goCheckIn: 'Check In',
+    checkedInToday: 'Checked In',
+    checkedInDesc: 'Checked in today · {days}-day streak',
+    checkedInDescPlain: 'Checked in today, see you tomorrow',
     quickAccess: 'Quick Access',
 
     assets: {

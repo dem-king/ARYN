@@ -95,6 +95,38 @@ public class GoodsSku extends Model<GoodsSku> {
 	@Schema(description = "图片地址")
 	private String picUrl;
 
+	/** 会员专区标签：NULL=继承 SPU，0=否，1=是。 */
+	@Schema(description = "会员专区标签：NULL继承SPU 0否 1是")
+	private Integer isMemberItem;
+
+	/** SKU 会员折扣率覆盖；空=继承 SPU。C 端不下发。 */
+	@JsonInclude(JsonInclude.Include.NON_NULL)
+	@Schema(description = "SKU会员折扣率覆盖；空=继承SPU")
+	private BigDecimal memberDiscountRate;
+
+	/** SKU 会员固定价覆盖；空=继承 SPU。C 端不下发。 */
+	@JsonInclude(JsonInclude.Include.NON_NULL)
+	@Schema(description = "SKU会员固定价覆盖；空=继承SPU")
+	private BigDecimal memberPriceFixed;
+
+	/** SKU 会员价下限覆盖；空=继承 SPU。C 端不下发。 */
+	@JsonInclude(JsonInclude.Include.NON_NULL)
+	@Schema(description = "SKU会员价下限覆盖；空=继承SPU")
+	private BigDecimal memberPriceFloor;
+
+	/** 捡漏专区标签：NULL=继承 SPU，0=否，1=是。 */
+	@Schema(description = "捡漏专区标签：NULL继承SPU 0否 1是")
+	private Integer isClearanceItem;
+
+	@Schema(description = "SKU出清固定价覆盖；空=继承SPU")
+	private BigDecimal clearancePrice;
+
+	@Schema(description = "SKU出清折扣率覆盖；空=继承SPU")
+	private BigDecimal clearanceDiscountRate;
+
+	@Schema(description = "SKU出清截止时间覆盖；空=继承SPU")
+	private LocalDateTime clearanceExpireTime;
+
 	@Data
 	@NoArgsConstructor
 	@AllArgsConstructor

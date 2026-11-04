@@ -68,7 +68,7 @@ class TenantExpiryReminderJobTest {
 		when(sysTenantService.list(any(Wrapper.class))).thenReturn(List.of(
 				tenant("t-7", now.plusDays(5)),
 				tenant("t-30", now.plusDays(20)),
-				tenant(CommonConstants.PLATFORM_TENANT_ID, now.plusDays(5), CommonConstants.TENANT_TYPE_PLATFORM),
+				tenant("platform-tenant", now.plusDays(5), CommonConstants.TENANT_TYPE_PLATFORM),
 				tenant("t-far", now.plusDays(40))));
 
 		job.remindExpiringTenants();

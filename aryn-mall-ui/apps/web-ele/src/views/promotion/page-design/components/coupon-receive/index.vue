@@ -322,13 +322,15 @@ const couponList = computed(() => {
         text-align: left;
       }
 
+      // 与小程序券卡同口径：完整换行展示使用说明，不截断使用限制
       .coupon-desc {
         margin-top: 4px;
-        overflow: hidden;
-        text-overflow: ellipsis;
         font-size: 10px;
+        line-height: 1.4;
         color: #8a8f99;
-        white-space: nowrap;
+        word-break: normal;
+        overflow-wrap: break-word;
+        white-space: normal;
       }
 
       .coupon-band {

@@ -2,6 +2,7 @@
 package com.aryn.cloud.common.myabtis.tenant;
 
 import com.aryn.cloud.common.core.constant.CommonConstants;
+import com.aryn.cloud.common.security.entity.ArynUser;
 import com.aryn.cloud.common.security.util.SecurityUtils;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -29,14 +30,16 @@ public class ArynTenantContextFilter extends GenericFilterBean {
 		// 获取请求头 租户id
 		String tenantId = request.getHeader(CommonConstants.TENANT_ID);
 		String token = request.getHeader(CommonConstants.TOKEN_KEY);
-		if (StringUtils.hasText(token) && Objects.nonNull(SecurityUtils.getUser())) {
-			// 判断是否是平台管理员 平台管理员可以切换租户
-			if (SecurityUtils.getUser().getTenantId().equals(CommonConstants.PLATFORM_TENANT_ID)
+		ArynUser user = StringUtils.hasText(token) ? SecurityUtils.getUser() : null;
+		if (Objects.nonNull(user)) {
+			// 判断是否是平台管理员（用户级标记，登录时写入会话） 平台管理员可以切换租户；
+			// 平台租户里的租户管理员不是平台管理员，不能切换租户
+			if (Boolean.TRUE.equals(user.getPlatformAdmin())
 					&& StringUtils.hasText(tenantId)) {
 				ArynTenantContextHolder.setTenantId(tenantId);
 			}
 			else {
-				ArynTenantContextHolder.setTenantId(SecurityUtils.getUser().getTenantId());
+				ArynTenantContextHolder.setTenantId(user.getTenantId());
 			}
 		}
 		else {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { NewbieFloorProps, NewbieGoodsItem } from '@/components/diy/retail-types'
+import type { ListZonePrice } from '@/utils/zone-price'
 import { computed, getCurrentInstance, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getQuickCartInfo } from '@/api/product/spu'
@@ -11,10 +12,12 @@ import { formatRemainingTime, useCountdownTicker } from '@/composables/useCountd
 import { useDiyStyle } from '@/composables/useDiyStyle'
 import { useQuickCart } from '@/composables/useQuickCart'
 import { useRetailData } from '@/composables/useRetailData'
+import { useZonePrices } from '@/composables/useZonePrices'
 import { useAuthStore } from '@/store/authStore'
 import { useMallThemeStore } from '@/store/mallThemeStore'
 import { resolveTargetTimestamp } from '@/utils/datetime'
 import { QUICK_CART_MODE_DIRECT, resolveQuickAddMode, resolveQuickAddQuantity } from '@/utils/quick-cart'
+import { zonePriceBadgeText } from '@/utils/zone-price'
 
 const props = withDefaults(defineProps<{ showData?: Partial<NewbieFloorProps> }>(), {
   showData: () => ({}),
@@ -44,11 +47,94 @@ const mallThemeStore = useMallThemeStore()
 const floor = computed(() => items.value[0])
 const goodsList = computed(() => (floor.value?.goodsList || []).slice(0, showData.value.count))
 
-const { now } = useCountdownTicker()
+/**
+ * 列表「专区价」批量补价句柄：会员价/出清价都不在活动货盘接口里。
+ *
+ * 新人价是优先级低于身份价的一层（后端引擎：会员价/出清价命中后新人价必须跳过），
+ * 因此新人价楼层里的商品也可能命中更高的会员价/出清价，必须按同一口径展示，
+ * 否则同一商品会在「新人专区」看到新人价、在会员专区/低价捡漏看到另一个成交价。
+ */
+const zone = useZonePrices()
+
+watch(
+  goodsList,
+  (list) => {
+    const ids = list.map(goods => String(goods?.spuId || '').trim()).filter(Boolean)
+    if (!ids.length) return
+    void zone.loadForSpuIds(ids)
+  },
+  { immediate: true },
+)
+
+/**
+ * 卡片专区价：用活动 SKU 的当前售价作为卡片价（楼层项自带该 SKU 的原价），
+ * 会员价/出清价都按「规格价与卡片价一致」匹配，避免把别的规格的价格标到这张卡上。
+ */
+function cardDisplay(goods: NewbieGoodsItem): ListZonePrice {
+  return zone.cardPriceOf(
+    { id: goods?.spuId, price: Number(goods?.originalPrice) || 0 },
+    true,
+  )
+}
+
+/** 该活动 SKU 的身份成交价（会员价/出清价取低后的 SKU 级价格）；无命中返回 null */
+function skuZonePrice(goods: NewbieGoodsItem): number | null {
+  const spuId = String(goods?.spuId || '').trim()
+  const skuId = String(goods?.skuId || '').trim()
+  if (!spuId || !skuId) return null
+  return zone.skuZonePriceOf(spuId, skuId)
+}
+
+/**
+ * 命中身份价时的成交单价：优先 SKU 级价（与加购弹层同一口径），
+ * 无 SKU 级数据时回落 SPU 聚合价（与其它楼层卡片一致）。
+ */
+function zoneDealPrice(goods: NewbieGoodsItem): number {
+  return skuZonePrice(goods) ?? cardDisplay(goods).mainPrice
+}
+
+/** 卡片主价：命中更高优先级的会员价/出清价时展示身份价，否则维持新人价 */
+function cardMainPrice(goods: NewbieGoodsItem): number {
+  return cardDisplay(goods).badgeKind
+    ? zoneDealPrice(goods)
+    : Number(goods?.newbiePrice) || 0
+}
+
+/** 卡片划线价：命中身份价时划当前售价；否则沿用「原价 > 新人价」 */
+function cardStrikePrice(goods: NewbieGoodsItem): number | null {
+  if (cardDisplay(goods).badgeKind) {
+    const sales = Number(goods?.originalPrice) || 0
+    return sales > cardMainPrice(goods)
+      ? sales
+      : cardDisplay(goods).strikePrice
+  }
+  const original = Number(goods?.originalPrice) || 0
+  return original > Number(goods?.newbiePrice) ? original : null
+}
+
+/** 身份价角标（会员价/捡漏价）；未命中身份价返回空串 */
+function cardZoneBadgeText(goods: NewbieGoodsItem): string {
+  return zonePriceBadgeText(cardDisplay(goods).badgeKind)
+}
+
+/** 角标文案：命中身份价时显示会员价/捡漏价，否则维持「新人价」 */
+function cardBadgeText(goods: NewbieGoodsItem): string {
+  return cardZoneBadgeText(goods) || t('diy.newbieFloor.priceBadge')
+}
+
+/** 省额：划线价 - 主价（身份价命中时按身份价重算，弹层/卡片口径一致） */
+function savedAmount(goods: NewbieGoodsItem): number {
+  const strike = cardStrikePrice(goods)
+  const main = cardMainPrice(goods)
+  return strike !== null && main < strike ? strike - main : 0
+}
+
 /**
  * 倒计时拆成「前缀 + 时间」两段：前缀中性灰、时间走全站价格色。
  * 轻量版不再用白底胶囊：浅色面板上直接排字，避免又一次「胶囊上叠胶囊」。
  */
+const { now } = useCountdownTicker()
+
 const countdown = computed(() => {
   const endTime = floor.value?.endTime
   if (!showData.value.showCountdown || !endTime)
@@ -66,10 +152,6 @@ const countdown = computed(() => {
     ? { prefix: t('diy.newbieFloor.countdownPrefix'), text: remaining }
     : ended
 })
-
-function savedAmount(goods: { newbiePrice: number, originalPrice: number }) {
-  return Math.max(0, goods.originalPrice - goods.newbiePrice)
-}
 
 /**
  * 区块底纹的运营配置色：只作为浅色渐变底纹（--nf-main）叠加在白底上，
@@ -308,6 +390,10 @@ async function handleGrab(goods: NewbieGoodsItem) {
   if (pending.value)
     return
 
+  // 命中更高优先级的会员价/出清价时，新人价限购不再适用（后端身份价优先、新人价跳过）
+  const zoneDisplay = cardDisplay(goods)
+  const zonePriced = zoneDisplay.badgeKind !== ''
+
   // 未登录时加购必定不会发生（quickAdd 直接引导登录，本组件不重复写登录跳转），
   // 预查询没有意义，跳过它省一次请求
   if (authStore.isLoggedIn) {
@@ -326,7 +412,8 @@ async function handleGrab(goods: NewbieGoodsItem) {
           return
         }
         // 「限购 1 件」与「起订量/步长 > 1」冲突：任何合规数量都超限，不自行加购
-        if (resolveQuickAddQuantity(info) > limit) {
+        // （身份价命中时新人价不参与成交，限购规则不适用，不做此拦截）
+        if (!zonePriced && resolveQuickAddQuantity(info) > limit) {
           // 原生 toast 不随页面卸载立即消失，先提示再跳转，用户能读到限购原因
           uni.showToast({ title: t('diy.newbieFloor.limitToast', { limit }), icon: 'none' })
           openGoods(spuId)
@@ -340,15 +427,18 @@ async function handleGrab(goods: NewbieGoodsItem) {
     }
   }
 
-  // 确认弹层必须按卡片上标的新人价展示小计：quick-cart 只回普通售价，
-  // 不把活动价带进去就会出现「卡片 ¥0.01、弹层小计 ¥12.90」的价差；
-  // 限购件数同时交给弹层封顶，超量在提交订单时会被后端整单拒绝。
+  // 确认弹层必须按卡片上的成交价展示小计：quick-cart 只回普通售价，
+  // 不把活动价带进去就会出现「卡片标一个价、弹层小计另一个价」的价差。
+  // - 命中更高优先级的会员价/出清价：弹层单价取该身份价（SKU 级优先），不封顶新人限购；
+  // - 否则沿用新人价口径，并把限购件数交给弹层封顶，超量在提交订单时会被后端整单拒绝。
   const result = await quickAdd(spuId, {
     promotion: {
       skuId: String(goods.skuId || ''),
-      unitPrice: goods.newbiePrice,
-      maxQuantity: newbieLimitPerUser(),
-      hint: t('diy.newbieFloor.limitToast', { limit: newbieLimitPerUser() }),
+      unitPrice: zonePriced ? zoneDealPrice(goods) : goods.newbiePrice,
+      maxQuantity: zonePriced ? null : newbieLimitPerUser(),
+      hint: zonePriced
+        ? zonePriceBadgeText(zoneDisplay.badgeKind)
+        : t('diy.newbieFloor.limitToast', { limit: newbieLimitPerUser() }),
     },
   })
   if (result.needChoose) {
@@ -410,8 +500,12 @@ async function handleGrab(goods: NewbieGoodsItem) {
             @click="openGoods(goods.spuId)"
           >
             <view class="nf-media">
-              <text v-if="showData.showTag" class="nf-badge">
-                {{ t('diy.newbieFloor.priceBadge') }}
+              <!--
+                角标：命中更高优先级的会员价/出清价时显示对应身份价角标，
+                否则维持「新人价」；身份价必须能被用户识别，不能只有价格变了。
+              -->
+              <text v-if="showData.showTag || cardZoneBadgeText(goods)" class="nf-badge">
+                {{ cardBadgeText(goods) }}
               </text>
               <image
                 v-if="goods.goodsImage"
@@ -432,7 +526,7 @@ async function handleGrab(goods: NewbieGoodsItem) {
                 <text class="nf-price">
                   <text class="nf-price-symbol">
                     ¥
-                  </text>{{ goods.newbiePrice.toFixed(2) }}
+                  </text>{{ cardMainPrice(goods).toFixed(2) }}
                 </text>
                 <!--
                   .stop 是关键：不阻止冒泡会同时触发整卡 @click，加购完立刻被带进商详。
@@ -446,9 +540,10 @@ async function handleGrab(goods: NewbieGoodsItem) {
                   {{ t('diy.common.grab') }}
                 </view>
               </view>
-              <view v-if="goods.originalPrice > goods.newbiePrice" class="nf-meta">
+              <!-- 划线价/省额：命中身份价时按身份价划线基准重算，与弹层小计口径一致 -->
+              <view v-if="cardStrikePrice(goods) !== null" class="nf-meta">
                 <text class="nf-original">
-                  ¥{{ goods.originalPrice.toFixed(2) }}
+                  ¥{{ Number(cardStrikePrice(goods)).toFixed(2) }}
                 </text>
                 <text class="nf-save">
                   {{ t('diy.common.saveAmount', { amount: savedAmount(goods).toFixed(2) }) }}

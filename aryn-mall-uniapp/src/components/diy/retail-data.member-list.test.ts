@@ -18,7 +18,6 @@ const mocks = vi.hoisted(() => ({
   getCurrentNewbieFloor: vi.fn(),
   getCurrentShop: vi.fn(),
   getDiscountActivities: vi.fn(),
-  getMemberActivityGoods: vi.fn(),
   getMemberSpuPrices: vi.fn(),
   getPage: vi.fn(),
   getSeckillSessions: vi.fn(),
@@ -33,7 +32,6 @@ vi.mock('@/api/product/spu', () => ({
 vi.mock('@/api/promotion', () => ({
   getCurrentNewbieFloor: mocks.getCurrentNewbieFloor,
   getDiscountActivities: mocks.getDiscountActivities,
-  getMemberActivityGoods: mocks.getMemberActivityGoods,
   getMemberSpuPrices: mocks.getMemberSpuPrices,
   getSeckillSessions: mocks.getSeckillSessions,
   getSessionGoods: mocks.getSessionGoods,

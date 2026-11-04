@@ -11,7 +11,6 @@ import java.time.LocalDateTime;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class TenantAccessGuardTest {
@@ -73,16 +72,18 @@ class TenantAccessGuardTest {
 	}
 
 	@Test
-	void alwaysAllowsPlatformTenantWithoutRemoteLookup() {
-		assertThatCode(() -> guard.assertAvailable(CommonConstants.PLATFORM_TENANT_ID))
-			.doesNotThrowAnyException();
+	void alwaysAllowsPlatformTenantEvenWhenExpiredOrDisabled() {
+		TenantAccessDTO access = access("1", LocalDateTime.now().minusDays(30), LocalDateTime.now().minusDays(1));
+		access.setTenantType(CommonConstants.TENANT_TYPE_PLATFORM);
+		when(remoteTenantService.getAccess("tenant-platform")).thenReturn(access);
 
-		verifyNoInteractions(remoteTenantService);
+		assertThatCode(() -> guard.assertAvailable("tenant-platform")).doesNotThrowAnyException();
 	}
 
 	private static TenantAccessDTO access(String status, LocalDateTime begin, LocalDateTime end) {
 		TenantAccessDTO access = new TenantAccessDTO();
 		access.setTenantId("tenant-a");
+		access.setTenantType(CommonConstants.TENANT_TYPE_STANDARD);
 		access.setStatus(status);
 		access.setAuthBeginTime(begin);
 		access.setAuthEndTime(end);

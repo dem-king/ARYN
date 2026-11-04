@@ -28,19 +28,40 @@ const extensionCommonStyle = {
 };
 
 /**
- * 多 Tab 商品流自动 Tab 支持的排序值。
+ * 多 Tab 商品流自动 Tab 支持的排序值（持久化在 `dataSource.sort`）。
  *
  * 与后端 `DefaultPageDesignDocumentValidator#validateGoodsTabs` 白名单、
  * C 端 `SORT_MAP` 严格一致：新增排序值必须三端同步。
+ *
+ * 其中 `bargain` 为旧版「折扣力度优先」，仅兼容历史装修文档，管理端不再提供新选；
+ * `member_price` / `clearance` 是专区选品语义（见 `GOODS_TAB_MEMBER_SORT` 等）。
  */
 export const GOODS_TAB_SORTS = [
   'sales',
   'create_time',
   'sales_price',
   'bargain',
+  'member_price',
+  'clearance',
 ] as const;
 
 export type GoodsTabSort = (typeof GOODS_TAB_SORTS)[number];
+
+/** 普通排序：销量 / 新品 / 价格（专区 Tab 不参与普通排序） */
+export const GOODS_TAB_NORMAL_SORTS = [
+  'sales',
+  'create_time',
+  'sales_price',
+] as const;
+
+/** 专区选品：会员专区（商品级会员标签），持久化在 `dataSource.sort` */
+export const GOODS_TAB_MEMBER_SORT = 'member_price';
+
+/** 专区选品：低价捡漏（商品级出清标签），持久化在 `dataSource.sort` */
+export const GOODS_TAB_CLEARANCE_SORT = 'clearance';
+
+/** 旧版「折扣力度优先」：仅兼容历史装修文档，管理端不再提供新选 */
+export const GOODS_TAB_LEGACY_BARGAIN_SORT = 'bargain';
 
 /** 低价捡漏折扣率阈值缺省值：原价 ≥ 售价 × bargainRate 的商品才进入 Tab */
 export const DEFAULT_BARGAIN_RATE = 1.15;
@@ -50,12 +71,8 @@ export const BARGAIN_RATE_MAX_INCLUSIVE = 9.99;
 /** 会员权益条单段文案最大长度，与后端校验同口径 */
 export const MEMBER_BANNER_COPY_MAX_LENGTH = 30;
 
-/** 多 Tab 商品流的数据源模式：分类/排序自动、手选、按会员价活动自动 */
-export const GOODS_TAB_DATA_SOURCE_MODES = [
-  'automatic',
-  'manual',
-  'activity',
-] as const;
+/** 多 Tab 商品流的数据源模式：分类/排序自动、手选商品 */
+export const GOODS_TAB_DATA_SOURCE_MODES = ['automatic', 'manual'] as const;
 
 export type GoodsTabDataSourceMode =
   (typeof GOODS_TAB_DATA_SOURCE_MODES)[number];
@@ -63,19 +80,20 @@ export type GoodsTabDataSourceMode =
 export interface ExtensionDataSourceConfig {
   cacheTtl?: number;
   categoryId?: string;
-  mode: 'activity' | 'automatic' | 'manual' | 'ranking';
+  mode: 'automatic' | 'manual' | 'ranking';
+  /**
+   * 排序 / 专区选品（同一字段）：
+   * - 普通排序：`sales` / `create_time` / `sales_price`
+   * - 专区选品：`member_price`（会员标签商品）/ `clearance`（出清标签商品）
+   * - 旧版兼容：`bargain`（折扣力度优先，管理端已不再提供新选）
+   */
   sort?: string;
   targetIds?: string[];
   /**
-   * 折扣率阈值：仅 automatic 且 sort='bargain' 时生效（F1 低价捡漏）。
-   * 区间 (1.00, 9.99]，缺省按 1.15 处理；持久化在 `tab.dataSource.bargainRate`。
+   * 旧版「折扣力度优先」的折扣率阈值：仅 `sort='bargain'` 时生效。
+   * 区间 (1.00, 9.99]，缺省按 1.15 处理；管理端已不再展示该输入。
    */
   bargainRate?: number;
-  /**
-   * 会员价活动 ID：仅 mode='activity' 时生效（会员专区自动读取活动商品）。
-   * 缺省或空字符串 = 自动取当前进行中的会员价活动；持久化在 `tab.dataSource.activityId`。
-   */
-  activityId?: string;
 }
 
 export interface GoodsWaterfallProps extends Record<string, unknown> {
@@ -334,7 +352,7 @@ export function createGoodsTabsDefaults(): GoodsTabsProps {
           cacheTtl: 0,
           categoryId: '',
           mode: 'automatic',
-          sort: 'sales_price',
+          sort: GOODS_TAB_CLEARANCE_SORT,
           targetIds: [],
         },
         id: 'bargain',
@@ -345,7 +363,7 @@ export function createGoodsTabsDefaults(): GoodsTabsProps {
           cacheTtl: 0,
           categoryId: '',
           mode: 'automatic',
-          sort: 'create_time',
+          sort: GOODS_TAB_MEMBER_SORT,
           targetIds: [],
         },
         id: 'member',
@@ -462,8 +480,6 @@ export function validateGoodsTabs(props: Record<string, unknown>) {
         errors.push(`「${tabLabel}」折扣率阈值必须在 (1.00, 9.99] 区间内`);
       }
     }
-    // mode='activity'（会员专区自动取会员价活动商品）：不校验 sort / targetIds / categoryId，
-    // activityId 可空（空=自动取当前进行中的会员价活动），商品与顺序由活动决定
     validateMemberBanner(tab.memberBanner, tabLabel, errors);
   });
   return errors;

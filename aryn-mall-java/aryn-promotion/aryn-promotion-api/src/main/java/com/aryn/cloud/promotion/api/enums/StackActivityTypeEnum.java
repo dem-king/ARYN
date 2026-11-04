@@ -30,7 +30,15 @@ public enum StackActivityTypeEnum {
 	 *
 	 * <p>会员价是身份常态权益（非止血促销），默认可叠券/积分，管理端可显式关闭。
 	 */
-	MEMBER_PRICE("memberPrice", true, true);
+	MEMBER_PRICE("memberPrice", true, true),
+
+	/**
+	 * 出清价（promotion_activity type=11）。
+	 *
+	 * <p>与会员价同为 stackPriority=2，同 SKU 由引擎取低；默认可叠券/积分，
+	 * 出清命中时新人价与限时折扣被阻断。
+	 */
+	CLEARANCE("clearance", true, true);
 
 	/** 活动类型编码（远程 VO / 结算响应下发用） */
 	private final String code;

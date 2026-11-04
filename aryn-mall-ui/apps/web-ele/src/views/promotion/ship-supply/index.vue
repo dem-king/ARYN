@@ -2,13 +2,15 @@
 import {
   computed,
   defineAsyncComponent,
+  onActivated,
   onMounted,
   reactive,
   ref,
-  watch,
 } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 
 import {
+  ElAlert,
   ElButton,
   ElDatePicker,
   ElDialog,
@@ -40,7 +42,6 @@ import {
   publishActivity,
   updateActivity,
 } from '#/api/promotion/ship-activity';
-import { getList as getMemberLevelList } from '#/api/user/member-level';
 import { getDeclaredVesselCalls, getVesselPage } from '#/api/vessel/vessel';
 import PageFilterPanel from '#/components/page/page-filter-panel.vue';
 import PageToolbar from '#/components/page/page-toolbar.vue';
@@ -63,6 +64,10 @@ const loading = ref(false);
 
 const dialogVisible = ref(false);
 const editingId = ref('');
+/** 本次弹窗是否由「靠港日历/船舶档案 → 建活动」带入，用于顶部提示与后续清理 */
+const routedPrefill = ref(false);
+const route = useRoute();
+const router = useRouter();
 const form = reactive<any>({
   activityName: '',
   activityType: '4',
@@ -104,27 +109,6 @@ const newbieSkus = ref<
   }>
 >([]);
 const registerWithinDays = ref<null | number>(null);
-/**
- * 会员价活动（type=10）：等级门槛 + 每 SKU 会员价。
- *
- * 提交契约（与后端/C 端严格一致）：
- * `rules = { minLevelId, skus: [{ skuId, unitPrice }] }`，只存契约字段，
- * 商品名/售价不落库，编辑回显时按 skuId 向商品服务换取。
- */
-const memberSkus = ref<
-  Array<{
-    salesPrice: number | string;
-    skuId: string;
-    skuName: string;
-    spuName: string;
-    unitPrice: number;
-  }>
->([]);
-const minLevelId = ref('');
-const memberLevels = ref<
-  Array<{ id: string; levelName: string; sortOrder?: number }>
->([]);
-let memberLevelsLoaded = false;
 const gifts = ref<
   Array<{ quantity: number; skuId: string; skuName: string; spuName: string }>
 >([]);
@@ -132,9 +116,9 @@ const vesselOptions = ref<Array<{ id: string; vesselName: string }>>([]);
 const callOptions = ref<any[]>([]);
 const portOptions = ref<Array<{ code: string; name: string }>>([]);
 const isPublished = ref(false);
-const selectMode = ref<
-  'dry' | 'gift' | 'ladder' | 'member' | 'newbie' | 'scope'
->('ladder');
+const selectMode = ref<'dry' | 'gift' | 'ladder' | 'newbie' | 'scope'>(
+  'ladder',
+);
 const dryVisible = ref(false);
 const dryLoading = ref(false);
 const dryResult = ref<any>(null);
@@ -157,7 +141,7 @@ const typeLabel: Record<string, string> = {
   '5': '买赠',
   '7': '整船优惠',
   '9': '新人价',
-  '10': '会员价',
+  '11': '出清价',
 };
 const statusLabel: Record<string, string> = {
   '1': '草稿',
@@ -185,48 +169,11 @@ const scopeLabel: Record<string, string> = {
   '8': '常购用户',
 };
 
-/** 会员等级门槛下拉：复用会员等级管理 API，仅保留启用项并按 sortOrder 升序 */
-const loadMemberLevels = async () => {
-  if (memberLevelsLoaded) return;
-  memberLevelsLoaded = true;
-  try {
-    const levels = (await getMemberLevelList()) as
-      | Array<{
-          id: string;
-          levelName: string;
-          sortOrder?: number;
-          status?: string;
-        }>
-      | undefined;
-    memberLevels.value = (levels ?? [])
-      .filter((level) => level.status === '0')
-      .map((level) => ({
-        id: level.id,
-        levelName: level.levelName,
-        sortOrder: level.sortOrder,
-      }))
-      .sort((left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0));
-  } catch {
-    // 等级接口无权限/失败时保持空选项并允许下次重试，不阻断活动配置
-    memberLevelsLoaded = false;
-  }
-};
-
-/** 解析活动规则 JSON；脏数据不抛错，列表摘要按空处理 */
-const parseActivityRules = (value: unknown): null | Record<string, any> => {
-  if (!value || typeof value !== 'string') return null;
-  try {
-    return JSON.parse(value);
-  } catch {
-    return null;
-  }
-};
-
 /** skuId → 商品展示信息，活动规则只存 skuId 时用于回显与试算结果展示 */
 const skuDisplayMap = ref<Record<string, any>>({});
 
 /**
- * 活动规则只持久化 skuId（会员价等类型的展示字段不落库），编辑回显时
+ * 活动规则只持久化 skuId（阶梯价/新人价等类型的展示字段不落库），编辑回显时
  * 按 skuId 批量换取商品名/规格/售价，避免弹窗只显示一串 ID。
  * 商品服务不可用时保留规则内已有展示字段，不阻断配置。
  */
@@ -267,23 +214,6 @@ const skuDisplayText = (skuId: string) => {
   return name || skuId;
 };
 
-/** 会员价（type=10）列表摘要：等级门槛 · SKU 数 · 最低会员价 */
-const memberRuleSummary = (row: any) => {
-  const rules = parseActivityRules(row.rules);
-  const skus: any[] = Array.isArray(rules?.skus) ? rules.skus : [];
-  const prices = skus
-    .map((sku) => Number(sku.unitPrice))
-    .filter((price) => Number.isFinite(price) && price > 0);
-  const levelName =
-    memberLevels.value.find((level) => level.id === rules?.minLevelId)
-      ?.levelName ||
-    (rules?.minLevelId ? String(rules.minLevelId) : '未配置等级');
-  const minPrice = prices.length > 0 ? Math.min(...prices) : 0;
-  return `${levelName}及以上 · ${skus.length} 个 SKU${
-    minPrice > 0 ? ` · 最低会员价 ¥${formatMoney(minPrice)}` : ''
-  }`;
-};
-
 const initPage = async () => {
   loading.value = true;
   try {
@@ -301,6 +231,7 @@ const initPage = async () => {
 };
 
 const openDialog = (row?: any) => {
+  routedPrefill.value = false;
   editingId.value = row?.id ?? '';
   isPublished.value = row?.status === '2';
   form.activityName = row?.activityName ?? '';
@@ -322,19 +253,11 @@ const openDialog = (row?: any) => {
   form.pointsStackable = row?.pointsStackable ?? (newbieType ? '0' : '1');
   try {
     const rules = row ? JSON.parse(row.rules) : {};
-    const isMemberPriceType = form.activityType === '10';
     skuLadders.value = rules.skuLadders ?? [];
     tiers.value = rules.tiers ?? [{ discountAmount: 0, minAmount: 0 }];
     giftThreshold.value = rules.minAmount ?? 0;
     gifts.value = rules.gifts ?? [];
-    newbieSkus.value = isMemberPriceType ? [] : (rules.skus ?? []);
-    memberSkus.value = isMemberPriceType
-      ? (rules.skus ?? []).map((sku: any) => ({
-          ...sku,
-          unitPrice: Number(sku.unitPrice) || 0,
-        }))
-      : [];
-    minLevelId.value = isMemberPriceType ? (rules.minLevelId ?? '') : '';
+    newbieSkus.value = rules.skus ?? [];
     registerWithinDays.value = rules.registerWithinDays ?? null;
   } catch {
     skuLadders.value = [];
@@ -342,8 +265,6 @@ const openDialog = (row?: any) => {
     giftThreshold.value = 0;
     gifts.value = [];
     newbieSkus.value = [];
-    memberSkus.value = [];
-    minLevelId.value = '';
     registerWithinDays.value = null;
   }
   dryResult.value = null;
@@ -358,24 +279,17 @@ const openDialog = (row?: any) => {
 
       break;
     }
-    case '10': {
-      enrichSkuDisplay(memberSkus.value);
-
-      break;
-    }
     // No default
   }
-  if (form.activityType === '10') loadMemberLevels();
   loadVesselData();
   dialogVisible.value = true;
 };
 
-/** 活动类型切换时按类型默认值重置叠加策略（新人=关，其余含会员价=开） */
+/** 活动类型切换时按类型默认值重置叠加策略（新人=关，其余=开） */
 const onActivityTypeChange = (value: boolean | number | string | undefined) => {
   const newbieType = value === '9';
   form.couponStackable = newbieType ? '0' : '1';
   form.pointsStackable = newbieType ? '0' : '1';
-  if (value === '10') loadMemberLevels();
 };
 
 const buildPayload = () => {
@@ -412,34 +326,18 @@ const buildPayload = () => {
 
       break;
     }
-    case '10': {
-      // 契约字段只有 minLevelId + skus[{skuId, unitPrice}]，其余展示字段不落库
-      rules = {
-        minLevelId: minLevelId.value,
-        skus: memberSkus.value.map((row) => ({
-          skuId: row.skuId,
-          unitPrice: row.unitPrice,
-        })),
-      };
-
-      break;
-    }
     // No default
   }
   const payload: Record<string, any> = {
     ...form,
     rules: JSON.stringify(rules),
   };
-  if (['4', '9', '10'].includes(form.activityType)) {
+  if (['4', '9'].includes(form.activityType)) {
     payload.scopeType = '2';
-    let skuIds: string[] = [];
-    if (form.activityType === '4') {
-      skuIds = skuLadders.value.map((row) => row.skuId);
-    } else if (form.activityType === '9') {
-      skuIds = newbieSkus.value.map((row) => row.skuId);
-    } else {
-      skuIds = memberSkus.value.map((row) => row.skuId);
-    }
+    const skuIds =
+      form.activityType === '4'
+        ? skuLadders.value.map((row) => row.skuId)
+        : newbieSkus.value.map((row) => row.skuId);
     payload.scopeValue = skuIds.join(',');
   }
   return payload;
@@ -480,33 +378,6 @@ const handleSave = () => {
     if (bad) {
       ElMessage.warning(`商品【${bad.spuName}】的新人价需大于 0`);
       return;
-    }
-  }
-  if (form.activityType === '10') {
-    if (!minLevelId.value) {
-      ElMessage.warning('请选择会员等级门槛');
-      return;
-    }
-    if (memberSkus.value.length === 0) {
-      ElMessage.warning('请添加会员价商品');
-      return;
-    }
-    const bad = memberSkus.value.find(
-      (row) => !row.unitPrice || row.unitPrice <= 0,
-    );
-    if (bad) {
-      ElMessage.warning(`商品【${bad.spuName || bad.skuId}】的会员价需大于 0`);
-      return;
-    }
-    // 会员价 ≥ 当前售价的 SKU 运行时回退原价（后端兜底），这里只做前端提示不阻断保存
-    const inverted = memberSkus.value.filter(
-      (row) =>
-        Number(row.salesPrice) > 0 && row.unitPrice >= Number(row.salesPrice),
-    );
-    if (inverted.length > 0) {
-      ElMessage.warning(
-        `有 ${inverted.length} 个 SKU 会员价不低于当前售价，运行时将按原价成交，请确认`,
-      );
     }
   }
   const request = editingId.value
@@ -572,9 +443,7 @@ const handleDelete = (row: any) => {
 };
 
 const selectGoodsRef = ref();
-const openSelect = (
-  mode: 'dry' | 'gift' | 'ladder' | 'member' | 'newbie' | 'scope',
-) => {
+const openSelect = (mode: 'dry' | 'gift' | 'ladder' | 'newbie' | 'scope') => {
   selectMode.value = mode;
   selectGoodsRef.value?.initPage();
 };
@@ -638,14 +507,6 @@ const onGoodsSelected = async (spuList: any[]) => {
 
       break;
     }
-    case 'member': {
-      for (const row of rows) {
-        if (memberSkus.value.some((sku) => sku.skuId === row.skuId)) continue;
-        memberSkus.value.push({ ...row, unitPrice: 0 });
-      }
-
-      break;
-    }
     case 'newbie': {
       for (const row of rows) {
         if (newbieSkus.value.some((sku) => sku.skuId === row.skuId)) continue;
@@ -686,7 +547,8 @@ const scopeValueOptions = computed(() => {
   if (form.scopeType === '6') {
     return callOptions.value.map((call) => ({
       value: call.id,
-      label: `${call.portName} ${String(call.eta).slice(0, 10)}`,
+      label:
+        `${call.portName ?? ''} ${String(call.eta ?? '').slice(0, 10)}`.trim(),
     }));
   }
   if (form.scopeType === '7') {
@@ -794,16 +656,56 @@ const addTier = () => {
   tiers.value.push({ discountAmount: 0, minAmount: 0 });
 };
 
-// 列表规则摘要需要等级名称：仅当当前页存在会员价活动时才拉等级，
-// 避免没有会员等级权限的运营账号每次进页面都吃一次 403
-watch(
-  () => state.tableData,
-  (rows) => {
-    if (rows.some((row: any) => row.activityType === '10')) loadMemberLevels();
-  },
-);
+/** 已消费的建活动入口：keepAlive 页面再次激活或刷新时不重复弹窗 */
+let handledCreateIntent = '';
 
-onMounted(initPage);
+/**
+ * 从靠港日历/船舶档案的「建船供活动」进入：自动打开新建弹窗，
+ * 默认整船优惠 + 指定靠港/船舶（来源页带入的上下文仍可修改）。
+ */
+const consumeCreateIntent = async () => {
+  const { action, vesselCallId, vesselCallLabel, vesselId, vesselName } =
+    route.query as Record<string, string | undefined>;
+  if (action !== 'create' || (!vesselCallId && !vesselId)) return;
+  const intentKey = `${vesselId ?? ''}|${vesselCallId ?? ''}`;
+  if (handledCreateIntent === intentKey) return;
+  handledCreateIntent = intentKey;
+  router.replace({ path: route.path, query: {} }).catch(() => {});
+  await loadVesselData();
+  // 来源页已带展示文案：靠港申报列表只含待处理靠港、船舶列表只取前 200 条，
+  // 目标项可能不在下拉数据里，补一条选中项以免弹窗只显示雪花 ID。
+  if (
+    vesselCallId &&
+    vesselCallLabel &&
+    !callOptions.value.some((call) => call.id === vesselCallId)
+  ) {
+    callOptions.value.unshift({
+      id: vesselCallId,
+      portName: vesselCallLabel,
+      eta: '',
+    });
+  }
+  if (
+    !vesselCallId &&
+    vesselId &&
+    vesselName &&
+    !vesselOptions.value.some((vessel) => vessel.id === vesselId)
+  ) {
+    vesselOptions.value.unshift({ id: vesselId, vesselName });
+  }
+  openDialog({
+    activityType: '7',
+    scopeType: vesselCallId ? '6' : '5',
+    scopeValue: vesselCallId || vesselId,
+  });
+  routedPrefill.value = true;
+};
+
+onMounted(() => {
+  initPage();
+  consumeCreateIntent();
+});
+onActivated(consumeCreateIntent);
 
 useKeepAliveRefresh(initPage);
 </script>
@@ -879,22 +781,9 @@ useKeepAliveRefresh(initPage);
             {{ scopeText(scope.row) }}
           </template>
         </ElTableColumn>
-        <ElTableColumn label="规则摘要" min-width="200">
-          <template #default="scope">
-            <template v-if="scope.row.activityType === '10'">
-              {{ memberRuleSummary(scope.row) }}
-            </template>
-            <span v-else style="color: var(--el-text-color-secondary)">—</span>
-          </template>
-        </ElTableColumn>
         <ElTableColumn label="叠加策略" width="130">
           <template #default="scope">
-            <template
-              v-if="
-                scope.row.activityType === '9' ||
-                scope.row.activityType === '10'
-              "
-            >
+            <template v-if="scope.row.activityType === '9'">
               <span
                 >券{{ scope.row.couponStackable === '1' ? '✓' : '✗' }} · 积分{{
                   scope.row.pointsStackable === '1' ? '✓' : '✗'
@@ -993,6 +882,15 @@ useKeepAliveRefresh(initPage);
         top="6vh"
         width="720px"
       >
+        <ElAlert
+          v-if="routedPrefill"
+          style="margin-bottom: 12px"
+          type="info"
+          :closable="true"
+          show-icon
+          title="已从靠港/船舶带入适用范围，并按「整船优惠」预填；可按需调整活动类型与范围。"
+          @close="routedPrefill = false"
+        />
         <ElForm label-width="auto">
           <ElFormItem label="活动名称" required>
             <ElInput v-model="form.activityName" />
@@ -1007,13 +905,9 @@ useKeepAliveRefresh(initPage);
               <ElRadioButton value="7">船供整船优惠</ElRadioButton>
               <ElRadioButton value="5">买赠</ElRadioButton>
               <ElRadioButton value="9">新人专享价</ElRadioButton>
-              <ElRadioButton value="10">会员价</ElRadioButton>
             </ElRadioGroup>
           </ElFormItem>
-          <ElFormItem
-            v-if="form.activityType === '9' || form.activityType === '10'"
-            label="优惠叠加"
-          >
+          <ElFormItem v-if="form.activityType === '9'" label="优惠叠加">
             <div style="display: flex; gap: 8px; align-items: center">
               <ElSwitch
                 :model-value="form.couponStackable !== '0'"
@@ -1026,20 +920,12 @@ useKeepAliveRefresh(initPage);
               />
               <span>可用积分抵现</span>
               <span style="color: var(--el-text-color-secondary)">
-                {{
-                  form.activityType === '9'
-                    ? '（新人价已是最低价，默认关闭防叠加击穿；可按需放开）'
-                    : '（会员价属常态权益，默认可叠加；可按需关闭）'
-                }}
+                （新人价已是最低价，默认关闭防叠加击穿；可按需放开）
               </span>
             </div>
           </ElFormItem>
           <ElFormItem
-            v-if="
-              form.activityType !== '4' &&
-              form.activityType !== '9' &&
-              form.activityType !== '10'
-            "
+            v-if="form.activityType !== '4' && form.activityType !== '9'"
             label="适用范围"
           >
             <ElSelect
@@ -1117,7 +1003,7 @@ useKeepAliveRefresh(initPage);
               为不限；额度用尽后活动自动失效，订单按剩余优惠或原价成交</span
             >
           </ElFormItem>
-          <ElFormItem v-if="form.activityType !== '10'" label="每人限享">
+          <ElFormItem label="每人限享">
             <ElInputNumber
               v-model="form.perUserLimit"
               :min="0"
@@ -1339,93 +1225,6 @@ useKeepAliveRefresh(initPage);
                 type="danger"
                 :disabled="isPublished"
                 @click="newbieSkus.splice(rowIndex, 1)"
-              >
-                移除
-              </ElButton>
-            </ElFormItem>
-          </template>
-          <template v-else-if="form.activityType === '10'">
-            <ElFormItem label="会员等级门槛" required>
-              <ElSelect
-                v-model="minLevelId"
-                :disabled="isPublished"
-                filterable
-                placeholder="请选择会员等级"
-                style="width: 240px"
-              >
-                <ElOption
-                  v-for="level in memberLevels"
-                  :key="level.id"
-                  :label="level.levelName"
-                  :value="level.id"
-                />
-              </ElSelect>
-              <span
-                class="ml-10px"
-                style="color: var(--el-text-color-secondary)"
-              >
-                该等级及以上会员可享会员价（按等级排序比较）；下拉取自会员等级启用项
-              </span>
-            </ElFormItem>
-            <ElFormItem label="活动商品">
-              <ElButton
-                type="primary"
-                :disabled="isPublished"
-                @click="openSelect('member')"
-              >
-                添加商品
-              </ElButton>
-              <span
-                class="ml-10px"
-                style="color: var(--el-text-color-secondary)"
-              >
-                按 SKU 设置会员价，需大于 0 且低于当前售价（不低于售价的 SKU
-                运行时按原价成交）
-              </span>
-              <div
-                style="
-                  width: 100%;
-                  margin-top: 4px;
-                  line-height: 1.6;
-                  color: var(--el-text-color-secondary);
-                "
-              >
-                会员价应低于该门槛及以上等级的最优会员折扣率；若会员折扣更低，结算按两者取低，不会让高等级会员更贵。
-              </div>
-            </ElFormItem>
-            <ElFormItem
-              v-for="(row, rowIndex) in memberSkus"
-              :key="row.skuId"
-              :label="row.spuName || '活动商品'"
-            >
-              <span class="hx-money" style="min-width: 220px">
-                {{ row.skuName || row.skuId }}
-                <template v-if="Number(row.salesPrice) > 0">
-                  · 售价 ¥{{ formatMoney(row.salesPrice) }}
-                </template>
-              </span>
-              <ElInputNumber
-                v-model="row.unitPrice"
-                :min="0"
-                :precision="2"
-                :disabled="isPublished"
-                controls-position="right"
-                style="width: 120px; margin: 0 8px"
-              />
-              <span
-                v-if="
-                  Number(row.salesPrice) > 0 &&
-                  row.unitPrice >= Number(row.salesPrice)
-                "
-                style="color: var(--el-color-warning)"
-              >
-                不低于售价，运行时按原价成交
-              </span>
-              <ElButton
-                link
-                type="danger"
-                :disabled="isPublished"
-                @click="memberSkus.splice(rowIndex, 1)"
               >
                 移除
               </ElButton>
