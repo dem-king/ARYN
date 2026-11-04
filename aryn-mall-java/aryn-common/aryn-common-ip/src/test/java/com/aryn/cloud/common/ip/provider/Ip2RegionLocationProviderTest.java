@@ -2,6 +2,7 @@ package com.aryn.cloud.common.ip.provider;
 
 import com.aryn.cloud.common.core.util.IpLocationResolver;
 import com.aryn.cloud.common.core.util.IpUtils;
+import com.aryn.cloud.common.ip.IpRegionFiles;
 import com.aryn.cloud.common.ip.config.IpLocationProperties;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -92,6 +93,57 @@ class Ip2RegionLocationProviderTest {
 	}
 
 	@Test
+	void shouldPreferClasspathDataWhenVolumeDataIsOlder() throws Exception {
+		// 模拟发版换镜像：持久卷里是旧数据（构建时间早于镜像内置）
+		Path external = tempDir.resolve("ip2region_v4.xdb");
+		Files.write(external, xdbWithBuiltAt(1_000_000L));
+		Path meta = tempDir.resolve(IpRegionFiles.META_FILE_NAME);
+		Files.writeString(meta, "etag=stale");
+		IpLocationProperties properties = properties(false);
+		properties.getIp2region().setDataDir(tempDir.toString());
+		provider = new Ip2RegionLocationProvider(properties);
+
+		provider.init();
+
+		assertThat(provider.isAvailable()).isTrue();
+		assertThat(provider.sourceDescription()).contains("classpath:");
+		assertThat(Files.exists(meta)).as("内置数据更新时应清掉远端版本标记，让下次刷新重新下载").isFalse();
+		assertThat(provider.resolve("223.5.5.5")).contains("浙江");
+	}
+
+	@Test
+	void shouldPreferVolumeDataWhenSameOrNewer() throws Exception {
+		// 模拟容器重建：持久卷里保留热更新后的数据，与镜像内置同版本时应继续用卷里的文件
+		Path external = tempDir.resolve("ip2region_v4.xdb");
+		Files.copy(new ClassPathResource("ip2region/ip2region_v4.xdb").getInputStream(), external,
+				StandardCopyOption.REPLACE_EXISTING);
+		IpLocationProperties properties = properties(false);
+		properties.getIp2region().setDataDir(tempDir.toString());
+		provider = new Ip2RegionLocationProvider(properties);
+
+		provider.init();
+
+		assertThat(provider.sourceDescription()).contains(external.toAbsolutePath().toString());
+		assertThat(provider.resolve("223.5.5.5")).contains("浙江");
+	}
+
+	@Test
+	void shouldResetMetadataWhenVolumeDataCorrupted() throws Exception {
+		Path external = tempDir.resolve("ip2region_v4.xdb");
+		Files.writeString(external, "not-a-xdb");
+		Path meta = tempDir.resolve(IpRegionFiles.META_FILE_NAME);
+		Files.writeString(meta, "etag=stale");
+		IpLocationProperties properties = properties(false);
+		properties.getIp2region().setDataDir(tempDir.toString());
+		provider = new Ip2RegionLocationProvider(properties);
+
+		provider.init();
+
+		assertThat(provider.sourceDescription()).contains("classpath:");
+		assertThat(Files.exists(meta)).isFalse();
+	}
+
+	@Test
 	void shouldFallbackToClasspathWhenExternalFileInvalid() throws Exception {
 		Path invalid = tempDir.resolve("ip2region_v4.xdb");
 		Files.write(invalid, "not-a-xdb".getBytes());
@@ -102,6 +154,19 @@ class Ip2RegionLocationProviderTest {
 
 		assertThat(provider.isAvailable()).isTrue();
 		assertThat(provider.sourceDescription()).contains("classpath:");
+	}
+
+	private static byte[] xdbWithBuiltAt(long epochSeconds) throws Exception {
+		byte[] bytes;
+		try (InputStream inputStream = new ClassPathResource("ip2region/ip2region_v4.xdb").getInputStream()) {
+			bytes = inputStream.readAllBytes();
+		}
+		// xdb 头部 offset=4 为小端 uint32 数据构建时间（epoch 秒），仅改这 4 字节即可模拟旧数据
+		bytes[4] = (byte) (epochSeconds & 0xFF);
+		bytes[5] = (byte) ((epochSeconds >> 8) & 0xFF);
+		bytes[6] = (byte) ((epochSeconds >> 16) & 0xFF);
+		bytes[7] = (byte) ((epochSeconds >> 24) & 0xFF);
+		return bytes;
 	}
 
 	private IpLocationProperties properties(boolean fallbackHttp) {

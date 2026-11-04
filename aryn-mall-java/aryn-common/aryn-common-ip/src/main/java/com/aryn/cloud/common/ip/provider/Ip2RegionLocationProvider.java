@@ -4,11 +4,13 @@ import cn.hutool.core.util.StrUtil;
 import com.aryn.cloud.common.core.util.HttpIpLocationResolver;
 import com.aryn.cloud.common.core.util.IpLocationResolver;
 import com.aryn.cloud.common.core.util.IpUtils;
+import com.aryn.cloud.common.ip.IpRegionFiles;
 import com.aryn.cloud.common.ip.config.IpLocationProperties;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.lionsoul.ip2region.service.Config;
 import org.lionsoul.ip2region.service.Ip2Region;
+import org.lionsoul.ip2region.xdb.Header;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.Resource;
 
@@ -38,6 +40,12 @@ public class Ip2RegionLocationProvider implements IpLocationResolver, AutoClosea
 
 	private static final String CLASSPATH_PREFIX = "classpath:";
 
+	/** xdb 头部前 24 字节足够解析 version/createdAt/ipVersion */
+	private static final int HEADER_BYTES = 24;
+
+	/** 无法读取到数据构建时间（文件不存在/损坏） */
+	private static final long NO_DATA_BUILD_TIME = -1L;
+
 	private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
 		.withZone(ZoneId.systemDefault());
 
@@ -66,7 +74,15 @@ public class Ip2RegionLocationProvider implements IpLocationResolver, AutoClosea
 	}
 
 	/**
-	 * 启动加载：外部 xdb 优先，失败回退 classpath；两者都失败则只保留第三方 HTTP 兜底。
+	 * 启动加载：数据目录（持久卷）里的 xdb 与 classpath 内置 xdb 取「数据构建时间较新」者；
+	 * 加载失败自动换另一条来源，都失败则只保留第三方 HTTP 兜底。
+	 *
+	 * <p>取较新者覆盖两个部署场景：</p>
+	 * <ul>
+	 * <li>容器/实例重建后，持久卷里保留着热更新过的数据 → 外部文件较新，直接使用；</li>
+	 * <li>发版换镜像后内置数据升级、但卷里还是旧文件 → 本次使用内置数据，并清掉远端版本标记，
+	 * 让下一次刷新任务重新下载、把卷里的文件追平。</li>
+	 * </ul>
 	 * <p>无论加载是否成功都注册解析器：避免「离线库不可用」时把归属地整体降级成「未知」。</p>
 	 */
 	@PostConstruct
@@ -76,25 +92,125 @@ public class Ip2RegionLocationProvider implements IpLocationResolver, AutoClosea
 			return;
 		}
 		Path external = externalXdbPath();
-		if (Files.isRegularFile(external)) {
-			try {
-				loadFromFile(external);
-				IpUtils.registerAddressResolver(this);
-				log.info("IP 归属地解析器已注册：{}", sourceDescription.get());
-				return;
-			}
-			catch (Exception e) {
-				log.warn("外部 xdb 加载失败（{}），回退 classpath 内置数据", e.getMessage());
-			}
+		long externalBuiltAt = readFileBuiltAt(external);
+		long classpathBuiltAt = readClasspathBuiltAt();
+		boolean externalUsable = externalBuiltAt > NO_DATA_BUILD_TIME;
+		boolean classpathUsable = classpathBuiltAt > NO_DATA_BUILD_TIME;
+		boolean loaded;
+		if (externalUsable && (!classpathUsable || externalBuiltAt >= classpathBuiltAt)) {
+			loaded = tryLoadExternal(external) || tryLoadClasspath();
 		}
-		try {
-			loadFromClasspath();
+		else if (classpathUsable) {
+			if (externalUsable) {
+				log.info("数据目录 xdb 较旧（构建于 {}），镜像内置较新（构建于 {}），本次使用内置数据并重置远端版本标记",
+						formatBuiltAt(externalBuiltAt), formatBuiltAt(classpathBuiltAt));
+				resetRefreshMetadata();
+			}
+			else if (Files.isRegularFile(external)) {
+				log.warn("数据目录 xdb 不可用（{}），本次使用镜像内置数据，并重置远端版本标记以便重新下载",
+						formatBuiltAt(externalBuiltAt));
+				resetRefreshMetadata();
+			}
+			loaded = tryLoadClasspath() || tryLoadExternal(external);
 		}
-		catch (Exception e) {
-			log.warn("classpath 内置 xdb 加载失败，归属地解析将回退第三方 HTTP：{}", e.getMessage());
+		else if (Files.isRegularFile(external)) {
+			loaded = tryLoadExternal(external);
+		}
+		else {
+			loaded = false;
+		}
+		if (!loaded) {
+			log.warn("未加载到可用的 ip2region xdb（数据目录与 classpath 均不可用），归属地解析将回退第三方 HTTP");
 		}
 		IpUtils.registerAddressResolver(this);
 		log.info("IP 归属地解析器已注册：{}", sourceDescription.get());
+	}
+
+	private boolean tryLoadExternal(Path external) {
+		try {
+			loadFromFile(external);
+			return true;
+		}
+		catch (Exception e) {
+			log.warn("数据目录 xdb 加载失败（{}）：{}", external, e.getMessage());
+			return false;
+		}
+	}
+
+	private boolean tryLoadClasspath() {
+		try {
+			loadFromClasspath();
+			return true;
+		}
+		catch (Exception e) {
+			log.warn("classpath 内置 xdb 加载失败：{}", e.getMessage());
+			return false;
+		}
+	}
+
+	/**
+	 * 读取 xdb 头部记录的数据构建时间（epoch 秒）；文件不存在/头部损坏返回
+	 * {@link #NO_DATA_BUILD_TIME}。
+	 */
+	private static long readFileBuiltAt(Path xdbFile) {
+		if (!Files.isRegularFile(xdbFile)) {
+			return NO_DATA_BUILD_TIME;
+		}
+		try (InputStream inputStream = Files.newInputStream(xdbFile)) {
+			return parseBuiltAt(inputStream.readNBytes(HEADER_BYTES));
+		}
+		catch (Exception e) {
+			log.debug("读取 xdb 头部失败 {}：{}", xdbFile, e.getMessage());
+			return NO_DATA_BUILD_TIME;
+		}
+	}
+
+	private long readClasspathBuiltAt() {
+		String location = properties.getIp2region().getClasspathLocation();
+		String path = StrUtil.removePrefix(StrUtil.trimToEmpty(location), CLASSPATH_PREFIX);
+		Resource resource = new ClassPathResource(path);
+		if (!resource.exists()) {
+			return NO_DATA_BUILD_TIME;
+		}
+		try (InputStream inputStream = resource.getInputStream()) {
+			return parseBuiltAt(inputStream.readNBytes(HEADER_BYTES));
+		}
+		catch (Exception e) {
+			log.debug("读取 classpath 内置 xdb 头部失败：{}", e.getMessage());
+			return NO_DATA_BUILD_TIME;
+		}
+	}
+
+	private static long parseBuiltAt(byte[] headerBytes) {
+		if (headerBytes == null || headerBytes.length < 20) {
+			return NO_DATA_BUILD_TIME;
+		}
+		try {
+			return new Header(headerBytes).createdAt & 0xFFFFFFFFL;
+		}
+		catch (RuntimeException e) {
+			return NO_DATA_BUILD_TIME;
+		}
+	}
+
+	private static String formatBuiltAt(long epochSeconds) {
+		return DATE_TIME_FORMATTER.format(Instant.ofEpochSecond(epochSeconds));
+	}
+
+	/**
+	 * 清掉远端版本元数据：镜像内置数据已覆盖卷里的旧文件（或卷文件损坏）时，让下一次刷新任务
+	 * 不带 If-None-Match 重新下载，把数据目录追平到远端最新。
+	 */
+	private void resetRefreshMetadata() {
+		Path metaFile = externalXdbPath().getParent().resolve(IpRegionFiles.META_FILE_NAME);
+		try {
+			if (Files.deleteIfExists(metaFile)) {
+				log.info("已重置 xdb 远端版本标记：{}", metaFile);
+			}
+		}
+		catch (Exception e) {
+			log.warn("重置 xdb 远端版本标记失败 {}：{}", metaFile, e.getMessage());
+		}
 	}
 
 	@Override

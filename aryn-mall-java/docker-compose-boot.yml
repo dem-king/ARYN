@@ -117,9 +117,12 @@ services:
       ROCKETMQ_NAME_SERVER: aryn-boot-rocketmq-namesrv:9876
       # 容器内 localhost:8081 指向自身而非调度中心，必须用服务名访问
       XXL_JOB_ADMINADDRESSES: http://aryn-boot-xxl-job-admin:8081/xxl-job-admin
+      # IP 归属地离线库数据目录：挂持久卷，容器重建/发版后热更新的 xdb 不丢失
+      ARYN_IP2REGION_DATA_DIR: /root/.aryn/ip2region
     volumes:
       - boot-storage:/data/aryn/uploads
       - boot-cert:/root/aryn/cert
+      - boot-ipdata:/root/.aryn/ip2region
     networks:
       - aryn-net
     depends_on:
@@ -161,3 +164,4 @@ volumes:
   redis-data:
   boot-storage:
   boot-cert:
+  boot-ipdata:

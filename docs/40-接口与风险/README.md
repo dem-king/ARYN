@@ -525,6 +525,10 @@ MVC 兜底 `code=1`）。前端只判 `code===401`，导致被顶下线时管理
 - **热更新**：XXL-JOB `ipRegionDataRefreshJobHandler`（boot `200` / cloud `203` 注册脚本）每日 03:30
   按 ETag 检查，下载后必须过 体积/`verifyFromFile`/样本 IP 三重校验才原子替换，失败自动回滚并保留旧数据；
   多实例靠 `{data-dir}/.ip2region_v4.lock` 文件锁串行化。**不要**手工直接覆盖 xdb 文件。
+- **数据目录必须持久化**：boot 已在 `docker-compose-boot.yml` 把 `/root/.aryn/ip2region` 挂到命名卷
+  `boot-ipdata`，容器重建/发版不会丢失热更新数据；新增部署形态（更换编排/多副本）时同样要给
+  `data-dir` 挂持久卷，否则每次重建都会回退到镜像内置数据（功能不变，但数据新鲜度回退）。
+  启动时按 `header.createdAt` 取「卷内文件 vs 镜像内置」较新者，发版换新镜像后自动纠偏。
 - **降级边界**：离线库不可用/未命中且 `aryn.ip.fallback-http=true` 时才会访问第三方 HTTP（1.5s 超时），
   两者都失败返回「未知」；归属地只影响展示，任何异常不得影响登录/业务主流程（`IpUtils` 已兜底）。
 - **cloud 多服务**：xdb 是本地文件。需要所有实例热更新时，要么给各服务挂同一 `data-dir` 共享卷，

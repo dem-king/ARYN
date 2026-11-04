@@ -1,5 +1,6 @@
 package com.aryn.cloud.common.ip.updater;
 
+import com.aryn.cloud.common.ip.IpRegionFiles;
 import com.aryn.cloud.common.ip.config.IpLocationProperties;
 import com.aryn.cloud.common.ip.provider.Ip2RegionLocationProvider;
 import org.junit.jupiter.api.AfterEach;
@@ -59,7 +60,7 @@ class IpRegionDataUpdaterTest {
 		Path target = provider.externalXdbPath();
 		assertThat(Files.size(target)).isEqualTo(xdb.length);
 		assertThat(provider.sourceDescription()).contains(target.toAbsolutePath().toString());
-		assertThat(Files.isRegularFile(tempDir.resolve(IpRegionDataUpdater.META_FILE_NAME))).isTrue();
+		assertThat(Files.isRegularFile(tempDir.resolve(IpRegionFiles.META_FILE_NAME))).isTrue();
 		assertThat(Searcher.newWithFileOnly(Version.IPv4, target.toFile()).search("223.5.5.5")).contains("|");
 		assertThat(provider.resolve("223.5.5.5")).contains("浙江");
 	}
@@ -147,7 +148,7 @@ class IpRegionDataUpdaterTest {
 	@Test
 	void shouldSkipWhenAnotherInstanceHoldsLock() throws Exception {
 		prepareProvider();
-		Path lockFile = tempDir.resolve(IpRegionDataUpdater.LOCK_FILE_NAME);
+		Path lockFile = tempDir.resolve(IpRegionFiles.LOCK_FILE_NAME);
 		try (FileChannel channel = FileChannel.open(lockFile, StandardOpenOption.CREATE,
 				StandardOpenOption.WRITE);
 				FileLock ignored = channel.lock()) {

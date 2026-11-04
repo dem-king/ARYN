@@ -2,6 +2,7 @@ package com.aryn.cloud.common.ip.updater;
 
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.crypto.digest.DigestUtil;
+import com.aryn.cloud.common.ip.IpRegionFiles;
 import com.aryn.cloud.common.ip.config.IpLocationProperties;
 import com.aryn.cloud.common.ip.provider.Ip2RegionLocationProvider;
 import lombok.extern.slf4j.Slf4j;
@@ -34,14 +35,6 @@ import java.util.Properties;
  */
 @Slf4j
 public class IpRegionDataUpdater {
-
-	static final String LOCK_FILE_NAME = ".ip2region_v4.lock";
-
-	static final String META_FILE_NAME = ".ip2region_v4.meta";
-
-	static final String DOWNLOAD_SUFFIX = ".download";
-
-	static final String BACKUP_SUFFIX = ".bak";
 
 	private static final String META_ETAG = "etag";
 
@@ -81,10 +74,10 @@ public class IpRegionDataUpdater {
 		}
 		Path target = provider.externalXdbPath();
 		Path dataDir = target.getParent();
-		Path temp = dataDir.resolve(target.getFileName() + DOWNLOAD_SUFFIX);
-		Path backup = dataDir.resolve(target.getFileName() + BACKUP_SUFFIX);
-		Path meta = dataDir.resolve(META_FILE_NAME);
-		Path lockFile = dataDir.resolve(LOCK_FILE_NAME);
+		Path temp = dataDir.resolve(target.getFileName() + IpRegionFiles.DOWNLOAD_SUFFIX);
+		Path backup = dataDir.resolve(target.getFileName() + IpRegionFiles.BACKUP_SUFFIX);
+		Path meta = dataDir.resolve(IpRegionFiles.META_FILE_NAME);
+		Path lockFile = dataDir.resolve(IpRegionFiles.LOCK_FILE_NAME);
 		FileChannel channel = null;
 		FileLock lock = null;
 		try {

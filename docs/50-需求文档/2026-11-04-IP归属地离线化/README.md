@@ -65,6 +65,9 @@ aryn-common-log（L1）
   `buffer`（11MB 全量进内存，登录/日志低频调用可接受）。可配置 `cache-policy`/`searchers`。
 - 启动校验：外部文件先 `Searcher.verifyFromFile` + 样本 IP 查询，失败自动回退 classpath；
   两者都失败也不阻塞启动，归属地走 HTTP 兜底并打 WARN 日志。
+- **新旧取较新者（2026-11-04 补充）**：启动时比对数据目录文件与 classpath 内置 xdb 的
+  `header.createdAt`，取构建时间较新者——容器重建后优先用持久卷里的热更新数据；发版换镜像后若
+  内置数据更新，则本次用内置数据并清掉 `.ip2region_v4.meta`，让下次刷新任务重新下载把卷追平。
 - 展示口径：`中国|浙江省|杭州市|阿里|CN` → `浙江省 杭州市`；直辖市省==市去重（`北京市`）；
   海外只展示国家（`United States`，与旧 HTTP 的 `美国` 同粒度）；`Reserved`/空值 → `未知`。
 - 内网 IP 由 `IpUtils`/provider 统一返回 `内网IP`（本地开发不误判）。
@@ -131,6 +134,7 @@ boot 配置在 `aryn-boot/src/main/resources/application.yml`；cloud 模式在 
 | 新模块 | `aryn-common/aryn-common-ip/`：pom、`ip2region/ip2region_v4.xdb`、provider/formatter/updater/job/config 共 11 个类 + 自动配置 imports + 5 个测试类 |
 | 依赖 | 根 `pom.xml`（ip2region 版本 + depMgmt）、`aryn-common/pom.xml`（模块）、`aryn-common-log/pom.xml`（依赖）、`aryn-common-core/pom.xml`（test 依赖） |
 | 配置 | boot `application.yml` + 9 个 cloud 服务 `application.yml` |
+| 部署 | `docker-compose-boot.yml`：新增命名卷 `boot-ipdata` 挂 `/root/.aryn/ip2region` + `ARYN_IP2REGION_DATA_DIR` |
 | 数据库 | 无表结构变更；Job 注册脚本 boot `200` / cloud `203`；boot 全量 SQL 已登记 `200ip_region_refresh_job.sql` 并重建校验 |
 
 ## 5. 验证
@@ -155,14 +159,24 @@ cd aryn-mall-java && node db/boot/build-full-sql.mjs && node db/boot/verify-full
   再次全绿（约 1.5 分钟，验证无脏增量依赖）。
 - 打包验证：`aryn-common-ip.jar` 4.3MB（含 xdb，压缩后），jar 内 `ip2region/ip2region_v4.xdb`
   与源文件 sha256 一致；`aryn-boot` 可执行包包含 `BOOT-INF/lib/aryn-common-ip-3.2.1.jar`。
+- 持久化/热更新补充验证（2026-11-04，部署到 aryn-boot 容器后）：
+  · 新增单测 3 例（卷数据较旧→用内置并清 meta、卷数据同版本→用卷、卷文件损坏→用内置并清 meta），
+    模块测试 29 例 + core 4 例全绿；
+  · 把 xdb 放入命名卷后 `--force-recreate` 两次：文件仍在、启动日志从
+    `classpath:...` 切换为 `/root/.aryn/ip2region/ip2region_v4.xdb`，健康检查 UP；
+  · 用「短信登录 + CF-Connecting-IP: 223.5.5.5」回归，登录日志写入
+    `ip=223.5.5.5 / location=浙江省 杭州市`，证明卷内数据被真实用于解析。
 - 全量 SQL：29343 行、3284081 字节，`verify-full-sql.mjs` 通过。
 
 ## 6. 部署与运维注意
 
 - **包体积/内存**：每个引入 common-log 的服务 jar 增加约 4.3MB（xdb 压缩后；运行期需读取 11MB 数据）；
   classpath 模式常驻内存约 11MB，外部文件 + `vindex` 模式内存约 512KB。
-- **多副本热更新**：xdb 是本地文件。boot 单 JVM 部署天然一致；cloud 多服务/多副本需要
-  「同一 `data-dir` 共享卷」或按执行器分组分别注册刷新任务（分片广播），文件锁保证只有一个实例真正下载。
+- **多副本/重建热更新**：xdb 是本地文件。boot 的 `docker-compose-boot.yml` 已把
+  `/root/.aryn/ip2region` 挂到命名卷 `boot-ipdata`（并显式设置 `ARYN_IP2REGION_DATA_DIR`），
+  容器重建/发版不再丢失热更新数据；启动按「数据构建时间较新者」选择数据目录或镜像内置数据。
+  cloud 多服务/多副本需同样挂共享卷，或按执行器分组分别注册刷新任务（分片广播），
+  文件锁保证只有一个实例真正下载。
 - **首次刷新**：安装后第一次跑 Job 会在 `data-dir` 落一份 xdb 并切换到外部文件，之后走 ETag 增量判断。
 - **回滚**：`aryn.ip.enabled=false` 即回到旧 HTTP 链路；数据回滚用同目录 `.bak` 覆盖回
   `ip2region_v4.xdb`（下次启动/热更新生效）；代码回滚按版本发布回退 jar 即可（无 DDL）。
