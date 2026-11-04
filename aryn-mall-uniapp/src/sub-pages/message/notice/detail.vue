@@ -12,15 +12,16 @@ import BusinessCard from '@/components/message/BusinessCard.vue'
 import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
 import { useRequireLogin } from '@/composables/useRequireLogin'
 import {
-
   createClientMessageId,
   parseMessagePayload,
 } from '@/utils/message'
+import { resolveNoticeJump } from '@/utils/notice-jump'
 import {
   formatNoticeDateTime,
   isImportantNotice,
   noticeCategoryLabelOf,
 } from '@/utils/notice'
+import { navigateToUrl } from '@/utils/tab-bar'
 
 const { handlePageScroll } = useFrostedNavbar()
 
@@ -46,6 +47,36 @@ const businessCardPayload = computed(() =>
   parseMessagePayload(notice.value?.cardPayload),
 )
 
+/**
+ * 通知的站内跳转目标（订单/退款/商品/优惠券/端内路由）。
+ *
+ * 详情页不只有正文：能安全映射时给出「查看详情」按钮并让业务卡片点击同样
+ * 落到该路由；无安全目标时按钮不渲染，避免出现「可点但没反应」的入口。
+ */
+const jumpRoute = computed(() =>
+  notice.value ? resolveNoticeJump(notice.value) : undefined,
+)
+
+/** 标记已读：失败只影响未读计数，不阻断详情展示与跳转 */
+async function markReadIfNeeded() {
+  if (!notice.value || notice.value.readStatus !== '0')
+    return
+  try {
+    await markNoticeRead(notice.value.messageId).send()
+    notice.value.readStatus = '1'
+  }
+  catch {
+    // 已读上报失败忽略：用户正在阅读正文，不应被一次计数请求打断
+  }
+}
+
+async function openJump() {
+  if (!jumpRoute.value)
+    return
+  await markReadIfNeeded()
+  navigateToUrl(jumpRoute.value)
+}
+
 onLoad(async (options) => {
   // 通知详情是非白名单页（可被 H5 深链/历史链接直达）：游客不拉详情、不上报已读，
   // 只记录含 id 的回跳路径并打开登录页，登录成功后自动回到本页。
@@ -63,10 +94,7 @@ onLoad(async (options) => {
   }
   try {
     notice.value = await getNoticeDetail(options.id).send()
-    if (notice.value.readStatus === '0') {
-      await markNoticeRead(options.id).send()
-      notice.value.readStatus = '1'
-    }
+    await markReadIfNeeded()
   }
   finally {
     loading.value = false
@@ -127,8 +155,13 @@ onPageScroll(handlePageScroll)
         v-if="businessCardType && notice.cardPayload"
         class="notice-paper__card"
         :payload="businessCardPayload"
+        :route="jumpRoute"
         :type="businessCardType"
       />
+      <!-- 有安全站内跳转目标才渲染入口：无目标时按钮不出现，避免「可点但没反应」 -->
+      <button v-if="jumpRoute" class="notice-paper__jump" @click="openJump">
+        {{ t('message.noticeDetail.viewDetail') }}
+      </button>
       <button class="notice-paper__reply" @click="reply">
         {{ t('message.noticeDetail.reply') }}
       </button>
@@ -202,8 +235,16 @@ onPageScroll(handlePageScroll)
     line-height: 1.9;
     white-space: pre-wrap;
   }
-  &__reply {
+  &__jump {
     margin-top: 30rpx;
+    color: var(--theme-color-primary, var(--wot-color-theme-primary, #ff2237));
+    border: 1rpx solid currentcolor;
+    border-radius: 22rpx;
+    background: transparent;
+    font-size: 27rpx;
+  }
+  &__reply {
+    margin-top: 20rpx;
     color: #fff;
     border-radius: 22rpx;
     background: var(--theme-color-primary, var(--wot-color-theme-primary, #ff2237));

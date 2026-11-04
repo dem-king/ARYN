@@ -11,6 +11,30 @@ export function createClientMessageId() {
   return `msg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`
 }
 
+/**
+ * 按文件扩展名推断图片 MIME。
+ *
+ * 后端 IMAGE 消息的 `mimeType` 只接受 `image/jpeg|png|webp`，并会把它落库供
+ * 下载端按真实类型渲染；旧实现固定写 `image/jpeg`，png/webp 图片存成 jpeg
+ * 后部分端拿到的 Content-Type 与字节不符。临时文件路径没有扩展名（小程序
+ * 相机临时文件）时回退 `image/jpeg`，仍在后端白名单内。
+ */
+export function resolveImageMimeType(
+  filePath?: null | string,
+): 'image/jpeg' | 'image/png' | 'image/webp' {
+  const value = (filePath ?? '').trim().toLowerCase()
+  const extension = /\.([a-z0-9]+)(?:[?#].*)?$/.exec(value)?.[1]
+  switch (extension) {
+    case 'png':
+      return 'image/png'
+    case 'webp':
+      return 'image/webp'
+    // jpg/jpeg 与未知扩展名（含无扩展名的临时文件）统一回退 jpeg
+    default:
+      return 'image/jpeg'
+  }
+}
+
 export function mergeServerMessage(
   messages: ViewChatMessage[],
   serverMessage: ChatMessage,

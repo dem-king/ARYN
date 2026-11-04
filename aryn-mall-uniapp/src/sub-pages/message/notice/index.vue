@@ -12,11 +12,13 @@ import { useFrostedNavbar } from '@/composables/useFrostedNavbar'
 import { useRequireLogin } from '@/composables/useRequireLogin'
 import { useAuthStore } from '@/store/authStore'
 import { useMessageStore } from '@/store/messageStore'
+import { resolveNoticeJump } from '@/utils/notice-jump'
 import {
   formatNoticeTime,
   isImportantNotice,
   noticeCategoryLabelOf,
 } from '@/utils/notice'
+import { navigateToUrl } from '@/utils/tab-bar'
 
 const { handlePageScroll } = useFrostedNavbar()
 
@@ -123,11 +125,28 @@ async function refresh() {
   }
 }
 
+/**
+ * 打开一条通知：先标记已读，再消费站内信跳转。
+ *
+ * 有安全跳转目标（订单/退款/商品/优惠券/端内路由）时直接打开业务页；
+ * 没有可跳转目标时打开通知详情读正文——每次点击都有明确去向，避免
+ * 「点了没反应」；已读上报失败不阻断跳转（用户意图是看业务详情）。
+ */
 async function openNotice(item: NoticeInboxItem) {
   if (item.readStatus === '0') {
-    await markNoticeRead(item.messageId).send()
-    item.readStatus = '1'
-    messageStore.noticeUnread = Math.max(0, messageStore.noticeUnread - 1)
+    try {
+      await markNoticeRead(item.messageId).send()
+      item.readStatus = '1'
+      messageStore.noticeUnread = Math.max(0, messageStore.noticeUnread - 1)
+    }
+    catch {
+      // 已读状态属于次要反馈，跳转不被一次失败的上报阻塞
+    }
+  }
+  const route = resolveNoticeJump(item)
+  if (route) {
+    navigateToUrl(route)
+    return
   }
   uni.navigateTo({
     url: `/sub-pages/message/notice/detail?id=${item.messageId}`,

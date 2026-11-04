@@ -34,16 +34,26 @@ export interface NoticeInboxItem {
 }
 
 export interface Conversation {
+  /** 负责客服头像（参与者快照，WAITING 时为空） */
+  assignedStaffAvatar?: string
   assignedStaffId?: string
+  /** 负责客服昵称：ASSIGNED/ACTIVE 时 C 端状态条展示「客服：{昵称}」 */
+  assignedStaffName?: string
   closedTime?: string
   contextPayload?: string
   conversationType: 'CUSTOMER_SERVICE'
+  /** 会员头像（参与者快照） */
+  customerAvatar?: string
   customerId?: string
+  /** 会员昵称（参与者快照） */
+  customerName?: string
   id: string
   lastMessageSummary?: string
   lastMessageTime?: string
   lastReadSeq: number
   lastSeq: number
+  /** 对方最后已读 seq：用于已读回执展示（C 端聊天页暂不消费，字段先按契约对齐） */
+  peerLastReadSeq?: number
   queueCode: string
   reopenDeadline?: string
   status: 'ACTIVE' | 'ASSIGNED' | 'CLOSED' | 'WAITING'

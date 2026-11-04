@@ -25,6 +25,7 @@ interface FakeSocketTask {
   onError: (cb: () => void) => void
   close: ReturnType<typeof vi.fn>
   send: ReturnType<typeof vi.fn>
+  emitOpen: () => void
   emitMessage: (data: unknown) => void
 }
 
@@ -61,6 +62,7 @@ function installUniMock() {
         },
         close: vi.fn(),
         send: vi.fn(),
+        emitOpen: () => callbacks.open?.(),
         emitMessage: (data: unknown) => callbacks.message?.({ data }),
       } as FakeSocketTask
       sockets.push(task)
@@ -262,5 +264,53 @@ describe('WS SESSION_INVALID push (delivery)', () => {
     expect(refresh).toHaveBeenCalledTimes(1)
     expect(emittedEvents()).toContain('delivery-message-push')
     expect(useSessionStore().invalid).toBe(false)
+  })
+})
+
+/**
+ * WS 重连信号（客服聊天页补拉游标的触发源）。
+ *
+ * 断线期间（后台挂起/弱网/心跳强拆）的推送会丢，聊天页只靠 message-push
+ * 永远看不到这段时间的消息。store 在每次 socket onOpen（首连与重连口径一致）
+ * 发出 `message-reconnected`，页面收到后按 afterSeq 补拉；心跳/假在线逻辑
+ * 保持既有行为不变。
+ */
+describe('WS reconnect signal (mall)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    setActivePinia(createPinia())
+    storage.clear()
+    emit.mockReset()
+    installUniMock()
+  })
+
+  afterEach(() => {
+    try {
+      useMessageStore().disconnect()
+      useDeliveryMessageStore().disconnect()
+    }
+    catch {
+      // 测试可能已卸载 pinia，忽略清理失败
+    }
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+  })
+
+  it('emits message-reconnected on every socket open', async () => {
+    const { store, socket } = await connectMall()
+    expect(emittedEvents()).not.toContain('message-reconnected')
+
+    socket.emitOpen()
+    expect(emittedEvents()).toContain('message-reconnected')
+    // 既有 onOpen 行为不变：状态置 open 且启动心跳（假在线由 PING/PONG 维护）
+    expect(store.socketState).toBe('open')
+    expect(vi.getTimerCount()).toBeGreaterThan(0)
+
+    // 断线重连后再次 open 必须再发一次，否则页面只能靠 onShow 兜底
+    socket.emitOpen()
+    expect(
+      emittedEvents().filter(event => event === 'message-reconnected'),
+    ).toHaveLength(2)
   })
 })

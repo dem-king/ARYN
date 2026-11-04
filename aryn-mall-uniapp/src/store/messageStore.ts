@@ -117,6 +117,10 @@ export const useMessageStore = defineStore('message', {
         this.socketState = 'open'
         lastAliveAt = Date.now()
         startHeartbeat()
+        // 断线期间（后台挂起、弱网、心跳强拆重连）的推送会丢，重连成功即通知
+        // 聊天页按 afterSeq 补拉；首次建连也会发一次，页面此时通常还没进入会话，
+        // 由页面自身判断是否已有 conversationId。
+        uni.$emit('message-reconnected')
       })
       socketTask.onMessage((event) => {
         lastAliveAt = Date.now()

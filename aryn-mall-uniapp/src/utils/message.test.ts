@@ -6,6 +6,7 @@ import {
   latestSequence,
   mergeCursorMessages,
   mergeServerMessage,
+  resolveImageMimeType,
 } from './message'
 
 function message(clientMessageId: string, seqNo: number): ChatMessage {
@@ -60,5 +61,19 @@ describe('mobile message helpers', () => {
         '/sub-pages/message/chat/index?cardType=PRODUCT_CARD&cardPayload=',
       ),
     ).toBe(true)
+  })
+
+  it('resolves the real image mimeType from the file extension', () => {
+    expect(resolveImageMimeType('/tmp/a/b/c.jpg')).toBe('image/jpeg')
+    expect(resolveImageMimeType('/tmp/a/b/c.JPEG')).toBe('image/jpeg')
+    expect(resolveImageMimeType('https://cdn.example.com/x.png?imageView=1')).toBe('image/png')
+    expect(resolveImageMimeType('wxfile://tmp_123.webp')).toBe('image/webp')
+  })
+
+  it('falls back to jpeg for temp paths without an extension', () => {
+    // 小程序相机临时文件常常没有扩展名：后端只认 jpeg/png/webp，回退 jpeg 才不会 400
+    expect(resolveImageMimeType('wxfile://tmp_123')).toBe('image/jpeg')
+    expect(resolveImageMimeType('')).toBe('image/jpeg')
+    expect(resolveImageMimeType(undefined)).toBe('image/jpeg')
   })
 })

@@ -3,9 +3,18 @@ import type { BusinessCardType } from '@/utils/message'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { businessCardRoute } from '@/utils/message'
+import { navigateToUrl } from '@/utils/tab-bar'
 
 const props = defineProps<{
   payload: Record<string, any>
+  /**
+   * 外部算好的安全跳转路由（站内信详情页传入）。
+   *
+   * 新版 cardPayload 改为 `{bizType,bizId}`，卡片自带的路由推导只看 orderId
+   * 等旧字段，会推导失败；通知侧已用 notice-jump 统一解析，这里优先消费，
+   * 避免卡片「可点但没反应」。
+   */
+  route?: string
   type: BusinessCardType
 }>()
 
@@ -26,9 +35,10 @@ const detailLabel = computed(() =>
 )
 
 function openCard() {
-  const url = businessCardRoute(props.type, props.payload)
+  // 站内信详情传入的 route 已做白名单校验；没有时回退卡片自身的业务路由推导
+  const url = props.route || businessCardRoute(props.type, props.payload)
   if (url)
-    uni.navigateTo({ url })
+    navigateToUrl(url)
 }
 </script>
 
