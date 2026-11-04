@@ -11,6 +11,7 @@ import com.aryn.cloud.message.api.dto.conversation.ConversationReadRequest;
 import com.aryn.cloud.message.api.dto.conversation.CustomerServiceConversationRequest;
 import com.aryn.cloud.message.api.dto.assignment.ConversationCloseRequest;
 import com.aryn.cloud.message.api.enums.MessageIdentityType;
+import com.aryn.cloud.message.api.enums.ConversationStatus;
 import com.aryn.cloud.message.api.vo.conversation.ChatMessagePageVO;
 import com.aryn.cloud.message.api.vo.conversation.ChatMessageVO;
 import com.aryn.cloud.message.api.vo.conversation.ConversationInboxPageVO;
@@ -22,6 +23,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -44,8 +46,18 @@ public class AppConversationController {
 	@Operation(summary = "创建或获取客服会话")
 	public Result<ConversationVO> customerService(@Valid @RequestBody CustomerServiceConversationRequest request) {
 		ArynUser user = currentUser();
-		return Result.success(conversationService.getOrCreateCustomerService(user.getTenantId(), user.getUserId(),
-				user.getNickname(), user.getAvatar(), request.getQueueCode(), request.getContextPayload()));
+		ConversationVO conversation = conversationService.getOrCreateCustomerService(user.getTenantId(),
+				user.getUserId(), user.getNickname(), user.getAvatar(), request.getQueueCode(),
+				request.getContextPayload());
+		// 已存在的 WAITING 会话再次进入时补一次自动分配：必须在建会话事务提交之后单独尝试，
+		// 否则并发领取会让内层 TransactionTemplate 把外层事务标记 rollback-only，接口 500。
+		if (ConversationStatus.WAITING.name().equals(conversation.getStatus())
+				&& !StringUtils.hasText(conversation.getAssignedStaffId())) {
+			assignmentService.autoAssign(user.getTenantId(), conversation.getId());
+			conversation = conversationService.get(user.getTenantId(), MessageIdentityType.MALL_USER, user.getUserId(),
+					conversation.getId());
+		}
+		return Result.success(conversation);
 	}
 
 	@GetMapping

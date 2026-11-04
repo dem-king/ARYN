@@ -9,6 +9,85 @@
         AND status IN ('WAITING', 'ASSIGNED', 'ACTIVE')
         AND del_flag = '0'
     </sql>
+    <sql id="openStatusCondition">
+        c.status IN ('WAITING', 'ASSIGNED', 'ACTIVE')
+    </sql>
+    <!--
+      会话视图列：除会话主表外，通过参与者快照补齐会员/负责客服昵称与对方已读游标。
+      - cp：会员参与者（participant_id = customer_id，避免 STAFF_DIRECT 误命中其它会员）
+      - sp：当前负责客服的参与者行（仅 ACTIVE，转交后旧坐席行已 EXITED）
+      - peer_last_read_seq：与查看者类型不同的那条 ACTIVE 参与者已读游标（对方最后已读）。
+        引用它的查询都必须带 p 别名（selectForParticipant/selectInbox/selectUnreadForParticipant）。
+    -->
+    <sql id="conversationViewColumns">
+        c.id,
+        c.conversation_type,
+        c.queue_code,
+        c.customer_id,
+        c.assigned_staff_id,
+        c.status,
+        c.last_seq,
+        p.last_read_seq,
+        GREATEST(c.last_seq - p.last_read_seq, 0) AS unread_count,
+        c.last_message_summary,
+        c.last_message_time,
+        COALESCE(c.last_message_time, c.create_time) AS last_active_time,
+        c.closed_time,
+        c.reopen_deadline,
+        c.context_payload,
+        cp.participant_name AS customer_name,
+        cp.participant_avatar AS customer_avatar,
+        sp.participant_name AS assigned_staff_name,
+        sp.participant_avatar AS assigned_staff_avatar,
+        (SELECT pp.last_read_seq
+         FROM message_participant pp
+         WHERE pp.tenant_id = #{tenantId}
+           AND pp.conversation_id = c.id
+           AND pp.participant_type &lt;&gt; p.participant_type
+           AND pp.participant_status = 'ACTIVE'
+           AND pp.del_flag = '0'
+         ORDER BY pp.joined_time DESC
+         LIMIT 1) AS peer_last_read_seq
+    </sql>
+    <sql id="participantJoin">
+        INNER JOIN message_participant p ON p.tenant_id = #{tenantId}
+            AND p.conversation_id = c.id
+            AND p.participant_type = #{participantType}
+            AND p.participant_id = #{participantId}
+            AND p.participant_status = 'ACTIVE'
+            AND p.del_flag = '0'
+    </sql>
+    <sql id="snapshotJoins">
+        LEFT JOIN message_participant cp ON cp.tenant_id = c.tenant_id
+            AND cp.conversation_id = c.id
+            AND cp.participant_type = 'MALL_USER'
+            AND cp.participant_id = c.customer_id
+            AND cp.del_flag = '0'
+        LEFT JOIN message_participant sp ON sp.tenant_id = c.tenant_id
+            AND sp.conversation_id = c.id
+            AND sp.participant_type = 'SYS_USER'
+            AND sp.participant_id = c.assigned_staff_id
+            AND sp.participant_status = 'ACTIVE'
+            AND sp.del_flag = '0'
+    </sql>
+    <sql id="inboxStatusFilter">
+        <if test="status != null and status != ''">
+            <choose>
+                <when test="status == 'CLOSED'">
+                    AND c.status = 'CLOSED'
+                </when>
+                <otherwise>
+                    AND <include refid="openStatusCondition"/>
+                </otherwise>
+            </choose>
+        </if>
+    </sql>
+    <sql id="inboxCursorFilter">
+        <if test="cursorTime != null">
+            AND (COALESCE(c.last_message_time, c.create_time) &lt; #{cursorTime}
+                OR (COALESCE(c.last_message_time, c.create_time) = #{cursorTime} AND c.id &lt; #{cursorId}))
+        </if>
+    </sql>
     <select id="selectActiveCustomerConversation" resultType="com.aryn.cloud.message.api.entity.MessageConversation">
         SELECT *
         FROM message_conversation
@@ -46,31 +125,19 @@
           AND del_flag = '0'
         FOR UPDATE
     </select>
-    <sql id="conversationViewColumns">
-        c.id,
-        c.conversation_type,
-        c.queue_code,
-        c.customer_id,
-        c.assigned_staff_id,
-        c.status,
-        c.last_seq,
-        p.last_read_seq,
-        GREATEST(c.last_seq - p.last_read_seq, 0) AS unread_count,
-        c.last_message_summary,
-        c.last_message_time,
-        c.closed_time,
-        c.reopen_deadline,
-        c.context_payload
-    </sql>
+    <select id="selectTenantById" resultType="com.aryn.cloud.message.api.entity.MessageConversation">
+        SELECT *
+        FROM message_conversation
+        WHERE tenant_id = #{tenantId}
+          AND id = #{id}
+          AND del_flag = '0'
+        LIMIT 1
+    </select>
     <select id="selectForParticipant" resultType="com.aryn.cloud.message.api.vo.conversation.ConversationVO">
         SELECT <include refid="conversationViewColumns"/>
         FROM message_conversation c
-        INNER JOIN message_participant p ON p.tenant_id = #{tenantId}
-            AND p.conversation_id = c.id
-            AND p.participant_type = #{participantType}
-            AND p.participant_id = #{participantId}
-            AND p.participant_status = 'ACTIVE'
-            AND p.del_flag = '0'
+        <include refid="participantJoin"/>
+        <include refid="snapshotJoins"/>
         WHERE c.tenant_id = #{tenantId}
           AND c.id = #{conversationId}
           AND c.del_flag = '0'
@@ -78,34 +145,62 @@
     <select id="selectInbox" resultType="com.aryn.cloud.message.api.vo.conversation.ConversationVO">
         SELECT <include refid="conversationViewColumns"/>
         FROM message_conversation c
-        INNER JOIN message_participant p ON p.tenant_id = #{tenantId}
-            AND p.conversation_id = c.id
-            AND p.participant_type = #{participantType}
-            AND p.participant_id = #{participantId}
-            AND p.participant_status = 'ACTIVE'
-            AND p.del_flag = '0'
+        <include refid="participantJoin"/>
+        <include refid="snapshotJoins"/>
         WHERE c.tenant_id = #{tenantId}
           AND c.del_flag = '0'
-        <if test="cursor != null and cursor != ''">
-            AND c.id &lt; #{cursor}
-        </if>
-        ORDER BY c.id DESC
+        <include refid="inboxStatusFilter"/>
+        <include refid="inboxCursorFilter"/>
+        ORDER BY COALESCE(c.last_message_time, c.create_time) DESC, c.id DESC
+        LIMIT #{fetchSize}
+    </select>
+    <select id="selectTenantInbox" resultType="com.aryn.cloud.message.api.vo.conversation.ConversationVO">
+        SELECT
+            c.id,
+            c.conversation_type,
+            c.queue_code,
+            c.customer_id,
+            c.assigned_staff_id,
+            c.status,
+            c.last_seq,
+            c.last_message_summary,
+            c.last_message_time,
+            COALESCE(c.last_message_time, c.create_time) AS last_active_time,
+            c.closed_time,
+            c.reopen_deadline,
+            c.context_payload,
+            cp.participant_name AS customer_name,
+            cp.participant_avatar AS customer_avatar,
+            sp.participant_name AS assigned_staff_name,
+            sp.participant_avatar AS assigned_staff_avatar,
+            (SELECT pp.last_read_seq
+             FROM message_participant pp
+             WHERE pp.tenant_id = #{tenantId}
+               AND pp.conversation_id = c.id
+               AND pp.participant_type = 'MALL_USER'
+               AND pp.participant_status = 'ACTIVE'
+               AND pp.del_flag = '0'
+             ORDER BY pp.joined_time DESC
+             LIMIT 1) AS peer_last_read_seq
+        FROM message_conversation c
+        <include refid="snapshotJoins"/>
+        WHERE c.tenant_id = #{tenantId}
+          AND c.del_flag = '0'
+        <include refid="inboxStatusFilter"/>
+        <include refid="inboxCursorFilter"/>
+        ORDER BY COALESCE(c.last_message_time, c.create_time) DESC, c.id DESC
         LIMIT #{fetchSize}
     </select>
     <select id="selectUnreadForParticipant" resultType="com.aryn.cloud.message.api.vo.conversation.ConversationVO">
         SELECT <include refid="conversationViewColumns"/>
         FROM message_conversation c
-        INNER JOIN message_participant p ON p.tenant_id = #{tenantId}
-            AND p.conversation_id = c.id
-            AND p.participant_type = #{participantType}
-            AND p.participant_id = #{participantId}
-            AND p.participant_status = 'ACTIVE'
-            AND p.del_flag = '0'
+        <include refid="participantJoin"/>
+        <include refid="snapshotJoins"/>
         WHERE c.tenant_id = #{tenantId}
           AND c.del_flag = '0'
           AND c.status != 'CLOSED'
           AND c.last_seq > p.last_read_seq
-        ORDER BY c.last_message_time DESC, c.id DESC
+        ORDER BY COALESCE(c.last_message_time, c.create_time) DESC, c.id DESC
         LIMIT #{limit}
     </select>
     <select id="countUnreadForParticipant" resultType="long">
@@ -132,6 +227,47 @@
           AND assigned_staff_id IS NULL
           AND del_flag = '0'
     </select>
+    <select id="selectWaitingPool" resultType="com.aryn.cloud.message.api.vo.conversation.ConversationVO">
+        SELECT
+            c.id,
+            c.conversation_type,
+            c.queue_code,
+            c.customer_id,
+            c.assigned_staff_id,
+            c.status,
+            c.last_seq,
+            0 AS last_read_seq,
+            0 AS unread_count,
+            c.last_message_summary,
+            c.last_message_time,
+            COALESCE(c.last_message_time, c.create_time) AS last_active_time,
+            c.closed_time,
+            c.reopen_deadline,
+            c.context_payload,
+            cp.participant_name AS customer_name,
+            cp.participant_avatar AS customer_avatar
+        FROM message_conversation c
+        <include refid="snapshotJoins"/>
+        WHERE c.tenant_id = #{tenantId}
+          AND c.conversation_type = 'CUSTOMER_SERVICE'
+          AND c.queue_code = #{queueCode}
+          AND c.status = 'WAITING'
+          AND c.assigned_staff_id IS NULL
+          AND c.del_flag = '0'
+        ORDER BY c.create_time ASC, c.id ASC
+        LIMIT #{limit}
+    </select>
+    <select id="selectWaitingForTenant" resultType="com.aryn.cloud.message.api.entity.MessageConversation">
+        SELECT *
+        FROM message_conversation
+        WHERE tenant_id = #{tenantId}
+          AND conversation_type = 'CUSTOMER_SERVICE'
+          AND status = 'WAITING'
+          AND assigned_staff_id IS NULL
+          AND del_flag = '0'
+        ORDER BY create_time ASC, id ASC
+        LIMIT #{limit}
+    </select>
     <update id="assignWaiting">
         UPDATE message_conversation
         SET assigned_staff_id = #{staffId}, status = 'ASSIGNED', update_time = NOW()
@@ -156,18 +292,6 @@
           AND reopen_deadline &gt; NOW()
           AND del_flag = '0'
     </update>
-    <select id="selectWaiting" resultType="com.aryn.cloud.message.api.entity.MessageConversation">
-        SELECT *
-        FROM message_conversation
-        WHERE tenant_id = #{tenantId}
-          AND conversation_type = 'CUSTOMER_SERVICE'
-          AND queue_code = #{queueCode}
-          AND status = 'WAITING'
-          AND assigned_staff_id IS NULL
-          AND del_flag = '0'
-        ORDER BY create_time ASC
-        LIMIT #{limit}
-    </select>
     <select id="selectInactiveConversations" resultType="com.aryn.cloud.message.api.entity.MessageConversation">
         SELECT *
         FROM message_conversation
@@ -177,5 +301,24 @@
           AND del_flag = '0'
         ORDER BY COALESCE(last_message_time, create_time) ASC
         LIMIT #{limit}
+    </select>
+    <select id="selectInactiveConversationsByTenant" resultType="com.aryn.cloud.message.api.entity.MessageConversation">
+        SELECT *
+        FROM message_conversation
+        WHERE tenant_id = #{tenantId}
+          AND conversation_type = 'CUSTOMER_SERVICE'
+          AND status IN ('WAITING', 'ASSIGNED', 'ACTIVE')
+          AND COALESCE(last_message_time, create_time) &lt; #{inactiveBefore}
+          AND del_flag = '0'
+        ORDER BY COALESCE(last_message_time, create_time) ASC
+        LIMIT #{limit}
+    </select>
+    <select id="countActiveByStaff" resultType="long">
+        SELECT COUNT(*)
+        FROM message_conversation
+        WHERE tenant_id = #{tenantId}
+          AND assigned_staff_id = #{staffId}
+          AND status IN ('ASSIGNED', 'ACTIVE')
+          AND del_flag = '0'
     </select>
 </mapper>

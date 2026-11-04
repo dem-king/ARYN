@@ -108,14 +108,25 @@ class TenantInterceptorBypassAuditTest {
 				"aryn-message/aryn-message-biz/src/main/resources/mapper/MessageDispatchTaskMapper.xml"));
 		String conversationJob = Files.readString(projectRoot.resolve(
 				"aryn-message/aryn-message-biz/src/main/java/com/aryn/cloud/message/job/ConversationMaintenanceJob.java"));
+		String dispatchJob = Files.readString(projectRoot.resolve(
+				"aryn-message/aryn-message-biz/src/main/java/com/aryn/cloud/message/job/NoticeDispatchRecoveryJob.java"));
 		String dispatchService = Files.readString(projectRoot.resolve(
 				"aryn-message/aryn-message-biz/src/main/java/com/aryn/cloud/message/service/impl/NoticeDispatchServiceImpl.java"));
 
+		// 旧的全租户发现查询仍保留（历史任务兼容），新维护流程改为按租户显式过滤查询。
 		assertThat(selectStatement(conversationMapper, "selectInactiveConversations"))
 				.contains("SELECT *", "del_flag = '0'");
+		assertThat(selectStatement(conversationMapper, "selectInactiveConversationsByTenant"))
+				.contains("tenant_id = #{tenantId}", "del_flag = '0'");
 		assertThat(selectStatement(dispatchMapper, "selectRecoveryTasks"))
 				.contains("SELECT *", "del_flag = '0'");
-		assertThat(conversationJob).contains("setTenantId(conversation.getTenantId())", "removeTenantId()");
+		assertThat(selectStatement(dispatchMapper, "selectRecoveryTasksByTenant"))
+				.contains("tenant_id = #{tenantId}", "del_flag = '0'");
+		// 任务按租户遍历：显式 set/remove 租户上下文后再调用租户级维护服务。
+		assertThat(conversationJob).contains("setTenantId(tenant.getId())", "removeTenantId()",
+				"maintainTenant(tenant.getId())");
+		assertThat(dispatchJob).contains("setTenantId(tenant.getId())", "removeTenantId()",
+				"recoverTenant(tenant.getId()");
 		assertThat(dispatchService).contains("setTenantId(tenantId)", "removeTenantId()");
 	}
 

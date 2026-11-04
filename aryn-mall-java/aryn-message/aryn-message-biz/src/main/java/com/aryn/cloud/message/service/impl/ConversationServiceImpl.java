@@ -8,37 +8,44 @@ import com.aryn.cloud.message.api.entity.MessageParticipant;
 import com.aryn.cloud.message.api.enums.ConversationStatus;
 import com.aryn.cloud.message.api.enums.ConversationType;
 import com.aryn.cloud.message.api.enums.MessageIdentityType;
+import com.aryn.cloud.message.api.vo.conversation.ConversationAssignmentLogVO;
 import com.aryn.cloud.message.api.vo.conversation.ConversationAttentionVO;
 import com.aryn.cloud.message.api.vo.conversation.ConversationInboxPageVO;
 import com.aryn.cloud.message.api.vo.conversation.ConversationVO;
-import com.aryn.cloud.message.api.entity.MessageAgent;
-import com.aryn.cloud.message.mapper.MessageAgentMapper;
+import com.aryn.cloud.message.mapper.MessageAssignmentLogMapper;
 import com.aryn.cloud.message.mapper.MessageConversationMapper;
 import com.aryn.cloud.message.mapper.MessageParticipantMapper;
+import com.aryn.cloud.message.service.AgentService;
 import com.aryn.cloud.message.service.ConversationService;
 import com.aryn.cloud.message.service.ConversationAssignmentService;
 import com.aryn.cloud.user.api.dto.UserMessageAudienceRequest;
 import com.aryn.cloud.user.api.remote.RemoteMessageAudienceService;
 import com.aryn.cloud.user.api.vo.UserMessageAudiencePageVO;
 import com.aryn.cloud.user.api.vo.UserMessageRecipientVO;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.dubbo.config.annotation.DubboReference;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
-import org.springframework.beans.BeanUtils;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 /** 会话创建、查询和已读实现。 */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ConversationServiceImpl implements ConversationService {
@@ -46,12 +53,17 @@ public class ConversationServiceImpl implements ConversationService {
 	private static final String DEFAULT_QUEUE = "DEFAULT";
 	private static final int DEFAULT_LIMIT = 20;
 	private static final int MAX_LIMIT = 100;
+	private static final String STATUS_OPEN = "OPEN";
+	private static final String STATUS_CLOSED = "CLOSED";
+	private static final String CURSOR_SEPARATOR = "|";
+	private static final ZoneId CURSOR_ZONE = ZoneId.systemDefault();
 
 	private final MessageConversationMapper conversationMapper;
 	private final MessageParticipantMapper participantMapper;
-	private final MessageAgentMapper agentMapper;
+	private final MessageAssignmentLogMapper assignmentLogMapper;
 	private final ObjectMapper objectMapper;
 	private final ConversationAssignmentService assignmentService;
+	private final AgentService agentService;
 
 	@DubboReference
 	private final RemoteMessageAudienceService audienceService;
@@ -65,6 +77,8 @@ public class ConversationServiceImpl implements ConversationService {
 		MessageConversation existing = conversationMapper.selectActiveCustomerConversation(tenantId, customerId,
 				normalizedQueue);
 		if (existing != null) {
+			// 已存在的 WAITING 会话的自动分配重试由接口层在事务提交后执行，
+			// 避免内层 TransactionTemplate 与并发领取相互污染外层事务。
 			return requireParticipantView(tenantId, MessageIdentityType.MALL_USER, customerId, existing.getId());
 		}
 		String reopenedConversationId = assignmentService.reopenCustomerConversation(tenantId, customerId,
@@ -163,18 +177,21 @@ public class ConversationServiceImpl implements ConversationService {
 	public ConversationInboxPageVO inbox(String tenantId, MessageIdentityType identityType, String identityId,
 			ConversationInboxQuery query) {
 		int limit = normalizeLimit(query == null ? null : query.getLimit());
-		String cursor = query == null ? null : query.getCursor();
-		List<ConversationVO> records = conversationMapper.selectInbox(tenantId, identityType.name(), identityId,
-				cursor, limit + 1);
-		boolean hasMore = records.size() > limit;
-		if (hasMore) {
-			records = new ArrayList<>(records.subList(0, limit));
-		}
-		ConversationInboxPageVO result = new ConversationInboxPageVO();
-		result.setRecords(records);
-		result.setHasMore(hasMore);
-		result.setNextCursor(hasMore && !records.isEmpty() ? records.get(records.size() - 1).getId() : null);
-		return result;
+		String status = normalizeStatus(query == null ? null : query.getStatus());
+		InboxCursor cursor = parseCursor(query == null ? null : query.getCursor());
+		List<ConversationVO> records = conversationMapper.selectInbox(tenantId, identityType.name(), identityId, status,
+				cursor == null ? null : cursor.time(), cursor == null ? null : cursor.id(), limit + 1);
+		return toPage(records, limit);
+	}
+
+	@Override
+	public ConversationInboxPageVO adminInbox(String tenantId, ConversationInboxQuery query) {
+		int limit = normalizeLimit(query == null ? null : query.getLimit());
+		String status = normalizeStatus(query == null ? null : query.getStatus());
+		InboxCursor cursor = parseCursor(query == null ? null : query.getCursor());
+		List<ConversationVO> records = conversationMapper.selectTenantInbox(tenantId, status,
+				cursor == null ? null : cursor.time(), cursor == null ? null : cursor.id(), limit + 1);
+		return toPage(records, limit);
 	}
 
 	@Override
@@ -187,7 +204,8 @@ public class ConversationServiceImpl implements ConversationService {
 						normalizedLimit));
 		result.setUnreadConversations(
 				conversationMapper.countUnreadForParticipant(tenantId, identityType.name(), identityId));
-		if (isEnabledAgent(tenantId, identityId)) {
+		// 共享池待领取提醒只对「启用且 ONLINE」的坐席可见：接待状态只约束承接新工作。
+		if (identityType == MessageIdentityType.SYS_USER && agentService.isAcceptingNewWork(tenantId, identityId)) {
 			String normalizedQueue = StringUtils.hasText(queueCode) ? queueCode : DEFAULT_QUEUE;
 			result.setWaitingTotal(conversationMapper.countWaiting(tenantId, normalizedQueue));
 			// 共享池还没有坐席参与者，未读查询天然取不到，这里按同一顺序补在未读之后。
@@ -197,35 +215,28 @@ public class ConversationServiceImpl implements ConversationService {
 		return result;
 	}
 
+	@Override
+	public List<ConversationAssignmentLogVO> assignmentLogs(String tenantId, String conversationId) {
+		return assignmentLogMapper.selectByConversation(tenantId, conversationId);
+	}
+
 	/** 待领取会话对未读查询不可见（没有参与者行），需要显式补进提醒列表尾部。 */
 	private void appendWaiting(List<ConversationVO> conversations, String tenantId, String queueCode, int limit) {
 		if (conversations.size() >= limit) {
 			return;
 		}
 		Set<String> known = conversations.stream().map(ConversationVO::getId).collect(Collectors.toSet());
-		for (MessageConversation waiting : conversationMapper.selectWaiting(tenantId, queueCode, limit)) {
+		for (ConversationVO waiting : conversationMapper.selectWaitingPool(tenantId, queueCode, limit)) {
 			if (conversations.size() >= limit) {
 				return;
 			}
 			if (!known.add(waiting.getId())) {
 				continue;
 			}
-			ConversationVO vo = new ConversationVO();
-			BeanUtils.copyProperties(waiting, vo);
-			vo.setUnreadCount(0L);
-			vo.setLastReadSeq(0L);
-			conversations.add(vo);
+			waiting.setUnreadCount(0L);
+			waiting.setLastReadSeq(0L);
+			conversations.add(waiting);
 		}
-	}
-
-	/**
-	 * 只有启用中的客席才需要待领取提醒。
-	 *
-	 * <p>否则普通管理员会看到自己无权领取的池子；推送也只会发给启用坐席。
-	 */
-	private boolean isEnabledAgent(String tenantId, String staffId) {
-		MessageAgent agent = agentMapper.selectByStaffId(tenantId, staffId);
-		return agent != null && CommonConstants.YES.equals(agent.getEnabled());
 	}
 
 	@Override
@@ -311,11 +322,74 @@ public class ConversationServiceImpl implements ConversationService {
 		}
 	}
 
+	/** 状态过滤参数归一化：只接受 OPEN / CLOSED，缺省不过滤。 */
+	private String normalizeStatus(String requested) {
+		if (!StringUtils.hasText(requested)) {
+			return null;
+		}
+		String status = requested.trim().toUpperCase(Locale.ROOT);
+		if (!STATUS_OPEN.equals(status) && !STATUS_CLOSED.equals(status)) {
+			throw new ArynBusinessException("status 仅支持 OPEN 或 CLOSED");
+		}
+		return status;
+	}
+
+	/**
+	 * 解析不透明游标：Base64Url(最近活跃时间毫秒 | 会话 ID)。
+	 *
+	 * <p>游标对前端不透明，服务端内部编码排序键与 id，避免「最近活跃时间相同」时
+	 * 仅按 id 翻页导致的漏项/重复。
+	 */
+	private InboxCursor parseCursor(String cursor) {
+		if (!StringUtils.hasText(cursor)) {
+			return null;
+		}
+		try {
+			String decoded = new String(Base64.getUrlDecoder().decode(cursor), StandardCharsets.UTF_8);
+			int separator = decoded.indexOf(CURSOR_SEPARATOR);
+			if (separator <= 0 || separator >= decoded.length() - 1) {
+				throw new IllegalArgumentException("游标格式错误");
+			}
+			long millis = Long.parseLong(decoded.substring(0, separator));
+			String id = decoded.substring(separator + 1);
+			return new InboxCursor(LocalDateTime.ofInstant(Instant.ofEpochMilli(millis), CURSOR_ZONE), id);
+		}
+		catch (RuntimeException exception) {
+			throw new ArynBusinessException("游标参数不合法");
+		}
+	}
+
+	/** 编码下一页游标；排序键取 COALESCE(last_message_time, create_time)。 */
+	private String encodeCursor(ConversationVO last) {
+		LocalDateTime activeTime = last.getLastActiveTime() == null ? LocalDateTime.now() : last.getLastActiveTime();
+		long millis = activeTime.atZone(CURSOR_ZONE).toInstant().toEpochMilli();
+		String raw = millis + CURSOR_SEPARATOR + last.getId();
+		return Base64.getUrlEncoder().withoutPadding().encodeToString(raw.getBytes(StandardCharsets.UTF_8));
+	}
+
+	/** 已查询 limit+1 条的记录转成游标页。 */
+	private ConversationInboxPageVO toPage(List<ConversationVO> records, int limit) {
+		List<ConversationVO> pageRecords = records;
+		boolean hasMore = pageRecords.size() > limit;
+		if (hasMore) {
+			pageRecords = new ArrayList<>(pageRecords.subList(0, limit));
+		}
+		ConversationInboxPageVO result = new ConversationInboxPageVO();
+		result.setRecords(pageRecords);
+		result.setHasMore(hasMore);
+		result.setNextCursor(hasMore && !pageRecords.isEmpty() ? encodeCursor(pageRecords.get(pageRecords.size() - 1)) : null);
+		return result;
+	}
+
 	private int normalizeLimit(Integer requested) {
 		if (requested == null || requested <= 0) {
 			return DEFAULT_LIMIT;
 		}
 		return Math.min(requested, MAX_LIMIT);
+	}
+
+	/** 复合游标内部结构：最近活跃时间 + 会话 ID。 */
+	private record InboxCursor(LocalDateTime time, String id) {
 	}
 
 }

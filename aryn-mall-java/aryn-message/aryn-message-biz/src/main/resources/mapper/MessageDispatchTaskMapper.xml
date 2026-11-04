@@ -18,6 +18,16 @@
         ORDER BY create_time ASC
         LIMIT #{limit}
     </select>
+    <select id="selectRecoveryTasksByTenant" resultType="com.aryn.cloud.message.api.entity.MessageDispatchTask">
+        SELECT *
+        FROM message_dispatch_task
+        WHERE tenant_id = #{tenantId}
+          AND del_flag = '0'
+          AND status IN ('PENDING', 'RUNNING')
+          AND (last_heartbeat_time IS NULL OR last_heartbeat_time &lt; #{staleBefore})
+        ORDER BY create_time ASC
+        LIMIT #{limit}
+    </select>
     <select id="selectByMessageIds" resultType="com.aryn.cloud.message.api.entity.MessageDispatchTask">
         SELECT *
         FROM message_dispatch_task

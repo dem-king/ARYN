@@ -47,7 +47,11 @@
         ON DUPLICATE KEY UPDATE
             participant_status = 'ACTIVE',
             exited_time = NULL,
-            last_read_seq = GREATEST(last_read_seq, VALUES(last_read_seq)),
+            <!-- 快照字段随重新分配刷新；查询失败时保留旧昵称，避免把已有名字置空 -->
+            participant_name = COALESCE(VALUES(participant_name), participant_name),
+            participant_avatar = COALESCE(VALUES(participant_avatar), participant_avatar),
+            <!-- 分配/领取/转交后新坐席的历史消息应计为未读，游标显式归零，不能用 GREATEST 保留旧值 -->
+            last_read_seq = VALUES(last_read_seq),
             joined_time = VALUES(joined_time),
             update_time = NOW(),
             del_flag = '0'

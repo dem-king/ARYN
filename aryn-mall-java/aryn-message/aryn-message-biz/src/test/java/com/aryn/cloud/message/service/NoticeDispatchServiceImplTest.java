@@ -137,6 +137,33 @@ class NoticeDispatchServiceImplTest {
 		verify(recipientMapper, never()).insertIgnoreBatch(any());
 	}
 
+	@Test
+	void recoverTenantOnlyRecoversStaleTasksOfThatTenant() {
+		MessageDispatchTaskMapper taskMapper = mock(MessageDispatchTaskMapper.class);
+		MessageRecipientMapper recipientMapper = mock(MessageRecipientMapper.class);
+		MessageNoticeMapper noticeMapper = mock(MessageNoticeMapper.class);
+		TransactionTemplate transactionTemplate = mock(TransactionTemplate.class);
+		when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
+			TransactionCallback<?> callback = invocation.getArgument(0);
+			return callback.doInTransaction(mock(TransactionStatus.class));
+		});
+		MessageDispatchTask task = task();
+		when(taskMapper.selectRecoveryTasksByTenant(org.mockito.ArgumentMatchers.eq("tenant-1"), any(),
+				org.mockito.ArgumentMatchers.eq(100))).thenReturn(List.of(task));
+		NoticeDispatchServiceImpl service = org.mockito.Mockito.spy(new NoticeDispatchServiceImpl(taskMapper,
+				recipientMapper, noticeMapper, new ObjectMapper(), transactionTemplate,
+				mock(RemoteMessageAudienceService.class), mock(RemoteMessageStaffService.class)));
+		org.mockito.Mockito.doNothing().when(service).dispatch("tenant-1", "task-1");
+
+		int recovered = service.recoverTenant("tenant-1", 100);
+
+		assertEquals(1, recovered);
+		// 租户过滤必须走带 tenantId 的查询，不能复用跨租户扫描。
+		verify(taskMapper).selectRecoveryTasksByTenant(org.mockito.ArgumentMatchers.eq("tenant-1"), any(),
+				org.mockito.ArgumentMatchers.eq(100));
+		verify(service).dispatch("tenant-1", "task-1");
+	}
+
 	private UserMessageRecipientVO member() {
 		UserMessageRecipientVO member = new UserMessageRecipientVO();
 		member.setId("member-1");

@@ -35,4 +35,10 @@ public interface MessageDispatchTaskMapper extends BaseMapper<MessageDispatchTas
 	@InterceptorIgnore(tenantLine = "true")
 	List<MessageDispatchTask> selectRecoveryTasks(@Param("staleBefore") LocalDateTime staleBefore,
 			@Param("limit") int limit);
+
+	/**
+	 * 按租户查询心跳超时、需要恢复的分发任务（恢复任务服务使用，显式带 tenantId，不绕过租户拦截器）。
+	 */
+	List<MessageDispatchTask> selectRecoveryTasksByTenant(@Param("tenantId") String tenantId,
+			@Param("staleBefore") LocalDateTime staleBefore, @Param("limit") int limit);
 }

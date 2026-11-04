@@ -36,7 +36,7 @@ class MessagePushServiceImplTest {
 		when(redisTemplate.convertAndSend(eq(MessagePushServiceImpl.CHANNEL), any()))
 			.thenThrow(new IllegalStateException("redis unavailable"));
 		MessagePushServiceImpl service = new MessagePushServiceImpl(participantMapper, agentMapper, handler,
-				redisTemplate, new ObjectMapper());
+				redisTemplate, new ObjectMapper(), mock(AgentService.class));
 
 		service.pushConversationMessage("tenant-1", "conversation-1", "message-1", 8L);
 
@@ -45,14 +45,38 @@ class MessagePushServiceImplTest {
 	}
 
 	@Test
-	void queuedPoolEventReachesEveryEnabledAgent() {
+	void queuedPoolEventOnlyReachesOnlineAgents() {
 		MessageParticipantMapper participantMapper = mock(MessageParticipantMapper.class);
 		MessageAgentMapper agentMapper = mock(MessageAgentMapper.class);
 		MessageWebSocketHandler handler = mock(MessageWebSocketHandler.class);
 		StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+		AgentService agentService = mock(AgentService.class);
 		when(agentMapper.selectEnabledStaffIds("tenant-1", 500)).thenReturn(List.of("staff-1", "staff-2"));
+		// 只有 staff-1 在线：离线坐席不应收到共享池排队提醒。
+		when(agentService.filterOnline("tenant-1", List.of("staff-1", "staff-2"))).thenReturn(List.of("staff-1"));
 		MessagePushServiceImpl service = new MessagePushServiceImpl(participantMapper, agentMapper, handler,
-				redisTemplate, new ObjectMapper());
+				redisTemplate, new ObjectMapper(), agentService);
+
+		service.pushConversationQueued("tenant-1", "conversation-1", "message-1", 3L);
+
+		verify(handler, times(1)).send(argThat(event -> "CONVERSATION_QUEUED".equals(event.getEventType())
+				&& "SYS_USER".equals(event.getRecipientType()) && "staff-1".equals(event.getRecipientId())
+				&& "conversation-1".equals(event.getConversationId())));
+		verify(agentService).filterOnline("tenant-1", List.of("staff-1", "staff-2"));
+	}
+
+	@Test
+	void queuedPoolEventReachesEveryOnlineAgent() {
+		MessageParticipantMapper participantMapper = mock(MessageParticipantMapper.class);
+		MessageAgentMapper agentMapper = mock(MessageAgentMapper.class);
+		MessageWebSocketHandler handler = mock(MessageWebSocketHandler.class);
+		StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+		AgentService agentService = mock(AgentService.class);
+		when(agentMapper.selectEnabledStaffIds("tenant-1", 500)).thenReturn(List.of("staff-1", "staff-2"));
+		when(agentService.filterOnline("tenant-1", List.of("staff-1", "staff-2")))
+			.thenReturn(List.of("staff-1", "staff-2"));
+		MessagePushServiceImpl service = new MessagePushServiceImpl(participantMapper, agentMapper, handler,
+				redisTemplate, new ObjectMapper(), agentService);
 
 		service.pushConversationQueued("tenant-1", "conversation-1", "message-1", 3L);
 
@@ -66,9 +90,11 @@ class MessagePushServiceImplTest {
 		MessageAgentMapper agentMapper = mock(MessageAgentMapper.class);
 		MessageWebSocketHandler handler = mock(MessageWebSocketHandler.class);
 		StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+		AgentService agentService = mock(AgentService.class);
 		when(agentMapper.selectEnabledStaffIds("tenant-1", 500)).thenReturn(List.of());
+		when(agentService.filterOnline("tenant-1", List.of())).thenReturn(List.of());
 		MessagePushServiceImpl service = new MessagePushServiceImpl(participantMapper, agentMapper, handler,
-				redisTemplate, new ObjectMapper());
+				redisTemplate, new ObjectMapper(), agentService);
 
 		service.pushConversationQueued("tenant-1", "conversation-1", "message-1", 3L);
 

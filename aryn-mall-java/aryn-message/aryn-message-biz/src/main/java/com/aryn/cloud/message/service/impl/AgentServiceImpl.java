@@ -8,6 +8,7 @@ import com.aryn.cloud.message.api.enums.AgentPresenceStatus;
 import com.aryn.cloud.message.api.vo.agent.AgentVO;
 import com.aryn.cloud.message.mapper.MessageAgentMapper;
 import com.aryn.cloud.message.service.AgentService;
+import com.aryn.cloud.message.service.event.AgentOnlineEvent;
 import com.aryn.cloud.upms.api.dto.StaffMessageAudienceRequest;
 import com.aryn.cloud.upms.api.remote.RemoteMessageStaffService;
 import com.aryn.cloud.upms.api.vo.StaffMessageAudiencePageVO;
@@ -16,12 +17,17 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.beans.BeanUtils;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 
 /** 客服坐席配置与 Redis 实时状态实现。 */
 @Slf4j
@@ -34,6 +40,7 @@ public class AgentServiceImpl implements AgentService {
 
 	private final MessageAgentMapper agentMapper;
 	private final StringRedisTemplate redisTemplate;
+	private final ApplicationEventPublisher eventPublisher;
 
 	@DubboReference
 	private final RemoteMessageStaffService staffService;
@@ -113,6 +120,10 @@ public class AgentServiceImpl implements AgentService {
 			log.error("更新客服实时状态失败 tenantId={}, staffId={}, status={}", tenantId, staffId, status, exception);
 			throw new ArynBusinessException("客服实时状态服务暂不可用");
 		}
+		if (status == AgentPresenceStatus.ONLINE) {
+			// 上线成功后发布事件，由独立监听器 best-effort 回收共享池待领取会话（异常不影响上线结果）。
+			eventPublisher.publishEvent(new AgentOnlineEvent(tenantId, staffId));
+		}
 		AgentVO vo = toVO(agent);
 		vo.setPresenceStatus(status.name());
 		return vo;
@@ -152,6 +163,52 @@ public class AgentServiceImpl implements AgentService {
 				&& CommonConstants.YES.equals(agent.getAutoAccept())
 				&& agent.getCurrentActiveCount() < agent.getMaxActiveCount()
 				&& getPresence(tenantId, staffId) == AgentPresenceStatus.ONLINE;
+	}
+
+	@Override
+	public boolean isEnabledAgent(String tenantId, String staffId) {
+		if (!StringUtils.hasText(staffId)) {
+			return false;
+		}
+		MessageAgent agent = agentMapper.selectByStaffId(tenantId, staffId);
+		return agent != null && CommonConstants.YES.equals(agent.getEnabled());
+	}
+
+	@Override
+	public boolean isAcceptingNewWork(String tenantId, String staffId) {
+		return isEnabledAgent(tenantId, staffId) && getPresence(tenantId, staffId) == AgentPresenceStatus.ONLINE;
+	}
+
+	@Override
+	public List<String> filterOnline(String tenantId, Collection<String> staffIds) {
+		if (staffIds == null || staffIds.isEmpty()) {
+			return List.of();
+		}
+		List<String> candidates = staffIds.stream().filter(StringUtils::hasText).distinct().toList();
+		if (candidates.isEmpty()) {
+			return List.of();
+		}
+		List<String> keys = candidates.stream().map(staffId -> presenceKey(tenantId, staffId)).toList();
+		try {
+			// MGET 一次批量取回，避免共享池 fan-out 时逐个 GET 的 N 次往返。
+			List<String> values = redisTemplate.opsForValue().multiGet(keys);
+			if (values == null) {
+				return List.of();
+			}
+			List<String> online = new ArrayList<>();
+			for (int index = 0; index < candidates.size(); index++) {
+				String value = index < values.size() ? values.get(index) : null;
+				if (AgentPresenceStatus.ONLINE.name().equals(value)) {
+					online.add(candidates.get(index));
+				}
+			}
+			return online;
+		}
+		catch (RuntimeException exception) {
+			log.warn("批量读取客服在线状态失败，按全部离线降级 tenantId={}, staffCount={}", tenantId,
+					candidates.size(), exception);
+			return List.of();
+		}
 	}
 
 	private void applyConfig(MessageAgent agent, AgentConfigRequest request) {

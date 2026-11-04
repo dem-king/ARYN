@@ -28,6 +28,13 @@
         ORDER BY current_active_count ASC, last_assigned_time ASC, id ASC
         LIMIT #{limit}
     </select>
+    <select id="selectAllAgents" resultType="com.aryn.cloud.message.api.entity.MessageAgent">
+        SELECT *
+        FROM message_agent
+        WHERE tenant_id = #{tenantId}
+          AND del_flag = '0'
+        ORDER BY id ASC
+    </select>
     <update id="incrementActiveCount">
         UPDATE message_agent
         SET current_active_count = current_active_count + 1,
@@ -43,6 +50,15 @@
     <update id="decrementActiveCount">
         UPDATE message_agent
         SET current_active_count = GREATEST(current_active_count - 1, 0),
+            version = version + 1,
+            update_time = NOW()
+        WHERE tenant_id = #{tenantId}
+          AND staff_id = #{staffId}
+          AND del_flag = '0'
+    </update>
+    <update id="updateActiveCount">
+        UPDATE message_agent
+        SET current_active_count = #{activeCount},
             version = version + 1,
             update_time = NOW()
         WHERE tenant_id = #{tenantId}

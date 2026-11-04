@@ -6,6 +6,7 @@ import com.aryn.cloud.message.api.entity.MessageParticipant;
 import com.aryn.cloud.message.api.enums.MessageIdentityType;
 import com.aryn.cloud.message.mapper.MessageAgentMapper;
 import com.aryn.cloud.message.mapper.MessageParticipantMapper;
+import com.aryn.cloud.message.service.AgentService;
 import com.aryn.cloud.message.service.MessagePushService;
 import com.aryn.cloud.message.websocket.MessageWebSocketHandler;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -15,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.UUID;
 
 /** 本实例直推并通过 Redis Pub/Sub 广播到其他实例。 */
@@ -34,6 +36,7 @@ public class MessagePushServiceImpl implements MessagePushService {
 	private final MessageWebSocketHandler webSocketHandler;
 	private final StringRedisTemplate redisTemplate;
 	private final ObjectMapper objectMapper;
+	private final AgentService agentService;
 	private final String instanceId = UUID.randomUUID().toString();
 
 	@Override
@@ -61,7 +64,11 @@ public class MessagePushServiceImpl implements MessagePushService {
 
 	@Override
 	public void pushConversationQueued(String tenantId, String conversationId, String messageId, long seqNo) {
-		for (String staffId : agentMapper.selectEnabledStaffIds(tenantId, POOL_FANOUT_LIMIT)) {
+		// 产品决策：共享池排队推送只发 ONLINE 坐席（接待状态只约束承接新工作）。
+		// 先按库取启用坐席，再用 Redis MGET 批量过滤在线状态，避免逐人 GET。
+		List<String> enabledStaffIds = agentMapper.selectEnabledStaffIds(tenantId, POOL_FANOUT_LIMIT);
+		List<String> onlineStaffIds = agentService.filterOnline(tenantId, enabledStaffIds);
+		for (String staffId : onlineStaffIds) {
 			dispatch(queuedEvent(tenantId, conversationId, messageId, seqNo, staffId), messageId);
 		}
 	}

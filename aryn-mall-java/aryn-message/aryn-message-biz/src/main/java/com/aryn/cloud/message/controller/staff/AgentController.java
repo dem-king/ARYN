@@ -59,7 +59,8 @@ public class AgentController {
 	@Operation(summary = "本人客服坐席信息")
 	public Result<AgentVO> self() {
 		ArynUser user = currentUser();
-		return Result.success(agentService.get(user.getTenantId(), user.getUserId()));
+		// 未配置坐席返回 null，前端据此展示「未配置」引导；不再抛业务错误。
+		return Result.success(agentService.findConfig(user.getTenantId(), user.getUserId()));
 	}
 
 	@PostMapping("/presence")

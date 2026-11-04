@@ -17,10 +17,13 @@ import com.aryn.cloud.message.mapper.MessageParticipantMapper;
 import com.aryn.cloud.message.service.AgentService;
 import com.aryn.cloud.message.service.ChatMessageService;
 import com.aryn.cloud.message.service.ConversationAssignmentService;
+import com.aryn.cloud.upms.api.dto.StaffMessageAudienceRequest;
 import com.aryn.cloud.upms.api.remote.RemoteMessageStaffService;
+import com.aryn.cloud.upms.api.vo.StaffMessageAudiencePageVO;
+import com.aryn.cloud.upms.api.vo.StaffMessageRecipientVO;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.BeanUtils;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -30,11 +33,14 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /** 基于数据库条件更新的客服会话分配状态机。 */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ConversationAssignmentServiceImpl implements ConversationAssignmentService {
 
 	private static final int CANDIDATE_LIMIT = 200;
+	private static final int DEFAULT_QUEUE_LIMIT = 100;
+	private static final String DEFAULT_QUEUE = "DEFAULT";
 
 	private final MessageConversationMapper conversationMapper;
 	private final MessageParticipantMapper participantMapper;
@@ -57,7 +63,8 @@ public class ConversationAssignmentServiceImpl implements ConversationAssignment
 			}
 			try {
 				Boolean assigned = transactionTemplate.execute(status -> tryAssign(tenantId, conversationId,
-						candidate.getStaffId(), AssignmentActionType.AUTO_ASSIGN, "自动分配"));
+						candidate.getStaffId(), AssignmentActionType.AUTO_ASSIGN, "自动分配",
+						MessageIdentityType.SYSTEM, "SYSTEM"));
 				if (Boolean.TRUE.equals(assigned)) {
 					return candidate.getStaffId();
 				}
@@ -70,25 +77,25 @@ public class ConversationAssignmentServiceImpl implements ConversationAssignment
 	}
 
 	@Override
-	public List<ConversationVO> waiting(String tenantId, String queueCode, int limit) {
-		String normalizedQueue = StringUtils.hasText(queueCode) ? queueCode : "DEFAULT";
-		int normalizedLimit = Math.min(Math.max(limit, 1), 100);
-		return conversationMapper.selectWaiting(tenantId, normalizedQueue, normalizedLimit).stream().map(conversation -> {
-			ConversationVO vo = new ConversationVO();
-			BeanUtils.copyProperties(conversation, vo);
-			vo.setUnreadCount(0L);
-			vo.setLastReadSeq(0L);
-			return vo;
-		}).toList();
+	public List<ConversationVO> waiting(String tenantId, String staffId, String queueCode, int limit) {
+		requireEnabledAgent(tenantId, staffId);
+		String normalizedQueue = StringUtils.hasText(queueCode) ? queueCode : DEFAULT_QUEUE;
+		int normalizedLimit = Math.min(Math.max(limit, 1), DEFAULT_QUEUE_LIMIT);
+		return conversationMapper.selectWaitingPool(tenantId, normalizedQueue, normalizedLimit);
 	}
 
 	@Override
 	public void claim(String tenantId, String conversationId, String staffId, String reason) {
 		requireQualifiedStaff(tenantId, staffId);
+		// 接待状态只约束承接新工作：离线坐席不能领取共享池会话。
+		if (!agentService.isAcceptingNewWork(tenantId, staffId)) {
+			throw new ArynBusinessException("当前离线或未开启接待，无法领取会话");
+		}
 		Boolean claimed;
 		try {
 			claimed = transactionTemplate.execute(status -> tryAssign(tenantId, conversationId, staffId,
-					AssignmentActionType.CLAIM, StringUtils.hasText(reason) ? reason : "手动领取"));
+					AssignmentActionType.CLAIM, StringUtils.hasText(reason) ? reason : "手动领取",
+					MessageIdentityType.SYS_USER, staffId));
 		}
 		catch (AssignmentConflictException exception) {
 			claimed = false;
@@ -102,6 +109,10 @@ public class ConversationAssignmentServiceImpl implements ConversationAssignment
 	public void transfer(String tenantId, String conversationId, String operatorId, String targetStaffId, String reason,
 			boolean supervisor) {
 		requireQualifiedStaff(tenantId, targetStaffId);
+		// 普通转交的目标必须在线；主管强制分配允许离线目标，但会记录 FORCE_ASSIGN 审计。
+		if (!supervisor && !agentService.isAcceptingNewWork(tenantId, targetStaffId)) {
+			throw new ArynBusinessException("目标客服当前离线，无法转交");
+		}
 		transactionTemplate.executeWithoutResult(status -> {
 			MessageConversation conversation = requireLockedConversation(tenantId, conversationId);
 			if (ConversationStatus.CLOSED.name().equals(conversation.getStatus())) {
@@ -127,8 +138,14 @@ public class ConversationAssignmentServiceImpl implements ConversationAssignment
 			conversation.setUpdateTime(LocalDateTime.now());
 			conversationMapper.updateById(conversation);
 			participantMapper.upsertActive(staffParticipant(conversation, targetStaffId));
-			writeLog(conversation, AssignmentActionType.TRANSFER, originalStaffId, targetStaffId,
-					MessageIdentityType.SYS_USER, operatorId, reason);
+			AssignmentActionType action = supervisor ? AssignmentActionType.FORCE_ASSIGN
+					: AssignmentActionType.TRANSFER;
+			writeLog(conversation, action, originalStaffId, targetStaffId, MessageIdentityType.SYS_USER, operatorId,
+					reason);
+			// 转交结果以 SYSTEM 消息落地到会话里，双方通过既有 CONVERSATION_MESSAGE 推送实时感知。
+			String now = String.valueOf(System.currentTimeMillis());
+			chatMessageService.sendSystem(tenantId, conversationId, "会话已转交",
+					"{\"code\":\"CONVERSATION_TRANSFERRED\"}", "transfer-" + conversationId + "-" + now);
 		});
 	}
 
@@ -161,7 +178,8 @@ public class ConversationAssignmentServiceImpl implements ConversationAssignment
 			conversationMapper.updateById(conversation);
 			writeLog(conversation, AssignmentActionType.CLOSE, assignedStaffId, null, operatorType, operatorId, reason);
 			chatMessageService.sendSystem(tenantId, conversationId, "会话已关闭",
-					"{\"code\":\"CONVERSATION_CLOSED\"}", "close-" + conversationId + "-" + now.toInstant(java.time.ZoneOffset.UTC).toEpochMilli());
+					"{\"code\":\"CONVERSATION_CLOSED\"}",
+					"close-" + conversationId + "-" + now.toInstant(java.time.ZoneOffset.UTC).toEpochMilli());
 		});
 	}
 
@@ -198,7 +216,7 @@ public class ConversationAssignmentServiceImpl implements ConversationAssignment
 				&& staffService.isCustomerServiceStaff(tenantId, originalStaffId)) {
 			try {
 				Boolean assigned = transactionTemplate.execute(status -> tryAssign(tenantId, recent.getId(), originalStaffId,
-						AssignmentActionType.REOPEN, "重开优先原客服"));
+						AssignmentActionType.REOPEN, "重开优先原客服", MessageIdentityType.SYSTEM, "SYSTEM"));
 				if (Boolean.TRUE.equals(assigned)) {
 					return recent.getId();
 				}
@@ -211,8 +229,31 @@ public class ConversationAssignmentServiceImpl implements ConversationAssignment
 		return recent.getId();
 	}
 
+	@Override
+	public int reassignWaitingPool(String tenantId, int limit) {
+		int normalizedLimit = Math.min(Math.max(limit, 1), DEFAULT_QUEUE_LIMIT);
+		List<MessageConversation> waiting = conversationMapper.selectWaitingForTenant(tenantId, normalizedLimit);
+		int reassigned = 0;
+		for (MessageConversation conversation : waiting) {
+			try {
+				if (autoAssign(tenantId, conversation.getId()) != null) {
+					reassigned++;
+				}
+			}
+			catch (RuntimeException exception) {
+				// 单条回收失败（并发领取等）不影响后续会话；下一轮维护任务会继续兜底。
+				log.warn("回收共享池待领取会话失败 tenantId={}, conversationId={}", tenantId, conversation.getId(),
+						exception);
+			}
+		}
+		if (reassigned > 0) {
+			log.info("回收共享池待领取会话完成 tenantId={}, reassigned={}", tenantId, reassigned);
+		}
+		return reassigned;
+	}
+
 	private boolean tryAssign(String tenantId, String conversationId, String staffId, AssignmentActionType action,
-			String reason) {
+			String reason, MessageIdentityType operatorType, String operatorId) {
 		if (agentMapper.incrementActiveCount(tenantId, staffId) != 1) {
 			return false;
 		}
@@ -221,8 +262,15 @@ public class ConversationAssignmentServiceImpl implements ConversationAssignment
 		}
 		MessageConversation conversation = conversationMapper.selectByIdForUpdate(tenantId, conversationId);
 		participantMapper.upsertActive(staffParticipant(conversation, staffId));
-		writeLog(conversation, action, null, staffId, MessageIdentityType.SYSTEM, "SYSTEM", reason);
+		writeLog(conversation, action, null, staffId, operatorType, operatorId, reason);
 		return true;
+	}
+
+	/** 待领取列表要求调用者是启用坐席，避免普通管理员看到无权领取的共享池。 */
+	private void requireEnabledAgent(String tenantId, String staffId) {
+		if (!agentService.isEnabledAgent(tenantId, staffId)) {
+			throw new ArynBusinessException("客服坐席未启用");
+		}
 	}
 
 	private void requireQualifiedStaff(String tenantId, String staffId) {
@@ -243,6 +291,12 @@ public class ConversationAssignmentServiceImpl implements ConversationAssignment
 		return conversation;
 	}
 
+	/**
+	 * 新负责人的参与者行。
+	 *
+	 * <p>last_read_seq 固定从 0 开始：分配/领取/转交后的新坐席把历史消息计为未读，
+	 * 否则会漏掉分配前会员已发的消息。
+	 */
 	private MessageParticipant staffParticipant(MessageConversation conversation, String staffId) {
 		LocalDateTime now = LocalDateTime.now();
 		MessageParticipant participant = new MessageParticipant();
@@ -251,7 +305,14 @@ public class ConversationAssignmentServiceImpl implements ConversationAssignment
 		participant.setConversationId(conversation.getId());
 		participant.setParticipantType(MessageIdentityType.SYS_USER.name());
 		participant.setParticipantId(staffId);
-		participant.setLastReadSeq(conversation.getLastSeq() == null ? 0L : conversation.getLastSeq());
+		// 参与者行同时是「负责客服昵称/头像」的快照来源（ConversationVO.assignedStaffName/Avatar），
+		// 通过 upms 的受众查询取昵称；取不到时保留 null 由前端回退 staffId。
+		StaffMessageRecipientVO snapshot = findStaffSnapshot(conversation.getTenantId(), staffId);
+		if (snapshot != null) {
+			participant.setParticipantName(snapshot.getNickname());
+			participant.setParticipantAvatar(snapshot.getAvatar());
+		}
+		participant.setLastReadSeq(0L);
 		participant.setJoinedTime(now);
 		participant.setParticipantStatus("ACTIVE");
 		participant.setNotificationEnabled(CommonConstants.YES);
@@ -259,6 +320,30 @@ public class ConversationAssignmentServiceImpl implements ConversationAssignment
 		participant.setCreateTime(now);
 		participant.setDelFlag(CommonConstants.NO);
 		return participant;
+	}
+
+	/** 查询负责客服的昵称/头像快照；失败不影响分配主流程（快照缺失由前端回退 ID）。 */
+	private StaffMessageRecipientVO findStaffSnapshot(String tenantId, String staffId) {
+		try {
+			StaffMessageAudienceRequest request = new StaffMessageAudienceRequest();
+			request.setTenantId(tenantId);
+			request.setUserIds(List.of(staffId));
+			request.setLimit(1);
+			StaffMessageAudiencePageVO page = staffService.queryRecipients(request);
+			if (page == null || page.getRecords() == null) {
+				return null;
+			}
+			for (StaffMessageRecipientVO record : page.getRecords()) {
+				if (staffId.equals(record.getId())) {
+					return record;
+				}
+			}
+			return null;
+		}
+		catch (RuntimeException exception) {
+			log.warn("查询负责客服昵称快照失败 tenantId={}, staffId={}", tenantId, staffId, exception);
+			return null;
+		}
 	}
 
 	private void writeLog(MessageConversation conversation, AssignmentActionType action, String fromStaffId,

@@ -44,6 +44,10 @@ public class NoticeDispatchServiceImpl implements NoticeDispatchService {
 
 	private static final int PAGE_SIZE = 1000;
 	private static final int MAX_RETRY_COUNT = 3;
+	/** 分发任务心跳超过该分钟数视为卡死，允许恢复重派。 */
+	private static final int RECOVERY_STALE_MINUTES = 5;
+	/** 单次按租户恢复的任务上限（防止一次恢复把租户全部积压任务拉起）。 */
+	private static final int MAX_RECOVERY_LIMIT = 200;
 
 	private final MessageDispatchTaskMapper taskMapper;
 	private final MessageRecipientMapper recipientMapper;
@@ -90,6 +94,34 @@ public class NoticeDispatchServiceImpl implements NoticeDispatchService {
 		}
 		finally {
 			ArynTenantContextHolder.removeTenantId();
+		}
+	}
+
+	@Override
+	public int recoverTenant(String tenantId, int limit) {
+		int normalizedLimit = Math.min(Math.max(limit, 1), MAX_RECOVERY_LIMIT);
+		// 定时任务线程可能没有（或残留）租户上下文；按租户查询必须显式设置，结束后恢复原值。
+		String previousTenantId = ArynTenantContextHolder.getTenantId();
+		ArynTenantContextHolder.setTenantId(tenantId);
+		try {
+			List<MessageDispatchTask> tasks = taskMapper.selectRecoveryTasksByTenant(tenantId,
+					LocalDateTime.now().minusMinutes(RECOVERY_STALE_MINUTES), normalizedLimit);
+			if (CollectionUtils.isEmpty(tasks)) {
+				return 0;
+			}
+			for (MessageDispatchTask task : tasks) {
+				dispatch(task.getTenantId(), task.getId());
+			}
+			log.info("按租户恢复通知分发任务 tenantId={}, count={}", tenantId, tasks.size());
+			return tasks.size();
+		}
+		finally {
+			if (previousTenantId == null) {
+				ArynTenantContextHolder.removeTenantId();
+			}
+			else {
+				ArynTenantContextHolder.setTenantId(previousTenantId);
+			}
 		}
 	}
 

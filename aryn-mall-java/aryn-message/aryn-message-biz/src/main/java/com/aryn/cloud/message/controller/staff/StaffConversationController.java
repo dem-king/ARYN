@@ -13,6 +13,7 @@ import com.aryn.cloud.message.api.dto.assignment.ConversationCloseRequest;
 import com.aryn.cloud.message.api.dto.assignment.ConversationTransferRequest;
 import com.aryn.cloud.message.api.dto.conversation.StaffInitiateConversationRequest;
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import cn.dev33.satoken.annotation.SaMode;
 import com.aryn.cloud.message.api.enums.MessageIdentityType;
 import com.aryn.cloud.message.api.vo.conversation.ChatMessagePageVO;
 import com.aryn.cloud.message.api.vo.conversation.ChatMessageVO;
@@ -49,10 +50,11 @@ public class StaffConversationController {
 
 	@GetMapping("/waiting")
 	@Operation(summary = "待领取会话池")
+	@SaCheckPermission(value = { "message:service:agent", "message:service:supervisor" }, mode = SaMode.OR)
 	public Result<List<ConversationVO>> waiting(@RequestParam(defaultValue = "DEFAULT") String queueCode,
 			@RequestParam(defaultValue = "50") int limit) {
 		ArynUser user = currentUser();
-		return Result.success(assignmentService.waiting(user.getTenantId(), queueCode, limit));
+		return Result.success(assignmentService.waiting(user.getTenantId(), user.getUserId(), queueCode, limit));
 	}
 
 	@PostMapping("/initiate")
@@ -116,6 +118,7 @@ public class StaffConversationController {
 
 	@PostMapping("/{id}/claim")
 	@Operation(summary = "领取待分配会话")
+	@SaCheckPermission(value = { "message:service:agent", "message:service:supervisor" }, mode = SaMode.OR)
 	public Result<Void> claim(@PathVariable String id, @RequestBody(required = false) ConversationClaimRequest request) {
 		ArynUser user = currentUser();
 		assignmentService.claim(user.getTenantId(), id, user.getUserId(), request == null ? null : request.getReason());
@@ -124,6 +127,7 @@ public class StaffConversationController {
 
 	@PostMapping("/{id}/transfer")
 	@Operation(summary = "转交会话")
+	@SaCheckPermission(value = { "message:service:agent", "message:service:supervisor" }, mode = SaMode.OR)
 	public Result<Void> transfer(@PathVariable String id, @Valid @RequestBody ConversationTransferRequest request) {
 		ArynUser user = currentUser();
 		assignmentService.transfer(user.getTenantId(), id, user.getUserId(), request.getTargetStaffId(),
@@ -133,6 +137,7 @@ public class StaffConversationController {
 
 	@PostMapping("/{id}/close")
 	@Operation(summary = "关闭会话")
+	@SaCheckPermission(value = { "message:service:agent", "message:service:supervisor" }, mode = SaMode.OR)
 	public Result<Void> close(@PathVariable String id, @RequestBody(required = false) ConversationCloseRequest request) {
 		ArynUser user = currentUser();
 		assignmentService.close(user.getTenantId(), id, MessageIdentityType.SYS_USER, user.getUserId(),
