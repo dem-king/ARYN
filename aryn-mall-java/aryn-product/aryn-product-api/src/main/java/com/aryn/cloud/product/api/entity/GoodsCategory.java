@@ -67,13 +67,13 @@ public class GoodsCategory extends Model<GoodsCategory> {
 	private Integer sort;
 
 	/**
-	 * 类目角标：0.无 1.推荐 2.热卖
+	 * 类目角标：0.无；其它值为「类目角标」配置的 goods_category_badge.badge_key
 	 *
-	 * <p>分类页左栏在类目名前渲染一个小图标（参考图的「荐」「热」方块）。
-	 * 只存枚举值不存图片地址：样式由 C 端内置，运营只能选语义，
-	 * 避免同一语义在不同租户下配色漂移。
+	 * <p>分类页左栏在类目名前渲染一个小方块（「荐」「热」等），文案与配色由运营在
+	 * 管理后台「商品管理 → 类目角标」配置，类目只引用配置的稳定键，新增角标不需要改代码发版。
+	 * 引用不到启用配置时（未配置/已停用/已删除/非法 key）按「无角标」处理。
 	 */
-	@Schema(description = "类目角标：0.无 1.推荐 2.热卖")
+	@Schema(description = "类目角标：0.无；其它值为角标配置的 badgeKey")
 	private String badgeType;
 
 	@Schema(description = "租户id")

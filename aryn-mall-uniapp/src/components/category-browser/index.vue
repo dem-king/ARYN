@@ -109,12 +109,20 @@ const pendingLocate = ref<CategoryLocateTarget | null>(null)
 const gridLayout = ref(Local.get('category-goods-grid') !== false)
 watch(gridLayout, value => Local.set('category-goods-grid', value))
 
-/** 当前一级分类下的二级列表（带解析后的角标，供左栏直接渲染） */
+/**
+ * 当前一级分类下的二级列表（带解析后的角标，供左栏直接渲染）。
+ *
+ * 先取服务端下发的 `item.badge` 再覆盖本地 `badge` 字段：角标配置化后以服务端为准，
+ * 本地旧映射只做兜底，不能在展开覆盖时把服务端配置冲掉。
+ */
 const subCategories = computed<any[]>(() =>
-  (categories.value[activeFirst.value]?.children ?? []).map((item: any) => ({
-    ...item,
-    badge: resolveCategoryBadge(item.badgeType),
-  })),
+  (categories.value[activeFirst.value]?.children ?? []).map((item: any) => {
+    const serverBadge = item.badge
+    return {
+      ...item,
+      badge: resolveCategoryBadge(item.badgeType, serverBadge),
+    }
+  }),
 )
 
 const currentFirstId = computed(() => categories.value[activeFirst.value]?.id ?? '')
@@ -320,11 +328,34 @@ const sheetTopOffset = computed(() => searchNavbarRef.value?.placeholderHeight ?
           @click="selectSecond(index)"
         >
           <view class="category-rail-item__indicator" />
-          <!-- 角标（「荐」/「热」）：后端 badgeType 为空或 0 时不渲染任何节点 -->
+          <!--
+            角标：优先渲染服务端下发配置（运营可配 1–2 字、配色、图片、尺寸与圆角）。
+            有图时渲染图片角标（宽高 = 高度、圆角可配），图片优先于文字；否则渲染文字角标。
+            旧数据回退「荐」/「热」的默认 28rpx；无角标时不渲染任何节点。
+          -->
+          <image
+            v-if="item.badge && item.badge.iconUrl"
+            class="category-rail-item__badge-image"
+            :src="item.badge.iconUrl"
+            mode="aspectFit"
+            :style="{
+              width: `${item.badge.height}rpx`,
+              height: `${item.badge.height}rpx`,
+              borderRadius: `${item.badge.borderRadius}rpx`,
+            }"
+          />
           <view
-            v-if="item.badge"
+            v-else-if="item.badge"
             class="category-rail-item__badge"
-            :style="{ backgroundColor: item.badge.bgColor, color: item.badge.color }"
+            :style="{
+              backgroundColor: item.badge.bgColor,
+              color: item.badge.color,
+              height: `${item.badge.height}rpx`,
+              lineHeight: `${item.badge.height}rpx`,
+              borderRadius: `${item.badge.borderRadius}rpx`,
+              fontSize: `${item.badge.fontSize}rpx`,
+              padding: `0 ${item.badge.paddingX}rpx`,
+            }"
           >
             {{ item.badge.text }}
           </view>
@@ -589,19 +620,23 @@ const sheetTopOffset = computed(() => searchNavbarRef.value?.placeholderHeight ?
   /**
    * 类目角标（「荐」绿 / 「热」红）：名称前的小方块。
    *
-   * 只占一个字的宽度、不参与换行；与名称的留白已收紧，间距不可再放大，
+   * 尺寸、字号、圆角与配色全部由服务端配置经 `item.badge` 内联下发
+   * （默认 28rpx 高、19rpx 字号、4rpx 圆角），这里只保留排版约束：
+   * 不参与换行、不被压缩；与名称的留白已收紧，间距不可再放大，
    * 否则「角标 + 5 字名」会重新挤到省略号（见 __name 注释的宽度账）。
    */
   &__badge {
     flex: none;
-    height: 28rpx;
     margin-right: 4rpx;
-    padding: 0 5rpx;
-    border-radius: 4rpx;
-    font-size: 19rpx;
     font-weight: 600;
-    line-height: 28rpx;
     text-align: center;
+  }
+
+  /** 图片角标：按正方形渲染，宽高与圆角同样由 `item.badge` 内联下发 */
+  &__badge-image {
+    flex: none;
+    margin-right: 4rpx;
+    display: block;
   }
 
   &--active {
@@ -771,14 +806,26 @@ const sheetTopOffset = computed(() => searchNavbarRef.value?.placeholderHeight ?
       border-radius: 3px;
     }
 
-    /* 角标随字号一起收：28rpx/19rpx 展开后约 26px/17.7px，比类目名本身还大 */
+    /*
+     * 宽屏按平板密度固定角标尺寸（与改造前写死的 18px/11px/3px 一致）：
+     * 尺寸/字号来自服务端内联 rpx，展开态会随窗口等比放大约 1.8 倍（28rpx ≈ 26px），
+     * 比类目名（14px）还大；本段用 !important 压回固定 px。折叠态（<600px）不命中本段，
+     * 仍完全按运营配置渲染，不受影响。
+     */
     &__badge {
-      height: 18px;
+      height: 18px !important;
+      padding: 0 3px !important;
+      font-size: 11px !important;
+      line-height: 18px !important;
+      border-radius: 3px !important;
       margin-right: 3px;
-      padding: 0 3px;
-      border-radius: 3px;
-      font-size: 11px;
-      line-height: 18px;
+    }
+
+    &__badge-image {
+      width: 18px !important;
+      height: 18px !important;
+      border-radius: 3px !important;
+      margin-right: 3px;
     }
 
     &--active {

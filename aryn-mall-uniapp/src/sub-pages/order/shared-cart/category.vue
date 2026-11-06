@@ -56,11 +56,20 @@ const contextLocation = computed(() =>
   [cart.value?.portName, cart.value?.berth].filter(Boolean).join(' '),
 )
 
+/**
+ * 当前一级分类下的二级列表（带解析后的角标，供左栏直接渲染）。
+ *
+ * 先取服务端下发的 `item.badge` 再覆盖本地 `badge` 字段：角标配置化后以服务端为准，
+ * 本地旧映射只做兜底，不能在展开覆盖时把服务端配置冲掉。
+ */
 const subCategories = computed<any[]>(() =>
-  (categories.value[activeFirst.value]?.children ?? []).map((item: any) => ({
-    ...item,
-    badge: resolveCategoryBadge(item.badgeType),
-  })),
+  (categories.value[activeFirst.value]?.children ?? []).map((item: any) => {
+    const serverBadge = item.badge
+    return {
+      ...item,
+      badge: resolveCategoryBadge(item.badgeType, serverBadge),
+    }
+  }),
 )
 
 /** 树未就绪时不把空数组当成真实子类，左栏交给 skeleton 占位 */
@@ -232,10 +241,34 @@ function goSharedCartDetail() {
           @click="selectSecond(index)"
         >
           <view class="picker-rail-item__indicator" />
+          <!--
+            角标：与分类页同口径——优先渲染服务端下发配置（文案、配色、图片、尺寸与圆角），
+            有图时渲染图片角标（图片优先于文字），否则渲染文字角标；旧数据回退「荐」/「热」的默认 28rpx；
+            无角标时不渲染任何节点。
+          -->
+          <image
+            v-if="item.badge && item.badge.iconUrl"
+            class="picker-rail-item__badge-image"
+            :src="item.badge.iconUrl"
+            mode="aspectFit"
+            :style="{
+              width: `${item.badge.height}rpx`,
+              height: `${item.badge.height}rpx`,
+              borderRadius: `${item.badge.borderRadius}rpx`,
+            }"
+          />
           <view
-            v-if="item.badge"
+            v-else-if="item.badge"
             class="picker-rail-item__badge"
-            :style="{ backgroundColor: item.badge.bgColor, color: item.badge.color }"
+            :style="{
+              backgroundColor: item.badge.bgColor,
+              color: item.badge.color,
+              height: `${item.badge.height}rpx`,
+              lineHeight: `${item.badge.height}rpx`,
+              borderRadius: `${item.badge.borderRadius}rpx`,
+              fontSize: `${item.badge.fontSize}rpx`,
+              padding: `0 ${item.badge.paddingX}rpx`,
+            }"
           >
             {{ item.badge.text }}
           </view>
@@ -453,16 +486,22 @@ function goSharedCartDetail() {
     white-space: nowrap;
   }
 
+  /**
+   * 角标样式与分类页同口径：尺寸、字号、圆角与配色由服务端配置经 `item.badge` 内联下发
+   * （默认 28rpx 高、19rpx 字号、4rpx 圆角），这里只保留排版约束。
+   */
   &__badge {
     flex: none;
-    height: 28rpx;
     margin-right: 4rpx;
-    padding: 0 5rpx;
-    border-radius: 4rpx;
-    font-size: 19rpx;
     font-weight: 600;
-    line-height: 28rpx;
     text-align: center;
+  }
+
+  /** 图片角标：按正方形渲染，宽高与圆角同样由 `item.badge` 内联下发 */
+  &__badge-image {
+    flex: none;
+    margin-right: 4rpx;
+    display: block;
   }
 
   &--active {

@@ -48,6 +48,8 @@ public class GoodsCategoryController {
 	@SaCheckPermission("product:goodscategory:get")
 	@GetMapping("/tree")
 	public Result tree() {
+		// 管理端口径：badgeType 保留数据库原始值（停用/未知 key 原样回传，供类目列表/表单回显），
+		// badge 仅在命中启用角标时为对象；C 端归一逻辑走 /app/goodscategory/tree
 		return Result.success(goodsCategoryService.getGoodsCategoryTreeList());
 	}
 

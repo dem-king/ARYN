@@ -1,4 +1,6 @@
 <script lang="ts" setup>
+import type { CategoryBadgeStyle } from './logic';
+
 import { defineAsyncComponent, nextTick, reactive, ref } from 'vue';
 
 import { Delete, Edit, Plus, Sort } from '@element-plus/icons-vue';
@@ -12,34 +14,19 @@ import {
 } from 'element-plus';
 
 import { delObj, getPage } from '#/api/product/goods-category';
+import { getList as getBadgeList } from '#/api/product/goods-category-badge';
 import PageToolbar from '#/components/page/page-toolbar.vue';
 import { useDict } from '#/utils/dict';
+
+import {
+  badgePreviewStyle,
+  buildBadgeStyleMap,
+  resolveBadgeStyle,
+} from './logic';
 
 const RightToolbar = defineAsyncComponent(
   () => import('#/components/right-toolbar/index.vue'),
 );
-
-/**
- * 类目角标解析（与 C 端 `aryn-mall-uniapp/src/utils/category-badge.ts` 同口径）。
- *
- * 这里本地实现而非跨仓 import：C 端模块内部依赖 `@/` 别名，管理端解析不到
- * （两端是两个独立工程）。取值与配色必须与 C 端保持一致 —— 列表里看到的
- * 角标就是用户在分类页左栏看到的那一个。
- */
-const CATEGORY_BADGES: Record<
-  string,
-  { bgColor: string; color: string; text: string }
-> = {
-  1: { text: '荐', bgColor: '#00B578', color: '#FFFFFF' },
-  2: { text: '热', bgColor: '#FF4D2D', color: '#FFFFFF' },
-};
-
-function resolveCategoryBadge(badgeType: null | number | string | undefined) {
-  if (badgeType === null || badgeType === undefined || badgeType === '') {
-    return null;
-  }
-  return CATEGORY_BADGES[String(badgeType)] ?? null;
-}
 
 const DictTag = defineAsyncComponent(
   () => import('#/components/dict-tag/index.vue'),
@@ -56,8 +43,27 @@ const isDefaultExpand = ref(false);
 const loading = ref(false);
 const formRef = ref();
 
+/**
+ * 类目角标样式映射：key 为角标配置的 badgeKey，value 为接口下发的文字与双色。
+ *
+ * 角标已配置化，不再在前端写死「荐绿 / 热红」；接口失败或未知 key 时列表显示
+ * 占位横线，绝不凭空兜底旧配色（避免管理端看到与 C 端不一致的角标）。
+ */
+const badgeStyleMap = ref<Record<string, CategoryBadgeStyle>>({});
+const loadBadgeStyleMap = async () => {
+  try {
+    badgeStyleMap.value = buildBadgeStyleMap(await getBadgeList());
+  } catch {
+    badgeStyleMap.value = {};
+  }
+};
+/** 列表单元格解析：badgeType → 配置下发样式；无角标/未知 key 返回 null */
+const resolveRowBadge = (row: any) =>
+  resolveBadgeStyle(badgeStyleMap.value, row?.badgeType);
+
 const initPage = async () => {
   loading.value = true;
+  void loadBadgeStyleMap();
   await getPage()
     .then((response) => {
       state.tableData = response;
@@ -168,17 +174,21 @@ initPage();
         <ElTableColumn prop="sort" label="排序" align="center" />
         <ElTableColumn label="类目角标" align="center" width="100">
           <template #default="scope">
-            <!-- 与 C 端分类页左栏同款方块（荐绿 / 热红）；无角标时显示占位横线 -->
+            <!-- 样式取「类目角标」配置：有图渲染图片角标（宽高/圆角按 rpx/2 缩放），
+                 否则渲染文字角标；无角标 / 未知 key 显示占位横线 -->
+            <ElImage
+              v-if="resolveRowBadge(scope.row)?.iconUrl"
+              class="category-badge-image"
+              :src="resolveRowBadge(scope.row)!.iconUrl"
+              fit="contain"
+              :style="badgePreviewStyle(resolveRowBadge(scope.row)!)"
+            />
             <span
-              v-if="resolveCategoryBadge(scope.row.badgeType)"
+              v-else-if="resolveRowBadge(scope.row)"
               class="category-badge"
-              :style="{
-                backgroundColor: resolveCategoryBadge(scope.row.badgeType)!
-                  .bgColor,
-                color: resolveCategoryBadge(scope.row.badgeType)!.color,
-              }"
+              :style="badgePreviewStyle(resolveRowBadge(scope.row)!)"
             >
-              {{ resolveCategoryBadge(scope.row.badgeType)!.text }}
+              {{ resolveRowBadge(scope.row)!.text }}
             </span>
             <span v-else class="category-badge-empty">-</span>
           </template>
@@ -215,11 +225,14 @@ initPage();
 /* 与 C 端分类页左栏的角标同尺寸（那边是 19rpx ≈ 13px 字号、4rpx 圆角） */
 .category-badge {
   display: inline-block;
-  padding: 0 5px;
-  font-size: 13px;
   font-weight: 600;
-  line-height: 19px;
-  border-radius: 2px;
+  text-align: center;
+}
+
+/* 图片角标：与文字角标同列宽高由配置的 rpx/2 预览换算给出 */
+.category-badge-image {
+  display: inline-block;
+  vertical-align: middle;
 }
 
 .category-badge-empty {

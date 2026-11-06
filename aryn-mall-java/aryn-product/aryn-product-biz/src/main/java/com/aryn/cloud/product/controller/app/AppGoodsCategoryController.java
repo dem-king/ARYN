@@ -30,7 +30,9 @@ public class AppGoodsCategoryController {
 	@Operation(summary = "树结构商品类目列表")
 	@GetMapping("/tree")
 	public Result tree() {
-		return Result.success(goodsCategoryService.getGoodsCategoryTreeList());
+		// App 口径：未命中启用角标（未配置/停用/未知 key）归一 badgeType='0' + badge=null，
+		// C 端只渲染配置命中的角标
+		return Result.success(goodsCategoryService.getAppGoodsCategoryTreeList());
 	}
 
 	@Operation(summary = "通过id查询商品类目")

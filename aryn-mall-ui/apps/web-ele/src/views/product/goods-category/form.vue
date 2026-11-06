@@ -1,6 +1,8 @@
 <script lang="ts" setup>
 import type { FormInstance } from 'element-plus';
 
+import type { CategoryBadgeOption } from './logic';
+
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
 import {
@@ -24,7 +26,10 @@ import {
   getById,
   getPage as getList,
 } from '#/api/product/goods-category';
+import { getList as getBadgeList } from '#/api/product/goods-category-badge';
 import { useDict } from '#/utils/dict';
+
+import { buildBadgeOptions, NO_BADGE_VALUE, normalizeBadgeKey } from './logic';
 
 const emit = defineEmits(['initPage']);
 const SelectMaterial = defineAsyncComponent(
@@ -48,17 +53,26 @@ interface DataState {
 const { status } = useDict('status');
 
 /**
- * 类目角标选项（唯一来源）。
+ * 类目角标下拉选项（数据来自「商品管理 → 类目角标」配置）。
  *
- * 只给语义、不给样式：C 端内置「荐」绿 /「热」红的方块样式，
- * 运营在这里选不动配色，避免同一语义在不同租户下漂移。
- * 取值与后端 `goods_category.badge_type` 一一对应。
+ * 打开弹窗时拉一次 `GET /product/goodscategorybadge/list` 动态构建：首项固定
+ * 「无角标」，其余为运营配置的角标（停用项标「（已停用）」）；编辑存量类目时
+ * 若 badgeType 不在配置里（历史脏值 / 角标已删除），保留「已失效角标」选项，
+ * 避免静默清零。接口失败时只回退到「无角标 + 当前值」，不影响原值保存。
  */
-const BADGE_OPTIONS = [
-  { label: '无角标', value: '0' },
-  { label: '荐（推荐）', value: '1' },
-  { label: '热（热卖）', value: '2' },
-];
+const badgeOptions = ref<CategoryBadgeOption[]>([
+  { label: '无角标', value: NO_BADGE_VALUE },
+]);
+/** 快速开关弹窗时只认最后一次请求，避免旧响应覆盖当前行的「已失效角标」保底项 */
+let badgeOptionsToken = 0;
+const loadBadgeOptions = async (currentKey: string) => {
+  const token = ++badgeOptionsToken;
+  const list = await getBadgeList().catch(() => []);
+  if (token !== badgeOptionsToken) {
+    return;
+  }
+  badgeOptions.value = buildBadgeOptions(list, currentKey);
+};
 const state = reactive<DataState>({
   form: {
     id: '',
@@ -120,6 +134,8 @@ const initForm = (row: any) => {
   getCategoryTree();
   if (row && row.id) {
     getDetail(row.id);
+  } else {
+    void loadBadgeOptions(NO_BADGE_VALUE);
   }
   dialog.value = true;
 };
@@ -129,7 +145,9 @@ const getDetail = (id: string) => {
   getById(id)
     .then((response) => {
       loading.value = false;
-      state.form = response;
+      const badgeType = normalizeBadgeKey(response?.badgeType);
+      state.form = { ...response, badgeType };
+      void loadBadgeOptions(badgeType);
     })
     .catch(() => {
       loading.value = false;
@@ -267,14 +285,19 @@ defineExpose({
         />
       </ElFormItem>
       <ElFormItem label="类目角标" prop="badgeType">
-        <ElSelect v-model="state.form.badgeType" style="width: 100%">
-          <ElOption
-            v-for="item in BADGE_OPTIONS"
-            :key="item.value"
-            :label="item.label"
-            :value="item.value"
-          />
-        </ElSelect>
+        <div class="badge-field">
+          <ElSelect v-model="state.form.badgeType" style="width: 100%">
+            <ElOption
+              v-for="item in badgeOptions"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </ElSelect>
+          <span class="badge-field__tip">
+            角标文字与配色在「商品管理 → 类目角标」维护
+          </span>
+        </div>
       </ElFormItem>
       <ElFormItem label="状态" prop="status">
         <ElRadioGroup v-model="state.form.status">
@@ -298,3 +321,17 @@ defineExpose({
     </template>
   </ElDialog>
 </template>
+
+<style lang="scss" scoped>
+.badge-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.badge-field__tip {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+</style>
