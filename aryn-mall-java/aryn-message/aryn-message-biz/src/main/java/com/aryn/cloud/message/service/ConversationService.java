@@ -6,6 +6,7 @@ import com.aryn.cloud.message.api.vo.conversation.ConversationAssignmentLogVO;
 import com.aryn.cloud.message.api.vo.conversation.ConversationAttentionVO;
 import com.aryn.cloud.message.api.vo.conversation.ConversationInboxPageVO;
 import com.aryn.cloud.message.api.vo.conversation.ConversationVO;
+import com.aryn.cloud.message.api.vo.conversation.QueueStatsVO;
 
 import java.util.List;
 
@@ -31,6 +32,14 @@ public interface ConversationService {
 	 * {@code message:service:supervisor} 注解保证。</p>
 	 */
 	ConversationInboxPageVO adminInbox(String tenantId, ConversationInboxQuery query);
+
+	/**
+	 * 队列统计：等待中会话按 queueCode 分组（数量/最久等待）+ 全租户在线坐席数与可用容量。
+	 *
+	 * <p>等待口径与待领取池一致（CUSTOMER_SERVICE + WAITING + 未分配）；在线坐席/容量当前没有
+	 * 队列绑定，按全租户口径只在 total 返回；Redis 异常时在线/容量降级为 0，不阻塞等待统计。</p>
+	 */
+	QueueStatsVO queueStats(String tenantId);
 
 	/**
 	 * 工作人员待办提醒：本人未读会话与共享池待领取会话。

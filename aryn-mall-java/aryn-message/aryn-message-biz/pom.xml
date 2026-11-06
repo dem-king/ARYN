@@ -63,6 +63,10 @@
         </dependency>
         <dependency>
             <groupId>com.aryn</groupId>
+            <artifactId>aryn-order-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.aryn</groupId>
             <artifactId>aryn-common-security</artifactId>
         </dependency>
         <dependency>

@@ -2,6 +2,7 @@ package com.aryn.cloud.message.mapper;
 
 import com.aryn.cloud.message.api.entity.MessageConversation;
 import com.aryn.cloud.message.api.vo.conversation.ConversationVO;
+import com.aryn.cloud.message.api.vo.conversation.QueueStatsGroupVO;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import org.apache.ibatis.annotations.Mapper;
@@ -34,27 +35,48 @@ public interface MessageConversationMapper extends BaseMapper<MessageConversatio
 			@Param("conversationId") String conversationId);
 
 	/**
+	 * 主管视角按 ID 读取会话视图（不要求调用者是参与者）：供会话上下文等主管只读场景使用。
+	 *
+	 * <p>列与 {@link #selectTenantInbox} 同构；未读相关字段（last_read_seq/unread_count/peer_last_read_seq）
+	 * 不计算，与主管列表口径一致。</p>
+	 */
+	ConversationVO selectForTenant(@Param("tenantId") String tenantId,
+			@Param("conversationId") String conversationId);
+
+	/**
 	 * 本人会话游标页。
 	 *
 	 * <p>排序键为 {@code COALESCE(last_message_time, create_time) DESC, id DESC}（最近活跃优先），
-	 * 游标由服务端编码为 lastActiveTime + id 的复合游标，保证「无消息的新会话」不会翻页漏项。
+	 * 游标由服务端编码为 lastActiveTime + id 的复合游标，保证「无消息的新会话」不会翻页漏项。</p>
 	 *
-	 * @param status OPEN（WAITING/ASSIGNED/ACTIVE）/CLOSED，缺省不过滤
+	 * @param status OPEN（WAITING/ASSIGNED/ACTIVE）/CLOSED，缺省不过滤；statuses 非空时被忽略
+	 * @param statuses 精确状态集合（WAITING/ASSIGNED/ACTIVE/CLOSED），非空时覆盖 status
+	 * @param keyword 已由服务层 trim + LIKE 转义（SQL 侧 ESCAPE '!'），匹配会员昵称快照/会员 ID/最后消息摘要
+	 * @param assignedStaffId 负责人精确过滤
+	 * @param queueCode 队列精确过滤
+	 * @param unreadOnly 只看调用者本人未读（强制排除 CLOSED）
 	 * @param cursorTime 上一页最后一条的最近活跃时间
 	 * @param cursorId 上一页最后一条的会话 ID
 	 */
 	List<ConversationVO> selectInbox(@Param("tenantId") String tenantId,
 			@Param("participantType") String participantType, @Param("participantId") String participantId,
-			@Param("status") String status, @Param("cursorTime") LocalDateTime cursorTime,
-			@Param("cursorId") String cursorId, @Param("fetchSize") int fetchSize);
+			@Param("status") String status, @Param("statuses") List<String> statuses,
+			@Param("keyword") String keyword, @Param("assignedStaffId") String assignedStaffId,
+			@Param("queueCode") String queueCode, @Param("unreadOnly") boolean unreadOnly,
+			@Param("cursorTime") LocalDateTime cursorTime, @Param("cursorId") String cursorId,
+			@Param("fetchSize") int fetchSize);
 
 	/**
 	 * 主管全量会话游标页：不要求调用者是参与者，含已关闭会话。
 	 *
-	 * <p>与 {@link #selectInbox} 使用同一套排序与复合游标语义，复用
-	 * {@code ConversationInboxPageVO} 返回。
+	 * <p>与 {@link #selectInbox} 使用同一套排序、筛选与复合游标语义，复用
+	 * {@code ConversationInboxPageVO} 返回；unreadOnly 在主管视图按「负责客服未读」代理
+	 * （存在未读的 ACTIVE SYS_USER 参与者）。</p>
 	 */
-	List<ConversationVO> selectTenantInbox(@Param("tenantId") String tenantId, @Param("status") String status,
+	List<ConversationVO> selectTenantInbox(@Param("tenantId") String tenantId,
+			@Param("status") String status, @Param("statuses") List<String> statuses,
+			@Param("keyword") String keyword, @Param("assignedStaffId") String assignedStaffId,
+			@Param("queueCode") String queueCode, @Param("unreadOnly") boolean unreadOnly,
 			@Param("cursorTime") LocalDateTime cursorTime, @Param("cursorId") String cursorId,
 			@Param("fetchSize") int fetchSize);
 
@@ -73,6 +95,14 @@ public interface MessageConversationMapper extends BaseMapper<MessageConversatio
 	/** 共享池待领取列表（带会员昵称/头像快照，供工作台「待领取」页签展示）。 */
 	List<ConversationVO> selectWaitingPool(@Param("tenantId") String tenantId,
 			@Param("queueCode") String queueCode, @Param("limit") int limit);
+
+	/**
+	 * 队列统计：等待中会话按 queueCode 分组的数量与最久等待时间。
+	 *
+	 * <p>口径与 {@link #countWaiting}/{@link #selectWaitingPool} 一致：
+	 * CUSTOMER_SERVICE + WAITING + assigned_staff_id IS NULL，不含 STAFF_DIRECT 私信。</p>
+	 */
+	List<QueueStatsGroupVO> selectWaitingGroups(@Param("tenantId") String tenantId);
 
 	/** 跨队列的共享池待领取会话（上线回收/维护任务使用，按排队时间升序）。 */
 	List<MessageConversation> selectWaitingForTenant(@Param("tenantId") String tenantId,

@@ -349,8 +349,11 @@ describe('agent presence store', () => {
     await store.changePresence('BUSY');
 
     expect(latestChannel().posted).toContainEqual({
+      autoAccept: true,
       configured: true,
+      currentActiveCount: 0,
       enabled: true,
+      maxActiveCount: 10,
       presence: 'BUSY',
       serverPresence: 'BUSY',
       type: 'presence',

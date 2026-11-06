@@ -21,6 +21,17 @@ public class ConversationVO implements Serializable {
 	private String lastMessageSummary;
 	private LocalDateTime lastMessageTime;
 	private LocalDateTime closedTime;
+
+	/** 会话创建时间（message_conversation.create_time）。 */
+	private LocalDateTime createTime;
+
+	/**
+	 * WAITING 状态进入等待的时间（当前口径 = create_time，与待领取池排序一致）；非 WAITING 为 null。
+	 *
+	 * <p>前端等待时长 = now - waitingSince，仅在 status=WAITING 时展示；不要用 lastMessageTime 推算。</p>
+	 */
+	private LocalDateTime waitingSince;
+
 	private LocalDateTime reopenDeadline;
 	private String contextPayload;
 

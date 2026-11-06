@@ -3,7 +3,7 @@ import type { NotificationItem } from '@vben/layouts';
 
 import type { TenantShopInfo } from '#/api/upms/tenant';
 
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 
 import { useVbenModal } from '@vben/common-ui';
@@ -15,7 +15,7 @@ import {
   UserDropdown,
 } from '@vben/layouts';
 import { preferences } from '@vben/preferences';
-import { useUserStore } from '@vben/stores';
+import { useAccessStore, useUserStore } from '@vben/stores';
 
 import { Monitor, User } from '@element-plus/icons-vue';
 import { ElOption, ElSelect, ElTour, ElTourStep } from 'element-plus';
@@ -24,12 +24,19 @@ import { auditTenantSwitch, getList, getShopInfo } from '#/api/upms/tenant';
 import { $t } from '#/locales';
 import { useAuthStore } from '#/store';
 import { useMessageStore } from '#/store/message';
+import {
+  locateConversationInServiceDesk,
+  notifyServiceDeskLock,
+  startMainServiceDeskRole,
+  subscribeServiceDesk,
+} from '#/store/service-window';
 
 import LoginDevicesModalContent from './login-devices-modal.vue';
 import SessionInvalidModal from './session-invalid-modal.vue';
 import { resolveAdminBrand } from './tenant-brand';
 
 const userStore = useUserStore();
+const accessStore = useAccessStore();
 const authStore = useAuthStore();
 const messageStore = useMessageStore();
 const router = useRouter();
@@ -142,6 +149,52 @@ onMounted(() => {
   // start() 一并挂上「首次任意手势解锁音频」：只靠开关解锁会让
   // 打开后台后没点过任何东西的管理员静默漏掉第一条新订单
   messageStore.start();
+  // 跨窗协同（主窗口侧）：知道独立工作台是否存活，决定提醒宿主与铃铛定位目标。
+  startMainServiceDeskRole();
+});
+
+/**
+ * 独立窗口推进已读/领取/转交/关闭后，主窗口铃铛未读要跟着收敛。
+ *
+ * <p>服务端没有「已读」WS 事件，双窗各自只能感知新消息；跨窗动作由协同通道补齐，
+ * 否则主窗口会一直停在独立窗口已读前的角标上。</p>
+ */
+const stopServiceDeskSync = subscribeServiceDesk((message) => {
+  if (message.type === 'read' || message.type === 'changed') {
+    void messageStore.refreshNotifications();
+  }
+});
+
+/** 主窗口锁屏/解锁联动独立窗口：后者没有 BasicLayout 的锁屏层，需要自己的遮罩。 */
+watch(
+  () => accessStore.isLockScreen,
+  (locked) => notifyServiceDeskLock(locked),
+);
+
+/**
+ * 桌面通知点击（message store 派发）：路由到客服工作台并由页面消费待定位会话。
+ * 独立窗口存活时 store 已直接发给独立窗口，不会走到这里。
+ */
+function handleOpenConversationEvent(event: Event) {
+  const detail = (event as CustomEvent<{ conversationId?: string }>).detail;
+  if (!detail?.conversationId) return;
+  messageStore.requestConversation(detail.conversationId, 'service');
+  void router.push('/message/service');
+}
+
+onMounted(() => {
+  window.addEventListener(
+    'aryn:open-conversation',
+    handleOpenConversationEvent,
+  );
+});
+
+onBeforeUnmount(() => {
+  stopServiceDeskSync();
+  window.removeEventListener(
+    'aryn:open-conversation',
+    handleOpenConversationEvent,
+  );
 });
 
 /**
@@ -156,12 +209,17 @@ onMounted(() => {
 function handleNoticeRead(item: NotificationItem) {
   if (item.kind === 'conversation') {
     if (item.conversationId) {
+      const target = item.link === '/message/direct' ? 'direct' : 'service';
+      // 独立工作台开着时，把会话交给它打开并把焦点带过去；主窗口留在当前页面。
+      if (
+        target === 'service' &&
+        locateConversationInServiceDesk(item.conversationId)
+      ) {
+        return;
+      }
       // 目标页要分开登记：私信页和客服工作台的 keepAlive 实例可能同时存活，
       // 共用一个 id 会被先执行的页面抢走，落到错误的页签里。
-      messageStore.requestConversation(
-        item.conversationId,
-        item.link === '/message/direct' ? 'direct' : 'service',
-      );
+      messageStore.requestConversation(item.conversationId, target);
     }
     void router.push(item.link || '/message/service');
     return;

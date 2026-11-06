@@ -14,13 +14,17 @@ import com.aryn.cloud.message.api.dto.assignment.ConversationTransferRequest;
 import com.aryn.cloud.message.api.dto.conversation.StaffInitiateConversationRequest;
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import cn.dev33.satoken.annotation.SaMode;
+import cn.dev33.satoken.stp.StpUtil;
 import com.aryn.cloud.message.api.enums.MessageIdentityType;
 import com.aryn.cloud.message.api.vo.conversation.ChatMessagePageVO;
 import com.aryn.cloud.message.api.vo.conversation.ChatMessageVO;
 import com.aryn.cloud.message.api.vo.conversation.ConversationAttentionVO;
+import com.aryn.cloud.message.api.vo.conversation.ConversationContextVO;
 import com.aryn.cloud.message.api.vo.conversation.ConversationInboxPageVO;
 import com.aryn.cloud.message.api.vo.conversation.ConversationVO;
+import com.aryn.cloud.message.api.vo.conversation.QueueStatsVO;
 import com.aryn.cloud.message.service.ChatMessageService;
+import com.aryn.cloud.message.service.ConversationContextService;
 import com.aryn.cloud.message.service.ConversationService;
 import com.aryn.cloud.message.service.ConversationAssignmentService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -47,6 +51,7 @@ public class StaffConversationController {
 	private final ConversationService conversationService;
 	private final ChatMessageService chatMessageService;
 	private final ConversationAssignmentService assignmentService;
+	private final ConversationContextService conversationContextService;
 
 	@GetMapping("/waiting")
 	@Operation(summary = "待领取会话池")
@@ -83,12 +88,30 @@ public class StaffConversationController {
 				user.getUserId(), queueCode, limit));
 	}
 
+	@GetMapping("/queue-stats")
+	@Operation(summary = "队列统计：等待数/最久等待/在线坐席数/可用容量")
+	@SaCheckPermission(value = { "message:service:agent", "message:service:supervisor" }, mode = SaMode.OR)
+	public Result<QueueStatsVO> queueStats() {
+		ArynUser user = currentUser();
+		return Result.success(conversationService.queueStats(user.getTenantId()));
+	}
+
 	@GetMapping("/{id}")
 	@Operation(summary = "会话详情")
 	public Result<ConversationVO> detail(@PathVariable String id) {
 		ArynUser user = currentUser();
 		return Result.success(conversationService.get(user.getTenantId(), MessageIdentityType.SYS_USER,
 				user.getUserId(), id));
+	}
+
+	@GetMapping("/{id}/context")
+	@Operation(summary = "会话上下文：会员资料与最近订单（信息面板）")
+	public Result<ConversationContextVO> context(@PathVariable String id) {
+		ArynUser user = currentUser();
+		// 参与者沿用会话详情口径；主管非参与者时允许只读上下文，故不设权限注解、按权限位降级。
+		boolean supervisor = StpUtil.hasPermission("message:service:supervisor");
+		return Result.success(conversationContextService.getContext(user.getTenantId(), MessageIdentityType.SYS_USER,
+				user.getUserId(), id, supervisor));
 	}
 
 	@GetMapping("/{id}/messages")
@@ -105,6 +128,14 @@ public class StaffConversationController {
 		ArynUser user = currentUser();
 		return Result.success(chatMessageService.send(user.getTenantId(), MessageIdentityType.SYS_USER,
 				user.getUserId(), user.getNickname(), user.getAvatar(), id, request));
+	}
+
+	@PostMapping("/{id}/messages/{messageId}/recall")
+	@Operation(summary = "撤回本人发送的消息（2 分钟内、仅文本/图片）")
+	public Result<ChatMessageVO> recall(@PathVariable String id, @PathVariable String messageId) {
+		ArynUser user = currentUser();
+		return Result.success(chatMessageService.recall(user.getTenantId(), MessageIdentityType.SYS_USER,
+				user.getUserId(), id, messageId));
 	}
 
 	@PostMapping("/{id}/read")

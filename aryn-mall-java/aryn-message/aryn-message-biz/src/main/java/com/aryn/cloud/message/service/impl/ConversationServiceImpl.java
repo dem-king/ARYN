@@ -12,6 +12,10 @@ import com.aryn.cloud.message.api.vo.conversation.ConversationAssignmentLogVO;
 import com.aryn.cloud.message.api.vo.conversation.ConversationAttentionVO;
 import com.aryn.cloud.message.api.vo.conversation.ConversationInboxPageVO;
 import com.aryn.cloud.message.api.vo.conversation.ConversationVO;
+import com.aryn.cloud.message.api.vo.agent.AgentCapacityVO;
+import com.aryn.cloud.message.api.vo.conversation.QueueStatsGroupVO;
+import com.aryn.cloud.message.api.vo.conversation.QueueStatsTotalVO;
+import com.aryn.cloud.message.api.vo.conversation.QueueStatsVO;
 import com.aryn.cloud.message.mapper.MessageAssignmentLogMapper;
 import com.aryn.cloud.message.mapper.MessageConversationMapper;
 import com.aryn.cloud.message.mapper.MessageParticipantMapper;
@@ -39,6 +43,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -53,6 +58,10 @@ public class ConversationServiceImpl implements ConversationService {
 	private static final String DEFAULT_QUEUE = "DEFAULT";
 	private static final int DEFAULT_LIMIT = 20;
 	private static final int MAX_LIMIT = 100;
+	/** keyword 最大长度（字符）：超长直接报参数错误，避免无意义超长 LIKE 扫描。 */
+	private static final int MAX_KEYWORD_LENGTH = 64;
+	/** LIKE 转义符：用 '!' 而非反斜杠，规避 MySQL 字符串转义方言差异（SQL 侧配 ESCAPE '!'）。 */
+	private static final char LIKE_ESCAPE_CHAR = '!';
 	private static final String STATUS_OPEN = "OPEN";
 	private static final String STATUS_CLOSED = "CLOSED";
 	private static final String CURSOR_SEPARATOR = "|";
@@ -176,22 +185,50 @@ public class ConversationServiceImpl implements ConversationService {
 	@Override
 	public ConversationInboxPageVO inbox(String tenantId, MessageIdentityType identityType, String identityId,
 			ConversationInboxQuery query) {
-		int limit = normalizeLimit(query == null ? null : query.getLimit());
-		String status = normalizeStatus(query == null ? null : query.getStatus());
-		InboxCursor cursor = parseCursor(query == null ? null : query.getCursor());
-		List<ConversationVO> records = conversationMapper.selectInbox(tenantId, identityType.name(), identityId, status,
-				cursor == null ? null : cursor.time(), cursor == null ? null : cursor.id(), limit + 1);
-		return toPage(records, limit);
+		InboxCriteria criteria = normalizeCriteria(query);
+		InboxCursor cursor = criteria.cursor();
+		List<ConversationVO> records = conversationMapper.selectInbox(tenantId, identityType.name(), identityId,
+				criteria.status(), criteria.statuses(), criteria.keyword(), criteria.assignedStaffId(),
+				criteria.queueCode(), criteria.unreadOnly(), cursor == null ? null : cursor.time(),
+				cursor == null ? null : cursor.id(), criteria.limit() + 1);
+		return toPage(records, criteria.limit());
 	}
 
 	@Override
 	public ConversationInboxPageVO adminInbox(String tenantId, ConversationInboxQuery query) {
-		int limit = normalizeLimit(query == null ? null : query.getLimit());
-		String status = normalizeStatus(query == null ? null : query.getStatus());
-		InboxCursor cursor = parseCursor(query == null ? null : query.getCursor());
-		List<ConversationVO> records = conversationMapper.selectTenantInbox(tenantId, status,
-				cursor == null ? null : cursor.time(), cursor == null ? null : cursor.id(), limit + 1);
-		return toPage(records, limit);
+		InboxCriteria criteria = normalizeCriteria(query);
+		InboxCursor cursor = criteria.cursor();
+		List<ConversationVO> records = conversationMapper.selectTenantInbox(tenantId, criteria.status(),
+				criteria.statuses(), criteria.keyword(), criteria.assignedStaffId(), criteria.queueCode(),
+				criteria.unreadOnly(), cursor == null ? null : cursor.time(),
+				cursor == null ? null : cursor.id(), criteria.limit() + 1);
+		return toPage(records, criteria.limit());
+	}
+
+	@Override
+	public QueueStatsVO queueStats(String tenantId) {
+		List<QueueStatsGroupVO> groups = conversationMapper.selectWaitingGroups(tenantId);
+		long waitingCount = 0L;
+		LocalDateTime oldestWaitingSince = null;
+		if (groups != null) {
+			for (QueueStatsGroupVO group : groups) {
+				waitingCount += group.getWaitingCount() == null ? 0L : group.getWaitingCount();
+				LocalDateTime groupOldest = group.getOldestWaitingSince();
+				if (groupOldest != null && (oldestWaitingSince == null || groupOldest.isBefore(oldestWaitingSince))) {
+					oldestWaitingSince = groupOldest;
+				}
+			}
+		}
+		AgentCapacityVO capacity = agentService.agentCapacity(tenantId);
+		QueueStatsTotalVO total = new QueueStatsTotalVO();
+		total.setWaitingCount(waitingCount);
+		total.setOldestWaitingSince(oldestWaitingSince);
+		total.setOnlineAgentCount(capacity == null ? 0 : capacity.getOnlineAgentCount());
+		total.setAvailableCapacity(capacity == null ? 0 : capacity.getAvailableCapacity());
+		QueueStatsVO stats = new QueueStatsVO();
+		stats.setTotal(total);
+		stats.setGroups(groups == null ? List.of() : groups);
+		return stats;
 	}
 
 	@Override
@@ -334,6 +371,75 @@ public class ConversationServiceImpl implements ConversationService {
 		return status;
 	}
 
+	/** 列表筛选参数归一化：statuses 优先于 status；空串归 null；keyword 转义；游标解析；limit 归一化。 */
+	private InboxCriteria normalizeCriteria(ConversationInboxQuery query) {
+		ConversationInboxQuery requested = query == null ? new ConversationInboxQuery() : query;
+		List<String> statuses = normalizeStatuses(requested.getStatuses());
+		// statuses 是精确状态集合，非空时覆盖旧页签 status；同时传不报错，旧前端参数残留可平滑兼容。
+		String status = statuses == null ? normalizeStatus(requested.getStatus()) : null;
+		return new InboxCriteria(status, statuses, normalizeKeyword(requested.getKeyword()),
+				trimToNull(requested.getAssignedStaffId()), trimToNull(requested.getQueueCode()),
+				Boolean.TRUE.equals(requested.getUnreadOnly()), parseCursor(requested.getCursor()),
+				normalizeLimit(requested.getLimit()));
+	}
+
+	/** 精确状态集合归一化：trim + 大写 + 去空 + 去重；非法值报参数错误；空集合返回 null（视为未传）。 */
+	private List<String> normalizeStatuses(List<String> requested) {
+		if (requested == null || requested.isEmpty()) {
+			return null;
+		}
+		Set<String> normalized = new LinkedHashSet<>();
+		for (String item : requested) {
+			if (!StringUtils.hasText(item)) {
+				continue;
+			}
+			String status = item.trim().toUpperCase(Locale.ROOT);
+			if (!isConversationStatus(status)) {
+				throw new ArynBusinessException("statuses 仅支持 WAITING/ASSIGNED/ACTIVE/CLOSED");
+			}
+			normalized.add(status);
+		}
+		return normalized.isEmpty() ? null : List.copyOf(normalized);
+	}
+
+	private boolean isConversationStatus(String status) {
+		for (ConversationStatus candidate : ConversationStatus.values()) {
+			if (candidate.name().equals(status)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * keyword 清洗：trim 后为空忽略；限长 64 字符；LIKE 通配符（! % _）按字面量转义。
+	 *
+	 * <p>转义符固定 '!' 且 SQL 侧固定 {@code ESCAPE '!'}，避免用户输入 %/_ 把包含匹配变成通配匹配。</p>
+	 */
+	private String normalizeKeyword(String keyword) {
+		if (!StringUtils.hasText(keyword)) {
+			return null;
+		}
+		String trimmed = keyword.trim();
+		if (trimmed.length() > MAX_KEYWORD_LENGTH) {
+			throw new ArynBusinessException("keyword 长度不能超过 64");
+		}
+		StringBuilder escaped = new StringBuilder(trimmed.length() + 8);
+		for (int index = 0; index < trimmed.length(); index++) {
+			char current = trimmed.charAt(index);
+			if (current == LIKE_ESCAPE_CHAR || current == '%' || current == '_') {
+				escaped.append(LIKE_ESCAPE_CHAR);
+			}
+			escaped.append(current);
+		}
+		return escaped.toString();
+	}
+
+	/** 精确过滤值清洗：trim 后为空视为未传。 */
+	private String trimToNull(String value) {
+		return StringUtils.hasText(value) ? value.trim() : null;
+	}
+
 	/**
 	 * 解析不透明游标：Base64Url(最近活跃时间毫秒 | 会话 ID)。
 	 *
@@ -390,6 +496,11 @@ public class ConversationServiceImpl implements ConversationService {
 
 	/** 复合游标内部结构：最近活跃时间 + 会话 ID。 */
 	private record InboxCursor(LocalDateTime time, String id) {
+	}
+
+	/** 列表筛选归一化结果（inbox/adminInbox 共用，保证 staff 与主管两端口径一致）。 */
+	private record InboxCriteria(String status, List<String> statuses, String keyword, String assignedStaffId,
+			String queueCode, boolean unreadOnly, InboxCursor cursor, int limit) {
 	}
 
 }

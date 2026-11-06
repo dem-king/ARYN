@@ -199,13 +199,20 @@ export interface RouteContextLike {
  *
  * - 初始导航尚未解析（刷新后首个 401、`matched` 为空）：返回 true，
  *   由 app 级兜底弹窗承载（此时 BasicLayout 还没挂载，需要在 app.vue 兜底挂载）；
- * - 登录页 / 独立页（`noBasicLayout`）：返回 false，交给调用方降级登出。
+ * - 独立窗口页（`noBasicLayout + sessionInvalidModal`）：返回 true，
+ *   由页面内的 SessionInvalidModal 承载（否则会降级登出并清掉持久化 token）；
+ * - 登录页 / 其它独立页（`noBasicLayout`）：返回 false，交给调用方降级登出。
  */
 export function isBasicLayoutContext(
   route: null | RouteContextLike | undefined,
 ): boolean {
   if (!route) {
     return false;
+  }
+  // 独立窗口页自行挂载会话失效弹窗：必须走页内弹窗（modal），
+  // 不能降级 logout——那会执行 resetAllStores() 清掉持久化 token，连主窗口一起登出。
+  if (route.meta?.sessionInvalidModal === true) {
+    return true;
   }
   if (route.meta?.noBasicLayout === true) {
     return false;

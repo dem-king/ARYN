@@ -31,11 +31,15 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /** 会话消息幂等、排序和游标读取实现。 */
 @Slf4j
@@ -57,6 +61,14 @@ public class ChatMessageServiceImpl implements ChatMessageService {
 	private static final int MAX_SUMMARY_LENGTH = 500;
 	private static final int MAX_CARD_AMOUNT_LENGTH = 64;
 	private static final int MAX_CARD_STATUS_TEXT_LENGTH = 64;
+	/** 撤回时间窗：发送后 2 分钟内可撤回（产品建议值，集中定义便于调整口径）。 */
+	private static final Duration RECALL_WINDOW = Duration.ofMinutes(2);
+	/** 仅文本/图片可撤回：业务卡片是跨端结构化业务凭证，撤回会破坏订单/退款等业务语义。 */
+	private static final Set<ChatMessageType> RECALLABLE_TYPES = Set.of(ChatMessageType.TEXT, ChatMessageType.IMAGE);
+	/** 撤回后会话列表摘要占位：避免最后一条消息被撤回后列表预览仍展示原文。 */
+	private static final String RECALLED_SUMMARY = "[消息已撤回]";
+	private static final int MAX_QUOTED_MESSAGE_ID_LENGTH = 32;
+	private static final int MAX_QUOTE_SUMMARY_LENGTH = 100;
 
 	private final MessageConversationMapper conversationMapper;
 	private final MessageParticipantMapper participantMapper;
@@ -77,17 +89,19 @@ public class ChatMessageServiceImpl implements ChatMessageService {
 				request.getClientMessageId());
 		if (existing != null) {
 			assertSameConversation(existing, conversationId);
-			return toVO(existing);
+			return viewWithQuote(tenantId, conversationId, existing);
 		}
 		MessageConversation conversation = requireWritableConversation(tenantId, conversationId, senderType, senderId);
 		existing = chatMapper.selectByClientMessageId(tenantId, senderType.name(), senderId,
 				request.getClientMessageId());
 		if (existing != null) {
 			assertSameConversation(existing, conversationId);
-			return toVO(existing);
+			return viewWithQuote(tenantId, conversationId, existing);
 		}
+		// 引用目标校验放在会话/幂等校验之后：幂等重放历史消息不应因引用目标随后撤回而失败。
+		MessageChat quoted = resolveQuotedMessage(tenantId, conversationId, request.getQuotedMessageId());
 		return append(conversation, senderType, senderId, senderName, senderAvatar, request.getMessageType(),
-				request.getContent(), request.getPayload(), request.getClientMessageId(), request.getQuotedMessageId());
+				request.getContent(), request.getPayload(), request.getClientMessageId(), quoted);
 	}
 
 	@Override
@@ -111,6 +125,65 @@ public class ChatMessageServiceImpl implements ChatMessageService {
 	}
 
 	@Override
+	@Transactional(rollbackFor = Exception.class)
+	public ChatMessageVO recall(String tenantId, MessageIdentityType senderType, String senderId, String conversationId,
+			String messageId) {
+		if (!StringUtils.hasText(messageId)) {
+			throw new ArynBusinessException("消息不存在或已删除");
+		}
+		// 与发送路径保持同一把锁顺序（先锁会话行，再读消息行），避免并发发送/撤回互相等待。
+		MessageConversation conversation = conversationMapper.selectByIdForUpdate(tenantId, conversationId);
+		if (conversation == null) {
+			throw new ArynBusinessException("会话不存在");
+		}
+		if (ConversationStatus.CLOSED.name().equals(conversation.getStatus())) {
+			throw new ArynBusinessException("已关闭会话不能撤回消息");
+		}
+		if (participantMapper.selectActiveParticipant(tenantId, conversationId, senderType.name(), senderId) == null) {
+			throw new ArynBusinessException("无权撤回该会话消息");
+		}
+		MessageChat chat = findMessage(tenantId, conversationId, messageId);
+		if (chat == null) {
+			throw new ArynBusinessException("消息不存在或已删除");
+		}
+		if (!senderType.name().equals(chat.getSenderType()) || !senderId.equals(chat.getSenderId())) {
+			throw new ArynBusinessException("只能撤回自己发送的消息");
+		}
+		if (CommonConstants.YES.equals(chat.getRecallStatus())) {
+			// 重复撤回幂等成功：不再校验时间窗（撤回本身已生效）。
+			return viewWithQuote(tenantId, conversationId, chat);
+		}
+		ChatMessageType messageType = parseMessageType(chat.getMessageType());
+		if (messageType == null || !RECALLABLE_TYPES.contains(messageType)) {
+			throw new ArynBusinessException("消息类型不支持撤回（仅文本和图片）");
+		}
+		LocalDateTime now = LocalDateTime.now();
+		if (chat.getCreateTime() == null || now.isAfter(chat.getCreateTime().plus(RECALL_WINDOW))) {
+			throw new ArynBusinessException("已超过撤回时间（2 分钟内可撤回）");
+		}
+		if (chatMapper.markRecalled(tenantId, conversationId, messageId, senderType.name(), senderId, now) == 0) {
+			// 条件更新 0 行：并发双击/已被撤回 → 幂等成功；其它情况视为失败。
+			MessageChat latest = findMessage(tenantId, conversationId, messageId);
+			if (latest != null && CommonConstants.YES.equals(latest.getRecallStatus())) {
+				return viewWithQuote(tenantId, conversationId, latest);
+			}
+			throw new ArynBusinessException("撤回失败，请重试");
+		}
+		chat.setRecallStatus(CommonConstants.YES);
+		chat.setRecallTime(now);
+		if (messageId.equals(conversation.getLastMessageId())) {
+			// 撤回最后一条消息时同步改会话摘要：DB 保留原文审计，但列表预览不能继续展示撤回正文。
+			conversation.setLastMessageSummary(RECALLED_SUMMARY);
+			conversation.setUpdateBy(senderId);
+			conversation.setUpdateTime(now);
+			conversationMapper.updateById(conversation);
+		}
+		runAfterCommit(() -> pushService.pushConversationMessage(conversation.getTenantId(), conversation.getId(),
+				chat.getId(), chat.getSeqNo() == null ? 0L : chat.getSeqNo()));
+		return viewWithQuote(tenantId, conversationId, chat);
+	}
+
+	@Override
 	public ChatMessagePageVO page(String tenantId, MessageIdentityType identityType, String identityId,
 			String conversationId, ChatMessageCursorQuery query) {
 		MessageParticipant participant = participantMapper.selectActiveParticipant(tenantId, conversationId,
@@ -131,7 +204,10 @@ public class ChatMessageServiceImpl implements ChatMessageService {
 			rows = new ArrayList<>(rows.subList(0, limit));
 		}
 		ChatMessagePageVO result = new ChatMessagePageVO();
-		result.setRecords(rows.stream().map(this::toVO).toList());
+		// 引用摘要批量补全：每页固定最多 1 条 IN 查询，避免逐条查询造成 N+1。
+		List<ChatMessageVO> views = new ArrayList<>(rows.stream().map(this::toVO).toList());
+		fillQuoteSummaries(tenantId, conversationId, views);
+		result.setRecords(views);
 		result.setHasMore(hasMore);
 		if (hasMore && !rows.isEmpty()) {
 			if (afterSeq != null) {
@@ -182,7 +258,7 @@ public class ChatMessageServiceImpl implements ChatMessageService {
 
 	private ChatMessageVO append(MessageConversation conversation, MessageIdentityType senderType, String senderId,
 			String senderName, String senderAvatar, ChatMessageType messageType, String content, String payload,
-			String clientMessageId, String quotedMessageId) {
+			String clientMessageId, MessageChat quotedMessage) {
 		long nextSeq = (conversation.getLastSeq() == null ? 0L : conversation.getLastSeq()) + 1;
 		LocalDateTime now = LocalDateTime.now();
 		MessageChat chat = new MessageChat();
@@ -198,7 +274,7 @@ public class ChatMessageServiceImpl implements ChatMessageService {
 		chat.setContent(content);
 		chat.setPayload(payload);
 		chat.setClientMessageId(clientMessageId);
-		chat.setQuotedMessageId(quotedMessageId);
+		chat.setQuotedMessageId(quotedMessage == null ? null : quotedMessage.getId());
 		chat.setRecallStatus(CommonConstants.NO);
 		chat.setCreateBy(senderId);
 		chat.setCreateTime(now);
@@ -230,7 +306,145 @@ public class ChatMessageServiceImpl implements ChatMessageService {
 						chat.getSeqNo());
 			}
 		});
-		return toVO(chat);
+		ChatMessageVO view = toVO(chat);
+		fillQuote(view, quotedMessage);
+		return view;
+	}
+
+	/**
+	 * 引用目标校验：空白视为未引用；必须同会话存在、未撤回、非系统消息。
+	 *
+	 * <p>校验放在幂等重放之后：同一 clientMessageId 的历史消息再次提交不因引用目标随后撤回而失败。</p>
+	 */
+	private MessageChat resolveQuotedMessage(String tenantId, String conversationId, String quotedMessageId) {
+		if (!StringUtils.hasText(quotedMessageId)) {
+			return null;
+		}
+		String normalized = quotedMessageId.trim();
+		if (normalized.length() > MAX_QUOTED_MESSAGE_ID_LENGTH) {
+			throw new ArynBusinessException("引用消息ID不合法");
+		}
+		MessageChat quoted = findMessage(tenantId, conversationId, normalized);
+		if (quoted == null) {
+			throw new ArynBusinessException("引用的消息不存在或不属于当前会话");
+		}
+		if (CommonConstants.YES.equals(quoted.getRecallStatus())) {
+			throw new ArynBusinessException("引用的消息已撤回，不能引用");
+		}
+		if (ChatMessageType.SYSTEM.name().equals(quoted.getMessageType())) {
+			throw new ArynBusinessException("系统消息不支持引用");
+		}
+		return quoted;
+	}
+
+	/** 按「租户 + 会话 + 消息 ID」查单条消息（引用校验/撤回共用，限定同会话）。 */
+	private MessageChat findMessage(String tenantId, String conversationId, String messageId) {
+		return chatMapper.selectByConversationAndIds(tenantId, conversationId, List.of(messageId))
+			.stream()
+			.findFirst()
+			.orElse(null);
+	}
+
+	/** 单条消息转 VO 并补引用摘要（幂等重放/撤回返回使用）。 */
+	private ChatMessageVO viewWithQuote(String tenantId, String conversationId, MessageChat chat) {
+		ChatMessageVO view = toVO(chat);
+		fillQuoteSummaries(tenantId, conversationId, List.of(view));
+		return view;
+	}
+
+	/**
+	 * 批量补引用摘要：一次 IN 查询取回当前页所有引用目标（page ≤100 条，固定 1 条额外 SQL）。
+	 *
+	 * <p>查不到的目标（历史脏数据/跨会话引用/已逻辑删除）按「引用不可用」降级，不抛错。</p>
+	 */
+	private void fillQuoteSummaries(String tenantId, String conversationId, List<ChatMessageVO> views) {
+		if (views == null || views.isEmpty()) {
+			return;
+		}
+		Set<String> quotedIds = views.stream()
+			.map(ChatMessageVO::getQuotedMessageId)
+			.filter(StringUtils::hasText)
+			.collect(Collectors.toSet());
+		if (quotedIds.isEmpty()) {
+			return;
+		}
+		Map<String, MessageChat> targets = new HashMap<>();
+		for (MessageChat target : chatMapper.selectByConversationAndIds(tenantId, conversationId, quotedIds)) {
+			targets.put(target.getId(), target);
+		}
+		for (ChatMessageVO view : views) {
+			if (StringUtils.hasText(view.getQuotedMessageId())) {
+				fillQuote(view, targets.get(view.getQuotedMessageId()));
+			}
+		}
+	}
+
+	/** 回填单条引用摘要：目标已撤回/已删除/查不到时只标记 quotedRecalled=true。 */
+	private void fillQuote(ChatMessageVO view, MessageChat target) {
+		if (!StringUtils.hasText(view.getQuotedMessageId())) {
+			return;
+		}
+		if (target == null || CommonConstants.YES.equals(target.getRecallStatus())) {
+			view.setQuotedRecalled(Boolean.TRUE);
+			return;
+		}
+		view.setQuotedMessageType(target.getMessageType());
+		view.setQuotedSenderName(target.getSenderName());
+		view.setQuotedMessageSummary(quoteSummary(target));
+		view.setQuotedRecalled(Boolean.FALSE);
+	}
+
+	/** 引用摘要：文本截断 100 字符，图片/卡片用类型标签，卡片尽量附 title；读时生成不落库。 */
+	private String quoteSummary(MessageChat target) {
+		ChatMessageType type = parseMessageType(target.getMessageType());
+		if (type == null) {
+			return "[消息]";
+		}
+		String summary = switch (type) {
+			case TEXT -> StringUtils.hasText(target.getContent()) ? target.getContent().trim() : "[文本]";
+			case IMAGE -> "[图片]";
+			case PRODUCT_CARD -> quoteCardSummary("[商品]", target.getPayload());
+			case ORDER_CARD -> quoteCardSummary("[订单]", target.getPayload());
+			case REFUND_CARD -> quoteCardSummary("[退款]", target.getPayload());
+			case NOTICE_CARD -> quoteCardSummary("[通知]", target.getPayload());
+			case SYSTEM -> "[系统消息]";
+		};
+		return summary.length() <= MAX_QUOTE_SUMMARY_LENGTH ? summary
+				: summary.substring(0, MAX_QUOTE_SUMMARY_LENGTH);
+	}
+
+	private String quoteCardSummary(String label, String payload) {
+		String title = payloadTitle(payload);
+		return StringUtils.hasText(title) ? label + " " + title : label;
+	}
+
+	/** 从卡片 payload 取 title（坏 JSON/非文本一律忽略，引用摘要降级为类型标签）。 */
+	private String payloadTitle(String payload) {
+		if (!StringUtils.hasText(payload)) {
+			return null;
+		}
+		try {
+			JsonNode node = objectMapper.readTree(payload);
+			JsonNode title = node == null ? null : node.get("title");
+			return title != null && title.isTextual() && StringUtils.hasText(title.asText()) ? title.asText().trim()
+					: null;
+		}
+		catch (JsonProcessingException exception) {
+			return null;
+		}
+	}
+
+	/** 消息类型安全解析：历史未知类型不抛 500，由调用方按「不支持/通用」降级。 */
+	private ChatMessageType parseMessageType(String messageType) {
+		if (!StringUtils.hasText(messageType)) {
+			return null;
+		}
+		try {
+			return ChatMessageType.valueOf(messageType);
+		}
+		catch (IllegalArgumentException exception) {
+			return null;
+		}
 	}
 
 	private void validateClientMessage(String tenantId, ChatMessageSendRequest request) {
@@ -427,6 +641,11 @@ public class ChatMessageServiceImpl implements ChatMessageService {
 	private ChatMessageVO toVO(MessageChat chat) {
 		ChatMessageVO vo = new ChatMessageVO();
 		BeanUtils.copyProperties(chat, vo);
+		if (CommonConstants.YES.equals(chat.getRecallStatus())) {
+			// 撤回后接口不再下发正文/结构化负载（DB 保留审计，前端按 recallStatus 渲染「消息已撤回」）。
+			vo.setContent(null);
+			vo.setPayload(null);
+		}
 		return vo;
 	}
 

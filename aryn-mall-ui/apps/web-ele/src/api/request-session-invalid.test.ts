@@ -372,6 +372,15 @@ describe('basic layout context detection', () => {
         path: '/page-preview/abc',
       }),
     ).toBe(false);
+    // 独立工作台页自行挂载 SessionInvalidModal：必须走页内弹窗（modal），
+    // 不能降级 logout——否则 resetAllStores() 会清掉持久化 token，连主窗口一起登出。
+    expect(
+      isBasicLayoutContext({
+        matched: [{ name: 'MessageServiceWindow' }],
+        meta: { noBasicLayout: true, sessionInvalidModal: true },
+        path: '/message/service-window',
+      }),
+    ).toBe(true);
   });
 
   it('optimistically keeps the modal for unresolved initial navigation (refresh)', () => {

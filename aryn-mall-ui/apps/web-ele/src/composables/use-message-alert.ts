@@ -40,6 +40,8 @@ export interface AlertCounts {
 export interface AlertPayload {
   /** 本次上升的条数，用于「您有 N 笔新的订单」这类合并播报 */
   count?: number;
+  /** 会话提醒对应的会话 ID：桌面通知点击后直接打开该会话 */
+  conversationId?: string;
   /** 站内信正文/摘要 */
   body: string;
   /** 订单金额（由 cardPayload 解析而来），有则播报「金额 xx 元」 */
@@ -88,6 +90,7 @@ export function buildAlert(
   increase: { conversationAdded: number; noticeAdded: number },
   notifications: Array<{
     amount?: string;
+    conversationId?: string;
     kind?: string;
     message?: string;
     sourceType?: string;
@@ -102,6 +105,7 @@ export function buildAlert(
       body:
         conversation?.message ??
         `有 ${increase.conversationAdded} 个会话有新消息`,
+      conversationId: conversation?.conversationId,
       count: increase.conversationAdded,
       kind: 'conversation',
       title: conversation?.title ?? '新的客服会话消息',

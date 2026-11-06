@@ -31,6 +31,8 @@
         GREATEST(c.last_seq - p.last_read_seq, 0) AS unread_count,
         c.last_message_summary,
         c.last_message_time,
+        c.create_time,
+        CASE WHEN c.status = 'WAITING' THEN c.create_time ELSE NULL END AS waiting_since,
         COALESCE(c.last_message_time, c.create_time) AS last_active_time,
         c.closed_time,
         c.reopen_deadline,
@@ -70,16 +72,67 @@
             AND sp.participant_status = 'ACTIVE'
             AND sp.del_flag = '0'
     </sql>
+    <!-- 列表状态筛选：statuses（精确状态集合）优先于 status（页签 OPEN/CLOSED 语义）。
+         服务层已保证两者同时传时 status 被置空，这里仍按“statuses 非空优先”渲染，避免 XML 单独复用出错。 -->
     <sql id="inboxStatusFilter">
-        <if test="status != null and status != ''">
-            <choose>
-                <when test="status == 'CLOSED'">
-                    AND c.status = 'CLOSED'
-                </when>
-                <otherwise>
-                    AND <include refid="openStatusCondition"/>
-                </otherwise>
-            </choose>
+        <choose>
+            <when test="statuses != null and statuses.size() > 0">
+                AND c.status IN
+                <foreach collection="statuses" item="statusItem" open="(" separator="," close=")">#{statusItem}</foreach>
+            </when>
+            <when test="status != null and status != ''">
+                <choose>
+                    <when test="status == 'CLOSED'">
+                        AND c.status = 'CLOSED'
+                    </when>
+                    <otherwise>
+                        AND <include refid="openStatusCondition"/>
+                    </otherwise>
+                </choose>
+            </when>
+        </choose>
+    </sql>
+    <!-- 关键词包含匹配：服务层已 trim + LIKE 转义（! % _），SQL 侧固定 ESCAPE '!' 让通配符按字面量匹配。
+         调用方必须带 cp（会员快照）别名，selectInbox/selectTenantInbox 均通过 snapshotJoins 提供。 -->
+    <sql id="inboxKeywordFilter">
+        <if test="keyword != null and keyword != ''">
+            AND (c.customer_id LIKE CONCAT('%', #{keyword}, '%') ESCAPE '!'
+                OR cp.participant_name LIKE CONCAT('%', #{keyword}, '%') ESCAPE '!'
+                OR c.last_message_summary LIKE CONCAT('%', #{keyword}, '%') ESCAPE '!')
+        </if>
+    </sql>
+    <sql id="inboxAssignedStaffFilter">
+        <if test="assignedStaffId != null and assignedStaffId != ''">
+            AND c.assigned_staff_id = #{assignedStaffId}
+        </if>
+    </sql>
+    <sql id="inboxQueueFilter">
+        <if test="queueCode != null and queueCode != ''">
+            AND c.queue_code = #{queueCode}
+        </if>
+    </sql>
+    <!-- 本人未读：调用者参与者行（p 别名）之后有新消息；未读口径强制排除已关闭会话。 -->
+    <sql id="inboxUnreadFilter">
+        <if test="unreadOnly">
+            AND c.status != 'CLOSED'
+            AND c.last_seq > p.last_read_seq
+        </if>
+    </sql>
+    <!-- 主管视图没有查看者参与者行，用「负责客服未读」代理：存在已读游标落后的 ACTIVE SYS_USER 参与者。
+         待领取会话（无 SYS_USER 参与者）不计入，需要时按 statuses=WAITING 筛。 -->
+    <sql id="tenantInboxUnreadFilter">
+        <if test="unreadOnly">
+            AND c.status != 'CLOSED'
+            AND EXISTS (
+                SELECT 1
+                FROM message_participant up
+                WHERE up.tenant_id = c.tenant_id
+                  AND up.conversation_id = c.id
+                  AND up.participant_type = 'SYS_USER'
+                  AND up.participant_status = 'ACTIVE'
+                  AND up.del_flag = '0'
+                  AND c.last_seq > up.last_read_seq
+            )
         </if>
     </sql>
     <sql id="inboxCursorFilter">
@@ -142,6 +195,35 @@
           AND c.id = #{conversationId}
           AND c.del_flag = '0'
     </select>
+    <!-- 主管视角按 ID 读取会话视图（不要求调用者是参与者）：供会话上下文等主管只读场景使用。
+         未读相关字段（last_read_seq/unread_count/peer_last_read_seq）不计算，与主管列表口径一致。 -->
+    <select id="selectForTenant" resultType="com.aryn.cloud.message.api.vo.conversation.ConversationVO">
+        SELECT
+            c.id,
+            c.conversation_type,
+            c.queue_code,
+            c.customer_id,
+            c.assigned_staff_id,
+            c.status,
+            c.last_seq,
+            c.last_message_summary,
+            c.last_message_time,
+            c.create_time,
+            CASE WHEN c.status = 'WAITING' THEN c.create_time ELSE NULL END AS waiting_since,
+            COALESCE(c.last_message_time, c.create_time) AS last_active_time,
+            c.closed_time,
+            c.reopen_deadline,
+            c.context_payload,
+            cp.participant_name AS customer_name,
+            cp.participant_avatar AS customer_avatar,
+            sp.participant_name AS assigned_staff_name,
+            sp.participant_avatar AS assigned_staff_avatar
+        FROM message_conversation c
+        <include refid="snapshotJoins"/>
+        WHERE c.tenant_id = #{tenantId}
+          AND c.id = #{conversationId}
+          AND c.del_flag = '0'
+    </select>
     <select id="selectInbox" resultType="com.aryn.cloud.message.api.vo.conversation.ConversationVO">
         SELECT <include refid="conversationViewColumns"/>
         FROM message_conversation c
@@ -150,6 +232,10 @@
         WHERE c.tenant_id = #{tenantId}
           AND c.del_flag = '0'
         <include refid="inboxStatusFilter"/>
+        <include refid="inboxKeywordFilter"/>
+        <include refid="inboxAssignedStaffFilter"/>
+        <include refid="inboxQueueFilter"/>
+        <include refid="inboxUnreadFilter"/>
         <include refid="inboxCursorFilter"/>
         ORDER BY COALESCE(c.last_message_time, c.create_time) DESC, c.id DESC
         LIMIT #{fetchSize}
@@ -165,6 +251,8 @@
             c.last_seq,
             c.last_message_summary,
             c.last_message_time,
+            c.create_time,
+            CASE WHEN c.status = 'WAITING' THEN c.create_time ELSE NULL END AS waiting_since,
             COALESCE(c.last_message_time, c.create_time) AS last_active_time,
             c.closed_time,
             c.reopen_deadline,
@@ -187,6 +275,10 @@
         WHERE c.tenant_id = #{tenantId}
           AND c.del_flag = '0'
         <include refid="inboxStatusFilter"/>
+        <include refid="inboxKeywordFilter"/>
+        <include refid="inboxAssignedStaffFilter"/>
+        <include refid="inboxQueueFilter"/>
+        <include refid="tenantInboxUnreadFilter"/>
         <include refid="inboxCursorFilter"/>
         ORDER BY COALESCE(c.last_message_time, c.create_time) DESC, c.id DESC
         LIMIT #{fetchSize}
@@ -240,6 +332,8 @@
             0 AS unread_count,
             c.last_message_summary,
             c.last_message_time,
+            c.create_time,
+            CASE WHEN c.status = 'WAITING' THEN c.create_time ELSE NULL END AS waiting_since,
             COALESCE(c.last_message_time, c.create_time) AS last_active_time,
             c.closed_time,
             c.reopen_deadline,
@@ -256,6 +350,21 @@
           AND c.del_flag = '0'
         ORDER BY c.create_time ASC, c.id ASC
         LIMIT #{limit}
+    </select>
+    <!-- 队列统计：等待中会话（CUSTOMER_SERVICE + WAITING + 未分配，与 countWaiting/selectWaitingPool 同口径）
+         按 queueCode 聚合数量与最久等待开始时间；走 idx_message_conversation_waiting。 -->
+    <select id="selectWaitingGroups" resultType="com.aryn.cloud.message.api.vo.conversation.QueueStatsGroupVO">
+        SELECT c.queue_code,
+               COUNT(*) AS waiting_count,
+               MIN(c.create_time) AS oldest_waiting_since
+        FROM message_conversation c
+        WHERE c.tenant_id = #{tenantId}
+          AND c.conversation_type = 'CUSTOMER_SERVICE'
+          AND c.status = 'WAITING'
+          AND c.assigned_staff_id IS NULL
+          AND c.del_flag = '0'
+        GROUP BY c.queue_code
+        ORDER BY MIN(c.create_time) ASC, c.queue_code ASC
     </select>
     <select id="selectWaitingForTenant" resultType="com.aryn.cloud.message.api.entity.MessageConversation">
         SELECT *

@@ -5,22 +5,38 @@ import type { Conversation } from '#/api/message/types';
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildConversationInboxParams,
+  buildImageMessagePayload,
+  buildQuoteSummary,
+  buildQuoteTarget,
+  buildTimelineItems,
+  canQuoteMessage,
+  canRecallMessage,
+  chatMessageSenderLabel,
   claimState,
   composerState,
   conversationActions,
   conversationDisplayName,
+  conversationFilterTags,
   conversationOwnerName,
   conversationQuery,
   conversationStatusLabel,
   conversationStatusTone,
+  conversationTimeLabel,
+  createConversationFilterState,
   formatContextPayload,
+  formatDateDivider,
   formatDateTime,
+  formatWaitingDuration,
   isLatestOutgoingMessage,
   isSendEnter,
   latestOutgoingMessage,
+  quotedBlockView,
   readReceipt,
   shouldMarkRead,
+  validateImageUpload,
   visibleServiceTabs,
+  waitingDurationLabel,
 } from './service-state';
 
 const OFFLINE_GATE = {
@@ -107,6 +123,35 @@ describe('service workbench state helpers', () => {
       '9',
     );
     expect(conversationOwnerName(conversation())).toBe('未分配');
+  });
+
+  it('会员消息发送者优先显示会话昵称，避免暴露 MALL_USER 枚举', () => {
+    const memberConversation = conversation({ customerName: '八度的骄傲' });
+    expect(
+      chatMessageSenderLabel(
+        message({ senderType: 'MALL_USER', senderName: undefined }),
+        memberConversation,
+      ),
+    ).toBe('八度的骄傲');
+    expect(
+      chatMessageSenderLabel(
+        message({ senderType: 'MALL_USER', senderName: undefined }),
+        conversation({ customerName: undefined, customerId: '10086' }),
+      ),
+    ).toBe('会员');
+    expect(
+      chatMessageSenderLabel(
+        message({ senderType: 'SYS_USER', senderName: '宇宙第一帅' }),
+        memberConversation,
+      ),
+    ).toBe('宇宙第一帅');
+    expect(
+      chatMessageSenderLabel(
+        message({ senderType: 'SYS_USER', senderName: undefined }),
+        memberConversation,
+      ),
+    ).toBe('SYS_USER');
+    expect(chatMessageSenderLabel(undefined, memberConversation)).toBe('');
   });
 
   it('状态标签文案与配色覆盖四种状态', () => {
@@ -347,5 +392,487 @@ describe('service workbench state helpers', () => {
     );
     expect(formatContextPayload('raw text')).toBe('raw text');
     expect(formatContextPayload(undefined)).toBe('');
+  });
+});
+
+describe('会话列表时间与时间线分隔', () => {
+  const now = new Date('2026-11-05T15:00:00');
+
+  it('今天显示时分、昨天显示「昨天」、同年显示月日、跨年显示完整日期', () => {
+    expect(conversationTimeLabel('2026-11-05 09:08:00', now)).toBe('09:08');
+    expect(conversationTimeLabel('2026-11-04 23:59:00', now)).toBe('昨天');
+    expect(conversationTimeLabel('2026-10-28 10:00:00', now)).toBe('10-28');
+    expect(conversationTimeLabel('2025-12-31 10:00:00', now)).toBe(
+      '2025-12-31',
+    );
+    expect(conversationTimeLabel(undefined, now)).toBe('');
+    expect(conversationTimeLabel('not-a-date', now)).toBe('');
+  });
+
+  it('日期分隔今天/昨天/完整日期', () => {
+    expect(formatDateDivider(new Date('2026-11-05T08:00:00'), now)).toBe(
+      '今天',
+    );
+    expect(formatDateDivider(new Date('2026-11-04T08:00:00'), now)).toBe(
+      '昨天',
+    );
+    expect(formatDateDivider(new Date('2026-10-01T08:00:00'), now)).toBe(
+      '2026-10-01',
+    );
+  });
+
+  it('跨天消息插入日期分隔，单日只有消息项', () => {
+    const messages = [
+      message({
+        clientMessageId: 'a',
+        createTime: '2026-11-04 23:00:00',
+        id: 'm1',
+      }),
+      message({
+        clientMessageId: 'b',
+        createTime: '2026-11-05 09:00:00',
+        id: 'm2',
+      }),
+      message({
+        clientMessageId: 'c',
+        createTime: '2026-11-05 09:01:00',
+        id: 'm3',
+      }),
+    ];
+    const items = buildTimelineItems(messages, { now });
+    expect(items.map((item) => item.type)).toEqual([
+      'date',
+      'message',
+      'date',
+      'message',
+      'message',
+    ]);
+    expect(items[0]).toMatchObject({ label: '昨天', type: 'date' });
+    expect(items[2]).toMatchObject({ label: '今天', type: 'date' });
+
+    const single = buildTimelineItems([messages[1] as ViewChatMessage], {
+      now,
+    });
+    expect(single.filter((item) => item.type === 'date')).toHaveLength(1);
+  });
+
+  it('连续同人消息只标组首，间隔超过 5 分钟重新开组', () => {
+    const messages = [
+      message({
+        clientMessageId: 'a',
+        createTime: '2026-11-05 09:00:00',
+        id: 'm1',
+        senderId: 'staff-1',
+        senderType: 'SYS_USER',
+        seqNo: 1,
+      }),
+      message({
+        clientMessageId: 'b',
+        createTime: '2026-11-05 09:03:00',
+        id: 'm2',
+        senderId: 'staff-1',
+        senderType: 'SYS_USER',
+        seqNo: 2,
+      }),
+      message({
+        clientMessageId: 'c',
+        createTime: '2026-11-05 09:10:00',
+        id: 'm3',
+        senderId: 'staff-1',
+        senderType: 'SYS_USER',
+        seqNo: 3,
+      }),
+    ];
+    const items = buildTimelineItems(messages, { now }) as Array<{
+      groupStart?: boolean;
+      type: string;
+    }>;
+    const messageItems = items.filter((item) => item.type === 'message');
+    expect(messageItems.map((item) => item.groupStart)).toEqual([
+      true,
+      false,
+      true,
+    ]);
+  });
+
+  it('未读边界只插入一次，且位于第一条大于游标的消息前', () => {
+    const messages = [
+      message({ clientMessageId: 'a', id: 'm1', seqNo: 1 }),
+      message({ clientMessageId: 'b', id: 'm2', seqNo: 2 }),
+      message({ clientMessageId: 'c', id: 'm3', seqNo: 3 }),
+    ];
+    const items = buildTimelineItems(messages, { now, unreadAfterSeq: 1 });
+    const types = items.map((item) => item.type);
+    expect(types).toEqual(['date', 'message', 'unread', 'message', 'message']);
+    expect(
+      buildTimelineItems(messages, { now, unreadAfterSeq: 0 }).some(
+        (item) => item.type === 'unread',
+      ),
+    ).toBe(false);
+  });
+});
+
+describe('会话列表精细筛选参数（P2-A 契约 §2.2/§2.3）', () => {
+  it('statuses 非空时覆盖页签 status，不下发两者', () => {
+    const params = buildConversationInboxParams({
+      filters: {
+        ...createConversationFilterState(),
+        statuses: ['WAITING', 'ASSIGNED'],
+      },
+      limit: 20,
+      status: 'OPEN',
+    });
+    expect(params).toEqual({ limit: 20, statuses: 'WAITING,ASSIGNED' });
+  });
+
+  it('无精细筛选时保留页签 status', () => {
+    expect(
+      buildConversationInboxParams({
+        filters: createConversationFilterState(),
+        limit: 20,
+        status: 'CLOSED',
+      }),
+    ).toEqual({ limit: 20, status: 'CLOSED' });
+  });
+
+  it('trim 后为空的 keyword/queueCode/assignedStaffId 不下发', () => {
+    expect(
+      buildConversationInboxParams({
+        filters: {
+          ...createConversationFilterState(),
+          assignedStaffId: '  ',
+          queueCode: ' ',
+        },
+        keyword: '   ',
+        limit: 20,
+      }),
+    ).toEqual({ limit: 20 });
+  });
+
+  it('翻页原样携带 cursor 与同一组筛选参数', () => {
+    expect(
+      buildConversationInboxParams({
+        cursor: ' cursor-2 ',
+        filters: {
+          assignedStaffId: 'staff-9',
+          queueCode: 'DEFAULT',
+          statuses: [],
+          unreadOnly: true,
+        },
+        keyword: ' 王 ',
+        limit: 20,
+        status: 'OPEN',
+      }),
+    ).toEqual({
+      assignedStaffId: 'staff-9',
+      cursor: 'cursor-2',
+      keyword: '王',
+      limit: 20,
+      queueCode: 'DEFAULT',
+      status: 'OPEN',
+      unreadOnly: true,
+    });
+  });
+});
+
+describe('会话筛选标签', () => {
+  it('按包含条件生成标签，负责人优先展示昵称', () => {
+    expect(
+      conversationFilterTags({
+        assignedStaffId: 'staff-9',
+        assignedStaffName: '客服小美',
+        queueCode: 'VIP',
+        statuses: ['WAITING', 'CLOSED'],
+        unreadOnly: true,
+      }),
+    ).toEqual([
+      { key: 'unreadOnly', label: '仅未读' },
+      { key: 'queueCode', label: '队列 VIP' },
+      { key: 'assignedStaffId', label: '负责人 客服小美' },
+      { key: 'statuses', label: '状态 待领取/已关闭' },
+    ]);
+  });
+
+  it('负责人昵称缺失时回退 ID，空条件无标签', () => {
+    expect(
+      conversationFilterTags({
+        ...createConversationFilterState(),
+        assignedStaffId: 'staff-9',
+      }),
+    ).toEqual([{ key: 'assignedStaffId', label: '负责人 staff-9' }]);
+    expect(conversationFilterTags(createConversationFilterState())).toEqual([]);
+  });
+});
+
+describe('等待时长展示（P2-A 契约 §3.1）', () => {
+  const base = '2026-11-06 10:00:00';
+
+  it('按 mm:ss / HH:mm / Nd HH:mm 格式化', () => {
+    expect(formatWaitingDuration(base, new Date('2026-11-06T10:00:35'))).toBe(
+      '00:35',
+    );
+    expect(formatWaitingDuration(base, new Date('2026-11-06T10:03:12'))).toBe(
+      '03:12',
+    );
+    expect(formatWaitingDuration(base, new Date('2026-11-06T11:05:00'))).toBe(
+      '01:05',
+    );
+    expect(formatWaitingDuration(base, new Date('2026-11-08T13:04:00'))).toBe(
+      '2天 03:04',
+    );
+  });
+
+  it('缺失/非法时间返回空串，未来时间钳制为 00:00', () => {
+    expect(formatWaitingDuration()).toBe('');
+    expect(formatWaitingDuration('bad-value')).toBe('');
+    expect(formatWaitingDuration(base, new Date('2026-11-06T09:59:00'))).toBe(
+      '00:00',
+    );
+  });
+
+  it('等待徽标文案带「等待」前缀，非等待态为空', () => {
+    expect(waitingDurationLabel()).toBe('');
+    expect(waitingDurationLabel(base, new Date('2026-11-06T10:02:05'))).toBe(
+      '等待 02:05',
+    );
+  });
+});
+
+describe('消息引用（P2-A v2 契约 §15）', () => {
+  it('仅已落库的 TEXT/IMAGE 可引用；撤回/系统/本地消息不可引用', () => {
+    expect(
+      canQuoteMessage(message({ id: 'm1', sendState: 'sent', seqNo: 3 })),
+    ).toBe(true);
+    expect(
+      canQuoteMessage(
+        message({
+          id: 'm2',
+          messageType: 'IMAGE',
+          payload: '{}',
+          sendState: 'sent',
+          seqNo: 3,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      canQuoteMessage(
+        message({ id: 'm3', recallStatus: '1', sendState: 'sent', seqNo: 3 }),
+      ),
+    ).toBe(false);
+    expect(
+      canQuoteMessage(
+        message({
+          id: 'm4',
+          messageType: 'SYSTEM',
+          sendState: 'sent',
+          seqNo: 4,
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      canQuoteMessage(
+        message({
+          id: 'local:x',
+          sendState: 'sending',
+          seqNo: Number.MAX_SAFE_INTEGER,
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it('引用摘要与后端同口径：文本 trim + 截断 100，图片/卡片给 [标签]', () => {
+    expect(
+      buildQuoteSummary(
+        message({ content: '  你好  ', id: 'm1', sendState: 'sent', seqNo: 1 }),
+      ),
+    ).toBe('你好');
+    expect(
+      buildQuoteSummary(
+        message({
+          id: 'm2',
+          messageType: 'IMAGE',
+          sendState: 'sent',
+          seqNo: 2,
+        }),
+      ),
+    ).toBe('[图片]');
+    expect(
+      buildQuoteSummary(
+        message({
+          id: 'm3',
+          messageType: 'ORDER_CARD',
+          sendState: 'sent',
+          seqNo: 3,
+        }),
+      ),
+    ).toBe('[订单]');
+    const long = 'a'.repeat(120);
+    expect(
+      buildQuoteSummary(
+        message({ content: long, id: 'm4', sendState: 'sent', seqNo: 4 }),
+      ),
+    ).toBe(`${'a'.repeat(100)}…`);
+  });
+
+  it('引用目标带发送者与摘要；不可引用消息返回 undefined', () => {
+    const session = conversation({ customerName: '王小雅' });
+    expect(
+      buildQuoteTarget(
+        message({
+          content: '在吗',
+          id: 'm1',
+          sendState: 'sent',
+          senderId: 'customer-1',
+          senderName: undefined,
+          senderType: 'MALL_USER',
+          seqNo: 2,
+        }),
+        session,
+      ),
+    ).toEqual({
+      id: 'm1',
+      messageType: 'TEXT',
+      senderName: '王小雅',
+      summary: '在吗',
+    });
+    expect(buildQuoteTarget(message({ seqNo: 0 }))).toBeUndefined();
+  });
+
+  it('引用块：有 quotedMessageId 即渲染；quotedRecalled 显示占位文案', () => {
+    expect(
+      quotedBlockView(message({ sendState: 'sent', seqNo: 2 })),
+    ).toBeUndefined();
+    expect(
+      quotedBlockView(
+        message({
+          id: 'm1',
+          quotedMessageId: 'q1',
+          quotedMessageSummary: '你好',
+          quotedMessageType: 'TEXT',
+          quotedSenderName: '王小雅',
+          seqNo: 3,
+          sendState: 'sent',
+        }),
+      ),
+    ).toEqual({
+      recalled: false,
+      senderName: '王小雅',
+      text: '你好',
+      typeLabel: '文本',
+    });
+    expect(
+      quotedBlockView(
+        message({
+          id: 'm2',
+          quotedMessageId: 'q1',
+          quotedRecalled: true,
+          seqNo: 4,
+          sendState: 'sent',
+        }),
+      ),
+    ).toEqual({ recalled: true, text: '引用的消息已撤回' });
+  });
+});
+
+describe('消息撤回（P2-A v2 契约 §16）', () => {
+  const now = new Date('2026-11-06T12:02:00');
+
+  function sentMessage(overrides: Partial<ViewChatMessage> = {}) {
+    return message({
+      createTime: '2026-11-06 12:00:00',
+      id: 'm1',
+      sendState: 'sent',
+      seqNo: 5,
+      ...overrides,
+    });
+  }
+
+  it('本人在 2 分钟内可撤回 TEXT/IMAGE', () => {
+    expect(canRecallMessage(sentMessage(), { now, userId: 'staff-1' })).toBe(
+      true,
+    );
+    expect(
+      canRecallMessage(sentMessage({ messageType: 'IMAGE', payload: '{}' }), {
+        now,
+        userId: 'staff-1',
+      }),
+    ).toBe(true);
+  });
+
+  it('超时/他人/非 TEXT-IMAGE/已撤回/会话关闭都不可撤回', () => {
+    expect(
+      canRecallMessage(sentMessage(), {
+        now: new Date('2026-11-06T12:02:01'),
+        userId: 'staff-1',
+      }),
+    ).toBe(false);
+    expect(canRecallMessage(sentMessage(), { now, userId: 'staff-2' })).toBe(
+      false,
+    );
+    expect(
+      canRecallMessage(sentMessage({ messageType: 'ORDER_CARD' }), {
+        now,
+        userId: 'staff-1',
+      }),
+    ).toBe(false);
+    expect(
+      canRecallMessage(sentMessage({ recallStatus: '1' }), {
+        now,
+        userId: 'staff-1',
+      }),
+    ).toBe(false);
+    expect(
+      canRecallMessage(sentMessage(), {
+        conversationStatus: 'CLOSED',
+        now,
+        userId: 'staff-1',
+      }),
+    ).toBe(false);
+  });
+
+  it('时间窗边界含 2 分钟；本地乐观消息不可撤回', () => {
+    expect(canRecallMessage(sentMessage(), { now, userId: 'staff-1' })).toBe(
+      true,
+    );
+    expect(
+      canRecallMessage(
+        message({ sendState: 'sending', seqNo: Number.MAX_SAFE_INTEGER }),
+        { now, userId: 'staff-1' },
+      ),
+    ).toBe(false);
+  });
+});
+
+describe('图片发送（P2-A v2 契约 §17）', () => {
+  it('预校验：非空、≤5MB、仅 jpeg/png/webp（GIF 拒绝）', () => {
+    expect(validateImageUpload({ size: 1024, type: 'image/png' })).toEqual({
+      ok: true,
+    });
+    expect(validateImageUpload({ size: 0, type: 'image/png' }).error).toBe(
+      '上传文件不能为空',
+    );
+    expect(
+      validateImageUpload({ size: 6 * 1024 * 1024, type: 'image/png' }).error,
+    ).toBe('图片大小不能超过 5MB');
+    expect(validateImageUpload({ size: 1024, type: 'image/gif' }).error).toBe(
+      '仅支持 JPG/JPEG/PNG/WEBP 图片',
+    );
+  });
+
+  it('payload 组装：fileId=url，字段名与契约 §17.5 一致', () => {
+    const payload = buildImageMessagePayload({
+      contentType: 'image/png',
+      fileId: '/upms/file/local/1/a.png',
+      name: 'a.png',
+      size: 183_245,
+      url: '/upms/file/local/1/a.png',
+    });
+    expect(JSON.parse(payload)).toEqual({
+      fileId: '/upms/file/local/1/a.png',
+      mimeType: 'image/png',
+      name: 'a.png',
+      size: 183_245,
+      url: '/upms/file/local/1/a.png',
+    });
   });
 });

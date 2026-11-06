@@ -113,6 +113,11 @@ interface RouteMeta {
    */
   query?: Recordable;
   /**
+   * 会话失效弹窗挂载点：为 true 时 401 走页内弹窗原地重登，
+   * 不降级为登出（用于自行挂载 SessionInvalidModal 的独立窗口页）。
+   */
+  sessionInvalidModal?: boolean;
+  /**
    * 标题名称
    */
   title: string;

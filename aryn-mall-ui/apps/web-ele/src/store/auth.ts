@@ -16,6 +16,7 @@ import { getUserInfoApi, loginApi, logoutApi, mobileLoginApi } from '#/api';
 import { sendCode } from '#/api/upms/sms';
 import { $t } from '#/locales';
 
+import { getServiceDeskRole, notifyServiceDeskLogout } from './service-window';
 import { useSessionStore } from './session';
 import { broadcastSessionRestored } from './session-sync';
 
@@ -212,6 +213,17 @@ export const useAuthStore = defineStore('auth', () => {
         }
       }
     } finally {
+      // 独立窗口复用同一 token：主窗口登出后它继续留着只会不断吃 401，
+      // 主动联动关闭；独立窗口自己登出时直接关窗（手动打开无法自关则回登录页）。
+      if (getServiceDeskRole() === 'desk') {
+        try {
+          window.close();
+        } catch {
+          // 忽略：后续 router.replace 仍会回登录页
+        }
+      } else {
+        notifyServiceDeskLogout();
+      }
       // 退出时删除选中租户ID
       localStorage.removeItem('switch-tenant-id');
       sessionStore.reset();

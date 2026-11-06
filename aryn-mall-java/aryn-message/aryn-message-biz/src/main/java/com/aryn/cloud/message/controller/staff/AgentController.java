@@ -1,12 +1,14 @@
 package com.aryn.cloud.message.controller.staff;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
+import cn.dev33.satoken.annotation.SaMode;
 import com.aryn.cloud.common.core.enums.DeviceTypeEnum;
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.security.entity.ArynUser;
 import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.message.api.dto.agent.AgentConfigRequest;
 import com.aryn.cloud.message.api.dto.agent.AgentPresenceRequest;
+import com.aryn.cloud.message.api.vo.agent.AgentRosterVO;
 import com.aryn.cloud.message.api.vo.agent.AgentVO;
 import com.aryn.cloud.message.service.AgentService;
 import com.aryn.cloud.upms.api.vo.StaffMessageAudiencePageVO;
@@ -21,6 +23,8 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 /** 客服坐席配置、状态和心跳接口。 */
 @RestController
@@ -53,6 +57,14 @@ public class AgentController {
 	public Result<StaffMessageAudiencePageVO> candidates() {
 		ArynUser user = currentUser();
 		return Result.success(agentService.listCandidates(user.getTenantId()));
+	}
+
+	@GetMapping("/roster")
+	@Operation(summary = "客服坐席名单（在线状态与负载，供转交/强制分配选人）")
+	@SaCheckPermission(value = { "message:service:agent", "message:service:supervisor" }, mode = SaMode.OR)
+	public Result<List<AgentRosterVO>> roster() {
+		ArynUser user = currentUser();
+		return Result.success(agentService.listRoster(user.getTenantId()));
 	}
 
 	@GetMapping("/self")

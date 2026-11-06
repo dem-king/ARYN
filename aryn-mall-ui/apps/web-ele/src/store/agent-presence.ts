@@ -27,8 +27,11 @@ const PRESENCE_VALUES = new Set<PresenceStatus>([
 
 /** 广播消息体：只同步展示所需的字段，不传函数/实例。 */
 interface PresenceBroadcast {
+  autoAccept?: boolean;
   configured: boolean;
+  currentActiveCount?: number;
   enabled: boolean;
+  maxActiveCount?: number;
   presence: PresenceStatus;
   serverPresence: PresenceStatus;
   type: 'presence';
@@ -74,6 +77,11 @@ export const useAgentPresenceStore = defineStore('agent-presence', () => {
   const syncing = ref(false);
   /** 接待状态同步失败（网络/服务端异常），与“未配置坐席”区分展示。 */
   const syncError = ref(false);
+  /** 当前在办会话数 / 接待上限：工作台展示坐席容量，便于自行判断是否还能接新会话。 */
+  const currentActiveCount = ref(0);
+  const maxActiveCount = ref(0);
+  /** 是否自动接待（后端配置快照，仅展示）。 */
+  const autoAccept = ref(false);
 
   let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
   let renewing = false;
@@ -90,8 +98,11 @@ export const useAgentPresenceStore = defineStore('agent-presence', () => {
     ensureChannel();
     if (!channel) return;
     const payload: PresenceBroadcast = {
+      autoAccept: autoAccept.value,
       configured: configured.value,
+      currentActiveCount: currentActiveCount.value,
       enabled: enabled.value,
+      maxActiveCount: maxActiveCount.value,
       presence: presence.value,
       serverPresence: serverPresence.value,
       type: 'presence',
@@ -124,6 +135,15 @@ export const useAgentPresenceStore = defineStore('agent-presence', () => {
     const next = normalizePresence(payload.presence);
     presence.value = enabled.value ? next : 'OFFLINE';
     serverPresence.value = normalizePresence(payload.serverPresence);
+    if (typeof payload.currentActiveCount === 'number') {
+      currentActiveCount.value = payload.currentActiveCount;
+    }
+    if (typeof payload.maxActiveCount === 'number') {
+      maxActiveCount.value = payload.maxActiveCount;
+    }
+    if (typeof payload.autoAccept === 'boolean') {
+      autoAccept.value = payload.autoAccept;
+    }
     syncError.value = false;
     loaded.value = true;
   }
@@ -142,11 +162,17 @@ export const useAgentPresenceStore = defineStore('agent-presence', () => {
         : 'OFFLINE';
       presence.value = next;
       serverPresence.value = next;
+      currentActiveCount.value = agent.currentActiveCount ?? 0;
+      maxActiveCount.value = agent.maxActiveCount ?? 0;
+      autoAccept.value = agent.autoAccept === '1';
     } else {
       configured.value = false;
       enabled.value = false;
       presence.value = 'OFFLINE';
       serverPresence.value = 'OFFLINE';
+      currentActiveCount.value = 0;
+      maxActiveCount.value = 0;
+      autoAccept.value = false;
     }
     syncError.value = false;
     loaded.value = true;
@@ -238,6 +264,9 @@ export const useAgentPresenceStore = defineStore('agent-presence', () => {
     serverPresence.value = 'OFFLINE';
     enabled.value = false;
     configured.value = false;
+    currentActiveCount.value = 0;
+    maxActiveCount.value = 0;
+    autoAccept.value = false;
     loaded.value = false;
     syncing.value = false;
     syncError.value = false;
@@ -318,10 +347,13 @@ export const useAgentPresenceStore = defineStore('agent-presence', () => {
     $reset,
     activate,
     applyAgent,
+    autoAccept,
     changePresence,
     configured,
+    currentActiveCount,
     enabled,
     loaded,
+    maxActiveCount,
     presence,
     refresh,
     serverPresence,

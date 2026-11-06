@@ -32,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -119,8 +120,8 @@ class ConversationServiceImplTest {
 			view.setLastActiveTime(base.minusMinutes(index));
 			firstPage.add(view);
 		}
-		when(conversationMapper.selectInbox("tenant-1", "SYS_USER", "staff-1", "OPEN", null, null, 21))
-			.thenReturn(firstPage);
+		when(conversationMapper.selectInbox("tenant-1", "SYS_USER", "staff-1", "OPEN", null, null, null, null,
+				false, null, null, 21)).thenReturn(firstPage);
 
 		ConversationInboxQuery query = new ConversationInboxQuery();
 		query.setStatus("open");
@@ -137,16 +138,16 @@ class ConversationServiceImplTest {
 		nextQuery.setStatus("OPEN");
 		nextQuery.setLimit(20);
 		nextQuery.setCursor(page.getNextCursor());
-		when(conversationMapper.selectInbox("tenant-1", "SYS_USER", "staff-1", "OPEN", base.minusMinutes(19),
-				"conversation-19", 21)).thenReturn(List.of());
+		when(conversationMapper.selectInbox("tenant-1", "SYS_USER", "staff-1", "OPEN", null, null, null, null,
+				false, base.minusMinutes(19), "conversation-19", 21)).thenReturn(List.of());
 		ConversationInboxPageVO nextPage = service.inbox("tenant-1", MessageIdentityType.SYS_USER, "staff-1",
 				nextQuery);
 
 		assertTrue(nextPage.getRecords().isEmpty());
 		assertFalse(nextPage.isHasMore());
 		assertNull(nextPage.getNextCursor());
-		verify(conversationMapper).selectInbox("tenant-1", "SYS_USER", "staff-1", "OPEN", base.minusMinutes(19),
-				"conversation-19", 21);
+		verify(conversationMapper).selectInbox("tenant-1", "SYS_USER", "staff-1", "OPEN", null, null, null, null,
+				false, base.minusMinutes(19), "conversation-19", 21);
 	}
 
 	@Test
@@ -160,7 +161,8 @@ class ConversationServiceImplTest {
 		badCursor.setCursor("not-a-valid-cursor");
 		assertThrows(ArynBusinessException.class,
 				() -> service.inbox("tenant-1", MessageIdentityType.SYS_USER, "staff-1", badCursor));
-		verify(conversationMapper, never()).selectInbox(any(), any(), any(), any(), any(), any(), anyInt());
+		verify(conversationMapper, never()).selectInbox(any(), any(), any(), any(), any(), any(), any(), any(),
+				anyBoolean(), any(), any(), anyInt());
 	}
 
 	@Test
@@ -168,13 +170,15 @@ class ConversationServiceImplTest {
 		ConversationInboxQuery query = new ConversationInboxQuery();
 		query.setStatus("CLOSED");
 		query.setLimit(10);
-		when(conversationMapper.selectTenantInbox("tenant-1", "CLOSED", null, null, 11)).thenReturn(List.of());
+		when(conversationMapper.selectTenantInbox("tenant-1", "CLOSED", null, null, null, null, false, null, null,
+				11)).thenReturn(List.of());
 
 		ConversationInboxPageVO page = service.adminInbox("tenant-1", query);
 
 		assertTrue(page.getRecords().isEmpty());
 		assertFalse(page.isHasMore());
-		verify(conversationMapper).selectTenantInbox("tenant-1", "CLOSED", null, null, 11);
+		verify(conversationMapper).selectTenantInbox("tenant-1", "CLOSED", null, null, null, null, false, null, null,
+				11);
 	}
 
 	@Test

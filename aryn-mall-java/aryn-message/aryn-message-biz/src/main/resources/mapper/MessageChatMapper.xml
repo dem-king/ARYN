@@ -31,4 +31,36 @@
         </choose>
         LIMIT #{fetchSize}
     </select>
+    <!-- 引用目标校验与引用摘要批量补全共用：限定同会话 + IN 批量，避免逐条查询造成 N+1 -->
+    <select id="selectByConversationAndIds" resultType="com.aryn.cloud.message.api.entity.MessageChat">
+        SELECT *
+        FROM message_chat
+        WHERE tenant_id = #{tenantId}
+          AND conversation_id = #{conversationId}
+          AND del_flag = '0'
+        <choose>
+            <when test="messageIds != null and messageIds.size() > 0">
+                AND id IN
+                <foreach collection="messageIds" item="messageId" open="(" separator="," close=")">#{messageId}</foreach>
+            </when>
+            <otherwise>
+                AND 1 = 0
+            </otherwise>
+        </choose>
+    </select>
+    <!-- 条件撤回：发送者本人 + 未撤回 + 未删除才更新，返回行数由服务层做幂等/并发兜底 -->
+    <update id="markRecalled">
+        UPDATE message_chat
+        SET recall_status = '1',
+            recall_time = #{recallTime},
+            update_by = #{senderId},
+            update_time = NOW()
+        WHERE tenant_id = #{tenantId}
+          AND conversation_id = #{conversationId}
+          AND id = #{messageId}
+          AND sender_type = #{senderType}
+          AND sender_id = #{senderId}
+          AND recall_status = '0'
+          AND del_flag = '0'
+    </update>
 </mapper>

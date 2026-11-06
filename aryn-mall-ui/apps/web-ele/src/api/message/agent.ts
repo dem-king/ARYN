@@ -1,3 +1,5 @@
+import type { AgentRosterItem } from './types';
+
 import { requestClient } from '#/api/request';
 
 export interface AgentInfo {
@@ -35,6 +37,17 @@ export function getAgentCandidates() {
   return requestClient.get<AgentCandidatePage>(
     '/message/staff/agent/candidates',
   );
+}
+
+/**
+ * 在线坐席名单（转交/强制分配/发起会话选人，契约 §4）。
+ *
+ * 含 presenceStatus / 当前在办 / 接待上限 / 是否可接，数据源为已配置坐席；
+ * 权限 `message:service:agent` OR `message:service:supervisor`。
+ * 与 `getAgentCandidates()` 互补：roster 失败或为空时可回退 candidates 全量搜索。
+ */
+export function getAgentRoster() {
+  return requestClient.get<AgentRosterItem[]>('/message/staff/agent/roster');
 }
 
 export function getAgentConfig(staffId: string) {

@@ -4,6 +4,12 @@ server:
 spring:
   application:
     name: @artifactId@
+  servlet:
+    multipart:
+      # 客服会话图片上传：message 侧限制 5MB（业务校验同值），cloud 独立部署时避免默认 1MB 限制导致 413；
+      # boot 模式使用 aryn-boot 的 100MB 全局配置，行为一致。
+      max-file-size: 5MB
+      max-request-size: 6MB
   cloud:
     nacos:
       username: @nacos.username@

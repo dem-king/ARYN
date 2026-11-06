@@ -46,6 +46,10 @@ import {
 import { resolveNoticeLink } from '#/utils/notice-link';
 
 import {
+  isServiceDeskAlertSuppressed,
+  locateConversationInServiceDesk,
+} from './service-window';
+import {
   normalizeSessionInvalidDevice,
   normalizeSessionInvalidReason,
   normalizeSessionInvalidSubReason,
@@ -174,6 +178,10 @@ export const useMessageStore = defineStore('message', () => {
   const unreadCount = ref(0);
   const notifications = ref<NotificationItem[]>([]);
   const conversationUnread = ref(0);
+  /** 本人未读会话数（attention 口径；工作台页签计数用）。 */
+  const attentionUnreadConversations = ref(0);
+  /** 共享池待领取会话数（attention 口径；工作台「待领取」页签计数用）。 */
+  const attentionWaitingTotal = ref(0);
   const socketState = ref<'closed' | 'connecting' | 'open'>('closed');
   const lastConversationPush = ref<MessagePushSignal>();
   /** 新消息强提醒开关：声音/语音/桌面通知各自独立，缺省开启（存储里显式存 '0' 才关闭）。 */
@@ -292,6 +300,8 @@ export const useMessageStore = defineStore('message', () => {
       conversationUnread.value = attention
         ? attention.unreadConversations + attention.waitingTotal
         : 0;
+      attentionUnreadConversations.value = attention?.unreadConversations ?? 0;
+      attentionWaitingTotal.value = attention?.waitingTotal ?? 0;
       notifications.value = attention
         ? [...conversationNotifications(attention), ...notices]
         : notices;
@@ -323,6 +333,9 @@ export const useMessageStore = defineStore('message', () => {
     };
     const increase = unreadIncrease(lastAlertCounts, current);
     lastAlertCounts = current;
+    // 提醒宿主单例：独立窗口开着时由它发声/弹桌面通知，主窗口只更新角标与列表，
+    // 避免一条消息响两遍。基线仍要更新——否则独立窗口关闭后上升沿判定会失真。
+    if (isServiceDeskAlertSuppressed()) return;
     if (!increase) return;
     const payload = buildAlert(increase, notifications.value);
     // 语音走 Web Speech：Chrome 同样要求页面获得过用户手势（无手势 speak 会
@@ -344,7 +357,29 @@ export const useMessageStore = defineStore('message', () => {
         queueAudioReplay(playChime);
       }
     }
-    if (desktopEnabled.value) showDesktopNotification(payload);
+    if (desktopEnabled.value) {
+      showDesktopNotification(payload, () => handleAlertClick(payload));
+    }
+  }
+
+  /**
+   * 桌面通知点击：定位到具体会话。
+   *
+   * 独立窗口开着时交给它打开；否则派发窗口事件，由主框架路由到工作台
+   * （客服工作台页面也会监听该事件，兼容直接打开的工作台页）。
+   */
+  function handleAlertClick(payload: {
+    conversationId?: string;
+    kind: 'conversation' | 'notice';
+  }) {
+    if (payload.kind !== 'conversation' || !payload.conversationId) return;
+    const conversationId = payload.conversationId;
+    if (locateConversationInServiceDesk(conversationId)) return;
+    window.dispatchEvent(
+      new CustomEvent('aryn:open-conversation', {
+        detail: { conversationId },
+      }),
+    );
   }
 
   /**
@@ -555,6 +590,8 @@ export const useMessageStore = defineStore('message', () => {
     hasConnectedOnce = false;
     unreadCount.value = 0;
     conversationUnread.value = 0;
+    attentionUnreadConversations.value = 0;
+    attentionWaitingTotal.value = 0;
     notifications.value = [];
     lastConversationPush.value = undefined;
     pendingConversation.value = undefined;
@@ -581,6 +618,8 @@ export const useMessageStore = defineStore('message', () => {
 
   return {
     $reset,
+    attentionUnreadConversations,
+    attentionWaitingTotal,
     clearPendingConversation,
     connect,
     conversationUnread,

@@ -2,6 +2,8 @@ package com.aryn.cloud.message.service;
 
 import com.aryn.cloud.message.api.dto.agent.AgentConfigRequest;
 import com.aryn.cloud.message.api.enums.AgentPresenceStatus;
+import com.aryn.cloud.message.api.vo.agent.AgentCapacityVO;
+import com.aryn.cloud.message.api.vo.agent.AgentRosterVO;
 import com.aryn.cloud.message.api.vo.agent.AgentVO;
 import com.aryn.cloud.upms.api.vo.StaffMessageAudiencePageVO;
 
@@ -18,6 +20,23 @@ public interface AgentService {
 	AgentVO findConfig(String tenantId, String staffId);
 
 	StaffMessageAudiencePageVO listCandidates(String tenantId);
+
+	/**
+	 * 租户坐席名单：message_agent 配置 + upms 昵称/头像 + Redis presence + 负载/可接状态。
+	 *
+	 * <p>供工作台转交/强制分配选人：presence 用 MGET 批量读取，Redis 异常按全部离线降级；
+	 * upms 人员快照异常只降级昵称/头像，不丢名单；上限 500（与 candidates 一致）；禁用坐席
+	 * 统一按 OFFLINE 展示。当前租户无坐席配置时返回空列表，不调用 upms/Redis。</p>
+	 */
+	List<AgentRosterVO> listRoster(String tenantId);
+
+	/**
+	 * 租户级坐席容量快照：在线坐席数与可用接待容量（队列统计用）。
+	 *
+	 * <p>只读 message_agent + Redis presence，不查 upms，避免队列统计的高频轮询触发远程调用；
+	 * 在线口径为启用且有未过期心跳（ONLINE/BUSY/PAUSED），可用容量只统计 ONLINE 坐席的剩余上限。</p>
+	 */
+	AgentCapacityVO agentCapacity(String tenantId);
 
 	AgentVO setPresence(String tenantId, String staffId, AgentPresenceStatus status);
 
