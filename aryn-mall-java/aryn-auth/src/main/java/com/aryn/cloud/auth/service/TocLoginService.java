@@ -85,7 +85,10 @@ public class TocLoginService {
 			hxUser.setUserId(userInfo.getId());
 			hxUser.setOpenId(socialUser.getOpenId());
 			hxUser.setTenantId(verifiedTenantId);
+			// username 用于兼容旧字段；nickname/avatar 才是 C 端展示与客服会话快照的权威来源
 			hxUser.setUsername(userInfo.getNickname());
+			hxUser.setNickname(userInfo.getNickname());
+			hxUser.setAvatar(userInfo.getAvatarUrl());
 			SecurityUtils.loginByDevice(hxUser, DeviceTypeEnum.TOC);
 			return StpUtil.getTokenInfo();
 		}
@@ -128,6 +131,8 @@ public class TocLoginService {
 			hxUser.setUserId(userInfo.getId());
 			hxUser.setTenantId(tenantId);
 			hxUser.setUsername(userInfo.getNickname());
+			hxUser.setNickname(userInfo.getNickname());
+			hxUser.setAvatar(userInfo.getAvatarUrl());
 			SecurityUtils.loginByDevice(hxUser, DeviceTypeEnum.TOC);
 
 			return StpUtil.getTokenInfo();
@@ -176,6 +181,8 @@ public class TocLoginService {
 				hxUser.setTenantId(userInfo.getTenantId());
 			}
 			hxUser.setUsername(userInfo.getNickname());
+			hxUser.setNickname(userInfo.getNickname());
+			hxUser.setAvatar(userInfo.getAvatarUrl());
 			SecurityUtils.loginByDevice(hxUser, DeviceTypeEnum.TOC);
 
 			return StpUtil.getTokenInfo();
@@ -231,7 +238,10 @@ public class TocLoginService {
 		hxUser.setUserId(userId);
 		hxUser.setOpenId(openid);
 		hxUser.setTenantId(tenantId);
+		// username 保留 openid 兼容既有读取方；昵称/头像单独写入，供消息域等展示使用
 		hxUser.setUsername(openid);
+		hxUser.setNickname(userInfo.getNickname());
+		hxUser.setAvatar(userInfo.getAvatarUrl());
 
 		SecurityUtils.loginByDevice(hxUser, DeviceTypeEnum.TOC);
 		return StpUtil.getTokenInfo();

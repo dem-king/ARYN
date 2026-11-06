@@ -66,8 +66,14 @@ export const useMessageStore = defineStore('message', {
       )
     },
     async connect() {
+      // socketTask 是模块内存句柄，不可能跨进程存在；socketState 却可能来自持久化的
+      // 旧值（'open'/'connecting'）。不先校正的话，下面的提前返回会让本次进程永远
+      // 不建连，界面却显示「消息实时同步」，推送全部丢失（2026-11-05 线上问题根因）。
+      if (!socketTask && this.socketState !== 'closed') {
+        this.socketState = 'closed'
+      }
       // 会话已失效：不建连、不重连。否则会拿已失效 token 每 3 秒无限重试
-      //（握手不经过 alova 响应处理器，401 不会触发任何提示，只是空转打服务端）。
+      // （握手不经过 alova 响应处理器，401 不会触发任何提示，只是空转打服务端）。
       if (useSessionStore().invalid) {
         this.disconnect()
         return

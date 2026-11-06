@@ -12,6 +12,7 @@ import com.aryn.cloud.message.mapper.MessageAssignmentLogMapper;
 import com.aryn.cloud.message.mapper.MessageConversationMapper;
 import com.aryn.cloud.message.mapper.MessageParticipantMapper;
 import com.aryn.cloud.message.service.impl.ConversationAssignmentServiceImpl;
+import com.aryn.cloud.message.service.impl.CustomerSnapshotService;
 import com.aryn.cloud.upms.api.remote.RemoteMessageStaffService;
 import com.aryn.cloud.upms.api.vo.StaffMessageAudiencePageVO;
 import com.aryn.cloud.upms.api.vo.StaffMessageRecipientVO;
@@ -48,6 +49,7 @@ class ConversationAssignmentServiceImplTest {
 	private AgentService agentService;
 	private ChatMessageService chatMessageService;
 	private RemoteMessageStaffService staffService;
+	private CustomerSnapshotService customerSnapshotService;
 	private ConversationAssignmentServiceImpl service;
 
 	@BeforeEach
@@ -59,6 +61,7 @@ class ConversationAssignmentServiceImplTest {
 		agentService = mock(AgentService.class);
 		chatMessageService = mock(ChatMessageService.class);
 		staffService = mock(RemoteMessageStaffService.class);
+		customerSnapshotService = mock(CustomerSnapshotService.class);
 		TransactionTemplate transactionTemplate = mock(TransactionTemplate.class);
 		when(transactionTemplate.execute(any())).thenAnswer(invocation -> {
 			TransactionCallback<?> callback = invocation.getArgument(0);
@@ -70,7 +73,7 @@ class ConversationAssignmentServiceImplTest {
 			return null;
 		}).when(transactionTemplate).executeWithoutResult(any());
 		service = new ConversationAssignmentServiceImpl(conversationMapper, participantMapper, agentMapper, logMapper,
-				agentService, chatMessageService, transactionTemplate, staffService);
+				agentService, chatMessageService, transactionTemplate, staffService, customerSnapshotService);
 	}
 
 	@Test

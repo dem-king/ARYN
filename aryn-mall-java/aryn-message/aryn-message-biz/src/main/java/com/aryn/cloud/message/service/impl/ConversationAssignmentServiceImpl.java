@@ -53,6 +53,8 @@ public class ConversationAssignmentServiceImpl implements ConversationAssignment
 	@DubboReference
 	private final RemoteMessageStaffService staffService;
 
+	private final CustomerSnapshotService customerSnapshotService;
+
 	@Override
 	public String autoAssign(String tenantId, String conversationId) {
 		List<MessageAgent> candidates = agentMapper.selectAssignmentCandidates(tenantId, CANDIDATE_LIMIT);
@@ -81,7 +83,11 @@ public class ConversationAssignmentServiceImpl implements ConversationAssignment
 		requireEnabledAgent(tenantId, staffId);
 		String normalizedQueue = StringUtils.hasText(queueCode) ? queueCode : DEFAULT_QUEUE;
 		int normalizedLimit = Math.min(Math.max(limit, 1), DEFAULT_QUEUE_LIMIT);
-		return conversationMapper.selectWaitingPool(tenantId, normalizedQueue, normalizedLimit);
+		List<ConversationVO> waiting = conversationMapper.selectWaitingPool(tenantId, normalizedQueue,
+				normalizedLimit);
+		// 待领取会话同样展示会员昵称：历史数据快照缺失时即时补齐。
+		customerSnapshotService.fillMissingBatch(tenantId, waiting);
+		return waiting;
 	}
 
 	@Override

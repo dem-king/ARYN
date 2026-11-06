@@ -518,38 +518,63 @@ function onAssigneeChange(value: unknown) {
   display: none;
 }
 
+/*
+ * 品牌区：品牌文案独占一行，操作按钮另起一行右对齐。
+ *
+ * 会话栏宽度由布局固定（330/300/280），不是弹性列：「品牌 + 3 个按钮」放不进同一行
+ * （按钮约 228px + 品牌约 110px > 内容宽 240~290px）。此前 `.brand-actions` 是
+ * `flex: none`，收缩压力全部落在 `.desk-brand-copy` 上，17px 的「客服调度台」被压成
+ * 一行一个字并纵向溢出，与右侧「独立窗口」按钮叠在一起（截图缺陷）。
+ * 改为 flex-wrap + 品牌占满首行，按钮永远有完整宽度，窄栏下也不会互相遮挡。
+ */
 .desk-brand {
   display: flex;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 10px 12px;
   align-items: center;
-  justify-content: space-between;
   padding: 20px 20px 16px;
   border-bottom: 1px solid var(--desk-line-faint);
 }
 
 .desk-brand-copy {
   display: flex;
+  flex: 1 1 100%;
   gap: 13px;
   align-items: center;
   min-width: 0;
 }
 
+/* 品牌文案不允许逐字折行：溢出时省略，而不是被压成一列字并盖住按钮 */
+.desk-brand-copy > div {
+  min-width: 0;
+}
+
 .desk-brand strong {
   display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 17px;
+  white-space: nowrap;
 }
 
 .desk-brand small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 9px;
   color: var(--desk-dim);
   letter-spacing: 0.18em;
+  white-space: nowrap;
 }
 
+/* 按钮组占一行、靠右；宽度不够时允许换行，绝不与品牌文案重叠 */
 .brand-actions {
   display: flex;
-  flex: none;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
   gap: 6px;
   align-items: center;
+  justify-content: flex-end;
 }
 
 .config-trigger,
@@ -574,6 +599,7 @@ function onAssigneeChange(value: unknown) {
 }
 
 .pulse {
+  flex: none;
   width: 12px;
   height: 12px;
   background: var(--desk-accent);
@@ -583,8 +609,14 @@ function onAssigneeChange(value: unknown) {
     0 0 22px var(--desk-accent);
 }
 
+/*
+ * 接待状态行：标签整体不拆字，窄栏时整块换行而不是把「自动接待」折断成「自动接/待」。
+ * 状态选择框用 `margin-left: auto`：换行后仍贴右，保持与首行一致的视觉对齐。
+ */
 .presence-row {
   display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
   align-items: center;
   justify-content: space-between;
   padding: 14px 20px;
@@ -592,8 +624,13 @@ function onAssigneeChange(value: unknown) {
   color: var(--desk-muted);
 }
 
+.presence-row > span {
+  white-space: nowrap;
+}
+
 .presence-select {
   width: 118px;
+  margin-left: auto;
 }
 
 .presence-tip {

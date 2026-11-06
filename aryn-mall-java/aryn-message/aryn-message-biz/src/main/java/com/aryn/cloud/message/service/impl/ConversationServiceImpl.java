@@ -8,11 +8,11 @@ import com.aryn.cloud.message.api.entity.MessageParticipant;
 import com.aryn.cloud.message.api.enums.ConversationStatus;
 import com.aryn.cloud.message.api.enums.ConversationType;
 import com.aryn.cloud.message.api.enums.MessageIdentityType;
+import com.aryn.cloud.message.api.vo.agent.AgentCapacityVO;
 import com.aryn.cloud.message.api.vo.conversation.ConversationAssignmentLogVO;
 import com.aryn.cloud.message.api.vo.conversation.ConversationAttentionVO;
 import com.aryn.cloud.message.api.vo.conversation.ConversationInboxPageVO;
 import com.aryn.cloud.message.api.vo.conversation.ConversationVO;
-import com.aryn.cloud.message.api.vo.agent.AgentCapacityVO;
 import com.aryn.cloud.message.api.vo.conversation.QueueStatsGroupVO;
 import com.aryn.cloud.message.api.vo.conversation.QueueStatsTotalVO;
 import com.aryn.cloud.message.api.vo.conversation.QueueStatsVO;
@@ -77,6 +77,8 @@ public class ConversationServiceImpl implements ConversationService {
 	@DubboReference
 	private final RemoteMessageAudienceService audienceService;
 
+	private final CustomerSnapshotService customerSnapshotService;
+
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public ConversationVO getOrCreateCustomerService(String tenantId, String customerId, String customerName,
@@ -88,13 +90,17 @@ public class ConversationServiceImpl implements ConversationService {
 		if (existing != null) {
 			// 已存在的 WAITING 会话的自动分配重试由接口层在事务提交后执行，
 			// 避免内层 TransactionTemplate 与并发领取相互污染外层事务。
-			return requireParticipantView(tenantId, MessageIdentityType.MALL_USER, customerId, existing.getId());
+			return participantViewWithCustomerSnapshot(tenantId, existing.getId(), customerId, customerName,
+					customerAvatar);
 		}
 		String reopenedConversationId = assignmentService.reopenCustomerConversation(tenantId, customerId,
 				normalizedQueue);
 		if (reopenedConversationId != null) {
-			return requireParticipantView(tenantId, MessageIdentityType.MALL_USER, customerId, reopenedConversationId);
+			return participantViewWithCustomerSnapshot(tenantId, reopenedConversationId, customerId, customerName,
+					customerAvatar);
 		}
+		// 昵称/头像以用户域为权威来源：TOC 登录 token 只带 username，不能作为参与者快照。
+		UserMessageRecipientVO customer = customerSnapshotService.resolve(tenantId, customerId);
 		MessageConversation conversation = new MessageConversation();
 		conversation.setId(IdWorker.getIdStr());
 		conversation.setTenantId(tenantId);
@@ -116,12 +122,14 @@ public class ConversationServiceImpl implements ConversationService {
 			if (concurrent == null) {
 				throw exception;
 			}
-			return requireParticipantView(tenantId, MessageIdentityType.MALL_USER, customerId, concurrent.getId());
+			return participantViewWithCustomerSnapshot(tenantId, concurrent.getId(), customerId, customerName,
+					customerAvatar);
 		}
 		participantMapper.insertIgnore(participant(conversation, MessageIdentityType.MALL_USER, customerId,
-				customerName, customerAvatar));
+				resolvedName(customer, customerName), resolvedAvatar(customer, customerAvatar)));
 		assignmentService.autoAssign(tenantId, conversation.getId());
-		return requireParticipantView(tenantId, MessageIdentityType.MALL_USER, customerId, conversation.getId());
+		return participantViewWithCustomerSnapshot(tenantId, conversation.getId(), customerId, customerName,
+				customerAvatar);
 	}
 
 	@Override
@@ -141,7 +149,11 @@ public class ConversationServiceImpl implements ConversationService {
 			if (!StringUtils.hasText(conversation.getAssignedStaffId())) {
 				assignmentService.claim(tenantId, conversation.getId(), staffId, "客服主动联系会员");
 			}
-			return requireParticipantView(tenantId, MessageIdentityType.SYS_USER, staffId, conversation.getId());
+			ConversationVO view = requireParticipantView(tenantId, MessageIdentityType.SYS_USER, staffId,
+					conversation.getId());
+			customerSnapshotService.fillMissing(tenantId, conversation.getId(), customerId, customer.getNickname(),
+					customer.getAvatarUrl(), view);
+			return view;
 		}
 		LocalDateTime now = LocalDateTime.now();
 		conversation = new MessageConversation();
@@ -179,7 +191,10 @@ public class ConversationServiceImpl implements ConversationService {
 	@Override
 	public ConversationVO get(String tenantId, MessageIdentityType identityType, String identityId,
 			String conversationId) {
-		return requireParticipantView(tenantId, identityType, identityId, conversationId);
+		ConversationVO view = requireParticipantView(tenantId, identityType, identityId, conversationId);
+		// 历史会话的会员快照缺失时即时补齐（管理端会话头/信息面板不再回退显示会员 ID）。
+		customerSnapshotService.fillMissing(tenantId, conversationId, view.getCustomerId(), null, null, view);
+		return view;
 	}
 
 	@Override
@@ -191,6 +206,9 @@ public class ConversationServiceImpl implements ConversationService {
 				criteria.status(), criteria.statuses(), criteria.keyword(), criteria.assignedStaffId(),
 				criteria.queueCode(), criteria.unreadOnly(), cursor == null ? null : cursor.time(),
 				cursor == null ? null : cursor.id(), criteria.limit() + 1);
+		if (identityType == MessageIdentityType.SYS_USER) {
+			customerSnapshotService.fillMissingBatch(tenantId, records);
+		}
 		return toPage(records, criteria.limit());
 	}
 
@@ -202,6 +220,7 @@ public class ConversationServiceImpl implements ConversationService {
 				criteria.statuses(), criteria.keyword(), criteria.assignedStaffId(), criteria.queueCode(),
 				criteria.unreadOnly(), cursor == null ? null : cursor.time(),
 				cursor == null ? null : cursor.id(), criteria.limit() + 1);
+		customerSnapshotService.fillMissingBatch(tenantId, records);
 		return toPage(records, criteria.limit());
 	}
 
@@ -248,6 +267,7 @@ public class ConversationServiceImpl implements ConversationService {
 			// 共享池还没有坐席参与者，未读查询天然取不到，这里按同一顺序补在未读之后。
 			appendWaiting(conversations, tenantId, normalizedQueue, normalizedLimit);
 		}
+		customerSnapshotService.fillMissingBatch(tenantId, conversations);
 		result.setConversations(conversations);
 		return result;
 	}
@@ -301,6 +321,30 @@ public class ConversationServiceImpl implements ConversationService {
 				lastReadSeq) != 1) {
 			throw new ArynBusinessException("已读状态更新失败，请重试");
 		}
+	}
+
+	/** 参与者视角 + 会员快照补齐：会员首次进入旧会话时顺带回填昵称/头像。 */
+	private ConversationVO participantViewWithCustomerSnapshot(String tenantId, String conversationId, String customerId,
+			String fallbackName, String fallbackAvatar) {
+		ConversationVO view = requireParticipantView(tenantId, MessageIdentityType.MALL_USER, customerId,
+				conversationId);
+		customerSnapshotService.fillMissing(tenantId, conversationId, customerId, fallbackName, fallbackAvatar, view);
+		return view;
+	}
+
+	/** 用户域昵称优先，缺失时回退调用方传入的快照（token/通知里的昵称）。 */
+	private String resolvedName(UserMessageRecipientVO customer, String fallback) {
+		if (customer != null && StringUtils.hasText(customer.getNickname())) {
+			return customer.getNickname();
+		}
+		return StringUtils.hasText(fallback) ? fallback : null;
+	}
+
+	private String resolvedAvatar(UserMessageRecipientVO customer, String fallback) {
+		if (customer != null && StringUtils.hasText(customer.getAvatarUrl())) {
+			return customer.getAvatarUrl();
+		}
+		return StringUtils.hasText(fallback) ? fallback : null;
 	}
 
 	private ConversationVO requireParticipantView(String tenantId, MessageIdentityType identityType, String identityId,

@@ -75,6 +75,12 @@ export const useDeliveryMessageStore = defineStore('deliveryMessage', {
       }
     },
     async connect() {
+      // socketTask 是模块内存句柄，不可能跨进程存在；socketState 却可能来自持久化的
+      // 旧值（'open'/'connecting'）。不先校正的话，下面的提前返回会让本次进程永远
+      // 不建连，界面显示已连接但推送全部丢失（与商城端共用的根因）。
+      if (!socketTask && this.socketState !== 'closed') {
+        this.socketState = 'closed'
+      }
       // 配送会话已失效：不建连、不重连，避免死 token 每 3 秒空转（与商城端同一守卫）
       if (useSessionStore().invalid) {
         this.disconnect()

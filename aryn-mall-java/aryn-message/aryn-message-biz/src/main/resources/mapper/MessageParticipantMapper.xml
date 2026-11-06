@@ -81,4 +81,19 @@
           AND participant_status = 'ACTIVE'
           AND del_flag = '0'
     </update>
+    <update id="fillSnapshotIfBlank">
+        UPDATE message_participant
+        SET participant_name = CASE
+                WHEN (participant_name IS NULL OR participant_name = '') AND #{participantName} IS NOT NULL
+                THEN #{participantName} ELSE participant_name END,
+            participant_avatar = CASE
+                WHEN (participant_avatar IS NULL OR participant_avatar = '') AND #{participantAvatar} IS NOT NULL
+                THEN #{participantAvatar} ELSE participant_avatar END,
+            update_time = NOW()
+        WHERE tenant_id = #{tenantId}
+          AND conversation_id = #{conversationId}
+          AND participant_type = #{participantType}
+          AND participant_id = #{participantId}
+          AND del_flag = '0'
+    </update>
 </mapper>

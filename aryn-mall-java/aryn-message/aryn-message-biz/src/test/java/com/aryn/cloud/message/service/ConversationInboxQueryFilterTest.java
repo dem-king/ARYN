@@ -9,6 +9,7 @@ import com.aryn.cloud.message.mapper.MessageAssignmentLogMapper;
 import com.aryn.cloud.message.mapper.MessageConversationMapper;
 import com.aryn.cloud.message.mapper.MessageParticipantMapper;
 import com.aryn.cloud.message.service.impl.ConversationServiceImpl;
+import com.aryn.cloud.message.service.impl.CustomerSnapshotService;
 import com.aryn.cloud.user.api.remote.RemoteMessageAudienceService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,7 +48,7 @@ class ConversationInboxQueryFilterTest {
 		agentService = mock(AgentService.class);
 		service = new ConversationServiceImpl(conversationMapper, mock(MessageParticipantMapper.class),
 				mock(MessageAssignmentLogMapper.class), new ObjectMapper(), mock(ConversationAssignmentService.class),
-				agentService, mock(RemoteMessageAudienceService.class));
+				agentService, mock(RemoteMessageAudienceService.class), mock(CustomerSnapshotService.class));
 		stubEmptyInbox();
 	}
 

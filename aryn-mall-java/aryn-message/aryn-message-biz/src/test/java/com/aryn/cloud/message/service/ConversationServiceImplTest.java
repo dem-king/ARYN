@@ -16,6 +16,7 @@ import com.aryn.cloud.message.mapper.MessageAssignmentLogMapper;
 import com.aryn.cloud.message.mapper.MessageConversationMapper;
 import com.aryn.cloud.message.mapper.MessageParticipantMapper;
 import com.aryn.cloud.message.service.impl.ConversationServiceImpl;
+import com.aryn.cloud.message.service.impl.CustomerSnapshotService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -47,6 +48,7 @@ class ConversationServiceImplTest {
 	private MessageAssignmentLogMapper assignmentLogMapper;
 	private ConversationAssignmentService assignmentService;
 	private AgentService agentService;
+	private CustomerSnapshotService customerSnapshotService;
 	private ConversationServiceImpl service;
 
 	@BeforeEach
@@ -56,9 +58,10 @@ class ConversationServiceImplTest {
 		assignmentLogMapper = mock(MessageAssignmentLogMapper.class);
 		assignmentService = mock(ConversationAssignmentService.class);
 		agentService = mock(AgentService.class);
+		customerSnapshotService = mock(CustomerSnapshotService.class);
 		service = new ConversationServiceImpl(conversationMapper, participantMapper, assignmentLogMapper,
 				new ObjectMapper(), assignmentService, agentService,
-				mock(com.aryn.cloud.user.api.remote.RemoteMessageAudienceService.class));
+				mock(com.aryn.cloud.user.api.remote.RemoteMessageAudienceService.class), customerSnapshotService);
 	}
 
 	@Test
