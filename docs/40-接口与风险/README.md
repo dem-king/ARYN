@@ -443,9 +443,26 @@ MVC 兜底 `code=1`）。前端只判 `code===401`，导致被顶下线时管理
   `authEndTime` 为空作为长期有效判据，操作按钮以 `tenantType` 判据。「当前会话是否平台管理员」
   取会话 `ArynUser.platformAdmin`（用户级标记），前端取用户信息接口返回的 `platformAdmin`；
   存量会话没有该字段时按非平台管理员处理，重新登录即可刷新。
-- 平台管理员专属角色 `ROLE_PLATFORM_ADMIN`（平台租户下「平台管理员」，持有全部菜单）只允许
-  平台管理员维护：角色新增/修改/删除、角色菜单保存、员工角色授予都会校验会话平台管理员身份；
-  租户管理员也不能修改/停用/删除平台管理员账号。`syncRoleMenus` 不裁剪该角色。
+- 平台管理员账号是**系统级身份、不属于任何租户员工视图**：存储上仍绑定平台租户（RBAC/登录
+  上下文依赖），但所有租户侧「查询用户/员工账号」入口都必须排除 `platform_admin='1'`：
+  `SysUserMapper` 的员工分页、消息受众、客服坐席资格、员工搜索（`searchNormalStaff`）、
+  租户员工数（`countTenantStaff`）SQL；`RemoteSysUserServiceImpl` 的按 ID/批量/搜索查询
+  （登录认证用的 `getUserInfo(username/phone)` 除外）；销售员/配送员等下游业务视图通过
+  `RemoteSysUserService#getPlatformAdminUserIds` 按 ID 排除。新增租户侧员工查询时沿用同一口径。
+- 平台管理员专属角色 `ROLE_PLATFORM_ADMIN`（平台租户下「平台管理员」）是**系统内置角色**：
+  不出现在角色管理列表/详情，角色新增/修改/删除、角色菜单保存一律拒绝（对平台管理员会话同样
+  拒绝），角色编辑也不能把普通角色改名为该保留编码；该角色只允许数据库初始化/迁移脚本维护。
+  平台管理员账号的权限与菜单树由「全部可见菜单」动态推导
+  （`SysUserServiceImpl#findUserInfo`、`SysMenuServiceImpl#getLoginUserMenuTree`），
+  不依赖可编辑的 `sys_role_menu` 数据。租户管理员也不能修改/停用/删除平台管理员账号；
+  平台管理员账号 `system` 不在员工账号列表/详情中暴露（`SysUserMapper#adminPage` 过滤、
+  按 ID 读取走 `ISysUserService#getVisibleUserById`），员工手机号改绑入口同样不可达。
+  `syncRoleMenus` 不裁剪该角色。
+- 登录日志、操作日志与在线用户也不向普通角色账号暴露平台管理员：`PlatformAdminVisibilitySupport`
+  返回当前租户平台管理员用户名集合，`SysLoginLogController` 的列表/统计、`SysLogController`
+  的列表/详情、`SysOnlineUserController` 的列表与强退按该集合适用；当前会话是平台管理员时
+  不过滤（保留审计能力）。登录日志/操作日志/在线记录没有 user_id，按用户名过滤
+  （`NOT IN` 需显式放行 NULL）；平台管理员账号不允许经员工账号接口改名，故历史记录可稳定过滤。
 - 平台租户必须有自己的启用 `sys_storage_config`（种子：boot `181` / cloud `183`，默认本机
   `/data/aryn/uploads`）：个人信息头像、租户 Logo 等平台级上传按登录用户自己的租户查存储配置，
   不能依赖业务租户的配置。`domain` 为空只返回站内相对 URL，跨源管理端需补公开访问域名。

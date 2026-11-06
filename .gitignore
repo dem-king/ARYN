@@ -110,6 +110,13 @@ graphify-out/
 aryn-mall-java/aryn-boot/aryn/
 .workbuddy-ai/
 artifacts/
+# 本地验证产物（Playwright 截图/构建包/审计报告，59MB+，不入库）
+outputs/
+aryn-mall-ui/outputs/
+# Cloudflare Wrangler 本地缓存（含账号信息）
+.wrangler/
+# 临时调试脚本（*.tmp 只覆盖扩展名，这里单独忽略 .tmp.mjs 等带后缀形式）
+*.tmp.*
 
 # Turborepo local build cache
 .turbo/
