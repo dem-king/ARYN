@@ -42,6 +42,15 @@ export interface PagedLoadMoreOptions {
    * 预加载广播，页 2 只会在页 1 成功返回后由自愈链路发出。
    */
   preloadOnMount?: boolean
+  /**
+   * 一次查询完全结束（成功/失败、且没有其他查询在途）后的回调。
+   *
+   * 供「上下文异步到齐、需要重取第 1 页」的宿主组件做串行化：上下文变化时若正有
+   * 查询在途，不能直接 `reload()`（z-paging 会并发发出两次 query，两次 complete
+   * 会互相顶掉 Promise，见 components/waterfall-goods 的说明）；先记住待重取，
+   * 等本次查询 settle 后再 reload。
+   */
+  onQuerySettled?: () => void
 }
 
 export function useDiyPagedLoadMore(
@@ -49,7 +58,7 @@ export function useDiyPagedLoadMore(
   rootSelector: string,
   options: PagedLoadMoreOptions = {},
 ) {
-  const { preloadOnMount = true } = options
+  const { preloadOnMount = true, onQuerySettled } = options
   // getCurrentInstance 只能在 setup 同步阶段取，事件回调里拿到的是 null
   const instance = getCurrentInstance()
   // 滚动广播是 uni.$emit 全局事件：记录所属页面，避免后台页面（如 tabbar 首页）
@@ -133,7 +142,22 @@ export function useDiyPagedLoadMore(
         firstQuerySettled = true
         setTimeout(scheduleLoad, SELF_HEAL_DELAY_MS)
       }
+      // 查询完全空闲后再通知宿主：此时 reload 不会再和本次 query 并发
+      if (queryInFlight === 0 && !disposed) {
+        try {
+          onQuerySettled?.()
+        }
+        catch (error) {
+          // 宿主的后续动作失败不能影响当前查询的生命周期
+          console.error('[useDiyPagedLoadMore] onQuerySettled failed', error)
+        }
+      }
     }
+  }
+
+  /** 是否有查询在途：宿主组件据此把 reload 串行化到本次查询结束之后 */
+  function isQuerying() {
+    return queryInFlight > 0
   }
 
   onMounted(() => {
@@ -148,5 +172,5 @@ export function useDiyPagedLoadMore(
     uni.$off(DIY_REACH_BOTTOM_CHECK_EVENT, scheduleLoad)
   })
 
-  return { runQuery }
+  return { runQuery, isQuerying }
 }

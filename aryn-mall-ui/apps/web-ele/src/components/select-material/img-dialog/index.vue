@@ -38,9 +38,16 @@ defineExpose({
 });
 </script>
 
-<!-- 保持模板部分不变 -->
+<!-- 素材选择弹窗：内容在 image-tab 内渲染，此处只负责弹窗外壳与确认/关闭 -->
 <template>
-  <ElDialog v-model="dialog" title="素材" width="70%" append-to-body>
+  <!-- 宽度：素材列表 + 分页需要并排一行展示，70% 在 1280 视口下会把分页挤成两行；
+       上限 1280px 避免超宽屏弹窗过大，92vw 保证小屏仍留出边距 -->
+  <ElDialog
+    v-model="dialog"
+    title="素材"
+    width="min(1280px, 92vw)"
+    append-to-body
+  >
     <Material
       :selectable="true"
       :max-select="props.canChooseImagesNum"

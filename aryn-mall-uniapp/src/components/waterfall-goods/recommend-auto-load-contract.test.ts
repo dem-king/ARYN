@@ -95,8 +95,30 @@ describe('推荐商品流滚动加载', () => {
     // 后端 GoodsSpuServiceImpl#recommendPage: page.setSearchCount(false)，total 恒为 0/缺省，
     // 用 completeByTotal 会把第一页永久判成「没有更多」
     expect(code).not.toContain('completeByTotal')
-    expect(code).toMatch(/await pagingRef\.value\?\.complete\(/)
     expect(code).toContain('records')
+    // complete 必须等到数据生效（自愈测距依赖新布局）；但 z-paging 的 complete promise
+    // 是单槽位、并发 complete 会丢掉先前的 resolve，await 必须有超时兜底（2026-11-05 回归）
+    expect(code).toMatch(/await awaitPagingComplete\(records\)/)
+    expect(code).toContain('Promise.race')
+  })
+
+  it('上下文异步到齐后的 reload 必须串行化，不得与在途查询并发 complete', () => {
+    const code = stripComments(source(COMPONENT))
+    // 购物车推荐上下文挂载后才到齐：直接 reload 会让 z-paging 并发发出两次 query，
+    // 两次 complete 争抢单槽位 promise，先前的 await 永不返回 → queryInFlight 永久 >0，
+    // 滚动广播全部被丢弃，列表静默停在第 1 页（用户反馈的「不能无限滚动」）。
+    expect(code).toContain('pendingContextReload')
+    expect(code).toContain('reloadPendingQuery')
+    expect(code).toMatch(/isQuerying\(\)/)
+    expect(code).toMatch(/onQuerySettled:\s*handleQuerySettled/)
+    // reload 只能发生在「首查已启动 + 没有在途查询 + 没有待发出的 reload query」之后
+    expect(code).toMatch(/if \(!firstQueryStarted \|\| isQuerying\(\) \|\| reloadPendingQuery\)/)
+
+    const composable = stripComments(source('src/composables/useDiyPagedLoadMore.ts'))
+    // 组合式必须暴露「是否有查询在途」并回调「查询完全空闲」，否则宿主没法串行化
+    expect(composable).toMatch(/function isQuerying\(\)/)
+    expect(composable).toContain('return { runQuery, isQuerying }')
+    expect(composable).toMatch(/onQuerySettled\?\.\(\)/)
   })
 
   it('默认态不再渲染可点击的「点击加载更多」', () => {

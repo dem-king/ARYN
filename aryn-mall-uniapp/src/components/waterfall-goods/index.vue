@@ -42,11 +42,22 @@ const zone = useZonePrices()
  * 活动广播出来（`useDecorationInfiniteScroll`），本组件实测自身底边距视口底
  * ≤ 400px 就提前调 `pageReachBottom()`；每次查询结束再自愈重测，直到没有更多。
  * 默认态文案在模板里置空，加载中/没有更多/加载失败文案保持不变。
+ *
+ * 上下文串行化（2026-11-05 修复「购物车『为你推荐』只出第 1 页、不能再往下加载」）：
+ * 购物车的推荐上下文（sourceSpuIds / excludeSpuIds）是挂载后才异步到齐的，props
+ * 变化会 reload 重取第 1 页。若此时 z-paging 的首次查询还没结束，直接 reload 会让
+ * 它并发发出两次 query，两次 complete 争抢 z-paging 内部唯一的 complete promise
+ * 槽位：先调用的 complete 的 resolve 被后一次顶掉，`await complete()` 永不返回，
+ * `useDiyPagedLoadMore` 的 queryInFlight 因此永久 >0，之后所有滚动广播都被丢弃
+ * ——表现为列表停在第一页且没有任何可点文案。这里把 reload 串行化到查询空闲之后。
  */
-const { runQuery } = useDiyPagedLoadMore(pagingRef, '.waterfall-goods', {
+const COMPLETE_FALLBACK_TIMEOUT_MS = 800
+
+const { runQuery, isQuerying } = useDiyPagedLoadMore(pagingRef, '.waterfall-goods', {
   // z-paging 首次 reload 在 nextTick 触发；推荐位若正好在首屏（如空购物车），
   // 挂载即测距会先发出 pageNo=2 再被 reload 重置。改由首次查询成功后的自愈补齐。
   preloadOnMount: false,
+  onQuerySettled: handleQuerySettled,
 })
 
 /**
@@ -56,8 +67,47 @@ const { runQuery } = useDiyPagedLoadMore(pagingRef, '.waterfall-goods', {
  */
 let contextEpoch = 0
 
+/** 上下文签名：props 的稳定字符串形式，用于判断当前列表/在途查询是否已是最新上下文 */
+function contextSignature() {
+  return [props.spuId ?? '', props.sourceSpuIds?.join(',') ?? '', props.excludeSpuIds?.join(',') ?? ''].join('|')
+}
+
+/** 最近一次启动的查询所用的上下文签名 */
+let lastQuerySignature = ''
+/** 首查是否已启动：启动前 z-paging 的初始 reload 会读到最新 props，无需再补一次 reload */
+let firstQueryStarted = false
+/** reload 已调用、但其 query 还没启动（防止两次上下文变化叠出两次 reload） */
+let reloadPendingQuery = false
+/** 上下文已变化、但当前查询还没结束：等 settle 后再按新上下文重取第 1 页 */
+let pendingContextReload = false
+
+/**
+ * z-paging 的 complete 兜底等待。
+ *
+ * `complete()` 返回的 Promise 存在 z-paging 内部的单槽位里，并发 complete 会顶掉
+ * 先前的 resolve 导致 await 永不返回（数据其实已经落地，只是 Promise 丢了）。
+ * 串行化之后理论上不会再并发 complete，这里保留超时兜底：即使同类竞态再次发生，
+ * 也只让本次查询晚一点结束，不会把 queryInFlight 永久卡死、静默停掉续页。
+ * 必须等到数据生效再让自愈链路测距，否则量到的是旧布局。
+ */
+async function awaitPagingComplete(records: any[]) {
+  const settled = pagingRef.value?.complete(records)
+  if (!settled || typeof settled.then !== 'function')
+    return
+  // 超时后迟到的 reject 不能变成未处理拒绝
+  settled.catch?.(() => {})
+  await Promise.race([
+    settled,
+    new Promise<void>(resolve => setTimeout(resolve, COMPLETE_FALLBACK_TIMEOUT_MS)),
+  ])
+}
+
 async function queryList(pageNo: number, pageSize: number) {
   const epoch = contextEpoch
+  // 查询一启动就锁定上下文：此后 props 再变只会挂起，等本次查询 settle 后再 reload
+  firstQueryStarted = true
+  reloadPendingQuery = false
+  lastQuerySignature = contextSignature()
   await runQuery(async () => {
     const params: Record<string, any> = {
       current: pageNo,
@@ -79,19 +129,49 @@ async function queryList(pageNo: number, pageSize: number) {
     // 后端推荐接口 page.setSearchCount(false)（GoodsSpuServiceImpl#recommendPage），不下发真实
     // total，注释明确「前端只按返回条数判断是否还有下一页」——所以用 complete 让 z-paging 按
     // 本页条数推断；不能用 completeByTotal：total=0 会被判成「没有更多」，第一页后不再加载。
-    // 必须 await：自愈重测要在数据生效之后进行，否则量到的是旧布局。
-    await pagingRef.value?.complete(records)
+    await awaitPagingComplete(records)
   }, () => epoch === contextEpoch)
 }
 
-// 页面数据异步到齐或切换商品时，按新的推荐上下文重新取数
+/** 按最新上下文重取第 1 页 */
+function reloadForContext() {
+  if (!pagingRef.value) {
+    // z-paging 还没挂载：它的初始 reload 会按最新 props 取数，等查完再判断是否还差一次
+    pendingContextReload = true
+    return
+  }
+  contextEpoch++
+  reloadPendingQuery = true
+  // reload 的 promise 在请求失败时会 reject（callNetworkReject 默认 true），加 catch 避免未处理拒绝
+  pagingRef.value.reload()?.catch?.(() => {})
+}
+
+/** 上下文变化：空闲则立刻重取；查询在途 / 首查未启动 / reload 的 query 还没发出则挂起 */
+function requestContextReload() {
+  if (contextSignature() === lastQuerySignature) {
+    // 当前列表或已启动的查询本身就是这份上下文：不需要重复请求
+    pendingContextReload = false
+    return
+  }
+  if (!firstQueryStarted || isQuerying() || reloadPendingQuery) {
+    pendingContextReload = true
+    return
+  }
+  pendingContextReload = false
+  reloadForContext()
+}
+
+/** 查询完全空闲后的挂起重取：本次查询已读到新上下文则直接作废，不重复请求 */
+function handleQuerySettled() {
+  reloadPendingQuery = false
+  if (pendingContextReload)
+    requestContextReload()
+}
+
+// 页面数据异步到齐或切换商品时，按新的推荐上下文重新取数（串行化见上）
 watch(
-  () => [props.spuId, props.sourceSpuIds?.join(','), props.excludeSpuIds?.join(',')].join('|'),
-  () => {
-    contextEpoch++
-    // reload 的 promise 在请求失败时会 reject（callNetworkReject 默认 true），加 catch 避免未处理拒绝
-    pagingRef.value?.reload()?.catch?.(() => {})
-  },
+  () => contextSignature(),
+  () => requestContextReload(),
 )
 
 // 跳转商品详情

@@ -146,6 +146,34 @@ describe('list card growth contract', () => {
   });
 });
 
+describe('custom list card growth contract', () => {
+  const source = readApp('src/views/order/shared-cart/index.vue');
+
+  /**
+   * 共享购物车是「页头卡片 + 查询区 + 自定义列表卡片」结构：分页包在
+   * `.sc-list` 里而不是卡片直接子级。外层卡片仍会被
+   * `.hx-layout-container-view:has(> .hx-filter-panel)` 拉成 min-height:100%，
+   * 列表卡片不长高就会在分页下方留一条白带（2026-11-05 修复），
+   * 分页也不会像标准列表页那样钉在卡片底部。
+   */
+  it('grows the list card so the nested pagination stays at the card bottom', () => {
+    const ruleStart = source.indexOf('.sc-list {');
+    const listRule = source.slice(ruleStart, source.indexOf('}', ruleStart));
+    expect(ruleStart).toBeGreaterThan(-1);
+    expect(listRule).toContain('display: flex');
+    expect(listRule).toContain('flex: 1 1 auto');
+    expect(listRule).toContain('flex-direction: column');
+  });
+
+  it('lets the table eat the remaining height of the list card', () => {
+    const ruleStart = source.indexOf('.sc-table {');
+    const tableRule = source.slice(ruleStart, source.indexOf('}', ruleStart));
+    expect(ruleStart).toBeGreaterThan(-1);
+    expect(tableRule).toContain('flex: 1 1 0');
+    expect(tableRule).toContain('min-height: 240px');
+  });
+});
+
 describe('data table action column contract', () => {
   const source = readFileSync(
     resolve(process.cwd(), 'packages/styles/src/ele/index.css'),

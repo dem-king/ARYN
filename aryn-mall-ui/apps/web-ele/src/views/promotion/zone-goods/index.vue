@@ -15,19 +15,20 @@ import { computed, nextTick, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
 import {
-  Check,
-  Delete,
+  Box,
+  Picture,
   Plus,
+  QuestionFilled,
   Refresh,
-  Setting,
-  Tickets,
+  Search,
 } from '@element-plus/icons-vue';
+import { useMediaQuery } from '@vueuse/core';
 import {
   ElAlert,
   ElButton,
   ElCascader,
   ElDrawer,
-  ElFormItem,
+  ElIcon,
   ElImage,
   ElInput,
   ElMessage,
@@ -36,8 +37,6 @@ import {
   ElSelect,
   ElTable,
   ElTableColumn,
-  ElTabPane,
-  ElTabs,
   ElTag,
   ElTooltip,
 } from 'element-plus';
@@ -51,8 +50,6 @@ import {
   triggerZoneSync,
 } from '#/api/product/goods-zone';
 import { getZoneSetting } from '#/api/promotion/zone-setting';
-import PageFilterPanel from '#/components/page/page-filter-panel.vue';
-import PageToolbar from '#/components/page/page-toolbar.vue';
 import Pagination from '#/components/pagination/index.vue';
 import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
 import { useDict } from '#/utils/dict';
@@ -61,34 +58,41 @@ import ZoneSkuEditor from '#/views/product/zone-batch/components/ZoneSkuEditor.v
 
 import BatchRecordDrawer from './components/BatchRecordDrawer.vue';
 import GoodsPickerDialog from './components/GoodsPickerDialog.vue';
+import ZoneActionBar from './components/ZoneActionBar.vue';
+import ZoneStatusHeader from './components/ZoneStatusHeader.vue';
 import {
   buildRemoveConfirmText,
-  buildRuleSummary,
+  buildRuleChips,
   buildZoneIdsPayload,
   buildZonePageQuery,
   dedupeIds,
-  describeDefaultDiscount,
-  describeEffectivePrice,
+  describeEffectiveDiscount,
   describeSelectAllResult,
   describeSelection,
-  describeSkuOverride,
-  formatTime,
+  formatPrice,
+  formatRate,
   hasSkuOverride,
-  resolveActivityStatusMeta,
+  hasZoneRule,
+  mergeFilterSelection,
   resolveBatchDoneTone,
   resolveSelectAllLimit,
   resolveStateMeta,
-  resolveSyncMeta,
   summarizeBatchDone,
-  ZONE_DESCRIPTION,
+  toNumber,
   ZONE_LABEL,
 } from './logic';
 
 /**
  * 「专区商品管理」页。
  *
- * 以专区为主体管理商品集合：顶部专区 tab + 专区状态（开关/默认折扣/同步状态），
- * 中部专区商品分页（跨页选择 / 全选筛选结果），
+ * 以专区为主体管理商品集合，页面按「专区概览 → 筛选 → 列表」三层组织：
+ * - 顶部 ZoneStatusHeader：专区切换器 + 专区状态/默认折扣/活动/同步指标，
+ *   规则口径收进「规则说明」气泡，不再用整条 Alert 占列表首屏；
+ * - 筛选与工具栏分离：筛选只负责查询条件，添加商品/批次记录常驻工具栏，
+ *   批量动作按需出现在 ZoneBulkBar（含跨页选择与全选筛选结果）；
+ * - 列表把「售价/原价」「生效价」「当前规则」「SKU 精调」「生效状态」重组为
+ *   价格、规则、状态三列，价格列直接呈现 C 端生效价与实际折扣。
+ *
  * 批量操作复用 #/views/product/zone-batch 共享弹窗（预检→执行→结果面板），
  * 行内精调复用共享 ZoneSkuEditor，批次记录支持明细与撤销。
  *
@@ -129,36 +133,10 @@ const currentSyncZone = computed<null | ZoneSyncZone>(
 const currentSetting = computed<ZoneSettingRow>(
   () => zoneSettings.value[zoneType.value] ?? {},
 );
-const defaultDiscountText = computed(() =>
-  describeDefaultDiscount(currentSetting.value.defaultDiscountRate),
-);
-const enabledTag = computed(() => {
-  // 优先用同步状态里的开关；接口不可用时回退专区设置；两者都取不到显示未知
-  const syncEnabled = currentSyncZone.value?.enabled;
-  if (typeof syncEnabled === 'boolean') {
-    return syncEnabled
-      ? { text: '已开启', type: 'success' as const }
-      : { text: '已关闭', type: 'danger' as const };
-  }
-  const settingEnabled = currentSetting.value.enabled;
-  if (settingEnabled === null || settingEnabled === undefined) {
-    return { text: '未知', type: 'info' as const };
-  }
-  return settingEnabled === '0' || settingEnabled === false
-    ? { text: '已关闭', type: 'danger' as const }
-    : { text: '已开启', type: 'success' as const };
-});
-const syncMeta = computed(() =>
-  resolveSyncMeta(currentSyncZone.value?.lastSyncStatus),
-);
-const activityMeta = computed(() =>
-  resolveActivityStatusMeta(currentSyncZone.value?.activityStatus),
-);
 const syncFailed = computed(
   () =>
     (currentSyncZone.value?.lastSyncStatus ?? '').toUpperCase() === 'FAILED',
 );
-const zoneDescription = computed(() => ZONE_DESCRIPTION[zoneType.value]);
 
 // ---------------------------------------------------------------------------
 // 列表 / 筛选 / 分页
@@ -177,6 +155,11 @@ const filter = reactive({
 const categoryTree = ref<Record<string, any>[]>([]);
 const brandList = ref<Record<string, any>[]>([]);
 const { goods_status } = useDict('goods_status');
+/**
+ * 窄屏（≤1400px）隐藏「类目 / 品牌」次要列：保证价格、规则、生效状态
+ * 三个决策列在 1280 笔记本上无需横向滚动即可看到。
+ */
+const compactColumns = useMediaQuery('(max-width: 1400px)');
 
 const categoryProps = {
   children: 'children',
@@ -249,10 +232,16 @@ async function refreshAll() {
   await Promise.all([initPage(), loadSyncStatus(), loadZoneSettings()]);
 }
 
-function handleTabChange(name: number | string) {
-  activeTab.value = String(name);
+function handleZoneChange(zone: ZoneKey) {
+  if (zone === zoneType.value) {
+    return;
+  }
+  activeTab.value = zone;
   page.current = 1;
   clearSelection(true);
+  // 立刻清空旧专区行：loading 期间若继续渲染旧行，会被按新专区的规则口径解读
+  tableData.value = [];
+  page.total = 0;
   void refreshAll();
 }
 
@@ -263,7 +252,12 @@ function handleSearch() {
   void initPage();
 }
 
+/** 重置：清空查询条件后立即查询（不再依赖表单组件的 resetFields） */
 function handleReset() {
+  filter.name = '';
+  filter.categorySecondId = '';
+  filter.brandId = '';
+  filter.status = '';
   page.current = 1;
   clearSelection(true);
   void initPage();
@@ -297,13 +291,6 @@ const selectionText = computed(() =>
     selectAllState.total || page.total,
   ),
 );
-const selectAllBanner = computed(() =>
-  describeSelectAllResult(
-    selectAllState.total,
-    selectAllState.ids.length,
-    selectAllState.truncated,
-  ),
-);
 
 function resetSelectAll() {
   selectAllState.active = false;
@@ -331,9 +318,19 @@ function handleSelectionChange(selection: ZoneGoodsRow[]) {
   if (syncingSelection) {
     return;
   }
-  // 用户手动勾选/取消即退出「全选筛选结果」，避免两种选择语义叠加
+  // 「全选筛选结果」模式下，当前页勾选变化只增删对应 id，不静默退化成
+  // 「仅已渲染行选择」——否则用户取消一行时批量作用范围会从 48 件骤降到当前页。
   if (selectAllState.active) {
-    resetSelectAll();
+    const nextIds = mergeFilterSelection(
+      selectAllState.ids,
+      tableData.value.map((row) => String(row.id)),
+      selection.map((row) => String(row.id)),
+    );
+    if (nextIds.length === 0) {
+      resetSelectAll();
+    } else {
+      selectAllState.ids = nextIds;
+    }
   }
   selectedRows.value = selection;
 }
@@ -584,6 +581,51 @@ function goBatchRecords() {
 }
 
 // ---------------------------------------------------------------------------
+// 列表展示派生（纯函数集中放在 logic.ts，这里只做模板适配）
+// ---------------------------------------------------------------------------
+
+/** 生效状态徽标（模板内多次读取，集中到一处避免重复三目） */
+function stateMeta(row: Record<string, any>) {
+  return resolveStateMeta(row.state, row.stateLabel);
+}
+
+/** 生效价相对售价的实际折扣角标 */
+function discountOf(row: Record<string, any>) {
+  return describeEffectiveDiscount(row.effectivePrice, row.salesPrice);
+}
+
+/**
+ * 规则标记：未单独配规则但「生效中」时，价格来自专区默认折扣率，
+ * 直接把实际口径写成「默认折扣 9折」，避免运营误判为「什么都没配」。
+ */
+function ruleChips(row: Record<string, any>) {
+  const defaultRate = toNumber(currentSetting.value.defaultDiscountRate);
+  const inheritDefault =
+    !hasZoneRule(zoneType.value, row) &&
+    String(row.state ?? '').toUpperCase() === 'NORMAL' &&
+    defaultRate !== null;
+  if (inheritDefault) {
+    return [{ label: `默认折扣 ${formatRate(defaultRate)}` }];
+  }
+  return buildRuleChips(zoneType.value, row);
+}
+
+/** 是否存在有效筛选条件（空状态下的「清空筛选」只在有筛选时才有意义） */
+const hasActiveFilter = computed(
+  () =>
+    !!filter.name ||
+    !!filter.categorySecondId ||
+    !!filter.brandId ||
+    !!filter.status,
+);
+
+/** 窄屏隐藏「类目 / 品牌」列时，把该信息折叠进商品副标题行 */
+function categoryBrandText(row: Record<string, any>) {
+  const parts = [row.categoryName, row.brandName].filter(Boolean);
+  return parts.length > 0 ? parts.join(' · ') : '未分类 · 无品牌';
+}
+
+// ---------------------------------------------------------------------------
 // 初始化 / keepAlive 刷新
 // ---------------------------------------------------------------------------
 
@@ -602,337 +644,375 @@ useKeepAliveRefresh(() => {
 
 <template>
   <div class="hx-layout-container">
-    <div class="hx-layout-container-auto hx-layout-container-view">
-      <!-- 专区 tab + 专区状态 -->
-      <div class="zone-panel">
-        <ElTabs
-          v-model="activeTab"
-          class="zone-tabs"
-          @tab-change="handleTabChange"
-        >
-          <ElTabPane :label="ZONE_LABEL.member" name="member" />
-          <ElTabPane :label="ZONE_LABEL.clearance" name="clearance" />
-        </ElTabs>
-        <div v-loading="syncLoading" class="zone-status">
-          <div class="zone-status__item">
-            <span class="zone-status__label">专区状态</span>
-            <ElTag size="small" :type="enabledTag.type">
-              {{ enabledTag.text }}
-            </ElTag>
-          </div>
-          <div class="zone-status__item">
-            <span class="zone-status__label">默认折扣率</span>
-            <b class="zone-status__value">{{ defaultDiscountText }}</b>
-            <span class="zone-status__tip">商品未配规则时生效</span>
-          </div>
-          <div class="zone-status__item">
-            <span class="zone-status__label">系统活动</span>
-            <ElTag size="small" :type="activityMeta.type">
-              {{ activityMeta.label }}
-            </ElTag>
-          </div>
-          <div class="zone-status__item">
-            <span class="zone-status__label">已同步商品</span>
-            <b class="zone-status__value">
-              {{ currentSyncZone?.rulesSkuCount ?? '—' }}
-            </b>
-            <span class="zone-status__tip">件</span>
-          </div>
-          <div class="zone-status__item">
-            <span class="zone-status__label">最近同步</span>
-            <ElTooltip
-              :content="currentSyncZone?.lastError || syncMeta.tip"
-              placement="top"
-            >
-              <ElTag size="small" :type="syncMeta.type">
-                {{ syncMeta.label }}
-              </ElTag>
-            </ElTooltip>
-            <span class="zone-status__tip">
-              {{ formatTime(currentSyncZone?.lastSyncTime) }}
-            </span>
-            <ElButton
-              v-if="syncFailed || !currentSyncZone"
-              link
-              type="primary"
-              :loading="triggerLoading"
-              @click="retrySync"
-            >
-              重试同步
-            </ElButton>
-          </div>
-          <div class="zone-status__item zone-status__item--actions">
-            <ElButton link type="primary" @click="goZoneSetting">
-              去专区设置 →
-            </ElButton>
-          </div>
-        </div>
-      </div>
+    <div class="hx-layout-container-auto hx-layout-container-view zone-page">
+      <!-- 专区概览：切换器 + 状态指标 + 规则说明 -->
+      <ZoneStatusHeader
+        :active-tab="activeTab"
+        :loading="syncLoading"
+        :retrying="triggerLoading"
+        :setting="currentSetting"
+        :sync-zone="currentSyncZone"
+        @change="handleZoneChange"
+        @retry="retrySync"
+        @settings="goZoneSetting"
+      />
 
       <ElAlert
         v-if="syncFailed && currentSyncZone?.lastError"
+        class="zone-alert"
         type="error"
         :closable="false"
         show-icon
-        class="mb10"
-        :title="`最近一次价格同步失败：${currentSyncZone.lastError}`"
-      />
-      <ElAlert type="info" :closable="false" show-icon class="mb10">
-        <template #title>{{ zoneDescription }}</template>
-        「标签存在」不等于「价格生效」：请关注表格「生效状态」列；缺失规则、倒挂、出清到期、商品下架都会导致
-        C 端不展示专区价。
+      >
+        <template #title>
+          最近一次价格同步失败：{{ currentSyncZone.lastError }}
+        </template>
+        <ElButton
+          link
+          type="primary"
+          :loading="triggerLoading"
+          @click="retrySync"
+        >
+          立即重试同步
+        </ElButton>
       </ElAlert>
 
       <!-- 筛选 -->
-      <PageFilterPanel
-        :model="filter"
-        @reset="handleReset"
-        @search="handleSearch"
-      >
-        <ElFormItem label="商品名称" prop="name">
-          <ElInput
-            v-model="filter.name"
-            clearable
-            placeholder="请输入商品名称"
-            @keyup.enter="handleSearch"
+      <section class="zone-filters" role="search" aria-label="商品筛选">
+        <ElInput
+          v-model="filter.name"
+          class="zone-filters__search"
+          aria-label="商品名称"
+          clearable
+          placeholder="搜索商品名称"
+          :prefix-icon="Search"
+          @clear="handleSearch"
+          @keyup.enter="handleSearch"
+        />
+        <ElCascader
+          v-model="filter.categorySecondId"
+          class="zone-filters__cascader"
+          :options="categoryTree"
+          :props="categoryProps"
+          aria-label="商品类目"
+          clearable
+          filterable
+          placeholder="商品类目"
+          @change="handleSearch"
+        />
+        <ElSelect
+          v-model="filter.brandId"
+          class="zone-filters__select"
+          aria-label="商品品牌"
+          clearable
+          filterable
+          placeholder="商品品牌"
+          @change="handleSearch"
+        >
+          <ElOption
+            v-for="brand in brandList"
+            :key="brand.id"
+            :label="brand.name"
+            :value="brand.id"
           />
-        </ElFormItem>
-        <ElFormItem label="商品类目" prop="categorySecondId">
-          <ElCascader
-            v-model="filter.categorySecondId"
-            style="width: 200px"
-            :options="categoryTree"
-            :props="categoryProps"
-            clearable
-            filterable
-            placeholder="全部类目"
-            @change="handleSearch"
+        </ElSelect>
+        <ElSelect
+          v-model="filter.status"
+          class="zone-filters__select zone-filters__select--status"
+          aria-label="商品状态"
+          clearable
+          placeholder="商品状态"
+          @change="handleSearch"
+        >
+          <ElOption
+            v-for="item in goods_status"
+            :key="item.value"
+            :label="item.label"
+            :value="item.value"
           />
-        </ElFormItem>
-        <ElFormItem label="商品品牌" prop="brandId">
-          <ElSelect
-            v-model="filter.brandId"
-            clearable
-            filterable
-            placeholder="全部品牌"
-            @change="handleSearch"
-          >
-            <ElOption
-              v-for="brand in brandList"
-              :key="brand.id"
-              :label="brand.name"
-              :value="brand.id"
-            />
-          </ElSelect>
-        </ElFormItem>
-        <ElFormItem label="商品状态" prop="status">
-          <ElSelect
-            v-model="filter.status"
-            clearable
-            placeholder="全部状态"
-            @change="handleSearch"
-          >
-            <ElOption
-              v-for="item in goods_status"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"
-            />
-          </ElSelect>
-        </ElFormItem>
-      </PageFilterPanel>
+        </ElSelect>
+        <div class="zone-filters__actions">
+          <ElButton type="primary" :icon="Search" @click="handleSearch">
+            查询
+          </ElButton>
+          <ElButton :icon="Refresh" @click="handleReset">重置</ElButton>
+        </div>
+      </section>
 
-      <!-- 工具栏 -->
-      <PageToolbar :total="page.total" total-label="件专区商品">
-        <template #left>
-          <ElButton
-            v-access:code="'product:goodsspu:edit'"
-            type="primary"
-            :icon="Plus"
-            @click="openAddGoods"
-          >
-            添加商品
-          </ElButton>
-          <ElButton
-            v-access:code="'product:goodsspu:edit'"
-            :icon="Setting"
-            :disabled="selectedCount === 0"
-            @click="openBatchRules"
-          >
-            批量设置规则
-          </ElButton>
-          <ElButton
-            v-access:code="'product:goodsspu:edit'"
-            type="danger"
-            plain
-            :icon="Delete"
-            :disabled="selectedCount === 0"
-            @click="openBatchRemove"
-          >
-            批量移出专区
-          </ElButton>
-          <ElButton :icon="Tickets" @click="goBatchRecords">
-            批次记录
-          </ElButton>
-          <ElButton
-            :icon="Check"
-            :loading="selectAllState.loading"
-            @click="handleSelectAll"
-          >
-            全选筛选结果
-          </ElButton>
-        </template>
-        <template #right>
-          <ElTag v-if="selectedCount > 0" type="primary" effect="plain">
-            {{ selectionText }}
-          </ElTag>
-          <ElButton
-            v-if="selectedCount > 0"
-            link
-            type="primary"
-            @click="clearSelection(false)"
-          >
-            清空选择
-          </ElButton>
-          <ElButton :icon="Refresh" circle @click="refreshAll" />
-        </template>
-      </PageToolbar>
-
-      <ElAlert
-        v-if="selectAllState.active"
-        type="success"
-        :closable="false"
-        show-icon
-        class="mb10"
-        :title="selectAllBanner"
-      >
-        <ElButton link type="primary" @click="clearSelection(false)">
-          清空选择
-        </ElButton>
-      </ElAlert>
+      <!-- 操作条：普通态为添加商品/批次记录，选择态原地切换为批量操作 -->
+      <ZoneActionBar
+        :selection-text="selectionText"
+        :filter-total="page.total"
+        :select-all-loading="selectAllState.loading"
+        :selected-count="selectedCount"
+        :show-select-all="selectedCount < page.total"
+        @add="openAddGoods"
+        @clear="clearSelection(false)"
+        @records="goBatchRecords"
+        @refresh="refreshAll"
+        @remove="openBatchRemove"
+        @rules="openBatchRules"
+        @select-all="handleSelectAll"
+      />
 
       <!-- 列表 -->
       <ElTable
         ref="tableRef"
         v-loading="loading"
-        class="hx-data-table"
+        class="hx-data-table zone-table"
         :data="tableData"
         row-key="id"
-        border
         empty-text="暂无专区商品"
         @selection-change="handleSelectionChange"
       >
         <ElTableColumn
           type="selection"
-          width="48"
+          width="46"
           align="center"
           reserve-selection
         />
-        <ElTableColumn label="商品信息" min-width="300">
+
+        <ElTableColumn label="商品信息" min-width="270">
           <template #default="{ row }">
-            <div class="zone-goods">
+            <div class="goods-cell">
               <ElImage
-                class="zone-goods__image"
+                class="goods-cell__img"
                 :src="row.spuUrls?.[0]"
                 :preview-src-list="row.spuUrls"
                 :hide-on-click-modal="true"
                 fit="cover"
                 :preview-teleported="true"
-              />
-              <div class="zone-goods__meta">
-                <span class="line-clamp-2">{{ row.name }}</span>
-                <span v-if="row.subTitle" class="zone-goods__sub line-clamp-1">
-                  {{ row.subTitle }}
-                </span>
-                <ElTag v-if="row.status !== '1'" size="small" type="info">
-                  已下架
-                </ElTag>
+              >
+                <template #error>
+                  <div class="goods-cell__fallback">
+                    <ElIcon><Picture /></ElIcon>
+                  </div>
+                </template>
+              </ElImage>
+              <div class="goods-cell__main">
+                <div class="goods-cell__title-row">
+                  <span class="goods-cell__title" :title="row.name">
+                    {{ row.name || '—' }}
+                  </span>
+                  <ElTag
+                    v-if="row.status !== '1'"
+                    size="small"
+                    type="info"
+                    effect="plain"
+                  >
+                    已下架
+                  </ElTag>
+                  <span
+                    v-if="row.stock !== null && row.stock !== undefined"
+                    class="goods-cell__stock"
+                  >
+                    库存 {{ row.stock }}
+                  </span>
+                </div>
+                <div
+                  v-if="row.subTitle || compactColumns"
+                  class="goods-cell__meta"
+                >
+                  <span
+                    v-if="row.subTitle"
+                    class="goods-cell__sub"
+                    :title="row.subTitle"
+                  >
+                    {{ row.subTitle }}
+                  </span>
+                  <span v-if="compactColumns" class="goods-cell__cate">
+                    {{ categoryBrandText(row) }}
+                  </span>
+                </div>
               </div>
             </div>
           </template>
         </ElTableColumn>
-        <ElTableColumn label="类目 / 品牌" width="170" align="center">
+
+        <ElTableColumn v-if="!compactColumns" label="类目 / 品牌" width="150">
           <template #default="{ row }">
-            <div class="zone-dim">{{ row.categoryName || '—' }}</div>
-            <div class="zone-dim zone-dim--light">
-              {{ row.brandName || '—' }}
+            <div class="cate-cell">
+              <span class="cate-cell__main">
+                {{ row.categoryName || '未分类' }}
+              </span>
+              <span class="cate-cell__sub">
+                {{ row.brandName || '无品牌' }}
+              </span>
             </div>
           </template>
         </ElTableColumn>
-        <ElTableColumn label="售价 / 原价" width="140" align="center">
+
+        <ElTableColumn width="190">
+          <template #header>
+            <span class="zone-th">
+              生效价
+              <ElTooltip
+                content="生效价为 C 端实际展示的专区价；售价 / 原价为商品基础价格"
+                placement="top"
+                :trigger="['hover', 'focus']"
+              >
+                <ElIcon
+                  class="zone-th__tip"
+                  tabindex="0"
+                  aria-label="价格口径说明：生效价为 C 端实际展示的专区价，售价与原价为商品基础价格"
+                >
+                  <QuestionFilled />
+                </ElIcon>
+              </ElTooltip>
+            </span>
+          </template>
           <template #default="{ row }">
-            <div class="zone-price">
-              ¥{{ Number(row.salesPrice ?? 0).toFixed(2) }}
-            </div>
-            <div class="zone-origin-price">
-              ¥{{ Number(row.originalPrice ?? 0).toFixed(2) }}
+            <div class="price-cell">
+              <div class="price-cell__main">
+                <span
+                  class="price-cell__now"
+                  :class="{ 'is-empty': row.effectivePrice == null }"
+                  :title="
+                    hasSkuOverride(row)
+                      ? '含 SKU 精调：部分规格按精调价格展示'
+                      : undefined
+                  "
+                >
+                  {{ formatPrice(row.effectivePrice) }}
+                </span>
+                <span v-if="hasSkuOverride(row)" class="price-cell__flag">
+                  含精调
+                </span>
+                <span v-if="discountOf(row)" class="price-cell__off">
+                  {{ discountOf(row) }}
+                </span>
+              </div>
+              <div class="price-cell__meta">
+                <span>售价 {{ formatPrice(row.salesPrice) }}</span>
+                <span v-if="row.originalPrice" class="price-cell__origin">
+                  原价 {{ formatPrice(row.originalPrice) }}
+                </span>
+              </div>
             </div>
           </template>
         </ElTableColumn>
-        <ElTableColumn label="当前规则" min-width="220">
+
+        <ElTableColumn min-width="225">
+          <template #header>
+            <span class="zone-th">
+              专区规则
+              <ElTooltip
+                content="规则按 SPU 配置；SKU 精调会按规格覆盖 SPU 规则"
+                placement="top"
+                :trigger="['hover', 'focus']"
+              >
+                <ElIcon
+                  class="zone-th__tip"
+                  tabindex="0"
+                  aria-label="专区规则说明：规则按 SPU 配置，SKU 精调会按规格覆盖 SPU 规则"
+                >
+                  <QuestionFilled />
+                </ElIcon>
+              </ElTooltip>
+            </span>
+          </template>
           <template #default="{ row }">
-            <div class="zone-rule-tags">
-              <ElTag
-                v-for="(item, index) in buildRuleSummary(zoneType, row)"
+            <div class="rule-cell">
+              <span
+                v-for="(chip, index) in ruleChips(row)"
                 :key="index"
-                size="small"
-                type="info"
-                class="mr5"
+                class="rule-chip"
+                :class="chip.tone ? `rule-chip--${chip.tone}` : ''"
+                :title="chip.hint"
               >
-                {{ item }}
-              </ElTag>
+                {{ chip.label }}
+              </span>
+              <button
+                v-if="hasSkuOverride(row)"
+                type="button"
+                class="rule-chip rule-chip--action"
+                @click="openSkuEditor(row)"
+              >
+                SKU 精调 {{ row.skuOverrideCount }}
+              </button>
             </div>
           </template>
         </ElTableColumn>
-        <ElTableColumn label="SKU 精调" width="130" align="center">
-          <template #default="{ row }">
-            <ElButton
-              link
-              :type="hasSkuOverride(row) ? 'warning' : 'info'"
-              @click="openSkuEditor(row)"
-            >
-              {{ describeSkuOverride(row) }}
-            </ElButton>
-          </template>
-        </ElTableColumn>
-        <ElTableColumn label="生效状态" width="210" align="center">
-          <template #default="{ row }">
-            <ElTooltip
-              :content="resolveStateMeta(row.state, row.stateLabel).tip"
-              placement="top"
-            >
-              <ElTag
-                size="small"
-                :type="resolveStateMeta(row.state, row.stateLabel).type"
+
+        <ElTableColumn width="120" align="center">
+          <template #header>
+            <span class="zone-th">
+              生效状态
+              <ElTooltip
+                content="状态优先级：已下架 > 已到期 > 未配规则 > 倒挂不生效 > 生效中"
+                placement="top"
+                :trigger="['hover', 'focus']"
               >
-                {{ resolveStateMeta(row.state, row.stateLabel).label }}
-              </ElTag>
+                <ElIcon
+                  class="zone-th__tip"
+                  tabindex="0"
+                  aria-label="生效状态说明：状态优先级为已下架、已到期、未配规则、倒挂不生效、生效中"
+                >
+                  <QuestionFilled />
+                </ElIcon>
+              </ElTooltip>
+            </span>
+          </template>
+          <template #default="{ row }">
+            <ElTooltip :content="stateMeta(row).tip" placement="top">
+              <span
+                class="state-pill"
+                :class="`state-pill--${stateMeta(row).type}`"
+              >
+                <span class="state-pill__dot" aria-hidden="true"></span>
+                {{ stateMeta(row).label }}
+              </span>
             </ElTooltip>
-            <div class="zone-effective-price">
-              {{ describeEffectivePrice(row) }}
+          </template>
+        </ElTableColumn>
+
+        <ElTableColumn label="操作" width="150" align="center" fixed="right">
+          <template #default="{ row }">
+            <div class="row-actions">
+              <ElButton
+                v-access:code="'product:goodsspu:edit'"
+                link
+                type="primary"
+                @click="openSkuEditor(row)"
+              >
+                调整规则
+              </ElButton>
+              <ElButton
+                v-access:code="'product:goodsspu:edit'"
+                link
+                type="danger"
+                @click="handleRowRemove(row)"
+              >
+                移出
+              </ElButton>
             </div>
           </template>
         </ElTableColumn>
-        <ElTableColumn label="操作" width="170" align="center" fixed="right">
-          <template #default="{ row }">
-            <ElButton
-              v-access:code="'product:goodsspu:edit'"
-              link
-              type="primary"
-              @click="openSkuEditor(row)"
-            >
-              调整规则
-            </ElButton>
-            <ElButton
-              v-access:code="'product:goodsspu:edit'"
-              link
-              type="danger"
-              @click="handleRowRemove(row)"
-            >
-              移出专区
-            </ElButton>
-          </template>
-        </ElTableColumn>
+
+        <template #empty>
+          <div class="zone-empty">
+            <div class="zone-empty__icon" aria-hidden="true">
+              <ElIcon><Box /></ElIcon>
+            </div>
+            <p class="zone-empty__title">当前条件下暂无专区商品</p>
+            <p class="zone-empty__desc">
+              调整筛选条件，或把商品添加到专区后再设置规则。
+            </p>
+            <div class="zone-empty__actions">
+              <ElButton
+                v-access:code="'product:goodsspu:edit'"
+                type="primary"
+                :icon="Plus"
+                @click="openAddGoods"
+              >
+                添加商品
+              </ElButton>
+              <ElButton v-if="hasActiveFilter" @click="handleReset">
+                清空筛选
+              </ElButton>
+            </div>
+          </div>
+        </template>
       </ElTable>
 
       <Pagination
@@ -986,122 +1066,468 @@ useKeepAliveRefresh(() => {
 </template>
 
 <style scoped lang="scss">
-.zone-panel {
-  padding: 0 16px;
-  margin-bottom: 14px;
-  background: hsl(var(--card));
+/* 窄屏：筛选控件铺满，避免右侧按钮被挤到下一行悬空 */
+@media (width <= 1280px) {
+  .zone-filters__search,
+  .zone-filters__cascader {
+    width: 210px;
+  }
+
+  .zone-filters__select {
+    width: 160px;
+  }
+
+  .zone-filters__select--status {
+    width: 140px;
+  }
+}
+
+.zone-page {
+  --zone-gap: 12px;
+}
+
+.zone-alert {
+  flex: none;
+  margin-bottom: var(--zone-gap);
+  border-radius: 10px;
+}
+
+/* ---------------------------------------------------------------------- */
+
+/* 筛选                                                                   */
+
+/* ---------------------------------------------------------------------- */
+
+.zone-filters {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 14px 16px;
+  margin-bottom: var(--zone-gap);
+  background: var(--el-fill-color-lighter);
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 12px;
 }
 
-.zone-tabs {
-  :deep(.el-tabs__header) {
-    margin-bottom: 4px;
-  }
+.zone-filters__search {
+  width: 260px;
+}
 
-  :deep(.el-tabs__nav-wrap::after) {
-    height: 1px;
-    background-color: var(--el-border-color-lighter);
-  }
+.zone-filters__cascader {
+  width: 220px;
+}
 
-  :deep(.el-tabs__content) {
+.zone-filters__select {
+  width: 180px;
+}
+
+.zone-filters__select--status {
+  width: 150px;
+}
+
+.zone-filters__actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-left: auto;
+
+  :deep(.el-button + .el-button) {
+    margin-left: 0;
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+
+/* 表格                                                                   */
+
+/* ---------------------------------------------------------------------- */
+
+.zone-table {
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 12px;
+
+  :deep(.el-table__inner-wrapper::before) {
     display: none;
   }
+
+  :deep(th.el-table__cell) {
+    height: 46px;
+    padding: 0;
+    font-weight: 600;
+    color: var(--el-text-color-secondary);
+  }
+
+  :deep(td.el-table__cell) {
+    padding: 8px 0;
+  }
+
+  :deep(.el-table__row:last-child > td.el-table__cell) {
+    border-bottom: 0;
+  }
+
+  /* 操作列固定右侧：默认背景会透出滚动内容，补一层卡片底色 */
+  :deep(.el-table-fixed-column--right) {
+    background: var(--el-bg-color);
+  }
+
+  :deep(.el-table__row:hover > .el-table-fixed-column--right) {
+    background: var(--el-color-primary-light-9);
+  }
 }
 
-.zone-status {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 24px;
+.zone-th {
+  display: inline-flex;
+  gap: 4px;
   align-items: center;
-  padding: 8px 0 14px;
 }
 
-.zone-status__item {
+.zone-th__tip {
+  font-size: 12px;
+  color: var(--el-text-color-placeholder);
+  cursor: help;
+
+  &:hover {
+    color: var(--el-color-primary);
+  }
+}
+
+/* 商品单元格 */
+.goods-cell {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+}
+
+.goods-cell__img {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  overflow: hidden;
+  background: var(--el-fill-color-lighter);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 10px;
+}
+
+.goods-cell__fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-size: 18px;
+  color: var(--el-text-color-placeholder);
+}
+
+.goods-cell__main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.goods-cell__title-row {
   display: flex;
   gap: 6px;
   align-items: center;
-  font-size: 13px;
+  min-width: 0;
 }
 
-.zone-status__item--actions {
-  margin-left: auto;
+.goods-cell__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--el-text-color-primary);
+  white-space: nowrap;
 }
 
-.zone-status__label {
+.goods-cell__meta {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  font-size: 12px;
   color: var(--el-text-color-secondary);
 }
 
-.zone-status__value {
+.goods-cell__sub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 窄屏隐藏「类目 / 品牌」列后，把该信息折叠到副标题行，信息不丢失 */
+.goods-cell__cate {
+  flex: none;
+  padding-left: 8px;
+  margin-left: auto;
+  border-left: 1px solid var(--el-border-color-lighter);
+}
+
+.goods-cell__stock {
+  flex: none;
+  margin-left: auto;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--el-text-color-secondary);
+}
+
+/* 类目 / 品牌 */
+.cate-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+
+.cate-cell__main {
+  color: var(--el-text-color-regular);
+}
+
+.cate-cell__sub {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+/* 价格 */
+.price-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.price-cell__main {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.price-cell__now {
+  font-size: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--el-color-danger);
+
+  &.is-empty {
+    font-size: 14px;
+    font-weight: 400;
+    color: var(--el-text-color-placeholder);
+  }
+}
+
+.price-cell__off {
+  padding: 0 5px;
+  font-size: 11px;
+  line-height: 16px;
+
+  /* 语义色与正文色混合，小字号下仍满足 4.5:1 对比度 */
+  color: color-mix(
+    in srgb,
+    var(--el-color-danger) 55%,
+    var(--el-text-color-primary)
+  );
+  background: var(--el-color-danger-light-9);
+  border-radius: 4px;
+}
+
+.price-cell__flag {
+  padding: 0 5px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--el-text-color-regular);
+  background: var(--el-fill-color);
+  border-radius: 4px;
+}
+
+.price-cell__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--el-text-color-regular);
+}
+
+.price-cell__origin {
+  text-decoration: line-through;
+}
+
+/* 规则 chip */
+.rule-cell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.rule-chip {
+  padding: 1px 8px;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--el-text-color-regular);
+  white-space: nowrap;
+  background: var(--el-fill-color-light);
+  border: 1px solid transparent;
+  border-radius: 6px;
+
+  &--warning {
+    color: color-mix(
+      in srgb,
+      var(--el-color-warning) 45%,
+      var(--el-text-color-primary)
+    );
+    background: var(--el-color-warning-light-9);
+    border-color: var(--el-color-warning-light-7);
+  }
+
+  &--danger {
+    color: color-mix(
+      in srgb,
+      var(--el-color-danger) 55%,
+      var(--el-text-color-primary)
+    );
+    background: var(--el-color-danger-light-9);
+    border-color: var(--el-color-danger-light-7);
+  }
+
+  &--action {
+    font-family: inherit;
+    color: var(--el-color-primary);
+    cursor: pointer;
+    background: var(--el-color-primary-light-9);
+    border-color: var(--el-color-primary-light-7);
+    transition:
+      background-color 160ms ease,
+      border-color 160ms ease;
+
+    &:hover {
+      background: var(--el-color-primary-light-8);
+      border-color: var(--el-color-primary-light-5);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--el-color-primary);
+      outline-offset: 1px;
+    }
+  }
+}
+
+/* 生效状态 pill：色点 + 文字，避免只靠颜色传达状态 */
+.state-pill {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  padding: 1px 9px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 20px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+
+  .state-pill__dot {
+    width: 5px;
+    height: 5px;
+    background: currentcolor;
+    border-radius: 50%;
+  }
+
+  &--success {
+    color: color-mix(
+      in srgb,
+      var(--el-color-success) 42%,
+      var(--el-text-color-primary)
+    );
+    background: var(--el-color-success-light-9);
+    border-color: var(--el-color-success-light-7);
+  }
+
+  &--warning {
+    color: color-mix(
+      in srgb,
+      var(--el-color-warning) 40%,
+      var(--el-text-color-primary)
+    );
+    background: var(--el-color-warning-light-9);
+    border-color: var(--el-color-warning-light-7);
+  }
+
+  &--danger {
+    color: color-mix(
+      in srgb,
+      var(--el-color-danger) 50%,
+      var(--el-text-color-primary)
+    );
+    background: var(--el-color-danger-light-9);
+    border-color: var(--el-color-danger-light-7);
+  }
+
+  &--info {
+    color: var(--el-text-color-regular);
+    background: var(--el-fill-color-light);
+    border-color: var(--el-border-color-lighter);
+  }
+}
+
+/* 行操作 */
+.row-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  justify-content: center;
+
+  :deep(.el-button + .el-button) {
+    margin-left: 0;
+  }
+}
+
+/* 空状态 */
+.zone-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 36px 16px 40px;
+}
+
+.zone-empty__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  margin-bottom: 12px;
+  font-size: 24px;
+  color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
+  border-radius: 14px;
+}
+
+.zone-empty__title {
+  margin: 0 0 4px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--el-text-color-primary);
 }
 
-.zone-status__tip {
+.zone-empty__desc {
+  margin: 0 0 16px;
   font-size: 12px;
   color: var(--el-text-color-secondary);
 }
 
-.zone-goods {
+.zone-empty__actions {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
-}
 
-.zone-goods__image {
-  flex: none;
-  width: 54px;
-  height: 54px;
-  border-radius: 6px;
-}
-
-.zone-goods__meta {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.zone-goods__sub {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-  white-space: nowrap;
-}
-
-.zone-dim {
-  font-size: 13px;
-  color: var(--el-text-color-regular);
-}
-
-.zone-dim--light {
-  color: var(--el-text-color-secondary);
-}
-
-.zone-price {
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--el-color-danger);
-}
-
-.zone-origin-price {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-  text-decoration: line-through;
-}
-
-.zone-rule-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.zone-effective-price {
-  margin-top: 4px;
-  font-size: 12px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--el-color-danger);
+  :deep(.el-button + .el-button) {
+    margin-left: 0;
+  }
 }
 </style>

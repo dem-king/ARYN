@@ -171,6 +171,31 @@ export function formatRate(value: unknown): string {
 }
 
 /**
+ * 生效价相对售价的实际折扣（用于价格列角标）：8.91 / 9.90 ≈ 9折。
+ * 没有真实优惠（≥ 99.5%）、售价缺失或非法时返回 null，避免展示「10折」噪声。
+ */
+export function describeEffectiveDiscount(
+  effective: unknown,
+  sales: unknown,
+): null | string {
+  const effectiveNum = toNumber(effective);
+  const salesNum = toNumber(sales);
+  if (
+    effectiveNum === null ||
+    salesNum === null ||
+    effectiveNum <= 0 ||
+    salesNum <= 0
+  ) {
+    return null;
+  }
+  const ratio = effectiveNum / salesNum;
+  if (ratio <= 0 || ratio >= 0.995) {
+    return null;
+  }
+  return formatRate(ratio);
+}
+
+/**
  * 默认折扣率文案：未设置时明确写「未设置」，避免运营误以为有兜底。
  */
 export function describeDefaultDiscount(value: unknown): string {
@@ -192,6 +217,66 @@ export function formatTime(value: null | string | undefined): string {
   // 兼容 ISO 字符串（2026-11-04T10:00:00）与空格分隔格式
   const normalized = text.replace('T', ' ');
   return normalized.length >= 16 ? normalized.slice(0, 16) : normalized;
+}
+
+/**
+ * 列表内的短时间口径：MM-DD HH:mm（跨年也保持短格式，运营看的是近期截止时间）。
+ * 无法解析时回退 {@link formatTime}，保证不会丢成空白。
+ */
+export function formatShortTime(value: null | string | undefined): string {
+  const text = (value ?? '').trim().replace('T', ' ');
+  const matched = /^\d{4}-(\d{2})-(\d{2}) (\d{2}:\d{2})/.exec(text);
+  if (!matched) {
+    return formatTime(value);
+  }
+  return `${matched[1]}-${matched[2]} ${matched[3]}`;
+}
+
+/** 出清截止提醒：已到期 / 3 天内到期需要重点提示，其余只需展示时间 */
+export interface ExpiryMeta {
+  /** 剩余天数（已到期为 0） */
+  days: number;
+  expired: boolean;
+  label: string;
+  tone: 'danger' | 'warning';
+}
+
+/**
+ * 出清截止时间风险：>3 天返回 null（正常展示截止时间即可）。
+ * 后端口径为本地时区 `yyyy-MM-dd HH:mm[:ss]`，按本地时间解析；
+ * ISO 时间（带 T）同样兼容，非法/空值返回 null。
+ */
+export function resolveExpiryMeta(
+  value: null | string | undefined,
+  now: Date = new Date(),
+): ExpiryMeta | null {
+  const text = (value ?? '').trim().replace('T', ' ');
+  const matched = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})(?::(\d{2}))?/.exec(
+    text,
+  );
+  if (!matched) {
+    return null;
+  }
+  const expireAt = new Date(
+    Number(matched[1]),
+    Number(matched[2]) - 1,
+    Number(matched[3]),
+    Number(matched[4]),
+    Number(matched[5]),
+    Number(matched[6] ?? 0),
+  );
+  if (Number.isNaN(expireAt.getTime())) {
+    return null;
+  }
+  const diff = expireAt.getTime() - now.getTime();
+  if (diff <= 0) {
+    return { days: 0, expired: true, label: '已到期', tone: 'danger' };
+  }
+  const days = Math.ceil(diff / 86_400_000);
+  if (days > 3) {
+    return null;
+  }
+  return { days, expired: false, label: `${days} 天后到期`, tone: 'warning' };
 }
 
 /** 当前日期的展示口径（yyyy-MM-dd HH:mm:ss） */
@@ -396,6 +481,114 @@ export function buildRuleSummary(zone: ZoneKey, row: ZoneRuleRow): string[] {
   return items.length > 0 ? items : ['未配规则'];
 }
 
+/** 列表规则标记：tone 用于「即将到期」等需要运营关注的提示，hint 提供原生 title 补充 */
+export interface RuleChip {
+  hint?: string;
+  label: string;
+  tone?: 'danger' | 'warning';
+}
+
+/**
+ * 当前规则的列表标记（与 {@link buildRuleSummary} 同口径，但带提示色）。
+ *
+ * - 会员：折扣 / 固定价 / 下限；
+ * - 出清：出清价 / 折扣 / 截止时间（≤3 天或已到期时给出预警色）。
+ */
+export function buildRuleChips(
+  zone: ZoneKey,
+  row: ZoneRuleRow,
+  now: Date = new Date(),
+): RuleChip[] {
+  if (zone === 'member') {
+    if (toNumber(row.isMemberItem) !== 1) {
+      return [{ label: '未加入专区', tone: 'warning' }];
+    }
+    const chips: RuleChip[] = [];
+    const rate = toNumber(row.memberDiscountRate);
+    const fixed = toNumber(row.memberPriceFixed);
+    const floor = toNumber(row.memberPriceFloor);
+    if (rate !== null) {
+      chips.push({ label: `折扣 ${formatRate(rate)}` });
+    }
+    if (fixed !== null) {
+      chips.push({ label: `固定价 ${formatPrice(fixed)}` });
+    }
+    if (floor !== null) {
+      chips.push({ label: `下限 ${formatPrice(floor)}` });
+    }
+    // 未配规则不一定是问题：专区开启且配了默认折扣率时仍会生效，
+    // 因此这里用中性 chip，是否真正生效交给「生效状态」列表达。
+    return chips.length > 0 ? chips : [{ label: '未配置规则' }];
+  }
+
+  if (toNumber(row.isClearanceItem) !== 1) {
+    return [{ label: '未加入专区', tone: 'warning' }];
+  }
+  const chips: RuleChip[] = [];
+  const price = toNumber(row.clearancePrice);
+  const rate = toNumber(row.clearanceDiscountRate);
+  if (price !== null) {
+    chips.push({ label: `出清价 ${formatPrice(price)}` });
+  }
+  if (rate !== null) {
+    chips.push({ label: `折扣 ${formatRate(rate)}` });
+  }
+  if (row.clearanceExpireTime) {
+    const expiry = resolveExpiryMeta(row.clearanceExpireTime, now);
+    const hint = `截止 ${formatTime(row.clearanceExpireTime)}`;
+    chips.push(
+      expiry
+        ? { hint, label: expiry.label, tone: expiry.tone }
+        : { hint, label: `截止 ${formatShortTime(row.clearanceExpireTime)}` },
+    );
+  }
+  return chips.length > 0 ? chips : [{ label: '未配置规则' }];
+}
+
+/** 是否已配置本专区的有效规则（用于区分「未配置规则」与「继承默认折扣」） */
+export function hasZoneRule(zone: ZoneKey, row: ZoneRuleRow): boolean {
+  if (zone === 'member') {
+    return (
+      toNumber(row.isMemberItem) === 1 &&
+      (toNumber(row.memberDiscountRate) !== null ||
+        toNumber(row.memberPriceFixed) !== null ||
+        toNumber(row.memberPriceFloor) !== null)
+    );
+  }
+  return (
+    toNumber(row.isClearanceItem) === 1 &&
+    (toNumber(row.clearancePrice) !== null ||
+      toNumber(row.clearanceDiscountRate) !== null ||
+      !!row.clearanceExpireTime)
+  );
+}
+
+/**
+ * 「全选筛选结果」模式下处理当前页勾选变化。
+ *
+ * 选择语义以筛选结果集（currentIds）为准：当前页取消勾选 = 从结果集移除，
+ * 重新勾选 = 加回；未渲染页码的选择不受影响。返回保持原顺序的 id 列表。
+ */
+export function mergeFilterSelection(
+  currentIds: string[],
+  pageIds: string[],
+  selectedIds: string[],
+): string[] {
+  const pageIdSet = new Set(pageIds);
+  const selectedSet = new Set(selectedIds);
+  const kept = currentIds.filter(
+    (id) => !pageIdSet.has(id) || selectedSet.has(id),
+  );
+  const keptSet = new Set(kept);
+  for (const id of selectedIds) {
+    if (!keptSet.has(id)) {
+      kept.push(id);
+      keptSet.add(id);
+    }
+  }
+  return kept;
+}
+
 /** SKU 精调数量文案：0 件显示「—」 */
 export function describeSkuOverride(row: ZoneRuleRow): string {
   const count = Math.max(0, Math.trunc(toNumber(row.skuOverrideCount) ?? 0));
@@ -469,6 +662,33 @@ export function describeEffectivePrice(row: ZoneRuleRow): string {
     return '—';
   }
   return hasSkuOverride(row) ? `${price}（含 SKU 精调）` : price;
+}
+
+/** 专区开关徽标：同步状态优先，接口不可用时回退专区设置，两者都取不到显示未知 */
+export interface ZoneEnabledMeta {
+  label: '已关闭' | '已开启' | '未知';
+  tone: 'danger' | 'success' | 'unknown';
+}
+
+export function resolveZoneEnabledMeta(
+  syncEnabled: unknown,
+  settingEnabled: unknown,
+): ZoneEnabledMeta {
+  if (typeof syncEnabled === 'boolean') {
+    return syncEnabled
+      ? { label: '已开启', tone: 'success' }
+      : { label: '已关闭', tone: 'danger' };
+  }
+  if (
+    settingEnabled === null ||
+    settingEnabled === undefined ||
+    settingEnabled === ''
+  ) {
+    return { label: '未知', tone: 'unknown' };
+  }
+  return settingEnabled === '0' || settingEnabled === false
+    ? { label: '已关闭', tone: 'danger' }
+    : { label: '已开启', tone: 'success' };
 }
 
 /** 专区同步状态徽标（GET /promotion/zone/sync-status） */

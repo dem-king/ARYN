@@ -354,8 +354,10 @@ watch(
 <template>
   <ElDialog
     :model-value="visible"
+    class="goods-picker-dialog"
     :title="`添加商品 - ${ZONE_LABEL[zoneType]}`"
     width="960px"
+    top="6vh"
     :close-on-click-modal="false"
     append-to-body
     @update:model-value="handleVisibleChange"
@@ -449,7 +451,6 @@ watch(
       :data="rows"
       row-key="id"
       border
-      max-height="420"
       empty-text="暂无候选商品"
       @selection-change="handleSelectionChange"
     >
@@ -613,6 +614,35 @@ watch(
 
   b {
     color: var(--el-color-primary);
+  }
+}
+</style>
+
+<style lang="scss">
+/* ElDialog 通过 append-to-body 挂载到 body，内部结构不受组件 scope 约束，
+   因此这里用非 scoped 样式固定弹窗尺寸：
+   - 弹窗最高不超过视口，头/脚常驻，只有内容区滚动；
+   - 底部「取消 / 下一步」在任何屏幕高度下都可见可点。 */
+.goods-picker-dialog {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(93vh - 60px);
+  overflow: hidden;
+
+  .el-dialog__header {
+    flex: none;
+  }
+
+  .el-dialog__body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+    overscroll-behavior: contain;
+  }
+
+  .el-dialog__footer {
+    flex: none;
   }
 }
 </style>

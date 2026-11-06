@@ -299,7 +299,7 @@ initPage();
 useKeepAliveRefresh(initPage);
 </script>
 <template>
-  <div>
+  <div :class="{ 'material-dialog-mode': props.mode === 'dialog' }">
     <ElUpload
       action="#"
       :limit="99"
@@ -466,6 +466,27 @@ useKeepAliveRefresh(initPage);
   </div>
 </template>
 <style lang="scss" scoped>
+/* 素材选择弹窗内：分页固定单行展示（弹窗已加宽到 min(1280px, 92vw)）。
+   弹窗宽度为 92vw，视口 < 1200px 时媒体区放不下单行分页，强行 nowrap 会把
+   「共 X 条」等左侧内容裁掉；此时保持分页默认换行，避免内容不可见。 */
+@media (min-width: 1200px) {
+  .material-dialog-mode .media-list :deep(.hx-pagination) {
+    flex-wrap: nowrap;
+  }
+}
+
+/* 弹窗内分页去掉外层冗余留白、收紧间距，给单行展示留出余量；
+   素材管理页是整页宽度，不受这里影响 */
+.material-dialog-mode {
+  .media-list :deep(.hx-pagination) {
+    --el-pagination-item-gap: 10px;
+
+    gap: 4px;
+    padding-right: 8px;
+    padding-left: 8px;
+  }
+}
+
 .material-main {
   display: flex;
   height: calc(max(100vh - 420px, 300px));

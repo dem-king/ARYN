@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildRemoveConfirmText,
+  buildRuleChips,
   buildRuleSummary,
   buildZoneIdsPayload,
   buildZonePageQuery,
@@ -10,6 +11,7 @@ import {
   compactFilter,
   dedupeIds,
   describeDefaultDiscount,
+  describeEffectiveDiscount,
   describeEffectivePrice,
   describeSelectAllResult,
   describeSelection,
@@ -19,18 +21,23 @@ import {
   formatMoney,
   formatPrice,
   formatRate,
+  formatShortTime,
   formatTime,
   hasSkuOverride,
+  hasZoneRule,
   isBatchUndoable,
   isSelectAllOversized,
+  mergeFilterSelection,
   readBatchTotal,
   resolveActivityStatusMeta,
   resolveBatchDoneTone,
+  resolveExpiryMeta,
   resolvePickerZoneType,
   resolveSelectAllLimit,
   resolveStateMeta,
   resolveSyncMeta,
   resolveUndoMeta,
+  resolveZoneEnabledMeta,
   summarizeBatchActions,
   summarizeBatchDone,
   summarizeBatchItems,
@@ -420,5 +427,140 @@ describe('撤销结果', () => {
     expect(text).toContain('3 件商品');
     expect(text).toContain('会员专区');
     expect(text).toContain('SKU 精调');
+  });
+});
+
+describe('列表价格 / 到期 / 规则标记（改版新增口径）', () => {
+  it('生效价相对售价的实际折扣，无优惠不展示', () => {
+    expect(describeEffectiveDiscount(8.91, 9.9)).toBe('9折');
+    expect(describeEffectiveDiscount('7.92', 9.9)).toBe('8折');
+    expect(describeEffectiveDiscount(9.9, 9.9)).toBeNull();
+    expect(describeEffectiveDiscount(10, 9.9)).toBeNull();
+    expect(describeEffectiveDiscount(null, 9.9)).toBeNull();
+    expect(describeEffectiveDiscount(8.91, 0)).toBeNull();
+  });
+
+  it('短时间只保留 MM-DD HH:mm，非法值回退', () => {
+    expect(formatShortTime('2026-11-08 12:46:00')).toBe('11-08 12:46');
+    expect(formatShortTime('2026-11-08T12:46:00')).toBe('11-08 12:46');
+    expect(formatShortTime('')).toBe('—');
+    expect(formatShortTime('不是时间')).toBe('不是时间');
+  });
+
+  it('出清截止风险：已到期 / 3 天内 / 正常', () => {
+    const now = new Date(2026, 10, 4, 20, 0, 0);
+    expect(resolveExpiryMeta('2026-11-04 19:00:00', now)).toMatchObject({
+      expired: true,
+      label: '已到期',
+      tone: 'danger',
+    });
+    expect(resolveExpiryMeta('2026-11-06 12:00:00', now)).toMatchObject({
+      expired: false,
+      tone: 'warning',
+      label: '2 天后到期',
+    });
+    expect(resolveExpiryMeta('2026-11-30 12:00:00', now)).toBeNull();
+    expect(resolveExpiryMeta('', now)).toBeNull();
+    expect(resolveExpiryMeta(null, now)).toBeNull();
+  });
+
+  it('规则标记带提示色：未配置 / 未加入 / 到期预警', () => {
+    const now = new Date(2026, 10, 4, 20, 0, 0);
+    expect(buildRuleChips('member', { isMemberItem: 0 })).toEqual([
+      { label: '未加入专区', tone: 'warning' },
+    ]);
+    expect(buildRuleChips('member', { isMemberItem: 1 })).toEqual([
+      { label: '未配置规则' },
+    ]);
+    expect(
+      buildRuleChips('member', {
+        isMemberItem: 1,
+        memberDiscountRate: 0.9,
+        memberPriceFixed: 29.9,
+      }),
+    ).toEqual([{ label: '折扣 9折' }, { label: '固定价 ¥29.90' }]);
+    expect(
+      buildRuleChips(
+        'clearance',
+        {
+          isClearanceItem: 1,
+          clearancePrice: 7.9,
+          clearanceExpireTime: '2026-11-06 12:00:00',
+        },
+        now,
+      ),
+    ).toEqual([
+      { label: '出清价 ¥7.90' },
+      { hint: '截止 2026-11-06 12:00', label: '2 天后到期', tone: 'warning' },
+    ]);
+    expect(
+      buildRuleChips(
+        'clearance',
+        { isClearanceItem: 1, clearanceExpireTime: '2026-12-31 23:59:59' },
+        now,
+      ),
+    ).toEqual([{ hint: '截止 2026-12-31 23:59', label: '截止 12-31 23:59' }]);
+  });
+
+  it('专区开关：同步状态优先，其次专区设置，最终未知', () => {
+    expect(resolveZoneEnabledMeta(true, undefined)).toMatchObject({
+      label: '已开启',
+      tone: 'success',
+    });
+    expect(resolveZoneEnabledMeta(false, '1')).toMatchObject({
+      label: '已关闭',
+      tone: 'danger',
+    });
+    expect(resolveZoneEnabledMeta(undefined, '0')).toMatchObject({
+      label: '已关闭',
+    });
+    expect(resolveZoneEnabledMeta(undefined, 1)).toMatchObject({
+      label: '已开启',
+    });
+    expect(resolveZoneEnabledMeta(undefined, undefined)).toMatchObject({
+      label: '未知',
+      tone: 'unknown',
+    });
+  });
+});
+
+describe('全选筛选结果与规则归属（改版修复口径）', () => {
+  it('filter 模式下取消当前页某行只从结果集移除该行，不整体退化', () => {
+    const all = ['1', '2', '3', '4', '5'];
+    expect(mergeFilterSelection(all, ['1', '2', '3'], ['1', '3'])).toEqual([
+      '1',
+      '3',
+      '4',
+      '5',
+    ]);
+    // 重新勾选加回
+    expect(
+      mergeFilterSelection(['2', '4', '5'], ['1', '2', '3'], ['1', '2', '3']),
+    ).toEqual(['2', '4', '5', '1', '3']);
+    // 当前页之外的 id 不受影响
+    expect(mergeFilterSelection(all, ['1', '2'], ['1', '2'])).toEqual(all);
+    expect(mergeFilterSelection(all, ['1', '2'], [])).toEqual(['3', '4', '5']);
+    expect(mergeFilterSelection([], ['1'], [])).toEqual([]);
+  });
+
+  it('hasZoneRule 区分「未配置规则」与「继承默认折扣」', () => {
+    expect(hasZoneRule('member', { isMemberItem: 1 })).toBe(false);
+    expect(
+      hasZoneRule('member', { isMemberItem: 1, memberDiscountRate: 0.9 }),
+    ).toBe(true);
+    expect(
+      hasZoneRule('member', { isMemberItem: 1, memberPriceFixed: 0 }),
+    ).toBe(true);
+    expect(hasZoneRule('member', { isMemberItem: 0 })).toBe(false);
+    expect(hasZoneRule('clearance', { isClearanceItem: 1 })).toBe(false);
+    expect(
+      hasZoneRule('clearance', {
+        isClearanceItem: 1,
+        clearanceExpireTime: '2026-12-01 00:00',
+      }),
+    ).toBe(true);
+    expect(
+      hasZoneRule('clearance', { isClearanceItem: 1, clearancePrice: 9.9 }),
+    ).toBe(true);
   });
 });
