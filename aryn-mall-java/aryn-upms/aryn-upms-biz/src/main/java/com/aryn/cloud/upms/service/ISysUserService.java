@@ -87,6 +87,24 @@ public interface ISysUserService extends IService<SysUser> {
 	 */
 	boolean delUser(SysUser sysUser);
 
+	/**
+	 * 按 ID 查询对当前会话可见的账号。
+	 *
+	 * <p>平台管理员账号是系统内置账号，不在员工账号页面暴露：列表查询已过滤，
+	 * 详情/手机号等按 ID 读取的入口也必须走本方法，避免通过已知 ID 读到其资料。</p>
+	 *
+	 * @param userId 目标账号 ID
+	 * @return 可见账号；不存在或对当前会话不可见时返回 {@code null}
+	 */
+	SysUser getVisibleUserById(String userId);
+
+	/**
+	 * 当前租户管理端员工账号数（排除平台管理员账号）。
+	 *
+	 * <p>平台管理员是系统级身份、不属于任何租户，租户概览等统计不能把它算作租户员工。</p>
+	 */
+	long countVisibleStaff();
+
 	int getCount(SysUser sysUser);
 
 }

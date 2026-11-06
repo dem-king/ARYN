@@ -5,6 +5,7 @@ import com.aryn.cloud.common.security.handler.ArynBusinessException;
 import com.aryn.cloud.common.security.util.SecurityUtils;
 import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.upms.service.ISysLoginLogService;
+import com.aryn.cloud.upms.support.PlatformAdminVisibilitySupport;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
@@ -30,7 +31,8 @@ class SysLoginLogControllerMyTest {
 	void myPageScopesToCurrentUserAndClampsPageSize() {
 		ISysLoginLogService loginLogService = mock(ISysLoginLogService.class);
 		when(loginLogService.page(any(), any())).thenReturn(new Page<>());
-		SysLoginLogController controller = new SysLoginLogController(loginLogService);
+		SysLoginLogController controller = new SysLoginLogController(loginLogService,
+				mock(PlatformAdminVisibilitySupport.class));
 
 		try (MockedStatic<SecurityUtils> security = mockStatic(SecurityUtils.class)) {
 			ArynUser user = new ArynUser();
@@ -52,7 +54,8 @@ class SysLoginLogControllerMyTest {
 	void myPageKeepsCallerPageSizeWithinLimit() {
 		ISysLoginLogService loginLogService = mock(ISysLoginLogService.class);
 		when(loginLogService.page(any(), any())).thenReturn(new Page<>());
-		SysLoginLogController controller = new SysLoginLogController(loginLogService);
+		SysLoginLogController controller = new SysLoginLogController(loginLogService,
+				mock(PlatformAdminVisibilitySupport.class));
 
 		try (MockedStatic<SecurityUtils> security = mockStatic(SecurityUtils.class)) {
 			ArynUser user = new ArynUser();
@@ -69,7 +72,8 @@ class SysLoginLogControllerMyTest {
 
 	@Test
 	void myPagePropagatesUnauthenticatedFailure() {
-		SysLoginLogController controller = new SysLoginLogController(mock(ISysLoginLogService.class));
+		SysLoginLogController controller = new SysLoginLogController(mock(ISysLoginLogService.class),
+				mock(PlatformAdminVisibilitySupport.class));
 		try (MockedStatic<SecurityUtils> security = mockStatic(SecurityUtils.class)) {
 			security.when(SecurityUtils::requireUser).thenThrow(new ArynBusinessException("当前会话未登录"));
 

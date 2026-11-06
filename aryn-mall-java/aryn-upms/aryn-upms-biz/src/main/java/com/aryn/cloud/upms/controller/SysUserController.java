@@ -84,7 +84,8 @@ public class SysUserController {
 	@SaCheckPermission("upms:sysuser:get")
 	@GetMapping("/{id}")
 	public Result<SysUserVO> getById(@PathVariable String id) {
-		SysUser sysUser = sysUserService.getById(id);
+		// 平台管理员账号是系统内置账号，走可见性查询：租户管理员拿到 ID 也读不到
+		SysUser sysUser = sysUserService.getVisibleUserById(id);
 		if (ObjectUtil.isNull(sysUser)) {
 			return Result.fail("用户不存在");
 		}
@@ -101,7 +102,7 @@ public class SysUserController {
 	@SaCheckPermission("upms:sysuser:phone")
 	@GetMapping("/{id}/phone")
 	public Result<String> phone(@PathVariable String id) {
-		SysUser sysUser = sysUserService.getById(id);
+		SysUser sysUser = sysUserService.getVisibleUserById(id);
 		if (ObjectUtil.isNull(sysUser)) {
 			return Result.fail("用户不存在");
 		}
@@ -133,8 +134,9 @@ public class SysUserController {
 		if (!PHONE_PATTERN.matcher(phone).matches()) {
 			return Result.fail("手机号格式不正确");
 		}
-		// 租户拦截器把查询限定在当前查看的租户内：平台管理员切换租户后只能改该租户员工
-		SysUser target = sysUserService.getById(id);
+		// 租户拦截器把查询限定在当前查看的租户内；平台管理员账号是系统内置账号，
+		// 不在员工账号页面暴露，也不允许经此入口改绑手机号（手机号可直接用于短信登录）
+		SysUser target = sysUserService.getVisibleUserById(id);
 		if (ObjectUtil.isNull(target)) {
 			return Result.fail("用户不存在或已删除");
 		}

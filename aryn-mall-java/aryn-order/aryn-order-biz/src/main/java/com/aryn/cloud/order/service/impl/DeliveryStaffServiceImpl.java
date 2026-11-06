@@ -149,12 +149,15 @@ public class DeliveryStaffServiceImpl extends ServiceImpl<DeliveryStaffMapper, D
 		if (BINDING_STATUS_BOUND.equals(bindingStatus) && boundStaffIds.isEmpty()) {
 			return emptyManagerPage(page);
 		}
+		// 平台管理员账号不属于任何租户员工，不能以配送员身份出现在租户配送员列表
+		List<String> hiddenSysUserIds = platformAdminUserIds();
 		Page<DeliveryStaff> staffPage = page(page, Wrappers.<DeliveryStaff>lambdaQuery()
 			.and(StrUtil.isNotBlank(keyword), wrapper -> wrapper
 				.like(DeliveryStaff::getStaffName, keyword)
 				.or()
 				.like(DeliveryStaff::getStaffPhone, keyword))
 			.eq(StrUtil.isNotBlank(status), DeliveryStaff::getStatus, status)
+			.notIn(!hiddenSysUserIds.isEmpty(), DeliveryStaff::getUserId, hiddenSysUserIds)
 			.in(BINDING_STATUS_BOUND.equals(bindingStatus), DeliveryStaff::getId, boundStaffIds)
 			.notIn(BINDING_STATUS_UNBOUND.equals(bindingStatus) && !boundStaffIds.isEmpty(), DeliveryStaff::getId,
 					boundStaffIds)
@@ -599,6 +602,20 @@ public class DeliveryStaffServiceImpl extends ServiceImpl<DeliveryStaffMapper, D
 			vo.setDeliveryPermission(full != null && hasDeliveryPermission(full.getPermissions()));
 			return vo;
 		}).toList();
+	}
+
+	/**
+	 * 当前租户平台管理员账号 ID 集合；远程查询失败时按空集合处理（不阻断配送员列表）。
+	 */
+	private List<String> platformAdminUserIds() {
+		try {
+			List<String> ids = remoteSysUserService.getPlatformAdminUserIds();
+			return ids == null ? Collections.emptyList() : ids;
+		}
+		catch (Exception e) {
+			log.warn("查询平台管理员账号失败，跳过配送员过滤：{}", e.getMessage());
+			return Collections.emptyList();
+		}
 	}
 
 }

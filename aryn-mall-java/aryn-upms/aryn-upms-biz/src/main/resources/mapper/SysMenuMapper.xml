@@ -52,6 +52,13 @@
         AND sys_role_menu.role_id = #{roleId}
         ORDER BY sys_menu.sort DESC
     </select>
+    <select id="listAllMenus" resultMap="menuVoResultMap">
+        SELECT
+        <include refid="menuSql"/>
+        FROM sys_menu AS sys_menu
+        WHERE sys_menu.del_flag = '0'
+        ORDER BY sys_menu.sort DESC
+    </select>
     <select id="selectTenantMenuTree" resultType="com.aryn.cloud.upms.api.entity.SysMenu">
         SELECT
         <include refid="menuSql"/>

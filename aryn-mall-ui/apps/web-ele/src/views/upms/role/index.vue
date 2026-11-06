@@ -87,11 +87,16 @@ const del = (id: string) => {
   });
 };
 /**
- * 受保护角色（超级管理员/配送员资格角色）由系统管理，
- * 不提供修改与删除入口，配送资格在配送员管理中开通或停用
+ * 受保护角色由系统管理，不提供修改与删除入口：
+ * - ROLE_ADMIN（超级管理员）是租户管理员角色，可分配权限但不能改编码/删除；
+ * - ROLE_PLATFORM_ADMIN（平台管理员）是系统内置角色，服务端已从列表隐藏，
+ *   这里同步兜底，避免旧缓存/手工构造数据时出现操作入口；
+ * - delivery_staff（配送员资格角色）在配送员管理中开通或停用。
  */
 const isProtectedRole = (roleCode: string) =>
-  roleCode === 'ROLE_ADMIN' || roleCode === 'delivery_staff';
+  roleCode === 'ROLE_ADMIN' ||
+  roleCode === 'ROLE_PLATFORM_ADMIN' ||
+  roleCode === 'delivery_staff';
 const onAuth = (row: any) => {
   roleMenuRef.value.initRoleMenu(row.id);
 };

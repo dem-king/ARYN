@@ -99,22 +99,26 @@ public class SysMenuServiceImpl extends ServiceImpl<SysMenuMapper, SysMenu> impl
 
 	@Override
 	public List<TreeNode<String>> getLoginUserMenuTree() {
-		// 查询角色菜单
-		Set<MenuVO> all = new HashSet<>();
-		List<String> roles = sysRoleMapper.listRoleIdsByUserId(StpUtil.getLoginId().toString());
-		for (String roleId : roles) {
-			all.addAll(this.findMenuByRoleId(roleId));
-		}
-		// 平台管理员在「本租户上下文」下不过滤菜单；切到其它租户或租户管理员一律按租户套餐过滤
+		// 平台管理员在「本租户上下文」下持有全部菜单：权限来自系统内置身份，而不是可编辑的
+		// sys_role_menu 数据（平台管理员角色已不可经角色管理维护）
 		ArynUser sessionUser = SecurityUtils.getUser();
 		boolean platformAdminContext = sessionUser != null
 				&& Boolean.TRUE.equals(sessionUser.getPlatformAdmin())
 				&& Objects.equals(sessionUser.getTenantId(), ArynTenantContextHolder.getTenantId());
-		if (!platformAdminContext) {
-			// 查询租户菜单
+		Set<MenuVO> all;
+		if (platformAdminContext) {
+			all = new HashSet<>(baseMapper.listAllMenus());
+		}
+		else {
+			// 查询角色菜单
+			all = new HashSet<>();
+			List<String> roles = sysRoleMapper.listRoleIdsByUserId(StpUtil.getLoginId().toString());
+			for (String roleId : roles) {
+				all.addAll(this.findMenuByRoleId(roleId));
+			}
+			// 切到其它租户或租户管理员一律按租户套餐过滤
 			List<SysTenantMenu> sysTenantMenuList = sysTenantMenuMapper.selectList(Wrappers.query());
 			List<String> tenantMenuIds = sysTenantMenuList.stream().map(SysTenantMenu::getMenuId).toList();
-			// 取交集
 			all = all.stream().filter(menu -> tenantMenuIds.contains(menu.getId())).collect(Collectors.toSet());
 		}
 

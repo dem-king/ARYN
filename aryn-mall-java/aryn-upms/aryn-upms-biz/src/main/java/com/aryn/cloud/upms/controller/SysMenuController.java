@@ -11,8 +11,10 @@ import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.log.annotation.SysLog;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.upms.api.entity.SysMenu;
+import com.aryn.cloud.upms.api.entity.SysRole;
 import com.aryn.cloud.upms.api.vo.MenuVO;
 import com.aryn.cloud.upms.service.ISysMenuService;
+import com.aryn.cloud.upms.service.ISysRoleService;
 import com.aryn.cloud.upms.support.PlatformTenantGuard;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -40,6 +42,8 @@ import java.util.stream.Collectors;
 public class SysMenuController {
 
 	private final ISysMenuService sysMenuService;
+
+	private final ISysRoleService sysRoleService;
 
 	private final PlatformTenantGuard platformTenantGuard;
 
@@ -102,6 +106,11 @@ public class SysMenuController {
 	@SaCheckPermission(value = { "upms:sysrole:update", "upms:sysrole:page" }, mode = SaMode.OR)
 	@GetMapping("/role/{roleId}")
 	public Result<List<MenuVO>> getRoleMenu(@PathVariable("roleId") String roleId) {
+		// 系统内置角色（平台管理员）不在角色管理中暴露，其菜单授权数据也不可读取
+		SysRole role = sysRoleService.getById(roleId);
+		if (role == null || CommonConstants.isSystemBuiltinRole(role.getRoleCode())) {
+			return Result.fail("角色不存在");
+		}
 		return Result.success(sysMenuService.findMenuByRoleId(roleId));
 	}
 

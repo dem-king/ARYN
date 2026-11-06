@@ -151,7 +151,7 @@ class SysUserControllerPasswordTest {
 	@Test
 	void getByIdResponseDoesNotContainPasswordField() throws Exception {
 		SysUser existing = existingUser();
-		when(userService.getById("user-1")).thenReturn(existing);
+		when(userService.getVisibleUserById("user-1")).thenReturn(existing);
 		when(sysRoleService.findRoleIdsByUserId("user-1")).thenReturn(List.of("role-1"));
 
 		Result<SysUserVO> result = controller.getById("user-1");

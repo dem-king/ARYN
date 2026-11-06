@@ -40,6 +40,8 @@
             sys_role AS sys_role
         <where>
             AND sys_role.del_flag = '0'
+            <!-- 平台管理员角色是系统内置角色：不出现在角色管理列表，只能由初始化/迁移脚本维护 -->
+            AND sys_role.role_code != 'ROLE_PLATFORM_ADMIN'
         <if test="query.roleName !=null and query.roleName !=''">
             AND sys_role.role_name = #{query.roleName}
         </if>

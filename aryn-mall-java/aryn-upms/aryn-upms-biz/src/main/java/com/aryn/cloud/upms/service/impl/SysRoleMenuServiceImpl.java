@@ -63,10 +63,9 @@ public class SysRoleMenuServiceImpl extends ServiceImpl<SysRoleMenuMapper, SysRo
 		if (role == null) {
 			throw new ArynBusinessException("角色不存在或不属于当前租户");
 		}
-		// 平台管理员角色持有全部菜单与权限，只允许平台管理员维护，避免租户管理员削权/扩权
-		if (CommonConstants.ROLE_PLATFORM_ADMIN_CODE.equals(role.getRoleCode())
-				&& !platformAdminSupport.isCurrentPlatformAdmin()) {
-			throw new ArynBusinessException(403, "平台管理员角色仅平台管理员可维护");
+		// 平台管理员角色是系统内置角色：权限由「全部可见菜单」动态推导，任何会话都不能改这份数据
+		if (CommonConstants.isSystemBuiltinRole(role.getRoleCode())) {
+			throw new ArynBusinessException(403, "平台管理员角色为系统内置角色，不可通过角色管理维护");
 		}
 		List<String> menuIds = request.getMenuIds() == null ? List.of()
 				: request.getMenuIds().stream()

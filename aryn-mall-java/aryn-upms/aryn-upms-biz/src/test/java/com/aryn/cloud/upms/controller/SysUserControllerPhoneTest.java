@@ -44,7 +44,7 @@ class SysUserControllerPhoneTest {
 
 	@Test
 	void phoneReturnsFullNumberForAuthorizedView() {
-		when(userService.getById("user-1")).thenReturn(userWithPhone(FULL_PHONE));
+		when(userService.getVisibleUserById("user-1")).thenReturn(userWithPhone(FULL_PHONE));
 
 		Result<String> result = controller.phone("user-1");
 
@@ -63,12 +63,23 @@ class SysUserControllerPhoneTest {
 
 	@Test
 	void phoneFailsWhenAccountHasNoPhone() {
-		when(userService.getById("user-1")).thenReturn(userWithPhone(null));
+		when(userService.getVisibleUserById("user-1")).thenReturn(userWithPhone(null));
 
 		Result<String> result = controller.phone("user-1");
 
 		assertThat(result.getCode()).isNotZero();
 		assertThat(result.getMsg()).isEqualTo("该账号未绑定手机号");
+	}
+
+	@Test
+	void phoneFailsWhenAccountIsHiddenPlatformAdmin() {
+		// 平台管理员账号对任何角色账号都不可见：按 ID 直查也必须返回“用户不存在”
+		when(userService.getVisibleUserById("system-user")).thenReturn(null);
+
+		Result<String> result = controller.phone("system-user");
+
+		assertThat(result.getCode()).isNotZero();
+		assertThat(result.getMsg()).isEqualTo("用户不存在");
 	}
 
 	@Test

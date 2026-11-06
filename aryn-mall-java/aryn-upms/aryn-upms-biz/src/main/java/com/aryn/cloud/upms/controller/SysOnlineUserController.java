@@ -13,6 +13,7 @@ import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.log.annotation.SysLog;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.upms.api.entity.SysUserOnline;
+import com.aryn.cloud.upms.support.PlatformAdminVisibilitySupport;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +29,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * 系统在线用户
@@ -44,11 +46,15 @@ public class SysOnlineUserController {
 
 	private final StringRedisTemplate redisTemplate;
 
+	private final PlatformAdminVisibilitySupport platformAdminVisibilitySupport;
+
 	@Operation(summary = "在线用户列表")
 	@SaCheckPermission("upms:onlineuser:get")
 	@GetMapping("/list")
 	public Result<List<SysUserOnline>> page() {
 		String tenantId = ArynTenantContextHolder.getTenantId();
+		// 平台管理员账号是系统内置账号：普通角色账号不显示它的在线会话
+		Set<String> hiddenUserNames = platformAdminVisibilitySupport.hiddenPlatformAdminUsernames();
 
 		// 在线记录 key 只按 token 维度（见 ArynSaTokenListener#onlineUserKey），租户从值里判断；
 		// 扫描全部记录后再按当前请求租户过滤。
@@ -68,7 +74,7 @@ public class SysOnlineUserController {
 				if (value != null) {
 					String jsonStr = new String(value, StandardCharsets.UTF_8);
 					SysUserOnline online = JSONUtil.toBean(jsonStr, SysUserOnline.class);
-					if (isDisplayable(online, tenantId)) {
+					if (isDisplayable(online, tenantId, hiddenUserNames)) {
 						result.add(online);
 					}
 				}
@@ -89,11 +95,12 @@ public class SysOnlineUserController {
 	 * <ul>
 	 * <li>租户：key 不再携带租户（写入/删除统一用 token 维度），必须按值里的 tenantId 过滤，
 	 * 否则会跨租户泄露在线用户；租户上下文为空时不展示任何记录（保持旧实现语义）。</li>
+	 * <li>平台管理员：平台管理员账号是系统内置账号，非平台管理员会话不能看到它的在线记录。</li>
 	 * <li>有效性：会话已注销/强退/被顶号时记录可能残留（历史 key 格式的旧记录只能等 TTL），
 	 * 以 Sa-Token 实际登录态为准过滤，避免「在线用户」页把已失效会话显示成多端在线。</li>
 	 * </ul>
 	 */
-	static boolean isDisplayable(SysUserOnline online, String tenantId) {
+	static boolean isDisplayable(SysUserOnline online, String tenantId, Set<String> hiddenUserNames) {
 		if (online == null || online.getTokenId() == null) {
 			return false;
 		}
@@ -106,6 +113,11 @@ public class SysOnlineUserController {
 				&& !DeviceTypeEnum.TOB.getDevice().equals(online.getDeviceType())) {
 			return false;
 		}
+		// 平台管理员账号对普通角色账号不可见（平台管理员本人的会话除外，由 hidden 集合为空表达）
+		if (hiddenUserNames != null && online.getUserName() != null
+				&& hiddenUserNames.contains(online.getUserName())) {
+			return false;
+		}
 		return StpUtil.getLoginIdByToken(online.getTokenId()) != null;
 	}
 
@@ -116,7 +128,10 @@ public class SysOnlineUserController {
 	public Result<Void> kickoutByToken(@PathVariable String token) {
 		SysUserOnline online = findOnline(token);
 		String tenantId = ArynTenantContextHolder.getTenantId();
-		if (online == null || StrUtil.isBlank(tenantId) || !tenantId.equals(online.getTenantId())) {
+		// 普通角色账号既看不到也不能强退平台管理员会话（token 泄露时同样按“不存在”处理）
+		Set<String> hiddenUserNames = platformAdminVisibilitySupport.hiddenPlatformAdminUsernames();
+		if (online == null || StrUtil.isBlank(tenantId) || !tenantId.equals(online.getTenantId())
+				|| (online.getUserName() != null && hiddenUserNames.contains(online.getUserName()))) {
 			return Result.fail("在线用户不存在或不属于当前租户");
 		}
 		// 先记「管理员强退」原因再踢：kickout 之后 token 映射消失，无法再按 token 反查

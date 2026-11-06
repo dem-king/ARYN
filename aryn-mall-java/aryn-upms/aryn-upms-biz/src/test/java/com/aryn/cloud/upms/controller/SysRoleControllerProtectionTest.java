@@ -6,7 +6,6 @@ import com.aryn.cloud.upms.api.entity.SysRole;
 import com.aryn.cloud.upms.service.ISysRoleMenuService;
 import com.aryn.cloud.upms.service.ISysRoleService;
 import com.aryn.cloud.upms.service.ISysUserRoleService;
-import com.aryn.cloud.upms.support.PlatformAdminSupport;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -20,6 +19,7 @@ import static org.mockito.Mockito.when;
 
 /**
  * 角色管理受保护角色测试：delivery_staff 不可删除、不可改码；
+ * ROLE_PLATFORM_ADMIN 是系统内置角色，任何会话都不可见、不可维护；
  * 配送资格只能经配送员管理（资格接口/向导）授予或回收。
  */
 class SysRoleControllerProtectionTest {
@@ -39,8 +39,7 @@ class SysRoleControllerProtectionTest {
 		sysRoleService = mock(ISysRoleService.class);
 		sysUserRoleService = mock(ISysUserRoleService.class);
 		sysRoleMenuService = mock(ISysRoleMenuService.class);
-		controller = new SysRoleController(sysRoleService, sysUserRoleService, sysRoleMenuService,
-				new PlatformAdminSupport());
+		controller = new SysRoleController(sysRoleService, sysUserRoleService, sysRoleMenuService);
 	}
 
 	private SysRole protectedRole() {
@@ -66,7 +65,7 @@ class SysRoleControllerProtectionTest {
 	}
 
 	@Test
-	void deleteRejectedForPlatformAdminRoleByTenantAdmin() {
+	void deleteRejectedForSystemBuiltinPlatformRole() {
 		SysRole platformRole = new SysRole();
 		platformRole.setId("role-platform-admin");
 		platformRole.setRoleName("平台管理员");
@@ -76,8 +75,73 @@ class SysRoleControllerProtectionTest {
 		Result result = controller.del("role-platform-admin");
 
 		assertThat(result.getCode()).isNotEqualTo(0);
-		assertThat(result.getMsg()).contains("平台管理员角色仅平台管理员可维护");
+		assertThat(result.getMsg()).contains("系统内置角色");
 		verify(sysRoleService, never()).removeById(any(SysRole.class));
+	}
+
+	@Test
+	void editRejectedForSystemBuiltinPlatformRole() {
+		SysRole platformRole = new SysRole();
+		platformRole.setId("role-platform-admin");
+		platformRole.setRoleName("平台管理员");
+		platformRole.setRoleCode(CommonConstants.ROLE_PLATFORM_ADMIN_CODE);
+		when(sysRoleService.getById("role-platform-admin")).thenReturn(platformRole);
+		SysRole payload = new SysRole();
+		payload.setId("role-platform-admin");
+		payload.setRoleName("被改名的平台管理员");
+
+		Result result = controller.edit(payload);
+
+		assertThat(result.getCode()).isNotEqualTo(0);
+		assertThat(result.getMsg()).contains("系统内置角色");
+		verify(sysRoleService, never()).updateById(any(SysRole.class));
+	}
+
+	@Test
+	void editRejectedWhenRenamingNormalRoleToSystemBuiltinCode() {
+		// 不能把普通角色改名占用系统保留编码，否则会出现第二个「平台管理员」角色
+		SysRole normal = new SysRole();
+		normal.setId("role-normal");
+		normal.setRoleName("运营");
+		normal.setRoleCode("ROLE_OPERATOR");
+		when(sysRoleService.getById("role-normal")).thenReturn(normal);
+		SysRole payload = new SysRole();
+		payload.setId("role-normal");
+		payload.setRoleName("运营");
+		payload.setRoleCode(CommonConstants.ROLE_PLATFORM_ADMIN_CODE);
+
+		Result result = controller.edit(payload);
+
+		assertThat(result.getCode()).isNotEqualTo(0);
+		assertThat(result.getMsg()).contains("系统保留编码");
+		verify(sysRoleService, never()).updateById(any(SysRole.class));
+	}
+
+	@Test
+	void addRejectedForSystemBuiltinPlatformRole() {
+		SysRole payload = new SysRole();
+		payload.setRoleName("平台管理员");
+		payload.setRoleCode(CommonConstants.ROLE_PLATFORM_ADMIN_CODE);
+
+		Result result = controller.add(payload);
+
+		assertThat(result.getCode()).isNotEqualTo(0);
+		assertThat(result.getMsg()).contains("系统内置角色");
+		verify(sysRoleService, never()).save(any(SysRole.class));
+	}
+
+	@Test
+	void getByIdHidesSystemBuiltinPlatformRole() {
+		SysRole platformRole = new SysRole();
+		platformRole.setId("role-platform-admin");
+		platformRole.setRoleCode(CommonConstants.ROLE_PLATFORM_ADMIN_CODE);
+		when(sysRoleService.getById("role-platform-admin")).thenReturn(platformRole);
+
+		Result result = controller.getById("role-platform-admin");
+
+		assertThat(result.getCode()).isNotEqualTo(0);
+		assertThat(result.getMsg()).isEqualTo("角色不存在");
+		assertThat(result.getData()).isNull();
 	}
 
 	@Test

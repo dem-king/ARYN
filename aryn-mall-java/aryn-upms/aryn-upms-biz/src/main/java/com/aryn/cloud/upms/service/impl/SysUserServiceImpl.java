@@ -10,6 +10,7 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.aryn.cloud.common.core.constant.CommonConstants;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
+import com.aryn.cloud.upms.api.entity.SysDept;
 import com.aryn.cloud.upms.api.entity.SysRole;
 import com.aryn.cloud.upms.api.entity.SysTenant;
 import com.aryn.cloud.upms.api.entity.SysUser;
@@ -59,6 +60,8 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
 
 	private final PlatformAdminSupport platformAdminSupport;
 
+	private final SysDeptMapper sysDeptMapper;
+
 	@Override
 	public SysUser findUserInfo(SysUser sysUser) {
 		ArynTenantContextHolder.setTenantId(sysUser.getTenantId());
@@ -72,19 +75,33 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
 		sysUser.setPlatformAdmin(CommonConstants.TENANT_TYPE_PLATFORM.equals(sysUser.getTenantType())
 				&& CommonConstants.YES.equals(platformAdminFlag));
 
+		// 部门名称是 sys_dept 的关联展示字段（SysUser.deptName 非表字段），
+		// 按 ID 直接查库不会带出；员工详情/远程 RPC 查询必须一并回填，
+		// 否则下游（如销售员登记）拿到的 deptName 恒为 null。
+		if (StrUtil.isNotBlank(sysUser.getDeptId())) {
+			SysDept dept = sysDeptMapper.selectById(sysUser.getDeptId());
+			sysUser.setDeptName(dept == null ? null : dept.getDeptName());
+		}
+
 		// 查询角色
 		List<String> roleIds = sysRoleMapper.listRoleIdsByUserId(sysUser.getId());
 		sysUser.setRoles(roleIds);
-		// 权限列表
+		// 权限列表：平台管理员是系统内置身份，权限恒为「全部可见菜单」，不依赖可编辑的
+		// sys_role_menu 数据；其余账号按角色授权计算
 		Set<String> permissions = new HashSet<>();
-		roleIds.forEach(roleId -> {
-			List<MenuVO> sysMenus = sysMenuMapper.listMenuByRoleId(roleId);
-			List<String> permissionList = sysMenus.stream()
-				.filter(menuVo -> StrUtil.isNotEmpty(menuVo.getPermission()))
-				.map(MenuVO::getPermission)
-				.collect(Collectors.toList());
-			permissions.addAll(permissionList);
-		});
+		if (Boolean.TRUE.equals(sysUser.getPlatformAdmin())) {
+			permissions.addAll(sysMenuMapper.selectAllPermissions());
+		}
+		else {
+			roleIds.forEach(roleId -> {
+				List<MenuVO> sysMenus = sysMenuMapper.listMenuByRoleId(roleId);
+				List<String> permissionList = sysMenus.stream()
+					.filter(menuVo -> StrUtil.isNotEmpty(menuVo.getPermission()))
+					.map(MenuVO::getPermission)
+					.collect(Collectors.toList());
+				permissions.addAll(permissionList);
+			});
+		}
 		sysUser.setPermissions(permissions);
 		return sysUser;
 	}
@@ -186,6 +203,21 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
 	@Override
 	public int getCount(SysUser sysUser) {
 		return baseMapper.countUserByQuery(sysUser);
+	}
+
+	@Override
+	public long countVisibleStaff() {
+		return baseMapper.countTenantStaff();
+	}
+
+	@Override
+	public SysUser getVisibleUserById(String userId) {
+		SysUser user = getById(userId);
+		if (user != null && CommonConstants.YES.equals(baseMapper.selectPlatformAdminFlag(userId))) {
+			// 平台管理员账号是系统内置账号，任何角色账号都不应看到它的存在
+			return null;
+		}
+		return user;
 	}
 
 	/**

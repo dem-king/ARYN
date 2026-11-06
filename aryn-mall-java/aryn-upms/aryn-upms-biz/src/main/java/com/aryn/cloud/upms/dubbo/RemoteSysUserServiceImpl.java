@@ -13,6 +13,7 @@ import com.aryn.cloud.upms.api.entity.SysUser;
 import com.aryn.cloud.upms.api.entity.SysUserRole;
 import com.aryn.cloud.upms.api.remote.RemoteSysUserService;
 import com.aryn.cloud.upms.mapper.SysRoleMapper;
+import com.aryn.cloud.upms.mapper.SysUserMapper;
 import com.aryn.cloud.upms.mapper.SysUserRoleMapper;
 import com.aryn.cloud.upms.service.ISysUserService;
 import com.aryn.cloud.upms.service.ISysUserRoleService;
@@ -22,7 +23,9 @@ import org.apache.dubbo.config.annotation.DubboService;
 import org.springframework.stereotype.Service;
 
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * @author 雨滴kian
@@ -42,6 +45,8 @@ public class RemoteSysUserServiceImpl implements RemoteSysUserService {
 	private final SysUserRoleMapper sysUserRoleMapper;
 
 	private final ISysUserRoleService sysUserRoleService;
+
+	private final SysUserMapper sysUserMapper;
 
 	@Override
 	public SysUser getUserInfo(String username) {
@@ -76,6 +81,10 @@ public class RemoteSysUserServiceImpl implements RemoteSysUserService {
 		if (ObjectUtil.isNull(sysUser)) {
 			return null;
 		}
+		// 平台管理员账号是系统内置身份、不属于任何租户员工视图：按 ID 直查也不返回
+		if (CommonConstants.YES.equals(sysUserMapper.selectPlatformAdminFlag(id))) {
+			return null;
+		}
 		return sysUserService.findUserInfo(sysUser);
 	}
 
@@ -85,22 +94,24 @@ public class RemoteSysUserServiceImpl implements RemoteSysUserService {
 			return Collections.emptyList();
 		}
 		List<SysUser> users = sysUserService.listByIds(ids);
-		users.forEach(sysUserService::findUserInfo);
-		return users;
+		Set<String> platformAdminIds = new HashSet<>(sysUserMapper.selectPlatformAdminIds(ids));
+		List<SysUser> visible = users.stream()
+			.filter(user -> !platformAdminIds.contains(user.getId()))
+			.toList();
+		visible.forEach(sysUserService::findUserInfo);
+		return visible;
 	}
 
 	@Override
 	public List<SysUser> searchNormalUsers(String keyword, int limit) {
 		int safeLimit = Math.min(Math.max(limit, 1), 50);
-		return sysUserService.list(Wrappers.<SysUser>lambdaQuery()
-			.eq(SysUser::getStatus, CommonConstants.NORMAL_STATUS)
-			.and(StrUtil.isNotBlank(keyword), wrapper -> wrapper
-				.like(SysUser::getUsername, keyword)
-				.or()
-				.like(SysUser::getNickname, keyword)
-				.or()
-				.like(SysUser::getPhone, keyword))
-			.last("LIMIT " + safeLimit));
+		return sysUserMapper.searchNormalStaff(keyword, safeLimit);
+	}
+
+	@Override
+	public List<String> getPlatformAdminUserIds() {
+		List<String> ids = sysUserMapper.selectPlatformAdminIds(Collections.emptyList());
+		return ids == null ? Collections.emptyList() : ids;
 	}
 
 	@Override

@@ -87,7 +87,8 @@ public class TenantOverviewService {
 		String previousTenantId = ArynTenantContextHolder.getTenantId();
 		ArynTenantContextHolder.setTenantId(tenantId);
 		try {
-			overview.setAdminUserCount(sysUserService.count());
+			// 平台管理员不属于任何租户：租户概览的「管理端账号」不统计它
+			overview.setAdminUserCount(sysUserService.countVisibleStaff());
 			overview.setMaterialCount(sysMaterialService.count());
 			overview.setStorageBytes(sumStorage());
 			overview.setLastLoginTime(lastLoginTime());

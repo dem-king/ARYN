@@ -47,6 +47,8 @@
         LEFT JOIN sys_dept AS sys_dept ON sys_user.dept_id = sys_dept.id
         <where>
             AND sys_user.del_flag = '0'
+            <!-- 平台管理员是系统内置账号：不出现在员工账号列表，避免租户管理员看到 system 的存在 -->
+            AND sys_user.platform_admin = '0'
             <if test="query.username !=null and query.username !=''">
                 AND sys_user.username =#{query.username}
             </if>
@@ -97,6 +99,8 @@
         WHERE sys_user.tenant_id = #{query.tenantId}
           AND sys_user.del_flag = '0'
           AND sys_user.status = '0'
+          <!-- 平台管理员账号不属于任何租户员工视图：消息受众/客服坐席候选统一排除 -->
+          AND sys_user.platform_admin = '0'
         <if test="query.cursor != null and query.cursor != ''">
             AND sys_user.id &gt; #{query.cursor}
         </if>
@@ -172,6 +176,43 @@
           AND sys_user.id = #{staffId}
           AND sys_user.del_flag = '0'
           AND sys_user.status = '0'
+          AND sys_user.platform_admin = '0'
           AND sys_menu.permission IN ('message:service:agent', 'message:service:supervisor')
+    </select>
+    <!-- 配送员开户等「查询员工账号」入口：排除平台管理员账号 -->
+    <select id="searchNormalStaff" resultType="com.aryn.cloud.upms.api.entity.SysUser">
+        SELECT
+        <include refid="adminPageSql"/>
+        FROM sys_user AS sys_user
+        WHERE sys_user.del_flag = '0'
+          AND sys_user.status = '0'
+          AND sys_user.platform_admin = '0'
+        <if test="keyword != null and keyword != ''">
+            AND (sys_user.username LIKE CONCAT('%', #{keyword}, '%')
+              OR sys_user.nickname LIKE CONCAT('%', #{keyword}, '%')
+              OR sys_user.phone LIKE CONCAT('%', #{keyword}, '%'))
+        </if>
+        ORDER BY sys_user.id ASC
+        LIMIT #{limit}
+    </select>
+    <!-- 当前租户平台管理员账号 ID（下游员工/业务视图过滤用；ids 为空时返回租户内全部） -->
+    <select id="selectPlatformAdminIds" resultType="java.lang.String">
+        SELECT sys_user.id
+        FROM sys_user AS sys_user
+        WHERE sys_user.del_flag = '0'
+          AND sys_user.platform_admin = '1'
+        <if test="ids != null and ids.size() > 0">
+            AND sys_user.id IN
+            <foreach collection="ids" item="id" open="(" separator="," close=")">
+                #{id}
+            </foreach>
+        </if>
+    </select>
+    <!-- 当前租户管理端员工账号数（排除平台管理员；租户拦截器追加 tenant_id） -->
+    <select id="countTenantStaff" resultType="java.lang.Long">
+        SELECT COUNT(1)
+        FROM sys_user AS sys_user
+        WHERE sys_user.del_flag = '0'
+          AND sys_user.platform_admin = '0'
     </select>
 </mapper>

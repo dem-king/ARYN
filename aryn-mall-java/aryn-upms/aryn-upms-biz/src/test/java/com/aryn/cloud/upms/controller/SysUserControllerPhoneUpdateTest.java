@@ -70,7 +70,7 @@ class SysUserControllerPhoneUpdateTest {
 
 	@Test
 	void updatePhoneSavesOnlyIdAndPhoneAndSyncsDeliveryStaff() {
-		when(userService.getById("user-1")).thenReturn(existingUser());
+		when(userService.getVisibleUserById("user-1")).thenReturn(existingUser());
 		when(userService.getCount(any())).thenReturn(0);
 		when(userService.updateById(any())).thenReturn(true);
 
@@ -102,7 +102,7 @@ class SysUserControllerPhoneUpdateTest {
 
 		assertThat(result.getCode()).isNotZero();
 		assertThat(result.getMsg()).isEqualTo("请输入手机号");
-		verify(userService, never()).getById(anyString());
+		verify(userService, never()).getVisibleUserById(anyString());
 		verify(userService, never()).updateById(any());
 	}
 
@@ -112,7 +112,7 @@ class SysUserControllerPhoneUpdateTest {
 
 		assertThat(result.getCode()).isNotZero();
 		assertThat(result.getMsg()).isEqualTo("请输入手机号");
-		verify(userService, never()).getById(anyString());
+		verify(userService, never()).getVisibleUserById(anyString());
 	}
 
 	@Test
@@ -121,12 +121,12 @@ class SysUserControllerPhoneUpdateTest {
 
 		assertThat(result.getCode()).isNotZero();
 		assertThat(result.getMsg()).isEqualTo("手机号格式不正确");
-		verify(userService, never()).getById(anyString());
+		verify(userService, never()).getVisibleUserById(anyString());
 	}
 
 	@Test
 	void updatePhoneRejectsMissingUser() {
-		when(userService.getById("ghost")).thenReturn(null);
+		when(userService.getVisibleUserById("ghost")).thenReturn(null);
 
 		Result result = controller.updatePhone("ghost", phoneUpdate(NEW_PHONE));
 
@@ -136,8 +136,21 @@ class SysUserControllerPhoneUpdateTest {
 	}
 
 	@Test
+	void updatePhoneRejectsHiddenPlatformAdminAccount() {
+		// 平台管理员账号对租户管理员不可见；手机号可直接用于短信登录，不能经员工接口改绑
+		when(userService.getVisibleUserById("system-user")).thenReturn(null);
+
+		Result result = controller.updatePhone("system-user", phoneUpdate(NEW_PHONE));
+
+		assertThat(result.getCode()).isNotZero();
+		assertThat(result.getMsg()).isEqualTo("用户不存在或已删除");
+		verify(userService, never()).getCount(any());
+		verify(userService, never()).updateById(any());
+	}
+
+	@Test
 	void updatePhoneRejectsSamePhone() {
-		when(userService.getById("user-1")).thenReturn(existingUser());
+		when(userService.getVisibleUserById("user-1")).thenReturn(existingUser());
 
 		Result result = controller.updatePhone("user-1", phoneUpdate(OLD_PHONE));
 
@@ -150,7 +163,7 @@ class SysUserControllerPhoneUpdateTest {
 
 	@Test
 	void updatePhoneRejectsDuplicatePhoneAcrossTenants() {
-		when(userService.getById("user-1")).thenReturn(existingUser());
+		when(userService.getVisibleUserById("user-1")).thenReturn(existingUser());
 		when(userService.getCount(any())).thenReturn(1);
 
 		Result result = controller.updatePhone("user-1", phoneUpdate(NEW_PHONE));
@@ -163,7 +176,7 @@ class SysUserControllerPhoneUpdateTest {
 
 	@Test
 	void updatePhoneMapsUniqueKeyConflictToFriendlyMessage() {
-		when(userService.getById("user-1")).thenReturn(existingUser());
+		when(userService.getVisibleUserById("user-1")).thenReturn(existingUser());
 		when(userService.getCount(any())).thenReturn(0);
 		when(userService.updateById(any())).thenThrow(new DuplicateKeyException("uk_sys_user_phone"));
 
@@ -176,7 +189,7 @@ class SysUserControllerPhoneUpdateTest {
 
 	@Test
 	void updatePhoneSucceedsEvenWhenDeliverySyncFails() {
-		when(userService.getById("user-1")).thenReturn(existingUser());
+		when(userService.getVisibleUserById("user-1")).thenReturn(existingUser());
 		when(userService.getCount(any())).thenReturn(0);
 		when(userService.updateById(any())).thenReturn(true);
 		when(remoteDeliveryAccountService.syncStaffPhone("user-1", NEW_PHONE))
@@ -190,7 +203,7 @@ class SysUserControllerPhoneUpdateTest {
 
 	@Test
 	void updatePhoneFailsWhenLocalUpdateReportsFalse() {
-		when(userService.getById("user-1")).thenReturn(existingUser());
+		when(userService.getVisibleUserById("user-1")).thenReturn(existingUser());
 		when(userService.getCount(any())).thenReturn(0);
 		when(userService.updateById(any())).thenReturn(false);
 

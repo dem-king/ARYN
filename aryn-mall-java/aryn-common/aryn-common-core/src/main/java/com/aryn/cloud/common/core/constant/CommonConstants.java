@@ -72,6 +72,18 @@ public interface CommonConstants {
 	String ROLE_PLATFORM_ADMIN_NAME = "平台管理员";
 
 	/**
+	 * 是否系统内置角色。
+	 *
+	 * <p>系统内置角色是系统运行所需的固定角色，不是租户可运维的 RBAC 数据：不出现在角色管理
+	 * 列表/详情中，也不能经角色新增、修改、删除、角色菜单保存等接口维护，只允许数据库初始化/
+	 * 迁移脚本维护。平台管理员的权限由「全部可见菜单」动态推导，不依赖可编辑的
+	 * {@code sys_role_menu} 数据。</p>
+	 */
+	static boolean isSystemBuiltinRole(String roleCode) {
+		return ROLE_PLATFORM_ADMIN_CODE.equals(roleCode);
+	}
+
+	/**
 	 * 管理员角色名称
 	 */
 	String ROLE_ADMIN_NAME = "系统管理员";

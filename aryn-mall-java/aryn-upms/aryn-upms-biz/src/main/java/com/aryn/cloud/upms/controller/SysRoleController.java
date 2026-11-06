@@ -16,7 +16,6 @@ import com.aryn.cloud.upms.api.entity.SysUserRole;
 import com.aryn.cloud.upms.service.ISysRoleMenuService;
 import com.aryn.cloud.upms.service.ISysRoleService;
 import com.aryn.cloud.upms.service.ISysUserRoleService;
-import com.aryn.cloud.upms.support.PlatformAdminSupport;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.AllArgsConstructor;
@@ -44,8 +43,6 @@ public class SysRoleController {
 
 	private final ISysRoleMenuService sysRoleMenuService;
 
-	private final PlatformAdminSupport platformAdminSupport;
-
 	@Operation(summary = "角色列表")
 	@SaCheckPermission("upms:sysrole:page")
 	@GetMapping("/page")
@@ -57,16 +54,22 @@ public class SysRoleController {
 	@SaCheckPermission("upms:sysrole:get")
 	@GetMapping("/list")
 	public Result<List<SysRole>> getList(SysRole sysRole) {
-		// roleCode 供前端识别受保护角色（如 delivery_staff）并在员工账号表单中过滤展示
-		return Result.success(
-				sysRoleService.list(Wrappers.query(sysRole).lambda().select(SysRole::getRoleName, SysRole::getRoleCode, SysRole::getId)));
+		// roleCode 供前端识别受保护角色（如 delivery_staff）并在员工账号表单中过滤展示；
+		// 平台管理员角色是系统内置角色，不对任何会话暴露
+		return Result.success(sysRoleService.list(Wrappers.query(sysRole).lambda()
+			.select(SysRole::getRoleName, SysRole::getRoleCode, SysRole::getId)
+			.ne(SysRole::getRoleCode, CommonConstants.ROLE_PLATFORM_ADMIN_CODE)));
 	}
 
 	@Operation(summary = "角色查询")
 	@SaCheckPermission("upms:sysrole:get")
 	@GetMapping("/{id}")
 	public Result getById(@PathVariable String id) {
-		return Result.success(sysRoleService.getById(id));
+		SysRole role = sysRoleService.getById(id);
+		if (role == null || CommonConstants.isSystemBuiltinRole(role.getRoleCode())) {
+			return Result.fail("角色不存在");
+		}
+		return Result.success(role);
 	}
 
 	@Operation(summary = "角色新增")
@@ -74,9 +77,9 @@ public class SysRoleController {
 	@SaCheckPermission("upms:sysrole:add")
 	@PostMapping
 	public Result add(@RequestBody SysRole sysRole) {
-		if (CommonConstants.ROLE_PLATFORM_ADMIN_CODE.equals(sysRole.getRoleCode())
-				&& !platformAdminSupport.isCurrentPlatformAdmin()) {
-			return Result.fail("平台管理员角色仅平台管理员可维护");
+		// 系统内置角色只由数据库初始化/迁移脚本维护，任何会话都不能经接口创建
+		if (CommonConstants.isSystemBuiltinRole(sysRole.getRoleCode())) {
+			return Result.fail("平台管理员角色为系统内置角色，不可通过角色管理维护");
 		}
 		if (sysRoleService.checkRole(new SysRole(null, sysRole.getRoleCode()))) {
 			return Result.fail("角色编码已存在");
@@ -93,9 +96,12 @@ public class SysRoleController {
 	@PutMapping
 	public Result edit(@RequestBody SysRole sysRole) {
 		SysRole exists = sysRoleService.getById(sysRole.getId());
-		if (exists != null && CommonConstants.ROLE_PLATFORM_ADMIN_CODE.equals(exists.getRoleCode())
-				&& !platformAdminSupport.isCurrentPlatformAdmin()) {
-			return Result.fail("平台管理员角色仅平台管理员可维护");
+		if (exists != null && CommonConstants.isSystemBuiltinRole(exists.getRoleCode())) {
+			return Result.fail("平台管理员角色为系统内置角色，不可通过角色管理维护");
+		}
+		// 系统内置角色编码是保留编码：不能把普通角色改名占用，否则会出现第二个"平台管理员"角色
+		if (StrUtil.isNotBlank(sysRole.getRoleCode()) && CommonConstants.isSystemBuiltinRole(sysRole.getRoleCode())) {
+			return Result.fail("平台管理员角色编码为系统保留编码，不可占用");
 		}
 		if (exists != null && CommonConstants.PROTECTED_DELIVERY_ROLE_CODE.equals(exists.getRoleCode())
 				&& StrUtil.isNotBlank(sysRole.getRoleCode())
@@ -116,9 +122,8 @@ public class SysRoleController {
 		if (exists == null) {
 			return Result.fail("角色不存在");
 		}
-		if (CommonConstants.ROLE_PLATFORM_ADMIN_CODE.equals(exists.getRoleCode())
-				&& !platformAdminSupport.isCurrentPlatformAdmin()) {
-			return Result.fail("平台管理员角色仅平台管理员可维护");
+		if (CommonConstants.isSystemBuiltinRole(exists.getRoleCode())) {
+			return Result.fail("平台管理员角色为系统内置角色，不可通过角色管理维护");
 		}
 		// 受保护角色只能由配送员管理（资格接口/向导）授予或回收，删除会导致资格链路中断
 		if (CommonConstants.PROTECTED_DELIVERY_ROLE_CODE.equals(exists.getRoleCode())) {
