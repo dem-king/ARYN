@@ -176,6 +176,46 @@ const required = [
   // 客服会话维护与通知分发恢复定时任务注册（2026-11-04 客服功能加固）
   "'conversationMaintenanceJob'",
   "'noticeDispatchRecoveryJob'",
+  // 销售业绩归属与提成（13 张新表 / order_info 归属快照列 / 菜单 / 字典 / 台账任务）
+  'CREATE TABLE IF NOT EXISTS `sales_staff`',
+  'CREATE TABLE IF NOT EXISTS `sales_customer_bind`',
+  'CREATE TABLE IF NOT EXISTS `sales_customer_bind_log`',
+  'CREATE TABLE IF NOT EXISTS `sales_customer_claim`',
+  'CREATE TABLE IF NOT EXISTS `sales_transfer_reward`',
+  'CREATE TABLE IF NOT EXISTS `sales_order`',
+  'CREATE TABLE IF NOT EXISTS `sales_payout`',
+  'CREATE TABLE IF NOT EXISTS `sales_payout_adjustment`',
+  'CREATE TABLE IF NOT EXISTS `sales_config`',
+  'CREATE TABLE IF NOT EXISTS `sales_refund_record`',
+  'CREATE TABLE IF NOT EXISTS `distribution_coupon_pack`',
+  'CREATE TABLE IF NOT EXISTS `distribution_coupon_pack_item`',
+  'CREATE TABLE IF NOT EXISTS `distribution_coupon_exchange`',
+  'uk_sales_config_active',
+  'ADD COLUMN `sales_staff_id`',
+  'ADD COLUMN `sales_staff_name`',
+  '2130000000000000100',
+  '2130000000000000180',
+  "'/promotion/sales/staff'",
+  "'/promotion/distribution/coupon-pack'",
+  'sales_staff_status',
+  'sales_bind_source',
+  'sales_order_status',
+  'sales_payout_status',
+  'sales_claim_status',
+  'sales_transfer_reward_status',
+  'distribution_coupon_pack_status',
+  'distribution_coupon_exchange_status',
+  "'salesPayoutJobHandler'",
+  // 类目角标配置化（2026-11-05）：配置表 DDL / badge_type 改宽 / 菜单权限与页面路由
+  // 表建表用 CREATE TABLE IF NOT EXISTS（脚本要求可重复执行），故与建表关键字一并校验。
+  'CREATE TABLE IF NOT EXISTS `goods_category_badge`',
+  'MODIFY COLUMN `badge_type`',
+  "'product:goodscategorybadge:page'",
+  "'/product/goods-category-badge'",
+  // 类目角标样式扩展（2026-11-05 追加）：图片角标 + 可调高度/圆角三列
+  'ADD COLUMN `icon_url`',
+  'ADD COLUMN `badge_height`',
+  'ADD COLUMN `border_radius`',
 ];
 
 for (const token of required) {
@@ -227,6 +267,12 @@ const sourceFiles = [
   '197platform_admin_user.sql',
   '198zone_tag_batch_incremental.sql',
   '199zone_tag_batch_menu.sql',
+  '202sales_performance_incremental.sql',
+  '203sales_performance_menu.sql',
+  '204sales_performance_job.sql',
+  '205goods_category_badge_config.sql',
+  '206goods_category_badge_menu.sql',
+  '208goods_category_badge_style.sql',
 ];
 for (const file of sourceFiles) {
   if (!sql.includes(`Source: db/boot/${file}`)) throw new Error(`缺少来源段: ${file}`);
@@ -234,24 +280,26 @@ for (const file of sourceFiles) {
 
 // Boot 与 Cloud 同名增量脚本必须语义一致（42/43/44）：
 // 剔除注释、USE、CREATE DATABASE 等模式差异行后，剩余语句应完全一致。
+// 语义归一：剔除注释、USE、CREATE DATABASE 等 boot/cloud 模式差异行后比对语句
+const semantic = (content) => content
+  .split('\n')
+  .filter((line) => {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('--')) return false;
+    if (/^USE\s/i.test(trimmed)) return false;
+    if (/^CREATE DATABASE\s/i.test(trimmed)) return false;
+    return true;
+  })
+  .join('\n')
+  .replace(/\s+/g, ' ')
+  .trim();
+
 for (const pairFile of [
   '42vessel_context_incremental.sql',
   '44order_delivery_context_incremental.sql',
   '48product_import_incremental.sql',
   '50product_import_row_incremental.sql',
 ]) {
-  const semantic = (content) => content
-    .split('\n')
-    .filter((line) => {
-      const trimmed = line.trim();
-      if (trimmed.startsWith('--')) return false;
-      if (/^USE\s/i.test(trimmed)) return false;
-      if (/^CREATE DATABASE\s/i.test(trimmed)) return false;
-      return true;
-    })
-    .join('\n')
-    .replace(/\s+/g, ' ')
-    .trim();
   const bootContent = semantic(readFileSync(join(root, pairFile), 'utf8'));
   const cloudPath = join(root, '..', 'cloud', pairFile);
   let cloudContent;
@@ -262,6 +310,45 @@ for (const pairFile of [
   }
   if (bootContent !== cloudContent) {
     throw new Error(`Boot/Cloud 增量脚本不一致: db/boot/${pairFile} 与 db/cloud/${pairFile}`);
+  }
+}
+
+// 销售业绩归属与提成：boot 202 与 cloud 205 的 DDL 区块必须逐列一致。
+// 区块由 `-- @DDL-BEGIN` / `-- @DDL-END` 标记，只含 13 张新表 + order_info 两列；
+// 字典/种子数据/目标库 USE 差异不在区块内（cloud 205 在 aryn_promotion 与 aryn_order 分流）。
+const ddlBlock = (file) => {
+  const content = readFileSync(file, 'utf8');
+  const start = content.indexOf('-- @DDL-BEGIN');
+  const end = content.indexOf('-- @DDL-END');
+  if (start < 0 || end < start) throw new Error(`缺少 DDL 区块标记: ${file}`);
+  return semantic(content.slice(start, end + '-- @DDL-END'.length));
+};
+const bootSalesDdl = ddlBlock(join(root, '202sales_performance_incremental.sql'));
+const cloudSalesDdl = ddlBlock(join(root, '..', 'cloud', '205sales_performance_incremental.sql'));
+if (bootSalesDdl !== cloudSalesDdl) {
+  throw new Error('销售业绩域 boot/202 与 cloud/205 表结构不一致（逐列比对失败），请同步两侧 DDL 区块');
+}
+if ((bootSalesDdl.match(/CREATE TABLE IF NOT EXISTS/g) || []).length !== 13) {
+  throw new Error('销售业绩域 DDL 区块建表数不是 13 张');
+}
+
+// 类目角标配置化：boot 205 与 cloud 210（数据模型）必须语义一致，仅目标库/注释不同；
+// boot 206 与 cloud 211（菜单授权）同口径比对，避免两侧脚本漂移导致双模式行为不一致。
+for (const [bootFile, cloudFile, label] of [
+  ['205goods_category_badge_config.sql', '210goods_category_badge_config.sql', '类目角标数据模型'],
+  ['206goods_category_badge_menu.sql', '211goods_category_badge_menu.sql', '类目角标菜单权限'],
+  ['208goods_category_badge_style.sql', '213goods_category_badge_style.sql', '类目角标样式扩展'],
+]) {
+  const bootContent = semantic(readFileSync(join(root, bootFile), 'utf8'));
+  const cloudPath = join(root, '..', 'cloud', cloudFile);
+  let cloudContent;
+  try {
+    cloudContent = semantic(readFileSync(cloudPath, 'utf8'));
+  } catch {
+    throw new Error(`缺少 Cloud 脚本: db/cloud/${cloudFile}`);
+  }
+  if (bootContent !== cloudContent) {
+    throw new Error(`${label} Boot/Cloud 脚本不一致: db/boot/${bootFile} 与 db/cloud/${cloudFile}`);
   }
 }
 

@@ -85,7 +85,8 @@ public final class OrderCategoryExportExcel {
 	private static final String FONT_NAME = "微软雅黑";
 
 	private static final List<String> DETAIL_HEAD = List.of("订单号", "下单时间", "购买场景", "配送方式", "收货人",
-			"收货人电话", "收货地址", "分类", "商品名称", "规格", "单价（元）", "数量", "金额（元）", "订购人", "备注");
+			"收货人电话", "收货地址", "分类", "商品名称", "规格", "单价（元）", "数量", "金额（元）", "订购人", "备注",
+			"归属销售");
 
 	private static final List<String> SUMMARY_HEAD = List.of("分类", "商品种数", "总数量", "总金额（元）");
 
@@ -96,7 +97,7 @@ public final class OrderCategoryExportExcel {
 	 * 列宽（字符数，中文按 2 个字符估算）。明细表刻意给地址/品名/规格/备注留出换行空间，
 	 * 避免默认列宽把「下单时间」这类表头挤成两行、把地址截断。
 	 */
-	private static final int[] DETAIL_WIDTHS = {24, 20, 14, 18, 12, 15, 38, 22, 32, 22, 16, 10, 16, 16, 26};
+	private static final int[] DETAIL_WIDTHS = {24, 20, 14, 18, 12, 15, 38, 22, 32, 22, 16, 10, 16, 16, 26, 14};
 
 	private static final int[] SUMMARY_WIDTHS = {28, 12, 12, 16};
 
@@ -193,6 +194,8 @@ public final class OrderCategoryExportExcel {
 		row.add(item.getTotalPrice());
 		row.add(item.getContributorName());
 		row.add(item.getMemberRemark());
+		// 归属销售：订单级快照（下单时写入，历史订单不随换绑变化）
+		row.add(order.getSalesStaffName());
 		return row;
 	}
 

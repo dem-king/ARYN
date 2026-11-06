@@ -15,6 +15,7 @@ import message from './modules/message.en-US'
 import order from './modules/order.en-US'
 import product from './modules/product.en-US'
 import promotion from './modules/promotion.en-US'
+import sales from './modules/sales.en-US'
 import search from './modules/search.en-US'
 import sessionInvalid from './modules/sessionInvalid.en-US'
 import shared from './modules/shared.en-US'
@@ -114,6 +115,8 @@ export default {
     serviceCollect: 'Favorites',
     serviceCoupon: 'My Coupons',
     serviceDistribution: 'Referrals',
+    salesWorkbench: 'Sales Workspace',
+    salesWorkbenchDesc: 'Referral code · Customers · Performance',
     deliveryWorkbench: 'Delivery Workspace',
     deliveryPendingTasks: '{count} tasks pending',
     deliveryReady: 'Delivery access is enabled',
@@ -147,6 +150,7 @@ export default {
   },
   ...catalog,
   ...product,
+  ...sales,
   ...search,
   ...sessionInvalid,
   ...loginDevices,

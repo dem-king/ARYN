@@ -1,4 +1,4 @@
-import type { DistributionShareBindPayload } from '@/api/distribution/entity'
+import type { DistributionBindSource, DistributionShareBindPayload } from '@/api/distribution/entity'
 import { bindDistributionShareParams } from '@/api/distribution/entity'
 import { Local } from '@/utils/storage'
 
@@ -9,6 +9,8 @@ interface DistributionShareCaptureResult {
   referralCode?: string
   scene?: string
   sourcePath?: string
+  /** 绑定来源：分享链接 SHARE（默认）、小程序推广码扫码 QRCODE */
+  bindSource?: DistributionBindSource
 }
 
 function parseSceneQuery(scene: string): Record<string, string> {
@@ -50,11 +52,20 @@ function normalizeShareParams(options?: Record<string, any>): DistributionShareC
   if (!shareUserId && !referralCode)
     return null
 
+  /**
+   * 绑定来源分流：
+   * - 小程序推广码 `wxacode.getUnlimited` 的 scene 固定为 `sid=<memberUserId>`，
+   *   扫码进入时后端需要区分 SHARE / QRCODE 写 `sales_customer_bind.bind_source`；
+   * - 其余入口（商品页分享链接携带 shareUserId）保持默认 SHARE，行为不变。
+   */
+  const bindSource: DistributionBindSource = sceneParams.sid ? 'QRCODE' : 'SHARE'
+
   return {
     shareUserId: shareUserId || undefined,
     referralCode: referralCode || undefined,
     scene: scene || undefined,
     sourcePath: sourcePath || undefined,
+    bindSource,
   }
 }
 
@@ -95,6 +106,8 @@ export async function flushPendingDistributionShareBinding() {
   try {
     const payload: DistributionShareBindPayload = {
       inviterUserId: cache.shareUserId,
+      // 旧版本缓存没有 bindSource，按分享链接的默认口径兜底
+      bindSource: cache.bindSource ?? 'SHARE',
     }
     await bindDistributionShareParams(payload)
     Local.remove(DISTRIBUTION_SHARE_CACHE_KEY)

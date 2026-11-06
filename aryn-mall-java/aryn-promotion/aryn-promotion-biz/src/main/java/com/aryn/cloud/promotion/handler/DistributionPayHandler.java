@@ -27,6 +27,12 @@ public class DistributionPayHandler implements PromotionPayEventHandler {
 
 	@Override
 	public void handle(OrderPaySuccessEvent event) {
+		// 与销售提成互斥：订单带归属销售快照时不再产生分销佣金
+		if (event.getSalesStaffId() != null && !event.getSalesStaffId().isBlank()) {
+			log.info("订单归属销售，跳过分销佣金 orderId={}, salesStaffId={}", event.getOrderId(),
+					event.getSalesStaffId());
+			return;
+		}
 		log.info("分销支付事件处理开始 orderId={}, userId={}, paymentPrice={}",
 			event.getOrderId(), event.getUserId(), event.getPaymentPrice());
 

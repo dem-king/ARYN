@@ -10,6 +10,7 @@ import {
   getMyDeliveryStaff,
 } from '@/api/delivery'
 import { getCount as getOrderCount } from '@/api/order/orderInfo'
+import { getSalesWorkbench } from '@/api/sales/entity'
 // 引入组件
 import DiyPage from '@/components/diy/index.vue'
 import WaterfallGoods from '@/components/waterfall-goods/index.vue'
@@ -215,6 +216,7 @@ onShow(() => {
     void messageStore.refreshUnread()
     messageStore.connect()
     loadDeliveryEligibility()
+    loadSalesEligibility()
     /**
      * 本页在路由白名单里，守卫不会替它拉用户信息，而页头的昵称/头像/等级
      * 与资产条全部取自 store —— 冷启动时可能只恢复了 token 而没有用户数据，
@@ -240,6 +242,7 @@ onShow(() => {
     hasDeliveryToken.value = false
     vesselBound.value = false
     vesselName.value = ''
+    isSales.value = false
   }
 })
 
@@ -286,6 +289,26 @@ const deliveryEntranceSubtitle = computed(() => {
   }
   return t('userCenter.deliveryEnter')
 })
+
+// ===================== 销售工作台入口 =====================
+
+/**
+ * 是否已登记为在职销售（销售工作台入口的可见性依据）。
+ *
+ * 入口只在 `isSales=true` 时渲染，避免非销售用户点进去看到一个「非销售账号」页；
+ * 请求失败与「非销售」同样按隐藏处理（不阻塞个人中心其余内容）。
+ */
+const isSales = ref(false)
+
+async function loadSalesEligibility() {
+  try {
+    const workbench = await getSalesWorkbench()
+    isSales.value = Boolean(workbench?.isSales)
+  }
+  catch {
+    isSales.value = false
+  }
+}
 
 /** 入口角标：待处理任务数（最多显示 99+） */
 const deliveryEntranceBadge = computed(() =>
@@ -670,6 +693,26 @@ onPageScroll(handlePageScroll)
         </text>
         <text class="uc-entry__desc">
           {{ vesselEntranceSubtitle }}
+        </text>
+      </view>
+      <text class="i-carbon:chevron-right uc-entry__arrow" />
+    </view>
+    <!-- 销售工作台入口：仅已登记为在职销售的会员可见（销售提成随工资发放，工作台只读） -->
+    <view
+      v-if="isSales"
+      class="uc-entry"
+      hover-class="uc-entry--pressed"
+      @click="toRoute('/sub-pages/user/sales/index')"
+    >
+      <view class="uc-entry__icon">
+        <text class="i-carbon:chart-line uc-entry__glyph" />
+      </view>
+      <view class="uc-entry__body">
+        <text class="uc-entry__title">
+          {{ t('userCenter.salesWorkbench') }}
+        </text>
+        <text class="uc-entry__desc">
+          {{ t('userCenter.salesWorkbenchDesc') }}
         </text>
       </view>
       <text class="i-carbon:chevron-right uc-entry__arrow" />

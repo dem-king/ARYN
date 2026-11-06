@@ -2,7 +2,7 @@
 -- 生成方式: node db/boot/build-full-sql.mjs
 -- 适用环境: MySQL 8.0.13+
 -- 警告: 本文件面向空库初始化，包含 DROP TABLE IF EXISTS，请勿用于存量生产库。
--- 生成日期: 2026-11-04
+-- 生成日期: 2026-11-05
 
 -- ============================================================================
 -- 创建数据库
@@ -72,6 +72,22 @@ DROP TABLE IF EXISTS `points_exchange_record`;
 DROP TABLE IF EXISTS `seckill_session_template`;
 DROP TABLE IF EXISTS `seckill_goods_template`;
 DROP TABLE IF EXISTS `seckill_subscribe`;
+-- 销售业绩归属与提成（202sales_performance_incremental.sql 新建表；全量脚本重建时先删再建）
+DROP TABLE IF EXISTS `sales_staff`;
+DROP TABLE IF EXISTS `sales_customer_bind`;
+DROP TABLE IF EXISTS `sales_customer_bind_log`;
+DROP TABLE IF EXISTS `sales_customer_claim`;
+DROP TABLE IF EXISTS `sales_transfer_reward`;
+DROP TABLE IF EXISTS `sales_order`;
+DROP TABLE IF EXISTS `sales_payout`;
+DROP TABLE IF EXISTS `sales_payout_adjustment`;
+DROP TABLE IF EXISTS `sales_config`;
+DROP TABLE IF EXISTS `sales_refund_record`;
+DROP TABLE IF EXISTS `distribution_coupon_pack`;
+DROP TABLE IF EXISTS `distribution_coupon_pack_item`;
+DROP TABLE IF EXISTS `distribution_coupon_exchange`;
+-- 类目角标配置化（205goods_category_badge_config.sql 新建表；全量脚本重建时先删再建）
+DROP TABLE IF EXISTS `goods_category_badge`;
 USE aryn_boot;
 
 SET NAMES utf8mb4;
@@ -11579,7 +11595,7 @@ WHERE `del_flag` = '0'
 -- 类目角标（推荐/热卖）
 -- Source: db/boot/89goods_category_badge.sql
 -- ============================================================================
--- 类目角标（Boot 单体模式）
+-- 类目角标（Boot 单体模式）—— 历史脚本（角标已升级为配置化）
 --
 -- 目标库：aryn_boot（单体模式所有表同库）
 -- 特性：可重复执行；不 DROP/TRUNCATE；不覆盖已有业务数据；仅加列与回填角标。
@@ -11589,13 +11605,17 @@ WHERE `del_flag` = '0'
 --   「热」（热卖）。这类角标是**类目**的运营属性，与商品标签无关，
 --   现有 goods_category 没有承载它的字段。
 --
--- 语义约定（务必与代码注释保持一致）：
---   badge_type  类目角标。0 = 无（默认）；1 = 推荐；2 = 热卖。
---               只存枚举值、不存图片地址：样式由 C 端内置，
---               运营只能选语义，避免同一语义在不同租户下配色漂移。
---               存量数据与新建类目一律默认 '0'，即不渲染角标。
+-- 现状（2026-11-05 需求「类目角标配置化」，主入口已迁移到 205/206 号脚本）：
+--   goods_category.badge_type 由「写死枚举」改为「goods_category_badge.badge_key 引用」，
+--   文字/底色/字色/排序/启停由运营在管理后台配置：
+--     · 0 = 无角标（默认）；
+--     · 1 / 2 = 试点租户历史键（配置行由 205goods_category_badge_config.sql seed）；
+--     · 其它值 = 运营新建角标的雪花 id 键。
+--   本脚本仅保留「加列 + 归一 + 演示回填」能力；新库直接执行 205/206 即可。
+--   ⚠️ 归一白名单已按需求修正：原 `NOT IN ('0','1','2')` 会把运营新建的角标 key
+--   全部刷回 '0'，现只清理 NULL / 空串。
 --
--- ⚠️ 部署顺序：**先执行本脚本，再部署后端代码**。
+-- ⚠️ 部署顺序：**先执行本脚本（或 205goods_category_badge_config.sql），再部署后端代码**。
 --    GoodsCategory 实体已加 badgeType 字段，而 MyBatis-Plus 走显式列清单，
 --    列不存在时所有类目查询都会 Unknown column 报错（含 C 端类目树）。
 --
@@ -11604,28 +11624,29 @@ WHERE `del_flag` = '0'
 USE `aryn_boot`;
 SET NAMES utf8mb4;
 
--- ---------- 1. 加列（幂等：列已存在则跳过） ----------
+-- ---------- 1. 加列（幂等：列已存在则跳过；宽度按配置化需求给到 varchar(32)） ----------
 SET @badge_column_exists = (
   SELECT COUNT(*) FROM information_schema.columns
   WHERE table_schema = DATABASE() AND table_name = 'goods_category' AND column_name = 'badge_type'
 );
 SET @badge_column_sql = IF(
   @badge_column_exists = 0,
-  'ALTER TABLE goods_category ADD COLUMN badge_type char(2) NOT NULL DEFAULT ''0'' COMMENT ''类目角标：0.无 1.推荐 2.热卖'' AFTER sort',
+  'ALTER TABLE goods_category ADD COLUMN badge_type varchar(32) NOT NULL DEFAULT ''0'' COMMENT ''类目角标：0.无；其它值为 goods_category_badge.badge_key'' AFTER sort',
   'SELECT 1'
 );
 PREPARE badge_column_stmt FROM @badge_column_sql;
 EXECUTE badge_column_stmt;
 DEALLOCATE PREPARE badge_column_stmt;
 
--- ---------- 2. 存量数据归一（NULL/非法值一律落 '0'，保证 C 端判定简单） ----------
+-- ---------- 2. 存量数据归一（只清理 NULL/空串，不动运营新建的角标 key） ----------
 UPDATE `goods_category`
    SET `badge_type` = '0'
- WHERE `badge_type` IS NULL OR `badge_type` NOT IN ('0', '1', '2');
+ WHERE `badge_type` IS NULL OR `badge_type` = '';
 
 -- ---------- 3. 演示角标回填（商超 951/952 段，与 41 号种子同一批类目） ----------
 -- 只回填 3 个存量类目作为可运营的示例，其余保持「无角标」：
 --   根茎类 → 推荐（时令推荐位）、坚果炒货 → 热卖、食用菌菇 → 热卖。
+-- '1'/'2' 是试点租户的历史角标键，对应 205goods_category_badge_config.sql seed 的配置行。
 -- 脚本可重复执行，不会覆盖运营在后台自行调整过的角标。
 UPDATE `goods_category`
    SET `badge_type` = '1', `update_time` = NOW(), `update_by` = 'system'
@@ -29400,5 +29421,1249 @@ FROM DUAL
 WHERE NOT EXISTS (
     SELECT 1 FROM `xxl_job_info` WHERE `executor_handler` = 'noticeDispatchRecoveryJob'
 );
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 销售业绩归属与提成数据模型（销售/认领/业绩/台账/券包）
+-- Source: db/boot/202sales_performance_incremental.sql
+-- ============================================================================
+-- ============================================================================
+-- 销售业绩归属与提成 — 数据模型增量（Boot 单体模式）
+--
+-- 目标库：aryn_boot（13 张新表在 promotion 域，order_info 加列在 order 域，同库）
+-- 背景（2026-11-05 需求「销售业绩归属与提成」，见
+--       docs/50-需求文档/2026-11-05-销售业绩归属与提成/IMPLEMENTATION_PLAN.md 第 2/6 节）：
+--   公司外勤销售跑成的客户下单后，订单要记录归属销售并据实付（不含运费）计算提成；
+--   同时把普通分销的提现改成券包兑换。需求涉及三层数据：
+--     ① 归属：销售员、客户归属、换绑日志、待转交认领、客户转交奖励；
+--     ② 账本：销售业绩单、月度发放台账、已发放后退款的负数结转、退款幂等记录、全局配置；
+--     ③ 改券：券包、券包→券模板、兑换记录。
+--   订单表只加两个可空列做归属快照（不加索引，按销售统计一律查 sales_order）。
+--
+-- 内容：
+--   一、销售业绩域 13 张新表（CREATE TABLE IF NOT EXISTS）
+--   二、order_info 两个可空列（information_schema 判重，可重复执行）
+--   三、8 个字典 + 字典值（sys_dict / sys_dict_value，固定 ID）
+--   四、按存量租户补 sales_config 默认行（INSERT ... SELECT ... WHERE NOT EXISTS）
+--
+-- 幂等：新表 CREATE TABLE IF NOT EXISTS；加列 information_schema 判存在；
+--       字典/配置行按固定 ID / 唯一键判重；全程无 DROP / TRUNCATE，不改存量业务数据。
+-- 依赖：本脚本依赖存量基线已包含 order_info.group_buy_record_id（114group_buy_order_link.sql）。
+-- 注意：菜单/权限见 203sales_performance_menu.sql，定时任务见 204sales_performance_job.sql；
+--       租户表清单由 Lead 在 aryn-boot application.yml 的 hx.tenant.tables 维护。
+-- 执行：mysql -u root -p aryn_boot < 202sales_performance_incremental.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- @DDL-BEGIN 销售业绩域 DDL 区块（与 db/cloud/205sales_performance_incremental.sql 逐列一致，单侧修改必须同步）
+-- ============================================================================
+-- 一、销售业绩域 13 张新表
+-- ============================================================================
+
+-- 2.1 sales_staff 销售员（后台员工账号 + 销售本人的小程序会员账号）
+CREATE TABLE IF NOT EXISTS `sales_staff` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `sys_user_id` varchar(32) NOT NULL COMMENT '后台员工账号ID（登记时经 RemoteSysUserService 校验存在）',
+  `staff_name` varchar(64) NULL DEFAULT NULL COMMENT '员工姓名快照',
+  `phone` varchar(32) NULL DEFAULT NULL COMMENT '员工手机号快照',
+  `dept_id` varchar(32) NULL DEFAULT NULL COMMENT '部门ID快照',
+  `dept_name` varchar(64) NULL DEFAULT NULL COMMENT '部门名称快照',
+  `member_user_id` varchar(32) NOT NULL COMMENT '销售本人的小程序会员ID（租户内唯一，生成分享参数用）',
+  `commission_rate` decimal(10,4) NULL DEFAULT NULL COMMENT '个人提成比例（0-1；NULL 取全局默认比例）',
+  `status` char(2) NOT NULL DEFAULT '0' COMMENT '状态：0在职 1离职',
+  `leave_time` datetime NULL DEFAULT NULL COMMENT '离职时间',
+  `remark` varchar(255) NULL DEFAULT NULL COMMENT '备注',
+  `create_time` datetime NULL DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime NULL DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0显示 1隐藏',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户id',
+  `create_by` varchar(60) NULL DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) NULL DEFAULT NULL COMMENT '修改人',
+  `version` int NULL DEFAULT 0 COMMENT '版本号',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_sales_staff_member` (`tenant_id`, `member_user_id`),
+  KEY `idx_sales_staff_sys_user` (`tenant_id`, `sys_user_id`),
+  KEY `idx_sales_staff_status` (`tenant_id`, `status`)
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '销售员' ROW_FORMAT = DYNAMIC;
+
+-- 2.2 sales_customer_bind 客户归属（一个客户同时只归属一个销售）
+CREATE TABLE IF NOT EXISTS `sales_customer_bind` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `customer_user_id` varchar(32) NOT NULL COMMENT '客户会员ID',
+  `sales_staff_id` varchar(32) NOT NULL COMMENT '归属销售ID',
+  `bind_source` varchar(16) NOT NULL COMMENT '绑定来源：SHARE分享 QRCODE推广码 ADMIN后台指派 TRANSFER离职交接 CLAIM首单转交',
+  `bind_time` datetime NOT NULL COMMENT '绑定时间',
+  `create_time` datetime NULL DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime NULL DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0显示 1隐藏',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户id',
+  `create_by` varchar(60) NULL DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) NULL DEFAULT NULL COMMENT '修改人',
+  `version` int NULL DEFAULT 0 COMMENT '版本号',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_sales_customer_bind` (`tenant_id`, `customer_user_id`),
+  KEY `idx_sales_customer_bind_staff` (`tenant_id`, `sales_staff_id`)
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '销售客户归属' ROW_FORMAT = DYNAMIC;
+
+-- 2.3 sales_customer_bind_log 换绑日志（只追加，不删除）
+CREATE TABLE IF NOT EXISTS `sales_customer_bind_log` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `customer_user_id` varchar(32) NOT NULL COMMENT '客户会员ID',
+  `old_sales_staff_id` varchar(32) NULL DEFAULT NULL COMMENT '原归属销售ID（首次绑定为 NULL）',
+  `old_sales_staff_name` varchar(64) NULL DEFAULT NULL COMMENT '原归属销售姓名快照',
+  `new_sales_staff_id` varchar(32) NOT NULL COMMENT '新归属销售ID',
+  `new_sales_staff_name` varchar(64) NULL DEFAULT NULL COMMENT '新归属销售姓名快照',
+  `bind_source` varchar(16) NOT NULL COMMENT '变更来源：SHARE分享 QRCODE推广码 ADMIN后台指派 TRANSFER离职交接 CLAIM首单转交',
+  `reason` varchar(255) NULL DEFAULT NULL COMMENT '变更原因',
+  `operator_id` varchar(32) NULL DEFAULT NULL COMMENT '操作人ID',
+  `operator_name` varchar(64) NULL DEFAULT NULL COMMENT '操作人姓名',
+  `create_time` datetime NULL DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime NULL DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0显示 1隐藏',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户id',
+  `create_by` varchar(60) NULL DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) NULL DEFAULT NULL COMMENT '修改人',
+  `version` int NULL DEFAULT 0 COMMENT '版本号',
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_sales_bind_log_customer` (`tenant_id`, `customer_user_id`, `create_time`)
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '销售客户换绑日志' ROW_FORMAT = DYNAMIC;
+
+-- 2.4 sales_customer_claim 待转交认领（客户先归属分销员、又点了销售分享链接时生成）
+CREATE TABLE IF NOT EXISTS `sales_customer_claim` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `customer_user_id` varchar(32) NOT NULL COMMENT '客户会员ID',
+  `sales_staff_id` varchar(32) NOT NULL COMMENT '认领销售ID',
+  `source` varchar(16) NOT NULL COMMENT '认领来源：SHARE分享 QRCODE推广码',
+  `status` char(2) NOT NULL DEFAULT '0' COMMENT '状态：0待首单 1已转交 2已失效',
+  `claim_time` datetime NOT NULL COMMENT '认领时间',
+  `expire_time` datetime NOT NULL COMMENT '失效时间（默认 claim_time + sales_config.claim_expire_days）',
+  `create_time` datetime NULL DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime NULL DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0显示 1隐藏',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户id',
+  `create_by` varchar(60) NULL DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) NULL DEFAULT NULL COMMENT '修改人',
+  `version` int NULL DEFAULT 0 COMMENT '版本号',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_sales_claim_customer` (`tenant_id`, `customer_user_id`),
+  KEY `idx_sales_claim_staff` (`tenant_id`, `sales_staff_id`, `status`)
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '销售客户待转交认领' ROW_FORMAT = DYNAMIC;
+
+-- 2.5 sales_transfer_reward 客户转交奖励（分销员 → 销售首单转交一次性奖励）
+CREATE TABLE IF NOT EXISTS `sales_transfer_reward` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `customer_user_id` varchar(32) NOT NULL COMMENT '客户会员ID',
+  `distributor_user_id` varchar(32) NOT NULL COMMENT '原分销员会员ID（奖励归属人）',
+  `sales_staff_id` varchar(32) NOT NULL COMMENT '接收销售ID',
+  `biz_order_id` varchar(32) NOT NULL COMMENT '触发转交的业务订单ID',
+  `first_order_amount` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '首单实付金额（不含运费）',
+  `reward_rate` decimal(10,4) NOT NULL DEFAULT 0.0000 COMMENT '奖励比例快照',
+  `reward_amount` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '奖励金额（2 位向下取整）',
+  `status` char(2) NOT NULL DEFAULT '0' COMMENT '状态：0待结算 1已入账 2已作废',
+  `settle_time` datetime NULL DEFAULT NULL COMMENT '入账/结算时间',
+  `create_time` datetime NULL DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime NULL DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0显示 1隐藏',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户id',
+  `create_by` varchar(60) NULL DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) NULL DEFAULT NULL COMMENT '修改人',
+  `version` int NULL DEFAULT 0 COMMENT '版本号',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_sales_transfer_reward` (`tenant_id`, `customer_user_id`, `biz_order_id`)
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '销售客户转交奖励' ROW_FORMAT = DYNAMIC;
+
+-- 2.6 sales_order 销售业绩单（参照 distribution_order 设计，biz_order_id 幂等）
+CREATE TABLE IF NOT EXISTS `sales_order` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `biz_order_id` varchar(32) NOT NULL COMMENT '业务订单ID',
+  `order_no` varchar(64) NULL DEFAULT NULL COMMENT '订单号快照',
+  `buyer_user_id` varchar(32) NOT NULL COMMENT '买家会员ID',
+  `sales_staff_id` varchar(32) NOT NULL COMMENT '归属销售ID（订单快照）',
+  `staff_name` varchar(64) NULL DEFAULT NULL COMMENT '归属销售姓名快照',
+  `dept_id` varchar(32) NULL DEFAULT NULL COMMENT '归属部门ID快照',
+  `payment_amount` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '实付金额（含运费）',
+  `freight_amount` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '运费金额',
+  `commission_base` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '提成基数（实付不含运费）',
+  `commission_rate` decimal(10,4) NOT NULL DEFAULT 0.0000 COMMENT '提成比例快照（支付时）',
+  `commission_amount` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '提成金额',
+  `refunded_base` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '累计退款基数',
+  `refunded_commission` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '累计扣回提成',
+  `status` char(2) NOT NULL DEFAULT '0' COMMENT '状态：0待确认 1可发放 2已发放 3已全额退款',
+  `pay_time` datetime NULL DEFAULT NULL COMMENT '支付时间',
+  `settle_at` datetime NULL DEFAULT NULL COMMENT '计划可发放时间（退款风险观察期止）',
+  `settle_time` datetime NULL DEFAULT NULL COMMENT '实际可发放时间',
+  `payout_id` varchar(32) NULL DEFAULT NULL COMMENT '所属发放批次ID',
+  `remark` varchar(255) NULL DEFAULT NULL COMMENT '备注',
+  `create_time` datetime NULL DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime NULL DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0显示 1隐藏',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户id',
+  `create_by` varchar(60) NULL DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) NULL DEFAULT NULL COMMENT '修改人',
+  `version` int NULL DEFAULT 0 COMMENT '版本号',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_sales_order_biz` (`tenant_id`, `biz_order_id`),
+  KEY `idx_sales_order_staff` (`tenant_id`, `sales_staff_id`, `pay_time`),
+  KEY `idx_sales_order_status` (`tenant_id`, `status`, `settle_at`),
+  KEY `idx_sales_order_payout` (`tenant_id`, `payout_id`)
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '销售业绩单' ROW_FORMAT = DYNAMIC;
+
+-- 2.7 sales_payout 月度发放台账（每个销售每月一条）
+CREATE TABLE IF NOT EXISTS `sales_payout` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `sales_staff_id` varchar(32) NOT NULL COMMENT '销售ID',
+  `staff_name` varchar(64) NULL DEFAULT NULL COMMENT '销售姓名快照',
+  `dept_id` varchar(32) NULL DEFAULT NULL COMMENT '部门ID快照',
+  `payout_month` varchar(7) NOT NULL COMMENT '发放月份（yyyy-MM，批次所属月=上月）',
+  `order_count` int NOT NULL DEFAULT 0 COMMENT '业绩单数',
+  `trade_amount` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '成交额=Σ(提成基数-已退基数)',
+  `commission_amount` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '应发提成=Σ(提成金额-已扣回)',
+  `refund_deduct_amount` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '上期退款冲减（正数）',
+  `payable_amount` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '实发金额=应发-冲减',
+  `status` char(2) NOT NULL DEFAULT '0' COMMENT '状态：0待确认 1已发放',
+  `confirm_by` varchar(60) NULL DEFAULT NULL COMMENT '财务确认人',
+  `confirm_time` datetime NULL DEFAULT NULL COMMENT '财务确认发放时间',
+  `remark` varchar(500) NULL DEFAULT NULL COMMENT '备注',
+  `create_time` datetime NULL DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime NULL DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0显示 1隐藏',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户id',
+  `create_by` varchar(60) NULL DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) NULL DEFAULT NULL COMMENT '修改人',
+  `version` int NULL DEFAULT 0 COMMENT '版本号',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_sales_payout_staff_month` (`tenant_id`, `sales_staff_id`, `payout_month`)
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '销售提成月度发放台账' ROW_FORMAT = DYNAMIC;
+
+-- 2.8 sales_payout_adjustment 已发放后退款的负数结转（不改已发放台账，结转到下月）
+CREATE TABLE IF NOT EXISTS `sales_payout_adjustment` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `sales_staff_id` varchar(32) NOT NULL COMMENT '销售ID',
+  `staff_name` varchar(64) NULL DEFAULT NULL COMMENT '销售姓名快照',
+  `biz_order_id` varchar(32) NOT NULL COMMENT '业务订单ID',
+  `refund_no` varchar(64) NOT NULL COMMENT '退款单号（幂等键）',
+  `amount` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '结转金额（负数）',
+  `status` char(2) NOT NULL DEFAULT '0' COMMENT '状态：0待结转 1已结转',
+  `payout_id` varchar(32) NULL DEFAULT NULL COMMENT '结转到的发放批次ID',
+  `remark` varchar(255) NULL DEFAULT NULL COMMENT '备注',
+  `create_time` datetime NULL DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime NULL DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0显示 1隐藏',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户id',
+  `create_by` varchar(60) NULL DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) NULL DEFAULT NULL COMMENT '修改人',
+  `version` int NULL DEFAULT 0 COMMENT '版本号',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_sales_payout_adjustment` (`tenant_id`, `refund_no`),
+  KEY `idx_sales_adjustment_staff` (`tenant_id`, `sales_staff_id`, `status`)
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '销售提成退款负数结转' ROW_FORMAT = DYNAMIC;
+
+-- 2.9 sales_config 全局配置（每租户单启用行，active_config_key 生成列保证唯一）
+CREATE TABLE IF NOT EXISTS `sales_config` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `default_commission_rate` decimal(10,4) NOT NULL DEFAULT 0.0500 COMMENT '全局默认提成比例',
+  `referral_reward_rate` decimal(10,4) NOT NULL DEFAULT 0.0000 COMMENT '转交奖励比例（0=不启用）',
+  `monthly_cutoff_day` int NOT NULL DEFAULT 1 COMMENT '每月台账生成日（1-28）',
+  `refund_risk_days` int NOT NULL DEFAULT 7 COMMENT '退款风险观察期天数（settle_at = pay_time + days）',
+  `claim_expire_days` int NOT NULL DEFAULT 90 COMMENT '待转交认领有效期（天）',
+  `status` char(2) NOT NULL DEFAULT '0' COMMENT '状态：0启用 1禁用',
+  `create_time` datetime NULL DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime NULL DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0显示 1隐藏',
+  `active_config_key` char(1) GENERATED ALWAYS AS (CASE WHEN status = '0' AND del_flag = '0' THEN '1' ELSE NULL END) STORED COMMENT '单租户启用配置唯一键',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户id',
+  `create_by` varchar(60) NULL DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) NULL DEFAULT NULL COMMENT '修改人',
+  `version` int NULL DEFAULT 0 COMMENT '版本号',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_sales_config_active` (`tenant_id`, `active_config_key`)
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '销售业绩全局配置' ROW_FORMAT = DYNAMIC;
+
+-- 2.10 distribution_coupon_pack 券包配置（分销佣金改兑换优惠券）
+CREATE TABLE IF NOT EXISTS `distribution_coupon_pack` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `pack_name` varchar(64) NOT NULL COMMENT '券包名称',
+  `face_amount` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '券面对额合计',
+  `threshold_amount` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '使用门槛金额',
+  `valid_days` int NULL DEFAULT NULL COMMENT '有效天数',
+  `required_commission` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '兑换消耗佣金',
+  `stock` int NULL DEFAULT NULL COMMENT '库存（NULL=不限）',
+  `status` char(2) NOT NULL DEFAULT '0' COMMENT '状态：0上架 1下架',
+  `sort` int NULL DEFAULT 0 COMMENT '排序',
+  `remark` varchar(255) NULL DEFAULT NULL COMMENT '备注',
+  `create_time` datetime NULL DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime NULL DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0显示 1隐藏',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户id',
+  `create_by` varchar(60) NULL DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) NULL DEFAULT NULL COMMENT '修改人',
+  `version` int NULL DEFAULT 0 COMMENT '版本号',
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_distribution_pack_status` (`tenant_id`, `status`, `sort`)
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '分销券包配置' ROW_FORMAT = DYNAMIC;
+
+-- 2.11 distribution_coupon_pack_item 券包→券模板（一个券包可含多个券模板）
+CREATE TABLE IF NOT EXISTS `distribution_coupon_pack_item` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `pack_id` varchar(32) NOT NULL COMMENT '券包ID',
+  `coupon_info_id` varchar(32) NOT NULL COMMENT '优惠券模板ID',
+  `quantity` int NOT NULL DEFAULT 1 COMMENT '发放数量',
+  `create_time` datetime NULL DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime NULL DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0显示 1隐藏',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户id',
+  `create_by` varchar(60) NULL DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) NULL DEFAULT NULL COMMENT '修改人',
+  `version` int NULL DEFAULT 0 COMMENT '版本号',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_distribution_pack_item` (`tenant_id`, `pack_id`, `coupon_info_id`),
+  KEY `idx_distribution_pack_item_pack` (`tenant_id`, `pack_id`)
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '分销券包优惠券模板明细' ROW_FORMAT = DYNAMIC;
+
+-- 2.12 distribution_coupon_exchange 兑换记录
+CREATE TABLE IF NOT EXISTS `distribution_coupon_exchange` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `user_id` varchar(32) NOT NULL COMMENT '兑换用户ID（分销员会员ID）',
+  `nickname` varchar(64) NULL DEFAULT NULL COMMENT '用户昵称快照',
+  `pack_id` varchar(32) NOT NULL COMMENT '券包ID',
+  `pack_name` varchar(64) NULL DEFAULT NULL COMMENT '券包名称快照',
+  `face_amount` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '券面额快照',
+  `commission_amount` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '消耗佣金',
+  `coupon_user_ids` varchar(500) NULL DEFAULT NULL COMMENT '发放的 coupon_user 主键（逗号分隔）',
+  `status` char(2) NOT NULL DEFAULT '0' COMMENT '状态：0发放中 1已发放 2发放失败',
+  `exchange_time` datetime NULL DEFAULT NULL COMMENT '兑换时间',
+  `remark` varchar(255) NULL DEFAULT NULL COMMENT '备注',
+  `create_time` datetime NULL DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime NULL DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0显示 1隐藏',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户id',
+  `create_by` varchar(60) NULL DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) NULL DEFAULT NULL COMMENT '修改人',
+  `version` int NULL DEFAULT 0 COMMENT '版本号',
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_distribution_exchange_user` (`tenant_id`, `user_id`, `create_time`),
+  KEY `idx_distribution_exchange_pack` (`tenant_id`, `pack_id`, `create_time`)
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '分销佣金兑换券包记录' ROW_FORMAT = DYNAMIC;
+
+-- sales_refund_record 销售退款幂等记录（字段同 distribution_refund_record，按 refund_no 幂等）
+CREATE TABLE IF NOT EXISTS `sales_refund_record` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `refund_no` varchar(64) NOT NULL COMMENT '退款业务号',
+  `biz_order_id` varchar(32) NOT NULL COMMENT '业务订单ID',
+  `refund_amount` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '退款总额（含运费）',
+  `refund_base_amount` decimal(10,2) NOT NULL DEFAULT 0.00 COMMENT '退款提成基数（不含运费）',
+  `applied` char(1) NOT NULL DEFAULT '0' COMMENT '是否已扣回提成：0否 1是',
+  `applied_time` datetime NULL DEFAULT NULL COMMENT '提成扣回完成时间',
+  `create_time` datetime NULL DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime NULL DEFAULT NULL COMMENT '更新时间',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0显示 1隐藏',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户id',
+  `create_by` varchar(60) NULL DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) NULL DEFAULT NULL COMMENT '修改人',
+  `version` int NULL DEFAULT 0 COMMENT '版本号',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_sales_refund_no` (`tenant_id`, `refund_no`),
+  KEY `idx_sales_refund_order` (`tenant_id`, `biz_order_id`),
+  KEY `idx_sales_refund_pending` (`tenant_id`, `applied`, `create_time`)
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '销售退款幂等记录' ROW_FORMAT = DYNAMIC;
+
+-- ============================================================================
+-- 二、order_info 归属销售快照列（2.13，information_schema 判重）
+-- ============================================================================
+SET @add_sales_staff_id = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `order_info` ADD COLUMN `sales_staff_id` varchar(32) NULL COMMENT ''归属销售ID快照（下单时写入，换绑不影响）'' AFTER `group_buy_record_id`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'order_info' AND COLUMN_NAME = 'sales_staff_id'
+);
+PREPARE stmt FROM @add_sales_staff_id; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @add_sales_staff_name = (
+  SELECT IF(COUNT(*) = 0,
+    'ALTER TABLE `order_info` ADD COLUMN `sales_staff_name` varchar(64) NULL COMMENT ''归属销售姓名快照'' AFTER `sales_staff_id`',
+    'SELECT 1')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'order_info' AND COLUMN_NAME = 'sales_staff_name'
+);
+PREPARE stmt FROM @add_sales_staff_name; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 自检：应返回 2（order_info 归属销售两列均已存在）
+SELECT
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'order_info'
+       AND COLUMN_NAME IN ('sales_staff_id', 'sales_staff_name')) AS added_order_info_columns;
+-- @DDL-END
+
+-- ============================================================================
+-- 三、字典：销售业绩 / 分销售券（sys_dict + sys_dict_value，固定 ID，按 type 判重）
+-- ============================================================================
+
+-- 3.1 字典类型
+INSERT IGNORE INTO `sys_dict`
+(`id`,`type`,`description`,`status`,`remarks`,`del_flag`,`create_time`,`update_time`,`create_by`,`update_by`)
+SELECT '2130000000000000201', 'sales_staff_status', '销售员状态', '0', '0在职 1离职', '0', NOW(), NULL, 'system', NULL
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `sys_dict` WHERE `type` = 'sales_staff_status');
+
+INSERT IGNORE INTO `sys_dict`
+(`id`,`type`,`description`,`status`,`remarks`,`del_flag`,`create_time`,`update_time`,`create_by`,`update_by`)
+SELECT '2130000000000000202', 'sales_bind_source', '销售客户归属来源', '0', 'SHARE/QRCODE/ADMIN/TRANSFER/CLAIM', '0', NOW(), NULL, 'system', NULL
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `sys_dict` WHERE `type` = 'sales_bind_source');
+
+INSERT IGNORE INTO `sys_dict`
+(`id`,`type`,`description`,`status`,`remarks`,`del_flag`,`create_time`,`update_time`,`create_by`,`update_by`)
+SELECT '2130000000000000203', 'sales_order_status', '销售业绩单状态', '0', '0待确认 1可发放 2已发放 3已全额退款', '0', NOW(), NULL, 'system', NULL
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `sys_dict` WHERE `type` = 'sales_order_status');
+
+INSERT IGNORE INTO `sys_dict`
+(`id`,`type`,`description`,`status`,`remarks`,`del_flag`,`create_time`,`update_time`,`create_by`,`update_by`)
+SELECT '2130000000000000204', 'sales_payout_status', '销售提成发放台账状态', '0', '0待确认 1已发放', '0', NOW(), NULL, 'system', NULL
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `sys_dict` WHERE `type` = 'sales_payout_status');
+
+INSERT IGNORE INTO `sys_dict`
+(`id`,`type`,`description`,`status`,`remarks`,`del_flag`,`create_time`,`update_time`,`create_by`,`update_by`)
+SELECT '2130000000000000205', 'sales_claim_status', '销售待转交认领状态', '0', '0待首单 1已转交 2已失效', '0', NOW(), NULL, 'system', NULL
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `sys_dict` WHERE `type` = 'sales_claim_status');
+
+INSERT IGNORE INTO `sys_dict`
+(`id`,`type`,`description`,`status`,`remarks`,`del_flag`,`create_time`,`update_time`,`create_by`,`update_by`)
+SELECT '2130000000000000206', 'sales_transfer_reward_status', '销售客户转交奖励状态', '0', '0待结算 1已入账 2已作废', '0', NOW(), NULL, 'system', NULL
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `sys_dict` WHERE `type` = 'sales_transfer_reward_status');
+
+INSERT IGNORE INTO `sys_dict`
+(`id`,`type`,`description`,`status`,`remarks`,`del_flag`,`create_time`,`update_time`,`create_by`,`update_by`)
+SELECT '2130000000000000207', 'distribution_coupon_pack_status', '分销券包状态', '0', '0上架 1下架', '0', NOW(), NULL, 'system', NULL
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `sys_dict` WHERE `type` = 'distribution_coupon_pack_status');
+
+INSERT IGNORE INTO `sys_dict`
+(`id`,`type`,`description`,`status`,`remarks`,`del_flag`,`create_time`,`update_time`,`create_by`,`update_by`)
+SELECT '2130000000000000208', 'distribution_coupon_exchange_status', '分销佣金兑换状态', '0', '0发放中 1已发放 2发放失败', '0', NOW(), NULL, 'system', NULL
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM `sys_dict` WHERE `type` = 'distribution_coupon_exchange_status');
+
+-- 3.2 字典值：sales_staff_status（0在职 / 1离职）
+INSERT IGNORE INTO `sys_dict_value`
+(`id`,`dict_id`,`dict_label`,`dict_value`,`dict_type`,`status`,`remarks`,`sort`,`del_flag`,`create_time`,`create_by`,`show_class`)
+SELECT '2130000000000000211', d.`id`, '在职', '0', 'sales_staff_status', '0', NULL, 1, '0', NOW(), 'system', 'success'
+FROM `sys_dict` d WHERE d.`type` = 'sales_staff_status' AND d.`del_flag` = '0' LIMIT 1;
+
+INSERT IGNORE INTO `sys_dict_value`
+(`id`,`dict_id`,`dict_label`,`dict_value`,`dict_type`,`status`,`remarks`,`sort`,`del_flag`,`create_time`,`create_by`,`show_class`)
+SELECT '2130000000000000212', d.`id`, '离职', '1', 'sales_staff_status', '0', NULL, 2, '0', NOW(), 'system', 'info'
+FROM `sys_dict` d WHERE d.`type` = 'sales_staff_status' AND d.`del_flag` = '0' LIMIT 1;
+
+-- 3.3 字典值：sales_bind_source（SHARE/QRCODE/ADMIN/TRANSFER/CLAIM）
+INSERT IGNORE INTO `sys_dict_value`
+(`id`,`dict_id`,`dict_label`,`dict_value`,`dict_type`,`status`,`remarks`,`sort`,`del_flag`,`create_time`,`create_by`,`show_class`)
+SELECT '2130000000000000221', d.`id`, '分享链接', 'SHARE', 'sales_bind_source', '0', NULL, 1, '0', NOW(), 'system', 'primary'
+FROM `sys_dict` d WHERE d.`type` = 'sales_bind_source' AND d.`del_flag` = '0' LIMIT 1;
+
+INSERT IGNORE INTO `sys_dict_value`
+(`id`,`dict_id`,`dict_label`,`dict_value`,`dict_type`,`status`,`remarks`,`sort`,`del_flag`,`create_time`,`create_by`,`show_class`)
+SELECT '2130000000000000222', d.`id`, '推广码', 'QRCODE', 'sales_bind_source', '0', NULL, 2, '0', NOW(), 'system', 'primary'
+FROM `sys_dict` d WHERE d.`type` = 'sales_bind_source' AND d.`del_flag` = '0' LIMIT 1;
+
+INSERT IGNORE INTO `sys_dict_value`
+(`id`,`dict_id`,`dict_label`,`dict_value`,`dict_type`,`status`,`remarks`,`sort`,`del_flag`,`create_time`,`create_by`,`show_class`)
+SELECT '2130000000000000223', d.`id`, '后台指派', 'ADMIN', 'sales_bind_source', '0', NULL, 3, '0', NOW(), 'system', 'info'
+FROM `sys_dict` d WHERE d.`type` = 'sales_bind_source' AND d.`del_flag` = '0' LIMIT 1;
+
+INSERT IGNORE INTO `sys_dict_value`
+(`id`,`dict_id`,`dict_label`,`dict_value`,`dict_type`,`status`,`remarks`,`sort`,`del_flag`,`create_time`,`create_by`,`show_class`)
+SELECT '2130000000000000224', d.`id`, '离职交接', 'TRANSFER', 'sales_bind_source', '0', NULL, 4, '0', NOW(), 'system', 'warning'
+FROM `sys_dict` d WHERE d.`type` = 'sales_bind_source' AND d.`del_flag` = '0' LIMIT 1;
+
+INSERT IGNORE INTO `sys_dict_value`
+(`id`,`dict_id`,`dict_label`,`dict_value`,`dict_type`,`status`,`remarks`,`sort`,`del_flag`,`create_time`,`create_by`,`show_class`)
+SELECT '2130000000000000225', d.`id`, '首单转交', 'CLAIM', 'sales_bind_source', '0', NULL, 5, '0', NOW(), 'system', 'success'
+FROM `sys_dict` d WHERE d.`type` = 'sales_bind_source' AND d.`del_flag` = '0' LIMIT 1;
+
+-- 3.4 字典值：sales_order_status（0待确认 / 1可发放 / 2已发放 / 3已全额退款）
+INSERT IGNORE INTO `sys_dict_value`
+(`id`,`dict_id`,`dict_label`,`dict_value`,`dict_type`,`status`,`remarks`,`sort`,`del_flag`,`create_time`,`create_by`,`show_class`)
+SELECT '2130000000000000231', d.`id`, '待确认', '0', 'sales_order_status', '0', NULL, 1, '0', NOW(), 'system', 'warning'
+FROM `sys_dict` d WHERE d.`type` = 'sales_order_status' AND d.`del_flag` = '0' LIMIT 1;
+
+INSERT IGNORE INTO `sys_dict_value`
+(`id`,`dict_id`,`dict_label`,`dict_value`,`dict_type`,`status`,`remarks`,`sort`,`del_flag`,`create_time`,`create_by`,`show_class`)
+SELECT '2130000000000000232', d.`id`, '可发放', '1', 'sales_order_status', '0', NULL, 2, '0', NOW(), 'system', 'primary'
+FROM `sys_dict` d WHERE d.`type` = 'sales_order_status' AND d.`del_flag` = '0' LIMIT 1;
+
+INSERT IGNORE INTO `sys_dict_value`
+(`id`,`dict_id`,`dict_label`,`dict_value`,`dict_type`,`status`,`remarks`,`sort`,`del_flag`,`create_time`,`create_by`,`show_class`)
+SELECT '2130000000000000233', d.`id`, '已发放', '2', 'sales_order_status', '0', NULL, 3, '0', NOW(), 'system', 'success'
+FROM `sys_dict` d WHERE d.`type` = 'sales_order_status' AND d.`del_flag` = '0' LIMIT 1;
+
+INSERT IGNORE INTO `sys_dict_value`
+(`id`,`dict_id`,`dict_label`,`dict_value`,`dict_type`,`status`,`remarks`,`sort`,`del_flag`,`create_time`,`create_by`,`show_class`)
+SELECT '2130000000000000234', d.`id`, '已全额退款', '3', 'sales_order_status', '0', NULL, 4, '0', NOW(), 'system', 'danger'
+FROM `sys_dict` d WHERE d.`type` = 'sales_order_status' AND d.`del_flag` = '0' LIMIT 1;
+
+-- 3.5 字典值：sales_payout_status（0待确认 / 1已发放）
+INSERT IGNORE INTO `sys_dict_value`
+(`id`,`dict_id`,`dict_label`,`dict_value`,`dict_type`,`status`,`remarks`,`sort`,`del_flag`,`create_time`,`create_by`,`show_class`)
+SELECT '2130000000000000241', d.`id`, '待确认', '0', 'sales_payout_status', '0', NULL, 1, '0', NOW(), 'system', 'warning'
+FROM `sys_dict` d WHERE d.`type` = 'sales_payout_status' AND d.`del_flag` = '0' LIMIT 1;
+
+INSERT IGNORE INTO `sys_dict_value`
+(`id`,`dict_id`,`dict_label`,`dict_value`,`dict_type`,`status`,`remarks`,`sort`,`del_flag`,`create_time`,`create_by`,`show_class`)
+SELECT '2130000000000000242', d.`id`, '已发放', '1', 'sales_payout_status', '0', NULL, 2, '0', NOW(), 'system', 'success'
+FROM `sys_dict` d WHERE d.`type` = 'sales_payout_status' AND d.`del_flag` = '0' LIMIT 1;
+
+-- 3.6 字典值：sales_claim_status（0待首单 / 1已转交 / 2已失效）
+INSERT IGNORE INTO `sys_dict_value`
+(`id`,`dict_id`,`dict_label`,`dict_value`,`dict_type`,`status`,`remarks`,`sort`,`del_flag`,`create_time`,`create_by`,`show_class`)
+SELECT '2130000000000000251', d.`id`, '待首单', '0', 'sales_claim_status', '0', NULL, 1, '0', NOW(), 'system', 'warning'
+FROM `sys_dict` d WHERE d.`type` = 'sales_claim_status' AND d.`del_flag` = '0' LIMIT 1;
+
+INSERT IGNORE INTO `sys_dict_value`
+(`id`,`dict_id`,`dict_label`,`dict_value`,`dict_type`,`status`,`remarks`,`sort`,`del_flag`,`create_time`,`create_by`,`show_class`)
+SELECT '2130000000000000252', d.`id`, '已转交', '1', 'sales_claim_status', '0', NULL, 2, '0', NOW(), 'system', 'success'
+FROM `sys_dict` d WHERE d.`type` = 'sales_claim_status' AND d.`del_flag` = '0' LIMIT 1;
+
+INSERT IGNORE INTO `sys_dict_value`
+(`id`,`dict_id`,`dict_label`,`dict_value`,`dict_type`,`status`,`remarks`,`sort`,`del_flag`,`create_time`,`create_by`,`show_class`)
+SELECT '2130000000000000253', d.`id`, '已失效', '2', 'sales_claim_status', '0', NULL, 3, '0', NOW(), 'system', 'info'
+FROM `sys_dict` d WHERE d.`type` = 'sales_claim_status' AND d.`del_flag` = '0' LIMIT 1;
+
+-- 3.7 字典值：sales_transfer_reward_status（0待结算 / 1已入账 / 2已作废）
+INSERT IGNORE INTO `sys_dict_value`
+(`id`,`dict_id`,`dict_label`,`dict_value`,`dict_type`,`status`,`remarks`,`sort`,`del_flag`,`create_time`,`create_by`,`show_class`)
+SELECT '2130000000000000261', d.`id`, '待结算', '0', 'sales_transfer_reward_status', '0', NULL, 1, '0', NOW(), 'system', 'warning'
+FROM `sys_dict` d WHERE d.`type` = 'sales_transfer_reward_status' AND d.`del_flag` = '0' LIMIT 1;
+
+INSERT IGNORE INTO `sys_dict_value`
+(`id`,`dict_id`,`dict_label`,`dict_value`,`dict_type`,`status`,`remarks`,`sort`,`del_flag`,`create_time`,`create_by`,`show_class`)
+SELECT '2130000000000000262', d.`id`, '已入账', '1', 'sales_transfer_reward_status', '0', NULL, 2, '0', NOW(), 'system', 'success'
+FROM `sys_dict` d WHERE d.`type` = 'sales_transfer_reward_status' AND d.`del_flag` = '0' LIMIT 1;
+
+INSERT IGNORE INTO `sys_dict_value`
+(`id`,`dict_id`,`dict_label`,`dict_value`,`dict_type`,`status`,`remarks`,`sort`,`del_flag`,`create_time`,`create_by`,`show_class`)
+SELECT '2130000000000000263', d.`id`, '已作废', '2', 'sales_transfer_reward_status', '0', NULL, 3, '0', NOW(), 'system', 'info'
+FROM `sys_dict` d WHERE d.`type` = 'sales_transfer_reward_status' AND d.`del_flag` = '0' LIMIT 1;
+
+-- 3.8 字典值：distribution_coupon_pack_status（0上架 / 1下架）
+INSERT IGNORE INTO `sys_dict_value`
+(`id`,`dict_id`,`dict_label`,`dict_value`,`dict_type`,`status`,`remarks`,`sort`,`del_flag`,`create_time`,`create_by`,`show_class`)
+SELECT '2130000000000000271', d.`id`, '上架', '0', 'distribution_coupon_pack_status', '0', NULL, 1, '0', NOW(), 'system', 'success'
+FROM `sys_dict` d WHERE d.`type` = 'distribution_coupon_pack_status' AND d.`del_flag` = '0' LIMIT 1;
+
+INSERT IGNORE INTO `sys_dict_value`
+(`id`,`dict_id`,`dict_label`,`dict_value`,`dict_type`,`status`,`remarks`,`sort`,`del_flag`,`create_time`,`create_by`,`show_class`)
+SELECT '2130000000000000272', d.`id`, '下架', '1', 'distribution_coupon_pack_status', '0', NULL, 2, '0', NOW(), 'system', 'info'
+FROM `sys_dict` d WHERE d.`type` = 'distribution_coupon_pack_status' AND d.`del_flag` = '0' LIMIT 1;
+
+-- 3.9 字典值：distribution_coupon_exchange_status（0发放中 / 1已发放 / 2发放失败）
+INSERT IGNORE INTO `sys_dict_value`
+(`id`,`dict_id`,`dict_label`,`dict_value`,`dict_type`,`status`,`remarks`,`sort`,`del_flag`,`create_time`,`create_by`,`show_class`)
+SELECT '2130000000000000281', d.`id`, '发放中', '0', 'distribution_coupon_exchange_status', '0', NULL, 1, '0', NOW(), 'system', 'warning'
+FROM `sys_dict` d WHERE d.`type` = 'distribution_coupon_exchange_status' AND d.`del_flag` = '0' LIMIT 1;
+
+INSERT IGNORE INTO `sys_dict_value`
+(`id`,`dict_id`,`dict_label`,`dict_value`,`dict_type`,`status`,`remarks`,`sort`,`del_flag`,`create_time`,`create_by`,`show_class`)
+SELECT '2130000000000000282', d.`id`, '已发放', '1', 'distribution_coupon_exchange_status', '0', NULL, 2, '0', NOW(), 'system', 'success'
+FROM `sys_dict` d WHERE d.`type` = 'distribution_coupon_exchange_status' AND d.`del_flag` = '0' LIMIT 1;
+
+INSERT IGNORE INTO `sys_dict_value`
+(`id`,`dict_id`,`dict_label`,`dict_value`,`dict_type`,`status`,`remarks`,`sort`,`del_flag`,`create_time`,`create_by`,`show_class`)
+SELECT '2130000000000000283', d.`id`, '发放失败', '2', 'distribution_coupon_exchange_status', '0', NULL, 3, '0', NOW(), 'system', 'danger'
+FROM `sys_dict` d WHERE d.`type` = 'distribution_coupon_exchange_status' AND d.`del_flag` = '0' LIMIT 1;
+
+-- ============================================================================
+-- 四、sales_config 按存量租户补默认行（每租户单启用配置，重复执行不新增）
+-- ============================================================================
+INSERT INTO `sales_config`
+  (`id`,`default_commission_rate`,`referral_reward_rate`,`monthly_cutoff_day`,`refund_risk_days`,`claim_expire_days`,`status`,
+   `create_time`,`del_flag`,`tenant_id`,`create_by`,`version`)
+SELECT MD5(CONCAT(t.`id`, ':sales_config')), 0.0500, 0.0000, 1, 7, 90, '0', NOW(), '0', t.`id`, 'system', 0
+FROM `sys_tenant` t
+WHERE t.`del_flag` = '0'
+  AND NOT EXISTS (
+    SELECT 1 FROM `sales_config` c
+    WHERE c.`tenant_id` = t.`id` AND c.`del_flag` = '0'
+  );
+
+-- 自检：13 张新表数量 / order_info 两列 / 8 个字典类型 / 24 个字典值 / sales_config 行数
+SELECT
+  (SELECT COUNT(*) FROM information_schema.TABLES
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME IN ('sales_staff','sales_customer_bind','sales_customer_bind_log','sales_customer_claim',
+                          'sales_transfer_reward','sales_order','sales_payout','sales_payout_adjustment','sales_config',
+                          'sales_refund_record','distribution_coupon_pack','distribution_coupon_pack_item',
+                          'distribution_coupon_exchange')) AS new_tables,
+  (SELECT COUNT(*) FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'order_info'
+       AND COLUMN_NAME IN ('sales_staff_id','sales_staff_name')) AS order_info_columns,
+  (SELECT COUNT(*) FROM `sys_dict`
+     WHERE `type` IN ('sales_staff_status','sales_bind_source','sales_order_status','sales_payout_status',
+                      'sales_claim_status','sales_transfer_reward_status','distribution_coupon_pack_status',
+                      'distribution_coupon_exchange_status') AND `del_flag` = '0') AS sales_dict_types,
+  (SELECT COUNT(*) FROM `sys_dict_value`
+     WHERE `dict_type` IN ('sales_staff_status','sales_bind_source','sales_order_status','sales_payout_status',
+                           'sales_claim_status','sales_transfer_reward_status','distribution_coupon_pack_status',
+                           'distribution_coupon_exchange_status') AND `del_flag` = '0') AS sales_dict_values,
+  (SELECT COUNT(*) FROM `sales_config` WHERE `del_flag` = '0') AS sales_config_rows;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 销售业绩归属与提成菜单权限
+-- Source: db/boot/203sales_performance_menu.sql
+-- ============================================================================
+-- 销售业绩归属与提成 — 菜单与权限（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 背景（2026-11-05 需求「销售业绩归属与提成」，见
+--       docs/50-需求文档/2026-11-05-销售业绩归属与提成/IMPLEMENTATION_PLAN.md 6.1）：
+--   营销管理下新增「销售管理」目录（销售员 / 客户归属 / 业绩单 / 发放台账 / 业绩报表 / 全局配置），
+--   分销管理下新增「券包配置」「兑换记录」两页（分销佣金改兑换优惠券）。
+-- 菜单：
+--   销售管理 2130000000000000100（父=营销管理 1779386604402573314，目录）
+--   券包配置 / 兑换记录 2130000000000000170 / 180（父=分销管理 1991000000000000001）
+--   页面与按钮权限严格按计划 6.1 的固定 ID 与 permission 字符串，前端按 permission 控制按钮显隐。
+-- 授权：INSERT IGNORE 按固定 ID 幂等；向试点租户显式补授，并沿用 199zone_tag_batch_menu.sql 的
+--       推导式补授——已拥有「分销管理」菜单的角色/租户获得全部销售管理与券包/兑换菜单。
+-- 注意：菜单/权限在登录时快照到会话，执行后管理端需重新登录才能看到新菜单。
+-- 执行：mysql -u root -p aryn_boot < 203sales_performance_menu.sql
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ============================================================================
+-- 一、菜单与按钮（固定 ID，INSERT IGNORE 幂等）
+-- ============================================================================
+INSERT IGNORE INTO `sys_menu`
+(`id`,`name`,`permission`,`path`,`redirect`,`parent_id`,`icon`,`component`,`sort`,`type`,`create_time`,`outer_status`,`del_flag`,`application_key`,`create_by`)
+VALUES
+-- 销售管理目录
+('2130000000000000100','销售管理','','/promotion/sales',NULL,'1779386604402573314','carbon:user-multiple','',27,'0',NOW(),'0','0','app_base','system'),
+-- 销售员
+('2130000000000000110','销售员','promotion:salesstaff:page','/promotion/sales/staff',NULL,'2130000000000000100','carbon:user-avatar','promotion/sales/staff/index',1,'0',NOW(),'0','0','app_base','system'),
+('2130000000000000111','销售员新增','promotion:salesstaff:add',NULL,NULL,'2130000000000000110','','',1,'1',NOW(),'0','0','app_base','system'),
+('2130000000000000112','销售员编辑（含离职交接/状态）','promotion:salesstaff:edit',NULL,NULL,'2130000000000000110','','',2,'1',NOW(),'0','0','app_base','system'),
+('2130000000000000113','销售员详情','promotion:salesstaff:get',NULL,NULL,'2130000000000000110','','',3,'1',NOW(),'0','0','app_base','system'),
+-- 客户归属
+('2130000000000000120','客户归属','promotion:salescustomer:page','/promotion/sales/customer',NULL,'2130000000000000100','carbon:user-role','promotion/sales/customer/index',2,'0',NOW(),'0','0','app_base','system'),
+('2130000000000000121','客户改归属','promotion:salescustomer:edit',NULL,NULL,'2130000000000000120','','',1,'1',NOW(),'0','0','app_base','system'),
+-- 业绩单
+('2130000000000000130','业绩单','promotion:salesorder:page','/promotion/sales/order',NULL,'2130000000000000100','carbon:order-details','promotion/sales/order/index',3,'0',NOW(),'0','0','app_base','system'),
+('2130000000000000131','业绩单导出','promotion:salesorder:export',NULL,NULL,'2130000000000000130','','',1,'1',NOW(),'0','0','app_base','system'),
+('2130000000000000132','业绩单详情','promotion:salesorder:get',NULL,NULL,'2130000000000000130','','',2,'1',NOW(),'0','0','app_base','system'),
+-- 发放台账
+('2130000000000000140','发放台账','promotion:salespayout:page','/promotion/sales/payout',NULL,'2130000000000000100','carbon:money','promotion/sales/payout/index',4,'0',NOW(),'0','0','app_base','system'),
+('2130000000000000141','生成台账','promotion:salespayout:generate',NULL,NULL,'2130000000000000140','','',1,'1',NOW(),'0','0','app_base','system'),
+('2130000000000000142','确认发放','promotion:salespayout:confirm',NULL,NULL,'2130000000000000140','','',2,'1',NOW(),'0','0','app_base','system'),
+('2130000000000000143','台账导出','promotion:salespayout:export',NULL,NULL,'2130000000000000140','','',3,'1',NOW(),'0','0','app_base','system'),
+-- 业绩报表
+('2130000000000000150','业绩报表','promotion:salesreport:page','/promotion/sales/report',NULL,'2130000000000000100','carbon:catalog','promotion/sales/report/index',5,'0',NOW(),'0','0','app_base','system'),
+('2130000000000000151','报表导出','promotion:salesreport:export',NULL,NULL,'2130000000000000150','','',1,'1',NOW(),'0','0','app_base','system'),
+-- 全局配置
+('2130000000000000160','全局配置','promotion:salesconfig:page','/promotion/sales/config',NULL,'2130000000000000100','carbon:settings','promotion/sales/config/index',6,'0',NOW(),'0','0','app_base','system'),
+('2130000000000000161','配置编辑','promotion:salesconfig:edit',NULL,NULL,'2130000000000000160','','',1,'1',NOW(),'0','0','app_base','system'),
+-- 券包配置（父=分销管理）
+('2130000000000000170','券包配置','promotion:distributioncouponpack:page','/promotion/distribution/coupon-pack',NULL,'1991000000000000001','lucide:gift','promotion/distribution-coupon-pack/index',5,'0',NOW(),'0','0','app_base','system'),
+('2130000000000000171','券包新增','promotion:distributioncouponpack:add',NULL,NULL,'2130000000000000170','','',1,'1',NOW(),'0','0','app_base','system'),
+('2130000000000000172','券包编辑','promotion:distributioncouponpack:edit',NULL,NULL,'2130000000000000170','','',2,'1',NOW(),'0','0','app_base','system'),
+('2130000000000000173','券包删除','promotion:distributioncouponpack:del',NULL,NULL,'2130000000000000170','','',3,'1',NOW(),'0','0','app_base','system'),
+-- 兑换记录（父=分销管理）
+('2130000000000000180','兑换记录','promotion:distributioncouponexchange:page','/promotion/distribution/coupon-exchange',NULL,'1991000000000000001','carbon:document','promotion/distribution-coupon-exchange/index',6,'0',NOW(),'0','0','app_base','system');
+
+-- ============================================================================
+-- 二、授权（INSERT IGNORE 幂等；主键 MD5(tenant|role : menu : menu_id)）
+-- ============================================================================
+
+-- 2.1 试点租户显式补授（与 186/199 号菜单脚本口径一致）
+INSERT IGNORE INTO `sys_tenant_menu` (`id`,`tenant_id`,`menu_id`,`create_time`,`create_by`)
+SELECT MD5(CONCAT('1590229800633634816', ':menu:', m.`id`)), '1590229800633634816', m.`id`, NOW(), 'system'
+FROM `sys_menu` m
+WHERE m.`id` IN ('2130000000000000100','2130000000000000110','2130000000000000111','2130000000000000112',
+                 '2130000000000000113','2130000000000000120','2130000000000000121','2130000000000000130',
+                 '2130000000000000131','2130000000000000132','2130000000000000140','2130000000000000141',
+                 '2130000000000000142','2130000000000000143','2130000000000000150','2130000000000000151',
+                 '2130000000000000160','2130000000000000161','2130000000000000170','2130000000000000171',
+                 '2130000000000000172','2130000000000000173','2130000000000000180')
+  AND m.`del_flag` = '0';
+
+-- 2.2 试点租户超级管理员角色兜底授权（同 91ship_menu_role_grant.sql 口径）
+--     全新初始化时「分销管理」可能尚未授给超管角色，推导条件会落空导致整目录不可见，
+--     这里显式授予试点租户超管角色(sys_role id=1)，保证按仓库脚本初始化后管理端可见。
+INSERT IGNORE INTO `sys_role_menu` (`id`,`role_id`,`menu_id`,`create_time`,`tenant_id`)
+SELECT MD5(CONCAT('1', ':menu:', m.`id`)), '1', m.`id`, NOW(), '1590229800633634816'
+FROM `sys_menu` m
+WHERE m.`id` IN ('2130000000000000100','2130000000000000110','2130000000000000111','2130000000000000112',
+                 '2130000000000000113','2130000000000000120','2130000000000000121','2130000000000000130',
+                 '2130000000000000131','2130000000000000132','2130000000000000140','2130000000000000141',
+                 '2130000000000000142','2130000000000000143','2130000000000000150','2130000000000000151',
+                 '2130000000000000160','2130000000000000161','2130000000000000170','2130000000000000171',
+                 '2130000000000000172','2130000000000000173','2130000000000000180')
+  AND m.`del_flag` = '0';
+
+-- 2.3 已拥有「分销管理」菜单的角色推导式补授
+INSERT IGNORE INTO `sys_role_menu` (`id`,`role_id`,`menu_id`,`create_time`,`tenant_id`)
+SELECT MD5(CONCAT(gr.`role_id`, ':menu:', m.`id`)), gr.`role_id`, m.`id`, NOW(), gr.`tenant_id`
+FROM `sys_menu` m
+JOIN `sys_role_menu` gr ON gr.`menu_id` = '1991000000000000001'
+WHERE m.`id` IN ('2130000000000000100','2130000000000000110','2130000000000000111','2130000000000000112',
+                 '2130000000000000113','2130000000000000120','2130000000000000121','2130000000000000130',
+                 '2130000000000000131','2130000000000000132','2130000000000000140','2130000000000000141',
+                 '2130000000000000142','2130000000000000143','2130000000000000150','2130000000000000151',
+                 '2130000000000000160','2130000000000000161','2130000000000000170','2130000000000000171',
+                 '2130000000000000172','2130000000000000173','2130000000000000180')
+  AND m.`del_flag` = '0';
+
+-- 2.4 已拥有「分销管理」菜单的租户推导式补授
+INSERT IGNORE INTO `sys_tenant_menu` (`id`,`tenant_id`,`menu_id`,`create_time`,`create_by`)
+SELECT MD5(CONCAT(gt.`tenant_id`, ':menu:', m.`id`)), gt.`tenant_id`, m.`id`, NOW(), 'system'
+FROM `sys_menu` m
+JOIN `sys_tenant_menu` gt ON gt.`menu_id` = '1991000000000000001'
+WHERE m.`id` IN ('2130000000000000100','2130000000000000110','2130000000000000111','2130000000000000112',
+                 '2130000000000000113','2130000000000000120','2130000000000000121','2130000000000000130',
+                 '2130000000000000131','2130000000000000132','2130000000000000140','2130000000000000141',
+                 '2130000000000000142','2130000000000000143','2130000000000000150','2130000000000000151',
+                 '2130000000000000160','2130000000000000161','2130000000000000170','2130000000000000171',
+                 '2130000000000000172','2130000000000000173','2130000000000000180')
+  AND m.`del_flag` = '0';
+
+-- ============================================================================
+-- 二·补、祖先容器与存量「分销管理」菜单授权补齐
+--
+-- 背景（2026-11-05 联调发现）：仓库基线从未把「分销管理」目录写入 sys_tenant_menu /
+--   sys_role_menu（2aryn_boot.sql 中 0 条授权），全新初始化的库上该目录及其 4 个页面
+--   对租户管理员整组不可见；而本次新增的「券包配置 / 兑换记录」挂在「分销管理」下，
+--   菜单树构建（Hutool TreeUtil.build）会丢弃父节点缺失的孤儿节点，于是这两页也一起消失。
+--   处理：
+--     1) 为已获得本次新菜单的角色/租户递归补齐祖先容器（营销管理、分销管理）；
+--     2) 试点租户 + 超管角色补授「分销管理」存量子树（分销配置/分销用户/分销订单/分销提现），
+--        保证分销员等既有页面与新增券页面在全新库上同样可见。
+--   幂等：INSERT IGNORE + MD5 固定主键；不修改/删除存量授权。
+-- ============================================================================
+
+-- 2.5 已获得新菜单的角色补齐祖先容器（父目录缺失会导致整棵子树被丢弃）
+INSERT IGNORE INTO `sys_role_menu` (`id`,`role_id`,`menu_id`,`create_time`,`tenant_id`)
+SELECT MD5(CONCAT(receiver.`role_id`, ':menu:', ancestor.`id`)), receiver.`role_id`, ancestor.`id`, NOW(),
+       receiver.`tenant_id`
+FROM (SELECT DISTINCT `role_id`, `tenant_id` FROM `sys_role_menu`
+      WHERE `menu_id` LIKE '21300000000000001%') receiver
+JOIN `sys_menu` ancestor ON ancestor.`id` IN ('1779386604402573314', '1991000000000000001')
+  AND ancestor.`del_flag` = '0';
+
+-- 2.6 已获得新菜单的租户补齐祖先容器
+INSERT IGNORE INTO `sys_tenant_menu` (`id`,`tenant_id`,`menu_id`,`create_time`,`create_by`)
+SELECT MD5(CONCAT(receiver.`tenant_id`, ':menu:', ancestor.`id`)), receiver.`tenant_id`, ancestor.`id`, NOW(),
+       'system'
+FROM (SELECT DISTINCT `tenant_id` FROM `sys_tenant_menu`
+      WHERE `menu_id` LIKE '21300000000000001%') receiver
+JOIN `sys_menu` ancestor ON ancestor.`id` IN ('1779386604402573314', '1991000000000000001')
+  AND ancestor.`del_flag` = '0';
+
+-- 2.7 试点租户补充授权「分销管理」存量子树（分销配置/分销用户/分销订单/分销提现）
+INSERT IGNORE INTO `sys_tenant_menu` (`id`,`tenant_id`,`menu_id`,`create_time`,`create_by`)
+SELECT MD5(CONCAT('1590229800633634816', ':menu:', m.`id`)), '1590229800633634816', m.`id`, NOW(), 'system'
+FROM `sys_menu` m
+WHERE m.`id` IN ('1991000000000000001',
+                 '1991000000000000010','1991000000000000011','1991000000000000012',
+                 '1991000000000000013','1991000000000000014','1991000000000000015',
+                 '1991000000000000020','1991000000000000021','1991000000000000022',
+                 '1991000000000000023','1991000000000000024','1991000000000000025',
+                 '1991000000000000030','1991000000000000031','1991000000000000032',
+                 '1991000000000000033',
+                 '1991000000000000040','1991000000000000041','1991000000000000042',
+                 '1991000000000000043')
+  AND m.`del_flag` = '0';
+
+-- 2.8 试点租户超管角色补充授权同一子树
+INSERT IGNORE INTO `sys_role_menu` (`id`,`role_id`,`menu_id`,`create_time`,`tenant_id`)
+SELECT MD5(CONCAT('1', ':menu:', m.`id`)), '1', m.`id`, NOW(), '1590229800633634816'
+FROM `sys_menu` m
+WHERE m.`id` IN ('1991000000000000001',
+                 '1991000000000000010','1991000000000000011','1991000000000000012',
+                 '1991000000000000013','1991000000000000014','1991000000000000015',
+                 '1991000000000000020','1991000000000000021','1991000000000000022',
+                 '1991000000000000023','1991000000000000024','1991000000000000025',
+                 '1991000000000000030','1991000000000000031','1991000000000000032',
+                 '1991000000000000033',
+                 '1991000000000000040','1991000000000000041','1991000000000000042',
+                 '1991000000000000043')
+  AND m.`del_flag` = '0';
+
+-- ============================================================================
+-- 三、自检：菜单条数应为 23（页面/目录 9 + 按钮 14）、授权数 > 0
+-- ============================================================================
+SELECT
+  (SELECT COUNT(*) FROM `sys_menu`
+     WHERE `id` LIKE '21300000000000001%' AND `del_flag` = '0') AS menu_rows,
+  (SELECT COUNT(*) FROM `sys_menu`
+     WHERE `id` LIKE '21300000000000001%' AND `type` = '1' AND `del_flag` = '0') AS button_rows,
+  (SELECT COUNT(*) FROM `sys_role_menu` WHERE `menu_id` LIKE '21300000000000001%') AS role_grants,
+  (SELECT COUNT(*) FROM `sys_tenant_menu` WHERE `menu_id` LIKE '21300000000000001%') AS tenant_grants,
+  -- 分销管理目录必须已授给试点租户超管角色与试点租户，否则挂在下面的券包/兑换页面会被菜单树丢弃
+  (SELECT COUNT(*) FROM `sys_role_menu` WHERE `role_id` = '1' AND `menu_id` = '1991000000000000001')
+    AS dist_container_role_granted,
+  (SELECT COUNT(*) FROM `sys_tenant_menu`
+     WHERE `tenant_id` = '1590229800633634816' AND `menu_id` = '1991000000000000001')
+    AS dist_container_tenant_granted;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 销售业绩月度发放台账定时任务注册
+-- Source: db/boot/204sales_performance_job.sql
+-- ============================================================================
+-- 销售业绩月度发放台账定时任务注册（Boot 单体模式）
+--
+-- 目标库：aryn_boot_job（xxl-job 调度库）
+-- 背景（2026-11-05 需求「销售业绩归属与提成」，见
+--       docs/50-需求文档/2026-11-05-销售业绩归属与提成/IMPLEMENTATION_PLAN.md 4.5/6）：
+--   `SalesPayoutJobHandler` 每日 01:10 扫描一次：
+--     ① 待转交认领过期置为失效（status=2）；
+--     ② 重放未应用的退款记录；
+--     ③ 到达 sales_config.monthly_cutoff_day（默认每月 1 日）时生成「上月」销售提成发放台账
+--        （sales_payout），并把已过退款风险观察期的业绩单置为可发放。
+--   任务实现内按租户遍历（RemoteTenantService.list），与 DistributionSettleJobHandler 口径一致。
+-- 注册：按 executor_handler 判重（NOT EXISTS），已注册则跳过；不 DROP/TRUNCATE。
+-- 注意：执行器分组沿用基线 3aryn_boot_job.sql（job_group=1）；若部署为独立执行器，
+--       请在 xxl-job 管理台把任务改挂到对应执行器分组。
+-- 执行：mysql -u root -p aryn_boot_job < 204sales_performance_job.sql
+
+USE aryn_boot_job;
+
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- 销售提成台账：每日 01:10（Cron 0 10 1 * * ?），认领过期 / 退款重放 / 月末生成上月台账
+INSERT INTO `xxl_job_info` (
+    `job_group`, `job_desc`, `add_time`, `update_time`, `author`, `alarm_email`,
+    `schedule_type`, `schedule_conf`, `misfire_strategy`, `executor_route_strategy`,
+    `executor_handler`, `executor_param`, `executor_block_strategy`, `executor_timeout`,
+    `executor_fail_retry_count`, `glue_type`, `glue_source`, `glue_remark`,
+    `glue_updatetime`, `child_jobid`, `trigger_status`, `trigger_last_time`, `trigger_next_time`
+)
+SELECT 1, '销售提成台账（认领过期/退款重放/生成上月台账）', NOW(), NOW(), 'admin', '',
+       'CRON', '0 10 1 * * ?', 'DO_NOTHING', 'FIRST',
+       'salesPayoutJobHandler', '', 'SERIAL_EXECUTION', 1800,
+       1, 'BEAN', '', 'GLUE代码初始化',
+       NOW(), '', 1, 0, 0
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM `xxl_job_info` WHERE `executor_handler` = 'salesPayoutJobHandler'
+);
+
+-- 自检：应返回 1
+SELECT COUNT(*) AS registered
+FROM `xxl_job_info`
+WHERE `executor_handler` = 'salesPayoutJobHandler';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 类目角标配置化数据模型与存量兼容（配置表/列宽/seed）
+-- Source: db/boot/205goods_category_badge_config.sql
+-- ============================================================================
+-- ============================================================================
+-- 类目角标配置化 — 数据模型与存量兼容（Boot 单体模式）
+--
+-- 目标库：aryn_boot（单体模式所有表同库）
+-- 背景（2026-11-05 需求「类目角标配置化」，见
+--       docs/50-需求文档/2026-11-05-类目角标配置化/IMPLEMENTATION_PLAN.md 第 1、5 节）：
+--   历史上 goods_category.badge_type 是写死枚举（0.无 1.推荐 2.热卖），「荐/热」的文字与
+--   绿/红配色写死在 C 端代码里；现在改为租户级配置表 goods_category_badge：运营在
+--   管理后台自由配置文字、底色、字色、排序与启停，goods_category.badge_type 改为存
+--   配置的稳定键 badge_key，新增角标不再需要改代码发版。
+--
+-- 特性：可重复执行；不 DROP / TRUNCATE 存量；只建表、改宽列、补 seed，
+--       不覆盖运营在后台调整过的角标文字/颜色/状态。
+-- 幂等：
+--   1) 新表 CREATE TABLE IF NOT EXISTS；
+--   2) 列宽按 information_schema 判定：列不存在则按新定义 ADD，列存在但未达
+--      varchar(32) 才 MODIFY（已是目标结构时重跑为空操作，避免无谓的锁表重建）；
+--   3) seed 依赖唯一键 (tenant_id, badge_key)，INSERT IGNORE 保证反复执行不重复、不覆盖。
+--
+-- 与 cloud 版一致性：本脚本与 db/cloud/210goods_category_badge_config.sql 内容一致，仅目标库不同。
+-- 配套：菜单/授权见 db/boot/206goods_category_badge_menu.sql；
+--       旧脚本 db/boot/89goods_category_badge.sql 的「存量归一」白名单已同步修正
+--       （否则重跑旧脚本会把运营新建的角标 key 全部刷回 '0'）。
+-- 执行：mysql -u root -p aryn_boot < 205goods_category_badge_config.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ============================================================================
+-- 一、goods_category_badge 类目角标配置表（租户级）
+--
+-- 唯一键 (tenant_id, badge_key)：同一租户内一个稳定键只对应一条配置。
+-- 逻辑删除后 badge_key 仍占用唯一键，但新建角标的 key 由后端用雪花 id 生成、
+-- 不会复用，因此删除场景不需要做 key 回收。
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS `goods_category_badge` (
+  `id` varchar(32) NOT NULL COMMENT '主键',
+  `badge_key` varchar(32) NOT NULL COMMENT '角标稳定键（goods_category.badge_type 存此值，创建后不可修改）',
+  `badge_text` varchar(8) NOT NULL COMMENT '角标文字（1-2 个字符）',
+  `bg_color` varchar(16) NOT NULL DEFAULT '#00B578' COMMENT '底色（#RRGGBB）',
+  `text_color` varchar(16) NOT NULL DEFAULT '#FFFFFF' COMMENT '字色（#RRGGBB）',
+  `sort` int NOT NULL DEFAULT 0 COMMENT '排序序号（升序）',
+  `status` char(2) NOT NULL DEFAULT '0' COMMENT '状态：0.启用；1.停用',
+  `del_flag` char(2) NOT NULL DEFAULT '0' COMMENT '逻辑删除：0.正常；1.删除',
+  `tenant_id` varchar(32) NOT NULL COMMENT '租户 ID',
+  `create_by` varchar(60) DEFAULT NULL COMMENT '创建人',
+  `update_by` varchar(60) DEFAULT NULL COMMENT '修改人',
+  `create_time` datetime DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime DEFAULT NULL COMMENT '修改时间',
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_badge_tenant_key` (`tenant_id`, `badge_key`) USING BTREE,
+  KEY `idx_badge_tenant_sort` (`tenant_id`, `sort`) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '类目角标配置' ROW_FORMAT = DYNAMIC;
+
+-- ============================================================================
+-- 二、goods_category.badge_type 改宽（char(2) → varchar(32)，幂等）
+--
+-- 学科说明：badge_type 从「枚举值」变成「badge_key 引用」，宽度必须覆盖雪花 id（19 位），
+-- 原 char(2) 装不下运营新建的角标 key。
+-- ============================================================================
+SET @badge_type_exists = (
+  SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'goods_category' AND column_name = 'badge_type'
+);
+SET @badge_type_needs_widen = (
+  SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'goods_category' AND column_name = 'badge_type'
+    AND (data_type <> 'varchar' OR character_maximum_length IS NULL OR character_maximum_length < 32)
+);
+SET @badge_type_sql = CASE
+  WHEN @badge_type_exists = 0 THEN
+    'ALTER TABLE `goods_category` ADD COLUMN `badge_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT ''0'' COMMENT ''类目角标：0.无；其它值为 goods_category_badge.badge_key'' AFTER `sort`'
+  WHEN @badge_type_needs_widen > 0 THEN
+    'ALTER TABLE `goods_category` MODIFY COLUMN `badge_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT ''0'' COMMENT ''类目角标：0.无；其它值为 goods_category_badge.badge_key'''
+  ELSE
+    'SELECT 1'
+END;
+PREPARE badge_type_stmt FROM @badge_type_sql;
+EXECUTE badge_type_stmt;
+DEALLOCATE PREPARE badge_type_stmt;
+
+-- ============================================================================
+-- 三、存量 seed：历史 badge_type='1'/'2' 的引用不能悬空
+-- ============================================================================
+
+-- 3.1 试点租户固定两行：id/badge_key 用 '1'/'2' 与存量类目引用完全兼容，
+--     样式沿用现网「荐」绿、「热」红。INSERT IGNORE：运营改过的文字/颜色不会被重跑覆盖。
+INSERT IGNORE INTO `goods_category_badge`
+(`id`,`badge_key`,`badge_text`,`bg_color`,`text_color`,`sort`,`status`,`del_flag`,`tenant_id`,`create_by`,`create_time`)
+VALUES
+('1','1','荐','#00B578','#FFFFFF',1,'0','0','1590229800633634816','system',NOW()),
+('2','2','热','#FF4D2D','#FFFFFF',2,'0','0','1590229800633634816','system',NOW());
+
+-- 3.2 其它租户若也存在 badge_type IN ('1','2') 的存量引用，按 (tenant_id, badge_type) 去重补配置行，
+--     保证引用不悬空。id 用 UUID（去掉 '-'）而不是雪花 id：seed 不是业务新增，
+--     运营后续新建的角标仍由后端生成雪花 id，两者不混用。
+INSERT IGNORE INTO `goods_category_badge`
+(`id`,`badge_key`,`badge_text`,`bg_color`,`text_color`,`sort`,`status`,`del_flag`,`tenant_id`,`create_by`,`create_time`)
+SELECT REPLACE(UUID(), '-', ''), legacy.`badge_type`,
+       CASE legacy.`badge_type` WHEN '1' THEN '荐' ELSE '热' END,
+       CASE legacy.`badge_type` WHEN '1' THEN '#00B578' ELSE '#FF4D2D' END,
+       '#FFFFFF',
+       CASE legacy.`badge_type` WHEN '1' THEN 1 ELSE 2 END,
+       '0', '0', legacy.`tenant_id`, 'system', NOW()
+FROM (
+  SELECT DISTINCT `tenant_id`, `badge_type`
+  FROM `goods_category`
+  WHERE `badge_type` IN ('1', '2') AND `tenant_id` <> '1590229800633634816'
+) legacy;
+
+-- ============================================================================
+-- 四、自检：表/列/试点 seed 就绪，且不存在悬空角标引用
+--   期望：badge_table_ready=1、badge_type_column_ready=1、pilot_badge_rows=2、
+--         dangling_badge_refs=0（非 0 说明仍有类目引用未 seed 的历史 key，需排查）
+-- ============================================================================
+SELECT
+  (SELECT COUNT(*) FROM information_schema.tables
+    WHERE table_schema = DATABASE() AND table_name = 'goods_category_badge') AS badge_table_ready,
+  (SELECT COUNT(*) FROM information_schema.columns
+    WHERE table_schema = DATABASE() AND table_name = 'goods_category'
+      AND column_name = 'badge_type') AS badge_type_column_ready,
+  (SELECT COUNT(*) FROM `goods_category_badge`
+    WHERE `tenant_id` = '1590229800633634816' AND `badge_key` IN ('1', '2')
+      AND `del_flag` = '0') AS pilot_badge_rows,
+  (SELECT COUNT(*) FROM `goods_category` c
+    LEFT JOIN `goods_category_badge` b
+      ON b.`tenant_id` = c.`tenant_id` AND b.`badge_key` = c.`badge_type` AND b.`del_flag` = '0'
+    WHERE c.`del_flag` = '0' AND c.`badge_type` IS NOT NULL AND c.`badge_type` <> '0'
+      AND b.`id` IS NULL) AS dangling_badge_refs;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 类目角标配置化菜单权限
+-- Source: db/boot/206goods_category_badge_menu.sql
+-- ============================================================================
+-- ============================================================================
+-- 类目角标配置化 — 菜单与权限（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 背景（2026-11-05 需求「类目角标配置化」，见
+--       docs/50-需求文档/2026-11-05-类目角标配置化/IMPLEMENTATION_PLAN.md 第 3、5 节）：
+--   商品管理下新增「类目角标」页面，运营在这里维护角标文字、底色、字色、排序与启停；
+--   类目表单/列表按角标 key 引用，C 端分类页按服务端下发的样式渲染。
+--   页面由本脚本注册菜单即可挂载（component=product/goods-category-badge/index），
+--   前端无需改静态路由。
+--
+-- 菜单（固定 ID，已确认 db/boot 与 db/cloud 全脚本、aryn_boot_full.sql 无冲突）：
+--   2140000000000000100 类目角标（页面，父=商品管理 1779386487675092994，sort=6）
+--   2140000000000000101 列表按钮 product:goodscategorybadge:page
+--   2140000000000000102 查询按钮 product:goodscategorybadge:get
+--   2140000000000000103 新增按钮 product:goodscategorybadge:add
+--   2140000000000000104 修改按钮 product:goodscategorybadge:edit
+--   2140000000000000105 删除按钮 product:goodscategorybadge:del
+--
+-- 授权（菜单可见性 = 角色菜单 ∩ 租户菜单）：
+--   1) 试点租户 1590229800633634816 + 超管角色 1 显式补授；
+--   2) 按「已拥有商品类目菜单 1496327483721789441」推导补授其余角色/租户；
+--   3) 补齐祖先容器「商品管理」1779386487675092994：父容器缺失时 Hutool TreeUtil.build
+--      会丢弃整棵子树，页面入口会在管理端静默消失。
+--   全部 INSERT IGNORE（主键为固定 MD5 串），可重复执行、不修改/删除存量授权。
+--
+-- 注意：菜单/权限在登录时快照到会话，执行后需清理 Redis `menu_cache::*` 并重新登录才可见。
+-- 执行：mysql -u root -p aryn_boot < 206goods_category_badge_menu.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ============================================================================
+-- 一、菜单与按钮（固定 ID，INSERT IGNORE 幂等）
+-- ============================================================================
+INSERT IGNORE INTO `sys_menu`
+(`id`,`name`,`permission`,`path`,`redirect`,`parent_id`,`icon`,`component`,`sort`,`type`,`create_time`,`outer_status`,`del_flag`,`application_key`,`create_by`)
+VALUES
+('2140000000000000100','类目角标','product:goodscategorybadge:page','/product/goods-category-badge',NULL,'1779386487675092994','carbon:tag','product/goods-category-badge/index',6,'0',NOW(),'0','0','app_base','system'),
+('2140000000000000101','类目角标列表','product:goodscategorybadge:page',NULL,NULL,'2140000000000000100','','',1,'1',NOW(),'0','0','app_base','system'),
+('2140000000000000102','类目角标查询','product:goodscategorybadge:get',NULL,NULL,'2140000000000000100','','',2,'1',NOW(),'0','0','app_base','system'),
+('2140000000000000103','类目角标新增','product:goodscategorybadge:add',NULL,NULL,'2140000000000000100','','',3,'1',NOW(),'0','0','app_base','system'),
+('2140000000000000104','类目角标修改','product:goodscategorybadge:edit',NULL,NULL,'2140000000000000100','','',4,'1',NOW(),'0','0','app_base','system'),
+('2140000000000000105','类目角标删除','product:goodscategorybadge:del',NULL,NULL,'2140000000000000100','','',5,'1',NOW(),'0','0','app_base','system');
+
+-- ============================================================================
+-- 二、授权（INSERT IGNORE 幂等；主键 = MD5(授权对象标识 : menu : menu_id)）
+-- ============================================================================
+
+-- 2.1 试点租户显式补授（含祖先容器「商品管理」）
+INSERT IGNORE INTO `sys_tenant_menu` (`id`,`tenant_id`,`menu_id`,`create_time`,`create_by`)
+SELECT MD5(CONCAT('1590229800633634816', ':menu:', m.`id`)), '1590229800633634816', m.`id`, NOW(), 'system'
+FROM `sys_menu` m
+WHERE m.`id` IN ('1779386487675092994',
+                 '2140000000000000100','2140000000000000101','2140000000000000102',
+                 '2140000000000000103','2140000000000000104','2140000000000000105')
+  AND m.`del_flag` = '0';
+
+-- 2.2 试点租户超管角色 1 显式补授（同 91ship_menu_role_grant.sql / 203sales_performance_menu.sql 口径）
+INSERT IGNORE INTO `sys_role_menu` (`id`,`role_id`,`menu_id`,`create_time`,`tenant_id`)
+SELECT MD5(CONCAT('1', ':menu:', m.`id`)), '1', m.`id`, NOW(), '1590229800633634816'
+FROM `sys_menu` m
+WHERE m.`id` IN ('1779386487675092994',
+                 '2140000000000000100','2140000000000000101','2140000000000000102',
+                 '2140000000000000103','2140000000000000104','2140000000000000105')
+  AND m.`del_flag` = '0';
+
+-- 2.3 已拥有「商品类目」菜单的角色推导式补授（含祖先容器）
+INSERT IGNORE INTO `sys_role_menu` (`id`,`role_id`,`menu_id`,`create_time`,`tenant_id`)
+SELECT MD5(CONCAT(receiver.`role_id`, ':menu:', m.`id`)), receiver.`role_id`, m.`id`, NOW(),
+       receiver.`tenant_id`
+FROM (SELECT DISTINCT `role_id`, `tenant_id` FROM `sys_role_menu`
+      WHERE `menu_id` = '1496327483721789441') receiver
+JOIN `sys_menu` m ON m.`id` IN ('1779386487675092994',
+                                '2140000000000000100','2140000000000000101','2140000000000000102',
+                                '2140000000000000103','2140000000000000104','2140000000000000105')
+  AND m.`del_flag` = '0';
+
+-- 2.4 已拥有「商品类目」菜单的租户推导式补授（含祖先容器）
+INSERT IGNORE INTO `sys_tenant_menu` (`id`,`tenant_id`,`menu_id`,`create_time`,`create_by`)
+SELECT MD5(CONCAT(receiver.`tenant_id`, ':menu:', m.`id`)), receiver.`tenant_id`, m.`id`, NOW(),
+       'system'
+FROM (SELECT DISTINCT `tenant_id` FROM `sys_tenant_menu`
+      WHERE `menu_id` = '1496327483721789441') receiver
+JOIN `sys_menu` m ON m.`id` IN ('1779386487675092994',
+                                '2140000000000000100','2140000000000000101','2140000000000000102',
+                                '2140000000000000103','2140000000000000104','2140000000000000105')
+  AND m.`del_flag` = '0';
+
+-- 2.5 已获得本次新菜单的角色补齐祖先容器「商品管理」（父容器缺失会导致整棵子树被丢弃）
+INSERT IGNORE INTO `sys_role_menu` (`id`,`role_id`,`menu_id`,`create_time`,`tenant_id`)
+SELECT MD5(CONCAT(receiver.`role_id`, ':menu:', ancestor.`id`)), receiver.`role_id`, ancestor.`id`, NOW(),
+       receiver.`tenant_id`
+FROM (SELECT DISTINCT `role_id`, `tenant_id` FROM `sys_role_menu`
+      WHERE `menu_id` LIKE '214000000000000010%') receiver
+JOIN `sys_menu` ancestor ON ancestor.`id` = '1779386487675092994' AND ancestor.`del_flag` = '0';
+
+-- 2.6 已获得本次新菜单的租户补齐祖先容器「商品管理」
+INSERT IGNORE INTO `sys_tenant_menu` (`id`,`tenant_id`,`menu_id`,`create_time`,`create_by`)
+SELECT MD5(CONCAT(receiver.`tenant_id`, ':menu:', ancestor.`id`)), receiver.`tenant_id`, ancestor.`id`, NOW(),
+       'system'
+FROM (SELECT DISTINCT `tenant_id` FROM `sys_tenant_menu`
+      WHERE `menu_id` LIKE '214000000000000010%') receiver
+JOIN `sys_menu` ancestor ON ancestor.`id` = '1779386487675092994' AND ancestor.`del_flag` = '0';
+
+-- ============================================================================
+-- 三、自检：菜单 6 条（1 页面 + 5 按钮）、试点租户/超管授权齐全、祖先容器已授
+--   期望：menu_rows=6、button_rows=5、其余 4 列 > 0
+-- ============================================================================
+SELECT
+  (SELECT COUNT(*) FROM `sys_menu`
+    WHERE `id` LIKE '214000000000000010%' AND `del_flag` = '0') AS menu_rows,
+  (SELECT COUNT(*) FROM `sys_menu`
+    WHERE `id` LIKE '214000000000000010%' AND `type` = '1' AND `del_flag` = '0') AS button_rows,
+  (SELECT COUNT(*) FROM `sys_tenant_menu`
+    WHERE `tenant_id` = '1590229800633634816'
+      AND `menu_id` LIKE '214000000000000010%') AS pilot_tenant_grants,
+  (SELECT COUNT(*) FROM `sys_role_menu`
+    WHERE `role_id` = '1' AND `menu_id` LIKE '214000000000000010%') AS pilot_role_grants,
+  (SELECT COUNT(*) FROM `sys_tenant_menu`
+    WHERE `tenant_id` = '1590229800633634816'
+      AND `menu_id` = '1779386487675092994') AS container_tenant_granted,
+  (SELECT COUNT(*) FROM `sys_role_menu`
+    WHERE `role_id` = '1' AND `menu_id` = '1779386487675092994') AS container_role_granted;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 分销结算定时任务注册（待结算佣金/转交奖励释放）
+-- Source: db/boot/207distribution_settle_job.sql
+-- ============================================================================
+-- 分销结算定时任务注册（Boot 单体模式）
+--
+-- 目标库：aryn_boot_job（xxl-job 调度库）
+-- 背景（2026-11-05 需求「销售业绩归属与提成」，见
+--       docs/50-需求文档/2026-11-05-销售业绩归属与提成/README.md §4.2.1）：
+--   `DistributionSettleJobHandler`（@XxlJob("distributionSettleJobHandler")）每日扫描一次：
+--     ① 按 distribution_config.settle_cycle_days 把到期的「待结算」分销订单佣金释放为可提现佣金；
+--     ② 释放客户转交奖励（sales_transfer_reward.status=0 → 1，pending→available，先抵 commission_debt）；
+--     ③ 重放未应用的分销退款记录。
+--   需求复审新增「转交奖励按结算周期释放」，但该任务在 Boot/Cloud 两套基线调度库中都未注册，
+--   新环境部署后佣金会永久停留在待结算（无法兑换优惠券），故补此注册脚本。
+-- 注册：按 executor_handler 判重（NOT EXISTS），已注册则跳过；不 DROP/TRUNCATE，可重复执行。
+-- 注意：执行器分组沿用基线 3aryn_boot_job.sql（job_group=1）；若部署为独立执行器，
+--       请在 xxl-job 管理台把任务改挂到对应执行器分组。
+-- 执行：mysql -u root -p aryn_boot_job < 207distribution_settle_job.sql
+
+USE `aryn_boot_job`;
+
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- 分销结算：每日 01:05（Cron 0 5 1 * * ?），释放到期佣金与转交奖励、重放退款
+INSERT INTO `xxl_job_info` (
+    `job_group`, `job_desc`, `add_time`, `update_time`, `author`, `alarm_email`,
+    `schedule_type`, `schedule_conf`, `misfire_strategy`, `executor_route_strategy`,
+    `executor_handler`, `executor_param`, `executor_block_strategy`, `executor_timeout`,
+    `executor_fail_retry_count`, `glue_type`, `glue_source`, `glue_remark`,
+    `glue_updatetime`, `child_jobid`, `trigger_status`, `trigger_last_time`, `trigger_next_time`
+)
+SELECT 1, '分销结算（待结算佣金/转交奖励释放/退款重放）', NOW(), NOW(), 'admin', '',
+       'CRON', '0 5 1 * * ?', 'DO_NOTHING', 'FIRST',
+       'distributionSettleJobHandler', '', 'SERIAL_EXECUTION', 1800,
+       1, 'BEAN', '', 'GLUE代码初始化',
+       NOW(), '', 1, 0, 0
+FROM DUAL
+WHERE NOT EXISTS (
+    SELECT 1 FROM `xxl_job_info` WHERE `executor_handler` = 'distributionSettleJobHandler'
+);
+
+-- 自检：应返回 1
+SELECT COUNT(*) AS registered
+FROM `xxl_job_info`
+WHERE `executor_handler` = 'distributionSettleJobHandler';
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- 类目角标样式扩展（图片角标/高度/圆角）
+-- Source: db/boot/208goods_category_badge_style.sql
+-- ============================================================================
+-- ============================================================================
+-- 类目角标样式扩展 — 图片角标 + 可调高度/圆角（Boot 单体模式）
+--
+-- 目标库：aryn_boot
+-- 背景（2026-11-05 需求「类目角标配置化」追加需求，见
+--       docs/50-需求文档/2026-11-05-类目角标配置化/IMPLEMENTATION_PLAN.md 追加需求章节）：
+--   角标原本只支持「文字 1–2 字 + 底色/字色」，运营希望进一步支持图片角标与
+--   自定义高度/圆角。本脚本给 goods_category_badge 增加三列：
+--     icon_url      varchar(512) NOT NULL DEFAULT ''  —— 图片地址，空串=文字角标
+--     badge_height  int NOT NULL DEFAULT 28           —— 高度 rpx（允许 16–96）
+--     border_radius int NOT NULL DEFAULT 4            —— 圆角 rpx（允许 0–48）
+--   C 端按 height 正方形渲染图片、按 borderRadius 裁圆角；文字角标字号/左右内边距
+--   由 height 推导（fontSize=round(height*0.68)、paddingX=round(height*0.18)），
+--   旧数据落到默认值后观感与改动前完全一致（28rpx 高、19rpx 字号、4rpx 圆角）。
+--
+-- 特性：可重复执行；不 DROP / TRUNCATE 存量；列已存在时跳过（按 information_schema 判定）。
+--
+-- 与 cloud 版一致性：本脚本与 db/cloud/213goods_category_badge_style.sql 语义一致，仅目标库不同。
+-- 执行：mysql -u root -p aryn_boot < 208goods_category_badge_style.sql
+-- ============================================================================
+
+USE `aryn_boot`;
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ---------- 1. icon_url：图片角标地址（空串=文字角标） ----------
+SET @icon_url_exists = (
+  SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'goods_category_badge' AND column_name = 'icon_url'
+);
+SET @icon_url_sql = CASE
+  WHEN @icon_url_exists = 0 THEN
+    'ALTER TABLE `goods_category_badge` ADD COLUMN `icon_url` varchar(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '''' COMMENT ''角标图片地址（空串=文字角标；配置后 C 端优先渲染图片）'' AFTER `text_color`'
+  ELSE 'SELECT 1'
+END;
+PREPARE icon_url_stmt FROM @icon_url_sql;
+EXECUTE icon_url_stmt;
+DEALLOCATE PREPARE icon_url_stmt;
+
+-- ---------- 2. badge_height：角标高度（rpx，默认 28） ----------
+SET @badge_height_exists = (
+  SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'goods_category_badge' AND column_name = 'badge_height'
+);
+SET @badge_height_sql = CASE
+  WHEN @badge_height_exists = 0 THEN
+    'ALTER TABLE `goods_category_badge` ADD COLUMN `badge_height` int NOT NULL DEFAULT 28 COMMENT ''角标高度（rpx，16-96；文字角标字号/内边距由它推导）'' AFTER `icon_url`'
+  ELSE 'SELECT 1'
+END;
+PREPARE badge_height_stmt FROM @badge_height_sql;
+EXECUTE badge_height_stmt;
+DEALLOCATE PREPARE badge_height_stmt;
+
+-- ---------- 3. border_radius：角标圆角（rpx，默认 4） ----------
+SET @border_radius_exists = (
+  SELECT COUNT(*) FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = 'goods_category_badge' AND column_name = 'border_radius'
+);
+SET @border_radius_sql = CASE
+  WHEN @border_radius_exists = 0 THEN
+    'ALTER TABLE `goods_category_badge` ADD COLUMN `border_radius` int NOT NULL DEFAULT 4 COMMENT ''角标圆角（rpx，0-48）'' AFTER `badge_height`'
+  ELSE 'SELECT 1'
+END;
+PREPARE border_radius_stmt FROM @border_radius_sql;
+EXECUTE border_radius_stmt;
+DEALLOCATE PREPARE border_radius_stmt;
+
+-- ---------- 4. 自检：三列就绪（期望 badge_style_columns_ready=3） ----------
+SELECT
+  (SELECT COUNT(*) FROM information_schema.columns
+    WHERE table_schema = DATABASE() AND table_name = 'goods_category_badge'
+      AND column_name IN ('icon_url', 'badge_height', 'border_radius')) AS badge_style_columns_ready,
+  (SELECT COUNT(*) FROM `goods_category_badge`) AS badge_rows;
 
 SET FOREIGN_KEY_CHECKS = 1;

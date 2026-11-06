@@ -165,6 +165,13 @@ const sections = [
   ['专区商品管理菜单', '199zone_tag_batch_menu.sql'],
   ['IP 归属地数据刷新定时任务注册', '200ip_region_refresh_job.sql'],
   ['客服会话维护与通知分发恢复定时任务注册', '201message_job_register.sql'],
+  ['销售业绩归属与提成数据模型（销售/认领/业绩/台账/券包）', '202sales_performance_incremental.sql'],
+  ['销售业绩归属与提成菜单权限', '203sales_performance_menu.sql'],
+  ['销售业绩月度发放台账定时任务注册', '204sales_performance_job.sql'],
+  ['类目角标配置化数据模型与存量兼容（配置表/列宽/seed）', '205goods_category_badge_config.sql'],
+  ['类目角标配置化菜单权限', '206goods_category_badge_menu.sql'],
+  ['分销结算定时任务注册（待结算佣金/转交奖励释放）', '207distribution_settle_job.sql'],
+  ['类目角标样式扩展（图片角标/高度/圆角）', '208goods_category_badge_style.sql'],
 ];
 
 const normalize = (content) => content.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim();
@@ -242,6 +249,22 @@ DROP TABLE IF EXISTS \`points_exchange_record\`;
 DROP TABLE IF EXISTS \`seckill_session_template\`;
 DROP TABLE IF EXISTS \`seckill_goods_template\`;
 DROP TABLE IF EXISTS \`seckill_subscribe\`;
+-- 销售业绩归属与提成（202sales_performance_incremental.sql 新建表；全量脚本重建时先删再建）
+DROP TABLE IF EXISTS \`sales_staff\`;
+DROP TABLE IF EXISTS \`sales_customer_bind\`;
+DROP TABLE IF EXISTS \`sales_customer_bind_log\`;
+DROP TABLE IF EXISTS \`sales_customer_claim\`;
+DROP TABLE IF EXISTS \`sales_transfer_reward\`;
+DROP TABLE IF EXISTS \`sales_order\`;
+DROP TABLE IF EXISTS \`sales_payout\`;
+DROP TABLE IF EXISTS \`sales_payout_adjustment\`;
+DROP TABLE IF EXISTS \`sales_config\`;
+DROP TABLE IF EXISTS \`sales_refund_record\`;
+DROP TABLE IF EXISTS \`distribution_coupon_pack\`;
+DROP TABLE IF EXISTS \`distribution_coupon_pack_item\`;
+DROP TABLE IF EXISTS \`distribution_coupon_exchange\`;
+-- 类目角标配置化（205goods_category_badge_config.sql 新建表；全量脚本重建时先删再建）
+DROP TABLE IF EXISTS \`goods_category_badge\`;
 `;
 
 const output = sections.reduce((sql, [title, file]) => {

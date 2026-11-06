@@ -12,6 +12,7 @@ import com.aryn.cloud.promotion.service.IDistributionConfigService;
 import com.aryn.cloud.promotion.service.IDistributionOrderService;
 import com.aryn.cloud.promotion.service.IDistributionRefundRecordService;
 import com.aryn.cloud.promotion.service.IDistributionUserService;
+import com.aryn.cloud.promotion.service.ISalesCustomerBindService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -26,6 +27,7 @@ import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -39,7 +41,7 @@ class DistributionSettlementServiceImplTest {
 		IDistributionCommissionFlowService flowService = mock(IDistributionCommissionFlowService.class);
 		IDistributionRefundRecordService refundRecordService = mock(IDistributionRefundRecordService.class);
 		DistributionSettlementServiceImpl service = new DistributionSettlementServiceImpl(
-			configService, orderService, userService, flowService, refundRecordService);
+			configService, orderService, userService, flowService, refundRecordService, mock(ISalesCustomerBindService.class));
 		DistributionConfig config = new DistributionConfig()
 			.setCommissionRate(new BigDecimal("0.10"))
 			.setCommissionRateLevel2(BigDecimal.ZERO)
@@ -91,7 +93,7 @@ class DistributionSettlementServiceImplTest {
 		IDistributionUserService userService = mock(IDistributionUserService.class);
 		IDistributionCommissionFlowService flowService = mock(IDistributionCommissionFlowService.class);
 		DistributionSettlementServiceImpl service = new DistributionSettlementServiceImpl(
-				configService, orderService, userService, flowService, mock(IDistributionRefundRecordService.class));
+				configService, orderService, userService, flowService, mock(IDistributionRefundRecordService.class), mock(ISalesCustomerBindService.class));
 
 		DistributionOrder order = new DistributionOrder()
 				.setId("dist-order-1")
@@ -133,7 +135,7 @@ class DistributionSettlementServiceImplTest {
 		IDistributionUserService userService = mock(IDistributionUserService.class);
 		IDistributionCommissionFlowService flowService = mock(IDistributionCommissionFlowService.class);
 		DistributionSettlementServiceImpl service = new DistributionSettlementServiceImpl(
-				configService, orderService, userService, flowService, mock(IDistributionRefundRecordService.class));
+				configService, orderService, userService, flowService, mock(IDistributionRefundRecordService.class), mock(ISalesCustomerBindService.class));
 
 		DistributionConfig config = new DistributionConfig()
 				.setCommissionRate(new BigDecimal("0.10"))
@@ -165,5 +167,27 @@ class DistributionSettlementServiceImplTest {
 		assertThat(orderCaptor.getValue().getSettleAt()).isNotNull();
 		assertThat(distributor.getPendingCommission()).isEqualByComparingTo("10.00");
 		assertThat(distributor.getAvailableCommission()).isEqualByComparingTo("0.00");
+	}
+
+	@Test
+	void skipsSettlementWhenBuyerAlreadyBoundToActiveSales() {
+		IDistributionConfigService configService = mock(IDistributionConfigService.class);
+		IDistributionOrderService orderService = mock(IDistributionOrderService.class);
+		IDistributionUserService userService = mock(IDistributionUserService.class);
+		IDistributionCommissionFlowService flowService = mock(IDistributionCommissionFlowService.class);
+		IDistributionRefundRecordService refundRecordService = mock(IDistributionRefundRecordService.class);
+		ISalesCustomerBindService bindService = mock(ISalesCustomerBindService.class);
+		when(bindService.getActiveSalesStaffId("buyer-1")).thenReturn("staff-1");
+		DistributionSettlementServiceImpl service = new DistributionSettlementServiceImpl(
+			configService, orderService, userService, flowService, refundRecordService, bindService);
+		DistributionSettleDTO dto = new DistributionSettleDTO();
+		dto.setOrderId("order-1");
+		dto.setBuyerUserId("buyer-1");
+		dto.setOrderAmount(new BigDecimal("100.00"));
+
+		assertThat(service.settleOrder(dto)).isFalse();
+
+		verify(configService, never()).getActiveConfig();
+		verify(orderService, never()).save(any());
 	}
 }

@@ -40,4 +40,16 @@ public class OrderPaySuccessEvent implements Serializable {
 
 	private List<OrderItemPaySuccessEvent> itemList;
 
+	/**
+	 * 归属销售ID快照（下单时写入；为空表示该订单不计销售业绩）。
+	 * <p>由 {@code BeanUtils.copyProperties(orderInfo, event)} 自动带出，字段名须与 OrderInfo 一致。
+	 */
+	private String salesStaffId;
+
+	/**
+	 * 实收金额（货到付款确认收款时登记；在线支付为空）。
+	 * <p>销售提成按实付金额计算：在线支付取 paymentPrice，货到付款取 actualPayPrice。
+	 */
+	private BigDecimal actualPayPrice;
+
 }

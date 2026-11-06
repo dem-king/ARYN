@@ -1,6 +1,8 @@
 import { alovaInstance } from '@/api/core/instance'
 
 export const DISTRIBUTION_CENTER_PATH = '/sub-pages/user/distribution/index'
+export const DISTRIBUTION_COUPON_EXCHANGE_PATH = '/sub-pages/user/distribution/coupon-exchange'
+export const DISTRIBUTION_COUPON_EXCHANGE_RECORD_PATH = '/sub-pages/user/distribution/coupon-exchange-record'
 
 export const DISTRIBUTION_PERMISSION_POINTS = {
   ENTITY_PAGE: 'distribution:center:page',
@@ -98,6 +100,90 @@ export interface DistributionShareBindPayload {
   inviterUserId?: string
   nickname?: string
   avatar?: string
+  /**
+   * 绑定来源：SHARE 分享链接、QRCODE 推广码（后端据此写 sales_customer_bind.bind_source）
+   */
+  bindSource?: DistributionBindSource
+}
+
+/**
+ * 客户绑定来源（与后端 sales_customer_bind.bind_source 对齐）
+ */
+export type DistributionBindSource =
+  | 'SHARE'
+  | 'QRCODE'
+  | 'ADMIN'
+  | 'TRANSFER'
+  | 'CLAIM'
+
+/**
+ * 券包关联的优惠券模板
+ */
+export interface DistributionCouponPackItem {
+  couponInfoId: string
+  name?: string
+  faceAmount?: number
+  quantity?: number
+}
+
+/**
+ * 可兑换券包（分销佣金兑换优惠券）
+ *
+ * 后端接口：GET /promotion/app/distribution/coupon/pack/list（仅返回上架券包）
+ */
+export interface DistributionCouponPack {
+  id: string
+  packName: string
+  faceAmount: number
+  thresholdAmount?: number
+  /** 有效期（天） */
+  validDays?: number
+  /** 兑换消耗佣金 */
+  requiredCommission: number
+  /** 库存，null 表示不限 */
+  stock?: number | null
+  /** 0 上架 1 下架 */
+  status?: string
+  sort?: number
+  remark?: string
+  couponInfos?: DistributionCouponPackItem[]
+}
+
+/**
+ * 券包兑换参数
+ */
+export interface DistributionCouponExchangePayload {
+  packId: string
+}
+
+/**
+ * 券兑换记录
+ *
+ * 后端接口：GET /promotion/app/distribution/coupon/exchange/page
+ */
+export interface DistributionCouponExchangeRecord {
+  id: string
+  userId?: string
+  nickname?: string
+  packId?: string
+  packName?: string
+  faceAmount?: number
+  /** 消耗佣金 */
+  commissionAmount?: number
+  couponUserIds?: string
+  /** 0 发放中 1 已发放 2 发放失败 */
+  status: string
+  exchangeTime?: string
+  createTime?: string
+  remark?: string
+}
+
+/**
+ * 券兑换记录分页查询参数
+ */
+export interface DistributionCouponExchangeRecordPageQuery {
+  current?: number
+  size?: number
 }
 
 /**
@@ -123,19 +209,17 @@ export function getDistributionCommissionRecordPage(
 }
 
 /**
- * 提现申请
+ * 提现申请（已下线）
+ *
+ * 2026-11 销售业绩/提成改造：普通分销员佣金不再支持提现，改为兑换优惠券
+ * （见 docs/50-需求文档/2026-11-05-销售业绩归属与提成）。后端
+ * `POST /promotion/app/distribution/withdraw/apply` 会返回明确的业务错误，
+ * 因此这里不再提供调用入口；`DistributionWithdrawApplyPayload` 类型暂时保留，
+ * 避免历史代码/测试大范围改动。新入口统一走 {@link exchangeDistributionCouponPack}。
  */
-export function submitDistributionWithdrawApply(
-  data: DistributionWithdrawApplyPayload,
-) {
-  return alovaInstance.Post<boolean>(
-    '/promotion/app/distribution/withdraw/apply',
-    data,
-  )
-}
 
 /**
- * 提现进度分页
+ * 提现进度分页（保留只读：历史提现单据查询）
  */
 export function getDistributionWithdrawProgressPage(
   params: DistributionWithdrawProgressPageQuery = {},
@@ -143,6 +227,45 @@ export function getDistributionWithdrawProgressPage(
   return alovaInstance.Get<
     DistributionPageResult<DistributionWithdrawProgress>
   >('/promotion/app/distribution/withdraw/page', {
+    params,
+  })
+}
+
+/**
+ * 可兑换券包列表（上架券包）
+ *
+ * 佣金兑换优惠券的券源：分销员用 availableCommission 兑换大额优惠券。
+ */
+export function getDistributionCouponPackList() {
+  return alovaInstance.Get<DistributionCouponPack[]>(
+    '/promotion/app/distribution/coupon/pack/list',
+  )
+}
+
+/**
+ * 兑换券包
+ *
+ * 单事务：校验上架/库存/佣金余额 → 扣 available_commission → 发券。
+ * 余额不足、券发放失败都会整体回滚，调用方只需处理业务错误提示。
+ */
+export function exchangeDistributionCouponPack(
+  data: DistributionCouponExchangePayload,
+) {
+  return alovaInstance.Post<boolean>(
+    '/promotion/app/distribution/coupon/exchange',
+    data,
+  )
+}
+
+/**
+ * 我的券兑换记录分页
+ */
+export function getDistributionCouponExchangeRecordPage(
+  params: DistributionCouponExchangeRecordPageQuery = {},
+) {
+  return alovaInstance.Get<
+    DistributionPageResult<DistributionCouponExchangeRecord>
+  >('/promotion/app/distribution/coupon/exchange/page', {
     params,
   })
 }

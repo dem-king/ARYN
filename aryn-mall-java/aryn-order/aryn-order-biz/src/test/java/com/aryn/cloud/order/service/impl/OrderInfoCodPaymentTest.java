@@ -89,6 +89,8 @@ class OrderInfoCodPaymentTest {
 
 	private RemotePromotionEngine promotionEngine;
 
+	private com.aryn.cloud.promotion.api.remote.RemoteSalesAttributionService remoteSalesAttributionService;
+
 	private com.aryn.cloud.upms.api.remote.RemoteMaterialService remoteMaterialService;
 
 	private OrderPriceComputeService orderPriceComputeService;
@@ -132,6 +134,7 @@ class OrderInfoCodPaymentTest {
 		orderPaySuccessNotifier = mock(OrderPaySuccessNotifier.class);
 		promotionEngine = mock(RemotePromotionEngine.class);
 		remoteMaterialService = mock(com.aryn.cloud.upms.api.remote.RemoteMaterialService.class);
+		remoteSalesAttributionService = mock(com.aryn.cloud.promotion.api.remote.RemoteSalesAttributionService.class);
 		ObjectProvider<ISharedCartService> sharedCartServiceProvider = mock(ObjectProvider.class);
 
 		service = new OrderInfoServiceImpl(orderConfigService, kuaidi100Utils, orderItemMapper, remoteGoodsSkuService,
@@ -145,7 +148,8 @@ class OrderInfoCodPaymentTest {
 				orderDeliveryStateService,
 				deliveryAreaService, promotionSnapshotMapper, purchaseSceneValidator, deliveryContextValidator,
 				orderPaySuccessNotifier, promotionEngine, remoteMaterialService, sharedCartServiceProvider,
-				mock(com.aryn.cloud.order.service.OrderStaffNotifyService.class));
+				mock(com.aryn.cloud.order.service.OrderStaffNotifyService.class),
+				remoteSalesAttributionService);
 
 		orderInfoMapper = mock(OrderInfoMapper.class);
 		ReflectionTestUtils.setField(service, "baseMapper", orderInfoMapper);
@@ -236,6 +240,40 @@ class OrderInfoCodPaymentTest {
 		when(remoteUserAddressService.getById("addr-1", "u1")).thenReturn(address);
 		when(deliveryAreaService.isAddressInDeliveryArea(any(), any(), any())).thenReturn(true);
 		when(orderItemService.saveBatch(any())).thenReturn(true);
+	}
+
+	@Test
+	void createOrderSnapshotsResolvedSalesAttribution() {
+		// 销售分享进入的客户下单：归属销售必须写入订单快照，供订单管理展示与提成结算
+		stubCreateOrderSuccess();
+		com.aryn.cloud.promotion.api.dto.SalesAttributionDTO attribution = new com.aryn.cloud.promotion.api.dto.SalesAttributionDTO();
+		attribution.setSalesStaffId("staff-1");
+		attribution.setSalesStaffName("张三");
+		when(remoteSalesAttributionService.resolve(any(), org.mockito.ArgumentMatchers.eq("u1")))
+			.thenReturn(attribution);
+		OrderItemEntity item = new OrderItemEntity();
+		when(orderPriceComputeService.generateOrderItems(any(), any())).thenReturn(List.of(item));
+
+		OrderInfo order = service.createOrder(codOrderDto());
+
+		assertThat(order.getSalesStaffId()).isEqualTo("staff-1");
+		assertThat(order.getSalesStaffName()).isEqualTo("张三");
+	}
+
+	@Test
+	void createOrderKeepsRunningWhenSalesAttributionFails() {
+		// 归属解析走 Dubbo，失败只告警不阻断下单：订单照常创建，只是不计销售业绩
+		stubCreateOrderSuccess();
+		when(remoteSalesAttributionService.resolve(any(), org.mockito.ArgumentMatchers.eq("u1")))
+			.thenThrow(new RuntimeException("promotion dubbo down"));
+		OrderItemEntity item = new OrderItemEntity();
+		when(orderPriceComputeService.generateOrderItems(any(), any())).thenReturn(List.of(item));
+
+		OrderInfo order = service.createOrder(codOrderDto());
+
+		assertThat(order.getId()).isNotBlank();
+		assertThat(order.getSalesStaffId()).isNull();
+		assertThat(order.getSalesStaffName()).isNull();
 	}
 
 	@Test

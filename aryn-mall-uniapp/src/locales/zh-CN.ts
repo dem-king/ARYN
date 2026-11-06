@@ -18,6 +18,7 @@ import message from './modules/message.zh-CN'
 import order from './modules/order.zh-CN'
 import product from './modules/product.zh-CN'
 import promotion from './modules/promotion.zh-CN'
+import sales from './modules/sales.zh-CN'
 import search from './modules/search.zh-CN'
 import sessionInvalid from './modules/sessionInvalid.zh-CN'
 import shared from './modules/shared.zh-CN'
@@ -117,6 +118,8 @@ export default {
     serviceCollect: '我的收藏',
     serviceCoupon: '我的优惠券',
     serviceDistribution: '分销中心',
+    salesWorkbench: '销售工作台',
+    salesWorkbenchDesc: '推广码 · 我的客户 · 业绩明细',
     deliveryWorkbench: '配送工作台',
     deliveryPendingTasks: '{count} 项任务待处理',
     deliveryReady: '已为你开通配送权限',
@@ -150,6 +153,7 @@ export default {
   },
   ...catalog,
   ...product,
+  ...sales,
   ...search,
   ...sessionInvalid,
   ...loginDevices,

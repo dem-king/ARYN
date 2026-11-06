@@ -239,14 +239,21 @@ class DistributionPersistenceContractTest {
 			.contains("status in ('0', '1')");
 	}
 
+	/**
+	 * 2026-11-05 起分销佣金改为兑换优惠券，提现申请/审核接口下线：
+	 * 申请不再落库（自然也不再持久化 remark），但历史提现单只读查询仍依赖 DTO 的 remark 字段。
+	 */
 	@Test
-	void withdrawApplicationPersistsOptionalRemark() throws IOException {
+	void withdrawApplicationIsOfflineButKeepsHistoricalRemarkField() throws IOException {
 		String dto = Files.readString(javaRoot.resolve(
 			"aryn-promotion/aryn-promotion-api/src/main/java/com/aryn/cloud/promotion/api/dto/DistributionWithdrawApplyDTO.java"));
 		String service = Files.readString(javaRoot.resolve(
 			"aryn-promotion/aryn-promotion-biz/src/main/java/com/aryn/cloud/promotion/service/impl/DistributionWithdrawServiceImpl.java"));
 		assertThat(dto).contains("private String remark;");
-		assertThat(service).contains("withdraw.setRemark(dto.getRemark())");
+		assertThat(service)
+			.contains("提现功能已下线")
+			.contains("WITHDRAW_APPLY_OFFLINE_MESSAGE", "WITHDRAW_AUDIT_OFFLINE_MESSAGE")
+			.doesNotContain("withdraw.setRemark(dto.getRemark())");
 	}
 
 	private List<Path> distributionSchemas() {

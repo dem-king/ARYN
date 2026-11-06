@@ -113,6 +113,9 @@ interface DataState {
     recipientPhone: string;
     recipientProvince: string;
     remark?: string;
+    /** 归属销售（下单时快照，换绑不影响历史订单） */
+    salesStaffId?: string;
+    salesStaffName?: string;
     sharedCartId?: string;
     status: string;
     totalPrice: number;
@@ -857,6 +860,10 @@ getDetail();
                 <span class="od-meta__k">下单时间</span>
                 {{ state.orderInfo.createTime || '—' }}
               </span>
+              <span v-if="state.orderInfo.salesStaffName" class="od-meta">
+                <span class="od-meta__k">归属销售</span>
+                {{ state.orderInfo.salesStaffName }}
+              </span>
               <span v-if="state.orderInfo.paymentTime" class="od-meta">
                 <span class="od-meta__k">付款时间</span>
                 {{ state.orderInfo.paymentTime }}
@@ -1389,8 +1396,6 @@ getDetail();
 </template>
 
 <style scoped lang="scss">
-
-
 /* ---------- 响应式：窄屏先收侧栏，再收状态区 ---------- */
 @media (max-width: 1440px) {
   .od-grid {

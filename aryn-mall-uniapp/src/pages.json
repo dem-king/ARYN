@@ -436,6 +436,33 @@
           }
         },
         {
+          "path": "user/distribution/coupon-exchange",
+          "type": "page",
+          "name": "distribution-coupon-exchange",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "兑换优惠券"
+          }
+        },
+        {
+          "path": "user/distribution/coupon-exchange-record",
+          "type": "page",
+          "name": "distribution-coupon-exchange-record",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "兑换记录"
+          }
+        },
+        {
+          "path": "user/sales/index",
+          "type": "page",
+          "name": "sales-workbench",
+          "style": {
+            "navigationStyle": "custom",
+            "navigationBarTitleText": "销售工作台"
+          }
+        },
+        {
           "path": "promotion/group-buy/group-buy-detail/index",
           "type": "page",
           "name": "group-buy-detail",

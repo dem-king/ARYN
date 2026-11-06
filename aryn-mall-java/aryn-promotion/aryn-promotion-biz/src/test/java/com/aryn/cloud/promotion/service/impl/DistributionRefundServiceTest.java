@@ -11,6 +11,7 @@ import com.aryn.cloud.promotion.service.IDistributionConfigService;
 import com.aryn.cloud.promotion.service.IDistributionOrderService;
 import com.aryn.cloud.promotion.service.IDistributionRefundRecordService;
 import com.aryn.cloud.promotion.service.IDistributionUserService;
+import com.aryn.cloud.promotion.service.ISalesCustomerBindService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -36,7 +37,7 @@ class DistributionRefundServiceTest {
 		IDistributionCommissionFlowService flowService = mock(IDistributionCommissionFlowService.class);
 		IDistributionRefundRecordService refundRecordService = mock(IDistributionRefundRecordService.class);
 		DistributionSettlementServiceImpl service = new DistributionSettlementServiceImpl(
-			configService, orderService, userService, flowService, refundRecordService);
+			configService, orderService, userService, flowService, refundRecordService, mock(ISalesCustomerBindService.class));
 
 		DistributionOrder level1 = settledOrder("dist-1", "seller-1", "10.00", 1);
 		DistributionOrder level2 = settledOrder("dist-2", "seller-2", "5.00", 2);
@@ -72,7 +73,7 @@ class DistributionRefundServiceTest {
 		IDistributionCommissionFlowService flowService = mock(IDistributionCommissionFlowService.class);
 		IDistributionRefundRecordService refundRecordService = mock(IDistributionRefundRecordService.class);
 		DistributionSettlementServiceImpl service = new DistributionSettlementServiceImpl(
-			configService, orderService, userService, flowService, refundRecordService);
+			configService, orderService, userService, flowService, refundRecordService, mock(ISalesCustomerBindService.class));
 
 		DistributionOrder order = settledOrder("dist-1", "seller-1", "10.00", 1)
 			.setRefundedBaseAmount(new BigDecimal("80.00"))
@@ -105,7 +106,7 @@ class DistributionRefundServiceTest {
 		IDistributionUserService userService = mock(IDistributionUserService.class);
 		DistributionSettlementServiceImpl service = new DistributionSettlementServiceImpl(
 			mock(IDistributionConfigService.class), orderService, userService,
-			mock(IDistributionCommissionFlowService.class), mock(IDistributionRefundRecordService.class));
+			mock(IDistributionCommissionFlowService.class), mock(IDistributionRefundRecordService.class), mock(ISalesCustomerBindService.class));
 
 		service.refundCommission("order-1", "refund-1", BigDecimal.ZERO, BigDecimal.ZERO);
 
@@ -120,7 +121,7 @@ class DistributionRefundServiceTest {
 		IDistributionCommissionFlowService flowService = mock(IDistributionCommissionFlowService.class);
 		IDistributionRefundRecordService refundRecordService = mock(IDistributionRefundRecordService.class);
 		DistributionSettlementServiceImpl service = new DistributionSettlementServiceImpl(
-			mock(IDistributionConfigService.class), orderService, userService, flowService, refundRecordService);
+			mock(IDistributionConfigService.class), orderService, userService, flowService, refundRecordService, mock(ISalesCustomerBindService.class));
 		DistributionOrder order = settledOrder("dist-1", "seller-1", "10.00", 1);
 		DistributionUser seller = distributor("seller-1", "10.00", "10.00");
 		AtomicBoolean recorded = new AtomicBoolean();
@@ -149,7 +150,7 @@ class DistributionRefundServiceTest {
 		IDistributionCommissionFlowService flowService = mock(IDistributionCommissionFlowService.class);
 		IDistributionRefundRecordService refundRecordService = mock(IDistributionRefundRecordService.class);
 		DistributionSettlementServiceImpl service = new DistributionSettlementServiceImpl(
-			mock(IDistributionConfigService.class), orderService, userService, flowService, refundRecordService);
+			mock(IDistributionConfigService.class), orderService, userService, flowService, refundRecordService, mock(ISalesCustomerBindService.class));
 		DistributionOrder order = settledOrder("dist-1", "seller-1", "1.00", 1);
 		DistributionUser seller = distributor("seller-1", "1.00", "1.00");
 		when(refundRecordService.save(any())).thenReturn(true);
@@ -175,7 +176,7 @@ class DistributionRefundServiceTest {
 		IDistributionCommissionFlowService flowService = mock(IDistributionCommissionFlowService.class);
 		IDistributionRefundRecordService refundRecordService = mock(IDistributionRefundRecordService.class);
 		DistributionSettlementServiceImpl service = new DistributionSettlementServiceImpl(
-			mock(IDistributionConfigService.class), orderService, userService, flowService, refundRecordService);
+			mock(IDistributionConfigService.class), orderService, userService, flowService, refundRecordService, mock(ISalesCustomerBindService.class));
 		DistributionOrder legacyOrder = settledOrder("dist-1", "seller-1", "11.00", 1)
 			.setOrderAmount(new BigDecimal("110.00"))
 			.setCommissionBaseAmount(null);
@@ -204,7 +205,7 @@ class DistributionRefundServiceTest {
 		IDistributionCommissionFlowService flowService = mock(IDistributionCommissionFlowService.class);
 		IDistributionRefundRecordService refundRecordService = mock(IDistributionRefundRecordService.class);
 		DistributionSettlementServiceImpl service = new DistributionSettlementServiceImpl(
-			mock(IDistributionConfigService.class), orderService, userService, flowService, refundRecordService);
+			mock(IDistributionConfigService.class), orderService, userService, flowService, refundRecordService, mock(ISalesCustomerBindService.class));
 		DistributionRefundRecord record = new DistributionRefundRecord();
 		record.setId("refund-record-1");
 		record.setRefundNo("refund-1");
@@ -237,7 +238,7 @@ class DistributionRefundServiceTest {
 		IDistributionCommissionFlowService flowService = mock(IDistributionCommissionFlowService.class);
 		IDistributionRefundRecordService refundRecordService = mock(IDistributionRefundRecordService.class);
 		DistributionSettlementServiceImpl service = new DistributionSettlementServiceImpl(
-			mock(IDistributionConfigService.class), orderService, userService, flowService, refundRecordService);
+			mock(IDistributionConfigService.class), orderService, userService, flowService, refundRecordService, mock(ISalesCustomerBindService.class));
 		DistributionRefundRecord record = new DistributionRefundRecord();
 		record.setId("refund-record-1");
 		record.setRefundNo("refund-1");

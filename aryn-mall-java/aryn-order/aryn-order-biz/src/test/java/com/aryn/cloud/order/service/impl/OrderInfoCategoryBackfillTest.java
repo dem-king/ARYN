@@ -93,7 +93,8 @@ class OrderInfoCategoryBackfillTest {
 				mock(PurchaseSceneValidator.class), mock(DeliveryContextValidator.class),
 				mock(OrderPaySuccessNotifier.class), mock(RemotePromotionEngine.class),
 				mock(com.aryn.cloud.upms.api.remote.RemoteMaterialService.class),
-				sharedCartProvider, staffNotifyService);
+				sharedCartProvider, staffNotifyService,
+				mock(com.aryn.cloud.promotion.api.remote.RemoteSalesAttributionService.class));
 		ReflectionTestUtils.setField(service, "baseMapper", orderInfoMapper);
 	}
 

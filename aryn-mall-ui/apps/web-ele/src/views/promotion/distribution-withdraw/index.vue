@@ -6,20 +6,22 @@ import type {
 
 import { defineAsyncComponent, reactive, ref } from 'vue';
 
-import { CircleCheck, CircleClose } from '@element-plus/icons-vue';
+import { View } from '@element-plus/icons-vue';
 import {
+  ElAlert,
   ElButton,
+  ElDescriptions,
+  ElDescriptionsItem,
+  ElDialog,
   ElFormItem,
   ElInput,
-  ElMessage,
-  ElMessageBox,
   ElOption,
   ElSelect,
   ElTable,
   ElTableColumn,
 } from 'element-plus';
 
-import { audit, getPage } from '#/api/promotion/distribution-withdraw';
+import { getById, getPage } from '#/api/promotion/distribution-withdraw';
 import PageFilterPanel from '#/components/page/page-filter-panel.vue';
 import PageToolbar from '#/components/page/page-toolbar.vue';
 import { useKeepAliveRefresh } from '#/composables/use-keep-alive-refresh';
@@ -73,36 +75,34 @@ const initPage = async () => {
     });
 };
 
-async function doApprove(row: DistributionWithdrawRecord) {
-  const payout = await ElMessageBox.prompt(
-    '请输入线下打款流水号',
-    '确认打款并通过',
-    {
-      confirmButtonText: '确认已打款',
-      cancelButtonText: '取消',
-      inputPattern: /^\S{1,64}$/,
-      inputErrorMessage: '流水号不能为空且不能超过64字符',
-      type: 'warning',
-    },
-  ).catch(() => null);
-  if (!payout?.value) return;
-  await audit({ id: row.id, payoutNo: payout.value.trim(), status: '1' });
-  ElMessage.success('审核通过');
-  initPage();
-}
+/**
+ * 提现功能已下线（佣金改为兑换优惠券），本页只保留历史查询与详情。
+ * 审核/打款接口在后端返回“提现功能已下线，仅保留历史查询”，前端不再提供操作入口。
+ */
+const detailState = reactive({
+  visible: false,
+  loading: false,
+  record: null as DistributionWithdrawRecord | null,
+});
 
-async function doReject(row: DistributionWithdrawRecord) {
-  const reason = await ElMessageBox.prompt('请输入驳回原因', '审核驳回', {
-    inputPattern: /^.{2,100}$/,
-    inputErrorMessage: '驳回原因长度需在2-100字符',
-  }).catch(() => null);
-  if (!reason?.value) {
-    return;
+const openDetail = async (row: DistributionWithdrawRecord) => {
+  detailState.record = row;
+  detailState.visible = true;
+  detailState.loading = true;
+  try {
+    const detail = await getById(row.id);
+    if (detail) {
+      detailState.record = detail;
+    }
+  } catch {
+    // 详情失败时保留列表行数据
+  } finally {
+    detailState.loading = false;
   }
-  await audit({ id: row.id, status: '2', rejectReason: reason.value });
-  ElMessage.success('已驳回');
-  initPage();
-}
+};
+
+/** 金额统一 2 位展示 */
+const formatAmount = (value?: number) => formatMoney(value);
 
 initPage();
 
@@ -112,6 +112,13 @@ useKeepAliveRefresh(initPage);
 <template>
   <div class="hx-layout-container">
     <div class="hx-layout-container-auto hx-layout-container-view">
+      <ElAlert
+        class="hx-withdraw-offline"
+        :closable="false"
+        show-icon
+        title="提现已下线，仅保留历史查询"
+        type="warning"
+      />
       <!-- 搜索 -->
       <PageFilterPanel
         :model="state.queryParams"
@@ -206,27 +213,15 @@ useKeepAliveRefresh(initPage);
         <ElTableColumn prop="payoutBy" label="打款确认人" align="center" />
         <ElTableColumn prop="payoutTime" label="打款时间" width="180" />
         <ElTableColumn prop="createTime" label="申请时间" width="180" />
-        <ElTableColumn label="操作" width="160" align="center" fixed="right">
+        <ElTableColumn label="操作" width="100" align="center" fixed="right">
           <template #default="scope">
             <ElButton
-              v-if="scope.row.status === '0'"
-              v-access:code="'promotion:distributionwithdraw:audit'"
-              :icon="CircleCheck"
+              :icon="View"
               link
               type="primary"
-              @click="doApprove(scope.row as DistributionWithdrawRecord)"
+              @click="openDetail(scope.row as DistributionWithdrawRecord)"
             >
-              通过
-            </ElButton>
-            <ElButton
-              v-if="scope.row.status === '0'"
-              v-access:code="'promotion:distributionwithdraw:audit'"
-              :icon="CircleClose"
-              link
-              type="danger"
-              @click="doReject(scope.row as DistributionWithdrawRecord)"
-            >
-              驳回
+              详情
             </ElButton>
           </template>
         </ElTableColumn>
@@ -239,6 +234,66 @@ useKeepAliveRefresh(initPage);
         v-model:size="state.page.pageSize"
         @change="initPage"
       />
+
+      <!-- 历史提现单详情（只读） -->
+      <ElDialog v-model="detailState.visible" title="提现单详情" width="560px">
+        <ElDescriptions
+          v-if="detailState.record"
+          v-loading="detailState.loading"
+          :column="1"
+          border
+          label-width="120px"
+        >
+          <ElDescriptionsItem label="提现单号">
+            {{ detailState.record.withdrawNo }}
+          </ElDescriptionsItem>
+          <ElDescriptionsItem label="分销员ID">
+            {{ detailState.record.userId }}
+          </ElDescriptionsItem>
+          <ElDescriptionsItem label="提现金额">
+            ¥{{ formatAmount(detailState.record.amount) }}
+          </ElDescriptionsItem>
+          <ElDescriptionsItem label="收款方式">
+            {{ detailState.record.accountType || '—' }}
+          </ElDescriptionsItem>
+          <ElDescriptionsItem label="收款人">
+            {{ detailState.record.accountName || '—' }}
+          </ElDescriptionsItem>
+          <ElDescriptionsItem label="收款账号">
+            {{ detailState.record.accountNo || '—' }}
+          </ElDescriptionsItem>
+          <ElDescriptionsItem label="状态">
+            <DictTag
+              :options="distribution_withdraw_status"
+              :value="detailState.record.status"
+            />
+          </ElDescriptionsItem>
+          <ElDescriptionsItem label="审核人">
+            {{ detailState.record.auditBy || '—' }}
+          </ElDescriptionsItem>
+          <ElDescriptionsItem label="打款流水号">
+            {{ detailState.record.payoutNo || '—' }}
+          </ElDescriptionsItem>
+          <ElDescriptionsItem label="打款确认人">
+            {{ detailState.record.payoutBy || '—' }}
+          </ElDescriptionsItem>
+          <ElDescriptionsItem label="打款时间">
+            {{ detailState.record.payoutTime || '—' }}
+          </ElDescriptionsItem>
+          <ElDescriptionsItem label="申请时间">
+            {{ detailState.record.createTime || '—' }}
+          </ElDescriptionsItem>
+          <ElDescriptionsItem label="驳回原因">
+            {{ detailState.record.rejectReason || '—' }}
+          </ElDescriptionsItem>
+        </ElDescriptions>
+      </ElDialog>
     </div>
   </div>
 </template>
+
+<style scoped>
+.hx-withdraw-offline {
+  margin-bottom: 14px;
+}
+</style>

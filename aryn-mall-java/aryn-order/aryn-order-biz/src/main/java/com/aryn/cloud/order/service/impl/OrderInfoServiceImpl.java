@@ -19,6 +19,8 @@ import com.aryn.cloud.common.core.util.Result;
 import com.aryn.cloud.common.core.util.SnowflakeIdUtils;
 import com.aryn.cloud.common.logistics.util.Kuaidi100Utils;
 import com.aryn.cloud.common.myabtis.tenant.ArynTenantContextHolder;
+import com.aryn.cloud.promotion.api.dto.SalesAttributionDTO;
+import com.aryn.cloud.promotion.api.remote.RemoteSalesAttributionService;
 import com.aryn.cloud.promotion.api.vo.MallZoneSettingSnapshotVO;
 import com.aryn.cloud.promotion.api.vo.PromotionCalculationVO;
 import com.aryn.cloud.common.security.handler.ArynBusinessException;
@@ -195,6 +197,10 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 
 	/** 订单事件工作人员通知（新单/取消/退款申请），失败只告警不阻断业务 */
 	private final OrderStaffNotifyService orderStaffNotifyService;
+
+	/** 归属销售解析：下单时把客户当前归属销售写入订单快照，失败只告警不阻断下单 */
+	@DubboReference
+	private final RemoteSalesAttributionService remoteSalesAttributionService;
 
 	@Override
 	public IPage<OrderInfo> adminPage(Page page, OrderInfo orderInfo) {
@@ -605,6 +611,31 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 	}
 
 	/**
+	 * 解析并写入订单归属销售快照。
+	 *
+	 * <p>调用 promotion 域 Dubbo 接口，判定顺序：已绑定在职销售 → 待转交认领中的在职销售 → 无。
+	 * 远程异常只告警，不阻断下单。
+	 */
+	private void applySalesAttribution(OrderInfo orderInfo) {
+		if (orderInfo == null || !StringUtils.hasText(orderInfo.getUserId())) {
+			return;
+		}
+		try {
+			String tenantId = ArynTenantContextHolder.getTenantId();
+			SalesAttributionDTO attribution = remoteSalesAttributionService.resolve(tenantId,
+					orderInfo.getUserId());
+			if (attribution != null && StringUtils.hasText(attribution.getSalesStaffId())) {
+				orderInfo.setSalesStaffId(attribution.getSalesStaffId());
+				orderInfo.setSalesStaffName(attribution.getSalesStaffName());
+			}
+		}
+		catch (Exception exception) {
+			log.warn("解析订单归属销售失败，订单不带销售归属 userId=" + orderInfo.getUserId() + ", error="
+					+ exception.getMessage());
+		}
+	}
+
+	/**
 	 * 付款凭证素材 ID → 访问 URL 快照，确认收款后素材删除不影响回显；
 	 * 素材 ID 无效（不存在或已删除）时拒绝提交，避免凭证静默丢失。
 	 */
@@ -845,6 +876,9 @@ public class OrderInfoServiceImpl extends ServiceImpl<OrderInfoMapper, OrderInfo
 					.compareTo(createOrderDTO.getExpectedPaymentPrice()) != 0)) {
 			throw new ArynBusinessException("订单金额已变动，请返回确认页核对最新价格后重新提交");
 		}
+		// 归属销售快照：下单时解析客户当前归属销售写入订单，之后换绑不影响历史订单；
+		// 解析失败只告警不阻断下单，该订单不计销售业绩
+		applySalesAttribution(orderInfo);
 		// 创建订单
 		try {
 			if (!super.save(orderInfo)) {

@@ -33,4 +33,7 @@ public class DistributionUserRegisterDTO implements Serializable {
 	@Schema(description = "邀请人用户ID")
 	private String inviterUserId;
 
+	@Schema(description = "绑定来源：SHARE分享链接（默认）/QRCODE推广码，仅邀请人为在职销售时生效")
+	private String bindSource;
+
 }

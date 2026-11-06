@@ -222,6 +222,7 @@ hx:
       - goods_appraise
       - goods_category
       - goods_brand
+      - goods_category_badge
       - goods_collect
       - goods_footprint
       - goods_sku
@@ -242,6 +243,19 @@ hx:
       - distribution_commission_flow
       - distribution_withdraw
       - distribution_refund_record
+      - distribution_coupon_pack
+      - distribution_coupon_pack_item
+      - distribution_coupon_exchange
+      - sales_staff
+      - sales_customer_bind
+      - sales_customer_bind_log
+      - sales_customer_claim
+      - sales_transfer_reward
+      - sales_order
+      - sales_payout
+      - sales_payout_adjustment
+      - sales_config
+      - sales_refund_record
       - group_buy_activity
       - group_buy_record
       - group_buy_member
@@ -355,6 +369,13 @@ wechat:
     template-map:
       ORDER_DELIVERY_TASK: ${WECHAT_SUBSCRIBE_TEMPLATE_DELIVERY:}
       SECKILL_SESSION_START: ${WECHAT_SUBSCRIBE_TEMPLATE_SECKILL_START:}
+
+# 微信小程序环境版本（推广码生成用）：release 正式版 / trial 体验版 / develop 开发版。
+# 体验版联调时用 WX_MINIAPP_ENV_VERSION 环境变量覆盖；cloud 模式同值配置见 Nacos
+# aryn-user-biz-{profile}.yml，升级脚本 db/cloud/209sales_qrcode_nacos_config.sql。
+wx:
+  miniapp:
+    env-version: ${WX_MINIAPP_ENV_VERSION:release}
 
 # 接龙报货 AI 助手（OpenAI 兼容协议，默认 DeepSeek；GLM 等同协议供应商换 base-url/model 即可）。
 # api-key 留空时 isAvailable=false，整条链路自动走纯规则解析/匹配，零影响。

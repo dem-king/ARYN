@@ -956,7 +956,14 @@ useKeepAliveRefresh(handleSearch);
 /* ---------- 查询区 ---------- */
 
 /* ---------- 列表卡片 ---------- */
+
+/* 外层卡片被 `.hx-layout-container-view:has(> .hx-filter-panel)` 拉成
+   min-height:100%；列表卡片必须跟着吃满剩余高度，否则分页（在列表卡片内）
+   下方会留一条白带，也不像其他列表页那样把分页钉在卡片底部 */
 .sc-list {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
   padding: 14px 16px 6px;
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 12px;
@@ -996,8 +1003,13 @@ useKeepAliveRefresh(handleSearch);
 }
 
 /* ---------- 表格 ---------- */
+
+/* 与标准列表页一致：表格吃满列表卡片剩余高度，纵向滚动收进表格内部 */
 .sc-table {
   --el-table-border-color: var(--el-border-color-lighter);
+
+  flex: 1 1 0;
+  min-height: 240px;
 }
 
 .sc-table :deep(th.el-table__cell) {

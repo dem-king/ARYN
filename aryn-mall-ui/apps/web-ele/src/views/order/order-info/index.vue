@@ -83,6 +83,8 @@ const state = reactive({
     purchaseScene: '',
     recipientName: '',
     recipientPhone: '',
+    /** 归属销售姓名（模糊）；后端 order_info.sales_staff_name 快照 */
+    salesStaffName: '',
   },
   page: {
     total: 0,
@@ -533,6 +535,14 @@ watch(
             @keyup.enter="initPage"
           />
         </ElFormItem>
+        <ElFormItem label="归属销售" prop="salesStaffName">
+          <ElInput
+            v-model="state.queryParams.salesStaffName"
+            clearable
+            placeholder="请输入归属销售姓名"
+            @keyup.enter="initPage"
+          />
+        </ElFormItem>
         <ElFormItem label="支付时间" prop="paymentQueryTimes">
           <ElDatePicker
             v-model="state.queryParams.paymentQueryTimes"
@@ -664,6 +674,20 @@ watch(
               </div>
               <OrderItemsCell :row="scope.row" />
             </div>
+          </template>
+        </ElTableColumn>
+        <ElTableColumn
+          prop="salesStaffName"
+          label="归属销售"
+          width="110"
+          align="center"
+          show-overflow-tooltip
+        >
+          <template #default="scope">
+            <span v-if="scope.row.salesStaffName">
+              {{ scope.row.salesStaffName }}
+            </span>
+            <span v-else class="oi-muted">—</span>
           </template>
         </ElTableColumn>
         <ElTableColumn

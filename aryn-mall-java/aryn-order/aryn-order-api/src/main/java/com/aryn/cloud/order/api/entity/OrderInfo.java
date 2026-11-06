@@ -163,6 +163,12 @@ public class OrderInfo extends Model<OrderInfo> {
 	@Schema(description = "拼团记录ID（拼团单关联开团/参团记录，用于成团判定与取消释放；普通订单为NULL）")
 	private String groupBuyRecordId;
 
+	@Schema(description = "归属销售ID快照（下单时写入，之后换绑不影响历史订单）")
+	private String salesStaffId;
+
+	@Schema(description = "归属销售姓名快照")
+	private String salesStaffName;
+
 	@Schema(description = "租户id")
 	private String tenantId;
 

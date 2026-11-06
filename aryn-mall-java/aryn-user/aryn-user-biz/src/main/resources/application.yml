@@ -32,3 +32,10 @@ aryn:
       # 默认跟随 ip2region master（官方数据不定期更新）；境内可换 Gitee 镜像，商用换成已购离线数据
       source-url: ${ARYN_IP2REGION_XDB_URL:https://raw.githubusercontent.com/lionsoul2014/ip2region/master/data/ip2region_v4.xdb}
       timeout-ms: ${ARYN_IP2REGION_TIMEOUT_MS:60000}
+
+# 微信小程序环境版本（推广码生成用）：release 正式版 / trial 体验版 / develop 开发版。
+# cloud 模式以 Nacos aryn-user-biz-{profile}.yml 为准（升级脚本 db/cloud/209sales_qrcode_nacos_config.sql），
+# 此处为无 Nacos 时的兜底默认值，可用 WX_MINIAPP_ENV_VERSION 环境变量覆盖。
+wx:
+  miniapp:
+    env-version: ${WX_MINIAPP_ENV_VERSION:release}

@@ -55,6 +55,8 @@
 	order_info.transaction_id,
 	order_info.coupon_user_id,
 	order_info.group_buy_record_id,
+	order_info.sales_staff_id,
+	order_info.sales_staff_name,
 	order_info.tenant_id,
     order_info.create_by,
     order_info.update_by,
@@ -106,6 +108,12 @@
         </if>
         <if test="query.orderNo != null and query.orderNo != ''">
             AND order_info.`order_no` = #{query.orderNo}
+        </if>
+        <if test="query.salesStaffId != null and query.salesStaffId != ''">
+            AND order_info.`sales_staff_id` = #{query.salesStaffId}
+        </if>
+        <if test="query.salesStaffName != null and query.salesStaffName != ''">
+            AND order_info.`sales_staff_name` LIKE CONCAT('%', #{query.salesStaffName}, '%')
         </if>
         <if test="query.recipientName != null and query.recipientName != ''">
             AND order_info.`recipient_name` = #{query.recipientName}

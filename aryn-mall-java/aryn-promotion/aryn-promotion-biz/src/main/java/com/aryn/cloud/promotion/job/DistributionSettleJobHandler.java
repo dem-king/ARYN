@@ -6,6 +6,7 @@ import com.aryn.cloud.promotion.api.entity.DistributionOrder;
 import com.aryn.cloud.promotion.api.enums.DistributionOrderStatusEnum;
 import com.aryn.cloud.promotion.service.IDistributionOrderService;
 import com.aryn.cloud.promotion.service.IDistributionSettlementService;
+import com.aryn.cloud.promotion.service.ISalesTransferRewardService;
 import com.aryn.cloud.upms.api.entity.SysTenant;
 import com.aryn.cloud.upms.api.remote.RemoteTenantService;
 import com.xxl.job.core.context.XxlJobHelper;
@@ -32,6 +33,8 @@ public class DistributionSettleJobHandler {
 
 	private final IDistributionSettlementService distributionSettlementService;
 
+	private final ISalesTransferRewardService salesTransferRewardService;
+
 	@DubboReference
 	private final RemoteTenantService remoteTenantService;
 
@@ -46,6 +49,8 @@ public class DistributionSettleJobHandler {
 			for (SysTenant sysTenant : listSysTenant) {
 				try {
 					ArynTenantContextHolder.setTenantId(sysTenant.getId());
+					// 转交奖励释放独立执行并单独兜底，避免退款重放/分销订单结算异常连带跳过
+					settlePendingTransferRewards(sysTenant.getId());
 					int replayedRefunds = replayPendingRefunds(sysTenant.getId());
 					List<DistributionOrder> pendingOrders = distributionOrderService.list(
 						Wrappers.<DistributionOrder>lambdaQuery()
@@ -76,6 +81,21 @@ public class DistributionSettleJobHandler {
 					ArynTenantContextHolder.removeTenantId();
 				}
 			}
+		}
+	}
+
+	/**
+	 * 释放本租户到期的转交奖励：独立 try/catch，失败只记录不影响退款重放与订单结算
+	 */
+	private void settlePendingTransferRewards(String tenantId) {
+		try {
+			int settledRewards = salesTransferRewardService.settlePendingRewards();
+			if (settledRewards > 0) {
+				XxlJobHelper.log("租户[{}]释放{}条待结算转交奖励", tenantId, settledRewards);
+			}
+		}
+		catch (Exception e) {
+			XxlJobHelper.log("Tenant [{}] transfer reward settlement failed: {}", tenantId, e.getMessage());
 		}
 	}
 

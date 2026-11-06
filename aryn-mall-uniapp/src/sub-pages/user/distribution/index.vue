@@ -8,11 +8,13 @@ import { reactive, ref } from 'vue'
 import { onPageScroll, onShow } from '@dcloudio/uni-app'
 import { useI18n } from 'vue-i18n'
 import {
+  DISTRIBUTION_COUPON_EXCHANGE_PATH,
+  DISTRIBUTION_COUPON_EXCHANGE_RECORD_PATH,
   getDistributionCenterSummary,
   getDistributionCommissionRecordPage,
   getDistributionWithdrawProgressPage,
-  submitDistributionWithdrawApply,
 } from '@/api/distribution/entity'
+import { SALES_WORKBENCH_PATH, getSalesWorkbench } from '@/api/sales/entity'
 import {
   formatMoney,
   formatSignedCommission,
@@ -33,8 +35,11 @@ definePage({
 })
 
 const { t } = useI18n()
+const router = useRouter()
 const commissionList = ref<DistributionCommissionRecord[]>([])
 const withdrawList = ref<DistributionWithdrawProgress[]>([])
+/** 当前会员是否已登记为在职销售（决定「销售工作台」入口是否展示） */
+const isSales = ref(false)
 
 const centerSummary = ref<DistributionCenterSummary>({
   inviteUserCount: 0,
@@ -46,7 +51,6 @@ const centerSummary = ref<DistributionCenterSummary>({
   commissionDebt: 0,
   pendingWithdrawCount: 0,
 })
-const submitting = ref(false)
 
 const commissionPage = reactive({
   current: 0,
@@ -61,14 +65,6 @@ const withdrawPage = reactive({
   total: 0,
 })
 
-const withdrawForm = reactive({
-  amountText: '',
-  accountType: 'WECHAT',
-  accountNo: '',
-  accountName: '',
-  remark: '',
-})
-
 const globalLoading = useGlobalLoading()
 
 async function loadCenterSummary() {
@@ -77,6 +73,16 @@ async function loadCenterSummary() {
     centerSummary.value = response
   } catch {
     // 接口不可用时不降级，保持空数据
+  }
+}
+
+/** 销售工作台入口：仅已登记销售展示，请求失败/非销售一律隐藏 */
+async function loadSalesEntrance() {
+  try {
+    const workbench = await getSalesWorkbench()
+    isSales.value = Boolean(workbench?.isSales)
+  } catch {
+    isSales.value = false
   }
 }
 
@@ -102,6 +108,7 @@ async function loadCommissionList(reset = false) {
   }
 }
 
+/** 提现记录降级为只读历史（提现申请入口已下线，佣金改为兑换优惠券） */
 async function loadWithdrawList(reset = false) {
   if (withdrawPage.loading) return
   const current = reset ? 1 : withdrawPage.current + 1
@@ -122,63 +129,16 @@ async function loadWithdrawList(reset = false) {
   }
 }
 
-function resetWithdrawForm() {
-  withdrawForm.amountText = ''
-  withdrawForm.accountNo = ''
-  withdrawForm.accountName = ''
-  withdrawForm.remark = ''
+function goCouponExchange() {
+  router.push({ path: DISTRIBUTION_COUPON_EXCHANGE_PATH })
 }
 
-async function submitWithdraw() {
-  const amount = Number(withdrawForm.amountText)
-  if (!amount || Number.isNaN(amount) || amount <= 0) {
-    uni.showToast({
-      title: t('accountSettings.distribution.invalidAmount'),
-      icon: 'none',
-    })
-    return
-  }
-  if (amount > Number(centerSummary.value.availableCommission || 0)) {
-    uni.showToast({
-      title: t('accountSettings.distribution.amountExceeds'),
-      icon: 'none',
-    })
-    return
-  }
-  if (!withdrawForm.accountNo.trim() || !withdrawForm.accountName.trim()) {
-    uni.showToast({
-      title: t('accountSettings.distribution.incompleteAccount'),
-      icon: 'none',
-    })
-    return
-  }
+function goCouponExchangeRecord() {
+  router.push({ path: DISTRIBUTION_COUPON_EXCHANGE_RECORD_PATH })
+}
 
-  submitting.value = true
-  globalLoading.loading(t('accountSettings.distribution.submitting'))
-  try {
-    await submitDistributionWithdrawApply({
-      amount,
-      accountType: withdrawForm.accountType,
-      accountNo: withdrawForm.accountNo.trim(),
-      accountName: withdrawForm.accountName.trim(),
-      remark: withdrawForm.remark.trim(),
-    })
-    uni.showToast({
-      title: t('accountSettings.distribution.withdrawSubmitted'),
-      icon: 'none',
-    })
-    resetWithdrawForm()
-    await loadCenterSummary()
-    await loadWithdrawList(true)
-  } catch {
-    uni.showToast({
-      title: t('accountSettings.distribution.withdrawFailed'),
-      icon: 'none',
-    })
-  } finally {
-    submitting.value = false
-    globalLoading.close()
-  }
+function goSalesWorkbench() {
+  router.push({ path: SALES_WORKBENCH_PATH })
 }
 
 onShow(() => {
@@ -187,6 +147,7 @@ onShow(() => {
     loadCenterSummary(),
     loadCommissionList(true),
     loadWithdrawList(true),
+    loadSalesEntrance(),
   ]).finally(() => {
     globalLoading.close()
   })
@@ -214,7 +175,7 @@ onPageScroll(handlePageScroll)
             </view>
           </view>
           <view class="stats-item">
-            <view class="label"> {{ t('accountSettings.distribution.withdrawable') }} </view>
+            <view class="label"> {{ t('accountSettings.distribution.availableCommission') }} </view>
             <view class="value amount-highlight">
               {{ formatMoney(centerSummary.availableCommission) }}
             </view>
@@ -247,6 +208,55 @@ onPageScroll(handlePageScroll)
         <view class="invite-text">
           {{ t('accountSettings.distribution.inviteCount', { count: centerSummary.inviteUserCount || 0 }) }}
         </view>
+      </view>
+
+      <!-- 佣金兑换优惠券：提现入口已下线，佣金只能兑换券 -->
+      <view class="card exchange-card">
+        <view class="exchange-head">
+          <view class="exchange-copy">
+            <view class="title"> {{ t('accountSettings.distribution.exchangeCoupon') }} </view>
+            <view class="exchange-desc">
+              {{ t('accountSettings.distribution.exchangeCouponDesc') }}
+            </view>
+          </view>
+          <view class="exchange-balance">
+            <view class="balance-label">
+              {{ t('accountSettings.distribution.couponExchangeAvailable') }}
+            </view>
+            <view class="balance-value">
+              {{ formatMoney(centerSummary.availableCommission) }}
+            </view>
+          </view>
+        </view>
+        <view class="exchange-actions">
+          <button class="primary-btn" @click="goCouponExchange">
+            {{ t('accountSettings.distribution.exchangeCoupon') }}
+          </button>
+          <button class="ghost-btn" @click="goCouponExchangeRecord">
+            {{ t('accountSettings.distribution.exchangeRecordEntry') }}
+          </button>
+        </view>
+      </view>
+
+      <!-- 销售工作台入口：仅在职销售可见（销售提成随工资发放，工作台内只读） -->
+      <view
+        v-if="isSales"
+        class="card entry-row"
+        hover-class="entry-row--pressed"
+        @click="goSalesWorkbench"
+      >
+        <view class="entry-icon">
+          <text class="i-carbon:chart-line entry-glyph" />
+        </view>
+        <view class="entry-body">
+          <view class="entry-title">
+            {{ t('userCenter.salesWorkbench') }}
+          </view>
+          <view class="entry-desc">
+            {{ t('userCenter.salesWorkbenchDesc') }}
+          </view>
+        </view>
+        <text class="i-carbon:chevron-right entry-arrow" />
       </view>
 
       <!-- 佣金记录 -->
@@ -291,61 +301,9 @@ onPageScroll(handlePageScroll)
         </button>
       </view>
 
-      <!-- 提现申请 -->
+      <!-- 历史提现记录：只读，入口已下线 -->
       <view class="card">
-        <view class="title"> {{ t('accountSettings.distribution.withdrawApply') }} </view>
-        <view class="form-row">
-          <view class="form-label"> {{ t('accountSettings.distribution.withdrawAmount') }} </view>
-          <input
-            v-model="withdrawForm.amountText"
-            class="form-input"
-            type="digit"
-            :placeholder="t('accountSettings.distribution.withdrawAmountPlaceholder')"
-            placeholder-class="placeholder"
-          />
-        </view>
-        <view class="form-row">
-          <view class="form-label"> {{ t('accountSettings.distribution.withdrawAccount') }} </view>
-          <input
-            v-model="withdrawForm.accountNo"
-            class="form-input"
-            type="text"
-            :placeholder="t('accountSettings.distribution.withdrawAccountPlaceholder')"
-            placeholder-class="placeholder"
-          />
-        </view>
-        <view class="form-row">
-          <view class="form-label"> {{ t('accountSettings.distribution.payee') }} </view>
-          <input
-            v-model="withdrawForm.accountName"
-            class="form-input"
-            type="text"
-            :placeholder="t('accountSettings.distribution.payeePlaceholder')"
-            placeholder-class="placeholder"
-          />
-        </view>
-        <view class="form-row">
-          <view class="form-label"> {{ t('accountSettings.distribution.remark') }} </view>
-          <input
-            v-model="withdrawForm.remark"
-            class="form-input"
-            type="text"
-            :placeholder="t('accountSettings.distribution.remarkPlaceholder')"
-            placeholder-class="placeholder"
-          />
-        </view>
-        <button
-          class="submit-btn"
-          :disabled="submitting"
-          @click="submitWithdraw"
-        >
-          {{ submitting ? t('accountSettings.distribution.submitting') : t('accountSettings.distribution.submitWithdraw') }}
-        </button>
-      </view>
-
-      <!-- 提现进度 -->
-      <view class="card">
-        <view class="title"> {{ t('accountSettings.distribution.withdrawProgress') }} </view>
+        <view class="title"> {{ t('accountSettings.distribution.withdrawHistory') }} </view>
         <view v-if="withdrawList.length === 0" class="empty">
           {{ t('accountSettings.distribution.noWithdrawRecords') }}
         </view>
@@ -459,6 +417,122 @@ onPageScroll(handlePageScroll)
   color: var(--app-text-2);
 }
 
+/* ===== 佣金兑换优惠券 ===== */
+
+.exchange-card {
+  /* 用主题红低透明度叠加卡片底色：深色模式下不会出现一块高亮白底 */
+  background: linear-gradient(135deg, rgba(255, 95, 86, 0.1), var(--app-card));
+}
+
+.exchange-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.exchange-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.exchange-desc {
+  margin-top: 8rpx;
+  font-size: 24rpx;
+  color: var(--app-text-3);
+}
+
+.exchange-balance {
+  margin-left: 16rpx;
+  text-align: right;
+}
+
+.balance-label {
+  font-size: 22rpx;
+  color: var(--app-text-3);
+}
+
+.balance-value {
+  margin-top: 6rpx;
+  font-size: 40rpx;
+  font-weight: 600;
+  color: #f56c6c;
+}
+
+.exchange-actions {
+  margin-top: 24rpx;
+  display: flex;
+  gap: 16rpx;
+}
+
+.primary-btn {
+  flex: 1;
+  height: 76rpx;
+  line-height: 76rpx;
+  border-radius: 999rpx;
+  font-size: 28rpx;
+  color: #fff;
+  background: linear-gradient(135deg, #ff5f56, #ff2d55);
+}
+
+.ghost-btn {
+  flex: 1;
+  height: 76rpx;
+  line-height: 76rpx;
+  border-radius: 999rpx;
+  font-size: 28rpx;
+  color: var(--app-text-2);
+  background: var(--app-card-2);
+}
+
+/* ===== 角色入口行 ===== */
+
+.entry-row {
+  display: flex;
+  align-items: center;
+}
+
+.entry-row--pressed {
+  opacity: 0.85;
+}
+
+.entry-icon {
+  width: 72rpx;
+  height: 72rpx;
+  margin-right: 20rpx;
+  border-radius: 50%;
+  background: var(--app-card-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.entry-glyph {
+  font-size: 36rpx;
+  color: #ff5f56;
+}
+
+.entry-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.entry-title {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: var(--app-text);
+}
+
+.entry-desc {
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  color: var(--app-text-3);
+}
+
+.entry-arrow {
+  font-size: 28rpx;
+  color: var(--app-text-3);
+}
+
 .record-item {
   padding: 18rpx 0;
   border-bottom: 1px solid var(--app-border);
@@ -518,46 +592,6 @@ onPageScroll(handlePageScroll)
 
 .status-rejected {
   color: #f56c6c;
-}
-
-.form-row {
-  margin-top: 16rpx;
-}
-
-.form-label {
-  margin-bottom: 8rpx;
-  font-size: 24rpx;
-  color: var(--app-text-2);
-}
-
-.form-input {
-  width: 100%;
-  height: 74rpx;
-  border-radius: 12rpx;
-  background: var(--app-card-2);
-  padding: 0 20rpx;
-  box-sizing: border-box;
-  font-size: 26rpx;
-  color: var(--app-text);
-}
-
-.placeholder {
-  color: var(--app-text-3);
-}
-
-.submit-btn {
-  margin-top: 24rpx;
-  width: 100%;
-  height: 78rpx;
-  line-height: 78rpx;
-  border-radius: 999rpx;
-  font-size: 28rpx;
-  color: #fff;
-  background: linear-gradient(135deg, #ff5f56, #ff2d55);
-}
-
-.submit-btn[disabled] {
-  opacity: 0.7;
 }
 
 .empty {

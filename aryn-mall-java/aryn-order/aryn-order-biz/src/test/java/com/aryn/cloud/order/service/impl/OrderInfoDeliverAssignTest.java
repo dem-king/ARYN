@@ -109,7 +109,8 @@ class OrderInfoDeliverAssignTest {
 				mock(com.aryn.cloud.order.service.IDeliveryAreaService.class), mock(PromotionSnapshotMapper.class),
 				mock(PurchaseSceneValidator.class), mock(DeliveryContextValidator.class),
 				mock(OrderPaySuccessNotifier.class), mock(RemotePromotionEngine.class),
-				mock(com.aryn.cloud.upms.api.remote.RemoteMaterialService.class), sharedCartProvider, staffNotifyService);
+				mock(com.aryn.cloud.upms.api.remote.RemoteMaterialService.class), sharedCartProvider, staffNotifyService,
+				mock(com.aryn.cloud.promotion.api.remote.RemoteSalesAttributionService.class));
 
 		orderInfoMapper = mock(OrderInfoMapper.class);
 		ReflectionTestUtils.setField(service, "baseMapper", orderInfoMapper);

@@ -46,6 +46,8 @@ public class DistributionSettlementServiceImpl implements IDistributionSettlemen
 
 	private final IDistributionRefundRecordService distributionRefundRecordService;
 
+	private final com.aryn.cloud.promotion.service.ISalesCustomerBindService salesCustomerBindService;
+
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public Boolean settleOrder(DistributionSettleDTO dto) {
@@ -57,6 +59,14 @@ public class DistributionSettlementServiceImpl implements IDistributionSettlemen
 		if (exists != null) {
 			applyRecordedRefunds(dto.getOrderId());
 			log.info("分销订单已存在，跳过结算 bizOrderId={}", dto.getOrderId());
+			return Boolean.FALSE;
+		}
+
+		// 与销售业绩互斥：买家已归属在职销售时不再产生分销佣金（防转交后旧关系继续计佣）
+		String activeBoundStaffId = salesCustomerBindService.getActiveSalesStaffId(dto.getBuyerUserId());
+		if (activeBoundStaffId != null) {
+			log.info("买家已归属在职销售，跳过分销结算 buyerUserId={}, salesStaffId={}", dto.getBuyerUserId(),
+					activeBoundStaffId);
 			return Boolean.FALSE;
 		}
 

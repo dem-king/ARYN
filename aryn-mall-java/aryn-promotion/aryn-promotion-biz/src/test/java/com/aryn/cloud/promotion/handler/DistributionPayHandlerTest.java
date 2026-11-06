@@ -12,10 +12,24 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class DistributionPayHandlerTest {
+
+	@Test
+	void skipsDistributionCommissionWhenOrderHasSalesStaffSnapshot() {
+		IDistributionSettlementService settlementService = mock(IDistributionSettlementService.class);
+		DistributionPayHandler handler = new DistributionPayHandler(settlementService);
+		OrderPaySuccessEvent event = new OrderPaySuccessEvent();
+		event.setOrderId("order-1");
+		event.setSalesStaffId("staff-1");
+
+		handler.handle(event);
+
+		verify(settlementService, never()).settleOrder(any());
+	}
 
 	@Test
 	void settlementFailurePropagatesToMessageListener() {
